@@ -7,3 +7,9 @@ requests>=2.31.0
 # line-bot-sdk>=3.5.0
 # python-telegram-bot>=20.7
 # xmltodict>=0.13.0
+
+# 智慧家電 MQTT（按需安裝）
+# paho-mqtt>=1.6.0
+
+# 塗鴉智能（按需安裝）
+# tinytuya>=1.13.0

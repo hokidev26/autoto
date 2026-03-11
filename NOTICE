@@ -51,15 +51,48 @@ including but not limited to:
 - Groq
 - OpenRouter
 - DeepSeek
+- OpenAI
+- Anthropic (Claude)
+- Google Gemini
+- Mistral AI
+- Together AI
+- Fireworks AI
+- Cohere
+- Ollama
 - LINE Messaging API
 - Slack API
 - Telegram Bot API
+- Discord API
+- Meta (WhatsApp, Messenger, Instagram, Threads)
+- Home Assistant REST API
+- Tuya / 塗鴉智能 Open API
 - Central Weather Administration open data
 - Ministry of Finance invoice data
 
 Those services remain subject to their own terms, rate limits, and policies.
 
-5. Publication note
+5. System tools
+---------------
+The camera monitoring feature relies on FFmpeg (https://ffmpeg.org/),
+which is licensed under LGPL/GPL. FFmpeg is NOT bundled with this project;
+users must install it separately. This project invokes FFmpeg as an
+external process and does not link against its libraries.
+
+6. Python dependencies
+----------------------
+- Flask (BSD-3-Clause) — https://palletsprojects.com/p/flask/
+- Flask-CORS (MIT) — https://github.com/corydolphin/flask-cors
+- Requests (Apache-2.0) — https://docs.python-requests.org/
+- paho-mqtt (EPL-2.0 / EDL-1.0, optional) — https://eclipse.dev/paho/
+
+7. Electron / Node.js dependencies
+-----------------------------------
+- Electron (MIT) — https://www.electronjs.org/
+- electron-store (MIT) — https://github.com/sindresorhus/electron-store
+- Express (MIT) — https://expressjs.com/
+- cors (MIT) — https://github.com/expressjs/cors
+
+8. Publication note
 -------------------
 Before public redistribution, maintainers should review whether any upstream
 code copied into this repository requires preserving additional notices in
