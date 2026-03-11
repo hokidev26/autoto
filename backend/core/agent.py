@@ -138,9 +138,11 @@ class AgentLoop:
             history.append({'role': 'assistant', 'content': final})
         self.memory.auto_capture(message, final)
 
-        # Context Engine：定期壓縮歷史
-        if len(history) > 10 and len(history) % 6 == 0:
-            self.context.compress_history(session_id, history)
+        # Context Engine：根據 token 用量動態壓縮
+        if len(history) > 8:
+            total_tokens = sum(self._estimate_tokens(m.get('content', '')) for m in history)
+            if total_tokens > self._token_budget * 0.6:
+                self.context.compress_history(session_id, history)
 
         if len(history) > 40:
             self.sessions[session_id] = history[-20:]
