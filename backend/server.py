@@ -525,6 +525,37 @@ def get_smart_device_state(device_id):
     return jsonify({'error': 'not found'}), 404
 
 
+# ==================== Context Engine ====================
+
+@app.route('/api/context/stats', methods=['GET'])
+def context_stats():
+    return jsonify(agent.context.get_stats())
+
+
+@app.route('/api/context/facts', methods=['GET'])
+def context_facts():
+    return jsonify({'facts': agent.context.get_facts()})
+
+
+@app.route('/api/context/facts', methods=['DELETE'])
+def delete_context_fact():
+    text = (request.json or {}).get('text', '')
+    agent.context.delete_fact(text)
+    return jsonify({'success': True})
+
+
+@app.route('/api/context/share', methods=['POST'])
+def share_context():
+    """跨 session 共享上下文"""
+    data = request.json or {}
+    from_sid = data.get('from_session', '')
+    to_sid = data.get('to_session', '')
+    if from_sid and to_sid:
+        agent.context.share_context(from_sid, to_sid)
+        return jsonify({'success': True})
+    return jsonify({'success': False, 'error': 'missing session ids'}), 400
+
+
 # ==================== 排程管理 ====================
 
 @app.route('/api/schedules', methods=['GET'])

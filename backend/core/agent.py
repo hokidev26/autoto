@@ -12,6 +12,7 @@ import requests
 from datetime import datetime
 from pathlib import Path
 from core.tools import create_default_tools
+from core.context_engine import ContextEngine
 
 
 class AgentLoop:
@@ -45,6 +46,7 @@ class AgentLoop:
     def __init__(self, config_mgr, memory_mgr):
         self.config = config_mgr
         self.memory = memory_mgr
+        self.context = ContextEngine(config_mgr)
         self.tools = create_default_tools()
         # 載入用戶自訂技能
         custom_count = self.tools.load_custom_tools()
@@ -54,7 +56,6 @@ class AgentLoop:
         self.max_iterations = 20
         self.permissions = None  # 由 server.py 注入
         self._sessions_dir = os.path.join(str(Path.home()), '.autoto', 'sessions')
-        # 啟動時載入已存的 sessions
         self._load_sessions()
 
     @property
@@ -136,6 +137,11 @@ class AgentLoop:
         else:
             history.append({'role': 'assistant', 'content': final})
         self.memory.auto_capture(message, final)
+
+        # Context Engine：定期壓縮歷史
+        if len(history) > 10 and len(history) % 6 == 0:
+            self.context.compress_history(session_id, history)
+
         if len(history) > 40:
             self.sessions[session_id] = history[-20:]
         self._save_session(session_id)
@@ -645,33 +651,17 @@ Current Time: {now} ({tz})
                 mem = f'## 用戶記憶（請根據這些資訊個性化回覆）\n{mem_lines}'
                 messages.append({'role': 'system', 'content': mem})
 
-        # 歷史（根據 token budget 動態控制注入量）
+        # 歷史（透過 Context Engine 智慧管理）
         history = self.sessions.get(session_id, [])
         budget = self._token_budget
-        # system prompt + memory 已佔用的 token
         used_tokens = sum(self._estimate_tokens(m['content']) for m in messages)
-        # 當前訊息的 token
         used_tokens += self._estimate_tokens(current_message)
-        # 預留給 LLM 回覆的空間（至少 budget 的 40%）
-        reply_reserve = int(budget * 0.4)
-        history_budget = max(budget - used_tokens - reply_reserve, 200)
 
-        # 從最近的歷史往回取，直到超出預算
-        eligible = history[-16:-1] if len(history) > 1 else []
-        selected = []
-        history_tokens = 0
-        for msg in reversed(eligible):
-            msg_tokens = self._estimate_tokens(msg['content'])
-            if history_tokens + msg_tokens > history_budget:
-                break
-            selected.insert(0, msg)
-            history_tokens += msg_tokens
-
-        for msg in selected:
-            content = msg['content']
-            if msg['role'] == 'assistant' and msg.get('_tools'):
-                content = content + '\n[工具執行紀錄: ' + msg['_tools'] + ']'
-            messages.append({'role': msg['role'], 'content': content})
+        context_msgs = self.context.build_context(
+            session_id, history, current_message,
+            token_budget=budget - used_tokens
+        )
+        messages.extend(context_msgs)
 
         messages.append({'role': 'user', 'content': current_message})
         return messages
