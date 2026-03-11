@@ -1,0 +1,66 @@
+Third-Party Notices and Attributions
+===================================
+
+This repository is published by the AutoTo contributors.
+
+The project includes original work, plus architecture references, adapted ideas,
+and/or derivative implementation patterns that were influenced by upstream open
+source projects. Where applicable, redistribution should preserve compatible
+copyright and license notices for those upstream works.
+
+1. nanobot
+----------
+Upstream: https://github.com/HKUDS/nanobot
+License: MIT
+
+AutoTo references nanobot as an architecture and agent-loop inspiration.
+At the time of publication, examples include:
+
+- backend/core/agent.py
+- README_TW.md
+- portions of development and design documentation
+
+If any portions of code were copied or directly adapted from nanobot, the
+original upstream MIT license notice should be preserved for those portions.
+
+2. nanoBot-ui
+-------------
+Upstream: https://github.com/qq695500710-ui/nanoBot-ui
+
+AutoTo references nanoBot-ui as a visual UI / window design inspiration.
+Historical design context appears in files such as:
+
+- AUTOTO_NANOBOT_UI_INTEGRATION.md
+
+This notice records design influence. It does not by itself assert that
+nanoBot-ui source code is bundled in this repository.
+
+3. OpenClaw
+-----------
+Upstream: https://github.com/openclaw/openclaw
+
+AutoTo references OpenClaw as installer / workflow experience inspiration.
+This notice records that influence. It does not by itself assert that
+OpenClaw source code is bundled in this repository.
+
+4. External APIs and data providers
+-----------------------------------
+This project may integrate with third-party APIs or open data sources,
+including but not limited to:
+
+- Groq
+- OpenRouter
+- DeepSeek
+- LINE Messaging API
+- Slack API
+- Telegram Bot API
+- Central Weather Administration open data
+- Ministry of Finance invoice data
+
+Those services remain subject to their own terms, rate limits, and policies.
+
+5. Publication note
+-------------------
+Before public redistribution, maintainers should review whether any upstream
+code copied into this repository requires preserving additional notices in
+individual files or documentation.
