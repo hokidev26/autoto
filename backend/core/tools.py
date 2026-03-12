@@ -1547,6 +1547,134 @@ public class Mouse {
             'comment_id': {'type': 'string', 'description': 'Comment ID to delete'}
         }, 'required': ['comment_id']}, ig_delete_comment)
 
+    # ========== ig_get_commenters — 取得留言者清單 ==========
+    def ig_get_commenters(post_id, limit=50):
+        """Get list of users who commented on a post, with their user IDs for DM."""
+        token = _ig_token()
+        if not token: return 'Error: 請先在設定中填入 Instagram Access Token'
+        try:
+            url = f'https://graph.facebook.com/v19.0/{post_id}/comments?fields=id,text,username,from{{id,username}}&limit={limit}&access_token={token}'
+            req = Request(url)
+            with urlopen(req, timeout=15) as resp:
+                data = json.loads(resp.read().decode('utf-8'))
+            comments = data.get('data', [])
+            if not comments: return 'No comments on this post.'
+            seen = {}
+            for c in comments:
+                frm = c.get('from', {})
+                uid = frm.get('id', '')
+                uname = frm.get('username', c.get('username', '?'))
+                if uid and uid not in seen:
+                    seen[uid] = {'username': uname, 'user_id': uid, 'comment': c.get('text', '')[:60], 'comment_id': c['id']}
+            lines = []
+            for uid, info in seen.items():
+                lines.append(f"@{info['username']} (ID: {info['user_id']}) — \"{info['comment']}\"")
+            return f'Found {len(seen)} unique commenters:\n' + '\n'.join(lines)
+        except Exception as e:
+            return 'Error: ' + str(e)
+    r.register('ig_get_commenters', 'Get list of unique users who commented on an Instagram post, with user IDs for sending DMs.', {
+        'type': 'object', 'properties': {
+            'post_id': {'type': 'string', 'description': 'Instagram post/media ID'},
+            'limit': {'type': 'integer', 'description': 'Max comments to scan (default 50)'}
+        }, 'required': ['post_id']}, ig_get_commenters)
+
+    # ========== ig_send_dm — 發送 IG 私訊 ==========
+    def ig_send_dm(recipient_id, message):
+        """Send a direct message to an Instagram user (must have interacted within 24h)."""
+        token = _ig_token()
+        if not token: return 'Error: 請先在設定中填入 Instagram Access Token'
+        uid = _ig_user_id(token)
+        if isinstance(uid, str) and uid.startswith('Error'): return uid
+        try:
+            url = f'https://graph.facebook.com/v19.0/{uid}/messages'
+            payload = json.dumps({
+                'recipient': {'id': recipient_id},
+                'message': {'text': message},
+                'access_token': token
+            }).encode('utf-8')
+            req = Request(url, data=payload, headers={'Content-Type': 'application/json'}, method='POST')
+            with urlopen(req, timeout=15) as resp:
+                result = json.loads(resp.read().decode('utf-8'))
+            if result.get('message_id') or result.get('recipient_id'):
+                return f'DM sent to user {recipient_id}'
+            return 'DM may have failed: ' + json.dumps(result, ensure_ascii=False)
+        except Exception as e:
+            err = str(e)
+            if '551' in err or 'permission' in err.lower():
+                return 'Error: 需要 instagram_manage_messages 權限。請在 Facebook 開發者後台啟用此權限。'
+            if '10' in err and 'within' in err.lower():
+                return 'Error: 只能私訊在 24 小時內跟你互動過的用戶。'
+            return 'Error: ' + err
+    r.register('ig_send_dm', 'Send a direct message to an Instagram user. User must have interacted with you in the last 24 hours (e.g. commented on your post).', {
+        'type': 'object', 'properties': {
+            'recipient_id': {'type': 'string', 'description': 'Instagram user ID (from ig_get_commenters)'},
+            'message': {'type': 'string', 'description': 'Message text to send'}
+        }, 'required': ['recipient_id', 'message']}, ig_send_dm)
+
+    # ========== ig_auto_dm — 自動群發私訊給留言者 ==========
+    def ig_auto_dm(post_id, message, limit=50, delay_seconds=2):
+        """Auto-send DM to all users who commented on a post."""
+        token = _ig_token()
+        if not token: return 'Error: 請先在設定中填入 Instagram Access Token'
+        uid = _ig_user_id(token)
+        if isinstance(uid, str) and uid.startswith('Error'): return uid
+        try:
+            # Step 1: Get commenters
+            url = f'https://graph.facebook.com/v19.0/{post_id}/comments?fields=from{{id,username}}&limit={limit}&access_token={token}'
+            req = Request(url)
+            with urlopen(req, timeout=15) as resp:
+                data = json.loads(resp.read().decode('utf-8'))
+            comments = data.get('data', [])
+            if not comments: return 'No comments found on this post.'
+
+            seen = {}
+            for c in comments:
+                frm = c.get('from', {})
+                rid = frm.get('id', '')
+                uname = frm.get('username', '?')
+                if rid and rid not in seen:
+                    seen[rid] = uname
+
+            if not seen: return 'No commenters with user IDs found.'
+
+            # Step 2: Send DMs
+            import time
+            success = []
+            failed = []
+            dm_url = f'https://graph.facebook.com/v19.0/{uid}/messages'
+            for rid, uname in seen.items():
+                try:
+                    payload = json.dumps({
+                        'recipient': {'id': rid},
+                        'message': {'text': message},
+                        'access_token': token
+                    }).encode('utf-8')
+                    dm_req = Request(dm_url, data=payload, headers={'Content-Type': 'application/json'}, method='POST')
+                    with urlopen(dm_req, timeout=15) as resp:
+                        result = json.loads(resp.read().decode('utf-8'))
+                    if result.get('message_id') or result.get('recipient_id'):
+                        success.append(f'@{uname}')
+                    else:
+                        failed.append(f'@{uname}: unknown response')
+                except Exception as e:
+                    failed.append(f'@{uname}: {str(e)[:50]}')
+                if float(delay_seconds) > 0:
+                    time.sleep(float(delay_seconds))
+
+            lines = [f'Auto DM complete: {len(success)} sent, {len(failed)} failed']
+            if success: lines.append('Sent to: ' + ', '.join(success))
+            if failed: lines.append('Failed: ' + ', '.join(failed))
+            return '\n'.join(lines)
+        except Exception as e:
+            return 'Error: ' + str(e)
+    r.register('ig_auto_dm', 'Auto-send a direct message to all users who commented on an Instagram post.', {
+        'type': 'object', 'properties': {
+            'post_id': {'type': 'string', 'description': 'Instagram post/media ID'},
+            'message': {'type': 'string', 'description': 'DM message text to send to each commenter'},
+            'limit': {'type': 'integer', 'description': 'Max comments to scan (default 50)'},
+            'delay_seconds': {'type': 'number', 'description': 'Delay between each DM in seconds (default 2, to avoid rate limit)'}
+        }, 'required': ['post_id', 'message']}, ig_auto_dm)
+
     # ========== 33. ig_publish_media ==========
     def ig_publish_media(media_url, caption='', media_type='IMAGE'):
         """Publish a photo, video, or reel to Instagram via Graph API.
