@@ -158,7 +158,14 @@ if ($LASTEXITCODE -ne 0) {
 Write-Host ""
 Write-Host " [8/8] 建立啟動腳本與桌面捷徑..." -ForegroundColor Yellow
 
-# 啟動腳本
+# 下載圖示
+$ICO_URL = "https://raw.githubusercontent.com/hokidev26/autoto/main/autoto.ico"
+$ICO_PATH = "$INSTALL_DIR\autoto.ico"
+try {
+    Invoke-WebRequest -Uri $ICO_URL -OutFile $ICO_PATH -UseBasicParsing 2>$null
+} catch {}
+
+# 啟動腳本（延遲 3 秒再開瀏覽器，等 server 啟動）
 $startBat = @"
 @echo off
 chcp 65001 >nul
@@ -170,7 +177,7 @@ echo  瀏覽器介面: http://127.0.0.1:%PORT%
 echo  按 Ctrl+C 停止
 echo.
 cd /d "$BACKEND_DIR"
-start "" "http://127.0.0.1:%PORT%"
+start /b cmd /c "ping -n 4 127.0.0.1 >nul && start http://127.0.0.1:%PORT%"
 "$INSTALL_DIR\venv\Scripts\python.exe" server.py --port %PORT%
 "@
 Set-Content -Path "$INSTALL_DIR\start.bat" -Value $startBat -Encoding UTF8
@@ -183,6 +190,7 @@ try {
     $shortcut.TargetPath = "$INSTALL_DIR\start.bat"
     $shortcut.WorkingDirectory = $BACKEND_DIR
     $shortcut.Description = "AutoTo AI 助理"
+    if (Test-Path $ICO_PATH) { $shortcut.IconLocation = $ICO_PATH }
     $shortcut.Save()
     Write-Host "  [OK] 桌面捷徑已建立" -ForegroundColor Green
 } catch {
