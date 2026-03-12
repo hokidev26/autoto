@@ -156,6 +156,12 @@ const PROVIDER_MODELS = {
     hint: '阿里雲通義千問',
     needsKey: true
   },
+  openclaw: {
+    models: [],
+    default: '',
+    hint: '本地 AI Agent 框架，需先安裝 OpenClaw',
+    needsKey: false
+  },
   custom: {
     models: [],
     default: '',
@@ -194,12 +200,21 @@ function onProviderChange() {
   keyGroup.style.display = info.needsKey === false ? 'none' : 'block';
 
   // 自訂端點
-  urlGroup.style.display = provider === 'custom' ? 'block' : 'none';
+  urlGroup.style.display = (provider === 'custom' || provider === 'openclaw') ? 'block' : 'none';
 
   // Ollama 特殊提示
   if (provider === 'ollama') {
-    // 嘗試自動偵測已安裝的模型
     fetchOllamaModels();
+  }
+
+  // OpenClaw：自動帶入 URL 並檢查狀態
+  const ocPanel = document.getElementById('openclawPanel');
+  if (provider === 'openclaw') {
+    document.getElementById('cfgCustomUrl').value = 'http://127.0.0.1:18789/v1/chat/completions';
+    if (ocPanel) ocPanel.style.display = 'block';
+    checkOpenClawStatus();
+  } else {
+    if (ocPanel) ocPanel.style.display = 'none';
   }
 }
 
@@ -232,6 +247,133 @@ async function fetchOllamaModels() {
   } catch {
     document.getElementById('modelHint').textContent = t('ollama_fail');
   }
+}
+
+// ==================== OpenClaw 整合 ====================
+
+async function checkOpenClawStatus() {
+  const badge = document.getElementById('ocStatusBadge');
+  const detail = document.getElementById('ocStatusDetail');
+  const actions = document.getElementById('ocActions');
+  if (!badge) return;
+
+  badge.textContent = '檢查中...';
+  badge.style.background = 'var(--bg-card)';
+  badge.style.color = 'var(--text-secondary)';
+
+  try {
+    const res = await fetch(`${API}/openclaw/status`);
+    const s = await res.json();
+
+    if (s.running) {
+      badge.textContent = '運行中';
+      badge.style.background = '#22c55e22';
+      badge.style.color = '#22c55e';
+      detail.innerHTML = `版本: ${s.version || '未知'}<br>Gateway: ${s.gateway_url}`;
+      actions.innerHTML = `<button class="btn-primary" onclick="connectOpenClaw()">一鍵連接</button>
+        <button class="btn-sm" onclick="checkOpenClawStatus()">重新檢查</button>`;
+      // 自動帶入模型列表
+      fetchOpenClawModels();
+    } else if (s.installed) {
+      badge.textContent = '已安裝（未啟動）';
+      badge.style.background = '#f59e0b22';
+      badge.style.color = '#f59e0b';
+      detail.innerHTML = `版本: ${s.version || '未知'}<br>請在終端機執行 <code>openclaw</code> 啟動 Gateway`;
+      actions.innerHTML = `<button class="btn-sm" onclick="checkOpenClawStatus()">重新檢查</button>`;
+    } else if (s.node_installed) {
+      badge.textContent = '未安裝';
+      badge.style.background = 'var(--bg-card)';
+      badge.style.color = 'var(--text-secondary)';
+      detail.innerHTML = 'Node.js 已就緒，可以一鍵安裝 OpenClaw';
+      actions.innerHTML = `<button class="btn-primary" onclick="installOpenClaw()">一鍵安裝 OpenClaw</button>
+        <button class="btn-sm" onclick="checkOpenClawStatus()">重新檢查</button>`;
+    } else {
+      badge.textContent = '未安裝';
+      badge.style.background = 'var(--bg-card)';
+      badge.style.color = 'var(--text-secondary)';
+      detail.innerHTML = '需要先安裝 <a href="https://nodejs.org/" target="_blank">Node.js 22+</a>，再安裝 OpenClaw';
+      actions.innerHTML = `<button class="btn-sm" onclick="checkOpenClawStatus()">重新檢查</button>`;
+    }
+  } catch (e) {
+    badge.textContent = '檢查失敗';
+    detail.textContent = e.message;
+    actions.innerHTML = `<button class="btn-sm" onclick="checkOpenClawStatus()">重試</button>`;
+  }
+}
+
+async function installOpenClaw() {
+  const actions = document.getElementById('ocActions');
+  const detail = document.getElementById('ocStatusDetail');
+  if (!actions) return;
+
+  actions.innerHTML = '<button class="btn-sm" disabled>安裝中，請稍候...</button>';
+  detail.textContent = '正在下載並安裝 OpenClaw，可能需要幾分鐘...';
+
+  try {
+    const res = await fetch(`${API}/openclaw/install`, { method: 'POST' });
+    const data = await res.json();
+    if (data.success) {
+      detail.textContent = '安裝完成！請在終端機執行 openclaw 啟動 Gateway，然後點重新檢查。';
+      actions.innerHTML = `<button class="btn-primary" onclick="checkOpenClawStatus()">重新檢查</button>`;
+    } else {
+      detail.textContent = '安裝失敗: ' + (data.error || '未知錯誤');
+      if (data.hint) detail.textContent += '\n' + data.hint;
+      actions.innerHTML = `<button class="btn-sm" onclick="installOpenClaw()">重試</button>
+        <button class="btn-sm" onclick="checkOpenClawStatus()">重新檢查</button>`;
+    }
+  } catch (e) {
+    detail.textContent = '安裝失敗: ' + e.message;
+    actions.innerHTML = `<button class="btn-sm" onclick="installOpenClaw()">重試</button>`;
+  }
+}
+
+async function connectOpenClaw() {
+  const detail = document.getElementById('ocStatusDetail');
+  try {
+    const res = await fetch(`${API}/openclaw/connect`, { method: 'POST' });
+    const data = await res.json();
+    if (data.success) {
+      detail.innerHTML = `已連接！使用模型: <b>${data.model}</b>`;
+      // 更新 UI
+      document.getElementById('cfgProvider').value = 'openclaw';
+      document.getElementById('cfgCustomUrl').value = 'http://127.0.0.1:18789/v1/chat/completions';
+      document.getElementById('cfgModel').value = data.model;
+      // 更新模型下拉
+      const select = document.getElementById('cfgModelSelect');
+      select.innerHTML = '<option value="">自訂...</option>';
+      (data.models || []).forEach(m => {
+        const opt = document.createElement('option');
+        opt.value = m; opt.textContent = m;
+        select.appendChild(opt);
+      });
+      if (data.model) select.value = data.model;
+      alert('已成功連接 OpenClaw！點儲存設定即可開始使用。');
+    } else {
+      detail.textContent = '連接失敗: ' + (data.error || '');
+    }
+  } catch (e) {
+    detail.textContent = '連接失敗: ' + e.message;
+  }
+}
+
+async function fetchOpenClawModels() {
+  try {
+    const res = await fetch('http://127.0.0.1:18789/v1/models', { signal: AbortSignal.timeout(3000) });
+    const data = await res.json();
+    if (data.data && data.data.length > 0) {
+      const select = document.getElementById('cfgModelSelect');
+      select.innerHTML = '<option value="">自訂...</option>';
+      data.data.forEach(m => {
+        const opt = document.createElement('option');
+        opt.value = m.id; opt.textContent = m.id;
+        select.appendChild(opt);
+      });
+      if (!document.getElementById('cfgModel').value && data.data.length > 0) {
+        select.value = data.data[0].id;
+        document.getElementById('cfgModel').value = data.data[0].id;
+      }
+    }
+  } catch {}
 }
 
 // ==================== 初始化 ====================

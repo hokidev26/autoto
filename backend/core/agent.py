@@ -24,6 +24,7 @@ class AgentLoop:
         'openrouter': 'https://openrouter.ai/api/v1/chat/completions',
         'qwen': 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions',
         'ollama': 'http://127.0.0.1:11434/v1/chat/completions',
+        'openclaw': 'http://127.0.0.1:18789/v1/chat/completions',
         'mistral': 'https://api.mistral.ai/v1/chat/completions',
         'together': 'https://api.together.xyz/v1/chat/completions',
         'fireworks': 'https://api.fireworks.ai/inference/v1/chat/completions',

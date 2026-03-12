@@ -136,6 +136,7 @@
                 <option value="fireworks">Fireworks AI</option>
                 <option value="cohere">Cohere</option>
                 <option value="qwen">通義千問</option>
+                <option value="openclaw">OpenClaw（本地 AI Agent）</option>
                 <option value="custom">自訂 OpenAI 相容</option>
               </select>
             </div>
@@ -147,6 +148,19 @@
               <label data-i18n="api_endpoint">API 端點</label>
               <input type="text" id="cfgCustomUrl" placeholder="例如: http://localhost:11434/v1/chat/completions">
               <small>自訂 OpenAI 相容 API 的完整 URL</small>
+            </div>
+            <!-- OpenClaw 整合面板 -->
+            <div id="openclawPanel" style="display:none;margin-bottom:16px;padding:16px;background:var(--bg-input);border-radius:10px">
+              <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
+                <span style="font-size:20px">🦞</span>
+                <div>
+                  <div style="font-weight:600;font-size:14px">OpenClaw</div>
+                  <div style="font-size:11px;color:var(--text-secondary)">本地 AI Agent 框架</div>
+                </div>
+                <span id="ocStatusBadge" style="margin-left:auto;font-size:12px;padding:2px 8px;border-radius:10px;background:var(--bg-card)">檢查中...</span>
+              </div>
+              <div id="ocStatusDetail" style="font-size:13px;color:var(--text-secondary)"></div>
+              <div id="ocActions" style="display:flex;gap:8px;margin-top:12px"></div>
             </div>
             <div class="form-group">
               <label data-i18n="api_model">模型</label>

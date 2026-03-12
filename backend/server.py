@@ -9,7 +9,9 @@ import argparse
 import asyncio
 import json
 import os
+import platform
 import re
+import subprocess
 import sys
 import threading
 import time
@@ -523,6 +525,95 @@ def get_smart_device_state(device_id):
     if state:
         return jsonify(state)
     return jsonify({'error': 'not found'}), 404
+
+
+# ==================== OpenClaw 整合 ====================
+
+@app.route('/api/openclaw/status', methods=['GET'])
+def openclaw_status():
+    """檢查 OpenClaw 是否已安裝且運行中"""
+    import shutil
+    result = {
+        'installed': False,
+        'running': False,
+        'node_installed': False,
+        'version': None,
+        'gateway_url': None,
+    }
+    # 檢查 Node.js
+    if shutil.which('node'):
+        result['node_installed'] = True
+    # 檢查 openclaw CLI
+    if shutil.which('openclaw'):
+        result['installed'] = True
+        try:
+            ver = subprocess.run(['openclaw', '--version'], capture_output=True, text=True, timeout=5)
+            result['version'] = ver.stdout.strip() if ver.returncode == 0 else None
+        except Exception:
+            pass
+    # 檢查 Gateway 是否在跑
+    try:
+        r = requests.get('http://127.0.0.1:18789/v1/models', timeout=3)
+        if r.status_code == 200:
+            result['running'] = True
+            result['gateway_url'] = 'http://127.0.0.1:18789/v1/chat/completions'
+    except Exception:
+        pass
+    return jsonify(result)
+
+
+@app.route('/api/openclaw/install', methods=['POST'])
+def openclaw_install():
+    """安裝 OpenClaw"""
+    import shutil
+    system = platform.system()
+
+    # 先檢查 Node.js
+    if not shutil.which('node'):
+        return jsonify({
+            'success': False,
+            'error': '請先安裝 Node.js 22+',
+            'hint': 'https://nodejs.org/' if system == 'Windows' else '執行: brew install node (macOS) 或 curl -fsSL https://deb.nodesource.com/setup_22.x | sudo bash -'
+        }), 400
+
+    try:
+        if system == 'Windows':
+            cmd = ['npm', 'install', '-g', 'openclaw@latest']
+        else:
+            cmd = ['bash', '-c', 'curl -fsSL https://openclaw.ai/install.sh | bash']
+
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+        if proc.returncode == 0:
+            return jsonify({'success': True, 'output': proc.stdout[-500:]})
+        else:
+            return jsonify({'success': False, 'error': proc.stderr[-500:]}), 500
+    except subprocess.TimeoutExpired:
+        return jsonify({'success': False, 'error': '安裝逾時（超過 5 分鐘）'}), 500
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/openclaw/connect', methods=['POST'])
+def openclaw_connect():
+    """自動偵測 OpenClaw 並設定為 provider"""
+    try:
+        r = requests.get('http://127.0.0.1:18789/v1/models', timeout=3)
+        if r.status_code == 200:
+            models = r.json().get('data', [])
+            model_name = models[0]['id'] if models else ''
+            config_mgr.update({
+                'provider': 'openclaw',
+                'customUrl': 'http://127.0.0.1:18789/v1/chat/completions',
+                'model': model_name,
+            })
+            return jsonify({
+                'success': True,
+                'model': model_name,
+                'models': [m['id'] for m in models],
+            })
+        return jsonify({'success': False, 'error': 'OpenClaw Gateway 未回應'}), 500
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 
 # ==================== Context Engine ====================
