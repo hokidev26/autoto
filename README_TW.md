@@ -1,268 +1,118 @@
 [English](README.md) | [繁體中文](README_TW.md)
 
 # AutoTo
- 
- AutoTo 是一個本地優先的 AI 助理專案，提供統一的 Python 後端、瀏覽器介面、一鍵安裝流程，以及多聊天平台整合能力。
- 
- 你可以用它來：
- 
- - 啟動本機 AI 助理與 Web UI
- - 管理 API Key、模型與平台設定
- - 整合 LINE、Telegram、Slack 等聊天平台
- - 執行排程任務與工具自動化
- - 擴充台灣在地化工具，例如天氣、發票與股市資訊
- 
- ## ✨ 特色
- 
- ### 統一架構
- - **單一後端入口** - `backend/server.py` 統一提供 API 與 Web UI
- - **統一設定檔** - 預設使用 `~/.autoto/config.json`
- - **本機優先** - 預設在 `http://127.0.0.1:5678` 啟動
- 
- ### 在地化能力
- - **繁體中文優化** - 台灣用語習慣與預設 system prompt
- - **台灣特色工具** - 天氣、發票、股市、空氣品質等
- - **LINE 整合** - 適合台灣常見聊天平台場景
- 
- ### 可擴充性
- - **多模型支援** - Groq、OpenRouter、DeepSeek、OpenAI 等
- - **工具擴充** - 可自行新增自訂工具與平台整合
- - **排程能力** - 支援定時任務與自動化工作流
- 
- ## 🚀 快速開始
- 
- ### 一鍵安裝（推薦）
- 
- macOS：
- 
- ```bash
- curl -fsSL https://raw.githubusercontent.com/hokidev26/autoto/main/install_mac.sh | bash
- ```
- 
- Windows（PowerShell）：
- 
- ```powershell
- irm https://raw.githubusercontent.com/hokidev26/autoto/main/install_win.ps1 | iex
- ```
- 
- Windows（CMD）：
- 
- ```cmd
- powershell -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/hokidev26/autoto/main/install_win.ps1 | iex"
- ```
- 
- 安裝完成後啟動：
- 
- ```bash
- autoto
- ```
- 
- 然後打開：`http://127.0.0.1:5678`
- 
- ### 直接在 repo 內啟動
- 
- ```bash
- git clone https://github.com/hokidev26/autoto.git
- cd autoto
- python3 -m pip install -r backend/requirements.txt
- ./start.sh
- ```
- 
- ### 設定 API Key
- 
- 你可以在瀏覽器設定頁面直接儲存，或編輯 `~/.autoto/config.json`：
- 
- ```json
- {
-   "provider": "groq",
-   "apiKey": "你的KEY",
-   "model": "llama-3.3-70b-versatile",
-   "customUrl": ""
- }
- ```
- 
- **取得 API Key：**
- - [Groq](https://console.groq.com/keys) - 預設 Provider
- - [OpenRouter](https://openrouter.ai/keys) - 多模型選擇
- - [DeepSeek](https://platform.deepseek.com/) - 中文表現佳
- 
- ### 開始使用
+
+AutoTo 是一個本地優先的 AI 助理，內建 79 個工具、瀏覽器介面、一鍵安裝，支援多聊天平台整合。支援 macOS 和 Windows。
+
+## 能做什麼？
+
+- 💬 透過瀏覽器或聊天平台（LINE、Telegram、Discord、Slack 等）與 AI 對話
+- 🖥️ 電腦操控 — 點擊、打字、截圖、開啟應用、執行指令
+- 🌐 瀏覽器自動化 — 開網頁、點按鈕、填表單、抓資料（Playwright）
+- 📧 Email — 收信、搜尋、讀信、發信
+- 📱 社群媒體 — 發文到 IG/FB/X/Threads、讀留言、自動私訊留言者
+- 📊 社群分析 — 跨平台互動數據一次看
+- 📅 排程發文 — 排好時間自動發社群貼文
+- 💰 記帳 — 記帳、查帳、月報、匯出 CSV
+- 🎬 影音 — YouTube 播放、影片剪輯、音訊擷取、語音轉文字
+- 📷 攝影機監控 — RTSP 串流、AI 智慧監控
+- 🏠 智慧家電 — 透過 Home Assistant 控制燈光、開關、空調
+- 🌤️ 每日簡報 — 天氣 + 待辦 + 信件 + 社群數據一次看
+- 🔧 79 個內建工具，支援自訂技能與 AI 技能生成器
+
+## 快速開始
+
+### 一鍵安裝（推薦）
+
+macOS：
 
 ```bash
-# 安裝後啟動
+curl -fsSL https://raw.githubusercontent.com/hokidev26/autoto/main/install_mac.sh | bash
+```
+
+Windows（PowerShell）：
+
+```powershell
+irm https://raw.githubusercontent.com/hokidev26/autoto/main/install_win.ps1 | iex
+```
+
+Windows（CMD）：
+
+```cmd
+powershell -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/hokidev26/autoto/main/install_win.ps1 | iex"
+```
+
+安裝完成後：
+
+```bash
 autoto
-
-# 或在 repo 內直接啟動
-./start.sh
-
-# 開啟狀態 API
-curl http://127.0.0.1:5678/api/status
 ```
 
-## 📱 LINE 整合
+然後打開：`http://127.0.0.1:5678`
 
-### 1. 申請 LINE 官方帳號
-1. 前往 [LINE Developers](https://developers.line.biz/)
-2. 建立 Messaging API Channel
-3. 取得 Channel Access Token 和 Channel Secret
-
-### 2. 設定 Webhook
+### 直接在 repo 內啟動
 
 ```bash
-# 本地測試用 ngrok
-brew install ngrok
-ngrok http 8000
-
-# 在 LINE Developers 設定 Webhook URL
-# https://你的ngrok網址.ngrok.io/webhook/line
+git clone https://github.com/hokidev26/autoto.git
+cd autoto
+python3 -m pip install -r backend/requirements.txt
+./start.sh
 ```
 
-### 3. 設定檔
+### 卸載
+
+```bash
+bash uninstall.sh
+```
+
+## 功能一覽（79 個工具）
+
+| 分類 | 工具 |
+|------|------|
+| 系統與檔案 | 執行指令、讀寫編輯刪除檔案、瀏覽資料夾、系統資訊、程序管理 |
+| 桌面操控 | 點擊、打字、快捷鍵、滑鼠、捲動、截圖、開啟/切換應用 |
+| 瀏覽器自動化 | 開啟網頁、點擊、輸入、截圖、取得文字、執行 JS、關閉 |
+| Email | 收信、搜尋、讀信、發信 |
+| 網路 | 搜尋、擷取網頁、結構化爬蟲、下載檔案 |
+| 社群媒體 | IG 貼文/留言/私訊/自動私訊/發文、FB 發文、X 發文、Threads 發文 |
+| 社群分析 | 跨平台互動數據摘要 |
+| 排程發文 | 新增/列表/取消排程貼文 |
+| 記帳 | 新增、查詢、匯出 CSV |
+| 影音 | 掃描資料夾、探測、剪輯、合併、擷取音訊、語音轉文字、YouTube 播放 |
+| 攝影機 | 列表、快照、串流、AI 分析、持續監控 |
+| 智慧家電 | 列表裝置、控制、查詢狀態 |
+| 排程 | 排程列表/新增/移除 |
+| 工具 | 天氣、摘要、通知、剪貼簿、記憶搜尋、每日簡報 |
+| 自訂技能 | 自建工具 + AI 技能生成器 |
+
+## 設定
+
+在瀏覽器設定頁面直接設定，或編輯 `~/.autoto/config.json`：
 
 ```json
 {
-  "channels": {
-    "line": {
-      "enabled": true,
-      "channelAccessToken": "YOUR_TOKEN",
-      "channelSecret": "YOUR_SECRET",
-      "allowFrom": []
-    }
-  }
+  "provider": "groq",
+  "apiKey": "你的KEY",
+  "model": "llama-3.3-70b-versatile"
 }
 ```
 
-詳細教學請參考 [LINE_INTEGRATION.md](LINE_INTEGRATION.md)
+取得免費 API Key：[Groq](https://console.groq.com/keys)
 
-## 🛠️ 台灣特色工具
+## 多語系介面
 
-### 天氣查詢
+AutoTo 自動偵測瀏覽器語言。支援：English、繁體中文、简体中文、日本語、한국어。
 
-```bash
-# 在 chat 中使用
-"台北市今天天氣如何？"
-"未來一週天氣預報"
-"有颱風嗎？"
-"最近有地震嗎？"
-"台北空氣品質如何？"
-```
+## 文檔
 
-### 統一發票
+- [GET_STARTED.md](GET_STARTED.md) — 入門指南
+- [SETUP_GUIDE_TW.md](SETUP_GUIDE_TW.md) — 部署指南
+- [LINE_INTEGRATION.md](LINE_INTEGRATION.md) — LINE 整合教學
+- [TW_TOOLS.md](TW_TOOLS.md) — 台灣特色工具
+- [PROJECT_STRUCTURE.md](PROJECT_STRUCTURE.md) — 專案結構
 
-```bash
-"幫我對發票 12345678"
-"本期中獎號碼"
-```
+## 授權
 
-### 台股資訊
+MIT License。見 [LICENSE](LICENSE)。
 
-```bash
-"台積電股價多少？"
-"2330 今天漲跌"
-```
-
-詳細說明請參考 [TW_TOOLS.md](TW_TOOLS.md)
-
-## 📚 文檔
-
-- [SETUP_GUIDE_TW.md](SETUP_GUIDE_TW.md) - 完整部署指南
-- [LINE_INTEGRATION.md](LINE_INTEGRATION.md) - LINE 整合教學
-- [TW_TOOLS.md](TW_TOOLS.md) - 台灣特色工具開發
-- [PROJECT_STRUCTURE.md](PROJECT_STRUCTURE.md) - 專案結構說明
-
-## 🏗️ 專案結構
-
-```
-autoto/
-├── backend/              # 後端 API、agent、排程與聊天平台
-│   ├── channels/
-│   ├── core/
-│   ├── requirements.txt
-│   └── server.py
-├── electron-app/         # Electron 殼層與 renderer
-├── installer/            # macOS / Windows 安裝器
-├── LICENSE
-├── NOTICE
-├── README_TW.md
-├── GET_STARTED.md
-└── start.sh
-```
-
-## 🔧 開發
-
-### 維護與版本更新
-
-```bash
-git pull
-bash install.sh
-```
-
-### 加入新工具
-
-```python
-@agent.tool(
-    name="my_tool",
-    description="我的工具說明"
-)
-def my_tool(param: str) -> str:
-    """工具實作"""
-    return f"處理結果: {param}"
-```
-
-### 執行測試
-
-```bash
-pytest tests/
-```
-
-## 💰 成本估算
-
-使用 OpenRouter + DeepSeek：
-- 每 1000 則訊息約 $1-3 USD
-- 每月個人使用約 $5-10 USD
-- 商業使用視流量而定
-
-## 🤝 貢獻
-
-歡迎提交 PR！
-
-1. Fork 專案
-2. 建立功能分支 (`git checkout -b feature/amazing-feature`)
-3. 提交變更 (`git commit -m 'Add amazing feature'`)
-4. 推送到分支 (`git push origin feature/amazing-feature`)
-5. 開啟 Pull Request
-
-## 📄 授權
-
-本專案採用 [MIT License](LICENSE)。
-詳細的第三方來源與致謝說明請參考 [NOTICE](NOTICE)。
-
-若你在此專案中保留或改寫了來自其他開源專案的程式碼，公開時請一併保留相容的授權聲明與來源致謝。
-
-## 🙏 致謝
-
-- [nanobot](https://github.com/HKUDS/nanobot) - 架構與 agent loop 設計參考（MIT）
-- [nanoBot-ui](https://github.com/qq695500710-ui/nanoBot-ui) - 可視化介面與視窗設計參考
-- [OpenClaw](https://github.com/openclaw/openclaw) - 安裝流程與工作流體驗靈感
-- 中央氣象署、財政部 - 開放資料 API
-
-## 📞 聯絡
-
-- Issues: 請使用本 repo 的 GitHub Issues
-
-## 🗺️ Roadmap
-
-- [x] LINE 整合
-- [x] 台灣天氣工具
-- [x] 統一發票查詢
-- [ ] Facebook Messenger 整合
-- [ ] Instagram DM 整合
-- [ ] 台鐵/高鐵時刻表
-- [ ] Ubike 即時資訊
-- [ ] 電商 API 整合（蝦皮、momo）
-- [ ] LINE Pay 整合
-- [ ] 商業版 SaaS 平台
-
----
-
-⭐ 如果這個專案對你有幫助，請給個星星！
+第三方致謝見 [NOTICE](NOTICE)。
