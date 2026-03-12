@@ -527,6 +527,98 @@ def get_smart_device_state(device_id):
     return jsonify({'error': 'not found'}), 404
 
 
+# ==================== AI 員工管理 ====================
+
+AGENTS_FILE = os.path.join(str(Path.home()), '.autoto', 'agents.json')
+
+def _load_agents():
+    if os.path.exists(AGENTS_FILE):
+        try:
+            with open(AGENTS_FILE, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except Exception:
+            pass
+    return []
+
+def _save_agents(agents):
+    os.makedirs(os.path.dirname(AGENTS_FILE), exist_ok=True)
+    with open(AGENTS_FILE, 'w', encoding='utf-8') as f:
+        json.dump(agents, f, ensure_ascii=False, indent=2)
+
+
+@app.route('/api/agents', methods=['GET'])
+def get_agents():
+    return jsonify({'agents': _load_agents()})
+
+
+@app.route('/api/agents', methods=['POST'])
+def add_agent():
+    try:
+        d = request.json
+        agents = _load_agents()
+        agent = {
+            'id': f"agent_{int(datetime.now().timestamp() * 1000)}",
+            'name': d.get('name', '').strip(),
+            'role': d.get('role', '').strip(),
+            'job': d.get('job', '').strip(),
+            'systemPrompt': d.get('systemPrompt', '').strip(),
+            'channel': d.get('channel', ''),
+            'status': 'idle',
+            'currentTask': '',
+            'recentOutput': '',
+            'schedule': '',
+            'createdAt': datetime.now().isoformat(),
+        }
+        if not agent['name']:
+            return jsonify({'success': False, 'error': '名稱不能為空'}), 400
+        agents.append(agent)
+        _save_agents(agents)
+        return jsonify({'success': True, 'agent': agent})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/agents/<agent_id>', methods=['PUT'])
+def update_agent(agent_id):
+    try:
+        d = request.json
+        agents = _load_agents()
+        for a in agents:
+            if a['id'] == agent_id:
+                for key in ['name', 'role', 'job', 'systemPrompt', 'channel', 'status', 'currentTask', 'recentOutput', 'schedule']:
+                    if key in d:
+                        a[key] = d[key]
+                _save_agents(agents)
+                return jsonify({'success': True, 'agent': a})
+        return jsonify({'success': False, 'error': 'not found'}), 404
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/agents/<agent_id>', methods=['DELETE'])
+def delete_agent(agent_id):
+    agents = _load_agents()
+    agents = [a for a in agents if a['id'] != agent_id]
+    _save_agents(agents)
+    return jsonify({'success': True})
+
+
+@app.route('/api/agents/<agent_id>/output', methods=['POST'])
+def update_agent_output(agent_id):
+    """排程執行完後更新員工的最近產出"""
+    try:
+        d = request.json
+        agents = _load_agents()
+        for a in agents:
+            if a['id'] == agent_id:
+                a['recentOutput'] = d.get('output', '')[:200]
+                a['status'] = d.get('status', a.get('status', 'idle'))
+                _save_agents(agents)
+                return jsonify({'success': True})
+        return jsonify({'success': False, 'error': 'not found'}), 404
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
 # ==================== OpenClaw 整合 ====================
 
 @app.route('/api/openclaw/status', methods=['GET'])

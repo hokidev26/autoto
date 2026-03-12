@@ -337,8 +337,23 @@ class Scheduler:
                 msg = payload.get('message', '')
                 sid = payload.get('session_id', 'scheduler-' + s['id'])
                 if msg:
+                    # 如果有指派員工，用員工的 system prompt
+                    agent_id = s.get('agent_id', '')
+                    agent_prompt = None
+                    if agent_id:
+                        try:
+                            agents_file = os.path.join(str(Path.home()), '.autoto', 'agents.json')
+                            if os.path.exists(agents_file):
+                                with open(agents_file, 'r', encoding='utf-8') as f:
+                                    agents_data = json.load(f)
+                                for ag in agents_data:
+                                    if ag['id'] == agent_id and ag.get('systemPrompt'):
+                                        agent_prompt = ag['systemPrompt']
+                                        break
+                        except Exception:
+                            pass
                     print(f'  ⏰ 排程執行: [{s["name"]}] → {msg[:50]}')
-                    response = self.agent.process_message(sid, msg, source='scheduler')
+                    response = self.agent.process_message(sid, msg, source='scheduler', system_prompt_override=agent_prompt)
                     result_detail = response[:300] if response else '(no response)'
 
             elif action == 'command':
@@ -362,6 +377,25 @@ class Scheduler:
 
             # 更新 log 為成功
             self._add_log(s['id'], s['name'], 'success', result_detail)
+
+            # 更新員工的最近產出
+            agent_id = s.get('agent_id', '')
+            if agent_id and result_detail:
+                try:
+                    import json as _json
+                    agents_file = os.path.join(str(Path.home()), '.autoto', 'agents.json')
+                    if os.path.exists(agents_file):
+                        with open(agents_file, 'r', encoding='utf-8') as f:
+                            agents = _json.load(f)
+                        for a in agents:
+                            if a['id'] == agent_id:
+                                a['recentOutput'] = result_detail[:200]
+                                a['status'] = 'working'
+                                break
+                        with open(agents_file, 'w', encoding='utf-8') as f:
+                            _json.dump(agents, f, ensure_ascii=False, indent=2)
+                except Exception:
+                    pass
 
         except Exception as e:
             err = str(e)[:300]

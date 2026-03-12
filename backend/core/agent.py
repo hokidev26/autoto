@@ -123,13 +123,13 @@ class AgentLoop:
         self._save_session(session_id)
         return session_id
 
-    def process_message(self, session_id, message, source='web'):
+    def process_message(self, session_id, message, source='web', system_prompt_override=None):
         if session_id not in self.sessions:
             self.sessions[session_id] = []
         history = self.sessions[session_id]
         history.append({'role': 'user', 'content': message})
 
-        messages = self._build_messages(session_id, message)
+        messages = self._build_messages(session_id, message, system_prompt_override=system_prompt_override)
         final, tool_summary = self._run_loop(messages)
 
         # 把工具執行摘要附加到 assistant 回覆，讓下次對話有上下文
@@ -511,7 +511,7 @@ class AgentLoop:
         text = res.json()['choices'][0]['message'].get('content', '')
         return {'content': text, 'tool_calls': None}
 
-    def _build_messages(self, session_id, current_message):
+    def _build_messages(self, session_id, current_message, system_prompt_override=None):
         """根據當前 session 建立送往模型的 messages"""
         messages = []
         agent_cfg = self.config.get('agent', {})
@@ -521,7 +521,10 @@ class AgentLoop:
         now = datetime.now().strftime('%Y-%m-%d %H:%M (%A)')
         tz = time.strftime('%Z') or 'UTC'
 
-        system = agent_cfg.get('systemPrompt', 'You are AutoTo, an open-source cross-platform AI assistant. Reply in the same language the user uses.')
+        if system_prompt_override:
+            system = system_prompt_override
+        else:
+            system = agent_cfg.get('systemPrompt', 'You are AutoTo, an open-source cross-platform AI assistant. Reply in the same language the user uses.')
 
         # 動態生成啟用/停用的工具列表
         all_tool_names = {

@@ -2453,32 +2453,36 @@ async function deletePlatform(id) {
 
 // ==================== AI 員工總覽 ====================
 
-const AGENTS_FILE_KEY = 'autoto_agents';
+let _agentsList = [];
 
-function _loadAgents() {
-  try { return JSON.parse(localStorage.getItem(AGENTS_FILE_KEY) || '[]'); } catch { return []; }
-}
-function _saveAgents(agents) {
-  localStorage.setItem(AGENTS_FILE_KEY, JSON.stringify(agents));
+function _loadAgents() { return _agentsList; }
+
+async function _fetchAgents() {
+  try {
+    const res = await fetch(`${API}/agents`);
+    const data = await res.json();
+    _agentsList = data.agents || [];
+  } catch { _agentsList = []; }
+  return _agentsList;
 }
 
-function loadAgentsPage() {
-  // 先載入排程資料，再渲染員工（員工卡片需要排程資料）
-  fetch(`${API}/schedules`).then(r => r.json()).then(data => {
+async function loadAgentsPage() {
+  await _fetchAgents();
+  try {
+    const res = await fetch(`${API}/schedules`);
+    const data = await res.json();
     _schedTasks = data.schedules || [];
-    renderAgentsGrid();
-    renderSchedTaskList();
-    if (_schedSelected) {
-      const task = _schedTasks.find(t => t.id === _schedSelected);
-      if (task) renderSchedEditor(task);
-    }
-  }).catch(() => {
-    renderAgentsGrid();
-  });
+  } catch {}
+  renderAgentsGrid();
+  renderSchedTaskList();
+  if (_schedSelected) {
+    const task = _schedTasks.find(t => t.id === _schedSelected);
+    if (task) renderSchedEditor(task);
+  }
 }
 
 function renderAgentsGrid() {
-  const agents = _loadAgents();
+  const agents = _agentsList;
   const grid = document.getElementById('agentsGrid');
   if (!grid) return;
   if (!agents.length) {
@@ -2486,10 +2490,9 @@ function renderAgentsGrid() {
     return;
   }
   grid.innerHTML = agents.map(a => {
-    // 從排程中找出指派給這個員工的任務
     const assignedTasks = (_schedTasks || []).filter(t => t.agent_id === a.id);
     const hasSchedule = assignedTasks.length > 0;
-    const effectiveStatus = hasSchedule ? (assignedTasks.some(t => t.enabled) ? 'working' : 'scheduled') : a.status;
+    const effectiveStatus = hasSchedule ? (assignedTasks.some(t => t.enabled) ? 'working' : 'scheduled') : (a.status || 'idle');
     const statusColor = effectiveStatus === 'working' ? '#22c55e' : effectiveStatus === 'idle' ? '#94a3b8' : '#f59e0b';
     const statusText = effectiveStatus === 'working' ? (t('agents_status_working') || '工作中') :
                        effectiveStatus === 'idle' ? (t('agents_status_idle') || '待命') :
@@ -2499,79 +2502,95 @@ function renderAgentsGrid() {
       const desc = t.type === 'simple' ? _schedSimpleDesc(t.schedule) : t.expression;
       return `${t.name}: ${desc}`;
     }).join('; ') || a.schedule || '-';
-    return `<div class="agent-card">
+    return `<div class="agent-card" onclick="agentEdit('${a.id}')">
       <div class="agent-card-header">
         <div class="agent-avatar">${a.name.charAt(0).toUpperCase()}</div>
         <div class="agent-info">
-          <div class="agent-name">${a.name}</div>
-          <div class="agent-role">${a.role || ''}</div>
+          <div class="agent-name">${escapeHtml(a.name)}</div>
+          <div class="agent-role">${escapeHtml(a.role || '')}</div>
         </div>
         <div class="agent-status" style="background:${statusColor}">${statusText}</div>
       </div>
       <div class="agent-card-body">
-        <div class="agent-field"><span>${t('agents_job') || '工作內容'}</span><span>${a.job || '-'}</span></div>
-        <div class="agent-field"><span>${t('agents_current_task') || '當前任務'}</span><span>${taskNames}</span></div>
-        <div class="agent-field"><span>${t('agents_recent_output') || '最近產出'}</span><span>${a.recentOutput || '-'}</span></div>
-        <div class="agent-field"><span>${t('agents_schedule') || '排班'}</span><span>${scheduleInfo}</span></div>
+        <div class="agent-field"><span>${t('agents_job') || '工作內容'}</span><span>${escapeHtml(a.job || '-')}</span></div>
+        <div class="agent-field"><span>${t('agents_current_task') || '當前任務'}</span><span>${escapeHtml(taskNames)}</span></div>
+        <div class="agent-field"><span>${t('agents_recent_output') || '最近產出'}</span><span>${escapeHtml(a.recentOutput || '-')}</span></div>
+        <div class="agent-field"><span>${t('agents_schedule') || '排班'}</span><span>${escapeHtml(scheduleInfo)}</span></div>
       </div>
       <div class="agent-card-footer">
-        <button class="btn-sm" onclick="agentEdit('${a.id}')">${t('agents_edit') || '編輯'}</button>
-        <button class="btn-sm" onclick="agentToggle('${a.id}')">${a.status === 'idle' ? (t('agents_activate') || '啟動') : (t('agents_pause') || '暫停')}</button>
-        <button class="btn-sm btn-danger" onclick="agentDelete('${a.id}')">${t('agents_delete') || '刪除'}</button>
+        <button class="btn-sm" onclick="event.stopPropagation();agentEdit('${a.id}')">${t('agents_edit') || '編輯'}</button>
+        <button class="btn-sm btn-danger" onclick="event.stopPropagation();agentDelete('${a.id}')">${t('agents_delete') || '刪除'}</button>
       </div>
     </div>`;
   }).join('');
 }
 
 function agentAdd() {
-  const name = prompt(t('agents_name_prompt') || '員工名稱：');
-  if (!name) return;
-  const role = prompt(t('agents_role_prompt') || '職位/角色（如：社群小編、客服、排程助理）：') || '';
-  const job = prompt(t('agents_job_prompt') || '工作內容（如：每天發一篇 IG 貼文、回覆客戶留言）：') || '';
-  const agents = _loadAgents();
-  agents.push({
-    id: 'agent_' + Date.now(),
-    name: name,
-    role: role,
-    job: job,
-    status: 'idle',
-    currentTask: '',
-    recentOutput: '',
-    schedule: ''
-  });
-  _saveAgents(agents);
-  renderAgentsGrid();
+  // 顯示表單面板
+  const grid = document.getElementById('agentsGrid');
+  if (!grid) return;
+  grid.innerHTML = `<div class="agent-form-panel">
+    <h3>${t('agents_add') || '新增員工'}</h3>
+    <div class="form-group"><label>${t('agents_name_prompt') || '員工名稱'}</label><input type="text" id="af-name" placeholder="例：小美"></div>
+    <div class="form-group"><label>${t('agents_role_prompt') || '職位/角色'}</label><input type="text" id="af-role" placeholder="例：社群小編、客服"></div>
+    <div class="form-group"><label>${t('agents_job') || '工作內容'}</label><input type="text" id="af-job" placeholder="例：每天發一篇 IG 貼文"></div>
+    <div class="form-group"><label>${t('agents_system_prompt') || '專屬 System Prompt'}</label>
+      <textarea id="af-prompt" rows="4" placeholder="例：你是小美，一個活潑的社群小編。用輕鬆有趣的語氣回覆，多用 emoji。"></textarea>
+    </div>
+    <div style="display:flex;gap:8px;margin-top:12px">
+      <button class="btn-primary" onclick="agentSave()">${t('agents_save') || '儲存'}</button>
+      <button class="btn-sm" onclick="loadAgentsPage()">${t('agents_cancel') || '取消'}</button>
+    </div>
+  </div>`;
 }
 
 function agentEdit(id) {
-  const agents = _loadAgents();
-  const a = agents.find(x => x.id === id);
+  const a = _agentsList.find(x => x.id === id);
   if (!a) return;
-  const name = prompt(t('agents_name_prompt') || '員工名稱：', a.name);
-  if (!name) return;
-  a.name = name;
-  a.role = prompt(t('agents_role_prompt') || '職位/角色：', a.role) || '';
-  a.job = prompt(t('agents_job_prompt') || '工作內容：', a.job || '') || '';
-  a.currentTask = prompt(t('agents_task_prompt') || '當前任務：', a.currentTask) || '';
-  a.schedule = prompt(t('agents_schedule_prompt') || '排班說明：', a.schedule) || '';
-  _saveAgents(agents);
-  renderAgentsGrid();
+  const grid = document.getElementById('agentsGrid');
+  if (!grid) return;
+  grid.innerHTML = `<div class="agent-form-panel">
+    <h3>${t('agents_edit') || '編輯員工'}</h3>
+    <input type="hidden" id="af-id" value="${a.id}">
+    <div class="form-group"><label>${t('agents_name_prompt') || '員工名稱'}</label><input type="text" id="af-name" value="${escapeHtml(a.name)}"></div>
+    <div class="form-group"><label>${t('agents_role_prompt') || '職位/角色'}</label><input type="text" id="af-role" value="${escapeHtml(a.role || '')}"></div>
+    <div class="form-group"><label>${t('agents_job') || '工作內容'}</label><input type="text" id="af-job" value="${escapeHtml(a.job || '')}"></div>
+    <div class="form-group"><label>${t('agents_system_prompt') || '專屬 System Prompt'}</label>
+      <textarea id="af-prompt" rows="4">${escapeHtml(a.systemPrompt || '')}</textarea>
+      <div class="form-hint">${t('agents_prompt_hint') || '設定這個員工的 AI 人格和行為風格'}</div>
+    </div>
+    <div style="display:flex;gap:8px;margin-top:12px">
+      <button class="btn-primary" onclick="agentSave('${a.id}')">${t('agents_save') || '儲存'}</button>
+      <button class="btn-sm" onclick="loadAgentsPage()">${t('agents_cancel') || '取消'}</button>
+    </div>
+  </div>`;
 }
 
-function agentToggle(id) {
-  const agents = _loadAgents();
-  const a = agents.find(x => x.id === id);
-  if (!a) return;
-  a.status = a.status === 'idle' ? 'working' : 'idle';
-  _saveAgents(agents);
-  renderAgentsGrid();
+async function agentSave(id) {
+  const name = document.getElementById('af-name')?.value.trim();
+  if (!name) { alert(t('agents_name_required') || '名稱不能為空'); return; }
+  const body = {
+    name,
+    role: document.getElementById('af-role')?.value.trim() || '',
+    job: document.getElementById('af-job')?.value.trim() || '',
+    systemPrompt: document.getElementById('af-prompt')?.value.trim() || '',
+  };
+  try {
+    if (id) {
+      await fetch(`${API}/agents/${id}`, { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body) });
+    } else {
+      await fetch(`${API}/agents`, { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body) });
+    }
+    loadAgentsPage();
+  } catch (e) {
+    alert('Error: ' + e.message);
+  }
 }
 
-function agentDelete(id) {
+async function agentDelete(id) {
   if (!confirm(t('agents_delete_confirm') || '確定刪除此員工？')) return;
-  const agents = _loadAgents().filter(x => x.id !== id);
-  _saveAgents(agents);
-  renderAgentsGrid();
+  await fetch(`${API}/agents/${id}`, { method: 'DELETE' });
+  loadAgentsPage();
 }
 
 clearChat();
