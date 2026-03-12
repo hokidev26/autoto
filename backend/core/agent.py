@@ -521,7 +521,7 @@ class AgentLoop:
         now = datetime.now().strftime('%Y-%m-%d %H:%M (%A)')
         tz = time.strftime('%Z') or 'UTC'
 
-        system = agent_cfg.get('systemPrompt', '你是 AutoTo，一個開源跨平台 AI 助理。')
+        system = agent_cfg.get('systemPrompt', 'You are AutoTo, an open-source cross-platform AI assistant. Reply in the same language the user uses.')
 
         # 動態生成啟用/停用的工具列表
         all_tool_names = {

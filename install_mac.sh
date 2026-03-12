@@ -169,7 +169,7 @@ if [ ! -f "$INSTALL_DIR/config.json" ]; then
     "instagram": {"enabled": false, "accessToken": ""}
   },
   "memory": {"enabled": true, "autoArchive": 50},
-  "agent": {"maxTokenBudget": 4000, "compressionEnabled": true, "systemPrompt": "你是 AutoTo，一個開源跨平台 AI 助理。請用繁體中文回答，語氣友善親切。AutoTo 支援 macOS 和 Windows，GitHub: https://github.com/hokidev26/autoto。你不是某個特定作業系統的程式，你是 Web AI 助理。不要編造你不知道的資訊。"},
+  "agent": {"maxTokenBudget": 4000, "compressionEnabled": true, "systemPrompt": "You are AutoTo, an open-source cross-platform AI assistant. Reply in the same language the user uses. AutoTo supports macOS and Windows. GitHub: https://github.com/hokidev26/autoto. You are a web-based AI assistant, not tied to any specific OS. Do not fabricate information you do not know."},
   "session": {"persist": true},
   "cameras": [],
   "smarthome": {"platforms": []}
