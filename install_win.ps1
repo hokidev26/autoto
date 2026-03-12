@@ -210,7 +210,7 @@ try {
     $shortcut.TargetPath = $startBatPath
     $shortcut.WorkingDirectory = $BACKEND_DIR
     $shortcut.Description = "AutoTo AI 助理"
-    if (Test-Path $ICO_PATH) { $shortcut.IconLocation = "$ICO_PATH,0" }
+    if (Test-Path $ICO_PATH) { $shortcut.IconLocation = $ICO_PATH + ",0" }
     $shortcut.Save()
     Write-Host "  [OK] 桌面捷徑已建立" -ForegroundColor Green
 } catch {
