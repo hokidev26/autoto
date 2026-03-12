@@ -104,7 +104,6 @@
           <button class="settings-tab" data-stab="channels">聊天平台</button>
           <button class="settings-tab" data-stab="memory">記憶</button>
           <button class="settings-tab" data-stab="diagnostics">診斷</button>
-          <button class="settings-tab" data-stab="scheduler" data-i18n="tab_scheduler">排程</button>
           <button class="settings-tab" data-stab="permissions" data-i18n="tab_permissions">權限</button>
           <button class="settings-tab" data-stab="market" data-i18n="tab_market">市集</button>
           <button class="settings-tab" data-stab="logs">日誌</button>
@@ -379,31 +378,6 @@
           </div>
         </div>
 
-        <!-- 排程管理（左右分欄） -->
-        <div class="settings-panel" id="stab-scheduler">
-          <div class="sched-layout">
-            <!-- 左欄：任務列表 -->
-            <div class="sched-sidebar">
-              <div class="sched-sidebar-header">
-                <span>排程任務</span>
-                <button class="btn-primary btn-sm" onclick="schedNewTask()">+ 新增任務</button>
-              </div>
-              <div class="sched-task-list" id="schedTaskList">
-                <div class="empty-state" style="font-size:13px;padding:20px">尚無排程任務</div>
-              </div>
-              <div class="sched-sidebar-footer">
-                <button class="btn-sm" onclick="schedShowLogs()">執行紀錄</button>
-              </div>
-            </div>
-            <!-- 右欄：編輯面板 -->
-            <div class="sched-editor" id="schedEditor">
-              <div class="sched-editor-empty">
-                <p>選擇一個任務來編輯，或點「+ 新增任務」新增</p>
-              </div>
-            </div>
-          </div>
-        </div>
-
         <!-- 權限沙盒 -->
         <div class="settings-panel" id="stab-permissions">
           <p style="color:var(--text-secondary);font-size:13px;margin-bottom:16px" data-i18n="permissions_desc">控制 AI 可以使用哪些工具、速率限制、路徑黑名單。選擇預設等級或自訂每個工具的權限。</p>
@@ -549,7 +523,7 @@
             <div class="empty-state" style="padding:30px;font-size:13px" data-i18n="agents_empty">尚未新增任何 AI 員工</div>
           </div>
         </div>
-        <!-- 排程管理（從設定搬過來） -->
+        <!-- 排程管理（完整版） -->
         <div class="agents-scheduler">
           <div class="agents-scheduler-header">
             <h3 data-i18n="agents_schedule_title">排程任務</h3>
@@ -560,11 +534,11 @@
           </div>
           <div class="sched-layout">
             <div class="sched-sidebar">
-              <div class="sched-task-list" id="schedTaskList2">
+              <div class="sched-task-list" id="schedTaskList">
                 <div class="empty-state" style="font-size:13px;padding:20px" data-i18n="scheduler_empty">尚無排程任務</div>
               </div>
             </div>
-            <div class="sched-editor" id="schedEditor2">
+            <div class="sched-editor" id="schedEditor">
               <div class="sched-editor-empty">
                 <p data-i18n="agents_select_task">選擇一個任務來編輯，或新增任務</p>
               </div>

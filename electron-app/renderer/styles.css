@@ -672,3 +672,4 @@ body {
 .agents-scheduler-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
 .agents-scheduler-header h3 { font-size: 16px; font-weight: 600; color: var(--text-primary); }
 .agents-scheduler-header div { display: flex; gap: 8px; }
+.sched-task-agent { font-size: 11px; background: var(--primary); color: #fff; padding: 1px 6px; border-radius: 8px; margin-left: 6px; }

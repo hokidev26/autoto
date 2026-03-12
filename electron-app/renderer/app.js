@@ -71,7 +71,6 @@ function onSettingsTab(tab) {
   if (tab === 'memory') loadMemories();
   if (tab === 'diagnostics') runDiagnostics();
   if (tab === 'about') loadVersionInfo();
-  if (tab === 'scheduler') loadSchedulerPage();
   if (tab === 'permissions') loadPermissions();
   if (tab === 'market') loadMarket();
   if (tab === 'logs') startLogPolling(); else stopLogPolling();
@@ -1498,9 +1497,12 @@ function renderSchedTaskList() {
     const isActive = s.id === _schedSelected;
     const model = s.model && s.model !== 'default' ? `<span class="sched-task-model">${escapeHtml(s.model)}</span>` : '';
     const schedDesc = s.type === 'simple' ? _schedSimpleDesc(s.schedule) : s.expression;
+    const agents = _loadAgents();
+    const agent = s.agent_id ? agents.find(a => a.id === s.agent_id) : null;
+    const agentTag = agent ? `<span class="sched-task-agent">👤 ${escapeHtml(agent.name)}</span>` : '';
     return `<div class="sched-task-item ${isActive ? 'active' : ''}" onclick="schedSelectTask('${s.id}')">
       <div class="sched-task-info">
-        <div class="sched-task-name">${escapeHtml(s.name)}</div>
+        <div class="sched-task-name">${escapeHtml(s.name)} ${agentTag}</div>
         <div class="sched-task-sub">${model} ${escapeHtml(schedDesc || '')}</div>
       </div>
       <div class="sched-task-actions">
@@ -1579,6 +1581,14 @@ function renderSchedEditor(task) {
     <div class="form-group">
       <label>描述（選填）</label>
       <input type="text" id="se-desc" value="${escapeHtml(task.description || '')}" placeholder="任務描述">
+    </div>
+
+    <div class="form-group">
+      <label>${t('agents_assign') || '指派員工'}</label>
+      <select id="se-agent">
+        <option value="">${t('agents_unassigned') || '未指派'}</option>
+        ${_loadAgents().map(a => `<option value="${a.id}" ${task.agent_id === a.id ? 'selected' : ''}>${a.name} (${a.role || '-'})</option>`).join('')}
+      </select>
     </div>
 
     <div class="form-group">
@@ -1712,6 +1722,7 @@ async function schedSave(taskId) {
   const body = {
     name, description: desc, action, model,
     payload: action === 'agent_message' ? { message: prompt } : { command: prompt },
+    agent_id: document.getElementById('se-agent')?.value || '',
   };
 
   if (_schedEditorMode === 'advanced') {
@@ -2452,9 +2463,18 @@ function _saveAgents(agents) {
 }
 
 function loadAgentsPage() {
-  renderAgentsGrid();
-  // 也載入排程
-  loadSchedulerInAgents();
+  // 先載入排程資料，再渲染員工（員工卡片需要排程資料）
+  fetch(`${API}/schedules`).then(r => r.json()).then(data => {
+    _schedTasks = data.schedules || [];
+    renderAgentsGrid();
+    renderSchedTaskList();
+    if (_schedSelected) {
+      const task = _schedTasks.find(t => t.id === _schedSelected);
+      if (task) renderSchedEditor(task);
+    }
+  }).catch(() => {
+    renderAgentsGrid();
+  });
 }
 
 function renderAgentsGrid() {
@@ -2466,10 +2486,19 @@ function renderAgentsGrid() {
     return;
   }
   grid.innerHTML = agents.map(a => {
-    const statusColor = a.status === 'working' ? '#22c55e' : a.status === 'idle' ? '#94a3b8' : '#f59e0b';
-    const statusText = a.status === 'working' ? (t('agents_status_working') || '工作中') :
-                       a.status === 'idle' ? (t('agents_status_idle') || '待命') :
+    // 從排程中找出指派給這個員工的任務
+    const assignedTasks = (_schedTasks || []).filter(t => t.agent_id === a.id);
+    const hasSchedule = assignedTasks.length > 0;
+    const effectiveStatus = hasSchedule ? (assignedTasks.some(t => t.enabled) ? 'working' : 'scheduled') : a.status;
+    const statusColor = effectiveStatus === 'working' ? '#22c55e' : effectiveStatus === 'idle' ? '#94a3b8' : '#f59e0b';
+    const statusText = effectiveStatus === 'working' ? (t('agents_status_working') || '工作中') :
+                       effectiveStatus === 'idle' ? (t('agents_status_idle') || '待命') :
                        (t('agents_status_scheduled') || '排班中');
+    const taskNames = assignedTasks.map(t => t.name).join(', ') || a.currentTask || '-';
+    const scheduleInfo = assignedTasks.map(t => {
+      const desc = t.type === 'simple' ? _schedSimpleDesc(t.schedule) : t.expression;
+      return `${t.name}: ${desc}`;
+    }).join('; ') || a.schedule || '-';
     return `<div class="agent-card">
       <div class="agent-card-header">
         <div class="agent-avatar">${a.name.charAt(0).toUpperCase()}</div>
@@ -2481,9 +2510,9 @@ function renderAgentsGrid() {
       </div>
       <div class="agent-card-body">
         <div class="agent-field"><span>${t('agents_job') || '工作內容'}</span><span>${a.job || '-'}</span></div>
-        <div class="agent-field"><span>${t('agents_current_task') || '當前任務'}</span><span>${a.currentTask || '-'}</span></div>
+        <div class="agent-field"><span>${t('agents_current_task') || '當前任務'}</span><span>${taskNames}</span></div>
         <div class="agent-field"><span>${t('agents_recent_output') || '最近產出'}</span><span>${a.recentOutput || '-'}</span></div>
-        <div class="agent-field"><span>${t('agents_schedule') || '排班'}</span><span>${a.schedule || '-'}</span></div>
+        <div class="agent-field"><span>${t('agents_schedule') || '排班'}</span><span>${scheduleInfo}</span></div>
       </div>
       <div class="agent-card-footer">
         <button class="btn-sm" onclick="agentEdit('${a.id}')">${t('agents_edit') || '編輯'}</button>
@@ -2543,50 +2572,6 @@ function agentDelete(id) {
   const agents = _loadAgents().filter(x => x.id !== id);
   _saveAgents(agents);
   renderAgentsGrid();
-}
-
-async function loadSchedulerInAgents() {
-  // 複用現有排程載入邏輯，但渲染到 agents 頁面的容器
-  const taskList = document.getElementById('schedTaskList2');
-  const editor = document.getElementById('schedEditor2');
-  if (!taskList || !editor) return;
-  try {
-    const res = await fetch(`${API}/schedules`);
-    const data = await res.json();
-    _schedTasks = data.schedules || [];
-    // 渲染任務列表
-    if (!_schedTasks.length) {
-      taskList.innerHTML = `<div class="empty-state" style="font-size:13px;padding:20px">${t('scheduler_empty')}</div>`;
-    } else {
-      taskList.innerHTML = _schedTasks.map(task => {
-        const active = task.enabled ? 'active' : '';
-        const sel = _schedSelected === task.id ? 'selected' : '';
-        return `<div class="sched-task-item ${active} ${sel}" onclick="schedSelectInAgents('${task.id}')">
-          <div class="sched-task-name">${task.name || 'Untitled'}</div>
-          <div class="sched-task-meta">${task.schedule || task.expression || ''}</div>
-        </div>`;
-      }).join('');
-    }
-  } catch {
-    taskList.innerHTML = `<div class="empty-state" style="padding:20px">無法載入排程</div>`;
-  }
-}
-
-function schedSelectInAgents(id) {
-  _schedSelected = id;
-  // 切到設定頁的排程 tab 來編輯（複用現有 UI）
-  document.querySelectorAll('.nav-item').forEach(b => b.classList.remove('active'));
-  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
-  document.querySelector('[data-page="settings"]').classList.add('active');
-  document.getElementById('page-settings').classList.add('active');
-  currentPage = 'settings';
-  // 切到排程 tab
-  document.querySelectorAll('.settings-tab').forEach(t => t.classList.remove('active'));
-  document.querySelectorAll('.settings-panel').forEach(p => p.classList.remove('active'));
-  document.querySelector('[data-stab="scheduler"]').classList.add('active');
-  document.getElementById('stab-scheduler').classList.add('active');
-  loadSchedulerPage();
-  setTimeout(() => { if (typeof renderSchedEditor === 'function') renderSchedEditor(_schedTasks.find(t => t.id === id)); }, 300);
 }
 
 clearChat();
