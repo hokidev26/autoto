@@ -2480,6 +2480,7 @@ function renderAgentsGrid() {
         <div class="agent-status" style="background:${statusColor}">${statusText}</div>
       </div>
       <div class="agent-card-body">
+        <div class="agent-field"><span>${t('agents_job') || '工作內容'}</span><span>${a.job || '-'}</span></div>
         <div class="agent-field"><span>${t('agents_current_task') || '當前任務'}</span><span>${a.currentTask || '-'}</span></div>
         <div class="agent-field"><span>${t('agents_recent_output') || '最近產出'}</span><span>${a.recentOutput || '-'}</span></div>
         <div class="agent-field"><span>${t('agents_schedule') || '排班'}</span><span>${a.schedule || '-'}</span></div>
@@ -2497,11 +2498,13 @@ function agentAdd() {
   const name = prompt(t('agents_name_prompt') || '員工名稱：');
   if (!name) return;
   const role = prompt(t('agents_role_prompt') || '職位/角色（如：社群小編、客服、排程助理）：') || '';
+  const job = prompt(t('agents_job_prompt') || '工作內容（如：每天發一篇 IG 貼文、回覆客戶留言）：') || '';
   const agents = _loadAgents();
   agents.push({
     id: 'agent_' + Date.now(),
     name: name,
     role: role,
+    job: job,
     status: 'idle',
     currentTask: '',
     recentOutput: '',
@@ -2519,6 +2522,7 @@ function agentEdit(id) {
   if (!name) return;
   a.name = name;
   a.role = prompt(t('agents_role_prompt') || '職位/角色：', a.role) || '';
+  a.job = prompt(t('agents_job_prompt') || '工作內容：', a.job || '') || '';
   a.currentTask = prompt(t('agents_task_prompt') || '當前任務：', a.currentTask) || '';
   a.schedule = prompt(t('agents_schedule_prompt') || '排班說明：', a.schedule) || '';
   _saveAgents(agents);
