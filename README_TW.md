@@ -1,3 +1,5 @@
+[English](README.md) | [繁體中文](README_TW.md)
+
 # AutoTo
  
  AutoTo 是一個本地優先的 AI 助理專案，提供統一的 Python 後端、瀏覽器介面、一鍵安裝流程，以及多聊天平台整合能力。
@@ -34,13 +36,13 @@
  macOS：
  
  ```bash
- bash install.sh
+ curl -fsSL https://raw.githubusercontent.com/hokidev26/autoto/main/install_mac.sh | bash
  ```
  
- Windows：
+ Windows（PowerShell）：
  
- ```bat
- installer\windows\install.bat
+ ```powershell
+ irm https://raw.githubusercontent.com/hokidev26/autoto/main/install_win.ps1 | iex
  ```
  
  安裝完成後啟動：
@@ -49,13 +51,13 @@
  autoto
  ```
  
- 然後打開：
- 
- `http://127.0.0.1:5678`
+ 然後打開：`http://127.0.0.1:5678`
  
  ### 直接在 repo 內啟動
  
  ```bash
+ git clone https://github.com/hokidev26/autoto.git
+ cd autoto
  python3 -m pip install -r backend/requirements.txt
  ./start.sh
  ```

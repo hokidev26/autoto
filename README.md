@@ -1,3 +1,5 @@
+[English](README.md) | [繁體中文](README_TW.md)
+
 # AutoTo
 
 AutoTo is a local-first AI assistant project with a unified Python backend, browser UI, one-click installer flow, and multi-channel integration support.
@@ -31,18 +33,18 @@ With AutoTo, you can:
 
 ## Quick Start
 
-### One-click install
+### One-line install (recommended)
 
 macOS:
 
 ```bash
-bash install.sh
+curl -fsSL https://raw.githubusercontent.com/hokidev26/autoto/main/install_mac.sh | bash
 ```
 
-Windows:
+Windows (PowerShell):
 
-```bat
-installer\windows\install.bat
+```powershell
+irm https://raw.githubusercontent.com/hokidev26/autoto/main/install_win.ps1 | iex
 ```
 
 After installation, start AutoTo with:
@@ -51,13 +53,13 @@ After installation, start AutoTo with:
 autoto
 ```
 
-Then open:
-
-`http://127.0.0.1:5678`
+Then open: `http://127.0.0.1:5678`
 
 ### Run from the repo
 
 ```bash
+git clone https://github.com/hokidev26/autoto.git
+cd autoto
 python3 -m pip install -r backend/requirements.txt
 ./start.sh
 ```
