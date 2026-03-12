@@ -475,7 +475,18 @@ const I18N = {
   },
 };
 
-let currentLang = localStorage.getItem('autoto_lang') || 'zh-TW';
+function detectLanguage() {
+  var saved = localStorage.getItem('autoto_lang');
+  if (saved) return saved;
+  var browserLang = (navigator.language || navigator.userLanguage || 'en').toLowerCase();
+  if (browserLang.startsWith('zh-tw') || browserLang === 'zh-hant') return 'zh-TW';
+  if (browserLang.startsWith('zh')) return 'zh-CN';
+  if (browserLang.startsWith('ja')) return 'ja';
+  if (browserLang.startsWith('ko')) return 'ko';
+  return 'en';
+}
+
+let currentLang = detectLanguage();
 
 function t(key, vars) {
   const lang = I18N[currentLang] || I18N['zh-TW'];
