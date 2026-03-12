@@ -45,6 +45,12 @@
  irm https://raw.githubusercontent.com/hokidev26/autoto/main/install_win.ps1 | iex
  ```
  
+ Windows（CMD）：
+ 
+ ```cmd
+ powershell -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/hokidev26/autoto/main/install_win.ps1 | iex"
+ ```
+ 
  安裝完成後啟動：
  
  ```bash

@@ -47,6 +47,12 @@ Windows (PowerShell):
 irm https://raw.githubusercontent.com/hokidev26/autoto/main/install_win.ps1 | iex
 ```
 
+Windows (CMD):
+
+```cmd
+powershell -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/hokidev26/autoto/main/install_win.ps1 | iex"
+```
+
 After installation, start AutoTo with:
 
 ```bash
