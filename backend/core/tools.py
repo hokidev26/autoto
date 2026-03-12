@@ -2038,4 +2038,153 @@ public class Mouse {
             'device_name': {'type': 'string', 'description': 'Device name (partial match)'},
         }, 'required': ['device_name']}, smarthome_device_state)
 
+    # ==================== 瀏覽器自動化 (Playwright) ====================
+
+    _browser_ctx = {'browser': None, 'page': None}
+
+    def _get_page(headless=True):
+        """Lazy init Playwright browser, return current page."""
+        if _browser_ctx['page'] and not _browser_ctx['page'].is_closed():
+            return _browser_ctx['page']
+        try:
+            from playwright.sync_api import sync_playwright
+        except ImportError:
+            return None
+        pw = sync_playwright().start()
+        _browser_ctx['_pw'] = pw
+        _browser_ctx['browser'] = pw.chromium.launch(headless=headless)
+        _browser_ctx['page'] = _browser_ctx['browser'].new_page()
+        return _browser_ctx['page']
+
+    def browser_open(url, headless=True, wait_seconds=2):
+        """Open a URL in the automated browser."""
+        page = _get_page(headless=headless)
+        if not page:
+            return 'Error: Playwright not installed. Run: pip install playwright && python -m playwright install chromium'
+        try:
+            page.goto(url, timeout=30000, wait_until='domcontentloaded')
+            if wait_seconds and float(wait_seconds) > 0:
+                page.wait_for_timeout(int(float(wait_seconds) * 1000))
+            title = page.title()
+            text = page.inner_text('body')[:3000]
+            return f'Page loaded: {title}\nURL: {page.url}\n\nContent:\n{text}'
+        except Exception as e:
+            return f'Error: {e}'
+    r.register('browser_open', 'Open a URL in an automated browser and return page title and text content.', {
+        'type': 'object', 'properties': {
+            'url': {'type': 'string', 'description': 'URL to open'},
+            'headless': {'type': 'boolean', 'description': 'Run browser in background (default: true)'},
+            'wait_seconds': {'type': 'number', 'description': 'Seconds to wait after page load (default: 2)'},
+        }, 'required': ['url']}, browser_open)
+
+    def browser_click(selector=None, text=None):
+        """Click an element on the current page."""
+        page = _browser_ctx.get('page')
+        if not page or page.is_closed():
+            return 'Error: No browser page open. Use browser_open first.'
+        try:
+            if text:
+                page.get_by_text(text, exact=False).first.click(timeout=10000)
+                return f'Clicked element with text: {text}'
+            elif selector:
+                page.click(selector, timeout=10000)
+                return f'Clicked: {selector}'
+            return 'Error: Provide selector or text'
+        except Exception as e:
+            return f'Error: {e}'
+    r.register('browser_click', 'Click an element on the current browser page by CSS selector or visible text.', {
+        'type': 'object', 'properties': {
+            'selector': {'type': 'string', 'description': 'CSS selector (e.g. button.submit, #login-btn)'},
+            'text': {'type': 'string', 'description': 'Visible text of the element to click'},
+        }, 'required': []}, browser_click)
+
+    def browser_type(selector, text, press_enter=False):
+        """Type text into an input field."""
+        page = _browser_ctx.get('page')
+        if not page or page.is_closed():
+            return 'Error: No browser page open. Use browser_open first.'
+        try:
+            page.fill(selector, text, timeout=10000)
+            if press_enter:
+                page.press(selector, 'Enter')
+            return f'Typed "{text}" into {selector}' + (' and pressed Enter' if press_enter else '')
+        except Exception as e:
+            return f'Error: {e}'
+    r.register('browser_type', 'Type text into an input field on the current browser page.', {
+        'type': 'object', 'properties': {
+            'selector': {'type': 'string', 'description': 'CSS selector of the input field (e.g. input[name=q], #search)'},
+            'text': {'type': 'string', 'description': 'Text to type'},
+            'press_enter': {'type': 'boolean', 'description': 'Press Enter after typing (default: false)'},
+        }, 'required': ['selector', 'text']}, browser_type)
+
+    def browser_screenshot(full_page=False):
+        """Take a screenshot of the current browser page."""
+        page = _browser_ctx.get('page')
+        if not page or page.is_closed():
+            return 'Error: No browser page open. Use browser_open first.'
+        try:
+            ss_dir = os.path.join(HOME, '.autoto', 'screenshots')
+            os.makedirs(ss_dir, exist_ok=True)
+            fname = 'browser_' + datetime.now().strftime('%Y%m%d_%H%M%S') + '.png'
+            fpath = os.path.join(ss_dir, fname)
+            page.screenshot(path=fpath, full_page=bool(full_page))
+            return f'Screenshot saved: {fname}\nURL: {page.url}\nTitle: {page.title()}'
+        except Exception as e:
+            return f'Error: {e}'
+    r.register('browser_screenshot', 'Take a screenshot of the current browser page.', {
+        'type': 'object', 'properties': {
+            'full_page': {'type': 'boolean', 'description': 'Capture full scrollable page (default: false)'},
+        }, 'required': []}, browser_screenshot)
+
+    def browser_get_text(selector=None):
+        """Get text content from the current page or a specific element."""
+        page = _browser_ctx.get('page')
+        if not page or page.is_closed():
+            return 'Error: No browser page open. Use browser_open first.'
+        try:
+            if selector:
+                text = page.inner_text(selector, timeout=10000)
+            else:
+                text = page.inner_text('body')
+            return f'Page: {page.title()}\nURL: {page.url}\n\n{text[:5000]}'
+        except Exception as e:
+            return f'Error: {e}'
+    r.register('browser_get_text', 'Get text content from the current browser page or a specific element.', {
+        'type': 'object', 'properties': {
+            'selector': {'type': 'string', 'description': 'CSS selector to extract text from (default: entire page body)'},
+        }, 'required': []}, browser_get_text)
+
+    def browser_run_js(script):
+        """Execute JavaScript on the current page and return the result."""
+        page = _browser_ctx.get('page')
+        if not page or page.is_closed():
+            return 'Error: No browser page open. Use browser_open first.'
+        try:
+            result = page.evaluate(script)
+            return f'Result: {json.dumps(result, ensure_ascii=False, default=str)[:5000]}'
+        except Exception as e:
+            return f'Error: {e}'
+    r.register('browser_run_js', 'Execute JavaScript on the current browser page and return the result.', {
+        'type': 'object', 'properties': {
+            'script': {'type': 'string', 'description': 'JavaScript code to execute'},
+        }, 'required': ['script']}, browser_run_js)
+
+    def browser_close():
+        """Close the automated browser."""
+        try:
+            if _browser_ctx.get('page') and not _browser_ctx['page'].is_closed():
+                _browser_ctx['page'].close()
+            if _browser_ctx.get('browser'):
+                _browser_ctx['browser'].close()
+            if _browser_ctx.get('_pw'):
+                _browser_ctx['_pw'].stop()
+            _browser_ctx['browser'] = None
+            _browser_ctx['page'] = None
+            _browser_ctx['_pw'] = None
+            return 'Browser closed.'
+        except Exception as e:
+            return f'Error: {e}'
+    r.register('browser_close', 'Close the automated browser.', {
+        'type': 'object', 'properties': {}, 'required': []}, browser_close)
+
     return r

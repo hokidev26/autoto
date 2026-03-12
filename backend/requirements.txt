@@ -2,6 +2,10 @@ flask>=3.0.0
 flask-cors>=4.0.0
 requests>=2.31.0
 
+# 瀏覽器自動化（按需安裝）
+# pip install playwright && python -m playwright install chromium
+# playwright>=1.40.0
+
 # 平台依賴（按需安裝）
 # discord.py>=2.3.0
 # line-bot-sdk>=3.5.0

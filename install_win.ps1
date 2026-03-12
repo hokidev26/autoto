@@ -163,7 +163,7 @@ try {
 
 # ---- 7. 安裝平台依賴 ----
 Write-Host ""
-Write-Host " [7/8] 安裝平台依賴..." -ForegroundColor Yellow
+Write-Host " [7/9] 安裝平台依賴..." -ForegroundColor Yellow
 & $VENV_PYTHON -m pip install --quiet discord.py line-bot-sdk python-telegram-bot xmltodict slack-bolt 2>&1 | Out-Null
 if ($LASTEXITCODE -ne 0) {
     Write-Host "  [!] 部分平台依賴安裝失敗，不影響主程式" -ForegroundColor DarkYellow
@@ -171,9 +171,24 @@ if ($LASTEXITCODE -ne 0) {
     Write-Host "  [OK] 平台依賴安裝完成" -ForegroundColor Green
 }
 
-# ---- 8. 建立啟動腳本與桌面捷徑 ----
+# ---- 8. 安裝瀏覽器自動化 (Playwright) ----
 Write-Host ""
-Write-Host " [8/8] 建立啟動腳本與桌面捷徑..." -ForegroundColor Yellow
+Write-Host " [8/9] 安裝瀏覽器自動化..." -ForegroundColor Yellow
+& $VENV_PYTHON -m pip install --quiet playwright 2>&1 | Out-Null
+if ($LASTEXITCODE -eq 0) {
+    & $VENV_PYTHON -m playwright install chromium 2>&1 | Out-Null
+    if ($LASTEXITCODE -eq 0) {
+        Write-Host "  [OK] 瀏覽器自動化安裝完成" -ForegroundColor Green
+    } else {
+        Write-Host "  [!] Chromium 下載失敗，瀏覽器自動化功能將無法使用" -ForegroundColor DarkYellow
+    }
+} else {
+    Write-Host "  [!] Playwright 安裝失敗，瀏覽器自動化功能將無法使用" -ForegroundColor DarkYellow
+}
+
+# ---- 9. 建立啟動腳本與桌面捷徑 ----
+Write-Host ""
+Write-Host " [9/9] 建立啟動腳本與桌面捷徑..." -ForegroundColor Yellow
 
 # 下載圖示
 $ICO_PATH = Join-Path $INSTALL_DIR "autoto.ico"

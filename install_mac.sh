@@ -104,7 +104,7 @@ echo "  [OK] 依賴安裝完成"
 
 # 7. 安裝平台依賴
 echo ""
-echo " [7/9] 安裝平台依賴..."
+echo " [7/10] 安裝平台依賴..."
 pip install --quiet discord.py line-bot-sdk python-telegram-bot xmltodict slack-bolt 2>/dev/null
 if [ $? -eq 0 ]; then
     echo "  [OK] 平台依賴安裝完成"
@@ -112,9 +112,24 @@ else
     echo "  [!] 部分平台依賴安裝失敗，不影響主程式"
 fi
 
-# 8. 建立啟動腳本與命令行捷徑
+# 8. 安裝瀏覽器自動化 (Playwright)
 echo ""
-echo " [8/9] 建立啟動腳本..."
+echo " [8/10] 安裝瀏覽器自動化..."
+pip install --quiet playwright 2>/dev/null
+if [ $? -eq 0 ]; then
+    python -m playwright install chromium 2>/dev/null
+    if [ $? -eq 0 ]; then
+        echo "  [OK] 瀏覽器自動化安裝完成"
+    else
+        echo "  [!] Chromium 下載失敗，瀏覽器自動化功能將無法使用"
+    fi
+else
+    echo "  [!] Playwright 安裝失敗，瀏覽器自動化功能將無法使用"
+fi
+
+# 9. 建立啟動腳本與命令行捷徑
+echo ""
+echo " [9/10] 建立啟動腳本..."
 cat > "$INSTALL_DIR/start.sh" << 'STARTEOF'
 #!/bin/bash
 PORT="${1:-5678}"
@@ -149,7 +164,7 @@ echo "  [OK] 啟動腳本建立完成"
 
 # 9. 初始化配置
 echo ""
-echo " [9/9] 初始化配置..."
+echo " [10/10] 初始化配置..."
 if [ ! -f "$INSTALL_DIR/config.json" ]; then
     cat > "$INSTALL_DIR/config.json" << 'CFGEOF'
 {
