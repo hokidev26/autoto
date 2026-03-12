@@ -2166,6 +2166,383 @@ public class Mouse {
             'device_name': {'type': 'string', 'description': 'Device name (partial match)'},
         }, 'required': ['device_name']}, smarthome_device_state)
 
+    # ==================== Email Integration (IMAP/SMTP) ====================
+    def _email_config():
+        cfg = _load_social_config()
+        return cfg.get('email', {})
+
+    def _email_connect_imap(folder='INBOX'):
+        import imaplib
+        ec = _email_config()
+        if not ec.get('imap_host') or not ec.get('address'):
+            return None, 'Error: email config missing in ~/.autoto/config.json'
+        m = imaplib.IMAP4_SSL(ec['imap_host'], int(ec.get('imap_port', 993)))
+        m.login(ec['address'], ec['password'])
+        m.select(folder)
+        return m, None
+
+    def _parse_email_msg(data):
+        from email import message_from_bytes
+        from email.header import decode_header
+        msg = message_from_bytes(data)
+        def _dec(val):
+            if not val: return ''
+            parts = decode_header(val)
+            return ''.join(p.decode(c or 'utf-8') if isinstance(p, bytes) else p for p, c in parts)
+        body = ''
+        if msg.is_multipart():
+            for part in msg.walk():
+                if part.get_content_type() == 'text/plain':
+                    payload = part.get_payload(decode=True)
+                    if payload: body = payload.decode(part.get_content_charset() or 'utf-8', errors='replace')
+                    break
+        else:
+            payload = msg.get_payload(decode=True)
+            if payload: body = payload.decode(msg.get_content_charset() or 'utf-8', errors='replace')
+        return {'subject': _dec(msg.get('Subject', '')), 'from': _dec(msg.get('From', '')),
+                'date': msg.get('Date', ''), 'body': body}
+
+    def email_check(limit=10, folder='INBOX'):
+        try:
+            m, err = _email_connect_imap(folder)
+            if err: return err
+            _, data = m.search(None, 'UNSEEN')
+            ids = data[0].split()
+            if not ids:
+                m.logout()
+                return 'No unread emails.'
+            ids = ids[-int(limit):]
+            results = []
+            for eid in reversed(ids):
+                _, msg_data = m.fetch(eid, '(BODY.PEEK[])')
+                parsed = _parse_email_msg(msg_data[0][1])
+                results.append(f"ID:{eid.decode()} | {parsed['from']} | {parsed['subject']} | {parsed['date']}\n  {parsed['body'][:150]}")
+            m.logout()
+            return '\n\n'.join(results)
+        except Exception as e:
+            return 'Error: ' + str(e)
+    r.register('email_check', 'Check unread emails via IMAP.', {
+        'type': 'object', 'properties': {
+            'limit': {'type': 'integer', 'description': 'Max emails to return (default 10)'},
+            'folder': {'type': 'string', 'description': 'Mailbox folder (default INBOX)'}
+        }, 'required': []}, email_check)
+
+    def email_search(query, limit=10, folder='INBOX'):
+        try:
+            m, err = _email_connect_imap(folder)
+            if err: return err
+            _, data = m.search(None, f'(OR SUBJECT "{query}" FROM "{query}")')
+            ids = data[0].split()
+            if not ids:
+                m.logout()
+                return 'No emails matching: ' + query
+            ids = ids[-int(limit):]
+            results = []
+            for eid in reversed(ids):
+                _, msg_data = m.fetch(eid, '(BODY.PEEK[])')
+                parsed = _parse_email_msg(msg_data[0][1])
+                results.append(f"ID:{eid.decode()} | {parsed['from']} | {parsed['subject']} | {parsed['date']}\n  {parsed['body'][:150]}")
+            m.logout()
+            return '\n\n'.join(results)
+        except Exception as e:
+            return 'Error: ' + str(e)
+    r.register('email_search', 'Search emails by keyword via IMAP.', {
+        'type': 'object', 'properties': {
+            'query': {'type': 'string', 'description': 'Search keyword'},
+            'limit': {'type': 'integer', 'description': 'Max results (default 10)'},
+            'folder': {'type': 'string', 'description': 'Mailbox folder (default INBOX)'}
+        }, 'required': ['query']}, email_search)
+
+    def email_send(to, subject, body, cc=None):
+        import smtplib
+        from email.mime.text import MIMEText
+        try:
+            ec = _email_config()
+            if not ec.get('smtp_host') or not ec.get('address'):
+                return 'Error: email config missing in ~/.autoto/config.json'
+            msg = MIMEText(body, 'plain', 'utf-8')
+            msg['From'] = ec['address']
+            msg['To'] = to
+            msg['Subject'] = subject
+            if cc: msg['Cc'] = cc
+            recipients = [to] + ([cc] if cc else [])
+            s = smtplib.SMTP_SSL(ec['smtp_host'], int(ec.get('smtp_port', 465)))
+            s.login(ec['address'], ec['password'])
+            s.sendmail(ec['address'], recipients, msg.as_string())
+            s.quit()
+            return 'Email sent to ' + to
+        except Exception as e:
+            return 'Error: ' + str(e)
+    r.register('email_send', 'Send an email via SMTP.', {
+        'type': 'object', 'properties': {
+            'to': {'type': 'string', 'description': 'Recipient email address'},
+            'subject': {'type': 'string', 'description': 'Email subject'},
+            'body': {'type': 'string', 'description': 'Email body text'},
+            'cc': {'type': 'string', 'description': 'CC address (optional)'}
+        }, 'required': ['to', 'subject', 'body']}, email_send)
+
+    def email_read(email_id, folder='INBOX'):
+        try:
+            m, err = _email_connect_imap(folder)
+            if err: return err
+            _, msg_data = m.fetch(str(email_id).encode(), '(RFC822)')
+            if not msg_data or not msg_data[0]:
+                m.logout()
+                return 'Error: email not found with ID ' + str(email_id)
+            parsed = _parse_email_msg(msg_data[0][1])
+            m.logout()
+            return f"From: {parsed['from']}\nSubject: {parsed['subject']}\nDate: {parsed['date']}\n\n{parsed['body'][:10000]}"
+        except Exception as e:
+            return 'Error: ' + str(e)
+    r.register('email_read', 'Read full content of a specific email by ID.', {
+        'type': 'object', 'properties': {
+            'email_id': {'type': 'string', 'description': 'Email ID (from email_check or email_search)'},
+            'folder': {'type': 'string', 'description': 'Mailbox folder (default INBOX)'}
+        }, 'required': ['email_id']}, email_read)
+
+    # ==================== Expense Tracker ====================
+    _expense_file = os.path.join(HOME, '.autoto', 'expenses.json')
+
+    def _load_expenses():
+        if not os.path.exists(_expense_file): return []
+        with open(_expense_file, 'r', encoding='utf-8') as f: return json.load(f)
+
+    def _save_expenses(data):
+        os.makedirs(os.path.dirname(_expense_file), exist_ok=True)
+        with open(_expense_file, 'w', encoding='utf-8') as f: json.dump(data, f, ensure_ascii=False, indent=2)
+
+    def expense_add(amount, category, note='', date=None):
+        try:
+            expenses = _load_expenses()
+            entry = {
+                'id': datetime.now().strftime('%Y%m%d%H%M%S') + str(len(expenses)),
+                'amount': float(amount), 'category': category,
+                'note': note, 'date': date or datetime.now().strftime('%Y-%m-%d')
+            }
+            expenses.append(entry)
+            _save_expenses(expenses)
+            return f"Expense added: {entry['date']} {category} ${amount}" + (f' ({note})' if note else '')
+        except Exception as e:
+            return 'Error: ' + str(e)
+    r.register('expense_add', 'Add an expense record.', {
+        'type': 'object', 'properties': {
+            'amount': {'type': 'number', 'description': 'Expense amount'},
+            'category': {'type': 'string', 'description': 'Category (e.g. food, transport)'},
+            'note': {'type': 'string', 'description': 'Optional note'},
+            'date': {'type': 'string', 'description': 'Date YYYY-MM-DD (default today)'}
+        }, 'required': ['amount', 'category']}, expense_add)
+
+    def expense_query(month=None, category=None):
+        try:
+            expenses = _load_expenses()
+            m = month or datetime.now().strftime('%Y-%m')
+            filtered = [e for e in expenses if e['date'].startswith(m)]
+            if category:
+                filtered = [e for e in filtered if e['category'].lower() == category.lower()]
+            if not filtered: return f'No expenses found for {m}' + (f' ({category})' if category else '')
+            total = sum(e['amount'] for e in filtered)
+            lines = [f"Expenses for {m}" + (f" [{category}]" if category else '') + f" — Total: ${total:.2f}"]
+            for e in filtered:
+                lines.append(f"  {e['date']} | {e['category']} | ${e['amount']:.2f}" + (f" | {e['note']}" if e.get('note') else ''))
+            return '\n'.join(lines)
+        except Exception as e:
+            return 'Error: ' + str(e)
+    r.register('expense_query', 'Query expenses by month and/or category.', {
+        'type': 'object', 'properties': {
+            'month': {'type': 'string', 'description': 'Month like 2025-03 (default current)'},
+            'category': {'type': 'string', 'description': 'Filter by category (optional)'}
+        }, 'required': []}, expense_query)
+
+    def expense_export(month=None):
+        try:
+            expenses = _load_expenses()
+            m = month or datetime.now().strftime('%Y-%m')
+            filtered = [e for e in expenses if e['date'].startswith(m)]
+            if not filtered: return f'No expenses for {m}'
+            out_dir = os.path.join(HOME, '.autoto')
+            os.makedirs(out_dir, exist_ok=True)
+            csv_path = os.path.join(out_dir, f'expenses_{m}.csv')
+            with open(csv_path, 'w', encoding='utf-8') as f:
+                f.write('date,category,amount,note\n')
+                for e in filtered:
+                    f.write(f"{e['date']},{e['category']},{e['amount']},{e.get('note','')}\n")
+            return f'Exported {len(filtered)} records to {csv_path}'
+        except Exception as e:
+            return 'Error: ' + str(e)
+    r.register('expense_export', 'Export expenses as CSV file.', {
+        'type': 'object', 'properties': {
+            'month': {'type': 'string', 'description': 'Month like 2025-03 (default current)'}
+        }, 'required': []}, expense_export)
+
+    # ==================== Social Analytics ====================
+    def social_analytics():
+        results = []
+        # Instagram
+        try:
+            token = _ig_token()
+            if token:
+                uid = _ig_user_id(token)
+                if not str(uid).startswith('Error'):
+                    url = f'https://graph.facebook.com/v19.0/{uid}?fields=followers_count,media_count,username&access_token={token}'
+                    with urlopen(Request(url), timeout=10) as resp:
+                        ig = json.loads(resp.read().decode('utf-8'))
+                    results.append(f"📸 Instagram (@{ig.get('username','?')}): {ig.get('followers_count',0)} followers, {ig.get('media_count',0)} posts")
+                    media_url = f'https://graph.facebook.com/v19.0/{uid}/media?fields=like_count,comments_count,caption,timestamp&limit=5&access_token={token}'
+                    with urlopen(Request(media_url), timeout=10) as resp:
+                        posts = json.loads(resp.read().decode('utf-8')).get('data', [])
+                    if posts:
+                        top = max(posts, key=lambda p: p.get('like_count', 0) + p.get('comments_count', 0))
+                        results.append(f"  Top post: ❤️{top.get('like_count',0)} 💬{top.get('comments_count',0)} — {(top.get('caption') or '')[:60]}")
+        except Exception as e:
+            results.append(f'📸 Instagram: Error — {e}')
+        # Facebook
+        try:
+            page_id, page_token, err = _fb_page_info()
+            if page_id and page_token:
+                url = f'https://graph.facebook.com/v19.0/{page_id}?fields=name,fan_count&access_token={page_token}'
+                with urlopen(Request(url), timeout=10) as resp:
+                    fb = json.loads(resp.read().decode('utf-8'))
+                results.append(f"📘 Facebook ({fb.get('name','?')}): {fb.get('fan_count',0)} fans")
+        except Exception as e:
+            results.append(f'📘 Facebook: Error — {e}')
+        # Twitter/X
+        try:
+            bearer = _x_token()
+            if bearer:
+                url = 'https://api.twitter.com/2/users/me?user.fields=public_metrics'
+                req = Request(url, headers={'Authorization': f'Bearer {bearer}'})
+                with urlopen(req, timeout=10) as resp:
+                    xd = json.loads(resp.read().decode('utf-8')).get('data', {})
+                metrics = xd.get('public_metrics', {})
+                results.append(f"🐦 X (@{xd.get('username','?')}): {metrics.get('followers_count',0)} followers, {metrics.get('tweet_count',0)} tweets")
+        except Exception as e:
+            results.append(f'🐦 X: Error — {e}')
+        return '\n'.join(results) if results else 'No social accounts configured.'
+    r.register('social_analytics', 'Get engagement summary across connected social platforms (IG, FB, X).', {
+        'type': 'object', 'properties': {}, 'required': []}, social_analytics)
+
+    # ==================== Content Schedule ====================
+    _schedule_file = os.path.join(HOME, '.autoto', 'content_schedule.json')
+
+    def _load_schedule():
+        if not os.path.exists(_schedule_file): return []
+        with open(_schedule_file, 'r', encoding='utf-8') as f: return json.load(f)
+
+    def _save_schedule(data):
+        os.makedirs(os.path.dirname(_schedule_file), exist_ok=True)
+        with open(_schedule_file, 'w', encoding='utf-8') as f: json.dump(data, f, ensure_ascii=False, indent=2)
+
+    def content_schedule_add(platform, content, scheduled_time, media_url=None):
+        try:
+            items = _load_schedule()
+            entry = {
+                'id': 'cs_' + datetime.now().strftime('%Y%m%d%H%M%S') + str(len(items)),
+                'platform': platform, 'content': content,
+                'scheduled_time': scheduled_time, 'media_url': media_url or '',
+                'status': 'pending', 'created_at': datetime.now().isoformat()
+            }
+            items.append(entry)
+            _save_schedule(items)
+            return f"Scheduled: {platform} post at {scheduled_time} (ID: {entry['id']})"
+        except Exception as e:
+            return 'Error: ' + str(e)
+    r.register('content_schedule_add', 'Schedule a future social media post.', {
+        'type': 'object', 'properties': {
+            'platform': {'type': 'string', 'description': 'Platform: ig, fb, x, or threads'},
+            'content': {'type': 'string', 'description': 'Post text content'},
+            'scheduled_time': {'type': 'string', 'description': 'ISO datetime, e.g. 2025-03-20T09:00:00'},
+            'media_url': {'type': 'string', 'description': 'Media URL (optional)'}
+        }, 'required': ['platform', 'content', 'scheduled_time']}, content_schedule_add)
+
+    def content_schedule_list():
+        try:
+            items = _load_schedule()
+            if not items: return 'No scheduled posts.'
+            lines = []
+            for it in items:
+                lines.append(f"[{it['status']}] {it['id']} | {it['platform']} | {it['scheduled_time']} | {it['content'][:60]}")
+            return '\n'.join(lines)
+        except Exception as e:
+            return 'Error: ' + str(e)
+    r.register('content_schedule_list', 'List all scheduled social media posts.', {
+        'type': 'object', 'properties': {}, 'required': []}, content_schedule_list)
+
+    def content_schedule_cancel(id):
+        try:
+            items = _load_schedule()
+            found = False
+            for it in items:
+                if it['id'] == id:
+                    it['status'] = 'cancelled'
+                    found = True
+                    break
+            if not found: return 'Error: schedule not found: ' + id
+            _save_schedule(items)
+            return 'Cancelled: ' + id
+        except Exception as e:
+            return 'Error: ' + str(e)
+    r.register('content_schedule_cancel', 'Cancel a scheduled post by ID.', {
+        'type': 'object', 'properties': {
+            'id': {'type': 'string', 'description': 'Schedule ID to cancel'}
+        }, 'required': ['id']}, content_schedule_cancel)
+
+    # ==================== Daily Briefing ====================
+    def daily_briefing():
+        parts = ['☀️ Daily Briefing — ' + datetime.now().strftime('%Y-%m-%d %A')]
+        # Weather
+        try:
+            url = 'https://wttr.in/?format=3&lang=zh-tw'
+            req = Request(url, headers={'User-Agent': 'curl/7.0'})
+            with urlopen(req, timeout=10) as resp:
+                parts.append('🌤 ' + resp.read().decode('utf-8').strip())
+        except Exception:
+            parts.append('🌤 Weather: unavailable')
+        # Scheduled posts today
+        try:
+            today = datetime.now().strftime('%Y-%m-%d')
+            items = _load_schedule()
+            today_posts = [it for it in items if it.get('scheduled_time', '').startswith(today) and it.get('status') == 'pending']
+            parts.append(f'📅 Scheduled posts today: {len(today_posts)}')
+            for it in today_posts[:5]:
+                parts.append(f"  • {it['platform']} at {it['scheduled_time'][11:16]} — {it['content'][:40]}")
+        except Exception:
+            pass
+        # Unread emails
+        try:
+            m, err = _email_connect_imap()
+            if m:
+                _, data = m.search(None, 'UNSEEN')
+                count = len(data[0].split()) if data[0] else 0
+                m.logout()
+                parts.append(f'📧 Unread emails: {count}')
+        except Exception:
+            parts.append('📧 Email: not configured')
+        # Social stats summary
+        try:
+            token = _ig_token()
+            if token:
+                uid = _ig_user_id(token)
+                if not str(uid).startswith('Error'):
+                    url = f'https://graph.facebook.com/v19.0/{uid}?fields=followers_count&access_token={token}'
+                    with urlopen(Request(url), timeout=10) as resp:
+                        ig = json.loads(resp.read().decode('utf-8'))
+                    parts.append(f"📸 IG followers: {ig.get('followers_count', 0)}")
+        except Exception:
+            pass
+        # Expenses today
+        try:
+            today = datetime.now().strftime('%Y-%m-%d')
+            expenses = _load_expenses()
+            today_exp = [e for e in expenses if e['date'] == today]
+            if today_exp:
+                total = sum(e['amount'] for e in today_exp)
+                parts.append(f'💰 Today spent: ${total:.2f} ({len(today_exp)} items)')
+        except Exception:
+            pass
+        return '\n'.join(parts)
+    r.register('daily_briefing', 'Generate a morning briefing with weather, schedule, emails, and social stats.', {
+        'type': 'object', 'properties': {}, 'required': []}, daily_briefing)
+
     # ==================== 瀏覽器自動化 (Playwright) ====================
 
     _browser_ctx = {'browser': None, 'page': None}
