@@ -47,6 +47,7 @@ document.querySelectorAll('.nav-item').forEach(btn => {
     if (page === 'skills') loadSkills();
     if (page === 'cameras') loadCamerasPage();
     if (page === 'smarthome') loadSmartHomePage();
+    if (page === 'agents') loadAgentsPage();
     if (page === 'settings') {
       // 載入當前 tab 的資料
       const activeTab = document.querySelector('.settings-tab.active');
@@ -2437,6 +2438,151 @@ async function deletePlatform(id) {
   if (!confirm('確定刪除此平台？所有裝置將一併移除。')) return;
   await fetch(`${API}/smarthome/platforms/${id}`, { method: 'DELETE' });
   loadSmartHomePage();
+}
+
+// ==================== AI 員工總覽 ====================
+
+const AGENTS_FILE_KEY = 'autoto_agents';
+
+function _loadAgents() {
+  try { return JSON.parse(localStorage.getItem(AGENTS_FILE_KEY) || '[]'); } catch { return []; }
+}
+function _saveAgents(agents) {
+  localStorage.setItem(AGENTS_FILE_KEY, JSON.stringify(agents));
+}
+
+function loadAgentsPage() {
+  renderAgentsGrid();
+  // 也載入排程
+  loadSchedulerInAgents();
+}
+
+function renderAgentsGrid() {
+  const agents = _loadAgents();
+  const grid = document.getElementById('agentsGrid');
+  if (!grid) return;
+  if (!agents.length) {
+    grid.innerHTML = `<div class="empty-state" style="padding:30px;font-size:13px">${t('agents_empty')}</div>`;
+    return;
+  }
+  grid.innerHTML = agents.map(a => {
+    const statusColor = a.status === 'working' ? '#22c55e' : a.status === 'idle' ? '#94a3b8' : '#f59e0b';
+    const statusText = a.status === 'working' ? (t('agents_status_working') || '工作中') :
+                       a.status === 'idle' ? (t('agents_status_idle') || '待命') :
+                       (t('agents_status_scheduled') || '排班中');
+    return `<div class="agent-card">
+      <div class="agent-card-header">
+        <div class="agent-avatar">${a.name.charAt(0).toUpperCase()}</div>
+        <div class="agent-info">
+          <div class="agent-name">${a.name}</div>
+          <div class="agent-role">${a.role || ''}</div>
+        </div>
+        <div class="agent-status" style="background:${statusColor}">${statusText}</div>
+      </div>
+      <div class="agent-card-body">
+        <div class="agent-field"><span>${t('agents_current_task') || '當前任務'}</span><span>${a.currentTask || '-'}</span></div>
+        <div class="agent-field"><span>${t('agents_recent_output') || '最近產出'}</span><span>${a.recentOutput || '-'}</span></div>
+        <div class="agent-field"><span>${t('agents_schedule') || '排班'}</span><span>${a.schedule || '-'}</span></div>
+      </div>
+      <div class="agent-card-footer">
+        <button class="btn-sm" onclick="agentEdit('${a.id}')">${t('agents_edit') || '編輯'}</button>
+        <button class="btn-sm" onclick="agentToggle('${a.id}')">${a.status === 'idle' ? (t('agents_activate') || '啟動') : (t('agents_pause') || '暫停')}</button>
+        <button class="btn-sm btn-danger" onclick="agentDelete('${a.id}')">${t('agents_delete') || '刪除'}</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function agentAdd() {
+  const name = prompt(t('agents_name_prompt') || '員工名稱：');
+  if (!name) return;
+  const role = prompt(t('agents_role_prompt') || '職位/角色（如：社群小編、客服、排程助理）：') || '';
+  const agents = _loadAgents();
+  agents.push({
+    id: 'agent_' + Date.now(),
+    name: name,
+    role: role,
+    status: 'idle',
+    currentTask: '',
+    recentOutput: '',
+    schedule: ''
+  });
+  _saveAgents(agents);
+  renderAgentsGrid();
+}
+
+function agentEdit(id) {
+  const agents = _loadAgents();
+  const a = agents.find(x => x.id === id);
+  if (!a) return;
+  const name = prompt(t('agents_name_prompt') || '員工名稱：', a.name);
+  if (!name) return;
+  a.name = name;
+  a.role = prompt(t('agents_role_prompt') || '職位/角色：', a.role) || '';
+  a.currentTask = prompt(t('agents_task_prompt') || '當前任務：', a.currentTask) || '';
+  a.schedule = prompt(t('agents_schedule_prompt') || '排班說明：', a.schedule) || '';
+  _saveAgents(agents);
+  renderAgentsGrid();
+}
+
+function agentToggle(id) {
+  const agents = _loadAgents();
+  const a = agents.find(x => x.id === id);
+  if (!a) return;
+  a.status = a.status === 'idle' ? 'working' : 'idle';
+  _saveAgents(agents);
+  renderAgentsGrid();
+}
+
+function agentDelete(id) {
+  if (!confirm(t('agents_delete_confirm') || '確定刪除此員工？')) return;
+  const agents = _loadAgents().filter(x => x.id !== id);
+  _saveAgents(agents);
+  renderAgentsGrid();
+}
+
+async function loadSchedulerInAgents() {
+  // 複用現有排程載入邏輯，但渲染到 agents 頁面的容器
+  const taskList = document.getElementById('schedTaskList2');
+  const editor = document.getElementById('schedEditor2');
+  if (!taskList || !editor) return;
+  try {
+    const res = await fetch(`${API}/schedules`);
+    const data = await res.json();
+    _schedTasks = data.schedules || [];
+    // 渲染任務列表
+    if (!_schedTasks.length) {
+      taskList.innerHTML = `<div class="empty-state" style="font-size:13px;padding:20px">${t('scheduler_empty')}</div>`;
+    } else {
+      taskList.innerHTML = _schedTasks.map(task => {
+        const active = task.enabled ? 'active' : '';
+        const sel = _schedSelected === task.id ? 'selected' : '';
+        return `<div class="sched-task-item ${active} ${sel}" onclick="schedSelectInAgents('${task.id}')">
+          <div class="sched-task-name">${task.name || 'Untitled'}</div>
+          <div class="sched-task-meta">${task.schedule || task.expression || ''}</div>
+        </div>`;
+      }).join('');
+    }
+  } catch {
+    taskList.innerHTML = `<div class="empty-state" style="padding:20px">無法載入排程</div>`;
+  }
+}
+
+function schedSelectInAgents(id) {
+  _schedSelected = id;
+  // 切到設定頁的排程 tab 來編輯（複用現有 UI）
+  document.querySelectorAll('.nav-item').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.querySelector('[data-page="settings"]').classList.add('active');
+  document.getElementById('page-settings').classList.add('active');
+  currentPage = 'settings';
+  // 切到排程 tab
+  document.querySelectorAll('.settings-tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.settings-panel').forEach(p => p.classList.remove('active'));
+  document.querySelector('[data-stab="scheduler"]').classList.add('active');
+  document.getElementById('stab-scheduler').classList.add('active');
+  loadSchedulerPage();
+  setTimeout(() => { if (typeof renderSchedEditor === 'function') renderSchedEditor(_schedTasks.find(t => t.id === id)); }, 300);
 }
 
 clearChat();
