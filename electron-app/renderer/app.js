@@ -2576,12 +2576,18 @@ async function agentSave(id) {
     systemPrompt: document.getElementById('af-prompt')?.value.trim() || '',
   };
   try {
+    let res;
     if (id) {
-      await fetch(`${API}/agents/${id}`, { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body) });
+      res = await fetch(`${API}/agents/${id}`, { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body) });
     } else {
-      await fetch(`${API}/agents`, { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body) });
+      res = await fetch(`${API}/agents`, { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body) });
     }
-    loadAgentsPage();
+    const data = await res.json();
+    if (!res.ok || data.success === false) {
+      alert('Error: ' + (data.error || 'Unknown error'));
+      return;
+    }
+    await loadAgentsPage();
   } catch (e) {
     alert('Error: ' + e.message);
   }
