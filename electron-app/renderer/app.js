@@ -269,17 +269,33 @@ async function checkOpenClawStatus() {
       badge.textContent = '運行中';
       badge.style.background = '#22c55e22';
       badge.style.color = '#22c55e';
-      detail.innerHTML = `版本: ${s.version || '未知'}<br>Gateway: ${s.gateway_url}`;
-      actions.innerHTML = `<button class="btn-primary" onclick="connectOpenClaw()">一鍵連接</button>
-        <button class="btn-sm" onclick="checkOpenClawStatus()">重新檢查</button>`;
-      // 自動帶入模型列表
+      let verInfo = `版本: ${s.version || '未知'}`;
+      if (s.update_available) {
+        verInfo += ` (有新版 ${s.latest_version})`;
+      }
+      detail.innerHTML = `${verInfo}<br>Gateway: ${s.gateway_url}`;
+      let btns = `<button class="btn-primary" onclick="connectOpenClaw()">一鍵連接</button>`;
+      if (s.update_available) {
+        btns += `<button class="btn-sm" onclick="updateOpenClaw()">更新到 ${s.latest_version}</button>`;
+      }
+      btns += `<button class="btn-sm" onclick="checkOpenClawStatus()">重新檢查</button>`;
+      actions.innerHTML = btns;
       fetchOpenClawModels();
     } else if (s.installed) {
       badge.textContent = '已安裝（未啟動）';
       badge.style.background = '#f59e0b22';
       badge.style.color = '#f59e0b';
-      detail.innerHTML = `版本: ${s.version || '未知'}<br>請在終端機執行 <code>openclaw</code> 啟動 Gateway`;
-      actions.innerHTML = `<button class="btn-sm" onclick="checkOpenClawStatus()">重新檢查</button>`;
+      let verInfo = `版本: ${s.version || '未知'}`;
+      if (s.update_available) {
+        verInfo += ` (有新版 ${s.latest_version})`;
+      }
+      detail.innerHTML = `${verInfo}<br>請在終端機執行 <code>openclaw</code> 啟動 Gateway`;
+      let btns = '';
+      if (s.update_available) {
+        btns += `<button class="btn-sm" onclick="updateOpenClaw()">更新到 ${s.latest_version}</button>`;
+      }
+      btns += `<button class="btn-sm" onclick="checkOpenClawStatus()">重新檢查</button>`;
+      actions.innerHTML = btns;
     } else if (s.node_installed) {
       badge.textContent = '未安裝';
       badge.style.background = 'var(--bg-card)';
@@ -306,24 +322,17 @@ async function installOpenClaw() {
   const detail = document.getElementById('ocStatusDetail');
   if (!actions) return;
 
-  actions.innerHTML = '<button class="btn-sm" disabled>安裝中，請稍候...</button>';
-  detail.textContent = '正在下載並安裝 OpenClaw，可能需要幾分鐘...';
-
   try {
     const res = await fetch(`${API}/openclaw/install`, { method: 'POST' });
     const data = await res.json();
     if (data.success) {
-      detail.textContent = '安裝完成！請在終端機執行 openclaw 啟動 Gateway，然後點重新檢查。';
-      actions.innerHTML = `<button class="btn-primary" onclick="checkOpenClawStatus()">重新檢查</button>`;
-    } else {
-      detail.textContent = '安裝失敗: ' + (data.error || '未知錯誤');
-      if (data.hint) detail.textContent += '\n' + data.hint;
-      actions.innerHTML = `<button class="btn-sm" onclick="installOpenClaw()">重試</button>
-        <button class="btn-sm" onclick="checkOpenClawStatus()">重新檢查</button>`;
+      detail.innerHTML = data.steps.map(s => escapeHtml(s)).join('<br>');
+      // 加一個複製按鈕
+      actions.innerHTML = `<button class="btn-primary" onclick="navigator.clipboard.writeText('${data.command}');this.textContent='已複製！'">複製安裝指令</button>
+        <button class="btn-sm" onclick="checkOpenClawStatus()">安裝完成，重新檢查</button>`;
     }
   } catch (e) {
-    detail.textContent = '安裝失敗: ' + e.message;
-    actions.innerHTML = `<button class="btn-sm" onclick="installOpenClaw()">重試</button>`;
+    detail.textContent = '取得安裝指令失敗: ' + e.message;
   }
 }
 
@@ -354,6 +363,15 @@ async function connectOpenClaw() {
   } catch (e) {
     detail.textContent = '連接失敗: ' + e.message;
   }
+}
+
+function updateOpenClaw() {
+  const detail = document.getElementById('ocStatusDetail');
+  const actions = document.getElementById('ocActions');
+  const cmd = navigator.platform.includes('Win') ? 'npm install -g openclaw@latest' : 'curl -fsSL https://openclaw.ai/install.sh | bash';
+  detail.innerHTML = `請在終端機執行以下指令更新：<br><code>${cmd}</code>`;
+  actions.innerHTML = `<button class="btn-primary" onclick="navigator.clipboard.writeText('${cmd}');this.textContent='已複製！'">複製更新指令</button>
+    <button class="btn-sm" onclick="checkOpenClawStatus()">更新完成，重新檢查</button>`;
 }
 
 async function fetchOpenClawModels() {

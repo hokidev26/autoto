@@ -538,6 +538,8 @@ def openclaw_status():
         'running': False,
         'node_installed': False,
         'version': None,
+        'latest_version': None,
+        'update_available': False,
         'gateway_url': None,
     }
     # 檢查 Node.js
@@ -559,38 +561,42 @@ def openclaw_status():
             result['gateway_url'] = 'http://127.0.0.1:18789/v1/chat/completions'
     except Exception:
         pass
+    # 檢查最新版本（npm registry）
+    if result['installed'] and result['version']:
+        try:
+            r = requests.get('https://registry.npmjs.org/openclaw/latest', timeout=5)
+            if r.status_code == 200:
+                latest = r.json().get('version', '')
+                result['latest_version'] = latest
+                if latest and result['version'] and latest != result['version']:
+                    result['update_available'] = True
+        except Exception:
+            pass
     return jsonify(result)
 
 
 @app.route('/api/openclaw/install', methods=['POST'])
 def openclaw_install():
-    """安裝 OpenClaw"""
-    import shutil
+    """回傳安裝指令，讓前端顯示給用戶自己執行"""
     system = platform.system()
+    if system == 'Darwin':
+        cmd = 'curl -fsSL https://openclaw.ai/install.sh | bash'
+    elif system == 'Windows':
+        cmd = 'npm install -g openclaw@latest'
+    else:
+        cmd = 'curl -fsSL https://openclaw.ai/install.sh | bash'
 
-    # 先檢查 Node.js
-    if not shutil.which('node'):
-        return jsonify({
-            'success': False,
-            'error': '請先安裝 Node.js 22+',
-            'hint': 'https://nodejs.org/' if system == 'Windows' else '執行: brew install node (macOS) 或 curl -fsSL https://deb.nodesource.com/setup_22.x | sudo bash -'
-        }), 400
-
-    try:
-        if system == 'Windows':
-            cmd = ['npm', 'install', '-g', 'openclaw@latest']
-        else:
-            cmd = ['bash', '-c', 'curl -fsSL https://openclaw.ai/install.sh | bash']
-
-        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
-        if proc.returncode == 0:
-            return jsonify({'success': True, 'output': proc.stdout[-500:]})
-        else:
-            return jsonify({'success': False, 'error': proc.stderr[-500:]}), 500
-    except subprocess.TimeoutExpired:
-        return jsonify({'success': False, 'error': '安裝逾時（超過 5 分鐘）'}), 500
-    except Exception as e:
-        return jsonify({'success': False, 'error': str(e)}), 500
+    return jsonify({
+        'success': True,
+        'command': cmd,
+        'steps': [
+            f'1. 打開終端機，貼上以下指令：',
+            f'   {cmd}',
+            f'2. 安裝完成後執行：openclaw',
+            f'3. 依照提示設定 API Key',
+            f'4. 回到 AutoTo 點「重新檢查」',
+        ]
+    })
 
 
 @app.route('/api/openclaw/connect', methods=['POST'])
