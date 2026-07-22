@@ -26,7 +26,17 @@ var (
 )
 
 func sqliteDSN(path string) string {
-	fileURL := &url.URL{Scheme: "file", Path: filepath.ToSlash(filepath.Clean(path))}
+	cleaned := filepath.Clean(path)
+	if absolute, err := filepath.Abs(cleaned); err == nil {
+		cleaned = absolute
+	}
+	urlPath := filepath.ToSlash(cleaned)
+	// url.URL interprets a Windows drive prefix such as C: as the URL host
+	// unless the path starts with a slash. SQLite requires file:///C:/... .
+	if filepath.IsAbs(cleaned) && filepath.VolumeName(cleaned) != "" && !strings.HasPrefix(urlPath, "/") {
+		urlPath = "/" + urlPath
+	}
+	fileURL := &url.URL{Scheme: "file", Path: urlPath}
 	query := fileURL.Query()
 	query.Add("_pragma", "foreign_keys(1)")
 	query.Add("_pragma", "busy_timeout(5000)")

@@ -9,9 +9,10 @@ import (
 )
 
 type aggregateTestProvider struct {
-	name     string
-	caps     Capabilities
-	generate func(GenerateRequest) ([]Event, error)
+	name      string
+	caps      Capabilities
+	modelCaps map[string]ModelCapabilities
+	generate  func(GenerateRequest) ([]Event, error)
 
 	mu       sync.Mutex
 	requests []GenerateRequest
@@ -20,6 +21,10 @@ type aggregateTestProvider struct {
 func (p *aggregateTestProvider) Name() string { return p.name }
 
 func (p *aggregateTestProvider) Capabilities() Capabilities { return p.caps }
+
+func (p *aggregateTestProvider) ModelCapabilities(model string) ModelCapabilities {
+	return p.modelCaps[model]
+}
 
 func (p *aggregateTestProvider) ListModels(context.Context) ([]string, error) { return nil, nil }
 
@@ -279,6 +284,61 @@ func TestAggregateProviderPrunesToolsAndImagesPerCandidate(t *testing.T) {
 		if !strings.Contains(request.Messages[0].Content, marker) {
 			t.Fatalf("expected pruned message content to contain %q: %q", marker, request.Messages[0].Content)
 		}
+	}
+}
+
+func TestAggregateProviderFiltersImageGenerationPerCandidateModel(t *testing.T) {
+	enabled := &aggregateTestProvider{
+		name:      "enabled",
+		caps:      Capabilities{Streaming: true, ImageGeneration: true},
+		modelCaps: map[string]ModelCapabilities{"image-model": {ImageGeneration: true, ImageGenerationKnown: true}},
+		generate: func(GenerateRequest) ([]Event, error) {
+			return []Event{{Type: "done", Done: true}}, nil
+		},
+	}
+	disabled := &aggregateTestProvider{
+		name:      "disabled",
+		caps:      Capabilities{Streaming: true, ImageGeneration: true},
+		modelCaps: map[string]ModelCapabilities{"text-model": {ImageGenerationKnown: true}},
+		generate: func(GenerateRequest) ([]Event, error) {
+			return []Event{{Type: "done", Done: true}}, nil
+		},
+	}
+	request := GenerateRequest{
+		EnableImageGeneration: true,
+		Messages:              []Message{{Role: "assistant", Blocks: []ContentBlock{{Type: "image_generation", GenerationID: "ig-history", Status: "completed", Data: []byte("png")}}}},
+	}
+	collectAggregateEvents(t, resolvedAggregateForTest(t, []Provider{enabled}, []string{"enabled:image-model"}), request)
+	collectAggregateEvents(t, resolvedAggregateForTest(t, []Provider{disabled}, []string{"disabled:text-model"}), request)
+	if requests := enabled.requestSnapshot(); len(requests) != 1 || !requests[0].EnableImageGeneration || len(requests[0].Messages) != 1 || len(requests[0].Messages[0].Blocks) != 1 || requests[0].Messages[0].Blocks[0].Type != "image_generation" {
+		t.Fatalf("enabled model lost explicit image generation request or history: %+v", requests)
+	}
+	if requests := disabled.requestSnapshot(); len(requests) != 1 || requests[0].EnableImageGeneration || len(requests[0].Messages) != 1 || len(requests[0].Messages[0].Blocks) != 1 || requests[0].Messages[0].Blocks[0].Type != "text" || len(requests[0].Messages[0].Blocks[0].Data) != 0 {
+		t.Fatalf("disabled model received image generation request or history: %+v", requests)
+	}
+}
+
+func TestAggregateProviderTreatsImageGenerationAsStartedOutput(t *testing.T) {
+	primary := &aggregateTestProvider{
+		name:      "primary",
+		caps:      Capabilities{Streaming: true, ImageGeneration: true},
+		modelCaps: map[string]ModelCapabilities{"model-a": {ImageGeneration: true, ImageGenerationKnown: true}},
+		generate: func(GenerateRequest) ([]Event, error) {
+			return []Event{
+				{Type: "image_generation", ImageGeneration: &ImageGeneration{GenerationID: "ig_1", Status: "generating"}},
+				{Type: "error", Text: "temporary 503 after image output"},
+			}, nil
+		},
+	}
+	secondary := &aggregateTestProvider{name: "secondary", caps: Capabilities{Streaming: true}, generate: func(GenerateRequest) ([]Event, error) {
+		return []Event{{Type: "text", Text: "must-not-run"}}, nil
+	}}
+	events := collectAggregateEvents(t, resolvedAggregateForTest(t, []Provider{primary, secondary}, []string{"primary:model-a", "secondary:model-b"}), GenerateRequest{EnableImageGeneration: true})
+	if len(events) != 2 || events[0].Type != "image_generation" || !aggregateEventsContainError(events, "503") {
+		t.Fatalf("unexpected aggregate image output sequence: %+v", events)
+	}
+	if len(secondary.requestSnapshot()) != 0 {
+		t.Fatalf("aggregate fell back after image generation output: %+v", secondary.requestSnapshot())
 	}
 }
 

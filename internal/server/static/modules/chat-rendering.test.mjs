@@ -7,9 +7,13 @@ import {
   createChatRenderingController,
   findToolActivityByIdentity,
   formatTurnUsagePerformance,
+  generatedImageURL,
   isAgentToolActivity,
+  messageContentBlocks,
   normalizeAgentPlan,
   normalizeAgentTaskActivity,
+  normalizeGeneratedImageBlocks,
+  normalizeImageGenerationStatusEvent,
   normalizeMessageProfileIdentity,
   normalizeToolActivity,
   normalizeTurnUsage,
@@ -56,6 +60,7 @@ function renderSnapshot(messages, stateOverrides = {}, applyOptions = {}, contro
     liveAssistantRunId: "",
     liveAssistantStartedAt: "",
     liveAssistantPerformance: null,
+    liveImageGenerations: {},
     pendingToolApprovals: {},
     activeRunSummary: null,
     activeRunSummaryRunId: "",
@@ -112,6 +117,7 @@ function createAsyncChatRenderingHarness(apiRequest, stateOverrides = {}) {
     liveToolOutputs: {},
     liveAssistantActive: false,
     liveAssistantText: "",
+    liveImageGenerations: {},
     pendingToolApprovals: {},
     activeRunSummary: null,
     activeRunSummaryRunId: "",
@@ -750,6 +756,85 @@ test("message rendering escapes role, text, and code attributes without breaking
   assert.match(html, /class="code-block"/);
   assert.match(html, /class="copy-code"/);
   assert.match(html, /data-copy-message="0"/);
+});
+
+test("generated image blocks parse contentJson, sort by outputIndex, and build only same-origin asset URLs", () => {
+  const message = {
+    id: "message/1",
+    agentId: "agent one",
+    role: "assistant",
+    contentJson: JSON.stringify({ content: [
+      { type: "image_generation", assetId: "asset-2", generationId: "gen-2", status: "completed", mimeType: "image/png", filename: "second.png", width: 1024, height: 768, revisedPrompt: "Second <view>", outputIndex: 2, storageKey: "C:/secret/file.png", data: "data:image/png;base64,AAAA" },
+      { type: "text", text: "ignored here" },
+      { type: "image_generation", assetId: "asset/0", generationId: "gen-0", status: "completed", mimeType: "image/webp", filename: "first.webp", width: 512, height: 512, revisedPrompt: `First \"view\"`, outputIndex: 0 },
+    ] }),
+  };
+  assert.equal(messageContentBlocks(message).length, 3);
+  const blocks = normalizeGeneratedImageBlocks(message);
+  assert.deepEqual(blocks.map((block) => block.outputIndex), [0, 2]);
+  assert.equal(Object.hasOwn(blocks[0], "storageKey"), false);
+  assert.equal(Object.hasOwn(blocks[0], "data"), false);
+  assert.equal(generatedImageURL("agent one", "message/1", "asset/0"), "/api/agents/agent%20one/messages/message%2F1/generated-images/asset%2F0");
+  assert.equal(generatedImageURL("agent one", "message/1", "asset/0", { download: true }), "/api/agents/agent%20one/messages/message%2F1/generated-images/asset%2F0?download=1");
+  assert.equal(generatedImageURL("", "message/1", "asset/0"), "");
+
+  const { html } = renderSnapshot([message]);
+  assert.ok(html.indexOf("asset%2F0") < html.indexOf("asset-2"));
+  assert.match(html, /class="generated-image-preview"/);
+  assert.match(html, /loading="lazy"/);
+  assert.match(html, /alt="First &quot;view&quot;"/);
+  assert.match(html, /width="512" height="512" style="aspect-ratio: 512 \/ 512"/);
+  assert.match(html, /generated-images\/asset%2F0\?download=1/);
+  assert.match(html, /download="first.webp"/);
+  assert.doesNotMatch(html, /storageKey|C:\/secret|file:\/\/|data:image|base64/i);
+  assert.doesNotMatch(html, /<view>/);
+  assert.doesNotMatch(renderSnapshot([{ ...message, role: "user" }], { agent: { id: "agent-1" } }).html, /data-generated-image/);
+});
+
+test("generated image blocks keep a non-breaking placeholder when the asset identity is missing", () => {
+  const { html } = renderSnapshot([{ id: "message-1", role: "assistant", contentJson: [{ type: "image_generation", status: "failed", revisedPrompt: "unsafe <prompt>", outputIndex: 0 }] }]);
+  assert.match(html, /generated-image-missing/);
+  assert.match(html, /图片资产暂不可用/);
+  assert.match(html, /unsafe &lt;prompt&gt;/);
+  assert.doesNotMatch(html, /<img class="generated-image-preview"/);
+});
+
+test("image_generation.status keeps only lightweight status fields and clears on authoritative message refresh", () => {
+  const event = {
+    type: "image_generation.status",
+    agentId: "agent-a",
+    data: {
+      requestId: "request-1",
+      runId: "run-1",
+      generationId: "generation-1",
+      status: "partial",
+      outputIndex: 1,
+      partialIndex: 3,
+      base64: "AAAA",
+      dataUrl: "data:image/png;base64,AAAA",
+    },
+  };
+  assert.deepEqual(normalizeImageGenerationStatusEvent(event), {
+    requestId: "request-1",
+    runId: "run-1",
+    generationId: "generation-1",
+    status: "partial",
+    outputIndex: 1,
+    partialIndex: 3,
+  });
+  const harness = createAsyncChatRenderingHarness(async () => ({ messages: [] }));
+  try {
+    assert.equal(harness.controller.rememberImageGenerationStatus(event), true);
+    assert.equal(Object.keys(harness.state.liveImageGenerations).length, 1);
+    assert.match(harness.messagesElement.innerHTML, /data-live-image-generation="generation-1"/);
+    assert.match(harness.messagesElement.innerHTML, /正在生成图片/);
+    assert.doesNotMatch(harness.messagesElement.innerHTML, /<img|AAAA|data:image|base64/i);
+    harness.controller.applyMessageSnapshot([], "agent-a", { clearLiveImageGenerations: true });
+    assert.deepEqual(harness.state.liveImageGenerations, {});
+    assert.doesNotMatch(harness.messagesElement.innerHTML, /data-live-image-generation=/);
+  } finally {
+    harness.restore();
+  }
 });
 
 test("model generation renders a waiting assistant card before the first text delta", () => {

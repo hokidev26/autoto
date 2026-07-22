@@ -1,7 +1,9 @@
 package providers
 
 import (
+	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -332,6 +334,190 @@ func TestOpenAIOfficialWithoutAPIKeyReturnsUnavailableError(t *testing.T) {
 	}
 	if events != nil {
 		t.Fatal("unconfigured provider must not return a successful event stream")
+	}
+}
+
+func TestOpenAIOfficialImageGenerationRequiresExplicitConfiguredEnablement(t *testing.T) {
+	inputPNG := testImageGenerationPNG(t, 2, 2)
+	messages := []Message{{Role: "user", Blocks: []ContentBlock{{Type: "text", Text: "draw"}, {Type: "image", MIMEType: "image/png", Data: inputPNG}}}}
+	var requestBodies []map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatal(err)
+		}
+		requestBodies = append(requestBodies, body)
+		writeOpenAICompletedStream(w)
+	}))
+	defer server.Close()
+
+	configured := NewOpenAIOfficial(config.ProviderConfig{
+		BaseURL: server.URL, APIKey: "test-key", Model: "gpt-image-enabled",
+		Models: []config.ProviderModelConfig{{Name: "gpt-image-enabled", ImageGeneration: true}},
+	})
+	for _, enabled := range []bool{true, false} {
+		events, err := configured.Generate(context.Background(), GenerateRequest{
+			Messages:              messages,
+			Tools:                 []ToolSpec{{Name: "Read"}},
+			EnableImageGeneration: enabled,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		for event := range events {
+			if event.Type == "error" {
+				t.Fatal(event.Text)
+			}
+		}
+	}
+	unconfigured := NewOpenAIOfficial(config.ProviderConfig{
+		BaseURL: server.URL, APIKey: "test-key", Model: "gpt-image-disabled",
+		Models: []config.ProviderModelConfig{{Name: "gpt-image-disabled"}},
+	})
+	events, err := unconfigured.Generate(context.Background(), GenerateRequest{
+		Messages:              messages,
+		Tools:                 []ToolSpec{{Name: "Read"}},
+		EnableImageGeneration: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for event := range events {
+		if event.Type == "error" {
+			t.Fatal(event.Text)
+		}
+	}
+
+	if len(requestBodies) != 3 {
+		t.Fatalf("expected three requests, got %d", len(requestBodies))
+	}
+	for index, wantImage := range []bool{true, false, false} {
+		tools, _ := requestBodies[index]["tools"].([]any)
+		functionCount := 0
+		imageCount := 0
+		for _, raw := range tools {
+			tool, _ := raw.(map[string]any)
+			switch tool["type"] {
+			case "function":
+				functionCount++
+			case "image_generation":
+				imageCount++
+				if tool["output_format"] != "png" {
+					t.Fatalf("unexpected image output format: %+v", tool)
+				}
+			}
+		}
+		if functionCount != 1 || (imageCount == 1) != wantImage {
+			t.Fatalf("request %d tools do not match enablement: %+v", index, tools)
+		}
+		inputItems, _ := requestBodies[index]["input"].([]any)
+		sawInputImage := false
+		for _, rawInput := range inputItems {
+			inputItem, _ := rawInput.(map[string]any)
+			content, _ := inputItem["content"].([]any)
+			for _, rawContent := range content {
+				contentItem, _ := rawContent.(map[string]any)
+				if contentItem["type"] == "input_image" {
+					sawInputImage = true
+				}
+			}
+		}
+		if !sawInputImage {
+			t.Fatalf("request %d lost image input while toggling hosted generation: %+v", index, requestBodies[index]["input"])
+		}
+	}
+}
+
+func TestOpenAIOfficialStreamsImageGenerationAndRebuildsHistory(t *testing.T) {
+	pngData := testImageGenerationPNG(t, 4, 5)
+	encoded := base64.StdEncoding.EncodeToString(pngData)
+	var requestBody map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&requestBody); err != nil {
+			t.Fatal(err)
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte(strings.Join([]string{
+			`event: response.output_item.added`,
+			`data: {"type":"response.output_item.added","output_index":0,"sequence_number":1,"item":{"type":"image_generation_call","id":"ig_new","status":"in_progress","revised_prompt":"a blue lighthouse"}}`,
+			``,
+			`event: response.image_generation_call.partial_image`,
+			`data: {"type":"response.image_generation_call.partial_image","item_id":"ig_new","output_index":0,"partial_image_index":0,"partial_image_b64":"aGVsbG8=","sequence_number":2}`,
+			``,
+			`event: response.output_item.done`,
+			`data: {"type":"response.output_item.done","output_index":0,"sequence_number":3,"item":{"type":"image_generation_call","id":"ig_new","status":"completed","result":"` + encoded + `"}}`,
+			``,
+			`event: response.completed`,
+			`data: {"type":"response.completed","sequence_number":4,"response":{"id":"resp_1","object":"response","created_at":1,"model":"gpt-image-enabled","status":"completed","error":null,"incomplete_details":null,"output":[{"type":"image_generation_call","id":"ig_new","status":"completed","result":"` + encoded + `"}],"usage":{"input_tokens":1,"output_tokens":1,"input_tokens_details":{"cached_tokens":0},"output_tokens_details":{"reasoning_tokens":0},"total_tokens":2}}}`,
+			``,
+		}, "\n") + "\n\n"))
+	}))
+	defer server.Close()
+
+	provider := NewOpenAIOfficial(config.ProviderConfig{
+		BaseURL: server.URL, APIKey: "test-key", Model: "gpt-image-enabled",
+		Models: []config.ProviderModelConfig{{Name: "gpt-image-enabled", ImageGeneration: true}},
+	})
+	events, err := provider.Generate(context.Background(), GenerateRequest{
+		Messages: []Message{
+			{Role: "assistant", Blocks: []ContentBlock{{Type: "image_generation", GenerationID: "ig_history", Status: "completed", MIMEType: "image/png", Data: pngData}}},
+			{Role: "user", Content: "make it blue"},
+		},
+		EnableImageGeneration: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var final *ImageGeneration
+	var finalCount int
+	for event := range events {
+		if event.Type == "error" {
+			t.Fatal(event.Text)
+		}
+		if event.ToolCall != nil {
+			t.Fatalf("image generation call became a local tool call: %+v", event.ToolCall)
+		}
+		if event.Type == "image_generation" && event.ImageGeneration != nil && len(event.ImageGeneration.Data) > 0 {
+			final = event.ImageGeneration
+			finalCount++
+		}
+	}
+	if finalCount != 1 || final == nil || final.GenerationID != "ig_new" || final.RevisedPrompt != "a blue lighthouse" || final.MIME != "image/png" || final.Width != 4 || final.Height != 5 || !bytes.Equal(final.Data, pngData) {
+		t.Fatalf("unexpected final image event: count=%d event=%+v", finalCount, final)
+	}
+	input, _ := requestBody["input"].([]any)
+	if len(input) != 2 {
+		t.Fatalf("expected image generation history and user message, got %+v", requestBody["input"])
+	}
+	history, _ := input[0].(map[string]any)
+	if history["type"] != "image_generation_call" || history["id"] != "ig_history" || history["status"] != "completed" || history["result"] != encoded {
+		t.Fatalf("unexpected image generation history item: %+v", history)
+	}
+}
+
+func TestOpenAIOfficialPreservesUpstreamForbiddenMessage(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusForbidden)
+		_, _ = w.Write([]byte(`{"error":{"message":"Image generation is not enabled for this project","type":"invalid_request_error","code":"image_generation_not_enabled"}}`))
+	}))
+	defer server.Close()
+	provider := NewOpenAIOfficial(config.ProviderConfig{
+		BaseURL: server.URL, APIKey: "test-key", Model: "gpt-image-enabled",
+		Models: []config.ProviderModelConfig{{Name: "gpt-image-enabled", ImageGeneration: true}},
+	})
+	events, err := provider.Generate(context.Background(), GenerateRequest{Messages: []Message{{Role: "user", Content: "draw"}}, EnableImageGeneration: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var errorText string
+	for event := range events {
+		if event.Type == "error" {
+			errorText = event.Text
+		}
+	}
+	if !strings.Contains(errorText, "Image generation is not enabled for this project") || !strings.Contains(errorText, "403") {
+		t.Fatalf("upstream 403 detail was not preserved: %q", errorText)
 	}
 }
 

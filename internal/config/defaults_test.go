@@ -96,6 +96,9 @@ func TestDefaultConfigHomeUsesPrivatePermissions(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			home := t.TempDir()
 			t.Setenv("HOME", home)
+			t.Setenv("USERPROFILE", home)
+			t.Setenv("USERPROFILE", home)
+
 			appHome := filepath.Join(home, ".autoto")
 			if test.precreate {
 				if err := os.Mkdir(appHome, 0o755); err != nil {
@@ -132,6 +135,7 @@ func TestDefaultConfigHomeRejectsSymlink(t *testing.T) {
 	}
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
 	target := filepath.Join(home, "redirected")
 	if err := os.Mkdir(target, 0o700); err != nil {
 		t.Fatal(err)
@@ -302,18 +306,23 @@ func TestLoadBackfillsLegacyConfigVersion(t *testing.T) {
 func TestLoadMigratesLegacyConfigToCanonicalPath(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
 	legacyDir := filepath.Join(home, ".codeharbor")
 	legacyPath := filepath.Join(legacyDir, "config.json")
 	legacyDatabasePath := filepath.Join(legacyDir, "codeharbor.db")
 	if err := os.MkdirAll(legacyDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	legacyData := []byte(`{
-  "version": 1,
-  "server": {"host": "127.0.0.1", "port": 9091},
-  "paths": {"homeDir": "` + legacyDir + `", "databasePath": "` + legacyDatabasePath + `", "defaultProjectDir": "` + filepath.Join(home, "projects") + `"},
-  "agent": {"defaultModel": "openai:legacy", "summaryModel": "openai:legacy", "defaultPermissionMode": "acceptEdits", "maxTurns": 3, "contextTokenLimit": 1000}
-}`)
+	legacyData, err := json.MarshalIndent(map[string]any{
+		"version": 1,
+		"server":  map[string]any{"host": "127.0.0.1", "port": 9091},
+		"paths":   map[string]any{"homeDir": legacyDir, "databasePath": legacyDatabasePath, "defaultProjectDir": filepath.Join(home, "projects")},
+		"agent":   map[string]any{"defaultModel": "openai:legacy", "summaryModel": "openai:legacy", "defaultPermissionMode": "acceptEdits", "maxTurns": 3, "contextTokenLimit": 1000},
+	}, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacyData = append(legacyData, '\n')
 	if err := os.WriteFile(legacyPath, legacyData, 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -350,6 +359,7 @@ func TestLoadMigratesLegacyConfigToCanonicalPath(t *testing.T) {
 func TestLoadExplicitPathDoesNotMigrateLegacyConfig(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
 	legacyDir := filepath.Join(home, ".codeharbor")
 	if err := os.MkdirAll(legacyDir, 0o755); err != nil {
 		t.Fatal(err)
@@ -685,15 +695,43 @@ func TestNormalizeProviderModelsSupportsLegacyDefaultsAndBoundsLimits(t *testing
 }
 
 func TestProviderModelConfigJSONContract(t *testing.T) {
-	encoded, err := json.Marshal(ProviderConfig{Model: "model-a", Models: []ProviderModelConfig{{Name: "model-a", ContextTokenLimit: 123456}}, MaxTokens: 789})
+	encoded, err := json.Marshal(ProviderConfig{Model: "model-a", Models: []ProviderModelConfig{{Name: "model-a", ContextTokenLimit: 123456, ImageGeneration: true}}, MaxTokens: 789})
 	if err != nil {
 		t.Fatal(err)
 	}
 	text := string(encoded)
-	for _, required := range []string{`"models":[{"name":"model-a","contextTokenLimit":123456}]`, `"maxTokens":789`} {
+	for _, required := range []string{`"models":[{"name":"model-a","contextTokenLimit":123456,"imageGeneration":true}]`, `"maxTokens":789`} {
 		if !strings.Contains(text, required) {
 			t.Fatalf("provider model JSON contract missing %s: %s", required, text)
 		}
+	}
+	withoutImageGeneration, err := json.Marshal(ProviderModelConfig{Name: "model-b"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(withoutImageGeneration), "imageGeneration") {
+		t.Fatalf("default false image generation flag must remain omitted: %s", withoutImageGeneration)
+	}
+}
+
+func TestNormalizeProviderModelsPreservesImageGeneration(t *testing.T) {
+	models := NormalizeProviderModels([]ProviderModelConfig{
+		{Name: " enabled ", ContextTokenLimit: 1000, ImageGeneration: true},
+		{Name: "enabled", ContextTokenLimit: 2000},
+		{Name: "disabled", ImageGeneration: false},
+	}, "default")
+	if len(models) != 3 || models[0] != (ProviderModelConfig{Name: "enabled", ContextTokenLimit: 1000, ImageGeneration: true}) || models[1] != (ProviderModelConfig{Name: "disabled"}) || models[2] != (ProviderModelConfig{Name: "default"}) {
+		t.Fatalf("unexpected normalized image generation configuration: %+v", models)
+	}
+	provider := ProviderConfig{Models: models}
+	if enabled, known := provider.ModelImageGeneration("enabled"); !known || !enabled {
+		t.Fatalf("enabled model capability was not retained: enabled=%v known=%v", enabled, known)
+	}
+	if enabled, known := provider.ModelImageGeneration("disabled"); !known || enabled {
+		t.Fatalf("explicit false model capability was not retained: enabled=%v known=%v", enabled, known)
+	}
+	if enabled, known := provider.ModelImageGeneration("unknown"); known || enabled {
+		t.Fatalf("unknown model capability was inferred: enabled=%v known=%v", enabled, known)
 	}
 }
 
@@ -783,6 +821,7 @@ func TestLoadWithReportFiltersConfigOverriddenLegacyDefaults(t *testing.T) {
 func TestLoadWithReportTracksExplicitLegacyConfig(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
 	legacyPath := filepath.Join(home, ".codeharbor", "config.json")
 	if err := os.MkdirAll(filepath.Dir(legacyPath), 0o755); err != nil {
 		t.Fatal(err)
@@ -806,6 +845,7 @@ func TestLoadWithReportTracksExplicitLegacyConfig(t *testing.T) {
 func TestLoadWithReportTracksNewConfigCreatedAtExplicitLegacyPath(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
 	legacyPath := filepath.Join(home, ".codeharbor", "config.json")
 
 	cfg, report, err := LoadWithReport(legacyPath)
@@ -859,7 +899,7 @@ func TestLoadMigratesLegacyAccessPasswordAndRemovesPlaintextFromDisk(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	if info.Mode().Perm() != 0o600 {
+	if runtime.GOOS != "windows" && info.Mode().Perm() != 0o600 {
 		t.Fatalf("expected migrated config mode 0600, got %o", info.Mode().Perm())
 	}
 	reloaded, err := Load(path)

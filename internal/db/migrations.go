@@ -9,7 +9,7 @@ import (
 	"github.com/google/uuid"
 )
 
-const CurrentDBVersion = 45
+const CurrentDBVersion = 46
 
 type migration struct {
 	version int
@@ -63,6 +63,7 @@ var migrations = []migration{
 	{version: 43, name: "navigation archive and pin state", up: migrateV43NavigationState},
 	{version: 44, name: "account preferences", up: migrateV44AccountPreferences},
 	{version: 45, name: "OAuth app identities and sessions", up: migrateV45OAuthApp},
+	{version: 46, name: "generated image disk metadata", up: migrateV46GeneratedImages},
 }
 
 func runMigrations(ctx context.Context, db *sql.DB) error {
@@ -1368,6 +1369,20 @@ func migrateV45OAuthApp(ctx context.Context, tx *sql.Tx) error {
 	return err
 }
 
+func migrateV46GeneratedImages(ctx context.Context, tx *sql.Tx) error {
+	for _, table := range []string{"agents", "agent_messages"} {
+		exists, err := tableExists(ctx, tx, table)
+		if err != nil {
+			return err
+		}
+		if !exists {
+			return nil
+		}
+	}
+	_, err := tx.ExecContext(ctx, generatedImagesSchemaSQL)
+	return err
+}
+
 func migrateV41PrivateAPIGateway(ctx context.Context, tx *sql.Tx) error {
 	if _, err := tx.ExecContext(ctx, gatewaySchemaSQL); err != nil {
 		return err
@@ -1418,7 +1433,7 @@ func migrateLegacyZeroVersion(ctx context.Context, db *sql.DB) error {
 func legacyNamingSchemaSQL() string {
 	// P2-P3 tables were introduced after the agent/workline naming migration and
 	// must be created by their own migrations with modern column names.
-	legacySchema := strings.TrimSuffix(schemaSQL, schedulesSchemaSQL+notificationDeliveriesSchemaSQL+channelPersistenceSchemaSQL+deviceActionRequestsSchemaSQL+specSchemaSQL+modelClientSchemaSQL+remoteExecutionSchemaSQL+providerAccountStatsSchemaSQL+providerSecretsSchemaSQL+pluginSchemaSQL+backgroundTaskSchemaSQL+planSchemaSQL+gatewaySchemaSQL+accountPreferencesSchemaSQL+oauthAppSchemaSQL)
+	legacySchema := strings.TrimSuffix(schemaSQL, schedulesSchemaSQL+notificationDeliveriesSchemaSQL+channelPersistenceSchemaSQL+deviceActionRequestsSchemaSQL+specSchemaSQL+modelClientSchemaSQL+remoteExecutionSchemaSQL+providerAccountStatsSchemaSQL+providerSecretsSchemaSQL+pluginSchemaSQL+backgroundTaskSchemaSQL+planSchemaSQL+gatewaySchemaSQL+accountPreferencesSchemaSQL+oauthAppSchemaSQL+generatedImagesSchemaSQL)
 	return strings.NewReplacer(
 		"agent_message_attachments", "narrator_message_attachments",
 		"agent_messages", "narrator_messages",

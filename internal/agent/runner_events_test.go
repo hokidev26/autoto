@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -166,8 +167,14 @@ func TestToolEventMetaV1KeepsLegacyFieldsAndOmitsBashArguments(t *testing.T) {
 		t.Fatalf("Bash event input must omit raw command arguments: %s", input)
 	}
 	facts, ok := data["commandFacts"].(tools.CommandFacts)
-	if !ok || !facts.ParseKnown || facts.Program != "git" || strings.Contains(fmt.Sprintf("%+v", facts), secret) {
+	if !ok || strings.Contains(fmt.Sprintf("%+v", facts), secret) {
 		t.Fatalf("expected argument-free command facts, got %+v", data["commandFacts"])
+	}
+	if runtime.GOOS != "windows" && (!facts.ParseKnown || facts.Program != "git") {
+		t.Fatalf("expected parsed Bash command facts on POSIX platforms, got %+v", facts)
+	}
+	if runtime.GOOS == "windows" && facts.ParseKnown {
+		t.Fatalf("expected unparsed Bash command facts on Windows, got %+v", facts)
 	}
 }
 

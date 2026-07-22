@@ -117,6 +117,9 @@ func bashBackgroundEscapeWarning(command string) string {
 	if command == "" {
 		return ""
 	}
+	if strings.HasSuffix(command, "&") && !strings.HasSuffix(command, "&&") {
+		return "Background tasks must be managed by Autoto; do not add shell '&' backgrounding."
+	}
 	facts := AnalyzeBashCommand(command)
 	if facts.Background {
 		return "Background tasks must be managed by Autoto; do not add shell '&' backgrounding."

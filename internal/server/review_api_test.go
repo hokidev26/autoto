@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -229,6 +230,9 @@ func TestReviewWorkspaceFingerprintTracksDeletedModeAndSymlinkEntries(t *testing
 	})
 
 	t.Run("mode", func(t *testing.T) {
+		if runtime.GOOS == "windows" {
+			t.Skip("Windows does not preserve chmod mode changes reliably")
+		}
 		store, app, repo, agent := newReviewAPITestServer(t)
 		defer store.Close()
 		runGitTestCommand(t, repo, "config", "core.fileMode", "true")
@@ -593,7 +597,11 @@ func TestProjectAndAgentDefaultPlanModeAndPatch(t *testing.T) {
 	}, store, nil, nil)
 
 	projectRecorder := httptest.NewRecorder()
-	projectRequest := newTestRequest(http.MethodPost, "/api/projects", strings.NewReader(`{"name":"Plan default","gitPath":"`+workspace+`"}`))
+	projectBody, err := json.Marshal(map[string]string{"name": "Plan default", "gitPath": workspace})
+	if err != nil {
+		t.Fatal(err)
+	}
+	projectRequest := newTestRequest(http.MethodPost, "/api/projects", strings.NewReader(string(projectBody)))
 	projectRequest.Header.Set("Content-Type", "application/json")
 	app.Routes().ServeHTTP(projectRecorder, projectRequest)
 	if projectRecorder.Code != http.StatusCreated {
@@ -610,7 +618,11 @@ func TestProjectAndAgentDefaultPlanModeAndPatch(t *testing.T) {
 	}
 
 	createAgent := httptest.NewRecorder()
-	agentRequest := newTestRequest(http.MethodPost, "/api/agents", strings.NewReader(`{"title":"Secondary","model":"fake:test","permissionMode":"acceptEdits","cwd":"`+workspace+`"}`))
+	agentBody, err := json.Marshal(map[string]string{"title": "Secondary", "model": "fake:test", "permissionMode": "acceptEdits", "cwd": workspace})
+	if err != nil {
+		t.Fatal(err)
+	}
+	agentRequest := newTestRequest(http.MethodPost, "/api/agents", strings.NewReader(string(agentBody)))
 	agentRequest.Header.Set("Content-Type", "application/json")
 	app.Routes().ServeHTTP(createAgent, agentRequest)
 	if createAgent.Code != http.StatusCreated {

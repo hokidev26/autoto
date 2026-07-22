@@ -18,8 +18,8 @@ func TestAccountPreferencesFreshSchemaDefaultsAndReopen(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if readUserVersion(t, ctx, store.DB()) != 45 {
-		t.Fatalf("fresh database version = %d, want 45", readUserVersion(t, ctx, store.DB()))
+	if readUserVersion(t, ctx, store.DB()) != CurrentDBVersion {
+		t.Fatalf("fresh database version = %d, want %d", readUserVersion(t, ctx, store.DB()), CurrentDBVersion)
 	}
 	for _, table := range []string{"account_preferences", "account_preference_claims"} {
 		if !testTableExists(t, ctx, store.DB(), table) {

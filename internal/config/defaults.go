@@ -131,6 +131,7 @@ type ProviderRequestHeader struct {
 type ProviderModelConfig struct {
 	Name              string `json:"name"`
 	ContextTokenLimit int    `json:"contextTokenLimit"`
+	ImageGeneration   bool   `json:"imageGeneration,omitempty"`
 }
 
 type ProviderConfig struct {
@@ -976,7 +977,7 @@ func NormalizeProviderModels(models []ProviderModelConfig, defaultModel string) 
 			limit = ProviderModelContextTokenLimitMax
 		}
 		seen[name] = struct{}{}
-		normalized = append(normalized, ProviderModelConfig{Name: name, ContextTokenLimit: limit})
+		normalized = append(normalized, ProviderModelConfig{Name: name, ContextTokenLimit: limit, ImageGeneration: model.ImageGeneration})
 	}
 	if defaultModel != "" {
 		if _, exists := seen[defaultModel]; !exists {
@@ -994,6 +995,16 @@ func (p ProviderConfig) ModelContextTokenLimit(model string) int {
 		}
 	}
 	return 0
+}
+
+func (p ProviderConfig) ModelImageGeneration(model string) (enabled bool, known bool) {
+	model = strings.TrimSpace(model)
+	for _, configured := range p.Models {
+		if strings.TrimSpace(configured.Name) == model {
+			return configured.ImageGeneration, true
+		}
+	}
+	return false, false
 }
 
 // NormalizeProviderConfig applies the same compatibility defaults used when loading config.
@@ -1214,12 +1225,16 @@ func writeConfigAtomically(path string, data []byte) error {
 	}
 	completed = true
 
-	directory, err := os.Open(dir)
-	if err != nil {
-		return err
+	bestEffortSyncDir(dir)
+	return nil
+}
+
+func bestEffortSyncDir(path string) {
+	dir, err := os.Open(path)
+	if err == nil {
+		_ = dir.Sync()
+		_ = dir.Close()
 	}
-	defer directory.Close()
-	return directory.Sync()
 }
 
 func sanitizeConfigForDisk(cfg Config) Config {

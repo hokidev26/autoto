@@ -62,7 +62,14 @@ func TestCreateProjectUsesRequestedModel(t *testing.T) {
 		Agent: config.AgentConfig{DefaultModel: "openai:default", DefaultPermissionMode: "acceptEdits"},
 	}, store, nil, nil)
 
-	payload := []byte(`{"name":"Demo","gitPath":"` + projectDir + `","model":"cliproxyapi:gpt-dynamic"}`)
+	payload, err := json.Marshal(map[string]string{
+		"name":    "Demo",
+		"gitPath": projectDir,
+		"model":   "cliproxyapi:gpt-dynamic",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
 	recorder := httptest.NewRecorder()
 	request := newTestRequest(http.MethodPost, "/api/projects", bytes.NewReader(payload))
 	request.Header.Set("Content-Type", "application/json")
@@ -475,7 +482,7 @@ func TestModelsRouteExposesXHighForCodexCapability(t *testing.T) {
 		},
 	})
 	app := New(config.Config{Providers: config.ProvidersConfig{Instances: []config.ProviderConfig{{
-		Name: "codex", Type: config.ProviderTypeCodex, Model: "gpt-5", Models: []config.ProviderModelConfig{{Name: "gpt-5", ContextTokenLimit: 400000}},
+		Name: "codex", Type: config.ProviderTypeCodex, Model: "gpt-5", Models: []config.ProviderModelConfig{{Name: "gpt-5", ContextTokenLimit: 400000, ImageGeneration: true}},
 	}}}}, nil, nil, nil, registry)
 
 	recorder := httptest.NewRecorder()
@@ -492,8 +499,8 @@ func TestModelsRouteExposesXHighForCodexCapability(t *testing.T) {
 		t.Fatalf("model catalog did not expose canonical Codex xhigh capability: %+v", got)
 	}
 	modelCapabilities := body.Providers[0].ModelCapabilities
-	if !modelCapabilities["gpt-5"].FastMode || modelCapabilities["gpt-5"].ContextTokenLimit != 400000 {
-		t.Fatalf("model catalog did not merge per-model Fast and context capabilities: %+v", modelCapabilities)
+	if !modelCapabilities["gpt-5"].FastMode || !modelCapabilities["gpt-5"].ImageGeneration || modelCapabilities["gpt-5"].ContextTokenLimit != 400000 {
+		t.Fatalf("model catalog did not merge per-model Fast, image generation, and context capabilities: %+v", modelCapabilities)
 	}
 	if _, exists := modelCapabilities["gpt-5-mini"]; exists {
 		t.Fatalf("unsupported model should not expose Fast capability: %+v", modelCapabilities)

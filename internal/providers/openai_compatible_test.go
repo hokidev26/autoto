@@ -535,3 +535,40 @@ func TestOpenAICompatiblePropagatesLengthFinishReason(t *testing.T) {
 		t.Fatalf("length finish reason was not propagated: %+v", done)
 	}
 }
+
+func TestOpenAICompatibleNeverForwardsHostedImageGenerationTool(t *testing.T) {
+	var requestBody map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&requestBody); err != nil {
+			t.Fatal(err)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"choices": []map[string]any{{"message": map[string]string{"content": "ok"}}}})
+	}))
+	defer server.Close()
+	provider := NewOpenAICompatible(config.ProviderConfig{Name: "relay", Type: "openai-compatible", BaseURL: server.URL, Model: "model", APIKeyOptional: true})
+	if CapabilitiesFor(provider).ImageGeneration {
+		t.Fatal("OpenAI-compatible provider must not advertise hosted image generation")
+	}
+	events, err := provider.Generate(context.Background(), GenerateRequest{
+		Messages:              []Message{{Role: "user", Content: "draw"}},
+		Tools:                 []ToolSpec{{Name: "Read"}},
+		EnableImageGeneration: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for event := range events {
+		if event.Type == "error" {
+			t.Fatal(event.Text)
+		}
+	}
+	tools, _ := requestBody["tools"].([]any)
+	if len(tools) != 1 {
+		t.Fatalf("compatible provider changed local tools: %+v", requestBody["tools"])
+	}
+	tool, _ := tools[0].(map[string]any)
+	function, _ := tool["function"].(map[string]any)
+	if tool["type"] != "function" || function["name"] != "Read" {
+		t.Fatalf("hosted image generation was disguised as a function tool: %+v", tool)
+	}
+}

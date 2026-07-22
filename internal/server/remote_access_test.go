@@ -594,8 +594,19 @@ func TestRestrictedAndFullRemoteFilesystemScopes(t *testing.T) {
 	}
 	full := httptest.NewRecorder()
 	app.Routes().ServeHTTP(full, fullRequest)
-	if full.Code != http.StatusOK || !strings.Contains(full.Body.String(), filepath.Join(outside, "child")) {
+	if full.Code != http.StatusOK {
 		t.Fatalf("full filesystem scope did not browse the host directory: %d %s", full.Code, full.Body.String())
+	}
+	var fullBody struct {
+		Entries []struct {
+			Path string `json:"path"`
+		} `json:"entries"`
+	}
+	if err := json.Unmarshal(full.Body.Bytes(), &fullBody); err != nil {
+		t.Fatalf("decode full filesystem response: %v body=%s", err, full.Body.String())
+	}
+	if len(fullBody.Entries) == 0 || filepath.Clean(fullBody.Entries[0].Path) != filepath.Clean(filepath.Join(outside, "child")) {
+		t.Fatalf("full filesystem scope did not browse the host directory: %s", full.Body.String())
 	}
 }
 

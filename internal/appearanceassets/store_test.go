@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -39,19 +40,21 @@ func TestStoreImportCurrentOpenDeleteAndPermissions(t *testing.T) {
 	if err != nil || !bytes.Equal(opened, data) {
 		t.Fatalf("opened data mismatch: %v", err)
 	}
-	for _, item := range []struct {
-		path string
-		mode os.FileMode
-	}{
-		{store.Root(), 0o700}, {filepath.Join(store.Root(), CurrentFilename), 0o600},
-		{filepath.Join(store.Root(), metadata.Revision+".png"), 0o600},
-	} {
-		info, err := os.Stat(item.path)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if info.Mode().Perm() != item.mode {
-			t.Errorf("%s mode %o, want %o", item.path, info.Mode().Perm(), item.mode)
+	if runtime.GOOS != "windows" {
+		for _, item := range []struct {
+			path string
+			mode os.FileMode
+		}{
+			{store.Root(), 0o700}, {filepath.Join(store.Root(), CurrentFilename), 0o600},
+			{filepath.Join(store.Root(), metadata.Revision+".png"), 0o600},
+		} {
+			info, err := os.Stat(item.path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if info.Mode().Perm() != item.mode {
+				t.Errorf("%s mode %o, want %o", item.path, info.Mode().Perm(), item.mode)
+			}
 		}
 	}
 	if err := store.Delete(); err != nil {

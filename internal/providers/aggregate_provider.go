@@ -73,7 +73,7 @@ func (p *AggregateProvider) Capabilities() Capabilities {
 	// effort cannot be pruned equivalently: an unsupported concrete effort causes
 	// adapters to reject the request. Advertise only the intersection that every
 	// currently resolvable candidate can accept.
-	capabilities := Capabilities{Tools: true, Streaming: true, ImageInput: true}
+	capabilities := Capabilities{Tools: true, Streaming: true, ImageInput: true, ImageGeneration: true}
 	definition, err := p.loadDefinition(context.Background())
 	if err != nil {
 		return capabilities
@@ -292,6 +292,9 @@ func aggregateRequestForCapabilities(req GenerateRequest, capabilities Capabilit
 	if !modelCapabilities.FastMode {
 		req.FastMode = false
 	}
+	if !capabilities.ImageGeneration || !modelCapabilities.ImageGeneration {
+		req.EnableImageGeneration = false
+	}
 	// Aggregate definitions can change between catalog reads and dispatch. Keep
 	// a direct aggregate caller safe as well by downgrading a now-unsupported
 	// concrete effort to auto for this candidate; the aggregate's advertised
@@ -299,7 +302,7 @@ func aggregateRequestForCapabilities(req GenerateRequest, capabilities Capabilit
 	if !capabilities.SupportsReasoningEffort(req.ReasoningEffort) {
 		req.ReasoningEffort = "auto"
 	}
-	if capabilities.Tools && capabilities.ImageInput {
+	if capabilities.Tools && capabilities.ImageInput && capabilities.ImageGeneration {
 		return req
 	}
 	messages := make([]Message, len(req.Messages))
@@ -333,6 +336,12 @@ func aggregateRequestForCapabilities(req GenerateRequest, capabilities Capabilit
 					continue
 				}
 				blocks = append(blocks, ContentBlock{Type: "text", Text: fmt.Sprintf("[历史工具结果 %s]\n%s", strings.TrimSpace(block.ToolName), block.Output)})
+			case "image_generation":
+				if capabilities.ImageGeneration && modelCapabilities.ImageGeneration && len(block.Data) > 0 {
+					blocks = append(blocks, block)
+					continue
+				}
+				blocks = append(blocks, ContentBlock{Type: "text", Text: "[历史图片生成结果未作为结构化消息发送。]"})
 			default:
 				block.Data = nil
 				blocks = append(blocks, block)
@@ -369,7 +378,7 @@ func consumeAggregateCandidate(ctx context.Context, out chan<- Event, events <-c
 				return false
 			}
 			switch event.Type {
-			case "text", "tool_call":
+			case "text", "tool_call", "image_generation":
 				if !flushPending() {
 					return false
 				}

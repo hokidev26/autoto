@@ -70,4 +70,4 @@ export {
   renderCodexAccountManagementTable,
 } from "./provider-account-rendering.mjs";
 
-export { createModelProviderSettingsController } from "./provider-console.mjs";
+export { createModelProviderSettingsController } from "./provider-console.mjs?v=native-image-generation-1";

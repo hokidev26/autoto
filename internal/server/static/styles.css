@@ -1,11 +1,11 @@
 /* Split into cascade-ordered modules under styles/. Order matters: these
    @import rules are equivalent to concatenating the files in this order. */
 @import url("styles/base.css");
-@import url("styles/workspace.css");
+@import url("styles/workspace.css?v=native-image-generation-1");
 @import url("styles/settings-legacy.css");
 @import url("styles/white-shell.css");
 @import url("styles/workbench.css");
 @import url("styles/settings.css");
-@import url("styles/providers.css");
+@import url("styles/providers.css?v=native-image-generation-1");
 @import url("styles/workspace-tasks.css");
 @import url("styles/extras.css");

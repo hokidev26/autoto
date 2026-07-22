@@ -226,6 +226,9 @@ func (s *Store) ListMessages(ctx context.Context, agentID string) ([]Message, er
 	if err := s.populateMessageAttachments(ctx, messages, false); err != nil {
 		return nil, err
 	}
+	if err := s.populateMessageGeneratedImages(ctx, messages); err != nil {
+		return nil, err
+	}
 	return messages, nil
 }
 
@@ -273,6 +276,9 @@ func (s *Store) ListMessagesPage(ctx context.Context, agentID, before string, li
 	if err := s.populateMessageAttachments(ctx, page.Messages, false); err != nil {
 		return MessagePage{}, err
 	}
+	if err := s.populateMessageGeneratedImages(ctx, page.Messages); err != nil {
+		return MessagePage{}, err
+	}
 	return page, nil
 }
 
@@ -282,6 +288,9 @@ func (s *Store) ListMessagesWithAttachmentData(ctx context.Context, agentID stri
 		return nil, err
 	}
 	if err := s.populateMessageAttachments(ctx, messages, true); err != nil {
+		return nil, err
+	}
+	if err := s.populateMessageGeneratedImages(ctx, messages); err != nil {
 		return nil, err
 	}
 	return messages, nil

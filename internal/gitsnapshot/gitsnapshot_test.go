@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -19,15 +20,18 @@ func TestWorktreeFingerprintIncludesPermissionsAndContent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Chmod(path, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	afterMode, err := WorktreeFingerprint(repo, "large.txt")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if before == afterMode {
-		t.Fatal("expected chmod to change fingerprint")
+	afterMode := before
+	if runtime.GOOS != "windows" {
+		if err := os.Chmod(path, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		afterMode, err = WorktreeFingerprint(repo, "large.txt")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if before == afterMode {
+			t.Fatal("expected chmod to change fingerprint")
+		}
 	}
 	if err := os.WriteFile(path, []byte(contents+"changed"), 0o755); err != nil {
 		t.Fatal(err)

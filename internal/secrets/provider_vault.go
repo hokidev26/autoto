@@ -13,6 +13,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 
@@ -461,7 +462,7 @@ func (v *ProviderVault) loadExistingKey() ([]byte, error) {
 		}
 		return nil, ErrProviderSecretKeyUnavailable
 	}
-	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() || info.Mode().Perm()&0o077 != 0 {
+	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() || (runtime.GOOS != "windows" && info.Mode().Perm()&0o077 != 0) {
 		return nil, ErrProviderSecretKeyUnavailable
 	}
 	file, err := os.Open(path)
@@ -515,17 +516,17 @@ func (v *ProviderVault) createKey() ([]byte, error) {
 	if err := file.Close(); err != nil {
 		return nil, ErrProviderSecretKeyUnavailable
 	}
-	directory, err := os.Open(dir)
-	if err != nil {
-		return nil, ErrProviderSecretKeyUnavailable
-	}
-	if err := directory.Sync(); err != nil {
-		_ = directory.Close()
-		return nil, ErrProviderSecretKeyUnavailable
-	}
-	_ = directory.Close()
+	bestEffortSyncDir(dir)
 	completed = true
 	return key, nil
+}
+
+func bestEffortSyncDir(path string) {
+	dir, err := os.Open(path)
+	if err == nil {
+		_ = dir.Sync()
+		_ = dir.Close()
+	}
 }
 
 func validateSecretDirectory(dir string, create bool) error {
@@ -548,7 +549,7 @@ func validateSecretDirectory(dir string, create bool) error {
 			return ErrProviderSecretKeyUnavailable
 		}
 	}
-	if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() || info.Mode().Perm()&0o077 != 0 {
+	if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() || (runtime.GOOS != "windows" && info.Mode().Perm()&0o077 != 0) {
 		return ErrProviderSecretKeyUnavailable
 	}
 	return nil

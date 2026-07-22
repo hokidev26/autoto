@@ -14,6 +14,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -403,23 +404,25 @@ func TestPrivatePermissions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, item := range []struct {
-		path string
-		mode os.FileMode
-	}{
-		{store.Root(), 0o700},
-		{filepath.Join(store.Root(), manifest.ID), 0o700},
-		{filepath.Join(store.Root(), manifest.ID, theme.Revision), 0o700},
-		{filepath.Join(store.Root(), manifest.ID, "current"), 0o600},
-		{filepath.Join(store.Root(), manifest.ID, theme.Revision, ManifestFilename), 0o600},
-		{filepath.Join(store.Root(), manifest.ID, theme.Revision, filepath.FromSlash(manifest.Preview)), 0o600},
-	} {
-		info, err := os.Stat(item.path)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if info.Mode().Perm() != item.mode {
-			t.Errorf("%s mode = %o, want %o", item.path, info.Mode().Perm(), item.mode)
+	if runtime.GOOS != "windows" {
+		for _, item := range []struct {
+			path string
+			mode os.FileMode
+		}{
+			{store.Root(), 0o700},
+			{filepath.Join(store.Root(), manifest.ID), 0o700},
+			{filepath.Join(store.Root(), manifest.ID, theme.Revision), 0o700},
+			{filepath.Join(store.Root(), manifest.ID, "current"), 0o600},
+			{filepath.Join(store.Root(), manifest.ID, theme.Revision, ManifestFilename), 0o600},
+			{filepath.Join(store.Root(), manifest.ID, theme.Revision, filepath.FromSlash(manifest.Preview)), 0o600},
+		} {
+			info, err := os.Stat(item.path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if info.Mode().Perm() != item.mode {
+				t.Errorf("%s mode = %o, want %o", item.path, info.Mode().Perm(), item.mode)
+			}
 		}
 	}
 }

@@ -25,6 +25,7 @@ import (
 	"autoto/internal/config"
 	"autoto/internal/db"
 	"autoto/internal/devices"
+	"autoto/internal/imageassets"
 	"autoto/internal/integrations"
 	"autoto/internal/preview"
 	"autoto/internal/providers"
@@ -129,6 +130,7 @@ type Server struct {
 	plugins                   PluginService
 	themeStore                *themes.Store
 	appearanceAssets          *appearanceassets.Store
+	generatedImages           *imageassets.Store
 	reviewer                  *review.Service
 	audit                     audit.Recorder
 	integrationClient         *http.Client
@@ -294,6 +296,10 @@ func (s *Server) SetThemeStore(store *themes.Store) {
 
 func (s *Server) SetAppearanceAssetStore(store *appearanceassets.Store) {
 	s.appearanceAssets = store
+}
+
+func (s *Server) SetGeneratedImageStore(store *imageassets.Store) {
+	s.generatedImages = store
 }
 
 // NewReviewService constructs the isolated, tool-free reviewer used by plan
@@ -584,6 +590,8 @@ func (s *Server) Routes() http.Handler {
 		r.Delete("/{id}/draft", s.deleteMessageDraft)
 		r.Post("/{id}/messages/{messageId}/corrections", s.createCorrection)
 		r.Get("/{id}/messages/{messageId}/attachments/{attachmentId}", s.getMessageAttachment)
+		r.Get("/{id}/messages/{messageId}/generated-images/{assetId}", s.getGeneratedImage)
+		r.MethodFunc(http.MethodHead, "/{id}/messages/{messageId}/generated-images/{assetId}", s.getGeneratedImage)
 		r.Get("/{id}/runs", s.listRuns)
 		r.Get("/{id}/runs/active", s.getActiveRunSummary)
 		r.Get("/{id}/runs/{runId}", s.getRunSummary)

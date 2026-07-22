@@ -26,6 +26,15 @@ type ContentBlock struct {
 	Filename string `json:"filename,omitempty"`
 	Kind     string `json:"kind,omitempty"`
 
+	AssetID       string `json:"assetId,omitempty"`
+	GenerationID  string `json:"generationId,omitempty"`
+	Status        string `json:"status,omitempty"`
+	OutputIndex   int64  `json:"outputIndex,omitempty"`
+	PartialIndex  int64  `json:"partialIndex,omitempty"`
+	RevisedPrompt string `json:"revisedPrompt,omitempty"`
+	Width         int    `json:"width,omitempty"`
+	Height        int    `json:"height,omitempty"`
+
 	ToolUseID string          `json:"toolUseId,omitempty"`
 	ToolName  string          `json:"toolName,omitempty"`
 	Input     json.RawMessage `json:"input,omitempty"`
@@ -67,13 +76,14 @@ const (
 var ErrGatewayOAuthUnsupported = errors.New("gateway calls do not support OAuth providers")
 
 type GenerateRequest struct {
-	Model           string
-	SystemPrompt    string
-	Messages        []Message
-	Tools           []ToolSpec
-	ReasoningEffort string
-	MaxOutputTokens int64
-	FastMode        bool
+	Model                 string
+	SystemPrompt          string
+	Messages              []Message
+	Tools                 []ToolSpec
+	ReasoningEffort       string
+	MaxOutputTokens       int64
+	FastMode              bool
+	EnableImageGeneration bool
 	// Scenario identifies the caller boundary. The zero value is treated as an
 	// internal call for backwards compatibility.
 	Scenario CallScenario
@@ -96,13 +106,26 @@ type DispatchInfo struct {
 	CredentialID string
 }
 
+type ImageGeneration struct {
+	GenerationID  string `json:"generationId"`
+	Status        string `json:"status"`
+	OutputIndex   int64  `json:"outputIndex"`
+	PartialIndex  int64  `json:"partialIndex"`
+	RevisedPrompt string `json:"revisedPrompt,omitempty"`
+	Data          []byte `json:"-"`
+	MIME          string `json:"mime,omitempty"`
+	Width         int    `json:"width,omitempty"`
+	Height        int    `json:"height,omitempty"`
+}
+
 type Event struct {
-	Type       string
-	Text       string
-	ToolCall   *ToolCall
-	Usage      *Usage
-	StopReason string
-	Done       bool
+	Type            string
+	Text            string
+	ToolCall        *ToolCall
+	ImageGeneration *ImageGeneration
+	Usage           *Usage
+	StopReason      string
+	Done            bool
 	// Dispatch reports the concrete target selected by an adapter. Nil preserves
 	// the historical event contract for providers that do not report attribution.
 	Dispatch *DispatchInfo
@@ -128,6 +151,7 @@ type Capabilities struct {
 	Tools            bool     `json:"tools"`
 	Streaming        bool     `json:"streaming"`
 	ImageInput       bool     `json:"imageInput"`
+	ImageGeneration  bool     `json:"imageGeneration"`
 	Reasoning        bool     `json:"reasoning,omitempty"`
 	ReasoningEffort  bool     `json:"reasoningEffort"`
 	ReasoningEfforts []string `json:"reasoningEfforts,omitempty"`
@@ -140,9 +164,11 @@ type CapabilityProvider interface {
 // ModelCapabilities are optional features that can differ between models of
 // the same provider. Unknown models default to no optional model features.
 type ModelCapabilities struct {
-	FastMode          bool `json:"fastMode"`
-	FastModeKnown     bool `json:"-"`
-	ContextTokenLimit int  `json:"contextTokenLimit"`
+	FastMode             bool `json:"fastMode"`
+	FastModeKnown        bool `json:"-"`
+	ImageGeneration      bool `json:"imageGeneration"`
+	ImageGenerationKnown bool `json:"-"`
+	ContextTokenLimit    int  `json:"contextTokenLimit"`
 }
 
 type ModelCapabilityProvider interface {
@@ -192,7 +218,12 @@ func ModelCapabilitiesFor(provider Provider, model string) ModelCapabilities {
 }
 
 func configuredModelCapabilities(cfg config.ProviderConfig, model string) ModelCapabilities {
-	return ModelCapabilities{ContextTokenLimit: cfg.ModelContextTokenLimit(model)}
+	imageGeneration, imageGenerationKnown := cfg.ModelImageGeneration(model)
+	return ModelCapabilities{
+		ImageGeneration:      imageGeneration,
+		ImageGenerationKnown: imageGenerationKnown,
+		ContextTokenLimit:    cfg.ModelContextTokenLimit(model),
+	}
 }
 
 // NewProvider constructs a provider adapter from a normalized provider config.

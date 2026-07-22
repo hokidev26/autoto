@@ -527,7 +527,48 @@ CREATE TABLE IF NOT EXISTS tool_permission_rules (
   updated_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_tool_permission_rules_match ON tool_permission_rules(enabled, mode, tool_name, risk, priority);
-` + automationAuditSchemaSQL + integrationConnectionsSchemaSQL + memorySchemaSQL + schedulesSchemaSQL + notificationDeliveriesSchemaSQL + channelPersistenceSchemaSQL + deviceActionRequestsSchemaSQL + specSchemaSQL + modelClientSchemaSQL + remoteExecutionSchemaSQL + providerAccountStatsSchemaSQL + providerSecretsSchemaSQL + pluginSchemaSQL + backgroundTaskSchemaSQL + planSchemaSQL + gatewaySchemaSQL + accountPreferencesSchemaSQL + oauthAppSchemaSQL
+` + automationAuditSchemaSQL + integrationConnectionsSchemaSQL + memorySchemaSQL + schedulesSchemaSQL + notificationDeliveriesSchemaSQL + channelPersistenceSchemaSQL + deviceActionRequestsSchemaSQL + specSchemaSQL + modelClientSchemaSQL + remoteExecutionSchemaSQL + providerAccountStatsSchemaSQL + providerSecretsSchemaSQL + pluginSchemaSQL + backgroundTaskSchemaSQL + planSchemaSQL + gatewaySchemaSQL + accountPreferencesSchemaSQL + oauthAppSchemaSQL + generatedImagesSchemaSQL
+
+const generatedImagesSchemaSQL = `
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_messages_agent_id ON agent_messages(agent_id, id);
+CREATE TABLE IF NOT EXISTS agent_message_generated_images (
+  id TEXT PRIMARY KEY,
+  agent_id TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
+  message_id TEXT NOT NULL,
+  run_id TEXT REFERENCES runs(id) ON DELETE SET NULL,
+  generation_id TEXT NOT NULL,
+  storage_key TEXT NOT NULL,
+  sha256 TEXT NOT NULL,
+  mime_type TEXT NOT NULL DEFAULT 'image/png',
+  filename TEXT NOT NULL,
+  byte_size INTEGER NOT NULL,
+  width INTEGER NOT NULL,
+  height INTEGER NOT NULL,
+  revised_prompt TEXT,
+  output_index INTEGER NOT NULL,
+  status TEXT NOT NULL DEFAULT 'ready',
+  created_at TEXT NOT NULL,
+  FOREIGN KEY (agent_id, message_id) REFERENCES agent_messages(agent_id, id) ON DELETE CASCADE,
+  UNIQUE(message_id, generation_id, output_index),
+  CHECK (length(CAST(id AS BLOB)) BETWEEN 1 AND 128),
+  CHECK (length(CAST(generation_id AS BLOB)) BETWEEN 1 AND 256),
+  CHECK (length(sha256) = 64 AND sha256 NOT GLOB '*[^0-9a-f]*'),
+  CHECK (storage_key = 'objects/' || substr(sha256, 1, 2) || '/' || sha256 || '.png'),
+  CHECK (mime_type = 'image/png'),
+  CHECK (length(CAST(filename AS BLOB)) BETWEEN 1 AND 255),
+  CHECK (byte_size BETWEEN 1 AND 10485760),
+  CHECK (width BETWEEN 1 AND 8192),
+  CHECK (height BETWEEN 1 AND 8192),
+  CHECK (width * height <= 32000000),
+  CHECK (revised_prompt IS NULL OR length(CAST(revised_prompt AS BLOB)) <= 131072),
+  CHECK (output_index >= 0),
+  CHECK (status IN ('ready', 'unavailable'))
+);
+CREATE INDEX IF NOT EXISTS idx_generated_images_message ON agent_message_generated_images(message_id, output_index, id);
+CREATE INDEX IF NOT EXISTS idx_generated_images_agent_created ON agent_message_generated_images(agent_id, created_at, id);
+CREATE INDEX IF NOT EXISTS idx_generated_images_storage_key ON agent_message_generated_images(storage_key);
+`
 
 const automationAuditSchemaSQL = `
 

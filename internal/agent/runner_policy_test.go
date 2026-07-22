@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -304,7 +305,16 @@ func TestRunnerDangerBashIsBlockedWithoutApproval(t *testing.T) {
 }
 
 func TestWhitelistedExecMatcher(t *testing.T) {
-	for _, command := range []string{"go test ./...", "go vet ./internal/...", "go build ./...", "npm test", "npm run lint", "git status --short", "git diff --stat"} {
+	commands := []string{"go test ./...", "go vet ./internal/...", "go build ./...", "npm test", "npm run lint", "git status --short", "git diff --stat"}
+	if runtime.GOOS == "windows" {
+		for _, command := range commands {
+			if isWhitelistedExecCommand(command) {
+				t.Fatalf("expected command not to be whitelisted on Windows: %s", command)
+			}
+		}
+		return
+	}
+	for _, command := range commands {
 		if !isWhitelistedExecCommand(command) {
 			t.Fatalf("expected command to be whitelisted: %s", command)
 		}

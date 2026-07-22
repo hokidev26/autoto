@@ -7,7 +7,7 @@ import { createBackgroundTasksController } from "./background-tasks.mjs?v=subage
 import { createExecutionNotifications } from "./execution-notifications.mjs";
 import { createBackendRegistryController } from "./backend-registry.mjs?v=agent-admin-removed-1";
 import { createChatComposerController, normalizeChatDrafts, normalizePromptHistory } from "./chat-composer.mjs?v=plan-mode-1-project-context-1";
-import { createChatRenderingController, findToolActivityByIdentity, renderAgentTaskActivityCardHTML } from "./chat-rendering.mjs?v=message-thread-1-plan-mode-2-user-message-left-1-switch-fix-3-hide-run-loading-1-i18n-shared-1-conversation-boundary-1-subagent-cards-1-message-lifecycle-1-subagent-incremental-1-profile-message-identity-1-profile-avatar-1-provider-errors-1-compact-run-error-1";
+import { createChatRenderingController, findToolActivityByIdentity, renderAgentTaskActivityCardHTML } from "./chat-rendering.mjs?v=message-thread-1-plan-mode-2-user-message-left-1-switch-fix-3-hide-run-loading-1-i18n-shared-1-conversation-boundary-1-subagent-cards-1-message-lifecycle-1-subagent-incremental-1-profile-message-identity-1-profile-avatar-1-provider-errors-1-compact-run-error-1-native-image-generation-1";
 import { createContextManagementController } from "./context-management.mjs?v=context-ring-2";
 import {
   addRecentConversation,
@@ -41,7 +41,7 @@ import { createLocalPreferencesSettingsController } from "./local-preferences-se
 import { createMCPRegistryUIController } from "./mcp-registry-ui.mjs";
 import { createPluginRegistryUIController } from "./plugin-registry-ui.mjs";
 import { createMemorySettingsController } from "./memory-settings.mjs";
-import { createModelProviderSettingsController } from "./model-provider-settings.mjs?v=native-codex-3-provider-console-3-account-wide-1-model-compact-1-codex-export-1-settings-flat-1-aggregates-1-codex-import-open-1-provider-create-page-2-codex-browser-login-1-provider-secrets-1-model-picker-1-provider-full-page-2-provider-placeholders-1-usage-cost-1-codex-usage-clean-1-model-sections-hidden-1-model-configs-1-provider-reference-1-default-openai-responses-1-provider-draft-session-1";
+import { createModelProviderSettingsController } from "./model-provider-settings.mjs?v=native-codex-3-provider-console-3-account-wide-1-model-compact-1-codex-export-1-settings-flat-1-aggregates-1-codex-import-open-1-provider-create-page-2-codex-browser-login-1-provider-secrets-1-model-picker-1-provider-full-page-2-provider-placeholders-1-usage-cost-1-codex-usage-clean-1-model-sections-hidden-1-model-configs-1-provider-reference-1-default-openai-responses-1-provider-draft-session-1-native-image-generation-1";
 import {
   createOverviewDashboardController,
   overviewNavigationRoute,
@@ -242,6 +242,7 @@ const state = {
   liveAssistantModel: "",
   liveAssistantStartedAt: "",
   liveAssistantPerformance: null,
+  liveImageGenerations: {},
   pendingToolApprovals: {},
   gitStatus: null,
   gitDiff: null,
@@ -719,6 +720,7 @@ const {
   applyPlanEvent,
   beginLiveAssistantGeneration,
   clearCurrentAgentApprovals,
+  clearLiveImageGenerations,
   clearPlanState,
   clearLiveAssistantText,
   clearMessageRefreshTimer,
@@ -731,6 +733,7 @@ const {
   loadMessages,
   loadOlderMessages,
   loadRunSummary,
+  rememberImageGenerationStatus,
   rememberToolApproval,
   rememberToolStarted,
   refreshUserMessageIdentity,
@@ -2866,6 +2869,7 @@ async function applyAgentLiveSnapshot(snapshot, detail = {}) {
   syncNavigationConversationFromAgent(state.agent, { reason: "agent-snapshot" });
   navigationRefresh.request("agent-snapshot");
   clearLiveAssistantText();
+  clearLiveImageGenerations({ agentId, preserveView: true });
   const recoveredToolOutputs = Object.fromEntries(Object.entries(state.liveToolOutputs || {}).filter(([, value]) => value?.agentId && value.agentId !== agentId));
   for (const call of Array.isArray(snapshot.toolActivity) ? snapshot.toolActivity : []) {
     const toolUseId = String(call?.toolUseId || call?.tool_use_id || "").trim();
@@ -2948,6 +2952,10 @@ async function handleAgentStreamEvent(event) {
     if (throughput.ttftMs == null && event.data?.ttftMs != null) throughput.ttftMs = event.data.ttftMs;
     updateLiveAssistantPerformance(throughput, { requestId, runId, replace: true });
   }
+  if (event.type === "image_generation.status") {
+    rememberImageGenerationStatus(event);
+    refreshComposerActivityStatus();
+  }
   if (event.type === "tool.started") {
     rememberToolStarted(event);
     refreshComposerActivityStatus();
@@ -2971,6 +2979,7 @@ async function handleAgentStreamEvent(event) {
   }
   if ([...completedMessageEvents, ...terminalAgentEvents].includes(event.type)) {
     clearLiveAssistantText();
+    clearLiveImageGenerations({ agentId });
     refreshComposerActivityStatus();
   }
   if ([...completedMessageEvents, ...terminalAgentEvents].includes(event.type)) scheduleMessageRefresh(80, agentId);

@@ -862,12 +862,9 @@ func safeCredentialFilename(value string) (string, error) {
 
 func syncDirectory(dir string) error {
 	file, err := os.Open(dir)
-	if err != nil {
-		return errors.New("同步 Codex 本地凭据库失败")
-	}
-	defer file.Close()
-	if err := file.Sync(); err != nil {
-		return errors.New("同步 Codex 本地凭据库失败")
+	if err == nil {
+		_ = file.Sync()
+		_ = file.Close()
 	}
 	return nil
 }

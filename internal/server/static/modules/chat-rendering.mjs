@@ -5,7 +5,7 @@ import { confirm as platformConfirm } from "./platform.mjs";
 import { api } from "./runtime.mjs";
 import { visibleMessageText } from "./skills-commands.mjs";
 import { normalizeAvatarDataUrl } from "./profile-avatar.mjs?v=profile-avatar-1";
-import { t as cr } from "./messages-chat-rendering-extra.mjs?v=plan-mode-1-i18n-shared-1-subagent-cards-1-provider-errors-1";
+import { t as cr } from "./messages-chat-rendering-extra.mjs?v=plan-mode-1-i18n-shared-1-subagent-cards-1-provider-errors-1-native-image-generation-1";
 
 const userMessageRoles = new Set(["user", "human"]);
 const maxTokenCount = 1_000_000_000;
@@ -76,6 +76,95 @@ export function normalizeMessageProfileIdentity(value = {}) {
   const avatarInitials = String(source.avatarInitials || "AT").trim().slice(0, 4).toUpperCase() || "AT";
   const avatarDataUrl = normalizeAvatarDataUrl(source.avatarDataUrl);
   return { displayName, avatarInitials, avatarDataUrl };
+}
+
+function boundedImageText(value, maximum = 240) {
+  return String(value ?? "").trim().slice(0, maximum);
+}
+
+function positiveImageDimension(value) {
+  const number = Number(value);
+  return Number.isSafeInteger(number) && number > 0 && number <= 100_000 ? number : 0;
+}
+
+function imageOutputIndex(value) {
+  const number = Number(value);
+  return Number.isSafeInteger(number) && number >= 0 && number <= 10_000 ? number : null;
+}
+
+export function messageContentBlocks(message = {}) {
+  let content = message?.contentJson ?? message?.content_json;
+  if (typeof content === "string") {
+    try { content = JSON.parse(content); } catch { return []; }
+  }
+  if (Array.isArray(content)) return content.filter((block) => block && typeof block === "object" && !Array.isArray(block));
+  if (!content || typeof content !== "object") return [];
+  for (const key of ["blocks", "content", "items"]) {
+    if (Array.isArray(content[key])) return content[key].filter((block) => block && typeof block === "object" && !Array.isArray(block));
+  }
+  return content.type ? [content] : [];
+}
+
+export function normalizeGeneratedImageBlocks(message = {}) {
+  return messageContentBlocks(message)
+    .map((block, blockIndex) => ({ block, blockIndex }))
+    .filter(({ block }) => String(block.type || "").trim().toLowerCase() === "image_generation")
+    .map(({ block, blockIndex }) => ({
+      type: "image_generation",
+      assetId: boundedImageText(block.assetId ?? block.asset_id),
+      generationId: boundedImageText(block.generationId ?? block.generation_id),
+      status: boundedImageText(block.status, 64).toLowerCase(),
+      mimeType: boundedImageText(block.mimeType ?? block.mime_type, 120),
+      filename: boundedImageText(block.filename, 240),
+      width: positiveImageDimension(block.width),
+      height: positiveImageDimension(block.height),
+      revisedPrompt: boundedImageText(block.revisedPrompt ?? block.revised_prompt, 4_000),
+      outputIndex: imageOutputIndex(block.outputIndex ?? block.output_index),
+      blockIndex,
+    }))
+    .sort((left, right) => (left.outputIndex ?? left.blockIndex) - (right.outputIndex ?? right.blockIndex) || left.blockIndex - right.blockIndex);
+}
+
+export function generatedImageURL(agentId, messageId, assetId, { download = false } = {}) {
+  const agent = boundedImageText(agentId);
+  const message = boundedImageText(messageId);
+  const asset = boundedImageText(assetId);
+  if (!agent || !message || !asset) return "";
+  const path = `/api/agents/${encodeURIComponent(agent)}/messages/${encodeURIComponent(message)}/generated-images/${encodeURIComponent(asset)}`;
+  return download ? `${path}?download=1` : path;
+}
+
+export function renderGeneratedImageBlocksHTML(message = {}, fallbackAgentId = "") {
+  const blocks = normalizeGeneratedImageBlocks(message);
+  if (!blocks.length) return "";
+  const agentId = message.agentId || message.agent_id || fallbackAgentId;
+  const messageId = message.id || message.messageId || message.message_id;
+  return `<div class="generated-image-grid" data-generated-images>${blocks.map((block) => {
+    const imageURL = generatedImageURL(agentId, messageId, block.assetId);
+    const downloadURL = generatedImageURL(agentId, messageId, block.assetId, { download: true });
+    const alt = block.revisedPrompt || block.filename || cr("imageGeneration.alt");
+    const filename = block.filename || cr("imageGeneration.filename", { index: (block.outputIndex ?? block.blockIndex) + 1 });
+    const dimensions = block.width && block.height ? `${block.width} × ${block.height}` : "";
+    const imageAttributes = `${block.width ? ` width="${block.width}"` : ""}${block.height ? ` height="${block.height}"` : ""}${block.width && block.height ? ` style="aspect-ratio: ${block.width} / ${block.height}"` : ""}`;
+    const preview = imageURL
+      ? `<a class="generated-image-open" href="${escapeAttr(imageURL)}" target="_blank" rel="noopener" aria-label="${escapeAttr(cr("imageGeneration.open", { filename }))}"><img class="generated-image-preview" src="${escapeAttr(imageURL)}" alt="${escapeAttr(alt)}" loading="lazy" decoding="async"${imageAttributes}></a><div class="generated-image-missing" data-generated-image-missing hidden>${escapeHtml(cr("imageGeneration.missing"))}</div>`
+      : `<div class="generated-image-missing" data-generated-image-missing>${escapeHtml(cr("imageGeneration.missing"))}</div>`;
+    return `<figure class="generated-image-card" data-generated-image data-output-index="${escapeAttr(String(block.outputIndex ?? block.blockIndex))}" data-generation-id="${escapeAttr(block.generationId)}">${preview}<figcaption><div><strong title="${escapeAttr(filename)}">${escapeHtml(filename)}</strong>${dimensions ? `<span>${escapeHtml(dimensions)}</span>` : ""}</div>${downloadURL ? `<a class="generated-image-download" href="${escapeAttr(downloadURL)}" download="${escapeAttr(filename)}">${escapeHtml(cr("imageGeneration.download"))}</a>` : ""}</figcaption>${block.revisedPrompt ? `<p title="${escapeAttr(block.revisedPrompt)}">${escapeHtml(block.revisedPrompt)}</p>` : ""}</figure>`;
+  }).join("")}</div>`;
+}
+
+export function normalizeImageGenerationStatusEvent(event = {}) {
+  if (String(event?.type || "") !== "image_generation.status") return null;
+  const data = event?.data && typeof event.data === "object" && !Array.isArray(event.data) ? event.data : {};
+  const normalized = {
+    requestId: boundedImageText(data.requestId ?? data.request_id),
+    runId: boundedImageText(data.runId ?? data.run_id),
+    generationId: boundedImageText(data.generationId ?? data.generation_id),
+    status: boundedImageText(data.status, 64).toLowerCase() || "running",
+    outputIndex: imageOutputIndex(data.outputIndex ?? data.output_index),
+    partialIndex: imageOutputIndex(data.partialIndex ?? data.partial_index),
+  };
+  return normalized.requestId || normalized.runId || normalized.generationId || normalized.outputIndex !== null ? normalized : null;
 }
 
 const messagePageLimit = 100;
@@ -967,6 +1056,7 @@ export function createChatRenderingController({
       return applyMessageSnapshot(page?.messages, agentId, {
         hasMoreBefore: page?.hasMoreBefore,
         nextBefore: page?.nextBefore,
+        clearLiveImageGenerations: true,
       });
     } catch (err) {
       if (isAbortedMessageRequest(err, operation) || !messageLifecycleIsCurrent(agentId, generation)) return false;
@@ -1170,11 +1260,72 @@ export function createChatRenderingController({
     });
   }
 
+  function imageGenerationStatusKey(status = {}) {
+    if (status.generationId) return `generation:${status.generationId}`;
+    if (status.requestId) return `request:${status.requestId}:${status.outputIndex ?? 0}`;
+    return `run:${status.runId || "unknown"}:${status.outputIndex ?? 0}`;
+  }
+
+  function currentLiveImageGenerations() {
+    const agentId = state.agent?.id || "";
+    return Object.values(state.liveImageGenerations || {})
+      .filter((item) => item && (!item.agentId || item.agentId === agentId))
+      .sort((left, right) => (left.outputIndex ?? 0) - (right.outputIndex ?? 0));
+  }
+
+  function renderLiveImageGenerationCardsHTML() {
+    const items = currentLiveImageGenerations();
+    if (!items.length) return "";
+    return `<div class="live-image-generation-stack chat-flow-stack chat-flow-left" data-live-image-generation-stack aria-live="polite">${items.map((item) => `<section class="live-image-generation-card chat-flow-item chat-flow-left" data-live-image-generation="${escapeAttr(item.generationId || imageGenerationStatusKey(item))}" data-request-id="${escapeAttr(item.requestId)}" data-run-id="${escapeAttr(item.runId)}" data-output-index="${escapeAttr(String(item.outputIndex ?? ""))}"><div class="live-image-generation-skeleton" aria-hidden="true"><span></span></div><div><strong>${escapeHtml(cr("imageGeneration.generating"))}</strong><span>${escapeHtml(cr("imageGeneration.status", { status: item.status || "running" }))}</span></div></section>`).join("")}</div>`;
+  }
+
+  function renderLiveImageGenerationCards() {
+    if (state.chatHydrating) return;
+    const el = $("messages");
+    if (!el) return;
+    const existing = el.querySelector("[data-live-image-generation-stack]");
+    const html = renderLiveImageGenerationCardsHTML();
+    if (existing) {
+      if (html) existing.outerHTML = html;
+      else existing.remove();
+    } else if (html) {
+      el.classList.remove("empty");
+      const anchor = el.querySelector("[data-plan-stack], [data-live-tool-output-stack], [data-run-summary-card], [data-run-outcome-card], [data-approval-stack]");
+      if (anchor) anchor.insertAdjacentHTML("beforebegin", html);
+      else el.insertAdjacentHTML("beforeend", html);
+    }
+    if (html) el.scrollTop = el.scrollHeight;
+  }
+
+  function rememberImageGenerationStatus(event) {
+    const normalized = normalizeImageGenerationStatusEvent(event);
+    const agentId = String(event?.agentId || event?.agent_id || state.agent?.id || "");
+    if (!normalized || !agentId || state.agent?.id !== agentId) return false;
+    const key = imageGenerationStatusKey(normalized);
+    const current = state.liveImageGenerations?.[key] || {};
+    state.liveImageGenerations = {
+      ...(state.liveImageGenerations || {}),
+      [key]: { ...current, ...normalized, agentId },
+    };
+    renderLiveImageGenerationCards();
+    return true;
+  }
+
+  function clearLiveImageGenerations({ agentId = state.agent?.id, preserveView = false } = {}) {
+    const next = { ...(state.liveImageGenerations || {}) };
+    for (const [key, item] of Object.entries(next)) {
+      if (!agentId || !item?.agentId || item.agentId === agentId) delete next[key];
+    }
+    state.liveImageGenerations = next;
+    if (!preserveView) renderLiveImageGenerationCards();
+  }
+
   function applyMessageSnapshot(messages, agentId = state.agent?.id, options = {}) {
     if (!agentId || state.agent?.id !== agentId) return false;
     const normalized = Array.isArray(messages) ? messages : [];
     if (options.hasMoreBefore !== undefined) state.messageHasMoreBefore = Boolean(options.hasMoreBefore);
     if (options.nextBefore !== undefined) state.messageNextBefore = String(options.nextBefore || "");
+    if (options.clearLiveImageGenerations === true) clearLiveImageGenerations({ agentId, preserveView: true });
     const el = $("messages");
     state.currentMessages = normalized;
     state.messageCopyTexts = normalized.map(visibleMessageText);
@@ -1184,11 +1335,12 @@ export function createChatRenderingController({
     el.removeAttribute?.("aria-busy");
     if (el.dataset) delete el.dataset.initialChatState;
     const liveAssistantCard = renderLiveAssistantCardHTML();
+    const liveImageGenerationCards = renderLiveImageGenerationCardsHTML();
     const planCards = renderPlanCardsHTML();
     const liveToolCards = renderLiveToolOutputCardsHTML();
     const runSummaryCard = renderRunSummaryCardHTML();
     const approvalCards = renderApprovalCardsHTML();
-    if (!normalized.length && !liveAssistantCard && !planCards && !liveToolCards && !runSummaryCard && !approvalCards) {
+    if (!normalized.length && !liveAssistantCard && !liveImageGenerationCards && !planCards && !liveToolCards && !runSummaryCard && !approvalCards) {
       el.classList.add("empty");
       el.innerHTML = `<div class="empty-conversation-state">${escapeHtml(cr("message.empty"))}</div>`;
       return true;
@@ -1201,7 +1353,7 @@ export function createChatRenderingController({
         </button>
       </div>
     ` : "";
-    el.innerHTML = `${olderMessagesControl}${normalized.map(renderChatMessageHTML).join("")}${liveAssistantCard}${planCards}${liveToolCards}${runSummaryCard}${approvalCards}`;
+    el.innerHTML = `${olderMessagesControl}${normalized.map(renderChatMessageHTML).join("")}${liveAssistantCard}${liveImageGenerationCards}${planCards}${liveToolCards}${runSummaryCard}${approvalCards}`;
     bindMessageActionButtons(el);
     el.querySelector("[data-load-older-messages]")?.addEventListener("click", () => {
       loadOlderMessages(agentId).catch(showError);
@@ -1265,7 +1417,7 @@ export function createChatRenderingController({
           <div class="message-head-actions">${actions}</div>
           ${timeHTML}
         </div>
-        ${editing ? renderCorrectionEditor(message) : `<div class="message-content">${renderMarkdown(friendlyMessageText(visibleMessageText(message)))}</div>${renderMessageAttachments(message)}`}
+        ${editing ? renderCorrectionEditor(message) : `<div class="message-content">${renderMarkdown(friendlyMessageText(visibleMessageText(message)))}</div>${presentation.normalizedRole === "assistant" ? renderGeneratedImageBlocksHTML(message, state.agent?.id || "") : ""}${renderMessageAttachments(message)}`}
         ${presentation.normalizedRole === "assistant" ? renderPerformanceHTML(message.turnUsage) : ""}
       </div>
     `;
@@ -1304,7 +1456,7 @@ export function createChatRenderingController({
     const html = renderLiveAssistantCardHTML();
     if (!html) {
       existing?.remove();
-      if (!state.currentMessages?.length && !renderPlanCardsHTML() && !renderLiveToolOutputCardsHTML() && !renderRunSummaryCardHTML() && !renderApprovalCardsHTML()) {
+      if (!state.currentMessages?.length && !renderLiveImageGenerationCardsHTML() && !renderPlanCardsHTML() && !renderLiveToolOutputCardsHTML() && !renderRunSummaryCardHTML() && !renderApprovalCardsHTML()) {
         el.classList.add("empty");
         el.innerHTML = `<div class="empty-conversation-state">${escapeHtml(cr("message.empty"))}</div>`;
       }
@@ -2623,6 +2775,15 @@ export function createChatRenderingController({
   }
 
   function bindMessageActionButtons(root) {
+    root.querySelectorAll("[data-generated-image] img.generated-image-preview").forEach((image) => {
+      image.addEventListener("error", () => {
+        const card = image.closest?.("[data-generated-image]");
+        image.closest?.(".generated-image-open")?.setAttribute?.("hidden", "");
+        const placeholder = card?.querySelector?.("[data-generated-image-missing]");
+        if (placeholder) placeholder.hidden = false;
+        card?.classList?.add?.("is-missing");
+      }, { once: true });
+    });
     root.querySelectorAll("[data-correct-message]").forEach((button) => {
       button.addEventListener("click", () => openCorrectionEditor(button.dataset.correctMessage || ""));
     });
@@ -2682,6 +2843,7 @@ export function createChatRenderingController({
     applyPlanEvent,
     beginLiveAssistantGeneration,
     clearCurrentAgentApprovals,
+    clearLiveImageGenerations,
     clearPlanState,
     clearLiveAssistantText,
     clearMessageRefreshTimer,
@@ -2695,6 +2857,7 @@ export function createChatRenderingController({
     loadOlderMessages,
     loadRunSummary,
     performPlanAction,
+    rememberImageGenerationStatus,
     rememberToolApproval,
     rememberToolStarted,
     refreshUserMessageIdentity,

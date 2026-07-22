@@ -371,7 +371,7 @@ func TestProviderConfigUpdateModelsOmittedPreservesAndProvidedReplaces(t *testin
 		Type:      "openai-compatible",
 		BaseURL:   "http://127.0.0.1:8080/v1",
 		Model:     "old-default",
-		Models:    []config.ProviderModelConfig{{Name: "saved-model", ContextTokenLimit: 111111}},
+		Models:    []config.ProviderModelConfig{{Name: "saved-model", ContextTokenLimit: 111111, ImageGeneration: true}},
 		MaxTokens: 777,
 	}
 	omitted, err := providerConfigFromUpdateRequest("relay", existing, providerConfigUpdateRequest{
@@ -387,7 +387,7 @@ func TestProviderConfigUpdateModelsOmittedPreservesAndProvidedReplaces(t *testin
 		t.Fatalf("omitted models did not preserve saved models and add the default: %+v", omitted.Models)
 	}
 
-	replacement := []config.ProviderModelConfig{{Name: " replacement ", ContextTokenLimit: 222222}}
+	replacement := []config.ProviderModelConfig{{Name: " replacement ", ContextTokenLimit: 222222, ImageGeneration: true}}
 	replaced, err := providerConfigFromUpdateRequest("relay", existing, providerConfigUpdateRequest{
 		Name: "relay", Type: "openai-compatible", BaseURL: existing.BaseURL, Model: "new-default", Models: &replacement,
 	})
@@ -397,7 +397,7 @@ func TestProviderConfigUpdateModelsOmittedPreservesAndProvidedReplaces(t *testin
 	if replaced.MaxTokens != existing.MaxTokens {
 		t.Fatalf("provided models update changed MaxTokens: %d", replaced.MaxTokens)
 	}
-	if len(replaced.Models) != 2 || replaced.Models[0].Name != "replacement" || replaced.Models[0].ContextTokenLimit != 222222 || replaced.Models[1].Name != "new-default" {
+	if len(replaced.Models) != 2 || replaced.Models[0].Name != "replacement" || replaced.Models[0].ContextTokenLimit != 222222 || !replaced.Models[0].ImageGeneration || replaced.Models[1].Name != "new-default" {
 		t.Fatalf("provided models did not replace and normalize the catalog: %+v", replaced.Models)
 	}
 }
