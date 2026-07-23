@@ -1852,3 +1852,135 @@ body.theme-light .composer-toolbar-icon { color: #3f3f46; }
   cursor: wait;
   opacity: .72;
 }
+
+/* ============================================================
+ * Workspace preview screenshot + annotate overlay
+ * (workspace-screenshot.mjs: openScreenshotAnnotator)
+ * A fixed full-screen modal, above every other modal/toast in the app,
+ * showing the captured+cropped preview screenshot with a drawing canvas
+ * on top and a small annotation toolbar.
+ * ============================================================ */
+.workspace-screenshot-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 400;
+  background: rgba(8, 9, 14, .78);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+.workspace-screenshot-modal {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: min(96vw, 1120px);
+  max-height: 94vh;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--bg-panel);
+  box-shadow: 0 24px 90px rgba(0, 0, 0, .48);
+  padding: 12px;
+}
+.workspace-screenshot-toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--line);
+}
+.workspace-screenshot-tool-group,
+.workspace-screenshot-color-group,
+.workspace-screenshot-action-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.workspace-screenshot-tool-btn,
+.workspace-screenshot-secondary-btn,
+.workspace-screenshot-cancel-btn,
+.workspace-screenshot-add-btn {
+  border: 1px solid var(--line);
+  background: var(--bg-elevated);
+  color: var(--text-soft);
+  border-radius: 8px;
+  padding: 6px 12px;
+  font-size: 13px;
+  line-height: 1.3;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.workspace-screenshot-tool-btn:hover,
+.workspace-screenshot-secondary-btn:hover,
+.workspace-screenshot-cancel-btn:hover {
+  color: var(--text);
+  border-color: var(--accent);
+}
+.workspace-screenshot-tool-btn.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+.workspace-screenshot-color-swatch {
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  border: 2px solid var(--line);
+  cursor: pointer;
+  padding: 0;
+}
+.workspace-screenshot-color-swatch.active {
+  border-color: var(--text);
+  box-shadow: 0 0 0 2px var(--accent);
+}
+.workspace-screenshot-spacer { flex: 1 1 auto; }
+.workspace-screenshot-cancel-btn { background: transparent; }
+.workspace-screenshot-add-btn {
+  border-color: var(--accent-strong);
+  background: var(--accent);
+  color: #fff;
+  font-weight: 650;
+}
+.workspace-screenshot-add-btn:hover { background: var(--accent-strong); }
+.workspace-screenshot-canvas-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 0;
+  overflow: auto;
+  border-radius: 10px;
+  background: repeating-conic-gradient(rgba(128, 128, 128, .18) 0% 25%, transparent 0% 50%) 50% / 16px 16px;
+}
+.workspace-screenshot-base-canvas,
+.workspace-screenshot-annotation-canvas {
+  display: block;
+  max-width: 100%;
+  max-height: 80vh;
+  width: auto;
+  height: auto;
+  object-fit: contain;
+}
+.workspace-screenshot-base-canvas {
+  position: relative;
+  border-radius: 6px;
+}
+.workspace-screenshot-annotation-canvas {
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  cursor: crosshair;
+  touch-action: none;
+}
+.workspace-screenshot-text-input {
+  position: absolute;
+  z-index: 1;
+  min-width: 120px;
+  border: 1px dashed var(--accent);
+  border-radius: 4px;
+  background: rgba(0, 0, 0, .35);
+  padding: 2px 4px;
+  font: 15px sans-serif;
+  outline: none;
+}

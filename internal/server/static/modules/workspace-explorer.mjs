@@ -120,6 +120,7 @@ export function createWorkspaceExplorerController({
   showToast = () => {},
   onPreviewOpen = () => {},
   onPreviewClose = () => {},
+  onScreenshot = () => {},
   pollIntervalMs = 2000,
 } = {}) {
   initializeWorkspaceState(state);
@@ -703,7 +704,29 @@ export function createWorkspaceExplorerController({
     renderWorkspaceButtonState();
   }
 
+  // The preview toolbar markup ships without a screenshot button; insert it
+  // next to the existing reload button so it lives in the same toolbar
+  // without requiring a static-HTML change. Additive and idempotent.
+  function ensureScreenshotButton() {
+    if (element("workspacePreviewScreenshotBtn")) return;
+    const reloadBtn = element("workspacePreviewReloadBtn");
+    const doc = globalThis.document;
+    if (!reloadBtn?.parentNode || !doc?.createElement) return;
+    const button = doc.createElement("button");
+    button.id = "workspacePreviewScreenshotBtn";
+    button.type = "button";
+    button.className = "workspace-browser-icon";
+    button.textContent = "✂";
+    button.setAttribute("data-i18n-title", "workspace.explorer.screenshot");
+    button.setAttribute("data-i18n-aria-label", "workspace.explorer.screenshot");
+    button.title = t("workspace.explorer.screenshot");
+    button.setAttribute("aria-label", t("workspace.explorer.screenshot"));
+    reloadBtn.insertAdjacentElement("afterend", button);
+  }
+
   function bind() {
+    ensureScreenshotButton();
+    element("workspacePreviewScreenshotBtn")?.addEventListener("click", () => onScreenshot());
     element("workspaceExplorerBtn")?.addEventListener("click", () => openWorkspace("files"));
     element("workspacePreviewBtn")?.addEventListener("click", () => openWorkspace("preview"));
     element("closeWorkspaceModalBtn")?.addEventListener("click", closeWorkspace);

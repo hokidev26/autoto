@@ -85,6 +85,7 @@ import { createOverviewNavHelpers } from "./overview-nav-helpers.mjs";
 import { createWorkbenchSidebarRender, primaryWorkbenchLayout } from "./workbench-sidebar-render.mjs";
 import { createWorkspaceContextHelpers } from "./workspace-context-helpers.mjs";
 import { createWorkspaceExplorerController } from "./workspace-explorer.mjs";
+import { runPreviewScreenshot } from "./workspace-screenshot.mjs";
 import { normalizeWorkStateSnapshot, renderWorkStateHTML } from "./work-state.mjs";
 
 let backendRegistry = null;
@@ -632,6 +633,22 @@ const workspaceExplorer = createWorkspaceExplorerController({
   },
   onPreviewClose: () => {
     $("appShell")?.classList.remove("preview-open");
+  },
+  // chatComposer is declared further below; this callback is only ever
+  // invoked from a later click event, well after module evaluation
+  // finishes, so referencing it here (instead of at call-construction
+  // time) avoids the TDZ the same way the helpers above defer to
+  // saveCurrentChatDraft/hideSlashCommandPalette/closeMobileSidebar.
+  onScreenshot: () => {
+    runPreviewScreenshot({
+      iframeEl: document.querySelector("#workspacePreviewFrameHost .workspace-preview-iframe"),
+      // chat-composer.mjs's importAttachmentFiles reads event.target.files
+      // (it's wired to a <input type="file"> change event), so we hand it a
+      // minimal fake event carrying our screenshot File instead of an array.
+      onFile: (file) => chatComposer.importAttachmentFiles({ target: { files: [file] } }).catch(showError),
+      t,
+      onError: () => showToast?.(t("workspace.explorer.screenshotFailed"), "warn", { force: true }),
+    });
   },
 });
 
