@@ -23,6 +23,7 @@ import (
 	"autoto/internal/config"
 	"autoto/internal/db"
 	"autoto/internal/gateway"
+	"autoto/internal/imageassets"
 	"autoto/internal/integrations"
 	"autoto/internal/plugins"
 	"autoto/internal/preview"
@@ -42,6 +43,7 @@ type Runtime struct {
 	configPath string
 
 	store             *db.Store
+	generatedImages   *imageassets.Store
 	runner            *agent.Runner
 	application       *server.Server
 	httpServer        *http.Server
@@ -122,6 +124,12 @@ func NewRuntime(options Options) (*Runtime, error) {
 		cleanup(nil)
 		return nil, fmt.Errorf("open database: %w", err)
 	}
+	generatedImages, err := imageassets.New(cfg.Paths.HomeDir)
+	if err != nil {
+		cleanup(store)
+		return nil, fmt.Errorf("open generated image store: %w", err)
+	}
+	cleanupGeneratedImages(context.Background(), logger, store, generatedImages)
 	providerVault := secrets.NewProviderVault(store, cfg.Paths.HomeDir)
 	cfg, providerSecretWarnings := hydrateProviderSecrets(context.Background(), cfg, providerVault, providerAPIKeyInputs, resolvedConfigPath)
 	for _, warning := range providerSecretWarnings {
@@ -177,6 +185,7 @@ func NewRuntime(options Options) (*Runtime, error) {
 
 	hub := agent.NewHub()
 	runner := agent.NewRunner(store, providerRegistry, toolRegistry, hub, cfg.Agent)
+	runner.SetGeneratedImageStore(generatedImages)
 	runner.SetDynamicToolSource(pluginService)
 	runner.SetDefaultReasoningEffort(runtimeSettings.DefaultReasoningEffort)
 	if err := runner.RecoverInterruptedRuns(context.Background()); err != nil {
@@ -221,6 +230,7 @@ func NewRuntime(options Options) (*Runtime, error) {
 	reviewService := server.NewReviewService(providerRegistry, cfg.Agent.ReviewModel)
 	runner.SetReviewService(reviewService)
 	application := server.New(cfg, store, runner, hub, providerRegistry)
+	application.SetGeneratedImageStore(generatedImages)
 	application.SetProviderVault(providerVault)
 	application.SetToolRegistry(toolRegistry)
 	application.SetBackgroundTaskService(backgroundService)
@@ -258,6 +268,7 @@ func NewRuntime(options Options) (*Runtime, error) {
 		cfg:               cfg,
 		configPath:        resolvedConfigPath,
 		store:             store,
+		generatedImages:   generatedImages,
 		runner:            runner,
 		application:       application,
 		httpServer:        httpServer,
@@ -527,6 +538,38 @@ func bindConfiguredHTTPListeners(cfg config.Config, ephemeralHTTP bool) (net.Lis
 	// pre-bound during NewRuntime. Keep the second return value for compatibility
 	// with existing in-package callers while always returning nil.
 	return httpListener, nil, nil
+}
+
+const generatedImageCleanupGrace = 24 * time.Hour
+
+func cleanupGeneratedImages(ctx context.Context, logger *slog.Logger, store *db.Store, assets *imageassets.Store) {
+	if store == nil || assets == nil {
+		return
+	}
+	staging, err := assets.CleanupStaging(generatedImageCleanupGrace)
+	if err != nil {
+		logger.Warn("cleanup generated image staging", "error", err)
+	}
+	logGeneratedImageCleanupFailures(logger, "staging", staging)
+	referenced, err := store.ListReferencedGeneratedImageStorageKeys(ctx)
+	if err != nil {
+		logger.Warn("list referenced generated images for cleanup", "error", err)
+		return
+	}
+	objects, err := assets.MarkAndSweep(referenced, generatedImageCleanupGrace)
+	if err != nil {
+		logger.Warn("sweep generated image objects", "error", err)
+	}
+	logGeneratedImageCleanupFailures(logger, "objects", objects)
+	if len(staging.Removed) > 0 || len(objects.Removed) > 0 {
+		logger.Info("cleaned generated image assets", "stagingRemoved", len(staging.Removed), "objectsRemoved", len(objects.Removed))
+	}
+}
+
+func logGeneratedImageCleanupFailures(logger *slog.Logger, area string, report imageassets.CleanupReport) {
+	for key, err := range report.Failed {
+		logger.Warn("generated image cleanup could not remove file", "area", area, "key", key, "error", err)
+	}
 }
 
 // browserFacingHostPort rewrites wildcard listener addresses to loopback so

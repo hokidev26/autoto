@@ -1567,7 +1567,7 @@ export default Object.freeze({
         proxyUrl: "Proxy URL", proxyAuthPersisted: "Proxy credentials are encrypted and saved; leave the username and password blank to keep them.", clearProxyAuth: "Clear saved proxy credentials",
         userAgent: "User-Agent", requestHeaders: "Custom request headers", requestHeaderName: "Header name", requestHeaderValue: "Header value",
         requestHeaderBlankKeepsCurrent: "Leave blank to preserve the encrypted saved value", requestHeaderValuePlaceholder: "Enter a Header value; it will be encrypted when saved",
-        insecureSkipTLSVerify: "Skip TLS certificate verification", defaultShort: "Default", contextTokenLimit: "Context token limit", contextTokenLimitFor: "Context token limit for {model}", manualModel: "Manual model", manualModelPlaceholder: "Enter an exact model name",
+        insecureSkipTLSVerify: "Skip TLS certificate verification", defaultShort: "Default", contextTokenLimit: "Context token limit", contextTokenLimitFor: "Context token limit for {model}", imageGeneration: "Image generation", imageGenerationHelp: "Allow this model to generate images.", imageGenerationUnsupported: "This provider protocol does not support image generation.", protocolUnsupported: "Protocol unsupported", manualModel: "Manual model", manualModelPlaceholder: "Enter an exact model name",
       },
       actions: {
         testConnection: "Test connection", testingConnection: "Testing connection", sendTest: "Send test", saveAndEnable: "Save and enable", start: "Start", stop: "Stop", delete: "Delete", closeDrawer: "Close drawer", back: "Back",

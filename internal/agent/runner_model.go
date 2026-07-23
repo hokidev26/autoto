@@ -12,19 +12,23 @@ import (
 	"autoto/internal/providers"
 )
 
+const maxImageGenerationEventPromptRunes = 1024
+
 type modelTurnResult struct {
-	Text                 string
-	ToolCalls            []providers.ToolCall
-	Usage                providers.Usage
-	Dispatch             providers.DispatchInfo
-	TurnUsage            *db.MessageTurnUsage
-	StopReason           string
-	StartedAt            time.Time
-	FirstOutputAt        time.Time
-	CompletedAt          time.Time
-	Duration             time.Duration
-	RecordAPIRequest     bool
-	EstimatedOutputRunes int64
+	Text                   string
+	ToolCalls              []providers.ToolCall
+	GeneratedImages        []providers.ImageGeneration
+	ImageGenerationStarted bool
+	Usage                  providers.Usage
+	Dispatch               providers.DispatchInfo
+	TurnUsage              *db.MessageTurnUsage
+	StopReason             string
+	StartedAt              time.Time
+	FirstOutputAt          time.Time
+	CompletedAt            time.Time
+	Duration               time.Duration
+	RecordAPIRequest       bool
+	EstimatedOutputRunes   int64
 }
 
 func (r *Runner) runModelTurn(ctx context.Context, agentID, runID string, provider providers.Provider, model, systemPrompt string, messages []providers.Message, toolSpecs []providers.ToolSpec, reasoningEffort string, fastMode bool) (modelTurnResult, error) {
@@ -61,12 +65,14 @@ func (r *Runner) runModelTurnAttempt(ctx context.Context, agentID, runID string,
 	if !capabilities.SupportsReasoningEffort(reasoningEffort) {
 		return modelTurnResult{}, fmt.Errorf("%w: provider %q does not support requested effort %q", providers.ErrReasoningEffortUnsupported, provider.Name(), reasoningEffort), false
 	}
+	modelCapabilities := providers.ModelCapabilitiesFor(provider, model)
 	fastModeAllowed := false
-	if modelProvider, ok := provider.(providers.ModelCapabilityProvider); ok && fastMode {
-		modelCapabilities := modelProvider.ModelCapabilities(model)
+	if _, ok := provider.(providers.ModelCapabilityProvider); ok && fastMode {
 		fastModeAllowed = !modelCapabilities.FastModeKnown || modelCapabilities.FastMode
 	}
-	requestMessages := prepareProviderMessagesForCapabilities(messages, capabilities)
+	requestCapabilities := capabilities
+	requestCapabilities.ImageGeneration = capabilities.ImageGeneration && modelCapabilities.ImageGeneration
+	requestMessages := prepareProviderMessagesForCapabilities(messages, requestCapabilities)
 	requestTools := toolSpecs
 	if !capabilities.Tools {
 		requestTools = nil
@@ -76,7 +82,7 @@ func (r *Runner) runModelTurnAttempt(ctx context.Context, agentID, runID string,
 			return modelTurnResult{}, errorsContextBudget(limit, estimated), false
 		}
 	}
-	request := providers.GenerateRequest{Model: model, SystemPrompt: systemPrompt, Messages: requestMessages, Tools: requestTools, ReasoningEffort: reasoningEffort, FastMode: fastModeAllowed, Scenario: providers.CallScenarioInternal}
+	request := providers.GenerateRequest{Model: model, SystemPrompt: systemPrompt, Messages: requestMessages, Tools: requestTools, ReasoningEffort: reasoningEffort, FastMode: fastModeAllowed, EnableImageGeneration: capabilities.ImageGeneration && modelCapabilities.ImageGeneration, Scenario: providers.CallScenarioInternal}
 	if capabilities.Reasoning {
 		request.ReasoningEffort = agentReasoningEffort(ctx, r.store, agentID)
 	}
@@ -98,6 +104,7 @@ func (r *Runner) runModelTurnAttempt(ctx context.Context, agentID, runID string,
 	var firstOutputAt time.Time
 	var outputRunes int64
 	modelOutputStarted := false
+	generatedImageIndexes := make(map[string]int)
 	firstEventTimer, stopFirstEventTimer := firstEventTimeoutTimer(r.cfg.FirstTokenTimeoutMs)
 	defer stopFirstEventTimer()
 	markModelOutput := func(outputAt time.Time) {
@@ -147,7 +154,9 @@ func (r *Runner) runModelTurnAttempt(ctx context.Context, agentID, runID string,
 		case <-ctx.Done():
 			err := ctx.Err()
 			r.recordAttributedAPIRequest(agentID, runID, "", provider.Name(), model, result.Dispatch, time.Since(started), modelTurnTTFTMS(started, firstOutputAt), result.Usage, err.Error())
-
+			if modelOutputStarted {
+				return finalize(false), err, false
+			}
 			return modelTurnResult{}, err, false
 		case <-firstEventTimer:
 			err := &ProviderError{Message: fmt.Sprintf("provider first token timeout after %dms", r.cfg.FirstTokenTimeoutMs)}
@@ -187,6 +196,40 @@ func (r *Runner) runModelTurnAttempt(ctx context.Context, agentID, runID string,
 					outputRunes += estimatedToolCallOutputRunes(toolCall)
 					publishStreamingUsage()
 				}
+			case "image_generation":
+				if event.ImageGeneration == nil {
+					continue
+				}
+				image := *event.ImageGeneration
+				status, recognized := normalizeImageGenerationStatus(image.Status)
+				if !recognized {
+					continue
+				}
+				image.Status = status
+				result.ImageGenerationStarted = true
+				markModelOutput(time.Now())
+				modelOutputStarted = true
+				statusData := map[string]any{
+					"requestId":    requestID,
+					"generationId": strings.TrimSpace(image.GenerationID),
+					"status":       status,
+					"outputIndex":  image.OutputIndex,
+					"partialIndex": image.PartialIndex,
+				}
+				if revisedPrompt := truncateRunes(image.RevisedPrompt, maxImageGenerationEventPromptRunes); revisedPrompt != "" {
+					statusData["revisedPrompt"] = revisedPrompt
+				}
+				r.publish(Event{Type: "image_generation.status", AgentID: agentID, Data: mergeEventData(statusData, runID)})
+				if status == "completed" && len(image.Data) > 0 {
+					image.Data = append([]byte(nil), image.Data...)
+					key := fmt.Sprintf("%s:%d", strings.TrimSpace(image.GenerationID), image.OutputIndex)
+					if index, exists := generatedImageIndexes[key]; exists {
+						result.GeneratedImages[index] = image
+					} else {
+						generatedImageIndexes[key] = len(result.GeneratedImages)
+						result.GeneratedImages = append(result.GeneratedImages, image)
+					}
+				}
 			case "usage":
 				if event.Usage != nil {
 					result.Usage = *event.Usage
@@ -203,6 +246,23 @@ func (r *Runner) runModelTurnAttempt(ctx context.Context, agentID, runID string,
 				return finalize(shouldRecordAPIRequest(result.StopReason)), nil, false
 			}
 		}
+	}
+}
+
+func normalizeImageGenerationStatus(status string) (string, bool) {
+	switch strings.ToLower(strings.TrimSpace(status)) {
+	case "added":
+		return "added", true
+	case "in_progress":
+		return "in_progress", true
+	case "generating":
+		return "generating", true
+	case "partial", "partial_image":
+		return "partial", true
+	case "completed":
+		return "completed", true
+	default:
+		return "", false
 	}
 }
 

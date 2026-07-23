@@ -17,7 +17,7 @@ import {
   removeProviderVisibilityPreferences,
   renderProviderConsolePage,
   setProviderModelHidden,
-} from "./model-provider-components.mjs?v=provider-card-clean-3-provider-create-page-2-provider-secrets-1-model-picker-1-provider-full-page-2-provider-placeholders-1-model-configs-1-provider-reference-1-default-openai-responses-1-provider-draft-session-1";
+} from "./model-provider-components.mjs?v=provider-card-clean-3-provider-create-page-2-provider-secrets-1-model-picker-1-provider-full-page-2-provider-placeholders-1-model-configs-1-provider-reference-1-default-openai-responses-1-provider-draft-session-1-native-image-generation-1";
 import {
   markProviderModelsStale,
   normalizeCodexAccountList,
@@ -1299,6 +1299,17 @@ export function createModelProviderSettingsController({
       refreshProviderConsole();
       return;
     }
+    if (target?.matches?.("[data-mp-model-image-generation]")) {
+      if (target.disabled) return;
+      const consoleState = providerConsoleState();
+      const name = String(target.dataset.mpModelImageGeneration || "").trim();
+      consoleState.draft = {
+        ...(consoleState.draft || {}),
+        modelConfigs: normalizeProviderModelConfigs({ modelConfigs: consoleState.draft?.modelConfigs }).map((item) => item.name === name ? { ...item, imageGeneration: Boolean(target.checked) } : item),
+      };
+      consoleState.dirty = true;
+      return;
+    }
     const form = target?.closest?.("[data-mp-provider-form]");
     if (target?.matches?.("[data-mp-model-choice]") && form?.elements?.model) {
       form.elements.model.value = target.value || "";
@@ -1534,7 +1545,7 @@ export function createModelProviderSettingsController({
       if (!name) return;
       const draft = form ? providerConsoleDraftFromForm(consoleState.draft || {}, form, consoleState.type) : { ...(consoleState.draft || {}) };
       const configs = normalizeProviderModelConfigs({ modelConfigs: draft.modelConfigs });
-      if (!configs.some((item) => item.name === name)) configs.push({ name, contextTokenLimit: 0, hidden: false, manual: true });
+      if (!configs.some((item) => item.name === name)) configs.push({ name, contextTokenLimit: 0, imageGeneration: false, hidden: false, manual: true });
       consoleState.draft = {
         ...draft,
         model: draft.model && configs.some((item) => item.name === draft.model && !item.hidden) ? draft.model : name,

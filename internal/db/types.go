@@ -170,6 +170,7 @@ type Message struct {
 	StopReason            string            `json:"stopReason,omitempty"`
 	CreatedAt             string            `json:"createdAt"`
 	Attachments           []Attachment      `json:"attachments,omitempty"`
+	GeneratedImages       []GeneratedImage  `json:"generatedImages,omitempty"`
 }
 
 type MessagePage struct {
@@ -310,6 +311,25 @@ type Attachment struct {
 	SizeBytes     int64  `json:"sizeBytes"`
 	Data          []byte `json:"-"`
 	ExtractedText string `json:"extractedText,omitempty"`
+	CreatedAt     string `json:"createdAt"`
+}
+
+type GeneratedImage struct {
+	ID            string `json:"id"`
+	AgentID       string `json:"agentId"`
+	MessageID     string `json:"messageId"`
+	RunID         string `json:"runId,omitempty"`
+	GenerationID  string `json:"generationId"`
+	StorageKey    string `json:"-"`
+	SHA256        string `json:"sha256"`
+	MIMEType      string `json:"mimeType"`
+	Filename      string `json:"filename"`
+	ByteSize      int64  `json:"byteSize"`
+	Width         int    `json:"width"`
+	Height        int    `json:"height"`
+	RevisedPrompt string `json:"revisedPrompt,omitempty"`
+	OutputIndex   int    `json:"outputIndex"`
+	Status        string `json:"status"`
 	CreatedAt     string `json:"createdAt"`
 }
 

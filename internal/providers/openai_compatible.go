@@ -238,6 +238,8 @@ func contentBlocksText(blocks []ContentBlock) string {
 				status = "error"
 			}
 			parts = append(parts, fmt.Sprintf("[Tool result for %s (%s), %s]\n%s", block.ToolName, block.ToolUseID, status, strings.TrimSpace(block.Output)))
+		case "image_generation":
+			parts = append(parts, "[Generated image from earlier assistant response]")
 		}
 	}
 	return strings.Join(parts, "\n\n")

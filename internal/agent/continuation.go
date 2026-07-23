@@ -537,7 +537,7 @@ func (r *Runner) runContinuationSegment(ctx context.Context, state continuationR
 		outcome.inputTokens += maxInt64(result.Usage.InputTokens, 0)
 		outcome.outputTokens += maxInt64(result.Usage.OutputTokens, 0)
 		if turnErr != nil {
-			if strings.TrimSpace(result.Text) != "" || len(result.ToolCalls) > 0 {
+			if strings.TrimSpace(result.Text) != "" || len(result.ToolCalls) > 0 || len(result.GeneratedImages) > 0 {
 				messageID, persistErr := r.persistPartialAssistant(ctx, agentID, runID, result, continuationReasonProviderError)
 				if persistErr != nil {
 					return outcome, persistErr
@@ -575,9 +575,18 @@ func (r *Runner) runContinuationSegment(ctx context.Context, state continuationR
 				r.recordCompletedModelTurn(agentID, runID, messageID, provider.Name(), model, result)
 				return outcome, fmt.Errorf("provider returned unknown stop reason %q", result.StopReason)
 			}
-			if r.toolOutputPipelineActive(agentID, runID) {
+			if r.toolOutputPipelineActive(agentID, runID) && len(result.GeneratedImages) == 0 {
 				r.recordCompletedModelTurn(agentID, runID, "", provider.Name(), model, result)
 				continue
+			}
+			if result.ImageGenerationStarted && len(result.GeneratedImages) == 0 && strings.TrimSpace(result.Text) == "" {
+				r.recordCompletedModelTurn(agentID, runID, "", provider.Name(), model, result)
+				outcome.disposition = segmentComplete
+				outcome.stopReason = result.StopReason
+				if len(messages) > 0 {
+					outcome.resumeAfterID = messages[len(messages)-1].ID
+				}
+				return outcome, nil
 			}
 			assistantText := result.Text
 			var planReview review.Result
@@ -587,13 +596,17 @@ func (r *Runner) runContinuationSegment(ctx context.Context, state continuationR
 					r.recordCompletedModelTurn(agentID, runID, "", provider.Name(), model, result)
 					return outcome, err
 				}
-			} else if assistantText == "" {
+			} else if assistantText == "" && len(result.GeneratedImages) == 0 {
 				assistantText = "Done."
 			}
-			assistantMsg, err := r.store.AddMessage(ctx, db.Message{AgentID: agentID, RunID: runID, Role: "assistant", ContentText: assistantText, TurnUsage: result.TurnUsage, CompletionState: "completed", StopReason: result.StopReason})
+			assistantMsg, persisted, err := r.persistAssistantResult(ctx, agentID, runID, result, assistantText, "completed", result.StopReason, "")
 			if err != nil {
 				r.recordCompletedModelTurn(agentID, runID, "", provider.Name(), model, result)
 				return outcome, err
+			}
+			if !persisted {
+				r.recordCompletedModelTurn(agentID, runID, "", provider.Name(), model, result)
+				return outcome, errors.New("assistant result had no persistable content")
 			}
 			r.recordCompletedModelTurn(agentID, runID, assistantMsg.ID, provider.Name(), model, result)
 			r.publish(Event{Type: "message.created", AgentID: agentID, MessageID: assistantMsg.ID, Text: assistantText, Data: runEventData(runID)})
@@ -612,17 +625,18 @@ func (r *Runner) runContinuationSegment(ctx context.Context, state continuationR
 			r.recordCompletedModelTurn(agentID, runID, messageID, provider.Name(), model, result)
 			return outcome, fmt.Errorf("provider returned unsafe tool stop reason %q", result.StopReason)
 		}
-		assistantBlocks := assistantToolUseBlocks(result.Text, result.ToolCalls)
-		assistantJSON, _ := json.Marshal(assistantBlocks)
-		assistantStateJSON := providerStateForBlocks(assistantBlocks)
 		assistantText := assistantToolUseText(result.Text, result.ToolCalls)
-		assistantMsg, err := r.store.AddMessage(ctx, db.Message{AgentID: agentID, RunID: runID, Role: "assistant", ContentText: assistantText, ContentJSON: assistantJSON, ProviderStateJSON: assistantStateJSON, TurnUsage: result.TurnUsage, CompletionState: "completed", StopReason: result.StopReason})
+		assistantMsg, persisted, err := r.persistAssistantResult(ctx, agentID, runID, result, result.Text, "completed", result.StopReason, "")
 		if err != nil {
 			r.recordCompletedModelTurn(agentID, runID, "", provider.Name(), model, result)
 			return outcome, err
 		}
+		if !persisted {
+			r.recordCompletedModelTurn(agentID, runID, "", provider.Name(), model, result)
+			return outcome, errors.New("tool-call assistant result had no persistable content")
+		}
 		r.recordCompletedModelTurn(agentID, runID, assistantMsg.ID, provider.Name(), model, result)
-		r.publish(Event{Type: "message.created", AgentID: agentID, MessageID: assistantMsg.ID, Text: assistantText, Data: mergeEventData(map[string]any{"toolCalls": len(result.ToolCalls)}, runID)})
+		r.publish(Event{Type: "message.created", AgentID: agentID, MessageID: assistantMsg.ID, Text: assistantText, Data: mergeEventData(map[string]any{"toolCalls": len(result.ToolCalls), "generatedImages": len(result.GeneratedImages)}, runID)})
 		messages = append(messages, assistantMsg)
 
 		waitingTaskID := ""
@@ -924,25 +938,23 @@ func (r *Runner) completeContinuousRun(ctx context.Context, agentID, runID strin
 }
 
 func (r *Runner) persistPartialAssistant(ctx context.Context, agentID, runID string, result modelTurnResult, stopReason string) (string, error) {
-	text := result.Text
-	if strings.TrimSpace(text) == "" {
+	kind := "partial"
+	if normalized := strings.TrimSpace(stopReason); normalized != "" {
+		kind += ":" + normalized
+	}
+	message, persisted, err := r.persistAssistantResult(ctx, agentID, runID, result, result.Text, "partial", stopReason, kind)
+	if err != nil {
+		return "", err
+	}
+	if !persisted {
 		messages, err := r.store.ListMessages(ctx, agentID)
 		if err != nil || len(messages) == 0 {
 			return "", err
 		}
 		return messages[len(messages)-1].ID, nil
 	}
-	kind := "partial"
-	if normalized := strings.TrimSpace(stopReason); normalized != "" {
-		kind += ":" + normalized
-	}
-	blocks := []providers.ContentBlock{{Type: "text", Text: text, Kind: kind}}
-	raw, _ := json.Marshal(blocks)
-	message, err := r.store.AddMessage(ctx, db.Message{AgentID: agentID, RunID: runID, Role: "assistant", ContentText: text, ContentJSON: raw, TurnUsage: result.TurnUsage, CompletionState: "partial", StopReason: strings.TrimSpace(stopReason)})
-	if err != nil {
-		return "", err
-	}
-	r.publish(Event{Type: "message.created", AgentID: agentID, MessageID: message.ID, Text: text, Data: mergeEventData(map[string]any{"partial": true, "stopReason": stopReason}, runID)})
+	text := assistantToolUseText(result.Text, result.ToolCalls)
+	r.publish(Event{Type: "message.created", AgentID: agentID, MessageID: message.ID, Text: text, Data: mergeEventData(map[string]any{"partial": true, "stopReason": stopReason, "toolCalls": len(result.ToolCalls), "generatedImages": len(result.GeneratedImages)}, runID)})
 	return message.ID, nil
 }
 

@@ -66,6 +66,7 @@ import {
   normalizeProviderModelConfigs,
   providerConfigPayload,
   providerModelDraftUsable,
+  providerSupportsImageGeneration,
   providerVisibilityPreferencesForDraft,
   removeProviderVisibilityPreferences,
   setProviderModelHidden,
@@ -666,11 +667,41 @@ test("模型发现去重、合并 Token 能力并保留已有编辑", () => {
   assert.deepEqual(discovered.models, ["model-b", "model-a", "missing"]);
   assert.equal(discovered.selectedModel, "missing");
   assert.deepEqual(discovered.modelConfigs, [
-    { name: "model-b", contextTokenLimit: 64000, hidden: true, manual: false },
-    { name: "model-a", contextTokenLimit: 128000, hidden: false, manual: false },
-    { name: "missing", contextTokenLimit: 0, hidden: false, manual: true },
+    { name: "model-b", contextTokenLimit: 64000, imageGeneration: false, hidden: true, manual: false },
+    { name: "model-a", contextTokenLimit: 128000, imageGeneration: false, hidden: false, manual: false },
+    { name: "missing", contextTokenLimit: 0, imageGeneration: false, hidden: false, manual: true },
   ]);
   assert.equal(providerModelDiscovery({ models: ["model-b", "model-a"] }, "model-a").selectedModel, "model-a");
+});
+
+test("图片生成模型开关默认关闭并在重新发现时保留已有值", () => {
+  const normalized = normalizeProviderModelConfigs({
+    modelConfigs: [{ name: "image-model", imageGeneration: true }, { name: "new-model" }],
+  });
+  assert.equal(normalized[0].imageGeneration, true);
+  assert.equal(normalized[1].imageGeneration, false);
+  const merged = mergeProviderModelDiscovery(normalized, { models: ["new-model", "image-model", "fresh-model"] }, "image-model");
+  assert.deepEqual(merged.map((item) => [item.name, item.imageGeneration]), [
+    ["new-model", false],
+    ["image-model", true],
+    ["fresh-model", false],
+  ]);
+});
+
+test("图片生成能力只控制模型开关且 OpenAI/Codex 兼容缺省能力", () => {
+  assert.equal(providerSupportsImageGeneration({ type: "openai" }), true);
+  assert.equal(providerSupportsImageGeneration({ type: "codex" }), true);
+  assert.equal(providerSupportsImageGeneration({ type: "openai", capabilities: { imageGeneration: false } }), false);
+  assert.equal(providerSupportsImageGeneration({ type: "anthropic", capabilities: { imageGeneration: true } }), true);
+
+  const supported = renderProviderConsolePage({ providers: [], consoleState: { drawer: "provider", mode: "edit", type: "openai", draft: { name: "openai", type: "openai", model: "gpt-image", modelConfigs: [{ name: "gpt-image", imageGeneration: true }], modelsReady: true, capabilities: { imageGeneration: true } } } });
+  assert.match(supported, /data-mp-model-image-generation="gpt-image" checked/);
+  assert.doesNotMatch(supported, /data-mp-model-image-generation="gpt-image"[^>]*disabled/);
+
+  const unsupported = renderProviderConsolePage({ providers: [], consoleState: { drawer: "provider", mode: "edit", type: "anthropic", draft: { name: "anthropic", type: "anthropic", model: "claude", modelConfigs: [{ name: "claude", imageGeneration: true }], modelsReady: true, capabilities: { imageGeneration: false } } } });
+  assert.match(unsupported, /data-mp-model-image-generation="claude" checked disabled/);
+  assert.match(unsupported, /协议不支持/);
+  assert.doesNotMatch(unsupported, /data-mp-save-provider disabled/);
 });
 
 test("旧 Provider 数据合成 modelConfigs 并兼容对象模型与 capabilities", () => {
@@ -682,8 +713,8 @@ test("旧 Provider 数据合成 modelConfigs 并兼容对象模型与 capabiliti
   });
   assert.deepEqual(normalized.models, ["model-a", "model-b"]);
   assert.deepEqual(normalized.modelConfigs, [
-    { name: "model-a", contextTokenLimit: 128000, hidden: false, manual: false },
-    { name: "model-b", contextTokenLimit: 64000, hidden: false, manual: false },
+    { name: "model-a", contextTokenLimit: 128000, imageGeneration: false, hidden: false, manual: false },
+    { name: "model-b", contextTokenLimit: 64000, imageGeneration: false, hidden: false, manual: false },
   ]);
   const draft = createProviderDraft("openai-compatible", normalized);
   assert.equal(draft.modelsReady, true);
@@ -743,19 +774,17 @@ test("可见性偏好重命名和删除只处理当前 Provider 前缀", () => {
   assert.deepEqual(removeProviderVisibilityPreferences(migrated, "new").hiddenModels, { "other:z": true });
 });
 
-test("模型 payload 发送 name/contextTokenLimit 且不泄露 hidden 或草稿元数据", () => {
+test("模型 payload 仅发送 name/contextTokenLimit/imageGeneration 且不泄露 UI 元数据", () => {
   const payload = providerConfigPayload({
     name: "relay",
     type: "openai-compatible",
     model: "a",
-    modelConfigs: [{ name: "a", contextTokenLimit: 128000, hidden: true, manual: true }],
+    modelConfigs: [{ name: "a", contextTokenLimit: 128000, imageGeneration: true, hidden: true, manual: true }],
     modelsReady: true,
     modelsStale: false,
   });
-  assert.deepEqual(payload.models, [{ name: "a", contextTokenLimit: 128000 }]);
-  assert.equal(JSON.stringify(payload).includes("hidden"), false);
-  assert.equal(JSON.stringify(payload).includes("modelsReady"), false);
-  assert.equal(JSON.stringify(payload).includes("modelsStale"), false);
+  assert.deepEqual(payload.models, [{ name: "a", contextTokenLimit: 128000, imageGeneration: true }]);
+  for (const privateField of ["hidden", "manual", "modelsReady", "modelsStale"]) assert.equal(JSON.stringify(payload).includes(privateField), false);
 });
 
 test("参考图扁平 DOM 保留 ready/stale 与默认模型保存约束", () => {
@@ -1358,7 +1387,7 @@ test("供应商控制台配置 payload 保留空 API Key 并规范请求与网�
     baseUrl: "https://api.acme.example/v1",
     apiKey: "",
     model: "model-a",
-    models: [{ name: "model-a", contextTokenLimit: 128000 }],
+    models: [{ name: "model-a", contextTokenLimit: 128000, imageGeneration: false }],
     maxTokens: 4096,
     apiKeyOptional: true,
     proxyUrl: "http://proxy-user:proxy-pass@127.0.0.1:7890",
@@ -1421,7 +1450,7 @@ test("供应商控制台 toggle、草稿预检、delete 与 config 请求遵守�
     baseUrl: "https://example.test/v1",
     apiKey: "",
     model: "model-a",
-    models: [{ name: "model-a", contextTokenLimit: 32000 }],
+    models: [{ name: "model-a", contextTokenLimit: 32000, imageGeneration: false }],
     maxTokens: 4096,
     apiKeyOptional: true,
     proxyUrl: "http://proxy-user:proxy-pass@127.0.0.1:7890",

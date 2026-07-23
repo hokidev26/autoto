@@ -5,11 +5,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"strings"
 	"time"
 
 	"autoto/internal/db"
+	"autoto/internal/imageassets"
 	"autoto/internal/providers"
 	"autoto/internal/tools"
 )
@@ -205,7 +207,7 @@ func mergeMemorySystemContext(systemPrompt, memoryContext string) string {
 func (r *Runner) managedContextForTurn(ctx context.Context, agent db.Agent, messages []db.Message, toolSpecs []providers.ToolSpec, controls turnSystemControls) ([]providers.Message, db.Agent, error) {
 	cfg := r.ContextManagementConfig()
 	agent = contextAgentForMessages(agent, messages)
-	providerMessages, eligible := providerMessagesForContextPlan(agent, messages, cfg.CompactKeepTurns)
+	providerMessages, eligible := r.providerMessagesForContextPlan(ctx, agent, messages, cfg.CompactKeepTurns)
 	limit := r.contextTokenLimit(agent.Model)
 	preferredControls := controls.preferredMessages()
 	preferredRequest := appendProviderMessages(providerMessages, preferredControls)
@@ -234,7 +236,7 @@ func (r *Runner) managedContextForTurn(ctx context.Context, agent db.Agent, mess
 				data := r.contextUpdatedData(agent, messages, toolSpecs)
 				data["compacted"] = true
 				r.publish(Event{Type: "context.updated", AgentID: agent.ID, Data: data})
-				providerMessages, eligible = providerMessagesForContextPlan(agent, messages, cfg.CompactKeepTurns)
+				providerMessages, eligible = r.providerMessagesForContextPlan(ctx, agent, messages, cfg.CompactKeepTurns)
 				preferredRequest = appendProviderMessages(providerMessages, preferredControls)
 			}
 		}
@@ -267,7 +269,7 @@ func (r *Runner) managedContextForTurn(ctx context.Context, agent db.Agent, mess
 			data := r.contextUpdatedData(agent, messages, toolSpecs)
 			data["compacted"] = true
 			r.publish(Event{Type: "context.updated", AgentID: agent.ID, Data: data})
-			providerMessages, _ = providerMessagesForContextPlan(agent, messages, cfg.CompactKeepTurns)
+			providerMessages, _ = r.providerMessagesForContextPlan(ctx, agent, messages, cfg.CompactKeepTurns)
 			preferredRequest = appendProviderMessages(providerMessages, preferredControls)
 			if estimateRequestTokens(agent.SystemPrompt, preferredRequest, toolSpecs) <= limit {
 				return preferredRequest, agent, nil
@@ -334,8 +336,29 @@ func providerMessagesForContextPlan(agent db.Agent, messages []db.Message, keepT
 	return out, eligible
 }
 
+func (r *Runner) providerMessagesForContextPlan(ctx context.Context, agent db.Agent, messages []db.Message, keepTurns int) ([]providers.Message, []bool) {
+	agent = contextAgentForMessages(agent, messages)
+	start, _ := contextBoundaryStart(messages, agent.PruneBoundaryMessageID)
+	out := make([]providers.Message, 0, len(messages)-start+1)
+	eligible := make([]bool, 0, len(messages)-start+1)
+	if summary := strings.TrimSpace(agent.ContextSummary); summary != "" {
+		out = append(out, summaryProviderMessage(summary))
+		eligible = append(eligible, false)
+	}
+	compactBefore := contextRecentTurnsStart(messages, start, keepTurns)
+	for i := start; i < len(messages); i++ {
+		message := r.providerMessageFromDBForContext(ctx, messages[i], false)
+		if strings.TrimSpace(message.Content) == "" && len(message.Blocks) == 0 {
+			continue
+		}
+		out = append(out, message)
+		eligible = append(eligible, i < compactBefore)
+	}
+	return out, eligible
+}
+
 func prepareProviderMessagesForCapabilities(messages []providers.Message, capabilities providers.Capabilities) []providers.Message {
-	if capabilities.Tools && capabilities.ImageInput {
+	if capabilities.Tools && capabilities.ImageInput && capabilities.ImageGeneration {
 		return messages
 	}
 	out := make([]providers.Message, len(messages))
@@ -357,6 +380,12 @@ func prepareProviderMessagesForCapabilities(messages []providers.Message, capabi
 					name = "image"
 				}
 				blocks = append(blocks, providers.ContentBlock{Type: "text", Text: fmt.Sprintf("[图片附件 %s 未发送：当前 Provider 不支持原生图片输入。]", name)})
+			case "image_generation":
+				if capabilities.ImageGeneration && len(block.Data) > 0 {
+					blocks = append(blocks, block)
+					continue
+				}
+				blocks = append(blocks, unavailableGeneratedImageBlock())
 			case "tool_use":
 				if capabilities.Tools {
 					blocks = append(blocks, block)
@@ -429,6 +458,69 @@ func providerMessageFromDBForContext(message db.Message, compactToolResult bool)
 		}
 	}
 	return providers.Message{Role: message.Role, Content: content, Blocks: blocks}
+}
+
+func (r *Runner) providerMessageFromDBForContext(ctx context.Context, message db.Message, compactToolResult bool) providers.Message {
+	_ = ctx
+	blocks := contentBlocksFromMessage(message)
+	blocks = r.hydrateGeneratedImageBlocks(message, blocks)
+	content := message.ContentText
+	if compactToolResult {
+		blocks = compactToolResultBlocks(blocks)
+	}
+	if contentFromBlocks := contextMessageContent(blocks); strings.TrimSpace(contentFromBlocks) != "" {
+		content = contentFromBlocks
+	}
+	return providers.Message{Role: message.Role, Content: content, Blocks: blocks}
+}
+
+func (r *Runner) hydrateGeneratedImageBlocks(message db.Message, blocks []providers.ContentBlock) []providers.ContentBlock {
+	if len(blocks) == 0 {
+		return blocks
+	}
+	metadata := make(map[string]db.GeneratedImage, len(message.GeneratedImages))
+	for _, image := range message.GeneratedImages {
+		metadata[strings.TrimSpace(image.ID)] = image
+	}
+	store := r.generatedImageStore()
+	out := make([]providers.ContentBlock, 0, len(blocks))
+	for _, block := range blocks {
+		if block.Type != "image_generation" {
+			out = append(out, block)
+			continue
+		}
+		image, ok := metadata[strings.TrimSpace(block.AssetID)]
+		if !ok || image.Status != "ready" || store == nil {
+			out = append(out, unavailableGeneratedImageBlock())
+			continue
+		}
+		file, err := store.Open(image.StorageKey, imageassets.Expected{SHA256: image.SHA256, ByteSize: image.ByteSize, Width: image.Width, Height: image.Height})
+		if err != nil {
+			out = append(out, unavailableGeneratedImageBlock())
+			continue
+		}
+		data, readErr := io.ReadAll(io.LimitReader(file, imageassets.MaxPNGBytes+1))
+		closeErr := file.Close()
+		if readErr != nil || closeErr != nil || len(data) == 0 || int64(len(data)) > imageassets.MaxPNGBytes {
+			out = append(out, unavailableGeneratedImageBlock())
+			continue
+		}
+		block.Data = data
+		block.GenerationID = image.GenerationID
+		block.Status = "completed"
+		block.OutputIndex = int64(image.OutputIndex)
+		block.RevisedPrompt = image.RevisedPrompt
+		block.MIMEType = image.MIMEType
+		block.Filename = image.Filename
+		block.Width = image.Width
+		block.Height = image.Height
+		out = append(out, block)
+	}
+	return out
+}
+
+func unavailableGeneratedImageBlock() providers.ContentBlock {
+	return providers.ContentBlock{Type: "text", Text: "[Generated image unavailable; omitted from history.]"}
 }
 
 func compactToolResultBlocks(blocks []providers.ContentBlock) []providers.ContentBlock {
@@ -744,6 +836,8 @@ func messageSummaryLine(message db.Message, maxRunes int) string {
 				name = "image"
 			}
 			parts = append(parts, fmt.Sprintf("[Image attachment %s omitted]", name))
+		case "image_generation":
+			parts = append(parts, "[Generated image omitted]")
 		default:
 			if text := strings.TrimSpace(block.Text); text != "" {
 				parts = append(parts, text)
@@ -889,6 +983,135 @@ func assistantToolUseText(text string, calls []providers.ToolCall) string {
 		parts = append(parts, fmt.Sprintf("Tool requested: %s (%s)", call.Name, call.ID))
 	}
 	return strings.Join(parts, "\n")
+}
+
+func marshalAssistantContentBlocks(blocks []providers.ContentBlock) (json.RawMessage, error) {
+	encoded := make([]json.RawMessage, 0, len(blocks))
+	for _, block := range blocks {
+		var (
+			raw []byte
+			err error
+		)
+		if block.Type == "image_generation" {
+			raw, err = json.Marshal(struct {
+				Type          string `json:"type"`
+				AssetID       string `json:"assetId"`
+				GenerationID  string `json:"generationId"`
+				Status        string `json:"status"`
+				MIMEType      string `json:"mimeType"`
+				Filename      string `json:"filename"`
+				Width         int    `json:"width"`
+				Height        int    `json:"height"`
+				RevisedPrompt string `json:"revisedPrompt,omitempty"`
+				OutputIndex   int64  `json:"outputIndex"`
+			}{
+				Type: block.Type, AssetID: block.AssetID, GenerationID: block.GenerationID, Status: block.Status,
+				MIMEType: block.MIMEType, Filename: block.Filename, Width: block.Width, Height: block.Height,
+				RevisedPrompt: block.RevisedPrompt, OutputIndex: block.OutputIndex,
+			})
+		} else {
+			raw, err = json.Marshal(block)
+		}
+		if err != nil {
+			return nil, err
+		}
+		encoded = append(encoded, raw)
+	}
+	return json.Marshal(encoded)
+}
+
+func (r *Runner) persistAssistantResult(ctx context.Context, agentID, runID string, result modelTurnResult, text, completionState, stopReason, textKind string) (db.Message, bool, error) {
+	blocks := make([]providers.ContentBlock, 0, 1+len(result.ToolCalls)+len(result.GeneratedImages))
+	if strings.TrimSpace(text) != "" {
+		blocks = append(blocks, providers.ContentBlock{Type: "text", Text: text, Kind: textKind})
+	}
+	for _, call := range result.ToolCalls {
+		call = normalizeProviderToolCall(call)
+		blocks = append(blocks, providers.ContentBlock{Type: "tool_use", ToolUseID: call.ID, ToolName: call.Name, Input: call.Input, ProviderState: call.ProviderState})
+	}
+	imageBlocks, images, err := r.prepareGeneratedImages(result.GeneratedImages, runID)
+	if err != nil {
+		return db.Message{}, false, err
+	}
+	blocks = append(blocks, imageBlocks...)
+	if len(blocks) == 0 {
+		return db.Message{}, false, nil
+	}
+	contentJSON, err := marshalAssistantContentBlocks(blocks)
+	if err != nil {
+		return db.Message{}, false, fmt.Errorf("encode assistant content: %w", err)
+	}
+	message := db.Message{
+		AgentID:           agentID,
+		RunID:             runID,
+		Role:              "assistant",
+		ContentText:       assistantToolUseText(text, result.ToolCalls),
+		ContentJSON:       contentJSON,
+		ProviderStateJSON: providerStateForBlocks(blocks),
+		TurnUsage:         result.TurnUsage,
+		CompletionState:   completionState,
+		StopReason:        strings.TrimSpace(stopReason),
+	}
+	if len(images) > 0 {
+		stored, err := r.store.AddMessageWithGeneratedImages(ctx, message, images)
+		return stored, err == nil, err
+	}
+	stored, err := r.store.AddMessage(ctx, message)
+	return stored, err == nil, err
+}
+
+func (r *Runner) prepareGeneratedImages(generated []providers.ImageGeneration, runID string) ([]providers.ContentBlock, []db.GeneratedImage, error) {
+	if len(generated) == 0 {
+		return nil, nil, nil
+	}
+	store := r.generatedImageStore()
+	if store == nil {
+		return nil, nil, errors.New("generated image store is unavailable")
+	}
+	blocks := make([]providers.ContentBlock, 0, len(generated))
+	images := make([]db.GeneratedImage, 0, len(generated))
+	for _, generatedImage := range generated {
+		generationID := strings.TrimSpace(generatedImage.GenerationID)
+		if generationID == "" || len([]byte(generationID)) > 256 || generatedImage.OutputIndex < 0 {
+			return nil, nil, errors.New("provider returned invalid generated image metadata")
+		}
+		assetID := db.NewID()
+		asset, err := store.PutPNG(generatedImage.Data)
+		if err != nil {
+			return nil, nil, fmt.Errorf("persist generated image %s: %w", generationID, err)
+		}
+		revisedPrompt, _ := truncateUTF8Bytes(strings.TrimSpace(generatedImage.RevisedPrompt), 131072)
+		filename := fmt.Sprintf("generated-%d.png", generatedImage.OutputIndex)
+		image := db.GeneratedImage{
+			ID:            assetID,
+			RunID:         runID,
+			GenerationID:  generationID,
+			StorageKey:    asset.StorageKey,
+			SHA256:        asset.SHA256,
+			MIMEType:      "image/png",
+			Filename:      filename,
+			ByteSize:      asset.ByteSize,
+			Width:         asset.Width,
+			Height:        asset.Height,
+			RevisedPrompt: revisedPrompt,
+			OutputIndex:   int(generatedImage.OutputIndex),
+			Status:        "ready",
+		}
+		images = append(images, image)
+		blocks = append(blocks, providers.ContentBlock{
+			Type:          "image_generation",
+			AssetID:       assetID,
+			GenerationID:  generationID,
+			Status:        "completed",
+			OutputIndex:   generatedImage.OutputIndex,
+			RevisedPrompt: revisedPrompt,
+			MIMEType:      image.MIMEType,
+			Filename:      filename,
+			Width:         asset.Width,
+			Height:        asset.Height,
+		})
+	}
+	return blocks, images, nil
 }
 
 func toolResultMessageText(call providers.ToolCall, result tools.Result) string {

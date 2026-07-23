@@ -10,6 +10,7 @@ import (
 
 	"autoto/internal/config"
 	"autoto/internal/db"
+	"autoto/internal/imageassets"
 	"autoto/internal/providers"
 	"autoto/internal/review"
 	"autoto/internal/toolpipeline"
@@ -42,6 +43,9 @@ type Runner struct {
 
 	backgroundMu sync.RWMutex
 	background   tools.BackgroundTaskService
+
+	generatedImagesMu sync.RWMutex
+	generatedImages   *imageassets.Store
 
 	reasoningMu            sync.RWMutex
 	defaultReasoningEffort string
@@ -172,6 +176,26 @@ func (r *Runner) backgroundTaskService() tools.BackgroundTaskService {
 	r.backgroundMu.RLock()
 	defer r.backgroundMu.RUnlock()
 	return r.background
+}
+
+// SetGeneratedImageStore installs the optional disk store used for generated
+// image persistence and history hydration without changing NewRunner callers.
+func (r *Runner) SetGeneratedImageStore(store *imageassets.Store) {
+	if r == nil {
+		return
+	}
+	r.generatedImagesMu.Lock()
+	r.generatedImages = store
+	r.generatedImagesMu.Unlock()
+}
+
+func (r *Runner) generatedImageStore() *imageassets.Store {
+	if r == nil {
+		return nil
+	}
+	r.generatedImagesMu.RLock()
+	defer r.generatedImagesMu.RUnlock()
+	return r.generatedImages
 }
 
 func (r *Runner) SetAgentModelSettings(cfg config.AgentConfig) {

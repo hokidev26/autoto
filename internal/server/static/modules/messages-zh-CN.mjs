@@ -1561,7 +1561,7 @@ export default Object.freeze({
         proxyUrl: "代理 URL", proxyAuthPersisted: "代理认证信息已加密保存；留空账号密码会继续使用已保存值。", clearProxyAuth: "清除已保存的代理认证信息",
         userAgent: "User-Agent", requestHeaders: "自定义请求头", requestHeaderName: "Header 名称", requestHeaderValue: "Header 值",
         requestHeaderBlankKeepsCurrent: "留空保留已加密保存的值", requestHeaderValuePlaceholder: "输入 Header 值；保存后加密存储",
-        insecureSkipTLSVerify: "跳过 TLS 证书验证", defaultShort: "默认", contextTokenLimit: "上下文 Token 上限", contextTokenLimitFor: "{model} 的上下文 Token 上限", manualModel: "手动模型", manualModelPlaceholder: "输入准确的模型名称",
+        insecureSkipTLSVerify: "跳过 TLS 证书验证", defaultShort: "默认", contextTokenLimit: "上下文 Token 上限", contextTokenLimitFor: "{model} 的上下文 Token 上限", imageGeneration: "图片生成", imageGenerationHelp: "允许该模型生成图片。", imageGenerationUnsupported: "当前供应商协议不支持图片生成。", protocolUnsupported: "协议不支持", manualModel: "手动模型", manualModelPlaceholder: "输入准确的模型名称",
       },
       actions: {
         testConnection: "测试连接", testingConnection: "测试连接中", sendTest: "发送测试", saveAndEnable: "保存并启用", start: "启动", stop: "停止", delete: "删除", closeDrawer: "关闭抽屉", back: "返回",

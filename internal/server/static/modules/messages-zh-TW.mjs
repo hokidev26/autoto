@@ -1558,7 +1558,7 @@ export default Object.freeze({
         proxyUrl: "代理 URL", proxyAuthPersisted: "代理驗證資訊已加密儲存；帳號與密碼留空會繼續使用已儲存值。", clearProxyAuth: "清除已儲存的代理驗證資訊",
         userAgent: "User-Agent", requestHeaders: "自訂請求標頭", requestHeaderName: "標頭名稱", requestHeaderValue: "標頭值",
         requestHeaderBlankKeepsCurrent: "留空保留已加密儲存的值", requestHeaderValuePlaceholder: "輸入標頭值；儲存後加密保存",
-        insecureSkipTLSVerify: "略過 TLS 憑證驗證", defaultShort: "預設", contextTokenLimit: "上下文 Token 上限", contextTokenLimitFor: "{model} 的上下文 Token 上限", manualModel: "手動模型", manualModelPlaceholder: "輸入正確的模型名稱",
+        insecureSkipTLSVerify: "略過 TLS 憑證驗證", defaultShort: "預設", contextTokenLimit: "上下文 Token 上限", contextTokenLimitFor: "{model} 的上下文 Token 上限", imageGeneration: "圖片生成", imageGenerationHelp: "允許此模型生成圖片。", imageGenerationUnsupported: "目前供應商協定不支援圖片生成。", protocolUnsupported: "協定不支援", manualModel: "手動模型", manualModelPlaceholder: "輸入正確的模型名稱",
       },
       actions: {
         testConnection: "測試連線", testingConnection: "測試連線中", sendTest: "傳送測試", saveAndEnable: "儲存並啟用", start: "啟動", stop: "停止", delete: "刪除", closeDrawer: "關閉抽屜", back: "返回",

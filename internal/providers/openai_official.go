@@ -2,6 +2,7 @@ package providers
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -62,6 +63,7 @@ func (p *OpenAIOfficial) Capabilities() Capabilities {
 		Tools:            true,
 		Streaming:        true,
 		ImageInput:       true,
+		ImageGeneration:  true,
 		ReasoningEffort:  true,
 		ReasoningEfforts: []string{"low", "medium", "high"},
 	}
@@ -126,9 +128,9 @@ func (p *OpenAIOfficial) Generate(ctx context.Context, req GenerateRequest) (<-c
 		if req.SystemPrompt != "" {
 			params.Instructions = param.NewOpt(req.SystemPrompt)
 		}
-		if len(req.Tools) > 0 {
+		enableImageGeneration := req.EnableImageGeneration && p.Capabilities().ImageGeneration && p.ModelCapabilities(model).ImageGeneration
+		if len(req.Tools) > 0 || enableImageGeneration || openAIMessagesRequireStructuredInput(req.Messages) {
 			params.Input = responses.ResponseNewParamsInputUnion{OfInputItemList: openAIResponseInput(req.Messages)}
-			params.Tools = openAIToolParams(req.Tools)
 		} else {
 			input := renderTranscript(req.Messages)
 			if input == "" {
@@ -136,12 +138,24 @@ func (p *OpenAIOfficial) Generate(ctx context.Context, req GenerateRequest) (<-c
 			}
 			params.Input = responses.ResponseNewParamsInputUnion{OfString: param.NewOpt(input)}
 		}
+		if tools := openAIToolParams(req.Tools, enableImageGeneration); len(tools) > 0 {
+			params.Tools = tools
+		}
 		stream := p.client.Responses.NewStreaming(ctx, params)
 		defer stream.Close()
 		sawDelta := false
 		emittedToolCalls := map[string]bool{}
+		imageTracker := newImageGenerationTracker()
 		for stream.Next() {
 			event := stream.Current()
+			imageEvents, imageErr := imageTracker.processJSON(event.RawJSON())
+			if imageErr != nil {
+				out <- Event{Type: "error", Text: imageErr.Error()}
+				return
+			}
+			for _, imageEvent := range imageEvents {
+				out <- imageEvent
+			}
 			switch event.Type {
 			case "response.output_text.delta":
 				delta := event.AsResponseOutputTextDelta()
@@ -198,8 +212,8 @@ func (p *OpenAIOfficial) Generate(ctx context.Context, req GenerateRequest) (<-c
 	return out, nil
 }
 
-func openAIToolParams(tools []ToolSpec) []responses.ToolUnionParam {
-	params := make([]responses.ToolUnionParam, 0, len(tools))
+func openAIToolParams(tools []ToolSpec, enableImageGeneration bool) []responses.ToolUnionParam {
+	params := make([]responses.ToolUnionParam, 0, len(tools)+1)
 	for _, tool := range tools {
 		name := strings.TrimSpace(tool.Name)
 		if name == "" {
@@ -214,6 +228,9 @@ func openAIToolParams(tools []ToolSpec) []responses.ToolUnionParam {
 			function.Description = openai.String(description)
 		}
 		params = append(params, responses.ToolUnionParam{OfFunction: &function})
+	}
+	if enableImageGeneration {
+		params = append(params, responses.ToolUnionParam{OfImageGeneration: &responses.ToolImageGenerationParam{OutputFormat: "png"}})
 	}
 	return params
 }
@@ -246,6 +263,18 @@ func defaultOpenAIToolSchema() map[string]any {
 	return map[string]any{"type": "object", "properties": map[string]any{}}
 }
 
+func openAIMessagesRequireStructuredInput(messages []Message) bool {
+	for _, message := range messages {
+		for _, block := range normalizeContentBlocks(message) {
+			switch block.Type {
+			case "image", "tool_use", "tool_result", "image_generation":
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func openAIResponseInput(messages []Message) responses.ResponseInputParam {
 	items := make([]responses.ResponseInputItemUnionParam, 0, len(messages))
 	for _, message := range messages {
@@ -254,21 +283,40 @@ func openAIResponseInput(messages []Message) responses.ResponseInputParam {
 		if len(blocks) == 0 {
 			continue
 		}
-		var textBlocks []ContentBlock
+		var messageBlocks []ContentBlock
 		var toolUseBlocks []ContentBlock
 		var toolResultBlocks []ContentBlock
+		var imageGenerationBlocks []ContentBlock
 		for _, block := range blocks {
 			switch block.Type {
 			case "tool_use":
 				toolUseBlocks = append(toolUseBlocks, block)
 			case "tool_result":
 				toolResultBlocks = append(toolResultBlocks, block)
+			case "image_generation":
+				imageGenerationBlocks = append(imageGenerationBlocks, block)
 			default:
-				textBlocks = append(textBlocks, block)
+				messageBlocks = append(messageBlocks, block)
 			}
 		}
-		if text := strings.TrimSpace(contentBlocksText(textBlocks)); text != "" {
-			items = append(items, responses.ResponseInputItemParamOfMessage(text, role))
+		content := make(responses.ResponseInputMessageContentListParam, 0, len(messageBlocks))
+		for _, block := range messageBlocks {
+			if block.Type == "image" && len(block.Data) > 0 {
+				mimeType := strings.TrimSpace(block.MIMEType)
+				if mimeType == "" {
+					mimeType = "image/png"
+				}
+				image := responses.ResponseInputContentParamOfInputImage(responses.ResponseInputImageDetailAuto)
+				image.OfInputImage.ImageURL = param.NewOpt("data:" + mimeType + ";base64," + base64.StdEncoding.EncodeToString(block.Data))
+				content = append(content, image)
+				continue
+			}
+			if text := strings.TrimSpace(block.Text); text != "" {
+				content = append(content, responses.ResponseInputContentParamOfInputText(text))
+			}
+		}
+		if len(content) > 0 {
+			items = append(items, responses.ResponseInputItemParamOfMessage(content, role))
 		}
 		for _, block := range toolUseBlocks {
 			callID := strings.TrimSpace(block.ToolUseID)
@@ -284,6 +332,17 @@ func openAIResponseInput(messages []Message) responses.ResponseInputParam {
 				continue
 			}
 			items = append(items, responses.ResponseInputItemParamOfFunctionCallOutput(callID, openAIToolResultOutput(block)))
+		}
+		for _, block := range imageGenerationBlocks {
+			id := strings.TrimSpace(block.GenerationID)
+			if id == "" || len(block.Data) == 0 {
+				continue
+			}
+			status := strings.TrimSpace(block.Status)
+			if status == "" {
+				status = "completed"
+			}
+			items = append(items, responses.ResponseInputItemParamOfImageGenerationCall(id, base64.StdEncoding.EncodeToString(block.Data), status))
 		}
 	}
 	if len(items) == 0 {

@@ -89,6 +89,16 @@ function contextTokenLimitValue(value) {
   return Number.isFinite(numeric) && numeric > 0 ? Math.floor(numeric) : 0;
 }
 
+export function providerSupportsImageGeneration(provider = {}) {
+  const capabilities = provider?.capabilities && typeof provider.capabilities === "object" && !Array.isArray(provider.capabilities)
+    ? provider.capabilities
+    : {};
+  if (Object.hasOwn(capabilities, "imageGeneration")) return capabilities.imageGeneration === true;
+  const type = stringValue(provider?.type || provider?.name).toLowerCase();
+  const name = stringValue(provider?.name).toLowerCase();
+  return type === "openai" || type === "codex" || name === "openai" || name === "codex";
+}
+
 export function normalizeProviderModelConfigs(source = {}, options = {}) {
   const provider = Array.isArray(source) ? { models: source } : (source && typeof source === "object" ? source : {});
   const hiddenModels = options.hiddenModels && typeof options.hiddenModels === "object" ? options.hiddenModels : {};
@@ -107,6 +117,7 @@ export function normalizeProviderModelConfigs(source = {}, options = {}) {
     rows.push({
       name,
       contextTokenLimit: contextTokenLimitValue(firstDefined(item.contextTokenLimit, capabilities[name]?.contextTokenLimit)),
+      imageGeneration: item.imageGeneration === true,
       hidden: item.hidden === undefined ? Boolean(hiddenModels[preferenceKey]) : Boolean(item.hidden),
       manual: item.manual === undefined ? Boolean(manual) : Boolean(item.manual),
     });
@@ -127,8 +138,8 @@ export function mergeProviderModelDiscovery(currentConfigs = [], response = {}, 
   const merged = discovered.map((item) => {
     const previous = existing.get(item.name);
     return previous
-      ? { ...item, contextTokenLimit: previous.contextTokenLimit, hidden: previous.hidden, manual: false }
-      : { ...item, manual: false };
+      ? { ...item, contextTokenLimit: previous.contextTokenLimit, imageGeneration: previous.imageGeneration, hidden: previous.hidden, manual: false }
+      : { ...item, imageGeneration: false, manual: false };
   });
   const included = new Set(merged.map((item) => item.name));
   existing.forEach((item) => {
@@ -138,7 +149,7 @@ export function mergeProviderModelDiscovery(currentConfigs = [], response = {}, 
     }
   });
   const selected = stringValue(defaultModel);
-  if (selected && !included.has(selected)) merged.push({ name: selected, contextTokenLimit: 0, hidden: false, manual: true });
+  if (selected && !included.has(selected)) merged.push({ name: selected, contextTokenLimit: 0, imageGeneration: false, hidden: false, manual: true });
   return merged;
 }
 
@@ -317,7 +328,7 @@ export function normalizeConsoleProvider(provider = {}) {
     defaultModel,
     model: defaultModel,
     models: models.length ? models : (defaultModel ? [defaultModel] : []),
-    modelConfigs: modelConfigs.length ? modelConfigs : (defaultModel ? [{ name: defaultModel, contextTokenLimit: 0, hidden: false, manual: true }] : []),
+    modelConfigs: modelConfigs.length ? modelConfigs : (defaultModel ? [{ name: defaultModel, contextTokenLimit: 0, imageGeneration: false, hidden: false, manual: true }] : []),
     modelsReady: provider.modelsReady === undefined ? Boolean(modelConfigs.length || defaultModel) : Boolean(provider.modelsReady),
     modelsStale: Boolean(provider.modelsStale),
     modelCapabilities: provider.modelCapabilities && typeof provider.modelCapabilities === "object" && !Array.isArray(provider.modelCapabilities) ? provider.modelCapabilities : {},
@@ -467,6 +478,7 @@ export function createProviderDraft(typeKey, provider = null) {
     requestHeadersPersisted: source?.requestHeadersPersisted ?? false,
     requestHeadersSource: source?.requestHeadersSource || "none",
     insecureSkipTLSVerify: provider?.insecureSkipTLSVerify ?? source?.insecureSkipTLSVerify ?? false,
+    capabilities: source?.capabilities || { imageGeneration: providerSupportsImageGeneration(template) },
     model: source?.defaultModel || template.model || "",
     models: source?.models || [],
     modelConfigs: provider?.modelsReady === false && !asArray(provider?.modelConfigs).length && !asArray(provider?.models).length ? [] : (source?.modelConfigs || []),
@@ -495,6 +507,7 @@ export function providerConfigPayload(draft = {}) {
     models: normalizeProviderModelConfigs({ modelConfigs: draft.modelConfigs }).map((item) => ({
       name: item.name,
       contextTokenLimit: item.contextTokenLimit,
+      imageGeneration: item.imageGeneration,
     })),
     maxTokens: Number.isFinite(maxTokens) && maxTokens > 0 ? Math.floor(maxTokens) : 0,
     apiKeyOptional: Boolean(draft.apiKeyOptional),
@@ -614,6 +627,7 @@ function renderProviderRequestHeaderRows(headers = []) {
 
 export function renderProviderModelEditor(draft = {}, modelBusy = false, sensitiveAccessAllowed = true) {
   const configs = normalizeProviderModelConfigs({ modelConfigs: draft.modelConfigs });
+  const imageGenerationSupported = providerSupportsImageGeneration(draft);
   const visibleCount = configs.filter((item) => !item.hidden).length;
   const rows = configs.map((item) => {
     const hideDisabled = !item.hidden && visibleCount <= 1;
@@ -623,6 +637,7 @@ export function renderProviderModelEditor(draft = {}, modelBusy = false, sensiti
     return `<div class="mp-provider-model-config-row${item.hidden ? " is-hidden" : ""}" data-mp-model-config="${escapeAttr(item.name)}">
       <div class="mp-provider-model-name"><strong title="${escapeAttr(item.name)}">${escapeHtml(item.name)}</strong>${item.manual ? `<span class="settings-badge">${escapeHtml(ct("statusLabels.manual"))}</span>` : ""}</div>
       <label class="mp-provider-model-limit"><span>${escapeHtml(ct("fields.contextTokenLimit"))}</span><input type="number" min="0" max="10000000" step="1" inputmode="numeric" value="${escapeAttr(item.contextTokenLimit || 272000)}" data-mp-model-token="${escapeAttr(item.name)}" aria-label="${escapeAttr(ct("fields.contextTokenLimitFor", { model: item.name }))}"></label>
+      <label class="mp-provider-model-image-generation${imageGenerationSupported ? "" : " is-unsupported"}" title="${escapeAttr(imageGenerationSupported ? ct("fields.imageGenerationHelp") : ct("fields.imageGenerationUnsupported"))}"><input type="checkbox" data-mp-model-image-generation="${escapeAttr(item.name)}" ${item.imageGeneration ? "checked" : ""} ${imageGenerationSupported ? "" : "disabled"}><span class="mp-provider-model-image-track" aria-hidden="true"></span><span class="mp-provider-model-image-copy"><strong>${escapeHtml(ct("fields.imageGeneration"))}</strong>${imageGenerationSupported ? "" : `<small>${escapeHtml(ct("fields.protocolUnsupported"))}</small>`}</span></label>
       <button class="mp-provider-model-visibility" type="button" data-mp-model-visibility="${escapeAttr(item.name)}" data-hidden="${item.hidden ? "true" : "false"}" aria-pressed="${item.hidden ? "true" : "false"}" aria-label="${escapeAttr(ct(item.hidden ? "actions.showModel" : "actions.hideModel", { model: item.name }))}" ${hideDisabled ? "disabled" : ""}>${visibilityIcon}</button>
       ${item.manual ? `<button class="mp-provider-model-remove" type="button" data-mp-remove-manual-model="${escapeAttr(item.name)}" aria-label="${escapeAttr(ct("actions.removeManualModel", { model: item.name }))}">×</button>` : `<span class="mp-provider-model-remove-placeholder" aria-hidden="true"></span>`}
     </div>`;

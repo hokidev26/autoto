@@ -105,6 +105,7 @@ func (p *CodexProvider) Capabilities() Capabilities {
 		Tools:            true,
 		Streaming:        true,
 		ImageInput:       true,
+		ImageGeneration:  true,
 		ReasoningEffort:  true,
 		ReasoningEfforts: []string{"low", "medium", "high", "xhigh"},
 	}
@@ -118,7 +119,10 @@ func (p *CodexProvider) ModelCapabilities(model string) ModelCapabilities {
 	p.modelCapabilitiesMu.RLock()
 	capabilities := p.modelCapabilities[model]
 	p.modelCapabilitiesMu.RUnlock()
-	capabilities.ContextTokenLimit = p.cfg.ModelContextTokenLimit(model)
+	configured := configuredModelCapabilities(p.cfg, model)
+	capabilities.ImageGeneration = configured.ImageGeneration
+	capabilities.ImageGenerationKnown = configured.ImageGenerationKnown
+	capabilities.ContextTokenLimit = configured.ContextTokenLimit
 	return capabilities
 }
 
@@ -265,6 +269,7 @@ func (p *CodexProvider) Generate(ctx context.Context, req GenerateRequest) (<-ch
 			return nil, fmt.Errorf("%w by %s provider model %q", ErrFastModeUnsupported, p.cfg.Name, model)
 		}
 	}
+	req.EnableImageGeneration = req.EnableImageGeneration && p.Capabilities().ImageGeneration && p.ModelCapabilities(model).ImageGeneration
 	payload, err := buildCodexResponsesPayload(req, model, reasoningEffort, p.cfg.InstallationID, p.cfg.ClientVersion)
 	if err != nil {
 		return nil, err
@@ -681,7 +686,7 @@ func buildCodexResponsesPayload(req GenerateRequest, model, reasoningEffort, ins
 	if instructions := strings.TrimSpace(req.SystemPrompt); instructions != "" {
 		payload["instructions"] = instructions
 	}
-	if tools := codexToolParams(req.Tools); len(tools) > 0 {
+	if tools := codexToolParams(req.Tools, req.EnableImageGeneration); len(tools) > 0 {
 		payload["tools"] = tools
 	}
 	if reasoningEffort != "" {
@@ -753,6 +758,21 @@ func codexResponseInput(messages []Message) []map[string]any {
 					"type":      "input_image",
 					"image_url": "data:" + mimeType + ";base64," + base64.StdEncoding.EncodeToString(block.Data),
 				})
+			case "image_generation":
+				id := strings.TrimSpace(block.GenerationID)
+				if id == "" || len(block.Data) == 0 {
+					continue
+				}
+				status := strings.TrimSpace(block.Status)
+				if status == "" {
+					status = "completed"
+				}
+				structured = append(structured, map[string]any{
+					"type":   "image_generation_call",
+					"id":     id,
+					"status": status,
+					"result": base64.StdEncoding.EncodeToString(block.Data),
+				})
 			default:
 				text := strings.TrimSpace(block.Text)
 				if text == "" {
@@ -773,8 +793,8 @@ func codexResponseInput(messages []Message) []map[string]any {
 	return items
 }
 
-func codexToolParams(tools []ToolSpec) []map[string]any {
-	out := make([]map[string]any, 0, len(tools))
+func codexToolParams(tools []ToolSpec, enableImageGeneration bool) []map[string]any {
+	out := make([]map[string]any, 0, len(tools)+1)
 	for _, tool := range tools {
 		name := strings.TrimSpace(tool.Name)
 		if name == "" {
@@ -791,6 +811,9 @@ func codexToolParams(tools []ToolSpec) []map[string]any {
 		}
 		out = append(out, item)
 	}
+	if enableImageGeneration {
+		out = append(out, map[string]any{"type": "image_generation", "output_format": "png"})
+	}
 	return out
 }
 
@@ -801,8 +824,9 @@ type codexStreamOutcome struct {
 
 func handleCodexResponsesStream(ctx context.Context, out chan<- Event, body io.Reader, credential codexauth.Credential) codexStreamOutcome {
 	scanner := bufio.NewScanner(body)
-	scanner.Buffer(make([]byte, 0, 64*1024), 2<<20)
+	scanner.Buffer(make([]byte, 0, 64*1024), 16<<20)
 	emittedCalls := map[string]bool{}
+	imageTracker := newImageGenerationTracker()
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 		if line == "" || strings.HasPrefix(line, ":") || strings.HasPrefix(line, "event:") {
@@ -818,6 +842,16 @@ func handleCodexResponsesStream(ctx context.Context, out chan<- Event, body io.R
 		var event codexStreamEvent
 		if err := json.Unmarshal([]byte(data), &event); err != nil {
 			continue
+		}
+		imageEvents, imageErr := imageTracker.processJSON(data)
+		if imageErr != nil {
+			emitProviderEvent(ctx, out, Event{Type: "error", Text: imageErr.Error()})
+			return codexStreamOutcome{ErrorCode: "invalid_image_generation"}
+		}
+		for _, imageEvent := range imageEvents {
+			if !emitProviderEvent(ctx, out, imageEvent) {
+				return codexStreamOutcome{ErrorCode: "context_canceled"}
+			}
 		}
 		switch event.Type {
 		case "response.output_text.delta":

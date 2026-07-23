@@ -1,6 +1,7 @@
 package providers
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
@@ -1069,6 +1070,122 @@ func TestCodexUsageURLPreservesPrefixOrExplicitTestEndpoint(t *testing.T) {
 	provider = NewCodexProvider(config.ProviderConfig{BaseURL: "http://127.0.0.1:1234/prefix/codex", CodexUsageURL: "http://127.0.0.1:1234/mock/usage", CodexAllowInsecureTestEndpoint: true})
 	if got := provider.usageURL(); got != "http://127.0.0.1:1234/mock/usage" {
 		t.Fatalf("explicit test usage URL was not preserved: %s", got)
+	}
+}
+
+func TestCodexImageGenerationPayloadAndHistory(t *testing.T) {
+	pngData := testImageGenerationPNG(t, 3, 2)
+	request := GenerateRequest{
+		Messages: []Message{
+			{Role: "assistant", Blocks: []ContentBlock{{Type: "image_generation", GenerationID: "ig_history", Status: "completed", Data: pngData}}},
+			{Role: "user", Blocks: []ContentBlock{{Type: "text", Text: "make another"}, {Type: "image", MIMEType: "image/png", Data: pngData}}},
+		},
+		Tools:                 []ToolSpec{{Name: "Read", Schema: map[string]any{"type": "object"}}},
+		EnableImageGeneration: true,
+	}
+	payload, err := buildCodexResponsesPayload(request, "gpt-image", "high", "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tools, _ := payload["tools"].([]map[string]any)
+	if len(tools) != 2 || tools[0]["type"] != "function" || tools[1]["type"] != "image_generation" || tools[1]["output_format"] != "png" {
+		t.Fatalf("unexpected Codex tools: %+v", tools)
+	}
+	input, _ := payload["input"].([]map[string]any)
+	if len(input) != 2 || input[0]["type"] != "image_generation_call" || input[0]["id"] != "ig_history" || input[0]["status"] != "completed" || input[0]["result"] != base64.StdEncoding.EncodeToString(pngData) {
+		t.Fatalf("unexpected Codex image generation history: %+v", input)
+	}
+	content, _ := input[1]["content"].([]map[string]any)
+	if len(content) != 2 || content[0]["type"] != "input_text" || content[1]["type"] != "input_image" {
+		t.Fatalf("Codex image input changed while enabling hosted generation: %+v", input[1])
+	}
+	reasoning, _ := payload["reasoning"].(map[string]any)
+	if reasoning["effort"] != "high" {
+		t.Fatalf("Codex reasoning changed while enabling hosted generation: %+v", payload)
+	}
+	request.EnableImageGeneration = false
+	payload, err = buildCodexResponsesPayload(request, "gpt-image", "", "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tools, _ = payload["tools"].([]map[string]any)
+	if len(tools) != 1 || tools[0]["type"] != "function" {
+		t.Fatalf("disabling image generation changed local function tools: %+v", tools)
+	}
+}
+
+func TestCodexStreamEmitsAndDeduplicatesImageGeneration(t *testing.T) {
+	pngData := testImageGenerationPNG(t, 6, 7)
+	encoded := base64.StdEncoding.EncodeToString(pngData)
+	stream := strings.Join([]string{
+		`data: {"type":"response.output_item.added","output_index":2,"item":{"type":"image_generation_call","id":"ig_1","status":"in_progress","revised_prompt":"a revised prompt"}}`,
+		``,
+		`data: {"type":"response.image_generation_call.generating","item_id":"ig_1","output_index":2}`,
+		``,
+		`data: {"type":"response.image_generation_call.partial_image","item_id":"ig_1","output_index":2,"partial_image_index":0,"partial_image_b64":"aGVsbG8="}`,
+		``,
+		`data: {"type":"response.output_item.done","output_index":2,"item":{"type":"image_generation_call","id":"ig_1","status":"completed","result":"` + encoded + `"}}`,
+		``,
+		`data: {"type":"response.completed","response":{"output":[{"type":"image_generation_call","id":"ig_1","status":"completed","result":"` + encoded + `"}]}}`,
+		``,
+	}, "\n")
+	out := make(chan Event, 16)
+	outcome := handleCodexResponsesStream(context.Background(), out, strings.NewReader(stream), codexauth.Credential{})
+	close(out)
+	if !outcome.Success || outcome.ErrorCode != "" {
+		t.Fatalf("unexpected stream outcome: %+v", outcome)
+	}
+	var final *ImageGeneration
+	var finalCount int
+	for event := range out {
+		if event.Type == "error" {
+			t.Fatal(event.Text)
+		}
+		if event.ToolCall != nil {
+			t.Fatalf("image generation call became a local tool call: %+v", event.ToolCall)
+		}
+		if event.Type == "image_generation" && event.ImageGeneration != nil && len(event.ImageGeneration.Data) > 0 {
+			final = event.ImageGeneration
+			finalCount++
+		}
+	}
+	if finalCount != 1 || final == nil || final.GenerationID != "ig_1" || final.OutputIndex != 2 || final.RevisedPrompt != "a revised prompt" || final.Width != 6 || final.Height != 7 || !bytes.Equal(final.Data, pngData) {
+		t.Fatalf("unexpected final Codex image event: count=%d event=%+v", finalCount, final)
+	}
+}
+
+func TestCodexScannerAcceptsMaximumBoundedPartialImageLine(t *testing.T) {
+	partial := base64.StdEncoding.EncodeToString(make([]byte, maxImageGenerationBytes))
+	stream := `data: {"type":"response.image_generation_call.partial_image","item_id":"ig_large","output_index":0,"partial_image_index":0,"partial_image_b64":"` + partial + `"}` + "\n\n" +
+		`data: {"type":"response.completed","response":{"output":[]}}` + "\n\n"
+	out := make(chan Event, 4)
+	outcome := handleCodexResponsesStream(context.Background(), out, strings.NewReader(stream), codexauth.Credential{})
+	close(out)
+	if !outcome.Success {
+		t.Fatalf("maximum bounded partial image line was rejected: %+v", outcome)
+	}
+	var partialEvent *ImageGeneration
+	for event := range out {
+		if event.Type == "error" {
+			t.Fatal(event.Text)
+		}
+		if event.Type == "image_generation" {
+			partialEvent = event.ImageGeneration
+		}
+	}
+	if partialEvent == nil || partialEvent.Status != "partial_image" || len(partialEvent.Data) != 0 {
+		t.Fatalf("unexpected large partial event: %+v", partialEvent)
+	}
+}
+
+func TestCodexForbiddenErrorPreservesUpstreamImageGenerationMessage(t *testing.T) {
+	response := &http.Response{
+		StatusCode: http.StatusForbidden,
+		Body:       io.NopCloser(strings.NewReader(`{"error":{"code":"image_generation_not_enabled","message":"Image generation is not enabled for this workspace"}}`)),
+	}
+	err, code := codexHTTPErrorDetails(response, codexauth.Credential{}, "Codex 模型请求失败")
+	if code != "image_generation_not_enabled" || !strings.Contains(err.Error(), "HTTP 403") || !strings.Contains(err.Error(), "Image generation is not enabled for this workspace") {
+		t.Fatalf("upstream 403 detail was not preserved: code=%q err=%v", code, err)
 	}
 }
 
