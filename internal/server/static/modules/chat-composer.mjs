@@ -711,7 +711,6 @@ export function createChatComposerController({
       return;
     }
     const isGoalCommand = Boolean(goalCommand);
-    const requestedModel = isGoalCommand ? "" : String($("modelSelect")?.value || state.agent.model || "").trim();
     setMessageSendingFor(agentId, true);
     try {
       if (!isGoalCommand) {
@@ -721,8 +720,8 @@ export function createChatComposerController({
         }
         const selectedModel = String($("modelSelect")?.value || state.agent.model || "").trim();
         const persistedModel = String(state.agent.model || "").trim();
-        if (requestedModel && (selectedModel !== requestedModel || persistedModel !== requestedModel)) {
-          throw new Error("The selected model changed while its settings were being saved. Please send the message again.");
+        if (selectedModel && selectedModel !== persistedModel) {
+          throw new Error("The selected model could not be synchronized. Please try again.");
         }
         if (!isCurrentModelConfigured()) {
           showModelSetupNotice();

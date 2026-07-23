@@ -722,6 +722,137 @@ test("Composer waits for the full model reference to persist before posting a me
   }
 });
 
+test("Composer uses the final selected model when it changes during settings persistence", async () => {
+  const previousDocument = globalThis.document;
+  const previousGetComputedStyle = globalThis.getComputedStyle;
+  let releaseModelSave;
+  const modelSaveGate = new Promise((resolve) => { releaseModelSave = resolve; });
+  const input = {
+    value: "Continue with the latest model",
+    disabled: false,
+    scrollHeight: 46,
+    style: {},
+    classList: { toggle() {} },
+    focus() {},
+  };
+  const elements = {
+    messageText: input,
+    modelSelect: { value: "openai:model-b" },
+    promptHistoryHint: { textContent: "" },
+    slashCommandPalette: { classList: { add() {}, remove() {} }, innerHTML: "" },
+  };
+  const requests = [];
+  const state = {
+    agent: { id: "agent-model-switch", model: "openai:model-a" },
+    navigationSelectionKind: "conversation",
+    promptHistory: [],
+    pendingAttachments: [],
+    serverSkills: [],
+  };
+  globalThis.document = { getElementById(id) { return elements[id] || null; } };
+  globalThis.getComputedStyle = () => ({ minHeight: "46px", maxHeight: "128px", getPropertyValue() { return ""; } });
+  try {
+    let saveStarted = false;
+    const controller = createChatComposerController({
+      state,
+      awaitAgentSettingsSaved: async (agentId) => {
+        assert.equal(agentId, "agent-model-switch");
+        saveStarted = true;
+        await modelSaveGate;
+        state.agent = { ...state.agent, model: elements.modelSelect.value };
+      },
+      currentSkillsPreferences: () => ({ commands: [] }),
+      isCurrentModelConfigured: () => elements.modelSelect.value === state.agent.model,
+      loadMessages: async () => {},
+      onMessageAccepted: async () => {},
+      request: async (path, options) => {
+        requests.push({ path, options, model: state.agent.model });
+        return { accepted: true };
+      },
+      scheduleMessageRefresh() {},
+    });
+
+    const sending = controller.sendMessage({ preventDefault() {} });
+    await Promise.resolve();
+    assert.equal(saveStarted, true);
+    assert.equal(requests.length, 0);
+    assert.equal(input.disabled, true);
+
+    elements.modelSelect.value = "anthropic:model-c";
+    releaseModelSave();
+    await sending;
+
+    assert.equal(requests.length, 1);
+    assert.equal(requests[0].path, "/api/agents/agent-model-switch/messages");
+    assert.equal(requests[0].model, "anthropic:model-c");
+    assert.deepEqual(JSON.parse(requests[0].options.body), {
+      text: "Continue with the latest model",
+      mode: "execute",
+      context: "conversation",
+    });
+    assert.equal(input.value, "");
+    assert.equal(input.disabled, false);
+  } finally {
+    globalThis.document = previousDocument;
+    globalThis.getComputedStyle = previousGetComputedStyle;
+  }
+});
+
+test("Composer does not send when the selected and persisted models remain inconsistent", async () => {
+  const previousDocument = globalThis.document;
+  const previousGetComputedStyle = globalThis.getComputedStyle;
+  const input = {
+    value: "Keep this draft",
+    disabled: false,
+    scrollHeight: 46,
+    style: {},
+    classList: { toggle() {} },
+    focus() {},
+  };
+  const elements = {
+    messageText: input,
+    modelSelect: { value: "anthropic:model-b" },
+    promptHistoryHint: { textContent: "" },
+    slashCommandPalette: { classList: { add() {}, remove() {} }, innerHTML: "" },
+  };
+  const requests = [];
+  const state = {
+    agent: { id: "agent-model-mismatch", model: "openai:model-a" },
+    navigationSelectionKind: "conversation",
+    promptHistory: [],
+    pendingAttachments: [],
+    serverSkills: [],
+  };
+  globalThis.document = { getElementById(id) { return elements[id] || null; } };
+  globalThis.getComputedStyle = () => ({ minHeight: "46px", maxHeight: "128px", getPropertyValue() { return ""; } });
+  try {
+    const controller = createChatComposerController({
+      state,
+      awaitAgentSettingsSaved: async () => {},
+      currentSkillsPreferences: () => ({ commands: [] }),
+      isCurrentModelConfigured: () => true,
+      loadMessages: async () => {},
+      request: async (...args) => {
+        requests.push(args);
+        return { accepted: true };
+      },
+      scheduleMessageRefresh() {},
+    });
+
+    await assert.rejects(
+      controller.sendMessage({ preventDefault() {} }),
+      /The selected model could not be synchronized/,
+    );
+
+    assert.equal(requests.length, 0);
+    assert.equal(input.value, "Keep this draft");
+    assert.equal(input.disabled, false);
+  } finally {
+    globalThis.document = previousDocument;
+    globalThis.getComputedStyle = previousGetComputedStyle;
+  }
+});
+
 test("Composer creates a goal without waiting for or configuring a model run", async () => {
   const previousDocument = globalThis.document;
   const previousGetComputedStyle = globalThis.getComputedStyle;
