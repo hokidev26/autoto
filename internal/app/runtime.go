@@ -224,7 +224,7 @@ func NewRuntime(options Options) (*Runtime, error) {
 	previewManager := preview.NewManager()
 	// Prefer the actual bound address so temporary tunnels point at the live
 	// listener when EphemeralHTTP or OS-assigned ports are in use.
-	temporaryTunnelManager := server.NewTemporaryTunnelManager(actualHTTPAddr)
+	temporaryTunnelManager := server.NewTemporaryTunnelManager(actualHTTPAddr, cfg.Paths.HomeDir)
 	reviewService := server.NewReviewService(providerRegistry, cfg.Agent.ReviewModel)
 	runner.SetReviewService(reviewService)
 	application := server.New(cfg, store, runner, hub, providerRegistry)

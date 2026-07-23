@@ -20,6 +20,7 @@ const localAccess = {
   ...baseAccess,
   session: { remote: false, authenticated: true, mode: "local", expiresAt: "" },
   capabilities: { maxPermissionMode: "bypassPermissions", terminalAllowed: true, filesystemScope: "host", nativePickerAllowed: true, securityAdminAllowed: true },
+  tunnel: { available: true, installable: false, status: "idle", publicUrl: "", error: "", startedAt: "" },
 };
 
 test("normalizes remote access state and recognizes environment credentials", () => {
@@ -79,6 +80,7 @@ test("normalizes and controls a temporary tunnel through the security endpoint",
   const running = await controller.startTunnel();
   assert.deepEqual(running, {
     available: true,
+    installable: false,
     status: "running",
     publicUrl: "https://bright-sun.trycloudflare.com",
     error: "",
@@ -109,6 +111,97 @@ test("normalizes and controls a temporary tunnel through the security endpoint",
   assert.match(html, /<svg /);
   assert.match(html, /remote-access-phone-steps/);
   assert.match(html, /bright-sun\.trycloudflare\.com/);
+});
+
+test("shows one-click install only while cloudflared is missing, then switches to start", async () => {
+  const requests = [];
+  const state = {
+    remoteAccess: {
+      ...localAccess,
+      tunnel: { available: false, installable: true, status: "unavailable", publicUrl: "", error: "cloudflared executable was not found", startedAt: "" },
+    },
+  };
+  const controller = createRemoteAccessSettingsController({
+    state,
+    request: async (path, options) => {
+      requests.push({ path, options });
+      return { available: true, installable: false, status: "idle", publicUrl: "", error: "", startedAt: "" };
+    },
+  });
+
+  const before = controller.render();
+  assert.match(before, /id="installRemoteTunnelBtn"/);
+  assert.match(before, />一键安装<\/button>/);
+  assert.doesNotMatch(before, /id="startRemoteTunnelBtn"/);
+  assert.doesNotMatch(before, /cloudflared executable was not found/);
+
+  const installed = await controller.installTunnel();
+  assert.equal(installed.available, true);
+  assert.equal(installed.status, "idle");
+  assert.deepEqual(requests.map(({ path, options }) => [path, options.method]), [
+    ["/api/security/remote-access/tunnel/install", "POST"],
+  ]);
+
+  const after = controller.render();
+  assert.doesNotMatch(after, /id="installRemoteTunnelBtn"/);
+  assert.match(after, /id="startRemoteTunnelBtn"/);
+  assert.match(after, />一键启动<\/button>/);
+
+  state.remoteAccess = {
+    ...localAccess,
+    tunnel: { available: false, installable: false, status: "unavailable", publicUrl: "", error: "", startedAt: "" },
+  };
+  const unsupported = controller.render();
+  assert.doesNotMatch(unsupported, /id="installRemoteTunnelBtn"/);
+  assert.doesNotMatch(unsupported, /id="startRemoteTunnelBtn"/);
+  assert.match(unsupported, /当前平台不支持一键安装/);
+});
+
+test("temporary tunnel install button stays stable while installation is running", async () => {
+  const previousDocument = globalThis.document;
+  let clickHandler = null;
+  let resolveRequest = null;
+  const attributes = new Map();
+  const button = {
+    dataset: { remoteTunnelAction: "install", remoteTunnelBusyLabel: "安装中…" },
+    textContent: "一键安装",
+    disabled: false,
+    addEventListener(type, handler) { if (type === "click") clickHandler = handler; },
+    setAttribute(name, value) { attributes.set(name, String(value)); },
+    removeAttribute(name) { attributes.delete(name); },
+  };
+  globalThis.document = {
+    getElementById(id) { return id === "installRemoteTunnelBtn" ? button : null; },
+  };
+  try {
+    const state = {
+      remoteAccess: {
+        ...localAccess,
+        tunnel: { available: false, installable: true, status: "unavailable", publicUrl: "", error: "", startedAt: "" },
+      },
+    };
+    const controller = createRemoteAccessSettingsController({
+      state,
+      request: async () => new Promise((resolve) => { resolveRequest = resolve; }),
+    });
+    controller.bind();
+    assert.equal(typeof clickHandler, "function");
+
+    const pending = clickHandler({ currentTarget: button });
+    await Promise.resolve();
+    assert.equal(button.textContent, "安装中…");
+    assert.equal(button.disabled, true);
+    assert.equal(attributes.get("aria-busy"), "true");
+
+    resolveRequest({ available: true, installable: false, status: "idle" });
+    await pending;
+    assert.equal(button.textContent, "一键安装");
+    assert.equal(button.disabled, false);
+    assert.equal(attributes.has("aria-busy"), false);
+    assert.equal(state.remoteAccess.tunnel.available, true);
+  } finally {
+    globalThis.document = previousDocument;
+  }
 });
 
 test("temporary tunnel start button keeps its label and width hook while starting", async () => {

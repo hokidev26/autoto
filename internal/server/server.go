@@ -379,6 +379,7 @@ func (s *Server) Routes() http.Handler {
 	r.Get("/api/settings", s.settings)
 	r.Get("/api/security/remote-access", s.getRemoteAccessSettings)
 	r.Get("/api/security/remote-access/tunnel", s.getTemporaryTunnel)
+	r.Post(temporaryTunnelInstallPath, s.installTemporaryTunnel)
 	r.Post("/api/security/remote-access/tunnel", s.startTemporaryTunnel)
 	r.Delete("/api/security/remote-access/tunnel", s.stopTemporaryTunnel)
 	r.Patch("/api/security/remote-access/policy", s.updateRemoteAccessPolicy)

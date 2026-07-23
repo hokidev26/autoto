@@ -33,7 +33,7 @@ import { $, escapeAttr, escapeHtml, setButtonBusy } from "./dom.mjs";
 import { navigationCreateLabelKey, navigationCreateTarget } from "./navigation-create.mjs";
 import { createSubagentCardCoordinator } from "./subagent-cards.mjs";
 import { formatNumber, formatTimestamp } from "./formatters.mjs";
-import { t } from "./i18n.mjs?v=settings-flat-1-codex-browser-login-1-shared-api-1-apple-theme-1-autoto-themes-1-settings-help-1-task-workspace-1-navigation-state-2-archive-1-i18n-shared-1-overview-home-1-settings-cleanup-1-context-ring-2-global-background-1-theme-v2-1";
+import { t } from "./i18n.mjs?v=settings-flat-1-codex-browser-login-1-shared-api-1-apple-theme-1-autoto-themes-1-settings-help-1-task-workspace-1-navigation-state-2-archive-1-i18n-shared-1-overview-home-1-settings-cleanup-1-context-ring-2-global-background-1-theme-v2-1-cloudflared-install-1";
 import { appMainT as am } from "./messages-app-main-extra.mjs?v=workbench-title-edit-1-hidden-toggle-removed-1-settings-cleanup-1";
 import { shellExtraT as sx } from "./messages-shell-extra.mjs";
 import { createGitWorkflowController } from "./git-workflow.mjs";
@@ -57,7 +57,7 @@ import { createAppearanceBackgroundManager, createThemeManager, setThemePageCont
 import { createThemeSettingsController } from "./theme-settings.mjs?v=autoto-themes-2-theme-v2-1";
 import { readLocalPreference, recentConversationsKey } from "./preferences-data.mjs?v=autoto-themes-1-schedule-workspace-1-global-background-1";
 import { applyRemoteAccessFailClosed, fullAccessAllowed, remoteAccessContext, terminalAccessAllowed } from "./remote-access-capabilities.mjs";
-import { createRemoteAccessSettingsController } from "./remote-access-settings.mjs?v=remote-control-full-4-remote-full-toggle-3-tunnel-busy-1";
+import { createRemoteAccessSettingsController } from "./remote-access-settings.mjs?v=remote-control-full-4-remote-full-toggle-3-tunnel-busy-1-cloudflared-install-1";
 import { createSharedAPISettingsController } from "./shared-api-settings.mjs?v=shared-api-1-compact-layout-1";
 import { applyServerSkillsLoadResult, createSkillsPhaseBController, hydrateServerSkillSummaries, isOptimisticSkillConflict, loadServerSkillsWithFallback, normalizeSkillContext } from "./skills-bootstrap.mjs";
 import { api, onAPIAuthorizationFailure, webSocketURL } from "./runtime.mjs";
