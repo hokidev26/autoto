@@ -254,18 +254,31 @@ export function createAnthropicAccountsController(ctx) {
         <div class="settings-inline-actions"><button class="settings-action-btn primary" type="button" data-anthropic-login-start ${busy ? "disabled aria-busy=\"true\"" : ""}>${escapeHtml(busy ? mt("anthropic.oauthStarting") : mt("anthropic.oauthLoginButton"))}</button></div>`;
     }
     const err = login.error ? `<div class="settings-alert attention" role="alert">${escapeHtml(login.error)}</div>` : "";
-    const reopen = login.authUrl ? `<div class="settings-inline-actions"><a class="settings-action-btn subtle" href="${escapeAttr(login.authUrl)}" target="_blank" rel="noopener noreferrer">${escapeHtml(mt("anthropic.oauthReopen"))}</a></div>` : "";
+    const reopen = login.authUrl ? `<a class="anthropic-oauth-reopen" href="${escapeAttr(login.authUrl)}" target="_blank" rel="noopener noreferrer">${escapeHtml(mt("anthropic.oauthReopen"))}</a>` : "";
     return `${err}
-      <ol class="anthropic-oauth-steps anthropic-secret-note">
-        <li>${escapeHtml(mt("anthropic.oauthStep1"))}</li>
-        <li>${escapeHtml(mt("anthropic.oauthStep2"))}</li>
+      <ol class="anthropic-oauth-flow">
+        <li class="anthropic-oauth-step">
+          <span class="anthropic-oauth-step-num" aria-hidden="true">1</span>
+          <div class="anthropic-oauth-step-main">
+            <p class="anthropic-oauth-step-title">${escapeHtml(mt("anthropic.oauthStep1Title"))}</p>
+            <p class="anthropic-oauth-step-hint">${escapeHtml(mt("anthropic.oauthStep1Hint"))}</p>
+            ${reopen}
+          </div>
+        </li>
+        <li class="anthropic-oauth-step">
+          <span class="anthropic-oauth-step-num" aria-hidden="true">2</span>
+          <div class="anthropic-oauth-step-main">
+            <p class="anthropic-oauth-step-title">${escapeHtml(mt("anthropic.oauthStep2Title"))}</p>
+            <p class="anthropic-oauth-step-hint">${escapeHtml(mt("anthropic.oauthStep2Hint"))}</p>
+            <button class="settings-action-btn primary anthropic-oauth-paste" type="button" data-anthropic-login-paste ${busy ? "disabled aria-busy=\"true\"" : ""}>${escapeHtml(busy ? mt("saving") : mt("anthropic.oauthPasteButton"))}</button>
+            <details class="anthropic-oauth-manual"><summary>${escapeHtml(mt("anthropic.oauthManualToggle"))}</summary>
+              <label class="settings-form-field"><span>${escapeHtml(mt("anthropic.oauthCodeLabel"))}</span><input type="text" data-anthropic-login-code autocomplete="off" spellcheck="false" placeholder="${escapeAttr(mt("anthropic.oauthCodePlaceholder"))}"></label>
+              <div class="settings-inline-actions"><button class="settings-action-btn" type="button" data-anthropic-login-submit ${busy ? "disabled aria-busy=\"true\"" : ""}>${escapeHtml(busy ? mt("saving") : mt("anthropic.oauthComplete"))}</button></div>
+            </details>
+          </div>
+        </li>
       </ol>
-      ${reopen}
-      <div class="settings-inline-actions"><button class="settings-action-btn primary" type="button" data-anthropic-login-paste ${busy ? "disabled aria-busy=\"true\"" : ""}>${escapeHtml(busy ? mt("saving") : mt("anthropic.oauthPasteButton"))}</button><button class="settings-action-btn subtle" type="button" data-anthropic-login-cancel>${escapeHtml(mt("anthropic.oauthCancel"))}</button></div>
-      <details class="anthropic-oauth-manual"><summary>${escapeHtml(mt("anthropic.oauthManualToggle"))}</summary>
-        <label class="settings-form-field"><span>${escapeHtml(mt("anthropic.oauthCodeLabel"))}</span><input type="text" data-anthropic-login-code autocomplete="off" spellcheck="false" placeholder="${escapeAttr(mt("anthropic.oauthCodePlaceholder"))}"></label>
-        <div class="settings-inline-actions"><button class="settings-action-btn" type="button" data-anthropic-login-submit ${busy ? "disabled aria-busy=\"true\"" : ""}>${escapeHtml(busy ? mt("saving") : mt("anthropic.oauthComplete"))}</button></div>
-      </details>`;
+      <div class="anthropic-oauth-foot"><button class="settings-action-btn subtle" type="button" data-anthropic-login-cancel>${escapeHtml(mt("anthropic.oauthCancel"))}</button></div>`;
   }
 
   function renderAnthropicConsolePage() {

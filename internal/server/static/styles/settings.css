@@ -1519,6 +1519,50 @@ body.white-shell.theme-light.theme-dark #settingsModal {
 #settingsContentBody .anthropic-secret-note { margin: 0; }
 #settingsContentBody .anthropic-config-actions { justify-content: flex-end; }
 #settingsContentBody .anthropic-readonly-badge { white-space: nowrap; }
+
+#settingsContentBody .anthropic-oauth-login { display: grid; gap: 14px; min-width: 0; }
+#settingsContentBody .anthropic-oauth-flow { display: grid; gap: 10px; margin: 0; padding: 0; list-style: none; }
+#settingsContentBody .anthropic-oauth-step {
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
+  min-width: 0;
+  padding: 12px 14px;
+  border: 1px solid color-mix(in srgb, var(--anthropic-accent) 22%, var(--settings-border));
+  border-radius: var(--settings-radius);
+  background: color-mix(in srgb, var(--anthropic-accent-soft) 55%, var(--settings-surface));
+}
+#settingsContentBody .anthropic-oauth-step-num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--anthropic-accent);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+}
+#settingsContentBody .anthropic-oauth-step-main { display: grid; gap: 6px; min-width: 0; }
+#settingsContentBody .anthropic-oauth-step-title { margin: 0; color: var(--settings-foreground); font-size: 13px; font-weight: 650; }
+#settingsContentBody .anthropic-oauth-step-hint { margin: 0; color: var(--settings-muted-foreground); font-size: 11px; line-height: 1.5; }
+#settingsContentBody .anthropic-oauth-reopen {
+  justify-self: start;
+  margin-top: 2px;
+  color: var(--anthropic-accent);
+  font-size: 11px;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+#settingsContentBody .anthropic-oauth-paste { justify-self: start; margin-top: 4px; }
+#settingsContentBody .anthropic-oauth-manual { margin-top: 6px; }
+#settingsContentBody .anthropic-oauth-manual > summary { color: var(--settings-muted-foreground); font-size: 11px; cursor: pointer; user-select: none; }
+#settingsContentBody .anthropic-oauth-manual[open] > summary { margin-bottom: 8px; }
+#settingsContentBody .anthropic-oauth-manual .settings-form-field { margin-top: 8px; }
+#settingsContentBody .anthropic-oauth-foot { display: flex; justify-content: flex-end; }
 #settingsContentBody .anthropic-quota-bucket { display: grid; gap: 2px; padding-bottom: 5px; border-bottom: 1px dashed var(--settings-border); }
 #settingsContentBody .anthropic-quota-bucket:last-of-type { padding-bottom: 0; border-bottom: 0; }
 #settingsContentBody .anthropic-quota-bucket strong { color: var(--settings-foreground); font-size: 10px; }
