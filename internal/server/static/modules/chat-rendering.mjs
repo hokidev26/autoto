@@ -1441,7 +1441,11 @@ export function createChatRenderingController({
         </button>
       </div>
     ` : "";
-    el.innerHTML = `${olderMessagesControl}${normalized.map(renderChatMessageHTML).join("")}${liveAssistantCard}${liveImageGenerationCards}${planCards}${liveToolCards}${runSummaryCard}${approvalCards}`;
+    el.innerHTML = `${olderMessagesControl}${normalized.map(renderChatMessageCached).join("")}${liveAssistantCard}${liveImageGenerationCards}${planCards}${liveToolCards}${runSummaryCard}${approvalCards}`;
+    const liveMessageIds = new Set(normalized.map((message) => message.id).filter(Boolean));
+    for (const cachedId of messageHtmlCache.keys()) {
+      if (!liveMessageIds.has(cachedId)) messageHtmlCache.delete(cachedId);
+    }
     bindToolActivityControls(el);
     bindMessageActionButtons(el);
     el.querySelector("[data-load-older-messages]")?.addEventListener("click", () => {
@@ -1474,6 +1478,54 @@ export function createChatRenderingController({
         <div class="message-content">${renderMarkdown(text)}</div>
       </div>
     `;
+  }
+
+  const messageHtmlCache = new Map();
+
+  // Captures every input `renderChatMessageHTML` reads so a cached render can
+  // be safely reused only when none of them have changed. `JSON.stringify(message)`
+  // is deliberately used wholesale (rather than picking individual fields) so no
+  // message field renderChatMessageHTML might read is ever missed.
+  function messageRenderSignature(message, index) {
+    const editing = Boolean(message.id && state.editingMessageId === message.id);
+    const usesProfileIdentity = userMessageRoles.has(chatMessagePresentation(message).normalizedRole);
+    const identity = usesProfileIdentity ? JSON.stringify(currentUserMessageIdentity()) : "";
+    const agentId = state.agent?.id || "";
+    // Proxy for the active UI locale: cr(...) labels change value whenever the
+    // language changes, so this stands in for whatever localized strings the
+    // real render would have produced.
+    const localeProxy = cr("message.copy");
+    // Proxy for the separate regional formatting preference (locale/timezone
+    // used by formatTimestamp/formatNumber via locale-registry.mjs), which can
+    // change independently of the UI language above but still affects the
+    // rendered timestamp and byte-size text.
+    const regionProxy = formatTimestamp("2020-01-01T00:00:00.000Z", { timeOnly: true });
+    // While the correction editor is open for this message, its rendered
+    // markup also depends on the in-progress draft text and attached files,
+    // neither of which live on the message object itself.
+    const correctionState = editing
+      ? `${state.correctionText ?? ""} ${(Array.isArray(state.correctionFiles) ? state.correctionFiles : []).map((file) => file?.name || "").join(",")}`
+      : "";
+    return [
+      JSON.stringify(message),
+      index,
+      editing,
+      identity,
+      agentId,
+      localeProxy,
+      regionProxy,
+      correctionState,
+    ].join(" ");
+  }
+
+  function renderChatMessageCached(message, index) {
+    if (!message.id) return renderChatMessageHTML(message, index);
+    const sig = messageRenderSignature(message, index);
+    const cached = messageHtmlCache.get(message.id);
+    if (cached?.sig === sig) return cached.html;
+    const html = renderChatMessageHTML(message, index);
+    messageHtmlCache.set(message.id, { sig, html });
+    return html;
   }
 
   function renderChatMessageHTML(message, index) {

@@ -83,7 +83,7 @@ function renderSnapshot(messages, stateOverrides = {}, applyOptions = {}, contro
       ...controllerOptions,
     });
     assert.equal(controller.applyMessageSnapshot(messages, "agent-1", applyOptions), true);
-    return { html: messagesElement.innerHTML, state };
+    return { html: messagesElement.innerHTML, state, controller, messagesElement };
   } finally {
     globalThis.document = previousDocument;
   }
@@ -1835,4 +1835,73 @@ test("AskUserQuestion card renders an expires meta line only when expiresAt is p
     },
   });
   assert.doesNotMatch(withoutExpiry.html, /到期：/);
+});
+
+test("per-message render memoization is transparent: identical snapshots produce identical HTML", () => {
+  const messages = [
+    { id: "msg-1", role: "user", contentText: "hello there" },
+    { id: "msg-2", role: "assistant", contentText: "**hi**\n\n- a\n- b" },
+  ];
+  const first = renderSnapshot(messages);
+  const second = renderSnapshot(messages);
+  assert.equal(first.html, second.html);
+  assert.match(second.html, /hello there/);
+  assert.match(second.html, /<ul><li>a<\/li><li>b<\/li><\/ul>/);
+});
+
+test("per-message render cache invalidates when a message's content changes", () => {
+  const harness = createAsyncChatRenderingHarness(() => Promise.reject(new Error("unused")));
+  try {
+    const messages = [{ id: "msg-1", role: "assistant", contentText: "original content" }];
+    assert.equal(harness.controller.applyMessageSnapshot(messages, "agent-a"), true);
+    assert.match(harness.messagesElement.innerHTML, /original content/);
+
+    const updated = [{ id: "msg-1", role: "assistant", contentText: "revised content" }];
+    assert.equal(harness.controller.applyMessageSnapshot(updated, "agent-a"), true);
+    assert.match(harness.messagesElement.innerHTML, /revised content/);
+    assert.doesNotMatch(harness.messagesElement.innerHTML, /original content/);
+  } finally {
+    harness.restore();
+  }
+});
+
+test("per-message render cache invalidates when the editing state toggles onto a message", () => {
+  const harness = createAsyncChatRenderingHarness(() => Promise.reject(new Error("unused")));
+  try {
+    const messages = [{ id: "msg-1", role: "user", contentText: "original text" }];
+    assert.equal(harness.controller.applyMessageSnapshot(messages, "agent-a"), true);
+    assert.doesNotMatch(harness.messagesElement.innerHTML, /message-correction-editor/);
+    assert.match(harness.messagesElement.innerHTML, /class="message-content"><p>original text<\/p><\/div>/);
+
+    harness.state.editingMessageId = "msg-1";
+    harness.state.correctionText = "original text";
+    harness.state.correctionFiles = [];
+    assert.equal(harness.controller.applyMessageSnapshot(messages, "agent-a"), true);
+    assert.match(harness.messagesElement.innerHTML, /class="message-correction-editor"/);
+    assert.match(harness.messagesElement.innerHTML, /class="message user message-editing chat-message/);
+
+    harness.state.editingMessageId = "";
+    assert.equal(harness.controller.applyMessageSnapshot(messages, "agent-a"), true);
+    assert.doesNotMatch(harness.messagesElement.innerHTML, /message-correction-editor/);
+    assert.match(harness.messagesElement.innerHTML, /class="message-content"><p>original text<\/p><\/div>/);
+  } finally {
+    harness.restore();
+  }
+});
+
+test("per-message render cache invalidates when a message's index changes (older message prepended)", () => {
+  const harness = createAsyncChatRenderingHarness(() => Promise.reject(new Error("unused")));
+  try {
+    const second = { id: "msg-2", role: "assistant", contentText: "second message" };
+    assert.equal(harness.controller.applyMessageSnapshot([second], "agent-a"), true);
+    assert.match(harness.messagesElement.innerHTML, /data-copy-message="0"/);
+
+    const older = { id: "msg-1", role: "user", contentText: "first message" };
+    assert.equal(harness.controller.applyMessageSnapshot([older, second], "agent-a"), true);
+    assert.doesNotMatch(harness.messagesElement.innerHTML, /data-copy-message="0"[^]*data-copy-message="0"/);
+    const matches = [...harness.messagesElement.innerHTML.matchAll(/data-copy-message="(\d+)"/g)].map((match) => match[1]);
+    assert.deepEqual(matches, ["0", "1"]);
+  } finally {
+    harness.restore();
+  }
 });
