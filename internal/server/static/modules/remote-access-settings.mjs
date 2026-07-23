@@ -1,5 +1,5 @@
 import { $, escapeAttr, escapeHtml, setButtonBusy } from "./dom.mjs";
-import { t } from "./i18n.mjs?v=remote-control-full-3-remote-full-toggle-3";
+import { t } from "./i18n.mjs?v=remote-control-full-3-remote-full-toggle-3-cloudflared-install-1";
 import { applyRemoteAccessFailClosed, fullAccessAllowed, remoteAccessContext } from "./remote-access-capabilities.mjs";
 import { qrToSvg } from "./qrcode.mjs";
 
@@ -49,7 +49,8 @@ export function normalizeRemoteAccess(value = {}) {
     },
     tunnel: {
       available: Boolean(tunnel.available),
-      status: ["idle", "starting", "running", "stopping", "unavailable", "error"].includes(textValue(tunnel.status)) ? textValue(tunnel.status) : "unavailable",
+      installable: !Boolean(tunnel.available) && Boolean(tunnel.installable),
+      status: ["idle", "installing", "starting", "running", "stopping", "unavailable", "error"].includes(textValue(tunnel.status)) ? textValue(tunnel.status) : "unavailable",
       publicUrl: textValue(tunnel.publicUrl),
       error: textValue(tunnel.error),
       startedAt: textValue(tunnel.startedAt),
@@ -219,12 +220,17 @@ export function createRemoteAccessSettingsController({
     return { access: state.remoteAccess, generatedPassword };
   }
 
-  async function updateTunnel(method) {
-    const result = await request(`${endpoint}/tunnel`, { method });
+  async function updateTunnel(method, action = "") {
+    const suffix = textValue(action);
+    const result = await request(`${endpoint}/tunnel${suffix ? `/${suffix}` : ""}`, { method });
     const current = access();
     state.remoteAccess = normalizeRemoteAccess({ ...current, tunnel: result });
     onChange?.(state.remoteAccess);
     return state.remoteAccess.tunnel;
+  }
+
+  async function installTunnel() {
+    return updateTunnel("POST", "install");
   }
 
   async function startTunnel() {
@@ -257,6 +263,7 @@ export function createRemoteAccessSettingsController({
   function tunnelStatusLabel(status) {
     const labels = {
       idle: "tunnelIdle",
+      installing: "tunnelInstalling",
       starting: "tunnelStarting",
       running: "tunnelRunning",
       stopping: "tunnelStopping",
@@ -293,16 +300,29 @@ export function createRemoteAccessSettingsController({
   function renderTunnelSection(value, securityAdminAllowed) {
     const tunnel = value.tunnel;
     const active = tunnel.status === "running";
-    const busy = tunnel.status === "starting" || tunnel.status === "stopping";
-    const canManage = securityAdminAllowed && value.credential.configured && tunnel.available;
-    const actionLabel = active ? rt("stopTunnel") : rt("startTunnel");
-    const actionMethod = active ? "stop" : "start";
+    const busy = tunnel.status === "installing" || tunnel.status === "starting" || tunnel.status === "stopping";
+    let actionButton = "";
+    let footerHint = rt("tunnelAccessHint");
+    if (!tunnel.available) {
+      footerHint = securityAdminAllowed
+        ? rt(tunnel.installable ? "tunnelInstallHint" : "tunnelInstallUnsupportedHint")
+        : rt("tunnelAccessHint");
+      if (tunnel.installable) {
+        const canInstall = securityAdminAllowed && !busy;
+        actionButton = `<button id="installRemoteTunnelBtn" class="settings-action-btn remote-access-tunnel-action primary" type="button" data-remote-tunnel-action="install" data-remote-tunnel-busy-label="${escapeAttr(rt("tunnelInstalling"))}" ${canInstall ? "" : "disabled"}>${escapeHtml(busy ? tunnelStatusLabel(tunnel.status) : rt("installTunnel"))}</button>`;
+      }
+    } else {
+      const canManage = securityAdminAllowed && value.credential.configured;
+      const actionLabel = active ? rt("stopTunnel") : rt("startTunnel");
+      const actionMethod = active ? "stop" : "start";
+      actionButton = `<button id="${actionMethod}RemoteTunnelBtn" class="settings-action-btn remote-access-tunnel-action ${active ? "subtle" : "primary"}" type="button" data-remote-tunnel-action="${actionMethod}" data-remote-tunnel-busy-label="${escapeAttr(active ? rt("tunnelStopping") : rt("tunnelStarting"))}" ${canManage && !busy ? "" : "disabled"}>${escapeHtml(busy ? tunnelStatusLabel(tunnel.status) : actionLabel)}</button>`;
+    }
     return `
         <section class="settings-provider-section settings-page-section settings-card remote-access-tunnel-card">
           <div class="settings-provider-section-head settings-card-header"><div><div class="settings-provider-title settings-card-title">${escapeHtml(rt("temporaryTunnel"))}</div><div class="settings-provider-meta settings-card-description" data-settings-help-copy>${escapeHtml(rt("temporaryTunnelHint"))}</div></div><span class="settings-status-pill settings-badge ${active ? "ok" : tunnel.status === "error" ? "warn" : ""}">${escapeHtml(tunnelStatusLabel(tunnel.status))}</span></div>
-          ${tunnel.error ? `<div class="settings-inline-alert settings-alert" role="status">${escapeHtml(tunnel.error)}</div>` : ""}
+          ${tunnel.error && tunnel.status === "error" ? `<div class="settings-inline-alert settings-alert" role="status">${escapeHtml(tunnel.error)}</div>` : ""}
           ${tunnel.publicUrl ? `<div class="remote-access-tunnel-url"><a href="${escapeAttr(tunnel.publicUrl)}" target="_blank" rel="noopener noreferrer">${escapeHtml(tunnel.publicUrl)}</a><button id="copyRemoteTunnelUrlBtn" class="settings-action-btn subtle" type="button">${escapeHtml(rt("copyTunnelUrl"))}</button></div>${renderTunnelQr(tunnel.publicUrl)}` : `<p class="settings-card-description">${escapeHtml(tunnel.available ? rt("tunnelStopped") : rt("tunnelUnavailableHint"))}</p>`}
-          <div class="settings-action-row settings-card-footer"><span class="settings-provider-meta">${escapeHtml(tunnel.available ? rt("tunnelAccessHint") : rt("tunnelInstallHint"))}</span><button id="${actionMethod}RemoteTunnelBtn" class="settings-action-btn remote-access-tunnel-action ${active ? "subtle" : "primary"}" type="button" data-remote-tunnel-action="${actionMethod}" data-remote-tunnel-busy-label="${escapeAttr(active ? rt("tunnelStopping") : rt("tunnelStarting"))}" ${canManage && !busy ? "" : "disabled"}>${escapeHtml(busy ? tunnelStatusLabel(tunnel.status) : actionLabel)}</button></div>
+          <div class="settings-action-row settings-card-footer"><span class="settings-provider-meta">${escapeHtml(footerHint)}</span>${actionButton}</div>
         </section>`;
   }
 
@@ -396,16 +416,19 @@ export function createRemoteAccessSettingsController({
         setButtonBusy(event.currentTarget, false);
       }
     });
-    const tunnelButton = $("startRemoteTunnelBtn") || $("stopRemoteTunnelBtn");
+    const tunnelButton = $("installRemoteTunnelBtn") || $("startRemoteTunnelBtn") || $("stopRemoteTunnelBtn");
     tunnelButton?.addEventListener("click", async (event) => {
       const button = event.currentTarget;
-      const stopping = button.dataset.remoteTunnelAction === "stop";
-      const action = stopping ? stopTunnel : startTunnel;
-      const busyLabel = button.dataset.remoteTunnelBusyLabel || rt(stopping ? "tunnelStopping" : "tunnelStarting");
+      const actionName = button.dataset.remoteTunnelAction;
+      const action = { install: installTunnel, start: startTunnel, stop: stopTunnel }[actionName];
+      if (!action) return;
+      const busyKey = { install: "tunnelInstalling", start: "tunnelStarting", stop: "tunnelStopping" }[actionName];
+      const toastKey = { install: "tunnelInstalledToast", start: "tunnelStartedToast", stop: "tunnelStoppedToast" }[actionName];
+      const busyLabel = button.dataset.remoteTunnelBusyLabel || rt(busyKey);
       setButtonBusy(button, true, busyLabel);
       try {
         await action();
-        showToast?.(rt(button.dataset.remoteTunnelAction === "stop" ? "tunnelStoppedToast" : "tunnelStartedToast"));
+        showToast?.(rt(toastKey));
       } catch (err) {
         showError?.(err);
       } finally {
@@ -498,6 +521,7 @@ export function createRemoteAccessSettingsController({
     consumeGeneratedPassword,
     generatedPasswordValue,
     invalidatePendingLoads,
+    installTunnel,
     load,
     render,
     requiresCurrentPassword,

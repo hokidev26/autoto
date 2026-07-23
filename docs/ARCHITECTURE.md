@@ -132,6 +132,14 @@ Workline workflow handlers live in `internal/server/workline_workflow.go`:
 
 These handlers reuse the Git boundary model: repositories must stay within the project path, configured default project directory, or an Autoto-created workline worktree under `.autoto-worktrees`. Future AI conflict-resolution code should keep the same invariant.
 
+## Temporary remote tunnel
+
+`internal/server/temporary_tunnel.go` owns the Quick Tunnel state machine (`unavailable`, `installing`, `idle`, `starting`, `running`, `stopping`, `error`). Binary discovery always prefers an existing `cloudflared` on `PATH`, then checks Autoto's managed copy at `<home>/bin/cloudflared[.exe]`.
+
+A host-local `POST /api/security/remote-access/tunnel/install` request delegates to `internal/server/temporary_tunnel_install.go`. The installer selects a fixed OS/architecture asset from Cloudflare's official GitHub release, uses the public-direct network policy with an explicit GitHub host allowlist, bounds metadata and asset sizes, verifies the GitHub-provided SHA-256 digest, restricts macOS archive extraction to one regular `cloudflared` entry, and commits through a temporary file in the managed directory. It does not use an operating-system package manager, request administrator privileges, or modify `PATH`. Successful installation returns the manager to `idle`; starting the tunnel remains a separate user action.
+
+`internal/server/static/modules/remote-access-settings.mjs` renders one install action only while the binary is missing and the current platform is supported. Once installation succeeds, the install action disappears and the existing start action becomes available without restarting Autoto.
+
 ## Persistence model
 
 `internal/db` owns schema creation and store methods. Main entities are:

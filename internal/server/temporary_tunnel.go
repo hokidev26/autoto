@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"regexp"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -19,6 +20,7 @@ import (
 const (
 	temporaryTunnelBinary      = "cloudflared"
 	temporaryTunnelIdle        = "idle"
+	temporaryTunnelInstalling  = "installing"
 	temporaryTunnelStarting    = "starting"
 	temporaryTunnelRunning     = "running"
 	temporaryTunnelStopping    = "stopping"
@@ -29,11 +31,12 @@ const (
 var cloudflareQuickTunnelURL = regexp.MustCompile(`https://[a-z0-9][a-z0-9-]*\.trycloudflare\.com(?:/[^\s"'<>]*)?`)
 
 type TemporaryTunnelSnapshot struct {
-	Available bool   `json:"available"`
-	Status    string `json:"status"`
-	PublicURL string `json:"publicUrl,omitempty"`
-	Error     string `json:"error,omitempty"`
-	StartedAt string `json:"startedAt,omitempty"`
+	Available   bool   `json:"available"`
+	Installable bool   `json:"installable"`
+	Status      string `json:"status"`
+	PublicURL   string `json:"publicUrl,omitempty"`
+	Error       string `json:"error,omitempty"`
+	StartedAt   string `json:"startedAt,omitempty"`
 }
 
 type temporaryTunnelProcess interface {
@@ -51,6 +54,7 @@ type temporaryTunnelLookPath func(string) (string, error)
 type temporaryTunnelOptions struct {
 	lookPath     temporaryTunnelLookPath
 	command      temporaryTunnelCommand
+	installer    temporaryTunnelInstaller
 	startTimeout time.Duration
 }
 
@@ -115,11 +119,12 @@ type TemporaryTunnelManager struct {
 	process      *temporaryTunnelProcessState
 	lookPath     temporaryTunnelLookPath
 	command      temporaryTunnelCommand
+	installer    temporaryTunnelInstaller
 	startTimeout time.Duration
 }
 
-func NewTemporaryTunnelManager(bindAddress string) *TemporaryTunnelManager {
-	return newTemporaryTunnelManager(bindAddress, temporaryTunnelOptions{})
+func NewTemporaryTunnelManager(bindAddress, homeDir string) *TemporaryTunnelManager {
+	return newTemporaryTunnelManager(bindAddress, temporaryTunnelOptions{installer: newGitHubCloudflaredInstaller(homeDir)})
 }
 
 func newTemporaryTunnelManager(bindAddress string, options temporaryTunnelOptions) *TemporaryTunnelManager {
@@ -140,16 +145,11 @@ func newTemporaryTunnelManager(bindAddress string, options temporaryTunnelOption
 		bindAddress:  strings.TrimSpace(bindAddress),
 		lookPath:     lookPath,
 		command:      command,
+		installer:    options.installer,
 		startTimeout: timeout,
 		status:       temporaryTunnelUnavailable,
 	}
-	if path, err := lookPath(temporaryTunnelBinary); err == nil && strings.TrimSpace(path) != "" {
-		manager.binaryPath = path
-		manager.available = true
-		manager.status = temporaryTunnelIdle
-	} else {
-		manager.availableErr = "cloudflared is not installed or is not available in PATH"
-	}
+	manager.refreshAvailabilityLocked()
 	return manager
 }
 
@@ -162,18 +162,54 @@ func (m *TemporaryTunnelManager) Close(ctx context.Context) error {
 	return err
 }
 
+func (m *TemporaryTunnelManager) refreshAvailabilityLocked() {
+	if m.available || m.process != nil || m.status == temporaryTunnelInstalling {
+		return
+	}
+	if binaryPath, err := m.lookPath(temporaryTunnelBinary); err == nil && strings.TrimSpace(binaryPath) != "" {
+		m.binaryPath = binaryPath
+		m.available = true
+		m.availableErr = ""
+		m.errorMessage = ""
+		m.status = temporaryTunnelIdle
+		return
+	}
+	if m.installer != nil {
+		managedPath := m.installer.ManagedPath()
+		if validCloudflaredBinary(managedPath, runtime.GOOS) {
+			m.binaryPath = managedPath
+			m.available = true
+			m.availableErr = ""
+			m.errorMessage = ""
+			m.status = temporaryTunnelIdle
+			return
+		}
+	}
+	m.binaryPath = ""
+	m.available = false
+	if m.availableErr == "" {
+		m.availableErr = "cloudflared is not installed or is not available in PATH"
+	}
+	if m.status != temporaryTunnelError {
+		m.status = temporaryTunnelUnavailable
+	}
+}
+
 func (m *TemporaryTunnelManager) Snapshot() TemporaryTunnelSnapshot {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	m.refreshAvailabilityLocked()
 	return m.snapshotLocked()
 }
 
 func (m *TemporaryTunnelManager) snapshotLocked() TemporaryTunnelSnapshot {
+	installable := !m.available && m.installer != nil && m.installer.Supported()
 	snapshot := TemporaryTunnelSnapshot{
-		Available: m.available,
-		Status:    m.status,
-		PublicURL: m.publicURL,
-		Error:     m.errorMessage,
+		Available:   m.available,
+		Installable: installable,
+		Status:      m.status,
+		PublicURL:   m.publicURL,
+		Error:       m.errorMessage,
 	}
 	if !m.available && snapshot.Error == "" {
 		snapshot.Error = m.availableErr
@@ -182,6 +218,65 @@ func (m *TemporaryTunnelManager) snapshotLocked() TemporaryTunnelSnapshot {
 		snapshot.StartedAt = m.startedAt.UTC().Format(time.RFC3339Nano)
 	}
 	return snapshot
+}
+
+func (m *TemporaryTunnelManager) InstallCloudflared(ctx context.Context) (TemporaryTunnelSnapshot, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	m.mu.Lock()
+	if m.process != nil {
+		snapshot := m.snapshotLocked()
+		m.mu.Unlock()
+		return snapshot, errors.New("stop the temporary tunnel before installing cloudflared")
+	}
+	if m.status == temporaryTunnelInstalling {
+		snapshot := m.snapshotLocked()
+		m.mu.Unlock()
+		return snapshot, errCloudflaredInstallInProgress
+	}
+	m.refreshAvailabilityLocked()
+	if m.available {
+		snapshot := m.snapshotLocked()
+		m.mu.Unlock()
+		return snapshot, nil
+	}
+	installer := m.installer
+	if installer == nil || !installer.Supported() {
+		snapshot := m.snapshotLocked()
+		m.mu.Unlock()
+		return snapshot, errCloudflaredInstallUnsupported
+	}
+	m.status = temporaryTunnelInstalling
+	m.binaryPath = ""
+	m.available = false
+	m.availableErr = ""
+	m.errorMessage = ""
+	m.publicURL = ""
+	m.startedAt = time.Time{}
+	m.mu.Unlock()
+
+	binaryPath, err := installer.Install(ctx)
+	if err == nil && !validCloudflaredBinary(binaryPath, runtime.GOOS) {
+		err = cloudflaredInstallFailure("the installed executable could not be verified")
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if err != nil {
+		m.binaryPath = ""
+		m.available = false
+		m.status = temporaryTunnelError
+		m.errorMessage = err.Error()
+		m.availableErr = err.Error()
+		return m.snapshotLocked(), err
+	}
+	m.binaryPath = binaryPath
+	m.available = true
+	m.status = temporaryTunnelIdle
+	m.errorMessage = ""
+	m.availableErr = ""
+	return m.snapshotLocked(), nil
 }
 
 func (m *TemporaryTunnelManager) StartTunnel(ctx context.Context) (TemporaryTunnelSnapshot, error) {
@@ -194,9 +289,18 @@ func (m *TemporaryTunnelManager) StartTunnel(ctx context.Context) (TemporaryTunn
 		m.mu.Unlock()
 		return snapshot, nil
 	}
+	if m.status == temporaryTunnelInstalling {
+		snapshot := m.snapshotLocked()
+		m.mu.Unlock()
+		return snapshot, errors.New("cloudflared installation is in progress")
+	}
+	m.refreshAvailabilityLocked()
 	if !m.available {
 		snapshot := m.snapshotLocked()
 		m.mu.Unlock()
+		if snapshot.Error == "" {
+			return snapshot, errors.New("cloudflared is unavailable")
+		}
 		return snapshot, errors.New(snapshot.Error)
 	}
 	port, err := tunnelPort(m.bindAddress)
@@ -287,6 +391,11 @@ func (m *TemporaryTunnelManager) StopTunnel(ctx context.Context) (TemporaryTunne
 	m.mu.Lock()
 	running := m.process
 	if running == nil {
+		if m.status == temporaryTunnelInstalling {
+			snapshot := m.snapshotLocked()
+			m.mu.Unlock()
+			return snapshot, nil
+		}
 		m.publicURL = ""
 		m.startedAt = time.Time{}
 		if m.available {
