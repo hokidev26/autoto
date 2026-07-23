@@ -640,7 +640,8 @@ func (r *Runner) invalidateApprovals(agentID, reason string) int {
 			ToEventData()
 		r.publish(Event{Type: "tool.approval_invalidated", AgentID: approval.AgentID, Data: mergeEventData(data, approval.RunID)})
 	}
-	return len(approvals)
+	canceledQuestions := r.cancelPendingUserQuestions(agentID, reason)
+	return len(approvals) + canceledQuestions
 }
 
 func approvalKey(agentID, toolUseID string) string {

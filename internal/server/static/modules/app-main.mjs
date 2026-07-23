@@ -246,6 +246,7 @@ const state = {
   liveAssistantPerformance: null,
   liveImageGenerations: {},
   pendingToolApprovals: {},
+  pendingUserQuestions: {},
   gitStatus: null,
   gitDiff: null,
   gitLog: null,
@@ -730,6 +731,7 @@ const {
   clearMessageRefreshTimer,
   clearRunSummary,
   clearToolApproval,
+  clearUserQuestion,
   copyCurrentConversationMarkdown,
   finishToolOutput,
   invalidateMessageLifecycle,
@@ -740,8 +742,10 @@ const {
   rememberImageGenerationStatus,
   rememberToolApproval,
   rememberToolStarted,
+  rememberUserQuestion,
   refreshUserMessageIdentity,
   replacePendingApprovals,
+  replacePendingUserQuestions,
   replacePlanState,
   scheduleMessageRefresh,
   updateConversationCopyButton,
@@ -2884,6 +2888,7 @@ async function applyAgentLiveSnapshot(snapshot, detail = {}) {
   clearRunSummary();
   replacePlanState(snapshot.activePlan, snapshot.pendingPlanApproval ?? snapshot.pendingPlan, agentId);
   replacePendingApprovals(snapshot.pendingApprovals, agentId);
+  replacePendingUserQuestions(snapshot.pendingUserQuestions, agentId);
   applyMessageSnapshot(snapshot.messages, agentId, {
     hasMoreBefore: snapshot.messageHasMoreBefore,
     nextBefore: snapshot.messageNextBefore,
@@ -2972,8 +2977,14 @@ async function handleAgentStreamEvent(event) {
     showToast(event.data?.risk === "danger" ? t("workspace.chat.dangerousToolBlocked") : t("workspace.chat.toolApproval"), event.data?.risk === "danger" ? "error" : "warn");
     refreshComposerActivityStatus();
   }
+  if (event.type === "user.question_required") {
+    rememberUserQuestion(event);
+    showToast(t("workspace.chat.userQuestionRequired"), "warn");
+    refreshComposerActivityStatus();
+  }
   if (event.type === "tool.finished") {
     clearToolApproval(event.data?.toolUseId);
+    clearUserQuestion(event.data?.toolUseId);
     finishToolOutput(event);
     refreshComposerActivityStatus();
   }

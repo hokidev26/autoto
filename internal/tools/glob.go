@@ -23,7 +23,7 @@ func (GlobTool) Risk(json.RawMessage) Risk { return RiskRead }
 
 func (GlobTool) Execute(ctx context.Context, call Call, env Env) (Result, error) {
 	var input globInput
-	if err := json.Unmarshal(call.Input, &input); err != nil {
+	if err := StrictDecode(call.Input, &input); err != nil {
 		return Result{Output: err.Error(), IsError: true}, nil
 	}
 	if input.Pattern == "" {

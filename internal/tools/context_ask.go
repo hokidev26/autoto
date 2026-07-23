@@ -99,7 +99,7 @@ func (ContextAskTool) Execute(ctx context.Context, call Call, env Env) (Result, 
 	}
 
 	var input contextAskInput
-	if err := json.Unmarshal(call.Input, &input); err != nil {
+	if err := StrictDecode(call.Input, &input); err != nil {
 		return contextAskFailure(err.Error()), nil
 	}
 	input.TaskID = strings.TrimSpace(input.TaskID)

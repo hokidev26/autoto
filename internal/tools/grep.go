@@ -28,7 +28,7 @@ func (GrepTool) Risk(json.RawMessage) Risk { return RiskRead }
 
 func (GrepTool) Execute(ctx context.Context, call Call, env Env) (Result, error) {
 	var input grepInput
-	if err := json.Unmarshal(call.Input, &input); err != nil {
+	if err := StrictDecode(call.Input, &input); err != nil {
 		return Result{Output: err.Error(), IsError: true}, nil
 	}
 	if input.Pattern == "" {

@@ -23,7 +23,7 @@ func (ReadTool) Risk(json.RawMessage) Risk { return RiskRead }
 
 func (ReadTool) Execute(ctx context.Context, call Call, env Env) (Result, error) {
 	var input readInput
-	if err := json.Unmarshal(call.Input, &input); err != nil {
+	if err := StrictDecode(call.Input, &input); err != nil {
 		return Result{Output: err.Error(), IsError: true}, nil
 	}
 	path, err := resolveInCWD(env.CWD, input.FilePath)

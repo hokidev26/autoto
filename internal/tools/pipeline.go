@@ -29,7 +29,7 @@ func (StartPipelineTool) Execute(_ context.Context, call Call, env Env) (Result,
 		return Result{Output: "pipeline_unavailable: tool output pipeline service is unavailable", IsError: true}, nil
 	}
 	var input startPipelineInput
-	if err := json.Unmarshal(call.Input, &input); err != nil {
+	if err := StrictDecode(call.Input, &input); err != nil {
 		return Result{Output: "pipeline_rule_invalid: " + err.Error(), IsError: true}, nil
 	}
 	return env.ToolOutputPipeline.Start(
@@ -59,7 +59,7 @@ func (EndPipelineTool) Execute(_ context.Context, call Call, env Env) (Result, e
 		return Result{Output: "pipeline_unavailable: tool output pipeline service is unavailable", IsError: true}, nil
 	}
 	var input endPipelineInput
-	if err := json.Unmarshal(call.Input, &input); err != nil {
+	if err := StrictDecode(call.Input, &input); err != nil {
 		return Result{Output: "pipeline_rule_invalid: " + err.Error(), IsError: true}, nil
 	}
 	return env.ToolOutputPipeline.End(

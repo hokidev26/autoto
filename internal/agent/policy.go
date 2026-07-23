@@ -22,21 +22,23 @@ const (
 )
 
 var planToolAllowlist = map[string]struct{}{
-	"Read":          {},
-	"Glob":          {},
-	"Grep":          {},
-	"WebFetch":      {},
-	"WebSearch":     {},
-	"ContextAsk":    {},
-	"StartPipeline": {},
-	"EndPipeline":   {},
+	"Read":             {},
+	"Glob":             {},
+	"Grep":             {},
+	"WebFetch":         {},
+	"WebSearch":        {},
+	"ContextAsk":       {},
+	"AskUserQuestion":  {},
+	"StartPipeline":    {},
+	"EndPipeline":      {},
 }
 
-var conversationResearchToolNames = []string{"WebFetch", "WebSearch"}
+var conversationResearchToolNames = []string{"WebFetch", "WebSearch", "AskUserQuestion"}
 
 var conversationToolAllowlist = map[string]struct{}{
-	"WebFetch":  {},
-	"WebSearch": {},
+	"WebFetch":        {},
+	"WebSearch":       {},
+	"AskUserQuestion": {},
 }
 
 // PolicyContext is the single source of run capability decisions used by both
@@ -70,7 +72,7 @@ func (p PolicyContext) permitsTool(name string, risk tools.Risk) (bool, string) 
 			return false, fmt.Sprintf("conversation context denies %s-risk tool %s", risk, name)
 		}
 		if _, ok := conversationToolAllowlist[name]; !ok {
-			return false, fmt.Sprintf("conversation context only allows public WebFetch and WebSearch research tools; %s is denied", name)
+			return false, fmt.Sprintf("conversation context only allows public WebFetch, WebSearch, and AskUserQuestion; %s is denied", name)
 		}
 		return true, ""
 	}
@@ -84,7 +86,7 @@ func (p PolicyContext) permitsTool(name string, risk tools.Risk) (bool, string) 
 		return false, fmt.Sprintf("plan execution mode denies %s-risk tool %s", risk, name)
 	}
 	if _, ok := planToolAllowlist[name]; !ok {
-		return false, fmt.Sprintf("plan execution mode only allows Read, Glob, Grep, WebFetch, WebSearch, ContextAsk, StartPipeline, and EndPipeline; %s is denied", name)
+		return false, fmt.Sprintf("plan execution mode only allows Read, Glob, Grep, WebFetch, WebSearch, ContextAsk, AskUserQuestion, StartPipeline, and EndPipeline; %s is denied", name)
 	}
 	return true, ""
 }

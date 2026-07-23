@@ -254,9 +254,14 @@ func (s *Service) HasTool(ctx context.Context, name string) (bool, error) {
 	return false, nil
 }
 
-func (s *Service) ListTools(ctx context.Context, _ tools.ResolutionContext) ([]tools.Tool, error) {
+func (s *Service) ListTools(ctx context.Context, scope tools.ResolutionContext) ([]tools.Tool, error) {
 	if s == nil || s.store == nil {
 		return nil, errors.New("plugin store is unavailable")
+	}
+	// Agent-scoped resolution without a workspace binding hides product/plugin tools.
+	// Process-wide inventory (empty AgentID, e.g. HasTool) still lists enabled plugins.
+	if strings.TrimSpace(scope.AgentID) != "" && strings.TrimSpace(scope.CWD) == "" {
+		return []tools.Tool{}, nil
 	}
 	enabled, err := s.store.ListEnabledPluginsWithTools(ctx)
 	if err != nil {

@@ -92,6 +92,7 @@ type agentLiveSnapshotResponse struct {
 	MessageHasMoreBefore  bool                     `json:"messageHasMoreBefore"`
 	MessageNextBefore     string                   `json:"messageNextBefore,omitempty"`
 	PendingApprovals      []db.ToolCall            `json:"pendingApprovals"`
+	PendingUserQuestions  []map[string]any         `json:"pendingUserQuestions,omitempty"`
 	ToolActivity          []activityToolCall       `json:"toolActivity,omitempty"`
 	LatestRun             *db.Run                  `json:"latestRun,omitempty"`
 	Generations           db.PermissionGenerations `json:"generations"`
@@ -360,6 +361,10 @@ func (s *Server) getAgentLiveSnapshot(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	workState := s.buildWorkState(r.Context(), snapshot.Agent, spec, children, reviewState, backgroundTasks)
+	var pendingUserQuestions []map[string]any
+	if s.runner != nil {
+		pendingUserQuestions = s.runner.ListPendingUserQuestions(agentID)
+	}
 	writeJSON(w, http.StatusOK, agentLiveSnapshotResponse{
 		Protocol:              agentpkg.ProtocolVersion,
 		Agent:                 publicLiveSnapshotAgent(snapshot.Agent),
@@ -367,6 +372,7 @@ func (s *Server) getAgentLiveSnapshot(w http.ResponseWriter, r *http.Request) {
 		MessageHasMoreBefore:  snapshot.MessageHasMoreBefore,
 		MessageNextBefore:     snapshot.MessageNextBefore,
 		PendingApprovals:      snapshot.PendingApprovals,
+		PendingUserQuestions:  pendingUserQuestions,
 		ToolActivity:          toolActivity,
 		LatestRun:             snapshot.LatestRun,
 		Generations:           snapshot.Generations,
@@ -1726,6 +1732,28 @@ func (s *Server) approveToolCall(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"toolUseId": chi.URLParam(r, "toolUseId"), "decision": req.Decision, "accepted": true})
+}
+
+func (s *Server) answerUserQuestion(w http.ResponseWriter, r *http.Request) {
+	if s.runner == nil {
+		writeError(w, http.StatusServiceUnavailable, "agent runner is not initialized")
+		return
+	}
+	var req agentpkg.AnswerUserQuestionRequest
+	if err := decodeJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	accepted, err := s.runner.AnswerUserQuestion(r.Context(), chi.URLParam(r, "id"), chi.URLParam(r, "toolUseId"), req)
+	if err != nil {
+		writeError(w, statusFromError(err), err.Error())
+		return
+	}
+	if !accepted {
+		writeError(w, http.StatusNotFound, "pending user question not found")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"toolUseId": chi.URLParam(r, "toolUseId"), "accepted": true, "skipped": req.Skipped})
 }
 
 func (s *Server) getToolCall(w http.ResponseWriter, r *http.Request) {

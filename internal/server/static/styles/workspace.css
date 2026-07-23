@@ -248,6 +248,34 @@
 .approval-warning, .approval-blocked-note { color: var(--text-soft); font-size: 13px; line-height: 1.55; }
 .approval-blocked-note { color: var(--bad); font-weight: 750; margin-top: 8px; }
 .approval-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.user-question-card { border-color: rgba(111, 140, 255, .45); background: rgba(111, 140, 255, .08); }
+.user-question-block { margin-top: 12px; padding-top: 10px; border-top: 1px solid rgba(255, 255, 255, .08); }
+.user-question-header { font-weight: 750; margin-bottom: 8px; line-height: 1.45; }
+.user-question-options { display: grid; gap: 8px; }
+.user-question-option {
+  display: grid;
+  grid-template-columns: 18px 1fr;
+  gap: 10px;
+  align-items: start;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: rgba(0, 0, 0, .16);
+  cursor: pointer;
+}
+.user-question-option input { margin-top: 3px; }
+.user-question-option strong { display: block; font-size: 13px; }
+.user-question-option small { display: block; margin-top: 3px; color: var(--muted); line-height: 1.4; }
+.user-question-other {
+  width: 100%;
+  margin-top: 8px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: rgba(0, 0, 0, .18);
+  color: var(--text);
+  padding: 8px 10px;
+  font: inherit;
+}
 .plan-card {
   width: min(760px, 92%);
   margin: 12px 0 18px;

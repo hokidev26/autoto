@@ -43,7 +43,7 @@ func (WebFetchTool) Risk(json.RawMessage) Risk { return RiskRead }
 
 func (WebFetchTool) Execute(ctx context.Context, call Call, env Env) (Result, error) {
 	var input webFetchInput
-	if err := json.Unmarshal(call.Input, &input); err != nil {
+	if err := StrictDecode(call.Input, &input); err != nil {
 		return Result{Output: err.Error(), IsError: true}, nil
 	}
 	target, err := validatePublicFetchURL(ctx, input.URL)

@@ -14,47 +14,35 @@ type MCPListToolsTool struct{}
 type MCPCallToolTool struct{}
 
 type mcpServerInput struct {
-	ServerID string            `json:"serverId,omitempty"`
-	Command  string            `json:"command,omitempty"`
-	Args     []string          `json:"args,omitempty"`
-	CWD      string            `json:"cwd,omitempty"`
-	Env      map[string]string `json:"env,omitempty"`
-	Timeout  int               `json:"timeout,omitempty"`
+	ServerID string `json:"serverId,omitempty"`
+	Timeout  int    `json:"timeout,omitempty"`
 }
 
 type mcpListToolsInput struct {
-	ServerID string            `json:"serverId,omitempty"`
-	Command  string            `json:"command,omitempty"`
-	Args     []string          `json:"args,omitempty"`
-	CWD      string            `json:"cwd,omitempty"`
-	Env      map[string]string `json:"env,omitempty"`
-	Timeout  int               `json:"timeout,omitempty"`
+	ServerID string `json:"serverId"`
+	Timeout  int    `json:"timeout,omitempty"`
 }
 
 type mcpCallToolInput struct {
-	ServerID  string            `json:"serverId,omitempty"`
-	Command   string            `json:"command,omitempty"`
-	Args      []string          `json:"args,omitempty"`
-	CWD       string            `json:"cwd,omitempty"`
-	Env       map[string]string `json:"env,omitempty"`
-	Timeout   int               `json:"timeout,omitempty"`
-	ToolName  string            `json:"toolName"`
-	Arguments json.RawMessage   `json:"arguments,omitempty"`
+	ServerID  string          `json:"serverId"`
+	Timeout   int             `json:"timeout,omitempty"`
+	ToolName  string          `json:"toolName"`
+	Arguments json.RawMessage `json:"arguments,omitempty"`
 }
 
 func (MCPListToolsTool) Name() string { return "MCPListTools" }
 func (MCPListToolsTool) Description() string {
-	return "Start a stdio MCP server process and list the tools it exposes. Requires approval because it runs a local process."
+	return "List tools exposed by a registered MCP server (serverId only). Freeform command/cwd/env from the model are rejected; the host pins the process working directory to the agent workspace."
 }
 func (MCPListToolsTool) Schema() any               { return mcpListToolsInput{} }
 func (MCPListToolsTool) Risk(json.RawMessage) Risk { return RiskExec }
 
 func (MCPListToolsTool) Execute(ctx context.Context, call Call, env Env) (Result, error) {
 	var input mcpListToolsInput
-	if err := json.Unmarshal(call.Input, &input); err != nil {
+	if err := StrictDecode(call.Input, &input); err != nil {
 		return Result{Output: err.Error(), IsError: true}, nil
 	}
-	cfg, err := mcpConfigFromInput(ctx, mcpServerInput{ServerID: input.ServerID, Command: input.Command, Args: input.Args, CWD: input.CWD, Env: input.Env, Timeout: input.Timeout}, env)
+	cfg, err := mcpConfigFromInput(ctx, mcpServerInput{ServerID: input.ServerID, Timeout: input.Timeout}, env)
 	if err != nil {
 		return Result{Output: err.Error(), IsError: true}, nil
 	}
@@ -73,17 +61,17 @@ func (MCPListToolsTool) Execute(ctx context.Context, call Call, env Env) (Result
 
 func (MCPCallToolTool) Name() string { return "MCPCallTool" }
 func (MCPCallToolTool) Description() string {
-	return "Start a stdio MCP server process and call one of its tools. Requires approval because it runs a local process and delegated tool."
+	return "Call a tool on a registered MCP server (serverId + toolName). Freeform command/cwd/env from the model are rejected; the host pins the process working directory to the agent workspace."
 }
 func (MCPCallToolTool) Schema() any               { return mcpCallToolInput{} }
 func (MCPCallToolTool) Risk(json.RawMessage) Risk { return RiskExec }
 
 func (MCPCallToolTool) Execute(ctx context.Context, call Call, env Env) (Result, error) {
 	var input mcpCallToolInput
-	if err := json.Unmarshal(call.Input, &input); err != nil {
+	if err := StrictDecode(call.Input, &input); err != nil {
 		return Result{Output: err.Error(), IsError: true}, nil
 	}
-	cfg, err := mcpConfigFromInput(ctx, mcpServerInput{ServerID: input.ServerID, Command: input.Command, Args: input.Args, CWD: input.CWD, Env: input.Env, Timeout: input.Timeout}, env)
+	cfg, err := mcpConfigFromInput(ctx, mcpServerInput{ServerID: input.ServerID, Timeout: input.Timeout}, env)
 	if err != nil {
 		return Result{Output: err.Error(), IsError: true}, nil
 	}
@@ -110,31 +98,28 @@ func MCPCommand(input json.RawMessage) string {
 	if serverID := strings.TrimSpace(parsed.ServerID); serverID != "" {
 		return "mcp server " + serverID
 	}
-	parts := append([]string{strings.TrimSpace(parsed.Command)}, parsed.Args...)
-	return strings.TrimSpace(strings.Join(parts, " "))
+	return "mcp server"
 }
 
 func mcpConfigFromInput(ctx context.Context, input mcpServerInput, env Env) (mcp.StdioConfig, error) {
-	if serverID := strings.TrimSpace(input.ServerID); serverID != "" {
-		if env.Store == nil {
-			return mcp.StdioConfig{}, fmt.Errorf("store is required for registered MCP server %q", serverID)
-		}
-		server, err := env.Store.GetMCPServer(ctx, serverID)
-		if err != nil {
-			return mcp.StdioConfig{}, err
-		}
-		if !server.Enabled {
-			return mcp.StdioConfig{}, fmt.Errorf("mcp server %q is disabled", serverID)
-		}
-		input.Command = server.Command
-		input.Args = append([]string(nil), server.Args...)
-		input.CWD = server.CWD
-		input.Env = server.Env
+	serverID := strings.TrimSpace(input.ServerID)
+	if serverID == "" {
+		return mcp.StdioConfig{}, fmt.Errorf("serverId is required; freeform MCP command/cwd/env from the model are not allowed")
 	}
-	command := strings.TrimSpace(input.Command)
-	args := append([]string(nil), input.Args...)
+	if env.Store == nil {
+		return mcp.StdioConfig{}, fmt.Errorf("store is required for registered MCP server %q", serverID)
+	}
+	server, err := env.Store.GetMCPServer(ctx, serverID)
+	if err != nil {
+		return mcp.StdioConfig{}, err
+	}
+	if !server.Enabled {
+		return mcp.StdioConfig{}, fmt.Errorf("mcp server %q is disabled", serverID)
+	}
+	command := strings.TrimSpace(server.Command)
+	args := append([]string(nil), server.Args...)
 	if command == "" {
-		return mcp.StdioConfig{}, fmt.Errorf("command is required")
+		return mcp.StdioConfig{}, fmt.Errorf("registered mcp server %q has an empty command", serverID)
 	}
 	if len(args) == 0 {
 		parts := strings.Fields(command)
@@ -143,15 +128,41 @@ func mcpConfigFromInput(ctx context.Context, input mcpServerInput, env Env) (mcp
 			args = parts[1:]
 		}
 	}
-	cwd := strings.TrimSpace(input.CWD)
+	// Host-pinned workspace: never honor model-supplied cwd. Prefer the agent CWD.
+	cwd := strings.TrimSpace(env.CWD)
 	if cwd == "" {
-		cwd = env.CWD
+		return mcp.StdioConfig{}, fmt.Errorf("agent working directory is required to start MCP server %q", serverID)
+	}
+	// If the registered server configures a relative cwd, resolve it inside the agent workspace.
+	if configured := strings.TrimSpace(server.CWD); configured != "" {
+		resolved, resolveErr := resolveInCWD(cwd, configured)
+		if resolveErr != nil {
+			return mcp.StdioConfig{}, fmt.Errorf("registered mcp server %q cwd is outside the agent workspace: %w", serverID, resolveErr)
+		}
+		cwd = resolved
 	}
 	timeout := time.Duration(input.Timeout) * time.Millisecond
 	if timeout <= 0 {
 		timeout = 20 * time.Second
 	}
-	return mcp.StdioConfig{Command: command, Args: args, CWD: cwd, Env: input.Env, Timeout: timeout}, nil
+	return mcp.StdioConfig{
+		Command: command,
+		Args:    args,
+		CWD:     cwd,
+		Env:     cloneStringMap(server.Env),
+		Timeout: timeout,
+	}, nil
+}
+
+func cloneStringMap(in map[string]string) map[string]string {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(in))
+	for key, value := range in {
+		out[key] = value
+	}
+	return out
 }
 
 func startMCPClient(ctx context.Context, cfg mcp.StdioConfig) (*mcp.Client, func(), error) {

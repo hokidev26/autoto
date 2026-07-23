@@ -1633,7 +1633,7 @@ export default Object.freeze({
       historyCommands: "输入 / 可使用 {count} 个斜杠命令；空输入时 ↑/↓ 召回历史。", historySaved: "空输入时 ↑ 查看上一条提示，↓ 返回草稿。本地已保存 {count}/30 条。", historyEmpty: "输入框为空时 ↑/↓ 可召回最近提示。",
       slashCommands: "斜杠命令", slashInserted: "已插入 {name} 命令。", noConversationToCopy: "当前没有可复制的对话。", conversationCopied: "当前对话 Markdown 已复制。", conversationCopyFailed: "复制当前对话失败，请稍后重试。",
       goalCommandDescription: "向任务清单添加一个受保护任务。", goalTextRequired: "请在 /goal 后输入目标内容。", goalProjectOnly: "/goal 仅可在项目上下文中使用。", goalAttachmentsUnsupported: "创建目标前请先移除待发送附件。",
-      toolApproval: "有工具调用等待审批。", dangerousToolBlocked: "危险工具调用已被阻止。", allowOnce: "允许一次", allowSession: "本次会话都允许", deny: "拒绝", approvalRequired: "需要批准执行命令", dangerBlocked: "危险命令已被阻止", expiresAt: "到期：{time}", backendBlocked: "后端已硬阻断该命令，无法通过 UI 放行。",
+      toolApproval: "有工具调用等待审批。", userQuestionRequired: "Agent 需要你的选择。", dangerousToolBlocked: "危险工具调用已被阻止。", allowOnce: "允许一次", allowSession: "本次会话都允许", deny: "拒绝", approvalRequired: "需要批准执行命令", dangerBlocked: "危险命令已被阻止", expiresAt: "到期：{time}", backendBlocked: "后端已硬阻断该命令，无法通过 UI 放行。",
       runReview: "任务回顾", refreshReview: "刷新回顾", copySummary: "复制摘要", rollback: "回滚到开始前", rollingBack: "回滚中…", runReviewRefreshed: "Run 回顾已刷新。", noCheckpoint: "当前 Run 没有可用 checkpoint。", rollbackSuccess: "已回滚到任务开始前 checkpoint。",
       runCompleted: "任务已完成", runFailed: "任务失败", runInterrupted: "任务已中断", runSuperseded: "任务已被新请求替换", runRunning: "任务运行中", runPending: "任务等待运行", runLoading: "正在加载任务回顾", runUnknown: "任务状态未知",
       completed: "完成", pendingApproval: "待审批", denied: "拒绝", error: "错误", waitingOutput: "等待命令输出…", liveOutput: "实时输出", running: "运行中", outputTruncated: "实时输出过长，已截断；最终结果仍会保存为工具结果摘要。",

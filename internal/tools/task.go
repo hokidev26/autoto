@@ -47,7 +47,7 @@ func (TaskTool) Execute(ctx context.Context, call Call, env Env) (Result, error)
 		return Result{Output: "background task service is unavailable", IsError: true}, nil
 	}
 	var input taskInput
-	if err := json.Unmarshal(call.Input, &input); err != nil {
+	if err := StrictDecode(call.Input, &input); err != nil {
 		return Result{Output: err.Error(), IsError: true}, nil
 	}
 	input.Action = strings.ToLower(strings.TrimSpace(input.Action))

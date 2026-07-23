@@ -1682,3 +1682,157 @@ test("live tool activity follows the Agent lifecycle and collapses after complet
   assert.match(finished.html, /data-tool-activity-default="collapsed"/);
   assert.doesNotMatch(finished.html, /<details class="tool-activity-group" open>/);
 });
+
+test("AskUserQuestion card renders radio inputs for single-select and checkbox inputs for multi-select", () => {
+  const single = renderSnapshot([], {
+    pendingUserQuestions: {
+      "tool-1": {
+        toolUseId: "tool-1",
+        agentId: "agent-1",
+        createdAt: "2026-01-01T00:00:00Z",
+        questions: [
+          { question: "pick", header: "Pick one", multiSelect: false, options: [{ label: "A" }, { label: "B" }] },
+        ],
+      },
+    },
+  });
+  assert.match(single.html, /data-chat-report="user-question"/);
+  assert.match(single.html, /data-user-question-card="tool-1"/);
+  assert.match(single.html, /data-user-question-block="pick" data-multi="0"/);
+  assert.match(single.html, /type="radio"/);
+  assert.doesNotMatch(single.html, /type="checkbox"/);
+
+  const multi = renderSnapshot([], {
+    pendingUserQuestions: {
+      "tool-2": {
+        toolUseId: "tool-2",
+        agentId: "agent-1",
+        createdAt: "2026-01-01T00:00:00Z",
+        questions: [
+          { question: "pick", header: "Pick many", multiSelect: true, options: [{ label: "X" }, { label: "Y" }] },
+        ],
+      },
+    },
+  });
+  assert.match(multi.html, /data-user-question-block="pick" data-multi="1"/);
+  assert.match(multi.html, /type="checkbox"/);
+  assert.doesNotMatch(multi.html, /type="radio"/);
+});
+
+test("AskUserQuestion options render the label in <strong> and description in <small> only when present", () => {
+  const { html } = renderSnapshot([], {
+    pendingUserQuestions: {
+      "tool-3": {
+        toolUseId: "tool-3",
+        agentId: "agent-1",
+        createdAt: "2026-01-01T00:00:00Z",
+        questions: [
+          {
+            question: "confirm",
+            header: "Confirm action",
+            multiSelect: false,
+            options: [
+              { label: "Yes", description: "Proceed right away" },
+              { label: "No" },
+            ],
+          },
+        ],
+      },
+    },
+  });
+  assert.match(html, /<strong>Yes<\/strong>/);
+  assert.match(html, /<small>Proceed right away<\/small>/);
+  assert.match(html, /<strong>No<\/strong>/);
+  assert.equal((html.match(/<small>/g) || []).length, 1);
+});
+
+test("AskUserQuestion card exposes a bounded free-text \"other\" input per question", () => {
+  const { html } = renderSnapshot([], {
+    pendingUserQuestions: {
+      "tool-4": {
+        toolUseId: "tool-4",
+        agentId: "agent-1",
+        createdAt: "2026-01-01T00:00:00Z",
+        questions: [
+          { question: "pick", header: "Pick one", multiSelect: false, options: [{ label: "A" }] },
+        ],
+      },
+    },
+  });
+  assert.match(html, /class="user-question-other"/);
+  assert.match(html, /data-question-other="pick"/);
+  assert.match(html, /maxlength="2000"/);
+});
+
+test("AskUserQuestion submit and skip buttons carry the pending card's toolUseId", () => {
+  const { html } = renderSnapshot([], {
+    pendingUserQuestions: {
+      "tool-5": {
+        toolUseId: "tool-5",
+        agentId: "agent-1",
+        createdAt: "2026-01-01T00:00:00Z",
+        questions: [
+          { question: "pick", header: "Pick one", multiSelect: false, options: [{ label: "A" }] },
+        ],
+      },
+    },
+  });
+  assert.match(html, /data-user-question-submit="tool-5"/);
+  assert.match(html, /data-user-question-skip="tool-5"/);
+});
+
+test("AskUserQuestion card escapes hostile header, label, and description text", () => {
+  const hostile = `<img src=x onerror=boom>`;
+  const { html } = renderSnapshot([], {
+    pendingUserQuestions: {
+      "tool-6": {
+        toolUseId: "tool-6",
+        agentId: "agent-1",
+        createdAt: "2026-01-01T00:00:00Z",
+        questions: [
+          { question: "pick", header: hostile, multiSelect: false, options: [{ label: hostile, description: hostile }] },
+        ],
+      },
+    },
+  });
+  assert.doesNotMatch(html, /<img src=x onerror=boom>/);
+  assert.match(html, /&lt;img src=x onerror=boom&gt;/);
+});
+
+test("no user-question card renders when there are no pending questions", () => {
+  const { html } = renderSnapshot([{ role: "user", contentText: "hello" }], {});
+  assert.doesNotMatch(html, /data-user-question-card/);
+  assert.doesNotMatch(html, /data-chat-report="user-question"/);
+  assert.doesNotMatch(html, /data-approval-stack/);
+});
+
+test("AskUserQuestion card renders an expires meta line only when expiresAt is present", () => {
+  const withExpiry = renderSnapshot([], {
+    pendingUserQuestions: {
+      "tool-7": {
+        toolUseId: "tool-7",
+        agentId: "agent-1",
+        createdAt: "2026-01-01T00:00:00Z",
+        expiresAt: "2026-01-01T12:00:00Z",
+        questions: [
+          { question: "pick", header: "Pick one", multiSelect: false, options: [{ label: "A" }] },
+        ],
+      },
+    },
+  });
+  assert.match(withExpiry.html, /到期：/);
+
+  const withoutExpiry = renderSnapshot([], {
+    pendingUserQuestions: {
+      "tool-8": {
+        toolUseId: "tool-8",
+        agentId: "agent-1",
+        createdAt: "2026-01-01T00:00:00Z",
+        questions: [
+          { question: "pick", header: "Pick one", multiSelect: false, options: [{ label: "A" }] },
+        ],
+      },
+    },
+  });
+  assert.doesNotMatch(withoutExpiry.html, /到期：/);
+});

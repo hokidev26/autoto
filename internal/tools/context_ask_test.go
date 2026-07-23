@@ -252,15 +252,12 @@ func TestContextAskRequesterFieldsCannotBeForged(t *testing.T) {
 	result, err := (ContextAskTool{}).Execute(context.Background(), Call{Input: input}, Env{
 		AgentID: "real-parent", RunID: "real-parent-run", Background: background, ContextAsk: service,
 	})
-	if err != nil || result.IsError || len(service.requests) != 1 {
-		t.Fatalf("unexpected result=%+v err=%v requests=%d", result, err, len(service.requests))
+	// Closed-world decode rejects forged requester_* fields before any service call.
+	if err != nil || !result.IsError || len(service.requests) != 0 {
+		t.Fatalf("expected forged requester fields to be rejected: result=%+v err=%v requests=%d", result, err, len(service.requests))
 	}
-	request := service.requests[0]
-	if request.RequesterAgentID != "real-parent" || request.RequesterRunID != "real-parent-run" {
-		t.Fatalf("requester identity was forged: %+v", request)
-	}
-	if request.TaskID != "task-1" || request.ChildAgentID != "real-child" || request.RunID != "stored-run" || request.IncludeEvidence || request.MaxChars != 7000 {
-		t.Fatalf("unexpected service request: %+v", request)
+	if !strings.Contains(result.Output, "unknown field") && !strings.Contains(result.Output, "requester") {
+		t.Fatalf("expected closed-world rejection message, got %q", result.Output)
 	}
 }
 

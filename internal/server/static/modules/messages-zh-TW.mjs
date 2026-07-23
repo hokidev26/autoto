@@ -1630,7 +1630,7 @@ export default Object.freeze({
       historyCommands: "輸入 / 可使用 {count} 個斜線命令；空白輸入時 ↑/↓ 可叫回記錄。", historySaved: "空白輸入時 ↑ 可查看上一則提示，↓ 返回草稿。本機已儲存 {count}/30 則。", historyEmpty: "輸入框為空時 ↑/↓ 可叫回最近提示。",
       slashCommands: "斜線命令", slashInserted: "已插入 {name} 命令。", noConversationToCopy: "目前沒有可複製的對話。", conversationCopied: "目前對話 Markdown 已複製。", conversationCopyFailed: "複製目前對話失敗，請稍後再試。",
       goalCommandDescription: "將受保護工作加入工作清單。", goalTextRequired: "請在 /goal 後輸入目標內容。", goalProjectOnly: "/goal 僅可在專案上下文中使用。", goalAttachmentsUnsupported: "建立目標前請先移除待傳送附件。",
-      toolApproval: "有工具呼叫等待核准。", dangerousToolBlocked: "危險工具呼叫已被阻止。", allowOnce: "允許一次", allowSession: "本次對話都允許", deny: "拒絕", approvalRequired: "需要核准才能執行命令", dangerBlocked: "危險命令已被阻止", expiresAt: "到期：{time}", backendBlocked: "後端已硬性阻擋該命令，無法透過 UI 放行。",
+      toolApproval: "有工具呼叫等待核准。", userQuestionRequired: "Agent 需要你的選擇。", dangerousToolBlocked: "危險工具呼叫已被阻止。", allowOnce: "允許一次", allowSession: "本次對話都允許", deny: "拒絕", approvalRequired: "需要核准才能執行命令", dangerBlocked: "危險命令已被阻止", expiresAt: "到期：{time}", backendBlocked: "後端已硬性阻擋該命令，無法透過 UI 放行。",
       runReview: "工作回顧", refreshReview: "重新整理回顧", copySummary: "複製摘要", rollback: "回滾到開始前", rollingBack: "回滾中…", runReviewRefreshed: "Run 回顧已重新整理。", noCheckpoint: "目前 Run 沒有可用 checkpoint。", rollbackSuccess: "已回滾到工作開始前的 checkpoint。",
       runCompleted: "工作已完成", runFailed: "工作失敗", runInterrupted: "工作已中斷", runSuperseded: "工作已被新請求取代", runRunning: "工作執行中", runPending: "工作等待執行", runLoading: "正在載入工作回顧", runUnknown: "工作狀態未知",
       completed: "完成", pendingApproval: "待核准", denied: "拒絕", error: "錯誤", waitingOutput: "等待命令輸出…", liveOutput: "即時輸出", running: "執行中", outputTruncated: "即時輸出過長，已截斷；最終結果仍會儲存為工具結果摘要。",

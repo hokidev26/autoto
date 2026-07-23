@@ -8,15 +8,37 @@ import (
 
 func toolInputSchema(input any) map[string]any {
 	if schema, ok := nativeToolInputSchema(input); ok {
-		return schema
+		return enforceClosedWorldObjectSchema(schema)
 	}
 	t := reflect.TypeOf(input)
 	if t == nil {
-		return map[string]any{"type": "object", "properties": map[string]any{}}
+		return map[string]any{"type": "object", "properties": map[string]any{}, "additionalProperties": false}
 	}
 	schema := jsonSchemaForType(t, make(map[reflect.Type]bool))
 	if schema["type"] != "object" {
-		return map[string]any{"type": "object", "properties": map[string]any{"input": schema}, "required": []string{"input"}}
+		return map[string]any{"type": "object", "properties": map[string]any{"input": schema}, "required": []string{"input"}, "additionalProperties": false}
+	}
+	return enforceClosedWorldObjectSchema(schema)
+}
+
+// enforceClosedWorldObjectSchema pins object schemas to reject unknown properties
+// unless a schema author explicitly set additionalProperties.
+func enforceClosedWorldObjectSchema(schema map[string]any) map[string]any {
+	if schema == nil {
+		return map[string]any{"type": "object", "properties": map[string]any{}, "additionalProperties": false}
+	}
+	if _, ok := schema["additionalProperties"]; !ok && schema["type"] == "object" {
+		schema["additionalProperties"] = false
+	}
+	if properties, ok := schema["properties"].(map[string]any); ok {
+		for key, value := range properties {
+			if nested, ok := value.(map[string]any); ok {
+				properties[key] = enforceClosedWorldObjectSchema(nested)
+			}
+		}
+	}
+	if items, ok := schema["items"].(map[string]any); ok {
+		schema["items"] = enforceClosedWorldObjectSchema(items)
 	}
 	return schema
 }
@@ -71,7 +93,8 @@ func jsonSchemaForType(t reflect.Type, visiting map[reflect.Type]bool) map[strin
 		}
 		return map[string]any{"type": "array", "items": jsonSchemaForType(t.Elem(), visiting)}
 	case reflect.Map:
-		return map[string]any{"type": "object", "properties": map[string]any{}}
+		// Open maps remain open-ended; callers that need closed-world must use structs.
+		return map[string]any{"type": "object", "additionalProperties": true}
 	case reflect.Struct:
 		visiting[t] = true
 		defer delete(visiting, t)
@@ -91,7 +114,7 @@ func jsonSchemaForType(t reflect.Type, visiting map[reflect.Type]bool) map[strin
 				required = append(required, name)
 			}
 		}
-		schema := map[string]any{"type": "object", "properties": properties}
+		schema := map[string]any{"type": "object", "properties": properties, "additionalProperties": false}
 		if len(required) > 0 {
 			schema["required"] = required
 		}

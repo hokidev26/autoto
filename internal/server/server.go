@@ -644,6 +644,7 @@ func (s *Server) Routes() http.Handler {
 		r.Post("/{id}/tool-calls", s.executeTool)
 		r.Get("/{id}/tool-calls/pending", s.listPendingToolCalls)
 		r.Post("/{id}/tool-calls/{toolUseId}/approval", s.approveToolCall)
+		r.Post("/{id}/tool-calls/{toolUseId}/user-answer", s.answerUserQuestion)
 		r.Get("/{id}/tool-calls/{toolUseId}", s.getToolCall)
 		r.Get("/{id}/git/status", s.gitStatus)
 		r.Get("/{id}/git/diff", s.gitDiff)

@@ -41,7 +41,7 @@ func (WebSearchTool) Risk(json.RawMessage) Risk { return RiskRead }
 
 func (WebSearchTool) Execute(ctx context.Context, call Call, _ Env) (Result, error) {
 	var input webSearchInput
-	if err := json.Unmarshal(call.Input, &input); err != nil {
+	if err := StrictDecode(call.Input, &input); err != nil {
 		return Result{Output: err.Error(), IsError: true}, nil
 	}
 	query := strings.TrimSpace(input.Query)

@@ -69,6 +69,7 @@ type Env struct {
 	Output                       func(OutputChunk)
 	Background                   BackgroundTaskService
 	ContextAsk                   ContextAskService
+	UserQuestion                 UserQuestionService
 	ToolOutputPipeline           ToolOutputPipelineService
 	PermissionModeCap            string
 	PermissionGenerationSnapshot int64

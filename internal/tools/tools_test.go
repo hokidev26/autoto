@@ -761,25 +761,29 @@ func TestWebSearchParsesDuckDuckGoHTMLResults(t *testing.T) {
 	}
 }
 
-func TestMCPToolsUseStdioServer(t *testing.T) {
+func TestMCPToolsRejectFreeformCommandCwdEnv(t *testing.T) {
+	// Model-supplied freeform MCP process launch is rejected (closed-world + host pin).
 	server := map[string]any{"command": os.Args[0], "args": []string{"-test.run=TestMCPFakeServerProcess"}, "env": map[string]string{"AUTOTO_MCP_FAKE_SERVER": "1"}, "timeout": 5000}
 	listInput, _ := json.Marshal(server)
-	listResult, err := (MCPListToolsTool{}).Execute(context.Background(), Call{ID: "mcp-list", Name: "MCPListTools", Input: listInput}, Env{})
-	if err != nil || listResult.IsError {
-		t.Fatalf("MCPListTools failed: result=%+v err=%v", listResult, err)
+	listResult, err := (MCPListToolsTool{}).Execute(context.Background(), Call{ID: "mcp-list", Name: "MCPListTools", Input: listInput}, Env{CWD: t.TempDir()})
+	if err != nil {
+		t.Fatalf("unexpected execute error: %v", err)
 	}
-	if !strings.Contains(listResult.Output, "echo") || !strings.Contains(listResult.Output, "Echo a greeting") {
-		t.Fatalf("expected listed echo tool, got %q", listResult.Output)
+	if !listResult.IsError {
+		t.Fatalf("expected freeform MCP command/args/env to be rejected, got success: %q", listResult.Output)
+	}
+	if !strings.Contains(listResult.Output, "unknown field") && !strings.Contains(strings.ToLower(listResult.Output), "serverid") {
+		t.Fatalf("expected closed-world rejection, got %q", listResult.Output)
 	}
 
-	callPayload := map[string]any{"command": os.Args[0], "args": []string{"-test.run=TestMCPFakeServerProcess"}, "env": map[string]string{"AUTOTO_MCP_FAKE_SERVER": "1"}, "timeout": 5000, "toolName": "echo", "arguments": map[string]any{"name": "Ada"}}
+	callPayload := map[string]any{"command": os.Args[0], "cwd": t.TempDir(), "toolName": "echo", "arguments": map[string]any{"name": "Ada"}}
 	callInput, _ := json.Marshal(callPayload)
-	callResult, err := (MCPCallToolTool{}).Execute(context.Background(), Call{ID: "mcp-call", Name: "MCPCallTool", Input: callInput}, Env{})
-	if err != nil || callResult.IsError {
-		t.Fatalf("MCPCallTool failed: result=%+v err=%v", callResult, err)
+	callResult, err := (MCPCallToolTool{}).Execute(context.Background(), Call{ID: "mcp-call", Name: "MCPCallTool", Input: callInput}, Env{CWD: t.TempDir()})
+	if err != nil {
+		t.Fatalf("unexpected execute error: %v", err)
 	}
-	if strings.TrimSpace(callResult.Output) != "hello Ada" {
-		t.Fatalf("expected hello Ada, got %q", callResult.Output)
+	if !callResult.IsError {
+		t.Fatalf("expected freeform MCPCallTool input to be rejected, got success: %q", callResult.Output)
 	}
 }
 
@@ -799,14 +803,15 @@ func TestMCPToolsUseRegisteredServer(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	cwd := t.TempDir()
 	listInput, _ := json.Marshal(map[string]any{"serverId": server.ID, "timeout": 5000})
-	listResult, err := (MCPListToolsTool{}).Execute(ctx, Call{ID: "mcp-list-registered", Name: "MCPListTools", Input: listInput}, Env{Store: store})
+	listResult, err := (MCPListToolsTool{}).Execute(ctx, Call{ID: "mcp-list-registered", Name: "MCPListTools", Input: listInput}, Env{Store: store, CWD: cwd})
 	if err != nil || listResult.IsError || !strings.Contains(listResult.Output, "Echo a greeting") {
 		t.Fatalf("MCPListTools registered server failed: result=%+v err=%v", listResult, err)
 	}
 
 	callInput, _ := json.Marshal(map[string]any{"serverId": server.ID, "timeout": 5000, "toolName": "echo", "arguments": map[string]any{"name": "Grace"}})
-	callResult, err := (MCPCallToolTool{}).Execute(ctx, Call{ID: "mcp-call-registered", Name: "MCPCallTool", Input: callInput}, Env{Store: store})
+	callResult, err := (MCPCallToolTool{}).Execute(ctx, Call{ID: "mcp-call-registered", Name: "MCPCallTool", Input: callInput}, Env{Store: store, CWD: cwd})
 	if err != nil || callResult.IsError {
 		t.Fatalf("MCPCallTool registered server failed: result=%+v err=%v", callResult, err)
 	}

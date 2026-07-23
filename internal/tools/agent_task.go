@@ -53,7 +53,7 @@ func (AgentTool) Risk(json.RawMessage) Risk { return RiskExec }
 
 func (AgentTool) Execute(ctx context.Context, call Call, env Env) (Result, error) {
 	var input agentTaskInput
-	if err := json.Unmarshal(call.Input, &input); err != nil {
+	if err := StrictDecode(call.Input, &input); err != nil {
 		return Result{Output: err.Error(), IsError: true}, nil
 	}
 	input.Prompt = strings.TrimSpace(input.Prompt)

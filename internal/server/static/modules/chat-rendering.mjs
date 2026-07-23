@@ -2527,13 +2527,69 @@ export function createChatRenderingController({
       .sort((a, b) => String(a.createdAt || "").localeCompare(String(b.createdAt || "")));
   }
 
+  function currentUserQuestionList() {
+    const agentId = state.agent?.id || "";
+    return Object.values(state.pendingUserQuestions || {})
+      .filter((item) => item && (!item.agentId || item.agentId === agentId))
+      .sort((a, b) => String(a.createdAt || "").localeCompare(String(b.createdAt || "")));
+  }
+
   function renderApprovalCardsHTML() {
     const approvals = currentApprovalList();
-    if (!approvals.length) return "";
+    const questions = currentUserQuestionList();
+    if (!approvals.length && !questions.length) return "";
     return `
       <div class="approval-stack chat-flow-stack chat-flow-left" data-chat-alignment="left" data-approval-stack>
         ${approvals.map(renderApprovalCard).join("")}
+        ${questions.map(renderUserQuestionCard).join("")}
       </div>
+    `;
+  }
+
+  function renderUserQuestionCard(item) {
+    const toolUseId = item.toolUseId || "";
+    const questions = Array.isArray(item.questions) ? item.questions : [];
+    const body = questions.map((question, index) => {
+      const key = String(question.question || `q${index}`);
+      const multi = question.multiSelect === true;
+      const inputType = multi ? "checkbox" : "radio";
+      const options = Array.isArray(question.options) ? question.options : [];
+      const optionHTML = options.map((option, optionIndex) => {
+        const label = String(option.label || `option-${optionIndex}`);
+        const description = String(option.description || "");
+        const id = `uq-${toolUseId}-${index}-${optionIndex}`;
+        return `
+          <label class="user-question-option" for="${escapeAttr(id)}">
+            <input id="${escapeAttr(id)}" type="${inputType}" name="uq-${escapeAttr(toolUseId)}-${escapeAttr(key)}" value="${escapeAttr(label)}" />
+            <span>
+              <strong>${escapeHtml(label)}</strong>
+              ${description ? `<small>${escapeHtml(description)}</small>` : ""}
+            </span>
+          </label>
+        `;
+      }).join("");
+      return `
+        <div class="user-question-block" data-user-question-block="${escapeAttr(key)}" data-multi="${multi ? "1" : "0"}">
+          <div class="user-question-header">${escapeHtml(question.header || key)}</div>
+          <div class="user-question-options">${optionHTML}</div>
+          <input class="user-question-other" type="text" data-question-other="${escapeAttr(key)}" placeholder="${escapeAttr(cr("userQuestion.otherPlaceholder"))}" maxlength="2000" />
+        </div>
+      `;
+    }).join("");
+    return `
+      <section class="approval-card chat-flow-item chat-flow-left chat-report-card user-question-card" data-chat-alignment="left" data-chat-report="user-question" data-user-question-card="${escapeAttr(toolUseId)}">
+        <div class="approval-card-head">
+          <div>
+            <div class="approval-title">${escapeHtml(cr("userQuestion.title"))}</div>
+            <div class="approval-meta">AskUserQuestion${item.expiresAt ? ` · ${escapeHtml(cr("userQuestion.expires", { time: formatTimestamp(item.expiresAt) }))}` : ""}</div>
+          </div>
+        </div>
+        ${body}
+        <div class="approval-actions">
+          <button class="ghost-btn mini" type="button" data-user-question-submit="${escapeAttr(toolUseId)}">${escapeHtml(cr("userQuestion.submit"))}</button>
+          <button class="ghost-btn mini danger" type="button" data-user-question-skip="${escapeAttr(toolUseId)}">${escapeHtml(cr("userQuestion.skip"))}</button>
+        </div>
+      </section>
     `;
   }
 
@@ -2613,6 +2669,60 @@ export function createChatRenderingController({
     root.querySelectorAll("[data-approval-decision]").forEach((button) => {
       button.addEventListener("click", () => approveToolCall(button.dataset.toolUseId, button.dataset.approvalDecision, button));
     });
+    root.querySelectorAll("[data-user-question-submit]").forEach((button) => {
+      button.addEventListener("click", () => submitUserQuestion(button.dataset.userQuestionSubmit, false, button));
+    });
+    root.querySelectorAll("[data-user-question-skip]").forEach((button) => {
+      button.addEventListener("click", () => submitUserQuestion(button.dataset.userQuestionSkip, true, button));
+    });
+  }
+
+  async function submitUserQuestion(toolUseId, skipped, button) {
+    if (!state.agent?.id || !toolUseId) return;
+    const card = button?.closest("[data-user-question-card]") || document.querySelector(`[data-user-question-card="${CSS.escape(toolUseId)}"]`);
+    const buttons = card?.querySelectorAll("button") || [];
+    if (skipped) {
+      buttons.forEach((node) => { node.disabled = true; });
+      try {
+        await request(`/api/agents/${state.agent.id}/tool-calls/${encodeURIComponent(toolUseId)}/user-answer`, {
+          method: "POST",
+          body: JSON.stringify({ skipped: true, reason: "skipped in UI" }),
+        });
+        clearUserQuestion(toolUseId);
+        showToast(cr("userQuestion.skippedToast"), "warn");
+        scheduleMessageRefresh(120, state.agent.id);
+      } catch (err) {
+        buttons.forEach((node) => { node.disabled = false; });
+        showError(err);
+      }
+      return;
+    }
+    const answers = [];
+    const blocks = card?.querySelectorAll("[data-user-question-block]") || [];
+    for (const block of blocks) {
+      const key = block.dataset.userQuestionBlock;
+      if (!key) continue;
+      const selected = [...block.querySelectorAll("input[type='checkbox']:checked, input[type='radio']:checked")].map((node) => node.value).filter(Boolean);
+      const otherText = String(block.querySelector(`[data-question-other="${CSS.escape(key)}"]`)?.value || "").trim();
+      if (!selected.length && !otherText) {
+        showToast(cr("userQuestion.needSelection"), "warn");
+        return;
+      }
+      answers.push({ question: key, selectedLabels: selected, otherText });
+    }
+    buttons.forEach((node) => { node.disabled = true; });
+    try {
+      await request(`/api/agents/${state.agent.id}/tool-calls/${encodeURIComponent(toolUseId)}/user-answer`, {
+        method: "POST",
+        body: JSON.stringify({ answers }),
+      });
+      clearUserQuestion(toolUseId);
+      showToast(cr("userQuestion.submittedToast"), "success");
+      scheduleMessageRefresh(120, state.agent.id);
+    } catch (err) {
+      buttons.forEach((node) => { node.disabled = false; });
+      showError(err);
+    }
   }
 
   async function approveToolCall(toolUseId, decision, button) {
@@ -2750,6 +2860,59 @@ export function createChatRenderingController({
       if (!value?.agentId || value.agentId === agentId) delete next[key];
     }
     state.pendingToolApprovals = next;
+    const questions = { ...(state.pendingUserQuestions || {}) };
+    for (const [key, value] of Object.entries(questions)) {
+      if (!value?.agentId || value.agentId === agentId) delete questions[key];
+    }
+    state.pendingUserQuestions = questions;
+    renderApprovalCards();
+  }
+
+  function rememberUserQuestion(event) {
+    const data = event.data || {};
+    const toolUseId = data.toolUseId || data.tool_use_id;
+    const agentId = event.agentId || state.agent?.id;
+    if (!toolUseId || !agentId) return;
+    state.pendingUserQuestions = {
+      ...(state.pendingUserQuestions || {}),
+      [toolUseId]: {
+        ...data,
+        agentId,
+        toolUseId,
+        questions: Array.isArray(data.questions) ? data.questions : [],
+        createdAt: event.createdAt || new Date().toISOString(),
+      },
+    };
+    renderApprovalCards();
+  }
+
+  function replacePendingUserQuestions(items, agentId = state.agent?.id) {
+    if (!agentId || state.agent?.id !== agentId) return false;
+    const next = { ...(state.pendingUserQuestions || {}) };
+    for (const [key, value] of Object.entries(next)) {
+      if (!value?.agentId || value.agentId === agentId) delete next[key];
+    }
+    for (const item of Array.isArray(items) ? items : []) {
+      const toolUseId = item?.toolUseId || item?.tool_use_id;
+      if (!toolUseId) continue;
+      next[toolUseId] = {
+        ...item,
+        agentId,
+        toolUseId,
+        questions: Array.isArray(item.questions) ? item.questions : [],
+        createdAt: item.createdAt || new Date().toISOString(),
+      };
+    }
+    state.pendingUserQuestions = next;
+    renderApprovalCards();
+    return true;
+  }
+
+  function clearUserQuestion(toolUseId) {
+    if (!toolUseId || !state.pendingUserQuestions?.[toolUseId]) return;
+    const next = { ...(state.pendingUserQuestions || {}) };
+    delete next[toolUseId];
+    state.pendingUserQuestions = next;
     renderApprovalCards();
   }
 
@@ -3060,6 +3223,7 @@ export function createChatRenderingController({
     clearMessageRefreshTimer,
     clearRunSummary,
     clearToolApproval,
+    clearUserQuestion,
     copyCurrentConversationMarkdown,
     finishToolOutput,
     invalidateMessageLifecycle,
@@ -3071,8 +3235,10 @@ export function createChatRenderingController({
     rememberImageGenerationStatus,
     rememberToolApproval,
     rememberToolStarted,
+    rememberUserQuestion,
     refreshUserMessageIdentity,
     replacePendingApprovals,
+    replacePendingUserQuestions,
     replacePlanState,
     scheduleMessageRefresh,
     updateConversationCopyButton,
