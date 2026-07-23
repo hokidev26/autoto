@@ -229,6 +229,10 @@
 }
 .message.user { margin-left: auto; background: transparent; border: 0; color: var(--text); }
 .message.assistant { margin-right: auto; background: transparent; border: 0; }
+.chat-message {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 200px;
+}
 .approval-stack { display: grid; gap: 12px; margin: 10px 0 18px; max-width: min(760px, 92%); }
 .approval-card {
   border: 1px solid rgba(245, 158, 11, .45);
