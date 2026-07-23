@@ -1167,10 +1167,6 @@ body.theme-dark .skill-findings { color: #fbbf24; }
 .chat-draft-limit-hint.warn { color: var(--danger); font-weight: 700; }
 .live-assistant-message { border-color: rgba(111, 140, 255, .45); }
 .live-assistant-message .message-head { justify-content: space-between; flex-wrap: wrap; }
-.live-assistant-head-left { display: flex; align-items: center; gap: 8px; }
-.live-assistant-status { color: var(--accent); font-size: 11px; font-weight: 750; white-space: nowrap; }
-.live-assistant-status::after { content: "…"; }
-.live-assistant-waiting { color: var(--muted); font-size: 13px; line-height: 1.5; }
 .message-performance {
   width: fit-content;
   max-width: 100%;
@@ -1375,7 +1371,6 @@ body.white-shell.theme-light:not(.project-operation-context) [data-project-conte
   }
   .message-head { justify-content: flex-end; margin-bottom: 2px; }
   .message-role { display: none; }
-  .live-assistant-waiting { font-size: 14px; }
   .message-performance { margin-top: 5px; border-radius: 8px; padding: 3px 6px; font-size: 10.5px; }
   .message-performance-live { margin-top: 0; }
   .message-copy-btn { color: #71717a; border-color: #e4e4e7; background: #f8fafc; opacity: 1; }

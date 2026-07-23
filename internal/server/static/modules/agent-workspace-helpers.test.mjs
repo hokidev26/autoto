@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { resolveComposerActivityStatus } from "./agent-workspace-helpers.mjs";
+import { createAgentWorkspaceHelpers, resolveComposerActivityStatus } from "./agent-workspace-helpers.mjs";
 
 function translate(key) {
   return {
@@ -62,4 +62,64 @@ test("composer activity prefers pending approval, then tools, then thinking/gene
     }, translate),
     { kind: "approval", text: "等待批准 · Bash" },
   );
+});
+
+test("desktop project conversations use the task summary while mobile and standalone views keep the composer fallback", () => {
+  const previousDocument = globalThis.document;
+  const classes = () => {
+    const values = new Set();
+    return {
+      contains: (name) => values.has(name),
+      toggle(name, force) {
+        if (force) values.add(name);
+        else values.delete(name);
+      },
+    };
+  };
+  const wrapper = {
+    attributes: {},
+    classList: classes(),
+    setAttribute(name, value) { this.attributes[name] = String(value); },
+  };
+  const label = { textContent: "", closest: () => wrapper };
+  const dot = { classList: classes() };
+  globalThis.document = {
+    getElementById(id) {
+      if (id === "composerStatusText") return label;
+      if (id === "composerStatusDot") return dot;
+      return null;
+    },
+    querySelector: () => wrapper,
+  };
+  let projectContext = true;
+  let mobileViewport = false;
+  const routed = [];
+  try {
+    const helpers = createAgentWorkspaceHelpers({
+      state: { agent: { id: "agent-1", status: "running" }, liveToolOutputs: {}, pendingToolApprovals: {} },
+      getBackgroundTasks: () => ({ setForegroundActivity: (activity) => routed.push(activity) }),
+      projectOperationContextActive: () => projectContext,
+      isMobileAppViewport: () => mobileViewport,
+    });
+
+    helpers.refreshComposerActivityStatus();
+    assert.deepEqual(routed[0], { kind: "thinking", text: "思考中" });
+    assert.equal(wrapper.classList.contains("is-busy"), false);
+    assert.notEqual(label.textContent, "思考中");
+
+    mobileViewport = true;
+    helpers.refreshComposerActivityStatus();
+    assert.equal(routed[1], null);
+    assert.equal(label.textContent, "思考中");
+    assert.equal(wrapper.classList.contains("is-busy"), true);
+
+    mobileViewport = false;
+    projectContext = false;
+    helpers.refreshComposerActivityStatus();
+    assert.equal(routed[2], null);
+    assert.equal(label.textContent, "思考中");
+    assert.equal(wrapper.classList.contains("is-busy"), true);
+  } finally {
+    globalThis.document = previousDocument;
+  }
 });

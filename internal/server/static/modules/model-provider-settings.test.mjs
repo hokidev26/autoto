@@ -988,7 +988,7 @@ test("已获取模型在 Provider 页面可见并进入全局模型选择器", (
   assert.match(html, /data-mp-model-workspace/);
   assert.match(html, /data-mp-model-config="terra-a"/);
   assert.match(html, /data-mp-model-config="terra-b"/);
-  assert.match(html, /name="model" value="terra-a" checked/);
+  assert.match(html, /type="hidden" name="model" value="terra-a"/);
   assert.match(html, /data-mp-model-token="terra-a"/);
   assert.doesNotMatch(html, /data-mp-provider-card="relay"|mp-provider-drawer-backdrop/);
 
@@ -1133,7 +1133,7 @@ test("供应商控制台移除类型选择弹窗并让普通编辑使用全页�
   assert.doesNotMatch(editPage, /name="baseUrl"[^>]*readonly/);
   assert.match(editPage, /data-mp-fetch-models/);
   assert.match(editPage, /data-mp-model-config="llama"/);
-  assert.match(editPage, /name="model" value="llama" checked/);
+  assert.match(editPage, /type="hidden" name="model" value="llama"/);
   assert.match(editPage, /data-mp-test-provider/);
   assert.match(editPage, /发送测试/);
   assert.match(editPage, /data-mp-save-provider/);
@@ -1226,7 +1226,7 @@ test("供应商控制台重绘保持状态对象身份，异步模型发现结�
   const html = controller.renderProviderSettingsContent();
 
   assert.equal(state.providerConsole, retainedConsoleState);
-  assert.match(html, /name="model" value="codex-auto-review" checked/);
+  assert.match(html, /type="hidden" name="model" value="codex-auto-review"/);
   assert.match(html, /data-mp-model-config="codex-auto-review"/);
   assert.match(html, /data-mp-model-config="model-g"/);
   assert.match(html, /value="zzz:codex-auto-review"/);
@@ -1566,7 +1566,7 @@ test("模型选择器更新 draft 后会在重绘中保持选中模型和引用"
     providers: [{ name: "relay", type: "openai-compatible", model: "model-b", models: ["model-a", "model-b"], baseUrl: "https://relay.example/v1", configured: true, enabled: true, origin: "custom" }],
     consoleState: { drawer: "provider", mode: "edit", type: "openai-compatible", draft: consoleState.draft },
   });
-  assert.match(html, /name="model" value="model-b" checked/);
+  assert.match(html, /type="hidden" name="model" value="model-b"/);
   assert.match(html, /value="relay:model-b"/);
 });
 

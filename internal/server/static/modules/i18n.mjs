@@ -1,13 +1,13 @@
 import { resolveLocale } from "./locale-registry.mjs";
-import messagesEN from "./messages-en.mjs?v=settings-flat-1-codex-browser-login-1-shared-api-1-apple-theme-1-autoto-themes-1-settings-help-1-task-workspace-1-navigation-state-2-archive-1-settings-cleanup-1-schedule-workspace-1-provider-draft-session-1-context-ring-2-global-background-1-theme-v2-1";
+import messagesEN from "./messages-en.mjs?v=settings-flat-1-codex-browser-login-1-shared-api-1-apple-theme-1-autoto-themes-1-settings-help-1-task-workspace-1-navigation-state-2-archive-1-settings-cleanup-1-schedule-workspace-1-provider-draft-session-1-context-ring-2-global-background-1-theme-v2-1-formal-theme-assets-1-background-upload-1-goal-command-2";
 import backgroundTaskMessages from "./messages-background-tasks.mjs";
 import remoteAccessMessages from "./messages-remote-access.mjs?v=remote-control-full-4-remote-full-toggle-3";
 import preferencesMessages from "./messages-preferences.mjs";
 import staticExtraMessages from "./messages-static-extra.mjs";
 import systemSettingsMessages from "./messages-system-settings.mjs";
 import usageHistoryMessages from "./messages-usage-history.mjs";
-import messagesZhCN from "./messages-zh-CN.mjs?v=settings-flat-1-codex-browser-login-1-shared-api-1-apple-theme-1-autoto-themes-1-settings-help-1-task-workspace-1-navigation-state-2-archive-1-settings-cleanup-1-schedule-workspace-1-provider-draft-session-1-context-ring-2-global-background-1-theme-v2-1";
-import messagesZhTW from "./messages-zh-TW.mjs?v=settings-flat-1-codex-browser-login-1-shared-api-1-apple-theme-1-autoto-themes-1-settings-help-1-task-workspace-1-navigation-state-2-archive-1-settings-cleanup-1-schedule-workspace-1-provider-draft-session-1-context-ring-2-global-background-1-theme-v2-1";
+import messagesZhCN from "./messages-zh-CN.mjs?v=settings-flat-1-codex-browser-login-1-shared-api-1-apple-theme-1-autoto-themes-1-settings-help-1-task-workspace-1-navigation-state-2-archive-1-settings-cleanup-1-schedule-workspace-1-provider-draft-session-1-context-ring-2-global-background-1-theme-v2-1-formal-theme-assets-1-background-upload-1-goal-command-2";
+import messagesZhTW from "./messages-zh-TW.mjs?v=settings-flat-1-codex-browser-login-1-shared-api-1-apple-theme-1-autoto-themes-1-settings-help-1-task-workspace-1-navigation-state-2-archive-1-settings-cleanup-1-schedule-workspace-1-provider-draft-session-1-context-ring-2-global-background-1-theme-v2-1-formal-theme-assets-1-background-upload-1-goal-command-2";
 
 export const uiLocales = Object.freeze(["zh-TW", "zh-CN", "en"]);
 

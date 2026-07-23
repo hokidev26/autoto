@@ -131,6 +131,9 @@ func TestAnthropicAccountCRUDSyncAndSecretRedaction(t *testing.T) {
 		t.Fatalf("rate-limit snapshot was not persisted: %+v err=%v", stats, err)
 	}
 
+	if err := database.SetGatewayAccountGrant(context.Background(), "anthropic", id, true); err != nil {
+		t.Fatal(err)
+	}
 	remove := httptest.NewRecorder()
 	app.Routes().ServeHTTP(remove, authenticatedAnthropicRequest(app, http.MethodDelete, "/api/providers/auth/anthropic/accounts/"+id, nil))
 	if remove.Code != http.StatusOK || !strings.Contains(remove.Body.String(), `"credential_deleted":true`) {
@@ -138,6 +141,9 @@ func TestAnthropicAccountCRUDSyncAndSecretRedaction(t *testing.T) {
 	}
 	if remaining, err := database.ListProviderAccountStats(context.Background(), "anthropic"); err != nil || len(remaining) != 0 {
 		t.Fatalf("Anthropic account stats were not cleaned: %+v err=%v", remaining, err)
+	}
+	if grants, err := database.ListGatewayAccountGrants(context.Background(), "anthropic"); err != nil || len(grants) != 0 {
+		t.Fatalf("Anthropic Gateway grant was not cleaned with the credential: %+v err=%v", grants, err)
 	}
 }
 

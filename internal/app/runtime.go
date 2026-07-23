@@ -45,9 +45,8 @@ type Runtime struct {
 	runner            *agent.Runner
 	application       *server.Server
 	httpServer        *http.Server
-	gatewayHTTPServer *http.Server
 	httpListener      net.Listener
-	gatewayListener   net.Listener
+	gatewayManager    *gateway.Manager
 	supervisor        *runtime.Supervisor
 	previewManager    *preview.Manager
 	temporaryTunnel   *server.TemporaryTunnelManager
@@ -56,7 +55,6 @@ type Runtime struct {
 	backgroundManager *background.Manager
 	providerRegistry  *providers.Registry
 	actualHTTPAddr    string
-	actualGatewayAddr string
 	ephemeralHTTP     bool
 
 	mu      sync.Mutex
@@ -104,15 +102,11 @@ func NewRuntime(options Options) (*Runtime, error) {
 		)
 	}
 
-	httpListener, gatewayListener, err := bindConfiguredHTTPListeners(cfg, options.EphemeralHTTP)
+	httpListener, _, err := bindConfiguredHTTPListeners(cfg, options.EphemeralHTTP)
 	if err != nil {
 		return nil, err
 	}
 	actualHTTPAddr := httpListener.Addr().String()
-	actualGatewayAddr := ""
-	if gatewayListener != nil {
-		actualGatewayAddr = gatewayListener.Addr().String()
-	}
 
 	cleanup := func(store *db.Store) {
 		if store != nil {
@@ -120,9 +114,6 @@ func NewRuntime(options Options) (*Runtime, error) {
 		}
 		if httpListener != nil {
 			_ = httpListener.Close()
-		}
-		if gatewayListener != nil {
-			_ = gatewayListener.Close()
 		}
 	}
 
@@ -167,9 +158,11 @@ func NewRuntime(options Options) (*Runtime, error) {
 		}
 		if codexProvider, ok := provider.(*providers.CodexProvider); ok {
 			codexProvider.SetAccountTelemetry(store)
+			codexProvider.SetGatewayAccountPolicy(store)
 		}
 		if anthropicProvider, ok := provider.(*providers.AnthropicProvider); ok {
 			anthropicProvider.SetAccountTelemetry(store)
+			anthropicProvider.SetGatewayAccountPolicy(store)
 		}
 		providerRegistry.Register(provider)
 	}
@@ -240,18 +233,24 @@ func NewRuntime(options Options) (*Runtime, error) {
 	application.SetTemporaryTunnelManager(temporaryTunnelManager)
 	application.SetConfigPath(resolvedConfigPath)
 
+	gatewayManager, err := gateway.NewManager(gateway.ManagerOptions{
+		Store:              store,
+		Registry:           providerRegistry,
+		ProviderAllowed:    application.GatewayProviderAllowed,
+		Config:             cfg.Gateway,
+		EphemeralIsolation: options.EphemeralHTTP,
+		Logger:             logger,
+	})
+	if err != nil {
+		cleanup(store)
+		return nil, fmt.Errorf("create gateway manager: %w", err)
+	}
+	application.SetGatewayRuntimeController(gatewayManager)
+
 	httpServer := &http.Server{
 		Addr:              actualHTTPAddr,
 		Handler:           application.Routes(),
 		ReadHeaderTimeout: 10 * time.Second,
-	}
-	gatewayHTTPServer, err := newGatewayHTTPServer(cfg, store, providerRegistry, application.GatewayProviderAllowed)
-	if err != nil {
-		cleanup(store)
-		return nil, fmt.Errorf("create gateway service: %w", err)
-	}
-	if gatewayHTTPServer != nil && actualGatewayAddr != "" {
-		gatewayHTTPServer.Addr = actualGatewayAddr
 	}
 
 	return &Runtime{
@@ -262,9 +261,8 @@ func NewRuntime(options Options) (*Runtime, error) {
 		runner:            runner,
 		application:       application,
 		httpServer:        httpServer,
-		gatewayHTTPServer: gatewayHTTPServer,
 		httpListener:      httpListener,
-		gatewayListener:   gatewayListener,
+		gatewayManager:    gatewayManager,
 		previewManager:    previewManager,
 		temporaryTunnel:   temporaryTunnelManager,
 		channelManager:    channelManager,
@@ -272,7 +270,6 @@ func NewRuntime(options Options) (*Runtime, error) {
 		backgroundManager: backgroundManager,
 		providerRegistry:  providerRegistry,
 		actualHTTPAddr:    actualHTTPAddr,
-		actualGatewayAddr: actualGatewayAddr,
 		ephemeralHTTP:     options.EphemeralHTTP,
 		closeCh:           make(chan struct{}),
 	}, nil
@@ -308,24 +305,21 @@ func (r *Runtime) Start(ctx context.Context) error {
 			r.requestClose()
 		}
 	}
-	services := []runtime.Service{r.previewManager, r.temporaryTunnel, r.channelManager, r.automationManager, r.backgroundManager}
-	if r.gatewayHTTPServer != nil {
-		services = append(services, runtime.NewHTTPServiceWithListener(r.gatewayHTTPServer, r.gatewayListener, onServeError("gateway")))
-	}
+	services := []runtime.Service{r.previewManager, r.temporaryTunnel, r.channelManager, r.automationManager, r.backgroundManager, r.gatewayManager}
 	services = append(services, runtime.NewHTTPServiceWithListener(r.httpServer, r.httpListener, onServeError("http")))
 	if err := registerRuntimeServices(supervisor, services...); err != nil {
 		return err
 	}
 
 	r.logger.Info("autoto listening", "addr", r.URL(), "config", r.configPath, "ephemeralHTTP", r.ephemeralHTTP)
-	if r.gatewayHTTPServer != nil {
-		r.logger.Info("private API gateway listening", "addr", fmt.Sprintf("http://%s", r.actualGatewayAddr))
-	}
 	// Detach from caller start timeout so channel/automation/http workers keep
 	// running until Close. Still honor an already-cancelled start context.
 	runCtx := context.WithoutCancel(ctx)
 	if err := supervisor.Start(runCtx); err != nil {
 		return err
+	}
+	if status := r.gatewayManager.Status(); status.Running {
+		r.logger.Info("private API gateway listening", "addr", fmt.Sprintf("http://%s", status.Address), "ephemeralIsolation", status.EphemeralIsolation)
 	}
 	// Background reconciliation runs as part of the supervisor start. Only then
 	// can a continuation safely decide whether its task boundary is terminal.
@@ -390,7 +384,6 @@ func (r *Runtime) Close(ctx context.Context) error {
 	supervisor := r.supervisor
 	store := r.store
 	httpListener := r.httpListener
-	gatewayListener := r.gatewayListener
 	r.supervisor = nil
 	r.store = nil
 	r.state = runtimeClosed
@@ -412,9 +405,6 @@ func (r *Runtime) Close(ctx context.Context) error {
 	// Start never ran or serve failed before takeover.
 	if httpListener != nil {
 		_ = httpListener.Close()
-	}
-	if gatewayListener != nil {
-		_ = gatewayListener.Close()
 	}
 	return errors.Join(errs...)
 }
@@ -461,7 +451,24 @@ func (r *Runtime) Config() config.Config {
 	if r == nil {
 		return config.Config{}
 	}
+	if r.application != nil {
+		return r.application.ConfigSnapshot()
+	}
 	return r.cfg
+}
+
+// GatewayStatus returns the live private Gateway state.
+func (r *Runtime) GatewayStatus() gateway.ManagerStatus {
+	if r == nil || r.gatewayManager == nil {
+		return gateway.ManagerStatus{}
+	}
+	return r.gatewayManager.Status()
+}
+
+// GatewayAddr returns the actual bound Gateway address, or an empty string when
+// the Gateway is disabled or not currently running.
+func (r *Runtime) GatewayAddr() string {
+	return r.GatewayStatus().Address
 }
 
 // SetShellDialogHost registers shell-only native dialogs on the HTTP server.
@@ -516,22 +523,10 @@ func bindConfiguredHTTPListeners(cfg config.Config, ephemeralHTTP bool) (net.Lis
 	if err != nil {
 		return nil, nil, fmt.Errorf("listen on %s: %w", httpAddr, err)
 	}
-	if !cfg.Gateway.Enabled {
-		return httpListener, nil, nil
-	}
-	// Ephemeral mode also isolates the private gateway: reuse loopback:0 so a
-	// desktop shell never collides with a CLI instance or opens a remote bind
-	// inherited from user config (e.g. 0.0.0.0).
-	gatewayAddr := cfg.GatewayAddr()
-	if ephemeralHTTP {
-		gatewayAddr = "127.0.0.1:0"
-	}
-	gatewayListener, err := net.Listen("tcp", gatewayAddr)
-	if err != nil {
-		_ = httpListener.Close()
-		return nil, nil, fmt.Errorf("listen on gateway %s: %w", gatewayAddr, err)
-	}
-	return httpListener, gatewayListener, nil
+	// The private Gateway is owned by gateway.Manager and is intentionally not
+	// pre-bound during NewRuntime. Keep the second return value for compatibility
+	// with existing in-package callers while always returning nil.
+	return httpListener, nil, nil
 }
 
 // browserFacingHostPort rewrites wildcard listener addresses to loopback so
@@ -553,9 +548,10 @@ func newGatewayHTTPServer(cfg config.Config, store *db.Store, registry *provider
 		return nil, nil
 	}
 	service, err := gateway.New(store, registry, gateway.Options{
-		MaxGlobalConcurrency: cfg.Gateway.MaxGlobalConcurrency,
-		MaxRequestBytes:      cfg.Gateway.MaxRequestBytes,
-		ProviderAllowed:      providerAllowed,
+		MaxGlobalConcurrency:         cfg.Gateway.MaxGlobalConcurrency,
+		MaxRequestBytes:              cfg.Gateway.MaxRequestBytes,
+		ProviderAllowed:              providerAllowed,
+		AllowSubscriptionCredentials: true,
 	})
 	if err != nil {
 		return nil, err

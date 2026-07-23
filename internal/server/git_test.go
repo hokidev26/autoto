@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -86,7 +87,7 @@ func TestGitStatusRouteReturnsChangedFiles(t *testing.T) {
 	if err := json.NewDecoder(recorder.Body).Decode(&body); err != nil {
 		t.Fatal(err)
 	}
-	if body.RepoRoot != repo || body.Clean || len(body.Files) != 2 {
+	if filepath.Clean(body.RepoRoot) != filepath.Clean(repo) || body.Clean || len(body.Files) != 2 {
 		t.Fatalf("unexpected status body: %+v", body)
 	}
 	if !gitStatusHasPath(body.Files, "tracked.txt") || !gitStatusHasPath(body.Files, "untracked file.txt") {
@@ -360,7 +361,7 @@ func TestRollbackRunRouteRestoresOnlyRecordedRunChanges(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if string(content) != want.content {
+		if normalizedGitTestContent(content) != want.content {
 			t.Fatalf("expected %s to contain %q, got %q", want.path, want.content, string(content))
 		}
 	}
@@ -480,7 +481,7 @@ func TestRollbackRunRouteConcurrentPostClaimsOnce(t *testing.T) {
 		t.Fatalf("expected single successful rollback state, got %+v", updated)
 	}
 	content, err := os.ReadFile(filepath.Join(repo, "tracked.txt"))
-	if err != nil || string(content) != "base\n" {
+	if err != nil || normalizedGitTestContent(content) != "base\n" {
 		t.Fatalf("expected exactly one rollback restore, content=%q err=%v", string(content), err)
 	}
 }
@@ -543,7 +544,7 @@ func TestRollbackRunRoutePreservesUserFileCreatedOutsideToolWindow(t *testing.T)
 		t.Fatalf("expected owned tool file to be removed, stat err=%v", err)
 	}
 	content, err := os.ReadFile(filepath.Join(repo, "concurrent-user.txt"))
-	if err != nil || string(content) != "user\n" {
+	if err != nil || normalizedGitTestContent(content) != "user\n" {
 		t.Fatalf("expected concurrent user file preserved, content=%q err=%v", string(content), err)
 	}
 }
@@ -580,7 +581,7 @@ func TestRollbackRunRouteRestoresRenameRecordedWithoutOrigPath(t *testing.T) {
 		t.Fatalf("expected 200, got %d: %s", recorder.Code, recorder.Body.String())
 	}
 	content, err := os.ReadFile(filepath.Join(repo, "old.txt"))
-	if err != nil || string(content) != "base\n" {
+	if err != nil || normalizedGitTestContent(content) != "base\n" {
 		t.Fatalf("expected original path restored, content=%q err=%v", string(content), err)
 	}
 	if _, err := os.Stat(filepath.Join(repo, "renamed.txt")); !os.IsNotExist(err) {
@@ -589,6 +590,9 @@ func TestRollbackRunRouteRestoresRenameRecordedWithoutOrigPath(t *testing.T) {
 }
 
 func TestRollbackRunRouteRejectsModeChangeAfterCompletion(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows does not expose executable mode changes through os.Chmod")
+	}
 	ctx := context.Background()
 	repo := newGitTestRepo(t)
 	writeGitTestFile(t, repo, "tracked.txt", "base\n")
@@ -656,7 +660,7 @@ func TestRollbackRunRouteRejectsRunPathModifiedAfterCompletion(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(content) != "one\nuser follow-up\n" {
+	if normalizedGitTestContent(content) != "one\nuser follow-up\n" {
 		t.Fatalf("rollback overwrote later user change: %q", string(content))
 	}
 }
@@ -890,6 +894,10 @@ func newGitRouteStore(t *testing.T, ctx context.Context, repo string) (*db.Store
 		t.Fatal(err)
 	}
 	return store, agent
+}
+
+func normalizedGitTestContent(content []byte) string {
+	return strings.ReplaceAll(string(content), "\r\n", "\n")
 }
 
 func newGitTestRepo(t *testing.T) string {

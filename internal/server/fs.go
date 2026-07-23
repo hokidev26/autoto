@@ -1,6 +1,8 @@
 package server
 
 import (
+	"bytes"
+	"context"
 	"errors"
 	"io"
 	"net/http"
@@ -171,33 +173,50 @@ func (s *Server) fsNativeDirectory(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Browser/CLI fallback: macOS AppleScript only.
-	if runtime.GOOS != "darwin" {
+	// Browser/CLI fallback without a desktop shell host: drive each OS's own
+	// native folder dialog directly. macOS uses AppleScript; Windows uses a
+	// PowerShell FolderBrowserDialog. Other platforms have no native fallback
+	// here and must use the built-in directory browser.
+	var path string
+	switch runtime.GOOS {
+	case "windows":
+		picked, canceled, err := pickDirectoryPowerShell(r.Context(), defaultPath)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "原生资料夹选择器打开失败："+err.Error())
+			return
+		}
+		if canceled {
+			writeJSON(w, http.StatusOK, map[string]any{"canceled": true})
+			return
+		}
+		path = picked
+	case "darwin":
+		script := `set chosenFolder to choose folder with prompt "选择 Autoto 工作资料夹"`
+		if defaultPath != "" {
+			script = `set defaultFolder to POSIX file ` + appleScriptString(defaultPath) + ` as alias
+set chosenFolder to choose folder with prompt "选择 Autoto 工作资料夹" default location defaultFolder`
+		}
+		script += "\nPOSIX path of chosenFolder"
+
+		output, err := exec.CommandContext(r.Context(), "osascript", "-e", script).CombinedOutput()
+		if err != nil {
+			message := strings.TrimSpace(string(output))
+			if strings.Contains(message, "User canceled") || strings.Contains(message, "-128") {
+				writeJSON(w, http.StatusOK, map[string]any{"canceled": true})
+				return
+			}
+			if message == "" {
+				message = err.Error()
+			}
+			writeError(w, http.StatusInternalServerError, "原生资料夹选择器打开失败："+message)
+			return
+		}
+		path = filepath.Clean(strings.TrimSpace(string(output)))
+	default:
 		writeError(w, http.StatusNotImplemented, "当前系统暂不支持原生资料夹选择器，请使用内置目录浏览器")
 		return
 	}
 
-	script := `set chosenFolder to choose folder with prompt "选择 Autoto 工作资料夹"`
-	if defaultPath != "" {
-		script = `set defaultFolder to POSIX file ` + appleScriptString(defaultPath) + ` as alias
-set chosenFolder to choose folder with prompt "选择 Autoto 工作资料夹" default location defaultFolder`
-	}
-	script += "\nPOSIX path of chosenFolder"
-
-	output, err := exec.CommandContext(r.Context(), "osascript", "-e", script).CombinedOutput()
-	if err != nil {
-		message := strings.TrimSpace(string(output))
-		if strings.Contains(message, "User canceled") || strings.Contains(message, "-128") {
-			writeJSON(w, http.StatusOK, map[string]any{"canceled": true})
-			return
-		}
-		if message == "" {
-			message = err.Error()
-		}
-		writeError(w, http.StatusInternalServerError, "原生资料夹选择器打开失败："+message)
-		return
-	}
-	path := filepath.Clean(strings.TrimSpace(string(output)))
 	if path == "." || path == "" {
 		writeError(w, http.StatusInternalServerError, "原生资料夹选择器没有返回路径")
 		return
@@ -220,10 +239,61 @@ func appleScriptString(value string) string {
 	return `"` + escaped + `"`
 }
 
+// pickDirectoryPowerShell shows the native Windows folder picker via a
+// PowerShell FolderBrowserDialog. It returns the selected path, whether the
+// user canceled, and any launch error. FolderBrowserDialog requires an STA
+// thread, so the child process is started with -STA.
+func pickDirectoryPowerShell(ctx context.Context, defaultPath string) (string, bool, error) {
+	script := `Add-Type -AssemblyName System.Windows.Forms | Out-Null
+$dialog = New-Object System.Windows.Forms.FolderBrowserDialog
+$dialog.Description = '选择 Autoto 工作资料夹'
+$dialog.ShowNewFolderButton = $true`
+	if strings.TrimSpace(defaultPath) != "" {
+		script += "\n$dialog.SelectedPath = " + powerShellSingleQuote(defaultPath)
+	}
+	script += `
+$owner = New-Object System.Windows.Forms.Form
+$owner.TopMost = $true
+if ($dialog.ShowDialog($owner) -eq [System.Windows.Forms.DialogResult]::OK) { [Console]::Out.Write($dialog.SelectedPath) }
+$owner.Dispose()`
+
+	cmd := exec.CommandContext(ctx, "powershell", "-NoProfile", "-STA", "-Command", script)
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		message := strings.TrimSpace(stderr.String())
+		if message == "" {
+			message = err.Error()
+		}
+		return "", false, errors.New(message)
+	}
+	path := strings.TrimSpace(stdout.String())
+	if path == "" {
+		return "", true, nil
+	}
+	return filepath.Clean(path), false, nil
+}
+
+// powerShellSingleQuote wraps a value in a single-quoted PowerShell literal,
+// doubling embedded single quotes so the path cannot break out of the string.
+func powerShellSingleQuote(value string) string {
+	return "'" + strings.ReplaceAll(value, "'", "''") + "'"
+}
+
 func defaultDirectoryRoot(defaultProjectDir string) string {
 	if defaultProjectDir != "" {
 		if info, err := os.Stat(defaultProjectDir); err == nil && info.IsDir() {
 			return defaultProjectDir
+		}
+		// The project sandbox and the folder picker root must agree. If the
+		// configured projects dir is missing, create it instead of falling
+		// back to $HOME (which then fails as "path escapes default project
+		// directory" under resolveFSPath).
+		if err := os.MkdirAll(defaultProjectDir, 0o755); err == nil {
+			if info, err := os.Stat(defaultProjectDir); err == nil && info.IsDir() {
+				return defaultProjectDir
+			}
 		}
 	}
 	if home, err := os.UserHomeDir(); err == nil {
@@ -234,11 +304,29 @@ func defaultDirectoryRoot(defaultProjectDir string) string {
 
 func directoryShortcuts(defaultProjectDir string) []fsDirectoryShortcut {
 	shortcuts := make([]fsDirectoryShortcut, 0, 6)
+	base := strings.TrimSpace(defaultProjectDir)
+	if base != "" {
+		if info, err := os.Stat(base); err != nil || !info.IsDir() {
+			_ = os.MkdirAll(base, 0o755)
+		}
+	}
 	add := func(name, path string) {
 		if path == "" {
 			return
 		}
 		if info, err := os.Stat(path); err == nil && info.IsDir() {
+			// Project-scoped browsing cannot leave DefaultProjectDir. Hide
+			// host-wide shortcuts that would only surface as load failures.
+			if base != "" {
+				baseAbs, err := filepath.Abs(base)
+				if err != nil {
+					return
+				}
+				pathAbs, err := filepath.Abs(path)
+				if err != nil || !fsPathWithin(baseAbs, pathAbs) {
+					return
+				}
+			}
 			shortcuts = append(shortcuts, fsDirectoryShortcut{Name: name, Path: path})
 		}
 	}
@@ -314,6 +402,12 @@ func (s *Server) fsBasePath() string {
 	base := cfg.Paths.DefaultProjectDir
 	if base == "" {
 		base = cfg.Paths.HomeDir
+	}
+	// Keep sandbox root aligned with the directory picker default.
+	if strings.TrimSpace(base) != "" {
+		if info, err := os.Stat(base); err != nil || !info.IsDir() {
+			_ = os.MkdirAll(base, 0o755)
+		}
 	}
 	return base
 }

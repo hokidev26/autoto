@@ -26,7 +26,14 @@ var (
 )
 
 func sqliteDSN(path string) string {
-	fileURL := &url.URL{Scheme: "file", Path: filepath.ToSlash(filepath.Clean(path))}
+	// modernc.org/sqlite expects a file URI. On Windows, Path must be
+	// "/C:/..." so String() becomes "file:///C:/..." rather than "file:C:/..."
+	// (which is mis-parsed and breaks pragma/bootstrap on empty DBs).
+	cleaned := filepath.ToSlash(filepath.Clean(path))
+	if filepath.IsAbs(path) && !strings.HasPrefix(cleaned, "/") {
+		cleaned = "/" + cleaned
+	}
+	fileURL := &url.URL{Scheme: "file", Opaque: "", Path: cleaned}
 	query := fileURL.Query()
 	query.Add("_pragma", "foreign_keys(1)")
 	query.Add("_pragma", "busy_timeout(5000)")

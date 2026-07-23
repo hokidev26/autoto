@@ -2,10 +2,13 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  appearanceBackgroundMaxBytes,
+  appearanceBackgroundUploadErrorCodes,
   createAppearanceBackgroundManager,
   createThemeManager,
   normalizeAppearanceBackgroundRecord,
   normalizeThemeCatalog,
+  safeAppearanceBackgroundUploadFilename,
   safeAppearanceBackgroundURL,
   setThemePageContext,
 } from "./theme-manager.mjs";
@@ -255,6 +258,105 @@ test("appearance background records accept only revision-scoped image URLs", () 
     width: 5120,
     height: 2880,
   });
+});
+
+test("appearance background upload uses an ASCII multipart filename without mutating the selected file", async () => {
+  const { documentRef, windowRef } = fakeBackgroundEnvironment();
+  const selectedFile = Object.freeze({
+    name: "夏日 壁纸 (最终) 🌄.PNG",
+    type: "image/png",
+    size: 4096,
+  });
+  const formEntries = [];
+  const OriginalFormData = globalThis.FormData;
+  globalThis.FormData = class RecordingFormData {
+    set(...entry) { formEntries.push(entry); }
+  };
+  try {
+    const manager = createAppearanceBackgroundManager({
+      api: async (path, options) => {
+        assert.equal(path, "/api/appearance/background");
+        assert.equal(options.method, "POST");
+        return { background: {
+          url: backgroundURL,
+          revision: backgroundRevision,
+          filename: "background-upload.png",
+          contentType: "image/png",
+          size: selectedFile.size,
+          width: 3840,
+          height: 2160,
+        } };
+      },
+      documentRef,
+      windowRef,
+    });
+
+    const uploaded = await manager.upload(selectedFile);
+
+    assert.equal(safeAppearanceBackgroundUploadFilename(selectedFile), "background-upload.png");
+    assert.deepEqual(formEntries, [
+      ["file", selectedFile, "background-upload.png"],
+      ["displayName", selectedFile.name],
+    ]);
+    assert.equal(selectedFile.name, "夏日 壁纸 (最终) 🌄.PNG");
+    assert.equal(uploaded.filename, selectedFile.name);
+    assert.equal(manager.snapshot().background.filename, selectedFile.name);
+  } finally {
+    globalThis.FormData = OriginalFormData;
+  }
+});
+
+test("appearance background upload keeps extension, MIME, and size restrictions", async () => {
+  let requests = 0;
+  const manager = createAppearanceBackgroundManager({
+    api: async () => { requests += 1; },
+    translate: (key) => `localized:${key}`,
+  });
+
+  await assert.rejects(
+    manager.upload({ name: "背景.gif", type: "image/gif", size: 10 }),
+    (error) => error.code === appearanceBackgroundUploadErrorCodes.unsupportedType
+      && error.message === "localized:appearance.backgroundUnsupported",
+  );
+  await assert.rejects(
+    manager.upload({ name: "背景.png", type: "image/jpeg", size: 10 }),
+    (error) => error.code === appearanceBackgroundUploadErrorCodes.typeMismatch
+      && error.message === "localized:appearance.backgroundTypeMismatch",
+  );
+  await assert.rejects(
+    manager.upload({ name: "背景.webp", type: "image/webp", size: appearanceBackgroundMaxBytes + 1 }),
+    (error) => error.code === appearanceBackgroundUploadErrorCodes.tooLarge
+      && error.message === "localized:appearance.backgroundTooLarge",
+  );
+  assert.equal(requests, 0);
+});
+
+test("appearance background upload replaces backend details with a localized error", async () => {
+  const OriginalFormData = globalThis.FormData;
+  globalThis.FormData = class RecordingFormData { set() {} };
+  try {
+    const manager = createAppearanceBackgroundManager({
+      api: async () => {
+        const error = new Error("invalid appearance background: theme resource background-upload.png content does not match its allowed image extension");
+        error.status = 400;
+        throw error;
+      },
+      translate: (key) => ({
+        "appearance.backgroundInvalid": "无法读取这张图片。",
+        "appearance.backgroundUploadFailed": "背景图片上传失败，请重试。",
+      }[key] || key),
+    });
+
+    await assert.rejects(
+      manager.upload({ name: "背景.png", type: "image/png", size: 10 }),
+      (error) => error.code === appearanceBackgroundUploadErrorCodes.invalidImage
+        && error.message === "无法读取这张图片。"
+        && !error.message.includes("invalid appearance background"),
+    );
+    assert.equal(manager.snapshot().error, "无法读取这张图片。");
+  } finally {
+    globalThis.FormData = OriginalFormData;
+  }
 });
 
 test("appearance background manager loads metadata, preloads original pixels, and applies positioning", async () => {

@@ -26,7 +26,7 @@ func TestAppearanceBackgroundRoutesAndHeaders(t *testing.T) {
 		t.Fatalf("initial response = %d %s", initial.Code, initial.Body.String())
 	}
 
-	body, contentType := appearanceMultipart(t, "hero.png", appearancePNG(t))
+	body, contentType := appearanceMultipart(t, "hero.png", "", appearancePNG(t))
 	unauthorized := newTestRequest(http.MethodPost, "/api/appearance/background", body)
 	unauthorized.Header.Set("Content-Type", contentType)
 	denied := httptest.NewRecorder()
@@ -35,7 +35,8 @@ func TestAppearanceBackgroundRoutesAndHeaders(t *testing.T) {
 		t.Fatalf("unauthorized upload = %d: %s", denied.Code, denied.Body.String())
 	}
 
-	body, contentType = appearanceMultipart(t, "hero.png", appearancePNG(t))
+	displayName := "中文 背景 (最终).png"
+	body, contentType = appearanceMultipart(t, "background-upload.png", displayName, appearancePNG(t))
 	upload := newTestRequest(http.MethodPost, "/api/appearance/background", body)
 	upload.Header.Set(localTokenHeader, app.localToken)
 	upload.Header.Set("Content-Type", contentType)
@@ -48,8 +49,12 @@ func TestAppearanceBackgroundRoutesAndHeaders(t *testing.T) {
 	if err := json.NewDecoder(created.Body).Decode(&response); err != nil {
 		t.Fatal(err)
 	}
-	if response.Background == nil || response.Background.Filename != "hero.png" || len(response.Background.Revision) != 64 {
+	if response.Background == nil || response.Background.Filename != displayName || len(response.Background.Revision) != 64 {
 		t.Fatalf("upload metadata = %#v", response)
+	}
+	expectedURL := "/appearance/backgrounds/" + response.Background.Revision + "/" + response.Background.Revision + ".png"
+	if response.Background.URL != expectedURL || strings.ContainsAny(response.Background.URL, "中文 ()") {
+		t.Fatalf("upload URL = %q, want canonical ASCII URL %q", response.Background.URL, expectedURL)
 	}
 
 	read := newTestRequest(http.MethodGet, response.Background.URL, nil)
@@ -83,10 +88,40 @@ func TestAppearanceBackgroundRoutesAndHeaders(t *testing.T) {
 	}
 }
 
-func appearanceMultipart(t *testing.T, filename string, data []byte) (*bytes.Reader, string) {
+func TestAppearanceBackgroundUploadFallsBackToMultipartFilename(t *testing.T) {
+	app := New(config.Config{Paths: config.PathsConfig{HomeDir: t.TempDir()}}, nil, nil, nil)
+	filename := "fallback background (1).png"
+	body, contentType := appearanceMultipart(t, filename, "   ", appearancePNG(t))
+	upload := newTestRequest(http.MethodPost, "/api/appearance/background", body)
+	upload.Header.Set(localTokenHeader, app.localToken)
+	upload.Header.Set("Content-Type", contentType)
+	created := httptest.NewRecorder()
+	app.Routes().ServeHTTP(created, upload)
+	if created.Code != http.StatusCreated {
+		t.Fatalf("upload = %d: %s", created.Code, created.Body.String())
+	}
+	var response appearanceBackgroundResponse
+	if err := json.NewDecoder(created.Body).Decode(&response); err != nil {
+		t.Fatal(err)
+	}
+	if response.Background == nil || response.Background.Filename != filename {
+		t.Fatalf("upload metadata = %#v", response)
+	}
+	expectedURL := "/appearance/backgrounds/" + response.Background.Revision + "/" + response.Background.Revision + ".png"
+	if response.Background.URL != expectedURL {
+		t.Fatalf("upload URL = %q, want %q", response.Background.URL, expectedURL)
+	}
+}
+
+func appearanceMultipart(t *testing.T, filename, displayName string, data []byte) (*bytes.Reader, string) {
 	t.Helper()
 	var body bytes.Buffer
 	writer := multipart.NewWriter(&body)
+	if displayName != "" {
+		if err := writer.WriteField("displayName", displayName); err != nil {
+			t.Fatal(err)
+		}
+	}
 	part, err := writer.CreateFormFile("file", filename)
 	if err != nil {
 		t.Fatal(err)
@@ -152,7 +187,7 @@ func TestRestrictedRemoteAppearanceBackgroundIsReadOnly(t *testing.T) {
 		t.Fatalf("restricted remote resource = %d: %s", resourceResult.Code, resourceResult.Body.String())
 	}
 
-	body, contentType := appearanceMultipart(t, "new.png", appearancePNG(t))
+	body, contentType := appearanceMultipart(t, "new.png", "", appearancePNG(t))
 	upload := newTestRequest(http.MethodPost, "/api/appearance/background", body)
 	upload.Host = "remote.example.test"
 	markRemoteHTTPS(upload)

@@ -69,7 +69,11 @@ func (s *Server) postAppearanceBackground(w http.ResponseWriter, r *http.Request
 		return
 	}
 	defer file.Close()
-	background, err := store.Import(file, header.Filename)
+	filename := header.Filename
+	if displayName := strings.TrimSpace(r.FormValue("displayName")); displayName != "" {
+		filename = displayName
+	}
+	background, err := store.Import(file, filename)
 	if err != nil {
 		if errors.Is(err, appearanceassets.ErrInvalid) {
 			writeError(w, http.StatusBadRequest, err.Error())

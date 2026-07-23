@@ -1,7 +1,9 @@
 const serverCommandPattern = /^\/[a-z0-9][a-z0-9_-]{0,62}$/;
 
 export function slashCommandInsertion(command) {
-  if (command?.source === "server") return `${String(command.name || "").trim()} `;
+  if (command?.source === "server" || command?.source === "builtin") {
+    return `${String(command.name || "").trim()} `;
+  }
   return String(command?.prompt || "");
 }
 
@@ -16,6 +18,33 @@ export function normalizeSlashCommandName(value) {
   const raw = String(value || "").trim().replace(/^\/+/, "");
   if (!raw) return "";
   return `/${raw}`.toLowerCase();
+}
+
+// Application-owned commands are trusted independently of the effective Skill
+// policy. They stay first and reserve their normalized names so a server Skill
+// or browser-local template cannot shadow an app protocol such as /goal.
+export function mergeBuiltInSlashCommands(builtInCommands, commands) {
+  const merged = [];
+  const seen = new Set();
+  for (const command of Array.isArray(builtInCommands) ? builtInCommands : []) {
+    const name = normalizeSlashCommandName(command?.name);
+    if (!serverCommandPattern.test(name) || seen.has(name)) continue;
+    seen.add(name);
+    merged.push({
+      id: String(command?.id || `builtin-${name.slice(1)}`),
+      name,
+      description: String(command?.description || "").trim(),
+      prompt: "",
+      source: "builtin",
+    });
+  }
+  for (const command of Array.isArray(commands) ? commands : []) {
+    const name = normalizeSlashCommandName(command?.name);
+    if (!name || seen.has(name)) continue;
+    seen.add(name);
+    merged.push({ ...command, name });
+  }
+  return merged;
 }
 
 function legalServerCommandName(skill) {

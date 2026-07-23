@@ -124,6 +124,16 @@ func (s *Server) modelProviderResponse(ctx context.Context, provider config.Prov
 	response.Capabilities = providers.CapabilitiesFor(registered)
 	response.Configured = providers.ConfiguredFor(registered, provider.Configured)
 	response.RuntimeAvailable = response.Configured
+	// Unconfigured providers stay visible with a quiet "待设定" state. Calling
+	// ListModels here would turn a missing API key into a red "无法获取模型列表"
+	// alert, which reads as a failure rather than incomplete setup.
+	if !response.Configured {
+		response.ModelsSource = "configured-default"
+		response.Discovered = false
+		response.Available = false
+		attachModelCapabilities(&response, registered, providerConfig)
+		return response
+	}
 	listCtx, cancel := context.WithTimeout(ctx, modelListTimeout)
 	defer cancel()
 	models, err := registered.ListModels(listCtx)
@@ -135,16 +145,6 @@ func (s *Server) modelProviderResponse(ctx context.Context, provider config.Prov
 	}
 	response.Models = mergeModelNames(models, providerConfig)
 	attachModelCapabilities(&response, registered, providerConfig)
-	// Some adapters return the configured default as a local fallback when no
-	// credential is available. Do not label that placeholder as remotely
-	// discovered; only a configured adapter's successful list is selectable as a
-	// fetched catalog entry.
-	if !response.Configured {
-		response.ModelsSource = "configured-default"
-		response.Discovered = false
-		response.Available = false
-		return response
-	}
 	response.ModelsSource = "remote"
 	response.Discovered = len(response.Models) > 0
 	response.Available = response.Configured && response.Discovered

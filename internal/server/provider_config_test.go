@@ -596,13 +596,13 @@ func TestPatchProviderGatewayEligibility(t *testing.T) {
 
 	codex := config.ProviderConfig{Name: "codex", Type: config.ProviderTypeCodex, BaseURL: "https://chatgpt.com/backend-api/codex", Model: "gpt-test"}
 	codexApp := New(config.Config{Providers: config.ProvidersConfig{Instances: []config.ProviderConfig{codex}}}, nil, nil, nil)
-	denied := httptest.NewRecorder()
-	deniedRequest := newTestRequest(http.MethodPatch, "/api/providers/codex", strings.NewReader(`{"gatewayEnabled":true}`))
-	deniedRequest.Header.Set("Content-Type", "application/json")
-	deniedRequest.Header.Set(localTokenHeader, codexApp.localToken)
-	codexApp.Routes().ServeHTTP(denied, deniedRequest)
-	if denied.Code != http.StatusBadRequest {
-		t.Fatalf("Codex gateway eligibility must be rejected: %d %s", denied.Code, denied.Body.String())
+	codexResponse := httptest.NewRecorder()
+	codexRequest := newTestRequest(http.MethodPatch, "/api/providers/codex", strings.NewReader(`{"gatewayEnabled":true}`))
+	codexRequest.Header.Set("Content-Type", "application/json")
+	codexRequest.Header.Set(localTokenHeader, codexApp.localToken)
+	codexApp.Routes().ServeHTTP(codexResponse, codexRequest)
+	if codexResponse.Code != http.StatusOK {
+		t.Fatalf("Codex gateway eligibility should now be accepted: %d %s", codexResponse.Code, codexResponse.Body.String())
 	}
 
 	proxy := config.ProviderConfig{Name: "cliproxyapi", Type: "openai-compatible", Profile: config.ProviderProfileCLIProxyAPI, BaseURL: "http://127.0.0.1:8317/v1", Model: "gpt-test", APIKeyOptional: true}

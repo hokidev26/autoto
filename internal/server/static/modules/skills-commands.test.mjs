@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { mergeAuthoritativeEffectiveCommands, mergeEffectiveOwnerCommands, mergeSlashCommands, normalizeSlashCommandName, slashCommandInsertion, visibleMessageText } from "./skills-commands.mjs";
+import { mergeAuthoritativeEffectiveCommands, mergeBuiltInSlashCommands, mergeEffectiveOwnerCommands, mergeSlashCommands, normalizeSlashCommandName, slashCommandInsertion, visibleMessageText } from "./skills-commands.mjs";
 import { applyServerSkillsLoadResult, hydrateServerSkillSummaries, isOptimisticSkillConflict, loadServerSkillsWithFallback } from "./skills-bootstrap.mjs";
 
 test("mergeSlashCommands keeps enabled server skills before local fallbacks", () => {
@@ -34,13 +34,31 @@ test("server records reserve commands and fail closed before local fallback", ()
   ]);
 });
 
-test("server command selection inserts only the command while local templates insert prompts", () => {
+test("server and built-in command selection inserts only the command while local templates insert prompts", () => {
   assert.equal(slashCommandInsertion({ name: "/review", prompt: "secret server prompt", source: "server" }), "/review ");
+  assert.equal(slashCommandInsertion({ name: "/goal", prompt: "ignored built-in prompt", source: "builtin" }), "/goal ");
   assert.equal(slashCommandInsertion({ name: "/local", prompt: "expanded local prompt", source: "local" }), "expanded local prompt");
   assert.deepEqual(mergeSlashCommands([
     { id: "summary-only", command: "/summary-only", description: "server summary", enabled: true, scanVerdict: "safe" },
   ], []), [
     { id: "server-summary-only", name: "/summary-only", description: "server summary", prompt: "", source: "server" },
+  ]);
+});
+
+test("built-in commands stay first and reserve their names from skills and templates", () => {
+  const external = mergeSlashCommands([
+    { id: "server-goal", command: "/goal", description: "shadowing skill", enabled: true, scanVerdict: "safe" },
+    { id: "server-review", command: "/review", description: "server review", enabled: true, scanVerdict: "safe" },
+  ], [
+    { id: "local-goal", name: "/Goal", prompt: "shadowing template", enabled: true },
+    { id: "local-tests", name: "/write-tests", prompt: "write tests", enabled: true },
+  ]);
+  assert.deepEqual(mergeBuiltInSlashCommands([
+    { id: "builtin-goal", name: "/Goal", description: "Add a protected task to the task list", prompt: "ignored" },
+  ], external), [
+    { id: "builtin-goal", name: "/goal", description: "Add a protected task to the task list", prompt: "", source: "builtin" },
+    { id: "server-server-review", name: "/review", description: "server review", prompt: "", source: "server" },
+    { id: "local-local-tests", name: "/write-tests", description: "", prompt: "write tests", source: "local" },
   ]);
 });
 

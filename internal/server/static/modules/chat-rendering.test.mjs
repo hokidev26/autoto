@@ -13,6 +13,7 @@ import {
   normalizeMessageProfileIdentity,
   normalizeToolActivity,
   normalizeTurnUsage,
+  nextToolActivitySelection,
   renderAgentTaskActivityCardHTML,
   renderToolActivityCardHTML,
   renderToolActivityStackHTML,
@@ -401,7 +402,8 @@ test("task reports, tool output, approvals, and errors expose left-aligned bound
 
   assert.match(html, /data-message-role="error"/);
   assert.match(html, /class="live-tool-output-stack tool-activity-stack chat-flow-stack chat-flow-left" data-chat-alignment="left"/);
-  assert.match(html, /data-chat-report="tool-activity"/);
+  assert.match(html, /data-tool-activity-select="tool1"/);
+  assert.doesNotMatch(html, /data-chat-report="tool-activity"/);
   assert.match(html, /tool-activity-summary/);
   assert.match(html, /data-chat-report="run-summary"/);
   assert.match(html, /data-chat-report="tool-approval"/);
@@ -512,7 +514,7 @@ test("ordinary legacy manual runs keep a compact tool activity stack and load-ea
   assert.match(html, /conversation-tool-activity/);
   assert.match(html, /legacy\.txt/);
   assert.match(html, /data-run-tool-activity-more="run-manual"/);
-  assert.equal((html.match(/data-tool-use-id="read-manual"/g) || []).length, 1, "review de-duplication must leave one visible tool card");
+  assert.equal((html.match(/data-tool-activity-select="read-manual"/g) || []).length, 1, "review de-duplication must leave one visible tool row");
   assert.doesNotMatch(html, /run-summary-metrics|run-summary-checkpoint|data-run-summary-copy|data-run-summary-refresh|data-run-summary-open-git|data-run-summary-rollback/);
 });
 
@@ -752,7 +754,7 @@ test("message rendering escapes role, text, and code attributes without breaking
   assert.match(html, /data-copy-message="0"/);
 });
 
-test("model generation renders a waiting assistant card before the first text delta", () => {
+test("model generation keeps the message thread clear before the first text delta", () => {
   const { html } = renderSnapshot([], {
     liveAssistantActive: true,
     liveAssistantRequestId: "request-1",
@@ -760,11 +762,8 @@ test("model generation renders a waiting assistant card before the first text de
     liveAssistantStartedAt: "2026-03-16T10:00:00Z",
   });
 
-  assert.match(html, /data-live-assistant/);
-  assert.match(html, /data-request-id="request-1"/);
-  assert.match(html, /data-started-at="2026-03-16T10:00:00Z"/);
-  assert.match(html, /等待首 token/);
-  assert.doesNotMatch(html, /class="empty-conversation-state"/);
+  assert.doesNotMatch(html, /data-live-assistant|等待首 token|live-assistant-status/);
+  assert.match(html, /class="empty-conversation-state"/);
 });
 
 test("live estimated performance is compact and visibly approximate", () => {
@@ -787,6 +786,7 @@ test("live estimated performance is compact and visibly approximate", () => {
   assert.ok(html.indexOf("message-performance-live") < html.indexOf("message-content"), "live metrics should render in the card header");
   assert.match(html, /request&quot; onmouseover=&quot;boom/);
   assert.match(html, /data-run-id="&lt;run-id&gt;"/);
+  assert.doesNotMatch(html, /live-assistant-status|等待首 token|正在生成/);
   assert.doesNotMatch(html, /onmouseover="boom"|<run-id>/);
 });
 
@@ -846,23 +846,31 @@ test("turn usage normalization drops zero, negative, non-finite, extreme, and in
   assert.doesNotMatch(html, /<svg|onload=boom|message-performance/);
 });
 
-test("tool activity renders every supported tool as an auditable process without hidden-reasoning wording", () => {
-  const html = renderToolActivityStackHTML([
+test("tool activity renders a lightweight directory before hydrating one auditable detail", () => {
+  const calls = [
     { toolUseId: "grep", toolName: "Grep", status: "completed", inputJson: { path: "src", pattern: "TODO" } },
     { toolUseId: "read", toolName: "Read", status: "completed", inputJson: { file_path: "src/main.mjs", pages: "1-2" } },
     { toolUseId: "edit", toolName: "Edit", status: "completed", inputJson: { file_path: "src/main.mjs", old_string: "old", new_string: "new" } },
     { toolUseId: "write", toolName: "Write", status: "completed", inputJson: { file_path: "notes.txt" } },
     { toolUseId: "glob", toolName: "Glob", status: "completed", inputJson: { path: "src", pattern: "**/*.mjs" } },
-    { toolUseId: "bash", toolName: "Bash", status: "running", inputJson: { command: "node --test" }, executionDeviceId: "local" },
-  ]);
+    { toolUseId: "bash", toolName: "Bash", status: "running", inputJson: { command: "node --test" }, output: "DETAIL_ONLY_OUTPUT", executionDeviceId: "local" },
+  ];
+  const html = renderToolActivityStackHTML(calls);
 
   for (const tool of ["Grep", "Read", "Edit", "Write", "Glob", "Bash"]) assert.match(html, new RegExp(`>${tool}<`));
-  for (const className of ["tool-activity-stack", "tool-activity-group", "tool-activity-summary", "tool-activity-steps", "tool-activity-card", "tool-activity-details", "status-running", "status-completed"]) {
+  for (const className of ["tool-activity-stack", "tool-activity-group", "tool-activity-summary", "tool-activity-steps", "tool-activity-step", "tool-activity-step-button", "status-running", "status-completed"]) {
     assert.match(html, new RegExp(className));
   }
-  assert.match(html, /本(?:机|地)服务/);
+  assert.doesNotMatch(html, /tool-activity-card|tool-activity-details|DETAIL_ONLY_OUTPUT|本(?:机|地)服务/);
   assert.match(html, /可审计摘要/);
   assert.doesNotMatch(html, /思维链已加密|chain of thought encrypted/i);
+
+  const selected = renderToolActivityStackHTML(calls, { selectedToolUseId: "bash" });
+  assert.match(selected, /tool-activity-card/);
+  assert.match(selected, /<details class="tool-activity-details" open>/);
+  assert.match(selected, /DETAIL_ONLY_OUTPUT/);
+  assert.match(selected, /本(?:机|地)服务/);
+  assert.equal((selected.match(/class="tool-activity-card/g) || []).length, 1);
 });
 
 test("completed tool activity collapses while active or attention-needed work stays expanded", () => {
@@ -896,6 +904,23 @@ test("completed tool activity collapses while active or attention-needed work st
     resolveBackgroundTask: () => ({ id: "task-done", status: "succeeded" }),
   });
   assert.doesNotMatch(completedSubagent, /<details class="tool-activity-group" open>/);
+});
+
+test("tool activity selection opens one detail and toggles the same row closed", () => {
+  assert.equal(nextToolActivitySelection("", "read-1"), "read-1");
+  assert.equal(nextToolActivitySelection("read-1", "bash-1"), "bash-1");
+  assert.equal(nextToolActivitySelection("read-1", "read-1"), "");
+  assert.equal(nextToolActivitySelection("read-1", ""), "");
+
+  const calls = [
+    { toolUseId: "read-1", toolName: "Read", status: "completed", inputJson: { file_path: "a.txt" }, output: "READ_DETAIL" },
+    { toolUseId: "bash-1", toolName: "Bash", status: "completed", inputJson: { command: "pwd" }, output: "BASH_DETAIL" },
+  ];
+  const html = renderToolActivityStackHTML(calls, { selectedToolUseId: "read-1" });
+  assert.match(html, /aria-expanded="true"/);
+  assert.match(html, /READ_DETAIL/);
+  assert.doesNotMatch(html, /BASH_DETAIL/);
+  assert.equal((html.match(/class="tool-activity-card/g) || []).length, 1);
 });
 
 test("tool activity escapes dangerous data and bounds command and output rendering", () => {
@@ -945,7 +970,7 @@ test("tool activity warns when dynamic commands cannot be classified reliably", 
     },
   };
   const normalized = normalizeToolActivity(call);
-  const html = renderToolActivityStackHTML([call]);
+  const html = renderToolActivityStackHTML([call], { selectedToolUseId: "dynamic-bash" });
 
   assert.equal(normalized.shellSafe, false);
   assert.equal(normalized.commandFacts.program, "dynamic");
@@ -980,7 +1005,7 @@ test("tool activity renders bounded localized safety facts without command param
     },
   };
   const normalized = normalizeToolActivity(call);
-  const html = renderToolActivityStackHTML([call]);
+  const html = renderToolActivityStackHTML([call], { selectedToolUseId: "facts-1" });
 
   assert.deepEqual(normalized.commandFacts, {
     parseKnown: true,
@@ -1030,7 +1055,7 @@ test("tool activity rejects malformed command facts and bounds fact arrays", () 
       dangerous: ["git-reset-hard", ...Array.from({ length: 20 }, () => secret)],
     },
   });
-  const html = renderToolActivityStackHTML([normalized]);
+  const html = renderToolActivityStackHTML([normalized], { selectedToolUseId: "facts-invalid" });
 
   assert.equal(normalized.eventVersion, null);
   assert.equal(normalized.decision, "");
@@ -1102,11 +1127,11 @@ test("tool activity localizes every backend decision source", () => {
   for (const [decisionSource, label] of expected) {
     const normalized = normalizeToolActivity({ toolUseId: decisionSource, toolName: "Bash", decision: "deny", decisionSource });
     assert.equal(normalized.decisionSource, decisionSource);
-    assert.match(renderToolActivityStackHTML([normalized]), new RegExp(label));
+    assert.match(renderToolActivityStackHTML([normalized], { selectedToolUseId: decisionSource }), new RegExp(label));
   }
   const liveReason = normalizeToolActivity({ toolUseId: "live-reason", toolName: "Read", decision: "allow", decisionSource: "default_policy", reason: "Allowed <by live policy>" });
   assert.equal(liveReason.permissionDecisionReason, "Allowed <by live policy>");
-  assert.match(renderToolActivityStackHTML([liveReason]), /Allowed &lt;by live policy&gt;/);
+  assert.match(renderToolActivityStackHTML([liveReason], { selectedToolUseId: "live-reason" }), /Allowed &lt;by live policy&gt;/);
 });
 
 test("live omitted approval commands remain fail-closed until detail hydration", async () => {
@@ -1235,7 +1260,47 @@ test("live tool events retain all tools and preserve streamed Bash output after 
     assert.equal(state.liveToolOutputs["bash-1"].output, "first\nsecond");
     assert.equal(state.liveToolOutputs["bash-1"].status, "completed");
     assert.equal(state.liveToolOutputs["bash-1"].durationMs, 25);
-    assert.match(messagesElement.innerHTML, /first\nsecond/);
+    assert.doesNotMatch(messagesElement.innerHTML, /first\nsecond/);
+    const selected = renderToolActivityStackHTML(Object.values(state.liveToolOutputs), {
+      live: true,
+      runActive: false,
+      selectedToolUseId: "bash-1",
+      stackKey: "live:agent-1:run-1",
+      totalCount: state.liveToolOutputTotals["agent-1:run-1"],
+    });
+    assert.match(selected, /first\nsecond/);
+    assert.match(selected, /<details class="tool-activity-details" open>/);
+  } finally {
+    globalThis.document = previousDocument;
+  }
+});
+
+test("live tool activity retains a bounded recent window while preserving the total count", () => {
+  const messagesElement = fakeMessagesElement();
+  const previousDocument = globalThis.document;
+  globalThis.document = { getElementById: () => messagesElement };
+  const state = { agent: { id: "agent-1" }, chatHydrating: true, liveToolOutputs: {}, pendingToolApprovals: {}, currentMessages: [], messageCopyTexts: [] };
+  try {
+    const controller = createChatRenderingController({
+      state,
+      attachmentIcon: () => "file", attachmentKind: () => "file", copyToClipboard: async () => true,
+      notifyTerminal: () => {}, selectedModelValue: () => "", shortPath: (value) => value, showError: () => {}, showToast: () => {},
+    });
+    for (let index = 0; index < 45; index += 1) {
+      const toolUseId = `read-${index}`;
+      const createdAt = `2026-01-01T00:00:${String(index).padStart(2, "0")}Z`;
+      controller.rememberToolStarted({ agentId: "agent-1", createdAt, data: { toolUseId, toolName: "Read", runId: "run-bounded", inputJson: { file_path: `${index}.txt` } } });
+      controller.finishToolOutput({ agentId: "agent-1", data: { toolUseId, runId: "run-bounded", status: "completed", resultPreview: `done-${index}` } });
+    }
+
+    assert.equal(Object.keys(state.liveToolOutputs).length, 40);
+    assert.equal(state.liveToolOutputTotals["agent-1:run-bounded"], 45);
+    assert.equal(state.liveToolOutputs["read-0"], undefined);
+    assert.equal(state.liveToolOutputs["read-44"].status, "completed");
+    const html = renderToolActivityStackHTML(Object.values(state.liveToolOutputs), { totalCount: 45 });
+    assert.match(html, /data-tool-activity-count="45"/);
+    assert.match(html, /data-tool-activity-visible-count="40"/);
+    assert.match(html, /另有 5 条/);
   } finally {
     globalThis.document = previousDocument;
   }
@@ -1282,8 +1347,10 @@ test("run review uses complete tool calls and falls back to summary calls when d
     await controller.loadRunSummary("run-1");
     assert.deepEqual(state.activeRunToolCalls, [fullCall]);
     assert.match(messagesElement.innerHTML, /full.txt/);
-    assert.match(messagesElement.innerHTML, /full output/);
-    assert.doesNotMatch(messagesElement.innerHTML, /&quot;meta&quot;/);
+    assert.doesNotMatch(messagesElement.innerHTML, /full output|&quot;meta&quot;/);
+    const selected = renderToolActivityStackHTML(state.activeRunToolCalls, { selectedToolUseId: "full-1", runId: "run-1", stackKey: "run:run-1" });
+    assert.match(selected, /full output/);
+    assert.doesNotMatch(selected, /&quot;meta&quot;/);
 
     const fallbackState = { agent: { id: "agent-1" }, liveToolOutputs: {}, pendingToolApprovals: {}, currentMessages: [], messageCopyTexts: [] };
     const fallbackController = createChatRenderingController({
@@ -1480,6 +1547,7 @@ test("Agent task resolution supports waiting, safe fallback, exact generic compa
 
   let resolvedTool;
   const stack = renderToolActivityStackHTML([agentTool], {
+    selectedToolUseId: "agent-resolve",
     resolveBackgroundTask(tool) {
       resolvedTool = tool;
       return { id: "task-resolved", status: "succeeded", publicSummary: { description: "Resolved", acceptanceCount: 3 } };
@@ -1498,6 +1566,7 @@ test("chat rendering controller forwards resolveBackgroundTask to live Agent sta
     liveToolOutputs: {
       "agent-live": { agentId: "agent-1", runId: "parent-run", toolUseId: "agent-live", toolName: "Agent", status: "completed", inputJson: { prompt: "audit", description: "Live delegate" } },
     },
+    toolActivitySelections: { "live:agent-1:parent-run": "agent-live" },
   }, {}, {
     resolveBackgroundTask(tool) {
       resolvedTool = tool;

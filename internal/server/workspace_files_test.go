@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -89,7 +90,7 @@ func TestWorkspaceFilesTreeReadAndWrite(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if info.Mode().Perm() != 0o640 {
+	if runtime.GOOS != "windows" && info.Mode().Perm() != 0o640 {
 		t.Fatalf("expected preserved mode 0640, got %o", info.Mode().Perm())
 	}
 }

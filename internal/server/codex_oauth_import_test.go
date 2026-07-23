@@ -335,6 +335,9 @@ func TestNativeCodexAccountManagementEndpointsAndSecretSafety(t *testing.T) {
 		t.Fatalf("refresh response omitted account usage: %+v", refreshed.Usage)
 	}
 
+	if err := database.SetGatewayAccountGrant(context.Background(), "codex", id, true); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := database.DB().Exec(`CREATE TRIGGER fail_codex_stats_delete BEFORE DELETE ON provider_account_stats BEGIN SELECT RAISE(ABORT, 'fixture cleanup failure'); END;`); err != nil {
 		t.Fatal(err)
 	}
@@ -346,6 +349,9 @@ func TestNativeCodexAccountManagementEndpointsAndSecretSafety(t *testing.T) {
 		!strings.Contains(deleteRecorder.Body.String(), `"cleanup_pending":true`) ||
 		!strings.Contains(deleteRecorder.Body.String(), `"retryable":true`) {
 		t.Fatalf("expected retryable partial delete response, got %d %s", deleteRecorder.Code, deleteRecorder.Body.String())
+	}
+	if grants, err := database.ListGatewayAccountGrants(context.Background(), "codex"); err != nil || len(grants) != 0 {
+		t.Fatalf("Codex Gateway grant was not cleaned with the credential: %+v err=%v", grants, err)
 	}
 	if _, err := database.DB().Exec(`DROP TRIGGER fail_codex_stats_delete`); err != nil {
 		t.Fatal(err)

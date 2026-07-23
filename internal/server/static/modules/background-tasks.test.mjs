@@ -61,6 +61,51 @@ test("task summary derives readable titles and separates running from queued wor
   assert.equal(summary.totalCount, 4);
 });
 
+test("foreground generation activity temporarily owns the composer task summary", () => {
+  function element() {
+    const classes = new Set();
+    return {
+      attributes: {},
+      className: "",
+      classList: {
+        contains: (name) => classes.has(name),
+        toggle(name, force) {
+          if (force) classes.add(name);
+          else classes.delete(name);
+        },
+      },
+      setAttribute(name, value) { this.attributes[name] = String(value); },
+    };
+  }
+  const elements = {
+    headerTaskSummaryBtn: element(),
+    headerCurrentTaskText: element(),
+    headerTaskQueueBadge: element(),
+    headerTaskStatusDot: element(),
+  };
+  const controller = createBackgroundTasksController({
+    request: async () => ({}),
+    documentRef: { getElementById: (id) => elements[id] || null },
+  });
+  controller.setAgent("agent-1");
+  controller.applySnapshot({ backgroundTasks: [{ id: "task-1", status: "running", title: "Run checks" }] }, { agentId: "agent-1" });
+
+  assert.equal(controller.setForegroundActivity({ kind: "thinking", text: "思考中" }), true);
+  assert.deepEqual(controller.state().foregroundActivity, { kind: "thinking", text: "思考中" });
+  assert.equal(elements.headerCurrentTaskText.textContent, "思考中");
+  assert.equal(elements.headerTaskStatusDot.className, "header-task-status-dot running");
+  assert.equal(elements.headerTaskSummaryBtn.attributes["aria-busy"], "true");
+  assert.equal(elements.headerTaskSummaryBtn.attributes["aria-label"], "思考中");
+  assert.equal(elements.headerTaskSummaryBtn.classList.contains("has-task"), true);
+  assert.equal(elements.headerTaskSummaryBtn.classList.contains("has-foreground-activity"), true);
+
+  controller.setForegroundActivity(null);
+  assert.equal(controller.state().foregroundActivity, null);
+  assert.equal(elements.headerCurrentTaskText.textContent, "Run checks");
+  assert.equal(elements.headerTaskSummaryBtn.attributes["aria-busy"], "false");
+  assert.equal(elements.headerTaskSummaryBtn.classList.contains("has-foreground-activity"), false);
+});
+
 test("task panel reports open and close transitions for the shared chat utility column", async () => {
   const transitions = [];
   const controller = createBackgroundTasksController({

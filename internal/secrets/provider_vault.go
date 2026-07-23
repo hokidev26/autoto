@@ -13,6 +13,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 
@@ -461,7 +462,13 @@ func (v *ProviderVault) loadExistingKey() ([]byte, error) {
 		}
 		return nil, ErrProviderSecretKeyUnavailable
 	}
-	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() || info.Mode().Perm()&0o077 != 0 {
+	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
+		return nil, ErrProviderSecretKeyUnavailable
+	}
+	// Unix ACL hygiene: key files must not be group/world readable.
+	// Windows ACL model does not map cleanly onto these bits and commonly
+	// surfaces 0o666 even for owner-only files, so skip the check there.
+	if runtime.GOOS != "windows" && info.Mode().Perm()&0o077 != 0 {
 		return nil, ErrProviderSecretKeyUnavailable
 	}
 	file, err := os.Open(path)
@@ -503,7 +510,8 @@ func (v *ProviderVault) createKey() ([]byte, error) {
 			_ = os.Remove(v.keyPath)
 		}
 	}()
-	if err := file.Chmod(0o600); err != nil {
+	// Best-effort on Windows: Chmod is limited and often a no-op.
+	if err := file.Chmod(0o600); err != nil && runtime.GOOS != "windows" {
 		return nil, ErrProviderSecretKeyUnavailable
 	}
 	if _, err := file.Write(key); err != nil {
@@ -519,7 +527,8 @@ func (v *ProviderVault) createKey() ([]byte, error) {
 	if err != nil {
 		return nil, ErrProviderSecretKeyUnavailable
 	}
-	if err := directory.Sync(); err != nil {
+	// Directory fsync is not reliably supported on Windows handles.
+	if err := directory.Sync(); err != nil && runtime.GOOS != "windows" {
 		_ = directory.Close()
 		return nil, ErrProviderSecretKeyUnavailable
 	}
@@ -540,7 +549,7 @@ func validateSecretDirectory(dir string, create bool) error {
 		if err := os.MkdirAll(dir, 0o700); err != nil {
 			return ErrProviderSecretKeyUnavailable
 		}
-		if err := os.Chmod(dir, 0o700); err != nil {
+		if err := os.Chmod(dir, 0o700); err != nil && runtime.GOOS != "windows" {
 			return ErrProviderSecretKeyUnavailable
 		}
 		info, err = os.Lstat(dir)
@@ -548,7 +557,12 @@ func validateSecretDirectory(dir string, create bool) error {
 			return ErrProviderSecretKeyUnavailable
 		}
 	}
-	if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() || info.Mode().Perm()&0o077 != 0 {
+	if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
+		return ErrProviderSecretKeyUnavailable
+	}
+	// See loadExistingKey: Windows reports group/other bits even for private
+	// directories created with 0o700, so Unix ACL enforcement is Unix-only.
+	if runtime.GOOS != "windows" && info.Mode().Perm()&0o077 != 0 {
 		return ErrProviderSecretKeyUnavailable
 	}
 	return nil

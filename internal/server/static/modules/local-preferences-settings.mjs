@@ -1,6 +1,6 @@
 import { $, escapeAttr, escapeHtml, setButtonBusy } from "./dom.mjs";
 import { formatBytes, formatNumber } from "./formatters.mjs";
-import { resolveUILocale, t } from "./i18n.mjs?v=apple-theme-1-autoto-themes-1-global-background-1-theme-v2-1";
+import { resolveUILocale, t } from "./i18n.mjs?v=apple-theme-1-autoto-themes-1-global-background-1-theme-v2-1-background-upload-1";
 import { defaultIMGatewayPrefs, defaultSearchPrefs } from "./preferences-data.mjs?v=apple-theme-1-autoto-themes-1-global-background-1";
 import {
   avatarDataUrlByteLength,
@@ -665,6 +665,10 @@ export function createLocalPreferencesSettingsController({
     const positionX = background.positionX ?? prefs.backgroundPositionX ?? 50;
     const positionY = background.positionY ?? prefs.backgroundPositionY ?? 50;
     const quality = appearanceBackgroundQuality(background, activeUrl);
+    const backgroundFilename = String(background.filename || "").trim();
+    const status = activeUrl
+      ? (backgroundFilename ? t("appearance.backgroundReadyNamed", { name: backgroundFilename }) : t("appearance.backgroundReady"))
+      : t("appearance.backgroundNone");
     return `<section class="compact-settings-section appearance-background-section">
       <div class="compact-settings-section-copy"><h2>${escapeHtml(t("appearance.backgroundTitle"))}</h2><p data-settings-help-copy>${escapeHtml(t("appearance.backgroundMeta"))}</p></div>
       <div class="compact-settings-section-controls appearance-background-controls">
@@ -672,7 +676,7 @@ export function createLocalPreferencesSettingsController({
           <input id="appearanceBackgroundFile" class="hidden" type="file" accept="image/jpeg,image/png,image/webp" />
           <button id="appearanceBackgroundUploadBtn" class="settings-action-btn primary" type="button">${escapeHtml(activeUrl ? t("appearance.backgroundReplace") : t("appearance.backgroundUpload"))}</button>
           <button id="appearanceBackgroundRemoveBtn" class="settings-action-btn subtle" type="button" ${activeUrl ? "" : "disabled"}>${escapeHtml(t("appearance.backgroundRemove"))}</button>
-          <span class="appearance-background-status" role="status">${escapeHtml(activeUrl ? t("appearance.backgroundReady") : t("appearance.backgroundNone"))}</span>
+          <span class="appearance-background-status" role="status" aria-live="polite">${escapeHtml(status)}</span>
         </div>
         <div class="appearance-background-options">
           <label class="settings-form-field"><span>${escapeHtml(t("appearance.backgroundMode"))}</span><select id="appearanceBackgroundMode" class="settings-field"><option value="theme" ${mode === "theme" ? "selected" : ""}>${escapeHtml(t("appearance.backgroundModeTheme"))}</option><option value="custom" ${mode === "custom" ? "selected" : ""}>${escapeHtml(t("appearance.backgroundModeCustom"))}</option><option value="none" ${mode === "none" ? "selected" : ""}>${escapeHtml(t("appearance.backgroundModeNone"))}</option></select></label>
@@ -779,15 +783,21 @@ export function createLocalPreferencesSettingsController({
       persistBackground({ backgroundMode: "theme", backgroundUrl: "" });
       refreshAppearanceSettings?.();
     }).catch(showError));
-    fileInput?.addEventListener("change", (event) => {
-      const file = event.currentTarget.files?.[0];
+    fileInput?.addEventListener("change", async (event) => {
+      const input = event.currentTarget;
+      const file = input.files?.[0];
       if (!file) return;
-      backgroundManager?.upload?.(file, {
-        mode: "custom",
-        dim: $("appearanceBackgroundDim")?.value,
-        positionX: $("appearanceBackgroundPositionX")?.value,
-        positionY: $("appearanceBackgroundPositionY")?.value,
-      }).then((background) => {
+      const uploadButton = $("appearanceBackgroundUploadBtn");
+      const status = input.closest?.(".appearance-background-toolbar")?.querySelector?.(".appearance-background-status");
+      setButtonBusy(uploadButton, true, t("appearance.backgroundUploading"));
+      if (status) status.textContent = t("appearance.backgroundUploadingNamed", { name: file.name });
+      try {
+        const background = await backgroundManager?.upload?.(file, {
+          mode: "custom",
+          dim: $("appearanceBackgroundDim")?.value,
+          positionX: $("appearanceBackgroundPositionX")?.value,
+          positionY: $("appearanceBackgroundPositionY")?.value,
+        });
         persistBackground({
           backgroundMode: "custom",
           backgroundUrl: background.url,
@@ -795,8 +805,15 @@ export function createLocalPreferencesSettingsController({
           backgroundPositionX: background.positionX,
           backgroundPositionY: background.positionY,
         });
+        showToast?.(t("appearance.backgroundUploaded", { name: file.name }), "success");
         refreshAppearanceSettings?.();
-      }).catch(showError).finally(() => { event.currentTarget.value = ""; });
+      } catch (error) {
+        if (status) status.textContent = error?.message || t("appearance.backgroundUploadFailed");
+        showError?.(error);
+      } finally {
+        setButtonBusy(uploadButton, false);
+        input.value = "";
+      }
     });
     $("appearanceBackgroundMode")?.addEventListener("change", (event) => {
       const mode = event.currentTarget.value;

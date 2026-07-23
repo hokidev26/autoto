@@ -77,6 +77,10 @@ type GenerateRequest struct {
 	// Scenario identifies the caller boundary. The zero value is treated as an
 	// internal call for backwards compatibility.
 	Scenario CallScenario
+	// AllowSubscriptionCredentials is a separate, explicit authorization bit for
+	// callers that may use granted subscription or managed account credentials.
+	// A Gateway scenario alone never enables those credentials.
+	AllowSubscriptionCredentials bool
 }
 
 func (r GenerateRequest) EffectiveScenario() CallScenario {
@@ -84,6 +88,34 @@ func (r GenerateRequest) EffectiveScenario() CallScenario {
 		return CallScenarioInternal
 	}
 	return r.Scenario
+}
+
+// GatewayAccountPolicy supplies the stable provider account IDs explicitly
+// granted for Gateway sharing. Implementations may live in db-backed packages;
+// providers depend only on this small interface to avoid an import cycle.
+type GatewayAccountPolicy interface {
+	ListSharedGatewayAccountIDs(context.Context, string) ([]string, error)
+}
+
+// ScenarioAvailability describes the credential boundary used by dynamic
+// readiness checks. Its zero value is an internal call with no subscription
+// credential authorization.
+type ScenarioAvailability struct {
+	Scenario                     CallScenario
+	AllowSubscriptionCredentials bool
+}
+
+func (a ScenarioAvailability) EffectiveScenario() CallScenario {
+	if a.Scenario == "" {
+		return CallScenarioInternal
+	}
+	return a.Scenario
+}
+
+// ScenarioAvailabilityProvider reports live readiness when credentials depend
+// on request-scoped grants rather than configuration alone.
+type ScenarioAvailabilityProvider interface {
+	AvailableForScenario(context.Context, ScenarioAvailability) bool
 }
 
 // configuredCredentialID attributes requests to a config-held credential slot
@@ -175,6 +207,30 @@ func ConfiguredForScenario(provider Provider, fallback bool, scenario CallScenar
 		return provider.ConfiguredForScenario(scenario)
 	}
 	return ConfiguredFor(provider, fallback)
+}
+
+func AvailableForScenario(ctx context.Context, provider Provider, fallback bool, availability ScenarioAvailability) bool {
+	if provider, ok := provider.(ScenarioAvailabilityProvider); ok {
+		return provider.AvailableForScenario(ctx, availability)
+	}
+	return ConfiguredForScenario(provider, fallback, availability.EffectiveScenario())
+}
+
+func gatewayAccountIDSet(ctx context.Context, policy GatewayAccountPolicy, provider string) (map[string]struct{}, error) {
+	if policy == nil {
+		return nil, nil
+	}
+	ids, err := policy.ListSharedGatewayAccountIDs(ctx, strings.TrimSpace(provider))
+	if err != nil {
+		return nil, err
+	}
+	granted := make(map[string]struct{}, len(ids))
+	for _, id := range ids {
+		if id = strings.TrimSpace(id); id != "" {
+			granted[id] = struct{}{}
+		}
+	}
+	return granted, nil
 }
 
 func CapabilitiesFor(provider Provider) Capabilities {

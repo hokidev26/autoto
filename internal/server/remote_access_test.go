@@ -594,8 +594,19 @@ func TestRestrictedAndFullRemoteFilesystemScopes(t *testing.T) {
 	}
 	full := httptest.NewRecorder()
 	app.Routes().ServeHTTP(full, fullRequest)
-	if full.Code != http.StatusOK || !strings.Contains(full.Body.String(), filepath.Join(outside, "child")) {
+	var listing struct {
+		Entries []struct {
+			Path string `json:"path"`
+		} `json:"entries"`
+	}
+	if full.Code != http.StatusOK {
 		t.Fatalf("full filesystem scope did not browse the host directory: %d %s", full.Code, full.Body.String())
+	}
+	if err := json.NewDecoder(full.Body).Decode(&listing); err != nil {
+		t.Fatal(err)
+	}
+	if len(listing.Entries) != 1 || filepath.Clean(listing.Entries[0].Path) != filepath.Clean(filepath.Join(outside, "child")) {
+		t.Fatalf("full filesystem scope returned the wrong directory listing: %+v", listing.Entries)
 	}
 }
 

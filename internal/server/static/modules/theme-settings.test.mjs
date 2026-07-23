@@ -61,8 +61,11 @@ test("theme settings render bundled and local cards with management controls", (
   assert.match(markup, /theme-package-card active/);
   assert.match(markup, /data-theme-delete="local-glass"/);
   assert.doesNotMatch(markup, /data-theme-delete="argentina-spain-final"/);
+  assert.match(markup, /preview\.png" alt="" loading="lazy" decoding="async"/);
+  assert.match(markup, /theme-capability supported" data-theme-capability="preview"/);
   assert.match(markup, /theme-capability supported" data-theme-capability="background"/);
   assert.match(markup, /theme-capability supported" data-theme-capability="icons"/);
+  assert.match(markup, /theme-capability fallback" data-theme-capability="preview"/);
   assert.match(markup, /theme-capability fallback" data-theme-capability="background"/);
   assert.match(markup, /theme-capability fallback" data-theme-capability="icons"/);
 });
@@ -76,6 +79,12 @@ test("theme runtime keeps artwork on explicit home state only", async () => {
   assert.match(styles, /data-theme-icon-slot="rail-home"/);
   assert.match(styles, /data-theme-icon-slot="sidebar-conversation"/);
   assert.doesNotMatch(styles, /\.messages\.empty\s*\{[^}]*background-image/s);
+  assert.match(styles, /\.appearance-background-status\s*\{[^}]*color:\s*var\(--settings-muted-foreground,[^}]*font-size:\s*12px;[^}]*font-weight:\s*560;/s);
+  assert.match(styles, /\.theme-package-copy > small\s*\{[^}]*color:\s*var\(--settings-muted-foreground,[^}]*font-size:\s*12px;/s);
+  assert.match(styles, /\.theme-package-grid\s*\{[^}]*repeat\(auto-fill, minmax\(280px, 360px\)\)[^}]*justify-content:\s*start;/s);
+  assert.match(styles, /\.theme-package-card\s*\{[^}]*max-width:\s*360px;/s);
+  assert.match(styles, /\.theme-capability\.supported\s*\{[^}]*#16a34a/s);
+  assert.doesNotMatch(styles, /color:\s*var\(--settings-muted,\s*var\(--ws-muted\)\)/);
   assert.match(styles, /prefers-reduced-transparency/);
   assert.match(styles, /forced-colors: active/);
 });

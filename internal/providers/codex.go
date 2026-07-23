@@ -43,6 +43,8 @@ type CodexProvider struct {
 	telemetry           AccountTelemetry
 	endpointErr         error
 	refreshGate         chan struct{}
+	gatewayPolicyMu     sync.RWMutex
+	gatewayPolicy       GatewayAccountPolicy
 	modelCapabilitiesMu sync.RWMutex
 	modelCapabilities   map[string]ModelCapabilities
 }
@@ -136,11 +138,51 @@ func (p *CodexProvider) Configured() bool {
 	return p != nil && p.endpointErr == nil && p.store != nil && p.store.Configured()
 }
 
+func (p *CodexProvider) ConfiguredForScenario(scenario CallScenario) bool {
+	if scenario == CallScenarioGateway {
+		return false
+	}
+	return p.Configured()
+}
+
+func (p *CodexProvider) AvailableForScenario(ctx context.Context, availability ScenarioAvailability) bool {
+	if p == nil || p.endpointErr != nil {
+		return false
+	}
+	credentials, err := p.credentialsForRequest(ctx, GenerateRequest{
+		Scenario:                     availability.EffectiveScenario(),
+		AllowSubscriptionCredentials: availability.AllowSubscriptionCredentials,
+	})
+	return err == nil && len(credentials) > 0
+}
+
+func (p *CodexProvider) SetGatewayAccountPolicy(policy GatewayAccountPolicy) {
+	if p == nil {
+		return
+	}
+	p.gatewayPolicyMu.Lock()
+	p.gatewayPolicy = policy
+	p.gatewayPolicyMu.Unlock()
+}
+
+func (p *CodexProvider) gatewayAccountPolicy() GatewayAccountPolicy {
+	if p == nil {
+		return nil
+	}
+	p.gatewayPolicyMu.RLock()
+	defer p.gatewayPolicyMu.RUnlock()
+	return p.gatewayPolicy
+}
+
 func (p *CodexProvider) ListModels(ctx context.Context) ([]string, error) {
 	credentials, err := p.credentials()
 	if err != nil {
 		return nil, err
 	}
+	return p.listModelsWithCredentials(ctx, credentials)
+}
+
+func (p *CodexProvider) listModelsWithCredentials(ctx context.Context, credentials []codexauth.StoredCredential) ([]string, error) {
 	if len(credentials) == 0 {
 		p.replaceModelCapabilities(fallbackCodexModelCapabilities(p.cfg.BaseURL))
 		return fallbackCodexModels(p.cfg.Model), nil
@@ -200,14 +242,11 @@ func (p *CodexProvider) ListModels(ctx context.Context) ([]string, error) {
 }
 
 func (p *CodexProvider) Generate(ctx context.Context, req GenerateRequest) (<-chan Event, error) {
-	if req.EffectiveScenario() == CallScenarioGateway {
-		return nil, fmt.Errorf("%w: Codex provider %q", ErrGatewayOAuthUnsupported, p.cfg.Name)
-	}
 	reasoningEffort, err := normalizeReasoningEffortForCapabilities(req.ReasoningEffort, p.Capabilities(), p.cfg.Name)
 	if err != nil {
 		return nil, err
 	}
-	credentials, err := p.credentials()
+	credentials, err := p.credentialsForRequest(ctx, req)
 	if err != nil {
 		return nil, err
 	}
@@ -219,7 +258,7 @@ func (p *CodexProvider) Generate(ctx context.Context, req GenerateRequest) (<-ch
 		model = p.cfg.Model
 	}
 	if req.FastMode && !p.ModelCapabilities(model).FastMode {
-		if _, listErr := p.ListModels(ctx); listErr != nil {
+		if _, listErr := p.listModelsWithCredentials(ctx, credentials); listErr != nil {
 			return nil, listErr
 		}
 		if !p.ModelCapabilities(model).FastMode {
@@ -298,6 +337,33 @@ func (p *CodexProvider) Generate(ctx context.Context, req GenerateRequest) (<-ch
 		emitProviderEvent(ctx, out, Event{Type: "error", Text: lastErr.Error()})
 	}()
 	return out, nil
+}
+
+func (p *CodexProvider) credentialsForRequest(ctx context.Context, req GenerateRequest) ([]codexauth.StoredCredential, error) {
+	if req.EffectiveScenario() == CallScenarioGateway && !req.AllowSubscriptionCredentials {
+		return nil, fmt.Errorf("%w: Codex provider %q requires explicit subscription credential sharing", ErrGatewayOAuthUnsupported, p.cfg.Name)
+	}
+	credentials, err := p.credentials()
+	if err != nil {
+		return nil, err
+	}
+	if req.EffectiveScenario() != CallScenarioGateway {
+		return credentials, nil
+	}
+	granted, err := gatewayAccountIDSet(ctx, p.gatewayAccountPolicy(), p.cfg.Name)
+	if err != nil {
+		return nil, providerUnavailableError(p.cfg.Name, "Gateway account grants are unavailable")
+	}
+	filtered := make([]codexauth.StoredCredential, 0, len(credentials))
+	for _, item := range credentials {
+		if _, ok := granted[item.Credential.ID]; ok {
+			filtered = append(filtered, item)
+		}
+	}
+	if len(filtered) == 0 {
+		return nil, providerUnavailableError(p.cfg.Name, "Gateway has no authorized Codex account")
+	}
+	return filtered, nil
 }
 
 func (p *CodexProvider) credentials() ([]codexauth.StoredCredential, error) {

@@ -193,8 +193,6 @@ test("registered settings renderers expose help-copy markers without hiding crit
   rendererFiles.forEach((file) => assert.match(sources[file], /data-settings-help-copy/, `${file} should expose page help copy`));
   assert.match(sources["remote-access-settings.mjs"], /remote-access-current-password[\s\S]*?<small>\$\{escapeHtml\(rt\("currentPasswordHint"\)\)\}<\/small>/);
   assert.doesNotMatch(sources["remote-access-settings.mjs"], /settings-inline-alert[^>]*data-settings-help-copy/);
-  assert.match(sources["shared-api-settings.mjs"], /shared-api-security-note[^>]*role="note"/);
-  assert.doesNotMatch(sources["shared-api-settings.mjs"], /shared-api-security-note[^>]*data-settings-help-copy/);
   assert.match(sources["provider-anthropic-accounts.mjs"], /anthropic-secret-note[^>]*>\$\{escapeHtml\(mt\("anthropic\.apiKeySafety"\)\)\}/);
   assert.doesNotMatch(sources["provider-anthropic-accounts.mjs"], /anthropic-secret-note[^>]*data-settings-help-copy/);
 });

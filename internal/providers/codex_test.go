@@ -32,11 +32,91 @@ func newCodexRefreshTestProvider(upstreamURL, storeDir string) *CodexProvider {
 	})
 }
 
-func TestCodexProviderRejectsGatewayScenario(t *testing.T) {
+func TestCodexProviderGatewayRequiresExplicitSubscriptionAuthorization(t *testing.T) {
 	provider := NewCodexProvider(config.ProviderConfig{Name: "codex", Type: config.ProviderTypeCodex, BaseURL: codexauth.DefaultBaseURL})
 	events, err := provider.Generate(context.Background(), GenerateRequest{Scenario: CallScenarioGateway})
 	if events != nil || !errors.Is(err, ErrGatewayOAuthUnsupported) {
-		t.Fatalf("expected gateway OAuth rejection, events=%v err=%v", events, err)
+		t.Fatalf("expected fail-closed Gateway authorization, events=%v err=%v", events, err)
+	}
+	if provider.ConfiguredForScenario(CallScenarioGateway) {
+		t.Fatal("static Gateway readiness must not authorize Codex accounts")
+	}
+}
+
+func TestCodexProviderGatewayUsesOnlyGrantedEnabledAccounts(t *testing.T) {
+	var requestedAccounts []string
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestedAccounts = append(requestedAccounts, r.Header.Get("ChatGPT-Account-ID"))
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = fmt.Fprint(w, "data: {\"type\":\"response.completed\",\"response\":{}}\n\n")
+	}))
+	defer upstream.Close()
+
+	storeDir := filepath.Join(t.TempDir(), "codex")
+	store := codexauth.NewStore(storeDir)
+	if _, err := store.Import([]codexauth.ImportDocument{
+		{Filename: "ungranted.json", Content: []byte(`{"type":"codex","access_token":"ungranted-token","account_id":"ungranted","priority":1}`)},
+		{Filename: "granted.json", Content: []byte(`{"type":"codex","access_token":"granted-token","account_id":"granted","priority":10}`)},
+		{Filename: "disabled.json", Content: []byte(`{"type":"codex","access_token":"disabled-token","account_id":"disabled","priority":0,"disabled":true}`)},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	items, err := store.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var grantedID string
+	for _, item := range items {
+		if item.Credential.AccountID == "granted" {
+			grantedID = item.Credential.ID
+		}
+	}
+	if grantedID == "" {
+		t.Fatal("granted fixture did not receive a stable ID")
+	}
+
+	provider := NewCodexProvider(config.ProviderConfig{
+		Name:                           "codex",
+		Type:                           config.ProviderTypeCodex,
+		BaseURL:                        upstream.URL,
+		Model:                          "gpt-test",
+		CredentialStorePath:            storeDir,
+		CodexAllowInsecureTestEndpoint: true,
+	})
+	if AvailableForScenario(context.Background(), provider, false, ScenarioAvailability{Scenario: CallScenarioGateway, AllowSubscriptionCredentials: true}) {
+		t.Fatal("Gateway Codex must fail closed before a grant policy is injected")
+	}
+	provider.SetGatewayAccountPolicy(staticGatewayAccountPolicy{ids: map[string][]string{"codex": {grantedID}}})
+	if !AvailableForScenario(context.Background(), provider, false, ScenarioAvailability{Scenario: CallScenarioGateway, AllowSubscriptionCredentials: true}) {
+		t.Fatal("granted Codex account was not dynamically available")
+	}
+	events, err := provider.Generate(context.Background(), GenerateRequest{
+		Scenario:                     CallScenarioGateway,
+		AllowSubscriptionCredentials: true,
+		Messages:                     []Message{{Role: "user", Content: "hello"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var dispatch *DispatchInfo
+	for event := range events {
+		if event.Type == "error" {
+			t.Fatalf("unexpected Gateway error: %s", event.Text)
+		}
+		if event.Dispatch != nil {
+			dispatch = event.Dispatch
+		}
+	}
+	if strings.Join(requestedAccounts, ",") != "granted" {
+		t.Fatalf("Gateway used an ungranted or disabled account: %v", requestedAccounts)
+	}
+	if dispatch == nil || dispatch.CredentialID != grantedID {
+		t.Fatalf("Gateway dispatch lost granted credential attribution: %+v", dispatch)
+	}
+
+	provider.SetGatewayAccountPolicy(staticGatewayAccountPolicy{ids: map[string][]string{"codex": {}}})
+	if events, err := provider.Generate(context.Background(), GenerateRequest{Scenario: CallScenarioGateway, AllowSubscriptionCredentials: true}); err == nil || events != nil {
+		t.Fatalf("empty grants must fail closed, events=%v err=%v", events, err)
 	}
 }
 

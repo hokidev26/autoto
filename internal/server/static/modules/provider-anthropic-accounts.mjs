@@ -5,7 +5,9 @@ import {
   createProviderDraft,
   isAnthropicAccountProvider,
   normalizeConsoleProvider,
-} from "./model-provider-components.mjs?v=provider-card-clean-3-provider-create-page-2-provider-secrets-1-model-picker-1-provider-full-page-2-provider-placeholders-1-model-configs-1-provider-reference-1-default-openai-responses-1-provider-draft-session-1";
+  normalizeProviderModelConfigs,
+  renderProviderModelEditor,
+} from "./model-provider-components.mjs?v=provider-card-clean-3-provider-create-page-2-provider-secrets-1-model-picker-1-provider-full-page-2-provider-placeholders-1-model-configs-1-provider-reference-1-default-openai-responses-1-provider-draft-session-1-anthropic-model-editor-1";
 import {
   anthropicAccountActionRequest,
   anthropicAccountsListRequest,
@@ -158,17 +160,123 @@ export function createAnthropicAccountsController(ctx) {
     });
   }
 
+  async function startAnthropicLogin() {
+    const consoleState = providerConsoleState();
+    if (state.anthropicLoginBusy) return;
+    state.anthropicLoginBusy = true;
+    setProviderConsoleResult("");
+    refreshProviderConsole();
+    try {
+      const data = await requestAPI("/api/providers/oauth/anthropic/login/start", { method: "POST", body: JSON.stringify({}) });
+      consoleState.anthropicLogin = { loginId: data?.loginId || "", authUrl: data?.authUrl || "", status: data?.status || "pending", error: "" };
+      if (consoleState.anthropicLogin.authUrl) globalThis.open?.(consoleState.anthropicLogin.authUrl, "_blank", "noopener,noreferrer");
+    } catch (error) {
+      consoleState.anthropicLogin = { loginId: "", authUrl: "", status: "failed", error: error?.message || mt("unknown") };
+    } finally {
+      state.anthropicLoginBusy = false;
+      refreshProviderConsole();
+    }
+  }
+
+  async function submitAnthropicLogin(code) {
+    const consoleState = providerConsoleState();
+    const login = consoleState.anthropicLogin;
+    const value = String(code || "").trim();
+    if (!login?.loginId || state.anthropicLoginBusy) return;
+    if (!value) {
+      login.error = mt("anthropic.oauthCodeRequired");
+      refreshProviderConsole();
+      return;
+    }
+    state.anthropicLoginBusy = true;
+    login.error = "";
+    refreshProviderConsole();
+    try {
+      const data = await requestAPI(`/api/providers/oauth/anthropic/login/${encodeURIComponent(login.loginId)}/submit`, { method: "POST", body: JSON.stringify({ code: value }) });
+      if (data?.status === "completed") {
+        consoleState.anthropicLogin = null;
+        consoleState.anthropicAddMode = "profile";
+        setProviderConsoleResult(mt("anthropic.oauthLoginSuccess"), "success");
+        notifyTerminal?.(`[info] ${mt("anthropic.oauthLoginSuccess")}\n`);
+        await loadAnthropicAccounts({ silent: true });
+        await loadModelCatalog();
+      } else {
+        login.status = data?.status || "failed";
+        login.error = data?.error || mt("anthropic.oauthLoginFailed");
+      }
+    } catch (error) {
+      login.error = error?.message || mt("anthropic.oauthLoginFailed");
+    } finally {
+      state.anthropicLoginBusy = false;
+      refreshProviderConsole();
+    }
+  }
+
+  async function pasteAnthropicLogin() {
+    if (state.anthropicLoginBusy) return;
+    let text = "";
+    try {
+      text = String((await globalThis.navigator?.clipboard?.readText?.()) || "").trim();
+    } catch {
+      text = "";
+    }
+    if (!text) {
+      const login = providerConsoleState().anthropicLogin;
+      if (login) {
+        login.error = mt("anthropic.oauthClipboardEmpty");
+        refreshProviderConsole();
+      }
+      return;
+    }
+    await submitAnthropicLogin(text);
+  }
+
+  async function cancelAnthropicLogin() {
+    const consoleState = providerConsoleState();
+    const login = consoleState.anthropicLogin;
+    consoleState.anthropicLogin = null;
+    refreshProviderConsole();
+    if (login?.loginId) {
+      try {
+        await requestAPI(`/api/providers/oauth/anthropic/login/${encodeURIComponent(login.loginId)}`, { method: "DELETE" });
+      } catch {
+        // Best effort: the session also expires on its own.
+      }
+    }
+  }
+
+  function renderAnthropicOAuthLogin(consoleState) {
+    const login = consoleState.anthropicLogin;
+    const busy = Boolean(state.anthropicLoginBusy);
+    if (!login || !login.loginId) {
+      const err = login?.error ? `<div class="settings-alert attention" role="alert">${escapeHtml(login.error)}</div>` : "";
+      return `${err}<p class="anthropic-secret-note">${escapeHtml(mt("anthropic.oauthIntro"))}</p>
+        <div class="settings-inline-actions"><button class="settings-action-btn primary" type="button" data-anthropic-login-start ${busy ? "disabled aria-busy=\"true\"" : ""}>${escapeHtml(busy ? mt("anthropic.oauthStarting") : mt("anthropic.oauthLoginButton"))}</button></div>`;
+    }
+    const err = login.error ? `<div class="settings-alert attention" role="alert">${escapeHtml(login.error)}</div>` : "";
+    const reopen = login.authUrl ? `<div class="settings-inline-actions"><a class="settings-action-btn subtle" href="${escapeAttr(login.authUrl)}" target="_blank" rel="noopener noreferrer">${escapeHtml(mt("anthropic.oauthReopen"))}</a></div>` : "";
+    return `${err}
+      <ol class="anthropic-oauth-steps anthropic-secret-note">
+        <li>${escapeHtml(mt("anthropic.oauthStep1"))}</li>
+        <li>${escapeHtml(mt("anthropic.oauthStep2"))}</li>
+      </ol>
+      ${reopen}
+      <div class="settings-inline-actions"><button class="settings-action-btn primary" type="button" data-anthropic-login-paste ${busy ? "disabled aria-busy=\"true\"" : ""}>${escapeHtml(busy ? mt("saving") : mt("anthropic.oauthPasteButton"))}</button><button class="settings-action-btn subtle" type="button" data-anthropic-login-cancel>${escapeHtml(mt("anthropic.oauthCancel"))}</button></div>
+      <details class="anthropic-oauth-manual"><summary>${escapeHtml(mt("anthropic.oauthManualToggle"))}</summary>
+        <label class="settings-form-field"><span>${escapeHtml(mt("anthropic.oauthCodeLabel"))}</span><input type="text" data-anthropic-login-code autocomplete="off" spellcheck="false" placeholder="${escapeAttr(mt("anthropic.oauthCodePlaceholder"))}"></label>
+        <div class="settings-inline-actions"><button class="settings-action-btn" type="button" data-anthropic-login-submit ${busy ? "disabled aria-busy=\"true\"" : ""}>${escapeHtml(busy ? mt("saving") : mt("anthropic.oauthComplete"))}</button></div>
+      </details>`;
+  }
+
   function renderAnthropicConsolePage() {
     const consoleState = providerConsoleState();
     const accounts = normalizeAnthropicAccountList(state.anthropicAccounts);
     const overview = anthropicAccountOverview(accounts);
     const provider = providerByName(consoleState.providerName || "anthropic") || modelProvidersForUI().find(isAnthropicAccountProvider) || normalizeConsoleProvider(consoleState.draft || createProviderDraft("anthropic"));
     const draft = createProviderDraft("anthropic", consoleState.draft || provider);
-    const models = [...new Set((draft.models || provider.models || []).map((model) => String(model || "").trim()).filter(Boolean))];
-    const modelOptions = models.length ? `<datalist id="anthropic-model-options">${models.map((model) => `<option value="${escapeAttr(model)}"></option>`).join("")}</datalist>` : "";
     const providerTone = provider?.error || !provider?.configured ? "warn" : provider?.enabled === false ? "muted" : "ok";
     const providerState = provider?.error ? mt("needsAttention") : provider?.enabled === false ? mt("disabled") : provider?.configured ? mt("ready") : mt("unconfigured");
-    const mode = consoleState.anthropicAddMode === "api_key" ? "api_key" : "profile";
+    const mode = consoleState.anthropicAddMode === "api_key" ? "api_key" : consoleState.anthropicAddMode === "oauth" ? "oauth" : "profile";
     const loginCommand = anthropicProfileLoginCommand(consoleState.anthropicProfile);
     const result = consoleState.result && typeof consoleState.result === "object"
       ? `<div class="codex-console-result settings-alert ${escapeAttr(consoleState.result.tone || "info")}" role="status" aria-live="polite">${escapeHtml(consoleState.result.message || "")}</div>`
@@ -184,8 +292,8 @@ export function createAnthropicAccountsController(ctx) {
     return `<div class="anthropic-account-console codex-account-console settings-page" tabindex="-1" aria-labelledby="anthropic-console-title">
       <button class="codex-console-back" type="button" data-mp-close-anthropic-page>← ${escapeHtml(mt("backToProviders"))}</button>
       <header class="codex-console-hero anthropic-console-hero settings-card">
-        <div class="codex-console-heading"><div><p class="mp-provider-kicker">Anthropic</p><h1 id="anthropic-console-title" class="settings-card-title">${escapeHtml(mt("anthropic.title"))}</h1><p class="settings-card-description" data-settings-help-copy>${escapeHtml(mt("anthropic.description"))}</p></div><span class="settings-status-pill ${escapeAttr(providerTone)}">${escapeHtml(providerState)}</span></div>
-        <div class="codex-console-actions settings-inline-actions"><button class="settings-action-btn primary" type="button" data-anthropic-focus-add>${escapeHtml(mt("anthropic.addAccount"))}</button><button class="settings-action-btn" type="button" data-anthropic-refresh ${state.anthropicAccountsLoading ? "disabled aria-busy=\"true\"" : ""}>${escapeHtml(state.anthropicAccountsLoading ? mt("refreshing") : mt("refreshAccounts"))}</button></div>
+        <div class="codex-console-heading"><div><p class="mp-provider-kicker">Anthropic</p><h1 id="anthropic-console-title" class="settings-card-title">${escapeHtml(mt("anthropic.title"))}</h1><p class="settings-card-description" data-settings-help-copy>${escapeHtml(mt("anthropic.description"))}</p></div></div>
+        <div class="codex-console-actions settings-inline-actions"><span class="settings-status-pill ${escapeAttr(providerTone)}">${escapeHtml(providerState)}</span><button class="settings-action-btn primary" type="button" data-anthropic-focus-add>${escapeHtml(mt("anthropic.addAccount"))}</button><button class="settings-action-btn" type="button" data-anthropic-refresh ${state.anthropicAccountsLoading ? "disabled aria-busy=\"true\"" : ""}>${escapeHtml(state.anthropicAccountsLoading ? mt("refreshing") : mt("refreshAccounts"))}</button></div>
       </header>
       <section class="codex-console-stats settings-stat-grid" aria-label="${escapeAttr(mt("anthropic.summary"))}">
         <div class="settings-stat-card"><strong>${escapeHtml(String(overview.total))}</strong><span>${escapeHtml(mt("totalAccounts"))}</span></div>
@@ -197,8 +305,8 @@ export function createAnthropicAccountsController(ctx) {
       <section class="anthropic-add-panel settings-card" id="anthropic-add-account" aria-labelledby="anthropic-add-title">
         <div class="codex-console-section-head settings-card-header"><div><h2 id="anthropic-add-title" class="settings-card-title">${escapeHtml(mt("anthropic.addAccount"))}</h2><p class="settings-card-description" data-settings-help-copy>${escapeHtml(mt("anthropic.addDescription"))}</p></div></div>
         <div class="anthropic-add-body settings-card-content">
-          <div class="anthropic-auth-tabs settings-inline-actions" role="group" aria-label="${escapeAttr(mt("anthropic.authType"))}"><button class="settings-action-btn ${mode === "profile" ? "primary" : "subtle"}" type="button" data-anthropic-add-mode="profile" aria-pressed="${mode === "profile" ? "true" : "false"}">${escapeHtml(mt("anthropic.profileAuth"))}</button><button class="settings-action-btn ${mode === "api_key" ? "primary" : "subtle"}" type="button" data-anthropic-add-mode="api_key" aria-pressed="${mode === "api_key" ? "true" : "false"}">${escapeHtml(mt("anthropic.apiKeyAuth"))}</button></div>
-          <form class="anthropic-account-form" data-anthropic-account-form aria-busy="${creating ? "true" : "false"}">
+          <div class="anthropic-auth-tabs settings-inline-actions" role="group" aria-label="${escapeAttr(mt("anthropic.authType"))}"><button class="settings-action-btn ${mode === "oauth" ? "primary" : "subtle"}" type="button" data-anthropic-add-mode="oauth" aria-pressed="${mode === "oauth" ? "true" : "false"}">${escapeHtml(mt("anthropic.oauthAuth"))}</button><button class="settings-action-btn ${mode === "profile" ? "primary" : "subtle"}" type="button" data-anthropic-add-mode="profile" aria-pressed="${mode === "profile" ? "true" : "false"}">${escapeHtml(mt("anthropic.profileAuth"))}</button><button class="settings-action-btn ${mode === "api_key" ? "primary" : "subtle"}" type="button" data-anthropic-add-mode="api_key" aria-pressed="${mode === "api_key" ? "true" : "false"}">${escapeHtml(mt("anthropic.apiKeyAuth"))}</button></div>
+          ${mode === "oauth" ? `<div class="anthropic-oauth-login">${renderAnthropicOAuthLogin(consoleState)}</div>` : `<form class="anthropic-account-form" data-anthropic-account-form aria-busy="${creating ? "true" : "false"}">
             <input type="hidden" name="authType" value="${escapeAttr(mode)}">
             <div class="anthropic-add-grid">
               ${mode === "profile" ? `<label class="settings-form-field"><span>${escapeHtml(mt("anthropic.profileName"))}</span><input name="profile" value="${escapeAttr(consoleState.anthropicProfile || "")}" autocomplete="off" placeholder="${escapeAttr(mt("anthropic.profilePlaceholder"))}" required data-anthropic-profile data-select-on-focus="true"></label>` : `<label class="settings-form-field"><span>${escapeHtml(mt("apiKey"))}</span><input name="apiKey" type="password" value="" autocomplete="new-password" placeholder="${escapeAttr(mt("anthropic.apiKeyPlaceholder"))}" required></label>`}
@@ -207,7 +315,7 @@ export function createAnthropicAccountsController(ctx) {
             </div>
             ${mode === "profile" ? `<div class="anthropic-profile-command"><div><span>${escapeHtml(mt("anthropic.loginCommand"))}</span><code data-anthropic-command>${escapeHtml(loginCommand)}</code></div><button class="settings-action-btn subtle" type="button" data-anthropic-copy-command="${escapeAttr(loginCommand)}">${escapeHtml(mt("anthropic.copyCommand"))}</button></div>` : `<p class="anthropic-secret-note">${escapeHtml(mt("anthropic.apiKeySafety"))}</p>`}
             <div class="settings-inline-actions"><button class="settings-action-btn primary" type="submit" ${creating ? "disabled aria-busy=\"true\"" : ""}>${escapeHtml(creating ? mt("saving") : mt("anthropic.addAccount"))}</button></div>
-          </form>
+          </form>`}
         </div>
       </section>
       <section class="codex-accounts-panel settings-card" aria-labelledby="anthropic-accounts-title" aria-busy="${state.anthropicAccountsLoading ? "true" : "false"}">
@@ -218,13 +326,13 @@ export function createAnthropicAccountsController(ctx) {
         <div class="codex-console-section-head settings-card-header"><div><h2 id="anthropic-config-title" class="settings-card-title">${escapeHtml(mt("anthropic.configTitle"))}</h2><p class="settings-card-description" data-settings-help-copy>${escapeHtml(mt("anthropic.configDescription"))}</p></div><span class="settings-status-pill ${escapeAttr(providerTone)}">${escapeHtml(providerState)}</span></div>
         <form class="anthropic-config-form settings-card-content" data-mp-provider-form data-anthropic-provider-config>
           <input type="hidden" name="name" value="anthropic"><input type="hidden" name="type" value="anthropic"><input type="hidden" name="apiKey" value=""><input type="checkbox" name="apiKeyOptional" hidden>
+          <div class="anthropic-model-manager">${renderProviderModelEditor(draft, modelBusy, true)}</div>
           <div class="anthropic-config-grid">
-            <label class="settings-form-field"><span>${escapeHtml(mt("defaultModel"))}</span><input name="model" data-select-on-focus="true" value="${escapeAttr(draft.model || "")}" autocomplete="off" ${models.length ? "list=\"anthropic-model-options\"" : ""} required>${modelOptions}</label>
             <label class="settings-form-field"><span>${escapeHtml(mt("baseUrl"))}</span><input name="baseUrl" value="${escapeAttr(draft.baseUrl || "")}" autocomplete="url" placeholder="${escapeAttr(mt("anthropicOfficialEndpointPlaceholder"))}"></label>
             <label class="settings-form-field"><span>${escapeHtml(mt("maxTokens"))}</span><input name="maxTokens" data-select-on-focus="true" type="number" min="1" step="1" value="${escapeAttr(draft.maxTokens || 4096)}"></label>
           </div>
           <p class="anthropic-secret-note">${escapeHtml(mt("anthropic.configNote"))}</p>
-          <div class="anthropic-config-actions settings-inline-actions"><button class="settings-action-btn" type="button" data-mp-fetch-models ${modelBusy ? "disabled aria-busy=\"true\"" : ""}>${escapeHtml(modelBusy ? ct("actions.fetchingModels") : mt("fetchModels"))}</button><button class="settings-action-btn" type="button" data-mp-refresh-models ${refreshBusy ? "disabled aria-busy=\"true\"" : ""}>${escapeHtml(refreshBusy ? mt("refreshing") : mt("refreshModels"))}</button><button class="settings-action-btn primary" type="submit" ${saveBusy ? "disabled aria-busy=\"true\"" : ""}>${escapeHtml(saveBusy ? mt("saving") : ct("actions.saveAndEnable"))}</button></div>
+          <div class="anthropic-config-actions settings-inline-actions"><button class="settings-action-btn" type="button" data-mp-refresh-models ${refreshBusy ? "disabled aria-busy=\"true\"" : ""}>${escapeHtml(refreshBusy ? mt("refreshing") : mt("refreshModels"))}</button><button class="settings-action-btn primary" type="submit" ${saveBusy ? "disabled aria-busy=\"true\"" : ""}>${escapeHtml(saveBusy ? mt("saving") : ct("actions.saveAndEnable"))}</button></div>
         </form>
       </section>
     </div>`;
@@ -238,6 +346,10 @@ export function createAnthropicAccountsController(ctx) {
     syncAnthropicAccount,
     toggleAnthropicAccount,
     deleteAnthropicAccount,
+    startAnthropicLogin,
+    submitAnthropicLogin,
+    pasteAnthropicLogin,
+    cancelAnthropicLogin,
     renderAnthropicConsolePage,
   };
 }

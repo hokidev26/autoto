@@ -6,9 +6,13 @@ import (
 	"errors"
 	"fmt"
 	"html"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/url"
+	"os"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -45,6 +49,79 @@ func newLocalToken() string {
 		panic(fmt.Sprintf("crypto/rand failed while generating local token: %v", err))
 	}
 	return base64.RawURLEncoding.EncodeToString(buf)
+}
+
+// localAPITokenFile is the durable loopback API token under homeDir/secrets.
+// Regenerating it on every process start invalidates open browser tabs and can
+// turn any auto-loading settings panel into a 401 toast storm after restarts.
+const localAPITokenFileName = "local-api.token"
+
+func localAPITokenPath(homeDir string) string {
+	homeDir = strings.TrimSpace(homeDir)
+	if homeDir == "" {
+		return ""
+	}
+	return filepath.Join(homeDir, "secrets", localAPITokenFileName)
+}
+
+func resolveLocalToken(homeDir string) string {
+	if token := strings.TrimSpace(os.Getenv("AUTOTO_LOCAL_TOKEN")); token != "" {
+		return token
+	}
+	if token := strings.TrimSpace(os.Getenv("CODEHARBOR_LOCAL_TOKEN")); token != "" {
+		return token
+	}
+	path := localAPITokenPath(homeDir)
+	if path != "" {
+		if token, err := loadLocalTokenFile(path); err == nil && token != "" {
+			return token
+		}
+	}
+	token := newLocalToken()
+	if path != "" {
+		if err := writeLocalTokenFile(path, token); err != nil {
+			slog.Warn("persist local API token", "path", path, "error", err)
+		}
+	}
+	return token
+}
+
+func loadLocalTokenFile(path string) (string, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", err
+	}
+	token := strings.TrimSpace(string(data))
+	if token == "" {
+		return "", errors.New("empty local API token file")
+	}
+	return token, nil
+}
+
+func writeLocalTokenFile(path, token string) error {
+	token = strings.TrimSpace(token)
+	if path == "" || token == "" {
+		return errors.New("missing local API token path or value")
+	}
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return err
+	}
+	if runtime.GOOS != "windows" {
+		_ = os.Chmod(dir, 0o700)
+	}
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, []byte(token+"\n"), 0o600); err != nil {
+		return err
+	}
+	if runtime.GOOS != "windows" {
+		_ = os.Chmod(tmp, 0o600)
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		_ = os.Remove(tmp)
+		return err
+	}
+	return nil
 }
 
 func (s *Server) now() time.Time {

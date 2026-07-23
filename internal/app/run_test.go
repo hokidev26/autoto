@@ -91,10 +91,10 @@ func TestBindConfiguredHTTPListenersEphemeralUsesPortZero(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer httpListener.Close()
-	if gatewayListener == nil {
-		t.Fatal("expected ephemeral gateway listener")
+	if gatewayListener != nil {
+		_ = gatewayListener.Close()
+		t.Fatal("Gateway listener must not be pre-bound during runtime construction")
 	}
-	defer gatewayListener.Close()
 	addr, ok := httpListener.Addr().(*net.TCPAddr)
 	if !ok {
 		t.Fatalf("unexpected listener addr type %T", httpListener.Addr())
@@ -107,13 +107,6 @@ func TestBindConfiguredHTTPListenersEphemeralUsesPortZero(t *testing.T) {
 	}
 	if !addr.IP.Equal(net.ParseIP("127.0.0.1")) {
 		t.Fatalf("ephemeral bind expected 127.0.0.1, got %v", addr.IP)
-	}
-	gwAddr, ok := gatewayListener.Addr().(*net.TCPAddr)
-	if !ok {
-		t.Fatalf("unexpected gateway addr type %T", gatewayListener.Addr())
-	}
-	if gwAddr.Port == 0 || gwAddr.Port == 18789 || !gwAddr.IP.Equal(net.ParseIP("127.0.0.1")) {
-		t.Fatalf("ephemeral gateway expected loopback:0-assigned, got %v", gwAddr)
 	}
 }
 

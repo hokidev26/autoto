@@ -644,11 +644,12 @@ export function createCodexAuthController(ctx) {
         return `<li class="codex-import-file-row"><span>${escapeHtml(item?.filename || mt("unknown"))}</span><span class="codex-import-file-status ${tone}">${escapeHtml(mt(`importFileStatus${status[0].toUpperCase()}${status.slice(1)}`))}</span><div class="codex-import-file-detail">${escapeHtml(detail)}</div></li>`;
       }).join("")}</ul>` : ""}</div>`
       : "";
+    const importOpen = Boolean(consoleState.codexImportDraft || importFiles.length || importResult);
     const importPanel = `
-      <section class="codex-import-panel settings-card" id="codexCredentialImportSection" aria-labelledby="codex-import-title">
-        <div class="codex-console-section-head settings-card-header">
+      <details class="codex-import-panel settings-card" id="codexCredentialImportSection"${importOpen ? " open" : ""}>
+        <summary class="codex-console-section-head settings-card-header codex-import-summary">
           <div><h2 id="codex-import-title" class="settings-card-title">${escapeHtml(mt("codexImportTitle"))}</h2><p class="settings-card-description" data-settings-help-copy>${escapeHtml(mt("codexImportDescription"))}</p></div>
-        </div>
+        </summary>
         <div class="codex-import-body settings-card-content">
           <div class="codex-import-dropzone" data-codex-import-drop>
             <input id="codexAuthImportFiles" class="hidden" type="file" accept=".json" multiple data-codex-import-files>
@@ -661,7 +662,7 @@ export function createCodexAuthController(ctx) {
           ${importResultPanel}
           <div class="codex-import-footer"><p data-settings-help-copy>${escapeHtml(mt("codexImportSuccess"))}</p><button id="codexImportAuthBtn" class="settings-action-btn primary" type="button" data-mp-codex-import>${escapeHtml(mt("import"))}</button></div>
         </div>
-      </section>`;
+      </details>`;
     const accountContent = state.providerAuthLoading && !authFiles.length
       ? `<div class="codex-console-loading settings-empty-card compact" role="status">${escapeHtml(mt("loadingAccounts"))}</div>`
       : renderCodexAccountManagementTable(authFiles, {

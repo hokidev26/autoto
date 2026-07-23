@@ -1,6 +1,6 @@
 import { $ } from "./dom.mjs";
 import { appMainT as am } from "./messages-app-main-extra.mjs";
-import { findToolActivityByIdentity, renderAgentTaskActivityCardHTML } from "./chat-rendering.mjs";
+import { findToolActivityByIdentity, renderAgentTaskActivityCardHTML } from "./chat-rendering.mjs?v=message-thread-1-plan-mode-2-user-message-left-1-switch-fix-3-hide-run-loading-1-i18n-shared-1-conversation-boundary-1-subagent-cards-1-message-lifecycle-1-subagent-incremental-1-profile-message-identity-1-profile-avatar-1-provider-errors-1-compact-run-error-1-first-token-task-status-1-tool-activity-lazy-1";
 
 // Background-task changes that should refresh the visible subagent cards.
 // Output-streaming events are deliberately excluded: they fire continuously
@@ -137,11 +137,13 @@ export function createSubagentCardCoordinator({
     const root = getMessagesRoot();
     if (!root) return false;
     const cards = [...root.querySelectorAll("[data-subagent-card]")];
-    if (!cards.length) return false;
+    const activityRows = [...root.querySelectorAll("[data-subagent-activity-row]")];
+    if (!cards.length && !activityRows.length) return false;
     const snapshot = captureViewState(root);
     const replaced = cards.reduce((count, card) => count + (replaceCard(card) ? 1 : 0), 0);
-    // Every card swapped in place: keep the cheap path and skip the re-render.
-    if (replaced === cards.length) {
+    // Every selected detail card swapped in place and no compact row depends on
+    // the new task state: keep the cheap path and skip the transcript re-render.
+    if (!activityRows.length && replaced === cards.length) {
       restoreViewState(snapshot, root);
       return true;
     }
@@ -169,6 +171,14 @@ export function createSubagentCardCoordinator({
       if (expectedSelectionSeq !== state.projectSelectSeq) return;
       refreshPreservingUI(expectedAgentId, expectedSelectionSeq);
     });
+  }
+
+  // Invalidate any in-flight background-task load so a stale result cannot land
+  // after the agent is torn down. Called from disconnect/reset paths that must
+  // not reach these closure-scoped counters directly.
+  function resetAgentLoad() {
+    backgroundTaskAgentLoadGeneration += 1;
+    backgroundTaskAgentLoadInFlight = null;
   }
 
   function loadBackgroundTasksForAgent(agentId) {
@@ -237,6 +247,7 @@ export function createSubagentCardCoordinator({
     refreshPreservingUI,
     scheduleRefresh,
     loadBackgroundTasksForAgent,
+    resetAgentLoad,
     navigateToAgent,
     navigateToRun,
     performCardAction,

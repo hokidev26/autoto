@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	anthropic "github.com/anthropics/anthropic-sdk-go"
@@ -17,12 +18,16 @@ import (
 )
 
 type AnthropicProvider struct {
-	cfg            config.ProviderConfig
-	store          *anthropicauth.Store
-	configErr      error
-	telemetry      AccountTelemetry
-	quotaTelemetry AccountQuotaTelemetry
-	clock          func() time.Time
+	cfg               config.ProviderConfig
+	store             *anthropicauth.Store
+	configErr         error
+	telemetry         AccountTelemetry
+	quotaTelemetry    AccountQuotaTelemetry
+	clock             func() time.Time
+	gatewayPolicyMu   sync.RWMutex
+	gatewayPolicy     GatewayAccountPolicy
+	oauthRefreshGate  chan struct{}
+	oauthRefreshToken func(context.Context, string, *http.Client) (anthropicauth.OAuthTokenResponse, error)
 }
 
 func NewAnthropicProvider(cfg config.ProviderConfig) *AnthropicProvider {
@@ -36,10 +41,12 @@ func NewAnthropicProvider(cfg config.ProviderConfig) *AnthropicProvider {
 		cfg.MaxTokens = 4096
 	}
 	return &AnthropicProvider{
-		cfg:       cfg,
-		store:     anthropicauth.NewStore(cfg.CredentialStorePath),
-		configErr: validateProviderRuntimeConfig(cfg),
-		clock:     time.Now,
+		cfg:               cfg,
+		store:             anthropicauth.NewStore(cfg.CredentialStorePath),
+		configErr:         validateProviderRuntimeConfig(cfg),
+		clock:             time.Now,
+		oauthRefreshGate:  make(chan struct{}, 1),
+		oauthRefreshToken: anthropicauth.RefreshTokens,
 	}
 }
 
@@ -53,11 +60,36 @@ func (p *AnthropicProvider) ConfiguredForScenario(scenario CallScenario) bool {
 	if scenario != CallScenarioGateway {
 		return p.Configured()
 	}
+	return p != nil && p.configErr == nil && strings.TrimSpace(p.cfg.APIKey) != ""
+}
+
+func (p *AnthropicProvider) AvailableForScenario(ctx context.Context, availability ScenarioAvailability) bool {
 	if p == nil || p.configErr != nil {
 		return false
 	}
-	candidates, err := p.accountCandidates(CallScenarioGateway)
+	candidates, err := p.accountCandidates(ctx, GenerateRequest{
+		Scenario:                     availability.EffectiveScenario(),
+		AllowSubscriptionCredentials: availability.AllowSubscriptionCredentials,
+	})
 	return err == nil && len(candidates) > 0
+}
+
+func (p *AnthropicProvider) SetGatewayAccountPolicy(policy GatewayAccountPolicy) {
+	if p == nil {
+		return
+	}
+	p.gatewayPolicyMu.Lock()
+	p.gatewayPolicy = policy
+	p.gatewayPolicyMu.Unlock()
+}
+
+func (p *AnthropicProvider) gatewayAccountPolicy() GatewayAccountPolicy {
+	if p == nil {
+		return nil
+	}
+	p.gatewayPolicyMu.RLock()
+	defer p.gatewayPolicyMu.RUnlock()
+	return p.gatewayPolicy
 }
 
 func (p *AnthropicProvider) Capabilities() Capabilities {
@@ -78,7 +110,7 @@ func (p *AnthropicProvider) ListModels(ctx context.Context) ([]string, error) {
 	if p.configErr != nil {
 		return nil, p.configErr
 	}
-	candidates, err := p.accountCandidates(CallScenarioInternal)
+	candidates, err := p.accountCandidates(ctx, GenerateRequest{Scenario: CallScenarioInternal})
 	if err != nil {
 		return nil, err
 	}
@@ -126,7 +158,7 @@ func (p *AnthropicProvider) Generate(ctx context.Context, req GenerateRequest) (
 	if _, err := normalizeReasoningEffort(req.ReasoningEffort, false, p.cfg.Name); err != nil {
 		return nil, err
 	}
-	candidates, err := p.accountCandidates(req.EffectiveScenario())
+	candidates, err := p.accountCandidates(ctx, req)
 	if err != nil {
 		return nil, err
 	}

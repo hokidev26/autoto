@@ -11,6 +11,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -655,7 +656,16 @@ func (s *Store) writeCredentialLocked(filename string, credential Credential) er
 		return errors.New("检查 Codex 凭据目标失败")
 	}
 	if err := os.Rename(tempName, target); err != nil {
-		return errors.New("保存 Codex 凭据失败")
+		// Windows cannot rename onto an existing file; remove then rename. The
+		// earlier Lstat already rejected non-regular/symlink targets.
+		if runtime.GOOS == "windows" {
+			if removeErr := os.Remove(target); removeErr == nil {
+				err = os.Rename(tempName, target)
+			}
+		}
+		if err != nil {
+			return errors.New("保存 Codex 凭据失败")
+		}
 	}
 	if err := os.Chmod(target, credentialFileMode); err != nil {
 		return errors.New("设置 Codex 凭据权限失败")
@@ -861,6 +871,11 @@ func safeCredentialFilename(value string) (string, error) {
 }
 
 func syncDirectory(dir string) error {
+	// Windows does not support fsync on a directory handle, so skip it there;
+	// durability relies on the file sync plus rename.
+	if runtime.GOOS == "windows" {
+		return nil
+	}
 	file, err := os.Open(dir)
 	if err != nil {
 		return errors.New("同步 Codex 本地凭据库失败")

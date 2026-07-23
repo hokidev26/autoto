@@ -116,9 +116,11 @@ export function createArchiveSettingsController({
   }
 
   function render() {
-    if (!loaded && !loading) load().catch(showError);
+    // Only auto-load while idle with no prior failure. A failed load must not
+    // re-enter load() via refresh→render, or 401 toasts loop forever.
+    if (!loaded && !loading && !error) load().catch(showError);
     if (loading && !loaded) return `<div class="settings-empty-card settings-empty-state">${escapeHtml(archiveText("loading"))}</div>`;
-    if (error && !loaded) {
+    if (error) {
       return `<div class="settings-live-page archive-page"><div class="settings-inline-alert settings-alert" role="alert">${escapeHtml(error)}</div><button id="archiveRefreshBtn" class="settings-action-btn subtle" type="button">${escapeHtml(archiveText("refresh"))}</button></div>`;
     }
 

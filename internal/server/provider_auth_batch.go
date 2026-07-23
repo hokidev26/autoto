@@ -81,6 +81,7 @@ type codexOAuthDeleteOutcome struct {
 	ID                string
 	CredentialDeleted bool
 	StatsDeleted      bool
+	GrantDeleted      bool
 	AlreadyMissing    bool
 	CleanupPending    bool
 	Retryable         bool
@@ -445,24 +446,30 @@ func (s *Server) deleteCodexOAuthAccountCore(ctx context.Context, store *codexau
 
 func (s *Server) finishCodexOAuthAccountDelete(ctx context.Context, id string, credentialDeleted bool) codexOAuthDeleteOutcome {
 	statsDeleted := true
+	grantDeleted := true
 	if s.store != nil {
 		if err := s.store.DeleteProviderAccountStats(ctx, codexauth.DefaultProviderName, id); err != nil {
 			statsDeleted = false
 		}
+		if err := s.store.DeleteGatewayAccountGrant(ctx, codexauth.DefaultProviderName, id); err != nil {
+			grantDeleted = false
+		}
 	}
+	cleanupPending := !statsDeleted || !grantDeleted
 	outcome := codexOAuthDeleteOutcome{
 		ID:                id,
 		CredentialDeleted: credentialDeleted,
 		StatsDeleted:      statsDeleted,
+		GrantDeleted:      grantDeleted,
 		AlreadyMissing:    !credentialDeleted,
-		CleanupPending:    !statsDeleted,
-		Retryable:         !statsDeleted,
+		CleanupPending:    cleanupPending,
+		Retryable:         cleanupPending,
 	}
-	if !statsDeleted {
+	if cleanupPending {
 		if credentialDeleted {
-			outcome.Warning = "凭据已删除，但账号统计清理失败；可安全重试 DELETE 完成清理"
+			outcome.Warning = "凭据已删除，但账号统计或 Gateway 授权清理失败；可安全重试 DELETE 完成清理"
 		} else {
-			outcome.Warning = "凭据已不存在，但账号统计清理仍失败；可安全重试 DELETE 完成清理"
+			outcome.Warning = "凭据已不存在，但账号统计或 Gateway 授权清理仍失败；可安全重试 DELETE 完成清理"
 		}
 	}
 	return outcome

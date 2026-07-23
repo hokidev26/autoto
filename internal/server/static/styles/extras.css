@@ -906,7 +906,8 @@ body.white-shell.theme-light .composer-wrap {
   white-space: nowrap;
 }
 #settingsContentBody .shared-api-gateway-meta,
-#settingsContentBody .shared-api-key-meta {
+#settingsContentBody .shared-api-key-meta,
+#settingsContentBody .shared-api-request-meta {
   display: grid;
   min-width: 0;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -914,7 +915,8 @@ body.white-shell.theme-light .composer-wrap {
   margin: 0;
 }
 #settingsContentBody .shared-api-gateway-meta > div,
-#settingsContentBody .shared-api-key-meta > div {
+#settingsContentBody .shared-api-key-meta > div,
+#settingsContentBody .shared-api-request-meta > div {
   display: grid;
   min-width: 0;
   grid-template-columns: minmax(90px, auto) minmax(0, 1fr);
@@ -923,16 +925,33 @@ body.white-shell.theme-light .composer-wrap {
   border-bottom: 1px solid color-mix(in srgb, var(--settings-border) 70%, transparent);
 }
 #settingsContentBody .shared-api-gateway-meta :is(dt, dd),
-#settingsContentBody .shared-api-key-meta :is(dt, dd) { min-width: 0; margin: 0; font-size: 10px; }
+#settingsContentBody .shared-api-key-meta :is(dt, dd),
+#settingsContentBody .shared-api-request-meta :is(dt, dd) { min-width: 0; margin: 0; font-size: 10px; }
 #settingsContentBody .shared-api-gateway-meta dt,
-#settingsContentBody .shared-api-key-meta dt { color: var(--settings-muted-foreground); }
+#settingsContentBody .shared-api-key-meta dt,
+#settingsContentBody .shared-api-request-meta dt { color: var(--settings-muted-foreground); }
 #settingsContentBody .shared-api-gateway-meta dd,
-#settingsContentBody .shared-api-key-meta dd { overflow: hidden; color: var(--settings-foreground); font-weight: 680; text-align: right; text-overflow: ellipsis; white-space: nowrap; }
-#settingsContentBody .shared-api-security-note { display: grid; gap: 3px; }
-#settingsContentBody .shared-api-security-note strong { font-size: 11px; }
-#settingsContentBody .shared-api-security-note span { color: var(--settings-muted-foreground); font-size: 10px; line-height: 1.45; }
+#settingsContentBody .shared-api-key-meta dd,
+#settingsContentBody .shared-api-request-meta dd { overflow: hidden; color: var(--settings-foreground); font-weight: 680; text-align: right; text-overflow: ellipsis; white-space: nowrap; }
+#settingsContentBody .shared-api-gateway-controls { display: grid; gap: 10px; }
+#settingsContentBody .shared-api-gateway-form { margin: 0; }
+#settingsContentBody .shared-api-gateway-actions { justify-content: flex-end; }
+#settingsContentBody .shared-api-runtime-error { margin: 0; }
 #settingsContentBody .shared-api-list,
-#settingsContentBody .shared-api-key-list { display: grid; min-width: 0; gap: 0; }
+#settingsContentBody .shared-api-key-list,
+#settingsContentBody .shared-api-request-list { display: grid; min-width: 0; gap: 0; }
+#settingsContentBody .shared-api-account-groups { display: grid; min-width: 0; gap: 10px; }
+#settingsContentBody .shared-api-account-group { overflow: hidden; border: 1px solid var(--settings-border); border-radius: 8px; background: var(--settings-surface); }
+#settingsContentBody .shared-api-account-group-heading { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 7px 10px; border-bottom: 1px solid var(--settings-border); background: var(--settings-muted); }
+#settingsContentBody .shared-api-account-group-heading strong { color: var(--settings-foreground); font-size: 11px; }
+#settingsContentBody .shared-api-account-group-heading span { color: var(--settings-muted-foreground); font-size: 9px; }
+#settingsContentBody .shared-api-account-group .shared-api-list { padding-inline: 10px; }
+#settingsContentBody .shared-api-account-actions { display: flex; flex: 0 0 auto; align-items: center; gap: 10px; }
+#settingsContentBody .shared-api-account-reason { color: var(--settings-warning) !important; }
+#settingsContentBody .shared-api-connection-list { display: grid; gap: 6px; }
+#settingsContentBody .shared-api-connection-row { display: grid; min-width: 0; grid-template-columns: minmax(145px, auto) minmax(0, 1fr); align-items: center; gap: 12px; }
+#settingsContentBody .shared-api-connection-row > span { color: var(--settings-muted-foreground); font-size: 10px; }
+#settingsContentBody .shared-api-connection-row > code { min-width: 0; overflow: auto; padding: 7px 9px; border: 1px solid var(--settings-border); border-radius: 7px; background: var(--settings-muted); color: var(--settings-foreground); font: 650 10px/1.4 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; white-space: nowrap; }
 #settingsContentBody .shared-api-row {
   min-height: 48px;
   padding: 8px 0;
@@ -946,9 +965,7 @@ body.white-shell.theme-light .composer-wrap {
 #settingsContentBody .shared-api-switch { display: inline-flex; flex: 0 0 auto; align-items: center; gap: 7px; color: var(--settings-muted-foreground); cursor: pointer; font-size: 10px; }
 #settingsContentBody .shared-api-switch input,
 #settingsContentBody .shared-api-page .compact-settings-switch-row input { width: 34px; height: 19px; accent-color: var(--settings-primary); }
-#settingsContentBody .shared-api-model-row .settings-inline-actions { flex: 0 0 auto; }
-#settingsContentBody .shared-api-key-form,
-#settingsContentBody .shared-api-model-form { margin: 4px 0 10px; }
+#settingsContentBody .shared-api-key-form { margin: 4px 0 10px; }
 #settingsContentBody .shared-api-key-card {
   display: grid;
   min-width: 0;
@@ -970,6 +987,13 @@ body.white-shell.theme-light .composer-wrap {
 #settingsContentBody .shared-api-usage-grid > div { display: grid; gap: 2px; padding: 10px; border: 1px solid var(--settings-border); border-radius: 8px; background: var(--settings-muted); }
 #settingsContentBody .shared-api-usage-grid strong { color: var(--settings-foreground); font-size: 14px; }
 #settingsContentBody .shared-api-usage-grid span { color: var(--settings-muted-foreground); font-size: 9px; }
+#settingsContentBody .shared-api-request-row { display: grid; min-width: 0; gap: 7px; padding: 10px 0; border-bottom: 1px solid var(--settings-border); }
+#settingsContentBody .shared-api-request-row:last-child { border-bottom: 0; }
+#settingsContentBody .shared-api-request-row.has-error { border-left: 2px solid var(--settings-destructive); padding-left: 9px; }
+#settingsContentBody .shared-api-request-head { display: flex; min-width: 0; align-items: center; justify-content: space-between; gap: 10px; }
+#settingsContentBody .shared-api-request-head time { color: var(--settings-muted-foreground); font-size: 10px; }
+#settingsContentBody .shared-api-request-meta code { color: inherit; font: inherit; }
+#settingsContentBody .shared-api-request-error { margin: 0; font-size: 10px; }
 
 @media (max-width: 980px) {
   #settingsContentBody .compact-settings-choice-grid.four-column { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -993,13 +1017,17 @@ body.white-shell.theme-light .composer-wrap {
   #settingsContentBody .model-aggregate-actions { justify-content: flex-start; }
   #settingsContentBody .shared-api-gateway-meta,
   #settingsContentBody .shared-api-key-meta,
+  #settingsContentBody .shared-api-request-meta,
   #settingsContentBody .shared-api-usage-grid { grid-template-columns: minmax(0, 1fr); }
   #settingsContentBody .shared-api-row,
-  #settingsContentBody .shared-api-key-head { align-items: stretch; flex-direction: column; }
-  #settingsContentBody .shared-api-model-row .settings-inline-actions,
+  #settingsContentBody .shared-api-key-head,
+  #settingsContentBody .shared-api-request-head { align-items: stretch; flex-direction: column; }
+  #settingsContentBody .shared-api-account-actions { width: 100%; justify-content: space-between; }
+  #settingsContentBody .shared-api-connection-row { grid-template-columns: minmax(0, 1fr); gap: 4px; }
+  #settingsContentBody .shared-api-gateway-actions,
   #settingsContentBody .shared-api-key-actions,
   #settingsContentBody .shared-api-token .settings-inline-actions { width: 100%; justify-content: flex-start; }
-  #settingsContentBody .shared-api-model-row .settings-action-btn,
+  #settingsContentBody .shared-api-gateway-actions .settings-action-btn,
   #settingsContentBody .shared-api-key-actions .settings-action-btn { flex: 1 1 auto; }
 }
 
@@ -1288,9 +1316,14 @@ body.white-shell.theme-light .composer-wrap {
     padding: 0 2px 1px;
   }
 
-  body.white-shell.theme-light :is(.composer-task-summary, .composer-status, .permission-safety-indicator, .permission-risk-badge, .toolbar-lightning-btn),
+  body.white-shell.theme-light :is(.composer-task-summary, .permission-safety-indicator, .permission-risk-badge, .toolbar-lightning-btn),
+  body.white-shell.theme-light .composer-status:not(.is-busy),
   body.white-shell.theme-light:not(.project-operation-context) :is(.composer-actions, .composer-message-mode-field, .composer-permission-field) {
     display: none !important;
+  }
+
+  body.white-shell.theme-light .composer-status.is-busy {
+    display: inline-flex !important;
   }
 
   body.white-shell.theme-light .composer-controls {

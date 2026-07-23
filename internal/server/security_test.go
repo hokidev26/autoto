@@ -1529,8 +1529,12 @@ func TestRemoteHardeningClampsDefaultBypassForNewProject(t *testing.T) {
 	}
 	app := New(cfg, store, nil, nil)
 
+	payload, err := json.Marshal(map[string]string{"name": "Demo", "gitPath": projectDir})
+	if err != nil {
+		t.Fatal(err)
+	}
 	recorder := httptest.NewRecorder()
-	request := newTestRequest(http.MethodPost, "/api/projects", strings.NewReader(`{"name":"Demo","gitPath":"`+projectDir+`"}`))
+	request := newTestRequest(http.MethodPost, "/api/projects", strings.NewReader(string(payload)))
 	request.Host = "localhost:7788"
 	request.Header.Set("Authorization", "Bearer secret")
 	request.Header.Set("Content-Type", "application/json")

@@ -3,11 +3,11 @@ import { createAgentStreamController } from "./agent-stream.mjs";
 import { createAutomationControlController } from "./automation-control.mjs?v=nav-schedules-1";
 import { createArchiveSettingsController } from "./archive-settings.mjs?v=archive-settings-1";
 import { createConversationTitleHelpers } from "./conversation-title-helpers.mjs";
-import { createBackgroundTasksController } from "./background-tasks.mjs?v=subagent-cards-1";
+import { createBackgroundTasksController } from "./background-tasks.mjs?v=subagent-cards-1-foreground-activity-1";
 import { createExecutionNotifications } from "./execution-notifications.mjs";
 import { createBackendRegistryController } from "./backend-registry.mjs?v=agent-admin-removed-1";
-import { createChatComposerController, normalizeChatDrafts, normalizePromptHistory } from "./chat-composer.mjs?v=plan-mode-1-project-context-1";
-import { createChatRenderingController, findToolActivityByIdentity, renderAgentTaskActivityCardHTML } from "./chat-rendering.mjs?v=message-thread-1-plan-mode-2-user-message-left-1-switch-fix-3-hide-run-loading-1-i18n-shared-1-conversation-boundary-1-subagent-cards-1-message-lifecycle-1-subagent-incremental-1-profile-message-identity-1-profile-avatar-1-provider-errors-1-compact-run-error-1";
+import { createChatComposerController, normalizeChatDrafts, normalizePromptHistory } from "./chat-composer.mjs?v=plan-mode-1-project-context-1-model-save-gate-1-goal-command-2";
+import { createChatRenderingController, findToolActivityByIdentity, renderAgentTaskActivityCardHTML } from "./chat-rendering.mjs?v=message-thread-1-plan-mode-2-user-message-left-1-switch-fix-3-hide-run-loading-1-i18n-shared-1-conversation-boundary-1-subagent-cards-1-message-lifecycle-1-subagent-incremental-1-profile-message-identity-1-profile-avatar-1-provider-errors-1-compact-run-error-1-first-token-task-status-1-tool-activity-lazy-1";
 import { createContextManagementController } from "./context-management.mjs?v=context-ring-2";
 import {
   addRecentConversation,
@@ -31,13 +31,13 @@ import {
 } from "./directory-browser.mjs?v=folder-picker-remote-2-root-card-1-root-shortcut-removed-1";
 import { $, escapeAttr, escapeHtml, setButtonBusy } from "./dom.mjs";
 import { navigationCreateLabelKey, navigationCreateTarget } from "./navigation-create.mjs";
-import { createSubagentCardCoordinator } from "./subagent-cards.mjs";
+import { createSubagentCardCoordinator } from "./subagent-cards.mjs?v=tool-activity-lazy-1";
 import { formatNumber, formatTimestamp } from "./formatters.mjs";
-import { t } from "./i18n.mjs?v=settings-flat-1-codex-browser-login-1-shared-api-1-apple-theme-1-autoto-themes-1-settings-help-1-task-workspace-1-navigation-state-2-archive-1-i18n-shared-1-overview-home-1-settings-cleanup-1-context-ring-2-global-background-1-theme-v2-1";
+import { t } from "./i18n.mjs?v=settings-flat-1-codex-browser-login-1-shared-api-1-apple-theme-1-autoto-themes-1-settings-help-1-task-workspace-1-navigation-state-2-archive-1-i18n-shared-1-overview-home-1-settings-cleanup-1-context-ring-2-global-background-1-theme-v2-1-background-upload-1-goal-command-2";
 import { appMainT as am } from "./messages-app-main-extra.mjs?v=workbench-title-edit-1-hidden-toggle-removed-1-settings-cleanup-1";
 import { shellExtraT as sx } from "./messages-shell-extra.mjs";
 import { createGitWorkflowController } from "./git-workflow.mjs";
-import { createLocalPreferencesSettingsController } from "./local-preferences-settings.mjs?v=settings-flat-1-apple-theme-1-autoto-themes-1-profile-avatar-1-global-background-1";
+import { createLocalPreferencesSettingsController } from "./local-preferences-settings.mjs?v=settings-flat-1-apple-theme-1-autoto-themes-1-profile-avatar-1-global-background-1-background-upload-1";
 import { createMCPRegistryUIController } from "./mcp-registry-ui.mjs";
 import { createPluginRegistryUIController } from "./plugin-registry-ui.mjs";
 import { createMemorySettingsController } from "./memory-settings.mjs";
@@ -53,12 +53,12 @@ import { confirm as platformConfirm } from "./platform.mjs";
 import { createProjectKanbanController } from "./project-kanban.mjs?v=workbench-3-mode-boundaries-1";
 import { createScheduleWorkspaceController } from "./schedule-workspace.mjs?v=schedule-workspace-1";
 import { createTaskWorkspaceController } from "./task-workspace.mjs?v=task-workspace-1";
-import { createAppearanceBackgroundManager, createThemeManager, setThemePageContext } from "./theme-manager.mjs?v=autoto-themes-2-background-2-theme-v2-1";
-import { createThemeSettingsController } from "./theme-settings.mjs?v=autoto-themes-2-theme-v2-1";
+import { createAppearanceBackgroundManager, createThemeManager, setThemePageContext } from "./theme-manager.mjs?v=autoto-themes-2-background-2-theme-v2-1-background-upload-1";
+import { createThemeSettingsController } from "./theme-settings.mjs?v=autoto-themes-2-theme-v2-1-formal-assets-1";
 import { readLocalPreference, recentConversationsKey } from "./preferences-data.mjs?v=autoto-themes-1-schedule-workspace-1-global-background-1";
 import { applyRemoteAccessFailClosed, fullAccessAllowed, remoteAccessContext, terminalAccessAllowed } from "./remote-access-capabilities.mjs";
 import { createRemoteAccessSettingsController } from "./remote-access-settings.mjs?v=remote-control-full-4-remote-full-toggle-3-tunnel-busy-1";
-import { createSharedAPISettingsController } from "./shared-api-settings.mjs?v=shared-api-1-compact-layout-1";
+import { createSharedAPISettingsController } from "./shared-api-settings.mjs?v=shared-api-2-compact-layout-1-no-alias-safety-1";
 import { applyServerSkillsLoadResult, createSkillsPhaseBController, hydrateServerSkillSummaries, isOptimisticSkillConflict, loadServerSkillsWithFallback, normalizeSkillContext } from "./skills-bootstrap.mjs";
 import { api, onAPIAuthorizationFailure, webSocketURL } from "./runtime.mjs";
 import { firstSettingsItemForCategory, groupSettingsItemsByLegacyCategory, legacySettingsCategories, settingsCategoryByKey, settingsCategoryForItem } from "./settings-categories.mjs?v=users-panel-removed-1-shared-api-1-agent-admin-removed-1-archive-1-settings-cleanup-1";
@@ -67,7 +67,7 @@ import { createSettingsHelpController } from "./settings-help.mjs?v=settings-hel
 import { createSettingsPanelRegistry } from "./settings-panel-registry.mjs";
 import { createSecurityModeHelpers } from "./security-mode-helpers.mjs";
 import { createSettingsNavigationHelpers } from "./settings-navigation-helpers.mjs";
-import { createSettingsPreferencesController } from "./settings-preferences.mjs?v=apple-theme-1-autoto-themes-1-profile-avatar-1-dual-rail-collapse-1-global-background-1";
+import { createSettingsPreferencesController } from "./settings-preferences.mjs?v=apple-theme-1-autoto-themes-1-profile-avatar-1-dual-rail-collapse-1-global-background-1-settings-identity-removed-1";
 import { createSettingsShellHelpers } from "./settings-shell-helpers.mjs";
 import { createSkillsContext } from "./skills-context.mjs";
 import { createServerResourceLoaders } from "./server-resource-loaders.mjs";
@@ -77,9 +77,9 @@ import { createSystemSettingsController } from "./system-settings.mjs?v=users-pa
 import { installDesktopDeepLinkRouter, isDesktopShell } from "./desktop-shell-ui.mjs";
 import { createSkillsWorkbenchController } from "./skills-workbench.mjs?v=users-panel-removed-1";
 import { createTerminalController } from "./terminal.mjs?v=terminal-actions-compact-2";
-import { createUIShellController, elementVisible, isComposingInput } from "./ui-shell.mjs?v=permission-panel-2-plan-mode-panel-1-mobile-toolbar-right-3-icon-rail-1-mobile-viewport-1-sidebar-wheel-1-settings-cleanup-1-context-ring-2-dual-rail-collapse-1-compact-navigation-1-global-rail-2";
+import { createUIShellController, elementVisible, isComposingInput } from "./ui-shell.mjs?v=permission-panel-2-plan-mode-panel-1-mobile-toolbar-right-3-icon-rail-1-mobile-viewport-1-sidebar-wheel-1-settings-cleanup-1-context-ring-2-dual-rail-collapse-1-compact-navigation-1-global-rail-2-model-menu-scroll-1";
 import { createUsageHistoryController } from "./usage-history.mjs";
-import { createAgentWorkspaceHelpers } from "./agent-workspace-helpers.mjs";
+import { createAgentWorkspaceHelpers } from "./agent-workspace-helpers.mjs?v=task-summary-activity-1";
 import { createNavigationContextMenu } from "./navigation-context-menu.mjs";
 import { createOverviewNavHelpers } from "./overview-nav-helpers.mjs";
 import { createWorkbenchSidebarRender, primaryWorkbenchLayout } from "./workbench-sidebar-render.mjs";
@@ -207,6 +207,8 @@ const state = {
   terminalStatus: "idle",
   agentSaving: false,
   agentSavePending: false,
+  agentSavePromise: null,
+  agentSaveSnapshot: null,
   titleEditing: false,
   titleSaving: false,
   titleDraft: "",
@@ -304,9 +306,10 @@ const settingsShellHelpers = createSettingsShellHelpers({
   renderSettingsNav,
   renderMobileSettingsIndex,
   syncSettingsCloseControl,
-  saveCurrentChatDraft,
-  hideSlashCommandPalette,
-  closeMobileSidebar,
+  // These are bound later from chatComposer/uiShell; wrap to avoid TDZ at module eval.
+  saveCurrentChatDraft: (...args) => saveCurrentChatDraft(...args),
+  hideSlashCommandPalette: (...args) => hideSlashCommandPalette(...args),
+  closeMobileSidebar: (...args) => closeMobileSidebar(...args),
   applyPrimaryWorkbench,
 });
 
@@ -468,6 +471,7 @@ const agentWorkspaceHelpers = createAgentWorkspaceHelpers({
   toggleTerminal: (collapsed) => toggleTerminal(collapsed),
   notifyTerminal,
   projectOperationContextActive,
+  isMobileAppViewport,
   closeConversationDetails,
   renderConversationDetails,
   updateRuntimeStatusButton: () => updateRuntimeStatusButton(),
@@ -968,7 +972,7 @@ const themeManager = createThemeManager({
   showToast,
   translate: t,
 });
-const appearanceBackgroundManager = createAppearanceBackgroundManager({ api, showToast });
+const appearanceBackgroundManager = createAppearanceBackgroundManager({ api, showToast, translate: t });
 themeManager.subscribe(() => {
   if (state.activeSettingsPanel === "appearance") refreshActiveSettingsPanel();
 });
@@ -1044,6 +1048,7 @@ const chatComposer = createChatComposerController({
   },
   isComposingInput,
   isCurrentModelConfigured,
+  awaitAgentSettingsSaved: (agentId) => waitForAgentSettingsSave(agentId),
   loadMessages,
   notifyTerminal,
   openDirectoryChooser,
@@ -2775,6 +2780,7 @@ async function enterAgent() {
   refreshMessageModeControl();
   await restoreCurrentChatDraft();
   syncMessageComposerBusy();
+  refreshComposerActivityStatus();
   clearRunSummary({ preserveView: true });
   clearPlanState(agentId);
   if (projectContext) {
@@ -2831,8 +2837,7 @@ function disconnectAgentTransports() {
   clearMessageRefreshTimer(state.agent?.id);
   invalidateMessageLifecycle();
   agentStream.disconnect();
-  backgroundTaskAgentLoadGeneration += 1;
-  backgroundTaskAgentLoadInFlight = null;
+  subagentCards.resetAgentLoad();
   backgroundTasks.setAgent("");
   state.ws = null;
   if (state.terminalWS) {
@@ -2889,6 +2894,7 @@ async function applyAgentLiveSnapshot(snapshot, detail = {}) {
   updateWorkspaceMetaPills();
   renderWorkbenchShell();
   syncMessageComposerBusy();
+  refreshComposerActivityStatus();
   const latestRun = snapshot.latestRun;
   if (latestRun?.id && ["completed", "error", "failed", "interrupted", "superseded"].includes(latestRun.status)) {
     loadRunSummary(latestRun.id, { agentId }).catch((error) => notifyTerminal(`[warn] ${am("runSummaryRestoreFailed", { message: error?.message || error })}\n`));
@@ -2980,34 +2986,42 @@ async function handleAgentStreamEvent(event) {
   }
 }
 
-async function saveAgentSettings() {
-  if (state.agentSaving) {
-    state.agentSavePending = true;
-    return;
-  }
+function captureAgentSettingsSnapshot() {
+  const selectableModel = selectedModelValue();
+  const rawModel = String($("modelSelect")?.value || "").trim();
+  const model = state.agent && rawModel === state.agent.model ? rawModel : selectableModel;
+  return {
+    agentId: state.agent?.id || "",
+    model,
+    selectableModel,
+    permissionMode: String($("permissionMode")?.value || "").trim(),
+    reasoningEffort: selectedReasoningEffort(model),
+  };
+}
+
+async function persistAgentSettingsPass(snapshot) {
   let agentId = "";
   let previousAgent = null;
   let modelPatchInFlight = false;
-  state.agentSaving = true;
   try {
-    const selectableModel = selectedModelValue();
-    const rawModel = String($("modelSelect")?.value || "").trim();
-    const model = state.agent && rawModel === state.agent.model ? rawModel : selectableModel;
-    if (!state.agent) {
+    const { model, selectableModel, permissionMode, reasoningEffort } = snapshot || {};
+    if (!snapshot?.agentId) {
       if (selectableModel) setPreferredModel(selectableModel);
       renderModelOptions();
       refreshActiveSettingsPanel();
       notifyTerminal(model ? `[info] ${am("modelPreferenceSaved", { model })}\n` : `[info] ${am("noModelSelectedTerminal")}\n`);
       return;
     }
-    agentId = state.agent.id;
+    if (state.agent?.id !== snapshot.agentId) return;
+    agentId = snapshot.agentId;
     previousAgent = state.agent;
     const id = agentId;
-    const permissionMode = $("permissionMode").value;
-    const reasoningEffort = selectedReasoningEffort(model);
     const applyAgentPatch = async (path, payload) => {
       const updated = await api(`/api/agents/${id}/${path}`, { method: "PATCH", body: JSON.stringify(payload) });
       if (state.agent?.id !== id) return false;
+      if (path === "model" && String(updated?.model || "").trim() !== String(payload.model || "").trim()) {
+        throw new Error(`Model update did not persist ${payload.model}`);
+      }
       state.agent = updated;
       return true;
     };
@@ -3025,6 +3039,7 @@ async function saveAgentSettings() {
     }
     if (state.agent?.id !== id) return;
     if (selectableModel && model === selectableModel) setPreferredModel(selectableModel);
+    if (state.agentSavePending) return;
     await enterAgent();
     if (state.agent?.id !== id) return;
     notifyTerminal(`Saved settings: ${state.agent.model}, ${state.agent.permissionMode}\n`);
@@ -3037,12 +3052,33 @@ async function saveAgentSettings() {
       updateWorkspaceMetaPills();
     }
     if (!agentId || state.agent?.id === agentId) throw err;
-  } finally {
-    state.agentSaving = false;
-    if (state.agentSavePending) {
+  }
+}
+
+function saveAgentSettings() {
+  state.agentSaveSnapshot = captureAgentSettingsSnapshot();
+  state.agentSavePending = true;
+  if (state.agentSavePromise) return state.agentSavePromise;
+  state.agentSaving = true;
+  state.agentSavePromise = (async () => {
+    while (state.agentSavePending) {
+      const snapshot = state.agentSaveSnapshot;
       state.agentSavePending = false;
-      saveAgentSettings().catch(showError);
+      await persistAgentSettingsPass(snapshot);
     }
+  })().finally(() => {
+    state.agentSaving = false;
+    state.agentSavePromise = null;
+  });
+  return state.agentSavePromise;
+}
+
+async function waitForAgentSettingsSave(agentId = state.agent?.id) {
+  while (state.agentSavePromise || state.agentSavePending) {
+    await (state.agentSavePromise || saveAgentSettings());
+  }
+  if (agentId && state.agent?.id !== agentId) {
+    throw new Error("The active conversation changed while model settings were saving.");
   }
 }
 
@@ -3138,7 +3174,6 @@ $("settingsSearchInput")?.addEventListener("keydown", (event) => {
   }
 });
 $("clearSettingsSearchBtn")?.addEventListener("click", () => clearSettingsSearchQuery({ focus: true }));
-$("settingsIdentityBtn")?.addEventListener("click", () => selectSettingsPanel("profile"));
 $("closeSettingsModalBtn").addEventListener("click", () => requestCloseSettingsModal());
 $("settingsModal").addEventListener("keydown", (event) => {
   settingsHelp.handleKeydown(event);
@@ -3312,6 +3347,7 @@ window.addEventListener("resize", () => {
   layoutSettingsShell();
   resizeTerminal();
   autoResizeMessageInput();
+  refreshComposerActivityStatus();
 });
 window.addEventListener("autoto:auth-changed", () => {
   saveCurrentChatDraft();

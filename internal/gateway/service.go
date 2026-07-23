@@ -2,6 +2,7 @@ package gateway
 
 import (
 	"context"
+	"crypto/subtle"
 	"database/sql"
 	"errors"
 	"net/http"
@@ -17,19 +18,21 @@ const defaultMaxRequestBytes = int64(8 << 20)
 type ProviderPolicy func(context.Context, string) bool
 
 type Options struct {
-	MaxGlobalConcurrency int
-	MaxRequestBytes      int64
-	ProviderAllowed      ProviderPolicy
-	Now                  func() time.Time
+	MaxGlobalConcurrency         int
+	MaxRequestBytes              int64
+	ProviderAllowed              ProviderPolicy
+	AllowSubscriptionCredentials bool
+	Now                          func() time.Time
 }
 
 type Service struct {
-	store           *db.Store
-	providers       *providers.Registry
-	providerAllowed ProviderPolicy
-	maxRequestBytes int64
-	now             func() time.Time
-	limits          *requestLimiter
+	store                        *db.Store
+	providers                    *providers.Registry
+	providerAllowed              ProviderPolicy
+	allowSubscriptionCredentials bool
+	maxRequestBytes              int64
+	now                          func() time.Time
+	limits                       *requestLimiter
 }
 
 func New(store *db.Store, registry *providers.Registry, options Options) (*Service, error) {
@@ -46,12 +49,13 @@ func New(store *db.Store, registry *providers.Registry, options Options) (*Servi
 		options.MaxRequestBytes = defaultMaxRequestBytes
 	}
 	return &Service{
-		store:           store,
-		providers:       registry,
-		providerAllowed: options.ProviderAllowed,
-		maxRequestBytes: options.MaxRequestBytes,
-		now:             options.Now,
-		limits:          newRequestLimiter(options.MaxGlobalConcurrency, options.Now),
+		store:                        store,
+		providers:                    registry,
+		providerAllowed:              options.ProviderAllowed,
+		allowSubscriptionCredentials: options.AllowSubscriptionCredentials,
+		maxRequestBytes:              options.MaxRequestBytes,
+		now:                          options.Now,
+		limits:                       newRequestLimiter(options.MaxGlobalConcurrency, options.Now),
 	}, nil
 }
 
@@ -65,7 +69,11 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("X-Frame-Options", "DENY")
 	w.Header().Set("Referrer-Policy", "no-referrer")
 	if strings.TrimSpace(r.Header.Get("Origin")) != "" {
-		writeAPIError(w, http.StatusForbidden, "browser_origin_forbidden", "Browser-origin requests are not allowed.", "invalid_request_error", "")
+		if isAnthropicGatewayPath(r.URL.Path) {
+			writeAnthropicError(w, http.StatusForbidden, "permission_error", "Browser-origin requests are not allowed.")
+		} else {
+			writeAPIError(w, http.StatusForbidden, "browser_origin_forbidden", "Browser-origin requests are not allowed.", "invalid_request_error", "")
+		}
 		return
 	}
 
@@ -84,61 +92,137 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		s.handleChatCompletions(w, r)
+	case "/v1/responses":
+		if r.Method != http.MethodPost {
+			w.Header().Set("Allow", http.MethodPost)
+			writeAPIError(w, http.StatusMethodNotAllowed, "method_not_allowed", "Method not allowed.", "invalid_request_error", "")
+			return
+		}
+		s.handleResponses(w, r)
+	case "/v1/messages":
+		if r.Method != http.MethodPost {
+			w.Header().Set("Allow", http.MethodPost)
+			writeAnthropicError(w, http.StatusMethodNotAllowed, "invalid_request_error", "Method not allowed.")
+			return
+		}
+		s.handleAnthropicMessages(w, r)
+	case "/v1/messages/count_tokens":
+		if r.Method != http.MethodPost {
+			w.Header().Set("Allow", http.MethodPost)
+			writeAnthropicError(w, http.StatusMethodNotAllowed, "invalid_request_error", "Method not allowed.")
+			return
+		}
+		s.handleAnthropicCountTokens(w, r)
 	default:
 		writeAPIError(w, http.StatusNotFound, "not_found", "Endpoint not found.", "invalid_request_error", "")
 	}
+}
+
+func isAnthropicGatewayPath(path string) bool {
+	return path == "/v1/messages" || path == "/v1/messages/count_tokens"
 }
 
 func (s *Service) authenticateRequest(w http.ResponseWriter, r *http.Request) (db.GatewayKey, bool) {
 	token, ok := bearerToken(r.Header.Get("Authorization"))
 	if !ok {
 		w.Header().Set("WWW-Authenticate", `Bearer realm="autoto-gateway"`)
-		writeAPIError(w, http.StatusUnauthorized, "invalid_api_key", "Invalid API key.", "invalid_request_error", "")
+		writeProblem(w, invalidAPIKeyProblem())
 		return db.GatewayKey{}, false
 	}
-	key, err := s.store.GetGatewayKeyByTokenHash(r.Context(), HashToken(token))
-	if err != nil {
-		if !errors.Is(err, sql.ErrNoRows) {
-			writeAPIError(w, http.StatusInternalServerError, "gateway_internal_error", "Gateway authentication failed.", "server_error", "")
+	key, problem := s.authenticateToken(r.Context(), token)
+	if problem != nil {
+		if problem.Status == http.StatusUnauthorized {
+			w.Header().Set("WWW-Authenticate", `Bearer realm="autoto-gateway"`)
+		}
+		if problem.Status == http.StatusTooManyRequests {
+			w.Header().Set("Retry-After", "60")
+		}
+		writeProblem(w, problem)
+		return db.GatewayKey{}, false
+	}
+	return key, true
+}
+
+func (s *Service) authenticateAnthropicRequest(w http.ResponseWriter, r *http.Request) (db.GatewayKey, bool) {
+	authorization := strings.TrimSpace(r.Header.Get("Authorization"))
+	xAPIKey := strings.TrimSpace(r.Header.Get("x-api-key"))
+	var token string
+	if authorization != "" {
+		bearer, ok := bearerToken(authorization)
+		if !ok {
+			writeAnthropicProblem(w, invalidAPIKeyProblem())
 			return db.GatewayKey{}, false
 		}
-		w.Header().Set("WWW-Authenticate", `Bearer realm="autoto-gateway"`)
-		writeAPIError(w, http.StatusUnauthorized, "invalid_api_key", "Invalid API key.", "invalid_request_error", "")
+		token = bearer
+	}
+	if xAPIKey != "" {
+		if len(xAPIKey) > 1024 {
+			writeAnthropicProblem(w, invalidAPIKeyProblem())
+			return db.GatewayKey{}, false
+		}
+		if token != "" && !constantTimeStringEqual(token, xAPIKey) {
+			writeAnthropicProblem(w, invalidAPIKeyProblem())
+			return db.GatewayKey{}, false
+		}
+		token = xAPIKey
+	}
+	if token == "" {
+		writeAnthropicProblem(w, invalidAPIKeyProblem())
 		return db.GatewayKey{}, false
 	}
-	if !key.Enabled || key.RevokedAt != "" {
-		w.Header().Set("WWW-Authenticate", `Bearer realm="autoto-gateway"`)
-		writeAPIError(w, http.StatusUnauthorized, "invalid_api_key", "Invalid API key.", "invalid_request_error", "")
+	key, problem := s.authenticateToken(r.Context(), token)
+	if problem != nil {
+		if problem.Status == http.StatusTooManyRequests {
+			w.Header().Set("Retry-After", "60")
+		}
+		writeAnthropicProblem(w, problem)
 		return db.GatewayKey{}, false
+	}
+	return key, true
+}
+
+func (s *Service) authenticateToken(ctx context.Context, token string) (db.GatewayKey, *apiProblem) {
+	key, err := s.store.GetGatewayKeyByTokenHash(ctx, HashToken(token))
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return db.GatewayKey{}, invalidAPIKeyProblem()
+		}
+		return db.GatewayKey{}, &apiProblem{Status: http.StatusInternalServerError, Code: "gateway_internal_error", Type: "server_error", Message: "Gateway authentication failed."}
+	}
+	if !key.Enabled || key.RevokedAt != "" {
+		return db.GatewayKey{}, invalidAPIKeyProblem()
 	}
 	if key.ExpiresAt != "" {
 		expiresAt, parseErr := time.Parse(time.RFC3339Nano, key.ExpiresAt)
 		if parseErr != nil {
-			writeAPIError(w, http.StatusInternalServerError, "gateway_internal_error", "Gateway authentication failed.", "server_error", "")
-			return db.GatewayKey{}, false
+			return db.GatewayKey{}, &apiProblem{Status: http.StatusInternalServerError, Code: "gateway_internal_error", Type: "server_error", Message: "Gateway authentication failed."}
 		}
 		if !s.now().Before(expiresAt) {
-			w.Header().Set("WWW-Authenticate", `Bearer realm="autoto-gateway"`)
-			writeAPIError(w, http.StatusUnauthorized, "expired_api_key", "API key has expired.", "invalid_request_error", "")
-			return db.GatewayKey{}, false
+			return db.GatewayKey{}, &apiProblem{Status: http.StatusUnauthorized, Code: "expired_api_key", Type: "invalid_request_error", Message: "API key has expired."}
 		}
 	}
 	if err := s.limits.allowRequest(key); err != nil {
-		w.Header().Set("Retry-After", "60")
-		writeAPIError(w, http.StatusTooManyRequests, "rate_limit_exceeded", "Rate limit exceeded.", "rate_limit_error", "")
-		return db.GatewayKey{}, false
+		return db.GatewayKey{}, &apiProblem{Status: http.StatusTooManyRequests, Code: "rate_limit_exceeded", Type: "rate_limit_error", Message: "Rate limit exceeded."}
 	}
-	touched, err := s.store.TouchGatewayKeyLastUsed(r.Context(), key.ID, s.now().UTC().Format(time.RFC3339Nano))
+	touched, err := s.store.TouchGatewayKeyLastUsed(ctx, key.ID, s.now().UTC().Format(time.RFC3339Nano))
 	if err != nil {
 		if errors.Is(err, db.ErrGatewayKeyRevoked) || errors.Is(err, sql.ErrNoRows) {
-			w.Header().Set("WWW-Authenticate", `Bearer realm="autoto-gateway"`)
-			writeAPIError(w, http.StatusUnauthorized, "invalid_api_key", "Invalid API key.", "invalid_request_error", "")
-			return db.GatewayKey{}, false
+			return db.GatewayKey{}, invalidAPIKeyProblem()
 		}
-		writeAPIError(w, http.StatusInternalServerError, "gateway_internal_error", "Gateway authentication failed.", "server_error", "")
-		return db.GatewayKey{}, false
+		return db.GatewayKey{}, &apiProblem{Status: http.StatusInternalServerError, Code: "gateway_internal_error", Type: "server_error", Message: "Gateway authentication failed."}
 	}
-	return touched, true
+	return touched, nil
+}
+
+func invalidAPIKeyProblem() *apiProblem {
+	return &apiProblem{Status: http.StatusUnauthorized, Code: "invalid_api_key", Type: "invalid_request_error", Message: "Invalid API key."}
+}
+
+func constantTimeStringEqual(left, right string) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	return subtle.ConstantTimeCompare([]byte(left), []byte(right)) == 1
 }
 
 func bearerToken(value string) (string, bool) {
@@ -222,10 +306,10 @@ func (s *Service) providerPermitted(ctx context.Context, name string) bool {
 	if !ok || provider == nil {
 		return false
 	}
-	if _, blocked := provider.(*providers.CodexProvider); blocked {
-		return false
-	}
-	return providers.ConfiguredForScenario(provider, true, providers.CallScenarioGateway)
+	return providers.AvailableForScenario(ctx, provider, true, providers.ScenarioAvailability{
+		Scenario:                     providers.CallScenarioGateway,
+		AllowSubscriptionCredentials: s.allowSubscriptionCredentials,
+	})
 }
 
 func gatewayKeyAllowsModel(key db.GatewayKey, alias string) bool {
@@ -238,4 +322,77 @@ func gatewayKeyAllowsModel(key db.GatewayKey, alias string) bool {
 		}
 	}
 	return false
+}
+
+type generationParameterNames struct {
+	Tools           string
+	Images          string
+	ReasoningEffort string
+	ServiceTier     string
+	MaxOutputTokens string
+}
+
+func (s *Service) resolveAndValidateProviderRequest(ctx context.Context, key db.GatewayKey, alias string, request *providers.GenerateRequest, hasImages bool, parameters generationParameterNames) (resolvedModel, *apiProblem) {
+	if request == nil {
+		return resolvedModel{}, internalProblem()
+	}
+	resolved, problem := s.resolveModel(ctx, key, alias)
+	if problem != nil {
+		return resolvedModel{}, problem
+	}
+	capabilities := providers.CapabilitiesFor(resolved.Provider)
+	if len(request.Tools) > 0 && !capabilities.Tools {
+		return resolvedModel{}, invalidParam(parameters.Tools, "The requested model does not support function tools.")
+	}
+	if hasImages && !capabilities.ImageInput {
+		return resolvedModel{}, invalidParam(parameters.Images, "The requested model does not support image input.")
+	}
+	if !capabilities.SupportsReasoningEffort(request.ReasoningEffort) {
+		return resolvedModel{}, invalidParam(parameters.ReasoningEffort, "The requested reasoning effort is not supported by this model.")
+	}
+	if request.FastMode && !providers.ModelCapabilitiesFor(resolved.Provider, resolved.Model).FastMode {
+		return resolvedModel{}, invalidParam(parameters.ServiceTier, "Priority service is not supported by this model.")
+	}
+	request.Model = resolved.Model
+	request.Scenario = providers.CallScenarioGateway
+	request.AllowSubscriptionCredentials = s.allowSubscriptionCredentials
+	return resolved, nil
+}
+
+func (s *Service) prepareProviderRequest(ctx context.Context, key db.GatewayKey, alias string, request *providers.GenerateRequest, hasImages bool, lease *ingressLease, parameters generationParameterNames) (resolvedModel, *apiProblem) {
+	resolved, problem := s.resolveAndValidateProviderRequest(ctx, key, alias, request, hasImages, parameters)
+	if problem != nil {
+		return resolvedModel{}, problem
+	}
+	monthlyTokens := int64(0)
+	reservation := int64(0)
+	if key.MonthlyTokenLimit > 0 {
+		usage, err := s.store.GetGatewayKeyMonthlyUsage(ctx, key.ID, s.now())
+		if err != nil {
+			return resolvedModel{}, internalProblem()
+		}
+		monthlyTokens = usage.TotalTokens
+		remaining := key.MonthlyTokenLimit - monthlyTokens
+		if remaining <= 0 {
+			return resolvedModel{}, &apiProblem{Status: http.StatusTooManyRequests, Code: "monthly_token_limit_exceeded", Type: "rate_limit_error", Message: "Monthly token limit exceeded."}
+		}
+		requested := request.MaxOutputTokens
+		if requested <= 0 {
+			requested = defaultOutputReservation
+			if requested > remaining {
+				requested = remaining
+			}
+		} else if requested > remaining {
+			return resolvedModel{}, &apiProblem{Status: http.StatusTooManyRequests, Code: "monthly_token_limit_exceeded", Type: "rate_limit_error", Param: parameters.MaxOutputTokens, Message: "The requested maximum output exceeds the remaining monthly token allowance."}
+		}
+		request.MaxOutputTokens = requested
+		reservation = requested
+	}
+	if lease == nil {
+		return resolvedModel{}, internalProblem()
+	}
+	if err := lease.Reserve(key.MonthlyTokenLimit, monthlyTokens, reservation); err != nil {
+		return resolvedModel{}, &apiProblem{Status: http.StatusTooManyRequests, Code: "monthly_token_limit_exceeded", Type: "rate_limit_error", Message: "Monthly token limit exceeded."}
+	}
+	return resolved, nil
 }

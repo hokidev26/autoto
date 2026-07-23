@@ -19,7 +19,7 @@ import (
 	"autoto/internal/config"
 )
 
-func TestAnthropicGatewayCandidatesExcludeProfiles(t *testing.T) {
+func TestAnthropicGatewayRequiresSharingAndGrantsConfiguredOrManagedAccounts(t *testing.T) {
 	storeDir := t.TempDir()
 	store := anthropicauth.NewStore(storeDir)
 	profile, err := store.Create(anthropicauth.CreateRequest{AuthType: anthropicauth.AuthTypeProfile, Profile: "work", Priority: 1})
@@ -27,21 +27,36 @@ func TestAnthropicGatewayCandidatesExcludeProfiles(t *testing.T) {
 		t.Fatal(err)
 	}
 	apiKey := createAnthropicAPIKeyAccount(t, store, "sk-ant-api-key", 2, false)
-	provider := NewAnthropicProvider(config.ProviderConfig{CredentialStorePath: storeDir})
-	candidates, err := provider.accountCandidates(CallScenarioGateway)
+	oauth := createAnthropicOAuthAccount(t, store, "oauth-access", "", time.Now().Add(time.Hour), 3, false)
+	provider := NewAnthropicProvider(config.ProviderConfig{CredentialStorePath: storeDir, APIKey: "configured-key"})
+
+	candidates, err := provider.accountCandidates(context.Background(), GenerateRequest{Scenario: CallScenarioGateway})
+	if err == nil || len(candidates) != 0 {
+		t.Fatalf("Gateway credentials must require explicit sharing: candidates=%+v err=%v", candidates, err)
+	}
+
+	provider.SetGatewayAccountPolicy(staticGatewayAccountPolicy{ids: map[string][]string{
+		provider.Name(): {profile.Credential.ID, apiKey.Credential.ID, oauth.Credential.ID, configuredCredentialID},
+	}})
+	candidates, err = provider.accountCandidates(context.Background(), GenerateRequest{Scenario: CallScenarioGateway, AllowSubscriptionCredentials: true})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(candidates) != 1 || candidates[0].id != apiKey.Credential.ID || candidates[0].id == profile.Credential.ID {
-		t.Fatalf("gateway candidates must contain only API keys: %+v", candidates)
+	ids := make([]string, 0, len(candidates))
+	for _, candidate := range candidates {
+		ids = append(ids, candidate.id)
 	}
-	internal, err := provider.accountCandidates(CallScenarioInternal)
-	if err != nil || len(internal) != 2 {
+	if strings.Join(ids, ",") != strings.Join([]string{apiKey.Credential.ID, oauth.Credential.ID, configuredCredentialID}, ",") {
+		t.Fatalf("Gateway grants were not applied or profile was included: %v", ids)
+	}
+
+	internal, err := provider.accountCandidates(context.Background(), GenerateRequest{Scenario: CallScenarioInternal})
+	if err != nil || len(internal) != 4 {
 		t.Fatalf("internal candidates changed: candidates=%+v err=%v", internal, err)
 	}
 }
 
-func TestAnthropicScenarioConfigurationRequiresGatewayAPIKey(t *testing.T) {
+func TestAnthropicScenarioConfigurationAndDynamicAvailability(t *testing.T) {
 	storeDir := t.TempDir()
 	store := anthropicauth.NewStore(storeDir)
 	if _, err := store.Create(anthropicauth.CreateRequest{AuthType: anthropicauth.AuthTypeProfile, Profile: "work", Priority: 1}); err != nil {
@@ -55,9 +70,187 @@ func TestAnthropicScenarioConfigurationRequiresGatewayAPIKey(t *testing.T) {
 		t.Fatal("profile-only Anthropic provider must not be configured for Gateway calls")
 	}
 
-	createAnthropicAPIKeyAccount(t, store, "sk-ant-gateway", 2, false)
-	if !provider.ConfiguredForScenario(CallScenarioGateway) || !ConfiguredForScenario(provider, false, CallScenarioGateway) {
-		t.Fatal("enabled Anthropic API key should configure Gateway calls")
+	apiKey := createAnthropicAPIKeyAccount(t, store, "sk-ant-gateway", 2, false)
+	if provider.ConfiguredForScenario(CallScenarioGateway) || AvailableForScenario(context.Background(), provider, true, ScenarioAvailability{Scenario: CallScenarioGateway}) {
+		t.Fatal("managed Anthropic API keys require explicit sharing and a grant")
+	}
+	provider.SetGatewayAccountPolicy(staticGatewayAccountPolicy{ids: map[string][]string{provider.Name(): {apiKey.Credential.ID}}})
+	if !AvailableForScenario(context.Background(), provider, false, ScenarioAvailability{Scenario: CallScenarioGateway, AllowSubscriptionCredentials: true}) {
+		t.Fatal("granted managed Anthropic API key was not dynamically available")
+	}
+
+	configured := NewAnthropicProvider(config.ProviderConfig{CredentialStorePath: storeDir, APIKey: "configured-gateway"})
+	if !configured.ConfiguredForScenario(CallScenarioGateway) || !ConfiguredForScenario(configured, false, CallScenarioGateway) {
+		t.Fatal("ordinary configured Anthropic API key should remain statically configured")
+	}
+	if AvailableForScenario(context.Background(), configured, true, ScenarioAvailability{Scenario: CallScenarioGateway, AllowSubscriptionCredentials: true}) {
+		t.Fatal("configured Anthropic API key must require a stable account grant")
+	}
+	configured.SetGatewayAccountPolicy(staticGatewayAccountPolicy{ids: map[string][]string{configured.Name(): {configuredCredentialID}}})
+	if !AvailableForScenario(context.Background(), configured, false, ScenarioAvailability{Scenario: CallScenarioGateway, AllowSubscriptionCredentials: true}) {
+		t.Fatal("granted configured Anthropic API key was not dynamically available")
+	}
+}
+
+func TestAnthropicGatewayDispatchesConfiguredOrGrantedManagedCredential(t *testing.T) {
+	storeDir := t.TempDir()
+	store := anthropicauth.NewStore(storeDir)
+	managed := createAnthropicAPIKeyAccount(t, store, "managed-key", 1, false)
+	oauth := createAnthropicOAuthAccount(t, store, "oauth-access", "", time.Now().Add(time.Hour), 2, false)
+	type requestAuth struct {
+		apiKey        string
+		authorization string
+		beta          string
+	}
+	var headers []requestAuth
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		headers = append(headers, requestAuth{
+			apiKey:        r.Header.Get("X-Api-Key"),
+			authorization: r.Header.Get("Authorization"),
+			beta:          r.Header.Get("Anthropic-Beta"),
+		})
+		writeAnthropicSuccessStream(w, "ok")
+	}))
+	defer server.Close()
+
+	provider := NewAnthropicProvider(config.ProviderConfig{
+		Name:                "anthropic",
+		BaseURL:             server.URL,
+		CredentialStorePath: storeDir,
+		APIKey:              "configured-key",
+		Model:               "claude-test",
+	})
+	generate := func(req GenerateRequest) *DispatchInfo {
+		t.Helper()
+		req.Messages = []Message{{Role: "user", Content: "hello"}}
+		events, err := provider.Generate(context.Background(), req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var dispatch *DispatchInfo
+		for event := range events {
+			if event.Type == "error" {
+				t.Fatalf("unexpected Gateway error: %s", event.Text)
+			}
+			if event.Dispatch != nil {
+				dispatch = event.Dispatch
+			}
+		}
+		return dispatch
+	}
+
+	provider.SetGatewayAccountPolicy(staticGatewayAccountPolicy{ids: map[string][]string{provider.Name(): {configuredCredentialID}}})
+	dispatch := generate(GenerateRequest{Scenario: CallScenarioGateway, AllowSubscriptionCredentials: true})
+	if dispatch == nil || dispatch.CredentialID != configuredCredentialID {
+		t.Fatalf("granted configured Gateway credential must use its stable ID: %+v", dispatch)
+	}
+	provider.SetGatewayAccountPolicy(staticGatewayAccountPolicy{ids: map[string][]string{provider.Name(): {managed.Credential.ID}}})
+	dispatch = generate(GenerateRequest{Scenario: CallScenarioGateway, AllowSubscriptionCredentials: true})
+	if dispatch == nil || dispatch.CredentialID != managed.Credential.ID {
+		t.Fatalf("granted managed account was not attributed: %+v", dispatch)
+	}
+	provider.SetGatewayAccountPolicy(staticGatewayAccountPolicy{ids: map[string][]string{provider.Name(): {oauth.Credential.ID}}})
+	dispatch = generate(GenerateRequest{Scenario: CallScenarioGateway, AllowSubscriptionCredentials: true})
+	if dispatch == nil || dispatch.CredentialID != oauth.Credential.ID {
+		t.Fatalf("granted OAuth account was not attributed: %+v", dispatch)
+	}
+	if len(headers) != 3 || headers[0].apiKey != "configured-key" || headers[1].apiKey != "managed-key" || headers[2].apiKey != "" || headers[2].authorization != "Bearer oauth-access" || !strings.Contains(headers[2].beta, anthropicauth.OAuthBetaHeader) {
+		t.Fatalf("unexpected Gateway credential selection: %+v", headers)
+	}
+}
+
+func TestAnthropicOAuthRefreshUsesRequestContext(t *testing.T) {
+	storeDir := t.TempDir()
+	store := anthropicauth.NewStore(storeDir)
+	now := time.Date(2026, 7, 22, 12, 0, 0, 0, time.UTC)
+	createAnthropicOAuthAccount(t, store, "expired-access", "refresh-token", now.Add(-time.Minute), 1, false)
+	provider := NewAnthropicProvider(config.ProviderConfig{CredentialStorePath: storeDir})
+	provider.clock = func() time.Time { return now }
+	started := make(chan struct{}, 1)
+	provider.oauthRefreshToken = func(ctx context.Context, _ string, _ *http.Client) (anthropicauth.OAuthTokenResponse, error) {
+		started <- struct{}{}
+		<-ctx.Done()
+		return anthropicauth.OAuthTokenResponse{}, ctx.Err()
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	result := make(chan error, 1)
+	go func() {
+		_, err := provider.accountCandidates(ctx, GenerateRequest{Scenario: CallScenarioInternal})
+		result <- err
+	}()
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("OAuth refresh did not start")
+	}
+	cancel()
+	select {
+	case err := <-result:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("refresh did not return request cancellation: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("OAuth refresh ignored request cancellation")
+	}
+}
+
+func TestAnthropicOAuthRefreshCoalescesAndExpiredFailureCloses(t *testing.T) {
+	storeDir := t.TempDir()
+	store := anthropicauth.NewStore(storeDir)
+	now := time.Date(2026, 7, 22, 12, 0, 0, 0, time.UTC)
+	account := createAnthropicOAuthAccount(t, store, "expired-access", "refresh-token", now.Add(-time.Minute), 1, false)
+	provider := NewAnthropicProvider(config.ProviderConfig{CredentialStorePath: storeDir})
+	provider.clock = func() time.Time { return now }
+	started := make(chan struct{}, 1)
+	release := make(chan struct{})
+	var refreshes atomic.Int32
+	provider.oauthRefreshToken = func(context.Context, string, *http.Client) (anthropicauth.OAuthTokenResponse, error) {
+		refreshes.Add(1)
+		select {
+		case started <- struct{}{}:
+		default:
+		}
+		<-release
+		return anthropicauth.OAuthTokenResponse{AccessToken: "fresh-access", RefreshToken: "fresh-refresh", ExpiresIn: 3600}, nil
+	}
+	results := make(chan error, 2)
+	for range 2 {
+		go func() {
+			candidates, err := provider.accountCandidates(context.Background(), GenerateRequest{Scenario: CallScenarioInternal})
+			if err == nil && (len(candidates) != 1 || candidates[0].id != account.Credential.ID) {
+				err = errors.New("unexpected refreshed candidates")
+			}
+			results <- err
+		}()
+	}
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("OAuth refresh did not start")
+	}
+	close(release)
+	for range 2 {
+		if err := <-results; err != nil {
+			t.Fatal(err)
+		}
+	}
+	if refreshes.Load() != 1 {
+		t.Fatalf("concurrent OAuth refreshes were not coalesced: %d", refreshes.Load())
+	}
+	stored, err := store.GetByID(account.Credential.ID)
+	if err != nil || stored.Credential.OAuthAccess != "fresh-access" || stored.Credential.OAuthRefresh != "fresh-refresh" {
+		t.Fatalf("refreshed OAuth credential was not persisted: item=%+v err=%v", stored, err)
+	}
+
+	stored.Credential.OAuthExpiresAt = now.Add(-time.Minute).Format(time.RFC3339Nano)
+	if _, err := store.UpdateOAuthTokens(account.Credential.ID, "expired-again", "refresh-again", stored.Credential.OAuthExpiresAt); err != nil {
+		t.Fatal(err)
+	}
+	provider.oauthRefreshToken = func(context.Context, string, *http.Client) (anthropicauth.OAuthTokenResponse, error) {
+		return anthropicauth.OAuthTokenResponse{}, errors.New("refresh failed")
+	}
+	if candidates, err := provider.accountCandidates(context.Background(), GenerateRequest{Scenario: CallScenarioInternal}); err == nil || len(candidates) != 0 {
+		t.Fatalf("expired OAuth refresh failure must fail closed: candidates=%+v err=%v", candidates, err)
 	}
 }
 
@@ -308,6 +501,26 @@ func (r *recordingAnthropicTelemetry) UpdateProviderAccountQuota(_ context.Conte
 func createAnthropicAPIKeyAccount(t *testing.T, store *anthropicauth.Store, apiKey string, priority int, disabled bool) anthropicauth.StoredCredential {
 	t.Helper()
 	item, err := store.Create(anthropicauth.CreateRequest{AuthType: anthropicauth.AuthTypeAPIKey, APIKey: apiKey, Priority: priority, Disabled: disabled})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return item
+}
+
+func createAnthropicOAuthAccount(t *testing.T, store *anthropicauth.Store, access, refresh string, expiresAt time.Time, priority int, disabled bool) anthropicauth.StoredCredential {
+	t.Helper()
+	expires := ""
+	if !expiresAt.IsZero() {
+		expires = expiresAt.UTC().Format(time.RFC3339Nano)
+	}
+	item, err := store.Create(anthropicauth.CreateRequest{
+		AuthType:       anthropicauth.AuthTypeOAuth,
+		OAuthAccess:    access,
+		OAuthRefresh:   refresh,
+		OAuthExpiresAt: expires,
+		Priority:       priority,
+		Disabled:       disabled,
+	})
 	if err != nil {
 		t.Fatal(err)
 	}

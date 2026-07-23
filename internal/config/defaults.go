@@ -5,11 +5,15 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 
 	"autoto/internal/compat"
 )
@@ -21,7 +25,15 @@ import (
 // Keep this a package-level var (not const) so the Go linker can rewrite it.
 var Version = "0.1.0-dev"
 
-const CurrentConfigVersion = 1
+// Commit is the short git commit hash of the build. Empty in local/dev builds;
+// release builds inject it with:
+//
+//	-ldflags "-X autoto/internal/config.Commit=$(git rev-parse --short HEAD)"
+//
+// When set, it is shown in the startup banner as "Autoto <version> (<commit>)".
+var Commit = ""
+
+const CurrentConfigVersion = 2
 
 type Config struct {
 	SchemaVersion     int                     `json:"version"`
@@ -43,6 +55,7 @@ type ServerConfig struct {
 
 type GatewayConfig struct {
 	Enabled              bool   `json:"enabled"`
+	AllowRemote          bool   `json:"allowRemote"`
 	Host                 string `json:"host"`
 	Port                 int    `json:"port"`
 	MaxGlobalConcurrency int    `json:"maxGlobalConcurrency"`
@@ -232,6 +245,7 @@ func defaultWithReport(report *compat.Report) (Config, error) {
 		Server:        ServerConfig{Host: "localhost", Port: 16888},
 		Gateway: GatewayConfig{
 			Enabled:              false,
+			AllowRemote:          false,
 			Host:                 "127.0.0.1",
 			Port:                 8788,
 			MaxGlobalConcurrency: 16,
@@ -574,17 +588,14 @@ func normalizeConfigWithReport(cfg Config, report *compat.Report) Config {
 }
 
 func migrateConfig(cfg Config) Config {
-	if cfg.SchemaVersion <= 0 {
+	if cfg.SchemaVersion < CurrentConfigVersion {
 		cfg.SchemaVersion = CurrentConfigVersion
 	}
 	return cfg
 }
 
 func normalizeGatewayConfig(gateway GatewayConfig) GatewayConfig {
-	gateway.Host = strings.TrimSpace(gateway.Host)
-	if gateway.Host == "" {
-		gateway.Host = "127.0.0.1"
-	}
+	gateway.Host = normalizeGatewayHost(gateway.Host, gateway.AllowRemote)
 	if gateway.Port <= 0 || gateway.Port > 65535 {
 		gateway.Port = 8788
 	}
@@ -601,6 +612,49 @@ func normalizeGatewayConfig(gateway GatewayConfig) GatewayConfig {
 		gateway.MaxRequestBytes = 64 << 20
 	}
 	return gateway
+}
+
+func normalizeGatewayHost(raw string, allowRemote bool) string {
+	const loopbackFallback = "127.0.0.1"
+	if !utf8.ValidString(raw) {
+		return loopbackFallback
+	}
+	for _, char := range raw {
+		if unicode.IsControl(char) || unicode.Is(unicode.Cf, char) {
+			return loopbackFallback
+		}
+	}
+
+	host := strings.TrimSpace(raw)
+	if host == "" {
+		return loopbackFallback
+	}
+	if strings.EqualFold(host, "localhost") {
+		return "localhost"
+	}
+	if host == "*" {
+		if allowRemote {
+			return "0.0.0.0"
+		}
+		return loopbackFallback
+	}
+	if strings.HasPrefix(host, "[") || strings.HasSuffix(host, "]") {
+		if len(host) < 3 || host[0] != '[' || host[len(host)-1] != ']' {
+			return loopbackFallback
+		}
+		host = host[1 : len(host)-1]
+	}
+	ip := net.ParseIP(host)
+	if ip == nil {
+		return loopbackFallback
+	}
+	if !allowRemote && !ip.IsLoopback() {
+		return loopbackFallback
+	}
+	if ipv4 := ip.To4(); ipv4 != nil {
+		return ipv4.String()
+	}
+	return ip.String()
 }
 
 func normalizeContextManagementConfig(value ContextManagementConfig) ContextManagementConfig {
@@ -818,7 +872,7 @@ func (c Config) Addr() string {
 }
 
 func (c Config) GatewayAddr() string {
-	return fmt.Sprintf("%s:%d", c.Gateway.Host, c.Gateway.Port)
+	return net.JoinHostPort(c.Gateway.Host, strconv.Itoa(c.Gateway.Port))
 }
 
 func (p ProviderConfig) IsConfigured() bool {
@@ -849,7 +903,7 @@ func (p ProviderConfig) Summary() ProviderSummary {
 // as built in to bypass lifecycle restrictions.
 func ProviderOriginForName(name string) string {
 	switch strings.ToLower(strings.TrimSpace(name)) {
-	case "openai", "anthropic", ProviderTypeCodex, "ollama", "openai-compatible", ProviderProfileCLIProxyAPI:
+	case "openai", "anthropic", ProviderTypeCodex, "ollama", "openai-compatible", ProviderProfileCLIProxyAPI, "gemini":
 		return ProviderOriginBuiltin
 	default:
 		return ProviderOriginCustom
@@ -940,7 +994,7 @@ func normalizeProviders(p ProvidersConfig) ProvidersConfig {
 		applyProviderEnvDefaults(provider)
 		provider.Model = strings.TrimSpace(provider.Model)
 		provider.Models = NormalizeProviderModels(provider.Models, provider.Model)
-		if strings.EqualFold(provider.Type, ProviderTypeCodex) || strings.EqualFold(provider.Profile, ProviderProfileCLIProxyAPI) {
+		if strings.EqualFold(provider.Profile, ProviderProfileCLIProxyAPI) {
 			provider.GatewayEnabled = false
 		}
 	}
@@ -1216,14 +1270,20 @@ func writeConfigAtomically(path string, data []byte) error {
 
 	directory, err := os.Open(dir)
 	if err != nil {
-		return err
+		// Rename already succeeded; parent-dir fsync is best-effort durability.
+		return nil
 	}
 	defer directory.Close()
-	return directory.Sync()
+	// Windows rejects Sync on directory handles ("Access is denied").
+	if err := directory.Sync(); err != nil && runtime.GOOS != "windows" {
+		return err
+	}
+	return nil
 }
 
 func sanitizeConfigForDisk(cfg Config) Config {
 	cfg = migrateConfig(cfg)
+	cfg.Gateway = normalizeGatewayConfig(cfg.Gateway)
 	cfg.ContextManagement = normalizeContextManagementConfig(cfg.ContextManagement)
 	cfg.Agent = normalizeAgentConfig(cfg.Agent)
 	cfg.Auth.OAuthApp = cfg.Auth.OAuthApp.Normalized()

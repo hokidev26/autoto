@@ -584,9 +584,11 @@ func (s *Server) refreshProviderRuntimeIdentity(installationID string) {
 		}
 		if codexProvider, ok := provider.(*providers.CodexProvider); ok && s.store != nil {
 			codexProvider.SetAccountTelemetry(s.store)
+			codexProvider.SetGatewayAccountPolicy(s.store)
 		}
 		if anthropicProvider, ok := provider.(*providers.AnthropicProvider); ok && s.store != nil {
 			anthropicProvider.SetAccountTelemetry(s.store)
+			anthropicProvider.SetGatewayAccountPolicy(s.store)
 		}
 		s.providers.Register(provider)
 	}

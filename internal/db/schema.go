@@ -527,7 +527,7 @@ CREATE TABLE IF NOT EXISTS tool_permission_rules (
   updated_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_tool_permission_rules_match ON tool_permission_rules(enabled, mode, tool_name, risk, priority);
-` + automationAuditSchemaSQL + integrationConnectionsSchemaSQL + memorySchemaSQL + schedulesSchemaSQL + notificationDeliveriesSchemaSQL + channelPersistenceSchemaSQL + deviceActionRequestsSchemaSQL + specSchemaSQL + modelClientSchemaSQL + remoteExecutionSchemaSQL + providerAccountStatsSchemaSQL + providerSecretsSchemaSQL + pluginSchemaSQL + backgroundTaskSchemaSQL + planSchemaSQL + gatewaySchemaSQL + accountPreferencesSchemaSQL + oauthAppSchemaSQL
+` + automationAuditSchemaSQL + integrationConnectionsSchemaSQL + memorySchemaSQL + schedulesSchemaSQL + notificationDeliveriesSchemaSQL + channelPersistenceSchemaSQL + deviceActionRequestsSchemaSQL + specSchemaSQL + modelClientSchemaSQL + remoteExecutionSchemaSQL + providerAccountStatsSchemaSQL + providerSecretsSchemaSQL + pluginSchemaSQL + backgroundTaskSchemaSQL + planSchemaSQL + gatewaySchemaSQL + accountPreferencesSchemaSQL + oauthAppSchemaSQL + gatewayAccountGrantsSchemaSQL
 
 const automationAuditSchemaSQL = `
 
@@ -822,6 +822,19 @@ CREATE TABLE IF NOT EXISTS gateway_models (
   CHECK (enabled IN (0, 1))
 );
 CREATE INDEX IF NOT EXISTS idx_gateway_models_enabled_alias ON gateway_models(enabled, alias);
+`
+
+const gatewayAccountGrantsSchemaSQL = `
+
+CREATE TABLE IF NOT EXISTS gateway_account_grants (
+  provider TEXT NOT NULL,
+  account_id TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY (provider, account_id),
+  CHECK (length(CAST(provider AS BLOB)) BETWEEN 1 AND 128),
+  CHECK (length(CAST(account_id AS BLOB)) BETWEEN 1 AND 128)
+);
 `
 
 const memorySchemaSQL = `

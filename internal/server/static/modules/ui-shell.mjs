@@ -387,12 +387,16 @@ export function createUIShellController({
         const option = select?.selectedOptions?.[0] || select?.options?.[select?.selectedIndex];
         if (valueNode && option) {
           const optionText = option.textContent?.trim() || option.value;
-          valueNode.textContent = optionText;
-          if (trigger.dataset.composerSelect === "modelSelect") {
+          const isModel = trigger.dataset.composerSelect === "modelSelect";
+          const presentation = isModel ? modelOptionPresentation(option.value, optionText) : null;
+          const displayText = presentation?.provider ? `${presentation.provider}:${presentation.name}` : optionText;
+          valueNode.textContent = displayText;
+          valueNode.title = displayText;
+          if (isModel) {
             valueNode.dataset.mobileLabel = compactComposerModelLabel(option.value || option.textContent);
           }
           const fieldLabel = label?.textContent?.trim();
-          trigger.setAttribute("aria-label", fieldLabel ? `${fieldLabel}：${optionText}` : optionText);
+          trigger.setAttribute("aria-label", fieldLabel ? `${fieldLabel}：${displayText}` : displayText);
         }
         trigger.disabled = Boolean(select?.disabled);
       };
@@ -440,13 +444,14 @@ export function createUIShellController({
       close({ focus: true });
     };
 
-    const createOptionButton = (binding, option, { permission = false, mobile = false } = {}) => {
+    const createOptionButton = (binding, option, { permission = false, mobile = false, model = false } = {}) => {
       const selected = option.value === binding.select.value;
       const button = document.createElement("button");
       button.type = "button";
       button.className = [
         "composer-select-option",
         permission ? "composer-permission-option" : "",
+        model ? "composer-model-option" : "",
         mobile ? "mobile-select-sheet-option" : "",
       ].filter(Boolean).join(" ");
       button.setAttribute("role", "option");
@@ -463,6 +468,17 @@ export function createUIShellController({
         icon.innerHTML = permissionMenuIconMarkup[option.value] || permissionMenuIconMarkup.default;
         main.append(icon, label);
         button.appendChild(main);
+      } else if (model) {
+        const presentation = modelOptionPresentation(option.value, option.textContent);
+        const copy = document.createElement("span");
+        copy.className = "composer-model-option-copy";
+        label.className = "composer-model-option-name";
+        label.textContent = presentation.name;
+        const provider = document.createElement("span");
+        provider.className = "composer-model-option-provider";
+        provider.textContent = presentation.provider || translate("chat.modelProviderFallback");
+        copy.append(label, provider);
+        button.appendChild(copy);
       } else {
         button.appendChild(label);
       }
@@ -790,7 +806,7 @@ export function createUIShellController({
       } else {
         [...binding.select.options]
           .filter((option) => !option.hidden)
-          .forEach((option) => menu.appendChild(createOptionButton(binding, option)));
+          .forEach((option) => menu.appendChild(createOptionButton(binding, option, { model: isModelMenu })));
         if (isModelMenu) appendDesktopModelActions(binding);
       }
       menu.classList.remove("hidden");
@@ -874,7 +890,9 @@ export function createUIShellController({
       close({ focus: restoreFocus });
     };
     const handleDocumentScroll = (event) => {
-      if (active?.mobile && mobileSheet.contains(event.target)) return;
+      if (!active) return;
+      if (active.mobile && mobileSheet.contains(event.target)) return;
+      if (!active.mobile && (event.target === menu || menu.contains(event.target))) return;
       close();
     };
     mobileBackdrop.addEventListener("click", handleBackdropClick);

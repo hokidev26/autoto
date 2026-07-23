@@ -156,8 +156,10 @@ const (
 )
 
 func providerGatewaySharingForbidden(providerType, profile string) bool {
-	return strings.EqualFold(strings.TrimSpace(providerType), config.ProviderTypeCodex) ||
-		strings.EqualFold(strings.TrimSpace(profile), config.ProviderProfileCLIProxyAPI)
+	// Codex OAuth may now be shared via the private gateway (user opt-in). Only
+	// CLI-proxy OAuth profiles remain forbidden.
+	_ = providerType
+	return strings.EqualFold(strings.TrimSpace(profile), config.ProviderProfileCLIProxyAPI)
 }
 
 func (s *Server) updateProviderConfig(w http.ResponseWriter, r *http.Request) {
@@ -1386,9 +1388,11 @@ func (s *Server) newRuntimeProvider(provider config.ProviderConfig) (providers.P
 	}
 	if codexProvider, ok := adapter.(*providers.CodexProvider); ok && s.store != nil {
 		codexProvider.SetAccountTelemetry(s.store)
+		codexProvider.SetGatewayAccountPolicy(s.store)
 	}
 	if anthropicProvider, ok := adapter.(*providers.AnthropicProvider); ok && s.store != nil {
 		anthropicProvider.SetAccountTelemetry(s.store)
+		anthropicProvider.SetGatewayAccountPolicy(s.store)
 	}
 	return adapter, nil
 }

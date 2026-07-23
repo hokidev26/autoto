@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -134,7 +135,8 @@ func TestProviderVaultEncryptsAndRestoresSecret(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if info.Mode().Perm() != 0o600 {
+	// Windows does not retain Unix 0600 bits; ownership ACLs apply instead.
+	if runtime.GOOS != "windows" && info.Mode().Perm() != 0o600 {
 		t.Fatalf("key file mode = %o, want 600", info.Mode().Perm())
 	}
 }

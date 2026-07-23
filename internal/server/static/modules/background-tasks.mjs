@@ -12,6 +12,15 @@ function text(value) {
   return String(value ?? "").trim();
 }
 
+function normalizeForegroundActivity(value) {
+  const label = text(value?.text || value?.label);
+  if (!label) return null;
+  return {
+    kind: text(value?.kind) || "activity",
+    text: label,
+  };
+}
+
 function number(value, fallback = null) {
   if (value === null || value === undefined || value === "") return fallback;
   const normalized = Number(value);
@@ -255,6 +264,7 @@ export function createBackgroundTasksController({
   let bound = false;
   let loading = false;
   let error = "";
+  let foregroundActivity = null;
 
   const host = (id) => documentRef?.getElementById?.(id) || null;
   const operationIsCurrent = (expectedAgentId, expectedGeneration) => agentId === expectedAgentId && agentGeneration === expectedGeneration;
@@ -595,6 +605,14 @@ export function createBackgroundTasksController({
     return true;
   }
 
+  function setForegroundActivity(value) {
+    const next = agentId ? normalizeForegroundActivity(value) : null;
+    if (next?.kind === foregroundActivity?.kind && next?.text === foregroundActivity?.text) return true;
+    foregroundActivity = next;
+    render();
+    return true;
+  }
+
   function setAgent(nextAgentId, { load = false } = {}) {
     const normalized = text(nextAgentId);
     if (normalized === agentId) return load ? loadAgent(normalized) : Promise.resolve([]);
@@ -613,6 +631,7 @@ export function createBackgroundTasksController({
     continuation = normalizeContinuation();
     loading = false;
     error = "";
+    foregroundActivity = null;
     emit("agent-changed");
     return load && normalized ? loadAgent(normalized) : Promise.resolve([]);
   }
@@ -669,7 +688,11 @@ export function createBackgroundTasksController({
     const summary = taskSummary();
     const activeCount = summary.activeCount;
     const currentStatus = summary.current?.status || "idle";
-    const currentTone = runningStatuses.has(currentStatus) ? "running" : queuedStatuses.has(currentStatus) ? "queued" : "idle";
+    const currentTone = foregroundActivity
+      ? "running"
+      : runningStatuses.has(currentStatus) ? "running" : queuedStatuses.has(currentStatus) ? "queued" : "idle";
+    const currentText = foregroundActivity?.text || summary.current?.title || t("backgroundTasks.headerIdle");
+    const hasCurrentActivity = Boolean(foregroundActivity || summary.current);
     if (button) {
       button.disabled = !agentId;
       button.setAttribute("aria-expanded", trayOpen ? "true" : "false");
@@ -678,13 +701,17 @@ export function createBackgroundTasksController({
       button.classList.toggle("active", trayOpen);
     }
     if (headerButton) {
+      const headerLabel = foregroundActivity?.text || t("backgroundTasks.headerTitle", { queued: summary.queuedCount, running: summary.runningCount });
       headerButton.disabled = !agentId;
       headerButton.setAttribute("aria-expanded", trayOpen ? "true" : "false");
-      headerButton.title = t("backgroundTasks.headerTitle", { queued: summary.queuedCount, running: summary.runningCount });
+      headerButton.setAttribute("aria-busy", foregroundActivity ? "true" : "false");
+      headerButton.setAttribute("aria-label", headerLabel);
+      headerButton.title = headerLabel;
       headerButton.classList.toggle("active", trayOpen);
-      headerButton.classList.toggle("has-task", Boolean(summary.current));
+      headerButton.classList.toggle("has-task", hasCurrentActivity);
+      headerButton.classList.toggle("has-foreground-activity", Boolean(foregroundActivity));
     }
-    if (headerText) headerText.textContent = summary.current?.title || t("backgroundTasks.headerIdle");
+    if (headerText) headerText.textContent = currentText;
     if (headerQueue) {
       headerQueue.textContent = t("backgroundTasks.queueCount", { count: summary.queuedCount });
       headerQueue.classList.toggle("hidden", summary.queuedCount <= 0);
@@ -795,6 +822,7 @@ export function createBackgroundTasksController({
     renderContinuationStatusHTML,
     selectTask,
     setAgent,
+    setForegroundActivity,
     subscribe,
     wait,
     state: () => ({
@@ -807,6 +835,7 @@ export function createBackgroundTasksController({
       cancelBusy: [...cancelBusy],
       waitBusy: [...waitBusy],
       continuation: { ...continuation },
+      foregroundActivity: foregroundActivity ? { ...foregroundActivity } : null,
       trayOpen,
       loading,
       error,

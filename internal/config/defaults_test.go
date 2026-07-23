@@ -11,6 +11,12 @@ import (
 	"autoto/internal/compat"
 )
 
+func setTestHome(t *testing.T, home string) {
+	t.Helper()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+}
+
 func TestDefaultConfig(t *testing.T) {
 	cfg, err := Default()
 	if err != nil {
@@ -22,7 +28,7 @@ func TestDefaultConfig(t *testing.T) {
 	if cfg.Server.Port != 16888 {
 		t.Fatalf("expected default port 16888, got %d", cfg.Server.Port)
 	}
-	if cfg.Gateway.Enabled || cfg.Gateway.Host != "127.0.0.1" || cfg.Gateway.Port != 8788 || cfg.Gateway.MaxGlobalConcurrency != 16 || cfg.Gateway.MaxRequestBytes != 8<<20 {
+	if cfg.Gateway.Enabled || cfg.Gateway.AllowRemote || cfg.Gateway.Host != "127.0.0.1" || cfg.Gateway.Port != 8788 || cfg.Gateway.MaxGlobalConcurrency != 16 || cfg.Gateway.MaxRequestBytes != 8<<20 {
 		t.Fatalf("unexpected gateway defaults: %+v", cfg.Gateway)
 	}
 	if filepath.Base(cfg.Paths.HomeDir) != ".autoto" || filepath.Base(cfg.Paths.DatabasePath) != "autoto.db" {
@@ -95,7 +101,7 @@ func TestDefaultConfigHomeUsesPrivatePermissions(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			home := t.TempDir()
-			t.Setenv("HOME", home)
+			setTestHome(t, home)
 			appHome := filepath.Join(home, ".autoto")
 			if test.precreate {
 				if err := os.Mkdir(appHome, 0o755); err != nil {
@@ -131,7 +137,7 @@ func TestDefaultConfigHomeRejectsSymlink(t *testing.T) {
 		t.Skip("Windows symlink creation may require elevated privileges")
 	}
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setTestHome(t, home)
 	target := filepath.Join(home, "redirected")
 	if err := os.Mkdir(target, 0o700); err != nil {
 		t.Fatal(err)
@@ -301,19 +307,26 @@ func TestLoadBackfillsLegacyConfigVersion(t *testing.T) {
 
 func TestLoadMigratesLegacyConfigToCanonicalPath(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setTestHome(t, home)
 	legacyDir := filepath.Join(home, ".codeharbor")
 	legacyPath := filepath.Join(legacyDir, "config.json")
 	legacyDatabasePath := filepath.Join(legacyDir, "codeharbor.db")
 	if err := os.MkdirAll(legacyDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	legacyData := []byte(`{
-  "version": 1,
-  "server": {"host": "127.0.0.1", "port": 9091},
-  "paths": {"homeDir": "` + legacyDir + `", "databasePath": "` + legacyDatabasePath + `", "defaultProjectDir": "` + filepath.Join(home, "projects") + `"},
-  "agent": {"defaultModel": "openai:legacy", "summaryModel": "openai:legacy", "defaultPermissionMode": "acceptEdits", "maxTurns": 3, "contextTokenLimit": 1000}
-}`)
+	legacyData, err := json.MarshalIndent(map[string]any{
+		"version": 1,
+		"server":  map[string]any{"host": "127.0.0.1", "port": 9091},
+		"paths": map[string]any{
+			"homeDir":           legacyDir,
+			"databasePath":      legacyDatabasePath,
+			"defaultProjectDir": filepath.Join(home, "projects"),
+		},
+		"agent": map[string]any{"defaultModel": "openai:legacy", "summaryModel": "openai:legacy", "defaultPermissionMode": "acceptEdits", "maxTurns": 3, "contextTokenLimit": 1000},
+	}, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(legacyPath, legacyData, 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -349,7 +362,7 @@ func TestLoadMigratesLegacyConfigToCanonicalPath(t *testing.T) {
 
 func TestLoadExplicitPathDoesNotMigrateLegacyConfig(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setTestHome(t, home)
 	legacyDir := filepath.Join(home, ".codeharbor")
 	if err := os.MkdirAll(legacyDir, 0o755); err != nil {
 		t.Fatal(err)
@@ -375,9 +388,91 @@ func TestNormalizeGatewayConfigBounds(t *testing.T) {
 	if defaults.Host != "127.0.0.1" || defaults.Port != 8788 || defaults.MaxGlobalConcurrency != 16 || defaults.MaxRequestBytes != 8<<20 {
 		t.Fatalf("unexpected gateway fallback: %+v", defaults)
 	}
-	bounded := normalizeGatewayConfig(GatewayConfig{Host: " 0.0.0.0 ", Port: 70000, MaxGlobalConcurrency: 5000, MaxRequestBytes: 1})
-	if bounded.Host != "0.0.0.0" || bounded.Port != 8788 || bounded.MaxGlobalConcurrency != 1024 || bounded.MaxRequestBytes != 1<<10 {
+	bounded := normalizeGatewayConfig(GatewayConfig{AllowRemote: true, Host: " 0.0.0.0 ", Port: 70000, MaxGlobalConcurrency: 5000, MaxRequestBytes: 1})
+	if !bounded.AllowRemote || bounded.Host != "0.0.0.0" || bounded.Port != 8788 || bounded.MaxGlobalConcurrency != 1024 || bounded.MaxRequestBytes != 1<<10 {
 		t.Fatalf("unexpected gateway bounds: %+v", bounded)
+	}
+}
+
+func TestNormalizeGatewayHostRequiresExplicitRemoteAccess(t *testing.T) {
+	invalidUTF8 := string([]byte{0xff, 0xfe})
+	tests := []struct {
+		name        string
+		allowRemote bool
+		host        string
+		want        string
+	}{
+		{name: "default local", host: "", want: "127.0.0.1"},
+		{name: "localhost", host: " LocalHost ", want: "localhost"},
+		{name: "ipv4 loopback", host: "127.23.45.67", want: "127.23.45.67"},
+		{name: "ipv6 loopback", host: "[::1]", want: "::1"},
+		{name: "remote ip denied", host: "192.0.2.10", want: "127.0.0.1"},
+		{name: "ipv4 wildcard denied", host: "0.0.0.0", want: "127.0.0.1"},
+		{name: "ipv6 wildcard denied", host: "::", want: "127.0.0.1"},
+		{name: "remote ip allowed", allowRemote: true, host: "192.0.2.10", want: "192.0.2.10"},
+		{name: "ipv6 allowed", allowRemote: true, host: "[2001:db8::10]", want: "2001:db8::10"},
+		{name: "ipv4 wildcard allowed", allowRemote: true, host: "*", want: "0.0.0.0"},
+		{name: "ipv6 wildcard allowed", allowRemote: true, host: "::", want: "::"},
+		{name: "url rejected", allowRemote: true, host: "https://127.0.0.1", want: "127.0.0.1"},
+		{name: "host and port rejected", allowRemote: true, host: "127.0.0.1:8788", want: "127.0.0.1"},
+		{name: "dns name rejected", allowRemote: true, host: "gateway.example", want: "127.0.0.1"},
+		{name: "control character rejected", allowRemote: true, host: "localhost\n", want: "127.0.0.1"},
+		{name: "format character rejected", allowRemote: true, host: "local\u200bhost", want: "127.0.0.1"},
+		{name: "invalid utf8 rejected", allowRemote: true, host: invalidUTF8, want: "127.0.0.1"},
+		{name: "malformed brackets rejected", allowRemote: true, host: "[::1", want: "127.0.0.1"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			got := normalizeGatewayConfig(GatewayConfig{AllowRemote: test.allowRemote, Host: test.host})
+			if got.Host != test.want {
+				t.Fatalf("normalized host = %q, want %q", got.Host, test.want)
+			}
+		})
+	}
+}
+
+func TestGatewayConfigV2JSONAndIPv6Address(t *testing.T) {
+	encoded, err := json.Marshal(GatewayConfig{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(encoded), `"allowRemote":false`) {
+		t.Fatalf("gateway JSON is missing allowRemote: %s", encoded)
+	}
+	cfg := Config{Gateway: GatewayConfig{Host: "::1", Port: 8788}}
+	if got := cfg.GatewayAddr(); got != "[::1]:8788" {
+		t.Fatalf("IPv6 gateway address = %q, want %q", got, "[::1]:8788")
+	}
+}
+
+func TestLoadMigratesV1GatewayToSafeBinding(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.json")
+	if err := os.WriteFile(path, []byte(`{"version":1,"gateway":{"enabled":true,"host":"0.0.0.0","port":9000,"maxGlobalConcurrency":32,"maxRequestBytes":4096}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.SchemaVersion != CurrentConfigVersion || cfg.Gateway.AllowRemote || cfg.Gateway.Host != "127.0.0.1" || cfg.Gateway.Port != 9000 || cfg.Gateway.MaxGlobalConcurrency != 32 || cfg.Gateway.MaxRequestBytes != 4096 {
+		t.Fatalf("unexpected v1 gateway migration: version=%d gateway=%+v", cfg.SchemaVersion, cfg.Gateway)
+	}
+
+	cfg.Gateway.Host = "https://192.0.2.10"
+	cfg.Gateway.AllowRemote = true
+	if err := Save(path, cfg); err != nil {
+		t.Fatal(err)
+	}
+	persisted, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var saved Config
+	if err := json.Unmarshal(persisted, &saved); err != nil {
+		t.Fatal(err)
+	}
+	if saved.SchemaVersion != CurrentConfigVersion || !saved.Gateway.AllowRemote || saved.Gateway.Host != "127.0.0.1" {
+		t.Fatalf("unsafe gateway was not normalized on save: %s", persisted)
 	}
 }
 
@@ -638,13 +733,14 @@ func TestNormalizeProvidersPreservesExplicitProfile(t *testing.T) {
 	}
 }
 
-func TestNormalizeProvidersClearsOAuthGatewayEligibility(t *testing.T) {
+func TestNormalizeProvidersClearsCLIProxyGatewayEligibility(t *testing.T) {
 	providers := normalizeProviders(ProvidersConfig{Instances: []ProviderConfig{
 		{Name: "codex", Type: "CoDeX", GatewayEnabled: true},
 		{Name: "proxy", Type: "openai-compatible", Profile: ProviderProfileCLIProxyAPI, GatewayEnabled: true},
 		{Name: "relay", Type: "openai-compatible", GatewayEnabled: true},
 	}})
-	if providers.Instances[0].GatewayEnabled || providers.Instances[1].GatewayEnabled || !providers.Instances[2].GatewayEnabled {
+	// Codex may now be shared (kept enabled); only CLI-proxy OAuth is cleared.
+	if !providers.Instances[0].GatewayEnabled || providers.Instances[1].GatewayEnabled || !providers.Instances[2].GatewayEnabled {
 		t.Fatalf("unexpected normalized Gateway eligibility: %+v", providers.Instances)
 	}
 }
@@ -782,7 +878,7 @@ func TestLoadWithReportFiltersConfigOverriddenLegacyDefaults(t *testing.T) {
 
 func TestLoadWithReportTracksExplicitLegacyConfig(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setTestHome(t, home)
 	legacyPath := filepath.Join(home, ".codeharbor", "config.json")
 	if err := os.MkdirAll(filepath.Dir(legacyPath), 0o755); err != nil {
 		t.Fatal(err)
@@ -805,7 +901,7 @@ func TestLoadWithReportTracksExplicitLegacyConfig(t *testing.T) {
 
 func TestLoadWithReportTracksNewConfigCreatedAtExplicitLegacyPath(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setTestHome(t, home)
 	legacyPath := filepath.Join(home, ".codeharbor", "config.json")
 
 	cfg, report, err := LoadWithReport(legacyPath)
@@ -859,7 +955,7 @@ func TestLoadMigratesLegacyAccessPasswordAndRemovesPlaintextFromDisk(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	if info.Mode().Perm() != 0o600 {
+	if runtime.GOOS != "windows" && info.Mode().Perm() != 0o600 {
 		t.Fatalf("expected migrated config mode 0600, got %o", info.Mode().Perm())
 	}
 	reloaded, err := Load(path)

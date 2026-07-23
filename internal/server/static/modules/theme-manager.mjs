@@ -378,6 +378,108 @@ export function createThemeManager(options) {
 }
 
 const backgroundURLPattern = /^\/appearance\/backgrounds\/[a-f0-9]{64}\/[A-Za-z0-9][A-Za-z0-9._-]{0,119}$/;
+const appearanceBackgroundContentTypes = Object.freeze({
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".webp": "image/webp",
+});
+export const appearanceBackgroundMaxBytes = 8 * 1024 * 1024;
+export const appearanceBackgroundUploadErrorCodes = Object.freeze({
+  required: "required",
+  unsupportedType: "unsupported-type",
+  typeMismatch: "type-mismatch",
+  tooLarge: "too-large",
+  invalidImage: "invalid-image",
+  unauthorized: "unauthorized",
+  unavailable: "unavailable",
+  failed: "failed",
+});
+
+function appearanceBackgroundExtension(filename) {
+  const match = String(filename || "").trim().toLowerCase().match(/\.[^.]+$/);
+  return match?.[0] || "";
+}
+
+function appearanceBackgroundUploadError(code, message, cause) {
+  const error = new Error(message);
+  error.code = code;
+  if (cause) error.cause = cause;
+  return error;
+}
+
+export function validateAppearanceBackgroundFile(file) {
+  if (!file) throw appearanceBackgroundUploadError(appearanceBackgroundUploadErrorCodes.required, "appearance.backgroundFileRequired");
+  const originalFilename = String(file.name || "").trim();
+  const extension = appearanceBackgroundExtension(originalFilename);
+  const expectedContentType = appearanceBackgroundContentTypes[extension];
+  if (!expectedContentType) {
+    throw appearanceBackgroundUploadError(appearanceBackgroundUploadErrorCodes.unsupportedType, "appearance.backgroundUnsupported");
+  }
+  const contentType = String(file.type || "").trim().toLowerCase().split(";", 1)[0];
+  if (contentType && contentType !== expectedContentType) {
+    throw appearanceBackgroundUploadError(appearanceBackgroundUploadErrorCodes.typeMismatch, "appearance.backgroundTypeMismatch");
+  }
+  const size = Number(file.size);
+  if (Number.isFinite(size) && size > appearanceBackgroundMaxBytes) {
+    throw appearanceBackgroundUploadError(appearanceBackgroundUploadErrorCodes.tooLarge, "appearance.backgroundTooLarge");
+  }
+  return {
+    originalFilename,
+    multipartFilename: `background-upload${extension}`,
+    extension,
+    contentType: expectedContentType,
+  };
+}
+
+export function safeAppearanceBackgroundUploadFilename(file) {
+  return validateAppearanceBackgroundFile(file).multipartFilename;
+}
+
+function fallbackAppearanceBackgroundTranslation(key) {
+  const messages = {
+    "appearance.backgroundFileRequired": "Choose a background image first.",
+    "appearance.backgroundUnsupported": "Choose a PNG, JPG, JPEG, or WebP image.",
+    "appearance.backgroundTypeMismatch": "The image type does not match its file extension.",
+    "appearance.backgroundTooLarge": "The background image exceeds the 8 MiB limit.",
+    "appearance.backgroundInvalid": "This image could not be read. Choose a valid PNG, JPG, JPEG, or WebP image within the supported dimensions.",
+    "appearance.backgroundUnauthorized": "You do not have permission to upload a background image.",
+    "appearance.backgroundUnavailable": "Background image storage is currently unavailable.",
+    "appearance.backgroundUploadFailed": "The background image could not be uploaded. Try again.",
+  };
+  return messages[key] || key;
+}
+
+export function localizeAppearanceBackgroundUploadError(error, translate = fallbackAppearanceBackgroundTranslation) {
+  if (Object.values(appearanceBackgroundUploadErrorCodes).includes(error?.code)) {
+    const key = error.message?.startsWith?.("appearance.") ? error.message : "appearance.backgroundUploadFailed";
+    return appearanceBackgroundUploadError(error.code, translate(key), error.cause);
+  }
+  const status = Number(error?.status) || 0;
+  const detail = String(error?.message || "").toLowerCase();
+  let code = appearanceBackgroundUploadErrorCodes.failed;
+  let key = "appearance.backgroundUploadFailed";
+  if (status === 401 || status === 403) {
+    code = appearanceBackgroundUploadErrorCodes.unauthorized;
+    key = "appearance.backgroundUnauthorized";
+  } else if (status === 413 || detail.includes("too large") || detail.includes("exceeds 8388608 bytes")) {
+    code = appearanceBackgroundUploadErrorCodes.tooLarge;
+    key = "appearance.backgroundTooLarge";
+  } else if (status === 503 || detail.includes("store is unavailable")) {
+    code = appearanceBackgroundUploadErrorCodes.unavailable;
+    key = "appearance.backgroundUnavailable";
+  } else if (status === 400 && detail.includes("file is required")) {
+    code = appearanceBackgroundUploadErrorCodes.required;
+    key = "appearance.backgroundFileRequired";
+  } else if (status === 400 && detail.includes("filename extension")) {
+    code = appearanceBackgroundUploadErrorCodes.unsupportedType;
+    key = "appearance.backgroundUnsupported";
+  } else if (status === 400 || detail.includes("failed to load") || detail.includes("decode failed")) {
+    code = appearanceBackgroundUploadErrorCodes.invalidImage;
+    key = "appearance.backgroundInvalid";
+  }
+  return appearanceBackgroundUploadError(code, translate(key), error);
+}
 
 export function safeAppearanceBackgroundURL(value) {
   const url = String(value || "").trim();
@@ -407,12 +509,13 @@ export function normalizeAppearanceBackgroundRecord(value = {}) {
 }
 
 export class AppearanceBackgroundManager {
-  constructor({ api, documentRef = globalThis.document, windowRef = globalThis.window, showToast } = {}) {
+  constructor({ api, documentRef = globalThis.document, windowRef = globalThis.window, showToast, translate } = {}) {
     if (typeof api !== "function") throw new TypeError("AppearanceBackgroundManager requires an api function");
     this.api = api;
     this.document = documentRef;
     this.window = windowRef || globalThis;
     this.showToast = showToast;
+    this.translate = typeof translate === "function" ? translate : fallbackAppearanceBackgroundTranslation;
     this.listeners = new Set();
     this.sequence = 0;
     this.state = { status: "idle", background: normalizeAppearanceBackgroundRecord({}), error: "" };
@@ -466,20 +569,36 @@ export class AppearanceBackgroundManager {
   }
 
   async upload(file, { mode = "custom", dim, positionX, positionY } = {}) {
-    if (!file) throw new Error("Background image is required");
+    let upload;
+    try {
+      upload = validateAppearanceBackgroundFile(file);
+    } catch (error) {
+      throw localizeAppearanceBackgroundUploadError(error, this.translate);
+    }
     const sequence = ++this.sequence;
     const form = new FormData();
-    form.set("file", file);
-    const payload = await this.api("/api/appearance/background", { method: "POST", body: form });
-    const background = this.mergeAsset(payload?.background || {}, {
-      mode: mode === "none" ? "none" : "custom",
-      dim,
-      positionX,
-      positionY,
-    });
-    if (sequence !== this.sequence) return background;
-    await this.apply(background, { sequence });
-    return background;
+    form.set("file", file, upload.multipartFilename);
+    form.set("displayName", upload.originalFilename);
+    this.update({ status: "uploading", error: "" });
+    try {
+      const payload = await this.api("/api/appearance/background", { method: "POST", body: form });
+      const background = normalizeAppearanceBackgroundRecord({
+        ...this.mergeAsset(payload?.background || {}, {
+          mode: mode === "none" ? "none" : "custom",
+          dim,
+          positionX,
+          positionY,
+        }),
+        filename: upload.originalFilename,
+      });
+      if (sequence !== this.sequence) return background;
+      await this.apply(background, { sequence });
+      return background;
+    } catch (error) {
+      const localized = localizeAppearanceBackgroundUploadError(error, this.translate);
+      if (sequence === this.sequence) this.update({ status: "error", error: localized.message });
+      throw localized;
+    }
   }
 
   async remove() {

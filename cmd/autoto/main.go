@@ -7,5 +7,5 @@ import (
 )
 
 func main() {
-	os.Exit(app.Run(app.Options{}))
+	os.Exit(app.Run(app.Options{OpenBrowser: true}))
 }

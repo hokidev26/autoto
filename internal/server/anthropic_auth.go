@@ -218,23 +218,29 @@ func (s *Server) deleteAnthropicAccount(w http.ResponseWriter, r *http.Request) 
 		}
 	}
 	statsDeleted := true
+	grantDeleted := true
 	if s.store != nil {
 		if err := s.store.DeleteProviderAccountStats(r.Context(), anthropicauth.DefaultProviderName, id); err != nil {
 			statsDeleted = false
 		}
+		if err := s.store.DeleteGatewayAccountGrant(r.Context(), anthropicauth.DefaultProviderName, id); err != nil {
+			grantDeleted = false
+		}
 	}
+	cleanupPending := !statsDeleted || !grantDeleted
 	response := map[string]any{
 		"status":             "ok",
 		"id":                 id,
 		"credential_deleted": credentialDeleted,
 		"stats_deleted":      statsDeleted,
+		"grant_deleted":      grantDeleted,
 		"already_missing":    !credentialDeleted,
-		"cleanup_pending":    !statsDeleted,
-		"retryable":          !statsDeleted,
+		"cleanup_pending":    cleanupPending,
+		"retryable":          cleanupPending,
 	}
-	if !statsDeleted {
+	if cleanupPending {
 		response["status"] = "partial"
-		response["warning"] = "Anthropic 凭据已删除，但账号统计清理失败；可安全重试 DELETE 完成清理"
+		response["warning"] = "Anthropic 凭据已删除，但账号统计或 Gateway 授权清理失败；可安全重试 DELETE 完成清理"
 		writeJSON(w, http.StatusMultiStatus, response)
 		return
 	}

@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"strings"
-	"syscall"
 	"testing"
 	"time"
 )
@@ -80,7 +80,7 @@ func TestTreeReadWriteAndAtomicSave(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if afterInfo.Mode().Perm() != 0o600 {
+	if runtime.GOOS != "windows" && afterInfo.Mode().Perm() != 0o600 {
 		t.Fatalf("expected original mode 0600, got %o", afterInfo.Mode().Perm())
 	}
 	if beforeInode != 0 && inodeOf(afterInfo) == beforeInode {
@@ -95,7 +95,7 @@ func TestTreeReadWriteAndAtomicSave(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if newInfo.Mode().Perm() != 0o644 {
+	if runtime.GOOS != "windows" && newInfo.Mode().Perm() != 0o644 {
 		t.Fatalf("expected new file mode 0644, got %o", newInfo.Mode().Perm())
 	}
 }
@@ -284,9 +284,22 @@ func assertNoWorkspaceTemps(t *testing.T, dir string) {
 }
 
 func inodeOf(info os.FileInfo) uint64 {
-	stat, ok := info.Sys().(*syscall.Stat_t)
-	if !ok {
+	value := reflect.ValueOf(info.Sys())
+	if !value.IsValid() {
 		return 0
 	}
-	return stat.Ino
+	if value.Kind() == reflect.Pointer {
+		if value.IsNil() {
+			return 0
+		}
+		value = value.Elem()
+	}
+	if value.Kind() != reflect.Struct {
+		return 0
+	}
+	inode := value.FieldByName("Ino")
+	if !inode.IsValid() || !inode.CanUint() {
+		return 0
+	}
+	return inode.Uint()
 }

@@ -62,7 +62,10 @@ func TestCreateProjectUsesRequestedModel(t *testing.T) {
 		Agent: config.AgentConfig{DefaultModel: "openai:default", DefaultPermissionMode: "acceptEdits"},
 	}, store, nil, nil)
 
-	payload := []byte(`{"name":"Demo","gitPath":"` + projectDir + `","model":"cliproxyapi:gpt-dynamic"}`)
+	payload, err := json.Marshal(map[string]string{"name": "Demo", "gitPath": projectDir, "model": "cliproxyapi:gpt-dynamic"})
+	if err != nil {
+		t.Fatal(err)
+	}
 	recorder := httptest.NewRecorder()
 	request := newTestRequest(http.MethodPost, "/api/projects", bytes.NewReader(payload))
 	request.Header.Set("Content-Type", "application/json")

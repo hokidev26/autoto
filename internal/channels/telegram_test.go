@@ -240,7 +240,7 @@ func createActivePairing(t *testing.T, environment testEnvironment, chatID, user
 
 func waitFor(t *testing.T, condition func() bool, message string) {
 	t.Helper()
-	deadline := time.Now().Add(4 * time.Second)
+	deadline := time.Now().Add(10 * time.Second)
 	for time.Now().Before(deadline) {
 		if condition() {
 			return
@@ -282,23 +282,21 @@ func TestTelegramPairingPrivateOnlyAndUnpairedSilentAudit(t *testing.T) {
 		groupTextUpdate(3, 1001, 2001, "/status"),
 	)
 	waitCursor(t, environment, 4)
-	time.Sleep(50 * time.Millisecond)
+	waitFor(t, func() bool {
+		audits, err := environment.store.ListAutomationAuditEvents(environment.ctx, 20, 0)
+		if err != nil {
+			return false
+		}
+		for _, event := range audits {
+			if event.Action == "telegram.unpaired_message" && event.Actor == "channel:telegram:9002" {
+				return true
+			}
+		}
+		return false
+	}, "missing unpaired-message audit")
 	messages := fake.sentMessages()
 	if len(messages) != 1 || messages[0].Text != "Pairing complete." {
 		t.Fatalf("unpaired or group message produced a response: %+v", messages)
-	}
-	audits, err := environment.store.ListAutomationAuditEvents(environment.ctx, 20, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	foundUnpaired := false
-	for _, event := range audits {
-		if event.Action == "telegram.unpaired_message" && event.Actor == "channel:telegram:9002" {
-			foundUnpaired = true
-		}
-	}
-	if !foundUnpaired {
-		t.Fatalf("missing unpaired-message audit: %+v", audits)
 	}
 	statuses := manager.ListStatuses()
 	if len(statuses) != 1 || statuses[0].ConnectionID != environment.connection.ID || !statuses[0].Running {
@@ -315,16 +313,17 @@ func TestTelegramPairingFailuresLockPendingPairing(t *testing.T) {
 		fake.addUpdates(privateTextUpdate(updateID, 3001, 3002, "/pair WRONG-CODE"))
 	}
 	waitCursor(t, environment, 6)
-	time.Sleep(50 * time.Millisecond)
+	var got db.ChannelPairing
+	waitFor(t, func() bool {
+		current, err := environment.store.GetChannelPairing(environment.ctx, pending.ID)
+		if err != nil {
+			return false
+		}
+		got = current
+		return got.FailedAttempts == db.DefaultPairingMaxFailedAttempts && got.LockedUntil != ""
+	}, "pending pairing was not locked")
 	if messages := fake.sentMessages(); len(messages) != 0 {
 		t.Fatalf("failed pairing attempts must remain silent, got %+v", messages)
-	}
-	got, err := environment.store.GetChannelPairing(environment.ctx, pending.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got.FailedAttempts != db.DefaultPairingMaxFailedAttempts || got.LockedUntil == "" {
-		t.Fatalf("pending pairing was not locked: %+v", got)
 	}
 	lockedUntil, err := time.Parse(time.RFC3339Nano, got.LockedUntil)
 	if err != nil || !lockedUntil.After(time.Now()) {

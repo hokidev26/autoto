@@ -1,15 +1,22 @@
 import { $, escapeAttr, escapeHtml, setButtonBusy } from "./dom.mjs";
-import { currentUILocale, t } from "./i18n.mjs?v=shared-api-1";
+import { currentUILocale, t } from "./i18n.mjs?v=shared-api-2-no-alias-1";
 import { confirm as platformConfirm } from "./platform.mjs";
 
 const endpoints = Object.freeze({
+  status: "/api/gateway/status",
+  config: "/api/gateway/config",
+  accounts: "/api/gateway/accounts",
   keys: "/api/gateway/keys",
-  models: "/api/gateway/models",
   usage: "/api/gateway/usage",
+  requests: "/api/gateway/requests?limit=50",
 });
 
 function objectValue(value) {
   return value && typeof value === "object" && !Array.isArray(value) ? value : {};
+}
+
+function hasOwn(value, key) {
+  return Object.prototype.hasOwnProperty.call(objectValue(value), key);
 }
 
 function textValue(value) {
@@ -44,14 +51,51 @@ function dateTimeInputValue(value) {
   return local.toISOString().slice(0, 16);
 }
 
+function directGatewayValue(settings = {}) {
+  const source = objectValue(settings);
+  const nested = objectValue(source.gateway);
+  return Object.keys(nested).length ? nested : source;
+}
+
 export function normalizeGatewaySettings(settings = {}) {
-  const gateway = objectValue(objectValue(settings).gateway);
+  const gateway = directGatewayValue(settings);
   return {
     enabled: Boolean(gateway.enabled),
     host: textValue(gateway.host),
     port: integerValue(gateway.port),
+    allowRemote: Boolean(gateway.allowRemote),
     maxGlobalConcurrency: integerValue(gateway.maxGlobalConcurrency),
     maxRequestBytes: integerValue(gateway.maxRequestBytes),
+  };
+}
+
+export function normalizeGatewayRuntime(value = {}, fallback = {}) {
+  const runtime = objectValue(value);
+  const defaults = objectValue(fallback);
+  return {
+    desiredEnabled: hasOwn(runtime, "desiredEnabled") ? Boolean(runtime.desiredEnabled) : Boolean(defaults.desiredEnabled),
+    running: Boolean(runtime.running),
+    address: textValue(runtime.address),
+    allowRemote: hasOwn(runtime, "allowRemote") ? Boolean(runtime.allowRemote) : Boolean(defaults.allowRemote),
+    ephemeralIsolation: Boolean(runtime.ephemeralIsolation),
+    lastError: textValue(runtime.lastError),
+    updatedAt: textValue(runtime.updatedAt),
+  };
+}
+
+export function normalizeGatewayStatus(payload = {}) {
+  const root = objectValue(payload);
+  const nestedStatus = objectValue(root.status);
+  const statusSource = Object.keys(nestedStatus).length ? nestedStatus : root;
+  const gatewaySource = Object.keys(objectValue(root.gateway)).length ? root.gateway : {};
+  const gateway = normalizeGatewaySettings({ gateway: gatewaySource });
+  return {
+    status: normalizeGatewayRuntime(statusSource, {
+      desiredEnabled: gateway.enabled,
+      allowRemote: gateway.allowRemote,
+    }),
+    gateway,
+    protocols: listValue(root.protocols),
   };
 }
 
@@ -80,33 +124,73 @@ export function normalizeGatewayKeys(payload = {}) {
   return (Array.isArray(keys) ? keys : []).map(normalizeGatewayKey).filter((key) => key.id);
 }
 
-export function normalizeGatewayModel(value = {}) {
-  const model = objectValue(value);
+export function normalizeGatewayAccount(value = {}) {
+  const account = objectValue(value);
   return {
-    alias: textValue(model.alias),
-    targetModel: textValue(model.targetModel),
-    enabled: model.enabled !== false,
-    createdAt: textValue(model.createdAt),
-    updatedAt: textValue(model.updatedAt),
+    provider: textValue(account.provider),
+    accountId: textValue(account.accountId),
+    label: textValue(account.label),
+    authType: textValue(account.authType),
+    source: textValue(account.source),
+    priority: integerValue(account.priority),
+    disabled: Boolean(account.disabled),
+    eligible: account.eligible !== false,
+    shared: Boolean(account.shared),
+    effective: Boolean(account.effective),
+    reason: textValue(account.reason),
   };
 }
 
-export function normalizeGatewayModels(payload = {}) {
-  const models = Array.isArray(payload) ? payload : objectValue(payload).models;
-  return (Array.isArray(models) ? models : []).map(normalizeGatewayModel).filter((model) => model.alias);
+export function normalizeGatewayAccounts(payload = {}) {
+  const accounts = Array.isArray(payload) ? payload : objectValue(payload).accounts;
+  return (Array.isArray(accounts) ? accounts : []).map(normalizeGatewayAccount).filter((account) => account.provider && account.accountId);
 }
 
-export function gatewayProviderRestriction(provider = {}) {
-  const name = textValue(provider.name).toLowerCase();
-  const type = textValue(provider.type).toLowerCase();
-  const profile = textValue(provider.profile).toLowerCase();
-  if (name === "codex" || type === "codex") return "codex";
-  if (profile === "cliproxyapi") return "oauthProxy";
-  return "";
+export function normalizeGatewayRequest(value = {}) {
+  const record = objectValue(value);
+  const key = objectValue(record.key);
+  const account = objectValue(record.account);
+  const actual = objectValue(record.actual ?? record.resolved);
+  const tokens = objectValue(record.tokens ?? record.usage);
+  const timing = objectValue(record.timing);
+  const error = objectValue(record.error);
+  const inputTokens = integerValue(record.inputTokens ?? record.promptTokens ?? tokens.inputTokens ?? tokens.input ?? tokens.prompt);
+  const outputTokens = integerValue(record.outputTokens ?? record.completionTokens ?? tokens.outputTokens ?? tokens.output ?? tokens.completion);
+  return {
+    id: textValue(record.id ?? record.requestId),
+    createdAt: textValue(record.createdAt ?? record.timestamp ?? record.startedAt ?? record.time),
+    key: textValue(record.keyLabel ?? record.keyName ?? record.gatewayKeyName ?? key.label ?? key.name ?? key.safeId ?? record.keyPrefix ?? record.gatewayKeyPrefix ?? record.keyId ?? record.gatewayKeyId ?? key.id ?? (typeof record.key === "string" ? record.key : "")),
+    protocol: textValue(record.protocol ?? record.apiProtocol),
+    kind: textValue(record.kind ?? record.requestKind),
+    alias: textValue(record.alias ?? record.modelAlias ?? record.requestedAlias ?? record.requestedModel),
+    provider: textValue(record.provider ?? record.actualProvider ?? record.resolvedProvider ?? actual.provider),
+    model: textValue(record.model ?? record.actualModel ?? record.resolvedModel ?? actual.model),
+    accountId: textValue(record.accountId ?? record.safeAccountId ?? record.accountSafeId ?? record.credentialId ?? account.accountId ?? account.safeId ?? account.id),
+    accountLabel: textValue(record.accountLabel ?? account.label),
+    inputTokens,
+    outputTokens,
+    totalTokens: integerValue(record.totalTokens ?? tokens.totalTokens ?? tokens.total, inputTokens + outputTokens),
+    durationMs: integerValue(record.durationMs ?? record.duration ?? timing.durationMs ?? timing.duration),
+    ttftMs: integerValue(record.ttftMs ?? record.timeToFirstTokenMs ?? timing.ttftMs ?? timing.timeToFirstTokenMs),
+    error: textValue(record.errorMessage ?? error.message ?? (typeof record.error === "string" ? record.error : "")),
+  };
+}
+
+export function normalizeGatewayRequests(payload = {}) {
+  const requests = Array.isArray(payload) ? payload : objectValue(payload).requests;
+  return (Array.isArray(requests) ? requests : []).map(normalizeGatewayRequest);
 }
 
 export function isCodexGatewayProvider(provider = {}) {
-  return gatewayProviderRestriction(provider) === "codex";
+  const name = textValue(provider.name).toLowerCase();
+  const type = textValue(provider.type).toLowerCase();
+  return name === "codex" || type === "codex";
+}
+
+export function gatewayProviderRestriction(provider = {}) {
+  const profile = textValue(provider.profile).toLowerCase();
+  if (profile === "cliproxyapi") return "oauthProxy";
+  return "";
 }
 
 export function gatewayProviderRequest(name, gatewayEnabled) {
@@ -116,6 +200,55 @@ export function gatewayProviderRequest(name, gatewayEnabled) {
     path: `/api/providers/${encoded(providerName)}`,
     options: { method: "PATCH", body: JSON.stringify({ gatewayEnabled: Boolean(gatewayEnabled) }) },
   };
+}
+
+export function gatewayAccountRequest(provider, accountId, shared) {
+  const providerName = textValue(provider);
+  const id = textValue(accountId);
+  if (!providerName || !id) throw new TypeError("Gateway account provider and account id are required");
+  return {
+    path: `${endpoints.accounts}/${encoded(providerName)}/${encoded(id)}`,
+    options: { method: "PATCH", body: JSON.stringify({ shared: Boolean(shared) }) },
+  };
+}
+
+export function gatewayConfigPayload(draft = {}) {
+  const source = objectValue(draft);
+  const payload = {};
+  if (hasOwn(source, "enabled")) payload.enabled = Boolean(source.enabled);
+  if (hasOwn(source, "host")) payload.host = textValue(source.host);
+  if (hasOwn(source, "port")) payload.port = integerValue(source.port);
+  if (hasOwn(source, "allowRemote")) payload.allowRemote = Boolean(source.allowRemote);
+  if (hasOwn(source, "maxGlobalConcurrency")) payload.maxGlobalConcurrency = integerValue(source.maxGlobalConcurrency);
+  if (hasOwn(source, "maxRequestBytes")) payload.maxRequestBytes = integerValue(source.maxRequestBytes);
+  if (source.confirmRemoteRisk === true) payload.confirmRemoteRisk = true;
+  return payload;
+}
+
+export function gatewayConfigRequest(draft = {}, confirmRemoteRisk = false) {
+  const payload = gatewayConfigPayload(draft);
+  if (confirmRemoteRisk) payload.confirmRemoteRisk = true;
+  return { path: endpoints.config, options: { method: "PATCH", body: JSON.stringify(payload) } };
+}
+
+export function isLoopbackGatewayHost(value) {
+  let host = textValue(value).toLowerCase();
+  if (!host) return true;
+  if (host.startsWith("[") && host.endsWith("]")) host = host.slice(1, -1);
+  if (host.endsWith(".")) host = host.slice(0, -1);
+  if (host === "localhost" || host === "::1" || host === "0:0:0:0:0:0:0:1") return true;
+  return /^127(?:\.\d{1,3}){3}$/.test(host);
+}
+
+export function gatewayConfigNeedsRemoteConfirmation(current = {}, draft = {}, runtime = {}) {
+  const before = normalizeGatewaySettings(current);
+  const payload = gatewayConfigPayload(draft);
+  const nextHost = hasOwn(payload, "host") ? payload.host : before.host;
+  const nextAllowRemote = hasOwn(payload, "allowRemote") ? payload.allowRemote : before.allowRemote;
+  const opensRemote = nextAllowRemote && !before.allowRemote;
+  const changesToNonLoopback = hasOwn(payload, "host") && !isLoopbackGatewayHost(nextHost) && textValue(nextHost).toLowerCase() !== textValue(before.host).toLowerCase();
+  const startsRiskyListener = payload.enabled === true && !Boolean(objectValue(runtime).desiredEnabled) && (nextAllowRemote || !isLoopbackGatewayHost(nextHost));
+  return opensRemote || changesToNonLoopback || startsRiskyListener;
 }
 
 export function gatewayKeyPolicyPayload(draft = {}) {
@@ -148,26 +281,16 @@ export function gatewayKeyRequest(action, keyOrID = {}, draft = {}) {
   throw new TypeError(`Unknown gateway key action: ${action}`);
 }
 
-export function gatewayModelRequest(action, modelOrAlias = {}, draft = {}) {
-  const model = typeof modelOrAlias === "string" ? { alias: modelOrAlias } : objectValue(modelOrAlias);
-  const alias = textValue(model.alias);
-  const payload = {
-    alias: textValue(draft.alias ?? model.alias),
-    targetModel: textValue(draft.targetModel ?? model.targetModel),
-    enabled: (draft.enabled ?? model.enabled) !== false,
-  };
-  if (action === "create") return { path: endpoints.models, options: { method: "POST", body: JSON.stringify(payload) } };
-  if (!alias) throw new TypeError("Gateway model alias is required");
-  const path = `${endpoints.models}?alias=${encoded(alias)}`;
-  if (action === "update") return { path, options: { method: "PATCH", body: JSON.stringify({ ...payload, expectedUpdatedAt: textValue(draft.expectedUpdatedAt ?? model.updatedAt) }) } };
-  if (action === "delete") return { path, options: { method: "DELETE" } };
-  throw new TypeError(`Unknown gateway model action: ${action}`);
-}
-
 function replaceBy(items, item, field) {
   const index = items.findIndex((candidate) => candidate[field] === item[field]);
   if (index < 0) return [item, ...items];
   return items.map((candidate, candidateIndex) => candidateIndex === index ? item : candidate);
+}
+
+function replaceAccount(items, account) {
+  const index = items.findIndex((candidate) => candidate.provider === account.provider && candidate.accountId === account.accountId);
+  if (index < 0) return [account, ...items];
+  return items.map((candidate, candidateIndex) => candidateIndex === index ? account : candidate);
 }
 
 function formatDate(value) {
@@ -181,6 +304,13 @@ function formatNumber(value) {
   return new Intl.NumberFormat(currentUILocale()).format(integerValue(value));
 }
 
+function formatMilliseconds(value) {
+  const milliseconds = integerValue(value);
+  if (!milliseconds) return "—";
+  if (milliseconds < 1000) return `${formatNumber(milliseconds)} ms`;
+  return `${new Intl.NumberFormat(currentUILocale(), { maximumFractionDigits: 1 }).format(milliseconds / 1000)} s`;
+}
+
 function keyStatus(key) {
   if (key.revokedAt) return { key: "revoked", tone: "danger" };
   if (!key.enabled) return { key: "paused", tone: "warn" };
@@ -192,10 +322,28 @@ function providerLabel(provider) {
   return textValue(provider.name) || textValue(provider.type) || t("sharedAPI.unknownProvider");
 }
 
+function displayHost(host) {
+  const value = textValue(host);
+  if (value.includes(":") && !value.startsWith("[")) return `[${value}]`;
+  return value;
+}
+
 function gatewayAddress(gateway) {
   if (!gateway.host && !gateway.port) return t("sharedAPI.notConfigured");
-  const host = gateway.host || "127.0.0.1";
+  const host = displayHost(gateway.host || "127.0.0.1");
   return gateway.port ? `${host}:${gateway.port}` : host;
+}
+
+function gatewayBaseURL(runtime, gateway) {
+  let address = textValue(runtime.address);
+  if (!address) {
+    const host = displayHost(gateway.host || "127.0.0.1");
+    address = gateway.port ? `${host}:${gateway.port}` : host;
+  }
+  address = address.replace(/\/+$/, "");
+  if (/^https?:\/\//i.test(address)) return address;
+  if (address.startsWith(":")) address = `127.0.0.1${address}`;
+  return `http://${address}`;
 }
 
 function keyUsageValue(key) {
@@ -215,6 +363,18 @@ function keyEditorValues(key = {}) {
   };
 }
 
+function accountIsProfile(account) {
+  const description = `${account.authType} ${account.source}`.toLowerCase();
+  return description.includes("profile") || description.includes("cliproxy");
+}
+
+function accountRestriction(account) {
+  if (account.disabled) return account.reason || t("sharedAPI.accountDisabled");
+  if (accountIsProfile(account)) return account.reason || t("sharedAPI.accountProfileUnavailable");
+  if (!account.eligible) return account.reason || t("sharedAPI.accountNotEligible");
+  return "";
+}
+
 export function createSharedAPISettingsController({
   state,
   request,
@@ -230,13 +390,18 @@ export function createSharedAPISettingsController({
   let oneTimeTokenContext = "";
   let editingKeyID = "";
   let keyEditorOpen = false;
-  let editingModelAlias = "";
-  let modelEditorOpen = false;
   let loadSequence = 0;
 
   function ensureState() {
+    if (!state.gatewayConfig || typeof state.gatewayConfig !== "object") state.gatewayConfig = normalizeGatewaySettings(state.settings || {});
+    if (!state.gatewayStatus || typeof state.gatewayStatus !== "object") {
+      const config = normalizeGatewaySettings({ gateway: state.gatewayConfig });
+      state.gatewayStatus = normalizeGatewayRuntime({}, { desiredEnabled: config.enabled, allowRemote: config.allowRemote });
+    }
+    if (!Array.isArray(state.gatewayProtocols)) state.gatewayProtocols = [];
+    if (!Array.isArray(state.gatewayAccounts)) state.gatewayAccounts = [];
     if (!Array.isArray(state.gatewayKeys)) state.gatewayKeys = [];
-    if (!Array.isArray(state.gatewayModels)) state.gatewayModels = [];
+    if (!Array.isArray(state.gatewayRequests)) state.gatewayRequests = [];
     if (!state.gatewayUsage || typeof state.gatewayUsage !== "object") state.gatewayUsage = { items: [], summary: {} };
     if (typeof state.gatewayDataLoaded !== "boolean") state.gatewayDataLoaded = false;
     if (typeof state.gatewayDataLoading !== "boolean") state.gatewayDataLoading = false;
@@ -244,7 +409,12 @@ export function createSharedAPISettingsController({
   }
 
   function gateway() {
-    return normalizeGatewaySettings(state.settings || {});
+    return normalizeGatewaySettings({ gateway: state.gatewayConfig });
+  }
+
+  function runtime() {
+    const config = gateway();
+    return normalizeGatewayRuntime(state.gatewayStatus, { desiredEnabled: config.enabled, allowRemote: config.allowRemote });
   }
 
   function changed() {
@@ -267,33 +437,63 @@ export function createSharedAPISettingsController({
     }
   }
 
+  function applyGatewayPayload(payload = {}, fallbackConfig = {}) {
+    const root = objectValue(payload);
+    const currentConfig = gateway();
+    const currentRuntime = runtime();
+    const nestedStatus = objectValue(root.status);
+    const statusSource = Object.keys(nestedStatus).length ? nestedStatus : root;
+    const statusFields = ["desiredEnabled", "running", "address", "allowRemote", "ephemeralIsolation", "lastError", "updatedAt"];
+    const mergedStatus = { ...currentRuntime };
+    statusFields.forEach((field) => {
+      if (hasOwn(statusSource, field)) mergedStatus[field] = statusSource[field];
+    });
+    if (hasOwn(fallbackConfig, "enabled") && !hasOwn(statusSource, "desiredEnabled")) mergedStatus.desiredEnabled = Boolean(fallbackConfig.enabled);
+    if (hasOwn(fallbackConfig, "allowRemote") && !hasOwn(statusSource, "allowRemote")) mergedStatus.allowRemote = Boolean(fallbackConfig.allowRemote);
+
+    const directConfig = {};
+    ["enabled", "host", "port", "allowRemote", "maxGlobalConcurrency", "maxRequestBytes"].forEach((field) => {
+      if (hasOwn(root, field)) directConfig[field] = root[field];
+    });
+    const responseConfig = objectValue(root.gateway);
+    state.gatewayConfig = normalizeGatewaySettings({ gateway: { ...currentConfig, ...fallbackConfig, ...directConfig, ...responseConfig } });
+    state.gatewayStatus = normalizeGatewayRuntime(mergedStatus, {
+      desiredEnabled: state.gatewayConfig.enabled,
+      allowRemote: state.gatewayConfig.allowRemote,
+    });
+    if (Array.isArray(root.protocols)) state.gatewayProtocols = listValue(root.protocols);
+    if (state.settings && typeof state.settings === "object") {
+      state.settings.gateway = { ...objectValue(state.settings.gateway), ...state.gatewayConfig };
+    }
+  }
+
   async function load({ refreshSettings = false } = {}) {
     ensureState();
     const sequence = ++loadSequence;
     state.gatewayDataLoading = true;
     state.gatewayAPIError = "";
     try {
-      if (refreshSettings) await reloadSettings?.();
-      if (sequence !== loadSequence) return false;
-      if (!gateway().enabled) {
-        state.gatewayKeys = [];
-        state.gatewayModels = [];
-        state.gatewayUsage = { items: [], summary: {} };
-        state.gatewayDataLoaded = true;
-        return true;
+      if (refreshSettings) {
+        await reloadSettings?.();
+        state.gatewayConfig = normalizeGatewaySettings(state.settings || {});
       }
+      if (sequence !== loadSequence) return false;
       const results = await Promise.allSettled([
+        request(endpoints.status),
+        request(endpoints.accounts),
         request(endpoints.keys),
-        request(endpoints.models),
         request(endpoints.usage),
+        request(endpoints.requests),
       ]);
       if (sequence !== loadSequence) return false;
-      if (results[0].status === "fulfilled") state.gatewayKeys = normalizeGatewayKeys(results[0].value);
-      if (results[1].status === "fulfilled") state.gatewayModels = normalizeGatewayModels(results[1].value);
-      if (results[2].status === "fulfilled") {
-        const usage = objectValue(results[2].value);
+      if (results[0].status === "fulfilled") applyGatewayPayload(results[0].value);
+      if (results[1].status === "fulfilled") state.gatewayAccounts = normalizeGatewayAccounts(results[1].value);
+      if (results[2].status === "fulfilled") state.gatewayKeys = normalizeGatewayKeys(results[2].value);
+      if (results[3].status === "fulfilled") {
+        const usage = objectValue(results[3].value);
         state.gatewayUsage = { items: Array.isArray(usage.items) ? usage.items : [], summary: objectValue(usage.summary) };
       }
+      if (results[4].status === "fulfilled") state.gatewayRequests = normalizeGatewayRequests(results[4].value);
       const failure = results.find((result) => result.status === "rejected");
       if (failure) throw failure.reason;
       state.gatewayDataLoaded = true;
@@ -321,6 +521,26 @@ export function createSharedAPISettingsController({
     state.gatewayAPIError = message;
     changed();
     throw new Error(message);
+  }
+
+  async function updateGatewayConfig(draft = {}) {
+    const payload = gatewayConfigPayload(draft);
+    const needsConfirmation = gatewayConfigNeedsRemoteConfirmation(gateway(), payload, runtime());
+    if (needsConfirmation && !await confirm(t("sharedAPI.remoteRiskConfirm"))) return null;
+    const call = gatewayConfigRequest(payload, needsConfirmation);
+    const result = await perform(call.path, call.options);
+    applyGatewayPayload(result, payload);
+    if (hasOwn(payload, "enabled") && Object.keys(payload).length === 1) {
+      showToast?.(t(payload.enabled ? "sharedAPI.gatewayStarted" : "sharedAPI.gatewayStopped"));
+    } else {
+      showToast?.(t("sharedAPI.gatewayConfigSaved"));
+    }
+    changed();
+    return result;
+  }
+
+  function setGatewayEnabled(enabled) {
+    return updateGatewayConfig({ enabled: Boolean(enabled) });
   }
 
   function revealToken(result, context) {
@@ -425,61 +645,50 @@ export function createSharedAPISettingsController({
     return result;
   }
 
-  async function createModel(draft) {
-    const call = gatewayModelRequest("create", {}, draft);
+  async function toggleAccount(provider, accountId, shared) {
+    const account = state.gatewayAccounts.find((item) => item.provider === provider && item.accountId === accountId);
+    if (!account || accountRestriction(account)) return null;
+    const call = gatewayAccountRequest(provider, accountId, shared);
     const result = await perform(call.path, call.options);
-    if (result?.model) state.gatewayModels = replaceBy(state.gatewayModels, normalizeGatewayModel(result.model), "alias");
-    modelEditorOpen = false;
-    editingModelAlias = "";
-    showToast?.(t("sharedAPI.modelCreated"));
-    changed();
-    return result;
-  }
-
-  async function updateModel(alias, draft) {
-    const model = state.gatewayModels.find((item) => item.alias === alias) || { alias };
-    const call = gatewayModelRequest("update", model, draft);
-    let result;
-    try {
-      result = await perform(call.path, call.options);
-    } catch (error) {
-      return refreshAfterConflict(error);
-    }
-    if (result?.model) {
-      state.gatewayModels = state.gatewayModels.filter((item) => item.alias !== alias);
-      state.gatewayModels = replaceBy(state.gatewayModels, normalizeGatewayModel(result.model), "alias");
-    }
-    editingModelAlias = "";
-    showToast?.(t("sharedAPI.modelUpdated"));
-    changed();
-    return result;
-  }
-
-  async function deleteModel(alias) {
-    if (!await confirm(t("sharedAPI.deleteModelConfirm", { alias }))) return null;
-    const call = gatewayModelRequest("delete", alias);
-    const result = await perform(call.path, call.options);
-    state.gatewayModels = state.gatewayModels.filter((item) => item.alias !== alias);
-    if (editingModelAlias === alias) editingModelAlias = "";
-    showToast?.(t("sharedAPI.modelDeleted"));
+    const responseAccount = objectValue(result?.account);
+    const directAccount = Object.keys(responseAccount).length ? responseAccount : objectValue(result);
+    const merged = normalizeGatewayAccount({ ...account, ...directAccount, provider, accountId, shared: Boolean(shared) });
+    if (!hasOwn(directAccount, "effective")) merged.effective = merged.shared && merged.eligible && !merged.disabled && !accountIsProfile(merged);
+    state.gatewayAccounts = replaceAccount(state.gatewayAccounts, merged);
+    showToast?.(t(shared ? "sharedAPI.accountShared" : "sharedAPI.accountUnshared", { label: merged.label || merged.accountId }));
     changed();
     return result;
   }
 
   function renderGateway() {
     const value = gateway();
+    const status = runtime();
+    const desiredEnabled = status.desiredEnabled;
+    const actualAddress = status.address || gatewayAddress(value);
     return `
       <section class="compact-settings-section shared-api-gateway-section">
         <div class="compact-settings-section-copy"><h2>${escapeHtml(t("sharedAPI.gatewayTitle"))}</h2><p data-settings-help-copy>${escapeHtml(t("sharedAPI.gatewayDescription"))}</p></div>
-        <div class="compact-settings-section-controls">
-          <div class="shared-api-status-row"><span class="settings-badge ${value.enabled ? "ok" : "warn"}">${escapeHtml(t(value.enabled ? "sharedAPI.enabled" : "sharedAPI.disabled"))}</span><code>${escapeHtml(gatewayAddress(value))}</code></div>
+        <div class="compact-settings-section-controls shared-api-gateway-controls">
+          <div class="shared-api-status-row"><span class="settings-badge ${status.running ? "ok" : "warn"}">${escapeHtml(t(status.running ? "sharedAPI.runtimeRunning" : "sharedAPI.runtimeStopped"))}</span><code>${escapeHtml(actualAddress)}</code></div>
           <dl class="shared-api-gateway-meta">
-            <div><dt>${escapeHtml(t("sharedAPI.listenAddress"))}</dt><dd>${escapeHtml(gatewayAddress(value))}</dd></div>
-            <div><dt>${escapeHtml(t("sharedAPI.globalConcurrency"))}</dt><dd>${escapeHtml(value.maxGlobalConcurrency ? formatNumber(value.maxGlobalConcurrency) : t("sharedAPI.unlimited"))}</dd></div>
-            <div><dt>${escapeHtml(t("sharedAPI.maxRequestBytes"))}</dt><dd>${escapeHtml(value.maxRequestBytes ? formatNumber(value.maxRequestBytes) : t("sharedAPI.notConfigured"))}</dd></div>
+            <div><dt>${escapeHtml(t("sharedAPI.actualStatus"))}</dt><dd>${escapeHtml(t(status.running ? "sharedAPI.running" : "sharedAPI.stopped"))}</dd></div>
+            <div><dt>${escapeHtml(t("sharedAPI.desiredState"))}</dt><dd>${escapeHtml(t(desiredEnabled ? "sharedAPI.desiredEnabled" : "sharedAPI.desiredDisabled"))}</dd></div>
+            <div><dt>${escapeHtml(t("sharedAPI.actualAddress"))}</dt><dd>${escapeHtml(actualAddress)}</dd></div>
+            <div><dt>${escapeHtml(t("sharedAPI.protocols"))}</dt><dd>${escapeHtml(state.gatewayProtocols.length ? state.gatewayProtocols.join(", ") : t("sharedAPI.none"))}</dd></div>
+            <div><dt>${escapeHtml(t("sharedAPI.ephemeralIsolation"))}</dt><dd>${escapeHtml(t(status.ephemeralIsolation ? "sharedAPI.yes" : "sharedAPI.no"))}</dd></div>
+            <div><dt>${escapeHtml(t("sharedAPI.lastUpdated"))}</dt><dd>${escapeHtml(formatDate(status.updatedAt))}</dd></div>
           </dl>
-          <div class="settings-inline-alert shared-api-security-note" role="note"><strong>${escapeHtml(t("sharedAPI.securityTitle"))}</strong><span>${escapeHtml(t("sharedAPI.securityNotice"))}</span></div>
-          ${value.enabled ? "" : `<div class="settings-inline-alert settings-alert" role="status">${escapeHtml(t("sharedAPI.disabledNotice"))}</div>`}
+          ${status.lastError ? `<div class="settings-inline-alert settings-alert shared-api-runtime-error" role="alert">${escapeHtml(t("sharedAPI.lastError", { message: status.lastError }))}</div>` : ""}
+          <form class="compact-settings-editor shared-api-gateway-form" data-gateway-config-form>
+            <div class="compact-settings-grid two-column">
+              <label class="settings-form-field">${escapeHtml(t("sharedAPI.host"))}<input class="settings-field" name="host" value="${escapeAttr(value.host)}" autocomplete="off" /></label>
+              <label class="settings-form-field">${escapeHtml(t("sharedAPI.port"))}<input class="settings-field" name="port" type="number" min="0" max="65535" step="1" value="${escapeAttr(value.port)}" /></label>
+              <label class="settings-form-field">${escapeHtml(t("sharedAPI.globalConcurrency"))}<input class="settings-field" name="maxGlobalConcurrency" type="number" min="0" step="1" value="${escapeAttr(value.maxGlobalConcurrency)}" /><small data-settings-help-copy>${escapeHtml(t("sharedAPI.zeroUnlimited"))}</small></label>
+              <label class="settings-form-field">${escapeHtml(t("sharedAPI.maxRequestBytes"))}<input class="settings-field" name="maxRequestBytes" type="number" min="0" step="1" value="${escapeAttr(value.maxRequestBytes)}" /><small data-settings-help-copy>${escapeHtml(t("sharedAPI.zeroUnlimited"))}</small></label>
+            </div>
+            <label class="compact-settings-switch-row"><span><strong>${escapeHtml(t("sharedAPI.allowRemote"))}</strong><small data-settings-help-copy>${escapeHtml(t("sharedAPI.allowRemoteHint"))}</small></span><input name="allowRemote" type="checkbox" ${value.allowRemote ? "checked" : ""} /></label>
+            <div class="settings-inline-actions compact-settings-editor-actions shared-api-gateway-actions"><button class="settings-action-btn ${desiredEnabled ? "danger" : "primary"}" type="button" data-gateway-toggle="${desiredEnabled ? "false" : "true"}">${escapeHtml(t(desiredEnabled ? "sharedAPI.stopGateway" : "sharedAPI.startGateway"))}</button><button class="settings-action-btn subtle" type="submit">${escapeHtml(t("sharedAPI.saveGatewayConfig"))}</button></div>
+          </form>
         </div>
       </section>`;
   }
@@ -492,34 +701,30 @@ export function createSharedAPISettingsController({
         <div class="compact-settings-section-controls shared-api-list">
           ${providers.length ? providers.map((provider) => {
             const restriction = gatewayProviderRestriction(provider);
-            const restrictionMessage = restriction === "codex" ? "sharedAPI.codexUnavailable" : "sharedAPI.oauthProxyUnavailable";
-            return `<div class="shared-api-row ${restriction ? "is-disabled" : ""}"><span><strong>${escapeHtml(providerLabel(provider))}</strong><small>${escapeHtml(restriction ? t(restrictionMessage) : t(provider.gatewayEnabled ? "sharedAPI.providerEligible" : "sharedAPI.providerPrivate"))}</small></span>${restriction ? `<span class="settings-badge">${escapeHtml(t("sharedAPI.notShareable"))}</span>` : `<label class="shared-api-switch"><input type="checkbox" data-gateway-provider="${escapeAttr(provider.name)}" ${provider.gatewayEnabled ? "checked" : ""} /><span>${escapeHtml(t("sharedAPI.shareProvider"))}</span></label>`}</div>`;
+            return `<div class="shared-api-row ${restriction ? "is-disabled" : ""}"><span><strong>${escapeHtml(providerLabel(provider))}</strong><small>${escapeHtml(restriction ? t("sharedAPI.oauthProxyUnavailable") : t(provider.gatewayEnabled ? "sharedAPI.providerEligible" : "sharedAPI.providerPrivate"))}</small></span>${restriction ? `<span class="settings-badge">${escapeHtml(t("sharedAPI.notShareable"))}</span>` : `<label class="shared-api-switch"><input type="checkbox" data-gateway-provider="${escapeAttr(provider.name)}" ${provider.gatewayEnabled ? "checked" : ""} /><span>${escapeHtml(t("sharedAPI.shareProvider"))}</span></label>`}</div>`;
           }).join("") : `<div class="settings-empty-state">${escapeHtml(t("sharedAPI.noProviders"))}</div>`}
         </div>
       </section>`;
   }
 
-  function renderModelForm(model = {}) {
-    const value = normalizeGatewayModel(model);
-    const editing = Boolean(value.alias);
-    return `<form class="compact-settings-editor shared-api-model-form" data-gateway-model-form="${escapeAttr(editing ? value.alias : "new")}">
-      <div class="compact-settings-grid two-column">
-        <label class="settings-form-field">${escapeHtml(t("sharedAPI.alias"))}<input class="settings-field" name="alias" value="${escapeAttr(value.alias)}" required autocomplete="off" /></label>
-        <label class="settings-form-field">${escapeHtml(t("sharedAPI.targetModel"))}<input class="settings-field" name="targetModel" value="${escapeAttr(value.targetModel)}" required placeholder="provider:model" autocomplete="off" /></label>
-      </div>
-      <label class="compact-settings-switch-row"><span><strong>${escapeHtml(t("sharedAPI.aliasEnabled"))}</strong><small data-settings-help-copy>${escapeHtml(t("sharedAPI.aliasEnabledHint"))}</small></span><input name="enabled" type="checkbox" ${value.enabled ? "checked" : ""} /></label>
-      <div class="settings-inline-actions compact-settings-editor-actions"><button class="settings-action-btn subtle" type="button" data-gateway-model-cancel>${escapeHtml(t("sharedAPI.cancel"))}</button><button class="settings-action-btn primary" type="submit">${escapeHtml(t(editing ? "sharedAPI.save" : "sharedAPI.createAlias"))}</button></div>
-    </form>`;
-  }
-
-  function renderModels() {
+  function renderAccounts() {
+    const groups = new Map();
+    state.gatewayAccounts.forEach((account) => {
+      if (!groups.has(account.provider)) groups.set(account.provider, []);
+      groups.get(account.provider).push(account);
+    });
     return `
-      <section class="compact-settings-section">
-        <div class="compact-settings-section-copy"><h2>${escapeHtml(t("sharedAPI.modelsTitle"))}</h2><p data-settings-help-copy>${escapeHtml(t("sharedAPI.modelsDescription"))}</p></div>
+      <section class="compact-settings-section shared-api-accounts-section">
+        <div class="compact-settings-section-copy"><h2>${escapeHtml(t("sharedAPI.accountsTitle"))}</h2><p data-settings-help-copy>${escapeHtml(t("sharedAPI.accountsDescription"))}</p></div>
         <div class="compact-settings-section-controls">
-          <div class="compact-settings-section-toolbar"><span class="settings-badge">${escapeHtml(t("sharedAPI.modelCount", { count: state.gatewayModels.length }))}</span><button class="settings-action-btn subtle" type="button" data-gateway-model-add ${gateway().enabled ? "" : "disabled"}>${escapeHtml(t("sharedAPI.addAlias"))}</button></div>
-          ${modelEditorOpen && !editingModelAlias ? renderModelForm() : ""}
-          <div class="shared-api-list">${state.gatewayModels.length ? state.gatewayModels.map((model) => editingModelAlias === model.alias ? renderModelForm(model) : `<div class="shared-api-row shared-api-model-row"><span><strong><code>${escapeHtml(model.alias)}</code> → <code>${escapeHtml(model.targetModel)}</code></strong><small>${escapeHtml(t(model.enabled ? "sharedAPI.aliasActive" : "sharedAPI.aliasDisabled"))}</small></span><div class="settings-inline-actions"><span class="settings-badge ${model.enabled ? "ok" : "warn"}">${escapeHtml(t(model.enabled ? "sharedAPI.enabled" : "sharedAPI.disabled"))}</span><button class="settings-action-btn subtle" type="button" data-gateway-model-edit="${escapeAttr(model.alias)}">${escapeHtml(t("sharedAPI.edit"))}</button><button class="settings-action-btn danger" type="button" data-gateway-model-delete="${escapeAttr(model.alias)}">${escapeHtml(t("sharedAPI.delete"))}</button></div></div>`).join("") : `<div class="settings-empty-state">${escapeHtml(t("sharedAPI.noModels"))}</div>`}</div>
+          <div class="compact-settings-section-toolbar"><span class="settings-badge">${escapeHtml(t("sharedAPI.accountCount", { count: state.gatewayAccounts.length }))}</span></div>
+          <div class="shared-api-account-groups">${groups.size ? [...groups.entries()].map(([provider, accounts]) => `<div class="shared-api-account-group"><div class="shared-api-account-group-heading"><strong>${escapeHtml(provider)}</strong><span>${escapeHtml(t("sharedAPI.accountCount", { count: accounts.length }))}</span></div><div class="shared-api-list">${accounts.map((account) => {
+            const restriction = accountRestriction(account);
+            const statusKey = restriction ? "accountUnavailable" : account.effective ? "accountEffective" : account.shared ? "accountPending" : "accountPrivate";
+            const auth = account.authType || t("sharedAPI.none");
+            const source = account.source || t("sharedAPI.none");
+            return `<div class="shared-api-row shared-api-account-row ${restriction ? "is-disabled" : ""}"><span><strong>${escapeHtml(account.label || account.accountId)} <code>${escapeHtml(account.accountId)}</code></strong><small>${escapeHtml(t("sharedAPI.accountMeta", { auth, source, priority: formatNumber(account.priority) }))}</small>${restriction ? `<small class="shared-api-account-reason">${escapeHtml(restriction)}</small>` : ""}</span><div class="shared-api-account-actions"><span class="settings-badge ${account.effective ? "ok" : restriction ? "warn" : ""}">${escapeHtml(t(`sharedAPI.${statusKey}`))}</span><label class="shared-api-switch"><input type="checkbox" data-gateway-account-provider="${escapeAttr(account.provider)}" data-gateway-account-id="${escapeAttr(account.accountId)}" ${account.shared ? "checked" : ""} ${restriction ? "disabled" : ""} /><span>${escapeHtml(t("sharedAPI.shareAccount"))}</span></label></div></div>`;
+          }).join("")}</div></div>`).join("") : `<div class="settings-empty-state shared-api-compact-empty">${escapeHtml(t("sharedAPI.noAccounts"))}</div>`}</div>
         </div>
       </section>`;
   }
@@ -563,12 +768,23 @@ export function createSharedAPISettingsController({
       <section class="compact-settings-section shared-api-keys-section">
         <div class="compact-settings-section-copy"><h2>${escapeHtml(t("sharedAPI.keysTitle"))}</h2><p data-settings-help-copy>${escapeHtml(t("sharedAPI.keysDescription"))}</p></div>
         <div class="compact-settings-section-controls">
-          <div class="compact-settings-section-toolbar"><span class="settings-badge">${escapeHtml(t("sharedAPI.keyCount", { count: state.gatewayKeys.length }))}</span><button class="settings-action-btn primary" type="button" data-gateway-key-add ${gateway().enabled ? "" : "disabled"}>${escapeHtml(t("sharedAPI.addKey"))}</button></div>
+          <div class="compact-settings-section-toolbar"><span class="settings-badge">${escapeHtml(t("sharedAPI.keyCount", { count: state.gatewayKeys.length }))}</span><button class="settings-action-btn primary" type="button" data-gateway-key-add>${escapeHtml(t("sharedAPI.addKey"))}</button></div>
           ${renderOneTimeToken()}
           ${keyEditorOpen && !editingKeyID ? renderKeyForm() : ""}
           <div class="shared-api-key-list">${state.gatewayKeys.length ? state.gatewayKeys.map((key) => editingKeyID === key.id ? renderKeyForm(key) : renderKey(key)).join("") : `<div class="settings-empty-state shared-api-compact-empty">${escapeHtml(t("sharedAPI.noKeys"))}</div>`}</div>
         </div>
       </section>`;
+  }
+
+  function renderConnections() {
+    const baseURL = gatewayBaseURL(runtime(), gateway());
+    const examples = [
+      ["baseURL", baseURL],
+      ["chatCompletions", `${baseURL}/v1/chat/completions`],
+      ["responsesEndpoint", `${baseURL}/v1/responses`],
+      ["messagesEndpoint", `${baseURL}/v1/messages`],
+    ];
+    return `<section class="compact-settings-section shared-api-connections-section"><div class="compact-settings-section-copy"><h2>${escapeHtml(t("sharedAPI.connectionsTitle"))}</h2><p data-settings-help-copy>${escapeHtml(t("sharedAPI.connectionsDescription"))}</p></div><div class="compact-settings-section-controls"><div class="shared-api-connection-list">${examples.map(([key, value]) => `<div class="shared-api-connection-row"><span>${escapeHtml(t(`sharedAPI.${key}`))}</span><code>${escapeHtml(value)}</code></div>`).join("")}</div></div></section>`;
   }
 
   function renderUsage() {
@@ -582,13 +798,38 @@ export function createSharedAPISettingsController({
     return `<section class="compact-settings-section shared-api-usage-section"><div class="compact-settings-section-copy"><h2>${escapeHtml(t("sharedAPI.usageTitle"))}</h2><p data-settings-help-copy>${escapeHtml(t("sharedAPI.usageDescription"))}</p></div><div class="compact-settings-section-controls">${values.length ? `<div class="shared-api-usage-grid">${values.map(([key, value]) => `<div><strong>${escapeHtml(formatNumber(value))}</strong><span>${escapeHtml(t(`sharedAPI.usage.${key}`))}</span></div>`).join("")}</div>` : `<div class="settings-empty-state shared-api-compact-empty">${escapeHtml(t("sharedAPI.noUsage"))}</div>`}</div></section>`;
   }
 
+  function renderRequest(record) {
+    const protocol = [record.protocol, record.kind].filter(Boolean).join(" / ") || t("sharedAPI.none");
+    const actualModel = [record.provider, record.model].filter(Boolean).join(":") || t("sharedAPI.none");
+    const model = record.alias ? `${record.alias} → ${actualModel}` : actualModel;
+    const account = [record.accountLabel, record.accountId].filter(Boolean).join(" · ") || t("sharedAPI.unknownAccount");
+    const tokens = t("sharedAPI.tokenSummary", { input: formatNumber(record.inputTokens), output: formatNumber(record.outputTokens), total: formatNumber(record.totalTokens) });
+    const timing = t("sharedAPI.timingSummary", { duration: formatMilliseconds(record.durationMs), ttft: formatMilliseconds(record.ttftMs) });
+    return `<article class="shared-api-request-row ${record.error ? "has-error" : ""}"><div class="shared-api-request-head"><time>${escapeHtml(formatDate(record.createdAt))}</time><span class="settings-badge ${record.error ? "danger" : "ok"}">${escapeHtml(t(record.error ? "sharedAPI.requestErrorStatus" : "sharedAPI.requestSuccess"))}</span></div><dl class="shared-api-request-meta"><div><dt>${escapeHtml(t("sharedAPI.requestKey"))}</dt><dd>${escapeHtml(record.key || t("sharedAPI.unknownKey"))}</dd></div><div><dt>${escapeHtml(t("sharedAPI.requestProtocol"))}</dt><dd>${escapeHtml(protocol)}</dd></div><div><dt>${escapeHtml(t("sharedAPI.requestModel"))}</dt><dd><code>${escapeHtml(model)}</code></dd></div><div><dt>${escapeHtml(t("sharedAPI.requestAccount"))}</dt><dd>${escapeHtml(account)}</dd></div><div><dt>${escapeHtml(t("sharedAPI.requestTokens"))}</dt><dd>${escapeHtml(tokens)}</dd></div><div><dt>${escapeHtml(t("sharedAPI.requestTiming"))}</dt><dd>${escapeHtml(timing)}</dd></div></dl>${record.error ? `<div class="settings-inline-alert settings-alert shared-api-request-error" role="status">${escapeHtml(record.error)}</div>` : ""}</article>`;
+  }
+
+  function renderRequests() {
+    return `<section class="compact-settings-section shared-api-requests-section"><div class="compact-settings-section-copy"><h2>${escapeHtml(t("sharedAPI.requestsTitle"))}</h2><p data-settings-help-copy>${escapeHtml(t("sharedAPI.requestsDescription"))}</p></div><div class="compact-settings-section-controls"><div class="compact-settings-section-toolbar"><span class="settings-badge">${escapeHtml(t("sharedAPI.requestCount", { count: state.gatewayRequests.length }))}</span></div><div class="shared-api-request-list">${state.gatewayRequests.length ? state.gatewayRequests.map(renderRequest).join("") : `<div class="settings-empty-state shared-api-compact-empty">${escapeHtml(t("sharedAPI.noRequests"))}</div>`}</div></div></section>`;
+  }
+
   function render() {
     ensureState();
+    const status = runtime();
     return `<div class="compact-settings-page shared-api-page">
-      <header class="compact-settings-header"><div class="compact-settings-heading"><h1>${escapeHtml(t("sharedAPI.title"))}</h1><p data-settings-help-copy>${escapeHtml(t("sharedAPI.description"))}</p></div><div class="compact-settings-header-actions"><span class="settings-badge ${gateway().enabled ? "ok" : "warn"}">${escapeHtml(t(gateway().enabled ? "sharedAPI.gatewayOn" : "sharedAPI.gatewayOff"))}</span><button class="settings-action-btn subtle" type="button" data-gateway-refresh ${state.gatewayDataLoading ? "disabled" : ""}>${escapeHtml(state.gatewayDataLoading ? t("sharedAPI.loading") : t("sharedAPI.refresh"))}</button></div></header>
+      <header class="compact-settings-header"><div class="compact-settings-heading"><h1>${escapeHtml(t("sharedAPI.title"))}</h1><p data-settings-help-copy>${escapeHtml(t("sharedAPI.description"))}</p></div><div class="compact-settings-header-actions"><span class="settings-badge ${status.running ? "ok" : "warn"}">${escapeHtml(t(status.running ? "sharedAPI.runtimeRunning" : "sharedAPI.runtimeStopped"))}</span><button class="settings-action-btn subtle" type="button" data-gateway-refresh ${state.gatewayDataLoading ? "disabled" : ""}>${escapeHtml(state.gatewayDataLoading ? t("sharedAPI.loading") : t("sharedAPI.refresh"))}</button></div></header>
       ${state.gatewayAPIError ? `<div class="settings-inline-alert settings-alert shared-api-error" role="alert">${escapeHtml(t("sharedAPI.error", { message: state.gatewayAPIError }))}</div>` : ""}
-      ${renderGateway()}${renderProviders()}${renderKeys()}${renderUsage()}
+      ${renderGateway()}${renderProviders()}${renderAccounts()}${renderKeys()}${renderConnections()}${renderUsage()}${renderRequests()}
     </div>`;
+  }
+
+  function gatewayDraftFromForm(form) {
+    return {
+      host: form.elements.host?.value,
+      port: form.elements.port?.value,
+      allowRemote: Boolean(form.elements.allowRemote?.checked),
+      maxGlobalConcurrency: form.elements.maxGlobalConcurrency?.value,
+      maxRequestBytes: form.elements.maxRequestBytes?.value,
+    };
   }
 
   function keyDraftFromForm(form) {
@@ -603,10 +844,6 @@ export function createSharedAPISettingsController({
     };
   }
 
-  function modelDraftFromForm(form) {
-    return { alias: form.elements.alias?.value, targetModel: form.elements.targetModel?.value, enabled: Boolean(form.elements.enabled?.checked) };
-  }
-
   function runButton(button, work) {
     setButtonBusy(button, true);
     Promise.resolve().then(work).catch(showError).finally(() => setButtonBusy(button, false));
@@ -615,22 +852,21 @@ export function createSharedAPISettingsController({
   function bind() {
     ensureState();
     if (!state.gatewayDataLoaded && !state.gatewayDataLoading) load().catch(() => {});
-    $("settingsContentBody")?.querySelector?.("[data-gateway-refresh]")?.addEventListener("click", (event) => runButton(event.currentTarget, () => load({ refreshSettings: true })));
-    $("settingsContentBody")?.querySelectorAll?.("[data-gateway-provider]").forEach((input) => input.addEventListener("change", (event) => runButton(event.currentTarget, () => toggleProvider(event.currentTarget.dataset.gatewayProvider, event.currentTarget.checked))));
-    $("settingsContentBody")?.querySelector?.("[data-gateway-model-add]")?.addEventListener("click", () => { modelEditorOpen = true; editingModelAlias = ""; changed(); });
-    $("settingsContentBody")?.querySelectorAll?.("[data-gateway-model-edit]").forEach((button) => button.addEventListener("click", () => { editingModelAlias = button.dataset.gatewayModelEdit; modelEditorOpen = false; changed(); }));
-    $("settingsContentBody")?.querySelectorAll?.("[data-gateway-model-delete]").forEach((button) => button.addEventListener("click", () => runButton(button, () => deleteModel(button.dataset.gatewayModelDelete))));
-    $("settingsContentBody")?.querySelectorAll?.("[data-gateway-model-cancel]").forEach((button) => button.addEventListener("click", () => { modelEditorOpen = false; editingModelAlias = ""; changed(); }));
-    $("settingsContentBody")?.querySelectorAll?.("[data-gateway-model-form]").forEach((form) => form.addEventListener("submit", (event) => { event.preventDefault(); const alias = form.dataset.gatewayModelForm; runButton(form.querySelector("[type=submit]"), () => alias === "new" ? createModel(modelDraftFromForm(form)) : updateModel(alias, modelDraftFromForm(form))); }));
-    $("settingsContentBody")?.querySelector?.("[data-gateway-key-add]")?.addEventListener("click", () => { keyEditorOpen = true; editingKeyID = ""; changed(); });
-    $("settingsContentBody")?.querySelectorAll?.("[data-gateway-key-edit]").forEach((button) => button.addEventListener("click", () => { editingKeyID = button.dataset.gatewayKeyEdit; keyEditorOpen = false; changed(); }));
-    $("settingsContentBody")?.querySelectorAll?.("[data-gateway-key-toggle]").forEach((button) => button.addEventListener("click", () => runButton(button, () => toggleKey(button.dataset.gatewayKeyToggle))));
-    $("settingsContentBody")?.querySelectorAll?.("[data-gateway-key-rotate]").forEach((button) => button.addEventListener("click", () => runButton(button, () => rotateKey(button.dataset.gatewayKeyRotate))));
-    $("settingsContentBody")?.querySelectorAll?.("[data-gateway-key-revoke]").forEach((button) => button.addEventListener("click", () => runButton(button, () => revokeKey(button.dataset.gatewayKeyRevoke))));
-    $("settingsContentBody")?.querySelectorAll?.("[data-gateway-key-cancel]").forEach((button) => button.addEventListener("click", () => { keyEditorOpen = false; editingKeyID = ""; changed(); }));
-    $("settingsContentBody")?.querySelectorAll?.("[data-gateway-key-form]").forEach((form) => form.addEventListener("submit", (event) => { event.preventDefault(); const id = form.dataset.gatewayKeyForm; runButton(form.querySelector("[type=submit]"), () => id === "new" ? createKey(keyDraftFromForm(form)) : updateKey(id, keyDraftFromForm(form))); }));
-    $("settingsContentBody")?.querySelector?.("[data-gateway-token-copy]")?.addEventListener("click", (event) => runButton(event.currentTarget, copyOneTimeToken));
-    $("settingsContentBody")?.querySelector?.("[data-gateway-token-dismiss]")?.addEventListener("click", dismissToken);
+    const root = $("settingsContentBody");
+    root?.querySelector?.("[data-gateway-refresh]")?.addEventListener("click", (event) => runButton(event.currentTarget, () => load({ refreshSettings: true })));
+    root?.querySelector?.("[data-gateway-config-form]")?.addEventListener("submit", (event) => { event.preventDefault(); const form = event.currentTarget; runButton(form.querySelector("[type=submit]"), () => updateGatewayConfig(gatewayDraftFromForm(form))); });
+    root?.querySelector?.("[data-gateway-toggle]")?.addEventListener("click", (event) => runButton(event.currentTarget, () => setGatewayEnabled(event.currentTarget.dataset.gatewayToggle === "true")));
+    root?.querySelectorAll?.("[data-gateway-provider]").forEach((input) => input.addEventListener("change", (event) => runButton(event.currentTarget, () => toggleProvider(event.currentTarget.dataset.gatewayProvider, event.currentTarget.checked))));
+    root?.querySelectorAll?.("[data-gateway-account-provider]").forEach((input) => input.addEventListener("change", (event) => runButton(event.currentTarget, () => toggleAccount(event.currentTarget.dataset.gatewayAccountProvider, event.currentTarget.dataset.gatewayAccountId, event.currentTarget.checked))));
+    root?.querySelector?.("[data-gateway-key-add]")?.addEventListener("click", () => { keyEditorOpen = true; editingKeyID = ""; changed(); });
+    root?.querySelectorAll?.("[data-gateway-key-edit]").forEach((button) => button.addEventListener("click", () => { editingKeyID = button.dataset.gatewayKeyEdit; keyEditorOpen = false; changed(); }));
+    root?.querySelectorAll?.("[data-gateway-key-toggle]").forEach((button) => button.addEventListener("click", () => runButton(button, () => toggleKey(button.dataset.gatewayKeyToggle))));
+    root?.querySelectorAll?.("[data-gateway-key-rotate]").forEach((button) => button.addEventListener("click", () => runButton(button, () => rotateKey(button.dataset.gatewayKeyRotate))));
+    root?.querySelectorAll?.("[data-gateway-key-revoke]").forEach((button) => button.addEventListener("click", () => runButton(button, () => revokeKey(button.dataset.gatewayKeyRevoke))));
+    root?.querySelectorAll?.("[data-gateway-key-cancel]").forEach((button) => button.addEventListener("click", () => { keyEditorOpen = false; editingKeyID = ""; changed(); }));
+    root?.querySelectorAll?.("[data-gateway-key-form]").forEach((form) => form.addEventListener("submit", (event) => { event.preventDefault(); const id = form.dataset.gatewayKeyForm; runButton(form.querySelector("[type=submit]"), () => id === "new" ? createKey(keyDraftFromForm(form)) : updateKey(id, keyDraftFromForm(form))); }));
+    root?.querySelector?.("[data-gateway-token-copy]")?.addEventListener("click", (event) => runButton(event.currentTarget, copyOneTimeToken));
+    root?.querySelector?.("[data-gateway-token-dismiss]")?.addEventListener("click", dismissToken);
   }
 
   function consumeOneTimeToken() {
@@ -646,17 +882,17 @@ export function createSharedAPISettingsController({
     consumeOneTimeToken,
     copyOneTimeToken,
     createKey,
-    createModel,
-    deleteModel,
     dismissToken,
     load,
     oneTimeTokenValue: () => oneTimeToken,
     render,
     revokeKey,
     rotateKey,
+    setGatewayEnabled,
+    toggleAccount,
     toggleKey,
     toggleProvider,
+    updateGatewayConfig,
     updateKey,
-    updateModel,
   };
 }

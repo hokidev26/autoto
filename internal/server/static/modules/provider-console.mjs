@@ -145,6 +145,10 @@ export function createModelProviderSettingsController({
     syncAnthropicAccount,
     toggleAnthropicAccount,
     deleteAnthropicAccount,
+    startAnthropicLogin,
+    submitAnthropicLogin,
+    pasteAnthropicLogin,
+    cancelAnthropicLogin,
     renderAnthropicConsolePage,
   } = anthropicAccounts;
 
@@ -697,7 +701,7 @@ export function createModelProviderSettingsController({
     consoleState.mode = "anthropic";
     consoleState.type = "anthropic";
     consoleState.providerName = normalized.name || "anthropic";
-    consoleState.draft = createProviderDraft("anthropic", normalized);
+    consoleState.draft = providerDraftWithVisibility(createProviderDraft("anthropic", normalized), normalized.name || "anthropic");
     consoleState.dirty = false;
     consoleState.anthropicEdit = null;
     setProviderConsoleResult("");
@@ -1111,11 +1115,11 @@ export function createModelProviderSettingsController({
     if (!provider || providerConsoleBusy(`toggle:${name}`) || providerConsoleBusy(`delete:${name}`)) return;
     const enabled = !Boolean(provider.enabled);
     const model = String(provider.defaultModel || provider.model || "").trim();
-    const displayName = providerDisplayName(provider);
     await runProviderConsoleBusy(`toggle:${name}`, async () => {
       const request = providerConsoleRequest("toggle", provider, { enabled, model });
       await requestAPI(request.path, request.options);
-      await refreshProviderDataAfterMutation(ct(enabled ? "messages.providerStarted" : "messages.providerStopped", { provider: displayName }));
+      // No banner on toggle — the switch itself is the feedback.
+      await refreshProviderDataAfterMutation("");
     });
   }
 
@@ -1441,9 +1445,29 @@ export function createModelProviderSettingsController({
       return;
     }
     if (target.dataset.anthropicAddMode) {
-      consoleState.anthropicAddMode = target.dataset.anthropicAddMode === "api_key" ? "api_key" : "profile";
+      const requestedMode = target.dataset.anthropicAddMode;
+      consoleState.anthropicAddMode = requestedMode === "api_key" ? "api_key" : requestedMode === "oauth" ? "oauth" : "profile";
       refreshProviderConsole();
-      scheduleProviderConsoleFocus(() => providerConsoleEventRoot?.querySelector?.("[data-anthropic-account-form] input:not([type=hidden])")?.focus?.());
+      if (consoleState.anthropicAddMode !== "oauth") {
+        scheduleProviderConsoleFocus(() => providerConsoleEventRoot?.querySelector?.("[data-anthropic-account-form] input:not([type=hidden])")?.focus?.());
+      }
+      return;
+    }
+    if (target.dataset.anthropicLoginStart !== undefined) {
+      startAnthropicLogin().catch(showError);
+      return;
+    }
+    if (target.dataset.anthropicLoginSubmit !== undefined) {
+      const code = providerConsoleEventRoot?.querySelector?.("[data-anthropic-login-code]")?.value || "";
+      submitAnthropicLogin(code).catch(showError);
+      return;
+    }
+    if (target.dataset.anthropicLoginPaste !== undefined) {
+      pasteAnthropicLogin().catch(showError);
+      return;
+    }
+    if (target.dataset.anthropicLoginCancel !== undefined) {
+      cancelAnthropicLogin().catch(showError);
       return;
     }
     if (target.dataset.anthropicFocusAdd !== undefined) {

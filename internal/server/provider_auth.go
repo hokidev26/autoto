@@ -268,6 +268,7 @@ func (s *Server) deleteCodexOAuthAccount(w http.ResponseWriter, r *http.Request)
 		"id":                 outcome.ID,
 		"credential_deleted": outcome.CredentialDeleted,
 		"stats_deleted":      outcome.StatsDeleted,
+		"grant_deleted":      outcome.GrantDeleted,
 		"already_missing":    outcome.AlreadyMissing,
 		"cleanup_pending":    outcome.CleanupPending,
 		"retryable":          outcome.Retryable,

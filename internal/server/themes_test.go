@@ -40,8 +40,11 @@ func TestThemeRoutesListAndProtectRevisionedStyles(t *testing.T) {
 			break
 		}
 	}
-	if bundled.ID == "" || bundled.Source != themes.SourceBundled || bundled.Deletable || bundled.StylesheetURL == "" {
+	if bundled.ID == "" || bundled.Source != themes.SourceBundled || bundled.Deletable || bundled.StylesheetURL == "" || bundled.PreviewURL == "" {
 		t.Fatalf("unexpected bundled theme metadata: %+v", bundled)
+	}
+	if bundled.Version != "2.0.0" || bundled.Capabilities != (themes.ThemeCapabilities{GlobalBackground: true, HomeBackground: true, Icons: true}) || len(bundled.Resources) != len(themes.AllowedIconSlots)+3 {
+		t.Fatalf("bundled theme assets are incomplete: %+v", bundled)
 	}
 
 	noCookie := httptest.NewRecorder()
@@ -73,6 +76,17 @@ func TestThemeRoutesListAndProtectRevisionedStyles(t *testing.T) {
 	}
 	if got := stylesheet.Header().Get("X-Content-Type-Options"); got != "nosniff" {
 		t.Fatalf("unexpected nosniff header %q", got)
+	}
+
+	previewRequest := newTestRequest(http.MethodGet, bundled.PreviewURL, nil)
+	previewRequest.AddCookie(&http.Cookie{Name: localTokenCookieName, Value: app.localToken})
+	preview := httptest.NewRecorder()
+	app.Routes().ServeHTTP(preview, previewRequest)
+	if preview.Code != http.StatusOK || preview.Header().Get("Content-Type") != "image/png" || preview.Body.Len() == 0 {
+		t.Fatalf("bundled preview returned %d %q (%d bytes)", preview.Code, preview.Header().Get("Content-Type"), preview.Body.Len())
+	}
+	if got := preview.Header().Get("Cache-Control"); !strings.Contains(got, "immutable") {
+		t.Fatalf("unexpected preview cache policy %q", got)
 	}
 
 	crossSiteRequest := newTestRequest(http.MethodGet, bundled.StylesheetURL, nil)

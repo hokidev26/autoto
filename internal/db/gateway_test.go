@@ -493,3 +493,62 @@ func TestAPIRequestGatewayAttributionAndMonthlyUsage(t *testing.T) {
 		t.Fatal("monthly usage exposed raw request or prompt content")
 	}
 }
+
+func TestListRecentGatewayRequestsReturnsOnlySafeMetadata(t *testing.T) {
+	ctx := context.Background()
+	store, err := Open(ctx, filepath.Join(t.TempDir(), "gateway-requests.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+
+	key, err := store.CreateGatewayKey(ctx, GatewayKey{Name: "Recent key", KeyPrefix: "gw_recent", TokenHash: strings.Repeat("a", 64), Enabled: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, request := range []APIRequest{
+		{
+			ID: "older", Kind: "gateway", GatewayKeyID: key.ID, Provider: "anthropic", CredentialID: "account-1", Model: "claude-safe",
+			InputTokens: 4, OutputTokens: 3, CachedInputTokens: 2, ReasoningTokens: 1, TTFTMS: 12, DurationMS: 34, CostUSD: 0.01,
+			ErrorMessage: "response body secret-token", RawDumpJSON: json.RawMessage(`{"prompt":"secret prompt","response":"secret response","token":"secret-token"}`),
+			StopReason: "end_turn", CreatedAt: "2026-01-01T01:00:00Z",
+		},
+		{
+			ID: "newer", Kind: "gateway", GatewayKeyID: key.ID, Provider: "codex", CredentialID: "account-2", Model: "gpt-safe",
+			InputTokens: 10, OutputTokens: 5, RawDumpJSON: json.RawMessage(`{"prompt":"newer secret"}`), CreatedAt: "2025-12-31T22:00:00-05:00",
+		},
+		{ID: "internal-newest", Kind: "model", GatewayKeyID: key.ID, Model: "must-not-appear", CreatedAt: "2026-01-02T00:00:00Z"},
+	} {
+		if _, err := store.AddAPIRequest(ctx, request); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	limited, err := store.ListRecentGatewayRequests(ctx, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(limited) != 1 || limited[0].ID != "newer" || limited[0].GatewayKeyName != "Recent key" || limited[0].GatewayKeyPrefix != "gw_recent" || limited[0].TotalTokens != 15 {
+		t.Fatalf("unexpected limited request summaries: %+v", limited)
+	}
+	requests, err := store.ListRecentGatewayRequests(ctx, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(requests) != 2 || requests[0].ID != "newer" || requests[1].ID != "older" {
+		t.Fatalf("unexpected recent Gateway request order/filter: %+v", requests)
+	}
+	encoded, err := json.Marshal(requests)
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload := string(encoded)
+	for _, forbidden := range []string{"secret prompt", "secret response", "secret-token", "rawDumpJson", "errorMessage", strings.Repeat("a", 64)} {
+		if strings.Contains(payload, forbidden) {
+			t.Fatalf("safe request summaries leaked %q: %s", forbidden, payload)
+		}
+	}
+	if _, err := store.ListRecentGatewayRequests(ctx, 0); err == nil {
+		t.Fatal("non-positive request limit was accepted")
+	}
+}

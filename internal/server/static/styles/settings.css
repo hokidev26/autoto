@@ -160,52 +160,6 @@ body.white-shell.theme-light.theme-dark #settingsModal {
   color: var(--settings-foreground);
 }
 
-#settingsModal .settings-identity-card {
-  min-width: 0;
-  display: flex;
-  align-items: center;
-  gap: var(--settings-space-2);
-  border: 1px solid var(--settings-border);
-  border-radius: var(--settings-radius);
-  background: var(--settings-surface);
-  color: var(--settings-foreground);
-  padding: 10px;
-  text-align: left;
-  box-shadow: var(--settings-shadow);
-}
-
-#settingsModal .settings-identity-copy {
-  min-width: 0;
-  display: grid;
-  gap: 2px;
-}
-
-#settingsModal .settings-identity-copy strong {
-  overflow: hidden;
-  color: var(--settings-foreground);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-#settingsModal .settings-identity-copy small {
-  overflow: hidden;
-  color: var(--settings-muted-foreground);
-  font-size: 11px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-#settingsModal .settings-identity-card:hover {
-  border-color: color-mix(in srgb, var(--settings-primary) 28%, var(--settings-border));
-  background: color-mix(in srgb, var(--settings-primary-soft) 45%, var(--settings-surface));
-}
-
-#settingsModal .settings-identity-card:focus-visible {
-  outline: 0;
-  border-color: var(--settings-primary);
-  box-shadow: 0 0 0 3px var(--settings-ring);
-}
-
 #settingsModal .settings-sidebar-search,
 #settingsModal .sidebar-search {
   width: 100%;
@@ -1403,6 +1357,14 @@ body.white-shell.theme-light.theme-dark #settingsModal {
   white-space: nowrap;
 }
 
+#settingsContentBody .codex-account-name-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+#settingsContentBody .codex-account-name-row .codex-account-name { min-width: 0; }
+#settingsContentBody .codex-account-name-row .codex-plan-badge { flex: 0 0 auto; margin-left: 0; }
 #settingsContentBody .codex-account-secondary { color: var(--settings-muted-foreground); }
 #settingsContentBody .codex-account-secondary .codex-plan-badge:first-child { margin-left: 0; }
 #settingsContentBody .codex-account-id { color: var(--settings-muted-foreground); }
@@ -1456,18 +1418,15 @@ body.white-shell.theme-light.theme-dark #settingsModal {
   border: 0;
   border-radius: 6px;
   background: transparent;
-  color: var(--settings-primary);
+  color: var(--settings-muted-foreground);
   padding: 0;
+  transition: color 0.12s ease, background 0.12s ease;
 }
 
-#settingsContentBody .codex-icon-action:hover { background: var(--settings-surface); }
+#settingsContentBody .codex-icon-action:hover { background: var(--settings-surface); color: var(--settings-primary); }
 #settingsContentBody .codex-icon-action:focus-visible { outline: 2px solid var(--settings-primary); outline-offset: 1px; }
-#settingsContentBody .codex-icon-action.sync { color: #0284c7; }
-#settingsContentBody .codex-icon-action.export { color: #7c3aed; }
-#settingsContentBody .codex-icon-action.toggle { color: var(--settings-warning); }
-#settingsContentBody .codex-icon-action.delete { color: var(--settings-destructive); }
+#settingsContentBody .codex-icon-action.delete:hover { color: var(--settings-destructive); }
 #settingsContentBody .codex-icon-action.save { color: var(--settings-success); }
-#settingsContentBody .codex-icon-action.cancel { color: var(--settings-muted-foreground); }
 #settingsContentBody .codex-icon-action:disabled { cursor: wait; opacity: .55; }
 #settingsContentBody .codex-icon-action svg { width: 15px; height: 15px; }
 #settingsContentBody .codex-icon-action > span { display: none; }
@@ -1594,10 +1553,6 @@ body.white-shell.theme-light.theme-dark #settingsModal {
     padding: 10px;
   }
 
-  #settingsModal .settings-identity-card {
-    padding: 8px;
-  }
-
   #settingsModal .settings-nav-groups {
     gap: 12px;
   }
@@ -1648,7 +1603,6 @@ body.white-shell.theme-light.theme-dark #settingsModal {
     font-size: 20px;
   }
 
-  #settingsModal .settings-identity-card,
   #settingsModal .settings-wizard-btn {
     display: none;
   }
@@ -2733,28 +2687,6 @@ body.white-shell.theme-light[data-theme-preset="apple"] .modal {
   #settingsModal .settings-close-btn:is(:hover, :focus-visible) { outline: 0; background: rgba(118, 118, 128, .10); }
   #settingsModal.mobile-settings-detail .settings-close-btn { grid-column: 1; font-size: 22px; }
   #settingsModal.mobile-settings-detail .settings-modal-header::before { grid-column: 3; }
-  #settingsModal .settings-identity-card {
-    min-height: 78px;
-    display: none;
-    grid-template-columns: 48px minmax(0, 1fr) auto;
-    align-items: center;
-    gap: 12px;
-    margin: 14px 14px 4px;
-    border: 0;
-    border-radius: 17px;
-    background: #fff;
-    color: #1d1d1f;
-    padding: 10px 12px;
-    box-shadow: 0 1px 1px rgba(0, 0, 0, .03);
-  }
-  #settingsModal .settings-identity-card:is(:hover, :focus-visible) { outline: 0; box-shadow: 0 0 0 3px rgba(0, 122, 255, .14); }
-  #settingsModal .settings-identity-avatar { width: 48px; height: 48px; border-radius: 50%; background: linear-gradient(145deg, #262628, #59595e); color: #fff; }
-  #settingsModal .settings-identity-copy { min-width: 0; display: grid; gap: 2px; text-align: left; }
-  #settingsModal .settings-identity-copy strong,
-  #settingsModal .settings-identity-copy span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  #settingsModal .settings-identity-copy strong { font-size: 14px; }
-  #settingsModal .settings-identity-copy span { color: #6e6e73; font-size: 12px; }
-  #settingsModal .settings-identity-chevron { color: #8e8e93; font-size: 22px; }
   #settingsModal .settings-nav-search,
   #settingsModal .settings-search-wrap,
   #settingsModal .settings-mobile-category-nav { display: none; }
@@ -2821,7 +2753,6 @@ body.white-shell.theme-light[data-theme-preset="apple"] .modal {
     overflow: visible;
     border-bottom: 1px solid rgba(60, 60, 67, .10);
   }
-  #settingsModal.mobile-settings-detail .settings-identity-card,
   #settingsModal.mobile-settings-detail .settings-nav-groups { display: none; }
   #settingsModal.mobile-settings-detail .settings-main {
     min-width: 0;

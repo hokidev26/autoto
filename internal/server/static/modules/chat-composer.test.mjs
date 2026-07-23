@@ -5,6 +5,7 @@ globalThis.window = { AUTOTO_LOCAL_TOKEN: "", CODEHARBOR_LOCAL_TOKEN: "" };
 globalThis.location = { origin: "http://localhost", protocol: "http:", host: "localhost" };
 
 const {
+  builtInSlashCommandsForContext,
   calculateMessageInputSize,
   clipboardFiles,
   createChatComposerController,
@@ -15,9 +16,11 @@ const {
   normalizeChatDrafts,
   normalizeMessageMode,
   normalizeReasoningEffort,
+  parseGoalCommandDraft,
   reasoningEffortValuesForCapabilities,
   reasoningEffortValuesForModel,
   resizeMessageInputElement,
+  slashCommandsForContext,
   slashCommandsForEffectivePolicy,
   truncateChatDraft,
   unicodeCharacters,
@@ -82,6 +85,92 @@ test("chat composer honors unusable effective owners as command shadows", () => 
   assert.deepEqual(commands, [
     { id: "server-global-safe", name: "/safe", description: "", prompt: "", source: "server" },
   ]);
+});
+
+test("project context exposes the trusted goal command and reserves it from skills", () => {
+  const translate = () => "Add a protected task to the task list";
+  assert.deepEqual(builtInSlashCommandsForContext("conversation", translate), []);
+  assert.deepEqual(builtInSlashCommandsForContext("project", translate), [
+    { id: "builtin-goal", name: "/goal", description: "Add a protected task to the task list", prompt: "", source: "builtin" },
+  ]);
+  assert.deepEqual(slashCommandsForContext("project", [
+    { id: "server-goal", name: "/goal", description: "shadow", prompt: "", source: "server" },
+    { id: "server-review", name: "/review", description: "review", prompt: "", source: "server" },
+  ], translate), [
+    { id: "builtin-goal", name: "/goal", description: "Add a protected task to the task list", prompt: "", source: "builtin" },
+    { id: "server-review", name: "/review", description: "review", prompt: "", source: "server" },
+  ]);
+  assert.deepEqual(slashCommandsForContext("conversation", [
+    { id: "server-goal", name: "/goal", description: "shadow", prompt: "", source: "server" },
+    { id: "server-review", name: "/review", description: "review", prompt: "", source: "server" },
+  ], translate), [
+    { id: "server-review", name: "/review", description: "review", prompt: "", source: "server" },
+  ]);
+});
+
+test("goal command parsing matches the backend command grammar", () => {
+  assert.equal(parseGoalCommandDraft("review this"), null);
+  assert.equal(parseGoalCommandDraft("/goalkeeper"), null);
+  assert.equal(parseGoalCommandDraft("/Goal ship it"), null);
+  assert.deepEqual(parseGoalCommandDraft(" /goal "), { commandText: "/goal", goalText: "" });
+  assert.deepEqual(parseGoalCommandDraft("/goal   Ship the protected task  "), {
+    commandText: "/goal   Ship the protected task",
+    goalText: "Ship the protected task",
+  });
+});
+
+test("slash palette opens on / and includes the built-in goal only in project context", () => {
+  const previousDocument = globalThis.document;
+  const attributes = {};
+  const input = {
+    value: "/",
+    setAttribute(name, value) { attributes[name] = value; },
+    removeAttribute(name) { delete attributes[name]; },
+  };
+  const hiddenClasses = new Set(["hidden"]);
+  const palette = {
+    innerHTML: "",
+    classList: {
+      add(name) { hiddenClasses.add(name); },
+      remove(name) { hiddenClasses.delete(name); },
+    },
+    querySelectorAll() { return []; },
+  };
+  globalThis.document = { getElementById(id) { return { messageText: input, slashCommandPalette: palette }[id] || null; } };
+  try {
+    const state = {
+      agent: { id: "agent-goal" },
+      navigationSelectionKind: "project",
+      promptHistory: [],
+      serverSkills: [{ id: "review", command: "/review", description: "Review changes", enabled: true, scanVerdict: "safe" }],
+    };
+    const controller = createChatComposerController({
+      state,
+      currentSkillsPreferences: () => ({ commands: [
+        { id: "local-goal", name: "/goal", prompt: "shadow", enabled: true },
+        { id: "local-tests", name: "/write-tests", prompt: "Write tests", enabled: true },
+      ] }),
+    });
+
+    controller.updateSlashCommandPalette();
+    assert.equal(state.slashCommandOpen, true);
+    assert.equal(hiddenClasses.has("hidden"), false);
+    assert.match(palette.innerHTML, /data-slash-command="builtin-goal"/);
+    assert.match(palette.innerHTML, />\/goal</);
+    assert.match(palette.innerHTML, />\/review</);
+    assert.match(palette.innerHTML, />\/write-tests</);
+    assert.equal(attributes["aria-expanded"], "true");
+
+    state.navigationSelectionKind = "conversation";
+    input.value = "/";
+    controller.updateSlashCommandPalette();
+    assert.equal(state.slashCommandOpen, true);
+    assert.doesNotMatch(palette.innerHTML, />\/goal</);
+    assert.match(palette.innerHTML, />\/review</);
+    assert.match(palette.innerHTML, />\/write-tests</);
+  } finally {
+    globalThis.document = previousDocument;
+  }
 });
 
 test("reasoning effort normalizes legacy and unknown values against backend capabilities", () => {
@@ -523,12 +612,12 @@ test("Composer sends project controls and caps ordinary conversations to execute
   globalThis.getComputedStyle = () => ({ minHeight: "46px", maxHeight: "128px", getPropertyValue() { return ""; } });
   try {
     const state = {
-      agent: { id: "agent-1", planMode: false },
+      agent: { id: "agent-1", model: "openai:model", planMode: false },
       navigationSelectionKind: "project",
-      pendingAttachments: [],
+      messageModes: {},
       promptHistory: [],
+      pendingAttachments: [],
       serverSkills: [],
-      messageSendingByAgent: {},
     };
     const controller = createChatComposerController({
       state,
@@ -560,5 +649,209 @@ test("Composer sends project controls and caps ordinary conversations to execute
   } finally {
     globalThis.document = previousDocument;
     globalThis.getComputedStyle = previousGetComputedStyle;
+  }
+});
+
+test("Composer waits for the full model reference to persist before posting a message", async () => {
+  const previousDocument = globalThis.document;
+  const previousGetComputedStyle = globalThis.getComputedStyle;
+  let releaseModelSave;
+  const modelSaveGate = new Promise((resolve) => { releaseModelSave = resolve; });
+  const input = {
+    value: "Use the selected model",
+    disabled: false,
+    scrollHeight: 46,
+    style: {},
+    classList: { toggle() {} },
+    focus() {},
+  };
+  const elements = {
+    messageText: input,
+    modelSelect: { value: "zzz:gpt-5.6-sol" },
+    promptHistoryHint: { textContent: "" },
+    slashCommandPalette: { classList: { add() {}, remove() {} }, innerHTML: "" },
+  };
+  const requests = [];
+  const state = {
+    agent: { id: "agent-model", model: "zz:grok-4.5" },
+    navigationSelectionKind: "conversation",
+    promptHistory: [],
+    pendingAttachments: [],
+    serverSkills: [],
+  };
+  globalThis.document = { getElementById(id) { return elements[id] || null; } };
+  globalThis.getComputedStyle = () => ({ minHeight: "46px", maxHeight: "128px", getPropertyValue() { return ""; } });
+  try {
+    let saveStarted = false;
+    const controller = createChatComposerController({
+      state,
+      awaitAgentSettingsSaved: async (agentId) => {
+        assert.equal(agentId, "agent-model");
+        saveStarted = true;
+        await modelSaveGate;
+        state.agent = { ...state.agent, model: "zzz:gpt-5.6-sol" };
+      },
+      currentSkillsPreferences: () => ({ commands: [] }),
+      isCurrentModelConfigured: () => true,
+      loadMessages: async () => {},
+      onMessageAccepted: async () => {},
+      request: async (path, options) => {
+        assert.equal(state.agent.model, "zzz:gpt-5.6-sol");
+        requests.push({ path, options });
+        return { accepted: true };
+      },
+      scheduleMessageRefresh() {},
+    });
+
+    const sending = controller.sendMessage({ preventDefault() {} });
+    await Promise.resolve();
+    assert.equal(saveStarted, true);
+    assert.equal(requests.length, 0);
+    assert.equal(input.disabled, true);
+
+    releaseModelSave();
+    await sending;
+
+    assert.equal(requests.length, 1);
+    assert.equal(requests[0].path, "/api/agents/agent-model/messages");
+    assert.equal(input.value, "");
+    assert.equal(input.disabled, false);
+  } finally {
+    globalThis.document = previousDocument;
+    globalThis.getComputedStyle = previousGetComputedStyle;
+  }
+});
+
+test("Composer creates a goal without waiting for or configuring a model run", async () => {
+  const previousDocument = globalThis.document;
+  const previousGetComputedStyle = globalThis.getComputedStyle;
+  const input = {
+    value: "/goal Ship the protected task",
+    disabled: false,
+    scrollHeight: 46,
+    style: {},
+    classList: { toggle() {} },
+    focus() {},
+  };
+  const elements = {
+    messageText: input,
+    promptHistoryHint: { textContent: "" },
+    slashCommandPalette: { classList: { add() {}, remove() {} }, innerHTML: "" },
+  };
+  const state = {
+    agent: { id: "agent-goal", model: "", planMode: false },
+    navigationSelectionKind: "project",
+    messageModes: {},
+    promptHistory: [],
+    pendingAttachments: [],
+    serverSkills: [],
+  };
+  const requests = [];
+  let modelSaveWaits = 0;
+  let modelChecks = 0;
+  let modelNotices = 0;
+  let messageLoads = 0;
+  let refreshes = 0;
+  let acceptedResult = null;
+  const response = { goal: { confirmation: { taskId: "task-goal" } } };
+  globalThis.document = { getElementById(id) { return elements[id] || null; } };
+  globalThis.getComputedStyle = () => ({ minHeight: "46px", maxHeight: "128px", getPropertyValue() { return ""; } });
+  try {
+    const controller = createChatComposerController({
+      state,
+      awaitAgentSettingsSaved: async () => { modelSaveWaits += 1; },
+      currentSkillsPreferences: () => ({ commands: [] }),
+      isCurrentModelConfigured: () => { modelChecks += 1; return false; },
+      loadMessages: async () => { messageLoads += 1; },
+      onMessageAccepted: async (accepted, agentId) => { acceptedResult = { accepted, agentId }; },
+      request: async (path, options) => {
+        requests.push({ path, options });
+        return response;
+      },
+      scheduleMessageRefresh() { refreshes += 1; },
+      showModelSetupNotice() { modelNotices += 1; },
+    });
+
+    await controller.sendMessage({ preventDefault() {} });
+
+    assert.equal(modelSaveWaits, 0);
+    assert.equal(modelChecks, 0);
+    assert.equal(modelNotices, 0);
+    assert.equal(messageLoads, 0);
+    assert.equal(refreshes, 0);
+    assert.equal(requests.length, 1);
+    assert.equal(requests[0].path, "/api/agents/agent-goal/messages");
+    assert.deepEqual(JSON.parse(requests[0].options.body), {
+      text: "/goal Ship the protected task",
+      mode: "execute",
+      context: "project",
+    });
+    assert.deepEqual(acceptedResult, { accepted: response, agentId: "agent-goal" });
+    assert.equal(state.promptHistory[0], "/goal Ship the protected task");
+    assert.equal(input.value, "");
+    assert.equal(input.disabled, false);
+  } finally {
+    globalThis.document = previousDocument;
+    globalThis.getComputedStyle = previousGetComputedStyle;
+  }
+});
+
+test("Composer keeps invalid goal drafts and attachments without sending", async () => {
+  const previousDocument = globalThis.document;
+  const input = {
+    value: "/goal",
+    disabled: false,
+    scrollHeight: 46,
+    style: {},
+    classList: { toggle() {} },
+    focus() {},
+  };
+  const elements = {
+    messageText: input,
+    promptHistoryHint: { textContent: "" },
+    slashCommandPalette: { classList: { add() {}, remove() {} }, innerHTML: "" },
+  };
+  const state = {
+    agent: { id: "agent-goal", model: "" },
+    navigationSelectionKind: "project",
+    messageModes: {},
+    promptHistory: [],
+    pendingAttachments: [],
+    serverSkills: [],
+  };
+  const requests = [];
+  const toasts = [];
+  globalThis.document = { getElementById(id) { return elements[id] || null; } };
+  try {
+    const controller = createChatComposerController({
+      state,
+      awaitAgentSettingsSaved: async () => { throw new Error("goal validation must happen first"); },
+      currentSkillsPreferences: () => ({ commands: [] }),
+      isCurrentModelConfigured: () => { throw new Error("goal validation must happen first"); },
+      request: async (...args) => { requests.push(args); return {}; },
+      showToast: (message, tone) => toasts.push({ message, tone }),
+    });
+
+    await controller.sendMessage({ preventDefault() {} });
+    assert.equal(requests.length, 0);
+    assert.equal(input.value, "/goal");
+
+    state.navigationSelectionKind = "conversation";
+    input.value = "/goal Conversation task";
+    await controller.sendMessage({ preventDefault() {} });
+    assert.equal(requests.length, 0);
+    assert.equal(input.value, "/goal Conversation task");
+
+    state.navigationSelectionKind = "project";
+    state.pendingAttachments = [{ id: "attachment-1", file: { name: "notes.txt" } }];
+    input.value = "/goal Project task";
+    await controller.sendMessage({ preventDefault() {} });
+    assert.equal(requests.length, 0);
+    assert.equal(input.value, "/goal Project task");
+    assert.equal(state.pendingAttachments.length, 1);
+    assert.deepEqual(toasts.map((toast) => toast.tone), ["warn", "warn", "warn"]);
+    assert.equal(toasts.every((toast) => Boolean(toast.message)), true);
+  } finally {
+    globalThis.document = previousDocument;
   }
 });

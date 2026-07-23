@@ -192,63 +192,17 @@ func (s *Service) handleChatCompletions(w http.ResponseWriter, r *http.Request) 
 		writeProblem(w, problem)
 		return
 	}
-	resolved, problem := s.resolveModel(r.Context(), key, request.Model)
+	resolved, problem := s.prepareProviderRequest(r.Context(), key, request.Model, &converted.ProviderRequest, converted.HasImages, lease, generationParameterNames{
+		Tools:           "tools",
+		Images:          "messages",
+		ReasoningEffort: "reasoning_effort",
+		ServiceTier:     "service_tier",
+		MaxOutputTokens: "max_completion_tokens",
+	})
 	if problem != nil {
 		writeProblem(w, problem)
 		return
 	}
-	capabilities := providers.CapabilitiesFor(resolved.Provider)
-	if len(converted.ProviderRequest.Tools) > 0 && !capabilities.Tools {
-		writeProblem(w, invalidParam("tools", "The requested model does not support function tools."))
-		return
-	}
-	if converted.HasImages && !capabilities.ImageInput {
-		writeProblem(w, invalidParam("messages", "The requested model does not support image input."))
-		return
-	}
-	if !capabilities.SupportsReasoningEffort(converted.ProviderRequest.ReasoningEffort) {
-		writeProblem(w, invalidParam("reasoning_effort", "The requested reasoning effort is not supported by this model."))
-		return
-	}
-	if converted.ProviderRequest.FastMode && !providers.ModelCapabilitiesFor(resolved.Provider, resolved.Model).FastMode {
-		writeProblem(w, invalidParam("service_tier", "Priority service is not supported by this model."))
-		return
-	}
-
-	monthlyTokens := int64(0)
-	reservation := int64(0)
-	if key.MonthlyTokenLimit > 0 {
-		usage, err := s.store.GetGatewayKeyMonthlyUsage(r.Context(), key.ID, s.now())
-		if err != nil {
-			writeProblem(w, internalProblem())
-			return
-		}
-		monthlyTokens = usage.TotalTokens
-		remaining := key.MonthlyTokenLimit - monthlyTokens
-		if remaining <= 0 {
-			writeAPIError(w, http.StatusTooManyRequests, "monthly_token_limit_exceeded", "Monthly token limit exceeded.", "rate_limit_error", "")
-			return
-		}
-		requested := converted.ProviderRequest.MaxOutputTokens
-		if requested <= 0 {
-			requested = defaultOutputReservation
-			if requested > remaining {
-				requested = remaining
-			}
-		} else if requested > remaining {
-			writeAPIError(w, http.StatusTooManyRequests, "monthly_token_limit_exceeded", "The requested maximum output exceeds the remaining monthly token allowance.", "rate_limit_error", "max_completion_tokens")
-			return
-		}
-		converted.ProviderRequest.MaxOutputTokens = requested
-		reservation = requested
-	}
-	if err := lease.Reserve(key.MonthlyTokenLimit, monthlyTokens, reservation); err != nil {
-		writeAPIError(w, http.StatusTooManyRequests, "monthly_token_limit_exceeded", "Monthly token limit exceeded.", "rate_limit_error", "")
-		return
-	}
-
-	converted.ProviderRequest.Model = resolved.Model
-	converted.ProviderRequest.Scenario = providers.CallScenarioGateway
 	if request.Stream {
 		s.streamChatCompletion(w, r, key, resolved, converted)
 		return
@@ -257,24 +211,31 @@ func (s *Service) handleChatCompletions(w http.ResponseWriter, r *http.Request) 
 }
 
 func decodeChatCompletionRequest(w http.ResponseWriter, r *http.Request, maxBytes int64) (chatCompletionRequest, *apiProblem) {
+	var request chatCompletionRequest
+	if problem := decodeJSONBody(w, r, maxBytes, &request); problem != nil {
+		return chatCompletionRequest{}, problem
+	}
+	return request, nil
+}
+
+func decodeJSONBody(w http.ResponseWriter, r *http.Request, maxBytes int64, target any) *apiProblem {
 	if maxBytes <= 0 {
 		maxBytes = defaultMaxRequestBytes
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, maxBytes)
 	decoder := json.NewDecoder(r.Body)
-	var request chatCompletionRequest
-	if err := decoder.Decode(&request); err != nil {
+	if err := decoder.Decode(target); err != nil {
 		var maxErr *http.MaxBytesError
 		if errors.As(err, &maxErr) {
-			return chatCompletionRequest{}, &apiProblem{Status: http.StatusRequestEntityTooLarge, Code: "request_too_large", Type: "invalid_request_error", Message: "Request body is too large."}
+			return &apiProblem{Status: http.StatusRequestEntityTooLarge, Code: "request_too_large", Type: "invalid_request_error", Message: "Request body is too large."}
 		}
-		return chatCompletionRequest{}, invalidParam("body", "Request body must be valid JSON.")
+		return invalidParam("body", "Request body must be valid JSON.")
 	}
 	var trailing any
 	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
-		return chatCompletionRequest{}, invalidParam("body", "Request body must contain exactly one JSON object.")
+		return invalidParam("body", "Request body must contain exactly one JSON object.")
 	}
-	return request, nil
+	return nil
 }
 
 var toolNamePattern = regexp.MustCompile(`^[A-Za-z0-9_-]{1,128}$`)

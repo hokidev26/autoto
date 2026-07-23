@@ -11,6 +11,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -24,6 +25,7 @@ const (
 
 	AuthTypeProfile = "profile"
 	AuthTypeAPIKey  = "api_key"
+	AuthTypeOAuth   = "oauth"
 	ProviderName    = DefaultProviderName
 
 	credentialDirMode    = 0o700
@@ -33,6 +35,7 @@ const (
 	maxAliasBytes        = 200
 	maxProfileBytes      = 256
 	maxAPIKeyBytes       = 4096
+	maxOAuthTokenBytes   = 8192
 	maxPriority          = 1_000_000
 	maxFilenameBytes     = 160
 )
@@ -40,15 +43,21 @@ const (
 // Credential is the private on-disk representation. APIKey must not be exposed
 // through logs, errors, or AccountSummary.
 type Credential struct {
-	ID        string `json:"id"`
-	Alias     string `json:"alias,omitempty"`
-	Priority  int    `json:"priority"`
-	Disabled  bool   `json:"disabled,omitempty"`
-	AuthType  string `json:"auth_type"`
-	Profile   string `json:"profile,omitempty"`
-	APIKey    string `json:"api_key,omitempty"`
-	CreatedAt string `json:"created_at"`
-	UpdatedAt string `json:"updated_at"`
+	ID       string `json:"id"`
+	Alias    string `json:"alias,omitempty"`
+	Priority int    `json:"priority"`
+	Disabled bool   `json:"disabled,omitempty"`
+	AuthType string `json:"auth_type"`
+	Profile  string `json:"profile,omitempty"`
+	APIKey   string `json:"api_key,omitempty"`
+	// OAuth fields are populated only for AuthTypeOAuth (subscription login).
+	// They must never be exposed through AccountSummary, logs, or errors.
+	OAuthAccess    string `json:"oauth_access,omitempty"`
+	OAuthRefresh   string `json:"oauth_refresh,omitempty"`
+	OAuthExpiresAt string `json:"oauth_expires_at,omitempty"`
+	OAuthSubject   string `json:"oauth_subject,omitempty"`
+	CreatedAt      string `json:"created_at"`
+	UpdatedAt      string `json:"updated_at"`
 }
 
 type StoredCredential struct {
@@ -65,6 +74,11 @@ type CreateRequest struct {
 	Alias    string `json:"alias,omitempty"`
 	Priority int    `json:"priority,omitempty"`
 	Disabled bool   `json:"disabled,omitempty"`
+	// OAuth material, set only when AuthType is AuthTypeOAuth.
+	OAuthAccess    string `json:"oauth_access,omitempty"`
+	OAuthRefresh   string `json:"oauth_refresh,omitempty"`
+	OAuthExpiresAt string `json:"oauth_expires_at,omitempty"`
+	OAuthSubject   string `json:"oauth_subject,omitempty"`
 }
 
 // CreateInput is kept as a descriptive alias for Provider/Server callers.
@@ -193,8 +207,11 @@ func (s *Store) ListAccounts() ([]AccountSummary, error) {
 func Summary(item StoredCredential) AccountSummary {
 	credential := item.Credential
 	source := "Anthropic API key"
-	if credential.AuthType == AuthTypeProfile {
+	switch credential.AuthType {
+	case AuthTypeProfile:
 		source = "Anthropic official profile"
+	case AuthTypeOAuth:
+		source = "Anthropic 帳號登入"
 	}
 	alias := credential.Alias
 	if credential.APIKey != "" && strings.Contains(alias, credential.APIKey) {
@@ -229,12 +246,16 @@ func (s *Store) create(request CreateRequest, requestedFilename string) (StoredC
 		return StoredCredential{}, false, err
 	}
 	credential := normalizeCredential(Credential{
-		Alias:    request.Alias,
-		Priority: request.Priority,
-		Disabled: request.Disabled,
-		AuthType: request.AuthType,
-		Profile:  request.Profile,
-		APIKey:   request.APIKey,
+		Alias:          request.Alias,
+		Priority:       request.Priority,
+		Disabled:       request.Disabled,
+		AuthType:       request.AuthType,
+		Profile:        request.Profile,
+		APIKey:         request.APIKey,
+		OAuthAccess:    request.OAuthAccess,
+		OAuthRefresh:   request.OAuthRefresh,
+		OAuthExpiresAt: request.OAuthExpiresAt,
+		OAuthSubject:   request.OAuthSubject,
 	})
 	if credential.Priority == 0 {
 		credential.Priority = DefaultPriority
@@ -354,6 +375,46 @@ func (s *Store) UpdateMetadata(id string, update MetadataUpdate) (StoredCredenti
 		if update.Disabled != nil {
 			item.Credential.Disabled = *update.Disabled
 		}
+		item.Credential.UpdatedAt = time.Now().UTC().Format(time.RFC3339Nano)
+		if err := validateCredential(item.Credential, true); err != nil {
+			return StoredCredential{}, err
+		}
+		if err := s.writeCredentialLocked(item.Filename, item.Credential); err != nil {
+			return StoredCredential{}, err
+		}
+		return item, nil
+	}
+	return StoredCredential{}, os.ErrNotExist
+}
+
+// UpdateOAuthTokens replaces the stored access/refresh/expiry of an OAuth
+// credential after a refresh. It is a no-op error for non-OAuth credentials.
+func (s *Store) UpdateOAuthTokens(id, access, refresh, expiresAt string) (StoredCredential, error) {
+	if err := s.validateStore(); err != nil {
+		return StoredCredential{}, err
+	}
+	id = strings.TrimSpace(id)
+	if !validCredentialID(id) {
+		return StoredCredential{}, os.ErrNotExist
+	}
+	s.lock.Lock()
+	defer s.lock.Unlock()
+	items, err := s.loadLocked()
+	if err != nil {
+		return StoredCredential{}, err
+	}
+	for _, item := range items {
+		if item.Credential.ID != id {
+			continue
+		}
+		if item.Credential.AuthType != AuthTypeOAuth {
+			return StoredCredential{}, errors.New("Anthropic 凭据不是 OAuth 类型")
+		}
+		item.Credential.OAuthAccess = strings.TrimSpace(access)
+		if refresh = strings.TrimSpace(refresh); refresh != "" {
+			item.Credential.OAuthRefresh = refresh
+		}
+		item.Credential.OAuthExpiresAt = strings.TrimSpace(expiresAt)
 		item.Credential.UpdatedAt = time.Now().UTC().Format(time.RFC3339Nano)
 		if err := validateCredential(item.Credential, true); err != nil {
 			return StoredCredential{}, err
@@ -581,7 +642,17 @@ func (s *Store) writeCredentialLocked(filename string, credential Credential) er
 		return errors.New("检查 Anthropic 凭据目标失败")
 	}
 	if err := os.Rename(tempName, target); err != nil {
-		return errors.New("保存 Anthropic 凭据失败")
+		// Windows cannot rename onto an existing file, so replacing a credential
+		// (migration, metadata edit, OAuth refresh) needs an explicit remove
+		// first. The earlier Lstat already rejected non-regular/symlink targets.
+		if runtime.GOOS == "windows" {
+			if removeErr := os.Remove(target); removeErr == nil {
+				err = os.Rename(tempName, target)
+			}
+		}
+		if err != nil {
+			return errors.New("保存 Anthropic 凭据失败")
+		}
 	}
 	if err := os.Chmod(target, credentialFileMode); err != nil {
 		return errors.New("设置 Anthropic 凭据权限失败")
@@ -610,12 +681,30 @@ func decodeCredential(data []byte) (Credential, error) {
 	return credential, nil
 }
 
+// OAuthExpired reports whether an OAuth credential's access token is expired,
+// counting anything within skew of expiry as expired so callers refresh early.
+// Non-OAuth credentials and credentials without a recorded expiry are valid.
+func (c Credential) OAuthExpired(skew time.Duration) bool {
+	if c.AuthType != AuthTypeOAuth || strings.TrimSpace(c.OAuthExpiresAt) == "" {
+		return false
+	}
+	expiry, err := time.Parse(time.RFC3339Nano, c.OAuthExpiresAt)
+	if err != nil {
+		return false
+	}
+	return time.Now().After(expiry.Add(-skew))
+}
+
 func normalizeCredential(credential Credential) Credential {
 	credential.ID = strings.TrimSpace(credential.ID)
 	credential.Alias = strings.TrimSpace(credential.Alias)
 	credential.AuthType = strings.ToLower(strings.TrimSpace(credential.AuthType))
 	credential.Profile = strings.TrimSpace(credential.Profile)
 	credential.APIKey = strings.TrimSpace(credential.APIKey)
+	credential.OAuthAccess = strings.TrimSpace(credential.OAuthAccess)
+	credential.OAuthRefresh = strings.TrimSpace(credential.OAuthRefresh)
+	credential.OAuthExpiresAt = strings.TrimSpace(credential.OAuthExpiresAt)
+	credential.OAuthSubject = strings.TrimSpace(credential.OAuthSubject)
 	credential.CreatedAt = strings.TrimSpace(credential.CreatedAt)
 	credential.UpdatedAt = strings.TrimSpace(credential.UpdatedAt)
 	return credential
@@ -634,25 +723,39 @@ func validateCredential(credential Credential, persisted bool) error {
 	if len(credential.APIKey) > maxAPIKeyBytes || !utf8.ValidString(credential.APIKey) {
 		return fmt.Errorf("Anthropic API key 不能超过 %d 字节", maxAPIKeyBytes)
 	}
-	for _, field := range []string{credential.ID, credential.Alias, credential.AuthType, credential.Profile, credential.APIKey, credential.CreatedAt, credential.UpdatedAt} {
+	if len(credential.OAuthAccess) > maxOAuthTokenBytes || len(credential.OAuthRefresh) > maxOAuthTokenBytes ||
+		!utf8.ValidString(credential.OAuthAccess) || !utf8.ValidString(credential.OAuthRefresh) {
+		return fmt.Errorf("Anthropic OAuth token 不能超过 %d 字节", maxOAuthTokenBytes)
+	}
+	for _, field := range []string{credential.ID, credential.Alias, credential.AuthType, credential.Profile, credential.APIKey, credential.OAuthAccess, credential.OAuthRefresh, credential.OAuthExpiresAt, credential.OAuthSubject, credential.CreatedAt, credential.UpdatedAt} {
 		if strings.ContainsRune(field, 0) {
 			return errors.New("Anthropic 凭据包含无效字符")
 		}
 	}
 	switch credential.AuthType {
 	case AuthTypeProfile:
-		if credential.Profile == "" || credential.APIKey != "" {
+		if credential.Profile == "" || credential.APIKey != "" || credential.OAuthAccess != "" {
 			return errors.New("Anthropic profile 凭据必须只包含 profile 名")
 		}
 		if containsControl(credential.Profile) {
 			return errors.New("Anthropic profile 名包含无效字符")
 		}
 	case AuthTypeAPIKey:
-		if credential.APIKey == "" || credential.Profile != "" {
+		if credential.APIKey == "" || credential.Profile != "" || credential.OAuthAccess != "" {
 			return errors.New("Anthropic API key 凭据必须只包含 API key")
 		}
 		if containsControl(credential.APIKey) {
 			return errors.New("Anthropic API key 包含无效字符")
+		}
+	case AuthTypeOAuth:
+		if credential.OAuthAccess == "" || credential.APIKey != "" || credential.Profile != "" {
+			return errors.New("Anthropic OAuth 凭据必须只包含 OAuth token")
+		}
+		if containsControl(credential.OAuthAccess) || containsControl(credential.OAuthRefresh) || containsControl(credential.OAuthSubject) {
+			return errors.New("Anthropic OAuth token 包含无效字符")
+		}
+		if credential.OAuthExpiresAt != "" && !validTimestamp(credential.OAuthExpiresAt) {
+			return errors.New("Anthropic OAuth token 到期时间无效")
 		}
 	default:
 		return errors.New("Anthropic 凭据 auth_type 无效")
@@ -703,9 +806,17 @@ func validCredentialID(value string) bool {
 
 func credentialIdentity(credential Credential) string {
 	var value string
-	if credential.AuthType == AuthTypeProfile {
+	switch credential.AuthType {
+	case AuthTypeProfile:
 		value = credential.Profile
-	} else {
+	case AuthTypeOAuth:
+		for _, candidate := range []string{credential.OAuthSubject, credential.OAuthRefresh, credential.OAuthAccess} {
+			if strings.TrimSpace(candidate) != "" {
+				value = candidate
+				break
+			}
+		}
+	default:
 		value = credential.APIKey
 	}
 	hash := sha256.Sum256([]byte(credential.AuthType + "\x00" + value))
@@ -903,6 +1014,12 @@ func rejectSymlinkPathComponents(path string) error {
 }
 
 func syncDirectory(dir string) error {
+	// Windows does not support fsync on a directory handle (Sync returns an
+	// "incorrect function" error), so durability there relies on the file sync
+	// plus rename. Skipping the directory sync keeps credential writes working.
+	if runtime.GOOS == "windows" {
+		return nil
+	}
 	file, err := os.Open(dir)
 	if err != nil {
 		return errors.New("同步 Anthropic 本地凭据库失败")

@@ -100,6 +100,7 @@ export function createAgentWorkspaceHelpers({
   toggleTerminal,
   notifyTerminal,
   projectOperationContextActive,
+  isMobileAppViewport,
   closeConversationDetails,
   renderConversationDetails,
   updateRuntimeStatusButton,
@@ -114,8 +115,13 @@ export function createAgentWorkspaceHelpers({
     const dot = $("composerStatusDot");
     const wrap = label?.closest?.(".composer-status") || document.querySelector?.(".composer-status");
     const activity = resolveComposerActivityStatus(state, t);
-    const text = activity?.text || lastConnectionStatus.text || t("chat.idle");
-    const busy = Boolean(activity);
+    const backgroundTasks = getBackgroundTasks?.();
+    const routeActivityToTaskSummary = Boolean(projectOperationContextActive?.() && !isMobileAppViewport?.() && backgroundTasks?.setForegroundActivity);
+    if (routeActivityToTaskSummary) backgroundTasks.setForegroundActivity(activity);
+    else backgroundTasks?.setForegroundActivity?.(null);
+    const composerActivity = routeActivityToTaskSummary ? null : activity;
+    const text = composerActivity?.text || lastConnectionStatus.text || t("chat.idle");
+    const busy = Boolean(composerActivity);
     const ok = !busy && Boolean(lastConnectionStatus.ok);
     if (label) label.textContent = text;
     if (dot) {

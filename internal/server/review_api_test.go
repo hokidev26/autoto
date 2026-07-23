@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -229,6 +230,9 @@ func TestReviewWorkspaceFingerprintTracksDeletedModeAndSymlinkEntries(t *testing
 	})
 
 	t.Run("mode", func(t *testing.T) {
+		if runtime.GOOS == "windows" {
+			t.Skip("Windows does not expose executable mode changes through os.Chmod")
+		}
 		store, app, repo, agent := newReviewAPITestServer(t)
 		defer store.Close()
 		runGitTestCommand(t, repo, "config", "core.fileMode", "true")
@@ -592,8 +596,12 @@ func TestProjectAndAgentDefaultPlanModeAndPatch(t *testing.T) {
 		Agent: config.AgentConfig{DefaultModel: "fake:test", DefaultPermissionMode: "acceptEdits", DefaultStartInPlanMode: true},
 	}, store, nil, nil)
 
+	projectPayload, err := json.Marshal(map[string]string{"name": "Plan default", "gitPath": workspace})
+	if err != nil {
+		t.Fatal(err)
+	}
 	projectRecorder := httptest.NewRecorder()
-	projectRequest := newTestRequest(http.MethodPost, "/api/projects", strings.NewReader(`{"name":"Plan default","gitPath":"`+workspace+`"}`))
+	projectRequest := newTestRequest(http.MethodPost, "/api/projects", strings.NewReader(string(projectPayload)))
 	projectRequest.Header.Set("Content-Type", "application/json")
 	app.Routes().ServeHTTP(projectRecorder, projectRequest)
 	if projectRecorder.Code != http.StatusCreated {
@@ -609,8 +617,12 @@ func TestProjectAndAgentDefaultPlanModeAndPatch(t *testing.T) {
 		t.Fatalf("project primary agent did not inherit default plan mode: %+v", projectResponse.Agent)
 	}
 
+	agentPayload, err := json.Marshal(map[string]string{"title": "Secondary", "model": "fake:test", "permissionMode": "acceptEdits", "cwd": workspace})
+	if err != nil {
+		t.Fatal(err)
+	}
 	createAgent := httptest.NewRecorder()
-	agentRequest := newTestRequest(http.MethodPost, "/api/agents", strings.NewReader(`{"title":"Secondary","model":"fake:test","permissionMode":"acceptEdits","cwd":"`+workspace+`"}`))
+	agentRequest := newTestRequest(http.MethodPost, "/api/agents", strings.NewReader(string(agentPayload)))
 	agentRequest.Header.Set("Content-Type", "application/json")
 	app.Routes().ServeHTTP(createAgent, agentRequest)
 	if createAgent.Code != http.StatusCreated {

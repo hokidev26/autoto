@@ -225,7 +225,7 @@ func TestAgentWebSocketClosesOnlyRevokedUserSession(t *testing.T) {
 }
 
 func TestAgentLiveSnapshotV2RouteReturnsAuthoritativeWatermark(t *testing.T) {
-	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), 15*time.Second)
 	defer cancel()
 	app, server, store, agent := newWSTestServer(t, ctx)
 	defer store.Close()

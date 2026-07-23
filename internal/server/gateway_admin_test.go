@@ -4,13 +4,16 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"autoto/internal/codexauth"
 	"autoto/internal/config"
 	"autoto/internal/db"
 	gatewaypkg "autoto/internal/gateway"
@@ -23,6 +26,11 @@ func TestGatewayAdminRoutesRequireSensitiveToken(t *testing.T) {
 		path   string
 		body   string
 	}{
+		{http.MethodGet, "/api/gateway/status", ""},
+		{http.MethodPatch, "/api/gateway/config", `{}`},
+		{http.MethodGet, "/api/gateway/accounts", ""},
+		{http.MethodPatch, "/api/gateway/accounts/codex/account-1", `{}`},
+		{http.MethodGet, "/api/gateway/requests", ""},
 		{http.MethodGet, "/api/gateway/keys", ""},
 		{http.MethodPost, "/api/gateway/keys", `{}`},
 		{http.MethodPatch, "/api/gateway/keys/key-1", `{}`},
@@ -377,6 +385,186 @@ func TestGatewayUsageAggregatesCurrentUTCMonth(t *testing.T) {
 	}
 }
 
+func TestGatewayRuntimeStatusAndConfigPatchPersistDesiredConfig(t *testing.T) {
+	cfg := config.Config{
+		SchemaVersion: config.CurrentConfigVersion,
+		Server:        config.ServerConfig{Host: "127.0.0.1", Port: 7788},
+		Gateway:       config.GatewayConfig{Host: "127.0.0.1", Port: 18789, MaxGlobalConcurrency: 4, MaxRequestBytes: 1 << 20},
+	}
+	app, _ := newGatewayAdminTestServer(t, cfg)
+	configPath := filepath.Join(t.TempDir(), "config.json")
+	app.SetConfigPath(configPath)
+	controller := &fakeGatewayRuntimeController{status: gatewaypkg.ManagerStatus{Address: "127.0.0.1:54321", Running: true}}
+	app.SetGatewayRuntimeController(controller)
+
+	statusResponse := gatewayAdminJSONRequest(t, app, http.MethodGet, "/api/gateway/status", nil, http.StatusOK)
+	var initial gatewaypkg.ManagerStatus
+	decodeGatewayAdminResponse(t, statusResponse, &initial)
+	if initial.Address != "127.0.0.1:54321" || !initial.Running {
+		t.Fatalf("status did not return the actual runtime address: %+v", initial)
+	}
+
+	patchResponse := gatewayAdminJSONRequest(t, app, http.MethodPatch, "/api/gateway/config", map[string]any{
+		"enabled": true, "maxGlobalConcurrency": 9, "maxRequestBytes": 2 << 20,
+	}, http.StatusOK)
+	var patched struct {
+		Gateway config.GatewayConfig     `json:"gateway"`
+		Status  gatewaypkg.ManagerStatus `json:"status"`
+	}
+	decodeGatewayAdminResponse(t, patchResponse, &patched)
+	if !patched.Gateway.Enabled || patched.Gateway.MaxGlobalConcurrency != 9 || patched.Status.Address != "127.0.0.1:54321" || !patched.Status.Running {
+		t.Fatalf("unexpected Gateway patch response: %+v", patched)
+	}
+	if len(controller.calls) != 1 || !controller.calls[0].Enabled || controller.calls[0].MaxRequestBytes != 2<<20 {
+		t.Fatalf("runtime controller did not receive the desired configuration: %+v", controller.calls)
+	}
+
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var persisted config.Config
+	if err := json.Unmarshal(data, &persisted); err != nil {
+		t.Fatal(err)
+	}
+	if !persisted.Gateway.Enabled || persisted.Gateway.Port != 18789 || persisted.Gateway.MaxGlobalConcurrency != 9 {
+		t.Fatalf("Gateway patch was not persisted: %+v", persisted.Gateway)
+	}
+	settingsResponse := gatewayAdminJSONRequest(t, app, http.MethodGet, "/api/settings", nil, http.StatusOK)
+	var settings struct {
+		Gateway config.GatewayConfig `json:"gateway"`
+	}
+	decodeGatewayAdminResponse(t, settingsResponse, &settings)
+	if settings.Gateway.Port != 18789 || settings.Gateway.Port == 54321 {
+		t.Fatalf("settings returned runtime address instead of persistent config: %+v", settings.Gateway)
+	}
+}
+
+func TestGatewayRuntimeConfigBindFailureRollsBackWithoutPublishing(t *testing.T) {
+	cfg := config.Config{
+		SchemaVersion: config.CurrentConfigVersion,
+		Server:        config.ServerConfig{Host: "127.0.0.1", Port: 7788},
+		Gateway:       config.GatewayConfig{Enabled: true, Host: "127.0.0.1", Port: 18789, MaxGlobalConcurrency: 4, MaxRequestBytes: 1 << 20},
+	}
+	app, _ := newGatewayAdminTestServer(t, cfg)
+	configPath := filepath.Join(t.TempDir(), "config.json")
+	if err := config.Save(configPath, cfg); err != nil {
+		t.Fatal(err)
+	}
+	app.SetConfigPath(configPath)
+	controller := &fakeGatewayRuntimeController{
+		status: gatewaypkg.ManagerStatus{Address: "127.0.0.1:18789", Running: true, DesiredEnabled: true},
+		fail: func(next config.GatewayConfig) error {
+			if next.Port == 19000 {
+				return &gatewaypkg.BindError{Address: "127.0.0.1:19000", Err: errors.New("address already in use")}
+			}
+			return nil
+		},
+	}
+	app.SetGatewayRuntimeController(controller)
+
+	gatewayAdminJSONRequest(t, app, http.MethodPatch, "/api/gateway/config", map[string]any{"port": 19000}, http.StatusConflict)
+	if len(controller.calls) != 2 || controller.calls[0].Port != 19000 || controller.calls[1].Port != 18789 {
+		t.Fatalf("failed reconfiguration was not rolled back: %+v", controller.calls)
+	}
+	if current := app.ConfigSnapshot(); current.Gateway.Port != 18789 {
+		t.Fatalf("failed reconfiguration was published: %+v", current.Gateway)
+	}
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var persisted config.Config
+	if err := json.Unmarshal(data, &persisted); err != nil {
+		t.Fatal(err)
+	}
+	if persisted.Gateway.Port != 18789 {
+		t.Fatalf("failed reconfiguration changed persistent config: %+v", persisted.Gateway)
+	}
+}
+
+func TestGatewayAccountAdminManagesExplicitGrants(t *testing.T) {
+	home := t.TempDir()
+	credentialStore := codexauth.NewStore(codexauth.DefaultStoreDir(home))
+	if _, err := credentialStore.Import([]codexauth.ImportDocument{{Filename: "account.json", Content: []byte(`{"type":"codex","access_token":"account-secret","account_id":"account-1","alias":"Shared account"}`)}}); err != nil {
+		t.Fatal(err)
+	}
+	accounts, err := credentialStore.ListAccounts()
+	if err != nil || len(accounts) != 1 {
+		t.Fatalf("create Codex account: accounts=%+v err=%v", accounts, err)
+	}
+	cfg := config.Config{
+		Paths: config.PathsConfig{HomeDir: home},
+		Providers: config.ProvidersConfig{Instances: []config.ProviderConfig{{
+			Name: codexauth.DefaultProviderName, Type: config.ProviderTypeCodex, GatewayEnabled: true,
+		}}},
+	}
+	app, store := newGatewayAdminTestServer(t, cfg)
+
+	listResponse := gatewayAdminJSONRequest(t, app, http.MethodGet, "/api/gateway/accounts", nil, http.StatusOK)
+	var listed struct {
+		Accounts []gatewayAccountSummary `json:"accounts"`
+	}
+	decodeGatewayAdminResponse(t, listResponse, &listed)
+	if len(listed.Accounts) != 1 || listed.Accounts[0].AccountID != accounts[0].ID || listed.Accounts[0].Shared || listed.Accounts[0].Effective {
+		t.Fatalf("unexpected unshared account list: %+v", listed.Accounts)
+	}
+
+	accountPath := "/api/gateway/accounts/codex/" + accounts[0].ID
+	sharedResponse := gatewayAdminJSONRequest(t, app, http.MethodPatch, accountPath, map[string]any{"shared": true}, http.StatusOK)
+	var shared struct {
+		Account gatewayAccountSummary `json:"account"`
+	}
+	decodeGatewayAdminResponse(t, sharedResponse, &shared)
+	if !shared.Account.Shared || !shared.Account.Effective || shared.Account.Reason != "eligible" {
+		t.Fatalf("Gateway grant was not effective: %+v", shared.Account)
+	}
+	grants, err := store.ListGatewayAccountGrants(context.Background(), codexauth.DefaultProviderName)
+	if err != nil || len(grants) != 1 || grants[0].AccountID != accounts[0].ID {
+		t.Fatalf("Gateway grant was not persisted: %+v err=%v", grants, err)
+	}
+
+	gatewayAdminJSONRequest(t, app, http.MethodPatch, accountPath, map[string]any{"shared": false}, http.StatusOK)
+	grants, err = store.ListGatewayAccountGrants(context.Background(), codexauth.DefaultProviderName)
+	if err != nil || len(grants) != 0 {
+		t.Fatalf("Gateway grant was not revoked: %+v err=%v", grants, err)
+	}
+}
+
+func TestGatewayRequestsReturnsSafeRecentMetadata(t *testing.T) {
+	app, store := newGatewayAdminTestServer(t, config.Config{})
+	key := createGatewayAdminStoredKey(t, store, "Recent", "recent", true)
+	if _, err := store.AddAPIRequest(context.Background(), db.APIRequest{
+		ID: "gateway-request", Kind: "gateway", Provider: "codex", CredentialID: "account-1", GatewayKeyID: key.ID, Model: "gpt-safe",
+		InputTokens: 8, OutputTokens: 5, ErrorMessage: "upstream response secret-token",
+		RawDumpJSON: json.RawMessage(`{"prompt":"secret prompt","response":"secret response","token":"secret-token"}`),
+		CreatedAt:   "2026-07-22T12:00:00Z",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.AddAPIRequest(context.Background(), db.APIRequest{ID: "internal-request", Kind: "model", Model: "must-not-appear", CreatedAt: "2026-07-22T12:01:00Z"}); err != nil {
+		t.Fatal(err)
+	}
+
+	response := gatewayAdminJSONRequest(t, app, http.MethodGet, "/api/gateway/requests?limit=1", nil, http.StatusOK)
+	body := response.Body.String()
+	for _, forbidden := range []string{"secret prompt", "secret response", "secret-token", "rawDumpJson", "errorMessage", key.TokenHash, "must-not-appear"} {
+		if strings.Contains(body, forbidden) {
+			t.Fatalf("Gateway request API leaked %q: %s", forbidden, body)
+		}
+	}
+	var payload struct {
+		Requests []db.GatewayRequestSummary `json:"requests"`
+	}
+	decodeGatewayAdminResponse(t, response, &payload)
+	if len(payload.Requests) != 1 || payload.Requests[0].ID != "gateway-request" || payload.Requests[0].GatewayKeyName != "Recent" || payload.Requests[0].TotalTokens != 13 {
+		t.Fatalf("unexpected Gateway request response: %+v", payload.Requests)
+	}
+	for _, limit := range []string{"0", "201", "nope"} {
+		gatewayAdminJSONRequest(t, app, http.MethodGet, "/api/gateway/requests?limit="+limit, nil, http.StatusBadRequest)
+	}
+}
+
 func TestGatewayProviderAllowedUsesDynamicConfigAndRejectsCodex(t *testing.T) {
 	app := New(config.Config{Providers: config.ProvidersConfig{Instances: []config.ProviderConfig{
 		{Name: " Relay ", Type: " OpenAI-Compatible ", GatewayEnabled: true},
@@ -387,8 +575,8 @@ func TestGatewayProviderAllowedUsesDynamicConfigAndRejectsCodex(t *testing.T) {
 	if !app.GatewayProviderAllowed(ctx, "  rElAy ") {
 		t.Fatal("enabled Gateway provider should be allowed with case/space normalization")
 	}
-	if app.GatewayProviderAllowed(ctx, "codex-provider") {
-		t.Fatal("Codex provider must never be allowed by the Gateway")
+	if !app.GatewayProviderAllowed(ctx, "codex-provider") {
+		t.Fatal("Codex provider should now be allowed by the Gateway when enabled")
 	}
 	if app.GatewayProviderAllowed(ctx, "oauth-proxy") {
 		t.Fatal("OAuth proxy provider must never be allowed by the Gateway")
@@ -416,8 +604,8 @@ func TestGatewayProviderAllowedUsesDynamicConfigAndRejectsCodex(t *testing.T) {
 	app.cfg.Providers.Instances[0].GatewayEnabled = true
 	app.cfg.Providers.Instances[0].Type = "CODEX"
 	app.cfgMu.Unlock()
-	if app.GatewayProviderAllowed(ctx, "relay") {
-		t.Fatal("provider patched to Codex type was allowed")
+	if !app.GatewayProviderAllowed(ctx, "relay") {
+		t.Fatal("provider patched to Codex type should now be allowed when enabled")
 	}
 }
 
@@ -461,6 +649,32 @@ func decodeGatewayAdminResponse(t *testing.T, response *httptest.ResponseRecorde
 	if err := json.NewDecoder(response.Body).Decode(dst); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
+}
+
+type fakeGatewayRuntimeController struct {
+	status gatewaypkg.ManagerStatus
+	calls  []config.GatewayConfig
+	fail   func(config.GatewayConfig) error
+}
+
+func (f *fakeGatewayRuntimeController) Reconfigure(_ context.Context, cfg config.GatewayConfig) error {
+	f.calls = append(f.calls, cfg)
+	if f.fail != nil {
+		if err := f.fail(cfg); err != nil {
+			return err
+		}
+	}
+	f.status.DesiredEnabled = cfg.Enabled
+	f.status.AllowRemote = cfg.AllowRemote
+	f.status.Running = cfg.Enabled
+	if !cfg.Enabled {
+		f.status.Address = ""
+	}
+	return nil
+}
+
+func (f *fakeGatewayRuntimeController) Status() gatewaypkg.ManagerStatus {
+	return f.status
 }
 
 func createGatewayAdminStoredKey(t *testing.T, store *db.Store, name, prefix string, enabled bool) db.GatewayKey {

@@ -10,6 +10,29 @@ import (
 
 type registryTestProvider struct{ name string }
 
+type staticGatewayAccountPolicy struct {
+	ids map[string][]string
+	err error
+}
+
+func (p staticGatewayAccountPolicy) ListSharedGatewayAccountIDs(_ context.Context, provider string) ([]string, error) {
+	if p.err != nil {
+		return nil, p.err
+	}
+	return append([]string(nil), p.ids[provider]...), nil
+}
+
+type scenarioAvailabilityTestProvider struct {
+	registryTestProvider
+	available bool
+	seen      ScenarioAvailability
+}
+
+func (p *scenarioAvailabilityTestProvider) AvailableForScenario(_ context.Context, availability ScenarioAvailability) bool {
+	p.seen = availability
+	return p.available
+}
+
 type capabilityRegistryTestProvider struct {
 	registryTestProvider
 	capabilities Capabilities
@@ -30,6 +53,23 @@ func (registryTestProvider) Generate(context.Context, GenerateRequest) (<-chan E
 func TestCapabilitiesForUnknownProviderIsEmpty(t *testing.T) {
 	if got := CapabilitiesFor(registryTestProvider{name: "unknown"}); got.Tools || got.Streaming || got.ImageInput || got.ReasoningEffort || len(got.ReasoningEfforts) != 0 {
 		t.Fatalf("expected no optional capabilities, got %+v", got)
+	}
+}
+
+func TestAvailableForScenarioUsesExplicitDynamicAuthorization(t *testing.T) {
+	provider := &scenarioAvailabilityTestProvider{
+		registryTestProvider: registryTestProvider{name: "dynamic"},
+		available:            true,
+	}
+	availability := ScenarioAvailability{Scenario: CallScenarioGateway, AllowSubscriptionCredentials: true}
+	if !AvailableForScenario(context.Background(), provider, false, availability) {
+		t.Fatal("dynamic availability result was ignored")
+	}
+	if provider.seen != availability {
+		t.Fatalf("dynamic availability input changed: got %+v want %+v", provider.seen, availability)
+	}
+	if (GenerateRequest{Scenario: CallScenarioGateway}).AllowSubscriptionCredentials {
+		t.Fatal("Gateway scenario must not implicitly authorize subscription credentials")
 	}
 }
 

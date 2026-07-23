@@ -73,3 +73,32 @@ test("archive settings loads archived records and restores agents", async () => 
   assert.deepEqual(JSON.parse(calls[1].options.body), { archived: false });
   assert.ok(refreshes.length >= 2);
 });
+
+test("failed archive load does not auto-retry through refresh→render", async () => {
+  let loads = 0;
+  const errors = [];
+  const controller = createArchiveSettingsController({
+    request: async () => {
+      loads += 1;
+      const error = new Error("missing or invalid local API token");
+      error.status = 401;
+      throw error;
+    },
+    refresh: () => {
+      // Mimic settings panel: every refresh re-renders the live page.
+      controller.render();
+    },
+    showError: (error) => errors.push(error?.message || String(error)),
+  });
+
+  const first = controller.render();
+  assert.match(first, /加载|Loading|loading/i);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(loads, 1);
+  assert.deepEqual(errors, ["missing or invalid local API token"]);
+  const failed = controller.render();
+  assert.match(failed, /missing or invalid local API token/);
+  assert.match(failed, /archiveRefreshBtn|刷新|Refresh/i);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(loads, 1, "failed load must not re-enter via render()");
+});

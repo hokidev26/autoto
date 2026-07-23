@@ -42,31 +42,67 @@ func (p *AnthropicProvider) SetAccountQuotaTelemetry(telemetry AccountQuotaTelem
 	}
 }
 
-func (p *AnthropicProvider) accountCandidates(scenario CallScenario) ([]anthropicAccountCandidate, error) {
+func (p *AnthropicProvider) accountCandidates(ctx context.Context, req GenerateRequest) ([]anthropicAccountCandidate, error) {
 	if p == nil {
 		return nil, providerUnavailableError(anthropicauth.DefaultProviderName, "provider is not configured")
+	}
+	if ctx == nil {
+		return nil, errors.New("Anthropic request context is required")
+	}
+	scenario := req.EffectiveScenario()
+	var granted map[string]struct{}
+	var grantErr error
+	if scenario == CallScenarioGateway && req.AllowSubscriptionCredentials {
+		granted, grantErr = gatewayAccountIDSet(ctx, p.gatewayAccountPolicy(), p.cfg.Name)
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+	}
+	gatewayAccountAllowed := func(id string) bool {
+		if scenario != CallScenarioGateway {
+			return true
+		}
+		if !req.AllowSubscriptionCredentials {
+			return false
+		}
+		_, ok := granted[id]
+		return ok
 	}
 	var items []anthropicauth.StoredCredential
 	var loadErr error
 	if p.store != nil && strings.TrimSpace(p.cfg.CredentialStorePath) != "" {
 		items, loadErr = p.store.Load()
 	}
+	configuredKey := strings.TrimSpace(p.cfg.APIKey)
+	managedConfiguredKeyIncluded := false
 	candidates := make([]anthropicAccountCandidate, 0, len(items)+1)
 	for index := range items {
 		item := items[index]
-		if item.Credential.Disabled {
+		credential := item.Credential
+		if credential.Disabled {
 			continue
 		}
-		if scenario == CallScenarioGateway && item.Credential.AuthType != anthropicauth.AuthTypeAPIKey {
-			continue
+		if scenario == CallScenarioGateway {
+			if credential.AuthType == anthropicauth.AuthTypeProfile || !req.AllowSubscriptionCredentials {
+				continue
+			}
+			if _, ok := granted[credential.ID]; !ok {
+				continue
+			}
 		}
-		client, err := p.clientForCredential(item.Credential)
+		client, err := p.clientForCredential(ctx, credential)
 		if err != nil {
+			if ctx.Err() != nil {
+				return nil, ctx.Err()
+			}
 			continue
+		}
+		if credential.AuthType == anthropicauth.AuthTypeAPIKey && sameAnthropicAPIKey(credential.APIKey, configuredKey) {
+			managedConfiguredKeyIncluded = true
 		}
 		candidates = append(candidates, anthropicAccountCandidate{
-			id:       item.Credential.ID,
-			priority: item.Credential.Priority,
+			id:       credential.ID,
+			priority: credential.Priority,
 			client:   client,
 		})
 	}
@@ -76,8 +112,8 @@ func (p *AnthropicProvider) accountCandidates(scenario CallScenario) ([]anthropi
 		}
 		return candidates[i].id < candidates[j].id
 	})
-	if strings.TrimSpace(p.cfg.APIKey) != "" && !managedAnthropicAPIKeyExists(items, p.cfg.APIKey) {
-		client, err := p.newAnthropicClient(option.WithAPIKey(p.cfg.APIKey))
+	if configuredKey != "" && !managedConfiguredKeyIncluded && gatewayAccountAllowed(configuredCredentialID) {
+		client, err := p.newAnthropicClient(option.WithAPIKey(configuredKey))
 		if err != nil {
 			return nil, err
 		}
@@ -93,24 +129,19 @@ func (p *AnthropicProvider) accountCandidates(scenario CallScenario) ([]anthropi
 	if loadErr != nil {
 		return nil, providerUnavailableError(p.cfg.Name, "Anthropic 本地凭据库不可用")
 	}
+	if grantErr != nil {
+		return nil, providerUnavailableError(p.cfg.Name, "Gateway account grants are unavailable")
+	}
 	return nil, providerUnavailableError(p.cfg.Name, "Anthropic credentials are not configured")
 }
 
-func managedAnthropicAPIKeyExists(items []anthropicauth.StoredCredential, configuredKey string) bool {
-	configuredKey = strings.TrimSpace(configuredKey)
-	for _, item := range items {
-		credential := item.Credential
-		if credential.Disabled || credential.AuthType != anthropicauth.AuthTypeAPIKey || len(credential.APIKey) != len(configuredKey) {
-			continue
-		}
-		if subtle.ConstantTimeCompare([]byte(credential.APIKey), []byte(configuredKey)) == 1 {
-			return true
-		}
-	}
-	return false
+func sameAnthropicAPIKey(first, second string) bool {
+	first = strings.TrimSpace(first)
+	second = strings.TrimSpace(second)
+	return first != "" && len(first) == len(second) && subtle.ConstantTimeCompare([]byte(first), []byte(second)) == 1
 }
 
-func (p *AnthropicProvider) clientForCredential(credential anthropicauth.Credential) (anthropic.Client, error) {
+func (p *AnthropicProvider) clientForCredential(ctx context.Context, credential anthropicauth.Credential) (anthropic.Client, error) {
 	switch credential.AuthType {
 	case anthropicauth.AuthTypeProfile:
 		if strings.TrimSpace(credential.Profile) == "" {
@@ -122,12 +153,21 @@ func (p *AnthropicProvider) clientForCredential(credential anthropicauth.Credent
 			return anthropic.Client{}, errors.New("Anthropic API key is empty")
 		}
 		return p.newAnthropicClient(option.WithAPIKey(credential.APIKey))
+	case anthropicauth.AuthTypeOAuth:
+		access, err := p.anthropicOAuthAccessToken(ctx, credential)
+		if err != nil {
+			return anthropic.Client{}, err
+		}
+		return p.newAnthropicClient(
+			option.WithAuthToken(access),
+			option.WithHeaderAdd("anthropic-beta", anthropicauth.OAuthBetaHeader),
+		)
 	default:
 		return anthropic.Client{}, errors.New("Anthropic auth type is invalid")
 	}
 }
 
-func (p *AnthropicProvider) newAnthropicClient(auth option.RequestOption) (anthropic.Client, error) {
+func (p *AnthropicProvider) newAnthropicClient(auth ...option.RequestOption) (anthropic.Client, error) {
 	cfg := config.ProviderConfig{}
 	if p != nil {
 		cfg = p.cfg
@@ -140,12 +180,128 @@ func (p *AnthropicProvider) newAnthropicClient(auth option.RequestOption) (anthr
 		option.WithoutEnvironmentDefaults(),
 		option.WithHTTPClient(httpClient),
 		option.WithMaxRetries(0),
-		auth,
 	}
+	opts = append(opts, auth...)
 	if strings.TrimSpace(cfg.BaseURL) != "" {
 		opts = append(opts, option.WithBaseURL(cfg.BaseURL))
 	}
 	return anthropic.NewClient(opts...), nil
+}
+
+const anthropicOAuthRefreshAhead = 2 * time.Minute
+
+// anthropicOAuthAccessToken returns a usable access token for an OAuth
+// credential, refreshing through the request context and merging concurrent
+// refreshes. An actually expired token is never returned after refresh failure.
+func (p *AnthropicProvider) anthropicOAuthAccessToken(ctx context.Context, credential anthropicauth.Credential) (string, error) {
+	if ctx == nil {
+		return "", errors.New("Anthropic request context is required")
+	}
+	access := strings.TrimSpace(credential.OAuthAccess)
+	if access == "" {
+		return "", errors.New("Anthropic OAuth access token is empty")
+	}
+	needsRefresh, expired, err := p.anthropicOAuthExpiry(credential)
+	if err != nil {
+		return "", providerUnavailableError(p.cfg.Name, "Anthropic OAuth expiry is invalid")
+	}
+	if !needsRefresh {
+		return access, nil
+	}
+	if strings.TrimSpace(credential.OAuthRefresh) == "" {
+		if expired {
+			return "", providerUnavailableError(p.cfg.Name, "Anthropic OAuth access token is expired")
+		}
+		return access, nil
+	}
+
+	select {
+	case p.oauthRefreshGate <- struct{}{}:
+		defer func() { <-p.oauthRefreshGate }()
+	case <-ctx.Done():
+		return "", ctx.Err()
+	}
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
+
+	if p.store != nil && strings.TrimSpace(credential.ID) != "" {
+		if current, currentErr := p.store.GetByID(credential.ID); currentErr == nil {
+			if current.Credential.Disabled {
+				return "", providerUnavailableError(p.cfg.Name, "Anthropic OAuth account is disabled")
+			}
+			if current.Credential.AuthType == anthropicauth.AuthTypeOAuth {
+				credential = current.Credential
+				access = strings.TrimSpace(credential.OAuthAccess)
+				needsRefresh, expired, err = p.anthropicOAuthExpiry(credential)
+				if err != nil {
+					return "", providerUnavailableError(p.cfg.Name, "Anthropic OAuth expiry is invalid")
+				}
+				if access == "" {
+					return "", errors.New("Anthropic OAuth access token is empty")
+				}
+				if !needsRefresh {
+					return access, nil
+				}
+			}
+		}
+	}
+	refreshToken := strings.TrimSpace(credential.OAuthRefresh)
+	if refreshToken == "" {
+		if expired {
+			return "", providerUnavailableError(p.cfg.Name, "Anthropic OAuth access token is expired")
+		}
+		return access, nil
+	}
+
+	refreshCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	refreshConfig := p.cfg
+	// Provider API headers belong to the configured Anthropic API origin and
+	// must not be forwarded to the separate OAuth token endpoint.
+	refreshConfig.RequestHeaders = nil
+	httpClient, clientErr := providerHTTPClient(refreshConfig, 30*time.Second)
+	if clientErr != nil {
+		return "", providerUnavailableError(p.cfg.Name, "Anthropic OAuth refresh client is unavailable")
+	}
+	refresh := p.oauthRefreshToken
+	if refresh == nil {
+		refresh = anthropicauth.RefreshTokens
+	}
+	tokens, refreshErr := refresh(refreshCtx, refreshToken, httpClient)
+	if refreshErr != nil || strings.TrimSpace(tokens.AccessToken) == "" {
+		if refreshCtx.Err() != nil {
+			return "", refreshCtx.Err()
+		}
+		_, expired, expiryErr := p.anthropicOAuthExpiry(credential)
+		if expiryErr != nil || expired {
+			return "", providerUnavailableError(p.cfg.Name, "Anthropic OAuth refresh failed for an expired token")
+		}
+		return access, nil
+	}
+	tokens.AccessToken = strings.TrimSpace(tokens.AccessToken)
+	tokens.RefreshToken = strings.TrimSpace(tokens.RefreshToken)
+	expiresAt := ""
+	if tokens.ExpiresIn > 0 {
+		expiresAt = p.now().Add(time.Duration(tokens.ExpiresIn) * time.Second).UTC().Format(time.RFC3339Nano)
+	}
+	if p.store != nil && strings.TrimSpace(credential.ID) != "" {
+		_, _ = p.store.UpdateOAuthTokens(credential.ID, tokens.AccessToken, tokens.RefreshToken, expiresAt)
+	}
+	return tokens.AccessToken, nil
+}
+
+func (p *AnthropicProvider) anthropicOAuthExpiry(credential anthropicauth.Credential) (needsRefresh, expired bool, err error) {
+	raw := strings.TrimSpace(credential.OAuthExpiresAt)
+	if raw == "" {
+		return false, false, nil
+	}
+	expiresAt, err := time.Parse(time.RFC3339Nano, raw)
+	if err != nil {
+		return false, false, err
+	}
+	now := p.now()
+	return !now.Before(expiresAt.Add(-anthropicOAuthRefreshAhead)), !now.Before(expiresAt), nil
 }
 
 func (p *AnthropicProvider) SyncAccount(ctx context.Context, id string) (anthropicauth.AccountSummary, []string, ProviderAccountQuotaSnapshot, error) {
@@ -162,7 +318,7 @@ func (p *AnthropicProvider) SyncAccount(ctx context.Context, id string) (anthrop
 	if err != nil {
 		return anthropicauth.AccountSummary{}, nil, ProviderAccountQuotaSnapshot{}, err
 	}
-	client, err := p.clientForCredential(item.Credential)
+	client, err := p.clientForCredential(ctx, item.Credential)
 	if err != nil {
 		return anthropicauth.AccountSummary{}, nil, ProviderAccountQuotaSnapshot{}, providerUnavailableError(p.cfg.Name, "Anthropic account credential is invalid")
 	}

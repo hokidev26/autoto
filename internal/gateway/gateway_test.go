@@ -30,8 +30,9 @@ type gatewayTestProvider struct {
 	release      chan struct{}
 	startOnce    sync.Once
 
-	mu       sync.Mutex
-	requests []providers.GenerateRequest
+	mu             sync.Mutex
+	requests       []providers.GenerateRequest
+	availabilities []providers.ScenarioAvailability
 }
 
 func (p *gatewayTestProvider) Name() string { return p.name }
@@ -46,6 +47,13 @@ func (p *gatewayTestProvider) Capabilities() providers.Capabilities {
 
 func (p *gatewayTestProvider) ModelCapabilities(string) providers.ModelCapabilities {
 	return p.modelCaps
+}
+
+func (p *gatewayTestProvider) AvailableForScenario(_ context.Context, availability providers.ScenarioAvailability) bool {
+	p.mu.Lock()
+	p.availabilities = append(p.availabilities, availability)
+	p.mu.Unlock()
+	return true
 }
 
 func (p *gatewayTestProvider) Generate(ctx context.Context, request providers.GenerateRequest) (<-chan providers.Event, error) {
@@ -92,6 +100,15 @@ func (p *gatewayTestProvider) lastRequest() providers.GenerateRequest {
 		return providers.GenerateRequest{}
 	}
 	return p.requests[len(p.requests)-1]
+}
+
+func (p *gatewayTestProvider) lastAvailability() providers.ScenarioAvailability {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if len(p.availabilities) == 0 {
+		return providers.ScenarioAvailability{}
+	}
+	return p.availabilities[len(p.availabilities)-1]
 }
 
 type gatewayHarness struct {
@@ -157,9 +174,10 @@ func newGatewayHarness(t *testing.T, keyPolicy db.GatewayKey, provider *gatewayT
 		t.Fatal(err)
 	}
 	options := Options{
-		MaxGlobalConcurrency: 4,
-		MaxRequestBytes:      1 << 20,
-		Now:                  func() time.Time { return gatewayTestNow },
+		MaxGlobalConcurrency:         4,
+		MaxRequestBytes:              1 << 20,
+		AllowSubscriptionCredentials: true,
+		Now:                          func() time.Time { return gatewayTestNow },
 		ProviderAllowed: func(_ context.Context, name string) bool {
 			return name == provider.Name()
 		},
@@ -316,7 +334,7 @@ func TestGatewayNonStreamingCompletionTranslatesAndRecordsAttribution(t *testing
 	}
 
 	captured := provider.lastRequest()
-	if captured.Scenario != providers.CallScenarioGateway || captured.Model != "gpt-4.1-mini" || captured.SystemPrompt != "Be concise" || captured.ReasoningEffort != "high" || captured.MaxOutputTokens != 128 {
+	if captured.Scenario != providers.CallScenarioGateway || !captured.AllowSubscriptionCredentials || captured.Model != "gpt-4.1-mini" || captured.SystemPrompt != "Be concise" || captured.ReasoningEffort != "high" || captured.MaxOutputTokens != 128 {
 		t.Fatalf("provider request boundary mismatch: %+v", captured)
 	}
 	if len(captured.Tools) != 1 || captured.Tools[0].Name != "lookup" {
@@ -552,7 +570,7 @@ func TestGatewayRejectsAggregateContainingDisallowedProvider(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	service, err := New(store, registry, Options{Now: func() time.Time { return gatewayTestNow }, ProviderAllowed: func(_ context.Context, name string) bool { return name == "allowed" }})
+	service, err := New(store, registry, Options{AllowSubscriptionCredentials: true, Now: func() time.Time { return gatewayTestNow }, ProviderAllowed: func(_ context.Context, name string) bool { return name == "allowed" }})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -592,7 +610,7 @@ func TestGatewayAggregateDispatchUsesAuthorizedSnapshot(t *testing.T) {
 	if _, err := store.CreateGatewayKey(ctx, db.GatewayKey{Name: "snapshot", KeyPrefix: generated.Prefix, TokenHash: generated.Hash, Enabled: true, AllowedModels: []string{"safe"}, RequestsPerMinute: 10}); err != nil {
 		t.Fatal(err)
 	}
-	service, err := New(store, registry, Options{Now: func() time.Time { return gatewayTestNow }, ProviderAllowed: func(_ context.Context, name string) bool { return name == "allowed" }})
+	service, err := New(store, registry, Options{AllowSubscriptionCredentials: true, Now: func() time.Time { return gatewayTestNow }, ProviderAllowed: func(_ context.Context, name string) bool { return name == "allowed" }})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -625,7 +643,7 @@ func TestGatewayHidesUnconfiguredGeminiProvider(t *testing.T) {
 	if _, err := store.CreateGatewayKey(ctx, db.GatewayKey{Name: "gemini", KeyPrefix: generated.Prefix, TokenHash: generated.Hash, Enabled: true, AllowedModels: []string{"gemini"}, RequestsPerMinute: 10}); err != nil {
 		t.Fatal(err)
 	}
-	service, err := New(store, registry, Options{Now: func() time.Time { return gatewayTestNow }, ProviderAllowed: func(_ context.Context, name string) bool { return name == "gemini" }})
+	service, err := New(store, registry, Options{AllowSubscriptionCredentials: true, Now: func() time.Time { return gatewayTestNow }, ProviderAllowed: func(_ context.Context, name string) bool { return name == "gemini" }})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -668,7 +686,7 @@ func TestGatewayRejectsAnthropicProfileOnlyProvider(t *testing.T) {
 	if _, err := store.CreateGatewayKey(ctx, db.GatewayKey{Name: "profile-only", KeyPrefix: generated.Prefix, TokenHash: generated.Hash, Enabled: true, AllowedModels: []string{"claude"}, RequestsPerMinute: 10}); err != nil {
 		t.Fatal(err)
 	}
-	service, err := New(store, registry, Options{Now: func() time.Time { return gatewayTestNow }, ProviderAllowed: func(_ context.Context, name string) bool { return name == "anthropic" }})
+	service, err := New(store, registry, Options{AllowSubscriptionCredentials: true, Now: func() time.Time { return gatewayTestNow }, ProviderAllowed: func(_ context.Context, name string) bool { return name == "anthropic" }})
 	if err != nil {
 		t.Fatal(err)
 	}

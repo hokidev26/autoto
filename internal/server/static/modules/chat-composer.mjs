@@ -2,8 +2,8 @@ import { $, escapeAttr, escapeHtml, setButtonBusy } from "./dom.mjs";
 import { formatBytes, formatNumber } from "./formatters.mjs";
 import { chatDraftsKey, promptHistoryKey } from "./preferences-data.mjs";
 import { api } from "./runtime.mjs";
-import { t } from "./i18n.mjs";
-import { mergeAuthoritativeEffectiveCommands, mergeSlashCommands, slashCommandInsertion } from "./skills-commands.mjs";
+import { t } from "./i18n.mjs?v=goal-command-2";
+import { mergeAuthoritativeEffectiveCommands, mergeBuiltInSlashCommands, mergeSlashCommands, normalizeSlashCommandName, slashCommandInsertion } from "./skills-commands.mjs?v=goal-command-2";
 
 export const defaultReasoningEffortValues = Object.freeze(["auto", "low", "medium", "high"]);
 export const knownReasoningEffortValues = Object.freeze([...defaultReasoningEffortValues, "xhigh"]);
@@ -105,6 +105,32 @@ export function slashCommandsForEffectivePolicy(policy, localTemplates) {
   return mergeAuthoritativeEffectiveCommands(policy, localTemplates);
 }
 
+export function builtInSlashCommandsForContext(context, translate = t) {
+  if (String(context || "").trim().toLowerCase() !== "project") return [];
+  return [{
+    id: "builtin-goal",
+    name: "/goal",
+    description: translate("workspace.chat.goalCommandDescription"),
+    prompt: "",
+    source: "builtin",
+  }];
+}
+
+export function slashCommandsForContext(context, commands, translate = t) {
+  const externalCommands = (Array.isArray(commands) ? commands : [])
+    .filter((command) => normalizeSlashCommandName(command?.name) !== "/goal");
+  return mergeBuiltInSlashCommands(builtInSlashCommandsForContext(context, translate), externalCommands);
+}
+
+export function parseGoalCommandDraft(value = "") {
+  const commandText = String(value || "").trim();
+  if (commandText !== "/goal" && !commandText.startsWith("/goal ")) return null;
+  return {
+    commandText,
+    goalText: commandText.slice("/goal".length).trim(),
+  };
+}
+
 export const maxChatDraftCharacters = 8000;
 
 export function interfaceLocale(documentRef = globalThis.document, navigatorRef = globalThis.navigator) {
@@ -174,6 +200,7 @@ export function createChatComposerController({
   getEffectiveSkillsPolicy,
   isComposingInput,
   isCurrentModelConfigured,
+  awaitAgentSettingsSaved = async () => {},
   loadMessages,
   notifyTerminal,
   openDirectoryChooser,
@@ -670,14 +697,40 @@ export function createChatComposerController({
     const mode = context === "project" ? messageModeFor(agentId) : "execute";
     const attachments = [...(state.pendingAttachments || [])];
     if (!text && !attachments.length) return;
-    if (!isCurrentModelConfigured()) {
-      showModelSetupNotice();
+    const goalCommand = parseGoalCommandDraft(text);
+    if (goalCommand && context !== "project") {
+      showToast?.(t("workspace.chat.goalProjectOnly"), "warn", { force: true });
       return;
     }
+    if (goalCommand && !goalCommand.goalText) {
+      showToast?.(t("workspace.chat.goalTextRequired"), "warn", { force: true });
+      return;
+    }
+    if (goalCommand && attachments.length) {
+      showToast?.(t("workspace.chat.goalAttachmentsUnsupported"), "warn", { force: true });
+      return;
+    }
+    const isGoalCommand = Boolean(goalCommand);
+    const requestedModel = isGoalCommand ? "" : String($("modelSelect")?.value || state.agent.model || "").trim();
     setMessageSendingFor(agentId, true);
-    input.value = "";
-    autoResizeMessageInput();
     try {
+      if (!isGoalCommand) {
+        await awaitAgentSettingsSaved(agentId);
+        if (state.agent?.id !== agentId) {
+          throw new Error("The active conversation changed before the message was sent.");
+        }
+        const selectedModel = String($("modelSelect")?.value || state.agent.model || "").trim();
+        const persistedModel = String(state.agent.model || "").trim();
+        if (requestedModel && (selectedModel !== requestedModel || persistedModel !== requestedModel)) {
+          throw new Error("The selected model changed while its settings were being saved. Please send the message again.");
+        }
+        if (!isCurrentModelConfigured()) {
+          showModelSetupNotice();
+          return;
+        }
+      }
+      input.value = "";
+      autoResizeMessageInput();
       let accepted;
       if (attachments.length) {
         const form = new FormData();
@@ -699,8 +752,10 @@ export function createChatComposerController({
       if (text) rememberPromptHistory(text);
       clearChatDraftForKey(draftKey);
       if (attachments.length) clearPendingAttachments();
-      await loadMessages(agentId);
-      scheduleMessageRefresh(1200, agentId);
+      if (!isGoalCommand) {
+        await loadMessages(agentId);
+        scheduleMessageRefresh(1200, agentId);
+      }
     } catch (err) {
       const stillCurrent = state.agent?.id === agentId;
       saveChatDraftForKey(draftKey, text);
@@ -1000,19 +1055,20 @@ export function createChatComposerController({
 
   function enabledSlashCommands() {
     const localTemplates = currentSkillsPreferences().commands;
-    if (typeof getEffectiveSkillsPolicy === "function") {
-      return slashCommandsForEffectivePolicy(getEffectiveSkillsPolicy(), localTemplates);
-    }
-    return mergeSlashCommands(state.serverSkills, localTemplates);
+    const skillCommands = typeof getEffectiveSkillsPolicy === "function"
+      ? slashCommandsForEffectivePolicy(getEffectiveSkillsPolicy(), localTemplates)
+      : mergeSlashCommands(state.serverSkills, localTemplates);
+    const context = state.navigationSelectionKind === "project" ? "project" : "conversation";
+    return slashCommandsForContext(context, skillCommands);
   }
 
   function slashCommandTrigger(value) {
     const text = String(value || "");
-    const match = text.match(/^\s*(\/[^\s]*)$/);
+    const match = text.match(/^\s*\/([^\s]*)$/);
     if (!match) return null;
     return {
       prefix: text.slice(0, match.index || 0),
-      query: match[1].slice(1).toLowerCase(),
+      query: match[1].toLowerCase(),
     };
   }
 

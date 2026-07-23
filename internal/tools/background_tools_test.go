@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"runtime"
 	"testing"
 )
 
@@ -88,6 +89,9 @@ func TestBashBackgroundSubmitsDurableTask(t *testing.T) {
 }
 
 func TestBashBackgroundRejectsShellEscape(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("these are POSIX shell escape forms; BashTool executes cmd.exe on Windows")
+	}
 	for _, command := range []string{"sleep 10 &", "nohup sleep 10", "sleep 10; disown"} {
 		input, _ := json.Marshal(bashInput{Command: command, RunInBackground: true})
 		if risk := (BashTool{}).Risk(input); risk != RiskDanger {

@@ -14,6 +14,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -319,19 +320,55 @@ func TestBundledThemeProtectedAndCSSScoped(t *testing.T) {
 	if !bundled.Bundled || bundled.Source != SourceBundled || bundled.Deletable || !validRevision(bundled.Revision) {
 		t.Fatalf("bundled theme missing: %#v", bundled)
 	}
+	if bundled.Manifest.SchemaVersion != SchemaVersionV2 || bundled.Version != "2.0.0" || bundled.PreviewURL == "" {
+		t.Fatalf("bundled theme is not a complete v2 package: %#v", bundled)
+	}
+	if bundled.Capabilities != (ThemeCapabilities{GlobalBackground: true, HomeBackground: true, Icons: true}) {
+		t.Fatalf("bundled capabilities = %#v", bundled.Capabilities)
+	}
+	if len(bundled.Manifest.Icons) != len(AllowedIconSlots) || len(bundled.Resources) != len(AllowedIconSlots)+3 {
+		t.Fatalf("bundled resources are incomplete: icons=%d resources=%d", len(bundled.Manifest.Icons), len(bundled.Resources))
+	}
 	if ratio := contrastRatio(bundled.Manifest.Tokens.Text, bundled.Manifest.Tokens.Card); ratio < 4.5 {
 		t.Fatalf("bundled text/card contrast = %.2f, want >= 4.5", ratio)
 	}
 	if ratio := contrastRatio(bundled.Manifest.Tokens.Text, bundled.Manifest.Tokens.Input); ratio < 4.5 {
 		t.Fatalf("bundled text/input contrast = %.2f, want >= 4.5", ratio)
 	}
+
+	expectedDimensions := map[string][2]int{
+		bundled.Manifest.Preview:                 {1280, 720},
+		bundled.Manifest.Backgrounds.Global.Path: {1920, 1080},
+		bundled.Manifest.Backgrounds.Home.Path:   {1920, 1080},
+	}
+	archiveEntries := []zipTestEntry{{name: ManifestFilename, data: mustManifestJSON(t, bundled.Manifest)}}
+	for _, metadata := range bundled.Resources {
+		resource, openErr := store.OpenResource(bundled.ID, bundled.Revision, metadata.Path)
+		if openErr != nil {
+			t.Fatalf("OpenResource(%s) error = %v", metadata.Path, openErr)
+		}
+		data, readErr := io.ReadAll(resource)
+		resource.Close()
+		if readErr != nil {
+			t.Fatal(readErr)
+		}
+		details, validateErr := ValidateImageDetails(metadata.Path, data)
+		if validateErr != nil || details.ContentType != "image/png" {
+			t.Fatalf("bundled resource %s validation = %#v, %v", metadata.Path, details, validateErr)
+		}
+		if expected, ok := expectedDimensions[metadata.Path]; ok && (details.Width != expected[0] || details.Height != expected[1]) {
+			t.Fatalf("bundled resource %s dimensions = %dx%d, want %dx%d", metadata.Path, details.Width, details.Height, expected[0], expected[1])
+		}
+		archiveEntries = append(archiveEntries, zipTestEntry{name: metadata.Path, data: data})
+	}
 	if err := store.Delete(bundled.Manifest.ID); !errors.Is(err, ErrBundledProtected) {
 		t.Fatalf("Delete(bundled) error = %v", err)
 	}
-	archive := themeArchive(t, bundled.Manifest, nil, nil, nil)
+	archive := makeArchive(t, archiveEntries)
 	if _, err := store.Import(bytes.NewReader(archive), ImportOptions{Replace: true}); !errors.Is(err, ErrBundledProtected) {
 		t.Fatalf("Import(bundled replace) error = %v", err)
 	}
+
 	css, err := GenerateCSS(bundled)
 	if err != nil {
 		t.Fatal(err)
@@ -340,15 +377,21 @@ func TestBundledThemeProtectedAndCSSScoped(t *testing.T) {
 	if !strings.Contains(css, selector) || strings.Contains(css, "http://") || strings.Contains(css, "https://") || strings.Contains(css, "@import") {
 		t.Fatalf("unsafe or incorrectly scoped CSS:\n%s", css)
 	}
-	if !strings.Contains(css, "--autoto-theme-home-image: radial-gradient") || !strings.Contains(css, "--autoto-accent-gradient") {
-		t.Fatalf("bundled CSS lacks generated atmosphere variables:\n%s", css)
+	for _, resourceDeclaration := range []string{
+		`--autoto-theme-global-image: url("/themes/argentina-spain-final/` + bundled.Revision + `/backgrounds/global.png");`,
+		`--autoto-theme-home-image: url("/themes/argentina-spain-final/` + bundled.Revision + `/backgrounds/home.png");`,
+		`--autoto-icon-brand: url("/themes/argentina-spain-final/` + bundled.Revision + `/icons/brand.png");`,
+	} {
+		if !strings.Contains(css, resourceDeclaration) {
+			t.Errorf("bundled CSS missing %q", resourceDeclaration)
+		}
 	}
 	for _, variable := range []string{
 		"--ws-canvas:", "--ws-sidebar:", "--ws-card:", "--ws-input:", "--ws-text:", "--ws-muted:",
 		"--ws-border:", "--ws-primary:", "--autoto-theme-secondary:", "--autoto-theme-danger:",
 		"--autoto-theme-terminal:", "--autoto-theme-message-user:", "--autoto-theme-surface-opacity:",
 		"--autoto-theme-blur:", "--autoto-theme-radius:", "--autoto-theme-accent-text:",
-		"--autoto-theme-home-overlay:", "--autoto-theme-home-position:",
+		"--autoto-theme-home-overlay:", "--autoto-theme-global-position:", "--autoto-theme-home-position:",
 	} {
 		if !strings.Contains(css, variable) {
 			t.Errorf("bundled CSS missing %s", variable)
@@ -418,7 +461,7 @@ func TestPrivatePermissions(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if info.Mode().Perm() != item.mode {
+		if runtime.GOOS != "windows" && info.Mode().Perm() != item.mode {
 			t.Errorf("%s mode = %o, want %o", item.path, info.Mode().Perm(), item.mode)
 		}
 	}

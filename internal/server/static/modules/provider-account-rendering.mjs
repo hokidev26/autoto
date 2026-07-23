@@ -79,7 +79,7 @@ export function renderCodexAccountManagementTable(accounts, {
 } = {}) {
   const mt = translate;
   const items = Array.isArray(accounts) ? accounts : [];
-  if (!items.length) return `<div class="settings-empty-card settings-card settings-alert compact" role="status">${escapeHtml(mt("noCodexCredentials"))}</div>`;
+  if (!items.length) return `<div class="mp-console-empty" role="status">${escapeHtml(mt("noCodexCredentials"))}</div>`;
   const selected = normalizeCodexSelectedIds(selectedIds, items);
   const selectedSet = new Set(selected);
   const allSelected = items.every((account) => selectedSet.has(codexAccountStableID(account)));
@@ -105,7 +105,7 @@ export function renderAnthropicAccountManagementTable(accounts, {
 } = {}) {
   const mt = translate;
   const items = Array.isArray(accounts) ? accounts : [];
-  if (!items.length) return `<div class="settings-empty-card settings-card settings-alert compact" role="status">${escapeHtml(mt("anthropic.noAccounts"))}</div>`;
+  if (!items.length) return `<div class="mp-console-empty" role="status">${escapeHtml(mt("anthropic.noAccounts"))}</div>`;
   return `<div class="codex-account-table-wrap anthropic-account-table-wrap settings-card-content">
     <table class="codex-account-table anthropic-account-table" aria-label="${escapeAttr(mt("anthropic.accountsTitle"))}">
       <thead><tr>
@@ -184,8 +184,8 @@ function renderCodexAccountRow(account, mt, now, editing, busy, { selected = fal
     <td data-label="${escapeAttr(mt("accountName"))}">
       ${isEditing
         ? `<label class="codex-inline-edit-field"><span class="mp-visually-hidden">${escapeHtml(mt("accountName"))}</span><input class="codex-account-alias settings-text-input settings-form-field" value="${escapeAttr(editAlias)}" placeholder="${escapeAttr(fallbackName)}" maxlength="200" data-codex-edit-alias="${escapeAttr(id)}" data-select-on-focus="true"${disabledAttributes}></label>`
-        : `<strong class="codex-account-name">${escapeHtml(displayName)}</strong>`}
-      ${(secondaryName || plan) ? `<div class="codex-account-secondary">${secondaryName ? escapeHtml(secondaryName) : ""}${plan ? `<span class="codex-plan-badge settings-badge">${escapeHtml(plan)}</span>` : ""}</div>` : ""}
+        : `<div class="codex-account-name-row"><strong class="codex-account-name">${escapeHtml(displayName)}</strong>${plan ? `<span class="codex-plan-badge settings-badge">${escapeHtml(plan)}</span>` : ""}</div>`}
+      ${secondaryName ? `<div class="codex-account-secondary">${escapeHtml(secondaryName)}</div>` : ""}
     </td>
     <td data-label="${escapeAttr(mt("accountId"))}"><code class="codex-account-id">${escapeHtml(accountLabel)}</code></td>
     <td data-label="${escapeAttr(mt("priority"))}">${isEditing

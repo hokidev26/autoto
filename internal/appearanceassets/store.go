@@ -14,6 +14,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"autoto/internal/themes"
 )
@@ -143,7 +145,11 @@ func (s *Store) Import(reader io.Reader, filename string) (Metadata, error) {
 	if _, err := secureDirectory(s.root); err != nil {
 		return Metadata{}, err
 	}
-	object := filepath.Join(s.root, revision+filepath.Ext(filename))
+	objectName, err := storageObjectName(revision, details.ContentType)
+	if err != nil {
+		return Metadata{}, err
+	}
+	object := filepath.Join(s.root, objectName)
 	if existing, err := os.Lstat(object); err == nil {
 		if existing.Mode()&os.ModeSymlink != 0 || !existing.Mode().IsRegular() {
 			return Metadata{}, errors.New("appearance background object is unsafe")
@@ -219,11 +225,20 @@ func (s *Store) OpenResource(revision, filename string) (*Resource, error) {
 		}
 		return nil, err
 	}
-	if p.Revision != revision || p.Filename != filename {
+	objectName, err := storageObjectName(revision, p.ContentType)
+	if err != nil {
 		return nil, ErrNotFound
 	}
-	object := filepath.Join(s.root, revision+filepath.Ext(filename))
-	file, info, err := openRegularWithin(s.root, filepath.Base(object))
+	if p.Revision != revision || (filename != objectName && filename != p.Filename) {
+		return nil, ErrNotFound
+	}
+	file, info, err := openRegularWithin(s.root, objectName)
+	if errors.Is(err, os.ErrNotExist) {
+		legacyName := revision + filepath.Ext(p.Filename)
+		if legacyName != objectName {
+			file, info, err = openRegularWithin(s.root, legacyName)
+		}
+	}
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return nil, ErrNotFound
@@ -242,7 +257,7 @@ func (s *Store) OpenResource(revision, filename string) (*Resource, error) {
 	if hex.EncodeToString(digest[:]) != revision {
 		return nil, ErrNotFound
 	}
-	details, err := themes.ValidateImageDetails(filename, data)
+	details, err := themes.ValidateImageDetails(p.Filename, data)
 	if err != nil || details.ContentType != p.ContentType || details.Width != p.Width || details.Height != p.Height || int64(len(data)) != p.Size {
 		return nil, ErrNotFound
 	}
@@ -251,10 +266,11 @@ func (s *Store) OpenResource(revision, filename string) (*Resource, error) {
 }
 
 func (s *Store) metadataFromPointer(p pointer) Metadata {
+	objectName, _ := storageObjectName(p.Revision, p.ContentType)
 	return Metadata{
 		Revision: p.Revision, Filename: p.Filename, ContentType: p.ContentType,
 		Size: p.Size, Width: p.Width, Height: p.Height,
-		URL: "/appearance/backgrounds/" + p.Revision + "/" + p.Filename,
+		URL: "/appearance/backgrounds/" + p.Revision + "/" + objectName,
 	}
 }
 
@@ -281,7 +297,7 @@ func (s *Store) readPointerLocked() (pointer, error) {
 	if _, err := normalizeFilename(p.Filename); err != nil {
 		return p, err
 	}
-	if p.ContentType == "" || p.Size <= 0 || p.Width <= 0 || p.Height <= 0 {
+	if _, err := storageObjectName(p.Revision, p.ContentType); err != nil || p.Size <= 0 || p.Width <= 0 || p.Height <= 0 {
 		return p, errors.New("appearance background pointer metadata is invalid")
 	}
 	return p, nil
@@ -328,20 +344,54 @@ func (s *Store) removePointerLocked() error {
 
 func normalizeFilename(filename string) (string, error) {
 	filename = strings.TrimSpace(filename)
-	if filename == "" || len(filename) > 120 || filepath.Base(filename) != filename || strings.ContainsAny(filename, `/\\`) || strings.HasPrefix(filename, ".") {
+	if filename == "" || !utf8.ValidString(filename) || utf8.RuneCountInString(filename) > 120 || filepath.IsAbs(filename) || filepath.Base(filename) != filename || strings.ContainsAny(filename, `/\\`) || strings.HasPrefix(filename, ".") || hasWindowsDrivePrefix(filename) {
 		return "", fmt.Errorf("%w: filename is unsafe", ErrInvalid)
 	}
 	for _, r := range filename {
-		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || strings.ContainsRune("._-", r) {
-			continue
+		if unicode.IsControl(r) {
+			return "", fmt.Errorf("%w: filename contains unsafe characters", ErrInvalid)
 		}
-		return "", fmt.Errorf("%w: filename contains unsafe characters", ErrInvalid)
 	}
-	ext := strings.ToLower(filepath.Ext(filename))
-	if ext != ".png" && ext != ".jpg" && ext != ".jpeg" && ext != ".webp" {
-		return "", fmt.Errorf("%w: filename extension must be png, jpg, jpeg, or webp", ErrInvalid)
+	if _, err := allowedImageExtension(filename); err != nil {
+		return "", err
 	}
 	return filename, nil
+}
+
+func allowedImageExtension(filename string) (string, error) {
+	ext := strings.ToLower(filepath.Ext(filename))
+	switch ext {
+	case ".png", ".jpg", ".jpeg", ".webp":
+		return ext, nil
+	default:
+		return "", fmt.Errorf("%w: filename extension must be png, jpg, jpeg, or webp", ErrInvalid)
+	}
+}
+
+func storageObjectName(revision, contentType string) (string, error) {
+	if !validRevision(revision) {
+		return "", errors.New("appearance background revision is invalid")
+	}
+	var extension string
+	switch contentType {
+	case "image/png":
+		extension = ".png"
+	case "image/jpeg":
+		extension = ".jpg"
+	case "image/webp":
+		extension = ".webp"
+	default:
+		return "", errors.New("appearance background content type is invalid")
+	}
+	return revision + extension, nil
+}
+
+func hasWindowsDrivePrefix(filename string) bool {
+	if len(filename) < 2 || filename[1] != ':' {
+		return false
+	}
+	first := filename[0]
+	return (first >= 'a' && first <= 'z') || (first >= 'A' && first <= 'Z')
 }
 
 func validRevision(revision string) bool {

@@ -39,11 +39,16 @@ function makeCard({ runId = "", toolUseId = "", taskId = "", status = "", detail
   return card;
 }
 
-function makeRoot(cards, { scrollTop = 0 } = {}) {
+function makeRoot(cards, { scrollTop = 0, activityRows = [] } = {}) {
   return {
     scrollTop,
     cards,
-    querySelectorAll: (selector) => (selector === "[data-subagent-card]" ? cards : []),
+    activityRows,
+    querySelectorAll: (selector) => {
+      if (selector === "[data-subagent-card]") return cards;
+      if (selector === "[data-subagent-activity-row]") return activityRows;
+      return [];
+    },
     addEventListener(type, handler) { this.listener = { type, handler }; },
   };
 }
@@ -206,6 +211,19 @@ test("refresh replaces every card in place and restores the snapshot without re-
   assert.deepEqual(calls.loadRunSummary, []);
   assert.deepEqual(calls.loadAgent, []);
   assert.deepEqual(calls.loadProjects, []);
+});
+
+test("compact subagent activity rows force a scroll-preserving transcript refresh", () => {
+  const root = makeRoot([], { scrollTop: 27, activityRows: [{ dataset: { runId: "run-1", toolUseId: "tool-1" } }] });
+  const { coordinator, calls } = makeCoordinator({ root });
+
+  assert.equal(coordinator.refreshPreservingUI("agent-1", 1), true);
+  assert.equal(calls.applyMessageSnapshot.length, 1);
+  const [messages, agentId, options] = calls.applyMessageSnapshot[0];
+  assert.deepEqual(messages, [{ id: "m1" }]);
+  assert.equal(agentId, "agent-1");
+  assert.deepEqual(options, { forceRender: true, preserveScroll: true });
+  assert.equal(root.scrollTop, 27);
 });
 
 test("refresh falls back to a scroll-preserving re-render when a card cannot be replaced", () => {

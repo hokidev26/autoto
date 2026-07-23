@@ -40,6 +40,7 @@ const appMainURL = new URL("modules/app-main.mjs", staticRoot);
 const overviewDashboardURL = new URL("modules/overview-dashboard.mjs", staticRoot);
 const i18nURL = new URL("modules/i18n.mjs", staticRoot);
 const backgroundTasksURL = new URL("modules/background-tasks.mjs", staticRoot);
+const agentWorkspaceHelpersURL = new URL("modules/agent-workspace-helpers.mjs", staticRoot);
 const chatRenderingURL = new URL("modules/chat-rendering.mjs", staticRoot);
 const chatRenderingMessagesURL = new URL("modules/messages-chat-rendering-extra.mjs", staticRoot);
 const directoryBrowserURL = new URL("modules/directory-browser.mjs", staticRoot);
@@ -153,7 +154,8 @@ test("white shell adds the global rail before the conversation sidebar with the 
   assert.match(appMain, /querySelectorAll\("\[data-global-rail-target\]"\)/);
   assert.match(appMain, /activateGlobalRailTarget\(node\.dataset\.globalRailTarget\)/);
   assert.match(html, /id="globalRailCollapseBtn"[^>]*aria-expanded="true"[^>]*data-i18n-title="shell\.collapseGlobalNavigation"/);
-  assert.match(html, /id="globalRailAvatar"[^>]*data-global-rail-target="profile"/);
+  assert.doesNotMatch(html, /id="globalRailAvatar"/);
+  assert.match(html, /class="global-rail-button global-rail-settings-button"[^>]*data-global-rail-target="profile"/);
   assert.match(html, /id="sessionSidebarCollapseBtn"[^>]*aria-expanded="true"[^>]*data-i18n-title="shell\.collapseSessionSidebar"/);
 
   const ids = [...html.matchAll(/\sid="([^"]+)"/g)].map((match) => match[1]);
@@ -756,10 +758,11 @@ test("desktop conversation layout follows the compact resizable geometry", async
 });
 
 test("composer selects hide external labels and open titled menus upward", async () => {
-  const [html, styles, uiShell] = await Promise.all([
+  const [html, styles, uiShell, appMain] = await Promise.all([
     readFile(indexURL, "utf8"),
     readStylesSource(stylesURL),
     readFile(uiShellURL, "utf8"),
+    readFile(appMainURL, "utf8"),
   ]);
   for (const id of ["modelSelect", "reasoningEffort", "permissionMode"]) {
     assert.match(html, new RegExp(`data-composer-select="${id}"`));
@@ -780,6 +783,14 @@ test("composer selects hide external labels and open titled menus upward", async
   assert.match(uiShell, /chat\.executeMode/);
   assert.match(uiShell, /menu\.style\.bottom = `\$\{Math\.max\(8,[\s\S]*?- rect\.top \+ 6\)\}px`/);
   assert.match(uiShell, /binding\.select\.dispatchEvent\(new EventConstructor\("change"/);
+  assert.match(uiShell, /composer-model-option-provider/);
+  assert.match(uiShell, /presentation\?\.provider \? `\$\{presentation\.provider\}:\$\{presentation\.name\}`/);
+  assert.match(uiShell, /!active\.mobile && \(event\.target === menu \|\| menu\.contains\(event\.target\)\)/);
+  assert.match(styles, /\.composer-select-popover\s*\{[\s\S]*?overscroll-behavior:\s*contain/);
+  assert.match(styles, /\.composer-model-option-provider\s*\{/);
+  assert.match(appMain, /agentSavePromise:\s*null/);
+  assert.match(appMain, /state\.agentSaveSnapshot = captureAgentSettingsSnapshot\(\);[\s\S]*?while \(state\.agentSavePending\)/);
+  assert.match(appMain, /awaitAgentSettingsSaved:\s*\(agentId\) => waitForAgentSettingsSave\(agentId\)/);
 });
 
 test("permission menu groups the real modes in figure-two order", () => {
@@ -817,15 +828,31 @@ test("desktop composer uses the full chat width without centered side gutters", 
 });
 
 test("composer task activity is borderless, left aligned, and spins blue while active", async () => {
-  const [styles, backgroundTasks] = await Promise.all([readStylesSource(stylesURL), readFile(backgroundTasksURL, "utf8")]);
+  const [html, styles, backgroundTasks, agentWorkspaceHelpers, chatRendering, appMain] = await Promise.all([
+    readFile(indexURL, "utf8"),
+    readStylesSource(stylesURL),
+    readFile(backgroundTasksURL, "utf8"),
+    readFile(agentWorkspaceHelpersURL, "utf8"),
+    readFile(chatRenderingURL, "utf8"),
+    readFile(appMainURL, "utf8"),
+  ]);
   const marker = "/* Minimal left-aligned task activity, matching the inline running indicator. */";
   const indicatorStyles = styles.slice(styles.indexOf(marker));
+  assert.match(html, /id="headerCurrentTaskText"[^>]*aria-live="polite"[^>]*aria-atomic="true"/);
   assert.ok(indicatorStyles.startsWith(marker));
   assert.match(indicatorStyles, /\.composer-task-summary\s*\{[\s\S]*?margin-right:\s*auto[\s\S]*?padding:\s*0[\s\S]*?border:\s*0[\s\S]*?background:\s*transparent/);
   assert.match(indicatorStyles, /\.composer-task-summary\.has-task[\s\S]*?color:\s*var\(--ws-primary/);
   assert.match(indicatorStyles, /\.header-task-status-dot\.running,[\s\S]*?\.header-task-status-dot\.queued[\s\S]*?border-top-color:\s*var\(--ws-primary[\s\S]*?animation:\s*composer-task-indicator-spin/);
   assert.match(indicatorStyles, /@keyframes composer-task-indicator-spin[\s\S]*?rotate\(360deg\)/);
+  assert.match(backgroundTasks, /function setForegroundActivity[\s\S]*?foregroundActivity = next;[\s\S]*?render\(\)/);
+  assert.match(backgroundTasks, /const currentText = foregroundActivity\?\.text \|\| summary\.current\?\.title/);
+  assert.match(backgroundTasks, /headerButton\.classList\.toggle\("has-task", hasCurrentActivity\)/);
   assert.match(backgroundTasks, /headerQueue\.classList\.toggle\("hidden", summary\.queuedCount <= 0\)/);
+  assert.match(agentWorkspaceHelpers, /routeActivityToTaskSummary[\s\S]*?projectOperationContextActive\?\.\(\) && !isMobileAppViewport\?\.\(\)[\s\S]*?backgroundTasks\.setForegroundActivity\(activity\)/);
+  assert.match(appMain, /createAgentWorkspaceHelpers\(\{[\s\S]*?projectOperationContextActive,[\s\S]*?isMobileAppViewport,/);
+  assert.match(appMain, /window\.addEventListener\("resize"[\s\S]*?refreshComposerActivityStatus\(\)/);
+  assert.match(chatRendering, /function renderLiveAssistantCardHTML\(\)[\s\S]*?if \(!text\) return ""/);
+  assert.doesNotMatch(chatRendering, /class="live-assistant-(?:waiting|status)"/);
 });
 
 test("Subagent compact cards integrate background tasks without polling child tool calls", async () => {
@@ -1006,7 +1033,7 @@ test("narrow composer switches atomically to a fixed unframed icon rail", async 
   assert.match(iconRail, /\.toolbar-lightning-btn:not\(\.hidden\),[\s\S]*?\.composer-toolbar-icon\s*\{[^}]*width:\s*28px[^}]*display:\s*inline-flex[^}]*border:\s*0[^}]*background:\s*transparent/);
   assert.match(iconRail, /\.model-tool-btn\.icon-only\.composer-toolbar-icon\s*\{[^}]*width:\s*28px[^}]*height:\s*30px[^}]*min-height:\s*30px/);
   assert.match(iconRail, /\.composer-actions\s*\{[^}]*flex:\s*0 0 auto[^}]*gap:\s*4px/);
-  assert.match(uiShell, /trigger\.setAttribute\("aria-label", fieldLabel \? `\$\{fieldLabel\}：\$\{optionText\}` : optionText\)/);
+  assert.match(uiShell, /trigger\.setAttribute\("aria-label", fieldLabel \? `\$\{fieldLabel\}：\$\{displayText\}` : displayText\)/);
 });
 
 test("mobile sidebar closes safely during desktop startup and cache updates propagate", async () => {
@@ -1019,6 +1046,11 @@ test("mobile sidebar closes safely during desktop startup and cache updates prop
   assert.match(html, /app\.js\?v=[^"\n]*mobile-viewport-1/);
   assert.match(app, /app-main\.mjs\?v=[^"\n]*mobile-viewport-1/);
   assert.match(appMain, /ui-shell\.mjs\?v=[^"\n]*mobile-viewport-1/);
+  assert.match(html, /styles\.css\?v=[^"\n]*model-save-scroll-1/);
+  assert.match(html, /app\.js\?v=[^"\n]*model-save-scroll-1/);
+  assert.match(app, /app-main\.mjs\?v=[^"\n]*model-save-scroll-1/);
+  assert.match(appMain, /chat-composer\.mjs\?v=[^"\n]*model-save-gate-1/);
+  assert.match(appMain, /ui-shell\.mjs\?v=[^"\n]*model-menu-scroll-1/);
   assert.equal((uiShell.match(/const mobileViewport/g) || []).length, 1);
 
   const bodyClasses = new Set(["mobile-sidebar-open"]);
@@ -1367,10 +1399,6 @@ test("settings dialog mounts the shadcn shell without dropping legacy entry poin
     "settingsHelpTitle",
     "settingsHelpBody",
     "closeSettingsHelpBtn",
-    "settingsIdentityBtn",
-    "settingsIdentityAvatar",
-    "settingsIdentityName",
-    "settingsIdentityMeta",
     "conversationDetailsPanel",
     "conversationDetailsBody",
     "workspacePreviewNavigateForm",
@@ -1380,7 +1408,6 @@ test("settings dialog mounts the shadcn shell without dropping legacy entry poin
     "settings-dialog-shell",
     "settings-sidebar",
     "settings-sidebar-header",
-    "settings-identity-card",
     "settings-sidebar-search",
     "settings-mobile-category-nav",
     "settings-nav-groups",
@@ -1393,6 +1420,7 @@ test("settings dialog mounts the shadcn shell without dropping legacy entry poin
     "settings-help-panel",
     "settings-help-body",
   ]) assert.match(html, new RegExp(`class="[^"]*${className}`));
+  assert.doesNotMatch(html, /settingsIdentity(?:Btn|Avatar|Name|Meta)|settings-identity-card/);
   assert.match(html, /class="sidebar-footer hidden"/);
   assert.match(html, /id="settingsContentSubtitle"[^>]*class="[^"]*hidden[^"]*"[^>]*aria-hidden="true"/);
   assert.match(html, /id="settingsHelpBtn"[^>]*aria-controls="settingsHelpPanel"[^>]*aria-expanded="false"/);
@@ -1546,6 +1574,9 @@ test("mobile shell skips home and keeps the drawer, settings index, and model sh
   const refreshedStyles = styles.slice(styles.indexOf(marker));
   assert.ok(refreshedStyles.startsWith(marker));
   assert.match(styles, /\.mobile-topbar,\s*\.mobile-backdrop,\s*\.mobile-drawer-header,\s*\.mobile-drawer-primary-actions,\s*\.mobile-sidebar-account-summary,\s*\.mobile-sidebar-quick-actions,\s*\.mobile-drawer-footer,\s*\.mobile-conversation-welcome,\s*\.composer-status\s*\{\s*display:\s*none;/);
+  assert.match(refreshedStyles, /:is\(\.composer-task-summary, \.permission-safety-indicator, \.permission-risk-badge, \.toolbar-lightning-btn\)/);
+  assert.match(refreshedStyles, /\.composer-status:not\(\.is-busy\)/);
+  assert.match(refreshedStyles, /\.composer-status\.is-busy\s*\{[^}]*display:\s*inline-flex !important/);
   assert.match(refreshedStyles, /\.mobile-select-sheet-backdrop\s*\{[\s\S]*?align-items:\s*flex-end/);
   assert.match(refreshedStyles, /@media \(max-width:\s*767px\)[\s\S]*?\.mobile-page-title\s*\{[\s\S]*?text-align:\s*center/);
   assert.match(refreshedStyles, /body\.white-shell\.theme-light \.mobile-backdrop\s*\{[^}]*z-index:\s*78[^}]*backdrop-filter:\s*blur\(2px\)/);
@@ -1559,7 +1590,7 @@ test("mobile shell skips home and keeps the drawer, settings index, and model sh
   assert.match(refreshedStyles, /#settingsModal \.settings-modal-header \.settings-title\s*\{[\s\S]*?grid-column:\s*2;[\s\S]*?text-align:\s*center/);
   assert.match(refreshedStyles, /#settingsModal\.mobile-settings-detail \.settings-close-btn\s*\{[^}]*grid-column:\s*1/);
   assert.match(refreshedStyles, /\.mobile-sidebar-account-summary\s*\{[^}]*display:\s*none/);
-  assert.match(refreshedStyles, /#settingsModal \.settings-identity-card\s*\{[^}]*display:\s*none/);
+  assert.doesNotMatch(refreshedStyles, /\.settings-identity-(?:card|copy|avatar|chevron)/);
   assert.match(refreshedStyles, /\.sidebar \.project-list\s*\{[^}]*flex:\s*0 1 auto;[^}]*align-content:\s*start;[^}]*overflow-y:\s*auto/);
   assert.doesNotMatch(refreshedStyles, /\.sidebar \.project-list\s*\{[^}]*flex:\s*1 1 auto/);
   assert.match(refreshedStyles, /\.mobile-sidebar-quick-actions\s*\{[\s\S]*?grid-template-columns:\s*repeat\(2, minmax\(0, 1fr\)\)/);

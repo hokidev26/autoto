@@ -68,6 +68,7 @@ const builtinProviderNames = new Set([
   "openai-compatible",
   "cliproxyapi",
   "ollama",
+  "gemini",
 ]);
 const categoryMeta = {
   all: { labelKey: "categories.all", titleKey: "categories.all" },
@@ -611,27 +612,30 @@ function renderProviderRequestHeaderRows(headers = []) {
   }).join("");
 }
 
-function renderProviderModelEditor(draft = {}, modelBusy = false, sensitiveAccessAllowed = true) {
+export function renderProviderModelEditor(draft = {}, modelBusy = false, sensitiveAccessAllowed = true) {
   const configs = normalizeProviderModelConfigs({ modelConfigs: draft.modelConfigs });
   const visibleCount = configs.filter((item) => !item.hidden).length;
   const rows = configs.map((item) => {
-    const isDefault = item.name === draft.model;
     const hideDisabled = !item.hidden && visibleCount <= 1;
     const visibilityIcon = item.hidden
       ? `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m3 3 18 18M10.6 10.6a2 2 0 0 0 2.8 2.8M9.9 4.2A10.8 10.8 0 0 1 12 4c5.2 0 9.2 4 10.5 8a11.7 11.7 0 0 1-3.1 4.8M6.2 6.2A11.8 11.8 0 0 0 1.5 12c1.3 4 5.3 8 10.5 8 1.3 0 2.5-.2 3.6-.7"/></svg>`
       : `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.8-7 10-7 10 7 10 7-3.8 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="2.5"/></svg>`;
     return `<div class="mp-provider-model-config-row${item.hidden ? " is-hidden" : ""}" data-mp-model-config="${escapeAttr(item.name)}">
-      <label class="mp-provider-model-default" title="${escapeAttr(ct("fields.defaultModel"))}"><input type="radio" name="model" value="${escapeAttr(item.name)}" ${isDefault ? "checked" : ""} ${item.hidden ? "disabled" : ""}><span>${escapeHtml(ct("fields.defaultShort"))}</span></label>
       <div class="mp-provider-model-name"><strong title="${escapeAttr(item.name)}">${escapeHtml(item.name)}</strong>${item.manual ? `<span class="settings-badge">${escapeHtml(ct("statusLabels.manual"))}</span>` : ""}</div>
-      <label class="mp-provider-model-limit"><span>${escapeHtml(ct("fields.contextTokenLimit"))}</span><input type="number" min="0" max="10000000" step="1" inputmode="numeric" value="${escapeAttr(item.contextTokenLimit || "")}" data-mp-model-token="${escapeAttr(item.name)}" aria-label="${escapeAttr(ct("fields.contextTokenLimitFor", { model: item.name }))}"></label>
+      <label class="mp-provider-model-limit"><span>${escapeHtml(ct("fields.contextTokenLimit"))}</span><input type="number" min="0" max="10000000" step="1" inputmode="numeric" value="${escapeAttr(item.contextTokenLimit || 272000)}" data-mp-model-token="${escapeAttr(item.name)}" aria-label="${escapeAttr(ct("fields.contextTokenLimitFor", { model: item.name }))}"></label>
       <button class="mp-provider-model-visibility" type="button" data-mp-model-visibility="${escapeAttr(item.name)}" data-hidden="${item.hidden ? "true" : "false"}" aria-pressed="${item.hidden ? "true" : "false"}" aria-label="${escapeAttr(ct(item.hidden ? "actions.showModel" : "actions.hideModel", { model: item.name }))}" ${hideDisabled ? "disabled" : ""}>${visibilityIcon}</button>
       ${item.manual ? `<button class="mp-provider-model-remove" type="button" data-mp-remove-manual-model="${escapeAttr(item.name)}" aria-label="${escapeAttr(ct("actions.removeManualModel", { model: item.name }))}">×</button>` : `<span class="mp-provider-model-remove-placeholder" aria-hidden="true"></span>`}
     </div>`;
   }).join("");
-  const statusKey = draft.modelsStale ? "createPage.modelsStale" : draft.modelsReady ? "createPage.modelsReady" : "createPage.modelsPending";
-  const statusTone = draft.modelsStale ? "attention" : draft.modelsReady ? "success" : "info";
+  // No visible default picker: the default model is auto-assigned to the first
+  // visible model (users hide what they don't want and choose per conversation).
+  const visibleConfigs = configs.filter((item) => !item.hidden);
+  const effectiveDefaultModel = visibleConfigs.some((item) => item.name === draft.model)
+    ? draft.model
+    : (visibleConfigs[0]?.name || String(draft.model || ""));
   return `<div class="mp-provider-model-workspace" data-mp-model-workspace data-models-ready="${draft.modelsReady ? "true" : "false"}" data-models-stale="${draft.modelsStale ? "true" : "false"}">
-    <div class="mp-provider-model-toolbar"><div class="mp-provider-model-status settings-alert ${statusTone}" role="status">${escapeHtml(ct(statusKey))}</div><button class="mp-action" type="button" data-mp-fetch-models ${(modelBusy || !sensitiveAccessAllowed) ? `disabled${modelBusy ? " aria-busy=\"true\"" : ""}` : ""}>${escapeHtml(modelBusy ? ct("actions.fetchingModels") : ct(draft.modelsReady ? "actions.refetchModels" : "actions.fetchModels"))}</button></div>
+    <input type="hidden" name="model" value="${escapeAttr(effectiveDefaultModel)}">
+    <div class="mp-provider-model-toolbar"><button class="mp-action" type="button" data-mp-fetch-models ${(modelBusy || !sensitiveAccessAllowed) ? `disabled${modelBusy ? " aria-busy=\"true\"" : ""}` : ""}>${escapeHtml(modelBusy ? ct("actions.fetchingModels") : ct(draft.modelsReady ? "actions.refetchModels" : "actions.fetchModels"))}</button></div>
     ${rows ? `<div class="mp-provider-model-config-list" role="group" aria-label="${escapeAttr(ct("createPage.modelListLabel"))}">${rows}</div>` : `<div class="mp-provider-model-empty settings-alert">${escapeHtml(ct("createPage.modelEmpty"))}</div>`}
     <div class="mp-provider-manual-model"><input type="text" data-mp-manual-model-input autocomplete="off" spellcheck="false" placeholder="${escapeAttr(ct("fields.manualModelPlaceholder"))}" aria-label="${escapeAttr(ct("fields.manualModel"))}"><button class="mp-action" type="button" data-mp-add-manual-model>${escapeHtml(ct("actions.addManualModel"))}</button></div>
     <small data-settings-help-copy>${escapeHtml(ct("createPage.manualModelHelp"))}</small>
@@ -793,10 +797,28 @@ function renderStat(label, value) {
   return `<div class="mp-stat settings-stat-card"><strong>${escapeHtml(String(value))}</strong><span>${escapeHtml(label)}</span></div>`;
 }
 
+// Compact model preview for a provider card: the first few visible model names,
+// a "+N more models" line, a total-count badge, and a hidden-count badge.
+function renderModelPreview(provider, state = {}) {
+  const configs = Array.isArray(provider.modelConfigs) && provider.modelConfigs.length
+    ? provider.modelConfigs.map((item) => ({ name: stringValue(item?.name), hidden: Boolean(item?.hidden) }))
+    : normalizedDiscoveredModels(provider.models).map((name) => ({ name, hidden: false }));
+  const named = configs.filter((item) => item.name);
+  if (!named.length) return "";
+  const hiddenMap = (state?.modelVisibility?.hiddenModels || state?.hiddenModels || {});
+  const providerName = stringValue(provider.name);
+  const isHidden = (item) => item.hidden || Boolean(hiddenMap[`${providerName}:${item.name}`]);
+  const visible = named.filter((item) => !isHidden(item)).map((item) => item.name);
+  const hiddenCount = named.length - visible.length;
+  const shown = visible.slice(0, 3);
+  const moreVisible = visible.length - shown.length;
+  return `<div class="mp-provider-model-preview">
+    <div class="mp-provider-model-lines">${shown.map((name) => `<div class="mp-model-line" title="${escapeAttr(name)}">${escapeHtml(name)}</div>`).join("")}${moreVisible > 0 ? `<div class="mp-model-more">+${moreVisible} ${escapeHtml(ct("fields.moreModels"))}</div>` : ""}</div>
+    <div class="mp-provider-model-counts"><span class="mp-model-count-badge settings-badge">${escapeHtml(ct("fields.modelsBadge", { count: visible.length }))}</span>${hiddenCount > 0 ? `<span class="mp-model-hidden-badge settings-badge" title="${escapeAttr(ct("fields.hiddenCount", { count: hiddenCount }))}">+${hiddenCount}</span>` : ""}</div>
+  </div>`;
+}
+
 function renderProviderCard(provider, state = {}) {
-  const status = providerStatus(provider);
-  const models = provider.models.length;
-  const baseURL = compactBaseUrl(provider.baseUrl);
   const disabled = !provider.enabled;
   const deletable = isProviderDeletable(provider);
   const toggleBusy = Boolean(state.busy?.[`toggle:${provider.name}`]);
@@ -804,17 +826,11 @@ function renderProviderCard(provider, state = {}) {
   const busy = toggleBusy || deleteBusy;
   const displayName = providerDisplayName(provider);
   const toggleLabel = ct(provider.enabled ? "actions.disableProvider" : "actions.enableProvider");
-  const originLabel = provider.origin === "custom"
-    ? ct("origins.custom")
-    : provider.origin === "builtin"
-      ? ct("origins.builtin")
-      : ct("origins.unknown");
+  // Minimal card: name, type badge, toggle, and the edit/delete footer. Status
+  // and errors live in the provider's edit page to keep the list compact.
   return `<article class="mp-provider-card settings-card${disabled ? " is-disabled" : ""}${deletable ? " is-custom" : ""}" data-mp-provider-card="${escapeAttr(provider.name)}" data-disabled="${disabled ? "true" : "false"}" data-origin="${escapeAttr(provider.origin || "unknown")}" aria-busy="${busy ? "true" : "false"}">
-    <header class="mp-provider-card-head settings-card-header"><div class="mp-provider-card-identity"><div><h3 class="settings-card-title">${escapeHtml(displayName)}</h3><span class="mp-provider-badge settings-badge">${escapeHtml(provider.type)}</span></div></div><div class="mp-provider-card-controls"><button class="mp-provider-switch ${provider.enabled ? "is-on" : "is-off"}" type="button" role="switch" aria-checked="${provider.enabled ? "true" : "false"}" aria-label="${escapeAttr(`${toggleLabel}: ${displayName}`)}" title="${escapeAttr(toggleLabel)}" data-mp-provider-toggle="${escapeAttr(provider.name)}" ${busy ? "disabled" : ""}><span class="mp-provider-switch-thumb" aria-hidden="true"></span></button></div></header>
-    <div class="settings-card-content"><div class="mp-provider-card-meta"><span class="mp-status settings-badge ${escapeAttr(status.tone)}">${escapeHtml(status.label)}</span><span>${escapeHtml(originLabel)}</span></div>
-    <dl class="mp-provider-facts"><div><dt>${escapeHtml(ct("fields.defaultModel"))}</dt><dd>${escapeHtml(provider.defaultModel || ct("labels.notSet"))}</dd></div><div><dt>${escapeHtml(ct("fields.modelCount"))}</dt><dd>${escapeHtml(String(models))}</dd></div><div><dt>${escapeHtml(ct("fields.baseUrl"))}</dt><dd title="${escapeAttr(provider.baseUrl || "")}">${escapeHtml(baseURL)}</dd></div></dl>
-    ${renderModelChips(provider.models)}
-    ${provider.error ? `<p class="mp-provider-error settings-alert" role="alert">${escapeHtml(provider.error)}</p>` : ""}</div>
+    <header class="mp-provider-card-head settings-card-header"><div class="mp-provider-card-identity"><div><h3 class="settings-card-title">${escapeHtml(displayName)}</h3></div></div><div class="mp-provider-card-controls"><button class="mp-provider-switch ${provider.enabled ? "is-on" : "is-off"}" type="button" role="switch" aria-checked="${provider.enabled ? "true" : "false"}" aria-label="${escapeAttr(`${toggleLabel}: ${displayName}`)}" title="${escapeAttr(toggleLabel)}" data-mp-provider-toggle="${escapeAttr(provider.name)}" ${busy ? "disabled" : ""}><span class="mp-provider-switch-thumb" aria-hidden="true"></span></button></div></header>
+    ${renderModelPreview(provider, state)}
     <footer class="mp-provider-card-actions"><button class="mp-provider-card-open" type="button" data-mp-provider-open="${escapeAttr(provider.name)}" aria-label="${escapeAttr(ct("aria.configureProvider", { provider: displayName }))}">${escapeHtml(ct("drawer.editProvider"))}</button>${deletable ? `<button class="mp-provider-delete" type="button" data-mp-delete-provider="${escapeAttr(provider.name)}" aria-label="${escapeAttr(`${ct("actions.delete")}: ${displayName}`)}" title="${escapeAttr(ct("actions.delete"))}" ${busy ? "disabled" : ""}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3m-8 0 1 13h8l1-13M10 11v5m4-5v5"/></svg><span>${escapeHtml(ct("actions.delete"))}</span></button>` : ""}</footer>
   </article>`;
 }

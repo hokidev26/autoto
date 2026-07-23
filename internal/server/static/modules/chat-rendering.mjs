@@ -5,7 +5,7 @@ import { confirm as platformConfirm } from "./platform.mjs";
 import { api } from "./runtime.mjs";
 import { visibleMessageText } from "./skills-commands.mjs";
 import { normalizeAvatarDataUrl } from "./profile-avatar.mjs?v=profile-avatar-1";
-import { t as cr } from "./messages-chat-rendering-extra.mjs?v=plan-mode-1-i18n-shared-1-subagent-cards-1-provider-errors-1";
+import { t as cr } from "./messages-chat-rendering-extra.mjs?v=plan-mode-1-i18n-shared-1-subagent-cards-1-provider-errors-1-tool-activity-lazy-1";
 
 const userMessageRoles = new Set(["user", "human"]);
 const maxTokenCount = 1_000_000_000;
@@ -299,16 +299,6 @@ function toolActivityIcon(toolName) {
   if (name.includes("write")) return "✎";
   if (name.includes("bash") || name.includes("shell") || name.includes("terminal")) return "›_";
   return "•";
-}
-
-function toolActivityVerb(toolName) {
-  const name = String(toolName || "").toLowerCase();
-  if (name.includes("grep") || name.includes("search") || name.includes("glob")) return cr("activity.searching");
-  if (name.includes("read")) return cr("activity.reading");
-  if (name.includes("edit")) return cr("activity.editing");
-  if (name.includes("write")) return cr("activity.writing");
-  if (name.includes("bash") || name.includes("shell") || name.includes("terminal")) return cr("activity.runningCommand");
-  return cr("activity.genericStep");
 }
 
 export function normalizeToolActivity(call = {}, fallback = {}) {
@@ -752,7 +742,7 @@ function renderAgentTaskActionsHTML(activity) {
   return actions.length ? `<div class="approval-actions subagent-task-actions">${actions.join("")}</div>` : "";
 }
 
-export function renderAgentTaskActivityCardHTML(item = {}, backgroundTask = null) {
+export function renderAgentTaskActivityCardHTML(item = {}, backgroundTask = null, options = {}) {
   const activity = normalizeAgentTaskActivity(item, backgroundTask);
   if (!activity) return "";
   const { tool } = activity;
@@ -786,7 +776,7 @@ export function renderAgentTaskActivityCardHTML(item = {}, backgroundTask = null
         ${failure ? `<div class="tool-activity-warning subagent-task-notice" role="alert">${escapeHtml(failure)}</div>` : ""}
         ${renderAgentTaskActionsHTML(activity)}
       </details>
-      <details class="tool-activity-details subagent-task-audit">
+      <details class="tool-activity-details subagent-task-audit"${options.detailsExpanded ? " open" : ""}>
         <summary>${escapeHtml(cr("subagent.auditDetails"))}</summary>
         <div class="tool-activity-meta">${escapeHtml(cr("activity.input"))}</div>
         <pre class="tool-activity-command">${escapeHtml(input || cr("activity.noOutput"))}</pre>
@@ -798,7 +788,7 @@ export function renderAgentTaskActivityCardHTML(item = {}, backgroundTask = null
   `;
 }
 
-function renderGenericToolActivityCardHTML(item = {}) {
+function renderGenericToolActivityCardHTML(item = {}, options = {}) {
   const tool = normalizeToolActivity(item);
   const status = tool.status;
   const target = toolActivityTarget(tool);
@@ -818,7 +808,7 @@ function renderGenericToolActivityCardHTML(item = {}) {
   ].filter(Boolean).join(" · ");
   const cardLabel = [tool.toolName, target, toolActivityStatusLabel(status)].filter(Boolean).join(" · ");
   return `
-    <article class="tool-activity-card live-tool-output-card chat-flow-item chat-flow-left chat-report-card ${escapeAttr(toolActivityStatusClass(status))}" aria-label="${escapeAttr(cardLabel)}" data-chat-alignment="left" data-chat-report="tool-activity" data-live-tool-output-card="${escapeAttr(tool.toolUseId)}" data-tool-use-id="${escapeAttr(tool.toolUseId)}">
+    <article class="tool-activity-card live-tool-output-card chat-flow-item chat-flow-left chat-report-card ${escapeAttr(toolActivityStatusClass(status))}" aria-label="${escapeAttr(cardLabel)}" data-chat-alignment="left" data-chat-report="tool-activity" data-live-tool-output-card="${escapeAttr(tool.toolUseId)}" data-tool-use-id="${escapeAttr(tool.toolUseId)}" data-run-id="${escapeAttr(tool.runId)}">
       <div class="tool-activity-head live-tool-output-head">
         <span class="tool-activity-icon" aria-hidden="true">${escapeHtml(toolActivityIcon(tool.toolName))}</span>
         <div class="tool-activity-main">
@@ -830,7 +820,7 @@ function renderGenericToolActivityCardHTML(item = {}) {
         </div>
         <span class="tool-activity-status live-tool-output-dot">${escapeHtml(toolActivityStatusLabel(status))}</span>
       </div>
-      <details class="tool-activity-details">
+      <details class="tool-activity-details"${options.detailsExpanded ? " open" : ""}>
         <summary>${escapeHtml(cr("activity.details"))}</summary>
         ${safetySummary}
         <div class="tool-activity-meta">${escapeHtml(cr("activity.input"))}</div>
@@ -846,10 +836,10 @@ function renderGenericToolActivityCardHTML(item = {}) {
 
 export function renderToolActivityCardHTML(item = {}, options = {}) {
   const tool = normalizeToolActivity(item);
-  if (!isAgentToolActivity(tool)) return renderGenericToolActivityCardHTML(tool);
+  if (!isAgentToolActivity(tool)) return renderGenericToolActivityCardHTML(tool, options);
   const resolved = resolveAgentBackgroundTask(item, tool, options || {});
-  if (!resolved.ok) return renderGenericToolActivityCardHTML(tool);
-  return renderAgentTaskActivityCardHTML(tool, resolved.task);
+  if (!resolved.ok) return renderGenericToolActivityCardHTML(tool, options);
+  return renderAgentTaskActivityCardHTML(tool, resolved.task, options);
 }
 
 function toolActivityRecordNeedsExpansion({ item, tool }, options = {}) {
@@ -863,8 +853,69 @@ function toolActivityRecordNeedsExpansion({ item, tool }, options = {}) {
 
 function toolActivityGroupExpanded(records, options = {}) {
   if (typeof options.expanded === "boolean") return options.expanded;
+  if (String(options.selectedToolUseId || "")) return true;
   if (options.live === true && options.runActive !== false) return true;
   return records.some((record) => toolActivityRecordNeedsExpansion(record, options));
+}
+
+function toolActivityStackKey(records, options = {}) {
+  const explicit = String(options.stackKey || "").trim();
+  if (explicit) return explicit;
+  const runId = records.map(({ tool }) => String(tool.runId || "").trim()).find(Boolean) || "current";
+  return `${options.live ? "live" : "run"}:${runId}`;
+}
+
+function toolActivityRowPresentation(item, tool, options = {}) {
+  if (isAgentToolActivity(tool)) {
+    const resolved = resolveAgentBackgroundTask(item, tool, options);
+    if (resolved.ok) {
+      const activity = normalizeAgentTaskActivity(item, resolved.task);
+      if (activity) {
+        return {
+          icon: "•",
+          title: cr("subagent.title"),
+          target: activity.description,
+          statusClass: agentTaskStatusClass(activity.status),
+          statusLabel: agentTaskStatusLabel(activity),
+        };
+      }
+    }
+  }
+  return {
+    icon: toolActivityIcon(tool.toolName),
+    title: tool.toolName,
+    target: toolActivityTarget(tool),
+    statusClass: toolActivityStatusClass(tool.status),
+    statusLabel: toolActivityStatusLabel(tool.status),
+  };
+}
+
+function renderToolActivityRowHTML(record, options = {}) {
+  const { item, tool } = record;
+  const presentation = toolActivityRowPresentation(item, tool, options);
+  const selected = String(options.selectedToolUseId || "") === tool.toolUseId;
+  const label = [presentation.title, presentation.target, presentation.statusLabel].filter(Boolean).join(" · ");
+  const subagentAttrs = isAgentToolActivity(tool)
+    ? ` data-subagent-activity-row data-run-id="${escapeAttr(tool.runId)}" data-tool-use-id="${escapeAttr(tool.toolUseId)}"`
+    : "";
+  return `
+    <li class="tool-activity-step ${escapeAttr(presentation.statusClass)}${selected ? " selected" : ""}"${subagentAttrs}>
+      <button class="tool-activity-step-button" type="button" data-tool-activity-select="${escapeAttr(tool.toolUseId)}" data-tool-activity-label="${escapeAttr(label)}" aria-expanded="${selected ? "true" : "false"}" aria-label="${escapeAttr(cr(selected ? "activity.closeDetails" : "activity.openDetails", { tool: label }))}">
+        <span class="tool-activity-step-icon" aria-hidden="true">${escapeHtml(presentation.icon)}</span>
+        <span class="tool-activity-step-copy">
+          <strong>${escapeHtml(presentation.title)}</strong>
+          ${presentation.target ? `<span>${escapeHtml(compactToolText(presentation.target, 220))}</span>` : ""}
+        </span>
+        <span class="tool-activity-step-status">${escapeHtml(presentation.statusLabel)}</span>
+      </button>
+    </li>
+  `;
+}
+
+export function nextToolActivitySelection(currentToolUseId, requestedToolUseId) {
+  const current = String(currentToolUseId || "");
+  const requested = String(requestedToolUseId || "");
+  return requested && requested !== current ? requested : "";
 }
 
 export function renderToolActivityStackHTML(toolCalls = [], options = {}) {
@@ -872,19 +923,25 @@ export function renderToolActivityStackHTML(toolCalls = [], options = {}) {
     .map((item) => ({ item, tool: normalizeToolActivity(item) }))
     .filter(({ tool }) => tool.toolUseId || tool.toolName);
   if (!records.length) return "";
-  const tools = records.map(({ tool }) => tool);
-  const omitted = 0;
   const expanded = toolActivityGroupExpanded(records, options);
-  const steps = tools.map((tool) => `${toolActivityVerb(tool.toolName)}${toolActivityTarget(tool) ? ` ${toolActivityTarget(tool)}` : ""}`);
+  const stackKey = toolActivityStackKey(records, options);
+  const source = options.live ? "live" : "run";
+  const runId = String(options.runId || records.map(({ tool }) => tool.runId).find(Boolean) || "");
+  const requestedSelection = String(options.selectedToolUseId || "");
+  const selectedRecord = records.find(({ tool }) => tool.toolUseId === requestedSelection) || null;
+  const selectedToolUseId = selectedRecord?.tool.toolUseId || "";
+  const requestedTotal = Number(options.totalCount);
+  const totalCount = Number.isFinite(requestedTotal) && requestedTotal > records.length ? Math.floor(requestedTotal) : records.length;
+  const omitted = Math.max(0, totalCount - records.length);
   const modeClass = options.compact ? "conversation-tool-activity " : "";
   return `
-    <section class="${options.live ? "live-tool-output-stack " : ""}${modeClass}tool-activity-stack chat-flow-stack chat-flow-left" data-chat-alignment="left" data-tool-activity-stack data-tool-activity-count="${escapeAttr(String(records.length))}" data-tool-activity-default="${expanded ? "expanded" : "collapsed"}"${options.live ? " data-live-tool-output-stack" : ""}${options.compact ? " data-conversation-run-tool-activity" : ""}>
+    <section class="${options.live ? "live-tool-output-stack " : ""}${modeClass}tool-activity-stack chat-flow-stack chat-flow-left" data-chat-alignment="left" data-tool-activity-stack data-tool-activity-stack-key="${escapeAttr(stackKey)}" data-tool-activity-source="${escapeAttr(source)}" data-tool-activity-count="${escapeAttr(String(totalCount))}" data-tool-activity-visible-count="${escapeAttr(String(records.length))}" data-tool-activity-default="${expanded ? "expanded" : "collapsed"}"${runId ? ` data-run-id="${escapeAttr(runId)}"` : ""}${options.live ? " data-live-tool-output-stack" : ""}${options.compact ? " data-conversation-run-tool-activity" : ""}>
       <details class="tool-activity-group"${expanded ? " open" : ""}>
-        <summary class="tool-activity-summary">${escapeHtml(cr("activity.processTitle", { count: records.length }))}</summary>
+        <summary class="tool-activity-summary">${escapeHtml(cr("activity.processTitle", { count: totalCount }))}</summary>
         <div class="tool-activity-protected">${escapeHtml(cr("activity.processProtected"))}</div>
-        <ul class="tool-activity-steps">${steps.map((step) => `<li>${escapeHtml(compactToolText(step, 220))}</li>`).join("")}</ul>
-        <div class="tool-activity-cards">${records.map(({ item }) => renderToolActivityCardHTML(item, options)).join("")}</div>
-        ${omitted > 0 ? `<div class="tool-activity-more">${escapeHtml(cr("run.moreToolCalls", { count: omitted }))}</div>` : ""}
+        <ul class="tool-activity-steps">${records.map((record) => renderToolActivityRowHTML(record, { ...options, selectedToolUseId })).join("")}</ul>
+        ${omitted > 0 ? `<div class="tool-activity-more">${escapeHtml(cr("activity.recentOnly", { visible: records.length, count: omitted }))}</div>` : ""}
+        <div class="tool-activity-selected-detail" data-tool-activity-selected-detail>${selectedRecord ? renderToolActivityCardHTML(selectedRecord.item, { ...options, detailsExpanded: true }) : ""}</div>
       </details>
     </section>
   `;
@@ -912,6 +969,37 @@ export function createChatRenderingController({
   let olderMessagesRequest = null;
 
   const currentUserMessageIdentity = () => normalizeMessageProfileIdentity(state.profile);
+
+  function toolActivitySelections() {
+    if (!state.toolActivitySelections || typeof state.toolActivitySelections !== "object" || Array.isArray(state.toolActivitySelections)) {
+      state.toolActivitySelections = {};
+    }
+    return state.toolActivitySelections;
+  }
+
+  function selectedToolActivity(stackKey) {
+    return String(toolActivitySelections()[String(stackKey || "")] || "");
+  }
+
+  function setSelectedToolActivity(stackKey, toolUseId) {
+    const key = String(stackKey || "");
+    if (!key) return "";
+    const next = { ...toolActivitySelections() };
+    if (toolUseId) next[key] = String(toolUseId);
+    else delete next[key];
+    state.toolActivitySelections = next;
+    return String(toolUseId || "");
+  }
+
+  function runToolActivityStackKey(runId) {
+    return `run:${String(runId || "current")}`;
+  }
+
+  function liveToolActivityStackKey(records = []) {
+    const agentId = String(state.agent?.id || "current");
+    const runId = records.map((item) => normalizeToolActivity(item).runId).find(Boolean) || state.liveAssistantRunId || "current";
+    return `live:${agentId}:${runId}`;
+  }
 
   const profileAvatarHTML = (identity) => identity?.avatarDataUrl
     ? `<img class="message-avatar-image" data-user-profile-avatar-image src="${escapeAttr(identity.avatarDataUrl)}" alt="" aria-hidden="true" />`
@@ -1202,6 +1290,7 @@ export function createChatRenderingController({
       </div>
     ` : "";
     el.innerHTML = `${olderMessagesControl}${normalized.map(renderChatMessageHTML).join("")}${liveAssistantCard}${planCards}${liveToolCards}${runSummaryCard}${approvalCards}`;
+    bindToolActivityControls(el);
     bindMessageActionButtons(el);
     el.querySelector("[data-load-older-messages]")?.addEventListener("click", () => {
       loadOlderMessages(agentId).catch(showError);
@@ -1223,20 +1312,14 @@ export function createChatRenderingController({
 
   function renderLiveAssistantCardHTML() {
     const text = String(state.liveAssistantText || "");
-    if (!state.liveAssistantActive && !text) return "";
-    const content = text
-      ? `<div class="message-content">${renderMarkdown(text)}</div>`
-      : `<div class="live-assistant-waiting">${escapeHtml(cr("performance.waitingFirstToken"))}</div>`;
+    if (!text) return "";
     return `
       <div class="message assistant live-assistant-message chat-message chat-flow-item chat-flow-left" data-chat-alignment="left" data-live-assistant data-run-id="${escapeAttr(state.liveAssistantRunId || "")}" data-request-id="${escapeAttr(state.liveAssistantRequestId || "")}" data-started-at="${escapeAttr(state.liveAssistantStartedAt || "")}">
         <div class="message-head">
-          <div class="live-assistant-head-left">
-            <div class="message-role">assistant</div>
-            <span class="live-assistant-status">${escapeHtml(cr("performance.generating"))}</span>
-          </div>
+          <div class="message-role">assistant</div>
           ${renderPerformanceHTML(state.liveAssistantPerformance, { live: true })}
         </div>
-        ${content}
+        <div class="message-content">${renderMarkdown(text)}</div>
       </div>
     `;
   }
@@ -1556,6 +1639,7 @@ export function createChatRenderingController({
       }
     }
     if (!html) return;
+    bindToolActivityControls(el);
     bindRunSummaryButtons(el);
     el.scrollTop = el.scrollHeight;
   }
@@ -1569,7 +1653,7 @@ export function createChatRenderingController({
       return renderRunSummaryLoadErrorHTML();
     }
     const toolCalls = activeRunToolCallList(summary, runId);
-    if (!isProjectRunReview(run)) return renderConversationRunOutcomeHTML(run, runId, toolCalls);
+    if (!isProjectRunReview(run)) return renderConversationRunOutcomeHTML(summary, run, runId, toolCalls);
     if (isCompactProjectFailure(summary, run, toolCalls)) return renderCompactProjectFailureHTML(run, runId);
     return renderProjectRunReviewHTML(summary, run, runId, toolCalls);
   }
@@ -1628,7 +1712,7 @@ export function createChatRenderingController({
           ${renderRunMetric(cr("run.metrics.tokensInOut"), tokenText)}
           ${renderRunMetric(cr("run.metrics.cost"), formatMoney(summary?.costUsd || 0))}
         </div>
-        ${renderRunToolCalls(toolCalls)}
+        ${renderRunToolCalls(toolCalls, runId, summary?.toolCallCount)}
         ${renderEarlierRunToolCallsButton(runId)}
         ${renderRunMessagePreviews(recentMessages)}
         <div class="run-summary-actions">
@@ -1705,10 +1789,18 @@ export function createChatRenderingController({
     return prefixed?.[1]?.trim() || text;
   }
 
-  function renderConversationRunOutcomeHTML(run, runId, toolCalls) {
+  function renderConversationRunOutcomeHTML(summary, run, runId, toolCalls) {
     const status = String(run?.status || "unknown").trim().toLowerCase();
     if (status === "superseded") return "";
-    const toolActivity = renderToolActivityStackHTML(toolCalls, { compact: true, resolveBackgroundTask });
+    const stackKey = runToolActivityStackKey(runId);
+    const toolActivity = renderToolActivityStackHTML(toolCalls, {
+      compact: true,
+      resolveBackgroundTask,
+      runId,
+      stackKey,
+      selectedToolUseId: selectedToolActivity(stackKey),
+      totalCount: Math.max(Number(summary?.toolCallCount || 0), toolCalls.length),
+    });
     const loadEarlier = renderEarlierRunToolCallsButton(runId, { compact: true });
     const notice = renderConversationRunNoticeHTML(run, status);
     if (!toolActivity && !loadEarlier && !notice) return "";
@@ -1811,12 +1903,19 @@ export function createChatRenderingController({
     return `<div class="run-summary-metric ${tone ? `tone-${escapeAttr(tone)}` : ""}"><span>${escapeHtml(label)}</span><strong>${escapeHtml(text)}</strong></div>`;
   }
 
-  function renderRunToolCalls(toolCalls) {
+  function renderRunToolCalls(toolCalls, runId, totalCount = toolCalls.length) {
     if (!toolCalls.length) return `<div class="run-summary-empty">${escapeHtml(cr("run.noToolCalls"))}</div>`;
+    const stackKey = runToolActivityStackKey(runId);
     return `
       <div class="run-summary-section">
         <div class="run-summary-section-title">${escapeHtml(cr("run.toolCalls"))}</div>
-        ${renderToolActivityStackHTML(toolCalls, { resolveBackgroundTask })}
+        ${renderToolActivityStackHTML(toolCalls, {
+          resolveBackgroundTask,
+          runId,
+          stackKey,
+          selectedToolUseId: selectedToolActivity(stackKey),
+          totalCount: Math.max(Number(totalCount || 0), toolCalls.length),
+        })}
       </div>
     `;
   }
@@ -2098,16 +2197,65 @@ export function createChatRenderingController({
     });
   }
 
+  function liveToolOutputCounterKey(item = {}) {
+    const tool = normalizeToolActivity(item);
+    return `${tool.agentId || state.agent?.id || "current"}:${tool.runId || "current"}`;
+  }
+
+  function liveToolOutputTotals() {
+    if (!state.liveToolOutputTotals || typeof state.liveToolOutputTotals !== "object" || Array.isArray(state.liveToolOutputTotals)) {
+      state.liveToolOutputTotals = {};
+    }
+    return state.liveToolOutputTotals;
+  }
+
+  function rememberLiveToolCount(item, known) {
+    if (known) return;
+    const key = liveToolOutputCounterKey(item);
+    const totals = { ...liveToolOutputTotals() };
+    const agentPrefix = `${normalizeToolActivity(item).agentId || state.agent?.id || "current"}:`;
+    for (const existingKey of Object.keys(totals)) {
+      if (existingKey.startsWith(agentPrefix) && existingKey !== key) delete totals[existingKey];
+    }
+    totals[key] = Math.max(0, Number(totals[key] || 0)) + 1;
+    state.liveToolOutputTotals = totals;
+  }
+
   function pruneLiveToolOutputs(items) {
-    return { ...(items || {}) };
+    const entries = Object.entries(items || {});
+    const groups = new Map();
+    for (const entry of entries) {
+      const key = liveToolOutputCounterKey(entry[1]);
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(entry);
+    }
+    const selectedIds = new Set(Object.values(toolActivitySelections()).map((value) => String(value || "")).filter(Boolean));
+    const kept = new Set();
+    for (const group of groups.values()) {
+      const active = [];
+      const terminal = [];
+      for (const entry of group) {
+        const status = toolStatusValue(entry[1]?.status);
+        if (status === "running" || status === "pending_approval") active.push(entry);
+        else terminal.push(entry);
+      }
+      terminal.sort((left, right) => String(left[1]?.createdAt || "").localeCompare(String(right[1]?.createdAt || "")));
+      [...active, ...terminal.slice(-maxToolActivityCards)].forEach(([key]) => kept.add(key));
+      group.forEach(([key, item]) => {
+        if (selectedIds.has(String(item?.toolUseId || key))) kept.add(key);
+      });
+    }
+    return Object.fromEntries(entries.filter(([key]) => kept.has(key)));
   }
 
   function rememberToolStarted(event) {
     const data = event?.data || {};
     const toolUseId = firstToolValue(data, "toolUseId", "tool_use_id");
     if (!toolUseId) return;
+    const known = Object.prototype.hasOwnProperty.call(state.liveToolOutputs || {}, toolUseId);
     const current = state.liveToolOutputs?.[toolUseId] || {};
     const started = toolItemFromEvent(event, current);
+    rememberLiveToolCount({ ...started, toolUseId: String(toolUseId) }, known);
     const next = { ...(state.liveToolOutputs || {}) };
     if (started.runId) {
       for (const [key, item] of Object.entries(next)) {
@@ -2123,8 +2271,10 @@ export function createChatRenderingController({
     const data = event?.data || {};
     const toolUseId = firstToolValue(data, "toolUseId", "tool_use_id");
     if (!toolUseId) return;
+    const known = Object.prototype.hasOwnProperty.call(state.liveToolOutputs || {}, toolUseId);
     const current = state.liveToolOutputs?.[toolUseId] || {};
     const updated = { ...toolItemFromEvent(event, current), toolUseId: String(toolUseId) };
+    rememberLiveToolCount(updated, known);
     state.liveToolOutputs = pruneLiveToolOutputs({
       ...(state.liveToolOutputs || {}),
       [toolUseId]: updated,
@@ -2136,6 +2286,7 @@ export function createChatRenderingController({
     const data = event?.data || {};
     const toolUseId = firstToolValue(data, "toolUseId", "tool_use_id");
     if (!toolUseId) return;
+    const known = Object.prototype.hasOwnProperty.call(state.liveToolOutputs || {}, toolUseId);
     const current = state.liveToolOutputs?.[toolUseId] || {};
     const completed = toolItemFromEvent(event, current);
     const updated = {
@@ -2144,6 +2295,7 @@ export function createChatRenderingController({
       status: toolStatusValue(data.status || data.state || "completed"),
       durationMs: Number(firstToolValue(data, "durationMs", "duration_ms") || current.durationMs || 0) || 0,
     };
+    rememberLiveToolCount(updated, known);
     state.liveToolOutputs = pruneLiveToolOutputs({
       ...(state.liveToolOutputs || {}),
       [toolUseId]: updated,
@@ -2166,8 +2318,21 @@ export function createChatRenderingController({
   }
 
   function renderLiveToolOutputCardsHTML() {
+    const records = currentLiveToolOutputList();
+    if (!records.length) return "";
     const runActive = String(state.agent?.status || "").trim().toLowerCase() === "running";
-    return renderToolActivityStackHTML(currentLiveToolOutputList(), { live: true, runActive, resolveBackgroundTask });
+    const stackKey = liveToolActivityStackKey(records);
+    const counterKey = liveToolOutputCounterKey(records.at(-1));
+    const totalCount = Math.max(records.length, Number(liveToolOutputTotals()[counterKey] || 0));
+    return renderToolActivityStackHTML(records, {
+      live: true,
+      runActive,
+      resolveBackgroundTask,
+      runId: normalizeToolActivity(records.at(-1)).runId,
+      stackKey,
+      selectedToolUseId: selectedToolActivity(stackKey),
+      totalCount,
+    });
   }
 
   function renderLiveToolOutputCards() {
@@ -2192,6 +2357,7 @@ export function createChatRenderingController({
       }
     }
     if (!html) return;
+    bindToolActivityControls(el);
     el.scrollTop = el.scrollHeight;
   }
 
@@ -2620,6 +2786,51 @@ export function createChatRenderingController({
     const keywordSet = "const|let|var|function|return|if|else|for|while|switch|case|break|class|type|struct|func|package|import|from|export|async|await|try|catch|defer|go|select|range";
     html = html.replace(new RegExp(`\\b(${keywordSet})\\b`, "g"), '<span class="tok-keyword">$1</span>');
     return html.replace(/\uE000TOK(\d+)\uE001/g, (_, index) => tokens[Number(index)] || "");
+  }
+
+  function toolActivityRecordsForStack(stack) {
+    const source = String(stack?.dataset?.toolActivitySource || "run");
+    if (source === "live") return currentLiveToolOutputList();
+    const runId = String(stack?.dataset?.runId || state.activeRunSummaryRunId || state.activeRunSummary?.run?.id || "");
+    return activeRunToolCallList(state.activeRunSummary, runId);
+  }
+
+  function renderToolActivitySelection(stack, toolUseId) {
+    if (!stack) return;
+    const selected = String(toolUseId || "");
+    stack.querySelectorAll?.("[data-tool-activity-select]").forEach((button) => {
+      const active = String(button.dataset?.toolActivitySelect || "") === selected;
+      button.setAttribute?.("aria-expanded", active ? "true" : "false");
+      const label = String(button.dataset?.toolActivityLabel || "");
+      button.setAttribute?.("aria-label", cr(active ? "activity.closeDetails" : "activity.openDetails", { tool: label }));
+      button.closest?.(".tool-activity-step")?.classList?.toggle?.("selected", active);
+    });
+    const slot = stack.querySelector?.("[data-tool-activity-selected-detail]");
+    if (!slot) return;
+    if (!selected) {
+      slot.innerHTML = "";
+      return;
+    }
+    const record = toolActivityRecordsForStack(stack).find((item) => normalizeToolActivity(item).toolUseId === selected);
+    slot.innerHTML = record
+      ? renderToolActivityCardHTML(record, { resolveBackgroundTask, detailsExpanded: true })
+      : `<div class="tool-activity-empty">${escapeHtml(cr("activity.detailUnavailable"))}</div>`;
+  }
+
+  function bindToolActivityControls(root) {
+    if (!root?.addEventListener || !root.dataset || root.dataset.toolActivityControlsBound === "true") return;
+    root.dataset.toolActivityControlsBound = "true";
+    root.addEventListener("click", (event) => {
+      const button = event.target?.closest?.("[data-tool-activity-select]");
+      if (!button) return;
+      const stack = button.closest?.("[data-tool-activity-stack]");
+      const stackKey = String(stack?.dataset?.toolActivityStackKey || "");
+      if (!stack || !stackKey) return;
+      const requested = String(button.dataset?.toolActivitySelect || "");
+      const next = nextToolActivitySelection(selectedToolActivity(stackKey), requested);
+      setSelectedToolActivity(stackKey, next);
+      renderToolActivitySelection(stack, next);
+    });
   }
 
   function bindMessageActionButtons(root) {

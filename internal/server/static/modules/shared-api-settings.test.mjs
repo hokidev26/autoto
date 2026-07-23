@@ -1,26 +1,32 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 
 import messagesEN from "./messages-en.mjs";
 import messagesZhCN from "./messages-zh-CN.mjs";
 import messagesZhTW from "./messages-zh-TW.mjs";
 import {
   createSharedAPISettingsController,
+  gatewayAccountRequest,
+  gatewayConfigNeedsRemoteConfirmation,
+  gatewayConfigRequest,
   gatewayKeyPolicyPayload,
   gatewayKeyRequest,
-  gatewayModelRequest,
   gatewayProviderRequest,
   gatewayProviderRestriction,
   isCodexGatewayProvider,
+  isLoopbackGatewayHost,
+  normalizeGatewayAccounts,
   normalizeGatewayKeys,
-  normalizeGatewayModels,
+  normalizeGatewayRequests,
   normalizeGatewaySettings,
+  normalizeGatewayStatus,
 } from "./shared-api-settings.mjs";
 
 function enabledState(overrides = {}) {
   return {
     settings: {
-      gateway: { enabled: true, host: "127.0.0.1", port: 7788, maxGlobalConcurrency: 8, maxRequestBytes: 1048576 },
+      gateway: { enabled: true, host: "127.0.0.1", port: 7788, allowRemote: false, maxGlobalConcurrency: 8, maxRequestBytes: 1048576 },
       providers: [
         { name: "openai", type: "openai", gatewayEnabled: false },
         { name: "codex", type: "codex", gatewayEnabled: false },
@@ -32,24 +38,69 @@ function enabledState(overrides = {}) {
 }
 
 function responseFor(path, options = {}) {
+  if (path === "/api/gateway/status") {
+    return {
+      status: { desiredEnabled: true, running: true, address: "http://127.0.0.1:7788", allowRemote: false, ephemeralIsolation: true, lastError: "", updatedAt: "2026-07-22T12:00:00Z" },
+      gateway: { enabled: true, host: "127.0.0.1", port: 7788, allowRemote: false, maxGlobalConcurrency: 8, maxRequestBytes: 1048576 },
+      protocols: ["openai-chat", "openai-responses", "anthropic-messages"],
+    };
+  }
+  if (path === "/api/gateway/accounts") return { accounts: [] };
   if (path === "/api/gateway/keys" && !options.method) return { keys: [] };
-  if (path === "/api/gateway/models" && !options.method) return { models: [] };
   if (path === "/api/gateway/usage") return { items: [], summary: {} };
+  if (path === "/api/gateway/requests?limit=50") return { requests: [] };
   return {};
 }
 
-test("normalizes absent Gateway data and empty list responses", () => {
+const loadPaths = [
+  "/api/gateway/status",
+  "/api/gateway/accounts",
+  "/api/gateway/keys",
+  "/api/gateway/usage",
+  "/api/gateway/requests?limit=50",
+];
+
+test("normalizes Gateway runtime, settings, accounts, and safe request records", () => {
   assert.deepEqual(normalizeGatewaySettings({}), {
     enabled: false,
     host: "",
     port: 0,
+    allowRemote: false,
     maxGlobalConcurrency: 0,
     maxRequestBytes: 0,
   });
   assert.deepEqual(normalizeGatewayKeys({ keys: [] }), []);
   assert.deepEqual(normalizeGatewayKeys(null), []);
-  assert.deepEqual(normalizeGatewayModels({ models: [] }), []);
-  assert.deepEqual(normalizeGatewayModels(null), []);
+
+  const status = normalizeGatewayStatus({
+    desiredEnabled: true,
+    running: true,
+    address: "0.0.0.0:7788",
+    allowRemote: true,
+    ephemeralIsolation: true,
+    lastError: "safe error",
+    updatedAt: "2026-07-22T12:00:00Z",
+    gateway: { enabled: true, host: "0.0.0.0", port: 7788, allowRemote: true, maxGlobalConcurrency: 4, maxRequestBytes: 2048 },
+    protocols: ["openai", "anthropic"],
+  });
+  assert.deepEqual(status.status, {
+    desiredEnabled: true,
+    running: true,
+    address: "0.0.0.0:7788",
+    allowRemote: true,
+    ephemeralIsolation: true,
+    lastError: "safe error",
+    updatedAt: "2026-07-22T12:00:00Z",
+  });
+  assert.equal(status.gateway.allowRemote, true);
+  assert.deepEqual(status.protocols, ["openai", "anthropic"]);
+
+  assert.deepEqual(normalizeGatewayAccounts({ accounts: [{ provider: "codex", accountId: "acct-1", label: "Work", authType: "oauth", source: "vault", priority: 2, eligible: true, shared: true, effective: true }] })[0], {
+    provider: "codex", accountId: "acct-1", label: "Work", authType: "oauth", source: "vault", priority: 2, disabled: false, eligible: true, shared: true, effective: true, reason: "",
+  });
+  assert.deepEqual(normalizeGatewayRequests({ requests: [{ requestId: "req-1", timestamp: "2026-07-22T12:00:00Z", gatewayKeyName: "Laptop", gatewayKeyPrefix: "ak_live_1234", protocol: "openai", requestKind: "responses", modelAlias: "chat", actualProvider: "codex", actualModel: "gpt-5", safeAccountId: "acct-safe", accountLabel: "Work", promptTokens: 10, completionTokens: 5, duration: 1200, timeToFirstTokenMs: 300, errorMessage: "" }] })[0], {
+    id: "req-1", createdAt: "2026-07-22T12:00:00Z", key: "Laptop", protocol: "openai", kind: "responses", alias: "chat", provider: "codex", model: "gpt-5", accountId: "acct-safe", accountLabel: "Work", inputTokens: 10, outputTokens: 5, totalTokens: 15, durationMs: 1200, ttftMs: 300, error: "",
+  });
 });
 
 test("request builders follow the Shared API backend contract", () => {
@@ -57,6 +108,21 @@ test("request builders follow the Shared API backend contract", () => {
     path: "/api/providers/custom%2Fname",
     options: { method: "PATCH", body: JSON.stringify({ gatewayEnabled: true }) },
   });
+  assert.deepEqual(gatewayAccountRequest("codex/main", "account/id", true), {
+    path: "/api/gateway/accounts/codex%2Fmain/account%2Fid",
+    options: { method: "PATCH", body: JSON.stringify({ shared: true }) },
+  });
+  assert.deepEqual(gatewayConfigRequest({ enabled: true, host: "0.0.0.0", port: "7788", allowRemote: true, maxGlobalConcurrency: "8", maxRequestBytes: "4096" }, true), {
+    path: "/api/gateway/config",
+    options: { method: "PATCH", body: JSON.stringify({ enabled: true, host: "0.0.0.0", port: 7788, allowRemote: true, maxGlobalConcurrency: 8, maxRequestBytes: 4096, confirmRemoteRisk: true }) },
+  });
+  assert.equal(isLoopbackGatewayHost("localhost"), true);
+  assert.equal(isLoopbackGatewayHost("127.0.0.2"), true);
+  assert.equal(isLoopbackGatewayHost("[::1]"), true);
+  assert.equal(isLoopbackGatewayHost("0.0.0.0"), false);
+  assert.equal(gatewayConfigNeedsRemoteConfirmation({ gateway: { host: "127.0.0.1", allowRemote: false } }, { allowRemote: true }), true);
+  assert.equal(gatewayConfigNeedsRemoteConfirmation({ gateway: { host: "127.0.0.1", allowRemote: false } }, { host: "0.0.0.0" }), true);
+  assert.equal(gatewayConfigNeedsRemoteConfirmation({ gateway: { host: "127.0.0.1", allowRemote: false } }, { port: 9000 }), false);
 
   const payload = gatewayKeyPolicyPayload({
     name: " Laptop ",
@@ -87,36 +153,37 @@ test("request builders follow the Shared API backend contract", () => {
   assert.deepEqual(gatewayKeyRequest("rotate", "key-1"), { path: "/api/gateway/keys/key-1/rotate", options: { method: "POST", cache: "no-store" } });
   assert.deepEqual(gatewayKeyRequest("revoke", "key-1"), { path: "/api/gateway/keys/key-1/revoke", options: { method: "POST" } });
 
-  assert.equal(gatewayModelRequest("create", {}, { alias: "chat", targetModel: "openai:gpt-5", enabled: true }).path, "/api/gateway/models");
-  assert.deepEqual(gatewayModelRequest("update", { alias: "public/chat", updatedAt: "model-v1" }, { alias: "public/chat", targetModel: "openai:gpt-5", enabled: false }), {
-    path: "/api/gateway/models?alias=public%2Fchat",
-    options: { method: "PATCH", body: JSON.stringify({ alias: "public/chat", targetModel: "openai:gpt-5", enabled: false, expectedUpdatedAt: "model-v1" }) },
-  });
-  assert.deepEqual(gatewayModelRequest("delete", "public/chat"), { path: "/api/gateway/models?alias=public%2Fchat", options: { method: "DELETE" } });
 });
 
-test("disabled Gateway renders status and security guidance without calling Gateway endpoints", async () => {
+test("disabled Gateway still loads every preconfiguration resource and renders editable sections", async () => {
   const requests = [];
-  const state = { settings: { gateway: { enabled: false, host: "127.0.0.1", port: 7788 }, providers: [] } };
-  const controller = createSharedAPISettingsController({ state, request: async (path) => { requests.push(path); return {}; } });
+  const state = { settings: { gateway: { enabled: false, host: "127.0.0.1", port: 7788, allowRemote: false }, providers: [] } };
+  const controller = createSharedAPISettingsController({
+    state,
+    request: async (path, options = {}) => {
+      requests.push(path);
+      if (path === "/api/gateway/status") return { desiredEnabled: false, running: false, address: "", allowRemote: false, gateway: state.settings.gateway, protocols: [] };
+      return responseFor(path, options);
+    },
+  });
 
   await controller.load();
   const html = controller.render();
 
-  assert.deepEqual(requests, []);
-  assert.match(html, /Gateway 未启用/);
+  assert.deepEqual(requests, loadPaths);
+  assert.match(html, /Gateway 已停止/);
   assert.match(html, /127\.0\.0\.1:7788/);
-  assert.match(html, /HTTPS 反向代理/);
-  assert.match(html, /data-gateway-key-add disabled/);
+  assert.match(html, /data-gateway-config-form/);
+  assert.match(html, /data-gateway-toggle="true"/);
+  assert.match(html, /data-gateway-key-add/);
+  assert.doesNotMatch(html, /data-gateway-key-add disabled/);
+  assert.doesNotMatch(html, /模型别名|data-gateway-model|Token 安全示例|shared-api-security-note/);
   assert.match(html, /尚未创建访问密钥/);
   assert.match(html, /暂无用量数据/);
-  assert.match(html, /shared-api-keys-section/);
-  assert.match(html, /shared-api-usage-section/);
-  assert.match(html, /shared-api-compact-empty/);
-  assert.doesNotMatch(html, /模型别名|data-gateway-model/);
+  assert.match(html, /暂无最近 Gateway 请求/);
 });
 
-test("empty enabled Gateway loads all resources and renders empty states", async () => {
+test("empty enabled Gateway loads visible settings without alias management", async () => {
   const requests = [];
   const state = enabledState();
   const controller = createSharedAPISettingsController({
@@ -130,14 +197,58 @@ test("empty enabled Gateway loads all resources and renders empty states", async
   await controller.load();
   const html = controller.render();
 
-  assert.deepEqual(requests.map((item) => item.path), ["/api/gateway/keys", "/api/gateway/models", "/api/gateway/usage"]);
-  assert.match(html, /尚未创建访问密钥/);
+  assert.deepEqual(requests.map((item) => item.path), loadPaths);
+  assert.match(html, /Gateway 运行中/);
+  assert.match(html, /http:\/\/127\.0\.0\.1:7788\/v1\/chat\/completions/);
+  assert.match(html, /\/v1\/responses/);
+  assert.match(html, /\/v1\/messages/);
+  assert.doesNotMatch(html, /模型别名|data-gateway-model|Token 安全示例|shared-api-security-note/);
   assert.match(html, /0 把密钥/);
-  assert.match(html, /暂无用量数据/);
-  assert.doesNotMatch(html, /模型别名|data-gateway-model/);
+  assert.match(html, /0 个账号/);
 });
 
-test("OAuth-backed providers are non-shareable while API providers expose a Gateway toggle", async () => {
+test("runtime config uses platform confirmation for remote risk and sends confirmRemoteRisk only after acceptance", async () => {
+  const requests = [];
+  const confirmations = [];
+  const decisions = [false, true];
+  const state = enabledState({ settings: { gateway: { enabled: false, host: "127.0.0.1", port: 7788, allowRemote: false, maxGlobalConcurrency: 2, maxRequestBytes: 1024 }, providers: [] } });
+  const controller = createSharedAPISettingsController({
+    state,
+    confirmAction: async (message) => { confirmations.push(message); return decisions.shift(); },
+    request: async (path, options = {}) => {
+      requests.push({ path, options });
+      const body = options.body ? JSON.parse(options.body) : {};
+      return {
+        status: { desiredEnabled: Boolean(body.enabled), running: Boolean(body.enabled), address: "http://0.0.0.0:9000", allowRemote: Boolean(body.allowRemote), ephemeralIsolation: true, lastError: "", updatedAt: "2026-07-22T12:30:00Z" },
+        gateway: { ...state.settings.gateway, ...body },
+        protocols: ["openai-responses"],
+      };
+    },
+  });
+
+  assert.equal(await controller.updateGatewayConfig({ host: "0.0.0.0", port: 9000, allowRemote: true, maxGlobalConcurrency: 5, maxRequestBytes: 2048 }), null);
+  assert.equal(requests.length, 0, "cancelled confirmation must not send a PATCH");
+
+  await controller.updateGatewayConfig({ host: "0.0.0.0", port: 9000, allowRemote: true, maxGlobalConcurrency: 5, maxRequestBytes: 2048 });
+  assert.equal(confirmations.length, 2);
+  assert.deepEqual(requests[0], {
+    path: "/api/gateway/config",
+    options: { method: "PATCH", body: JSON.stringify({ host: "0.0.0.0", port: 9000, allowRemote: true, maxGlobalConcurrency: 5, maxRequestBytes: 2048, confirmRemoteRisk: true }) },
+  });
+  assert.match(controller.render(), /http:\/\/0\.0\.0\.0:9000/);
+  assert.match(controller.render(), /openai-responses/);
+
+  const safeRequests = [];
+  const safeController = createSharedAPISettingsController({
+    state: enabledState(),
+    confirmAction: async () => { throw new Error("safe loopback update must not confirm"); },
+    request: async (path, options) => { safeRequests.push({ path, options }); return { gateway: JSON.parse(options.body) }; },
+  });
+  await safeController.updateGatewayConfig({ host: "127.0.0.1", port: 8899, allowRemote: false, maxGlobalConcurrency: 3, maxRequestBytes: 4096 });
+  assert.equal(JSON.parse(safeRequests[0].options.body).confirmRemoteRisk, undefined);
+});
+
+test("CLIProxy profiles stay private while Codex and API providers remain shareable", async () => {
   const requests = [];
   const state = enabledState();
   const controller = createSharedAPISettingsController({
@@ -148,15 +259,14 @@ test("OAuth-backed providers are non-shareable while API providers expose a Gate
     },
   });
   const html = controller.render();
-  const codexRow = html.match(/<div class="shared-api-row is-disabled">[\s\S]*?<\/div>/)?.[0] || "";
 
   assert.equal(isCodexGatewayProvider({ name: "codex" }), true);
   assert.equal(isCodexGatewayProvider({ type: "codex" }), true);
+  assert.equal(gatewayProviderRestriction({ name: "codex" }), "");
   assert.equal(gatewayProviderRestriction({ profile: "cliproxyapi" }), "oauthProxy");
-  assert.match(codexRow, /不可分享/);
-  assert.doesNotMatch(html, /data-gateway-provider="codex"/);
+  assert.match(html, /data-gateway-provider="codex"/);
   assert.doesNotMatch(html, /data-gateway-provider="cliproxyapi"/);
-  assert.match(html, /订阅\/OAuth 代理 Provider 不可进入共享池/);
+  assert.match(html, /订阅\/OAuth 代理 Profile 不可进入共享池/);
   assert.match(html, /data-gateway-provider="openai"/);
 
   await controller.toggleProvider("openai", true);
@@ -165,9 +275,59 @@ test("OAuth-backed providers are non-shareable while API providers expose a Gate
     path: "/api/providers/openai",
     options: { method: "PATCH", body: JSON.stringify({ gatewayEnabled: true }) },
   });
+  await controller.toggleProvider("codex", true);
+  assert.equal(state.settings.providers[1].gatewayEnabled, true);
+  assert.deepEqual(requests.at(-1), {
+    path: "/api/providers/codex",
+    options: { method: "PATCH", body: JSON.stringify({ gatewayEnabled: true }) },
+  });
+
   const count = requests.length;
-  assert.equal(await controller.toggleProvider("codex", true), null);
   assert.equal(await controller.toggleProvider("cliproxyapi", true), null);
+  assert.equal(requests.length, count);
+});
+
+test("account pool groups providers, disables restricted rows, and patches shared/effective state", async () => {
+  const requests = [];
+  const state = enabledState({
+    gatewayAccounts: normalizeGatewayAccounts({ accounts: [
+      { provider: "codex", accountId: "acct/main", label: "Work", authType: "oauth", source: "vault", priority: 1, disabled: false, eligible: true, shared: false, effective: false },
+      { provider: "codex", accountId: "acct-disabled", label: "Disabled", authType: "oauth", source: "vault", priority: 2, disabled: true, eligible: true, shared: false, effective: false, reason: "Quota disabled" },
+      { provider: "anthropic", accountId: "profile-1", label: "CLI profile", authType: "profile", source: "profile", priority: 3, disabled: false, eligible: true, shared: false, effective: false },
+      { provider: "openai", accountId: "ineligible", label: "No route", authType: "api-key", source: "vault", priority: 4, disabled: false, eligible: false, shared: false, effective: false, reason: "Provider unavailable" },
+    ] }),
+  });
+  const controller = createSharedAPISettingsController({
+    state,
+    request: async (path, options = {}) => {
+      requests.push({ path, options });
+      return { account: { provider: "codex", accountId: "acct/main", label: "Work", authType: "oauth", source: "vault", priority: 1, disabled: false, eligible: true, shared: true, effective: true } };
+    },
+  });
+
+  const html = controller.render();
+  assert.match(html, /Work/);
+  assert.match(html, /acct\/main/);
+  assert.match(html, /Quota disabled/);
+  assert.match(html, /Profile 账号不可共享/);
+  assert.match(html, /Provider unavailable/);
+  assert.match(html, /data-gateway-account-id="acct\/main"/);
+  assert.match(html, /data-gateway-account-id="acct-disabled"[^>]*disabled/);
+  assert.match(html, /data-gateway-account-id="profile-1"[^>]*disabled/);
+
+  await controller.toggleAccount("codex", "acct/main", true);
+  assert.deepEqual(requests[0], {
+    path: "/api/gateway/accounts/codex/acct%2Fmain",
+    options: { method: "PATCH", body: JSON.stringify({ shared: true }) },
+  });
+  assert.equal(state.gatewayAccounts[0].shared, true);
+  assert.equal(state.gatewayAccounts[0].effective, true);
+  assert.match(controller.render(), /已生效/);
+
+  const count = requests.length;
+  assert.equal(await controller.toggleAccount("codex", "acct-disabled", true), null);
+  assert.equal(await controller.toggleAccount("anthropic", "profile-1", true), null);
+  assert.equal(await controller.toggleAccount("openai", "ineligible", true), null);
   assert.equal(requests.length, count);
 });
 
@@ -178,7 +338,7 @@ test("create and rotate expose plaintext tokens only in the controller one-time 
   let sequence = 0;
   const controller = createSharedAPISettingsController({
     state,
-    copyText: async (value) => copied.push(value),
+    copyText: async (value) => { copied.push(value); return true; },
     confirmAction: () => true,
     request: async (path, options = {}) => {
       requests.push({ path, options });
@@ -201,6 +361,8 @@ test("create and rotate expose plaintext tokens only in the controller one-time 
   const createdHTML = controller.render();
   assert.match(createdHTML, />secret-create-once<\/code>/);
   assert.doesNotMatch(createdHTML, /data-[^=]+="[^"]*secret-create-once/);
+  const connectionHTML = createdHTML.match(/shared-api-connections-section[\s\S]*?<\/section>/)?.[0] || "";
+  assert.doesNotMatch(connectionHTML, /secret-create-once|Bearer|sk-/);
   await controller.copyOneTimeToken();
   assert.deepEqual(copied, ["secret-create-once"]);
 
@@ -214,11 +376,14 @@ test("create and rotate expose plaintext tokens only in the controller one-time 
   assert.equal(controller.consumeOneTimeToken(), "secret-rotate-once");
   assert.equal(controller.oneTimeTokenValue(), "");
   assert.doesNotMatch(controller.render(), /secret-rotate-once/);
+
+  const source = await readFile(new URL("./shared-api-settings.mjs", import.meta.url), "utf8");
+  assert.doesNotMatch(source, /localStorage/);
 });
 
 test("key lifecycle covers edit, pause, rotate, and revoke", async () => {
   const requests = [];
-  const state = enabledState({ gatewayKeys: [{ id: "key-1", name: "Laptop", keyPrefix: "sk_lap", enabled: true, allowedModels: ["chat"], updatedAt: "key-v1" }] });
+  const state = enabledState({ gatewayKeys: [{ id: "key-1", name: "Laptop", keyPrefix: "sk_lap", enabled: true, allowedModels: ["chat"], updatedAt: "key-v1", usage: {} }] });
   const controller = createSharedAPISettingsController({
     state,
     confirmAction: () => true,
@@ -248,36 +413,30 @@ test("key lifecycle covers edit, pause, rotate, and revoke", async () => {
   assert.doesNotMatch(controller.render(), /data-gateway-key-rotate="key-1"/);
 });
 
-test("model aliases support create, update, and delete", async () => {
-  const requests = [];
+test("recent requests render safe routing, account, token, timing, and escaped error fields", async () => {
   const state = enabledState();
   const controller = createSharedAPISettingsController({
     state,
-    confirmAction: () => true,
     request: async (path, options = {}) => {
-      requests.push({ path, options });
-      const body = options.body ? JSON.parse(options.body) : {};
-      if (path === "/api/gateway/models" && options.method === "POST") return { model: { ...body, updatedAt: "model-v1" } };
-      if (options.method === "PATCH") return { model: { ...body, updatedAt: "model-v2" } };
-      if (options.method === "DELETE") return { ok: true };
+      if (path === "/api/gateway/requests?limit=50") {
+        return { requests: [{
+          id: "req-1", createdAt: "2026-07-22T12:00:00Z", keyName: "Laptop", protocol: "openai", kind: "responses", alias: "public-chat", provider: "codex", model: "gpt-5", accountId: "acct-safe", accountLabel: "Work", inputTokens: 12, outputTokens: 8, totalTokens: 20, durationMs: 1500, ttftMs: 250, errorMessage: '<img src=x onerror="steal()">',
+        }] };
+      }
       return responseFor(path, options);
     },
   });
 
-  await controller.createModel({ alias: "chat", targetModel: "openai:gpt-5", enabled: true });
-  assert.equal(state.gatewayModels[0].alias, "chat");
-  await controller.updateModel("chat", { alias: "assistant", targetModel: "anthropic:claude-sonnet", enabled: false });
-  assert.deepEqual(state.gatewayModels.map((model) => model.alias), ["assistant"]);
-  await controller.deleteModel("assistant");
-  assert.deepEqual(state.gatewayModels, []);
-  assert.deepEqual(JSON.parse(requests[1].options.body), {
-    alias: "assistant", targetModel: "anthropic:claude-sonnet", enabled: false, expectedUpdatedAt: "model-v1",
-  });
-  assert.deepEqual(requests.map((item) => [item.path, item.options.method]), [
-    ["/api/gateway/models", "POST"],
-    ["/api/gateway/models?alias=chat", "PATCH"],
-    ["/api/gateway/models?alias=assistant", "DELETE"],
-  ]);
+  await controller.load();
+  const html = controller.render();
+  assert.match(html, /Laptop/);
+  assert.match(html, /openai \/ responses/);
+  assert.match(html, /public-chat → codex:gpt-5/);
+  assert.match(html, /Work · acct-safe/);
+  assert.match(html, /输入 12 · 输出 8 · 总计 20/);
+  assert.match(html, /1\.5 s · TTFT 250 ms/);
+  assert.match(html, /&lt;img src=x onerror=&quot;steal\(\)&quot;&gt;/);
+  assert.doesNotMatch(html, /<img src=x/);
 });
 
 test("one-time token copy only succeeds when the clipboard reports true", async () => {
@@ -318,8 +477,7 @@ test("PATCH conflicts refresh latest Shared API data without applying stale edit
   const requests = [];
   const toasts = [];
   const state = enabledState({
-    gatewayKeys: [{ id: "key-1", name: "Laptop", enabled: true, allowedModels: ["public/chat"], updatedAt: "key-v1" }],
-    gatewayModels: [{ alias: "public/chat", targetModel: "openai:gpt-5", enabled: true, updatedAt: "model-v1" }],
+    gatewayKeys: [{ id: "key-1", name: "Laptop", enabled: true, allowedModels: ["public/chat"], updatedAt: "key-v1", usage: {} }],
   });
   const conflict = () => Object.assign(new Error("conflict"), { status: 409 });
   const controller = createSharedAPISettingsController({
@@ -329,9 +487,7 @@ test("PATCH conflicts refresh latest Shared API data without applying stale edit
       requests.push({ path, options });
       if (options.method === "PATCH") throw conflict();
       if (path === "/api/gateway/keys") return { keys: [{ id: "key-1", name: "Server key", enabled: false, allowedModels: ["public/chat"], updatedAt: "key-v2" }] };
-      if (path === "/api/gateway/models") return { models: [{ alias: "public/chat", targetModel: "anthropic:latest", enabled: true, updatedAt: "model-v2" }] };
-      if (path === "/api/gateway/usage") return { items: [], summary: {} };
-      return {};
+      return responseFor(path, options);
     },
   });
 
@@ -341,13 +497,6 @@ test("PATCH conflicts refresh latest Shared API data without applying stale edit
   });
   assert.equal(state.gatewayKeys[0].name, "Server key");
   assert.match(state.gatewayAPIError, /服务器/);
-
-  const patchCount = requests.length;
-  await assert.rejects(controller.updateModel("public/chat", { alias: "public/chat", targetModel: "stale:target", enabled: false }), /服务器/);
-  assert.deepEqual(JSON.parse(requests[patchCount].options.body), {
-    alias: "public/chat", targetModel: "stale:target", enabled: false, expectedUpdatedAt: "model-v2",
-  });
-  assert.equal(state.gatewayModels[0].targetModel, "anthropic:latest");
   assert.deepEqual(toasts, []);
 });
 
@@ -361,18 +510,22 @@ test("newer Shared API loads prevent older responses from overwriting state", as
 
   const stale = controller.load();
   const fresh = controller.load();
-  assert.equal(pending.length, 6);
-  pending.slice(0, 3).forEach(({ path, resolve }) => resolve(responseFor(path)));
+  assert.equal(pending.length, 10);
+  pending.slice(0, 5).forEach(({ path, resolve }) => resolve(responseFor(path)));
   assert.equal(await stale, false);
-  pending.slice(3).forEach(({ path, resolve }) => {
-    if (path === "/api/gateway/keys") resolve({ keys: [{ id: "new", name: "Latest", enabled: true }] });
-    else if (path === "/api/gateway/models") resolve({ models: [{ alias: "latest", targetModel: "openai:gpt-5", enabled: true }] });
-    else resolve({ items: [], summary: { requests: 2 } });
+  pending.slice(5).forEach(({ path, resolve }) => {
+    if (path === "/api/gateway/status") resolve({ desiredEnabled: false, running: false, address: "127.0.0.1:9000", gateway: { enabled: false, host: "127.0.0.1", port: 9000 }, protocols: ["anthropic"] });
+    else if (path === "/api/gateway/accounts") resolve({ accounts: [{ provider: "codex", accountId: "new-account", eligible: true }] });
+    else if (path === "/api/gateway/keys") resolve({ keys: [{ id: "new", name: "Latest", enabled: true }] });
+    else if (path === "/api/gateway/usage") resolve({ items: [], summary: { requests: 2 } });
+    else resolve({ requests: [{ id: "latest-request", createdAt: "2026-07-22T12:00:00Z" }] });
   });
   assert.equal(await fresh, true);
+  assert.equal(state.gatewayStatus.running, false);
+  assert.equal(state.gatewayAccounts[0].accountId, "new-account");
   assert.equal(state.gatewayKeys[0].id, "new");
-  assert.equal(state.gatewayModels[0].alias, "latest");
   assert.equal(state.gatewayUsage.summary.requests, 2);
+  assert.equal(state.gatewayRequests[0].id, "latest-request");
 });
 
 test("API failures are retained as an escaped panel alert", async () => {

@@ -86,6 +86,8 @@ type Server struct {
 	// providerMutationMu serializes provider runtime registry changes.
 	providerMutationMu   sync.Mutex
 	providerMutationHook func()
+	gatewayRuntimeMu     sync.RWMutex
+	gatewayRuntime       GatewayRuntimeController
 	configPath           string
 	startedAt            time.Time
 	clock                func() time.Time
@@ -118,6 +120,8 @@ type Server struct {
 	codexOAuthTestConfig      *codexOAuthLoginTestConfig
 	anthropicCredentials      *anthropicauth.Store
 	anthropicCredentialsMu    sync.Mutex
+	anthropicOAuthMu          sync.Mutex
+	anthropicOAuthLogins      map[string]*anthropicOAuthLoginSession
 	toolRegistry              *tools.Registry
 	toolRegistryMu            sync.RWMutex
 	backgroundTasks           tools.BackgroundTaskService
@@ -152,7 +156,7 @@ func New(cfg config.Config, store *db.Store, runner *agentpkg.Runner, hub *agent
 		cfg:                     cfg,
 		startedAt:               time.Now().UTC(),
 		clock:                   time.Now,
-		localToken:              newLocalToken(),
+		localToken:              resolveLocalToken(cfg.Paths.HomeDir),
 		remoteAccessToken:       newLocalToken(),
 		remoteAccessSessions:    make(map[string]remoteAccessSession),
 		remoteAccessConnections: make(map[string]map[uint64]context.CancelFunc),
@@ -266,6 +270,33 @@ func (s *Server) SetConfigPath(path string) {
 	s.cfgMu.Lock()
 	defer s.cfgMu.Unlock()
 	s.configPath = path
+}
+
+func (s *Server) SetGatewayRuntimeController(controller GatewayRuntimeController) {
+	if s == nil {
+		return
+	}
+	s.gatewayRuntimeMu.Lock()
+	s.gatewayRuntime = controller
+	s.gatewayRuntimeMu.Unlock()
+}
+
+// ConfigSnapshot returns the currently published persistent configuration.
+func (s *Server) ConfigSnapshot() config.Config {
+	if s == nil {
+		return config.Config{}
+	}
+	return s.configSnapshot()
+}
+
+func (s *Server) gatewayRuntimeController() GatewayRuntimeController {
+	if s == nil {
+		return nil
+	}
+	s.gatewayRuntimeMu.RLock()
+	controller := s.gatewayRuntime
+	s.gatewayRuntimeMu.RUnlock()
+	return controller
 }
 
 func (s *Server) SetProviderVault(vault *secrets.ProviderVault) {
@@ -401,6 +432,11 @@ func (s *Server) Routes() http.Handler {
 		r.Patch("/api/providers/{name}", s.patchProviderConfig)
 		r.Delete("/api/providers/{name}", s.deleteProviderConfig)
 		r.Post("/api/providers/{name}/test", s.testProviderConfig)
+		r.Get("/api/gateway/status", s.gatewayRuntimeStatus)
+		r.Patch("/api/gateway/config", s.patchGatewayRuntimeConfig)
+		r.Get("/api/gateway/accounts", s.listGatewayAccounts)
+		r.Patch("/api/gateway/accounts/{provider}/{accountId}", s.patchGatewayAccount)
+		r.Get("/api/gateway/requests", s.listGatewayRequests)
 		r.Get("/api/gateway/keys", s.listGatewayKeys)
 		r.Post("/api/gateway/keys", s.createGatewayKey)
 		r.Patch("/api/gateway/keys/{id}", s.updateGatewayKey)
@@ -424,6 +460,10 @@ func (s *Server) Routes() http.Handler {
 		r.Delete("/api/providers/oauth/codex/accounts/{id}", s.deleteCodexOAuthAccount)
 		r.Post("/api/providers/oauth/codex/import", s.importCodexOAuthCredentials)
 		r.Post("/api/providers/oauth/codex/import/batch", s.batchImportCodexOAuthCredentials)
+		r.Post("/api/providers/oauth/anthropic/login/start", s.startAnthropicOAuthLogin)
+		r.Get("/api/providers/oauth/anthropic/login/{loginId}", s.getAnthropicOAuthLogin)
+		r.Post("/api/providers/oauth/anthropic/login/{loginId}/submit", s.submitAnthropicOAuthLogin)
+		r.Delete("/api/providers/oauth/anthropic/login/{loginId}", s.cancelAnthropicOAuthLogin)
 		r.Get("/api/providers/auth/anthropic/accounts", s.listAnthropicAccounts)
 		r.Post("/api/providers/auth/anthropic/accounts", s.createAnthropicAccount)
 		r.Patch("/api/providers/auth/anthropic/accounts/{id}", s.patchAnthropicAccount)

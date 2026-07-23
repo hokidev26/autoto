@@ -60,6 +60,28 @@ type GatewayMonthlyUsage struct {
 	CostUSD      float64 `json:"costUsd"`
 }
 
+// GatewayRequestSummary intentionally exposes only accounting and attribution
+// metadata. It must not grow raw request/response payloads or bearer tokens.
+type GatewayRequestSummary struct {
+	ID                string  `json:"id"`
+	GatewayKeyID      string  `json:"gatewayKeyId,omitempty"`
+	GatewayKeyName    string  `json:"gatewayKeyName,omitempty"`
+	GatewayKeyPrefix  string  `json:"gatewayKeyPrefix,omitempty"`
+	Provider          string  `json:"provider,omitempty"`
+	CredentialID      string  `json:"credentialId,omitempty"`
+	Model             string  `json:"model,omitempty"`
+	InputTokens       int64   `json:"inputTokens,omitempty"`
+	OutputTokens      int64   `json:"outputTokens,omitempty"`
+	CachedInputTokens int64   `json:"cachedInputTokens,omitempty"`
+	ReasoningTokens   int64   `json:"reasoningTokens,omitempty"`
+	TotalTokens       int64   `json:"totalTokens,omitempty"`
+	TTFTMS            int64   `json:"ttftMs,omitempty"`
+	DurationMS        int64   `json:"durationMs,omitempty"`
+	CostUSD           float64 `json:"costUsd,omitempty"`
+	StopReason        string  `json:"stopReason,omitempty"`
+	CreatedAt         string  `json:"createdAt"`
+}
+
 const gatewayKeyColumns = `id, name, key_prefix, token_hash, enabled, allowed_models_json, requests_per_minute, monthly_token_limit, max_concurrency, COALESCE(expires_at,''), COALESCE(last_used_at,''), COALESCE(revoked_at,''), created_at, updated_at`
 
 func (s *Store) CreateGatewayKey(ctx context.Context, key GatewayKey) (GatewayKey, error) {
@@ -501,6 +523,72 @@ func renameGatewayAllowedModels(ctx context.Context, tx *sql.Tx, oldAlias, newAl
 		}
 	}
 	return nil
+}
+
+func (s *Store) ListRecentGatewayRequests(ctx context.Context, limit int) ([]GatewayRequestSummary, error) {
+	if limit <= 0 {
+		return nil, errors.New("gateway request limit must be positive")
+	}
+	if limit > 200 {
+		limit = 200
+	}
+	rows, err := s.db.QueryContext(ctx, `SELECT
+		r.id,
+		COALESCE(r.gateway_key_id,''),
+		COALESCE(k.name,''),
+		COALESCE(k.key_prefix,''),
+		COALESCE(r.provider,''),
+		COALESCE(r.credential_id,''),
+		COALESCE(r.model,''),
+		r.input_tokens,
+		r.output_tokens,
+		r.cached_input_tokens,
+		r.reasoning_tokens,
+		r.input_tokens + r.output_tokens,
+		r.ttft_ms,
+		r.duration_ms,
+		r.cost_usd,
+		COALESCE(r.stop_reason,''),
+		r.created_at
+	FROM api_requests AS r
+	LEFT JOIN gateway_keys AS k ON k.id = r.gateway_key_id
+	WHERE r.kind = 'gateway'
+	ORDER BY julianday(r.created_at) DESC, r.id DESC
+	LIMIT ?`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	requests := make([]GatewayRequestSummary, 0, limit)
+	for rows.Next() {
+		var request GatewayRequestSummary
+		if err := rows.Scan(
+			&request.ID,
+			&request.GatewayKeyID,
+			&request.GatewayKeyName,
+			&request.GatewayKeyPrefix,
+			&request.Provider,
+			&request.CredentialID,
+			&request.Model,
+			&request.InputTokens,
+			&request.OutputTokens,
+			&request.CachedInputTokens,
+			&request.ReasoningTokens,
+			&request.TotalTokens,
+			&request.TTFTMS,
+			&request.DurationMS,
+			&request.CostUSD,
+			&request.StopReason,
+			&request.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		requests = append(requests, request)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return requests, nil
 }
 
 func (s *Store) GetGatewayKeyMonthlyUsage(ctx context.Context, gatewayKeyID string, month time.Time) (GatewayMonthlyUsage, error) {

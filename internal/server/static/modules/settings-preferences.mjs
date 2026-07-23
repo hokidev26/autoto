@@ -142,21 +142,15 @@ export function createSettingsPreferencesController({
       : "Autoto";
     const displayName = profileDisplayName();
     const avatar = $("sidebarAvatar");
-    const globalRailAvatar = $("globalRailAvatar");
     const accountName = $("sidebarAccountName");
     const menuName = $("sidebarMenuProfileName");
     const menuMeta = $("sidebarMenuProfileMeta");
-    const settingsAvatar = $("settingsIdentityAvatar");
-    const settingsName = $("settingsIdentityName");
-    const settingsMeta = $("settingsIdentityMeta");
     const mobileAvatar = $("mobileSidebarAvatar");
     const mobileName = $("mobileSidebarAccountName");
-    [avatar, globalRailAvatar, settingsAvatar, mobileAvatar].forEach((node) => applyAvatarNode(node, profile));
+    [avatar, mobileAvatar].forEach((node) => applyAvatarNode(node, profile));
     if (accountName) accountName.textContent = displayName;
     if (menuName) menuName.textContent = displayName;
     if (menuMeta) menuMeta.textContent = profile.roleLabel || pt("settings.localWorkspace");
-    if (settingsName) settingsName.textContent = displayName;
-    if (settingsMeta) settingsMeta.textContent = profile.roleLabel || pt("settings.localWorkspace");
     if (mobileName) mobileName.textContent = displayName;
     updateSidebarAccountSummary();
   }
@@ -188,8 +182,6 @@ export function createSettingsPreferencesController({
     const backend = activeBackend?.();
     const meta = $("sidebarAccountMeta");
     if (meta) meta.textContent = `v${version} · ${backend?.name || pt("settings.localBackend")}`;
-    const settingsMeta = $("settingsIdentityMeta");
-    if (settingsMeta) settingsMeta.textContent = `v${version} · ${backend?.name || pt("settings.localBackend")}`;
     const mobileVersionChip = $("mobileVersionChip");
     if (mobileVersionChip) mobileVersionChip.textContent = pt("settings.updateVersion", { version });
     const mobileDrawerVersionChip = $("mobileDrawerVersionChip");
