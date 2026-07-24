@@ -2238,10 +2238,11 @@ body.white-shell.theme-light[data-theme-preset="apple"] .modal {
 .mobile-select-sheet-option:is(:hover, :focus-visible),
 .mobile-select-sheet-option[aria-selected="true"] { outline: 0; background: rgba(0, 122, 255, .10); }
 .mobile-select-sheet-option:disabled { color: #9aa2b1; cursor: not-allowed; }
-.mobile-model-sheet .mobile-select-sheet-option { min-height: 62px; }
+.mobile-model-sheet .mobile-select-sheet-option { min-height: 52px; padding-left: 18px; }
+.mobile-model-group-heading { margin: 4px 6px 2px; padding: 8px 6px 4px; font-size: 13px; }
+.mobile-model-group-heading.composer-model-group-start { margin-top: 10px; padding-top: 14px; }
 .mobile-model-option-copy { min-width: 0; display: flex; flex: 1 1 auto; flex-direction: column; gap: 3px; }
 .mobile-model-option-name { overflow: hidden; color: inherit; font-size: 15px; font-weight: 680; text-overflow: ellipsis; white-space: nowrap; }
-.mobile-model-option-provider { overflow: hidden; color: #747e90; font-size: 12px; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
 .mobile-model-sheet-actions { margin-top: 9px; padding-top: 9px; border-top: 1px solid rgba(60, 60, 67, .12); }
 .mobile-model-sheet-action {
   width: 100%;
@@ -2398,7 +2399,7 @@ body.white-shell.theme-light[data-theme-preset="apple"] .modal {
     gap: 8px;
     padding: 10px 12px 6px;
   }
-  .mobile-drawer-schedule-btn { display: flex; width: auto; margin: 10px 10px 8px; }
+  .mobile-sidebar-action.mobile-drawer-schedule-btn { display: flex; width: calc(100% - 20px); margin: 10px 10px 8px; }
   .mobile-drawer-primary-action,
   .mobile-drawer-secondary-action {
     min-height: 44px;
@@ -2419,6 +2420,7 @@ body.white-shell.theme-light[data-theme-preset="apple"] .modal {
   .sidebar .navigation-filter { min-height: 34px; border-radius: 9px; }
   .sidebar .project-list { min-height: 0; flex: 0 1 auto; align-content: start; overflow-y: auto; }
   .sidebar .recent-sidebar { flex: 0 0 auto; }
+  .sidebar .recent-directories-sidebar { display: none; }
   .sidebar .sidebar-search-wrap { margin: 8px 4px; }
   .sidebar .sidebar-search { min-height: 42px; border-radius: 12px; border-color: rgba(60, 60, 67, .12); background: rgba(118, 118, 128, .08); }
   .sidebar .sidebar-list { min-height: 0; flex: 1 1 auto; overflow-y: auto; padding: 4px 8px 12px; }
@@ -2444,23 +2446,43 @@ body.white-shell.theme-light[data-theme-preset="apple"] .modal {
   .mobile-sidebar-account-summary .sidebar-account-meta { color: #6e6e73; font-size: 11px; }
   .mobile-sidebar-quick-actions {
     display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 10px;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 6px;
     margin: 0 10px 8px;
   }
   .mobile-sidebar-action {
+    width: 100%;
     min-height: 44px;
     display: inline-flex;
     align-items: center;
-    justify-content: center;
-    gap: 7px;
+    justify-content: flex-start;
+    gap: 10px;
     border: 1px solid rgba(60, 60, 67, .12);
     border-radius: 13px;
     background: #fff;
     color: #1d1d1f;
+    padding: 0 14px;
+    text-align: left;
     font: inherit;
     font-size: 12px;
     font-weight: 650;
+  }
+  .mobile-sidebar-action-icon {
+    width: 18px;
+    height: 18px;
+    flex: 0 0 18px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .mobile-sidebar-action-icon svg {
+    width: 100%;
+    height: 100%;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.8;
+    stroke-linecap: round;
+    stroke-linejoin: round;
   }
   .mobile-sidebar-action.danger { color: #c9342f; }
   .mobile-sidebar-action:is(:hover, :focus-visible) { outline: 0; box-shadow: 0 0 0 3px rgba(0, 122, 255, .14); }
