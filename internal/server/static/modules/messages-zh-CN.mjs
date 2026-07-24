@@ -54,6 +54,7 @@ export default Object.freeze({
     scheduleSidebar: "排程栏",
     resizeScheduleSidebar: "调整排程栏宽度",
     scheduleActions: "排程操作",
+    resizeUtilityPanel: "调整面板宽度",
     filterNavigation: "导航筛选",
     filters: {
       all: "全部",

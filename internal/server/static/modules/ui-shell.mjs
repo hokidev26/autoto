@@ -93,6 +93,35 @@ export function sidebarWidthFromPointer(clientX, sidebarLeft) {
   return normalizeSidebarWidth(Number(clientX) - Number(sidebarLeft));
 }
 
+// The utility panel (conversation details / background tasks / workspace
+// preview) shares the app shell's 4th grid column. It only joins the grid at
+// the >=1280px breakpoint used by workbench.css/extras.css; below that it is
+// a fixed-position overlay with its own width, so the resize handle has no
+// effect (and stays hidden) there.
+export const utilityPanelWidthPreferenceKey = "autoto.ui.utilityPanelWidth";
+export const minUtilityPanelWidth = 320;
+export const maxUtilityPanelWidth = 620;
+export const utilityPanelChatMinWidth = 420;
+export const utilityPanelDesktopBreakpoint = 1280;
+
+export function normalizeUtilityPanelWidth(value, fallback = maxUtilityPanelWidth, { maxAvailable } = {}) {
+  const normalizedFallback = Number.isFinite(Number(fallback)) ? Number(fallback) : maxUtilityPanelWidth;
+  const cap = Number.isFinite(Number(maxAvailable))
+    ? Math.max(minUtilityPanelWidth, Math.min(maxUtilityPanelWidth, Math.floor(Number(maxAvailable))))
+    : maxUtilityPanelWidth;
+  const parsed = Number.parseFloat(value);
+  if (!Number.isFinite(parsed)) return Math.min(cap, Math.max(minUtilityPanelWidth, Math.round(normalizedFallback)));
+  return Math.min(cap, Math.max(minUtilityPanelWidth, Math.round(parsed)));
+}
+
+export function utilityPanelWidthFromPointer(clientX, viewportRight) {
+  return normalizeUtilityPanelWidth(Number(viewportRight) - Number(clientX));
+}
+
+export function utilityPanelMaxAvailable({ viewportWidth, railWidth = 0, sidebarWidth = 0, chatMinWidth = utilityPanelChatMinWidth } = {}) {
+  return (Number(viewportWidth) || 0) - (Number(railWidth) || 0) - (Number(sidebarWidth) || 0) - (Number(chatMinWidth) || 0);
+}
+
 export function elementVisible(id) {
   const node = $(id);
   return Boolean(node && !node.classList.contains("hidden"));
@@ -1183,10 +1212,149 @@ export function createUIShellController({
     };
   }
 
+  function bindUtilityPanelResizer({ storage = globalThis.localStorage } = {}) {
+    const shell = $("appShell");
+    const separator = $("utilityPanelResizeHandle");
+    if (!shell || !separator) return () => {};
+
+    const globalRail = document.querySelector?.(".global-rail");
+    const sidebar = document.querySelector?.(".sidebar");
+    const detailsPanel = $("conversationDetailsPanel");
+    const backgroundPanel = $("backgroundTaskTray");
+
+    let width = null;
+    let dragging = false;
+
+    const wideLayout = () => {
+      const media = window.matchMedia?.(`(min-width: ${utilityPanelDesktopBreakpoint}px)`);
+      if (media) return media.matches;
+      return (globalThis.innerWidth || document.documentElement?.clientWidth || 1024) >= utilityPanelDesktopBreakpoint;
+    };
+    const panelOpen = () => Boolean(
+      shell.classList?.contains("details-open")
+      || shell.classList?.contains("background-tasks-open")
+      || shell.classList?.contains("preview-open"),
+    );
+    const viewportRight = () => document.documentElement?.clientWidth || globalThis.innerWidth || 0;
+    const currentAvailableMax = () => utilityPanelMaxAvailable({
+      viewportWidth: globalThis.innerWidth || document.documentElement?.clientWidth || 0,
+      railWidth: globalRail?.getBoundingClientRect?.()?.width ?? 0,
+      sidebarWidth: sidebar?.getBoundingClientRect?.()?.width ?? 0,
+    });
+    const currentPanelWidth = () => {
+      const node = shell.classList?.contains("details-open") ? detailsPanel
+        : shell.classList?.contains("background-tasks-open") ? backgroundPanel
+        : shell.classList?.contains("preview-open") ? document.querySelector?.(".workspace-preview-dock-mode .workspace-modal-card")
+        : null;
+      const rectWidth = node?.getBoundingClientRect?.()?.width;
+      return Number.isFinite(rectWidth) && rectWidth > 0 ? rectWidth : null;
+    };
+    const persistWidth = () => {
+      try {
+        storage?.setItem(utilityPanelWidthPreferenceKey, String(width));
+      } catch {
+        // Browser storage is optional; layout resizing still works in memory.
+      }
+    };
+    const applyWidth = (nextWidth, { save = false } = {}) => {
+      const candidate = normalizeUtilityPanelWidth(nextWidth, width ?? currentPanelWidth() ?? maxUtilityPanelWidth, { maxAvailable: currentAvailableMax() });
+      width = candidate;
+      shell.style?.setProperty?.("--utility-panel-width", `${width}px`);
+      separator.setAttribute?.("aria-valuenow", String(width));
+      if (save) persistWidth();
+      return width;
+    };
+
+    try {
+      const stored = storage?.getItem(utilityPanelWidthPreferenceKey);
+      if (stored != null) applyWidth(stored);
+    } catch {
+      // Browser storage is optional; the panel keeps its default responsive width.
+    }
+
+    const finishDrag = (event) => {
+      if (!dragging) return;
+      dragging = false;
+      separator.classList?.remove?.("is-dragging");
+      document.body?.classList?.remove?.("utility-panel-resizing");
+      separator.releasePointerCapture?.(event?.pointerId);
+      persistWidth();
+    };
+    const handlePointerMove = (event) => {
+      if (!dragging) return;
+      applyWidth(Number(viewportRight()) - Number(event.clientX));
+      event.preventDefault();
+    };
+    const handlePointerDown = (event) => {
+      if (!wideLayout() || !panelOpen() || (event.button !== undefined && event.button !== 0)) return;
+      if (width == null) width = normalizeUtilityPanelWidth(currentPanelWidth() ?? maxUtilityPanelWidth, undefined, { maxAvailable: currentAvailableMax() });
+      dragging = true;
+      separator.classList?.add?.("is-dragging");
+      document.body?.classList?.add?.("utility-panel-resizing");
+      separator.setPointerCapture?.(event.pointerId);
+      handlePointerMove(event);
+    };
+    const handleKeyDown = (event) => {
+      if (!wideLayout() || !panelOpen()) return;
+      const step = event.shiftKey ? 24 : 8;
+      if (width == null) width = normalizeUtilityPanelWidth(currentPanelWidth() ?? maxUtilityPanelWidth, undefined, { maxAvailable: currentAvailableMax() });
+      if (event.key === "Home") {
+        applyWidth(minUtilityPanelWidth, { save: true });
+      } else if (event.key === "End") {
+        applyWidth(maxUtilityPanelWidth, { save: true });
+      } else if (event.key === "ArrowLeft") {
+        applyWidth(width + step, { save: true });
+      } else if (event.key === "ArrowRight") {
+        applyWidth(width - step, { save: true });
+      } else {
+        return;
+      }
+      event.preventDefault();
+    };
+    const resetWidth = () => {
+      if (!wideLayout()) return;
+      width = null;
+      shell.style?.removeProperty?.("--utility-panel-width");
+      try {
+        storage?.removeItem?.(utilityPanelWidthPreferenceKey);
+      } catch {
+        // Browser storage is optional; clearing in-memory state is enough.
+      }
+      const fallbackWidth = currentPanelWidth();
+      if (fallbackWidth) separator.setAttribute?.("aria-valuenow", String(Math.round(fallbackWidth)));
+    };
+    const handleViewportChange = () => {
+      if (!wideLayout()) finishDrag();
+      if (width != null) applyWidth(width);
+    };
+
+    separator.addEventListener("pointerdown", handlePointerDown);
+    separator.addEventListener("keydown", handleKeyDown);
+    separator.addEventListener("dblclick", resetWidth);
+    window.addEventListener("pointermove", handlePointerMove);
+    window.addEventListener("pointerup", finishDrag);
+    window.addEventListener("pointercancel", finishDrag);
+    window.addEventListener("resize", handleViewportChange);
+    window.addEventListener("orientationchange", handleViewportChange);
+
+    return () => {
+      finishDrag();
+      separator.removeEventListener("pointerdown", handlePointerDown);
+      separator.removeEventListener("keydown", handleKeyDown);
+      separator.removeEventListener("dblclick", resetWidth);
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerup", finishDrag);
+      window.removeEventListener("pointercancel", finishDrag);
+      window.removeEventListener("resize", handleViewportChange);
+      window.removeEventListener("orientationchange", handleViewportChange);
+    };
+  }
+
   return {
     beginSettingsDialogFocus,
     bindComposerSelectMenus,
     bindSidebarResizer,
+    bindUtilityPanelResizer,
     closeMobileSidebar,
     closeProjectSearch,
     closeSidebarSettingsMenu,

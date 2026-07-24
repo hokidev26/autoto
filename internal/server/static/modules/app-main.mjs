@@ -961,6 +961,7 @@ const {
   beginSettingsDialogFocus,
   bindComposerSelectMenus,
   bindSidebarResizer,
+  bindUtilityPanelResizer,
   closeMobileSidebar,
   closeProjectSearch,
   closeSidebarSettingsMenu,
@@ -978,6 +979,7 @@ const {
 } = uiShell;
 
 bindSidebarResizer();
+bindUtilityPanelResizer();
 bindComposerSelectMenus();
 closeMobileSidebar({ restoreFocus: false });
 

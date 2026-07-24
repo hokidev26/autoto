@@ -718,7 +718,7 @@ body.white-shell.theme-light .workspace-preview-dock-mode {
   pointer-events: none;
 }
 body.white-shell.theme-light .workspace-preview-dock-mode .workspace-modal-card {
-  width: clamp(420px, calc(50vw - 186px), 620px);
+  width: var(--utility-panel-width, clamp(420px, calc(50vw - 186px), 620px));
   min-width: 0;
   height: 100dvh;
   min-height: 0;
@@ -798,7 +798,14 @@ body.white-shell.theme-light .workspace-preview-dock-mode .workspace-preview-emp
   body.white-shell.theme-light .app-shell.details-open,
   body.white-shell.theme-light .app-shell.background-tasks-open,
   body.white-shell.theme-light .app-shell.preview-open {
-    grid-template-columns: 76px var(--session-sidebar-width) minmax(420px, 1fr) clamp(380px, calc(50vw - 186px), 620px);
+    grid-template-columns: 76px var(--session-sidebar-width) minmax(420px, 1fr) var(--utility-panel-width, clamp(380px, calc(50vw - 186px), 620px));
+  }
+
+  body.white-shell.theme-light .app-shell.details-open .utility-panel-resize-handle,
+  body.white-shell.theme-light .app-shell.background-tasks-open .utility-panel-resize-handle,
+  body.white-shell.theme-light .app-shell.preview-open .utility-panel-resize-handle {
+    display: block;
+    right: calc(var(--utility-panel-width, clamp(380px, calc(50vw - 186px), 620px)) - 3px);
   }
 }
 

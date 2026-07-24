@@ -200,6 +200,7 @@ export function createSettingsShellHelpers({
       "conversationDetailsPanel",
       "backgroundTaskTray",
       "expandTerminalBtn",
+      "utilityPanelResizeHandle",
     ].map((id) => setSettingsShellNodeHidden($(id), true)).filter(Boolean);
     const appShellStyle = captureInlineProperties(appShell, ["grid-template-columns"]);
     const modalStyle = captureInlineProperties(modal, [

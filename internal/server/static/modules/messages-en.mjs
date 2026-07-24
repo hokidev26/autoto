@@ -54,6 +54,7 @@ export default Object.freeze({
     scheduleSidebar: "Schedule sidebar",
     resizeScheduleSidebar: "Resize schedule sidebar",
     scheduleActions: "Schedule actions",
+    resizeUtilityPanel: "Resize panel width",
     filterNavigation: "Navigation filters",
     filters: {
       all: "All",

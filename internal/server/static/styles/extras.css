@@ -1942,7 +1942,7 @@ body.white-shell.theme-light.theme-dark .context-clear-confirmation :is(strong, 
   body.white-shell.theme-light .app-shell.terminal-collapsed.details-open,
   body.white-shell.theme-light .app-shell.terminal-collapsed.background-tasks-open,
   body.white-shell.theme-light .app-shell.terminal-collapsed.preview-open {
-    grid-template-columns: var(--global-rail-layout-width) var(--session-sidebar-layout-width) minmax(0, 1fr) clamp(380px, calc(50vw - 186px), 620px);
+    grid-template-columns: var(--global-rail-layout-width) var(--session-sidebar-layout-width) minmax(0, 1fr) var(--utility-panel-width, clamp(380px, calc(50vw - 186px), 620px));
   }
 
   body.white-shell.theme-light .app-shell.global-rail-collapsed {
