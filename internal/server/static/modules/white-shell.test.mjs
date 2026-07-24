@@ -1932,3 +1932,40 @@ test("model provider settings styles remain scoped, responsive, and independent 
   assert.doesNotMatch(providerStyles, /settingsCategoryNav|specBoardBtn|taskList|legacy-settings-category/);
   assert.ok(styles.trimEnd().endsWith(providerStyles.trimEnd()), "provider CSS must remain the final stylesheet block");
 });
+
+test("opening a utility panel does not collapse the app shell's 4th grid column to zero width", async () => {
+  const styles = await readStylesSource(stylesURL);
+  // The dual-rail compact navigation block unconditionally zeroes the 4th
+  // grid column whenever .terminal-collapsed is present. Every "open panel"
+  // flow (details / background tasks / preview) also collapses the terminal
+  // first, so without this override the newly-opened panel would sit in a
+  // zero-width column and never become visible.
+  assert.match(
+    styles,
+    /\.app-shell\.terminal-collapsed\.details-open,[\s\S]*?\.app-shell\.terminal-collapsed\.background-tasks-open,[\s\S]*?\.app-shell\.terminal-collapsed\.preview-open[\s\S]*?\{[\s\S]*?grid-template-columns:[\s\S]*?clamp\(380px, calc\(50vw - 186px\), 620px\)/,
+  );
+});
+
+test("finishing a run no longer auto-opens the run summary review card", async () => {
+  const appMain = await readFile(appMainURL, "utf8");
+  const handlerStart = appMain.indexOf("async function handleAgentStreamEvent");
+  assert.ok(handlerStart >= 0);
+  const handlerEnd = appMain.indexOf("\nfunction captureAgentSettingsSnapshot", handlerStart);
+  assert.ok(handlerEnd > handlerStart);
+  const handler = appMain.slice(handlerStart, handlerEnd);
+  assert.doesNotMatch(handler, /loadRunSummary\(runId/);
+  assert.match(handler, /terminalAgentEvents\.includes\(event\.type\)/);
+  // The card must stay reachable on demand elsewhere (e.g. the overview "runs" link).
+  assert.match(appMain, /const summary = await loadRunSummary\(run\.id, \{ agentId: run\.agentId \}\);/);
+});
+
+test("model picker popover draws a divider between provider groups", async () => {
+  const [uiShell, styles] = await Promise.all([
+    readFile(uiShellURL, "utf8"),
+    readStylesSource(stylesURL),
+  ]);
+  assert.match(uiShell, /const group = option\.dataset\.provider \|\| "";/);
+  assert.match(uiShell, /previousGroup !== null && group !== previousGroup/);
+  assert.match(uiShell, /optionButton\.classList\.add\("composer-model-option-group-start"\)/);
+  assert.match(styles, /\.composer-model-option-group-start\s*\{[\s\S]*?border-top:\s*1px solid/);
+});

@@ -1933,6 +1933,18 @@ body.white-shell.theme-light.theme-dark .context-clear-confirmation :is(strong, 
     grid-template-columns: var(--global-rail-layout-width) var(--session-sidebar-layout-width) minmax(0, 1fr) 0;
   }
 
+  /* The rule above zeroes the 4th grid column whenever the terminal is
+     collapsed. Opening a utility panel (conversation details / background
+     tasks / workspace preview) also collapses the terminal first, which
+     otherwise leaves the now-visible panel sitting in a zero-width column.
+     Restore the column width for that combined state; matches the open
+     width workbench.css already uses at the >=1280px breakpoint. */
+  body.white-shell.theme-light .app-shell.terminal-collapsed.details-open,
+  body.white-shell.theme-light .app-shell.terminal-collapsed.background-tasks-open,
+  body.white-shell.theme-light .app-shell.terminal-collapsed.preview-open {
+    grid-template-columns: var(--global-rail-layout-width) var(--session-sidebar-layout-width) minmax(0, 1fr) clamp(380px, calc(50vw - 186px), 620px);
+  }
+
   body.white-shell.theme-light .app-shell.global-rail-collapsed {
     --global-rail-layout-width: 48px;
   }

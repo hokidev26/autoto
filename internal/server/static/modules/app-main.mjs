@@ -3019,9 +3019,11 @@ async function handleAgentStreamEvent(event) {
   }
   if ([...completedMessageEvents, ...terminalAgentEvents].includes(event.type)) scheduleMessageRefresh(80, agentId);
   if (navigationRefreshEvents.includes(event.type)) navigationRefresh.request(event.type);
-  if (terminalAgentEvents.includes(event.type) && runId) {
-    loadRunSummary(runId, { agentId }).catch((error) => notifyTerminal(`[warn] ${am("runSummaryLoadFailed", { message: error?.message || error })}\n`));
-  }
+  // Intentionally not auto-loading the run summary card here: it used to pop up
+  // after every single run, which is unwanted noise. The card is still fully
+  // available on demand (e.g. reopening the conversation restores the latest
+  // run's summary via loadLatestRunSummary, and overview/subagent links can
+  // load a specific run's summary via loadRunSummary).
 }
 
 function captureAgentSettingsSnapshot() {

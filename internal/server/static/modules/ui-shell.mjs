@@ -804,9 +804,18 @@ export function createUIShellController({
       if (isPermissionMenu) {
         appendPermissionOptions(binding, menu, { mobile: false });
       } else {
+        let previousGroup = null;
         [...binding.select.options]
           .filter((option) => !option.hidden)
-          .forEach((option) => menu.appendChild(createOptionButton(binding, option, { model: isModelMenu })));
+          .forEach((option) => {
+            const optionButton = createOptionButton(binding, option, { model: isModelMenu });
+            if (isModelMenu) {
+              const group = option.dataset.provider || "";
+              if (previousGroup !== null && group !== previousGroup) optionButton.classList.add("composer-model-option-group-start");
+              previousGroup = group;
+            }
+            menu.appendChild(optionButton);
+          });
         if (isModelMenu) appendDesktopModelActions(binding);
       }
       menu.classList.remove("hidden");

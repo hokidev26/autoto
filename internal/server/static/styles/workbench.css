@@ -3583,6 +3583,12 @@ body.white-shell.theme-light .composer-select-chevron {
   min-width: 290px;
 }
 
+.composer-model-option-group-start {
+  margin-top: 6px;
+  border-top: 1px solid #e7eaf0;
+  padding-top: 13px;
+}
+
 .composer-model-menu-divider {
   height: 1px;
   margin: 7px 4px;
