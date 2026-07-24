@@ -2767,7 +2767,6 @@ body.white-shell.theme-light .composer-task-summary {
   flex: 0 1 520px;
   grid-template-columns: 14px minmax(0, 1fr) auto;
   gap: 8px;
-  margin-right: auto;
   padding: 0;
   border: 0;
   border-radius: 0;
@@ -2825,6 +2824,16 @@ body.white-shell.theme-light .composer-task-summary .header-task-status-dot {
   border: 2px solid #aab3c2;
   border-radius: 50%;
   background: transparent;
+  box-shadow: none;
+}
+
+/* Idle (no task running): a small solid grey dot, not a ring — so it does not
+   read as another context-usage ring next to it. */
+body.white-shell.theme-light .composer-task-summary .header-task-status-dot:not(.running):not(.queued) {
+  width: 8px;
+  height: 8px;
+  border: 0;
+  background: #aab3c2;
   box-shadow: none;
 }
 

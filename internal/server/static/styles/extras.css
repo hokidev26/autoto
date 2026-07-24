@@ -9,6 +9,12 @@ body.white-shell.theme-light .composer-wrap {
     align-items: center;
   }
 
+  /* Push the context ring + model controls together to the right, so the
+     ring sits immediately to the left of the model selector. */
+  body.white-shell.theme-light .context-usage-btn {
+    margin-left: auto;
+  }
+
   body.white-shell.theme-light .composer-select-value {
     flex: 1 1 auto;
   }
@@ -81,7 +87,6 @@ body.white-shell.theme-light .composer-wrap {
       flex: 0 0 30px;
       grid-template-columns: 14px;
       place-items: center;
-      margin-right: auto;
       padding: 0;
     }
 
@@ -92,7 +97,7 @@ body.white-shell.theme-light .composer-wrap {
 
     body.white-shell.theme-light .composer-controls {
       min-width: 0;
-      flex: 1 1 auto;
+      flex: 0 1 auto;
       gap: 4px;
     }
 
@@ -291,7 +296,6 @@ body.white-shell.theme-light .composer-wrap {
     flex: 0 1 auto;
     justify-content: flex-start;
     gap: 6px;
-    margin-right: auto;
     padding-right: 2px;
   }
 
@@ -1287,11 +1291,11 @@ body.white-shell.theme-light .composer-wrap {
     display: flex;
     flex-direction: column;
     gap: 4px;
-    border: 1px solid rgba(60, 60, 67, .14);
-    border-radius: 23px;
-    background: rgba(255, 255, 255, .96);
-    padding: 8px;
-    box-shadow: 0 12px 36px rgba(0, 0, 0, .11), 0 1px 2px rgba(0, 0, 0, .04);
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    padding: 2px 0 0;
+    box-shadow: none;
   }
 
   body.white-shell.theme-light .composer-input-shell {
@@ -1299,9 +1303,22 @@ body.white-shell.theme-light .composer-wrap {
     min-height: 48px;
     display: flex;
     align-items: flex-end;
-    gap: 5px;
+    gap: 8px;
+    background: transparent;
+    border: 0;
+    border-radius: 0;
     padding: 0;
   }
+  body.white-shell.theme-light .message-input-frame {
+    flex: 1 1 auto;
+    min-width: 0;
+    background: #fff;
+    border: 1px solid rgba(60, 60, 67, .16);
+    border-radius: 14px;
+    padding: 4px 12px;
+  }
+
+  body.white-shell.theme-light :is(.message, .message.user, .message.assistant) { max-width: 100%; }
 
   body.white-shell.theme-light .composer-toolbar {
     order: 2;
@@ -1311,14 +1328,15 @@ body.white-shell.theme-light .composer-wrap {
     display: flex;
     align-items: center;
     justify-content: flex-start;
-    gap: 5px;
+    gap: 8px;
     overflow: visible;
     padding: 0 2px 1px;
   }
 
   body.white-shell.theme-light :is(.composer-task-summary, .permission-safety-indicator, .permission-risk-badge, .toolbar-lightning-btn),
   body.white-shell.theme-light .composer-status:not(.is-busy),
-  body.white-shell.theme-light:not(.project-operation-context) :is(.composer-actions, .composer-message-mode-field, .composer-permission-field) {
+  body.white-shell.theme-light:not(.project-operation-context) .composer-actions,
+  body.white-shell.theme-light :is(.composer-message-mode-field, .composer-permission-field) {
     display: none !important;
   }
 
@@ -1333,7 +1351,7 @@ body.white-shell.theme-light .composer-wrap {
     display: flex;
     align-items: center;
     justify-content: flex-start;
-    gap: 5px;
+    gap: 8px;
     margin: 0;
     overflow: hidden;
   }
@@ -1798,6 +1816,13 @@ body.white-shell.theme-light.theme-dark .schedule-navigation-heading em { backgr
 .context-usage-label { min-width: 22px; font-size: 10px; font-weight: 760; line-height: 1; text-align: center; }
 .context-usage-btn[data-tone="warning"] { border-color: color-mix(in srgb, #d97706 45%, var(--ws-border, #dfe3e9)); color: #a85a00; }
 .context-usage-btn[data-tone="danger"] { border-color: color-mix(in srgb, #dc2626 45%, var(--ws-border, #dfe3e9)); color: #b91c1c; }
+@media (min-width: 768px) {
+  body.white-shell.theme-light.context-hide-usage-percent .context-usage-label { display: none; }
+  body.white-shell.theme-light.context-hide-usage-percent .context-usage-btn { gap: 0; min-width: 0; }
+}
+@media (max-width: 767px) {
+  .context-desktop-only { display: none !important; }
+}
 
 .context-usage-overlay {
   position: fixed;
@@ -1899,9 +1924,9 @@ body.white-shell.theme-light.theme-dark .context-clear-confirmation :is(strong, 
   body.white-shell.theme-light .context-usage-ring { width: 25px; height: 25px; flex-basis: 25px; }
   body.white-shell.theme-light .context-usage-ring > span { width: 16px; height: 16px; }
   .context-usage-overlay.is-mobile { pointer-events: auto; }
-  .context-usage-overlay.is-mobile .context-usage-backdrop { position: absolute; inset: 0; display: block; background: rgba(15, 23, 42, .34); backdrop-filter: blur(2px); }
-  .context-usage-overlay.is-mobile .context-management-panel { inset: auto 0 0; width: 100% !important; max-height: min(86dvh, 720px); border: 0; border-top: 1px solid var(--ws-border, #dfe3e9); border-radius: 20px 20px 0 0; padding: 18px 16px calc(18px + env(safe-area-inset-bottom)); box-shadow: 0 -18px 54px rgba(15, 23, 42, .2); }
-  .context-usage-overlay.is-mobile .context-management-panel::before { content: ""; width: 38px; height: 4px; justify-self: center; border-radius: 999px; background: #c5c9d1; margin: -8px 0 2px; }
+  .context-usage-overlay.is-mobile .context-usage-backdrop { position: absolute; inset: 0; display: block; background: transparent; }
+  .context-usage-overlay.is-mobile .context-management-panel { inset: auto auto calc(84px + env(safe-area-inset-bottom)) 10px; width: min(340px, calc(100vw - 20px)) !important; max-width: 340px; max-height: min(66dvh, 520px); border: 1px solid var(--ws-border, #dfe3e9); border-radius: 18px; padding: 16px; box-shadow: 0 18px 48px rgba(15, 23, 42, .22); }
+  .context-usage-overlay.is-mobile .context-management-panel::before { content: none; }
   .context-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .context-management-actions { grid-template-columns: minmax(0, 1fr); }
   .context-management-actions #contextThresholdBtn { grid-column: auto; }

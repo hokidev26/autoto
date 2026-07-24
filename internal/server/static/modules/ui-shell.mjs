@@ -775,31 +775,9 @@ export function createUIShellController({
         mobileBody.replaceChildren(options);
       }
 
-      if (isModel) {
-        const actions = document.createElement("div");
-        actions.className = "mobile-model-sheet-actions";
-        const reasoningBinding = bindings.find(({ select }) => select.id === "reasoningEffort");
-        if (reasoningBinding) {
-          const currentReasoning = reasoningBinding.select.selectedOptions?.[0]
-            || reasoningBinding.select.options?.[reasoningBinding.select.selectedIndex];
-          const reasoningText = currentReasoning?.textContent?.trim() || currentReasoning?.value || "";
-          actions.appendChild(createMobileAction(translate("chat.reasoningEffort"), reasoningText, () => {
-            const focusTarget = active?.returnFocus || binding.trigger;
-            close();
-            openMobile(reasoningBinding, { returnFocus: focusTarget });
-          }));
-        }
-        const compactSpec = contextActionSpec();
-        actions.appendChild(createMobileAction(translate("chat.compactContext"), compactSpec.detail, () => {
-          close({ focus: true });
-          Promise.resolve(manageContextAction({ focusAction: "compact" })).catch(showError);
-        }, compactSpec));
-        actions.appendChild(createMobileAction(translate("chat.manageModels"), "", () => {
-          close({ focus: true });
-          openModelSettings();
-        }));
-        mobileBody.appendChild(actions);
-      }
+      // The model sheet used to append 思考强度 / 压缩上下文 / 管理模型 shortcuts here.
+      // They are reachable from the composer's own controls (effort trigger, context
+      // ring, model manager), so the sheet now shows only the model list.
 
       bodyOverflow = document.body.style.overflow;
       document.body.style.overflow = "hidden";

@@ -691,6 +691,28 @@ export function createContextManagementController({
     else if (open && mobileViewport()) trapFocus(event, element("contextUsagePanel"));
   }
 
+  const contextShowPercentStorageKey = "autoto.ui.contextShowPercent";
+  function readShowPercentPreference() {
+    try {
+      return windowImpl?.localStorage?.getItem?.(contextShowPercentStorageKey) !== "0";
+    } catch {
+      return true;
+    }
+  }
+  function applyShowPercentPreference(show) {
+    documentImpl?.body?.classList?.toggle?.("context-hide-usage-percent", !show);
+    const toggle = element("contextShowPercent");
+    if (toggle) toggle.checked = show;
+  }
+  function setShowPercent(show) {
+    try {
+      windowImpl?.localStorage?.setItem?.(contextShowPercentStorageKey, show ? "1" : "0");
+    } catch {
+      /* ignore storage failures */
+    }
+    applyShowPercentPreference(show);
+  }
+
   function bind() {
     if (bound || !documentImpl) return () => {};
     bound = true;
@@ -701,6 +723,8 @@ export function createContextManagementController({
     listen(element("closeContextUsageBtn"), "click", () => closePanel());
     listen(element("contextUsageBackdrop"), "click", () => closePanel());
     listen(element("contextAutoPrune"), "change", (event) => setAutoPrune(event.currentTarget.checked));
+    listen(element("contextShowPercent"), "change", (event) => setShowPercent(event.currentTarget.checked));
+    applyShowPercentPreference(readShowPercentPreference());
     listen(element("contextCompactBtn"), "click", () => compact());
     listen(element("contextClearBtn"), "click", requestClearConfirmation);
     listen(element("contextClearCancelBtn"), "click", () => {

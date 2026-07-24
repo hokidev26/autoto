@@ -260,8 +260,8 @@ test("static shell mounts one shared context ring, accessible overlays, APIs, an
   assert.match(contextModule, /expectedLatestMessageId: status\.latestMessageId/);
   assert.match(contextModule, /compactKeepTurns: settings\.retainTurns/);
 
-  assert.match(html, /context-ring-2/);
-  assert.match(app, /context-ring-2/);
-  assert.match(appMain, /context-ring-2/);
-  assert.match(i18n, /context-ring-2/);
+  assert.match(html, /context-ring-3/);
+  assert.match(app, /context-ring-3/);
+  assert.match(appMain, /context-ring-3/);
+  assert.match(i18n, /context-ring-3/);
 });

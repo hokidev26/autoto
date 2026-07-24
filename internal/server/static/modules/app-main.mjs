@@ -8,7 +8,7 @@ import { createExecutionNotifications } from "./execution-notifications.mjs";
 import { createBackendRegistryController } from "./backend-registry.mjs?v=agent-admin-removed-1";
 import { createChatComposerController, normalizeChatDrafts, normalizePromptHistory } from "./chat-composer.mjs?v=plan-mode-1-project-context-1-model-save-gate-1-goal-command-2";
 import { createChatRenderingController, findToolActivityByIdentity, renderAgentTaskActivityCardHTML } from "./chat-rendering.mjs?v=message-thread-1-plan-mode-2-user-message-left-1-switch-fix-3-hide-run-loading-1-i18n-shared-1-conversation-boundary-1-subagent-cards-1-message-lifecycle-1-subagent-incremental-1-profile-message-identity-1-profile-avatar-1-provider-errors-1-compact-run-error-1-first-token-task-status-1-tool-activity-lazy-1";
-import { createContextManagementController } from "./context-management.mjs?v=context-ring-2";
+import { createContextManagementController } from "./context-management.mjs?v=context-ring-3";
 import {
   addRecentConversation,
   buildNavigationView,
@@ -33,7 +33,7 @@ import { $, escapeAttr, escapeHtml, setButtonBusy } from "./dom.mjs";
 import { navigationCreateLabelKey, navigationCreateTarget } from "./navigation-create.mjs";
 import { createSubagentCardCoordinator } from "./subagent-cards.mjs?v=tool-activity-lazy-1";
 import { formatNumber, formatTimestamp } from "./formatters.mjs";
-import { t } from "./i18n.mjs?v=settings-flat-1-codex-browser-login-1-shared-api-1-apple-theme-1-autoto-themes-1-settings-help-1-task-workspace-1-navigation-state-2-archive-1-i18n-shared-1-overview-home-1-settings-cleanup-1-context-ring-2-global-background-1-theme-v2-1-background-upload-1-goal-command-2";
+import { t } from "./i18n.mjs?v=settings-flat-1-codex-browser-login-1-shared-api-1-apple-theme-1-autoto-themes-1-settings-help-1-task-workspace-1-navigation-state-2-archive-1-i18n-shared-1-overview-home-1-settings-cleanup-1-context-ring-3-global-background-1-theme-v2-1-background-upload-1-goal-command-2";
 import { appMainT as am } from "./messages-app-main-extra.mjs?v=workbench-title-edit-1-hidden-toggle-removed-1-settings-cleanup-1";
 import { shellExtraT as sx } from "./messages-shell-extra.mjs";
 import { createGitWorkflowController } from "./git-workflow.mjs";
@@ -77,7 +77,7 @@ import { createSystemSettingsController } from "./system-settings.mjs?v=users-pa
 import { installDesktopDeepLinkRouter, isDesktopShell } from "./desktop-shell-ui.mjs";
 import { createSkillsWorkbenchController } from "./skills-workbench.mjs?v=users-panel-removed-1";
 import { createTerminalController } from "./terminal.mjs?v=terminal-actions-compact-2";
-import { createUIShellController, elementVisible, isComposingInput } from "./ui-shell.mjs?v=permission-panel-2-plan-mode-panel-1-mobile-toolbar-right-3-icon-rail-1-mobile-viewport-1-sidebar-wheel-1-settings-cleanup-1-context-ring-2-dual-rail-collapse-1-compact-navigation-1-global-rail-2-model-menu-scroll-1-utility-resize-2";
+import { createUIShellController, elementVisible, isComposingInput } from "./ui-shell.mjs?v=permission-panel-2-plan-mode-panel-1-mobile-toolbar-right-3-icon-rail-1-mobile-viewport-1-sidebar-wheel-1-settings-cleanup-1-context-ring-3-dual-rail-collapse-1-compact-navigation-1-global-rail-2-model-menu-scroll-1-utility-resize-2-sheet-trim-1";
 import { createUsageHistoryController } from "./usage-history.mjs";
 import { createAgentWorkspaceHelpers } from "./agent-workspace-helpers.mjs?v=task-summary-activity-1";
 import { createNavigationContextMenu } from "./navigation-context-menu.mjs";
@@ -3232,7 +3232,12 @@ $("closeBackendsModalBtn").addEventListener("click", closeBackendsModal);
 $("backendsModal").addEventListener("click", (event) => { if (event.target.id === "backendsModal") closeBackendsModal(); });
 $("backendForm").addEventListener("submit", (event) => saveBackend(event).catch(showError));
 $("resetBackendFormBtn").addEventListener("click", resetBackendForm);
-$("mobileMenuBtn").addEventListener("click", openMobileSidebar);
+$("mobileMenuBtn").addEventListener("click", () => {
+  // The drawer always opens on the conversation/project list, never the
+  // last-used "schedules/任務" view. Reach schedules via the 排程 button.
+  switchPrimaryWorkbench("conversation");
+  openMobileSidebar();
+});
 $("mobileWorkbenchBtn")?.addEventListener("click", () => {
   switchPrimaryWorkbench(state.activeWorkbench === "workbench" ? "conversation" : "workbench");
 });
