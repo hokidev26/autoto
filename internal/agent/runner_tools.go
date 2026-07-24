@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"autoto/internal/db"
+	"autoto/internal/hooks"
 	"autoto/internal/providers"
 	"autoto/internal/tools"
 )
@@ -108,7 +109,7 @@ func (r *Runner) ListTools() []ToolInfo {
 	registered := r.tools.List()
 	out := make([]ToolInfo, 0, len(registered))
 	for _, tool := range registered {
-		out = append(out, ToolInfo{Name: tool.Name(), Description: tool.Description(), Risk: tool.Risk(nil)})
+		out = append(out, ToolInfo{Name: tool.Name(), Description: tool.Description(), Risk: conservativeToolRisk(tool.Name())})
 	}
 	return out
 }
@@ -131,7 +132,7 @@ func (r *Runner) ListToolsForAgent(ctx context.Context, agentID string) ([]ToolI
 	sort.Slice(registered, func(i, j int) bool { return registered[i].Name() < registered[j].Name() })
 	out := make([]ToolInfo, 0, len(registered))
 	for _, tool := range registered {
-		out = append(out, ToolInfo{Name: tool.Name(), Description: tool.Description(), Risk: tool.Risk(nil)})
+		out = append(out, ToolInfo{Name: tool.Name(), Description: tool.Description(), Risk: conservativeToolRisk(tool.Name())})
 	}
 	return out, nil
 }
@@ -162,6 +163,34 @@ func (r *Runner) snapshotTools(ctx context.Context, scope tools.ResolutionContex
 			byName[tool.Name()] = tool
 		}
 	}
+	if r.store != nil {
+		availabilityScope := agentRuntimeScope{}
+		if strings.TrimSpace(scope.AgentID) != "" {
+			agent, err := r.store.GetAgent(ctx, scope.AgentID)
+			if err != nil {
+				return runToolSnapshot{}, errors.New("tool availability scope is unavailable")
+			}
+			availabilityScope, err = r.agentRuntimeScope(ctx, agent)
+			if err != nil {
+				return runToolSnapshot{}, errors.New("tool availability scope is unavailable")
+			}
+		}
+		target := toolAvailabilityTarget(availabilityScope)
+		names := make([]string, 0, len(byName))
+		for name := range byName {
+			names = append(names, name)
+		}
+		decisions, err := r.store.ResolveToolAvailabilities(ctx, target, names)
+		if err != nil {
+			return runToolSnapshot{}, errors.New("tool availability policy is unavailable")
+		}
+		for name := range byName {
+			decision := decisions[name]
+			if !decision.Enabled {
+				delete(byName, name)
+			}
+		}
+	}
 	registered := make([]tools.Tool, 0, len(byName))
 	for _, tool := range byName {
 		registered = append(registered, tool)
@@ -169,7 +198,11 @@ func (r *Runner) snapshotTools(ctx context.Context, scope tools.ResolutionContex
 	sort.Slice(registered, func(i, j int) bool { return registered[i].Name() < registered[j].Name() })
 	specs := make([]providers.ToolSpec, 0, len(registered))
 	for _, tool := range registered {
-		specs = append(specs, providers.ToolSpec{Name: tool.Name(), Description: tool.Description(), Schema: toolInputSchema(tool.Schema())})
+		schema, err := checkedToolInputSchema(tool.Schema())
+		if err != nil {
+			return runToolSnapshot{}, fmt.Errorf("invalid schema for tool %s: %w", tool.Name(), err)
+		}
+		specs = append(specs, providers.ToolSpec{Name: tool.Name(), Description: tool.Description(), Schema: schema})
 	}
 	return runToolSnapshot{tools: byName, specs: specs}, nil
 }
@@ -214,7 +247,7 @@ func (r *Runner) ExecuteToolForRun(ctx context.Context, agentID, runID string, c
 	return r.executeTool(ctx, agentID, runID, call, "")
 }
 
-func (r *Runner) executeToolForLoop(ctx context.Context, agentID, runID string, call tools.Call, messageID string, snapshots ...map[string]tools.Tool) (tools.Result, error) {
+func (r *Runner) executeToolForLoop(ctx context.Context, agentID, runID string, call tools.Call, messageID string, snapshots ...map[string]tools.Tool) (result tools.Result, executeErr error) {
 	call = policyToolCall(call)
 	agent, policy, err := r.policyContext(ctx, agentID, runID)
 	if err != nil {
@@ -225,9 +258,29 @@ func (r *Runner) executeToolForLoop(ctx context.Context, agentID, runID string, 
 	if len(snapshots) > 0 {
 		snapshot = snapshots[0]
 	}
+	if snapshot == nil && strings.TrimSpace(runID) != "" {
+		if runtimeSnapshot, ok := r.runRuntimeSnapshot(runID); ok {
+			snapshot = runtimeSnapshot.tools.tools
+		} else if runtimeSnapshot, _, snapshotErr := r.prepareRunRuntimeSnapshot(ctx, agentID, runID); snapshotErr != nil {
+			return tools.Result{}, snapshotErr
+		} else {
+			snapshot = runtimeSnapshot.tools.tools
+		}
+	}
+	if snapshot == nil {
+		current, snapshotErr := r.snapshotToolsForPolicy(ctx, tools.ResolutionContext{AgentID: agent.ID, CWD: agent.CWD}, policy)
+		if snapshotErr != nil {
+			return tools.Result{}, snapshotErr
+		}
+		snapshot = current.tools
+	}
 	tool, err := r.resolveTool(ctx, tools.ResolutionContext{AgentID: agent.ID, CWD: agent.CWD}, call.Name, snapshot)
 	if err != nil {
 		return tools.Result{}, err
+	}
+	call, err = normalizeToolCallInput(call, tool)
+	if err != nil {
+		return r.rejectInvalidToolInput(ctx, agentID, runID, messageID, call, executionDeviceID, err), nil
 	}
 	risk := tool.Risk(call.Input)
 	if result, denied := planToolDeniedResult(policy, call, risk); denied {
@@ -310,16 +363,47 @@ func (r *Runner) executeToolForLoop(ctx context.Context, agentID, runID string, 
 	return r.executeApprovedTool(ctx, agent, runID, call, tool, risk, messageID, true, humanResolution)
 }
 
-func (r *Runner) executeTool(ctx context.Context, agentID, runID string, call tools.Call, messageID string) (tools.Result, error) {
+func (r *Runner) executeTool(ctx context.Context, agentID, runID string, call tools.Call, messageID string) (result tools.Result, executeErr error) {
 	call = policyToolCall(call)
 	agent, policy, err := r.policyContext(ctx, agentID, runID)
 	if err != nil {
 		return tools.Result{}, err
 	}
 	executionDeviceID := policy.ExecutionDeviceID
-	tool, err := r.resolveTool(ctx, tools.ResolutionContext{AgentID: agent.ID, CWD: agent.CWD}, call.Name, nil)
+	var toolSnapshot runToolSnapshot
+	if strings.TrimSpace(runID) != "" {
+		if runtimeSnapshot, ok := r.runRuntimeSnapshot(runID); ok {
+			toolSnapshot = runtimeSnapshot.tools
+		} else {
+			runtimeSnapshot, _, snapshotErr := r.prepareRunRuntimeSnapshot(ctx, agentID, runID)
+			if snapshotErr != nil {
+				return tools.Result{}, snapshotErr
+			}
+			toolSnapshot = runtimeSnapshot.tools
+		}
+	} else {
+		toolSnapshot, err = r.snapshotToolsForPolicy(ctx, tools.ResolutionContext{AgentID: agent.ID, CWD: agent.CWD}, policy)
+		if err != nil {
+			// Catalog snapshots must reject any invalid schema. For a direct call,
+			// resolve only the requested tool to distinguish its own invalid schema
+			// from an unrelated catalog failure, while still refusing execution.
+			calledTool, resolveErr := r.resolveTool(ctx, tools.ResolutionContext{AgentID: agent.ID, CWD: agent.CWD}, call.Name, nil)
+			if resolveErr == nil {
+				if _, schemaErr := checkedToolInputSchema(calledTool.Schema()); schemaErr != nil {
+					inputErr := fmt.Errorf("invalid schema for tool %s: %w", calledTool.Name(), schemaErr)
+					return r.rejectInvalidToolInput(ctx, agentID, runID, messageID, call, executionDeviceID, inputErr), nil
+				}
+			}
+			return tools.Result{}, err
+		}
+	}
+	tool, err := r.resolveTool(ctx, tools.ResolutionContext{AgentID: agent.ID, CWD: agent.CWD}, call.Name, toolSnapshot.tools)
 	if err != nil {
 		return tools.Result{}, err
+	}
+	call, err = normalizeToolCallInput(call, tool)
+	if err != nil {
+		return r.rejectInvalidToolInput(ctx, agentID, runID, messageID, call, executionDeviceID, err), nil
 	}
 	risk := tool.Risk(call.Input)
 	if tools.IsToolOutputPipelineControl(call.Name) {
@@ -363,12 +447,15 @@ func (r *Runner) executeTool(ctx context.Context, agentID, runID string, call to
 		return tools.Result{}, fmt.Errorf("persist running tool call: %w", err)
 	}
 	r.publish(Event{Type: "tool.started", AgentID: agentID, Data: toolStartedEventDataWithResolution(call, risk, executionDeviceID, runID, permission)})
+	if hookErr := r.dispatchToolLifecycle(ctx, agentID, runID, hooks.EventToolBefore, call, nil, nil); hookErr != nil {
+		return r.finishToolSetupFailure(ctx, agentID, runID, call, risk, executionDeviceID, permission, hookErr)
+	}
 	env, err := r.toolExecutionEnv(ctx, agent, runID, r.toolOutputPublisher(agentID, runID, call))
 	if err != nil {
 		return r.finishToolSetupFailure(ctx, agentID, runID, call, risk, executionDeviceID, permission, err)
 	}
 	started := time.Now()
-	result, err := tool.Execute(ctx, call, env)
+	result, executeErr = tool.Execute(ctx, call, env)
 	duration := time.Since(started).Milliseconds()
 	output, _ := json.Marshal(result)
 	status := "completed"
@@ -377,15 +464,43 @@ func (r *Runner) executeTool(ctx context.Context, agentID, runID string, call to
 		status = "error"
 		errMsg = result.Output
 	}
-	if err != nil {
+	if executeErr != nil {
 		status = "error"
-		errMsg = err.Error()
+		errMsg = executeErr.Error()
 	}
 	if recordErr := r.store.UpdateToolCallResult(ctx, agentID, call.ID, output, status, duration, errMsg); recordErr != nil {
 		slog.Warn("record tool call result failed", "agentId", agentID, "toolUseId", call.ID, "error", recordErr)
 	}
 	r.publish(Event{Type: "tool.finished", AgentID: agentID, Data: toolFinishedEventDataWithResolution(call, risk, executionDeviceID, runID, result, status, duration, nil, permission)})
-	return result, err
+	if hookErr := r.dispatchToolLifecycle(ctx, agentID, runID, hooks.EventToolAfter, call, &result, executeErr); hookErr != nil && executeErr == nil {
+		executeErr = hookErr
+	}
+	return result, executeErr
+}
+
+func normalizeToolCallInput(call tools.Call, tool tools.Tool) (tools.Call, error) {
+	if tool == nil {
+		return call, errors.New("tool is unavailable")
+	}
+	schema, err := checkedToolInputSchema(tool.Schema())
+	if err != nil {
+		return call, fmt.Errorf("invalid schema for tool %s: %w", tool.Name(), err)
+	}
+	normalized, err := NormalizeToolInput(call.Input, schema)
+	if err != nil {
+		return call, err
+	}
+	call.Input = normalized
+	return call, nil
+}
+
+func (r *Runner) rejectInvalidToolInput(ctx context.Context, agentID, runID, messageID string, call tools.Call, executionDeviceID string, inputErr error) tools.Result {
+	message := "invalid tool input: " + strings.TrimSpace(inputErr.Error())
+	result := tools.Result{Output: message, IsError: true}
+	resolution := toolPermissionResolution{Decision: toolPermissionDeny, Reason: message, Warning: message, Source: decisionSourceDefaultPolicy, Scope: "tool_call"}
+	r.recordImmediateToolResult(ctx, agentID, runID, messageID, call, tools.Risk(""), result, "error", message)
+	r.publish(Event{Type: "tool.finished", AgentID: agentID, Data: toolFinishedEventDataWithResolution(call, tools.Risk(""), executionDeviceID, runID, result, "error", 0, map[string]any{"warning": message}, resolution)})
+	return result
 }
 
 func (r *Runner) finishToolSetupFailure(ctx context.Context, agentID, runID string, call tools.Call, risk tools.Risk, executionDeviceID string, permission toolPermissionResolution, setupErr error) (tools.Result, error) {
@@ -430,6 +545,9 @@ func (r *Runner) executeApprovedTool(ctx context.Context, agent db.Agent, runID 
 		return tools.Result{}, fmt.Errorf("persist running tool call: %w", err)
 	}
 	r.publish(Event{Type: "tool.started", AgentID: agent.ID, Data: toolStartedEventDataWithResolution(call, risk, normalizedExecutionDeviceID(agent.ExecutionDeviceID), runID, permission)})
+	if hookErr := r.dispatchToolLifecycle(ctx, agent.ID, runID, hooks.EventToolBefore, call, nil, nil); hookErr != nil {
+		return r.finishToolSetupFailure(ctx, agent.ID, runID, call, risk, normalizedExecutionDeviceID(agent.ExecutionDeviceID), permission, hookErr)
+	}
 	gitBefore := r.captureRunToolGitBefore(ctx, agent, runID, risk)
 	env, err := r.toolExecutionEnv(ctx, agent, runID, r.toolOutputPublisher(agent.ID, runID, call))
 	if err != nil {
@@ -454,6 +572,9 @@ func (r *Runner) executeApprovedTool(ctx context.Context, agent db.Agent, runID 
 		slog.Warn("update tool call result failed", "agentId", agent.ID, "toolUseId", call.ID, "error", recordErr)
 	}
 	r.publish(Event{Type: "tool.finished", AgentID: agent.ID, Data: toolFinishedEventDataWithResolution(call, risk, normalizedExecutionDeviceID(agent.ExecutionDeviceID), runID, result, status, duration, nil, permission)})
+	if hookErr := r.dispatchToolLifecycle(ctx, agent.ID, runID, hooks.EventToolAfter, call, &result, err); hookErr != nil && err == nil {
+		err = hookErr
+	}
 	return result, err
 }
 

@@ -599,7 +599,7 @@ func (s *Server) currentPlanSnapshot(ctx context.Context, agentID string) (db.Pl
 	if err != nil {
 		return db.PlanSnapshot{}, err
 	}
-	toolDigest, err := s.reviewToolCatalogDigest(ctx, generations.Permission)
+	toolDigest, err := s.reviewToolCatalogDigest(ctx, agent, generations.Permission)
 	if err != nil {
 		return db.PlanSnapshot{}, err
 	}
@@ -690,7 +690,7 @@ func (s *Server) validateReviewRepoBoundary(ctx context.Context, agent db.Agent,
 	return errors.New("workspace Git repository is outside the configured project boundary")
 }
 
-func (s *Server) reviewToolCatalogDigest(ctx context.Context, permissionGeneration int64) (string, error) {
+func (s *Server) reviewToolCatalogDigest(ctx context.Context, agent db.Agent, permissionGeneration int64) (string, error) {
 	type pluginRevision struct {
 		ID       string `json:"id"`
 		Slug     string `json:"slug"`
@@ -710,11 +710,30 @@ func (s *Server) reviewToolCatalogDigest(ctx context.Context, permissionGenerati
 		}
 	}
 	sort.Slice(items, func(i, j int) bool { return items[i].ID < items[j].ID })
+
+	target := db.ToolAvailabilityTarget{Scope: db.ToolAvailabilityScopeGlobal}
+	if strings.TrimSpace(agent.WorklineID) != "" {
+		workline, err := s.store.GetWorkline(ctx, agent.WorklineID)
+		if err != nil {
+			return "", fmt.Errorf("resolve tool availability scope: %w", err)
+		}
+		target = db.ToolAvailabilityTarget{Scope: db.ToolAvailabilityScopeWorkspace, ProjectID: workline.ProjectID, WorkspaceID: workline.ID}
+	}
+	toolNames := s.toolRegistrySnapshot().Names()
+	availability, err := s.store.ResolveToolAvailabilities(ctx, target, toolNames)
+	if err != nil {
+		return "", fmt.Errorf("resolve tool availability digest: %w", err)
+	}
+	decisions := make([]db.ToolAvailabilityDecision, 0, len(toolNames))
+	for _, name := range toolNames {
+		decisions = append(decisions, availability[name])
+	}
 	encoded, err := json.Marshal(struct {
-		PermissionGeneration int64            `json:"permissionGeneration"`
-		Tools                []string         `json:"tools"`
-		Plugins              []pluginRevision `json:"plugins"`
-	}{PermissionGeneration: permissionGeneration, Tools: s.toolRegistrySnapshot().Names(), Plugins: items})
+		PermissionGeneration int64                         `json:"permissionGeneration"`
+		Tools                []string                      `json:"tools"`
+		Availability         []db.ToolAvailabilityDecision `json:"availability"`
+		Plugins              []pluginRevision              `json:"plugins"`
+	}{PermissionGeneration: permissionGeneration, Tools: toolNames, Availability: decisions, Plugins: items})
 	if err != nil {
 		return "", err
 	}

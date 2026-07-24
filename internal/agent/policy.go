@@ -2,7 +2,6 @@ package agent
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -22,15 +21,15 @@ const (
 )
 
 var planToolAllowlist = map[string]struct{}{
-	"Read":             {},
-	"Glob":             {},
-	"Grep":             {},
-	"WebFetch":         {},
-	"WebSearch":        {},
-	"ContextAsk":       {},
-	"AskUserQuestion":  {},
-	"StartPipeline":    {},
-	"EndPipeline":      {},
+	"Read":            {},
+	"Glob":            {},
+	"Grep":            {},
+	"WebFetch":        {},
+	"WebSearch":       {},
+	"ContextAsk":      {},
+	"AskUserQuestion": {},
+	"StartPipeline":   {},
+	"EndPipeline":     {},
 }
 
 var conversationResearchToolNames = []string{"WebFetch", "WebSearch", "AskUserQuestion"}
@@ -171,7 +170,7 @@ func (r *Runner) snapshotToolsForPolicy(ctx context.Context, scope tools.Resolut
 	var snapshot runToolSnapshot
 	var err error
 	if policy.IsConversation() {
-		snapshot, err = r.snapshotConversationTools()
+		snapshot, err = r.snapshotConversationTools(ctx, scope)
 	} else {
 		snapshot, err = r.snapshotTools(ctx, scope)
 	}
@@ -186,16 +185,27 @@ func (r *Runner) snapshotToolsForPolicy(ctx context.Context, scope tools.Resolut
 		specs = append(specs, spec)
 	}
 	// Keep the immutable snapshot for the final execution gateway. Conversation
-	// runs receive only the two built-in public-web tools and never enumerate
-	// project-scoped dynamic tools.
+	// runs receive only the fixed public-web and user-question tools and never
+	// enumerate project-scoped dynamic tools.
 	return runToolSnapshot{tools: snapshot.tools, specs: specs}, nil
 }
 
-func (r *Runner) snapshotConversationTools() (runToolSnapshot, error) {
+func (r *Runner) snapshotConversationTools(ctx context.Context, scope tools.ResolutionContext) (runToolSnapshot, error) {
 	byName := make(map[string]tools.Tool, len(conversationResearchToolNames))
 	specs := make([]providers.ToolSpec, 0, len(conversationResearchToolNames))
 	if r == nil || r.tools == nil {
 		return runToolSnapshot{tools: byName, specs: specs}, nil
+	}
+	availabilityScope := agentRuntimeScope{}
+	if r.store != nil && strings.TrimSpace(scope.AgentID) != "" {
+		agent, err := r.store.GetAgent(ctx, scope.AgentID)
+		if err != nil {
+			return runToolSnapshot{}, errors.New("tool availability scope is unavailable")
+		}
+		availabilityScope, err = r.agentRuntimeScope(ctx, agent)
+		if err != nil {
+			return runToolSnapshot{}, errors.New("tool availability scope is unavailable")
+		}
 	}
 	for _, name := range conversationResearchToolNames {
 		tool, ok := r.tools.Get(name)
@@ -205,8 +215,21 @@ func (r *Runner) snapshotConversationTools() (runToolSnapshot, error) {
 		if strings.TrimSpace(tool.Name()) != name {
 			return runToolSnapshot{}, fmt.Errorf("conversation research tool name mismatch: %s", name)
 		}
+		if r.store != nil {
+			decision, err := r.store.ResolveToolAvailability(ctx, toolAvailabilityTarget(availabilityScope), name)
+			if err != nil {
+				return runToolSnapshot{}, errors.New("tool availability policy is unavailable")
+			}
+			if !decision.Enabled {
+				continue
+			}
+		}
 		byName[name] = tool
-		specs = append(specs, providers.ToolSpec{Name: name, Description: tool.Description(), Schema: toolInputSchema(tool.Schema())})
+		schema, err := checkedToolInputSchema(tool.Schema())
+		if err != nil {
+			return runToolSnapshot{}, fmt.Errorf("invalid schema for tool %s: %w", name, err)
+		}
+		specs = append(specs, providers.ToolSpec{Name: name, Description: tool.Description(), Schema: schema})
 	}
 	return runToolSnapshot{tools: byName, specs: specs}, nil
 }
@@ -218,11 +241,8 @@ func planToolDeniedResult(policy PolicyContext, call tools.Call, risk tools.Risk
 	return tools.Result{}, false
 }
 
-// policyToolCall normalizes a direct or looped call before policy evaluation.
+// policyToolCall fills runtime-owned call metadata before schema-aware input
+// normalization. Invalid input must remain intact so the runner can fail closed.
 func policyToolCall(call tools.Call) tools.Call {
-	call = normalizeToolCall(call)
-	if !json.Valid(call.Input) {
-		call.Input = json.RawMessage(`{}`)
-	}
-	return call
+	return normalizeToolCall(call)
 }

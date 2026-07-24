@@ -67,6 +67,9 @@ type Runner struct {
 	planMu               sync.RWMutex
 	reviewer             *review.Service
 	planSnapshotProvider func(context.Context, string) (db.PlanSnapshot, error)
+
+	runtimeStateOnce sync.Once
+	runtimeState     *runtimeSnapshotState
 }
 
 type activeRun struct {
