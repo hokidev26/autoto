@@ -1285,52 +1285,158 @@ body.white-shell.theme-light .composer-wrap {
 
 /* Mobile shell final cascade guard: keep the redesigned composer above legacy responsive tiers. */
 @media (max-width: 767px) {
-  body.white-shell.theme-light .chat-header { display: none; }
+  :root {
+    --mobile-topbar-height: 58px;
+    --mobile-composer-reserve: 120px;
+  }
+
+  body.white-shell.theme-light .mobile-topbar {
+    grid-template-columns: 46px minmax(0, 1fr) auto;
+    gap: 2px;
+    border-bottom: 1px solid rgba(60, 60, 67, .12);
+    padding: 0 max(10px, env(safe-area-inset-right)) 0 max(10px, env(safe-area-inset-left));
+  }
+
+  body.white-shell.theme-light .mobile-topbar-center {
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+  }
+
+  body.white-shell.theme-light .mobile-brand {
+    display: block;
+    overflow: hidden;
+    color: #111318;
+    font-size: 22px;
+    font-weight: 800;
+    letter-spacing: -.035em;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  body.white-shell.theme-light .mobile-page-title,
+  body.white-shell.theme-light .mobile-update-pill { display: none !important; }
+  body.white-shell.theme-light .mobile-topbar-actions { gap: 0; margin-left: 2px; }
+  body.white-shell.theme-light .mobile-topbar .mobile-icon-btn { width: 42px; min-width: 42px; height: 42px; border-radius: 10px; }
+
+  body.white-shell.theme-light .chat-header {
+    height: 50px;
+    min-height: 50px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 0 10px;
+    overflow: hidden;
+    border-bottom: 1px solid rgba(60, 60, 67, .12);
+    background: #fff;
+  }
+
+  body.white-shell.theme-light .chat-header .header-left {
+    min-width: 88px;
+    flex: 1 1 auto;
+    overflow: hidden;
+  }
+
+  body.white-shell.theme-light .chat-header :is(.chat-heading, .chat-title-row, .chat-title-editor) {
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  body.white-shell.theme-light .chat-header .chat-title {
+    max-width: none;
+    font-size: 15px;
+    font-weight: 700;
+    letter-spacing: -.015em;
+  }
+
+  body.white-shell.theme-light .chat-header .chat-title-action {
+    width: 30px;
+    height: 30px;
+    flex: 0 0 30px;
+    border-radius: 8px;
+    padding: 6px;
+  }
+
+  body.white-shell.theme-light .chat-header .workspace-meta-pills,
+  body.white-shell.theme-light .chat-header .security-mode-pill { display: none !important; }
+
+  body.white-shell.theme-light .chat-header .header-actions {
+    min-width: 0;
+    max-width: 56%;
+    flex: 0 1 auto;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-width: none;
+  }
+
+  body.white-shell.theme-light .chat-header .header-actions::-webkit-scrollbar { display: none; }
+  body.white-shell.theme-light .chat-header .header-tool-group { gap: 1px; }
+  body.white-shell.theme-light .chat-header .header-tool-btn {
+    width: 34px;
+    height: 34px;
+    min-width: 34px;
+    min-height: 34px;
+    padding: 7px;
+    border-radius: 8px;
+  }
+
+  body.white-shell.theme-light .composer-wrap {
+    border-top: 1px solid rgba(60, 60, 67, .12);
+    background: rgba(255, 255, 255, .98);
+    padding: 7px max(10px, env(safe-area-inset-right)) max(8px, env(safe-area-inset-bottom)) max(10px, env(safe-area-inset-left));
+    -webkit-backdrop-filter: blur(18px);
+    backdrop-filter: blur(18px);
+  }
 
   body.white-shell.theme-light .composer-card {
     display: flex;
     flex-direction: column;
-    gap: 4px;
+    gap: 6px;
     border: 0;
     border-radius: 0;
     background: transparent;
-    padding: 2px 0 0;
+    padding: 0;
     box-shadow: none;
   }
 
   body.white-shell.theme-light .composer-input-shell {
-    order: -1;
-    min-height: 48px;
+    order: 2;
+    min-height: 44px;
     display: flex;
-    align-items: flex-end;
-    gap: 8px;
+    align-items: stretch;
+    gap: 6px;
     background: transparent;
     border: 0;
     border-radius: 0;
     padding: 0;
   }
   body.white-shell.theme-light .message-input-frame {
-    flex: 1 1 auto;
     min-width: 0;
+    min-height: 44px;
+    flex: 1 1 auto;
+    display: flex;
+    align-items: center;
     background: #fff;
-    border: 1px solid rgba(60, 60, 67, .16);
-    border-radius: 14px;
-    padding: 4px 12px;
+    border: 1px solid rgba(60, 60, 67, .18);
+    border-radius: 8px;
+    padding: 0 11px;
   }
 
   body.white-shell.theme-light :is(.message, .message.user, .message.assistant) { max-width: 100%; }
 
   body.white-shell.theme-light .composer-toolbar {
-    order: 2;
+    order: 1;
     min-width: 0;
-    min-height: 38px;
+    min-height: 30px;
     height: auto;
     display: flex;
     align-items: center;
     justify-content: flex-start;
-    gap: 8px;
+    gap: 6px;
     overflow: visible;
-    padding: 0 2px 1px;
+    border: 0;
+    padding: 0 1px;
   }
 
   body.white-shell.theme-light :is(.composer-task-summary, .permission-safety-indicator, .permission-risk-badge, .toolbar-lightning-btn),
@@ -1428,7 +1534,56 @@ body.white-shell.theme-light .composer-wrap {
   body.white-shell.theme-light .composer-effort-field .composer-select-value::before { content: none; }
   body.white-shell.theme-light .composer-select-chevron { display: inline; flex: 0 0 auto; }
   body.white-shell.theme-light .composer-select-icon { display: inline-flex; flex: 0 0 18px; }
+
+  body.white-shell.theme-light .composer-attach-wrap { align-self: stretch; }
+  body.white-shell.theme-light .composer-attach-btn {
+    width: 44px;
+    height: 44px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 0;
+    border-radius: 8px;
+    background: transparent;
+    color: #7b8494;
+    padding: 10px;
+  }
+  body.white-shell.theme-light .composer-attach-btn svg {
+    width: 22px;
+    height: 22px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.8;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+  body.white-shell.theme-light .composer-attach-btn:is(:hover, :focus-visible) { background: #f2f3f5; color: #5369f3; }
+
+  body.white-shell.theme-light textarea#messageText {
+    min-height: 42px;
+    max-height: 116px;
+    padding: 10px 0 9px;
+    font-size: 15px;
+    line-height: 1.4;
+  }
+
+  body.white-shell.theme-light #sendMessageBtn {
+    width: 60px;
+    min-width: 60px;
+    height: 44px;
+    align-self: stretch;
+    border-radius: 8px;
+    background: #5369f3;
+    color: #fff;
+    padding: 0 12px;
+    font-size: 14px;
+    font-weight: 700;
+  }
+  body.white-shell.theme-light #sendMessageBtn::before { display: none; content: none; }
+  body.white-shell.theme-light #sendMessageBtn:disabled { background: #e9ecf1; color: #9aa2b1; }
+  body.white-shell.theme-light .pending-attachments { order: 1; margin: 0; }
 }
+
 
 /* Desktop home overview dashboard: a first-class white-shell surface, never a modal. */
 .overview-dashboard-page {

@@ -1573,7 +1573,7 @@ test("mobile shell skips home and keeps the drawer, settings index, and model sh
   const marker = "/* Mobile shell refresh: conversation, drawer, settings, and composer selection sheets. */";
   const refreshedStyles = styles.slice(styles.indexOf(marker));
   assert.ok(refreshedStyles.startsWith(marker));
-  assert.match(styles, /\.mobile-topbar,\s*\.mobile-backdrop,\s*\.mobile-drawer-header,\s*\.mobile-drawer-primary-actions,\s*\.mobile-sidebar-account-summary,\s*\.mobile-sidebar-quick-actions,\s*\.mobile-drawer-footer,\s*\.mobile-conversation-welcome,\s*\.composer-status\s*\{\s*display:\s*none;/);
+  assert.match(styles, /\.mobile-topbar,\s*\.mobile-backdrop,\s*\.mobile-drawer-header,\s*\.mobile-drawer-primary-actions,\s*\.mobile-drawer-schedule-btn,\s*\.mobile-sidebar-account-summary,\s*\.mobile-sidebar-quick-actions,\s*\.mobile-drawer-footer,\s*\.mobile-conversation-welcome,\s*\.composer-status\s*\{\s*display:\s*none;/);
   assert.match(refreshedStyles, /:is\(\.composer-task-summary, \.permission-safety-indicator, \.permission-risk-badge, \.toolbar-lightning-btn\)/);
   assert.match(refreshedStyles, /\.composer-status:not\(\.is-busy\)/);
   assert.match(refreshedStyles, /\.composer-status\.is-busy\s*\{[^}]*display:\s*inline-flex !important/);
@@ -1598,6 +1598,13 @@ test("mobile shell skips home and keeps the drawer, settings index, and model sh
   const guardIndex = styles.lastIndexOf(guardMarker);
   assert.ok(guardIndex > styles.indexOf("/* Narrow composer icon rail"));
   const cascadeGuard = styles.slice(guardIndex);
+  assert.match(html, /class="mobile-brand">Autoto<\/div>/);
+  assert.match(html, /id="attachFileBtn"[\s\S]*?<svg viewBox="0 0 24 24"/);
+  assert.match(cascadeGuard, /\.mobile-brand\s*\{[\s\S]*?display:\s*block/);
+  assert.match(cascadeGuard, /\.chat-header\s*\{[\s\S]*?height:\s*50px;[\s\S]*?display:\s*flex/);
+  assert.match(cascadeGuard, /\.composer-toolbar\s*\{[\s\S]*?order:\s*1/);
+  assert.match(cascadeGuard, /\.composer-input-shell\s*\{[\s\S]*?order:\s*2/);
+  assert.match(cascadeGuard, /#sendMessageBtn\s*\{[\s\S]*?width:\s*60px[\s\S]*?height:\s*44px/);
   assert.match(cascadeGuard, /\.composer-task-summary,[\s\S]*?display:\s*none !important/);
   assert.match(cascadeGuard, /\.composer-select-value,[\s\S]*?position:\s*static;[\s\S]*?clip-path:\s*none/);
   assert.match(cascadeGuard, /\.composer-model-field \.composer-select-trigger\s*\{\s*max-width:\s*min\(58vw, 246px\)/);
