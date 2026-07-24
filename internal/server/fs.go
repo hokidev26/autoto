@@ -115,7 +115,7 @@ func (s *Server) fsDirectories(w http.ResponseWriter, r *http.Request) {
 			parent = resolvedParent
 		}
 	}
-	shortcuts := directoryShortcuts(defaultProjectDir)
+	shortcuts := directoryShortcuts(defaultProjectDir, s.fsHostScopeForRequest(r))
 	if remote {
 		base, _ := s.resolveFSPathForRequest(r, "")
 		shortcuts = []fsDirectoryShortcut{{Name: "Projects", Path: base}}
@@ -302,8 +302,24 @@ func defaultDirectoryRoot(defaultProjectDir string) string {
 	return string(filepath.Separator)
 }
 
-func directoryShortcuts(defaultProjectDir string) []fsDirectoryShortcut {
-	shortcuts := make([]fsDirectoryShortcut, 0, 6)
+// filesystemRoots lists the roots worth offering as picker shortcuts: every
+// mounted drive letter on Windows, otherwise the single filesystem root.
+func filesystemRoots() []string {
+	if runtime.GOOS != "windows" {
+		return []string{string(filepath.Separator)}
+	}
+	roots := make([]string, 0, 24)
+	for letter := 'C'; letter <= 'Z'; letter++ {
+		root := string(letter) + `:\`
+		if info, err := os.Stat(root); err == nil && info.IsDir() {
+			roots = append(roots, root)
+		}
+	}
+	return roots
+}
+
+func directoryShortcuts(defaultProjectDir string, hostScope bool) []fsDirectoryShortcut {
+	shortcuts := make([]fsDirectoryShortcut, 0, 12)
 	base := strings.TrimSpace(defaultProjectDir)
 	if base != "" {
 		if info, err := os.Stat(base); err != nil || !info.IsDir() {
@@ -315,9 +331,10 @@ func directoryShortcuts(defaultProjectDir string) []fsDirectoryShortcut {
 			return
 		}
 		if info, err := os.Stat(path); err == nil && info.IsDir() {
-			// Project-scoped browsing cannot leave DefaultProjectDir. Hide
-			// host-wide shortcuts that would only surface as load failures.
-			if base != "" {
+			// Project-scoped browsing cannot leave DefaultProjectDir, so hide
+			// host-wide shortcuts that would only surface as load failures. A
+			// host-scoped session reaches them, so keep them.
+			if !hostScope && base != "" {
 				baseAbs, err := filepath.Abs(base)
 				if err != nil {
 					return
@@ -337,7 +354,9 @@ func directoryShortcuts(defaultProjectDir string) []fsDirectoryShortcut {
 		add("Documents", filepath.Join(home, "Documents"))
 	}
 	add("Projects", defaultProjectDir)
-	add("Root", string(filepath.Separator))
+	for _, root := range filesystemRoots() {
+		add(root, root)
+	}
 	return shortcuts
 }
 

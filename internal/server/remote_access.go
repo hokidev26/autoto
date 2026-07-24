@@ -372,19 +372,32 @@ func (s *Server) resolveCWDForRequest(r *http.Request, input string) (string, er
 }
 
 func (s *Server) resolveFSPathForRequest(r *http.Request, input string) (string, error) {
-	auth := s.remoteAccessAuthentication(r)
-	// Existing local filesystem endpoints remain project-scoped. Only an
-	// authenticated full remote session receives host filesystem scope here.
-	if !auth.Remote || auth.Mode != remoteAccessModeFull {
-		return s.resolveFSPath(input)
+	if s.fsHostScopeForRequest(r) {
+		return s.resolveHostFSPath(input)
 	}
-	return s.resolveHostFSPath(input)
+	return s.resolveFSPath(input)
+}
+
+// fsHostScopeForRequest reports whether the request may browse the whole host.
+// A remote session needs full access; a local session qualifies as long as the
+// server is not exposed to the network (then it is the user's own machine and a
+// loopback-looking caller cannot be an outsider enumerating the filesystem).
+func (s *Server) fsHostScopeForRequest(r *http.Request) bool {
+	auth := s.remoteAccessAuthentication(r)
+	if auth.Remote {
+		return auth.Mode == remoteAccessModeFull
+	}
+	return !s.configSnapshot().Security.Exposed
 }
 
 func (s *Server) resolveHostFSPath(input string) (string, error) {
 	path := strings.TrimSpace(input)
 	if path == "" {
 		path = s.fsBasePath()
+	} else if !filepath.IsAbs(path) {
+		// Resolve relatives against the project base (not the server's working
+		// directory) so host-scoped callers match project-scoped resolution.
+		path = filepath.Join(s.fsBasePath(), path)
 	}
 	abs, err := filepath.Abs(path)
 	if err != nil {

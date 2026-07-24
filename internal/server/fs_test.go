@@ -21,7 +21,9 @@ func TestFSOperationsRejectSymlinkEscape(t *testing.T) {
 	if err := os.Symlink(outside, filepath.Join(project, "link")); err != nil {
 		t.Skipf("symlinks are unavailable: %v", err)
 	}
-	app := New(config.Config{Paths: config.PathsConfig{DefaultProjectDir: project}}, nil, nil, nil)
+	// Exposed so that local HTTP requests stay project-scoped and the symlink
+	// escape protection applies (a non-exposed local server may browse the host).
+	app := New(config.Config{Paths: config.PathsConfig{DefaultProjectDir: project}, Security: config.SecurityConfig{Exposed: true}}, nil, nil, nil)
 	for _, path := range []string{"link/secret.txt", "link/new-directory"} {
 		if _, err := app.resolveFSPath(path); err == nil || !strings.Contains(err.Error(), "escapes default project directory") {
 			t.Fatalf("expected symlink escape rejection for %q, got %v", path, err)
