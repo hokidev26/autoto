@@ -2,7 +2,8 @@ import { defaultProfilePrefs } from "./preferences-data.mjs";
 import { normalizeAvatarDataUrl } from "./profile-avatar.mjs?v=profile-avatar-1";
 
 export const accountPreferencesImportVersion = 1;
-export const accountPreferenceFields = Object.freeze(["profile", "preferredModel", "modelVisibility"]);
+export const accountPreferencesCurrentSetupVersion = 1;
+export const accountPreferenceFields = Object.freeze(["profile", "preferredModel", "modelVisibility", "setupVersion"]);
 export const accountPreferenceLegacyKeys = Object.freeze({
   profile: ["autoto.profile", "codeharbor.profile"],
   preferredModel: ["autoto.preferredModel", "codeharbor.preferredModel"],
@@ -35,6 +36,11 @@ export function normalizeModelVisibility(value = {}) {
   return { hiddenModels, showUnconfiguredProviders: Boolean(source.showUnconfiguredProviders) };
 }
 
+export function normalizeSetupVersion(value) {
+  const normalized = Math.trunc(Number(value) || 0);
+  return Math.min(accountPreferencesCurrentSetupVersion, Math.max(0, normalized));
+}
+
 export function normalizeAccountPreferencesSnapshot(value = {}, fallback = {}) {
   const source = value && typeof value === "object" && !Array.isArray(value) ? value : {};
   return {
@@ -42,6 +48,7 @@ export function normalizeAccountPreferencesSnapshot(value = {}, fallback = {}) {
     profile: normalizeAccountProfile(source.profile ?? fallback.profile ?? defaultProfilePrefs),
     preferredModel: String(source.preferredModel ?? fallback.preferredModel ?? "").trim().slice(0, 240),
     modelVisibility: normalizeModelVisibility(source.modelVisibility ?? fallback.modelVisibility ?? {}),
+    setupVersion: normalizeSetupVersion(source.setupVersion ?? fallback.setupVersion ?? 0),
     revision: Math.max(0, Number(source.revision ?? fallback.revision ?? 0) || 0),
     localStorageImportVersion: Math.max(0, Number(source.localStorageImportVersion ?? fallback.localStorageImportVersion ?? 0) || 0),
     updatedAt: String(source.updatedAt ?? fallback.updatedAt ?? "").trim(),
@@ -139,6 +146,7 @@ export function createAccountPreferencesController({
     if (hasOwn(patch, "profile")) normalized.profile = normalizeAccountProfile(patch.profile);
     if (hasOwn(patch, "preferredModel")) normalized.preferredModel = String(patch.preferredModel || "").trim().slice(0, 240);
     if (hasOwn(patch, "modelVisibility")) normalized.modelVisibility = normalizeModelVisibility(patch.modelVisibility);
+    if (hasOwn(patch, "setupVersion")) normalized.setupVersion = normalizeSetupVersion(patch.setupVersion);
     return normalized;
   }
 
@@ -403,6 +411,7 @@ export function createAccountPreferencesController({
     getModelVisibility: () => getSnapshot().modelVisibility,
     getPreferredModel: () => snapshot.preferredModel,
     getProfile: () => getSnapshot().profile,
+    getSetupVersion: () => snapshot.setupVersion,
     getSnapshot,
     getStatus,
     hasPendingPatch,
@@ -415,6 +424,7 @@ export function createAccountPreferencesController({
     setModelVisibility: (value) => setPreferences({ modelVisibility: value }),
     setPreferredModel: (value) => setPreferences({ preferredModel: value }),
     setProfile: (value) => setPreferences({ profile: value }),
+    setSetupVersion: (value) => setPreferences({ setupVersion: value }),
     setPreferences,
     subscribe,
   };

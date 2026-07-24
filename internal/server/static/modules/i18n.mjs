@@ -3,6 +3,8 @@ import messagesEN from "./messages-en.mjs?v=settings-flat-1-codex-browser-login-
 import backgroundTaskMessages from "./messages-background-tasks.mjs";
 import remoteAccessMessages from "./messages-remote-access.mjs?v=remote-control-full-4-remote-full-toggle-3-cloudflared-install-1";
 import preferencesMessages from "./messages-preferences.mjs";
+import providerSubscriptionAccountsMessages from "./messages-provider-subscription-accounts.mjs";
+import setupWizardMessages from "./messages-setup-wizard.mjs?v=first-run-readiness-1";
 import staticExtraMessages from "./messages-static-extra.mjs";
 import systemSettingsMessages from "./messages-system-settings.mjs";
 import usageHistoryMessages from "./messages-usage-history.mjs";
@@ -28,6 +30,8 @@ function createMergedCatalog(locale, base) {
     backgroundTaskMessages,
     remoteAccessMessages,
     preferencesMessages,
+    providerSubscriptionAccountsMessages,
+    setupWizardMessages,
     staticExtraMessages,
     systemSettingsMessages,
     usageHistoryMessages,

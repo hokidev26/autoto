@@ -92,6 +92,7 @@ func accountPreferencesPatchBody(revision int64, displayName string) string {
 			"gitName": " Example ", "gitEmail": " example@example.test ", "workspaceLabel": " Workspace ",
 		},
 		"preferredModel": "provider:model",
+		"setupVersion":   db.AccountPreferencesCurrentSetupVersion,
 		"modelVisibility": map[string]any{
 			"hiddenModels": map[string]bool{"provider:hidden": true}, "showUnconfiguredProviders": true,
 		},
@@ -143,7 +144,7 @@ func TestAccountPreferencesDefaultPatchConflictAndImportOnce(t *testing.T) {
 			t.Fatalf("default GET returned %d: %s", get.Code, get.Body.String())
 		}
 		initial := decodeAccountPreferencesResponse(t, get)
-		if initial.ScopeKey != "instance:default" || initial.Profile.AvatarInitials != "AT" || initial.ModelVisibility.HiddenModels == nil || initial.LocalStorageImportVersion != 0 {
+		if initial.ScopeKey != "instance:default" || initial.Profile.AvatarInitials != "AT" || initial.ModelVisibility.HiddenModels == nil || initial.SetupVersion != 0 || initial.LocalStorageImportVersion != 0 {
 			t.Fatalf("unexpected default preferences: %+v", initial)
 		}
 
@@ -152,7 +153,7 @@ func TestAccountPreferencesDefaultPatchConflictAndImportOnce(t *testing.T) {
 			t.Fatalf("PATCH returned %d: %s", patch.Code, patch.Body.String())
 		}
 		updated := decodeAccountPreferencesResponse(t, patch)
-		if updated.Revision <= initial.Revision || updated.Profile.DisplayName != "Alice" || updated.Profile.AvatarInitials != "AB" || updated.Profile.AvatarDataURL != testAvatarDataURL(2, 2) || updated.Profile.RoleLabel != "Developer" || updated.PreferredModel != "provider:model" || !updated.ModelVisibility.HiddenModels["provider:hidden"] || !updated.ModelVisibility.ShowUnconfiguredProviders {
+		if updated.Revision <= initial.Revision || updated.Profile.DisplayName != "Alice" || updated.Profile.AvatarInitials != "AB" || updated.Profile.AvatarDataURL != testAvatarDataURL(2, 2) || updated.Profile.RoleLabel != "Developer" || updated.PreferredModel != "provider:model" || updated.SetupVersion != db.AccountPreferencesCurrentSetupVersion || !updated.ModelVisibility.HiddenModels["provider:hidden"] || !updated.ModelVisibility.ShowUnconfiguredProviders {
 			t.Fatalf("unexpected patched preferences: %+v", updated)
 		}
 
@@ -179,7 +180,7 @@ func TestAccountPreferencesDefaultPatchConflictAndImportOnce(t *testing.T) {
 			t.Fatalf("first import returned %d: %s", first.Code, first.Body.String())
 		}
 		firstResponse := decodeAccountPreferencesResponse(t, first)
-		if firstResponse.LocalStorageImportVersion != 1 || firstResponse.Profile.DisplayName != "First import" {
+		if firstResponse.LocalStorageImportVersion != 1 || firstResponse.SetupVersion != 0 || firstResponse.Profile.DisplayName != "First import" {
 			t.Fatalf("unexpected first import response: %+v", firstResponse)
 		}
 		second := accountPreferencesRequest(t, app, http.MethodPost, "/api/preferences/import-local", accountPreferencesImportBody("Second import"), withLocalPreferencesToken(app))
@@ -379,7 +380,7 @@ func TestAccountPreferencesFirstUserClaimsInstanceAndSecondUsesDefaults(t *testi
 		t.Fatalf("first user GET returned %d: %s", firstGet.Code, firstGet.Body.String())
 	}
 	first := decodeAccountPreferencesResponse(t, firstGet)
-	if first.ScopeKey != "user:"+firstUser.ID || first.Profile.DisplayName != "Inherited instance" || first.PreferredModel != "provider:model" {
+	if first.ScopeKey != "user:"+firstUser.ID || first.Profile.DisplayName != "Inherited instance" || first.PreferredModel != "provider:model" || first.SetupVersion != db.AccountPreferencesCurrentSetupVersion {
 		t.Fatalf("first user did not inherit instance preferences: %+v", first)
 	}
 
@@ -389,7 +390,7 @@ func TestAccountPreferencesFirstUserClaimsInstanceAndSecondUsesDefaults(t *testi
 		t.Fatalf("second user GET returned %d: %s", secondGet.Code, secondGet.Body.String())
 	}
 	second := decodeAccountPreferencesResponse(t, secondGet)
-	if second.Profile.DisplayName != "" || second.PreferredModel != "" || len(second.ModelVisibility.HiddenModels) != 0 {
+	if second.Profile.DisplayName != "" || second.PreferredModel != "" || second.SetupVersion != 0 || len(second.ModelVisibility.HiddenModels) != 0 {
 		t.Fatalf("second user should receive defaults, got %+v", second)
 	}
 }
@@ -403,6 +404,9 @@ func TestAccountPreferencesValidation(t *testing.T) {
 		`{"expectedRevision":0,"scope":"instance:default","preferredModel":"x"}`,
 		`{"expectedRevision":0,"profile":{"displayName":"bad\nname"}}`,
 		`{"expectedRevision":0,"preferredModel":"bad\rmodel"}`,
+		`{"expectedRevision":0,"setupVersion":-1}`,
+		`{"expectedRevision":0,"setupVersion":2}`,
+		`{"expectedRevision":0,"setupVersion":1001}`,
 		`{"expectedRevision":0,"modelVisibility":{"hiddenModels":null,"showUnconfiguredProviders":false}}`,
 		`{"expectedRevision":0,"modelVisibility":{"hiddenModels":{"":true},"showUnconfiguredProviders":false}}`,
 	}

@@ -46,6 +46,7 @@ type accountPreferencesResponse struct {
 	Profile                   accountPreferencesProfile         `json:"profile"`
 	PreferredModel            string                            `json:"preferredModel"`
 	ModelVisibility           accountPreferencesModelVisibility `json:"modelVisibility"`
+	SetupVersion              int                               `json:"setupVersion"`
 	Revision                  int64                             `json:"revision"`
 	LocalStorageImportVersion int                               `json:"localStorageImportVersion"`
 	UpdatedAt                 string                            `json:"updatedAt"`
@@ -56,6 +57,7 @@ type patchAccountPreferencesRequest struct {
 	Profile          *accountPreferencesProfile         `json:"profile,omitempty"`
 	PreferredModel   *string                            `json:"preferredModel,omitempty"`
 	ModelVisibility  *accountPreferencesModelVisibility `json:"modelVisibility,omitempty"`
+	SetupVersion     *int                               `json:"setupVersion,omitempty"`
 }
 
 type importAccountPreferencesRequest struct {
@@ -109,8 +111,12 @@ func (s *Server) patchAccountPreferences(w http.ResponseWriter, r *http.Request)
 		writeError(w, http.StatusBadRequest, "expectedRevision must be non-negative")
 		return
 	}
-	if request.Profile == nil && request.PreferredModel == nil && request.ModelVisibility == nil {
+	if request.Profile == nil && request.PreferredModel == nil && request.ModelVisibility == nil && request.SetupVersion == nil {
 		writeError(w, http.StatusBadRequest, "preferences patch must include at least one field")
+		return
+	}
+	if request.SetupVersion != nil && (*request.SetupVersion < 0 || *request.SetupVersion > db.AccountPreferencesCurrentSetupVersion) {
+		writeError(w, http.StatusBadRequest, fmt.Sprintf("setupVersion must be between 0 and %d", db.AccountPreferencesCurrentSetupVersion))
 		return
 	}
 
@@ -150,6 +156,9 @@ func (s *Server) patchAccountPreferences(w http.ResponseWriter, r *http.Request)
 		}
 		value := json.RawMessage(raw)
 		patch.ModelVisibilityJSON = &value
+	}
+	if request.SetupVersion != nil {
+		patch.SetupVersion = request.SetupVersion
 	}
 
 	preferences, err := s.store.PatchAccountPreferences(r.Context(), scopeKind, scopeID, patch)
@@ -427,6 +436,7 @@ func accountPreferencesResponseFromDB(preferences db.AccountPreferences) (accoun
 		Profile:                   profile,
 		PreferredModel:            preferredModel,
 		ModelVisibility:           modelVisibility,
+		SetupVersion:              preferences.SetupVersion,
 		Revision:                  preferences.Revision,
 		LocalStorageImportVersion: preferences.LocalStorageImportVersion,
 		UpdatedAt:                 preferences.UpdatedAt,

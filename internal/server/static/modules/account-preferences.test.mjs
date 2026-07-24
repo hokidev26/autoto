@@ -3,7 +3,9 @@ import assert from "node:assert/strict";
 
 import {
   accountPreferenceLegacyKeys,
+  accountPreferencesCurrentSetupVersion,
   createAccountPreferencesController,
+  normalizeSetupVersion,
 } from "./account-preferences.mjs";
 
 class MemoryStorage {
@@ -27,6 +29,7 @@ function serverSnapshot(overrides = {}) {
     profile: { displayName: "Server", avatarInitials: "SV" },
     preferredModel: "openai:gpt-server",
     modelVisibility: { hiddenModels: {}, showUnconfiguredProviders: false },
+    setupVersion: 0,
     revision: 3,
     localStorageImportVersion: 1,
     updatedAt: "2026-07-18T00:00:00Z",
@@ -64,6 +67,29 @@ test("服务端快照优先于未命名 localStorage 旧偏好", async () => {
   assert.equal(controller.getPreferredModel(), "openai:gpt-server");
   assert.equal(queue.calls.length, 1);
   assert.equal(storage.getItem("autoto.profile"), JSON.stringify({ displayName: "Legacy" }));
+});
+
+test("首次设置版本不会接受未来值", () => {
+  assert.equal(normalizeSetupVersion(-1), 0);
+  assert.equal(normalizeSetupVersion(accountPreferencesCurrentSetupVersion + 10), accountPreferencesCurrentSetupVersion);
+});
+
+test("首次设置完成版本与首选模型一起持久化", async () => {
+  const queue = requestQueue([
+    serverSnapshot(),
+    serverSnapshot({ revision: 4, setupVersion: 1, preferredModel: "relay:model-a" }),
+  ]);
+  const controller = createAccountPreferencesController({ request: queue.request, storage: new MemoryStorage(), eventTarget: new MemoryEvents() });
+
+  await controller.hydrate();
+  await controller.setPreferences({ preferredModel: "relay:model-a", setupVersion: 1 });
+
+  assert.equal(queue.calls[1].path, "/api/preferences");
+  assert.equal(queue.calls[1].body.preferredModel, "relay:model-a");
+  assert.equal(queue.calls[1].body.setupVersion, 1);
+  assert.equal(controller.getPreferredModel(), "relay:model-a");
+  assert.equal(controller.getSetupVersion(), 1);
+  assert.equal(controller.hasPendingPatch(), false);
 });
 
 test("网络失败时只回退当前 scope 的命名缓存", async () => {

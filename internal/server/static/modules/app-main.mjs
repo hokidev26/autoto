@@ -1,4 +1,4 @@
-import { createAccountPreferencesController } from "./account-preferences.mjs?v=profile-avatar-1";
+import { createAccountPreferencesController } from "./account-preferences.mjs?v=profile-avatar-1-first-run-setup-1";
 import { createAgentStreamController } from "./agent-stream.mjs";
 import { createAutomationControlController } from "./automation-control.mjs?v=nav-schedules-1";
 import { createArchiveSettingsController } from "./archive-settings.mjs?v=archive-settings-1";
@@ -33,7 +33,7 @@ import { $, escapeAttr, escapeHtml, setButtonBusy } from "./dom.mjs";
 import { navigationCreateLabelKey, navigationCreateTarget } from "./navigation-create.mjs";
 import { createSubagentCardCoordinator } from "./subagent-cards.mjs?v=tool-activity-lazy-1";
 import { formatNumber, formatTimestamp } from "./formatters.mjs";
-import { t } from "./i18n.mjs?v=settings-flat-1-codex-browser-login-1-shared-api-1-apple-theme-1-autoto-themes-1-settings-help-1-task-workspace-1-navigation-state-2-archive-1-i18n-shared-1-overview-home-1-settings-cleanup-1-context-ring-3-global-background-1-theme-v2-1-background-upload-1-goal-command-2";
+import { t } from "./i18n.mjs?v=settings-flat-1-codex-browser-login-1-shared-api-1-apple-theme-1-autoto-themes-1-settings-help-1-task-workspace-1-navigation-state-2-archive-1-i18n-shared-1-overview-home-1-settings-cleanup-1-context-ring-3-global-background-1-theme-v2-1-background-upload-1-goal-command-2-first-run-setup-1";
 import { appMainT as am } from "./messages-app-main-extra.mjs?v=workbench-title-edit-1-hidden-toggle-removed-1-settings-cleanup-1";
 import { shellExtraT as sx } from "./messages-shell-extra.mjs";
 import { createGitWorkflowController } from "./git-workflow.mjs";
@@ -71,7 +71,7 @@ import { createSettingsPreferencesController } from "./settings-preferences.mjs?
 import { createSettingsShellHelpers } from "./settings-shell-helpers.mjs";
 import { createSkillsContext } from "./skills-context.mjs";
 import { createServerResourceLoaders } from "./server-resource-loaders.mjs";
-import { createSetupWizardController } from "./setup-wizard.mjs";
+import { createSetupWizardController } from "./setup-wizard.mjs?v=first-run-readiness-1";
 import { createSpecBoardController } from "./spec-board.mjs";
 import { createSystemSettingsController } from "./system-settings.mjs?v=users-panel-removed-1-about-brand-license-1-desktop-shell-1";
 import { installDesktopDeepLinkRouter, isDesktopShell } from "./desktop-shell-ui.mjs";
@@ -90,6 +90,7 @@ import { normalizeWorkStateSnapshot, renderWorkStateHTML } from "./work-state.mj
 
 let backendRegistry = null;
 let settingsPreferences = null;
+let resumeSetupWizardAfterSettings = null;
 
 function closeBackendsModal() {
   backendRegistry.closeBackendsModal();
@@ -1045,12 +1046,20 @@ const setupWizard = createSetupWizardController({
   state,
   loadModelCatalog,
   loadSettings,
+  loadSetupStatus: ({ force = false } = {}) => api(force ? "/api/setup/status?refresh=1" : "/api/setup/status"),
   openSettingsModal,
   renderModelOptions,
-  setPreferredModel,
+  getPreferredModel,
+  getSetupVersion: accountPreferences.getSetupVersion,
+  completeSetup: async (model, version) => {
+    await accountPreferences.setPreferences({ preferredModel: model, setupVersion: version });
+  },
+  preferencesPending: accountPreferences.hasPendingPatch,
+  copyText: copyToClipboard,
   showToast,
 });
-const { bindSetupWizardActions, openSetupWizard } = setupWizard;
+const { bindSetupWizardActions, maybeOpenSetupWizard, openSetupWizard, resumeAfterProviderSettings } = setupWizard;
+resumeSetupWizardAfterSettings = resumeAfterProviderSettings;
 
 const specBoard = createSpecBoardController({ request: api, showError, showToast });
 specBoard.bind();
@@ -1833,6 +1842,9 @@ function closeSettingsModal({ restoreWorkbench = true, restoreFocus = true } = {
   syncThemePageContext();
   if (wasOpen && restoreFocus) restoreSettingsDialogFocus();
   if (restoreWorkbench) setGlobalRailActive(currentShellRailTarget());
+  if (wasOpen && typeof resumeSetupWizardAfterSettings === "function") {
+    Promise.resolve().then(() => resumeSetupWizardAfterSettings()).catch(showError);
+  }
 }
 
 async function openOverviewConversation(id = "") {
@@ -3623,6 +3635,7 @@ function openRequestedInitialView() {
 
 function signalAppReady() {
   const root = globalThis.document?.documentElement;
+  if (root?.dataset.autotoAppReady === "true") return;
   if (root) root.dataset.autotoAppReady = "true";
   const EventConstructor = globalThis.Event;
   if (typeof EventConstructor === "function") {
@@ -3630,4 +3643,12 @@ function signalAppReady() {
   }
 }
 
-init().then(openRequestedInitialView).catch(showError).finally(signalAppReady);
+init().then(() => {
+  openRequestedInitialView();
+  const setupStartup = maybeOpenSetupWizard();
+  signalAppReady();
+  return setupStartup;
+}).catch((error) => {
+  signalAppReady();
+  showError(error);
+});

@@ -321,7 +321,7 @@ test("boot transition waits for app readiness and cross-fades the localized shel
   assert.match(app, /const waitForAppReady = \(\{ timeout = 12000 \} = \{\}\) =>/);
   assert.match(app, /const appReady = waitForAppReady\(\);[\s\S]*?await import\("\.\/modules\/app-main\.mjs[\s\S]*?await appReady;[\s\S]*?revealLocalizedUI\(\)/);
   assert.match(appMain, /function signalAppReady\(\)[\s\S]*?new EventConstructor\("autoto:app-ready"\)/);
-  assert.match(appMain, /init\(\)\.then\(openRequestedInitialView\)\.catch\(showError\)\.finally\(signalAppReady\)/);
+  assert.match(appMain, /init\(\)\.then\(\(\) => \{[\s\S]*?openRequestedInitialView\(\);[\s\S]*?const setupStartup = maybeOpenSetupWizard\(\);[\s\S]*?signalAppReady\(\);[\s\S]*?return setupStartup;[\s\S]*?\}\)\.catch\(\(error\) => \{[\s\S]*?signalAppReady\(\);[\s\S]*?showError\(error\);/);
   assert.match(html, /app\.js\?v=[^"\n]*boot-dots-only-1/);
   assert.match(html, /styles\.css\?v=[^"\n]*boot-dots-only-1/);
   assert.match(app, /app-main\.mjs\?v=[^"\n]*boot-ready-transition-1/);

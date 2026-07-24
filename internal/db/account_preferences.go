@@ -20,6 +20,9 @@ const (
 	accountPreferenceMaxPayloadBytes = 256 * 1024
 	accountPreferenceMaxModelBytes   = 1024
 	accountPreferenceMaxScopeIDBytes = 128
+
+	AccountPreferencesCurrentSetupVersion = 1
+	AccountPreferencesMaxSetupVersion     = 1000
 )
 
 type AccountPreferences struct {
@@ -28,6 +31,7 @@ type AccountPreferences struct {
 	ProfileJSON               json.RawMessage `json:"profileJson"`
 	PreferredModel            string          `json:"preferredModel"`
 	ModelVisibilityJSON       json.RawMessage `json:"modelVisibilityJson"`
+	SetupVersion              int             `json:"setupVersion"`
 	Revision                  int64           `json:"revision"`
 	LocalStorageImportVersion int             `json:"localStorageImportVersion"`
 	CreatedAt                 string          `json:"createdAt"`
@@ -39,6 +43,7 @@ type AccountPreferencesPatch struct {
 	ProfileJSON         *json.RawMessage `json:"profileJson,omitempty"`
 	PreferredModel      *string          `json:"preferredModel,omitempty"`
 	ModelVisibilityJSON *json.RawMessage `json:"modelVisibilityJson,omitempty"`
+	SetupVersion        *int             `json:"setupVersion,omitempty"`
 }
 
 type AccountPreferencesImport struct {
@@ -75,6 +80,9 @@ func (s *Store) PatchAccountPreferences(ctx context.Context, scopeKind, scopeID 
 	if patch.ExpectedRevision < 0 {
 		return AccountPreferences{}, errors.New("account preferences expected revision must not be negative")
 	}
+	if patch.SetupVersion != nil && (*patch.SetupVersion < 0 || *patch.SetupVersion > AccountPreferencesCurrentSetupVersion) {
+		return AccountPreferences{}, fmt.Errorf("account preferences setup version must be between 0 and %d", AccountPreferencesCurrentSetupVersion)
+	}
 
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -90,7 +98,7 @@ func (s *Store) PatchAccountPreferences(ctx context.Context, scopeKind, scopeID 
 		candidate.Revision = 1
 		candidate.CreatedAt = Now()
 		candidate.UpdatedAt = candidate.CreatedAt
-		if _, err := tx.ExecContext(ctx, `INSERT INTO account_preferences (scope_kind, scope_id, profile_json, preferred_model, model_visibility_json, revision, local_storage_import_version, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`, candidate.ScopeKind, candidate.ScopeID, string(candidate.ProfileJSON), candidate.PreferredModel, string(candidate.ModelVisibilityJSON), candidate.Revision, candidate.LocalStorageImportVersion, candidate.CreatedAt, candidate.UpdatedAt); err != nil {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO account_preferences (scope_kind, scope_id, profile_json, preferred_model, model_visibility_json, setup_version, revision, local_storage_import_version, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, candidate.ScopeKind, candidate.ScopeID, string(candidate.ProfileJSON), candidate.PreferredModel, string(candidate.ModelVisibilityJSON), candidate.SetupVersion, candidate.Revision, candidate.LocalStorageImportVersion, candidate.CreatedAt, candidate.UpdatedAt); err != nil {
 			if isUniqueConstraint(err) {
 				return AccountPreferences{}, fmt.Errorf("%w: account preferences changed", ErrConflict)
 			}
@@ -114,7 +122,7 @@ func (s *Store) PatchAccountPreferences(ctx context.Context, scopeKind, scopeID 
 		return AccountPreferences{}, err
 	}
 	candidate.UpdatedAt = Now()
-	result, err := tx.ExecContext(ctx, `UPDATE account_preferences SET profile_json = ?, preferred_model = ?, model_visibility_json = ?, revision = revision + 1, updated_at = ? WHERE scope_kind = ? AND scope_id = ? AND revision = ?`, string(candidate.ProfileJSON), candidate.PreferredModel, string(candidate.ModelVisibilityJSON), candidate.UpdatedAt, scopeKind, scopeID, patch.ExpectedRevision)
+	result, err := tx.ExecContext(ctx, `UPDATE account_preferences SET profile_json = ?, preferred_model = ?, model_visibility_json = ?, setup_version = ?, revision = revision + 1, updated_at = ? WHERE scope_kind = ? AND scope_id = ? AND revision = ?`, string(candidate.ProfileJSON), candidate.PreferredModel, string(candidate.ModelVisibilityJSON), candidate.SetupVersion, candidate.UpdatedAt, scopeKind, scopeID, patch.ExpectedRevision)
 	if err != nil {
 		return AccountPreferences{}, err
 	}
@@ -279,12 +287,13 @@ func (s *Store) ClaimInstanceAccountPreferencesForFirstUser(ctx context.Context,
 				ProfileJSON:               append(json.RawMessage(nil), instance.ProfileJSON...),
 				PreferredModel:            instance.PreferredModel,
 				ModelVisibilityJSON:       append(json.RawMessage(nil), instance.ModelVisibilityJSON...),
+				SetupVersion:              instance.SetupVersion,
 				Revision:                  1,
 				LocalStorageImportVersion: instance.LocalStorageImportVersion,
 				CreatedAt:                 now,
 				UpdatedAt:                 now,
 			}
-			if _, err := tx.ExecContext(ctx, `INSERT INTO account_preferences (scope_kind, scope_id, profile_json, preferred_model, model_visibility_json, revision, local_storage_import_version, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?)`, preferences.ScopeKind, preferences.ScopeID, string(preferences.ProfileJSON), preferences.PreferredModel, string(preferences.ModelVisibilityJSON), preferences.LocalStorageImportVersion, now, now); err != nil {
+			if _, err := tx.ExecContext(ctx, `INSERT INTO account_preferences (scope_kind, scope_id, profile_json, preferred_model, model_visibility_json, setup_version, revision, local_storage_import_version, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?)`, preferences.ScopeKind, preferences.ScopeID, string(preferences.ProfileJSON), preferences.PreferredModel, string(preferences.ModelVisibilityJSON), preferences.SetupVersion, preferences.LocalStorageImportVersion, now, now); err != nil {
 				return AccountPreferences{}, false, err
 			}
 		} else {
@@ -337,6 +346,9 @@ func applyAccountPreferencesPatch(preferences *AccountPreferences, patch Account
 	if patch.ModelVisibilityJSON != nil {
 		visibility = *patch.ModelVisibilityJSON
 	}
+	if patch.SetupVersion != nil {
+		preferences.SetupVersion = *patch.SetupVersion
+	}
 	normalizedProfile, normalizedVisibility, err := normalizeAccountPreferencePayload(profile, preferredModel, visibility)
 	if err != nil {
 		return err
@@ -376,12 +388,15 @@ func normalizeAccountPreferenceJSONDefault(raw json.RawMessage) json.RawMessage 
 func getAccountPreferencesRow(ctx context.Context, queryer accountPreferenceRowQueryer, scopeKind, scopeID string) (AccountPreferences, bool, error) {
 	var preferences AccountPreferences
 	var profile, visibility string
-	err := queryer.QueryRowContext(ctx, `SELECT scope_kind, scope_id, profile_json, preferred_model, model_visibility_json, revision, local_storage_import_version, created_at, updated_at FROM account_preferences WHERE scope_kind = ? AND scope_id = ?`, scopeKind, scopeID).Scan(&preferences.ScopeKind, &preferences.ScopeID, &profile, &preferences.PreferredModel, &visibility, &preferences.Revision, &preferences.LocalStorageImportVersion, &preferences.CreatedAt, &preferences.UpdatedAt)
+	err := queryer.QueryRowContext(ctx, `SELECT scope_kind, scope_id, profile_json, preferred_model, model_visibility_json, setup_version, revision, local_storage_import_version, created_at, updated_at FROM account_preferences WHERE scope_kind = ? AND scope_id = ?`, scopeKind, scopeID).Scan(&preferences.ScopeKind, &preferences.ScopeID, &profile, &preferences.PreferredModel, &visibility, &preferences.SetupVersion, &preferences.Revision, &preferences.LocalStorageImportVersion, &preferences.CreatedAt, &preferences.UpdatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return AccountPreferences{}, false, nil
 	}
 	if err != nil {
 		return AccountPreferences{}, false, err
+	}
+	if preferences.SetupVersion < 0 || preferences.SetupVersion > AccountPreferencesCurrentSetupVersion {
+		return AccountPreferences{}, false, fmt.Errorf("stored account preferences for %s/%s have invalid setup version", scopeKind, scopeID)
 	}
 	normalizedProfile, normalizedVisibility, err := normalizeAccountPreferencePayload(json.RawMessage(profile), preferences.PreferredModel, json.RawMessage(visibility))
 	if err != nil {

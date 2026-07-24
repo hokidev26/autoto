@@ -92,6 +92,9 @@ type Server struct {
 	configPath           string
 	startedAt            time.Time
 	clock                func() time.Time
+	setupStatusMu        sync.Mutex
+	setupStatusCache     setupStatusResponse
+	setupStatusCacheAt   time.Time
 	localToken           string
 	// remoteAccessToken remains only for source compatibility with older
 	// in-package callers; it is never accepted as remote authentication.
@@ -402,6 +405,7 @@ func (s *Server) Routes() http.Handler {
 	s.mountAppearanceAssetRoutes(r)
 
 	r.Get("/api/health", s.health)
+	r.Get("/api/setup/status", s.setupStatus)
 	s.mountDesktopShellRoutes(r)
 	s.mountDesktopShellExtraRoutes(r)
 	r.Get("/api/auth/status", s.authStatus)

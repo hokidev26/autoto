@@ -9,7 +9,7 @@ import (
 	"github.com/google/uuid"
 )
 
-const CurrentDBVersion = 47
+const CurrentDBVersion = 48
 
 type migration struct {
 	version int
@@ -65,6 +65,7 @@ var migrations = []migration{
 	{version: 45, name: "OAuth app identities and sessions", up: migrateV45OAuthApp},
 	{version: 46, name: "gateway account grants", up: migrateV46GatewayAccountGrants},
 	{version: 47, name: "generated image disk metadata", up: migrateV47GeneratedImages},
+	{version: 48, name: "account preferences setup version", up: migrateV48AccountPreferencesSetupVersion},
 }
 
 func runMigrations(ctx context.Context, db *sql.DB) error {
@@ -1387,6 +1388,10 @@ func migrateV47GeneratedImages(ctx context.Context, tx *sql.Tx) error {
 	}
 	_, err := tx.ExecContext(ctx, generatedImagesSchemaSQL)
 	return err
+}
+
+func migrateV48AccountPreferencesSetupVersion(ctx context.Context, tx *sql.Tx) error {
+	return ensureColumn(ctx, tx, "account_preferences", "setup_version", "INTEGER NOT NULL DEFAULT 0 CHECK (setup_version BETWEEN 0 AND 1000)")
 }
 
 func migrateV41PrivateAPIGateway(ctx context.Context, tx *sql.Tx) error {

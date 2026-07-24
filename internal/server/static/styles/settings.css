@@ -1648,7 +1648,11 @@ body.white-shell.theme-light.theme-dark #settingsModal {
   }
 
   #settingsModal .settings-wizard-btn {
-    display: none;
+    min-height: 40px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    margin: 0 12px 10px;
   }
 
   #settingsModal .settings-sidebar-search {
