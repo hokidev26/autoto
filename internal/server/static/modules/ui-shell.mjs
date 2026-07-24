@@ -63,6 +63,22 @@ export function modelOptionPresentation(value, label) {
   };
 }
 
+export function groupModelSelectOptions(options = []) {
+  const groups = [];
+  const byProvider = new Map();
+  for (const option of options) {
+    const presentation = modelOptionPresentation(option?.value, option?.textContent);
+    const provider = String(option?.dataset?.provider || option?.parentElement?.label || presentation.provider || "").trim();
+    if (!byProvider.has(provider)) {
+      const group = { provider, options: [] };
+      byProvider.set(provider, group);
+      groups.push(group);
+    }
+    byProvider.get(provider).options.push(option);
+  }
+  return groups;
+}
+
 const permissionMenuIconMarkup = Object.freeze({
   default: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 19 6v5c0 4.5-2.5 7.8-7 10-4.5-2.2-7-5.5-7-10V6z"></path><path d="M9.5 12h5"></path></svg>',
   acceptEdits: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m14.7 5.3 4 4"></path><path d="M5 19h4l9.7-9.7a2.8 2.8 0 0 0-4-4L5 15z"></path><path d="M13 7 17 11"></path></svg>',
@@ -503,10 +519,7 @@ export function createUIShellController({
         copy.className = "composer-model-option-copy";
         label.className = "composer-model-option-name";
         label.textContent = presentation.name;
-        const provider = document.createElement("span");
-        provider.className = "composer-model-option-provider";
-        provider.textContent = presentation.provider || translate("chat.modelProviderFallback");
-        copy.append(label, provider);
+        copy.appendChild(label);
         button.appendChild(copy);
       } else {
         button.appendChild(label);
@@ -538,10 +551,6 @@ export function createUIShellController({
         name.className = "mobile-model-option-name";
         name.textContent = presentation.name;
         copy.appendChild(name);
-        const provider = document.createElement("span");
-        provider.className = "mobile-model-option-provider";
-        provider.textContent = presentation.provider || translate("chat.modelProviderFallback");
-        copy.appendChild(provider);
         button.appendChild(copy);
       } else {
         const label = document.createElement("span");
@@ -556,6 +565,24 @@ export function createUIShellController({
       button.appendChild(check);
       button.addEventListener("click", () => choose(binding, option));
       return button;
+    };
+
+    const appendModelOptionGroups = (binding, target, { mobile = false } = {}) => {
+      const options = [...binding.select.options].filter((option) => !option.hidden);
+      groupModelSelectOptions(options).forEach((group, index) => {
+        const heading = document.createElement("div");
+        heading.className = [
+          "composer-model-group-heading",
+          mobile ? "mobile-model-group-heading" : "",
+          index > 0 ? "composer-model-group-start" : "",
+        ].filter(Boolean).join(" ");
+        heading.setAttribute("role", "presentation");
+        heading.textContent = group.provider || translate("chat.modelProviderFallback");
+        target.appendChild(heading);
+        group.options.forEach((option) => target.appendChild(mobile
+          ? createMobileOptionButton(binding, option, { model: true })
+          : createOptionButton(binding, option, { model: true })));
+      });
     };
 
     const appendPermissionSafetyStatus = (target = menu) => {
@@ -769,9 +796,10 @@ export function createUIShellController({
         appendPermissionOptions(binding, options, { mobile: true });
         mobileBody.replaceChildren(options);
       } else {
-        [...binding.select.options]
+        if (isModel) appendModelOptionGroups(binding, options, { mobile: true });
+        else [...binding.select.options]
           .filter((option) => !option.hidden)
-          .forEach((option) => options.appendChild(createMobileOptionButton(binding, option, { model: isModel })));
+          .forEach((option) => options.appendChild(createMobileOptionButton(binding, option)));
         mobileBody.replaceChildren(options);
       }
 
@@ -811,18 +839,10 @@ export function createUIShellController({
       if (isPermissionMenu) {
         appendPermissionOptions(binding, menu, { mobile: false });
       } else {
-        let previousGroup = null;
-        [...binding.select.options]
+        if (isModelMenu) appendModelOptionGroups(binding, menu);
+        else [...binding.select.options]
           .filter((option) => !option.hidden)
-          .forEach((option) => {
-            const optionButton = createOptionButton(binding, option, { model: isModelMenu });
-            if (isModelMenu) {
-              const group = option.dataset.provider || "";
-              if (previousGroup !== null && group !== previousGroup) optionButton.classList.add("composer-model-option-group-start");
-              previousGroup = group;
-            }
-            menu.appendChild(optionButton);
-          });
+          .forEach((option) => menu.appendChild(createOptionButton(binding, option)));
         if (isModelMenu) appendDesktopModelActions(binding);
       }
       menu.classList.remove("hidden");

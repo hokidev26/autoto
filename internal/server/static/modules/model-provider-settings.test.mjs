@@ -13,6 +13,7 @@ import {
   anthropicAccountStatus,
   anthropicAccountsListRequest,
   anthropicProfileLoginCommand,
+  automaticProviderNameUpdate,
   codexAccountActionRequest,
   codexAccountBatchRequest,
   codexAccountExportFilename,
@@ -39,6 +40,7 @@ import {
   markProviderModelsStale,
   providerConnectionFingerprint,
   providerConsoleDraftFromForm,
+  providerNameFromBaseURL,
   providerModelDiscovery,
   providerPreflightResult,
   providerSensitiveDraftAccessAllowed,
@@ -1425,6 +1427,35 @@ test("Provider 名称即时校验覆盖必填、格式、长度和创建冲突",
   assert.equal(validateProviderNameValue("a".repeat(65)).code, "too_long");
   assert.equal(validateProviderNameValue("relay", { existingNames: ["relay"], mode: "create" }).code, "conflict");
   assert.equal(validateProviderNameValue("relay", { existingNames: ["relay"], mode: "edit", originalName: "relay" }).valid, true);
+});
+
+test("Base URL 自动提取主域名作为新增 Provider 名称且不覆盖手动名称", () => {
+  assert.equal(providerNameFromBaseURL("https://qionggeme.com/dashboard/v1"), "qionggeme");
+  assert.equal(providerNameFromBaseURL("https://api.futureapi.com/v1"), "futureapi");
+  assert.equal(providerNameFromBaseURL("https://api.example.co.uk/v1"), "example");
+  assert.equal(providerNameFromBaseURL("http://127.0.0.1:11434/v1"), "");
+  assert.equal(providerNameFromBaseURL("not-a-url"), "");
+
+  assert.deepEqual(automaticProviderNameUpdate("https://qionggeme.com/dashboard/v1"), {
+    name: "qionggeme",
+    suggestion: "qionggeme",
+    changed: true,
+  });
+  assert.deepEqual(automaticProviderNameUpdate("https://futureapi.com/v1", "qionggeme", "qionggeme"), {
+    name: "futureapi",
+    suggestion: "futureapi",
+    changed: true,
+  });
+  assert.deepEqual(automaticProviderNameUpdate("https://futureapi.com/v1", "manual-name", "qionggeme"), {
+    name: "manual-name",
+    suggestion: "",
+    changed: false,
+  });
+  assert.deepEqual(automaticProviderNameUpdate("https://futureapi.com/v1", "saved-name", "", "edit"), {
+    name: "saved-name",
+    suggestion: "",
+    changed: false,
+  });
 });
 
 test("Provider 草稿请求携带创建保护或原始名称", () => {

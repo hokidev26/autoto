@@ -21,6 +21,7 @@ import {
   globalRailCollapsedPreferenceKey,
   globalRailCollapsedWidth,
   globalRailExpandedWidth,
+  groupModelSelectOptions,
   maxSidebarWidth,
   sessionSidebarCollapsedPreferenceKey,
   minSidebarWidth,
@@ -783,11 +784,11 @@ test("composer selects hide external labels and open titled menus upward", async
   assert.match(uiShell, /chat\.executeMode/);
   assert.match(uiShell, /menu\.style\.bottom = `\$\{Math\.max\(8,[\s\S]*?- rect\.top \+ 6\)\}px`/);
   assert.match(uiShell, /binding\.select\.dispatchEvent\(new EventConstructor\("change"/);
-  assert.match(uiShell, /composer-model-option-provider/);
+  assert.match(uiShell, /appendModelOptionGroups\(binding, menu\)/);
   assert.match(uiShell, /presentation\?\.provider \? `\$\{presentation\.provider\}:\$\{presentation\.name\}`/);
   assert.match(uiShell, /!active\.mobile && \(event\.target === menu \|\| menu\.contains\(event\.target\)\)/);
   assert.match(styles, /\.composer-select-popover\s*\{[\s\S]*?overscroll-behavior:\s*contain/);
-  assert.match(styles, /\.composer-model-option-provider\s*\{/);
+  assert.match(styles, /\.composer-model-group-heading\s*\{/);
   assert.match(appMain, /agentSavePromise:\s*null/);
   assert.match(appMain, /state\.agentSaveSnapshot = captureAgentSettingsSnapshot\(\);[\s\S]*?while \(state\.agentSavePending\)/);
   assert.match(appMain, /awaitAgentSettingsSaved:\s*\(agentId\) => waitForAgentSettingsSave\(agentId\)/);
@@ -1966,13 +1967,30 @@ test("finishing a run no longer auto-opens the run summary review card", async (
   assert.match(appMain, /const summary = await loadRunSummary\(run\.id, \{ agentId: run\.agentId \}\);/);
 });
 
-test("model picker popover draws a divider between provider groups", async () => {
+test("model picker groups every provider once and lists all of its models underneath", async () => {
+  const qionggemeGroup = { label: "qionggeme" };
+  const lanyangyangGroup = { label: "lanyangyang" };
+  const options = [
+    { value: "qionggeme:gpt-5.6-luna", textContent: "gpt-5.6-luna", dataset: { provider: "qionggeme" }, parentElement: qionggemeGroup },
+    { value: "lanyangyang:gpt-5.6-sol", textContent: "gpt-5.6-sol", dataset: { provider: "lanyangyang" }, parentElement: lanyangyangGroup },
+    { value: "qionggeme:gpt-5.6-terra", textContent: "gpt-5.6-terra", dataset: { provider: "qionggeme" }, parentElement: qionggemeGroup },
+  ];
+  assert.deepEqual(groupModelSelectOptions(options).map((group) => ({
+    provider: group.provider,
+    models: group.options.map((option) => option.textContent),
+  })), [
+    { provider: "qionggeme", models: ["gpt-5.6-luna", "gpt-5.6-terra"] },
+    { provider: "lanyangyang", models: ["gpt-5.6-sol"] },
+  ]);
+
   const [uiShell, styles] = await Promise.all([
     readFile(uiShellURL, "utf8"),
     readStylesSource(stylesURL),
   ]);
-  assert.match(uiShell, /const group = option\.dataset\.provider \|\| "";/);
-  assert.match(uiShell, /previousGroup !== null && group !== previousGroup/);
-  assert.match(uiShell, /optionButton\.classList\.add\("composer-model-option-group-start"\)/);
-  assert.match(styles, /\.composer-model-option-group-start\s*\{[\s\S]*?border-top:\s*1px solid/);
+  assert.match(uiShell, /groupModelSelectOptions\(options\)\.forEach/);
+  assert.match(uiShell, /appendModelOptionGroups\(binding, options, \{ mobile: true \}\)/);
+  assert.match(uiShell, /appendModelOptionGroups\(binding, menu\)/);
+  assert.doesNotMatch(uiShell, /composer-model-option-provider/);
+  assert.match(styles, /\.composer-model-group-heading\.composer-model-group-start\s*\{[\s\S]*?border-top:\s*1px solid/);
+  assert.match(styles, /\.mobile-model-group-heading\.composer-model-group-start/);
 });

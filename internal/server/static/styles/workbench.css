@@ -3584,22 +3584,30 @@ body.white-shell.theme-light .composer-select-chevron {
   gap: 2px;
 }
 
-.composer-model-option-name,
-.composer-model-option-provider {
+.composer-model-option-name {
   overflow: hidden;
+  color: inherit;
+  font-weight: 650;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.composer-model-option-name {
-  color: inherit;
-  font-weight: 650;
+.composer-model-group-heading {
+  margin: 3px 8px 4px;
+  padding: 6px 2px 3px;
+  color: #747e90;
+  font-size: 12px;
+  font-weight: 700;
 }
 
-.composer-model-option-provider {
-  color: #747e90;
-  font-size: 11px;
-  font-weight: 500;
+.composer-model-group-heading.composer-model-group-start {
+  margin-top: 8px;
+  border-top: 1px solid #e7eaf0;
+  padding-top: 12px;
+}
+
+.composer-model-option {
+  padding-left: 18px;
 }
 
 .composer-select-option-check {
@@ -3610,12 +3618,6 @@ body.white-shell.theme-light .composer-select-chevron {
 
 .composer-select-popover.composer-model-popover {
   min-width: 290px;
-}
-
-.composer-model-option-group-start {
-  margin-top: 6px;
-  border-top: 1px solid #e7eaf0;
-  padding-top: 13px;
 }
 
 .composer-model-menu-divider {

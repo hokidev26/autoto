@@ -14,6 +14,7 @@ export {
   anthropicAccountCreateRequest,
   anthropicAccountsListRequest,
   anthropicProfileLoginCommand,
+  automaticProviderNameUpdate,
   codexAccountActionRequest,
   codexAccountBatchRequest,
   codexAccountExportFilename,
@@ -32,6 +33,7 @@ export {
   normalizeAnthropicAccountList,
   providerConnectionFingerprint,
   providerConsoleDraftFromForm,
+  providerNameFromBaseURL,
   providerConsoleFocusableElements,
   providerModelDiscovery,
   providerPreflightResult,
@@ -70,4 +72,4 @@ export {
   renderCodexAccountManagementTable,
 } from "./provider-account-rendering.mjs";
 
-export { createModelProviderSettingsController } from "./provider-console.mjs?v=native-image-generation-1";
+export { createModelProviderSettingsController } from "./provider-console.mjs?v=native-image-generation-1-provider-auto-name-1";

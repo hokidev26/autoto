@@ -20,6 +20,7 @@ import {
   setProviderModelHiddenAll,
 } from "./model-provider-components.mjs?v=provider-card-clean-3-provider-create-page-2-provider-secrets-1-model-picker-1-provider-full-page-2-provider-placeholders-1-model-configs-1-provider-reference-1-default-openai-responses-1-provider-draft-session-1-native-image-generation-1";
 import {
+  automaticProviderNameUpdate,
   markProviderModelsStale,
   normalizeCodexAccountList,
   normalizeCodexSelectedIds,
@@ -738,6 +739,7 @@ export function createModelProviderSettingsController({
     consoleState.type = normalized.type;
     consoleState.providerName = normalized.name;
     consoleState.draft = providerDraftWithVisibility(createProviderDraft(normalized.type, normalized), normalized.name);
+    consoleState.autoProviderName = "";
     consoleState.dirty = false;
     setProviderConsoleResult("");
     refreshProviderConsole({ focusCreate: true });
@@ -769,6 +771,7 @@ export function createModelProviderSettingsController({
     consoleState.type = type;
     consoleState.providerName = emptyModelDraft.name;
     consoleState.draft = providerDraftWithVisibility(emptyModelDraft, emptyModelDraft.name);
+    consoleState.autoProviderName = "";
     consoleState.dirty = false;
     setProviderConsoleResult("");
     refreshProviderConsole({ focusCreate: true });
@@ -1150,11 +1153,27 @@ export function createModelProviderSettingsController({
     return provider?.name || provider?.type || ct("labels.provider");
   }
 
+  function updateAutomaticProviderName(consoleState, form, target) {
+    if (consoleState.mode !== "create") return false;
+    if (target?.name === "name") {
+      if (String(target.value || "").trim() !== String(consoleState.autoProviderName || "").trim()) consoleState.autoProviderName = "";
+      return false;
+    }
+    if (target?.name !== "baseUrl") return false;
+    const nameInput = form?.elements?.name;
+    if (!nameInput) return false;
+    const update = automaticProviderNameUpdate(target.value, nameInput.value, consoleState.autoProviderName, consoleState.mode);
+    consoleState.autoProviderName = update.suggestion;
+    if (update.changed) nameInput.value = update.name;
+    return update.changed;
+  }
+
   function updateProviderConsoleDraftFromEvent(event) {
     const target = event.target;
     const form = target?.closest?.("[data-mp-provider-form]");
     if (!form || (!target?.name && !target?.matches?.("[data-mp-model-choice]"))) return false;
     const consoleState = providerConsoleState();
+    const automaticNameChanged = updateAutomaticProviderName(consoleState, form, target);
     if (target?.name === "apiKey") {
       consoleState.draft = { ...(consoleState.draft || {}), apiKey: String(target.value || ""), apiKeyDraft: true };
     }
@@ -1172,6 +1191,7 @@ export function createModelProviderSettingsController({
       if ("value" in example) example.value = value;
       else example.textContent = value;
     }
+    if (automaticNameChanged) updateProviderNameValidation(form);
     return true;
   }
 
