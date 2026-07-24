@@ -222,7 +222,7 @@ export default Object.freeze({
     idle: "Idle",
     modelPermissions: "Model and permission settings",
     model: "Model",
-    reasoningEffort: "Reasoning effort",
+    reasoningEffort: "Reasoning effort", reasoningEffortUnsupported: "This model does not support reasoning effort",
     messageMode: "Message mode",
     plan: "Plan",
     execute: "Execute",
@@ -1573,7 +1573,7 @@ export default Object.freeze({
       },
       actions: {
         testConnection: "Test connection", testingConnection: "Testing connection", sendTest: "Send test", saveAndEnable: "Save and enable", start: "Start", stop: "Stop", delete: "Delete", closeDrawer: "Close drawer", back: "Back",
-        refreshModels: "Refresh models", fetchModels: "Fetch models", refetchModels: "Fetch again", fetchingModels: "Fetching models", enableProvider: "Enable provider", disableProvider: "Disable provider", closeModal: "Close", saving: "Saving", cancel: "Cancel", discardChanges: "Discard changes", addHeader: "Add header", removeHeader: "Remove header", addManualModel: "Add model", showApiKey: "Show API Key", hideApiKey: "Hide API Key", showModel: "Show {model}", hideModel: "Hide {model}", removeManualModel: "Remove manual model {model}",
+        refreshModels: "Refresh models", fetchModels: "Fetch models", refetchModels: "Fetch again", fetchingModels: "Fetching models", enableProvider: "Enable provider", disableProvider: "Disable provider", closeModal: "Close", saving: "Saving", cancel: "Cancel", discardChanges: "Discard changes", addHeader: "Add header", removeHeader: "Remove header", addManualModel: "Add model", showApiKey: "Show API Key", hideApiKey: "Hide API Key", showModel: "Show {model}", hideModel: "Hide {model}", showAllModels: "Show all models", hideAllModels: "Hide all (keep one)", removeManualModel: "Remove manual model {model}",
       },
       drawer: { editProvider: "Edit provider", createProvider: "New provider", configurationDescription: "Configure the connection, default model, and runtime credential.", connection: "Connection" },
       createPage: {

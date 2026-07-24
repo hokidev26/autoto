@@ -1073,6 +1073,7 @@ const chatComposer = createChatComposerController({
   isComposingInput,
   isCurrentModelConfigured,
   awaitAgentSettingsSaved: (agentId) => waitForAgentSettingsSave(agentId),
+  saveAgentSettings: () => saveAgentSettings(),
   loadMessages,
   notifyTerminal,
   openDirectoryChooser,

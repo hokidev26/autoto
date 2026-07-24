@@ -222,7 +222,7 @@ export default Object.freeze({
     idle: "閒置",
     modelPermissions: "模型與權限設定",
     model: "模型",
-    reasoningEffort: "思考強度",
+    reasoningEffort: "思考強度", reasoningEffortUnsupported: "此模型不支援思考強度",
     messageMode: "訊息模式",
     plan: "計畫",
     execute: "執行",
@@ -1564,7 +1564,7 @@ export default Object.freeze({
       },
       actions: {
         testConnection: "測試連線", testingConnection: "測試連線中", sendTest: "傳送測試", saveAndEnable: "儲存並啟用", start: "啟動", stop: "停止", delete: "刪除", closeDrawer: "關閉抽屜", back: "返回",
-        refreshModels: "重新整理模型", fetchModels: "取得模型", refetchModels: "重新取得", fetchingModels: "正在取得模型", enableProvider: "啟用供應商", disableProvider: "停用供應商", closeModal: "關閉", saving: "儲存中", cancel: "取消", discardChanges: "放棄變更", addHeader: "新增標頭", removeHeader: "刪除標頭", addManualModel: "新增模型", showApiKey: "顯示 API Key", hideApiKey: "隱藏 API Key", showModel: "顯示 {model}", hideModel: "隱藏 {model}", removeManualModel: "刪除手動模型 {model}",
+        refreshModels: "重新整理模型", fetchModels: "取得模型", refetchModels: "重新取得", fetchingModels: "正在取得模型", enableProvider: "啟用供應商", disableProvider: "停用供應商", closeModal: "關閉", saving: "儲存中", cancel: "取消", discardChanges: "放棄變更", addHeader: "新增標頭", removeHeader: "刪除標頭", addManualModel: "新增模型", showApiKey: "顯示 API Key", hideApiKey: "隱藏 API Key", showModel: "顯示 {model}", hideModel: "隱藏 {model}", showAllModels: "顯示全部模型", hideAllModels: "隱藏全部（保留一個）", removeManualModel: "刪除手動模型 {model}",
       },
       drawer: { editProvider: "編輯供應商", createProvider: "新增供應商", configurationDescription: "設定連線、預設模型和執行階段憑據。", connection: "連線" },
       createPage: {

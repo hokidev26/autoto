@@ -176,6 +176,32 @@ export function setProviderModelHidden(modelConfigs = [], modelName = "", hidden
   return { modelConfigs: configs, defaultModel: nextDefault, changed: true };
 }
 
+// Show or hide every model at once. Hiding keeps exactly one model visible (the
+// current default when possible, otherwise the first) because a provider always
+// needs a visible model to use as its default.
+export function setProviderModelHiddenAll(modelConfigs = [], hideAll = false, defaultModel = "") {
+  const configs = normalizeProviderModelConfigs({ modelConfigs });
+  if (!configs.length) return { modelConfigs: configs, defaultModel: stringValue(defaultModel), changed: false };
+  if (!hideAll) {
+    let changed = false;
+    const next = configs.map((item) => {
+      if (!item.hidden) return item;
+      changed = true;
+      return { ...item, hidden: false };
+    });
+    return { modelConfigs: next, defaultModel: stringValue(defaultModel), changed };
+  }
+  const def = stringValue(defaultModel);
+  const keeper = configs.some((item) => item.name === def) ? def : configs[0].name;
+  let changed = false;
+  const next = configs.map((item) => {
+    const shouldHide = item.name !== keeper;
+    if (Boolean(item.hidden) !== shouldHide) changed = true;
+    return { ...item, hidden: shouldHide };
+  });
+  return { modelConfigs: next, defaultModel: keeper, changed };
+}
+
 export function providerVisibilityPreferencesForDraft(preferences = {}, oldProviderName = "", newProviderName = "", modelConfigs = []) {
   const hiddenModels = { ...(preferences?.hiddenModels || {}) };
   const oldPrefix = `${stringValue(oldProviderName)}:`;
@@ -629,11 +655,12 @@ export function renderProviderModelEditor(draft = {}, modelBusy = false, sensiti
   const configs = normalizeProviderModelConfigs({ modelConfigs: draft.modelConfigs });
   const imageGenerationSupported = providerSupportsImageGeneration(draft);
   const visibleCount = configs.filter((item) => !item.hidden).length;
+  const eyeOffIcon = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m3 3 18 18M10.6 10.6a2 2 0 0 0 2.8 2.8M9.9 4.2A10.8 10.8 0 0 1 12 4c5.2 0 9.2 4 10.5 8a11.7 11.7 0 0 1-3.1 4.8M6.2 6.2A11.8 11.8 0 0 0 1.5 12c1.3 4 5.3 8 10.5 8 1.3 0 2.5-.2 3.6-.7"/></svg>`;
+  const eyeOnIcon = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.8-7 10-7 10 7 10 7-3.8 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="2.5"/></svg>`;
+  const allVisible = configs.length > 0 && configs.every((item) => !item.hidden);
   const rows = configs.map((item) => {
     const hideDisabled = !item.hidden && visibleCount <= 1;
-    const visibilityIcon = item.hidden
-      ? `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m3 3 18 18M10.6 10.6a2 2 0 0 0 2.8 2.8M9.9 4.2A10.8 10.8 0 0 1 12 4c5.2 0 9.2 4 10.5 8a11.7 11.7 0 0 1-3.1 4.8M6.2 6.2A11.8 11.8 0 0 0 1.5 12c1.3 4 5.3 8 10.5 8 1.3 0 2.5-.2 3.6-.7"/></svg>`
-      : `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.8-7 10-7 10 7 10 7-3.8 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="2.5"/></svg>`;
+    const visibilityIcon = item.hidden ? eyeOffIcon : eyeOnIcon;
     return `<div class="mp-provider-model-config-row${item.hidden ? " is-hidden" : ""}" data-mp-model-config="${escapeAttr(item.name)}">
       <div class="mp-provider-model-name"><strong title="${escapeAttr(item.name)}">${escapeHtml(item.name)}</strong>${item.manual ? `<span class="settings-badge">${escapeHtml(ct("statusLabels.manual"))}</span>` : ""}</div>
       <label class="mp-provider-model-limit"><span>${escapeHtml(ct("fields.contextTokenLimit"))}</span><input type="number" min="0" max="10000000" step="1" inputmode="numeric" value="${escapeAttr(item.contextTokenLimit || 272000)}" data-mp-model-token="${escapeAttr(item.name)}" aria-label="${escapeAttr(ct("fields.contextTokenLimitFor", { model: item.name }))}"></label>
@@ -650,7 +677,7 @@ export function renderProviderModelEditor(draft = {}, modelBusy = false, sensiti
     : (visibleConfigs[0]?.name || String(draft.model || ""));
   return `<div class="mp-provider-model-workspace" data-mp-model-workspace data-models-ready="${draft.modelsReady ? "true" : "false"}" data-models-stale="${draft.modelsStale ? "true" : "false"}">
     <input type="hidden" name="model" value="${escapeAttr(effectiveDefaultModel)}">
-    <div class="mp-provider-model-toolbar"><button class="mp-action" type="button" data-mp-fetch-models ${(modelBusy || !sensitiveAccessAllowed) ? `disabled${modelBusy ? " aria-busy=\"true\"" : ""}` : ""}>${escapeHtml(modelBusy ? ct("actions.fetchingModels") : ct(draft.modelsReady ? "actions.refetchModels" : "actions.fetchModels"))}</button></div>
+    <div class="mp-provider-model-toolbar"><button class="mp-action" type="button" data-mp-fetch-models ${(modelBusy || !sensitiveAccessAllowed) ? `disabled${modelBusy ? " aria-busy=\"true\"" : ""}` : ""}>${escapeHtml(modelBusy ? ct("actions.fetchingModels") : ct(draft.modelsReady ? "actions.refetchModels" : "actions.fetchModels"))}</button>${configs.length ? `<button class="mp-provider-model-visibility mp-provider-model-visibility-all" type="button" data-mp-model-visibility-all data-all-visible="${allVisible ? "true" : "false"}" aria-label="${escapeAttr(ct(allVisible ? "actions.hideAllModels" : "actions.showAllModels"))}" title="${escapeAttr(ct(allVisible ? "actions.hideAllModels" : "actions.showAllModels"))}">${allVisible ? eyeOnIcon : eyeOffIcon}</button>` : ""}</div>
     ${rows ? `<div class="mp-provider-model-config-list" role="group" aria-label="${escapeAttr(ct("createPage.modelListLabel"))}">${rows}</div>` : `<div class="mp-provider-model-empty settings-alert">${escapeHtml(ct("createPage.modelEmpty"))}</div>`}
     <div class="mp-provider-manual-model"><input type="text" data-mp-manual-model-input autocomplete="off" spellcheck="false" placeholder="${escapeAttr(ct("fields.manualModelPlaceholder"))}" aria-label="${escapeAttr(ct("fields.manualModel"))}"><button class="mp-action" type="button" data-mp-add-manual-model>${escapeHtml(ct("actions.addManualModel"))}</button></div>
     <small data-settings-help-copy>${escapeHtml(ct("createPage.manualModelHelp"))}</small>

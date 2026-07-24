@@ -67,7 +67,9 @@ export function normalizeContextSettings(value = {}) {
 
 export function contextUsagePercentage(value = {}) {
   const explicit = finiteNumber(value.percentage, value.usagePercent, value.usedPercent, value.percent);
-  if (explicit !== null) return boundedNumber(explicit > 0 && explicit <= 1 ? explicit * 100 : explicit, 0, 100, 0);
+  // Values in (0,1) are fractions (0.99 -> 99%); a whole 1 is one percent, not
+  // 100% — the backend sends integer percentages, so usagePercent:1 means 1%.
+  if (explicit !== null) return boundedNumber(explicit > 0 && explicit < 1 ? explicit * 100 : explicit, 0, 100, 0);
   const estimatedTokens = finiteNumber(value.estimatedTokens, value.usedTokens, value.tokens, value.tokenCount);
   const limit = finiteNumber(value.limit, value.limitTokens, value.tokenLimit, value.contextLimit, value.contextWindow);
   if (estimatedTokens === null || limit === null || limit <= 0) return null;

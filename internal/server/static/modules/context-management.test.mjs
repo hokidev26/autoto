@@ -56,6 +56,8 @@ function browserStubs() {
 test("context status normalizes token usage, preferences, and standard/large thresholds", () => {
   assert.equal(contextUsagePercentage({ estimatedTokens: 475000, limit: 500000 }), 95);
   assert.equal(contextUsagePercentage({ percentage: 0.99 }), 99);
+  assert.equal(contextUsagePercentage({ usagePercent: 1 }), 1);
+  assert.equal(contextUsagePercentage({ usagePercent: 100 }), 100);
   assert.equal(contextUsagePercentage({ estimatedTokens: 10, limit: 0 }), null);
 
   const standard = normalizeContextStatus({

@@ -201,6 +201,7 @@ export function createChatComposerController({
   isComposingInput,
   isCurrentModelConfigured,
   awaitAgentSettingsSaved = async () => {},
+  saveAgentSettings = async () => {},
   loadMessages,
   notifyTerminal,
   openDirectoryChooser,
@@ -396,6 +397,17 @@ export function createChatComposerController({
     if (display) {
       display.textContent = reasoningEffortLabel(selected);
       (display.dataset ||= {}).mobileLabel = reasoningEffortMobileLabel(selected);
+    }
+    // The visible control is the custom trigger, not the native select, so it
+    // has to mirror the disabled state or it looks clickable while offering
+    // nothing to choose (e.g. providers without reasoning-effort support).
+    const trigger = select.parentElement?.querySelector?.('[data-composer-select="reasoningEffort"]');
+    if (trigger) {
+      const unsupported = values.length <= 1;
+      trigger.disabled = Boolean(select.disabled);
+      trigger.classList?.toggle?.("is-unsupported", unsupported);
+      if (unsupported) trigger.title = t("chat.reasoningEffortUnsupported");
+      else trigger.removeAttribute?.("title");
     }
     const pill = select.closest?.(".reasoning-effort-pill");
     pill?.classList.toggle("reasoning-effort-unsupported", values.length <= 1);
@@ -718,10 +730,23 @@ export function createChatComposerController({
         if (state.agent?.id !== agentId) {
           throw new Error("The active conversation changed before the message was sent.");
         }
-        const selectedModel = String($("modelSelect")?.value || state.agent.model || "").trim();
-        const persistedModel = String(state.agent.model || "").trim();
+        let selectedModel = String($("modelSelect")?.value || state.agent.model || "").trim();
+        let persistedModel = String(state.agent.model || "").trim();
         if (selectedModel && selectedModel !== persistedModel) {
-          throw new Error("The selected model could not be synchronized. Please try again.");
+          // The picker selection never reached the agent -- e.g. it was chosen
+          // while this conversation had no agent yet, so the save only updated
+          // the model preference and never issued a model PATCH. Force one save
+          // pass now that the agent exists, then re-check before refusing.
+          await saveAgentSettings();
+          await awaitAgentSettingsSaved(agentId);
+          if (state.agent?.id !== agentId) {
+            throw new Error("The active conversation changed before the message was sent.");
+          }
+          selectedModel = String($("modelSelect")?.value || state.agent.model || "").trim();
+          persistedModel = String(state.agent.model || "").trim();
+          if (selectedModel && selectedModel !== persistedModel) {
+            throw new Error("The selected model could not be synchronized. Please try again.");
+          }
         }
         if (!isCurrentModelConfigured()) {
           showModelSetupNotice();

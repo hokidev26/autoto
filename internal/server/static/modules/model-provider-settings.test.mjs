@@ -70,6 +70,7 @@ import {
   providerVisibilityPreferencesForDraft,
   removeProviderVisibilityPreferences,
   setProviderModelHidden,
+  setProviderModelHiddenAll,
   providerConsoleRequest,
   providerConsoleStats,
   providerTestPayload,
@@ -758,6 +759,24 @@ test("隐藏保护自动迁移默认模型且禁止隐藏最后一个可见模�
   const blocked = setProviderModelHidden(hiddenDefault.modelConfigs, "b", true, "b");
   assert.equal(blocked.changed, false);
   assert.equal(blocked.modelConfigs[1].hidden, false);
+});
+
+test("批量可见性开关：隐藏全部保留一个默认，显示全部恢复", () => {
+  const configs = [
+    { name: "a", contextTokenLimit: 100, hidden: false },
+    { name: "b", contextTokenLimit: 200, hidden: false },
+    { name: "c", contextTokenLimit: 300, hidden: false },
+  ];
+  const hidden = setProviderModelHiddenAll(configs, true, "b");
+  assert.equal(hidden.changed, true);
+  assert.equal(hidden.defaultModel, "b");
+  assert.deepEqual(hidden.modelConfigs.map((m) => `${m.name}:${m.hidden ? 1 : 0}`), ["a:1", "b:0", "c:1"]);
+  const shown = setProviderModelHiddenAll(hidden.modelConfigs, false, "b");
+  assert.equal(shown.changed, true);
+  assert.equal(shown.modelConfigs.every((m) => !m.hidden), true);
+  const noDefault = setProviderModelHiddenAll(configs, true, "");
+  assert.equal(noDefault.defaultModel, "a");
+  assert.equal(noDefault.modelConfigs.filter((m) => !m.hidden).length, 1);
 });
 
 test("可见性偏好重命名和删除只处理当前 Provider 前缀", () => {

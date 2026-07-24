@@ -17,6 +17,7 @@ import {
   removeProviderVisibilityPreferences,
   renderProviderConsolePage,
   setProviderModelHidden,
+  setProviderModelHiddenAll,
 } from "./model-provider-components.mjs?v=provider-card-clean-3-provider-create-page-2-provider-secrets-1-model-picker-1-provider-full-page-2-provider-placeholders-1-model-configs-1-provider-reference-1-default-openai-responses-1-provider-draft-session-1-native-image-generation-1";
 import {
   markProviderModelsStale,
@@ -1565,6 +1566,18 @@ export function createModelProviderSettingsController({
       const result = setProviderModelHidden(draft.modelConfigs, name, target.dataset.hidden !== "true", draft.model);
       if (!result.changed) {
         setProviderConsoleResult(ct("messages.lastVisibleModel"), "attention");
+        refreshProviderConsole();
+        return;
+      }
+      consoleState.draft = { ...draft, model: result.defaultModel, modelConfigs: result.modelConfigs, models: result.modelConfigs.map((item) => item.name) };
+      consoleState.dirty = true;
+      refreshProviderConsole();
+      return;
+    }
+    if (target.dataset.mpModelVisibilityAll !== undefined) {
+      const draft = { ...(consoleState.draft || {}) };
+      const result = setProviderModelHiddenAll(draft.modelConfigs, target.dataset.allVisible === "true", draft.model);
+      if (!result.changed) {
         refreshProviderConsole();
         return;
       }

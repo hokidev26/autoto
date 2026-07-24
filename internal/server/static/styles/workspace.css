@@ -1567,7 +1567,7 @@ body.theme-light .composer-toolbar-icon { color: #3f3f46; }
   box-shadow: 0 22px 90px rgba(0, 0, 0, .42);
 }
 .folder-picker-head {
-  height: 90px;
+  height: 70px;
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto 46px;
   align-items: center;
@@ -1618,7 +1618,7 @@ body.theme-light .composer-toolbar-icon { color: #3f3f46; }
 }
 .folder-close-btn:hover { color: #111827; }
 .folder-toolbar {
-  height: 88px;
+  height: 52px;
   display: flex;
   align-items: center;
   gap: 7px;
@@ -1713,8 +1713,43 @@ body.theme-light .composer-toolbar-icon { color: #3f3f46; }
   grid-template-columns: 1fr 36px 36px;
   gap: 8px;
   align-items: center;
-  padding: 0 16px 10px 18px;
+  padding: 0 16px 8px 18px;
   border-bottom: 1px solid #d9dee8;
+}
+
+/* Composer select controls (reasoning effort / permission mode).
+   The chevron is an SVG rather than a text glyph so it aligns optically
+   instead of riding the font baseline, and the triggers size to their label
+   so it is never ellipsised into "可..." at desktop widths. Narrow-screen
+   media queries later in the cascade still compact these to short labels. */
+.composer-select-chevron {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  color: #8e8e93;
+}
+.composer-select-chevron svg {
+  display: block;
+  width: 10px;
+  height: 10px;
+}
+.composer-effort-field .composer-select-trigger,
+.composer-permission-field .composer-select-trigger {
+  flex: 0 0 auto;
+  min-width: max-content;
+}
+.composer-effort-field .composer-select-value,
+.composer-permission-field .composer-select-value {
+  overflow: visible;
+  text-overflow: clip;
+}
+/* A provider without reasoning-effort support leaves nothing to pick, so the
+   trigger reads as unavailable instead of looking clickable and doing nothing. */
+.composer-select-trigger:disabled,
+.composer-select-trigger.is-unsupported {
+  opacity: .55;
+  cursor: not-allowed;
 }
 .folder-path-input {
   height: 46px;

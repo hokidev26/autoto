@@ -349,9 +349,9 @@ function renderCodexUsage(account, mt, now) {
 function codexActionIcon(name) {
   const paths = {
     edit: '<path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/>',
-    sync: '<path d="M20 7h-5V2"/><path d="M20 7a8 8 0 0 0-14.9-2"/><path d="M4 17h5v5"/><path d="M4 17a8 8 0 0 0 14.9 2"/>',
+    sync: '<path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/>',
     enable: '<path d="M12 2v10"/><path d="M18.4 6.6a9 9 0 1 1-12.8 0"/>',
-    disable: '<path d="M5 5l14 14"/><path d="M18.4 6.6A9 9 0 0 1 6.6 18.4"/><path d="M5.6 5.6A9 9 0 0 1 18.4 18.4"/>',
+    disable: '<circle cx="12" cy="12" r="9"/><path d="m5.64 5.64 12.72 12.72"/>',
     delete: '<path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v5"/><path d="M14 11v5"/>',
     save: '<path d="m5 12 4 4L19 6"/>',
     cancel: '<path d="m6 6 12 12"/><path d="m18 6-12 12"/>',
