@@ -776,7 +776,10 @@ export function createWorkspaceExplorerController({
       if (state.workspacePreviewAutoStart && !previewRunning(state.workspacePreviewStatus || {}) && state.workspaceSelectedProfileId) startPreview().catch(showError);
     });
     globalThis.document?.querySelectorAll?.("[data-preview-viewport]").forEach((button) => {
-      button.addEventListener("click", () => setPreviewViewport(button.dataset.previewViewport));
+      button.addEventListener("click", () => {
+        setPreviewViewport(button.dataset.previewViewport);
+        button.closest("details")?.removeAttribute("open");
+      });
     });
     globalThis.document?.addEventListener?.("keydown", (event) => {
       if (event.key === "Escape" && state.workspaceOpen) {

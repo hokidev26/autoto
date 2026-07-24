@@ -77,14 +77,14 @@ import { createSystemSettingsController } from "./system-settings.mjs?v=users-pa
 import { installDesktopDeepLinkRouter, isDesktopShell } from "./desktop-shell-ui.mjs";
 import { createSkillsWorkbenchController } from "./skills-workbench.mjs?v=users-panel-removed-1";
 import { createTerminalController } from "./terminal.mjs?v=terminal-actions-compact-2";
-import { createUIShellController, elementVisible, isComposingInput } from "./ui-shell.mjs?v=permission-panel-2-plan-mode-panel-1-mobile-toolbar-right-3-icon-rail-1-mobile-viewport-1-sidebar-wheel-1-settings-cleanup-1-context-ring-2-dual-rail-collapse-1-compact-navigation-1-global-rail-2-model-menu-scroll-1";
+import { createUIShellController, elementVisible, isComposingInput } from "./ui-shell.mjs?v=permission-panel-2-plan-mode-panel-1-mobile-toolbar-right-3-icon-rail-1-mobile-viewport-1-sidebar-wheel-1-settings-cleanup-1-context-ring-2-dual-rail-collapse-1-compact-navigation-1-global-rail-2-model-menu-scroll-1-utility-resize-2";
 import { createUsageHistoryController } from "./usage-history.mjs";
 import { createAgentWorkspaceHelpers } from "./agent-workspace-helpers.mjs?v=task-summary-activity-1";
 import { createNavigationContextMenu } from "./navigation-context-menu.mjs";
 import { createOverviewNavHelpers } from "./overview-nav-helpers.mjs";
 import { createWorkbenchSidebarRender, primaryWorkbenchLayout } from "./workbench-sidebar-render.mjs";
 import { createWorkspaceContextHelpers } from "./workspace-context-helpers.mjs";
-import { createWorkspaceExplorerController } from "./workspace-explorer.mjs";
+import { createWorkspaceExplorerController } from "./workspace-explorer.mjs?v=viewport-menu-1";
 import { runPreviewScreenshot } from "./workspace-screenshot.mjs";
 import { normalizeWorkStateSnapshot, renderWorkStateHTML } from "./work-state.mjs";
 

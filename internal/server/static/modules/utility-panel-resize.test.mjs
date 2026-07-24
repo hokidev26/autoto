@@ -154,7 +154,15 @@ test("utility panel resizer drags, keys, resets, persists, and cleans up", () =>
         contains(name) { return bodyClasses.has(name); },
       },
     },
-    documentElement: { clientWidth: 1440 },
+    documentElement: {
+      clientWidth: 1440,
+      // --utility-panel-width is set on the document root (not #appShell) so the
+      // fixed-position browser preview modal, a sibling of #appShell, inherits it.
+      style: {
+        setProperty(name, value) { styleValues.set(name, value); },
+        removeProperty(name) { styleValues.delete(name); },
+      },
+    },
     getElementById(id) {
       return {
         appShell: shell,

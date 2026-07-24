@@ -1259,7 +1259,11 @@ export function createUIShellController({
     const applyWidth = (nextWidth, { save = false } = {}) => {
       const candidate = normalizeUtilityPanelWidth(nextWidth, width ?? currentPanelWidth() ?? maxUtilityPanelWidth, { maxAvailable: currentAvailableMax() });
       width = candidate;
-      shell.style?.setProperty?.("--utility-panel-width", `${width}px`);
+      // Set on the document root, not #appShell: the browser preview is a
+      // fixed-position modal that is a SIBLING of #appShell, so it can only
+      // inherit --utility-panel-width from a common ancestor. Setting it here
+      // lets both the grid columns and the docked preview card follow the drag.
+      document.documentElement?.style?.setProperty?.("--utility-panel-width", `${width}px`);
       separator.setAttribute?.("aria-valuenow", String(width));
       if (save) persistWidth();
       return width;
@@ -1314,7 +1318,7 @@ export function createUIShellController({
     const resetWidth = () => {
       if (!wideLayout()) return;
       width = null;
-      shell.style?.removeProperty?.("--utility-panel-width");
+      document.documentElement?.style?.removeProperty?.("--utility-panel-width");
       try {
         storage?.removeItem?.(utilityPanelWidthPreferenceKey);
       } catch {
