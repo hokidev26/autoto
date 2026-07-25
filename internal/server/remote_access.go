@@ -428,6 +428,7 @@ func (s *Server) filterAgentsForRequest(r *http.Request, agents []db.Agent) []db
 		if projectScoped && !s.filesystemPathWithinProjectRoot(agent.CWD) {
 			continue
 		}
+		agent.SystemPrompt = ""
 		agent.ContextSummary = ""
 		filtered = append(filtered, agent)
 	}

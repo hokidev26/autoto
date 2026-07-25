@@ -453,6 +453,7 @@ func (s *Server) getAgent(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	agent.SystemPrompt = ""
 	agent.ContextSummary = ""
 	writeJSON(w, http.StatusOK, agent)
 }

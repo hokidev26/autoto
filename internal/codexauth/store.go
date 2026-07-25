@@ -79,6 +79,7 @@ type AccountSummary struct {
 	ExpiresAt   string `json:"expires_at,omitempty"`
 	Disabled    bool   `json:"disabled"`
 	Refreshable bool   `json:"refreshable"`
+	AuthKind    string `json:"authKind"`
 }
 
 type MetadataUpdate struct {
@@ -189,19 +190,33 @@ func (s *Store) ListAccounts() ([]AccountSummary, error) {
 
 func Summary(item StoredCredential) AccountSummary {
 	credential := item.Credential
+	authKind := "access_only"
+	if credential.RefreshToken != "" {
+		authKind = "oauth"
+	}
 	return AccountSummary{
 		ID:          credential.ID,
 		Name:        item.Filename,
-		Alias:       credential.Alias,
+		Alias:       publicCredentialMetadata(credential.Alias, credential),
 		Priority:    credential.Priority,
 		Provider:    DefaultProviderName,
-		Email:       credential.Email,
-		AccountID:   credential.AccountID,
-		PlanType:    credential.PlanType,
+		Email:       publicCredentialMetadata(credential.Email, credential),
+		AccountID:   publicCredentialMetadata(credential.AccountID, credential),
+		PlanType:    publicCredentialMetadata(credential.PlanType, credential),
 		ExpiresAt:   credential.Expired,
 		Disabled:    credential.Disabled,
 		Refreshable: credential.RefreshToken != "",
+		AuthKind:    authKind,
 	}
+}
+
+func publicCredentialMetadata(value string, credential Credential) string {
+	for _, secret := range []string{credential.AccessToken, credential.RefreshToken, credential.IDToken} {
+		if secret != "" && strings.Contains(value, secret) {
+			return ""
+		}
+	}
+	return value
 }
 
 func (s *Store) Load() ([]StoredCredential, error) {

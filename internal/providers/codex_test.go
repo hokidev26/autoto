@@ -534,7 +534,7 @@ func TestCodexProviderCancellationDoesNotWaitForConcurrentRefresh(t *testing.T) 
 	}
 }
 
-func TestCodexProviderRedactsCredentialFromUpstreamError(t *testing.T) {
+func TestCodexProviderDropsUnknownCredentialBearingErrorBody(t *testing.T) {
 	const secret = "fixture-access-sensitive"
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -558,8 +558,316 @@ func TestCodexProviderRedactsCredentialFromUpstreamError(t *testing.T) {
 			errorText = event.Text
 		}
 	}
-	if errorText == "" || strings.Contains(errorText, secret) || !strings.Contains(errorText, "[redacted]") {
-		t.Fatalf("credential was not safely redacted: %q", errorText)
+	if errorText == "" || !strings.Contains(errorText, "HTTP 400 (bad_request)") || strings.Contains(errorText, secret) || strings.Contains(errorText, "token ") || strings.Contains(errorText, "[redacted]") {
+		t.Fatalf("unknown credential-bearing error body was not dropped: %q", errorText)
+	}
+}
+
+func TestCodexFailoverWhitelistExcludesServerAndFeatureErrors(t *testing.T) {
+	if shouldTryNextCodexCredential(http.StatusInternalServerError, "server_error") {
+		t.Fatal("HTTP 500 was incorrectly treated as an account failover signal")
+	}
+	if shouldTryNextCodexCredential(http.StatusForbidden, "image_generation_not_enabled") {
+		t.Fatal("feature-specific HTTP 403 was incorrectly treated as an auth failure")
+	}
+	if !shouldTryNextCodexCredential(http.StatusForbidden, "authentication_error") || !shouldTryNextCodexCredential(http.StatusTooManyRequests, "") {
+		t.Fatal("auth/rate-limit failover whitelist rejected a supported signal")
+	}
+	if shouldTryNextCodexRequestError(providerUnavailableError("codex", "network failed")) {
+		t.Fatal("generic request errors were incorrectly made replayable")
+	}
+}
+
+func TestCodexWhitelistedDiagnosticRedactsRuntimeSecretsAndRemainsBounded(t *testing.T) {
+	credential := codexauth.Credential{
+		AccessToken:  "access-secret-value",
+		RefreshToken: "refresh-secret-value",
+		IDToken:      "id-secret-value",
+	}
+	cfg := config.ProviderConfig{
+		ProxyURL:      "http://url-user:url-pass@127.0.0.1:8080",
+		ProxyUsername: "proxy-user",
+		ProxyPassword: "proxy-pass",
+		RequestHeaders: []config.ProviderRequestHeader{
+			{Name: "X-Secret", Value: "header-secret-value"},
+		},
+	}
+	jwt := testCodexProviderJWT(t, map[string]any{"sub": "diagnostic-secret"})
+	longToken := strings.Repeat("A", 48)
+	pem := "-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASC\n-----END PRIVATE KEY-----"
+	message := strings.Join([]string{
+		"Image generation is not enabled for this workspace",
+		credential.AccessToken,
+		credential.RefreshToken,
+		credential.IDToken,
+		cfg.ProxyUsername,
+		cfg.ProxyPassword,
+		cfg.RequestHeaders[0].Value,
+		cfg.ProxyURL,
+		jwt,
+		longToken,
+		pem,
+		"https://embedded-user:embedded-pass@example.test/path",
+		strings.Repeat("bounded-diagnostic ", 100),
+	}, " | ")
+	body, err := json.Marshal(map[string]any{"error": map[string]any{"code": "image_generation_not_enabled", "message": message}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	response := &http.Response{StatusCode: http.StatusForbidden, Body: io.NopCloser(bytes.NewReader(body))}
+	diagnostic, code := codexHTTPErrorDetails(response, credential, cfg, "Codex 模型请求失败")
+	if code != "image_generation_not_enabled" || !strings.Contains(diagnostic.Error(), "Image generation is not enabled for this workspace") || !strings.Contains(diagnostic.Error(), "[redacted]") || len(diagnostic.Error()) > codexMaxErrorOutputBytes {
+		t.Fatalf("unexpected bounded whitelisted diagnostic: code=%q len=%d err=%q", code, len(diagnostic.Error()), diagnostic)
+	}
+	for _, secret := range []string{
+		credential.AccessToken, credential.RefreshToken, credential.IDToken,
+		cfg.ProxyUsername, cfg.ProxyPassword, cfg.RequestHeaders[0].Value,
+		"url-user", "url-pass", jwt, longToken, "MIIEvQIBADANBgkqhkiG9w0BAQEFAASC",
+		"embedded-user", "embedded-pass",
+	} {
+		if strings.Contains(diagnostic.Error(), secret) {
+			t.Fatalf("diagnostic leaked %q: %s", secret, diagnostic)
+		}
+	}
+	if got := sanitizeCodexErrorCode(cfg.RequestHeaders[0].Value, credential, cfg); got != "redacted" {
+		t.Fatalf("custom header value leaked through telemetry code: %q", got)
+	}
+}
+
+func TestCodexUnknownHTTPErrorDropsBodyEvenWhenItContainsSecrets(t *testing.T) {
+	const token = "unknown-body-token-sensitive"
+	response := &http.Response{
+		StatusCode: http.StatusBadRequest,
+		Body:       io.NopCloser(strings.NewReader(`{"error":{"code":"support_ticket_required","message":"token unknown-body-token-sensitive rejected; internal diagnostic shard=db-primary trace=secret-trace"}}`)),
+	}
+	err, code := codexHTTPErrorDetails(response, codexauth.Credential{AccessToken: token}, config.ProviderConfig{}, "Codex 模型请求失败")
+	if code != "support_ticket_required" || !strings.Contains(err.Error(), "HTTP 400") || !strings.Contains(err.Error(), "support_ticket_required") {
+		t.Fatalf("unknown error did not preserve stable status/code: code=%q err=%v", code, err)
+	}
+	for _, forbidden := range []string{token, "internal diagnostic", "db-primary", "secret-trace", "[redacted]"} {
+		if strings.Contains(err.Error(), forbidden) {
+			t.Fatalf("unknown error body was exposed after redaction decision: forbidden=%q err=%v", forbidden, err)
+		}
+	}
+}
+
+func TestCodexRefreshErrorClassifiesTerminalOAuthFailures(t *testing.T) {
+	tests := []struct {
+		name string
+		body string
+		code string
+	}{
+		{name: "expired nested", body: `{"error":{"code":"refresh_token_expired"}}`, code: "refresh_token_expired"},
+		{name: "reused standard", body: `{"error":"invalid_grant","error_description":"refresh token was already used"}`, code: "refresh_token_reused"},
+		{name: "revoked standard", body: `{"error":"invalid_grant","error_description":"refresh token was revoked"}`, code: "refresh_token_invalidated"},
+		{name: "invalid grant", body: `{"error":"invalid_grant"}`, code: "invalid_grant"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			err := codexRefreshError(http.StatusBadRequest, strings.NewReader(test.body))
+			var failure *codexCredentialFailure
+			if !errors.As(err, &failure) || failure.code != test.code || !failure.retryable {
+				t.Fatalf("unexpected refresh classification: failure=%+v err=%v", failure, err)
+			}
+			if strings.Contains(err.Error(), "invalid_grant") || len(err.Error()) > codexMaxErrorOutputBytes {
+				t.Fatalf("refresh error exposed unstable detail or exceeded bound: %q", err)
+			}
+		})
+	}
+}
+
+func TestCodexTerminalRefreshFailureSwitchesAccountWithoutDisabling(t *testing.T) {
+	var refreshRequests atomic.Int32
+	var responseRequests atomic.Int32
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/oauth/token":
+			refreshRequests.Add(1)
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte(`{"error":"invalid_grant","error_description":"refresh token was already used"}`))
+		case "/responses":
+			responseRequests.Add(1)
+			if r.Header.Get("ChatGPT-Account-ID") != "second-account" {
+				t.Fatalf("terminal refresh failure did not switch accounts: %q", r.Header.Get("ChatGPT-Account-ID"))
+			}
+			w.Header().Set("Content-Type", "text/event-stream")
+			_, _ = fmt.Fprint(w, "data: {\"type\":\"response.completed\",\"response\":{}}\n\n")
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer upstream.Close()
+
+	storeDir := filepath.Join(t.TempDir(), "codex")
+	store := codexauth.NewStore(storeDir)
+	if _, err := store.Import([]codexauth.ImportDocument{
+		{Filename: "first.json", Content: []byte(`{"type":"codex","refresh_token":"rt_terminal_first","account_id":"first-account","priority":1}`)},
+		{Filename: "second.json", Content: []byte(`{"type":"codex","access_token":"second-access","account_id":"second-account","priority":2}`)},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	telemetry := &recordingAccountTelemetry{}
+	provider := newCodexRefreshTestProvider(upstream.URL, storeDir)
+	provider.SetAccountTelemetry(telemetry)
+	events, err := provider.Generate(context.Background(), GenerateRequest{Messages: []Message{{Role: "user", Content: "hello"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for event := range events {
+		if event.Type == "error" {
+			t.Fatalf("unexpected final error after account switch: %s", event.Text)
+		}
+	}
+	if refreshRequests.Load() != 1 || responseRequests.Load() != 1 {
+		t.Fatalf("unexpected request counts: refresh=%d responses=%d", refreshRequests.Load(), responseRequests.Load())
+	}
+	items, err := store.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, item := range items {
+		if item.Credential.AccountID == "first-account" && item.Credential.Disabled {
+			t.Fatalf("terminal refresh failure automatically disabled account: %+v", item)
+		}
+	}
+	telemetry.mu.Lock()
+	defer telemetry.mu.Unlock()
+	if len(telemetry.attempts) != 2 || telemetry.attempts[0].ErrorCode != "refresh_token_reused" || !telemetry.attempts[1].Success {
+		t.Fatalf("unexpected refresh failover telemetry: %+v", telemetry.attempts)
+	}
+}
+
+func TestCodexSSEPreOutputAuthOrRateLimitCanFailOver(t *testing.T) {
+	for _, code := range []string{"authentication_error", "rate_limit_exceeded"} {
+		t.Run(code, func(t *testing.T) {
+			var requests atomic.Int32
+			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				requests.Add(1)
+				w.Header().Set("Content-Type", "text/event-stream")
+				if r.Header.Get("ChatGPT-Account-ID") == "first-account" {
+					_, _ = fmt.Fprintf(w, "data: {\"type\":\"error\",\"code\":%q,\"message\":\"try next account\"}\n\n", code)
+					return
+				}
+				_, _ = fmt.Fprint(w, "data: {\"type\":\"response.completed\",\"response\":{}}\n\n")
+			}))
+			defer upstream.Close()
+			storeDir := filepath.Join(t.TempDir(), "codex")
+			store := codexauth.NewStore(storeDir)
+			if _, err := store.Import([]codexauth.ImportDocument{
+				{Filename: "first.json", Content: []byte(`{"type":"codex","access_token":"first-access","account_id":"first-account","priority":1}`)},
+				{Filename: "second.json", Content: []byte(`{"type":"codex","access_token":"second-access","account_id":"second-account","priority":2}`)},
+			}); err != nil {
+				t.Fatal(err)
+			}
+			provider := NewCodexProvider(config.ProviderConfig{Name: "codex", Type: config.ProviderTypeCodex, BaseURL: upstream.URL, Model: "gpt-test", CredentialStorePath: storeDir, CodexAllowInsecureTestEndpoint: true})
+			events, err := provider.Generate(context.Background(), GenerateRequest{Messages: []Message{{Role: "user", Content: "hello"}}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			for event := range events {
+				if event.Type == "error" {
+					t.Fatalf("retryable pre-output SSE failure became terminal: %s", event.Text)
+				}
+			}
+			if requests.Load() != 2 {
+				t.Fatalf("pre-output %s did not fail over exactly once: requests=%d", code, requests.Load())
+			}
+		})
+	}
+}
+
+func TestCodexSSEDoesNotReplayAfterTextToolOrImageOutput(t *testing.T) {
+	tests := []struct {
+		name       string
+		firstEvent string
+		wantType   string
+	}{
+		{name: "text", firstEvent: `data: {"type":"response.output_text.delta","delta":"partial"}`, wantType: "text"},
+		{name: "tool", firstEvent: `data: {"type":"response.output_item.done","item":{"type":"function_call","call_id":"call-1","name":"lookup","arguments":"{}"}}`, wantType: "tool_call"},
+		{name: "image", firstEvent: `data: {"type":"response.output_item.added","output_index":0,"item":{"type":"image_generation_call","id":"ig-1","status":"in_progress"}}`, wantType: "image_generation"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			var requests atomic.Int32
+			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				requests.Add(1)
+				w.Header().Set("Content-Type", "text/event-stream")
+				if r.Header.Get("ChatGPT-Account-ID") == "first-account" {
+					_, _ = fmt.Fprint(w, test.firstEvent+"\n\n")
+					_, _ = fmt.Fprint(w, "data: {\"type\":\"error\",\"code\":\"rate_limit_exceeded\",\"message\":\"limited\"}\n\n")
+					return
+				}
+				_, _ = fmt.Fprint(w, "data: {\"type\":\"response.output_text.delta\",\"delta\":\"replayed\"}\n\n")
+				_, _ = fmt.Fprint(w, "data: {\"type\":\"response.completed\",\"response\":{}}\n\n")
+			}))
+			defer upstream.Close()
+			storeDir := filepath.Join(t.TempDir(), "codex")
+			store := codexauth.NewStore(storeDir)
+			if _, err := store.Import([]codexauth.ImportDocument{
+				{Filename: "first.json", Content: []byte(`{"type":"codex","access_token":"first-access","account_id":"first-account","priority":1}`)},
+				{Filename: "second.json", Content: []byte(`{"type":"codex","access_token":"second-access","account_id":"second-account","priority":2}`)},
+			}); err != nil {
+				t.Fatal(err)
+			}
+			provider := NewCodexProvider(config.ProviderConfig{Name: "codex", Type: config.ProviderTypeCodex, BaseURL: upstream.URL, Model: "gpt-test", CredentialStorePath: storeDir, CodexAllowInsecureTestEndpoint: true})
+			events, err := provider.Generate(context.Background(), GenerateRequest{Messages: []Message{{Role: "user", Content: "hello"}}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			var sawOutput, sawError bool
+			for event := range events {
+				if event.Type == test.wantType {
+					sawOutput = true
+				}
+				if event.Type == "text" && event.Text == "replayed" {
+					t.Fatal("second account output was replayed")
+				}
+				if event.Type == "error" {
+					sawError = true
+				}
+			}
+			if requests.Load() != 1 || !sawOutput || !sawError {
+				t.Fatalf("output replay guard failed: requests=%d output=%v error=%v", requests.Load(), sawOutput, sawError)
+			}
+		})
+	}
+}
+
+func TestCodexSSEUnknownPreOutputErrorDoesNotFailOver(t *testing.T) {
+	var requests atomic.Int32
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests.Add(1)
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = fmt.Fprint(w, "data: {\"type\":\"error\",\"code\":\"upstream_internal_error\",\"message\":\"token first-access rejected; unstable detail internal=db-primary\"}\n\n")
+	}))
+	defer upstream.Close()
+	storeDir := filepath.Join(t.TempDir(), "codex")
+	store := codexauth.NewStore(storeDir)
+	if _, err := store.Import([]codexauth.ImportDocument{
+		{Filename: "first.json", Content: []byte(`{"type":"codex","access_token":"first-access","account_id":"first-account","priority":1}`)},
+		{Filename: "second.json", Content: []byte(`{"type":"codex","access_token":"second-access","account_id":"second-account","priority":2}`)},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	provider := NewCodexProvider(config.ProviderConfig{Name: "codex", Type: config.ProviderTypeCodex, BaseURL: upstream.URL, Model: "gpt-test", CredentialStorePath: storeDir, CodexAllowInsecureTestEndpoint: true})
+	events, err := provider.Generate(context.Background(), GenerateRequest{Messages: []Message{{Role: "user", Content: "hello"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var errorText string
+	for event := range events {
+		if event.Type == "error" {
+			errorText = event.Text
+		}
+	}
+	if requests.Load() != 1 || !strings.Contains(errorText, "upstream_internal_error") {
+		t.Fatalf("unknown pre-output SSE error did not preserve stable code: requests=%d error=%q", requests.Load(), errorText)
+	}
+	for _, forbidden := range []string{"first-access", "unstable detail", "db-primary", "[redacted]"} {
+		if strings.Contains(errorText, forbidden) {
+			t.Fatalf("unknown pre-output SSE body was exposed: forbidden=%q error=%q", forbidden, errorText)
+		}
 	}
 }
 
@@ -883,12 +1191,12 @@ func TestSanitizeCodexErrorCodeRedactsEmbeddedSecrets(t *testing.T) {
 		"token:fixture-access",
 		testCodexProviderJWT(t, map[string]any{"sub": "sensitive"}),
 	} {
-		if got := sanitizeCodexErrorCode(code, credential); got != "redacted" {
+		if got := sanitizeCodexErrorCode(code, credential, config.ProviderConfig{}); got != "redacted" {
 			t.Fatalf("sensitive error code was not redacted: code=%q got=%q", code, got)
 		}
 	}
 	for _, code := range []string{"rate_limit_exceeded", "support_ticket_required"} {
-		if got := sanitizeCodexErrorCode(code, credential); got != code {
+		if got := sanitizeCodexErrorCode(code, credential, config.ProviderConfig{}); got != code {
 			t.Fatalf("safe upstream code changed unexpectedly: code=%q got=%q", code, got)
 		}
 	}
@@ -1130,7 +1438,7 @@ func TestCodexStreamEmitsAndDeduplicatesImageGeneration(t *testing.T) {
 		``,
 	}, "\n")
 	out := make(chan Event, 16)
-	outcome := handleCodexResponsesStream(context.Background(), out, strings.NewReader(stream), codexauth.Credential{})
+	outcome := handleCodexResponsesStream(context.Background(), out, strings.NewReader(stream), codexauth.Credential{}, config.ProviderConfig{})
 	close(out)
 	if !outcome.Success || outcome.ErrorCode != "" {
 		t.Fatalf("unexpected stream outcome: %+v", outcome)
@@ -1159,7 +1467,7 @@ func TestCodexScannerAcceptsMaximumBoundedPartialImageLine(t *testing.T) {
 	stream := `data: {"type":"response.image_generation_call.partial_image","item_id":"ig_large","output_index":0,"partial_image_index":0,"partial_image_b64":"` + partial + `"}` + "\n\n" +
 		`data: {"type":"response.completed","response":{"output":[]}}` + "\n\n"
 	out := make(chan Event, 4)
-	outcome := handleCodexResponsesStream(context.Background(), out, strings.NewReader(stream), codexauth.Credential{})
+	outcome := handleCodexResponsesStream(context.Background(), out, strings.NewReader(stream), codexauth.Credential{}, config.ProviderConfig{})
 	close(out)
 	if !outcome.Success {
 		t.Fatalf("maximum bounded partial image line was rejected: %+v", outcome)
@@ -1183,7 +1491,7 @@ func TestCodexForbiddenErrorPreservesUpstreamImageGenerationMessage(t *testing.T
 		StatusCode: http.StatusForbidden,
 		Body:       io.NopCloser(strings.NewReader(`{"error":{"code":"image_generation_not_enabled","message":"Image generation is not enabled for this workspace"}}`)),
 	}
-	err, code := codexHTTPErrorDetails(response, codexauth.Credential{}, "Codex 模型请求失败")
+	err, code := codexHTTPErrorDetails(response, codexauth.Credential{}, config.ProviderConfig{}, "Codex 模型请求失败")
 	if code != "image_generation_not_enabled" || !strings.Contains(err.Error(), "HTTP 403") || !strings.Contains(err.Error(), "Image generation is not enabled for this workspace") {
 		t.Fatalf("upstream 403 detail was not preserved: code=%q err=%v", code, err)
 	}

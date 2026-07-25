@@ -44,7 +44,7 @@ func TestStoreImportPersistsAndListsWithoutSecrets(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(accounts) != 1 || accounts[0].AccountID != "account-1" || accounts[0].Email != "user@example.test" || !accounts[0].Refreshable {
+	if len(accounts) != 1 || accounts[0].AccountID != "account-1" || accounts[0].Email != "user@example.test" || !accounts[0].Refreshable || accounts[0].AuthKind != "oauth" {
 		t.Fatalf("unexpected account summary: %+v", accounts)
 	}
 	publicJSON, err := json.Marshal(accounts)
@@ -55,6 +55,49 @@ func TestStoreImportPersistsAndListsWithoutSecrets(t *testing.T) {
 		if strings.Contains(string(publicJSON), secret) {
 			t.Fatalf("secret leaked through public account summary: %s", publicJSON)
 		}
+	}
+}
+
+func TestSummaryClearsTokenBearingMetadataAndDerivesAuthKind(t *testing.T) {
+	credential := Credential{
+		ID:           "codex_MDEyMzQ1Njc4OWFiY2RlZg",
+		Type:         DefaultProviderName,
+		AccessToken:  "access-secret-value",
+		RefreshToken: "refresh-secret-value",
+		IDToken:      "id-secret-value",
+		Alias:        "primary access-secret-value",
+		Email:        "refresh-secret-value@example.test",
+		AccountID:    "workspace-id-secret-value",
+		PlanType:     "plus-access-secret-value",
+	}
+	summary := Summary(StoredCredential{Filename: "account.json", Credential: credential})
+	if summary.Alias != "" || summary.Email != "" || summary.AccountID != "" || summary.PlanType != "" {
+		t.Fatalf("token-bearing public metadata was retained: %+v", summary)
+	}
+	if summary.AuthKind != "oauth" || !summary.Refreshable || credential.Type != DefaultProviderName {
+		t.Fatalf("unexpected derived OAuth summary or disk type mutation: summary=%+v credential=%+v", summary, credential)
+	}
+	encoded, err := json.Marshal(summary)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(encoded), `"authKind":"oauth"`) {
+		t.Fatalf("summary JSON omitted derived authKind: %s", encoded)
+	}
+	for _, secret := range []string{credential.AccessToken, credential.RefreshToken, credential.IDToken} {
+		if strings.Contains(string(encoded), secret) {
+			t.Fatalf("summary JSON leaked %q: %s", secret, encoded)
+		}
+	}
+
+	credential.RefreshToken = ""
+	credential.Alias = "safe alias"
+	credential.Email = "safe@example.test"
+	credential.AccountID = "safe-account"
+	credential.PlanType = "plus"
+	summary = Summary(StoredCredential{Filename: "access-only.json", Credential: credential})
+	if summary.AuthKind != "access_only" || summary.Refreshable || summary.Alias != credential.Alias || summary.Email != credential.Email || summary.AccountID != credential.AccountID || summary.PlanType != credential.PlanType {
+		t.Fatalf("unexpected access-only summary: %+v", summary)
 	}
 }
 

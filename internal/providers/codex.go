@@ -26,6 +26,8 @@ const (
 	codexAccessTokenRefreshAhead = 5 * time.Minute
 	codexUnknownExpiryRefreshAge = 8 * 24 * time.Hour
 	codexMaxResponseBytes        = 4 << 20
+	codexMaxErrorDetailBytes     = 512
+	codexMaxErrorOutputBytes     = 768
 
 	// Snapshot of explicit Fast tiers from OpenAI's public Codex model catalog.
 	// It is used only for the canonical Codex endpoint when the authenticated
@@ -202,7 +204,10 @@ func (p *CodexProvider) listModelsWithCredentials(ctx context.Context, credentia
 				return nil, contextError(ctx, requestErr)
 			}
 			lastErr = requestErr
-			continue
+			if shouldTryNextCodexRequestError(requestErr) {
+				continue
+			}
+			return nil, requestErr
 		}
 		if err := ctx.Err(); err != nil {
 			response.Body.Close()
@@ -210,12 +215,13 @@ func (p *CodexProvider) listModelsWithCredentials(ctx context.Context, credentia
 		}
 		if response.StatusCode >= http.StatusMultipleChoices {
 			status := response.StatusCode
-			lastErr = codexHTTPError(response, used.Credential, "Codex 模型列表请求失败")
+			var errorCode string
+			lastErr, errorCode = codexHTTPErrorDetails(response, used.Credential, p.cfg, "Codex 模型列表请求失败")
 			response.Body.Close()
 			if err := ctx.Err(); err != nil {
 				return nil, err
 			}
-			if shouldTryNextCodexCredential(status) {
+			if shouldTryNextCodexCredential(status, errorCode) {
 				continue
 			}
 			return nil, lastErr
@@ -297,7 +303,14 @@ func (p *CodexProvider) Generate(ctx context.Context, req GenerateRequest) (<-ch
 				if ctx.Err() != nil {
 					return
 				}
-				continue
+				if shouldTryNextCodexRequestError(requestErr) {
+					continue
+				}
+				if !emitProviderEvent(ctx, out, newDispatchEvent(p.cfg.Name, model, used.Credential.ID)) {
+					return
+				}
+				emitProviderEvent(ctx, out, Event{Type: "error", Text: boundedCodexError(requestErr.Error())})
+				return
 			}
 			if ctx.Err() != nil {
 				response.Body.Close()
@@ -306,7 +319,7 @@ func (p *CodexProvider) Generate(ctx context.Context, req GenerateRequest) (<-ch
 			if response.StatusCode >= http.StatusMultipleChoices {
 				status := response.StatusCode
 				var errorCode string
-				lastErr, errorCode = codexHTTPErrorDetails(response, used.Credential, "Codex 模型请求失败")
+				lastErr, errorCode = codexHTTPErrorDetails(response, used.Credential, p.cfg, "Codex 模型请求失败")
 				response.Body.Close()
 				if ctx.Err() != nil {
 					return
@@ -315,31 +328,35 @@ func (p *CodexProvider) Generate(ctx context.Context, req GenerateRequest) (<-ch
 				if ctx.Err() != nil {
 					return
 				}
-				if shouldTryNextCodexCredential(status) {
+				if shouldTryNextCodexCredential(status, errorCode) {
 					continue
 				}
 				if !emitProviderEvent(ctx, out, newDispatchEvent(p.cfg.Name, model, used.Credential.ID)) {
 					return
 				}
-				emitProviderEvent(ctx, out, Event{Type: "error", Text: lastErr.Error()})
+				emitProviderEvent(ctx, out, Event{Type: "error", Text: boundedCodexError(lastErr.Error())})
 				return
 			}
 			if !emitProviderEvent(ctx, out, newDispatchEvent(p.cfg.Name, model, used.Credential.ID)) {
 				response.Body.Close()
 				return
 			}
-			outcome := handleCodexResponsesStream(ctx, out, response.Body, used.Credential)
+			outcome := handleCodexResponsesStream(ctx, out, response.Body, used.Credential, p.cfg)
 			response.Body.Close()
 			if ctx.Err() != nil || outcome.ErrorCode == "context_canceled" || outcome.ErrorCode == "deadline_exceeded" {
 				return
 			}
 			p.recordAccountAttempt(ctx, used.Credential.ID, outcome.Success, response.StatusCode, http.StatusText(response.StatusCode), outcome.ErrorCode)
+			if outcome.Retryable && !outcome.EmittedOutput {
+				lastErr = errors.New(outcome.ErrorText)
+				continue
+			}
 			return
 		}
 		if lastErr == nil {
 			lastErr = providerUnavailableError(p.cfg.Name, "没有可用的 Codex OAuth 凭据")
 		}
-		emitProviderEvent(ctx, out, Event{Type: "error", Text: lastErr.Error()})
+		emitProviderEvent(ctx, out, Event{Type: "error", Text: boundedCodexError(lastErr.Error())})
 	}()
 	return out, nil
 }
@@ -441,7 +458,7 @@ func (p *CodexProvider) prepareCredential(ctx context.Context, item codexauth.St
 		return item, nil
 	}
 	if credential.RefreshToken == "" {
-		return item, providerUnavailableError(p.cfg.Name, "Codex access token 已过期且没有 refresh_token")
+		return item, newCodexCredentialFailure("access_token_expired", providerUnavailableError(p.cfg.Name, "Codex access token 已过期且没有 refresh_token").Error(), true)
 	}
 	return p.refreshCredential(ctx, item)
 }
@@ -473,7 +490,7 @@ func (p *CodexProvider) refreshCredential(ctx context.Context, item codexauth.St
 	}
 	credential := item.Credential
 	if credential.RefreshToken == "" {
-		return item, providerUnavailableError(p.cfg.Name, "Codex 凭据缺少 refresh_token")
+		return item, newCodexCredentialFailure("refresh_token_missing", providerUnavailableError(p.cfg.Name, "Codex 凭据缺少 refresh_token").Error(), true)
 	}
 	payload := map[string]string{
 		"client_id":     codexOAuthClientID,
@@ -635,6 +652,32 @@ func contextError(ctx context.Context, fallback error) error {
 	return fallback
 }
 
+type codexCredentialFailure struct {
+	code      string
+	message   string
+	retryable bool
+}
+
+func newCodexCredentialFailure(code, message string, retryable bool) error {
+	return &codexCredentialFailure{
+		code:      safeTelemetryCode(code, "credential_error"),
+		message:   boundedCodexError(message),
+		retryable: retryable,
+	}
+}
+
+func (e *codexCredentialFailure) Error() string {
+	if e == nil {
+		return "Codex credential error"
+	}
+	return e.message
+}
+
+func shouldTryNextCodexRequestError(err error) bool {
+	var failure *codexCredentialFailure
+	return errors.As(err, &failure) && failure.retryable
+}
+
 func telemetryErrorCode(err error) string {
 	if err == nil {
 		return ""
@@ -644,6 +687,10 @@ func telemetryErrorCode(err error) string {
 	}
 	if errors.Is(err, context.DeadlineExceeded) {
 		return "deadline_exceeded"
+	}
+	var failure *codexCredentialFailure
+	if errors.As(err, &failure) {
+		return safeTelemetryCode(failure.code, "credential_error")
 	}
 	return "network_error"
 }
@@ -818,15 +865,36 @@ func codexToolParams(tools []ToolSpec, enableImageGeneration bool) []map[string]
 }
 
 type codexStreamOutcome struct {
-	Success   bool
-	ErrorCode string
+	Success       bool
+	ErrorCode     string
+	ErrorText     string
+	Retryable     bool
+	EmittedOutput bool
 }
 
-func handleCodexResponsesStream(ctx context.Context, out chan<- Event, body io.Reader, credential codexauth.Credential) codexStreamOutcome {
+func handleCodexResponsesStream(ctx context.Context, out chan<- Event, body io.Reader, credential codexauth.Credential, cfg config.ProviderConfig) codexStreamOutcome {
 	scanner := bufio.NewScanner(body)
 	scanner.Buffer(make([]byte, 0, 64*1024), 16<<20)
 	emittedCalls := map[string]bool{}
+	emittedOutput := false
 	imageTracker := newImageGenerationTracker()
+	streamFailure := func(code, message, fallback, fallbackCode string) codexStreamOutcome {
+		safeCode := sanitizeCodexErrorCode(code, credential, cfg)
+		if safeCode == "" {
+			safeCode = fallbackCode
+		}
+		errorText := safeCodexEventError(code, message, fallback, credential, cfg)
+		retryable := !emittedOutput && isCodexSSEFailoverCode(code)
+		if !retryable {
+			emitProviderEvent(ctx, out, Event{Type: "error", Text: errorText})
+		}
+		return codexStreamOutcome{
+			ErrorCode:     safeTelemetryCode(safeCode, fallbackCode),
+			ErrorText:     errorText,
+			Retryable:     retryable,
+			EmittedOutput: emittedOutput,
+		}
+	}
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 		if line == "" || strings.HasPrefix(line, ":") || strings.HasPrefix(line, "event:") {
@@ -845,41 +913,47 @@ func handleCodexResponsesStream(ctx context.Context, out chan<- Event, body io.R
 		}
 		imageEvents, imageErr := imageTracker.processJSON(data)
 		if imageErr != nil {
-			emitProviderEvent(ctx, out, Event{Type: "error", Text: imageErr.Error()})
-			return codexStreamOutcome{ErrorCode: "invalid_image_generation"}
+			message := boundedCodexError(imageErr.Error())
+			emitProviderEvent(ctx, out, Event{Type: "error", Text: message})
+			return codexStreamOutcome{ErrorCode: "invalid_image_generation", ErrorText: message, EmittedOutput: emittedOutput}
 		}
 		for _, imageEvent := range imageEvents {
+			emittedOutput = true
 			if !emitProviderEvent(ctx, out, imageEvent) {
-				return codexStreamOutcome{ErrorCode: "context_canceled"}
+				return codexStreamOutcome{ErrorCode: "context_canceled", EmittedOutput: emittedOutput}
 			}
 		}
 		switch event.Type {
 		case "response.output_text.delta":
-			if event.Delta != "" && !emitProviderEvent(ctx, out, Event{Type: "text", Text: event.Delta}) {
-				return codexStreamOutcome{ErrorCode: "context_canceled"}
+			if event.Delta != "" {
+				emittedOutput = true
+				if !emitProviderEvent(ctx, out, Event{Type: "text", Text: event.Delta}) {
+					return codexStreamOutcome{ErrorCode: "context_canceled", EmittedOutput: emittedOutput}
+				}
 			}
 		case "response.output_item.done":
 			if call := codexToolCallFromItem(event.Item); call != nil && !emittedCalls[call.ID] {
 				emittedCalls[call.ID] = true
+				emittedOutput = true
 				if !emitProviderEvent(ctx, out, Event{Type: "tool_call", ToolCall: call}) {
-					return codexStreamOutcome{ErrorCode: "context_canceled"}
+					return codexStreamOutcome{ErrorCode: "context_canceled", EmittedOutput: emittedOutput}
 				}
 			}
 		case "response.completed":
 			if !emitCodexResponseToolCalls(ctx, out, event.Response.Output, emittedCalls) {
-				return codexStreamOutcome{ErrorCode: "context_canceled"}
+				return codexStreamOutcome{ErrorCode: "context_canceled", EmittedOutput: emittedOutput}
 			}
 			if usage := event.Response.Usage.toUsage(); usage != (Usage{}) {
 				if !emitProviderEvent(ctx, out, Event{Type: "usage", Usage: &usage}) {
-					return codexStreamOutcome{ErrorCode: "context_canceled"}
+					return codexStreamOutcome{ErrorCode: "context_canceled", EmittedOutput: emittedOutput}
 				}
 			}
 			emitProviderEvent(ctx, out, Event{Type: "done", Done: true})
-			return codexStreamOutcome{Success: true}
+			return codexStreamOutcome{Success: true, EmittedOutput: emittedOutput}
 		case "response.incomplete":
 			if usage := event.Response.Usage.toUsage(); usage != (Usage{}) {
 				if !emitProviderEvent(ctx, out, Event{Type: "usage", Usage: &usage}) {
-					return codexStreamOutcome{ErrorCode: "context_canceled"}
+					return codexStreamOutcome{ErrorCode: "context_canceled", EmittedOutput: emittedOutput}
 				}
 			}
 			reason := strings.TrimSpace(event.Response.IncompleteDetails.Reason)
@@ -887,31 +961,33 @@ func handleCodexResponsesStream(ctx context.Context, out chan<- Event, body io.R
 				reason = "incomplete"
 			}
 			emitProviderEvent(ctx, out, Event{Type: "done", Done: true, StopReason: reason})
-			return codexStreamOutcome{Success: true}
+			return codexStreamOutcome{Success: true, EmittedOutput: emittedOutput}
 		case "response.failed":
+			outcome := streamFailure(event.Response.Error.Code, event.Response.Error.Message, "Codex response failed", "response_failed")
+			if outcome.Retryable {
+				return outcome
+			}
 			if usage := event.Response.Usage.toUsage(); usage != (Usage{}) {
 				if !emitProviderEvent(ctx, out, Event{Type: "usage", Usage: &usage}) {
-					return codexStreamOutcome{ErrorCode: "context_canceled"}
+					return codexStreamOutcome{ErrorCode: "context_canceled", EmittedOutput: emittedOutput}
 				}
 			}
-			message := safeCodexEventError(event.Response.Error.Code, event.Response.Error.Message, "Codex response failed", credential)
-			emitProviderEvent(ctx, out, Event{Type: "error", Text: message})
-			return codexStreamOutcome{ErrorCode: safeTelemetryCode(event.Response.Error.Code, "response_failed")}
+			return outcome
 		case "error":
-			message := safeCodexEventError(event.Code, event.Message, "Codex stream error", credential)
-			emitProviderEvent(ctx, out, Event{Type: "error", Text: message})
-			return codexStreamOutcome{ErrorCode: safeTelemetryCode(event.Code, "stream_error")}
+			return streamFailure(event.Code, event.Message, "Codex stream error", "stream_error")
 		}
 	}
 	if err := scanner.Err(); err != nil {
 		if ctx.Err() != nil {
-			return codexStreamOutcome{ErrorCode: telemetryErrorCode(ctx.Err())}
+			return codexStreamOutcome{ErrorCode: telemetryErrorCode(ctx.Err()), EmittedOutput: emittedOutput}
 		}
-		emitProviderEvent(ctx, out, Event{Type: "error", Text: "Codex 响应流读取失败"})
-		return codexStreamOutcome{ErrorCode: "stream_read_error"}
+		message := "Codex 响应流读取失败"
+		emitProviderEvent(ctx, out, Event{Type: "error", Text: message})
+		return codexStreamOutcome{ErrorCode: "stream_read_error", ErrorText: message, EmittedOutput: emittedOutput}
 	}
-	emitProviderEvent(ctx, out, Event{Type: "error", Text: "Codex 响应流在完成前关闭"})
-	return codexStreamOutcome{ErrorCode: "stream_closed"}
+	message := "Codex 响应流在完成前关闭"
+	emitProviderEvent(ctx, out, Event{Type: "error", Text: message})
+	return codexStreamOutcome{ErrorCode: "stream_closed", ErrorText: message, EmittedOutput: emittedOutput}
 }
 
 type codexStreamEvent struct {
@@ -1156,237 +1232,170 @@ func fallbackCodexModels(model string) []string {
 	return []string{model}
 }
 
-func shouldTryNextCodexCredential(status int) bool {
-	return status == http.StatusUnauthorized || status == http.StatusForbidden || status == http.StatusTooManyRequests || status >= http.StatusInternalServerError
+func shouldTryNextCodexCredential(status int, code string) bool {
+	if status == http.StatusUnauthorized || status == http.StatusTooManyRequests {
+		return true
+	}
+	return status == http.StatusForbidden && isCodexSSEFailoverCode(code)
 }
 
-func codexHTTPError(response *http.Response, credential codexauth.Credential, prefix string) error {
-	err, _ := codexHTTPErrorDetails(response, credential, prefix)
-	return err
+func isCodexSSEFailoverCode(code string) bool {
+	switch strings.ToLower(strings.TrimSpace(code)) {
+	case "authentication_error", "invalid_authentication", "invalid_token", "access_token_expired", "token_expired", "unauthorized", "forbidden", "permission_denied", "insufficient_permissions", "rate_limit_error", "rate_limit_exceeded", "too_many_requests", "insufficient_quota":
+		return true
+	default:
+		return false
+	}
 }
 
-func codexHTTPErrorDetails(response *http.Response, credential codexauth.Credential, prefix string) (error, string) {
-	var body struct {
-		Error struct {
-			Code    string `json:"code"`
-			Message string `json:"message"`
-		} `json:"error"`
-		Code    string `json:"code"`
-		Message string `json:"message"`
+func codexHTTPErrorDetails(response *http.Response, credential codexauth.Credential, cfg config.ProviderConfig, prefix string) (error, string) {
+	code, message := codexJSONErrorFields(response.Body)
+	safeCode := sanitizeCodexErrorCode(code, credential, cfg)
+	if safeCode == "" {
+		safeCode = fmt.Sprintf("http_%d", response.StatusCode)
 	}
-	_ = decodeLimitedJSON(response.Body, 64<<10, &body)
-	code := strings.TrimSpace(body.Error.Code)
-	message := strings.TrimSpace(body.Error.Message)
-	if code == "" {
-		code = strings.TrimSpace(body.Code)
+	if codexSafeUpstreamHintCode(safeCode) {
+		message, _ = redactCodexSecrets(strings.TrimSpace(message), credential, cfg)
+	} else {
+		message = ""
 	}
-	if message == "" {
-		message = strings.TrimSpace(body.Message)
+	var text string
+	switch {
+	case safeCode != "" && message != "":
+		text = fmt.Sprintf("%s：HTTP %d (%s)：%s", prefix, response.StatusCode, safeCode, message)
+	case safeCode != "":
+		text = fmt.Sprintf("%s：HTTP %d (%s)", prefix, response.StatusCode, safeCode)
+	default:
+		text = fmt.Sprintf("%s：HTTP %d", prefix, response.StatusCode)
 	}
-	code = sanitizeCodexErrorCode(code, credential)
-	message = redactCodexSecrets(message, credential)
-	if len(message) > 512 {
-		message = message[:512]
+	return errors.New(boundedCodexError(text)), safeTelemetryCode(safeCode, fmt.Sprintf("http_%d", response.StatusCode))
+}
+
+func codexJSONErrorFields(reader io.Reader) (string, string) {
+	data, err := io.ReadAll(io.LimitReader(reader, (64<<10)+1))
+	if err != nil || len(data) > 64<<10 {
+		return "", ""
 	}
-	safeCode := safeTelemetryCode(code, fmt.Sprintf("http_%d", response.StatusCode))
-	if code != "" && message != "" {
-		return fmt.Errorf("%s：HTTP %d (%s)：%s", prefix, response.StatusCode, code, message), safeCode
+	var root map[string]json.RawMessage
+	if json.Unmarshal(data, &root) != nil {
+		return "", ""
 	}
-	if code != "" {
-		return fmt.Errorf("%s：HTTP %d (%s)", prefix, response.StatusCode, code), safeCode
+	code := codexRawJSONString(root["code"])
+	message := codexRawJSONString(root["message"])
+	if description := codexRawJSONString(root["error_description"]); message == "" {
+		message = description
 	}
-	if message != "" {
-		return fmt.Errorf("%s：HTTP %d：%s", prefix, response.StatusCode, message), safeCode
+	if rawError := root["error"]; len(rawError) > 0 {
+		if text := codexRawJSONString(rawError); text != "" {
+			if code == "" {
+				code = text
+			}
+		} else {
+			var nested map[string]json.RawMessage
+			if json.Unmarshal(rawError, &nested) == nil {
+				if nestedCode := codexRawJSONString(nested["code"]); nestedCode != "" {
+					code = nestedCode
+				}
+				if nestedMessage := codexRawJSONString(nested["message"]); nestedMessage != "" {
+					message = nestedMessage
+				} else if nestedDescription := codexRawJSONString(nested["error_description"]); nestedDescription != "" {
+					message = nestedDescription
+				}
+			}
+		}
 	}
-	return fmt.Errorf("%s：HTTP %d", prefix, response.StatusCode), safeCode
+	return strings.TrimSpace(code), strings.TrimSpace(message)
+}
+
+func codexRawJSONString(raw json.RawMessage) string {
+	if len(raw) == 0 {
+		return ""
+	}
+	var value string
+	if json.Unmarshal(raw, &value) != nil {
+		return ""
+	}
+	return strings.TrimSpace(value)
 }
 
 func codexRefreshError(status int, reader io.Reader) error {
-	var body struct {
-		Error struct {
-			Code string `json:"code"`
-		} `json:"error"`
-		Code string `json:"code"`
-	}
-	_ = decodeLimitedJSON(reader, 64<<10, &body)
-	code := strings.ToLower(strings.TrimSpace(body.Error.Code))
-	if code == "" {
-		code = strings.ToLower(strings.TrimSpace(body.Code))
-	}
-	switch code {
+	code, description := codexJSONErrorFields(reader)
+	canonical := classifyCodexRefreshFailure(code, description, status)
+	message := fmt.Sprintf("Codex OAuth 刷新失败（HTTP %d）", status)
+	retryable := false
+	switch canonical {
 	case "refresh_token_expired":
-		return providerUnavailableError(codexauth.DefaultProviderName, "refresh_token 已过期，请重新导入凭据")
+		message = "Codex refresh_token 已过期，请重新导入凭据"
+		retryable = true
 	case "refresh_token_reused":
-		return providerUnavailableError(codexauth.DefaultProviderName, "refresh_token 已被使用，请重新导入最新凭据")
+		message = "Codex refresh_token 已被使用，请重新导入最新凭据"
+		retryable = true
 	case "refresh_token_invalidated":
-		return providerUnavailableError(codexauth.DefaultProviderName, "refresh_token 已被撤销，请重新登录后导入")
+		message = "Codex refresh_token 已被撤销，请重新登录后导入"
+		retryable = true
+	case "invalid_grant", "invalid_refresh_token":
+		message = "Codex refresh_token 无效，请重新登录后导入"
+		retryable = true
+	case "oauth_unauthorized", "oauth_rate_limited":
+		retryable = true
+	}
+	return newCodexCredentialFailure(canonical, providerUnavailableError(codexauth.DefaultProviderName, message).Error(), retryable)
+}
+
+func classifyCodexRefreshFailure(code, description string, status int) string {
+	normalizedCode := strings.ToLower(strings.TrimSpace(code))
+	detail := normalizedCode + " " + strings.ToLower(strings.TrimSpace(description))
+	switch {
+	case strings.Contains(detail, "reus") || strings.Contains(detail, "already used"):
+		return "refresh_token_reused"
+	case strings.Contains(detail, "expir"):
+		return "refresh_token_expired"
+	case strings.Contains(detail, "revok") || strings.Contains(detail, "invalidat"):
+		return "refresh_token_invalidated"
+	}
+	switch normalizedCode {
+	case "refresh_token_expired", "refresh_token_reused", "refresh_token_invalidated":
+		return normalizedCode
+	case "invalid_grant":
+		return "invalid_grant"
+	case "invalid_refresh_token", "refresh_token_invalid":
+		return "invalid_refresh_token"
+	}
+	if status == http.StatusUnauthorized {
+		return "oauth_unauthorized"
+	}
+	if status == http.StatusTooManyRequests {
+		return "oauth_rate_limited"
+	}
+	return fmt.Sprintf("oauth_http_%d", status)
+}
+
+func safeCodexEventError(code, message, fallback string, credential codexauth.Credential, cfg config.ProviderConfig) string {
+	safeCode := sanitizeCodexErrorCode(code, credential, cfg)
+	if codexSafeUpstreamHintCode(safeCode) {
+		message, _ = redactCodexSecrets(strings.TrimSpace(message), credential, cfg)
+	} else {
+		message = ""
+	}
+	var text string
+	switch {
+	case safeCode != "" && message != "":
+		text = fmt.Sprintf("%s (%s)：%s", fallback, safeCode, message)
+	case safeCode != "":
+		text = fmt.Sprintf("%s (%s)", fallback, safeCode)
+	case message != "":
+		text = fallback + "：" + message
 	default:
-		return providerUnavailableError(codexauth.DefaultProviderName, fmt.Sprintf("OAuth 刷新失败（HTTP %d）", status))
+		text = fallback
 	}
+	return boundedCodexError(text)
 }
 
-func safeCodexEventError(code, message, fallback string, credential codexauth.Credential) string {
-	code = sanitizeCodexErrorCode(code, credential)
-	message = redactCodexSecrets(strings.TrimSpace(message), credential)
-	if len(message) > 512 {
-		message = message[:512]
-	}
-	if code != "" && message != "" {
-		return fmt.Sprintf("%s (%s)：%s", fallback, code, message)
-	}
-	if code != "" {
-		return fmt.Sprintf("%s (%s)", fallback, code)
-	}
-	if message != "" {
-		return fallback + "：" + message
-	}
-	return fallback
-}
-
-func redactCodexSecrets(message string, credential codexauth.Credential) string {
-	for _, secret := range []string{credential.AccessToken, credential.RefreshToken, credential.IDToken} {
-		if secret != "" {
-			message = strings.ReplaceAll(message, secret, "[redacted]")
-		}
-	}
-	return message
-}
-
-func sanitizeCodexErrorCode(code string, credential codexauth.Credential) string {
-	code = strings.TrimSpace(redactCodexSecrets(code, credential))
-	if code == "" {
-		return ""
-	}
-	lower := strings.ToLower(code)
-	if strings.Contains(code, "[redacted]") || strings.Contains(lower, "bearer") || strings.HasPrefix(code, "eyJ") || looksLikeCodexSecretToken(code) || looksLikeEmbeddedJWT(code) {
-		return "redacted"
-	}
-	if len(code) > 64 {
-		return "invalid_upstream_code"
-	}
-	sanitized := safeTelemetryCode(code, "invalid_upstream_code")
-	if sanitized == "" {
-		return "invalid_upstream_code"
-	}
-	return sanitized
-}
-
-func looksLikeCodexSecretToken(value string) bool {
-	lower := strings.ToLower(value)
-	return hasCodexSecretPrefix(lower, "sk-") || hasCodexSecretPrefix(lower, "rt_")
-}
-
-func hasCodexSecretPrefix(value, prefix string) bool {
-	for offset := 0; offset < len(value); {
-		index := strings.Index(value[offset:], prefix)
-		if index < 0 {
-			return false
-		}
-		index += offset
-		boundary := index == 0 || !isCodexCodeAlphaNumeric(value[index-1])
-		if boundary && len(value)-(index+len(prefix)) >= 4 {
-			return true
-		}
-		offset = index + len(prefix)
-	}
-	return false
-}
-
-func isCodexCodeAlphaNumeric(char byte) bool {
-	return char >= 'a' && char <= 'z' || char >= '0' && char <= '9'
-}
-
-func looksLikeEmbeddedJWT(value string) bool {
-	for _, field := range strings.FieldsFunc(value, func(char rune) bool {
-		return !(char >= 'A' && char <= 'Z') && !(char >= 'a' && char <= 'z') && !(char >= '0' && char <= '9') && char != '-' && char != '_' && char != '.'
-	}) {
-		parts := strings.Split(field, ".")
-		if len(parts) == 3 && len(parts[0]) >= 8 && len(parts[1]) >= 8 {
-			return true
-		}
-	}
-	return false
-}
-
-func applyCodexJWTMetadata(credential *codexauth.Credential) {
-	if credential == nil {
-		return
-	}
-	access := parseCodexJWTMetadata(credential.AccessToken)
-	idToken := parseCodexJWTMetadata(credential.IDToken)
-	if access.AccountID == "" {
-		access.AccountID = idToken.AccountID
-	}
-	if access.Email == "" {
-		access.Email = idToken.Email
-	}
-	if access.PlanType == "" {
-		access.PlanType = idToken.PlanType
-	}
-	if access.ExpiresAt == 0 {
-		access.ExpiresAt = idToken.ExpiresAt
-	}
-	if access.AccountID != "" {
-		credential.AccountID = access.AccountID
-	}
-	if access.Email != "" {
-		credential.Email = access.Email
-	}
-	if access.PlanType != "" {
-		credential.PlanType = access.PlanType
-	}
-	if access.ExpiresAt > 0 {
-		credential.Expired = time.Unix(access.ExpiresAt, 0).UTC().Format(time.RFC3339)
-	}
-}
-
-type codexJWTMetadata struct {
-	AccountID string
-	Email     string
-	PlanType  string
-	ExpiresAt int64
-}
-
-func parseCodexJWTMetadata(token string) codexJWTMetadata {
-	parts := strings.Split(strings.TrimSpace(token), ".")
-	if len(parts) < 2 {
-		return codexJWTMetadata{}
-	}
-	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
-	if err != nil {
-		return codexJWTMetadata{}
-	}
-	var claims map[string]any
-	if err := json.Unmarshal(payload, &claims); err != nil {
-		return codexJWTMetadata{}
-	}
-	auth, _ := claims["https://api.openai.com/auth"].(map[string]any)
-	profile, _ := claims["https://api.openai.com/profile"].(map[string]any)
-	return codexJWTMetadata{
-		AccountID: firstCodexString(auth, "chatgpt_account_id", "account_id"),
-		Email:     firstCodexString(profile, "email"),
-		PlanType:  firstCodexString(auth, "chatgpt_plan_type", "plan_type"),
-		ExpiresAt: codexInt64(claims["exp"]),
-	}
-}
-
-func firstCodexString(values map[string]any, keys ...string) string {
-	for _, key := range keys {
-		if value, ok := values[key].(string); ok && strings.TrimSpace(value) != "" {
-			return strings.TrimSpace(value)
-		}
-	}
-	return ""
-}
-
-func codexInt64(value any) int64 {
-	switch typed := value.(type) {
-	case float64:
-		return int64(typed)
-	case json.Number:
-		parsed, _ := typed.Int64()
-		return parsed
+func codexSafeUpstreamHintCode(code string) bool {
+	switch strings.ToLower(strings.TrimSpace(code)) {
+	case "image_generation_not_enabled":
+		return true
 	default:
-		return 0
+		return false
 	}
 }
