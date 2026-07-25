@@ -242,11 +242,10 @@ test("dual workbench shell keeps conversation and Kanban views in one runtime", 
   assert.match(styles, /\.workbench-title-input\s*\{[^}]*width:\s*min\(34vw, 420px\)[^}]*min-width:\s*140px/);
   assert.match(styles, /@media \(max-width:\s*767px\)\s*\{[\s\S]*?\.workbench-header\s*\{[^}]*height:\s*54px[^}]*flex:\s*0 0 54px[^}]*padding:\s*0 14px[\s\S]*?\.workbench-title\s*\{[^}]*font-size:\s*16px[^}]*font-weight:\s*500/);
   assert.match(styles, /\.workbench-header:has\(\.workbench-title-input:not\(\.hidden\)\) \.workbench-header-actions\s*\{[^}]*display:\s*none/);
-  assert.match(html, /id="mobileWorkbenchBtn"[^>]*aria-pressed="false"/);
+  // The workbench and terminal shortcuts were removed from the mobile header.
+  assert.doesNotMatch(html, /id="mobileWorkbenchBtn"|id="mobileTerminalBtn"/);
   const taskGlyph = /<rect x="4" y="3\.5" width="16" height="17" rx="3"><\/rect>[\s\S]*?m7\.5 8 1\.4 1\.4 2\.6-2\.6/;
-  const mobileWorkbenchMarkup = html.match(/<button id="mobileWorkbenchBtn"[\s\S]*?<\/button>/)?.[0] || "";
   const workbenchBoardMarkup = workbenchHeader.match(/<button id="workbenchBoardBtn"[\s\S]*?<\/button>/)?.[0] || "";
-  assert.match(mobileWorkbenchMarkup, taskGlyph);
   assert.match(workbenchBoardMarkup, taskGlyph);
   assert.match(appMain, /function applyPrimaryWorkbench\(value\)/);
   assert.match(appMain, /const mode = normalizedPrimaryWorkbench\(value\)[\s\S]*?setPrimaryModePreference\(mode\)/);
@@ -1004,7 +1003,6 @@ test("mobile header and composer use compact icon-first layouts", async () => {
   assert.match(html, /styles\.css\?v=[^"]*mobile-short-labels-1/);
   assert.match(html, /app\.js\?v=[^"]*mobile-short-labels-1/);
   assert.match(app, /app-main\.mjs\?v=[^"]*mobile-short-labels-1/);
-  assert.match(html, /id="mobileTerminalBtn"[\s\S]*?<svg viewBox="0 0 24 24"/);
   assert.match(html, /id="mobileSearchBtn"[\s\S]*?<svg viewBox="0 0 24 24"/);
   assert.match(html, /id="composerFolderBtn"[\s\S]*?<svg viewBox="0 0 24 24"/);
   assert.doesNotMatch(html, /id="composerTerminalBtn"/);

@@ -202,12 +202,6 @@ export function createWorkbenchSidebarRender({
       gitBadge.textContent = gitCount > 99 ? "99+" : String(gitCount);
       gitBadge.classList.toggle("hidden", !enabled || gitCount === 0);
     }
-    const mobileButton = $("mobileWorkbenchBtn");
-    if (mobileButton) {
-      const active = state.activeWorkbench === "workbench";
-      mobileButton.setAttribute("aria-pressed", active ? "true" : "false");
-      mobileButton.classList.toggle("active", active);
-    }
     renderPrimaryModeSidebar();
   }
 

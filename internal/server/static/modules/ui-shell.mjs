@@ -333,14 +333,6 @@ export function createUIShellController({
     resizeTerminal?.();
   }
 
-  function toggleMobileTerminal() {
-    document.body.classList.toggle("mobile-terminal-open");
-    if (document.body.classList.contains("mobile-terminal-open")) {
-      $("terminalOutput").focus();
-      resizeTerminal();
-    }
-  }
-
   function openProjectSearch({ focus = true } = {}) {
     $("projectSearchWrap")?.classList.remove("hidden");
     $("projectSearchToggleBtn")?.classList.add("active");
@@ -1359,7 +1351,6 @@ export function createUIShellController({
     openMobileSidebar,
     restoreSettingsDialogFocus,
     settingsDialogHasNestedModal,
-    toggleMobileTerminal,
     toggleProjectSearch,
     toggleSidebarSettingsMenu,
   };

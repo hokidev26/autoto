@@ -983,7 +983,6 @@ const {
   handleSidebarSettingsMenuDocumentClick,
   openMobileSidebar,
   restoreSettingsDialogFocus,
-  toggleMobileTerminal,
   toggleProjectSearch,
   toggleSidebarSettingsMenu,
 } = uiShell;
@@ -3262,15 +3261,8 @@ $("mobileMenuBtn").addEventListener("click", () => {
   switchPrimaryWorkbench("conversation");
   openMobileSidebar();
 });
-$("mobileWorkbenchBtn")?.addEventListener("click", () => {
-  switchPrimaryWorkbench(state.activeWorkbench === "workbench" ? "conversation" : "workbench");
-});
 $("mobileSidebarCloseBtn")?.addEventListener("click", closeMobileSidebar);
 $("mobileSidebarBackdrop").addEventListener("click", closeMobileSidebar);
-$("mobileTerminalBtn").addEventListener("click", () => {
-  if (!projectOperationContextActive() || !terminalAccessAllowed(state)) return;
-  toggleMobileTerminal();
-});
 $("mobileSearchBtn").addEventListener("click", focusMobileSearch);
 $("mobileDrawerSearchBtn")?.addEventListener("click", focusMobileSearch);
 $("mobileSidebarSettingsBtn")?.addEventListener("click", () => {

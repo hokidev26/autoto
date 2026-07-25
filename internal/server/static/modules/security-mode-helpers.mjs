@@ -108,7 +108,7 @@ export function createSecurityModeHelpers({
       badge.dataset.connectionMode = connection.remote ? (connection.restricted ? "tunnel-restricted" : "tunnel-full") : "local";
     }
     const terminalUnavailable = terminalLocked || !projectOperationContextActive();
-    [$("toggleTerminalBtn"), $("workbenchTerminalBtn"), $("expandTerminalBtn"), $("reconnectTerminalBtn"), $("mobileTerminalBtn")].forEach((button) => {
+    [$("toggleTerminalBtn"), $("workbenchTerminalBtn"), $("expandTerminalBtn"), $("reconnectTerminalBtn")].forEach((button) => {
       if (!button) return;
       if (!button.dataset.defaultTitle) button.dataset.defaultTitle = button.title || "";
       button.disabled = terminalUnavailable;
