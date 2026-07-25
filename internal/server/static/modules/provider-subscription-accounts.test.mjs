@@ -19,7 +19,7 @@ import {
   trustedSubscriptionAuthURL,
 } from "./model-provider-settings.mjs";
 import { createModelProviderSettingsController } from "./provider-console.mjs";
-import { providerCategory, providerDisplayName } from "./model-provider-components.mjs";
+import { providerCategory, providerDisplayName, renderProviderModelEditor } from "./model-provider-components.mjs";
 
 function flush() {
   return new Promise((resolve) => setTimeout(resolve, 0));
@@ -373,4 +373,20 @@ test("the models panel eye hides a model from the composer picker, not via a dra
   } finally {
     globalThis.document = previousDocument;
   }
+});
+
+test("only allowEmpty pages let the last visible model's eye be clicked", () => {
+  const draft = { name: "grok", type: "grok", modelConfigs: [
+    { name: "grok-4.5", hidden: false },
+    { name: "grok-3-mini", hidden: true },
+  ] };
+  // Default: the final eye is disabled so a provider is never left with nothing.
+  const guarded = renderProviderModelEditor(draft, false, true);
+  assert.match(guarded, /data-mp-model-visibility="grok-4\.5"[^>]*disabled/);
+  // The subscription pages opt out: visibility there is only a display filter,
+  // so hiding every model is allowed and the button must stay clickable.
+  const open = renderProviderModelEditor(draft, false, true, { allowEmpty: true });
+  assert.doesNotMatch(open, /data-mp-model-visibility="grok-4\.5"[^>]*disabled/);
+  // An already-hidden model is always clickable so it can be shown again.
+  assert.doesNotMatch(guarded, /data-mp-model-visibility="grok-3-mini"[^>]*disabled/);
 });

@@ -717,7 +717,10 @@ function renderProviderRequestHeaderRows(headers = []) {
   }).join("");
 }
 
-export function renderProviderModelEditor(draft = {}, modelBusy = false, sensitiveAccessAllowed = true) {
+// allowEmpty lets the last visible model be hidden too. Pages whose visibility is
+// a display preference rather than provider configuration pass it; otherwise the
+// final eye stays disabled so a provider is never left with nothing to offer.
+export function renderProviderModelEditor(draft = {}, modelBusy = false, sensitiveAccessAllowed = true, { allowEmpty = false } = {}) {
   const configs = normalizeProviderModelConfigs({ modelConfigs: draft.modelConfigs });
   const imageGenerationSupported = providerSupportsImageGeneration(draft);
   const visibleCount = configs.filter((item) => !item.hidden).length;
@@ -725,7 +728,7 @@ export function renderProviderModelEditor(draft = {}, modelBusy = false, sensiti
   const eyeOnIcon = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.8-7 10-7 10 7 10 7-3.8 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="2.5"/></svg>`;
   const allVisible = configs.length > 0 && configs.every((item) => !item.hidden);
   const rows = configs.map((item) => {
-    const hideDisabled = !item.hidden && visibleCount <= 1;
+    const hideDisabled = !allowEmpty && !item.hidden && visibleCount <= 1;
     const visibilityIcon = item.hidden ? eyeOffIcon : eyeOnIcon;
     return `<div class="mp-provider-model-config-row${item.hidden ? " is-hidden" : ""}" data-mp-model-config="${escapeAttr(item.name)}">
       <div class="mp-provider-model-name"><strong title="${escapeAttr(item.name)}">${escapeHtml(item.name)}</strong>${item.manual ? `<span class="settings-badge">${escapeHtml(ct("statusLabels.manual"))}</span>` : ""}</div>

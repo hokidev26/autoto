@@ -157,7 +157,7 @@ export function createModelProviderSettingsController({
     renderAnthropicConsolePage,
   } = anthropicAccounts;
 
-  const subscriptionAccounts = createSubscriptionAccountsController({ ...ctx, providerDraftWithVisibility });
+  const subscriptionAccounts = createSubscriptionAccountsController({ ...ctx, isModelHidden, modelOptionValue });
   const {
     loadSubscriptionAccounts,
     refreshSubscriptionAccounts,

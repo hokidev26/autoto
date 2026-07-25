@@ -41,7 +41,8 @@ export function createSubscriptionAccountsController(ctx) {
     setProviderConsoleResult,
     loadModelCatalog,
     modelProvidersForUI,
-    providerDraftWithVisibility,
+    isModelHidden,
+    modelOptionValue,
     copyText,
   } = ctx;
   const st = (key, params) => t(`modelProvider.subscription.common.${key}`, params);
@@ -450,10 +451,19 @@ export function createSubscriptionAccountsController(ctx) {
     const consoleState = providerConsoleState();
     // Hidden state comes from the shared visibility preference, which is what
     // filters the composer's model picker. These pages have no draft/save cycle,
-    // so the panel always renders the live provider rather than an edit buffer.
+    // so the preference is authoritative and is applied explicitly: createProviderDraft
+    // already normalizes every model to hidden:false, and normalizeProviderModelConfigs
+    // only consults the preference when hidden is undefined, so layering the two would
+    // silently keep every model visible.
     const baseDraft = createProviderDraft(config.name, config);
-    const draft = typeof providerDraftWithVisibility === "function"
-      ? providerDraftWithVisibility(baseDraft, config.name)
+    const draft = typeof isModelHidden === "function" && typeof modelOptionValue === "function"
+      ? {
+        ...baseDraft,
+        modelConfigs: (baseDraft.modelConfigs || []).map((item) => ({
+          ...item,
+          hidden: isModelHidden(modelOptionValue(config, item.name)),
+        })),
+      }
       : baseDraft;
     const modelBusy = Boolean(consoleState.busy?.[`models:${config.name}`]);
     const provider = spec.provider;
@@ -463,7 +473,7 @@ export function createSubscriptionAccountsController(ctx) {
       <form class="subscription-model-form settings-card-content" data-mp-provider-form data-subscription-provider-config="${escapeAttr(provider)}">
         <input type="hidden" name="name" value="${escapeAttr(config.name)}"><input type="hidden" name="type" value="${escapeAttr(config.type || kind)}"><input type="hidden" name="baseUrl" value="${escapeAttr(config.baseUrl || "")}"><input type="hidden" name="apiKey" value=""><input type="checkbox" name="apiKeyOptional" checked hidden>
         ${note}
-        <div class="subscription-model-manager">${renderProviderModelEditor(draft, modelBusy, true)}</div>
+        <div class="subscription-model-manager">${renderProviderModelEditor(draft, modelBusy, true, { allowEmpty: true })}</div>
       </form>
     </section>`;
   }
