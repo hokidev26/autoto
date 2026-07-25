@@ -2976,6 +2976,19 @@ async function handleAgentStreamEvent(event) {
     }
     contextManagement.applyStatus(contextUpdate, { agentId, partial: true });
   }
+  if (event.type === "agent.title_updated") {
+    const generatedTitle = String(event.data?.title || "").trim();
+    const generation = Number(event.data?.entityGeneration);
+    // An open title editor is the user's in-flight intent, so the server's
+    // generated name must not overwrite what they are currently typing.
+    if (generatedTitle && !state.titleEditing && !state.titleSaving) {
+      state.agent = { ...state.agent, title: generatedTitle, entityGeneration: Number.isInteger(generation) ? generation : state.agent?.entityGeneration };
+      state.worklineAgents = (state.worklineAgents || []).map((agent) => agent.id === agentId ? { ...agent, title: generatedTitle } : agent);
+      syncNavigationConversationFromAgent(state.agent, { reason: "agent-title" });
+      renderConversationHeaderIdentity();
+      renderWorkbenchShell();
+    }
+  }
   const runId = event.data?.runId || "";
   const requestId = event.data?.requestId || "";
   const completedMessageEvents = ["message.created", "message.completed"];

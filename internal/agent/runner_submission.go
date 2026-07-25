@@ -119,6 +119,7 @@ func (r *Runner) submitUserMessageWithModeAndPermissionCap(ctx context.Context, 
 	}
 	msg.RunID = run.ID
 	r.publish(Event{Type: "message.created", AgentID: agentID, MessageID: msg.ID, Text: text, Data: mergeEventData(map[string]any{"attachments": len(msg.Attachments), "executionMode": mode}, run.ID)})
+	r.scheduleConversationTitle(agentID, contentText)
 	go r.runWithRun(context.Background(), agentID, run.ID, msg.ID)
 	return msg, nil
 }

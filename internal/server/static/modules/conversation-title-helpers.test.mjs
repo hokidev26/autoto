@@ -76,3 +76,25 @@ test("derived titles collapse whitespace, drop code fences, and are length cappe
   assert.equal(Array.from(long).length, 29);
   assert.equal(long.endsWith("…"), true);
 });
+
+test("the server's placeholder list covers every locale's new-conversation label", async () => {
+  // The Go auto-titler treats Autoto's own "new conversation" labels as untitled.
+  // That list is hardcoded, so a new locale (or a reworded label) would silently
+  // stop auto-titling for it — this fails loudly instead.
+  const { readFile } = await import("node:fs/promises");
+  const goSource = await readFile(new URL("../../../agent/conversation_title.go", import.meta.url), "utf8");
+  const block = goSource.match(/conversationPlaceholderTitles = map\[string\]struct\{\}\{([\s\S]*?)\n\}/);
+  assert.ok(block, "conversationPlaceholderTitles not found in conversation_title.go");
+  const placeholders = new Set([...block[1].matchAll(/"([^"]+)"/g)].map((m) => m[1]));
+
+  const locales = ["en", "zh-CN", "zh-TW"];
+  for (const locale of locales) {
+    const source = await readFile(new URL(`./messages-${locale}.mjs`, import.meta.url), "utf8");
+    const label = source.match(/newConversation:\s*"([^"]+)"/)?.[1];
+    assert.ok(label, `messages-${locale}.mjs has no shell.newConversation`);
+    assert.ok(
+      placeholders.has(label.trim().toLowerCase()),
+      `conversationPlaceholderTitles is missing ${locale}'s ${JSON.stringify(label)}; auto-titling would never fire for that locale`,
+    );
+  }
+});
