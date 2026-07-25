@@ -503,7 +503,8 @@ func subscriptionAccountProvider(value string) (string, error) {
 func subscriptionProviderLabel(provider string) string {
 	switch strings.ToLower(strings.TrimSpace(provider)) {
 	case subscriptionauth.ProviderGemini:
-		return "Gemini"
+		// User-facing platform name; the provider id stays "gemini".
+		return "Antigravity"
 	case subscriptionauth.ProviderGrok:
 		return "Grok"
 	case subscriptionauth.ProviderKimi:

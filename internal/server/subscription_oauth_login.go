@@ -71,6 +71,9 @@ type subscriptionOAuthLoginSession struct {
 	verificationURI string
 	redirectURI     string
 	status          subscriptionOAuthLoginStatus
+	// locale is captured when the login starts so the server-rendered callback
+	// page matches the language selected in Autoto, not the browser's.
+	locale          remoteLoginLocale
 	expiresAt       time.Time
 	errorMessage    string
 	account         *subscriptionauth.AccountSummary
@@ -145,6 +148,10 @@ func (s *Server) startSubscriptionOAuthLogin(w http.ResponseWriter, r *http.Requ
 		writeError(w, http.StatusBadGateway, subscriptionOAuthStartError(provider))
 		return
 	}
+	// Recorded before activate() starts the callback listener, so the callback
+	// page always renders in the language the Autoto UI is using rather than in
+	// whatever the redirected browser happens to advertise.
+	session.locale = subscriptionCallbackLocale(r.URL.Query().Get("locale"), r.Header.Get("Accept-Language"))
 
 	s.subscriptionOAuthMu.Lock()
 	s.expireSubscriptionOAuthLoginsLocked(s.now())
@@ -350,14 +357,23 @@ func (s *Server) prepareKimiOAuthLogin(ctx context.Context) (*subscriptionOAuthL
 	return session, activate, nil
 }
 
+func (session *subscriptionOAuthLoginSession) callbackLocale() remoteLoginLocale {
+	if session == nil || session.locale == "" {
+		return remoteLoginLocaleChineseSimplified
+	}
+	return session.locale
+}
+
 func (s *Server) handleGeminiOAuthCallback(session *subscriptionOAuthLoginSession, client geminiOAuthLoginClient, w http.ResponseWriter, r *http.Request) {
+	locale := session.callbackLocale()
+	providerLabel := subscriptionProviderLabel(subscriptionauth.ProviderGemini)
 	if r.Method != http.MethodGet {
 		w.Header().Set("Allow", http.MethodGet)
-		writeSubscriptionOAuthCallbackHTML(w, http.StatusMethodNotAllowed, "请求方法无效", "Gemini OAuth 回调只接受 GET 请求。")
+		writeSubscriptionOAuthCallbackHTML(w, http.StatusMethodNotAllowed, locale, subscriptionCallbackMethodNotAllowed, providerLabel, "")
 		return
 	}
 	if !validCodexOAuthCallbackHost(r.Host, session.callbackPort) {
-		writeSubscriptionOAuthCallbackHTML(w, http.StatusBadRequest, "回调地址无效", "本地 OAuth 回调 Host 校验失败。")
+		writeSubscriptionOAuthCallbackHTML(w, http.StatusBadRequest, locale, subscriptionCallbackInvalidHost, providerLabel, "")
 		return
 	}
 
@@ -366,32 +382,32 @@ func (s *Server) handleGeminiOAuthCallback(session *subscriptionOAuthLoginSessio
 	s.expireSubscriptionOAuthLoginsLocked(s.now())
 	if s.subscriptionOAuthLogins[session.loginID] != session {
 		s.subscriptionOAuthMu.Unlock()
-		writeSubscriptionOAuthCallbackHTML(w, http.StatusGone, "登录会话已结束", "此 Gemini OAuth 登录会话已不再有效。")
+		writeSubscriptionOAuthCallbackHTML(w, http.StatusGone, locale, subscriptionCallbackSessionEnded, providerLabel, "")
 		return
 	}
 	if session.status != subscriptionOAuthLoginPending {
 		status := session.status
 		s.subscriptionOAuthMu.Unlock()
-		writeSubscriptionOAuthCallbackStatusHTML(w, subscriptionauth.ProviderGemini, status)
+		writeSubscriptionOAuthCallbackStatusHTML(w, locale, subscriptionauth.ProviderGemini, status)
 		return
 	}
 	if !constantTimeEqualToken(state, session.state) {
 		s.subscriptionOAuthMu.Unlock()
-		writeSubscriptionOAuthCallbackHTML(w, http.StatusBadRequest, "登录校验失败", "OAuth state 校验失败，请返回 Autoto 重新开始登录。")
+		writeSubscriptionOAuthCallbackHTML(w, http.StatusBadRequest, locale, subscriptionCallbackStateInvalid, providerLabel, "")
 		return
 	}
 	if oauthError := safeCodexOAuthErrorCode(r.URL.Query().Get("error")); oauthError != "" {
 		message := "Gemini 授权被拒绝"
 		s.finishSubscriptionOAuthLoginLocked(session, subscriptionOAuthLoginFailed, message, nil)
 		s.subscriptionOAuthMu.Unlock()
-		writeSubscriptionOAuthCallbackHTML(w, http.StatusBadRequest, "Gemini 登录失败", message+"。")
+		writeSubscriptionOAuthCallbackHTML(w, http.StatusBadRequest, locale, subscriptionCallbackProviderDenied, providerLabel, message+"。")
 		return
 	}
 	code := strings.TrimSpace(r.URL.Query().Get("code"))
 	if code == "" || len(code) > 16<<10 {
 		s.finishSubscriptionOAuthLoginLocked(session, subscriptionOAuthLoginFailed, "Gemini OAuth 登录失败，请重新开始", nil)
 		s.subscriptionOAuthMu.Unlock()
-		writeSubscriptionOAuthCallbackHTML(w, http.StatusBadRequest, "Gemini 登录失败", "授权回调缺少 authorization code，请重新开始登录。")
+		writeSubscriptionOAuthCallbackHTML(w, http.StatusBadRequest, locale, subscriptionCallbackMissingCode, providerLabel, "")
 		return
 	}
 	session.status = subscriptionOAuthLoginExchanging
@@ -401,19 +417,19 @@ func (s *Server) handleGeminiOAuthCallback(session *subscriptionOAuthLoginSessio
 	tokens, err := client.ExchangeCode(session.ctx, code, redirectURI)
 	if err != nil {
 		s.failSubscriptionOAuthLogin(session, "Gemini OAuth token 交换失败，请重新开始")
-		writeSubscriptionOAuthCallbackStatusHTML(w, subscriptionauth.ProviderGemini, subscriptionOAuthLoginFailed)
+		writeSubscriptionOAuthCallbackStatusHTML(w, locale, subscriptionauth.ProviderGemini, subscriptionOAuthLoginFailed)
 		return
 	}
 	info, err := client.FetchUserInfo(session.ctx, tokens.AccessToken)
 	if err != nil {
 		s.failSubscriptionOAuthLogin(session, "Gemini 账号信息读取失败，请重新开始")
-		writeSubscriptionOAuthCallbackStatusHTML(w, subscriptionauth.ProviderGemini, subscriptionOAuthLoginFailed)
+		writeSubscriptionOAuthCallbackStatusHTML(w, locale, subscriptionauth.ProviderGemini, subscriptionOAuthLoginFailed)
 		return
 	}
 	projectID, err := client.FetchProjectID(session.ctx, tokens.AccessToken)
 	if err != nil || strings.TrimSpace(projectID) == "" {
 		s.failSubscriptionOAuthLogin(session, "Gemini Cloud Code 项目初始化失败，请重新开始")
-		writeSubscriptionOAuthCallbackStatusHTML(w, subscriptionauth.ProviderGemini, subscriptionOAuthLoginFailed)
+		writeSubscriptionOAuthCallbackStatusHTML(w, locale, subscriptionauth.ProviderGemini, subscriptionOAuthLoginFailed)
 		return
 	}
 	account, err := s.saveSubscriptionOAuthCredential(subscriptionauth.ProviderGemini, subscriptionOAuthTokens{
@@ -423,7 +439,7 @@ func (s *Server) handleGeminiOAuthCallback(session *subscriptionOAuthLoginSessio
 	})
 	if err != nil {
 		s.failSubscriptionOAuthLogin(session, "Gemini 凭据无法安全保存，请重试")
-		writeSubscriptionOAuthCallbackHTML(w, http.StatusInternalServerError, "Gemini 登录失败", "凭据无法安全保存，请返回 Autoto 重试。")
+		writeSubscriptionOAuthCallbackHTML(w, http.StatusInternalServerError, locale, subscriptionCallbackStoreFailed, providerLabel, "")
 		return
 	}
 
@@ -433,7 +449,7 @@ func (s *Server) handleGeminiOAuthCallback(session *subscriptionOAuthLoginSessio
 	}
 	status := session.status
 	s.subscriptionOAuthMu.Unlock()
-	writeSubscriptionOAuthCallbackStatusHTML(w, subscriptionauth.ProviderGemini, status)
+	writeSubscriptionOAuthCallbackStatusHTML(w, locale, subscriptionauth.ProviderGemini, status)
 }
 
 func (s *Server) completeGrokOAuthLogin(session *subscriptionOAuthLoginSession, client grokOAuthLoginClient, device *grokauth.DeviceCodeResponse) {
@@ -730,21 +746,29 @@ func subscriptionOAuthStartError(provider string) string {
 	}
 }
 
-func writeSubscriptionOAuthCallbackStatusHTML(w http.ResponseWriter, provider string, status subscriptionOAuthLoginStatus) {
-	name := strings.ToUpper(provider[:1]) + provider[1:]
+func writeSubscriptionOAuthCallbackStatusHTML(w http.ResponseWriter, locale remoteLoginLocale, provider string, status subscriptionOAuthLoginStatus) {
+	name := subscriptionProviderLabel(provider)
 	switch status {
 	case subscriptionOAuthLoginCompleted:
-		writeSubscriptionOAuthCallbackHTML(w, http.StatusOK, name+" 登录成功", "凭据已安全保存，可以关闭此页面并返回 Autoto。")
+		writeSubscriptionOAuthCallbackHTML(w, http.StatusOK, locale, subscriptionCallbackSuccess, name, "")
 	case subscriptionOAuthLoginCancelled:
-		writeSubscriptionOAuthCallbackHTML(w, http.StatusGone, "登录已取消", "此 OAuth 登录会话已取消。")
+		writeSubscriptionOAuthCallbackHTML(w, http.StatusGone, locale, subscriptionCallbackCancelled, name, "")
 	case subscriptionOAuthLoginExpired:
-		writeSubscriptionOAuthCallbackHTML(w, http.StatusGone, "登录已过期", "此 OAuth 登录会话已过期，请返回 Autoto 重新开始。")
+		writeSubscriptionOAuthCallbackHTML(w, http.StatusGone, locale, subscriptionCallbackExpired, name, "")
 	default:
-		writeSubscriptionOAuthCallbackHTML(w, http.StatusBadRequest, name+" 登录失败", "登录未能完成，请返回 Autoto 重新开始。")
+		writeSubscriptionOAuthCallbackHTML(w, http.StatusBadRequest, locale, subscriptionCallbackFailed, name, "")
 	}
 }
 
-func writeSubscriptionOAuthCallbackHTML(w http.ResponseWriter, status int, title, message string) {
+func writeSubscriptionOAuthCallbackHTML(w http.ResponseWriter, status int, locale remoteLoginLocale, key subscriptionCallbackKey, providerLabel, extra string) {
+	title, message := subscriptionCallbackText(locale, key, providerLabel)
+	if extra != "" {
+		message = extra
+	}
+	languageTag := string(locale)
+	if languageTag == "" {
+		languageTag = string(remoteLoginLocaleChineseSimplified)
+	}
 	setNoStore(w)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Content-Security-Policy", subscriptionOAuthCallbackCSP)
@@ -752,5 +776,5 @@ func writeSubscriptionOAuthCallbackHTML(w http.ResponseWriter, status int, title
 	w.Header().Set("X-Frame-Options", "DENY")
 	w.Header().Set("Referrer-Policy", "no-referrer")
 	w.WriteHeader(status)
-	_, _ = fmt.Fprintf(w, "<!doctype html><html lang=\"zh-CN\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>%s</title></head><body><main><h1>%s</h1><p>%s</p></main></body></html>", html.EscapeString(title), html.EscapeString(title), html.EscapeString(message))
+	_, _ = fmt.Fprintf(w, "<!doctype html><html lang=\"%s\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>%s</title></head><body><main><h1>%s</h1><p>%s</p></main></body></html>", html.EscapeString(languageTag), html.EscapeString(title), html.EscapeString(title), html.EscapeString(message))
 }

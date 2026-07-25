@@ -346,11 +346,18 @@ export function subscriptionAccountActionRequest(action, provider, id, values = 
   }
 }
 
-export function subscriptionOAuthLoginRequest(action, provider, loginId = "") {
+export function subscriptionOAuthLoginRequest(action, provider, loginId = "", locale = "") {
   const p = normalizeSubscriptionProvider(provider);
   if (!p) throw new Error(`unsupported subscription provider: ${provider}`);
   const base = `/api/providers/oauth/${p}/login`;
-  if (action === "start") return { path: `${base}/start`, options: { method: "POST" } };
+  if (action === "start") {
+    // The provider redirects to a page the server renders, so it needs to know
+    // which language the UI is in; the browser's Accept-Language is only a
+    // fallback and can disagree with the user's choice in Autoto.
+    const tag = String(locale || "").trim();
+    const query = tag ? `?locale=${encodeURIComponent(tag)}` : "";
+    return { path: `${base}/start${query}`, options: { method: "POST" } };
+  }
   const id = encodeURIComponent(String(loginId || "").trim());
   if (!id) throw new Error("subscription login ID is required");
   if (action === "status") return { path: `${base}/${id}`, options: {} };

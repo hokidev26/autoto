@@ -73,6 +73,12 @@ test("provider display names distinguish native Antigravity from Gemini Interact
 test("subscription request builders encode provider and id and reject invalid providers", () => {
   assert.equal(subscriptionAccountsListRequest("gemini").path, "/api/providers/auth/gemini/accounts");
   assert.deepEqual(subscriptionOAuthLoginRequest("start", "grok"), { path: "/api/providers/oauth/grok/login/start", options: { method: "POST" } });
+  // The server renders the OAuth callback page, so it needs the UI locale.
+  assert.deepEqual(
+    subscriptionOAuthLoginRequest("start", "gemini", "", "zh-TW"),
+    { path: "/api/providers/oauth/gemini/login/start?locale=zh-TW", options: { method: "POST" } },
+  );
+  assert.equal(subscriptionOAuthLoginRequest("start", "gemini", "", "  ").path, "/api/providers/oauth/gemini/login/start");
   assert.equal(subscriptionOAuthLoginRequest("status", "kimi", "kimi login/1").path, "/api/providers/oauth/kimi/login/kimi%20login%2F1");
   assert.equal(subscriptionOAuthLoginRequest("cancel", "kimi", "abc").options.method, "DELETE");
 

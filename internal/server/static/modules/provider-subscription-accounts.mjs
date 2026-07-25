@@ -1,6 +1,6 @@
 import { escapeAttr, escapeHtml, setButtonBusy } from "./dom.mjs";
 import { confirm as platformConfirm } from "./platform.mjs";
-import { t } from "./i18n.mjs?v=provider-subscription-accounts-1";
+import { currentUILocale, t } from "./i18n.mjs?v=provider-subscription-accounts-1";
 import { remoteAccessContext } from "./remote-access-capabilities.mjs";
 import {
   subscriptionProviderKinds,
@@ -277,7 +277,7 @@ export function createSubscriptionAccountsController(ctx) {
     setProviderConsoleResult("");
     refreshProviderConsole();
     try {
-      const request = subscriptionOAuthLoginRequest("start", p);
+      const request = subscriptionOAuthLoginRequest("start", p, "", currentUILocale());
       const status = normalizeSubscriptionLoginStatus(await requestAPI(request.path, request.options));
       if (seq !== subscriptionLoginState(p).seq) return;
       if (!status.loginId) throw new Error(st("loginStartFailed", { message: st("unknown") }));
