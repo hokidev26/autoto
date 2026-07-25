@@ -473,7 +473,10 @@ export function providerDisplayName(provider = {}) {
   if (provider.name === "ollama") return "Ollama";
   if (stringValue(provider.type).toLowerCase() === "gemini-interactions") return "Gemini Interactions";
   switch (subscriptionProviderKind(provider)) {
-    case "gemini": return "Gemini";
+    // The gemini provider authenticates through Google's Antigravity surface
+    // (ideType ANTIGRAVITY), so the console labels it by the platform it talks
+    // to rather than by the model family. The provider id stays "gemini".
+    case "gemini": return "Antigravity";
     case "grok": return "Grok";
     case "kimi": return "Kimi";
   }

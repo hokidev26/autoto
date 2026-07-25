@@ -54,8 +54,10 @@ test("subscription provider predicate accepts native types and rejects interacti
   assert.equal(subscriptionProviderKind({ type: "openai" }), "");
 });
 
-test("provider display names distinguish native Gemini from Gemini Interactions", () => {
-  assert.equal(providerDisplayName({ name: "gemini-oauth", type: "gemini" }), "Gemini");
+test("provider display names distinguish native Antigravity from Gemini Interactions", () => {
+  // The native gemini provider talks to Google's Antigravity surface, so it is
+  // labelled by platform; the API-key gemini-interactions provider is not.
+  assert.equal(providerDisplayName({ name: "gemini-oauth", type: "gemini" }), "Antigravity");
   assert.equal(providerDisplayName({ name: "gemini", type: "gemini-interactions" }), "Gemini Interactions");
 });
 
