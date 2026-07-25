@@ -7,10 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"html"
-	"image"
-	_ "image/gif"
-	_ "image/jpeg"
-	_ "image/png"
 	"io"
 	"mime"
 	"mime/multipart"
@@ -22,17 +18,21 @@ import (
 	"unicode/utf8"
 
 	"autoto/internal/db"
+	"autoto/internal/media"
 )
 
 const (
-	maxAttachmentBytes       int64 = 10 << 20
-	maxMessageUploadBytes    int64 = 25 << 20
-	maxAttachmentTextRunes         = 200000
-	multipartMemoryBytes     int64 = 8 << 20
-	maxDOCXArchiveEntries          = 256
-	maxDOCXUncompressedBytes int64 = 16 << 20
-	maxDOCXDocumentBytes     int64 = 4 << 20
-	maxDOCXTextBytes               = 1 << 20
+	maxAttachmentBytes        int64 = 10 << 20
+	maxMessageUploadBytes     int64 = 25 << 20
+	maxMessageModelImageBytes int64 = 8 << 20
+	maxAttachmentsPerMessage        = 16
+	maxImagesPerMessage             = 8
+	maxAttachmentTextRunes          = 200000
+	multipartMemoryBytes      int64 = 8 << 20
+	maxDOCXArchiveEntries           = 256
+	maxDOCXUncompressedBytes  int64 = 16 << 20
+	maxDOCXDocumentBytes      int64 = 4 << 20
+	maxDOCXTextBytes                = 1 << 20
 )
 
 type attachmentUploadError struct {
@@ -58,8 +58,13 @@ func parseMultipartAttachments(w http.ResponseWriter, r *http.Request) (string, 
 	if text == "" && len(files) == 0 {
 		return "", "", nil, attachmentUploadError{Status: http.StatusBadRequest, Message: "text or files is required"}
 	}
+	if len(files) > maxAttachmentsPerMessage {
+		return "", "", nil, attachmentUploadError{Status: http.StatusRequestEntityTooLarge, Message: "单条消息附件数量超过 16 个限制"}
+	}
 	attachments := make([]db.Attachment, 0, len(files))
 	var total int64
+	var modelImageTotal int64
+	imageCount := 0
 	for _, header := range files {
 		if header == nil {
 			continue
@@ -74,6 +79,16 @@ func parseMultipartAttachments(w http.ResponseWriter, r *http.Request) (string, 
 		attachment, err := buildAttachmentFromPart(header)
 		if err != nil {
 			return "", "", nil, err
+		}
+		if attachment.Kind == "image" {
+			imageCount++
+			if imageCount > maxImagesPerMessage {
+				return "", "", nil, attachmentUploadError{Status: http.StatusRequestEntityTooLarge, Message: "单条消息图片数量超过 8 张限制"}
+			}
+			modelImageTotal += int64(len(attachment.ModelData))
+			if modelImageTotal > maxMessageModelImageBytes {
+				return "", "", nil, attachmentUploadError{Status: http.StatusRequestEntityTooLarge, Message: "单条消息规范化图片总大小超过 8 MiB 限制"}
+			}
 		}
 		attachments = append(attachments, attachment)
 	}
@@ -106,15 +121,26 @@ func buildAttachmentFromPart(header *multipart.FileHeader) (db.Attachment, error
 	filename := sanitizeAttachmentFilename(header.Filename)
 	mimeType := normalizeAttachmentMIME(filename, header.Header.Get("Content-Type"), data)
 	kind := classifyAttachment(filename, mimeType, data)
-	extractedText := extractAttachmentText(kind, filename, data)
-	return db.Attachment{
+	attachment := db.Attachment{
 		Filename:      filename,
 		MIMEType:      mimeType,
 		Kind:          kind,
 		SizeBytes:     int64(len(data)),
 		Data:          data,
-		ExtractedText: extractedText,
-	}, nil
+		ExtractedText: extractAttachmentText(kind, filename, data),
+	}
+	if kind == "image" {
+		processed := media.ProcessImage(data)
+		attachment.ModelData = processed.ModelData
+		attachment.ModelMIME = processed.ModelMIME
+		attachment.Width = processed.Width
+		attachment.Height = processed.Height
+		attachment.SHA256 = processed.SHA256
+		attachment.ProcessingStatus = processed.ProcessingStatus
+		attachment.ProcessingCode = processed.ProcessingCode
+		attachment.ProcessingError = processed.ProcessingError
+	}
+	return attachment, nil
 }
 
 func sanitizeAttachmentFilename(name string) string {
@@ -162,7 +188,7 @@ func normalizeAttachmentMIME(filename, provided string, data []byte) string {
 func classifyAttachment(filename, mimeType string, data []byte) string {
 	ext := strings.ToLower(filepath.Ext(filename))
 	mimeType = strings.ToLower(mimeType)
-	if isSafeInlineImage(mimeType, data) {
+	if strings.HasPrefix(mimeType, "image/") {
 		return "image"
 	}
 	if mimeType == "application/pdf" || (ext == ".pdf" && strings.HasPrefix(string(data), "%PDF-")) {
@@ -178,14 +204,10 @@ func classifyAttachment(filename, mimeType string, data []byte) string {
 }
 
 func isSafeInlineImage(mimeType string, data []byte) bool {
-	if mimeType != "image/png" && mimeType != "image/jpeg" && mimeType != "image/gif" {
+	if !media.IsSupportedImageMIME(mimeType) || media.DetectImageMIME(data) != mimeType {
 		return false
 	}
-	_, format, err := image.DecodeConfig(bytes.NewReader(data))
-	if err != nil {
-		return false
-	}
-	return (mimeType == "image/png" && format == "png") || (mimeType == "image/jpeg" && format == "jpeg") || (mimeType == "image/gif" && format == "gif")
+	return media.ProcessImage(data).ProcessingStatus == media.ProcessingReady
 }
 
 func isZIPData(data []byte) bool {

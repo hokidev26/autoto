@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"image"
 	"image/color"
 	"image/png"
@@ -19,6 +20,7 @@ import (
 	agentpkg "autoto/internal/agent"
 	"autoto/internal/config"
 	"autoto/internal/db"
+	"autoto/internal/media"
 	"autoto/internal/providers"
 )
 
@@ -119,6 +121,113 @@ func TestPostMultipartMessagePersistsAttachmentAndServesData(t *testing.T) {
 		t.Fatalf("expected nosniff on attachment response, got %q", recorder.Header().Get("X-Content-Type-Options"))
 	}
 	waitForAgentIdle(t, store, agent.ID)
+}
+
+func TestBuildAttachmentPreservesOriginalAndCreatesModelImage(t *testing.T) {
+	var imageData bytes.Buffer
+	fixture := image.NewRGBA(image.Rect(0, 0, 2, 1))
+	fixture.Set(0, 0, color.RGBA{R: 255, A: 255})
+	if err := png.Encode(&imageData, fixture); err != nil {
+		t.Fatal(err)
+	}
+	header := attachmentFileHeader(t, "photo.png", imageData.Bytes())
+	attachment, err := buildAttachmentFromPart(header)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if attachment.Kind != "image" || attachment.MIMEType != media.MIMEPNG || attachment.ModelMIME != media.MIMEPNG || attachment.ProcessingStatus != media.ProcessingReady {
+		t.Fatalf("unexpected image attachment: %+v", attachment)
+	}
+	if !bytes.Equal(attachment.Data, imageData.Bytes()) || len(attachment.ModelData) == 0 || len(attachment.ModelData) > media.MaxModelImageBytes {
+		t.Fatalf("expected preserved original and bounded model data: original=%d model=%d", len(attachment.Data), len(attachment.ModelData))
+	}
+	if attachment.Width != 2 || attachment.Height != 1 || attachment.SHA256 == "" || attachment.ProcessingError != "" {
+		t.Fatalf("unexpected image processing metadata: %+v", attachment)
+	}
+}
+
+func TestBuildAttachmentKeepsCorruptImageButMarksModelProcessingRejected(t *testing.T) {
+	data := append([]byte{0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n'}, []byte("broken")...)
+	attachment, err := buildAttachmentFromPart(attachmentFileHeader(t, "broken.png", data))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if attachment.Kind != "image" || attachment.ProcessingStatus != media.ProcessingRejected || attachment.ProcessingCode != media.CodeInvalid || attachment.ProcessingError == "" || len(attachment.ModelData) != 0 {
+		t.Fatalf("expected corrupt image to be retained but rejected for model input: %+v", attachment)
+	}
+	if !bytes.Equal(attachment.Data, data) || attachment.SHA256 == "" {
+		t.Fatal("corrupt image original bytes or hash were not preserved")
+	}
+}
+
+func TestParseMultipartAttachmentsEnforcesAttachmentAndImageCounts(t *testing.T) {
+	textFiles := make([]multipartTestFile, maxAttachmentsPerMessage+1)
+	for index := range textFiles {
+		textFiles[index] = multipartTestFile{name: fmt.Sprintf("note-%02d.txt", index), data: []byte("x")}
+	}
+	if _, _, _, err := parseMultipartAttachments(httptest.NewRecorder(), multipartAttachmentRequest(t, textFiles)); err == nil || !strings.Contains(err.Error(), "16") {
+		t.Fatalf("expected attachment count rejection, got %v", err)
+	}
+
+	var imageData bytes.Buffer
+	if err := png.Encode(&imageData, image.NewNRGBA(image.Rect(0, 0, 1, 1))); err != nil {
+		t.Fatal(err)
+	}
+	imageFiles := make([]multipartTestFile, maxImagesPerMessage+1)
+	for index := range imageFiles {
+		imageFiles[index] = multipartTestFile{name: fmt.Sprintf("frame-%02d.png", index), data: imageData.Bytes()}
+	}
+	if _, _, _, err := parseMultipartAttachments(httptest.NewRecorder(), multipartAttachmentRequest(t, imageFiles)); err == nil || !strings.Contains(err.Error(), "8") {
+		t.Fatalf("expected image count rejection, got %v", err)
+	}
+}
+
+type multipartTestFile struct {
+	name string
+	data []byte
+}
+
+func multipartAttachmentRequest(t *testing.T, files []multipartTestFile) *http.Request {
+	t.Helper()
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	for _, file := range files {
+		part, err := writer.CreateFormFile("files", file.name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := part.Write(file.data); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequest(http.MethodPost, "/api/agents/test/messages", &body)
+	request.Header.Set("Content-Type", writer.FormDataContentType())
+	return request
+}
+
+func attachmentFileHeader(t *testing.T, filename string, data []byte) *multipart.FileHeader {
+	t.Helper()
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	part, err := writer.CreateFormFile("files", filename)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := part.Write(data); err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	form, err := multipart.NewReader(&body, writer.Boundary()).ReadForm(multipartMemoryBytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = form.RemoveAll() })
+	return form.File["files"][0]
 }
 
 func TestAttachmentUsesContentTypeOverClaimedImageAndSanitizesFilename(t *testing.T) {

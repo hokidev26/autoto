@@ -12,8 +12,14 @@ import (
 
 	"autoto/internal/db"
 	"autoto/internal/imageassets"
+	"autoto/internal/media"
 	"autoto/internal/providers"
 	"autoto/internal/tools"
+)
+
+const (
+	maxProviderImageBlocks = 8
+	maxProviderImageBytes  = 12 << 20
 )
 
 type ContextCompactionResult struct {
@@ -204,13 +210,23 @@ func mergeMemorySystemContext(systemPrompt, memoryContext string) string {
 	return strings.TrimSpace(systemPrompt) + "\n\n" + memoryContext
 }
 
-func (r *Runner) managedContextForTurn(ctx context.Context, agent db.Agent, messages []db.Message, toolSpecs []providers.ToolSpec, controls turnSystemControls) ([]providers.Message, db.Agent, error) {
+func (r *Runner) managedContextForTurn(ctx context.Context, agent db.Agent, messages []db.Message, toolSpecs []providers.ToolSpec, controls turnSystemControls, promptPrefixes ...[]providers.Message) ([]providers.Message, db.Agent, error) {
 	cfg := r.ContextManagementConfig()
 	agent = contextAgentForMessages(agent, messages)
 	providerMessages, eligible := r.providerMessagesForContextPlan(ctx, agent, messages, cfg.CompactKeepTurns)
+	prefix := []providers.Message(nil)
+	if len(promptPrefixes) > 0 {
+		prefix = append([]providers.Message(nil), promptPrefixes[0]...)
+	}
+	withPrefix := func(conversation []providers.Message) []providers.Message {
+		result := make([]providers.Message, 0, len(prefix)+len(conversation))
+		result = append(result, prefix...)
+		result = append(result, conversation...)
+		return result
+	}
 	limit := r.contextTokenLimit(agent.Model)
 	preferredControls := controls.preferredMessages()
-	preferredRequest := appendProviderMessages(providerMessages, preferredControls)
+	preferredRequest := appendProviderMessages(withPrefix(providerMessages), preferredControls)
 	initialEstimate := estimateRequestTokens(agent.SystemPrompt, preferredRequest, toolSpecs)
 	window := cfg.WindowForLimit(limit)
 
@@ -220,7 +236,7 @@ func (r *Runner) managedContextForTurn(ctx context.Context, agent db.Agent, mess
 	if agent.PruneEnabled && window.PruneStart < window.CompactStart && initialEstimate*100 >= limit*window.PruneStart {
 		desiredReduction := initialEstimate - (limit*window.PruneStart)/100
 		providerMessages = progressivelyPruneContextToolPayloads(providerMessages, eligible, cfg, desiredReduction)
-		preferredRequest = appendProviderMessages(providerMessages, preferredControls)
+		preferredRequest = appendProviderMessages(withPrefix(providerMessages), preferredControls)
 	}
 
 	if estimateRequestTokens(agent.SystemPrompt, preferredRequest, toolSpecs)*100 >= limit*window.CompactStart {
@@ -237,7 +253,7 @@ func (r *Runner) managedContextForTurn(ctx context.Context, agent db.Agent, mess
 				data["compacted"] = true
 				r.publish(Event{Type: "context.updated", AgentID: agent.ID, Data: data})
 				providerMessages, eligible = r.providerMessagesForContextPlan(ctx, agent, messages, cfg.CompactKeepTurns)
-				preferredRequest = appendProviderMessages(providerMessages, preferredControls)
+				preferredRequest = appendProviderMessages(withPrefix(providerMessages), preferredControls)
 			}
 		}
 	}
@@ -249,7 +265,7 @@ func (r *Runner) managedContextForTurn(ctx context.Context, agent db.Agent, mess
 	// preference. It first shrinks oversized tool payloads, then falls back to
 	// a complete-turn summary if the request still cannot fit.
 	providerMessages = compactOversizedContextToolInputs(providerMessages)
-	preferredRequest = appendProviderMessages(providerMessages, preferredControls)
+	preferredRequest = appendProviderMessages(withPrefix(providerMessages), preferredControls)
 	if estimateRequestTokens(agent.SystemPrompt, preferredRequest, toolSpecs) <= limit {
 		return preferredRequest, agent, nil
 	}
@@ -270,14 +286,14 @@ func (r *Runner) managedContextForTurn(ctx context.Context, agent db.Agent, mess
 			data["compacted"] = true
 			r.publish(Event{Type: "context.updated", AgentID: agent.ID, Data: data})
 			providerMessages, _ = r.providerMessagesForContextPlan(ctx, agent, messages, cfg.CompactKeepTurns)
-			preferredRequest = appendProviderMessages(providerMessages, preferredControls)
+			preferredRequest = appendProviderMessages(withPrefix(providerMessages), preferredControls)
 			if estimateRequestTokens(agent.SystemPrompt, preferredRequest, toolSpecs) <= limit {
 				return preferredRequest, agent, nil
 			}
 		}
 	}
 
-	providerMessages = compactConversationForBudget(agent.SystemPrompt, providerMessages, toolSpecs, limit, controls.requiredMessages())
+	providerMessages = compactConversationForBudget(agent.SystemPrompt, withPrefix(providerMessages), toolSpecs, limit, controls.requiredMessages())
 	fittedControls, err := fitTurnSystemControls(agent.SystemPrompt, providerMessages, toolSpecs, limit, controls)
 	if err != nil {
 		return nil, agent, err
@@ -406,6 +422,49 @@ func prepareProviderMessagesForCapabilities(messages []providers.Message, capabi
 		out[i].Blocks = blocks
 		if content := strings.TrimSpace(contextMessageContent(blocks)); content != "" {
 			out[i].Content = content
+		}
+	}
+	return out
+}
+
+// enforceProviderMediaBudget retains the newest bounded set of binary image
+// blocks. Older media remains represented as text so conversation semantics are
+// preserved without replaying unbounded binary history to a provider.
+func enforceProviderMediaBudget(messages []providers.Message) []providers.Message {
+	out := make([]providers.Message, len(messages))
+	copy(out, messages)
+	imageCount := 0
+	imageBytes := 0
+	for messageIndex := len(out) - 1; messageIndex >= 0; messageIndex-- {
+		if len(out[messageIndex].Blocks) == 0 {
+			continue
+		}
+		blocks := append([]providers.ContentBlock(nil), out[messageIndex].Blocks...)
+		changed := false
+		for blockIndex := len(blocks) - 1; blockIndex >= 0; blockIndex-- {
+			block := blocks[blockIndex]
+			if (block.Type != "image" && block.Type != "image_generation") || len(block.Data) == 0 {
+				continue
+			}
+			if imageCount >= maxProviderImageBlocks || len(block.Data) > maxProviderImageBytes-imageBytes {
+				if block.Type == "image_generation" {
+					blocks[blockIndex] = unavailableGeneratedImageBlock()
+				} else {
+					name := strings.TrimSpace(block.Filename)
+					if name == "" {
+						name = "image"
+					}
+					blocks[blockIndex] = providers.ContentBlock{Type: "text", Text: fmt.Sprintf("[图片附件 %s 因历史媒体预算已省略。]", name)}
+				}
+				changed = true
+				continue
+			}
+			imageCount++
+			imageBytes += len(block.Data)
+		}
+		if changed {
+			out[messageIndex].Blocks = blocks
+			out[messageIndex].Content = contextMessageContent(blocks)
 		}
 	}
 	return out
@@ -690,7 +749,36 @@ func estimateBlockTokens(block providers.ContentBlock) int {
 	if len(block.Input) > 0 {
 		total += estimateTextTokens(string(block.Input))
 	}
+	if len(block.Data) > 0 {
+		// Account for both visual processing and bounded binary transport. The
+		// estimate is deliberately provider-neutral and conservative enough to
+		// keep image-heavy history inside the same context safety gate as text.
+		total += (len(block.Data) + 3071) / 3072
+		if block.Type == "image" || block.Type == "image_generation" {
+			total += estimateImageTokens(block.Width, block.Height)
+		}
+	}
 	return total
+}
+
+func estimateImageTokens(width, height int) int {
+	if width <= 0 || height <= 0 {
+		return 1024
+	}
+	if width > 2048 || height > 2048 {
+		scaleNumerator := 2048
+		scaleDenominator := max(width, height)
+		width = max(1, width*scaleNumerator/scaleDenominator)
+		height = max(1, height*scaleNumerator/scaleDenominator)
+	}
+	if min(width, height) > 768 {
+		scaleNumerator := 768
+		scaleDenominator := min(width, height)
+		width = max(1, width*scaleNumerator/scaleDenominator)
+		height = max(1, height*scaleNumerator/scaleDenominator)
+	}
+	tiles := ((width + 511) / 512) * ((height + 511) / 512)
+	return 85 + 170*max(1, tiles)
 }
 
 func estimateTextTokens(text string) int {
@@ -939,9 +1027,7 @@ func attachmentBlocks(message db.Message) []providers.ContentBlock {
 		}
 		switch attachment.Kind {
 		case "image":
-			if len(attachment.Data) > 0 {
-				blocks = append(blocks, providers.ContentBlock{Type: "image", MIMEType: attachment.MIMEType, Data: attachment.Data, Filename: name, Kind: attachment.Kind})
-			}
+			blocks = append(blocks, attachmentImageBlock(attachment, name))
 		case "text", "docx":
 			if strings.TrimSpace(attachment.ExtractedText) != "" {
 				blocks = append(blocks, providers.ContentBlock{Type: "text", Text: fmt.Sprintf("附件 %s 的内容：\n%s", name, attachment.ExtractedText), Filename: name, MIMEType: attachment.MIMEType, Kind: attachment.Kind})
@@ -961,16 +1047,53 @@ func attachmentBlocks(message db.Message) []providers.ContentBlock {
 	return blocks
 }
 
-func assistantToolUseBlocks(text string, calls []providers.ToolCall) []providers.ContentBlock {
-	blocks := make([]providers.ContentBlock, 0, 1+len(calls))
-	if strings.TrimSpace(text) != "" {
-		blocks = append(blocks, providers.ContentBlock{Type: "text", Text: text})
+func attachmentImageBlock(attachment db.Attachment, name string) providers.ContentBlock {
+	modelData := attachment.ModelData
+	modelMIME := strings.TrimSpace(attachment.ModelMIME)
+	width, height := attachment.Width, attachment.Height
+	status := strings.TrimSpace(attachment.ProcessingStatus)
+
+	if status == media.ProcessingRejected {
+		return unavailableAttachmentImageBlock(attachment, name, attachment.ProcessingError)
 	}
-	for _, call := range calls {
-		call = normalizeProviderToolCall(call)
-		blocks = append(blocks, providers.ContentBlock{Type: "tool_use", ToolUseID: call.ID, ToolName: call.Name, Input: call.Input, ProviderState: call.ProviderState})
+	if status == media.ProcessingReady {
+		if len(modelData) == 0 || len(modelData) > media.MaxModelImageBytes || !media.IsModelImageMIME(modelMIME) {
+			return unavailableAttachmentImageBlock(attachment, name, "服务器规范化图片数据不可用或超过 4 MiB 限制。")
+		}
+		return providers.ContentBlock{Type: "image", MIMEType: modelMIME, Data: modelData, Filename: name, Kind: attachment.Kind, Width: width, Height: height}
 	}
-	return blocks
+
+	// Attachments written before the image-processing schema migration only have
+	// original bytes. Revalidate and normalize them at the model boundary rather
+	// than trusting their stored MIME or forwarding original bytes.
+	if len(modelData) > 0 && len(modelData) <= media.MaxModelImageBytes && media.IsModelImageMIME(modelMIME) {
+		processed := media.ProcessImage(modelData)
+		if processed.ProcessingStatus == media.ProcessingReady {
+			return providers.ContentBlock{Type: "image", MIMEType: processed.ModelMIME, Data: processed.ModelData, Filename: name, Kind: attachment.Kind, Width: processed.Width, Height: processed.Height}
+		}
+	}
+	if len(attachment.Data) == 0 {
+		return unavailableAttachmentImageBlock(attachment, name, "服务器没有可用于模型输入的规范化图片数据。")
+	}
+	processed := media.ProcessImage(attachment.Data)
+	if processed.ProcessingStatus != media.ProcessingReady {
+		return unavailableAttachmentImageBlock(attachment, name, processed.ProcessingError)
+	}
+	return providers.ContentBlock{Type: "image", MIMEType: processed.ModelMIME, Data: processed.ModelData, Filename: name, Kind: attachment.Kind, Width: processed.Width, Height: processed.Height}
+}
+
+func unavailableAttachmentImageBlock(attachment db.Attachment, name, reason string) providers.ContentBlock {
+	reason = strings.TrimSpace(reason)
+	if reason == "" {
+		reason = "服务器图片校验或规范化未通过。"
+	}
+	return providers.ContentBlock{
+		Type:     "text",
+		Text:     fmt.Sprintf("图片附件 %s 未作为图片发送：%s", name, truncateRunes(reason, 240)),
+		Filename: name,
+		MIMEType: attachment.MIMEType,
+		Kind:     attachment.Kind,
+	}
 }
 
 func assistantToolUseText(text string, calls []providers.ToolCall) string {

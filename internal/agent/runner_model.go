@@ -72,7 +72,7 @@ func (r *Runner) runModelTurnAttempt(ctx context.Context, agentID, runID string,
 	}
 	requestCapabilities := capabilities
 	requestCapabilities.ImageGeneration = capabilities.ImageGeneration && modelCapabilities.ImageGeneration
-	requestMessages := prepareProviderMessagesForCapabilities(messages, requestCapabilities)
+	requestMessages := enforceProviderMediaBudget(prepareProviderMessagesForCapabilities(messages, requestCapabilities))
 	requestTools := toolSpecs
 	if !capabilities.Tools {
 		requestTools = nil

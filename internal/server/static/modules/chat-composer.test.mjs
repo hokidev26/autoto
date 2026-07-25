@@ -927,6 +927,317 @@ test("Composer creates a goal without waiting for or configuring a model run", a
   }
 });
 
+test("video processing blocks sending, adds only readable derived files, and releases preview URLs", async () => {
+  const previousDocument = globalThis.document;
+  const previousURL = globalThis.URL;
+  const previousGetComputedStyle = globalThis.getComputedStyle;
+  let finishProcessing;
+  const processingGate = new Promise((resolve) => { finishProcessing = resolve; });
+  const createdUrls = [];
+  const revokedUrls = [];
+  globalThis.URL = {
+    createObjectURL(file) {
+      const url = `blob:${file.name}`;
+      createdUrls.push(url);
+      return url;
+    },
+    revokeObjectURL(url) { revokedUrls.push(url); },
+  };
+  const classes = { toggle() {} };
+  const attributes = new Map();
+  const input = { value: "send after frames", disabled: false, scrollHeight: 46, style: {}, classList: classes, focus() {} };
+  const sendButton = {
+    textContent: "Send",
+    disabled: false,
+    dataset: {},
+    setAttribute(name, value) { attributes.set(name, value); },
+    removeAttribute(name) { attributes.delete(name); },
+  };
+  const elements = {
+    messageText: input,
+    sendMessageBtn: sendButton,
+    attachFileBtn: { disabled: false },
+    attachFileInput: { disabled: false },
+    pendingAttachments: { classList: classes, innerHTML: "", querySelectorAll() { return []; } },
+    promptHistoryHint: { textContent: "" },
+    slashCommandPalette: { classList: { add() {}, remove() {} }, innerHTML: "" },
+  };
+  globalThis.document = { getElementById(id) { return elements[id] || null; } };
+  globalThis.getComputedStyle = () => ({ minHeight: "46px", maxHeight: "128px", getPropertyValue() { return ""; } });
+  const state = {
+    agent: { id: "agent-video", model: "openai:model" },
+    navigationSelectionKind: "conversation",
+    pendingAttachments: [],
+    promptHistory: [],
+    serverSkills: [],
+  };
+  const requests = [];
+  const toasts = [];
+  try {
+    const controller = createChatComposerController({
+      state,
+      attachmentKind: (file) => file.type.startsWith("image/") ? "image" : file.type.startsWith("video/") ? "video" : "text",
+      currentSkillsPreferences: () => ({ commands: [] }),
+      isCurrentModelConfigured: () => true,
+      prepareVideoAttachment: async (file) => {
+        await processingGate;
+        const frames = [
+          { name: "clip.frame-01.jpg", type: "image/jpeg", size: 100 },
+          { name: "clip.frame-02.jpg", type: "image/jpeg", size: 120 },
+        ];
+        const manifest = { name: "clip.keyframes.txt", type: "text/plain;charset=utf-8", size: 80 };
+        return { files: [...frames, manifest], frameFiles: frames, originalIncluded: false, totalBytes: 300 };
+      },
+      request: async (...args) => { requests.push(args); return {}; },
+      showToast: (message, tone) => toasts.push({ message, tone }),
+    });
+
+    const adding = controller.addPendingAttachmentFiles([{ name: "clip.mp4", type: "video/mp4", size: 1024 }]);
+    await Promise.resolve();
+    assert.equal(state.pendingAttachmentProcessing, 1);
+    assert.equal(sendButton.disabled, true);
+    assert.equal(elements.attachFileBtn.disabled, true);
+    assert.equal(attributes.get("aria-busy"), "true");
+
+    await controller.sendMessage({ preventDefault() {} });
+    assert.equal(requests.length, 0);
+    assert.equal(input.value, "send after frames");
+    assert.equal(toasts.some((toast) => toast.tone === "warn"), true);
+
+    finishProcessing();
+    await adding;
+    assert.equal(state.pendingAttachmentProcessing, 0);
+    assert.equal(sendButton.disabled, false);
+    assert.equal(elements.attachFileBtn.disabled, false);
+    assert.equal(state.pendingAttachments.length, 3);
+    assert.deepEqual(createdUrls, ["blob:clip.frame-01.jpg", "blob:clip.frame-02.jpg"]);
+
+    const firstFrame = state.pendingAttachments.find((item) => item.file.name === "clip.frame-01.jpg");
+    controller.removePendingAttachment(firstFrame.id);
+    assert.deepEqual(revokedUrls, ["blob:clip.frame-01.jpg"]);
+    controller.clearPendingAttachments();
+    assert.deepEqual(revokedUrls, ["blob:clip.frame-01.jpg", "blob:clip.frame-02.jpg"]);
+    assert.deepEqual(state.pendingAttachments, []);
+  } finally {
+    globalThis.document = previousDocument;
+    globalThis.URL = previousURL;
+    globalThis.getComputedStyle = previousGetComputedStyle;
+  }
+});
+
+test("stale video work cannot overwrite a newer agent generation", async () => {
+  const previousDocument = globalThis.document;
+  const previousURL = globalThis.URL;
+  const deferred = () => {
+    let resolve;
+    const promise = new Promise((done) => { resolve = done; });
+    return { promise, resolve };
+  };
+  const gates = { "a.mp4": deferred(), "b.mp4": deferred() };
+  const signals = {};
+  const revoked = [];
+  globalThis.URL = {
+    createObjectURL: (file) => `blob:${file.name}`,
+    revokeObjectURL: (url) => revoked.push(url),
+  };
+  const elements = {
+    messageText: { value: "", disabled: false },
+    sendMessageBtn: { textContent: "Send", disabled: false, dataset: {}, setAttribute() {}, removeAttribute() {} },
+    attachFileBtn: { disabled: false },
+    attachFileInput: { disabled: false },
+    pendingAttachments: { classList: { toggle() {} }, innerHTML: "", querySelectorAll() { return []; } },
+  };
+  globalThis.document = { getElementById(id) { return elements[id] || null; } };
+  const state = { agent: { id: "agent-a" }, navigationSelectionKind: "conversation", pendingAttachments: [] };
+  try {
+    const controller = createChatComposerController({
+      state,
+      attachmentKind: (file) => file.type.startsWith("image/") ? "image" : "video",
+      prepareVideoAttachment: async (file, options) => {
+        signals[file.name] = options.signal;
+        return gates[file.name].promise;
+      },
+      showToast() {},
+    });
+    const sourceA = { name: "a.mp4", type: "video/mp4", size: 100 };
+    const sourceB = { name: "b.mp4", type: "video/mp4", size: 100 };
+    const addingA = controller.addPendingAttachmentFiles([sourceA]);
+    await Promise.resolve();
+    assert.equal(state.pendingAttachmentProcessing, 1);
+
+    state.agent = { id: "agent-b" };
+    controller.syncMessageComposerBusy();
+    assert.equal(signals["a.mp4"].aborted, true);
+    assert.equal(state.pendingAttachmentProcessing, 0);
+
+    const addingB = controller.addPendingAttachmentFiles([sourceB]);
+    await Promise.resolve();
+    assert.equal(state.pendingAttachmentProcessing, 1);
+    const frameA = { name: "a.frame.jpg", type: "image/jpeg", size: 10 };
+    gates["a.mp4"].resolve({ files: [frameA], frameFiles: [frameA], originalIncluded: false, totalBytes: 10 });
+    const resultA = await addingA;
+    assert.equal(resultA.cancelled, true);
+    assert.equal(state.pendingAttachmentProcessing, 1);
+    assert.deepEqual(state.pendingAttachments, []);
+
+    const frameB = { name: "b.frame.jpg", type: "image/jpeg", size: 10 };
+    gates["b.mp4"].resolve({ files: [frameB], frameFiles: [frameB], originalIncluded: false, totalBytes: 10 });
+    await addingB;
+    assert.equal(state.pendingAttachmentProcessing, 0);
+    assert.deepEqual(state.pendingAttachments.map((item) => item.file.name), ["b.frame.jpg"]);
+    assert.deepEqual(revoked, []);
+  } finally {
+    globalThis.document = previousDocument;
+    globalThis.URL = previousURL;
+  }
+});
+
+test("a context switch during preview creation revokes every stale object URL", async () => {
+  const previousDocument = globalThis.document;
+  const previousURL = globalThis.URL;
+  const revoked = [];
+  const elements = {
+    messageText: { value: "", disabled: false },
+    sendMessageBtn: { textContent: "Send", disabled: false, dataset: {}, setAttribute() {}, removeAttribute() {} },
+    attachFileBtn: { disabled: false },
+    attachFileInput: { disabled: false },
+    pendingAttachments: { classList: { toggle() {} }, innerHTML: "", querySelectorAll() { return []; } },
+  };
+  globalThis.document = { getElementById(id) { return elements[id] || null; } };
+  const state = { agent: { id: "agent-preview-a" }, navigationSelectionKind: "conversation", pendingAttachments: [] };
+  let controller;
+  let created = 0;
+  globalThis.URL = {
+    createObjectURL(file) {
+      created += 1;
+      const url = `blob:${file.name}`;
+      if (created === 1) {
+        state.agent = { id: "agent-preview-b" };
+        controller.syncMessageComposerBusy();
+      }
+      return url;
+    },
+    revokeObjectURL(url) { revoked.push(url); },
+  };
+  try {
+    controller = createChatComposerController({
+      state,
+      attachmentKind: () => "image",
+      prepareVideoAttachment: async () => {
+        const frames = [
+          { name: "stale-1.jpg", type: "image/jpeg", size: 10 },
+          { name: "stale-2.jpg", type: "image/jpeg", size: 10 },
+        ];
+        return { files: frames, frameFiles: frames, originalIncluded: false, totalBytes: 20 };
+      },
+      showToast() {},
+    });
+    const result = await controller.addPendingAttachmentFiles([{ name: "stale.mp4", type: "video/mp4", size: 100 }]);
+    assert.equal(result.cancelled, true);
+    assert.equal(created, 1);
+    assert.deepEqual(revoked, ["blob:stale-1.jpg"]);
+    assert.deepEqual(state.pendingAttachments, []);
+    assert.equal(state.pendingAttachmentProcessing, 0);
+  } finally {
+    globalThis.document = previousDocument;
+    globalThis.URL = previousURL;
+  }
+});
+
+test("clearing or deleting attachments cancels active video work and prevents late writes", async () => {
+  const previousDocument = globalThis.document;
+  const previousURL = globalThis.URL;
+  const deferred = () => {
+    let resolve;
+    const promise = new Promise((done) => { resolve = done; });
+    return { promise, resolve };
+  };
+  const gates = [deferred(), deferred()];
+  const signals = [];
+  const revoked = [];
+  globalThis.URL = {
+    createObjectURL: (file) => `blob:${file.name}`,
+    revokeObjectURL: (url) => revoked.push(url),
+  };
+  const elements = {
+    messageText: { value: "", disabled: false },
+    sendMessageBtn: { textContent: "Send", disabled: false, dataset: {}, setAttribute() {}, removeAttribute() {} },
+    attachFileBtn: { disabled: false },
+    attachFileInput: { disabled: false },
+    pendingAttachments: { classList: { toggle() {} }, innerHTML: "", querySelectorAll() { return []; } },
+  };
+  globalThis.document = { getElementById(id) { return elements[id] || null; } };
+  const state = {
+    agent: { id: "agent-cancel" },
+    navigationSelectionKind: "conversation",
+    pendingAttachments: [{ id: "existing", file: { name: "existing.jpg", type: "image/jpeg", size: 10 }, kind: "image", previewUrl: "blob:existing.jpg" }],
+  };
+  let call = 0;
+  try {
+    const controller = createChatComposerController({
+      state,
+      attachmentKind: () => "image",
+      prepareVideoAttachment: async (_file, options) => {
+        signals.push(options.signal);
+        return gates[call++].promise;
+      },
+      showToast() {},
+    });
+
+    const clearing = controller.addPendingAttachmentFiles([{ name: "clear.mp4", type: "video/mp4", size: 100 }]);
+    await Promise.resolve();
+    controller.clearPendingAttachments();
+    assert.equal(signals[0].aborted, true);
+    assert.equal(state.pendingAttachmentProcessing, 0);
+    gates[0].resolve({ files: [{ name: "late-clear.jpg", type: "image/jpeg", size: 10 }], frameFiles: [], totalBytes: 10 });
+    assert.equal((await clearing).cancelled, true);
+    assert.deepEqual(state.pendingAttachments, []);
+
+    state.pendingAttachments = [{ id: "remove-me", file: { name: "remove.jpg", type: "image/jpeg", size: 10 }, kind: "image", previewUrl: "blob:remove.jpg" }];
+    const deleting = controller.addPendingAttachmentFiles([{ name: "delete.mp4", type: "video/mp4", size: 100 }]);
+    await Promise.resolve();
+    controller.removePendingAttachment("remove-me");
+    assert.equal(signals[1].aborted, true);
+    assert.equal(state.pendingAttachmentProcessing, 0);
+    gates[1].resolve({ files: [{ name: "late-delete.jpg", type: "image/jpeg", size: 10 }], frameFiles: [], totalBytes: 10 });
+    assert.equal((await deleting).cancelled, true);
+    assert.deepEqual(state.pendingAttachments, []);
+    assert.deepEqual(revoked, ["blob:existing.jpg", "blob:remove.jpg"]);
+  } finally {
+    globalThis.document = previousDocument;
+    globalThis.URL = previousURL;
+  }
+});
+
+test("failed, over-limit, or timed-out video processing adds no unreadable pending attachment", async () => {
+  const previousDocument = globalThis.document;
+  const elements = {
+    messageText: { value: "", disabled: false },
+    sendMessageBtn: { textContent: "Send", dataset: {}, setAttribute() {}, removeAttribute() {} },
+    attachFileBtn: { disabled: false },
+    attachFileInput: { disabled: false },
+    pendingAttachments: { classList: { toggle() {} }, innerHTML: "", querySelectorAll() { return []; } },
+  };
+  globalThis.document = { getElementById(id) { return elements[id] || null; } };
+  const state = { agent: { id: "agent-video" }, pendingAttachments: [] };
+  try {
+    // Use a rejecting dependency without constructing browser media objects.
+    const controller = createChatComposerController({
+      state,
+      attachmentKind: () => "video",
+      prepareVideoAttachment: async () => { throw Object.assign(new Error("deadline exceeded"), { code: "processing-timeout" }); },
+      showToast() {},
+    });
+    const result = await controller.addPendingAttachmentFiles([{ name: "long.mp4", type: "video/mp4", size: 1024 }]);
+    assert.equal(result.added.length, 0);
+    assert.equal(result.skipped.length, 1);
+    assert.deepEqual(state.pendingAttachments, []);
+    assert.equal(state.pendingAttachmentProcessing, 0);
+  } finally {
+    globalThis.document = previousDocument;
+  }
+});
+
 test("Composer keeps invalid goal drafts and attachments without sending", async () => {
   const previousDocument = globalThis.document;
   const input = {

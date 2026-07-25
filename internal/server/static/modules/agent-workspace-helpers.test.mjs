@@ -16,6 +16,14 @@ function translate(key) {
   }[key] || key;
 }
 
+test("attachment classification recognizes only allowlisted browser video MIME types", () => {
+  const helpers = createAgentWorkspaceHelpers({ state: {} });
+  assert.equal(helpers.attachmentKind({ name: "clip.mp4", type: "video/mp4" }), "video");
+  assert.equal(helpers.attachmentKind({ name: "clip.webm", type: "video/webm" }), "video");
+  assert.equal(helpers.attachmentKind({ name: "clip.mov", type: "video/quicktime" }), "binary");
+  assert.equal(helpers.attachmentIcon("video"), "VIDEO");
+});
+
 test("composer activity prefers pending approval, then tools, then thinking/generating", () => {
   assert.equal(resolveComposerActivityStatus({}, translate), null);
 

@@ -4,6 +4,7 @@ import { chatDraftsKey, promptHistoryKey } from "./preferences-data.mjs";
 import { api } from "./runtime.mjs";
 import { t } from "./i18n.mjs?v=goal-command-2";
 import { mergeAuthoritativeEffectiveCommands, mergeBuiltInSlashCommands, mergeSlashCommands, normalizeSlashCommandName, slashCommandInsertion } from "./skills-commands.mjs?v=goal-command-2";
+import { isSupportedVideoFile, processVideoAttachment } from "./video-attachments.mjs";
 
 export const defaultReasoningEffortValues = Object.freeze(["auto", "low", "medium", "high"]);
 export const knownReasoningEffortValues = Object.freeze([...defaultReasoningEffortValues, "xhigh"]);
@@ -210,11 +211,15 @@ export function createChatComposerController({
   showModelSetupNotice,
   showToast,
   onMessageAccepted,
+  prepareVideoAttachment = processVideoAttachment,
+  createAbortController = () => new AbortController(),
 } = {}) {
   const pendingReasoningEfforts = new Map();
   const savingReasoningEfforts = new Set();
   const pendingFastModes = new Map();
   const savingFastModes = new Set();
+  let attachmentGeneration = 0;
+  let activeAttachmentJob = null;
 
   function loadChatDrafts() {
     try {
@@ -655,7 +660,7 @@ export function createChatComposerController({
       const active = button.dataset.messageMode === mode;
       button.classList.toggle("active", active);
       button.setAttribute("aria-pressed", active ? "true" : "false");
-      button.disabled = isMessageSendingFor();
+      button.disabled = isComposerBusy();
     });
     if (toggle) toggle.dataset.mode = mode;
     return mode;
@@ -673,16 +678,74 @@ export function createChatComposerController({
     return Boolean(agentId && state.messageSendingByAgent?.[agentId]);
   }
 
-  function syncMessageComposerBusy() {
-    const busy = isMessageSendingFor();
+  function attachmentContextKey() {
+    return JSON.stringify([
+      String(state.agent?.id || ""),
+      String(state.workline?.id || ""),
+      String(state.project?.id || ""),
+      String(state.navigationSelectionKind || "conversation"),
+    ]);
+  }
+
+  function isAttachmentProcessing() {
+    return Number(state.pendingAttachmentProcessing || 0) > 0;
+  }
+
+  function attachmentJobIsCurrent(job) {
+    return Boolean(job
+      && activeAttachmentJob?.generation === job.generation
+      && attachmentGeneration === job.generation
+      && attachmentContextKey() === job.contextKey
+      && !job.controller?.signal?.aborted);
+  }
+
+  function invalidateAttachmentProcessing({ sync = true } = {}) {
+    attachmentGeneration += 1;
+    const job = activeAttachmentJob;
+    activeAttachmentJob = null;
+    state.pendingAttachmentProcessing = 0;
+    job?.controller?.abort?.();
+    if (sync) syncMessageComposerBusy({ checkAttachmentContext: false });
+  }
+
+  function beginAttachmentProcessing() {
+    const job = {
+      generation: ++attachmentGeneration,
+      contextKey: attachmentContextKey(),
+      controller: createAbortController(),
+    };
+    activeAttachmentJob = job;
+    state.pendingAttachmentProcessing = 1;
+    syncMessageComposerBusy({ checkAttachmentContext: false });
+    return job;
+  }
+
+  function finishAttachmentProcessing(job) {
+    if (activeAttachmentJob?.generation !== job?.generation) return;
+    activeAttachmentJob = null;
+    state.pendingAttachmentProcessing = 0;
+    syncMessageComposerBusy({ checkAttachmentContext: false });
+  }
+
+  function isComposerBusy(agentId = state.agent?.id) {
+    return isMessageSendingFor(agentId) || isAttachmentProcessing();
+  }
+
+  function syncMessageComposerBusy({ checkAttachmentContext = true } = {}) {
+    if (checkAttachmentContext && activeAttachmentJob && activeAttachmentJob.contextKey !== attachmentContextKey()) {
+      invalidateAttachmentProcessing({ sync: false });
+    }
+    const sending = isMessageSendingFor();
+    const processing = isAttachmentProcessing();
+    const busy = sending || processing;
     const input = $("messageText");
-    if (input) input.disabled = busy;
+    if (input) input.disabled = sending;
     const attachButton = $("attachFileBtn");
     if (attachButton) attachButton.disabled = busy;
     const attachInput = $("attachFileInput");
     if (attachInput) attachInput.disabled = busy;
     refreshMessageModeControl();
-    setButtonBusy($("sendMessageBtn"), busy, t("workspace.chat.sending"));
+    setButtonBusy($("sendMessageBtn"), busy, t(processing ? "workspace.chat.videoProcessing" : "workspace.chat.sending"));
   }
 
   function setMessageSendingFor(agentId, sending) {
@@ -702,6 +765,10 @@ export function createChatComposerController({
     }
     const agentId = state.agent.id;
     if (isMessageSendingFor(agentId)) return;
+    if (isAttachmentProcessing()) {
+      showToast?.(t("workspace.chat.videoSendBlocked"), "warn", { force: true });
+      return;
+    }
     const draftKey = currentChatDraftKey();
     const input = $("messageText");
     const text = input.value.trim();
@@ -831,73 +898,180 @@ export function createChatComposerController({
     return `att-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
   }
 
-  function addPendingAttachmentFiles(files) {
+  function videoAttachmentCandidate(file) {
+    const type = String(file?.type || "").toLowerCase();
+    const name = String(file?.name || "").toLowerCase();
+    return type.startsWith("video/") || /\.(mp4|webm)$/.test(name);
+  }
+
+  function videoAttachmentFailureLabel(error) {
+    const key = {
+      "unsupported-type": "workspace.chat.videoUnsupported",
+      "source-too-large": "workspace.chat.videoSourceTooLarge",
+      "duration-too-long": "workspace.chat.videoDurationTooLong",
+      "derived-budget-exceeded": "workspace.chat.videoDerivedTooLarge",
+      "message-budget-exceeded": "workspace.chat.videoMessageTooLarge",
+    }[error?.code] || "workspace.chat.videoProcessingFailed";
+    return t(key);
+  }
+
+  function pendingAttachmentForFile(file, groupId = "") {
+    const kind = attachmentKind(file);
+    return {
+      id: attachmentId(),
+      file,
+      kind,
+      groupId,
+      previewUrl: kind === "image" ? URL.createObjectURL(file) : "",
+    };
+  }
+
+  function releasePendingAttachmentPreviews(attachments) {
+    (Array.isArray(attachments) ? attachments : []).forEach((item) => {
+      if (item?.previewUrl) URL.revokeObjectURL(item.previewUrl);
+    });
+  }
+
+  function attachmentCancellationError() {
+    return Object.assign(new Error("Attachment processing became stale."), { code: "cancelled" });
+  }
+
+  async function addPendingAttachmentFiles(files) {
     const pickedFiles = Array.from(files || []).filter(Boolean);
-    if (!pickedFiles.length) return;
+    if (!pickedFiles.length) return { added: [], skipped: [] };
+    if (isAttachmentProcessing()) {
+      showToast?.(t("workspace.chat.videoProcessing"), "warn", { force: true });
+      return { added: [], skipped: pickedFiles };
+    }
     const maxFileBytes = 10 * 1024 * 1024;
     const maxTotalBytes = 25 * 1024 * 1024;
-    const currentTotal = state.pendingAttachments.reduce((sum, item) => sum + (item.file?.size || 0), 0);
+    const currentAttachments = Array.isArray(state.pendingAttachments) ? state.pendingAttachments : [];
+    const currentTotal = currentAttachments.reduce((sum, item) => sum + (item.file?.size || 0), 0);
     let nextTotal = currentTotal;
     const skipped = [];
     const added = [];
-    for (const file of pickedFiles) {
-      const name = file.name || t("workspace.chat.unnamedFile");
-      if (file.size > maxFileBytes) {
-        skipped.push(`${name}（${formatBytes(file.size)}）`);
-        continue;
+    const videoNotices = [];
+    const hasVideo = pickedFiles.some(videoAttachmentCandidate);
+    const job = hasVideo ? beginAttachmentProcessing() : null;
+    try {
+      for (const file of pickedFiles) {
+        if (job && !attachmentJobIsCurrent(job)) throw attachmentCancellationError();
+        const name = file.name || t("workspace.chat.unnamedFile");
+        if (videoAttachmentCandidate(file)) {
+          if (!isSupportedVideoFile(file)) {
+            skipped.push(`${name} (${t("workspace.chat.videoUnsupported")})`);
+            continue;
+          }
+          try {
+            const result = await prepareVideoAttachment(file, {
+              currentMessageBytes: nextTotal,
+              signal: job?.controller?.signal,
+            });
+            if (!attachmentJobIsCurrent(job)) throw attachmentCancellationError();
+            const prepared = [];
+            const groupId = `video-${job.generation}-${added.length}`;
+            try {
+              for (const outputFile of result.files || []) {
+                if (!attachmentJobIsCurrent(job)) throw attachmentCancellationError();
+                prepared.push(pendingAttachmentForFile(outputFile, groupId));
+                if (!attachmentJobIsCurrent(job)) throw attachmentCancellationError();
+              }
+            } catch (error) {
+              releasePendingAttachmentPreviews(prepared);
+              throw error;
+            }
+            if (!prepared.length) throw new Error("Video processing produced no readable attachments.");
+            added.push(...prepared);
+            nextTotal += Number(result.totalBytes || prepared.reduce((sum, item) => sum + (item.file?.size || 0), 0));
+            videoNotices.push({
+              key: result.originalIncluded ? "workspace.chat.videoOriginalIncluded" : "workspace.chat.videoFramesOnly",
+              tone: result.originalIncluded ? "success" : "warn",
+              name,
+              count: Number(result.frameFiles?.length || 0),
+            });
+          } catch (error) {
+            if (error?.code === "cancelled" || !attachmentJobIsCurrent(job)) throw attachmentCancellationError();
+            skipped.push(`${name} (${videoAttachmentFailureLabel(error)})`);
+          }
+          continue;
+        }
+        if (file.size > maxFileBytes) {
+          skipped.push(`${name}（${formatBytes(file.size)}）`);
+          continue;
+        }
+        if (nextTotal + file.size > maxTotalBytes) {
+          skipped.push(`${name} (${formatBytes(maxTotalBytes)})`);
+          continue;
+        }
+        try {
+          added.push(pendingAttachmentForFile(file));
+          nextTotal += file.size;
+        } catch {
+          skipped.push(name);
+        }
       }
-      if (nextTotal + file.size > maxTotalBytes) {
-        skipped.push(`${name} (${t("workspace.chat.attachmentsSkipped", { count: 0, files: "", suffix: "" }).replace(/^.*：/, "").replace(/。$/, "")}${formatBytes(maxTotalBytes)})`);
-        continue;
+      if (job && !attachmentJobIsCurrent(job)) throw attachmentCancellationError();
+      if (added.length) {
+        state.pendingAttachments = [...(Array.isArray(state.pendingAttachments) ? state.pendingAttachments : []), ...added];
+        renderPendingAttachments();
+        videoNotices.forEach((notice) => showToast?.(t(notice.key, {
+          name: notice.name,
+          count: notice.count,
+        }), notice.tone, { force: true }));
+        showToast?.(t("workspace.chat.attachmentsAdded", { count: added.length }), "success", { force: true });
       }
-      nextTotal += file.size;
-      const kind = attachmentKind(file);
-      added.push({
-        id: attachmentId(),
-        file,
-        kind,
-        previewUrl: kind === "image" ? URL.createObjectURL(file) : "",
-      });
-    }
-    if (added.length) {
-      state.pendingAttachments = [...state.pendingAttachments, ...added];
-      renderPendingAttachments();
-      showToast(t("workspace.chat.attachmentsAdded", { count: added.length }), "success", { force: true });
-    }
-    if (skipped.length) {
-      const preview = skipped.slice(0, 3).join("、");
-      showToast(t("workspace.chat.attachmentsSkipped", { count: skipped.length, files: preview, suffix: skipped.length > 3 ? t("workspace.chat.more") : "" }), "warn", { force: true });
+      if (skipped.length) {
+        const preview = skipped.slice(0, 3).join("、");
+        showToast?.(t("workspace.chat.attachmentsSkipped", { count: skipped.length, files: preview, suffix: skipped.length > 3 ? t("workspace.chat.more") : "" }), "warn", { force: true });
+      }
+      return { added, skipped };
+    } catch (error) {
+      if (error?.code === "cancelled" || (job && !attachmentJobIsCurrent(job))) {
+        releasePendingAttachmentPreviews(added);
+        return { added: [], skipped: [], cancelled: true };
+      }
+      releasePendingAttachmentPreviews(added);
+      throw error;
+    } finally {
+      if (job) finishAttachmentProcessing(job);
     }
   }
 
   async function importAttachmentFiles(event) {
     const picker = event?.target;
-    addPendingAttachmentFiles(picker?.files || []);
-    if (picker) picker.value = "";
+    try {
+      await addPendingAttachmentFiles(picker?.files || []);
+    } finally {
+      if (picker) picker.value = "";
+    }
   }
 
   function handleMessagePaste(event) {
     const files = clipboardFiles(event);
     if (!files.length) return false;
-    addPendingAttachmentFiles(files);
+    void addPendingAttachmentFiles(files);
     // Keep the browser's normal text paste and undo stack intact when the
     // clipboard contains both text and files.
     return true;
   }
 
   function removePendingAttachment(id) {
-    const removed = state.pendingAttachments.find((item) => item.id === id);
+    invalidateAttachmentProcessing({ sync: false });
+    const attachments = Array.isArray(state.pendingAttachments) ? state.pendingAttachments : [];
+    const removed = attachments.find((item) => item.id === id);
     if (removed?.previewUrl) URL.revokeObjectURL(removed.previewUrl);
-    state.pendingAttachments = state.pendingAttachments.filter((item) => item.id !== id);
+    state.pendingAttachments = attachments.filter((item) => item.id !== id);
     renderPendingAttachments();
+    syncMessageComposerBusy({ checkAttachmentContext: false });
   }
 
   function clearPendingAttachments() {
-    state.pendingAttachments.forEach((item) => {
-      if (item.previewUrl) URL.revokeObjectURL(item.previewUrl);
-    });
+    invalidateAttachmentProcessing({ sync: false });
+    const attachments = Array.isArray(state.pendingAttachments) ? state.pendingAttachments : [];
+    releasePendingAttachmentPreviews(attachments);
     state.pendingAttachments = [];
     renderPendingAttachments();
+    syncMessageComposerBusy({ checkAttachmentContext: false });
   }
 
   function renderPendingAttachments() {
@@ -957,7 +1131,7 @@ export function createChatComposerController({
     if (!eventHasFiles(event)) return;
     event.preventDefault();
     setComposerDragging(false);
-    addPendingAttachmentFiles(event.dataTransfer?.files || []);
+    void addPendingAttachmentFiles(event.dataTransfer?.files || []);
   }
 
   function setMessageInputValue(value, { saveDraft = true } = {}) {
@@ -1253,7 +1427,9 @@ export function createChatComposerController({
   }
 
   return {
+    addPendingAttachmentFiles,
     autoResizeMessageInput,
+    clearPendingAttachments,
     handleAttachmentDragLeave,
     handleAttachmentDragOver,
     handleAttachmentDrop,
@@ -1269,6 +1445,7 @@ export function createChatComposerController({
     refreshFastModeControl,
     refreshMessageModeControl,
     refreshReasoningEffortControl,
+    removePendingAttachment,
     restoreCurrentChatDraft,
     saveCurrentChatDraft,
     saveFastMode,

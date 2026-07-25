@@ -183,6 +183,7 @@ export function createAgentWorkspaceHelpers({
     const type = String(file?.type || "").toLowerCase();
     const name = String(file?.name || "").toLowerCase();
     if (type.startsWith("image/")) return "image";
+    if (type === "video/mp4" || type === "video/webm") return "video";
     if (type === "application/pdf" || name.endsWith(".pdf")) return "pdf";
     if (name.endsWith(".docx") || type.includes("wordprocessingml.document")) return "docx";
     if (type.startsWith("text/") || /\.(txt|md|markdown|json|jsonl|csv|tsv|log|xml|ya?ml|toml|ini|env|go|js|jsx|ts|tsx|css|html?|py|rb|rs|java|c|h|cpp|hpp|cs|php|sh|zsh|bash|sql|swift|kt|kts|dart|vue|svelte)$/i.test(name)) return "text";
@@ -191,6 +192,7 @@ export function createAgentWorkspaceHelpers({
 
   function attachmentIcon(kind) {
     if (kind === "image") return "🖼";
+    if (kind === "video") return "VIDEO";
     if (kind === "pdf") return "PDF";
     if (kind === "docx") return "DOC";
     if (kind === "text") return "TXT";
