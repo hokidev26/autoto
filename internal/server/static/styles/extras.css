@@ -1463,10 +1463,14 @@ body.white-shell.theme-light .composer-wrap {
 
   body.white-shell.theme-light :is(.composer-task-summary, .permission-safety-indicator, .permission-risk-badge, .toolbar-lightning-btn),
   body.white-shell.theme-light .composer-status:not(.is-busy),
-  body.white-shell.theme-light:not(.project-operation-context) .composer-actions,
+  body.white-shell.theme-light:not(.project-operation-context) .composer-actions {
+    display: none !important;
+  }
+
   /* The permission control stays on mobile as a bare shield icon. Its menu also
      carries the message-mode options, so one control covers both and the
-     separate plan/execute toggle is gone. */
+     separate plan/execute toggle is gone. Kept as its own rule: appending the
+     selector to the hide list above would flip that whole list to display:flex. */
   body.white-shell.theme-light .composer-permission-field {
     display: flex !important;
     flex: 0 0 auto;
