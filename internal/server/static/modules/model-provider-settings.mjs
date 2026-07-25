@@ -14,6 +14,7 @@ export {
   anthropicAccountCreateRequest,
   anthropicAccountsListRequest,
   anthropicProfileLoginCommand,
+  automaticProviderNameUpdate,
   codexAccountActionRequest,
   codexAccountBatchRequest,
   codexAccountExportFilename,
@@ -30,8 +31,12 @@ export {
   normalizeCodexImportBatchResult,
   normalizeCodexSelectedIds,
   normalizeAnthropicAccountList,
+  normalizeSubscriptionAccountList,
+  normalizeSubscriptionLoginStatus,
+  normalizeSubscriptionProvider,
   providerConnectionFingerprint,
   providerConsoleDraftFromForm,
+  providerNameFromBaseURL,
   providerConsoleFocusableElements,
   providerModelDiscovery,
   providerPreflightResult,
@@ -40,9 +45,13 @@ export {
   restoreProviderConsoleFocus,
   selectProviderConsoleFieldOnFocus,
   shouldOpenProviderCardFromKeyboard,
+  subscriptionAccountActionRequest,
+  subscriptionAccountsListRequest,
+  subscriptionOAuthLoginRequest,
   syncProviderConsoleDraft,
   trapProviderConsoleFocus,
   trustedCodexBrowserAuthURL,
+  trustedSubscriptionAuthURL,
   validateCodexImportJSON,
   validateProviderNameValue,
 } from "./provider-settings-normalization.mjs";
@@ -68,6 +77,19 @@ export {
   codexAccountUsageWindows,
   renderAnthropicAccountManagementTable,
   renderCodexAccountManagementTable,
+  renderSubscriptionAccountManagementTable,
+  subscriptionAccountOverview,
+  subscriptionAccountStatus,
 } from "./provider-account-rendering.mjs";
 
-export { createModelProviderSettingsController } from "./provider-console.mjs?v=native-image-generation-1";
+export {
+  isSubscriptionAccountProvider,
+  subscriptionProviderKind,
+  subscriptionProviderKinds,
+  subscriptionProviderSpec,
+  subscriptionProviderSpecs,
+} from "./model-provider-components.mjs";
+
+export { createSubscriptionAccountsController } from "./provider-subscription-accounts.mjs";
+
+export { createModelProviderSettingsController } from "./provider-console.mjs?v=native-image-generation-1-provider-auto-name-1";

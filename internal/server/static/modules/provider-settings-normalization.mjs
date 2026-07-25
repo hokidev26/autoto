@@ -23,6 +23,35 @@ export function validateProviderNameValue(value, { existingNames = [], mode = "c
   return { valid: true, code: "", name };
 }
 
+const commonCountryCodeSecondLevelDomains = new Set(["ac", "co", "com", "edu", "gov", "net", "org"]);
+
+export function providerNameFromBaseURL(value) {
+  let target;
+  try {
+    target = new URL(String(value || "").trim());
+  } catch {
+    return "";
+  }
+  if (!["http:", "https:"].includes(target.protocol)) return "";
+  const hostname = target.hostname.toLowerCase().replace(/\.$/, "");
+  if (!hostname || hostname === "localhost" || hostname.includes(":") || /^\d+(?:\.\d+){3}$/.test(hostname)) return "";
+  const labels = hostname.split(".").filter(Boolean);
+  if (labels.length < 2) return "";
+  const countryCodeSuffix = labels.at(-1).length === 2 && commonCountryCodeSecondLevelDomains.has(labels.at(-2));
+  const candidate = labels.at(countryCodeSuffix ? -3 : -2) || "";
+  return /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(candidate) ? candidate : "";
+}
+
+export function automaticProviderNameUpdate(baseURL, currentName = "", previousSuggestion = "", mode = "create") {
+  const name = String(currentName || "").trim();
+  const previous = String(previousSuggestion || "").trim();
+  if (mode !== "create") return { name, suggestion: "", changed: false };
+  const suggestion = providerNameFromBaseURL(baseURL);
+  if (!suggestion) return { name, suggestion: previous, changed: false };
+  if (name && name !== previous) return { name, suggestion: "", changed: false };
+  return { name: suggestion, suggestion, changed: name !== suggestion };
+}
+
 export function codexBrowserLoginRequest(action, loginId = "") {
   const id = encodeURIComponent(String(loginId || "").trim());
   if (action === "start") return { path: `${codexBrowserLoginBasePath}/start`, options: { method: "POST" } };
@@ -285,6 +314,93 @@ export function codexAccountBatchRequest(operation, ids, values = {}) {
     path: "/api/providers/oauth/codex/accounts/batch",
     options: { method: "POST", body: JSON.stringify(body) },
   };
+}
+
+const subscriptionProviderSet = new Set(["gemini", "grok", "kimi"]);
+
+// normalizeSubscriptionProvider rejects anything but the three native subscription
+// providers, so gemini-interactions or custom providers can never reach the
+// account routes.
+export function normalizeSubscriptionProvider(value) {
+  const provider = String(value || "").trim().toLowerCase();
+  return subscriptionProviderSet.has(provider) ? provider : "";
+}
+
+export function subscriptionAccountsListRequest(provider) {
+  const p = normalizeSubscriptionProvider(provider);
+  if (!p) throw new Error(`unsupported subscription provider: ${provider}`);
+  return { path: `/api/providers/auth/${p}/accounts`, options: {} };
+}
+
+export function subscriptionAccountActionRequest(action, provider, id, values = {}) {
+  const p = normalizeSubscriptionProvider(provider);
+  if (!p) throw new Error(`unsupported subscription provider: ${provider}`);
+  const accountId = encodeURIComponent(String(id || "").trim());
+  const path = `/api/providers/auth/${p}/accounts/${accountId}`;
+  switch (action) {
+    case "save": return { path, options: { method: "PATCH", body: JSON.stringify({ alias: String(values.alias || ""), priority: Number(values.priority) }) } };
+    case "toggle": return { path, options: { method: "PATCH", body: JSON.stringify({ disabled: !values.disabled }) } };
+    case "sync": return { path: `${path}/sync`, options: { method: "POST" } };
+    case "delete": return { path, options: { method: "DELETE" } };
+    default: throw new Error(`unsupported subscription account action: ${action}`);
+  }
+}
+
+export function subscriptionOAuthLoginRequest(action, provider, loginId = "") {
+  const p = normalizeSubscriptionProvider(provider);
+  if (!p) throw new Error(`unsupported subscription provider: ${provider}`);
+  const base = `/api/providers/oauth/${p}/login`;
+  if (action === "start") return { path: `${base}/start`, options: { method: "POST" } };
+  const id = encodeURIComponent(String(loginId || "").trim());
+  if (!id) throw new Error("subscription login ID is required");
+  if (action === "status") return { path: `${base}/${id}`, options: {} };
+  if (action === "cancel") return { path: `${base}/${id}`, options: { method: "DELETE" } };
+  throw new Error(`unsupported subscription login action: ${action}`);
+}
+
+export function normalizeSubscriptionAccountList(value) {
+  if (Array.isArray(value)) return value;
+  if (!value || typeof value !== "object") return [];
+  for (const key of ["accounts", "data", "items"]) {
+    if (Array.isArray(value[key])) return value[key];
+  }
+  return [];
+}
+
+export function normalizeSubscriptionLoginStatus(value = {}) {
+  const source = value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  const account = source.account && typeof source.account === "object" && !Array.isArray(source.account) ? source.account : null;
+  const rawStatus = String(source.status || "idle").trim().toLowerCase();
+  return {
+    loginId: String(source.loginId || source.login_id || "").trim(),
+    provider: normalizeSubscriptionProvider(source.provider),
+    status: rawStatus === "canceled" ? "cancelled" : rawStatus,
+    authUrl: String(source.authUrl || source.auth_url || "").trim(),
+    userCode: String(source.userCode || source.user_code || "").trim(),
+    verificationUri: String(source.verificationUri || source.verification_uri || "").trim(),
+    expiresAt: String(source.expiresAt || source.expires_at || "").trim(),
+    message: String(source.message || source.error || "").trim(),
+    account,
+  };
+}
+
+// trustedSubscriptionAuthURL enforces a per-provider official-domain allowlist so
+// a compromised or spoofed response can never open an arbitrary URL.
+export function trustedSubscriptionAuthURL(provider, value) {
+  const p = normalizeSubscriptionProvider(provider);
+  if (!p) return false;
+  let target;
+  try {
+    target = new URL(String(value || ""));
+  } catch {
+    return false;
+  }
+  if (target.protocol !== "https:" || target.username || target.password) return false;
+  const host = target.hostname.toLowerCase().replace(/\.$/, "");
+  if (p === "gemini") return host === "accounts.google.com";
+  if (p === "grok") return host === "x.ai" || host.endsWith(".x.ai");
+  if (p === "kimi") return host === "kimi.com" || host.endsWith(".kimi.com");
+  return false;
 }
 
 export function codexImportBatchRequest(files) {

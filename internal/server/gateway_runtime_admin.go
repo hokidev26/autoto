@@ -17,6 +17,7 @@ import (
 	"autoto/internal/codexauth"
 	"autoto/internal/config"
 	gatewaypkg "autoto/internal/gateway"
+	"autoto/internal/subscriptionauth"
 )
 
 // GatewayRuntimeController is the minimal live-runtime surface used by the
@@ -288,7 +289,8 @@ func (s *Server) patchGatewayAccount(w http.ResponseWriter, r *http.Request) {
 	}
 	provider := strings.ToLower(strings.TrimSpace(chi.URLParam(r, "provider")))
 	accountID := strings.TrimSpace(chi.URLParam(r, "accountId"))
-	if provider != codexauth.DefaultProviderName && provider != anthropicauth.DefaultProviderName {
+	_, subscriptionProvider := subscriptionOAuthProvider(provider)
+	if provider != codexauth.DefaultProviderName && provider != anthropicauth.DefaultProviderName && !subscriptionProvider {
 		writeError(w, http.StatusBadRequest, "unsupported gateway account provider")
 		return
 	}
@@ -324,13 +326,19 @@ func (s *Server) patchGatewayAccount(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) gatewayAccountSummaries(ctx context.Context) ([]gatewayAccountSummary, error) {
 	cfg := s.configSnapshot()
-	sharedCodex, err := s.gatewaySharedAccountSet(ctx, codexauth.DefaultProviderName)
-	if err != nil {
-		return nil, err
-	}
-	sharedAnthropic, err := s.gatewaySharedAccountSet(ctx, anthropicauth.DefaultProviderName)
-	if err != nil {
-		return nil, err
+	sharedByProvider := make(map[string]map[string]bool, 5)
+	for _, provider := range []string{
+		codexauth.DefaultProviderName,
+		anthropicauth.DefaultProviderName,
+		subscriptionauth.ProviderGemini,
+		subscriptionauth.ProviderGrok,
+		subscriptionauth.ProviderKimi,
+	} {
+		shared, err := s.gatewaySharedAccountSet(ctx, provider)
+		if err != nil {
+			return nil, err
+		}
+		sharedByProvider[provider] = shared
 	}
 	accounts := make([]gatewayAccountSummary, 0)
 
@@ -350,7 +358,7 @@ func (s *Server) gatewayAccountSummaries(ctx context.Context) ([]gatewayAccountS
 		accounts = append(accounts, s.finalizeGatewayAccountSummary(cfg, gatewayAccountSummary{
 			Provider: codexauth.DefaultProviderName, AccountID: item.ID, Label: label,
 			AuthType: "oauth", Source: "managed", Priority: item.Priority, Disabled: item.Disabled, Eligible: true,
-			Shared: sharedCodex[item.ID],
+			Shared: sharedByProvider[codexauth.DefaultProviderName][item.ID],
 		}))
 	}
 
@@ -369,7 +377,7 @@ func (s *Server) gatewayAccountSummaries(ctx context.Context) ([]gatewayAccountS
 		accounts = append(accounts, s.finalizeGatewayAccountSummary(cfg, gatewayAccountSummary{
 			Provider: anthropicauth.DefaultProviderName, AccountID: summary.ID, Label: label,
 			AuthType: summary.AuthType, Source: "managed", Priority: summary.Priority, Disabled: summary.Disabled,
-			Eligible: eligible, Shared: sharedAnthropic[summary.ID],
+			Eligible: eligible, Shared: sharedByProvider[anthropicauth.DefaultProviderName][summary.ID],
 		}))
 	}
 	if provider, ok := gatewayProviderConfig(cfg, anthropicauth.DefaultProviderName); ok && strings.TrimSpace(provider.APIKey) != "" && !anthropicStoreContainsAPIKey(anthropicItems, provider.APIKey) {
@@ -377,8 +385,31 @@ func (s *Server) gatewayAccountSummaries(ctx context.Context) ([]gatewayAccountS
 			Provider: anthropicauth.DefaultProviderName, AccountID: anthropicConfiguredAccountID,
 			Label: "Configured API key", AuthType: anthropicauth.AuthTypeAPIKey, Source: "configured",
 			Priority: 1_000_000, Disabled: provider.Disabled, Eligible: true,
-			Shared: sharedAnthropic[anthropicConfiguredAccountID],
+			Shared: sharedByProvider[anthropicauth.DefaultProviderName][anthropicConfiguredAccountID],
 		}))
+	}
+
+	for _, provider := range []string{
+		subscriptionauth.ProviderGemini,
+		subscriptionauth.ProviderGrok,
+		subscriptionauth.ProviderKimi,
+	} {
+		dir := subscriptionauth.DefaultStoreDir(cfg.Paths.HomeDir, provider)
+		if dir == "" {
+			continue
+		}
+		store := subscriptionauth.NewStore(dir)
+		items, err := store.ListAccounts()
+		if err != nil {
+			return nil, err
+		}
+		for _, item := range items {
+			accounts = append(accounts, s.finalizeGatewayAccountSummary(cfg, gatewayAccountSummary{
+				Provider: provider, AccountID: item.ID, Label: gatewaySubscriptionAccountLabel(provider, item),
+				AuthType: "oauth", Source: "managed", Priority: item.Priority, Disabled: item.Disabled,
+				Eligible: true, Shared: sharedByProvider[provider][item.ID],
+			}))
+		}
 	}
 	return accounts, nil
 }
@@ -431,11 +462,21 @@ func (s *Server) finalizeGatewayAccountSummary(cfg config.Config, account gatewa
 }
 
 func gatewayProviderConfig(cfg config.Config, name string) (config.ProviderConfig, bool) {
+	name = strings.TrimSpace(name)
+	isNativeSubscription := name == subscriptionauth.ProviderGemini || name == subscriptionauth.ProviderGrok || name == subscriptionauth.ProviderKimi
+	var nameMatch *config.ProviderConfig
 	for _, provider := range cfg.Providers.Instances {
 		provider = config.NormalizeProviderConfig(provider)
-		if strings.EqualFold(strings.TrimSpace(provider.Name), strings.TrimSpace(name)) {
+		if isNativeSubscription && strings.EqualFold(strings.TrimSpace(provider.Type), name) {
 			return provider, true
 		}
+		if nameMatch == nil && strings.EqualFold(strings.TrimSpace(provider.Name), name) {
+			matched := provider
+			nameMatch = &matched
+		}
+	}
+	if nameMatch != nil {
+		return *nameMatch, true
 	}
 	return config.ProviderConfig{}, false
 }
@@ -450,5 +491,24 @@ func gatewayAnthropicAccountLabel(authType string) string {
 		return "Anthropic profile"
 	default:
 		return "Anthropic account"
+	}
+}
+
+func gatewaySubscriptionAccountLabel(provider string, account subscriptionauth.AccountSummary) string {
+	if label := strings.TrimSpace(account.Alias); label != "" {
+		return label
+	}
+	if label := strings.TrimSpace(account.Email); label != "" {
+		return label
+	}
+	switch provider {
+	case subscriptionauth.ProviderGemini:
+		return "Gemini account"
+	case subscriptionauth.ProviderGrok:
+		return "Grok account"
+	case subscriptionauth.ProviderKimi:
+		return "Kimi account"
+	default:
+		return "Subscription account"
 	}
 }

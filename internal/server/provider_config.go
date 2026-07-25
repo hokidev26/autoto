@@ -20,6 +20,7 @@ import (
 	"autoto/internal/config"
 	"autoto/internal/providers"
 	"autoto/internal/secrets"
+	"autoto/internal/subscriptionauth"
 )
 
 type providerRequestHeaderInput struct {
@@ -1087,16 +1088,31 @@ func providerConfigFromUpdateRequest(providerName string, existing config.Provid
 		providerType = "openai-compatible"
 	}
 	switch providerType {
-	case "openai-compatible", "anthropic", "openai", "gemini-interactions", config.ProviderTypeCodex:
+	case "openai-compatible", "anthropic", "openai", config.ProviderTypeGeminiInteractions, config.ProviderTypeGemini, config.ProviderTypeGrok, config.ProviderTypeKimi, config.ProviderTypeCodex:
 	default:
-		return config.ProviderConfig{}, errors.New("API 协议当前仅支持 codex、openai-compatible、anthropic、openai 或 gemini-interactions")
+		return config.ProviderConfig{}, errors.New("API 协议当前仅支持 codex、openai-compatible、anthropic、openai、gemini-interactions、gemini、grok 或 kimi")
 	}
 	baseURL := strings.TrimSpace(req.BaseURL)
 	if providerType == "openai-compatible" && baseURL == "" {
 		return config.ProviderConfig{}, errors.New("中转站 Base URL 不能为空")
 	}
-	if providerType == "gemini-interactions" && baseURL == "" {
-		baseURL = "https://generativelanguage.googleapis.com/v1beta/interactions"
+	switch providerType {
+	case config.ProviderTypeGeminiInteractions:
+		if baseURL == "" {
+			baseURL = "https://generativelanguage.googleapis.com/v1beta/interactions"
+		}
+	case config.ProviderTypeGemini:
+		if baseURL == "" {
+			baseURL = "https://cloudcode-pa.googleapis.com"
+		}
+	case config.ProviderTypeGrok:
+		if baseURL == "" {
+			baseURL = "https://cli-chat-proxy.grok.com/v1"
+		}
+	case config.ProviderTypeKimi:
+		if baseURL == "" {
+			baseURL = "https://api.kimi.com/coding"
+		}
 	}
 	model := strings.TrimSpace(req.Model)
 	if model == "" && existing.Name != "" {
@@ -1108,8 +1124,14 @@ func providerConfigFromUpdateRequest(providerName string, existing config.Provid
 			model = codexauth.DefaultModel
 		case "anthropic":
 			model = "claude-sonnet-4-5"
-		case "gemini-interactions":
+		case config.ProviderTypeGeminiInteractions:
 			model = "gemini-2.5-pro"
+		case config.ProviderTypeGemini:
+			model = "gemini-3-flash"
+		case config.ProviderTypeGrok:
+			model = "grok-4.5"
+		case config.ProviderTypeKimi:
+			model = "kimi-k2.7-code"
 		default:
 			model = "gpt-4.1-mini"
 		}
@@ -1130,6 +1152,12 @@ func providerConfigFromUpdateRequest(providerName string, existing config.Provid
 	if apiKey == "" && existing.Name != "" {
 		apiKey = existing.APIKey
 	}
+	if providerType == config.ProviderTypeGemini || providerType == config.ProviderTypeGrok || providerType == config.ProviderTypeKimi {
+		if strings.TrimSpace(req.APIKey) != "" {
+			return config.ProviderConfig{}, errors.New("原生 OAuth Provider 不接受 API Key")
+		}
+		apiKey = ""
+	}
 	profile := strings.TrimSpace(req.Profile)
 	if profile == "" && existing.Name != "" {
 		profile = existing.Profile
@@ -1140,6 +1168,9 @@ func providerConfigFromUpdateRequest(providerName string, existing config.Provid
 	apiKeyOptional := req.APIKeyOptional
 	if profile == config.ProviderProfileCLIProxyAPI {
 		apiKeyOptional = true
+	}
+	if providerType == config.ProviderTypeGemini || providerType == config.ProviderTypeGrok || providerType == config.ProviderTypeKimi {
+		apiKeyOptional = false
 	}
 	gatewayEnabled := existing.GatewayEnabled
 	if req.GatewayEnabled != nil {
@@ -1170,6 +1201,7 @@ func providerConfigFromUpdateRequest(providerName string, existing config.Provid
 		Models:                  models,
 		MaxTokens:               maxTokens,
 		APIKeyOptional:          apiKeyOptional,
+		ImageInput:              existing.ImageInput,
 		GatewayEnabled:          gatewayEnabled,
 		ProxyURL:                proxyURL,
 		ProxyUsername:           proxyUsername,
@@ -1377,6 +1409,10 @@ func (s *Server) newRuntimeProvider(provider config.ProviderConfig) (providers.P
 	if provider.Name == anthropicauth.DefaultProviderName && provider.Type == "anthropic" {
 		provider.CredentialStorePath = anthropicauth.DefaultStoreDir(s.configSnapshot().Paths.HomeDir)
 	}
+	switch provider.Type {
+	case config.ProviderTypeGemini, config.ProviderTypeGrok, config.ProviderTypeKimi:
+		provider.CredentialStorePath = subscriptionauth.DefaultStoreDir(s.configSnapshot().Paths.HomeDir, provider.Type)
+	}
 	if s.store != nil {
 		if settings, err := s.store.GetRuntimeSettings(context.Background()); err == nil {
 			provider.InstallationID = settings.InstallationID
@@ -1386,13 +1422,12 @@ func (s *Server) newRuntimeProvider(provider config.ProviderConfig) (providers.P
 	if err != nil {
 		return nil, err
 	}
-	if codexProvider, ok := adapter.(*providers.CodexProvider); ok && s.store != nil {
-		codexProvider.SetAccountTelemetry(s.store)
-		codexProvider.SetGatewayAccountPolicy(s.store)
-	}
-	if anthropicProvider, ok := adapter.(*providers.AnthropicProvider); ok && s.store != nil {
-		anthropicProvider.SetAccountTelemetry(s.store)
-		anthropicProvider.SetGatewayAccountPolicy(s.store)
+	if accountProvider, ok := adapter.(interface {
+		SetAccountTelemetry(providers.AccountTelemetry)
+		SetGatewayAccountPolicy(providers.GatewayAccountPolicy)
+	}); ok && s.store != nil {
+		accountProvider.SetAccountTelemetry(s.store)
+		accountProvider.SetGatewayAccountPolicy(s.store)
 	}
 	return adapter, nil
 }

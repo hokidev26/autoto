@@ -372,6 +372,95 @@ export function finiteNumber(value, fallback = 0) {
   return Number.isFinite(number) ? number : fallback;
 }
 
+export function subscriptionAccountStatus(account = {}, { now = Date.now() } = {}) {
+  const expiresAt = String(account?.expires_at || account?.expiresAt || "").trim();
+  const expiresAtMs = expiresAt ? Date.parse(expiresAt) : Number.NaN;
+  const refreshable = Boolean(String(account?.refresh_token || account?.refreshToken || "")) || account?.refreshable === true;
+  if (Boolean(account?.disabled)) return { key: "statusDisabled", tone: "muted", expiresAt };
+  if (Number.isFinite(expiresAtMs) && expiresAtMs <= now && !refreshable) return { key: "expired", tone: "danger", expiresAt };
+  return { key: "available", tone: "ok", expiresAt };
+}
+
+export function subscriptionAccountOverview(accounts, { now = Date.now() } = {}) {
+  const overview = { total: 0, available: 0, rateLimited: 0, disabled: 0, expired: 0 };
+  for (const account of Array.isArray(accounts) ? accounts : []) {
+    overview.total += 1;
+    const status = subscriptionAccountStatus(account, { now });
+    if (status.key === "statusDisabled") overview.disabled += 1;
+    else if (status.key === "expired") overview.expired += 1;
+    else overview.available += 1;
+  }
+  return overview;
+}
+
+export function subscriptionAccountStableID(account) {
+  return String(account?.id || account?.name || "").trim();
+}
+
+// renderSubscriptionAccountManagementTable renders one provider's account list.
+// data attributes always carry the provider so events can be routed without a
+// shared/stacked account surface.
+export function renderSubscriptionAccountManagementTable(provider, accounts, {
+  translate = (key, params) => t(`modelProvider.subscription.common.${key}`, params),
+  emptyText = "",
+  now = Date.now(),
+  editing = null,
+  busy = {},
+} = {}) {
+  const st = translate;
+  const items = Array.isArray(accounts) ? accounts : [];
+  if (!items.length) return `<div class="mp-console-empty" role="status">${escapeHtml(emptyText || st("empty"))}</div>`;
+  return `<div class="codex-account-table-wrap subscription-account-table-wrap settings-card-content">
+    <table class="codex-account-table subscription-account-table" data-subscription-provider="${escapeAttr(provider)}" aria-label="${escapeAttr(st("accountsTitle"))}">
+      <thead><tr>
+        <th scope="col">${escapeHtml(st("accountName"))}</th><th scope="col">${escapeHtml(st("accountId"))}</th><th scope="col">${escapeHtml(st("priority"))}</th><th scope="col">${escapeHtml(st("status"))}</th>
+        <th scope="col">${escapeHtml(st("lastUpdated"))}</th><th scope="col">${escapeHtml(st("actions"))}</th>
+      </tr></thead>
+      <tbody>${items.map((account) => renderSubscriptionAccountRow(provider, account, st, now, editing, busy)).join("")}</tbody>
+    </table>
+  </div>`;
+}
+
+function renderSubscriptionAccountRow(provider, account, st, now, editing, busy) {
+  const id = subscriptionAccountStableID(account);
+  const alias = String(account?.alias || "");
+  const priority = finiteNumber(account?.priority, 100);
+  const disabled = Boolean(account?.disabled);
+  const isEditing = editing?.id === id;
+  const isBusy = Boolean(busy?.[id]);
+  const email = String(account?.email || "");
+  const project = String(account?.project_id || account?.projectId || "");
+  const fallbackName = email || id || st("unknown");
+  const displayName = alias || fallbackName;
+  const secondaryName = [alias && fallbackName !== alias ? fallbackName : "", project ? st("project") + ": " + project : ""].filter(Boolean).join(" · ");
+  const lastUpdated = String(account?.updated_at || account?.updatedAt || "");
+  const status = subscriptionAccountStatus(account, { now });
+  const disabledAttributes = isBusy ? ` disabled aria-busy="true"` : "";
+  const editAlias = String(isEditing ? editing.alias ?? alias : alias);
+  const editPriority = finiteNumber(isEditing ? editing.priority : priority, priority);
+  const providerAttr = escapeAttr(provider);
+  return `<tr data-subscription-account-row="${escapeAttr(id)}" data-subscription-provider="${providerAttr}" class="${isEditing ? "is-editing" : ""}" aria-busy="${isBusy ? "true" : "false"}">
+    <td data-label="${escapeAttr(st("accountName"))}">${isEditing
+      ? `<label class="codex-inline-edit-field"><span class="mp-visually-hidden">${escapeHtml(st("accountName"))}</span><input class="codex-account-alias settings-text-input settings-form-field" value="${escapeAttr(editAlias)}" placeholder="${escapeAttr(fallbackName)}" maxlength="200" data-subscription-edit-alias="${escapeAttr(id)}" data-subscription-provider="${providerAttr}" data-select-on-focus="true"${disabledAttributes}></label>`
+      : `<strong class="codex-account-name">${escapeHtml(displayName)}</strong>`}${secondaryName ? `<div class="codex-account-secondary">${escapeHtml(secondaryName)}</div>` : ""}</td>
+    <td data-label="${escapeAttr(st("accountId"))}"><code class="codex-account-id">${escapeHtml(id || st("unknown"))}</code></td>
+    <td data-label="${escapeAttr(st("priority"))}">${isEditing
+      ? `<label class="codex-inline-edit-field"><span class="mp-visually-hidden">${escapeHtml(st("priority"))}</span><input class="codex-priority-input settings-text-input settings-form-field" type="number" min="1" max="1000000" step="1" value="${escapeAttr(editPriority)}" data-subscription-edit-priority="${escapeAttr(id)}" data-subscription-provider="${providerAttr}" data-select-on-focus="true"${disabledAttributes}></label>`
+      : `<span class="codex-priority-value">${escapeHtml(String(priority))}</span>`}</td>
+    <td data-label="${escapeAttr(st("status"))}"><span class="settings-status-pill settings-badge ${escapeAttr(status.tone)}">${escapeHtml(st(status.key))}</span></td>
+    <td data-label="${escapeAttr(st("lastUpdated"))}">${escapeHtml(lastUpdated ? formatCodexTimestamp(lastUpdated) : st("never"))}</td>
+    <td data-label="${escapeAttr(st("actions"))}"><div class="codex-account-actions settings-inline-actions" role="group">
+      ${isEditing
+        ? `<button class="codex-icon-action save" type="button" data-subscription-save="${escapeAttr(id)}" data-subscription-provider="${providerAttr}" title="${escapeAttr(st("save"))}"${disabledAttributes}>${codexActionIcon("save")}<span>${escapeHtml(st("save"))}</span></button>
+        <button class="codex-icon-action cancel" type="button" data-subscription-edit-cancel="${escapeAttr(id)}" data-subscription-provider="${providerAttr}" title="${escapeAttr(st("cancel"))}"${disabledAttributes}>${codexActionIcon("cancel")}<span>${escapeHtml(st("cancel"))}</span></button>`
+        : `<button class="codex-icon-action edit" type="button" data-subscription-edit="${escapeAttr(id)}" data-subscription-provider="${providerAttr}" title="${escapeAttr(st("edit"))}"${disabledAttributes}>${codexActionIcon("edit")}<span>${escapeHtml(st("edit"))}</span></button>
+        <button class="codex-icon-action sync" type="button" data-subscription-sync="${escapeAttr(id)}" data-subscription-provider="${providerAttr}" title="${escapeAttr(st("sync"))}"${disabledAttributes}>${codexActionIcon("sync")}<span>${escapeHtml(st("sync"))}</span></button>
+        <button class="codex-icon-action toggle" type="button" data-subscription-toggle="${escapeAttr(id)}" data-subscription-provider="${providerAttr}" data-disabled="${disabled ? "true" : "false"}" title="${escapeAttr(disabled ? st("enable") : st("disable"))}"${disabledAttributes}>${codexActionIcon(disabled ? "enable" : "disable")}<span>${escapeHtml(disabled ? st("enable") : st("disable"))}</span></button>
+        <button class="codex-icon-action delete" type="button" data-subscription-delete="${escapeAttr(id)}" data-subscription-provider="${providerAttr}" title="${escapeAttr(st("delete"))}"${disabledAttributes}>${codexActionIcon("delete")}<span>${escapeHtml(st("delete"))}</span></button>`}
+    </div></td>
+  </tr>`;
+}
+
 function formatPercent(value) {
   return Number.isInteger(value) ? String(value) : value.toFixed(1);
 }

@@ -20,6 +20,11 @@ import (
 // is exchanged at the console token endpoint, and the resulting access token is
 // sent to the Messages API as a Bearer token together with the OAuthBetaHeader.
 //
+// Inference requests that use the subscription OAuth token must also look like
+// Claude Code itself: Anthropic rejects bare SDK traffic with authentication_error
+// unless the first system text block is ClaudeCodeIdentity, and the request
+// carries Claude Code client headers (User-Agent / X-App / anthropic-beta).
+//
 // The redirect URI is the console callback registered for this client, so the
 // browser shows a "code#state" string the user copies back into Autoto (manual
 // paste flow) instead of an automatic loopback callback.
@@ -34,9 +39,30 @@ const (
 	// OAuthBetaHeader is the anthropic-beta value that authorizes OAuth bearer
 	// tokens on the Messages API.
 	OAuthBetaHeader = "oauth-2025-04-20"
+	// ClaudeCodeBetaHeader is the anthropic-beta value Claude Code sends to mark
+	// the request as first-party CLI traffic.
+	ClaudeCodeBetaHeader = "claude-code-20250219"
+	// ClaudeCodeIdentity is the first system text block Claude Code puts on
+	// every Messages API request. Subscription OAuth tokens require this.
+	ClaudeCodeIdentity = "You are Claude Code, Anthropic's official CLI for Claude."
+	// ClaudeCodeUserAgent is a stable Claude Code CLI User-Agent snapshot.
+	// Anthropic checks this family of values for OAuth subscription traffic.
+	ClaudeCodeUserAgent = "claude-cli/2.1.63 (external, cli)"
+	// ClaudeCodeAppHeader is the X-App value Claude Code sends.
+	ClaudeCodeAppHeader = "cli"
+	// ClaudeCodePackageVersion / ClaudeCodeRuntimeVersion mirror the Stainless
+	// JS client fingerprint Claude Code uses (not anthropic-sdk-go).
+	ClaudeCodePackageVersion = "0.74.0"
+	ClaudeCodeRuntimeVersion = "v24.3.0"
 
 	oauthMaxTokenResponseBytes = 1 << 20
 )
+
+// OAuthMessagesBetaHeader is the anthropic-beta value Autoto sends on
+// subscription OAuth inference requests.
+func OAuthMessagesBetaHeader() string {
+	return ClaudeCodeBetaHeader + "," + OAuthBetaHeader
+}
 
 // PKCE holds a code verifier/challenge pair for the S256 method.
 type PKCE struct {

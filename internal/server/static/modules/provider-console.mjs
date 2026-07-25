@@ -20,6 +20,7 @@ import {
   setProviderModelHiddenAll,
 } from "./model-provider-components.mjs?v=provider-card-clean-3-provider-create-page-2-provider-secrets-1-model-picker-1-provider-full-page-2-provider-placeholders-1-model-configs-1-provider-reference-1-default-openai-responses-1-provider-draft-session-1-native-image-generation-1";
 import {
+  automaticProviderNameUpdate,
   markProviderModelsStale,
   normalizeCodexAccountList,
   normalizeCodexSelectedIds,
@@ -37,8 +38,11 @@ import {
   validateProviderNameValue,
 } from "./provider-settings-normalization.mjs";
 import { codexAccountStableID, finiteNumber } from "./provider-account-rendering.mjs";
+import { subscriptionProviderKind, subscriptionProviderSpec } from "./model-provider-components.mjs?v=provider-subscription-accounts-1";
+import { normalizeSubscriptionProvider } from "./provider-settings-normalization.mjs";
 import { createCodexAuthController } from "./provider-codex-auth.mjs";
 import { createAnthropicAccountsController } from "./provider-anthropic-accounts.mjs";
+import { createSubscriptionAccountsController } from "./provider-subscription-accounts.mjs";
 import { createModelRoutingController } from "./model-routing-settings.mjs";
 
 export function createModelProviderSettingsController({
@@ -152,6 +156,25 @@ export function createModelProviderSettingsController({
     cancelAnthropicLogin,
     renderAnthropicConsolePage,
   } = anthropicAccounts;
+
+  const subscriptionAccounts = createSubscriptionAccountsController(ctx);
+  const {
+    loadSubscriptionAccounts,
+    refreshSubscriptionAccounts,
+    subscriptionAccountById,
+    subscriptionPage,
+    saveSubscriptionAccount,
+    syncSubscriptionAccount,
+    toggleSubscriptionAccount,
+    deleteSubscriptionAccount,
+    startSubscriptionLogin,
+    cancelSubscriptionLogin,
+    reopenSubscriptionLogin,
+    copySubscriptionDeviceCode,
+    renderGeminiConsolePage,
+    renderGrokConsolePage,
+    renderKimiConsolePage,
+  } = subscriptionAccounts;
 
   const modelRouting = createModelRoutingController(ctx);
   const { renderModelSettingsContent, bindModelSettingsActions } = modelRouting;
@@ -325,6 +348,9 @@ export function createModelProviderSettingsController({
     const consoleState = providerConsoleState();
     if (consoleState.view === "codex") return renderCodexConsolePage();
     if (consoleState.view === "anthropic") return renderAnthropicConsolePage();
+    if (consoleState.view === "gemini") return renderGeminiConsolePage();
+    if (consoleState.view === "grok") return renderGrokConsolePage();
+    if (consoleState.view === "kimi") return renderKimiConsolePage();
     return renderProviderConsolePage({
       providers: modelProvidersForUI(),
       consoleState: {
@@ -605,6 +631,12 @@ export function createModelProviderSettingsController({
     (backButton || page)?.focus?.();
   }
 
+  function focusSubscriptionConsolePage(provider) {
+    const page = providerConsoleEventRoot?.querySelector?.(`.subscription-account-console[data-subscription-view="${provider}"]`);
+    const backButton = page?.querySelector?.("[data-mp-close-subscription-page]");
+    (backButton || page)?.focus?.();
+  }
+
   function focusProviderCreatePage() {
     const page = providerConsoleEventRoot?.querySelector?.(".mp-provider-create-page");
     const backButton = page?.querySelector?.("[data-mp-close-drawer]");
@@ -617,11 +649,12 @@ export function createModelProviderSettingsController({
     (prompt || dialog)?.focus?.();
   }
 
-  function refreshProviderConsole({ focusLayer = false, focusCodex = false, focusAnthropic = false, focusCreate = false, focusTest = false, restoreFocus = false } = {}) {
+  function refreshProviderConsole({ focusLayer = false, focusCodex = false, focusAnthropic = false, focusSubscription = "", focusCreate = false, focusTest = false, restoreFocus = false } = {}) {
     refreshActiveSettingsPanel?.();
     if (focusLayer) scheduleProviderConsoleFocus(focusProviderConsoleLayer);
     if (focusCodex) scheduleProviderConsoleFocus(focusCodexConsolePage);
     if (focusAnthropic) scheduleProviderConsoleFocus(focusAnthropicConsolePage);
+    if (focusSubscription) scheduleProviderConsoleFocus(() => focusSubscriptionConsolePage(focusSubscription));
     if (focusCreate) scheduleProviderConsoleFocus(focusProviderCreatePage);
     if (focusTest) scheduleProviderConsoleFocus(focusProviderTestDialog);
     if (restoreFocus) restoreProviderConsoleLayerFocus();
@@ -660,7 +693,8 @@ export function createModelProviderSettingsController({
       refreshProviderConsole({ restoreFocus: true });
       return true;
     }
-    if (consoleState.view === "codex" || consoleState.view === "anthropic") {
+    if (consoleState.view === "codex" || consoleState.view === "anthropic" || normalizeSubscriptionProvider(consoleState.view)) {
+      const subscriptionKind = normalizeSubscriptionProvider(consoleState.view);
       consoleState.view = "providers";
       consoleState.mode = "";
       consoleState.type = "";
@@ -668,11 +702,47 @@ export function createModelProviderSettingsController({
       consoleState.codexEdit = null;
       consoleState.codexSelectedIds = [];
       consoleState.anthropicEdit = null;
+      if (subscriptionKind) {
+        const page = subscriptionPage(subscriptionKind);
+        if (page) page.edit = null;
+      }
       setProviderConsoleResult("");
       refreshProviderConsole({ restoreFocus: true });
       return true;
     }
     return false;
+  }
+
+  function openSubscriptionConsolePage(kind, provider = {}) {
+    const spec = subscriptionProviderSpec(kind);
+    if (!spec) return;
+    const consoleState = providerConsoleState();
+    const normalized = normalizeConsoleProvider(provider || createProviderDraft(spec.type));
+    consoleState.view = spec.view;
+    consoleState.modal = "";
+    consoleState.drawer = "";
+    consoleState.mode = spec.provider;
+    consoleState.type = spec.type;
+    consoleState.providerName = normalized.name || spec.provider;
+    consoleState.draft = null;
+    consoleState.dirty = false;
+    const page = subscriptionPage(spec.provider);
+    if (page) page.edit = null;
+    setProviderConsoleResult("");
+    refreshProviderConsole({ focusSubscription: spec.provider });
+    if (!state.subscriptionAccountsLoading?.[spec.provider]) loadSubscriptionAccounts(spec.provider, { silent: true }).catch(showError);
+  }
+
+  function openGeminiConsolePage(provider = {}) {
+    openSubscriptionConsolePage("gemini", provider);
+  }
+
+  function openGrokConsolePage(provider = {}) {
+    openSubscriptionConsolePage("grok", provider);
+  }
+
+  function openKimiConsolePage(provider = {}) {
+    openSubscriptionConsolePage("kimi", provider);
   }
 
   function openCodexConsolePage(provider = {}) {
@@ -730,6 +800,11 @@ export function createModelProviderSettingsController({
       openAnthropicConsolePage(normalized);
       return;
     }
+    const subscriptionKind = subscriptionProviderKind(normalized);
+    if (subscriptionKind) {
+      openSubscriptionConsolePage(subscriptionKind, normalized);
+      return;
+    }
     const consoleState = providerConsoleState();
     consoleState.view = "providers";
     consoleState.modal = "";
@@ -738,6 +813,7 @@ export function createModelProviderSettingsController({
     consoleState.type = normalized.type;
     consoleState.providerName = normalized.name;
     consoleState.draft = providerDraftWithVisibility(createProviderDraft(normalized.type, normalized), normalized.name);
+    consoleState.autoProviderName = "";
     consoleState.dirty = false;
     setProviderConsoleResult("");
     refreshProviderConsole({ focusCreate: true });
@@ -751,6 +827,11 @@ export function createModelProviderSettingsController({
     }
     if (type === "anthropic") {
       openAnthropicConsolePage(draft);
+      return;
+    }
+    const subscriptionKind = subscriptionProviderKind({ type });
+    if (subscriptionKind) {
+      openSubscriptionConsolePage(subscriptionKind, providerByName(subscriptionKind) || draft);
       return;
     }
     const emptyModelDraft = {
@@ -769,6 +850,7 @@ export function createModelProviderSettingsController({
     consoleState.type = type;
     consoleState.providerName = emptyModelDraft.name;
     consoleState.draft = providerDraftWithVisibility(emptyModelDraft, emptyModelDraft.name);
+    consoleState.autoProviderName = "";
     consoleState.dirty = false;
     setProviderConsoleResult("");
     refreshProviderConsole({ focusCreate: true });
@@ -1150,11 +1232,27 @@ export function createModelProviderSettingsController({
     return provider?.name || provider?.type || ct("labels.provider");
   }
 
+  function updateAutomaticProviderName(consoleState, form, target) {
+    if (consoleState.mode !== "create") return false;
+    if (target?.name === "name") {
+      if (String(target.value || "").trim() !== String(consoleState.autoProviderName || "").trim()) consoleState.autoProviderName = "";
+      return false;
+    }
+    if (target?.name !== "baseUrl") return false;
+    const nameInput = form?.elements?.name;
+    if (!nameInput) return false;
+    const update = automaticProviderNameUpdate(target.value, nameInput.value, consoleState.autoProviderName, consoleState.mode);
+    consoleState.autoProviderName = update.suggestion;
+    if (update.changed) nameInput.value = update.name;
+    return update.changed;
+  }
+
   function updateProviderConsoleDraftFromEvent(event) {
     const target = event.target;
     const form = target?.closest?.("[data-mp-provider-form]");
     if (!form || (!target?.name && !target?.matches?.("[data-mp-model-choice]"))) return false;
     const consoleState = providerConsoleState();
+    const automaticNameChanged = updateAutomaticProviderName(consoleState, form, target);
     if (target?.name === "apiKey") {
       consoleState.draft = { ...(consoleState.draft || {}), apiKey: String(target.value || ""), apiKeyDraft: true };
     }
@@ -1172,6 +1270,7 @@ export function createModelProviderSettingsController({
       if ("value" in example) example.value = value;
       else example.textContent = value;
     }
+    if (automaticNameChanged) updateProviderNameValidation(form);
     return true;
   }
 
@@ -1221,6 +1320,18 @@ export function createModelProviderSettingsController({
     if (rawTarget?.dataset?.anthropicEditPriority) {
       const edit = providerConsoleState().anthropicEdit;
       if (edit?.id === rawTarget.dataset.anthropicEditPriority) edit.priority = rawTarget.value || "";
+      return;
+    }
+    if (rawTarget?.dataset?.subscriptionEditAlias) {
+      const provider = normalizeSubscriptionProvider(rawTarget.dataset.subscriptionProvider);
+      const edit = provider ? subscriptionPage(provider)?.edit : null;
+      if (edit?.id === rawTarget.dataset.subscriptionEditAlias) edit.alias = rawTarget.value || "";
+      return;
+    }
+    if (rawTarget?.dataset?.subscriptionEditPriority) {
+      const provider = normalizeSubscriptionProvider(rawTarget.dataset.subscriptionProvider);
+      const edit = provider ? subscriptionPage(provider)?.edit : null;
+      if (edit?.id === rawTarget.dataset.subscriptionEditPriority) edit.priority = rawTarget.value || "";
       return;
     }
     if (rawTarget?.matches?.("[data-codex-import-draft]")) {
@@ -1749,6 +1860,64 @@ export function createModelProviderSettingsController({
       deleteCodexAccount(target.dataset.codexDelete, target).catch(showError);
       return;
     }
+    if (target.dataset.mpCloseSubscriptionPage !== undefined) {
+      closeProviderConsoleLayer();
+      return;
+    }
+    if (target.dataset.subscriptionLoginStart) {
+      startSubscriptionLogin(target.dataset.subscriptionLoginStart).catch(showError);
+      return;
+    }
+    if (target.dataset.subscriptionLoginReopen) {
+      reopenSubscriptionLogin(target.dataset.subscriptionLoginReopen);
+      return;
+    }
+    if (target.dataset.subscriptionLoginCancel) {
+      cancelSubscriptionLogin(target.dataset.subscriptionLoginCancel).catch(showError);
+      return;
+    }
+    if (target.dataset.subscriptionCopyCode) {
+      copySubscriptionDeviceCode(target.dataset.subscriptionCopyCode);
+      return;
+    }
+    if (target.dataset.subscriptionRefresh) {
+      refreshSubscriptionAccounts(target.dataset.subscriptionRefresh).catch(showError);
+      return;
+    }
+    if (target.dataset.subscriptionEdit) {
+      const provider = normalizeSubscriptionProvider(target.dataset.subscriptionProvider);
+      const id = target.dataset.subscriptionEdit;
+      const account = subscriptionAccountById(provider, id);
+      if (!provider || !account) return;
+      const page = subscriptionPage(provider);
+      if (page) page.edit = { id, alias: String(account.alias || ""), priority: finiteNumber(account.priority, 100) };
+      refreshProviderConsole();
+      scheduleProviderConsoleFocus(() => [...(providerConsoleEventRoot?.querySelectorAll?.("[data-subscription-edit-alias]") || [])].find((node) => node.dataset?.subscriptionEditAlias === id)?.focus?.());
+      return;
+    }
+    if (target.dataset.subscriptionEditCancel) {
+      const provider = normalizeSubscriptionProvider(target.dataset.subscriptionProvider);
+      const page = provider ? subscriptionPage(provider) : null;
+      if (page?.edit?.id === target.dataset.subscriptionEditCancel) page.edit = null;
+      refreshProviderConsole();
+      return;
+    }
+    if (target.dataset.subscriptionSave) {
+      saveSubscriptionAccount(normalizeSubscriptionProvider(target.dataset.subscriptionProvider), target.dataset.subscriptionSave, target).catch(showError);
+      return;
+    }
+    if (target.dataset.subscriptionSync) {
+      syncSubscriptionAccount(normalizeSubscriptionProvider(target.dataset.subscriptionProvider), target.dataset.subscriptionSync, target).catch(showError);
+      return;
+    }
+    if (target.dataset.subscriptionToggle) {
+      toggleSubscriptionAccount(normalizeSubscriptionProvider(target.dataset.subscriptionProvider), target.dataset.subscriptionToggle, target.dataset.disabled === "true", target).catch(showError);
+      return;
+    }
+    if (target.dataset.subscriptionDelete) {
+      deleteSubscriptionAccount(normalizeSubscriptionProvider(target.dataset.subscriptionProvider), target.dataset.subscriptionDelete, target).catch(showError);
+      return;
+    }
   }
 
   function bindProviderSettingsActions() {
@@ -2155,6 +2324,21 @@ export function createModelProviderSettingsController({
     loadProviderAuthFiles,
     modelSetupMessage,
     openProviderConsoleType,
+    openGeminiConsolePage,
+    openGrokConsolePage,
+    openKimiConsolePage,
+    renderGeminiConsolePage,
+    renderGrokConsolePage,
+    renderKimiConsolePage,
+    loadSubscriptionAccounts,
+    refreshSubscriptionAccounts,
+    startSubscriptionLogin,
+    cancelSubscriptionLogin,
+    reopenSubscriptionLogin,
+    saveSubscriptionAccount,
+    syncSubscriptionAccount,
+    toggleSubscriptionAccount,
+    deleteSubscriptionAccount,
     providerLabel,
     providerStatusText,
     refreshModelCatalog,

@@ -16,6 +16,7 @@ import (
 	"autoto/internal/config"
 	"autoto/internal/db"
 	"autoto/internal/providers"
+	"autoto/internal/subscriptionauth"
 )
 
 func TestModelAggregateHandlersPreserveOrderAndRequireCAS(t *testing.T) {
@@ -393,6 +394,45 @@ func TestRefreshProviderRuntimeIdentityUnregistersDisabledProviders(t *testing.T
 	app.refreshProviderRuntimeIdentity("123e4567-e89b-42d3-a456-426614174000")
 	if _, ok := registry.Get(disabled.Name); ok {
 		t.Fatal("runtime identity refresh re-registered disabled provider")
+	}
+}
+
+func TestRefreshProviderRuntimeIdentityPreservesSubscriptionCredentialsAndGatewayPolicy(t *testing.T) {
+	home := t.TempDir()
+	database, err := db.Open(context.Background(), filepath.Join(home, "runtime-identity-subscription.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	credentialStore := subscriptionauth.NewStore(subscriptionauth.DefaultStoreDir(home, subscriptionauth.ProviderKimi))
+	account, err := credentialStore.CreateOAuth(subscriptionauth.CreateRequest{
+		Provider: subscriptionauth.ProviderKimi, AccessToken: "kimi-runtime-access", RefreshToken: "kimi-runtime-refresh", DeviceID: "kimi-runtime-device",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := database.SetGatewayAccountGrant(context.Background(), subscriptionauth.ProviderKimi, account.ID, true); err != nil {
+		t.Fatal(err)
+	}
+	provider := config.NormalizeProviderConfig(config.ProviderConfig{Name: config.ProviderTypeKimi, Type: config.ProviderTypeKimi, GatewayEnabled: true})
+	registry := providers.NewRegistry()
+	app := New(config.Config{
+		Paths:     config.PathsConfig{HomeDir: home},
+		Providers: config.ProvidersConfig{Instances: []config.ProviderConfig{provider}},
+	}, database, nil, nil, registry)
+
+	app.refreshProviderRuntimeIdentity("123e4567-e89b-42d3-a456-426614174000")
+	adapter, ok := registry.Get(subscriptionauth.ProviderKimi)
+	if !ok {
+		t.Fatal("runtime identity refresh did not register Kimi Provider")
+	}
+	if !providers.ConfiguredForScenario(adapter, false, providers.CallScenarioInternal) {
+		t.Fatal("runtime identity refresh lost the Kimi credential store")
+	}
+	if !providers.AvailableForScenario(context.Background(), adapter, false, providers.ScenarioAvailability{
+		Scenario: providers.CallScenarioGateway, AllowSubscriptionCredentials: true,
+	}) {
+		t.Fatal("runtime identity refresh lost the Kimi Gateway account policy")
 	}
 }
 

@@ -49,9 +49,17 @@ func TestDefaultConfig(t *testing.T) {
 	if cfg.Security.Exposed || cfg.Security.AccessPassword != "" {
 		t.Fatalf("expected local security defaults, got %+v", cfg.Security)
 	}
-	gemini := providerByName(cfg, "gemini")
-	if gemini == nil || gemini.Type != "gemini-interactions" || gemini.BaseURL != "https://generativelanguage.googleapis.com/v1beta/interactions" || gemini.Model != "gemini-2.5-pro" {
+	gemini := providerByName(cfg, ProviderTypeGemini)
+	if gemini == nil || gemini.Type != ProviderTypeGemini || gemini.BaseURL != "https://cloudcode-pa.googleapis.com" || gemini.Model != "gemini-3-flash" || gemini.ModelContextTokenLimit("gemini-3-flash") != 1048576 {
 		t.Fatalf("unexpected Gemini provider preset: %+v", gemini)
+	}
+	grok := providerByName(cfg, ProviderTypeGrok)
+	if grok == nil || grok.Type != ProviderTypeGrok || grok.BaseURL != "https://cli-chat-proxy.grok.com/v1" || grok.Model != "grok-4.5" || grok.ModelContextTokenLimit("grok-4.5") != 500000 {
+		t.Fatalf("unexpected Grok provider preset: %+v", grok)
+	}
+	kimi := providerByName(cfg, ProviderTypeKimi)
+	if kimi == nil || kimi.Type != ProviderTypeKimi || kimi.BaseURL != "https://api.kimi.com/coding" || kimi.Model != "kimi-k2.7-code" || kimi.ModelContextTokenLimit("kimi-k2.7-code") != 262144 {
+		t.Fatalf("unexpected Kimi provider preset: %+v", kimi)
 	}
 	provider := providerByName(cfg, "codex")
 	if provider == nil {
@@ -59,6 +67,34 @@ func TestDefaultConfig(t *testing.T) {
 	}
 	if provider.Type != ProviderTypeCodex || provider.BaseURL != "https://chatgpt.com/backend-api/codex" || provider.Model != "gpt-5.5" || provider.APIKeyOptional {
 		t.Fatalf("unexpected native Codex provider preset: %+v", *provider)
+	}
+}
+
+func TestNativeBuiltinProvidersSurviveLegacyNameCollision(t *testing.T) {
+	cfg := normalizeConfig(Config{Providers: ProvidersConfig{Instances: []ProviderConfig{
+		{Name: ProviderTypeGemini, Type: ProviderTypeGeminiInteractions, Model: "gemini-2.5-pro"},
+	}}})
+	legacy := providerByName(cfg, ProviderTypeGemini)
+	if legacy == nil || legacy.Type != ProviderTypeGeminiInteractions {
+		t.Fatalf("legacy Gemini Interactions provider changed unexpectedly: %+v", legacy)
+	}
+	native := providerByName(cfg, "gemini-oauth")
+	if native == nil || native.Type != ProviderTypeGemini || native.Model != "gemini-3-flash" {
+		t.Fatalf("native Gemini provider was not seeded under a collision-free name: %+v", native)
+	}
+	if providerByName(cfg, ProviderTypeGrok) == nil || providerByName(cfg, ProviderTypeKimi) == nil {
+		t.Fatal("Grok or Kimi native provider was not seeded")
+	}
+
+	second := normalizeConfig(cfg)
+	count := 0
+	for _, provider := range second.Providers.Instances {
+		if provider.Type == ProviderTypeGemini {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Fatalf("native Gemini provider seeding was not idempotent: count=%d providers=%+v", count, second.Providers.Instances)
 	}
 }
 
@@ -550,7 +586,6 @@ func TestLoadWritesDefaultConfigWithoutEnvSecrets(t *testing.T) {
 	expectedRuntimeKeys := map[string]string{
 		"openai":            "openai-secret",
 		"anthropic":         "anthropic-secret",
-		"gemini":            "gemini-secret",
 		"cliproxyapi":       "cliproxy-secret",
 		"openai-compatible": "compatible-secret",
 	}
@@ -558,6 +593,9 @@ func TestLoadWritesDefaultConfigWithoutEnvSecrets(t *testing.T) {
 		if expected, ok := expectedRuntimeKeys[provider.Name]; ok && provider.APIKey != expected {
 			t.Fatalf("expected runtime config to keep %s env secret, got %q", provider.Name, provider.APIKey)
 		}
+	}
+	if gemini := providerByName(cfg, ProviderTypeGemini); gemini == nil || gemini.APIKey != "" {
+		t.Fatalf("native Gemini preset must ignore GEMINI_API_KEY, got %+v", gemini)
 	}
 	if len(cfg.Backends.Instances) != 1 || cfg.Backends.Instances[0].APIKey != "backend-secret" {
 		t.Fatal("expected runtime config to keep backend env secret")
@@ -636,6 +674,45 @@ func TestProviderConfigSaveNeverPersistsProxyCredentialsOrHeaderValues(t *testin
 	provider := providerByName(loaded, "relay")
 	if provider == nil || provider.ProxyURL != "http://127.0.0.1:7890" || len(provider.RequestHeaders) != 1 || provider.RequestHeaders[0].Value != "" {
 		t.Fatalf("unexpected reloaded provider transport metadata: %+v", provider)
+	}
+}
+
+func TestProviderImageInputCapabilityRoundTrip(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.json")
+	if err := os.WriteFile(path, []byte(`{"providers":{"instances":[{"name":"legacy-relay","type":"openai-compatible","baseUrl":"http://127.0.0.1:8080/v1","model":"legacy-model"}]}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	legacy, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if provider := providerByName(legacy, "legacy-relay"); provider == nil || provider.ImageInput {
+		t.Fatalf("legacy compatible provider must default image input off: %+v", provider)
+	}
+
+	cfg := Config{SchemaVersion: CurrentConfigVersion, Providers: ProvidersConfig{Instances: []ProviderConfig{{
+		Name:       "image-relay",
+		Type:       "openai-compatible",
+		BaseURL:    "http://127.0.0.1:8081/v1",
+		Model:      "vision-model",
+		ImageInput: true,
+	}}}}
+	if err := Save(path, cfg); err != nil {
+		t.Fatal(err)
+	}
+	persisted, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(persisted), `"imageInput": true`) {
+		t.Fatalf("explicit image input capability was not persisted: %s", persisted)
+	}
+	loaded, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if provider := providerByName(loaded, "image-relay"); provider == nil || !provider.ImageInput {
+		t.Fatalf("explicit image input capability was not restored: %+v", provider)
 	}
 }
 

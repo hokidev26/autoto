@@ -13,6 +13,50 @@ import (
 	"autoto/internal/config"
 )
 
+func TestOpenAICompatibleImageInputRequiresExplicitOptIn(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		cfg  config.ProviderConfig
+		want bool
+	}{
+		{name: "generic default", cfg: config.ProviderConfig{Name: "relay", Type: "openai-compatible"}},
+		{name: "CLI proxy default", cfg: config.ProviderConfig{Name: "cliproxyapi", Type: "openai-compatible", Profile: config.ProviderProfileCLIProxyAPI}},
+		{name: "explicit opt in", cfg: config.ProviderConfig{Name: "vision-relay", Type: "openai-compatible", ImageInput: true}, want: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if got := CapabilitiesFor(NewOpenAICompatible(test.cfg)).ImageInput; got != test.want {
+				t.Fatalf("ImageInput = %v, want %v", got, test.want)
+			}
+		})
+	}
+}
+
+func TestOpenAICompatibleRejectsImageBlocksWithoutExplicitOptIn(t *testing.T) {
+	var requests int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		requests++
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer server.Close()
+
+	provider := NewOpenAICompatible(config.ProviderConfig{
+		Name:           "text-only-relay",
+		Type:           "openai-compatible",
+		BaseURL:        server.URL,
+		Model:          "text-only",
+		APIKeyOptional: true,
+	})
+	if _, err := provider.Generate(context.Background(), GenerateRequest{Messages: []Message{{
+		Role:   "user",
+		Blocks: []ContentBlock{{Type: "image", MIMEType: "image/png", Data: []byte{1, 2, 3}}},
+	}}}); err == nil || !strings.Contains(err.Error(), "does not support image input") {
+		t.Fatalf("expected fail-closed image capability error, got %v", err)
+	}
+	if requests != 0 {
+		t.Fatalf("unsupported image input reached upstream %d times", requests)
+	}
+}
+
 func TestOpenAICompatibleListModelsAllowsOptionalAPIKey(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/models" {
@@ -83,6 +127,7 @@ func TestOpenAICompatibleSendsImageBlocks(t *testing.T) {
 		BaseURL:        server.URL,
 		Model:          "gpt-5.5",
 		APIKeyOptional: true,
+		ImageInput:     true,
 	})
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()

@@ -44,7 +44,7 @@ func (p *OpenAICompatible) Capabilities() Capabilities {
 	capabilities := Capabilities{
 		Tools:      true,
 		Streaming:  true,
-		ImageInput: true,
+		ImageInput: p.cfg.ImageInput,
 	}
 	if p.cfg.Profile == config.ProviderProfileCLIProxyAPI {
 		capabilities.ReasoningEffort = true
@@ -251,6 +251,13 @@ func (p *OpenAICompatible) Generate(ctx context.Context, req GenerateRequest) (<
 	}
 	if p.configErr != nil {
 		return nil, p.configErr
+	}
+	if !p.cfg.ImageInput {
+		for _, message := range req.Messages {
+			if contentBlocksHaveImage(normalizeContentBlocks(message)) {
+				return nil, fmt.Errorf("provider %q does not support image input", p.cfg.Name)
+			}
+		}
 	}
 	reasoningEffort, err := normalizeReasoningEffortForCapabilities(req.ReasoningEffort, p.Capabilities(), p.cfg.Name)
 	if err != nil {

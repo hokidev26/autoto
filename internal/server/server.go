@@ -98,52 +98,58 @@ type Server struct {
 	localToken           string
 	// remoteAccessToken remains only for source compatibility with older
 	// in-package callers; it is never accepted as remote authentication.
-	remoteAccessToken         string
-	remoteAccessSessions      map[string]remoteAccessSession
-	remoteAccessConnections   map[string]map[uint64]context.CancelFunc
-	remoteAccessConnectionSeq uint64
-	remoteAccessFailure       map[string]remoteAccessFailure
-	remoteAccessMu            sync.Mutex
-	authSessionConnections    map[string]map[uint64]context.CancelFunc
-	authSessionConnectionSeq  uint64
-	authSessionMu             sync.Mutex
-	authLoginFailures         map[string]authLoginFailure
-	authLoginMu               sync.Mutex
-	agentMutationLocksMu      sync.Mutex
-	agentMutationLocks        map[string]*agentMutationLock
-	legacyWarnings            *compat.Registry
-	store                     *db.Store
-	runner                    *agentpkg.Runner
-	hub                       *agentpkg.Hub
-	providers                 *providers.Registry
-	providerVault             *secrets.ProviderVault
-	codexCredentials          *codexauth.Store
-	codexCredentialsMu        sync.Mutex
-	codexOAuthMu              sync.Mutex
-	codexOAuthLogin           *codexOAuthLoginSession
-	codexOAuthTestConfig      *codexOAuthLoginTestConfig
-	anthropicCredentials      *anthropicauth.Store
-	anthropicCredentialsMu    sync.Mutex
-	anthropicOAuthMu          sync.Mutex
-	anthropicOAuthLogins      map[string]*anthropicOAuthLoginSession
-	toolRegistry              *tools.Registry
-	toolRegistryMu            sync.RWMutex
-	backgroundTasks           tools.BackgroundTaskService
-	previewManager            *preview.Manager
-	temporaryTunnel           *TemporaryTunnelManager
-	notifier                  *WebhookNotifier
-	automation                *automation.Manager
-	connections               *integrations.ConnectionService
-	plugins                   PluginService
-	themeStore                *themes.Store
-	appearanceAssets          *appearanceassets.Store
-	generatedImages           *imageassets.Store
-	reviewer                  *review.Service
-	audit                     audit.Recorder
-	integrationClient         *http.Client
-	deviceAdapterFactory      func(context.Context, string) (devices.Adapter, error)
-	oauthAppMu                sync.Mutex
-	oauthApp                  *oauthAppRuntime
+	remoteAccessToken           string
+	remoteAccessSessions        map[string]remoteAccessSession
+	remoteAccessConnections     map[string]map[uint64]context.CancelFunc
+	remoteAccessConnectionSeq   uint64
+	remoteAccessFailure         map[string]remoteAccessFailure
+	remoteAccessMu              sync.Mutex
+	authSessionConnections      map[string]map[uint64]context.CancelFunc
+	authSessionConnectionSeq    uint64
+	authSessionMu               sync.Mutex
+	authLoginFailures           map[string]authLoginFailure
+	authLoginMu                 sync.Mutex
+	agentMutationLocksMu        sync.Mutex
+	agentMutationLocks          map[string]*agentMutationLock
+	legacyWarnings              *compat.Registry
+	store                       *db.Store
+	runner                      *agentpkg.Runner
+	hub                         *agentpkg.Hub
+	providers                   *providers.Registry
+	providerVault               *secrets.ProviderVault
+	codexCredentials            *codexauth.Store
+	codexCredentialsMu          sync.Mutex
+	codexOAuthMu                sync.Mutex
+	codexOAuthLogin             *codexOAuthLoginSession
+	codexOAuthTestConfig        *codexOAuthLoginTestConfig
+	anthropicCredentials        *anthropicauth.Store
+	anthropicCredentialsMu      sync.Mutex
+	anthropicOAuthMu            sync.Mutex
+	anthropicOAuthLogins        map[string]*anthropicOAuthLoginSession
+	subscriptionOAuthMu         sync.Mutex
+	subscriptionOAuthLogins     map[string]*subscriptionOAuthLoginSession
+	geminiOAuthClientFactory    func() geminiOAuthLoginClient
+	grokOAuthClientFactory      func() grokOAuthLoginClient
+	kimiOAuthClientFactory      func() kimiOAuthLoginClient
+	subscriptionOAuthTestConfig *subscriptionOAuthLoginTestConfig
+	toolRegistry                *tools.Registry
+	toolRegistryMu              sync.RWMutex
+	backgroundTasks             tools.BackgroundTaskService
+	previewManager              *preview.Manager
+	temporaryTunnel             *TemporaryTunnelManager
+	notifier                    *WebhookNotifier
+	automation                  *automation.Manager
+	connections                 *integrations.ConnectionService
+	plugins                     PluginService
+	themeStore                  *themes.Store
+	appearanceAssets            *appearanceassets.Store
+	generatedImages             *imageassets.Store
+	reviewer                    *review.Service
+	audit                       audit.Recorder
+	integrationClient           *http.Client
+	deviceAdapterFactory        func(context.Context, string) (devices.Adapter, error)
+	oauthAppMu                  sync.Mutex
+	oauthApp                    *oauthAppRuntime
 	// shellDialogHost is optional; only the desktop entrypoint registers it.
 	// Browser/CLI processes leave it nil so /api/desktop/dialog/* returns 404.
 	shellDialogMu      sync.RWMutex
@@ -177,13 +183,14 @@ func New(cfg config.Config, store *db.Store, runner *agentpkg.Runner, hub *agent
 				"removalVersion", compat.RemovalVersion,
 			)
 		}),
-		store:                store,
-		runner:               runner,
-		hub:                  hub,
-		providers:            providerRegistry,
-		codexCredentials:     codexauth.NewStore(codexauth.DefaultStoreDir(cfg.Paths.HomeDir)),
-		anthropicCredentials: anthropicauth.NewStore(anthropicauth.DefaultStoreDir(cfg.Paths.HomeDir)),
-		toolRegistry:         newCoreToolRegistry(),
+		store:                   store,
+		runner:                  runner,
+		hub:                     hub,
+		providers:               providerRegistry,
+		codexCredentials:        codexauth.NewStore(codexauth.DefaultStoreDir(cfg.Paths.HomeDir)),
+		anthropicCredentials:    anthropicauth.NewStore(anthropicauth.DefaultStoreDir(cfg.Paths.HomeDir)),
+		subscriptionOAuthLogins: make(map[string]*subscriptionOAuthLoginSession),
+		toolRegistry:            newCoreToolRegistry(),
 	}
 	if cfg.Paths.HomeDir != "" {
 		if themeStore, err := themes.NewStore(cfg.Paths.HomeDir); err != nil {
@@ -475,11 +482,18 @@ func (s *Server) Routes() http.Handler {
 		r.Get("/api/providers/oauth/anthropic/login/{loginId}", s.getAnthropicOAuthLogin)
 		r.Post("/api/providers/oauth/anthropic/login/{loginId}/submit", s.submitAnthropicOAuthLogin)
 		r.Delete("/api/providers/oauth/anthropic/login/{loginId}", s.cancelAnthropicOAuthLogin)
+		r.Post("/api/providers/oauth/{provider}/login/start", s.startSubscriptionOAuthLogin)
+		r.Get("/api/providers/oauth/{provider}/login/{loginId}", s.getSubscriptionOAuthLogin)
+		r.Delete("/api/providers/oauth/{provider}/login/{loginId}", s.cancelSubscriptionOAuthLogin)
 		r.Get("/api/providers/auth/anthropic/accounts", s.listAnthropicAccounts)
 		r.Post("/api/providers/auth/anthropic/accounts", s.createAnthropicAccount)
 		r.Patch("/api/providers/auth/anthropic/accounts/{id}", s.patchAnthropicAccount)
 		r.Post("/api/providers/auth/anthropic/accounts/{id}/sync", s.syncAnthropicAccount)
 		r.Delete("/api/providers/auth/anthropic/accounts/{id}", s.deleteAnthropicAccount)
+		r.Get("/api/providers/auth/{provider}/accounts", s.listSubscriptionAccounts)
+		r.Patch("/api/providers/auth/{provider}/accounts/{id}", s.patchSubscriptionAccount)
+		r.Post("/api/providers/auth/{provider}/accounts/{id}/sync", s.syncSubscriptionAccount)
+		r.Delete("/api/providers/auth/{provider}/accounts/{id}", s.deleteSubscriptionAccount)
 		r.Get("/api/providers/{name}/auth-files", s.listProviderAuthFiles)
 		r.Post("/api/providers/{name}/auth-files/import", s.importProviderAuthFile)
 		r.Get("/api/plugins", s.listPlugins)

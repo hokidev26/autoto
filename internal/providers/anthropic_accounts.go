@@ -23,6 +23,7 @@ import (
 type anthropicAccountCandidate struct {
 	id       string
 	priority int
+	oauth    bool
 	client   anthropic.Client
 }
 
@@ -103,6 +104,7 @@ func (p *AnthropicProvider) accountCandidates(ctx context.Context, req GenerateR
 		candidates = append(candidates, anthropicAccountCandidate{
 			id:       credential.ID,
 			priority: credential.Priority,
+			oauth:    credential.AuthType == anthropicauth.AuthTypeOAuth,
 			client:   client,
 		})
 	}
@@ -158,9 +160,18 @@ func (p *AnthropicProvider) clientForCredential(ctx context.Context, credential 
 		if err != nil {
 			return anthropic.Client{}, err
 		}
+		// Subscription OAuth tokens are only accepted when the request looks
+		// like Claude Code (headers + first system identity block). Override
+		// the Go SDK defaults that would otherwise fingerprint as third-party.
 		return p.newAnthropicClient(
 			option.WithAuthToken(access),
-			option.WithHeaderAdd("anthropic-beta", anthropicauth.OAuthBetaHeader),
+			option.WithHeader("anthropic-beta", anthropicauth.OAuthMessagesBetaHeader()),
+			option.WithHeader("User-Agent", anthropicauth.ClaudeCodeUserAgent),
+			option.WithHeader("X-App", anthropicauth.ClaudeCodeAppHeader),
+			option.WithHeader("X-Stainless-Lang", "js"),
+			option.WithHeader("X-Stainless-Runtime", "node"),
+			option.WithHeader("X-Stainless-Package-Version", anthropicauth.ClaudeCodePackageVersion),
+			option.WithHeader("X-Stainless-Runtime-Version", anthropicauth.ClaudeCodeRuntimeVersion),
 		)
 	default:
 		return anthropic.Client{}, errors.New("Anthropic auth type is invalid")

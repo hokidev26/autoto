@@ -18,6 +18,7 @@ import (
 	"autoto/internal/config"
 	"autoto/internal/db"
 	"autoto/internal/providers"
+	"autoto/internal/subscriptionauth"
 )
 
 var (
@@ -578,17 +579,20 @@ func (s *Server) refreshProviderRuntimeIdentity(installationID string) {
 		if providerCfg.Name == anthropicauth.DefaultProviderName && providerCfg.Type == "anthropic" {
 			providerCfg.CredentialStorePath = anthropicauth.DefaultStoreDir(cfg.Paths.HomeDir)
 		}
+		switch providerCfg.Type {
+		case config.ProviderTypeGemini, config.ProviderTypeGrok, config.ProviderTypeKimi:
+			providerCfg.CredentialStorePath = subscriptionauth.DefaultStoreDir(cfg.Paths.HomeDir, providerCfg.Type)
+		}
 		provider, err := providers.NewProvider(providerCfg)
 		if err != nil {
 			continue
 		}
-		if codexProvider, ok := provider.(*providers.CodexProvider); ok && s.store != nil {
-			codexProvider.SetAccountTelemetry(s.store)
-			codexProvider.SetGatewayAccountPolicy(s.store)
-		}
-		if anthropicProvider, ok := provider.(*providers.AnthropicProvider); ok && s.store != nil {
-			anthropicProvider.SetAccountTelemetry(s.store)
-			anthropicProvider.SetGatewayAccountPolicy(s.store)
+		if accountProvider, ok := provider.(interface {
+			SetAccountTelemetry(providers.AccountTelemetry)
+			SetGatewayAccountPolicy(providers.GatewayAccountPolicy)
+		}); ok && s.store != nil {
+			accountProvider.SetAccountTelemetry(s.store)
+			accountProvider.SetGatewayAccountPolicy(s.store)
 		}
 		s.providers.Register(provider)
 	}

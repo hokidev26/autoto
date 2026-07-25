@@ -92,15 +92,22 @@ func TestCapabilitiesCanonicalizeLegacyReasoningBoolean(t *testing.T) {
 }
 
 func TestBuiltInProvidersDeclareCapabilities(t *testing.T) {
-	for _, provider := range []Provider{
-		NewOpenAIOfficial(config.ProviderConfig{Name: "openai", Type: "openai"}),
-		NewAnthropicProvider(config.ProviderConfig{Name: "anthropic", Type: "anthropic"}),
-		NewOpenAICompatible(config.ProviderConfig{Name: "relay", Type: "openai-compatible"}),
-		NewGeminiInteractions(config.ProviderConfig{Name: "gemini", Type: "gemini-interactions"}),
+	for _, test := range []struct {
+		name           string
+		provider       Provider
+		wantImageInput bool
+	}{
+		{name: "OpenAI official", provider: NewOpenAIOfficial(config.ProviderConfig{Name: "openai", Type: "openai"}), wantImageInput: true},
+		{name: "Anthropic", provider: NewAnthropicProvider(config.ProviderConfig{Name: "anthropic", Type: "anthropic"}), wantImageInput: true},
+		{name: "OpenAI-compatible", provider: NewOpenAICompatible(config.ProviderConfig{Name: "relay", Type: "openai-compatible"})},
+		{name: "Gemini interactions", provider: NewGeminiInteractions(config.ProviderConfig{Name: "gemini", Type: "gemini-interactions"}), wantImageInput: true},
 	} {
-		if got := CapabilitiesFor(provider); !got.Tools || !got.Streaming || !got.ImageInput {
-			t.Fatalf("expected built-in capabilities, got %+v", got)
-		}
+		t.Run(test.name, func(t *testing.T) {
+			got := CapabilitiesFor(test.provider)
+			if !got.Tools || !got.Streaming || got.ImageInput != test.wantImageInput {
+				t.Fatalf("capabilities = %+v, want tools and streaming with ImageInput=%v", got, test.wantImageInput)
+			}
+		})
 	}
 }
 
@@ -133,7 +140,7 @@ func TestBuiltInProvidersExposeConfiguredModelContextLimits(t *testing.T) {
 }
 
 func TestNewProviderBuildsKnownTypes(t *testing.T) {
-	for _, providerType := range []string{"openai", "anthropic", "openai-compatible", "gemini-interactions"} {
+	for _, providerType := range []string{"openai", "anthropic", "openai-compatible", config.ProviderTypeGeminiInteractions, config.ProviderTypeGemini, config.ProviderTypeGrok, config.ProviderTypeKimi} {
 		provider, err := NewProvider(config.ProviderConfig{Name: providerType, Type: providerType})
 		if err != nil {
 			t.Fatalf("NewProvider(%q): %v", providerType, err)

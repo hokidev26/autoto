@@ -33,7 +33,7 @@ var Version = "0.1.0-dev"
 // When set, it is shown in the startup banner as "Autoto <version> (<commit>)".
 var Commit = ""
 
-const CurrentConfigVersion = 2
+const CurrentConfigVersion = 3
 
 type Config struct {
 	SchemaVersion     int                     `json:"version"`
@@ -157,6 +157,7 @@ type ProviderConfig struct {
 	Models                []ProviderModelConfig   `json:"models,omitempty"`
 	MaxTokens             int64                   `json:"maxTokens,omitempty"`
 	APIKeyOptional        bool                    `json:"apiKeyOptional,omitempty"`
+	ImageInput            bool                    `json:"imageInput,omitempty"`
 	GatewayEnabled        bool                    `json:"gatewayEnabled,omitempty"`
 	ProxyURL              string                  `json:"proxyUrl,omitempty"`
 	UserAgent             string                  `json:"userAgent,omitempty"`
@@ -313,13 +314,9 @@ func defaultWithReport(report *compat.Report) (Config, error) {
 				Model:     getenv("ANTHROPIC_MODEL", "claude-sonnet-4-5"),
 				MaxTokens: 4096,
 			},
-			{
-				Name:    "gemini",
-				Type:    "gemini-interactions",
-				BaseURL: getenv("GEMINI_INTERACTIONS_BASE_URL", "https://generativelanguage.googleapis.com/v1beta/interactions"),
-				APIKey:  os.Getenv("GEMINI_API_KEY"),
-				Model:   getenv("GEMINI_MODEL", "gemini-2.5-pro"),
-			},
+			defaultGeminiProvider(),
+			defaultGrokProvider(),
+			defaultKimiProvider(),
 			defaultCodexProvider(),
 			{
 				Name:    "openai-compatible",
@@ -583,7 +580,7 @@ func normalizeConfigWithReport(cfg Config, report *compat.Report) Config {
 	applySecurityEnvOverrides(&cfg.Security, report)
 	cfg.Security = normalizeSecurityConfig(cfg.Security)
 
-	cfg.Providers = normalizeProviders(cfg.Providers)
+	cfg.Providers = ensureNativeBuiltinProviders(normalizeProviders(cfg.Providers))
 	cfg.Backends = normalizeBackends(cfg.Backends)
 	return cfg
 }
@@ -877,10 +874,12 @@ func (c Config) GatewayAddr() string {
 }
 
 func (p ProviderConfig) IsConfigured() bool {
-	if p.Type == ProviderTypeCodex {
+	switch p.Type {
+	case ProviderTypeCodex, ProviderTypeGemini, ProviderTypeGrok, ProviderTypeKimi:
 		return false
+	default:
+		return p.APIKey != "" || p.APIKeyOptional
 	}
-	return p.APIKey != "" || p.APIKeyOptional
 }
 
 func (p ProviderConfig) Summary() ProviderSummary {
@@ -904,7 +903,7 @@ func (p ProviderConfig) Summary() ProviderSummary {
 // as built in to bypass lifecycle restrictions.
 func ProviderOriginForName(name string) string {
 	switch strings.ToLower(strings.TrimSpace(name)) {
-	case "openai", "anthropic", ProviderTypeCodex, "ollama", "openai-compatible", ProviderProfileCLIProxyAPI, "gemini":
+	case "openai", "anthropic", ProviderTypeCodex, "ollama", "openai-compatible", ProviderProfileCLIProxyAPI, ProviderTypeGemini, ProviderTypeGrok, ProviderTypeKimi:
 		return ProviderOriginBuiltin
 	default:
 		return ProviderOriginCustom
@@ -1067,6 +1066,9 @@ func NormalizeProviderConfig(provider ProviderConfig) ProviderConfig {
 }
 
 func applyProviderEnvDefaults(provider *ProviderConfig) {
+	if applyNativeProviderDefaults(provider) {
+		return
+	}
 	if provider.Profile == ProviderProfileCLIProxyAPI {
 		applyCLIProxyAPIEnvDefaults(provider)
 		return

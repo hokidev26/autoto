@@ -285,7 +285,7 @@ func configuredModelCapabilities(cfg config.ProviderConfig, model string) ModelC
 // NewProvider constructs a provider adapter from a normalized provider config.
 func NewProvider(cfg config.ProviderConfig) (Provider, error) {
 	providerType := strings.TrimSpace(cfg.Type)
-	if providerType == "openai" || providerType == "openai-compatible" || providerType == "anthropic" || providerType == "gemini-interactions" || providerType == config.ProviderTypeCodex {
+	if providerType == "openai" || providerType == "openai-compatible" || providerType == "anthropic" || providerType == config.ProviderTypeGeminiInteractions || providerType == config.ProviderTypeGemini || providerType == config.ProviderTypeGrok || providerType == config.ProviderTypeKimi || providerType == config.ProviderTypeCodex {
 		if err := validateProviderRuntimeConfig(cfg); err != nil {
 			return nil, err
 		}
@@ -302,8 +302,26 @@ func NewProvider(cfg config.ProviderConfig) (Provider, error) {
 		return NewAnthropicProvider(cfg), nil
 	case "openai-compatible":
 		return NewOpenAICompatible(cfg), nil
-	case "gemini-interactions":
+	case config.ProviderTypeGeminiInteractions:
 		return NewGeminiInteractions(cfg), nil
+	case config.ProviderTypeGemini:
+		cfg = normalizeGeminiProviderConfig(cfg)
+		if err := validateGeminiProductionBaseURL(cfg.BaseURL); err != nil {
+			return nil, err
+		}
+		return NewGeminiProvider(cfg), nil
+	case config.ProviderTypeGrok:
+		cfg = normalizeGrokProviderConfig(cfg)
+		if err := validateGrokProductionBaseURL(cfg.BaseURL); err != nil {
+			return nil, err
+		}
+		return NewGrokProvider(cfg), nil
+	case config.ProviderTypeKimi:
+		cfg = normalizeKimiProviderConfig(cfg)
+		if err := validateKimiProductionBaseURL(cfg.BaseURL); err != nil {
+			return nil, err
+		}
+		return NewKimiProvider(cfg), nil
 	default:
 		return nil, fmt.Errorf("unsupported provider type %q", cfg.Type)
 	}

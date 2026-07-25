@@ -69,6 +69,8 @@ const builtinProviderNames = new Set([
   "cliproxyapi",
   "ollama",
   "gemini",
+  "grok",
+  "kimi",
 ]);
 const categoryMeta = {
   all: { labelKey: "categories.all", titleKey: "categories.all" },
@@ -319,6 +321,34 @@ export function isAnthropicAccountProvider(provider = {}) {
   return normalized.name === "anthropic" && normalized.type === "anthropic" && isBuiltinProvider(normalized);
 }
 
+// The three subscription providers each keep a dedicated official card and a
+// dedicated management page. loginKind drives the page layout: Gemini uses a
+// browser OAuth callback, while Grok and Kimi use a device-code flow.
+export const subscriptionProviderSpecs = Object.freeze({
+  gemini: Object.freeze({ provider: "gemini", type: "gemini", view: "gemini", loginKind: "browser", className: "gemini-account-console" }),
+  grok: Object.freeze({ provider: "grok", type: "grok", view: "grok", loginKind: "device", className: "grok-account-console" }),
+  kimi: Object.freeze({ provider: "kimi", type: "kimi", view: "kimi", loginKind: "device", className: "kimi-account-console" }),
+});
+
+export const subscriptionProviderKinds = Object.freeze(Object.keys(subscriptionProviderSpecs));
+
+// subscriptionProviderKind identifies a native subscription provider strictly by
+// its exact type. gemini-interactions and custom-origin providers must never be
+// treated as an official Gemini/Grok/Kimi account entry.
+export function subscriptionProviderKind(provider = {}) {
+  if (stringValue(provider.origin).toLowerCase() === "custom") return "";
+  const type = stringValue(provider.type).toLowerCase();
+  return Object.hasOwn(subscriptionProviderSpecs, type) ? type : "";
+}
+
+export function isSubscriptionAccountProvider(provider = {}) {
+  return Boolean(subscriptionProviderKind(provider));
+}
+
+export function subscriptionProviderSpec(kind) {
+  return subscriptionProviderSpecs[String(kind || "").toLowerCase()] || null;
+}
+
 export function providerCategory(provider = {}) {
   const type = stringValue(provider.type).toLowerCase();
   const name = providerKey(provider);
@@ -441,6 +471,12 @@ export function providerDisplayName(provider = {}) {
   if (provider.name === "openai" && provider.type === "openai") return "OpenAI";
   if (provider.name === "anthropic" && provider.type === "anthropic") return "Anthropic";
   if (provider.name === "ollama") return "Ollama";
+  if (stringValue(provider.type).toLowerCase() === "gemini-interactions") return "Gemini Interactions";
+  switch (subscriptionProviderKind(provider)) {
+    case "gemini": return "Gemini";
+    case "grok": return "Grok";
+    case "kimi": return "Kimi";
+  }
   return provider.name || provider.type || ct("labels.provider");
 }
 

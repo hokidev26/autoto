@@ -98,16 +98,38 @@ func TestAnthropicGatewayDispatchesConfiguredOrGrantedManagedCredential(t *testi
 	managed := createAnthropicAPIKeyAccount(t, store, "managed-key", 1, false)
 	oauth := createAnthropicOAuthAccount(t, store, "oauth-access", "", time.Now().Add(time.Hour), 2, false)
 	type requestAuth struct {
-		apiKey        string
-		authorization string
-		beta          string
+		apiKey           string
+		authorization    string
+		beta             string
+		userAgent        string
+		app              string
+		stainlessLang    string
+		stainlessRuntime string
+		system           []string
 	}
 	var headers []requestAuth
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			System []struct {
+				Text string `json:"text"`
+			} `json:"system"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Errorf("decode Anthropic request: %v", err)
+		}
+		system := make([]string, 0, len(body.System))
+		for _, block := range body.System {
+			system = append(system, block.Text)
+		}
 		headers = append(headers, requestAuth{
-			apiKey:        r.Header.Get("X-Api-Key"),
-			authorization: r.Header.Get("Authorization"),
-			beta:          r.Header.Get("Anthropic-Beta"),
+			apiKey:           r.Header.Get("X-Api-Key"),
+			authorization:    r.Header.Get("Authorization"),
+			beta:             r.Header.Get("Anthropic-Beta"),
+			userAgent:        r.Header.Get("User-Agent"),
+			app:              r.Header.Get("X-App"),
+			stainlessLang:    r.Header.Get("X-Stainless-Lang"),
+			stainlessRuntime: r.Header.Get("X-Stainless-Runtime"),
+			system:           system,
 		})
 		writeAnthropicSuccessStream(w, "ok")
 	}))
@@ -123,6 +145,7 @@ func TestAnthropicGatewayDispatchesConfiguredOrGrantedManagedCredential(t *testi
 	generate := func(req GenerateRequest) *DispatchInfo {
 		t.Helper()
 		req.Messages = []Message{{Role: "user", Content: "hello"}}
+		req.SystemPrompt = "Autoto system prompt"
 		events, err := provider.Generate(context.Background(), req)
 		if err != nil {
 			t.Fatal(err)
@@ -154,8 +177,23 @@ func TestAnthropicGatewayDispatchesConfiguredOrGrantedManagedCredential(t *testi
 	if dispatch == nil || dispatch.CredentialID != oauth.Credential.ID {
 		t.Fatalf("granted OAuth account was not attributed: %+v", dispatch)
 	}
-	if len(headers) != 3 || headers[0].apiKey != "configured-key" || headers[1].apiKey != "managed-key" || headers[2].apiKey != "" || headers[2].authorization != "Bearer oauth-access" || !strings.Contains(headers[2].beta, anthropicauth.OAuthBetaHeader) {
+	if len(headers) != 3 || headers[0].apiKey != "configured-key" || headers[1].apiKey != "managed-key" || headers[2].apiKey != "" || headers[2].authorization != "Bearer oauth-access" {
 		t.Fatalf("unexpected Gateway credential selection: %+v", headers)
+	}
+	for index := 0; index < 2; index++ {
+		if len(headers[index].system) != 1 || headers[index].system[0] != "Autoto system prompt" {
+			t.Fatalf("API-key request %d was unexpectedly disguised as Claude Code: %+v", index, headers[index])
+		}
+		if headers[index].app != "" {
+			t.Fatalf("API-key request %d unexpectedly included X-App: %+v", index, headers[index])
+		}
+	}
+	oauthRequest := headers[2]
+	if oauthRequest.beta != anthropicauth.OAuthMessagesBetaHeader() || oauthRequest.userAgent != anthropicauth.ClaudeCodeUserAgent || oauthRequest.app != anthropicauth.ClaudeCodeAppHeader || oauthRequest.stainlessLang != "js" || oauthRequest.stainlessRuntime != "node" {
+		t.Fatalf("OAuth request did not use Claude Code headers: %+v", oauthRequest)
+	}
+	if len(oauthRequest.system) != 2 || oauthRequest.system[0] != anthropicauth.ClaudeCodeIdentity || oauthRequest.system[1] != "Autoto system prompt" {
+		t.Fatalf("OAuth request did not put Claude Code identity first: %+v", oauthRequest.system)
 	}
 }
 

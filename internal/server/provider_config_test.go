@@ -365,6 +365,25 @@ func TestProviderConfigUpdatePreservesProfileWithoutNameBasedAPIKeyOverride(t *t
 	}
 }
 
+func TestProviderConfigUpdatePreservesImageInputOptIn(t *testing.T) {
+	existing := config.ProviderConfig{
+		Name:       "vision-relay",
+		Type:       "openai-compatible",
+		BaseURL:    "http://127.0.0.1:8080/v1",
+		Model:      "vision-model",
+		ImageInput: true,
+	}
+	updated, err := providerConfigFromUpdateRequest(existing.Name, existing, providerConfigUpdateRequest{
+		Name: existing.Name, Type: existing.Type, BaseURL: existing.BaseURL, Model: existing.Model,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !updated.ImageInput {
+		t.Fatalf("provider update dropped explicit image input opt-in: %+v", updated)
+	}
+}
+
 func TestProviderConfigUpdateModelsOmittedPreservesAndProvidedReplaces(t *testing.T) {
 	existing := config.ProviderConfig{
 		Name:      "relay",

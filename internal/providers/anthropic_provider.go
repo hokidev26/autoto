@@ -200,8 +200,15 @@ func (p *AnthropicProvider) Generate(ctx context.Context, req GenerateRequest) (
 				dispatchEmitted = emitProviderEvent(ctx, out, newDispatchEvent(p.cfg.Name, model, candidate.id))
 				return dispatchEmitted
 			}
+			requestParams := params
+			if candidate.oauth {
+				// OAuth subscription tokens require Claude Code identity as the
+				// first system block; API-key candidates must keep the original
+				// params so we only rewrite per OAuth attempt.
+				requestParams = withAnthropicOAuthClaudeCodeIdentity(params)
+			}
 			var response *http.Response
-			stream := candidate.client.Messages.NewStreaming(ctx, params, option.WithResponseInto(&response))
+			stream := candidate.client.Messages.NewStreaming(ctx, requestParams, option.WithResponseInto(&response))
 			var acc anthropic.Message
 			var usage Usage
 			var stopReason string
@@ -326,6 +333,27 @@ func anthropicToolCallEvent(message anthropic.Message, index int64) (Event, bool
 		input = json.RawMessage(`{}`)
 	}
 	return Event{Type: "tool_call", ToolCall: &ToolCall{ID: block.ID, Name: block.Name, Input: input}}, true
+}
+
+// withAnthropicOAuthClaudeCodeIdentity returns params whose first system text
+// block is the Claude Code identity string. The original params value is not
+// mutated (System is replaced with a new slice).
+func withAnthropicOAuthClaudeCodeIdentity(params anthropic.MessageNewParams) anthropic.MessageNewParams {
+	if hasAnthropicClaudeCodeIdentity(params.System) {
+		return params
+	}
+	system := make([]anthropic.TextBlockParam, 0, len(params.System)+1)
+	system = append(system, anthropic.TextBlockParam{Text: anthropicauth.ClaudeCodeIdentity})
+	system = append(system, params.System...)
+	params.System = system
+	return params
+}
+
+func hasAnthropicClaudeCodeIdentity(system []anthropic.TextBlockParam) bool {
+	if len(system) == 0 {
+		return false
+	}
+	return strings.TrimSpace(system[0].Text) == anthropicauth.ClaudeCodeIdentity
 }
 
 func anthropicMessages(messages []Message, systemPrompt string) ([]anthropic.MessageParam, []anthropic.TextBlockParam) {

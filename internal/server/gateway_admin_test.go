@@ -17,6 +17,7 @@ import (
 	"autoto/internal/config"
 	"autoto/internal/db"
 	gatewaypkg "autoto/internal/gateway"
+	"autoto/internal/subscriptionauth"
 )
 
 func TestGatewayAdminRoutesRequireSensitiveToken(t *testing.T) {
@@ -531,6 +532,53 @@ func TestGatewayAccountAdminManagesExplicitGrants(t *testing.T) {
 	}
 }
 
+func TestGatewayAccountAdminManagesSubscriptionGrants(t *testing.T) {
+	home := t.TempDir()
+	credentialStore := subscriptionauth.NewStore(subscriptionauth.DefaultStoreDir(home, subscriptionauth.ProviderGrok))
+	stored, err := credentialStore.CreateOAuth(subscriptionauth.CreateRequest{
+		Provider: subscriptionauth.ProviderGrok, Alias: "Team Grok", AccessToken: "grok-account-secret",
+		RefreshToken: "grok-refresh-secret", Subject: "grok-subject",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	provider := config.NormalizeProviderConfig(config.ProviderConfig{Name: config.ProviderTypeGrok, Type: config.ProviderTypeGrok})
+	provider.GatewayEnabled = true
+	cfg := config.Config{
+		Paths:     config.PathsConfig{HomeDir: home},
+		Providers: config.ProvidersConfig{Instances: []config.ProviderConfig{provider}},
+	}
+	app, store := newGatewayAdminTestServer(t, cfg)
+
+	listResponse := gatewayAdminJSONRequest(t, app, http.MethodGet, "/api/gateway/accounts", nil, http.StatusOK)
+	if body := listResponse.Body.String(); strings.Contains(body, "grok-account-secret") || strings.Contains(body, "grok-refresh-secret") {
+		t.Fatalf("Gateway account list leaked subscription tokens: %s", body)
+	}
+	var listed struct {
+		Accounts []gatewayAccountSummary `json:"accounts"`
+	}
+	decodeGatewayAdminResponse(t, listResponse, &listed)
+	if len(listed.Accounts) != 1 || listed.Accounts[0].Provider != subscriptionauth.ProviderGrok || listed.Accounts[0].AccountID != stored.ID || listed.Accounts[0].Label != "Team Grok" {
+		t.Fatalf("unexpected subscription account list: %+v", listed.Accounts)
+	}
+
+	accountPath := "/api/gateway/accounts/grok/" + stored.ID
+	sharedResponse := gatewayAdminJSONRequest(t, app, http.MethodPatch, accountPath, map[string]any{"shared": true}, http.StatusOK)
+	var shared struct {
+		Account gatewayAccountSummary `json:"account"`
+	}
+	decodeGatewayAdminResponse(t, sharedResponse, &shared)
+	if !shared.Account.Shared || !shared.Account.Effective || shared.Account.Reason != "eligible" {
+		t.Fatalf("subscription Gateway grant was not effective: %+v", shared.Account)
+	}
+	grants, err := store.ListGatewayAccountGrants(context.Background(), subscriptionauth.ProviderGrok)
+	if err != nil || len(grants) != 1 || grants[0].AccountID != stored.ID {
+		t.Fatalf("subscription Gateway grant was not persisted: %+v err=%v", grants, err)
+	}
+
+	gatewayAdminJSONRequest(t, app, http.MethodPatch, accountPath, map[string]any{"shared": false}, http.StatusOK)
+}
+
 func TestGatewayRequestsReturnsSafeRecentMetadata(t *testing.T) {
 	app, store := newGatewayAdminTestServer(t, config.Config{})
 	key := createGatewayAdminStoredKey(t, store, "Recent", "recent", true)
@@ -648,6 +696,17 @@ func decodeGatewayAdminResponse(t *testing.T, response *httptest.ResponseRecorde
 	t.Helper()
 	if err := json.NewDecoder(response.Body).Decode(dst); err != nil {
 		t.Fatalf("decode response: %v", err)
+	}
+}
+
+func TestGatewayProviderConfigPrefersNativeSubscriptionTypeOnNameCollision(t *testing.T) {
+	cfg := config.Config{Providers: config.ProvidersConfig{Instances: []config.ProviderConfig{
+		{Name: subscriptionauth.ProviderGemini, Type: config.ProviderTypeGeminiInteractions},
+		{Name: "gemini-oauth", Type: config.ProviderTypeGemini, GatewayEnabled: true},
+	}}}
+	provider, ok := gatewayProviderConfig(cfg, subscriptionauth.ProviderGemini)
+	if !ok || provider.Name != "gemini-oauth" || provider.Type != config.ProviderTypeGemini {
+		t.Fatalf("Gateway 未优先选择原生 Gemini Provider：%+v", provider)
 	}
 }
 
