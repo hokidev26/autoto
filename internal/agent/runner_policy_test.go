@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"runtime"
 	"strings"
+	"sync"
 	"testing"
 
 	"autoto/internal/config"
@@ -371,5 +372,214 @@ func TestPermissionModeWithCapNeverWidens(t *testing.T) {
 		if got := permissionModeWithCap(test.mode, test.cap); got != test.want {
 			t.Fatalf("permissionModeWithCap(%q, %q)=%q, want %q", test.mode, test.cap, got, test.want)
 		}
+	}
+}
+
+type normalizationSpyTool struct {
+	mu            sync.Mutex
+	riskInputs    []json.RawMessage
+	executeInputs []json.RawMessage
+}
+
+func (*normalizationSpyTool) Name() string        { return "NormalizationSpy" }
+func (*normalizationSpyTool) Description() string { return "Records normalized runner inputs." }
+func (*normalizationSpyTool) Schema() any {
+	return map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"count": map[string]any{"type": "integer", "default": "2.0"},
+			"ratio": map[string]any{"type": "number", "minimum": 1, "maximum": 5},
+		},
+		"additionalProperties": true,
+	}
+}
+func (tool *normalizationSpyTool) Risk(input json.RawMessage) tools.Risk {
+	tool.mu.Lock()
+	defer tool.mu.Unlock()
+	tool.riskInputs = append(tool.riskInputs, append(json.RawMessage(nil), input...))
+	return tools.RiskWrite
+}
+func (tool *normalizationSpyTool) Execute(_ context.Context, call tools.Call, _ tools.Env) (tools.Result, error) {
+	tool.mu.Lock()
+	defer tool.mu.Unlock()
+	tool.executeInputs = append(tool.executeInputs, append(json.RawMessage(nil), call.Input...))
+	return tools.Result{Output: "normalized"}, nil
+}
+func (tool *normalizationSpyTool) inputs() ([]json.RawMessage, []json.RawMessage) {
+	tool.mu.Lock()
+	defer tool.mu.Unlock()
+	return append([]json.RawMessage(nil), tool.riskInputs...), append([]json.RawMessage(nil), tool.executeInputs...)
+}
+
+func TestRunnerUsesOneNormalizedInputForRiskApprovalAuditAndExecute(t *testing.T) {
+	ctx := context.Background()
+	store, agent := newAgentTestStore(t, t.TempDir(), "acceptEdits")
+	defer store.Close()
+	if _, err := store.UpdateWorkflowPreferences(ctx, db.WorkflowPreferences{RequireConfirmationForExec: true, RequireConfirmationForWrites: true, AllowReadOnlyByDefault: true}); err != nil {
+		t.Fatal(err)
+	}
+	run, err := store.CreateRun(ctx, db.Run{AgentID: agent.ID, Status: "running", ExecutionMode: db.RunExecutionModeExecute})
+	if err != nil {
+		t.Fatal(err)
+	}
+	spy := &normalizationSpyTool{}
+	enableAgentTestTool(t, store, spy.Name())
+	registry := tools.NewRegistry()
+	registry.Register(spy)
+	runner := NewRunner(store, providers.NewRegistry(), registry, NewHub(), config.AgentConfig{})
+	listed := runner.ListTools()
+	if len(listed) != 1 || listed[0].Name != spy.Name() {
+		t.Fatalf("unexpected tool metadata: %+v", listed)
+	}
+	call := tools.Call{ID: "normalize-shared", Name: spy.Name(), Input: json.RawMessage(`{"count":"3.0","ratio":"9","unknown":"11"}`)}
+	want := `{"count":3,"ratio":5,"unknown":"11"}`
+
+	resultCh := make(chan tools.Result, 1)
+	errCh := make(chan error, 1)
+	go func() {
+		result, executeErr := runner.executeToolForLoop(ctx, agent.ID, run.ID, call, "")
+		resultCh <- result
+		errCh <- executeErr
+	}()
+	waitForPendingApproval(t, runner, agent.ID, call.ID)
+
+	runner.approvalMu.Lock()
+	approval := runner.approvals[approvalKey(agent.ID, call.ID)]
+	approvalInput := append(json.RawMessage(nil), approval.Input...)
+	approvalRisk := approval.Risk
+	runner.approvalMu.Unlock()
+	if string(approvalInput) != want || approvalRisk != tools.RiskWrite {
+		t.Fatalf("approval did not receive normalized input: input=%s risk=%s", approvalInput, approvalRisk)
+	}
+	if accepted, approveErr := runner.ApproveToolCall(ctx, agent.ID, call.ID, ToolApprovalDecision{Decision: "allow_once", Reason: "normalized input checked", DecidedBy: "test"}); approveErr != nil || !accepted {
+		t.Fatalf("approve normalized call: accepted=%v err=%v", accepted, approveErr)
+	}
+	if executeErr := <-errCh; executeErr != nil {
+		t.Fatal(executeErr)
+	}
+	if result := <-resultCh; result.IsError || result.Output != "normalized" {
+		t.Fatalf("unexpected execute result: %+v", result)
+	}
+
+	riskInputs, executeInputs := spy.inputs()
+	if len(riskInputs) != 1 || string(riskInputs[0]) != want {
+		t.Fatalf("risk input mismatch: %q", riskInputs)
+	}
+	if len(executeInputs) != 1 || string(executeInputs[0]) != want {
+		t.Fatalf("execute input mismatch: %q", executeInputs)
+	}
+	stored, err := store.GetToolCallByUseID(ctx, agent.ID, call.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.Status != "completed" || string(stored.InputJSON) != want {
+		t.Fatalf("audit input mismatch: status=%s input=%s", stored.Status, stored.InputJSON)
+	}
+}
+
+func TestRunnerRejectsForbiddenHostFieldsBeforeRiskApprovalOrExecute(t *testing.T) {
+	ctx := context.Background()
+	store, agent := newAgentTestStore(t, t.TempDir(), "acceptEdits")
+	defer store.Close()
+	spy := &normalizationSpyTool{}
+	enableAgentTestTool(t, store, spy.Name())
+	registry := tools.NewRegistry()
+	registry.Register(spy)
+	runner := NewRunner(store, providers.NewRegistry(), registry, NewHub(), config.AgentConfig{})
+	input := json.RawMessage(`{"cwd":"C:/escape","count":"3.0"}`)
+	result, err := runner.ExecuteTool(ctx, agent.ID, tools.Call{ID: "normalize-host-field", Name: spy.Name(), Input: input})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.IsError || !strings.Contains(result.Output, "host field") {
+		t.Fatalf("expected forbidden host field result, got %+v", result)
+	}
+	if runnerPendingApprovalCount(runner) != 0 {
+		t.Fatal("forbidden host field must not create approval state")
+	}
+	riskInputs, executeInputs := spy.inputs()
+	if len(riskInputs) != 0 || len(executeInputs) != 0 {
+		t.Fatalf("forbidden host field reached risk or execute: risk=%q execute=%q", riskInputs, executeInputs)
+	}
+	stored, err := store.GetToolCallByUseID(ctx, agent.ID, "normalize-host-field")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.Status != "error" || string(stored.InputJSON) != string(input) {
+		t.Fatalf("forbidden input was not audited intact: status=%s input=%q", stored.Status, stored.InputJSON)
+	}
+}
+
+func TestRunnerLoopRejectsForbiddenHostFieldsBeforeRiskApprovalOrExecute(t *testing.T) {
+	ctx := context.Background()
+	store, agent := newAgentTestStore(t, t.TempDir(), "acceptEdits")
+	defer store.Close()
+	run, err := store.CreateRun(ctx, db.Run{AgentID: agent.ID, Status: "running", ExecutionMode: db.RunExecutionModeExecute})
+	if err != nil {
+		t.Fatal(err)
+	}
+	spy := &normalizationSpyTool{}
+	enableAgentTestTool(t, store, spy.Name())
+	registry := tools.NewRegistry()
+	registry.Register(spy)
+	runner := NewRunner(store, providers.NewRegistry(), registry, NewHub(), config.AgentConfig{})
+	listed, err := runner.ListToolsForAgent(ctx, agent.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(listed) != 1 || listed[0].Name != spy.Name() {
+		t.Fatalf("unexpected agent tool metadata: %+v", listed)
+	}
+	input := json.RawMessage(`{"agent_id":"attacker","count":"3.0"}`)
+	result, err := runner.executeToolForLoop(ctx, agent.ID, run.ID, tools.Call{ID: "normalize-loop-host-field", Name: spy.Name(), Input: input}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.IsError || !strings.Contains(result.Output, "host field") {
+		t.Fatalf("expected forbidden host field result, got %+v", result)
+	}
+	if runnerPendingApprovalCount(runner) != 0 {
+		t.Fatal("forbidden loop input must not create approval state")
+	}
+	riskInputs, executeInputs := spy.inputs()
+	if len(riskInputs) != 0 || len(executeInputs) != 0 {
+		t.Fatalf("forbidden loop input reached risk or execute: risk=%q execute=%q", riskInputs, executeInputs)
+	}
+	stored, err := store.GetToolCallByUseID(ctx, agent.ID, "normalize-loop-host-field")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.Status != "error" || string(stored.InputJSON) != string(input) {
+		t.Fatalf("forbidden loop input was not audited intact: status=%s input=%q", stored.Status, stored.InputJSON)
+	}
+}
+
+func TestRunnerRejectsInvalidJSONWithoutRiskOrEmptyObjectFallback(t *testing.T) {
+	ctx := context.Background()
+	store, agent := newAgentTestStore(t, t.TempDir(), "acceptEdits")
+	defer store.Close()
+	spy := &normalizationSpyTool{}
+	enableAgentTestTool(t, store, spy.Name())
+	registry := tools.NewRegistry()
+	registry.Register(spy)
+	runner := NewRunner(store, providers.NewRegistry(), registry, NewHub(), config.AgentConfig{})
+	invalid := json.RawMessage(`{"count":`)
+	result, err := runner.ExecuteTool(ctx, agent.ID, tools.Call{ID: "normalize-invalid", Name: spy.Name(), Input: invalid})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.IsError || !strings.Contains(result.Output, "invalid tool input") {
+		t.Fatalf("expected invalid input result, got %+v", result)
+	}
+	riskInputs, executeInputs := spy.inputs()
+	if len(riskInputs) != 0 || len(executeInputs) != 0 {
+		t.Fatalf("invalid JSON reached risk or execute: risk=%q execute=%q", riskInputs, executeInputs)
+	}
+	stored, err := store.GetToolCallByUseID(ctx, agent.ID, "normalize-invalid")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.Status != "error" || string(stored.InputJSON) != string(invalid) || string(stored.InputJSON) == `{}` {
+		t.Fatalf("invalid JSON was not audited intact: status=%s input=%q", stored.Status, stored.InputJSON)
 	}
 }

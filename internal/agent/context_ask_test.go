@@ -720,6 +720,10 @@ func newContextAskHarnessWithSummaryModel(t *testing.T, terminal bool, summaryMo
 	if err != nil {
 		t.Fatal(err)
 	}
+	if _, err := store.DB().ExecContext(ctx, db.ToolExecutionGroupSchemaSQL()); err != nil {
+		store.Close()
+		t.Fatal(err)
+	}
 	_, _, owner, err := store.CreateProject(ctx, "Context Ask", "", t.TempDir(), "context-test:target", "acceptEdits")
 	if err != nil {
 		store.Close()

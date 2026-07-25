@@ -240,6 +240,9 @@ func (r *Runner) RecoverInterruptedRuns(ctx context.Context) error {
 	if r == nil || r.store == nil {
 		return nil
 	}
+	if err := r.RecoverInterruptedToolExecutionGroups(ctx); err != nil {
+		return fmt.Errorf("recover interrupted tool execution groups: %w", err)
+	}
 	rollingBackRuns, err := r.store.ListRollingBackRuns(ctx)
 	if err != nil {
 		return fmt.Errorf("list rolling back runs for recovery: %w", err)

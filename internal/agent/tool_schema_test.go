@@ -1,8 +1,39 @@
 package agent
 
 import (
+	"encoding/json"
 	"testing"
 )
+
+func TestCheckedToolInputSchemaRejectsInvalidNativeSchemas(t *testing.T) {
+	cases := map[string]json.RawMessage{
+		"malformed":          json.RawMessage(`{"type":"object"`),
+		"trailing":           json.RawMessage(`{"type":"object"} {}`),
+		"non-object":         json.RawMessage(`[]`),
+		"reversed bounds":    json.RawMessage(`{"type":"object","properties":{"value":{"type":"number","minimum":2,"maximum":1}}}`),
+		"exclusive bounds":   json.RawMessage(`{"type":"object","properties":{"value":{"type":"number","exclusiveMaximum":3}}}`),
+		"complex oneOf":      json.RawMessage(`{"type":"object","properties":{"value":{"oneOf":[{"type":"object"}]}}}`),
+		"invalid additional": json.RawMessage(`{"type":"object","additionalProperties":"yes"}`),
+	}
+	for name, schema := range cases {
+		t.Run(name, func(t *testing.T) {
+			if _, err := checkedToolInputSchema(schema); err == nil {
+				t.Fatal("expected invalid native schema rejection")
+			}
+		})
+	}
+}
+
+func TestCheckedToolInputSchemaClosesAdditionalPropertyObjectSchemas(t *testing.T) {
+	schema, err := checkedToolInputSchema(json.RawMessage(`{"type":"object","properties":{},"additionalProperties":{"type":"object","properties":{"count":{"type":"integer"}}}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	additional := schema["additionalProperties"].(map[string]any)
+	if additional["additionalProperties"] != false {
+		t.Fatalf("nested additionalProperties schema was not closed: %+v", schema)
+	}
+}
 
 func TestToolInputSchemaBuildsNestedObjectsAndArrays(t *testing.T) {
 	type child struct {

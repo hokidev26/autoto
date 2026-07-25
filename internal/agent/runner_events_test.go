@@ -24,7 +24,9 @@ func (tool lifecycleTestTool) Name() string { return "LifecycleTest" }
 
 func (tool lifecycleTestTool) Description() string { return "Returns a controlled test result." }
 
-func (tool lifecycleTestTool) Schema() any { return map[string]any{"type": "object"} }
+func (tool lifecycleTestTool) Schema() any {
+	return map[string]any{"type": "object", "additionalProperties": true}
+}
 
 func (tool lifecycleTestTool) Risk(json.RawMessage) tools.Risk {
 	return tools.RiskRead

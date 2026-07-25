@@ -121,12 +121,23 @@ func newAgentTestStore(t *testing.T, projectDir, permissionMode string) (*db.Sto
 	if err != nil {
 		t.Fatal(err)
 	}
+	if _, err := store.DB().ExecContext(context.Background(), db.ToolExecutionGroupSchemaSQL()); err != nil {
+		store.Close()
+		t.Fatal(err)
+	}
 	_, _, agent, err := store.CreateProject(context.Background(), "Demo", "", projectDir, "fake:test", permissionMode)
 	if err != nil {
 		store.Close()
 		t.Fatal(err)
 	}
 	return store, agent
+}
+
+func enableAgentTestTool(t *testing.T, store *db.Store, toolName string) {
+	t.Helper()
+	if _, err := store.SetToolAvailabilityRuleCAS(context.Background(), db.ToolAvailabilityTarget{Scope: db.ToolAvailabilityScopeGlobal}, toolName, db.ToolAvailabilityEnabled, 0, "test"); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func newAgentTestRunner(store *db.Store, provider providers.Provider, cfg config.AgentConfig) *Runner {
@@ -268,6 +279,32 @@ func requestHasUserText(req providers.GenerateRequest, text string) bool {
 		}
 	}
 	return false
+}
+
+func requestUntrustedUserContext(req providers.GenerateRequest, source string) (string, bool) {
+	opening := `<untrusted_context source="` + source + `">`
+	for _, message := range req.Messages {
+		if message.Role != "user" {
+			continue
+		}
+		candidates := []string{message.Content}
+		for _, block := range message.Blocks {
+			if block.Type == "text" {
+				candidates = append(candidates, block.Text)
+			}
+		}
+		for _, candidate := range candidates {
+			if strings.Contains(candidate, opening) && strings.Contains(candidate, "</untrusted_context>") {
+				return candidate, true
+			}
+		}
+	}
+	return "", false
+}
+
+func requestHasUntrustedUserContext(req providers.GenerateRequest, source, text string) bool {
+	contextText, ok := requestUntrustedUserContext(req, source)
+	return ok && strings.Contains(contextText, text)
 }
 
 func waitForAgentStatus(t *testing.T, store *db.Store, agentID, status string) {

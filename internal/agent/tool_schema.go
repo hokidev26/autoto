@@ -1,7 +1,9 @@
 package agent
 
 import (
+	"bytes"
 	"encoding/json"
+	"fmt"
 	"reflect"
 	"strings"
 )
@@ -40,10 +42,44 @@ func enforceClosedWorldObjectSchema(schema map[string]any) map[string]any {
 	if items, ok := schema["items"].(map[string]any); ok {
 		schema["items"] = enforceClosedWorldObjectSchema(items)
 	}
+	if additional, ok := schema["additionalProperties"].(map[string]any); ok {
+		schema["additionalProperties"] = enforceClosedWorldObjectSchema(additional)
+	}
+	if branches, ok := schema["oneOf"].([]any); ok {
+		for index, rawBranch := range branches {
+			if branch, ok := rawBranch.(map[string]any); ok {
+				branches[index] = enforceClosedWorldObjectSchema(branch)
+			}
+		}
+		schema["oneOf"] = branches
+	}
 	return schema
 }
 
+func checkedToolInputSchema(input any) (map[string]any, error) {
+	if schema, native, err := decodeNativeToolInputSchema(input); native {
+		if err != nil {
+			return nil, err
+		}
+		schema = enforceClosedWorldObjectSchema(schema)
+		if err := validateToolInputSchema(schema, "$schema"); err != nil {
+			return nil, err
+		}
+		return schema, nil
+	}
+	schema := toolInputSchema(input)
+	if err := validateToolInputSchema(schema, "$schema"); err != nil {
+		return nil, err
+	}
+	return schema, nil
+}
+
 func nativeToolInputSchema(input any) (map[string]any, bool) {
+	schema, native, err := decodeNativeToolInputSchema(input)
+	return schema, native && err == nil
+}
+
+func decodeNativeToolInputSchema(input any) (map[string]any, bool, error) {
 	var raw []byte
 	switch schema := input.(type) {
 	case json.RawMessage:
@@ -53,24 +89,31 @@ func nativeToolInputSchema(input any) (map[string]any, bool) {
 	case map[string]any:
 		encoded, err := json.Marshal(schema)
 		if err != nil {
-			return nil, false
+			return nil, true, fmt.Errorf("encode native tool schema: %w", err)
 		}
 		raw = encoded
 	case *json.RawMessage:
 		if schema == nil {
-			return nil, false
+			return nil, true, fmt.Errorf("native tool schema is nil")
 		}
 		raw = *schema
 	default:
-		return nil, false
+		return nil, false, nil
 	}
-	var decoded map[string]any
-	decoder := json.NewDecoder(strings.NewReader(string(raw)))
+	decoder := json.NewDecoder(bytes.NewReader(raw))
 	decoder.UseNumber()
-	if err := decoder.Decode(&decoded); err != nil || decoded == nil {
-		return nil, false
+	var decoded any
+	if err := decoder.Decode(&decoded); err != nil {
+		return nil, true, fmt.Errorf("decode native tool schema: %w", err)
 	}
-	return decoded, true
+	if err := requireJSONEOF(decoder); err != nil {
+		return nil, true, fmt.Errorf("decode native tool schema: %w", err)
+	}
+	schema, ok := decoded.(map[string]any)
+	if !ok || schema == nil {
+		return nil, true, fmt.Errorf("native tool schema must be a single JSON object")
+	}
+	return schema, true, nil
 }
 
 func jsonSchemaForType(t reflect.Type, visiting map[reflect.Type]bool) map[string]any {

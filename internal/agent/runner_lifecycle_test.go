@@ -13,6 +13,7 @@ import (
 	"autoto/internal/config"
 	"autoto/internal/db"
 	"autoto/internal/providers"
+	"autoto/internal/tools"
 )
 
 func TestRunnerCapturesScopedGitCheckpointAtRunCompletion(t *testing.T) {
@@ -537,6 +538,10 @@ func TestRecoverInterruptedRunsInvalidatesCompletedRollingBackCheckpointIdempote
 	if err != nil {
 		t.Fatal(err)
 	}
+	if _, err := store.DB().ExecContext(ctx, db.ToolExecutionGroupSchemaSQL()); err != nil {
+		store.Close()
+		t.Fatal(err)
+	}
 	_, _, agent, err := store.CreateProject(ctx, "Demo", "", repo, "fake:test", "acceptEdits")
 	if err != nil {
 		store.Close()
@@ -615,6 +620,26 @@ func assertCompletedRollingBackRecovery(t *testing.T, ctx context.Context, store
 	}
 }
 
+type largeCheckpointWriteTool struct {
+	size int
+}
+
+func (largeCheckpointWriteTool) Name() string { return "LargeCheckpointWrite" }
+func (largeCheckpointWriteTool) Description() string {
+	return "Writes a test file beyond the checkpoint fingerprint budget."
+}
+func (largeCheckpointWriteTool) Schema() any { return struct{}{} }
+func (largeCheckpointWriteTool) Risk(json.RawMessage) tools.Risk {
+	return tools.RiskWrite
+}
+func (tool largeCheckpointWriteTool) Execute(_ context.Context, _ tools.Call, env tools.Env) (tools.Result, error) {
+	path := filepath.Join(env.CWD, "large.bin")
+	if err := os.WriteFile(path, []byte(strings.Repeat("x", tool.size)), 0o644); err != nil {
+		return tools.Result{Output: err.Error(), IsError: true}, nil
+	}
+	return tools.Result{Output: "large test file written"}, nil
+}
+
 func TestRunnerInvalidatesLargeFileCheckpointWithoutBlockingRun(t *testing.T) {
 	ctx := context.Background()
 	repo := t.TempDir()
@@ -636,15 +661,12 @@ func TestRunnerInvalidatesLargeFileCheckpointWithoutBlockingRun(t *testing.T) {
 	if _, err := store.AddMessage(ctx, db.Message{AgentID: agent.ID, Role: "user", ContentText: "write a large file"}); err != nil {
 		t.Fatal(err)
 	}
-	input, err := json.Marshal(map[string]string{"file_path": "large.bin", "content": strings.Repeat("x", int(gitCheckpointMaxFileBytes)+1)})
-	if err != nil {
-		t.Fatal(err)
-	}
 	provider := &scriptedProvider{turns: [][]providers.Event{
-		{{Type: "tool_call", ToolCall: &providers.ToolCall{ID: "large-write", Name: "Write", Input: input}}, {Type: "done", Done: true}},
+		{{Type: "tool_call", ToolCall: &providers.ToolCall{ID: "large-write", Name: "LargeCheckpointWrite", Input: json.RawMessage(`{}`)}}, {Type: "done", Done: true}},
 		{{Type: "text", Text: "done"}, {Type: "done", Done: true}},
 	}}
 	runner := newAgentTestRunner(store, provider, config.AgentConfig{MaxTurns: 3})
+	runner.tools.Register(largeCheckpointWriteTool{size: int(gitCheckpointMaxFileBytes) + 1})
 	runner.Run(ctx, agent.ID)
 
 	updated, err := store.GetAgent(ctx, agent.ID)

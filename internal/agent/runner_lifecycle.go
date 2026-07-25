@@ -54,6 +54,7 @@ func (r *Runner) runWithRun(ctx context.Context, agentID, runID, triggerMessageI
 }
 
 func (r *Runner) executeRegisteredRun(runCtx context.Context, agentID string, active *activeRun) {
+	defer r.closeTerminalRuntimeSnapshot(agentID, activeRunID(active))
 	err := r.run(runCtx, agentID, active.runID)
 	if err != nil && active != nil {
 		r.closeToolOutputPipelineRun(agentID, active.runID)

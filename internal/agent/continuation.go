@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -10,6 +11,7 @@ import (
 
 	"autoto/internal/config"
 	"autoto/internal/db"
+	"autoto/internal/hooks"
 	"autoto/internal/providers"
 	"autoto/internal/review"
 	"autoto/internal/tools"
@@ -28,14 +30,6 @@ const (
 )
 
 var errContinuationStoreUnavailable = errors.New("continuation store APIs are unavailable")
-
-func mergeConversationSystemBoundary(systemPrompt string) string {
-	systemPrompt = strings.TrimSpace(systemPrompt)
-	if systemPrompt == "" {
-		return conversationSystemBoundary
-	}
-	return systemPrompt + "\n\n" + conversationSystemBoundary
-}
 
 type ContinuationSettings struct {
 	Mode             string `json:"mode"`
@@ -319,7 +313,7 @@ func (r *Runner) run(ctx context.Context, agentID, runID string) error {
 	return r.runContinuous(ctx, agentID, runID)
 }
 
-func (r *Runner) runContinuous(ctx context.Context, agentID, runID string) error {
+func (r *Runner) runContinuous(ctx context.Context, agentID, runID string) (runErr error) {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -340,6 +334,36 @@ func (r *Runner) runContinuous(ctx context.Context, agentID, runID string) error
 	}
 	if state.run.ExecutionMode == db.RunExecutionModePlan || isConversationRun(state.run) {
 		state.limits.mode = continuationModeOff
+	}
+	var lifecycleRun *lifecycleRunContext
+	lifecycleAfterDispatched := false
+	if strings.TrimSpace(runID) != "" {
+		if _, _, err := r.prepareRunRuntimeSnapshot(ctx, agentID, runID); err != nil {
+			return err
+		}
+		prepared, err := r.ensureLifecycleRun(ctx, agentID, runID)
+		if err != nil {
+			return err
+		}
+		lifecycleRun = &prepared
+		defer func() {
+			if lifecycleRun == nil || lifecycleAfterDispatched || runErr == nil {
+				return
+			}
+			status := "error"
+			if errors.Is(runErr, context.Canceled) {
+				status = "interrupted"
+			}
+			cleanupContext, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Minute)
+			defer cancel()
+			_ = r.dispatchRunLifecycle(cleanupContext, *lifecycleRun, hooks.EventRunAfter, status, runErr.Error())
+			_ = r.closeLifecycleRun(cleanupContext, runID)
+		}()
+		if prepared.IsNew {
+			if err := r.dispatchRunLifecycle(ctx, prepared, hooks.EventRunBefore, "running", ""); err != nil {
+				return err
+			}
+		}
 	}
 	if !isConversationRun(state.run) && state.run.CheckpointState == db.RunCheckpointNone && state.run.ContinuationCount == 0 {
 		agent, policy, policyErr := r.policyContext(ctx, agentID, runID)
@@ -384,6 +408,16 @@ func (r *Runner) runContinuous(ctx context.Context, agentID, runID string) error
 		outcome.outputTokens = 0
 		switch outcome.disposition {
 		case segmentComplete:
+			if lifecycleRun != nil {
+				lifecycleAfterDispatched = true
+				if err := r.dispatchRunLifecycle(ctx, *lifecycleRun, hooks.EventRunAfter, "completed", ""); err != nil {
+					_ = r.closeLifecycleRun(context.WithoutCancel(ctx), runID)
+					return err
+				}
+				if err := r.closeLifecycleRun(ctx, runID); err != nil {
+					return err
+				}
+			}
 			return r.completeContinuousRun(ctx, agentID, runID, outcome)
 		case segmentBudgetExhausted:
 			r.publishContinuationLifecycle("budget_exhausted", "agent.budget_exhausted", agentID, mergeEventData(map[string]any{
@@ -469,44 +503,21 @@ func (r *Runner) runContinuationSegment(ctx context.Context, state continuationR
 	if err != nil {
 		return segmentOutcome{}, err
 	}
-	if isConversationRun(run) {
-		agent.SystemPrompt = mergeConversationSystemBoundary(agent.SystemPrompt)
-	} else {
-		projectInstructions := loadProjectInstructions(agent.CWD)
-		if strings.TrimSpace(projectInstructions.Text) != "" {
-			agent.SystemPrompt = mergeProjectInstructions(agent.SystemPrompt, projectInstructions)
-			r.publish(Event{Type: "project.instructions_loaded", AgentID: agentID, Data: mergeEventData(projectInstructions.eventData(), runID)})
-		}
-	}
-	messages, err := r.store.ListMessagesWithAttachmentData(ctx, agentID)
+	runtimeSnapshot, _, err := r.prepareRunRuntimeSnapshot(ctx, agentID, runID)
 	if err != nil {
 		return segmentOutcome{}, err
 	}
-	triggerText, err := r.runTriggerUserText(ctx, agentID, runID, messages)
-	if err != nil && runID != "" {
+	agent.SystemPrompt = runtimeSnapshot.prompt.systemPrompt()
+	promptMessages := runtimeSnapshot.prompt.userMessages()
+	messages, err := r.store.ListMessagesWithAttachmentData(ctx, agentID)
+	if err != nil {
 		return segmentOutcome{}, err
-	}
-	if triggerText != "" {
-		memoryPrompt, injectedCount, memoryErr := r.prepareMemorySystemPrompt(ctx, agentID, triggerText, agent.SystemPrompt)
-		if memoryErr != nil {
-			return segmentOutcome{}, memoryErr
-		}
-		agent.SystemPrompt = memoryPrompt
-		if injectedCount > 0 {
-			r.publish(Event{Type: "memory.injected", AgentID: agentID, Data: mergeEventData(map[string]any{"count": injectedCount}, runID)})
-		}
-	}
-	if policy.IsPlan() {
-		agent.SystemPrompt = mergePlanDraftSystemPrompt(agent.SystemPrompt)
 	}
 	provider, model, err := r.providers.Resolve(agent.Model)
 	if err != nil {
 		return segmentOutcome{}, err
 	}
-	toolSnapshot, err := r.snapshotToolsForPolicy(ctx, tools.ResolutionContext{AgentID: agentID, CWD: agent.CWD}, policy)
-	if err != nil {
-		return segmentOutcome{}, fmt.Errorf("snapshot tools: %w", err)
-	}
+	toolSnapshot := runtimeSnapshot.tools
 	toolSpecs := toolSnapshot.specs
 	if !providers.CapabilitiesFor(provider).Tools {
 		toolSpecs = nil
@@ -520,6 +531,9 @@ func (r *Runner) runContinuationSegment(ctx context.Context, state continuationR
 		if err := ctx.Err(); err != nil {
 			return segmentOutcome{}, err
 		}
+		if err := r.store.RequireRunToolExecutionGroupsSettled(ctx, runID); err != nil {
+			return outcome, fmt.Errorf("tool execution settlement barrier: %w", err)
+		}
 		if reason := continuationBudgetReason(state, outcome); reason != "" {
 			outcome.disposition = segmentBudgetExhausted
 			outcome.continuationReason = reason
@@ -527,7 +541,7 @@ func (r *Runner) runContinuationSegment(ctx context.Context, state continuationR
 		}
 		controls := r.buildTurnSystemControls(ctx, agent, run, messages, continuationIndex)
 		controls.pipeline = r.toolOutputPipelineControl(agentID, runID)
-		providerMessages, updatedAgent, err := r.managedContextForTurn(ctx, agent, messages, toolSpecs, controls)
+		providerMessages, updatedAgent, err := r.managedContextForTurn(ctx, agent, messages, toolSpecs, controls, promptMessages)
 		if err != nil {
 			return segmentOutcome{}, err
 		}
@@ -625,6 +639,13 @@ func (r *Runner) runContinuationSegment(ctx context.Context, state continuationR
 			r.recordCompletedModelTurn(agentID, runID, messageID, provider.Name(), model, result)
 			return outcome, fmt.Errorf("provider returned unsafe tool stop reason %q", result.StopReason)
 		}
+		normalizedToolCalls := make([]providers.ToolCall, len(result.ToolCalls))
+		ledgerItems := make([]db.ToolExecutionItemInput, len(result.ToolCalls))
+		for index, call := range result.ToolCalls {
+			normalizedToolCalls[index] = normalizeProviderToolCall(call)
+			ledgerItems[index] = db.ToolExecutionItemInput{ToolUseID: normalizedToolCalls[index].ID, ToolName: normalizedToolCalls[index].Name}
+		}
+		result.ToolCalls = normalizedToolCalls
 		assistantText := assistantToolUseText(result.Text, result.ToolCalls)
 		assistantMsg, persisted, err := r.persistAssistantResult(ctx, agentID, runID, result, result.Text, "completed", result.StopReason, "")
 		if err != nil {
@@ -635,16 +656,28 @@ func (r *Runner) runContinuationSegment(ctx context.Context, state continuationR
 			r.recordCompletedModelTurn(agentID, runID, "", provider.Name(), model, result)
 			return outcome, errors.New("tool-call assistant result had no persistable content")
 		}
+		toolGroup := db.ToolExecutionGroup{}
+		if strings.TrimSpace(runID) != "" {
+			toolGroup, err = r.store.CreateToolExecutionGroup(ctx, db.ToolExecutionGroupCreateInput{
+				RunID:              runID,
+				AssistantMessageID: assistantMsg.ID,
+				ExpectedCount:      len(ledgerItems),
+				Items:              ledgerItems,
+			})
+			if err != nil {
+				r.recordCompletedModelTurn(agentID, runID, assistantMsg.ID, provider.Name(), model, result)
+				return outcome, fmt.Errorf("persist tool execution group: %w", err)
+			}
+		}
 		r.recordCompletedModelTurn(agentID, runID, assistantMsg.ID, provider.Name(), model, result)
-		r.publish(Event{Type: "message.created", AgentID: agentID, MessageID: assistantMsg.ID, Text: assistantText, Data: mergeEventData(map[string]any{"toolCalls": len(result.ToolCalls), "generatedImages": len(result.GeneratedImages)}, runID)})
+		r.publish(Event{Type: "message.created", AgentID: agentID, MessageID: assistantMsg.ID, Text: assistantText, Data: mergeEventData(map[string]any{"toolCalls": len(result.ToolCalls), "generatedImages": len(result.GeneratedImages), "toolExecutionGroupId": toolGroup.ID}, runID)})
 		messages = append(messages, assistantMsg)
 
 		waitingTaskID := ""
-		for _, call := range result.ToolCalls {
+		for _, toolCall := range result.ToolCalls {
 			if err := ctx.Err(); err != nil {
 				return outcome, err
 			}
-			toolCall := normalizeProviderToolCall(call)
 			rawToolResult, executeErr := r.executeToolForLoop(ctx, agentID, runID, tools.Call{ID: toolCall.ID, Name: toolCall.Name, Input: toolCall.Input}, assistantMsg.ID, toolSnapshot.tools)
 			if executeErr != nil {
 				rawToolResult = tools.Result{Output: executeErr.Error(), IsError: true}
@@ -657,7 +690,20 @@ func (r *Runner) runContinuationSegment(ctx context.Context, state continuationR
 			if err != nil {
 				return outcome, err
 			}
-			r.publish(Event{Type: "message.created", AgentID: agentID, MessageID: toolMsg.ID, Text: toolResultText, Data: mergeEventData(map[string]any{"parentToolUseId": toolCall.ID, "toolName": toolCall.Name, "isError": modelToolResult.IsError}, runID)})
+			terminalStatus, err := r.toolExecutionTerminalStatus(ctx, agentID, runID, assistantMsg.ID, toolCall.ID, modelToolResult)
+			if err != nil {
+				return outcome, err
+			}
+			summaryJSON, err := toolExecutionOutputSummaryJSON(modelToolResult)
+			if err != nil {
+				return outcome, err
+			}
+			if toolGroup.ID != "" {
+				if _, err := r.store.RecordToolExecutionItemTerminal(ctx, toolGroup.ID, db.ToolExecutionItemTerminalInput{ToolUseID: toolCall.ID, Status: terminalStatus, ResultMessageID: toolMsg.ID, OutputSummaryJSON: summaryJSON}); err != nil {
+					return outcome, fmt.Errorf("persist terminal tool execution item %s: %w", toolCall.ID, err)
+				}
+			}
+			r.publish(Event{Type: "message.created", AgentID: agentID, MessageID: toolMsg.ID, Text: toolResultText, Data: mergeEventData(map[string]any{"parentToolUseId": toolCall.ID, "toolName": toolCall.Name, "isError": modelToolResult.IsError, "toolExecutionGroupId": toolGroup.ID}, runID)})
 			messages = append(messages, toolMsg)
 			outcome.resumeAfterID = toolMsg.ID
 			if taskID, waits, boundaryErr := backgroundTaskContinuationBoundary(rawToolResult); boundaryErr != nil {
@@ -667,6 +713,15 @@ func (r *Runner) runContinuationSegment(ctx context.Context, state continuationR
 					return outcome, errors.New("one model turn requested multiple resumeParent background task boundaries")
 				}
 				waitingTaskID = taskID
+			}
+		}
+		if toolGroup.ID != "" {
+			settledGroup, err := r.store.SettleToolExecutionGroup(ctx, toolGroup.ID)
+			if err != nil {
+				return outcome, fmt.Errorf("settle tool execution group %s: %w", toolGroup.ID, err)
+			}
+			if settledGroup.Status != db.ToolExecutionGroupStatusSettled || len(settledGroup.Items) != settledGroup.ExpectedCount {
+				return outcome, errors.New("tool execution group settlement did not produce a complete durable boundary")
 			}
 		}
 		if waitingTaskID != "" {
@@ -896,6 +951,9 @@ func (r *Runner) validateContinuationBoundary(ctx context.Context, run db.Run, c
 	default:
 		return fmt.Errorf("checkpoint state %q is not a complete continuation boundary", run.CheckpointState)
 	}
+	if err := r.store.RequireRunToolExecutionGroupsSettled(ctx, run.ID); err != nil {
+		return fmt.Errorf("tool execution settlement barrier: %w", err)
+	}
 	calls, err := r.store.ListToolCallsByRun(ctx, run.AgentID, run.ID)
 	if err != nil {
 		return fmt.Errorf("load run tool calls: %w", err)
@@ -925,6 +983,7 @@ func (r *Runner) completeContinuousRun(ctx context.Context, agentID, runID strin
 			return err
 		}
 		r.closeToolOutputPipelineRun(agentID, runID)
+		r.closeRunRuntimeSnapshot(runID, agentID)
 	}
 	r.publishPlanRunStatus(ctx, runID, "plan.executed")
 	data := map[string]any{"stopReason": outcome.stopReason}
@@ -1008,6 +1067,45 @@ func safeContinuationReason(reason string) bool {
 		return true
 	default:
 		return false
+	}
+}
+
+func toolExecutionOutputSummaryJSON(result tools.Result) (json.RawMessage, error) {
+	preview, truncated := boundedToolResultPreview(result.Output)
+	digest := sha256.Sum256([]byte(result.Output))
+	return json.Marshal(db.ToolExecutionOutputSummary{
+		SHA256:    fmt.Sprintf("%x", digest[:]),
+		ByteCount: len([]byte(result.Output)),
+		Preview:   preview,
+		Truncated: truncated,
+		IsError:   result.IsError,
+	})
+}
+
+func (r *Runner) toolExecutionTerminalStatus(ctx context.Context, agentID, runID, assistantMessageID, toolUseID string, result tools.Result) (string, error) {
+	fallback := db.ToolExecutionItemStatusCompleted
+	if result.IsError {
+		fallback = db.ToolExecutionItemStatusError
+	}
+	call, err := r.store.GetToolCallByUseID(ctx, agentID, toolUseID)
+	if err != nil {
+		if db.IsNotFound(err) {
+			return fallback, nil
+		}
+		return "", fmt.Errorf("load terminal tool call audit row: %w", err)
+	}
+	if call.RunID != runID || call.MessageID != assistantMessageID {
+		return fallback, nil
+	}
+	switch call.Status {
+	case "denied":
+		return db.ToolExecutionItemStatusDenied, nil
+	case "error", "failed":
+		return db.ToolExecutionItemStatusError, nil
+	case "completed", "succeeded":
+		return db.ToolExecutionItemStatusCompleted, nil
+	default:
+		return fallback, nil
 	}
 }
 
@@ -1239,6 +1337,37 @@ func (r *Runner) schedulePendingContinuation(ctx context.Context, run db.Run) (b
 	r.runMu.Unlock()
 	go r.executeRegisteredRun(runCtx, run.AgentID, active)
 	return true, nil
+}
+
+// RecoverInterruptedToolExecutionGroups reconciles durable ledgers at startup.
+// A fully terminal group can be settled from its persisted items; any group with
+// a non-terminal item is explicitly aborted so it can never be mistaken for a
+// completed model-turn boundary after process restart.
+func (r *Runner) RecoverInterruptedToolExecutionGroups(ctx context.Context) error {
+	if r == nil || r.store == nil {
+		return nil
+	}
+	groups, err := r.store.ListUnsettledToolExecutionGroups(ctx, 10000)
+	if err != nil {
+		return fmt.Errorf("list unsettled tool execution groups: %w", err)
+	}
+	for _, group := range groups {
+		if _, settleErr := r.store.SettleToolExecutionGroup(ctx, group.ID); settleErr == nil {
+			continue
+		} else if !errors.Is(settleErr, db.ErrConflict) {
+			return fmt.Errorf("settle recovered tool execution group %s: %w", group.ID, settleErr)
+		}
+		if _, abortErr := r.store.AbortToolExecutionGroup(ctx, group.ID, "process restarted while tool execution group was incomplete"); abortErr != nil {
+			if errors.Is(abortErr, db.ErrConflict) {
+				refreshed, getErr := r.store.GetToolExecutionGroup(ctx, group.ID)
+				if getErr == nil && (refreshed.Status == db.ToolExecutionGroupStatusSettled || refreshed.Status == db.ToolExecutionGroupStatusAborted) {
+					continue
+				}
+			}
+			return fmt.Errorf("abort interrupted tool execution group %s: %w", group.ID, abortErr)
+		}
+	}
+	return nil
 }
 
 // RecoverContinuationPendingRuns schedules only runs whose persisted boundary

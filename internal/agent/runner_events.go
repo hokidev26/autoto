@@ -315,9 +315,6 @@ func normalizeToolCall(call tools.Call) tools.Call {
 	if call.ID == "" {
 		call.ID = db.NewID()
 	}
-	if len(call.Input) == 0 {
-		call.Input = json.RawMessage(`{}`)
-	}
 	return call
 }
 
