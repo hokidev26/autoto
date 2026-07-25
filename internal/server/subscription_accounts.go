@@ -19,6 +19,7 @@ import (
 	"autoto/internal/geminiauth"
 	"autoto/internal/grokauth"
 	"autoto/internal/kimiauth"
+	"autoto/internal/providers"
 	"autoto/internal/subscriptionauth"
 )
 
@@ -33,6 +34,9 @@ type subscriptionAccountPatchRequest struct {
 type subscriptionAccountPayload struct {
 	subscriptionauth.AccountSummary
 	Stats *db.ProviderAccountStats `json:"stats,omitempty"`
+	// Quota is present only once the account has made a request that returned
+	// rate-limit headers. It is absent, never zeroed, when nothing is known.
+	Quota *providers.ProviderAccountQuotaSnapshot `json:"quota,omitempty"`
 }
 
 type subscriptionAccountsResponse struct {
@@ -84,6 +88,12 @@ func (s *Server) listSubscriptionAccounts(w http.ResponseWriter, r *http.Request
 		if stats, ok := statsByID[item.ID]; ok {
 			statsCopy := stats
 			payload.Stats = &statsCopy
+			if len(stats.QuotaSnapshotJSON) > 0 {
+				var quota providers.ProviderAccountQuotaSnapshot
+				if json.Unmarshal(stats.QuotaSnapshotJSON, &quota) == nil {
+					payload.Quota = &quota
+				}
+			}
 		}
 		accounts = append(accounts, payload)
 	}

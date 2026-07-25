@@ -1520,6 +1520,34 @@ body.white-shell.theme-light.theme-dark #settingsModal {
 #settingsContentBody .anthropic-config-actions { justify-content: flex-end; }
 #settingsContentBody .anthropic-readonly-badge { white-space: nowrap; }
 
+/* Remaining-quota cell in the subscription account table. Populated only from
+   upstream rate-limit headers, so it is often the pending placeholder. */
+#settingsContentBody .subscription-quota { display: grid; gap: 3px; min-width: 0; }
+#settingsContentBody .subscription-quota-line {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+}
+#settingsContentBody .subscription-quota-label {
+  flex: 0 0 auto;
+  color: var(--settings-muted-foreground);
+  font-size: 11px;
+}
+#settingsContentBody .subscription-quota-value {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--settings-foreground);
+  font: 650 12px/1.5 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+#settingsContentBody .subscription-quota-empty {
+  color: var(--settings-muted-foreground);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
 /* Subscription (Antigravity/Grok/Kimi) login panels. The markup mirrors the
    Anthropic OAuth panel, so it takes the same vertical rhythm; without these
    the intro copy, the action row, and the status line collapse together. */

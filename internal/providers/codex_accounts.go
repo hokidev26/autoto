@@ -33,9 +33,12 @@ type AccountTelemetry interface {
 }
 
 type ProviderAccountQuotaSnapshot struct {
-	Provider     string                   `json:"-"`
-	AccountID    string                   `json:"-"`
-	Requests     AccountRateLimitSnapshot `json:"requests"`
+	Provider  string                   `json:"-"`
+	AccountID string                   `json:"-"`
+	Requests  AccountRateLimitSnapshot `json:"requests"`
+	// Tokens carries a combined token budget for upstreams that do not split
+	// input from output. The subscription CLI proxies report it this way.
+	Tokens       AccountRateLimitSnapshot `json:"tokens"`
 	InputTokens  AccountRateLimitSnapshot `json:"input_tokens"`
 	OutputTokens AccountRateLimitSnapshot `json:"output_tokens"`
 	Models       []string                 `json:"models,omitempty"`

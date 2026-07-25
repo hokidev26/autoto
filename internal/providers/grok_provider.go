@@ -293,6 +293,9 @@ func (p *GrokProvider) Generate(ctx context.Context, req GenerateRequest) (<-cha
 				p.emitGrokFinalError(ctx, out, model, prepared.ID, lastErr)
 				return
 			}
+			// Recorded before the status check so a 429 still refreshes the
+			// account's remaining quota in the console.
+			p.accounts.recordAccountQuota(ctx, prepared.ID, response.Header)
 			if response.StatusCode >= http.StatusMultipleChoices {
 				status := response.StatusCode
 				response.Body.Close()

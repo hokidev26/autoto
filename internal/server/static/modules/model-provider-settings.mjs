@@ -79,6 +79,7 @@ export {
   renderCodexAccountManagementTable,
   renderSubscriptionAccountManagementTable,
   subscriptionAccountOverview,
+  subscriptionAccountQuotaBudgets,
   subscriptionAccountStatus,
 } from "./provider-account-rendering.mjs";
 

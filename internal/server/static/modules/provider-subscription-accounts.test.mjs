@@ -10,6 +10,7 @@ import {
   renderSubscriptionAccountManagementTable,
   subscriptionAccountActionRequest,
   subscriptionAccountOverview,
+  subscriptionAccountQuotaBudgets,
   subscriptionAccountsListRequest,
   subscriptionAccountStatus,
   subscriptionOAuthLoginRequest,
@@ -117,6 +118,35 @@ test("subscription account table carries provider on every action and escapes fi
   assert.doesNotMatch(html, /<b>x<\/b>/);
   const empty = renderSubscriptionAccountManagementTable("gemini", [], { emptyText: "no accounts" });
   assert.match(empty, /no accounts/);
+});
+
+test("account quota renders upstream rate-limit budgets and stays pending without a snapshot", () => {
+  // Shape mirrors what the server echoes from the Grok proxy's response headers.
+  const withQuota = renderSubscriptionAccountManagementTable("grok", [{
+    id: "acct-1",
+    quota: { requests: { limit: "21", remaining: "20", reset: "" }, tokens: { limit: "1000000", remaining: "999984", reset: "" } },
+  }], { translate: (key, params) => `${key}:${JSON.stringify(params || {})}` });
+  assert.match(withQuota, /quotaRequests/);
+  assert.match(withQuota, /quotaTokens/);
+  assert.match(withQuota, /&quot;remaining&quot;:&quot;20&quot;/);
+  assert.match(withQuota, /&quot;limit&quot;:&quot;1,000,000&quot;/);
+
+  // No snapshot at all must read as pending, never as zero remaining.
+  const pending = renderSubscriptionAccountManagementTable("grok", [{ id: "acct-2" }], {
+    translate: (key) => key,
+  });
+  assert.match(pending, /quotaPending/);
+  assert.doesNotMatch(pending, /quotaRequests/);
+});
+
+test("account quota ignores buckets whose counts are absent or non-numeric", () => {
+  assert.deepEqual(subscriptionAccountQuotaBudgets({}), []);
+  assert.deepEqual(subscriptionAccountQuotaBudgets({ quota: { requests: { limit: "", remaining: "" } } }), []);
+  assert.deepEqual(subscriptionAccountQuotaBudgets({ quota: { requests: { limit: "unlimited", remaining: "" } } }), []);
+  assert.deepEqual(
+    subscriptionAccountQuotaBudgets({ quota: { tokens: { limit: "10", remaining: "" } } }),
+    [{ labelKey: "quotaTokens", remaining: null, limit: 10, reset: "" }],
+  );
 });
 
 test("subscription console renders three independent pages without a switcher or stacked lists", () => {

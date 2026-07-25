@@ -400,6 +400,45 @@ export function subscriptionAccountStableID(account) {
 // renderSubscriptionAccountManagementTable renders one provider's account list.
 // data attributes always carry the provider so events can be routed without a
 // shared/stacked account surface.
+// quotaCount accepts the string counts the server echoes from upstream
+// rate-limit headers and returns null for anything that is not a real count, so
+// a missing budget never renders as 0.
+function quotaCount(value) {
+  if (value === null || value === undefined || value === "") return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
+}
+
+// subscriptionAccountQuotaBudgets flattens a quota snapshot into the buckets
+// that actually carry data. An account that has never made a request has no
+// snapshot at all, which is reported as pending rather than as zero quota.
+export function subscriptionAccountQuotaBudgets(account = {}) {
+  const quota = account?.quota;
+  if (!quota || typeof quota !== "object") return [];
+  const budgets = [];
+  for (const [labelKey, bucket] of [["quotaRequests", quota.requests], ["quotaTokens", quota.tokens]]) {
+    const remaining = quotaCount(bucket?.remaining);
+    const limit = quotaCount(bucket?.limit);
+    if (remaining === null && limit === null) continue;
+    budgets.push({ labelKey, remaining, limit, reset: String(bucket?.reset || "") });
+  }
+  return budgets;
+}
+
+function renderSubscriptionQuotaCell(account, st) {
+  const budgets = subscriptionAccountQuotaBudgets(account);
+  if (!budgets.length) return `<span class="subscription-quota-empty">${escapeHtml(st("quotaPending"))}</span>`;
+  const lines = budgets.map(({ labelKey, remaining, limit }) => {
+    const value = remaining === null
+      ? st("quotaLimitOnly", { limit: formatNumber(limit) })
+      : limit === null
+        ? formatNumber(remaining)
+        : st("quotaRemainingOfLimit", { remaining: formatNumber(remaining), limit: formatNumber(limit) });
+    return `<div class="subscription-quota-line"><span class="subscription-quota-label">${escapeHtml(st(labelKey))}</span><span class="subscription-quota-value">${escapeHtml(value)}</span></div>`;
+  });
+  return `<div class="subscription-quota">${lines.join("")}</div>`;
+}
+
 export function renderSubscriptionAccountManagementTable(provider, accounts, {
   translate = (key, params) => t(`modelProvider.subscription.common.${key}`, params),
   emptyText = "",
@@ -414,7 +453,7 @@ export function renderSubscriptionAccountManagementTable(provider, accounts, {
     <table class="codex-account-table subscription-account-table" data-subscription-provider="${escapeAttr(provider)}" aria-label="${escapeAttr(st("accountsTitle"))}">
       <thead><tr>
         <th scope="col">${escapeHtml(st("accountName"))}</th><th scope="col">${escapeHtml(st("accountId"))}</th><th scope="col">${escapeHtml(st("priority"))}</th><th scope="col">${escapeHtml(st("status"))}</th>
-        <th scope="col">${escapeHtml(st("lastUpdated"))}</th><th scope="col">${escapeHtml(st("actions"))}</th>
+        <th scope="col">${escapeHtml(st("quota"))}</th><th scope="col">${escapeHtml(st("lastUpdated"))}</th><th scope="col">${escapeHtml(st("actions"))}</th>
       </tr></thead>
       <tbody>${items.map((account) => renderSubscriptionAccountRow(provider, account, st, now, editing, busy)).join("")}</tbody>
     </table>
@@ -448,6 +487,7 @@ function renderSubscriptionAccountRow(provider, account, st, now, editing, busy)
       ? `<label class="codex-inline-edit-field"><span class="mp-visually-hidden">${escapeHtml(st("priority"))}</span><input class="codex-priority-input settings-text-input settings-form-field" type="number" min="1" max="1000000" step="1" value="${escapeAttr(editPriority)}" data-subscription-edit-priority="${escapeAttr(id)}" data-subscription-provider="${providerAttr}" data-select-on-focus="true"${disabledAttributes}></label>`
       : `<span class="codex-priority-value">${escapeHtml(String(priority))}</span>`}</td>
     <td data-label="${escapeAttr(st("status"))}"><span class="settings-status-pill settings-badge ${escapeAttr(status.tone)}">${escapeHtml(st(status.key))}</span></td>
+    <td data-label="${escapeAttr(st("quota"))}">${renderSubscriptionQuotaCell(account, st)}</td>
     <td data-label="${escapeAttr(st("lastUpdated"))}">${escapeHtml(lastUpdated ? formatCodexTimestamp(lastUpdated) : st("never"))}</td>
     <td data-label="${escapeAttr(st("actions"))}"><div class="codex-account-actions settings-inline-actions" role="group">
       ${isEditing
