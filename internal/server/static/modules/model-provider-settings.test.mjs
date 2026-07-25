@@ -789,14 +789,16 @@ test("连接关键字段变化只标记 stale，模型编辑与名称前缀变�
   assert.equal(providerModelDraftUsable(changed), false);
 });
 
-test("隐藏保护自动迁移默认模型且禁止隐藏最后一个可见模型", () => {
+test("隐藏只影响选单显示，不会改写默认模型，且禁止隐藏最后一个可见模型", () => {
   const configs = [
     { name: "a", contextTokenLimit: 100, hidden: false },
     { name: "b", contextTokenLimit: 200, hidden: false },
   ];
+  // Hiding the configured default takes it out of the picker but leaves it as
+  // the default: visibility is presentation, not configuration.
   const hiddenDefault = setProviderModelHidden(configs, "a", true, "a");
   assert.equal(hiddenDefault.changed, true);
-  assert.equal(hiddenDefault.defaultModel, "b");
+  assert.equal(hiddenDefault.defaultModel, "a");
   assert.equal(hiddenDefault.modelConfigs[0].hidden, true);
   const blocked = setProviderModelHidden(hiddenDefault.modelConfigs, "b", true, "b");
   assert.equal(blocked.changed, false);
@@ -813,11 +815,12 @@ test("allowEmpty lets an official provider hide every model; custom providers ke
   assert.equal(blocked.changed, false);
   assert.equal(blocked.modelConfigs[0].hidden, false);
 
-  // Official provider: hiding the last one is allowed and clears the default.
+  // Official provider: hiding the last one is allowed, and the default survives
+  // because hiding only removes the entry from the picker.
   const allowed = setProviderModelHidden(configs, "a", true, "a", { allowEmpty: true });
   assert.equal(allowed.changed, true);
   assert.equal(allowed.modelConfigs[0].hidden, true);
-  assert.equal(allowed.defaultModel, "");
+  assert.equal(allowed.defaultModel, "a");
 
   // The same distinction applies to the hide-all toggle.
   const keptOne = setProviderModelHiddenAll(configs, true, "a");
@@ -825,7 +828,7 @@ test("allowEmpty lets an official provider hide every model; custom providers ke
   const hidAll = setProviderModelHiddenAll(configs, true, "a", { allowEmpty: true });
   assert.equal(hidAll.changed, true);
   assert.equal(hidAll.modelConfigs.every((m) => m.hidden), true);
-  assert.equal(hidAll.defaultModel, "");
+  assert.equal(hidAll.defaultModel, "a");
 });
 
 test("批量可见性开关：隐藏全部保留一个默认，显示全部恢复", () => {
@@ -841,9 +844,12 @@ test("批量可见性开关：隐藏全部保留一个默认，显示全部恢�
   const shown = setProviderModelHiddenAll(hidden.modelConfigs, false, "b");
   assert.equal(shown.changed, true);
   assert.equal(shown.modelConfigs.every((m) => !m.hidden), true);
+  // With no configured default the first entry is the one kept visible, and the
+  // (empty) default is still not rewritten.
   const noDefault = setProviderModelHiddenAll(configs, true, "");
-  assert.equal(noDefault.defaultModel, "a");
+  assert.equal(noDefault.defaultModel, "");
   assert.equal(noDefault.modelConfigs.filter((m) => !m.hidden).length, 1);
+  assert.equal(noDefault.modelConfigs[0].hidden, false);
 });
 
 test("可见性偏好重命名和删除只处理当前 Provider 前缀", () => {
