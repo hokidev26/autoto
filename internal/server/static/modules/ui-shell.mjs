@@ -885,23 +885,10 @@ export function createUIShellController({
       return [binding.trigger, handler];
     });
 
-    const messageModeToggle = $("messageModeToggle");
-    const messageModeHandler = (event) => {
-      event.preventDefault();
-      event.stopPropagation();
-      if (active?.binding?.select?.id === "permissionMode") {
-        close({ focus: true });
-        return;
-      }
-      openPermissionMenu(messageModeToggle || event.currentTarget);
-    };
-    messageModeToggle?.addEventListener("click", messageModeHandler);
-
     const handleDocumentPointer = (event) => {
       if (!active || active.mobile) return;
       if (menu.contains(event.target)) return;
       if (active.binding?.trigger?.contains?.(event.target)) return;
-      if (messageModeToggle?.contains?.(event.target)) return;
       close();
     };
     const handleDocumentKey = (event) => {
@@ -946,7 +933,6 @@ export function createUIShellController({
     return () => {
       close();
       triggerHandlers.forEach(([trigger, handler]) => trigger.removeEventListener("click", handler));
-      messageModeToggle?.removeEventListener("click", messageModeHandler);
       bindings.forEach(({ select, sync }) => select.removeEventListener("change", sync));
       observers.forEach((observer) => observer.disconnect());
       mobileBackdrop.removeEventListener("click", handleBackdropClick);

@@ -1138,8 +1138,6 @@ messageModeBridge.get = () => {
   const agentId = state.agent?.id;
   const saved = agentId ? state.messageModes?.[agentId] : "";
   if (saved === "plan" || saved === "execute") return saved;
-  const toggle = $("messageModeToggle");
-  if (toggle?.dataset?.mode === "plan" || toggle?.dataset?.mode === "execute") return toggle.dataset.mode;
   return state.agent?.planMode === true ? "plan" : "execute";
 };
 messageModeBridge.set = (mode) => setMessageMode(mode);

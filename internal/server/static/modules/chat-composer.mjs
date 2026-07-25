@@ -661,17 +661,11 @@ export function createChatComposerController({
     return normalizeMessageMode(saved, state.agent?.planMode === true ? "plan" : "execute");
   }
 
+  // The plan/execute toggle was removed from the composer; the permission menu
+  // carries the message-mode options instead. Mode now lives purely in
+  // state.messageModes, so this just resolves the effective value.
   function refreshMessageModeControl({ requestedMode } = {}) {
-    const mode = normalizeMessageMode(requestedMode ?? messageModeFor(), state.agent?.planMode === true ? "plan" : "execute");
-    const toggle = $("messageModeToggle");
-    toggle?.querySelectorAll?.("[data-message-mode]").forEach((button) => {
-      const active = button.dataset.messageMode === mode;
-      button.classList.toggle("active", active);
-      button.setAttribute("aria-pressed", active ? "true" : "false");
-      button.disabled = isComposerBusy();
-    });
-    if (toggle) toggle.dataset.mode = mode;
-    return mode;
+    return normalizeMessageMode(requestedMode ?? messageModeFor(), state.agent?.planMode === true ? "plan" : "execute");
   }
 
   function setMessageMode(value) {

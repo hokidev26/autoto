@@ -578,11 +578,12 @@ test("composer operation controls are exposed only in project context", async ()
   assert.ok(composer.indexOf('id="headerTaskSummaryBtn"') > toolbarIndex && composer.indexOf('id="headerTaskSummaryBtn"') < inputIndex);
   assert.ok(composer.indexOf('id="modelSelect"') < composer.indexOf('id="reasoningEffort"'));
   assert.ok(composer.indexOf('id="reasoningEffort"') < composer.indexOf('id="openProviderLoginBtn"'));
-  assert.ok(composer.indexOf('id="openProviderLoginBtn"') < composer.indexOf('id="messageModeToggle"'));
+  assert.ok(composer.indexOf('id="openProviderLoginBtn"') < composer.indexOf('id="permissionMode"'));
   assert.ok(composer.indexOf('id="permissionMode"') < inputIndex);
   assert.match(composer, /class="composer-field composer-model-field"/);
   assert.match(composer, /class="composer-field composer-effort-field"/);
-  assert.match(composer, /class="composer-field composer-message-mode-field" data-project-context-only aria-hidden="true"/);
+  // The plan/execute toggle is gone: the permission menu carries message mode.
+  assert.doesNotMatch(composer, /composer-message-mode-field|id="messageModeToggle"/);
   assert.match(composer, /class="composer-field composer-permission-field" data-project-context-only aria-hidden="true"/);
   assert.match(composer, /class="permission-safety-indicator hidden"[^>]*aria-hidden="true"/);
   assert.match(composer, /id="permissionRiskBadge" class="permission-risk-badge hidden" aria-hidden="true"/);
@@ -591,6 +592,7 @@ test("composer operation controls are exposed only in project context", async ()
   assert.doesNotMatch(composer, /id="composerTerminalBtn"/);
   assert.match(styles, /body\.white-shell\.theme-light:not\(\.project-operation-context\) \[data-project-context-only\]\s*\{[^}]*display:\s*none !important/);
   assert.match(styles, /body\.white-shell\.theme-light:not\(\.project-operation-context\) :is\(\.composer-actions, \.composer-message-mode-field, \.composer-permission-field\) \{ display: none !important; \}/);
+  assert.doesNotMatch(appMain, /messageModeToggle/);
   assert.doesNotMatch(styles, /\.composer-field-label,\s*\.composer-actions,[\s\S]{0,180}\.composer-permission-field\s*\{ display: none !important; \}/);
   assert.match(appMain, /navigationSelectionKind:\s*"conversation"/);
   assert.match(appMain, /function syncProjectOperationContext\(\)/);
@@ -796,7 +798,7 @@ test("composer selects hide external labels and open titled menus upward", async
   assert.match(uiShell, /appendPermissionSafetyStatus\(/);
   assert.match(uiShell, /appendMessageModeSection\(/);
   assert.match(uiShell, /usesMobileSheet[\s\S]*permissionMode/);
-  assert.match(uiShell, /messageModeToggle\?\.addEventListener\("click", messageModeHandler\)/);
+  assert.doesNotMatch(uiShell, /messageModeToggle/);
   assert.match(uiShell, /chat\.enterPlanMode/);
   assert.match(uiShell, /chat\.executeMode/);
   assert.match(uiShell, /menu\.style\.bottom = `\$\{Math\.max\(8,[\s\S]*?- rect\.top \+ 6\)\}px`/);
@@ -1012,8 +1014,11 @@ test("mobile header and composer use compact icon-first layouts", async () => {
   assert.match(html, /id="securityModeBadge"[^>]*data-mobile-label="LAN"/);
   assert.doesNotMatch(html, /id="(?:remoteSecurityBanner|workbenchRemoteSecurityBanner)"/);
   assert.doesNotMatch(appMain, /\$\("(?:remoteSecurityBanner|workbenchRemoteSecurityBanner)"\)/);
-  assert.match(html, /data-message-mode="plan"[^>]*data-mobile-label="P"/);
-  assert.match(html, /data-message-mode="execute"[^>]*data-mobile-label="▶"/);
+  assert.doesNotMatch(html, /data-message-mode=/);
+  // Mobile keeps the permission control as a bare shield; its menu also carries
+  // the message-mode options.
+  assert.match(styles, /\.composer-permission-field\s*\{[^}]*display:\s*flex !important/);
+  assert.match(styles, /\.composer-permission-field \.composer-select-icon\s*\{[^}]*display:\s*inline-flex !important/);
   assert.match(styles, /\.mobile-permission-sheet \.composer-permission-option/);
   assert.match(styles, /\.composer-message-mode-section-title/);
   assert.match(html, /id="sendMessageBtn"[^>]*data-mobile-label="↑"/);
@@ -1028,7 +1033,6 @@ test("mobile header and composer use compact icon-first layouts", async () => {
   assert.match(mobileComposerStyles, /\[class~="composer-toolbar"\][\s\S]*?justify-content:\s*flex-end/);
   assert.match(mobileComposerStyles, /\[class~="composer-controls"\][\s\S]*?flex:\s*0 1 auto[\s\S]*?justify-content:\s*flex-end[\s\S]*?margin-left:\s*auto/);
   assert.match(mobileComposerStyles, /\[class~="composer-model-field"\][\s\S]*?width:\s*96px[\s\S]*?flex:\s*0 1 96px/);
-  assert.match(mobileComposerStyles, /\[class~="composer-message-mode-field"\][\s\S]*?width:\s*54px[\s\S]*?flex:\s*0 0 54px/);
   assert.match(mobileComposerStyles, /\[class~="composer-select-icon"\]\s*\{[^}]*display:\s*inline-flex/);
   assert.match(mobileComposerStyles, /\[class~="composer-model-field"\] \[class~="composer-select-value"\]::after\s*\{[^}]*content:\s*attr\(data-mobile-label\)/);
   assert.match(mobileComposerStyles, /\[class~="message-mode-option"\]::after\s*\{[^}]*content:\s*attr\(data-mobile-label\)/);
@@ -1061,8 +1065,6 @@ test("narrow composer switches atomically to a fixed unframed icon rail", async 
   assert.match(iconRail, /:is\(\.toolbar-model-pill, \.effort-pill, \.permission-toolbar-pill\)\s*\{[^}]*width:\s*28px[^}]*flex:\s*0 0 28px[^}]*border:\s*0[^}]*background:\s*transparent/);
   assert.match(iconRail, /\.composer-select-value\s*\{[^}]*position:\s*absolute[^}]*clip-path:\s*inset\(50%\)/);
   assert.match(iconRail, /\.composer-select-chevron\s*\{[^}]*display:\s*none/);
-  assert.match(iconRail, /\.composer-message-mode-field\s*\{[^}]*width:\s*52px[^}]*flex:\s*0 0 52px/);
-  assert.match(iconRail, /\.message-mode-toggle\s*\{[^}]*border:\s*0[^}]*background:\s*transparent/);
   assert.match(iconRail, /\.toolbar-lightning-btn:not\(\.hidden\),[\s\S]*?\.composer-toolbar-icon\s*\{[^}]*width:\s*28px[^}]*display:\s*inline-flex[^}]*border:\s*0[^}]*background:\s*transparent/);
   assert.match(iconRail, /\.model-tool-btn\.icon-only\.composer-toolbar-icon\s*\{[^}]*width:\s*28px[^}]*height:\s*30px[^}]*min-height:\s*30px/);
   assert.match(iconRail, /\.composer-actions\s*\{[^}]*flex:\s*0 0 auto[^}]*gap:\s*4px/);
