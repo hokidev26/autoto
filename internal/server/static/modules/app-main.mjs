@@ -1,4 +1,4 @@
-import { createAccountPreferencesController } from "./account-preferences.mjs?v=profile-avatar-1";
+import { createAccountPreferencesController } from "./account-preferences.mjs?v=profile-avatar-1-first-run-setup-1";
 import { createAgentStreamController } from "./agent-stream.mjs";
 import { createAutomationControlController } from "./automation-control.mjs?v=nav-schedules-1";
 import { createArchiveSettingsController } from "./archive-settings.mjs?v=archive-settings-1";
@@ -33,7 +33,7 @@ import { $, escapeAttr, escapeHtml, setButtonBusy } from "./dom.mjs";
 import { navigationCreateLabelKey, navigationCreateTarget } from "./navigation-create.mjs";
 import { createSubagentCardCoordinator } from "./subagent-cards.mjs?v=tool-activity-lazy-1";
 import { formatNumber, formatTimestamp } from "./formatters.mjs";
-import { t } from "./i18n.mjs?v=settings-flat-1-codex-browser-login-1-shared-api-1-apple-theme-1-autoto-themes-1-settings-help-1-task-workspace-1-navigation-state-2-archive-1-i18n-shared-1-overview-home-1-settings-cleanup-1-context-ring-3-global-background-1-theme-v2-1-background-upload-1-goal-command-2";
+import { t } from "./i18n.mjs?v=settings-flat-1-codex-browser-login-1-shared-api-1-apple-theme-1-autoto-themes-1-settings-help-1-task-workspace-1-navigation-state-2-archive-1-i18n-shared-1-overview-home-1-settings-cleanup-1-context-ring-3-global-background-1-theme-v2-1-background-upload-1-goal-command-2-first-run-setup-1";
 import { appMainT as am } from "./messages-app-main-extra.mjs?v=workbench-title-edit-1-hidden-toggle-removed-1-settings-cleanup-1";
 import { shellExtraT as sx } from "./messages-shell-extra.mjs";
 import { createGitWorkflowController } from "./git-workflow.mjs";
@@ -41,7 +41,7 @@ import { createLocalPreferencesSettingsController } from "./local-preferences-se
 import { createMCPRegistryUIController } from "./mcp-registry-ui.mjs";
 import { createPluginRegistryUIController } from "./plugin-registry-ui.mjs";
 import { createMemorySettingsController } from "./memory-settings.mjs";
-import { createModelProviderSettingsController } from "./model-provider-settings.mjs?v=native-codex-3-provider-console-3-account-wide-1-model-compact-1-codex-export-1-settings-flat-1-aggregates-1-codex-import-open-1-provider-create-page-2-codex-browser-login-1-provider-secrets-1-model-picker-1-provider-full-page-2-provider-placeholders-1-usage-cost-1-codex-usage-clean-1-model-sections-hidden-1-model-configs-1-provider-reference-1-default-openai-responses-1-provider-draft-session-1-native-image-generation-1";
+import { createModelProviderSettingsController } from "./model-provider-settings.mjs?v=native-codex-3-provider-console-3-account-wide-1-model-compact-1-codex-export-1-settings-flat-1-aggregates-1-codex-import-open-1-provider-create-page-2-codex-browser-login-1-provider-secrets-1-model-picker-1-provider-full-page-2-provider-placeholders-1-usage-cost-1-codex-usage-clean-1-model-sections-hidden-1-model-configs-1-provider-reference-1-default-openai-responses-1-provider-draft-session-1-native-image-generation-1-provider-auto-name-1";
 import {
   createOverviewDashboardController,
   overviewNavigationRoute,
@@ -71,13 +71,13 @@ import { createSettingsPreferencesController } from "./settings-preferences.mjs?
 import { createSettingsShellHelpers } from "./settings-shell-helpers.mjs";
 import { createSkillsContext } from "./skills-context.mjs";
 import { createServerResourceLoaders } from "./server-resource-loaders.mjs";
-import { createSetupWizardController } from "./setup-wizard.mjs";
+import { createSetupWizardController } from "./setup-wizard.mjs?v=first-run-readiness-1";
 import { createSpecBoardController } from "./spec-board.mjs";
 import { createSystemSettingsController } from "./system-settings.mjs?v=users-panel-removed-1-about-brand-license-1-desktop-shell-1";
 import { installDesktopDeepLinkRouter, isDesktopShell } from "./desktop-shell-ui.mjs";
-import { createSkillsWorkbenchController } from "./skills-workbench.mjs?v=users-panel-removed-1";
+import { createSkillsWorkbenchController } from "./skills-workbench.mjs?v=users-panel-removed-1-config-center-1";
 import { createTerminalController } from "./terminal.mjs?v=terminal-actions-compact-2";
-import { createUIShellController, elementVisible, isComposingInput } from "./ui-shell.mjs?v=permission-panel-2-plan-mode-panel-1-mobile-toolbar-right-3-icon-rail-1-mobile-viewport-1-sidebar-wheel-1-settings-cleanup-1-context-ring-3-dual-rail-collapse-1-compact-navigation-1-global-rail-2-model-menu-scroll-1-utility-resize-2-sheet-trim-1";
+import { createUIShellController, elementVisible, isComposingInput } from "./ui-shell.mjs?v=permission-panel-2-plan-mode-panel-1-mobile-toolbar-right-3-icon-rail-1-mobile-viewport-1-sidebar-wheel-1-settings-cleanup-1-context-ring-3-dual-rail-collapse-1-compact-navigation-1-global-rail-2-model-menu-scroll-1-utility-resize-2-sheet-trim-1-model-provider-groups-1";
 import { createUsageHistoryController } from "./usage-history.mjs";
 import { createAgentWorkspaceHelpers } from "./agent-workspace-helpers.mjs?v=task-summary-activity-1";
 import { createNavigationContextMenu } from "./navigation-context-menu.mjs";

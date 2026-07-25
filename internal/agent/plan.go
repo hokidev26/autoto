@@ -24,13 +24,6 @@ Every listed field is required. State uncertainties as assumptions or risks; do 
 
 var _ review.PlanStore = (*db.Store)(nil)
 
-func mergePlanDraftSystemPrompt(systemPrompt string) string {
-	if strings.TrimSpace(systemPrompt) == "" {
-		return strings.TrimSpace(planDraftSystemPrompt)
-	}
-	return strings.TrimSpace(systemPrompt) + "\n\n" + strings.TrimSpace(planDraftSystemPrompt)
-}
-
 // SetReviewService installs the isolated reviewer. It is intentionally not a
 // normal Agent and receives no tools or execution capabilities.
 func (r *Runner) SetReviewService(service *review.Service) {

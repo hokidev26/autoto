@@ -2,10 +2,10 @@
    @import rules are equivalent to concatenating the files in this order. */
 @import url("styles/base.css");
 @import url("styles/workspace.css?v=native-image-generation-1");
-@import url("styles/settings-legacy.css");
+@import url("styles/settings-legacy.css?v=first-run-setup-1");
 @import url("styles/white-shell.css?v=layout-5");
-@import url("styles/workbench.css?v=layout-6");
-@import url("styles/settings.css?v=mobile-polish-6");
+@import url("styles/workbench.css?v=layout-6-model-provider-groups-1");
+@import url("styles/settings.css?v=mobile-polish-6-model-provider-groups-1-first-run-setup-1");
 @import url("styles/providers.css?v=native-image-generation-1");
 @import url("styles/workspace-tasks.css?v=tool-activity-lazy-1-idle-dot-2");
 @import url("styles/extras.css?v=mobile-polish-8-chat-shell");

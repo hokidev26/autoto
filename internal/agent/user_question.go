@@ -11,8 +11,8 @@ import (
 )
 
 const (
-	userQuestionTimeout        = 30 * time.Minute
-	maxUserOtherAnswerRunes    = 2000
+	userQuestionTimeout     = 30 * time.Minute
+	maxUserOtherAnswerRunes = 2000
 )
 
 type pendingUserQuestion struct {
@@ -55,12 +55,12 @@ func (r *Runner) AskUser(ctx context.Context, req tools.UserQuestionRequest) (to
 	defer r.removePendingUserQuestion(agentID, toolUseID)
 
 	payload := map[string]any{
-		"toolUseId":  toolUseID,
-		"toolName":   "AskUserQuestion",
-		"questions":  req.Questions,
-		"expiresAt":  pending.ExpiresAt.UTC().Format(time.RFC3339Nano),
-		"runId":      pending.RunID,
-		"kind":       "user_question",
+		"toolUseId": toolUseID,
+		"toolName":  "AskUserQuestion",
+		"questions": req.Questions,
+		"expiresAt": pending.ExpiresAt.UTC().Format(time.RFC3339Nano),
+		"runId":     pending.RunID,
+		"kind":      "user_question",
 	}
 	r.publish(Event{Type: "user.question_required", AgentID: agentID, Data: payload})
 	r.notify(NotificationEvent{

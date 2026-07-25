@@ -9,14 +9,14 @@ import (
 )
 
 const (
-	maxUserQuestions          = 4
-	maxUserQuestionOptions    = 4
-	minUserQuestionOptions    = 2
-	maxUserQuestionKeyChars   = 80
-	maxUserQuestionTextChars  = 500
-	maxUserOptionLabelChars   = 80
-	maxUserOptionDescChars    = 400
-	maxUserOtherAnswerChars   = 2000
+	maxUserQuestions         = 4
+	maxUserQuestionOptions   = 4
+	minUserQuestionOptions   = 2
+	maxUserQuestionKeyChars  = 80
+	maxUserQuestionTextChars = 500
+	maxUserOptionLabelChars  = 80
+	maxUserOptionDescChars   = 400
+	maxUserOtherAnswerChars  = 2000
 )
 
 // UserQuestionService blocks the tool loop until the human answers structured questions.
@@ -25,10 +25,10 @@ type UserQuestionService interface {
 }
 
 type UserQuestionRequest struct {
-	AgentID   string              `json:"agentId"`
-	RunID     string              `json:"runId"`
-	ToolUseID string              `json:"toolUseId"`
-	Questions []UserQuestionItem  `json:"questions"`
+	AgentID   string             `json:"agentId"`
+	RunID     string             `json:"runId"`
+	ToolUseID string             `json:"toolUseId"`
+	Questions []UserQuestionItem `json:"questions"`
 }
 
 type UserQuestionItem struct {
@@ -62,10 +62,10 @@ type askUserQuestionInput struct {
 }
 
 type askUserQuestionItemInput struct {
-	Question    string                     `json:"question"`
-	Header      string                     `json:"header"`
-	Options     []askUserQuestionOptionIn  `json:"options"`
-	MultiSelect bool                       `json:"multiSelect,omitempty"`
+	Question    string                    `json:"question"`
+	Header      string                    `json:"header"`
+	Options     []askUserQuestionOptionIn `json:"options"`
+	MultiSelect bool                      `json:"multiSelect,omitempty"`
 }
 
 type askUserQuestionOptionIn struct {
