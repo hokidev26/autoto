@@ -261,7 +261,7 @@ export default Object.freeze({
     switchDirectory: "选择或切换目录",
     toggleTerminal: "收起/展开终端",
     attachFile: "导入文件到聊天框",
-    messagePlaceholder: "询问这个项目，例如：帮我看一下架构",
+    messagePlaceholder: "发送消息…",
     send: "发送",
     sendMessage: "发送消息",
     slashCommands: "斜杠命令",

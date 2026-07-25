@@ -261,7 +261,7 @@ export default Object.freeze({
     switchDirectory: "Choose or switch folder",
     toggleTerminal: "Collapse or expand terminal",
     attachFile: "Attach files to the message",
-    messagePlaceholder: "Ask about this project, e.g. review the architecture",
+    messagePlaceholder: "Send a message…",
     send: "Send",
     sendMessage: "Send message",
     slashCommands: "Slash commands",

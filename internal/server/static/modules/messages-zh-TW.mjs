@@ -261,7 +261,7 @@ export default Object.freeze({
     switchDirectory: "選擇或切換目錄",
     toggleTerminal: "收合／展開終端機",
     attachFile: "匯入檔案到聊天框",
-    messagePlaceholder: "詢問這個專案，例如：幫我看一下架構",
+    messagePlaceholder: "傳送訊息…",
     send: "送出",
     sendMessage: "送出訊息",
     slashCommands: "斜線命令",
