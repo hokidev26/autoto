@@ -237,6 +237,26 @@ test("message textarea autosize clamps to bounds and toggles internal scrolling"
   assert.deepEqual(toggles.at(-1), ["message-input-scrollable", false]);
 });
 
+test("an empty composer rests at the minimum height whatever scrollHeight reports", () => {
+  // A stale or mid-layout scrollHeight must not leave an empty input tall: the
+  // measured value has come back as the maximum in some layout states, and
+  // nothing recomputes it afterwards.
+  const input = {
+    value: "",
+    scrollHeight: 220,
+    style: {},
+    classList: { toggle() {} },
+  };
+  const computedStyle = { minHeight: "36px", maxHeight: "116px", getPropertyValue() { return ""; } };
+  assert.deepEqual(resizeMessageInputElement(input, computedStyle), { height: 36, scrollable: false });
+  assert.equal(input.style.height, "36px");
+  assert.equal(input.style.overflowY, "hidden");
+
+  // Once it holds text the measurement is used again.
+  input.value = "several lines of text";
+  assert.deepEqual(resizeMessageInputElement(input, computedStyle), { height: 116, scrollable: true });
+});
+
 test("reasoning effort control crops unsupported values when the selected model changes", () => {
   const elements = {};
   const pill = { classList: { toggle() {} } };

@@ -95,7 +95,15 @@ export function resizeMessageInputElement(input, computedStyle = globalThis.getC
     computedStyle?.getPropertyValue?.("--composer-input-max-height") || computedStyle?.maxHeight,
     180,
   );
-  const size = calculateMessageInputSize({ scrollHeight: input.scrollHeight, minHeight, maxHeight });
+  // An empty composer always rests at the minimum height. Measuring
+  // scrollHeight has been observed to yield the maximum in some layout states,
+  // and because nothing recomputes the value afterwards the input stays several
+  // lines tall while holding no text. Skipping the measurement when there is
+  // demonstrably nothing to measure removes that failure mode at the source.
+  const empty = typeof input.value === "string" && input.value.length === 0;
+  const size = empty
+    ? { height: minHeight, scrollable: false }
+    : calculateMessageInputSize({ scrollHeight: input.scrollHeight, minHeight, maxHeight });
   input.style.height = `${size.height}px`;
   input.style.overflowY = size.scrollable ? "auto" : "hidden";
   input.classList?.toggle("message-input-scrollable", size.scrollable);
