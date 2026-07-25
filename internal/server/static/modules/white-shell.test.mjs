@@ -1007,7 +1007,11 @@ test("mobile header and composer use compact icon-first layouts", async () => {
   assert.match(html, /id="composerFolderBtn"[\s\S]*?<svg viewBox="0 0 24 24"/);
   assert.doesNotMatch(html, /id="composerTerminalBtn"/);
   assert.match(html, /data-composer-select="modelSelect"[\s\S]*?class="composer-select-icon"[\s\S]*?id="modelSelectDisplay"[^>]*data-mobile-label="模型"/);
-  assert.match(html, /data-composer-select="reasoningEffort"[\s\S]*?class="composer-select-icon"[\s\S]*?id="reasoningEffortDisplay"[^>]*data-mobile-label="Auto"/);
+  // The effort trigger has no icon any more: the sparkle was removed, and mobile
+  // shows a single-letter label instead.
+  assert.match(html, /data-composer-select="reasoningEffort"[\s\S]*?id="reasoningEffortDisplay"[^>]*data-mobile-label="A"/);
+  assert.doesNotMatch(html, /data-composer-select="reasoningEffort"[^>]*>\s*<span class="composer-select-icon"/);
+  assert.match(styles, /\.composer-effort-field \.composer-select-value::after\s*\{[^}]*content:\s*attr\(data-mobile-label\)/);
   assert.match(html, /data-composer-select="permissionMode"[\s\S]*?class="composer-select-icon"[\s\S]*?data-mobile-label="RW"/);
   assert.match(html, /id="securityModeBadge"[^>]*data-mobile-label="LAN"/);
   assert.doesNotMatch(html, /id="(?:remoteSecurityBanner|workbenchRemoteSecurityBanner)"/);

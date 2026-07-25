@@ -1589,6 +1589,20 @@ body.white-shell.theme-light .composer-wrap {
   }
 
   body.white-shell.theme-light .composer-effort-field .composer-select-value::before { content: none; }
+
+  /* Show the English initial rather than the localized word, matching how the
+     model field renders its compact label. */
+  body.white-shell.theme-light .composer-effort-field .composer-select-value {
+    font-size: 0;
+    line-height: 0;
+  }
+
+  body.white-shell.theme-light .composer-effort-field .composer-select-value::after {
+    content: attr(data-mobile-label);
+    font-size: 12px;
+    font-weight: 650;
+    line-height: 1.2;
+  }
   body.white-shell.theme-light .composer-select-chevron { display: inline; flex: 0 0 auto; }
   body.white-shell.theme-light .composer-select-icon { display: inline-flex; flex: 0 0 18px; }
 

@@ -364,14 +364,16 @@ export function createChatComposerController({
     }[value] || t("modelProvider.automatic");
   }
 
+  // Mobile shows a single English initial: the compact composer row has no space
+  // for the full word, and the localized label is what the desktop trigger uses.
   function reasoningEffortMobileLabel(value) {
     return {
-      auto: "Auto",
-      low: "Low",
-      medium: "Med",
-      high: "High",
-      xhigh: "XH",
-    }[value] || "Auto";
+      auto: "A",
+      low: "L",
+      medium: "M",
+      high: "H",
+      xhigh: "X",
+    }[value] || "A";
   }
 
   function reasoningEffortValues(modelValue = $("modelSelect")?.value || state.agent?.model || "") {

@@ -283,7 +283,8 @@ test("reasoning effort control crops unsupported values when the selected model 
     assert.equal(elements.reasoningEffort.value, "auto");
     assert.equal(elements.reasoningEffort.disabled, true);
     assert.equal(elements.reasoningEffortDisplay.textContent, "自动");
-    assert.equal(elements.reasoningEffortDisplay.dataset.mobileLabel, "Auto");
+    // Mobile shows the English initial only.
+    assert.equal(elements.reasoningEffortDisplay.dataset.mobileLabel, "A");
     assert.equal(controller.selectedReasoningEffort("basic:model"), "auto");
   } finally {
     globalThis.document = previousDocument;
@@ -335,7 +336,7 @@ test("reasoning effort control persists the selected Agent override", async () =
     });
     assert.equal(state.agent.reasoningEffort, "high");
     assert.equal(elements.reasoningEffortDisplay.textContent, "高");
-    assert.equal(elements.reasoningEffortDisplay.dataset.mobileLabel, "High");
+    assert.equal(elements.reasoningEffortDisplay.dataset.mobileLabel, "H");
     assert.ok(pillClasses.some(([name]) => name === "reasoning-effort-saving"));
   } finally {
     globalThis.document = previousDocument;
