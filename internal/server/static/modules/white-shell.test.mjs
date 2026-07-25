@@ -21,6 +21,7 @@ import {
   globalRailCollapsedPreferenceKey,
   globalRailCollapsedWidth,
   globalRailExpandedWidth,
+  groupModelSelectOptions,
   maxSidebarWidth,
   sessionSidebarCollapsedPreferenceKey,
   minSidebarWidth,
@@ -320,7 +321,7 @@ test("boot transition waits for app readiness and cross-fades the localized shel
   assert.match(app, /const waitForAppReady = \(\{ timeout = 12000 \} = \{\}\) =>/);
   assert.match(app, /const appReady = waitForAppReady\(\);[\s\S]*?await import\("\.\/modules\/app-main\.mjs[\s\S]*?await appReady;[\s\S]*?revealLocalizedUI\(\)/);
   assert.match(appMain, /function signalAppReady\(\)[\s\S]*?new EventConstructor\("autoto:app-ready"\)/);
-  assert.match(appMain, /init\(\)\.then\(openRequestedInitialView\)\.catch\(showError\)\.finally\(signalAppReady\)/);
+  assert.match(appMain, /init\(\)\.then\(\(\) => \{[\s\S]*?openRequestedInitialView\(\);[\s\S]*?const setupStartup = maybeOpenSetupWizard\(\);[\s\S]*?signalAppReady\(\);[\s\S]*?return setupStartup;[\s\S]*?\}\)\.catch\(\(error\) => \{[\s\S]*?signalAppReady\(\);[\s\S]*?showError\(error\);/);
   assert.match(html, /app\.js\?v=[^"\n]*boot-dots-only-1/);
   assert.match(html, /styles\.css\?v=[^"\n]*boot-dots-only-1/);
   assert.match(app, /app-main\.mjs\?v=[^"\n]*boot-ready-transition-1/);
@@ -531,7 +532,14 @@ test("conversation, task, and schedule modes expose separate creation boundaries
   assert.match(html, /id="sessionSidebarTitle" class="session-sidebar-title"/);
   assert.match(html, /id="newProjectBtn" class="[^"]*session-sidebar-action[^"]*"[^>]*data-create-navigation-item/);
   assert.match(html, /id="mobileNewScheduleBtn" class="mobile-drawer-primary-action hidden"/);
-  assert.match(html, /id="mobileScheduleModeBtn" class="mobile-drawer-secondary-action"/);
+  const scheduleModeButton = html.match(/<button\b(?=[^>]*\bid="mobileScheduleModeBtn")[^>]*>/)?.[0] || "";
+  assert.match(scheduleModeButton, /\btype="button"/);
+  assert.match(scheduleModeButton, /\bdata-i18n-aria-label="shell\.nav\.schedules"/);
+  const scheduleModeClasses = (scheduleModeButton.match(/\bclass="([^"]*)"/)?.[1] || "").split(/\s+/).filter(Boolean);
+  assert.equal(scheduleModeClasses.includes("hidden"), false);
+  assert.doesNotMatch(scheduleModeButton, /(?:^|\s)hidden(?:\s|=|>)/);
+  // Product contract: schedules remains directly above the mobile settings actions.
+  assert.ok(html.indexOf('id="mobileScheduleModeBtn"') < html.indexOf('id="mobileSidebarSettingsBtn"'));
   assert.match(html, /id="schedulePanel" class="schedule-workspace-panel hidden"/);
   assert.match(html, /id="newTaskBtn" class="[^"]*task-mode-action hidden"[^>]*disabled/);
   assert.match(html, /id="specBoardBtn" class="icon-btn header-tool-btn"[^>]*data-project-context-only/);
@@ -544,6 +552,7 @@ test("conversation, task, and schedule modes expose separate creation boundaries
   assert.match(appMain, /if \(scheduleContext\)[\s\S]*?scheduleWorkspace\.renderNavigation/);
   assert.match(appMain, /renderNavigationHTML\(view, \{[\s\S]*?taskContext,/);
   assert.match(appMain, /newTaskBtn"\)\?\.addEventListener\("click", \(\) => focusTaskCreation\(\)\.catch\(showError\)\)/);
+  assert.match(appMain, /\$\("mobileScheduleModeBtn"\)\?\.addEventListener\("click", \(\) => \{[\s\S]*?closeMobileSidebar\(\);[\s\S]*?switchPrimaryWorkbench\(state\.activeWorkbench === "schedules" \? "conversation" : "schedules"\)/);
   assert.match(appMain, /projectKanban\.focusCreate\(\)/);
   assert.match(appMain, /data-primary-workbench-target/);
   assert.match(styles, /body\.white-shell\.theme-light\.workbench-mode \.conversation-mode-only\s*\{[\s\S]*?display:\s*none !important/);
@@ -663,15 +672,24 @@ test("background tasks share the right utility column instead of overlaying chat
 });
 
 test("browser preview dock compacts both control rows to preserve page space", async () => {
-  const styles = await readStylesSource(stylesURL);
+  const [html, styles] = await Promise.all([readFile(indexURL, "utf8"), readStylesSource(stylesURL)]);
   const dockStart = styles.indexOf("body.white-shell.theme-light .workspace-preview-dock-mode {");
   const dockEnd = styles.indexOf("@media (min-width: 1280px)", dockStart);
   const dock = styles.slice(dockStart, dockEnd);
-  assert.match(dock, /\.workspace-preview-dock-mode \.workspace-modal-head\s*\{[\s\S]*?flex:\s*0 0 50px;[\s\S]*?grid-template-rows:\s*1fr/);
-  assert.match(dock, /\.workspace-preview-dock-mode \.workspace-preview-toolbar\s*\{[\s\S]*?min-height:\s*0;[\s\S]*?padding:\s*6px 10px/);
-  assert.match(dock, /\.workspace-browser-icon\s*\{[\s\S]*?width:\s*32px;[\s\S]*?height:\s*32px/);
-  assert.match(dock, /\.workspace-browser-address\s*\{[\s\S]*?min-height:\s*32px;[\s\S]*?height:\s*32px/);
-  assert.match(dock, /\.workspace-viewport-btn\s*\{[\s\S]*?min-height:\s*32px/);
+  assert.match(dock, /\.workspace-preview-dock-mode \.workspace-modal-head\s*\{[^}]*position:\s*absolute;[^}]*right:\s*[^;]+;[^}]*display:\s*block;[^}]*border:\s*0;/);
+  const hiddenChromeRule = dock.match(/\.workspace-preview-dock-mode \.workspace-modal-title,[^{}]*\{[^}]*\}/)?.[0] || "";
+  assert.match(hiddenChromeRule, /\.workspace-preview-dock-mode \.workspace-modal-title/);
+  assert.match(hiddenChromeRule, /\.workspace-preview-dock-mode #workspaceFilesTab/);
+  assert.match(hiddenChromeRule, /\.workspace-preview-dock-mode \.workspace-tabs/);
+  assert.match(hiddenChromeRule, /display:\s*none/);
+  assert.match(dock, /\.workspace-preview-dock-mode \.workspace-modal-heading\s*\{\s*display:\s*none;/);
+  assert.match(dock, /\.workspace-preview-dock-mode \.workspace-preview-toolbar\s*\{[^}]*flex:\s*0 0 auto;[^}]*flex-wrap:\s*wrap;/);
+  assert.match(dock, /\.workspace-preview-dock-mode \.workspace-preview-status\s*\{\s*display:\s*none;/);
+  assert.match(dock, /\.workspace-preview-dock-mode \.workspace-preview-field\s*\{\s*display:\s*none;/);
+  assert.match(dock, /\.workspace-browser-address\s*\{[^}]*flex:\s*1 1 [^;]+;[^}]*min-width:/);
+  const viewportMenu = html.match(/<details\b(?=[^>]*\bclass="[^"]*\bworkspace-viewport-menu\b)[^>]*>[\s\S]*?<\/details>/)?.[0] || "";
+  assert.match(viewportMenu, /<summary\b[^>]*role="button"/);
+  assert.match(viewportMenu, /data-preview-viewport="adaptive"/);
 });
 
 test("desktop conversation layout follows the compact resizable geometry", async () => {
@@ -783,11 +801,11 @@ test("composer selects hide external labels and open titled menus upward", async
   assert.match(uiShell, /chat\.executeMode/);
   assert.match(uiShell, /menu\.style\.bottom = `\$\{Math\.max\(8,[\s\S]*?- rect\.top \+ 6\)\}px`/);
   assert.match(uiShell, /binding\.select\.dispatchEvent\(new EventConstructor\("change"/);
-  assert.match(uiShell, /composer-model-option-provider/);
+  assert.match(uiShell, /appendModelOptionGroups\(binding, menu\)/);
   assert.match(uiShell, /presentation\?\.provider \? `\$\{presentation\.provider\}:\$\{presentation\.name\}`/);
   assert.match(uiShell, /!active\.mobile && \(event\.target === menu \|\| menu\.contains\(event\.target\)\)/);
   assert.match(styles, /\.composer-select-popover\s*\{[\s\S]*?overscroll-behavior:\s*contain/);
-  assert.match(styles, /\.composer-model-option-provider\s*\{/);
+  assert.match(styles, /\.composer-model-group-heading\s*\{/);
   assert.match(appMain, /agentSavePromise:\s*null/);
   assert.match(appMain, /state\.agentSaveSnapshot = captureAgentSettingsSnapshot\(\);[\s\S]*?while \(state\.agentSavePending\)/);
   assert.match(appMain, /awaitAgentSettingsSaved:\s*\(agentId\) => waitForAgentSettingsSave\(agentId\)/);
@@ -817,14 +835,18 @@ test("desktop composer uses the full chat width without centered side gutters", 
   const marker = "/* Final desktop full-width composer override. */";
   const desktopComposerStyles = styles.slice(styles.indexOf(marker), styles.indexOf("/* Compact mobile composer", styles.indexOf(marker)));
   assert.ok(desktopComposerStyles.startsWith(marker));
-  assert.match(desktopComposerStyles, /\[class~="composer-wrap"\][\s\S]*?padding:\s*6px 10px 8px/);
-  assert.match(desktopComposerStyles, /\[class~="composer-toolbar"\][\s\S]*?justify-content:\s*flex-start/);
-  assert.match(desktopComposerStyles, /\[class~="composer-task-summary"\][\s\S]*?height:\s*30px[\s\S]*?margin-right:\s*auto/);
-  assert.match(desktopComposerStyles, /\[class~="composer-card"\][\s\S]*?width:\s*100%[\s\S]*?max-width:\s*none[\s\S]*?margin:\s*0/);
-  assert.match(desktopComposerStyles, /\[class~="composer-model-field"\][\s\S]*?flex:\s*0 1 300px[\s\S]*?max-width:\s*300px/);
-  assert.match(desktopComposerStyles, /\[class~="toolbar-lightning-btn"\],[\s\S]*?\[class~="composer-actions"\][\s\S]*?display:\s*flex/);
-  assert.match(desktopComposerStyles, /textarea#messageText[\s\S]*?--composer-input-min-height:\s*40px/);
-  assert.match(desktopComposerStyles, /#sendMessageBtn[\s\S]*?width:\s*56px/);
+  assert.match(desktopComposerStyles, /\[class~="composer-card"\]\s*\{[^}]*width:\s*100%;[^}]*max-width:\s*none;[^}]*margin:\s*0;/);
+  assert.doesNotMatch(desktopComposerStyles, /\[class~="composer-card"\]\s*\{[^}]*margin:\s*0 auto/);
+  assert.match(desktopComposerStyles, /\[class~="composer-toolbar"\]\s*\{[^}]*justify-content:\s*flex-start;/);
+  const taskSummaryRule = desktopComposerStyles.match(/\[class~="composer-task-summary"\]\s*\{[^}]*\}/)?.[0] || "";
+  assert.match(taskSummaryRule, /flex:\s*0 1 [^;]+;/);
+  assert.match(taskSummaryRule, /grid-template-columns:/);
+  assert.doesNotMatch(taskSummaryRule, /margin-right:\s*auto/);
+  assert.match(desktopComposerStyles, /\[class~="composer-controls"\]\s*\{[^}]*flex:\s*0 1 auto;[^}]*flex-wrap:\s*nowrap;/);
+  const visibleActionsRule = desktopComposerStyles.match(/\[class~="toolbar-lightning-btn"\],[^{}]*\[class~="composer-actions"\]\s*\{[^}]*\}/)?.[0] || "";
+  assert.match(visibleActionsRule, /display:\s*flex;/);
+  assert.match(desktopComposerStyles, /textarea#messageText\s*\{[^}]*min-height:\s*var\(--composer-input-min-height\);[^}]*max-height:\s*var\(--composer-input-max-height\)/);
+  assert.match(desktopComposerStyles, /#sendMessageBtn\s*\{[^}]*flex:\s*0 0 [^;]+;/);
 });
 
 test("composer task activity is borderless, left aligned, and spins blue while active", async () => {
@@ -840,8 +862,13 @@ test("composer task activity is borderless, left aligned, and spins blue while a
   const indicatorStyles = styles.slice(styles.indexOf(marker));
   assert.match(html, /id="headerCurrentTaskText"[^>]*aria-live="polite"[^>]*aria-atomic="true"/);
   assert.ok(indicatorStyles.startsWith(marker));
-  assert.match(indicatorStyles, /\.composer-task-summary\s*\{[\s\S]*?margin-right:\s*auto[\s\S]*?padding:\s*0[\s\S]*?border:\s*0[\s\S]*?background:\s*transparent/);
-  assert.match(indicatorStyles, /\.composer-task-summary\.has-task[\s\S]*?color:\s*var\(--ws-primary/);
+  const taskSummaryRule = indicatorStyles.match(/\.composer-task-summary\s*\{[^}]*\}/)?.[0] || "";
+  assert.match(taskSummaryRule, /flex:\s*0 1 [^;]+;/);
+  assert.match(taskSummaryRule, /padding:\s*0;/);
+  assert.match(taskSummaryRule, /border:\s*0;/);
+  assert.match(taskSummaryRule, /background:\s*transparent;/);
+  assert.doesNotMatch(taskSummaryRule, /margin-right:\s*auto/);
+  assert.match(indicatorStyles, /\.composer-task-summary\.has-task[^\{]*\{[^}]*color:\s*var\(--ws-primary/);
   assert.match(indicatorStyles, /\.header-task-status-dot\.running,[\s\S]*?\.header-task-status-dot\.queued[\s\S]*?border-top-color:\s*var\(--ws-primary[\s\S]*?animation:\s*composer-task-indicator-spin/);
   assert.match(indicatorStyles, /@keyframes composer-task-indicator-spin[\s\S]*?rotate\(360deg\)/);
   assert.match(backgroundTasks, /function setForegroundActivity[\s\S]*?foregroundActivity = next;[\s\S]*?render\(\)/);
@@ -1966,13 +1993,30 @@ test("finishing a run no longer auto-opens the run summary review card", async (
   assert.match(appMain, /const summary = await loadRunSummary\(run\.id, \{ agentId: run\.agentId \}\);/);
 });
 
-test("model picker popover draws a divider between provider groups", async () => {
+test("model picker groups every provider once and lists all of its models underneath", async () => {
+  const qionggemeGroup = { label: "qionggeme" };
+  const lanyangyangGroup = { label: "lanyangyang" };
+  const options = [
+    { value: "qionggeme:gpt-5.6-luna", textContent: "gpt-5.6-luna", dataset: { provider: "qionggeme" }, parentElement: qionggemeGroup },
+    { value: "lanyangyang:gpt-5.6-sol", textContent: "gpt-5.6-sol", dataset: { provider: "lanyangyang" }, parentElement: lanyangyangGroup },
+    { value: "qionggeme:gpt-5.6-terra", textContent: "gpt-5.6-terra", dataset: { provider: "qionggeme" }, parentElement: qionggemeGroup },
+  ];
+  assert.deepEqual(groupModelSelectOptions(options).map((group) => ({
+    provider: group.provider,
+    models: group.options.map((option) => option.textContent),
+  })), [
+    { provider: "qionggeme", models: ["gpt-5.6-luna", "gpt-5.6-terra"] },
+    { provider: "lanyangyang", models: ["gpt-5.6-sol"] },
+  ]);
+
   const [uiShell, styles] = await Promise.all([
     readFile(uiShellURL, "utf8"),
     readStylesSource(stylesURL),
   ]);
-  assert.match(uiShell, /const group = option\.dataset\.provider \|\| "";/);
-  assert.match(uiShell, /previousGroup !== null && group !== previousGroup/);
-  assert.match(uiShell, /optionButton\.classList\.add\("composer-model-option-group-start"\)/);
-  assert.match(styles, /\.composer-model-option-group-start\s*\{[\s\S]*?border-top:\s*1px solid/);
+  assert.match(uiShell, /groupModelSelectOptions\(options\)\.forEach/);
+  assert.match(uiShell, /appendModelOptionGroups\(binding, options, \{ mobile: true \}\)/);
+  assert.match(uiShell, /appendModelOptionGroups\(binding, menu\)/);
+  assert.doesNotMatch(uiShell, /composer-model-option-provider/);
+  assert.match(styles, /\.composer-model-group-heading\.composer-model-group-start\s*\{[\s\S]*?border-top:\s*1px solid/);
+  assert.match(styles, /\.mobile-model-group-heading\.composer-model-group-start/);
 });
