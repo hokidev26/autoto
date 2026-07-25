@@ -3,6 +3,8 @@
 /codeharbor
 /bin/
 /dist/
+*.exe
+*.exe~
 *.test
 *.out
 coverage.out
@@ -27,6 +29,7 @@ tmp/
 .DS_Store
 .narrafork/
 .worktrees/
+.smoke/
 
 # Local source/reference repositories
 /autoto-legacy/
