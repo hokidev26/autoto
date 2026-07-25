@@ -3,6 +3,7 @@ package db
 import (
 	"context"
 	"database/sql"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -18,6 +19,20 @@ func TestOpenInitializesUserVersionForNewDatabase(t *testing.T) {
 
 	version := readUserVersion(t, ctx, store.DB())
 	if version != CurrentDBVersion {
+		t.Fatalf("expected database version %d, got %d", CurrentDBVersion, version)
+	}
+}
+
+func TestOpenSupportsRelativeDatabasePath(t *testing.T) {
+	ctx := context.Background()
+	root := filepath.Join(".tmp-store-tests", NewID())
+	t.Cleanup(func() { _ = os.RemoveAll(root) })
+	store, err := Open(ctx, filepath.Join(root, "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	if version := readUserVersion(t, ctx, store.DB()); version != CurrentDBVersion {
 		t.Fatalf("expected database version %d, got %d", CurrentDBVersion, version)
 	}
 }

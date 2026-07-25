@@ -22,35 +22,6 @@ export function validateProviderNameValue(value, { existingNames = [], mode = "c
   }
   return { valid: true, code: "", name };
 }
-const commonCountryCodeSecondLevelDomains = new Set(["ac", "co", "com", "edu", "gov", "net", "org"]);
-
-export function providerNameFromBaseURL(value) {
-  let target;
-  try {
-    target = new URL(String(value || "").trim());
-  } catch {
-    return "";
-  }
-  if (!["http:", "https:"].includes(target.protocol)) return "";
-  const hostname = target.hostname.toLowerCase().replace(/\.$/, "");
-  if (!hostname || hostname === "localhost" || hostname.includes(":") || /^\d+(?:\.\d+){3}$/.test(hostname)) return "";
-  const labels = hostname.split(".").filter(Boolean);
-  if (labels.length < 2) return "";
-  const countryCodeSuffix = labels.at(-1).length === 2 && commonCountryCodeSecondLevelDomains.has(labels.at(-2));
-  const candidate = labels.at(countryCodeSuffix ? -3 : -2) || "";
-  return /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/.test(candidate) ? candidate : "";
-}
-
-export function automaticProviderNameUpdate(baseURL, currentName = "", previousSuggestion = "", mode = "create") {
-  const name = String(currentName || "").trim();
-  const previous = String(previousSuggestion || "").trim();
-  if (mode !== "create") return { name, suggestion: "", changed: false };
-  const suggestion = providerNameFromBaseURL(baseURL);
-  if (!suggestion) return { name, suggestion: previous, changed: false };
-  if (name && name !== previous) return { name, suggestion: "", changed: false };
-  return { name: suggestion, suggestion, changed: name !== suggestion };
-}
-
 
 export function codexBrowserLoginRequest(action, loginId = "") {
   const id = encodeURIComponent(String(loginId || "").trim());

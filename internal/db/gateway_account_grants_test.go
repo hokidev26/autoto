@@ -34,10 +34,13 @@ func TestGatewayAccountGrantsFreshSchemaAndV45Migration(t *testing.T) {
 
 	path := filepath.Join(t.TempDir(), "v45.db")
 	raw := openRawDB(t, path)
-	// schemaSQL ends with "... + gatewayAccountGrantsSchemaSQL (v46) + generatedImagesSchemaSQL (v47)";
-	// strip both trailing fragments to reconstruct the v45 schema before either table existed.
-	v45Schema := strings.TrimSuffix(schemaSQL, generatedImagesSchemaSQL)
-	v45Schema = strings.TrimSuffix(v45Schema, gatewayAccountGrantsSchemaSQL)
+	// Remove every append-only schema fragment introduced after v45. These
+	// fragments are no longer guaranteed to be the final schema suffix as newer
+	// migrations are appended.
+	v45Schema := schemaSQL
+	for _, fragment := range []string{gatewayAccountGrantsSchemaSQL, generatedImagesSchemaSQL, toolExecutionGroupSchemaSQL, profileConfigurationSchemaSQL} {
+		v45Schema = strings.Replace(v45Schema, fragment, "", 1)
+	}
 	if strings.Contains(v45Schema, gatewayAccountGrantsSchemaSQL) {
 		raw.Close()
 		t.Fatal("v45 schema fixture did not remove gateway_account_grants")

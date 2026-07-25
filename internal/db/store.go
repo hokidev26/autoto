@@ -37,12 +37,26 @@ func sqliteDSN(path string) string {
 	query := fileURL.Query()
 	query.Add("_pragma", "foreign_keys(1)")
 	query.Add("_pragma", "busy_timeout(5000)")
+	// A run performs dozens of small committing writes (messages, tool call
+	// audit rows, run bookkeeping). The default rollback journal with
+	// synchronous=FULL costs an fsync plus journal delete per commit, which is
+	// tens of milliseconds each and dominates run latency. WAL with
+	// synchronous=NORMAL keeps commits durable against process crashes and only
+	// risks the most recent commits on host power loss, which this local
+	// workspace database can rebuild from its next run.
+	query.Add("_pragma", "journal_mode(WAL)")
+	query.Add("_pragma", "synchronous(NORMAL)")
 	fileURL.RawQuery = query.Encode()
 	return fileURL.String()
 }
 
 func Open(ctx context.Context, path string) (*Store, error) {
 	path = filepath.Clean(path)
+	absolutePath, err := filepath.Abs(path)
+	if err != nil {
+		return nil, fmt.Errorf("resolve SQLite path: %w", err)
+	}
+	path = absolutePath
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return nil, err
 	}
@@ -164,6 +178,12 @@ var (
 	lastNow time.Time
 )
 
+// timestampLayout keeps a fixed-width fractional second so stored timestamps
+// sort lexically in the same order as they do chronologically. time.RFC3339Nano
+// strips trailing zeros, which makes "…:05Z" sort after "…:05.000000001Z" and
+// silently reorders every ORDER BY created_at query and keyset cursor.
+const timestampLayout = "2006-01-02T15:04:05.000000000Z07:00"
+
 func Now() string {
 	nowMu.Lock()
 	defer nowMu.Unlock()
@@ -172,7 +192,7 @@ func Now() string {
 		now = lastNow.Add(time.Nanosecond)
 	}
 	lastNow = now
-	return now.Format(time.RFC3339Nano)
+	return now.Format(timestampLayout)
 }
 
 func NewID() string { return uuid.NewString() }

@@ -302,16 +302,24 @@ type RunMessagePreview struct {
 }
 
 type Attachment struct {
-	ID            string `json:"id"`
-	MessageID     string `json:"messageId"`
-	AgentID       string `json:"agentId"`
-	Filename      string `json:"filename"`
-	MIMEType      string `json:"mimeType"`
-	Kind          string `json:"kind"`
-	SizeBytes     int64  `json:"sizeBytes"`
-	Data          []byte `json:"-"`
-	ExtractedText string `json:"extractedText,omitempty"`
-	CreatedAt     string `json:"createdAt"`
+	ID               string `json:"id"`
+	MessageID        string `json:"messageId"`
+	AgentID          string `json:"agentId"`
+	Filename         string `json:"filename"`
+	MIMEType         string `json:"mimeType"`
+	Kind             string `json:"kind"`
+	SizeBytes        int64  `json:"sizeBytes"`
+	Data             []byte `json:"-"`
+	ModelData        []byte `json:"-"`
+	ModelMIME        string `json:"modelMime,omitempty"`
+	Width            int    `json:"width,omitempty"`
+	Height           int    `json:"height,omitempty"`
+	SHA256           string `json:"sha256,omitempty"`
+	ProcessingStatus string `json:"processingStatus,omitempty"`
+	ProcessingCode   string `json:"processingCode,omitempty"`
+	ProcessingError  string `json:"processingError,omitempty"`
+	ExtractedText    string `json:"extractedText,omitempty"`
+	CreatedAt        string `json:"createdAt"`
 }
 
 type GeneratedImage struct {
@@ -628,4 +636,76 @@ type ToolPermissionRule struct {
 	Description string `json:"description,omitempty"`
 	CreatedAt   string `json:"createdAt"`
 	UpdatedAt   string `json:"updatedAt"`
+}
+
+const (
+	ToolExecutionGroupStatusOpen    = "open"
+	ToolExecutionGroupStatusSettled = "settled"
+	ToolExecutionGroupStatusAborted = "aborted"
+
+	ToolExecutionItemStatusPending   = "pending"
+	ToolExecutionItemStatusCompleted = "completed"
+	ToolExecutionItemStatusError     = "error"
+	ToolExecutionItemStatusDenied    = "denied"
+	ToolExecutionItemStatusFailed    = "failed"
+	ToolExecutionItemStatusAborted   = "aborted"
+)
+
+type ToolExecutionGroup struct {
+	ID                 string              `json:"id"`
+	RunID              string              `json:"runId"`
+	AssistantMessageID string              `json:"assistantMessageId"`
+	ExpectedCount      int                 `json:"expectedCount"`
+	Status             string              `json:"status"`
+	AbortReason        string              `json:"abortReason,omitempty"`
+	SettledAt          string              `json:"settledAt,omitempty"`
+	AbortedAt          string              `json:"abortedAt,omitempty"`
+	CreatedAt          string              `json:"createdAt"`
+	UpdatedAt          string              `json:"updatedAt"`
+	Items              []ToolExecutionItem `json:"items"`
+}
+
+type ToolExecutionItem struct {
+	GroupID           string          `json:"groupId"`
+	ToolUseID         string          `json:"toolUseId"`
+	ToolName          string          `json:"toolName"`
+	Ordinal           int             `json:"ordinal"`
+	Status            string          `json:"status"`
+	ResultMessageID   string          `json:"resultMessageId,omitempty"`
+	OutputSummaryJSON json.RawMessage `json:"outputSummary,omitempty"`
+	TerminalAt        string          `json:"terminalAt,omitempty"`
+	CreatedAt         string          `json:"createdAt"`
+	UpdatedAt         string          `json:"updatedAt"`
+}
+
+type ToolExecutionGroupCreateInput struct {
+	ID                 string                   `json:"id,omitempty"`
+	RunID              string                   `json:"runId"`
+	AssistantMessageID string                   `json:"assistantMessageId"`
+	ExpectedCount      int                      `json:"expectedCount"`
+	Items              []ToolExecutionItemInput `json:"items"`
+}
+
+type ToolExecutionItemInput struct {
+	ToolUseID string `json:"toolUseId"`
+	ToolName  string `json:"toolName"`
+}
+
+type ToolExecutionItemTerminalInput struct {
+	ToolUseID         string          `json:"toolUseId"`
+	Status            string          `json:"status"`
+	ResultMessageID   string          `json:"resultMessageId"`
+	OutputSummaryJSON json.RawMessage `json:"outputSummary"`
+}
+
+type ToolExecutionOutputSummary struct {
+	SHA256    string `json:"sha256"`
+	ByteCount int    `json:"byteCount"`
+	Preview   string `json:"preview,omitempty"`
+	Truncated bool   `json:"truncated,omitempty"`
+	IsError   bool   `json:"isError,omitempty"`
+}
+
+func (item ToolExecutionItem) Terminal() bool {
+	return item.Status != "" && item.Status != ToolExecutionItemStatusPending
 }

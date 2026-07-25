@@ -11,6 +11,73 @@ import (
 	"unicode/utf8"
 )
 
+const maxPersistedModelImageBytes = 4 << 20
+
+const attachmentSelectColumns = `id, message_id, agent_id, filename, COALESCE(mime_type,''), kind, size_bytes, %s, %s, COALESCE(model_mime_type,''), COALESCE(image_width,0), COALESCE(image_height,0), COALESCE(sha256,''), COALESCE(processing_status,''), COALESCE(processing_code,''), COALESCE(processing_error,''), %s, created_at`
+
+type attachmentScanner func(...any) error
+
+func validateAttachmentModelState(attachment Attachment) error {
+	if len(attachment.ModelData) > maxPersistedModelImageBytes {
+		return errors.New("attachment model image exceeds 4 MiB")
+	}
+	if len(attachment.ProcessingCode) > 64 || !utf8.ValidString(attachment.ProcessingCode) {
+		return errors.New("invalid attachment processing code")
+	}
+	if len([]byte(attachment.ProcessingError)) > 2048 || !utf8.ValidString(attachment.ProcessingError) {
+		return errors.New("invalid attachment processing error")
+	}
+	validSHA := attachment.SHA256 == "" || isLowerHexSHA256(attachment.SHA256)
+	if !validSHA {
+		return errors.New("invalid attachment sha256")
+	}
+	switch attachment.ProcessingStatus {
+	case "":
+		if len(attachment.ModelData) != 0 || attachment.ModelMIME != "" || attachment.Width != 0 || attachment.Height != 0 || attachment.SHA256 != "" || attachment.ProcessingCode != "" || attachment.ProcessingError != "" {
+			return errors.New("legacy attachment model state must be empty")
+		}
+	case "ready":
+		if len(attachment.ModelData) == 0 || (attachment.ModelMIME != "image/png" && attachment.ModelMIME != "image/jpeg") || attachment.Width < 1 || attachment.Width > 8192 || attachment.Height < 1 || attachment.Height > 8192 || attachment.SHA256 == "" || attachment.ProcessingCode != "" || attachment.ProcessingError != "" {
+			return errors.New("invalid ready attachment model state")
+		}
+	case "rejected":
+		if len(attachment.ModelData) != 0 || attachment.ModelMIME != "" || attachment.Width != 0 || attachment.Height != 0 || attachment.SHA256 == "" || strings.TrimSpace(attachment.ProcessingCode) == "" || strings.TrimSpace(attachment.ProcessingError) == "" {
+			return errors.New("invalid rejected attachment model state")
+		}
+	default:
+		return errors.New("invalid attachment processing status")
+	}
+	return nil
+}
+
+func isLowerHexSHA256(value string) bool {
+	if len(value) != 64 {
+		return false
+	}
+	for _, character := range value {
+		if (character < '0' || character > '9') && (character < 'a' || character > 'f') {
+			return false
+		}
+	}
+	return true
+}
+
+func insertMessageAttachment(ctx context.Context, tx *sql.Tx, attachment Attachment) error {
+	if err := validateAttachmentModelState(attachment); err != nil {
+		return err
+	}
+	_, err := tx.ExecContext(ctx, `INSERT INTO agent_message_attachments (id, message_id, agent_id, filename, mime_type, kind, size_bytes, data_blob, model_data_blob, model_mime_type, image_width, image_height, sha256, processing_status, processing_code, processing_error, extracted_text, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULLIF(?, ''), ?, ?, ?, ?, ?, ?, ?, ?)`, attachment.ID, attachment.MessageID, attachment.AgentID, attachment.Filename, attachment.MIMEType, attachment.Kind, attachment.SizeBytes, attachment.Data, attachment.ModelData, attachment.ModelMIME, attachment.Width, attachment.Height, attachment.SHA256, attachment.ProcessingStatus, attachment.ProcessingCode, attachment.ProcessingError, attachment.ExtractedText, attachment.CreatedAt)
+	return err
+}
+
+func scanMessageAttachment(scan attachmentScanner) (Attachment, error) {
+	var attachment Attachment
+	if err := scan(&attachment.ID, &attachment.MessageID, &attachment.AgentID, &attachment.Filename, &attachment.MIMEType, &attachment.Kind, &attachment.SizeBytes, &attachment.Data, &attachment.ModelData, &attachment.ModelMIME, &attachment.Width, &attachment.Height, &attachment.SHA256, &attachment.ProcessingStatus, &attachment.ProcessingCode, &attachment.ProcessingError, &attachment.ExtractedText, &attachment.CreatedAt); err != nil {
+		return Attachment{}, err
+	}
+	return attachment, nil
+}
+
 func (s *Store) GetMessageDraft(ctx context.Context, userID, agentID string) (MessageDraft, error) {
 	var draft MessageDraft
 	err := s.db.QueryRowContext(ctx, `SELECT user_id, agent_id, content_text, version, updated_at FROM message_drafts WHERE user_id = ? AND agent_id = ?`, userID, agentID).Scan(&draft.UserID, &draft.AgentID, &draft.ContentText, &draft.Version, &draft.UpdatedAt)
@@ -115,7 +182,7 @@ func (s *Store) AddMessageWithAttachments(ctx context.Context, msg Message, atta
 		if attachment.CreatedAt == "" {
 			attachment.CreatedAt = msg.CreatedAt
 		}
-		if _, err := tx.ExecContext(ctx, `INSERT INTO agent_message_attachments (id, message_id, agent_id, filename, mime_type, kind, size_bytes, data_blob, extracted_text, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, attachment.ID, attachment.MessageID, attachment.AgentID, attachment.Filename, attachment.MIMEType, attachment.Kind, attachment.SizeBytes, attachment.Data, attachment.ExtractedText, attachment.CreatedAt); err != nil {
+		if err := insertMessageAttachment(ctx, tx, attachment); err != nil {
 			return Message{}, err
 		}
 		storedAttachments = append(storedAttachments, attachment)
@@ -160,8 +227,8 @@ func (s *Store) CreateCorrectionWithRun(ctx context.Context, agentID, sourceMess
 			return Message{}, Run{}, errors.New("duplicate keepAttachmentIds")
 		}
 		seen[attachmentID] = struct{}{}
-		var attachment Attachment
-		if err := tx.QueryRowContext(ctx, `SELECT id, message_id, agent_id, filename, COALESCE(mime_type,''), kind, size_bytes, data_blob, COALESCE(extracted_text,''), created_at FROM agent_message_attachments WHERE id = ? AND message_id = ? AND agent_id = ?`, attachmentID, sourceMessageID, agentID).Scan(&attachment.ID, &attachment.MessageID, &attachment.AgentID, &attachment.Filename, &attachment.MIMEType, &attachment.Kind, &attachment.SizeBytes, &attachment.Data, &attachment.ExtractedText, &attachment.CreatedAt); err != nil {
+		attachment, err := scanMessageAttachment(tx.QueryRowContext(ctx, `SELECT `+fmt.Sprintf(attachmentSelectColumns, "data_blob", "COALESCE(model_data_blob,X'')", "COALESCE(extracted_text,'')")+` FROM agent_message_attachments WHERE id = ? AND message_id = ? AND agent_id = ?`, attachmentID, sourceMessageID, agentID).Scan)
+		if err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
 				return Message{}, Run{}, fmt.Errorf("%w: attachment does not belong to source message", ErrConflict)
 			}
@@ -195,7 +262,7 @@ func (s *Store) CreateCorrectionWithRun(ctx context.Context, agentID, sourceMess
 		if attachment.CreatedAt == "" {
 			attachment.CreatedAt = now
 		}
-		if _, err := tx.ExecContext(ctx, `INSERT INTO agent_message_attachments (id, message_id, agent_id, filename, mime_type, kind, size_bytes, data_blob, extracted_text, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, attachment.ID, attachment.MessageID, attachment.AgentID, attachment.Filename, attachment.MIMEType, attachment.Kind, attachment.SizeBytes, attachment.Data, attachment.ExtractedText, attachment.CreatedAt); err != nil {
+		if err := insertMessageAttachment(ctx, tx, attachment); err != nil {
 			return Message{}, Run{}, err
 		}
 		storedAttachments = append(storedAttachments, attachment)
@@ -371,25 +438,23 @@ func (s *Store) populateMessageAttachments(ctx context.Context, messages []Messa
 
 func (s *Store) ListMessageAttachments(ctx context.Context, messageID string, includeData bool) ([]Attachment, error) {
 	selectData := `X''`
+	selectModelData := `X''`
 	selectText := `''`
 	if includeData {
 		selectData = `data_blob`
+		selectModelData = `COALESCE(model_data_blob,X'')`
 		selectText = `COALESCE(extracted_text,'')`
 	}
-	rows, err := s.db.QueryContext(ctx, `SELECT id, message_id, agent_id, filename, COALESCE(mime_type,''), kind, size_bytes, `+selectData+`, `+selectText+`, created_at FROM agent_message_attachments WHERE message_id = ? ORDER BY created_at ASC`, messageID)
+	rows, err := s.db.QueryContext(ctx, `SELECT `+fmt.Sprintf(attachmentSelectColumns, selectData, selectModelData, selectText)+` FROM agent_message_attachments WHERE message_id = ? ORDER BY created_at ASC`, messageID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 	attachments := make([]Attachment, 0)
 	for rows.Next() {
-		var attachment Attachment
-		var data []byte
-		if err := rows.Scan(&attachment.ID, &attachment.MessageID, &attachment.AgentID, &attachment.Filename, &attachment.MIMEType, &attachment.Kind, &attachment.SizeBytes, &data, &attachment.ExtractedText, &attachment.CreatedAt); err != nil {
+		attachment, err := scanMessageAttachment(rows.Scan)
+		if err != nil {
 			return nil, err
-		}
-		if includeData {
-			attachment.Data = data
 		}
 		attachments = append(attachments, attachment)
 	}
@@ -397,9 +462,7 @@ func (s *Store) ListMessageAttachments(ctx context.Context, messageID string, in
 }
 
 func (s *Store) GetAttachment(ctx context.Context, agentID, messageID, attachmentID string) (Attachment, error) {
-	var attachment Attachment
-	err := s.db.QueryRowContext(ctx, `SELECT id, message_id, agent_id, filename, COALESCE(mime_type,''), kind, size_bytes, data_blob, COALESCE(extracted_text,''), created_at FROM agent_message_attachments WHERE agent_id = ? AND message_id = ? AND id = ?`, agentID, messageID, attachmentID).Scan(&attachment.ID, &attachment.MessageID, &attachment.AgentID, &attachment.Filename, &attachment.MIMEType, &attachment.Kind, &attachment.SizeBytes, &attachment.Data, &attachment.ExtractedText, &attachment.CreatedAt)
-	return attachment, err
+	return scanMessageAttachment(s.db.QueryRowContext(ctx, `SELECT `+fmt.Sprintf(attachmentSelectColumns, "data_blob", "COALESCE(model_data_blob,X'')", "COALESCE(extracted_text,'')")+` FROM agent_message_attachments WHERE agent_id = ? AND message_id = ? AND id = ?`, agentID, messageID, attachmentID).Scan)
 }
 
 func attachmentMetadata(attachments []Attachment) []Attachment {
@@ -409,6 +472,7 @@ func attachmentMetadata(attachments []Attachment) []Attachment {
 	out := make([]Attachment, 0, len(attachments))
 	for _, attachment := range attachments {
 		attachment.Data = nil
+		attachment.ModelData = nil
 		attachment.ExtractedText = ""
 		out = append(out, attachment)
 	}

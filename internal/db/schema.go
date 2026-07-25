@@ -290,8 +290,25 @@ CREATE TABLE IF NOT EXISTS agent_message_attachments (
   kind TEXT NOT NULL,
   size_bytes INTEGER NOT NULL,
   data_blob BLOB NOT NULL,
+  model_data_blob BLOB,
+  model_mime_type TEXT,
+  image_width INTEGER NOT NULL DEFAULT 0,
+  image_height INTEGER NOT NULL DEFAULT 0,
+  sha256 TEXT NOT NULL DEFAULT '',
+  processing_status TEXT NOT NULL DEFAULT '',
+  processing_code TEXT NOT NULL DEFAULT '',
+  processing_error TEXT NOT NULL DEFAULT '',
   extracted_text TEXT,
-  created_at TEXT NOT NULL
+  created_at TEXT NOT NULL,
+  CHECK (image_width BETWEEN 0 AND 8192),
+  CHECK (image_height BETWEEN 0 AND 8192),
+  CHECK (processing_status IN ('', 'ready', 'rejected')),
+  CHECK (length(COALESCE(model_data_blob, X'')) <= 4194304),
+  CHECK (
+    (processing_status = 'ready' AND length(COALESCE(model_data_blob, X'')) > 0 AND model_mime_type IN ('image/png', 'image/jpeg') AND image_width > 0 AND image_height > 0 AND length(sha256) = 64 AND processing_code = '' AND processing_error = '')
+    OR (processing_status = 'rejected' AND length(COALESCE(model_data_blob, X'')) = 0 AND COALESCE(model_mime_type, '') = '' AND image_width = 0 AND image_height = 0 AND length(sha256) = 64 AND processing_code <> '' AND processing_error <> '')
+    OR (processing_status = '' AND length(COALESCE(model_data_blob, X'')) = 0 AND COALESCE(model_mime_type, '') = '' AND image_width = 0 AND image_height = 0 AND sha256 = '' AND processing_code = '' AND processing_error = '')
+  )
 );
 CREATE INDEX IF NOT EXISTS idx_message_attachments_message ON agent_message_attachments(message_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_message_attachments_agent ON agent_message_attachments(agent_id, created_at);
@@ -527,7 +544,9 @@ CREATE TABLE IF NOT EXISTS tool_permission_rules (
   updated_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_tool_permission_rules_match ON tool_permission_rules(enabled, mode, tool_name, risk, priority);
-` + automationAuditSchemaSQL + integrationConnectionsSchemaSQL + memorySchemaSQL + schedulesSchemaSQL + notificationDeliveriesSchemaSQL + channelPersistenceSchemaSQL + deviceActionRequestsSchemaSQL + specSchemaSQL + modelClientSchemaSQL + remoteExecutionSchemaSQL + providerAccountStatsSchemaSQL + providerSecretsSchemaSQL + pluginSchemaSQL + backgroundTaskSchemaSQL + planSchemaSQL + gatewaySchemaSQL + accountPreferencesSchemaSQL + oauthAppSchemaSQL + gatewayAccountGrantsSchemaSQL + generatedImagesSchemaSQL
+` + automationAuditSchemaSQL + integrationConnectionsSchemaSQL + memorySchemaSQL + schedulesSchemaSQL + notificationDeliveriesSchemaSQL + channelPersistenceSchemaSQL + deviceActionRequestsSchemaSQL + specSchemaSQL + modelClientSchemaSQL + remoteExecutionSchemaSQL + providerAccountStatsSchemaSQL + providerSecretsSchemaSQL + pluginSchemaSQL + backgroundTaskSchemaSQL + planSchemaSQL + gatewaySchemaSQL + accountPreferencesSchemaSQL + oauthAppSchemaSQL + gatewayAccountGrantsSchemaSQL + generatedImagesSchemaSQL + toolExecutionGroupSchemaSQL + profileConfigurationSchemaSQL
+
+const profileConfigurationSchemaSQL = toolAvailabilitySchemaSQL + agentRoleDefinitionSchemaSQL + promptDefinitionSchemaSQL + lifecycleHookSchemaSQL
 
 const generatedImagesSchemaSQL = `
 

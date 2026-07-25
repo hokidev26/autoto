@@ -274,7 +274,7 @@ func (s *Store) ListSchedules(ctx context.Context, args ...any) ([]Schedule, err
 }
 
 func (s *Store) UpdateSchedule(ctx context.Context, schedule Schedule) (Schedule, error) {
-	expectedUpdatedAt := strings.TrimSpace(schedule.UpdatedAt)
+	expectedUpdatedAt := p2p3TimeCAS(schedule.UpdatedAt)
 	if expectedUpdatedAt == "" {
 		return Schedule{}, errors.New("schedule updated_at is required for CAS update")
 	}
@@ -300,9 +300,9 @@ func (s *Store) DeleteSchedule(ctx context.Context, id string, expectedUpdatedAt
 	}
 	query := `DELETE FROM schedules WHERE id = ?`
 	params := []any{id}
-	if len(expectedUpdatedAt) > 0 && strings.TrimSpace(expectedUpdatedAt[0]) != "" {
+	if expected := p2p3TimeCAS(firstOrEmpty(expectedUpdatedAt)); expected != "" {
 		query += ` AND updated_at = ?`
-		params = append(params, strings.TrimSpace(expectedUpdatedAt[0]))
+		params = append(params, expected)
 	}
 	result, err := s.db.ExecContext(ctx, query, params...)
 	if err != nil {
@@ -375,7 +375,12 @@ func (s *Store) ClaimDueSchedules(ctx context.Context, now, leaseUntil string, l
 
 func (s *Store) ReleaseScheduleLease(ctx context.Context, id, leaseUntil string) error {
 	id = strings.TrimSpace(id)
-	leaseUntil = strings.TrimSpace(leaseUntil)
+	// The lease predicate must use the same canonical layout the claim wrote,
+	// otherwise an equivalent instant with trailing zeros never matches.
+	leaseUntil, err := canonicalP2P3Time("schedule lease_until", leaseUntil, true)
+	if err != nil {
+		return err
+	}
 	result, err := s.db.ExecContext(ctx, `UPDATE schedules SET lease_until = NULL, updated_at = ? WHERE id = ? AND lease_until = ?`, Now(), id, leaseUntil)
 	if err != nil {
 		return err
@@ -385,10 +390,14 @@ func (s *Store) ReleaseScheduleLease(ctx context.Context, id, leaseUntil string)
 
 func (s *Store) RecordScheduleRun(ctx context.Context, id, leaseUntil, runID, outcome, lastError, nextRunAt string) (Schedule, error) {
 	id = strings.TrimSpace(id)
-	leaseUntil = strings.TrimSpace(leaseUntil)
 	runID = strings.TrimSpace(runID)
 	outcome = strings.TrimSpace(outcome)
 	lastError = strings.TrimSpace(lastError)
+	// Match the canonical lease value persisted by ClaimDueSchedules.
+	leaseUntil, leaseErr := canonicalP2P3Time("schedule lease_until", leaseUntil, true)
+	if leaseErr != nil {
+		return Schedule{}, leaseErr
+	}
 	if !validScheduleOutcome(outcome) || outcome == "" {
 		return Schedule{}, errors.New("invalid schedule outcome")
 	}
@@ -2131,7 +2140,36 @@ func canonicalP2P3Time(name, value string, required bool) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("invalid %s", name)
 	}
-	return parsed.UTC().Format(time.RFC3339Nano), nil
+	// Canonical stored timestamps use the fixed-width layout shared with Now()
+	// so a value round-trips byte-for-byte through CAS predicates and keyset
+	// cursors. RFC3339Nano would strip trailing zeros and break both.
+	return parsed.UTC().Format(timestampLayout), nil
+}
+
+func firstOrEmpty(values []string) string {
+	if len(values) == 0 {
+		return ""
+	}
+	return values[0]
+}
+
+// p2p3TimeCAS canonicalizes a caller-supplied timestamp that is used as a
+// compare-and-swap predicate against a stored value. Writers store canonical
+// text, so an equally valid but differently formatted input (for example
+// RFC3339Nano, which strips trailing zeros) must be normalized or the predicate
+// silently matches no rows and the operation reports a spurious conflict.
+func p2p3TimeCAS(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return ""
+	}
+	canonical, err := canonicalP2P3Time("timestamp", value, false)
+	if err != nil {
+		// Not a timestamp we can canonicalize; compare it verbatim so a
+		// malformed predicate still fails closed instead of matching rows.
+		return value
+	}
+	return canonical
 }
 
 func p2p3TimeAfter(left, right string) bool {
@@ -2145,7 +2183,7 @@ func nextP2P3UpdatedAt(previous string) string {
 	if prior, err := time.Parse(time.RFC3339Nano, previous); err == nil && !now.After(prior) {
 		now = prior.Add(time.Nanosecond)
 	}
-	return now.Format(time.RFC3339Nano)
+	return now.Format(timestampLayout)
 }
 
 func normalizedP2P3Limit(limit, fallback int) int {

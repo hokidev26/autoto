@@ -1,10 +1,13 @@
 package db
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"image"
+	"image/png"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -173,5 +176,142 @@ func TestMessageProviderStateAndReasoningEffortRemainInternal(t *testing.T) {
 	}
 	if updated.ReasoningEffort != "high" {
 		t.Fatalf("reasoning effort did not round-trip: %+v", updated)
+	}
+}
+
+func TestAttachmentModelImageStatePersistsAndCopiesWithCorrection(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "attachments.db")
+	store, err := Open(ctx, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _, agent, err := store.CreateProject(ctx, "Images", "", t.TempDir(), "openai:test", "acceptEdits")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var encoded bytes.Buffer
+	if err := png.Encode(&encoded, image.NewNRGBA(image.Rect(0, 0, 2, 1))); err != nil {
+		t.Fatal(err)
+	}
+	original := append([]byte("original-metadata:"), encoded.Bytes()...)
+	modelData := append([]byte(nil), encoded.Bytes()...)
+	message, err := store.AddMessageWithAttachments(ctx, Message{AgentID: agent.ID, Role: "user", ContentText: "image"}, []Attachment{{
+		Filename: "image.png", MIMEType: "image/png", Kind: "image", SizeBytes: int64(len(original)), Data: original,
+		ModelData: modelData, ModelMIME: "image/png", Width: 2, Height: 1, SHA256: strings.Repeat("a", 64), ProcessingStatus: "ready",
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(message.Attachments) != 1 || len(message.Attachments[0].Data) != 0 || len(message.Attachments[0].ModelData) != 0 || message.Attachments[0].ProcessingStatus != "ready" {
+		t.Fatalf("unexpected public attachment metadata: %+v", message.Attachments)
+	}
+	attachmentID := message.Attachments[0].ID
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	store, err = Open(ctx, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	stored, err := store.GetAttachment(ctx, agent.ID, message.ID, attachmentID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(stored.Data, original) || !bytes.Equal(stored.ModelData, modelData) || stored.ModelMIME != "image/png" || stored.Width != 2 || stored.Height != 1 || stored.SHA256 != strings.Repeat("a", 64) || stored.ProcessingStatus != "ready" {
+		t.Fatalf("model image state did not survive restart: %+v", stored)
+	}
+	correction, _, err := store.CreateCorrectionWithRun(ctx, agent.ID, message.ID, "corrected", "", "", []string{attachmentID}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(correction.Attachments) != 1 || correction.Attachments[0].ID == attachmentID {
+		t.Fatalf("expected an immutable copied attachment: %+v", correction.Attachments)
+	}
+	copied, err := store.GetAttachment(ctx, agent.ID, correction.ID, correction.Attachments[0].ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(copied.Data, original) || !bytes.Equal(copied.ModelData, modelData) || copied.ProcessingStatus != "ready" {
+		t.Fatalf("correction lost model image state: %+v", copied)
+	}
+}
+
+func TestAttachmentModelImageStateFailsClosed(t *testing.T) {
+	ctx := context.Background()
+	store, err := Open(ctx, filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	_, _, agent, err := store.CreateProject(ctx, "Images", "", t.TempDir(), "openai:test", "acceptEdits")
+	if err != nil {
+		t.Fatal(err)
+	}
+	invalid := []Attachment{
+		{Filename: "missing.png", MIMEType: "image/png", Kind: "image", Data: []byte("raw"), ProcessingStatus: "ready", ModelMIME: "image/png", Width: 1, Height: 1, SHA256: strings.Repeat("a", 64)},
+		{Filename: "bad.png", MIMEType: "image/png", Kind: "image", Data: []byte("raw"), ProcessingStatus: "rejected", SHA256: strings.Repeat("b", 64), ProcessingCode: "invalid_image"},
+		{Filename: "legacy.png", MIMEType: "image/png", Kind: "image", Data: []byte("raw"), SHA256: strings.Repeat("c", 64)},
+	}
+	for _, attachment := range invalid {
+		if _, err := store.AddMessageWithAttachments(ctx, Message{AgentID: agent.ID, Role: "user"}, []Attachment{attachment}); err == nil {
+			t.Fatalf("expected invalid model state to fail closed: %+v", attachment)
+		}
+	}
+}
+
+func TestMigrationV49AddsAttachmentModelImageColumnsWithoutRewritingLegacyData(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "legacy-v48.db")
+	raw := openRawDB(t, path)
+	if _, err := raw.ExecContext(ctx, schemaSQL); err != nil {
+		raw.Close()
+		t.Fatal(err)
+	}
+	if _, err := raw.ExecContext(ctx, `DROP TABLE agent_message_attachments;
+CREATE TABLE agent_message_attachments (
+  id TEXT PRIMARY KEY,
+  message_id TEXT NOT NULL,
+  agent_id TEXT NOT NULL,
+  filename TEXT NOT NULL,
+  mime_type TEXT,
+  kind TEXT NOT NULL,
+  size_bytes INTEGER NOT NULL,
+  data_blob BLOB NOT NULL,
+  extracted_text TEXT,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX idx_message_attachments_message ON agent_message_attachments(message_id, created_at);
+CREATE INDEX idx_message_attachments_agent ON agent_message_attachments(agent_id, created_at);
+INSERT INTO agent_message_attachments (id, message_id, agent_id, filename, mime_type, kind, size_bytes, data_blob, extracted_text, created_at)
+VALUES ('legacy-attachment', 'legacy-message', 'legacy-agent', 'legacy.txt', 'text/plain', 'text', 6, X'6C6567616379', 'legacy', '2026-01-01T00:00:00Z');
+PRAGMA user_version = 48;`); err != nil {
+		raw.Close()
+		t.Fatal(err)
+	}
+	if err := raw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	store, err := Open(ctx, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	for _, column := range []string{"model_data_blob", "model_mime_type", "image_width", "image_height", "sha256", "processing_status", "processing_code", "processing_error"} {
+		if !testColumnExists(t, ctx, store.DB(), "agent_message_attachments", column) {
+			t.Fatalf("expected v49 migration to add %s", column)
+		}
+	}
+	attachment, err := store.GetAttachment(ctx, "legacy-agent", "legacy-message", "legacy-attachment")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(attachment.Data) != "legacy" || attachment.ExtractedText != "legacy" || attachment.ProcessingStatus != "" || len(attachment.ModelData) != 0 {
+		t.Fatalf("legacy attachment was rewritten unexpectedly: %+v", attachment)
+	}
+	if version := readUserVersion(t, ctx, store.DB()); version != CurrentDBVersion {
+		t.Fatalf("expected version %d, got %d", CurrentDBVersion, version)
 	}
 }

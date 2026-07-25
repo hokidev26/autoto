@@ -9,7 +9,7 @@ import (
 	"github.com/google/uuid"
 )
 
-const CurrentDBVersion = 48
+const CurrentDBVersion = 52
 
 type migration struct {
 	version int
@@ -66,6 +66,10 @@ var migrations = []migration{
 	{version: 46, name: "gateway account grants", up: migrateV46GatewayAccountGrants},
 	{version: 47, name: "generated image disk metadata", up: migrateV47GeneratedImages},
 	{version: 48, name: "account preferences setup version", up: migrateV48AccountPreferencesSetupVersion},
+	{version: 49, name: "attachment model image metadata", up: migrateV49AttachmentModelImages},
+	{version: 50, name: "tool execution settlement ledger", up: migrateV50ToolExecutionGroups},
+	{version: 51, name: "profile configuration and lifecycle hooks", up: migrateV51ProfileConfiguration},
+	{version: 52, name: "lexically sortable timestamps", up: migrateV52SortableTimestamps},
 }
 
 func runMigrations(ctx context.Context, db *sql.DB) error {
@@ -1394,6 +1398,134 @@ func migrateV48AccountPreferencesSetupVersion(ctx context.Context, tx *sql.Tx) e
 	return ensureColumn(ctx, tx, "account_preferences", "setup_version", "INTEGER NOT NULL DEFAULT 0 CHECK (setup_version BETWEEN 0 AND 1000)")
 }
 
+func migrateV49AttachmentModelImages(ctx context.Context, tx *sql.Tx) error {
+	columns := []struct {
+		name       string
+		definition string
+	}{
+		{name: "model_data_blob", definition: "BLOB"},
+		{name: "model_mime_type", definition: "TEXT"},
+		{name: "image_width", definition: "INTEGER NOT NULL DEFAULT 0 CHECK (image_width BETWEEN 0 AND 8192)"},
+		{name: "image_height", definition: "INTEGER NOT NULL DEFAULT 0 CHECK (image_height BETWEEN 0 AND 8192)"},
+		{name: "sha256", definition: "TEXT NOT NULL DEFAULT ''"},
+		{name: "processing_status", definition: "TEXT NOT NULL DEFAULT '' CHECK (processing_status IN ('', 'ready', 'rejected'))"},
+		{name: "processing_code", definition: "TEXT NOT NULL DEFAULT ''"},
+		{name: "processing_error", definition: "TEXT NOT NULL DEFAULT ''"},
+	}
+	for _, column := range columns {
+		if err := ensureColumn(ctx, tx, "agent_message_attachments", column.name, column.definition); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// migrateV52SortableTimestamps pads legacy timestamps to the fixed-width
+// fractional-second form written by Now(). Values were previously formatted with
+// time.RFC3339Nano, which strips trailing zeros, so a whole-second value like
+// "2026-07-25T06:00:00Z" sorted lexically *after* every sub-second value in the
+// same second. Every ORDER BY created_at query and keyset cursor in this schema
+// compares these values as text, so the unpadded rows reordered history.
+func migrateV52SortableTimestamps(ctx context.Context, tx *sql.Tx) error {
+	columns, err := timestampTextColumns(ctx, tx)
+	if err != nil {
+		return err
+	}
+	for _, column := range columns {
+		// Only rewrite the values that sort incorrectly: an RFC3339 UTC instant
+		// with no fractional part. Rows that already carry a fractional second
+		// keep their exact stored text.
+		statement := fmt.Sprintf(
+			`UPDATE %s SET %s = substr(%s, 1, 19) || '.000000000Z' WHERE %s IS NOT NULL AND length(%s) = 20 AND substr(%s, 20, 1) = 'Z'`,
+			quoteIdentifier(column.table), quoteIdentifier(column.column), quoteIdentifier(column.column),
+			quoteIdentifier(column.column), quoteIdentifier(column.column), quoteIdentifier(column.column),
+		)
+		if _, err := tx.ExecContext(ctx, statement); err != nil {
+			return fmt.Errorf("normalize %s.%s timestamps: %w", column.table, column.column, err)
+		}
+	}
+	return nil
+}
+
+type timestampColumn struct {
+	table  string
+	column string
+}
+
+// timestampTextColumns discovers the stored timestamp columns from the live
+// schema so the migration stays correct as tables are added, instead of
+// hardcoding a list that silently misses new ordering keys.
+func timestampTextColumns(ctx context.Context, tx *sql.Tx) ([]timestampColumn, error) {
+	tableRows, err := tx.QueryContext(ctx, `SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name`)
+	if err != nil {
+		return nil, fmt.Errorf("list tables: %w", err)
+	}
+	var tables []string
+	for tableRows.Next() {
+		var name string
+		if err := tableRows.Scan(&name); err != nil {
+			tableRows.Close()
+			return nil, err
+		}
+		tables = append(tables, name)
+	}
+	if err := tableRows.Err(); err != nil {
+		tableRows.Close()
+		return nil, err
+	}
+	if err := tableRows.Close(); err != nil {
+		return nil, err
+	}
+
+	var columns []timestampColumn
+	for _, table := range tables {
+		columnRows, err := tx.QueryContext(ctx, fmt.Sprintf(`PRAGMA table_info(%s)`, quoteIdentifier(table)))
+		if err != nil {
+			return nil, fmt.Errorf("inspect table %s: %w", table, err)
+		}
+		for columnRows.Next() {
+			var (
+				cid          int
+				name         string
+				declaredType sql.NullString
+				notNull      int
+				defaultValue sql.NullString
+				primaryKey   int
+			)
+			if err := columnRows.Scan(&cid, &name, &declaredType, &notNull, &defaultValue, &primaryKey); err != nil {
+				columnRows.Close()
+				return nil, err
+			}
+			if isTimestampColumnName(name) && strings.EqualFold(strings.TrimSpace(declaredType.String), "TEXT") {
+				columns = append(columns, timestampColumn{table: table, column: name})
+			}
+		}
+		if err := columnRows.Err(); err != nil {
+			columnRows.Close()
+			return nil, err
+		}
+		if err := columnRows.Close(); err != nil {
+			return nil, err
+		}
+	}
+	return columns, nil
+}
+
+func isTimestampColumnName(name string) bool {
+	trimmed := strings.ToLower(strings.TrimSpace(name))
+	return strings.HasSuffix(trimmed, "_at")
+}
+
+func migrateV50ToolExecutionGroups(ctx context.Context, tx *sql.Tx) error {
+	_, err := tx.ExecContext(ctx, toolExecutionGroupSchemaSQL)
+	return err
+}
+
+func migrateV51ProfileConfiguration(ctx context.Context, tx *sql.Tx) error {
+	_, err := tx.ExecContext(ctx, profileConfigurationSchemaSQL)
+	return err
+}
+
 func migrateV41PrivateAPIGateway(ctx context.Context, tx *sql.Tx) error {
 	if _, err := tx.ExecContext(ctx, gatewaySchemaSQL); err != nil {
 		return err
@@ -1444,7 +1576,13 @@ func migrateLegacyZeroVersion(ctx context.Context, db *sql.DB) error {
 func legacyNamingSchemaSQL() string {
 	// P2-P3 tables were introduced after the agent/workline naming migration and
 	// must be created by their own migrations with modern column names.
-	legacySchema := strings.TrimSuffix(schemaSQL, schedulesSchemaSQL+notificationDeliveriesSchemaSQL+channelPersistenceSchemaSQL+deviceActionRequestsSchemaSQL+specSchemaSQL+modelClientSchemaSQL+remoteExecutionSchemaSQL+providerAccountStatsSchemaSQL+providerSecretsSchemaSQL+pluginSchemaSQL+backgroundTaskSchemaSQL+planSchemaSQL+gatewaySchemaSQL+accountPreferencesSchemaSQL+oauthAppSchemaSQL+gatewayAccountGrantsSchemaSQL+generatedImagesSchemaSQL)
+	legacySchema := schemaSQL
+	// Append-only migrations keep extending schemaSQL, so an exact composite
+	// suffix is brittle. Cut at the first post-v18 schema fragment instead; the
+	// later migrations create those tables after the v13 naming transition.
+	if index := strings.Index(legacySchema, schedulesSchemaSQL); index >= 0 {
+		legacySchema = legacySchema[:index]
+	}
 	return strings.NewReplacer(
 		"agent_message_attachments", "narrator_message_attachments",
 		"agent_messages", "narrator_messages",
