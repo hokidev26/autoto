@@ -2,7 +2,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { currentUILocale, setUILocale } from "./i18n.mjs";
-import { createSkillsWorkbenchController, isCurrentRestoreReviewConflict, renderSkillRevisionDrawer, renderSkillScopeBadge, restoreRevisionWithCurrentRiskConfirmation, skillContextLabel, skillScopeShadowHint } from "./skills-workbench.mjs";
+import { createSkillsContext } from "./skills-context.mjs";
+import { createSkillsWorkbenchController, isCurrentRestoreReviewConflict, renderFileSourceCandidate, renderSkillRevisionDrawer, renderSkillScopeBadge, restoreRevisionWithCurrentRiskConfirmation, skillContextLabel, skillScopeShadowHint } from "./skills-workbench.mjs";
 
 test("scope labels, badges, and owner shadow hints describe v2 ownership", () => {
   assert.equal(skillContextLabel({ scope: "global" }), "全局作用域");
@@ -10,6 +11,30 @@ test("scope labels, badges, and owner shadow hints describe v2 ownership", () =>
   assert.match(renderSkillScopeBadge({ scope: "workspace" }), /工作线/);
   assert.equal(skillScopeShadowHint({ scope: "global" }, { scope: "workspace", worklineId: "w-1" }), "由全局作用域 owner 生效");
   assert.equal(skillScopeShadowHint({ shadowedBy: "workspace" }, { scope: "global" }), "已被更具体作用域的服务端 Skill 覆盖");
+});
+
+test("skills context accepts explicit project and workspace identifiers", () => {
+  const state = {
+    skillContextScope: "global",
+    project: { id: "p-current" },
+    workline: { id: "w-current" },
+  };
+  const warnings = [];
+  const context = createSkillsContext({
+    state,
+    showToast: (message) => warnings.push(message),
+    notifyTerminal() {},
+    getSkillsPhaseB: () => null,
+    getEffectiveSkillContext: () => ({ scope: "global" }),
+  });
+  assert.deepEqual(context.getSkillContext({ scope: "project", projectId: "p-explicit" }), {
+    scope: "project", projectId: "p-explicit", worklineId: "",
+  });
+  assert.deepEqual(context.setSkillContext({ scope: "workspace", projectId: "p-explicit", worklineId: "w-explicit" }), {
+    scope: "workspace", projectId: "p-explicit", worklineId: "w-explicit",
+  });
+  assert.equal(state.skillContextScope, "workspace");
+  assert.deepEqual(warnings, []);
 });
 
 test("skills tabs expose a single selected tab and keyboard-friendly tab semantics", () => {
@@ -155,4 +180,65 @@ test("cancelling a structured restore review challenge does not retry", async ()
   }, () => false);
   assert.equal(result, null);
   assert.deepEqual(attempts, [{ acknowledgeRisk: false, acknowledgedContentHash: "" }]);
+});
+
+test("file source cards show safe provenance, hashes, scan, conflict, and diagnostics without prompt or absolute root", () => {
+  const markup = renderFileSourceCandidate({
+    adapter: { id: "agents" },
+    provenance: { rootId: "anonymous-root", adapterId: "agents", relativePath: ".agents/skills/review/SKILL.md" },
+    relativePath: ".agents/skills/review/SKILL.md",
+    sourceHash: "a".repeat(64),
+    sidecarSourceHash: "b".repeat(64),
+    conflictStatus: "none",
+    skill: { command: "/review", prompt: "C:\\Users\\Secret\\must-not-render", allowedTools: ["Bash"] },
+    scan: { verdict: "review", findings: [{ code: "network_or_external_url", severity: "review", message: "Contains an external URL." }] },
+    diagnostics: [{ code: "allowed_tools_ignored", message: "Agent Skill allowed-tools metadata is untrusted and was ignored." }],
+  }, { index: 3 });
+  assert.match(markup, /agents/);
+  assert.match(markup, /\.agents\/skills\/review\/SKILL\.md/);
+  assert.match(markup, new RegExp("a{64}"));
+  assert.match(markup, new RegExp("b{64}"));
+  assert.match(markup, /network_or_external_url/);
+  assert.match(markup, /allowed_tools_ignored/);
+  assert.match(markup, /data-file-skill-source-import="3"/);
+  assert.doesNotMatch(markup, /C:\\Users\\Secret/);
+  assert.doesNotMatch(markup, /allowedTools/);
+});
+
+test("commands workbench renders one file source area with user/project selection and explicit import", () => {
+  const candidate = {
+    adapter: { id: "agents" },
+    provenance: { adapterId: "agents", relativePath: ".agents/skills/one/SKILL.md" },
+    relativePath: ".agents/skills/one/SKILL.md",
+    sourceHash: "c".repeat(64),
+    conflictStatus: "none",
+    skill: { command: "/one" },
+    scan: { verdict: "safe", findings: [] },
+  };
+  const sourceState = { candidates: [candidate], conflicts: [], diagnostics: [], truncated: false, status: "ready", error: "", importing: {} };
+  const controller = createSkillsWorkbenchController({
+    state: {
+      activeSkillTab: "commands",
+      serverSkills: [],
+      serverSkillsSaving: false,
+      serverSkillsStatus: "ready",
+      skillFileSourceScope: "user",
+    },
+    currentSkillsPreferences: () => ({ commands: [], mcpServers: [], toolPolicy: {} }),
+    getSkillContext: () => ({ scope: "project", projectId: "p-1" }),
+    skillsPhaseB: {
+      ensureContext: () => ({ status: "ready", items: [], revisions: {}, snapshotSequence: 1 }),
+      ensureSources: () => sourceState,
+      load: async () => {},
+      loadSources: async () => sourceState,
+    },
+  });
+  const markup = controller.renderSkillSettingsContent("commands");
+  assert.equal((markup.match(/skills-file-sources-section/g) || []).length, 1);
+  assert.match(markup, /id="fileSkillSourceScopeSelect"/);
+  assert.match(markup, /value="user"/);
+  assert.match(markup, /value="project"/);
+  assert.match(markup, /data-file-skill-source-import="0"/);
+  assert.match(markup, /allowed-tools/);
+  assert.match(markup, /绝不授予工具权限/);
 });

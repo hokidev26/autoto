@@ -12,20 +12,18 @@ export function createSkillsContext({
   getSkillsPhaseB,
   getEffectiveSkillContext,
 }) {
-  function getSkillContext() {
+  function getSkillContext(override = {}) {
+    const hasProject = Object.prototype.hasOwnProperty.call(override, "projectId");
+    const hasWorkline = Object.prototype.hasOwnProperty.call(override, "worklineId");
     return normalizeSkillContext({
-      scope: state.skillContextScope,
-      projectId: state.project?.id || "",
-      worklineId: state.workline?.id || "",
+      scope: override.scope || state.skillContextScope,
+      projectId: hasProject ? override.projectId : state.project?.id || "",
+      worklineId: hasWorkline ? override.worklineId : state.workline?.id || "",
     });
   }
 
   function setSkillContext(context = {}) {
-    const requested = normalizeSkillContext({
-      ...context,
-      projectId: state.project?.id || context.projectId || "",
-      worklineId: state.workline?.id || context.worklineId || "",
-    });
+    const requested = getSkillContext(context);
     if (requested.scope === "project" && !requested.projectId) {
       state.skillContextScope = "global";
       showToast(sx("app.projectSkillsRequired"), "warn");

@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"autoto/internal/config"
@@ -195,6 +197,97 @@ func TestSkillsV2RestoreReviewChallengeRequiresCurrentContentHash(t *testing.T) 
 	}
 	if !restored.Enabled || restored.ScanVerdict != skilldef.VerdictReview || restored.RiskAcknowledgedHash != challenge.ContentHash {
 		t.Fatalf("matching challenge hash did not authorize current review restore: %+v", restored)
+	}
+}
+
+func TestSkillsV2ScopedResourcesRespectProjectMembership(t *testing.T) {
+	ctx := context.Background()
+	store, err := db.Open(ctx, filepath.Join(t.TempDir(), "skills-membership.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	app := New(config.Config{Auth: config.AuthConfig{RegistrationOpen: true}}, store, nil, nil)
+	ownerCookie := registerCollaborationTestUser(t, app, "skills-owner")
+	owner, _, err := store.GetUserByHandle(ctx, "skills-owner")
+	if err != nil {
+		t.Fatal(err)
+	}
+	project, _, _, err := store.CreateProjectForUser(ctx, owner.ID, "Scoped skills", "", t.TempDir(), "fake:test", "acceptEdits")
+	if err != nil {
+		t.Fatal(err)
+	}
+	outsiderCookie := registerCollaborationTestUser(t, app, "skills-outsider")
+
+	createdResponse := agentAPIRequest(app.Routes(), http.MethodPost, "/api/v2/skills/", map[string]any{
+		"name": "Scoped skill", "command": "/scoped-skill", "prompt": "owner only", "scope": "project", "projectId": project.ID,
+	}, ownerCookie)
+	if createdResponse.Code != http.StatusCreated {
+		t.Fatalf("owner project skill create: %d %s", createdResponse.Code, createdResponse.Body.String())
+	}
+	var created db.Skill
+	if err := json.NewDecoder(createdResponse.Body).Decode(&created); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, target := range []string{
+		"/api/v2/skills/?scope=project&projectId=" + project.ID,
+		"/api/v2/skills/" + created.ID,
+	} {
+		response := agentAPIRequest(app.Routes(), http.MethodGet, target, nil, outsiderCookie)
+		if response.Code != http.StatusNotFound {
+			t.Fatalf("outsider project skill access must be hidden for %s, got %d: %s", target, response.Code, response.Body.String())
+		}
+	}
+	forbiddenCreate := agentAPIRequest(app.Routes(), http.MethodPost, "/api/v2/skills/", map[string]any{
+		"name": "Forbidden", "command": "/forbidden-skill", "prompt": "no access", "scope": "project", "projectId": project.ID,
+	}, outsiderCookie)
+	if forbiddenCreate.Code != http.StatusNotFound {
+		t.Fatalf("outsider project skill creation must be hidden, got %d: %s", forbiddenCreate.Code, forbiddenCreate.Body.String())
+	}
+
+	ownerList := agentAPIRequest(app.Routes(), http.MethodGet, "/api/v2/skills/?scope=project&projectId="+project.ID, nil, ownerCookie)
+	if ownerList.Code != http.StatusOK || !strings.Contains(ownerList.Body.String(), created.ID) {
+		t.Fatalf("owner must retain scoped skill access, got %d: %s", ownerList.Code, ownerList.Body.String())
+	}
+}
+
+func TestSkillsV2MutationsRequireFullRemoteAccess(t *testing.T) {
+	ctx := context.Background()
+	store, err := db.Open(ctx, filepath.Join(t.TempDir(), "skills-remote-access.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	hash, err := config.HashAccessPassword("Correct-Horse-1!")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := config.Config{Security: config.SecurityConfig{
+		AccessPasswordHash:      hash,
+		AllowRemoteFullAccess:   true,
+		DefaultRemoteAccessMode: remoteAccessModeRestricted,
+		CredentialRevision:      1,
+	}}
+	configPath := filepath.Join(t.TempDir(), "config.json")
+	if err := config.Save(configPath, cfg); err != nil {
+		t.Fatal(err)
+	}
+	app := New(cfg, store, nil, nil)
+	app.SetConfigPath(configPath)
+	cookies := loginRemoteAccess(t, app, remoteAccessModeRestricted)
+	body := strings.NewReader(`{"id":"remote-write","name":"Remote write","instructions":"blocked"}`)
+	request := newTestRequest(http.MethodPost, "/api/v2/skills/", body)
+	request.Host = "example.com"
+	request.Header.Set("Content-Type", "application/json")
+	markRemoteHTTPS(request)
+	for _, cookie := range cookies {
+		request.AddCookie(cookie)
+	}
+	response := httptest.NewRecorder()
+	app.Routes().ServeHTTP(response, request)
+	if response.Code != http.StatusForbidden {
+		t.Fatalf("restricted remote skill mutation must be forbidden, got %d: %s", response.Code, response.Body.String())
 	}
 }
 

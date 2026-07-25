@@ -2,7 +2,8 @@ import { $, escapeAttr, escapeHtml } from "./dom.mjs";
 import { t } from "./messages-skills.mjs";
 import { confirm as platformConfirm } from "./platform.mjs";
 import { normalizeSlashCommandName } from "./skills-commands.mjs";
-import { skillTabs } from "./settings-data.mjs?v=users-panel-removed-1";
+import { createSkillsConfigCenter } from "./skills-config-center.mjs";
+import { skillTabs } from "./settings-data.mjs?v=users-panel-removed-1-config-center-1";
 
 function currentRestoreReviewChallenge(error) {
   const body = error?.body;
@@ -55,6 +56,7 @@ export async function restoreRevisionWithCurrentRiskConfirmation(restore, confir
 
 export function createSkillsWorkbenchController({
   state,
+  request,
   bindMCPRegistryActions,
   bindPluginRegistryActions,
   copyText,
@@ -83,9 +85,25 @@ export function createSkillsWorkbenchController({
   skillsPrefsExport,
   getSkillContext,
   setSkillContext,
+  getProject,
+  getWorkline,
+  getAgent,
+  openSettingsPanel,
   updateServerSkill,
   updateToolPermissionRule,
 } = {}) {
+  const configCenter = request && skillsPhaseB ? createSkillsConfigCenter({
+    request,
+    skillsController: skillsPhaseB,
+    getProject,
+    getWorkline,
+    getAgent,
+    openSettingsPanel,
+    refresh: () => { if (globalThis.document) rerenderSkillPanel(); },
+    showError,
+    confirmAction: platformConfirm,
+  }) : null;
+
   function renderSkillSettingsContent(activeKey = "commands") {
     const active = skillTabs.find((tab) => tab.key === activeKey) || skillTabs[0];
     state.activeSkillTab = active.key;
@@ -110,6 +128,9 @@ export function createSkillsWorkbenchController({
     if (active.key === "mcp-tools") return renderLocalMCPTools(active);
     if (active.key === "plugins") return renderPluginRegistryPanel(active);
     if (active.key === "tool-permissions") return renderLocalToolPolicy(active);
+    if (["optional-tools", "global-skills", "project-skills", "subagents", "global-prompts", "system-prompts", "hooks"].includes(active.key) && configCenter) {
+      return `<p class="skills-description settings-card-description" data-settings-help-copy>${escapeHtml(active.description)}</p>${configCenter.renderTab(active.key)}`;
+    }
     return renderSkillRoadmapPanel(active);
   }
 
@@ -199,7 +220,52 @@ export function createSkillsWorkbenchController({
         </div>
         ${bucket.nextCursor ? `<button id="loadMoreSkillsV2Btn" class="settings-action-btn subtle" type="button" ${bucket.status === "loading-more" ? "disabled" : ""}>${bucket.status === "loading-more" ? t("skillsWorkbench.commands.statusLoading") : t("skillsWorkbench.commands.loadMore")}</button>` : ""}
       </section>
+      ${renderFileSkillSources(context)}
       ${drawer ? renderSkillRevisionDrawer({ drawer, revisions, context }) : ""}
+    `;
+  }
+
+  function currentFileSourceContext(skillContext) {
+    const sourceScope = state.skillFileSourceScope === "project" ? "project" : "user";
+    return { sourceScope, projectId: sourceScope === "project" ? String(skillContext?.projectId || "") : "" };
+  }
+
+  function renderFileSkillSources(skillContext) {
+    const sourceContext = currentFileSourceContext(skillContext);
+    const sourceState = skillsPhaseB.ensureSources(sourceContext);
+    const projectAvailable = Boolean(skillContext?.projectId);
+    if (sourceState.status === "idle" && (sourceContext.sourceScope !== "project" || projectAvailable)) {
+      skillsPhaseB.loadSources(sourceContext).catch(showError);
+    }
+    const loading = sourceState.status === "loading";
+    const candidates = Array.isArray(sourceState.candidates) ? sourceState.candidates : [];
+    const diagnostics = Array.isArray(sourceState.diagnostics) ? sourceState.diagnostics : [];
+    return `
+      <section class="settings-provider-section settings-card settings-page-section skills-file-sources-section">
+        <div class="settings-provider-section-head settings-card-header">
+          <div>
+            <div class="settings-provider-title settings-card-title">${escapeHtml(t("skillsWorkbench.fileSources.title"))}</div>
+            <div class="settings-provider-meta settings-card-description" data-settings-help-copy>${escapeHtml(t("skillsWorkbench.fileSources.description"))}</div>
+          </div>
+          <div class="skill-workbench-actions">
+            <select id="fileSkillSourceScopeSelect" class="settings-field skills-scope-select" aria-label="${escapeAttr(t("skillsWorkbench.fileSources.scopeAriaLabel"))}">
+              <option value="user" ${sourceContext.sourceScope === "user" ? "selected" : ""}>${escapeHtml(t("skillsWorkbench.fileSources.userScope"))}</option>
+              <option value="project" ${sourceContext.sourceScope === "project" ? "selected" : ""} ${projectAvailable ? "" : "disabled"}>${escapeHtml(t("skillsWorkbench.fileSources.projectScope"))}</option>
+            </select>
+            <button id="refreshFileSkillSourcesBtn" class="settings-action-btn subtle" type="button" ${loading || sourceContext.sourceScope === "project" && !projectAvailable ? "disabled" : ""}>${escapeHtml(t(loading ? "skillsWorkbench.commands.statusLoading" : "skillsWorkbench.fileSources.refresh"))}</button>
+          </div>
+        </div>
+        <label class="appearance-toggle-row skill-policy-row settings-switch-row">
+          <span><strong>${escapeHtml(t("skillsWorkbench.fileSources.enableOnImport"))}</strong><small>${escapeHtml(t("skillsWorkbench.fileSources.enableOnImportDescription"))}</small></span>
+          <input id="fileSkillSourceEnable" type="checkbox" ${state.skillFileSourceEnable ? "checked" : ""} />
+        </label>
+        ${sourceState.error ? `<div class="settings-inline-alert settings-alert" role="alert" aria-live="assertive">${escapeHtml(sourceState.error)}</div>` : ""}
+        ${sourceState.truncated ? `<div class="settings-inline-alert settings-alert" role="status">${escapeHtml(t("skillsWorkbench.fileSources.truncated"))}</div>` : ""}
+        <div class="skill-command-list settings-data-list">
+          ${loading && !candidates.length ? `<div class="settings-empty-card settings-empty-state compact">${escapeHtml(t("skillsWorkbench.fileSources.loading"))}</div>` : candidates.length ? candidates.map((candidate, index) => renderFileSourceCandidate(candidate, { index, importing: Boolean(sourceState.importing?.[fileSourceImportKey(candidate)]) })).join("") : `<div class="settings-empty-card settings-empty-state compact">${escapeHtml(sourceContext.sourceScope === "project" && !projectAvailable ? t("skillsWorkbench.fileSources.projectUnavailable") : t("skillsWorkbench.fileSources.empty"))}</div>`}
+        </div>
+        ${diagnostics.length ? `<div class="settings-provider-meta settings-card-description"><strong>${escapeHtml(t("skillsWorkbench.fileSources.discoveryDiagnostics"))}</strong>${renderFileSourceDiagnostics(diagnostics)}</div>` : ""}
+      </section>
     `;
   }
 
@@ -474,9 +540,22 @@ export function createSkillsWorkbenchController({
     });
     bindMCPRegistryActions(body);
     if (activeKey === "plugins") bindPluginRegistryActions?.(body);
+    configCenter?.bind(body, activeKey);
     $("refreshServerSkillsBtn")?.addEventListener("click", () => loadServerSkills?.({ notify: true }).catch(showError));
     $("refreshSkillsV2Btn")?.addEventListener("click", () => skillsPhaseB?.load(getSkillContext?.() || { scope: "global" }).catch(showError));
     $("loadMoreSkillsV2Btn")?.addEventListener("click", () => skillsPhaseB?.loadMore(getSkillContext?.() || { scope: "global" }).catch(showError));
+    $("refreshFileSkillSourcesBtn")?.addEventListener("click", () => {
+      const context = getSkillContext?.() || { scope: "global" };
+      skillsPhaseB?.loadSources(currentFileSourceContext(context)).catch(showError);
+    });
+    $("fileSkillSourceScopeSelect")?.addEventListener("change", (event) => {
+      state.skillFileSourceScope = event.target.value === "project" ? "project" : "user";
+      rerenderSkillPanel();
+    });
+    $("fileSkillSourceEnable")?.addEventListener("change", (event) => {
+      state.skillFileSourceEnable = Boolean(event.target.checked);
+    });
+    body.querySelectorAll("[data-file-skill-source-import]").forEach((node) => node.addEventListener("click", () => importFileSkillSourceFromPanel(Number(node.dataset.fileSkillSourceImport)).catch(showError)));
     $("skillsV2ScopeSelect")?.addEventListener("change", (event) => {
       const context = getSkillContext?.() || {};
       setSkillContext?.({ ...context, scope: event.target.value });
@@ -603,6 +682,26 @@ export function createSkillsWorkbenchController({
     const bucket = skillsPhaseB.ensureContext(getSkillContext?.() || { scope: "global" });
     bucket.drawer = null;
     rerenderSkillPanel();
+  }
+
+  async function importFileSkillSourceFromPanel(index) {
+    if (!skillsPhaseB || !Number.isSafeInteger(index) || index < 0) return;
+    const targetContext = getSkillContext?.() || { scope: "global" };
+    const sourceContext = currentFileSourceContext(targetContext);
+    const sourceState = skillsPhaseB.ensureSources(sourceContext);
+    const candidate = sourceState.candidates?.[index];
+    if (!candidate) throw new Error(t("skillsWorkbench.errors.fileSourceMissing"));
+    if (candidate.conflictStatus && candidate.conflictStatus !== "none") throw new Error(t("skillsWorkbench.errors.fileSourceConflict"));
+    const verdict = String(candidate?.scan?.verdict || "safe").toLowerCase();
+    if (verdict === "blocked") throw new Error(t("skillsWorkbench.errors.fileSourceBlocked"));
+    const enabled = Boolean(state.skillFileSourceEnable);
+    let acknowledgeRisk = false;
+    if (enabled && verdict === "review") {
+      acknowledgeRisk = await platformConfirm(t("skillsWorkbench.confirmation.enableReview"));
+      if (!acknowledgeRisk) return;
+    }
+    const created = await skillsPhaseB.importSource(candidate, sourceContext, targetContext, { enabled, acknowledgeRisk });
+    notifyTerminal?.(`[info] ${t("skillsWorkbench.toast.fileSourceImported", { command: created?.command || candidate?.skill?.command || "skill" })}\n`);
   }
 
   async function previewSelectedSkillFile(event) {
@@ -759,6 +858,53 @@ export function createSkillsWorkbenchController({
     bindSkillTabs,
     renderSkillSettingsContent,
   };
+}
+
+export function fileSourceImportKey(candidate = {}) {
+  return `${candidate?.provenance?.adapterId || "source"}:${candidate?.provenance?.relativePath || candidate?.relativePath || "candidate"}`;
+}
+
+export function renderFileSourceDiagnostics(diagnostics = []) {
+  const items = Array.isArray(diagnostics) ? diagnostics : [];
+  return items.length
+    ? `<ul class="skill-findings">${items.map((item) => `<li><strong>${escapeHtml(item?.code || "diagnostic")}</strong>：${escapeHtml(item?.message || t("skillsWorkbench.fileSources.diagnosticDefault"))}</li>`).join("")}</ul>`
+    : "";
+}
+
+export function renderFileSourceCandidate(candidate = {}, { index = 0, importing = false } = {}) {
+  const verdict = String(candidate?.scan?.verdict || "safe").toLowerCase();
+  const conflict = String(candidate?.conflictStatus || "none");
+  const blocked = verdict === "blocked";
+  const conflicted = conflict !== "none";
+  const tone = blocked || conflicted ? "muted" : verdict === "review" ? "warn" : "ok";
+  const findings = Array.isArray(candidate?.scan?.findings) ? candidate.scan.findings : [];
+  const diagnostics = Array.isArray(candidate?.diagnostics) ? candidate.diagnostics : [];
+  const adapter = candidate?.adapter?.id || candidate?.provenance?.adapterId || "";
+  const relativePath = candidate?.relativePath || candidate?.provenance?.relativePath || "";
+  return `
+    <div class="skill-command-card settings-card settings-data-list-row skills-file-source-card ${blocked || conflicted ? "disabled" : ""}">
+      <div>
+        <div class="skill-command-title settings-card-title">${escapeHtml(candidate?.skill?.command || candidate?.skill?.name || relativePath)} <span class="settings-status-pill settings-badge ${tone}">${escapeHtml(skillFileSourceVerdictLabel(verdict))}</span></div>
+        <div class="settings-provider-meta settings-card-description">${escapeHtml(t("skillsWorkbench.fileSources.adapter", { adapter }))} · ${escapeHtml(relativePath)}</div>
+        <div class="settings-provider-meta settings-card-description">${escapeHtml(t("skillsWorkbench.fileSources.sourceHash", { hash: candidate?.sourceHash || "—" }))}</div>
+        ${candidate?.sidecarSourceHash ? `<div class="settings-provider-meta settings-card-description">${escapeHtml(t("skillsWorkbench.fileSources.sidecarHash", { hash: candidate.sidecarSourceHash }))}</div>` : ""}
+        <div class="settings-provider-meta settings-card-description">${escapeHtml(t("skillsWorkbench.fileSources.conflict", { status: conflict === "none" ? t("skillsWorkbench.fileSources.noConflict") : conflict }))}</div>
+        ${findings.length ? renderFileSourceDiagnostics(findings) : `<div class="settings-provider-meta settings-card-description">${escapeHtml(t("skillsWorkbench.fileSources.noFindings"))}</div>`}
+        ${diagnostics.length ? renderFileSourceDiagnostics(diagnostics) : ""}
+      </div>
+      <div class="settings-action-row settings-inline-actions">
+        <button class="settings-action-btn primary" type="button" data-file-skill-source-import="${escapeAttr(String(index))}" ${blocked || conflicted || importing ? "disabled" : ""}>${escapeHtml(t(importing ? "skillsWorkbench.fileSources.importing" : "skillsWorkbench.fileSources.import"))}</button>
+      </div>
+    </div>
+  `;
+}
+
+function skillFileSourceVerdictLabel(verdict) {
+  return {
+    safe: t("skillsWorkbench.skills.verdictSafe"),
+    review: t("skillsWorkbench.skills.verdictReview"),
+    blocked: t("skillsWorkbench.skills.verdictBlocked"),
+  }[String(verdict || "").toLowerCase()] || String(verdict || "");
 }
 
 export function skillContextLabel(context = {}) {

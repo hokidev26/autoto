@@ -1,6 +1,7 @@
 import { t } from "./messages-skills.mjs";
 
 const SKILL_SCOPES = new Set(["global", "project", "workspace"]);
+const FILE_SOURCE_SCOPES = new Set(["user", "project"]);
 
 export function normalizeSkillScope(scope) {
   const value = String(scope || "global").trim().toLowerCase();
@@ -43,6 +44,80 @@ export function buildSkillsV2URL(context, { cursor = "", limit } = {}) {
 
 export function buildSkillDetailV2URL(id, context) {
   return `/api/v2/skills/${encodeURIComponent(id)}?${skillContextQuery(context).toString()}`;
+}
+
+export function buildSkillImportPreviewV2URL() {
+  return "/api/v2/skills/import/preview";
+}
+
+export function buildSkillImportV2URL() {
+  return "/api/v2/skills/import";
+}
+
+export function normalizeSkillSourceContext(context = {}) {
+  const sourceScope = String(context.sourceScope || "user").trim().toLowerCase();
+  return {
+    sourceScope: FILE_SOURCE_SCOPES.has(sourceScope) ? sourceScope : "user",
+    projectId: sourceScope === "project" ? String(context.projectId || "").trim() : "",
+  };
+}
+
+export function skillSourceContextKey(context = {}) {
+  const normalized = normalizeSkillSourceContext(context);
+  return normalized.sourceScope === "project" ? `project:${normalized.projectId || "none"}` : "user";
+}
+
+export function skillSourceAvailability(context = {}) {
+  const normalized = normalizeSkillSourceContext(context);
+  return normalized.sourceScope !== "project" || normalized.projectId
+    ? { available: true, reason: "" }
+    : { available: false, reason: "project" };
+}
+
+export function buildSkillSourcesV2URL(context = {}) {
+  const normalized = normalizeSkillSourceContext(context);
+  const params = new URLSearchParams({ sourceScope: normalized.sourceScope });
+  if (normalized.sourceScope === "project" && normalized.projectId) params.set("projectId", normalized.projectId);
+  return `/api/v2/skills/sources?${params.toString()}`;
+}
+
+export function buildSkillSourceImportV2URL() {
+  return "/api/v2/skills/sources/import";
+}
+
+export function createSkillSourceImportPayload(candidate, sourceContext, targetContext, { enabled = false, acknowledgeRisk = false } = {}) {
+  const source = normalizeSkillSourceContext(sourceContext);
+  const provenance = candidate?.provenance || {};
+  const payload = {
+    sourceScope: source.sourceScope,
+    provenance: {
+      rootId: String(provenance.rootId || ""),
+      adapterId: String(provenance.adapterId || ""),
+      relativePath: String(provenance.relativePath || candidate?.relativePath || ""),
+    },
+    sourceHash: String(candidate?.sourceHash || ""),
+    sidecarSourceHash: String(candidate?.sidecarSourceHash || ""),
+    target: skillContextPayload(targetContext),
+    enabled: Boolean(enabled),
+    acknowledgeRisk: Boolean(acknowledgeRisk),
+  };
+  if (source.sourceScope === "project") payload.projectId = source.projectId;
+  return payload;
+}
+
+export function skillContextPayload(context) {
+  const normalized = normalizeSkillContext(context);
+  const payload = { scope: normalized.scope };
+  if (normalized.scope === "project" || normalized.scope === "workspace") payload.projectId = normalized.projectId;
+  if (normalized.scope === "workspace") payload.worklineId = normalized.worklineId;
+  return payload;
+}
+
+export function skillContextAvailability(context) {
+  const normalized = normalizeSkillContext(context);
+  if (normalized.scope === "project" && !normalized.projectId) return { available: false, reason: "project" };
+  if (normalized.scope === "workspace" && (!normalized.projectId || !normalized.worklineId)) return { available: false, reason: normalized.projectId ? "workspace" : "project" };
+  return { available: true, reason: "" };
 }
 
 export function buildSkillRevisionsV2URL(id, context, { cursor = "", limit } = {}) {
@@ -133,10 +208,27 @@ export async function hydrateServerSkillSummaries(summaries, loadDetail, concurr
 }
 
 function phaseBRoot(state) {
-  if (!state.skillsV2 || typeof state.skillsV2 !== "object") state.skillsV2 = { contexts: {}, effective: {} };
+  if (!state.skillsV2 || typeof state.skillsV2 !== "object") state.skillsV2 = { contexts: {}, effective: {}, sources: {} };
   if (!state.skillsV2.contexts || typeof state.skillsV2.contexts !== "object") state.skillsV2.contexts = {};
   if (!state.skillsV2.effective || typeof state.skillsV2.effective !== "object") state.skillsV2.effective = {};
+  if (!state.skillsV2.sources || typeof state.skillsV2.sources !== "object") state.skillsV2.sources = {};
   return state.skillsV2;
+}
+
+export function ensureSkillSourceState(state, context) {
+  const root = phaseBRoot(state);
+  const normalized = normalizeSkillSourceContext(context);
+  const key = skillSourceContextKey(normalized);
+  if (!root.sources[key]) {
+    root.sources[key] = {
+      context: normalized,
+      candidates: [], conflicts: [], diagnostics: [], truncated: false, bytesRead: 0,
+      status: "idle", error: "", requestSequence: 0, importing: {},
+    };
+  }
+  const sourceState = root.sources[key];
+  if (!sourceState.importing || typeof sourceState.importing !== "object") sourceState.importing = {};
+  return sourceState;
 }
 
 export function ensureSkillsContextState(state, context) {
@@ -147,9 +239,17 @@ export function ensureSkillsContextState(state, context) {
     root.contexts[key] = {
       context: normalized, items: [], nextCursor: "", snapshotSequence: null,
       status: "idle", error: "", requestSequence: 0, revisions: {}, drawer: null,
+      mutations: {}, importPreview: { status: "idle", error: "", requestSequence: 0, content: "", value: null },
+      drafts: { create: {}, edits: {}, importContent: "" },
     };
   }
-  return root.contexts[key];
+  const bucket = root.contexts[key];
+  if (!bucket.mutations || typeof bucket.mutations !== "object") bucket.mutations = {};
+  if (!bucket.importPreview || typeof bucket.importPreview !== "object") bucket.importPreview = { status: "idle", error: "", requestSequence: 0, content: "", value: null };
+  if (!bucket.drafts || typeof bucket.drafts !== "object") bucket.drafts = { create: {}, edits: {}, importContent: "" };
+  if (!bucket.drafts.create || typeof bucket.drafts.create !== "object") bucket.drafts.create = {};
+  if (!bucket.drafts.edits || typeof bucket.drafts.edits !== "object") bucket.drafts.edits = {};
+  return bucket;
 }
 
 function sameSnapshotSequence(expected, actual) {
@@ -211,19 +311,60 @@ export function createSkillsPhaseBController({ state = {}, api, getContext = () 
 
   async function loadMore(context) { return load(context, { append: true }); }
 
+  async function loadSources(sourceContextOverride) {
+    const sourceContext = normalizeSkillSourceContext(sourceContextOverride);
+    const availability = skillSourceAvailability(sourceContext);
+    const sourceState = ensureSkillSourceState(state, sourceContext);
+    if (!availability.available) {
+      sourceState.status = "error";
+      sourceState.error = t("skillsWorkbench.errors.fileSourceProjectMissing");
+      changed();
+      return sourceState;
+    }
+    const requestSequence = ++sourceState.requestSequence;
+    sourceState.status = "loading";
+    sourceState.error = "";
+    changed();
+    try {
+      const response = await api(buildSkillSourcesV2URL(sourceContext));
+      if (requestSequence !== sourceState.requestSequence) return sourceState;
+      const result = response?.result || {};
+      sourceState.candidates = Array.isArray(result.candidates) ? result.candidates : [];
+      sourceState.conflicts = Array.isArray(result.conflicts) ? result.conflicts : [];
+      sourceState.diagnostics = Array.isArray(result.diagnostics) ? result.diagnostics : [];
+      sourceState.truncated = Boolean(result.truncated);
+      sourceState.bytesRead = Number(result.bytesRead || 0);
+      sourceState.status = "ready";
+      sourceState.error = "";
+    } catch (error) {
+      if (requestSequence === sourceState.requestSequence) {
+        sourceState.status = sourceState.candidates.length ? "stale" : "error";
+        sourceState.error = error?.message || String(error);
+      }
+      throw error;
+    } finally {
+      changed();
+    }
+    return sourceState;
+  }
+
   async function loadDetail(id, contextOverride) {
     const context = currentContext(contextOverride);
     const bucket = ensureSkillsContextState(state, context);
     const index = bucket.items.findIndex((item) => item.id === id);
     if (index < 0) throw new Error(t("skillsWorkbench.errors.skillNotFound"));
+    const requests = bucket.detailRequestSequences || (bucket.detailRequestSequences = {});
+    const requestSequence = requests[id] = Number(requests[id] || 0) + 1;
     const before = bucket.items[index];
     try {
       const detail = await api(buildSkillDetailV2URL(id, context));
+      if (requestSequence !== requests[id]) return null;
       const latestIndex = bucket.items.findIndex((item) => item.id === id);
       if (latestIndex >= 0) bucket.items[latestIndex] = { ...bucket.items[latestIndex], ...detail, detailLoaded: true, detailError: "" };
       changed();
       return bucket.items[latestIndex];
     } catch (error) {
+      if (requestSequence !== requests[id]) return null;
       // Do not retain a previously loaded prompt after a failed v2 detail
       // refresh. The authoritative item still shadows local command names.
       const latestIndex = bucket.items.findIndex((item) => item.id === id);
@@ -277,6 +418,157 @@ export function createSkillsPhaseBController({ state = {}, api, getContext = () 
   async function loadRevisionDetail(id, revisionId, contextOverride) {
     const context = currentContext(contextOverride);
     return api(buildSkillRevisionDetailV2URL(id, revisionId, context));
+  }
+
+  function mutationEntry(bucket, key) {
+    if (!bucket.mutations[key]) bucket.mutations[key] = { status: "idle", error: "", requestSequence: 0 };
+    return bucket.mutations[key];
+  }
+
+  async function runMutation(key, context, execute, applyResult) {
+    const bucket = ensureSkillsContextState(state, context);
+    const mutation = mutationEntry(bucket, key);
+    const requestSequence = ++mutation.requestSequence;
+    mutation.status = "saving";
+    mutation.error = "";
+    changed();
+    try {
+      const result = await execute();
+      if (requestSequence !== mutation.requestSequence) return null;
+      applyResult?.(result, bucket);
+      mutation.status = "ready";
+      mutation.error = "";
+      resetPageCursor(bucket);
+      invalidateEffective({ drop: true });
+      onEffectiveInvalidated?.();
+      changed();
+      await Promise.allSettled([load(context)]);
+      return result;
+    } catch (error) {
+      if (requestSequence !== mutation.requestSequence) return null;
+      mutation.status = "error";
+      mutation.error = error?.message || String(error);
+      if (isOptimisticSkillConflict(error)) await Promise.allSettled([load(context)]);
+      changed();
+      throw error;
+    }
+  }
+
+  async function previewImport(content, contextOverride) {
+    const context = currentContext(contextOverride);
+    const bucket = ensureSkillsContextState(state, context);
+    const previewState = bucket.importPreview;
+    const requestSequence = ++previewState.requestSequence;
+    previewState.status = "loading";
+    previewState.error = "";
+    previewState.content = String(content || "");
+    changed();
+    try {
+      const preview = await api(buildSkillImportPreviewV2URL(), {
+        method: "POST", body: JSON.stringify({ content: previewState.content }),
+      });
+      if (requestSequence !== previewState.requestSequence) return null;
+      previewState.value = preview;
+      previewState.status = "ready";
+      previewState.error = "";
+      changed();
+      return preview;
+    } catch (error) {
+      if (requestSequence !== previewState.requestSequence) return null;
+      previewState.value = null;
+      previewState.status = "error";
+      previewState.error = error?.message || String(error);
+      changed();
+      throw error;
+    }
+  }
+
+  async function createSkill(payload, contextOverride) {
+    const context = currentContext(contextOverride);
+    const body = {
+      ...payload,
+      ...skillContextPayload(context),
+      enabled: Boolean(payload?.enabled),
+      acknowledgeRisk: Boolean(payload?.acknowledgeRisk),
+    };
+    return runMutation("create", context, () => api(buildSkillsV2URL(context), {
+      method: "POST", body: JSON.stringify(body),
+    }), (created, bucket) => {
+      if (created?.id) bucket.items = [created, ...bucket.items.filter((item) => item.id !== created.id)];
+    });
+  }
+
+  async function updateSkill(id, payload, contextOverride) {
+    const context = currentContext(contextOverride);
+    const bucket = ensureSkillsContextState(state, context);
+    const current = bucket.items.find((item) => item.id === id);
+    const expectedUpdatedAt = String(payload?.expectedUpdatedAt || current?.updatedAt || "").trim();
+    if (!expectedUpdatedAt) throw new Error(t("skillsWorkbench.errors.mutationTimestampMissing"));
+    const body = { ...payload, expectedUpdatedAt };
+    delete body.scope;
+    delete body.projectId;
+    delete body.worklineId;
+    return runMutation(`skill:${id}`, context, () => api(buildSkillDetailV2URL(id, context), {
+      method: "PATCH", body: JSON.stringify(body),
+    }), (updated, targetBucket) => {
+      const index = targetBucket.items.findIndex((item) => item.id === id);
+      if (index >= 0) targetBucket.items[index] = { ...targetBucket.items[index], ...updated, detailLoaded: true, detailError: "" };
+    });
+  }
+
+  async function toggleSkill(id, enabled, contextOverride, { acknowledgeRisk = false, expectedUpdatedAt = "" } = {}) {
+    return updateSkill(id, { enabled: Boolean(enabled), acknowledgeRisk: Boolean(acknowledgeRisk), expectedUpdatedAt }, contextOverride);
+  }
+
+  async function deleteSkill(id, contextOverride, { expectedUpdatedAt = "" } = {}) {
+    const context = currentContext(contextOverride);
+    const bucket = ensureSkillsContextState(state, context);
+    const current = bucket.items.find((item) => item.id === id);
+    const timestamp = String(expectedUpdatedAt || current?.updatedAt || "").trim();
+    if (!timestamp) throw new Error(t("skillsWorkbench.errors.mutationTimestampMissing"));
+    return runMutation(`skill:${id}`, context, () => api(buildSkillDetailV2URL(id, context), {
+      method: "DELETE", body: JSON.stringify({ expectedUpdatedAt: timestamp }),
+    }), (_deleted, targetBucket) => {
+      targetBucket.items = targetBucket.items.filter((item) => item.id !== id);
+      delete targetBucket.revisions[id];
+      if (targetBucket.drawer?.skillId === id) targetBucket.drawer = null;
+    });
+  }
+
+  async function importSkill(content, contextOverride, options = {}) {
+    const context = currentContext(contextOverride);
+    const body = {
+      content: String(content || ""),
+      ...skillContextPayload(context),
+      enabled: Boolean(options.enabled),
+      acknowledgeRisk: Boolean(options.acknowledgeRisk),
+    };
+    return runMutation("import", context, () => api(buildSkillImportV2URL(), {
+      method: "POST", body: JSON.stringify(body),
+    }), (created, bucket) => {
+      if (created?.id) bucket.items = [created, ...bucket.items.filter((item) => item.id !== created.id)];
+      bucket.importPreview = { status: "idle", error: "", requestSequence: bucket.importPreview.requestSequence + 1, content: "", value: null };
+    });
+  }
+
+  async function importSource(candidate, sourceContextOverride, targetContextOverride, options = {}) {
+    const sourceContext = normalizeSkillSourceContext(sourceContextOverride);
+    const targetContext = currentContext(targetContextOverride);
+    const sourceState = ensureSkillSourceState(state, sourceContext);
+    const key = `${candidate?.provenance?.adapterId || "source"}:${candidate?.provenance?.relativePath || candidate?.relativePath || "candidate"}`;
+    sourceState.importing[key] = true;
+    changed();
+    try {
+      return await runMutation(`source:${key}`, targetContext, () => api(buildSkillSourceImportV2URL(), {
+        method: "POST",
+        body: JSON.stringify(createSkillSourceImportPayload(candidate, sourceContext, targetContext, options)),
+      }), (created, bucket) => {
+        if (created?.id) bucket.items = [created, ...bucket.items.filter((item) => item.id !== created.id)];
+      });
+    } finally {
+      delete sourceState.importing[key];
+      changed();
+    }
   }
 
   function invalidateEffective({ drop = true } = {}) {
@@ -365,35 +657,40 @@ export function createSkillsPhaseBController({ state = {}, api, getContext = () 
 
   async function restoreRevision(id, revision, contextOverride, options = {}) {
     const context = currentContext(contextOverride);
-    const bucket = ensureSkillsContextState(state, context);
     const payload = createSkillRestorePayload(revision, {
       expectedUpdatedAt: options.expectedUpdatedAt,
       acknowledgeRisk: options.acknowledgeRisk,
       acknowledgedContentHash: options.acknowledgedContentHash,
     });
-    const restored = await api(buildSkillRevisionRestoreV2URL(id, payload.revisionNo, context), {
+    const restored = await runMutation(`skill:${id}`, context, () => api(buildSkillRevisionRestoreV2URL(id, payload.revisionNo, context), {
       method: "POST", body: JSON.stringify(payload),
+    }), (result, bucket) => {
+      delete bucket.revisions[id];
+      const index = bucket.items.findIndex((item) => item.id === id);
+      if (index >= 0) bucket.items[index] = { ...bucket.items[index], ...result, detailLoaded: true, detailError: "" };
     });
-    resetPageCursor(bucket);
-    delete bucket.revisions[id];
-    const index = bucket.items.findIndex((item) => item.id === id);
-    if (index >= 0) bucket.items[index] = { ...bucket.items[index], ...restored, detailLoaded: true, detailError: "" };
-    invalidateEffective({ drop: true });
-    onEffectiveInvalidated?.();
-    changed();
-    await Promise.allSettled([load(context), loadRevisions(id, context)]);
+    if (restored) await Promise.allSettled([loadRevisions(id, context)]);
     return restored;
   }
 
   return {
     ensureContext: (context) => ensureSkillsContextState(state, currentContext(context)),
+    ensureSources: (context) => ensureSkillSourceState(state, normalizeSkillSourceContext(context)),
     getEffectivePolicy,
     invalidateEffective,
     load,
     loadMore,
+    loadSources,
     loadDetail,
     loadRevisions,
     loadRevisionDetail,
+    previewImport,
+    createSkill,
+    updateSkill,
+    toggleSkill,
+    deleteSkill,
+    importSkill,
+    importSource,
     restoreRevision,
     loadEffective,
   };

@@ -82,6 +82,33 @@ func skillScopeTargetMatchesSkill(target db.SkillScopeTarget, skill db.Skill) bo
 	return scope == skill.Scope && strings.TrimSpace(target.ProjectID) == skill.ProjectID && strings.TrimSpace(target.WorklineID) == skill.WorklineID
 }
 
+func (s *Server) requireSkillScopeAccess(w http.ResponseWriter, r *http.Request, target db.SkillScopeTarget) bool {
+	scope := strings.TrimSpace(target.Scope)
+	if scope == "" || scope == db.SkillScopeGlobal {
+		return true
+	}
+	switch scope {
+	case db.SkillScopeProject:
+		projectID := strings.TrimSpace(target.ProjectID)
+		if projectID == "" {
+			return true // Let the store return the canonical invalid-scope error.
+		}
+		return s.requireProjectResourceAccess(w, r, projectAccessTarget{kind: projectAccessProject, id: projectID})
+	case db.SkillScopeWorkspace:
+		worklineID := strings.TrimSpace(target.WorklineID)
+		if worklineID == "" {
+			return true // Let the store return the canonical invalid-scope error.
+		}
+		return s.requireProjectResourceAccess(w, r, projectAccessTarget{kind: projectAccessWorkline, id: worklineID})
+	default:
+		return true
+	}
+}
+
+func (s *Server) requireSkillAccess(w http.ResponseWriter, r *http.Request, skill db.Skill) bool {
+	return s.requireSkillScopeAccess(w, r, db.SkillScopeTarget{Scope: skill.Scope, ProjectID: skill.ProjectID, WorklineID: skill.WorklineID})
+}
+
 func validateSkillRequestContext(r *http.Request, skill db.Skill) error {
 	if !hasSkillScopeTargetQuery(r) {
 		return nil
@@ -98,8 +125,12 @@ func skillPageParams(r *http.Request) (int, string) {
 }
 
 func (s *Server) listSkillsV2(w http.ResponseWriter, r *http.Request) {
+	target := skillScopeTargetFromQuery(r)
+	if !s.requireSkillScopeAccess(w, r, target) {
+		return
+	}
 	limit, cursor := skillPageParams(r)
-	page, err := s.store.ListSkillsPage(r.Context(), skillScopeTargetFromQuery(r), limit, cursor)
+	page, err := s.store.ListSkillsPage(r.Context(), target, limit, cursor)
 	if err != nil {
 		writeError(w, statusFromSkillError(err), err.Error())
 		return
@@ -115,6 +146,10 @@ func (s *Server) createSkillV2(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.Prompt == nil {
 		writeError(w, http.StatusBadRequest, "skill prompt is required")
+		return
+	}
+	target := skillScopeTargetFromRequest(req.Scope, req.ProjectID, req.WorklineID)
+	if !s.requireSkillScopeAccess(w, r, target) {
 		return
 	}
 	source := "manual"
@@ -136,7 +171,6 @@ func (s *Server) createSkillV2(w http.ResponseWriter, r *http.Request) {
 		writeError(w, statusFromSkillError(err), err.Error())
 		return
 	}
-	target := skillScopeTargetFromRequest(req.Scope, req.ProjectID, req.WorklineID)
 	record.Scope, record.ProjectID, record.WorklineID = target.Scope, target.ProjectID, target.WorklineID
 	created, err := s.store.CreateSkillAs(r.Context(), record, "api_request")
 	if err != nil {
@@ -156,6 +190,9 @@ func (s *Server) getSkillV2(w http.ResponseWriter, r *http.Request) {
 		writeError(w, statusFromSkillError(err), err.Error())
 		return
 	}
+	if !s.requireSkillAccess(w, r, skill) {
+		return
+	}
 	writeJSON(w, http.StatusOK, skill)
 }
 
@@ -167,6 +204,9 @@ func (s *Server) updateSkillV2(w http.ResponseWriter, r *http.Request) {
 	}
 	if err != nil {
 		writeError(w, statusFromSkillError(err), err.Error())
+		return
+	}
+	if !s.requireSkillAccess(w, r, existing) {
 		return
 	}
 	var req skillV2Request
@@ -213,6 +253,9 @@ func (s *Server) updateSkillV2(w http.ResponseWriter, r *http.Request) {
 	record.Scope, record.ProjectID, record.WorklineID = existing.Scope, existing.ProjectID, existing.WorklineID
 	if req.Scope != nil || req.ProjectID != nil || req.WorklineID != nil {
 		target := skillScopeTargetFromRequest(req.Scope, req.ProjectID, req.WorklineID)
+		if !s.requireSkillScopeAccess(w, r, target) {
+			return
+		}
 		record.Scope, record.ProjectID, record.WorklineID = target.Scope, target.ProjectID, target.WorklineID
 	}
 	record.UpdatedAt = strings.TrimSpace(*req.ExpectedUpdatedAt)
@@ -235,6 +278,9 @@ func (s *Server) deleteSkillV2(w http.ResponseWriter, r *http.Request) {
 		writeError(w, statusFromSkillError(err), err.Error())
 		return
 	}
+	if !s.requireSkillAccess(w, r, current) {
+		return
+	}
 	var req skillDeleteV2Request
 	if err := decodeSkillJSON(w, r, &req); err != nil {
 		writeError(w, statusFromSkillDecodeError(err), err.Error())
@@ -255,6 +301,10 @@ func (s *Server) importSkillV2(w http.ResponseWriter, r *http.Request) {
 		writeError(w, statusFromSkillDecodeError(err), err.Error())
 		return
 	}
+	target := skillScopeTargetFromRequest(req.Scope, req.ProjectID, req.WorklineID)
+	if !s.requireSkillScopeAccess(w, r, target) {
+		return
+	}
 	parsed, err := skills.ParseMarkdown(req.Content)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
@@ -266,7 +316,6 @@ func (s *Server) importSkillV2(w http.ResponseWriter, r *http.Request) {
 		writeError(w, statusFromSkillError(err), err.Error())
 		return
 	}
-	target := skillScopeTargetFromRequest(req.Scope, req.ProjectID, req.WorklineID)
 	record.Scope, record.ProjectID, record.WorklineID = target.Scope, target.ProjectID, target.WorklineID
 	created, err := s.store.CreateSkillAs(r.Context(), record, "api_request")
 	if err != nil {
@@ -287,6 +336,9 @@ func (s *Server) listSkillRevisionsV2(w http.ResponseWriter, r *http.Request) {
 		writeError(w, statusFromSkillError(err), err.Error())
 		return
 	}
+	if !s.requireSkillAccess(w, r, skill) {
+		return
+	}
 	limit, cursor := skillPageParams(r)
 	page, err := s.store.ListSkillRevisionsPage(r.Context(), id, limit, cursor)
 	if err != nil {
@@ -304,6 +356,9 @@ func (s *Server) getSkillRevisionV2(w http.ResponseWriter, r *http.Request) {
 	}
 	if err != nil {
 		writeError(w, statusFromSkillError(err), err.Error())
+		return
+	}
+	if !s.requireSkillAccess(w, r, current) {
 		return
 	}
 	revisionNo, err := strconv.ParseInt(chi.URLParam(r, "revisionNo"), 10, 64)
@@ -327,6 +382,9 @@ func (s *Server) restoreSkillV2(w http.ResponseWriter, r *http.Request) {
 	}
 	if err != nil {
 		writeError(w, statusFromSkillError(err), err.Error())
+		return
+	}
+	if !s.requireSkillAccess(w, r, current) {
 		return
 	}
 	var req skillRestoreRequest

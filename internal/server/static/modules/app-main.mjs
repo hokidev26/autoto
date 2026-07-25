@@ -1350,6 +1350,7 @@ skillsPhaseB = createSkillsPhaseBController({
 
 const skillsWorkbench = createSkillsWorkbenchController({
   state,
+  request: api,
   bindMCPRegistryActions,
   bindPluginRegistryActions,
   copyText,
@@ -1378,6 +1379,10 @@ const skillsWorkbench = createSkillsWorkbenchController({
   skillsPrefsExport,
   getSkillContext,
   setSkillContext,
+  getProject: () => state.project,
+  getWorkline: () => state.workline,
+  getAgent: () => state.agent,
+  openSettingsPanel: selectSettingsPanel,
   updateServerSkill,
   updateToolPermissionRule,
 });
