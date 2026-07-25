@@ -803,6 +803,31 @@ test("隐藏保护自动迁移默认模型且禁止隐藏最后一个可见模�
   assert.equal(blocked.modelConfigs[1].hidden, false);
 });
 
+test("allowEmpty lets an official provider hide every model; custom providers keep one", () => {
+  const configs = [
+    { name: "a", contextTokenLimit: 100, hidden: false },
+    { name: "b", contextTokenLimit: 200, hidden: true },
+  ];
+  // Custom provider: the last visible model cannot be hidden.
+  const blocked = setProviderModelHidden(configs, "a", true, "a");
+  assert.equal(blocked.changed, false);
+  assert.equal(blocked.modelConfigs[0].hidden, false);
+
+  // Official provider: hiding the last one is allowed and clears the default.
+  const allowed = setProviderModelHidden(configs, "a", true, "a", { allowEmpty: true });
+  assert.equal(allowed.changed, true);
+  assert.equal(allowed.modelConfigs[0].hidden, true);
+  assert.equal(allowed.defaultModel, "");
+
+  // The same distinction applies to the hide-all toggle.
+  const keptOne = setProviderModelHiddenAll(configs, true, "a");
+  assert.equal(keptOne.modelConfigs.filter((m) => !m.hidden).length, 1);
+  const hidAll = setProviderModelHiddenAll(configs, true, "a", { allowEmpty: true });
+  assert.equal(hidAll.changed, true);
+  assert.equal(hidAll.modelConfigs.every((m) => m.hidden), true);
+  assert.equal(hidAll.defaultModel, "");
+});
+
 test("批量可见性开关：隐藏全部保留一个默认，显示全部恢复", () => {
   const configs = [
     { name: "a", contextTokenLimit: 100, hidden: false },

@@ -162,7 +162,11 @@ export function providerModelDraftUsable(draft = {}) {
   return Boolean(draft.modelsReady && !draft.modelsStale && row && !row.hidden);
 }
 
-export function setProviderModelHidden(modelConfigs = [], modelName = "", hidden = false, defaultModel = "") {
+// allowEmpty lets every model be hidden. Official providers ship a built-in
+// catalog that can always be re-fetched, so hiding all of them just means "keep
+// these out of my picker" and is recoverable. A manually configured provider has
+// no such catalog, so it keeps the last visible model as its default.
+export function setProviderModelHidden(modelConfigs = [], modelName = "", hidden = false, defaultModel = "", { allowEmpty = false } = {}) {
   const configs = normalizeProviderModelConfigs({ modelConfigs });
   const name = stringValue(modelName);
   const index = configs.findIndex((item) => item.name === name);
@@ -172,16 +176,19 @@ export function setProviderModelHidden(modelConfigs = [], modelName = "", hidden
     return { modelConfigs: configs, defaultModel: stringValue(defaultModel), changed: true };
   }
   const visibleAlternatives = configs.filter((item) => item.name !== name && !item.hidden);
-  if (!visibleAlternatives.length) return { modelConfigs: configs, defaultModel: stringValue(defaultModel), changed: false };
+  if (!visibleAlternatives.length && !allowEmpty) return { modelConfigs: configs, defaultModel: stringValue(defaultModel), changed: false };
   configs[index] = { ...configs[index], hidden: true };
-  const nextDefault = stringValue(defaultModel) === name ? visibleAlternatives[0].name : stringValue(defaultModel);
+  const nextDefault = stringValue(defaultModel) === name
+    ? (visibleAlternatives[0]?.name || "")
+    : stringValue(defaultModel);
   return { modelConfigs: configs, defaultModel: nextDefault, changed: true };
 }
 
 // Show or hide every model at once. Hiding keeps exactly one model visible (the
-// current default when possible, otherwise the first) because a provider always
-// needs a visible model to use as its default.
-export function setProviderModelHiddenAll(modelConfigs = [], hideAll = false, defaultModel = "") {
+// current default when possible, otherwise the first) because a manually
+// configured provider needs a visible model to use as its default. Official
+// providers pass allowEmpty and may hide the lot; their catalog is re-fetchable.
+export function setProviderModelHiddenAll(modelConfigs = [], hideAll = false, defaultModel = "", { allowEmpty = false } = {}) {
   const configs = normalizeProviderModelConfigs({ modelConfigs });
   if (!configs.length) return { modelConfigs: configs, defaultModel: stringValue(defaultModel), changed: false };
   if (!hideAll) {
@@ -192,6 +199,15 @@ export function setProviderModelHiddenAll(modelConfigs = [], hideAll = false, de
       return { ...item, hidden: false };
     });
     return { modelConfigs: next, defaultModel: stringValue(defaultModel), changed };
+  }
+  if (allowEmpty) {
+    let changedAll = false;
+    const hiddenAll = configs.map((item) => {
+      if (item.hidden) return item;
+      changedAll = true;
+      return { ...item, hidden: true };
+    });
+    return { modelConfigs: hiddenAll, defaultModel: "", changed: changedAll };
   }
   const def = stringValue(defaultModel);
   const keeper = configs.some((item) => item.name === def) ? def : configs[0].name;

@@ -38,7 +38,7 @@ import {
   validateProviderNameValue,
 } from "./provider-settings-normalization.mjs";
 import { codexAccountStableID, finiteNumber } from "./provider-account-rendering.mjs";
-import { subscriptionProviderKind, subscriptionProviderSpec } from "./model-provider-components.mjs?v=provider-subscription-accounts-1";
+import { providerCategory, subscriptionProviderKind, subscriptionProviderSpec } from "./model-provider-components.mjs?v=provider-subscription-accounts-1";
 import { normalizeSubscriptionProvider } from "./provider-settings-normalization.mjs";
 import { createCodexAuthController } from "./provider-codex-auth.mjs";
 import { createAnthropicAccountsController } from "./provider-anthropic-accounts.mjs";
@@ -1674,7 +1674,8 @@ export function createModelProviderSettingsController({
     if (target.dataset.mpModelVisibility) {
       const name = String(target.dataset.mpModelVisibility || "").trim();
       const draft = { ...(consoleState.draft || {}) };
-      const result = setProviderModelHidden(draft.modelConfigs, name, target.dataset.hidden !== "true", draft.model);
+      const allowEmpty = providerCategory(draft) === "official";
+      const result = setProviderModelHidden(draft.modelConfigs, name, target.dataset.hidden !== "true", draft.model, { allowEmpty });
       if (!result.changed) {
         setProviderConsoleResult(ct("messages.lastVisibleModel"), "attention");
         refreshProviderConsole();
@@ -1687,7 +1688,8 @@ export function createModelProviderSettingsController({
     }
     if (target.dataset.mpModelVisibilityAll !== undefined) {
       const draft = { ...(consoleState.draft || {}) };
-      const result = setProviderModelHiddenAll(draft.modelConfigs, target.dataset.allVisible === "true", draft.model);
+      const allowEmpty = providerCategory(draft) === "official";
+      const result = setProviderModelHiddenAll(draft.modelConfigs, target.dataset.allVisible === "true", draft.model, { allowEmpty });
       if (!result.changed) {
         refreshProviderConsole();
         return;
