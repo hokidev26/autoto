@@ -30,8 +30,35 @@ export function createConversationTitleHelpers({
     return state.agent?.model || selectedModelValue() || currentModelValue() || am("noModelSelected");
   }
 
+  const maxDerivedTitleCharacters = 28;
+
+  // An untitled conversation used to fall back to the project name, which is an
+  // absolute path -- unhelpful as a heading, and the sidebar entry already shows
+  // the path underneath. The opening user message describes what the
+  // conversation is actually about, so it is preferred. Purely presentational:
+  // nothing is persisted, and an explicit agent title always wins.
+  function derivedConversationTitle() {
+    const messages = Array.isArray(state.currentMessages) ? state.currentMessages : [];
+    const first = messages.find((message) => String(message?.role || "").toLowerCase() === "user"
+      && String(message?.content || "").trim());
+    if (!first) return "";
+    const text = String(first.content || "")
+      .replace(/```[\s\S]*?```/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+    if (!text) return "";
+    const characters = Array.from(text);
+    return characters.length > maxDerivedTitleCharacters
+      ? `${characters.slice(0, maxDerivedTitleCharacters).join("")}…`
+      : text;
+  }
+
   function conversationHeaderTitle() {
-    return state.agent?.title || state.navigationTransitionTitle || state.project?.name || t("chat.noAgent");
+    return state.agent?.title
+      || state.navigationTransitionTitle
+      || derivedConversationTitle()
+      || state.project?.name
+      || t("chat.noAgent");
   }
 
   function titleEditorElements(surface) {
@@ -48,7 +75,7 @@ export function createConversationTitleHelpers({
   }
 
   function titleForSurface(surface) {
-    if (surface === "workbench") return state.agent?.title || state.navigationTransitionTitle || state.project?.name || t("workbench.title");
+    if (surface === "workbench") return state.agent?.title || state.navigationTransitionTitle || derivedConversationTitle() || state.project?.name || t("workbench.title");
     return conversationHeaderTitle();
   }
 

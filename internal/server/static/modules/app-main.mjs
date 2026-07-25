@@ -2936,6 +2936,10 @@ async function applyAgentLiveSnapshot(snapshot, detail = {}) {
     hasMoreBefore: snapshot.messageHasMoreBefore,
     nextBefore: snapshot.messageNextBefore,
   });
+  // Re-render the heading now that the messages exist: an untitled conversation
+  // takes its title from the first user message, which was not yet loaded when
+  // the header rendered above.
+  renderConversationHeaderIdentity();
   const permissionMode = $("permissionMode");
   if (permissionMode) permissionMode.value = state.agent.permissionMode || "acceptEdits";
   enforcePermissionSelectCap();
