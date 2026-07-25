@@ -4087,7 +4087,7 @@ body.white-shell.theme-light .toolbar-lightning-btn[aria-busy="true"] {
   }
 
   body.white-shell.theme-light #composerInputShell {
-    min-height: 40px;
+    min-height: 36px;
     align-items: center;
     gap: 6px;
   }
@@ -4096,7 +4096,7 @@ body.white-shell.theme-light .toolbar-lightning-btn[aria-busy="true"] {
     display: block;
     flex: 0 0 32px;
     width: 32px;
-    height: 40px;
+    height: 36px;
   }
 
   body.white-shell.theme-light #attachFileBtn {
@@ -4106,27 +4106,29 @@ body.white-shell.theme-light .toolbar-lightning-btn[aria-busy="true"] {
     height: 30px;
   }
 
+  /* Composer row height follows the 36px reference: the input and the send
+     button match, which keeps the transcript area as tall as possible. */
   body.white-shell.theme-light [class~="message-input-frame"] {
-    min-height: 40px;
+    min-height: 36px;
     align-items: center;
   }
 
   body.white-shell.theme-light textarea#messageText {
-    --composer-input-min-height: 40px;
+    --composer-input-min-height: 36px;
     --composer-input-max-height: 132px;
     height: auto;
     min-height: var(--composer-input-min-height);
     max-height: var(--composer-input-max-height);
     border-radius: 7px;
-    padding: 8px 10px;
+    padding: 5.5px 12px;
     line-height: 1.4;
   }
 
   body.white-shell.theme-light #sendMessageBtn {
     width: 56px;
     min-width: 56px;
-    height: 40px;
-    min-height: 40px;
+    height: 36px;
+    min-height: 36px;
     flex: 0 0 56px;
     border-radius: 7px;
     padding: 0 8px;
@@ -4475,8 +4477,10 @@ body.white-shell.theme-light .toolbar-lightning-btn[aria-busy="true"] {
     color: #596273;
   }
 
+  /* Row height follows the 36px controls; an id selector here outranks the
+     class rules in extras.css, so this is the value that actually applies. */
   body.white-shell.theme-light #composerInputShell {
-    min-height: 44px;
+    min-height: 36px;
     align-items: center;
     gap: 6px;
   }
@@ -4484,7 +4488,7 @@ body.white-shell.theme-light .toolbar-lightning-btn[aria-busy="true"] {
   body.white-shell.theme-light [class~="composer-attach-wrap"] {
     flex: 0 0 36px;
     width: 36px;
-    height: 44px;
+    height: 36px;
   }
 
   /* The attach button is a bare icon: message-input-frame is the only surface
@@ -4495,8 +4499,8 @@ body.white-shell.theme-light .toolbar-lightning-btn[aria-busy="true"] {
     left: 0;
     width: 36px;
     min-width: 36px;
-    height: 44px;
-    min-height: 44px;
+    height: 36px;
+    min-height: 36px;
     border: 0;
     border-radius: 12px;
     background: transparent;
@@ -4505,7 +4509,7 @@ body.white-shell.theme-light .toolbar-lightning-btn[aria-busy="true"] {
   }
 
   body.white-shell.theme-light [class~="message-input-frame"] {
-    min-height: 44px;
+    min-height: 36px;
     align-items: center;
   }
 
@@ -4519,28 +4523,23 @@ body.white-shell.theme-light .toolbar-lightning-btn[aria-busy="true"] {
   /* Transparent so the surrounding frame is the single visible input outline.
      Horizontal padding stays 0 because the frame already insets by 11px. */
   body.white-shell.theme-light textarea#messageText {
-    --composer-input-min-height: 44px;
+    --composer-input-min-height: 36px;
     --composer-input-max-height: 120px;
     min-height: var(--composer-input-min-height);
     max-height: var(--composer-input-max-height);
     border: 0;
     border-radius: 12px;
     background: transparent;
-    padding: 10px 0 9px;
+    padding: 5.5px 12px;
     font-size: 14px;
     line-height: 1.45;
-  }
-
-  body.white-shell.theme-light textarea#messageText:focus {
-    border-color: #b7c1ff;
-    background: #ffffff;
   }
 
   body.white-shell.theme-light #sendMessageBtn {
     width: 44px;
     min-width: 44px;
-    height: 44px;
-    min-height: 44px;
+    height: 36px;
+    min-height: 36px;
     flex: 0 0 44px;
     border-radius: 12px;
     padding: 0;

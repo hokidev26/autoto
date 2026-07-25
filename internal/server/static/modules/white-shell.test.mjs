@@ -1029,8 +1029,9 @@ test("mobile header and composer use compact icon-first layouts", async () => {
   assert.match(mobileComposerStyles, /\[class~="message-mode-option"\]::after\s*\{[^}]*content:\s*attr\(data-mobile-label\)/);
   assert.match(mobileComposerStyles, /\[class~="composer-permission-field"\][\s\S]*?\[class~="composer-select-value"\]::before\s*\{[^}]*content:\s*attr\(data-mobile-label\)/);
   assert.match(mobileComposerStyles, /\[class~="permission-safety-indicator"\],[\s\S]*?display:\s*none !important/);
-  assert.match(mobileComposerStyles, /textarea#messageText[\s\S]*?--composer-input-min-height:\s*44px/);
-  assert.match(mobileComposerStyles, /#sendMessageBtn[\s\S]*?width:\s*44px[\s\S]*?height:\s*44px/);
+  // 36px composer row, matching the reference input metrics.
+  assert.match(mobileComposerStyles, /textarea#messageText[\s\S]*?--composer-input-min-height:\s*36px/);
+  assert.match(mobileComposerStyles, /#sendMessageBtn[\s\S]*?width:\s*44px[\s\S]*?height:\s*36px/);
   assert.match(mobileComposerStyles, /#sendMessageBtn::before\s*\{[^}]*content:\s*attr\(data-mobile-label\)/);
   assert.match(styles, /\.composer-task-summary:disabled,[\s\S]*?\.composer-task-summary:not\(\.has-task\)\s*\{[^}]*display:\s*none/);
   assert.match(styles, /\.composer-task-summary\s*\{[^}]*width:\s*28px[^}]*margin-right:\s*auto/);
@@ -1631,7 +1632,7 @@ test("mobile shell skips home and keeps the drawer, settings index, and model sh
   assert.match(cascadeGuard, /\.chat-header\s*\{[\s\S]*?height:\s*50px;[\s\S]*?display:\s*flex/);
   assert.match(cascadeGuard, /\.composer-toolbar\s*\{[\s\S]*?order:\s*1/);
   assert.match(cascadeGuard, /\.composer-input-shell\s*\{[\s\S]*?order:\s*2/);
-  assert.match(cascadeGuard, /#sendMessageBtn\s*\{[\s\S]*?width:\s*60px[\s\S]*?height:\s*44px/);
+  assert.match(cascadeGuard, /#sendMessageBtn\s*\{[\s\S]*?width:\s*60px[\s\S]*?height:\s*36px/);
   assert.match(cascadeGuard, /\.composer-task-summary,[\s\S]*?display:\s*none !important/);
   assert.match(cascadeGuard, /\.composer-select-value,[\s\S]*?position:\s*static;[\s\S]*?clip-path:\s*none/);
   assert.match(cascadeGuard, /\.composer-model-field \.composer-select-trigger\s*\{\s*max-width:\s*min\(58vw, 246px\)/);

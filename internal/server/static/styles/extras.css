@@ -1402,7 +1402,9 @@ body.white-shell.theme-light .composer-wrap {
 
   body.white-shell.theme-light .composer-input-shell {
     order: 2;
-    min-height: 44px;
+    /* Follows the 36px row: leaving this at 44px kept 8px of dead space below
+       the controls even after each control shrank. */
+    min-height: 36px;
     display: flex;
     align-items: stretch;
     gap: 6px;
@@ -1411,16 +1413,19 @@ body.white-shell.theme-light .composer-wrap {
     border-radius: 0;
     padding: 0;
   }
+  /* 36px composer row, matching the reference input metrics. The horizontal
+     inset lives on the textarea (5.5px 12px) rather than here, so the padding
+     is exactly the referenced value instead of being split across two boxes. */
   body.white-shell.theme-light .message-input-frame {
     min-width: 0;
-    min-height: 44px;
+    min-height: 36px;
     flex: 1 1 auto;
     display: flex;
     align-items: center;
     background: #fff;
     border: 1px solid rgba(60, 60, 67, .18);
     border-radius: 8px;
-    padding: 0 11px;
+    padding: 0;
   }
 
   body.white-shell.theme-light :is(.message, .message.user, .message.assistant) { max-width: 100%; }
@@ -1560,9 +1565,9 @@ body.white-shell.theme-light .composer-wrap {
   body.white-shell.theme-light .composer-attach-btn:is(:hover, :focus-visible) { background: #f2f3f5; color: #5369f3; }
 
   body.white-shell.theme-light textarea#messageText {
-    min-height: 42px;
+    min-height: 36px;
     max-height: 116px;
-    padding: 10px 0 9px;
+    padding: 5.5px 12px;
     font-size: 15px;
     line-height: 1.4;
   }
@@ -1570,8 +1575,8 @@ body.white-shell.theme-light .composer-wrap {
   body.white-shell.theme-light #sendMessageBtn {
     width: 60px;
     min-width: 60px;
-    height: 44px;
-    align-self: stretch;
+    height: 36px;
+    align-self: center;
     border-radius: 8px;
     background: #5369f3;
     color: #fff;
