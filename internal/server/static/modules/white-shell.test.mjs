@@ -971,7 +971,12 @@ test("composer responds to its actual width before the mobile breakpoint", async
   assert.match(responsiveStyles, /\.composer-effort-field \.composer-select-value\s*\{[^}]*flex:\s*0 1 auto/);
   assert.match(responsiveStyles, /\.toolbar-lightning-btn:not\(\.hidden\)\s*\{[^}]*align-self:\s*center[^}]*align-items:\s*center[^}]*justify-content:\s*center/);
   assert.match(responsiveStyles, /\.composer-permission-field\s*\{[^}]*flex:\s*0 0 96px/);
-  assert.match(responsiveStyles, /\.permission-toolbar-pill\s*\{[^}]*width:\s*96px[^}]*min-width:\s*96px/);
+  // The pill sizes to its longest label instead of a fixed width, so 全部允許
+  // is never ellipsised, and carries no padding of its own so the trigger
+  // fills it and the whole control is clickable.
+  assert.match(responsiveStyles, /\.permission-toolbar-pill\s*\{[^}]*width:\s*auto[^}]*min-width:\s*max-content[^}]*padding:\s*0/);
+  assert.match(responsiveStyles, /\.permission-toolbar-pill \.composer-select-trigger\s*\{[^}]*width:\s*100%/);
+  assert.match(responsiveStyles, /\.permission-toolbar-pill \.composer-select-value\s*\{[^}]*text-overflow:\s*clip/);
   assert.match(responsiveStyles, /@container composer-shell \(max-width:\s*1320px\)[\s\S]*?\.composer-task-summary\s*\{[^}]*width:\s*180px[^}]*max-width:\s*180px[^}]*flex:\s*0 1 180px/);
   assert.match(responsiveStyles, /@container composer-shell \(max-width:\s*900px\)[\s\S]*?\.composer-task-summary\s*\{[^}]*width:\s*30px[^}]*flex:\s*0 0 30px/);
   assert.match(responsiveStyles, /@container composer-shell \(max-width:\s*900px\)[\s\S]*?\.composer-model-field\s*\{[^}]*min-width:\s*140px[^}]*max-width:\s*200px[^}]*flex:\s*1 1 160px/);
@@ -982,7 +987,7 @@ test("composer responds to its actual width before the mobile breakpoint", async
   assert.match(responsiveStyles, /@container composer-shell \(max-width:\s*620px\)[\s\S]*?\.composer-effort-field \.composer-select-value\s*\{[^}]*font-size:\s*11px[^}]*text-overflow:\s*clip/);
   assert.match(responsiveStyles, /@container composer-shell \(max-width:\s*620px\)[\s\S]*?\.composer-effort-field \.composer-select-value::before\s*\{[^}]*content:\s*none/);
   assert.match(responsiveStyles, /@container composer-shell \(max-width:\s*900px\)[\s\S]*?\.composer-permission-field\s*\{[^}]*flex:\s*0 0 92px/);
-  assert.match(responsiveStyles, /@container composer-shell \(max-width:\s*900px\)[\s\S]*?\.permission-toolbar-pill\s*\{[^}]*width:\s*92px[^}]*min-width:\s*92px/);
+  assert.match(responsiveStyles, /@container composer-shell \(max-width:\s*900px\)[\s\S]*?\.permission-toolbar-pill\s*\{[^}]*width:\s*auto[^}]*min-width:\s*max-content/);
   assert.match(responsiveStyles, /@container composer-shell \(max-width:\s*900px\)[\s\S]*?\.message-mode-option::after\s*\{[^}]*content:\s*attr\(data-mobile-label\)/);
   assert.match(responsiveStyles, /@container composer-shell \(max-width:\s*900px\)[\s\S]*?\.permission-safety-indicator\s*\{[^}]*display:\s*none/);
   assert.match(responsiveStyles, /@container composer-shell \(max-width:\s*620px\)[\s\S]*?\.composer-model-field\s*\{[^}]*max-width:\s*88px[^}]*flex:\s*1 1 62px/);
@@ -1657,8 +1662,11 @@ test("mobile shell skips home and keeps the drawer, settings index, and model sh
   assert.match(uiShell, /mobileSidebarCloseBtn/);
   assert.equal((uiShell.match(/function closeMobileSidebar/g) || []).length, 1);
   assert.match(uiShell, /translate\("chat\.selectModel"\)/);
-  assert.match(uiShell, /translate\("chat\.manageModels"\)/);
-  assert.match(uiShell, /openModelSettings\(\)/);
+  // 管理模型 / 思考强度 / 压缩上下文 were removed from the model menu: each already has
+  // its own control beside the composer.
+  assert.doesNotMatch(uiShell, /translate\("chat\.manageModels"\)/);
+  assert.doesNotMatch(uiShell, /translate\("chat\.compactContext"\)/);
+  assert.doesNotMatch(uiShell, /openModelSettings/);
   assert.doesNotMatch(uiShell, /mobileComposerSelectStyles/);
   assert.match(settingsPreferences, /mobileSidebarAvatar/);
   assert.match(settingsPreferences, /mobileSidebarAccountName/);

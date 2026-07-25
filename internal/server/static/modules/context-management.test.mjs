@@ -246,8 +246,9 @@ test("static shell mounts one shared context ring, accessible overlays, APIs, an
   assert.match(appMain, /contextManagement\.reset\(null\)/);
   assert.match(appMain, /event\.type === "context\.updated"/);
   assert.match(appMain, /contextManagement\.applyStatus\(snapshot\.context/);
-  assert.match(appMain, /manageContext:\s*\(options\) => contextManagement\.open\(options\)/);
-  assert.match(uiShell, /manageContextAction\(\{ focusAction: "compact" \}\)/);
+  // The composer model menu no longer duplicates 压缩上下文; the context ring next
+  // to the composer is the single entry point, so ui-shell does not manage context.
+  assert.doesNotMatch(uiShell, /manageContextAction/);
   assert.doesNotMatch(uiShell, /api\/agents\/.*context\/compact/);
 
   for (const path of [

@@ -156,10 +156,6 @@ export function createUIShellController({
   focusSettingsSearchInput,
   normalizedSettingsSearchQuery,
   openDirectoryChooser,
-  openModelSettings = () => {},
-  manageContext = null,
-  compactContext = () => {},
-  getContextStatus = () => ({}),
   getMessageMode = () => "execute",
   setMessageMode = () => {},
   renderProjects,
@@ -169,7 +165,6 @@ export function createUIShellController({
   translate = (key) => key,
 } = {}) {
   let settingsDialogFocusReturn = null;
-  const manageContextAction = typeof manageContext === "function" ? manageContext : compactContext;
   const mobileViewport = () => window.matchMedia?.("(max-width: 767px)")?.matches
     ?? (globalThis.innerWidth || document.documentElement.clientWidth) <= 767;
   const resolveMessageMode = () => (getMessageMode?.() === "plan" ? "plan" : "execute");
@@ -712,70 +707,6 @@ export function createUIShellController({
       return button;
     };
 
-    const contextActionSpec = () => {
-      const status = getContextStatus?.() || {};
-      const prunedPercent = Math.max(0, Math.min(100, Number(status.prunedPercent) || 0));
-      const canManage = Boolean(state?.agent?.id);
-      const canCompact = Boolean(status.canCompact) && String(state?.agent?.status || "") !== "running";
-      return {
-        disabled: !canManage,
-        detail: canCompact
-          ? (status.hasSummary ? translate("chat.contextCompactedDetail", { percent: prunedPercent }) : translate("chat.contextCompactReady"))
-          : translate("chat.contextCompactUnavailable"),
-      };
-    };
-
-    const createDesktopAction = (title, detail, handler, { disabled = false } = {}) => {
-      const button = document.createElement("button");
-      button.type = "button";
-      button.className = "composer-model-menu-action";
-      button.disabled = disabled;
-      const copy = document.createElement("span");
-      copy.className = "composer-model-menu-action-copy";
-      const titleNode = document.createElement("span");
-      titleNode.className = "composer-model-menu-action-title";
-      titleNode.textContent = title;
-      copy.appendChild(titleNode);
-      if (detail) {
-        const detailNode = document.createElement("span");
-        detailNode.className = "composer-model-menu-action-detail";
-        detailNode.textContent = detail;
-        copy.appendChild(detailNode);
-      }
-      const chevron = document.createElement("span");
-      chevron.className = "composer-model-menu-action-chevron";
-      chevron.setAttribute("aria-hidden", "true");
-      chevron.textContent = "›";
-      button.append(copy, chevron);
-      button.addEventListener("click", handler);
-      return button;
-    };
-
-    const appendDesktopModelActions = (binding) => {
-      const divider = document.createElement("div");
-      divider.className = "composer-model-menu-divider";
-      divider.setAttribute("aria-hidden", "true");
-      menu.appendChild(divider);
-      const reasoningBinding = bindings.find(({ select }) => select.id === "reasoningEffort");
-      if (reasoningBinding) {
-        const currentReasoning = reasoningBinding.select.selectedOptions?.[0]
-          || reasoningBinding.select.options?.[reasoningBinding.select.selectedIndex];
-        const reasoningText = currentReasoning?.textContent?.trim() || currentReasoning?.value || "";
-        menu.appendChild(createDesktopAction(translate("chat.reasoningEffort"), reasoningText, () => {
-          close();
-          open(reasoningBinding);
-        }));
-      }
-      const compactSpec = contextActionSpec();
-      menu.appendChild(createDesktopAction(translate("chat.compactContext"), compactSpec.detail, () => {
-        close({ focus: true });
-        Promise.resolve(manageContextAction({ focusAction: "compact" })).catch(showError);
-      }, compactSpec));
-      menu.appendChild(createDesktopAction(translate("chat.manageModels"), "", () => {
-        close({ focus: true });
-        openModelSettings();
-      }));
-    };
 
     const openMobile = (binding, { returnFocus = binding.trigger } = {}) => {
       const isModel = binding.select.id === "modelSelect";
@@ -843,7 +774,6 @@ export function createUIShellController({
         else [...binding.select.options]
           .filter((option) => !option.hidden)
           .forEach((option) => menu.appendChild(createOptionButton(binding, option)));
-        if (isModelMenu) appendDesktopModelActions(binding);
       }
       menu.classList.remove("hidden");
       positionMenu(binding.trigger);
