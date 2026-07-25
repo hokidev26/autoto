@@ -11,6 +11,8 @@ import (
 	"strings"
 	"unicode"
 	"unicode/utf8"
+
+	"autoto/internal/secrets"
 )
 
 const (
@@ -36,6 +38,7 @@ func NormalizeAndValidateHook(input Hook) (Hook, error) {
 		input.FailurePolicy = FailureContinue
 	}
 	if input.Action.HTTP != nil {
+		input.Action.HTTP.URL = strings.TrimSpace(input.Action.HTTP.URL)
 		input.Action.HTTP.Method = strings.ToUpper(strings.TrimSpace(input.Action.HTTP.Method))
 		if input.Action.HTTP.Method == "" {
 			input.Action.HTTP.Method = http.MethodPost
@@ -198,6 +201,9 @@ func validateShellAction(action ShellAction) error {
 	if err := validateEnv(action.SecretRefs, true); err != nil {
 		return err
 	}
+	if lifecycleNamesOverlap(action.Env, action.SecretRefs) {
+		return errors.New("shell action environment keys cannot appear in both env and secretRefs")
+	}
 	return validateTimeout(action.TimeoutSeconds)
 }
 
@@ -223,8 +229,11 @@ func validateHTTPAction(action HTTPAction) error {
 	default:
 		return errors.New("HTTP action method must be POST, PUT, or PATCH")
 	}
+	if lifecycleNamesDuplicate(action.Headers) || lifecycleNamesDuplicate(action.SecretRefs) {
+		return errors.New("HTTP header names must be unique ignoring case")
+	}
 	for name, value := range action.Headers {
-		if !validHeaderName(name) || !validHeaderValue(value) {
+		if !validHeaderName(name) || !validHeaderValue(value) || forbiddenHTTPHeader(name) {
 			return errors.New("invalid HTTP action header")
 		}
 		if sensitiveHeader(name) {
@@ -232,12 +241,15 @@ func validateHTTPAction(action HTTPAction) error {
 		}
 	}
 	for name, ref := range action.SecretRefs {
-		if !validHeaderName(name) || !sensitiveHeader(name) && !strings.HasPrefix(strings.ToLower(name), "x-") {
+		if !validHeaderName(name) || forbiddenHTTPHeader(name) || !sensitiveHeader(name) && !strings.HasPrefix(strings.ToLower(name), "x-") {
 			return errors.New("invalid HTTP secret header")
 		}
 		if !validSecretRef(ref) {
-			return errors.New("HTTP action secrets must be references")
+			return errors.New("HTTP action secrets must use env: references")
 		}
+	}
+	if lifecycleNamesOverlap(action.Headers, action.SecretRefs) {
+		return errors.New("HTTP header keys cannot appear in both headers and secretRefs")
 	}
 	return validateTimeout(action.TimeoutSeconds)
 }
@@ -329,13 +341,16 @@ func validateEnv(values map[string]string, secret bool) error {
 	if len(values) > 64 {
 		return errors.New("action environment exceeds 64 entries")
 	}
+	if lifecycleNamesDuplicate(values) {
+		return errors.New("action environment names must be unique ignoring case")
+	}
 	for name, value := range values {
 		if !validEnvName(name) {
 			return errors.New("invalid action environment name")
 		}
 		if secret {
 			if !validSecretRef(value) {
-				return errors.New("action secrets must be references")
+				return errors.New("action secrets must use env: references")
 			}
 		} else if !validHeaderValue(value) {
 			return errors.New("invalid action environment value")
@@ -345,17 +360,31 @@ func validateEnv(values map[string]string, secret bool) error {
 }
 
 func validSecretRef(value string) bool {
-	value = strings.TrimSpace(value)
-	parts := strings.SplitN(value, ":", 2)
-	if len(parts) != 2 || parts[1] == "" {
-		return false
+	_, err := secrets.ParseRef(value)
+	return err == nil
+}
+
+func lifecycleNamesOverlap(left, right map[string]string) bool {
+	for leftName := range left {
+		for rightName := range right {
+			if strings.EqualFold(leftName, rightName) {
+				return true
+			}
+		}
 	}
-	switch parts[0] {
-	case "env", "secret", "vault", "keychain":
-	default:
-		return false
+	return false
+}
+
+func lifecycleNamesDuplicate(values map[string]string) bool {
+	seen := make(map[string]struct{}, len(values))
+	for name := range values {
+		folded := strings.ToLower(name)
+		if _, exists := seen[folded]; exists {
+			return true
+		}
+		seen[folded] = struct{}{}
 	}
-	return validIdentifier(parts[1], 512)
+	return false
 }
 
 func validIdentifier(value string, max int) bool {
@@ -397,10 +426,30 @@ func validCommandName(value string) bool {
 	return true
 }
 func validHeaderName(value string) bool {
-	return value != "" && len(value) <= 128 && strings.TrimSpace(value) == value && !strings.ContainsAny(value, "\r\n:")
+	if value == "" || len(value) > 128 || strings.TrimSpace(value) != value {
+		return false
+	}
+	for index := 0; index < len(value); index++ {
+		char := value[index]
+		if char >= 'a' && char <= 'z' || char >= 'A' && char <= 'Z' || char >= '0' && char <= '9' || strings.ContainsRune("!#$%&'*+-.^_`|~", rune(char)) {
+			continue
+		}
+		return false
+	}
+	return true
 }
 func validHeaderValue(value string) bool {
-	return utf8.ValidString(value) && len(value) <= 4096 && !strings.ContainsAny(value, "\x00\r\n")
+	if !utf8.ValidString(value) || len(value) > 4096 {
+		return false
+	}
+	for index := 0; index < len(value); index++ {
+		char := value[index]
+		if char == '\t' || char >= 0x20 && char != 0x7f {
+			continue
+		}
+		return false
+	}
+	return true
 }
 func sensitiveHeader(name string) bool {
 	switch strings.ToLower(strings.TrimSpace(name)) {
@@ -408,4 +457,13 @@ func sensitiveHeader(name string) bool {
 		return true
 	}
 	return strings.Contains(strings.ToLower(name), "token") || strings.Contains(strings.ToLower(name), "secret")
+}
+
+func forbiddenHTTPHeader(name string) bool {
+	switch strings.ToLower(strings.TrimSpace(name)) {
+	case "connection", "content-length", "host", "keep-alive", "proxy-connection", "te", "trailer", "transfer-encoding", "upgrade":
+		return true
+	default:
+		return false
+	}
 }

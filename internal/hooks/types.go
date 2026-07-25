@@ -44,6 +44,8 @@ const (
 	ActionShell ActionKind = "shell"
 	ActionHTTP  ActionKind = "http"
 	ActionLLM   ActionKind = "llm"
+
+	RunKindHookTest = "hook_test"
 )
 
 type Scope struct {

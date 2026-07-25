@@ -717,6 +717,7 @@ GET /ui/app.js
 - Telegram 当前只通过 long polling 接收私聊 `/pair`、`/status`、`/approve`（固定一次性 `allow_once`）与 `/deny`；无 `/task`、无自由聊天、无 Telegram webhook、无 Slack/Discord。未配对与错误配对保持静默
 - Home Assistant 只允许本机/私网 endpoint；状态列表只读，动作仅限固定 allowlist，创建和批准均要求本地 UI 双确认，最终执行批准还要求 direct loopback。critical/未知动作硬阻断，IM 不得控制设备
 - 设置 → 技能页已接入服务端 Skills：后端支持 global/project/workspace CRUD、effective Skills、revision 历史/restore 与 snapshot-stable cursor 分页；scoped 面板支持按作用域浏览、详情、分页、修订历史与恢复，但创建、SKILL.md 导入、启停、编辑、删除 UI 仍只操作 global scope。MCP registry 仍可创建/启停/删除 server、运行 tools/list，并通过 exec-risk 审批调用 stdio MCP tools
+- 设置 → 生命周期钩子页已接入 global/project/agent 配置、CAS 更新、执行历史、测试/取消/重试与独立中英繁中目录。Shell/HTTP 动作复用现有工具审批和审计网关；`env:` 引用只在审批通过后的执行阶段解析，Shell cwd 保持在工作区内，HTTP 复用防 SSRF 网络策略，LLM gate 保持隔离且不开放工具
 - 设置 → 工作线与容器页内完成当前项目工作线、当前工作线 Agent、worktree/branch/容器隔离边界概览和快速切换
 - 设置 → AI 代理页内完成默认 Agent 策略概览、当前 agent 状态、模型/权限/workdir 快速调整和 ID 复制
 - 设置 → 用户管理页内完成本地 auth status 只读视图、注册状态、安全边界和后续多用户路线提示
@@ -988,6 +989,7 @@ make check
 - [x] V20 durable Webhook/Telegram deliveries（历史、去重、lease、指数退避、`dead`、retry）
 - [x] V21 Telegram pairing/events/cursor（long polling，`/pair` `/status` `/approve`-once `/deny`，未配对静默）
 - [x] V22 Home Assistant device action requests（本机/私网、只读状态、固定 allowlist、本地双确认、critical hard block、IM 禁止）
+- [x] V51 profile configuration + lifecycle hooks（global/project/agent 配置、快照绑定、CAS、历史、测试；Shell/HTTP 复用审批审计，密钥延迟解析，HTTP 防 SSRF）
 - [x] monitoring snapshot 聚合与 runtime Supervisor 管理 channels / automation / HTTP
 - [ ] Slack/Discord channel adapter
 - [ ] IM `/task` 与自由聊天（当前明确不提供）

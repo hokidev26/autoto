@@ -70,6 +70,17 @@ func TestStrictModeAndActionValidation(t *testing.T) {
 		"workspace escape":  func() Hook { h := validShellHook(); h.Action.Shell.CWD = "../outside"; return h }(),
 		"background":        func() Hook { h := validShellHook(); h.Action.Shell.Detached = true; return h }(),
 		"shell interpreter": func() Hook { h := validShellHook(); h.Action.Shell.Executable = "bash"; return h }(),
+		"duplicate env case": func() Hook {
+			h := validShellHook()
+			h.Action.Shell.Env = map[string]string{"TOKEN": "one", "token": "two"}
+			return h
+		}(),
+		"env secret overlap": func() Hook {
+			h := validShellHook()
+			h.Action.Shell.Env = map[string]string{"TOKEN": "one"}
+			h.Action.Shell.SecretRefs = map[string]string{"token": "env:HOOK_TOKEN"}
+			return h
+		}(),
 	}
 	for name, hook := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -85,7 +96,7 @@ func TestHTTPAndSecretReferenceValidation(t *testing.T) {
 	if _, err := NormalizeAndValidateHook(base); err != nil {
 		t.Fatal(err)
 	}
-	invalid := []string{"ftp://example.test/a", "https://user:pass@example.test/a", "http://example.test/a"}
+	invalid := []string{"ftp://example.test/a", "https://user:pass@example.test/a", "https://example.test/a#fragment", "http://example.test/a"}
 	for _, target := range invalid {
 		h := base
 		copy := *base.Action.HTTP
@@ -101,6 +112,44 @@ func TestHTTPAndSecretReferenceValidation(t *testing.T) {
 	h.Action.HTTP = &copy
 	if _, err := NormalizeAndValidateHook(h); err == nil {
 		t.Fatal("plaintext secret accepted")
+	}
+	for _, unsupported := range []string{"secret:HOOK_TOKEN", "vault:HOOK_TOKEN", "keychain:HOOK_TOKEN"} {
+		h := base
+		copy := *base.Action.HTTP
+		copy.SecretRefs = map[string]string{"Authorization": unsupported}
+		h.Action.HTTP = &copy
+		if _, err := NormalizeAndValidateHook(h); err == nil {
+			t.Fatalf("unsupported secret reference accepted: %s", unsupported)
+		}
+	}
+	for _, header := range []string{"Host", "Content-Length", "Transfer-Encoding"} {
+		h := base
+		copy := *base.Action.HTTP
+		copy.Headers = map[string]string{header: "unsafe"}
+		h.Action.HTTP = &copy
+		if _, err := NormalizeAndValidateHook(h); err == nil {
+			t.Fatalf("reserved HTTP header accepted: %s", header)
+		}
+	}
+	for name, headers := range map[string]map[string]string{
+		"invalid name":   {"Bad Header": "value"},
+		"invalid value":  {"X-Test": "bad\nvalue"},
+		"duplicate case": {"X-Test": "one", "x-test": "two"},
+	} {
+		h := base
+		copy := *base.Action.HTTP
+		copy.Headers = headers
+		h.Action.HTTP = &copy
+		if _, err := NormalizeAndValidateHook(h); err == nil {
+			t.Fatalf("%s HTTP headers accepted: %+v", name, headers)
+		}
+	}
+	h = base
+	copy = *base.Action.HTTP
+	copy.SecretRefs = map[string]string{"Accept": "env:HOOK_TOKEN"}
+	h.Action.HTTP = &copy
+	if _, err := NormalizeAndValidateHook(h); err == nil {
+		t.Fatal("non-sensitive, non-X secret header accepted")
 	}
 }
 

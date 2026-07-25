@@ -76,6 +76,7 @@ Projects: ~/projects
 - Browser-local Settings → Network Search policy preferences for provider presets, result limits, confirmation, and domain rules, plus `WebSearch` and `WebFetch` core tools for public web/documentation lookup
 - Settings → P2–P3 automation control backed by server APIs for schedules, notification history/retry, Telegram and Home Assistant connection metadata, pairing/revocation, monitoring, device state, local device-action confirmation, and audit events. A detected legacy browser-local IM draft is shown only as a disabled migration hint and never starts a channel
 - Server-backed Skills with global/project/workspace CRUD, effective-skill resolution, revision history/restore, and snapshot-stable cursor pagination. The Settings scoped panel can browse by scope, inspect details, paginate, and view/restore revisions; create, SKILL.md import, enable/disable, edit, and delete UI actions still operate only on global scope. MCP registry actions remain available with explicit exec-risk approval
+- Server-backed global/project/agent lifecycle hooks for run/tool boundaries, with snapshot-stable dispatch, CAS updates, execution history, and isolated test executions that do not create ordinary Agent runs. Shell and HTTP actions reuse the existing tool approval/audit gateway; `env:` secrets resolve only after approval, Shell stays workspace-bound with a sanitized environment, and HTTP uses the existing SSRF-resistant direct network policy. LLM gates remain isolated, tool-free provider requests
 - Browser-local Settings → Notifications preferences for toast categories, display duration, and UI terminal notices, plus server-backed durable Webhook/Telegram delivery history and retry
 - Browser-local Settings → Appearance preferences for theme, density, terminal default visibility, and Agent event-log display
 - Runtime summary endpoint and Settings → Servers/System + Runtime panels for process, Go runtime, paths, and Agent limits
@@ -286,6 +287,16 @@ POST   /api/schedules
 PATCH  /api/schedules/{id}
 DELETE /api/schedules/{id}
 POST   /api/schedules/{id}/run
+
+GET    /api/lifecycle-hooks
+POST   /api/lifecycle-hooks
+GET    /api/lifecycle-hooks/{id}
+PATCH  /api/lifecycle-hooks/{id}
+DELETE /api/lifecycle-hooks/{id}?expectedRevision=...
+GET    /api/lifecycle-hooks/{id}/history
+POST   /api/lifecycle-hooks/{id}/test
+POST   /api/lifecycle-hook-executions/{id}/cancel
+POST   /api/lifecycle-hook-executions/{id}/retry
 
 GET    /api/integrations/connections
 POST   /api/integrations/connections

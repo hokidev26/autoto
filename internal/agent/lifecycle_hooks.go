@@ -1,25 +1,43 @@
 package agent
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
 	"database/sql"
-	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"net/http"
+	"net/url"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"runtime"
 	"sort"
 	"strings"
+	"sync"
 	"time"
-	"unicode/utf16"
 
 	"autoto/internal/db"
 	"autoto/internal/hooks"
+	"autoto/internal/network"
+	"autoto/internal/process"
 	"autoto/internal/providers"
+	"autoto/internal/secrets"
 	"autoto/internal/tools"
+	"autoto/internal/workspacefs"
 )
 
-const lifecycleHookRunKindAgent = "agent"
+const (
+	lifecycleHookRunKindAgent      = "agent"
+	lifecycleHookShellToolName     = "LifecycleHookShell"
+	lifecycleHookHTTPToolName      = "LifecycleHookHTTP"
+	lifecycleHookOutputMaxBytes    = 64 << 10
+	lifecycleHookHTTPResponseBytes = 64 << 10
+)
 
 var errLifecycleHookDenied = errors.New("lifecycle hook gate denied the operation")
 
@@ -50,6 +68,13 @@ func lifecycleHooksSuppressed(ctx context.Context) bool {
 	}
 	suppressed, _ := ctx.Value(lifecycleHookActionContextKey{}).(bool)
 	return suppressed
+}
+
+func lifecycleHookAuditRunID(event hooks.Event) string {
+	if event.RunKind == hooks.RunKindHookTest {
+		return ""
+	}
+	return event.RunID
 }
 
 func (r *Runner) ensureLifecycleRun(ctx context.Context, agentID, runID string) (lifecycleRunContext, error) {
@@ -326,33 +351,58 @@ func (r *Runner) ExecuteShell(ctx context.Context, request hooks.ShellRequest) (
 	if !ok || strings.TrimSpace(event.AgentID) == "" || strings.TrimSpace(event.RunID) == "" {
 		return hooks.GatewayResult{}, errors.New("hook shell action is missing its run identity")
 	}
-	if len(request.SecretRefs) != 0 {
-		return hooks.GatewayResult{}, errors.New("hook shell secret references are unavailable through the controlled tool gateway")
-	}
-	command, err := lifecycleShellCommand(request)
+	tool := &lifecycleHookShellTool{request: cloneLifecycleShellRequest(request)}
+	input, err := json.Marshal(lifecycleShellApprovalInput(request))
 	if err != nil {
 		return hooks.GatewayResult{}, err
 	}
-	timeout := request.Timeout
-	if timeout <= 0 {
-		timeout = time.Duration(hooks.DefaultTimeoutSeconds) * time.Second
-	}
-	input, err := json.Marshal(map[string]any{"command": command, "timeout": timeout.Milliseconds()})
+	result, err := r.executeToolForLoop(
+		lifecycleHookActionContext(ctx),
+		event.AgentID,
+		lifecycleHookAuditRunID(event),
+		tools.Call{ID: "hook-shell-" + db.NewID(), Name: tool.Name(), Input: input},
+		"",
+		map[string]tools.Tool{tool.Name(): tool},
+	)
 	if err != nil {
 		return hooks.GatewayResult{}, err
 	}
-	result, err := r.executeToolForLoop(lifecycleHookActionContext(ctx), event.AgentID, event.RunID, tools.Call{ID: "hook-shell-" + db.NewID(), Name: "Bash", Input: input}, "")
-	if err != nil {
-		return hooks.GatewayResult{}, err
-	}
+	gatewayResult := hooks.GatewayResult{Output: []byte(result.Output), Metadata: map[string]string{"tool": tool.Name()}}
 	if result.IsError {
-		return hooks.GatewayResult{Output: []byte(result.Output), Metadata: map[string]string{"tool": "Bash"}}, errors.New(hooks.RedactText(result.Output))
+		return gatewayResult, errors.New(hooks.RedactText(result.Output))
 	}
-	return hooks.GatewayResult{Output: []byte(result.Output), Metadata: map[string]string{"tool": "Bash"}}, nil
+	return gatewayResult, nil
 }
 
-func (r *Runner) ExecuteHTTP(context.Context, hooks.HTTPRequest) (hooks.GatewayResult, error) {
-	return hooks.GatewayResult{}, errors.New("hook HTTP actions are unavailable because no controlled POST/PUT/PATCH tool gateway is configured")
+func (r *Runner) ExecuteHTTP(ctx context.Context, request hooks.HTTPRequest) (hooks.GatewayResult, error) {
+	event, ok := hooks.EventFromContext(ctx)
+	if !ok || strings.TrimSpace(event.AgentID) == "" || strings.TrimSpace(event.RunID) == "" {
+		return hooks.GatewayResult{}, errors.New("hook HTTP action is missing its run identity")
+	}
+	tool := &lifecycleHookHTTPTool{request: cloneLifecycleHTTPRequest(request)}
+	input, err := json.Marshal(lifecycleHTTPApprovalInput(request))
+	if err != nil {
+		return hooks.GatewayResult{}, err
+	}
+	result, err := r.executeToolForLoop(
+		lifecycleHookActionContext(ctx),
+		event.AgentID,
+		lifecycleHookAuditRunID(event),
+		tools.Call{ID: "hook-http-" + db.NewID(), Name: tool.Name(), Input: input},
+		"",
+		map[string]tools.Tool{tool.Name(): tool},
+	)
+	if err != nil {
+		return hooks.GatewayResult{}, err
+	}
+	gatewayResult := hooks.GatewayResult{Output: []byte(result.Output), Metadata: map[string]string{"tool": tool.Name()}}
+	if status, ok := result.Meta["status"].(int); ok {
+		gatewayResult.StatusCode = status
+	}
+	if result.IsError {
+		return gatewayResult, errors.New(hooks.RedactText(result.Output))
+	}
+	return gatewayResult, nil
 }
 
 func (r *Runner) ExecuteLLM(ctx context.Context, request hooks.LLMRequest) (hooks.GatewayResult, error) {
@@ -428,81 +478,444 @@ func (r *Runner) ExecuteLLM(ctx context.Context, request hooks.LLMRequest) (hook
 	}
 }
 
-func lifecycleShellCommand(request hooks.ShellRequest) (string, error) {
-	executable := strings.TrimSpace(request.Executable)
-	if executable == "" {
-		return "", errors.New("hook shell executable is required")
+type lifecycleHookShellInput struct {
+	Executable          string   `json:"executable"`
+	Args                []string `json:"args,omitempty"`
+	CWD                 string   `json:"cwd,omitempty"`
+	Environment         []string `json:"environment,omitempty"`
+	SecretEnvironment   []string `json:"secretEnvironment,omitempty"`
+	StdinBytes          int      `json:"stdinBytes"`
+	StdinSHA256         string   `json:"stdinSha256"`
+	TimeoutMilliseconds int64    `json:"timeoutMilliseconds"`
+}
+
+type lifecycleHookHTTPInput struct {
+	URL                 string   `json:"url"`
+	Method              string   `json:"method"`
+	Headers             []string `json:"headers,omitempty"`
+	SecretHeaders       []string `json:"secretHeaders,omitempty"`
+	BodyBytes           int      `json:"bodyBytes"`
+	BodySHA256          string   `json:"bodySha256"`
+	TimeoutMilliseconds int64    `json:"timeoutMilliseconds"`
+}
+
+type lifecycleHookShellTool struct {
+	request hooks.ShellRequest
+}
+
+func (*lifecycleHookShellTool) Name() string { return lifecycleHookShellToolName }
+
+func (*lifecycleHookShellTool) SessionApprovalAllowed() bool { return false }
+
+func (*lifecycleHookShellTool) Description() string {
+	return "Execute one configured lifecycle hook process through the audited approval gateway."
+}
+func (*lifecycleHookShellTool) Schema() any                     { return lifecycleHookShellInput{} }
+func (*lifecycleHookShellTool) Risk(json.RawMessage) tools.Risk { return tools.RiskExec }
+
+func (tool *lifecycleHookShellTool) Execute(ctx context.Context, call tools.Call, env tools.Env) (tools.Result, error) {
+	var input lifecycleHookShellInput
+	if err := tools.StrictDecode(call.Input, &input); err != nil {
+		return tools.Result{Output: "invalid lifecycle shell approval input", IsError: true}, nil
 	}
-	keys := make([]string, 0, len(request.Env))
-	for key := range request.Env {
+	if !lifecycleApprovalInputMatches(input, lifecycleShellApprovalInput(tool.request)) {
+		return tools.Result{Output: "lifecycle shell approval input changed before execution", IsError: true}, nil
+	}
+	timeout := lifecycleHookTimeout(tool.request.Timeout)
+	runContext, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	cwd, err := lifecycleHookWorkingDirectory(env.CWD, tool.request.CWD)
+	if err != nil {
+		return tools.Result{Output: hooks.RedactText(err.Error()), IsError: true}, nil
+	}
+	environment, secretValues, err := lifecycleHookEnvironment(runContext, tool.request.Env, tool.request.SecretRefs)
+	if err != nil {
+		return tools.Result{Output: hooks.RedactText(err.Error()), IsError: true}, nil
+	}
+	command := exec.Command(strings.TrimSpace(tool.request.Executable), append([]string(nil), tool.request.Args...)...)
+	command.Dir = cwd
+	command.Env = environment
+	command.Stdin = bytes.NewReader(tool.request.Stdin)
+	collector := &lifecycleHookOutputBuffer{maximum: lifecycleHookOutputMaxBytes}
+	command.Stdout = collector
+	command.Stderr = collector
+	group := process.Prepare(command)
+	if err := command.Start(); err != nil {
+		_ = group.Close()
+		message := redactLifecycleSecretValues(err.Error(), secretValues)
+		return tools.Result{Output: message, IsError: true, Meta: map[string]any{"truncated": false}}, nil
+	}
+	if err := group.Started(command); err != nil {
+		_ = command.Process.Kill()
+		_ = group.Close()
+		message := redactLifecycleSecretValues(err.Error(), secretValues)
+		return tools.Result{Output: message, IsError: true, Meta: map[string]any{"truncated": false}}, nil
+	}
+	done := make(chan error, 1)
+	go func() { done <- command.Wait() }()
+	var waitErr error
+	select {
+	case waitErr = <-done:
+		_ = group.Close()
+	case <-runContext.Done():
+		waitErr = group.Terminate(command, done, 2*time.Second)
+		_ = group.Close()
+	}
+	output, truncated := collector.result()
+	output = redactLifecycleSecretValues(output, secretValues)
+	outputSuppressed := len(tool.request.SecretRefs) > 0
+	if outputSuppressed {
+		output = "lifecycle hook process output suppressed because secret references were configured"
+	}
+	result := tools.Result{Output: output, Meta: map[string]any{"truncated": truncated, "outputSuppressed": outputSuppressed}}
+	if runContext.Err() != nil {
+		result.IsError = true
+		message := "lifecycle hook process was cancelled"
+		if errors.Is(runContext.Err(), context.DeadlineExceeded) {
+			message = "lifecycle hook process timed out"
+		}
+		if result.Output != "" {
+			result.Output += "\n"
+		}
+		result.Output += message
+		return result, nil
+	}
+	if waitErr != nil {
+		result.IsError = true
+		if strings.TrimSpace(result.Output) == "" {
+			result.Output = redactLifecycleSecretValues(waitErr.Error(), secretValues)
+		}
+	}
+	return result, nil
+}
+
+type lifecycleHookHTTPTool struct {
+	request hooks.HTTPRequest
+}
+
+func (*lifecycleHookHTTPTool) Name() string { return lifecycleHookHTTPToolName }
+
+func (*lifecycleHookHTTPTool) SessionApprovalAllowed() bool { return false }
+
+func (*lifecycleHookHTTPTool) Description() string {
+	return "Send one configured lifecycle webhook through the audited approval and outbound-network gateway."
+}
+func (*lifecycleHookHTTPTool) Schema() any                     { return lifecycleHookHTTPInput{} }
+func (*lifecycleHookHTTPTool) Risk(json.RawMessage) tools.Risk { return tools.RiskExec }
+
+func (tool *lifecycleHookHTTPTool) Execute(ctx context.Context, call tools.Call, _ tools.Env) (tools.Result, error) {
+	var input lifecycleHookHTTPInput
+	if err := tools.StrictDecode(call.Input, &input); err != nil {
+		return tools.Result{Output: "invalid lifecycle HTTP approval input", IsError: true}, nil
+	}
+	if !lifecycleApprovalInputMatches(input, lifecycleHTTPApprovalInput(tool.request)) {
+		return tools.Result{Output: "lifecycle HTTP approval input changed before execution", IsError: true}, nil
+	}
+	timeout := lifecycleHookTimeout(tool.request.Timeout)
+	requestContext, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	target, err := url.Parse(strings.TrimSpace(tool.request.URL))
+	if err != nil {
+		return tools.Result{Output: "lifecycle HTTP destination is invalid", IsError: true}, nil
+	}
+	if err := network.ValidateURL(requestContext, network.PolicyProviderDirect, target); err != nil {
+		return tools.Result{Output: "lifecycle HTTP destination was denied by network policy", IsError: true}, nil
+	}
+	headers, secretValues, err := lifecycleHookHTTPHeaders(requestContext, tool.request.Headers, tool.request.SecretRefs)
+	if err != nil {
+		return tools.Result{Output: hooks.RedactText(err.Error()), IsError: true}, nil
+	}
+	request, err := http.NewRequestWithContext(requestContext, strings.ToUpper(strings.TrimSpace(tool.request.Method)), target.String(), bytes.NewReader(tool.request.Body))
+	if err != nil {
+		return tools.Result{Output: "lifecycle HTTP request could not be constructed", IsError: true}, nil
+	}
+	request.Header = headers
+	if strings.TrimSpace(request.Header.Get("Content-Type")) == "" {
+		request.Header.Set("Content-Type", "application/json")
+	}
+	if strings.TrimSpace(request.Header.Get("User-Agent")) == "" {
+		request.Header.Set("User-Agent", "Autoto-Lifecycle-Hook/1")
+	}
+	response, err := network.NewProviderHTTPClient(timeout).Do(request)
+	if err != nil {
+		message := "lifecycle HTTP request failed"
+		if errors.Is(requestContext.Err(), context.DeadlineExceeded) {
+			message = "lifecycle HTTP request timed out"
+		} else if errors.Is(requestContext.Err(), context.Canceled) {
+			message = "lifecycle HTTP request was cancelled"
+		}
+		return tools.Result{Output: redactLifecycleSecretValues(message, secretValues), IsError: true}, nil
+	}
+	defer response.Body.Close()
+	body, err := io.ReadAll(io.LimitReader(response.Body, lifecycleHookHTTPResponseBytes+1))
+	if err != nil {
+		return tools.Result{Output: "lifecycle HTTP response could not be read", IsError: true, Meta: map[string]any{"status": response.StatusCode}}, nil
+	}
+	responseBytes := len(body)
+	truncated := responseBytes > lifecycleHookHTTPResponseBytes
+	if truncated {
+		body = body[:lifecycleHookHTTPResponseBytes]
+	}
+	outputSuppressed := len(tool.request.SecretRefs) > 0
+	metadata := map[string]any{"status": response.StatusCode, "truncated": truncated, "responseBytes": responseBytes, "outputSuppressed": outputSuppressed}
+	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
+		return tools.Result{Output: fmt.Sprintf("lifecycle HTTP request returned status %d", response.StatusCode), IsError: true, Meta: metadata}, nil
+	}
+	output := redactLifecycleSecretValues(strings.ToValidUTF8(string(body), "\uFFFD"), secretValues)
+	if outputSuppressed {
+		output = fmt.Sprintf(`{"status":%d,"responseBytes":%d,"bodySuppressed":true}`, response.StatusCode, responseBytes)
+	} else if strings.TrimSpace(output) == "" {
+		output = fmt.Sprintf(`{"status":%d}`, response.StatusCode)
+	}
+	return tools.Result{Output: output, Meta: metadata}, nil
+}
+
+func lifecycleShellApprovalInput(request hooks.ShellRequest) lifecycleHookShellInput {
+	return lifecycleHookShellInput{
+		Executable:          strings.TrimSpace(request.Executable),
+		Args:                append([]string(nil), request.Args...),
+		CWD:                 strings.TrimSpace(request.CWD),
+		Environment:         lifecycleStringMapKeys(request.Env),
+		SecretEnvironment:   lifecycleStringMapKeys(request.SecretRefs),
+		StdinBytes:          len(request.Stdin),
+		StdinSHA256:         lifecyclePayloadDigest(request.Stdin),
+		TimeoutMilliseconds: lifecycleHookTimeout(request.Timeout).Milliseconds(),
+	}
+}
+
+func lifecycleHTTPApprovalInput(request hooks.HTTPRequest) lifecycleHookHTTPInput {
+	return lifecycleHookHTTPInput{
+		URL:                 strings.TrimSpace(request.URL),
+		Method:              strings.ToUpper(strings.TrimSpace(request.Method)),
+		Headers:             lifecycleStringMapKeys(request.Headers),
+		SecretHeaders:       lifecycleStringMapKeys(request.SecretRefs),
+		BodyBytes:           len(request.Body),
+		BodySHA256:          lifecyclePayloadDigest(request.Body),
+		TimeoutMilliseconds: lifecycleHookTimeout(request.Timeout).Milliseconds(),
+	}
+}
+
+func lifecycleApprovalInputMatches(actual, expected any) bool {
+	actualJSON, actualErr := json.Marshal(actual)
+	expectedJSON, expectedErr := json.Marshal(expected)
+	return actualErr == nil && expectedErr == nil && bytes.Equal(actualJSON, expectedJSON)
+}
+
+func lifecyclePayloadDigest(payload []byte) string {
+	digest := sha256.Sum256(payload)
+	return hex.EncodeToString(digest[:])
+}
+
+func lifecycleHookTimeout(configured time.Duration) time.Duration {
+	if configured <= 0 {
+		return time.Duration(hooks.DefaultTimeoutSeconds) * time.Second
+	}
+	return configured
+}
+
+func lifecycleStringMapKeys(values map[string]string) []string {
+	if len(values) == 0 {
+		return nil
+	}
+	keys := make([]string, 0, len(values))
+	for key := range values {
 		keys = append(keys, key)
 	}
 	sort.Strings(keys)
-	if runtime.GOOS == "windows" {
-		var script strings.Builder
-		script.WriteString("$ErrorActionPreference='Stop';")
-		if strings.TrimSpace(request.CWD) != "" {
-			script.WriteString("Set-Location -LiteralPath ")
-			script.WriteString(powerShellQuote(request.CWD))
-			script.WriteByte(';')
-		}
-		for _, key := range keys {
-			script.WriteString("$env:")
-			script.WriteString(key)
-			script.WriteByte('=')
-			script.WriteString(powerShellQuote(request.Env[key]))
-			script.WriteByte(';')
-		}
-		script.WriteString("$eventJson=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('")
-		script.WriteString(base64.StdEncoding.EncodeToString(request.Stdin))
-		script.WriteString("'));$eventJson | & ")
-		script.WriteString(powerShellQuote(executable))
-		for _, arg := range request.Args {
-			script.WriteByte(' ')
-			script.WriteString(powerShellQuote(arg))
-		}
-		script.WriteString(";if($LASTEXITCODE -ne $null -and $LASTEXITCODE -ne 0){exit $LASTEXITCODE}")
-		encoded := base64.StdEncoding.EncodeToString(utf16LEBytes(script.String()))
-		return "powershell -NoProfile -NonInteractive -EncodedCommand " + encoded, nil
+	return keys
+}
+
+func cloneLifecycleShellRequest(request hooks.ShellRequest) hooks.ShellRequest {
+	request.Args = append([]string(nil), request.Args...)
+	request.Env = cloneLifecycleStringMap(request.Env)
+	request.SecretRefs = cloneLifecycleStringMap(request.SecretRefs)
+	request.Stdin = append([]byte(nil), request.Stdin...)
+	return request
+}
+
+func cloneLifecycleHTTPRequest(request hooks.HTTPRequest) hooks.HTTPRequest {
+	request.Headers = cloneLifecycleStringMap(request.Headers)
+	request.SecretRefs = cloneLifecycleStringMap(request.SecretRefs)
+	request.Body = append([]byte(nil), request.Body...)
+	return request
+}
+
+func cloneLifecycleStringMap(values map[string]string) map[string]string {
+	if values == nil {
+		return nil
 	}
-	var command strings.Builder
-	if strings.TrimSpace(request.CWD) != "" {
-		command.WriteString("cd -- ")
-		command.WriteString(posixShellQuote(request.CWD))
-		command.WriteString(" && ")
+	clone := make(map[string]string, len(values))
+	for key, value := range values {
+		clone[key] = value
 	}
-	command.WriteString("printf '%s' ")
-	command.WriteString(posixShellQuote(string(request.Stdin)))
-	command.WriteString(" | env")
+	return clone
+}
+
+func lifecycleHookEnvironment(ctx context.Context, configured, refs map[string]string) ([]string, []string, error) {
+	values := make(map[string]string)
+	for _, entry := range os.Environ() {
+		key, value, ok := strings.Cut(entry, "=")
+		if ok && lifecycleEssentialEnvironmentKey(key) {
+			values[lifecycleEnvironmentKey(key)] = value
+		}
+	}
+	for key, value := range configured {
+		values[lifecycleEnvironmentKey(key)] = value
+	}
+	secretValues := make([]string, 0, len(refs))
+	for _, key := range lifecycleStringMapKeys(refs) {
+		value, err := secrets.ResolveString(ctx, secrets.EnvResolver{}, refs[key])
+		if err != nil || value == "" {
+			if err == nil {
+				err = errors.New("configured secret is empty")
+			}
+			return nil, nil, fmt.Errorf("resolve lifecycle hook secret %q: %w", key, err)
+		}
+		values[lifecycleEnvironmentKey(key)] = value
+		secretValues = append(secretValues, value)
+	}
+	keys := make([]string, 0, len(values))
+	for key := range values {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	environment := make([]string, 0, len(keys))
 	for _, key := range keys {
-		command.WriteByte(' ')
-		command.WriteString(posixShellQuote(key + "=" + request.Env[key]))
+		environment = append(environment, key+"="+values[key])
 	}
-	command.WriteByte(' ')
-	command.WriteString(posixShellQuote(executable))
-	for _, arg := range request.Args {
-		command.WriteByte(' ')
-		command.WriteString(posixShellQuote(arg))
-	}
-	return command.String(), nil
+	return environment, secretValues, nil
 }
 
-func posixShellQuote(value string) string {
-	return "'" + strings.ReplaceAll(value, "'", "'\"'\"'") + "'"
-}
-
-func powerShellQuote(value string) string {
-	return "'" + strings.ReplaceAll(value, "'", "''") + "'"
-}
-
-func utf16LEBytes(value string) []byte {
-	units := utf16.Encode([]rune(value))
-	encoded := make([]byte, len(units)*2)
-	for index, unit := range units {
-		encoded[index*2] = byte(unit)
-		encoded[index*2+1] = byte(unit >> 8)
+func lifecycleHookHTTPHeaders(ctx context.Context, configured, refs map[string]string) (http.Header, []string, error) {
+	headers := make(http.Header, len(configured)+len(refs))
+	for key, value := range configured {
+		headers.Set(key, value)
 	}
-	return encoded
+	secretValues := make([]string, 0, len(refs))
+	for _, key := range lifecycleStringMapKeys(refs) {
+		value, err := secrets.ResolveString(ctx, secrets.EnvResolver{}, refs[key])
+		if err != nil || value == "" {
+			if err == nil {
+				err = errors.New("configured secret is empty")
+			}
+			return nil, nil, fmt.Errorf("resolve lifecycle hook secret header %q: %w", key, err)
+		}
+		headers.Set(key, value)
+		secretValues = append(secretValues, value)
+	}
+	return headers, secretValues, nil
+}
+
+func lifecycleEnvironmentKey(key string) string {
+	key = strings.TrimSpace(key)
+	if runtime.GOOS == "windows" {
+		return strings.ToUpper(key)
+	}
+	return key
+}
+
+func lifecycleEssentialEnvironmentKey(key string) bool {
+	upper := strings.ToUpper(strings.TrimSpace(key))
+	switch upper {
+	case "PATH", "PATHEXT", "SYSTEMROOT", "WINDIR", "COMSPEC", "HOME", "USERPROFILE", "TMPDIR", "TEMP", "TMP", "LANG", "LANGUAGE":
+		return true
+	default:
+		return strings.HasPrefix(upper, "LC_")
+	}
+}
+
+func lifecycleHookWorkingDirectory(root, relative string) (string, error) {
+	root = strings.TrimSpace(root)
+	if root == "" {
+		return "", errors.New("lifecycle hook workspace is unavailable")
+	}
+	absoluteRoot, err := filepath.Abs(root)
+	if err != nil {
+		return "", errors.New("lifecycle hook workspace is unavailable")
+	}
+	realRoot, err := filepath.EvalSymlinks(absoluteRoot)
+	if err != nil {
+		return "", errors.New("lifecycle hook workspace is unavailable")
+	}
+	realRoot, err = filepath.Abs(realRoot)
+	if err != nil {
+		return "", errors.New("lifecycle hook workspace is unavailable")
+	}
+	rootInfo, err := os.Stat(realRoot)
+	if err != nil || !rootInfo.IsDir() {
+		return "", errors.New("lifecycle hook workspace is unavailable")
+	}
+	relative = strings.TrimSpace(relative)
+	if relative == "" || filepath.Clean(filepath.FromSlash(relative)) == "." {
+		return realRoot, nil
+	}
+	normalized, err := workspacefs.NormalizePath(filepath.ToSlash(relative), true)
+	if err != nil {
+		return "", errors.New("lifecycle hook cwd is invalid")
+	}
+	candidate, err := filepath.EvalSymlinks(filepath.Join(realRoot, filepath.FromSlash(normalized)))
+	if err != nil {
+		return "", errors.New("lifecycle hook cwd is unavailable")
+	}
+	candidate, err = filepath.Abs(candidate)
+	if err != nil || !lifecyclePathWithin(realRoot, candidate) {
+		return "", errors.New("lifecycle hook cwd escapes the workspace")
+	}
+	info, err := os.Stat(candidate)
+	if err != nil || !info.IsDir() {
+		return "", errors.New("lifecycle hook cwd is not a directory")
+	}
+	return candidate, nil
+}
+
+func lifecyclePathWithin(root, candidate string) bool {
+	relative, err := filepath.Rel(filepath.Clean(root), filepath.Clean(candidate))
+	return err == nil && relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator)) && !filepath.IsAbs(relative)
+}
+
+type lifecycleHookOutputBuffer struct {
+	mu        sync.Mutex
+	buffer    bytes.Buffer
+	maximum   int
+	truncated bool
+}
+
+func (buffer *lifecycleHookOutputBuffer) Write(value []byte) (int, error) {
+	buffer.mu.Lock()
+	defer buffer.mu.Unlock()
+	length := len(value)
+	remaining := buffer.maximum - buffer.buffer.Len()
+	if remaining > 0 {
+		if len(value) > remaining {
+			value = value[:remaining]
+			buffer.truncated = true
+		}
+		_, _ = buffer.buffer.Write(value)
+	} else if length > 0 {
+		buffer.truncated = true
+	}
+	return length, nil
+}
+
+func (buffer *lifecycleHookOutputBuffer) result() (string, bool) {
+	buffer.mu.Lock()
+	defer buffer.mu.Unlock()
+	value := strings.ToValidUTF8(buffer.buffer.String(), "\uFFFD")
+	if buffer.truncated {
+		value += "\n...[truncated]"
+	}
+	return value, buffer.truncated
+}
+
+func redactLifecycleSecretValues(value string, secretValues []string) string {
+	values := append([]string(nil), secretValues...)
+	sort.Slice(values, func(left, right int) bool { return len(values[left]) > len(values[right]) })
+	for _, secretValue := range values {
+		if secretValue != "" {
+			value = strings.ReplaceAll(value, secretValue, "[REDACTED]")
+		}
+	}
+	return hooks.RedactText(value)
 }
 
 func marshalLifecycleValue(value any) json.RawMessage {
