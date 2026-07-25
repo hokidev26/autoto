@@ -161,6 +161,16 @@ body:is([data-background-mode="custom"][data-background-ready="true"], [data-bac
 }
 .session-sidebar-compact-icon,
 .session-sidebar-compact-title { display: none; }
+/* Outline glyph: it must stroke rather than fill, or it renders as a black blob. */
+.session-sidebar-compact-icon svg {
+  width: 100%;
+  height: 100%;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
 .session-sidebar-compact-title { min-width: 0; overflow: hidden; color: var(--ws-text, #20263a); font-size: 12px; font-weight: 780; text-overflow: ellipsis; white-space: nowrap; }
 @media (min-width: 768px) {
   .app-shell.session-sidebar-collapsed .session-sidebar-heading { display: flex; align-items: center; gap: 7px; }

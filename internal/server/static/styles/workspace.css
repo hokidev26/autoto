@@ -873,6 +873,17 @@ body.theme-light .slash-command-desc { color: #64748b; }
   pointer-events: none;
   z-index: 1;
 }
+/* The button holds an outline SVG, so it needs the stroke treatment at every
+   width. Without it the path falls back to fill:black and reads as a blob. */
+.composer-attach-btn svg {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
 .attachment-native-input {
   position: absolute;
   inset: 0;
