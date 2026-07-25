@@ -902,9 +902,11 @@ function renderModelPreview(provider, state = {}) {
   const hiddenCount = named.length - visible.length;
   const shown = visible.slice(0, 3);
   const moreVisible = visible.length - shown.length;
+  // The "+N more" line and the count badge share one row so the card spends a
+  // row on model names instead of on two separate summary lines.
   return `<div class="mp-provider-model-preview">
-    <div class="mp-provider-model-lines">${shown.map((name) => `<div class="mp-model-line" title="${escapeAttr(name)}">${escapeHtml(name)}</div>`).join("")}${moreVisible > 0 ? `<div class="mp-model-more">+${moreVisible} ${escapeHtml(ct("fields.moreModels"))}</div>` : ""}</div>
-    <div class="mp-provider-model-counts"><span class="mp-model-count-badge settings-badge">${escapeHtml(ct("fields.modelsBadge", { count: visible.length }))}</span>${hiddenCount > 0 ? `<span class="mp-model-hidden-badge settings-badge" title="${escapeAttr(ct("fields.hiddenCount", { count: hiddenCount }))}">+${hiddenCount}</span>` : ""}</div>
+    <div class="mp-provider-model-lines">${shown.map((name) => `<div class="mp-model-line" title="${escapeAttr(name)}">${escapeHtml(name)}</div>`).join("")}</div>
+    <div class="mp-provider-model-meta">${moreVisible > 0 ? `<div class="mp-model-more">+${moreVisible} ${escapeHtml(ct("fields.moreModels"))}</div>` : ""}<div class="mp-provider-model-counts"><span class="mp-model-count-badge settings-badge">${escapeHtml(ct("fields.modelsBadge", { count: visible.length }))}</span>${hiddenCount > 0 ? `<span class="mp-model-hidden-badge settings-badge" title="${escapeAttr(ct("fields.hiddenCount", { count: hiddenCount }))}">+${hiddenCount}</span>` : ""}</div></div>
   </div>`;
 }
 
