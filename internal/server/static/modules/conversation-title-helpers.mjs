@@ -54,11 +54,13 @@ export function createConversationTitleHelpers({
   }
 
   function conversationHeaderTitle() {
+    // A conversation with nothing in it yet has nothing to derive a title from,
+    // and the project path is not a useful heading, so it reads as new until the
+    // first message arrives.
     return state.agent?.title
       || state.navigationTransitionTitle
       || derivedConversationTitle()
-      || state.project?.name
-      || t("chat.noAgent");
+      || t("shell.newConversation");
   }
 
   function titleEditorElements(surface) {
@@ -75,7 +77,7 @@ export function createConversationTitleHelpers({
   }
 
   function titleForSurface(surface) {
-    if (surface === "workbench") return state.agent?.title || state.navigationTransitionTitle || derivedConversationTitle() || state.project?.name || t("workbench.title");
+    if (surface === "workbench") return state.agent?.title || state.navigationTransitionTitle || derivedConversationTitle() || t("workbench.title");
     return conversationHeaderTitle();
   }
 

@@ -46,14 +46,17 @@ test("an explicit agent title always wins over the derived one", () => {
   assert.equal(conversationHeaderTitle(), "我自己命名的");
 });
 
-test("the project name is used only when there is no user message to derive from", () => {
+test("a conversation with nothing to derive from reads as new, never as the path", () => {
   const base = { agent: {}, project: { name: "C:\\Users\\Ray\\Desktop\\ai測試" } };
-  assert.equal(helpersFor({ ...base, currentMessages: [] }).conversationHeaderTitle(), "C:\\Users\\Ray\\Desktop\\ai測試");
-  // Assistant-only and blank user messages are not usable titles.
-  assert.equal(
-    helpersFor({ ...base, currentMessages: [{ role: "assistant", content: "你好" }, { role: "user", content: "   " }] }).conversationHeaderTitle(),
-    "C:\\Users\\Ray\\Desktop\\ai測試",
-  );
+  const empty = helpersFor({ ...base, currentMessages: [] }).conversationHeaderTitle();
+  assert.doesNotMatch(empty, /Desktop/);
+  // Assistant-only and blank user messages are not usable titles either.
+  const unusable = helpersFor({
+    ...base,
+    currentMessages: [{ role: "assistant", content: "你好" }, { role: "user", content: "   " }],
+  }).conversationHeaderTitle();
+  assert.doesNotMatch(unusable, /Desktop/);
+  assert.equal(empty, unusable);
 });
 
 test("derived titles collapse whitespace, drop code fences, and are length capped", () => {
