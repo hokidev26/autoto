@@ -41,6 +41,7 @@ export function createSubscriptionAccountsController(ctx) {
     setProviderConsoleResult,
     loadModelCatalog,
     modelProvidersForUI,
+    providerDraftWithVisibility,
     copyText,
   } = ctx;
   const st = (key, params) => t(`modelProvider.subscription.common.${key}`, params);
@@ -447,7 +448,13 @@ export function createSubscriptionAccountsController(ctx) {
     const config = subscriptionProviderConfig(kind);
     if (!config) return "";
     const consoleState = providerConsoleState();
-    const draft = createProviderDraft(config.name, consoleState.subscriptionModelDraft?.[kind] || config);
+    // Hidden state comes from the shared visibility preference, which is what
+    // filters the composer's model picker. These pages have no draft/save cycle,
+    // so the panel always renders the live provider rather than an edit buffer.
+    const baseDraft = createProviderDraft(config.name, config);
+    const draft = typeof providerDraftWithVisibility === "function"
+      ? providerDraftWithVisibility(baseDraft, config.name)
+      : baseDraft;
     const modelBusy = Boolean(consoleState.busy?.[`models:${config.name}`]);
     const provider = spec.provider;
     const note = hasAccounts ? "" : `<p class="anthropic-secret-note">${escapeHtml(st("modelsNeedAccount"))}</p>`;

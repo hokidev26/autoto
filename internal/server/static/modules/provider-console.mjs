@@ -157,7 +157,7 @@ export function createModelProviderSettingsController({
     renderAnthropicConsolePage,
   } = anthropicAccounts;
 
-  const subscriptionAccounts = createSubscriptionAccountsController(ctx);
+  const subscriptionAccounts = createSubscriptionAccountsController({ ...ctx, providerDraftWithVisibility });
   const {
     loadSubscriptionAccounts,
     refreshSubscriptionAccounts,
@@ -1673,6 +1673,15 @@ export function createModelProviderSettingsController({
     }
     if (target.dataset.mpModelVisibility) {
       const name = String(target.dataset.mpModelVisibility || "").trim();
+      // The subscription account pages render the live provider, not an edit
+      // draft, so their eye toggles the shared visibility preference directly.
+      // That preference is what hides a model from the composer's picker, and it
+      // applies immediately instead of waiting for a save that page never does.
+      const subscriptionProviderName = subscriptionModelFormProvider(target);
+      if (subscriptionProviderName) {
+        setModelHidden(`${subscriptionProviderName}:${name}`, target.dataset.hidden !== "true");
+        return;
+      }
       const draft = { ...(consoleState.draft || {}) };
       const allowEmpty = providerCategory(draft) === "official";
       const result = setProviderModelHidden(draft.modelConfigs, name, target.dataset.hidden !== "true", draft.model, { allowEmpty });
@@ -1687,6 +1696,11 @@ export function createModelProviderSettingsController({
       return;
     }
     if (target.dataset.mpModelVisibilityAll !== undefined) {
+      const subscriptionAllProvider = subscriptionModelFormProvider(target);
+      if (subscriptionAllProvider) {
+        setProviderModelsHidden(subscriptionAllProvider, target.dataset.allVisible === "true");
+        return;
+      }
       const draft = { ...(consoleState.draft || {}) };
       const allowEmpty = providerCategory(draft) === "official";
       const result = setProviderModelHiddenAll(draft.modelConfigs, target.dataset.allVisible === "true", draft.model, { allowEmpty });
@@ -2081,6 +2095,28 @@ export function createModelProviderSettingsController({
     const hiddenModels = { ...(prefs.hiddenModels || {}) };
     if (hidden) hiddenModels[value] = true;
     else delete hiddenModels[value];
+    saveModelVisibilityPreferences({ ...prefs, hiddenModels });
+    renderModelOptions();
+    refreshActiveSettingsPanel?.();
+  }
+
+  // Resolves the provider a subscription account page's model panel belongs to,
+  // or "" when the click came from anywhere else.
+  function subscriptionModelFormProvider(target) {
+    const form = target?.closest?.("[data-subscription-provider-config]");
+    return form ? String(form.elements?.name?.value || "").trim() : "";
+  }
+
+  function setProviderModelsHidden(providerName, hidden) {
+    const provider = providerByName(providerName);
+    if (!provider) return;
+    const prefs = modelVisibilityPreferences();
+    const hiddenModels = { ...(prefs.hiddenModels || {}) };
+    providerModelList(provider).forEach((model) => {
+      const key = modelOptionValue(provider, model);
+      if (hidden) hiddenModels[key] = true;
+      else delete hiddenModels[key];
+    });
     saveModelVisibilityPreferences({ ...prefs, hiddenModels });
     renderModelOptions();
     refreshActiveSettingsPanel?.();

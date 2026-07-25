@@ -310,3 +310,67 @@ test("normalizeSubscriptionLoginStatus keeps device and browser fields without t
   assert.equal(status.verificationUri, "https://auth.kimi.com/device");
   assert.equal(Object.hasOwn(status, "access_token"), false);
 });
+
+test("the models panel eye hides a model from the composer picker, not via a draft", () => {
+  // Reproduces the reported symptom: clicking the eye reported "keep at least
+  // one visible model" and nothing was hidden, because the handler read an
+  // unrelated console draft instead of the visibility preference.
+  let prefs = { hiddenModels: {}, showUnconfiguredProviders: false };
+  let panelRefreshes = 0;
+  const { state, controller } = createController({
+    controller: {
+      getModelVisibilityPreference: () => prefs,
+      setModelVisibilityPreference: (next) => { prefs = next; },
+      refreshActiveSettingsPanel: () => { panelRefreshes += 1; },
+    },
+  });
+  state.settings.providers = [{
+    name: "grok", type: "grok", origin: "builtin", enabled: true, configured: true,
+    baseUrl: "https://cli-chat-proxy.grok.com/v1", model: "grok-4.5",
+    models: [{ name: "grok-4.5" }, { name: "grok-3-mini" }],
+  }];
+  state.subscriptionAccounts = { gemini: [], grok: [{ id: "grok-acct" }], kimi: [] };
+  state.providerConsole.view = "grok";
+
+  // The click handler is bound to #settingsContentBody, so capture it there.
+  const listeners = {};
+  const root = {
+    addEventListener: (type, handler) => { listeners[type] = handler; },
+    removeEventListener: () => {},
+  };
+  const previousDocument = globalThis.document;
+  globalThis.document = { getElementById: (id) => (id === "settingsContentBody" ? root : null) };
+  try {
+    controller.bindProviderSettingsActions();
+    assert.ok(listeners.click, "the console must bind a click handler");
+
+    // The handler resolves the button via event.target.closest(...), so the fake
+    // element has to answer both that lookup and the subscription-form lookup.
+    const form = { elements: { name: { value: "grok" } } };
+    const target = {
+      dataset: { mpModelVisibility: "grok-4.5", hidden: "false" },
+      closest: (selector) => {
+        if (selector === "[data-subscription-provider-config]") return form;
+        if (selector.includes("button")) return target;
+        return null;
+      },
+    };
+    const click = () => listeners.click({ target, preventDefault() {}, stopPropagation() {} });
+    click();
+
+    assert.equal(prefs.hiddenModels["grok:grok-4.5"], true, "the model should be hidden from the picker");
+    assert.ok(panelRefreshes > 0, "the settings panel must re-render so the row greys out");
+
+    // Hiding the last visible model of an official provider is allowed.
+    target.dataset.mpModelVisibility = "grok-3-mini";
+    click();
+    assert.equal(prefs.hiddenModels["grok:grok-3-mini"], true);
+
+    // Clicking again unhides it.
+    target.dataset.hidden = "true";
+    click();
+    assert.equal(prefs.hiddenModels["grok:grok-3-mini"], undefined);
+  } finally {
+    globalThis.document = previousDocument;
+  }
+});
