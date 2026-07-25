@@ -3197,6 +3197,13 @@ body.white-shell.theme-light .messages [class~="plan-card-actions"] > button {
     line-height: 1.45;
   }
 
+  /* The rule above wins on id specificity over every .message-input:focus rule,
+     which left the desktop composer with no focus indication at all. Restated
+     here at matching specificity so focus is visible. */
+  body.white-shell.theme-light textarea#messageText:focus {
+    border-color: var(--ws-primary, #4f6ef7);
+  }
+
   body.white-shell.theme-light #sendMessageBtn {
     position: static;
     width: 60px;
@@ -4493,6 +4500,13 @@ body.white-shell.theme-light .toolbar-lightning-btn[aria-busy="true"] {
   body.white-shell.theme-light [class~="message-input-frame"] {
     min-height: 44px;
     align-items: center;
+  }
+
+  /* The frame is the only surface with a border at this width, so it also owns
+     the focus indication: grey at rest, accent while typing. Without this the
+     composer has no visible focus state at all. */
+  body.white-shell.theme-light [class~="message-input-frame"]:focus-within {
+    border-color: var(--ws-primary, #4f6ef7);
   }
 
   /* Transparent so the surrounding frame is the single visible input outline.
