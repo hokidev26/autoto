@@ -3,6 +3,9 @@ import { confirm as platformConfirm } from "./platform.mjs";
 import { currentUILocale, t } from "./i18n.mjs?v=provider-subscription-accounts-1";
 import { remoteAccessContext } from "./remote-access-capabilities.mjs";
 import {
+  createProviderDraft,
+  renderProviderModelEditor,
+  subscriptionProviderKind,
   subscriptionProviderKinds,
   subscriptionProviderSpec,
 } from "./model-provider-components.mjs?v=provider-subscription-accounts-1";
@@ -37,6 +40,7 @@ export function createSubscriptionAccountsController(ctx) {
     providerConsoleState,
     setProviderConsoleResult,
     loadModelCatalog,
+    modelProvidersForUI,
     copyText,
   } = ctx;
   const st = (key, params) => t(`modelProvider.subscription.common.${key}`, params);
@@ -423,7 +427,38 @@ export function createSubscriptionAccountsController(ctx) {
         <div class="codex-console-section-head settings-card-header"><div><h2 id="subscription-${escapeAttr(provider)}-accounts-title" class="settings-card-title">${escapeHtml(pt(provider, "accountsTitle"))}</h2><p class="settings-card-description" data-settings-help-copy>${escapeHtml(pt(provider, "accountsDescription"))}</p></div><span class="settings-badge">${escapeHtml(st("accountCount", { count: accounts.length }))}</span></div>
         ${accountAlert}${accountContent}
       </section>
+      ${renderSubscriptionModelPanel(spec, accounts.length > 0)}
     </div>`;
+  }
+
+  // The configured provider instance for a subscription kind, found by type
+  // rather than by name: the user may have saved it under any name (for example
+  // "gemini-oauth") and it is still the same platform.
+  function subscriptionProviderConfig(kind) {
+    const providers = typeof modelProvidersForUI === "function" ? modelProvidersForUI() : [];
+    return (Array.isArray(providers) ? providers : []).find((item) => subscriptionProviderKind(item) === kind) || null;
+  }
+
+  // Lets the user see which models an account can actually use, and re-fetch the
+  // list from upstream after signing in. The form wrapper is what the console's
+  // generic data-mp-fetch-models handler looks for.
+  function renderSubscriptionModelPanel(spec, hasAccounts) {
+    const kind = spec.provider;
+    const config = subscriptionProviderConfig(kind);
+    if (!config) return "";
+    const consoleState = providerConsoleState();
+    const draft = createProviderDraft(config.name, consoleState.subscriptionModelDraft?.[kind] || config);
+    const modelBusy = Boolean(consoleState.busy?.[`models:${config.name}`]);
+    const provider = spec.provider;
+    const note = hasAccounts ? "" : `<p class="anthropic-secret-note">${escapeHtml(st("modelsNeedAccount"))}</p>`;
+    return `<section class="subscription-model-panel settings-card" aria-labelledby="subscription-${escapeAttr(provider)}-models-title">
+      <div class="codex-console-section-head settings-card-header"><div><h2 id="subscription-${escapeAttr(provider)}-models-title" class="settings-card-title">${escapeHtml(st("modelsTitle"))}</h2><p class="settings-card-description" data-settings-help-copy>${escapeHtml(st("modelsDescription"))}</p></div></div>
+      <form class="subscription-model-form settings-card-content" data-mp-provider-form data-subscription-provider-config="${escapeAttr(provider)}">
+        <input type="hidden" name="name" value="${escapeAttr(config.name)}"><input type="hidden" name="type" value="${escapeAttr(config.type || kind)}"><input type="hidden" name="baseUrl" value="${escapeAttr(config.baseUrl || "")}"><input type="hidden" name="apiKey" value=""><input type="checkbox" name="apiKeyOptional" checked hidden>
+        ${note}
+        <div class="subscription-model-manager">${renderProviderModelEditor(draft, modelBusy, true)}</div>
+      </form>
+    </section>`;
   }
 
   return {

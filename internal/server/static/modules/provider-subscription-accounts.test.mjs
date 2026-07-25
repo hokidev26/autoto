@@ -195,6 +195,43 @@ test("subscription console renders three independent pages without a switcher or
   }
 });
 
+test("subscription page exposes an available-models panel wired for re-fetching", () => {
+  const { state, controller } = createController();
+  // The provider is saved under a non-default name, as a migrated install has it.
+  state.settings.providers = [{
+    name: "gemini-oauth",
+    type: "gemini",
+    origin: "custom",
+    enabled: true,
+    configured: true,
+    baseUrl: "https://cloudcode-pa.googleapis.com",
+    model: "gemini-3-flash",
+    models: [{ name: "gemini-3-flash" }, { name: "claude-sonnet-4-6" }],
+  }];
+  state.subscriptionAccounts = { gemini: [{ id: "gemini-acct" }], grok: [], kimi: [] };
+  state.providerConsole.view = "gemini";
+
+  const html = controller.renderProviderSettingsContent();
+  assert.match(html, /subscription-model-panel/);
+  // The generic console handler keys off this form wrapper to run discovery.
+  assert.match(html, /data-mp-provider-form/);
+  assert.match(html, /data-mp-fetch-models/);
+  // Discovery must target the provider's real configured name, not the kind.
+  assert.match(html, /name="name" value="gemini-oauth"/);
+  assert.match(html, /name="type" value="gemini"/);
+  // The built-in catalog is listed so the user can see what is usable.
+  assert.match(html, /gemini-3-flash/);
+});
+
+test("subscription models panel is omitted when the provider is not configured at all", () => {
+  const { state, controller } = createController();
+  state.settings.providers = [];
+  state.subscriptionAccounts = { gemini: [], grok: [], kimi: [] };
+  state.providerConsole.view = "gemini";
+  const html = controller.renderProviderSettingsContent();
+  assert.doesNotMatch(html, /subscription-model-panel/);
+});
+
 test("three official subscription cards each open their own dedicated page", () => {
   const { state, controller } = createController();
   state.settings.providers = [

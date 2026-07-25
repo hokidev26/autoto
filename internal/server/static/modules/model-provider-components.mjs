@@ -333,8 +333,8 @@ export const subscriptionProviderSpecs = Object.freeze({
 export const subscriptionProviderKinds = Object.freeze(Object.keys(subscriptionProviderSpecs));
 
 // subscriptionProviderKind identifies a native subscription provider strictly by
-// its exact type. gemini-interactions and custom-origin providers must never be
-// treated as an official Gemini/Grok/Kimi account entry.
+// its exact type. gemini-interactions, which is the API-key provider, must never
+// be treated as an official Antigravity/Grok/Kimi account entry.
 export function subscriptionProviderKind(provider = {}) {
   // Keyed on type alone, deliberately ignoring the configured name and origin.
   // These types cannot be pointed anywhere but their own pinned production
