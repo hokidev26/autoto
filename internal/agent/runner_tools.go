@@ -33,6 +33,7 @@ type pendingApproval struct {
 	Reason               string
 	Warning              string
 	GrantKey             string
+	AllowSession         bool
 	PermissionGeneration int64
 	PolicyGeneration     int64
 	ExpiresAt            time.Time
@@ -53,6 +54,15 @@ type sessionGrant struct {
 	PolicyGeneration     int64
 }
 
+type sessionApprovalTool interface {
+	SessionApprovalAllowed() bool
+}
+
+func toolAllowsSessionApproval(tool tools.Tool) bool {
+	policy, ok := tool.(sessionApprovalTool)
+	return !ok || policy.SessionApprovalAllowed()
+}
+
 func (r *Runner) ApproveToolCall(ctx context.Context, agentID, toolUseID string, decision ToolApprovalDecision) (bool, error) {
 	generations, err := r.store.GetPermissionGenerations(ctx, agentID)
 	if err != nil {
@@ -68,6 +78,9 @@ func (r *Runner) ApproveToolCall(ctx context.Context, agentID, toolUseID string,
 	r.approvalMu.Unlock()
 	if approval == nil {
 		return false, nil
+	}
+	if decision.Decision == "allow_session" && !approval.AllowSession {
+		return false, errors.New("session approval is unavailable for this tool; use allow_once")
 	}
 	if decision.PermissionGeneration != 0 && decision.PermissionGeneration != approval.PermissionGeneration {
 		return false, fmt.Errorf("%w: pending approval permission generation changed", db.ErrConflict)
@@ -283,6 +296,7 @@ func (r *Runner) executeToolForLoop(ctx context.Context, agentID, runID string, 
 		return r.rejectInvalidToolInput(ctx, agentID, runID, messageID, call, executionDeviceID, err), nil
 	}
 	risk := tool.Risk(call.Input)
+	allowSessionApproval := toolAllowsSessionApproval(tool)
 	if result, denied := planToolDeniedResult(policy, call, risk); denied {
 		source, scope := decisionSourcePlanMode, "plan"
 		if policy.IsConversation() {
@@ -303,7 +317,7 @@ func (r *Runner) executeToolForLoop(ctx context.Context, agentID, runID string, 
 		r.publish(Event{Type: "tool.finished", AgentID: agentID, Data: toolFinishedEventDataWithResolution(call, risk, executionDeviceID, runID, result, "denied", 0, map[string]any{"warning": warning}, resolution)})
 		return result, nil
 	}
-	permission := r.resolveToolPermission(ctx, policy.AgentID, policy.PermissionMode, call.Name, risk, call.Input)
+	permission := r.resolveToolPermissionWithSession(ctx, policy.AgentID, policy.PermissionMode, call.Name, risk, call.Input, allowSessionApproval)
 	if permission.Decision == toolPermissionAllow {
 		return r.executeApprovedTool(ctx, agent, runID, call, tool, risk, messageID, false, permission)
 	}
@@ -317,7 +331,7 @@ func (r *Runner) executeToolForLoop(ctx context.Context, agentID, runID string, 
 		r.publish(Event{Type: "tool.finished", AgentID: agentID, Data: toolFinishedEventDataWithResolution(call, risk, executionDeviceID, runID, result, "denied", 0, nil, permission)})
 		return result, nil
 	}
-	decision, err := r.waitForToolApproval(ctx, agent, runID, call, risk, messageID, permission)
+	decision, err := r.waitForToolApproval(ctx, agent, runID, call, risk, messageID, permission, allowSessionApproval)
 	if err != nil {
 		return tools.Result{}, err
 	}
@@ -578,7 +592,7 @@ func (r *Runner) executeApprovedTool(ctx context.Context, agent db.Agent, runID 
 	return result, err
 }
 
-func (r *Runner) waitForToolApproval(ctx context.Context, agent db.Agent, runID string, call tools.Call, risk tools.Risk, messageID string, resolution toolPermissionResolution) (ToolApprovalDecision, error) {
+func (r *Runner) waitForToolApproval(ctx context.Context, agent db.Agent, runID string, call tools.Call, risk tools.Risk, messageID string, resolution toolPermissionResolution, allowSession bool) (ToolApprovalDecision, error) {
 	command := toolCommand(call.Name, call.Input)
 	reason := resolution.Reason
 	warning := resolution.Warning
@@ -608,6 +622,7 @@ func (r *Runner) waitForToolApproval(ctx context.Context, agent db.Agent, runID 
 		Reason:               reason,
 		Warning:              warning,
 		GrantKey:             sessionGrantKey(call.Name, call.Input),
+		AllowSession:         allowSession,
 		PermissionGeneration: generations.Permission,
 		PolicyGeneration:     generations.Policy,
 		ExpiresAt:            time.Now().Add(toolApprovalTimeout),

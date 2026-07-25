@@ -605,6 +605,16 @@ func filterToolSnapshotByNames(snapshot runToolSnapshot, allowed []string) runTo
 	return runToolSnapshot{tools: byName, specs: specs}
 }
 
+func toolNamesIncludeExecCapability(names []string) bool {
+	for _, name := range names {
+		risk := conservativeToolRisk(strings.TrimSpace(name))
+		if risk == tools.RiskExec || risk == tools.RiskDanger {
+			return true
+		}
+	}
+	return false
+}
+
 func conservativeToolRisk(name string) tools.Risk {
 	switch name {
 	case "Read", "Glob", "Grep", "WebFetch", "WebSearch", "ContextAsk", "AskUserQuestion", "StartPipeline", "EndPipeline", "MCPListTools":

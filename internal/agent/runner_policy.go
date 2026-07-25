@@ -27,6 +27,10 @@ const (
 )
 
 func (r *Runner) resolveToolPermission(ctx context.Context, agentID, mode, toolName string, risk tools.Risk, input json.RawMessage) toolPermissionResolution {
+	return r.resolveToolPermissionWithSession(ctx, agentID, mode, toolName, risk, input, true)
+}
+
+func (r *Runner) resolveToolPermissionWithSession(ctx context.Context, agentID, mode, toolName string, risk tools.Risk, input json.RawMessage, allowSession bool) toolPermissionResolution {
 	if risk == tools.RiskDanger {
 		warning := toolRiskWarning(toolName, input)
 		slog.Info("tool permission decision", "agentId", agentID, "mode", mode, "toolName", toolName, "risk", risk, "decision", toolPermissionDeny, "source", decisionSourceHardDangerBlock)
@@ -55,7 +59,7 @@ func (r *Runner) resolveToolPermission(ctx context.Context, agentID, mode, toolN
 			return toolPermissionResolution{Decision: decision, Reason: reason, Warning: defaultApprovalWarning(toolName, risk, input), Source: decisionSourceRule, RuleID: rule.ID}
 		}
 	}
-	if r.hasSessionGrant(ctx, agentID, sessionGrantKey(toolName, input)) {
+	if allowSession && r.hasSessionGrant(ctx, agentID, sessionGrantKey(toolName, input)) {
 		slog.Info("tool permission decision", "agentId", agentID, "mode", mode, "toolName", toolName, "risk", risk, "decision", toolPermissionAllow, "source", decisionSourceSessionApproval)
 		return toolPermissionResolution{Decision: toolPermissionAllow, Reason: "allowed by session approval", Source: decisionSourceSessionApproval, Scope: "session"}
 	}
@@ -68,13 +72,13 @@ func (r *Runner) resolveToolPermission(ctx context.Context, agentID, mode, toolN
 		}
 		prefs = loaded
 	}
-	resolution := r.defaultToolPermission(ctx, agentID, mode, toolName, risk, input, prefs)
+	resolution := r.defaultToolPermission(ctx, agentID, mode, toolName, risk, input, prefs, allowSession)
 	resolution.Source = decisionSourceDefaultPolicy
 	slog.Info("tool permission decision", "agentId", agentID, "mode", mode, "toolName", toolName, "risk", risk, "decision", resolution.Decision, "source", resolution.Source)
 	return resolution
 }
 
-func (r *Runner) defaultToolPermission(ctx context.Context, agentID, mode, toolName string, risk tools.Risk, input json.RawMessage, prefs db.WorkflowPreferences) toolPermissionResolution {
+func (r *Runner) defaultToolPermission(ctx context.Context, agentID, mode, toolName string, risk tools.Risk, input json.RawMessage, prefs db.WorkflowPreferences, allowSession bool) toolPermissionResolution {
 	switch risk {
 	case tools.RiskRead:
 		if !prefs.AllowReadOnlyByDefault {
@@ -100,7 +104,7 @@ func (r *Runner) defaultToolPermission(ctx context.Context, agentID, mode, toolN
 		if !prefs.RequireConfirmationForExec && execPermittedByMode(mode) {
 			return toolPermissionResolution{Decision: toolPermissionAllow, Reason: "exec risk allowed by workflow preferences"}
 		}
-		if r.canAutoExecuteTool(ctx, agentID, mode, toolName, risk, input) {
+		if r.canAutoExecuteTool(ctx, agentID, mode, toolName, risk, input, allowSession) {
 			return toolPermissionResolution{Decision: toolPermissionAllow, Reason: autoApprovalReason(toolName, input)}
 		}
 		if approvalRequired(mode, toolName, risk) {
@@ -171,7 +175,7 @@ func defaultApprovalWarning(toolName string, risk tools.Risk, input json.RawMess
 	return toolRiskWarning(toolName, input)
 }
 
-func (r *Runner) canAutoExecuteTool(ctx context.Context, agentID, mode, toolName string, risk tools.Risk, input json.RawMessage) bool {
+func (r *Runner) canAutoExecuteTool(ctx context.Context, agentID, mode, toolName string, risk tools.Risk, input json.RawMessage, allowSession bool) bool {
 	if allowed(mode, toolName, risk) {
 		return true
 	}
@@ -184,7 +188,7 @@ func (r *Runner) canAutoExecuteTool(ctx context.Context, agentID, mode, toolName
 	if toolName == "Bash" && isWhitelistedExecCommand(tools.BashCommand(input)) {
 		return true
 	}
-	return r.hasSessionGrant(ctx, agentID, sessionGrantKey(toolName, input))
+	return allowSession && r.hasSessionGrant(ctx, agentID, sessionGrantKey(toolName, input))
 }
 
 func execPermittedByMode(mode string) bool {

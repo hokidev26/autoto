@@ -44,13 +44,15 @@ var conversationToolAllowlist = map[string]struct{}{
 // looped and direct tool execution. It keeps a direct ExecuteTool caller from
 // bypassing the mode that restricted the run itself.
 type PolicyContext struct {
-	AgentID           string
-	RunID             string
-	CWD               string
-	PermissionMode    string
-	ExecutionMode     ExecutionMode
-	ExecutionDeviceID string
-	Conversation      bool
+	AgentID              string
+	RunID                string
+	CWD                  string
+	PermissionMode       string
+	ExecutionMode        ExecutionMode
+	ExecutionDeviceID    string
+	Conversation         bool
+	ExecCapabilityDenied bool
+	ChildAgent           bool
 }
 
 func (p PolicyContext) IsPlan() bool {
@@ -66,6 +68,12 @@ func (p PolicyContext) allowsToolOutputPipeline() bool {
 }
 
 func (p PolicyContext) permitsTool(name string, risk tools.Risk) (bool, string) {
+	if p.ChildAgent && (name == lifecycleHookShellToolName || name == lifecycleHookHTTPToolName) {
+		return false, fmt.Sprintf("child agent tool allowlist denies internal lifecycle tool %s", name)
+	}
+	if p.ExecCapabilityDenied && (risk == tools.RiskExec || risk == tools.RiskDanger) {
+		return false, fmt.Sprintf("child agent execution capability denies %s-risk tool %s", risk, name)
+	}
 	if p.IsConversation() {
 		if risk != tools.RiskRead {
 			return false, fmt.Sprintf("conversation context denies %s-risk tool %s", risk, name)
@@ -124,14 +132,24 @@ func (r *Runner) policyContext(ctx context.Context, agentID, runID string) (db.A
 		mode = executionModeForRun(run)
 		conversation = isConversationRun(run)
 	}
+	childAgent := strings.TrimSpace(agent.ParentAgentID) != ""
+	execCapabilityDenied := false
+	if child, ok := r.childRuntimeProfile(agent.ID); ok {
+		execCapabilityDenied = child.resolution.ReadOnly || !toolNamesIncludeExecCapability(child.resolution.AllowedTools)
+	} else if childAgent {
+		// A persisted child without its immutable runtime profile must fail closed.
+		execCapabilityDenied = true
+	}
 	return agent, PolicyContext{
-		AgentID:           agent.ID,
-		RunID:             strings.TrimSpace(runID),
-		CWD:               agent.CWD,
-		PermissionMode:    agent.PermissionMode,
-		ExecutionMode:     mode,
-		ExecutionDeviceID: normalizedExecutionDeviceID(agent.ExecutionDeviceID),
-		Conversation:      conversation,
+		AgentID:              agent.ID,
+		RunID:                strings.TrimSpace(runID),
+		CWD:                  agent.CWD,
+		PermissionMode:       agent.PermissionMode,
+		ExecutionMode:        mode,
+		ExecutionDeviceID:    normalizedExecutionDeviceID(agent.ExecutionDeviceID),
+		Conversation:         conversation,
+		ExecCapabilityDenied: execCapabilityDenied,
+		ChildAgent:           childAgent,
 	}, nil
 }
 

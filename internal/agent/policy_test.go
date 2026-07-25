@@ -17,6 +17,37 @@ import (
 	"autoto/internal/tools"
 )
 
+// These fixtures define the model-visible product contract independently from
+// the production allowlists while keeping repeated policy tests consistent.
+var (
+	expectedPlanToolSurface = []string{
+		"AskUserQuestion",
+		"ContextAsk",
+		"EndPipeline",
+		"Glob",
+		"Grep",
+		"Read",
+		"StartPipeline",
+		"WebFetch",
+		"WebSearch",
+	}
+	expectedConversationToolSurface = []string{"WebFetch", "WebSearch", "AskUserQuestion"}
+)
+
+func toolSpecNames(specs []providers.ToolSpec) []string {
+	names := make([]string, 0, len(specs))
+	for _, spec := range specs {
+		names = append(names, spec.Name)
+	}
+	return names
+}
+
+func sortedToolSpecNames(specs []providers.ToolSpec) []string {
+	names := toolSpecNames(specs)
+	sort.Strings(names)
+	return names
+}
+
 func TestPlanPolicyOnlyExposesCoreReadAllowlist(t *testing.T) {
 	registry := tools.NewRegistry()
 	tools.RegisterCore(registry)
@@ -26,14 +57,9 @@ func TestPlanPolicyOnlyExposesCoreReadAllowlist(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	names := make([]string, 0, len(snapshot.specs))
-	for _, spec := range snapshot.specs {
-		names = append(names, spec.Name)
-	}
-	sort.Strings(names)
-	want := []string{"ContextAsk", "EndPipeline", "Glob", "Grep", "Read", "StartPipeline", "WebFetch", "WebSearch"}
-	if !reflect.DeepEqual(names, want) {
-		t.Fatalf("unexpected plan tool surface: got=%v want=%v", names, want)
+	names := sortedToolSpecNames(snapshot.specs)
+	if !reflect.DeepEqual(names, expectedPlanToolSurface) {
+		t.Fatalf("unexpected plan tool surface: got=%v want=%v", names, expectedPlanToolSurface)
 	}
 	for _, hidden := range []string{"Write", "Edit", "Bash", "MCPListTools", "MCPCallTool"} {
 		if _, ok := snapshot.tools[hidden]; !ok {
@@ -51,20 +77,19 @@ func TestConversationPolicyOnlyExposesPublicResearchTools(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	names := make([]string, 0, len(snapshot.specs))
-	for _, spec := range snapshot.specs {
-		names = append(names, spec.Name)
+	names := toolSpecNames(snapshot.specs)
+	if !reflect.DeepEqual(names, expectedConversationToolSurface) {
+		t.Fatalf("unexpected conversation tool surface: got=%v want=%v", names, expectedConversationToolSurface)
 	}
-	want := []string{"WebFetch", "WebSearch"}
-	if !reflect.DeepEqual(names, want) {
-		t.Fatalf("unexpected conversation tool surface: got=%v want=%v", names, want)
-	}
-	if len(snapshot.tools) != len(want) {
+	if len(snapshot.tools) != len(expectedConversationToolSurface) {
 		t.Fatalf("conversation snapshot retained project tools: %v", snapshot.tools)
 	}
-	for _, name := range want {
+	for _, name := range expectedConversationToolSurface {
 		if _, ok := snapshot.tools[name]; !ok {
 			t.Fatalf("conversation snapshot omitted %s", name)
+		}
+		if result, denied := planToolDeniedResult(policy, tools.Call{Name: name}, tools.RiskRead); denied || result.IsError {
+			t.Fatalf("conversation gateway rejected allowed tool %s: %+v denied=%v", name, result, denied)
 		}
 	}
 	for _, denied := range []struct {
@@ -137,7 +162,7 @@ func TestPlanPolicyFinalGatewayRejectsWriteExecDangerMCPAndPlugin(t *testing.T) 
 			}
 		})
 	}
-	for _, name := range []string{"Read", "Glob", "Grep", "WebFetch", "WebSearch", "ContextAsk", "StartPipeline", "EndPipeline"} {
+	for _, name := range expectedPlanToolSurface {
 		if result, denied := planToolDeniedResult(policy, tools.Call{Name: name}, tools.RiskRead); denied || result.IsError {
 			t.Fatalf("plan gateway rejected allowed tool %s: %+v denied=%v", name, result, denied)
 		}
@@ -237,13 +262,9 @@ func TestPlanRunUsesDurableModeAndReadToolSurface(t *testing.T) {
 	if provider.requestCount() != 1 {
 		t.Fatalf("expected one plan model request, got %d", provider.requestCount())
 	}
-	names := make([]string, 0, len(provider.request(0).Tools))
-	for _, spec := range provider.request(0).Tools {
-		names = append(names, spec.Name)
-	}
-	sort.Strings(names)
-	if want := []string{"ContextAsk", "EndPipeline", "Glob", "Grep", "Read", "StartPipeline", "WebFetch", "WebSearch"}; !reflect.DeepEqual(names, want) {
-		t.Fatalf("unexpected plan tool specs: got=%v want=%v", names, want)
+	names := sortedToolSpecNames(provider.request(0).Tools)
+	if !reflect.DeepEqual(names, expectedPlanToolSurface) {
+		t.Fatalf("unexpected plan tool specs: got=%v want=%v", names, expectedPlanToolSurface)
 	}
 	runs, err := store.ListRuns(ctx, agent.ID, 1)
 	if err != nil || len(runs) != 1 || runs[0].ExecutionMode != db.RunExecutionModePlan || runs[0].Status != "completed" {
