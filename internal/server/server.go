@@ -410,6 +410,8 @@ func (s *Server) Routes() http.Handler {
 	s.mountOAuthApp(r)
 	s.mountThemeRoutes(r)
 	s.mountAppearanceAssetRoutes(r)
+	s.mountOptionalToolsRoutes(r)
+	s.mountProfileDefinitionRoutes(r)
 	s.mountLifecycleHookRoutes(r)
 
 	r.Get("/api/health", s.health)

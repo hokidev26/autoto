@@ -142,10 +142,6 @@ func (d RoleDefinition) Resolve(parent CapabilitySet) (ResolvedRole, error) {
 	}, nil
 }
 
-func ValidRoleKey(value string) bool {
-	return validKey(value)
-}
-
 func validKey(value string) bool {
 	if len(value) < 1 || len(value) > 64 || value != strings.TrimSpace(value) {
 		return false

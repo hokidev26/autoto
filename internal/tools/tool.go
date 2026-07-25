@@ -100,6 +100,29 @@ type Resolver interface {
 	ResolveTool(context.Context, ResolutionContext, string) (Tool, error)
 }
 
+// CatalogMetadata describes optional presentation and provenance information
+// for a tool. It intentionally excludes execution configuration and secrets.
+type CatalogMetadata struct {
+	Domain      string `json:"domain,omitempty"`
+	DisplayName string `json:"displayName,omitempty"`
+	Source      string `json:"source,omitempty"`
+	SourceID    string `json:"sourceId,omitempty"`
+}
+
+// CatalogMetadataProvider is an optional extension implemented by tools that
+// can provide richer catalog grouping. Tool remains backwards compatible.
+type CatalogMetadataProvider interface {
+	CatalogMetadata() CatalogMetadata
+}
+
+// ToolAvailabilityResolver is the optional runner-facing policy boundary.
+// TODO(optional-tools-integration): runner_tools should resolve the current
+// project/workspace target and filter tools before advertising or executing
+// them, without changing the Tool interface.
+type ToolAvailabilityResolver interface {
+	ResolveToolAvailability(context.Context, db.ToolAvailabilityTarget, string) (db.ToolAvailabilityDecision, error)
+}
+
 type Tool interface {
 	Name() string
 	Description() string

@@ -169,11 +169,21 @@ func TestAgentCollectionsRemainCompatibleWithoutUsers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if _, err := store.DB().ExecContext(ctx, `UPDATE agents SET system_prompt = 'SYSTEM_PROMPT_SECRET' WHERE id = ?`, agent.ID); err != nil {
+		t.Fatal(err)
+	}
 	app := New(config.Config{}, store, nil, nil)
 
 	listed := agentAPIRequest(app.Routes(), http.MethodGet, "/api/agents", nil, nil)
 	if listed.Code != http.StatusOK || !bytes.Contains(listed.Body.Bytes(), []byte(agent.ID)) {
 		t.Fatalf("userless installation must list agents, got %d: %s", listed.Code, listed.Body.String())
+	}
+	if bytes.Contains(listed.Body.Bytes(), []byte("SYSTEM_PROMPT_SECRET")) {
+		t.Fatalf("agent collection leaked the system prompt: %s", listed.Body.String())
+	}
+	detail := agentAPIRequest(app.Routes(), http.MethodGet, "/api/agents/"+agent.ID, nil, nil)
+	if detail.Code != http.StatusOK || bytes.Contains(detail.Body.Bytes(), []byte("SYSTEM_PROMPT_SECRET")) {
+		t.Fatalf("agent detail leaked the system prompt: %d %s", detail.Code, detail.Body.String())
 	}
 	created := agentAPIRequest(app.Routes(), http.MethodPost, "/api/narrators", map[string]any{
 		"worklineId": workline.ID, "title": "compatible", "model": "fake:test", "permissionMode": "acceptEdits", "cwd": t.TempDir(),

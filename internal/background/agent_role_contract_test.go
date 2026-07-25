@@ -10,13 +10,16 @@ import (
 	"autoto/internal/db"
 )
 
-func TestAgentRoleContractRejectsUnknownRoleInsteadOfFallingBack(t *testing.T) {
-	_, err := parseAgentPayload(json.RawMessage(`{"prompt":"inspect the repository","subagentType":"administrator"}`))
-	if err == nil {
-		t.Fatal("unknown subagent role was accepted")
+func TestAgentRoleContractAcceptsScopedPresetKeyForRuntimeResolution(t *testing.T) {
+	payload, err := parseAgentPayload(json.RawMessage(`{"prompt":"inspect the repository","subagentType":"review.safe"}`))
+	if err != nil {
+		t.Fatal(err)
 	}
-	if !strings.Contains(strings.ToLower(err.Error()), "subagenttype") {
-		t.Fatalf("unknown role error did not identify subagentType: %v", err)
+	if payload.SubagentType != "review.safe" {
+		t.Fatalf("preset key = %q, want review.safe", payload.SubagentType)
+	}
+	if _, err := parseAgentPayload(json.RawMessage(`{"prompt":"inspect the repository","subagentType":"bad role!"}`)); err == nil {
+		t.Fatal("invalid preset key was accepted")
 	}
 }
 

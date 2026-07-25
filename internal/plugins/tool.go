@@ -36,6 +36,15 @@ func (t *pluginTool) Description() string { return t.description }
 
 func (t *pluginTool) Schema() any { return append(json.RawMessage(nil), t.schema...) }
 
+func (t *pluginTool) CatalogMetadata() tools.CatalogMetadata {
+	return tools.CatalogMetadata{
+		Domain:      "plugins",
+		DisplayName: t.remoteName,
+		Source:      "plugin",
+		SourceID:    t.pluginID,
+	}
+}
+
 func (t *pluginTool) Risk(json.RawMessage) tools.Risk { return tools.RiskExec }
 
 func (t *pluginTool) Execute(ctx context.Context, call tools.Call, _ tools.Env) (tools.Result, error) {
@@ -143,3 +152,4 @@ func boundPluginOutput(output string, limit int) (string, bool) {
 }
 
 var _ tools.Tool = (*pluginTool)(nil)
+var _ tools.CatalogMetadataProvider = (*pluginTool)(nil)

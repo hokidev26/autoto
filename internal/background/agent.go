@@ -72,41 +72,45 @@ func (e *AgentExecutor) Execute(ctx context.Context, task db.BackgroundTask, out
 	if err := validateAgentTaskScope(e.Store, ctx, task, parent); err != nil {
 		return Result{ErrorCode: "scope_rejected"}, err
 	}
-	roleContract, err := agentrole.Resolve(payload.SubagentType)
+	roleResolution, err := e.Runner.ResolveChildRole(ctx, parent.ID, task.ParentRunID, payload.SubagentType)
 	if err != nil {
-		return Result{ErrorCode: "subagent_role_rejected"}, errors.New("agent task subagentType is invalid")
+		return Result{ErrorCode: "subagent_role_rejected"}, err
 	}
 	requestedCap := task.PermissionModeCap
-	if roleContract.ReadOnly {
+	if roleResolution.ReadOnly {
 		requestedCap = "readOnly"
 	}
 	permissionCap, err := childPermissionCap(parent.PermissionMode, requestedCap)
 	if err != nil {
 		return Result{ErrorCode: "permission_rejected"}, err
 	}
-	model, _, err := e.Runner.ResolveSubagentModel(subagentModelRole(roleContract.Role), payload.Model, parent.Model)
+	model, _, err := e.Runner.ResolveSubagentModel(roleResolution.ModelRole, payload.Model, parent.Model)
 	if err != nil {
 		return Result{ErrorCode: "subagent_model_rejected"}, err
 	}
-	prompt, err := agentPromptWithAcceptance(roleContract.Prompt, payload.Prompt, payload.AcceptanceCriteria)
+	prompt, err := agentPromptWithAcceptance("", payload.Prompt, payload.AcceptanceCriteria)
 	if err != nil {
 		return Result{ErrorCode: "invalid_payload"}, err
 	}
-	role := string(roleContract.Role)
+	role := roleResolution.PublicRole
 	title := payload.Description
 	if title == "" {
 		title = "Background agent task"
 	}
 	child, err := e.Store.CreateAgent(ctx, db.Agent{
-		WorklineID: parent.WorklineID, ParentAgentID: parent.ID, Type: "subagent", SubagentType: role,
-		Title: title, Model: model, SystemPrompt: roleContract.Prompt, PermissionMode: permissionCap, ReasoningEffort: payload.ReasoningEffort,
+		WorklineID: parent.WorklineID, ParentAgentID: parent.ID, Type: "subagent", SubagentType: string(roleResolution.BaseRole),
+		Title: title, Model: model, SystemPrompt: roleResolution.RoleExtension, PermissionMode: permissionCap, ReasoningEffort: payload.ReasoningEffort,
 		ExecutionDeviceID: parent.ExecutionDeviceID, Status: "idle", CWD: parent.CWD,
 	})
 	if err != nil {
 		return Result{ErrorCode: "child_agent_create_failed"}, fmt.Errorf("create child agent: %w", err)
 	}
+	if err := e.Runner.RegisterChildRuntimeProfile(child.ID, roleResolution); err != nil {
+		return Result{ErrorCode: "child_profile_bind_failed"}, err
+	}
 	childRun, err := e.Runner.SubmitInternal(ctx, child.ID, task.ID, prompt, permissionCap)
 	if err != nil {
+		e.Runner.RemoveChildRuntimeProfile(child.ID)
 		return Result{ErrorCode: "child_run_submit_failed"}, fmt.Errorf("submit child run: %w", err)
 	}
 	attached, err := e.Store.AttachBackgroundTaskChild(ctx, task.ID, task.Revision, child.ID, childRun.ID)
@@ -185,11 +189,11 @@ func parseAgentPayload(raw json.RawMessage) (agentPayload, error) {
 			return agentPayload{}, fmt.Errorf("agent task %s is invalid", name)
 		}
 	}
-	canonicalRole, err := agentrole.Normalize(payload.SubagentType)
-	if err != nil {
+	if canonicalRole, err := agentrole.Normalize(payload.SubagentType); err == nil {
+		payload.SubagentType = string(canonicalRole)
+	} else if !validAgentPresetKey(payload.SubagentType) {
 		return agentPayload{}, errors.New("agent task subagentType is invalid")
 	}
-	payload.SubagentType = string(canonicalRole)
 	if len(payload.AcceptanceCriteria) > maxAgentAcceptanceCriteria {
 		return agentPayload{}, errors.New("agent task acceptance criteria exceed count limit")
 	}
@@ -226,8 +230,8 @@ func subagentModelRole(role agentrole.Role) string {
 	}
 }
 
-func agentPromptWithAcceptance(contractPrompt, prompt string, criteria []string) (string, error) {
-	combined := strings.TrimSpace(contractPrompt) + "\n\n" + strings.TrimSpace(prompt)
+func agentPromptWithAcceptance(_ string, prompt string, criteria []string) (string, error) {
+	combined := strings.TrimSpace(prompt)
 	if len(criteria) == 0 {
 		if len(combined) > maxAgentTaskPromptBytes {
 			return "", errors.New("agent task prompt with role contract exceeds size limit")
@@ -247,7 +251,10 @@ func agentPromptWithAcceptance(contractPrompt, prompt string, criteria []string)
 }
 
 func marshalAgentPublicResult(role string, acceptanceCount int, childAgentID, childRunID, status string) (json.RawMessage, error) {
-	if normalized, err := agentrole.Normalize(role); err != nil || string(normalized) != role {
+	role = strings.ToLower(strings.TrimSpace(role))
+	if normalized, err := agentrole.Normalize(role); err == nil {
+		role = string(normalized)
+	} else if !validAgentPresetKey(role) {
 		return nil, errors.New("background agent result role is invalid")
 	}
 	if acceptanceCount < 0 || acceptanceCount > maxAgentAcceptanceCriteria {
@@ -307,6 +314,19 @@ func childPermissionCap(parentMode, requestedCap string) (string, error) {
 		return "readOnly", nil
 	}
 	return "acceptEdits", nil
+}
+
+func validAgentPresetKey(value string) bool {
+	if len(value) < 1 || len(value) > 64 || value != strings.TrimSpace(value) {
+		return false
+	}
+	for _, char := range value {
+		if (char >= 'a' && char <= 'z') || (char >= '0' && char <= '9') || strings.ContainsRune("._-", char) {
+			continue
+		}
+		return false
+	}
+	return true
 }
 
 func terminalRun(status string) bool {

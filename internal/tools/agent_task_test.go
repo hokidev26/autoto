@@ -100,7 +100,7 @@ func TestAgentRejectsInvalidRoleAndAcceptanceCriteria(t *testing.T) {
 	}{
 		{
 			name:       "invalid role",
-			input:      map[string]any{"prompt": "inspect", "subagent_type": "custom-role"},
+			input:      map[string]any{"prompt": "inspect", "subagent_type": "bad role!"},
 			wantOutput: "invalid subagent_type",
 		},
 		{
@@ -132,6 +132,22 @@ func TestAgentRejectsInvalidRoleAndAcceptanceCriteria(t *testing.T) {
 				t.Fatalf("expected fail-closed rejection, result=%+v err=%v requests=%d", result, err, len(service.submitted))
 			}
 		})
+	}
+}
+
+func TestAgentAcceptsSyntacticallyValidScopedPresetKey(t *testing.T) {
+	service := &fakeBackgroundTaskService{}
+	input := json.RawMessage(`{"prompt":"inspect","subagent_type":"review.safe"}`)
+	result, err := (AgentTool{}).Execute(context.Background(), Call{ID: "agent-preset", Name: "Agent", Input: input}, Env{Background: service})
+	if err != nil || result.IsError || len(service.submitted) != 1 {
+		t.Fatalf("expected scoped preset key to reach background resolution, result=%+v err=%v requests=%d", result, err, len(service.submitted))
+	}
+	var payload agentTaskPayload
+	if err := json.Unmarshal(service.submitted[0].Payload, &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.SubagentType != "review.safe" {
+		t.Fatalf("preset key = %q, want review.safe", payload.SubagentType)
 	}
 }
 

@@ -70,11 +70,14 @@ func (AgentTool) Execute(ctx context.Context, call Call, env Env) (Result, error
 	if len([]byte(input.Description)) > 200 || len([]byte(input.Model)) > 256 || len([]byte(input.SubagentType)) > 64 {
 		return Result{Output: "agent task metadata exceeds size limit", IsError: true}, nil
 	}
-	role, err := agentrole.Normalize(input.SubagentType)
-	if err != nil {
-		return Result{Output: "invalid subagent_type", IsError: true}, nil
+	if role, err := agentrole.Normalize(input.SubagentType); err == nil {
+		input.SubagentType = string(role)
+	} else {
+		input.SubagentType = strings.ToLower(input.SubagentType)
+		if !validAgentPresetKey(input.SubagentType) {
+			return Result{Output: "invalid subagent_type", IsError: true}, nil
+		}
 	}
-	input.SubagentType = string(role)
 	if len(input.AcceptanceCriteria) > maxAcceptanceCriteriaItems {
 		return Result{Output: "acceptance_criteria exceeds item limit", IsError: true}, nil
 	}
@@ -141,4 +144,17 @@ func (AgentTool) Execute(ctx context.Context, call Call, env Env) (Result, error
 	}
 	encoded, _ := json.Marshal(task)
 	return Result{Output: string(encoded), Meta: map[string]any{"backgroundTaskId": task.ID, "background": true}}, nil
+}
+
+func validAgentPresetKey(value string) bool {
+	if len(value) < 1 || len(value) > 64 || value != strings.TrimSpace(value) {
+		return false
+	}
+	for _, char := range value {
+		if (char >= 'a' && char <= 'z') || (char >= '0' && char <= '9') || strings.ContainsRune("._-", char) {
+			continue
+		}
+		return false
+	}
+	return true
 }
