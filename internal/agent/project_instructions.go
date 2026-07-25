@@ -2,10 +2,10 @@ package agent
 
 import (
 	"fmt"
-	"io"
-	"os"
-	"path/filepath"
 	"strings"
+	"unicode/utf8"
+
+	"autoto/internal/workspacefs"
 )
 
 const (
@@ -31,18 +31,24 @@ func loadProjectInstructions(cwd string) projectInstructionBundle {
 	if cwd == "" {
 		return projectInstructionBundle{}
 	}
+	workspace, err := workspacefs.New(cwd)
+	if err != nil {
+		return projectInstructionBundle{}
+	}
 	sections := make([]string, 0, len(projectInstructionFilenames))
 	files := make([]projectInstructionFile, 0, len(projectInstructionFilenames))
 	for _, name := range projectInstructionFilenames {
-		path, ok := projectInstructionPath(cwd, name)
-		if !ok {
+		file, readErr := workspace.ReadFile(name)
+		if readErr != nil {
 			continue
 		}
-		content, truncated, err := readProjectInstructionFile(path)
-		if err != nil || strings.TrimSpace(content) == "" {
+		content, truncated := normalizeProjectInstructionContent(file.Content, file.Truncated)
+		if strings.TrimSpace(content) == "" {
 			continue
 		}
-		files = append(files, projectInstructionFile{Name: name, Path: path, Truncated: truncated})
+		// Path is intentionally workspace-relative. Event consumers must never
+		// receive an absolute host path for project instruction sources.
+		files = append(files, projectInstructionFile{Name: name, Path: file.Path, Truncated: truncated})
 		truncationNote := ""
 		if truncated {
 			truncationNote = "\n\n[Autoto note: this instruction file was truncated to fit the safety limit.]"
@@ -55,52 +61,21 @@ func loadProjectInstructions(cwd string) projectInstructionBundle {
 	return projectInstructionBundle{Text: "## Project instructions loaded by Autoto\n\n" + strings.Join(sections, "\n\n"), Files: files}
 }
 
-func projectInstructionPath(cwd, name string) (string, bool) {
-	root, err := filepath.Abs(cwd)
-	if err != nil {
-		return "", false
-	}
-	path, err := filepath.Abs(filepath.Join(root, name))
-	if err != nil {
-		return "", false
-	}
-	rel, err := filepath.Rel(root, path)
-	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
-		return "", false
-	}
-	return path, true
-}
-
-func readProjectInstructionFile(path string) (string, bool, error) {
-	file, err := os.Open(path)
-	if err != nil {
-		return "", false, err
-	}
-	defer file.Close()
-	limited := io.LimitReader(file, maxProjectInstructionReadBytes+1)
-	data, err := io.ReadAll(limited)
-	if err != nil {
-		return "", false, err
-	}
-	truncated := len(data) > maxProjectInstructionReadBytes
-	if truncated {
+func normalizeProjectInstructionContent(content string, truncated bool) (string, bool) {
+	data := []byte(content)
+	if len(data) > maxProjectInstructionReadBytes {
 		data = data[:maxProjectInstructionReadBytes]
-	}
-	content := truncateRunes(string(data), maxProjectInstructionFileRunes)
-	if len([]rune(strings.TrimSpace(string(data)))) > maxProjectInstructionFileRunes {
+		for len(data) > 0 && !utf8.Valid(data) {
+			data = data[:len(data)-1]
+		}
 		truncated = true
 	}
-	return content, truncated, nil
-}
-
-func mergeProjectInstructions(systemPrompt string, bundle projectInstructionBundle) string {
-	if strings.TrimSpace(bundle.Text) == "" {
-		return systemPrompt
+	text := string(data)
+	trimmedRunes := []rune(strings.TrimSpace(text))
+	if len(trimmedRunes) > maxProjectInstructionFileRunes {
+		truncated = true
 	}
-	if strings.TrimSpace(systemPrompt) == "" {
-		return bundle.Text
-	}
-	return strings.TrimSpace(systemPrompt) + "\n\n" + bundle.Text
+	return truncateRunes(text, maxProjectInstructionFileRunes), truncated
 }
 
 func (b projectInstructionBundle) eventData() map[string]any {
