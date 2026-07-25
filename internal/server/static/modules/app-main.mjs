@@ -90,6 +90,7 @@ import { normalizeWorkStateSnapshot, renderWorkStateHTML } from "./work-state.mj
 
 let backendRegistry = null;
 let settingsPreferences = null;
+let resumeSetupWizardAfterSettings = null;
 
 function closeBackendsModal() {
   backendRegistry.closeBackendsModal();
@@ -1045,12 +1046,20 @@ const setupWizard = createSetupWizardController({
   state,
   loadModelCatalog,
   loadSettings,
+  loadSetupStatus: ({ force = false } = {}) => api(force ? "/api/setup/status?refresh=1" : "/api/setup/status"),
   openSettingsModal,
   renderModelOptions,
-  setPreferredModel,
+  getPreferredModel,
+  getSetupVersion: accountPreferences.getSetupVersion,
+  completeSetup: async (model, version) => {
+    await accountPreferences.setPreferences({ preferredModel: model, setupVersion: version });
+  },
+  preferencesPending: accountPreferences.hasPendingPatch,
+  copyText: copyToClipboard,
   showToast,
 });
-const { bindSetupWizardActions, openSetupWizard } = setupWizard;
+const { bindSetupWizardActions, maybeOpenSetupWizard, openSetupWizard, resumeAfterProviderSettings } = setupWizard;
+resumeSetupWizardAfterSettings = resumeAfterProviderSettings;
 
 const specBoard = createSpecBoardController({ request: api, showError, showToast });
 specBoard.bind();
@@ -1838,6 +1847,9 @@ function closeSettingsModal({ restoreWorkbench = true, restoreFocus = true } = {
   syncThemePageContext();
   if (wasOpen && restoreFocus) restoreSettingsDialogFocus();
   if (restoreWorkbench) setGlobalRailActive(currentShellRailTarget());
+  if (wasOpen && typeof resumeSetupWizardAfterSettings === "function") {
+    Promise.resolve().then(() => resumeSetupWizardAfterSettings()).catch(showError);
+  }
 }
 
 async function openOverviewConversation(id = "") {
@@ -3628,6 +3640,7 @@ function openRequestedInitialView() {
 
 function signalAppReady() {
   const root = globalThis.document?.documentElement;
+  if (root?.dataset.autotoAppReady === "true") return;
   if (root) root.dataset.autotoAppReady = "true";
   const EventConstructor = globalThis.Event;
   if (typeof EventConstructor === "function") {
@@ -3635,4 +3648,12 @@ function signalAppReady() {
   }
 }
 
-init().then(openRequestedInitialView).catch(showError).finally(signalAppReady);
+init().then(() => {
+  openRequestedInitialView();
+  const setupStartup = maybeOpenSetupWizard();
+  signalAppReady();
+  return setupStartup;
+}).catch((error) => {
+  signalAppReady();
+  showError(error);
+});

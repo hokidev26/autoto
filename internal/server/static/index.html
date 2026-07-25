@@ -497,7 +497,7 @@
           </div>
           <nav id="settingsCategoryNav" class="settings-mobile-category-nav legacy-settings-category-nav" aria-label="设置分类" data-i18n-aria-label="settings.categories"></nav>
           <nav id="settingsNav" class="settings-nav settings-nav-groups legacy-settings-subnav" aria-label="设置目录" data-i18n-aria-label="settings.directory"></nav>
-          <button id="settingsWizardBtn" class="settings-wizard-btn legacy-settings-wizard hidden" type="button" tabindex="-1" data-i18n="settings.wizard">设置向导</button>
+          <button id="settingsWizardBtn" class="settings-wizard-btn legacy-settings-wizard" type="button" data-i18n="settings.wizard">设置向导</button>
         </aside>
         <section class="settings-main settings-content legacy-settings-content" aria-labelledby="settingsContentTitle">
           <header class="settings-main-header settings-content-head legacy-settings-content-head">
@@ -523,20 +523,29 @@
       </div>
     </div>
 
-    <div id="setupWizardModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="setupWizardTitle">
-      <div class="modal-card setup-wizard-card">
-        <div class="modal-head">
-          <div>
-            <div id="setupWizardTitle" class="modal-title">选择可用模型</div>
-            <div class="modal-path">自动显示所有已注册且返回可用模型的 Provider，不依赖固定厂商列表。</div>
+    <div id="setupWizardModal" class="modal setup-wizard-modal hidden" role="dialog" aria-modal="true" aria-labelledby="setupWizardTitle" aria-describedby="setupWizardSubtitle">
+      <div class="modal-card setup-wizard-card" tabindex="-1">
+        <header class="setup-wizard-header">
+          <div class="setup-wizard-heading">
+            <span class="setup-wizard-brand-mark" aria-hidden="true">A</span>
+            <span>
+              <strong id="setupWizardTitle" class="setup-wizard-title">设置向导</strong>
+              <small id="setupWizardSubtitle" class="setup-wizard-subtitle">完成一次运行环境与模型检查。</small>
+            </span>
           </div>
-          <button id="setupWizardCloseBtn" class="icon-btn" type="button" aria-label="关闭设置向导">×</button>
+          <button id="setupWizardCloseBtn" class="icon-btn" type="button" aria-label="关闭设置向导" data-i18n-aria-label="setupWizard.close">×</button>
+        </header>
+        <div class="setup-wizard-progress-row">
+          <div id="setupWizardProgress" class="setup-wizard-progress" aria-hidden="true"></div>
+          <span id="setupWizardStepLabel" class="setup-wizard-step-label">第 1 步，共 4 步</span>
         </div>
-        <div id="setupWizardModels" class="setup-wizard-models" aria-live="polite"></div>
-        <div class="setup-wizard-actions">
-          <button id="setupWizardCancelBtn" class="ghost-btn" type="button">取消</button>
-          <button id="setupWizardRefreshBtn" class="settings-action-btn primary" type="button">刷新模型</button>
-        </div>
+        <main id="setupWizardBody" class="setup-wizard-body" aria-live="polite"></main>
+        <footer class="setup-wizard-actions">
+          <button id="setupWizardBackBtn" class="ghost-btn hidden" type="button">上一步</button>
+          <span class="setup-wizard-action-spacer"></span>
+          <button id="setupWizardRefreshBtn" class="ghost-btn hidden" type="button">重新检测</button>
+          <button id="setupWizardNextBtn" class="settings-action-btn primary" type="button">下一步</button>
+        </footer>
       </div>
     </div>
 
