@@ -212,6 +212,7 @@ export default Object.freeze({
     selectModel: "选择模型",
     closeModelPicker: "关闭模型选择",
     manageModels: "管理模型",
+    summaryModel: "摘要模型",
     compactContext: "压缩上下文",
     contextCompactReady: "立即整理较早消息",
     contextCompactUnavailable: "当前无需压缩或会话正在运行",

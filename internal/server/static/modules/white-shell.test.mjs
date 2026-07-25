@@ -1664,6 +1664,13 @@ test("mobile shell skips home and keeps the drawer, settings index, and model sh
   assert.match(uiShell, /translate\("chat\.selectModel"\)/);
   // 管理模型 / 思考强度 / 压缩上下文 were removed from the model menu: each already has
   // its own control beside the composer.
+  // The model menu instead offers the summary model, which is applied by
+  // round-tripping the whole agent payload so the default model and subagent
+  // assignments are not dropped.
+  assert.match(uiShell, /translate\("chat\.summaryModel"\)/);
+  assert.match(uiShell, /openSummaryModelPicker/);
+  assert.match(appMain, /agentModelSettingsPayload\(\{ \.\.\.\(state\.settings\?\.agent \|\| \{\}\), summaryModel: model \}\)/);
+  assert.match(appMain, /api\("\/api\/runtime\/agent-model-settings", \{ method: "PATCH"/);
   assert.doesNotMatch(uiShell, /translate\("chat\.manageModels"\)/);
   assert.doesNotMatch(uiShell, /translate\("chat\.compactContext"\)/);
   assert.doesNotMatch(uiShell, /openModelSettings/);

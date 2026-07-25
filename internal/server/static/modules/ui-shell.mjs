@@ -158,6 +158,8 @@ export function createUIShellController({
   openDirectoryChooser,
   getMessageMode = () => "execute",
   setMessageMode = () => {},
+  getSummaryModel = () => "",
+  setSummaryModel = null,
   renderProjects,
   onLayoutChange = renderProjects,
   resizeTerminal,
@@ -708,6 +710,77 @@ export function createUIShellController({
     };
 
 
+    // Summary model picker. It is global runtime configuration rather than a
+    // per-conversation choice, but it is surfaced here so compaction can be
+    // retargeted without opening Settings.
+    const summaryModelOptions = (binding) => [...binding.select.options]
+      .filter((option) => !option.hidden && String(option.value || "").trim());
+
+    const applySummaryModel = async (value) => {
+      if (typeof setSummaryModel !== "function") return;
+      try {
+        await setSummaryModel(value);
+      } catch (error) {
+        showError?.(error);
+      }
+    };
+
+    const openSummaryModelPicker = (binding) => {
+      const current = String(getSummaryModel?.() || "");
+      menu.replaceChildren();
+      const heading = document.createElement("div");
+      heading.className = "composer-select-popover-title";
+      heading.textContent = translate("chat.summaryModel");
+      menu.appendChild(heading);
+      summaryModelOptions(binding).forEach((option) => {
+        const value = String(option.value);
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "composer-select-option";
+        button.setAttribute("role", "option");
+        button.setAttribute("aria-selected", value === current ? "true" : "false");
+        button.textContent = option.textContent?.trim() || value;
+        button.addEventListener("click", () => {
+          close({ focus: true });
+          void applySummaryModel(value);
+        });
+        menu.appendChild(button);
+      });
+      positionMenu(binding.trigger);
+      menu.querySelector('[aria-selected="true"]')?.focus();
+    };
+
+    const appendSummaryModelRow = (binding) => {
+      if (typeof setSummaryModel !== "function") return;
+      const divider = document.createElement("div");
+      divider.className = "composer-model-menu-divider";
+      divider.setAttribute("aria-hidden", "true");
+      menu.appendChild(divider);
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "composer-model-menu-action";
+      const copy = document.createElement("span");
+      copy.className = "composer-model-menu-action-copy";
+      const title = document.createElement("span");
+      title.className = "composer-model-menu-action-title";
+      title.textContent = translate("chat.summaryModel");
+      copy.appendChild(title);
+      const current = String(getSummaryModel?.() || "");
+      if (current) {
+        const detail = document.createElement("span");
+        detail.className = "composer-model-menu-action-detail";
+        detail.textContent = current;
+        copy.appendChild(detail);
+      }
+      const chevron = document.createElement("span");
+      chevron.className = "composer-model-menu-action-chevron";
+      chevron.setAttribute("aria-hidden", "true");
+      chevron.textContent = "›";
+      button.append(copy, chevron);
+      button.addEventListener("click", () => openSummaryModelPicker(binding));
+      menu.appendChild(button);
+    };
+
     const openMobile = (binding, { returnFocus = binding.trigger } = {}) => {
       const isModel = binding.select.id === "modelSelect";
       const isPermission = binding.select.id === "permissionMode";
@@ -775,6 +848,7 @@ export function createUIShellController({
           .filter((option) => !option.hidden)
           .forEach((option) => menu.appendChild(createOptionButton(binding, option)));
       }
+      if (isModelMenu) appendSummaryModelRow(binding);
       menu.classList.remove("hidden");
       positionMenu(binding.trigger);
       binding.trigger.setAttribute("aria-expanded", "true");

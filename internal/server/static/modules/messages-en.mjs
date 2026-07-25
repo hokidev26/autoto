@@ -212,6 +212,7 @@ export default Object.freeze({
     selectModel: "Choose model",
     closeModelPicker: "Close model picker",
     manageModels: "Manage models",
+    summaryModel: "Summary model",
     compactContext: "Compact context",
     contextCompactReady: "Summarize older messages now",
     contextCompactUnavailable: "Nothing to compact or the conversation is running",

@@ -41,6 +41,7 @@ import { createLocalPreferencesSettingsController } from "./local-preferences-se
 import { createMCPRegistryUIController } from "./mcp-registry-ui.mjs";
 import { createPluginRegistryUIController } from "./plugin-registry-ui.mjs";
 import { createMemorySettingsController } from "./memory-settings.mjs";
+import { agentModelSettingsPayload } from "./model-routing-settings.mjs";
 import { createModelProviderSettingsController } from "./model-provider-settings.mjs?v=native-codex-3-provider-console-3-account-wide-1-model-compact-1-codex-export-1-settings-flat-1-aggregates-1-codex-import-open-1-provider-create-page-2-codex-browser-login-1-provider-secrets-1-model-picker-1-provider-full-page-2-provider-placeholders-1-usage-cost-1-codex-usage-clean-1-model-sections-hidden-1-model-configs-1-provider-reference-1-default-openai-responses-1-provider-draft-session-1-native-image-generation-1-provider-auto-name-1";
 import {
   createOverviewDashboardController,
@@ -941,6 +942,17 @@ const uiShell = createUIShellController({
   openDirectoryChooser,
   getMessageMode: () => messageModeBridge.get(),
   setMessageMode: (mode) => messageModeBridge.set(mode),
+  getSummaryModel: () => String(state.settings?.agent?.summaryModel || state.settings?.agent?.defaultModel || ""),
+  // The summary model is global runtime configuration, so the whole agent model
+  // payload is round-tripped: sending summaryModel alone would drop the default
+  // model and every subagent assignment.
+  setSummaryModel: async (model) => {
+    const payload = agentModelSettingsPayload({ ...(state.settings?.agent || {}), summaryModel: model });
+    const response = await api("/api/runtime/agent-model-settings", { method: "PATCH", body: JSON.stringify(payload) });
+    const savedAgent = response?.agent || payload;
+    state.settings = { ...(state.settings || {}), agent: { ...(state.settings?.agent || {}), ...savedAgent } };
+    return String(savedAgent.summaryModel || model);
+  },
   renderProjects,
   onLayoutChange: ({ sessionSidebarMode = "expanded" } = {}) => {
     const changed = state.sessionSidebarLayout !== sessionSidebarMode;
