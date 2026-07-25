@@ -1520,6 +1520,45 @@ body.white-shell.theme-light.theme-dark #settingsModal {
 #settingsContentBody .anthropic-config-actions { justify-content: flex-end; }
 #settingsContentBody .anthropic-readonly-badge { white-space: nowrap; }
 
+/* Subscription (Antigravity/Grok/Kimi) login panels. The markup mirrors the
+   Anthropic OAuth panel, so it takes the same vertical rhythm; without these
+   the intro copy, the action row, and the status line collapse together. */
+#settingsContentBody .subscription-login-idle,
+#settingsContentBody .subscription-login-device,
+#settingsContentBody .subscription-login-browser { display: grid; gap: 14px; min-width: 0; }
+
+#settingsContentBody .subscription-device-code {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  border: 1px solid var(--settings-border);
+  border-radius: 10px;
+  padding: 11px 13px;
+  background: var(--settings-muted);
+}
+#settingsContentBody .subscription-device-code > span {
+  color: var(--settings-muted-foreground);
+  font-size: 11px;
+  line-height: 1.5;
+}
+#settingsContentBody .subscription-device-code code {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-x: auto;
+  color: var(--settings-foreground);
+  font: 700 15px/1.4 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  letter-spacing: .09em;
+  white-space: nowrap;
+}
+#settingsContentBody .subscription-login-status {
+  margin: 0;
+  color: var(--settings-muted-foreground);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
 #settingsContentBody .anthropic-oauth-login { display: grid; gap: 14px; min-width: 0; }
 #settingsContentBody .anthropic-oauth-flow { display: grid; gap: 10px; margin: 0; padding: 0; list-style: none; }
 #settingsContentBody .anthropic-oauth-step {
