@@ -55,9 +55,26 @@ body.white-shell.theme-light .composer-wrap {
     flex: 0 0 96px;
   }
 
+  /* Sized to the longest label ("全部允许") rather than a fixed width: at 96px the
+     value was squeezed to ~17px and ellipsised to a single character. The pill
+     drops its own padding so the trigger fills it edge to edge -- previously the
+     trigger covered only ~53px of the 96px pill and clicks on the remainder hit
+     nothing, because the native select above it has pointer-events: none. */
   body.white-shell.theme-light .permission-toolbar-pill {
-    width: 96px;
-    min-width: 96px;
+    width: auto;
+    min-width: max-content;
+    padding: 0;
+  }
+
+  body.white-shell.theme-light .permission-toolbar-pill .composer-select-trigger {
+    width: 100%;
+    padding: 0 10px;
+  }
+
+  body.white-shell.theme-light .permission-toolbar-pill .composer-select-value {
+    flex: 0 0 auto;
+    overflow: visible;
+    text-overflow: clip;
   }
 
   @container composer-shell (max-width: 1320px) {
@@ -155,8 +172,8 @@ body.white-shell.theme-light .composer-wrap {
     }
 
     body.white-shell.theme-light .permission-toolbar-pill {
-      width: 92px;
-      min-width: 92px;
+      width: auto;
+      min-width: max-content;
     }
 
     body.white-shell.theme-light .permission-safety-indicator {
