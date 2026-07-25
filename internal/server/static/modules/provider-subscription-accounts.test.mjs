@@ -19,7 +19,7 @@ import {
   trustedSubscriptionAuthURL,
 } from "./model-provider-settings.mjs";
 import { createModelProviderSettingsController } from "./provider-console.mjs";
-import { providerDisplayName } from "./model-provider-components.mjs";
+import { providerCategory, providerDisplayName } from "./model-provider-components.mjs";
 
 function flush() {
   return new Promise((resolve) => setTimeout(resolve, 0));
@@ -43,16 +43,24 @@ function createController(overrides = {}) {
   return { state, controller, requests };
 }
 
-test("subscription provider predicate accepts native types and rejects interactions/custom", () => {
+test("subscription provider predicate keys on type, not on the configured name", () => {
   assert.deepEqual(subscriptionProviderKinds, ["gemini", "grok", "kimi"]);
   for (const type of ["gemini", "grok", "kimi"]) {
     assert.equal(subscriptionProviderKind({ type }), type);
     assert.equal(isSubscriptionAccountProvider({ type }), true);
   }
+  // A native provider saved under a different name is still that provider: its
+  // Base URL is pinned server-side and its credentials are stored per type, so
+  // it must keep the OAuth login and account pages.
+  assert.equal(subscriptionProviderKind({ name: "gemini-oauth", type: "gemini", origin: "custom" }), "gemini");
+  assert.equal(isSubscriptionAccountProvider({ name: "gemini-oauth", type: "gemini", origin: "custom" }), true);
+  assert.equal(providerCategory({ name: "gemini-oauth", type: "gemini", origin: "custom" }), "official");
+  // The API-key Gemini Interactions provider is not a subscription provider.
   assert.equal(subscriptionProviderKind({ name: "gemini", type: "gemini-interactions" }), "");
   assert.equal(isSubscriptionAccountProvider({ name: "gemini", type: "gemini-interactions" }), false);
-  assert.equal(subscriptionProviderKind({ type: "gemini", origin: "custom" }), "");
+  assert.equal(providerCategory({ name: "gemini", type: "gemini-interactions", origin: "builtin" }), "official");
   assert.equal(subscriptionProviderKind({ type: "openai" }), "");
+  assert.equal(providerCategory({ name: "my-proxy", type: "openai-compatible", origin: "custom" }), "custom");
 });
 
 test("provider display names distinguish native Antigravity from Gemini Interactions", () => {

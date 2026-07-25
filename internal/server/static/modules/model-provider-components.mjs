@@ -336,7 +336,13 @@ export const subscriptionProviderKinds = Object.freeze(Object.keys(subscriptionP
 // its exact type. gemini-interactions and custom-origin providers must never be
 // treated as an official Gemini/Grok/Kimi account entry.
 export function subscriptionProviderKind(provider = {}) {
-  if (stringValue(provider.origin).toLowerCase() === "custom") return "";
+  // Keyed on type alone, deliberately ignoring the configured name and origin.
+  // These types cannot be pointed anywhere but their own pinned production
+  // endpoint — the server rejects every other Base URL (see
+  // validateGemini/Grok/KimiProductionBaseURL) and the credential store is keyed
+  // by type, not by config name. So an instance saved under a different name
+  // such as "gemini-oauth" is still the native subscription provider and must
+  // get the OAuth login and account pages.
   const type = stringValue(provider.type).toLowerCase();
   return Object.hasOwn(subscriptionProviderSpecs, type) ? type : "";
 }
@@ -352,6 +358,9 @@ export function subscriptionProviderSpec(kind) {
 export function providerCategory(provider = {}) {
   const type = stringValue(provider.type).toLowerCase();
   const name = providerKey(provider);
+  // Native subscription providers belong to the official section whatever name
+  // they were saved under, for the same endpoint-pinning reason.
+  if (subscriptionProviderKind(provider)) return "official";
   if (stringValue(provider.origin).toLowerCase() === "custom") return "custom";
   if (type === "openai-compatible" || type === "anthropic-compatible" || provider.profile === "cliproxyapi") return "custom";
   if (isBuiltinProvider(provider) || ["codex", "openai", "anthropic", "ollama"].includes(type) || name === "ollama") return "official";
