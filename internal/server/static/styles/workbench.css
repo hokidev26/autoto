@@ -3198,10 +3198,17 @@ body.white-shell.theme-light .messages [class~="plan-card-actions"] > button {
   }
 
   /* The rule above wins on id specificity over every .message-input:focus rule,
-     which left the desktop composer with no focus indication at all. Restated
-     here at matching specificity so focus is visible. */
-  body.white-shell.theme-light textarea#messageText:focus {
+     which left the desktop composer with no focus indication at all. Keyed on
+     the frame's :focus-within rather than the textarea's own :focus so it stays
+     equivalent (the textarea is the frame's only focusable child) while also
+     being observable when the document itself is not focused.
+
+     box-shadow is cleared deliberately: white-shell.css adds a 3px translucent
+     ring on focus, which reads as a second frame outside the border. The solid
+     border alone is the focus indication. */
+  body.white-shell.theme-light [class~="message-input-frame"]:focus-within textarea#messageText {
     border-color: var(--ws-primary, #4f6ef7);
+    box-shadow: none;
   }
 
   body.white-shell.theme-light #sendMessageBtn {
