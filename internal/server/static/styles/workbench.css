@@ -4473,15 +4473,19 @@ body.white-shell.theme-light .toolbar-lightning-btn[aria-busy="true"] {
     height: 44px;
   }
 
+  /* The attach button is a bare icon: message-input-frame is the only surface
+     that draws a border here, so the button must not stack a second card behind
+     it. Values are explicit rather than removed because earlier blocks in this
+     same media query set them. */
   body.white-shell.theme-light #attachFileBtn {
     left: 0;
     width: 36px;
     min-width: 36px;
     height: 44px;
     min-height: 44px;
-    border: 1px solid #e1e4ea;
+    border: 0;
     border-radius: 12px;
-    background: #f6f7f9;
+    background: transparent;
     color: #667085;
     font-size: 22px;
   }
@@ -4491,15 +4495,17 @@ body.white-shell.theme-light .toolbar-lightning-btn[aria-busy="true"] {
     align-items: center;
   }
 
+  /* Transparent so the surrounding frame is the single visible input outline.
+     Horizontal padding stays 0 because the frame already insets by 11px. */
   body.white-shell.theme-light textarea#messageText {
     --composer-input-min-height: 44px;
     --composer-input-max-height: 120px;
     min-height: var(--composer-input-min-height);
     max-height: var(--composer-input-max-height);
-    border: 1px solid #e1e4ea;
+    border: 0;
     border-radius: 12px;
-    background: #f3f4f6;
-    padding: 10px 11px;
+    background: transparent;
+    padding: 10px 0 9px;
     font-size: 14px;
     line-height: 1.45;
   }
