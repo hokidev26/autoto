@@ -30,6 +30,7 @@ type Runner struct {
 	modelSettingsMu sync.RWMutex
 	defaultModel    string
 	summaryModel    string
+	safetyModel     string
 	subagentModels  map[string]string
 	subagentPools   map[string][]string
 
@@ -251,6 +252,7 @@ func (r *Runner) SetAgentModelSettings(cfg config.AgentConfig) {
 	r.modelSettingsMu.Lock()
 	r.defaultModel = strings.TrimSpace(cfg.DefaultModel)
 	r.summaryModel = strings.TrimSpace(cfg.SummaryModel)
+	r.safetyModel = strings.TrimSpace(cfg.SafetyModel)
 	r.subagentModels = models
 	r.subagentPools = pools
 	r.modelSettingsMu.Unlock()
@@ -262,6 +264,22 @@ func (r *Runner) SummaryModel() string {
 	}
 	r.modelSettingsMu.RLock()
 	model := r.summaryModel
+	r.modelSettingsMu.RUnlock()
+	return model
+}
+
+// SafetyModel is the model that reviews risky actions before they run. It falls
+// back to the summary model so existing deployments keep working, but can be
+// pointed at a stronger model than the one used for titles and compaction.
+func (r *Runner) SafetyModel() string {
+	if r == nil {
+		return ""
+	}
+	r.modelSettingsMu.RLock()
+	model := r.safetyModel
+	if model == "" {
+		model = r.summaryModel
+	}
 	r.modelSettingsMu.RUnlock()
 	return model
 }

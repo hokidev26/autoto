@@ -129,11 +129,11 @@ func (d dangerReflection) warning() string {
 }
 
 // dangerReflectionEnabled reports whether the gate can run. It requires a
-// configured summary model; without one there is nothing to reflect with, and
+// configured safety model; without one there is nothing to reflect with, and
 // the runner keeps its previous static-only behavior rather than blocking every
 // command on a capability the deployment does not have.
 func (r *Runner) dangerReflectionEnabled() bool {
-	return r != nil && r.providers != nil && strings.TrimSpace(r.SummaryModel()) != ""
+	return r != nil && r.providers != nil && strings.TrimSpace(r.SafetyModel()) != ""
 }
 
 // dangerReflectionPreferred reads the user's switch. An unreadable store
@@ -428,8 +428,8 @@ Answer by calling exactly one tool: ReflectProceed, ReflectConfirm, or ReflectBl
 // reflectOnAction performs the model call. Every failure path returns an
 // Unavailable reflection, which the caller treats as "ask a human".
 func (r *Runner) reflectOnAction(ctx context.Context, agent db.Agent, call tools.Call, risk tools.Risk, action string) dangerReflection {
-	summaryModel := strings.TrimSpace(r.SummaryModel())
-	provider, model, err := r.providers.Resolve(summaryModel)
+	safetyModel := strings.TrimSpace(r.SafetyModel())
+	provider, model, err := r.providers.Resolve(safetyModel)
 	if err != nil {
 		slog.Debug("danger reflection provider unavailable", "agentId", agent.ID, "error", err)
 		return dangerReflection{Unavailable: true, Reason: "Safety reflection is unavailable, so this action needs your approval."}

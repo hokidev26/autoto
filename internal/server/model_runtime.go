@@ -118,6 +118,7 @@ type runtimeModelSettingsRequest struct {
 type agentModelSettingsRequest struct {
 	DefaultModel       strictString        `json:"defaultModel"`
 	SummaryModel       strictString        `json:"summaryModel"`
+	SafetyModel        strictString        `json:"safetyModel"`
 	SubagentModels     map[string]string   `json:"subagentModels"`
 	SubagentModelPools map[string][]string `json:"subagentModelPools"`
 }
@@ -271,6 +272,20 @@ func (s *Server) updateAgentModelSettings(w http.ResponseWriter, r *http.Request
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	// Optional, and blank is meaningful: it clears the override so the safety
+	// gate follows the summary model again.
+	safetyModel := ""
+	if request.SafetyModel.set {
+		safetyModel, err = validateAgentModelReference("safetyModel", request.SafetyModel.value, false)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+	} else {
+		s.cfgMu.RLock()
+		safetyModel = s.cfg.Agent.SafetyModel
+		s.cfgMu.RUnlock()
+	}
 	subagentModels, subagentPools, err := normalizeAgentRoleModelSettings(request.SubagentModels, request.SubagentModelPools)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
@@ -287,6 +302,7 @@ func (s *Server) updateAgentModelSettings(w http.ResponseWriter, r *http.Request
 	s.cfgMu.RUnlock()
 	updated.Agent.DefaultModel = defaultModel
 	updated.Agent.SummaryModel = summaryModel
+	updated.Agent.SafetyModel = safetyModel
 	updated.Agent.SubagentModels = subagentModels
 	updated.Agent.SubagentModelPools = subagentPools
 	path := effectiveConfigPath(updated, configPath)

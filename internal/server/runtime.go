@@ -66,8 +66,11 @@ type runtimePathSummary struct {
 }
 
 type runtimeAgentSummary struct {
-	DefaultModel           string                      `json:"defaultModel"`
-	SummaryModel           string                      `json:"summaryModel"`
+	DefaultModel string `json:"defaultModel"`
+	SummaryModel string `json:"summaryModel"`
+	// SafetyModel is reported as the model actually in force, resolving the
+	// fallback, so the value shown is the one that will judge risky actions.
+	SafetyModel            string                      `json:"safetyModel"`
 	ReviewModel            string                      `json:"reviewModel"`
 	DefaultPermissionMode  string                      `json:"defaultPermissionMode"`
 	DefaultStartInPlanMode bool                        `json:"defaultStartInPlanMode"`
@@ -202,6 +205,7 @@ func buildRuntimeSummary(cfg config.Config, configPath string, startedAt time.Ti
 		Agent: runtimeAgentSummary{
 			DefaultModel:           cfg.Agent.DefaultModel,
 			SummaryModel:           cfg.Agent.SummaryModel,
+			SafetyModel:            firstNonEmptyModel(cfg.Agent.SafetyModel, cfg.Agent.SummaryModel),
 			ReviewModel:            cfg.Agent.ReviewModel,
 			DefaultPermissionMode:  cfg.Agent.DefaultPermissionMode,
 			DefaultStartInPlanMode: cfg.Agent.DefaultStartInPlanMode,
@@ -282,4 +286,15 @@ func (s *Server) runtimeSecuritySummaryForRequest(r *http.Request) runtimeSecuri
 		summary.Message = "远程访问需要认证。请配置 AUTOTO_ACCESS_PASSWORD 或在本地安全设置中创建访问密码。"
 	}
 	return summary
+}
+
+// firstNonEmptyModel mirrors Runner.SafetyModel's fallback so the reported value
+// is what will actually run, not the raw configuration field.
+func firstNonEmptyModel(values ...string) string {
+	for _, value := range values {
+		if trimmed := strings.TrimSpace(value); trimmed != "" {
+			return trimmed
+		}
+	}
+	return ""
 }
