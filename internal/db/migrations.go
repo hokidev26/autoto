@@ -9,7 +9,7 @@ import (
 	"github.com/google/uuid"
 )
 
-const CurrentDBVersion = 54
+const CurrentDBVersion = 55
 
 type migration struct {
 	version int
@@ -72,6 +72,7 @@ var migrations = []migration{
 	{version: 52, name: "lexically sortable timestamps", up: migrateV52SortableTimestamps},
 	{version: 53, name: "remote collaboration phase one", up: migrateV53RemoteCollaboration},
 	{version: 54, name: "danger reflection preference", up: migrateV54DangerReflection},
+	{version: 55, name: "superseded messages", up: migrateV55SupersededMessages},
 }
 
 func runMigrations(ctx context.Context, db *sql.DB) error {
@@ -1438,6 +1439,23 @@ func migrateV53RemoteCollaboration(ctx context.Context, tx *sql.Tx) error {
 // stricter behavior rather than silently losing a control they already had.
 func migrateV54DangerReflection(ctx context.Context, tx *sql.Tx) error {
 	return ensureColumn(ctx, tx, "workflow_preferences", "danger_reflection_enabled", "INTEGER NOT NULL DEFAULT 1")
+}
+
+// migrateV55SupersededMessages lets a correction retire the conversation that
+// followed it. The rows stay: the transcript still shows what was said, but the
+// model no longer sees replies to a question that was withdrawn.
+func migrateV55SupersededMessages(ctx context.Context, tx *sql.Tx) error {
+	// Older databases in the migration test corpus predate agent_messages, and a
+	// fresh install gets the column from the baseline schema instead.
+	exists, err := tableExists(ctx, tx, "agent_messages")
+	if err != nil || !exists {
+		return err
+	}
+	if err := ensureColumn(ctx, tx, "agent_messages", "superseded_at", "TEXT"); err != nil {
+		return err
+	}
+	_, err = tx.ExecContext(ctx, `CREATE INDEX IF NOT EXISTS idx_agent_messages_superseded ON agent_messages(agent_id, superseded_at) WHERE superseded_at IS NOT NULL`)
+	return err
 }
 
 func migrateV52SortableTimestamps(ctx context.Context, tx *sql.Tx) error {

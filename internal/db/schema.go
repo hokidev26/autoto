@@ -275,6 +275,7 @@ CREATE TABLE IF NOT EXISTS agent_messages (
   commit_sha TEXT,
   command_text TEXT,
   correction_of_message_id TEXT REFERENCES agent_messages(id) ON DELETE RESTRICT,
+  superseded_at TEXT,
   created_by TEXT REFERENCES users(id) ON DELETE SET NULL,
   completion_state TEXT,
   stop_reason TEXT,
@@ -282,6 +283,10 @@ CREATE TABLE IF NOT EXISTS agent_messages (
 );
 CREATE INDEX IF NOT EXISTS idx_agent_messages_agent_time ON agent_messages(agent_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_messages_run ON agent_messages(run_id, created_at);
+-- Superseded messages are excluded from every model context build, which walks
+-- a conversation in (created_at, id) order, so the filter needs to be cheap on
+-- exactly that path.
+CREATE INDEX IF NOT EXISTS idx_agent_messages_superseded ON agent_messages(agent_id, superseded_at) WHERE superseded_at IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS agent_message_attachments (
   id TEXT PRIMARY KEY,

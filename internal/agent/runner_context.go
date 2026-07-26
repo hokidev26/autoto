@@ -342,6 +342,12 @@ func providerMessagesForContextPlan(agent db.Agent, messages []db.Message, keepT
 	}
 	compactBefore := contextRecentTurnsStart(messages, start, keepTurns)
 	for i := start; i < len(messages); i++ {
+		// A correction retires the turns that followed it. They stay in the
+		// transcript for the reader, but sending them would have the model answer
+		// a question the user already withdrew.
+		if messages[i].SupersededAt != "" {
+			continue
+		}
 		message := providerMessageFromDBForContext(messages[i], false)
 		if strings.TrimSpace(message.Content) == "" && len(message.Blocks) == 0 {
 			continue
@@ -363,6 +369,9 @@ func (r *Runner) providerMessagesForContextPlan(ctx context.Context, agent db.Ag
 	}
 	compactBefore := contextRecentTurnsStart(messages, start, keepTurns)
 	for i := start; i < len(messages); i++ {
+		if messages[i].SupersededAt != "" {
+			continue
+		}
 		message := r.providerMessageFromDBForContext(ctx, messages[i], false)
 		if strings.TrimSpace(message.Content) == "" && len(message.Blocks) == 0 {
 			continue

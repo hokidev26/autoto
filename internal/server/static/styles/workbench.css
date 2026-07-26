@@ -5076,3 +5076,23 @@ body.theme-dark #settingsContentBody .usage-history-page .uh-truncated { backgro
   #settingsContentBody .usage-history-page .uh-button:hover:not(:disabled) { transform: none; }
 }
 
+
+/* A retired message stays legible — the transcript still has to make sense — but
+   must not read as part of what the model is currently working from. */
+body.white-shell.theme-light .messages .message.message-superseded {
+  opacity: .55;
+}
+body.white-shell.theme-light .messages .message.message-superseded .message-content {
+  text-decoration-line: line-through;
+  text-decoration-color: color-mix(in srgb, var(--ws-muted, #747e90) 45%, transparent);
+  text-decoration-thickness: 1px;
+}
+body.white-shell.theme-light .messages .message.message-superseded:hover {
+  opacity: .85;
+}
+body.white-shell.theme-light .message-correction-note {
+  margin: 6px 0 0;
+  color: var(--ws-muted, #747e90);
+  font-size: 11px;
+  line-height: 1.5;
+}

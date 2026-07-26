@@ -165,12 +165,15 @@ type Message struct {
 	ParentToolID          string            `json:"parentToolUseId,omitempty"`
 	CommandText           string            `json:"commandText,omitempty"`
 	CorrectionOfMessageID string            `json:"correctionOfMessageId,omitempty"`
-	CreatedBy             string            `json:"createdBy,omitempty"`
-	CompletionState       string            `json:"completionState,omitempty"`
-	StopReason            string            `json:"stopReason,omitempty"`
-	CreatedAt             string            `json:"createdAt"`
-	Attachments           []Attachment      `json:"attachments,omitempty"`
-	GeneratedImages       []GeneratedImage  `json:"generatedImages,omitempty"`
+	// SupersededAt is set on the messages a correction retired. They stay in the
+	// transcript so the history remains readable, but are withheld from the model.
+	SupersededAt    string           `json:"supersededAt,omitempty"`
+	CreatedBy       string           `json:"createdBy,omitempty"`
+	CompletionState string           `json:"completionState,omitempty"`
+	StopReason      string           `json:"stopReason,omitempty"`
+	CreatedAt       string           `json:"createdAt"`
+	Attachments     []Attachment     `json:"attachments,omitempty"`
+	GeneratedImages []GeneratedImage `json:"generatedImages,omitempty"`
 }
 
 type MessagePage struct {

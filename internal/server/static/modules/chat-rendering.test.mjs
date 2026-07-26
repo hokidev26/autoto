@@ -1974,3 +1974,27 @@ test("per-message render cache invalidates when a message's index changes (older
     harness.restore();
   }
 });
+
+// A correction retires the turns after it. They must stay in the transcript —
+// deleting them would make the history unreadable — but must be visibly marked,
+// and must not offer a correct button of their own, since correcting an already
+// retired message would supersede nothing.
+test("superseded messages stay visible, are marked, and lose their correct button", () => {
+  const rendered = renderSnapshot([
+    { id: "m1", role: "user", contentText: "live question" },
+    { id: "m2", role: "user", contentText: "withdrawn question", supersededAt: "2026-07-27T00:00:00Z" },
+    { id: "m3", role: "assistant", contentText: "withdrawn answer", supersededAt: "2026-07-27T00:00:00Z" },
+  ]);
+
+  // Nothing is dropped from the transcript.
+  assert.match(rendered.html, /live question/);
+  assert.match(rendered.html, /withdrawn question/);
+  assert.match(rendered.html, /withdrawn answer/);
+
+  const supersededMarkers = rendered.html.match(/message-superseded/g) || [];
+  assert.equal(supersededMarkers.length, 2, "both retired messages should carry the marker class");
+
+  // Only the live user message keeps an edit affordance.
+  const correctButtons = rendered.html.match(/data-correct-message="m\d"/g) || [];
+  assert.deepEqual(correctButtons, ['data-correct-message="m1"']);
+});

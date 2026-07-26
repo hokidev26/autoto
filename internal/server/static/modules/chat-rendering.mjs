@@ -1610,15 +1610,20 @@ export function createChatRenderingController({
     const roleLabel = profileIdentity?.displayName || presentation.role;
     const profileAvatarAttr = usesProfileIdentity ? " data-user-profile-avatar" : "";
     const correctionLabel = message.correctionOfMessageId ? " · 更正" : "";
+    // A correction retires the turns that followed it. They stay readable so the
+    // history still makes sense, but are marked so nobody mistakes them for part
+    // of what the model is currently working from.
+    const superseded = Boolean(message.supersededAt);
+    const supersededLabel = superseded ? ` · ${cr("message.superseded")}` : "";
     const roleHTML = usesProfileIdentity
-      ? `<span data-user-profile-name>${escapeHtml(roleLabel)}</span>${correctionLabel}`
-      : `${escapeHtml(roleLabel)}${correctionLabel}`;
+      ? `<span data-user-profile-name>${escapeHtml(roleLabel)}</span>${correctionLabel}${supersededLabel}`
+      : `${escapeHtml(roleLabel)}${correctionLabel}${supersededLabel}`;
     const timeHTML = presentation.timestampValue
       ? `<time class="message-time" datetime="${escapeAttr(presentation.timestampValue)}" title="${escapeAttr(formatTimestamp(presentation.timestampValue))}">${escapeHtml(formatTimestamp(presentation.timestampValue, { timeOnly: true }))}</time>`
       : "";
-    const actions = `${message.role === "user" ? `<button class="message-copy-btn" type="button" data-correct-message="${escapeAttr(message.id || "")}" title="更正并重新发送">更正</button>` : ""}<button class="message-copy-btn" type="button" data-copy-message="${escapeAttr(String(index))}" title="${escapeAttr(cr("message.copyTitle"))}">${escapeHtml(cr("message.copy"))}</button>`;
+    const actions = `${message.role === "user" && !superseded ? `<button class="message-copy-btn" type="button" data-correct-message="${escapeAttr(message.id || "")}" title="${escapeAttr(cr("message.correctTitle"))}">${escapeHtml(cr("message.correct"))}</button>` : ""}<button class="message-copy-btn" type="button" data-copy-message="${escapeAttr(String(index))}" title="${escapeAttr(cr("message.copyTitle"))}">${escapeHtml(cr("message.copy"))}</button>`;
     return `
-      <div class="message ${presentation.roleClass}${editing ? " message-editing" : ""} chat-message chat-flow-item chat-flow-${presentation.alignment}" data-chat-alignment="${presentation.alignment}" data-message-role="${escapeAttr(presentation.normalizedRole)}">
+      <div class="message ${presentation.roleClass}${editing ? " message-editing" : ""}${superseded ? " message-superseded" : ""} chat-message chat-flow-item chat-flow-${presentation.alignment}" data-chat-alignment="${presentation.alignment}" data-message-role="${escapeAttr(presentation.normalizedRole)}">
         <div class="message-head">
           <div class="message-meta"><span class="message-avatar" aria-hidden="true"${profileAvatarAttr}>${avatarHTML}</span><div class="message-role">${roleHTML}</div></div>
           <div class="message-head-actions">${actions}</div>
@@ -1749,9 +1754,10 @@ export function createChatRenderingController({
         `).join("")}</div>` : ""}
         ${files.length ? `<div class="message-correction-new-files">${files.map((file) => `<span>${escapeHtml(file.name || "附件")}</span>`).join("")}</div>` : ""}
         <label class="message-correction-file-label">添加图片或文本文件<input type="file" data-correction-files multiple /></label>
+        <p class="message-correction-note">${escapeHtml(cr("message.correctionNote"))}</p>
         <div class="message-correction-actions">
-          <button class="ghost-btn mini" type="button" data-correction-cancel>取消</button>
-          <button class="ghost-btn mini" type="submit">更正并重新发送</button>
+          <button class="ghost-btn mini" type="button" data-correction-cancel>${escapeHtml(cr("message.correctionCancel"))}</button>
+          <button class="ghost-btn mini" type="submit">${escapeHtml(cr("message.correctTitle"))}</button>
         </div>
       </form>
     `;

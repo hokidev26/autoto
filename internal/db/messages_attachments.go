@@ -209,8 +209,8 @@ func (s *Store) CreateCorrectionWithRun(ctx context.Context, agentID, sourceMess
 		return Message{}, Run{}, err
 	}
 	defer tx.Rollback()
-	var role string
-	if err := tx.QueryRowContext(ctx, `SELECT role FROM agent_messages WHERE id = ? AND agent_id = ?`, sourceMessageID, agentID).Scan(&role); err != nil {
+	var role, sourceCreatedAt string
+	if err := tx.QueryRowContext(ctx, `SELECT role, created_at FROM agent_messages WHERE id = ? AND agent_id = ?`, sourceMessageID, agentID).Scan(&role, &sourceCreatedAt); err != nil {
 		return Message{}, Run{}, err
 	}
 	if role != "user" {
@@ -267,6 +267,20 @@ func (s *Store) CreateCorrectionWithRun(ctx context.Context, agentID, sourceMess
 		}
 		storedAttachments = append(storedAttachments, attachment)
 	}
+	// Retire the conversation that followed the corrected message, and the
+	// corrected message itself: replying to a question the user withdrew is what
+	// makes an edited turn feel ignored. Ordering is the (created_at, id) tuple
+	// the whole conversation is read by — there is no sequence column — and the
+	// new message is excluded because it was inserted with this same `now`.
+	// Already-superseded rows keep their original timestamp so repeated
+	// corrections do not rewrite history that was retired earlier.
+	if _, err := tx.ExecContext(ctx, `UPDATE agent_messages SET superseded_at = ?
+		WHERE agent_id = ? AND superseded_at IS NULL AND id <> ?
+		  AND (created_at > ? OR (created_at = ? AND id >= ?))`,
+		now, agentID, message.ID, sourceCreatedAt, sourceCreatedAt, sourceMessageID); err != nil {
+		return Message{}, Run{}, err
+	}
+
 	run := Run{ID: NewID(), AgentID: agentID, TriggerMessageID: message.ID, Status: "pending", CheckpointState: RunCheckpointNone, CreatedAt: now, UpdatedAt: now}
 	if _, err := tx.ExecContext(ctx, `INSERT INTO runs (id, agent_id, trigger_message_id, status, checkpoint_state, created_at, updated_at) VALUES (?, ?, ?, 'pending', ?, ?, ?)`, run.ID, run.AgentID, run.TriggerMessageID, run.CheckpointState, run.CreatedAt, run.UpdatedAt); err != nil {
 		return Message{}, Run{}, err
@@ -310,7 +324,7 @@ func (s *Store) ListMessagesPage(ctx context.Context, agentID, before string, li
 	if err != nil {
 		return MessagePage{}, err
 	}
-	query := `SELECT id, agent_id, COALESCE(run_id,''), role, COALESCE(content_json,''), COALESCE(provider_state_json,''), COALESCE(content_text,''), COALESCE(turn_usage_json,''), COALESCE(parent_tool_use_id,''), COALESCE(command_text,''), COALESCE(correction_of_message_id,''), COALESCE(created_by,''), COALESCE(completion_state,''), COALESCE(stop_reason,''), created_at FROM agent_messages WHERE agent_id = ?`
+	query := `SELECT id, agent_id, COALESCE(run_id,''), role, COALESCE(content_json,''), COALESCE(provider_state_json,''), COALESCE(content_text,''), COALESCE(turn_usage_json,''), COALESCE(parent_tool_use_id,''), COALESCE(command_text,''), COALESCE(correction_of_message_id,''), COALESCE(superseded_at,''), COALESCE(created_by,''), COALESCE(completion_state,''), COALESCE(stop_reason,''), created_at FROM agent_messages WHERE agent_id = ?`
 	args := []any{agentID}
 	if cursor.ID != "" {
 		query += ` AND (created_at < ? OR (created_at = ? AND id < ?))`
@@ -392,7 +406,7 @@ func decodeMessageCursor(value string) (messageCursor, error) {
 }
 
 func (s *Store) listMessages(ctx context.Context, agentID string) ([]Message, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id, agent_id, COALESCE(run_id,''), role, COALESCE(content_json,''), COALESCE(provider_state_json,''), COALESCE(content_text,''), COALESCE(turn_usage_json,''), COALESCE(parent_tool_use_id,''), COALESCE(command_text,''), COALESCE(correction_of_message_id,''), COALESCE(created_by,''), COALESCE(completion_state,''), COALESCE(stop_reason,''), created_at FROM agent_messages WHERE agent_id = ? ORDER BY created_at ASC, id ASC`, agentID)
+	rows, err := s.db.QueryContext(ctx, `SELECT id, agent_id, COALESCE(run_id,''), role, COALESCE(content_json,''), COALESCE(provider_state_json,''), COALESCE(content_text,''), COALESCE(turn_usage_json,''), COALESCE(parent_tool_use_id,''), COALESCE(command_text,''), COALESCE(correction_of_message_id,''), COALESCE(superseded_at,''), COALESCE(created_by,''), COALESCE(completion_state,''), COALESCE(stop_reason,''), created_at FROM agent_messages WHERE agent_id = ? ORDER BY created_at ASC, id ASC`, agentID)
 	if err != nil {
 		return nil, err
 	}
@@ -405,7 +419,7 @@ func scanMessages(rows *sql.Rows) ([]Message, error) {
 	for rows.Next() {
 		var m Message
 		var raw, providerState, turnUsage string
-		if err := rows.Scan(&m.ID, &m.AgentID, &m.RunID, &m.Role, &raw, &providerState, &m.ContentText, &turnUsage, &m.ParentToolID, &m.CommandText, &m.CorrectionOfMessageID, &m.CreatedBy, &m.CompletionState, &m.StopReason, &m.CreatedAt); err != nil {
+		if err := rows.Scan(&m.ID, &m.AgentID, &m.RunID, &m.Role, &raw, &providerState, &m.ContentText, &turnUsage, &m.ParentToolID, &m.CommandText, &m.CorrectionOfMessageID, &m.SupersededAt, &m.CreatedBy, &m.CompletionState, &m.StopReason, &m.CreatedAt); err != nil {
 			return nil, err
 		}
 		if raw != "" {
