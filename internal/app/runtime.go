@@ -13,12 +13,10 @@ import (
 	"time"
 
 	"autoto/internal/agent"
-	"autoto/internal/anthropicauth"
 	"autoto/internal/audit"
 	"autoto/internal/automation"
 	"autoto/internal/background"
 	"autoto/internal/channels"
-	"autoto/internal/codexauth"
 	"autoto/internal/compat"
 	"autoto/internal/config"
 	"autoto/internal/db"
@@ -155,12 +153,7 @@ func NewRuntime(options Options) (*Runtime, error) {
 			continue
 		}
 		providerCfg = providerConfigForRuntime(providerCfg, runtimeSettings)
-		if providerCfg.Type == config.ProviderTypeCodex {
-			providerCfg.CredentialStorePath = codexauth.DefaultStoreDir(cfg.Paths.HomeDir)
-		}
-		if providerCfg.Name == anthropicauth.DefaultProviderName && providerCfg.Type == "anthropic" {
-			providerCfg.CredentialStorePath = anthropicauth.DefaultStoreDir(cfg.Paths.HomeDir)
-		}
+		providerCfg = providers.ApplyCredentialStorePath(providerCfg, cfg.Paths.HomeDir)
 		provider, err := providers.NewProvider(providerCfg)
 		if err != nil {
 			logger.Warn("skip unsupported provider", "name", providerCfg.Name, "type", providerCfg.Type, "error", err)

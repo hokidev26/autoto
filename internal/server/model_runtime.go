@@ -13,12 +13,9 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"autoto/internal/anthropicauth"
-	"autoto/internal/codexauth"
 	"autoto/internal/config"
 	"autoto/internal/db"
 	"autoto/internal/providers"
-	"autoto/internal/subscriptionauth"
 )
 
 var (
@@ -573,16 +570,7 @@ func (s *Server) refreshProviderRuntimeIdentity(installationID string) {
 		}
 		providerCfg.ClientVersion = config.Version
 		providerCfg.InstallationID = installationID
-		if providerCfg.Type == config.ProviderTypeCodex {
-			providerCfg.CredentialStorePath = codexauth.DefaultStoreDir(cfg.Paths.HomeDir)
-		}
-		if providerCfg.Name == anthropicauth.DefaultProviderName && providerCfg.Type == "anthropic" {
-			providerCfg.CredentialStorePath = anthropicauth.DefaultStoreDir(cfg.Paths.HomeDir)
-		}
-		switch providerCfg.Type {
-		case config.ProviderTypeGemini, config.ProviderTypeGrok, config.ProviderTypeKimi:
-			providerCfg.CredentialStorePath = subscriptionauth.DefaultStoreDir(cfg.Paths.HomeDir, providerCfg.Type)
-		}
+		providerCfg = providers.ApplyCredentialStorePath(providerCfg, cfg.Paths.HomeDir)
 		provider, err := providers.NewProvider(providerCfg)
 		if err != nil {
 			continue
