@@ -387,6 +387,7 @@ test("appearance presets default to light and migrate version 2 and unversioned 
   assert.deepEqual(defaultAppearancePrefs, {
     styleVersion: 5,
     themeRef: { kind: "preset", id: "light" },
+    themeSchemeRefs: { light: { kind: "preset", id: "light" } },
     themePreset: "light",
     theme: "light",
     density: "comfortable",
@@ -496,6 +497,7 @@ test("appearance backup retains the normalized theme preset", () => {
     assert.deepEqual(JSON.parse(localStorage.getItem(appearancePrefsKey)), {
       styleVersion: 5,
       themeRef: { kind: "preset", id: "apple" },
+      themeSchemeRefs: { light: { kind: "preset", id: "apple" } },
       themePreset: "apple",
       theme: "light",
       density: "compact",
@@ -613,14 +615,62 @@ test("background upload cache stamps reach the static entry, upload modules, and
   assert.equal((i18n.match(/messages-(?:en|zh-CN|zh-TW)\.mjs\?v=[^"\n]*background-upload-1/g) || []).length, 3);
 });
 
-test("global theme toggle returns custom presets to the binary themes", async () => {
+test("global theme toggle switches scheme and is wired to the shared helper", async () => {
   const appMain = await readFile(new URL("./app-main.mjs", import.meta.url), "utf8");
 
   assert.match(appMain, /updateGlobalThemeToggle,/);
-  assert.match(appMain, /themePreset === "apple"\s*\? "dark"/);
-  assert.match(appMain, /themePreset === "cream"\s*\? "dark"/);
-  assert.match(appMain, /themePreset === "cyber"\s*\? "light"/);
-  assert.match(appMain, /setAppearancePreference\("themePreset", nextPreset\)/);
+  // The button used to inline a preset ternary and call
+  // setAppearancePreference("themePreset", ...), which overwrote themeRef and
+  // threw the selected theme away on the very first toggle.
+  assert.match(appMain, /globalThemeToggleBtn"\)\?\.addEventListener\("click", \(\) => \{\s*toggleAppearanceColorScheme\(\);/);
+  assert.doesNotMatch(appMain, /themePreset === "cream"/);
+});
+
+test("toggling the color scheme restores the previously chosen theme", () => {
+  withBrowserStorage(new MemoryStorage(), () => {
+    const controller = createController();
+    const current = () => controller.currentAppearancePreferences();
+
+    controller.setAppearancePreference("themePreset", "cream");
+    assert.equal(current().theme, "light");
+
+    controller.toggleAppearanceColorScheme();
+    assert.equal(current().theme, "dark");
+    assert.deepEqual(current().themeRef, { kind: "preset", id: "dark" });
+
+    // Toggling back returns to cream instead of collapsing to the plain light
+    // preset, which is the selection loss users hit flipping dark mode on/off.
+    controller.toggleAppearanceColorScheme();
+    assert.deepEqual(current().themeRef, { kind: "preset", id: "cream" });
+    assert.equal(current().themePreset, "cream");
+
+    // Each scheme keeps its own slot, so a dark preset and a light preset can
+    // both be remembered and alternate cleanly.
+    controller.setAppearancePreference("themePreset", "cyber");
+    controller.toggleAppearanceColorScheme();
+    assert.equal(current().themePreset, "cream");
+    controller.toggleAppearanceColorScheme();
+    assert.equal(current().themePreset, "cyber");
+  });
+});
+
+test("toggling the color scheme restores a package theme", () => {
+  withBrowserStorage(new MemoryStorage(), () => {
+    const controller = createController();
+    const current = () => controller.currentAppearancePreferences();
+    const pkg = { kind: "package", id: "midnight-ink", revision: "r7", colorScheme: "dark" };
+
+    controller.setAppearancePreference("themeRef", pkg);
+    assert.equal(current().theme, "dark");
+
+    controller.toggleAppearanceColorScheme();
+    assert.equal(current().theme, "light");
+    assert.equal(current().themeRef.kind, "preset");
+
+    controller.toggleAppearanceColorScheme();
+    assert.deepEqual(current().themeRef, pkg);
+    assert.equal(current().theme, "dark");
+  });
 });
 
 test("runtime prefers the Autoto token and falls back to the CodeHarbor token", async () => {

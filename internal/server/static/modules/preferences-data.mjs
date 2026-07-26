@@ -249,9 +249,42 @@ export function appearanceThemeForRef(themeRef, fallbackPreset = "light") {
     : appearanceThemeForPreset(normalized.id);
 }
 
+// A preset is a whole palette rather than a base plus a scheme, so there is no
+// dark "cream": the global light/dark button has to move to a different theme
+// outright. Remembering the last theme picked for each scheme lets it come back
+// to that theme instead of dropping the selection and collapsing every round
+// trip to the plain light/dark presets.
+export function normalizeAppearanceThemeSchemeRefs(value, activeRef = null) {
+  const refs = {};
+  for (const scheme of ["light", "dark"]) {
+    const candidate = value?.[scheme];
+    if (!candidate) continue;
+    const normalized = normalizeAppearanceThemeRef(candidate, scheme);
+    // Drop a slot whose remembered theme does not actually render in that
+    // scheme; restoring it would toggle the shell to the scheme it just left.
+    if (appearanceThemeForRef(normalized, scheme) === scheme) refs[scheme] = normalized;
+  }
+  if (activeRef) {
+    const normalized = normalizeAppearanceThemeRef(activeRef, "light");
+    refs[appearanceThemeForRef(normalized, "light")] = normalized;
+  }
+  return refs;
+}
+
+// Resolves the themeRef/themePreset pair the global light/dark button should
+// move to. Pure so the restore behaviour is testable without a DOM.
+export function appearanceThemeToggleTarget(prefs = {}) {
+  const activeRef = normalizeAppearanceThemeRef(prefs.themeRef, prefs.themePreset);
+  const target = appearanceThemeForRef(activeRef, prefs.themePreset) === "dark" ? "light" : "dark";
+  const remembered = normalizeAppearanceThemeSchemeRefs(prefs.themeSchemeRefs)[target];
+  const themeRef = remembered || { kind: "preset", id: target };
+  return { themeRef, themePreset: themeRef.kind === "preset" ? themeRef.id : target };
+}
+
 export const defaultAppearancePrefs = {
   styleVersion: appearanceStyleVersion,
   themeRef: { kind: "preset", id: "light" },
+  themeSchemeRefs: { light: { kind: "preset", id: "light" } },
   themePreset: "light",
   theme: "light",
   density: "comfortable",

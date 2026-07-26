@@ -7,9 +7,11 @@ import {
   appearancePrefsKey,
   appearanceStyleVersion,
   appearanceThemeForRef,
+  appearanceThemeToggleTarget,
   normalizeAppearanceBackground,
   normalizeAppearanceThemePreset,
   normalizeAppearanceThemeRef,
+  normalizeAppearanceThemeSchemeRefs,
   chatDraftsKey,
   defaultAppearancePrefs,
   defaultIMGatewayPrefs,
@@ -559,6 +561,7 @@ export function createSettingsPreferencesController({
     return {
       styleVersion: appearanceStyleVersion,
       themeRef,
+      themeSchemeRefs: normalizeAppearanceThemeSchemeRefs(value.themeSchemeRefs, themeRef),
       themePreset,
       theme: appearanceThemeForRef(themeRef, themePreset),
       density,
@@ -622,6 +625,14 @@ export function createSettingsPreferencesController({
       prefs[field] = value;
     }
     return saveAppearancePreferences(prefs, { notify: true });
+  }
+
+  // The global light/dark button is a scheme switch, not a theme picker: it must
+  // not overwrite the chosen theme the way setAppearancePreference("themePreset")
+  // deliberately does for the picker itself.
+  function toggleAppearanceColorScheme() {
+    const prefs = currentAppearancePreferences();
+    return saveAppearancePreferences({ ...prefs, ...appearanceThemeToggleTarget(prefs) });
   }
 
   function shouldLogAgentEvents() {
@@ -936,6 +947,7 @@ export function createSettingsPreferencesController({
     setPrimaryModePreference,
     shouldLogAgentEvents,
     skillsPrefsExport,
+    toggleAppearanceColorScheme,
     updateSidebarAccountSummary,
   };
 }

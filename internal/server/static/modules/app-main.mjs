@@ -1249,6 +1249,7 @@ const {
   setAppearancePreference,
   setNotificationPreference,
   setPrimaryModePreference,
+  toggleAppearanceColorScheme,
   shouldLogAgentEvents,
   skillsPrefsExport,
 } = settingsPreferences;
@@ -3236,15 +3237,7 @@ document.querySelectorAll("[data-global-rail-target]").forEach((node) => {
   node.addEventListener("click", () => activateGlobalRailTarget(node.dataset.globalRailTarget));
 });
 $("globalThemeToggleBtn")?.addEventListener("click", () => {
-  const { themePreset, theme } = currentAppearancePreferences();
-  const nextPreset = themePreset === "apple"
-    ? "dark"
-    : themePreset === "cream"
-      ? "dark"
-      : themePreset === "cyber"
-        ? "light"
-        : theme === "dark" ? "light" : "dark";
-  setAppearancePreference("themePreset", nextPreset);
+  toggleAppearanceColorScheme();
 });
 $("refreshBtn").addEventListener("click", () => refreshPrimaryMode().catch(showError));
 document.querySelectorAll("[data-create-conversation]").forEach((button) => {

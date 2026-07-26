@@ -1852,6 +1852,7 @@ test("unversioned dark appearance migrates once to light and explicit versioned 
     assert.deepEqual(migrated, {
       styleVersion: 5,
       themeRef: { kind: "preset", id: "light" },
+      themeSchemeRefs: { light: { kind: "preset", id: "light" } },
       themePreset: "light",
       theme: "light",
       density: "compact",
@@ -1889,6 +1890,7 @@ test("appearance backup import and export normalize the new schema without rejec
     assert.deepEqual(JSON.parse(storage.getItem(appearancePrefsKey)), {
       styleVersion: 5,
       themeRef: { kind: "preset", id: "light" },
+      themeSchemeRefs: { light: { kind: "preset", id: "light" } },
       themePreset: "light",
       theme: "light",
       density: "comfortable",
@@ -1903,6 +1905,7 @@ test("appearance backup import and export normalize the new schema without rejec
     assert.deepEqual(controller.createLocalPreferencesBackup().preferences[appearancePrefsKey], {
       styleVersion: 5,
       themeRef: { kind: "preset", id: "light" },
+      themeSchemeRefs: { light: { kind: "preset", id: "light" } },
       themePreset: "light",
       theme: "light",
       density: "comfortable",
