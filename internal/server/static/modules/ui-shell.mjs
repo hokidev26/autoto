@@ -535,7 +535,12 @@ export function createUIShellController({
             valueNode.dataset.mobileLabel = compactComposerModelLabel(option.value || option.textContent);
           }
           const fieldLabel = label?.textContent?.trim();
-          trigger.setAttribute("aria-label", fieldLabel ? `${fieldLabel}：${displayText}` : displayText);
+          const triggerLabel = fieldLabel ? `${fieldLabel}：${displayText}` : displayText;
+          trigger.setAttribute("aria-label", triggerLabel);
+          // Also as a tooltip: the model trigger shows only its icon now, so
+          // aria-label alone would leave sighted users with no way to read which
+          // model is selected without opening the menu.
+          trigger.title = triggerLabel;
         }
         trigger.disabled = Boolean(select?.disabled);
       };

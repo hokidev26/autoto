@@ -5099,3 +5099,51 @@ body.white-shell.theme-light .message-correction-note {
    already aria-hidden, so nothing is announced either way, and restoring the
    carets is a one-line revert. */
 body.white-shell.theme-light .composer-select-chevron { display: none; }
+
+/* Model selector reduced to its icon at every width. The name it displayed was
+   the longest thing in the composer toolbar and pushed everything else around
+   as models changed, while the trigger already carries "模型：<name>" as its
+   aria-label and tooltip.
+
+   The value is clipped rather than display:none so assistive tech still reads
+   the current model — the same technique the narrow icon-rail already uses, so
+   the two agree instead of the layout changing shape at 480px. */
+body.white-shell.theme-light .composer-model-field .composer-select-value {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* A definite square, not width:auto — the pill has no intrinsic content left
+   once the name is clipped, so auto collapsed it to zero and the trigger spilled
+   out of its own box. 32px matches the permission pill beside it. */
+body.white-shell.theme-light :is(.composer-model-field, .toolbar-model-pill) {
+  width: 32px;
+  min-width: 32px;
+  max-width: 32px;
+  flex: 0 0 32px;
+}
+
+body.white-shell.theme-light .toolbar-model-pill .composer-select-trigger {
+  width: 100%;
+  justify-content: center;
+  padding: 0;
+}
+
+/* The icon is display:none above 767px, because the model field normally shows
+   its name there. Clipping the name without this left a 32px empty box. */
+body.white-shell.theme-light .toolbar-model-pill .composer-select-icon {
+  display: inline-flex;
+  flex: 0 0 18px;
+}
+
+body.white-shell.theme-light .toolbar-model-pill .composer-select-icon svg {
+  width: 18px;
+  height: 18px;
+}

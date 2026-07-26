@@ -1071,7 +1071,12 @@ test("narrow composer switches atomically to a fixed unframed icon rail", async 
   assert.match(iconRail, /\.toolbar-lightning-btn:not\(\.hidden\),[\s\S]*?\.composer-toolbar-icon\s*\{[^}]*width:\s*28px[^}]*display:\s*inline-flex[^}]*border:\s*0[^}]*background:\s*transparent/);
   assert.match(iconRail, /\.model-tool-btn\.icon-only\.composer-toolbar-icon\s*\{[^}]*width:\s*28px[^}]*height:\s*30px[^}]*min-height:\s*30px/);
   assert.match(iconRail, /\.composer-actions\s*\{[^}]*flex:\s*0 0 auto[^}]*gap:\s*4px/);
-  assert.match(uiShell, /trigger\.setAttribute\("aria-label", fieldLabel \? `\$\{fieldLabel\}：\$\{displayText\}` : displayText\)/);
+  // The model trigger renders icon-only, so the composed "field：value" label is
+  // the only place the selected model is stated; it must reach both assistive
+  // tech and a sighted hover.
+  assert.match(uiShell, /const triggerLabel = fieldLabel \? `\$\{fieldLabel\}：\$\{displayText\}` : displayText;/);
+  assert.match(uiShell, /trigger\.setAttribute\("aria-label", triggerLabel\);/);
+  assert.match(uiShell, /trigger\.title = triggerLabel;/);
 });
 
 test("mobile sidebar closes safely during desktop startup and cache updates propagate", async () => {
