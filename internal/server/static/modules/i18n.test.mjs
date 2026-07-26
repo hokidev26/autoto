@@ -139,7 +139,7 @@ test("versioned i18n instances share locale state with dynamic message packs", a
     versionedI18n.setUILocale("zh-TW", root);
     assert.equal(currentUILocale(), "zh-TW");
     assert.equal(versionedChatMessages.t("run.review"), "任務回顧");
-    assert.equal(versionedChatMessages.t("run.noToolCalls"), "本輪沒有工具呼叫。");
+    assert.equal(versionedChatMessages.t("run.rollback"), "回復到開始前");
   } finally {
     setUILocale(previous, root);
   }
