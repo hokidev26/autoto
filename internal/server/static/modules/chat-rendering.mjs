@@ -1757,7 +1757,7 @@ export function createChatRenderingController({
         <p class="message-correction-note">${escapeHtml(cr("message.correctionNote"))}</p>
         <div class="message-correction-actions">
           <button class="ghost-btn mini" type="button" data-correction-cancel>${escapeHtml(cr("message.correctionCancel"))}</button>
-          <button class="ghost-btn mini" type="submit">${escapeHtml(cr("message.correctTitle"))}</button>
+          <button class="ghost-btn mini" type="submit" title="${escapeAttr(cr("message.correctTitle"))}">${escapeHtml(cr("message.correctionSubmit"))}</button>
         </div>
       </form>
     `;

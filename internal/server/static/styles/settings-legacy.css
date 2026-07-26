@@ -1197,6 +1197,14 @@ body.white-shell.theme-light .message-performance-live { border-color: #cbd4ff; 
 .message-correction-new-files { display: flex; flex-wrap: wrap; gap: 6px; }
 .message-correction-new-files span { border: 1px solid var(--line); border-radius: 999px; padding: 3px 8px; font-size: 11px; }
 .message-correction-actions { display: flex; justify-content: flex-end; gap: 8px; }
+/* A blanket `.ghost-btn.mini { display: none }` in the narrow-screen block below
+   was written for the composer but matches globally, so it hid this editor's
+   cancel and submit buttons outright — on a phone the correction editor opened
+   with no way to save it and no way to close it. Other components each had to
+   win the same fight (.backend-panel, .backend-card-actions, .plan-card-actions);
+   this selector is more specific than the blanket rule, so it holds at every
+   width without depending on source order. */
+.message-correction-actions .ghost-btn.mini { display: inline-flex; }
 
 .settings-nav,
 .settings-content-body,
