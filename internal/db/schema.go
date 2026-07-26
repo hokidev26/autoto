@@ -232,6 +232,8 @@ CREATE INDEX IF NOT EXISTS idx_runs_status ON runs(status);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_runs_agent_execution_generation ON runs(agent_id, execution_generation) WHERE execution_generation > 0;
 CREATE UNIQUE INDEX IF NOT EXISTS idx_runs_dispatch_id ON runs(dispatch_id) WHERE dispatch_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_runs_agent_execution_after ON runs(agent_id, execution_generation, id);
+CREATE INDEX IF NOT EXISTS idx_runs_continuation_pending ON runs(status, updated_at ASC, id ASC) WHERE status = 'continuation_pending';
+CREATE INDEX IF NOT EXISTS idx_runs_waiting_background_task ON runs(waiting_background_task_id, status, id) WHERE waiting_background_task_id IS NOT NULL;
 CREATE TRIGGER IF NOT EXISTS trg_runs_auto_continuation_mode_insert
 BEFORE INSERT ON runs FOR EACH ROW
 WHEN NEW.auto_continuation_mode NOT IN ('off', 'safe')
@@ -349,6 +351,7 @@ CREATE TABLE IF NOT EXISTS agent_tool_calls (
 CREATE INDEX IF NOT EXISTS idx_tool_calls_agent ON agent_tool_calls(agent_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_tool_calls_run ON agent_tool_calls(run_id, created_at);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_tool_calls_tool_use ON agent_tool_calls(agent_id, tool_use_id);
+CREATE INDEX IF NOT EXISTS idx_tool_calls_run_updated ON agent_tool_calls(run_id, updated_at DESC);
 
 CREATE TABLE IF NOT EXISTS api_requests (
   id TEXT PRIMARY KEY,
@@ -993,6 +996,7 @@ CREATE INDEX IF NOT EXISTS idx_notification_deliveries_claim ON notification_del
 CREATE INDEX IF NOT EXISTS idx_notification_deliveries_event ON notification_deliveries(event_type, created_at DESC, id);
 CREATE INDEX IF NOT EXISTS idx_notification_deliveries_agent ON notification_deliveries(agent_id, created_at DESC, id);
 CREATE INDEX IF NOT EXISTS idx_notification_deliveries_run ON notification_deliveries(run_id, created_at DESC, id);
+CREATE INDEX IF NOT EXISTS idx_notification_deliveries_generation ON notification_deliveries(agent_id, execution_generation, created_at, id);
 `
 
 const channelPersistenceSchemaSQL = `

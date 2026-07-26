@@ -41,6 +41,9 @@ CREATE TABLE runs (
 );
 CREATE INDEX idx_runs_agent_started ON runs(agent_id, started_at DESC);
 CREATE INDEX idx_runs_status ON runs(status);
+-- A v16 database predates both these columns and any index over them, so the
+-- index has to go first; SQLite refuses to drop a column an index references.
+DROP INDEX IF EXISTS idx_tool_calls_run_updated;
 ALTER TABLE agent_tool_calls DROP COLUMN started_at;
 ALTER TABLE agent_tool_calls DROP COLUMN completed_at;
 ALTER TABLE agent_tool_calls DROP COLUMN updated_at;

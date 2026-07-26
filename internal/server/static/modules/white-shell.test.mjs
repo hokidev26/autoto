@@ -1527,7 +1527,10 @@ test("settings shell docks beside the global rail and keeps complete mobile navi
   // asserts reparenting, the display:none !important + aria-hidden treatment of
   // the conversation surfaces, dialog-semantics swap and restoration, full
   // inline-style cleanup, and idempotent enter/exit.
-  assert.match(appMain, /enterSettingsShell,\n\s*exitSettingsShell,/);
+  // \r?\n, not \n: git checks these files out with CRLF on Windows, so a bare
+  // \n makes this the only assertion in the suite that fails on a Windows
+  // working tree while passing in CI.
+  assert.match(appMain, /enterSettingsShell,\r?\n\s*exitSettingsShell,/);
   assert.match(appMain, /if \(state\.settingsMobileViewport\) exitSettingsShell\(\);\s*\n\s*else enterSettingsShell\(\);/);
   assert.match(appMain, /closeSettingsModal\(\{ restoreWorkbench: false, restoreFocus: false \}\)/);
   assert.match(appMain, /function closeSettingsModal[\s\S]*?discardProviderConsoleDraft\(\);/);
