@@ -1714,12 +1714,13 @@ body.white-shell.theme-light.theme-dark #settingsModal {
     font-size: 20px;
   }
 
+  /* The settings sidebar collapses into a sticky header on narrow screens, so
+     this button rode along above every settings page and subpage, spending the
+     scarcest space on the least frequent action. The wizard still opens by
+     itself on first run and whenever the preferred model has gone missing, so
+     the manual entry only earns its place on desktop. */
   #settingsModal .settings-wizard-btn {
-    min-height: 40px;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    margin: 0 12px 10px;
+    display: none;
   }
 
   #settingsModal .settings-sidebar-search {

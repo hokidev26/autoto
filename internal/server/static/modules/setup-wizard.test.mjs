@@ -145,5 +145,9 @@ test("static shell mounts the first-run flow and keeps a manual settings entry",
   assert.match(appMain, /const setupStartup = maybeOpenSetupWizard\(\)/);
   assert.match(styles, /\.setup-wizard-tool-list/);
   assert.match(styles, /\.setup-wizard-model\.selected/);
-  assert.match(settingsStyles, /#settingsModal \.settings-wizard-btn\s*\{[^}]*display:\s*inline-flex/);
+  // The manual entry stays in the markup and on desktop, but narrow screens
+  // collapse the sidebar into a sticky header where it would sit above every
+  // settings page; the wizard still auto-opens on first run and when the
+  // preferred model is unavailable, so nothing becomes unreachable.
+  assert.match(settingsStyles, /#settingsModal \.settings-wizard-btn\s*\{[^}]*display:\s*none/);
 });
