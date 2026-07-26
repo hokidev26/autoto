@@ -1794,6 +1794,10 @@ test("Agent 模型设置规范化角色路由并生成后端 payload", () => {
   assert.deepEqual(normalized, {
     defaultModel: "codex:gpt-5.5",
     summaryModel: "codex:gpt-5.5",
+    // Blank means "follow the summary model". Unlike summaryModel it must NOT
+    // inherit defaultModel, or an unset safety review would silently pin itself
+    // to whatever the chat model happens to be.
+    safetyModel: "",
     defaultReasoningEffort: "high",
     subagentModels: { explore: "openai:gpt-4.1-mini" },
     subagentModelPools: { explore: ["codex:gpt-5.5", "openai:gpt-4.1-mini"] },
@@ -1805,12 +1809,27 @@ test("Agent 模型设置规范化角色路由并生成后端 payload", () => {
   }), {
     defaultModel: "codex:gpt-5.5",
     summaryModel: "codex:gpt-5.5",
+    safetyModel: "",
     subagentModels: { explore: "openai:gpt-4.1-mini", plan: "anthropic:claude-sonnet" },
     subagentModelPools: {
       explore: ["codex:gpt-5.5", "openai:gpt-4.1-mini"],
       plan: ["anthropic:claude-sonnet", "codex:gpt-5.5"],
     },
   });
+});
+
+test("安全审查模型可独立设定且留空时沿用摘要模型", () => {
+  const inherited = normalizeAgentModelSettings({ defaultModel: "codex:gpt-5.5", summaryModel: "openai:gpt-4.1-mini" });
+  assert.equal(inherited.safetyModel, "");
+  assert.equal(agentModelSettingsPayload(inherited).safetyModel, "");
+
+  const overridden = normalizeAgentModelSettings({
+    defaultModel: "codex:gpt-5.5",
+    summaryModel: "openai:gpt-4.1-mini",
+    safetyModel: " anthropic:claude-opus-5 ",
+  });
+  assert.equal(overridden.safetyModel, "anthropic:claude-opus-5");
+  assert.equal(agentModelSettingsPayload(overridden).safetyModel, "anthropic:claude-opus-5");
 });
 
 test("模型聚合与默认推理强度请求遵循后端契约", () => {
