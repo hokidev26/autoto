@@ -248,6 +248,8 @@ export default Object.freeze({
       awaitingApproval: "等待批准",
     },
     permissionGuard: "权限保护",
+    dangerReflection: "危险反思",
+    dangerReflectionDescription: "执行前先让模型审视高风险操作",
 
     saveAgentSettings: "保存当前模型、权限和目录",
     credentials: "凭证和中转站",

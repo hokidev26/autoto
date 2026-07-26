@@ -3569,7 +3569,7 @@ body.white-shell.theme-light .composer-select-chevron {
   min-height: 36px;
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-start;
   gap: 14px;
   border: 0;
   border-radius: 7px;
@@ -3628,9 +3628,16 @@ body.white-shell.theme-light .composer-select-chevron {
 }
 
 .composer-select-option-check {
-  flex: 0 0 auto;
+  /* Fixed slot so the checkmark column lines up the same whether or not an
+     option is selected, and margin-left:auto (rather than the option's own
+     justify-content) is what pins it to the row's right edge — see
+     .composer-select-option above. */
+  flex: 0 0 16px;
+  width: 16px;
+  margin-left: auto;
   color: #20263a;
   font-size: 15px;
+  text-align: center;
 }
 
 .composer-select-popover.composer-model-popover {
@@ -3705,6 +3712,7 @@ body.white-shell.theme-light .composer-select-chevron {
 }
 
 .composer-select-popover.composer-permission-popover {
+  min-width: 230px;
   padding: 8px;
   border-color: #d9dee7;
   border-radius: 8px;
@@ -3797,6 +3805,32 @@ body.white-shell.theme-light .composer-select-chevron {
   font-weight: 700;
 }
 
+.composer-permission-danger-reflection-copy {
+  min-width: 0;
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.composer-permission-danger-reflection-desc {
+  overflow: hidden;
+  color: #8a93a3;
+  font-size: 11px;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.composer-permission-danger-reflection-toggle {
+  flex: 0 0 auto;
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: #4057d6;
+  cursor: pointer;
+}
+
 .composer-message-mode-section-title {
   padding-top: 2px;
 }
@@ -3840,6 +3874,11 @@ body.white-shell.theme-light .composer-select-chevron {
   border-radius: 10px;
   background: rgba(118, 118, 128, .12);
   color: #3a4150;
+}
+
+.mobile-permission-sheet .composer-permission-danger-reflection-toggle {
+  width: 20px;
+  height: 20px;
 }
 
 .mobile-permission-sheet .composer-message-mode-section-title {

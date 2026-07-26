@@ -678,7 +678,11 @@ export function createWorkspaceExplorerController({
     const external = element("workspaceOpenPreviewBtn");
     if (external) external.disabled = !url;
     const address = element("workspacePreviewAddress");
-    if (address && address.value !== url) address.value = url || "";
+    // This runs on every ~2s status poll (see schedulePreviewPolling/pollIntervalMs
+    // above); without this guard a poll tick would stomp on a URL the user is
+    // mid-way through typing into the address bar.
+    const addressFocused = address && address.ownerDocument?.activeElement === address;
+    if (address && !addressFocused && address.value !== url) address.value = url || "";
     const history = state.workspacePreviewHistory || [];
     const historyIndex = Number(state.workspacePreviewHistoryIndex ?? -1);
     const back = element("workspacePreviewBackBtn");

@@ -202,6 +202,47 @@ test("preview URL stays cross-origin and iframe sandbox forbids origin and top n
   assert.doesNotMatch(PREVIEW_IFRAME_SANDBOX, /allow-top-navigation/);
 });
 
+test("preview address bar is not overwritten by the status poll while the user is typing", () => {
+  const state = { agent: { id: "agent-a" } };
+  const fakeDoc = { activeElement: null };
+  const address = { value: "", ownerDocument: fakeDoc };
+  const controller = createWorkspaceExplorerController({
+    state,
+    request: async () => ({}),
+    getElementById: (id) => (id === "workspacePreviewAddress" ? address : null),
+  });
+  controller.setAgent(state.agent);
+  state.workspacePreviewURL = "http://127.0.0.1:3000/";
+
+  // The user is mid-edit: the address input is the active element in its own
+  // document, so a render triggered by the 2s status poll must not clobber it.
+  address.value = "http://example.com/still-typing";
+  fakeDoc.activeElement = address;
+  controller.renderWorkspace();
+  assert.equal(address.value, "http://example.com/still-typing");
+
+  // Once the field is no longer focused, the next render is free to resync it
+  // to the real preview URL.
+  fakeDoc.activeElement = null;
+  controller.renderWorkspace();
+  assert.equal(address.value, "http://127.0.0.1:3000/");
+});
+
+test("preview address bar renders normally when the element has no owner document", () => {
+  const state = { agent: { id: "agent-a" } };
+  const address = { value: "" };
+  const controller = createWorkspaceExplorerController({
+    state,
+    request: async () => ({}),
+    getElementById: (id) => (id === "workspacePreviewAddress" ? address : null),
+  });
+  controller.setAgent(state.agent);
+  state.workspacePreviewURL = "http://127.0.0.1:4000/";
+
+  assert.doesNotThrow(() => controller.renderWorkspace());
+  assert.equal(address.value, "http://127.0.0.1:4000/");
+});
+
 test("Agent switch closes workspace, clears file and preview state, and invalidates sequences", () => {
   const state = { agent: { id: "agent-a" } };
   const controller = createWorkspaceExplorerController({

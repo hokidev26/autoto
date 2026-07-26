@@ -248,6 +248,8 @@ export default Object.freeze({
       awaitingApproval: "Awaiting approval",
     },
     permissionGuard: "Permission protection",
+    dangerReflection: "Danger reflection",
+    dangerReflectionDescription: "Model reviews risky actions before they run",
 
     saveAgentSettings: "Save the current model, permissions, and folder",
     credentials: "Credentials and relay",

@@ -1,4 +1,5 @@
 import { $ } from "./dom.mjs";
+import { api } from "./runtime.mjs";
 
 export const sidebarWidthPreferenceKey = "autoto.ui.sessionSidebarWidth";
 export const globalRailCollapsedPreferenceKey = "autoto.ui.globalRailCollapsed";
@@ -165,6 +166,8 @@ export function createUIShellController({
   resizeTerminal,
   showError,
   translate = (key) => key,
+  // Overridable for tests, same convention as provider-console.mjs's requestAPI.
+  requestAPI = api,
 } = {}) {
   let settingsDialogFocusReturn = null;
   const mobileViewport = () => window.matchMedia?.("(max-width: 767px)")?.matches
@@ -406,6 +409,106 @@ export function createUIShellController({
     let active = null;
     let bodyOverflow = "";
     const observers = [];
+
+    // Workflow preferences (currently just dangerReflectionEnabled) back the
+    // toggle appended in appendPermissionSafetyStatus(). The permission menu is
+    // rebuilt from scratch on every open, but the preference itself is fetched
+    // once and cached here; loadWorkflowPreferences() is safe to call any
+    // number of times while a request is already in flight or once it has
+    // already resolved.
+    let workflowPreferences = null;
+    let workflowPreferencesPromise = null;
+    const dangerReflectionToggleNodes = new Set();
+
+    const dangerReflectionEnabled = () => Boolean(workflowPreferences?.dangerReflectionEnabled);
+
+    const syncDangerReflectionToggleNodes = () => {
+      const enabled = dangerReflectionEnabled();
+      for (const toggle of [...dangerReflectionToggleNodes]) {
+        if (toggle.isConnected === false) {
+          dangerReflectionToggleNodes.delete(toggle);
+          continue;
+        }
+        toggle.checked = enabled;
+        toggle.setAttribute("aria-checked", enabled ? "true" : "false");
+      }
+    };
+
+    const loadWorkflowPreferences = () => {
+      if (workflowPreferences) return Promise.resolve(workflowPreferences);
+      if (workflowPreferencesPromise) return workflowPreferencesPromise;
+      if (typeof requestAPI !== "function") return Promise.resolve(null);
+      workflowPreferencesPromise = requestAPI("/api/workflow/preferences")
+        .then((data) => {
+          workflowPreferences = data && typeof data === "object" ? data : {};
+          syncDangerReflectionToggleNodes();
+          return workflowPreferences;
+        })
+        .catch(() => null)
+        .finally(() => {
+          workflowPreferencesPromise = null;
+        });
+      return workflowPreferencesPromise;
+    };
+
+    const toggleDangerReflection = async (toggle) => {
+      const next = toggle.checked;
+      const previous = !next;
+      toggle.disabled = true;
+      try {
+        // PUT requires the full preferences object, so the other fields must be
+        // known first — if they can't be loaded, refuse rather than risk
+        // resending the safety-critical confirmation flags with wrong defaults.
+        const current = workflowPreferences || (await loadWorkflowPreferences());
+        if (!current || typeof requestAPI !== "function") throw new Error("Workflow preferences are unavailable");
+        const payload = {
+          requireConfirmationForExec: Boolean(current.requireConfirmationForExec),
+          requireConfirmationForWrites: Boolean(current.requireConfirmationForWrites),
+          allowReadOnlyByDefault: Boolean(current.allowReadOnlyByDefault),
+          dangerReflectionEnabled: next,
+        };
+        const response = await requestAPI("/api/workflow/preferences", { method: "PUT", body: JSON.stringify(payload) });
+        workflowPreferences = response && typeof response === "object" ? response : payload;
+        syncDangerReflectionToggleNodes();
+      } catch (error) {
+        toggle.checked = previous;
+        toggle.setAttribute("aria-checked", previous ? "true" : "false");
+        showError?.(error);
+      } finally {
+        toggle.disabled = false;
+      }
+    };
+
+    const createDangerReflectionRow = () => {
+      const row = document.createElement("div");
+      row.className = "composer-permission-safety-status composer-permission-danger-reflection";
+      const icon = document.createElement("span");
+      icon.className = "composer-permission-option-icon composer-permission-safety-icon";
+      icon.innerHTML = permissionMenuIconMarkup.default;
+      const copy = document.createElement("span");
+      copy.className = "composer-permission-danger-reflection-copy";
+      const label = document.createElement("span");
+      label.className = "composer-permission-safety-label";
+      label.textContent = translate("chat.dangerReflection");
+      const description = document.createElement("span");
+      description.className = "composer-permission-danger-reflection-desc";
+      description.textContent = translate("chat.dangerReflectionDescription");
+      copy.append(label, description);
+      const toggle = document.createElement("input");
+      toggle.type = "checkbox";
+      toggle.className = "composer-permission-danger-reflection-toggle";
+      toggle.setAttribute("role", "switch");
+      toggle.setAttribute("aria-label", translate("chat.dangerReflection"));
+      const checked = dangerReflectionEnabled();
+      toggle.checked = checked;
+      toggle.setAttribute("aria-checked", checked ? "true" : "false");
+      toggle.addEventListener("change", () => toggleDangerReflection(toggle));
+      dangerReflectionToggleNodes.add(toggle);
+      row.append(icon, copy, toggle);
+      loadWorkflowPreferences();
+      return row;
+    };
+
     const bindings = triggers.map((trigger) => {
       const select = $(trigger.dataset.composerSelect);
       const valueNode = trigger.querySelector(".composer-select-value");
@@ -592,7 +695,7 @@ export function createUIShellController({
       state.className = "composer-permission-safety-state";
       state.textContent = translate("common.enabled");
       status.append(icon, label, state);
-      target.append(divider, status);
+      target.append(divider, status, createDangerReflectionRow());
     };
 
     const chooseMessageMode = (mode) => {
