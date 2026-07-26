@@ -425,11 +425,21 @@ export function subscriptionAccountQuotaBudgets(account = {}) {
   return budgets;
 }
 
-function renderSubscriptionQuotaCell(account, st) {
+// Providers whose upstream reports a plan allowance rather than live
+// consumption. Measured against a live Grok account: five requests inside 22
+// seconds all came back remaining == limit, on a 21-request limit, so the
+// figure never counts down. Rendering it as "remaining / limit" promised a
+// countdown that does not exist, so these providers show the allowance alone.
+// Nothing else changes: the headers are still captured, and if xAI starts
+// reporting real consumption the value simply becomes accurate again.
+const nominalQuotaProviders = new Set(["grok"]);
+
+function renderSubscriptionQuotaCell(account, st, provider = "") {
   const budgets = subscriptionAccountQuotaBudgets(account);
   if (!budgets.length) return `<span class="subscription-quota-empty">${escapeHtml(st("quotaPending"))}</span>`;
+  const nominalOnly = nominalQuotaProviders.has(String(provider).trim().toLowerCase());
   const lines = budgets.map(({ labelKey, remaining, limit }) => {
-    const value = remaining === null
+    const value = (remaining === null || (nominalOnly && limit !== null))
       ? st("quotaLimitOnly", { limit: formatNumber(limit) })
       : limit === null
         ? formatNumber(remaining)
@@ -487,7 +497,7 @@ function renderSubscriptionAccountRow(provider, account, st, now, editing, busy)
       ? `<label class="codex-inline-edit-field"><span class="mp-visually-hidden">${escapeHtml(st("priority"))}</span><input class="codex-priority-input settings-text-input settings-form-field" type="number" min="1" max="1000000" step="1" value="${escapeAttr(editPriority)}" data-subscription-edit-priority="${escapeAttr(id)}" data-subscription-provider="${providerAttr}" data-select-on-focus="true"${disabledAttributes}></label>`
       : `<span class="codex-priority-value">${escapeHtml(String(priority))}</span>`}</td>
     <td data-label="${escapeAttr(st("status"))}"><span class="settings-status-pill settings-badge ${escapeAttr(status.tone)}">${escapeHtml(st(status.key))}</span></td>
-    <td data-label="${escapeAttr(st("quota"))}">${renderSubscriptionQuotaCell(account, st)}</td>
+    <td data-label="${escapeAttr(st("quota"))}">${renderSubscriptionQuotaCell(account, st, provider)}</td>
     <td data-label="${escapeAttr(st("lastUpdated"))}">${escapeHtml(lastUpdated ? formatCodexTimestamp(lastUpdated) : st("never"))}</td>
     <td data-label="${escapeAttr(st("actions"))}"><div class="codex-account-actions settings-inline-actions" role="group">
       ${isEditing

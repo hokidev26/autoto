@@ -135,8 +135,8 @@ test("subscription account table carries provider on every action and escapes fi
 });
 
 test("account quota renders upstream rate-limit budgets and stays pending without a snapshot", () => {
-  // Shape mirrors what the server echoes from the Grok proxy's response headers.
-  const withQuota = renderSubscriptionAccountManagementTable("grok", [{
+  // A provider that reports live consumption shows remaining against the limit.
+  const withQuota = renderSubscriptionAccountManagementTable("kimi", [{
     id: "acct-1",
     quota: { requests: { limit: "21", remaining: "20", reset: "" }, tokens: { limit: "1000000", remaining: "999984", reset: "" } },
   }], { translate: (key, params) => `${key}:${JSON.stringify(params || {})}` });
@@ -151,6 +151,22 @@ test("account quota renders upstream rate-limit budgets and stays pending withou
   });
   assert.match(pending, /quotaPending/);
   assert.doesNotMatch(pending, /quotaRequests/);
+});
+
+// Grok's proxy reports a plan allowance, not live usage: measured against a real
+// account, five calls in 22 seconds all returned remaining == limit. Rendering
+// "remaining / limit" there promised a countdown that never happens, so the
+// allowance is shown alone.
+test("grok quota shows the allowance alone because its remaining never counts down", () => {
+  const rendered = renderSubscriptionAccountManagementTable("grok", [{
+    id: "acct-1",
+    quota: { requests: { limit: "21", remaining: "21", reset: "" }, tokens: { limit: "1000000", remaining: "1000000", reset: "" } },
+  }], { translate: (key, params) => `${key}:${JSON.stringify(params || {})}` });
+
+  assert.match(rendered, /quotaLimitOnly/);
+  assert.doesNotMatch(rendered, /quotaRemainingOfLimit/);
+  assert.doesNotMatch(rendered, /&quot;remaining&quot;/);
+  assert.match(rendered, /&quot;limit&quot;:&quot;1,000,000&quot;/);
 });
 
 test("account quota ignores buckets whose counts are absent or non-numeric", () => {

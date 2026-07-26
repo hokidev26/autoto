@@ -694,7 +694,11 @@ body.white-shell.theme-light .utility-panel.hidden { display: none; }
 body.white-shell.theme-light .utility-panel-head { min-height: 62px; flex: 0 0 62px; display: flex; align-items: center; justify-content: space-between; padding: 0 14px 0 18px; border-bottom: 1px solid #dfe3e9; }
 body.white-shell.theme-light .utility-panel-head strong { font-size: 16px; }
 body.white-shell.theme-light .conversation-details-body { flex: 1; min-height: 0; overflow: auto; padding: 20px; }
-body.white-shell.theme-light .conversation-detail-hero { display: flex; align-items: center; justify-content: space-between; gap: 16px; border: 1px solid #dfe3e9; border-radius: 14px; background: linear-gradient(135deg, #eef1ff, #ffffff); padding: 18px; }
+/* The hero had no bottom margin while the block that follows it — usually the
+   auto-continuation card — has none on top, so the two sat flush against each
+   other. This margin collapses with the top margin the metric grid and detail
+   table already carry, so nothing gains a double gap. */
+body.white-shell.theme-light .conversation-detail-hero { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 14px; border: 1px solid #dfe3e9; border-radius: 14px; background: linear-gradient(135deg, #eef1ff, #ffffff); padding: 18px; }
 body.white-shell.theme-light .conversation-detail-hero h2 { margin: 0; color: #1c2235; font-size: 20px; }
 body.white-shell.theme-light .conversation-detail-hero p { margin: 5px 0 0; color: #7a8495; font-size: 12px; }
 body.white-shell.theme-light .conversation-detail-status { border-radius: 999px; background: #eef1f5; color: #687184; padding: 4px 9px; font-size: 11px; font-weight: 850; }
