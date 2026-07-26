@@ -9,7 +9,7 @@ import (
 	"github.com/google/uuid"
 )
 
-const CurrentDBVersion = 52
+const CurrentDBVersion = 53
 
 type migration struct {
 	version int
@@ -70,6 +70,7 @@ var migrations = []migration{
 	{version: 50, name: "tool execution settlement ledger", up: migrateV50ToolExecutionGroups},
 	{version: 51, name: "profile configuration and lifecycle hooks", up: migrateV51ProfileConfiguration},
 	{version: 52, name: "lexically sortable timestamps", up: migrateV52SortableTimestamps},
+	{version: 53, name: "remote collaboration phase one", up: migrateV53RemoteCollaboration},
 }
 
 func runMigrations(ctx context.Context, db *sql.DB) error {
@@ -1426,6 +1427,11 @@ func migrateV49AttachmentModelImages(ctx context.Context, tx *sql.Tx) error {
 // "2026-07-25T06:00:00Z" sorted lexically *after* every sub-second value in the
 // same second. Every ORDER BY created_at query and keyset cursor in this schema
 // compares these values as text, so the unpadded rows reordered history.
+func migrateV53RemoteCollaboration(ctx context.Context, tx *sql.Tx) error {
+	_, err := tx.ExecContext(ctx, remoteCollaborationSchemaSQL)
+	return err
+}
+
 func migrateV52SortableTimestamps(ctx context.Context, tx *sql.Tx) error {
 	columns, err := timestampTextColumns(ctx, tx)
 	if err != nil {

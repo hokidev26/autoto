@@ -1,13 +1,14 @@
 import { createAccountPreferencesController } from "./account-preferences.mjs?v=profile-avatar-1-first-run-setup-1";
 import { createAgentStreamController } from "./agent-stream.mjs";
 import { createAutomationControlController } from "./automation-control.mjs?v=nav-schedules-1";
+import { createAutomationToolCatalogController } from "./automation-tool-catalog.mjs?v=automation-tool-catalog-1";
 import { createArchiveSettingsController } from "./archive-settings.mjs?v=archive-settings-1";
 import { createConversationTitleHelpers } from "./conversation-title-helpers.mjs";
 import { createBackgroundTasksController } from "./background-tasks.mjs?v=subagent-cards-1-foreground-activity-1";
 import { createExecutionNotifications } from "./execution-notifications.mjs";
 import { createBackendRegistryController } from "./backend-registry.mjs?v=agent-admin-removed-1";
 import { createChatComposerController, normalizeChatDrafts, normalizePromptHistory } from "./chat-composer.mjs?v=plan-mode-1-project-context-1-model-save-gate-1-goal-command-2";
-import { createChatRenderingController, findToolActivityByIdentity, renderAgentTaskActivityCardHTML } from "./chat-rendering.mjs?v=message-thread-1-plan-mode-2-user-message-left-1-switch-fix-3-hide-run-loading-1-i18n-shared-1-conversation-boundary-1-subagent-cards-1-message-lifecycle-1-subagent-incremental-1-profile-message-identity-1-profile-avatar-1-provider-errors-1-compact-run-error-1-first-token-task-status-1-tool-activity-lazy-1";
+import { createChatRenderingController, findToolActivityByIdentity, renderAgentTaskActivityCardHTML } from "./chat-rendering.mjs?v=message-thread-1-plan-mode-2-user-message-left-1-switch-fix-3-hide-run-loading-1-i18n-shared-1-conversation-boundary-1-subagent-cards-1-message-lifecycle-1-subagent-incremental-1-profile-message-identity-1-profile-avatar-1-provider-errors-1-compact-run-error-1-first-token-task-status-1-tool-activity-lazy-1-tool-protocol-filter-1";
 import { createContextManagementController } from "./context-management.mjs?v=context-ring-3";
 import {
   addRecentConversation,
@@ -42,7 +43,7 @@ import { createMCPRegistryUIController } from "./mcp-registry-ui.mjs";
 import { createPluginRegistryUIController } from "./plugin-registry-ui.mjs";
 import { createMemorySettingsController } from "./memory-settings.mjs";
 import { agentModelSettingsPayload } from "./model-routing-settings.mjs";
-import { createModelProviderSettingsController } from "./model-provider-settings.mjs?v=native-codex-3-provider-console-3-account-wide-1-model-compact-1-codex-export-1-settings-flat-1-aggregates-1-codex-import-open-1-provider-create-page-2-codex-browser-login-1-provider-secrets-1-model-picker-1-provider-full-page-2-provider-placeholders-1-usage-cost-1-codex-usage-clean-1-model-sections-hidden-1-model-configs-1-provider-reference-1-default-openai-responses-1-provider-draft-session-1-native-image-generation-1-provider-auto-name-1";
+import { createModelProviderSettingsController } from "./model-provider-settings.mjs?v=native-codex-3-provider-console-3-account-wide-1-model-compact-1-codex-export-1-settings-flat-1-aggregates-1-codex-import-open-1-provider-create-page-2-codex-browser-login-1-provider-secrets-1-model-picker-1-provider-full-page-2-provider-placeholders-1-usage-cost-1-codex-usage-clean-1-model-sections-hidden-1-model-configs-1-provider-reference-1-default-openai-responses-1-provider-draft-session-1-native-image-generation-1-provider-auto-name-1-provider-hidden-models-1";
 import {
   createOverviewDashboardController,
   overviewNavigationRoute,
@@ -52,7 +53,7 @@ import {
 import { createPageLifecycleController } from "./page-lifecycle.mjs";
 import { confirm as platformConfirm } from "./platform.mjs";
 import { createProjectKanbanController } from "./project-kanban.mjs?v=workbench-3-mode-boundaries-1";
-import { createScheduleWorkspaceController } from "./schedule-workspace.mjs?v=schedule-workspace-1";
+import { createScheduleWorkspaceController } from "./schedule-workspace.mjs?v=schedule-workspace-2-browser-boundary-1";
 import { createTaskWorkspaceController } from "./task-workspace.mjs?v=task-workspace-1";
 import { createAppearanceBackgroundManager, createThemeManager, setThemePageContext } from "./theme-manager.mjs?v=autoto-themes-2-background-2-theme-v2-1-background-upload-1";
 import { createThemeSettingsController } from "./theme-settings.mjs?v=autoto-themes-2-theme-v2-1-formal-assets-1";
@@ -76,7 +77,7 @@ import { createSetupWizardController } from "./setup-wizard.mjs?v=first-run-read
 import { createSpecBoardController } from "./spec-board.mjs";
 import { createSystemSettingsController } from "./system-settings.mjs?v=users-panel-removed-1-about-brand-license-1-desktop-shell-1";
 import { installDesktopDeepLinkRouter, isDesktopShell } from "./desktop-shell-ui.mjs";
-import { createSkillsWorkbenchController } from "./skills-workbench.mjs?v=users-panel-removed-1-config-center-1";
+import { createSkillsWorkbenchController } from "./skills-workbench.mjs?v=users-panel-removed-1-config-center-1-automation-tool-catalog-1";
 import { createTerminalController } from "./terminal.mjs?v=terminal-actions-compact-2";
 import { createUIShellController, elementVisible, isComposingInput } from "./ui-shell.mjs?v=permission-panel-2-plan-mode-panel-1-mobile-toolbar-right-3-icon-rail-1-mobile-viewport-1-sidebar-wheel-1-settings-cleanup-1-context-ring-3-dual-rail-collapse-1-compact-navigation-1-global-rail-2-model-menu-scroll-1-utility-resize-2-sheet-trim-1-model-provider-groups-1";
 import { createUsageHistoryController } from "./usage-history.mjs";
@@ -284,6 +285,13 @@ const state = {
   backendLoadSeq: 0,
   backendHealthSeq: 0,
   backendActionBusy: {},
+  automationToolCatalogItems: [],
+  automationToolCatalogLoading: false,
+  automationToolCatalogLoaded: false,
+  automationToolCatalogError: "",
+  automationToolCatalogSeq: 0,
+  automationToolCatalogBusy: {},
+  automationToolCatalogDiscovery: {},
   mcpRegistryServers: [],
   mcpRegistryTools: {},
   mcpRegistryError: "",
@@ -1185,6 +1193,7 @@ const mcpRegistryUI = createMCPRegistryUIController({
 const {
   bindMCPRegistryActions,
   isMCPRegistryActionBusy,
+  loadMCPRegistryServers,
   renderMCPRegistryList,
 } = mcpRegistryUI;
 
@@ -1363,9 +1372,34 @@ skillsPhaseB = createSkillsPhaseBController({
   },
 });
 
+const automationToolCatalog = createAutomationToolCatalogController({
+  state,
+  request: api,
+  confirmAction: (message) => platformConfirm(message),
+  openExternal: (url) => {
+    const opened = globalThis.window?.open?.(url, "_blank", "noopener,noreferrer");
+    if (opened) opened.opener = null;
+  },
+  onRegistryChanged: async () => {
+    state.mcpRegistryLoaded = false;
+    await loadMCPRegistryServers({ force: true });
+  },
+  showError,
+  showToast,
+  refresh: () => {
+    if (state.activeSettingsPanel === "skills" && state.activeSkillTab === "mcp-tools") refreshActiveSettingsPanel();
+  },
+});
+
+const {
+  bind: bindAutomationToolCatalog,
+  render: renderAutomationToolCatalog,
+} = automationToolCatalog;
+
 const skillsWorkbench = createSkillsWorkbenchController({
   state,
   request: api,
+  bindAutomationToolCatalog,
   bindMCPRegistryActions,
   bindPluginRegistryActions,
   copyText,
@@ -1384,6 +1418,7 @@ const skillsWorkbench = createSkillsWorkbenchController({
   normalizeSkillCommand,
   notifyTerminal,
   previewServerSkillImport,
+  renderAutomationToolCatalog,
   renderMCPRegistryList,
   renderPluginRegistryPanel,
   resetSkillsPreferences,

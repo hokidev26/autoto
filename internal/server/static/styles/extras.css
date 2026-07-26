@@ -1891,7 +1891,37 @@ body.white-shell.theme-light.theme-dark .overview-inline-error { border-color: c
 .schedule-detail-header .automation-actions { justify-content: flex-end; }
 .schedule-workspace-form { padding: 18px; }
 .schedule-workspace-form > .settings-card-header { padding: 0; border: 0; background: transparent; }
+.schedule-workspace-form > .settings-card-header > div { min-width: 0; display: grid; gap: 4px; }
 .schedule-workspace-form > .settings-card-header h3 { margin: 0; color: var(--ws-text, #20263a); font-size: 15px; }
+.schedule-workspace-form > .settings-card-header p { margin: 0; color: var(--ws-muted, #747e90); font-size: 11px; font-weight: 500; line-height: 1.5; }
+.schedule-field-label { color: var(--ws-text, #20263a); }
+.schedule-field-help { color: var(--ws-muted, #747e90); font-size: 10px; font-weight: 500; line-height: 1.45; }
+.schedule-execution-options {
+  min-width: 0;
+  margin: 0;
+  border: 1px solid color-mix(in srgb, var(--ws-primary, #5369f3) 18%, var(--ws-border, #dfe3e9));
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--ws-primary-soft, #eef1ff) 42%, var(--ws-card, #fff));
+  padding: 12px 13px 13px;
+}
+.schedule-execution-options legend { color: var(--ws-text, #20263a); padding: 0 5px; font-size: 12px; font-weight: 850; }
+.schedule-execution-options > p { margin: 0 0 11px; color: var(--ws-muted, #747e90); font-size: 10px; font-weight: 500; line-height: 1.5; }
+.schedule-execution-grid { min-width: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.schedule-capability-note {
+  min-width: 0;
+  display: grid;
+  gap: 7px;
+  border: 1px solid color-mix(in srgb, #f59e0b 34%, var(--ws-border, #dfe3e9));
+  border-radius: 12px;
+  background: color-mix(in srgb, #fef3c7 48%, var(--ws-card, #fff));
+  color: var(--ws-text, #20263a);
+  padding: 13px 14px;
+}
+.schedule-capability-note > strong { color: var(--ws-text, #20263a); font-size: 12px; }
+.schedule-capability-note p { margin: 0; font-size: 11px; font-weight: 500; line-height: 1.55; }
+.schedule-capability-note .schedule-capability-supported { color: color-mix(in srgb, #15803d 82%, var(--ws-text, #20263a)); }
+.schedule-capability-note .schedule-capability-limited { color: color-mix(in srgb, #b45309 86%, var(--ws-text, #20263a)); font-weight: 700; }
+.schedule-capability-note .schedule-capability-example { border-top: 1px solid color-mix(in srgb, #f59e0b 24%, var(--ws-border, #dfe3e9)); padding-top: 7px; font-weight: 650; }
 .schedule-history { overflow: hidden; }
 .schedule-history > .settings-card-header {
   min-height: 62px;
@@ -1985,11 +2015,17 @@ body.white-shell.theme-light.schedule-mode #newProjectBtn {
   .schedule-workspace-form { grid-template-columns: minmax(0, 1fr); padding: 15px; }
   .schedule-workspace-form label.span-2,
   .schedule-workspace-form .span-2 { grid-column: 1; }
+  .schedule-execution-grid { grid-template-columns: minmax(0, 1fr); }
+  .schedule-capability-note { padding: 12px; }
   .schedule-run-item { grid-template-columns: minmax(0, 1fr); gap: 4px; }
   .schedule-run-item span { white-space: normal; }
 }
 body.white-shell.theme-light.theme-dark .schedule-workspace-panel { background: var(--ws-canvas); color: var(--ws-text); }
 body.white-shell.theme-light.theme-dark :is(.schedule-detail-header, .schedule-workspace-form, .schedule-history) { border-color: var(--ws-border); background: var(--ws-card); box-shadow: none; }
+body.white-shell.theme-light.theme-dark .schedule-execution-options { border-color: var(--ws-border); background: color-mix(in srgb, #5369f3 10%, var(--ws-card)); }
+body.white-shell.theme-light.theme-dark .schedule-capability-note { border-color: color-mix(in srgb, #f59e0b 36%, var(--ws-border)); background: color-mix(in srgb, #f59e0b 10%, var(--ws-card)); }
+body.white-shell.theme-light.theme-dark .schedule-capability-note .schedule-capability-supported { color: #86efac; }
+body.white-shell.theme-light.theme-dark .schedule-capability-note .schedule-capability-limited { color: #fbbf24; }
 body.white-shell.theme-light.theme-dark.schedule-mode .session-sidebar-header { border-bottom-color: var(--ws-border); background: linear-gradient(90deg, color-mix(in srgb, #5369f3 18%, var(--ws-card)), var(--ws-card) 80%); }
 body.white-shell.theme-light.theme-dark .schedule-navigation-item { color: var(--ws-text); }
 body.white-shell.theme-light.theme-dark .schedule-navigation-item:is(:hover, :focus-visible) { border-color: var(--ws-border); background: color-mix(in srgb, #5369f3 12%, var(--ws-card)); }

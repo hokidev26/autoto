@@ -106,6 +106,12 @@ export default Object.freeze({
     activeTasks: "活跃任务", activeRuns: "活跃运行", runningAgents: "运行代理", pendingApprovals: "待审批", pendingApprovalsCount: "有 {count} 项操作等待审批", dueSchedules: "到期排程", dueSchedulesCount: "有 {count} 个排程已到执行时间", failedSchedules: "失败排程", failedSchedulesCount: "有 {count} 个排程最近执行失败",
     startedAt: "开始于 {time}", nextRunAt: "下次执行 {time}", lastOutcome: "上次结果：{outcome}", priority: "优先级：{priority}", conversationUnavailable: "该对话已不可用。", taskUnavailable: "该任务已不可用。", runUnavailable: "该运行已不可用。", scheduleUnavailable: "该排程已不可用。", approvalsUnavailable: "未找到仍可处理的待审批操作。总览数据可能刚刚变化，请刷新后重试。",
   },
+  schedule: {
+    permissionModes: { readOnly: "只读（推荐）", acceptEdits: "允许修改文件" },
+    environmentModes: { workline: "关联项目工作区", standalone: "独立工作区" },
+    narratorModes: { reuse: "复用关联叙述者", new: "每次运行新建叙述者" },
+    unknownValue: "未知选项（{value}）",
+  },
   workbench: {
     toggle: "切换任务工作台",
     sidebarTitle: "任务",
@@ -1569,7 +1575,7 @@ export default Object.freeze({
       },
       actions: {
         testConnection: "测试连接", testingConnection: "测试连接中", sendTest: "发送测试", saveAndEnable: "保存并启用", start: "启动", stop: "停止", delete: "删除", closeDrawer: "关闭抽屉", back: "返回",
-        refreshModels: "刷新模型", fetchModels: "获取模型", refetchModels: "重新获取", fetchingModels: "正在获取模型", enableProvider: "启用供应商", disableProvider: "停用供应商", closeModal: "关闭", saving: "保存中", cancel: "取消", discardChanges: "放弃更改", addHeader: "添加请求头", removeHeader: "删除请求头", addManualModel: "添加模型", showApiKey: "显示 API Key", hideApiKey: "隐藏 API Key", showModel: "显示 {model}", hideModel: "隐藏 {model}", showAllModels: "显示全部模型", hideAllModels: "隐藏全部（保留一个）", removeManualModel: "删除手动模型 {model}",
+        refreshModels: "刷新模型", fetchModels: "获取模型", refetchModels: "重新获取", fetchingModels: "正在获取模型", enableProvider: "启用供应商", disableProvider: "停用供应商", closeModal: "关闭", saving: "保存中", cancel: "取消", discardChanges: "放弃更改", addHeader: "添加请求头", removeHeader: "删除请求头", addManualModel: "添加模型", showApiKey: "显示 API Key", hideApiKey: "隐藏 API Key", showModel: "显示 {model}", hideModel: "隐藏 {model}", showAllModels: "显示全部模型", hideAllModels: "隐藏全部", removeManualModel: "删除手动模型 {model}",
       },
       drawer: { editProvider: "编辑供应商", createProvider: "新建供应商", configurationDescription: "配置连接、默认模型和运行时凭据。", connection: "连接" },
       createPage: {

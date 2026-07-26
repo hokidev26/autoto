@@ -25,6 +25,7 @@ import (
 	"autoto/internal/gateway"
 	"autoto/internal/imageassets"
 	"autoto/internal/integrations"
+	"autoto/internal/peercontrol"
 	"autoto/internal/plugins"
 	"autoto/internal/preview"
 	"autoto/internal/providers"
@@ -52,6 +53,7 @@ type Runtime struct {
 	supervisor        *runtime.Supervisor
 	previewManager    *preview.Manager
 	temporaryTunnel   *server.TemporaryTunnelManager
+	peerManager       *peercontrol.Manager
 	channelManager    *channels.Manager
 	automationManager *automation.Manager
 	backgroundManager *background.Manager
@@ -227,6 +229,11 @@ func NewRuntime(options Options) (*Runtime, error) {
 	// Prefer the actual bound address so temporary tunnels point at the live
 	// listener when EphemeralHTTP or OS-assigned ports are in use.
 	temporaryTunnelManager := server.NewTemporaryTunnelManager(actualHTTPAddr, cfg.Paths.HomeDir)
+	peerManager, err := peercontrol.NewManager(peercontrol.ManagerOptions{HomeDir: cfg.Paths.HomeDir, Store: store})
+	if err != nil {
+		cleanup(store)
+		return nil, fmt.Errorf("create peer control manager: %w", err)
+	}
 	reviewService := server.NewReviewService(providerRegistry, cfg.Agent.ReviewModel)
 	runner.SetReviewService(reviewService)
 	application := server.New(cfg, store, runner, hub, providerRegistry)
@@ -234,6 +241,7 @@ func NewRuntime(options Options) (*Runtime, error) {
 	application.SetProviderVault(providerVault)
 	application.SetToolRegistry(toolRegistry)
 	application.SetBackgroundTaskService(backgroundService)
+	application.SetAutomationToolCatalog(server.NewAutomationToolCatalog(cfg.Paths.HomeDir, store, server.AutomationToolCatalogOptions{}))
 	application.SetAutomationManager(automationManager)
 	application.SetConnectionService(connectionService)
 	application.SetPluginService(pluginService)
@@ -241,6 +249,7 @@ func NewRuntime(options Options) (*Runtime, error) {
 	application.SetAuditRecorder(auditRecorder)
 	application.SetPreviewManager(previewManager)
 	application.SetTemporaryTunnelManager(temporaryTunnelManager)
+	application.SetPeerControlManager(peerManager)
 	application.SetConfigPath(resolvedConfigPath)
 
 	gatewayManager, err := gateway.NewManager(gateway.ManagerOptions{
@@ -276,6 +285,7 @@ func NewRuntime(options Options) (*Runtime, error) {
 		gatewayManager:    gatewayManager,
 		previewManager:    previewManager,
 		temporaryTunnel:   temporaryTunnelManager,
+		peerManager:       peerManager,
 		channelManager:    channelManager,
 		automationManager: automationManager,
 		backgroundManager: backgroundManager,
@@ -316,7 +326,7 @@ func (r *Runtime) Start(ctx context.Context) error {
 			r.requestClose()
 		}
 	}
-	services := []runtime.Service{r.previewManager, r.temporaryTunnel, r.channelManager, r.automationManager, r.backgroundManager, r.gatewayManager}
+	services := []runtime.Service{r.previewManager, r.temporaryTunnel, r.peerManager, r.channelManager, r.automationManager, r.backgroundManager, r.gatewayManager}
 	services = append(services, runtime.NewHTTPServiceWithListener(r.httpServer, r.httpListener, onServeError("http")))
 	if err := registerRuntimeServices(supervisor, services...); err != nil {
 		return err

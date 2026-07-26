@@ -7,7 +7,7 @@ import {
   normalizeConsoleProvider,
   normalizeProviderModelConfigs,
   renderProviderModelEditor,
-} from "./model-provider-components.mjs?v=provider-card-clean-3-provider-create-page-2-provider-secrets-1-model-picker-1-provider-full-page-2-provider-placeholders-1-model-configs-1-provider-reference-1-default-openai-responses-1-provider-draft-session-1-anthropic-model-editor-1";
+} from "./model-provider-components.mjs?v=provider-card-clean-3-provider-create-page-2-provider-secrets-1-model-picker-1-provider-full-page-2-provider-placeholders-1-model-configs-1-provider-reference-1-default-openai-responses-1-provider-draft-session-1-anthropic-model-editor-1-provider-hidden-models-1";
 import {
   anthropicAccountActionRequest,
   anthropicAccountsListRequest,
@@ -339,7 +339,7 @@ export function createAnthropicAccountsController(ctx) {
         <div class="codex-console-section-head settings-card-header"><div><h2 id="anthropic-config-title" class="settings-card-title">${escapeHtml(mt("anthropic.configTitle"))}</h2><p class="settings-card-description" data-settings-help-copy>${escapeHtml(mt("anthropic.configDescription"))}</p></div><span class="settings-status-pill ${escapeAttr(providerTone)}">${escapeHtml(providerState)}</span></div>
         <form class="anthropic-config-form settings-card-content" data-mp-provider-form data-anthropic-provider-config>
           <input type="hidden" name="name" value="anthropic"><input type="hidden" name="type" value="anthropic"><input type="hidden" name="apiKey" value=""><input type="checkbox" name="apiKeyOptional" hidden>
-          <div class="anthropic-model-manager">${renderProviderModelEditor(draft, modelBusy, true)}</div>
+          <div class="anthropic-model-manager">${renderProviderModelEditor(draft, modelBusy, true, { allowEmpty: true })}</div>
           <div class="anthropic-config-grid">
             <label class="settings-form-field"><span>${escapeHtml(mt("baseUrl"))}</span><input name="baseUrl" value="${escapeAttr(draft.baseUrl || "")}" autocomplete="url" placeholder="${escapeAttr(mt("anthropicOfficialEndpointPlaceholder"))}"></label>
             <label class="settings-form-field"><span>${escapeHtml(mt("maxTokens"))}</span><input name="maxTokens" data-select-on-focus="true" type="number" min="1" step="1" value="${escapeAttr(draft.maxTokens || 4096)}"></label>

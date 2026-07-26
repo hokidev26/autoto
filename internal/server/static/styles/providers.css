@@ -3472,7 +3472,7 @@ body.white-shell.theme-light #settingsContentBody .mp-provider-reference-layout 
 
 #settingsContentBody .mp-provider-reference-layout .mp-provider-model-toolbar .mp-action,
 #settingsContentBody .mp-provider-reference-layout .mp-provider-manual-model .mp-action,
-#settingsContentBody .mp-provider-reference-test-row .mp-action,
+#settingsContentBody .mp-provider-model-test-actions .mp-action,
 #settingsContentBody .mp-provider-reference-footer .mp-action {
   min-height: 30px;
   padding: 5px 10px;
@@ -3514,14 +3514,7 @@ body.white-shell.theme-light #settingsContentBody .mp-provider-reference-layout 
   border-radius: 2px;
 }
 
-#settingsContentBody .mp-provider-reference-final-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
-  min-width: 0;
-}
-
-#settingsContentBody .mp-provider-reference-test-row {
+#settingsContentBody .mp-provider-model-test-actions {
   display: flex;
   justify-content: flex-end;
 }
@@ -3558,10 +3551,6 @@ body.white-shell.theme-light #settingsContentBody .mp-provider-reference-layout 
   #settingsContentBody:has(.mp-provider-reference-layout) {
     width: calc(100% - 20px);
     margin: 0 10px;
-  }
-
-  #settingsContentBody .mp-provider-reference-final-grid {
-    grid-template-columns: minmax(0, 1fr);
   }
 
   #settingsContentBody .mp-provider-reference-layout .mp-provider-model-config-row {

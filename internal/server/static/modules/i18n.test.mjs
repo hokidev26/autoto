@@ -33,6 +33,27 @@ test("domain message packs expose matching keys for all locales", () => {
   }
 });
 
+test("main and automation catalogs align schedule enum translation keys", () => {
+  const required = [
+    "permissionModes.readOnly", "permissionModes.acceptEdits",
+    "environmentModes.workline", "environmentModes.standalone",
+    "narratorModes.reuse", "narratorModes.new", "unknownValue",
+  ];
+  const mainExpected = flattenMessageKeys(messageCatalogs["zh-CN"].schedule);
+  const automationExpected = flattenMessageKeys(automationMessages["zh-CN"].automation.schedule);
+  for (const key of required) {
+    assert.ok(mainExpected.includes(key), `main:${key}`);
+    assert.ok(automationExpected.includes(key), `automation:${key}`);
+  }
+  for (const locale of uiLocales) {
+    assert.deepEqual(flattenMessageKeys(messageCatalogs[locale].schedule), mainExpected, `main:${locale}`);
+    assert.deepEqual(flattenMessageKeys(automationMessages[locale].automation.schedule), automationExpected, `automation:${locale}`);
+  }
+  assert.equal(t("schedule.permissionModes.readOnly", {}, "zh-CN"), "只读（推荐）");
+  assert.equal(t("schedule.permissionModes.readOnly", {}, "zh-TW"), "唯讀（建議）");
+  assert.equal(t("schedule.permissionModes.readOnly", {}, "en"), "Read only (recommended)");
+});
+
 test("UI locale resolution supports traditional, simplified, English, and safe fallback", () => {
   assert.equal(resolveUILocale("zh-TW"), "zh-TW");
   assert.equal(resolveUILocale("zh-Hant-HK"), "zh-TW");

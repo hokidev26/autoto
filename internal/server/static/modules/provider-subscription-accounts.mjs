@@ -8,7 +8,7 @@ import {
   subscriptionProviderKind,
   subscriptionProviderKinds,
   subscriptionProviderSpec,
-} from "./model-provider-components.mjs?v=provider-subscription-accounts-1";
+} from "./model-provider-components.mjs?v=provider-subscription-accounts-1-provider-hidden-models-1";
 import {
   normalizeSubscriptionAccountList,
   normalizeSubscriptionLoginStatus,

@@ -135,8 +135,11 @@ type Server struct {
 	toolRegistry                *tools.Registry
 	toolRegistryMu              sync.RWMutex
 	backgroundTasks             tools.BackgroundTaskService
+	automationToolCatalogMu     sync.RWMutex
+	automationToolCatalog       *AutomationToolCatalog
 	previewManager              *preview.Manager
 	temporaryTunnel             *TemporaryTunnelManager
+	peerControl                 *remoteCollaborationRuntime
 	notifier                    *WebhookNotifier
 	automation                  *automation.Manager
 	connections                 *integrations.ConnectionService
@@ -257,6 +260,25 @@ func (s *Server) SetToolRegistry(registry *tools.Registry) {
 
 func (s *Server) SetBackgroundTaskService(service tools.BackgroundTaskService) {
 	s.backgroundTasks = service
+}
+
+func (s *Server) SetAutomationToolCatalog(catalog *AutomationToolCatalog) {
+	if s == nil {
+		return
+	}
+	s.automationToolCatalogMu.Lock()
+	s.automationToolCatalog = catalog
+	s.automationToolCatalogMu.Unlock()
+}
+
+func (s *Server) automationToolCatalogSnapshot() *AutomationToolCatalog {
+	if s == nil {
+		return nil
+	}
+	s.automationToolCatalogMu.RLock()
+	catalog := s.automationToolCatalog
+	s.automationToolCatalogMu.RUnlock()
+	return catalog
 }
 
 func (s *Server) toolRegistrySnapshot() *tools.Registry {
@@ -411,8 +433,11 @@ func (s *Server) Routes() http.Handler {
 	s.mountThemeRoutes(r)
 	s.mountAppearanceAssetRoutes(r)
 	s.mountOptionalToolsRoutes(r)
+	s.mountAutomationToolCatalogRoutes(r)
 	s.mountProfileDefinitionRoutes(r)
 	s.mountLifecycleHookRoutes(r)
+	s.mountRemoteCollaborationRoutes(r)
+	s.mountPeerAPIRoutes(r)
 
 	r.Get("/api/health", s.health)
 	r.Get("/api/setup/status", s.setupStatus)

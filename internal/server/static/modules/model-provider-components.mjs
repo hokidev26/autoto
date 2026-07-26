@@ -155,21 +155,20 @@ export function mergeProviderModelDiscovery(currentConfigs = [], response = {}, 
   return merged;
 }
 
+function providerDefaultModelForDraft(draft = {}, configs = normalizeProviderModelConfigs({ modelConfigs: draft.modelConfigs })) {
+  const selected = stringValue(draft.model);
+  return configs.some((item) => item.name === selected) ? selected : (configs[0]?.name || "");
+}
+
 export function providerModelDraftUsable(draft = {}) {
   const configs = normalizeProviderModelConfigs({ modelConfigs: draft.modelConfigs });
-  const selected = stringValue(draft.model);
-  const row = configs.find((item) => item.name === selected);
-  return Boolean(draft.modelsReady && !draft.modelsStale && row && !row.hidden);
+  return Boolean(draft.modelsReady && !draft.modelsStale && providerDefaultModelForDraft(draft, configs));
 }
 
 // Visibility only controls whether a model is offered in the composer's model
 // picker. It is presentation, not configuration: the provider keeps working and
 // keeps its configured default even when that model is hidden, so defaultModel
-// is always returned untouched.
-//
-// allowEmpty lets every model be hidden, which official providers permit; a
-// manually configured provider keeps at least one entry so its picker section
-// never goes completely empty.
+// is always returned untouched. allowEmpty lets every model be hidden.
 export function setProviderModelHidden(modelConfigs = [], modelName = "", hidden = false, defaultModel = "", { allowEmpty = false } = {}) {
   const configs = normalizeProviderModelConfigs({ modelConfigs });
   const name = stringValue(modelName);
@@ -738,12 +737,10 @@ export function renderProviderModelEditor(draft = {}, modelBusy = false, sensiti
       ${item.manual ? `<button class="mp-provider-model-remove" type="button" data-mp-remove-manual-model="${escapeAttr(item.name)}" aria-label="${escapeAttr(ct("actions.removeManualModel", { model: item.name }))}">×</button>` : `<span class="mp-provider-model-remove-placeholder" aria-hidden="true"></span>`}
     </div>`;
   }).join("");
-  // No visible default picker: the default model is auto-assigned to the first
-  // visible model (users hide what they don't want and choose per conversation).
-  const visibleConfigs = configs.filter((item) => !item.hidden);
-  const effectiveDefaultModel = visibleConfigs.some((item) => item.name === draft.model)
-    ? draft.model
-    : (visibleConfigs[0]?.name || String(draft.model || ""));
+  // Visibility is only a picker preference. Keep a stable internal default even
+  // when every model is hidden, and fall back to the first configured model when
+  // a stale default no longer exists in the discovered catalog.
+  const effectiveDefaultModel = providerDefaultModelForDraft(draft, configs);
   return `<div class="mp-provider-model-workspace" data-mp-model-workspace data-models-ready="${draft.modelsReady ? "true" : "false"}" data-models-stale="${draft.modelsStale ? "true" : "false"}">
     <input type="hidden" name="model" value="${escapeAttr(effectiveDefaultModel)}">
     <div class="mp-provider-model-toolbar"><button class="mp-action" type="button" data-mp-fetch-models ${(modelBusy || !sensitiveAccessAllowed) ? `disabled${modelBusy ? " aria-busy=\"true\"" : ""}` : ""}>${escapeHtml(modelBusy ? ct("actions.fetchingModels") : ct(draft.modelsReady ? "actions.refetchModels" : "actions.fetchModels"))}</button>${configs.length ? `<button class="mp-provider-model-visibility mp-provider-model-visibility-all" type="button" data-mp-model-visibility-all data-all-visible="${allVisible ? "true" : "false"}" aria-label="${escapeAttr(ct(allVisible ? "actions.hideAllModels" : "actions.showAllModels"))}" title="${escapeAttr(ct(allVisible ? "actions.hideAllModels" : "actions.showAllModels"))}">${allVisible ? eyeOnIcon : eyeOffIcon}</button>` : ""}</div>
@@ -842,9 +839,7 @@ export function renderProviderCreatePage(consoleState = {}) {
 
       <section class="mp-provider-reference-section mp-provider-reference-protocol" aria-labelledby="mp-provider-create-protocol-title"><div class="mp-provider-reference-section-heading"><h2 id="mp-provider-create-protocol-title">${escapeHtml(ct("fields.protocol"))}</h2><p data-settings-help-copy>${escapeHtml(ct("createPage.protocolHelp"))}</p></div><fieldset class="mp-provider-create-protocol"><legend class="mp-visually-hidden">${escapeHtml(ct("fields.protocol"))}</legend>${renderCreateProtocolChoices(draft.type)}</fieldset></section>
 
-      <section class="mp-provider-reference-section mp-provider-reference-models" aria-labelledby="mp-provider-create-model-title"><div class="mp-provider-reference-section-heading"><h2 id="mp-provider-create-model-title">${escapeHtml(ct("createPage.modelTitle"))}</h2><p data-settings-help-copy>${escapeHtml(ct("createPage.modelDescription"))}</p></div>${renderProviderModelEditor(draft, modelBusy, sensitiveAccessAllowed)}</section>
-
-      <section class="mp-provider-reference-section mp-provider-reference-final" aria-labelledby="mp-provider-create-save-title"><div class="mp-provider-reference-section-heading"><h2 id="mp-provider-create-save-title">${escapeHtml(ct("createPage.saveTitle"))}</h2><p data-settings-help-copy>${escapeHtml(ct("createPage.saveDescription"))}</p></div><div class="mp-provider-reference-final-grid"><div class="mp-provider-reference-field mp-provider-create-field"><div class="mp-provider-reference-label"><label for="mp-provider-create-max-tokens">${escapeHtml(ct("fields.maxTokens"))}</label><small data-settings-help-copy>${escapeHtml(ct("createPage.maxTokensHelp"))}</small></div><input id="mp-provider-create-max-tokens" name="maxTokens" data-select-on-focus="true" type="number" min="0" step="1" value="${escapeAttr(draft.maxTokens || "")}"></div><div class="mp-provider-reference-field mp-provider-create-field"><div class="mp-provider-reference-label"><label for="mp-provider-create-reference">${escapeHtml(ct("createPage.modelReference"))}</label><small data-settings-help-copy>${escapeHtml(ct("createPage.modelReferenceHelp"))}</small></div><input id="mp-provider-create-reference" value="${escapeAttr(modelReference)}" readonly data-mp-model-example></div></div><div class="mp-provider-reference-test-row"><button class="mp-action" type="button" data-mp-test-provider ${!usable || messageTestBusy || !sensitiveAccessAllowed ? "disabled" : ""} ${messageTestBusy ? "aria-busy=\"true\"" : ""}>${escapeHtml(messageTestBusy ? ct("test.sending") : ct("actions.sendTest"))}</button></div></section>
+      <section class="mp-provider-reference-section mp-provider-reference-models" aria-labelledby="mp-provider-create-model-title"><div class="mp-provider-reference-section-heading"><h2 id="mp-provider-create-model-title">${escapeHtml(ct("createPage.modelTitle"))}</h2><p data-settings-help-copy>${escapeHtml(ct("createPage.modelDescription"))}</p></div>${renderProviderModelEditor(draft, modelBusy, sensitiveAccessAllowed, { allowEmpty: true })}<div class="mp-provider-model-test-actions settings-inline-actions"><button class="mp-action" type="button" data-mp-test-provider ${!usable || messageTestBusy || !sensitiveAccessAllowed ? "disabled" : ""} ${messageTestBusy ? "aria-busy=\"true\"" : ""}>${escapeHtml(messageTestBusy ? ct("test.sending") : ct("actions.sendTest"))}</button></div></section>
       ${result}
     </div>
 

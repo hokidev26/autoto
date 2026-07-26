@@ -106,6 +106,12 @@ export default Object.freeze({
     activeTasks: "活躍任務", activeRuns: "活躍執行", runningAgents: "執行代理", pendingApprovals: "待審批", pendingApprovalsCount: "有 {count} 項操作等待審批", dueSchedules: "到期排程", dueSchedulesCount: "有 {count} 個排程已到執行時間", failedSchedules: "失敗排程", failedSchedulesCount: "有 {count} 個排程最近執行失敗",
     startedAt: "開始於 {time}", nextRunAt: "下次執行 {time}", lastOutcome: "上次結果：{outcome}", priority: "優先級：{priority}", conversationUnavailable: "該對話已無法使用。", taskUnavailable: "該任務已無法使用。", runUnavailable: "該執行已無法使用。", scheduleUnavailable: "該排程已無法使用。", approvalsUnavailable: "找不到仍可處理的待審批操作。總覽資料可能剛剛變更，請重新整理後再試。",
   },
+  schedule: {
+    permissionModes: { readOnly: "唯讀（建議）", acceptEdits: "允許修改檔案" },
+    environmentModes: { workline: "關聯專案工作區", standalone: "獨立工作區" },
+    narratorModes: { reuse: "重用關聯敘述者", new: "每次執行新建敘述者" },
+    unknownValue: "未知選項（{value}）",
+  },
   workbench: {
     toggle: "切換任務工作台",
     sidebarTitle: "任務",
@@ -1566,7 +1572,7 @@ export default Object.freeze({
       },
       actions: {
         testConnection: "測試連線", testingConnection: "測試連線中", sendTest: "傳送測試", saveAndEnable: "儲存並啟用", start: "啟動", stop: "停止", delete: "刪除", closeDrawer: "關閉抽屜", back: "返回",
-        refreshModels: "重新整理模型", fetchModels: "取得模型", refetchModels: "重新取得", fetchingModels: "正在取得模型", enableProvider: "啟用供應商", disableProvider: "停用供應商", closeModal: "關閉", saving: "儲存中", cancel: "取消", discardChanges: "放棄變更", addHeader: "新增標頭", removeHeader: "刪除標頭", addManualModel: "新增模型", showApiKey: "顯示 API Key", hideApiKey: "隱藏 API Key", showModel: "顯示 {model}", hideModel: "隱藏 {model}", showAllModels: "顯示全部模型", hideAllModels: "隱藏全部（保留一個）", removeManualModel: "刪除手動模型 {model}",
+        refreshModels: "重新整理模型", fetchModels: "取得模型", refetchModels: "重新取得", fetchingModels: "正在取得模型", enableProvider: "啟用供應商", disableProvider: "停用供應商", closeModal: "關閉", saving: "儲存中", cancel: "取消", discardChanges: "放棄變更", addHeader: "新增標頭", removeHeader: "刪除標頭", addManualModel: "新增模型", showApiKey: "顯示 API Key", hideApiKey: "隱藏 API Key", showModel: "顯示 {model}", hideModel: "隱藏 {model}", showAllModels: "顯示全部模型", hideAllModels: "隱藏全部", removeManualModel: "刪除手動模型 {model}",
       },
       drawer: { editProvider: "編輯供應商", createProvider: "新增供應商", configurationDescription: "設定連線、預設模型和執行階段憑據。", connection: "連線" },
       createPage: {

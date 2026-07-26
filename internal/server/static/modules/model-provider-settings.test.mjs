@@ -789,20 +789,20 @@ test("连接关键字段变化只标记 stale，模型编辑与名称前缀变�
   assert.equal(providerModelDraftUsable(changed), false);
 });
 
-test("隐藏只影响选单显示，不会改写默认模型，且禁止隐藏最后一个可见模型", () => {
+test("隐藏只影响选单显示，全部隐藏时仍保留内部默认模型并允许保存", () => {
   const configs = [
     { name: "a", contextTokenLimit: 100, hidden: false },
     { name: "b", contextTokenLimit: 200, hidden: false },
   ];
-  // Hiding the configured default takes it out of the picker but leaves it as
-  // the default: visibility is presentation, not configuration.
-  const hiddenDefault = setProviderModelHidden(configs, "a", true, "a");
+  const hiddenDefault = setProviderModelHidden(configs, "a", true, "a", { allowEmpty: true });
   assert.equal(hiddenDefault.changed, true);
   assert.equal(hiddenDefault.defaultModel, "a");
   assert.equal(hiddenDefault.modelConfigs[0].hidden, true);
-  const blocked = setProviderModelHidden(hiddenDefault.modelConfigs, "b", true, "b");
-  assert.equal(blocked.changed, false);
-  assert.equal(blocked.modelConfigs[1].hidden, false);
+  const allHidden = setProviderModelHidden(hiddenDefault.modelConfigs, "b", true, "a", { allowEmpty: true });
+  assert.equal(allHidden.changed, true);
+  assert.equal(allHidden.modelConfigs.every((item) => item.hidden), true);
+  assert.equal(providerModelDraftUsable({ model: "a", modelConfigs: allHidden.modelConfigs, modelsReady: true, modelsStale: false }), true);
+  assert.equal(providerModelDraftUsable({ model: "missing", modelConfigs: allHidden.modelConfigs, modelsReady: true, modelsStale: false }), true);
 });
 
 test("allowEmpty lets an official provider hide every model; custom providers keep one", () => {
@@ -879,13 +879,13 @@ test("模型 payload 仅发送 name/contextTokenLimit/imageGeneration 且不泄�
   for (const privateField of ["hidden", "manual", "modelsReady", "modelsStale"]) assert.equal(JSON.stringify(payload).includes(privateField), false);
 });
 
-test("参考图扁平 DOM 保留 ready/stale 与默认模型保存约束", () => {
+test("扁平供应商页面允许全部隐藏模型并保留 ready/stale 保存约束", () => {
   const base = {
     name: "relay",
     type: "openai-compatible",
     baseUrl: "https://relay.example/v1",
     model: "a",
-    modelConfigs: [{ name: "a", contextTokenLimit: 128000, hidden: false }],
+    modelConfigs: [{ name: "a", contextTokenLimit: 128000, hidden: true }],
     models: ["a"],
     modelsReady: true,
     modelsStale: false,
@@ -899,9 +899,12 @@ test("参考图扁平 DOM 保留 ready/stale 与默认模型保存约束", () =>
   assert.match(ready, /mp-provider-header-add-bar/);
   assert.match(ready, /mp-provider-reference-protocol/);
   assert.doesNotMatch(ready, /mp-provider-steps|mp-provider-create-section mp-provider-create-section-linear/);
-  assert.match(ready, /data-mp-model-config="a"/);
+  assert.match(ready, /mp-provider-model-config-row is-hidden[^>]*data-mp-model-config="a"/);
+  assert.doesNotMatch(ready, /data-mp-model-visibility="a"[^>]*disabled/);
+  assert.match(ready, /type="hidden" name="model" value="a"/);
   assert.match(ready, /data-mp-save-provider  >/);
   assert.doesNotMatch(ready, /data-mp-save-provider disabled/);
+  assert.doesNotMatch(ready, /name="maxTokens"|data-mp-model-example|mp-provider-reference-final/);
   const stale = renderProviderConsolePage({ providers: [], consoleState: { drawer: "provider", mode: "create", type: base.type, dirty: true, draft: { ...base, modelsStale: true } } });
   assert.match(stale, /data-models-stale="true"/);
   assert.match(stale, /data-mp-test-provider disabled/);
@@ -936,7 +939,7 @@ test("控制器最终保存按 config、enable、可见性偏好、刷新顺序�
         model: "a",
         models: ["a", "b"],
         modelConfigs: [
-          { name: "a", contextTokenLimit: 128000, hidden: false },
+          { name: "a", contextTokenLimit: 128000, hidden: true },
           { name: "b", contextTokenLimit: 64000, hidden: true },
         ],
         modelsReady: true,
@@ -968,7 +971,7 @@ test("控制器最终保存按 config、enable、可见性偏好、刷新顺序�
     getModelVisibilityPreference: () => ({ hiddenModels: { "old-relay:b": true, "other:z": true }, showUnconfiguredProviders: false }),
     setModelVisibilityPreference: async (value) => {
       order.push("visibility");
-      assert.deepEqual(value.hiddenModels, { "other:z": true, "new-relay:b": true });
+      assert.deepEqual(value.hiddenModels, { "other:z": true, "new-relay:a": true, "new-relay:b": true });
     },
     loadSettings: async () => { order.push("settings"); },
     loadModelCatalog: async () => { order.push("catalog"); },
@@ -1350,7 +1353,7 @@ test("供应商控制台重绘保持状态对象身份，异步模型发现结�
   assert.match(html, /type="hidden" name="model" value="codex-auto-review"/);
   assert.match(html, /data-mp-model-config="codex-auto-review"/);
   assert.match(html, /data-mp-model-config="model-g"/);
-  assert.match(html, /value="zzz:codex-auto-review"/);
+  assert.doesNotMatch(html, /data-mp-model-example|name="maxTokens"|mp-provider-reference-final/);
 });
 
 test("新增普通供应商使用独立全宽扁平配置页", () => {
@@ -1388,10 +1391,11 @@ test("新增普通供应商使用独立全宽扁平配置页", () => {
   assert.match(html, /data-mp-model-config="model-a"/);
   assert.match(html, /data-mp-model-config="model-b"/);
   assert.match(html, /data-mp-model-token="model-b"/);
-  assert.match(html, /value="new-gateway:model-a" readonly data-mp-model-example/);
+  assert.match(html, /type="hidden" name="model" value="model-a"/);
   assert.match(html, /mp-provider-reference-layout/);
   assert.match(html, /data-mp-toggle-api-key/);
   assert.match(html, /mp-provider-header-add-bar/);
+  assert.doesNotMatch(html, /name="maxTokens"|data-mp-model-example|mp-provider-reference-final/);
   const referenceOrder = [
     'name="name"',
     "data-mp-provider-prefix-preview",
@@ -1402,8 +1406,7 @@ test("新增普通供应商使用独立全宽扁平配置页", () => {
     "data-mp-add-request-header",
     "mp-provider-reference-protocol",
     "data-mp-model-workspace",
-    'name="maxTokens"',
-    "data-mp-model-example",
+    "data-mp-test-provider",
   ].map((marker) => html.indexOf(marker));
   assert.ok(referenceOrder.every((index) => index >= 0));
   assert.deepEqual(referenceOrder, [...referenceOrder].sort((a, b) => a - b));
@@ -1682,6 +1685,20 @@ test("供应商表单草稿实时同步并在后台重绘时保持 dirty 内容"
   assert.equal(state.providerConsole.draft.apiKey, "draft-key");
 });
 
+test("页面移除 Max tokens 输入后仍保留草稿中的现有值", () => {
+  const form = {
+    elements: {
+      name: { value: "relay" }, type: { value: "openai-compatible" }, baseUrl: { value: "https://relay.example/v1" },
+      apiKey: { value: "" }, model: { value: "a" }, apiKeyOptional: { checked: false }, insecureSkipTLSVerify: { checked: false },
+    },
+    querySelectorAll() { return []; },
+  };
+  const draft = providerConsoleDraftFromForm({
+    name: "relay", type: "openai-compatible", baseUrl: "https://relay.example/v1", model: "a", maxTokens: 4096,
+  }, form);
+  assert.equal(draft.maxTokens, 4096);
+});
+
 test("安全重绘后的空 API Key 输入不会清除仅存在于内存的草稿 secret", () => {
   const form = {
     elements: {
@@ -1697,7 +1714,7 @@ test("安全重绘后的空 API Key 输入不会清除仅存在于内存的草�
   assert.equal(draft.apiKey, "draft-secret");
 });
 
-test("模型选择器更新 draft 后会在重绘中保持选中模型和引用", () => {
+test("模型选择器更新 draft 后会在重绘中保持内部默认模型", () => {
   const form = {
     elements: {
       name: { value: "relay" },
@@ -1717,7 +1734,7 @@ test("模型选择器更新 draft 后会在重绘中保持选中模型和引用"
     consoleState: { drawer: "provider", mode: "edit", type: "openai-compatible", draft: consoleState.draft },
   });
   assert.match(html, /type="hidden" name="model" value="model-b"/);
-  assert.match(html, /value="relay:model-b"/);
+  assert.doesNotMatch(html, /data-mp-model-example|mp-provider-reference-final/);
 });
 
 test("模型可见性偏好仍影响模型选择器但设置页不再显示可见性区块", () => {
@@ -1936,7 +1953,7 @@ test("供应商新增表单使用 placeholder 示例且名称和 Base URL 不自
   assert.doesNotMatch(html, /name="baseUrl"[^>]*data-select-on-focus="true"/);
   assert.doesNotMatch(html, /name="model"[^>]*data-select-on-focus="true"/);
   assert.match(html, /data-mp-model-workspace/);
-  assert.match(html, /name="maxTokens"[^>]*data-select-on-focus="true"/);
+  assert.doesNotMatch(html, /name="maxTokens"|data-mp-model-example|mp-provider-reference-final/);
 });
 
 test("供应商弹层焦点环与触发元素恢复", () => {

@@ -21,6 +21,11 @@ const ENV_REFERENCE_PATTERN = /^env:[A-Za-z_][A-Za-z0-9_]*$/;
 const SAFE_PERMISSION_MODES = new Set(["readOnly", "acceptEdits"]);
 const ENVIRONMENT_MODES = new Set(["workline", "standalone"]);
 const NARRATOR_MODES = new Set(["reuse", "new"]);
+const SCHEDULE_ENUM_KEYS = Object.freeze({
+  permissionMode: Object.freeze({ readOnly: "automation.schedule.permissionModes.readOnly", acceptEdits: "automation.schedule.permissionModes.acceptEdits" }),
+  environmentMode: Object.freeze({ workline: "automation.schedule.environmentModes.workline", standalone: "automation.schedule.environmentModes.standalone" }),
+  narratorMode: Object.freeze({ reuse: "automation.schedule.narratorModes.reuse", new: "automation.schedule.narratorModes.new" }),
+});
 const HOME_ASSISTANT_KINDS = new Set(["home_assistant", "home-assistant", "homeassistant", "ha"]);
 
 function objectValue(value) {
@@ -29,6 +34,27 @@ function objectValue(value) {
 
 function boundedText(value, limit = 240) {
   return String(value ?? "").trim().slice(0, limit);
+}
+
+export function formatScheduleEnumValue(group, value) {
+  let normalized = "";
+  try {
+    normalized = boundedText(value, 80);
+  } catch {
+    normalized = "";
+  }
+  const key = SCHEDULE_ENUM_KEYS[group]?.[normalized];
+  if (key) return t(key);
+  return t("automation.schedule.unknownValue", { value: normalized || t("automation.defaults.unknown") });
+}
+
+function scheduleEnumSource(value, field, fallback) {
+  try {
+    const candidate = objectValue(value)[field];
+    return candidate === undefined || candidate === null || candidate === "" ? fallback : candidate;
+  } catch {
+    return fallback;
+  }
 }
 
 function boundedNumber(value, fallback = 0) {
@@ -462,6 +488,9 @@ function renderScheduleHistoryMode(scheduleId, schedule, history) {
 
 function renderScheduleCard(value, busy = {}, history = {}) {
   const schedule = normalizeSchedule(value);
+  const permissionMode = scheduleEnumSource(value, "permissionMode", schedule.permissionMode);
+  const environmentMode = scheduleEnumSource(value, "environmentMode", schedule.environmentMode);
+  const narratorMode = scheduleEnumSource(value, "narratorMode", schedule.narratorMode);
   const actionBusy = Boolean(busy[`schedule:${schedule.id}`]);
   const historyBusy = Boolean(busy[`schedule-runs:${schedule.id}`]);
   const disabled = actionBusy ? " disabled" : "";
@@ -472,7 +501,7 @@ function renderScheduleCard(value, busy = {}, history = {}) {
         ${renderStatusPill(schedule.enabled ? "enabled" : "disabled")}
       </div>
       <p class="automation-card-copy">${escapeHtml(schedule.prompt || t("automation.defaults.taskMissing"))}</p>
-      <dl class="automation-kv"><div><dt>${escapeHtml(t("automation.schedule.agentId"))}</dt><dd>${escapeHtml(schedule.agentId || t("automation.timestamp.empty"))}</dd></div><div><dt>${escapeHtml(t("automation.schedule.permission"))}</dt><dd>${escapeHtml(schedule.permissionMode)}</dd></div><div><dt>${escapeHtml(t("automation.schedule.environment"))}</dt><dd>${escapeHtml(schedule.environmentMode)}</dd></div><div><dt>${escapeHtml(t("automation.schedule.narrator"))}</dt><dd>${escapeHtml(schedule.narratorMode)}</dd></div><div><dt>${escapeHtml(t("automation.schedule.nextRun"))}</dt><dd>${escapeHtml(formatTimestamp(schedule.nextRunAt))}</dd></div></dl>
+      <dl class="automation-kv"><div><dt>${escapeHtml(t("automation.schedule.agentId"))}</dt><dd>${escapeHtml(schedule.agentId || t("automation.timestamp.empty"))}</dd></div><div><dt>${escapeHtml(t("automation.schedule.permission"))}</dt><dd>${escapeHtml(formatScheduleEnumValue("permissionMode", permissionMode))}</dd></div><div><dt>${escapeHtml(t("automation.schedule.environment"))}</dt><dd>${escapeHtml(formatScheduleEnumValue("environmentMode", environmentMode))}</dd></div><div><dt>${escapeHtml(t("automation.schedule.narrator"))}</dt><dd>${escapeHtml(formatScheduleEnumValue("narratorMode", narratorMode))}</dd></div><div><dt>${escapeHtml(t("automation.schedule.nextRun"))}</dt><dd>${escapeHtml(formatTimestamp(schedule.nextRunAt))}</dd></div></dl>
       ${schedule.lastError ? `<div class="automation-inline-error">${escapeHtml(schedule.lastError)}</div>` : ""}
       <div class="automation-actions settings-inline-actions">
         <button class="automation-btn subtle" type="button" data-schedule-history="${escapeAttr(schedule.id)}"${historyBusy ? " disabled" : ""}>${escapeHtml(t(historyBusy ? "automation.buttons.loading" : "automation.buttons.history"))}</button>
@@ -568,13 +597,18 @@ function renderActivityRow(value) {
   return `<li><time>${escapeHtml(formatTimestamp(source.at))}</time><span>${escapeHtml(redactSensitiveText(source.message))}</span></li>`;
 }
 
+function scheduleEnumOptions(group, values, selected = "") {
+  return values.map((value) => `<option value="${escapeAttr(value)}"${value === selected ? " selected" : ""}>${escapeHtml(formatScheduleEnumValue(group, value))}</option>`).join("");
+}
+
 function connectionOptions(connections, kind, selected = "") {
   return connections.filter((item) => item.kind === kind).map((item) => `<option value="${escapeAttr(item.id)}" ${item.id === selected ? "selected" : ""}>${escapeHtml(item.name || item.id)}</option>`).join("");
 }
 
 export function renderAutomationControl(value = {}) {
   const source = objectValue(value);
-  const schedules = (Array.isArray(source.schedules) ? source.schedules : []).slice(0, automationLimits.schedules).map(normalizeSchedule);
+  const scheduleSources = (Array.isArray(source.schedules) ? source.schedules : []).slice(0, automationLimits.schedules);
+  const schedules = scheduleSources.map(normalizeSchedule);
   const deliveries = (Array.isArray(source.deliveries) ? source.deliveries : []).slice(0, automationLimits.deliveries).map(normalizeDelivery);
   const connections = (Array.isArray(source.connections) ? source.connections : []).slice(0, automationLimits.connections).map(normalizeConnection);
   const pairings = (Array.isArray(source.pairings) ? source.pairings : []).slice(0, automationLimits.pairings).map(normalizePairing);
@@ -639,13 +673,13 @@ export function renderAutomationControl(value = {}) {
             <label>${escapeHtml(t("automation.schedule.expression"))}<input id="scheduleExpressionInput" maxlength="256" placeholder="@every 15m" required /></label>
             <label>${escapeHtml(t("automation.schedule.agentId"))}<input id="scheduleAgentInput" maxlength="128" placeholder="agent-id" required /></label>
             <label>${escapeHtml(t("automation.schedule.timezone"))}<input id="scheduleTimezoneInput" maxlength="128" value="UTC" placeholder="Asia/Shanghai" required /></label>
-            <label>${escapeHtml(t("automation.schedule.permission"))}<select id="schedulePermissionInput"><option value="readOnly">readOnly</option><option value="acceptEdits">acceptEdits</option></select></label>
-            <label>${escapeHtml(t("automation.schedule.environment"))}<select id="scheduleEnvironmentInput"><option value="workline">workline</option><option value="standalone">standalone</option></select></label>
-            <label>${escapeHtml(t("automation.schedule.narrator"))}<select id="scheduleNarratorInput"><option value="reuse">reuse</option><option value="new">new</option></select></label>
+            <label>${escapeHtml(t("automation.schedule.permission"))}<select id="schedulePermissionInput">${scheduleEnumOptions("permissionMode", ["readOnly", "acceptEdits"], "readOnly")}</select></label>
+            <label>${escapeHtml(t("automation.schedule.environment"))}<select id="scheduleEnvironmentInput">${scheduleEnumOptions("environmentMode", ["workline", "standalone"], "workline")}</select></label>
+            <label>${escapeHtml(t("automation.schedule.narrator"))}<select id="scheduleNarratorInput">${scheduleEnumOptions("narratorMode", ["reuse", "new"], "reuse")}</select></label>
             <label class="span-2">${escapeHtml(t("automation.schedule.prompt"))}<textarea id="schedulePromptInput" rows="3" maxlength="8000" placeholder="${escapeAttr(t("automation.schedule.promptPlaceholder"))}" required></textarea></label>
             <div class="automation-form-actions settings-inline-actions span-2"><button class="automation-btn primary" type="submit"${busy["schedule:create"] ? " disabled" : ""}>${escapeHtml(t(busy["schedule:create"] ? "automation.buttons.creating" : "automation.buttons.createSchedule"))}</button></div>
           </form>
-          <div class="automation-card-grid settings-data-list">${scheduleState || schedules.map((item) => renderScheduleCard(item, busy, scheduleRunHistory[item.id])).join("")}</div>`}
+          <div class="automation-card-grid settings-data-list">${scheduleState || schedules.map((item, index) => renderScheduleCard(scheduleSources[index], busy, scheduleRunHistory[item.id])).join("")}</div>`}
         </section>
 
         <section class="automation-section settings-card settings-page-section">

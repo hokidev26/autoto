@@ -5,7 +5,9 @@ import { automationLimits } from "./automation-control.mjs";
 import { currentUILocale, setUILocale } from "./i18n.mjs";
 import {
   createScheduleWorkspaceController,
+  defaultScheduleTimezone,
   filterScheduleWorkspaceItems,
+  formatScheduleOptionValue,
   normalizeScheduleConversations,
   renderScheduleNavigationHTML,
   renderScheduleWorkspace,
@@ -140,6 +142,21 @@ test("search covers schedule fields and linked conversation title and project", 
   assert.deepEqual(filterScheduleWorkspaceItems(schedules, linked, "missing"), []);
 });
 
+test("new schedules use the browser IANA timezone and fall back safely", () => {
+  assert.equal(defaultScheduleTimezone(() => ({ timeZone: "Asia/Taipei" })), "Asia/Taipei");
+  assert.equal(defaultScheduleTimezone({ timeZone: "America/Los_Angeles" }), "America/Los_Angeles");
+  assert.equal(defaultScheduleTimezone(() => ({ timeZone: '<script>alert("x")</script>' })), "UTC");
+  assert.equal(defaultScheduleTimezone(() => { throw new Error("timezone unavailable"); }), "UTC");
+  const hostile = new Proxy({}, { get() { throw new Error("hostile getter"); } });
+  assert.equal(defaultScheduleTimezone(() => hostile), "UTC");
+
+  const create = renderScheduleWorkspace(
+    { loaded: true, mode: "create" },
+    { conversations: conversations(), resolveTimezone: () => ({ timeZone: "America/Los_Angeles" }) },
+  );
+  assert.match(create, /<input name="timezone" maxlength="128" value="America\/Los_Angeles"/);
+});
+
 test("workspace renders loading, error, empty, create, and preserves a missing linked agent", () => {
   assert.match(renderScheduleWorkspace({ loading: true }), /data-schedule-workspace-state="loading"/);
   assert.match(renderScheduleWorkspace({ loaded: true, error: "broken" }), /data-schedule-workspace-state="error"/);
@@ -148,6 +165,16 @@ test("workspace renders loading, error, empty, create, and preserves a missing l
   const create = renderScheduleWorkspace({ loaded: true, mode: "create" }, { conversations: conversations(), activeAgentId: "agent-2" });
   assert.match(create, /data-schedule-workspace-state="create"/);
   assert.match(create, /<option value="agent-2" selected>/);
+  assert.match(create, /<option value="readOnly" selected>只读（推荐）<\/option>/);
+  assert.match(create, /<option value="acceptEdits">允许修改文件<\/option>/);
+  assert.match(create, /<option value="workline" selected>关联项目工作区<\/option>/);
+  assert.match(create, /<option value="reuse" selected>复用关联叙述者<\/option>/);
+  assert.match(create, /class="schedule-execution-options span-2"/);
+  assert.match(create, /data-schedule-capability-boundary="external-browser-tool-required"/);
+  assert.match(create, /默认不可用：控制本机浏览器、点击或登录网页、播放音频或视频。/);
+  assert.match(create, /浏览器自动化 MCP\/插件/);
+  assert.match(create, /搜索 YouTube/);
+  assert.match(create, /不要尝试播放/);
   assert.doesNotMatch(create, /bypassPermissions/);
 
   const missing = renderScheduleWorkspace({ loaded: true, schedules: [schedule({ agentId: "retired-agent" })], selectedScheduleId: "schedule-1" }, { conversations: conversations() });
@@ -280,20 +307,35 @@ test("bind delegates creation, selection, and linked conversation actions", asyn
   assert.deepEqual(opened, ["agent-1"]);
 });
 
-test("key workspace copy renders in Simplified Chinese, Traditional Chinese, and English", () => {
+test("workspace copy and schedule enum values render in Simplified Chinese, Traditional Chinese, and English", () => {
   const previous = currentUILocale();
   try {
-    for (const [locale, title, createLabel] of [
-      ["zh-CN", /排程工作区/, /创建排程/],
-      ["zh-TW", /排程工作區/, /建立排程/],
-      ["en", /Schedule workspace/, /Create schedule/],
+    for (const [locale, labels] of [
+      ["zh-CN", { title: "排程工作区", create: "创建排程", capability: "排程能力范围", browserLimit: "默认不可用：控制本机浏览器", readOnly: "只读（推荐）", acceptEdits: "允许修改文件", workline: "关联项目工作区", standalone: "独立工作区", reuse: "复用关联叙述者", newNarrator: "每次运行新建叙述者", unknown: "未知选项（futureMode）" }],
+      ["zh-TW", { title: "排程工作區", create: "建立排程", capability: "排程能力範圍", browserLimit: "預設不可用：控制本機瀏覽器", readOnly: "唯讀（建議）", acceptEdits: "允許修改檔案", workline: "關聯專案工作區", standalone: "獨立工作區", reuse: "重用關聯敘述者", newNarrator: "每次執行新建敘述者", unknown: "未知選項（futureMode）" }],
+      ["en", { title: "Schedule workspace", create: "Create schedule", capability: "Schedule capability boundary", browserLimit: "Not built in: control the local browser", readOnly: "Read only (recommended)", acceptEdits: "Allow file edits", workline: "Linked project workspace", standalone: "Standalone workspace", reuse: "Reuse linked narrator", newNarrator: "Create a narrator for each run", unknown: "Unknown option (futureMode)" }],
     ]) {
       setUILocale(locale);
       const navigation = renderScheduleNavigationHTML({ loaded: true, schedules: [schedule()] }, { conversations: conversations() });
-      const workspace = renderScheduleWorkspace({ loaded: true, mode: "create" }, { conversations: conversations() });
-      assert.match(navigation, title, locale);
-      assert.match(workspace, createLabel, locale);
-      assert.match(workspace, /@every 15m/, locale);
+      const create = renderScheduleWorkspace({ loaded: true, mode: "create" }, { conversations: conversations() });
+      const detail = renderScheduleWorkspace({ loaded: true, schedules: [schedule({ permissionMode: "acceptEdits", environmentMode: "standalone", narratorMode: "new" })], selectedScheduleId: "schedule-1" }, { conversations: conversations() });
+      assert.ok(navigation.includes(labels.title), locale);
+      assert.ok(create.includes(labels.create), locale);
+      assert.ok(create.includes(labels.capability), locale);
+      assert.ok(create.includes(labels.browserLimit), locale);
+      assert.match(create, /@every 15m/, locale);
+      assert.ok(create.includes(`<option value="readOnly" selected>${labels.readOnly}</option>`), `${locale}:readOnly`);
+      assert.ok(create.includes(`<option value="acceptEdits">${labels.acceptEdits}</option>`), `${locale}:acceptEdits`);
+      assert.ok(create.includes(`<option value="workline" selected>${labels.workline}</option>`), `${locale}:workline`);
+      assert.ok(create.includes(`<option value="standalone">${labels.standalone}</option>`), `${locale}:standalone`);
+      assert.ok(create.includes(`<option value="reuse" selected>${labels.reuse}</option>`), `${locale}:reuse`);
+      assert.ok(create.includes(`<option value="new">${labels.newNarrator}</option>`), `${locale}:new`);
+      assert.ok(detail.includes(`<dd>${labels.acceptEdits}</dd>`), `${locale}:permission summary`);
+      assert.ok(detail.includes(`<dd>${labels.standalone}</dd>`), `${locale}:environment summary`);
+      assert.ok(detail.includes(`<dd>${labels.newNarrator}</dd>`), `${locale}:narrator summary`);
+      assert.doesNotMatch(create, />(?:readOnly|acceptEdits|workline|standalone|reuse|new)</, locale);
+      assert.doesNotMatch(detail, /<dd>(?:readOnly|acceptEdits|workline|standalone|reuse|new)<\/dd>/, locale);
+      assert.equal(formatScheduleOptionValue("permissionMode", "futureMode"), labels.unknown, `${locale}:unknown`);
     }
   } finally {
     setUILocale(previous);

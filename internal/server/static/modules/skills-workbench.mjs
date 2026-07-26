@@ -1,5 +1,5 @@
 import { $, escapeAttr, escapeHtml } from "./dom.mjs";
-import { t } from "./messages-skills.mjs";
+import { t } from "./messages-skills.mjs?v=automation-tool-catalog-1";
 import { confirm as platformConfirm } from "./platform.mjs";
 import { normalizeSlashCommandName } from "./skills-commands.mjs";
 import { createSkillsConfigCenter } from "./skills-config-center.mjs";
@@ -57,6 +57,7 @@ export async function restoreRevisionWithCurrentRiskConfirmation(restore, confir
 export function createSkillsWorkbenchController({
   state,
   request,
+  bindAutomationToolCatalog,
   bindMCPRegistryActions,
   bindPluginRegistryActions,
   copyText,
@@ -75,6 +76,7 @@ export function createSkillsWorkbenchController({
   normalizeSkillCommand,
   notifyTerminal,
   previewServerSkillImport,
+  renderAutomationToolCatalog,
   renderMCPRegistryList,
   renderPluginRegistryPanel,
   resetSkillsPreferences,
@@ -345,6 +347,7 @@ export function createSkillsWorkbenchController({
     const registrySubmitting = editingRegistryId ? isMCPRegistryActionBusy(editingRegistryId, "update") : isMCPRegistryActionBusy("new", "create");
     return `
     <p class="skills-description settings-card-description" data-settings-help-copy>${escapeHtml(active.description)}</p>
+    ${renderAutomationToolCatalog?.() || ""}
     <section class="settings-provider-section settings-card settings-page-section">
       <div class="settings-provider-section-head settings-card-header">
         <div>
@@ -538,6 +541,7 @@ export function createSkillsWorkbenchController({
         activateTab(tabs[nextIndex]);
       });
     });
+    if (activeKey === "mcp-tools") bindAutomationToolCatalog?.(body);
     bindMCPRegistryActions(body);
     if (activeKey === "plugins") bindPluginRegistryActions?.(body);
     configCenter?.bind(body, activeKey);

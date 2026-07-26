@@ -54,7 +54,7 @@ export {
   trustedSubscriptionAuthURL,
   validateCodexImportJSON,
   validateProviderNameValue,
-} from "./provider-settings-normalization.mjs";
+} from "./provider-settings-normalization.mjs?v=provider-hidden-models-1";
 
 export {
   agentModelRoles,
@@ -89,8 +89,8 @@ export {
   subscriptionProviderKinds,
   subscriptionProviderSpec,
   subscriptionProviderSpecs,
-} from "./model-provider-components.mjs";
+} from "./model-provider-components.mjs?v=provider-hidden-models-1";
 
 export { createSubscriptionAccountsController } from "./provider-subscription-accounts.mjs";
 
-export { createModelProviderSettingsController } from "./provider-console.mjs?v=native-image-generation-1-provider-auto-name-1";
+export { createModelProviderSettingsController } from "./provider-console.mjs?v=native-image-generation-1-provider-auto-name-1-provider-hidden-models-1";

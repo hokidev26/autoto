@@ -10,6 +10,7 @@ import {
   buildPairingCodePayload,
   buildSchedulePayload,
   createAutomationControlController,
+  formatScheduleEnumValue,
   normalizeConnection,
   normalizeSchedule,
   normalizeScheduleRun,
@@ -323,16 +324,40 @@ test("schedule modes normalize and run history uses the mounted endpoint", async
   assert.match(controller.render(), /42 ms/);
 });
 
-test("automation renders frontend labels from each localized catalog", () => {
+test("automation renders localized schedule enum options, summaries, and safe unknown fallbacks", () => {
   const previous = currentUILocale();
   try {
-    for (const [locale, expected] of [["zh-CN", /受限权限后台任务/], ["zh-TW", /受限權限背景任務/], ["en", /Restricted background tasks/]]) {
+    for (const [locale, labels] of [
+      ["zh-CN", { title: "受限权限后台任务", readOnly: "只读（推荐）", acceptEdits: "允许修改文件", workline: "关联项目工作区", standalone: "独立工作区", reuse: "复用关联叙述者", newNarrator: "每次运行新建叙述者", unknown: "未知选项（futureMode）", escapedUnknown: "未知选项（future&lt;mode&gt;）" }],
+      ["zh-TW", { title: "受限權限背景任務", readOnly: "唯讀（建議）", acceptEdits: "允許修改檔案", workline: "關聯專案工作區", standalone: "獨立工作區", reuse: "重用關聯敘述者", newNarrator: "每次執行新建敘述者", unknown: "未知選項（futureMode）", escapedUnknown: "未知選項（future&lt;mode&gt;）" }],
+      ["en", { title: "Restricted background tasks", readOnly: "Read only (recommended)", acceptEdits: "Allow file edits", workline: "Linked project workspace", standalone: "Standalone workspace", reuse: "Reuse linked narrator", newNarrator: "Create a narrator for each run", unknown: "Unknown option (futureMode)", escapedUnknown: "Unknown option (future&lt;mode&gt;)" }],
+    ]) {
       setUILocale(locale);
-      const html = renderAutomationControl({ loaded: true });
-      assert.match(html, expected, locale);
+      const html = renderAutomationControl({
+        loaded: true,
+        schedules: [
+          { id: "known", name: "Known", expression: "@daily", timezone: "UTC", agentId: "agent", prompt: "run", permissionMode: "acceptEdits", environmentMode: "standalone", narratorMode: "new", enabled: true },
+          { id: "future", name: "Future", expression: "@hourly", timezone: "UTC", agentId: "agent", prompt: "run", permissionMode: "future<mode>", environmentMode: "workline", narratorMode: "reuse", enabled: true },
+        ],
+      });
+      assert.ok(html.includes(labels.title), locale);
       assert.match(html, /placeholder="@every 15m"/, locale);
       assert.match(html, /env:AUTOTO_TELEGRAM_BOT_TOKEN/, locale);
       assert.match(html, /light\.living_room/, locale);
+      assert.ok(html.includes(`<option value="readOnly" selected>${labels.readOnly}</option>`), `${locale}:readOnly`);
+      assert.ok(html.includes(`<option value="acceptEdits">${labels.acceptEdits}</option>`), `${locale}:acceptEdits`);
+      assert.ok(html.includes(`<option value="workline" selected>${labels.workline}</option>`), `${locale}:workline`);
+      assert.ok(html.includes(`<option value="standalone">${labels.standalone}</option>`), `${locale}:standalone`);
+      assert.ok(html.includes(`<option value="reuse" selected>${labels.reuse}</option>`), `${locale}:reuse`);
+      assert.ok(html.includes(`<option value="new">${labels.newNarrator}</option>`), `${locale}:new`);
+      assert.ok(html.includes(`<dd>${labels.acceptEdits}</dd>`), `${locale}:permission summary`);
+      assert.ok(html.includes(`<dd>${labels.standalone}</dd>`), `${locale}:environment summary`);
+      assert.ok(html.includes(`<dd>${labels.newNarrator}</dd>`), `${locale}:narrator summary`);
+      assert.ok(html.includes(`<dd>${labels.escapedUnknown}</dd>`), `${locale}:escaped unknown summary`);
+      assert.doesNotMatch(html, />(?:readOnly|acceptEdits|workline|standalone|reuse|new)</, locale);
+      assert.doesNotMatch(html, /<dd>(?:readOnly|acceptEdits|workline|standalone|reuse|new)<\/dd>/, locale);
+      assert.doesNotMatch(html, /<mode>/, locale);
+      assert.equal(formatScheduleEnumValue("permissionMode", "futureMode"), labels.unknown, `${locale}:unknown`);
     }
   } finally {
     setUILocale(previous);

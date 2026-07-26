@@ -106,6 +106,12 @@ export default Object.freeze({
     activeTasks: "Active tasks", activeRuns: "Active runs", runningAgents: "Running agents", pendingApprovals: "Pending approvals", pendingApprovalsCount: "{count} operations are waiting for approval", dueSchedules: "Due schedules", dueSchedulesCount: "{count} schedules are due to run", failedSchedules: "Failed schedules", failedSchedulesCount: "{count} schedules failed on their latest run",
     startedAt: "Started {time}", nextRunAt: "Next run {time}", lastOutcome: "Last result: {outcome}", priority: "Priority: {priority}", conversationUnavailable: "This conversation is no longer available.", taskUnavailable: "This task is no longer available.", runUnavailable: "This run is no longer available.", scheduleUnavailable: "This schedule is no longer available.", approvalsUnavailable: "No actionable pending approval could be found. The overview may have just changed; refresh and try again.",
   },
+  schedule: {
+    permissionModes: { readOnly: "Read only (recommended)", acceptEdits: "Allow file edits" },
+    environmentModes: { workline: "Linked project workspace", standalone: "Standalone workspace" },
+    narratorModes: { reuse: "Reuse linked narrator", new: "Create a narrator for each run" },
+    unknownValue: "Unknown option ({value})",
+  },
   workbench: {
     toggle: "Toggle task workbench",
     sidebarTitle: "Tasks",
@@ -1575,7 +1581,7 @@ export default Object.freeze({
       },
       actions: {
         testConnection: "Test connection", testingConnection: "Testing connection", sendTest: "Send test", saveAndEnable: "Save and enable", start: "Start", stop: "Stop", delete: "Delete", closeDrawer: "Close drawer", back: "Back",
-        refreshModels: "Refresh models", fetchModels: "Fetch models", refetchModels: "Fetch again", fetchingModels: "Fetching models", enableProvider: "Enable provider", disableProvider: "Disable provider", closeModal: "Close", saving: "Saving", cancel: "Cancel", discardChanges: "Discard changes", addHeader: "Add header", removeHeader: "Remove header", addManualModel: "Add model", showApiKey: "Show API Key", hideApiKey: "Hide API Key", showModel: "Show {model}", hideModel: "Hide {model}", showAllModels: "Show all models", hideAllModels: "Hide all (keep one)", removeManualModel: "Remove manual model {model}",
+        refreshModels: "Refresh models", fetchModels: "Fetch models", refetchModels: "Fetch again", fetchingModels: "Fetching models", enableProvider: "Enable provider", disableProvider: "Disable provider", closeModal: "Close", saving: "Saving", cancel: "Cancel", discardChanges: "Discard changes", addHeader: "Add header", removeHeader: "Remove header", addManualModel: "Add model", showApiKey: "Show API Key", hideApiKey: "Hide API Key", showModel: "Show {model}", hideModel: "Hide {model}", showAllModels: "Show all models", hideAllModels: "Hide all", removeManualModel: "Remove manual model {model}",
       },
       drawer: { editProvider: "Edit provider", createProvider: "New provider", configurationDescription: "Configure the connection, default model, and runtime credential.", connection: "Connection" },
       createPage: {

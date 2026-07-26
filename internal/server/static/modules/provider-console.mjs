@@ -18,7 +18,7 @@ import {
   renderProviderConsolePage,
   setProviderModelHidden,
   setProviderModelHiddenAll,
-} from "./model-provider-components.mjs?v=provider-card-clean-3-provider-create-page-2-provider-secrets-1-model-picker-1-provider-full-page-2-provider-placeholders-1-model-configs-1-provider-reference-1-default-openai-responses-1-provider-draft-session-1-native-image-generation-1";
+} from "./model-provider-components.mjs?v=provider-card-clean-3-provider-create-page-2-provider-secrets-1-model-picker-1-provider-full-page-2-provider-placeholders-1-model-configs-1-provider-reference-1-default-openai-responses-1-provider-draft-session-1-native-image-generation-1-provider-hidden-models-1";
 import {
   automaticProviderNameUpdate,
   markProviderModelsStale,
@@ -36,12 +36,12 @@ import {
   syncProviderConsoleDraft,
   trapProviderConsoleFocus,
   validateProviderNameValue,
-} from "./provider-settings-normalization.mjs";
+} from "./provider-settings-normalization.mjs?v=provider-hidden-models-1";
 import { codexAccountStableID, finiteNumber } from "./provider-account-rendering.mjs";
-import { providerCategory, subscriptionProviderKind, subscriptionProviderSpec } from "./model-provider-components.mjs?v=provider-subscription-accounts-1";
-import { normalizeSubscriptionProvider } from "./provider-settings-normalization.mjs";
+import { providerCategory, subscriptionProviderKind, subscriptionProviderSpec } from "./model-provider-components.mjs?v=provider-subscription-accounts-1-provider-hidden-models-1";
+import { normalizeSubscriptionProvider } from "./provider-settings-normalization.mjs?v=provider-hidden-models-1";
 import { createCodexAuthController } from "./provider-codex-auth.mjs";
-import { createAnthropicAccountsController } from "./provider-anthropic-accounts.mjs";
+import { createAnthropicAccountsController } from "./provider-anthropic-accounts.mjs?v=provider-hidden-models-1";
 import { createSubscriptionAccountsController } from "./provider-subscription-accounts.mjs";
 import { createModelRoutingController } from "./model-routing-settings.mjs";
 
@@ -1683,8 +1683,7 @@ export function createModelProviderSettingsController({
         return;
       }
       const draft = { ...(consoleState.draft || {}) };
-      const allowEmpty = providerCategory(draft) === "official";
-      const result = setProviderModelHidden(draft.modelConfigs, name, target.dataset.hidden !== "true", draft.model, { allowEmpty });
+      const result = setProviderModelHidden(draft.modelConfigs, name, target.dataset.hidden !== "true", draft.model, { allowEmpty: true });
       if (!result.changed) {
         setProviderConsoleResult(ct("messages.lastVisibleModel"), "attention");
         refreshProviderConsole();
@@ -1702,8 +1701,7 @@ export function createModelProviderSettingsController({
         return;
       }
       const draft = { ...(consoleState.draft || {}) };
-      const allowEmpty = providerCategory(draft) === "official";
-      const result = setProviderModelHiddenAll(draft.modelConfigs, target.dataset.allVisible === "true", draft.model, { allowEmpty });
+      const result = setProviderModelHiddenAll(draft.modelConfigs, target.dataset.allVisible === "true", draft.model, { allowEmpty: true });
       if (!result.changed) {
         refreshProviderConsole();
         return;

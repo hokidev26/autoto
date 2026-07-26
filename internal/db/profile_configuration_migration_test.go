@@ -41,9 +41,10 @@ func TestV51ProfileConfigurationMigrationFromV50(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "v50.db")
 	raw := openRawDB(t, path)
-	v50Schema := strings.TrimSuffix(schemaSQL, profileConfigurationSchemaSQL)
-	if v50Schema == schemaSQL {
-		t.Fatal("v51 schema suffix was not present")
+	withoutV53 := strings.TrimSuffix(schemaSQL, remoteCollaborationSchemaSQL)
+	v50Schema := strings.TrimSuffix(withoutV53, profileConfigurationSchemaSQL)
+	if withoutV53 == schemaSQL || v50Schema == withoutV53 {
+		t.Fatal("v51/v53 schema suffixes were not present")
 	}
 	if _, err := raw.ExecContext(ctx, v50Schema); err != nil {
 		t.Fatal(err)

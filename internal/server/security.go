@@ -133,6 +133,18 @@ func (s *Server) now() time.Time {
 
 func (s *Server) localRequestGuard(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if isPeerProtocolPath(r.URL.Path) {
+			if isBrowserInitiated(r) {
+				writeError(w, http.StatusForbidden, "browser requests cannot use the peer protocol")
+				return
+			}
+			if s.remoteAccessGateRequired(r) && remotePlainHTTP(r) {
+				writeError(w, http.StatusForbidden, "peer protocol requires HTTPS")
+				return
+			}
+			next.ServeHTTP(w, r)
+			return
+		}
 		remote := s.remoteAccessGateRequired(r)
 		if remote && remotePlainHTTP(r) && !isRemoteAccessLoginPath(r.URL.Path) {
 			writeError(w, http.StatusForbidden, "remote access requires HTTPS")

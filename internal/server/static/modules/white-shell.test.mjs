@@ -726,6 +726,7 @@ test("desktop conversation layout follows the compact resizable geometry", async
   assert.match(styles, /\[class~="message"\]:not\(\[class~="live-assistant-message"\]\) \.message-time\s*\{[^}]*grid-column:\s*3[^}]*justify-self:\s*end/);
   assert.match(styles, /\.message-editing \.message-correction-text\s*\{[\s\S]*?border-radius:\s*7px[\s\S]*?background:\s*var\(--ws-input\)/);
   assert.match(styles, /body\.white-shell\.theme-light \.messages:not\(\.empty\) > \[class~="run-summary-card"\]\s*\{[\s\S]*?justify-self:\s*stretch[\s\S]*?width:\s*100%/);
+  assert.match(styles, /@media \(max-width:\s*767px\)\s*\{[\s\S]*?body\.white-shell\.theme-light \.messages \[class~="run-summary-card"\]\s*\{[^}]*display:\s*none/);
   assert.match(styles, /\.project-run-failure\s*\{[^}]*width:\s*100%[^}]*max-width:\s*100%/);
   assert.match(styles, /\.run-summary-failure-alert\s*\{[^}]*font-size:\s*12px/);
   assert.match(finalDesktopComposer, /\[class~="toolbar-model-pill"\],[\s\S]*?\[class~="model-tool-btn"\]\[class~="icon-only"\]\s*\{[\s\S]*?border-radius:\s*6px/);

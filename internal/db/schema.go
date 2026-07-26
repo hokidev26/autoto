@@ -544,7 +544,7 @@ CREATE TABLE IF NOT EXISTS tool_permission_rules (
   updated_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_tool_permission_rules_match ON tool_permission_rules(enabled, mode, tool_name, risk, priority);
-` + automationAuditSchemaSQL + integrationConnectionsSchemaSQL + memorySchemaSQL + schedulesSchemaSQL + notificationDeliveriesSchemaSQL + channelPersistenceSchemaSQL + deviceActionRequestsSchemaSQL + specSchemaSQL + modelClientSchemaSQL + remoteExecutionSchemaSQL + providerAccountStatsSchemaSQL + providerSecretsSchemaSQL + pluginSchemaSQL + backgroundTaskSchemaSQL + planSchemaSQL + gatewaySchemaSQL + accountPreferencesSchemaSQL + oauthAppSchemaSQL + gatewayAccountGrantsSchemaSQL + generatedImagesSchemaSQL + toolExecutionGroupSchemaSQL + profileConfigurationSchemaSQL
+` + automationAuditSchemaSQL + integrationConnectionsSchemaSQL + memorySchemaSQL + schedulesSchemaSQL + notificationDeliveriesSchemaSQL + channelPersistenceSchemaSQL + deviceActionRequestsSchemaSQL + specSchemaSQL + modelClientSchemaSQL + remoteExecutionSchemaSQL + providerAccountStatsSchemaSQL + providerSecretsSchemaSQL + pluginSchemaSQL + backgroundTaskSchemaSQL + planSchemaSQL + gatewaySchemaSQL + accountPreferencesSchemaSQL + oauthAppSchemaSQL + gatewayAccountGrantsSchemaSQL + generatedImagesSchemaSQL + toolExecutionGroupSchemaSQL + profileConfigurationSchemaSQL + remoteCollaborationSchemaSQL
 
 const profileConfigurationSchemaSQL = toolAvailabilitySchemaSQL + agentRoleDefinitionSchemaSQL + promptDefinitionSchemaSQL + lifecycleHookSchemaSQL
 
