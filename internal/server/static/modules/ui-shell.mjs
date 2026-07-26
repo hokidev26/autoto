@@ -677,25 +677,14 @@ export function createUIShellController({
       });
     };
 
+    // The old "permission guard / enabled" line was a static note that restated
+    // something always true and could not be acted on, so it is gone; the
+    // divider now introduces the one control in this section that does anything.
     const appendPermissionSafetyStatus = (target = menu) => {
       const divider = document.createElement("div");
       divider.className = "composer-permission-divider";
       divider.setAttribute("aria-hidden", "true");
-
-      const status = document.createElement("div");
-      status.className = "composer-permission-safety-status";
-      status.setAttribute("role", "note");
-      const icon = document.createElement("span");
-      icon.className = "composer-permission-option-icon composer-permission-safety-icon";
-      icon.innerHTML = permissionMenuIconMarkup.default;
-      const label = document.createElement("span");
-      label.className = "composer-permission-safety-label";
-      label.textContent = translate("chat.permissionGuard");
-      const state = document.createElement("span");
-      state.className = "composer-permission-safety-state";
-      state.textContent = translate("common.enabled");
-      status.append(icon, label, state);
-      target.append(divider, status, createDangerReflectionRow());
+      target.append(divider, createDangerReflectionRow());
     };
 
     const chooseMessageMode = (mode) => {

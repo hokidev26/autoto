@@ -195,7 +195,7 @@ function flushMicrotasks() {
   return new Promise((resolve) => setImmediate(resolve));
 }
 
-test("danger reflection toggle renders below the static safety status row", async () => {
+test("danger reflection toggle is the only row in the safety section", async () => {
   const { fakeDocument, fakeWindow, trigger, body } = setupComposerSelectDOM();
   await withGlobals(fakeDocument, fakeWindow, async () => {
     const controller = createUIShellController({
@@ -212,10 +212,12 @@ test("danger reflection toggle renders below the static safety status row", asyn
     assert.equal(toggle.type, "checkbox");
     assert.equal(toggle.getAttribute("role"), "switch");
 
-    const staticStatus = menu.querySelectorAll(".composer-permission-safety-status");
-    // The static "permission protection / enabled" row, plus our new row
-    // (which reuses the same base class for consistent mobile/desktop sizing).
-    assert.equal(staticStatus.length, 2);
+    // Only the toggle. The old "permission protection / enabled" note was
+    // removed: it restated something always true and could not be acted on, so
+    // it was pure noise above the one control that does something here.
+    const safetyRows = menu.querySelectorAll(".composer-permission-safety-status");
+    assert.equal(safetyRows.length, 1);
+    assert.ok(safetyRows[0].classList.contains("composer-permission-danger-reflection"));
   });
 });
 
