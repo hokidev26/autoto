@@ -40,6 +40,12 @@ func (r *Runner) resolveToolPermissionWithSession(ctx context.Context, agentID, 
 		slog.Info("tool permission decision", "agentId", agentID, "mode", mode, "toolName", toolName, "risk", risk, "decision", toolPermissionDeny, "source", decisionSourceReadOnlyCap)
 		return toolPermissionResolution{Decision: toolPermissionDeny, Reason: string(risk) + " risk denied by readOnly permission mode", Warning: defaultApprovalWarning(toolName, risk, input), Source: decisionSourceReadOnlyCap}
 	}
+	managedApprovalRequired := managedAutomationMCPApprovalRequired(toolName, risk, input)
+	// A command that static analysis marked serious-but-recoverable, or could not
+	// classify at all, must always reach a human. This gate sits above stored
+	// rules and permission modes so neither a wildcard allow rule nor
+	// bypassPermissions can turn it into a silent execution.
+	reviewRequired, reviewWarning := execRequiresHumanReview(toolName, risk, input)
 	if r != nil && r.store != nil {
 		rules, err := r.store.ListToolPermissionRules(ctx)
 		if err != nil {
@@ -55,13 +61,37 @@ func (r *Runner) resolveToolPermissionWithSession(ctx context.Context, agentID, 
 			}
 			decision := normalizedRuleDecision(rule.Decision)
 			reason := toolPermissionRuleReason(rule)
+			if (managedApprovalRequired || reviewRequired) && decision == toolPermissionAllow {
+				break
+			}
+			warning := defaultApprovalWarning(toolName, risk, input)
+			scope := ""
+			if managedApprovalRequired && decision == toolPermissionAsk {
+				warning = managedAutomationMCPApprovalWarning()
+				scope = "once"
+			}
+			if reviewRequired && decision == toolPermissionAsk && strings.TrimSpace(reviewWarning) != "" {
+				warning = reviewWarning
+			}
 			slog.Info("tool permission decision", "agentId", agentID, "mode", mode, "toolName", toolName, "risk", risk, "decision", decision, "source", decisionSourceRule, "ruleId", rule.ID, "rulePriority", rule.Priority, "ruleEnabled", rule.Enabled)
-			return toolPermissionResolution{Decision: decision, Reason: reason, Warning: defaultApprovalWarning(toolName, risk, input), Source: decisionSourceRule, RuleID: rule.ID}
+			return toolPermissionResolution{Decision: decision, Reason: reason, Warning: warning, Source: decisionSourceRule, RuleID: rule.ID, Scope: scope}
 		}
 	}
+	if managedApprovalRequired {
+		reason := "managed browser automation action requires one-time human approval"
+		warning := managedAutomationMCPApprovalWarning()
+		slog.Info("tool permission decision", "agentId", agentID, "mode", mode, "toolName", toolName, "risk", risk, "decision", toolPermissionAsk, "source", decisionSourceDefaultPolicy, "scope", "once")
+		return toolPermissionResolution{Decision: toolPermissionAsk, Reason: reason, Warning: warning, Source: decisionSourceDefaultPolicy, Scope: "once"}
+	}
+	// A session grant is an explicit human approval of this exact command, so it
+	// still satisfies the review requirement.
 	if allowSession && r.hasSessionGrant(ctx, agentID, sessionGrantKey(toolName, input)) {
 		slog.Info("tool permission decision", "agentId", agentID, "mode", mode, "toolName", toolName, "risk", risk, "decision", toolPermissionAllow, "source", decisionSourceSessionApproval)
 		return toolPermissionResolution{Decision: toolPermissionAllow, Reason: "allowed by session approval", Source: decisionSourceSessionApproval, Scope: "session"}
+	}
+	if reviewRequired {
+		slog.Info("tool permission decision", "agentId", agentID, "mode", mode, "toolName", toolName, "risk", risk, "decision", toolPermissionAsk, "source", decisionSourceCommandReview)
+		return toolPermissionResolution{Decision: toolPermissionAsk, Reason: "command requires human review before execution", Warning: reviewWarning, Source: decisionSourceCommandReview, Scope: "once"}
 	}
 	prefs := db.DefaultWorkflowPreferences()
 	if r != nil && r.store != nil {
@@ -98,6 +128,12 @@ func (r *Runner) defaultToolPermission(ctx context.Context, agentID, mode, toolN
 			return toolPermissionResolution{Decision: toolPermissionAllow, Reason: "allowed by permission mode"}
 		}
 	case tools.RiskExec:
+		// Defense in depth: the caller already gates on this, but a future direct
+		// caller must not be able to reach the unconditional allows below with a
+		// command that static analysis flagged or could not classify.
+		if required, warning := execRequiresHumanReview(toolName, risk, input); required {
+			return toolPermissionResolution{Decision: toolPermissionAsk, Reason: "command requires human review before execution", Warning: warning}
+		}
 		if mode == "bypassPermissions" {
 			return toolPermissionResolution{Decision: toolPermissionAllow, Reason: "allowed by bypassPermissions mode"}
 		}
@@ -212,7 +248,20 @@ func approvalRequired(mode, toolName string, risk tools.Risk) bool {
 	}
 }
 
+func managedAutomationMCPApprovalRequired(toolName string, risk tools.Risk, input json.RawMessage) bool {
+	return toolName == "MCPCallTool" && risk == tools.RiskExec && tools.ManagedAutomationMCPCallRequiresApproval(input)
+}
+
+func managedAutomationMCPApprovalWarning() string {
+	return "This managed browser automation call may click, type, navigate, upload, execute scripts, write screenshot files, or cause other side effects and requires one-time human approval."
+}
+
 func sessionGrantKey(toolName string, input json.RawMessage) string {
+	if managedAutomationMCPApprovalRequired(toolName, tools.RiskExec, input) {
+		// The approval UI may still present its generic session choice, but no
+		// reusable grant is ever created for managed automation side effects.
+		return ""
+	}
 	if toolName == "Bash" {
 		return toolName + ":" + normalizeShellCommand(tools.BashCommand(input))
 	}
@@ -233,10 +282,34 @@ func autoApprovalReasonWithPolicy(toolName string, input json.RawMessage, reason
 	return autoApprovalReason(toolName, input)
 }
 
+// execRequiresHumanReview reports whether an exec-risk call must always reach a
+// human, regardless of permission mode or stored rules. It covers the two cases
+// where silent execution would be unjustifiable: a command classified as
+// serious-but-recoverable, and a command static analysis could not classify at
+// all. Returning the structured warning keeps the approval prompt explanatory.
+func execRequiresHumanReview(toolName string, risk tools.Risk, input json.RawMessage) (bool, string) {
+	if risk != tools.RiskExec || toolName != "Bash" {
+		return false, ""
+	}
+	command := tools.BashCommand(input)
+	if strings.TrimSpace(command) == "" {
+		return false, ""
+	}
+	facts := tools.AnalyzeBashCommand(command)
+	if !facts.NeedsApproval() {
+		return false, ""
+	}
+	warning := tools.CommandApprovalWarning(facts)
+	if strings.TrimSpace(warning) == "" {
+		warning = defaultApprovalWarning(toolName, risk, input)
+	}
+	return true, warning
+}
+
 func isWhitelistedExecCommand(command string) bool {
 	command = strings.TrimSpace(command)
 	facts := tools.AnalyzeBashCommand(command)
-	if command == "" || !facts.ParseKnown || len(facts.Dangerous) > 0 || facts.Compound || facts.Pipeline || facts.Redirection || facts.Substitution || facts.Background || facts.CommandCount != 1 {
+	if command == "" || facts.NeedsApproval() || facts.Compound || facts.Pipeline || facts.Redirection || facts.Substitution || facts.Background || facts.CommandCount != 1 {
 		return false
 	}
 	fields := strings.Fields(command)

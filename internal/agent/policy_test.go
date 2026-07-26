@@ -26,8 +26,12 @@ var (
 		"EndPipeline",
 		"Glob",
 		"Grep",
+		// LS and TodoWrite are read-only: a plan run must be able to list a
+		// directory and record the plan it is producing.
+		"LS",
 		"Read",
 		"StartPipeline",
+		"TodoWrite",
 		"WebFetch",
 		"WebSearch",
 	}

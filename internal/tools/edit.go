@@ -13,10 +13,10 @@ import (
 type EditTool struct{}
 
 type editInput struct {
-	FilePath   string `json:"file_path"`
-	OldString  string `json:"old_string"`
-	NewString  string `json:"new_string"`
-	ReplaceAll bool   `json:"replace_all,omitempty"`
+	FilePath   string `json:"file_path" desc:"Path to the existing file to modify, absolute or relative to the working directory."`
+	OldString  string `json:"old_string" desc:"Exact text to replace, including indentation. Must appear exactly once unless replace_all is set."`
+	NewString  string `json:"new_string" desc:"Replacement text. Must differ from old_string."`
+	ReplaceAll bool   `json:"replace_all,omitempty" desc:"Replace every occurrence instead of requiring old_string to be unique."`
 }
 
 func (EditTool) Name() string { return "Edit" }

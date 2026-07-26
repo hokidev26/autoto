@@ -125,6 +125,54 @@ export function normalizeGeneratedImageBlocks(message = {}) {
     .sort((left, right) => (left.outputIndex ?? left.blockIndex) - (right.outputIndex ?? right.blockIndex) || left.blockIndex - right.blockIndex);
 }
 
+function contentBlockType(block = {}) {
+  return String(block.type || "").trim().toLowerCase();
+}
+
+function contentBlockText(block = {}) {
+  return String(block.text ?? block.content ?? "").trim();
+}
+
+function stripLegacyAssistantToolRequests(value) {
+  return String(value || "")
+    .split(/\r?\n/)
+    .filter((line) => !/^\s*\[?Tool requested:\s+.+\s+\([^)]+\)\]?\s*$/i.test(line))
+    .join("\n")
+    .trim();
+}
+
+function messageIsToolResult(message = {}, blocks = messageContentBlocks(message)) {
+  if (chatMessagePresentation(message).normalizedRole === "tool") return true;
+  return blocks.some((block) => contentBlockType(block) === "tool_result");
+}
+
+export function transcriptMessageText(message = {}) {
+  const blocks = messageContentBlocks(message);
+  if (messageIsToolResult(message, blocks)) return "";
+  const presentation = chatMessagePresentation(message);
+  if (presentation.normalizedRole !== "assistant") return visibleMessageText(message);
+  if (blocks.some((block) => contentBlockType(block) === "tool_use")) {
+    return blocks
+      .filter((block) => contentBlockType(block) === "text")
+      .map(contentBlockText)
+      .filter(Boolean)
+      .join("\n\n");
+  }
+  return stripLegacyAssistantToolRequests(visibleMessageText(message));
+}
+
+export function isTranscriptMessageVisible(message = {}) {
+  const blocks = messageContentBlocks(message);
+  if (messageIsToolResult(message, blocks)) return false;
+  if (transcriptMessageText(message).trim()) return true;
+  if (chatMessagePresentation(message).normalizedRole === "assistant" && normalizeGeneratedImageBlocks(message).length) return true;
+  return Array.isArray(message.attachments) && message.attachments.length > 0;
+}
+
+function transcriptMessages(messages) {
+  return (Array.isArray(messages) ? messages : []).filter(isTranscriptMessageVisible);
+}
+
 export function generatedImageURL(agentId, messageId, assetId, { download = false } = {}) {
   const agent = boundedImageText(agentId);
   const message = boundedImageText(messageId);
@@ -178,14 +226,36 @@ const maxToolSafetyReason = 600;
 
 const toolDecisionValues = new Set(["allow", "ask", "deny", "allow_once", "allow_session"]);
 const toolDecisionSources = new Set([
-  "hard_danger_block", "read_only_cap", "rule", "session_approval", "default_policy",
+  "hard_danger_block", "command_review", "danger_reflection", "read_only_cap", "rule", "session_approval", "default_policy",
   "built_in_exec_whitelist", "builtin_exec_whitelist", "permission_mode", "workflow_preferences",
   "policy_unavailable", "workflow_unavailable", "human_approval", "generation_invalidation",
   "policy", "user", "system", "plan_mode",
 ]);
 const toolDecisionScopes = new Set(["tool_call", "once", "session", "rule", "policy", "permission_mode", "workflow_preferences", "run", "plan", "global"]);
-const toolFactEffects = new Set(["filesystem-delete", "privileged-execution", "disk-write", "filesystem-write", "file-destroy", "disk-format", "repository-state-discard", "permission-change", "nested-shell", "network-access", "shell-execution"]);
-const toolFactDangerous = new Set(["file-delete", "privilege-escalation", "disk-write", "file-destroy", "find-delete", "git-clean", "git-reset-hard", "permission-weaken", "disk-format", "network-pipe-shell", "file-truncate"]);
+const toolFactEffects = new Set([
+  "filesystem-delete", "privileged-execution", "disk-write", "filesystem-write", "file-destroy", "disk-format",
+  "repository-state-discard", "repository-history-rewrite", "permission-change", "nested-shell", "network-access",
+  "shell-execution", "process-kill", "process-spawn", "scheduled-task-change", "network-config", "network-share",
+  "service-change", "container-delete", "package-install", "filesystem-mount", "system-shutdown", "backup-destroy",
+  "registry-write", "boot-config", "account-change", "audit-clear", "obfuscation", "system-management", "policy-change",
+]);
+// Hard-blocked labels: catastrophic and effectively irreversible.
+const toolFactDangerous = new Set([
+  "file-delete", "file-destroy", "file-truncate", "find-delete", "privilege-escalation", "disk-write", "disk-format",
+  "disk-partition", "network-pipe-shell", "decoded-pipe-shell", "permission-weaken", "permission-setuid", "git-clean",
+  "git-reset-hard", "process-kill-all", "crontab-delete", "firewall-flush", "firewall-change", "container-delete",
+  "system-shutdown", "shadow-copy-delete", "registry-delete", "boot-config", "service-delete", "account-change",
+  "scheduled-task-change", "audit-clear", "encoded-command", "network-download-exec", "script-host-execution",
+  "policy-weaken",
+]);
+// Approval-required labels: serious but recoverable, and legitimate in normal work.
+const toolFactSensitive = new Set([
+  "file-delete-scoped", "file-truncate-scoped", "file-overwrite", "permission-change", "process-kill", "service-change",
+  "package-install", "git-force-push", "git-history-rewrite", "git-discard-changes", "registry-write", "network-config",
+  "network-download", "network-share", "pipe-to-interpreter", "filesystem-mount", "scheduled-task-inspect",
+  "account-inspect", "process-spawn", "obfuscation", "bulk-copy", "file-rename", "script-file-execution",
+  "system-management", "disk-tooling", "backup-tooling",
+]);
 const toolFactSubcommands = new Set(["add", "branch", "checkout", "clean", "clone", "commit", "config", "diff", "fetch", "log", "merge", "pull", "push", "reset", "restore", "show", "status", "switch", "tag", "build", "env", "fmt", "generate", "get", "install", "list", "mod", "run", "test", "tool", "vet", "version", "work", "ci", "exec", "update", "lint", "other"]);
 
 function planText(value, fallback = "") {
@@ -370,6 +440,7 @@ function normalizeCommandFacts(value) {
     background: typeof value.background === "boolean" ? value.background : null,
     effects: safeToolFactLabels(value.effects, toolFactEffects),
     dangerous: safeToolFactLabels(value.dangerous, toolFactDangerous),
+    sensitive: safeToolFactLabels(value.sensitive, toolFactSensitive),
   };
   return Object.values(facts).some((item) => item !== null && item !== "" && (!Array.isArray(item) || item.length)) ? facts : null;
 }
@@ -512,6 +583,8 @@ function toolDecisionLabel(decision) {
 function toolDecisionSourceLabel(source) {
   const keys = {
     hard_danger_block: "hardDangerBlock",
+    command_review: "commandReview",
+    danger_reflection: "dangerReflection",
     read_only_cap: "readOnlyCap",
     rule: "rule",
     session_approval: "sessionApproval",
@@ -572,6 +645,7 @@ function toolActivityFactLabels(item) {
   if (facts.subcommand) labels.push(cr("activity.factSubcommand", { subcommand: facts.subcommand }));
   facts.effects.forEach((effect) => labels.push(cr("activity.factEffect", { effect })));
   facts.dangerous.forEach((dangerous) => labels.push(cr("activity.factDanger", { dangerous })));
+  (facts.sensitive || []).forEach((sensitive) => labels.push(cr("activity.factSensitive", { sensitive })));
   return labels.slice(0, maxToolFactLabels + 8);
 }
 
@@ -1411,12 +1485,13 @@ export function createChatRenderingController({
   function applyMessageSnapshot(messages, agentId = state.agent?.id, options = {}) {
     if (!agentId || state.agent?.id !== agentId) return false;
     const normalized = Array.isArray(messages) ? messages : [];
+    const visibleMessages = transcriptMessages(normalized);
     if (options.hasMoreBefore !== undefined) state.messageHasMoreBefore = Boolean(options.hasMoreBefore);
     if (options.nextBefore !== undefined) state.messageNextBefore = String(options.nextBefore || "");
     if (options.clearLiveImageGenerations === true) clearLiveImageGenerations({ agentId, preserveView: true });
     const el = $("messages");
     state.currentMessages = normalized;
-    state.messageCopyTexts = normalized.map(visibleMessageText);
+    state.messageCopyTexts = visibleMessages.map(transcriptMessageText);
     updateConversationCopyButton();
     if (state.chatHydrating && options.forceRender !== true) return true;
     if (!el) return true;
@@ -1428,7 +1503,7 @@ export function createChatRenderingController({
     const liveToolCards = renderLiveToolOutputCardsHTML();
     const runSummaryCard = renderRunSummaryCardHTML();
     const approvalCards = renderApprovalCardsHTML();
-    if (!normalized.length && !liveAssistantCard && !liveImageGenerationCards && !planCards && !liveToolCards && !runSummaryCard && !approvalCards) {
+    if (!visibleMessages.length && !liveAssistantCard && !liveImageGenerationCards && !planCards && !liveToolCards && !runSummaryCard && !approvalCards) {
       el.classList.add("empty");
       el.innerHTML = `<div class="empty-conversation-state">${escapeHtml(cr("message.empty"))}</div>`;
       return true;
@@ -1441,8 +1516,8 @@ export function createChatRenderingController({
         </button>
       </div>
     ` : "";
-    el.innerHTML = `${olderMessagesControl}${normalized.map(renderChatMessageCached).join("")}${liveAssistantCard}${liveImageGenerationCards}${planCards}${liveToolCards}${runSummaryCard}${approvalCards}`;
-    const liveMessageIds = new Set(normalized.map((message) => message.id).filter(Boolean));
+    el.innerHTML = `${olderMessagesControl}${visibleMessages.map(renderChatMessageCached).join("")}${liveAssistantCard}${liveImageGenerationCards}${planCards}${liveToolCards}${runSummaryCard}${approvalCards}`;
+    const liveMessageIds = new Set(visibleMessages.map((message) => message.id).filter(Boolean));
     for (const cachedId of messageHtmlCache.keys()) {
       if (!liveMessageIds.has(cachedId)) messageHtmlCache.delete(cachedId);
     }
@@ -1552,7 +1627,7 @@ export function createChatRenderingController({
           <div class="message-head-actions">${actions}</div>
           ${timeHTML}
         </div>
-        ${editing ? renderCorrectionEditor(message) : `<div class="message-content">${renderMarkdown(friendlyMessageText(visibleMessageText(message)))}</div>${presentation.normalizedRole === "assistant" ? renderGeneratedImageBlocksHTML(message, state.agent?.id || "") : ""}${renderMessageAttachments(message)}`}
+        ${editing ? renderCorrectionEditor(message) : `<div class="message-content">${renderMarkdown(friendlyMessageText(transcriptMessageText(message)))}</div>${presentation.normalizedRole === "assistant" ? renderGeneratedImageBlocksHTML(message, state.agent?.id || "") : ""}${renderMessageAttachments(message)}`}
         ${presentation.normalizedRole === "assistant" ? renderPerformanceHTML(message.turnUsage) : ""}
       </div>
     `;
@@ -1591,7 +1666,7 @@ export function createChatRenderingController({
     const html = renderLiveAssistantCardHTML();
     if (!html) {
       existing?.remove();
-      if (!state.currentMessages?.length && !renderLiveImageGenerationCardsHTML() && !renderPlanCardsHTML() && !renderLiveToolOutputCardsHTML() && !renderRunSummaryCardHTML() && !renderApprovalCardsHTML()) {
+      if (!transcriptMessages(state.currentMessages).length && !renderLiveImageGenerationCardsHTML() && !renderPlanCardsHTML() && !renderLiveToolOutputCardsHTML() && !renderRunSummaryCardHTML() && !renderApprovalCardsHTML()) {
         el.classList.add("empty");
         el.innerHTML = `<div class="empty-conversation-state">${escapeHtml(cr("message.empty"))}</div>`;
       }
@@ -2125,15 +2200,16 @@ export function createChatRenderingController({
   }
 
   function renderRunMessagePreviews(messages) {
-    if (!messages.length) return "";
+    const visibleMessages = transcriptMessages(messages);
+    if (!visibleMessages.length) return "";
     return `
       <div class="run-summary-section">
         <div class="run-summary-section-title">${escapeHtml(cr("run.recentMessages"))}</div>
         <div class="run-message-preview-list">
-          ${messages.slice(-3).map((message) => `
+          ${visibleMessages.slice(-3).map((message) => `
             <div class="run-message-preview">
               <span>${escapeHtml(message.role || cr("defaults.message"))}</span>
-              <strong>${escapeHtml(compactText(visibleMessageText(message), 120))}</strong>
+              <strong>${escapeHtml(compactText(transcriptMessageText(message), 120))}</strong>
             </div>
           `).join("")}
         </div>
@@ -2296,10 +2372,10 @@ export function createChatRenderingController({
     const toolCalls = Array.isArray(summary.toolCalls) ? summary.toolCalls : [];
     if (!toolCalls.length) lines.push(`- ${cr("run.markdown.none")}`);
     else toolCalls.forEach((call) => lines.push(`- ${call.toolName || cr("defaults.tool")}：${call.status || "unknown"}${call.errorMessage ? ` — ${call.errorMessage}` : ""}`));
-    const messages = Array.isArray(summary.recentMessages) ? summary.recentMessages : [];
+    const messages = transcriptMessages(summary.recentMessages);
     if (messages.length) {
       lines.push("", `## ${cr("run.markdown.recentMessagesHeading")}`);
-      messages.slice(-6).forEach((message) => lines.push(`- ${message.role || cr("defaults.message")}: ${compactText(visibleMessageText(message), 180)}`));
+      messages.slice(-6).forEach((message) => lines.push(`- ${message.role || cr("defaults.message")}: ${compactText(transcriptMessageText(message), 180)}`));
     }
     return lines.join("\n");
   }
@@ -3018,13 +3094,13 @@ export function createChatRenderingController({
   function updateConversationCopyButton() {
     const button = $("copyConversationBtn");
     if (!button) return;
-    const count = Array.isArray(state.currentMessages) ? state.currentMessages.length : 0;
+    const count = transcriptMessages(state.currentMessages).length;
     button.disabled = count === 0;
     button.title = count ? cr("conversation.copyTitle", { count }) : cr("conversation.noCopyTitle");
   }
 
   function conversationMarkdown() {
-    const messages = Array.isArray(state.currentMessages) ? state.currentMessages : [];
+    const messages = transcriptMessages(state.currentMessages);
     const title = state.project?.name || state.agent?.title || "Autoto Conversation";
     const meta = [
       `# ${cr("conversation.exportTitle", { title })}`,
@@ -3038,14 +3114,14 @@ export function createChatRenderingController({
     ];
     const body = messages.map((message, index) => {
       const role = String(message.role || cr("defaults.message")).toUpperCase();
-      const text = visibleMessageText(message).trim() || cr("conversation.emptyMessage");
+      const text = transcriptMessageText(message).trim() || cr("conversation.emptyMessage");
       return `## ${index + 1}. ${role}\n\n${text}${messageAttachmentsMarkdown(message)}`;
     });
     return [...meta, ...body].join("\n");
   }
 
   async function copyCurrentConversationMarkdown() {
-    if (!state.currentMessages?.length) {
+    if (!transcriptMessages(state.currentMessages).length) {
       showToast(cr("conversation.none"), "warn");
       return;
     }

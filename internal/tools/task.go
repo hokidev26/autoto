@@ -18,14 +18,14 @@ const (
 type TaskTool struct{}
 
 type taskInput struct {
-	Action        string `json:"action"`
-	TaskID        string `json:"task_id,omitempty"`
-	Status        string `json:"status,omitempty"`
-	Kind          string `json:"kind,omitempty"`
-	AfterSequence int64  `json:"after_sequence,omitempty"`
-	Limit         int    `json:"limit,omitempty"`
-	LimitBytes    int    `json:"limit_bytes,omitempty"`
-	TimeoutMS     int64  `json:"timeout_ms,omitempty"`
+	Action        string `json:"action" jsonschema:"enum=list|status|output|wait|cancel" desc:"What to do: list background tasks, read one task's status, read its output, wait for it to finish, or cancel it."`
+	TaskID        string `json:"task_id,omitempty" desc:"Target task. Required for status, output, wait, and cancel."`
+	Status        string `json:"status,omitempty" desc:"Filter for the list action, matching a task status such as running or completed."`
+	Kind          string `json:"kind,omitempty" desc:"Filter for the list action, matching a task kind such as shell or agent."`
+	AfterSequence int64  `json:"after_sequence,omitempty" jsonschema:"minimum=0" desc:"For the output action, return only chunks after this sequence number so output can be streamed incrementally."`
+	Limit         int    `json:"limit,omitempty" jsonschema:"minimum=1" desc:"Maximum number of tasks the list action returns."`
+	LimitBytes    int    `json:"limit_bytes,omitempty" jsonschema:"minimum=1" desc:"Maximum bytes of output to return."`
+	TimeoutMS     int64  `json:"timeout_ms,omitempty" jsonschema:"minimum=1" desc:"For the wait action, how long to wait in milliseconds before returning without a result."`
 }
 
 func (TaskTool) Name() string { return "Task" }

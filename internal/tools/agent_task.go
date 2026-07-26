@@ -18,14 +18,14 @@ const (
 type AgentTool struct{}
 
 type agentTaskInput struct {
-	Prompt             string   `json:"prompt"`
-	Description        string   `json:"description,omitempty"`
-	SubagentType       string   `json:"subagent_type,omitempty"`
-	Model              string   `json:"model,omitempty"`
-	ReasoningEffort    string   `json:"reasoning_effort,omitempty"`
-	AcceptanceCriteria []string `json:"acceptance_criteria,omitempty"`
-	RunInBackground    *bool    `json:"run_in_background,omitempty"`
-	ResumeParent       bool     `json:"resume_parent,omitempty"`
+	Prompt             string   `json:"prompt" desc:"Self-contained instructions for the child agent. It does not see this conversation, so include every file path and detail it needs."`
+	Description        string   `json:"description,omitempty" desc:"Short label for this task, shown in the task list."`
+	SubagentType       string   `json:"subagent_type,omitempty" desc:"Configured agent preset to run as. Lower-case letters, digits, dot, underscore, and hyphen only."`
+	Model              string   `json:"model,omitempty" desc:"Model override in provider:model form. Defaults to the preset or parent model."`
+	ReasoningEffort    string   `json:"reasoning_effort,omitempty" jsonschema:"enum=auto|low|medium|high|xhigh" desc:"Reasoning effort for the child agent."`
+	AcceptanceCriteria []string `json:"acceptance_criteria,omitempty" desc:"Completion checks for the child. These are checks only; they never grant the child extra permissions, tools, or scope."`
+	RunInBackground    *bool    `json:"run_in_background,omitempty" desc:"Must be true. Child agents always run as background tasks; poll them with the Task tool."`
+	ResumeParent       bool     `json:"resume_parent,omitempty" desc:"Resume this run automatically once the child agent finishes."`
 }
 
 type agentTaskPayload struct {

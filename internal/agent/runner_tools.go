@@ -58,7 +58,14 @@ type sessionApprovalTool interface {
 	SessionApprovalAllowed() bool
 }
 
-func toolAllowsSessionApproval(tool tools.Tool) bool {
+type contextualSessionApprovalTool interface {
+	SessionApprovalAllowedForInput(json.RawMessage) bool
+}
+
+func toolAllowsSessionApproval(tool tools.Tool, input json.RawMessage) bool {
+	if policy, ok := tool.(contextualSessionApprovalTool); ok {
+		return policy.SessionApprovalAllowedForInput(input)
+	}
 	policy, ok := tool.(sessionApprovalTool)
 	return !ok || policy.SessionApprovalAllowed()
 }
@@ -296,7 +303,7 @@ func (r *Runner) executeToolForLoop(ctx context.Context, agentID, runID string, 
 		return r.rejectInvalidToolInput(ctx, agentID, runID, messageID, call, executionDeviceID, err), nil
 	}
 	risk := tool.Risk(call.Input)
-	allowSessionApproval := toolAllowsSessionApproval(tool)
+	allowSessionApproval := toolAllowsSessionApproval(tool, call.Input)
 	if result, denied := planToolDeniedResult(policy, call, risk); denied {
 		source, scope := decisionSourcePlanMode, "plan"
 		if policy.IsConversation() {
@@ -318,6 +325,9 @@ func (r *Runner) executeToolForLoop(ctx context.Context, agentID, runID string, 
 		return result, nil
 	}
 	permission := r.resolveToolPermissionWithSession(ctx, policy.AgentID, policy.PermissionMode, call.Name, risk, call.Input, allowSessionApproval)
+	// The model reflects on any action that static policy would let run with no
+	// human involvement. It can only make the outcome stricter.
+	permission = r.reflectBeforeExecution(ctx, agent, runID, call, risk, permission)
 	if permission.Decision == toolPermissionAllow {
 		return r.executeApprovedTool(ctx, agent, runID, call, tool, risk, messageID, false, permission)
 	}
@@ -439,6 +449,7 @@ func (r *Runner) executeTool(ctx context.Context, agentID, runID string, call to
 		return result, nil
 	}
 	permission := r.resolveToolPermission(ctx, policy.AgentID, policy.PermissionMode, call.Name, risk, call.Input)
+	permission = r.reflectBeforeExecution(ctx, agent, runID, call, risk, permission)
 	if permission.Decision != toolPermissionAllow {
 		message := strings.TrimSpace(permission.Reason)
 		if permission.Decision == toolPermissionAsk {
@@ -753,6 +764,9 @@ func (r *Runner) invalidateApprovals(agentID, reason string) int {
 	} else {
 		delete(r.sessionGrants, agentID)
 	}
+	// Remembered reflection verdicts were decided under the old policy, so they
+	// must not survive a change that invalidates approvals.
+	r.clearReflectionCache(agentID)
 	approvals := make([]*pendingApproval, 0)
 	for _, approval := range r.approvals {
 		if agentID == "" || approval.AgentID == agentID {

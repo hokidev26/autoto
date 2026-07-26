@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"reflect"
+	"strconv"
 	"strings"
 )
 
@@ -152,7 +153,9 @@ func jsonSchemaForType(t reflect.Type, visiting map[reflect.Type]bool) map[strin
 			if name == "" {
 				continue
 			}
-			properties[name] = jsonSchemaForType(field.Type, visiting)
+			property := jsonSchemaForType(field.Type, visiting)
+			applyFieldAnnotations(property, field, omitEmpty)
+			properties[name] = property
 			if !omitEmpty {
 				required = append(required, name)
 			}
@@ -165,6 +168,87 @@ func jsonSchemaForType(t reflect.Type, visiting map[reflect.Type]bool) map[strin
 	default:
 		return map[string]any{"type": "string"}
 	}
+}
+
+// applyFieldAnnotations copies documentation and constraints from struct tags
+// onto a generated property schema.
+//
+// Without this, every tool advertised bare types: a model saw `limit: integer`
+// with no hint of what it limits, what unit it is in, or what values are legal,
+// and had to guess from the name. Two tags carry it:
+//
+//	desc:"free text shown to the model"
+//	jsonschema:"enum=a|b|c,minimum=1,maximum=100"
+//
+// Description is kept in its own tag so it can contain commas and equals signs
+// without needing escaping. Constraints are not only documentation: the input
+// normalizer already enforces enum, minimum, and maximum, so annotating a field
+// also rejects out-of-range input before the tool ever runs.
+func applyFieldAnnotations(property map[string]any, field reflect.StructField, omitEmpty bool) {
+	if property == nil {
+		return
+	}
+	if description := strings.TrimSpace(field.Tag.Get("desc")); description != "" {
+		property["description"] = description
+	}
+	constraints := strings.TrimSpace(field.Tag.Get("jsonschema"))
+	if constraints == "" {
+		return
+	}
+	typeName, _ := property["type"].(string)
+	for _, part := range strings.Split(constraints, ",") {
+		key, value, ok := strings.Cut(strings.TrimSpace(part), "=")
+		if !ok {
+			continue
+		}
+		key = strings.TrimSpace(key)
+		value = strings.TrimSpace(value)
+		switch key {
+		case "enum":
+			property["enum"] = enumValues(value, typeName, omitEmpty)
+		case "minimum", "maximum":
+			// The validator rejects these on non-numeric types, so silently
+			// skipping keeps a mis-tagged field from breaking the whole catalog.
+			if typeName != "integer" && typeName != "number" {
+				continue
+			}
+			if parsed, err := strconv.ParseFloat(value, 64); err == nil {
+				property[key] = parsed
+			}
+		case "minLength", "maxLength":
+			if typeName != "string" {
+				continue
+			}
+			if parsed, err := strconv.Atoi(value); err == nil {
+				property[key] = parsed
+			}
+		}
+	}
+}
+
+// enumValues expands a pipe-separated enum. An optional string field also
+// accepts the empty string, because models routinely send "" for a parameter
+// they mean to omit and that should not be a hard input rejection.
+func enumValues(raw, typeName string, omitEmpty bool) []any {
+	values := make([]any, 0, 4)
+	seen := make(map[string]struct{})
+	for _, item := range strings.Split(raw, "|") {
+		item = strings.TrimSpace(item)
+		if item == "" {
+			continue
+		}
+		if _, duplicate := seen[item]; duplicate {
+			continue
+		}
+		seen[item] = struct{}{}
+		values = append(values, item)
+	}
+	if omitEmpty && typeName == "string" {
+		if _, present := seen[""]; !present {
+			values = append(values, "")
+		}
+	}
+	return values
 }
 
 func jsonFieldName(field reflect.StructField) (string, bool) {

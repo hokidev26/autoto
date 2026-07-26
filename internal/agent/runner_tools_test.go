@@ -89,7 +89,7 @@ func TestRunnerWaitsForBashApprovalAndAllowsOnce(t *testing.T) {
 		t.Fatal(err)
 	}
 	provider := &scriptedProvider{turns: [][]providers.Event{
-		{{Type: "tool_call", ToolCall: &providers.ToolCall{ID: "bash-1", Name: "Bash", Input: json.RawMessage(`{"command":"printf approved"}`)}}, {Type: "done", Done: true}},
+		{{Type: "tool_call", ToolCall: &providers.ToolCall{ID: "bash-1", Name: "Bash", Input: json.RawMessage(`{"command":"echo approved"}`)}}, {Type: "done", Done: true}},
 		{{Type: "text", Text: "done"}, {Type: "done", Done: true}},
 	}}
 	runner := newAgentTestRunner(store, provider, config.AgentConfig{MaxTurns: 3})
@@ -152,7 +152,7 @@ func TestRunnerBashApprovalAllowSessionSkipsSecondPrompt(t *testing.T) {
 	if _, err := store.AddMessage(ctx, db.Message{AgentID: agent.ID, Role: "user", ContentText: "run bash twice"}); err != nil {
 		t.Fatal(err)
 	}
-	input := json.RawMessage(`{"command":"printf session"}`)
+	input := json.RawMessage(`{"command":"echo session"}`)
 	provider := &scriptedProvider{turns: [][]providers.Event{
 		{{Type: "tool_call", ToolCall: &providers.ToolCall{ID: "bash-session-1", Name: "Bash", Input: input}}, {Type: "done", Done: true}},
 		{{Type: "tool_call", ToolCall: &providers.ToolCall{ID: "bash-session-2", Name: "Bash", Input: input}}, {Type: "done", Done: true}},

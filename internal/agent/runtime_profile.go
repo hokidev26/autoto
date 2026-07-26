@@ -617,11 +617,13 @@ func toolNamesIncludeExecCapability(names []string) bool {
 
 func conservativeToolRisk(name string) tools.Risk {
 	switch name {
-	case "Read", "Glob", "Grep", "WebFetch", "WebSearch", "ContextAsk", "AskUserQuestion", "StartPipeline", "EndPipeline", "MCPListTools":
+	case "Read", "Glob", "Grep", "LS", "TodoWrite", "WebFetch", "WebSearch", "ContextAsk", "AskUserQuestion", "StartPipeline", "EndPipeline", "MCPListTools":
 		return tools.RiskRead
-	case "Write", "Edit":
+	case "Write", "Edit", "MultiEdit":
 		return tools.RiskWrite
-	case "Bash", "Agent", "Task", "MCPCallTool":
+	// Symbols spawns a language server process, so it belongs with the exec
+	// tools even though callers think of it as a lookup.
+	case "Bash", "Agent", "Task", "Symbols", "MCPCallTool":
 		return tools.RiskExec
 	default:
 		// Unknown/dynamic tools are conservatively classified as executable for

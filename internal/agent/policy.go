@@ -24,6 +24,8 @@ var planToolAllowlist = map[string]struct{}{
 	"Read":            {},
 	"Glob":            {},
 	"Grep":            {},
+	"LS":              {},
+	"TodoWrite":       {},
 	"WebFetch":        {},
 	"WebSearch":       {},
 	"ContextAsk":      {},
@@ -93,7 +95,7 @@ func (p PolicyContext) permitsTool(name string, risk tools.Risk) (bool, string) 
 		return false, fmt.Sprintf("plan execution mode denies %s-risk tool %s", risk, name)
 	}
 	if _, ok := planToolAllowlist[name]; !ok {
-		return false, fmt.Sprintf("plan execution mode only allows Read, Glob, Grep, WebFetch, WebSearch, ContextAsk, AskUserQuestion, StartPipeline, and EndPipeline; %s is denied", name)
+		return false, fmt.Sprintf("plan execution mode only allows Read, Glob, Grep, LS, TodoWrite, WebFetch, WebSearch, ContextAsk, AskUserQuestion, StartPipeline, and EndPipeline; %s is denied", name)
 	}
 	return true, ""
 }

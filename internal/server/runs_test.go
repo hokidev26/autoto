@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 
@@ -433,11 +432,10 @@ func TestActivityProjectionAddsToolEventDecisionMetadata(t *testing.T) {
 	if projected.CommandFacts == nil {
 		t.Fatal("activity projection omitted Bash command facts")
 	}
-	if runtime.GOOS == "windows" {
-		if projected.CommandFacts.ParseKnown {
-			t.Fatalf("Windows cmd.exe command facts must remain conservative: %+v", projected.CommandFacts)
-		}
-	} else if !projected.CommandFacts.ParseKnown || projected.CommandFacts.Program != "git" {
+	// Both shells are classified now: POSIX sh via the AST parser and cmd.exe via
+	// the Windows analyzer. Leaving Windows facts unknown was the defect that
+	// disabled the danger tier there, so neither platform may skip analysis.
+	if !projected.CommandFacts.ParseKnown || projected.CommandFacts.Program != "git" {
 		t.Fatalf("activity projection missing Bash command facts: %+v", projected.CommandFacts)
 	}
 	if strings.Contains(fmt.Sprintf("%+v", projected.CommandFacts), "TOP_SECRET_VALUE") {

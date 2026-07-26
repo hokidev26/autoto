@@ -46,7 +46,7 @@ func (p *e2eProvider) Generate(_ context.Context, req providers.GenerateRequest)
 
 	out := make(chan providers.Event, 3)
 	if turn == 1 {
-		out <- providers.Event{Type: "tool_call", ToolCall: &providers.ToolCall{ID: "e2e-bash", Name: "Bash", Input: json.RawMessage(`{"command":"printf e2e-approved"}`)}}
+		out <- providers.Event{Type: "tool_call", ToolCall: &providers.ToolCall{ID: "e2e-bash", Name: "Bash", Input: json.RawMessage(`{"command":"echo e2e-approved"}`)}}
 		out <- providers.Event{Type: "done", Done: true, StopReason: "tool_use"}
 	} else {
 		out <- providers.Event{Type: "text", Text: "workflow complete"}

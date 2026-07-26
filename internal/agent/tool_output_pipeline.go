@@ -32,14 +32,24 @@ func (r *Runner) toolOutputPipelineControl(agentID, runID string) *providers.Mes
 }
 
 func (r *Runner) closeToolOutputPipelineRun(agentID, runID string) {
-	if r == nil || r.toolOutputPipeline == nil {
+	if r == nil {
+		return
+	}
+	// Danger reflection verdicts are Run-scoped too, so they retire on exactly
+	// the same lifecycle edges as the pipeline captures.
+	r.closeReflectionCacheRun(agentID, runID)
+	if r.toolOutputPipeline == nil {
 		return
 	}
 	r.toolOutputPipeline.CloseRun(toolOutputPipelineScope(agentID, runID))
 }
 
 func (r *Runner) closeToolOutputPipelineAgent(agentID string) {
-	if r == nil || r.toolOutputPipeline == nil {
+	if r == nil {
+		return
+	}
+	r.clearReflectionCache(strings.TrimSpace(agentID))
+	if r.toolOutputPipeline == nil {
 		return
 	}
 	r.toolOutputPipeline.CloseAgent(strings.TrimSpace(agentID))

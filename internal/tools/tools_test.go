@@ -519,12 +519,25 @@ func TestAnalyzeBashCommandUnwrapsStaticShellAndCommandWrappers(t *testing.T) {
 	}
 }
 
-func TestAnalyzeBashCommandWindowsIsUnknown(t *testing.T) {
+// TestAnalyzeBashCommandWindowsClassifiesCmdCommands replaces an earlier test
+// that asserted Windows facts must always be unknown. That contract was the bug:
+// because BashTool runs `cmd /C` here, leaving facts empty disabled the entire
+// danger tier on Windows and let native destructive verbs through as ordinary
+// exec risk. Windows now analyzes cmd.exe and PowerShell directly.
+func TestAnalyzeBashCommandWindowsClassifiesCmdCommands(t *testing.T) {
 	if runtime.GOOS != "windows" {
 		t.Skip("only applicable when BashTool executes cmd.exe")
 	}
-	if facts := AnalyzeBashCommand("go test ./..."); facts.ParseKnown || facts.CommandCount != 0 {
-		t.Fatalf("Windows command facts must remain unknown, got %+v", facts)
+	safe := AnalyzeBashCommand("go test ./...")
+	if !safe.ParseKnown || safe.Program != "go" || safe.CommandCount != 1 {
+		t.Fatalf("expected a classified safe command, got %+v", safe)
+	}
+	if len(safe.Dangerous) > 0 || len(safe.Sensitive) > 0 {
+		t.Fatalf("safe command must not be flagged, got %+v", safe)
+	}
+	destructive := AnalyzeBashCommand(`del /f /s /q C:\work\*`)
+	if !containsFactLabel(destructive.Dangerous, "file-delete") {
+		t.Fatalf("expected cmd.exe delete to be hard danger, got %+v", destructive)
 	}
 }
 

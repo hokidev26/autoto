@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -172,11 +171,10 @@ func TestToolEventMetaV1KeepsLegacyFieldsAndOmitsBashArguments(t *testing.T) {
 	if !ok || strings.Contains(fmt.Sprintf("%+v", facts), secret) {
 		t.Fatalf("expected argument-free command facts, got %+v", data["commandFacts"])
 	}
-	if runtime.GOOS == "windows" {
-		if facts.ParseKnown {
-			t.Fatalf("cmd.exe command facts must remain unknown, got %+v", facts)
-		}
-	} else if !facts.ParseKnown || facts.Program != "git" {
+	// Both shells are analyzed now: POSIX sh via the AST parser and cmd.exe via
+	// the Windows analyzer. Neither may leave the command unclassified, because
+	// unclassified is what previously disabled danger detection on Windows.
+	if !facts.ParseKnown || facts.Program != "git" {
 		t.Fatalf("expected parsed git command facts, got %+v", facts)
 	}
 }

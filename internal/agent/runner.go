@@ -61,6 +61,12 @@ type Runner struct {
 	approvals     map[string]*pendingApproval
 	sessionGrants map[string]map[string]sessionGrant
 
+	// Danger reflection verdicts, keyed by agent then action fingerprint, with
+	// insertion order tracked so the cache stays bounded.
+	reflectionMu    sync.Mutex
+	reflectionCache map[string]map[string]reflectionCacheEntry
+	reflectionOrder map[string][]string
+
 	userQuestionMu sync.Mutex
 	userQuestions  map[string]*pendingUserQuestion
 

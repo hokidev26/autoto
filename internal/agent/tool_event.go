@@ -12,6 +12,8 @@ const toolEventVersion = 1
 
 const (
 	decisionSourceHardDangerBlock        = "hard_danger_block"
+	decisionSourceCommandReview          = "command_review"
+	decisionSourceDangerReflection       = "danger_reflection"
 	decisionSourceReadOnlyCap            = "read_only_cap"
 	decisionSourceRule                   = "rule"
 	decisionSourceSessionApproval        = "session_approval"

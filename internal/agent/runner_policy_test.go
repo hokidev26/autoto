@@ -55,7 +55,7 @@ func TestRunnerToolPermissionRuleAllowsBashExec(t *testing.T) {
 		t.Fatal(err)
 	}
 	provider := &scriptedProvider{turns: [][]providers.Event{
-		{{Type: "tool_call", ToolCall: &providers.ToolCall{ID: "bash-rule-allow", Name: "Bash", Input: json.RawMessage(`{"command":"printf allowed-by-rule"}`)}}, {Type: "done", Done: true}},
+		{{Type: "tool_call", ToolCall: &providers.ToolCall{ID: "bash-rule-allow", Name: "Bash", Input: json.RawMessage(`{"command":"echo allowed-by-rule"}`)}}, {Type: "done", Done: true}},
 		{{Type: "text", Text: "done"}, {Type: "done", Done: true}},
 	}}
 	runner := newAgentTestRunner(store, provider, config.AgentConfig{MaxTurns: 3})

@@ -9,6 +9,7 @@ import {
   formatTurnUsagePerformance,
   generatedImageURL,
   isAgentToolActivity,
+  isTranscriptMessageVisible,
   messageContentBlocks,
   normalizeAgentPlan,
   normalizeAgentTaskActivity,
@@ -22,6 +23,7 @@ import {
   renderToolActivityCardHTML,
   renderToolActivityStackHTML,
   renderToolDiffHTML,
+  transcriptMessageText,
 } from "./chat-rendering.mjs";
 
 function fakeMessagesElement() {
@@ -270,9 +272,9 @@ test("message rendering aligns messages left and uses the current profile for us
   });
 
   assert.match(html, /class="message user chat-message chat-flow-item chat-flow-left" data-chat-alignment="left"/);
-  assert.equal((html.match(/data-chat-alignment="left" data-message-role=/g) || []).length, 5);
+  assert.equal((html.match(/data-chat-alignment="left" data-message-role=/g) || []).length, 4);
   assert.match(html, /class="message user chat-message chat-flow-item chat-flow-left"[^>]*data-message-role="human"/);
-  assert.match(html, /class="message assistant chat-message chat-flow-item chat-flow-left"[^>]*data-message-role="tool"/);
+  assert.doesNotMatch(html, /data-message-role="tool"|legacy result/);
   assert.equal((html.match(/data-user-profile-avatar>XY<\/span>/g) || []).length, 2);
   assert.equal((html.match(/data-user-profile-name>er&lt;erer<\/span>/g) || []).length, 2);
   assert.doesNotMatch(html, /er<erer/);
@@ -280,8 +282,72 @@ test("message rendering aligns messages left and uses the current profile for us
   assert.match(html, /<time class="message-time" datetime="2026-02-03T04:05:06Z" title="[^"]+">[^<]+<\/time>/);
   assert.ok(html.indexOf('class="message-meta"') < html.indexOf('class="message-head-actions"'));
   assert.ok(html.indexOf('class="message-head-actions"') < html.indexOf('class="message-time"'));
-  assert.equal((html.match(/data-copy-message=/g) || []).length, 5);
-  assert.deepEqual(state.messageCopyTexts, ["hello", "human alias", "reply", "legacy result", "streaming"]);
+  assert.equal((html.match(/data-copy-message=/g) || []).length, 4);
+  assert.deepEqual(state.messageCopyTexts, ["hello", "human alias", "reply", "streaming"]);
+});
+
+test("internal tool protocol messages stay out of the transcript while activity remains", () => {
+  const toolUseOnly = {
+    id: "tool-use-only",
+    role: "assistant",
+    contentText: "Tool requested: Bash (call-1)",
+    contentJson: [{ type: "tool_use", toolUseId: "call-1", toolName: "Bash", input: { command: "ls -la" } }],
+    turnUsage: { outputTokens: 1, tokensPerSecond: 107703.1, ttftMs: 1600 },
+  };
+  const toolResult = {
+    id: "tool-result",
+    role: "user",
+    parentToolUseId: "call-1",
+    contentText: "Tool Bash (call-1) completed:\n/c/Users/Ray/Desktop/autoto\ntotal 44",
+    contentJson: [{ type: "tool_result", toolUseId: "call-1", toolName: "Bash", output: "/c/Users/Ray/Desktop/autoto\ntotal 44" }],
+  };
+  const mixedAssistant = {
+    id: "mixed-assistant",
+    role: "assistant",
+    contentText: "I will inspect first.\nTool requested: Read (call-2)",
+    contentJson: [
+      { type: "text", text: "I will inspect first." },
+      { type: "tool_use", toolUseId: "call-2", toolName: "Read", input: { file_path: "README.md" } },
+    ],
+  };
+  const legacyToolUseOnly = {
+    id: "legacy-tool-use-only",
+    role: "assistant",
+    contentText: "Tool requested: Read (call-legacy)",
+  };
+
+  assert.equal(isTranscriptMessageVisible(toolUseOnly), false);
+  assert.equal(isTranscriptMessageVisible(toolResult), false);
+  assert.equal(isTranscriptMessageVisible(legacyToolUseOnly), false);
+  assert.equal(transcriptMessageText(mixedAssistant), "I will inspect first.");
+
+  const { html, state } = renderSnapshot([
+    toolUseOnly,
+    toolResult,
+    mixedAssistant,
+    legacyToolUseOnly,
+    { id: "final", role: "assistant", contentText: "Inspection complete." },
+  ], {
+    liveToolOutputs: {
+      "call-1": {
+        agentId: "agent-1",
+        runId: "run-1",
+        toolUseId: "call-1",
+        toolName: "Bash",
+        status: "completed",
+        inputJson: { command: "ls -la" },
+        output: "/c/Users/Ray/Desktop/autoto\ntotal 44",
+      },
+    },
+  });
+
+  assert.equal(state.currentMessages.length, 5, "raw context messages remain available for pagination and refresh");
+  assert.deepEqual(state.messageCopyTexts, ["I will inspect first.", "Inspection complete."]);
+  assert.match(html, /I will inspect first\./);
+  assert.match(html, /Inspection complete\./);
+  assert.match(html, /data-live-tool-output-stack/);
+  assert.match(html, /data-tool-activity-select="call-1"/);
+  assert.doesNotMatch(html, /Tool requested:|Tool Bash \(call-1\) completed|total 44|107703\.1|data-message-role="tool"/);
 });
 
 test("message rendering uses a normalized profile JPEG when one is available", () => {
@@ -567,7 +633,11 @@ test("only project navigation with a non-conversation source renders the complet
     activeRunSummary: {
       run: { id: "run-project", source: "project", status: "completed", checkpointState: "none", createdAt: "2026-02-03T00:00:00Z", completedAt: "2026-02-03T00:01:00Z" },
       toolCalls: [],
-      recentMessages: [],
+      recentMessages: [
+        { role: "assistant", contentText: "Tool requested: Read (summary-tool)", contentJson: [{ type: "tool_use", toolUseId: "summary-tool", toolName: "Read" }] },
+        { role: "user", parentToolUseId: "summary-tool", contentText: "Tool Read (summary-tool) completed:\nsecret output", contentJson: [{ type: "tool_result", toolUseId: "summary-tool", output: "secret output" }] },
+        { role: "assistant", contentText: "Visible summary message" },
+      ],
     },
   });
   assert.match(project.html, /data-chat-report="run-summary"/);
@@ -578,6 +648,9 @@ test("only project navigation with a non-conversation source renders the complet
   assert.match(project.html, /data-run-summary-rollback/);
   assert.match(project.html, /data-run-summary-copy/);
   assert.match(project.html, /data-run-summary-refresh/);
+  assert.match(project.html, /Visible summary message/);
+  assert.equal((project.html.match(/class="run-message-preview"/g) || []).length, 1);
+  assert.doesNotMatch(project.html, /Tool requested:|Tool Read \(summary-tool\) completed|secret output/);
 
   const conversationSource = renderSnapshot([], {
     navigationSelectionKind: "project",
@@ -1086,6 +1159,7 @@ test("tool activity renders bounded localized safety facts without command param
       background: true,
       effects: ["network-access"],
       dangerous: ["git-reset-hard"],
+      sensitive: ["git-force-push"],
       injected: `<img src=x data-secret=${secret}>`,
     },
   };
@@ -1104,6 +1178,7 @@ test("tool activity renders bounded localized safety facts without command param
     background: true,
     effects: ["network-access"],
     dangerous: ["git-reset-hard"],
+    sensitive: ["git-force-push"],
   });
   assert.equal(normalized.eventVersion, 2);
   assert.equal(normalized.decisionSource, "rule");

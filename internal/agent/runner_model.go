@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"math/rand"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -353,18 +354,43 @@ func firstEventTimeoutTimer(timeoutMS int) (<-chan time.Time, func()) {
 	return timer.C, stop
 }
 
+const (
+	modelRetryBaseDelay = 250 * time.Millisecond
+	// A 2s ceiling is far too low for provider rate limits, which commonly need
+	// tens of seconds before a retry can succeed. Retrying faster than that just
+	// burns the remaining attempts before the limit clears.
+	modelRetryMaxDelay = 30 * time.Second
+)
+
+// modelRetryBackoff returns the delay before a retry attempt. It applies full
+// jitter: concurrent runners that hit the same rate limit must not retry in
+// lockstep, which would reproduce the burst that triggered the limit.
 func modelRetryBackoff(attempt int) time.Duration {
+	return jitteredBackoff(attempt, rand.Int63n)
+}
+
+func jitteredBackoff(attempt int, randomInt63n func(int64) int64) time.Duration {
 	if attempt < 0 {
 		attempt = 0
 	}
-	delay := 250 * time.Millisecond
+	delay := modelRetryBaseDelay
 	for i := 0; i < attempt; i++ {
 		delay *= 2
-		if delay >= 2*time.Second {
-			return 2 * time.Second
+		if delay >= modelRetryMaxDelay {
+			delay = modelRetryMaxDelay
+			break
 		}
 	}
-	return delay
+	if delay <= 0 {
+		return modelRetryBaseDelay
+	}
+	// Full jitter over [base, delay] keeps a minimum spacing while spreading
+	// retries across the window.
+	spread := int64(delay - modelRetryBaseDelay)
+	if spread <= 0 {
+		return delay
+	}
+	return modelRetryBaseDelay + time.Duration(randomInt63n(spread+1))
 }
 
 func isTransientProviderError(err error) bool {

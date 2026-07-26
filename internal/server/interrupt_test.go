@@ -42,7 +42,7 @@ func (p *approvalRouteProvider) Generate(ctx context.Context, req providers.Gene
 	p.mu.Unlock()
 	out := make(chan providers.Event, 2)
 	if call == 1 {
-		out <- providers.Event{Type: "tool_call", ToolCall: &providers.ToolCall{ID: "bash-route", Name: "Bash", Input: json.RawMessage(`{"command":"printf route"}`)}}
+		out <- providers.Event{Type: "tool_call", ToolCall: &providers.ToolCall{ID: "bash-route", Name: "Bash", Input: json.RawMessage(`{"command":"echo route"}`)}}
 		out <- providers.Event{Type: "done", Done: true}
 	} else {
 		out <- providers.Event{Type: "text", Text: "approved"}

@@ -11,8 +11,8 @@ import (
 type WriteTool struct{}
 
 type writeInput struct {
-	FilePath string `json:"file_path"`
-	Content  string `json:"content"`
+	FilePath string `json:"file_path" desc:"Path to write, absolute or relative to the working directory. Creates parent directories as needed. Paths outside the working directory and sensitive files such as .env are rejected."`
+	Content  string `json:"content" desc:"Full file contents. This replaces the whole file; use Edit to change part of an existing file."`
 }
 
 func (WriteTool) Name() string              { return "Write" }

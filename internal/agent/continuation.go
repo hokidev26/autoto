@@ -394,7 +394,12 @@ func (r *Runner) runContinuous(ctx context.Context, agentID, runID string) (runE
 			}, runID))
 		}
 
-		outcome, segmentErr := r.runContinuationSegment(ctx, state, continuationIndex)
+		// Bind the run deadline to the segment context. Without this the deadline
+		// is only consulted between segments, so a model stream or tool that hangs
+		// mid-segment wedges the run indefinitely and MaxRunDurationMs never
+		// applies. Cancellation propagates into provider calls and tool execution,
+		// which both already honor ctx.
+		outcome, segmentErr := r.runSegmentWithDeadline(ctx, state, continuationIndex)
 		updatedRun, usageErr := r.recordSegmentUsage(ctx, state.run, outcome)
 		if usageErr != nil {
 			return usageErr
@@ -494,6 +499,19 @@ func (r *Runner) loadContinuationState(ctx context.Context, agentID, runID strin
 	state.run = run
 	state.deadline = deadline
 	return state, nil
+}
+
+// runSegmentWithDeadline enforces the run's wall-clock budget as a real context
+// deadline for the duration of one segment. A zero or already-passed deadline
+// leaves the context untouched so the existing between-segment budget check
+// reports the stop reason instead of surfacing a bare cancellation.
+func (r *Runner) runSegmentWithDeadline(ctx context.Context, state continuationRunState, continuationIndex int64) (segmentOutcome, error) {
+	if state.deadline.IsZero() || !time.Now().Before(state.deadline) {
+		return r.runContinuationSegment(ctx, state, continuationIndex)
+	}
+	segmentCtx, cancel := context.WithDeadline(ctx, state.deadline)
+	defer cancel()
+	return r.runContinuationSegment(segmentCtx, state, continuationIndex)
 }
 
 func (r *Runner) runContinuationSegment(ctx context.Context, state continuationRunState, continuationIndex int64) (segmentOutcome, error) {

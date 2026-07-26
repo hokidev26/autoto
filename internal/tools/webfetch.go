@@ -29,9 +29,9 @@ type webFetchDialContext func(context.Context, string, string) (net.Conn, error)
 type WebFetchTool struct{}
 
 type webFetchInput struct {
-	URL     string `json:"url"`
-	Limit   int    `json:"limit,omitempty"`
-	Timeout int    `json:"timeout,omitempty"`
+	URL     string `json:"url" desc:"Public http or https URL. Private, loopback, and cloud metadata addresses are rejected, and redirects are revalidated against the same rules."`
+	Limit   int    `json:"limit,omitempty" jsonschema:"minimum=1" desc:"Maximum bytes of extracted text to return."`
+	Timeout int    `json:"timeout,omitempty" jsonschema:"minimum=1" desc:"Request timeout in milliseconds. Defaults to 15000."`
 }
 
 func (WebFetchTool) Name() string { return "WebFetch" }

@@ -22,10 +22,10 @@ const (
 )
 
 type bashInput struct {
-	Command         string `json:"command"`
-	Timeout         int    `json:"timeout,omitempty"`
-	RunInBackground bool   `json:"run_in_background,omitempty"`
-	ResumeParent    bool   `json:"resume_parent,omitempty"`
+	Command         string `json:"command" desc:"Shell command to run in the working directory. Uses cmd.exe on Windows and /bin/sh elsewhere. Destructive commands are blocked or require approval."`
+	Timeout         int    `json:"timeout,omitempty" jsonschema:"minimum=1,maximum=1800000" desc:"Timeout in milliseconds. Defaults to 120000 (2 minutes); the maximum is 1800000 (30 minutes)."`
+	RunInBackground bool   `json:"run_in_background,omitempty" desc:"Run as a managed background task instead of waiting. Do not use shell backgrounding such as trailing & or nohup; those are rejected."`
+	ResumeParent    bool   `json:"resume_parent,omitempty" desc:"When run_in_background is set, resume this run automatically once the task finishes."`
 }
 
 func (BashTool) Name() string        { return "Bash" }
@@ -55,59 +55,73 @@ func BashDangerWarning(command string) string {
 }
 
 func legacyBashDangerWarning(command string) string {
+	return commandDangerWarning(legacyDangerLabel(command))
+}
+
+// legacyDangerLabel is the string-matching fallback retained as defense in depth
+// for malformed, non-POSIX, and otherwise unclassified input. It returns the
+// danger label rather than prose so callers can merge it into CommandFacts.
+func legacyDangerLabel(command string) string {
 	cmd := strings.TrimSpace(strings.ToLower(command))
 	if cmd == "" {
 		return ""
 	}
 	fields := strings.Fields(cmd)
 	if len(fields) > 0 {
-		switch fields[0] {
-		case "rm", "rmdir":
-			return commandDangerWarning("file-delete")
-		case "sudo", "dd":
-			return commandDangerWarning("privilege-escalation")
+		switch strings.TrimLeft(fields[0], `\`) {
+		case "rm", "rmdir", "unlink":
+			return "file-delete"
+		case "sudo", "doas":
+			return "privilege-escalation"
+		case "dd":
+			return "disk-write"
+		case "shred":
+			return "file-destroy"
+		case "wipefs", "blkdiscard", "sgdisk":
+			return "disk-partition"
 		}
 		if strings.HasPrefix(fields[0], "mkfs") {
-			return commandDangerWarning("disk-format")
+			return "disk-format"
 		}
 	}
 	if strings.Contains(cmd, " shred ") || strings.HasPrefix(cmd, "shred ") {
-		return commandDangerWarning("file-destroy")
+		return "file-destroy"
 	}
 	if strings.Contains(cmd, "find ") && strings.Contains(cmd, " -delete") {
-		return commandDangerWarning("find-delete")
-	}
-	if strings.HasPrefix(cmd, "find ") && strings.Contains(cmd, " -delete") {
-		return commandDangerWarning("find-delete")
+		return "find-delete"
 	}
 	if strings.HasPrefix(cmd, "git clean") && strings.Contains(cmd, "-f") {
-		return commandDangerWarning("git-clean")
+		return "git-clean"
 	}
 	if strings.HasPrefix(cmd, "git reset") && strings.Contains(cmd, "--hard") {
-		return commandDangerWarning("git-reset-hard")
+		return "git-reset-hard"
 	}
-	if strings.Contains(cmd, "curl") && shellPipesToShell(cmd) {
-		return commandDangerWarning("network-pipe-shell")
-	}
-	if strings.Contains(cmd, "wget") && shellPipesToShell(cmd) {
-		return commandDangerWarning("network-pipe-shell")
+	if legacyNetworkFetchPattern.MatchString(cmd) && shellPipesToInterpreter(cmd) {
+		return "network-pipe-shell"
 	}
 	if strings.Contains(cmd, "chmod") && strings.Contains(cmd, "-r") && strings.Contains(cmd, "777") {
-		return commandDangerWarning("permission-weaken")
+		return "permission-weaken"
 	}
 	if strings.Contains(cmd, " /dev/null") && strings.HasPrefix(cmd, "mv ") {
-		return commandDangerWarning("file-delete")
+		return "file-delete"
 	}
 	if truncatingRedirectPattern.MatchString(cmd) {
-		return commandDangerWarning("file-truncate")
+		return "file-truncate"
 	}
 	return ""
 }
 
 var truncatingRedirectPattern = regexp.MustCompile(`(^|\s|[;&|])(:\s*)?>\s*[^&\s]`)
 
-func shellPipesToShell(cmd string) bool {
-	return regexp.MustCompile(`\|\s*(sh|bash|zsh|dash)(\s|$)`).MatchString(cmd)
+var legacyNetworkFetchPattern = regexp.MustCompile(`(^|[\s;&|(])(curl|wget|fetch|aria2c)(\s|$)`)
+
+// shellPipesToInterpreterPattern covers every interpreter that executes code
+// read from stdin, not only shells: piping a download into python or node is
+// the same remote-code-execution shape as piping it into sh.
+var shellPipesToInterpreterPattern = regexp.MustCompile(`\|\s*(sh|bash|zsh|dash|ksh|python3?|perl|ruby|node|deno|bun|php|lua)(\s|$)`)
+
+func shellPipesToInterpreter(cmd string) bool {
+	return shellPipesToInterpreterPattern.MatchString(cmd)
 }
 
 var backgroundEscapeCommandPattern = regexp.MustCompile(`(?i)(^|[[:space:];&|()])(nohup|disown)([[:space:];&|()]|$)`)
