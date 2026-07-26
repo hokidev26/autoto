@@ -98,6 +98,10 @@ while IFS= read -r line; do
   fi
   location="${line%%: unreachable func: *}"
   path="${location%%:*}"
+  # deadcode prints native separators, so on Windows every key would arrive as
+  # internal\pkg\file.go and match none of the forward-slash exceptions below,
+  # reporting the whole allowlist as both unexpected and stale.
+  path="${path//\\//}"
   symbol="${line##*: unreachable func: }"
   printf '%s\n' "${path}::${symbol}" >>"$actual_file"
 done <"$output_file"

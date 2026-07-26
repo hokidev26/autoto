@@ -1195,23 +1195,6 @@ func CommandRiskExplanationFor(label string) (CommandRiskExplanation, bool) {
 	return explanation, true
 }
 
-// CommandRiskExplanations returns explanations for every label on a command, in
-// hard-block-first order, so an approval prompt can show why it is being asked.
-func CommandRiskExplanations(facts CommandFacts) []CommandRiskExplanation {
-	out := make([]CommandRiskExplanation, 0, len(facts.Dangerous)+len(facts.Sensitive))
-	for _, label := range facts.Dangerous {
-		if explanation, ok := CommandRiskExplanationFor(label); ok {
-			out = append(out, explanation)
-		}
-	}
-	for _, label := range facts.Sensitive {
-		if explanation, ok := CommandRiskExplanationFor(label); ok {
-			out = append(out, explanation)
-		}
-	}
-	return out
-}
-
 func commandDangerWarning(dangerous string) string {
 	explanation, ok := commandRiskExplanations[dangerous]
 	if !ok || !explanation.Hard {
