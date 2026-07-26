@@ -95,6 +95,7 @@ type usageHistoryFilters struct {
 	From        string
 	ToExclusive string
 	Bucket      string
+	TZOffset    int
 	Limit       int
 	SnapshotAt  string
 	Cursor      *usageHistoryCursor
@@ -127,7 +128,7 @@ func (s *Server) usageHistory(w http.ResponseWriter, r *http.Request) {
 }
 
 func parseUsageHistoryFilters(r *http.Request) (usageHistoryFilters, error) {
-	if err := rejectUnknownQuery(r, "provider", "model", "kind", "from", "to", "bucket", "limit", "cursor"); err != nil {
+	if err := rejectUnknownQuery(r, "provider", "model", "kind", "from", "to", "bucket", "tzOffset", "limit", "cursor"); err != nil {
 		return usageHistoryFilters{}, err
 	}
 	query := r.URL.Query()
@@ -153,7 +154,13 @@ func parseUsageHistoryFilters(r *http.Request) (usageHistoryFilters, error) {
 	if filters.Bucket == "" {
 		filters.Bucket = "day"
 	}
-	if _, err := usageHistoryBucketExpression(filters.Bucket); err != nil {
+	// Bounds match the widest real UTC offsets (UTC-12:00 to UTC+14:00).
+	tzOffset, err := queryInt(r, "tzOffset", 0, -840, 840)
+	if err != nil {
+		return usageHistoryFilters{}, err
+	}
+	filters.TZOffset = tzOffset
+	if _, err := usageHistoryBucketExpression(filters.Bucket, filters.TZOffset); err != nil {
 		return usageHistoryFilters{}, err
 	}
 	for name, value := range map[string]string{"provider": filters.Provider, "model": filters.Model, "kind": filters.Kind} {
@@ -331,7 +338,7 @@ func queryUsageHistoryTrend(ctx context.Context, database *sql.DB, filters usage
 }
 
 func queryUsageHistoryTrendWithLimit(ctx context.Context, database *sql.DB, filters usageHistoryFilters, maxTrend int) ([]usageHistoryTrendPoint, bool, error) {
-	bucketExpression, err := usageHistoryBucketExpression(filters.Bucket)
+	bucketExpression, err := usageHistoryBucketExpression(filters.Bucket, filters.TZOffset)
 	if err != nil {
 		return nil, false, err
 	}
@@ -372,17 +379,30 @@ LIMIT ?`
 	return points, truncated, nil
 }
 
-func usageHistoryBucketExpression(bucket string) (string, error) {
+// usageHistoryBucketExpression builds the SQLite expression that assigns a row
+// to a bucket. created_at is always stored in UTC, so callers that want buckets
+// aligned to a viewer's calendar day pass tzOffsetMinutes and get a shifted
+// grouping; a "did I use this today" heatmap in UTC+8 would otherwise file
+// everything before 08:00 local under the previous day. An offset of zero emits
+// the original expression unchanged so existing callers keep identical SQL.
+func usageHistoryBucketExpression(bucket string, tzOffsetMinutes int) (string, error) {
+	var format string
 	switch bucket {
 	case "hour":
-		return `strftime('%Y-%m-%dT%H:00:00Z', created_at)`, nil
+		format = `%Y-%m-%dT%H:00:00Z`
 	case "day":
-		return `strftime('%Y-%m-%d', created_at)`, nil
+		format = `%Y-%m-%d`
 	case "month":
-		return `strftime('%Y-%m', created_at)`, nil
+		format = `%Y-%m`
 	default:
 		return "", errors.New("invalid bucket")
 	}
+	if tzOffsetMinutes == 0 {
+		return `strftime('` + format + `', created_at)`, nil
+	}
+	// The offset is range-checked to whole minutes by parseUsageHistoryFilters,
+	// so formatting it into the modifier cannot inject SQL.
+	return fmt.Sprintf(`strftime('%s', created_at, '%+d minutes')`, format, tzOffsetMinutes), nil
 }
 
 func usageHistoryMetricDestinations(metrics *usageHistoryMetrics) []any {

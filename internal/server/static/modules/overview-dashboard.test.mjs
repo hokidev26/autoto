@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  buildActivityHeatmap,
   createOverviewDashboardController,
   normalizeOverviewPayload,
   overviewRailTarget,
@@ -317,10 +318,15 @@ test("controller requests /api/overview, deduplicates ordinary loads, and discar
   const first = deferred();
   const second = deferred();
   const paths = [];
+  const activityPaths = [];
   const host = fakeHost();
   const controller = createOverviewDashboardController({
     host,
     request: (path) => {
+      if (path.startsWith("/api/usage/history")) {
+        activityPaths.push(path);
+        return Promise.resolve({ trend: [] });
+      }
       paths.push(path);
       return paths.length === 1 ? first.promise : second.promise;
     },
@@ -345,6 +351,9 @@ test("controller requests /api/overview, deduplicates ordinary loads, and discar
   assert.equal(state.payload.recentConversations[0].id, "new");
   assert.match(host.innerHTML, /New response/);
   assert.doesNotMatch(host.innerHTML, /Old response/);
+  // The heatmap rides along with every load but on its own request.
+  assert.equal(activityPaths.length, 2);
+  assert.match(activityPaths[0], /^\/api\/usage\/history\?bucket=day&tzOffset=-?\d+&from=\d{4}-\d{2}-\d{2}&to=\d{4}-\d{2}-\d{2}&limit=1$/);
 });
 
 test("controller renders safe failure state and refresh retries without routing away", async () => {
@@ -354,6 +363,7 @@ test("controller renders safe failure state and refresh retries without routing 
   const controller = createOverviewDashboardController({
     host,
     request: async (path) => {
+      if (path.startsWith("/api/usage/history")) return { trend: [] };
       calls += 1;
       assert.equal(path, "/api/overview");
       if (calls === 1) throw new Error("<bad failure>");
@@ -385,7 +395,8 @@ test("forced refresh errors retain old payload and expose a non-destructive inli
   let calls = 0;
   const controller = createOverviewDashboardController({
     host,
-    request: async () => {
+    request: async (path) => {
+      if (path.startsWith("/api/usage/history")) return { trend: [] };
       calls += 1;
       if (calls === 1) return overview({ capturedAt: "old-data" });
       throw new Error("refresh failed");
@@ -418,4 +429,80 @@ test("rejected async navigation is reported without an unhandled rejection", asy
   host.click("open-conversation", "conversation-9");
   await new Promise((resolve) => setImmediate(resolve));
   assert.deepEqual(errors, [["navigation failed", "open-conversation", "conversation-9"]]);
+});
+
+// 2026-07-26 is a Sunday, so it opens its own week and the final column holds
+// only that one past day; the other six are future padding.
+test("activity heatmap lays out whole weeks ending on today", () => {
+  const model = buildActivityHeatmap([], { today: "2026-07-26" });
+
+  assert.equal(model.weeks.length, 53);
+  assert.equal(model.end, "2026-07-26");
+  assert.equal(model.start, "2025-07-27");
+  assert.equal(model.weeks.flatMap((week) => week.days).length, 53 * 7);
+  assert.equal(model.weeks[0].days[0].date, "2025-07-27");
+  assert.equal(model.weeks.at(-1).days[0].date, "2026-07-26");
+  assert.equal(model.weeks.at(-1).days[0].future, false);
+  assert.deepEqual(model.weeks.at(-1).days.slice(1).map((day) => day.future), [true, true, true, true, true, true]);
+  // The first column is never labelled; every other month change is.
+  assert.equal(model.weeks[0].monthLabel, "");
+  assert.equal(model.weeks.filter((week) => week.monthLabel).length, 12);
+});
+
+test("activity heatmap scales levels against the busiest day and ignores days outside the window", () => {
+  const model = buildActivityHeatmap([
+    { bucket: "2026-07-26", requestCount: 100 },
+    { bucket: "2026-07-25", requestCount: 75 },
+    { bucket: "2026-07-24", requestCount: 50 },
+    { bucket: "2026-07-23", requestCount: 25 },
+    { bucket: "2026-07-22", requestCount: 0 },
+    // Before the window opens and after today: both must be excluded.
+    { bucket: "2025-07-26", requestCount: 999 },
+    { bucket: "2026-07-27", requestCount: 999 },
+    { bucket: "not-a-date", requestCount: 999 },
+    { bucket: "2026-02-30", requestCount: 999 },
+  ], { today: "2026-07-26" });
+
+  const byDate = new Map(model.weeks.flatMap((week) => week.days).map((day) => [day.date, day]));
+  assert.equal(model.total, 250);
+  assert.equal(model.max, 100);
+  assert.deepEqual([
+    byDate.get("2026-07-26").level,
+    byDate.get("2026-07-25").level,
+    byDate.get("2026-07-24").level,
+    byDate.get("2026-07-23").level,
+    byDate.get("2026-07-22").level,
+  ], [4, 3, 2, 1, 0]);
+  // A day with any activity is never level 0, however small its share.
+  assert.equal(buildActivityHeatmap([
+    { bucket: "2026-07-26", requestCount: 1000 },
+    { bucket: "2026-07-25", requestCount: 1 },
+  ], { today: "2026-07-26" }).weeks.at(-2).days.at(-1).level, 1);
+  // Before the window the day is absent entirely; after today it is present as
+  // future padding but its count is dropped rather than drawn.
+  assert.equal(byDate.get("2025-07-26"), undefined);
+  assert.deepEqual(byDate.get("2026-07-27"), { date: "2026-07-27", count: 0, level: 0, future: true });
+});
+
+test("activity heatmap renders escaped tooltips and a legend, and survives a failed load", () => {
+  const html = renderOverviewDashboard(overview(), {
+    today: "2026-07-26",
+    activityTrend: [{ bucket: "2026-07-26", requestCount: 7 }],
+  });
+
+  assert.match(html, /data-overview-section="activity"/);
+  assert.match(html, /2026-07-26：7 次请求/);
+  assert.match(html, /--overview-heatmap-weeks:53/);
+  // 53 weeks x 7 days of grid, plus the 5 legend swatches.
+  assert.equal(html.match(/class="overview-heatmap-cell"|class="overview-heatmap-cell is-future"/g).length, 53 * 7 + 5);
+  assert.match(html, /过去一年共 7 次模型请求/);
+
+  const failed = renderOverviewDashboard(overview(), { today: "2026-07-26", activityStatus: "error" });
+  assert.match(failed, /使用记录暂时无法加载。/);
+  // The heatmap failing must not take the rest of the dashboard down.
+  assert.match(failed, /data-overview-section="continue-working"/);
+  assert.doesNotMatch(failed, /data-overview-state="error"/);
+
+  const empty = renderOverviewDashboard(overview(), { today: "2026-07-26" });
+  assert.match(empty, /过去一年还没有使用记录。/);
 });

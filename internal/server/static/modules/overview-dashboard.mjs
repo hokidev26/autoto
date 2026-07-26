@@ -73,7 +73,27 @@ const DEFAULT_TEXT = Object.freeze({
   nextRunAt: "下次执行 {time}",
   lastOutcome: "上次结果：{outcome}",
   priority: "优先级：{priority}",
+  activity: "使用热力图",
+  activityTotal: "过去一年共 {count} 次模型请求",
+  activityEmpty: "过去一年还没有使用记录。",
+  activityUnavailable: "使用记录暂时无法加载。",
+  activityDay: "{date}：{count} 次请求",
+  activityDayEmpty: "{date}：没有使用",
+  activityLess: "少",
+  activityMore: "多",
+  activityMon: "周一",
+  activityWed: "周三",
+  activityFri: "周五",
 });
+
+// A GitHub-style contribution grid: 53 columns of 7 weekdays, the last column
+// holding today. Intensity comes from /api/usage/history?bucket=day, whose
+// requestCount is the closest thing to "did I actually use the IDE that day".
+const HEATMAP_WEEKS = 53;
+const HEATMAP_LEVELS = 4;
+const DAY_MS = 86_400_000;
+// Only Mon/Wed/Fri are labelled; seven labels in that space become unreadable.
+const HEATMAP_WEEKDAY_LABEL_KEYS = Object.freeze(["", "activityMon", "", "activityWed", "", "activityFri", ""]);
 
 function objectValue(value) {
   return value && typeof value === "object" && !Array.isArray(value) ? value : {};
@@ -239,6 +259,139 @@ export function normalizeOverviewPayload(payload) {
     activeRuns: boundedList(source.activeRuns, LIST_LIMITS.activeRuns, normalizeRun),
     upcomingSchedules: boundedList(source.upcomingSchedules, LIST_LIMITS.upcomingSchedules, normalizeSchedule),
   };
+}
+
+// Day arithmetic runs on UTC milliseconds even though the days themselves are
+// local. Stepping with Date.UTC keeps every day exactly 86400000ms apart, which
+// local-time arithmetic does not guarantee across a daylight-saving boundary.
+function parseISODay(value) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(boundedText(value, 10));
+  if (!match) return null;
+  const [year, month, day] = [Number(match[1]), Number(match[2]), Number(match[3])];
+  const stamp = Date.UTC(year, month - 1, day);
+  if (!Number.isFinite(stamp)) return null;
+  const date = new Date(stamp);
+  // Date.UTC rolls 2024-02-30 over into March; reject rather than accept a
+  // silently different day.
+  return date.getUTCMonth() === month - 1 && date.getUTCDate() === day ? stamp : null;
+}
+
+function formatISODay(stamp) {
+  const date = new Date(stamp);
+  const month = String(date.getUTCMonth() + 1).padStart(2, "0");
+  const day = String(date.getUTCDate()).padStart(2, "0");
+  return `${date.getUTCFullYear()}-${month}-${day}`;
+}
+
+export function localTodayISO(now = new Date()) {
+  const month = String(now.getMonth() + 1).padStart(2, "0");
+  const day = String(now.getDate()).padStart(2, "0");
+  return `${now.getFullYear()}-${month}-${day}`;
+}
+
+// getTimezoneOffset counts minutes *behind* UTC, so UTC+8 reports -480. The
+// server modifier wants the conventional sign.
+export function localTimezoneOffsetMinutes(now = new Date()) {
+  const offset = -Math.round(Number(now.getTimezoneOffset?.()) || 0);
+  return Number.isFinite(offset) ? Math.max(-840, Math.min(840, offset)) : 0;
+}
+
+function heatmapLevel(count, max) {
+  if (count <= 0 || max <= 0) return 0;
+  return Math.max(1, Math.min(HEATMAP_LEVELS, Math.ceil((count / max) * HEATMAP_LEVELS)));
+}
+
+function shortMonthLabel(stamp) {
+  const date = new Date(stamp);
+  try {
+    return boundedText(new Intl.DateTimeFormat(undefined, { month: "short", timeZone: "UTC" }).format(date), 12);
+  } catch {
+    return String(date.getUTCMonth() + 1);
+  }
+}
+
+// Turns the /api/usage/history day trend into the calendar grid. Pure, and
+// "today" is injected so the layout can be asserted without freezing the clock.
+export function buildActivityHeatmap(trend, { today = localTodayISO(), weeks = HEATMAP_WEEKS } = {}) {
+  const counts = new Map();
+  const points = Array.isArray(trend) ? trend.slice(0, 4000) : [];
+  for (const point of points) {
+    const day = boundedText(point?.bucket, 10);
+    if (parseISODay(day) === null) continue;
+    counts.set(day, (counts.get(day) || 0) + boundedCount(point?.requestCount));
+  }
+
+  const columns = Math.max(1, Math.min(53, Math.floor(weeks) || HEATMAP_WEEKS));
+  const todayStamp = parseISODay(today) ?? parseISODay(localTodayISO());
+  // Pad to the end of today's week so the grid is rectangular and today sits in
+  // the final column, then walk back a whole number of weeks.
+  const endStamp = todayStamp + (6 - new Date(todayStamp).getUTCDay()) * DAY_MS;
+  const startStamp = endStamp - (columns * 7 - 1) * DAY_MS;
+
+  let total = 0;
+  let max = 0;
+  for (const [day, count] of counts) {
+    const stamp = parseISODay(day);
+    if (stamp === null || stamp < startStamp || stamp > todayStamp) continue;
+    total += count;
+    if (count > max) max = count;
+  }
+
+  const grid = [];
+  let previousMonth = -1;
+  for (let column = 0; column < columns; column += 1) {
+    const days = [];
+    for (let row = 0; row < 7; row += 1) {
+      const stamp = startStamp + (column * 7 + row) * DAY_MS;
+      const date = formatISODay(stamp);
+      const future = stamp > todayStamp;
+      const count = future ? 0 : (counts.get(date) || 0);
+      days.push({ date, count, level: future ? 0 : heatmapLevel(count, max), future });
+    }
+    const columnMonth = new Date(startStamp + column * 7 * DAY_MS).getUTCMonth();
+    // Label a column only where the month turns over, and never in the first
+    // column, whose month name would sit half off the left edge.
+    const label = column > 0 && columnMonth !== previousMonth ? shortMonthLabel(startStamp + column * 7 * DAY_MS) : "";
+    previousMonth = columnMonth;
+    grid.push({ days, monthLabel: label });
+  }
+
+  return { weeks: grid, total, max, start: formatISODay(startStamp), end: formatISODay(todayStamp) };
+}
+
+function renderActivityHeatmap(model, t, status) {
+  const months = model.weeks
+    .map((week) => `<span class="overview-heatmap-month">${escapeHtml(week.monthLabel)}</span>`)
+    .join("");
+  const weekdays = HEATMAP_WEEKDAY_LABEL_KEYS
+    .map((key) => `<span class="overview-heatmap-weekday">${key ? escapeHtml(t(key)) : ""}</span>`)
+    .join("");
+  const cells = model.weeks
+    .flatMap((week) => week.days)
+    .map((day) => {
+      if (day.future) return `<span class="overview-heatmap-cell is-future" aria-hidden="true"></span>`;
+      const label = day.count > 0
+        ? t("activityDay", { date: day.date, count: day.count })
+        : t("activityDayEmpty", { date: day.date });
+      return `<span class="overview-heatmap-cell" data-level="${day.level}" role="img" tabindex="-1" title="${escapeHtml(label)}" aria-label="${escapeHtml(label)}"></span>`;
+    })
+    .join("");
+  const legend = Array.from({ length: HEATMAP_LEVELS + 1 }, (_, level) => `<span class="overview-heatmap-cell" data-level="${level}" aria-hidden="true"></span>`).join("");
+  const caption = status === "error"
+    ? t("activityUnavailable")
+    : model.total > 0
+      ? t("activityTotal", { count: model.total })
+      : t("activityEmpty");
+
+  return `<section class="overview-section overview-activity settings-card" data-overview-section="activity">
+    <header class="overview-section-header"><div><h2>${escapeHtml(t("activity"))}</h2><p>${escapeHtml(caption)}</p></div></header>
+    <div class="overview-heatmap" style="--overview-heatmap-weeks:${model.weeks.length}">
+      <div class="overview-heatmap-months" aria-hidden="true">${months}</div>
+      <div class="overview-heatmap-weekdays" aria-hidden="true">${weekdays}</div>
+      <div class="overview-heatmap-cells" role="group" aria-label="${escapeHtml(t("activity"))}">${cells}</div>
+    </div>
+    <footer class="overview-heatmap-legend"><span>${escapeHtml(t("activityLess"))}</span>${legend}<span>${escapeHtml(t("activityMore"))}</span></footer>
+  </section>`;
 }
 
 function replaceParams(template, params) {
@@ -411,6 +564,12 @@ export function renderOverviewDashboard(payload, options = {}) {
     ${summaryCard("schedules", t("schedules"), normalized.summary.schedules.total, t("scheduleBreakdown", normalized.summary.schedules))}
   </section>`;
 
+  const heatmap = renderActivityHeatmap(
+    buildActivityHeatmap(options.activityTrend, { today: options.today }),
+    t,
+    ["idle", "loading", "ready", "error"].includes(options.activityStatus) ? options.activityStatus : "ready",
+  );
+
   const conversations = normalized.recentConversations.length
     ? normalized.recentConversations.map((item) => renderConversation(item, t, formatDateTime)).join("")
     : emptyState(t("recentEmpty"));
@@ -429,6 +588,7 @@ export function renderOverviewDashboard(payload, options = {}) {
     ${liveRegion}
     ${inlineError}
     ${summaries}
+    ${heatmap}
     <div class="overview-dashboard-grid">
       <section class="overview-section settings-card" data-overview-section="continue-working">${sectionHeader(t("continueWorking"), t("continueWorkingHint"), "conversation", t)}<div class="overview-list settings-data-list">${conversations}</div></section>
       <section class="overview-section settings-card" data-overview-section="in-progress">${sectionHeader(t("inProgress"), t("inProgressHint"), "tasks", t)}<div class="overview-progress-groups"><div><h3>${escapeHtml(t("activeTasks"))}</h3><div class="overview-list settings-data-list">${tasks}</div></div><div><h3>${escapeHtml(t("activeRuns"))}</h3><div class="overview-list settings-data-list">${runs}</div></div></div></section>
@@ -473,8 +633,18 @@ function focusWithoutScroll(element) {
   return true;
 }
 
-export function createOverviewDashboardController({ request, host, translate, formatDateTime, onNavigate, onError } = {}) {
+export function createOverviewDashboardController({ request, host, translate, formatDateTime, onNavigate, onError, today: todayOption } = {}) {
   if (typeof request !== "function") throw new TypeError("overview dashboard request must be a function");
+
+  // Injectable so heatmap layout can be asserted against a fixed calendar.
+  const today = () => {
+    try {
+      const resolved = typeof todayOption === "function" ? todayOption() : todayOption;
+      return boundedText(resolved, 10) || localTodayISO();
+    } catch {
+      return localTodayISO();
+    }
+  };
 
   const state = {
     status: "idle",
@@ -482,6 +652,9 @@ export function createOverviewDashboardController({ request, host, translate, fo
     payload: normalizeOverviewPayload({}),
     hasData: false,
     sequence: 0,
+    activityTrend: [],
+    activityStatus: "idle",
+    activitySequence: 0,
   };
   let inFlight = null;
   let pendingFocus = null;
@@ -493,7 +666,48 @@ export function createOverviewDashboardController({ request, host, translate, fo
       error: state.error,
       payload: normalizeOverviewPayload(state.payload),
       hasData: state.hasData,
+      activityStatus: state.activityStatus,
+      activityTrend: state.activityTrend.slice(),
     };
+  }
+
+  // The heatmap window is widened by a day at each end: the server filters
+  // created_at in UTC but buckets in local time, so the outermost local days are
+  // only partly covered by an exactly-sized UTC range. buildActivityHeatmap
+  // discards whatever falls outside the grid.
+  function activityRequestPath(today) {
+    const todayStamp = parseISODay(today) ?? parseISODay(localTodayISO());
+    const from = formatISODay(todayStamp - (HEATMAP_WEEKS * 7) * DAY_MS);
+    const to = formatISODay(todayStamp + DAY_MS);
+    const query = new URLSearchParams({
+      bucket: "day",
+      tzOffset: String(localTimezoneOffsetMinutes()),
+      from,
+      to,
+      // The paginated item list is not used here; 1 is the smallest accepted.
+      limit: "1",
+    });
+    return `/api/usage/history?${query.toString()}`;
+  }
+
+  function loadActivity() {
+    const sequence = ++state.activitySequence;
+    state.activityStatus = "loading";
+    return (async () => {
+      try {
+        const response = await request(activityRequestPath(today()));
+        if (sequence !== state.activitySequence) return false;
+        state.activityTrend = Array.isArray(response?.trend) ? response.trend : [];
+        state.activityStatus = "ready";
+      } catch {
+        if (sequence !== state.activitySequence) return false;
+        // A missing heatmap must not take the rest of the dashboard down.
+        state.activityTrend = [];
+        state.activityStatus = "error";
+      }
+      render();
+      return state.activityStatus === "ready";
+    })();
   }
 
   function reportNavigationError(error, action = "", id = "") {
@@ -543,6 +757,9 @@ export function createOverviewDashboardController({ request, host, translate, fo
       status: state.status,
       error: state.error,
       hasData: state.hasData,
+      activityTrend: state.activityTrend,
+      activityStatus: state.activityStatus,
+      today: today(),
     });
     const target = resolveHost(host);
     if (target && "innerHTML" in target) {
@@ -571,6 +788,9 @@ export function createOverviewDashboardController({ request, host, translate, fo
     state.status = "loading";
     state.error = "";
     render();
+    // Deliberately not awaited: the heatmap is supplementary and re-renders on
+    // its own so a slow usage query never delays the rest of the dashboard.
+    void loadActivity();
 
     const current = (async () => {
       try {
@@ -603,6 +823,7 @@ export function createOverviewDashboardController({ request, host, translate, fo
     bind,
     getState,
     load,
+    loadActivity,
     render,
   };
 }

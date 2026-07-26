@@ -190,6 +190,83 @@ func TestUsageHistoryTrendHourDayAndMonth(t *testing.T) {
 	}
 }
 
+// created_at is stored in UTC, so a viewer east or west of UTC needs the day
+// grouping shifted or their late-evening and early-morning work lands on the
+// neighbouring calendar day. The fixture straddles three UTC midnights, so each
+// offset regroups it differently.
+func TestUsageHistoryTrendDayBucketsHonorTimezoneOffset(t *testing.T) {
+	fixture := newUsageHistoryTestFixture(t)
+	tests := []struct {
+		name    string
+		target  string
+		buckets []string
+		counts  []int64
+	}{
+		{
+			name:    "utc",
+			target:  "/api/usage/history?bucket=day&tzOffset=0",
+			buckets: []string{"2024-01-31", "2024-02-01", "2024-02-28", "2024-03-01"},
+			counts:  []int64{1, 2, 1, 2},
+		},
+		{
+			// UTC+8 pulls 2024-01-31T23:30Z forward into 2024-02-01.
+			name:    "east",
+			target:  "/api/usage/history?bucket=day&tzOffset=480",
+			buckets: []string{"2024-02-01", "2024-02-28", "2024-03-01"},
+			counts:  []int64{3, 1, 2},
+		},
+		{
+			// UTC-8 pushes both 2024-02-01 rows back to 2024-01-31 and lands the
+			// two 2024-03-01T00:00Z rows on the leap day.
+			name:    "west",
+			target:  "/api/usage/history?bucket=day&tzOffset=-480",
+			buckets: []string{"2024-01-31", "2024-02-28", "2024-02-29"},
+			counts:  []int64{3, 1, 2},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			status, encoded := requestUsageHistory(t, fixture, test.target)
+			if status != http.StatusOK {
+				t.Fatalf("expected 200, got %d: %s", status, encoded)
+			}
+			var response usageHistoryResponse
+			if err := json.Unmarshal(encoded, &response); err != nil {
+				t.Fatal(err)
+			}
+			if len(response.Trend) != len(test.buckets) {
+				t.Fatalf("expected %d buckets, got %+v", len(test.buckets), response.Trend)
+			}
+			for index, bucket := range test.buckets {
+				point := response.Trend[index]
+				if point.Bucket != bucket || point.RequestCount != test.counts[index] {
+					t.Fatalf("bucket %d: want %s=%d, got %s=%d", index, bucket, test.counts[index], point.Bucket, point.RequestCount)
+				}
+			}
+		})
+	}
+}
+
+// A zero offset must keep emitting the original expression so the existing
+// callers keep generating byte-identical SQL.
+func TestUsageHistoryBucketExpressionOmitsZeroOffsetModifier(t *testing.T) {
+	expression, err := usageHistoryBucketExpression("day", 0)
+	if err != nil || expression != `strftime('%Y-%m-%d', created_at)` {
+		t.Fatalf("unexpected zero-offset expression %q (err %v)", expression, err)
+	}
+	expression, err = usageHistoryBucketExpression("day", 480)
+	if err != nil || expression != `strftime('%Y-%m-%d', created_at, '+480 minutes')` {
+		t.Fatalf("unexpected east expression %q (err %v)", expression, err)
+	}
+	expression, err = usageHistoryBucketExpression("hour", -300)
+	if err != nil || expression != `strftime('%Y-%m-%dT%H:00:00Z', created_at, '-300 minutes')` {
+		t.Fatalf("unexpected west expression %q (err %v)", expression, err)
+	}
+	if _, err := usageHistoryBucketExpression("week", 0); err == nil {
+		t.Fatal("expected an invalid bucket error")
+	}
+}
+
 func TestUsageHistoryTrendTruncationKeepsNewestBuckets(t *testing.T) {
 	fixture := newUsageHistoryTestFixture(t)
 	points, truncated, err := queryUsageHistoryTrendWithLimit(context.Background(), fixture.store.DB(), usageHistoryFilters{
@@ -287,6 +364,9 @@ func TestUsageHistoryRejectsInvalidParameters(t *testing.T) {
 		"/api/usage/history?limit=0",
 		"/api/usage/history?limit=101",
 		"/api/usage/history?limit=nope",
+		"/api/usage/history?tzOffset=841",
+		"/api/usage/history?tzOffset=-841",
+		"/api/usage/history?tzOffset=nope",
 		"/api/usage/history?cursor=",
 		"/api/usage/history?cursor=not-a-valid-cursor",
 		"/api/usage/history?unknown=value",

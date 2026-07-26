@@ -105,6 +105,7 @@ export default Object.freeze({
     untitledConversation: "未命名对话", untitledTask: "未命名任务", untitledSchedule: "未命名排程", unknownAgent: "未知代理", unknownProject: "未关联项目", unknownStatus: "状态未知", unknownTime: "时间未定",
     activeTasks: "活跃任务", activeRuns: "活跃运行", runningAgents: "运行代理", pendingApprovals: "待审批", pendingApprovalsCount: "有 {count} 项操作等待审批", dueSchedules: "到期排程", dueSchedulesCount: "有 {count} 个排程已到执行时间", failedSchedules: "失败排程", failedSchedulesCount: "有 {count} 个排程最近执行失败",
     startedAt: "开始于 {time}", nextRunAt: "下次执行 {time}", lastOutcome: "上次结果：{outcome}", priority: "优先级：{priority}", conversationUnavailable: "该对话已不可用。", taskUnavailable: "该任务已不可用。", runUnavailable: "该运行已不可用。", scheduleUnavailable: "该排程已不可用。", approvalsUnavailable: "未找到仍可处理的待审批操作。总览数据可能刚刚变化，请刷新后重试。",
+    activity: "使用热力图", activityTotal: "过去一年共 {count} 次模型请求", activityEmpty: "过去一年还没有使用记录。", activityUnavailable: "使用记录暂时无法加载。", activityDay: "{date}：{count} 次请求", activityDayEmpty: "{date}：没有使用", activityLess: "少", activityMore: "多", activityMon: "周一", activityWed: "周三", activityFri: "周五",
   },
   schedule: {
     permissionModes: { readOnly: "只读（推荐）", acceptEdits: "允许修改文件" },

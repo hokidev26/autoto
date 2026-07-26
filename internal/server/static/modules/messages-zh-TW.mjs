@@ -105,6 +105,7 @@ export default Object.freeze({
     untitledConversation: "未命名對話", untitledTask: "未命名任務", untitledSchedule: "未命名排程", unknownAgent: "未知代理", unknownProject: "未關聯專案", unknownStatus: "狀態未知", unknownTime: "時間未定",
     activeTasks: "活躍任務", activeRuns: "活躍執行", runningAgents: "執行代理", pendingApprovals: "待審批", pendingApprovalsCount: "有 {count} 項操作等待審批", dueSchedules: "到期排程", dueSchedulesCount: "有 {count} 個排程已到執行時間", failedSchedules: "失敗排程", failedSchedulesCount: "有 {count} 個排程最近執行失敗",
     startedAt: "開始於 {time}", nextRunAt: "下次執行 {time}", lastOutcome: "上次結果：{outcome}", priority: "優先級：{priority}", conversationUnavailable: "該對話已無法使用。", taskUnavailable: "該任務已無法使用。", runUnavailable: "該執行已無法使用。", scheduleUnavailable: "該排程已無法使用。", approvalsUnavailable: "找不到仍可處理的待審批操作。總覽資料可能剛剛變更，請重新整理後再試。",
+    activity: "使用熱力圖", activityTotal: "過去一年共 {count} 次模型請求", activityEmpty: "過去一年還沒有使用紀錄。", activityUnavailable: "使用紀錄暫時無法載入。", activityDay: "{date}：{count} 次請求", activityDayEmpty: "{date}：沒有使用", activityLess: "少", activityMore: "多", activityMon: "週一", activityWed: "週三", activityFri: "週五",
   },
   schedule: {
     permissionModes: { readOnly: "唯讀（建議）", acceptEdits: "允許修改檔案" },
