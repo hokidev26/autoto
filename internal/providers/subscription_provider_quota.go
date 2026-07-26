@@ -2,6 +2,7 @@ package providers
 
 import (
 	"context"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
@@ -107,8 +108,23 @@ func (a *subscriptionProviderAccounts) recordAccountQuota(ctx context.Context, a
 	}
 	snapshot := subscriptionQuotaFromHeaders(a.providerName(), accountID, header, a.now().UTC())
 	if !hasSubscriptionQuotaData(snapshot) {
+		// Distinguishing "upstream sent no rate-limit headers" from "it sent
+		// headers that happen to read as full" is the only way to tell a broken
+		// capture apart from an untouched quota, and the two look identical in
+		// the account UI. Enable with AUTOTO_LOG_LEVEL=debug.
+		slog.Debug("subscription quota headers absent",
+			"provider", a.providerName(),
+			"accountId", accountID,
+			"headerCount", len(header))
 		return
 	}
+	slog.Debug("subscription quota captured",
+		"provider", a.providerName(),
+		"accountId", accountID,
+		"requestsRemaining", snapshot.Requests.Remaining,
+		"requestsLimit", snapshot.Requests.Limit,
+		"tokensRemaining", snapshot.Tokens.Remaining,
+		"tokensLimit", snapshot.Tokens.Limit)
 	recordCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)
 	defer cancel()
 	_ = quotaTelemetry.UpdateProviderAccountQuota(recordCtx, snapshot.Provider, snapshot.AccountID, snapshot, snapshot.FetchedAt)

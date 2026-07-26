@@ -48,6 +48,24 @@ func (a channelApprovalAdapter) ApproveToolCall(ctx context.Context, agentID, to
 	})
 }
 
+// logLevelFromEnv reads AUTOTO_LOG_LEVEL. The level was previously pinned to
+// Info with no way to change it, which made every slog.Debug in the codebase
+// permanently invisible and left diagnosing upstream behaviour — a provider not
+// returning the headers it is supposed to, for instance — with nothing to look
+// at. An unset or unrecognized value keeps the Info default.
+func logLevelFromEnv(value string) slog.Level {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "debug":
+		return slog.LevelDebug
+	case "warn", "warning":
+		return slog.LevelWarn
+	case "error":
+		return slog.LevelError
+	default:
+		return slog.LevelInfo
+	}
+}
+
 // Run is the canonical process entry for cmd/autoto and the legacy shim.
 // Desktop shells should prefer NewRuntime + Start + Close so they can own the
 // window lifecycle without process signals.
@@ -56,7 +74,7 @@ func Run(options Options) int {
 
 	logger := options.Logger
 	if logger == nil {
-		logger = slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
+		logger = slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: logLevelFromEnv(os.Getenv("AUTOTO_LOG_LEVEL"))}))
 		slog.SetDefault(logger)
 		options.Logger = logger
 	}
