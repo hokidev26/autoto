@@ -2625,3 +2625,53 @@ body.white-shell.theme-light.theme-dark .overview-heatmap-cell[data-level="3"] {
 body.white-shell.theme-light.theme-dark .overview-heatmap-cell[data-level="4"] { background: #93a5ff; }
 body.white-shell.theme-light.theme-dark .overview-heatmap-cell.is-future { background: none; }
 body.white-shell.theme-light.theme-dark .overview-heatmap-cell:hover { outline-color: #8fa4ff; }
+
+/* ==========================================================================
+   Phone composer toolbar
+   extras.css is imported last, so these win over the equal-specificity rules
+   earlier in the cascade that this block deliberately overrides.
+   ========================================================================== */
+@media (max-width: 767px) {
+  /* Model selector as an icon on phones only. On desktop the name stays: there
+     is room for it there, and it is the only place the active model is stated
+     without opening a menu. */
+  body.white-shell.theme-light .toolbar-model-pill .composer-select-value {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
+  /* A definite box: with the name clipped the pill has no intrinsic content
+     left, so width:auto collapses it to zero and the trigger spills out. */
+  body.white-shell.theme-light :is(.composer-model-field, .toolbar-model-pill) {
+    width: 34px;
+    min-width: 34px;
+    max-width: 34px;
+    flex: 0 0 34px;
+  }
+
+  body.white-shell.theme-light .toolbar-model-pill .composer-select-trigger {
+    width: 100%;
+    justify-content: center;
+    padding: 0;
+  }
+
+  /* Earlier in this file the same media query re-shows the caret; the carets
+     are gone now, so restate it here where it lands last. */
+  body.white-shell.theme-light .composer-select-chevron { display: none; }
+
+  /* Move the context gauge next to the model control instead of stranding it at
+     the far left, which is where it lands by DOM order once the task summary and
+     connection status before it are hidden on phones.
+
+     Reordering, not margin-left:auto — .composer-controls already absorbs the
+     toolbar's free space, so an auto margin resolves to zero and moves nothing. */
+  body.white-shell.theme-light .composer-toolbar > .context-usage-btn { order: 1; }
+  body.white-shell.theme-light .composer-toolbar > .composer-actions { order: 2; }
+}

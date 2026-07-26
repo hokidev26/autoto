@@ -3239,6 +3239,11 @@ document.querySelectorAll("[data-global-rail-target]").forEach((node) => {
 $("globalThemeToggleBtn")?.addEventListener("click", () => {
   toggleAppearanceColorScheme();
 });
+// The phone drawer has no global rail, so it carries its own entry to the same
+// scheme toggle rather than leaving light/dark unreachable on a phone.
+$("mobileSidebarThemeBtn")?.addEventListener("click", () => {
+  toggleAppearanceColorScheme();
+});
 $("refreshBtn").addEventListener("click", () => refreshPrimaryMode().catch(showError));
 document.querySelectorAll("[data-create-conversation]").forEach((button) => {
   button.addEventListener("click", () => createStandaloneConversation().catch(showError));
@@ -3309,7 +3314,6 @@ $("mobileMenuBtn").addEventListener("click", () => {
 $("mobileSidebarCloseBtn")?.addEventListener("click", closeMobileSidebar);
 $("mobileSidebarBackdrop").addEventListener("click", closeMobileSidebar);
 $("mobileSearchBtn").addEventListener("click", focusMobileSearch);
-$("mobileDrawerSearchBtn")?.addEventListener("click", focusMobileSearch);
 $("mobileSidebarSettingsBtn")?.addEventListener("click", () => {
   closeMobileSidebar();
   closeSidebarSettingsMenu();

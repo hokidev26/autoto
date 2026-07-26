@@ -48,10 +48,16 @@ export function createWorkbenchSidebarRender({
   showError,
   init,
 }) {
+  // Writes to the element's own label span when it has one. Assigning
+  // textContent to a button replaces ALL of its children, so calling this on a
+  // button that also holds an icon silently deletes the icon on every render —
+  // which is how the mobile schedule entry lost its glyph while its siblings
+  // kept theirs.
   function setTranslatedText(element, key) {
     if (!element) return;
-    element.dataset.i18n = key;
-    element.textContent = t(key);
+    const label = element.querySelector?.("[data-i18n-label]") || element;
+    label.dataset.i18n = key;
+    label.textContent = t(key);
   }
 
   function setTranslatedAttribute(element, attribute, key) {
@@ -78,7 +84,6 @@ export function createWorkbenchSidebarRender({
     const actions = $("sessionSidebarActions");
     const resizeHandle = $("sidebarResizeHandle");
     const searchToggle = $("projectSearchToggleBtn");
-    const mobileSearch = $("mobileDrawerSearchBtn");
     const searchInput = $("projectSearch");
     const refreshButton = $("refreshBtn");
     const newProjectButton = $("newProjectBtn");
@@ -108,7 +113,7 @@ export function createWorkbenchSidebarRender({
     }
     setTranslatedAttribute(actions, "aria-label", sidebarActionsKey);
     setTranslatedAttribute(resizeHandle, "aria-label", scheduleMode ? "shell.resizeScheduleSidebar" : taskMode ? "workbench.resizeSidebar" : "shell.resizeSidebar");
-    [searchToggle, mobileSearch].forEach((button) => {
+    [searchToggle].forEach((button) => {
       setTranslatedAttribute(button, "title", searchLabelKey);
       setTranslatedAttribute(button, "aria-label", searchLabelKey);
     });

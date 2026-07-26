@@ -1600,7 +1600,6 @@ test("mobile shell skips home and keeps the drawer, settings index, and model sh
     "mobileConversationWelcome",
     "mobileSidebarBackdrop",
     "mobileSidebarCloseBtn",
-    "mobileDrawerSearchBtn",
     "mobileSidebarAccountSummary",
     "mobileSidebarSettingsBtn",
     "mobileSidebarLogoutBtn",
