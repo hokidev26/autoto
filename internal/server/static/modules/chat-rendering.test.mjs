@@ -477,13 +477,18 @@ test("task reports, tool output, approvals, and errors expose left-aligned bound
   assert.match(html, /data-tool-activity-select="tool1"/);
   assert.doesNotMatch(html, /data-chat-report="tool-activity"/);
   assert.match(html, /tool-activity-summary/);
-  assert.match(html, /data-chat-report="run-summary"/);
   assert.match(html, /data-chat-report="tool-approval"/);
-  assert.doesNotMatch(html, /<run error>/);
-  assert.match(html, /&lt;run error&gt;/);
+  // The project-domain run review card is gone from the chat entirely, so a
+  // pending runSummaryError (which used to render inside that card) must not
+  // leak into the DOM in any form, raw or escaped.
+  assert.doesNotMatch(html, /data-chat-report="run-summary"|data-run-summary-card/);
+  assert.doesNotMatch(html, /run error/);
 });
 
-test("project error reviews surface localized provider API failures in a red alert", () => {
+test("conversation run failures surface localized provider API failures in an error notice", () => {
+  // This used to run through the (now removed) project review card; the same
+  // runFailureMessage() localization is exercised here through the surviving
+  // conversation-run-notice path so the provider-error copy stays covered.
   const failures = [{
     id: "accounts-exhausted",
     errorMessage: `POST "https://pixelstarrysky.xyz/v1/responses": 403 Forbidden {"code":"server_error","message":"All available accounts exhausted"}`,
@@ -496,24 +501,22 @@ test("project error reviews surface localized provider API failures in a red ale
 
   for (const failure of failures) {
     const { html } = renderSnapshot([], {
-      navigationSelectionKind: "project",
       activeRunSummaryRunId: `run-${failure.id}`,
       activeRunSummary: {
-        run: { id: `run-${failure.id}`, source: "manual", status: "error", errorMessage: failure.errorMessage },
+        run: { id: `run-${failure.id}`, source: "conversation", status: "error", errorMessage: failure.errorMessage },
         toolCalls: [],
         recentMessages: [],
       },
     });
 
-    assert.match(html, /data-chat-report="project-run-failure"/);
-    assert.match(html, /class="run-summary-alert run-summary-failure-alert" role="alert"/);
-    assert.match(html, /class="run-summary-failure-mark" aria-hidden="true">!<\/span>/);
+    assert.match(html, /data-chat-report="conversation-run"/);
+    assert.match(html, /conversation-run-notice error/);
     assert.ok(html.includes(failure.expected));
-    assert.doesNotMatch(html, /run-summary-card|run-summary-metrics|run-summary-checkpoint|data-run-summary-copy|data-run-summary-refresh/);
+    assert.doesNotMatch(html, /run-summary-card|run-summary-metrics|run-summary-checkpoint|data-run-summary-copy|data-run-summary-refresh|data-chat-report="project-run-failure"/);
   }
 });
 
-test("project error reviews escape unknown provider error text", () => {
+test("project run failures never reach the DOM, not even escaped, now that the review card is gone", () => {
   const hostile = `<img src=x onerror=boom>${"failure ".repeat(100)}`;
   const { html } = renderSnapshot([], {
     navigationSelectionKind: "project",
@@ -525,12 +528,11 @@ test("project error reviews escape unknown provider error text", () => {
     },
   });
 
-  assert.match(html, /run-summary-failure-message/);
-  assert.match(html, /&lt;img src=x onerror=boom&gt;/);
-  assert.doesNotMatch(html, /<img src=x|onerror="boom"/);
+  assert.doesNotMatch(html, /<img src=x|onerror="boom"|&lt;img src=x onerror=boom&gt;/);
+  assert.doesNotMatch(html, /run-summary-failure-message|data-chat-report="project-run-failure"|data-chat-report="run-summary"/);
 });
 
-test("project failures with tool activity retain the full review and rollback controls", () => {
+test("project run failures with tool activity still render no chat review card", () => {
   const tool = { agentId: "agent-1", runId: "run-tool-failure", toolUseId: "edit-1", toolName: "Edit", status: "completed" };
   const { html } = renderSnapshot([], {
     navigationSelectionKind: "project",
@@ -545,10 +547,7 @@ test("project failures with tool activity retain the full review and rollback co
     activeRunToolCalls: [tool],
   });
 
-  assert.match(html, /data-chat-report="run-summary"/);
-  assert.match(html, /run-summary-metrics/);
-  assert.match(html, /data-run-summary-rollback/);
-  assert.doesNotMatch(html, /data-chat-report="project-run-failure"/);
+  assert.doesNotMatch(html, /data-chat-report="run-summary"|data-chat-report="project-run-failure"|run-summary-metrics|data-run-summary-rollback/);
 });
 
 test("ordinary completed conversations without tools render no Run review", () => {
@@ -626,33 +625,23 @@ test("ordinary interrupted runs are weakly noted while superseded runs stay hidd
   assert.doesNotMatch(superseded.html, /data-run-summary-card|conversation-run-notice|run-summary-card/);
 });
 
-test("only project navigation with a non-conversation source renders the complete project Run review", () => {
+test("project navigation with a non-conversation source renders no chat review card; a conversation-source run still gets the compact outcome notice", () => {
+  // The stats grid and recent-message preview that used to live in the
+  // project review card are gone for good (they duplicated the conversation
+  // details panel and the messages above them); the git checkpoint/rollback
+  // controls moved into the git modal (see git-workflow.test.mjs).
   const project = renderSnapshot([], {
     navigationSelectionKind: "project",
     activeRunSummaryRunId: "run-project",
     activeRunSummary: {
       run: { id: "run-project", source: "project", status: "completed", checkpointState: "none", createdAt: "2026-02-03T00:00:00Z", completedAt: "2026-02-03T00:01:00Z" },
       toolCalls: [],
-      recentMessages: [
-        { role: "assistant", contentText: "Tool requested: Read (summary-tool)", contentJson: [{ type: "tool_use", toolUseId: "summary-tool", toolName: "Read" }] },
-        { role: "user", parentToolUseId: "summary-tool", contentText: "Tool Read (summary-tool) completed:\nsecret output", contentJson: [{ type: "tool_result", toolUseId: "summary-tool", output: "secret output" }] },
-        { role: "assistant", contentText: "Visible summary message" },
-      ],
+      recentMessages: [{ role: "assistant", contentText: "Visible summary message" }],
     },
   });
-  assert.match(project.html, /data-chat-report="run-summary"/);
-  assert.match(project.html, /run-summary-metrics/);
-  assert.match(project.html, /run-summary-checkpoint/);
-  assert.match(project.html, /run-project/);
-  assert.match(project.html, /data-run-summary-open-git/);
-  assert.match(project.html, /data-run-summary-rollback/);
-  assert.match(project.html, /data-run-summary-copy/);
-  assert.match(project.html, /data-run-summary-refresh/);
-  assert.match(project.html, /Visible summary message/);
-  assert.equal((project.html.match(/class="run-message-preview"/g) || []).length, 1);
-  assert.doesNotMatch(project.html, /Tool requested:|Tool Read \(summary-tool\) completed|secret output/);
+  assert.doesNotMatch(project.html, /data-chat-report="run-summary"|run-summary-metrics|run-summary-checkpoint|data-run-summary-open-git|data-run-summary-rollback|data-run-summary-copy|data-run-summary-refresh|Visible summary message/);
 
-  const conversationSource = renderSnapshot([], {
+  const conversationSource = renderSnapshot([{ role: "assistant", contentText: "done" }], {
     navigationSelectionKind: "project",
     activeRunSummaryRunId: "run-conversation-source",
     activeRunSummary: {
@@ -662,6 +651,7 @@ test("only project navigation with a non-conversation source renders the complet
     },
   });
   assert.doesNotMatch(conversationSource.html, /data-run-summary-card|run-summary-metrics|run-summary-checkpoint|data-run-summary-copy|data-run-summary-refresh/);
+  assert.match(conversationSource.html, />done</);
 });
 
 test("Run summary API failures render a lightweight notice instead of a project review card", async () => {
@@ -1466,27 +1456,31 @@ test("live tool activity retains a bounded recent window while preserving the to
   }
 });
 
-test("run review loading keeps the existing card stable without transient loading labels", () => {
+test("run review loading keeps the existing outcome notice stable without transient loading labels", () => {
+  // renderRunSummaryCardHTML() only special-cases runSummaryLoading when
+  // there is no run yet (state.activeRunSummary is null); once a run is
+  // loaded, a later in-flight refresh must not blank out or replace it with a
+  // transient "loading" label.
   const summary = {
-    run: { id: "run-1", source: "project", status: "completed", createdAt: "2026-01-01T00:00:00Z", completedAt: "2026-01-01T00:01:00Z" },
+    run: { id: "run-1", source: "conversation", status: "interrupted" },
     toolCalls: [],
     recentMessages: [],
   };
   const existing = renderSnapshot([{ role: "assistant", contentText: "reply" }], {
-    navigationSelectionKind: "project",
     activeRunSummary: summary,
     activeRunSummaryRunId: "run-1",
     runSummaryLoading: true,
   });
-  assert.match(existing.html, /data-run-summary-card/);
-  assert.doesNotMatch(existing.html, /正在載入任務回顧|正在重新整理|正在加载任务回顾|正在重新整理/);
+  assert.match(existing.html, /data-chat-report="conversation-run"/);
+  assert.match(existing.html, /conversation-run-notice interrupted/);
+  assert.doesNotMatch(existing.html, /正在載入任務回顧|正在重新整理|正在加载任务回顾/);
 
   const firstLoad = renderSnapshot([{ role: "assistant", contentText: "reply" }], {
     activeRunSummary: null,
     activeRunSummaryRunId: "run-1",
     runSummaryLoading: true,
   });
-  assert.doesNotMatch(firstLoad.html, /data-run-summary-card/);
+  assert.doesNotMatch(firstLoad.html, /data-run-summary-card|data-run-outcome-card/);
 });
 
 test("run review uses complete tool calls and falls back to summary calls when detail loading fails", async () => {

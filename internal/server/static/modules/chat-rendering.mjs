@@ -1,7 +1,6 @@
 import { $, escapeAttr, escapeHtml } from "./dom.mjs";
-import { formatBytes, formatMoney, formatNumber, formatTimestamp } from "./formatters.mjs?v=message-thread-1";
+import { formatBytes, formatNumber, formatTimestamp } from "./formatters.mjs?v=message-thread-1";
 import { t } from "./i18n.mjs";
-import { confirm as platformConfirm } from "./platform.mjs";
 import { api } from "./runtime.mjs";
 import { visibleMessageText } from "./skills-commands.mjs";
 import { normalizeAvatarDataUrl } from "./profile-avatar.mjs?v=profile-avatar-1";
@@ -1118,8 +1117,6 @@ export function createChatRenderingController({
   AbortControllerImpl = globalThis.AbortController,
   copyToClipboard,
   notifyTerminal,
-  openGitModal,
-  refreshGitWorkflow,
   resolveBackgroundTask,
   selectedModelValue,
   shortPath,
@@ -1931,88 +1928,24 @@ export function createChatRenderingController({
       if (!state.runSummaryError || state.runSummaryLoading) return "";
       return renderRunSummaryLoadErrorHTML();
     }
+    // Project-domain runs no longer render a card in the chat flow: the stats
+    // grid duplicated the conversation details panel and the recent-message
+    // preview duplicated the messages immediately above it. The git
+    // checkpoint/rollback controls that used to live here moved into the git
+    // modal (see git-workflow.mjs), which reads state.activeRunSummary itself.
+    if (isProjectRunReview(run)) return "";
     const toolCalls = activeRunToolCallList(summary, runId);
-    if (!isProjectRunReview(run)) return renderConversationRunOutcomeHTML(summary, run, runId, toolCalls);
-    if (isCompactProjectFailure(summary, run, toolCalls)) return renderCompactProjectFailureHTML(run, runId);
-    return renderProjectRunReviewHTML(summary, run, runId, toolCalls);
+    return renderConversationRunOutcomeHTML(summary, run, runId, toolCalls);
   }
 
   function isProjectRunReview(run) {
     return state.navigationSelectionKind === "project" && String(run?.source || "").trim() !== "conversation";
   }
 
-  function isCompactProjectFailure(summary, run, toolCalls) {
-    const status = String(run?.status || "").trim().toLowerCase();
-    const errorMessage = String(run?.errorMessage || "").trim();
-    const reportedToolCount = Math.max(0, Number(summary?.toolCallCount || 0));
-    return (status === "error" || status === "failed")
-      && Boolean(errorMessage)
-      && Math.max(reportedToolCount, toolCalls.length) === 0;
-  }
-
-  function renderCompactProjectFailureHTML(run, runId) {
-    return `
-      <section class="project-run-failure chat-flow-item chat-flow-left ${escapeAttr(runStatusClass(run?.status || "error"))}" data-chat-alignment="left" data-chat-report="project-run-failure" data-run-outcome-card data-run-id="${escapeAttr(runId)}">
-        ${renderRunFailureAlertHTML(run)}
-      </section>
-    `;
-  }
-
   function activeRunToolCallList(summary, runId) {
     return state.activeRunToolCallsRunId === runId && Array.isArray(state.activeRunToolCalls)
       ? state.activeRunToolCalls
       : (Array.isArray(summary?.toolCalls) ? summary.toolCalls : []);
-  }
-
-  function renderProjectRunReviewHTML(summary, run, runId, toolCalls) {
-    const status = run?.status || "unknown";
-    const checkpoint = runCheckpointState(run);
-    const recentMessages = Array.isArray(summary?.recentMessages) ? summary.recentMessages : [];
-    const tokenText = `${formatNumber(summary?.inputTokens || 0)} / ${formatNumber(summary?.outputTokens || 0)}`;
-    return `
-      <section class="run-summary-card chat-flow-item chat-flow-left chat-report-card ${escapeAttr(runStatusClass(status))}" data-chat-alignment="left" data-chat-report="run-summary" data-run-summary-card data-run-id="${escapeAttr(runId)}">
-        <div class="run-summary-head">
-          <div>
-            <div class="run-summary-kicker">${escapeHtml(cr("run.review"))}</div>
-            <div class="run-summary-title">${escapeHtml(runStatusLabel(status))}</div>
-            <div class="run-summary-meta">${escapeHtml(runTimeRange(run))}${runId ? ` · ${escapeHtml(shortRunId(runId))}` : ""}</div>
-          </div>
-          <span class="run-summary-status">${escapeHtml(status)}</span>
-        </div>
-        ${state.runSummaryError ? `<div class="run-summary-alert">${escapeHtml(state.runSummaryError)}</div>` : ""}
-        ${renderRunFailureAlertHTML(run)}
-        ${renderRunCheckpoint(run, checkpoint)}
-        <div class="run-summary-metrics">
-          ${renderRunMetric(cr("run.metrics.messages"), summary?.messageCount)}
-          ${renderRunMetric(cr("run.metrics.tools"), summary?.toolCallCount)}
-          ${renderRunMetric(cr("run.metrics.pendingApprovals"), summary?.pendingApprovals, Number(summary?.pendingApprovals || 0) ? "warn" : "")}
-          ${renderRunMetric(cr("run.metrics.deniedErrors"), `${formatNumber(summary?.deniedToolCalls || 0)} / ${formatNumber(summary?.errorToolCalls || 0)}`, Number(summary?.deniedToolCalls || 0) || Number(summary?.errorToolCalls || 0) ? "bad" : "")}
-          ${renderRunMetric(cr("run.metrics.api"), summary?.apiRequestCount)}
-          ${renderRunMetric(cr("run.metrics.tokensInOut"), tokenText)}
-          ${renderRunMetric(cr("run.metrics.cost"), formatMoney(summary?.costUsd || 0))}
-        </div>
-        ${renderRunToolCalls(toolCalls, runId, summary?.toolCallCount)}
-        ${renderEarlierRunToolCallsButton(runId)}
-        ${renderRunMessagePreviews(recentMessages)}
-        <div class="run-summary-actions">
-          <button class="ghost-btn mini" type="button" data-run-summary-open-git>${escapeHtml(cr("run.gitChanges"))}</button>
-          <button class="ghost-btn mini danger" type="button" data-run-summary-rollback="${escapeAttr(runId)}" title="${escapeAttr(checkpoint.reason)}" ${checkpoint.available && runId && !state.runRollbackBusy ? "" : "disabled"}>${escapeHtml(state.runRollbackBusy ? cr("run.rollingBack") : cr("run.rollback"))}</button>
-          <button class="ghost-btn mini" type="button" data-run-summary-copy="${escapeAttr(runId)}" ${summary ? "" : "disabled"}>${escapeHtml(cr("run.copySummary"))}</button>
-          <button class="ghost-btn mini" type="button" data-run-summary-refresh="${escapeAttr(runId)}" ${runId ? "" : "disabled"}>${escapeHtml(cr("run.refreshReview"))}</button>
-        </div>
-      </section>
-    `;
-  }
-
-  function renderRunFailureAlertHTML(run) {
-    const status = String(run?.status || "").trim().toLowerCase();
-    if (status !== "error" && status !== "failed") return "";
-    return `
-      <div class="run-summary-alert run-summary-failure-alert" role="alert">
-        <span class="run-summary-failure-mark" aria-hidden="true">!</span>
-        <span class="run-summary-failure-message">${escapeHtml(runFailureMessage(run))}</span>
-      </div>
-    `;
   }
 
   function runFailureMessage(run) {
@@ -2125,98 +2058,6 @@ export function createChatRenderingController({
     return `<button class="ghost-btn mini tool-activity-load-more${compact ? " conversation-tool-activity-more" : ""}" type="button" data-run-tool-activity-more="${escapeAttr(runId)}">${escapeHtml(cr("activity.loadEarlier"))}</button>`;
   }
 
-  function renderRunCheckpoint(run, checkpoint = runCheckpointState(run)) {
-    if (!run) return "";
-    const head = run.baseHead ? shortGitHash(run.baseHead) : cr("run.checkpointNotRecorded");
-    return `
-      <div class="run-summary-checkpoint ${escapeAttr(checkpoint.tone)}">
-        <span>${escapeHtml(cr("run.checkpoint"))}</span>
-        <strong>${escapeHtml(head)}</strong>
-        <em>${escapeHtml(checkpoint.reason)}</em>
-      </div>
-    `;
-  }
-
-  function runCheckpointState(run) {
-    const state = String(run?.checkpointState || "").trim();
-    if (state === "rolled_back") {
-      return { available: false, tone: "muted", reason: cr("run.checkpointRolledBack") };
-    }
-    if (state === "rolling_back") {
-      return { available: false, tone: "warn", reason: cr("run.checkpointRollingBack") };
-    }
-    if (state === "invalid") {
-      return { available: false, tone: "warn", reason: run?.checkpointError || cr("run.checkpointInvalid") };
-    }
-    if (state === "capturing") {
-      return { available: false, tone: "warn", reason: cr("run.checkpointCapturing") };
-    }
-    if (state === "tracking") {
-      return { available: false, tone: "muted", reason: cr("run.checkpointTracking") };
-    }
-    if (!run?.baseHead) {
-      return { available: false, tone: "muted", reason: cr("run.checkpointDirtyWorkspace") };
-    }
-    if (run.endHead && run.endHead !== run.baseHead) {
-      return { available: false, tone: "warn", reason: cr("run.checkpointHasCommit") };
-    }
-    if (state === "none") {
-      return { available: false, tone: "muted", reason: cr("run.checkpointNoSnapshot") };
-    }
-    if (state !== "ready") {
-      return { available: false, tone: "warn", reason: cr("run.checkpointUnknown") };
-    }
-    if (!run.gitSnapshotAt || !run.checkpointRepoRoot) {
-      return { available: false, tone: "muted", reason: cr("run.checkpointNoSnapshot") };
-    }
-    return { available: true, tone: "ok", reason: cr("run.checkpointRestoreHint", { hash: shortGitHash(run.baseHead) }) };
-  }
-
-  function shortGitHash(hash) {
-    const text = String(hash || "").trim();
-    return text ? text.slice(0, 8) : "";
-  }
-
-  function renderRunMetric(label, value, tone = "") {
-    const text = typeof value === "number" ? formatNumber(value) : String(value ?? "0");
-    return `<div class="run-summary-metric ${tone ? `tone-${escapeAttr(tone)}` : ""}"><span>${escapeHtml(label)}</span><strong>${escapeHtml(text)}</strong></div>`;
-  }
-
-  function renderRunToolCalls(toolCalls, runId, totalCount = toolCalls.length) {
-    if (!toolCalls.length) return `<div class="run-summary-empty">${escapeHtml(cr("run.noToolCalls"))}</div>`;
-    const stackKey = runToolActivityStackKey(runId);
-    return `
-      <div class="run-summary-section">
-        <div class="run-summary-section-title">${escapeHtml(cr("run.toolCalls"))}</div>
-        ${renderToolActivityStackHTML(toolCalls, {
-          resolveBackgroundTask,
-          runId,
-          stackKey,
-          selectedToolUseId: selectedToolActivity(stackKey),
-          totalCount: Math.max(Number(totalCount || 0), toolCalls.length),
-        })}
-      </div>
-    `;
-  }
-
-  function renderRunMessagePreviews(messages) {
-    const visibleMessages = transcriptMessages(messages);
-    if (!visibleMessages.length) return "";
-    return `
-      <div class="run-summary-section">
-        <div class="run-summary-section-title">${escapeHtml(cr("run.recentMessages"))}</div>
-        <div class="run-message-preview-list">
-          ${visibleMessages.slice(-3).map((message) => `
-            <div class="run-message-preview">
-              <span>${escapeHtml(message.role || cr("defaults.message"))}</span>
-              <strong>${escapeHtml(compactText(transcriptMessageText(message), 120))}</strong>
-            </div>
-          `).join("")}
-        </div>
-      </div>
-    `;
-  }
-
   async function loadEarlierRunToolCalls(runId) {
     const agentId = state.agent?.id;
     if (!agentId || !runId || !state.activeRunToolCallsHasMore) return;
@@ -2235,166 +2076,10 @@ export function createChatRenderingController({
     root.querySelectorAll("[data-run-tool-activity-more]").forEach((button) => {
       button.addEventListener("click", () => loadEarlierRunToolCalls(button.dataset.runToolActivityMore || "").catch(showError));
     });
-    root.querySelectorAll("[data-run-summary-refresh]").forEach((button) => {
-      button.addEventListener("click", () => {
-        const runId = button.dataset.runSummaryRefresh || state.activeRunSummaryRunId || "";
-        if (!runId) return;
-        loadRunSummary(runId, { notify: true }).catch(showError);
-      });
-    });
-    root.querySelectorAll("[data-run-summary-rollback]").forEach((button) => {
-      button.addEventListener("click", () => {
-        const runId = button.dataset.runSummaryRollback || state.activeRunSummaryRunId || "";
-        if (!runId) return;
-        rollbackRunToCheckpoint(runId).catch(showError);
-      });
-    });
-    root.querySelectorAll("[data-run-summary-copy]").forEach((button) => {
-      button.addEventListener("click", () => copyActiveRunSummaryMarkdown(button));
-    });
-    root.querySelectorAll("[data-run-summary-open-git]").forEach((button) => {
-      button.addEventListener("click", () => {
-        if (typeof openGitModal === "function") openGitModal();
-        else showToast(cr("run.gitUnavailable"), "warn");
-      });
-    });
-  }
-
-  async function rollbackRunToCheckpoint(runId) {
-    const agentId = state.agent?.id;
-    const run = state.activeRunSummary?.run;
-    const checkpoint = runCheckpointState(run);
-    if (!agentId || !runId || !checkpoint.available) {
-      showToast(checkpoint.reason || cr("run.noCheckpoint"), "warn", { force: true });
-      return;
-    }
-    const preview = await request(`/api/agents/${agentId}/runs/${encodeURIComponent(runId)}/rollback`);
-    if (state.agent?.id !== agentId) return;
-    if (!preview?.available) {
-      const reason = preview?.reason || cr("run.noCheckpoint");
-      state.runSummaryError = reason;
-      renderRunSummaryCard();
-      showToast(reason, "warn", { force: true });
-      return;
-    }
-    const confirmed = await platformConfirm(rollbackPreviewConfirmation(preview));
-    if (!confirmed) return;
-    state.runRollbackBusy = true;
-    state.runSummaryError = "";
-    renderRunSummaryCard();
-    try {
-      const result = await request(`/api/agents/${agentId}/runs/${encodeURIComponent(runId)}/rollback`, {
-        method: "POST",
-        body: JSON.stringify({ confirm: true }),
-      });
-      if (state.agent?.id !== agentId) return;
-      if (result?.status) {
-        state.gitStatus = result.status;
-        state.gitDiff = null;
-      }
-      try {
-        await loadRunSummary(runId);
-      } catch (err) {
-        notifyTerminal?.(`[warn] ${cr("run.refreshFailed", { message: err.message || err })}\n`);
-      }
-      const rollbackWarning = String(result?.warning || "").trim();
-      if (rollbackWarning) {
-        notifyTerminal?.(`[warn] ${rollbackWarning}\n`);
-        showToast(cr("run.rollbackRefreshFailed"), "warn", { force: true });
-      } else {
-        showToast(cr("run.rollbackComplete"), "success", { force: true });
-      }
-      if (typeof refreshGitWorkflow === "function") {
-        try {
-          await refreshGitWorkflow({ silent: true });
-        } catch (err) {
-          notifyTerminal?.(`[warn] ${cr("run.gitRefreshFailed", { message: err.message || err })}\n`);
-        }
-      }
-    } catch (err) {
-      if (state.agent?.id !== agentId) return;
-      state.runSummaryError = err.message || String(err);
-      renderRunSummaryCard();
-      throw err;
-    } finally {
-      if (state.agent?.id === agentId) {
-        state.runRollbackBusy = false;
-        renderRunSummaryCard();
-      }
-    }
-  }
-
-  function rollbackPreviewConfirmation(preview) {
-    const restorePaths = Array.isArray(preview?.restorePaths) ? preview.restorePaths : [];
-    const deletePaths = Array.isArray(preview?.deletePaths) ? preview.deletePaths : [];
-    const lines = [
-      cr("run.rollbackConfirm"),
-      "",
-      cr("run.rollbackSummary", { restoreCount: Number(preview?.restoreCount || 0), deleteCount: Number(preview?.deleteCount || 0) }),
-    ];
-    if (restorePaths.length) lines.push("", cr("run.restorePaths"), ...restorePaths.map((path) => `- ${path}`));
-    if (deletePaths.length) lines.push("", cr("run.deletePaths"), ...deletePaths.map((path) => `- ${path}`));
-    if (preview?.truncated) lines.push("", cr("run.rollbackTruncated"));
-    lines.push("", cr("run.rollbackSafety"));
-    return lines.join("\n");
-  }
-
-  async function copyActiveRunSummaryMarkdown(button) {
-    const summary = state.activeRunSummary;
-    if (!summary?.run || !copyToClipboard) {
-      showToast(cr("run.noSummary"), "warn");
-      return;
-    }
-    const original = button?.textContent || cr("run.copySummary");
-    const ok = await copyToClipboard(runSummaryMarkdown(summary));
-    if (button) {
-      button.textContent = ok ? cr("message.copied") : cr("message.copyFailed");
-      window.setTimeout(() => { button.textContent = original; }, 1200);
-    }
-    showToast(ok ? cr("run.summaryCopied") : cr("run.summaryCopyFailed"), ok ? "success" : "warn");
-  }
-
-  function runSummaryMarkdown(summary) {
-    const run = summary.run || {};
-    const lines = [
-      `# ${cr("run.markdown.title", { id: run.id || "" })}`.trim(),
-      "",
-      `- ${cr("run.markdown.status", { status: run.status || "unknown" })}`,
-      `- ${cr("run.markdown.time", { time: runTimeRange(run) })}`,
-      `- ${cr("run.markdown.messages", { count: formatNumber(summary.messageCount || 0) })}`,
-      `- ${cr("run.markdown.toolCalls", { count: formatNumber(summary.toolCallCount || 0), pending: formatNumber(summary.pendingApprovals || 0), denied: formatNumber(summary.deniedToolCalls || 0), errors: formatNumber(summary.errorToolCalls || 0) })}`,
-      `- ${cr("run.markdown.apiRequests", { count: formatNumber(summary.apiRequestCount || 0) })}`,
-      `- ${cr("run.markdown.tokens", { input: formatNumber(summary.inputTokens || 0), output: formatNumber(summary.outputTokens || 0) })}`,
-      `- ${cr("run.markdown.cost", { cost: formatMoney(summary.costUsd || 0) })}`,
-      "",
-      `## ${cr("run.markdown.toolsHeading")}`,
-    ];
-    const toolCalls = Array.isArray(summary.toolCalls) ? summary.toolCalls : [];
-    if (!toolCalls.length) lines.push(`- ${cr("run.markdown.none")}`);
-    else toolCalls.forEach((call) => lines.push(`- ${call.toolName || cr("defaults.tool")}：${call.status || "unknown"}${call.errorMessage ? ` — ${call.errorMessage}` : ""}`));
-    const messages = transcriptMessages(summary.recentMessages);
-    if (messages.length) {
-      lines.push("", `## ${cr("run.markdown.recentMessagesHeading")}`);
-      messages.slice(-6).forEach((message) => lines.push(`- ${message.role || cr("defaults.message")}: ${compactText(transcriptMessageText(message), 180)}`));
-    }
-    return lines.join("\n");
   }
 
   function isTerminalRunStatus(status) {
     return ["completed", "error", "failed", "interrupted", "superseded"].includes(String(status || ""));
-  }
-
-  function runStatusLabel(status) {
-    const value = String(status || "unknown");
-    if (value === "completed") return cr("run.status.completed");
-    if (value === "error") return cr("run.status.error");
-    if (value === "failed") return cr("run.status.failed");
-    if (value === "interrupted") return cr("run.status.interrupted");
-    if (value === "superseded") return cr("run.status.superseded");
-    if (value === "running") return cr("run.status.running");
-    if (value === "pending") return cr("run.status.pending");
-    if (value === "loading") return cr("run.status.loading");
-    return cr("run.status.unknown");
   }
 
   function runStatusClass(status) {
@@ -2420,19 +2105,6 @@ export function createChatRenderingController({
     if (value === "pending_approval") return "status-warn";
     if (value === "denied" || value === "error") return "status-error";
     return "status-neutral";
-  }
-
-  function runTimeRange(run) {
-    if (!run) return cr("run.noTime");
-    const start = formatTimestamp(run.startedAt || run.createdAt);
-    const end = run.completedAt ? formatTimestamp(run.completedAt) : cr("run.unfinished");
-    return `${start} → ${end}`;
-  }
-
-  function shortRunId(runId) {
-    const value = String(runId || "");
-    if (value.length <= 12) return value;
-    return `${value.slice(0, 8)}…${value.slice(-4)}`;
   }
 
   function compactText(text, max = 140) {

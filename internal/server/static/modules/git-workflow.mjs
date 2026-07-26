@@ -1,13 +1,84 @@
 import { $, escapeAttr, escapeHtml } from "./dom.mjs";
 import { formatNumber, formatTimestamp } from "./formatters.mjs";
+import { confirm as platformConfirm } from "./platform.mjs";
 import { api } from "./runtime.mjs";
 import { gitExtraT as t } from "./messages-git-extra.mjs";
+// The run-checkpoint/rollback copy already lives in the run.* namespace of
+// this pack (it used to back the chat-side run review card); reuse it here
+// instead of forking a parallel set of git-extra keys.
+import { t as cr } from "./messages-chat-rendering-extra.mjs?v=git-modal-rollback-1";
+
+/**
+ * Whether the most recently loaded run recorded a Git checkpoint that can
+ * still be rolled back, and if not, why. Moved here from chat-rendering.mjs
+ * along with the rollback flow itself: once the project run review card was
+ * removed from the chat, this state was only ever needed to drive the git
+ * modal's own checkpoint section.
+ */
+export function runCheckpointState(run) {
+  const checkpointState = String(run?.checkpointState || "").trim();
+  if (checkpointState === "rolled_back") {
+    return { available: false, tone: "muted", reason: cr("run.checkpointRolledBack") };
+  }
+  if (checkpointState === "rolling_back") {
+    return { available: false, tone: "warn", reason: cr("run.checkpointRollingBack") };
+  }
+  if (checkpointState === "invalid") {
+    return { available: false, tone: "warn", reason: run?.checkpointError || cr("run.checkpointInvalid") };
+  }
+  if (checkpointState === "capturing") {
+    return { available: false, tone: "warn", reason: cr("run.checkpointCapturing") };
+  }
+  if (checkpointState === "tracking") {
+    return { available: false, tone: "muted", reason: cr("run.checkpointTracking") };
+  }
+  if (!run?.baseHead) {
+    return { available: false, tone: "muted", reason: cr("run.checkpointDirtyWorkspace") };
+  }
+  if (run.endHead && run.endHead !== run.baseHead) {
+    return { available: false, tone: "warn", reason: cr("run.checkpointHasCommit") };
+  }
+  if (checkpointState === "none") {
+    return { available: false, tone: "muted", reason: cr("run.checkpointNoSnapshot") };
+  }
+  if (checkpointState !== "ready") {
+    return { available: false, tone: "warn", reason: cr("run.checkpointUnknown") };
+  }
+  if (!run.gitSnapshotAt || !run.checkpointRepoRoot) {
+    return { available: false, tone: "muted", reason: cr("run.checkpointNoSnapshot") };
+  }
+  return { available: true, tone: "ok", reason: cr("run.checkpointRestoreHint", { hash: shortGitHash(run.baseHead) }) };
+}
+
+function shortGitHash(hash) {
+  const text = String(hash || "").trim();
+  return text ? text.slice(0, 8) : "";
+}
+
+/** Confirmation prompt text for rolling back to the pre-run checkpoint. */
+export function rollbackPreviewConfirmation(preview) {
+  const restorePaths = Array.isArray(preview?.restorePaths) ? preview.restorePaths : [];
+  const deletePaths = Array.isArray(preview?.deletePaths) ? preview.deletePaths : [];
+  const lines = [
+    cr("run.rollbackConfirm"),
+    "",
+    cr("run.rollbackSummary", { restoreCount: Number(preview?.restoreCount || 0), deleteCount: Number(preview?.deleteCount || 0) }),
+  ];
+  if (restorePaths.length) lines.push("", cr("run.restorePaths"), ...restorePaths.map((path) => `- ${path}`));
+  if (deletePaths.length) lines.push("", cr("run.deletePaths"), ...deletePaths.map((path) => `- ${path}`));
+  if (preview?.truncated) lines.push("", cr("run.rollbackTruncated"));
+  lines.push("", cr("run.rollbackSafety"));
+  return lines.join("\n");
+}
 
 export function createGitWorkflowController({
   state,
   showError,
   showToast,
+  apiRequest = api,
 } = {}) {
+  const request = apiRequest;
+
   function resetGitWorkflowState() {
     state.gitStatus = null;
     state.gitDiff = null;
@@ -104,6 +175,67 @@ export function createGitWorkflowController({
     if (!state.gitSelectedPath && files.length) state.gitSelectedPath = files[0].path || "";
     await Promise.allSettled([loadGitDiff(), loadGitLog()]);
     if (options.notify) showToast(t("refreshed"), "success");
+  }
+
+  /**
+   * Roll back the workspace to the Git checkpoint recorded before the most
+   * recent run (state.activeRunSummary?.run / state.activeRunSummaryRunId,
+   * populated by chat-rendering.mjs's loadRunSummary). Mirrors the
+   * GET-preview -> confirm -> POST flow the chat run-review card used to run,
+   * now driven from the git modal since that card no longer exists.
+   */
+  async function rollbackMostRecentRun() {
+    const agentId = state.agent?.id;
+    const run = state.activeRunSummary?.run;
+    const runId = state.activeRunSummaryRunId || run?.id || "";
+    const checkpoint = runCheckpointState(run);
+    if (!agentId || !runId || !checkpoint.available) {
+      showToast(checkpoint.reason || cr("run.noCheckpoint"), "warn", { force: true });
+      return;
+    }
+    const preview = await request(`/api/agents/${agentId}/runs/${encodeURIComponent(runId)}/rollback`);
+    if (state.agent?.id !== agentId) return;
+    if (!preview?.available) {
+      const reason = preview?.reason || cr("run.noCheckpoint");
+      state.gitError = reason;
+      renderGitModal();
+      showToast(reason, "warn", { force: true });
+      return;
+    }
+    const confirmed = await platformConfirm(rollbackPreviewConfirmation(preview));
+    if (!confirmed) return;
+    state.runRollbackBusy = true;
+    state.gitError = "";
+    renderGitModal();
+    try {
+      const result = await request(`/api/agents/${agentId}/runs/${encodeURIComponent(runId)}/rollback`, {
+        method: "POST",
+        body: JSON.stringify({ confirm: true }),
+      });
+      if (state.agent?.id !== agentId) return;
+      if (result?.status) {
+        state.gitStatus = result.status;
+        state.gitDiff = null;
+      }
+      // There is no chat-side run card left to refetch for a fresh
+      // checkpointState; a successful rollback deterministically consumes
+      // the checkpoint, so flip it locally instead of re-requesting the run.
+      if (state.activeRunSummary?.run) {
+        state.activeRunSummary = { ...state.activeRunSummary, run: { ...state.activeRunSummary.run, checkpointState: "rolled_back" } };
+      }
+      const rollbackWarning = String(result?.warning || "").trim();
+      showToast(rollbackWarning ? cr("run.rollbackRefreshFailed") : cr("run.rollbackComplete"), rollbackWarning ? "warn" : "success", { force: true });
+      await refreshGitWorkflow({ silent: true });
+    } catch (err) {
+      if (state.agent?.id !== agentId) return;
+      state.gitError = err.message || String(err);
+      throw err;
+    } finally {
+      if (state.agent?.id === agentId) {
+        state.runRollbackBusy = false;
+        renderGitModal();
+      }
+    }
   }
 
   function pruneGitCommitSelection(files) {
@@ -232,6 +364,7 @@ export function createGitWorkflowController({
         </div>
       </div>
       ${state.gitError ? `<div class="settings-inline-alert">${escapeHtml(state.gitError)}</div>` : ""}
+      ${renderRunCheckpointSection()}
       ${renderGitCommitPanel(files, selectedCommitPaths)}
       <div class="git-layout">
         <aside class="git-file-list">
@@ -250,6 +383,48 @@ export function createGitWorkflowController({
       </div>
     `;
     bindGitModalActions();
+  }
+
+  /**
+   * The chat run-review card used to show the checkpoint state and the
+   * rollback button; both moved here since the git modal is the only place
+   * left that can act on them. Reads the run straight out of shared state
+   * (state.activeRunSummary?.run) rather than any run-scoped prop, because
+   * this modal isn't run-scoped and chat-rendering.mjs already populates
+   * that state whenever a run summary loads.
+   */
+  function renderRunCheckpointSection() {
+    const run = state.activeRunSummary?.run;
+    const runId = state.activeRunSummaryRunId || run?.id || "";
+    return `
+      <section class="git-commit-panel git-run-checkpoint-panel" data-run-checkpoint-section>
+        <div class="git-commit-head">
+          <div><strong>${escapeHtml(cr("run.checkpointSectionTitle"))}</strong></div>
+        </div>
+        ${run ? renderRunCheckpointAvailable(run, runId) : renderRunCheckpointUnavailable()}
+      </section>
+    `;
+  }
+
+  function renderRunCheckpointAvailable(run, runId) {
+    const checkpoint = runCheckpointState(run);
+    const head = run.baseHead ? shortGitHash(run.baseHead) : cr("run.checkpointNotRecorded");
+    const busy = Boolean(state.runRollbackBusy);
+    const canRollback = checkpoint.available && Boolean(runId) && !busy;
+    return `
+      <div class="run-summary-checkpoint ${escapeAttr(checkpoint.tone)}">
+        <span>${escapeHtml(cr("run.checkpoint"))}</span>
+        <strong>${escapeHtml(head)}</strong>
+        <em>${escapeHtml(checkpoint.reason)}</em>
+      </div>
+      <div class="git-commit-actions">
+        <button id="runCheckpointRollbackBtn" class="ghost-btn mini danger" type="button" title="${escapeAttr(checkpoint.reason)}" ${canRollback ? "" : "disabled"}>${escapeHtml(busy ? cr("run.rollingBack") : cr("run.rollback"))}</button>
+      </div>
+    `;
+  }
+
+  function renderRunCheckpointUnavailable() {
+    return `<div class="settings-empty-card compact">${escapeHtml(cr("run.checkpointNoActiveRun"))}</div>`;
   }
 
   function renderGitCommitPanel(files, selectedPaths) {
@@ -318,6 +493,7 @@ export function createGitWorkflowController({
   }
 
   function bindGitModalActions() {
+    $("runCheckpointRollbackBtn")?.addEventListener("click", () => rollbackMostRecentRun().catch(showError));
     $("refreshGitBtn")?.addEventListener("click", () => refreshGitWorkflow({ notify: true }).catch(showError));
     $("gitScopeSelect")?.addEventListener("change", (event) => {
       state.gitScope = event.target.value || "all";
@@ -366,6 +542,8 @@ export function createGitWorkflowController({
     openGitModal,
     refreshGitWorkflow,
     renderGitButtonState,
+    renderGitModal,
+    rollbackMostRecentRun,
     resetGitWorkflowState,
   };
 }
