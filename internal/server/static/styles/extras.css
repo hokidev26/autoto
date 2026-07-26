@@ -2666,12 +2666,19 @@ body.white-shell.theme-light.theme-dark .overview-heatmap-cell:hover { outline-c
      are gone now, so restate it here where it lands last. */
   body.white-shell.theme-light .composer-select-chevron { display: none; }
 
-  /* Move the context gauge next to the model control instead of stranding it at
-     the far left, which is where it lands by DOM order once the task summary and
-     connection status before it are hidden on phones.
+  /* Group the whole control cluster on the right, in DOM order: context gauge,
+     model, reasoning effort, permission.
 
-     Reordering, not margin-left:auto — .composer-controls already absorbs the
-     toolbar's free space, so an auto margin resolves to zero and moves nothing. */
-  body.white-shell.theme-light .composer-toolbar > .context-usage-btn { order: 1; }
-  body.white-shell.theme-light .composer-toolbar > .composer-actions { order: 2; }
+     .composer-controls claims the toolbar's free space with flex:1 1 auto, which
+     is what pinned everything left and made an auto margin on the gauge resolve
+     to zero. Stop it growing, then one auto margin on the first item of the
+     cluster collects the slack ahead of it and pushes the rest across. */
+  body.white-shell.theme-light .composer-toolbar > .composer-controls {
+    flex: 0 0 auto;
+    justify-content: flex-end;
+  }
+
+  body.white-shell.theme-light .composer-toolbar > .context-usage-btn {
+    margin-left: auto;
+  }
 }

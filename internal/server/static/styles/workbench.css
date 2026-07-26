@@ -5099,3 +5099,27 @@ body.white-shell.theme-light .message-correction-note {
    already aria-hidden, so nothing is announced either way, and restoring the
    carets is a one-line revert. */
 body.white-shell.theme-light .composer-select-chevron { display: none; }
+
+/* The scheme toggle is drawn now rather than typeset, so both entries to it need
+   the stroke treatment the rail's other glyphs get. The rail button previously
+   held a text character, which is why it was never covered by those rules. */
+body.white-shell.theme-light .theme-toggle-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+body.white-shell.theme-light .global-rail-theme-toggle .theme-toggle-icon {
+  width: 18px;
+  height: 18px;
+}
+
+body.white-shell.theme-light .theme-toggle-icon svg {
+  width: 100%;
+  height: 100%;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}

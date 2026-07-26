@@ -79,7 +79,7 @@ import { createSystemSettingsController } from "./system-settings.mjs?v=users-pa
 import { installDesktopDeepLinkRouter, isDesktopShell } from "./desktop-shell-ui.mjs";
 import { createSkillsWorkbenchController } from "./skills-workbench.mjs?v=users-panel-removed-1-config-center-1-automation-tool-catalog-1";
 import { createTerminalController } from "./terminal.mjs?v=terminal-actions-compact-2";
-import { createUIShellController, elementVisible, isComposingInput } from "./ui-shell.mjs?v=permission-panel-2-plan-mode-panel-1-mobile-toolbar-right-3-icon-rail-1-mobile-viewport-1-sidebar-wheel-1-settings-cleanup-1-context-ring-3-dual-rail-collapse-1-compact-navigation-1-global-rail-2-model-menu-scroll-1-utility-resize-2-sheet-trim-1-model-provider-groups-1-danger-reflection-desc-1-model-icon-only-1";
+import { createUIShellController, elementVisible, isComposingInput } from "./ui-shell.mjs?v=permission-panel-2-plan-mode-panel-1-mobile-toolbar-right-3-icon-rail-1-mobile-viewport-1-sidebar-wheel-1-settings-cleanup-1-context-ring-3-dual-rail-collapse-1-compact-navigation-1-global-rail-2-model-menu-scroll-1-utility-resize-2-sheet-trim-1-model-provider-groups-1-danger-reflection-desc-1-model-icon-only-1-theme-icon-1";
 import { createUsageHistoryController } from "./usage-history.mjs";
 import { createAgentWorkspaceHelpers } from "./agent-workspace-helpers.mjs?v=task-summary-activity-1";
 import { createNavigationContextMenu } from "./navigation-context-menu.mjs";
@@ -1660,13 +1660,28 @@ function closeConversationDetails() {
   $("runtimeStatusBtn")?.setAttribute("aria-expanded", "false");
 }
 
+// One drawn mark for both entries to the scheme toggle. The rail used the text
+// glyphs ☀/☾, which render at whatever the font decides and sat next to stroked
+// SVG icons everywhere else; the phone drawer had a moon that never changed at
+// all. The icon shows the scheme you are about to switch to.
+const themeToggleIconMarkup = Object.freeze({
+  moon: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5z"></path></svg>',
+  sun: '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"></circle><path d="M12 2.5v2M12 19.5v2M4.2 4.2l1.4 1.4M18.4 18.4l1.4 1.4M2.5 12h2M19.5 12h2M4.2 19.8l1.4-1.4M18.4 5.6l1.4-1.4"></path></svg>',
+});
+
 function updateGlobalThemeToggle() {
-  const button = $("globalThemeToggleBtn");
-  const icon = $("globalThemeToggleIcon");
-  if (!button || !icon) return;
   const dark = currentAppearancePreferences().theme === "dark";
-  button.setAttribute("aria-pressed", dark ? "true" : "false");
-  icon.textContent = dark ? "☀" : "☾";
+  const markup = dark ? themeToggleIconMarkup.sun : themeToggleIconMarkup.moon;
+  for (const [buttonId, iconId] of [
+    ["globalThemeToggleBtn", "globalThemeToggleIcon"],
+    ["mobileSidebarThemeBtn", "mobileSidebarThemeIcon"],
+  ]) {
+    const button = $(buttonId);
+    const icon = $(iconId);
+    if (!button || !icon) continue;
+    button.setAttribute("aria-pressed", dark ? "true" : "false");
+    icon.innerHTML = markup;
+  }
 }
 
 async function loadSettings() {
