@@ -79,7 +79,12 @@ func TestNotificationDeliveryRetriesThenDeliversAndRecordsHistory(t *testing.T) 
 	if len(items) != 1 || items[0].Status != "retry_wait" || items[0].AttemptCount != 1 || items[0].LastHTTPStatus != http.StatusInternalServerError {
 		t.Fatalf("expected retry history after 500, got %+v", items)
 	}
-	if _, err := store.DB().ExecContext(ctx, `UPDATE notification_deliveries SET next_attempt_at = ? WHERE id = ?`, time.Now().UTC().Add(-time.Second).Format(time.RFC3339Nano), items[0].ID); err != nil {
+	// lease_until has to be cleared alongside next_attempt_at. The claim query
+	// requires (lease_until IS NULL OR lease_until <= now), and the first pass
+	// left a lease in the future; without this the second pass only picks the
+	// row up if the lease happens to expire first, which made this test fail
+	// under load and pass in isolation.
+	if _, err := store.DB().ExecContext(ctx, `UPDATE notification_deliveries SET next_attempt_at = ?, lease_until = NULL WHERE id = ?`, time.Now().UTC().Add(-time.Second).Format(time.RFC3339Nano), items[0].ID); err != nil {
 		t.Fatal(err)
 	}
 	if err := manager.ProcessDeliveriesOnce(ctx); err != nil {

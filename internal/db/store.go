@@ -195,6 +195,26 @@ func Now() string {
 	return now.Format(timestampLayout)
 }
 
+// LogicalNow returns a time that is never behind any timestamp Now() has
+// already issued, without consuming a slot in the sequence.
+//
+// Now() guarantees strictly increasing values, so on a platform with coarse
+// clock granularity — Windows ticks every few milliseconds — a burst of calls
+// within one tick pushes the sequence ahead of the wall clock by a nanosecond
+// each. Code that writes a row with Now() and then compares it against
+// time.Now() is therefore comparing two different clocks, and a just-written
+// row can look like it is scheduled in the future. Readers that need to say
+// "everything due as of now" must use this instead.
+func LogicalNow() time.Time {
+	nowMu.Lock()
+	defer nowMu.Unlock()
+	now := time.Now().UTC()
+	if lastNow.After(now) {
+		return lastNow
+	}
+	return now
+}
+
 func NewID() string { return uuid.NewString() }
 
 func nullEmpty(s string) any {

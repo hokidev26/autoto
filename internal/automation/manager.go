@@ -104,7 +104,11 @@ func NewManager(config Config) (*Manager, error) {
 		config.LeaseDuration = defaultLeaseDuration
 	}
 	if config.Clock == nil {
-		config.Clock = time.Now
+		// db.LogicalNow, not time.Now: rows are written with db.Now(), which is
+		// strictly increasing and so can sit slightly ahead of the wall clock on
+		// a coarse-granularity platform. Claiming with time.Now() then compares
+		// two different clocks and can skip a delivery that was just enqueued.
+		config.Clock = db.LogicalNow
 	}
 	client := config.HTTPClient
 	if client == nil {
