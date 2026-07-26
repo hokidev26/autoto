@@ -2082,25 +2082,29 @@ body.white-shell.theme-light.theme-dark .schedule-navigation-heading em { backgr
 }
 
 /* Context usage ring and management surfaces. */
+/* The ring already reads as a gauge, so the pill around it was a frame drawn
+   around a frame. Dropped: the control is the ring itself, with the box kept
+   only as a touch target. Hover/open now shade the glyph rather than paint a
+   surface, since there is no longer a surface to paint. */
 .context-usage-btn {
-  min-width: 52px;
+  min-width: 0;
   height: 30px;
   flex: 0 0 auto;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 6px;
-  border: 1px solid var(--ws-border, #dfe3e9);
+  border: 0;
   border-radius: 999px;
-  background: var(--ws-card, #fff);
+  background: none;
   color: var(--ws-muted, #687286);
-  padding: 3px 8px 3px 5px;
+  padding: 3px 4px;
   font: inherit;
   cursor: pointer;
-  transition: border-color .15s ease, background .15s ease, color .15s ease;
+  transition: color .15s ease, opacity .15s ease;
 }
 .context-usage-btn:hover:not(:disabled),
-.context-usage-btn[aria-expanded="true"] { border-color: #9aa4b2; background: #f5f6f8; color: var(--ws-text, #20263a); }
+.context-usage-btn[aria-expanded="true"] { border-color: transparent; background: none; color: var(--ws-text, #20263a); }
 .context-usage-btn:disabled { cursor: default; opacity: .48; }
 .context-usage-btn:focus-visible,
 .context-management-panel :is(button, input):focus-visible,
@@ -2122,8 +2126,8 @@ body.white-shell.theme-light.theme-dark .schedule-navigation-heading em { backgr
   background: var(--ws-card, #fff);
 }
 .context-usage-label { min-width: 22px; font-size: 10px; font-weight: 760; line-height: 1; text-align: center; }
-.context-usage-btn[data-tone="warning"] { border-color: color-mix(in srgb, #d97706 45%, var(--ws-border, #dfe3e9)); color: #a85a00; }
-.context-usage-btn[data-tone="danger"] { border-color: color-mix(in srgb, #dc2626 45%, var(--ws-border, #dfe3e9)); color: #b91c1c; }
+.context-usage-btn[data-tone="warning"] { color: #a85a00; }
+.context-usage-btn[data-tone="danger"] { color: #b91c1c; }
 @media (min-width: 768px) {
   body.white-shell.theme-light.context-hide-usage-percent .context-usage-label { display: none; }
   body.white-shell.theme-light.context-hide-usage-percent .context-usage-btn { gap: 0; min-width: 0; }

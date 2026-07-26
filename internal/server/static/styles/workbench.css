@@ -5087,3 +5087,15 @@ body.white-shell.theme-light .message-correction-note {
   font-size: 11px;
   line-height: 1.5;
 }
+
+/* The chevrons on the model, reasoning-effort and permission selectors are
+   dropped: each trigger already opens on tap and carries aria-haspopup, so the
+   caret only repeated what the control's shape and label say, and on a narrow
+   composer it competed for width with the value it decorates.
+
+   Hidden rather than deleted from the markup. The class is referenced by nine
+   breakpoint rules across three stylesheets and pinned by the narrow icon-rail
+   design test, so removing the spans would strand all of them; the nodes are
+   already aria-hidden, so nothing is announced either way, and restoring the
+   carets is a one-line revert. */
+body.white-shell.theme-light .composer-select-chevron { display: none; }
