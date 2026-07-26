@@ -2109,10 +2109,13 @@ body.white-shell.theme-light.theme-dark .schedule-navigation-heading em { backgr
 .context-usage-btn:focus-visible,
 .context-management-panel :is(button, input):focus-visible,
 .context-threshold-dialog :is(button, input):focus-visible { outline: 3px solid color-mix(in srgb, var(--ws-primary, #5369f3) 28%, transparent); outline-offset: 2px; }
+/* Ring thickness is the gap between this box and the disc masking its centre:
+   22/14 drew a 4px band that read as a heavy blob at this size. 20/15 leaves
+   2.5px, thin enough to read as a gauge rather than a dot. */
 .context-usage-ring {
-  width: 22px;
-  height: 22px;
-  flex: 0 0 22px;
+  width: 20px;
+  height: 20px;
+  flex: 0 0 20px;
   display: grid;
   place-items: center;
   border-radius: 50%;
@@ -2120,8 +2123,8 @@ body.white-shell.theme-light.theme-dark .schedule-navigation-heading em { backgr
   transform: rotate(-90deg);
 }
 .context-usage-ring > span {
-  width: 14px;
-  height: 14px;
+  width: 15px;
+  height: 15px;
   border-radius: 50%;
   background: var(--ws-card, #fff);
 }
@@ -2231,10 +2234,10 @@ body.white-shell.theme-light.theme-dark .context-clear-confirmation { border-col
 body.white-shell.theme-light.theme-dark .context-clear-confirmation :is(strong, p) { color: #ffb4b4; }
 
 @media (max-width: 767px) {
-  body.white-shell.theme-light .context-usage-btn { min-width: 38px; width: 38px; height: 38px; border: 0; background: transparent; padding: 6px; }
+  body.white-shell.theme-light .context-usage-btn { min-width: 32px; width: 32px; height: 32px; border: 0; background: transparent; padding: 5px; }
   body.white-shell.theme-light .context-usage-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; }
-  body.white-shell.theme-light .context-usage-ring { width: 25px; height: 25px; flex-basis: 25px; }
-  body.white-shell.theme-light .context-usage-ring > span { width: 16px; height: 16px; }
+  body.white-shell.theme-light .context-usage-ring { width: 22px; height: 22px; flex-basis: 22px; }
+  body.white-shell.theme-light .context-usage-ring > span { width: 17px; height: 17px; }
   .context-usage-overlay.is-mobile { pointer-events: auto; }
   .context-usage-overlay.is-mobile .context-usage-backdrop { position: absolute; inset: 0; display: block; background: transparent; }
   .context-usage-overlay.is-mobile .context-management-panel { inset: auto auto calc(84px + env(safe-area-inset-bottom)) 10px; width: min(340px, calc(100vw - 20px)) !important; max-width: 340px; max-height: min(66dvh, 520px); border: 1px solid var(--ws-border, #dfe3e9); border-radius: 18px; padding: 16px; box-shadow: 0 18px 48px rgba(15, 23, 42, .22); }
@@ -2680,5 +2683,58 @@ body.white-shell.theme-light.theme-dark .overview-heatmap-cell:hover { outline-c
 
   body.white-shell.theme-light .composer-toolbar > .context-usage-btn {
     margin-left: auto;
+  }
+}
+
+/* ==========================================================================
+   Phone drawer in dark mode
+   The narrow-screen block in settings.css was written light-only: it hardcodes
+   #f7f7f8 surfaces and #1d1d1f text where the desktop rules use var(--ws-card)
+   and var(--ws-text), so the drawer stayed white while the shell behind it went
+   dark. Repointing those literals at the tokens is the real repair, but they
+   are spread across dozens of rules that also drive the settings sheet; this
+   overrides only the drawer surfaces the user actually sees.
+   ========================================================================== */
+@media (max-width: 767px) {
+  body.white-shell.theme-light.theme-dark .sidebar {
+    border-right-color: var(--ws-border);
+    background: var(--ws-card);
+    color: var(--ws-text);
+  }
+
+  body.white-shell.theme-light.theme-dark .sidebar .sidebar-search {
+    border-color: var(--ws-border);
+    background: var(--ws-input);
+    color: var(--ws-text);
+  }
+
+  body.white-shell.theme-light.theme-dark .mobile-sidebar-account-summary {
+    border-color: var(--ws-border);
+    background: color-mix(in srgb, var(--ws-text) 6%, var(--ws-card));
+    color: var(--ws-text);
+  }
+
+  body.white-shell.theme-light.theme-dark .mobile-sidebar-account-summary .sidebar-account-name {
+    color: var(--ws-text);
+  }
+
+  body.white-shell.theme-light.theme-dark .mobile-sidebar-action {
+    border-color: var(--ws-border);
+    background: color-mix(in srgb, var(--ws-text) 6%, var(--ws-card));
+    color: var(--ws-text);
+  }
+
+  /* Sign out keeps its warning colour; only the surface under it changes. */
+  body.white-shell.theme-light.theme-dark .mobile-sidebar-action.danger {
+    color: #ff8a84;
+  }
+
+  body.white-shell.theme-light.theme-dark .mobile-drawer-brand-mark {
+    color: var(--ws-text);
+  }
+
+  body.white-shell.theme-light.theme-dark .mobile-drawer-footer {
+    border-top-color: var(--ws-border);
+    color: var(--ws-muted);
   }
 }
