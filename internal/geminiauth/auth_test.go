@@ -340,9 +340,8 @@ func TestParseProjectInfoAndTierFallback(t *testing.T) {
 			map[string]any{"id": "tier-b", "name": "B", "isDefault": true},
 		},
 		"currentTier": map[string]any{"id": "tier-a"},
-		"credits":     map[string]any{"remaining": 12.5, "limit": 20.0, "resetAt": "2026-08-01T00:00:00Z"},
 	})
-	if info.ProjectID != "project-safe" || len(info.AllowedTiers) != 2 || info.CurrentTier == nil || info.Credits == nil || defaultTierID(info) != "tier-b" {
+	if info.ProjectID != "project-safe" || len(info.AllowedTiers) != 2 || info.CurrentTier == nil || defaultTierID(info) != "tier-b" {
 		t.Fatalf("unexpected parsed project info: %+v", info)
 	}
 	if defaultTierID(ProjectInfo{}) != "free-tier" {

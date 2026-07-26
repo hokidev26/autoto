@@ -86,19 +86,11 @@ type TierInfo struct {
 	IsDefault bool   `json:"isDefault,omitempty"`
 }
 
-// CreditsInfo is a token-free credit summary when the control plane supplies it.
-type CreditsInfo struct {
-	Remaining float64 `json:"remaining,omitempty"`
-	Limit     float64 `json:"limit,omitempty"`
-	ResetAt   string  `json:"resetAt,omitempty"`
-}
-
 // ProjectInfo is the safe subset of loadCodeAssist metadata useful to account UI.
 type ProjectInfo struct {
-	ProjectID    string       `json:"projectId,omitempty"`
-	AllowedTiers []TierInfo   `json:"allowedTiers,omitempty"`
-	CurrentTier  *TierInfo    `json:"currentTier,omitempty"`
-	Credits      *CreditsInfo `json:"credits,omitempty"`
+	ProjectID    string     `json:"projectId,omitempty"`
+	AllowedTiers []TierInfo `json:"allowedTiers,omitempty"`
+	CurrentTier  *TierInfo  `json:"currentTier,omitempty"`
 }
 
 type clientEndpoints struct {
@@ -495,14 +487,6 @@ func parseProjectInfo(data map[string]any) ProjectInfo {
 			info.CurrentTier = &tier
 		}
 	}
-	if raw, ok := data["credits"].(map[string]any); ok {
-		credits := CreditsInfo{
-			Remaining: numberValue(raw["remaining"]),
-			Limit:     numberValue(raw["limit"]),
-			ResetAt:   stringValue(raw["resetAt"]),
-		}
-		info.Credits = &credits
-	}
 	return info
 }
 
@@ -549,21 +533,6 @@ func defaultTierID(info ProjectInfo) string {
 func stringValue(value any) string {
 	text, _ := value.(string)
 	return strings.TrimSpace(text)
-}
-
-func numberValue(value any) float64 {
-	switch typed := value.(type) {
-	case float64:
-		return typed
-	case float32:
-		return float64(typed)
-	case int:
-		return float64(typed)
-	case int64:
-		return float64(typed)
-	default:
-		return 0
-	}
 }
 
 type endpointKind int
