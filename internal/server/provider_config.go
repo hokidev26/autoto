@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"strings"
@@ -1547,8 +1548,16 @@ func classifyProviderTestError(err error) (errorCode, message string, reachable 
 	}
 }
 
+// classifyProviderMessageTestError maps an upstream failure onto a stable code
+// and a user-facing sentence. Both deliberately drop the underlying error so a
+// provider cannot leak endpoint or credential detail into the UI, which left
+// "模型测试失败。" with no way to find out why; the original text is logged at
+// debug level instead so operators can diagnose it locally.
 func classifyProviderMessageTestError(err error) (errorCode, message string) {
 	errorCode, _, _ = classifyProviderTestError(err)
+	if err != nil {
+		slog.Debug("provider message test failed", "errorCode", errorCode, "error", err.Error())
+	}
 	switch errorCode {
 	case "timeout":
 		return errorCode, "模型响应超时。"

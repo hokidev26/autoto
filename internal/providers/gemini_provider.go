@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"strings"
@@ -320,6 +321,7 @@ func (p *GeminiProvider) Generate(ctx context.Context, req GenerateRequest) (<-c
 			}
 			if response.StatusCode >= http.StatusMultipleChoices {
 				status := response.StatusCode
+				logGeminiRejection(status, model, prepared.ProjectID, response.Body)
 				response.Body.Close()
 				lastErr = newSubscriptionHTTPError(p.cfg.Name, status, "model_request_failed")
 				p.accounts.recordAttempt(ctx, prepared.ID, false, status, "model_request_failed", lastErr)
@@ -419,11 +421,51 @@ func (p *GeminiProvider) applyHeaders(request *http.Request, credential subscrip
 	request.Close = true
 }
 
+// logGeminiRejection records why Cloud Code refused a request. The error
+// returned to callers deliberately carries only the numeric status, because
+// upstream bodies are untrusted (see providerHTTPFailedText), which left a
+// rejected payload with no diagnosable cause at all: a single invalid field made
+// every request fail with a bare 400. Google answers with a structured
+// google.rpc.BadRequest naming the offending field, so that message is worth
+// having locally. It stays at debug level, never reaches an API response, and is
+// bounded so a hostile body cannot flood the log.
+func logGeminiRejection(status int, model, projectID string, body io.Reader) {
+	if !slog.Default().Enabled(context.Background(), slog.LevelDebug) {
+		return
+	}
+	raw, err := io.ReadAll(io.LimitReader(body, 4096))
+	if err != nil || len(raw) == 0 {
+		return
+	}
+	var envelope struct {
+		Error struct {
+			Message string `json:"message"`
+			Status  string `json:"status"`
+		} `json:"error"`
+	}
+	detail := strings.Join(strings.Fields(string(raw)), " ")
+	if json.Unmarshal(raw, &envelope) == nil && strings.TrimSpace(envelope.Error.Message) != "" {
+		detail = strings.Join(strings.Fields(envelope.Error.Message), " ")
+	}
+	if len(detail) > 600 {
+		detail = detail[:600]
+	}
+	slog.Debug("gemini cloud code rejected request", "status", status, "model", model, "project", projectID, "upstreamStatus", envelope.Error.Status, "detail", detail)
+}
+
+// buildGeminiCloudCodePayload assembles the Cloud Code request envelope.
+//
+// Cloud Code is protobuf-backed and rejects any unknown field outright with
+// 400 INVALID_ARGUMENT, naming only the first offender. A "stream": true here
+// inside the inner request object therefore broke every single model call until
+// it was removed; streaming is negotiated by the ?alt=sse query parameter on the
+// URL, not by the body. Do not add a field here without confirming the control
+// plane accepts it — a stray key does not degrade behaviour, it disables the
+// provider completely.
 func buildGeminiCloudCodePayload(req GenerateRequest, model, projectID, reasoningEffort string) map[string]any {
 	contents, system := geminiCloudCodeContents(req.Messages, req.SystemPrompt)
 	request := map[string]any{
 		"contents":  contents,
-		"stream":    true,
 		"sessionId": uuid.NewString(),
 	}
 	if system != "" {
