@@ -50,6 +50,16 @@ jobs:
         # validated on developer machines via `make check-desktop`.
         run: ./scripts/check.sh
 
+      - name: Race detector on the concurrent packages
+        # scripts/check.sh runs the suite without -race because the detector
+        # needs cgo, which is unavailable on the Windows machines this is
+        # developed on. CI is the only place it can run, so the packages that
+        # actually start goroutines are checked here: the agent runner and its
+        # tool prefetch, the HTTP/WebSocket server, background task workers, and
+        # the store they all share. Running it over ./... would roughly triple
+        # the job for packages that are pure logic.
+        run: go test -race -count=1 ./internal/agent/ ./internal/server/ ./internal/background/ ./internal/db/ ./internal/tools/
+
       - name: Confirm desktop packages are excluded without tag
         run: |
           set -euo pipefail
