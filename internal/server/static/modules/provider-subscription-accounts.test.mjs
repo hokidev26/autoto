@@ -10,6 +10,7 @@ import {
   renderSubscriptionAccountManagementTable,
   subscriptionAccountActionRequest,
   subscriptionAccountOverview,
+  subscriptionAccountModelQuotas,
   subscriptionAccountQuotaBudgets,
   subscriptionAccountsListRequest,
   subscriptionAccountStatus,
@@ -405,4 +406,67 @@ test("only allowEmpty pages let the last visible model's eye be clicked", () => 
   assert.doesNotMatch(open, /data-mp-model-visibility="grok-4\.5"[^>]*disabled/);
   // An already-hidden model is always clickable so it can be shown again.
   assert.doesNotMatch(guarded, /data-mp-model-visibility="grok-3-mini"[^>]*disabled/);
+});
+
+// Google's Cloud Code reports a per-model remaining fraction with no absolute
+// limit, so there is nothing to render as "remaining / limit" and ~20 models
+// cannot fit in a cell. The lowest model is the binding constraint.
+test("cloud code model quotas surface the lowest remaining model", () => {
+  const account = {
+    id: "acct-gemini",
+    quota: {
+      fetched_at: "2026-07-26T16:00:00Z",
+      model_quotas: [
+        { model: "gemini-3-flash", displayName: "Gemini 3 Flash", remainingPercent: 100, reset: "2026-07-26T19:47:18Z" },
+        { model: "gemini-3.1-pro-low", displayName: "Gemini 3.1 Pro", remainingPercent: 26, reset: "2026-07-26T19:49:03Z" },
+        { model: "gemini-exhausted", remainingPercent: 0, reset: "2026-07-26T19:49:03Z" },
+      ],
+    },
+  };
+
+  const quotas = subscriptionAccountModelQuotas(account);
+  assert.deepEqual(quotas.map((entry) => `${entry.model}:${entry.percent}`), [
+    "gemini-exhausted:0",
+    "gemini-3.1-pro-low:26",
+    "gemini-3-flash:100",
+  ]);
+
+  const rendered = renderSubscriptionAccountManagementTable("gemini", [account], {
+    translate: (key, params) => `${key}:${JSON.stringify(params || {})}`,
+  });
+  assert.match(rendered, /quotaModelLowest/);
+  assert.match(rendered, /&quot;percent&quot;:0/);
+  assert.match(rendered, /&quot;count&quot;:3/);
+  assert.match(rendered, /quotaModelResetAt/);
+  // There is no limit to report, so the limit-shaped strings must not appear.
+  assert.doesNotMatch(rendered, /quotaRemainingOfLimit/);
+  assert.doesNotMatch(rendered, /quotaLimitOnly/);
+  assert.doesNotMatch(rendered, /quotaPending/);
+});
+
+test("model quotas take precedence over header budgets and reject malformed rows", () => {
+  // An account carrying both shapes shows the per-model view, which is the only
+  // one Cloud Code actually populates.
+  const both = renderSubscriptionAccountManagementTable("gemini", [{
+    id: "acct-1",
+    quota: {
+      requests: { limit: "21", remaining: "20" },
+      model_quotas: [{ model: "gemini-3-flash", remainingPercent: 40 }],
+    },
+  }], { translate: (key, params) => `${key}:${JSON.stringify(params || {})}` });
+  assert.match(both, /quotaModelLowest/);
+  assert.doesNotMatch(both, /quotaRequests/);
+
+  assert.deepEqual(subscriptionAccountModelQuotas({ quota: { model_quotas: "nope" } }), []);
+  assert.deepEqual(subscriptionAccountModelQuotas({}), []);
+  assert.deepEqual(subscriptionAccountModelQuotas({ quota: { model_quotas: [null, {}, { model: "" }] } }), []);
+  // Out-of-range or missing percentages clamp rather than render as NaN.
+  assert.deepEqual(
+    subscriptionAccountModelQuotas({ quota: { model_quotas: [
+      { model: "a", remainingPercent: 250 },
+      { model: "b", remainingPercent: -5 },
+      { model: "c" },
+    ] } }).map((entry) => `${entry.model}:${entry.percent}`),
+    ["b:0", "c:0", "a:100"],
+  );
 });

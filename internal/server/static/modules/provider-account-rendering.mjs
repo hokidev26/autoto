@@ -434,7 +434,45 @@ export function subscriptionAccountQuotaBudgets(account = {}) {
 // reporting real consumption the value simply becomes accurate again.
 const nominalQuotaProviders = new Set(["grok"]);
 
+// Google's Cloud Code reports a per-model remaining *fraction* and no absolute
+// limit, so there is no remaining/limit pair to show and no total to derive. It
+// also returns ~20 models, which will not fit in a table cell. The binding
+// constraint is whichever model has least left, so show that one and put the
+// rest in the tooltip.
+export function subscriptionAccountModelQuotas(account = {}) {
+  const list = account?.quota?.model_quotas;
+  if (!Array.isArray(list)) return [];
+  return list
+    .filter((entry) => entry && typeof entry === "object" && typeof entry.model === "string" && entry.model !== "")
+    .map((entry) => ({
+      model: entry.model,
+      displayName: typeof entry.displayName === "string" ? entry.displayName : "",
+      percent: Math.max(0, Math.min(100, Math.round(Number(entry.remainingPercent) || 0))),
+      reset: typeof entry.reset === "string" ? entry.reset : "",
+    }))
+    .sort((left, right) => left.percent - right.percent || left.model.localeCompare(right.model));
+}
+
+function renderSubscriptionModelQuotaCell(quotas, st) {
+  const lowest = quotas[0];
+  // Model ids rather than Google's displayName: the id is what the model picker
+  // shows, and the display names are not unique — three different ids all come
+  // back as "Gemini 3.1 Flash Lite", which makes a display-name list unreadable.
+  const tooltip = quotas
+    .slice(0, 24)
+    .map((entry) => `${entry.model}: ${entry.percent}%`)
+    .join("\n");
+  const reset = lowest.reset ? st("quotaModelResetAt", { time: formatTimestamp(lowest.reset, { fallback: lowest.reset }) }) : "";
+  const detail = [st("quotaModelsMore", { count: quotas.length }), reset].filter(Boolean).join(" · ");
+  return `<div class="subscription-quota" title="${escapeAttr(tooltip)}">
+    <div class="subscription-quota-line"><span class="subscription-quota-label">${escapeHtml(st("quotaModelLowest"))}</span><span class="subscription-quota-value">${escapeHtml(st("quotaModelPercent", { percent: lowest.percent }))}</span></div>
+    <div class="subscription-quota-line"><span class="subscription-quota-label">${escapeHtml(lowest.model)}</span><span class="subscription-quota-value">${escapeHtml(detail)}</span></div>
+  </div>`;
+}
+
 function renderSubscriptionQuotaCell(account, st, provider = "") {
+  const modelQuotas = subscriptionAccountModelQuotas(account);
+  if (modelQuotas.length) return renderSubscriptionModelQuotaCell(modelQuotas, st);
   const budgets = subscriptionAccountQuotaBudgets(account);
   if (!budgets.length) return `<span class="subscription-quota-empty">${escapeHtml(st("quotaPending"))}</span>`;
   const nominalOnly = nominalQuotaProviders.has(String(provider).trim().toLowerCase());

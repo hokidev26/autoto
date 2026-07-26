@@ -322,7 +322,7 @@ func (a *subscriptionProviderAccounts) recordAttempt(ctx context.Context, accoun
 	recordCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)
 	defer cancel()
 	_ = telemetry.RecordProviderAccountAttempt(recordCtx, ProviderAccountAttempt{
-		Provider:    a.providerName(),
+		Provider:    a.telemetryProviderName(),
 		AccountID:   accountID,
 		Success:     success,
 		HTTPStatus:  status,
@@ -332,6 +332,8 @@ func (a *subscriptionProviderAccounts) recordAttempt(ctx context.Context, accoun
 	})
 }
 
+// providerName is the user-facing label used in error messages, so it prefers
+// the configured name the user actually sees.
 func (a *subscriptionProviderAccounts) providerName() string {
 	if a == nil {
 		return "subscription"
@@ -343,6 +345,24 @@ func (a *subscriptionProviderAccounts) providerName() string {
 		return a.expectedProvider
 	}
 	return "subscription"
+}
+
+// telemetryProviderName is the key attempt and quota rows are stored under. It
+// must be the subscription provider the credential store uses, NOT the config
+// name: the two coincide for grok, but an Antigravity provider is conventionally
+// named "gemini-oauth" while its accounts live under "gemini", so writing rows
+// under the config name filed them where no reader ever looks — the account UI
+// queries by subscription provider, which is why gemini accounts showed neither
+// stats nor quota. The config name is user-editable too, so keying telemetry on
+// it would orphan an account's history the moment the provider is renamed.
+func (a *subscriptionProviderAccounts) telemetryProviderName() string {
+	if a == nil {
+		return "subscription"
+	}
+	if provider := strings.TrimSpace(a.expectedProvider); provider != "" {
+		return provider
+	}
+	return a.providerName()
 }
 
 func (a *subscriptionProviderAccounts) now() time.Time {

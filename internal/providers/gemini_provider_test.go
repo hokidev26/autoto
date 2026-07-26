@@ -215,12 +215,17 @@ func TestGeminiProviderListModelsMergesLiveAndStatic(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "gemini")
 	store := subscriptionauth.NewStore(dir)
 	_ = createGeminiProviderTestAccount(t, store, "access-models", "models", "project-models", 1, time.Now().Add(time.Hour))
+	var requestedBody map[string]any
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/v1internal:loadCodeAssist" {
+		if r.URL.Path != "/v1internal:fetchAvailableModels" {
 			http.NotFound(w, r)
 			return
 		}
-		_ = json.NewEncoder(w).Encode(map[string]any{"availableModels": []any{map[string]any{"id": "gemini-live-model"}}})
+		_ = json.NewDecoder(r.Body).Decode(&requestedBody)
+		// models is a protobuf map, so the model id is the JSON key.
+		_ = json.NewEncoder(w).Encode(map[string]any{"models": map[string]any{
+			"gemini-live-model": map[string]any{"displayName": "Gemini Live", "quotaInfo": map[string]any{"remainingFraction": 0.5, "resetTime": "2026-08-01T00:00:00Z"}},
+		}})
 	}))
 	defer server.Close()
 	provider := newGeminiProviderForTest(config.ProviderConfig{Name: "gemini", Type: config.ProviderTypeGemini, Model: "gemini-static", Models: []config.ProviderModelConfig{{Name: "gemini-static", ContextTokenLimit: 1000}}, CredentialStorePath: dir}, server.Client(), server.URL)
@@ -231,5 +236,10 @@ func TestGeminiProviderListModelsMergesLiveAndStatic(t *testing.T) {
 	joined := strings.Join(models, ",")
 	if !strings.Contains(joined, "gemini-live-model") || !strings.Contains(joined, "gemini-static") {
 		t.Fatalf("live/static models were not merged: %v", models)
+	}
+	// The project id is what makes the quota figures account-specific; without it
+	// Google answers 200 but reports full quota for an exhausted account.
+	if requestedBody["project"] != "project-models" {
+		t.Fatalf("fetchAvailableModels must carry the project id, got %v", requestedBody)
 	}
 }

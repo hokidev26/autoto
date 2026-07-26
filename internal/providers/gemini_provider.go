@@ -12,8 +12,10 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"math"
 	"net/http"
 	"net/url"
+	"sort"
 	"strings"
 	"time"
 
@@ -203,8 +205,13 @@ func (p *GeminiProvider) ListModels(ctx context.Context) ([]string, error) {
 			p.accounts.recordAttempt(ctx, prepared.ID, false, 0, "project_unavailable", err)
 			continue
 		}
-		body, _ := json.Marshal(map[string]any{"metadata": map[string]string{"ideType": "ANTIGRAVITY"}})
-		request, requestErr := http.NewRequestWithContext(ctx, http.MethodPost, p.baseURL+"/v1internal:loadCodeAssist", bytes.NewReader(body))
+		// fetchAvailableModels rather than loadCodeAssist: it returns the model
+		// list and each model's remaining quota in the same round-trip, and
+		// loadCodeAssist carries no quota at all. "project" is required for
+		// correctness, not for a 200 — omitting it still answers, but reports
+		// full quota for accounts that are actually exhausted.
+		body, _ := json.Marshal(map[string]any{"project": strings.TrimSpace(prepared.ProjectID)})
+		request, requestErr := http.NewRequestWithContext(ctx, http.MethodPost, p.baseURL+"/v1internal:fetchAvailableModels", bytes.NewReader(body))
 		if requestErr != nil {
 			lastErr = newSubscriptionNetworkError(p.cfg.Name, requestErr)
 			continue
@@ -221,12 +228,13 @@ func (p *GeminiProvider) ListModels(ctx context.Context) ([]string, error) {
 		}
 		if response.StatusCode >= http.StatusMultipleChoices {
 			status := response.StatusCode
+			logGeminiRejection(status, "", prepared.ProjectID, response.Body)
 			response.Body.Close()
 			lastErr = newSubscriptionHTTPError(p.cfg.Name, status, "models_request_failed")
 			p.accounts.recordAttempt(ctx, prepared.ID, false, status, "models_request_failed", lastErr)
 			continue
 		}
-		accountModels, parseErr := parseGeminiCloudCodeModels(response.Body)
+		accountModels, modelQuotas, parseErr := parseGeminiAvailableModels(response.Body)
 		response.Body.Close()
 		if parseErr != nil {
 			lastErr = newSubscriptionNetworkError(p.cfg.Name, parseErr)
@@ -234,6 +242,7 @@ func (p *GeminiProvider) ListModels(ctx context.Context) ([]string, error) {
 			continue
 		}
 		p.accounts.recordAttempt(ctx, prepared.ID, true, response.StatusCode, "", nil)
+		p.accounts.recordModelQuotas(ctx, prepared.ID, modelQuotas)
 		for _, model := range accountModels {
 			appendUniqueModel(&models, seen, model)
 		}
@@ -810,43 +819,76 @@ func geminiCloudCodeInt(value map[string]any, key string) int64 {
 	}
 }
 
-func parseGeminiCloudCodeModels(reader io.Reader) ([]string, error) {
+// parseGeminiAvailableModels reads a fetchAvailableModels response. "models" is a
+// protobuf map, so the model id is the JSON *key* — the tree-walking parser used
+// for loadCodeAssist only inspects string values and would return nothing here.
+//
+// The quota presence rules are load-bearing. remaining_fraction has implicit
+// proto3 presence (no Has/Clear accessor, unlike reset_time), so the wire format
+// omits it entirely at 0.0: a model with quotaInfo but no remainingFraction is
+// EXHAUSTED, not full. A model with no quotaInfo at all reports nothing, which is
+// a different thing and is left out of the snapshot rather than reported as 0.
+func parseGeminiAvailableModels(reader io.Reader) ([]string, []AccountModelQuotaSnapshot, error) {
 	data, err := io.ReadAll(io.LimitReader(reader, geminiCloudCodeMaxResponseBytes+1))
 	if err != nil || len(data) > geminiCloudCodeMaxResponseBytes {
-		return nil, errors.New("Gemini model response is invalid")
+		return nil, nil, errors.New("Gemini model response is invalid")
 	}
-	var payload any
+	var payload struct {
+		Models map[string]struct {
+			DisplayName string `json:"displayName"`
+			Disabled    bool   `json:"disabled"`
+			QuotaInfo   *struct {
+				RemainingFraction *float64 `json:"remainingFraction"`
+				ResetTime         string   `json:"resetTime"`
+			} `json:"quotaInfo"`
+		} `json:"models"`
+	}
 	if err := json.Unmarshal(data, &payload); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	models := make([]string, 0)
-	seen := make(map[string]struct{})
-	var visit func(any, bool)
-	visit = func(value any, modelContext bool) {
-		switch typed := value.(type) {
-		case []any:
-			for _, item := range typed {
-				visit(item, modelContext)
-			}
-		case map[string]any:
-			for key, child := range typed {
-				lower := strings.ToLower(strings.TrimSpace(key))
-				nextModelContext := modelContext || strings.Contains(lower, "model")
-				if nextModelContext {
-					if text, ok := child.(string); ok && looksLikeGeminiCloudCodeModel(text) {
-						appendUniqueModel(&models, seen, text)
-					}
-				}
-				visit(child, nextModelContext)
-			}
-		case string:
-			if modelContext && looksLikeGeminiCloudCodeModel(typed) {
-				appendUniqueModel(&models, seen, typed)
-			}
+
+	models := make([]string, 0, len(payload.Models))
+	seen := make(map[string]struct{}, len(payload.Models))
+	quotas := make([]AccountModelQuotaSnapshot, 0, len(payload.Models))
+	for id, details := range payload.Models {
+		model := strings.TrimSpace(id)
+		if !looksLikeGeminiCloudCodeModel(model) {
+			continue
 		}
+		appendUniqueModel(&models, seen, model)
+		if details.QuotaInfo == nil {
+			continue
+		}
+		fraction := 0.0
+		if details.QuotaInfo.RemainingFraction != nil {
+			fraction = *details.QuotaInfo.RemainingFraction
+		}
+		quotas = append(quotas, AccountModelQuotaSnapshot{
+			Model:            model,
+			DisplayName:      boundedGeminiQuotaText(details.DisplayName),
+			RemainingPercent: int(math.Round(clampPercent(fraction * 100))),
+			Reset:            boundedGeminiQuotaText(details.QuotaInfo.ResetTime),
+			Disabled:         details.Disabled,
+		})
 	}
-	visit(payload, false)
-	return models, nil
+	sort.Strings(models)
+	sort.Slice(quotas, func(i, j int) bool { return quotas[i].Model < quotas[j].Model })
+	return models, quotas, nil
+}
+
+// boundedGeminiQuotaText keeps upstream-controlled display strings from reaching
+// storage unbounded or carrying control characters.
+func boundedGeminiQuotaText(value string) string {
+	trimmed := strings.Map(func(r rune) rune {
+		if r < 0x20 || r == 0x7f {
+			return -1
+		}
+		return r
+	}, strings.TrimSpace(value))
+	if len(trimmed) > 120 {
+		return trimmed[:120]
+	}
+	return trimmed
 }
 
 func looksLikeGeminiCloudCodeModel(model string) bool {

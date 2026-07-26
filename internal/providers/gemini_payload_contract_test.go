@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"path/filepath"
 	"sort"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -250,5 +251,69 @@ func TestGeminiProviderStrictUpstreamAcceptsTheRealEnvelope(t *testing.T) {
 	}
 	if text != "hello" || calls.Load() != 1 {
 		t.Fatalf("text = %q, calls = %d; want \"hello\" and 1", text, calls.Load())
+	}
+}
+
+// The quota presence rules are the easiest thing to get wrong here, and getting
+// them wrong is worse than showing nothing: remaining_fraction has implicit
+// proto3 presence, so the wire format omits it at 0.0. Treating "absent" as full
+// would report 100% remaining at the exact moment an account is exhausted.
+func TestParseGeminiAvailableModelsQuotaPresence(t *testing.T) {
+	const body = `{"models":{
+		"gemini-3-flash":       {"displayName":"Flash","quotaInfo":{"remainingFraction":1.0,"resetTime":"2026-08-01T00:00:00Z"}},
+		"gemini-3.1-pro-low":   {"displayName":"Pro","quotaInfo":{"remainingFraction":0.256}},
+		"gemini-exhausted":     {"displayName":"Spent","quotaInfo":{"resetTime":"2026-08-02T00:00:00Z"}},
+		"gemini-no-quota":      {"displayName":"Unknown"},
+		"gemini-disabled":      {"disabled":true,"quotaInfo":{"remainingFraction":0.5}},
+		"not a model id!":      {"quotaInfo":{"remainingFraction":0.9}}
+	}}`
+
+	models, quotas, err := parseGeminiAvailableModels(strings.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(models, ","); got != "gemini-3-flash,gemini-3.1-pro-low,gemini-disabled,gemini-exhausted,gemini-no-quota" {
+		t.Fatalf("models = %q", got)
+	}
+
+	byModel := map[string]AccountModelQuotaSnapshot{}
+	for _, quota := range quotas {
+		byModel[quota.Model] = quota
+	}
+	// A model with no quotaInfo at all reports nothing, which is different from
+	// reporting zero, so it must not appear as an exhausted model.
+	if _, present := byModel["gemini-no-quota"]; present {
+		t.Fatal("a model without quotaInfo must not be reported as having quota")
+	}
+	if len(quotas) != 4 {
+		t.Fatalf("expected 4 quota rows, got %d: %+v", len(quotas), quotas)
+	}
+	for _, want := range []struct {
+		model    string
+		percent  int
+		reset    string
+		disabled bool
+	}{
+		{"gemini-3-flash", 100, "2026-08-01T00:00:00Z", false},
+		{"gemini-3.1-pro-low", 26, "", false},
+		{"gemini-exhausted", 0, "2026-08-02T00:00:00Z", false},
+		{"gemini-disabled", 50, "", true},
+	} {
+		got := byModel[want.model]
+		if got.RemainingPercent != want.percent || got.Reset != want.reset || got.Disabled != want.disabled {
+			t.Errorf("%s = %+v, want percent %d reset %q disabled %v", want.model, got, want.percent, want.reset, want.disabled)
+		}
+	}
+}
+
+func TestParseGeminiAvailableModelsRejectsGarbage(t *testing.T) {
+	if _, _, err := parseGeminiAvailableModels(strings.NewReader(`not json`)); err == nil {
+		t.Fatal("expected an error for a non-JSON body")
+	}
+	// An empty envelope is valid, just empty — it must not error, so ListModels
+	// still falls through to the statically configured models.
+	models, quotas, err := parseGeminiAvailableModels(strings.NewReader(`{}`))
+	if err != nil || len(models) != 0 || len(quotas) != 0 {
+		t.Fatalf("empty envelope: models=%v quotas=%v err=%v", models, quotas, err)
 	}
 }

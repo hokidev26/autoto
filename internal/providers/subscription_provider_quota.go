@@ -92,6 +92,44 @@ func hasSubscriptionQuotaData(snapshot ProviderAccountQuotaSnapshot) bool {
 	return snapshot.RetryAfter != ""
 }
 
+// recordModelQuotas persists per-model remaining percentages. It is the sibling
+// of recordAccountQuota for upstreams that report quota in the response body
+// rather than in rate-limit headers, and shares the same contract: never blocks
+// the request path, never fails it.
+func (a *subscriptionProviderAccounts) recordModelQuotas(ctx context.Context, accountID string, quotas []AccountModelQuotaSnapshot) {
+	if a == nil || ctx == nil || ctx.Err() != nil || strings.TrimSpace(accountID) == "" || len(quotas) == 0 {
+		return
+	}
+	a.telemetryMu.RLock()
+	telemetry := a.telemetry
+	a.telemetryMu.RUnlock()
+	quotaTelemetry, ok := telemetry.(AccountQuotaTelemetry)
+	if !ok || quotaTelemetry == nil {
+		return
+	}
+	snapshot := ProviderAccountQuotaSnapshot{
+		Provider:    a.telemetryProviderName(),
+		AccountID:   accountID,
+		ModelQuotas: quotas,
+		FetchedAt:   a.now().UTC(),
+	}
+	lowest := quotas[0]
+	for _, quota := range quotas[1:] {
+		if quota.RemainingPercent < lowest.RemainingPercent {
+			lowest = quota
+		}
+	}
+	slog.Debug("subscription model quota captured",
+		"provider", snapshot.Provider,
+		"accountId", accountID,
+		"models", len(quotas),
+		"lowestModel", lowest.Model,
+		"lowestRemainingPercent", lowest.RemainingPercent)
+	recordCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)
+	defer cancel()
+	_ = quotaTelemetry.UpdateProviderAccountQuota(recordCtx, snapshot.Provider, snapshot.AccountID, snapshot, snapshot.FetchedAt)
+}
+
 // recordAccountQuota persists a quota snapshot when the injected telemetry also
 // implements AccountQuotaTelemetry. It mirrors recordAttempt: never blocking the
 // request path, never failing it.
@@ -106,7 +144,7 @@ func (a *subscriptionProviderAccounts) recordAccountQuota(ctx context.Context, a
 	if !ok || quotaTelemetry == nil {
 		return
 	}
-	snapshot := subscriptionQuotaFromHeaders(a.providerName(), accountID, header, a.now().UTC())
+	snapshot := subscriptionQuotaFromHeaders(a.telemetryProviderName(), accountID, header, a.now().UTC())
 	if !hasSubscriptionQuotaData(snapshot) {
 		// Distinguishing "upstream sent no rate-limit headers" from "it sent
 		// headers that happen to read as full" is the only way to tell a broken

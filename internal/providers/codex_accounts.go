@@ -42,8 +42,24 @@ type ProviderAccountQuotaSnapshot struct {
 	InputTokens  AccountRateLimitSnapshot `json:"input_tokens"`
 	OutputTokens AccountRateLimitSnapshot `json:"output_tokens"`
 	Models       []string                 `json:"models,omitempty"`
-	RetryAfter   string                   `json:"retry_after,omitempty"`
-	FetchedAt    time.Time                `json:"fetched_at"`
+	// ModelQuotas carries per-model remaining share for upstreams that report a
+	// fraction with no absolute limit, so there is no remaining/limit pair to
+	// put in the buckets above. Google's Cloud Code is the case in point.
+	ModelQuotas []AccountModelQuotaSnapshot `json:"model_quotas,omitempty"`
+	RetryAfter  string                      `json:"retry_after,omitempty"`
+	FetchedAt   time.Time                   `json:"fetched_at"`
+}
+
+// AccountModelQuotaSnapshot is a per-model remaining percentage. RemainingPercent
+// is 0-100 and always meaningful: upstreams that omit the figure when exhausted
+// are normalized to 0 by the parser rather than left absent, because an absent
+// value rendered as "unknown" hides exactly the state users care about.
+type AccountModelQuotaSnapshot struct {
+	Model            string `json:"model"`
+	DisplayName      string `json:"displayName,omitempty"`
+	RemainingPercent int    `json:"remainingPercent"`
+	Reset            string `json:"reset,omitempty"`
+	Disabled         bool   `json:"disabled,omitempty"`
 }
 
 type AccountRateLimitSnapshot struct {

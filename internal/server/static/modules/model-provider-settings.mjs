@@ -78,6 +78,7 @@ export {
   renderAnthropicAccountManagementTable,
   renderCodexAccountManagementTable,
   renderSubscriptionAccountManagementTable,
+  subscriptionAccountModelQuotas,
   subscriptionAccountOverview,
   subscriptionAccountQuotaBudgets,
   subscriptionAccountStatus,
