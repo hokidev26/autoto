@@ -490,15 +490,17 @@ export function createUIShellController({
       const label = document.createElement("span");
       label.className = "composer-permission-safety-label";
       label.textContent = translate("chat.dangerReflection");
-      const description = document.createElement("span");
-      description.className = "composer-permission-danger-reflection-desc";
-      description.textContent = translate("chat.dangerReflectionDescription");
-      copy.append(label, description);
+      // The subtitle is dropped from the row: every other option in this sheet is
+      // a single line, and on a phone the extra line pushed the sheet taller for
+      // wording the label already implies. It survives as the hover/assistive
+      // description so the meaning is still discoverable.
+      copy.append(label);
+      row.title = translate("chat.dangerReflectionDescription");
       const toggle = document.createElement("input");
       toggle.type = "checkbox";
       toggle.className = "composer-permission-danger-reflection-toggle";
       toggle.setAttribute("role", "switch");
-      toggle.setAttribute("aria-label", translate("chat.dangerReflection"));
+      toggle.setAttribute("aria-label", `${translate("chat.dangerReflection")} — ${translate("chat.dangerReflectionDescription")}`);
       const checked = dangerReflectionEnabled();
       toggle.checked = checked;
       toggle.setAttribute("aria-checked", checked ? "true" : "false");

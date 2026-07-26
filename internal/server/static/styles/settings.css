@@ -2276,6 +2276,9 @@ body.white-shell.theme-light[data-theme-preset="apple"] .modal {
   font-weight: 750;
   letter-spacing: -.02em;
 }
+/* A bare glyph rather than a filled circle: the button sits alone beside the
+   sheet title, where the chip read as a second control competing with it. The
+   40px box is kept for the touch target even though nothing is painted. */
 .mobile-select-sheet-close {
   width: 40px;
   height: 40px;
@@ -2283,15 +2286,15 @@ body.white-shell.theme-light[data-theme-preset="apple"] .modal {
   align-items: center;
   justify-content: center;
   border: 0;
-  border-radius: 999px;
-  background: rgba(118, 118, 128, .10);
-  color: inherit;
+  background: none;
+  color: var(--ws-muted, #8a93a3);
   font: inherit;
   font-size: 24px;
   line-height: 1;
   cursor: pointer;
 }
-.mobile-select-sheet-close:is(:hover, :focus-visible) { outline: 0; background: rgba(118, 118, 128, .18); }
+.mobile-select-sheet-close:is(:hover, :focus-visible) { outline: 0; background: none; color: var(--ws-text, #20263a); }
+.mobile-select-sheet-close:focus-visible { outline: 2px solid #5369f3; outline-offset: -6px; border-radius: 8px; }
 .mobile-select-sheet-body { min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 10px 12px 14px; }
 .mobile-select-sheet-options { display: grid; gap: 3px; }
 .mobile-select-sheet-option {
@@ -2471,7 +2474,10 @@ body.white-shell.theme-light[data-theme-preset="apple"] .modal {
     gap: 8px;
     padding: 10px 12px 6px;
   }
-  .mobile-sidebar-action.mobile-drawer-schedule-btn { display: flex; width: calc(100% - 20px); margin: 10px 10px 8px; }
+  /* Schedules now lives inside .mobile-sidebar-quick-actions with settings and
+     sign out, so the grid supplies its width and spacing; keeping the old
+     standalone margin here would inset it from its own row. */
+  .mobile-sidebar-action.mobile-drawer-schedule-btn { display: flex; width: 100%; margin: 0; }
   .mobile-drawer-primary-action,
   .mobile-drawer-secondary-action {
     min-height: 44px;
