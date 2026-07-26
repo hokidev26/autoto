@@ -475,6 +475,51 @@ func TestDangerReflectionFingerprintDistinguishesActions(t *testing.T) {
 	}
 }
 
+// TestDangerReflectionRespectsThePreference covers the user-facing switch: off
+// means no model call at all, and the action falls back to whatever static
+// policy decided on its own.
+func TestDangerReflectionRespectsThePreference(t *testing.T) {
+	store, agent := newAgentTestStore(t, t.TempDir(), "bypassPermissions")
+	defer store.Close()
+	provider := &scriptedProvider{turns: [][]providers.Event{
+		reflectionToolEvents(reflectionToolBlock, "Would be blocked if the gate ran."),
+	}}
+	runner := newAgentTestRunner(store, provider, config.AgentConfig{MaxTurns: 3, SummaryModel: "fake:test"})
+	ctx := context.Background()
+
+	prefs, err := store.GetWorkflowPreferences(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !prefs.DangerReflectionEnabled {
+		t.Fatal("danger reflection must default to enabled so an existing user does not silently lose the gate")
+	}
+
+	prefs.DangerReflectionEnabled = false
+	if _, err := store.UpdateWorkflowPreferences(ctx, prefs); err != nil {
+		t.Fatal(err)
+	}
+	resolution := runner.reflectBeforeExecution(ctx, agent, "run-1", bashCall("somecmd --thing"), tools.RiskExec, allowResolution())
+	if resolution.Decision != toolPermissionAllow {
+		t.Fatalf("with reflection off the static decision must stand, got %+v", resolution)
+	}
+	if provider.requestCount() != 0 {
+		t.Fatalf("reflection is off; no model call should be made, got %d", provider.requestCount())
+	}
+
+	prefs.DangerReflectionEnabled = true
+	if _, err := store.UpdateWorkflowPreferences(ctx, prefs); err != nil {
+		t.Fatal(err)
+	}
+	resolution = runner.reflectBeforeExecution(ctx, agent, "run-2", bashCall("somecmd --thing"), tools.RiskExec, allowResolution())
+	if resolution.Decision != toolPermissionDeny {
+		t.Fatalf("with reflection back on the block verdict must apply, got %+v", resolution)
+	}
+	if provider.requestCount() != 1 {
+		t.Fatalf("expected exactly one reflection call after re-enabling, got %d", provider.requestCount())
+	}
+}
+
 func TestDangerReflectionUnavailableAsksAndNeverProceeds(t *testing.T) {
 	unavailable := dangerReflection{Unavailable: true, Verdict: reflectionProceed}
 	if unavailable.proceeds() {

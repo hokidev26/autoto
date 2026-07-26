@@ -529,6 +529,7 @@ CREATE TABLE IF NOT EXISTS workflow_preferences (
   require_confirmation_for_exec INTEGER NOT NULL DEFAULT 1,
   require_confirmation_for_writes INTEGER NOT NULL DEFAULT 0,
   allow_read_only_by_default INTEGER NOT NULL DEFAULT 1,
+  danger_reflection_enabled INTEGER NOT NULL DEFAULT 1,
   policy_generation INTEGER NOT NULL DEFAULT 1,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL

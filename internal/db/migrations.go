@@ -9,7 +9,7 @@ import (
 	"github.com/google/uuid"
 )
 
-const CurrentDBVersion = 53
+const CurrentDBVersion = 54
 
 type migration struct {
 	version int
@@ -71,6 +71,7 @@ var migrations = []migration{
 	{version: 51, name: "profile configuration and lifecycle hooks", up: migrateV51ProfileConfiguration},
 	{version: 52, name: "lexically sortable timestamps", up: migrateV52SortableTimestamps},
 	{version: 53, name: "remote collaboration phase one", up: migrateV53RemoteCollaboration},
+	{version: 54, name: "danger reflection preference", up: migrateV54DangerReflection},
 }
 
 func runMigrations(ctx context.Context, db *sql.DB) error {
@@ -1430,6 +1431,13 @@ func migrateV49AttachmentModelImages(ctx context.Context, tx *sql.Tx) error {
 func migrateV53RemoteCollaboration(ctx context.Context, tx *sql.Tx) error {
 	_, err := tx.ExecContext(ctx, remoteCollaborationSchemaSQL)
 	return err
+}
+
+// migrateV54DangerReflection makes the model-in-the-loop safety gate switchable.
+// It defaults to on: an existing user who never opens the setting keeps the
+// stricter behavior rather than silently losing a control they already had.
+func migrateV54DangerReflection(ctx context.Context, tx *sql.Tx) error {
+	return ensureColumn(ctx, tx, "workflow_preferences", "danger_reflection_enabled", "INTEGER NOT NULL DEFAULT 1")
 }
 
 func migrateV52SortableTimestamps(ctx context.Context, tx *sql.Tx) error {

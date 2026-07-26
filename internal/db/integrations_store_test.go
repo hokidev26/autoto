@@ -160,7 +160,7 @@ func TestWorkflowPreferencesRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if prefs.ID != "default" || !prefs.RequireConfirmationForExec || prefs.RequireConfirmationForWrites || !prefs.AllowReadOnlyByDefault {
+	if prefs.ID != "default" || !prefs.RequireConfirmationForExec || prefs.RequireConfirmationForWrites || !prefs.AllowReadOnlyByDefault || !prefs.DangerReflectionEnabled {
 		t.Fatalf("unexpected default workflow preferences: %+v", prefs)
 	}
 	updated, err := store.UpdateWorkflowPreferences(ctx, WorkflowPreferences{RequireConfirmationForExec: false, RequireConfirmationForWrites: true, AllowReadOnlyByDefault: false})

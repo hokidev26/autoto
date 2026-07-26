@@ -24,6 +24,9 @@ type workflowPreferencesRequest struct {
 	RequireConfirmationForExec   *bool `json:"requireConfirmationForExec"`
 	RequireConfirmationForWrites *bool `json:"requireConfirmationForWrites"`
 	AllowReadOnlyByDefault       *bool `json:"allowReadOnlyByDefault"`
+	// Optional so an older client that does not know about the setting keeps
+	// the stored value instead of silently switching the safety gate off.
+	DangerReflectionEnabled *bool `json:"dangerReflectionEnabled"`
 }
 
 type toolPermissionRuleRequest struct {
@@ -55,7 +58,13 @@ func (s *Server) updateWorkflowPreferences(w http.ResponseWriter, r *http.Reques
 		writeError(w, http.StatusBadRequest, "all workflow preference fields are required")
 		return
 	}
-	prefs, err := s.store.UpdateWorkflowPreferences(r.Context(), db.WorkflowPreferences{RequireConfirmationForExec: *req.RequireConfirmationForExec, RequireConfirmationForWrites: *req.RequireConfirmationForWrites, AllowReadOnlyByDefault: *req.AllowReadOnlyByDefault})
+	dangerReflection := true
+	if req.DangerReflectionEnabled != nil {
+		dangerReflection = *req.DangerReflectionEnabled
+	} else if current, err := s.store.GetWorkflowPreferences(r.Context()); err == nil {
+		dangerReflection = current.DangerReflectionEnabled
+	}
+	prefs, err := s.store.UpdateWorkflowPreferences(r.Context(), db.WorkflowPreferences{RequireConfirmationForExec: *req.RequireConfirmationForExec, RequireConfirmationForWrites: *req.RequireConfirmationForWrites, AllowReadOnlyByDefault: *req.AllowReadOnlyByDefault, DangerReflectionEnabled: dangerReflection})
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return

@@ -51,12 +51,12 @@ func (s *Store) UpdateNotificationSettings(ctx context.Context, settings Notific
 
 func DefaultWorkflowPreferences() WorkflowPreferences {
 	now := Now()
-	return WorkflowPreferences{ID: "default", RequireConfirmationForExec: true, RequireConfirmationForWrites: false, AllowReadOnlyByDefault: true, PolicyGeneration: 1, CreatedAt: now, UpdatedAt: now}
+	return WorkflowPreferences{ID: "default", RequireConfirmationForExec: true, RequireConfirmationForWrites: false, AllowReadOnlyByDefault: true, DangerReflectionEnabled: true, PolicyGeneration: 1, CreatedAt: now, UpdatedAt: now}
 }
 
 func (s *Store) GetWorkflowPreferences(ctx context.Context) (WorkflowPreferences, error) {
 	prefs, err := scanWorkflowPreferences(func(dest ...any) error {
-		return s.db.QueryRowContext(ctx, `SELECT id, require_confirmation_for_exec, require_confirmation_for_writes, allow_read_only_by_default, COALESCE(policy_generation,1), created_at, updated_at FROM workflow_preferences WHERE id = 'default'`).Scan(dest...)
+		return s.db.QueryRowContext(ctx, `SELECT id, require_confirmation_for_exec, require_confirmation_for_writes, allow_read_only_by_default, COALESCE(danger_reflection_enabled,1), COALESCE(policy_generation,1), created_at, updated_at FROM workflow_preferences WHERE id = 'default'`).Scan(dest...)
 	})
 	if err == nil {
 		return prefs, nil
@@ -82,7 +82,7 @@ func (s *Store) UpdateWorkflowPreferences(ctx context.Context, prefs WorkflowPre
 		return WorkflowPreferences{}, err
 	}
 	defer tx.Rollback()
-	_, err = tx.ExecContext(ctx, `INSERT INTO workflow_preferences (id, require_confirmation_for_exec, require_confirmation_for_writes, allow_read_only_by_default, policy_generation, created_at, updated_at) VALUES (?, ?, ?, ?, 1, ?, ?) ON CONFLICT(id) DO UPDATE SET require_confirmation_for_exec = excluded.require_confirmation_for_exec, require_confirmation_for_writes = excluded.require_confirmation_for_writes, allow_read_only_by_default = excluded.allow_read_only_by_default, policy_generation = workflow_preferences.policy_generation + 1, updated_at = excluded.updated_at`, prefs.ID, boolInt(prefs.RequireConfirmationForExec), boolInt(prefs.RequireConfirmationForWrites), boolInt(prefs.AllowReadOnlyByDefault), prefs.CreatedAt, prefs.UpdatedAt)
+	_, err = tx.ExecContext(ctx, `INSERT INTO workflow_preferences (id, require_confirmation_for_exec, require_confirmation_for_writes, allow_read_only_by_default, danger_reflection_enabled, policy_generation, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 1, ?, ?) ON CONFLICT(id) DO UPDATE SET require_confirmation_for_exec = excluded.require_confirmation_for_exec, require_confirmation_for_writes = excluded.require_confirmation_for_writes, allow_read_only_by_default = excluded.allow_read_only_by_default, danger_reflection_enabled = excluded.danger_reflection_enabled, policy_generation = workflow_preferences.policy_generation + 1, updated_at = excluded.updated_at`, prefs.ID, boolInt(prefs.RequireConfirmationForExec), boolInt(prefs.RequireConfirmationForWrites), boolInt(prefs.AllowReadOnlyByDefault), boolInt(prefs.DangerReflectionEnabled), prefs.CreatedAt, prefs.UpdatedAt)
 	if err != nil {
 		return WorkflowPreferences{}, err
 	}
@@ -1082,13 +1082,14 @@ func scanNotificationSettings(scan notificationSettingsScanner) (NotificationSet
 
 func scanWorkflowPreferences(scan workflowPreferencesScanner) (WorkflowPreferences, error) {
 	var prefs WorkflowPreferences
-	var requireExec, requireWrites, allowReadOnly int
-	if err := scan(&prefs.ID, &requireExec, &requireWrites, &allowReadOnly, &prefs.PolicyGeneration, &prefs.CreatedAt, &prefs.UpdatedAt); err != nil {
+	var requireExec, requireWrites, allowReadOnly, dangerReflection int
+	if err := scan(&prefs.ID, &requireExec, &requireWrites, &allowReadOnly, &dangerReflection, &prefs.PolicyGeneration, &prefs.CreatedAt, &prefs.UpdatedAt); err != nil {
 		return WorkflowPreferences{}, err
 	}
 	prefs.RequireConfirmationForExec = requireExec != 0
 	prefs.RequireConfirmationForWrites = requireWrites != 0
 	prefs.AllowReadOnlyByDefault = allowReadOnly != 0
+	prefs.DangerReflectionEnabled = dangerReflection != 0
 	return prefs, nil
 }
 

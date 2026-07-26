@@ -620,9 +620,13 @@ type WorkflowPreferences struct {
 	RequireConfirmationForExec   bool   `json:"requireConfirmationForExec"`
 	RequireConfirmationForWrites bool   `json:"requireConfirmationForWrites"`
 	AllowReadOnlyByDefault       bool   `json:"allowReadOnlyByDefault"`
-	PolicyGeneration             int64  `json:"policyGeneration"`
-	CreatedAt                    string `json:"createdAt"`
-	UpdatedAt                    string `json:"updatedAt"`
+	// DangerReflectionEnabled switches the model-in-the-loop review of actions
+	// that would otherwise run with no human involvement. Static classification
+	// and the hard-block tier are unaffected by it.
+	DangerReflectionEnabled bool   `json:"dangerReflectionEnabled"`
+	PolicyGeneration        int64  `json:"policyGeneration"`
+	CreatedAt               string `json:"createdAt"`
+	UpdatedAt               string `json:"updatedAt"`
 }
 
 type ToolPermissionRule struct {

@@ -136,6 +136,22 @@ func (r *Runner) dangerReflectionEnabled() bool {
 	return r != nil && r.providers != nil && strings.TrimSpace(r.SummaryModel()) != ""
 }
 
+// dangerReflectionPreferred reads the user's switch. An unreadable store
+// resolves to enabled: losing the preferences row must not quietly disable a
+// safety gate, and the cost of being wrong in that direction is one extra model
+// call rather than an unreviewed action.
+func (r *Runner) dangerReflectionPreferred(ctx context.Context) bool {
+	if r == nil || r.store == nil {
+		return true
+	}
+	prefs, err := r.store.GetWorkflowPreferences(ctx)
+	if err != nil {
+		slog.Debug("danger reflection preference unavailable; leaving the gate on", "error", err)
+		return true
+	}
+	return prefs.DangerReflectionEnabled
+}
+
 // reflectBeforeExecution is the gate. It runs only for actions that static
 // policy already decided to allow without human involvement, and returns the
 // resolution that should replace that allow.
@@ -147,6 +163,9 @@ func (r *Runner) reflectBeforeExecution(ctx context.Context, agent db.Agent, run
 		return permission
 	}
 	if !reflectableToolCall(call.Name, risk) || !r.dangerReflectionEnabled() {
+		return permission
+	}
+	if !r.dangerReflectionPreferred(ctx) {
 		return permission
 	}
 	// An action the human explicitly approved for this session already carries a
