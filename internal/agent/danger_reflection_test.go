@@ -495,11 +495,11 @@ func TestDangerReflectionRespectsThePreference(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !prefs.DangerReflectionEnabled {
-		t.Fatal("danger reflection must default to enabled so an existing user does not silently lose the gate")
+	if prefs.DangerReflectionLevel == "off" {
+		t.Fatal("danger reflection must not default to off so an existing user does not silently lose the gate")
 	}
 
-	prefs.DangerReflectionEnabled = false
+	prefs.DangerReflectionLevel = "off"
 	if _, err := store.UpdateWorkflowPreferences(ctx, prefs); err != nil {
 		t.Fatal(err)
 	}
@@ -511,7 +511,7 @@ func TestDangerReflectionRespectsThePreference(t *testing.T) {
 		t.Fatalf("reflection is off; no model call should be made, got %d", provider.requestCount())
 	}
 
-	prefs.DangerReflectionEnabled = true
+	prefs.DangerReflectionLevel = "medium"
 	if _, err := store.UpdateWorkflowPreferences(ctx, prefs); err != nil {
 		t.Fatal(err)
 	}

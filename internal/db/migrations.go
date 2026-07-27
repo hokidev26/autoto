@@ -74,6 +74,7 @@ var migrations = []migration{
 	{version: 54, name: "danger reflection preference", up: migrateV54DangerReflection},
 	{version: 55, name: "superseded messages", up: migrateV55SupersededMessages},
 	{version: 56, name: "assistant reasoning transcript", up: migrateV56AssistantReasoning},
+	{version: 57, name: "danger reflection level", up: migrateV57DangerReflectionLevel},
 }
 
 func runMigrations(ctx context.Context, db *sql.DB) error {
@@ -1942,4 +1943,16 @@ func migrateV56AssistantReasoning(ctx context.Context, tx *sql.Tx) error {
 		return err
 	}
 	return ensureColumn(ctx, tx, "agent_messages", "reasoning_text", "TEXT")
+}
+
+// migrateV57DangerReflectionLevel replaces the boolean danger_reflection_enabled
+// column with a text danger_reflection_level column ("off"/"loose"/"medium"/"strict").
+// Existing rows with enabled=1 migrate to "medium"; enabled=0 migrates to "off".
+func migrateV57DangerReflectionLevel(ctx context.Context, tx *sql.Tx) error {
+	if err := ensureColumn(ctx, tx, "workflow_preferences", "danger_reflection_level", "TEXT NOT NULL DEFAULT 'medium'"); err != nil {
+		return err
+	}
+	// Migrate old boolean to level string.
+	_, err := tx.ExecContext(ctx, `UPDATE workflow_preferences SET danger_reflection_level = CASE WHEN COALESCE(danger_reflection_enabled,1) = 0 THEN 'off' ELSE 'medium' END WHERE danger_reflection_level = 'medium' OR danger_reflection_level = ''`)
+	return err
 }
