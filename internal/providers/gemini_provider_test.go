@@ -290,3 +290,34 @@ func TestGeminiProviderListModelsMergesLiveAndStatic(t *testing.T) {
 		t.Fatalf("fetchAvailableModels must carry the project id, got %v", requestedBody)
 	}
 }
+
+// Claude "-thinking" suffix must be stripped before the request reaches Cloud Code,
+// and a default effort must be injected so the result is actually useful.
+// Sending "claude-opus-4-6-thinking" verbatim returns 400 INVALID_ARGUMENT.
+func TestGeminiProviderStripsClaudeThinkingSuffix(t *testing.T) {
+	// Without explicit effort — suffix alone must activate high
+	payload := buildGeminiCloudCodePayload(GenerateRequest{
+		Messages: []Message{{Role: "user", Blocks: []ContentBlock{{Type: "text", Text: "hello"}}}},
+	}, "claude-opus-4-6-thinking", "project-1", "high")
+	encoded, _ := json.Marshal(payload)
+	text := string(encoded)
+	if strings.Contains(text, "-thinking") {
+		t.Fatalf("payload must not contain -thinking suffix, got: %s", text)
+	}
+	if !strings.Contains(text, `"model":"claude-opus-4-6"`) {
+		t.Fatalf("payload must contain clean model name, got: %s", text)
+	}
+	if !strings.Contains(text, `"effort":"high"`) {
+		t.Fatalf("payload must contain effort:high, got: %s", text)
+	}
+
+	// Gemini model with -thinking-like name must NOT be stripped
+	payloadGemini := buildGeminiCloudCodePayload(GenerateRequest{
+		Messages: []Message{{Role: "user", Blocks: []ContentBlock{{Type: "text", Text: "hello"}}}},
+	}, "gemini-3.1-thinking", "project-1", "medium")
+	encodedGemini, _ := json.Marshal(payloadGemini)
+	textGemini := string(encodedGemini)
+	if !strings.Contains(textGemini, `"model":"gemini-3.1-thinking"`) {
+		t.Fatalf("Gemini model name must not be stripped, got: %s", textGemini)
+	}
+}

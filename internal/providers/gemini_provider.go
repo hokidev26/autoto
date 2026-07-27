@@ -278,7 +278,6 @@ func (p *GeminiProvider) Generate(ctx context.Context, req GenerateRequest) (<-c
 	if model == "" {
 		model = p.cfg.Model
 	}
-
 	out := make(chan Event, 8)
 	go func() {
 		defer close(out)
@@ -477,6 +476,16 @@ func logGeminiRejection(status int, model, projectID string, body io.Reader) {
 //   - Claude models: additionalModelRequestFields.output_config.effort
 //     (outer key camelCase, inner key snake_case — Cloud Code wire contract)
 func buildGeminiCloudCodePayload(req GenerateRequest, model, projectID, reasoningEffort string) map[string]any {
+	// Claude models are requested with a "-thinking" suffix to signal that the
+	// caller wants reasoning enabled (e.g. "claude-opus-4-6-thinking"). Cloud
+	// Code does not recognise that suffix and returns 400; strip it and inject
+	// a default effort so the request is actually useful.
+	if strings.HasPrefix(strings.ToLower(model), "claude-") && strings.HasSuffix(strings.ToLower(model), "-thinking") {
+		model = model[:len(model)-len("-thinking")]
+		if reasoningEffort == "" {
+			reasoningEffort = "high"
+		}
+	}
 	contents, system := geminiCloudCodeContents(req.Messages, req.SystemPrompt)
 	request := map[string]any{
 		"contents":  contents,
