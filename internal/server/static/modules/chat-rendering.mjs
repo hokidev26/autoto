@@ -1635,7 +1635,22 @@ export function createChatRenderingController({
     // sits above the assistant's own words, so the newest thing the assistant
     // said is the last message in the thread. Only approval prompts, which the
     // user has to act on, render below it.
-    el.innerHTML = `${olderMessagesControl}${visibleMessages.map(renderChatMessageCached).join("")}${liveImageGenerationCards}${planCards}${liveToolCards}${runSummaryCard}${liveAssistantCard}${approvalCards}`;
+    //
+    // The run summary card (tool activity) is an exception: it belongs *after*
+    // the user message that triggered the run and *before* the assistant reply
+    // that closed it, not at the tail of the thread.
+    const triggerMessageId = state.activeRunSummary?.run?.triggerMessageId || "";
+    let messagesHTML = "";
+    let runCardInserted = false;
+    visibleMessages.forEach((message, index) => {
+      messagesHTML += renderChatMessageCached(message, index);
+      if (triggerMessageId && runSummaryCard && !runCardInserted && message.id === triggerMessageId) {
+        messagesHTML += runSummaryCard;
+        runCardInserted = true;
+      }
+    });
+    const tailRunSummaryCard = runCardInserted ? "" : runSummaryCard;
+    el.innerHTML = `${olderMessagesControl}${messagesHTML}${liveImageGenerationCards}${planCards}${liveToolCards}${tailRunSummaryCard}${liveAssistantCard}${approvalCards}`;
     const liveMessageIds = new Set(visibleMessages.map((message) => message.id).filter(Boolean));
     for (const cachedId of messageHtmlCache.keys()) {
       if (!liveMessageIds.has(cachedId)) messageHtmlCache.delete(cachedId);
