@@ -834,6 +834,63 @@ func (s *Server) submitKiroOAuthLogin(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, subscriptionOAuthLoginPublicResponse(session, false))
 }
 
+// submitKiroAPIKeyLogin accepts a Kiro API key (ksk_xxx format) directly,
+// stores it as the account's access token, and completes the login session.
+// No refresh endpoint is called — API keys are long-lived and do not expire.
+func (s *Server) submitKiroAPIKeyLogin(w http.ResponseWriter, r *http.Request) {
+	setNoStore(w)
+	if s.rejectRemoteSubscriptionOAuthLogin(w, r) {
+		return
+	}
+	loginID := strings.TrimSpace(chi.URLParam(r, "loginId"))
+
+	s.subscriptionOAuthMu.Lock()
+	s.expireSubscriptionOAuthLoginsLocked(s.now())
+	session := s.subscriptionOAuthLogins[loginID]
+	if session == nil || session.provider != subscriptionauth.ProviderKiro {
+		s.subscriptionOAuthMu.Unlock()
+		writeError(w, http.StatusNotFound, "Kiro 登录会话不存在或已过期")
+		return
+	}
+	if session.status != subscriptionOAuthLoginPending {
+		response := subscriptionOAuthLoginPublicResponse(session, false)
+		s.subscriptionOAuthMu.Unlock()
+		writeJSON(w, http.StatusOK, response)
+		return
+	}
+	s.subscriptionOAuthMu.Unlock()
+
+	var req struct {
+		KiroAPIKey string `json:"kiroApiKey"`
+	}
+	if err := decodeJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	apiKey := strings.TrimSpace(req.KiroAPIKey)
+	if !strings.HasPrefix(apiKey, "ksk_") || len(apiKey) < 8 {
+		writeError(w, http.StatusBadRequest, "kiroApiKey 格式无效，应以 ksk_ 开头")
+		return
+	}
+
+	if !s.beginSubscriptionOAuthExchange(session) {
+		writeError(w, http.StatusConflict, "Kiro 登录会话已过期或已完成")
+		return
+	}
+
+	// API keys are stored directly as AccessToken with no expiry.
+	account, err := s.saveSubscriptionOAuthCredential(subscriptionauth.ProviderKiro, subscriptionOAuthTokens{
+		AccessToken: apiKey,
+	})
+	if err != nil {
+		s.failSubscriptionOAuthLogin(session, "Kiro API key 无法安全保存，请重试")
+		writeError(w, http.StatusInternalServerError, "Kiro API key 保存失败")
+		return
+	}
+	s.completeSubscriptionOAuthLogin(session, account)
+	writeJSON(w, http.StatusOK, subscriptionOAuthLoginPublicResponse(session, false))
+}
+
 func subscriptionOAuthProvider(value string) (string, bool) {
 	switch strings.ToLower(strings.TrimSpace(value)) {
 	case subscriptionauth.ProviderGemini:

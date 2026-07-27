@@ -515,6 +515,7 @@ func (s *Server) Routes() http.Handler {
 		r.Get("/api/providers/oauth/{provider}/login/{loginId}", s.getSubscriptionOAuthLogin)
 		r.Delete("/api/providers/oauth/{provider}/login/{loginId}", s.cancelSubscriptionOAuthLogin)
 		r.Post("/api/providers/oauth/kiro/login/{loginId}/submit", s.submitKiroOAuthLogin)
+		r.Post("/api/providers/oauth/kiro/login/{loginId}/submit-apikey", s.submitKiroAPIKeyLogin)
 		r.Get("/api/providers/auth/anthropic/accounts", s.listAnthropicAccounts)
 		r.Post("/api/providers/auth/anthropic/accounts", s.createAnthropicAccount)
 		r.Patch("/api/providers/auth/anthropic/accounts/{id}", s.patchAnthropicAccount)

@@ -484,7 +484,13 @@ func (p *KiroProvider) emitKiroFinalError(ctx context.Context, out chan<- Event,
 }
 
 func (p *KiroProvider) applyHeaders(request *http.Request, credential subscriptionauth.Credential) {
-	request.Header.Set("Authorization", "Bearer "+strings.TrimSpace(credential.AccessToken))
+	token := strings.TrimSpace(credential.AccessToken)
+	request.Header.Set("Authorization", "Bearer "+token)
+	// ksk_* tokens are Kiro API keys and require an extra header so the
+	// service can distinguish them from short-lived OAuth access tokens.
+	if strings.HasPrefix(token, "ksk_") {
+		request.Header.Set("tokentype", "API_KEY")
+	}
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("Accept", "application/vnd.amazon.eventstream")
 	request.Header.Set("x-amzn-codewhisperer-optout", "true")
