@@ -471,6 +471,11 @@ func logGeminiRejection(status int, model, projectID string, body io.Reader) {
 // URL, not by the body. Do not add a field here without confirming the control
 // plane accepts it — a stray key does not degrade behaviour, it disables the
 // provider completely.
+//
+// Reasoning field routing differs by model family:
+//   - Gemini models: generationConfig.thinkingConfig.thinkingLevel
+//   - Claude models: additionalModelRequestFields.output_config.effort
+//     (outer key camelCase, inner key snake_case — Cloud Code wire contract)
 func buildGeminiCloudCodePayload(req GenerateRequest, model, projectID, reasoningEffort string) map[string]any {
 	contents, system := geminiCloudCodeContents(req.Messages, req.SystemPrompt)
 	request := map[string]any{
@@ -484,7 +489,9 @@ func buildGeminiCloudCodePayload(req GenerateRequest, model, projectID, reasonin
 	if req.MaxOutputTokens > 0 {
 		generation["maxOutputTokens"] = req.MaxOutputTokens
 	}
-	if reasoningEffort != "" {
+	isClaude := strings.HasPrefix(strings.ToLower(strings.TrimSpace(model)), "claude-")
+	if reasoningEffort != "" && !isClaude {
+		// Gemini models take thinkingConfig inside generationConfig.
 		generation["thinkingConfig"] = map[string]any{"thinkingLevel": reasoningEffort, "includeThoughts": true}
 	}
 	if req.EnableImageGeneration || strings.Contains(strings.ToLower(model), "image") {
@@ -503,7 +510,7 @@ func buildGeminiCloudCodePayload(req GenerateRequest, model, projectID, reasonin
 		requestType = "image_gen"
 		requestID = fmt.Sprintf("image_gen/%d/%s/12", time.Now().UnixMilli(), uuid.NewString())
 	}
-	return map[string]any{
+	outer := map[string]any{
 		"project":            strings.TrimSpace(projectID),
 		"request":            request,
 		"model":              strings.TrimSpace(model),
@@ -512,6 +519,16 @@ func buildGeminiCloudCodePayload(req GenerateRequest, model, projectID, reasonin
 		"requestId":          requestID,
 		"enabledCreditTypes": []string{"GOOGLE_ONE_AI"},
 	}
+	// Claude models on Cloud Code use additionalModelRequestFields.output_config.effort
+	// (outer key camelCase; inner key snake_case — matching real Kiro CLI wire traffic).
+	// Any reasoningEffort value accepted by the Gemini provider ("low","medium","high")
+	// is also valid for Claude 4.6 on this endpoint.
+	if reasoningEffort != "" && isClaude {
+		outer["additionalModelRequestFields"] = map[string]any{
+			"output_config": map[string]any{"effort": reasoningEffort},
+		}
+	}
+	return outer
 }
 
 func geminiCloudCodeContents(messages []Message, systemPrompt string) ([]map[string]any, string) {

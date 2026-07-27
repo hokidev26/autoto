@@ -77,6 +77,49 @@ func TestBuildGeminiCloudCodePayload(t *testing.T) {
 			t.Fatalf("payload missing %s: %s", required, text)
 		}
 	}
+	// Gemini models must NOT send additionalModelRequestFields
+	if strings.Contains(text, "additionalModelRequestFields") {
+		t.Fatalf("Gemini model payload must not contain additionalModelRequestFields: %s", text)
+	}
+}
+
+// Claude models on the Cloud Code endpoint require additionalModelRequestFields.output_config.effort
+// instead of generationConfig.thinkingConfig — the two are completely different wire fields.
+// Sending thinkingConfig to a Claude model returns HTTP 400; sending output_config to a Gemini
+// model also returns 400. The routing logic must be model-family-aware.
+func TestBuildGeminiCloudCodePayloadClaudeModel(t *testing.T) {
+	payload := buildGeminiCloudCodePayload(GenerateRequest{
+		SystemPrompt:    "Be concise.",
+		Messages:        []Message{{Role: "user", Blocks: []ContentBlock{{Type: "text", Text: "hello"}}}},
+		MaxOutputTokens: 128,
+	}, "claude-opus-4-6", "project-1", "high")
+	encoded, _ := json.Marshal(payload)
+	text := string(encoded)
+
+	// Must carry additionalModelRequestFields.output_config.effort for Claude
+	if !strings.Contains(text, `"additionalModelRequestFields"`) {
+		t.Fatalf("Claude payload missing additionalModelRequestFields: %s", text)
+	}
+	if !strings.Contains(text, `"output_config"`) {
+		t.Fatalf("Claude payload missing output_config: %s", text)
+	}
+	if !strings.Contains(text, `"effort":"high"`) {
+		t.Fatalf("Claude payload missing effort:high: %s", text)
+	}
+	// Must NOT send thinkingConfig (Gemini-only field — causes 400 on Claude)
+	if strings.Contains(text, "thinkingConfig") {
+		t.Fatalf("Claude payload must not contain thinkingConfig (Gemini-only field): %s", text)
+	}
+
+	// No reasoning effort: must not send either field
+	payloadNoReason := buildGeminiCloudCodePayload(GenerateRequest{
+		Messages: []Message{{Role: "user", Blocks: []ContentBlock{{Type: "text", Text: "hello"}}}},
+	}, "claude-opus-4-6", "project-1", "")
+	encodedNoReason, _ := json.Marshal(payloadNoReason)
+	textNoReason := string(encodedNoReason)
+	if strings.Contains(textNoReason, "thinkingConfig") || strings.Contains(textNoReason, "additionalModelRequestFields") {
+		t.Fatalf("No-reasoning payload must not contain thinking fields: %s", textNoReason)
+	}
 }
 
 func TestGeminiProviderFailoverDispatchAndStreaming(t *testing.T) {
