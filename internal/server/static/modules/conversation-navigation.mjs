@@ -566,19 +566,31 @@ export function renderNavigationHTML(view = {}, options = {}) {
     const standalone = (view.standaloneConversations || [])
       .map((conversation) => renderConversation(conversation, activeAgentId, false, { activeSelectionKind }))
       .join("");
-    const groups = (view.groups || []).map((group) => {
+    let groups = view.groups || [];
+    // Apply user-defined project order (drag-to-reorder, persisted in localStorage).
+    if (Array.isArray(options.projectOrder) && options.projectOrder.length) {
+      const orderMap = new Map(options.projectOrder.map((id, i) => [String(id), i]));
+      const copy = [...groups];
+      copy.sort((a, b) => {
+        const ia = orderMap.has(a.project.id) ? orderMap.get(a.project.id) : Infinity;
+        const ib = orderMap.has(b.project.id) ? orderMap.get(b.project.id) : Infinity;
+        return ia - ib;
+      });
+      groups = copy;
+    }
+    const groupsHTML = groups.map((group) => {
       const orderedConvs = options.conversationOrders?.[group.project.id]
         ? applyConversationOrder(group.conversations, options.conversationOrders[group.project.id])
         : group.conversations;
       return `
-      <section class="navigation-project-group" data-navigation-project-group="${escapeNavigationHtml(group.project.id)}" data-conversation-count="${escapeNavigationHtml(String(group.conversations.length))}" data-navigation-context="project">
+      <section class="navigation-project-group" draggable="true" data-navigation-project-group="${escapeNavigationHtml(group.project.id)}" data-conversation-count="${escapeNavigationHtml(String(group.conversations.length))}" data-navigation-context="project">
         ${renderProject(group.project, activeProjectId, { activeSelectionKind })}
         <div class="navigation-project-conversations" data-project-conversations="${escapeNavigationHtml(group.project.id)}">
           ${orderedConvs.map((conversation) => renderConversation(conversation, activeAgentId, true, { activeSelectionKind })).join("")}
         </div>
       </section>`;
     }).join("");
-    html = standalone + groups;
+    html = standalone + groupsHTML;
   } else if (mode === "projects") {
     html = (view.projects || []).map((project) => renderProject(project, activeProjectId, { activeSelectionKind })).join("");
   } else {

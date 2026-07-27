@@ -93,6 +93,21 @@ import { normalizeWorkStateSnapshot, renderWorkStateHTML } from "./work-state.mj
 
 const CONV_ORDER_KEY_PREFIX = "autoto:conv_order:";
 const SETTINGS_NAV_ORDER_PREFIX = "autoto:settings_nav_order:";
+const PROJ_ORDER_KEY = "autoto:project_order";
+
+function getProjectOrder() {
+  try {
+    const val = localStorage.getItem(PROJ_ORDER_KEY);
+    if (val) return JSON.parse(val);
+  } catch {}
+  return null;
+}
+
+function saveProjectOrder(projectIds) {
+  try {
+    localStorage.setItem(PROJ_ORDER_KEY, JSON.stringify(projectIds));
+  } catch {}
+}
 
 function getConversationOrders() {
   const orders = {};
@@ -2659,6 +2674,69 @@ function syncNavigationConversationFromAgent(agent, options = {}) {
   return true;
 }
 
+// Project-level drag — reorders project groups in the sidebar.
+function bindProjectDrag(el) {
+  if (!el || el.dataset?.projDragBound === "true") return;
+  if (el.dataset) el.dataset.projDragBound = "true";
+
+  let dragProjectId = "";
+
+  el.addEventListener("dragstart", (event) => {
+    const section = event.target?.closest?.("[data-navigation-project-group]");
+    if (!section) return;
+    // Only start drag if the user grabbed the project row, not a conversation.
+    const row = event.target?.closest?.("[data-navigation-target]");
+    if (row) return; // conversation drag takes over
+    dragProjectId = section.dataset.navigationProjectGroup || "";
+    event.dataTransfer.setData("text/plain", dragProjectId);
+    event.dataTransfer.effectAllowed = "move";
+    section.classList.add("proj-dragging");
+  });
+
+  el.addEventListener("dragover", (event) => {
+    if (!dragProjectId) return;
+    const section = event.target?.closest?.("[data-navigation-project-group]");
+    if (!section || section.dataset.navigationProjectGroup === dragProjectId) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "move";
+    el.querySelectorAll(".proj-drag-over").forEach((n) => n.classList.remove("proj-drag-over"));
+    section.classList.add("proj-drag-over");
+  });
+
+  el.addEventListener("dragleave", (event) => {
+    if (!dragProjectId) return;
+    if (!el.contains(event.relatedTarget)) {
+      el.querySelectorAll(".proj-drag-over").forEach((n) => n.classList.remove("proj-drag-over"));
+    }
+  });
+
+  el.addEventListener("drop", (event) => {
+    if (!dragProjectId) return;
+    const targetSection = event.target?.closest?.("[data-navigation-project-group]");
+    if (!targetSection) return;
+    const targetProjectId = targetSection.dataset.navigationProjectGroup || "";
+    if (!targetProjectId || targetProjectId === dragProjectId) return;
+    event.preventDefault();
+
+    const sections = Array.from(el.querySelectorAll("[data-navigation-project-group]"));
+    const ids = sections.map((s) => s.dataset.navigationProjectGroup || "");
+    const fromIdx = ids.indexOf(dragProjectId);
+    const toIdx = ids.indexOf(targetProjectId);
+    if (fromIdx < 0 || toIdx < 0 || fromIdx === toIdx) return;
+    ids.splice(fromIdx, 1);
+    ids.splice(toIdx, 0, dragProjectId);
+    saveProjectOrder(ids);
+    renderProjects();
+  });
+
+  el.addEventListener("dragend", () => {
+    el.querySelectorAll(".proj-dragging, .proj-drag-over").forEach((n) => {
+      n.classList.remove("proj-dragging", "proj-drag-over");
+    });
+    dragProjectId = "";
+  });
+}
+
 function bindConversationDrag(el) {
   if (!el || el.dataset?.convDragBound === "true") return;
   if (el.dataset) el.dataset.convDragBound = "true";
@@ -2816,6 +2894,7 @@ function renderProjects() {
     taskContext,
     taskCounts,
     conversationOrders: getConversationOrders(),
+    projectOrder: getProjectOrder(),
   });
   $("navigationFilters")?.querySelectorAll("[data-navigation-mode]").forEach((node) => {
     const active = node.dataset.navigationMode === state.navigationMode;
@@ -2823,6 +2902,7 @@ function renderProjects() {
     node.setAttribute("aria-pressed", active ? "true" : "false");
   });
   bindConversationDrag(el);
+  bindProjectDrag(el);
   el.querySelectorAll("[data-project-id]").forEach((node) => {
     bindNavigationActivation(node, () => selectProject(node.dataset.projectId).then(() => {
       if (state.activeWorkbench === "workbench") {
