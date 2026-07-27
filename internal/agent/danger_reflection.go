@@ -371,19 +371,20 @@ var confinedWriteTools = map[string]struct{}{
 
 // reflectableToolCall selects the surface worth a model call.
 //
-// The rule is containment, not tool identity. Exec is unconfined by nature — a
-// shell command or an MCP/subagent call can touch anything the user account can
-// — so it is always reflected. A write is reflected only when nothing bounds it:
-// the built-in Write and Edit tools route every path through resolveInCWD and
-// are additionally covered by the sensitive-path filter and the run's git
-// checkpoint, so reflecting them would add a model call to every edit in a
-// refactor while telling us nothing. A write-risk tool that is NOT one of those
-// (a plugin, a dynamic MCP tool) carries no such guarantee and does get
-// reflected.
+// Only Bash is reflected for exec-risk actions. Agent and MCP calls are
+// intentional subagent dispatches; the safety reflector has no shell grammar or
+// subagent protocol context to reason about them, so it produces more noise
+// (false confirm/block verdicts) than signal for those surfaces. A write is
+// reflected only when nothing bounds it: the built-in Write and Edit tools route
+// every path through resolveInCWD and are additionally covered by the
+// sensitive-path filter and the run's git checkpoint, so reflecting them would
+// add a model call to every edit in a refactor while telling us nothing. A
+// write-risk tool that is NOT one of those (a plugin, a dynamic MCP tool) carries
+// no such guarantee and does get reflected.
 func reflectableToolCall(toolName string, risk tools.Risk) bool {
 	switch risk {
 	case tools.RiskExec:
-		return true
+		return strings.TrimSpace(toolName) == "Bash"
 	case tools.RiskWrite:
 		_, confined := confinedWriteTools[strings.TrimSpace(toolName)]
 		return !confined

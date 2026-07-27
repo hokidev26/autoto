@@ -435,9 +435,13 @@ func TestReflectableToolCallFollowsContainment(t *testing.T) {
 		risk tools.Risk
 		want bool
 	}{
+		// Only Bash triggers reflection for exec-risk: the reflector understands
+		// shell grammar and can judge blast radius. Agent and MCP dispatches are
+		// intentional subagent calls; the reflector has no context to reason about
+		// them and would generate false positives.
 		{"Bash", tools.RiskExec, true},
-		{"Agent", tools.RiskExec, true},
-		{"MCPCallTool", tools.RiskExec, true},
+		{"Agent", tools.RiskExec, false},
+		{"MCPCallTool", tools.RiskExec, false},
 		// Built-in writers resolve every path through resolveInCWD.
 		{"Write", tools.RiskWrite, false},
 		{"Edit", tools.RiskWrite, false},
