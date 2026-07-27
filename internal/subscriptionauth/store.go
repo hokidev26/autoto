@@ -25,6 +25,7 @@ const (
 	ProviderGemini = "gemini"
 	ProviderGrok   = "grok"
 	ProviderKimi   = "kimi"
+	ProviderKiro   = "kiro"
 
 	DefaultPriority = 100
 
@@ -733,7 +734,7 @@ func normalizeProvider(provider string) string {
 
 func validProvider(provider string) bool {
 	switch provider {
-	case ProviderGemini, ProviderGrok, ProviderKimi:
+	case ProviderGemini, ProviderGrok, ProviderKimi, ProviderKiro:
 		return true
 	default:
 		return false

@@ -310,7 +310,7 @@ func configuredModelCapabilities(cfg config.ProviderConfig, model string) ModelC
 // NewProvider constructs a provider adapter from a normalized provider config.
 func NewProvider(cfg config.ProviderConfig) (Provider, error) {
 	providerType := strings.TrimSpace(cfg.Type)
-	if providerType == "openai" || providerType == "openai-compatible" || providerType == "anthropic" || providerType == config.ProviderTypeGeminiInteractions || providerType == config.ProviderTypeGemini || providerType == config.ProviderTypeGrok || providerType == config.ProviderTypeKimi || providerType == config.ProviderTypeCodex {
+	if providerType == "openai" || providerType == "openai-compatible" || providerType == "anthropic" || providerType == config.ProviderTypeGeminiInteractions || providerType == config.ProviderTypeGemini || providerType == config.ProviderTypeGrok || providerType == config.ProviderTypeKimi || providerType == config.ProviderTypeCodex || providerType == config.ProviderTypeKiro {
 		if err := validateProviderRuntimeConfig(cfg); err != nil {
 			return nil, err
 		}
@@ -347,6 +347,12 @@ func NewProvider(cfg config.ProviderConfig) (Provider, error) {
 			return nil, err
 		}
 		return NewKimiProvider(cfg), nil
+	case config.ProviderTypeKiro:
+		cfg = normalizeKiroProviderConfig(cfg)
+		if err := validateKiroProductionBaseURL(cfg.BaseURL); err != nil {
+			return nil, err
+		}
+		return NewKiroProvider(cfg), nil
 	default:
 		return nil, fmt.Errorf("unsupported provider type %q", cfg.Type)
 	}

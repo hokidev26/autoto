@@ -10,6 +10,7 @@ const (
 	ProviderTypeGeminiInteractions = "gemini-interactions"
 	ProviderTypeGrok               = "grok"
 	ProviderTypeKimi               = "kimi"
+	ProviderTypeKiro               = "kiro"
 )
 
 func defaultGeminiProvider() ProviderConfig {
@@ -72,8 +73,26 @@ func defaultKimiProvider() ProviderConfig {
 	}
 }
 
+func defaultKiroProvider() ProviderConfig {
+	return ProviderConfig{
+		Name:  ProviderTypeKiro,
+		Type:  ProviderTypeKiro,
+		Model: "claude-sonnet-4-6",
+		Models: []ProviderModelConfig{
+			{Name: "claude-sonnet-5", ContextTokenLimit: 200000},
+			{Name: "claude-opus-5", ContextTokenLimit: 200000},
+			{Name: "claude-opus-4-6", ContextTokenLimit: 200000},
+			{Name: "claude-sonnet-4-6", ContextTokenLimit: 200000},
+			{Name: "claude-haiku-4-5", ContextTokenLimit: 200000},
+			{Name: "gpt-5.6-sol", ContextTokenLimit: 128000},
+			{Name: "gpt-5.6-terra", ContextTokenLimit: 128000},
+			{Name: "gpt-5.6-luna", ContextTokenLimit: 128000},
+		},
+	}
+}
+
 func ensureNativeBuiltinProviders(providers ProvidersConfig) ProvidersConfig {
-	for _, provider := range []ProviderConfig{defaultGeminiProvider(), defaultGrokProvider(), defaultKimiProvider()} {
+	for _, provider := range []ProviderConfig{defaultGeminiProvider(), defaultGrokProvider(), defaultKimiProvider(), defaultKiroProvider()} {
 		// A native subscription provider is only "already present" when a matching
 		// entry has the correct native type. An unrelated provider that merely
 		// shares the name (for example a legacy gemini-interactions relay named
@@ -142,6 +161,8 @@ func applyNativeProviderDefaults(provider *ProviderConfig) bool {
 		defaults = defaultGrokProvider()
 	case ProviderTypeKimi:
 		defaults = defaultKimiProvider()
+	case ProviderTypeKiro:
+		defaults = defaultKiroProvider()
 	default:
 		return false
 	}

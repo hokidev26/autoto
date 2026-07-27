@@ -16,6 +16,7 @@ import (
 	"autoto/internal/geminiauth"
 	"autoto/internal/grokauth"
 	"autoto/internal/kimiauth"
+	"autoto/internal/kiroauth"
 	"autoto/internal/subscriptionauth"
 )
 
@@ -44,6 +45,10 @@ type grokOAuthLoginClient interface {
 type kimiOAuthLoginClient interface {
 	StartDeviceFlow(ctx context.Context) (*kimiauth.DeviceCodeResponse, error)
 	Wait(ctx context.Context, device *kimiauth.DeviceCodeResponse) (*kimiauth.AuthBundle, error)
+}
+
+type kiroOAuthLoginClient interface {
+	RefreshToken(ctx context.Context, refreshToken, region string) (*kiroauth.TokenData, error)
 }
 
 type subscriptionOAuthLoginTestConfig struct {
@@ -143,6 +148,8 @@ func (s *Server) startSubscriptionOAuthLogin(w http.ResponseWriter, r *http.Requ
 		session, activate, err = s.prepareGrokOAuthLogin(r.Context())
 	case subscriptionauth.ProviderKimi:
 		session, activate, err = s.prepareKimiOAuthLogin(r.Context())
+	case subscriptionauth.ProviderKiro:
+		session, activate, err = s.prepareKiroOAuthLogin()
 	}
 	if err != nil {
 		writeError(w, http.StatusBadGateway, subscriptionOAuthStartError(provider))
@@ -720,6 +727,113 @@ func (s *Server) newKimiOAuthLoginClient() kimiOAuthLoginClient {
 	return kimiauth.New(nil, config.Version, "")
 }
 
+func (s *Server) newKiroOAuthLoginClient() kiroOAuthLoginClient {
+	if s.kiroOAuthClientFactory != nil {
+		return s.kiroOAuthClientFactory()
+	}
+	return kiroauth.New(nil)
+}
+
+// prepareKiroOAuthLogin creates a login session for Kiro. Unlike Grok/Kimi
+// which use OIDC device flow, Kiro requires the user to paste a refresh token
+// from ~/.kiro/credentials.json. The session starts in pending state and
+// waits for a POST to /login/{loginId}/submit with the token.
+func (s *Server) prepareKiroOAuthLogin() (*subscriptionOAuthLoginSession, func(), error) {
+	loginRandom, err := geminiauth.GenerateState()
+	if err != nil {
+		return nil, nil, err
+	}
+	sessionCtx, cancel := context.WithCancel(context.Background())
+	now := s.now().UTC()
+	session := &subscriptionOAuthLoginSession{
+		loginID:   subscriptionauth.ProviderKiro + "_login_" + loginRandom,
+		provider:  subscriptionauth.ProviderKiro,
+		status:    subscriptionOAuthLoginPending,
+		expiresAt: now.Add(s.subscriptionOAuthTTL(subscriptionauth.ProviderKiro, 0)),
+		ctx:       sessionCtx,
+		cancel:    cancel,
+	}
+	activate := func() {
+		go s.expireSubscriptionOAuthLoginAfter(session)
+	}
+	return session, activate, nil
+}
+
+// submitKiroOAuthLogin receives the refresh token pasted by the user,
+// calls the Kiro refresh endpoint to validate it and retrieve an access token,
+// then saves the credential and completes the login session.
+func (s *Server) submitKiroOAuthLogin(w http.ResponseWriter, r *http.Request) {
+	setNoStore(w)
+	if s.rejectRemoteSubscriptionOAuthLogin(w, r) {
+		return
+	}
+	loginID := strings.TrimSpace(chi.URLParam(r, "loginId"))
+
+	s.subscriptionOAuthMu.Lock()
+	s.expireSubscriptionOAuthLoginsLocked(s.now())
+	session := s.subscriptionOAuthLogins[loginID]
+	if session == nil || session.provider != subscriptionauth.ProviderKiro {
+		s.subscriptionOAuthMu.Unlock()
+		writeError(w, http.StatusNotFound, "Kiro 登录会话不存在或已过期")
+		return
+	}
+	if session.status != subscriptionOAuthLoginPending {
+		response := subscriptionOAuthLoginPublicResponse(session, false)
+		s.subscriptionOAuthMu.Unlock()
+		writeJSON(w, http.StatusOK, response)
+		return
+	}
+	s.subscriptionOAuthMu.Unlock()
+
+	var req struct {
+		RefreshToken string `json:"refreshToken"`
+		Region       string `json:"region"`
+	}
+	if err := decodeJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	refreshToken := strings.TrimSpace(req.RefreshToken)
+	if refreshToken == "" {
+		writeError(w, http.StatusBadRequest, "refreshToken 不能为空")
+		return
+	}
+	region := strings.TrimSpace(req.Region)
+	if region == "" {
+		region = kiroauth.DefaultRegion
+	}
+	if err := kiroauth.ValidateRegion(region); err != nil {
+		writeError(w, http.StatusBadRequest, "region 无效："+err.Error())
+		return
+	}
+
+	if !s.beginSubscriptionOAuthExchange(session) {
+		writeError(w, http.StatusConflict, "Kiro 登录会话已过期或已完成")
+		return
+	}
+
+	client := s.newKiroOAuthLoginClient()
+	tokens, err := client.RefreshToken(session.ctx, refreshToken, region)
+	if err != nil {
+		s.failSubscriptionOAuthLogin(session, "Kiro refresh token 验证失败，请检查 token 是否有效")
+		writeError(w, http.StatusBadGateway, "Kiro refresh token 验证失败")
+		return
+	}
+	account, err := s.saveSubscriptionOAuthCredential(subscriptionauth.ProviderKiro, subscriptionOAuthTokens{
+		AccessToken:  tokens.AccessToken,
+		RefreshToken: tokens.RefreshToken,
+		ExpiresAt:    tokens.ExpiresAt,
+		Subject:      tokens.ProfileArn, // store ProfileArn in Subject for region derivation
+	})
+	if err != nil {
+		s.failSubscriptionOAuthLogin(session, "Kiro 凭据无法安全保存，请重试")
+		writeError(w, http.StatusInternalServerError, "Kiro 凭据保存失败")
+		return
+	}
+	s.completeSubscriptionOAuthLogin(session, account)
+	writeJSON(w, http.StatusOK, subscriptionOAuthLoginPublicResponse(session, false))
+}
+
 func subscriptionOAuthProvider(value string) (string, bool) {
 	switch strings.ToLower(strings.TrimSpace(value)) {
 	case subscriptionauth.ProviderGemini:
@@ -728,6 +842,8 @@ func subscriptionOAuthProvider(value string) (string, bool) {
 		return subscriptionauth.ProviderGrok, true
 	case subscriptionauth.ProviderKimi:
 		return subscriptionauth.ProviderKimi, true
+	case subscriptionauth.ProviderKiro:
+		return subscriptionauth.ProviderKiro, true
 	default:
 		return "", false
 	}
@@ -741,6 +857,8 @@ func subscriptionOAuthStartError(provider string) string {
 		return "无法启动 Grok 设备授权"
 	case subscriptionauth.ProviderKimi:
 		return "无法启动 Kimi 设备授权"
+	case subscriptionauth.ProviderKiro:
+		return "无法启动 Kiro 登录会话"
 	default:
 		return "无法启动订阅 OAuth 登录"
 	}

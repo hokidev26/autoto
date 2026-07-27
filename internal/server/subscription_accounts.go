@@ -19,6 +19,7 @@ import (
 	"autoto/internal/geminiauth"
 	"autoto/internal/grokauth"
 	"autoto/internal/kimiauth"
+	"autoto/internal/kiroauth"
 	"autoto/internal/providers"
 	"autoto/internal/subscriptionauth"
 )
@@ -302,6 +303,27 @@ func (s *Server) syncSubscriptionCredential(ctx context.Context, store *subscrip
 			update.DeviceID = client.DeviceID()
 		}
 
+	case subscriptionauth.ProviderKiro:
+		if strings.TrimSpace(item.RefreshToken) == "" {
+			return subscriptionauth.StoredCredential{}, &subscriptionAccountHandlerError{status: http.StatusBadRequest, message: "Kiro 账号缺少 refresh token，无法刷新"}
+		}
+		profileArn := strings.TrimSpace(item.Subject) // ProfileArn was stored in Subject
+		region := kiroauth.RegionFromProfileArn(profileArn)
+		tokens, err := runSubscriptionSyncCall(ctx, func() (*kiroauth.TokenData, error) {
+			return kiroauth.New(nil).RefreshToken(ctx, item.RefreshToken, region)
+		})
+		if err != nil || tokens == nil {
+			return subscriptionauth.StoredCredential{}, subscriptionSyncUpstreamError(ctx, subscriptionauth.ProviderKiro)
+		}
+		update.AccessToken = strings.TrimSpace(tokens.AccessToken)
+		if refresh := strings.TrimSpace(tokens.RefreshToken); refresh != "" {
+			update.RefreshToken = refresh
+		}
+		update.ExpiresAt = strings.TrimSpace(tokens.ExpiresAt)
+		if arn := strings.TrimSpace(tokens.ProfileArn); arn != "" {
+			update.Subject = arn
+		}
+
 	default:
 		return subscriptionauth.StoredCredential{}, &subscriptionAccountHandlerError{status: http.StatusBadRequest, message: "不支持的订阅账号 Provider"}
 	}
@@ -493,10 +515,10 @@ func decodeSubscriptionAccountJSON(r *http.Request, target any) error {
 func subscriptionAccountProvider(value string) (string, error) {
 	provider := strings.ToLower(strings.TrimSpace(value))
 	switch provider {
-	case config.ProviderTypeGemini, config.ProviderTypeGrok, config.ProviderTypeKimi:
+	case config.ProviderTypeGemini, config.ProviderTypeGrok, config.ProviderTypeKimi, config.ProviderTypeKiro:
 		return provider, nil
 	default:
-		return "", errors.New("订阅账号 Provider 仅支持 gemini、grok 或 kimi")
+		return "", errors.New("订阅账号 Provider 仅支持 gemini、grok、kimi 或 kiro")
 	}
 }
 
@@ -509,6 +531,8 @@ func subscriptionProviderLabel(provider string) string {
 		return "Grok"
 	case subscriptionauth.ProviderKimi:
 		return "Kimi"
+	case subscriptionauth.ProviderKiro:
+		return "Kiro"
 	default:
 		return "订阅"
 	}

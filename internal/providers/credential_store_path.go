@@ -21,7 +21,7 @@ func ApplyCredentialStorePath(providerCfg config.ProviderConfig, homeDir string)
 	switch providerCfg.Type {
 	case config.ProviderTypeCodex:
 		providerCfg.CredentialStorePath = codexauth.DefaultStoreDir(homeDir)
-	case config.ProviderTypeGemini, config.ProviderTypeGrok, config.ProviderTypeKimi:
+	case config.ProviderTypeGemini, config.ProviderTypeGrok, config.ProviderTypeKimi, config.ProviderTypeKiro:
 		providerCfg.CredentialStorePath = subscriptionauth.DefaultStoreDir(homeDir, providerCfg.Type)
 	}
 	// Anthropic keys off the provider name as well as the type, because only the

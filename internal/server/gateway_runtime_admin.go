@@ -333,6 +333,7 @@ func (s *Server) gatewayAccountSummaries(ctx context.Context) ([]gatewayAccountS
 		subscriptionauth.ProviderGemini,
 		subscriptionauth.ProviderGrok,
 		subscriptionauth.ProviderKimi,
+		subscriptionauth.ProviderKiro,
 	} {
 		shared, err := s.gatewaySharedAccountSet(ctx, provider)
 		if err != nil {
@@ -393,6 +394,7 @@ func (s *Server) gatewayAccountSummaries(ctx context.Context) ([]gatewayAccountS
 		subscriptionauth.ProviderGemini,
 		subscriptionauth.ProviderGrok,
 		subscriptionauth.ProviderKimi,
+		subscriptionauth.ProviderKiro,
 	} {
 		dir := subscriptionauth.DefaultStoreDir(cfg.Paths.HomeDir, provider)
 		if dir == "" {
