@@ -632,6 +632,12 @@ func buildProviderAuthTokenImportPlan(filename, content string, now time.Time) (
 				account["refresh_token"] = field
 			case authImportLooksLikeJWT(field):
 				account["access_token"] = field
+			case authImportLooksLikeMSAToken(field):
+				// Microsoft MSA refresh token (M.C... format used by OpenAI/Codex OAuth)
+				account["refresh_token"] = field
+			case authImportLooksLikeUUID(field):
+				// UUID is the OpenAI account_id / chatgpt_account_id
+				account["account_id"] = field
 			case strings.Contains(field, "@") && !strings.ContainsAny(field, " \t"):
 				account["email"] = field
 			}
@@ -1014,6 +1020,45 @@ func authImportLooksLikeJWT(value string) bool {
 		return false
 	}
 	return len(strings.Split(value, ".")) == 3
+}
+
+// authImportLooksLikeMSAToken reports whether value looks like a Microsoft MSA
+// refresh token (M.C... format produced by the OpenAI/Codex OAuth flow).
+// These tokens are long (>100 chars), start with "M.C", and contain only
+// URL-safe base64 characters plus dots, dashes, underscores, and exclamation
+// marks (used as padding in the MSA encoding).
+func authImportLooksLikeMSAToken(value string) bool {
+	if len(value) < 100 || !strings.HasPrefix(value, "M.C") {
+		return false
+	}
+	for _, r := range value {
+		if !((r >= 'A' && r <= 'Z') || (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') ||
+			r == '.' || r == '-' || r == '_' || r == '!' || r == '*' || r == '$') {
+			return false
+		}
+	}
+	return true
+}
+
+// authImportLooksLikeUUID reports whether value is a canonical UUID
+// (8-4-4-4-12 hex digits separated by hyphens).
+func authImportLooksLikeUUID(value string) bool {
+	if len(value) != 36 {
+		return false
+	}
+	for i, r := range value {
+		switch i {
+		case 8, 13, 18, 23:
+			if r != '-' {
+				return false
+			}
+		default:
+			if !((r >= '0' && r <= '9') || (r >= 'a' && r <= 'f') || (r >= 'A' && r <= 'F')) {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 func (s *Server) cliProxyAPIManagementRequest(ctx context.Context, method, path string, body io.Reader, contentType string) ([]byte, error) {
