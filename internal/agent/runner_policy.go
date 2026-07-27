@@ -316,9 +316,15 @@ func isWhitelistedExecCommand(command string) bool {
 	if len(fields) == 0 {
 		return false
 	}
+	// Any single program invoked with only --version or --help is a read-only
+	// query that cannot mutate anything. Paying a model call per `shellcheck
+	// --version` or `node --version` adds latency with no safety benefit.
+	if len(fields) == 2 && oneOf(fields[1], "--version", "--help", "-V", "-h", "version") {
+		return true
+	}
 	switch fields[0] {
 	case "go":
-		return len(fields) >= 2 && oneOf(fields[1], "test", "vet", "build")
+		return len(fields) >= 2 && oneOf(fields[1], "test", "vet", "build", "version")
 	case "npm":
 		return len(fields) == 2 && fields[1] == "test" || len(fields) == 3 && fields[1] == "run" && oneOf(fields[2], "test", "build", "lint", "check")
 	case "pnpm", "yarn", "bun":

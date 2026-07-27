@@ -309,7 +309,15 @@ func TestWhitelistedExecMatcher(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("BashTool executes cmd.exe on Windows, so POSIX command facts remain unknown")
 	}
-	for _, command := range []string{"go test ./...", "go vet ./internal/...", "go build ./...", "npm test", "npm run lint", "git status --short", "git diff --stat"} {
+	for _, command := range []string{
+		"go test ./...", "go vet ./internal/...", "go build ./...", "go version",
+		"npm test", "npm run lint",
+		"git status --short", "git diff --stat",
+		// Any single program querying its own version or help is read-only.
+		"shellcheck --version", "node --version", "python --version",
+		"rustc --version", "cargo --version", "docker --version",
+		"shellcheck --help", "node --help",
+	} {
 		if !isWhitelistedExecCommand(command) {
 			t.Fatalf("expected command to be whitelisted: %s", command)
 		}
@@ -353,6 +361,38 @@ func TestWhitelistedExecMatcherRequiresSimpleKnownCommandFacts(t *testing.T) {
 	for _, command := range []string{"go test ./... | cat", "git status > out.txt", "git status &", "git status $(printf x)", "printf 'unterminated"} {
 		if isWhitelistedExecCommand(command) {
 			t.Fatalf("complex or unknown command must not be whitelisted: %q", command)
+		}
+	}
+}
+
+// TestWhitelistedVersionAndHelpQueriesAreSafe covers the cross-platform rule:
+// any single program invoked with only --version, --help, -V, or -h is a
+// read-only query and must skip the danger-reflection model call.
+func TestWhitelistedVersionAndHelpQueriesAreSafe(t *testing.T) {
+	safe := []string{
+		"shellcheck --version",
+		"node --version",
+		"python --version",
+		"rustc --version",
+		"cargo --version",
+		"docker --version",
+		"shellcheck --help",
+		"node -h",
+		"go version",
+	}
+	for _, cmd := range safe {
+		if !isWhitelistedExecCommand(cmd) {
+			t.Errorf("expected --version/--help query to be whitelisted: %q", cmd)
+		}
+	}
+	// A compound command must never be whitelisted even if it ends with --version.
+	notSafe := []string{
+		"node --version && rm -rf .",
+		"shellcheck --version | cat",
+	}
+	for _, cmd := range notSafe {
+		if isWhitelistedExecCommand(cmd) {
+			t.Errorf("compound command must not be whitelisted: %q", cmd)
 		}
 	}
 }
