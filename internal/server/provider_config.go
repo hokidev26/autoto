@@ -16,12 +16,10 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"autoto/internal/anthropicauth"
 	"autoto/internal/codexauth"
 	"autoto/internal/config"
 	"autoto/internal/providers"
 	"autoto/internal/secrets"
-	"autoto/internal/subscriptionauth"
 )
 
 type providerRequestHeaderInput struct {
@@ -1404,16 +1402,12 @@ func isProviderNameChar(r rune) bool {
 
 func (s *Server) newRuntimeProvider(provider config.ProviderConfig) (providers.Provider, error) {
 	provider.ClientVersion = config.Version
-	if provider.Type == config.ProviderTypeCodex {
-		provider.CredentialStorePath = codexauth.DefaultStoreDir(s.configSnapshot().Paths.HomeDir)
-	}
-	if provider.Name == anthropicauth.DefaultProviderName && provider.Type == "anthropic" {
-		provider.CredentialStorePath = anthropicauth.DefaultStoreDir(s.configSnapshot().Paths.HomeDir)
-	}
-	switch provider.Type {
-	case config.ProviderTypeGemini, config.ProviderTypeGrok, config.ProviderTypeKimi:
-		provider.CredentialStorePath = subscriptionauth.DefaultStoreDir(s.configSnapshot().Paths.HomeDir, provider.Type)
-	}
+	// ApplyCredentialStorePath is the single source of truth for where each
+	// provider's account store lives. The three separate assignments that used
+	// to be here (Codex, Anthropic, Gemini/Grok/Kimi) drifted from that
+	// function and were missing Kiro, which made Kiro accounts invisible after
+	// every restart until the provider was re-saved.
+	provider = providers.ApplyCredentialStorePath(provider, s.configSnapshot().Paths.HomeDir)
 	if s.store != nil {
 		if settings, err := s.store.GetRuntimeSettings(context.Background()); err == nil {
 			provider.InstallationID = settings.InstallationID
