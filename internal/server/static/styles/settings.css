@@ -1553,7 +1553,10 @@ body.white-shell.theme-light.theme-dark #settingsModal {
    the intro copy, the action row, and the status line collapse together. */
 #settingsContentBody .subscription-login-idle,
 #settingsContentBody .subscription-login-device,
-#settingsContentBody .subscription-login-browser { display: grid; gap: 14px; min-width: 0; }
+#settingsContentBody .subscription-login-browser,
+#settingsContentBody .subscription-login-token { display: grid; gap: 14px; min-width: 0; }
+
+#settingsContentBody .subscription-token-fields { display: grid; gap: 10px; min-width: 0; }
 
 #settingsContentBody .subscription-device-code {
   display: flex;

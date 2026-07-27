@@ -384,7 +384,6 @@ export function createSubscriptionAccountsController(ctx) {
       const submitBusy = Boolean(page?.kiroSubmitting) || active;
       // Always show the token form — no need to start a session first.
       return `<div class="subscription-login-token">
-        <p class="anthropic-secret-note">${escapeHtml(pt(spec.provider, "loginTokenHint"))}</p>
         <div class="subscription-token-fields">
           <label class="settings-label">${escapeHtml(pt(spec.provider, "tokenLabel"))}</label>
           <input class="settings-text-input" type="password" data-kiro-token-input placeholder="${escapeAttr(pt(spec.provider, "tokenPlaceholder"))}" value="${escapeAttr(tokenInput)}" autocomplete="off" />

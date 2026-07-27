@@ -2682,25 +2682,28 @@ function bindProjectDrag(el) {
   let dragProjectId = "";
 
   el.addEventListener("dragstart", (event) => {
-    const section = event.target?.closest?.("[data-navigation-project-group]");
-    if (!section) return;
-    // Only start drag if the user grabbed the project row, not a conversation.
-    const row = event.target?.closest?.("[data-navigation-target]");
-    if (row) return; // conversation drag takes over
-    dragProjectId = section.dataset.navigationProjectGroup || "";
+    // Only trigger on the project row itself, not on conversation rows inside it.
+    const row = event.target?.closest?.("[data-project-id][draggable]");
+    if (!row) return;
+    // Make sure it's not a conversation row accidentally matched.
+    if (row.dataset.navigationKind !== "project") return;
+    dragProjectId = row.dataset.projectId || row.dataset.navigationId || "";
+    if (!dragProjectId) return;
     event.dataTransfer.setData("text/plain", dragProjectId);
     event.dataTransfer.effectAllowed = "move";
-    section.classList.add("proj-dragging");
+    row.closest("[data-navigation-project-group]")?.classList.add("proj-dragging");
   });
 
   el.addEventListener("dragover", (event) => {
     if (!dragProjectId) return;
-    const section = event.target?.closest?.("[data-navigation-project-group]");
-    if (!section || section.dataset.navigationProjectGroup === dragProjectId) return;
+    const row = event.target?.closest?.("[data-project-id]");
+    if (!row || row.dataset.navigationKind !== "project") return;
+    const targetId = row.dataset.projectId || row.dataset.navigationId || "";
+    if (!targetId || targetId === dragProjectId) return;
     event.preventDefault();
     event.dataTransfer.dropEffect = "move";
     el.querySelectorAll(".proj-drag-over").forEach((n) => n.classList.remove("proj-drag-over"));
-    section.classList.add("proj-drag-over");
+    row.closest("[data-navigation-project-group]")?.classList.add("proj-drag-over");
   });
 
   el.addEventListener("dragleave", (event) => {
@@ -2712,16 +2715,16 @@ function bindProjectDrag(el) {
 
   el.addEventListener("drop", (event) => {
     if (!dragProjectId) return;
-    const targetSection = event.target?.closest?.("[data-navigation-project-group]");
-    if (!targetSection) return;
-    const targetProjectId = targetSection.dataset.navigationProjectGroup || "";
-    if (!targetProjectId || targetProjectId === dragProjectId) return;
+    const row = event.target?.closest?.("[data-project-id]");
+    if (!row || row.dataset.navigationKind !== "project") return;
+    const targetId = row.dataset.projectId || row.dataset.navigationId || "";
+    if (!targetId || targetId === dragProjectId) return;
     event.preventDefault();
 
     const sections = Array.from(el.querySelectorAll("[data-navigation-project-group]"));
     const ids = sections.map((s) => s.dataset.navigationProjectGroup || "");
     const fromIdx = ids.indexOf(dragProjectId);
-    const toIdx = ids.indexOf(targetProjectId);
+    const toIdx = ids.indexOf(targetId);
     if (fromIdx < 0 || toIdx < 0 || fromIdx === toIdx) return;
     ids.splice(fromIdx, 1);
     ids.splice(toIdx, 0, dragProjectId);
