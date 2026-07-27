@@ -1,22 +1,37 @@
-// Dedicated i18n pack for the Gemini / Grok / Kimi subscription account pages.
+// Dedicated i18n pack for the Gemini / Grok / Kimi / Kiro subscription account pages.
 // Each provider keeps an independent official entry and management page, so the
 // copy is intentionally provider-specific rather than a shared "subscription"
 // surface. buildSubscriptionMessages() constructs an identical key tree for every
 // locale, which keeps flattenMessageKeys() aligned across zh-TW / zh-CN / en.
 
 function buildSubscriptionMessages(s) {
-  const provider = (p) => ({
-    title: s[`${p}Title`],
-    kicker: s[`${p}Kicker`],
-    description: s[`${p}Description`],
-    loginIntro: s[`${p}LoginIntro`],
-    loginButton: s[`${p}LoginButton`],
-    loginAnother: s[`${p}LoginAnother`],
-    accountsTitle: s[`${p}AccountsTitle`],
-    accountsDescription: s[`${p}AccountsDescription`],
-    empty: s[`${p}Empty`],
-    deleteConfirm: s[`${p}DeleteConfirm`],
-  });
+  const provider = (p) => {
+    const base = {
+      title: s[`${p}Title`],
+      kicker: s[`${p}Kicker`],
+      description: s[`${p}Description`],
+      loginIntro: s[`${p}LoginIntro`],
+      loginButton: s[`${p}LoginButton`],
+      loginAnother: s[`${p}LoginAnother`],
+      accountsTitle: s[`${p}AccountsTitle`],
+      accountsDescription: s[`${p}AccountsDescription`],
+      empty: s[`${p}Empty`],
+      deleteConfirm: s[`${p}DeleteConfirm`],
+    };
+    // Token-flow providers carry extra keys; include them only when present.
+    if (s[`${p}LoginTokenHint`] !== undefined) {
+      base.loginTokenHint = s[`${p}LoginTokenHint`];
+      base.tokenLabel = s[`${p}TokenLabel`];
+      base.tokenPlaceholder = s[`${p}TokenPlaceholder`];
+      base.regionLabel = s[`${p}RegionLabel`];
+      base.orApiKey = s[`${p}OrApiKey`];
+      base.apiKeyLabel = s[`${p}ApiKeyLabel`];
+      base.apiKeyPlaceholder = s[`${p}ApiKeyPlaceholder`];
+      base.submitButton = s[`${p}SubmitButton`];
+      base.submitMissingToken = s[`${p}SubmitMissingToken`];
+    }
+    return base;
+  };
   return {
     modelProvider: {
       subscription: {
@@ -104,6 +119,7 @@ function buildSubscriptionMessages(s) {
         gemini: provider("gemini"),
         grok: provider("grok"),
         kimi: provider("kimi"),
+        kiro: provider("kiro"),
       },
     },
   };
@@ -219,6 +235,25 @@ const zhCN = {
   kimiAccountsDescription: "编辑别名与优先级、同步账号状态、启停路由并删除凭据。",
   kimiEmpty: "暂无 Kimi 账号。请使用设备授权登录添加。",
   kimiDeleteConfirm: "确认删除这个 Kimi 账号？已保存的凭据将被移除。",
+  kiroTitle: "Kiro 账号管理",
+  kiroKicker: "Kiro IDE",
+  kiroDescription: "通过 Kiro refreshToken 或 API Key 登录，凭据由 Autoto 本地保存并直连。",
+  kiroLoginIntro: "粘贴 Kiro refreshToken 或 API Key（ksk_...）登录，无需设备授权。",
+  kiroLoginButton: "登录 Kiro",
+  kiroLoginAnother: "登录其他 Kiro 账号",
+  kiroAccountsTitle: "Kiro 账号",
+  kiroAccountsDescription: "编辑别名与优先级、同步账号状态、启停路由并删除凭据。",
+  kiroEmpty: "暂无 Kiro 账号。请粘贴 refreshToken 或 API Key 添加。",
+  kiroDeleteConfirm: "确认删除这个 Kiro 账号？已保存的凭据将被移除。",
+  kiroLoginTokenHint: "从 ~/.kiro/credentials.json 复制 refreshToken，或使用 Kiro API Key（ksk_...）。",
+  kiroTokenLabel: "refreshToken",
+  kiroTokenPlaceholder: "粘贴 refreshToken…",
+  kiroRegionLabel: "区域",
+  kiroOrApiKey: "— 或使用 API Key —",
+  kiroApiKeyLabel: "API Key",
+  kiroApiKeyPlaceholder: "ksk_…",
+  kiroSubmitButton: "验证并保存",
+  kiroSubmitMissingToken: "请粘贴 refreshToken 或 API Key。",
 };
 
 const zhTW = {
@@ -331,6 +366,25 @@ const zhTW = {
   kimiAccountsDescription: "編輯別名與優先順序、同步帳號狀態、啟停路由並刪除憑證。",
   kimiEmpty: "尚無 Kimi 帳號。請使用裝置授權登入新增。",
   kimiDeleteConfirm: "確認刪除這個 Kimi 帳號？已保存的憑證將被移除。",
+  kiroTitle: "Kiro 帳號管理",
+  kiroKicker: "Kiro IDE",
+  kiroDescription: "透過 Kiro refreshToken 或 API Key 登入，憑證由 Autoto 於本機保存並直連。",
+  kiroLoginIntro: "貼上 Kiro refreshToken 或 API Key（ksk_...）登入，不需裝置授權。",
+  kiroLoginButton: "登入 Kiro",
+  kiroLoginAnother: "登入其他 Kiro 帳號",
+  kiroAccountsTitle: "Kiro 帳號",
+  kiroAccountsDescription: "編輯別名與優先順序、同步帳號狀態、啟停路由並刪除憑證。",
+  kiroEmpty: "尚無 Kiro 帳號。請貼上 refreshToken 或 API Key 新增。",
+  kiroDeleteConfirm: "確認刪除這個 Kiro 帳號？已保存的憑證將被移除。",
+  kiroLoginTokenHint: "從 ~/.kiro/credentials.json 複製 refreshToken，或使用 Kiro API Key（ksk_...）。",
+  kiroTokenLabel: "refreshToken",
+  kiroTokenPlaceholder: "貼上 refreshToken…",
+  kiroRegionLabel: "區域",
+  kiroOrApiKey: "— 或使用 API Key —",
+  kiroApiKeyLabel: "API Key",
+  kiroApiKeyPlaceholder: "ksk_…",
+  kiroSubmitButton: "驗證並儲存",
+  kiroSubmitMissingToken: "請貼上 refreshToken 或 API Key。",
 };
 
 const en = {
@@ -443,6 +497,25 @@ const en = {
   kimiAccountsDescription: "Edit alias and priority, sync account status, toggle routing, and delete credentials.",
   kimiEmpty: "No Kimi accounts yet. Use device authorization to add one.",
   kimiDeleteConfirm: "Delete this Kimi account? The saved credential will be removed.",
+  kiroTitle: "Kiro accounts",
+  kiroKicker: "Kiro IDE",
+  kiroDescription: "Sign in with a Kiro refreshToken or API key; credentials stay local and connect directly.",
+  kiroLoginIntro: "Paste a Kiro refreshToken or API key (ksk_...) to sign in. No device flow required.",
+  kiroLoginButton: "Sign in to Kiro",
+  kiroLoginAnother: "Sign in another Kiro account",
+  kiroAccountsTitle: "Kiro accounts",
+  kiroAccountsDescription: "Edit alias and priority, sync account status, toggle routing, and delete credentials.",
+  kiroEmpty: "No Kiro accounts yet. Paste a refreshToken or API key to add one.",
+  kiroDeleteConfirm: "Delete this Kiro account? The saved credential will be removed.",
+  kiroLoginTokenHint: "Copy the refreshToken from ~/.kiro/credentials.json, or use a Kiro API key (ksk_...).",
+  kiroTokenLabel: "refreshToken",
+  kiroTokenPlaceholder: "Paste refreshToken…",
+  kiroRegionLabel: "Region",
+  kiroOrApiKey: "— or use an API key —",
+  kiroApiKeyLabel: "API key",
+  kiroApiKeyPlaceholder: "ksk_…",
+  kiroSubmitButton: "Verify and save",
+  kiroSubmitMissingToken: "Please paste a refreshToken or API key.",
 };
 
 export const providerSubscriptionAccountsMessages = Object.freeze({

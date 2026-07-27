@@ -171,9 +171,13 @@ export function createModelProviderSettingsController({
     cancelSubscriptionLogin,
     reopenSubscriptionLogin,
     copySubscriptionDeviceCode,
+    submitKiroLogin,
+    handleKiroInputChange,
+    handleKiroSubmitClick,
     renderGeminiConsolePage,
     renderGrokConsolePage,
     renderKimiConsolePage,
+    renderKiroConsolePage,
   } = subscriptionAccounts;
 
   const modelRouting = createModelRoutingController(ctx);
@@ -351,6 +355,7 @@ export function createModelProviderSettingsController({
     if (consoleState.view === "gemini") return renderGeminiConsolePage();
     if (consoleState.view === "grok") return renderGrokConsolePage();
     if (consoleState.view === "kimi") return renderKimiConsolePage();
+    if (consoleState.view === "kiro") return renderKiroConsolePage();
     return renderProviderConsolePage({
       providers: modelProvidersForUI(),
       consoleState: {
@@ -743,6 +748,10 @@ export function createModelProviderSettingsController({
 
   function openKimiConsolePage(provider = {}) {
     openSubscriptionConsolePage("kimi", provider);
+  }
+
+  function openKiroConsolePage(provider = {}) {
+    openSubscriptionConsolePage("kiro", provider);
   }
 
   function openCodexConsolePage(provider = {}) {
@@ -1286,6 +1295,10 @@ export function createModelProviderSettingsController({
 
   function handleProviderConsoleInput(event) {
     const rawTarget = event.target;
+    if (rawTarget?.hasAttribute?.("data-kiro-token-input") || rawTarget?.hasAttribute?.("data-kiro-region-input") || rawTarget?.hasAttribute?.("data-kiro-apikey-input")) {
+      handleKiroInputChange(event);
+      return;
+    }
     if (rawTarget?.matches?.("[data-mp-test-prompt]")) {
       providerConsoleState().test = {
         ...(providerConsoleState().test || {}),
@@ -1385,6 +1398,10 @@ export function createModelProviderSettingsController({
 
   function handleProviderConsoleChange(event) {
     const target = event.target;
+    if (target?.hasAttribute?.("data-kiro-token-input") || target?.hasAttribute?.("data-kiro-region-input") || target?.hasAttribute?.("data-kiro-apikey-input")) {
+      handleKiroInputChange(event);
+      return;
+    }
     if (target?.matches?.("[data-codex-import-files]")) {
       setCodexImportFiles(target.files);
       target.value = "";
@@ -1932,6 +1949,10 @@ export function createModelProviderSettingsController({
       deleteSubscriptionAccount(normalizeSubscriptionProvider(target.dataset.subscriptionProvider), target.dataset.subscriptionDelete, target).catch(showError);
       return;
     }
+    if (target.dataset.kiroSubmit !== undefined) {
+      submitKiroLogin("kiro", target).catch(showError);
+      return;
+    }
   }
 
   function bindProviderSettingsActions() {
@@ -2363,9 +2384,11 @@ export function createModelProviderSettingsController({
     openGeminiConsolePage,
     openGrokConsolePage,
     openKimiConsolePage,
+    openKiroConsolePage,
     renderGeminiConsolePage,
     renderGrokConsolePage,
     renderKimiConsolePage,
+    renderKiroConsolePage,
     loadSubscriptionAccounts,
     refreshSubscriptionAccounts,
     startSubscriptionLogin,

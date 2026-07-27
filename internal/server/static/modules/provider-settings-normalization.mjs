@@ -316,7 +316,7 @@ export function codexAccountBatchRequest(operation, ids, values = {}) {
   };
 }
 
-const subscriptionProviderSet = new Set(["gemini", "grok", "kimi"]);
+const subscriptionProviderSet = new Set(["gemini", "grok", "kimi", "kiro"]);
 
 // normalizeSubscriptionProvider rejects anything but the three native subscription
 // providers, so gemini-interactions or custom providers can never reach the
@@ -365,6 +365,24 @@ export function subscriptionOAuthLoginRequest(action, provider, loginId = "", lo
   throw new Error(`unsupported subscription login action: ${action}`);
 }
 
+export function subscriptionKiroSubmitRequest(loginId, refreshToken, region) {
+  const id = encodeURIComponent(String(loginId || "").trim());
+  if (!id) throw new Error("Kiro login ID is required");
+  return {
+    path: `/api/providers/oauth/kiro/login/${id}/submit`,
+    options: { method: "POST", body: JSON.stringify({ refreshToken: String(refreshToken || "").trim(), region: String(region || "us-east-1").trim() }) },
+  };
+}
+
+export function subscriptionKiroSubmitAPIKeyRequest(loginId, kiroApiKey) {
+  const id = encodeURIComponent(String(loginId || "").trim());
+  if (!id) throw new Error("Kiro login ID is required");
+  return {
+    path: `/api/providers/oauth/kiro/login/${id}/submit-apikey`,
+    options: { method: "POST", body: JSON.stringify({ kiroApiKey: String(kiroApiKey || "").trim() }) },
+  };
+}
+
 export function normalizeSubscriptionAccountList(value) {
   if (Array.isArray(value)) return value;
   if (!value || typeof value !== "object") return [];
@@ -407,6 +425,7 @@ export function trustedSubscriptionAuthURL(provider, value) {
   if (p === "gemini") return host === "accounts.google.com";
   if (p === "grok") return host === "x.ai" || host.endsWith(".x.ai");
   if (p === "kimi") return host === "kimi.com" || host.endsWith(".kimi.com");
+  if (p === "kiro") return host === "kiro.dev" || host.endsWith(".kiro.dev") || host === "amazonaws.com" || host.endsWith(".amazonaws.com");
   return false;
 }
 

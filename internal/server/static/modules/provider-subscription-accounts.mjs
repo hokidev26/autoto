@@ -16,6 +16,8 @@ import {
   subscriptionAccountActionRequest,
   subscriptionAccountsListRequest,
   subscriptionOAuthLoginRequest,
+  subscriptionKiroSubmitRequest,
+  subscriptionKiroSubmitAPIKeyRequest,
   trustedSubscriptionAuthURL,
 } from "./provider-settings-normalization.mjs";
 import {
@@ -49,11 +51,11 @@ export function createSubscriptionAccountsController(ctx) {
   const pt = (provider, key, params) => t(`modelProvider.subscription.${provider}.${key}`, params);
 
   function ensureSubscriptionState() {
-    state.subscriptionAccounts ||= { gemini: [], grok: [], kimi: [] };
-    state.subscriptionAccountsLoading ||= { gemini: false, grok: false, kimi: false };
-    state.subscriptionAccountsError ||= { gemini: "", grok: "", kimi: "" };
-    state.subscriptionAccountsSeq ||= { gemini: 0, grok: 0, kimi: 0 };
-    state.subscriptionAccountBusy ||= { gemini: {}, grok: {}, kimi: {} };
+    state.subscriptionAccounts ||= { gemini: [], grok: [], kimi: [], kiro: [] };
+    state.subscriptionAccountsLoading ||= { gemini: false, grok: false, kimi: false, kiro: false };
+    state.subscriptionAccountsError ||= { gemini: "", grok: "", kimi: "", kiro: "" };
+    state.subscriptionAccountsSeq ||= { gemini: 0, grok: 0, kimi: 0, kiro: 0 };
+    state.subscriptionAccountBusy ||= { gemini: {}, grok: {}, kimi: {}, kiro: {} };
     return state;
   }
 
@@ -374,6 +376,35 @@ export function createSubscriptionAccountsController(ctx) {
       }
       return `<div class="subscription-login-idle"><p class="anthropic-secret-note">${escapeHtml(pt(provider, "loginIntro"))}</p><div class="settings-inline-actions"><button class="settings-action-btn primary" type="button" data-subscription-login-start="${escapeAttr(provider)}" ${active ? "disabled aria-busy=\"true\"" : ""}>${escapeHtml(active ? st("loginStarting") : pt(provider, "loginButton"))}</button></div>${statusLine}</div>`;
     }
+    if (spec.loginKind === "token") {
+      const page = subscriptionPage(spec.provider);
+      const tokenInput = page?.kiroToken || "";
+      const regionInput = page?.kiroRegion || "us-east-1";
+      const apiKeyInput = page?.kiroApiKey || "";
+      const submitBusy = Boolean(page?.kiroSubmitting);
+      if (active) {
+        return `<div class="subscription-login-token">
+          <p class="anthropic-secret-note">${escapeHtml(pt(spec.provider, "loginTokenHint"))}</p>
+          <div class="subscription-token-fields">
+            <label class="settings-label">${escapeHtml(pt(spec.provider, "tokenLabel"))}</label>
+            <input class="settings-text-input" type="password" data-kiro-token-input placeholder="${escapeAttr(pt(spec.provider, "tokenPlaceholder"))}" value="${escapeAttr(tokenInput)}" autocomplete="off" />
+            <label class="settings-label">${escapeHtml(pt(spec.provider, "regionLabel"))}</label>
+            <select class="settings-select" data-kiro-region-input>
+              ${["us-east-1","us-west-2","eu-central-1","ap-northeast-1","ap-southeast-1"].map(r => `<option value="${escapeAttr(r)}" ${r === regionInput ? "selected" : ""}>${escapeHtml(r)}</option>`).join("")}
+            </select>
+            <div class="settings-divider-label">${escapeHtml(pt(spec.provider, "orApiKey"))}</div>
+            <label class="settings-label">${escapeHtml(pt(spec.provider, "apiKeyLabel"))}</label>
+            <input class="settings-text-input" type="password" data-kiro-apikey-input placeholder="${escapeAttr(pt(spec.provider, "apiKeyPlaceholder"))}" value="${escapeAttr(apiKeyInput)}" autocomplete="off" />
+          </div>
+          <div class="settings-inline-actions">
+            <button class="settings-action-btn primary" type="button" data-kiro-submit ${submitBusy ? "disabled aria-busy=\"true\"" : ""}>${escapeHtml(submitBusy ? st("loginExchanging") : pt(spec.provider, "submitButton"))}</button>
+            <button class="settings-action-btn subtle" type="button" data-subscription-login-cancel="${escapeAttr(spec.provider)}">${escapeHtml(st("loginCancelAction"))}</button>
+          </div>
+          ${statusLine}
+        </div>`;
+      }
+      return `<div class="subscription-login-idle"><p class="anthropic-secret-note">${escapeHtml(pt(spec.provider, "loginIntro"))}</p><div class="settings-inline-actions"><button class="settings-action-btn primary" type="button" data-subscription-login-start="${escapeAttr(provider)}" ${active ? "disabled aria-busy=\"true\"" : ""}>${escapeHtml(active ? st("loginStarting") : pt(spec.provider, "loginButton"))}</button></div>${statusLine}</div>`;
+    }
     if (active) {
       const blocked = login.popupBlocked ? `<div class="settings-alert attention" role="alert">${escapeHtml(st("loginPopupBlocked"))}</div>` : "";
       return `<div class="subscription-login-browser">
@@ -478,6 +509,71 @@ export function createSubscriptionAccountsController(ctx) {
     </section>`;
   }
 
+  async function submitKiroLogin(provider, button) {
+    const page = subscriptionPage(provider);
+    if (!page) return;
+    const token = String(page.kiroToken || "").trim();
+    const apiKey = String(page.kiroApiKey || "").trim();
+    const region = String(page.kiroRegion || "us-east-1").trim();
+    if (!token && !apiKey) {
+      setProviderConsoleResult(pt(provider, "submitMissingToken"), "attention");
+      refreshProviderConsole();
+      return;
+    }
+    const login = subscriptionLoginState(provider);
+    if (!login.loginId || !subscriptionLoginActive(login.status)) return;
+    page.kiroSubmitting = true;
+    setButtonBusy(button, true, st("loginExchanging"));
+    refreshProviderConsole();
+    try {
+      let request;
+      if (apiKey && apiKey.startsWith("ksk_")) {
+        request = subscriptionKiroSubmitAPIKeyRequest(login.loginId, apiKey);
+      } else {
+        request = subscriptionKiroSubmitRequest(login.loginId, token, region);
+      }
+      const status = normalizeSubscriptionLoginStatus(await requestAPI(request.path, request.options));
+      const seq = login.seq;
+      Object.assign(login, status, { loginId: login.loginId, seq });
+      if (!subscriptionLoginActive(status.status)) {
+        await finishSubscriptionLogin(provider, status, seq);
+      }
+    } catch (error) {
+      const seq = login.seq;
+      Object.assign(login, { status: "failed", message: error?.message || st("unknown"), seq });
+      setProviderConsoleResult(st("loginFailed", { message: login.message }), "attention");
+    } finally {
+      page.kiroSubmitting = false;
+      setButtonBusy(button, false, st("loginExchanging"));
+      refreshProviderConsole();
+    }
+  }
+
+  function handleKiroInputChange(e) {
+    const target = e.target;
+    if (!target) return;
+    const page = subscriptionPage("kiro");
+    if (!page) return;
+    if (target.hasAttribute("data-kiro-token-input")) {
+      page.kiroToken = target.value;
+      return;
+    }
+    if (target.hasAttribute("data-kiro-region-input")) {
+      page.kiroRegion = target.value;
+      return;
+    }
+    if (target.hasAttribute("data-kiro-apikey-input")) {
+      page.kiroApiKey = target.value;
+      return;
+    }
+  }
+
+  function handleKiroSubmitClick(e) {
+    const target = e.target?.closest("[data-kiro-submit]");
+    if (!target) return;
+    submitKiroLogin("kiro", target);
+  }
+
   return {
     ensureSubscriptionState,
     subscriptionPage,
@@ -495,9 +591,13 @@ export function createSubscriptionAccountsController(ctx) {
     reopenSubscriptionLogin,
     copySubscriptionDeviceCode,
     subscriptionLoginActive,
+    submitKiroLogin,
+    handleKiroInputChange,
+    handleKiroSubmitClick,
     renderGeminiConsolePage: () => renderSubscriptionConsolePage("gemini"),
     renderGrokConsolePage: () => renderSubscriptionConsolePage("grok"),
     renderKimiConsolePage: () => renderSubscriptionConsolePage("kimi"),
+    renderKiroConsolePage: () => renderSubscriptionConsolePage("kiro"),
   };
 }
 

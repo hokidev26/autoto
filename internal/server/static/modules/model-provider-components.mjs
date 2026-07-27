@@ -345,6 +345,7 @@ export const subscriptionProviderSpecs = Object.freeze({
   gemini: Object.freeze({ provider: "gemini", type: "gemini", view: "gemini", loginKind: "browser", className: "gemini-account-console" }),
   grok: Object.freeze({ provider: "grok", type: "grok", view: "grok", loginKind: "device", className: "grok-account-console" }),
   kimi: Object.freeze({ provider: "kimi", type: "kimi", view: "kimi", loginKind: "device", className: "kimi-account-console" }),
+  kiro: Object.freeze({ provider: "kiro", type: "kiro", view: "kiro", loginKind: "token", className: "kiro-account-console" }),
 });
 
 export const subscriptionProviderKinds = Object.freeze(Object.keys(subscriptionProviderSpecs));
