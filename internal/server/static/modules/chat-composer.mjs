@@ -916,6 +916,15 @@ export function createChatComposerController({
     return isMessageSendingFor(agentId) || isAttachmentProcessing();
   }
 
+  function isRetryMode() {
+    const runStatus = String(state.activeRunSummary?.run?.status || "").trim().toLowerCase();
+    if (!["error", "failed"].includes(runStatus)) return false;
+    const input = $("messageText");
+    const text = input ? input.value.trim() : "";
+    const attachments = Array.isArray(state.pendingAttachments) ? state.pendingAttachments : [];
+    return text === "" && attachments.length === 0;
+  }
+
   function syncMessageComposerBusy({ checkAttachmentContext = true } = {}) {
     if (checkAttachmentContext && activeAttachmentJob && activeAttachmentJob.contextKey !== attachmentContextKey()) {
       invalidateAttachmentProcessing({ sync: false });
@@ -930,7 +939,12 @@ export function createChatComposerController({
     const attachInput = $("attachFileInput");
     if (attachInput) attachInput.disabled = busy;
     refreshMessageModeControl();
-    setButtonBusy($("sendMessageBtn"), busy, t(processing ? "workspace.chat.videoProcessing" : "workspace.chat.sending"));
+    const retryMode = !busy && isRetryMode();
+    const sendBtn = $("sendMessageBtn");
+    if (sendBtn && !busy) {
+      sendBtn.textContent = retryMode ? t("workspace.chat.retryRun") : t("workspace.chat.send");
+    }
+    setButtonBusy(sendBtn, busy, t(processing ? "workspace.chat.videoProcessing" : "workspace.chat.sending"));
   }
 
   function setMessageSendingFor(agentId, sending) {
@@ -960,7 +974,32 @@ export function createChatComposerController({
     const context = state.navigationSelectionKind === "project" ? "project" : "conversation";
     const mode = context === "project" ? messageModeFor(agentId) : "execute";
     const attachments = [...(state.pendingAttachments || [])];
-    if (!text && !attachments.length) return;
+    if (!text && !attachments.length) {
+      // If the last run failed and there is nothing new to send, re-run the
+      // last user message as a correction (same text, no edits) so the user
+      // does not have to open the correction editor just to retry.
+      if (isRetryMode()) {
+        const lastUserMessage = [...(state.currentMessages || [])].reverse().find((m) => m?.role === "user" && m?.id);
+        if (lastUserMessage) {
+          setMessageSendingFor(agentId, true);
+          try {
+            const retryText = lastUserMessage.contentText || lastUserMessage.text || "";
+            await request(`/api/agents/${agentId}/messages/${encodeURIComponent(lastUserMessage.id)}/corrections`, {
+              method: "POST",
+              body: JSON.stringify({ text: retryText }),
+            });
+            await loadMessages(agentId);
+            scheduleMessageRefresh(1200, agentId);
+          } catch (err) {
+            throw err;
+          } finally {
+            setMessageSendingFor(agentId, false);
+            if (state.agent?.id === agentId) input?.focus();
+          }
+        }
+      }
+      return;
+    }
     const goalCommand = parseGoalCommandDraft(text);
     if (goalCommand && context !== "project") {
       showToast?.(t("workspace.chat.goalProjectOnly"), "warn", { force: true });
@@ -1616,6 +1655,7 @@ export function createChatComposerController({
   function handleMessageInput() {
     resetPromptHistoryNavigation();
     autoResizeMessageInput();
+    syncMessageComposerBusy({ checkAttachmentContext: false });
     updateSlashCommandPalette();
     updateMentionPalette();
     saveCurrentChatDraft();

@@ -228,10 +228,15 @@ func (p *GeminiProvider) ListModels(ctx context.Context) ([]string, error) {
 		}
 		if response.StatusCode >= http.StatusMultipleChoices {
 			status := response.StatusCode
-			logGeminiRejection(status, "", prepared.ProjectID, response.Body)
+			detail := logGeminiRejection(status, "", prepared.ProjectID, response.Body)
 			response.Body.Close()
-			lastErr = newSubscriptionHTTPError(p.cfg.Name, status, "models_request_failed")
-			p.accounts.recordAttempt(ctx, prepared.ID, false, status, "models_request_failed", lastErr)
+			code := "models_request_failed"
+			if detail != "" && status == http.StatusBadRequest {
+				lastErr = fmt.Errorf("%s request failed: HTTP %d (%s)", p.cfg.Name, status, detail)
+			} else {
+				lastErr = newSubscriptionHTTPError(p.cfg.Name, status, code)
+			}
+			p.accounts.recordAttempt(ctx, prepared.ID, false, status, code, lastErr)
 			continue
 		}
 		accountModels, modelQuotas, parseErr := parseGeminiAvailableModels(response.Body)
@@ -329,10 +334,15 @@ func (p *GeminiProvider) Generate(ctx context.Context, req GenerateRequest) (<-c
 			}
 			if response.StatusCode >= http.StatusMultipleChoices {
 				status := response.StatusCode
-				logGeminiRejection(status, model, prepared.ProjectID, response.Body)
+				detail := logGeminiRejection(status, model, prepared.ProjectID, response.Body)
 				response.Body.Close()
-				lastErr = newSubscriptionHTTPError(p.cfg.Name, status, "model_request_failed")
-				p.accounts.recordAttempt(ctx, prepared.ID, false, status, "model_request_failed", lastErr)
+				code := "model_request_failed"
+				if detail != "" && status == http.StatusBadRequest {
+					lastErr = fmt.Errorf("%s request failed: HTTP %d (%s)", p.cfg.Name, status, detail)
+				} else {
+					lastErr = newSubscriptionHTTPError(p.cfg.Name, status, code)
+				}
+				p.accounts.recordAttempt(ctx, prepared.ID, false, status, code, lastErr)
 				if shouldTryNextSubscriptionAccount(ctx, lastErr, false) {
 					continue
 				}
@@ -429,21 +439,19 @@ func (p *GeminiProvider) applyHeaders(request *http.Request, credential subscrip
 	request.Close = true
 }
 
-// logGeminiRejection records why Cloud Code refused a request. The error
-// returned to callers deliberately carries only the numeric status, because
-// upstream bodies are untrusted (see providerHTTPFailedText), which left a
-// rejected payload with no diagnosable cause at all: a single invalid field made
-// every request fail with a bare 400. Google answers with a structured
-// google.rpc.BadRequest naming the offending field, so that message is worth
-// having locally. It stays at debug level, never reaches an API response, and is
-// bounded so a hostile body cannot flood the log.
-func logGeminiRejection(status int, model, projectID string, body io.Reader) {
-	if !slog.Default().Enabled(context.Background(), slog.LevelDebug) {
-		return
-	}
+// logGeminiRejection records why Cloud Code refused a request and returns the
+// detail string so callers can surface it in user-visible error messages.
+// The error returned to callers deliberately carries only the numeric status
+// for non-400 responses, because upstream bodies are untrusted (see
+// providerHTTPFailedText). For 400 INVALID_ARGUMENT responses Google answers
+// with a structured google.rpc.BadRequest naming the offending field, so that
+// message is worth both logging (warn) and forwarding to the user. The body is
+// bounded so a hostile response cannot flood the log.
+func logGeminiRejection(status int, model, projectID string, body io.Reader) string {
 	raw, err := io.ReadAll(io.LimitReader(body, 4096))
 	if err != nil || len(raw) == 0 {
-		return
+		slog.Warn("gemini cloud code rejected request", "status", status, "model", model, "project", projectID)
+		return ""
 	}
 	var envelope struct {
 		Error struct {
@@ -458,7 +466,8 @@ func logGeminiRejection(status int, model, projectID string, body io.Reader) {
 	if len(detail) > 600 {
 		detail = detail[:600]
 	}
-	slog.Debug("gemini cloud code rejected request", "status", status, "model", model, "project", projectID, "upstreamStatus", envelope.Error.Status, "detail", detail)
+	slog.Warn("gemini cloud code rejected request", "status", status, "model", model, "project", projectID, "upstreamStatus", envelope.Error.Status, "detail", detail)
+	return detail
 }
 
 // buildGeminiCloudCodePayload assembles the Cloud Code request envelope.
