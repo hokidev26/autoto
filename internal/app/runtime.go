@@ -344,6 +344,10 @@ func (r *Runtime) Start(ctx context.Context) error {
 
 	r.supervisor = supervisor
 	r.state = runtimeStarted
+	// Proactively refresh any expired Anthropic OAuth tokens in the background
+	// so the first real inference request does not pay a cold TLS+DNS penalty
+	// against the token endpoint on Windows or slow-network environments.
+	go r.warmupAnthropicOAuthTokens(runCtx)
 	return nil
 }
 
@@ -382,6 +386,27 @@ func (r *Runtime) WaitReady(ctx context.Context) error {
 		case <-ticker.C:
 		}
 	}
+}
+
+// warmupAnthropicOAuthTokens proactively refreshes expired Anthropic OAuth
+// tokens at startup so the first real request does not pay a cold-start
+// penalty (DNS + TLS handshake to console.anthropic.com) on slow networks or
+// Windows where the network stack may not be fully ready immediately.
+func (r *Runtime) warmupAnthropicOAuthTokens(ctx context.Context) {
+	if r == nil || r.providerRegistry == nil {
+		return
+	}
+	provider, ok := r.providerRegistry.Get("anthropic")
+	if !ok {
+		return
+	}
+	anthropicProvider, ok := provider.(*providers.AnthropicProvider)
+	if !ok {
+		return
+	}
+	warmupCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
+	defer cancel()
+	anthropicProvider.WarmupOAuthTokens(warmupCtx)
 }
 
 // Close stops services, closes the database, and releases listeners. It is

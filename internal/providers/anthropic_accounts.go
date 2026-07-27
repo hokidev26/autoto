@@ -501,3 +501,34 @@ func sanitizeAnthropicError(ctx context.Context, provider string, err error) err
 	}
 	return providerUnavailableError(provider, "Anthropic request failed")
 }
+
+// WarmupOAuthTokens proactively refreshes every OAuth credential that is
+// expired or within the refresh-ahead window. It is called once at startup so
+// that the first real inference request does not pay a cold TLS+DNS penalty
+// against the Anthropic OAuth token endpoint on Windows or slow networks.
+// Errors are silently ignored: if refresh fails here the normal per-request
+// refresh path will retry, just with the same cold-start latency the user
+// would otherwise see.
+func (p *AnthropicProvider) WarmupOAuthTokens(ctx context.Context) {
+	if p == nil || p.store == nil || p.configErr != nil || ctx == nil {
+		return
+	}
+	items, err := p.store.Load()
+	if err != nil {
+		return
+	}
+	for _, item := range items {
+		if ctx.Err() != nil {
+			return
+		}
+		if item.Credential.Disabled || item.Credential.AuthType != anthropicauth.AuthTypeOAuth {
+			continue
+		}
+		needsRefresh, _, expiryErr := p.anthropicOAuthExpiry(item.Credential)
+		if expiryErr != nil || !needsRefresh {
+			continue
+		}
+		// Re-use the existing refresh path; errors are intentionally dropped.
+		_, _ = p.anthropicOAuthAccessToken(ctx, item.Credential)
+	}
+}
