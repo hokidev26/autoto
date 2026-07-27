@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"autoto/internal/db"
 	"autoto/internal/imageassets"
@@ -18,9 +19,17 @@ import (
 )
 
 const (
-	maxProviderImageBlocks = 8
-	maxProviderImageBytes  = 12 << 20
+	maxProviderImageBlocks         = 8
+	maxProviderImageBytes          = 12 << 20
+	providerContentBlockStateV1Key = "__autoto_content_blocks_v1"
 )
+
+type persistedProviderContentBlockState struct {
+	Index         int             `json:"index"`
+	Type          string          `json:"type"`
+	ReasoningText string          `json:"reasoningText,omitempty"`
+	ProviderState json.RawMessage `json:"providerState,omitempty"`
+}
 
 type ContextCompactionResult struct {
 	Compacted             bool
@@ -383,7 +392,7 @@ func (r *Runner) providerMessagesForContextPlan(ctx context.Context, agent db.Ag
 }
 
 func prepareProviderMessagesForCapabilities(messages []providers.Message, capabilities providers.Capabilities) []providers.Message {
-	if capabilities.Tools && capabilities.ImageInput && capabilities.ImageGeneration {
+	if capabilities.Tools && capabilities.ImageInput && capabilities.ImageGeneration && capabilities.NativeReasoningBlocks {
 		return messages
 	}
 	out := make([]providers.Message, len(messages))
@@ -395,6 +404,10 @@ func prepareProviderMessagesForCapabilities(messages []providers.Message, capabi
 		blocks := make([]providers.ContentBlock, 0, len(message.Blocks))
 		for _, block := range message.Blocks {
 			switch block.Type {
+			case providers.ContentBlockTypeThinking, providers.ContentBlockTypeRedactedThinking:
+				if capabilities.NativeReasoningBlocks {
+					blocks = append(blocks, block)
+				}
 			case "image":
 				if capabilities.ImageInput {
 					blocks = append(blocks, block)
@@ -709,6 +722,8 @@ func contextMessageContent(blocks []providers.ContentBlock) string {
 	parts := make([]string, 0, len(blocks))
 	for _, block := range blocks {
 		switch block.Type {
+		case providers.ContentBlockTypeThinking, providers.ContentBlockTypeRedactedThinking:
+			continue
 		case "tool_result":
 			if text := strings.TrimSpace(block.Output); text != "" {
 				parts = append(parts, text)
@@ -754,7 +769,10 @@ func estimateMessageTokens(message providers.Message) int {
 }
 
 func estimateBlockTokens(block providers.ContentBlock) int {
-	total := estimateTextTokens(block.Type) + estimateTextTokens(block.Text) + estimateTextTokens(block.Output) + estimateTextTokens(block.ToolName) + estimateTextTokens(block.ToolUseID) + estimateTextTokens(block.Filename) + estimateTextTokens(block.MIMEType)
+	total := estimateTextTokens(block.Type) + estimateTextTokens(block.Text) + estimateTextTokens(block.ReasoningText) + estimateTextTokens(block.Output) + estimateTextTokens(block.ToolName) + estimateTextTokens(block.ToolUseID) + estimateTextTokens(block.Filename) + estimateTextTokens(block.MIMEType)
+	if len(block.ProviderState) > 0 {
+		total += estimateTextTokens(string(block.ProviderState))
+	}
 	if len(block.Input) > 0 {
 		total += estimateTextTokens(string(block.Input))
 	}
@@ -997,9 +1015,27 @@ func contentBlocksFromJSON(raw json.RawMessage) []providers.ContentBlock {
 
 func providerStateForBlocks(blocks []providers.ContentBlock) json.RawMessage {
 	state := make(map[string]json.RawMessage)
-	for _, block := range blocks {
+	contentStates := make([]persistedProviderContentBlockState, 0)
+	for index, block := range blocks {
 		if block.ToolUseID != "" && len(block.ProviderState) > 0 {
-			state[block.ToolUseID] = block.ProviderState
+			state[block.ToolUseID] = append(json.RawMessage(nil), block.ProviderState...)
+		}
+		if block.Type != providers.ContentBlockTypeThinking && block.Type != providers.ContentBlockTypeRedactedThinking {
+			continue
+		}
+		if block.ReasoningText == "" && len(block.ProviderState) == 0 {
+			continue
+		}
+		contentStates = append(contentStates, persistedProviderContentBlockState{
+			Index:         index,
+			Type:          block.Type,
+			ReasoningText: block.ReasoningText,
+			ProviderState: append(json.RawMessage(nil), block.ProviderState...),
+		})
+	}
+	if len(contentStates) > 0 {
+		if encoded, err := json.Marshal(contentStates); err == nil {
+			state[providerContentBlockStateV1Key] = encoded
 		}
 	}
 	if len(state) == 0 {
@@ -1020,9 +1056,25 @@ func applyProviderStateToBlocks(blocks []providers.ContentBlock, raw json.RawMes
 	if json.Unmarshal(raw, &state) != nil {
 		return
 	}
+	if encoded := state[providerContentBlockStateV1Key]; len(encoded) > 0 {
+		var contentStates []persistedProviderContentBlockState
+		if json.Unmarshal(encoded, &contentStates) == nil {
+			for _, contentState := range contentStates {
+				if contentState.Index < 0 || contentState.Index >= len(blocks) || blocks[contentState.Index].Type != contentState.Type {
+					continue
+				}
+				if contentState.Type != providers.ContentBlockTypeThinking && contentState.Type != providers.ContentBlockTypeRedactedThinking {
+					continue
+				}
+				blocks[contentState.Index].ReasoningText = contentState.ReasoningText
+				blocks[contentState.Index].ProviderState = append(json.RawMessage(nil), contentState.ProviderState...)
+			}
+		}
+		delete(state, providerContentBlockStateV1Key)
+	}
 	for i := range blocks {
 		if value := state[blocks[i].ToolUseID]; len(value) > 0 {
-			blocks[i].ProviderState = value
+			blocks[i].ProviderState = append(json.RawMessage(nil), value...)
 		}
 	}
 }
@@ -1152,15 +1204,59 @@ func marshalAssistantContentBlocks(blocks []providers.ContentBlock) (json.RawMes
 	return json.Marshal(encoded)
 }
 
-func (r *Runner) persistAssistantResult(ctx context.Context, agentID, runID string, result modelTurnResult, text, completionState, stopReason, textKind string) (db.Message, bool, error) {
-	blocks := make([]providers.ContentBlock, 0, 1+len(result.ToolCalls)+len(result.GeneratedImages))
-	if strings.TrimSpace(text) != "" {
+func assistantResultContentBlocks(result modelTurnResult, text, textKind string) []providers.ContentBlock {
+	blocks := make([]providers.ContentBlock, 0, len(result.ResponseBlocks)+1+len(result.ToolCalls))
+	representedTools := make(map[string]struct{}, len(result.ToolCalls))
+	preserveProviderText := strings.TrimSpace(text) == strings.TrimSpace(result.Text)
+	var providerText strings.Builder
+	replacementInserted := false
+	for _, original := range result.ResponseBlocks {
+		block := original
+		block.Data = append([]byte(nil), original.Data...)
+		block.Input = append(json.RawMessage(nil), original.Input...)
+		block.ProviderState = append(json.RawMessage(nil), original.ProviderState...)
+		switch block.Type {
+		case "text":
+			if !preserveProviderText {
+				if !replacementInserted && strings.TrimSpace(text) != "" {
+					blocks = append(blocks, providers.ContentBlock{Type: "text", Text: text, Kind: textKind})
+					replacementInserted = true
+				}
+				continue
+			}
+			providerText.WriteString(block.Text)
+			if block.Kind == "" {
+				block.Kind = textKind
+			}
+		case "tool_use":
+			if id := strings.TrimSpace(block.ToolUseID); id != "" {
+				representedTools[id] = struct{}{}
+			}
+		}
+		blocks = append(blocks, block)
+	}
+	if preserveProviderText {
+		captured := providerText.String()
+		if captured == "" && strings.TrimSpace(text) != "" {
+			blocks = append(blocks, providers.ContentBlock{Type: "text", Text: text, Kind: textKind})
+		} else if strings.HasPrefix(text, captured) && len(text) > len(captured) {
+			blocks = append(blocks, providers.ContentBlock{Type: "text", Text: text[len(captured):], Kind: textKind})
+		}
+	} else if !replacementInserted && strings.TrimSpace(text) != "" {
 		blocks = append(blocks, providers.ContentBlock{Type: "text", Text: text, Kind: textKind})
 	}
 	for _, call := range result.ToolCalls {
 		call = normalizeProviderToolCall(call)
+		if _, exists := representedTools[call.ID]; exists {
+			continue
+		}
 		blocks = append(blocks, providers.ContentBlock{Type: "tool_use", ToolUseID: call.ID, ToolName: call.Name, Input: call.Input, ProviderState: call.ProviderState})
 	}
+	return blocks
+}
+
+func (r *Runner) persistAssistantResult(ctx context.Context, agentID, runID string, result modelTurnResult, text, completionState, stopReason, textKind string) (db.Message, bool, error) {
+	blocks := assistantResultContentBlocks(result, text, textKind)
 	imageBlocks, images, err := r.prepareGeneratedImages(result.GeneratedImages, runID)
 	if err != nil {
 		return db.Message{}, false, err
@@ -1178,6 +1274,7 @@ func (r *Runner) persistAssistantResult(ctx context.Context, agentID, runID stri
 		RunID:             runID,
 		Role:              "assistant",
 		ContentText:       assistantToolUseText(text, result.ToolCalls),
+		ReasoningText:     boundedReasoningText(result.Reasoning),
 		ContentJSON:       contentJSON,
 		ProviderStateJSON: providerStateForBlocks(blocks),
 		TurnUsage:         result.TurnUsage,
@@ -1268,4 +1365,26 @@ func normalizeProviderToolCall(call providers.ToolCall) providers.ToolCall {
 		call.Input = json.RawMessage(`{}`)
 	}
 	return call
+}
+
+// maxPersistedReasoningBytes bounds what a single turn can add to the
+// transcript. Reasoning is unbounded model output that nothing else in the
+// pipeline truncates, and it is read back on every history page load.
+const maxPersistedReasoningBytes = 32 << 10
+
+// boundedReasoningText trims a turn's reasoning to something a transcript can
+// carry. It keeps the tail rather than the head: the last thing the model said
+// before acting explains the action, which is what the reader came for.
+func boundedReasoningText(reasoning string) string {
+	trimmed := strings.TrimSpace(reasoning)
+	if len(trimmed) <= maxPersistedReasoningBytes {
+		return trimmed
+	}
+	cut := trimmed[len(trimmed)-maxPersistedReasoningBytes:]
+	// Never split a rune: the column is text, and a broken pair would corrupt
+	// the whole field for CJK reasoning.
+	for len(cut) > 0 && !utf8.ValidString(cut) {
+		cut = cut[1:]
+	}
+	return cut
 }

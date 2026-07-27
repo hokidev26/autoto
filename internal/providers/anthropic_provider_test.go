@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"sort"
@@ -292,11 +293,225 @@ func TestAnthropicOAuthRefreshCoalescesAndExpiredFailureCloses(t *testing.T) {
 	}
 }
 
+func TestAnthropicThinkingConfigUsesAdaptiveAndEnabledModes(t *testing.T) {
+	t.Run("adaptive", func(t *testing.T) {
+		var body map[string]any
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				t.Fatal(err)
+			}
+			writeAnthropicSuccessStream(w, "ok")
+		}))
+		defer server.Close()
+
+		provider := NewAnthropicProvider(config.ProviderConfig{BaseURL: server.URL, APIKey: "test-key", Model: "claude-sonnet-4-6", MaxTokens: 4096})
+		provider.thinkingSupport["claude-sonnet-4-6"] = anthropicThinkingSupport{Known: true, Supported: true, Adaptive: true, Enabled: true}
+		events, err := provider.Generate(context.Background(), GenerateRequest{Messages: []Message{{Role: "user", Content: "hello"}}, ReasoningEffort: "medium"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		for event := range events {
+			if event.Type == "error" {
+				t.Fatal(event.Text)
+			}
+		}
+		thinking, _ := body["thinking"].(map[string]any)
+		outputConfig, _ := body["output_config"].(map[string]any)
+		if thinking["type"] != "adaptive" || outputConfig["effort"] != "medium" {
+			t.Fatalf("unexpected adaptive thinking request: %+v", body)
+		}
+	})
+
+	t.Run("enabled", func(t *testing.T) {
+		var body map[string]any
+		var beta string
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			beta = r.Header.Get("Anthropic-Beta")
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				t.Fatal(err)
+			}
+			writeAnthropicSuccessStream(w, "ok")
+		}))
+		defer server.Close()
+
+		provider := NewAnthropicProvider(config.ProviderConfig{BaseURL: server.URL, APIKey: "test-key", Model: "claude-sonnet-4-5", MaxTokens: 4096})
+		events, err := provider.Generate(context.Background(), GenerateRequest{
+			Messages:        []Message{{Role: "user", Content: "hello"}},
+			Tools:           []ToolSpec{{Name: "Read", Schema: map[string]any{"type": "object"}}},
+			ReasoningEffort: "high",
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		for event := range events {
+			if event.Type == "error" {
+				t.Fatal(event.Text)
+			}
+		}
+		thinking, _ := body["thinking"].(map[string]any)
+		if thinking["type"] != "enabled" || thinking["budget_tokens"] != float64(3072) {
+			t.Fatalf("unexpected enabled thinking request: %+v", body)
+		}
+		if !strings.Contains(beta, anthropicInterleavedThinkingBeta) {
+			t.Fatalf("missing interleaved thinking beta header: %q", beta)
+		}
+	})
+}
+
+func TestAnthropicThinkingConfigValidationAndFallback(t *testing.T) {
+	provider := NewAnthropicProvider(config.ProviderConfig{Model: "claude-sonnet-4-5", MaxTokens: 1024})
+	params := anthropic.MessageNewParams{Model: anthropic.Model("claude-sonnet-4-5"), MaxTokens: 1024}
+	if _, err := provider.applyThinkingConfig(&params, "claude-sonnet-4-5", "low", 0); err == nil || !strings.Contains(err.Error(), "at least 2048") {
+		t.Fatalf("expected local max_tokens validation, got %v", err)
+	}
+	if support := fallbackAnthropicThinkingSupport("claude-sonnet-4-5"); !support.Enabled || support.Adaptive {
+		t.Fatalf("unexpected legacy fallback: %+v", support)
+	}
+	if support := fallbackAnthropicThinkingSupport("claude-opus-5-20260701"); !support.Adaptive {
+		t.Fatalf("unexpected adaptive fallback: %+v", support)
+	}
+
+	var info anthropic.ModelInfo
+	if err := json.Unmarshal([]byte(`{"id":"claude-custom","type":"model","display_name":"custom","created_at":"2026-01-01T00:00:00Z","max_input_tokens":200000,"max_tokens":64000,"capabilities":{"thinking":{"supported":true,"types":{"adaptive":{"supported":true},"enabled":{"supported":false}}}}}`), &info); err != nil {
+		t.Fatal(err)
+	}
+	provider.rememberAnthropicThinkingSupport([]anthropic.ModelInfo{info})
+	if support := provider.anthropicThinkingSupportForModel("claude-custom"); !support.Known || !support.Supported || !support.Adaptive || support.Enabled {
+		t.Fatalf("model thinking capability was not cached: %+v", support)
+	}
+}
+
+func TestAnthropicProviderStreamsSignedThinkingBlocks(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte(strings.Join([]string{
+			`event: message_start`,
+			`data: {"type":"message_start","message":{"id":"msg_1","type":"message","role":"assistant","model":"claude-sonnet-4-5","content":[],"stop_reason":null,"stop_sequence":null,"usage":{"input_tokens":10,"output_tokens":0}}}`,
+			``,
+			`event: content_block_start`,
+			`data: {"type":"content_block_start","index":0,"content_block":{"type":"thinking","thinking":""}}`,
+			``,
+			`event: content_block_delta`,
+			`data: {"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"inspect first"}}`,
+			``,
+			`event: content_block_delta`,
+			`data: {"type":"content_block_delta","index":0,"delta":{"type":"signature_delta","signature":"sig-1"}}`,
+			``,
+			`event: content_block_stop`,
+			`data: {"type":"content_block_stop","index":0}`,
+			``,
+			`event: content_block_start`,
+			`data: {"type":"content_block_start","index":1,"content_block":{"type":"redacted_thinking","data":"opaque-1"}}`,
+			``,
+			`event: content_block_stop`,
+			`data: {"type":"content_block_stop","index":1}`,
+			``,
+			`event: content_block_start`,
+			`data: {"type":"content_block_start","index":2,"content_block":{"type":"tool_use","id":"toolu_1","name":"Read","input":{}}}`,
+			``,
+			`event: content_block_delta`,
+			`data: {"type":"content_block_delta","index":2,"delta":{"type":"input_json_delta","partial_json":"{\"file_path\":\"README.md\"}"}}`,
+			``,
+			`event: content_block_stop`,
+			`data: {"type":"content_block_stop","index":2}`,
+			``,
+			`event: message_delta`,
+			`data: {"type":"message_delta","delta":{"stop_reason":"tool_use","stop_sequence":null},"usage":{"input_tokens":10,"cache_read_input_tokens":0,"output_tokens":10,"output_tokens_details":{"thinking_tokens":5}}}`,
+			``,
+			`event: message_stop`,
+			`data: {"type":"message_stop"}`,
+			``,
+		}, "\n") + "\n\n"))
+	}))
+	defer server.Close()
+
+	provider := NewAnthropicProvider(config.ProviderConfig{BaseURL: server.URL, APIKey: "test-key", Model: "claude-sonnet-4-5", MaxTokens: 4096})
+	events, err := provider.Generate(context.Background(), GenerateRequest{Messages: []Message{{Role: "user", Content: "hello"}}, ReasoningEffort: "low"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var reasoning string
+	var blocks []ContentBlock
+	var indexes []int64
+	var calls []ToolCall
+	for event := range events {
+		switch event.Type {
+		case "error":
+			t.Fatal(event.Text)
+		case "reasoning":
+			reasoning += event.Text
+			if event.BlockType != ContentBlockTypeThinking || event.BlockIndex != 0 {
+				t.Fatalf("reasoning event lost native block metadata: %+v", event)
+			}
+		case "content_block":
+			if event.ContentBlock != nil {
+				blocks = append(blocks, *event.ContentBlock)
+				indexes = append(indexes, event.BlockIndex)
+			}
+		case "tool_call":
+			if event.ToolCall != nil {
+				calls = append(calls, *event.ToolCall)
+			}
+		}
+	}
+	if reasoning != "inspect first" || len(blocks) != 3 || strings.Join([]string{blocks[0].Type, blocks[1].Type, blocks[2].Type}, ",") != "thinking,redacted_thinking,tool_use" {
+		t.Fatalf("unexpected native Anthropic blocks: reasoning=%q blocks=%+v", reasoning, blocks)
+	}
+	if strings.Join([]string{fmt.Sprint(indexes[0]), fmt.Sprint(indexes[1]), fmt.Sprint(indexes[2])}, ",") != "0,1,2" {
+		t.Fatalf("unexpected block indexes: %v", indexes)
+	}
+	model, signature, _, ok := AnthropicReasoningContentBlockState(blocks[0])
+	if !ok || model != "claude-sonnet-4-5" || signature != "sig-1" || blocks[0].ReasoningText != "inspect first" {
+		t.Fatalf("thinking state was not preserved: block=%+v model=%q signature=%q ok=%v", blocks[0], model, signature, ok)
+	}
+	_, _, data, ok := AnthropicReasoningContentBlockState(blocks[1])
+	if !ok || data != "opaque-1" {
+		t.Fatalf("redacted thinking state was not preserved: block=%+v data=%q ok=%v", blocks[1], data, ok)
+	}
+	if len(calls) != 1 || calls[0].ID != "toolu_1" {
+		t.Fatalf("tool call was not preserved: %+v", calls)
+	}
+}
+
+func TestAnthropicMessagesReplaySignedThinkingInOriginalOrder(t *testing.T) {
+	thinking := NewAnthropicThinkingContentBlock("claude-sonnet-4-5", "inspect first", "sig-1")
+	redacted := NewAnthropicRedactedThinkingContentBlock("claude-sonnet-4-5", "opaque-1")
+	messages, _ := anthropicMessages([]Message{
+		{Role: "assistant", Blocks: []ContentBlock{thinking, {Type: "text", Text: "checking"}, redacted, {Type: "tool_use", ToolUseID: "tool-1", ToolName: "Read", Input: json.RawMessage(`{"file_path":"README.md"}`)}}},
+		{Role: "user", Blocks: []ContentBlock{{Type: "tool_result", ToolUseID: "tool-1", Output: "ok"}}},
+	}, "", "claude-sonnet-4-5")
+	data, err := json.Marshal(messages)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(data)
+	positions := []int{strings.Index(text, `"type":"thinking"`), strings.Index(text, `"type":"text"`), strings.Index(text, `"type":"redacted_thinking"`), strings.Index(text, `"type":"tool_use"`), strings.Index(text, `"type":"tool_result"`)}
+	for index, position := range positions {
+		if position < 0 || index > 0 && position <= positions[index-1] {
+			t.Fatalf("Anthropic content block order changed: positions=%v json=%s", positions, text)
+		}
+	}
+	for _, want := range []string{"inspect first", "sig-1", "opaque-1"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("signed thinking payload %q missing: %s", want, text)
+		}
+	}
+
+	switched, _ := anthropicMessages([]Message{{Role: "assistant", Blocks: []ContentBlock{thinking, {Type: "text", Text: "answer"}}}}, "", "claude-sonnet-4-6")
+	switchedJSON, err := json.Marshal(switched)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(switchedJSON), `"type":"thinking"`) || !strings.Contains(string(switchedJSON), "answer") {
+		t.Fatalf("model switch should strip native thinking and preserve answer text: %s", switchedJSON)
+	}
+}
+
 func TestAnthropicMessagesPreserveToolBlocks(t *testing.T) {
 	messages, _ := anthropicMessages([]Message{
 		{Role: "assistant", Blocks: []ContentBlock{{Type: "text", Text: "checking"}, {Type: "tool_use", ToolUseID: "tool-1", ToolName: "Read", Input: json.RawMessage(`{"file_path":"README.md"}`)}}},
 		{Role: "user", Blocks: []ContentBlock{{Type: "tool_result", ToolUseID: "tool-1", ToolName: "Read", Output: "ok", IsError: true}}},
-	}, "")
+	}, "", "claude-sonnet-4-5")
 	data, err := json.Marshal(messages)
 	if err != nil {
 		t.Fatal(err)
@@ -310,7 +525,7 @@ func TestAnthropicMessagesPreserveToolBlocks(t *testing.T) {
 }
 
 func TestAnthropicMessagesPreserveImageBlocks(t *testing.T) {
-	messages, _ := anthropicMessages([]Message{{Role: "user", Blocks: []ContentBlock{{Type: "text", Text: "see image"}, {Type: "image", MIMEType: "image/png", Data: []byte{1, 2, 3}, Filename: "a.png"}}}}, "")
+	messages, _ := anthropicMessages([]Message{{Role: "user", Blocks: []ContentBlock{{Type: "text", Text: "see image"}, {Type: "image", MIMEType: "image/png", Data: []byte{1, 2, 3}, Filename: "a.png"}}}}, "", "claude-sonnet-4-5")
 	data, err := json.Marshal(messages)
 	if err != nil {
 		t.Fatal(err)
@@ -434,7 +649,7 @@ func TestAnthropicProviderWithoutAPIKeyReturnsUnavailableError(t *testing.T) {
 }
 
 func TestAnthropicPromptCachingMarksLargeRequests(t *testing.T) {
-	messages, system := anthropicMessages([]Message{{Role: "user", Content: strings.Repeat("please inspect the repository context. ", 120)}}, strings.Repeat("stable coding agent instructions. ", 120))
+	messages, system := anthropicMessages([]Message{{Role: "user", Content: strings.Repeat("please inspect the repository context. ", 120)}}, strings.Repeat("stable coding agent instructions. ", 120), "claude-sonnet-4-5")
 	params := anthropic.MessageNewParams{
 		MaxTokens: 128,
 		Model:     anthropic.Model("claude-sonnet-4-5"),
@@ -470,7 +685,7 @@ func TestAnthropicPromptCachingMarksLargeRequests(t *testing.T) {
 }
 
 func TestAnthropicPromptCachingSkipsSmallRequests(t *testing.T) {
-	messages, system := anthropicMessages([]Message{{Role: "user", Content: "hello"}}, "short system")
+	messages, system := anthropicMessages([]Message{{Role: "user", Content: "hello"}}, "short system", "claude-sonnet-4-5")
 	params := anthropic.MessageNewParams{MaxTokens: 128, Model: anthropic.Model("claude-sonnet-4-5"), Messages: messages, System: system}
 	applyAnthropicPromptCaching(&params)
 	data, err := json.Marshal(params)

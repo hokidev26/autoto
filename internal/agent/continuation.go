@@ -569,7 +569,7 @@ func (r *Runner) runContinuationSegment(ctx context.Context, state continuationR
 		outcome.inputTokens += maxInt64(result.Usage.InputTokens, 0)
 		outcome.outputTokens += maxInt64(result.Usage.OutputTokens, 0)
 		if turnErr != nil {
-			if strings.TrimSpace(result.Text) != "" || len(result.ToolCalls) > 0 || len(result.GeneratedImages) > 0 {
+			if strings.TrimSpace(result.Text) != "" || len(result.ResponseBlocks) > 0 || len(result.ToolCalls) > 0 || len(result.GeneratedImages) > 0 {
 				messageID, persistErr := r.persistPartialAssistant(ctx, agentID, runID, result, continuationReasonProviderError)
 				if persistErr != nil {
 					return outcome, persistErr

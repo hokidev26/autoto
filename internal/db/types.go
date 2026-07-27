@@ -153,6 +153,9 @@ type MessageTurnUsage struct {
 	Estimated         bool    `json:"estimated,omitempty"`
 }
 
+// Message.ReasoningText holds the model's readable account of an assistant
+// turn, when the provider exposed one. It is stored beside the answer but never
+// replayed into a later request: it explains the turn, it is not part of it.
 type Message struct {
 	ID                    string            `json:"id"`
 	AgentID               string            `json:"agentId"`
@@ -161,6 +164,7 @@ type Message struct {
 	ContentJSON           json.RawMessage   `json:"contentJson,omitempty"`
 	ProviderStateJSON     json.RawMessage   `json:"-"`
 	ContentText           string            `json:"contentText"`
+	ReasoningText         string            `json:"reasoningText,omitempty"`
 	TurnUsage             *MessageTurnUsage `json:"turnUsage,omitempty"`
 	ParentToolID          string            `json:"parentToolUseId,omitempty"`
 	CommandText           string            `json:"commandText,omitempty"`

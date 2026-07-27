@@ -459,7 +459,62 @@
 .message-content { white-space: normal; }
 .message-content p { margin: 0 0 10px; white-space: pre-wrap; }
 .message-content p:last-child { margin-bottom: 0; }
-.message-content ul { margin: 0 0 10px 20px; padding: 0; }
+.message-content ul, .message-content ol { margin: 0 0 10px 20px; padding: 0; }
+.message-content ul:last-child, .message-content ol:last-child { margin-bottom: 0; }
+/* Nested lists tuck under their parent rather than restarting the left margin,
+   and lose the outer margins so a sub-list hugs the item it belongs to. */
+.message-content li > ul, .message-content li > ol { margin: 4px 0 4px 18px; }
+.message-content li { margin: 0 0 3px; }
+.message-content li > p { margin: 0; }
+
+/* Headings carry the hierarchy. Without a size and weight step every section
+   title reads at body weight and the answer flattens into one grey wall. */
+.message-content h1,
+.message-content h2,
+.message-content h3,
+.message-content h4,
+.message-content h5,
+.message-content h6 {
+  margin: 16px 0 8px;
+  color: var(--text, #e8e8ee);
+  font-weight: 700;
+  line-height: 1.35;
+}
+.message-content > :is(h1, h2, h3, h4, h5, h6):first-child { margin-top: 0; }
+.message-content h1 { font-size: 1.28em; }
+.message-content h2 { font-size: 1.18em; }
+.message-content h3 { font-size: 1.09em; }
+.message-content h4, .message-content h5, .message-content h6 { font-size: 1em; }
+/* The top two levels get a rule so a long answer has visible section breaks. */
+.message-content h1, .message-content h2 {
+  padding-bottom: 5px;
+  border-bottom: 1px solid var(--line, #383940);
+}
+
+.message-content strong { font-weight: 700; color: var(--text, #e8e8ee); }
+.message-content em { font-style: italic; }
+.message-content del { opacity: .65; }
+
+.message-content a {
+  color: var(--accent, #6f8cff);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.message-content a:hover { text-decoration-thickness: 2px; }
+
+.message-content hr {
+  margin: 14px 0;
+  border: 0;
+  border-top: 1px solid var(--line, #383940);
+}
+
+.message-content blockquote {
+  margin: 0 0 10px;
+  padding: 2px 0 2px 12px;
+  border-left: 3px solid var(--line, #383940);
+  color: var(--muted, #9aa2b8);
+}
+.message-content blockquote p:last-child { margin-bottom: 0; }
 .live-image-generation-stack {
   display: grid;
   gap: 8px;
@@ -513,10 +568,19 @@
   border-radius: 13px;
   background: rgba(255, 255, 255, .035);
 }
+/* Now a <button>: a new-tab navigation to the token-guarded asset URL cannot
+   authenticate, so opening goes through the in-page viewer instead. */
 .generated-image-open {
   display: block;
   overflow: hidden;
   background: rgba(255, 255, 255, .055);
+  width: 100%;
+  padding: 0;
+  border: 0;
+  font: inherit;
+  color: inherit;
+  text-align: inherit;
+  cursor: zoom-in;
 }
 .generated-image-preview {
   display: block;
@@ -911,6 +975,75 @@ body.theme-light .slash-command-desc { color: #64748b; }
 }
 .composer-attach-btn:disabled,
 .composer-send-btn:disabled { opacity: .45; background: transparent; }
+/* Messages parked with /queue, shown between the toolbar and the input so the
+   user can see (and drop) what will be sent once this turn finishes. */
+.message-queue {
+  margin: 0 0 6px;
+  padding: 7px 9px;
+  border: 1px dashed var(--tool-activity-border, #3a3b45);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--accent, #6f8cff) 7%, transparent);
+}
+
+.message-queue-head {
+  margin-bottom: 5px;
+  color: var(--muted, #9aa2b8);
+  font-size: 11.5px;
+  font-weight: 650;
+}
+
+.message-queue-list {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.message-queue-item {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) 22px;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.message-queue-index {
+  display: grid;
+  width: 18px;
+  height: 18px;
+  place-items: center;
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--accent, #6f8cff) 20%, transparent);
+  color: var(--text, #e8e8ee);
+  font-size: 10.5px;
+  font-weight: 700;
+}
+
+.message-queue-text {
+  overflow: hidden;
+  color: var(--text, #e8e8ee);
+  font-size: 12.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.message-queue-drop {
+  display: grid;
+  width: 22px;
+  height: 22px;
+  place-items: center;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted, #9aa2b8);
+  cursor: pointer;
+  padding: 0;
+}
+
+.message-queue-drop:hover { background: rgba(255, 255, 255, .07); color: var(--text, #e8e8ee); }
+.message-queue-drop svg { width: 13px; height: 13px; }
+
 .pending-attachments,
 .message-attachments {
   display: flex;
@@ -1052,11 +1185,140 @@ body.theme-light .slash-command-desc { color: #64748b; }
 .attachment-remove:hover { background: rgba(255, 255, 255, .08); color: #f4f4f5; }
 .message-attachments {
   margin-top: 10px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: flex-start;
 }
 .message-attachments .attachment-card {
   text-decoration: none;
   color: inherit;
 }
+/* Sent attachments are buttons, not links: a protected /api/ path cannot be
+   navigated to without the token header, so the click is handled in JS. Undo the
+   button defaults that would otherwise centre the text and shrink the font. */
+button.attachment-card {
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+button.attachment-card:hover {
+  border-color: rgba(255, 255, 255, .22);
+}
+/* Image attachments get a real preview rather than a 38px chip. */
+.attachment-image-card {
+  margin: 0;
+  max-width: 240px;
+  border: 1px solid rgba(255, 255, 255, .12);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, .045);
+  overflow: hidden;
+}
+.attachment-image-open {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: rgba(0, 0, 0, .16);
+  cursor: zoom-in;
+  position: relative;
+  min-height: 44px;
+}
+.attachment-image-preview {
+  display: block;
+  width: 100%;
+  max-height: 240px;
+  object-fit: contain;
+}
+.attachment-image-failed {
+  display: block;
+  padding: 18px 12px;
+  color: #9ca3af;
+  font-size: 12px;
+  text-align: center;
+}
+.attachment-image-card.is-missing .attachment-image-preview { display: none; }
+.attachment-image-caption {
+  display: grid;
+  gap: 2px;
+  padding: 7px 9px 8px;
+  min-width: 0;
+}
+.attachment-image-caption .attachment-name,
+.attachment-image-caption .attachment-subtitle {
+  display: block;
+  min-width: 0;
+}
+body.theme-light .attachment-image-card {
+  background: rgba(15, 23, 42, .04);
+  border-color: rgba(15, 23, 42, .12);
+  color: #111827;
+}
+/* Full-size viewer. Opening the raw asset URL in a tab would 401, so the
+   already-fetched blob is shown in place. */
+.image-lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 420;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 18px;
+  background: rgba(8, 9, 14, .86);
+}
+.image-lightbox-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+  color: #e5e7eb;
+}
+.image-lightbox-caption {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+}
+.image-lightbox-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+}
+.image-lightbox-download,
+.image-lightbox-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: 1px solid rgba(255, 255, 255, .18);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, .06);
+  color: #e5e7eb;
+  font-size: 15px;
+  text-decoration: none;
+  cursor: pointer;
+}
+.image-lightbox-download:hover,
+.image-lightbox-close:hover {
+  background: rgba(255, 255, 255, .14);
+  color: #ffffff;
+}
+.image-lightbox-frame {
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 0;
+}
+.image-lightbox-image {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+body.image-lightbox-open { overflow: hidden; }
 body.theme-light .attachment-card {
   background: rgba(15, 23, 42, .04);
   border-color: rgba(15, 23, 42, .12);
@@ -1232,6 +1494,13 @@ body.theme-light .message-mode-option.active { background: #dce5ff; color: #1e3a
     width: 100%;
     margin-left: 0;
     padding-left: 40px;
+  }
+  .navigation-conversation-row[draggable] { cursor: grab; }
+  .navigation-conversation-row[draggable]:active { cursor: grabbing; }
+  .navigation-conversation-row.conv-dragging { opacity: 0.4; }
+  .navigation-conversation-row.conv-drag-over {
+    border-color: var(--accent);
+    background: rgba(73, 103, 232, .12);
   }
   .recent-sidebar {
     margin-left: 12px;

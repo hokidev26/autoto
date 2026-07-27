@@ -73,7 +73,7 @@ func (p *AggregateProvider) Capabilities() Capabilities {
 	// effort cannot be pruned equivalently: an unsupported concrete effort causes
 	// adapters to reject the request. Advertise only the intersection that every
 	// currently resolvable candidate can accept.
-	capabilities := Capabilities{Tools: true, Streaming: true, ImageInput: true, ImageGeneration: true}
+	capabilities := Capabilities{Tools: true, Streaming: true, ImageInput: true, ImageGeneration: true, NativeReasoningBlocks: true}
 	definition, err := p.loadDefinition(context.Background())
 	if err != nil {
 		return capabilities
@@ -301,8 +301,9 @@ func aggregateRequestForCapabilities(req GenerateRequest, capabilities Capabilit
 	// capabilities still expose only the stricter shared set.
 	if !capabilities.SupportsReasoningEffort(req.ReasoningEffort) {
 		req.ReasoningEffort = "auto"
+		req.ReasoningBudgetTokens = 0
 	}
-	if capabilities.Tools && capabilities.ImageInput && capabilities.ImageGeneration {
+	if capabilities.Tools && capabilities.ImageInput && capabilities.ImageGeneration && capabilities.NativeReasoningBlocks {
 		return req
 	}
 	messages := make([]Message, len(req.Messages))
@@ -314,6 +315,10 @@ func aggregateRequestForCapabilities(req GenerateRequest, capabilities Capabilit
 		blocks := make([]ContentBlock, 0, len(message.Blocks))
 		for _, block := range message.Blocks {
 			switch block.Type {
+			case ContentBlockTypeThinking, ContentBlockTypeRedactedThinking:
+				if capabilities.NativeReasoningBlocks {
+					blocks = append(blocks, block)
+				}
 			case "image":
 				if capabilities.ImageInput {
 					blocks = append(blocks, block)
@@ -378,7 +383,14 @@ func consumeAggregateCandidate(ctx context.Context, out chan<- Event, events <-c
 				return false
 			}
 			switch event.Type {
-			case "text", "tool_call", "image_generation":
+			case "reasoning":
+				// Forwarded but deliberately kept out of outputStarted: reasoning is
+				// not an answer, so a candidate that only reasoned before failing must
+				// still be allowed to fall back to the next account.
+				if !emitAggregateEvent(ctx, out, event) {
+					return false
+				}
+			case "text", "tool_call", "image_generation", "content_block":
 				if !flushPending() {
 					return false
 				}

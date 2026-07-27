@@ -140,7 +140,11 @@ func TestGeminiProviderFailoverDispatchAndStreaming(t *testing.T) {
 		case "usage":
 			usage = event.Usage
 		case "done":
-			done = event.Done && event.StopReason == "stop"
+			// This fixture streams a functionCall with finishReason STOP, which is
+			// exactly what Cloud Code sends for a tool turn. Asserting "stop" here
+			// is what kept the bug green: the runner rejects a plain stop alongside
+			// tool calls and aborted the whole run.
+			done = event.Done && event.StopReason == "tool_use"
 		}
 	}
 	if dispatch == nil || dispatch.CredentialID != second.ID || dispatch.CredentialID == first.ID {

@@ -381,6 +381,35 @@ body.ui-density-compact .terminal-header { height: 38px; }
 .navigation-row-actions:focus-visible { opacity: 1; }
 .navigation-row-actions:hover,
 .navigation-row-actions:focus-visible { background: var(--bg-elevated); color: var(--text); outline: none; }
+/* Forks the project it sits on into a new branch + worktree. It shares the
+   more-menu's geometry so the two row affordances line up, but tints on hover
+   to read as a create action rather than another menu. */
+/* The base row reserves three columns. Project rows use the same layout:
+   icon | name+path | fork button (or task counts in workbench mode). */
+.navigation-project-row { grid-template-columns: 18px minmax(0, 1fr) auto; }
+.navigation-row-fork {
+  align-self: center;
+  min-width: 20px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 15px;
+  font-weight: 800;
+  line-height: 16px;
+  opacity: 0;
+  padding: 2px 3px;
+  text-align: center;
+  transition: opacity .12s ease, background .12s ease, color .12s ease;
+}
+.navigation-conversation-row:hover .navigation-row-fork,
+.navigation-conversation-row:focus-within .navigation-row-fork,
+.navigation-row-fork:focus-visible { opacity: 1; }
+.navigation-row-fork:hover,
+.navigation-row-fork:focus-visible { background: var(--bg-elevated); color: var(--accent); outline: none; }
+.navigation-row-fork[aria-busy="true"] { opacity: 1; color: var(--accent); cursor: progress; }
+.navigation-row-fork:disabled { cursor: not-allowed; }
 .navigation-state-badge {
   display: inline-flex;
   flex: 0 0 auto;

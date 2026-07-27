@@ -677,6 +677,15 @@ func consumeGeminiCloudCodeAttempt(ctx context.Context, out chan<- Event, reader
 					thoughtSignature = signature
 				}
 				if thought, _ := part["thought"].(bool); thought {
+					// These parts were previously dropped. They carry the model's own
+					// summary of what it is doing, which is exactly what the activity
+					// list wants; they are still not answer text, so emittedContent
+					// stays untouched.
+					if text := geminiCloudCodeString(part, "text"); text != "" {
+						if !emitDispatch() || !emitProviderEvent(ctx, out, Event{Type: "reasoning", Text: text}) {
+							return geminiCloudCodeAttemptOutcome{emittedContent: outcome.emittedContent, err: ctx.Err(), code: telemetryErrorCode(ctx.Err())}
+						}
+					}
 					continue
 				}
 				if text := geminiCloudCodeString(part, "text"); text != "" {
@@ -730,6 +739,15 @@ func consumeGeminiCloudCodeAttempt(ctx context.Context, out chan<- Event, reader
 	}
 	if stopReason == "" {
 		stopReason = "stop"
+	}
+	// Cloud Code has no tool-call finish reason: a turn that asks for a function
+	// still reports STOP, which normalises to "stop". The runner treats a "stop"
+	// alongside tool calls as a provider that lost track of its own turn and
+	// aborts the whole run ("unsafe tool stop reason"), so the first message that
+	// triggered a tool killed the conversation. The emitted calls are the
+	// authoritative signal here, so report what actually happened.
+	if len(emittedCalls) > 0 && stopReason == "stop" {
+		stopReason = "tool_use"
 	}
 	if !emitProviderEvent(ctx, out, Event{Type: "done", Done: true, StopReason: stopReason}) {
 		return geminiCloudCodeAttemptOutcome{emittedContent: outcome.emittedContent, err: ctx.Err(), code: telemetryErrorCode(ctx.Err())}

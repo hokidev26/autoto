@@ -7,8 +7,9 @@ import { createConversationTitleHelpers } from "./conversation-title-helpers.mjs
 import { createBackgroundTasksController } from "./background-tasks.mjs?v=subagent-cards-1-foreground-activity-1";
 import { createExecutionNotifications } from "./execution-notifications.mjs";
 import { createBackendRegistryController } from "./backend-registry.mjs?v=agent-admin-removed-1";
-import { createChatComposerController, normalizeChatDrafts, normalizePromptHistory } from "./chat-composer.mjs?v=plan-mode-1-project-context-1-model-save-gate-1-goal-command-2";
-import { createChatRenderingController, findToolActivityByIdentity, renderAgentTaskActivityCardHTML } from "./chat-rendering.mjs?v=message-thread-1-plan-mode-2-user-message-left-1-switch-fix-3-hide-run-loading-1-i18n-shared-1-conversation-boundary-1-subagent-cards-1-message-lifecycle-1-subagent-incremental-1-profile-message-identity-1-profile-avatar-1-provider-errors-1-compact-run-error-1-first-token-task-status-1-tool-activity-lazy-1-tool-protocol-filter-1";
+import { createChatComposerController, normalizeChatDrafts, normalizePromptHistory } from "./chat-composer.mjs?v=plan-mode-1-project-context-1-model-save-gate-1-goal-command-2-queue-command-1-reasoning-steps-1-reasoning-history-1-markdown-2";
+import { createChatRenderingController, findToolActivityByIdentity, renderAgentTaskActivityCardHTML } from "./chat-rendering.mjs?v=protected-images-1-message-thread-1-plan-mode-2-user-message-left-1-switch-fix-3-hide-run-loading-1-i18n-shared-1-conversation-boundary-1-subagent-cards-1-message-lifecycle-1-subagent-incremental-1-profile-message-identity-1-profile-avatar-1-provider-errors-1-compact-run-error-1-first-token-task-status-1-tool-activity-lazy-1-tool-protocol-filter-1-live-assistant-last-1-tool-activity-svg-icons-1-reasoning-steps-1-reasoning-history-1-markdown-2";
+import { releaseProtectedImageURLs } from "./protected-images.mjs?v=protected-images-1";
 import { createContextManagementController } from "./context-management.mjs?v=context-ring-3";
 import {
   addRecentConversation,
@@ -21,7 +22,7 @@ import {
   renderNavigationHTML,
   renderRecentConversationsHTML,
   resolveInitialNavigationTarget,
-} from "./conversation-navigation.mjs?v=mode-boundaries-2-project-flat-1-task-workspace-1-navigation-state-1-project-context-1-recent-sync-1-dual-rail-collapse-1-compact-navigation-1-theme-icons-1";
+} from "./conversation-navigation.mjs?v=mode-boundaries-2-project-flat-1-task-workspace-1-navigation-state-1-project-context-1-recent-sync-1-dual-rail-collapse-1-compact-navigation-1-theme-icons-1-workline-fork-1";
 import {
   basename,
   canonicalLocalPath,
@@ -34,10 +35,10 @@ import { $, escapeAttr, escapeHtml, setButtonBusy } from "./dom.mjs";
 import { navigationCreateLabelKey, navigationCreateTarget } from "./navigation-create.mjs";
 import { createSubagentCardCoordinator } from "./subagent-cards.mjs?v=tool-activity-lazy-1";
 import { formatNumber, formatTimestamp } from "./formatters.mjs";
-import { t } from "./i18n.mjs?v=settings-flat-1-codex-browser-login-1-shared-api-1-apple-theme-1-autoto-themes-1-settings-help-1-task-workspace-1-navigation-state-2-archive-1-i18n-shared-1-overview-home-1-settings-cleanup-1-context-ring-3-global-background-1-theme-v2-1-background-upload-1-goal-command-2-first-run-setup-1";
+import { t } from "./i18n.mjs?v=settings-flat-1-codex-browser-login-1-shared-api-1-apple-theme-1-autoto-themes-1-settings-help-1-task-workspace-1-navigation-state-2-archive-1-i18n-shared-1-overview-home-1-settings-cleanup-1-context-ring-3-global-background-1-theme-v2-1-background-upload-1-goal-command-2-queue-command-1-reasoning-steps-1-reasoning-history-1-markdown-2-first-run-setup-1";
 import { appMainT as am } from "./messages-app-main-extra.mjs?v=workbench-title-edit-1-hidden-toggle-removed-1-settings-cleanup-1";
 import { shellExtraT as sx } from "./messages-shell-extra.mjs";
-import { createGitWorkflowController } from "./git-workflow.mjs";
+import { createGitWorkflowController } from "./git-workflow.mjs?v=merge-review-1";
 import { createLocalPreferencesSettingsController } from "./local-preferences-settings.mjs?v=settings-flat-1-apple-theme-1-autoto-themes-1-profile-avatar-1-global-background-1-background-upload-1";
 import { createMCPRegistryUIController } from "./mcp-registry-ui.mjs";
 import { createPluginRegistryUIController } from "./plugin-registry-ui.mjs";
@@ -89,6 +90,55 @@ import { createWorkspaceContextHelpers } from "./workspace-context-helpers.mjs";
 import { createWorkspaceExplorerController } from "./workspace-explorer.mjs?v=viewport-menu-1";
 import { runPreviewScreenshot } from "./workspace-screenshot.mjs";
 import { normalizeWorkStateSnapshot, renderWorkStateHTML } from "./work-state.mjs";
+
+const CONV_ORDER_KEY_PREFIX = "autoto:conv_order:";
+const SETTINGS_NAV_ORDER_PREFIX = "autoto:settings_nav_order:";
+
+function getConversationOrders() {
+  const orders = {};
+  try {
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (!key?.startsWith(CONV_ORDER_KEY_PREFIX)) continue;
+      const projectId = key.slice(CONV_ORDER_KEY_PREFIX.length);
+      const val = localStorage.getItem(key);
+      if (val) orders[projectId] = JSON.parse(val);
+    }
+  } catch {}
+  return orders;
+}
+
+function saveConversationOrder(projectId, agentIds) {
+  try {
+    localStorage.setItem(CONV_ORDER_KEY_PREFIX + projectId, JSON.stringify(agentIds));
+  } catch {}
+}
+
+function getSettingsNavOrder(sectionId) {
+  try {
+    const val = localStorage.getItem(SETTINGS_NAV_ORDER_PREFIX + sectionId);
+    if (val) return JSON.parse(val);
+  } catch {}
+  return null;
+}
+
+function saveSettingsNavOrder(sectionId, keys) {
+  try {
+    localStorage.setItem(SETTINGS_NAV_ORDER_PREFIX + sectionId, JSON.stringify(keys));
+  } catch {}
+}
+
+function applySettingsNavOrder(items, order) {
+  if (!Array.isArray(order) || !order.length) return items;
+  const orderMap = new Map(order.map((k, i) => [String(k), i]));
+  const copy = [...items];
+  copy.sort((a, b) => {
+    const ia = orderMap.has(a.key) ? orderMap.get(a.key) : Infinity;
+    const ib = orderMap.has(b.key) ? orderMap.get(b.key) : Infinity;
+    return ia - ib;
+  });
+  return copy;
+}
 
 let backendRegistry = null;
 let settingsPreferences = null;
@@ -202,6 +252,9 @@ const state = {
   terminalPrefs: null,
   chatDrafts: null,
   pendingAttachments: [],
+  // Messages the user parked with /queue while a run was in flight. Drained one
+  // at a time by the composer once the agent goes idle.
+  messageQueue: [],
   promptHistory: null,
   promptHistoryIndex: -1,
   promptHistoryDraft: "",
@@ -240,6 +293,10 @@ const state = {
   runRollbackBusy: false,
   runSummarySeq: 0,
   liveToolOutputs: {},
+  // Model reasoning for the turn in flight: closed steps, plus the one still
+  // streaming. Cleared with the rest of the live turn state on a switch.
+  liveReasoningSteps: [],
+  liveReasoningDraft: null,
   liveAssistantActive: false,
   liveAssistantText: "",
   liveAssistantRequestId: "",
@@ -268,6 +325,7 @@ const state = {
   agentModelSettings: null,
   projectCreating: false,
   standaloneConversationCreating: false,
+  worklineForking: false,
   projectCreateSeq: 0,
   projectSelectSeq: 0,
   initializing: false,
@@ -768,6 +826,9 @@ const {
   loadRunSummary,
   rememberImageGenerationStatus,
   rememberToolApproval,
+  appendLiveReasoning,
+  clearLiveReasoning,
+  closeLiveReasoningStep,
   rememberToolStarted,
   rememberUserQuestion,
   refreshUserMessageIdentity,
@@ -1126,6 +1187,8 @@ const {
   refreshFastModeControl,
   refreshMessageModeControl,
   refreshReasoningEffortControl,
+  loadMessageQueue,
+  renderMessageQueue,
   restoreCurrentChatDraft,
   saveCurrentChatDraft,
   saveReasoningEffort,
@@ -2067,21 +2130,27 @@ function renderSettingsNav(activeKey = "providers") {
     nav.innerHTML = `<div class="settings-nav-empty"><strong>${escapeHtml(am("noMatchingSettings"))}</strong><span>${escapeHtml(am("matchingSettingsHint"))}</span></div>`;
     return;
   }
-  nav.innerHTML = groups.map((category) => `
-    <section class="settings-nav-group" aria-label="${escapeAttr(category.label)}">
+  nav.innerHTML = groups.map((category) => {
+    const sectionId = category.items[0]?.key || category.label;
+    const order = getSettingsNavOrder(sectionId);
+    const orderedItems = applySettingsNavOrder(category.items, order);
+    return `
+    <section class="settings-nav-group" aria-label="${escapeAttr(category.label)}" data-settings-nav-section="${escapeAttr(sectionId)}">
       <div class="settings-nav-group-label">${escapeHtml(category.label)}</div>
-      ${category.items.map((item) => `
-        <button class="settings-nav-item ${item.key === activeKey ? "active" : ""}" type="button" ${item.key === activeKey ? 'aria-current="page"' : ""} data-settings-key="${escapeAttr(item.key)}" title="${escapeAttr(item.label)}">
+      ${orderedItems.map((item) => `
+        <button class="settings-nav-item ${item.key === activeKey ? "active" : ""}" type="button" ${item.key === activeKey ? 'aria-current="page"' : ""} draggable="true" data-settings-key="${escapeAttr(item.key)}" title="${escapeAttr(item.label)}">
           <span class="settings-nav-icon" aria-hidden="true">${settingsIconSVG(item.icon)}</span>
           <span class="settings-nav-label"><strong>${escapeHtml(item.label)}</strong></span>
         </button>
       `).join("")}
     </section>
-  `).join("");
+  `;
+  }).join("");
   nav.querySelectorAll("[data-settings-key]").forEach((node) => {
     node.addEventListener("click", () => selectSettingsPanel(node.dataset.settingsKey));
   });
   bindSettingsArrowNavigation(nav, "[data-settings-key]", { ArrowUp: -1, ArrowDown: 1, Home: "first", End: "last" });
+  bindSettingsNavDrag(nav);
 }
 
 function updateSettingsSearchQuery(value) {
@@ -2469,6 +2538,51 @@ function setStandaloneConversationCreationBusy(busy) {
   });
 }
 
+// Forks a project into a new git branch + worktree and opens its conversation.
+// The branch name is left to the server, which derives it from the title and
+// appends a short id: naming it here would need a dialog this shell does not
+// have, and the conversation title stays renameable afterward while the branch
+// does not.
+async function createProjectWorkline(projectId, trigger = null) {
+  const id = String(projectId || "").trim();
+  if (!id || state.worklineForking) return null;
+  state.worklineForking = true;
+  if (trigger) {
+    trigger.disabled = true;
+    trigger.setAttribute("aria-busy", "true");
+  }
+  showToast(t("shell.newWorklineCreating"), "info");
+  try {
+    const worklines = await api(`/api/projects/${encodeURIComponent(id)}/worklines`);
+    const list = Array.isArray(worklines) ? worklines : [];
+    // Forking the root keeps every branch a sibling off the mainline rather
+    // than chaining forks onto whichever workline happens to be first.
+    const parent = list.find((item) => item?.isRoot) || list[0];
+    if (!parent?.id) throw new Error(t("shell.newWorklineFailed"));
+    const created = await api(`/api/worklines/${encodeURIComponent(parent.id)}/fork`, {
+      method: "POST",
+      body: JSON.stringify({}),
+    });
+    const agentId = String(created?.agent?.id || "").trim();
+    await loadProjects();
+    if (agentId) {
+      const conversation = state.navigationConversations.find((item) => item.agentId === agentId);
+      if (conversation) await selectNavigationConversation(conversation);
+    }
+    showToast(t("shell.newWorklineSuccess", { branch: created?.workline?.branch || "" }), "success", { force: true });
+    return created;
+  } catch (error) {
+    showToast(error?.message || t("shell.newWorklineFailed"), "error", { force: true });
+    return null;
+  } finally {
+    state.worklineForking = false;
+    if (trigger) {
+      trigger.disabled = false;
+      trigger.removeAttribute("aria-busy");
+    }
+  }
+}
+
 async function createStandaloneConversation() {
   if (state.standaloneConversationCreating) return null;
   saveCurrentChatDraft();
@@ -2545,6 +2659,135 @@ function syncNavigationConversationFromAgent(agent, options = {}) {
   return true;
 }
 
+function bindConversationDrag(el) {
+  if (!el || el.dataset?.convDragBound === "true") return;
+  if (el.dataset) el.dataset.convDragBound = "true";
+
+  let dragAgentId = "";
+  let dragProjectId = "";
+
+  el.addEventListener("dragstart", (event) => {
+    const row = event.target?.closest?.("[data-navigation-target][draggable]");
+    if (!row) return;
+    dragAgentId = row.dataset.navigationId || "";
+    const group = row.closest("[data-navigation-project-group]");
+    dragProjectId = group?.dataset?.navigationProjectGroup || "";
+    event.dataTransfer.setData("text/plain", dragAgentId);
+    event.dataTransfer.effectAllowed = "move";
+    row.classList.add("conv-dragging");
+  });
+
+  el.addEventListener("dragover", (event) => {
+    const row = event.target?.closest?.("[data-navigation-target]");
+    if (!row || row.dataset.navigationId === dragAgentId) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "move";
+    el.querySelectorAll(".conv-drag-over").forEach((n) => n.classList.remove("conv-drag-over"));
+    row.classList.add("conv-drag-over");
+  });
+
+  el.addEventListener("dragleave", (event) => {
+    if (!el.contains(event.relatedTarget)) {
+      el.querySelectorAll(".conv-drag-over").forEach((n) => n.classList.remove("conv-drag-over"));
+    }
+  });
+
+  el.addEventListener("drop", (event) => {
+    event.preventDefault();
+    const targetRow = event.target?.closest?.("[data-navigation-target]");
+    const targetGroup = targetRow?.closest?.("[data-navigation-project-group]");
+    if (!targetRow || !dragAgentId) return;
+    const targetAgentId = targetRow.dataset.navigationId || "";
+    const targetProjectId = targetGroup?.dataset?.navigationProjectGroup || "";
+    if (targetAgentId === dragAgentId || targetProjectId !== dragProjectId) return;
+
+    const group = el.querySelector(`[data-project-conversations="${CSS.escape(dragProjectId)}"]`);
+    if (!group) return;
+    const rows = Array.from(group.querySelectorAll("[data-navigation-target]"));
+    const ids = rows.map((r) => r.dataset.navigationId || "");
+    const fromIdx = ids.indexOf(dragAgentId);
+    const toIdx = ids.indexOf(targetAgentId);
+    if (fromIdx < 0 || toIdx < 0 || fromIdx === toIdx) return;
+    ids.splice(fromIdx, 1);
+    ids.splice(toIdx, 0, dragAgentId);
+    saveConversationOrder(dragProjectId, ids);
+    renderProjects();
+  });
+
+  el.addEventListener("dragend", () => {
+    el.querySelectorAll(".conv-dragging, .conv-drag-over").forEach((n) => {
+      n.classList.remove("conv-dragging", "conv-drag-over");
+    });
+    dragAgentId = "";
+    dragProjectId = "";
+  });
+}
+
+// Settings-nav drag — items can be reordered within a section, never across.
+function bindSettingsNavDrag(nav) {
+  if (!nav || nav.dataset?.settingsNavDragBound === "true") return;
+  if (nav.dataset) nav.dataset.settingsNavDragBound = "true";
+
+  let dragKey = "";
+  let dragSection = null;
+
+  nav.addEventListener("dragstart", (event) => {
+    const btn = event.target?.closest?.("[data-settings-key][draggable]");
+    if (!btn) return;
+    dragKey = btn.dataset.settingsKey || "";
+    dragSection = btn.closest("[data-settings-nav-section]");
+    event.dataTransfer.setData("text/plain", dragKey);
+    event.dataTransfer.effectAllowed = "move";
+    btn.classList.add("settings-nav-dragging");
+  });
+
+  nav.addEventListener("dragover", (event) => {
+    const btn = event.target?.closest?.("[data-settings-key]");
+    if (!btn || btn.dataset.settingsKey === dragKey) return;
+    const sec = btn.closest("[data-settings-nav-section]");
+    // Block cross-section moves
+    if (!dragSection || sec !== dragSection) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "move";
+    nav.querySelectorAll(".settings-nav-drag-over").forEach((n) => n.classList.remove("settings-nav-drag-over"));
+    btn.classList.add("settings-nav-drag-over");
+  });
+
+  nav.addEventListener("dragleave", (event) => {
+    if (!nav.contains(event.relatedTarget)) {
+      nav.querySelectorAll(".settings-nav-drag-over").forEach((n) => n.classList.remove("settings-nav-drag-over"));
+    }
+  });
+
+  nav.addEventListener("drop", (event) => {
+    event.preventDefault();
+    const targetBtn = event.target?.closest?.("[data-settings-key]");
+    if (!targetBtn || !dragKey) return;
+    const targetKey = targetBtn.dataset.settingsKey || "";
+    const targetSection = targetBtn.closest("[data-settings-nav-section]");
+    if (targetKey === dragKey || !dragSection || targetSection !== dragSection) return;
+
+    const sectionId = dragSection.dataset.settingsNavSection || "";
+    const allBtns = Array.from(dragSection.querySelectorAll("[data-settings-key]"));
+    const keys = allBtns.map((b) => b.dataset.settingsKey || "");
+    const fromIdx = keys.indexOf(dragKey);
+    const toIdx = keys.indexOf(targetKey);
+    if (fromIdx < 0 || toIdx < 0 || fromIdx === toIdx) return;
+    keys.splice(fromIdx, 1);
+    keys.splice(toIdx, 0, dragKey);
+    saveSettingsNavOrder(sectionId, keys);
+    renderSettingsNav(state.activeSettingsPanel || "");
+  });
+
+  nav.addEventListener("dragend", () => {
+    nav.querySelectorAll(".settings-nav-dragging, .settings-nav-drag-over").forEach((n) => {
+      n.classList.remove("settings-nav-dragging", "settings-nav-drag-over");
+    });
+    dragKey = "";
+    dragSection = null;
+  });
+}
+
 function renderProjects() {
   const el = $("projects");
   if (!el) return;
@@ -2572,12 +2815,14 @@ function renderProjects() {
     activeSelectionKind: state.navigationSelectionKind,
     taskContext,
     taskCounts,
+    conversationOrders: getConversationOrders(),
   });
   $("navigationFilters")?.querySelectorAll("[data-navigation-mode]").forEach((node) => {
     const active = node.dataset.navigationMode === state.navigationMode;
     node.classList.toggle("active", active);
     node.setAttribute("aria-pressed", active ? "true" : "false");
   });
+  bindConversationDrag(el);
   el.querySelectorAll("[data-project-id]").forEach((node) => {
     bindNavigationActivation(node, () => selectProject(node.dataset.projectId).then(() => {
       if (state.activeWorkbench === "workbench") {
@@ -2589,6 +2834,15 @@ function renderProjects() {
     bindNavigationActivation(node, () => selectNavigationConversation(node.dataset.navigationTarget).catch(showError));
   });
   bindNavigationMenuTriggers();
+  el.querySelectorAll("[data-project-fork-trigger]").forEach((node) => {
+    node.addEventListener("click", (event) => {
+      // The row itself is a button; without this the fork would also switch
+      // the selection out from under the request.
+      event.preventDefault();
+      event.stopPropagation();
+      createProjectWorkline(node.dataset.projectIdFork, node);
+    });
+  });
   el.querySelectorAll("[data-primary-workbench-target]").forEach((node) => {
     node.addEventListener("click", () => switchPrimaryWorkbench(node.dataset.primaryWorkbenchTarget));
   });
@@ -2880,8 +3134,10 @@ async function enterAgent() {
   refreshFastModeControl();
   refreshMessageModeControl();
   await restoreCurrentChatDraft();
+  renderMessageQueue();
   syncMessageComposerBusy();
   refreshComposerActivityStatus();
+  clearLiveReasoning();
   clearRunSummary({ preserveView: true });
   clearPlanState(agentId);
   if (projectContext) {
@@ -2937,6 +3193,10 @@ function showModelSetupNotice() {
 function disconnectAgentTransports() {
   clearMessageRefreshTimer(state.agent?.id);
   invalidateMessageLifecycle();
+  // The transcript we are leaving owns blob: URLs for its image assets. Nothing
+  // else references them once its DOM is replaced, so revoke them here rather
+  // than letting them accumulate across conversation switches.
+  releaseProtectedImageURLs();
   agentStream.disconnect();
   subagentCards.resetAgentLoad();
   backgroundTasks.setAgent("");
@@ -3062,7 +3322,14 @@ async function handleAgentStreamEvent(event) {
     });
     refreshComposerActivityStatus();
   }
+  if (event.type === "agent.reasoning") {
+    appendLiveReasoning({ ...event, data: { ...(event.data || {}), runId } });
+    refreshComposerActivityStatus();
+  }
   if (event.type === "agent.text") {
+    // The model has stopped planning and started answering, so whatever it
+    // was reasoning about is a finished step.
+    closeLiveReasoningStep();
     appendLiveAssistantText(event.text || event.data?.text || "", { requestId, runId });
     refreshComposerActivityStatus();
   }
@@ -3568,6 +3835,7 @@ async function init() {
     state.primaryModePreference = loadPrimaryModePreference();
     state.terminalPrefs = loadTerminalPreferences();
     state.chatDrafts = loadChatDrafts();
+    state.messageQueue = loadMessageQueue();
     state.promptHistory = loadPromptHistory();
     state.recentConversations = loadRecentConversations();
     applyAppearancePreferences({ applyTerminalDefault: true });

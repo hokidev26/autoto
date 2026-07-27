@@ -18,6 +18,11 @@ type Message struct {
 	Blocks  []ContentBlock `json:"blocks,omitempty"`
 }
 
+const (
+	ContentBlockTypeThinking         = "thinking"
+	ContentBlockTypeRedactedThinking = "redacted_thinking"
+)
+
 type ContentBlock struct {
 	Type     string `json:"type"`
 	Text     string `json:"text,omitempty"`
@@ -25,6 +30,11 @@ type ContentBlock struct {
 	Data     []byte `json:"-"`
 	Filename string `json:"filename,omitempty"`
 	Kind     string `json:"kind,omitempty"`
+
+	// ReasoningText carries complete native reasoning text for provider replay.
+	// It is persisted through ProviderStateJSON and deliberately omitted from
+	// public content JSON; user-facing reasoning uses db.Message.ReasoningText.
+	ReasoningText string `json:"-"`
 
 	AssetID       string `json:"assetId,omitempty"`
 	GenerationID  string `json:"generationId,omitempty"`
@@ -81,6 +91,7 @@ type GenerateRequest struct {
 	Messages              []Message
 	Tools                 []ToolSpec
 	ReasoningEffort       string
+	ReasoningBudgetTokens int64
 	MaxOutputTokens       int64
 	FastMode              bool
 	EnableImageGeneration bool
@@ -150,10 +161,20 @@ type ImageGeneration struct {
 	Height        int    `json:"height,omitempty"`
 }
 
+// Event.Type is one of "dispatch", "text", "reasoning", "content_block",
+// "tool_call", "image_generation", "error" or "done".
+//
+// "reasoning" carries the model's own summary of what it is about to do, in
+// Text, and is advisory: providers that do not expose a readable summary (or
+// expose only encrypted reasoning, as the Codex backend does) simply never emit
+// it, and every consumer must behave identically when it is absent.
 type Event struct {
 	Type            string
 	Text            string
 	ToolCall        *ToolCall
+	ContentBlock    *ContentBlock
+	BlockType       string
+	BlockIndex      int64
 	ImageGeneration *ImageGeneration
 	Usage           *Usage
 	StopReason      string
@@ -187,6 +208,10 @@ type Capabilities struct {
 	Reasoning        bool     `json:"reasoning,omitempty"`
 	ReasoningEffort  bool     `json:"reasoningEffort"`
 	ReasoningEfforts []string `json:"reasoningEfforts,omitempty"`
+
+	// NativeReasoningBlocks is an internal routing capability. It indicates that
+	// the adapter can replay opaque signed/encrypted reasoning content blocks.
+	NativeReasoningBlocks bool `json:"-"`
 }
 
 type CapabilityProvider interface {

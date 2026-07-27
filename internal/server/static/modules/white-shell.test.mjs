@@ -950,8 +950,12 @@ test("Subagent compact cards integrate background tasks without polling child to
   const cardStyles = styles.slice(styles.indexOf(marker), styles.indexOf("/* Background tasks and auto-continuation */", styles.indexOf(marker)));
   assert.ok(cardStyles.startsWith(marker));
   assert.match(chatRendering, /class="[^"]*subagent-task-card/);
-  assert.match(cardStyles, /\.subagent-task-card\.status-completed \.tool-activity-icon::before \{ content: "✓"; \}/);
-  assert.match(cardStyles, /\.subagent-task-card\.status-warn \.tool-activity-icon::before,[\s\S]*?content: "!"/);
+  // The status marker moved from a ::before character to an <svg> picked in
+  // chat-rendering.mjs, so the card must size that svg and must not reintroduce
+  // a generated-content glyph beside it.
+  assert.match(cardStyles, /\.subagent-task-card \.tool-activity-icon > svg \{[\s\S]*?width: 14px/);
+  assert.doesNotMatch(cardStyles, /\.tool-activity-icon::before/);
+  assert.match(chatRendering, /agentTaskStatusGlyphKind\(activity\.status\)/);
   assert.match(cardStyles, /\.subagent-task-card :is\(summary, button\):focus-visible/);
   assert.match(cardStyles, /@media \(max-width: 760px\)[\s\S]*?\.subagent-task-actions \.ghost-btn\.mini/);
   assert.doesNotMatch(cardStyles, /(?:^|\n)\s*\.tool-activity-card\s*\{/);
@@ -972,7 +976,11 @@ test("composer responds to its actual width before the mobile breakpoint", async
   assert.match(responsiveStyles, /\.composer-effort-field \.composer-select-trigger\s*\{[^}]*width:\s*auto[^}]*justify-content:\s*center[^}]*gap:\s*4px[^}]*padding:\s*0 4px/);
   assert.match(responsiveStyles, /\.composer-effort-field \.composer-select-value\s*\{[^}]*flex:\s*0 1 auto/);
   assert.match(responsiveStyles, /\.toolbar-lightning-btn:not\(\.hidden\)\s*\{[^}]*align-self:\s*center[^}]*align-items:\s*center[^}]*justify-content:\s*center/);
-  assert.match(responsiveStyles, /\.composer-permission-field\s*\{[^}]*flex:\s*0 0 96px/);
+  // Hugs the pill instead of a fixed basis: the old 96px/92px bases were sized
+  // for a pill that no longer exists, and the leftover ~22px read as a hole
+  // between the permission control and the directory button beside it.
+  assert.match(responsiveStyles, /\.composer-permission-field\s*\{[^}]*flex:\s*0 0 auto/);
+  assert.doesNotMatch(responsiveStyles, /\.composer-permission-field\s*\{[^}]*flex:\s*0 0 9\dpx/);
   // The pill sizes to its longest label instead of a fixed width, so 全部允許
   // is never ellipsised, and carries no padding of its own so the trigger
   // fills it and the whole control is clickable.
@@ -988,7 +996,7 @@ test("composer responds to its actual width before the mobile breakpoint", async
   assert.match(responsiveStyles, /@container composer-shell \(max-width:\s*620px\)[\s\S]*?\.composer-effort-field \.effort-pill\s*\{[^}]*width:\s*auto/);
   assert.match(responsiveStyles, /@container composer-shell \(max-width:\s*620px\)[\s\S]*?\.composer-effort-field \.composer-select-value\s*\{[^}]*font-size:\s*11px[^}]*text-overflow:\s*clip/);
   assert.match(responsiveStyles, /@container composer-shell \(max-width:\s*620px\)[\s\S]*?\.composer-effort-field \.composer-select-value::before\s*\{[^}]*content:\s*none/);
-  assert.match(responsiveStyles, /@container composer-shell \(max-width:\s*900px\)[\s\S]*?\.composer-permission-field\s*\{[^}]*flex:\s*0 0 92px/);
+  assert.match(responsiveStyles, /@container composer-shell \(max-width:\s*900px\)[\s\S]*?\.composer-permission-field\s*\{[^}]*flex:\s*0 0 auto/);
   assert.match(responsiveStyles, /@container composer-shell \(max-width:\s*900px\)[\s\S]*?\.permission-toolbar-pill\s*\{[^}]*width:\s*auto[^}]*min-width:\s*max-content/);
   assert.match(responsiveStyles, /@container composer-shell \(max-width:\s*900px\)[\s\S]*?\.message-mode-option::after\s*\{[^}]*content:\s*attr\(data-mobile-label\)/);
   assert.match(responsiveStyles, /@container composer-shell \(max-width:\s*900px\)[\s\S]*?\.permission-safety-indicator\s*\{[^}]*display:\s*none/);

@@ -15,8 +15,13 @@ import (
 
 const maxImageGenerationEventPromptRunes = 1024
 
+// Reasoning holds the model's own running commentary for the turn, when the
+// provider exposes a readable one. It is never fed back into the next request:
+// it exists so the activity list can say why a step happened.
 type modelTurnResult struct {
 	Text                   string
+	Reasoning              string
+	ResponseBlocks         []providers.ContentBlock
 	ToolCalls              []providers.ToolCall
 	GeneratedImages        []providers.ImageGeneration
 	ImageGenerationStarted bool
@@ -84,9 +89,6 @@ func (r *Runner) runModelTurnAttempt(ctx context.Context, agentID, runID string,
 		}
 	}
 	request := providers.GenerateRequest{Model: model, SystemPrompt: systemPrompt, Messages: requestMessages, Tools: requestTools, ReasoningEffort: reasoningEffort, FastMode: fastModeAllowed, EnableImageGeneration: capabilities.ImageGeneration && modelCapabilities.ImageGeneration, Scenario: providers.CallScenarioInternal}
-	if capabilities.Reasoning {
-		request.ReasoningEffort = agentReasoningEffort(ctx, r.store, agentID)
-	}
 	requestID := db.NewID()
 	r.publish(Event{Type: "model.started", AgentID: agentID, Data: mergeEventData(map[string]any{
 		"requestId": requestID,
@@ -102,6 +104,9 @@ func (r *Runner) runModelTurnAttempt(ctx context.Context, agentID, runID string,
 
 	var result modelTurnResult
 	var builder strings.Builder
+	// Kept apart from builder so reasoning never leaks into the assistant
+	// message that is sent back to the model on the next turn.
+	var reasoning strings.Builder
 	var firstOutputAt time.Time
 	var outputRunes int64
 	modelOutputStarted := false
@@ -128,6 +133,7 @@ func (r *Runner) runModelTurnAttempt(ctx context.Context, agentID, runID string,
 		completedAt := time.Now()
 		duration := completedAt.Sub(started)
 		result.Text = builder.String()
+		result.Reasoning = reasoning.String()
 		result.StartedAt = started
 		result.FirstOutputAt = firstOutputAt
 		result.CompletedAt = completedAt
@@ -182,6 +188,28 @@ func (r *Runner) runModelTurnAttempt(ctx context.Context, agentID, runID string,
 				builder.WriteString(event.Text)
 				r.publish(Event{Type: "agent.text", AgentID: agentID, Text: event.Text, Data: mergeEventData(map[string]any{"requestId": requestID}, runID)})
 				publishStreamingUsage()
+			case "reasoning":
+				// Advisory only. It is not appended to the answer, does not count
+				// toward outputRunes, and does not set modelOutputStarted -- a turn
+				// that only reasoned has produced nothing and must stay retryable.
+				// It does mark first output, because the user can see it arrive.
+				if event.Text == "" {
+					continue
+				}
+				markModelOutput(time.Now())
+				reasoning.WriteString(event.Text)
+				r.publish(Event{Type: "agent.reasoning", AgentID: agentID, Text: event.Text, Data: mergeEventData(map[string]any{"requestId": requestID}, runID)})
+			case "content_block":
+				if event.ContentBlock == nil {
+					continue
+				}
+				markModelOutput(time.Now())
+				modelOutputStarted = true
+				block := *event.ContentBlock
+				block.Data = append([]byte(nil), block.Data...)
+				block.Input = append([]byte(nil), block.Input...)
+				block.ProviderState = append([]byte(nil), block.ProviderState...)
+				result.ResponseBlocks = append(result.ResponseBlocks, block)
 			case "tool_call":
 				if !capabilities.Tools {
 					err := &ProviderError{Message: "provider emitted a tool call without declaring tool capability"}
@@ -482,17 +510,6 @@ func (r *Runner) recordAPIRequest(agentID, runID, messageID, providerName, model
 	if err != nil {
 		slog.Warn("record api request failed", "agentId", agentID, "error", err)
 	}
-}
-
-func agentReasoningEffort(ctx context.Context, store *db.Store, agentID string) string {
-	if store == nil {
-		return ""
-	}
-	agent, err := store.GetAgent(ctx, agentID)
-	if err != nil {
-		return ""
-	}
-	return agent.ReasoningEffort
 }
 
 type ProviderError struct{ Message string }

@@ -123,7 +123,9 @@ func (p *OpenAIOfficial) Generate(ctx context.Context, req GenerateRequest) (<-c
 			params.MaxOutputTokens = param.NewOpt(req.MaxOutputTokens)
 		}
 		if reasoningEffort != "" {
-			params.Reasoning = shared.ReasoningParam{Effort: shared.ReasoningEffort(reasoningEffort)}
+			// Summary "auto" is what makes the reasoning stream readable; without
+			// it the model still reasons but emits nothing the UI can show.
+			params.Reasoning = shared.ReasoningParam{Effort: shared.ReasoningEffort(reasoningEffort), Summary: shared.ReasoningSummaryAuto}
 		}
 		if req.SystemPrompt != "" {
 			params.Instructions = param.NewOpt(req.SystemPrompt)
@@ -168,6 +170,12 @@ func (p *OpenAIOfficial) Generate(ctx context.Context, req GenerateRequest) (<-c
 				if !sawDelta && done.Text != "" {
 					sawDelta = true
 					out <- Event{Type: "text", Text: done.Text}
+				}
+			case "response.reasoning_summary_text.delta":
+				// sawDelta stays false: reasoning must not suppress the
+				// output_text.done fallback that recovers a non-streamed answer.
+				if summary := openAIReasoningSummaryDelta(event.RawJSON()); summary != "" {
+					out <- Event{Type: "reasoning", Text: summary}
 				}
 			case "response.output_item.done":
 				done := event.AsResponseOutputItemDone()
@@ -488,4 +496,21 @@ func renderTranscript(messages []Message) string {
 		builder.WriteString(content)
 	}
 	return builder.String()
+}
+
+// openAIReasoningSummaryDelta pulls the readable summary chunk out of a raw
+// response.reasoning_summary_text.delta frame. It reads the raw JSON rather
+// than a typed accessor so summaries keep flowing across SDK versions that
+// have not yet modelled the event.
+func openAIReasoningSummaryDelta(raw string) string {
+	if strings.TrimSpace(raw) == "" {
+		return ""
+	}
+	var frame struct {
+		Delta string `json:"delta"`
+	}
+	if err := json.Unmarshal([]byte(raw), &frame); err != nil {
+		return ""
+	}
+	return frame.Delta
 }

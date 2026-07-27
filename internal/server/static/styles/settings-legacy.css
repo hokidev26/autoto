@@ -113,6 +113,14 @@
 }
 .settings-nav-item:hover { background: #f4f6fb; }
 .settings-nav-item.active { background: #e9edff; color: #3f5fff; }
+/* Drag-to-reorder within a section */
+.settings-nav-item[draggable] { cursor: grab; }
+.settings-nav-item[draggable]:active { cursor: grabbing; }
+.settings-nav-item.settings-nav-dragging { opacity: 0.4; }
+.settings-nav-item.settings-nav-drag-over {
+  border-top: 2px solid #3f5fff;
+  background: #e9edff;
+}
 .settings-nav-label {
   min-width: 0;
   display: grid;
@@ -2974,6 +2982,47 @@ body.white-shell.theme-light:not(.project-operation-context) [data-project-conte
 .git-commit-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; justify-content: flex-end; }
 .git-mini-btn { display: inline-flex !important; }
 .git-commit-submit { padding: 7px 12px; font-size: 12px; border-radius: 9px; }
+/* Integration review. Deliberately reads as a report rather than a control
+   strip: the numbers come first and the merge button is the last thing in the
+   panel, so the decision is made from evidence instead of reflex. */
+.git-merge-panel { border-color: #e2e8f0; background: linear-gradient(180deg, #f8fafc, #ffffff); }
+.git-merge-metrics { display: flex; flex-wrap: wrap; gap: 6px; }
+.git-merge-metrics span {
+  border: 1px solid #dbeafe;
+  border-radius: 999px;
+  background: #eff6ff;
+  color: #1d4ed8;
+  padding: 3px 9px;
+  font-size: 11px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+.git-merge-warnings { display: grid; gap: 4px; }
+.git-merge-warnings span {
+  border-left: 2px solid #f59e0b;
+  color: #92400e;
+  padding-left: 8px;
+  font-size: 11px;
+  line-height: 1.45;
+}
+.git-merge-file-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  max-height: 132px;
+  overflow: auto;
+}
+.git-merge-file-list span {
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #334155;
+  padding: 2px 7px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 11px;
+}
+.git-merge-file-list.conflicts span { border-color: #fecaca; background: #fef2f2; color: #b91c1c; }
+.git-merge-file-list em { align-self: center; color: #64748b; font-size: 11px; font-style: normal; }
 .git-layout { flex: 1; min-height: 0; display: grid; grid-template-columns: 240px minmax(0, 1fr) 250px; gap: 12px; }
 .git-file-list, .git-diff-panel, .git-log-panel {
   min-height: 0;

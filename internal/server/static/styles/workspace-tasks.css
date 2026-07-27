@@ -1074,6 +1074,56 @@ body.white-shell.theme-light.theme-dark .navigation-boundary-empty button {
   font: 11px/1 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 }
 
+.tool-activity-step-icon > svg {
+  width: 14px;
+  height: 14px;
+}
+
+/* Model reasoning between actions. Quieter than a tool row on purpose: it is
+   context for the step below it, not an action of its own. */
+.tool-activity-reasoning-step > .tool-activity-reasoning { width: 100%; }
+
+.tool-activity-reasoning > summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 5px 7px;
+  border-radius: 7px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.tool-activity-reasoning > summary::-webkit-details-marker { display: none; }
+.tool-activity-reasoning > summary:hover { background: var(--tool-activity-surface-subtle); }
+
+.tool-activity-reasoning-step .tool-activity-step-copy > strong {
+  color: var(--tool-activity-muted, #9aa2b8);
+  font-weight: 560;
+  font-style: italic;
+}
+
+.tool-activity-reasoning-step .tool-activity-icon-thinking {
+  color: #b6a6e8;
+  background: rgba(129, 106, 199, .13);
+}
+
+.tool-activity-reasoning-body {
+  margin: 2px 0 6px 37px;
+  padding-left: 9px;
+  border-left: 2px solid var(--tool-activity-border, #3a3b45);
+  color: var(--tool-activity-muted, #9aa2b8);
+  font-size: 12px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.tool-activity-reasoning-step.is-open .tool-activity-step-copy > strong::after {
+  content: "…";
+  opacity: .7;
+}
+
 .tool-activity-step-copy {
   display: flex;
   min-width: 0;
@@ -1164,6 +1214,14 @@ body.white-shell.theme-light.theme-dark .navigation-boundary-empty button {
   object-fit: contain;
 }
 
+.tool-activity-icon > svg,
+.tool-activity-step-icon > svg {
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
 .tool-activity-icon.tool-activity-icon-command { color: #78c5ff; background: rgba(59, 157, 219, .13); }
 .tool-activity-icon.tool-activity-icon-output { color: #c3a6ff; background: rgba(143, 100, 223, .13); }
 .tool-activity-icon.tool-activity-icon-diff { color: #6cddb0; background: rgba(47, 167, 112, .13); }
@@ -1173,6 +1231,28 @@ body.white-shell.theme-light.theme-dark .navigation-boundary-empty button {
   .tool-activity-card:has(.tool-activity-output) .tool-activity-icon { color: #c3a6ff; background: rgba(143, 100, 223, .13); }
   .tool-activity-card:has(.tool-diff) .tool-activity-icon { color: #6cddb0; background: rgba(47, 167, 112, .13); }
 }
+/* Tint by what the tool does. These land after the :has() rules above so the
+   tool's own kind wins over "this card happens to contain a command block",
+   which is the coarser signal; both stay below the status colours below. */
+.tool-activity-icon.tool-activity-icon-command,
+.tool-activity-step-icon.tool-activity-icon-command { color: #78c5ff; background: rgba(59, 157, 219, .13); }
+.tool-activity-icon.tool-activity-icon-read,
+.tool-activity-step-icon.tool-activity-icon-read { color: #c3a6ff; background: rgba(143, 100, 223, .13); }
+.tool-activity-icon.tool-activity-icon-edit,
+.tool-activity-icon.tool-activity-icon-write,
+.tool-activity-step-icon.tool-activity-icon-edit,
+.tool-activity-step-icon.tool-activity-icon-write { color: #6cddb0; background: rgba(47, 167, 112, .13); }
+.tool-activity-icon.tool-activity-icon-search,
+.tool-activity-icon.tool-activity-icon-files,
+.tool-activity-step-icon.tool-activity-icon-search,
+.tool-activity-step-icon.tool-activity-icon-files { color: #edc073; background: rgba(214, 158, 46, .14); }
+.tool-activity-icon.tool-activity-icon-web,
+.tool-activity-step-icon.tool-activity-icon-web { color: #6fd3d8; background: rgba(45, 168, 175, .14); }
+.tool-activity-icon.tool-activity-icon-task,
+.tool-activity-step-icon.tool-activity-icon-task { color: #e79ad0; background: rgba(199, 89, 164, .13); }
+.tool-activity-icon.tool-activity-icon-todo,
+.tool-activity-step-icon.tool-activity-icon-todo { color: #9db4ff; background: rgba(93, 122, 232, .14); }
+
 .tool-activity-card.status-error .tool-activity-icon { color: var(--tool-activity-error); background: var(--tool-activity-error-soft); }
 .tool-activity-card.status-warn .tool-activity-icon { color: var(--tool-activity-warn); background: var(--tool-activity-warn-soft); }
 
@@ -1682,6 +1762,9 @@ body.white-shell.theme-light .messages:not(.empty) > [class~="message"][class~="
   padding: 8px 10px;
 }
 
+/* The status marker is an <svg> chosen in chat-rendering.mjs
+   (agentTaskStatusGlyphKind), not a ::before character, so it matches the line
+   art the rest of the activity list uses. */
 .subagent-task-card .tool-activity-icon {
   width: 26px;
   height: 26px;
@@ -1690,15 +1773,10 @@ body.white-shell.theme-light .messages:not(.empty) > [class~="message"][class~="
   font-weight: 800;
 }
 
-.subagent-task-card .tool-activity-icon::before {
-  content: "↗";
-  font-size: 13px;
-  line-height: 1;
+.subagent-task-card .tool-activity-icon > svg {
+  width: 14px;
+  height: 14px;
 }
-
-.subagent-task-card.status-completed .tool-activity-icon::before { content: "✓"; }
-.subagent-task-card.status-warn .tool-activity-icon::before,
-.subagent-task-card.status-error .tool-activity-icon::before { content: "!"; }
 
 .subagent-task-card .tool-activity-target {
   font-family: inherit;
@@ -2907,3 +2985,33 @@ body.white-shell.theme-light .composer-select-icon svg {
   }
 }
 
+
+/* Reasoning replayed from the transcript. A finished run keeps its tool calls in
+   a separate card, so there are no step boundaries left to interleave with:
+   history gets one collapsed block above the answer it explains. */
+.message-reasoning {
+  margin: 0 0 7px;
+  border-left: 2px solid var(--tool-activity-border, #3a3b45);
+  padding-left: 10px;
+}
+
+.message-reasoning > summary {
+  color: var(--tool-activity-muted, #9aa2b8);
+  font-size: 12px;
+  font-style: italic;
+  cursor: pointer;
+  list-style: none;
+}
+
+.message-reasoning > summary::-webkit-details-marker { display: none; }
+.message-reasoning > summary::before { content: "▸ "; font-style: normal; }
+.message-reasoning[open] > summary::before { content: "▾ "; }
+
+.message-reasoning-body {
+  margin-top: 5px;
+  color: var(--tool-activity-muted, #9aa2b8);
+  font-size: 12px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}

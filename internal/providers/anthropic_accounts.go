@@ -352,6 +352,7 @@ func (p *AnthropicProvider) listModelsWithClient(ctx context.Context, client ant
 		}
 		return nil, response, err
 	}
+	p.rememberAnthropicThinkingSupport(page.Data)
 	models := make([]string, 0, len(page.Data))
 	for _, model := range page.Data {
 		if id := strings.TrimSpace(model.ID); id != "" {

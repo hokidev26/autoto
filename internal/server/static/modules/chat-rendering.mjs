@@ -5,6 +5,14 @@ import { api } from "./runtime.mjs";
 import { visibleMessageText } from "./skills-commands.mjs";
 import { normalizeAvatarDataUrl } from "./profile-avatar.mjs?v=profile-avatar-1";
 import { t as cr } from "./messages-chat-rendering-extra.mjs?v=plan-mode-1-i18n-shared-1-subagent-cards-1-provider-errors-1-tool-activity-lazy-1";
+import {
+  bindProtectedDownloads,
+  hydrateProtectedImages,
+  loadProtectedImageURL,
+  protectedDownloadAttribute,
+  protectedImageAttribute,
+} from "./protected-images.mjs?v=protected-images-1";
+import { openImageLightbox } from "./image-lightbox.mjs?v=protected-images-1";
 
 const userMessageRoles = new Set(["user", "human"]);
 const maxTokenCount = 1_000_000_000;
@@ -193,10 +201,13 @@ export function renderGeneratedImageBlocksHTML(message = {}, fallbackAgentId = "
     const filename = block.filename || cr("imageGeneration.filename", { index: (block.outputIndex ?? block.blockIndex) + 1 });
     const dimensions = block.width && block.height ? `${block.width} × ${block.height}` : "";
     const imageAttributes = `${block.width ? ` width="${block.width}"` : ""}${block.height ? ` height="${block.height}"` : ""}${block.width && block.height ? ` style="aspect-ratio: ${block.width} / ${block.height}"` : ""}`;
+    // The asset lives behind the token-guarded API, which a plain <img src> or a
+    // new-tab navigation cannot authenticate. Both the preview and the download
+    // carry their path in a data attribute and are hydrated to a blob: URL.
     const preview = imageURL
-      ? `<a class="generated-image-open" href="${escapeAttr(imageURL)}" target="_blank" rel="noopener" aria-label="${escapeAttr(cr("imageGeneration.open", { filename }))}"><img class="generated-image-preview" src="${escapeAttr(imageURL)}" alt="${escapeAttr(alt)}" loading="lazy" decoding="async"${imageAttributes}></a><div class="generated-image-missing" data-generated-image-missing hidden>${escapeHtml(cr("imageGeneration.missing"))}</div>`
+      ? `<button type="button" class="generated-image-open" data-image-lightbox="${escapeAttr(imageURL)}" data-image-lightbox-name="${escapeAttr(filename)}" data-image-lightbox-caption="${escapeAttr(alt)}" aria-label="${escapeAttr(cr("imageGeneration.open", { filename }))}"><img class="generated-image-preview" ${protectedImageAttribute}="${escapeAttr(imageURL)}" alt="${escapeAttr(alt)}" loading="lazy" decoding="async"${imageAttributes}></button><div class="generated-image-missing" data-generated-image-missing hidden>${escapeHtml(cr("imageGeneration.missing"))}</div>`
       : `<div class="generated-image-missing" data-generated-image-missing>${escapeHtml(cr("imageGeneration.missing"))}</div>`;
-    return `<figure class="generated-image-card" data-generated-image data-output-index="${escapeAttr(String(block.outputIndex ?? block.blockIndex))}" data-generation-id="${escapeAttr(block.generationId)}">${preview}<figcaption><div><strong title="${escapeAttr(filename)}">${escapeHtml(filename)}</strong>${dimensions ? `<span>${escapeHtml(dimensions)}</span>` : ""}</div>${downloadURL ? `<a class="generated-image-download" href="${escapeAttr(downloadURL)}" download="${escapeAttr(filename)}">${escapeHtml(cr("imageGeneration.download"))}</a>` : ""}</figcaption>${block.revisedPrompt ? `<p title="${escapeAttr(block.revisedPrompt)}">${escapeHtml(block.revisedPrompt)}</p>` : ""}</figure>`;
+    return `<figure class="generated-image-card" data-generated-image data-output-index="${escapeAttr(String(block.outputIndex ?? block.blockIndex))}" data-generation-id="${escapeAttr(block.generationId)}">${preview}<figcaption><div><strong title="${escapeAttr(filename)}">${escapeHtml(filename)}</strong>${dimensions ? `<span>${escapeHtml(dimensions)}</span>` : ""}</div>${downloadURL ? `<a class="generated-image-download" ${protectedDownloadAttribute}="${escapeAttr(downloadURL)}" download="${escapeAttr(filename)}">${escapeHtml(cr("imageGeneration.download"))}</a>` : ""}</figcaption>${block.revisedPrompt ? `<p title="${escapeAttr(block.revisedPrompt)}">${escapeHtml(block.revisedPrompt)}</p>` : ""}</figure>`;
   }).join("")}</div>`;
 }
 
@@ -449,15 +460,58 @@ function normalizedDecisionSource(value) {
   return source === "builtin_exec_whitelist" ? "built_in_exec_whitelist" : source;
 }
 
-function toolActivityIcon(toolName) {
+// Line-art glyphs in the same idiom as the composer and workbench icons: a
+// 24x24 box, no fill, 1.7px round-joined strokes inheriting currentColor. They
+// replace the Unicode characters this used to emit (⌕ ◌ ▤ ± ✎ ›_ •), which
+// rendered at whatever weight and baseline each platform's fallback font chose
+// and read as punctuation rather than as icons.
+const toolActivityGlyphPaths = Object.freeze({
+  search: `<circle cx="10.5" cy="10.5" r="6.5"></circle><path d="m15.5 15.5 4.5 4.5"></path>`,
+  files: `<path d="M8 3.5h5.5L18 8v9a1.5 1.5 0 0 1-1.5 1.5H8A1.5 1.5 0 0 1 6.5 17V5A1.5 1.5 0 0 1 8 3.5Z"></path><path d="M13 3.5V8h5"></path><path d="M4 7.5v13A1.5 1.5 0 0 0 5.5 22h9"></path>`,
+  read: `<path d="M5.5 4.5h7L18.5 10v9.5a1.5 1.5 0 0 1-1.5 1.5H5.5A1.5 1.5 0 0 1 4 19.5v-13A1.5 1.5 0 0 1 5.5 4.5Z"></path><path d="M12 4.5V10h6"></path><path d="M7.5 13.5h7M7.5 17h4.5"></path>`,
+  edit: `<path d="M12 20.5h8.5"></path><path d="M16.6 4.1a2.1 2.1 0 0 1 3 3L8.4 18.3 4 19.5l1.2-4.4Z"></path>`,
+  write: `<path d="M5.5 3.5h7L18.5 9.5V13"></path><path d="M12 3.5V9.5h6"></path><path d="M4 6.5v13A1.5 1.5 0 0 0 5.5 21h5"></path><path d="M17.5 15.5v6M14.5 18.5h6"></path>`,
+  command: `<rect x="3.5" y="4.5" width="17" height="15" rx="2.5"></rect><path d="m8 10 2.5 2.5L8 15"></path><path d="M13 15h3.5"></path>`,
+  web: `<circle cx="12" cy="12" r="8.5"></circle><path d="M3.5 12h17"></path><path d="M12 3.5c2.4 2.3 3.6 5.2 3.6 8.5S14.4 18.2 12 20.5c-2.4-2.3-3.6-5.2-3.6-8.5S9.6 5.8 12 3.5Z"></path>`,
+  task: `<circle cx="6.5" cy="6.5" r="2.5"></circle><circle cx="17.5" cy="6.5" r="2.5"></circle><circle cx="12" cy="18" r="2.5"></circle><path d="M6.5 9v2a2 2 0 0 0 2 2h7a2 2 0 0 0 2-2V9"></path><path d="M12 13v2.5"></path>`,
+  todo: `<path d="M4 6.5 6 8.5 9.5 5"></path><path d="M4 17 6 19l3.5-3.5"></path><path d="M13 7h7M13 17.5h7"></path>`,
+  thinking: `<path d="M12 3.5a5.5 5.5 0 0 0-3.4 9.8V16a1.5 1.5 0 0 0 1.5 1.5h3.8A1.5 1.5 0 0 0 15.4 16v-2.7A5.5 5.5 0 0 0 12 3.5Z"></path><path d="M10 20.5h4"></path><path d="M12 9v4"></path>`,
+  // Deliberately the plainest mark in the set: it is the fallback for tools we
+  // do not recognise (MCP servers, plugins), so it upgrades the old "•" bullet
+  // rather than implying a capability the tool may not have.
+  generic: `<circle cx="12" cy="12" r="8.5"></circle><circle cx="12" cy="12" r="2.3"></circle>`,
+  // Subagent status markers. These used to be "↗", "✓" and "!" injected by a
+  // ::before in workspace-tasks.css, which cannot share a box with an <svg>.
+  dispatch: `<path d="M8 16 16 8"></path><path d="M9.5 8H16v6.5"></path>`,
+  done: `<path d="m5.5 12.5 4.5 4.5 8.5-9.5"></path>`,
+  alert: `<path d="M12 7v6.5"></path><circle cx="12" cy="17" r="1.1"></circle>`,
+});
+
+function toolActivityGlyph(kind) {
+  const paths = toolActivityGlyphPaths[kind] || toolActivityGlyphPaths.generic;
+  return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">${paths}</svg>`;
+}
+
+// The kind doubles as a CSS hook (.tool-activity-icon-<kind>), so the palette in
+// workspace-tasks.css can tint reads, writes and commands apart at a glance.
+function toolActivityIconKind(toolName) {
   const name = String(toolName || "").toLowerCase();
-  if (name.includes("grep") || name.includes("search")) return "⌕";
-  if (name.includes("glob")) return "◌";
-  if (name.includes("read")) return "▤";
-  if (name.includes("edit")) return "±";
-  if (name.includes("write")) return "✎";
-  if (name.includes("bash") || name.includes("shell") || name.includes("terminal")) return "›_";
-  return "•";
+  if (name.includes("grep") || name.includes("search")) return name.includes("web") ? "web" : "search";
+  if (name.includes("glob")) return "files";
+  if (name.includes("fetch") || name.includes("browser") || name.includes("navigate") || name.includes("http")) return "web";
+  if (name.includes("todo")) return "todo";
+  if (name.includes("task") || name.includes("agent")) return "task";
+  if (name.includes("notebook") || name.includes("edit")) return "edit";
+  if (name.includes("write") || name.includes("create")) return "write";
+  if (name.includes("read") || name.includes("view") || name.includes("cat")) return "read";
+  if (name.includes("bash") || name.includes("shell") || name.includes("terminal") || name.includes("powershell") || name.includes("exec")) return "command";
+  return "generic";
+}
+
+function toolActivityIconHTML(toolName, extraClass = "") {
+  const kind = toolActivityIconKind(toolName);
+  const classes = `${extraClass} tool-activity-icon-${kind}`.trim();
+  return { kind, classes, svg: toolActivityGlyph(kind) };
 }
 
 export function normalizeToolActivity(call = {}, fallback = {}) {
@@ -886,6 +940,13 @@ function agentTaskStatusClass(status) {
   return "status-error";
 }
 
+function agentTaskStatusGlyphKind(status) {
+  const statusClass = agentTaskStatusClass(status);
+  if (statusClass === "status-completed") return "done";
+  if (statusClass === "status-running") return "dispatch";
+  return "alert";
+}
+
 function agentTaskFailureNotice(activity) {
   if (activity.status !== "failed") return "";
   const code = activity.errorCode.toLowerCase();
@@ -926,7 +987,7 @@ export function renderAgentTaskActivityCardHTML(item = {}, backgroundTask = null
     <article class="tool-activity-card live-tool-output-card subagent-task-card chat-flow-item chat-flow-left chat-report-card ${escapeAttr(agentTaskStatusClass(activity.status))}" aria-label="${escapeAttr(label)}" data-chat-alignment="left" data-chat-report="subagent-task" data-subagent-card data-subagent-status="${escapeAttr(activity.status)}" data-live-tool-output-card="${escapeAttr(tool.toolUseId)}" data-tool-use-id="${escapeAttr(tool.toolUseId)}" data-run-id="${escapeAttr(tool.runId)}"${activity.taskId ? ` data-task-id="${escapeAttr(activity.taskId)}"` : ""}>
       <details class="subagent-task-summary"${activity.expanded ? " open" : ""}>
         <summary class="tool-activity-head live-tool-output-head">
-          <span class="tool-activity-icon" aria-hidden="true">•</span>
+          <span class="tool-activity-icon tool-activity-icon-task" aria-hidden="true">${toolActivityGlyph(agentTaskStatusGlyphKind(activity.status))}</span>
           <span class="tool-activity-main">
             <span class="tool-activity-title live-tool-output-title">${escapeHtml(cr("subagent.title"))}</span>
             <span class="tool-activity-target">${escapeHtml(activity.description)}</span>
@@ -969,10 +1030,11 @@ function renderGenericToolActivityCardHTML(item = {}, options = {}) {
     tool.runId ? shortToolRunId(tool.runId) : "",
   ].filter(Boolean).join(" · ");
   const cardLabel = [tool.toolName, target, toolActivityStatusLabel(status)].filter(Boolean).join(" · ");
+  const icon = toolActivityIconHTML(tool.toolName, "tool-activity-icon");
   return `
     <article class="tool-activity-card live-tool-output-card chat-flow-item chat-flow-left chat-report-card ${escapeAttr(toolActivityStatusClass(status))}" aria-label="${escapeAttr(cardLabel)}" data-chat-alignment="left" data-chat-report="tool-activity" data-live-tool-output-card="${escapeAttr(tool.toolUseId)}" data-tool-use-id="${escapeAttr(tool.toolUseId)}" data-run-id="${escapeAttr(tool.runId)}">
       <div class="tool-activity-head live-tool-output-head">
-        <span class="tool-activity-icon" aria-hidden="true">${escapeHtml(toolActivityIcon(tool.toolName))}</span>
+        <span class="${escapeAttr(icon.classes)}" aria-hidden="true">${icon.svg}</span>
         <div class="tool-activity-main">
           <div class="tool-activity-title live-tool-output-title">${escapeHtml(tool.toolName)}</div>
           ${target ? `<div class="tool-activity-target">${escapeHtml(target)}</div>` : ""}
@@ -1034,7 +1096,7 @@ function toolActivityRowPresentation(item, tool, options = {}) {
       const activity = normalizeAgentTaskActivity(item, resolved.task);
       if (activity) {
         return {
-          icon: "•",
+          iconKind: "task",
           title: cr("subagent.title"),
           target: activity.description,
           statusClass: agentTaskStatusClass(activity.status),
@@ -1044,7 +1106,7 @@ function toolActivityRowPresentation(item, tool, options = {}) {
     }
   }
   return {
-    icon: toolActivityIcon(tool.toolName),
+    iconKind: toolActivityIconKind(tool.toolName),
     title: tool.toolName,
     target: toolActivityTarget(tool),
     statusClass: toolActivityStatusClass(tool.status),
@@ -1063,7 +1125,7 @@ function renderToolActivityRowHTML(record, options = {}) {
   return `
     <li class="tool-activity-step ${escapeAttr(presentation.statusClass)}${selected ? " selected" : ""}"${subagentAttrs}>
       <button class="tool-activity-step-button" type="button" data-tool-activity-select="${escapeAttr(tool.toolUseId)}" data-tool-activity-label="${escapeAttr(label)}" aria-expanded="${selected ? "true" : "false"}" aria-label="${escapeAttr(cr(selected ? "activity.closeDetails" : "activity.openDetails", { tool: label }))}">
-        <span class="tool-activity-step-icon" aria-hidden="true">${escapeHtml(presentation.icon)}</span>
+        <span class="tool-activity-step-icon tool-activity-icon-${escapeAttr(presentation.iconKind)}" aria-hidden="true">${toolActivityGlyph(presentation.iconKind)}</span>
         <span class="tool-activity-step-copy">
           <strong>${escapeHtml(presentation.title)}</strong>
           ${presentation.target ? `<span>${escapeHtml(compactToolText(presentation.target, 220))}</span>` : ""}
@@ -1080,11 +1142,66 @@ export function nextToolActivitySelection(currentToolUseId, requestedToolUseId) 
   return requested && requested !== current ? requested : "";
 }
 
+export const maxLiveReasoningCharacters = 20000;
+export const maxLiveReasoningSteps = 60;
+
+// The first sentence carries the intent ("Planning the requirement inference");
+// the rest is supporting detail that belongs in the expanded body.
+export function reasoningStepTitle(text) {
+  const value = String(text || "").replace(/\s+/g, " ").trim();
+  if (!value) return "";
+  const boundary = value.search(/[。．.!！?？\n]/);
+  const head = boundary > 0 ? value.slice(0, boundary) : value;
+  return compactToolText(head, 120);
+}
+
+function renderReasoningStepHTML(step) {
+  const title = reasoningStepTitle(step?.text);
+  if (!title) return "";
+  const body = String(step?.text || "").trim();
+  const detail = body.length > title.length ? body : "";
+  return `
+    <li class="tool-activity-step tool-activity-reasoning-step${step?.open ? " is-open" : ""}" data-reasoning-step="${escapeAttr(String(step?.id || ""))}">
+      <details class="tool-activity-reasoning">
+        <summary class="tool-activity-step-button">
+          <span class="tool-activity-step-icon tool-activity-icon-thinking" aria-hidden="true">${toolActivityGlyph("thinking")}</span>
+          <span class="tool-activity-step-copy"><strong>${escapeHtml(title)}</strong></span>
+        </summary>
+        ${detail ? `<div class="tool-activity-reasoning-body">${escapeHtml(detail)}</div>` : ""}
+      </details>
+    </li>
+  `;
+}
+
+// Each reasoning step is filed under the tool that ended it, so it renders
+// immediately above that tool's row; steps that name no tool (the trailing one,
+// and anything whose tool never made it into this page) close the list.
+function renderToolActivityRowsHTML(records, reasoningSteps, options = {}) {
+  const steps = Array.isArray(reasoningSteps) ? reasoningSteps : [];
+  const rendered = new Set();
+  const rows = records.map((record) => {
+    const toolUseId = String(record.tool.toolUseId || "");
+    const leading = steps
+      .filter((step) => toolUseId && String(step?.beforeToolUseId || "") === toolUseId)
+      .map((step) => {
+        rendered.add(step);
+        return renderReasoningStepHTML(step);
+      })
+      .join("");
+    return `${leading}${renderToolActivityRowHTML(record, options)}`;
+  }).join("");
+  const trailing = steps.filter((step) => !rendered.has(step)).map(renderReasoningStepHTML).join("");
+  return `${rows}${trailing}`;
+}
+
 export function renderToolActivityStackHTML(toolCalls = [], options = {}) {
+  const reasoningSteps = Array.isArray(options.reasoningSteps) ? options.reasoningSteps : [];
   const records = (Array.isArray(toolCalls) ? toolCalls : [])
     .map((item) => ({ item, tool: normalizeToolActivity(item) }))
     .filter(({ tool }) => tool.toolUseId || tool.toolName);
-  if (!records.length) return "";
+  // Reasoning alone is worth a stack: it is what fills the gap before the first
+  // tool call, which is exactly when the user is staring at an empty thread.
+  if (!records.length && !reasoningSteps.length) return "";
   const expanded = toolActivityGroupExpanded(records, options);
   const stackKey = toolActivityStackKey(records, options);
   const source = options.live ? "live" : "run";
@@ -1101,7 +1218,7 @@ export function renderToolActivityStackHTML(toolCalls = [], options = {}) {
       <details class="tool-activity-group"${expanded ? " open" : ""}>
         <summary class="tool-activity-summary">${escapeHtml(cr("activity.processTitle", { count: totalCount }))}</summary>
         <div class="tool-activity-protected">${escapeHtml(cr("activity.processProtected"))}</div>
-        <ul class="tool-activity-steps">${records.map((record) => renderToolActivityRowHTML(record, { ...options, selectedToolUseId })).join("")}</ul>
+        <ul class="tool-activity-steps">${renderToolActivityRowsHTML(records, reasoningSteps, { ...options, selectedToolUseId })}</ul>
         ${omitted > 0 ? `<div class="tool-activity-more">${escapeHtml(cr("activity.recentOnly", { visible: records.length, count: omitted }))}</div>` : ""}
         <div class="tool-activity-selected-detail" data-tool-activity-selected-detail>${selectedRecord ? renderToolActivityCardHTML(selectedRecord.item, { ...options, detailsExpanded: true }) : ""}</div>
       </details>
@@ -1449,7 +1566,7 @@ export function createChatRenderingController({
       else existing.remove();
     } else if (html) {
       el.classList.remove("empty");
-      const anchor = el.querySelector("[data-plan-stack], [data-live-tool-output-stack], [data-run-summary-card], [data-run-outcome-card], [data-approval-stack]");
+      const anchor = el.querySelector("[data-plan-stack], [data-live-tool-output-stack], [data-run-summary-card], [data-run-outcome-card], [data-live-assistant], [data-approval-stack]");
       if (anchor) anchor.insertAdjacentHTML("beforebegin", html);
       else el.insertAdjacentHTML("beforeend", html);
     }
@@ -1513,7 +1630,12 @@ export function createChatRenderingController({
         </button>
       </div>
     ` : "";
-    el.innerHTML = `${olderMessagesControl}${visibleMessages.map(renderChatMessageCached).join("")}${liveAssistantCard}${liveImageGenerationCards}${planCards}${liveToolCards}${runSummaryCard}${approvalCards}`;
+    // Tail order is a contract shared with the incremental inserters below: the
+    // run scaffolding (image generation, plan, live tool output, run outcome)
+    // sits above the assistant's own words, so the newest thing the assistant
+    // said is the last message in the thread. Only approval prompts, which the
+    // user has to act on, render below it.
+    el.innerHTML = `${olderMessagesControl}${visibleMessages.map(renderChatMessageCached).join("")}${liveImageGenerationCards}${planCards}${liveToolCards}${runSummaryCard}${liveAssistantCard}${approvalCards}`;
     const liveMessageIds = new Set(visibleMessages.map((message) => message.id).filter(Boolean));
     for (const cachedId of messageHtmlCache.keys()) {
       if (!liveMessageIds.has(cachedId)) messageHtmlCache.delete(cachedId);
@@ -1629,9 +1751,24 @@ export function createChatRenderingController({
           <div class="message-head-actions">${actions}</div>
           ${timeHTML}
         </div>
-        ${editing ? renderCorrectionEditor(message) : `<div class="message-content">${renderMarkdown(friendlyMessageText(transcriptMessageText(message)))}</div>${presentation.normalizedRole === "assistant" ? renderGeneratedImageBlocksHTML(message, state.agent?.id || "") : ""}${renderMessageAttachments(message)}`}
+        ${editing ? renderCorrectionEditor(message) : `${renderPersistedReasoningHTML(message, presentation.normalizedRole)}<div class="message-content">${renderMarkdown(friendlyMessageText(transcriptMessageText(message)))}</div>${presentation.normalizedRole === "assistant" ? renderGeneratedImageBlocksHTML(message, state.agent?.id || "") : ""}${renderMessageAttachments(message)}`}
         ${presentation.normalizedRole === "assistant" ? renderPerformanceHTML(message.turnUsage) : ""}
       </div>
+    `;
+  }
+
+  // History has no live step boundaries to hang reasoning off -- the tool calls
+  // for a finished run live in their own card -- so a persisted turn shows its
+  // reasoning as one collapsed block above the answer it produced.
+  function renderPersistedReasoningHTML(message, normalizedRole) {
+    if (normalizedRole !== "assistant") return "";
+    const text = String(message?.reasoningText || "").trim();
+    if (!text) return "";
+    return `
+      <details class="message-reasoning">
+        <summary>${escapeHtml(cr("activity.reasoningSummary"))}</summary>
+        <div class="message-reasoning-body">${escapeHtml(text)}</div>
+      </details>
     `;
   }
 
@@ -1676,7 +1813,11 @@ export function createChatRenderingController({
     }
     el.classList.remove("empty");
     if (existing) existing.outerHTML = html;
-    else el.insertAdjacentHTML("beforeend", html);
+    else {
+      const approvalStack = el.querySelector("[data-approval-stack]");
+      if (approvalStack) approvalStack.insertAdjacentHTML("beforebegin", html);
+      else el.insertAdjacentHTML("beforeend", html);
+    }
     bindCopyCodeButtons(el);
     el.scrollTop = el.scrollHeight;
   }
@@ -1915,8 +2056,8 @@ export function createChatRenderingController({
         el.classList.remove("empty");
         el.innerHTML = html;
       } else {
-        const approvalStack = el.querySelector("[data-approval-stack]");
-        if (approvalStack) approvalStack.insertAdjacentHTML("beforebegin", html);
+        const anchor = el.querySelector("[data-live-assistant], [data-approval-stack]");
+        if (anchor) anchor.insertAdjacentHTML("beforebegin", html);
         else el.insertAdjacentHTML("beforeend", html);
       }
     }
@@ -2206,10 +2347,57 @@ export function createChatRenderingController({
     return Object.fromEntries(entries.filter(([key]) => kept.has(key)));
   }
 
+  // Reasoning arrives as a delta stream with no step boundaries of its own. A
+  // step is closed by the next tool call, and is filed under that tool's id so
+  // the row renders immediately above the action it explains; whatever is still
+  // open when the turn ends becomes the trailing step.
+  function appendLiveReasoning(event) {
+    const runId = String(event?.data?.runId || event?.data?.run_id || event?.runId || "");
+    const delta = String(event?.text || event?.data?.text || "");
+    if (!delta) return false;
+    const draft = state.liveReasoningDraft && state.liveReasoningDraft.runId === runId
+      ? state.liveReasoningDraft
+      : { runId, text: "" };
+    state.liveReasoningDraft = { runId, text: `${draft.text}${delta}`.slice(-maxLiveReasoningCharacters) };
+    renderLiveToolOutputCards();
+    return true;
+  }
+
+  function closeLiveReasoningStep(beforeToolUseId = "") {
+    const draft = state.liveReasoningDraft;
+    if (!draft || !String(draft.text || "").trim()) return false;
+    const steps = Array.isArray(state.liveReasoningSteps) ? state.liveReasoningSteps : [];
+    state.liveReasoningSteps = [...steps, {
+      id: `reasoning-${steps.length + 1}`,
+      runId: draft.runId,
+      text: String(draft.text).trim(),
+      beforeToolUseId: String(beforeToolUseId || ""),
+    }].slice(-maxLiveReasoningSteps);
+    state.liveReasoningDraft = null;
+    return true;
+  }
+
+  function clearLiveReasoning() {
+    state.liveReasoningSteps = [];
+    state.liveReasoningDraft = null;
+  }
+
+  function currentLiveReasoningSteps(runId = "") {
+    const expected = String(runId || "");
+    const steps = (Array.isArray(state.liveReasoningSteps) ? state.liveReasoningSteps : [])
+      .filter((step) => !expected || !step.runId || step.runId === expected);
+    const draft = state.liveReasoningDraft;
+    if (draft && String(draft.text || "").trim() && (!expected || !draft.runId || draft.runId === expected)) {
+      steps.push({ id: "reasoning-open", runId: draft.runId, text: String(draft.text).trim(), beforeToolUseId: "", open: true });
+    }
+    return steps;
+  }
+
   function rememberToolStarted(event) {
     const data = event?.data || {};
     const toolUseId = firstToolValue(data, "toolUseId", "tool_use_id");
     if (!toolUseId) return;
+    closeLiveReasoningStep(toolUseId);
     const known = Object.prototype.hasOwnProperty.call(state.liveToolOutputs || {}, toolUseId);
     const current = state.liveToolOutputs?.[toolUseId] || {};
     const started = toolItemFromEvent(event, current);
@@ -2277,16 +2465,19 @@ export function createChatRenderingController({
 
   function renderLiveToolOutputCardsHTML() {
     const records = currentLiveToolOutputList();
-    if (!records.length) return "";
     const runActive = String(state.agent?.status || "").trim().toLowerCase() === "running";
-    const stackKey = liveToolActivityStackKey(records);
+    const runId = records.length ? normalizeToolActivity(records.at(-1)).runId : String(state.liveAssistantRunId || "");
+    const reasoningSteps = currentLiveReasoningSteps(runId);
+    if (!records.length && !reasoningSteps.length) return "";
+    const stackKey = records.length ? liveToolActivityStackKey(records) : `live:${runId || "current"}`;
     const counterKey = liveToolOutputCounterKey(records.at(-1));
     const totalCount = Math.max(records.length, Number(liveToolOutputTotals()[counterKey] || 0));
     return renderToolActivityStackHTML(records, {
       live: true,
       runActive,
+      reasoningSteps,
       resolveBackgroundTask,
-      runId: normalizeToolActivity(records.at(-1)).runId,
+      runId,
       stackKey,
       selectedToolUseId: selectedToolActivity(stackKey),
       totalCount,
@@ -2307,10 +2498,8 @@ export function createChatRenderingController({
         el.classList.remove("empty");
         el.innerHTML = html;
       } else {
-        const runSummary = el.querySelector("[data-run-summary-card], [data-run-outcome-card]");
-        const approvalStack = el.querySelector("[data-approval-stack]");
-        if (runSummary) runSummary.insertAdjacentHTML("beforebegin", html);
-        else if (approvalStack) approvalStack.insertAdjacentHTML("beforebegin", html);
+        const anchor = el.querySelector("[data-run-summary-card], [data-run-outcome-card], [data-live-assistant], [data-approval-stack]");
+        if (anchor) anchor.insertAdjacentHTML("beforebegin", html);
         else el.insertAdjacentHTML("beforeend", html);
       }
     }
@@ -2735,18 +2924,33 @@ export function createChatRenderingController({
   function renderSentAttachmentCard(message, attachment) {
     const kind = attachment.kind || attachmentKind({ name: attachment.filename || "", type: attachment.mimeType || "" });
     const url = attachmentURL(message, attachment);
+    const filename = attachment.filename || cr("attachment.attachment");
     const subtitle = [attachmentKindLabel(kind), formatBytes(attachment.sizeBytes || 0)].filter(Boolean).join(" · ");
-    const thumb = kind === "image"
-      ? `<img class="attachment-thumb" src="${escapeAttr(url)}" alt="" loading="lazy" />`
-      : `<span class="attachment-thumb">${escapeHtml(attachmentIcon(kind))}</span>`;
+    // Images get a real preview instead of a 38px file chip. The src is left
+    // empty on purpose: /api/ rejects header-less <img> loads, so the path
+    // travels in data-protected-image and is hydrated into a blob URL.
+    if (kind === "image") {
+      return `
+        <figure class="attachment-image-card">
+          <button class="attachment-image-open" type="button" data-attachment-lightbox="${escapeAttr(url)}" data-attachment-name="${escapeAttr(filename)}" aria-label="${escapeAttr(cr("attachment.openImage", { filename }))}">
+            <img class="attachment-image-preview" ${protectedImageAttribute}="${escapeAttr(url)}" alt="${escapeAttr(filename)}" decoding="async" />
+            <span class="attachment-image-failed" data-attachment-image-failed hidden>${escapeHtml(cr("attachment.unavailable"))}</span>
+          </button>
+          <figcaption class="attachment-image-caption">
+            <span class="attachment-name" title="${escapeAttr(filename)}">${escapeHtml(filename)}</span>
+            <span class="attachment-subtitle">${escapeHtml(subtitle)}</span>
+          </figcaption>
+        </figure>
+      `;
+    }
     return `
-      <a class="attachment-card" href="${escapeAttr(url)}" target="_blank" rel="noreferrer">
-        ${thumb}
+      <button class="attachment-card" type="button" data-attachment-download="${escapeAttr(url)}" data-attachment-name="${escapeAttr(filename)}">
+        <span class="attachment-thumb">${escapeHtml(attachmentIcon(kind))}</span>
         <div class="attachment-meta">
-          <div class="attachment-name" title="${escapeAttr(attachment.filename || cr("attachment.attachment"))}">${escapeHtml(attachment.filename || cr("attachment.attachment"))}</div>
+          <div class="attachment-name" title="${escapeAttr(filename)}">${escapeHtml(filename)}</div>
           <div class="attachment-subtitle">${escapeHtml(subtitle)}</div>
         </div>
-      </a>
+      </button>
     `;
   }
 
@@ -2866,32 +3070,131 @@ export function createChatRenderingController({
     return blocks.join("");
   }
 
+  // Blank lines are kept as block separators rather than filtered away: they are
+  // the only thing that tells one list from the next, or a heading from the
+  // paragraph that follows it.
   function renderMarkdownText(text) {
-    const lines = String(text || "").split(/\n+/).filter((line) => line.trim() !== "");
-    if (!lines.length) return "";
+    const lines = String(text || "").replace(/\r\n?/g, "\n").split("\n");
     const html = [];
-    let list = [];
-    const flushList = () => {
-      if (list.length) {
-        html.push(`<ul>${list.map((item) => `<li>${renderInlineMarkdown(item)}</li>`).join("")}</ul>`);
-        list = [];
+    // A stack of open lists, deepest last, so indented bullets nest instead of
+    // flattening into one long column.
+    let lists = [];
+    let quote = [];
+
+    const closeLists = (toDepth = 0) => {
+      while (lists.length > toDepth) {
+        const closed = lists.pop();
+        const markup = `<${closed.tag}>${closed.items.join("")}</${closed.tag}>`;
+        if (lists.length) lists[lists.length - 1].items.push(markup);
+        else html.push(markup);
       }
     };
-    for (const line of lines) {
-      const bullet = line.match(/^\s*[-*]\s+(.+)$/);
-      if (bullet) {
-        list.push(bullet[1]);
-      } else {
-        flushList();
-        html.push(`<p>${renderInlineMarkdown(line)}</p>`);
+    const closeQuote = () => {
+      if (!quote.length) return;
+      html.push(`<blockquote>${quote.map((line) => `<p>${renderInlineMarkdown(line)}</p>`).join("")}</blockquote>`);
+      quote = [];
+    };
+    const pushItem = (markup) => {
+      if (lists.length) lists[lists.length - 1].items.push(markup);
+      else html.push(markup);
+    };
+
+    for (const raw of lines) {
+      const line = raw.replace(/\s+$/, "");
+      if (!line.trim()) {
+        closeLists();
+        closeQuote();
+        continue;
       }
+
+      const heading = line.match(/^(#{1,6})\s+(.+)$/);
+      if (heading) {
+        closeLists();
+        closeQuote();
+        const level = heading[1].length;
+        html.push(`<h${level}>${renderInlineMarkdown(heading[2].replace(/\s+#+\s*$/, ""))}</h${level}>`);
+        continue;
+      }
+
+      if (/^\s{0,3}([-*_])(?:\s*\1){2,}\s*$/.test(line)) {
+        closeLists();
+        closeQuote();
+        html.push("<hr>");
+        continue;
+      }
+
+      const quoted = line.match(/^\s{0,3}>\s?(.*)$/);
+      if (quoted) {
+        closeLists();
+        quote.push(quoted[1]);
+        continue;
+      }
+      closeQuote();
+
+      const bullet = line.match(/^(\s*)[-*+]\s+(.+)$/);
+      const ordered = line.match(/^(\s*)\d{1,9}[.)]\s+(.+)$/);
+      const item = bullet || ordered;
+      if (item) {
+        const tag = bullet ? "ul" : "ol";
+        // Two spaces is the shallowest indent editors and models agree on, so it
+        // is what decides a nesting level here.
+        const depth = Math.floor(item[1].replace(/\t/g, "  ").length / 2) + 1;
+        while (lists.length > depth) closeLists(lists.length - 1);
+        while (lists.length < depth) lists.push({ tag, items: [] });
+        const current = lists[lists.length - 1];
+        if (current.tag !== tag) {
+          closeLists(lists.length - 1);
+          lists.push({ tag, items: [] });
+        }
+        lists[lists.length - 1].items.push(`<li>${renderInlineMarkdown(item[2])}</li>`);
+        continue;
+      }
+
+      // A plain line while a list is open is that item's continuation, not a new
+      // paragraph beside the list.
+      if (lists.length) {
+        pushItem(`<p>${renderInlineMarkdown(line.trim())}</p>`);
+        continue;
+      }
+      html.push(`<p>${renderInlineMarkdown(line)}</p>`);
     }
-    flushList();
+    closeLists();
+    closeQuote();
     return html.join("");
   }
 
+  // Only http(s) and mailto survive. The link text arrives already escaped, but
+  // a scheme like javascript: contains nothing escapeHtml touches, so the scheme
+  // has to be checked explicitly or a link becomes a script.
+  function safeMarkdownLinkHref(url) {
+    const value = String(url || "").trim().replace(/&amp;/g, "&");
+    if (!/^(?:https?:\/\/|mailto:)/i.test(value)) return "";
+    if (/[\s<>"'`\\]/.test(value)) return "";
+    return escapeAttr(value);
+  }
+
   function renderInlineMarkdown(text) {
-    return escapeHtml(text).replace(/`([^`]+)`/g, (_, code) => `<code class="inline-code">${code}</code>`);
+    const held = [];
+    // Code spans are lifted out before any emphasis runs so `**` inside a code
+    // span stays literal, which is exactly why someone wrapped it in backticks.
+    let out = escapeHtml(text).replace(/`([^`]+)`/g, (_, code) => {
+      held.push(`<code class="inline-code">${code}</code>`);
+      return `${held.length - 1}`;
+    });
+    out = out
+      .replace(/\[([^\]\n]+)\]\(([^)\s]+)\)/g, (whole, label, url) => {
+        const href = safeMarkdownLinkHref(url);
+        return href ? `<a href="${href}" target="_blank" rel="noopener noreferrer">${label}</a>` : whole;
+      })
+      .replace(/\*\*\*(?=\S)([\s\S]*?\S)\*\*\*/g, "<strong><em>$1</em></strong>")
+      .replace(/\*\*(?=\S)([\s\S]*?\S)\*\*/g, "<strong>$1</strong>")
+      .replace(/__(?=\S)([\s\S]*?\S)__/g, "<strong>$1</strong>")
+      .replace(/~~(?=\S)([\s\S]*?\S)~~/g, "<del>$1</del>")
+      // Single-character emphasis is matched last and only when the delimiter
+      // hugs the text, so multiplication and snake_case survive intact.
+      .replace(/(^|[^*\w])\*(?=\S)([^*\n]*?\S)\*(?![*\w])/g, "$1<em>$2</em>")
+      .replace(/(^|[^_\w])_(?=\S)([^_\n]*?\S)_(?![_\w])/g, "$1<em>$2</em>");
+    return out.replace(/(\d+)/g, (_, index) => held[Number(index)] ?? "");
   }
 
   function highlightCode(code, lang) {
@@ -2954,6 +3257,60 @@ export function createChatRenderingController({
     });
   }
 
+  // Every protected asset surface in a freshly rendered subtree: thumbnails need
+  // their bytes fetched with the API token, download links need arming, and the
+  // open buttons need to route to the lightbox instead of a doomed navigation.
+  function bindProtectedImageSurfaces(root) {
+    if (!root?.querySelectorAll) return;
+    hydrateProtectedImages(root);
+    bindProtectedDownloads(root);
+    root.querySelectorAll("img.attachment-image-preview").forEach((image) => {
+      image.addEventListener("error", () => {
+        const placeholder = image.closest?.(".attachment-image-card")?.querySelector?.("[data-attachment-image-failed]");
+        if (placeholder) placeholder.hidden = false;
+        image.closest?.(".attachment-image-card")?.classList?.add?.("is-missing");
+      }, { once: true });
+    });
+    if (root.dataset?.protectedImageClicksBound === "true") return;
+    if (root.dataset) root.dataset.protectedImageClicksBound = "true";
+    root.addEventListener?.("click", (event) => {
+      const opener = event.target?.closest?.("[data-attachment-lightbox], [data-image-lightbox]");
+      if (opener) {
+        event.preventDefault?.();
+        const url = opener.dataset?.attachmentLightbox || opener.dataset?.imageLightbox || "";
+        const name = opener.dataset?.attachmentName || opener.dataset?.imageLightboxName || "";
+        openImageLightbox({
+          url,
+          caption: opener.dataset?.imageLightboxCaption || name,
+          downloadName: name,
+          labels: { close: cr("attachment.closeViewer"), download: cr("imageGeneration.download") },
+        }).then((opened) => {
+          if (!opened) showToast(cr("attachment.unavailable"), "warn");
+        });
+        return;
+      }
+      // Non-image attachments are buttons rather than links for the same reason:
+      // a plain href cannot carry the API token.
+      const download = event.target?.closest?.("[data-attachment-download]");
+      if (!download) return;
+      event.preventDefault?.();
+      downloadProtectedAttachment(download.dataset?.attachmentDownload || "", download.dataset?.attachmentName || "");
+    });
+  }
+
+  async function downloadProtectedAttachment(url, filename) {
+    if (!url) return;
+    try {
+      const objectURL = await loadProtectedImageURL(url);
+      const anchor = document.createElement("a");
+      anchor.href = objectURL;
+      anchor.download = filename || "attachment";
+      anchor.click();
+    } catch {
+      showToast(cr("attachment.unavailable"), "warn");
+    }
+  }
+
   function bindMessageActionButtons(root) {
     root.querySelectorAll("[data-generated-image] img.generated-image-preview").forEach((image) => {
       image.addEventListener("error", () => {
@@ -2964,6 +3321,7 @@ export function createChatRenderingController({
         card?.classList?.add?.("is-missing");
       }, { once: true });
     });
+    bindProtectedImageSurfaces(root);
     root.querySelectorAll("[data-correct-message]").forEach((button) => {
       button.addEventListener("click", () => openCorrectionEditor(button.dataset.correctMessage || ""));
     });
@@ -3018,7 +3376,10 @@ export function createChatRenderingController({
 
   return {
     appendLiveAssistantText,
+    appendLiveReasoning,
     appendToolOutput,
+    clearLiveReasoning,
+    closeLiveReasoningStep,
     applyMessageSnapshot,
     applyPlanEvent,
     beginLiveAssistantGeneration,

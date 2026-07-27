@@ -17,6 +17,9 @@ const {
   normalizeMessageMode,
   normalizeReasoningEffort,
   parseGoalCommandDraft,
+  maxQueuedMessages,
+  normalizeMessageQueue,
+  parseQueueCommandDraft,
   reasoningEffortValuesForCapabilities,
   reasoningEffortValuesForModel,
   resizeMessageInputElement,
@@ -88,24 +91,37 @@ test("chat composer honors unusable effective owners as command shadows", () => 
 });
 
 test("project context exposes the trusted goal command and reserves it from skills", () => {
-  const translate = () => "Add a protected task to the task list";
-  assert.deepEqual(builtInSlashCommandsForContext("conversation", translate), []);
-  assert.deepEqual(builtInSlashCommandsForContext("project", translate), [
-    { id: "builtin-goal", name: "/goal", description: "Add a protected task to the task list", prompt: "", source: "builtin" },
-  ]);
+  const translate = () => "described";
+  const goal = { id: "builtin-goal", name: "/goal", description: "described", prompt: "", source: "builtin" };
+  // /queue is context-free: parking a follow-up is useful in a plain
+  // conversation too, so unlike /goal it survives outside a project.
+  const queue = { id: "builtin-queue", name: "/queue", description: "described", prompt: "", source: "builtin" };
+  assert.deepEqual(builtInSlashCommandsForContext("conversation", translate), [queue]);
+  assert.deepEqual(builtInSlashCommandsForContext("project", translate), [goal, queue]);
   assert.deepEqual(slashCommandsForContext("project", [
     { id: "server-goal", name: "/goal", description: "shadow", prompt: "", source: "server" },
+    { id: "server-queue", name: "/queue", description: "shadow", prompt: "", source: "server" },
     { id: "server-review", name: "/review", description: "review", prompt: "", source: "server" },
   ], translate), [
-    { id: "builtin-goal", name: "/goal", description: "Add a protected task to the task list", prompt: "", source: "builtin" },
+    goal,
+    queue,
     { id: "server-review", name: "/review", description: "review", prompt: "", source: "server" },
   ]);
   assert.deepEqual(slashCommandsForContext("conversation", [
     { id: "server-goal", name: "/goal", description: "shadow", prompt: "", source: "server" },
     { id: "server-review", name: "/review", description: "review", prompt: "", source: "server" },
   ], translate), [
+    queue,
     { id: "server-review", name: "/review", description: "review", prompt: "", source: "server" },
   ]);
+});
+
+test("queue command parsing matches the goal command grammar", () => {
+  assert.equal(parseQueueCommandDraft("run the tests"), null);
+  assert.equal(parseQueueCommandDraft("/queued up"), null);
+  assert.equal(parseQueueCommandDraft("/Queue ship it"), null);
+  assert.deepEqual(parseQueueCommandDraft(" /queue "), { commandText: "/queue", queuedText: "" });
+  assert.deepEqual(parseQueueCommandDraft("/queue run the tests"), { commandText: "/queue run the tests", queuedText: "run the tests" });
 });
 
 test("goal command parsing matches the backend command grammar", () => {
@@ -1317,4 +1333,82 @@ test("Composer keeps invalid goal drafts and attachments without sending", async
   } finally {
     globalThis.document = previousDocument;
   }
+});
+
+test("/queue holds messages until the turn ends, then sends them in order", async () => {
+  const queueHost = { className: "", innerHTML: "", classList: { toggle() {} }, querySelectorAll: () => [] };
+  const input = { value: "/queue second thing", style: {}, focus() {}, classList: { toggle() {} } };
+  const elements = { messageQueue: queueHost, messageText: input, pendingAttachments: null };
+  const state = {
+    agent: { id: "agent-1", status: "running", model: "m" },
+    navigationSelectionKind: "conversation",
+    messageQueue: [],
+    pendingToolApprovals: {},
+    liveToolOutputs: {},
+    pendingAttachments: [],
+    chatDrafts: {},
+    promptHistory: [],
+  };
+  const sent = [];
+  const previousDocument = globalThis.document;
+  globalThis.document = { getElementById(id) { return elements[id] || null; } };
+  try {
+    const controller = createChatComposerController({
+      state,
+      isCurrentModelConfigured: () => true,
+      loadMessages: async () => {},
+      scheduleMessageRefresh() {},
+      notifyTerminal() {},
+      showToast() {},
+      onMessageAccepted: async () => {},
+      request: async (url, options) => {
+        sent.push(JSON.parse(options.body).text);
+        return { id: `m${sent.length}` };
+      },
+    });
+
+    await controller.sendMessage({ preventDefault() {} });
+    assert.deepEqual(sent, [], "a queued message must not be posted while the turn is running");
+    assert.deepEqual(state.messageQueue.map((item) => item.text), ["second thing"]);
+
+    // With something already parked, a plain send joins the back of the line
+    // rather than overtaking it.
+    input.value = "third thing";
+    await controller.sendMessage({ preventDefault() {} });
+    assert.deepEqual(sent, []);
+    assert.deepEqual(state.messageQueue.map((item) => item.text), ["second thing", "third thing"]);
+
+    // Still blocked while a tool is mid-flight, even though the agent record
+    // has already flipped away from "running".
+    state.agent.status = "idle";
+    state.liveToolOutputs = { t1: { status: "running" } };
+    await controller.drainMessageQueue();
+    assert.deepEqual(sent, []);
+
+    state.liveToolOutputs = {};
+    await controller.drainMessageQueue();
+    await controller.drainMessageQueue();
+    assert.deepEqual(sent, ["second thing", "third thing"]);
+    assert.deepEqual(state.messageQueue, []);
+  } finally {
+    globalThis.document = previousDocument;
+  }
+});
+
+test("a restored queue is re-typed and bounded before anything reads it", () => {
+  assert.deepEqual(normalizeMessageQueue(null), []);
+  assert.deepEqual(normalizeMessageQueue([
+    { id: "a", agentId: "agent-1", text: "keep", mode: "plan", context: "project" },
+    { id: "a", agentId: "agent-1", text: "duplicate id" },
+    { id: "", agentId: "agent-1", text: "no id" },
+    { id: "b", agentId: "", text: "no agent" },
+    { id: "c", agentId: "agent-1", text: "   " },
+    { id: "d", agentId: "agent-1", text: "defaults", mode: "nonsense", context: "nonsense" },
+    "not an object",
+  ]), [
+    { id: "a", agentId: "agent-1", text: "keep", mode: "plan", context: "project" },
+    { id: "d", agentId: "agent-1", text: "defaults", mode: "execute", context: "conversation" },
+  ]);
+  const flood = Array.from({ length: 40 }, (unused, index) => ({ id: `q${index}`, agentId: "agent-1", text: `m${index}` }));
+  assert.equal(normalizeMessageQueue(flood).length, maxQueuedMessages);
 });

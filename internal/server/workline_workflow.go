@@ -42,7 +42,22 @@ type worklineMergeCheckResponse struct {
 	CanMerge         bool     `json:"canMerge"`
 	Conflicts        []string `json:"conflicts,omitempty"`
 	Output           string   `json:"output,omitempty"`
+	// Review signals. A merge is a decision, so the caller gets the size and
+	// direction of the change alongside the verdict instead of a bare boolean.
+	ChangedFiles  []string `json:"changedFiles,omitempty"`
+	ChangedCount  int      `json:"changedCount"`
+	Ahead         int      `json:"ahead"`
+	Behind        int      `json:"behind"`
+	SourceDirty   bool     `json:"sourceDirty"`
+	TargetDirty   bool     `json:"targetDirty"`
+	FilesLimited  bool     `json:"filesLimited,omitempty"`
+	AlreadyMerged bool     `json:"alreadyMerged,omitempty"`
 }
+
+// mergeCheckFileLimit bounds the file list the API returns. The count stays
+// exact; only the enumerated names are capped so a large branch cannot turn a
+// review request into a multi-megabyte response.
+const mergeCheckFileLimit = 200
 
 type worklineMergeRequest struct {
 	TargetWorklineID string `json:"targetWorklineId"`
@@ -82,6 +97,10 @@ func (s *Server) forkWorkline(w http.ResponseWriter, r *http.Request) {
 	}
 	repoRoot, _, err := runGitCommand(r.Context(), sourcePath, 4096, 3*time.Second, nil, "rev-parse", "--show-toplevel")
 	if err != nil {
+		if strings.Contains(strings.ToLower(err.Error()), "not a git repository") {
+			writeError(w, http.StatusBadRequest, "\""+sourcePath+"\" is not a git repository — initialize it first: git init && git add . && git commit -m \"initial\"")
+			return
+		}
 		writeGitError(w, err)
 		return
 	}
@@ -181,7 +200,7 @@ func (s *Server) worklineMergeCheck(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "source and target worklines must differ")
 		return
 	}
-	_, sourceHead, err := s.worklineRepoAndHead(r.Context(), project, source)
+	sourceRepo, sourceHead, err := s.worklineRepoAndHead(r.Context(), project, source)
 	if err != nil {
 		writeGitError(w, err)
 		return
@@ -202,6 +221,12 @@ func (s *Server) worklineMergeCheck(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer removeGitWorktree(context.Background(), targetRepo, tempDir)
+	// Gathered before the trial merge: afterwards the temporary worktree holds a
+	// merged tree, and diffing against it would report nothing.
+	changed, changedCount, filesLimited := mergeCheckChangedFiles(r.Context(), tempDir, targetHead, sourceHead)
+	ahead, behind := mergeCheckAheadBehind(r.Context(), tempDir, targetHead, sourceHead)
+	sourceDirty, _ := gitRepoDirty(r.Context(), sourceRepo)
+	targetDirty, _ := gitRepoDirty(r.Context(), targetRepo)
 	mergeOut, _, mergeErr := runGitCommand(r.Context(), tempDir, worklineGitOutputMaxBytes, 20*time.Second, nil, "merge", "--no-commit", "--no-ff", sourceHead)
 	conflicts := mergeCheckConflicts(r.Context(), tempDir)
 	if mergeErr != nil && len(conflicts) == 0 {
@@ -219,7 +244,47 @@ func (s *Server) worklineMergeCheck(w http.ResponseWriter, r *http.Request) {
 		CanMerge:         mergeErr == nil && len(conflicts) == 0,
 		Conflicts:        conflicts,
 		Output:           strings.TrimSpace(mergeOut),
+		ChangedFiles:     changed,
+		ChangedCount:     changedCount,
+		Ahead:            ahead,
+		Behind:           behind,
+		SourceDirty:      sourceDirty,
+		TargetDirty:      targetDirty,
+		FilesLimited:     filesLimited,
+		// Nothing to bring over: the source is already contained in the target.
+		AlreadyMerged: ahead == 0 && changedCount == 0,
 	})
+}
+
+// mergeCheckChangedFiles lists what the source would bring into the target,
+// comparing against the merge base rather than the target head so unrelated
+// target-side commits are not counted as the source's work.
+func mergeCheckChangedFiles(ctx context.Context, dir, targetHead, sourceHead string) ([]string, int, bool) {
+	out, _, err := runGitCommand(ctx, dir, gitStatusMaxBytes, 10*time.Second, nil, "diff", "--name-only", "-z", targetHead+"..."+sourceHead)
+	if err != nil {
+		return nil, 0, false
+	}
+	names := make([]string, 0)
+	for _, name := range strings.Split(out, "\x00") {
+		if name = strings.TrimSpace(name); name != "" {
+			names = append(names, name)
+		}
+	}
+	if len(names) > mergeCheckFileLimit {
+		return names[:mergeCheckFileLimit], len(names), true
+	}
+	return names, len(names), false
+}
+
+// mergeCheckAheadBehind counts commits unique to each side. Behind matters for
+// review: a source branch far behind its target is likely to need a rebase even
+// when the trial merge succeeds.
+func mergeCheckAheadBehind(ctx context.Context, dir, targetHead, sourceHead string) (int, int) {
+	out, _, err := runGitCommand(ctx, dir, 512, 5*time.Second, nil, "rev-list", "--left-right", "--count", sourceHead+"..."+targetHead)
+	if err != nil {
+		return 0, 0
+	}
+	return parseAheadBehind(strings.TrimSpace(out))
 }
 
 func (s *Server) worklineMerge(w http.ResponseWriter, r *http.Request) {

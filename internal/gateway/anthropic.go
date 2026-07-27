@@ -80,6 +80,7 @@ type anthropicMessagesRequest struct {
 	TopP          json.RawMessage         `json:"top_p"`
 	TopK          json.RawMessage         `json:"top_k"`
 	Thinking      json.RawMessage         `json:"thinking"`
+	OutputConfig  json.RawMessage         `json:"output_config"`
 	ToolChoice    json.RawMessage         `json:"tool_choice"`
 }
 
@@ -96,8 +97,9 @@ type anthropicInputTool struct {
 }
 
 type convertedAnthropicRequest struct {
-	ProviderRequest providers.GenerateRequest
-	HasImages       bool
+	ProviderRequest          providers.GenerateRequest
+	HasImages                bool
+	HasNativeReasoningBlocks bool
 }
 
 type anthropicMessageResponse struct {
@@ -112,11 +114,14 @@ type anthropicMessageResponse struct {
 }
 
 type anthropicOutputBlock struct {
-	Type  string          `json:"type"`
-	Text  string          `json:"text,omitempty"`
-	ID    string          `json:"id,omitempty"`
-	Name  string          `json:"name,omitempty"`
-	Input json.RawMessage `json:"input,omitempty"`
+	Type      string          `json:"type"`
+	Text      string          `json:"text,omitempty"`
+	Thinking  string          `json:"thinking,omitempty"`
+	Signature string          `json:"signature,omitempty"`
+	Data      string          `json:"data,omitempty"`
+	ID        string          `json:"id,omitempty"`
+	Name      string          `json:"name,omitempty"`
+	Input     json.RawMessage `json:"input,omitempty"`
 }
 
 type anthropicUsage struct {
@@ -160,6 +165,10 @@ func (s *Service) handleAnthropicMessages(w http.ResponseWriter, r *http.Request
 		writeAnthropicProblem(w, problem)
 		return
 	}
+	if problem := validateAnthropicNativeReasoningBlocks(resolved, converted); problem != nil {
+		writeAnthropicProblem(w, problem)
+		return
+	}
 	if request.Stream {
 		s.streamAnthropicMessage(w, r, key, resolved, converted)
 		return
@@ -190,12 +199,17 @@ func (s *Service) handleAnthropicCountTokens(w http.ResponseWriter, r *http.Requ
 		writeAnthropicProblem(w, problem)
 		return
 	}
-	if _, problem := s.resolveAndValidateProviderRequest(r.Context(), key, request.Model, &converted.ProviderRequest, converted.HasImages, generationParameterNames{
+	resolved, problem := s.resolveAndValidateProviderRequest(r.Context(), key, request.Model, &converted.ProviderRequest, converted.HasImages, generationParameterNames{
 		Tools:           "tools",
 		Images:          "messages",
 		ReasoningEffort: "thinking",
 		ServiceTier:     "service_tier",
-	}); problem != nil {
+	})
+	if problem != nil {
+		writeAnthropicProblem(w, problem)
+		return
+	}
+	if problem := validateAnthropicNativeReasoningBlocks(resolved, converted); problem != nil {
 		writeAnthropicProblem(w, problem)
 		return
 	}
@@ -222,7 +236,6 @@ func convertAnthropicRequest(request anthropicMessagesRequest, requireMaxTokens 
 		{name: "temperature", raw: request.Temperature},
 		{name: "top_p", raw: request.TopP},
 		{name: "top_k", raw: request.TopK},
-		{name: "thinking", raw: request.Thinking},
 		{name: "tool_choice", raw: request.ToolChoice},
 	} {
 		if rawJSONPresent(unsupported.raw) {
@@ -231,6 +244,10 @@ func convertAnthropicRequest(request anthropicMessagesRequest, requireMaxTokens 
 	}
 	if len(request.Messages) == 0 || len(request.Messages) > 10000 {
 		return convertedAnthropicRequest{}, invalidParam("messages", "messages must contain between 1 and 10000 items.")
+	}
+	thinkingEffort, thinkingBudget, problem := convertAnthropicThinking(request.Thinking, request.OutputConfig, request.MaxTokens)
+	if problem != nil {
+		return convertedAnthropicRequest{}, problem
 	}
 
 	systemPrompt, problem := convertAnthropicSystem(request.System)
@@ -243,19 +260,121 @@ func convertAnthropicRequest(request anthropicMessagesRequest, requireMaxTokens 
 	}
 	messages := make([]providers.Message, 0, len(request.Messages))
 	hasImages := false
+	hasNativeReasoningBlocks := false
 	for index, message := range request.Messages {
-		converted, images, problem := convertAnthropicMessage(message, index)
+		converted, images, nativeReasoning, problem := convertAnthropicMessage(message, index, request.Model)
 		if problem != nil {
 			return convertedAnthropicRequest{}, problem
 		}
 		messages = append(messages, converted)
 		hasImages = hasImages || images
+		hasNativeReasoningBlocks = hasNativeReasoningBlocks || nativeReasoning
 	}
-	providerRequest := providers.GenerateRequest{SystemPrompt: systemPrompt, Messages: messages, Tools: tools}
+	providerRequest := providers.GenerateRequest{
+		SystemPrompt:          systemPrompt,
+		Messages:              messages,
+		Tools:                 tools,
+		ReasoningEffort:       thinkingEffort,
+		ReasoningBudgetTokens: thinkingBudget,
+	}
 	if request.MaxTokens != nil {
 		providerRequest.MaxOutputTokens = *request.MaxTokens
 	}
-	return convertedAnthropicRequest{ProviderRequest: providerRequest, HasImages: hasImages}, nil
+	return convertedAnthropicRequest{ProviderRequest: providerRequest, HasImages: hasImages, HasNativeReasoningBlocks: hasNativeReasoningBlocks}, nil
+}
+
+func convertAnthropicThinking(thinkingRaw, outputConfigRaw json.RawMessage, maxTokens *int64) (string, int64, *apiProblem) {
+	var outputConfig struct {
+		Effort json.RawMessage `json:"effort"`
+		Format json.RawMessage `json:"format"`
+	}
+	outputConfigPresent := rawJSONPresent(outputConfigRaw)
+	if outputConfigPresent {
+		if err := json.Unmarshal(outputConfigRaw, &outputConfig); err != nil {
+			return "", 0, invalidParam("output_config", "output_config must be an object.")
+		}
+		if rawJSONPresent(outputConfig.Format) {
+			return "", 0, unsupportedParam("output_config.format")
+		}
+	}
+
+	if !rawJSONPresent(thinkingRaw) {
+		if outputConfigPresent {
+			return "", 0, invalidParam("output_config", "output_config is only supported when thinking.type is adaptive.")
+		}
+		return "", 0, nil
+	}
+	var thinking struct {
+		Type         string `json:"type"`
+		BudgetTokens *int64 `json:"budget_tokens"`
+	}
+	if err := json.Unmarshal(thinkingRaw, &thinking); err != nil {
+		return "", 0, invalidParam("thinking", "thinking must be an object.")
+	}
+	switch strings.ToLower(strings.TrimSpace(thinking.Type)) {
+	case "disabled":
+		if thinking.BudgetTokens != nil {
+			return "", 0, invalidParam("thinking.budget_tokens", "thinking.budget_tokens is only supported when thinking.type is enabled.")
+		}
+		if outputConfigPresent {
+			return "", 0, invalidParam("output_config", "output_config is only supported when thinking.type is adaptive.")
+		}
+		return "", 0, nil
+	case "enabled":
+		if outputConfigPresent {
+			return "", 0, invalidParam("output_config", "output_config is only supported when thinking.type is adaptive.")
+		}
+		if thinking.BudgetTokens == nil {
+			return "", 0, invalidParam("thinking.budget_tokens", "thinking.budget_tokens is required when thinking.type is enabled.")
+		}
+		if *thinking.BudgetTokens < 1024 {
+			return "", 0, invalidParam("thinking.budget_tokens", "thinking.budget_tokens must be at least 1024.")
+		}
+		if maxTokens == nil {
+			return "", 0, invalidParam("max_tokens", "max_tokens is required when thinking.type is enabled.")
+		}
+		if *thinking.BudgetTokens >= *maxTokens {
+			return "", 0, invalidParam("thinking.budget_tokens", "thinking.budget_tokens must be less than max_tokens.")
+		}
+		return anthropicThinkingEffortFromBudget(*thinking.BudgetTokens, *maxTokens), *thinking.BudgetTokens, nil
+	case "adaptive":
+		if thinking.BudgetTokens != nil {
+			return "", 0, invalidParam("thinking.budget_tokens", "thinking.budget_tokens is only supported when thinking.type is enabled.")
+		}
+		effort := "high"
+		if rawJSONPresent(outputConfig.Effort) {
+			if err := json.Unmarshal(outputConfig.Effort, &effort); err != nil {
+				return "", 0, invalidParam("output_config.effort", "output_config.effort must be low, medium, or high.")
+			}
+			effort = strings.ToLower(strings.TrimSpace(effort))
+			switch effort {
+			case "low", "medium", "high":
+			default:
+				return "", 0, invalidParam("output_config.effort", "output_config.effort must be low, medium, or high.")
+			}
+		}
+		return effort, 0, nil
+	default:
+		return "", 0, invalidParam("thinking.type", "thinking.type must be enabled, adaptive, or disabled.")
+	}
+}
+
+func anthropicThinkingEffortFromBudget(budget, maxTokens int64) string {
+	switch {
+	case budget*3 <= maxTokens:
+		return "low"
+	case budget*3 <= maxTokens*2:
+		return "medium"
+	default:
+		return "high"
+	}
+}
+
+func validateAnthropicNativeReasoningBlocks(resolved resolvedModel, converted convertedAnthropicRequest) *apiProblem {
+	if converted.HasNativeReasoningBlocks && !providers.CapabilitiesFor(resolved.Provider).NativeReasoningBlocks {
+		return invalidParam("messages", "The requested model does not support native reasoning blocks.")
+	}
+	return nil
 }
 
 func convertAnthropicSystem(raw json.RawMessage) (string, *apiProblem) {
@@ -316,50 +435,52 @@ func convertAnthropicTools(tools []anthropicInputTool) ([]providers.ToolSpec, *a
 	return converted, nil
 }
 
-func convertAnthropicMessage(message anthropicInputMessage, index int) (providers.Message, bool, *apiProblem) {
+func convertAnthropicMessage(message anthropicInputMessage, index int, model string) (providers.Message, bool, bool, *apiProblem) {
 	param := fmt.Sprintf("messages[%d]", index)
 	role := strings.ToLower(strings.TrimSpace(message.Role))
 	if role != "user" && role != "assistant" {
-		return providers.Message{}, false, invalidParam(param+".role", "Message role must be user or assistant.")
+		return providers.Message{}, false, false, invalidParam(param+".role", "Message role must be user or assistant.")
 	}
 	trimmed := bytes.TrimSpace(message.Content)
 	if len(trimmed) == 0 || bytes.Equal(trimmed, []byte("null")) {
-		return providers.Message{}, false, invalidParam(param+".content", "Message content is required.")
+		return providers.Message{}, false, false, invalidParam(param+".content", "Message content is required.")
 	}
 	if trimmed[0] == '"' {
 		var text string
 		if err := json.Unmarshal(trimmed, &text); err != nil || text == "" {
-			return providers.Message{}, false, invalidParam(param+".content", "Message content must be a non-empty string or content block array.")
+			return providers.Message{}, false, false, invalidParam(param+".content", "Message content must be a non-empty string or content block array.")
 		}
-		return providers.Message{Role: role, Content: text, Blocks: []providers.ContentBlock{{Type: "text", Text: text}}}, false, nil
+		return providers.Message{Role: role, Content: text, Blocks: []providers.ContentBlock{{Type: "text", Text: text}}}, false, false, nil
 	}
 	var rawBlocks []json.RawMessage
 	if err := json.Unmarshal(trimmed, &rawBlocks); err != nil || len(rawBlocks) == 0 {
-		return providers.Message{}, false, invalidParam(param+".content", "Message content must be a non-empty string or content block array.")
+		return providers.Message{}, false, false, invalidParam(param+".content", "Message content must be a non-empty string or content block array.")
 	}
 	blocks := make([]providers.ContentBlock, 0, len(rawBlocks))
 	texts := make([]string, 0, len(rawBlocks))
 	hasImages := false
+	hasNativeReasoning := false
 	for blockIndex, rawBlock := range rawBlocks {
-		block, text, image, problem := convertAnthropicContentBlock(rawBlock, role, fmt.Sprintf("%s.content[%d]", param, blockIndex))
+		block, text, image, nativeReasoning, problem := convertAnthropicContentBlock(rawBlock, role, model, fmt.Sprintf("%s.content[%d]", param, blockIndex))
 		if problem != nil {
-			return providers.Message{}, false, problem
+			return providers.Message{}, false, false, problem
 		}
 		blocks = append(blocks, block)
 		if text != "" {
 			texts = append(texts, text)
 		}
 		hasImages = hasImages || image
+		hasNativeReasoning = hasNativeReasoning || nativeReasoning
 	}
-	return providers.Message{Role: role, Content: strings.Join(texts, "\n"), Blocks: blocks}, hasImages, nil
+	return providers.Message{Role: role, Content: strings.Join(texts, "\n"), Blocks: blocks}, hasImages, hasNativeReasoning, nil
 }
 
-func convertAnthropicContentBlock(raw json.RawMessage, role, param string) (providers.ContentBlock, string, bool, *apiProblem) {
+func convertAnthropicContentBlock(raw json.RawMessage, role, model, param string) (providers.ContentBlock, string, bool, bool, *apiProblem) {
 	var header struct {
 		Type string `json:"type"`
 	}
 	if err := json.Unmarshal(raw, &header); err != nil {
-		return providers.ContentBlock{}, "", false, invalidParam(param, "Content block is invalid.")
+		return providers.ContentBlock{}, "", false, false, invalidParam(param, "Content block is invalid.")
 	}
 	switch strings.ToLower(strings.TrimSpace(header.Type)) {
 	case "text":
@@ -367,12 +488,35 @@ func convertAnthropicContentBlock(raw json.RawMessage, role, param string) (prov
 			Text string `json:"text"`
 		}
 		if err := json.Unmarshal(raw, &block); err != nil || block.Text == "" {
-			return providers.ContentBlock{}, "", false, invalidParam(param+".text", "Text block content is required.")
+			return providers.ContentBlock{}, "", false, false, invalidParam(param+".text", "Text block content is required.")
 		}
-		return providers.ContentBlock{Type: "text", Text: block.Text}, block.Text, false, nil
+		return providers.ContentBlock{Type: "text", Text: block.Text}, block.Text, false, false, nil
+	case providers.ContentBlockTypeThinking:
+		if role != "assistant" {
+			return providers.ContentBlock{}, "", false, false, invalidParam(param, "thinking blocks are allowed only in assistant messages.")
+		}
+		var block struct {
+			Thinking  string `json:"thinking"`
+			Signature string `json:"signature"`
+		}
+		if err := json.Unmarshal(raw, &block); err != nil || block.Thinking == "" || block.Signature == "" {
+			return providers.ContentBlock{}, "", false, false, invalidParam(param, "thinking requires non-empty thinking and signature fields.")
+		}
+		return providers.NewAnthropicThinkingContentBlock(model, block.Thinking, block.Signature), "", false, true, nil
+	case providers.ContentBlockTypeRedactedThinking:
+		if role != "assistant" {
+			return providers.ContentBlock{}, "", false, false, invalidParam(param, "redacted_thinking blocks are allowed only in assistant messages.")
+		}
+		var block struct {
+			Data string `json:"data"`
+		}
+		if err := json.Unmarshal(raw, &block); err != nil || block.Data == "" {
+			return providers.ContentBlock{}, "", false, false, invalidParam(param+".data", "redacted_thinking data is required.")
+		}
+		return providers.NewAnthropicRedactedThinkingContentBlock(model, block.Data), "", false, true, nil
 	case "image":
 		if role != "user" {
-			return providers.ContentBlock{}, "", false, invalidParam(param, "Image blocks are allowed only in user messages.")
+			return providers.ContentBlock{}, "", false, false, invalidParam(param, "Image blocks are allowed only in user messages.")
 		}
 		var block struct {
 			Source struct {
@@ -383,16 +527,16 @@ func convertAnthropicContentBlock(raw json.RawMessage, role, param string) (prov
 			} `json:"source"`
 		}
 		if err := json.Unmarshal(raw, &block); err != nil || block.Source.Type != "base64" || strings.TrimSpace(block.Source.URL) != "" {
-			return providers.ContentBlock{}, "", false, invalidParam(param+".source", "Only base64 image sources are supported; remote images are unavailable.")
+			return providers.ContentBlock{}, "", false, false, invalidParam(param+".source", "Only base64 image sources are supported; remote images are unavailable.")
 		}
 		mimeType, data, problem := decodeAnthropicBase64Image(block.Source.MediaType, block.Source.Data, param+".source")
 		if problem != nil {
-			return providers.ContentBlock{}, "", false, problem
+			return providers.ContentBlock{}, "", false, false, problem
 		}
-		return providers.ContentBlock{Type: "image", MIMEType: mimeType, Data: data}, "", true, nil
+		return providers.ContentBlock{Type: "image", MIMEType: mimeType, Data: data}, "", true, false, nil
 	case "tool_use":
 		if role != "assistant" {
-			return providers.ContentBlock{}, "", false, invalidParam(param, "tool_use blocks are allowed only in assistant messages.")
+			return providers.ContentBlock{}, "", false, false, invalidParam(param, "tool_use blocks are allowed only in assistant messages.")
 		}
 		var block struct {
 			ID    string          `json:"id"`
@@ -400,21 +544,21 @@ func convertAnthropicContentBlock(raw json.RawMessage, role, param string) (prov
 			Input json.RawMessage `json:"input"`
 		}
 		if err := json.Unmarshal(raw, &block); err != nil {
-			return providers.ContentBlock{}, "", false, invalidParam(param, "tool_use block is invalid.")
+			return providers.ContentBlock{}, "", false, false, invalidParam(param, "tool_use block is invalid.")
 		}
 		id := strings.TrimSpace(block.ID)
 		name := strings.TrimSpace(block.Name)
 		input, problem := anthropicToolInput(block.Input, param+".input")
 		if problem != nil {
-			return providers.ContentBlock{}, "", false, problem
+			return providers.ContentBlock{}, "", false, false, problem
 		}
 		if id == "" || !toolNamePattern.MatchString(name) {
-			return providers.ContentBlock{}, "", false, invalidParam(param, "tool_use requires an id and valid name.")
+			return providers.ContentBlock{}, "", false, false, invalidParam(param, "tool_use requires an id and valid name.")
 		}
-		return providers.ContentBlock{Type: "tool_use", ToolUseID: id, ToolName: name, Input: input}, "", false, nil
+		return providers.ContentBlock{Type: "tool_use", ToolUseID: id, ToolName: name, Input: input}, "", false, false, nil
 	case "tool_result":
 		if role != "user" {
-			return providers.ContentBlock{}, "", false, invalidParam(param, "tool_result blocks are allowed only in user messages.")
+			return providers.ContentBlock{}, "", false, false, invalidParam(param, "tool_result blocks are allowed only in user messages.")
 		}
 		var block struct {
 			ToolUseID string          `json:"tool_use_id"`
@@ -422,15 +566,15 @@ func convertAnthropicContentBlock(raw json.RawMessage, role, param string) (prov
 			IsError   bool            `json:"is_error"`
 		}
 		if err := json.Unmarshal(raw, &block); err != nil || strings.TrimSpace(block.ToolUseID) == "" {
-			return providers.ContentBlock{}, "", false, invalidParam(param, "tool_result requires tool_use_id and content.")
+			return providers.ContentBlock{}, "", false, false, invalidParam(param, "tool_result requires tool_use_id and content.")
 		}
 		output, problem := anthropicToolResultText(block.Content, param+".content")
 		if problem != nil {
-			return providers.ContentBlock{}, "", false, problem
+			return providers.ContentBlock{}, "", false, false, problem
 		}
-		return providers.ContentBlock{Type: "tool_result", ToolUseID: strings.TrimSpace(block.ToolUseID), Output: output, IsError: block.IsError}, output, false, nil
+		return providers.ContentBlock{Type: "tool_result", ToolUseID: strings.TrimSpace(block.ToolUseID), Output: output, IsError: block.IsError}, output, false, false, nil
 	default:
-		return providers.ContentBlock{}, "", false, invalidParam(param+".type", "Unsupported content block type. Files, documents, audio, and remote media are unavailable.")
+		return providers.ContentBlock{}, "", false, false, invalidParam(param+".type", "Unsupported content block type. Files, documents, audio, and remote media are unavailable.")
 	}
 }
 
@@ -529,6 +673,11 @@ func (s *Service) completeAnthropicMessage(w http.ResponseWriter, r *http.Reques
 					recorder.markOutput()
 					output.addTool(*event.ToolCall)
 				}
+			case "content_block":
+				if event.ContentBlock != nil {
+					recorder.markOutput()
+					output.addSnapshot(event.BlockIndex, *event.ContentBlock)
+				}
 			case "error":
 				_ = recorder.record(gatewayFailureUpstreamEvent)
 				writeAnthropicError(w, http.StatusBadGateway, "api_error", "The upstream model request failed.")
@@ -551,6 +700,11 @@ func (s *Service) completeAnthropicMessage(w http.ResponseWriter, r *http.Reques
 	}
 }
 
+// streamAnthropicMessage is the SSE path. It was lost when the non-streaming
+// handler was rewritten around anthropicOutputAccumulator -- handleAnthropicMessages
+// still dispatched to it, so the package stopped compiling. Restored here with
+// the reasoning blocks the accumulator gained, so a streaming client sees the
+// same thinking blocks a non-streaming one does.
 func (s *Service) streamAnthropicMessage(w http.ResponseWriter, r *http.Request, key db.GatewayKey, resolved resolvedModel, converted convertedAnthropicRequest) {
 	flusher, ok := w.(http.Flusher)
 	if !ok {
@@ -583,6 +737,20 @@ func (s *Service) streamAnthropicMessage(w http.ResponseWriter, r *http.Request,
 	blockIndex := 0
 	textActive := false
 	hasToolCalls := false
+	// Closes the open text block, if any, so the next block starts clean. Shared
+	// by the tool_call and content_block cases, which both interrupt a text run.
+	closeTextBlock := func() bool {
+		if !textActive {
+			return true
+		}
+		if err := writeNamedSSEJSON(w, flusher, "content_block_stop", map[string]any{"type": "content_block_stop", "index": blockIndex}); err != nil {
+			_ = recorder.record(gatewayFailureClientDisconnected)
+			return false
+		}
+		blockIndex++
+		textActive = false
+		return true
+	}
 	for {
 		select {
 		case <-r.Context().Done():
@@ -612,19 +780,38 @@ func (s *Service) streamAnthropicMessage(w http.ResponseWriter, r *http.Request,
 					_ = recorder.record(gatewayFailureClientDisconnected)
 					return
 				}
+			case "content_block":
+				// Only the reasoning blocks are emitted here: text and tool_use also
+				// arrive as snapshots, but their deltas were already streamed above and
+				// re-sending them would duplicate the answer.
+				if event.ContentBlock == nil {
+					continue
+				}
+				block := anthropicReasoningOutputBlock(*event.ContentBlock)
+				if block == nil {
+					continue
+				}
+				recorder.markOutput()
+				if !closeTextBlock() {
+					return
+				}
+				if err := writeNamedSSEJSON(w, flusher, "content_block_start", map[string]any{"type": "content_block_start", "index": blockIndex, "content_block": *block}); err != nil {
+					_ = recorder.record(gatewayFailureClientDisconnected)
+					return
+				}
+				if err := writeNamedSSEJSON(w, flusher, "content_block_stop", map[string]any{"type": "content_block_stop", "index": blockIndex}); err != nil {
+					_ = recorder.record(gatewayFailureClientDisconnected)
+					return
+				}
+				blockIndex++
 			case "tool_call":
 				if event.ToolCall == nil {
 					continue
 				}
 				recorder.markOutput()
 				hasToolCalls = true
-				if textActive {
-					if err := writeNamedSSEJSON(w, flusher, "content_block_stop", map[string]any{"type": "content_block_stop", "index": blockIndex}); err != nil {
-						_ = recorder.record(gatewayFailureClientDisconnected)
-						return
-					}
-					blockIndex++
-					textActive = false
+				if !closeTextBlock() {
+					return
 				}
 				call := sanitizedProviderToolCall(*event.ToolCall)
 				toolBlock := anthropicOutputBlock{Type: "tool_use", ID: call.ID, Name: call.Name, Input: json.RawMessage(`{}`)}
@@ -666,6 +853,29 @@ func (s *Service) streamAnthropicMessage(w http.ResponseWriter, r *http.Request,
 	}
 }
 
+// anthropicReasoningOutputBlock renders a provider reasoning block in the wire
+// shape, or nil for any block that is not one. Both the streaming and
+// non-streaming paths go through it so they cannot drift apart.
+func anthropicReasoningOutputBlock(block providers.ContentBlock) *anthropicOutputBlock {
+	_, signature, data, ok := providers.AnthropicReasoningContentBlockState(block)
+	if !ok {
+		return nil
+	}
+	switch block.Type {
+	case providers.ContentBlockTypeThinking:
+		if signature == "" {
+			return nil
+		}
+		return &anthropicOutputBlock{Type: block.Type, Thinking: block.ReasoningText, Signature: signature}
+	case providers.ContentBlockTypeRedactedThinking:
+		if data == "" {
+			return nil
+		}
+		return &anthropicOutputBlock{Type: block.Type, Data: data}
+	}
+	return nil
+}
+
 func writeAnthropicProviderStartError(w http.ResponseWriter, err error) {
 	if errors.Is(err, providers.ErrGatewayOAuthUnsupported) {
 		writeAnthropicError(w, http.StatusForbidden, "permission_error", "The requested model is not permitted for Gateway use.")
@@ -703,6 +913,35 @@ func (a *anthropicOutputAccumulator) addTool(call providers.ToolCall) {
 	a.blocks = append(a.blocks, anthropicOutputBlock{Type: "tool_use", ID: sanitized.ID, Name: sanitized.Name, Input: json.RawMessage(sanitized.Arguments)})
 	a.hasText = false
 	a.hasTools = true
+}
+
+// addSnapshot records a completed provider content block. Text and tool_use
+// arrive here as well, but they were already assembled from the delta stream by
+// addText/addTool, so taking them again would emit the answer twice; only the
+// reasoning blocks carry information the deltas do not.
+func (a *anthropicOutputAccumulator) addSnapshot(index int64, block providers.ContentBlock) {
+	_ = index
+	_, signature, data, ok := providers.AnthropicReasoningContentBlockState(block)
+	if !ok {
+		return
+	}
+	switch block.Type {
+	case providers.ContentBlockTypeThinking:
+		if signature == "" {
+			return
+		}
+		a.blocks = append(a.blocks, anthropicOutputBlock{Type: block.Type, Thinking: block.ReasoningText, Signature: signature})
+	case providers.ContentBlockTypeRedactedThinking:
+		if data == "" {
+			return
+		}
+		a.blocks = append(a.blocks, anthropicOutputBlock{Type: block.Type, Data: data})
+	default:
+		return
+	}
+	// A reasoning block closes any open text run, so the next text delta starts
+	// its own block rather than being appended after the thinking.
+	a.hasText = false
 }
 
 func (a *anthropicOutputAccumulator) blocksOrEmpty() []anthropicOutputBlock {

@@ -351,3 +351,148 @@ test("rollback recovers from a failed POST request: the busy flag clears and the
     resetPlatformDialogs();
   }
 });
+
+test("the merge panel reports nothing until a check is asked for, and cannot merge before then", () => {
+  const state = {
+    agent: { id: "agent-1" },
+    workline: { id: "wl-2", branch: "feature/x", isRoot: false },
+    gitStatus: null,
+    gitOpen: true,
+    gitError: "",
+    mergeCheck: null,
+    mergeCheckBusy: false,
+    mergeCheckError: "",
+    mergeBusy: false,
+  };
+  const controller = createGitWorkflowController({ state, showError: () => {}, showToast: () => {} });
+
+  const html = renderModalHTML(controller);
+  assert.match(html, /data-workline-merge-panel/);
+  // Opening the modal must not have produced a verdict.
+  assert.doesNotMatch(html, /git-merge-metrics/);
+  // The merge button exists but is disabled with no check behind it.
+  assert.match(html, /id="worklineMergeBtn"[^>]*disabled/);
+  assert.match(html, /id="worklineMergeCheckBtn"(?![^>]*disabled)/);
+});
+
+test("a clean check enables the merge button and shows counts, conflicts and divergence", () => {
+  const state = {
+    agent: { id: "agent-1" },
+    workline: { id: "wl-2", branch: "feature/x", isRoot: false },
+    gitStatus: null,
+    gitOpen: true,
+    gitError: "",
+    mergeCheck: {
+      canMerge: true,
+      sourceBranch: "feature/x",
+      targetBranch: "main",
+      targetWorklineId: "wl-1",
+      changedFiles: ["a.txt", "b.txt"],
+      changedCount: 2,
+      ahead: 3,
+      behind: 1,
+      conflicts: [],
+      sourceDirty: false,
+      targetDirty: false,
+    },
+    mergeCheckBusy: false,
+    mergeCheckError: "",
+    mergeBusy: false,
+  };
+  const controller = createGitWorkflowController({ state, showError: () => {}, showToast: () => {} });
+
+  const html = renderModalHTML(controller);
+  assert.match(html, /git-merge-metrics/);
+  assert.match(html, /a\.txt/);
+  assert.match(html, /ahead 3/);
+  assert.match(html, /behind 1/);
+  // Behind the target is a rebase hint, not a blocker.
+  assert.match(html, /git-merge-warnings/);
+  assert.match(html, /id="worklineMergeBtn"(?![^>]*disabled)/);
+});
+
+test("conflicts and dirty worktrees keep the merge button disabled and name the blockers", () => {
+  const state = {
+    agent: { id: "agent-1" },
+    workline: { id: "wl-2", branch: "feature/x", isRoot: false },
+    gitStatus: null,
+    gitOpen: true,
+    gitError: "",
+    mergeCheck: {
+      canMerge: false,
+      targetBranch: "main",
+      targetWorklineId: "wl-1",
+      changedFiles: ["README.md"],
+      changedCount: 1,
+      ahead: 1,
+      behind: 0,
+      conflicts: ["README.md"],
+      sourceDirty: true,
+      targetDirty: false,
+    },
+    mergeCheckBusy: false,
+    mergeCheckError: "",
+    mergeBusy: false,
+  };
+  const controller = createGitWorkflowController({ state, showError: () => {}, showToast: () => {} });
+
+  const html = renderModalHTML(controller);
+  assert.match(html, /git-merge-file-list conflicts/);
+  assert.match(html, /id="worklineMergeBtn"[^>]*disabled/);
+  assert.match(html, /git-merge-warnings/);
+});
+
+test("the root workline offers no merge of its own", () => {
+  const state = {
+    agent: { id: "agent-1" },
+    workline: { id: "wl-1", branch: "main", isRoot: true },
+    gitStatus: null,
+    gitOpen: true,
+    gitError: "",
+    mergeCheck: null,
+    mergeCheckBusy: false,
+    mergeCheckError: "",
+    mergeBusy: false,
+  };
+  const controller = createGitWorkflowController({ state, showError: () => {}, showToast: () => {} });
+
+  const html = renderModalHTML(controller);
+  assert.match(html, /id="worklineMergeCheckBtn"[^>]*disabled/);
+  assert.match(html, /id="worklineMergeBtn"[^>]*disabled/);
+});
+
+test("merging asks for confirmation and never fires when the user declines", async () => {
+  const calls = [];
+  const state = {
+    agent: { id: "agent-1" },
+    workline: { id: "wl-2", branch: "feature/x", isRoot: false },
+    gitStatus: null,
+    gitOpen: false,
+    gitError: "",
+    mergeCheck: { canMerge: true, targetWorklineId: "wl-1", targetBranch: "main", sourceBranch: "feature/x", changedCount: 2 },
+    mergeCheckBusy: false,
+    mergeCheckError: "",
+    mergeBusy: false,
+  };
+  const controller = createGitWorkflowController({
+    state,
+    showError: () => {},
+    showToast: () => {},
+    apiRequest: async (path, options) => { calls.push([path, options?.method || "GET"]); return {}; },
+  });
+  const previousDocument = globalThis.document;
+  globalThis.document = { getElementById: () => null, querySelectorAll: () => [] };
+  try {
+    setPlatformDialogs({ confirm: async () => false });
+    await controller.mergeCurrentWorkline();
+    assert.deepEqual(calls, [], "a declined confirmation must not reach the merge endpoint");
+
+    setPlatformDialogs({ confirm: async () => true });
+    await controller.mergeCurrentWorkline();
+    assert.equal(calls.some(([path, method]) => path.includes("/merge") && method === "POST"), true);
+  } finally {
+    resetPlatformDialogs();
+    if (previousDocument === undefined) delete globalThis.document;
+    else globalThis.document = previousDocument;
+  }
+});

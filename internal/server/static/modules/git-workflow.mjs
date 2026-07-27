@@ -89,8 +89,83 @@ export function createGitWorkflowController({
     state.gitCommitSelected = {};
     state.gitCommitBusy = false;
     state.gitOpen = false;
+    state.mergeCheck = null;
+    state.mergeCheckBusy = false;
+    state.mergeCheckError = "";
+    state.mergeBusy = false;
     state.gitSeq++;
     renderGitButtonState();
+  }
+
+  // Integration is a decision, so nothing here runs on open. The review panel
+  // starts empty and only reports what a trial merge actually found once the
+  // user asks for it; the merge button stays disabled until then.
+  async function loadWorklineMergeCheck() {
+    const workline = state.workline;
+    const sourceId = String(workline?.id || "");
+    if (!sourceId || state.mergeCheckBusy) return null;
+    if (workline?.isRoot) {
+      state.mergeCheck = null;
+      state.mergeCheckError = t("mergeRootOnly");
+      renderGitModal();
+      return null;
+    }
+    state.mergeCheckBusy = true;
+    state.mergeCheckError = "";
+    renderGitModal();
+    try {
+      const result = await request(`/api/worklines/${encodeURIComponent(sourceId)}/merge-check`);
+      if (state.workline?.id !== sourceId) return null;
+      state.mergeCheck = result;
+      return result;
+    } catch (error) {
+      if (state.workline?.id !== sourceId) return null;
+      state.mergeCheck = null;
+      state.mergeCheckError = error?.message || String(error);
+      return null;
+    } finally {
+      if (state.workline?.id === sourceId) {
+        state.mergeCheckBusy = false;
+        renderGitModal();
+      }
+    }
+  }
+
+  // Only reachable from a check that already said canMerge, and still confirmed:
+  // the merge writes to the target branch, which is not the worktree the user is
+  // looking at.
+  async function mergeCurrentWorkline() {
+    const check = state.mergeCheck;
+    const sourceId = String(state.workline?.id || "");
+    if (!sourceId || !check?.canMerge || state.mergeBusy) return null;
+    const confirmed = await platformConfirm(t("mergeConfirm", {
+      source: check.sourceBranch || sourceId,
+      target: check.targetBranch || check.targetWorklineId || "",
+      count: formatNumber(check.changedCount || 0),
+    }));
+    if (!confirmed) return null;
+    state.mergeBusy = true;
+    renderGitModal();
+    try {
+      const result = await request(`/api/worklines/${encodeURIComponent(sourceId)}/merge`, {
+        method: "POST",
+        body: JSON.stringify({ targetWorklineId: check.targetWorklineId || "" }),
+      });
+      // The check is now stale whatever the outcome, so it is cleared rather
+      // than left showing a verdict that no longer describes the repository.
+      state.mergeCheck = null;
+      showToast(t("mergeDone", { commit: shortGitHash(result?.mergeCommit || "") }), "success", { force: true });
+      await refreshGitWorkflow({ silent: true });
+      return result;
+    } catch (error) {
+      state.mergeCheck = null;
+      state.mergeCheckError = error?.message || String(error);
+      showToast(state.mergeCheckError, "error", { force: true });
+      return null;
+    } finally {
+      state.mergeBusy = false;
+      renderGitModal();
+    }
   }
 
   function renderGitButtonState() {
@@ -365,6 +440,7 @@ export function createGitWorkflowController({
       </div>
       ${state.gitError ? `<div class="settings-inline-alert">${escapeHtml(state.gitError)}</div>` : ""}
       ${renderRunCheckpointSection()}
+      ${renderWorklineMergePanel()}
       ${renderGitCommitPanel(files, selectedCommitPaths)}
       <div class="git-layout">
         <aside class="git-file-list">
@@ -425,6 +501,69 @@ export function createGitWorkflowController({
 
   function renderRunCheckpointUnavailable() {
     return `<div class="settings-empty-card compact">${escapeHtml(cr("run.checkpointNoActiveRun"))}</div>`;
+  }
+
+  // The integration panel: what would come over, whether it conflicts, how far
+  // the two sides have diverged, and only then a button. A merge is never
+  // performed as a side effect of opening or refreshing this modal.
+  function renderWorklineMergePanel() {
+    const workline = state.workline;
+    if (!workline?.id) return "";
+    const check = state.mergeCheck;
+    const busy = Boolean(state.mergeCheckBusy);
+    const merging = Boolean(state.mergeBusy);
+    const isRoot = Boolean(workline.isRoot);
+    const canMerge = Boolean(check?.canMerge) && !merging && !busy;
+    return `
+      <section class="git-commit-panel git-merge-panel" data-workline-merge-panel>
+        <div class="git-commit-head">
+          <div>
+            <strong>${escapeHtml(t("mergeSectionTitle"))}</strong>
+            <span>${escapeHtml(isRoot ? t("mergeRootOnly") : t("mergeSectionHint", { branch: workline.branch || workline.title || workline.id }))}</span>
+          </div>
+        </div>
+        ${state.mergeCheckError ? `<div class="settings-inline-alert">${escapeHtml(state.mergeCheckError)}</div>` : ""}
+        ${check ? renderWorklineMergeReport(check) : `<div class="settings-empty-card compact">${escapeHtml(busy ? t("mergeChecking") : t("mergeNotChecked"))}</div>`}
+        <div class="git-commit-actions">
+          <button id="worklineMergeCheckBtn" class="ghost-btn mini git-mini-btn" type="button" ${isRoot || busy || merging ? "disabled" : ""}>${escapeHtml(busy ? t("mergeChecking") : t("mergeCheckAction"))}</button>
+          <button id="worklineMergeBtn" class="send-btn git-commit-submit" type="button" ${canMerge ? "" : "disabled"}>${escapeHtml(merging ? t("merging") : t("mergeAction"))}</button>
+        </div>
+      </section>
+    `;
+  }
+
+  function renderWorklineMergeReport(check) {
+    const conflicts = Array.isArray(check.conflicts) ? check.conflicts : [];
+    const files = Array.isArray(check.changedFiles) ? check.changedFiles : [];
+    const verdict = check.alreadyMerged
+      ? { tone: "muted", text: t("mergeAlready") }
+      : conflicts.length
+        ? { tone: "warn", text: t("mergeConflicts", { count: formatNumber(conflicts.length) }) }
+        : check.canMerge
+          ? { tone: "ok", text: t("mergeClean") }
+          : { tone: "warn", text: t("mergeBlocked") };
+    // Dirty worktrees do not block the check but do block the merge itself, so
+    // they are surfaced here rather than as a surprise error afterwards.
+    const warnings = [
+      check.sourceDirty ? t("mergeSourceDirty") : "",
+      check.targetDirty ? t("mergeTargetDirty") : "",
+      check.behind ? t("mergeBehindWarning", { count: formatNumber(check.behind) }) : "",
+    ].filter(Boolean);
+    return `
+      <div class="run-summary-checkpoint ${escapeAttr(verdict.tone)}">
+        <span>${escapeHtml(t("mergeVerdict"))}</span>
+        <strong>${escapeHtml(verdict.text)}</strong>
+        <em>${escapeHtml(t("mergeInto", { target: check.targetBranch || check.targetWorklineId || "" }))}</em>
+      </div>
+      <div class="git-merge-metrics">
+        <span>${escapeHtml(t("mergeChangedFiles", { count: formatNumber(check.changedCount || 0) }))}</span>
+        <span>${escapeHtml(t("aheadBehind", { ahead: formatNumber(check.ahead || 0), behind: formatNumber(check.behind || 0) }))}</span>
+        <span>${escapeHtml(t("mergeConflictCount", { count: formatNumber(conflicts.length) }))}</span>
+      </div>
+      ${warnings.length ? `<div class="git-merge-warnings">${warnings.map((warning) => `<span>${escapeHtml(warning)}</span>`).join("")}</div>` : ""}
+      ${conflicts.length ? `<div class="git-merge-file-list conflicts">${conflicts.map((path) => `<span>${escapeHtml(path)}</span>`).join("")}</div>` : ""}
+      ${files.length ? `<div class="git-merge-file-list">${files.map((path) => `<span>${escapeHtml(path)}</span>`).join("")}${check.filesLimited ? `<em>${escapeHtml(t("mergeFilesLimited"))}</em>` : ""}</div>` : ""}
+    `;
   }
 
   function renderGitCommitPanel(files, selectedPaths) {
@@ -494,6 +633,8 @@ export function createGitWorkflowController({
 
   function bindGitModalActions() {
     $("runCheckpointRollbackBtn")?.addEventListener("click", () => rollbackMostRecentRun().catch(showError));
+    $("worklineMergeCheckBtn")?.addEventListener("click", () => loadWorklineMergeCheck().catch(showError));
+    $("worklineMergeBtn")?.addEventListener("click", () => mergeCurrentWorkline().catch(showError));
     $("refreshGitBtn")?.addEventListener("click", () => refreshGitWorkflow({ notify: true }).catch(showError));
     $("gitScopeSelect")?.addEventListener("change", (event) => {
       state.gitScope = event.target.value || "all";
@@ -540,6 +681,8 @@ export function createGitWorkflowController({
     loadGitLog,
     loadGitStatus,
     openGitModal,
+    loadWorklineMergeCheck,
+    mergeCurrentWorkline,
     refreshGitWorkflow,
     renderGitButtonState,
     renderGitModal,

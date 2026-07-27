@@ -451,8 +451,9 @@ func handleOpenAICompatibleStream(out chan<- Event, reader io.Reader) {
 			Choices []struct {
 				FinishReason string `json:"finish_reason"`
 				Delta        struct {
-					Content   string `json:"content"`
-					ToolCalls []struct {
+					Content          string `json:"content"`
+					ReasoningContent string `json:"reasoning_content"`
+					ToolCalls        []struct {
 						Index    int    `json:"index"`
 						ID       string `json:"id"`
 						Type     string `json:"type"`
@@ -475,6 +476,9 @@ func handleOpenAICompatibleStream(out chan<- Event, reader io.Reader) {
 		for _, choice := range chunk.Choices {
 			if reason := strings.ToLower(strings.TrimSpace(choice.FinishReason)); reason != "" {
 				stopReason = reason
+			}
+			if choice.Delta.ReasoningContent != "" {
+				out <- Event{Type: "reasoning", Text: choice.Delta.ReasoningContent}
 			}
 			if choice.Delta.Content != "" {
 				out <- Event{Type: "text", Text: choice.Delta.Content}

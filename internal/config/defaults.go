@@ -328,6 +328,16 @@ func defaultWithReport(report *compat.Report) (Config, error) {
 			defaultGrokProvider(),
 			defaultKimiProvider(),
 			defaultCodexProvider(),
+			// Kiro (via kiro.rs proxy) — supports Claude and GPT models through Kiro IDE quota.
+			// Start kiro.rs, then set KIRO_API_KEY to your kiro.rs apiKey and optionally
+			// KIRO_BASE_URL if it is not running on the default port.
+			{
+				Name:    "kiro",
+				Type:    "openai-compatible",
+				BaseURL: getenv("KIRO_BASE_URL", "http://127.0.0.1:8990/v1"),
+				APIKey:  os.Getenv("KIRO_API_KEY"),
+				Model:   getenv("KIRO_MODEL", "claude-sonnet-4-20250514"),
+			},
 			{
 				Name:    "openai-compatible",
 				Type:    "openai-compatible",

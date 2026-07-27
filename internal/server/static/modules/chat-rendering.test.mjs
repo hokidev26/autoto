@@ -21,6 +21,7 @@ import {
   nextToolActivitySelection,
   renderAgentTaskActivityCardHTML,
   renderToolActivityCardHTML,
+  reasoningStepTitle,
   renderToolActivityStackHTML,
   renderToolDiffHTML,
   transcriptMessageText,
@@ -912,6 +913,65 @@ test("model generation keeps the message thread clear before the first text delt
 
   assert.doesNotMatch(html, /data-live-assistant|等待首 token|live-assistant-status/);
   assert.match(html, /class="empty-conversation-state"/);
+});
+
+test("tool activity is labelled with line-art SVG icons classed by what the tool does", () => {
+  const calls = [
+    { toolUseId: "t1", runId: "run-1", toolName: "Grep", status: "completed" },
+    { toolUseId: "t2", runId: "run-1", toolName: "Read", status: "completed" },
+    { toolUseId: "t3", runId: "run-1", toolName: "Edit", status: "completed" },
+    { toolUseId: "t4", runId: "run-1", toolName: "Write", status: "completed" },
+    { toolUseId: "t5", runId: "run-1", toolName: "Bash", status: "completed" },
+    { toolUseId: "t6", runId: "run-1", toolName: "Glob", status: "completed" },
+    { toolUseId: "t7", runId: "run-1", toolName: "WebFetch", status: "completed" },
+    { toolUseId: "t8", runId: "run-1", toolName: "TodoWrite", status: "completed" },
+  ];
+  const html = renderToolActivityStackHTML(calls, { expanded: true });
+
+  for (const kind of ["search", "read", "edit", "write", "command", "files", "web", "todo"]) {
+    assert.match(html, new RegExp(`tool-activity-step-icon tool-activity-icon-${kind}"[^>]*><svg viewBox="0 0 24 24"`), `${kind} row should carry its own glyph`);
+  }
+  assert.match(html, /stroke="currentColor" stroke-width="1.7"/);
+  // The glyphs must reach the DOM as markup, not as escaped text, and the
+  // Unicode characters they replaced must be gone.
+  assert.doesNotMatch(html, /&lt;svg/);
+  assert.doesNotMatch(html, /[⌕◌▤±✎•]/);
+
+  const card = renderToolActivityCardHTML({ toolUseId: "t9", runId: "run-1", toolName: "Bash", status: "completed" });
+  assert.match(card, /class="tool-activity-icon tool-activity-icon-command"[^>]*><svg/);
+});
+
+test("the assistant's own words close the thread, below the run's tool activity", () => {
+  const { html } = renderSnapshot([{ role: "user", contentText: "continue" }], {
+    navigationSelectionKind: "conversation",
+    liveAssistantActive: true,
+    liveAssistantText: "here is what I found",
+    liveAssistantRequestId: "request-1",
+    liveAssistantRunId: "run-1",
+    liveToolOutputs: {
+      tool1: { agentId: "agent-1", toolUseId: "tool1", toolName: "Grep", status: "running", output: "searching" },
+    },
+    pendingToolApprovals: {
+      approval1: { agentId: "agent-1", toolUseId: "approval1", toolName: "Bash", command: "pwd", risk: "exec" },
+    },
+    activeRunSummaryRunId: "run-1",
+    activeRunSummary: {
+      run: { id: "run-1", source: "conversation", status: "running", checkpointState: "none", createdAt: "2026-03-16T10:00:00Z" },
+      toolCalls: [{ agentId: "agent-1", runId: "run-1", toolUseId: "tool2", toolName: "Read", status: "completed" }],
+      recentMessages: [],
+    },
+  });
+
+  const liveTools = html.indexOf("data-live-tool-output-stack");
+  const runOutcome = html.indexOf("data-run-outcome-card");
+  const liveAssistant = html.indexOf("data-live-assistant");
+  const approvals = html.indexOf("data-approval-stack");
+  for (const [name, index] of [["live tool output", liveTools], ["run outcome", runOutcome], ["live assistant", liveAssistant], ["approvals", approvals]]) {
+    assert.ok(index >= 0, `${name} should render in this snapshot`);
+  }
+  assert.ok(liveTools < runOutcome, "live tool output stays above the run outcome card");
+  assert.ok(runOutcome < liveAssistant, "tool activity stays above the assistant's reply");
+  assert.ok(liveAssistant < approvals, "only approval prompts render below the assistant's reply");
 });
 
 test("live estimated performance is compact and visibly approximate", () => {
@@ -1997,4 +2057,171 @@ test("superseded messages stay visible, are marked, and lose their correct butto
   // Only the live user message keeps an edit affordance.
   const correctButtons = rendered.html.match(/data-correct-message="m\d"/g) || [];
   assert.deepEqual(correctButtons, ['data-correct-message="m1"']);
+});
+
+test("reasoning renders above the action it explains, and titles itself from the first sentence", () => {
+  assert.equal(reasoningStepTitle("  Planning the requirement inference. Then I will read App.css.  "), "Planning the requirement inference");
+  assert.equal(reasoningStepTitle("先看一下現有的樣式。接著再改。"), "先看一下現有的樣式");
+  assert.equal(reasoningStepTitle("   "), "");
+
+  const calls = [
+    { toolUseId: "t1", runId: "run-1", toolName: "Read", status: "completed" },
+    { toolUseId: "t2", runId: "run-1", toolName: "Edit", status: "completed" },
+  ];
+  const html = renderToolActivityStackHTML(calls, {
+    expanded: true,
+    reasoningSteps: [
+      { id: "r1", runId: "run-1", text: "Checking the current styles first. They live in App.css.", beforeToolUseId: "t2" },
+      { id: "r2", runId: "run-1", text: "Wrapping up.", beforeToolUseId: "", open: true },
+    ],
+  });
+
+  const read = html.indexOf('data-tool-activity-select="t1"');
+  const reasoning = html.indexOf('data-reasoning-step="r1"');
+  const edit = html.indexOf('data-tool-activity-select="t2"');
+  const trailing = html.indexOf('data-reasoning-step="r2"');
+  assert.ok(read < reasoning, "a step filed under t2 must not jump above the tool before it");
+  assert.ok(reasoning < edit, "the step must render immediately above the tool it explains");
+  assert.ok(edit < trailing, "a step naming no tool closes the list");
+  // The summary line is the title; the full text stays in the expandable body.
+  assert.match(html, /<strong>Checking the current styles first<\/strong>/);
+  assert.match(html, /tool-activity-reasoning-body">Checking the current styles first\. They live in App\.css\./);
+  assert.match(html, /tool-activity-reasoning-step is-open/);
+
+  // Reasoning alone still earns a stack -- that is the gap before the first tool.
+  assert.match(renderToolActivityStackHTML([], { reasoningSteps: [{ id: "r1", text: "Thinking it over." }] }), /data-reasoning-step="r1"/);
+  assert.equal(renderToolActivityStackHTML([], {}), "");
+});
+
+test("a persisted assistant turn replays its reasoning above the answer", () => {
+  const { html } = renderSnapshot([{
+    id: "m1",
+    role: "assistant",
+    contentText: "I updated App.css.",
+    reasoningText: "Checking the current styles first.\nThen widening the gap.",
+  }]);
+
+  assert.match(html, /class="message-reasoning"/);
+  assert.match(html, /message-reasoning-body">Checking the current styles first\.\nThen widening the gap\./);
+  assert.ok(html.indexOf("message-reasoning") < html.indexOf("message-content"), "reasoning explains the answer, so it renders above it");
+
+  // A turn without reasoning must not grow an empty disclosure, and a user
+  // message must never render one even if the field somehow arrives.
+  const { html: bare } = renderSnapshot([{ id: "m2", role: "assistant", contentText: "Done." }]);
+  assert.doesNotMatch(bare, /message-reasoning/);
+  const { html: user } = renderSnapshot([{ id: "m3", role: "user", contentText: "go", reasoningText: "should not show" }]);
+  assert.doesNotMatch(user, /message-reasoning|should not show/);
+});
+
+test("markdown renders headings, emphasis and nested lists instead of printing their syntax", () => {
+  const { html } = renderSnapshot([{
+    id: "m1",
+    role: "assistant",
+    contentText: [
+      "以下為台灣今日的天氣概況：",
+      "",
+      "---",
+      "### 全台各區天氣概況",
+      "",
+      "- **北部地區（台北、新竹等）**",
+      "  - **天氣狀態**：多雲為主",
+      "  - **氣溫**：約 31℃～35℃",
+      "",
+      "1. **攜帶雨具**：建議隨身攜帶折疊傘。",
+      "2. *防曬* 與補水。",
+      "",
+      "> 註：可搭配中央氣象署即時訊息。",
+      "",
+      "詳見 [氣象署](https://www.cwa.gov.tw/) 網站。",
+    ].join("\n"),
+  }]);
+
+  assert.match(html, /<h3>全台各區天氣概況<\/h3>/);
+  assert.match(html, /<hr>/);
+  assert.match(html, /<strong>北部地區（台北、新竹等）<\/strong>/);
+  assert.match(html, /<strong>天氣狀態<\/strong>：多雲為主/);
+  assert.match(html, /<ol>[\s\S]*<strong>攜帶雨具<\/strong>/);
+  assert.match(html, /<em>防曬<\/em>/);
+  assert.match(html, /<blockquote>/);
+  assert.match(html, /<a href="https:\/\/www\.cwa\.gov\.tw\/" target="_blank" rel="noopener noreferrer">氣象署<\/a>/);
+  // The indented sub-bullets must nest, not flatten into one long column.
+  assert.match(html, /<li>[^<]*<strong>北部地區[\s\S]*?<ul><li><strong>天氣狀態/);
+  // None of the source syntax may survive as visible text.
+  assert.doesNotMatch(html, /\*\*|###/);
+});
+
+test("markdown emphasis leaves code, arithmetic and hostile links alone", () => {
+  const { html } = renderSnapshot([{
+    id: "m1",
+    role: "assistant",
+    contentText: [
+      "Use `a ** b` and `**not bold**` verbatim.",
+      "",
+      "Math: 3 * 4 * 5 stays plain, and snake_case_name too.",
+      "",
+      "[click](javascript:alert(1)) and [ok](https://example.com/a?b=1&c=2)",
+      "",
+      "Digits 12 34 must survive restoration.",
+    ].join("\n"),
+  }]);
+
+  assert.match(html, /<code class="inline-code">a \*\* b<\/code>/);
+  assert.match(html, /<code class="inline-code">\*\*not bold\*\*<\/code>/);
+  assert.match(html, /3 \* 4 \* 5 stays plain/);
+  assert.match(html, /snake_case_name/);
+  assert.doesNotMatch(html, /<em>case<\/em>/);
+  // A rejected scheme must leave the source text visible rather than link it.
+  assert.doesNotMatch(html, /href="javascript/);
+  assert.match(html, /\[click\]\(javascript:alert\(1\)\)/);
+  assert.match(html, /<a href="https:\/\/example\.com\/a\?b=1&amp;c=2"/);
+  assert.match(html, /Digits 12 34 must survive restoration\./);
+});
+
+// The 401 broken-image bug shipped because no test looked at what the src
+// actually was. These assertions pin the contract: protected asset paths travel
+// in data attributes, and no markup may point a browser-initiated load at /api/.
+test("image attachments render a real preview whose bytes are fetched with the API token", () => {
+  const { html } = renderSnapshot([{
+    id: "m1",
+    role: "user",
+    contentText: "look",
+    attachments: [{ id: "att-1", filename: "shot.png", mimeType: "image/png", sizeBytes: 164675, kind: "image" }],
+  }], { agent: { id: "agent-1" } }, {}, { attachmentKind: () => "image" });
+
+  assert.match(html, /class="attachment-image-card"/);
+  assert.match(html, /data-protected-image="\/api\/agents\/agent-1\/messages\/m1\/attachments\/att-1"/);
+  assert.match(html, /data-attachment-lightbox="\/api\/agents\/agent-1\/messages\/m1\/attachments\/att-1"/);
+  assert.match(html, /shot\.png/);
+  // A src or href pointing at the guarded API is the bug itself.
+  assert.doesNotMatch(html, /src="\/api\//);
+  assert.doesNotMatch(html, /href="\/api\//);
+  assert.doesNotMatch(html, /loading="lazy"[^>]*data-protected-image/);
+});
+
+test("non-image attachments keep the compact file card and download through the token", () => {
+  const { html } = renderSnapshot([{
+    id: "m1",
+    role: "user",
+    contentText: "doc",
+    attachments: [{ id: "att-2", filename: "spec.pdf", mimeType: "application/pdf", sizeBytes: 2048, kind: "pdf" }],
+  }], { agent: { id: "agent-1" } }, {}, { attachmentKind: () => "pdf" });
+
+  assert.match(html, /class="attachment-card"/);
+  assert.match(html, /data-attachment-download="\/api\/agents\/agent-1\/messages\/m1\/attachments\/att-2"/);
+  assert.doesNotMatch(html, /attachment-image-card/);
+  assert.doesNotMatch(html, /href="\/api\//);
+});
+
+test("generated images open in the viewer instead of an unauthenticated new tab", () => {
+  const { html } = renderSnapshot([{
+    id: "m1",
+    role: "assistant",
+    contentJson: [{ type: "image_generation", assetId: "asset-1", generationId: "gen-1", status: "completed", mimeType: "image/png", filename: "out.png", width: 512, height: 512, outputIndex: 0 }],
+  }]);
+
+  assert.match(html, /data-protected-image="[^"]*generated-images\/asset-1"/);
+  assert.match(html, /data-image-lightbox="[^"]*generated-images\/asset-1"/);
+  assert.match(html, /data-protected-download="[^"]*generated-images\/asset-1\?download=1"/);
+  assert.doesNotMatch(html, /src="\/api\//);
+  assert.doesNotMatch(html, /target="_blank"/);
 });

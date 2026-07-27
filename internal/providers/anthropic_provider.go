@@ -4,7 +4,10 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"net/http"
+	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -17,6 +20,29 @@ import (
 	"autoto/internal/config"
 )
 
+const (
+	anthropicReasoningStateVersion   = 1
+	anthropicReasoningStateProvider  = "anthropic"
+	anthropicInterleavedThinkingBeta = "interleaved-thinking-2025-05-14"
+)
+
+var anthropicModelVersionPattern = regexp.MustCompile(`claude-(?:opus|sonnet|haiku|mythos|fable)-([0-9]+)(?:[-.]([0-9]+))?`)
+
+type anthropicThinkingSupport struct {
+	Known     bool
+	Supported bool
+	Adaptive  bool
+	Enabled   bool
+}
+
+type anthropicReasoningState struct {
+	Version   int    `json:"version"`
+	Provider  string `json:"provider"`
+	Model     string `json:"model,omitempty"`
+	Signature string `json:"signature,omitempty"`
+	Data      string `json:"data,omitempty"`
+}
+
 type AnthropicProvider struct {
 	cfg               config.ProviderConfig
 	store             *anthropicauth.Store
@@ -26,6 +52,8 @@ type AnthropicProvider struct {
 	clock             func() time.Time
 	gatewayPolicyMu   sync.RWMutex
 	gatewayPolicy     GatewayAccountPolicy
+	thinkingSupportMu sync.RWMutex
+	thinkingSupport   map[string]anthropicThinkingSupport
 	oauthRefreshGate  chan struct{}
 	oauthRefreshToken func(context.Context, string, *http.Client) (anthropicauth.OAuthTokenResponse, error)
 }
@@ -45,6 +73,7 @@ func NewAnthropicProvider(cfg config.ProviderConfig) *AnthropicProvider {
 		store:             anthropicauth.NewStore(cfg.CredentialStorePath),
 		configErr:         validateProviderRuntimeConfig(cfg),
 		clock:             time.Now,
+		thinkingSupport:   make(map[string]anthropicThinkingSupport),
 		oauthRefreshGate:  make(chan struct{}, 1),
 		oauthRefreshToken: anthropicauth.RefreshTokens,
 	}
@@ -93,7 +122,15 @@ func (p *AnthropicProvider) gatewayAccountPolicy() GatewayAccountPolicy {
 }
 
 func (p *AnthropicProvider) Capabilities() Capabilities {
-	return Capabilities{Tools: true, Streaming: true, ImageInput: true}
+	return Capabilities{
+		Tools:                 true,
+		Streaming:             true,
+		ImageInput:            true,
+		Reasoning:             true,
+		ReasoningEffort:       true,
+		ReasoningEfforts:      []string{"low", "medium", "high"},
+		NativeReasoningBlocks: true,
+	}
 }
 
 func (p *AnthropicProvider) ModelCapabilities(model string) ModelCapabilities {
@@ -155,18 +192,19 @@ func (p *AnthropicProvider) Generate(ctx context.Context, req GenerateRequest) (
 	if p.configErr != nil {
 		return nil, p.configErr
 	}
-	if _, err := normalizeReasoningEffort(req.ReasoningEffort, false, p.cfg.Name); err != nil {
+	effort, err := normalizeReasoningEffortForCapabilities(req.ReasoningEffort, p.Capabilities(), p.cfg.Name)
+	if err != nil {
 		return nil, err
 	}
 	candidates, err := p.accountCandidates(ctx, req)
 	if err != nil {
 		return nil, err
 	}
-	model := req.Model
+	model := strings.TrimSpace(req.Model)
 	if model == "" {
 		model = p.cfg.Model
 	}
-	messages, system := anthropicMessages(req.Messages, req.SystemPrompt)
+	messages, system := anthropicMessages(req.Messages, req.SystemPrompt, model)
 	if len(messages) == 0 {
 		messages = append(messages, anthropic.NewUserMessage(anthropic.NewTextBlock("Continue.")))
 	}
@@ -180,6 +218,10 @@ func (p *AnthropicProvider) Generate(ctx context.Context, req GenerateRequest) (
 		Messages:  messages,
 		System:    system,
 		Tools:     anthropicTools(req.Tools),
+	}
+	thinkingMode, err := p.applyThinkingConfig(&params, model, effort, req.ReasoningBudgetTokens)
+	if err != nil {
+		return nil, err
 	}
 	applyAnthropicPromptCaching(&params)
 
@@ -208,7 +250,11 @@ func (p *AnthropicProvider) Generate(ctx context.Context, req GenerateRequest) (
 				requestParams = withAnthropicOAuthClaudeCodeIdentity(params)
 			}
 			var response *http.Response
-			stream := candidate.client.Messages.NewStreaming(ctx, requestParams, option.WithResponseInto(&response))
+			requestOptions := []option.RequestOption{option.WithResponseInto(&response)}
+			if thinkingMode == "enabled" && len(requestParams.Tools) > 0 {
+				requestOptions = append(requestOptions, option.WithHeaderAdd("anthropic-beta", anthropicInterleavedThinkingBeta))
+			}
+			stream := candidate.client.Messages.NewStreaming(ctx, requestParams, requestOptions...)
 			var acc anthropic.Message
 			var usage Usage
 			var stopReason string
@@ -223,14 +269,36 @@ func (p *AnthropicProvider) Generate(ctx context.Context, req GenerateRequest) (
 				case anthropic.MessageStartEvent:
 					usage = anthropicUsageFromUsage(typed.Message.Usage)
 				case anthropic.ContentBlockDeltaEvent:
-					if delta, ok := typed.Delta.AsAny().(anthropic.TextDelta); ok && delta.Text != "" {
+					switch delta := typed.Delta.AsAny().(type) {
+					case anthropic.TextDelta:
+						if delta.Text == "" {
+							break
+						}
 						if !emitDispatch() || !emitProviderEvent(ctx, out, Event{Type: "text", Text: delta.Text}) {
 							_ = stream.Close()
 							return
 						}
 						emittedContent = true
+					case anthropic.ThinkingDelta:
+						// Extended thinking is a summary of intent, not an answer, so it
+						// deliberately does not set emittedContent: a turn that only thought
+						// must still count as having produced nothing.
+						if delta.Thinking == "" {
+							break
+						}
+						if !emitDispatch() || !emitProviderEvent(ctx, out, Event{Type: "reasoning", Text: delta.Thinking, BlockType: ContentBlockTypeThinking, BlockIndex: typed.Index}) {
+							_ = stream.Close()
+							return
+						}
 					}
 				case anthropic.ContentBlockStopEvent:
+					if blockEvent, ok := anthropicContentBlockEvent(acc, typed.Index, model); ok {
+						if !emitDispatch() || !emitProviderEvent(ctx, out, blockEvent) {
+							_ = stream.Close()
+							return
+						}
+						emittedContent = true
+					}
 					if toolEvent, ok := anthropicToolCallEvent(acc, typed.Index); ok {
 						if !emitDispatch() || !emitProviderEvent(ctx, out, toolEvent) {
 							_ = stream.Close()
@@ -290,6 +358,121 @@ func (p *AnthropicProvider) Generate(ctx context.Context, req GenerateRequest) (
 	return out, nil
 }
 
+func (p *AnthropicProvider) applyThinkingConfig(params *anthropic.MessageNewParams, model, effort string, exactBudget int64) (string, error) {
+	if params == nil || (effort == "" && exactBudget <= 0) {
+		return "", nil
+	}
+	support := p.anthropicThinkingSupportForModel(model)
+	if support.Known && !support.Supported {
+		return "", fmt.Errorf("%w by %s provider (model %q does not support thinking)", ErrReasoningEffortUnsupported, p.cfg.Name, model)
+	}
+	if exactBudget > 0 {
+		if !support.Enabled {
+			return "", fmt.Errorf("%w by %s provider (model %q does not support enabled thinking)", ErrReasoningEffortUnsupported, p.cfg.Name, model)
+		}
+		if exactBudget < 1024 || exactBudget >= params.MaxTokens {
+			return "", fmt.Errorf("Anthropic thinking budget_tokens must be at least 1024 and less than max_tokens")
+		}
+		params.Thinking = anthropic.ThinkingConfigParamOfEnabled(exactBudget)
+		return "enabled", nil
+	}
+	if support.Adaptive {
+		params.Thinking = anthropic.ThinkingConfigParamUnion{OfAdaptive: &anthropic.ThinkingConfigAdaptiveParam{}}
+		params.OutputConfig = anthropic.OutputConfigParam{Effort: anthropic.OutputConfigEffort(effort)}
+		return "adaptive", nil
+	}
+	if support.Enabled {
+		budget, err := anthropicThinkingBudget(params.MaxTokens, effort)
+		if err != nil {
+			return "", err
+		}
+		params.Thinking = anthropic.ThinkingConfigParamOfEnabled(budget)
+		return "enabled", nil
+	}
+	return "", fmt.Errorf("%w by %s provider (model %q has no supported thinking mode)", ErrReasoningEffortUnsupported, p.cfg.Name, model)
+}
+
+func anthropicThinkingBudget(maxTokens int64, effort string) (int64, error) {
+	if maxTokens < 2048 {
+		return 0, fmt.Errorf("Anthropic thinking requires max_tokens of at least 2048")
+	}
+	var budget int64
+	switch effort {
+	case "low":
+		budget = maxTokens / 4
+	case "medium":
+		budget = maxTokens / 2
+	case "high":
+		budget = maxTokens * 3 / 4
+	default:
+		return 0, fmt.Errorf("invalid Anthropic thinking effort %q", effort)
+	}
+	if budget < 1024 {
+		budget = 1024
+	}
+	if maximum := maxTokens - 1024; budget > maximum {
+		budget = maximum
+	}
+	if budget < 1024 {
+		return 0, fmt.Errorf("Anthropic thinking requires at least 1024 budget tokens")
+	}
+	return budget, nil
+}
+
+func (p *AnthropicProvider) anthropicThinkingSupportForModel(model string) anthropicThinkingSupport {
+	model = strings.TrimSpace(model)
+	if p != nil {
+		p.thinkingSupportMu.RLock()
+		support, ok := p.thinkingSupport[model]
+		p.thinkingSupportMu.RUnlock()
+		if ok {
+			return support
+		}
+	}
+	return fallbackAnthropicThinkingSupport(model)
+}
+
+func fallbackAnthropicThinkingSupport(model string) anthropicThinkingSupport {
+	match := anthropicModelVersionPattern.FindStringSubmatch(strings.ToLower(strings.TrimSpace(model)))
+	if len(match) >= 2 {
+		major, _ := strconv.Atoi(match[1])
+		minor := 0
+		if len(match) > 2 {
+			minor, _ = strconv.Atoi(match[2])
+		}
+		if major >= 5 || (major == 4 && minor >= 6) {
+			return anthropicThinkingSupport{Adaptive: true, Enabled: true}
+		}
+	}
+	// Claude 4.5 and older default to manual enabled thinking. This conservative
+	// fallback also works for private aliases until Models API metadata arrives.
+	return anthropicThinkingSupport{Enabled: true}
+}
+
+func (p *AnthropicProvider) rememberAnthropicThinkingSupport(models []anthropic.ModelInfo) {
+	if p == nil || len(models) == 0 {
+		return
+	}
+	p.thinkingSupportMu.Lock()
+	defer p.thinkingSupportMu.Unlock()
+	if p.thinkingSupport == nil {
+		p.thinkingSupport = make(map[string]anthropicThinkingSupport)
+	}
+	for _, model := range models {
+		id := strings.TrimSpace(model.ID)
+		thinking := model.Capabilities.Thinking
+		if id == "" || !model.Capabilities.JSON.Thinking.Valid() && !thinking.JSON.Supported.Valid() && !thinking.JSON.Types.Valid() {
+			continue
+		}
+		p.thinkingSupport[id] = anthropicThinkingSupport{
+			Known:     true,
+			Supported: thinking.Supported,
+			Adaptive:  thinking.Types.Adaptive.Supported,
+			Enabled:   thinking.Types.Enabled.Supported,
+		}
+	}
+}
+
 func anthropicUsageFromUsage(usage anthropic.Usage) Usage {
 	return Usage{
 		InputTokens:       usage.InputTokens,
@@ -318,6 +501,84 @@ func emitAnthropicToolCall(out chan<- Event, message anthropic.Message, index in
 	if event, ok := anthropicToolCallEvent(message, index); ok {
 		out <- event
 	}
+}
+
+// NewAnthropicThinkingContentBlock creates an internal signed thinking block.
+// Provider-private state remains opaque to callers and is omitted from public
+// ContentBlock JSON.
+func NewAnthropicThinkingContentBlock(model, thinking, signature string) ContentBlock {
+	state, _ := json.Marshal(anthropicReasoningState{
+		Version:   anthropicReasoningStateVersion,
+		Provider:  anthropicReasoningStateProvider,
+		Model:     strings.TrimSpace(model),
+		Signature: signature,
+	})
+	return ContentBlock{Type: ContentBlockTypeThinking, ReasoningText: thinking, ProviderState: state}
+}
+
+// NewAnthropicRedactedThinkingContentBlock creates an internal encrypted
+// reasoning block that can be replayed without exposing its data publicly.
+func NewAnthropicRedactedThinkingContentBlock(model, data string) ContentBlock {
+	state, _ := json.Marshal(anthropicReasoningState{
+		Version:  anthropicReasoningStateVersion,
+		Provider: anthropicReasoningStateProvider,
+		Model:    strings.TrimSpace(model),
+		Data:     data,
+	})
+	return ContentBlock{Type: ContentBlockTypeRedactedThinking, ProviderState: state}
+}
+
+// AnthropicReasoningContentBlockState decodes the opaque state carried by an
+// Anthropic thinking or redacted_thinking block.
+func AnthropicReasoningContentBlockState(block ContentBlock) (model, signature, data string, ok bool) {
+	if block.Type != ContentBlockTypeThinking && block.Type != ContentBlockTypeRedactedThinking {
+		return "", "", "", false
+	}
+	var state anthropicReasoningState
+	if len(block.ProviderState) == 0 || json.Unmarshal(block.ProviderState, &state) != nil {
+		return "", "", "", false
+	}
+	if state.Version != anthropicReasoningStateVersion || state.Provider != anthropicReasoningStateProvider {
+		return "", "", "", false
+	}
+	return strings.TrimSpace(state.Model), state.Signature, state.Data, true
+}
+
+func anthropicContentBlockEvent(message anthropic.Message, index int64, model string) (Event, bool) {
+	if index < 0 || index >= int64(len(message.Content)) {
+		return Event{}, false
+	}
+	block := message.Content[index]
+	var content ContentBlock
+	switch block.Type {
+	case "text":
+		if block.Text == "" {
+			return Event{}, false
+		}
+		content = ContentBlock{Type: "text", Text: block.Text}
+	case "tool_use":
+		if block.ID == "" || block.Name == "" {
+			return Event{}, false
+		}
+		input := block.Input
+		if len(input) == 0 {
+			input = json.RawMessage(`{}`)
+		}
+		content = ContentBlock{Type: "tool_use", ToolUseID: block.ID, ToolName: block.Name, Input: input}
+	case ContentBlockTypeThinking:
+		if block.Signature == "" {
+			return Event{}, false
+		}
+		content = NewAnthropicThinkingContentBlock(model, block.Thinking, block.Signature)
+	case ContentBlockTypeRedactedThinking:
+		if block.Data == "" {
+			return Event{}, false
+		}
+		content = NewAnthropicRedactedThinkingContentBlock(model, block.Data)
+	default:
+		return Event{}, false
+	}
+	return Event{Type: "content_block", ContentBlock: &content, BlockType: content.Type, BlockIndex: index}, true
 }
 
 func anthropicToolCallEvent(message anthropic.Message, index int64) (Event, bool) {
@@ -356,7 +617,7 @@ func hasAnthropicClaudeCodeIdentity(system []anthropic.TextBlockParam) bool {
 	return strings.TrimSpace(system[0].Text) == anthropicauth.ClaudeCodeIdentity
 }
 
-func anthropicMessages(messages []Message, systemPrompt string) ([]anthropic.MessageParam, []anthropic.TextBlockParam) {
+func anthropicMessages(messages []Message, systemPrompt, model string) ([]anthropic.MessageParam, []anthropic.TextBlockParam) {
 	out := make([]anthropic.MessageParam, 0, len(messages))
 	system := make([]anthropic.TextBlockParam, 0, 1)
 	if strings.TrimSpace(systemPrompt) != "" {
@@ -369,7 +630,7 @@ func anthropicMessages(messages []Message, systemPrompt string) ([]anthropic.Mes
 		}
 		switch strings.ToLower(strings.TrimSpace(message.Role)) {
 		case "assistant":
-			content := anthropicContentBlocks(blocks)
+			content := anthropicContentBlocks(blocks, true, model)
 			if len(content) > 0 {
 				out = append(out, anthropic.NewAssistantMessage(content...))
 			}
@@ -379,7 +640,7 @@ func anthropicMessages(messages []Message, systemPrompt string) ([]anthropic.Mes
 				system = append(system, anthropic.TextBlockParam{Text: content})
 			}
 		default:
-			content := anthropicContentBlocks(blocks)
+			content := anthropicContentBlocks(blocks, false, model)
 			if len(content) > 0 {
 				out = append(out, anthropic.NewUserMessage(content...))
 			}
@@ -388,10 +649,28 @@ func anthropicMessages(messages []Message, systemPrompt string) ([]anthropic.Mes
 	return out, system
 }
 
-func anthropicContentBlocks(blocks []ContentBlock) []anthropic.ContentBlockParamUnion {
+func anthropicContentBlocks(blocks []ContentBlock, assistant bool, model string) []anthropic.ContentBlockParamUnion {
 	out := make([]anthropic.ContentBlockParamUnion, 0, len(blocks))
 	for _, block := range blocks {
 		switch block.Type {
+		case ContentBlockTypeThinking:
+			if !assistant {
+				continue
+			}
+			sourceModel, signature, _, ok := AnthropicReasoningContentBlockState(block)
+			if !ok || signature == "" || (sourceModel != "" && sourceModel != strings.TrimSpace(model)) {
+				continue
+			}
+			out = append(out, anthropic.NewThinkingBlock(signature, block.ReasoningText))
+		case ContentBlockTypeRedactedThinking:
+			if !assistant {
+				continue
+			}
+			sourceModel, _, data, ok := AnthropicReasoningContentBlockState(block)
+			if !ok || data == "" || (sourceModel != "" && sourceModel != strings.TrimSpace(model)) {
+				continue
+			}
+			out = append(out, anthropic.NewRedactedThinkingBlock(data))
 		case "tool_use":
 			input := any(map[string]any{})
 			if len(block.Input) > 0 {

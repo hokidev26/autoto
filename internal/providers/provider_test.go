@@ -210,8 +210,8 @@ func TestReasoningCapabilitiesAreProviderSpecific(t *testing.T) {
 	if got := CapabilitiesFor(NewCodexProvider(config.ProviderConfig{Type: config.ProviderTypeCodex})); !got.ReasoningEffort || strings.Join(got.ReasoningEfforts, ",") != "low,medium,high,xhigh" {
 		t.Fatalf("Codex provider should declare xhigh, got %+v", got)
 	}
-	if CapabilitiesFor(NewAnthropicProvider(config.ProviderConfig{})).ReasoningEffort {
-		t.Fatal("Anthropic provider should not claim OpenAI reasoning effort support")
+	if got := CapabilitiesFor(NewAnthropicProvider(config.ProviderConfig{})); !got.Reasoning || !got.ReasoningEffort || !got.NativeReasoningBlocks || strings.Join(got.ReasoningEfforts, ",") != "low,medium,high" {
+		t.Fatalf("Anthropic provider should support native reasoning replay and standard efforts, got %+v", got)
 	}
 	if CapabilitiesFor(NewOpenAICompatible(config.ProviderConfig{})).ReasoningEffort {
 		t.Fatal("ordinary compatible provider should not claim reasoning effort support")

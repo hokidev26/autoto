@@ -1,9 +1,9 @@
 import { $, escapeAttr, escapeHtml, setButtonBusy } from "./dom.mjs";
 import { formatBytes, formatNumber } from "./formatters.mjs";
-import { chatDraftsKey, promptHistoryKey } from "./preferences-data.mjs";
+import { chatDraftsKey, messageQueueKey, promptHistoryKey } from "./preferences-data.mjs";
 import { api } from "./runtime.mjs";
-import { t } from "./i18n.mjs?v=goal-command-2";
-import { mergeAuthoritativeEffectiveCommands, mergeBuiltInSlashCommands, mergeSlashCommands, normalizeSlashCommandName, slashCommandInsertion } from "./skills-commands.mjs?v=goal-command-2";
+import { t } from "./i18n.mjs?v=goal-command-2-queue-command-1-reasoning-steps-1-reasoning-history-1-markdown-2";
+import { mergeAuthoritativeEffectiveCommands, mergeBuiltInSlashCommands, mergeSlashCommands, normalizeSlashCommandName, slashCommandInsertion } from "./skills-commands.mjs?v=goal-command-2-queue-command-1-reasoning-steps-1-reasoning-history-1-markdown-2";
 import { isSupportedVideoFile, processVideoAttachment } from "./video-attachments.mjs";
 
 export const defaultReasoningEffortValues = Object.freeze(["auto", "low", "medium", "high"]);
@@ -115,19 +115,28 @@ export function slashCommandsForEffectivePolicy(policy, localTemplates) {
 }
 
 export function builtInSlashCommandsForContext(context, translate = t) {
-  if (String(context || "").trim().toLowerCase() !== "project") return [];
+  // /queue is not tied to a project: parking a follow-up while the current turn
+  // finishes is just as useful in a plain conversation.
+  const commands = [{
+    id: "builtin-queue",
+    name: "/queue",
+    description: translate("workspace.chat.queueCommandDescription"),
+    prompt: "",
+    source: "builtin",
+  }];
+  if (String(context || "").trim().toLowerCase() !== "project") return commands;
   return [{
     id: "builtin-goal",
     name: "/goal",
     description: translate("workspace.chat.goalCommandDescription"),
     prompt: "",
     source: "builtin",
-  }];
+  }, ...commands];
 }
 
 export function slashCommandsForContext(context, commands, translate = t) {
   const externalCommands = (Array.isArray(commands) ? commands : [])
-    .filter((command) => normalizeSlashCommandName(command?.name) !== "/goal");
+    .filter((command) => !["/goal", "/queue"].includes(normalizeSlashCommandName(command?.name)));
   return mergeBuiltInSlashCommands(builtInSlashCommandsForContext(context, translate), externalCommands);
 }
 
@@ -137,6 +146,47 @@ export function parseGoalCommandDraft(value = "") {
   return {
     commandText,
     goalText: commandText.slice("/goal".length).trim(),
+  };
+}
+
+function isGoalCommandDraft(goalCommand) {
+  return Boolean(goalCommand);
+}
+
+export const maxQueuedMessages = 20;
+
+// Queued messages survive a reload, so they arrive from storage as untrusted
+// JSON: everything is re-typed and bounded here rather than at each read site.
+export function normalizeMessageQueue(value) {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set();
+  const queue = [];
+  for (const item of value) {
+    if (!item || typeof item !== "object") continue;
+    const id = String(item.id || "").trim();
+    const agentId = String(item.agentId || "").trim();
+    const text = String(item.text || "");
+    if (!id || !agentId || !text.trim() || seen.has(id)) continue;
+    if (text.length > maxChatDraftCharacters) continue;
+    seen.add(id);
+    queue.push({
+      id,
+      agentId,
+      text,
+      mode: item.mode === "plan" ? "plan" : "execute",
+      context: item.context === "project" ? "project" : "conversation",
+    });
+    if (queue.length >= maxQueuedMessages) break;
+  }
+  return queue;
+}
+
+export function parseQueueCommandDraft(value = "") {
+  const commandText = String(value || "").trim();
+  if (commandText !== "/queue" && !commandText.startsWith("/queue ")) return null;
+  return {
+    commandText,
+    queuedText: commandText.slice("/queue".length).trim(),
   };
 }
 
@@ -228,6 +278,137 @@ export function createChatComposerController({
   const savingFastModes = new Set();
   let attachmentGeneration = 0;
   let activeAttachmentJob = null;
+  let queueDrainTimer = null;
+  let queueDraining = false;
+  let queueSequence = 0;
+
+  // Mirrors resolveComposerActivityStatus() in agent-workspace-helpers.mjs
+  // rather than importing it: the composer must not take a dependency on the
+  // workspace shell, and only the boolean matters here.
+  function agentTurnInFlight() {
+    if (Object.keys(state.pendingToolApprovals || {}).length) return true;
+    if (Object.keys(state.liveToolOutputs || {}).length) return true;
+    if (state.liveAssistantActive) return true;
+    return String(state.agent?.status || "").trim().toLowerCase() === "running";
+  }
+
+  function loadMessageQueue() {
+    try {
+      return normalizeMessageQueue(JSON.parse(localStorage.getItem(messageQueueKey) || "[]"));
+    } catch {
+      return [];
+    }
+  }
+
+  function writeMessageQueue(queue) {
+    const normalized = normalizeMessageQueue(queue);
+    state.messageQueue = normalized;
+    try {
+      localStorage.setItem(messageQueueKey, JSON.stringify(normalized));
+    } catch {
+      // A full or blocked store must not cost the user the message they just
+      // parked; the in-memory queue above still drains this session.
+    }
+    return normalized;
+  }
+
+  function queuedMessages(agentId = state.agent?.id) {
+    const id = String(agentId || "");
+    if (!Array.isArray(state.messageQueue)) state.messageQueue = loadMessageQueue();
+    return state.messageQueue.filter((item) => item?.agentId === id);
+  }
+
+  function renderMessageQueue() {
+    const host = $("messageQueue");
+    if (!host) return;
+    const pending = queuedMessages();
+    host.classList.toggle("hidden", pending.length === 0);
+    if (!pending.length) {
+      host.innerHTML = "";
+      return;
+    }
+    host.innerHTML = `
+      <div class="message-queue-head">${escapeHtml(t("workspace.chat.queuePending", { count: pending.length }))}</div>
+      <ol class="message-queue-list">
+        ${pending.map((item, index) => `
+          <li class="message-queue-item">
+            <span class="message-queue-index">${index + 1}</span>
+            <span class="message-queue-text">${escapeHtml(item.text)}</span>
+            <button class="message-queue-drop" type="button" data-queue-drop="${escapeAttr(item.id)}" title="${escapeAttr(t("workspace.chat.queueDrop"))}" aria-label="${escapeAttr(t("workspace.chat.queueDrop"))}"><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="m6 6 12 12"></path><path d="m18 6-12 12"></path></svg></button>
+          </li>
+        `).join("")}
+      </ol>
+    `;
+    host.querySelectorAll("[data-queue-drop]").forEach((node) => {
+      node.addEventListener("click", () => dropQueuedMessage(node.dataset.queueDrop));
+    });
+  }
+
+  function dropQueuedMessage(id) {
+    const key = String(id || "");
+    if (!key) return;
+    writeMessageQueue((state.messageQueue || []).filter((item) => item?.id !== key));
+    renderMessageQueue();
+    scheduleQueueDrain();
+  }
+
+  function enqueueMessage(agentId, text, mode, context) {
+    queueSequence += 1;
+    writeMessageQueue([...(Array.isArray(state.messageQueue) ? state.messageQueue : []), {
+      id: `queued-${Date.now()}-${queueSequence}`,
+      agentId: String(agentId || ""),
+      text,
+      mode,
+      context,
+    }]);
+    renderMessageQueue();
+    scheduleQueueDrain();
+  }
+
+  function scheduleQueueDrain() {
+    if (queueDrainTimer) return;
+    if (!queuedMessages().length) return;
+    // Polled rather than driven off a run-finished event: the composer sees
+    // status through shared state, and a 1s tick that only exists while the
+    // queue is non-empty is cheaper than threading a callback through the shell.
+    queueDrainTimer = setInterval(() => {
+      if (!queuedMessages().length) {
+        clearInterval(queueDrainTimer);
+        queueDrainTimer = null;
+        return;
+      }
+      drainMessageQueue().catch(() => {});
+    }, 1000);
+  }
+
+  async function drainMessageQueue() {
+    if (queueDraining) return;
+    const agentId = state.agent?.id;
+    if (!agentId || agentTurnInFlight() || isMessageSendingFor(agentId)) return;
+    const next = queuedMessages(agentId)[0];
+    if (!next) return;
+    queueDraining = true;
+    writeMessageQueue((state.messageQueue || []).filter((item) => item?.id !== next.id));
+    renderMessageQueue();
+    try {
+      const accepted = await request(`/api/agents/${agentId}/messages`, {
+        method: "POST",
+        body: JSON.stringify({ text: next.text, mode: next.mode, context: next.context }),
+      });
+      await onMessageAccepted?.(accepted, agentId);
+      rememberPromptHistory(next.text);
+      await loadMessages(agentId);
+      scheduleMessageRefresh(1200, agentId);
+    } catch (err) {
+      // Put it back at the head so the order the user typed in survives a
+      // transient failure, and say so instead of dropping their message.
+      writeMessageQueue([next, ...(state.messageQueue || [])]);
+      renderMessageQueue();
+      showToast?.(t("workspace.chat.queueSendFailed", { error: err?.message || String(err) }), "warn", { force: true });
+    } finally {
+      queueDraining = false;
+    }
+  }
 
   function loadChatDrafts() {
     try {
@@ -791,6 +972,27 @@ export function createChatComposerController({
     }
     if (goalCommand && attachments.length) {
       showToast?.(t("workspace.chat.goalAttachmentsUnsupported"), "warn", { force: true });
+      return;
+    }
+    // /queue parks the message, and once anything is parked every later send
+    // joins the back of the line -- otherwise a plain Enter would jump ahead of
+    // the follow-ups the user already lined up.
+    const queueCommand = parseQueueCommandDraft(text);
+    if (queueCommand || (queuedMessages(agentId).length && !isGoalCommandDraft(goalCommand))) {
+      const queuedText = queueCommand ? queueCommand.queuedText : text;
+      if (!queuedText) {
+        showToast?.(t("workspace.chat.queueTextRequired"), "warn", { force: true });
+        return;
+      }
+      if (attachments.length) {
+        showToast?.(t("workspace.chat.queueAttachmentsUnsupported"), "warn", { force: true });
+        return;
+      }
+      enqueueMessage(agentId, queuedText, mode, context);
+      input.value = "";
+      autoResizeMessageInput();
+      clearChatDraftForKey(draftKey);
+      showToast?.(t("workspace.chat.queued", { count: queuedMessages(agentId).length }), "info");
       return;
     }
     const isGoalCommand = Boolean(goalCommand);
@@ -1449,7 +1651,10 @@ export function createChatComposerController({
     refreshFastModeControl,
     refreshMessageModeControl,
     refreshReasoningEffortControl,
+    drainMessageQueue,
+    loadMessageQueue,
     removePendingAttachment,
+    renderMessageQueue,
     restoreCurrentChatDraft,
     saveCurrentChatDraft,
     saveFastMode,

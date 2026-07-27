@@ -478,3 +478,78 @@ func TestGatewaySubscriptionCredentialSharingDefaultsToDisabled(t *testing.T) {
 		t.Fatalf("subscription credential authorization was enabled implicitly: request=%+v availability=%+v", captured, availability)
 	}
 }
+
+// TestGatewayAnthropicSurfacesReasoningBlocks covers the halves of the Anthropic
+// gateway that the reasoning work left unfinished: the non-streaming path had to
+// grow addSnapshot, and the streaming path had been deleted outright while
+// handleAnthropicMessages still dispatched to it. Both must present a signed
+// thinking block, and neither may duplicate the answer text -- the provider
+// emits a content_block snapshot for text too, and that snapshot is the trap.
+func TestGatewayAnthropicSurfacesReasoningBlocks(t *testing.T) {
+	thinking := providers.NewAnthropicThinkingContentBlock("shared", "Weighing the options.", "sig-1")
+	redacted := providers.NewAnthropicRedactedThinkingContentBlock("shared", "ENCRYPTED")
+	textSnapshot := providers.ContentBlock{Type: "text", Text: "answer"}
+	events := []providers.Event{
+		{Type: "reasoning", Text: "Weighing the options.", BlockType: providers.ContentBlockTypeThinking},
+		{Type: "content_block", ContentBlock: &thinking, BlockType: thinking.Type},
+		{Type: "content_block", ContentBlock: &redacted, BlockType: redacted.Type},
+		{Type: "text", Text: "answer"},
+		{Type: "content_block", ContentBlock: &textSnapshot, BlockType: "text"},
+		{Type: "usage", Usage: &providers.Usage{InputTokens: 9, OutputTokens: 5}},
+		{Type: "done", Done: true, StopReason: "end_turn"},
+	}
+	capabilities := providers.Capabilities{Tools: true, Streaming: true, NativeReasoningBlocks: true}
+	body := `{"model":"shared","max_tokens":64,"messages":[{"role":"user","content":"hello"}]}`
+
+	t.Run("non-streaming", func(t *testing.T) {
+		provider := &gatewayTestProvider{name: "backend", capabilities: capabilities, events: events}
+		harness := newGatewayHarness(t, db.GatewayKey{Enabled: true, RequestsPerMinute: 10}, provider, nil)
+		response := anthropicGatewayRequest(t, harness.service, harness.generated.Token, "/v1/messages", body)
+		if response.Code != http.StatusOK {
+			t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+		}
+		var result anthropicMessageResponse
+		if err := json.Unmarshal(response.Body.Bytes(), &result); err != nil {
+			t.Fatal(err)
+		}
+		if len(result.Content) != 3 {
+			t.Fatalf("expected thinking, redacted_thinking and one text block, got %+v", result.Content)
+		}
+		if result.Content[0].Type != providers.ContentBlockTypeThinking || result.Content[0].Thinking != "Weighing the options." || result.Content[0].Signature != "sig-1" {
+			t.Fatalf("thinking block not surfaced: %+v", result.Content[0])
+		}
+		if result.Content[1].Type != providers.ContentBlockTypeRedactedThinking || result.Content[1].Data != "ENCRYPTED" {
+			t.Fatalf("redacted thinking block not surfaced: %+v", result.Content[1])
+		}
+		if result.Content[2].Type != "text" || result.Content[2].Text != "answer" {
+			t.Fatalf("answer text was duplicated or lost: %+v", result.Content)
+		}
+	})
+
+	t.Run("streaming", func(t *testing.T) {
+		provider := &gatewayTestProvider{name: "backend", capabilities: capabilities, events: events}
+		harness := newGatewayHarness(t, db.GatewayKey{Enabled: true, RequestsPerMinute: 10}, provider, nil)
+		response := anthropicGatewayRequest(t, harness.service, harness.generated.Token, "/v1/messages", `{"model":"shared","max_tokens":64,"messages":[{"role":"user","content":"hello"}],"stream":true}`)
+		if response.Code != http.StatusOK || !strings.HasPrefix(response.Header().Get("Content-Type"), "text/event-stream") {
+			t.Fatalf("stream status=%d headers=%v body=%s", response.Code, response.Header(), response.Body.String())
+		}
+		stream := response.Body.String()
+		for _, expected := range []string{
+			"event: message_start", `"type":"thinking"`, `"signature":"sig-1"`,
+			`"type":"redacted_thinking"`, `"data":"ENCRYPTED"`, `"type":"text_delta"`, "event: message_stop",
+		} {
+			if !strings.Contains(stream, expected) {
+				t.Fatalf("stream missing %q: %s", expected, stream)
+			}
+		}
+		// The provider also emits a content_block snapshot for the text it already
+		// streamed. Replaying that would open a second text block carrying the whole
+		// answer, so exactly one text block may start and it must be delta-fed.
+		if got := strings.Count(stream, `"content_block":{"type":"text"}`); got != 1 {
+			t.Fatalf("expected exactly one text block start, got %d: %s", got, stream)
+		}
+		if got := strings.Count(stream, `"type":"text_delta"`); got != 1 {
+			t.Fatalf("expected exactly one text delta, got %d: %s", got, stream)
+		}
+	})
+}

@@ -9,7 +9,7 @@ import (
 	"github.com/google/uuid"
 )
 
-const CurrentDBVersion = 55
+const CurrentDBVersion = 56
 
 type migration struct {
 	version int
@@ -73,6 +73,7 @@ var migrations = []migration{
 	{version: 53, name: "remote collaboration phase one", up: migrateV53RemoteCollaboration},
 	{version: 54, name: "danger reflection preference", up: migrateV54DangerReflection},
 	{version: 55, name: "superseded messages", up: migrateV55SupersededMessages},
+	{version: 56, name: "assistant reasoning transcript", up: migrateV56AssistantReasoning},
 }
 
 func runMigrations(ctx context.Context, db *sql.DB) error {
@@ -1929,4 +1930,16 @@ func ensureLegacyColumns(ctx context.Context, tx *sql.Tx) error {
 		}
 	}
 	return nil
+}
+
+// migrateV56AssistantReasoning adds the column that stores the readable
+// reasoning an assistant turn produced. It is written alongside the turn's
+// text but kept in its own column so it is never replayed to the model as
+// part of the conversation -- reasoning is for the reader, not the next turn.
+func migrateV56AssistantReasoning(ctx context.Context, tx *sql.Tx) error {
+	exists, err := tableExists(ctx, tx, "agent_messages")
+	if err != nil || !exists {
+		return err
+	}
+	return ensureColumn(ctx, tx, "agent_messages", "reasoning_text", "TEXT")
 }

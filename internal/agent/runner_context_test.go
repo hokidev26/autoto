@@ -719,6 +719,87 @@ func geminiThoughtSignatureForTest(raw json.RawMessage) string {
 	return state["thought_signature"]
 }
 
+func TestAssistantResultContentBlocksPreserveProviderOrderAndAvoidDuplicateTools(t *testing.T) {
+	thinking := providers.NewAnthropicThinkingContentBlock("claude-test", "private reasoning", "signature-1")
+	redacted := providers.NewAnthropicRedactedThinkingContentBlock("claude-test", "ciphertext-1")
+	result := modelTurnResult{
+		Text:      "answer",
+		ToolCalls: []providers.ToolCall{{ID: "tool-1", Name: "Read", Input: json.RawMessage(`{"file_path":"README.md"}`)}},
+		ResponseBlocks: []providers.ContentBlock{
+			thinking,
+			{Type: "text", Text: "answer"},
+			{Type: "tool_use", ToolUseID: "tool-1", ToolName: "Read", Input: json.RawMessage(`{"file_path":"README.md"}`)},
+			redacted,
+		},
+	}
+	blocks := assistantResultContentBlocks(result, result.Text, "")
+	if len(blocks) != 4 {
+		t.Fatalf("unexpected persisted blocks: %+v", blocks)
+	}
+	want := []string{providers.ContentBlockTypeThinking, "text", "tool_use", providers.ContentBlockTypeRedactedThinking}
+	for index, block := range blocks {
+		if block.Type != want[index] {
+			t.Fatalf("provider block order changed at %d: got=%q want=%q blocks=%+v", index, block.Type, want[index], blocks)
+		}
+	}
+}
+
+func TestAnthropicReasoningProviderStateRoundTripsWithoutPublicLeakage(t *testing.T) {
+	thinking := providers.NewAnthropicThinkingContentBlock("claude-test", "private reasoning", "signature-1")
+	redacted := providers.NewAnthropicRedactedThinkingContentBlock("claude-test", "ciphertext-1")
+	blocks := []providers.ContentBlock{
+		thinking,
+		{Type: "text", Text: "answer"},
+		redacted,
+		{Type: "tool_use", ToolUseID: "tool-1", ToolName: "Read", Input: json.RawMessage(`{"file_path":"README.md"}`), ProviderState: json.RawMessage(`{"thought_signature":"gemini-signature"}`)},
+	}
+	publicJSON, err := marshalAssistantContentBlocks(blocks)
+	if err != nil {
+		t.Fatal(err)
+	}
+	providerStateJSON := providerStateForBlocks(blocks)
+	for _, secret := range []string{"private reasoning", "signature-1", "ciphertext-1", "gemini-signature"} {
+		if strings.Contains(string(publicJSON), secret) {
+			t.Fatalf("public content_json leaked %q: %s", secret, publicJSON)
+		}
+	}
+	message := providerMessageFromDB(db.Message{Role: "assistant", ContentText: "answer", ContentJSON: publicJSON, ReasoningText: "private reasoning", ProviderStateJSON: providerStateJSON})
+	if len(message.Blocks) != len(blocks) {
+		t.Fatalf("unexpected restored block count: %+v", message.Blocks)
+	}
+	want := []string{providers.ContentBlockTypeThinking, "text", providers.ContentBlockTypeRedactedThinking, "tool_use"}
+	for index, block := range message.Blocks {
+		if block.Type != want[index] {
+			t.Fatalf("restored block order changed at %d: got=%q want=%q", index, block.Type, want[index])
+		}
+	}
+	model, signature, _, ok := providers.AnthropicReasoningContentBlockState(message.Blocks[0])
+	if !ok || message.Blocks[0].ReasoningText != "private reasoning" || signature != "signature-1" || model != "claude-test" {
+		t.Fatalf("thinking state did not round trip: model=%q signature=%q reasoning=%q ok=%v", model, signature, message.Blocks[0].ReasoningText, ok)
+	}
+	model, _, data, ok := providers.AnthropicReasoningContentBlockState(message.Blocks[2])
+	if !ok || data != "ciphertext-1" || model != "claude-test" {
+		t.Fatalf("redacted thinking state did not round trip: model=%q data=%q ok=%v", model, data, ok)
+	}
+	if got := geminiThoughtSignatureForTest(message.Blocks[3].ProviderState); got != "gemini-signature" {
+		t.Fatalf("legacy Gemini tool state was not preserved: %q", got)
+	}
+}
+
+func TestPrepareProviderMessagesFiltersNativeReasoningBlocksByCapability(t *testing.T) {
+	thinking := providers.NewAnthropicThinkingContentBlock("claude-test", "private reasoning", "signature-1")
+	redacted := providers.NewAnthropicRedactedThinkingContentBlock("claude-test", "ciphertext-1")
+	messages := []providers.Message{{Role: "assistant", Content: "answer", Blocks: []providers.ContentBlock{thinking, {Type: "text", Text: "answer"}, redacted}}}
+	native := prepareProviderMessagesForCapabilities(messages, providers.Capabilities{NativeReasoningBlocks: true})
+	if len(native) != 1 || len(native[0].Blocks) != 3 {
+		t.Fatalf("native provider lost replay blocks: %+v", native)
+	}
+	plain := prepareProviderMessagesForCapabilities(messages, providers.Capabilities{})
+	if len(plain) != 1 || len(plain[0].Blocks) != 1 || plain[0].Blocks[0].Type != "text" || plain[0].Blocks[0].Text != "answer" {
+		t.Fatalf("non-native provider received hidden reasoning blocks: %+v", plain)
+	}
+}
+
 func TestContextPrunedProgressTracksAbsoluteBoundary(t *testing.T) {
 	messages := make([]db.Message, 12)
 	for i := range messages {

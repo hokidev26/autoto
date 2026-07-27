@@ -737,7 +737,9 @@ func buildCodexResponsesPayload(req GenerateRequest, model, reasoningEffort, ins
 		payload["tools"] = tools
 	}
 	if reasoningEffort != "" {
-		payload["reasoning"] = map[string]any{"effort": reasoningEffort}
+		// encrypted_content above is opaque; "summary" is the readable stream the
+		// activity list renders.
+		payload["reasoning"] = map[string]any{"effort": reasoningEffort, "summary": "auto"}
 	}
 	if req.MaxOutputTokens > 0 {
 		payload["max_output_tokens"] = req.MaxOutputTokens
@@ -928,6 +930,13 @@ func handleCodexResponsesStream(ctx context.Context, out chan<- Event, body io.R
 			if event.Delta != "" {
 				emittedOutput = true
 				if !emitProviderEvent(ctx, out, Event{Type: "text", Text: event.Delta}) {
+					return codexStreamOutcome{ErrorCode: "context_canceled", EmittedOutput: emittedOutput}
+				}
+			}
+		case "response.reasoning_summary_text.delta":
+			// Deliberately does not set emittedOutput: reasoning is not an answer.
+			if event.Delta != "" {
+				if !emitProviderEvent(ctx, out, Event{Type: "reasoning", Text: event.Delta}) {
 					return codexStreamOutcome{ErrorCode: "context_canceled", EmittedOutput: emittedOutput}
 				}
 			}

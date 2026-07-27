@@ -474,6 +474,15 @@ function navigationMoreTrigger(kind, id) {
   return `<button class="navigation-row-actions" type="button" data-navigation-menu-trigger data-navigation-kind="${escapeNavigationHtml(kind)}" data-navigation-id="${escapeNavigationHtml(id)}" aria-haspopup="menu" aria-label="${escapeNavigationHtml(label)}" title="${escapeNavigationHtml(label)}">…</button>`;
 }
 
+// Deliberately distinct from the sidebar-header "+", which creates a project or
+// a standalone conversation. This one only ever forks the project it sits on
+// into a new git branch + worktree, so its label says so rather than saying
+// "new".
+function navigationForkTrigger(projectId) {
+  const label = t("shell.newWorkline");
+  return `<button class="navigation-row-fork" type="button" data-project-fork-trigger data-project-id-fork="${escapeNavigationHtml(projectId)}" aria-label="${escapeNavigationHtml(label)}" title="${escapeNavigationHtml(label)}">+</button>`;
+}
+
 function renderProject(project, activeProjectId, options = {}) {
   const active = options.activeSelectionKind !== "conversation" && project.id === activeProjectId;
   const path = project.gitPath || project.id;
@@ -494,7 +503,7 @@ function renderProject(project, activeProjectId, options = {}) {
         <span class="navigation-conversation-meta project-path" title="${escapeNavigationHtml(path)}">${escapeNavigationHtml(displayPath)}</span>
       </span>
       ${taskMeta}
-      ${navigationMoreTrigger("project", project.id)}
+      ${options.taskContext ? "" : navigationForkTrigger(project.id)}
     </div>`;
 }
 
@@ -518,7 +527,7 @@ function renderConversation(conversation, activeAgentId, nested = false, options
     ? `<svg viewBox="0 0 20 20"><circle cx="10" cy="6.5" r="3"></circle><path d="M4.5 17c.7-3.5 2.5-5.2 5.5-5.2s4.8 1.7 5.5 5.2"></path></svg>`
     : `<svg viewBox="0 0 20 20"><path d="M5 4.5h10a2 2 0 0 1 2 2V12a2 2 0 0 1-2 2H9l-4 2.5V14a2 2 0 0 1-2-2V6.5a2 2 0 0 1 2-2Z"></path></svg>`;
   return `
-    <div class="navigation-conversation-row ${nested ? "nested " : ""}${taskContext ? "task-context " : ""}${active ? "active " : ""}status-${statusClass} ${stateClass}" role="button" tabindex="0" title="${escapeNavigationHtml(conversation.agentTitle)}" data-navigation-target="${escapeNavigationHtml(conversation.targetId)}" data-navigation-kind="conversation" data-navigation-id="${escapeNavigationHtml(conversation.agentId)}" data-agent-status="${escapeNavigationHtml(conversation.agentStatus || "idle")}" data-navigation-context="${taskContext ? "tasks" : conversation.standalone ? "conversation" : "project"}" data-standalone-conversation="${conversation.standalone ? "true" : "false"}">
+    <div class="navigation-conversation-row ${nested ? "nested " : ""}${taskContext ? "task-context " : ""}${active ? "active " : ""}status-${statusClass} ${stateClass}" role="button" tabindex="0" draggable="true" title="${escapeNavigationHtml(conversation.agentTitle)}" data-navigation-target="${escapeNavigationHtml(conversation.targetId)}" data-navigation-kind="conversation" data-navigation-id="${escapeNavigationHtml(conversation.agentId)}" data-agent-status="${escapeNavigationHtml(conversation.agentStatus || "idle")}" data-navigation-context="${taskContext ? "tasks" : conversation.standalone ? "conversation" : "project"}" data-standalone-conversation="${conversation.standalone ? "true" : "false"}">
       <span class="navigation-agent-icon theme-icon-slot" data-theme-icon-slot="sidebar-conversation" aria-hidden="true">${icon}</span>
       <span class="navigation-conversation-main">
         <span class="navigation-conversation-title"><span class="navigation-title-text">${escapeNavigationHtml(conversation.agentTitle)}</span>${stateMeta}</span>
@@ -526,6 +535,18 @@ function renderConversation(conversation, activeAgentId, nested = false, options
       </span>
       ${navigationMoreTrigger("conversation", conversation.agentId)}
     </div>`;
+}
+
+export function applyConversationOrder(conversations, orderArr) {
+  if (!Array.isArray(orderArr) || !orderArr.length) return conversations;
+  const orderMap = new Map(orderArr.map((id, i) => [String(id), i]));
+  const copy = [...conversations];
+  copy.sort((a, b) => {
+    const ia = orderMap.has(a.agentId) ? orderMap.get(a.agentId) : Infinity;
+    const ib = orderMap.has(b.agentId) ? orderMap.get(b.agentId) : Infinity;
+    return ia - ib;
+  });
+  return copy;
 }
 
 export function renderNavigationHTML(view = {}, options = {}) {
@@ -545,13 +566,18 @@ export function renderNavigationHTML(view = {}, options = {}) {
     const standalone = (view.standaloneConversations || [])
       .map((conversation) => renderConversation(conversation, activeAgentId, false, { activeSelectionKind }))
       .join("");
-    const groups = (view.groups || []).map((group) => `
+    const groups = (view.groups || []).map((group) => {
+      const orderedConvs = options.conversationOrders?.[group.project.id]
+        ? applyConversationOrder(group.conversations, options.conversationOrders[group.project.id])
+        : group.conversations;
+      return `
       <section class="navigation-project-group" data-navigation-project-group="${escapeNavigationHtml(group.project.id)}" data-conversation-count="${escapeNavigationHtml(String(group.conversations.length))}" data-navigation-context="project">
         ${renderProject(group.project, activeProjectId, { activeSelectionKind })}
         <div class="navigation-project-conversations" data-project-conversations="${escapeNavigationHtml(group.project.id)}">
-          ${group.conversations.map((conversation) => renderConversation(conversation, activeAgentId, true, { activeSelectionKind })).join("")}
+          ${orderedConvs.map((conversation) => renderConversation(conversation, activeAgentId, true, { activeSelectionKind })).join("")}
         </div>
-      </section>`).join("");
+      </section>`;
+    }).join("");
     html = standalone + groups;
   } else if (mode === "projects") {
     html = (view.projects || []).map((project) => renderProject(project, activeProjectId, { activeSelectionKind })).join("");

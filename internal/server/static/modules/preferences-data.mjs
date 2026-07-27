@@ -19,6 +19,7 @@ export const terminalPrefsKey = "autoto.terminal";
 export const regionalPrefsKey = "autoto.regional";
 export const chatDraftsKey = "autoto.chatDrafts";
 export const promptHistoryKey = "autoto.promptHistory";
+export const messageQueueKey = "autoto.messageQueue";
 export const primaryModePrefsKey = "autoto.ui.primaryMode";
 export const defaultPrimaryModePreference = "conversation";
 export const localPreferenceBackupKind = "autoto.local-preferences";
@@ -45,6 +46,7 @@ export const localPreferenceKeys = [
   regionalPrefsKey,
   chatDraftsKey,
   promptHistoryKey,
+  messageQueueKey,
   primaryModePrefsKey,
 ];
 

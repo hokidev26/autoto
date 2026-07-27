@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 
 import {
   addRecentConversation,
+  applyConversationOrder,
   buildNavigationView,
   createNavigationRefreshController,
   createNavigationTargetId,
@@ -416,4 +417,77 @@ test("navigation rendering escapes all dynamic text and attributes", () => {
   assert.match(html, /&lt;img src=x onerror=&quot;agent&quot;&gt;/);
   assert.doesNotMatch(recentHtml, /recent-conversation-item|<img/);
   assert.match(recentHtml, /data-recent-conversations-deduplicated="true"/);
+});
+
+test("each project row carries its own fork trigger, distinct from the header create button", () => {
+  const payload = {
+    projects: [{ id: "p1", name: "autoto", gitPath: "/work/autoto" }],
+    conversations: [{
+      projectId: "p1", projectName: "autoto", worklineId: "w1", worklineTitle: "main",
+      agentId: "a1", agentTitle: "main", messageCount: 2,
+    }],
+  };
+  const html = renderNavigationHTML(buildNavigationView(payload, { mode: "all" }), { activeProjectId: "p1" });
+
+  // The fork trigger is scoped to the project it sits on, so a click cannot be
+  // mistaken for the header's create-project action.
+  assert.match(html, /data-project-fork-trigger data-project-id-fork="p1"/);
+  assert.equal(html.match(/data-project-fork-trigger/g).length, 1);
+  // Project rows removed the "…" button; right-click already provides the same actions.
+  assert.doesNotMatch(html, /data-navigation-menu-trigger data-navigation-kind="project"/);
+  // Conversation rows still have the "…" button.
+  assert.match(html, /data-navigation-menu-trigger data-navigation-kind="conversation"/);
+  // Conversation rows are not forkable: a fork is per project.
+  const conversationRow = html.slice(html.indexOf("data-navigation-target"));
+  assert.doesNotMatch(conversationRow, /data-project-fork-trigger/);
+});
+
+test("the task sidebar hides the fork trigger so its rows stay selection-only", () => {
+  const payload = { projects: [{ id: "p1", name: "autoto", gitPath: "/work/autoto" }], conversations: [] };
+  const html = renderNavigationHTML(buildNavigationView(payload, { mode: "projects" }), {
+    activeProjectId: "p1",
+    taskContext: true,
+    taskCounts: { p1: { todo: 1 } },
+  });
+
+  assert.doesNotMatch(html, /data-project-fork-trigger/);
+});
+
+test("conversation rows are draggable, project rows are not", () => {
+  const payload = {
+    projects: [{ id: "p1", name: "autoto", gitPath: "/work" }],
+    conversations: [{ projectId: "p1", worklineId: "w1", worklineTitle: "main", agentId: "a1", agentTitle: "main", messageCount: 1 }],
+  };
+  const html = renderNavigationHTML(buildNavigationView(payload, { mode: "all" }), { activeAgentId: "a1" });
+  // Conversation rows must be draggable
+  assert.match(html, /navigation-conversation-row[^>]*draggable="true"/);
+  // Project rows must NOT be draggable (reordering projects is not implemented)
+  assert.doesNotMatch(html, /data-project-id[^>]*draggable="true"/);
+});
+
+test("applyConversationOrder reorders conversations and puts unknowns at the end", () => {
+  const convs = [
+    { agentId: "a1" }, { agentId: "a2" }, { agentId: "a3" },
+  ];
+  const reordered = applyConversationOrder(convs, ["a3", "a1", "a2"]);
+  assert.deepEqual(reordered.map((c) => c.agentId), ["a3", "a1", "a2"]);
+
+  const withUnknown = applyConversationOrder(convs, ["a2", "zz"]);
+  assert.equal(withUnknown[0].agentId, "a2");
+  assert.deepEqual(new Set(withUnknown.map((c) => c.agentId)), new Set(["a1", "a2", "a3"]));
+});
+
+test("renderNavigationHTML applies conversationOrders when provided", () => {
+  const payload = {
+    projects: [{ id: "p1", name: "autoto", gitPath: "/work" }],
+    conversations: [
+      { projectId: "p1", worklineId: "w1", worklineTitle: "main", agentId: "b1", agentTitle: "B" },
+      { projectId: "p1", worklineId: "w1", worklineTitle: "main", agentId: "a1", agentTitle: "A" },
+    ],
+  };
+  const html = renderNavigationHTML(buildNavigationView(payload, { mode: "all" }), {
+    conversationOrders: { p1: ["b1", "a1"] },
+  });
+  // b1 must appear before a1 in the HTML
+  assert.ok(html.indexOf("a1") > html.indexOf("b1"), "b1 should come before a1 with the given order");
 });

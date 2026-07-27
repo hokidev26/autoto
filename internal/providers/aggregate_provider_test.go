@@ -287,6 +287,32 @@ func TestAggregateProviderPrunesToolsAndImagesPerCandidate(t *testing.T) {
 	}
 }
 
+func TestAggregateProviderFiltersNativeReasoningBlocksPerCandidate(t *testing.T) {
+	native := &aggregateTestProvider{name: "native", caps: Capabilities{Streaming: true, NativeReasoningBlocks: true, ReasoningEfforts: []string{"low", "medium", "high"}}, generate: func(GenerateRequest) ([]Event, error) {
+		return []Event{{Type: "done", Done: true}}, nil
+	}}
+	plain := &aggregateTestProvider{name: "plain", caps: Capabilities{Streaming: true}, generate: func(GenerateRequest) ([]Event, error) {
+		return []Event{{Type: "done", Done: true}}, nil
+	}}
+	request := GenerateRequest{
+		ReasoningEffort:       "high",
+		ReasoningBudgetTokens: 4096,
+		Messages: []Message{{Role: "assistant", Blocks: []ContentBlock{
+			{Type: ContentBlockTypeThinking, ReasoningText: "private chain", ProviderState: []byte(`{"signature":"sig"}`)},
+			{Type: ContentBlockTypeRedactedThinking, ProviderState: []byte(`{"data":"cipher"}`)},
+			{Type: "text", Text: "answer"},
+		}}},
+	}
+	collectAggregateEvents(t, resolvedAggregateForTest(t, []Provider{native}, []string{"native:model"}), request)
+	collectAggregateEvents(t, resolvedAggregateForTest(t, []Provider{plain}, []string{"plain:model"}), request)
+	if requests := native.requestSnapshot(); len(requests) != 1 || requests[0].ReasoningEffort != "high" || requests[0].ReasoningBudgetTokens != 4096 || len(requests[0].Messages[0].Blocks) != 3 {
+		t.Fatalf("native candidate lost reasoning replay state: %+v", requests)
+	}
+	if requests := plain.requestSnapshot(); len(requests) != 1 || requests[0].ReasoningEffort != "auto" || requests[0].ReasoningBudgetTokens != 0 || len(requests[0].Messages[0].Blocks) != 1 || requests[0].Messages[0].Blocks[0].Type != "text" {
+		t.Fatalf("plain candidate received native reasoning state: %+v", requests)
+	}
+}
+
 func TestAggregateProviderFiltersImageGenerationPerCandidateModel(t *testing.T) {
 	enabled := &aggregateTestProvider{
 		name:      "enabled",

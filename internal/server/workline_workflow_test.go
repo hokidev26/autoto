@@ -268,3 +268,111 @@ func containsString(values []string, want string) bool {
 	}
 	return false
 }
+
+// The merge-check response is what the review panel renders, so it has to carry
+// the size and direction of the change, not just a can/cannot verdict. A bare
+// boolean gives the user nothing to decide with.
+func TestWorklineMergeCheckReportsReviewSignals(t *testing.T) {
+	ctx := context.Background()
+	repo := newGitTestRepo(t)
+	writeGitTestFile(t, repo, "README.md", "base\n")
+	runGitTestCommand(t, repo, "add", "README.md")
+	runGitTestCommand(t, repo, "commit", "-m", "base")
+
+	store, err := db.Open(ctx, filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	_, root, _, err := store.CreateProject(ctx, "Demo", "", repo, "openai:test", "acceptEdits")
+	if err != nil {
+		t.Fatal(err)
+	}
+	app := New(config.Config{Agent: config.AgentConfig{DefaultModel: "openai:test", DefaultPermissionMode: "acceptEdits"}}, store, nil, nil)
+	fork := forkWorklineForTest(t, app, root.ID, "feature/review-signals")
+
+	// Two commits on the source touching two files, one commit on the target:
+	// ahead=2, behind=1, and only the source's own files must be counted.
+	writeGitTestFile(t, fork.Workline.WorktreePath, "one.txt", "one\n")
+	runGitTestCommand(t, fork.Workline.WorktreePath, "add", "one.txt")
+	runGitTestCommand(t, fork.Workline.WorktreePath, "commit", "-m", "source one")
+	writeGitTestFile(t, fork.Workline.WorktreePath, "two.txt", "two\n")
+	runGitTestCommand(t, fork.Workline.WorktreePath, "add", "two.txt")
+	runGitTestCommand(t, fork.Workline.WorktreePath, "commit", "-m", "source two")
+	writeGitTestFile(t, repo, "target-only.txt", "target\n")
+	runGitTestCommand(t, repo, "add", "target-only.txt")
+	runGitTestCommand(t, repo, "commit", "-m", "target only")
+
+	recorder := httptest.NewRecorder()
+	request := newTestRequest(http.MethodGet, "/api/worklines/"+fork.Workline.ID+"/merge-check?targetWorklineId="+root.ID, nil)
+	app.Routes().ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", recorder.Code, recorder.Body.String())
+	}
+	var response worklineMergeCheckResponse
+	if err := json.NewDecoder(recorder.Body).Decode(&response); err != nil {
+		t.Fatal(err)
+	}
+	if !response.CanMerge || len(response.Conflicts) != 0 {
+		t.Fatalf("expected a clean merge verdict, got %+v", response)
+	}
+	if response.Ahead != 2 || response.Behind != 1 {
+		t.Fatalf("expected ahead=2 behind=1, got ahead=%d behind=%d", response.Ahead, response.Behind)
+	}
+	if response.ChangedCount != 2 {
+		t.Fatalf("expected 2 changed files, got %d (%v)", response.ChangedCount, response.ChangedFiles)
+	}
+	// Diffing against the merge base, not the target head, is what keeps the
+	// target's own commit out of the source's changed-file list.
+	if containsString(response.ChangedFiles, "target-only.txt") {
+		t.Fatalf("target-only work must not be attributed to the source: %v", response.ChangedFiles)
+	}
+	if !containsString(response.ChangedFiles, "one.txt") || !containsString(response.ChangedFiles, "two.txt") {
+		t.Fatalf("expected both source files, got %v", response.ChangedFiles)
+	}
+	if response.AlreadyMerged || response.SourceDirty || response.TargetDirty {
+		t.Fatalf("expected committed, unmerged worktrees, got %+v", response)
+	}
+}
+
+// Uncommitted work is the most common reason a merge that "checks out" then
+// fails, so the check has to surface it before the user commits to merging.
+func TestWorklineMergeCheckFlagsDirtyWorktrees(t *testing.T) {
+	ctx := context.Background()
+	repo := newGitTestRepo(t)
+	writeGitTestFile(t, repo, "README.md", "base\n")
+	runGitTestCommand(t, repo, "add", "README.md")
+	runGitTestCommand(t, repo, "commit", "-m", "base")
+
+	store, err := db.Open(ctx, filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	_, root, _, err := store.CreateProject(ctx, "Demo", "", repo, "openai:test", "acceptEdits")
+	if err != nil {
+		t.Fatal(err)
+	}
+	app := New(config.Config{Agent: config.AgentConfig{DefaultModel: "openai:test", DefaultPermissionMode: "acceptEdits"}}, store, nil, nil)
+	fork := forkWorklineForTest(t, app, root.ID, "feature/dirty")
+	writeGitTestFile(t, fork.Workline.WorktreePath, "wip.txt", "uncommitted\n")
+
+	recorder := httptest.NewRecorder()
+	request := newTestRequest(http.MethodGet, "/api/worklines/"+fork.Workline.ID+"/merge-check?targetWorklineId="+root.ID, nil)
+	app.Routes().ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", recorder.Code, recorder.Body.String())
+	}
+	var response worklineMergeCheckResponse
+	if err := json.NewDecoder(recorder.Body).Decode(&response); err != nil {
+		t.Fatal(err)
+	}
+	if !response.SourceDirty {
+		t.Fatalf("expected the uncommitted source worktree to be reported: %+v", response)
+	}
+	// Nothing committed means nothing to bring over, even though the worktree
+	// has edits sitting in it.
+	if !response.AlreadyMerged || response.ChangedCount != 0 {
+		t.Fatalf("expected no committed work to merge, got %+v", response)
+	}
+}

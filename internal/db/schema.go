@@ -266,6 +266,7 @@ CREATE TABLE IF NOT EXISTS agent_messages (
   content_json TEXT,
   provider_state_json TEXT,
   content_text TEXT,
+  reasoning_text TEXT,
   tokens_in INTEGER,
   cost_usd REAL,
   turn_usage_json TEXT,

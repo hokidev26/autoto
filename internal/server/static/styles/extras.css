@@ -51,8 +51,12 @@ body.white-shell.theme-light .composer-wrap {
     margin: 0;
   }
 
+  /* Hugs the pill. The fixed 96px basis this used to carry outlived the pill
+     below it going min-width:max-content, so the pill measured ~70px inside a
+     96px box and the leftover ~26px read as a hole between the permission
+     control and the directory button that ends the toolbar. */
   body.white-shell.theme-light .composer-permission-field {
-    flex: 0 0 96px;
+    flex: 0 0 auto;
   }
 
   /* Sized to the longest label ("全部允许") rather than a fixed width: at 96px the
@@ -167,8 +171,9 @@ body.white-shell.theme-light .composer-wrap {
       line-height: 1;
     }
 
+    /* Same stale-basis hole as the desktop rule above, 92px around a ~70px pill. */
     body.white-shell.theme-light .composer-permission-field {
-      flex: 0 0 92px;
+      flex: 0 0 auto;
     }
 
     body.white-shell.theme-light .permission-toolbar-pill {

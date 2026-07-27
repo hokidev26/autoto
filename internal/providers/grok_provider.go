@@ -374,7 +374,9 @@ func buildGrokResponsesPayload(req GenerateRequest, model, reasoningEffort strin
 		payload["max_output_tokens"] = req.MaxOutputTokens
 	}
 	if reasoningEffort != "" {
-		payload["reasoning"] = map[string]any{"effort": reasoningEffort}
+		// "summary" is what turns the reasoning stream into readable text; without
+		// it the Responses API thinks silently and the UI has nothing to show.
+		payload["reasoning"] = map[string]any{"effort": reasoningEffort, "summary": "auto"}
 	}
 	if len(req.Tools) > 0 || openAIMessagesRequireStructuredInput(req.Messages) {
 		payload["input"] = openAIResponseInput(req.Messages)
@@ -469,6 +471,14 @@ func handleGrokResponsesStream(ctx context.Context, out chan<- Event, body io.Re
 				}
 				sawTextDelta = true
 				outcome.emittedContent = true
+			}
+		case "response.reasoning_summary_text.delta":
+			// Reasoning never sets emittedContent: a turn that only reasoned has
+			// still produced no answer, and the retry logic depends on that.
+			if event.Delta != "" {
+				if !emitDispatch() || !emitProviderEvent(ctx, out, Event{Type: "reasoning", Text: event.Delta}) {
+					return grokStreamOutcome{emittedContent: outcome.emittedContent, err: ctx.Err(), code: telemetryErrorCode(ctx.Err())}
+				}
 			}
 		case "response.output_text.done":
 			if !sawTextDelta && event.Text != "" {
