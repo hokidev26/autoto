@@ -1403,10 +1403,6 @@ body.white-shell.theme-light.theme-dark #settingsModal {
   justify-content: flex-end;
   gap: 2px;
   margin-left: auto;
-  padding: 3px;
-  border: 1px solid var(--settings-border);
-  border-radius: 9px;
-  background: var(--settings-muted);
 }
 
 #settingsContentBody .codex-icon-action {
