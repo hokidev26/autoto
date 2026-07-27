@@ -504,3 +504,12 @@ var _ ScenarioConfigurationProvider = (*KiroProvider)(nil)
 var _ ScenarioAvailabilityProvider = (*KiroProvider)(nil)
 var _ CapabilityProvider = (*KiroProvider)(nil)
 var _ ModelCapabilityProvider = (*KiroProvider)(nil)
+
+// WarmupTokens proactively refreshes expired/near-expiry OAuth tokens at
+// startup so the first real request does not pay a cold-start TLS penalty.
+func (p *KiroProvider) WarmupTokens(ctx context.Context) {
+	if p == nil || p.accounts == nil || p.configErr != nil {
+		return
+	}
+	p.accounts.warmupTokens(ctx, p.refresh)
+}

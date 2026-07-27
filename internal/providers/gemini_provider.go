@@ -946,3 +946,12 @@ var _ ScenarioConfigurationProvider = (*GeminiProvider)(nil)
 var _ ScenarioAvailabilityProvider = (*GeminiProvider)(nil)
 var _ CapabilityProvider = (*GeminiProvider)(nil)
 var _ ModelCapabilityProvider = (*GeminiProvider)(nil)
+
+// WarmupTokens proactively refreshes expired/near-expiry OAuth tokens at
+// startup so the first real request does not pay a cold-start TLS penalty.
+func (p *GeminiProvider) WarmupTokens(ctx context.Context) {
+	if p == nil || p.accounts == nil || p.configErr != nil {
+		return
+	}
+	p.accounts.warmupTokens(ctx, p.refresh)
+}

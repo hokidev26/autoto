@@ -471,3 +471,12 @@ var _ ScenarioConfigurationProvider = (*KimiProvider)(nil)
 var _ ScenarioAvailabilityProvider = (*KimiProvider)(nil)
 var _ CapabilityProvider = (*KimiProvider)(nil)
 var _ ModelCapabilityProvider = (*KimiProvider)(nil)
+
+// WarmupTokens proactively refreshes expired/near-expiry OAuth tokens at
+// startup so the first real request does not pay a cold-start TLS penalty.
+func (p *KimiProvider) WarmupTokens(ctx context.Context) {
+	if p == nil || p.accounts == nil || p.configErr != nil {
+		return
+	}
+	p.accounts.warmupTokens(ctx, p.refresh)
+}

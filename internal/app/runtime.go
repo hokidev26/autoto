@@ -396,17 +396,33 @@ func (r *Runtime) warmupAnthropicOAuthTokens(ctx context.Context) {
 	if r == nil || r.providerRegistry == nil {
 		return
 	}
-	provider, ok := r.providerRegistry.Get("anthropic")
-	if !ok {
-		return
-	}
-	anthropicProvider, ok := provider.(*providers.AnthropicProvider)
-	if !ok {
-		return
-	}
 	warmupCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
 	defer cancel()
-	anthropicProvider.WarmupOAuthTokens(warmupCtx)
+
+	// Anthropic (OAuth subscription)
+	if p, ok := r.providerRegistry.Get("anthropic"); ok {
+		if ap, ok := p.(*providers.AnthropicProvider); ok {
+			ap.WarmupOAuthTokens(warmupCtx)
+		}
+	}
+
+	// Subscription providers: Gemini / Grok / Kimi / Kiro all use the same
+	// expiring-token pattern and suffer the same cold-start failure on Windows.
+	type tokenWarmer interface {
+		WarmupTokens(context.Context)
+	}
+	for _, name := range r.providerRegistry.Names() {
+		if warmupCtx.Err() != nil {
+			return
+		}
+		p, ok := r.providerRegistry.Get(name)
+		if !ok {
+			continue
+		}
+		if tw, ok := p.(tokenWarmer); ok {
+			tw.WarmupTokens(warmupCtx)
+		}
+	}
 }
 
 // Close stops services, closes the database, and releases listeners. It is

@@ -595,3 +595,12 @@ var _ ScenarioConfigurationProvider = (*GrokProvider)(nil)
 var _ ScenarioAvailabilityProvider = (*GrokProvider)(nil)
 var _ CapabilityProvider = (*GrokProvider)(nil)
 var _ ModelCapabilityProvider = (*GrokProvider)(nil)
+
+// WarmupTokens proactively refreshes expired/near-expiry OAuth tokens at
+// startup so the first real request does not pay a cold-start TLS penalty.
+func (p *GrokProvider) WarmupTokens(ctx context.Context) {
+	if p == nil || p.accounts == nil || p.configErr != nil {
+		return
+	}
+	p.accounts.warmupTokens(ctx, p.refresh)
+}

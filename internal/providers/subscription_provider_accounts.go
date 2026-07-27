@@ -289,6 +289,31 @@ func (a *subscriptionProviderAccounts) credentialExpiry(credential subscriptiona
 	return access == "" || !now.Before(expiresAt.Add(-subscriptionAccessTokenRefreshAhead)), !now.Before(expiresAt), nil
 }
 
+// warmupTokens proactively refreshes every enabled credential that is expired
+// or within the refresh-ahead window. Errors are silently ignored — if refresh
+// fails here the normal per-request path retries; the cost is just the same
+// cold-start latency the user would otherwise see on the first call.
+func (a *subscriptionProviderAccounts) warmupTokens(ctx context.Context, refresh subscriptionRefreshFunc) {
+	if a == nil || ctx == nil || refresh == nil {
+		return
+	}
+	accounts, err := a.enabledAccounts()
+	if err != nil || len(accounts) == 0 {
+		return
+	}
+	for _, item := range accounts {
+		if ctx.Err() != nil {
+			return
+		}
+		needsRefresh, _, expiryErr := a.credentialExpiry(item.Credential)
+		if expiryErr != nil || !needsRefresh {
+			continue
+		}
+		// prepareCredential handles the gate and store update; ignore errors.
+		_, _ = a.prepareCredential(ctx, item, refresh)
+	}
+}
+
 func (a *subscriptionProviderAccounts) refreshGate(accountID string) chan struct{} {
 	accountID = strings.TrimSpace(accountID)
 	a.refreshMu.Lock()
