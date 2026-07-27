@@ -9,7 +9,7 @@ import (
 	"github.com/google/uuid"
 )
 
-const CurrentDBVersion = 56
+const CurrentDBVersion = 57
 
 type migration struct {
 	version int
