@@ -942,7 +942,7 @@ export function createChatComposerController({
     const retryMode = !busy && isRetryMode();
     const sendBtn = $("sendMessageBtn");
     if (sendBtn && !busy) {
-      sendBtn.textContent = retryMode ? t("workspace.chat.retryRun") : t("workspace.chat.send");
+      sendBtn.textContent = retryMode ? t("workspace.chat.retryRun") : t("chat.send");
     }
     setButtonBusy(sendBtn, busy, t(processing ? "workspace.chat.videoProcessing" : "workspace.chat.sending"));
   }
