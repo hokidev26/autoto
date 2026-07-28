@@ -76,7 +76,7 @@ import { createSkillsContext } from "./skills-context.mjs";
 import { createServerResourceLoaders } from "./server-resource-loaders.mjs";
 import { createSetupWizardController } from "./setup-wizard.mjs?v=first-run-readiness-1";
 import { createSpecBoardController } from "./spec-board.mjs";
-import { createSystemSettingsController } from "./system-settings.mjs?v=users-panel-removed-1-about-brand-license-1-desktop-shell-1";
+import { createSystemSettingsController } from "./system-settings.mjs?v=users-panel-removed-1-about-brand-license-1-desktop-shell-1-execution-budget-1";
 import { installDesktopDeepLinkRouter, isDesktopShell } from "./desktop-shell-ui.mjs";
 import { createSkillsWorkbenchController } from "./skills-workbench.mjs?v=users-panel-removed-1-config-center-1-automation-tool-catalog-1";
 import { createTerminalController } from "./terminal.mjs?v=terminal-actions-compact-2";

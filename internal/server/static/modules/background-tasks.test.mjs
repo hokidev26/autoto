@@ -288,6 +288,32 @@ test("continuation events retain budgets while updating lifecycle status", () =>
   assert.equal(continuation.tokensUsed, 8000);
 });
 
+test("continuation budgets of -1 render as unlimited instead of a raw sentinel", () => {
+  const normalized = normalizeContinuation({
+    autoContinuationMode: "safe",
+    segmentTurns: 40,
+    turnsUsed: 12,
+    tokensUsed: 4096,
+    elapsedMs: 65000,
+    maxTotalTurns: -1,
+    tokenBudget: -1,
+    durationBudgetMs: -1,
+  });
+  // -1 is the durable config value and must survive normalization untouched.
+  assert.equal(normalized.maxTotalTurns, -1);
+  assert.equal(normalized.tokenBudget, -1);
+  assert.equal(normalized.durationBudgetMs, -1);
+
+  const controller = createBackgroundTasksController({ request: async () => ({}) });
+  controller.setAgent("agent-1");
+  controller.applySnapshot({ continuation: normalized }, { agentId: "agent-1" });
+  const html = controller.renderContinuationStatusHTML();
+  assert.match(html, /12 \/ 不限制/);
+  assert.match(html, /4096 \/ 不限制/);
+  assert.doesNotMatch(html, /\/ -1/);
+  assert.equal(html.match(/不限制/g).length, 3);
+});
+
 test("normalization explicitly preserves task ownership, association, revision, public fields, and timestamps", () => {
   const task = normalizeBackgroundTask({
     taskId: "task-explicit",

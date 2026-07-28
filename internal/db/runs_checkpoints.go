@@ -125,6 +125,8 @@ func (s *Store) CreateRun(ctx context.Context, run Run) (Run, error) {
 	if run.AutoContinuationMode != "off" && run.AutoContinuationMode != "safe" {
 		return Run{}, errors.New("invalid run auto continuation mode")
 	}
+	// Budgets are stored as 0 for "no ceiling" (see durableBudget in
+	// internal/agent), so this stays a plain non-negative check.
 	if run.ContinuationCount < 0 || run.ContinuationSegmentTurns < 0 || run.TurnCount < 0 || run.MaxTotalTurns < 0 || run.MaxContinuations < 0 || run.MaxTotalTokens < 0 || run.ConsumedInputTokens < 0 || run.ConsumedOutputTokens < 0 {
 		return Run{}, errors.New("run continuation counters must not be negative")
 	}

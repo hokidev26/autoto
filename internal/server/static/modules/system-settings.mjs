@@ -1,8 +1,9 @@
-import { $, escapeHtml, setButtonBusy } from "./dom.mjs";
+import { $, escapeAttr, escapeHtml, setButtonBusy } from "./dom.mjs";
 import { formatBytes, formatDuration, formatNumber, formatTimestamp } from "./formatters.mjs";
 import { currentUILocale, t as baseT } from "./i18n.mjs";
-import systemSettingsMessages from "./messages-system-settings.mjs?v=about-brand-license-1-desktop-shell-1";
+import systemSettingsMessages from "./messages-system-settings.mjs?v=about-brand-license-1-desktop-shell-1-execution-budget-1";
 import { localPreferenceBackupVersion } from "./preferences-data.mjs";
+import { api } from "./runtime.mjs";
 import {
   clearPendingDesktopUpdate,
   disableAutostart,
@@ -31,6 +32,21 @@ function t(key, params = {}) {
     ?? lookupMessage(systemSettingsMessages["zh-CN"], key);
   return message === undefined ? baseT(key, params) : interpolateMessage(message, params);
 }
+
+// Ranges mirror strictContinuationSettings in internal/server. `scale` converts
+// the UI unit into the wire unit, so duration is edited in minutes.
+const executionBudgetFields = [
+  { key: "maxTotalTurns", id: "runtimeBudgetTotalTurns", labelKey: "totalTurnsBudget", fallback: 200, min: 1, max: 10000, scale: 1 },
+  { key: "maxRunTokens", id: "runtimeBudgetTokens", labelKey: "tokenBudget", fallback: 2000000, min: 1000, max: 10000000, scale: 1 },
+  { key: "maxRunDurationMs", id: "runtimeBudgetDurationMinutes", labelKey: "durationBudget", fallback: 60, min: 1, max: 1440, scale: 60000 },
+  { key: "maxContinuations", id: "runtimeBudgetContinuations", labelKey: "continuationsBudget", fallback: 8, min: 0, max: 64, scale: 1 },
+];
+
+const defaultContinuationSegmentTurns = 40;
+
+// Remembers the last real number per field so toggling "unlimited" off restores
+// what the user typed instead of snapping back to the generic fallback.
+const executionBudgetDrafts = {};
 
 export function createSystemSettingsController({
   state,
@@ -177,8 +193,51 @@ export function createSystemSettingsController({
           ${renderRuntimeKeyValue(t("systemSettings.runtimeResources.sampleTime"), formatTimestamp(summary.generatedAt))}
         </div>
       </section>
+      ${renderExecutionBudgetCard(agent.continuation || {})}
     </div>
   `;
+  }
+
+  // Budgets persist as -1 for "no ceiling". The checkbox owns that state so the
+  // number input never has to represent a sentinel the user could mistype.
+  function renderExecutionBudgetCard(continuation) {
+    const mode = String(continuation.mode || "off").toLowerCase() === "safe" ? "safe" : "off";
+    return `
+      <section class="settings-info-card settings-card settings-card-content">
+        <div class="settings-info-title">${escapeHtml(t("systemSettings.runtimeResources.executionBudget"))}</div>
+        <div class="settings-form-grid" style="margin-top:12px;gap:8px">
+          <label class="settings-form-field">${escapeHtml(t("systemSettings.runtimeResources.autoContinuation"))}
+            <select id="runtimeBudgetMode" class="settings-field">
+              <option value="off" ${mode === "off" ? "selected" : ""}>${escapeHtml(t("systemSettings.runtimeResources.continuationOff"))}</option>
+              <option value="safe" ${mode === "safe" ? "selected" : ""}>${escapeHtml(t("systemSettings.runtimeResources.continuationSafe"))}</option>
+            </select>
+          </label>
+          ${executionBudgetFields.map((field) => renderExecutionBudgetField(field, continuation[field.key])).join("")}
+        </div>
+        <div class="settings-action-row" style="margin-top:10px;gap:8px;flex-wrap:wrap">
+          <button id="saveExecutionBudgetBtn" class="settings-action-btn primary" type="button">${escapeHtml(t("systemSettings.runtimeResources.saveBudget"))}</button>
+        </div>
+        <p data-settings-help-copy>${escapeHtml(t("systemSettings.runtimeResources.executionBudgetHelp"))}</p>
+      </section>`;
+  }
+
+  function renderExecutionBudgetField(field, rawValue) {
+    const value = Number(rawValue);
+    const limited = Number.isFinite(value) && value >= 0;
+    const uiValue = limited ? value / (field.scale || 1) : (executionBudgetDrafts[field.key] ?? field.fallback);
+    if (limited) executionBudgetDrafts[field.key] = uiValue;
+    return `
+          <label class="settings-form-field">${escapeHtml(t(`systemSettings.runtimeResources.${field.labelKey}`))}
+            <span class="settings-action-row" style="gap:8px;align-items:center">
+              <label class="settings-form-field" style="flex-direction:row;gap:6px;align-items:center">
+                <input id="${escapeAttr(field.id)}Unlimited" type="checkbox" data-budget-field="${escapeAttr(field.key)}" ${limited ? "" : "checked"} />
+                <span>${escapeHtml(t("systemSettings.runtimeResources.unlimited"))}</span>
+              </label>
+              <input id="${escapeAttr(field.id)}" class="settings-field" type="number" inputmode="numeric"
+                min="${escapeAttr(String(field.min))}" max="${escapeAttr(String(field.max))}" step="1"
+                value="${escapeAttr(String(uiValue))}" ${limited ? "" : "disabled"} />
+            </span>
+          </label>`;
   }
 
   function renderRuntimeKeyValue(label, value) {
@@ -192,8 +251,77 @@ export function createSystemSettingsController({
 
   function bindRuntimeSettingsActions() {
     $("refreshRuntimeSummaryBtn")?.addEventListener("click", () => loadRuntimeSummary({ notify: true }).catch(showError));
+    bindExecutionBudgetActions();
     if (!state.runtimeSummary && !state.runtimeError) {
       loadRuntimeSummary().catch(showError);
+    }
+  }
+
+  function bindExecutionBudgetActions() {
+    for (const field of executionBudgetFields) {
+      const input = $(field.id);
+      const toggle = $(`${field.id}Unlimited`);
+      input?.addEventListener("change", () => {
+        const value = Number(input.value);
+        if (Number.isFinite(value) && value >= 0) executionBudgetDrafts[field.key] = value;
+      });
+      toggle?.addEventListener("change", () => {
+        if (!input) return;
+        if (toggle.checked) {
+          input.disabled = true;
+          return;
+        }
+        input.disabled = false;
+        // Never leave an empty or invalid box behind: an unchecked box submits a
+        // real number, so seed a usable value rather than failing validation.
+        const current = Number(input.value);
+        if (!Number.isFinite(current) || current < field.min || current > field.max) {
+          const remembered = Number(executionBudgetDrafts[field.key]);
+          const seed = Number.isFinite(remembered) && remembered >= field.min && remembered <= field.max
+            ? remembered
+            : field.fallback;
+          input.value = String(seed);
+        }
+        input.focus?.();
+      });
+    }
+    $("saveExecutionBudgetBtn")?.addEventListener("click", (event) => {
+      saveExecutionBudget(event.currentTarget).catch(showError);
+    });
+  }
+
+  function collectExecutionBudget() {
+    const continuation = state.runtimeSummary?.agent?.continuation || {};
+    const segmentTurns = Number(continuation.segmentTurns);
+    const payload = {
+      mode: $("runtimeBudgetMode")?.value === "safe" ? "safe" : "off",
+      // segmentTurns has no control here, so carry the persisted value forward
+      // unchanged; the endpoint is a full overwrite and rejects a missing value.
+      segmentTurns: Number.isFinite(segmentTurns) && segmentTurns >= 1 ? segmentTurns : defaultContinuationSegmentTurns,
+    };
+    for (const field of executionBudgetFields) {
+      const toggle = $(`${field.id}Unlimited`);
+      if (!toggle || toggle.checked) {
+        payload[field.key] = -1;
+        continue;
+      }
+      const raw = Number($(field.id)?.value);
+      const uiValue = Number.isFinite(raw) && raw >= field.min && raw <= field.max ? raw : field.fallback;
+      executionBudgetDrafts[field.key] = uiValue;
+      payload[field.key] = Math.round(uiValue * (field.scale || 1));
+    }
+    return payload;
+  }
+
+  async function saveExecutionBudget(button) {
+    const payload = collectExecutionBudget();
+    setButtonBusy(button, true);
+    try {
+      await api("/api/runtime/continuation-settings", { method: "PATCH", body: JSON.stringify(payload) });
+      showToast?.(t("systemSettings.runtimeResources.budgetSaved"), "success", { force: true });
+      await loadRuntimeSummary();
+    } finally {
+      setButtonBusy(button, false);
     }
   }
 

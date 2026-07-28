@@ -70,9 +70,14 @@ func TestContinuationStopReasonPolicy(t *testing.T) {
 }
 
 func TestContinuationLimitsPreserveLegacyMaxTurnsAndBoundBudgets(t *testing.T) {
+	// A config that only ever set the legacy MaxTurns still means what it said
+	// for the turn budget, while the budgets it never mentioned are unlimited.
 	legacy := continuationLimitsForConfig(config.AgentConfig{MaxTurns: 3})
-	if legacy.mode != continuationModeSafe || legacy.segmentTurns != 3 || legacy.maxTotalTurns != 3 || legacy.maxContinuations != 8 {
+	if legacy.mode != continuationModeSafe || legacy.segmentTurns != 3 || legacy.maxTotalTurns != 3 {
 		t.Fatalf("unexpected legacy-compatible limits: %+v", legacy)
+	}
+	if legacy.maxContinuations != continuationUnlimitedContinuations || legacy.maxTokens != continuationUnlimited {
+		t.Fatalf("unset budgets should be unlimited: %+v", legacy)
 	}
 	bounded := continuationLimitsForConfig(config.AgentConfig{
 		AutoContinuationMode:     "off",
@@ -87,13 +92,15 @@ func TestContinuationLimitsPreserveLegacyMaxTurnsAndBoundBudgets(t *testing.T) {
 	}
 }
 
-// Negative budgets are an explicit opt-out for long /goal runs. They must not
-// be clamped back into a positive ceiling, and they must lift maxContinuations
-// too — an unlimited turn budget is useless if the run can only restart 8 times.
+// Every cross-segment budget reads a negative or unset value as "no ceiling",
+// and each one is independent: maxContinuations is unlimited because it is
+// itself -1, not because the turn budget happens to be. A positive value must
+// still be honoured, otherwise the settings panel could not impose a limit.
 func TestContinuationLimitsHonourUnlimitedBudgets(t *testing.T) {
 	unlimited := continuationLimitsForConfig(config.AgentConfig{
 		AutoContinuationMode:     "safe",
 		ContinuationSegmentTurns: 40,
+		MaxContinuations:         -1,
 		MaxTotalTurns:            -1,
 		MaxRunDurationMs:         -1,
 		MaxRunTokens:             -1,
@@ -105,10 +112,22 @@ func TestContinuationLimitsHonourUnlimitedBudgets(t *testing.T) {
 		t.Fatalf("negative duration produced a live deadline: %+v", unlimited)
 	}
 	if unlimited.maxContinuations != continuationUnlimitedContinuations {
-		t.Fatalf("unlimited budgets did not lift the continuation cap: %+v", unlimited)
+		t.Fatalf("negative continuation budget was clamped: %+v", unlimited)
 	}
 	if unlimited.segmentTurns != 40 {
 		t.Fatalf("segment turns should be unaffected by an unlimited total: %+v", unlimited)
+	}
+
+	// An explicit ceiling still wins, including alongside unlimited siblings.
+	capped := continuationLimitsForConfig(config.AgentConfig{
+		AutoContinuationMode:     "safe",
+		ContinuationSegmentTurns: 40,
+		MaxContinuations:         3,
+		MaxTotalTurns:            -1,
+		MaxRunTokens:             -1,
+	})
+	if capped.maxContinuations != 3 {
+		t.Fatalf("explicit continuation ceiling was overridden: %+v", capped)
 	}
 
 	// A run already past any fixed ceiling must not report a budget reason.

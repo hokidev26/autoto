@@ -230,9 +230,23 @@ export function normalizeContinuation(value = {}, fallback = {}) {
   };
 }
 
+// -1 is the durable "no ceiling" value carried straight through from config, so
+// it must read as unlimited rather than printing a bare -1 next to real usage.
+function unlimitedBudget(limit) {
+  return limit === -1 || limit === "-1";
+}
+
+// The duration row formats its own values, so -1 has to bypass formatDuration
+// and reach ratioText intact to take the unlimited branch.
+function durationBudgetText(limit) {
+  if (limit == null) return null;
+  return unlimitedBudget(limit) ? -1 : formatDuration(limit);
+}
+
 function ratioText(used, limit) {
   if (used === null && limit === null) return "—";
-  return `${used ?? "—"} / ${limit ?? "—"}`;
+  const limitText = unlimitedBudget(limit) ? t("backgroundTasks.continuation.unlimited") : (limit ?? "—");
+  return `${used ?? "—"} / ${limitText}`;
 }
 
 export function createBackgroundTasksController({
@@ -797,7 +811,7 @@ export function createBackgroundTasksController({
       [t("backgroundTasks.continuation.turnBudget"), ratioText(continuation.turnsUsed, continuation.maxTotalTurns)],
       [t("backgroundTasks.continuation.segmentTurns"), continuation.segmentTurns ?? "—"],
       [t("backgroundTasks.continuation.tokenBudget"), ratioText(continuation.tokensUsed, continuation.tokenBudget)],
-      [t("backgroundTasks.continuation.timeBudget"), ratioText(continuation.elapsedMs == null ? null : formatDuration(continuation.elapsedMs), continuation.durationBudgetMs == null ? null : formatDuration(continuation.durationBudgetMs))],
+      [t("backgroundTasks.continuation.timeBudget"), ratioText(continuation.elapsedMs == null ? null : formatDuration(continuation.elapsedMs), durationBudgetText(continuation.durationBudgetMs))],
       [t("backgroundTasks.continuation.waitingTask"), waitingTask?.title || continuation.waitingTaskId || "—"],
       [t("backgroundTasks.continuation.lastStop"), continuation.lastStop || "—"],
       [t("backgroundTasks.continuation.reason"), continuation.reason || "—"],

@@ -76,20 +76,26 @@ func strictContinuationSettings(req continuationSettingsRequest) (agent.Continua
 	if settings.SegmentTurns < 1 || settings.SegmentTurns > 1000 {
 		return agent.ContinuationSettings{}, invalidContinuationSetting("segmentTurns must be between 1 and 1000")
 	}
-	if settings.MaxContinuations < 0 || settings.MaxContinuations > 64 {
-		return agent.ContinuationSettings{}, invalidContinuationSetting("maxContinuations must be between 0 and 64")
+	// -1 is the one accepted negative value: it means "no ceiling". Any other
+	// negative number is rejected rather than treated as unlimited, so a client
+	// sending -5 gets an error instead of silently removing a budget.
+	if settings.MaxContinuations != unlimitedContinuationBudget && (settings.MaxContinuations < 0 || settings.MaxContinuations > 64) {
+		return agent.ContinuationSettings{}, invalidContinuationSetting("maxContinuations must be -1 (unlimited) or between 0 and 64")
 	}
-	if settings.MaxTotalTurns < settings.SegmentTurns || settings.MaxTotalTurns > 10000 {
-		return agent.ContinuationSettings{}, invalidContinuationSetting("maxTotalTurns must be between segmentTurns and 10000")
+	if settings.MaxTotalTurns != unlimitedContinuationBudget && (settings.MaxTotalTurns < settings.SegmentTurns || settings.MaxTotalTurns > 10000) {
+		return agent.ContinuationSettings{}, invalidContinuationSetting("maxTotalTurns must be -1 (unlimited) or between segmentTurns and 10000")
 	}
-	if settings.MaxRunDurationMs < 1000 || settings.MaxRunDurationMs > 86400000 {
-		return agent.ContinuationSettings{}, invalidContinuationSetting("maxRunDurationMs must be between 1000 and 86400000")
+	if settings.MaxRunDurationMs != unlimitedContinuationBudget && (settings.MaxRunDurationMs < 1000 || settings.MaxRunDurationMs > 86400000) {
+		return agent.ContinuationSettings{}, invalidContinuationSetting("maxRunDurationMs must be -1 (unlimited) or between 1000 and 86400000")
 	}
-	if settings.MaxRunTokens < 1000 || settings.MaxRunTokens > 10000000 {
-		return agent.ContinuationSettings{}, invalidContinuationSetting("maxRunTokens must be between 1000 and 10000000")
+	if settings.MaxRunTokens != unlimitedContinuationBudget && (settings.MaxRunTokens < 1000 || settings.MaxRunTokens > 10000000) {
+		return agent.ContinuationSettings{}, invalidContinuationSetting("maxRunTokens must be -1 (unlimited) or between 1000 and 10000000")
 	}
 	return settings, nil
 }
+
+// unlimitedContinuationBudget mirrors continuationUnlimited in internal/agent.
+const unlimitedContinuationBudget int64 = -1
 
 type invalidContinuationSetting string
 

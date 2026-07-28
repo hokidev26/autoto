@@ -45,11 +45,19 @@ type ContinuationSettings struct {
 // fixed ceiling, so the ceiling has to be removable — but only deliberately:
 // zero still selects the default so existing configs keep their guard rails.
 const (
-	continuationUnlimited             int64 = -1
+	continuationUnlimited              int64 = -1
 	continuationUnlimitedContinuations int64 = 1 << 40
 )
 
-func maxTokensUnlimited(configured int64) bool { return configured < 0 }
+// durableBudget converts an in-memory budget into the value stored on the run
+// row. The runs table constrains these columns to non-negative values, and 0 is
+// not a meaningful ceiling, so 0 is the durable spelling of "unlimited".
+func durableBudget(limit int64) int64 {
+	if limit == continuationUnlimited || limit == continuationUnlimitedContinuations {
+		return 0
+	}
+	return limit
+}
 
 type continuationLimits struct {
 	mode             string
@@ -203,14 +211,15 @@ func continuationLimitsForConfig(cfg config.AgentConfig) continuationLimits {
 	if segmentTurns > 1000 {
 		segmentTurns = 1000
 	}
+	// Every cross-segment budget below reads the same way: a negative value (or
+	// an unset one) means "no ceiling", and a positive value is honoured within
+	// its documented bounds. Long /goal runs legitimately outlast any fixed
+	// number, so the ceiling has to be opt-in rather than assumed.
 	maxContinuations := cfg.MaxContinuations
-	if maxContinuations == 0 {
-		maxContinuations = 8
-	}
-	if maxContinuations < 0 {
-		maxContinuations = 0
-	}
-	if maxContinuations > 64 {
+	switch {
+	case maxContinuations <= 0:
+		maxContinuations = int(continuationUnlimitedContinuations)
+	case maxContinuations > 64:
 		maxContinuations = 64
 	}
 	maxTotalTurns := int64(cfg.MaxTotalTurns)
@@ -218,9 +227,11 @@ func continuationLimitsForConfig(cfg config.AgentConfig) continuationLimits {
 	case maxTotalTurns < 0:
 		maxTotalTurns = continuationUnlimited
 	case maxTotalTurns == 0:
+		// A config that only ever set the legacy MaxTurns keeps meaning what it
+		// said; an unset total falls through to unlimited like the others.
 		maxTotalTurns = int64(cfg.MaxTurns)
 		if maxTotalTurns <= 0 {
-			maxTotalTurns = 200
+			maxTotalTurns = continuationUnlimited
 		}
 	case maxTotalTurns > 10000:
 		maxTotalTurns = 10000
@@ -228,32 +239,17 @@ func continuationLimitsForConfig(cfg config.AgentConfig) continuationLimits {
 	if maxTotalTurns != continuationUnlimited && segmentTurns > maxTotalTurns {
 		segmentTurns = maxTotalTurns
 	}
-	// maxContinuations is the count of segment restarts, and an unlimited turn
-	// or token budget is meaningless if the run can only restart 8 times.
-	if maxTotalTurns == continuationUnlimited || maxTokensUnlimited(cfg.MaxRunTokens) {
-		maxContinuations = int(continuationUnlimitedContinuations)
-	}
-	// A negative limit means "no ceiling". Long /goal runs legitimately exceed
-	// any fixed budget, and a run that is making progress should not be killed
-	// by a number the user never chose. Zero still means "use the default", so
-	// existing configs are unaffected.
 	maxDurationMS := cfg.MaxRunDurationMs
 	switch {
-	case maxDurationMS < 0:
+	case maxDurationMS <= 0:
 		maxDurationMS = continuationUnlimited
-	case maxDurationMS == 0:
-		maxDurationMS = 3600000
 	case maxDurationMS < 1000:
 		maxDurationMS = 1000
 	}
 	maxTokens := cfg.MaxRunTokens
 	switch {
-	case maxTokens < 0:
+	case maxTokens <= 0:
 		maxTokens = continuationUnlimited
-	case maxTokens == 0:
-		// Keep in sync with config.normalizeAgent: this budget is cumulative
-		// across continuation turns, each of which resends the conversation.
-		maxTokens = 2000000
 	case maxTokens < 1000:
 		maxTokens = 1000
 	}
@@ -292,14 +288,19 @@ func (r *Runner) prepareContinuationRun(ctx context.Context, run db.Run) (db.Run
 	if run.ContinuationSegmentTurns <= 0 {
 		run.ContinuationSegmentTurns = limits.segmentTurns
 	}
+	// Budgets persist as 0 for "no ceiling" rather than -1. The runs table has
+	// CHECK (max_* >= 0) constraints and 43 columns with 9 indexes, so widening
+	// them would mean a full table rebuild for no behavioural gain: 0 is already
+	// meaningless as an actual ceiling, and loadContinuationRunState reads it
+	// back as unlimited. -1 stays the in-memory encoding only.
 	if run.MaxContinuations <= 0 {
-		run.MaxContinuations = limits.maxContinuations
+		run.MaxContinuations = durableBudget(limits.maxContinuations)
 	}
 	if run.MaxTotalTurns <= 0 {
-		run.MaxTotalTurns = limits.maxTotalTurns
+		run.MaxTotalTurns = durableBudget(limits.maxTotalTurns)
 	}
 	if run.MaxTotalTokens <= 0 {
-		run.MaxTotalTokens = limits.maxTokens
+		run.MaxTotalTokens = durableBudget(limits.maxTokens)
 	}
 	// An unlimited duration leaves DeadlineAt empty rather than storing a past
 	// timestamp; every deadline check already treats the zero value as "no
@@ -510,19 +511,25 @@ func (r *Runner) loadContinuationState(ctx context.Context, agentID, runID strin
 	if run.ContinuationSegmentTurns > 0 {
 		state.limits.segmentTurns = run.ContinuationSegmentTurns
 	}
-	if run.MaxContinuations > 0 {
-		state.limits.maxContinuations = run.MaxContinuations
-	}
-	// != 0 rather than > 0: a persisted -1 is a deliberate "unlimited" that must
-	// survive a resume, and > 0 would silently restore the default ceiling.
-	if run.MaxTotalTurns != 0 {
-		state.limits.maxTotalTurns = run.MaxTotalTurns
-	}
-	if run.MaxTotalTokens != 0 {
-		state.limits.maxTokens = run.MaxTotalTokens
-	}
-	if state.limits.maxTotalTurns == continuationUnlimited || state.limits.maxTokens == continuationUnlimited {
+	// A frozen run keeps the budgets it started with, including the unlimited
+	// ones. 0 is how durableBudget spells "no ceiling", so it must resolve to
+	// unlimited here rather than falling through to the current config — the
+	// whole point of freezing is that a settings change mid-run cannot suddenly
+	// impose a ceiling the run was not started under. legacyUnfrozen rows
+	// predate the frozen budgets and do fall through.
+	if !legacyUnfrozen {
 		state.limits.maxContinuations = continuationUnlimitedContinuations
+		if run.MaxContinuations > 0 {
+			state.limits.maxContinuations = run.MaxContinuations
+		}
+		state.limits.maxTotalTurns = continuationUnlimited
+		if run.MaxTotalTurns > 0 {
+			state.limits.maxTotalTurns = run.MaxTotalTurns
+		}
+		state.limits.maxTokens = continuationUnlimited
+		if run.MaxTotalTokens > 0 {
+			state.limits.maxTokens = run.MaxTotalTokens
+		}
 	}
 	var deadline time.Time
 	if parsed, parseErr := time.Parse(time.RFC3339Nano, strings.TrimSpace(run.DeadlineAt)); parseErr == nil {
@@ -847,10 +854,13 @@ func continuationBudgetDetail(state continuationRunState, outcome segmentOutcome
 			consumed, state.limits.maxTokens, input, output, state.run.TurnCount+outcome.turns,
 		)
 	case "max_total_turns":
-		return fmt.Sprintf("max_total_turns (%d of %d). Raise agent.maxTotalTurns in settings.",
+		return fmt.Sprintf("max_total_turns (%d of %d). Raise agent.maxTotalTurns in settings, or set it to -1 for no limit.",
 			state.run.TurnCount+outcome.turns, state.limits.maxTotalTurns)
+	case "max_continuations":
+		return fmt.Sprintf("max_continuations (%d of %d segment restarts). Raise agent.maxContinuations in settings, or set it to -1 for no limit.",
+			state.run.ContinuationCount, state.limits.maxContinuations)
 	case "deadline":
-		return "deadline (run exceeded agent.maxRunDurationMs). Raise that limit in settings."
+		return "deadline (run exceeded agent.maxRunDurationMs). Raise that limit in settings, or set it to -1 for no limit."
 	default:
 		return reason
 	}
@@ -886,7 +896,7 @@ func (r *Runner) scheduleContinuation(ctx context.Context, state continuationRun
 	}
 	if run.ContinuationCount >= state.limits.maxContinuations {
 		r.publishContinuationLifecycle("budget_exhausted", "agent.budget_exhausted", run.AgentID, mergeEventData(map[string]any{"reason": "max_continuations"}, run.ID))
-		return db.Run{}, errors.New("continuation budget exhausted: max_continuations")
+		return db.Run{}, fmt.Errorf("continuation budget exhausted: %s", continuationBudgetDetail(state, outcome, "max_continuations"))
 	}
 	if reason := continuationBudgetReason(state, outcome); reason != "" {
 		r.publishContinuationLifecycle("budget_exhausted", "agent.budget_exhausted", run.AgentID, mergeEventData(map[string]any{"reason": reason}, run.ID))

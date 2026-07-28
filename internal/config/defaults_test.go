@@ -43,8 +43,14 @@ func TestDefaultConfig(t *testing.T) {
 	if cfg.Agent.ContextTokenLimit <= 0 {
 		t.Fatalf("expected positive context token limit, got %d", cfg.Agent.ContextTokenLimit)
 	}
-	if cfg.Agent.AutoContinuationMode != "safe" || cfg.Agent.ContinuationSegmentTurns != 40 || cfg.Agent.MaxContinuations != 8 || cfg.Agent.MaxTotalTurns != 200 || cfg.Agent.MaxRunDurationMs != 3600000 || cfg.Agent.MaxRunTokens != 2000000 {
+	// The cross-segment budgets default to -1 (no ceiling): a long run should not
+	// stop because of a limit the user never chose. Settings > Execution budget
+	// is where a ceiling gets imposed.
+	if cfg.Agent.AutoContinuationMode != "safe" || cfg.Agent.ContinuationSegmentTurns != 40 {
 		t.Fatalf("unexpected continuation defaults: %+v", cfg.Agent)
+	}
+	if cfg.Agent.MaxContinuations != -1 || cfg.Agent.MaxTotalTurns != -1 || cfg.Agent.MaxRunDurationMs != -1 || cfg.Agent.MaxRunTokens != -1 {
+		t.Fatalf("continuation budgets should default to unlimited: %+v", cfg.Agent)
 	}
 	if cfg.Security.Exposed || cfg.Security.AccessPassword != "" {
 		t.Fatalf("expected local security defaults, got %+v", cfg.Security)
@@ -531,9 +537,11 @@ func TestNormalizeAgentConfigContinuationBounds(t *testing.T) {
 	if got.AutoContinuationMode != "safe" || got.ContinuationSegmentTurns != 12 || got.MaxContinuations != 64 || got.MaxTotalTurns != 12 || got.MaxRunDurationMs != 1000 || got.MaxRunTokens != 1000 {
 		t.Fatalf("unexpected normalized continuation bounds: %+v", got)
 	}
+	// Disabling continuation is expressed by the mode, not by a zero count: a
+	// negative count now means "no ceiling" like the other budgets.
 	off := normalizeAgentConfig(AgentConfig{AutoContinuationMode: " OFF ", MaxContinuations: -1})
-	if off.AutoContinuationMode != "off" || off.MaxContinuations != 0 {
-		t.Fatalf("expected explicit off and zero continuation budget, got %+v", off)
+	if off.AutoContinuationMode != "off" || off.MaxContinuations != -1 {
+		t.Fatalf("expected explicit off mode and unlimited continuation budget, got %+v", off)
 	}
 }
 

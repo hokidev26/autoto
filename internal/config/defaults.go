@@ -287,10 +287,12 @@ func defaultWithReport(report *compat.Report) (Config, error) {
 			MaxTransientRetries:      10,
 			AutoContinuationMode:     "safe",
 			ContinuationSegmentTurns: 40,
-			MaxContinuations:         8,
-			MaxTotalTurns:            200,
-			MaxRunDurationMs:         3600000,
-			MaxRunTokens:             2000000,
+			// -1 across the cross-segment budgets: no ceiling by default. See
+			// normalizeAgent for why maxContinuations is included.
+			MaxContinuations:  -1,
+			MaxTotalTurns:     -1,
+			MaxRunDurationMs:  -1,
+			MaxRunTokens:      -1,
 		},
 		Auth: AuthConfig{
 			RegistrationOpen: true,
@@ -764,18 +766,24 @@ func normalizeAgentConfig(agent AgentConfig) AgentConfig {
 	if agent.ContinuationSegmentTurns > 1000 {
 		agent.ContinuationSegmentTurns = 1000
 	}
-	if agent.MaxContinuations == 0 {
-		agent.MaxContinuations = 8
-	} else if agent.MaxContinuations < 0 {
-		agent.MaxContinuations = 0
+	// The four cross-segment budgets below default to -1 (no ceiling). A long
+	// /goal run legitimately outlasts any fixed number, and a run that is making
+	// progress should not stop because of a limit the user never chose. Callers
+	// who want a ceiling set one in Settings > Execution budget.
+	//
+	// MaxContinuations is capped alongside them rather than kept at 8: with
+	// segmentTurns x maxContinuations being an effective turn ceiling of its
+	// own, leaving it at 8 would stop a run near turn 320 and report
+	// max_continuations instead — the same unexplained interruption with a
+	// different label. Disabling continuation entirely is expressed by
+	// autoContinuationMode "off", not by a zero count.
+	if agent.MaxContinuations <= 0 {
+		agent.MaxContinuations = -1
 	} else if agent.MaxContinuations > 64 {
 		agent.MaxContinuations = 64
 	}
-	// Negative values are preserved as an explicit "no ceiling" opt-out for long
-	// /goal runs; zero still selects the default so existing configs keep their
-	// guard rails. See continuationUnlimited in internal/agent/continuation.go.
 	if agent.MaxTotalTurns == 0 {
-		agent.MaxTotalTurns = 200
+		agent.MaxTotalTurns = -1
 	} else if agent.MaxTotalTurns > 10000 {
 		agent.MaxTotalTurns = 10000
 	} else if agent.MaxTotalTurns < 0 {
@@ -785,7 +793,7 @@ func normalizeAgentConfig(agent AgentConfig) AgentConfig {
 		agent.ContinuationSegmentTurns = agent.MaxTotalTurns
 	}
 	if agent.MaxRunDurationMs == 0 {
-		agent.MaxRunDurationMs = 3600000
+		agent.MaxRunDurationMs = -1
 	} else if agent.MaxRunDurationMs < 0 {
 		agent.MaxRunDurationMs = -1
 	} else if agent.MaxRunDurationMs < 1000 {
@@ -793,12 +801,8 @@ func normalizeAgentConfig(agent AgentConfig) AgentConfig {
 	} else if agent.MaxRunDurationMs > 86400000 {
 		agent.MaxRunDurationMs = 86400000
 	}
-	// 2M rather than 500K: this counts cumulative tokens across every
-	// continuation turn, and each turn resends the whole conversation. A run
-	// with a 120K context window burns ~2M by turn 20 while doing modest work,
-	// so 500K interrupted ordinary multi-step tasks well before maxTotalTurns.
 	if agent.MaxRunTokens == 0 {
-		agent.MaxRunTokens = 2000000
+		agent.MaxRunTokens = -1
 	} else if agent.MaxRunTokens < 0 {
 		agent.MaxRunTokens = -1
 	} else if agent.MaxRunTokens < 1000 {
