@@ -592,7 +592,22 @@ export function renderNavigationHTML(view = {}, options = {}) {
     }).join("");
     html = standalone + groupsHTML;
   } else if (mode === "projects") {
-    html = (view.projects || []).map((project) => renderProject(project, activeProjectId, { activeSelectionKind })).join("");
+    // Projects-only mode reorders like the grouped mode, and each project is
+    // wrapped in the same project-group section the drag handlers key off; a
+    // bare project row has no group ancestor, so drops resolved to nothing.
+    let projects = view.projects || [];
+    if (Array.isArray(options.projectOrder) && options.projectOrder.length) {
+      const orderMap = new Map(options.projectOrder.map((id, i) => [String(id), i]));
+      projects = [...projects].sort((a, b) => {
+        const ia = orderMap.has(a.id) ? orderMap.get(a.id) : Infinity;
+        const ib = orderMap.has(b.id) ? orderMap.get(b.id) : Infinity;
+        return ia - ib;
+      });
+    }
+    html = projects.map((project) => `
+      <section class="navigation-project-group" draggable="true" data-navigation-project-group="${escapeNavigationHtml(project.id)}" data-navigation-context="project">
+        ${renderProject(project, activeProjectId, { activeSelectionKind })}
+      </section>`).join("");
   } else {
     html = (view.conversations || []).map((conversation) => renderConversation(conversation, activeAgentId, false, { taskContext, activeSelectionKind })).join("");
   }

@@ -2682,28 +2682,37 @@ function bindProjectDrag(el) {
   let dragProjectId = "";
 
   el.addEventListener("dragstart", (event) => {
-    // Only trigger on the project row itself, not on conversation rows inside it.
-    const row = event.target?.closest?.("[data-project-id][draggable]");
-    if (!row) return;
-    // Make sure it's not a conversation row accidentally matched.
-    if (row.dataset.navigationKind !== "project") return;
-    dragProjectId = row.dataset.projectId || row.dataset.navigationId || "";
+    // A conversation row inside the group owns its own drag; ignore those here.
+    if (event.target?.closest?.("[data-navigation-target]")) return;
+    // Two elements can start a project drag: the project row itself, and the
+    // wrapping <section> (which is also draggable, so dragging the group's
+    // empty area works). The section carries the id under a different
+    // attribute, which is why both are resolved here.
+    const row = event.target?.closest?.("[data-project-id]");
+    const group = event.target?.closest?.("[data-navigation-project-group]");
+    if (row && row.dataset.navigationKind === "project") {
+      dragProjectId = row.dataset.projectId || row.dataset.navigationId || "";
+    } else if (group) {
+      dragProjectId = group.dataset.navigationProjectGroup || "";
+    }
     if (!dragProjectId) return;
     event.dataTransfer.setData("text/plain", dragProjectId);
     event.dataTransfer.effectAllowed = "move";
-    row.closest("[data-navigation-project-group]")?.classList.add("proj-dragging");
+    (group || row?.closest("[data-navigation-project-group]"))?.classList.add("proj-dragging");
   });
 
   el.addEventListener("dragover", (event) => {
     if (!dragProjectId) return;
-    const row = event.target?.closest?.("[data-project-id]");
-    if (!row || row.dataset.navigationKind !== "project") return;
-    const targetId = row.dataset.projectId || row.dataset.navigationId || "";
+    // Anywhere inside a project group is a valid drop target, so hovering a
+    // conversation row still reorders the group it belongs to. Restricting
+    // this to the project row alone left most of the group's height inert.
+    const group = event.target?.closest?.("[data-navigation-project-group]");
+    const targetId = group?.dataset?.navigationProjectGroup || "";
     if (!targetId || targetId === dragProjectId) return;
     event.preventDefault();
     event.dataTransfer.dropEffect = "move";
     el.querySelectorAll(".proj-drag-over").forEach((n) => n.classList.remove("proj-drag-over"));
-    row.closest("[data-navigation-project-group]")?.classList.add("proj-drag-over");
+    group.classList.add("proj-drag-over");
   });
 
   el.addEventListener("dragleave", (event) => {
@@ -2715,9 +2724,8 @@ function bindProjectDrag(el) {
 
   el.addEventListener("drop", (event) => {
     if (!dragProjectId) return;
-    const row = event.target?.closest?.("[data-project-id]");
-    if (!row || row.dataset.navigationKind !== "project") return;
-    const targetId = row.dataset.projectId || row.dataset.navigationId || "";
+    const group = event.target?.closest?.("[data-navigation-project-group]");
+    const targetId = group?.dataset?.navigationProjectGroup || "";
     if (!targetId || targetId === dragProjectId) return;
     event.preventDefault();
 
@@ -2759,6 +2767,10 @@ function bindConversationDrag(el) {
   });
 
   el.addEventListener("dragover", (event) => {
+    // Only claim the event while a conversation drag is actually in flight.
+    // Without this guard a project drag passing over a conversation row was
+    // hijacked here, so the project never reached its own drop target.
+    if (!dragAgentId) return;
     const row = event.target?.closest?.("[data-navigation-target]");
     if (!row || row.dataset.navigationId === dragAgentId) return;
     event.preventDefault();
@@ -2774,10 +2786,15 @@ function bindConversationDrag(el) {
   });
 
   el.addEventListener("drop", (event) => {
-    event.preventDefault();
+    // Bail out before preventDefault when this is not a conversation drag.
+    // This handler is registered before bindProjectDrag's, so an unconditional
+    // preventDefault() here consumed project drops and made project reordering
+    // silently do nothing.
+    if (!dragAgentId) return;
     const targetRow = event.target?.closest?.("[data-navigation-target]");
-    const targetGroup = targetRow?.closest?.("[data-navigation-project-group]");
-    if (!targetRow || !dragAgentId) return;
+    if (!targetRow) return;
+    event.preventDefault();
+    const targetGroup = targetRow.closest?.("[data-navigation-project-group]");
     const targetAgentId = targetRow.dataset.navigationId || "";
     const targetProjectId = targetGroup?.dataset?.navigationProjectGroup || "";
     if (targetAgentId === dragAgentId || targetProjectId !== dragProjectId) return;
