@@ -1949,10 +1949,29 @@ func migrateV56AssistantReasoning(ctx context.Context, tx *sql.Tx) error {
 // column with a text danger_reflection_level column ("off"/"loose"/"medium"/"strict").
 // Existing rows with enabled=1 migrate to "medium"; enabled=0 migrates to "off".
 func migrateV57DangerReflectionLevel(ctx context.Context, tx *sql.Tx) error {
+	// Databases that predate workflow_preferences reach this migration without
+	// the table: ensureColumn tolerates that and returns nil, but the UPDATE
+	// below does not, so it has to be guarded the same way every other
+	// migration in this file guards a table it does not itself create.
+	exists, err := tableExists(ctx, tx, "workflow_preferences")
+	if err != nil {
+		return fmt.Errorf("inspect table workflow_preferences: %w", err)
+	}
+	if !exists {
+		return nil
+	}
 	if err := ensureColumn(ctx, tx, "workflow_preferences", "danger_reflection_level", "TEXT NOT NULL DEFAULT 'medium'"); err != nil {
 		return err
 	}
-	// Migrate old boolean to level string.
-	_, err := tx.ExecContext(ctx, `UPDATE workflow_preferences SET danger_reflection_level = CASE WHEN COALESCE(danger_reflection_enabled,1) = 0 THEN 'off' ELSE 'medium' END WHERE danger_reflection_level = 'medium' OR danger_reflection_level = ''`)
+	// Migrate old boolean to level string. The legacy column is only present on
+	// databases that actually ran the boolean version, so it is optional here.
+	legacy, err := columnExists(ctx, tx, "workflow_preferences", "danger_reflection_enabled")
+	if err != nil {
+		return fmt.Errorf("inspect column workflow_preferences.danger_reflection_enabled: %w", err)
+	}
+	if !legacy {
+		return nil
+	}
+	_, err = tx.ExecContext(ctx, `UPDATE workflow_preferences SET danger_reflection_level = CASE WHEN COALESCE(danger_reflection_enabled,1) = 0 THEN 'off' ELSE 'medium' END WHERE danger_reflection_level = 'medium' OR danger_reflection_level = ''`)
 	return err
 }

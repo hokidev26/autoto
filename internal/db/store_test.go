@@ -3,6 +3,7 @@ package db
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -138,6 +139,39 @@ func testTableExists(t *testing.T, ctx context.Context, db *sql.DB, table string
 		t.Fatal(err)
 	}
 	return count > 0
+}
+
+// The per-migration tests in this package build only the tables the migration
+// under test touches, then run the entire chain. Every later migration
+// therefore meets a database missing most tables, so a migration that assumes
+// a table exists breaks tests unrelated to itself — which is how
+// migrateV57DangerReflectionLevel (guarded ALTER, unguarded UPDATE) started
+// failing three reasoning/navigation/provider-stats tests at once.
+//
+// This locks the recent migrations against that. It deliberately does not cover
+// the whole history: the pre-v28 migrations predate this convention and assume
+// core tables like runs and agents, which is sound for real databases (those
+// tables long precede them) but not reproducible against an empty file.
+func TestRecentMigrationsToleratePartialSchema(t *testing.T) {
+	ctx := context.Background()
+	const firstGuardedVersion = 28
+	for _, m := range migrations {
+		if m.version < firstGuardedVersion {
+			continue
+		}
+		t.Run(fmt.Sprintf("v%d_%s", m.version, strings.ReplaceAll(m.name, " ", "_")), func(t *testing.T) {
+			raw := openRawDB(t, filepath.Join(t.TempDir(), "partial.db"))
+			defer raw.Close()
+			tx, err := raw.BeginTx(ctx, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer tx.Rollback()
+			if err := m.up(ctx, tx); err != nil {
+				t.Fatalf("migration %d (%s) failed against an empty database: %v", m.version, m.name, err)
+			}
+		})
+	}
 }
 
 func testColumnExists(t *testing.T, ctx context.Context, db *sql.DB, table, column string) bool {
