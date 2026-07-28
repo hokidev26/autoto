@@ -45,8 +45,8 @@ function createController(overrides = {}) {
 }
 
 test("subscription provider predicate keys on type, not on the configured name", () => {
-  assert.deepEqual(subscriptionProviderKinds, ["gemini", "grok", "kimi"]);
-  for (const type of ["gemini", "grok", "kimi"]) {
+  assert.deepEqual(subscriptionProviderKinds, ["gemini", "grok", "kimi", "kiro"]);
+  for (const type of ["gemini", "grok", "kimi", "kiro"]) {
     assert.equal(subscriptionProviderKind({ type }), type);
     assert.equal(isSubscriptionAccountProvider({ type }), true);
   }

@@ -592,9 +592,10 @@ export function renderNavigationHTML(view = {}, options = {}) {
     }).join("");
     html = standalone + groupsHTML;
   } else if (mode === "projects") {
-    // Projects-only mode reorders like the grouped mode, and each project is
-    // wrapped in the same project-group section the drag handlers key off; a
-    // bare project row has no group ancestor, so drops resolved to nothing.
+    // Projects-only mode stays a flat list of project rows: no group sections
+    // and no conversation structure, which is what the task sidebar relies on.
+    // The drag handlers therefore resolve a project from the row itself here,
+    // not from a wrapping group.
     let projects = view.projects || [];
     if (Array.isArray(options.projectOrder) && options.projectOrder.length) {
       const orderMap = new Map(options.projectOrder.map((id, i) => [String(id), i]));
@@ -604,10 +605,7 @@ export function renderNavigationHTML(view = {}, options = {}) {
         return ia - ib;
       });
     }
-    html = projects.map((project) => `
-      <section class="navigation-project-group" draggable="true" data-navigation-project-group="${escapeNavigationHtml(project.id)}" data-navigation-context="project">
-        ${renderProject(project, activeProjectId, { activeSelectionKind })}
-      </section>`).join("");
+    html = projects.map((project) => renderProject(project, activeProjectId, { activeSelectionKind })).join("");
   } else {
     html = (view.conversations || []).map((conversation) => renderConversation(conversation, activeAgentId, false, { taskContext, activeSelectionKind })).join("");
   }

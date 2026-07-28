@@ -2681,24 +2681,30 @@ function bindProjectDrag(el) {
 
   let dragProjectId = "";
 
-  el.addEventListener("dragstart", (event) => {
-    // A conversation row inside the group owns its own drag; ignore those here.
-    if (event.target?.closest?.("[data-navigation-target]")) return;
-    // Two elements can start a project drag: the project row itself, and the
-    // wrapping <section> (which is also draggable, so dragging the group's
-    // empty area works). The section carries the id under a different
-    // attribute, which is why both are resolved here.
-    const row = event.target?.closest?.("[data-project-id]");
-    const group = event.target?.closest?.("[data-navigation-project-group]");
+  // The sidebar renders projects two ways: grouped mode wraps each project in a
+  // <section data-navigation-project-group> alongside its conversations, while
+  // projects-only mode (the task sidebar) renders a flat list of bare project
+  // rows. Both have to be draggable, so every handler resolves a project
+  // through here instead of assuming a group ancestor exists.
+  function projectDragTarget(node) {
+    const group = node?.closest?.("[data-navigation-project-group]");
+    if (group) return { id: group.dataset.navigationProjectGroup || "", element: group };
+    const row = node?.closest?.("[data-project-id]");
     if (row && row.dataset.navigationKind === "project") {
-      dragProjectId = row.dataset.projectId || row.dataset.navigationId || "";
-    } else if (group) {
-      dragProjectId = group.dataset.navigationProjectGroup || "";
+      return { id: row.dataset.projectId || row.dataset.navigationId || "", element: row };
     }
-    if (!dragProjectId) return;
+    return { id: "", element: null };
+  }
+
+  el.addEventListener("dragstart", (event) => {
+    // A conversation row inside a group owns its own drag; ignore those here.
+    if (event.target?.closest?.("[data-navigation-target]")) return;
+    const { id, element } = projectDragTarget(event.target);
+    if (!id) return;
+    dragProjectId = id;
     event.dataTransfer.setData("text/plain", dragProjectId);
     event.dataTransfer.effectAllowed = "move";
-    (group || row?.closest("[data-navigation-project-group]"))?.classList.add("proj-dragging");
+    element?.classList.add("proj-dragging");
   });
 
   el.addEventListener("dragover", (event) => {
@@ -2706,13 +2712,12 @@ function bindProjectDrag(el) {
     // Anywhere inside a project group is a valid drop target, so hovering a
     // conversation row still reorders the group it belongs to. Restricting
     // this to the project row alone left most of the group's height inert.
-    const group = event.target?.closest?.("[data-navigation-project-group]");
-    const targetId = group?.dataset?.navigationProjectGroup || "";
+    const { id: targetId, element } = projectDragTarget(event.target);
     if (!targetId || targetId === dragProjectId) return;
     event.preventDefault();
     event.dataTransfer.dropEffect = "move";
     el.querySelectorAll(".proj-drag-over").forEach((n) => n.classList.remove("proj-drag-over"));
-    group.classList.add("proj-drag-over");
+    element?.classList.add("proj-drag-over");
   });
 
   el.addEventListener("dragleave", (event) => {
@@ -2724,13 +2729,18 @@ function bindProjectDrag(el) {
 
   el.addEventListener("drop", (event) => {
     if (!dragProjectId) return;
-    const group = event.target?.closest?.("[data-navigation-project-group]");
-    const targetId = group?.dataset?.navigationProjectGroup || "";
+    const { id: targetId } = projectDragTarget(event.target);
     if (!targetId || targetId === dragProjectId) return;
     event.preventDefault();
 
-    const sections = Array.from(el.querySelectorAll("[data-navigation-project-group]"));
-    const ids = sections.map((s) => s.dataset.navigationProjectGroup || "");
+    // Read the on-screen order from whichever structure is rendered. Querying
+    // only for group sections returned nothing in projects-only mode, so the
+    // reorder silently did nothing there.
+    const groups = Array.from(el.querySelectorAll("[data-navigation-project-group]"));
+    const ids = groups.length
+      ? groups.map((node) => node.dataset.navigationProjectGroup || "")
+      : Array.from(el.querySelectorAll('[data-project-id][data-navigation-kind="project"]'))
+        .map((node) => node.dataset.projectId || node.dataset.navigationId || "");
     const fromIdx = ids.indexOf(dragProjectId);
     const toIdx = ids.indexOf(targetId);
     if (fromIdx < 0 || toIdx < 0 || fromIdx === toIdx) return;
