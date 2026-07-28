@@ -234,7 +234,7 @@ test("danger reflection toggle reflects the value loaded from GET /api/workflow/
           requireConfirmationForExec: true,
           requireConfirmationForWrites: false,
           allowReadOnlyByDefault: true,
-          dangerReflectionEnabled: true,
+          dangerReflectionLevel: "off",
         };
       },
     });
@@ -243,13 +243,14 @@ test("danger reflection toggle reflects the value loaded from GET /api/workflow/
 
     const menu = findMenu(body);
     const toggle = menu.querySelector(".composer-permission-danger-reflection-toggle");
-    // Before the GET resolves the control shows its optimistic default.
-    assert.equal(toggle.checked, false);
+    // Before the GET resolves the control assumes the server-side default level
+    // (medium), so an unloaded preference never misreports the gate as off.
+    assert.equal(toggle.checked, true);
 
     await flushMicrotasks();
 
-    assert.equal(toggle.checked, true);
-    assert.equal(toggle.getAttribute("aria-checked"), "true");
+    assert.equal(toggle.checked, false);
+    assert.equal(toggle.getAttribute("aria-checked"), "false");
     assert.equal(calls.length, 1);
     assert.equal(calls[0].path, "/api/workflow/preferences");
   });
@@ -269,7 +270,7 @@ test("toggling danger reflection sends the full preferences payload as a PUT", a
           requireConfirmationForExec: true,
           requireConfirmationForWrites: false,
           allowReadOnlyByDefault: true,
-          dangerReflectionEnabled: false,
+          dangerReflectionLevel: "off",
         };
       },
     });
@@ -292,10 +293,50 @@ test("toggling danger reflection sends the full preferences payload as a PUT", a
       requireConfirmationForExec: true,
       requireConfirmationForWrites: false,
       allowReadOnlyByDefault: true,
-      dangerReflectionEnabled: true,
+      dangerReflectionLevel: "medium",
     });
     assert.equal(toggle.checked, true);
     assert.equal(toggle.getAttribute("aria-checked"), "true");
+  });
+});
+
+test("an off/on cycle restores the previous strict level instead of downgrading to medium", async () => {
+  const { fakeDocument, fakeWindow, trigger, body } = setupComposerSelectDOM();
+  const puts = [];
+  await withGlobals(fakeDocument, fakeWindow, async () => {
+    const controller = createUIShellController({
+      state: {},
+      resizeTerminal() {},
+      requestAPI: async (path, options = {}) => {
+        if (options.method === "PUT") {
+          const sent = JSON.parse(options.body);
+          puts.push(sent.dangerReflectionLevel);
+          return sent;
+        }
+        return {
+          requireConfirmationForExec: true,
+          requireConfirmationForWrites: false,
+          allowReadOnlyByDefault: true,
+          dangerReflectionLevel: "strict",
+        };
+      },
+    });
+    controller.bindComposerSelectMenus();
+    openPermissionMenu(trigger);
+    await flushMicrotasks();
+
+    const toggle = findMenu(body).querySelector(".composer-permission-danger-reflection-toggle");
+    assert.equal(toggle.checked, true);
+
+    toggle.checked = false;
+    toggle.dispatch("change");
+    await flushMicrotasks();
+
+    toggle.checked = true;
+    toggle.dispatch("change");
+    await flushMicrotasks();
+
+    assert.deepEqual(puts, ["off", "strict"]);
   });
 });
 
@@ -313,7 +354,7 @@ test("a failed PUT reverts the toggle and surfaces the error", async () => {
           requireConfirmationForExec: false,
           requireConfirmationForWrites: false,
           allowReadOnlyByDefault: false,
-          dangerReflectionEnabled: false,
+          dangerReflectionLevel: "off",
         };
       },
     });
@@ -352,13 +393,13 @@ test("toggling without a requestAPI reverts instead of silently no-opping", asyn
 
     const menu = findMenu(body);
     const toggle = menu.querySelector(".composer-permission-danger-reflection-toggle");
-    assert.equal(toggle.checked, false);
+    assert.equal(toggle.checked, true);
 
-    toggle.checked = true;
+    toggle.checked = false;
     toggle.dispatch("change");
     await flushMicrotasks();
 
-    assert.equal(toggle.checked, false);
+    assert.equal(toggle.checked, true);
     assert.equal(errors.length, 1);
   });
 });

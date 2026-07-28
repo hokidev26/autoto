@@ -27,6 +27,9 @@ type workflowPreferencesRequest struct {
 	// Optional so an older client that does not know about the setting keeps
 	// the stored value instead of silently resetting the safety gate.
 	DangerReflectionLevel *string `json:"dangerReflectionLevel"`
+	// DangerReflectionEnabled is accepted for pre-v57 clients that still send a
+	// boolean. false maps to "off"; true keeps the stored level (or medium).
+	DangerReflectionEnabled *bool `json:"dangerReflectionEnabled"`
 }
 
 type toolPermissionRuleRequest struct {
@@ -59,13 +62,33 @@ func (s *Server) updateWorkflowPreferences(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	dangerLevel := "medium"
-	if req.DangerReflectionLevel != nil {
-		switch *req.DangerReflectionLevel {
+	storedLevel := ""
+	if current, err := s.store.GetWorkflowPreferences(r.Context()); err == nil {
+		storedLevel = strings.TrimSpace(current.DangerReflectionLevel)
+	}
+	switch {
+	case req.DangerReflectionLevel != nil:
+		// An explicit level wins. An invalid value is a client bug, not a reason
+		// to silently downgrade to medium.
+		requested := strings.TrimSpace(strings.ToLower(*req.DangerReflectionLevel))
+		switch requested {
 		case "off", "loose", "medium", "strict":
-			dangerLevel = *req.DangerReflectionLevel
+			dangerLevel = requested
+		default:
+			writeError(w, http.StatusBadRequest, "dangerReflectionLevel 必须是 off / loose / medium / strict")
+			return
 		}
-	} else if current, err := s.store.GetWorkflowPreferences(r.Context()); err == nil {
-		dangerLevel = current.DangerReflectionLevel
+	case req.DangerReflectionEnabled != nil:
+		// Legacy boolean from a pre-v57 client.
+		if *req.DangerReflectionEnabled {
+			if storedLevel != "" && storedLevel != "off" {
+				dangerLevel = storedLevel
+			}
+		} else {
+			dangerLevel = "off"
+		}
+	case storedLevel != "":
+		dangerLevel = storedLevel
 	}
 	prefs, err := s.store.UpdateWorkflowPreferences(r.Context(), db.WorkflowPreferences{RequireConfirmationForExec: *req.RequireConfirmationForExec, RequireConfirmationForWrites: *req.RequireConfirmationForWrites, AllowReadOnlyByDefault: *req.AllowReadOnlyByDefault, DangerReflectionLevel: dangerLevel})
 	if err != nil {

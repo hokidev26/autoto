@@ -419,7 +419,7 @@ export function createSkillsWorkbenchController({
     if (!state.workflowPreferences && !state.workflowLoading && !state.workflowError) {
       loadWorkflowPolicy?.().catch(showError);
     }
-    const prefs = state.workflowPreferences || { requireConfirmationForExec: true, requireConfirmationForWrites: false, allowReadOnlyByDefault: true };
+    const prefs = state.workflowPreferences || { requireConfirmationForExec: true, requireConfirmationForWrites: false, allowReadOnlyByDefault: true, dangerReflectionLevel: "medium" };
     const rules = Array.isArray(state.toolPermissionRules) ? state.toolPermissionRules : [];
     const loading = state.workflowLoading || state.toolPermissionRulesLoading;
     return `
@@ -594,6 +594,9 @@ export function createSkillsWorkbenchController({
       requireConfirmationForExec: Boolean(document.querySelector('[data-workflow-policy="requireConfirmationForExec"]')?.checked),
       requireConfirmationForWrites: Boolean(document.querySelector('[data-workflow-policy="requireConfirmationForWrites"]')?.checked),
       allowReadOnlyByDefault: Boolean(document.querySelector('[data-workflow-policy="allowReadOnlyByDefault"]')?.checked),
+      // This panel has no reflection control, so the stored level is echoed back
+      // rather than omitted, which would let the server resolve it on its own.
+      dangerReflectionLevel: String(state.workflowPreferences?.dangerReflectionLevel || "medium"),
     };
     await saveWorkflowPreferences?.(payload);
     notifyTerminal?.(`[info] ${t("skillsWorkbench.toast.workflowSaved")}\n`);

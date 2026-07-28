@@ -290,7 +290,7 @@ func defaultWithReport(report *compat.Report) (Config, error) {
 			MaxContinuations:         8,
 			MaxTotalTurns:            200,
 			MaxRunDurationMs:         3600000,
-			MaxRunTokens:             500000,
+			MaxRunTokens:             2000000,
 		},
 		Auth: AuthConfig{
 			RegistrationOpen: true,
@@ -787,8 +787,12 @@ func normalizeAgentConfig(agent AgentConfig) AgentConfig {
 	} else if agent.MaxRunDurationMs > 86400000 {
 		agent.MaxRunDurationMs = 86400000
 	}
+	// 2M rather than 500K: this counts cumulative tokens across every
+	// continuation turn, and each turn resends the whole conversation. A run
+	// with a 120K context window burns ~2M by turn 20 while doing modest work,
+	// so 500K interrupted ordinary multi-step tasks well before maxTotalTurns.
 	if agent.MaxRunTokens <= 0 {
-		agent.MaxRunTokens = 500000
+		agent.MaxRunTokens = 2000000
 	} else if agent.MaxRunTokens < 1000 {
 		agent.MaxRunTokens = 1000
 	} else if agent.MaxRunTokens > 10000000 {

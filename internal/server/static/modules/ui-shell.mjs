@@ -410,7 +410,7 @@ export function createUIShellController({
     let bodyOverflow = "";
     const observers = [];
 
-    // Workflow preferences (currently just dangerReflectionEnabled) back the
+    // Workflow preferences (currently just dangerReflectionLevel) back the
     // toggle appended in appendPermissionSafetyStatus(). The permission menu is
     // rebuilt from scratch on every open, but the preference itself is fetched
     // once and cached here; loadWorkflowPreferences() is safe to call any
@@ -420,7 +420,17 @@ export function createUIShellController({
     let workflowPreferencesPromise = null;
     const dangerReflectionToggleNodes = new Set();
 
-    const dangerReflectionEnabled = () => Boolean(workflowPreferences?.dangerReflectionEnabled);
+    // Remembers the last non-off level so switching the toggle back on restores
+    // "strict" instead of silently downgrading the user to "medium".
+    let lastNonOffDangerLevel = "";
+
+    const dangerReflectionLevel = () => {
+      const level = String(workflowPreferences?.dangerReflectionLevel || "").trim().toLowerCase();
+      const resolved = ["off", "loose", "medium", "strict"].includes(level) ? level : "medium";
+      if (resolved !== "off") lastNonOffDangerLevel = resolved;
+      return resolved;
+    };
+    const dangerReflectionEnabled = () => dangerReflectionLevel() !== "off";
 
     const syncDangerReflectionToggleNodes = () => {
       const enabled = dangerReflectionEnabled();
@@ -465,7 +475,9 @@ export function createUIShellController({
           requireConfirmationForExec: Boolean(current.requireConfirmationForExec),
           requireConfirmationForWrites: Boolean(current.requireConfirmationForWrites),
           allowReadOnlyByDefault: Boolean(current.allowReadOnlyByDefault),
-          dangerReflectionEnabled: next,
+          // Toggling back on restores the previous non-off level rather than
+          // hardcoding medium, so a strict setting survives an off/on cycle.
+          dangerReflectionLevel: next ? (lastNonOffDangerLevel || "medium") : "off",
         };
         const response = await requestAPI("/api/workflow/preferences", { method: "PUT", body: JSON.stringify(payload) });
         workflowPreferences = response && typeof response === "object" ? response : payload;

@@ -43,7 +43,7 @@ func TestDefaultConfig(t *testing.T) {
 	if cfg.Agent.ContextTokenLimit <= 0 {
 		t.Fatalf("expected positive context token limit, got %d", cfg.Agent.ContextTokenLimit)
 	}
-	if cfg.Agent.AutoContinuationMode != "safe" || cfg.Agent.ContinuationSegmentTurns != 40 || cfg.Agent.MaxContinuations != 8 || cfg.Agent.MaxTotalTurns != 200 || cfg.Agent.MaxRunDurationMs != 3600000 || cfg.Agent.MaxRunTokens != 500000 {
+	if cfg.Agent.AutoContinuationMode != "safe" || cfg.Agent.ContinuationSegmentTurns != 40 || cfg.Agent.MaxContinuations != 8 || cfg.Agent.MaxTotalTurns != 200 || cfg.Agent.MaxRunDurationMs != 3600000 || cfg.Agent.MaxRunTokens != 2000000 {
 		t.Fatalf("unexpected continuation defaults: %+v", cfg.Agent)
 	}
 	if cfg.Security.Exposed || cfg.Security.AccessPassword != "" {

@@ -327,7 +327,7 @@ func (r *Runner) executeToolForLoop(ctx context.Context, agentID, runID string, 
 	permission := r.resolveToolPermissionWithSession(ctx, policy.AgentID, policy.PermissionMode, call.Name, risk, call.Input, allowSessionApproval)
 	// The model reflects on any action that static policy would let run with no
 	// human involvement. It can only make the outcome stricter.
-	permission = r.reflectBeforeExecution(ctx, agent, runID, call, risk, permission)
+	permission = r.reflectBeforeExecution(ctx, agent, policy.PermissionMode, runID, call, risk, permission)
 	if permission.Decision == toolPermissionAllow {
 		return r.executeApprovedTool(ctx, agent, runID, call, tool, risk, messageID, false, permission)
 	}
@@ -449,7 +449,7 @@ func (r *Runner) executeTool(ctx context.Context, agentID, runID string, call to
 		return result, nil
 	}
 	permission := r.resolveToolPermission(ctx, policy.AgentID, policy.PermissionMode, call.Name, risk, call.Input)
-	permission = r.reflectBeforeExecution(ctx, agent, runID, call, risk, permission)
+	permission = r.reflectBeforeExecution(ctx, agent, policy.PermissionMode, runID, call, risk, permission)
 	if permission.Decision != toolPermissionAllow {
 		message := strings.TrimSpace(permission.Reason)
 		if permission.Decision == toolPermissionAsk {

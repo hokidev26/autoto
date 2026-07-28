@@ -227,7 +227,9 @@ func continuationLimitsForConfig(cfg config.AgentConfig) continuationLimits {
 	}
 	maxTokens := cfg.MaxRunTokens
 	if maxTokens <= 0 {
-		maxTokens = 500000
+		// Keep in sync with config.normalizeAgent: this budget is cumulative
+		// across continuation turns, each of which resends the conversation.
+		maxTokens = 2000000
 	}
 	if maxTokens < 1000 {
 		maxTokens = 1000
@@ -796,6 +798,30 @@ func continuationBudgetReason(state continuationRunState, outcome segmentOutcome
 	return ""
 }
 
+// continuationBudgetDetail turns a bare budget reason into something a user can
+// act on. The bare reason ("max_total_tokens") gave no indication of which
+// limit was hit, how close the run was, or where the limit is configured, so an
+// interrupted long task looked like an unexplained failure.
+func continuationBudgetDetail(state continuationRunState, outcome segmentOutcome, reason string) string {
+	switch reason {
+	case "max_total_tokens":
+		consumed := state.run.ConsumedInputTokens + state.run.ConsumedOutputTokens + outcome.inputTokens + outcome.outputTokens
+		input := state.run.ConsumedInputTokens + outcome.inputTokens
+		output := state.run.ConsumedOutputTokens + outcome.outputTokens
+		return fmt.Sprintf(
+			"max_total_tokens (used %d of %d; input %d, output %d, over %d turns). Every turn resends the conversation, so input dominates this total. Raise agent.maxRunTokens or lower agent.contextTokenLimit in settings.",
+			consumed, state.limits.maxTokens, input, output, state.run.TurnCount+outcome.turns,
+		)
+	case "max_total_turns":
+		return fmt.Sprintf("max_total_turns (%d of %d). Raise agent.maxTotalTurns in settings.",
+			state.run.TurnCount+outcome.turns, state.limits.maxTotalTurns)
+	case "deadline":
+		return "deadline (run exceeded agent.maxRunDurationMs). Raise that limit in settings."
+	default:
+		return reason
+	}
+}
+
 func (r *Runner) recordSegmentUsage(ctx context.Context, run db.Run, outcome segmentOutcome) (db.Run, error) {
 	if strings.TrimSpace(run.ID) == "" {
 		run.TurnCount += outcome.turns
@@ -830,7 +856,7 @@ func (r *Runner) scheduleContinuation(ctx context.Context, state continuationRun
 	}
 	if reason := continuationBudgetReason(state, outcome); reason != "" {
 		r.publishContinuationLifecycle("budget_exhausted", "agent.budget_exhausted", run.AgentID, mergeEventData(map[string]any{"reason": reason}, run.ID))
-		return db.Run{}, fmt.Errorf("continuation budget exhausted: %s", reason)
+		return db.Run{}, fmt.Errorf("continuation budget exhausted: %s", continuationBudgetDetail(state, outcome, reason))
 	}
 	if strings.TrimSpace(outcome.resumeAfterID) == "" {
 		return db.Run{}, errors.New("continuation boundary has no durable resume message")
