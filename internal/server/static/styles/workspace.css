@@ -425,7 +425,7 @@
   -webkit-line-clamp: 3;
 }
 .conversation-run-outcome > .conversation-tool-activity { width: 100%; margin: 0; }
-.conversation-tool-activity .tool-activity-group { gap: 6px; }
+.conversation-tool-activity .tool-activity-group { gap: 1px; }
 .conversation-tool-activity .tool-activity-protected { display: none; }
 .conversation-tool-activity-more { justify-self: start; margin-left: 18px; }
 @media (max-width: 760px) {

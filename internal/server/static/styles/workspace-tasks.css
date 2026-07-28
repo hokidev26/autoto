@@ -974,10 +974,12 @@ body.white-shell.theme-light.theme-dark .navigation-boundary-empty button {
   line-height: 1.4;
 }
 
+/* Rows sit directly on each other. The 8px gap made sense when each child was a
+   bordered card; with borderless rows it just spread the list out. */
 .tool-activity-group {
   position: relative;
   display: grid;
-  gap: 8px;
+  gap: 1px;
   min-width: 0;
   padding-left: 18px;
 }
@@ -1169,39 +1171,62 @@ body.white-shell.theme-light.theme-dark .navigation-boundary-empty button {
 
 .tool-activity-selected-detail:empty { display: none; }
 
+/* A row in a list, not a card in a stack. The border and shadow separated each
+   call from its neighbours, which is the opposite of what a sequence of steps
+   wants: the eye should run down them. Status is carried by a left edge instead,
+   so it stays visible without boxing the row in. */
 .tool-activity-card {
   position: relative;
   min-width: 0;
   overflow: hidden;
-  border: 1px solid var(--tool-activity-border);
-  border-radius: 9px;
-  background: var(--tool-activity-surface);
-  box-shadow: 0 1px 2px rgba(0, 0, 0, .14);
+  border: 0;
+  border-left: 2px solid transparent;
+  border-radius: 6px;
+  background: transparent;
   overflow-anchor: none;
 }
 
-.tool-activity-card.status-running { border-color: color-mix(in srgb, var(--tool-activity-accent) 58%, var(--tool-activity-border)); }
-.tool-activity-card.status-completed { border-color: color-mix(in srgb, var(--tool-activity-good) 45%, var(--tool-activity-border)); }
-.tool-activity-card.status-error { border-color: color-mix(in srgb, var(--tool-activity-error) 53%, var(--tool-activity-border)); }
-.tool-activity-card.status-warn { border-color: color-mix(in srgb, var(--tool-activity-warn) 53%, var(--tool-activity-border)); }
+.tool-activity-card:hover { background: var(--tool-activity-surface-subtle); }
 
+.tool-activity-card.status-running { border-left-color: var(--tool-activity-accent); }
+.tool-activity-card.status-completed { border-left-color: color-mix(in srgb, var(--tool-activity-good) 70%, transparent); }
+.tool-activity-card.status-error { border-left-color: var(--tool-activity-error); }
+.tool-activity-card.status-warn { border-left-color: var(--tool-activity-warn); }
+
+/* An expanded row earns a surface: it is no longer one line among many. */
+.tool-activity-card:has(> .tool-activity-details[open]),
+.tool-activity-card:has(> details[open]) {
+  background: var(--tool-activity-surface);
+}
+
+/* One tool call should read as one line. A 54px card with a 30px icon meant
+   three calls filled the space seventeen could, so scanning what the agent did
+   required scrolling rather than looking. Details live behind the row's own
+   disclosure, so the collapsed row only needs to carry icon, name, target and
+   status. */
 .tool-activity-head {
   display: grid;
-  grid-template-columns: 30px minmax(0, 1fr) auto;
+  grid-template-columns: 20px minmax(0, 1fr) auto;
+  /* start, not center: a row that grew extra lines (fact tags, a warning) would
+     otherwise float its icon and status into the middle of the block. */
   align-items: start;
-  gap: 9px;
+  gap: 8px;
   min-width: 0;
-  min-height: 54px;
-  padding: 10px 11px;
+  min-height: 0;
+  padding: 4px 8px;
 }
+
+/* Nudge the icon and status onto the first line's optical baseline. */
+.tool-activity-head > .tool-activity-icon { margin-top: 1px; }
+.tool-activity-head > .tool-activity-status { margin-top: 3px; }
 
 .tool-activity-icon {
   display: grid;
-  width: 30px;
-  height: 30px;
+  width: 20px;
+  height: 20px;
   place-items: center;
-  border: 1px solid currentColor;
-  border-radius: 7px;
+  border: 0;
+  border-radius: 5px;
   background: var(--tool-activity-accent-soft);
   color: var(--tool-activity-accent);
   line-height: 1;
@@ -1209,8 +1234,8 @@ body.white-shell.theme-light.theme-dark .navigation-boundary-empty button {
 
 .tool-activity-icon > svg,
 .tool-activity-icon > img {
-  width: 16px;
-  height: 16px;
+  width: 13px;
+  height: 13px;
   object-fit: contain;
 }
 
@@ -1256,32 +1281,51 @@ body.white-shell.theme-light.theme-dark .navigation-boundary-empty button {
 .tool-activity-card.status-error .tool-activity-icon { color: var(--tool-activity-error); background: var(--tool-activity-error-soft); }
 .tool-activity-card.status-warn .tool-activity-icon { color: var(--tool-activity-warn); background: var(--tool-activity-warn-soft); }
 
+/* Tool name and target share the first line — stacking them doubled every row's
+   height for information that reads fine side by side, and the target is the
+   part that should truncate. Fact tags, warnings and meta keep their own lines;
+   they are not always present, so they cost nothing on a plain row. */
 .tool-activity-main {
   display: grid;
   min-width: 0;
-  gap: 2px;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: baseline;
+  gap: 1px 7px;
+}
+
+.tool-activity-main > .tool-activity-title { grid-column: 1; }
+.tool-activity-main > .tool-activity-target { grid-column: 2; }
+.tool-activity-main > :not(.tool-activity-title):not(.tool-activity-target) {
+  grid-column: 1 / -1;
+}
+
+/* A row with no target lets the name span both columns rather than leaving a
+   gap the eye has to cross. */
+.tool-activity-main:not(:has(> .tool-activity-target)) > .tool-activity-title {
+  grid-column: 1 / -1;
 }
 
 .tool-activity-title {
+  flex: 0 0 auto;
   overflow: hidden;
   color: var(--tool-activity-text);
-  font-size: 13px;
-  font-weight: 720;
+  font-size: 12px;
+  font-weight: 700;
   letter-spacing: -.01em;
-  line-height: 1.35;
+  line-height: 1.4;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .tool-activity-target {
   display: block;
+  flex: 1 1 auto;
   min-width: 0;
   overflow: hidden;
   color: var(--tool-activity-muted);
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 11px;
-  line-height: 1.35;
-  overflow-wrap: anywhere;
+  font-size: 10.5px;
+  line-height: 1.4;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -1338,44 +1382,57 @@ body.white-shell.theme-light.theme-dark .navigation-boundary-empty button {
   white-space: nowrap;
 }
 
+/* Plain text rather than a pill: the outlined capsule set a 21px floor on every
+   row and competed with the tool name for attention. Colour alone carries
+   status here, and the card's left edge repeats it. */
 .tool-activity-status {
   display: inline-flex;
-  min-height: 21px;
+  min-height: 0;
   align-items: center;
-  padding: 3px 7px;
-  border: 1px solid currentColor;
-  border-radius: 999px;
-  color: var(--tool-activity-muted);
+  padding: 0;
+  border: 0;
+  color: var(--tool-activity-faint);
   font-size: 10px;
-  font-weight: 750;
+  font-weight: 700;
   letter-spacing: .015em;
-  line-height: 1;
+  line-height: 1.4;
 }
 
-.status-running .tool-activity-status { color: var(--tool-activity-accent); background: var(--tool-activity-accent-soft); }
-.status-completed .tool-activity-status { color: var(--tool-activity-good); background: var(--tool-activity-good-soft); }
-.status-error .tool-activity-status { color: var(--tool-activity-error); background: var(--tool-activity-error-soft); }
-.status-warn .tool-activity-status { color: var(--tool-activity-warn); background: var(--tool-activity-warn-soft); }
+/* No background: without the pill's padding a tinted box would hug the glyphs. */
+.status-running .tool-activity-status { color: var(--tool-activity-accent); }
+.status-completed .tool-activity-status { color: color-mix(in srgb, var(--tool-activity-good) 80%, transparent); }
+.status-error .tool-activity-status { color: var(--tool-activity-error); }
+.status-warn .tool-activity-status { color: var(--tool-activity-warn); }
 
+/* The disclosure is a second visible line on every collapsed row, so it has to
+   stay as light as the row itself. The separator and tint only make sense once
+   something is actually open. */
 .tool-activity-details {
   min-width: 0;
+  border-top: 0;
+  background: transparent;
+}
+
+.tool-activity-details[open] {
   border-top: 1px solid var(--tool-activity-border);
   background: color-mix(in srgb, var(--tool-activity-surface-subtle) 66%, transparent);
 }
 
 .tool-activity-details > summary {
   display: flex;
-  min-height: 34px;
+  min-height: 0;
   align-items: center;
-  gap: 7px;
-  padding: 7px 11px;
+  gap: 6px;
+  padding: 2px 10px 4px 30px;
   cursor: pointer;
-  color: var(--tool-activity-muted);
-  font-size: 11px;
+  color: var(--tool-activity-faint);
+  font-size: 10.5px;
   font-weight: 650;
   list-style: none;
   user-select: none;
 }
+
+.tool-activity-details[open] > summary { padding: 6px 11px; }
 
 .tool-activity-details > summary::-webkit-details-marker { display: none; }
 .tool-activity-details > summary::before { width: 6px; height: 6px; flex: 0 0 6px; border-right: 1px solid currentColor; border-bottom: 1px solid currentColor; content: ""; transform: rotate(-45deg); }
