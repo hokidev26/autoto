@@ -2005,12 +2005,14 @@ body.white-shell.theme-light.theme-dark .overview-inline-error { border-color: c
 .schedule-run-item span { color: var(--ws-muted, #747e90); font-size: 10px; }
 
 body.white-shell.theme-light.schedule-mode .conversation-mode-only { display: none !important; }
+/* Plain white like every other sidebar header. The blue gradient, accent edge
+   and tinted title marked the schedule sidebar as a separate surface, which
+   read as a different application rather than a mode of the same one. */
 body.white-shell.theme-light.schedule-mode .session-sidebar-header {
-  border-bottom-color: #d8defa;
-  background: linear-gradient(90deg, #eef1ff, var(--ws-card, #fff) 76%);
-  box-shadow: inset 3px 0 0 var(--ws-primary, #5369f3);
+  border-bottom-color: var(--ws-border);
+  background: var(--ws-card, #fff);
+  box-shadow: none;
 }
-body.white-shell.theme-light.schedule-mode .session-sidebar-title { color: var(--ws-primary, #5369f3); }
 body.white-shell.theme-light.schedule-mode #newProjectBtn {
   border-color: #c7d2fe;
   background: #eef1ff;
@@ -2077,7 +2079,10 @@ body.white-shell.theme-light.theme-dark .schedule-execution-options { border-col
 body.white-shell.theme-light.theme-dark .schedule-capability-note { border-color: color-mix(in srgb, #f59e0b 36%, var(--ws-border)); background: color-mix(in srgb, #f59e0b 10%, var(--ws-card)); }
 body.white-shell.theme-light.theme-dark .schedule-capability-note .schedule-capability-supported { color: #86efac; }
 body.white-shell.theme-light.theme-dark .schedule-capability-note .schedule-capability-limited { color: #fbbf24; }
-body.white-shell.theme-light.theme-dark.schedule-mode .session-sidebar-header { border-bottom-color: var(--ws-border); background: linear-gradient(90deg, color-mix(in srgb, #5369f3 18%, var(--ws-card)), var(--ws-card) 80%); }
+/* Plain card background like every other sidebar header. The blue gradient made
+   the schedule sidebar look like a different application from the one next to
+   it, for no distinction the user needs at that spot. */
+body.white-shell.theme-light.theme-dark.schedule-mode .session-sidebar-header { border-bottom-color: var(--ws-border); background: var(--ws-card); }
 body.white-shell.theme-light.theme-dark .schedule-navigation-item { color: var(--ws-text); }
 body.white-shell.theme-light.theme-dark .schedule-navigation-item:is(:hover, :focus-visible) { border-color: var(--ws-border); background: color-mix(in srgb, #5369f3 12%, var(--ws-card)); }
 body.white-shell.theme-light.theme-dark .schedule-navigation-item.active { background: color-mix(in srgb, #5369f3 22%, var(--ws-card)); color: #b7c3ff; }
