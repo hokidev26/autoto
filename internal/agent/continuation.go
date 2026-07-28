@@ -40,6 +40,17 @@ type ContinuationSettings struct {
 	MaxRunTokens     int64  `json:"maxRunTokens"`
 }
 
+// continuationUnlimited marks a budget the user explicitly opted out of by
+// configuring a negative value. Long /goal runs can legitimately outlast any
+// fixed ceiling, so the ceiling has to be removable — but only deliberately:
+// zero still selects the default so existing configs keep their guard rails.
+const (
+	continuationUnlimited             int64 = -1
+	continuationUnlimitedContinuations int64 = 1 << 40
+)
+
+func maxTokensUnlimited(configured int64) bool { return configured < 0 }
+
 type continuationLimits struct {
 	mode             string
 	segmentTurns     int64
@@ -203,39 +214,48 @@ func continuationLimitsForConfig(cfg config.AgentConfig) continuationLimits {
 		maxContinuations = 64
 	}
 	maxTotalTurns := int64(cfg.MaxTotalTurns)
-	if maxTotalTurns <= 0 {
+	switch {
+	case maxTotalTurns < 0:
+		maxTotalTurns = continuationUnlimited
+	case maxTotalTurns == 0:
 		maxTotalTurns = int64(cfg.MaxTurns)
-	}
-	if maxTotalTurns <= 0 {
-		maxTotalTurns = 200
-	}
-	if maxTotalTurns > 10000 {
+		if maxTotalTurns <= 0 {
+			maxTotalTurns = 200
+		}
+	case maxTotalTurns > 10000:
 		maxTotalTurns = 10000
 	}
-	if segmentTurns > maxTotalTurns {
+	if maxTotalTurns != continuationUnlimited && segmentTurns > maxTotalTurns {
 		segmentTurns = maxTotalTurns
 	}
-	maxDurationMS := cfg.MaxRunDurationMs
-	if maxDurationMS <= 0 {
-		maxDurationMS = 3600000
+	// maxContinuations is the count of segment restarts, and an unlimited turn
+	// or token budget is meaningless if the run can only restart 8 times.
+	if maxTotalTurns == continuationUnlimited || maxTokensUnlimited(cfg.MaxRunTokens) {
+		maxContinuations = int(continuationUnlimitedContinuations)
 	}
-	if maxDurationMS < 1000 {
+	// A negative limit means "no ceiling". Long /goal runs legitimately exceed
+	// any fixed budget, and a run that is making progress should not be killed
+	// by a number the user never chose. Zero still means "use the default", so
+	// existing configs are unaffected.
+	maxDurationMS := cfg.MaxRunDurationMs
+	switch {
+	case maxDurationMS < 0:
+		maxDurationMS = continuationUnlimited
+	case maxDurationMS == 0:
+		maxDurationMS = 3600000
+	case maxDurationMS < 1000:
 		maxDurationMS = 1000
 	}
-	if maxDurationMS > 86400000 {
-		maxDurationMS = 86400000
-	}
 	maxTokens := cfg.MaxRunTokens
-	if maxTokens <= 0 {
+	switch {
+	case maxTokens < 0:
+		maxTokens = continuationUnlimited
+	case maxTokens == 0:
 		// Keep in sync with config.normalizeAgent: this budget is cumulative
 		// across continuation turns, each of which resends the conversation.
 		maxTokens = 2000000
-	}
-	if maxTokens < 1000 {
+	case maxTokens < 1000:
 		maxTokens = 1000
-	}
-	if maxTokens > 10000000 {
-		maxTokens = 10000000
 	}
 	return continuationLimits{
 		mode:             mode,
@@ -281,7 +301,10 @@ func (r *Runner) prepareContinuationRun(ctx context.Context, run db.Run) (db.Run
 	if run.MaxTotalTokens <= 0 {
 		run.MaxTotalTokens = limits.maxTokens
 	}
-	if strings.TrimSpace(run.DeadlineAt) == "" {
+	// An unlimited duration leaves DeadlineAt empty rather than storing a past
+	// timestamp; every deadline check already treats the zero value as "no
+	// deadline", so this is what disables the clock.
+	if strings.TrimSpace(run.DeadlineAt) == "" && limits.maxDuration > 0 {
 		run.DeadlineAt = time.Now().Add(limits.maxDuration).UTC().Format(time.RFC3339Nano)
 	}
 	if isConversationRun(run) {
@@ -461,7 +484,9 @@ func (r *Runner) loadContinuationState(ctx context.Context, agentID, runID strin
 	state := continuationRunState{limits: limits}
 	if strings.TrimSpace(runID) == "" {
 		state.run = db.Run{AgentID: agentID, Status: "running", ExecutionMode: db.RunExecutionModeExecute, AutoContinuationMode: continuationModeOff, ContinuationSegmentTurns: limits.segmentTurns, MaxContinuations: limits.maxContinuations, MaxTotalTurns: limits.maxTotalTurns, MaxTotalTokens: limits.maxTokens}
-		state.deadline = time.Now().Add(limits.maxDuration)
+		if limits.maxDuration > 0 {
+			state.deadline = time.Now().Add(limits.maxDuration)
+		}
 		return state, nil
 	}
 	run, err := r.store.GetRun(ctx, agentID, runID)
@@ -488,15 +513,22 @@ func (r *Runner) loadContinuationState(ctx context.Context, agentID, runID strin
 	if run.MaxContinuations > 0 {
 		state.limits.maxContinuations = run.MaxContinuations
 	}
-	if run.MaxTotalTurns > 0 {
+	// != 0 rather than > 0: a persisted -1 is a deliberate "unlimited" that must
+	// survive a resume, and > 0 would silently restore the default ceiling.
+	if run.MaxTotalTurns != 0 {
 		state.limits.maxTotalTurns = run.MaxTotalTurns
 	}
-	if run.MaxTotalTokens > 0 {
+	if run.MaxTotalTokens != 0 {
 		state.limits.maxTokens = run.MaxTotalTokens
 	}
-	deadline := time.Now().Add(state.limits.maxDuration)
+	if state.limits.maxTotalTurns == continuationUnlimited || state.limits.maxTokens == continuationUnlimited {
+		state.limits.maxContinuations = continuationUnlimitedContinuations
+	}
+	var deadline time.Time
 	if parsed, parseErr := time.Parse(time.RFC3339Nano, strings.TrimSpace(run.DeadlineAt)); parseErr == nil {
 		deadline = parsed
+	} else if state.limits.maxDuration > 0 {
+		deadline = time.Now().Add(state.limits.maxDuration)
 	}
 	state.run = run
 	state.deadline = deadline
@@ -788,12 +820,14 @@ func continuationBudgetReason(state continuationRunState, outcome segmentOutcome
 	if !state.deadline.IsZero() && !time.Now().Before(state.deadline) {
 		return "deadline"
 	}
-	if state.run.TurnCount+outcome.turns >= state.limits.maxTotalTurns {
+	if state.limits.maxTotalTurns != continuationUnlimited && state.run.TurnCount+outcome.turns >= state.limits.maxTotalTurns {
 		return "max_total_turns"
 	}
-	consumed := state.run.ConsumedInputTokens + state.run.ConsumedOutputTokens + outcome.inputTokens + outcome.outputTokens
-	if consumed >= state.limits.maxTokens {
-		return "max_total_tokens"
+	if state.limits.maxTokens != continuationUnlimited {
+		consumed := state.run.ConsumedInputTokens + state.run.ConsumedOutputTokens + outcome.inputTokens + outcome.outputTokens
+		if consumed >= state.limits.maxTokens {
+			return "max_total_tokens"
+		}
 	}
 	return ""
 }

@@ -87,6 +87,40 @@ func TestContinuationLimitsPreserveLegacyMaxTurnsAndBoundBudgets(t *testing.T) {
 	}
 }
 
+// Negative budgets are an explicit opt-out for long /goal runs. They must not
+// be clamped back into a positive ceiling, and they must lift maxContinuations
+// too — an unlimited turn budget is useless if the run can only restart 8 times.
+func TestContinuationLimitsHonourUnlimitedBudgets(t *testing.T) {
+	unlimited := continuationLimitsForConfig(config.AgentConfig{
+		AutoContinuationMode:     "safe",
+		ContinuationSegmentTurns: 40,
+		MaxTotalTurns:            -1,
+		MaxRunDurationMs:         -1,
+		MaxRunTokens:             -1,
+	})
+	if unlimited.maxTotalTurns != continuationUnlimited || unlimited.maxTokens != continuationUnlimited {
+		t.Fatalf("negative turn/token budgets were clamped: %+v", unlimited)
+	}
+	if unlimited.maxDuration > 0 {
+		t.Fatalf("negative duration produced a live deadline: %+v", unlimited)
+	}
+	if unlimited.maxContinuations != continuationUnlimitedContinuations {
+		t.Fatalf("unlimited budgets did not lift the continuation cap: %+v", unlimited)
+	}
+	if unlimited.segmentTurns != 40 {
+		t.Fatalf("segment turns should be unaffected by an unlimited total: %+v", unlimited)
+	}
+
+	// A run already past any fixed ceiling must not report a budget reason.
+	state := continuationRunState{
+		limits: unlimited,
+		run:    db.Run{TurnCount: 100000, ConsumedInputTokens: 1 << 40, ConsumedOutputTokens: 1 << 40},
+	}
+	if reason := continuationBudgetReason(state, segmentOutcome{turns: 10, inputTokens: 1 << 20}); reason != "" {
+		t.Fatalf("unlimited budget still reported exhaustion: %q", reason)
+	}
+}
+
 func TestUpdateContinuationConfigAffectsOnlyFutureRuns(t *testing.T) {
 	runner := NewRunner(nil, nil, nil, nil, config.AgentConfig{AutoContinuationMode: "safe", ContinuationSegmentTurns: 40, MaxContinuations: 8, MaxTotalTurns: 200, MaxRunDurationMs: 3600000, MaxRunTokens: 500000})
 	first, err := runner.prepareContinuationRun(context.Background(), db.Run{AgentID: "agent-1", ExecutionMode: db.RunExecutionModeExecute})

@@ -771,17 +771,23 @@ func normalizeAgentConfig(agent AgentConfig) AgentConfig {
 	} else if agent.MaxContinuations > 64 {
 		agent.MaxContinuations = 64
 	}
-	if agent.MaxTotalTurns <= 0 {
+	// Negative values are preserved as an explicit "no ceiling" opt-out for long
+	// /goal runs; zero still selects the default so existing configs keep their
+	// guard rails. See continuationUnlimited in internal/agent/continuation.go.
+	if agent.MaxTotalTurns == 0 {
 		agent.MaxTotalTurns = 200
-	}
-	if agent.MaxTotalTurns > 10000 {
+	} else if agent.MaxTotalTurns > 10000 {
 		agent.MaxTotalTurns = 10000
+	} else if agent.MaxTotalTurns < 0 {
+		agent.MaxTotalTurns = -1
 	}
-	if agent.ContinuationSegmentTurns > agent.MaxTotalTurns {
+	if agent.MaxTotalTurns > 0 && agent.ContinuationSegmentTurns > agent.MaxTotalTurns {
 		agent.ContinuationSegmentTurns = agent.MaxTotalTurns
 	}
-	if agent.MaxRunDurationMs <= 0 {
+	if agent.MaxRunDurationMs == 0 {
 		agent.MaxRunDurationMs = 3600000
+	} else if agent.MaxRunDurationMs < 0 {
+		agent.MaxRunDurationMs = -1
 	} else if agent.MaxRunDurationMs < 1000 {
 		agent.MaxRunDurationMs = 1000
 	} else if agent.MaxRunDurationMs > 86400000 {
@@ -791,8 +797,10 @@ func normalizeAgentConfig(agent AgentConfig) AgentConfig {
 	// continuation turn, and each turn resends the whole conversation. A run
 	// with a 120K context window burns ~2M by turn 20 while doing modest work,
 	// so 500K interrupted ordinary multi-step tasks well before maxTotalTurns.
-	if agent.MaxRunTokens <= 0 {
+	if agent.MaxRunTokens == 0 {
 		agent.MaxRunTokens = 2000000
+	} else if agent.MaxRunTokens < 0 {
+		agent.MaxRunTokens = -1
 	} else if agent.MaxRunTokens < 1000 {
 		agent.MaxRunTokens = 1000
 	} else if agent.MaxRunTokens > 10000000 {
