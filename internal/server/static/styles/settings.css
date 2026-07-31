@@ -3227,13 +3227,13 @@ body.white-shell.theme-light[data-theme-preset="cream"] {
   --ws-text: #413b46;
   --ws-muted: #887b72;
   --ws-border: #eadcc7;
-  --bg: #fff9ee;
-  --bg-soft: #fffef9;
-  --bg-panel: #fffef9;
-  --text: #413b46;
+  --bg: var(--ws-canvas);
+  --bg-soft: var(--ws-card);
+  --bg-panel: var(--ws-card);
+  --text: var(--ws-text);
   --text-soft: #887b72;
-  --line: #eadcc7;
-  --accent: #db5f79;
+  --line: var(--ws-border);
+  --accent: var(--ws-primary);
 }
 
 body.white-shell.theme-light[data-theme-preset="apple"] {
@@ -3312,13 +3312,13 @@ body.white-shell.theme-light[data-theme-preset="cyber"] {
   --ws-text: #e6fff0;
   --ws-muted: #8fa9a2;
   --ws-border: #244453;
-  --bg: #07111b;
-  --bg-soft: #0b1824;
-  --bg-panel: #0b1824;
-  --text: #e6fff0;
+  --bg: var(--ws-canvas);
+  --bg-soft: var(--ws-card);
+  --bg-panel: var(--ws-card);
+  --text: var(--ws-text);
   --text-soft: #8fa9a2;
-  --line: #244453;
-  --accent: #a7ff32;
+  --line: var(--ws-border);
+  --accent: var(--ws-primary);
 }
 
 body.white-shell.theme-light[data-theme-preset="cream"] .app-shell,
