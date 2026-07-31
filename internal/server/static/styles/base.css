@@ -111,18 +111,18 @@ body.theme-light {
   background: #e8edf5;
 }
 body.theme-light .app-shell { background: var(--bg); }
-body.theme-light .sidebar { background: #ffffff; }
-body.theme-light .sidebar-search { background: #f8fafc; }
-body.theme-light .backend-panel { background: #f8fafc; }
-body.theme-light .sidebar-settings-menu { background: #ffffff; border-color: #d9e1ec; box-shadow: 0 22px 48px rgba(15, 23, 42, .18); }
-body.theme-light .sidebar-menu-profile { border-color: #e2e8f0; }
+body.theme-light .sidebar { background: var(--ws-card); }
+body.theme-light .sidebar-search { background: var(--ws-canvas); }
+body.theme-light .backend-panel { background: var(--ws-canvas); }
+body.theme-light .sidebar-settings-menu { background: var(--ws-card); border-color: #d9e1ec; box-shadow: 0 22px 48px rgba(15, 23, 42, .18); }
+body.theme-light .sidebar-menu-profile { border-color: var(--ws-border); }
 body.theme-light .sidebar-menu-divider { background: #e2e8f0; }
 body.theme-light .sidebar-menu-item:hover { background: #f1f5f9; }
 body.theme-light .sidebar-avatar { background: #e2e8f0; color: #334155; }
 body.theme-light .nav-item.selected,
 body.theme-light .nav-item-shell.selected,
 body.theme-light .project-card.active { background: #e7ecff; color: #3346c5; }
-body.theme-light .navigation-filters { background: #f8fafc; }
+body.theme-light .navigation-filters { background: var(--ws-canvas); }
 body.theme-light .navigation-filter.active { background: #e7ecff; color: #3346c5; }
 body.theme-light .navigation-conversation-row.active,
 body.theme-light .recent-conversation-item.active { background: #eef2ff; color: #3346c5; }
@@ -130,7 +130,7 @@ body.theme-light .nav-item-shell.selected .nav-item-main,
 body.theme-light .nav-inline-action { color: #3346c5; }
 body.theme-light .nav-inline-action:hover { background: rgba(51, 70, 197, .1); color: #1e2f9a; }
 body.theme-light .empty-workspace-card,
-body.theme-light .workspace-pill { background: #ffffff; border-color: #e2e8f0; }
+body.theme-light .workspace-pill { background: var(--ws-card); border-color: var(--ws-border); }
 body.theme-light .inline-code { background: #f1f5f9; }
 body.theme-light .code-block { background: #111827; }
 

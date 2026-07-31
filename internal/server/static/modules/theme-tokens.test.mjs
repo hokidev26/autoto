@@ -104,6 +104,40 @@ test("each preset resolves its tokens to the captured baseline", () => {
   );
 });
 
+// A token that references itself resolves to nothing at all: the browser treats
+// the cycle as invalid at computed-value time and the property comes back as an
+// empty string, so every surface using it silently loses its colour. This is a
+// real mistake a bulk literal-to-token replacement makes — the replacement hits
+// the token's own definition — and it reads as ordinary drift in the baseline
+// test above, which makes it easy to recapture the bug into the baseline
+// instead of fixing it. Naming it separately keeps that from happening twice.
+test("no token resolves through a cycle or to an undefined reference", () => {
+  const broken = [];
+  for (const preset of Object.keys(baseline.presets)) {
+    const table = declaredTokens(preset);
+    for (const [token, value] of table) {
+      const seen = new Set([token]);
+      let current = value;
+      for (;;) {
+        const alias = /^var\(\s*(--[A-Za-z0-9_-]+)\s*(?:,\s*([\s\S]+))?\)$/.exec(current.trim());
+        if (!alias) break;
+        const [, ref, fallback] = alias;
+        if (seen.has(ref)) {
+          broken.push(`${preset} ${token}: cycles through ${ref} (${value})`);
+          break;
+        }
+        if (!table.has(ref)) {
+          if (!fallback) broken.push(`${preset} ${token}: references undefined ${ref} with no fallback`);
+          break;
+        }
+        seen.add(ref);
+        current = table.get(ref);
+      }
+    }
+  }
+  assert.deepEqual(broken, [], `${broken.length} token(s) do not resolve to a colour:\n${broken.join("\n")}`);
+});
+
 // Guards the resolver itself. Without this, a bug that made deref() return the
 // raw var() text would make the test above pass by comparing nothing useful.
 test("the resolver follows alias chains and fallbacks", () => {
