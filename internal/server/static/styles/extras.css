@@ -1766,31 +1766,11 @@ body.white-shell.theme-light:not(.workbench-mode):not(.schedule-mode):not(.overv
   margin: 0 auto;
   padding: clamp(38px, 6vh, 72px) clamp(22px, 4vw, 54px) 64px;
 }
-.overview-dashboard-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 18px;
-  padding: 8px 2px 0;
-}
 .overview-dashboard-header > div { min-width: 0; display: grid; gap: 3px; }
 .overview-dashboard-header h2 { margin: 0; color: var(--ws-text, #20263a); font-size: 16px; line-height: 1.25; }
 .overview-dashboard-header p { max-width: 720px; margin: 0; color: var(--ws-muted, #747e90); font-size: 11px; line-height: 1.5; }
 .overview-dashboard-header small { color: var(--ws-muted, #747e90); font-size: 10px; }
 .overview-refresh,
-.overview-link {
-  min-height: 32px;
-  border: 1px solid var(--ws-border, #dfe3e9);
-  border-radius: 9px;
-  background: var(--ws-card, #fff);
-  color: var(--ws-text, #20263a);
-  padding: 6px 10px;
-  font: inherit;
-  font-size: 10px;
-  font-weight: 720;
-  cursor: pointer;
-  transition: border-color .16s ease, background .16s ease, color .16s ease, transform .16s ease;
-}
 .overview-refresh.primary { border-color: #5369f3; background: #5369f3; color: #fff; }
 .overview-refresh:disabled { cursor: wait; opacity: .65; }
 .overview-link:disabled { cursor: not-allowed; opacity: .55; }
@@ -1826,7 +1806,6 @@ body.white-shell.theme-light:not(.workbench-mode):not(.schedule-mode):not(.overv
 .overview-hero-mark { width: 38px; height: 38px; display: grid; place-items: center; color: #435cff; }
 .overview-hero-mark svg { width: 100%; height: 100%; fill: none; stroke: currentColor; stroke-width: 2.15; stroke-linecap: round; stroke-linejoin: round; }
 .overview-hero-title { margin: 0; color: var(--ws-text, #20263a); font-size: clamp(30px, 4vw, 46px); font-weight: 620; letter-spacing: -.035em; line-height: 1.08; }
-.overview-hero-subtitle { max-width: 620px; margin: 0; color: var(--ws-muted, #747e90); font-size: 13px; line-height: 1.55; }
 .overview-launcher-mode-group {
   display: inline-flex;
   align-items: center;
@@ -1978,7 +1957,6 @@ body.white-shell.theme-light .overview-launcher-select-trigger .composer-select-
 .overview-launcher-send[aria-busy="true"] svg { display: none; }
 .overview-launcher-send-label { font-size: 11px; font-weight: 720; }
 .overview-launcher-error { margin: -2px 2px 0; color: #b63838; font-size: 11px; line-height: 1.45; }
-.overview-launcher-suggestions { display: flex; flex-wrap: wrap; justify-content: center; gap: 9px; }
 .overview-summary-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -2016,7 +1994,6 @@ body.white-shell.theme-light .overview-launcher-select-trigger .composer-select-
 .overview-section-header > div { min-width: 0; display: grid; gap: 2px; }
 .overview-section-header h2 { margin: 0; color: var(--ws-text, #20263a); font-size: 13px; }
 .overview-section-header p { margin: 0; color: var(--ws-muted, #747e90); font-size: 10px; }
-.overview-empty-state { min-height: 92px; display: grid; place-items: center; color: var(--ws-muted, #747e90); padding: 20px; font-size: 11px; text-align: center; }
 .overview-inline-error { border: 1px solid color-mix(in srgb, #d14343 35%, var(--ws-border, #dfe3e9)); border-radius: 11px; background: #fff4f4; color: #9f2929; padding: 11px 13px; font-size: 11px; }
 
 /* Usage heatmap: a month-label row above a 7-row calendar grid, with the
@@ -2356,6 +2333,12 @@ body.white-shell.theme-light.theme-dark .schedule-navigation-heading em { backgr
   border-radius: 50%;
   background: conic-gradient(#d6d9df 0 100%);
   transform: rotate(-90deg);
+}
+
+/* The conic gradient is the ring TRACK, not decoration: it is the unfilled part
+   of a progress dial, so it has to follow the theme border like any other rule. */
+body.white-shell.theme-light.theme-dark .context-usage-ring {
+  background: conic-gradient(var(--ws-border) 0 100%);
 }
 .context-usage-ring > span {
   width: 15px;

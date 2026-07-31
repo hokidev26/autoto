@@ -3833,15 +3833,6 @@ body.white-shell.theme-light .composer-select-chevron {
   flex: 1 1 auto;
 }
 
-.composer-permission-safety-state {
-  flex: 0 0 auto;
-  border-radius: 999px;
-  background: #e8edff;
-  color: #4057d6;
-  padding: 2px 7px;
-  font-size: 11px;
-  font-weight: 700;
-}
 
 .composer-permission-danger-reflection {
   align-items: stretch;

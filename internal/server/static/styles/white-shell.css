@@ -740,6 +740,13 @@ body.white-shell.theme-light .run-summary-card {
   background: linear-gradient(180deg, #f5f7ff, var(--ws-card));
 }
 
+/* The light shell tints these surfaces with a pale wash that fades into the card. A pastel is light by definition, so dark themes take the same shape with a themed tint instead of the literal. */
+body.white-shell.theme-light.theme-dark .run-summary-card,
+body.white-shell.theme-light.theme-dark .plan-card {
+  border-color: color-mix(in srgb, var(--ws-primary) 34%, var(--ws-border));
+  background: linear-gradient(180deg, color-mix(in srgb, var(--ws-primary) 10%, var(--ws-card)), var(--ws-card));
+}
+
 body.white-shell.theme-light .plan-card {
   border-color: #c7d2fe;
   background: linear-gradient(180deg, #f5f7ff, var(--ws-card));
@@ -748,6 +755,14 @@ body.white-shell.theme-light .plan-card {
 body.white-shell.theme-light .plan-card.status-completed { border-color: #bbf7d0; background: linear-gradient(180deg, #f0fdf4, var(--ws-card)); }
 body.white-shell.theme-light .plan-card.status-warn { border-color: #fed7aa; background: linear-gradient(180deg, #fff7ed, var(--ws-card)); }
 body.white-shell.theme-light .plan-card.status-error { border-color: #fecaca; background: linear-gradient(180deg, #fff1f2, var(--ws-card)); }
+
+/* Status tint, not decoration: the hue is the signal, so dark themes mix the semantic token rather than falling back to a plain card. */
+body.white-shell.theme-light.theme-dark .plan-card.status-completed { border-color: color-mix(in srgb, var(--good) 40%, var(--ws-border)); background: linear-gradient(180deg, color-mix(in srgb, var(--good) 16%, var(--ws-card)), var(--ws-card)); }
+body.white-shell.theme-light.theme-dark .plan-card.status-warn { border-color: color-mix(in srgb, var(--warn) 40%, var(--ws-border)); background: linear-gradient(180deg, color-mix(in srgb, var(--warn) 16%, var(--ws-card)), var(--ws-card)); }
+body.white-shell.theme-light.theme-dark .plan-card.status-error { border-color: color-mix(in srgb, var(--danger) 40%, var(--ws-border)); background: linear-gradient(180deg, color-mix(in srgb, var(--danger) 16%, var(--ws-card)), var(--ws-card)); }
+body.white-shell.theme-light.theme-dark .run-summary-card.status-completed { border-color: color-mix(in srgb, var(--good) 40%, var(--ws-border)); background: linear-gradient(180deg, color-mix(in srgb, var(--good) 16%, var(--ws-card)), var(--ws-card)); }
+body.white-shell.theme-light.theme-dark .run-summary-card.status-warn { border-color: color-mix(in srgb, var(--warn) 40%, var(--ws-border)); background: linear-gradient(180deg, color-mix(in srgb, var(--warn) 16%, var(--ws-card)), var(--ws-card)); }
+body.white-shell.theme-light.theme-dark .run-summary-card.status-error { border-color: color-mix(in srgb, var(--danger) 40%, var(--ws-border)); background: linear-gradient(180deg, color-mix(in srgb, var(--danger) 16%, var(--ws-card)), var(--ws-card)); }
 body.white-shell.theme-light .plan-card-review { border-color: var(--ws-border); background: #f8fafc; }
 body.white-shell.theme-light .plan-card-stale { border-color: #fed7aa; background: #fff7ed; color: #9a3412; }
 
@@ -1148,6 +1163,11 @@ body.white-shell.theme-light .mini-tag {
 body.white-shell.theme-light .git-commit-panel {
   border-color: #c7d2fe;
   background: linear-gradient(180deg, #f5f7ff, var(--ws-card));
+}
+
+body.white-shell.theme-light.theme-dark .git-commit-panel {
+  border-color: color-mix(in srgb, var(--ws-primary) 34%, var(--ws-border));
+  background: linear-gradient(180deg, color-mix(in srgb, var(--ws-primary) 10%, var(--ws-card)), var(--ws-card));
 }
 
 body.white-shell.theme-light .settings-modal-card,
@@ -2210,6 +2230,14 @@ body.white-shell.theme-light .automation-hero {
   box-shadow: var(--ws-shadow);
 }
 
+/* Each hero picks its own pastel in light mode. Pastels cannot survive on a dark
+   canvas, so dark themes use one brand tint — the page is identified by its
+   heading, not by the wash. */
+body.white-shell.theme-light.theme-dark .automation-hero {
+  border-color: color-mix(in srgb, var(--ws-primary) 34%, var(--ws-border));
+  background: linear-gradient(135deg, var(--ws-card) 0%, color-mix(in srgb, var(--ws-primary) 10%, var(--ws-card)) 58%, var(--ws-card) 100%);
+}
+
 body.white-shell.theme-light .automation-hero h2 {
   margin: 5px 0 7px;
   color: #172033;
@@ -2317,6 +2345,12 @@ body.white-shell.theme-light .automation-section.span-2 { grid-column: span 2; }
 body.white-shell.theme-light .automation-section.danger-section {
   border-color: #fecaca;
   background: linear-gradient(180deg, #fffafa, #fff);
+}
+
+/* Status tint, not decoration: the hue is the signal, so dark themes mix the semantic token. */
+body.white-shell.theme-light.theme-dark .automation-section.danger-section {
+  border-color: color-mix(in srgb, var(--danger) 40%, var(--ws-border));
+  background: linear-gradient(180deg, color-mix(in srgb, var(--danger) 12%, var(--ws-card)), var(--ws-card));
 }
 
 body.white-shell.theme-light .automation-section-head {
@@ -2651,67 +2685,35 @@ body.white-shell.theme-light .automation-activity time { margin-right: 8px; colo
 }
 .spec-board-body { flex: 1; min-height: 0; overflow: auto; padding: 18px; background: #f8fafc; }
 .spec-board { display: grid; gap: 16px; color: #0f172a; }
-.spec-board-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
-.spec-board-eyebrow { color: #5369f3; font-size: 11px; font-weight: 900; letter-spacing: .12em; text-transform: uppercase; }
 .spec-board-header h2 { margin: 4px 0 0; color: #0f172a; font-size: 24px; }
-.spec-board-path { margin: 5px 0 0; color: #64748b; font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
 .spec-board-header-actions, .spec-card-actions, .spec-inline-form, .spec-task-controls { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.spec-tab-list { display: flex; gap: 4px; padding: 4px; border: 1px solid #e2e8f0; border-radius: 12px; background: #eef2f7; }
-.spec-tab { flex: 1; min-height: 38px; border: 0; border-radius: 9px; background: transparent; color: #64748b; font-weight: 850; cursor: pointer; }
 .spec-tab:hover { color: #0f172a; }
 .spec-tab.active { background: #ffffff; color: #5369f3; box-shadow: 0 1px 3px rgba(15, 23, 42, .09); }
-.spec-state { min-height: 140px; border: 1px solid #e2e8f0; border-radius: 14px; background: #ffffff; color: #64748b; display: grid; place-items: center; padding: 24px; text-align: center; }
 .spec-state.error { border-color: #fecaca; background: #fff1f2; color: #be123c; }
 .spec-state.empty { border-style: dashed; }
-.spec-list { display: grid; gap: 10px; }
-.spec-summary-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
 .spec-summary-card, .spec-task-card, .spec-goal-card, .spec-attr-card, .spec-agent-card, .spec-form-card { border: 1px solid #e2e8f0; border-radius: 14px; background: #ffffff; box-shadow: 0 1px 2px rgba(15, 23, 42, .04); }
-.spec-summary-card { padding: 14px; display: grid; gap: 4px; }
 .spec-summary-card span { color: #64748b; font-size: 12px; font-weight: 750; }
 .spec-summary-card strong { color: #0f172a; font-size: 24px; }
 .spec-task-card { padding: 12px; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; align-items: center; }
-.spec-task-main { min-width: 0; display: grid; gap: 6px; }
 .spec-task-text { color: #0f172a; font-size: 14px; line-height: 1.55; overflow-wrap: anywhere; }
-.spec-task-meta { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; color: #64748b; font-size: 11px; }
 .spec-status, .spec-badge { display: inline-flex; align-items: center; min-height: 22px; border-radius: 999px; padding: 2px 8px; font-size: 11px; font-weight: 850; }
-.spec-status-todo { background: #f1f5f9; color: #475569; }
-.spec-status-doing { background: #dbeafe; color: #1d4ed8; }
-.spec-status-done { background: #dcfce7; color: #15803d; }
-.spec-status-blocked { background: #fee2e2; color: #b91c1c; }
-.spec-badge { background: #eef2ff; color: #4f46e5; }
 .spec-badge.protected { background: #fff7ed; color: #c2410c; }
-.spec-goal-card { padding: 14px; display: grid; gap: 10px; }
-.spec-goal-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
 .spec-goal-head h3 { margin: 0; color: #0f172a; font-size: 15px; }
 .spec-goal-head p { margin: 4px 0 0; color: #64748b; font-size: 12px; line-height: 1.5; }
-.spec-attr-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 8px; }
-.spec-attr-card { padding: 10px; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: center; background: #f8fafc; }
 .spec-attr-card strong { color: #334155; font-size: 12px; }
 .spec-attr-card span { color: #64748b; font-size: 12px; overflow-wrap: anywhere; }
-.spec-agent-card { padding: 13px; display: grid; gap: 8px; }
-.spec-agent-head { display: flex; justify-content: space-between; gap: 12px; align-items: center; }
 .spec-agent-head strong { color: #0f172a; }
-.spec-agent-meta { color: #64748b; font-size: 12px; line-height: 1.55; }
-.spec-form-card { padding: 12px; display: grid; gap: 10px; }
-.spec-form-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; gap: 8px; align-items: end; }
-.spec-field { display: grid; gap: 5px; color: #475569; font-size: 11px; font-weight: 800; }
 .spec-input, .spec-select, .spec-textarea { width: 100%; border: 1px solid #cbd5e1; border-radius: 10px; background: #ffffff; color: #0f172a; padding: 8px 10px; outline: 0; }
 .spec-input, .spec-select { min-height: 36px; }
-.spec-textarea { min-height: 84px; resize: vertical; }
 .spec-input:focus, .spec-select:focus, .spec-textarea:focus { border-color: #5369f3; box-shadow: 0 0 0 3px rgba(83, 105, 243, .12); }
 .spec-primary-button, .spec-secondary-button, .spec-danger-button { min-height: 34px; border-radius: 9px; padding: 6px 11px; font-size: 12px; font-weight: 850; cursor: pointer; }
-.spec-primary-button { border: 1px solid #5369f3; background: #5369f3; color: #ffffff; }
 .spec-primary-button:hover { background: #4559dc; }
-.spec-secondary-button { border: 1px solid #cbd5e1; background: #ffffff; color: #334155; }
 .spec-secondary-button:hover { border-color: #94a3b8; background: #f8fafc; }
-.spec-danger-button { border: 1px solid #fecaca; background: #fff1f2; color: #be123c; }
 .spec-danger-button:hover { background: #ffe4e6; }
 .spec-primary-button:disabled, .spec-secondary-button:disabled, .spec-danger-button:disabled { cursor: not-allowed; opacity: .55; }
 .goal-confirmation-stack { position: fixed; right: 20px; bottom: 20px; z-index: 90; width: min(420px, calc(100vw - 40px)); display: grid; gap: 10px; }
-.goal-confirmation-card { border: 1px solid #c7d2fe; border-radius: 16px; background: #ffffff; color: #0f172a; box-shadow: 0 18px 52px rgba(15, 23, 42, .18); padding: 14px; display: grid; gap: 10px; }
 .goal-confirmation-card h3 { margin: 0; font-size: 15px; }
 .goal-confirmation-card p { margin: 0; color: #64748b; font-size: 12px; line-height: 1.55; }
-.goal-confirmation-actions { display: flex; justify-content: flex-end; gap: 8px; }
 
 body.white-shell.theme-light .spec-board-body { background: var(--ws-canvas); }
 body.white-shell.theme-light .spec-board-modal-card { border-color: var(--ws-border); background: var(--ws-card); color: var(--ws-text); }
@@ -2722,7 +2724,6 @@ body.white-shell.theme-light .spec-tab.active { color: var(--ws-primary); backgr
   .spec-board-modal-card { width: 100%; height: 92vh; border-radius: 18px 18px 0 0; }
   .spec-board-body { padding: 12px; }
   .spec-board-header, .spec-goal-head { flex-direction: column; }
-  .spec-board-header-actions { width: 100%; }
   .spec-board-header-actions > button { flex: 1; }
   .spec-summary-grid, .spec-form-row { grid-template-columns: 1fr; }
   .spec-task-card { grid-template-columns: 1fr; }
@@ -2753,6 +2754,11 @@ body.white-shell.theme-light .spec-tab.active { color: var(--ws-primary); backgr
 .spec-task-card textarea:focus,
 .spec-task-card select:focus { border-color: #5369f3; box-shadow: 0 0 0 3px rgba(83, 105, 243, .12); }
 .spec-create-form { display: grid; grid-template-columns: minmax(0, 1fr) 130px auto auto; gap: 9px; align-items: end; border: 1px solid #dbeafe; border-radius: 14px; background: linear-gradient(180deg, #eff6ff, #ffffff); padding: 12px; }
+
+body.white-shell.theme-light.theme-dark .spec-create-form {
+  border-color: color-mix(in srgb, var(--ws-primary) 34%, var(--ws-border));
+  background: linear-gradient(180deg, color-mix(in srgb, var(--ws-primary) 10%, var(--ws-card)), var(--ws-card));
+}
 .spec-create-form textarea { min-height: 76px; resize: vertical; grid-row: span 2; }
 .spec-create-form .send-btn { min-width: 78px; min-height: 36px; }
 .spec-protected-toggle { display: inline-flex; align-items: center; gap: 6px; min-height: 36px; color: #475569; font-size: 12px; font-weight: 750; white-space: nowrap; }

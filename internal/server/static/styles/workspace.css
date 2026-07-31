@@ -36,15 +36,6 @@
   border-radius: 9px;
 }
 .header-tool-btn.primary { color: var(--text); }
-.header-status-pill {
-  min-width: 0;
-  max-width: 86px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  padding: 3px 8px;
-  font-size: 11px;
-}
 .security-mode-pill {
   border-color: rgba(85, 209, 125, .24);
   background: rgba(85, 209, 125, .08);
@@ -58,17 +49,6 @@
   background: rgba(255, 184, 108, .12);
   color: #ffd39b;
 }
-.remote-security-banner {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-height: 34px;
-  padding: 7px 18px;
-  border-bottom: 1px solid rgba(255, 184, 108, .26);
-  background: linear-gradient(90deg, rgba(255, 184, 108, .14), rgba(127, 145, 255, .08));
-  color: #ffe5c2;
-  font-size: 12px;
-}
 .remote-security-banner strong { color: #ffd39b; }
 .remote-security-banner span { color: var(--text-soft); }
 .remote-security-banner.danger {
@@ -78,7 +58,6 @@
 .remote-security-banner.danger strong { color: #ffb0b0; }
 .security-workspace-pill { border-color: rgba(255, 184, 108, .24); color: #ffd39b; }
 .chat-title { font-size: 16px; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.chat-subtitle { color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 60vw; }
 .workspace-meta-pills {
   display: flex;
   align-items: center;
@@ -337,7 +316,6 @@
 .live-tool-output-card.status-completed .live-tool-output-dot { color: var(--good); }
 .live-tool-output-card.status-error .live-tool-output-dot { color: var(--bad); }
 .live-tool-output-body { max-height: 260px; overflow: auto; margin: 0; border: 1px solid var(--line); border-radius: 12px; background: rgba(0, 0, 0, .28); padding: 10px; white-space: pre-wrap; overflow-wrap: anywhere; font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
-.live-tool-output-note { color: var(--muted); font-size: 12px; margin-top: 8px; }
 .run-summary-card {
   width: min(760px, 92%);
   margin: 12px 0 18px;
@@ -740,7 +718,6 @@ body.theme-light .live-image-generation-skeleton { background: rgba(15, 23, 42, 
   padding: 4px 8px 4px 10px;
   min-width: 0;
 }
-.pill-label { color: var(--muted); font-size: 11px; font-weight: 700; }
 .select-pill .select {
   border: 0;
   background: transparent;
@@ -1462,15 +1439,9 @@ body.theme-light .message-mode-option.active { background: #dce5ff; color: #1e3a
     gap: 2px;
   }
   .nav-item,
-  .nav-item-shell {
-    border-radius: 0;
-  }
   .nav-item {
     padding-left: 22px;
     padding-right: 18px;
-  }
-  .nav-item-shell {
-    padding-right: 14px;
   }
   .nav-item-shell .nav-item-main {
     padding-left: 22px;
@@ -1649,17 +1620,6 @@ body.theme-light .message-mode-option.active { background: #dce5ff; color: #1e3a
   color: #96969b;
   font-size: 13px;
 }
-.permission-icon {
-  width: 26px;
-  height: 26px;
-  border-radius: 999px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  margin-right: 10px;
-  color: #bfc0c6;
-  font-size: 22px;
-}
 .permission-toolbar-pill .permission-select {
   position: absolute;
   inset: 0;
@@ -1745,14 +1705,6 @@ body.theme-light .composer-toolbar-icon { color: #3f3f46; }
   font-size: 12px;
 }
 .prompt { color: var(--good); font: 13px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
-.terminal-input {
-  border: 1px solid var(--line);
-  background: #10121d;
-  color: var(--text);
-  border-radius: 8px;
-  padding: 9px 10px;
-  outline: none;
-}
 .terminal-rail { display: none; }
 
 .toast-stack {
@@ -1819,8 +1771,6 @@ body.theme-light .composer-toolbar-icon { color: #3f3f46; }
 .modal-head { display: flex; justify-content: space-between; gap: 16px; align-items: start; padding-bottom: 10px; border-bottom: 1px solid var(--line); }
 .modal-title { font-size: 16px; font-weight: 750; }
 .modal-path { color: var(--muted); font-size: 12px; margin-top: 4px; word-break: break-all; }
-.shortcut-row { display: flex; gap: 8px; flex-wrap: wrap; padding: 12px 0; }
-.compact-shortcuts { padding-top: 0; }
 .shortcut { border: 1px solid var(--line); background: var(--bg-elevated); color: var(--text-soft); border-radius: 999px; padding: 6px 10px; cursor: pointer; }
 .shortcut:hover { color: var(--text); border-color: #55565d; }
 .path-row { display: grid; grid-template-columns: 1fr auto; gap: 8px; margin-bottom: 10px; }

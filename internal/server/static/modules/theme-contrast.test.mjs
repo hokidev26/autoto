@@ -43,6 +43,139 @@ function contrast(a, b) {
   return (hi + 0.05) / (lo + 0.05);
 }
 
+// Compute CSS specificity: (id_count * 100) + (class_attr_pseudo_count * 10) + (element_count * 1).
+// :has(), :is(), :not() take the specificity of their most specific argument (highest wins).
+// :where() has 0 specificity.
+// :not() is equivalent to :is() in newer specs (uses argument specificity).
+function computeSpecificity(selector) {
+  let ids = 0;
+  let classes = 0;
+  let elements = 0;
+
+  // Remove leading/trailing whitespace
+  selector = selector.trim();
+
+  // Track nesting depth to handle :has(), :is(), :not(), :where() correctly
+  let i = 0;
+  let buffer = "";
+
+  while (i < selector.length) {
+    const char = selector[i];
+
+    // Handle pseudo-functions like :has(), :is(), :where(), :not()
+    if (char === ":" && i + 1 < selector.length && selector[i + 1] !== ":") {
+      // Found a pseudo-selector
+      const pseudoStart = i;
+      i++; // skip the ':'
+
+      // Read the pseudo-name
+      let pseudoName = "";
+      while (i < selector.length && /[a-z-]/.test(selector[i])) {
+        pseudoName += selector[i];
+        i++;
+      }
+
+      // Check if it's a pseudo-function (followed by '(')
+      if (i < selector.length && selector[i] === "(") {
+        if (pseudoName === "where") {
+          // :where() has 0 specificity, skip its content
+          let depth = 1;
+          i++; // skip '('
+          while (i < selector.length && depth > 0) {
+            if (selector[i] === "(") depth++;
+            else if (selector[i] === ")") depth--;
+            i++;
+          }
+        } else if (pseudoName === "has" || pseudoName === "is" || pseudoName === "not") {
+          // :has(), :is(), :not() take specificity of their most specific argument
+          let depth = 1;
+          i++; // skip '('
+          let argContent = "";
+          while (i < selector.length && depth > 0) {
+            if (selector[i] === "(") depth++;
+            else if (selector[i] === ")") depth--;
+            else if (depth === 1) argContent += selector[i];
+            i++;
+          }
+          // Split by comma (multiple selectors in :is/:not/:has)
+          const args = argContent.split(",");
+          let maxArgSpec = 0;
+          for (const arg of args) {
+            maxArgSpec = Math.max(maxArgSpec, computeSpecificity(arg.trim()));
+          }
+          classes += Math.floor(maxArgSpec / 10) % 10;
+          ids += Math.floor(maxArgSpec / 100);
+          if (maxArgSpec % 10 > 0) classes += (maxArgSpec % 10);
+        } else {
+          // Other pseudo-functions like :not-selector (very rare), :nth-child, etc.
+          let depth = 1;
+          i++; // skip '('
+          while (i < selector.length && depth > 0) {
+            if (selector[i] === "(") depth++;
+            else if (selector[i] === ")") depth--;
+            i++;
+          }
+        }
+      } else {
+        // Pseudo-element or simple pseudo-class (like :hover, :focus, ::before)
+        // Simple pseudo-classes count as classes (10 points)
+        // Pseudo-elements count as elements (1 point)
+        if (pseudoName.length > 0) {
+          // Check if it's a pseudo-element (double colon, but :: is often written as :)
+          // In modern CSS, pseudo-elements use ::, but for compatibility they can use :
+          if (pseudoName === "before" || pseudoName === "after" || pseudoName === "first-line" || pseudoName === "first-letter") {
+            elements++;
+          } else {
+            // Pseudo-class like :hover, :focus, :active, :visited, etc.
+            classes++;
+          }
+        }
+      }
+    } else if (char === "#") {
+      // ID selector
+      ids++;
+      i++;
+      // Skip the id name
+      while (i < selector.length && /[a-zA-Z0-9_-]/.test(selector[i])) {
+        i++;
+      }
+    } else if (char === ".") {
+      // Class selector
+      classes++;
+      i++;
+      // Skip the class name
+      while (i < selector.length && /[a-zA-Z0-9_-]/.test(selector[i])) {
+        i++;
+      }
+    } else if (char === "[") {
+      // Attribute selector
+      classes++;
+      i++;
+      // Skip to closing bracket
+      while (i < selector.length && selector[i] !== "]") {
+        i++;
+      }
+      if (i < selector.length) i++; // skip ']'
+    } else if (/[a-zA-Z*]/.test(char)) {
+      // Element selector
+      if (char !== "*") {
+        // Skip universal selector '*'
+        elements++;
+      }
+      i++;
+      // Skip the element name
+      while (i < selector.length && /[a-zA-Z0-9_-]/.test(selector[i])) {
+        i++;
+      }
+    } else {
+      // Other characters (whitespace, >, +, ~, etc.)
+      i++;
+    }
+  }
+
+  return ids * 100 + classes * 10 + elements;
+}
+
 // Selector lists carry commas inside :is()/:not(), so splitting has to respect
 // nesting or half a selector ends up as its own entry.
 function splitSelectors(list) {
@@ -83,55 +216,154 @@ const BACKGROUND_DECLARATION = /(?<![-\w])background(?:-color)?:\s*([^;}]+)/i;
 // surface behind it, so its copy has to be judged against that surface. Missing
 // this is what left the composer popovers unreadable after the first pass.
 const SHOWS_SURFACE_BEHIND = new Set(["transparent", "none"]);
+// Extract hex colors from gradient functions (linear-gradient, radial-gradient, etc).
+const GRADIENT = /(?:linear|radial|conic|repeating-linear|repeating-radial|repeating-conic)-gradient\s*\([^)]*\)/gi;
+const GRADIENT_COLOR_STOP = /#[0-9a-fA-F]{3,8}(?=\s|,|%|\))/gi;
 
+// Ordered as styles.css imports them, because that order is what decides ties.
+// readdirSync would hand back alphabetical order, which silently reverses some
+// pairs and would make the cascade comparison below meaningless.
 function readStylesheets() {
-  return readdirSync(stylesDir)
-    .filter((name) => name.endsWith(".css"))
-    .map((name) => ({ name, css: readFileSync(join(stylesDir, name), "utf8").replace(/\/\*[\s\S]*?\*\//g, "") }));
+  const index = readFileSync(join(stylesDir, "..", "styles.css"), "utf8");
+  const imported = [...index.matchAll(/@import\s+url\("styles\/([^"?]+)/g)].map((m) => m[1]);
+  const present = readdirSync(stylesDir).filter((name) => name.endsWith(".css"));
+  const missing = present.filter((name) => !imported.includes(name));
+  if (missing.length) {
+    throw new Error(`styles/ contains files styles.css never imports: ${missing.join(", ")}. `
+      + "Either import them or delete them — an unimported stylesheet cannot be audited.");
+  }
+  return imported.map((name, cascade) => ({
+    name,
+    cascade,
+    css: readFileSync(join(stylesDir, name), "utf8").replace(/\/\*[\s\S]*?\*\//g, ""),
+  }));
 }
 
+// A colour swatch is content, not chrome. The theme-preset previews exist to
+// show what each palette looks like, so the light and apple swatches are
+// supposed to stay light on a dark page — repainting them with the active theme
+// would render all five previews identical and make the picker useless.
+//
+// This is the only sanctioned reason to hold a light literal: the element's
+// whole job is to display that specific colour. Anything that merely sits
+// behind text is chrome and must follow the palette.
+const SWATCH_SELECTORS = /\.theme-preset-preview/;
 // Everything a dark palette has to restate, and everything it already does.
 function auditDarkThemeCoverage() {
-  const required = new Map();
+  const required = new Map(); // Map of darkScoped(selector) -> reason
   const covered = new Set();
-  for (const { name, css } of readStylesheets()) {
+  const lightRules = new Map(); // Map of darkScoped(selector) -> (lightSelector, lightSpec, source)
+  const darkRulesBySelector = new Map(); // Map of darkSelector -> (spec, source)
+
+  for (const { name, css, cascade } of readStylesheets()) {
     RULE.lastIndex = 0;
     for (const rule of css.matchAll(RULE)) {
       const [, rawSelector, body] = rule;
       const selector = rawSelector.trim();
       if (selector.includes("@")) continue;
+
+      const line = css.slice(0, rule.index).split("\n").length;
+
       if (selector.includes(DARK_SCOPE)) {
-        for (const one of splitSelectors(selector)) covered.add(one);
+        for (const one of splitSelectors(selector)) {
+          covered.add(one);
+          // Track dark rules and their specificity for later comparison
+          const spec = computeSpecificity(one);
+          darkRulesBySelector.set(one, { spec, cascade, source: `${name}:${line}` });
+        }
         continue;
       }
       // A preset that already restates its own palette is not this audit's
       // business; only the shared light-shell literals are.
       if (selector.includes("data-theme-preset") || selector.includes("theme-dark")) continue;
+      // A swatch is showing a colour, not sitting behind text. See SWATCH_SELECTORS.
+      if (SWATCH_SELECTORS.test(selector)) continue;
 
-      const line = css.slice(0, rule.index).split("\n").length;
       const background = BACKGROUND_DECLARATION.exec(body)?.[1]?.trim().toLowerCase();
       const backgroundHex = background && /^#[0-9a-fA-F]{3,8}$/.test(background) ? background.slice(0, 7) : "";
       const remapsSurface = backgroundHex.length === 7 && relativeLuminance(backgroundHex) > LIGHT_SURFACE_LUMINANCE;
+
+      // Check flat backgrounds
       if (remapsSurface) {
         for (const one of splitSelectors(selector)) {
-          required.set(darkScoped(one), `${name}:${line} light surface ${backgroundHex}`);
+          const darkSelector = darkScoped(one);
+          required.set(darkSelector, `${name}:${line} light surface ${backgroundHex}`);
+          lightRules.set(darkSelector, {
+            lightSelector: one,
+            lightSpec: computeSpecificity(one),
+            lightCascade: cascade,
+            source: `${name}:${line}`,
+          });
         }
       } else if (background && !SHOWS_SURFACE_BEHIND.has(background)) {
         // Paints its own non-light background, so its copy is already readable.
+        // But still check for gradients in this case
+        GRADIENT.lastIndex = 0;
+        for (const gradientMatch of body.matchAll(GRADIENT)) {
+          const gradientStr = gradientMatch[0];
+          GRADIENT_COLOR_STOP.lastIndex = 0;
+          for (const colorMatch of gradientStr.matchAll(GRADIENT_COLOR_STOP)) {
+            const hex = colorMatch[0].slice(0, 7);
+            if (hex.length === 7 && relativeLuminance(hex) > LIGHT_SURFACE_LUMINANCE) {
+              for (const one of splitSelectors(selector)) {
+                const darkSelector = darkScoped(one);
+                required.set(darkSelector, `${name}:${line} light gradient surface ${hex}`);
+                lightRules.set(darkSelector, {
+                  lightSelector: one,
+                  lightSpec: computeSpecificity(one),
+              lightCascade: cascade,
+                  lightCascade: cascade,
+            lightCascade: cascade,
+                  source: `${name}:${line}`,
+                });
+              }
+            }
+          }
+        }
         continue;
       }
 
+      // Check text colors
       COLOR.lastIndex = 0;
       for (const declaration of body.matchAll(COLOR)) {
         const hex = declaration[1].slice(0, 7);
         if (hex.length !== 7 || contrast(hex, DARK_CARD) >= AA_CONTRAST) continue;
         for (const one of splitSelectors(selector)) {
-          required.set(darkScoped(one), `${name}:${line} color ${hex} scores ${contrast(hex, DARK_CARD).toFixed(2)}:1`);
+          const darkSelector = darkScoped(one);
+          required.set(darkSelector, `${name}:${line} color ${hex} scores ${contrast(hex, DARK_CARD).toFixed(2)}:1`);
+          lightRules.set(darkSelector, {
+            lightSelector: one,
+            lightSpec: computeSpecificity(one),
+            lightCascade: cascade,
+            source: `${name}:${line}`,
+          });
+        }
+      }
+
+      // Check gradient backgrounds (colors inside linear-gradient, radial-gradient, etc.)
+      GRADIENT.lastIndex = 0;
+      for (const gradientMatch of body.matchAll(GRADIENT)) {
+        const gradientStr = gradientMatch[0];
+        GRADIENT_COLOR_STOP.lastIndex = 0;
+        for (const colorMatch of gradientStr.matchAll(GRADIENT_COLOR_STOP)) {
+          const hex = colorMatch[0].slice(0, 7);
+          if (hex.length === 7 && contrast(hex, DARK_CARD) >= AA_CONTRAST) continue;
+          for (const one of splitSelectors(selector)) {
+            const darkSelector = darkScoped(one);
+            required.set(darkSelector, `${name}:${line} gradient color ${hex} scores ${contrast(hex, DARK_CARD).toFixed(2)}:1`);
+            lightRules.set(darkSelector, {
+              lightSelector: one,
+              lightSpec: computeSpecificity(one),
+              lightCascade: cascade,
+            lightCascade: cascade,
+              source: `${name}:${line}`,
+            });
+          }
         }
       }
     }
   }
-  return { required, covered };
+  return { required, covered, lightRules, darkRulesBySelector };
 }
 
 test("every hard-coded light-shell color is restated for the dark themes", () => {
@@ -149,6 +381,62 @@ test("every hard-coded light-shell color is restated for the dark themes", () =>
     `${uncovered.length} rule(s) hard-code a color the dark themes cannot reach.\n`
       + `Prefer changing the rule to use var(--ws-text) / var(--ws-muted) / var(--ws-card).\n`
       + `Otherwise add the selector to the generated dark override block in styles/settings.css.\n${report}`,
+  );
+});
+
+// Existing as a dark counterpart is not the same as winning. A dark override
+// only takes effect when it outranks the light rule, and CSS breaks ties by
+// source order — so equal specificity in an EARLIER stylesheet loses.
+//
+// That is exactly how the provider pages shipped unreadable: providers.css had
+// `...theme-light #settingsContentBody:has(.mp-provider-reference-layout)` and the
+// override block in settings.css answered with `...theme-light.theme-dark
+// #settingsContentBody`. Both score 131. settings.css is imported first, so the
+// light rule won and every field label rendered near-white on white. A
+// specificity-only check calls that pair fine.
+test("dark overrides actually win over the light rules they restate", () => {
+  const { required, covered, lightRules, darkRulesBySelector } = auditDarkThemeCoverage();
+
+  const specificityMismatches = [];
+  for (const [darkSelector, reason] of required) {
+    // Only check if the dark rule actually exists
+    if (!covered.has(darkSelector)) continue;
+
+    const lightRuleData = lightRules.get(darkSelector);
+    if (!lightRuleData) continue; // No light rule data, shouldn't happen
+    const { lightSelector, lightSpec, lightCascade, source: lightSource } = lightRuleData;
+
+    const darkRuleData = darkRulesBySelector.get(darkSelector);
+    if (!darkRuleData) continue; // Dark rule not found, shouldn't happen if covered.has() is true
+
+    const darkSpec = darkRuleData.spec;
+    const loses = darkSpec < lightSpec
+      || (darkSpec === lightSpec && darkRuleData.cascade < lightCascade);
+    if (loses) {
+      specificityMismatches.push({
+        lightSelector,
+        darkSelector,
+        lightSpec,
+        darkSpec,
+        lightSource,
+        darkSource: darkRuleData.source,
+      });
+    }
+  }
+
+  const report = specificityMismatches
+    .slice(0, 25)
+    .map(
+      (m) =>
+        `  ${m.lightSource}\n    light selector: ${m.lightSelector}\n    light specificity: ${m.lightSpec}\n  ${m.darkSource}\n    dark selector: ${m.darkSelector}\n    dark specificity: ${m.darkSpec}`,
+    )
+    .join("\n");
+
+  assert.equal(
+    specificityMismatches.length,
+    0,
+    `${specificityMismatches.length} dark override(s) have lower specificity than their light counterpart and cannot win.\n`
+      + `Increase dark override specificity by adding class/id selectors (e.g., .theme-dark, #id) or matching :has()/:is() from the light rule.\n${report}`,
   );
 });
 

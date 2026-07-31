@@ -3541,14 +3541,6 @@ body.white-shell.theme-light[data-theme-preset="apple"] .modal {
   box-shadow: 0 18px 48px rgba(15, 23, 42, .22);
 }
 .mobile-select-sheet-drag-handle { display: none; }
-.mobile-select-sheet-drag-handle-legacy {
-  width: 38px;
-  height: 4px;
-  flex: 0 0 auto;
-  margin: 9px auto 2px;
-  border-radius: 999px;
-  background: #c7c7cc;
-}
 .mobile-select-sheet-header {
   min-height: 54px;
   display: flex;
@@ -3607,7 +3599,6 @@ body.white-shell.theme-light[data-theme-preset="apple"] .modal {
 .mobile-model-group-heading.composer-model-group-start { margin-top: 10px; padding-top: 14px; }
 .mobile-model-option-copy { min-width: 0; display: flex; flex: 1 1 auto; flex-direction: column; gap: 3px; }
 .mobile-model-option-name { overflow: hidden; color: inherit; font-size: 15px; font-weight: 680; text-overflow: ellipsis; white-space: nowrap; }
-.mobile-model-sheet-actions { margin-top: 9px; padding-top: 9px; border-top: 1px solid rgba(60, 60, 67, .12); }
 .mobile-model-sheet-action {
   width: 100%;
   min-height: 54px;
@@ -3756,7 +3747,6 @@ body.white-shell.theme-light[data-theme-preset="apple"] .modal {
   .mobile-drawer-header .drawer-update-pill { display: none; }
   .mobile-drawer-close-btn { grid-column: 1; grid-row: 1; }
   .mobile-drawer-brand-group { grid-column: 2; grid-row: 1; }
-  .mobile-drawer-search-btn { grid-column: 3; grid-row: 1; }
   .mobile-drawer-primary-actions {
     display: none;
     grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
@@ -3917,20 +3907,6 @@ body.white-shell.theme-light[data-theme-preset="apple"] .modal {
   .mobile-conversation-brand-mark svg { width: 100%; height: 100%; }
   .mobile-conversation-welcome strong { margin: 0; font-size: clamp(25px, 8vw, 34px); font-weight: 720; letter-spacing: -.035em; }
   .mobile-conversation-welcome > span:last-child { max-width: 290px; margin: 0; color: #7b7b80; font-size: 14px; line-height: 1.55; }
-  .mobile-welcome-action {
-    min-height: 44px;
-    margin-top: 7px;
-    border: 1px solid rgba(60, 60, 67, .12);
-    border-radius: 999px;
-    background: #fff;
-    color: #1d1d1f;
-    padding: 0 17px;
-    font: inherit;
-    font-size: 13px;
-    font-weight: 680;
-    pointer-events: auto;
-    box-shadow: 0 7px 20px rgba(0, 0, 0, .06);
-  }
   .mobile-welcome-action:is(:hover, :focus-visible) { outline: 0; border-color: rgba(0, 122, 255, .34); color: #007aff; }
 
   .composer-wrap {
@@ -4002,7 +3978,6 @@ body.white-shell.theme-light[data-theme-preset="apple"] .modal {
   .composer-send-btn::before { content: attr(data-mobile-label); font-size: 21px; line-height: 1; }
   .composer-send-btn:disabled { background: #d1d1d6; color: #fff; opacity: 1; }
   .composer-toolbar { order: 2; min-width: 0; display: flex; align-items: center; gap: 5px; overflow: visible; padding: 0 2px 1px; }
-  .composer-model-controls { min-width: 0; flex: 1 1 auto; display: flex; align-items: center; gap: 5px; overflow: hidden; }
   .composer-field { min-width: 0; }
   .composer-field-label,
   .permission-safety-indicator,
@@ -4229,7 +4204,6 @@ body.white-shell.theme-light[data-theme-preset="apple"] .modal {
 @media (max-width: 420px) {
   .mobile-topbar { grid-template-columns: 44px minmax(0, 1fr) auto; }
   .mobile-topbar-actions { width: auto; }
-  .mobile-drawer-shortcuts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .composer-wrap { padding-inline: 8px; }
   .composer-model-field .composer-select-trigger { max-width: 51vw; }
   #settingsModal .settings-mobile-index-copy small { max-width: 65vw; }
