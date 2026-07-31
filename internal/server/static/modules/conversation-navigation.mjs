@@ -2,6 +2,8 @@ import { t } from "./i18n.mjs";
 
 const navigationModes = new Set(["all", "projects", "conversations"]);
 
+export const standaloneConversationOrderScope = "__standalone__";
+
 export const navigationRefreshDefaults = Object.freeze({
   intervalMs: 2000,
   minIntervalMs: 250,
@@ -216,6 +218,7 @@ function normalizeConversation(value = {}) {
     projectPinned: booleanValue(value.projectPinned),
     projectArchivedAt: timestamp(value.projectArchivedAt),
     worklineId,
+    worklineParentId: text(value.worklineParentId),
     worklineTitle: text(value.worklineTitle) || worklineId,
     worklineRole: text(value.worklineRole),
     worklineBranch: text(value.worklineBranch),
@@ -354,6 +357,25 @@ export function buildNavigationView(payload = {}, options = {}) {
     };
   });
 
+  // Sort groups so the project with the most recent activity floats to the top.
+  // User-defined drag order (options.projectOrder) applied later in renderNavigationHTML
+  // takes precedence; this is only the default when no manual order exists.
+  groups.sort((a, b) => {
+    const aArchived = a.project.archivedAt ? 1 : 0;
+    const bArchived = b.project.archivedAt ? 1 : 0;
+    const aPinned = a.project.pinned ? 1 : 0;
+    const bPinned = b.project.pinned ? 1 : 0;
+    const aActivity = Math.max(
+      Date.parse(a.project.updatedAt || "") || 0,
+      ...a.conversations.map((c) => conversationActivity(c)),
+    );
+    const bActivity = Math.max(
+      Date.parse(b.project.updatedAt || "") || 0,
+      ...b.conversations.map((c) => conversationActivity(c)),
+    );
+    return aArchived - bArchived || bPinned - aPinned || bActivity - aActivity;
+  });
+
   return {
     mode,
     query,
@@ -458,6 +480,17 @@ export function navigationAgentStatusClass(value) {
   return text(value).toLocaleLowerCase().replace(/[^a-z0-9_-]+/g, "-").replace(/^-+|-+$/g, "") || "idle";
 }
 
+// Project rows inherit the liveliest agent under them so the sidebar icon can
+// still signal "running / done" when the list is in projects-only mode.
+export function aggregateNavigationAgentStatus(conversations = []) {
+  const list = Array.isArray(conversations) ? conversations : [];
+  if (!list.length) return "";
+  const statuses = list.map((item) => navigationAgentStatusClass(item?.agentStatus || item?.status));
+  if (statuses.some((status) => status === "running" || status === "pending" || status === "queued")) return "running";
+  if (statuses.some((status) => status === "error" || status === "failed")) return "error";
+  return "idle";
+}
+
 function navigationStateMarkup({ pinned = false, archivedAt = "" } = {}) {
   const marks = [];
   if (pinned) {
@@ -492,11 +525,12 @@ function renderProject(project, activeProjectId, options = {}) {
   const taskMeta = options.taskContext
     ? `<span class="project-task-counts"><span>${escapeNavigationHtml(String(activeTasks))}</span>${Number(counts.blocked || 0) ? `<span class="blocked">${escapeNavigationHtml(String(counts.blocked))}</span>` : ""}</span>`
     : "";
+  const statusClass = text(options.agentStatus) ? navigationAgentStatusClass(options.agentStatus) : "";
   const stateClass = `${project.pinned ? "pinned " : ""}${project.archivedAt ? "archived " : ""}`;
   const stateMeta = navigationStateMarkup({ pinned: project.pinned, archivedAt: project.archivedAt });
   const icon = `<svg viewBox="0 0 20 20"><path d="M5 4.5h10a2 2 0 0 1 2 2V12a2 2 0 0 1-2 2H9l-4 2.5V14a2 2 0 0 1-2-2V6.5a2 2 0 0 1 2-2Z"></path></svg>`;
   return `
-    <div class="navigation-conversation-row navigation-project-row ${options.taskContext ? "task-context " : ""}${active ? "active " : ""}project-card ${stateClass}" role="button" tabindex="0" draggable="true" title="${escapeNavigationHtml(project.name)}" data-project-id="${escapeNavigationHtml(project.id)}" data-navigation-kind="project" data-navigation-id="${escapeNavigationHtml(project.id)}" data-navigation-context="${options.taskContext ? "tasks" : "project"}">
+    <div class="navigation-conversation-row navigation-project-row ${options.taskContext ? "task-context " : ""}${active ? "active " : ""}${statusClass ? `status-${statusClass} ` : ""}project-card ${stateClass}" role="button" tabindex="0" draggable="true" title="${escapeNavigationHtml(project.name)}" data-project-id="${escapeNavigationHtml(project.id)}" data-navigation-kind="project" data-navigation-id="${escapeNavigationHtml(project.id)}"${statusClass ? ` data-agent-status="${escapeNavigationHtml(statusClass)}"` : ""} data-navigation-context="${options.taskContext ? "tasks" : "project"}">
       <span class="navigation-agent-icon theme-icon-slot" data-theme-icon-slot="sidebar-project" aria-hidden="true">${icon}</span>
       <span class="navigation-conversation-main">
         <span class="navigation-conversation-title navigation-project-title"><span class="project-kind-badge">PROJECT</span><span class="project-name">${escapeNavigationHtml(project.name)}</span>${stateMeta}</span>
@@ -510,6 +544,7 @@ function renderProject(project, activeProjectId, options = {}) {
 function renderConversation(conversation, activeAgentId, nested = false, options = {}) {
   const active = options.activeSelectionKind !== "project" && conversation.agentId === activeAgentId;
   const taskContext = options.taskContext === true;
+  const nestedFork = options.nestedFork === true;
   const statusClass = navigationAgentStatusClass(conversation.agentStatus);
   const worklineContext = conversation.worklineBranch || conversation.worklineTitle;
   const projectContext = compactDisplayPath(conversation.projectPath) || conversation.projectName;
@@ -523,12 +558,16 @@ function renderConversation(conversation, activeAgentId, nested = false, options
   const meta = metaParts.filter(Boolean).join(" · ");
   const stateClass = `${conversation.agentPinned ? "pinned " : ""}${conversation.agentArchivedAt ? "archived " : ""}`;
   const stateMeta = navigationStateMarkup({ pinned: conversation.agentPinned, archivedAt: conversation.agentArchivedAt });
+  const orderScope = text(options.orderScope);
+  // Fork conversations use a branch icon instead of the default conversation bubble.
   const icon = taskContext
     ? `<svg viewBox="0 0 20 20"><circle cx="10" cy="6.5" r="3"></circle><path d="M4.5 17c.7-3.5 2.5-5.2 5.5-5.2s4.8 1.7 5.5 5.2"></path></svg>`
-    : `<svg viewBox="0 0 20 20"><path d="M5 4.5h10a2 2 0 0 1 2 2V12a2 2 0 0 1-2 2H9l-4 2.5V14a2 2 0 0 1-2-2V6.5a2 2 0 0 1 2-2Z"></path></svg>`;
+    : nestedFork
+      ? `<svg viewBox="0 0 20 20"><circle cx="7" cy="5" r="1.8"></circle><circle cx="7" cy="15" r="1.8"></circle><circle cx="14" cy="8" r="1.8"></circle><path d="M7 6.8v6.4M7 6.8c2 0 7 .5 7 1.2" stroke-linecap="round"></path></svg>`
+      : `<svg viewBox="0 0 20 20"><path d="M5 4.5h10a2 2 0 0 1 2 2V12a2 2 0 0 1-2 2H9l-4 2.5V14a2 2 0 0 1-2-2V6.5a2 2 0 0 1 2-2Z"></path></svg>`;
   return `
-    <div class="navigation-conversation-row ${nested ? "nested " : ""}${taskContext ? "task-context " : ""}${active ? "active " : ""}status-${statusClass} ${stateClass}" role="button" tabindex="0" draggable="true" title="${escapeNavigationHtml(conversation.agentTitle)}" data-navigation-target="${escapeNavigationHtml(conversation.targetId)}" data-navigation-kind="conversation" data-navigation-id="${escapeNavigationHtml(conversation.agentId)}" data-agent-status="${escapeNavigationHtml(conversation.agentStatus || "idle")}" data-navigation-context="${taskContext ? "tasks" : conversation.standalone ? "conversation" : "project"}" data-standalone-conversation="${conversation.standalone ? "true" : "false"}">
-      <span class="navigation-agent-icon theme-icon-slot" data-theme-icon-slot="sidebar-conversation" aria-hidden="true">${icon}</span>
+    <div class="navigation-conversation-row ${nested ? "nested " : ""}${nestedFork ? "fork-conversation " : ""}${taskContext ? "task-context " : ""}${active ? "active " : ""}status-${statusClass} ${stateClass}" role="button" tabindex="0" draggable="true" title="${escapeNavigationHtml(conversation.agentTitle)}" data-navigation-target="${escapeNavigationHtml(conversation.targetId)}" data-navigation-kind="conversation" data-navigation-id="${escapeNavigationHtml(conversation.agentId)}" data-agent-status="${escapeNavigationHtml(conversation.agentStatus || "idle")}" data-navigation-context="${taskContext ? "tasks" : conversation.standalone ? "conversation" : "project"}" data-standalone-conversation="${conversation.standalone ? "true" : "false"}"${orderScope ? ` data-conversation-order-scope="${escapeNavigationHtml(orderScope)}"` : ""}>
+      <span class="navigation-agent-icon theme-icon-slot" data-theme-icon-slot="${nestedFork ? "sidebar-fork" : "sidebar-conversation"}" aria-hidden="true">${icon}</span>
       <span class="navigation-conversation-main">
         <span class="navigation-conversation-title"><span class="navigation-title-text">${escapeNavigationHtml(conversation.agentTitle)}</span>${stateMeta}</span>
         <span class="navigation-conversation-meta" title="${escapeNavigationHtml(meta)}">${escapeNavigationHtml(meta)}</span>
@@ -563,8 +602,11 @@ export function renderNavigationHTML(view = {}, options = {}) {
   if (taskContext) {
     html = (view.projects || []).map((project) => renderProject(project, activeProjectId, { taskContext: true, taskCounts: options.taskCounts, activeSelectionKind })).join("");
   } else if (mode === "all") {
-    const standalone = (view.standaloneConversations || [])
-      .map((conversation) => renderConversation(conversation, activeAgentId, false, { activeSelectionKind }))
+    const standaloneConversations = options.conversationOrders?.[standaloneConversationOrderScope]
+      ? applyConversationOrder(view.standaloneConversations || [], options.conversationOrders[standaloneConversationOrderScope])
+      : (view.standaloneConversations || []);
+    const standalone = standaloneConversations
+      .map((conversation) => renderConversation(conversation, activeAgentId, false, { activeSelectionKind, orderScope: standaloneConversationOrderScope }))
       .join("");
     let groups = view.groups || [];
     // Apply user-defined project order (drag-to-reorder, persisted in localStorage).
@@ -582,11 +624,54 @@ export function renderNavigationHTML(view = {}, options = {}) {
       const orderedConvs = options.conversationOrders?.[group.project.id]
         ? applyConversationOrder(group.conversations, options.conversationOrders[group.project.id])
         : group.conversations;
+
+      // Split into root workline conversations and fork conversations. Root
+      // conversations keep their existing position; fork conversations are
+      // rendered as nested children immediately below their root sibling.
+      // When a project only has one workline (no forks), this is a no-op.
+      //
+      // "Fork child" is the narrow case: it must point at a parent workline.
+      // Everything else is a root row, so a conversation with an unexpected
+      // worklineRole can never silently vanish from the sidebar.
+      const isForkChild = (c) => c.worklineRole !== "root" && Boolean(c.worklineBranch) && Boolean(c.worklineParentId);
+      const rootConvs = orderedConvs.filter((c) => !isForkChild(c));
+      const forksByWorklineId = new Map();
+      orderedConvs.forEach((c) => {
+        if (!isForkChild(c)) return;
+        const list = forksByWorklineId.get(c.worklineParentId) || [];
+        list.push(c);
+        forksByWorklineId.set(c.worklineParentId, list);
+      });
+      const hasForks = forksByWorklineId.size > 0;
+      // A fork whose parent is missing from this project would otherwise be
+      // dropped; render it as a plain row so nothing is lost.
+      const rootWorklineIds = new Set(rootConvs.map((c) => c.worklineId).filter(Boolean));
+      const orphanForks = [...forksByWorklineId.entries()]
+        .filter(([parentId]) => !rootWorklineIds.has(parentId))
+        .flatMap(([, list]) => list);
+
+      const convsHTML = [
+        ...rootConvs.map((conversation) => {
+          const rootHTML = renderConversation(conversation, activeAgentId, true, { activeSelectionKind, orderScope: group.project.id });
+          if (!hasForks) return rootHTML;
+          const forks = forksByWorklineId.get(conversation.worklineId) || [];
+          if (!forks.length) return rootHTML;
+          const forksHTML = forks.map((fork) =>
+            renderConversation(fork, activeAgentId, true, { activeSelectionKind, orderScope: group.project.id, nestedFork: true }),
+          ).join("");
+          return `${rootHTML}<div class="navigation-workline-forks">${forksHTML}</div>`;
+        }),
+        ...orphanForks.map((fork) =>
+          renderConversation(fork, activeAgentId, true, { activeSelectionKind, orderScope: group.project.id, nestedFork: true }),
+        ),
+      ].join("");
+
+      const projectStatus = aggregateNavigationAgentStatus(group.conversations);
       return `
       <section class="navigation-project-group" draggable="true" data-navigation-project-group="${escapeNavigationHtml(group.project.id)}" data-conversation-count="${escapeNavigationHtml(String(group.conversations.length))}" data-navigation-context="project">
-        ${renderProject(group.project, activeProjectId, { activeSelectionKind })}
+        ${renderProject(group.project, activeProjectId, { activeSelectionKind, agentStatus: projectStatus })}
         <div class="navigation-project-conversations" data-project-conversations="${escapeNavigationHtml(group.project.id)}">
-          ${orderedConvs.map((conversation) => renderConversation(conversation, activeAgentId, true, { activeSelectionKind })).join("")}
+          ${convsHTML}
         </div>
       </section>`;
     }).join("");
@@ -595,7 +680,8 @@ export function renderNavigationHTML(view = {}, options = {}) {
     // Projects-only mode stays a flat list of project rows: no group sections
     // and no conversation structure, which is what the task sidebar relies on.
     // The drag handlers therefore resolve a project from the row itself here,
-    // not from a wrapping group.
+    // not from a wrapping group. Agent status is still rolled up from groups so
+    // the bubble icon can turn blue while a project agent is running.
     let projects = view.projects || [];
     if (Array.isArray(options.projectOrder) && options.projectOrder.length) {
       const orderMap = new Map(options.projectOrder.map((id, i) => [String(id), i]));
@@ -605,9 +691,16 @@ export function renderNavigationHTML(view = {}, options = {}) {
         return ia - ib;
       });
     }
-    html = projects.map((project) => renderProject(project, activeProjectId, { activeSelectionKind })).join("");
+    const statusByProject = new Map((view.groups || []).map((group) => [group.project.id, aggregateNavigationAgentStatus(group.conversations)]));
+    html = projects.map((project) => renderProject(project, activeProjectId, {
+      activeSelectionKind,
+      agentStatus: statusByProject.get(project.id) || "",
+    })).join("");
   } else {
-    html = (view.conversations || []).map((conversation) => renderConversation(conversation, activeAgentId, false, { taskContext, activeSelectionKind })).join("");
+    const conversations = options.conversationOrders?.[standaloneConversationOrderScope]
+      ? applyConversationOrder(view.conversations || [], options.conversationOrders[standaloneConversationOrderScope])
+      : (view.conversations || []);
+    html = conversations.map((conversation) => renderConversation(conversation, activeAgentId, false, { taskContext, activeSelectionKind, orderScope: standaloneConversationOrderScope })).join("");
   }
   if (html) return html;
   if (view.query) return `<div class="empty-list">${escapeNavigationHtml(t("workspace.navigation.noResults", { query: view.query }))}</div>`;

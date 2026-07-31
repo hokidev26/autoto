@@ -651,6 +651,78 @@ func (s *Server) compactAgentContext(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+type retainAgentContextRequest struct {
+	Keywords []string `json:"keywords"`
+	Pinned   bool     `json:"pinned"`
+}
+
+type retainAgentContextResponse struct {
+	Memory  db.Memory          `json:"memory"`
+	Context agentContextStatus `json:"context"`
+}
+
+// retainAgentContextSummary freezes the current compaction summary into a memory
+// owned by this conversation. The summary itself keeps rolling: what is retained
+// is a copy that later compactions and a context clear can no longer touch.
+func (s *Server) retainAgentContextSummary(w http.ResponseWriter, r *http.Request) {
+	var req retainAgentContextRequest
+	if err := decodeJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if s == nil || s.store == nil {
+		writeError(w, http.StatusServiceUnavailable, "agent context store is unavailable")
+		return
+	}
+	agentID := strings.TrimSpace(chi.URLParam(r, "id"))
+	if err := validateAPIIdentifier("agent id", agentID); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if !s.requireAgentAccess(w, r, agentID) {
+		return
+	}
+	agent, err := s.store.GetAgent(r.Context(), agentID)
+	if err != nil {
+		writeError(w, statusFromError(err), err.Error())
+		return
+	}
+	summary := strings.TrimSpace(agent.ContextSummary)
+	if summary == "" {
+		writeError(w, http.StatusConflict, "agent has no context summary to retain")
+		return
+	}
+	if len(summary) > db.MemoryContentMaxBytes {
+		summary = truncateMemoryContentBytes(summary, db.MemoryContentMaxBytes)
+	}
+	created, err := s.store.CreateMemory(r.Context(), db.Memory{
+		AgentID:  agentID,
+		Content:  summary,
+		Keywords: req.Keywords,
+		Pinned:   req.Pinned,
+	})
+	if err != nil {
+		writeError(w, statusFromMemoryError(err), err.Error())
+		return
+	}
+	writeJSON(w, http.StatusCreated, retainAgentContextResponse{
+		Memory:  created,
+		Context: s.agentContextStatusForRequest(r.Context(), agent),
+	})
+}
+
+// truncateMemoryContentBytes trims to a byte ceiling without splitting a rune.
+func truncateMemoryContentBytes(value string, limit int) string {
+	if limit <= 0 || len(value) <= limit {
+		return value
+	}
+	cut := limit
+	for cut > 0 && !utf8.RuneStart(value[cut]) {
+		cut--
+	}
+	return strings.TrimSpace(value[:cut])
+}
+
 type updateAgentTitleRequest struct {
 	Title            strictString `json:"title"`
 	EntityGeneration strictInt64  `json:"entityGeneration"`
@@ -798,11 +870,14 @@ func (s *Server) capabilitiesForAgentModel(model string) providers.Capabilities 
 		}
 		return providers.Capabilities{}
 	}
-	provider, _, err := s.providers.Resolve(model)
+	provider, resolvedModel, err := s.providers.Resolve(model)
 	if err != nil {
 		return providers.Capabilities{}
 	}
-	return providers.CapabilitiesFor(provider)
+	// Folded with the model's own levels, because Codex serves "max"/"ultra" on
+	// some models only: judging by the provider alone would refuse a level the
+	// selected model accepts.
+	return providers.CapabilitiesForModel(providers.CapabilitiesFor(provider), providers.ModelCapabilitiesFor(provider, resolvedModel))
 }
 
 func (s *Server) modelCapabilitiesForAgentModel(model string) providers.ModelCapabilities {

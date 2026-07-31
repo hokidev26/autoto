@@ -725,6 +725,14 @@ body.white-shell.theme-light.theme-dark #settingsModal {
   color: var(--settings-warning);
 }
 
+/* Neutral emphasis for classification, not status: used by the memory scope
+   badge, where "conversation-owned" is a fact rather than a success or warning. */
+#settingsContentBody :is(.settings-status-pill, .settings-badge).accent {
+  border-color: color-mix(in srgb, var(--settings-primary) 30%, var(--settings-border));
+  background: var(--settings-primary-soft);
+  color: var(--settings-primary);
+}
+
 #settingsContentBody :is(.settings-alert, .settings-inline-alert, .automation-inline-error, .settings-empty-card.danger) {
   border: 1px solid color-mix(in srgb, var(--settings-destructive) 30%, var(--settings-border));
   border-radius: var(--settings-radius);
@@ -792,7 +800,8 @@ body.white-shell.theme-light.theme-dark #settingsModal {
 #settingsContentBody .archive-item-main strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--settings-foreground); font-size: 13px; }
 #settingsContentBody .archive-item-main small { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--settings-muted-foreground); font-size: 12px; }
 #settingsContentBody .archive-item-state { color: var(--settings-muted-foreground); font-size: 11px; }
-#settingsContentBody .archive-restore-btn { min-height: 30px; padding: 0 10px; }
+#settingsContentBody .archive-item-actions { display: flex; align-items: center; gap: var(--settings-space-2); flex-wrap: wrap; justify-content: flex-end; }
+#settingsContentBody :is(.archive-restore-btn, .archive-delete-btn) { min-height: 30px; padding: 0 10px; }
 #settingsContentBody .archive-empty-state { min-height: 100px; display: grid; place-items: center; color: var(--settings-muted-foreground); text-align: center; }
 
 #settingsContentBody :is(.settings-data-list, .storage-entry-list, .license-group-card, .settings-auth-list) {
@@ -920,6 +929,300 @@ body.white-shell.theme-light.theme-dark #settingsModal {
 }
 
 #settingsContentBody .skills-tab.active { border-bottom-color: var(--settings-primary); }
+
+/* Optional tools use distinct compact cards instead of dense text rows. */
+#settingsContentBody [data-optional-tools-panel] > .settings-card-header h2 {
+  margin: 0;
+}
+
+#settingsContentBody .optional-tools-settings {
+  display: grid;
+  gap: var(--settings-space-3);
+  margin-top: var(--settings-space-4);
+}
+
+#settingsContentBody .optional-tools-settings > .settings-field {
+  display: grid;
+  gap: 6px;
+}
+
+#settingsContentBody .optional-tools-settings .optional-tools-domain {
+  padding: 0;
+  overflow: hidden;
+  box-shadow: none;
+}
+
+#settingsContentBody .optional-tools-domain > .settings-card-header {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--settings-border);
+  background: color-mix(in srgb, var(--settings-surface) 94%, var(--settings-muted));
+}
+
+#settingsContentBody .optional-tools-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  padding: 10px;
+}
+
+#settingsContentBody .optional-tool-row {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 14px;
+  border: 1px solid var(--settings-border);
+  border-radius: var(--settings-radius);
+  background: color-mix(in srgb, var(--settings-surface) 96%, var(--settings-muted));
+  padding: 12px;
+}
+
+#settingsContentBody .optional-tool-main,
+#settingsContentBody .optional-tool-title {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+#settingsContentBody .optional-tool-title strong {
+  overflow: hidden;
+  color: var(--settings-foreground);
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#settingsContentBody .optional-tool-title code {
+  width: fit-content;
+  max-width: 100%;
+  overflow: hidden;
+  color: var(--settings-muted-foreground);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#settingsContentBody .optional-tool-main small {
+  color: var(--settings-warning);
+  font-size: 11px;
+}
+
+#settingsContentBody .optional-tool-actions {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+#settingsContentBody .optional-tool-actions select {
+  min-width: 116px;
+  min-height: 34px;
+}
+
+@media (max-width: 900px) {
+  #settingsContentBody .optional-tools-list { grid-template-columns: minmax(0, 1fr); }
+}
+
+@media (max-width: 560px) {
+  #settingsContentBody .optional-tool-row { grid-template-columns: minmax(0, 1fr); }
+  #settingsContentBody .optional-tool-actions { flex-direction: row; flex-wrap: wrap; justify-content: flex-start; }
+}
+
+/* ============================================================
+   Unified compact skills-page layout — settings.css authority
+   All #settingsContentBody .skills-page scoped rules below
+   override legacy (settings-legacy.css) and workbench.css.
+   ============================================================ */
+
+/* Root page: remove legacy min-height, trim padding that
+   settings-card/page-section adds on top of skills-page itself. */
+#settingsContentBody .skills-page.settings-page-section {
+  padding: 0;
+  border: none;
+  background: transparent;
+  box-shadow: none;
+}
+
+/* Tab panel top spacing */
+#settingsContentBody .skills-tab-panel {
+  padding-top: 16px;
+}
+
+/* Top-level skill provider sections: compact padding */
+#settingsContentBody .skills-page :is(.settings-provider-section, .settings-page-section, .settings-card).highlighted,
+#settingsContentBody .skills-page :is(.settings-provider-section, .settings-page-section, .settings-card) {
+  padding: 14px;
+}
+
+/* Lists: explicit grid gap, no bottom margin bleed */
+#settingsContentBody .skills-page :is(.skill-command-list, .workflow-rule-list, .settings-data-list) {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 0;
+}
+
+/* Shared compact card for config-center items (role, prompt, hook) */
+#settingsContentBody .skill-config-card {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 10px;
+  border: 1px solid var(--settings-border);
+  border-radius: var(--settings-radius);
+  background: color-mix(in srgb, var(--settings-surface) 96%, var(--settings-muted));
+  padding: 10px 12px;
+}
+
+#settingsContentBody .skill-card-main {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+#settingsContentBody .skill-card-main strong {
+  overflow: hidden;
+  color: var(--settings-foreground);
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#settingsContentBody .skill-card-meta {
+  color: var(--settings-muted-foreground);
+  font-size: 11px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+#settingsContentBody .skill-card-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+#settingsContentBody .skill-card-revisions {
+  margin-top: 4px;
+}
+
+/* Compact security note inside card header */
+#settingsContentBody .skill-config-note {
+  margin: 3px 0 0;
+  color: var(--settings-muted-foreground);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+/* Prompt trust badge row */
+#settingsContentBody .skill-trust-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 5px;
+}
+
+/* History rows (hooks) — compact status line, no nested card */
+#settingsContentBody .skill-history-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 5px 0;
+  border-top: 1px solid var(--settings-border);
+  font-size: 12px;
+  color: var(--settings-muted-foreground);
+}
+
+#settingsContentBody .skill-history-row em {
+  color: var(--settings-destructive);
+  font-style: normal;
+  font-size: 11px;
+}
+
+#settingsContentBody .skill-history-row .settings-inline-actions {
+  margin-left: auto;
+}
+
+/* Security note — one canonical visible line */
+#settingsContentBody .skill-security-note {
+  padding: 7px 10px;
+  border-radius: var(--settings-radius);
+  border: 1px solid color-mix(in srgb, var(--settings-warning) 28%, var(--settings-border));
+  background: var(--settings-warning-soft);
+  color: var(--settings-foreground);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+/* Existing skill-command-card: tighten padding to match compact cards */
+#settingsContentBody .skills-page .skill-command-card {
+  padding: 10px 12px;
+}
+
+/* Automation tool catalog details (native <details>) */
+#settingsContentBody .skill-card-details {
+  margin-top: 6px;
+}
+
+#settingsContentBody .skill-card-details summary {
+  cursor: pointer;
+  color: var(--settings-muted-foreground);
+  font-size: 12px;
+  user-select: none;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+#settingsContentBody .skill-card-details summary::before {
+  content: "▶";
+  font-size: 9px;
+  transition: transform .15s;
+}
+
+#settingsContentBody .skill-card-details[open] summary::before {
+  transform: rotate(90deg);
+}
+
+#settingsContentBody .skill-card-details .skill-card-meta {
+  margin-top: 6px;
+  padding: 8px 10px;
+  border: 1px solid var(--settings-border);
+  border-radius: var(--settings-radius);
+  background: var(--settings-muted);
+}
+
+/* Optional tools search — remove double-border from label+input */
+#settingsContentBody .optional-tools-search-label {
+  display: grid;
+  gap: 6px;
+}
+
+#settingsContentBody .optional-tools-search-label input {
+  width: 100%;
+}
+
+/* scoped skills left-accent */
+#settingsContentBody .skills-page .skills-v2-card {
+  border-left: 3px solid var(--settings-primary);
+}
+
+/* Mobile: skill card actions wrap below content */
+@media (max-width: 767px) {
+  #settingsContentBody .skill-config-card {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  #settingsContentBody .skill-card-actions {
+    justify-content: flex-end;
+  }
+  #settingsContentBody .skills-page .skill-command-card {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
 
 #settingsContentBody :is(.skill-command-card, .memory-card, .memory-item, .automation-card, .automation-row-card, .automation-history-head, .automation-run-row) {
   border-color: var(--settings-border);
@@ -1400,9 +1703,9 @@ body.white-shell.theme-light.theme-dark #settingsModal {
   max-width: 100%;
   flex-wrap: nowrap;
   align-items: center;
-  justify-content: flex-end;
+  justify-content: flex-start;
   gap: 2px;
-  margin-left: auto;
+  margin-left: 0;
 }
 
 #settingsContentBody .codex-icon-action {
@@ -1928,23 +2231,992 @@ body.ui-density-compact #settingsContentBody .usage-history-page .uh-summary-car
 }
 
 /* Theme presets layer new palette tokens over the stable white-shell geometry. */
-body.white-shell.theme-light[data-theme-preset="cyber"] {
-  --ws-primary: #a7ff32;
-  --ws-primary-soft: #183523;
-  --ws-canvas: #07111b;
-  --ws-card: #0b1824;
-  --ws-input: #102333;
-  --ws-text: #e6fff0;
-  --ws-muted: #8fa9a2;
-  --ws-border: #244453;
-  --bg: #07111b;
-  --bg-soft: #0b1824;
-  --bg-panel: #0b1824;
-  --text: #e6fff0;
-  --text-soft: #8fa9a2;
-  --line: #244453;
-  --accent: #a7ff32;
+
+/* ==========================================================================
+   Dark schemes: surfaces and copy the light shell hard-codes
+   Most of the shell writes literal light backgrounds and slate text instead of
+   var(--ws-*). The dark palettes re-background the outer panels but cannot
+   reach those literals, so whole cards stayed white and their copy stayed
+   near-black on a near-black canvas -- Runtime resources, About, and the
+   composer popovers were simply unreadable. Overriding here rather than
+   editing each rule leaves every light preset byte-identical.
+
+   Generated by auditing every rule that hard-codes a color: a light background
+   (relative luminance > 0.5) becomes the themed card, and text scoring under
+   WCAG AA (4.5:1) against that card is remapped to the themed foreground.
+   A rule painting its own non-light background is left alone; `transparent`
+   and `none` are not that -- they show the surface behind, so their copy is
+   audited too. Scored against the lighter of the two dark cards (#171827), so
+   cyber is covered by the same pass. Re-run the audit in
+   theme-contrast.test.mjs after adding a rule that hard-codes either.
+   ========================================================================== */
+
+/* surfaces — 498 selectors */
+body.white-shell.theme-light.theme-dark #settingsContentBody,
+body.white-shell.theme-light.theme-dark #settingsContentBody .mp-provider-page,
+body.white-shell.theme-light.theme-dark #settingsContentBody .theme-preset-preview,
+body.white-shell.theme-light.theme-dark #settingsContentBody .theme-preset-preview-apple::after,
+body.white-shell.theme-light.theme-dark #settingsContentBody .theme-preset-preview-cream i,
+body.white-shell.theme-light.theme-dark #settingsContentBody .theme-preset-preview-cream::after,
+body.white-shell.theme-light.theme-dark #settingsContentBody .theme-preset-preview-cyber b,
+body.white-shell.theme-light.theme-dark #settingsContentBody .theme-preset-preview-cyber em,
+body.white-shell.theme-light.theme-dark #settingsContentBody .theme-preset-preview-cyber::before,
+body.white-shell.theme-light.theme-dark #settingsContentBody .theme-preset-preview-light i,
+body.white-shell.theme-light.theme-dark #settingsContentBody .theme-preset-preview-light::after,
+body.white-shell.theme-light.theme-dark #settingsContentBody .usage-history-page .uh-truncated,
+body.white-shell.theme-light.theme-dark #settingsModal .settings-dialog-shell,
+body.white-shell.theme-light.theme-dark #settingsModal .settings-nav-groups .settings-mobile-index-row .settings-nav-icon,
+body.white-shell.theme-light.theme-dark #settingsModal .settings-sidebar,
+body.white-shell.theme-light.theme-dark #settingsModal.mobile-settings-detail .legacy-settings-content,
+body.white-shell.theme-light.theme-dark #settingsModal.mobile-settings-detail .settings-content,
+body.white-shell.theme-light.theme-dark #settingsModal.mobile-settings-detail .settings-main,
+body.white-shell.theme-light.theme-dark .app-shell,
+body.white-shell.theme-light.theme-dark .app-shell.terminal-collapsed,
+body.white-shell.theme-light.theme-dark .appearance-choice,
+body.white-shell.theme-light.theme-dark .appearance-choice.active,
+body.white-shell.theme-light.theme-dark .appearance-choice:hover,
+body.white-shell.theme-light.theme-dark .appearance-preview-card,
+body.white-shell.theme-light.theme-dark .appearance-preview-line,
+body.white-shell.theme-light.theme-dark .appearance-preview-pill,
+body.white-shell.theme-light.theme-dark .appearance-toggle-row,
+body.white-shell.theme-light.theme-dark .backend-card,
+body.white-shell.theme-light.theme-dark .backend-panel,
+body.white-shell.theme-light.theme-dark .boot-transition,
+body.white-shell.theme-light.theme-dark .chat-header,
+body.white-shell.theme-light.theme-dark .chat-panel,
+body.white-shell.theme-light.theme-dark .code-block,
+body.white-shell.theme-light.theme-dark .code-head,
+body.white-shell.theme-light.theme-dark .codex-account-table tbody tr.is-selected,
+body.white-shell.theme-light.theme-dark .codex-account-table th,
+body.white-shell.theme-light.theme-dark .codex-account-table tr.is-selected,
+body.white-shell.theme-light.theme-dark .codex-batch-toolbar,
+body.white-shell.theme-light.theme-dark .codex-plan-badge,
+body.white-shell.theme-light.theme-dark .codex-quota-progress,
+body.white-shell.theme-light.theme-dark .codex-usage-window-badge.is-5h,
+body.white-shell.theme-light.theme-dark .codex-usage-window-badge.is-7d,
+body.white-shell.theme-light.theme-dark .codex-usage-window-stats span,
+body.white-shell.theme-light.theme-dark .composer-attach-btn,
+body.white-shell.theme-light.theme-dark .composer-attach-btn:is(:hover, :focus-visible),
+body.white-shell.theme-light.theme-dark .composer-model-menu-action:is(:hover, :focus-visible),
+body.white-shell.theme-light.theme-dark .composer-model-menu-divider,
+body.white-shell.theme-light.theme-dark .composer-permission-danger-reflection-level.is-selected,
+body.white-shell.theme-light.theme-dark .composer-permission-danger-reflection-levels,
+body.white-shell.theme-light.theme-dark .composer-permission-divider,
+body.white-shell.theme-light.theme-dark .composer-permission-safety-state,
+body.white-shell.theme-light.theme-dark .composer-permission-safety-status,
+body.white-shell.theme-light.theme-dark .composer-select-option:focus-visible,
+body.white-shell.theme-light.theme-dark .composer-select-option:hover,
+body.white-shell.theme-light.theme-dark .composer-select-popover,
+body.white-shell.theme-light.theme-dark .composer-select-trigger:is(:hover, :focus-visible),
+body.white-shell.theme-light.theme-dark .composer-send-btn:disabled,
+body.white-shell.theme-light.theme-dark .context-action.danger:hover:not(:disabled),
+body.white-shell.theme-light.theme-dark .context-clear-confirmation,
+body.white-shell.theme-light.theme-dark .context-management-error,
+body.white-shell.theme-light.theme-dark .copy-code,
+body.white-shell.theme-light.theme-dark .directory-row,
+body.white-shell.theme-light.theme-dark .directory-row:focus-visible,
+body.white-shell.theme-light.theme-dark .directory-row:hover,
+body.white-shell.theme-light.theme-dark .empty-workspace-card,
+body.white-shell.theme-light.theme-dark .folder-cancel-btn,
+body.white-shell.theme-light.theme-dark .folder-cancel-btn:hover,
+body.white-shell.theme-light.theme-dark .folder-inline-create input,
+body.white-shell.theme-light.theme-dark .folder-location-pill,
+body.white-shell.theme-light.theme-dark .folder-location-pill:hover,
+body.white-shell.theme-light.theme-dark .folder-main,
+body.white-shell.theme-light.theme-dark .folder-native-btn,
+body.white-shell.theme-light.theme-dark .folder-native-btn:hover,
+body.white-shell.theme-light.theme-dark .folder-path-input,
+body.white-shell.theme-light.theme-dark .folder-picker-card,
+body.white-shell.theme-light.theme-dark .folder-picker-footer,
+body.white-shell.theme-light.theme-dark .folder-shortcut.active,
+body.white-shell.theme-light.theme-dark .folder-shortcut:hover,
+body.white-shell.theme-light.theme-dark .folder-sidebar,
+body.white-shell.theme-light.theme-dark .folder-tool-btn-labeled,
+body.white-shell.theme-light.theme-dark .folder-tool-btn.active,
+body.white-shell.theme-light.theme-dark .folder-tool-btn.muted:hover,
+body.white-shell.theme-light.theme-dark .folder-tool-btn:hover,
+body.white-shell.theme-light.theme-dark .ghost-btn,
+body.white-shell.theme-light.theme-dark .git-commit-count,
+body.white-shell.theme-light.theme-dark .git-commit-message,
+body.white-shell.theme-light.theme-dark .git-diff-panel,
+body.white-shell.theme-light.theme-dark .git-file-list,
+body.white-shell.theme-light.theme-dark .git-file-row.active,
+body.white-shell.theme-light.theme-dark .git-file-row:hover,
+body.white-shell.theme-light.theme-dark .git-file-status.mixed,
+body.white-shell.theme-light.theme-dark .git-file-status.modified,
+body.white-shell.theme-light.theme-dark .git-file-status.staged,
+body.white-shell.theme-light.theme-dark .git-file-status.untracked,
+body.white-shell.theme-light.theme-dark .git-log-panel,
+body.white-shell.theme-light.theme-dark .git-log-row,
+body.white-shell.theme-light.theme-dark .git-merge-file-list span,
+body.white-shell.theme-light.theme-dark .git-merge-file-list.conflicts span,
+body.white-shell.theme-light.theme-dark .git-merge-metrics span,
+body.white-shell.theme-light.theme-dark .git-toolbar,
+body.white-shell.theme-light.theme-dark .goal-confirmation-card,
+body.white-shell.theme-light.theme-dark .goal-confirmation-stack > .spec-confirmation-card,
+body.white-shell.theme-light.theme-dark .im-policy-card,
+body.white-shell.theme-light.theme-dark .inline-code,
+body.white-shell.theme-light.theme-dark .input,
+body.white-shell.theme-light.theme-dark .license-group-card,
+body.white-shell.theme-light.theme-dark .license-module-row,
+body.white-shell.theme-light.theme-dark .message-copy-btn,
+body.white-shell.theme-light.theme-dark .message-input,
+body.white-shell.theme-light.theme-dark .messages,
+body.white-shell.theme-light.theme-dark .mobile-conversation-brand-mark,
+body.white-shell.theme-light.theme-dark .mobile-select-sheet-drag-handle-legacy,
+body.white-shell.theme-light.theme-dark .mobile-topbar,
+body.white-shell.theme-light.theme-dark .modal-card,
+body.white-shell.theme-light.theme-dark .overview-heatmap-cell,
+body.white-shell.theme-light.theme-dark .overview-heatmap-cell[data-level="1"],
+body.white-shell.theme-light.theme-dark .overview-inline-error,
+body.white-shell.theme-light.theme-dark .overview-link:not(:disabled):hover,
+body.white-shell.theme-light.theme-dark .overview-refresh:not(:disabled):hover,
+body.white-shell.theme-light.theme-dark .profile-info-card,
+body.white-shell.theme-light.theme-dark .project-kanban-card,
+body.white-shell.theme-light.theme-dark .project-kanban-card select,
+body.white-shell.theme-light.theme-dark .project-kanban-card textarea,
+body.white-shell.theme-light.theme-dark .project-kanban-card-actions button,
+body.white-shell.theme-light.theme-dark .project-kanban-column,
+body.white-shell.theme-light.theme-dark .project-kanban-column > h3 small,
+body.white-shell.theme-light.theme-dark .project-kanban-create,
+body.white-shell.theme-light.theme-dark .project-kanban-create button,
+body.white-shell.theme-light.theme-dark .project-kanban-create select,
+body.white-shell.theme-light.theme-dark .project-kanban-create textarea,
+body.white-shell.theme-light.theme-dark .project-kanban-error,
+body.white-shell.theme-light.theme-dark .project-kanban-loading,
+body.white-shell.theme-light.theme-dark .project-kanban-protected,
+body.white-shell.theme-light.theme-dark .project-kanban-status,
+body.white-shell.theme-light.theme-dark .project-task-counts > span,
+body.white-shell.theme-light.theme-dark .project-task-counts > span.blocked,
+body.white-shell.theme-light.theme-dark .relay-config-section,
+body.white-shell.theme-light.theme-dark .relay-protocol-tab,
+body.white-shell.theme-light.theme-dark .relay-protocol-tab.active,
+body.white-shell.theme-light.theme-dark .relay-protocol-tabs,
+body.white-shell.theme-light.theme-dark .runtime-kv-row,
+body.white-shell.theme-light.theme-dark .schedule-navigation-heading em,
+body.white-shell.theme-light.theme-dark .schedule-navigation-item.disabled .schedule-navigation-heading em,
+body.white-shell.theme-light.theme-dark .schedule-navigation-item:focus-visible,
+body.white-shell.theme-light.theme-dark .schedule-navigation-item:hover,
+body.white-shell.theme-light.theme-dark .search-policy-card,
+body.white-shell.theme-light.theme-dark .select,
+body.white-shell.theme-light.theme-dark .settings-action-btn,
+body.white-shell.theme-light.theme-dark .settings-action-btn.danger:hover,
+body.white-shell.theme-light.theme-dark .settings-action-btn:hover,
+body.white-shell.theme-light.theme-dark .settings-action-btn.danger,
+body.white-shell.theme-light.theme-dark .settings-action-btn.danger.confirm,
+body.white-shell.theme-light.theme-dark .settings-action-btn.subtle,
+body.white-shell.theme-light.theme-dark .settings-auth-item,
+body.white-shell.theme-light.theme-dark .settings-backend-card,
+body.white-shell.theme-light.theme-dark .settings-backend-card.confirm-delete,
+body.white-shell.theme-light.theme-dark .settings-backend-check,
+body.white-shell.theme-light.theme-dark .settings-backend-check.ok,
+body.white-shell.theme-light.theme-dark .settings-backend-check.warn,
+body.white-shell.theme-light.theme-dark .settings-backup-key-list span,
+body.white-shell.theme-light.theme-dark .settings-backup-stats > div,
+body.white-shell.theme-light.theme-dark .settings-checkbox-field,
+body.white-shell.theme-light.theme-dark .settings-close-btn:hover,
+body.white-shell.theme-light.theme-dark .settings-content,
+body.white-shell.theme-light.theme-dark .settings-content-head,
+body.white-shell.theme-light.theme-dark .settings-empty-card,
+body.white-shell.theme-light.theme-dark .settings-field,
+body.white-shell.theme-light.theme-dark .settings-info-card,
+body.white-shell.theme-light.theme-dark .settings-inline-alert,
+body.white-shell.theme-light.theme-dark .settings-inline-success,
+body.white-shell.theme-light.theme-dark .settings-modal-card,
+body.white-shell.theme-light.theme-dark .settings-model-choice,
+body.white-shell.theme-light.theme-dark .settings-model-choice.active,
+body.white-shell.theme-light.theme-dark .settings-model-choice:hover,
+body.white-shell.theme-light.theme-dark .settings-model-icon-btn:focus-visible,
+body.white-shell.theme-light.theme-dark .settings-model-icon-btn:hover,
+body.white-shell.theme-light.theme-dark .settings-nav-empty,
+body.white-shell.theme-light.theme-dark .settings-nav-item.active,
+body.white-shell.theme-light.theme-dark .settings-nav-item.settings-nav-drag-over,
+body.white-shell.theme-light.theme-dark .settings-nav-item:hover,
+body.white-shell.theme-light.theme-dark .settings-panel-card,
+body.white-shell.theme-light.theme-dark .settings-panel-icon,
+body.white-shell.theme-light.theme-dark .settings-provider-card,
+body.white-shell.theme-light.theme-dark .settings-provider-section,
+body.white-shell.theme-light.theme-dark .settings-search-box,
+body.white-shell.theme-light.theme-dark .settings-search-box button:hover,
+body.white-shell.theme-light.theme-dark .settings-search-box:focus-within,
+body.white-shell.theme-light.theme-dark .settings-sidebar,
+body.white-shell.theme-light.theme-dark .settings-status-pill,
+body.white-shell.theme-light.theme-dark .settings-status-pill.muted,
+body.white-shell.theme-light.theme-dark .settings-status-pill.ok,
+body.white-shell.theme-light.theme-dark .settings-status-pill.warn,
+body.white-shell.theme-light.theme-dark .settings-status-strip > div,
+body.white-shell.theme-light.theme-dark .settings-text-input,
+body.white-shell.theme-light.theme-dark .settings-text-input:disabled,
+body.white-shell.theme-light.theme-dark .settings-token-input,
+body.white-shell.theme-light.theme-dark .settings-token-input:disabled,
+body.white-shell.theme-light.theme-dark .settings-wizard-btn,
+body.white-shell.theme-light.theme-dark .settings-wizard-btn:hover,
+body.white-shell.theme-light.theme-dark .setup-notice-card,
+body.white-shell.theme-light.theme-dark .shortcut,
+body.white-shell.theme-light.theme-dark .skill-command-card,
+body.white-shell.theme-light.theme-dark .skill-command-prompt,
+body.white-shell.theme-light.theme-dark .skill-revision-drawer,
+body.white-shell.theme-light.theme-dark .skill-roadmap-card,
+body.white-shell.theme-light.theme-dark .skill-scope-badge,
+body.white-shell.theme-light.theme-dark .skill-scope-global,
+body.white-shell.theme-light.theme-dark .skill-scope-project,
+body.white-shell.theme-light.theme-dark .skill-scope-workspace,
+body.white-shell.theme-light.theme-dark .skills-add-btn,
+body.white-shell.theme-light.theme-dark .skills-add-btn:hover,
+body.white-shell.theme-light.theme-dark .skills-page,
+body.white-shell.theme-light.theme-dark .spec-agent-card,
+body.white-shell.theme-light.theme-dark .spec-attr-card,
+body.white-shell.theme-light.theme-dark .spec-badge,
+body.white-shell.theme-light.theme-dark .spec-badge.protected,
+body.white-shell.theme-light.theme-dark .spec-board-body,
+body.white-shell.theme-light.theme-dark .spec-board-toolbar select,
+body.white-shell.theme-light.theme-dark .spec-confirmation-card,
+body.white-shell.theme-light.theme-dark .spec-create-form select,
+body.white-shell.theme-light.theme-dark .spec-create-form textarea,
+body.white-shell.theme-light.theme-dark .spec-danger-button,
+body.white-shell.theme-light.theme-dark .spec-danger-button:hover,
+body.white-shell.theme-light.theme-dark .spec-empty,
+body.white-shell.theme-light.theme-dark .spec-error,
+body.white-shell.theme-light.theme-dark .spec-form-card,
+body.white-shell.theme-light.theme-dark .spec-goal-card,
+body.white-shell.theme-light.theme-dark .spec-input,
+body.white-shell.theme-light.theme-dark .spec-secondary-button,
+body.white-shell.theme-light.theme-dark .spec-secondary-button:hover,
+body.white-shell.theme-light.theme-dark .spec-select,
+body.white-shell.theme-light.theme-dark .spec-state,
+body.white-shell.theme-light.theme-dark .spec-state.error,
+body.white-shell.theme-light.theme-dark .spec-status-blocked,
+body.white-shell.theme-light.theme-dark .spec-status-doing,
+body.white-shell.theme-light.theme-dark .spec-status-done,
+body.white-shell.theme-light.theme-dark .spec-status-todo,
+body.white-shell.theme-light.theme-dark .spec-summary-card,
+body.white-shell.theme-light.theme-dark .spec-tab-list,
+body.white-shell.theme-light.theme-dark .spec-tab.active,
+body.white-shell.theme-light.theme-dark .spec-task-card,
+body.white-shell.theme-light.theme-dark .spec-task-card select,
+body.white-shell.theme-light.theme-dark .spec-task-card textarea,
+body.white-shell.theme-light.theme-dark .spec-textarea,
+body.white-shell.theme-light.theme-dark .storage-entry-card,
+body.white-shell.theme-light.theme-dark .storage-entry-grid > div,
+body.white-shell.theme-light.theme-dark .task-assignment-form,
+body.white-shell.theme-light.theme-dark .task-assignment-form select,
+body.white-shell.theme-light.theme-dark .task-assignment-form textarea,
+body.white-shell.theme-light.theme-dark .task-workspace-agent-card,
+body.white-shell.theme-light.theme-dark .task-workspace-empty,
+body.white-shell.theme-light.theme-dark .task-workspace-empty button,
+body.white-shell.theme-light.theme-dark .task-workspace-error,
+body.white-shell.theme-light.theme-dark .task-workspace-filterbar select,
+body.white-shell.theme-light.theme-dark .task-workspace-hero button,
+body.white-shell.theme-light.theme-dark .task-workspace-inspector,
+body.white-shell.theme-light.theme-dark .task-workspace-inspector button,
+body.white-shell.theme-light.theme-dark .task-workspace-inspector select,
+body.white-shell.theme-light.theme-dark .task-workspace-loading,
+body.white-shell.theme-light.theme-dark .task-workspace-lock,
+body.white-shell.theme-light.theme-dark .task-workspace-row,
+body.white-shell.theme-light.theme-dark .task-workspace-scopes button.active,
+body.white-shell.theme-light.theme-dark .task-workspace-scopes button:hover:not(:disabled),
+body.white-shell.theme-light.theme-dark .task-workspace-section > header button,
+body.white-shell.theme-light.theme-dark .task-workspace-status,
+body.white-shell.theme-light.theme-dark .task-workspace-status.status-blocked,
+body.white-shell.theme-light.theme-dark .task-workspace-status.status-doing,
+body.white-shell.theme-light.theme-dark .task-workspace-status.status-done,
+body.white-shell.theme-light.theme-dark .task-workspace-summary > div,
+body.white-shell.theme-light.theme-dark .terminal-control-card,
+body.white-shell.theme-light.theme-dark .terminal-control-card:hover,
+body.white-shell.theme-light.theme-dark .terminal-shortcut-card,
+body.white-shell.theme-light.theme-dark .usage-map-row,
+body.white-shell.theme-light.theme-dark .usage-metric-card,
+body.white-shell.theme-light.theme-dark .usage-token-grid > div,
+body.white-shell.theme-light.theme-dark .user-policy-card,
+body.white-shell.theme-light.theme-dark .workbench-empty-state,
+body.white-shell.theme-light.theme-dark .workbench-panel,
+body.white-shell.theme-light.theme-dark .workbench-tool-group .header-tool-btn.active,
+body.white-shell.theme-light.theme-dark :is(.background-task-row-state, .background-task-state).status-cancel_requested,
+body.white-shell.theme-light.theme-dark :is(.background-task-row-state, .background-task-state).status-canceled,
+body.white-shell.theme-light.theme-dark :is(.background-task-row-state, .background-task-state).status-cancelled,
+body.white-shell.theme-light.theme-dark :is(.background-task-row-state, .background-task-state).status-complete,
+body.white-shell.theme-light.theme-dark :is(.background-task-row-state, .background-task-state).status-completed,
+body.white-shell.theme-light.theme-dark :is(.background-task-row-state, .background-task-state).status-error,
+body.white-shell.theme-light.theme-dark :is(.background-task-row-state, .background-task-state).status-failed,
+body.white-shell.theme-light.theme-dark :is(.background-task-row-state, .background-task-state).status-interrupted,
+body.white-shell.theme-light.theme-dark :is(.background-task-row-state, .background-task-state).status-pending,
+body.white-shell.theme-light.theme-dark :is(.background-task-row-state, .background-task-state).status-queued,
+body.white-shell.theme-light.theme-dark :is(.background-task-row-state, .background-task-state).status-running,
+body.white-shell.theme-light.theme-dark :is(.background-task-row-state, .background-task-state).status-started,
+body.white-shell.theme-light.theme-dark :is(.background-task-row-state, .background-task-state).status-succeeded,
+body.white-shell.theme-light.theme-dark :is(.background-task-row-state, .background-task-state).status-success,
+body.white-shell.theme-light.theme-dark :is(.background-task-row-state, .background-task-state).status-waiting,
+body.white-shell.theme-light.theme-dark :is(.background-task-row-state, .background-task-state).status-waiting_approval,
+body.white-shell.theme-light.theme-dark,
+body.white-shell.theme-light.theme-dark,
+body.white-shell.theme-light.theme-dark .backend-panel,
+body.white-shell.theme-light.theme-dark .composer-wrap,
+body.white-shell.theme-light.theme-dark .empty-workspace-card,
+body.white-shell.theme-light.theme-dark .inline-code,
+body.white-shell.theme-light.theme-dark .message-input,
+body.white-shell.theme-light.theme-dark .message-mode-option.active,
+body.white-shell.theme-light.theme-dark .message-mode-option:hover,
+body.white-shell.theme-light.theme-dark .message-mode-toggle,
+body.white-shell.theme-light.theme-dark .message-performance,
+body.white-shell.theme-light.theme-dark .message-performance-live,
+body.white-shell.theme-light.theme-dark .nav-item-shell.selected,
+body.white-shell.theme-light.theme-dark .nav-item.selected,
+body.white-shell.theme-light.theme-dark .navigation-conversation-row.active,
+body.white-shell.theme-light.theme-dark .navigation-filter.active,
+body.white-shell.theme-light.theme-dark .navigation-filters,
+body.white-shell.theme-light.theme-dark .pending-file-chip,
+body.white-shell.theme-light.theme-dark .permission-toolbar-pill,
+body.white-shell.theme-light.theme-dark .project-card.active,
+body.white-shell.theme-light.theme-dark .recent-conversation-item.active,
+body.white-shell.theme-light.theme-dark .sidebar,
+body.white-shell.theme-light.theme-dark .sidebar-avatar,
+body.white-shell.theme-light.theme-dark .sidebar-menu-divider,
+body.white-shell.theme-light.theme-dark .sidebar-menu-item:hover,
+body.white-shell.theme-light.theme-dark .sidebar-search,
+body.white-shell.theme-light.theme-dark .sidebar-settings-menu,
+body.white-shell.theme-light.theme-dark .slash-command-item.active,
+body.white-shell.theme-light.theme-dark .slash-command-item:hover,
+body.white-shell.theme-light.theme-dark .slash-command-palette,
+body.white-shell.theme-light.theme-dark .toolbar-model-pill,
+body.white-shell.theme-light.theme-dark .workspace-pill,
+body.white-shell.theme-light.theme-dark #mobileSearchBtn,
+body.white-shell.theme-light.theme-dark #mobileTerminalBtn,
+body.white-shell.theme-light.theme-dark #mobileWorkbenchBtn,
+body.white-shell.theme-light.theme-dark #mobileWorkbenchBtn.active,
+body.white-shell.theme-light.theme-dark #sendMessageBtn:disabled,
+body.white-shell.theme-light.theme-dark .approval-card,
+body.white-shell.theme-light.theme-dark .approval-card.danger,
+body.white-shell.theme-light.theme-dark .attachment-card,
+body.white-shell.theme-light.theme-dark .automation-btn.danger:hover:not(:disabled),
+body.white-shell.theme-light.theme-dark .automation-danger-badge,
+body.white-shell.theme-light.theme-dark .automation-empty,
+body.white-shell.theme-light.theme-dark .automation-form,
+body.white-shell.theme-light.theme-dark .automation-history-head,
+body.white-shell.theme-light.theme-dark .automation-inline-error,
+body.white-shell.theme-light.theme-dark .automation-kv > div,
+body.white-shell.theme-light.theme-dark .automation-metric.active,
+body.white-shell.theme-light.theme-dark .automation-metric.warn,
+body.white-shell.theme-light.theme-dark .automation-migration,
+body.white-shell.theme-light.theme-dark .automation-pairing-code,
+body.white-shell.theme-light.theme-dark .automation-run-row,
+body.white-shell.theme-light.theme-dark .automation-safety,
+body.white-shell.theme-light.theme-dark .automation-secret-note,
+body.white-shell.theme-light.theme-dark .automation-status,
+body.white-shell.theme-light.theme-dark .automation-status.danger,
+body.white-shell.theme-light.theme-dark .automation-status.ok,
+body.white-shell.theme-light.theme-dark .automation-status.warn,
+body.white-shell.theme-light.theme-dark .backend-card,
+body.white-shell.theme-light.theme-dark .backend-card.confirm-delete,
+body.white-shell.theme-light.theme-dark .backend-panel,
+body.white-shell.theme-light.theme-dark .background-task-panel-body,
+body.white-shell.theme-light.theme-dark .chat-title-action:hover,
+body.white-shell.theme-light.theme-dark .composer-attach-btn:is(:hover, :focus-visible),
+body.white-shell.theme-light.theme-dark .composer-send-btn:disabled,
+body.white-shell.theme-light.theme-dark .composer-wrap,
+body.white-shell.theme-light.theme-dark .conversation-detail-row button,
+body.white-shell.theme-light.theme-dark .conversation-detail-hero,
+body.white-shell.theme-light.theme-dark .conversation-detail-status,
+body.white-shell.theme-light.theme-dark .conversation-metric-card,
+body.white-shell.theme-light.theme-dark .effort-pill,
+body.white-shell.theme-light.theme-dark .folder-sidebar,
+body.white-shell.theme-light.theme-dark .ghost-btn:hover,
+body.white-shell.theme-light.theme-dark .git-diff-panel,
+body.white-shell.theme-light.theme-dark .git-file-list,
+body.white-shell.theme-light.theme-dark .git-log-panel,
+body.white-shell.theme-light.theme-dark .git-log-row,
+body.white-shell.theme-light.theme-dark .git-toolbar,
+body.white-shell.theme-light.theme-dark .global-rail [aria-current="page"],
+body.white-shell.theme-light.theme-dark .global-rail a:hover,
+body.white-shell.theme-light.theme-dark .global-rail button.active,
+body.white-shell.theme-light.theme-dark .global-rail button.selected,
+body.white-shell.theme-light.theme-dark .global-rail button:hover,
+body.white-shell.theme-light.theme-dark .global-rail-avatar,
+body.white-shell.theme-light.theme-dark .global-rail-item:hover,
+body.white-shell.theme-light.theme-dark .header-tool-btn.active,
+body.white-shell.theme-light.theme-dark .header-tool-btn:hover,
+body.white-shell.theme-light.theme-dark .header-tool-btn[aria-pressed="true"],
+body.white-shell.theme-light.theme-dark .legacy-secondary-btn,
+body.white-shell.theme-light.theme-dark .legacy-settings-content,
+body.white-shell.theme-light.theme-dark .legacy-settings-content-body .automation-device-toolbar select,
+body.white-shell.theme-light.theme-dark .legacy-settings-content-body .automation-form input,
+body.white-shell.theme-light.theme-dark .legacy-settings-content-body .automation-form select,
+body.white-shell.theme-light.theme-dark .legacy-settings-content-body .automation-form textarea,
+body.white-shell.theme-light.theme-dark .legacy-settings-content-body .automation-kv > div,
+body.white-shell.theme-light.theme-dark .legacy-settings-content-body .automation-secret-note,
+body.white-shell.theme-light.theme-dark .legacy-settings-content-body .settings-field,
+body.white-shell.theme-light.theme-dark .legacy-settings-content-body .settings-hero-card,
+body.white-shell.theme-light.theme-dark .legacy-settings-content-body .settings-info-card,
+body.white-shell.theme-light.theme-dark .legacy-settings-content-body .settings-panel-card,
+body.white-shell.theme-light.theme-dark .legacy-settings-content-body .settings-provider-section,
+body.white-shell.theme-light.theme-dark .legacy-settings-content-body .settings-text-input,
+body.white-shell.theme-light.theme-dark .legacy-settings-content-body .settings-token-input,
+body.white-shell.theme-light.theme-dark .legacy-settings-content-body .skill-roadmap-card,
+body.white-shell.theme-light.theme-dark .legacy-settings-content-body .skills-tab.active,
+body.white-shell.theme-light.theme-dark .legacy-settings-content-body .skills-tab:hover,
+body.white-shell.theme-light.theme-dark .legacy-settings-content-body input:focus,
+body.white-shell.theme-light.theme-dark .legacy-settings-content-body input:not([type="checkbox"]):not([type="radio"]),
+body.white-shell.theme-light.theme-dark .legacy-settings-content-body select,
+body.white-shell.theme-light.theme-dark .legacy-settings-content-body select:focus,
+body.white-shell.theme-light.theme-dark .legacy-settings-content-body textarea,
+body.white-shell.theme-light.theme-dark .legacy-settings-content-body textarea:focus,
+body.white-shell.theme-light.theme-dark .legacy-settings-modal,
+body.white-shell.theme-light.theme-dark .legacy-settings-modal-card,
+body.white-shell.theme-light.theme-dark .legacy-settings-search,
+body.white-shell.theme-light.theme-dark .legacy-settings-subbar,
+body.white-shell.theme-light.theme-dark .legacy-settings-subnav .settings-nav-item.active,
+body.white-shell.theme-light.theme-dark .legacy-settings-subnav .settings-nav-item:hover,
+body.white-shell.theme-light.theme-dark .legacy-settings-topbar,
+body.white-shell.theme-light.theme-dark .legacy-settings-wizard,
+body.white-shell.theme-light.theme-dark .message-input,
+body.white-shell.theme-light.theme-dark .message-input:focus,
+body.white-shell.theme-light.theme-dark .message-performance,
+body.white-shell.theme-light.theme-dark .message-performance-live,
+body.white-shell.theme-light.theme-dark .model-tool-btn,
+body.white-shell.theme-light.theme-dark .nav-item-shell:hover,
+body.white-shell.theme-light.theme-dark .nav-item:hover,
+body.white-shell.theme-light.theme-dark .navigation-boundary-empty button:focus-visible,
+body.white-shell.theme-light.theme-dark .navigation-boundary-empty button:hover,
+body.white-shell.theme-light.theme-dark .navigation-conversation-row.active,
+body.white-shell.theme-light.theme-dark .navigation-conversation-row:hover,
+body.white-shell.theme-light.theme-dark .navigation-filter,
+body.white-shell.theme-light.theme-dark .navigation-filter.active,
+body.white-shell.theme-light.theme-dark .navigation-filter:hover,
+body.white-shell.theme-light.theme-dark .pending-file-chip,
+body.white-shell.theme-light.theme-dark .permission-risk-badge,
+body.white-shell.theme-light.theme-dark .permission-risk-badge.danger,
+body.white-shell.theme-light.theme-dark .permission-safety-indicator,
+body.white-shell.theme-light.theme-dark .permission-toolbar-pill,
+body.white-shell.theme-light.theme-dark .plan-card-review,
+body.white-shell.theme-light.theme-dark .plan-card-stale,
+body.white-shell.theme-light.theme-dark .project-card.active,
+body.white-shell.theme-light.theme-dark .project-card.active .project-kind-badge,
+body.white-shell.theme-light.theme-dark .project-card:hover,
+body.white-shell.theme-light.theme-dark .project-kind-badge,
+body.white-shell.theme-light.theme-dark .recent-item:hover,
+body.white-shell.theme-light.theme-dark .remote-security-banner,
+body.white-shell.theme-light.theme-dark .remote-security-banner.danger,
+body.white-shell.theme-light.theme-dark .run-summary-alert,
+body.white-shell.theme-light.theme-dark .run-summary-checkpoint,
+body.white-shell.theme-light.theme-dark .run-summary-metric,
+body.white-shell.theme-light.theme-dark .run-tool-row,
+body.white-shell.theme-light.theme-dark .security-mode-pill,
+body.white-shell.theme-light.theme-dark .security-mode-pill.tunnel:not(.warn),
+body.white-shell.theme-light.theme-dark .security-mode-pill.warn,
+body.white-shell.theme-light.theme-dark .security-workspace-pill,
+body.white-shell.theme-light.theme-dark .select-pill,
+body.white-shell.theme-light.theme-dark .shortcut,
+body.white-shell.theme-light.theme-dark .sidebar,
+body.white-shell.theme-light.theme-dark .sidebar-account-btn.open,
+body.white-shell.theme-light.theme-dark .sidebar-account-btn:hover,
+body.white-shell.theme-light.theme-dark .sidebar-menu-item:hover,
+body.white-shell.theme-light.theme-dark .sidebar-search,
+body.white-shell.theme-light.theme-dark .terminal-command-input,
+body.white-shell.theme-light.theme-dark .terminal-command-input:focus,
+body.white-shell.theme-light.theme-dark .terminal-command-panel,
+body.white-shell.theme-light.theme-dark .terminal-command-run,
+body.white-shell.theme-light.theme-dark .terminal-command-run:disabled,
+body.white-shell.theme-light.theme-dark .terminal-header,
+body.white-shell.theme-light.theme-dark .terminal-output,
+body.white-shell.theme-light.theme-dark .terminal-output:focus,
+body.white-shell.theme-light.theme-dark .terminal-panel,
+body.white-shell.theme-light.theme-dark .terminal-status-row,
+body.white-shell.theme-light.theme-dark .toolbar-model-pill,
+body.white-shell.theme-light.theme-dark .utility-panel,
+body.white-shell.theme-light.theme-dark .workbench-panel,
+body.white-shell.theme-light.theme-dark .workspace-browser-address,
+body.white-shell.theme-light.theme-dark .workspace-browser-address:focus,
+body.white-shell.theme-light.theme-dark .workspace-browser-icon:hover:not(:disabled),
+body.white-shell.theme-light.theme-dark .workspace-browser-toolbar,
+body.white-shell.theme-light.theme-dark .workspace-editor,
+body.white-shell.theme-light.theme-dark .workspace-editor:read-only,
+body.white-shell.theme-light.theme-dark .workspace-preview-dock-mode .workspace-modal-card,
+body.white-shell.theme-light.theme-dark .workspace-preview-dock-mode .workspace-preview-frame-host,
+body.white-shell.theme-light.theme-dark .workspace-preview-dock-mode .workspace-preview-layout,
+body.white-shell.theme-light.theme-dark .workspace-preview-dock-mode .workspace-preview-panel,
+body.white-shell.theme-light.theme-dark .workspace-preview-dock-mode .workspace-preview-toolbar,
+body.white-shell.theme-light.theme-dark .workspace-preview-error,
+body.white-shell.theme-light.theme-dark .workspace-preview-panel,
+body.white-shell.theme-light.theme-dark .workspace-preview-status.running,
+body.white-shell.theme-light.theme-dark .workspace-tree-panel,
+body.white-shell.theme-light.theme-dark .workspace-viewport-btn,
+body.white-shell.theme-light.theme-dark .workspace-viewport-btn.active,
+body.white-shell.theme-light.theme-dark .workspace-viewport-list,
+body.white-shell.theme-light.theme-dark .workspace-viewport-list .workspace-viewport-btn.active,
+body.white-shell.theme-light.theme-dark .workspace-viewport-list .workspace-viewport-btn:hover,
+body.white-shell.theme-light.theme-dark .workspace-viewport-menu > summary:hover,
+body.white-shell.theme-light.theme-dark .workspace-viewport-menu[open] > summary,
+body.white-shell.theme-light.theme-dark [class~="composer-toolbar-icon"],
+body.white-shell.theme-light.theme-dark [class~="effort-pill"],
+body.white-shell.theme-light.theme-dark [class~="mobile-icon-btn"]:focus-visible,
+body.white-shell.theme-light.theme-dark [class~="mobile-icon-btn"]:hover,
+body.white-shell.theme-light.theme-dark [class~="permission-toolbar-pill"],
+body.white-shell.theme-light.theme-dark [class~="toolbar-model-pill"],
+body.white-shell.theme-light.theme-dark.schedule-mode #newProjectBtn,
+body.white-shell.theme-light.theme-dark.workbench-mode #newTaskBtn:focus-visible:not(:disabled),
+body.white-shell.theme-light.theme-dark.workbench-mode #newTaskBtn:hover:not(:disabled),
+body.white-shell.theme-light.theme-dark html:has(body.white-shell.theme-light)
+ { background: var(--ws-card); border-color: var(--ws-border); }
+
+/* primary copy — 196 selectors */
+body.white-shell.theme-light.theme-dark #settingsModal .settings-close-btn,
+body.white-shell.theme-light.theme-dark #settingsModal .settings-mobile-index-copy strong,
+body.white-shell.theme-light.theme-dark #settingsModal .settings-modal-header .settings-title,
+body.white-shell.theme-light.theme-dark #settingsModal .settings-nav-groups .settings-mobile-index-row,
+body.white-shell.theme-light.theme-dark #settingsModal.mobile-settings-detail .settings-help-trigger,
+body.white-shell.theme-light.theme-dark .appearance-choice,
+body.white-shell.theme-light.theme-dark .appearance-language-field > span,
+body.white-shell.theme-light.theme-dark .appearance-toggle-row strong,
+body.white-shell.theme-light.theme-dark .automation-audit-row strong,
+body.white-shell.theme-light.theme-dark .automation-card-head strong,
+body.white-shell.theme-light.theme-dark .automation-device-row strong,
+body.white-shell.theme-light.theme-dark .automation-hero h2,
+body.white-shell.theme-light.theme-dark .automation-history-head h4,
+body.white-shell.theme-light.theme-dark .automation-history-head span,
+body.white-shell.theme-light.theme-dark .automation-metric strong,
+body.white-shell.theme-light.theme-dark .automation-pairing-code strong,
+body.white-shell.theme-light.theme-dark .automation-row-card strong,
+body.white-shell.theme-light.theme-dark .automation-run-row strong,
+body.white-shell.theme-light.theme-dark .automation-section-head h3,
+body.white-shell.theme-light.theme-dark .chat-panel,
+body.white-shell.theme-light.theme-dark .chat-title,
+body.white-shell.theme-light.theme-dark .code-block,
+body.white-shell.theme-light.theme-dark .codex-batch-link,
+body.white-shell.theme-light.theme-dark .codex-batch-selection strong,
+body.white-shell.theme-light.theme-dark .composer-model-menu-action,
+body.white-shell.theme-light.theme-dark .composer-permission-danger-reflection-heading,
+body.white-shell.theme-light.theme-dark .composer-permission-danger-reflection-level.is-selected,
+body.white-shell.theme-light.theme-dark .composer-permission-danger-reflection-level:is(:hover, :focus-visible),
+body.white-shell.theme-light.theme-dark .composer-permission-option-icon,
+body.white-shell.theme-light.theme-dark .composer-select-option,
+body.white-shell.theme-light.theme-dark .composer-select-option-check,
+body.white-shell.theme-light.theme-dark .composer-select-popover,
+body.white-shell.theme-light.theme-dark .conversation-detail-hero h2,
+body.white-shell.theme-light.theme-dark .conversation-detail-row > strong,
+body.white-shell.theme-light.theme-dark .conversation-metric-card strong,
+body.white-shell.theme-light.theme-dark .directory-row,
+body.white-shell.theme-light.theme-dark .directory-row:focus-visible .directory-icon,
+body.white-shell.theme-light.theme-dark .directory-row:hover .directory-icon,
+body.white-shell.theme-light.theme-dark .empty-conversation-title,
+body.white-shell.theme-light.theme-dark .empty-workspace-title,
+body.white-shell.theme-light.theme-dark .folder-cancel-btn,
+body.white-shell.theme-light.theme-dark .folder-close-btn:hover,
+body.white-shell.theme-light.theme-dark .folder-current-path,
+body.white-shell.theme-light.theme-dark .folder-icon-action,
+body.white-shell.theme-light.theme-dark .folder-icon-action:hover,
+body.white-shell.theme-light.theme-dark .folder-inline-create input,
+body.white-shell.theme-light.theme-dark .folder-location-icon,
+body.white-shell.theme-light.theme-dark .folder-location-pill,
+body.white-shell.theme-light.theme-dark .folder-native-btn,
+body.white-shell.theme-light.theme-dark .folder-path-input,
+body.white-shell.theme-light.theme-dark .folder-picker-card,
+body.white-shell.theme-light.theme-dark .folder-picker-head .modal-title,
+body.white-shell.theme-light.theme-dark .folder-shortcut,
+body.white-shell.theme-light.theme-dark .folder-status-message.busy,
+body.white-shell.theme-light.theme-dark .folder-tool-btn,
+body.white-shell.theme-light.theme-dark .folder-toolbar,
+body.white-shell.theme-light.theme-dark .ghost-btn,
+body.white-shell.theme-light.theme-dark .git-commit-head strong,
+body.white-shell.theme-light.theme-dark .git-commit-message,
+body.white-shell.theme-light.theme-dark .git-file-row,
+body.white-shell.theme-light.theme-dark .git-log-row span,
+body.white-shell.theme-light.theme-dark .git-log-row strong,
+body.white-shell.theme-light.theme-dark .git-panel-title,
+body.white-shell.theme-light.theme-dark .git-summary strong,
+body.white-shell.theme-light.theme-dark .goal-confirmation-card,
+body.white-shell.theme-light.theme-dark .icon-btn.active,
+body.white-shell.theme-light.theme-dark .icon-btn:hover,
+body.white-shell.theme-light.theme-dark .im-policy-card strong,
+body.white-shell.theme-light.theme-dark .inline-code,
+body.white-shell.theme-light.theme-dark .input,
+body.white-shell.theme-light.theme-dark .legacy-about-brand h2,
+body.white-shell.theme-light.theme-dark .legacy-about-more[open] > summary,
+body.white-shell.theme-light.theme-dark .legacy-about-update-state.available,
+body.white-shell.theme-light.theme-dark .legacy-about-version-row strong,
+body.white-shell.theme-light.theme-dark .legacy-settings-modal-card,
+body.white-shell.theme-light.theme-dark .license-group-head,
+body.white-shell.theme-light.theme-dark .license-module-name,
+body.white-shell.theme-light.theme-dark .message,
+body.white-shell.theme-light.theme-dark .message-input,
+body.white-shell.theme-light.theme-dark .message-mode-option:hover,
+body.white-shell.theme-light.theme-dark .message.assistant,
+body.white-shell.theme-light.theme-dark .message.user,
+body.white-shell.theme-light.theme-dark .messages,
+body.white-shell.theme-light.theme-dark .mobile-brand,
+body.white-shell.theme-light.theme-dark .mobile-conversation-brand-mark,
+body.white-shell.theme-light.theme-dark .mobile-drawer-brand-mark,
+body.white-shell.theme-light.theme-dark .mobile-icon-btn,
+body.white-shell.theme-light.theme-dark .mobile-page-title,
+body.white-shell.theme-light.theme-dark .mobile-permission-sheet .composer-select-option-check,
+body.white-shell.theme-light.theme-dark .mobile-sidebar-account-summary .sidebar-account-name,
+body.white-shell.theme-light.theme-dark .mobile-topbar,
+body.white-shell.theme-light.theme-dark .mobile-welcome-action:is(:hover, :focus-visible),
+body.white-shell.theme-light.theme-dark .modal-card,
+body.white-shell.theme-light.theme-dark .modal-title,
+body.white-shell.theme-light.theme-dark .nav-inline-action,
+body.white-shell.theme-light.theme-dark .nav-item-shell.selected .nav-item-main,
+body.white-shell.theme-light.theme-dark .navigation-conversation-title,
+body.white-shell.theme-light.theme-dark .overview-hero-mark,
+body.white-shell.theme-light.theme-dark .overview-launcher-directory:hover,
+body.white-shell.theme-light.theme-dark .overview-launcher-suggestion:hover,
+body.white-shell.theme-light.theme-dark .pending-file-chip,
+body.white-shell.theme-light.theme-dark .permission-toolbar-pill,
+body.white-shell.theme-light.theme-dark .profile-info-card strong,
+body.white-shell.theme-light.theme-dark .project-kanban-card select,
+body.white-shell.theme-light.theme-dark .project-kanban-card textarea,
+body.white-shell.theme-light.theme-dark .project-kanban-card-text,
+body.white-shell.theme-light.theme-dark .project-kanban-create select,
+body.white-shell.theme-light.theme-dark .project-kanban-create textarea,
+body.white-shell.theme-light.theme-dark .project-name,
+body.white-shell.theme-light.theme-dark .relay-field,
+body.white-shell.theme-light.theme-dark .runtime-kv-row strong,
+body.white-shell.theme-light.theme-dark .search-policy-card strong,
+body.white-shell.theme-light.theme-dark .select,
+body.white-shell.theme-light.theme-dark .settings-action-btn,
+body.white-shell.theme-light.theme-dark .settings-auth-title,
+body.white-shell.theme-light.theme-dark .settings-backend-title,
+body.white-shell.theme-light.theme-dark .settings-backup-stats strong,
+body.white-shell.theme-light.theme-dark .settings-close-btn:hover,
+body.white-shell.theme-light.theme-dark .settings-field,
+body.white-shell.theme-light.theme-dark .settings-hero-kicker,
+body.white-shell.theme-light.theme-dark .settings-hero-title,
+body.white-shell.theme-light.theme-dark .settings-info-title,
+body.white-shell.theme-light.theme-dark .settings-modal-card,
+body.white-shell.theme-light.theme-dark .settings-model-choice,
+body.white-shell.theme-light.theme-dark .settings-nav-empty strong,
+body.white-shell.theme-light.theme-dark .settings-nav-item,
+body.white-shell.theme-light.theme-dark .settings-provider-title,
+body.white-shell.theme-light.theme-dark .settings-search-box input,
+body.white-shell.theme-light.theme-dark .settings-status-strip strong,
+body.white-shell.theme-light.theme-dark .settings-text-input,
+body.white-shell.theme-light.theme-dark .settings-token-input,
+body.white-shell.theme-light.theme-dark .settings-wizard-btn,
+body.white-shell.theme-light.theme-dark .setup-notice-card,
+body.white-shell.theme-light.theme-dark .shortcut,
+body.white-shell.theme-light.theme-dark .sidebar,
+body.white-shell.theme-light.theme-dark .sidebar :is(.nav-item, .nav-item-shell, .project-card, .navigation-conversation-row, .recent-conversation-item),
+body.white-shell.theme-light.theme-dark .skill-command-title,
+body.white-shell.theme-light.theme-dark .skill-revision-card strong,
+body.white-shell.theme-light.theme-dark .skill-revision-drawer-head strong,
+body.white-shell.theme-light.theme-dark .skill-roadmap-card strong,
+body.white-shell.theme-light.theme-dark .skills-tab,
+body.white-shell.theme-light.theme-dark .skills-tab.active,
+body.white-shell.theme-light.theme-dark .skills-tab:hover,
+body.white-shell.theme-light.theme-dark .slash-command-item.active,
+body.white-shell.theme-light.theme-dark .slash-command-item:hover,
+body.white-shell.theme-light.theme-dark .slash-command-name,
+body.white-shell.theme-light.theme-dark .slash-command-palette,
+body.white-shell.theme-light.theme-dark .spec-agent-head strong,
+body.white-shell.theme-light.theme-dark .spec-board,
+body.white-shell.theme-light.theme-dark .spec-board-eyebrow,
+body.white-shell.theme-light.theme-dark .spec-board-header h2,
+body.white-shell.theme-light.theme-dark .spec-board-shell,
+body.white-shell.theme-light.theme-dark .spec-board-toolbar select,
+body.white-shell.theme-light.theme-dark .spec-confirmation-card,
+body.white-shell.theme-light.theme-dark .spec-confirmation-card strong,
+body.white-shell.theme-light.theme-dark .spec-confirmations h3,
+body.white-shell.theme-light.theme-dark .spec-create-form select,
+body.white-shell.theme-light.theme-dark .spec-create-form textarea,
+body.white-shell.theme-light.theme-dark .spec-goal-head h3,
+body.white-shell.theme-light.theme-dark .spec-input,
+body.white-shell.theme-light.theme-dark .spec-select,
+body.white-shell.theme-light.theme-dark .spec-summary-card strong,
+body.white-shell.theme-light.theme-dark .spec-tab:hover,
+body.white-shell.theme-light.theme-dark .spec-task-card select,
+body.white-shell.theme-light.theme-dark .spec-task-card textarea,
+body.white-shell.theme-light.theme-dark .spec-task-text,
+body.white-shell.theme-light.theme-dark .spec-textarea,
+body.white-shell.theme-light.theme-dark .storage-entry-grid strong,
+body.white-shell.theme-light.theme-dark .task-assignment-form select,
+body.white-shell.theme-light.theme-dark .task-assignment-form textarea,
+body.white-shell.theme-light.theme-dark .task-workspace-filterbar select,
+body.white-shell.theme-light.theme-dark .task-workspace-hero h2,
+body.white-shell.theme-light.theme-dark .task-workspace-inspector select,
+body.white-shell.theme-light.theme-dark .task-workspace-inspector-body > p,
+body.white-shell.theme-light.theme-dark .task-workspace-summary strong,
+body.white-shell.theme-light.theme-dark .terminal-command-input,
+body.white-shell.theme-light.theme-dark .terminal-command-run:hover,
+body.white-shell.theme-light.theme-dark .terminal-control-card,
+body.white-shell.theme-light.theme-dark .terminal-shortcut-card strong,
+body.white-shell.theme-light.theme-dark .toolbar-lightning-btn.fast-mode-active,
+body.white-shell.theme-light.theme-dark .toolbar-lightning-btn:not(.hidden):focus-visible,
+body.white-shell.theme-light.theme-dark .toolbar-lightning-btn:not(.hidden):hover,
+body.white-shell.theme-light.theme-dark .toolbar-model-pill,
+body.white-shell.theme-light.theme-dark .usage-map-row strong,
+body.white-shell.theme-light.theme-dark .usage-metric-value,
+body.white-shell.theme-light.theme-dark .usage-token-grid strong,
+body.white-shell.theme-light.theme-dark .user-policy-card strong,
+body.white-shell.theme-light.theme-dark .utility-panel,
+body.white-shell.theme-light.theme-dark .workbench-panel,
+body.white-shell.theme-light.theme-dark .workspace-browser-address,
+body.white-shell.theme-light.theme-dark .workspace-browser-icon:hover:not(:disabled),
+body.white-shell.theme-light.theme-dark .workspace-editor,
+body.white-shell.theme-light.theme-dark .workspace-entry-main strong,
+body.white-shell.theme-light.theme-dark .workspace-viewport-menu > summary:hover,
+body.white-shell.theme-light.theme-dark .workspace-viewport-menu[open] > summary,
+body.white-shell.theme-light.theme-dark [class~="mobile-brand"]
+ { color: var(--ws-text); }
+
+/* secondary copy — 210 selectors */
+body.white-shell.theme-light.theme-dark #attachFileBtn,
+body.white-shell.theme-light.theme-dark #settingsModal .settings-mobile-index-heading,
+body.white-shell.theme-light.theme-dark #settingsModal .settings-nav-groups .settings-mobile-index-row .settings-nav-icon,
+body.white-shell.theme-light.theme-dark .appearance-choice small,
+body.white-shell.theme-light.theme-dark .appearance-language-field > small,
+body.white-shell.theme-light.theme-dark .appearance-toggle-row small,
+body.white-shell.theme-light.theme-dark .attachment-subtitle,
+body.white-shell.theme-light.theme-dark .automation-activity,
+body.white-shell.theme-light.theme-dark .automation-card-copy,
+body.white-shell.theme-light.theme-dark .automation-device-row .automation-readonly,
+body.white-shell.theme-light.theme-dark .automation-device-row > span,
+body.white-shell.theme-light.theme-dark .automation-device-toolbar label,
+body.white-shell.theme-light.theme-dark .automation-form label,
+body.white-shell.theme-light.theme-dark .automation-history-head small,
+body.white-shell.theme-light.theme-dark .automation-kv dd,
+body.white-shell.theme-light.theme-dark .automation-migration,
+body.white-shell.theme-light.theme-dark .automation-pairing-code small,
+body.white-shell.theme-light.theme-dark .automation-pairing-code span,
+body.white-shell.theme-light.theme-dark .automation-run-row,
+body.white-shell.theme-light.theme-dark .automation-run-row span:last-child,
+body.white-shell.theme-light.theme-dark .automation-secret-note,
+body.white-shell.theme-light.theme-dark .automation-status,
+body.white-shell.theme-light.theme-dark .backend-card-meta,
+body.white-shell.theme-light.theme-dark .backend-card-url,
+body.white-shell.theme-light.theme-dark .backend-name,
+body.white-shell.theme-light.theme-dark .code-head,
+body.white-shell.theme-light.theme-dark .codex-account-id,
+body.white-shell.theme-light.theme-dark .codex-account-secondary,
+body.white-shell.theme-light.theme-dark .codex-account-table td,
+body.white-shell.theme-light.theme-dark .codex-account-table td::before,
+body.white-shell.theme-light.theme-dark .codex-account-table th,
+body.white-shell.theme-light.theme-dark .codex-batch-priority,
+body.white-shell.theme-light.theme-dark .codex-batch-selection,
+body.white-shell.theme-light.theme-dark .codex-usage-window-percent,
+body.white-shell.theme-light.theme-dark .codex-usage-window-stats span,
+body.white-shell.theme-light.theme-dark .composer-attach-btn,
+body.white-shell.theme-light.theme-dark .composer-field-label,
+body.white-shell.theme-light.theme-dark .composer-model-group-heading,
+body.white-shell.theme-light.theme-dark .composer-model-menu-action-detail,
+body.white-shell.theme-light.theme-dark .composer-permission-danger-reflection-level,
+body.white-shell.theme-light.theme-dark .composer-permission-popover .composer-select-popover-title,
+body.white-shell.theme-light.theme-dark .composer-permission-safety-icon,
+body.white-shell.theme-light.theme-dark .composer-permission-safety-status,
+body.white-shell.theme-light.theme-dark .composer-select-popover-title,
+body.white-shell.theme-light.theme-dark .composer-select-trigger,
+body.white-shell.theme-light.theme-dark .composer-send-btn,
+body.white-shell.theme-light.theme-dark .composer-toolbar-icon,
+body.white-shell.theme-light.theme-dark .conversation-detail-hero p,
+body.white-shell.theme-light.theme-dark .conversation-detail-row > span,
+body.white-shell.theme-light.theme-dark .conversation-detail-row button,
+body.white-shell.theme-light.theme-dark .conversation-detail-status,
+body.white-shell.theme-light.theme-dark .conversation-metric-card span,
+body.white-shell.theme-light.theme-dark .copy-code,
+body.white-shell.theme-light.theme-dark .directory-icon,
+body.white-shell.theme-light.theme-dark .directory-meta,
+body.white-shell.theme-light.theme-dark .directory-row.parent-row,
+body.white-shell.theme-light.theme-dark .effort-pill,
+body.white-shell.theme-light.theme-dark .empty-conversation-description,
+body.white-shell.theme-light.theme-dark .empty-workspace-text,
+body.white-shell.theme-light.theme-dark .folder-close-btn,
+body.white-shell.theme-light.theme-dark .folder-tool-btn.muted,
+body.white-shell.theme-light.theme-dark .folder-tool-btn.muted:hover,
+body.white-shell.theme-light.theme-dark .git-commit-head,
+body.white-shell.theme-light.theme-dark .git-log-row small,
+body.white-shell.theme-light.theme-dark .git-merge-file-list em,
+body.white-shell.theme-light.theme-dark .git-merge-file-list span,
+body.white-shell.theme-light.theme-dark .git-panel-title span,
+body.white-shell.theme-light.theme-dark .git-summary,
+body.white-shell.theme-light.theme-dark .global-rail .global-rail-theme-toggle,
+body.white-shell.theme-light.theme-dark .global-rail a,
+body.white-shell.theme-light.theme-dark .global-rail button,
+body.white-shell.theme-light.theme-dark .global-rail button.global-rail-avatar,
+body.white-shell.theme-light.theme-dark .global-rail button.global-rail-collapse-btn,
+body.white-shell.theme-light.theme-dark .global-rail-health,
+body.white-shell.theme-light.theme-dark .global-rail-item,
+body.white-shell.theme-light.theme-dark .goal-confirmation-card p,
+body.white-shell.theme-light.theme-dark .header-tool-btn,
+body.white-shell.theme-light.theme-dark .icon-btn,
+body.white-shell.theme-light.theme-dark .icon-btn:disabled,
+body.white-shell.theme-light.theme-dark .icon-btn:disabled:hover,
+body.white-shell.theme-light.theme-dark .im-policy-card small,
+body.white-shell.theme-light.theme-dark .im-policy-card span,
+body.white-shell.theme-light.theme-dark .legacy-about-brand p,
+body.white-shell.theme-light.theme-dark .legacy-about-more > summary,
+body.white-shell.theme-light.theme-dark .legacy-about-update-note,
+body.white-shell.theme-light.theme-dark .legacy-about-version-row,
+body.white-shell.theme-light.theme-dark .legacy-settings-content-body .skills-tab,
+body.white-shell.theme-light.theme-dark .license-module-meta,
+body.white-shell.theme-light.theme-dark .message-copy-btn,
+body.white-shell.theme-light.theme-dark .message-input::placeholder,
+body.white-shell.theme-light.theme-dark .message-mode-option,
+body.white-shell.theme-light.theme-dark .message-performance,
+body.white-shell.theme-light.theme-dark .mobile-conversation-welcome > span:last-child,
+body.white-shell.theme-light.theme-dark .mobile-model-sheet-action-detail,
+body.white-shell.theme-light.theme-dark .mobile-permission-sheet .composer-message-mode-section-title,
+body.white-shell.theme-light.theme-dark .mobile-sidebar-account-summary .sidebar-account-meta,
+body.white-shell.theme-light.theme-dark .mobile-sidebar-action.primary,
+body.white-shell.theme-light.theme-dark .modal-path,
+body.white-shell.theme-light.theme-dark .model-pill .compact-select,
+body.white-shell.theme-light.theme-dark .model-tool-btn.icon-only,
+body.white-shell.theme-light.theme-dark .pending-attachment-remove,
+body.white-shell.theme-light.theme-dark .pending-file-icon,
+body.white-shell.theme-light.theme-dark .pending-file-size,
+body.white-shell.theme-light.theme-dark .permission-icon,
+body.white-shell.theme-light.theme-dark .profile-avatar-status,
+body.white-shell.theme-light.theme-dark .profile-info-card span,
+body.white-shell.theme-light.theme-dark .project-kanban-card-actions button,
+body.white-shell.theme-light.theme-dark .project-kanban-card-actions label,
+body.white-shell.theme-light.theme-dark .project-kanban-column > h3,
+body.white-shell.theme-light.theme-dark .project-kanban-create button,
+body.white-shell.theme-light.theme-dark .project-kanban-create label,
+body.white-shell.theme-light.theme-dark .project-kanban-header h2,
+body.white-shell.theme-light.theme-dark .project-kanban-protected,
+body.white-shell.theme-light.theme-dark .project-kanban-status,
+body.white-shell.theme-light.theme-dark .project-task-counts > span,
+body.white-shell.theme-light.theme-dark .relay-field small,
+body.white-shell.theme-light.theme-dark .relay-protocol-tab,
+body.white-shell.theme-light.theme-dark .runtime-kv-row span,
+body.white-shell.theme-light.theme-dark .search-policy-card small,
+body.white-shell.theme-light.theme-dark .search-policy-card span,
+body.white-shell.theme-light.theme-dark .select-pill .select,
+body.white-shell.theme-light.theme-dark .settings-action-btn.subtle,
+body.white-shell.theme-light.theme-dark .settings-auth-meta,
+body.white-shell.theme-light.theme-dark .settings-backend-check,
+body.white-shell.theme-light.theme-dark .settings-backend-meta,
+body.white-shell.theme-light.theme-dark .settings-backup-stats span,
+body.white-shell.theme-light.theme-dark .settings-close-btn,
+body.white-shell.theme-light.theme-dark .settings-content-subtitle,
+body.white-shell.theme-light.theme-dark .settings-empty-card.compact,
+body.white-shell.theme-light.theme-dark .settings-hero-card p,
+body.white-shell.theme-light.theme-dark .settings-info-text,
+body.white-shell.theme-light.theme-dark .settings-model-provider,
+body.white-shell.theme-light.theme-dark .settings-nav-empty,
+body.white-shell.theme-light.theme-dark .settings-nav-item.active .settings-nav-label small,
+body.white-shell.theme-light.theme-dark .settings-nav-label small,
+body.white-shell.theme-light.theme-dark .settings-panel-card p,
+body.white-shell.theme-light.theme-dark .settings-provider-form-grid label,
+body.white-shell.theme-light.theme-dark .settings-provider-meta,
+body.white-shell.theme-light.theme-dark .settings-provider-note,
+body.white-shell.theme-light.theme-dark .settings-search-box button:hover,
+body.white-shell.theme-light.theme-dark .settings-status-pill,
+body.white-shell.theme-light.theme-dark .settings-status-pill.muted,
+body.white-shell.theme-light.theme-dark .settings-status-strip span,
+body.white-shell.theme-light.theme-dark .sidebar-avatar,
+body.white-shell.theme-light.theme-dark .skill-command-prompt,
+body.white-shell.theme-light.theme-dark .skill-revision-card small,
+body.white-shell.theme-light.theme-dark .skill-revision-drawer-head small,
+body.white-shell.theme-light.theme-dark .skill-roadmap-card span,
+body.white-shell.theme-light.theme-dark .skill-scope-badge,
+body.white-shell.theme-light.theme-dark .slash-command-desc,
+body.white-shell.theme-light.theme-dark .slash-command-item,
+body.white-shell.theme-light.theme-dark .spec-agent-meta,
+body.white-shell.theme-light.theme-dark .spec-attr-card span,
+body.white-shell.theme-light.theme-dark .spec-attr-card strong,
+body.white-shell.theme-light.theme-dark .spec-board-path,
+body.white-shell.theme-light.theme-dark .spec-board-toolbar label,
+body.white-shell.theme-light.theme-dark .spec-confirmation-card small,
+body.white-shell.theme-light.theme-dark .spec-confirmation-card span,
+body.white-shell.theme-light.theme-dark .spec-empty,
+body.white-shell.theme-light.theme-dark .spec-field,
+body.white-shell.theme-light.theme-dark .spec-goal-head p,
+body.white-shell.theme-light.theme-dark .spec-protected-toggle,
+body.white-shell.theme-light.theme-dark .spec-secondary-button,
+body.white-shell.theme-light.theme-dark .spec-state,
+body.white-shell.theme-light.theme-dark .spec-status-todo,
+body.white-shell.theme-light.theme-dark .spec-summary-card span,
+body.white-shell.theme-light.theme-dark .spec-tab,
+body.white-shell.theme-light.theme-dark .spec-task-head strong,
+body.white-shell.theme-light.theme-dark .spec-task-meta,
+body.white-shell.theme-light.theme-dark .storage-entry-grid span,
+body.white-shell.theme-light.theme-dark .task-assignment-copy strong,
+body.white-shell.theme-light.theme-dark .task-workspace-agent-card > span:nth-child(2) strong,
+body.white-shell.theme-light.theme-dark .task-workspace-agent-load strong,
+body.white-shell.theme-light.theme-dark .task-workspace-empty button,
+body.white-shell.theme-light.theme-dark .task-workspace-empty strong,
+body.white-shell.theme-light.theme-dark .task-workspace-error strong,
+body.white-shell.theme-light.theme-dark .task-workspace-hero button,
+body.white-shell.theme-light.theme-dark .task-workspace-hero p,
+body.white-shell.theme-light.theme-dark .task-workspace-inspector > header strong,
+body.white-shell.theme-light.theme-dark .task-workspace-inspector button,
+body.white-shell.theme-light.theme-dark .task-workspace-inspector dd,
+body.white-shell.theme-light.theme-dark .task-workspace-inspector-body label,
+body.white-shell.theme-light.theme-dark .task-workspace-lock,
+body.white-shell.theme-light.theme-dark .task-workspace-protected,
+body.white-shell.theme-light.theme-dark .task-workspace-row-main strong,
+body.white-shell.theme-light.theme-dark .task-workspace-scopes button:hover:not(:disabled),
+body.white-shell.theme-light.theme-dark .task-workspace-section > header button,
+body.white-shell.theme-light.theme-dark .task-workspace-section > header h3,
+body.white-shell.theme-light.theme-dark .task-workspace-status,
+body.white-shell.theme-light.theme-dark .terminal-control-card small,
+body.white-shell.theme-light.theme-dark .terminal-shortcut-card span,
+body.white-shell.theme-light.theme-dark .tool-diff-line-number,
+body.white-shell.theme-light.theme-dark .toolbar-lightning-btn,
+body.white-shell.theme-light.theme-dark .toolbar-lightning-btn:not(.hidden),
+body.white-shell.theme-light.theme-dark .usage-map-row,
+body.white-shell.theme-light.theme-dark .usage-metric-subtitle,
+body.white-shell.theme-light.theme-dark .usage-metric-title,
+body.white-shell.theme-light.theme-dark .usage-token-grid span,
+body.white-shell.theme-light.theme-dark .user-policy-card small,
+body.white-shell.theme-light.theme-dark .user-policy-card span,
+body.white-shell.theme-light.theme-dark .workbench-empty-state strong,
+body.white-shell.theme-light.theme-dark .workspace-browser-icon,
+body.white-shell.theme-light.theme-dark .workspace-editor-path,
+body.white-shell.theme-light.theme-dark .workspace-preview-dock-mode .workspace-preview-auto,
+body.white-shell.theme-light.theme-dark .workspace-preview-dock-mode .workspace-preview-empty,
+body.white-shell.theme-light.theme-dark .workspace-tree-path,
+body.white-shell.theme-light.theme-dark .workspace-viewport-list .workspace-viewport-btn,
+body.white-shell.theme-light.theme-dark .workspace-viewport-menu > summary,
+body.white-shell.theme-light.theme-dark [class~="mobile-icon-btn"],
+body.white-shell.theme-light.theme-dark [class~="toolbar-lightning-btn"]
+{
+  color: var(--ws-muted);
 }
+
+/* Semantic accents keep their meaning instead of collapsing into body text.
+   Placed after the copy groups so they win the cascade, and inside this block
+   so theme-contrast.test.mjs audits their literals. */
+/* error / warning — 28 selectors */
+body.white-shell.theme-light.theme-dark .automation-row-card em,
+body.white-shell.theme-light.theme-dark .automation-section-head small.error,
+body.white-shell.theme-light.theme-dark .chat-title-action.title-cancel,
+body.white-shell.theme-light.theme-dark .codex-failure-count,
+body.white-shell.theme-light.theme-dark .codex-usage-window-percent.danger,
+body.white-shell.theme-light.theme-dark .codex-usage-window-percent.warning,
+body.white-shell.theme-light.theme-dark .context-action.danger,
+body.white-shell.theme-light.theme-dark .context-clear-confirmation p,
+body.white-shell.theme-light.theme-dark .context-clear-confirmation strong,
+body.white-shell.theme-light.theme-dark .context-usage-btn[data-tone="danger"],
+body.white-shell.theme-light.theme-dark .context-usage-btn[data-tone="warning"],
+body.white-shell.theme-light.theme-dark .folder-status-message.error,
+body.white-shell.theme-light.theme-dark .git-merge-warnings span,
+body.white-shell.theme-light.theme-dark .header-tool-btn.has-blocked,
+body.white-shell.theme-light.theme-dark .header-tool-btn.tool-error,
+body.white-shell.theme-light.theme-dark .legacy-about-update-state.error,
+body.white-shell.theme-light.theme-dark .navigation-conversation-row.status-error .navigation-agent-icon,
+body.white-shell.theme-light.theme-dark .navigation-conversation-row.status-failed .navigation-agent-icon,
+body.white-shell.theme-light.theme-dark .project-kanban-card-actions button:last-child,
+body.white-shell.theme-light.theme-dark .remote-security-banner span,
+body.white-shell.theme-light.theme-dark .remote-security-banner strong,
+body.white-shell.theme-light.theme-dark .remote-security-banner.danger strong,
+body.white-shell.theme-light.theme-dark .setup-notice-card p,
+body.white-shell.theme-light.theme-dark .skill-findings,
+body.white-shell.theme-light.theme-dark .task-workspace-agent-blocked,
+body.white-shell.theme-light.theme-dark .workspace-editor-status.error,
+body.white-shell.theme-light.theme-dark .workspace-error-state,
+body.white-shell.theme-light.theme-dark .workspace-secondary-btn.danger
+{
+  color: #ff9a9a;
+}
+
+/* success — 4 selectors */
+body.white-shell.theme-light.theme-dark .chat-title-action.title-save,
+body.white-shell.theme-light.theme-dark .codex-success-count,
+body.white-shell.theme-light.theme-dark .folder-status-message.success,
+body.white-shell.theme-light.theme-dark .legacy-about-update-state.current
+{
+  color: #7ee2a0;
+}
+
+/* ===== end dark override block ===== */
 
 body.white-shell.theme-light[data-theme-preset="cream"] {
   --ws-primary: #db5f79;
@@ -2029,6 +3301,24 @@ body.white-shell.theme-light[data-theme-preset="cyber"] :is(.settings-action-btn
 body.white-shell.theme-light[data-theme-preset="cyber"] :is(.settings-action-btn.primary, .composer-send-btn, .new-task-btn):hover {
   filter: brightness(1.06);
   box-shadow: 0 0 24px rgba(167, 255, 50, .38);
+}
+
+body.white-shell.theme-light[data-theme-preset="cyber"] {
+  --ws-primary: #a7ff32;
+  --ws-primary-soft: #183523;
+  --ws-canvas: #07111b;
+  --ws-card: #0b1824;
+  --ws-input: #102333;
+  --ws-text: #e6fff0;
+  --ws-muted: #8fa9a2;
+  --ws-border: #244453;
+  --bg: #07111b;
+  --bg-soft: #0b1824;
+  --bg-panel: #0b1824;
+  --text: #e6fff0;
+  --text-soft: #8fa9a2;
+  --line: #244453;
+  --accent: #a7ff32;
 }
 
 body.white-shell.theme-light[data-theme-preset="cream"] .app-shell,
@@ -2997,6 +4287,424 @@ body.white-shell.theme-light[data-theme-preset="apple"] .modal {
 
   body.white-shell.theme-light[data-theme-preset="apple"] :is(.nav-item.selected, .nav-item-shell.selected, .project-card.active, .navigation-conversation-row.active, .recent-conversation-item.active, .global-rail button.active, .global-rail [aria-current="page"], .message-mode-option.active) {
     box-shadow: inset 0 0 0 2px currentColor;
+  }
+}
+
+/* Final skills-page compact layer. Keep this last so legacy tab and card rules
+   cannot reintroduce padded chips, wrapped tabs, or nested card spacing. */
+#settingsContentBody .skills-page {
+  --skill-page-gap: 12px;
+  --skill-card-padding: 10px 12px;
+  min-width: 0;
+  min-height: 0;
+  gap: var(--skill-page-gap);
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  padding: 0;
+  box-shadow: none;
+}
+
+#settingsContentBody .skills-page .skills-tabs {
+  min-width: 0;
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-inline: contain;
+  border: 0;
+  border-bottom: 1px solid var(--settings-border);
+  background: transparent;
+  padding: 0;
+  scrollbar-width: thin;
+}
+
+#settingsContentBody .skills-page .skills-tab {
+  position: relative;
+  min-height: 34px;
+  flex: 0 0 auto;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  background: transparent;
+  color: var(--settings-muted-foreground);
+  padding: 0 10px;
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+#settingsContentBody .skills-page .skills-tab::after { display: none; }
+
+#settingsContentBody .skills-page .skills-tab:hover {
+  border-color: transparent;
+  background: transparent;
+  color: var(--settings-foreground);
+}
+
+#settingsContentBody .skills-page .skills-tab.active {
+  border-color: transparent;
+  border-bottom-color: var(--settings-primary);
+  background: transparent;
+  color: var(--settings-primary);
+}
+
+#settingsContentBody .skills-page .skills-tab-panel {
+  min-width: 0;
+  display: grid;
+  gap: var(--skill-page-gap);
+  overflow: visible;
+  padding: 12px 0 0;
+}
+
+#settingsContentBody .skills-page .skills-tab-panel > :is(.settings-provider-section, .settings-page-section, .skill-config-card) {
+  padding: 12px;
+}
+
+#settingsContentBody .skills-page :is(.settings-provider-section, .settings-page-section) > :is(.settings-card, .settings-page-section, .skill-config-card) {
+  padding: var(--skill-card-padding);
+  box-shadow: none;
+}
+
+#settingsContentBody .skills-page :is(.skill-command-list, .settings-data-list, .skill-revision-list) {
+  min-width: 0;
+  display: grid;
+  gap: 8px;
+  margin: 0;
+}
+
+#settingsContentBody .skills-page :is(.skill-command-card, .skill-config-card, .skill-history-row, .skill-revision-card) {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 10px;
+  padding: var(--skill-card-padding);
+  box-shadow: none;
+}
+
+#settingsContentBody .skills-page .skill-config-card {
+  border: 1px solid var(--settings-border);
+  border-radius: var(--settings-radius);
+  background: color-mix(in srgb, var(--settings-surface) 96%, var(--settings-muted));
+  color: var(--settings-foreground);
+}
+
+#settingsContentBody .skills-page :is(.skill-card-main, .skill-card-details) {
+  min-width: 0;
+  display: grid;
+  align-content: start;
+  gap: 6px;
+}
+
+#settingsContentBody .skills-page .skill-card-meta {
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 6px;
+  color: var(--settings-muted-foreground);
+  font-size: 12px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+#settingsContentBody .skills-page :is(.skill-card-actions, .skill-command-card > .settings-action-row, .skill-config-card > .settings-inline-actions, .skill-history-row > .settings-inline-actions) {
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+#settingsContentBody .skills-page :is(.skill-workbench-actions, .skills-primary-actions) {
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+}
+
+#settingsContentBody .skills-page .settings-provider-section-head .skill-workbench-actions {
+  justify-content: flex-end;
+}
+
+#settingsContentBody .skills-page .skill-command-title {
+  min-width: 0;
+  gap: 6px;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+#settingsContentBody .skills-page :is(.skill-scope-badge, .settings-status-pill, .settings-badge) {
+  flex: 0 0 auto;
+}
+
+#settingsContentBody .skills-page :is(.skills-v2-section, .skills-v2-card) {
+  border-left: 3px solid color-mix(in srgb, var(--settings-primary) 48%, var(--settings-border));
+}
+
+#settingsContentBody .skills-page .skill-revision-drawer {
+  margin-top: 0;
+  padding: 12px;
+  border-radius: var(--settings-radius);
+  box-shadow: none;
+}
+
+#settingsContentBody .skills-page .skill-security-note {
+  min-width: 0;
+  border: 1px solid color-mix(in srgb, var(--settings-warning) 32%, var(--settings-border));
+  border-radius: var(--settings-radius);
+  background: var(--settings-warning-soft);
+  color: var(--settings-foreground);
+  padding: var(--skill-card-padding);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+#settingsContentBody .skills-page .optional-tools-settings {
+  min-width: 0;
+  display: grid;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+#settingsContentBody .skills-page .optional-tools-search {
+  min-width: 0;
+  display: grid;
+  gap: 6px;
+  color: var(--settings-foreground);
+  font-size: 13px;
+  font-weight: 650;
+}
+
+#settingsContentBody .skills-page .optional-tools-search-input {
+  min-width: 0;
+}
+
+#settingsContentBody .skills-page .optional-tools-domain {
+  overflow: hidden;
+  padding: 0;
+  box-shadow: none;
+}
+
+#settingsContentBody .skills-page .optional-tools-domain > .settings-card-header {
+  padding: 10px 12px;
+}
+
+#settingsContentBody .skills-page .optional-tools-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  padding: 8px;
+}
+
+#settingsContentBody .skills-page .optional-tool-row {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: var(--skill-card-padding);
+}
+
+#settingsContentBody .skills-page .optional-tool-actions {
+  min-width: 0;
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+/* Execution budget card — every budget is one self-contained row so the
+   "unlimited" switch always sits on the same line as the label it controls. */
+#settingsContentBody .execution-budget-card {
+  display: grid;
+  gap: var(--settings-space-3);
+  align-content: start;
+}
+
+#settingsContentBody .execution-budget-mode {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--settings-space-3);
+  flex-wrap: wrap;
+  border: 1px solid var(--settings-border);
+  border-radius: var(--settings-radius-lg);
+  background: var(--settings-muted);
+  padding: 10px 12px;
+  cursor: pointer;
+}
+
+#settingsContentBody .execution-budget-mode-text {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+#settingsContentBody .execution-budget-mode-text strong {
+  color: var(--settings-foreground);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+#settingsContentBody .execution-budget-mode-text small {
+  color: var(--settings-muted-foreground);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+#settingsContentBody .execution-budget-mode > select.settings-field {
+  width: auto;
+  min-width: 132px;
+  flex: 0 0 auto;
+}
+
+#settingsContentBody .execution-budget-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--settings-space-3);
+}
+
+#settingsContentBody .execution-budget-row {
+  min-width: 0;
+  display: grid;
+  gap: 6px;
+  align-content: start;
+  border: 1px solid var(--settings-border);
+  border-radius: var(--settings-radius-lg);
+  background: var(--settings-surface);
+  padding: 10px 12px;
+}
+
+#settingsContentBody .execution-budget-row-head {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--settings-space-2);
+}
+
+#settingsContentBody .execution-budget-label {
+  min-width: 0;
+  color: var(--settings-foreground);
+  font-size: 13px;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+#settingsContentBody .execution-budget-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+  color: var(--settings-muted-foreground);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  user-select: none;
+}
+
+#settingsContentBody .execution-budget-toggle input[type="checkbox"] {
+  width: 15px;
+  height: 15px;
+  margin: 0;
+  flex: 0 0 auto;
+  accent-color: var(--settings-primary);
+  cursor: pointer;
+}
+
+#settingsContentBody .execution-budget-row.is-unlimited .execution-budget-toggle {
+  color: var(--settings-primary);
+}
+
+#settingsContentBody .execution-budget-control {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--settings-space-2);
+}
+
+#settingsContentBody .execution-budget-control > input {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+#settingsContentBody .execution-budget-unit {
+  flex: 0 0 auto;
+  color: var(--settings-muted-foreground);
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+#settingsContentBody .execution-budget-range {
+  color: var(--settings-muted-foreground);
+  font-size: 11px;
+  font-weight: 500;
+}
+
+#settingsContentBody .execution-budget-row.is-unlimited :is(.execution-budget-control, .execution-budget-range) {
+  opacity: .5;
+}
+
+#settingsContentBody .execution-budget-actions {
+  align-items: flex-end;
+  gap: var(--settings-space-3);
+}
+
+#settingsContentBody .execution-budget-actions > p {
+  min-width: 0;
+  flex: 1 1 240px;
+  margin: 0;
+}
+
+#settingsContentBody .execution-budget-actions > button {
+  flex: 0 0 auto;
+}
+
+@media (max-width: 900px) {
+  #settingsContentBody .skills-page .optional-tools-list {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  #settingsContentBody .execution-budget-list {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 767px) {
+  #settingsContentBody .skills-page :is(.skill-command-card, .skill-config-card, .skill-history-row, .skill-revision-card) {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  #settingsContentBody .skills-page :is(.skill-card-actions, .skill-command-card > .settings-action-row, .skill-config-card > .settings-inline-actions, .skill-history-row > .settings-inline-actions) {
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  #settingsContentBody .skills-page .optional-tool-row {
+    grid-template-columns: minmax(0, 1fr);
+    align-items: start;
+  }
+
+  #settingsContentBody .skills-page .optional-tool-actions {
+    width: 100%;
+    display: grid;
+    grid-template-columns: auto minmax(116px, 1fr);
+    align-items: center;
+    justify-content: stretch;
+  }
+
+  #settingsContentBody .skills-page .optional-tool-actions .settings-badge {
+    justify-self: start;
   }
 }
 

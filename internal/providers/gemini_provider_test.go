@@ -3,6 +3,7 @@ package providers
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -66,13 +67,18 @@ func TestBuildGeminiCloudCodePayload(t *testing.T) {
 		},
 		Tools:           []ToolSpec{{Name: "lookup", Description: "Lookup", Schema: map[string]any{"type": "object", "properties": map[string]any{"q": map[string]any{"type": "string"}}}}},
 		MaxOutputTokens: 128,
-	}, "gemini-3.1-flash-image", "project-1", "high")
+		// Inline image output on a normal chat model. A model whose name
+		// contains "image" would instead take the dedicated image-generation
+		// branch, which deliberately drops systemInstruction, tools and
+		// enabledCreditTypes — the opposite of what this test asserts.
+		EnableImageGeneration: true,
+	}, "gemini-3-flash", "project-1", "high")
 	encoded, err := json.Marshal(payload)
 	if err != nil {
 		t.Fatal(err)
 	}
 	text := string(encoded)
-	for _, required := range []string{`"project":"project-1"`, `"model":"gemini-3.1-flash-image"`, `"enabledCreditTypes":["GOOGLE_ONE_AI"]`, `"systemInstruction"`, `"inlineData"`, `"functionCall"`, `"thoughtSignature":"sig-1"`, `"functionResponse"`, `"parametersJsonSchema"`, `"thinkingLevel":"high"`, `"responseModalities":["TEXT","IMAGE"]`} {
+	for _, required := range []string{`"project":"project-1"`, `"model":"gemini-3-flash"`, `"enabledCreditTypes":["GOOGLE_ONE_AI"]`, `"systemInstruction"`, `"inlineData"`, `"functionCall"`, `"thoughtSignature":"sig-1"`, `"functionResponse"`, `"parametersJsonSchema"`, `"thinkingLevel":"high"`, `"responseModalities":["TEXT","IMAGE"]`} {
 		if !strings.Contains(text, required) {
 			t.Fatalf("payload missing %s: %s", required, text)
 		}
@@ -83,43 +89,97 @@ func TestBuildGeminiCloudCodePayload(t *testing.T) {
 	}
 }
 
-// Claude models on the Cloud Code endpoint require additionalModelRequestFields.output_config.effort
-// instead of generationConfig.thinkingConfig — the two are completely different wire fields.
-// Sending thinkingConfig to a Claude model returns HTTP 400; sending output_config to a Gemini
-// model also returns 400. The routing logic must be model-family-aware.
+// Claude reasoning on Cloud Code goes through generationConfig.thinkingConfig,
+// same container as Gemini, but keyed by thinkingBudget rather than thinkingLevel.
+// Every assertion here was taken from live endpoint responses:
+//
+//	additionalModelRequestFields (top level)  -> 400 Unknown name
+//	additionalModelRequestFields (in request) -> 400 Unknown name
+//	outputConfig                              -> 400 Unknown name
+//	thinkingConfig.thinkingLevel              -> 200 but no thoughts, tokens unchanged
+//	thinkingConfig.thinkingBudget             -> 200 with thoughts present
+//	budget == max_tokens                      -> 400 max_tokens must be greater
 func TestBuildGeminiCloudCodePayloadClaudeModel(t *testing.T) {
 	payload := buildGeminiCloudCodePayload(GenerateRequest{
 		SystemPrompt:    "Be concise.",
 		Messages:        []Message{{Role: "user", Blocks: []ContentBlock{{Type: "text", Text: "hello"}}}},
-		MaxOutputTokens: 128,
-	}, "claude-opus-4-6", "project-1", "high")
+		MaxOutputTokens: 32000,
+	}, "claude-opus-4-6-thinking", "project-1", "high")
 	encoded, _ := json.Marshal(payload)
 	text := string(encoded)
 
-	// Must carry additionalModelRequestFields.output_config.effort for Claude
-	if !strings.Contains(text, `"additionalModelRequestFields"`) {
-		t.Fatalf("Claude payload missing additionalModelRequestFields: %s", text)
+	if !strings.Contains(text, `"thinkingBudget":8192`) {
+		t.Fatalf("Claude payload missing thinkingBudget for high effort: %s", text)
 	}
-	if !strings.Contains(text, `"output_config"`) {
-		t.Fatalf("Claude payload missing output_config: %s", text)
+	if !strings.Contains(text, `"includeThoughts":true`) {
+		t.Fatalf("Claude payload missing includeThoughts: %s", text)
 	}
-	if !strings.Contains(text, `"effort":"high"`) {
-		t.Fatalf("Claude payload missing effort:high: %s", text)
+	// thinkingLevel is a Gemini enum; Claude accepts the key but ignores it, so
+	// sending it would silently produce a reasoning-free response.
+	if strings.Contains(text, "thinkingLevel") {
+		t.Fatalf("Claude payload must not use thinkingLevel: %s", text)
 	}
-	// Must NOT send thinkingConfig (Gemini-only field — causes 400 on Claude)
-	if strings.Contains(text, "thinkingConfig") {
-		t.Fatalf("Claude payload must not contain thinkingConfig (Gemini-only field): %s", text)
+	// The field does not exist in this API at any nesting level.
+	if strings.Contains(text, "additionalModelRequestFields") || strings.Contains(text, "outputConfig") {
+		t.Fatalf("Claude payload must not contain rejected reasoning fields: %s", text)
+	}
+	// "-thinking" is the real model id on Cloud Code and echoes back as
+	// modelVersion. Stripping it produced 404 NOT_FOUND on every opus call.
+	if !strings.Contains(text, `"model":"claude-opus-4-6-thinking"`) {
+		t.Fatalf("Claude model id must be sent verbatim: %s", text)
 	}
 
-	// No reasoning effort: must not send either field
+	// No reasoning effort: no thinking fields at all.
 	payloadNoReason := buildGeminiCloudCodePayload(GenerateRequest{
 		Messages: []Message{{Role: "user", Blocks: []ContentBlock{{Type: "text", Text: "hello"}}}},
-	}, "claude-opus-4-6", "project-1", "")
-	encodedNoReason, _ := json.Marshal(payloadNoReason)
-	textNoReason := string(encodedNoReason)
+	}, "claude-opus-4-6-thinking", "project-1", "")
+	textNoReason := string(mustMarshalProbe(t, payloadNoReason))
 	if strings.Contains(textNoReason, "thinkingConfig") || strings.Contains(textNoReason, "additionalModelRequestFields") {
 		t.Fatalf("No-reasoning payload must not contain thinking fields: %s", textNoReason)
 	}
+}
+
+// Budgets must stay at least 1024 below max_tokens; Anthropic returns 400 when
+// budget >= max_tokens, and a request with no thoughts beats a rejected one.
+func TestGeminiClaudeThinkingBudgetRespectsMaxTokens(t *testing.T) {
+	for _, testCase := range []struct {
+		name            string
+		effort          string
+		maxOutputTokens int64
+		want            int64
+	}{
+		{"high with no max uses default", "high", 0, 8192},
+		{"medium with no max uses default", "medium", 0, 4096},
+		{"low with no max uses default", "low", 0, 2048},
+		{"high clamped to leave headroom", "high", 4096, 3072},
+		{"medium clamped to leave headroom", "medium", 3072, 2048},
+		// max=2048 clamps to exactly the 1024 minimum, which the endpoint
+		// accepts: verified HTTP 200 with thoughts present.
+		{"max clamps down to the minimum", "high", 2048, 1024},
+		{"max below minimum budget", "high", 1024, 0},
+		{"unknown effort sends nothing", "sideways", 32000, 0},
+		{"empty effort sends nothing", "", 32000, 0},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			got := geminiClaudeThinkingBudget(testCase.effort, testCase.maxOutputTokens)
+			if got != testCase.want {
+				t.Fatalf("budget for effort=%q max=%d: got %d, want %d",
+					testCase.effort, testCase.maxOutputTokens, got, testCase.want)
+			}
+			if testCase.maxOutputTokens > 0 && got > 0 && got >= testCase.maxOutputTokens {
+				t.Fatalf("budget %d must stay below max_tokens %d", got, testCase.maxOutputTokens)
+			}
+		})
+	}
+}
+
+func mustMarshalProbe(t *testing.T, payload map[string]any) []byte {
+	t.Helper()
+	encoded, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return encoded
 }
 
 func TestGeminiProviderFailoverDispatchAndStreaming(t *testing.T) {
@@ -291,33 +351,94 @@ func TestGeminiProviderListModelsMergesLiveAndStatic(t *testing.T) {
 	}
 }
 
-// Claude "-thinking" suffix must be stripped before the request reaches Cloud Code,
-// and a default effort must be injected so the result is actually useful.
-// Sending "claude-opus-4-6-thinking" verbatim returns 400 INVALID_ARGUMENT.
-func TestGeminiProviderStripsClaudeThinkingSuffix(t *testing.T) {
-	// Without explicit effort — suffix alone must activate high
-	payload := buildGeminiCloudCodePayload(GenerateRequest{
-		Messages: []Message{{Role: "user", Blocks: []ContentBlock{{Type: "text", Text: "hello"}}}},
-	}, "claude-opus-4-6-thinking", "project-1", "high")
-	encoded, _ := json.Marshal(payload)
-	text := string(encoded)
-	if strings.Contains(text, "-thinking") {
-		t.Fatalf("payload must not contain -thinking suffix, got: %s", text)
+// Model ids reach Cloud Code verbatim. "claude-opus-4-6-thinking" is a real
+// model on this endpoint, not a flag: it answers 200 and echoes
+// modelVersion=claude-opus-4-6-thinking. An earlier revision treated the suffix
+// as a request to enable reasoning and stripped it, which turned a working id
+// into one the endpoint does not have — "claude-opus-4-6" answers 404
+// NOT_FOUND, as do claude-opus-4-5 and claude-opus-4-1. Reasoning is controlled
+// by thinkingBudget, never by the model name.
+func TestGeminiProviderSendsModelIDVerbatim(t *testing.T) {
+	for _, model := range []string{
+		"claude-opus-4-6-thinking",
+		"claude-sonnet-4-6",
+		"gemini-3.1-thinking",
+		"gemini-3-flash",
+	} {
+		payload := buildGeminiCloudCodePayload(GenerateRequest{
+			Messages:        []Message{{Role: "user", Blocks: []ContentBlock{{Type: "text", Text: "hello"}}}},
+			MaxOutputTokens: 32000,
+		}, model, "project-1", "high")
+		encoded, err := json.Marshal(payload)
+		if err != nil {
+			t.Fatal(err)
+		}
+		text := string(encoded)
+		if !strings.Contains(text, `"model":"`+model+`"`) {
+			t.Fatalf("model id must be sent verbatim, want %q, got: %s", model, text)
+		}
 	}
-	if !strings.Contains(text, `"model":"claude-opus-4-6"`) {
-		t.Fatalf("payload must contain clean model name, got: %s", text)
+}
+
+// TestGeminiCloudCodeClaudeToolSchemaField locks the field name that decides
+// whether Claude works on Cloud Code at all. "parametersJsonSchema" is dropped
+// when the request is translated to Anthropic's tool format, and the backend
+// answers "tools.0.custom.input_schema: Field required" (HTTP 400) — which,
+// since every agent turn ships tools, broke Claude models outright.
+func TestGeminiCloudCodeClaudeToolSchemaField(t *testing.T) {
+	specs := []ToolSpec{{Name: "Bash", Description: "Run", Schema: map[string]any{
+		"type":       "object",
+		"properties": map[string]any{"command": map[string]any{"type": "string"}},
+	}}}
+
+	claude := geminiCloudCodeTools(specs, true)
+	if len(claude) != 1 {
+		t.Fatalf("unexpected declarations: %+v", claude)
 	}
-	if !strings.Contains(text, `"effort":"high"`) {
-		t.Fatalf("payload must contain effort:high, got: %s", text)
+	if _, ok := claude[0]["parameters"]; !ok {
+		t.Fatalf("Claude declaration must carry parameters: %+v", claude[0])
+	}
+	if _, ok := claude[0]["parametersJsonSchema"]; ok {
+		t.Fatalf("Claude declaration must not carry parametersJsonSchema: %+v", claude[0])
 	}
 
-	// Gemini model with -thinking-like name must NOT be stripped
-	payloadGemini := buildGeminiCloudCodePayload(GenerateRequest{
-		Messages: []Message{{Role: "user", Blocks: []ContentBlock{{Type: "text", Text: "hello"}}}},
-	}, "gemini-3.1-thinking", "project-1", "medium")
-	encodedGemini, _ := json.Marshal(payloadGemini)
-	textGemini := string(encodedGemini)
-	if !strings.Contains(textGemini, `"model":"gemini-3.1-thinking"`) {
-		t.Fatalf("Gemini model name must not be stripped, got: %s", textGemini)
+	gemini := geminiCloudCodeTools(specs, false)
+	if _, ok := gemini[0]["parametersJsonSchema"]; !ok {
+		t.Fatalf("Gemini declaration must keep parametersJsonSchema: %+v", gemini[0])
+	}
+	if _, ok := gemini[0]["parameters"]; ok {
+		t.Fatalf("Gemini declaration must not carry parameters: %+v", gemini[0])
+	}
+
+	// The schema itself must be identical either way: only the field differs.
+	if fmt.Sprint(claude[0]["parameters"]) != fmt.Sprint(gemini[0]["parametersJsonSchema"]) {
+		t.Fatalf("sanitized schema diverged between backends: %+v vs %+v", claude[0], gemini[0])
+	}
+}
+
+// TestGeminiCloudCodeClaudePayloadUsesParameters covers the wiring, not just the
+// helper: the Claude branch is selected from the model name.
+func TestGeminiCloudCodeClaudePayloadUsesParameters(t *testing.T) {
+	request := GenerateRequest{
+		Messages: []Message{{Role: "user", Content: "hello"}},
+		Tools:    []ToolSpec{{Name: "Bash", Schema: map[string]any{"type": "object"}}},
+	}
+	for model, wantField := range map[string]string{
+		"claude-sonnet-4-6": "parameters",
+		"gemini-3-flash":    "parametersJsonSchema",
+	} {
+		payload := buildGeminiCloudCodePayload(request, model, "project-1", "")
+		inner, _ := payload["request"].(map[string]any)
+		tools, _ := inner["tools"].([]map[string]any)
+		if len(tools) != 1 {
+			t.Fatalf("%s: unexpected tools: %+v", model, inner["tools"])
+		}
+		declarations, _ := tools[0]["functionDeclarations"].([]map[string]any)
+		if len(declarations) != 1 {
+			t.Fatalf("%s: unexpected declarations: %+v", model, tools[0])
+		}
+		if _, ok := declarations[0][wantField]; !ok {
+			t.Fatalf("%s: declaration missing %q: %+v", model, wantField, declarations[0])
+		}
 	}
 }

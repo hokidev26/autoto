@@ -39,6 +39,7 @@ Projects: ~/projects
   - Anthropic official Messages API with SDK streaming text deltas, tool-use deltas, usage capture, and automatic 5m prompt-cache breakpoints for sufficiently large requests
   - OpenAI-compatible Chat Completions APIs
   - Gemini Interactions API with SSE streaming, images, native function calls, reasoning effort, and internal thought-signature replay
+  - Kiro (Amazon Q) native subscription provider with Event Stream API, OAuth token refresh, and `ksk_*` API key authentication
   - CLIProxyAPI local OpenAI-compatible preset
 - Core tools:
   - Read
@@ -52,6 +53,9 @@ Projects: ~/projects
   - MCPListTools
   - MCPCallTool
 - Sensitive-path hard blocking for the file path tools: `Read`, `Write`, and `Edit` reject protected files, while `Glob` and `Grep` omit them. The blocked set includes `.env*`, credential/secret files, common private-key material, and `.git` contents
+- Danger reflection for Bash tool calls: a configurable LLM safety gate (off / loose / medium / strict) that intercepts high-risk commands before execution and blocks or allows them based on a structured verdict
+- Continuation budget settings panel: per-workspace limits on continuations, total turns, total tokens, and wall-clock run duration; defaults to no limit, and negative values explicitly opt out of any ceiling
+- Project drag-to-reorder in the sidebar, with server-persisted order
 - Git workspace APIs and UI for status, diff, log, and explicit-path commits without automatic push, amend, reset, clean, force, or `git add -A`
 - Agent WebSocket protocol 2 on `/ws/agent`, with per-process monotonic sequence, bounded in-memory replay, and authoritative live-snapshot resync; it is not a durable or cross-process event log
 - SQLite migrations V19–V22 and server APIs for schedules, durable notification deliveries, integration connections, channel pairings/events/cursors, and device-action requests
@@ -124,23 +128,23 @@ go run ./cmd/autoto --config /path/to/config.json
 
 ## Dogfood demo (historical evidence)
 
-The following tracked-file smoke was run before the rename, against temporary **CodeHarbor** servers and temporary Git repositories. It is retained as a historical record; the same current workflow uses the canonical Agent APIs shown below.
+The following tracked-file smoke was run before the rename, against temporary **Autoto** servers and temporary Git repositories. It is retained as a historical record; the same current workflow uses the canonical Agent APIs shown below.
 
 ```text
 Write: Wrote 197 bytes to demo/notes.md inside the temporary project worktree
 Read:  confirmed the new tracked diff review line
-Grep:  notes.md:4:- Updated through CodeHarbor Write tool for tracked diff review.
+Grep:  notes.md:4:- Updated through Autoto Write tool for tracked diff review.
 Status before commit: demo/notes.md was tracked and modified (worktree=M)
 Diff:  demo/notes.md added=2 deleted=0
 Patch excerpt:
   diff --git a/demo/notes.md b/demo/notes.md
-  +- Updated through CodeHarbor Write tool for tracked diff review.
+  +- Updated through Autoto Write tool for tracked diff review.
 Commit: 96cd79e Dogfood tracked diff workflow
 Paths:  demo/notes.md
 After commit: clean=true, remainingFiles=[]
 ```
 
-An earlier untracked-file smoke also created and committed `demo/notes.md` with commit `2484ab7 Dogfood CodeHarbor API workflow`.
+An earlier untracked-file smoke also created and committed `demo/notes.md` with commit `2484ab7 Dogfood Autoto API workflow`.
 
 `docs/demo.svg` is a lightweight tracked workflow preview. To replace it with a real product recording, capture a 15–20 second browser flow (create/open project → send task → approve tool call → review diff → commit selected path), compress it to a small asset, and update the README reference.
 
@@ -246,176 +250,6 @@ AGENT_SERVER_API_KEY
 
 If a backend URL is configured, Autoto seeds the backend registry on first startup. Local backends use `X-Session-API-Key`; cloud backends use `Authorization: Bearer ...`.
 
-### Naming and migration compatibility
+### Naming compatibility
 
-Canonical names for all new documentation, automation, and integrations are **Autoto**, `autoto`, `~/.autoto`, `AUTOTO_*`, `X-Autoto-*`, `autoto.*`, **Agent / Workline**, `/api/agents`, `/api/worklines`, and `/ws/agent`.
-
-For a non-disruptive upgrade, Autoto continues to read the following legacy inputs:
-
-- `~/.codeharbor/config.json` configuration, which is migrated into the canonical Autoto home when applicable
-- `CODEHARBOR_*` environment variables as fallbacks for their `AUTOTO_*` counterparts
-- `X-CodeHarbor-Token` and `X-CodeHarbor-Access` request headers alongside `X-Autoto-Token` and `X-Autoto-Access`
-- `codeharbor.*` browser `localStorage` preference keys alongside canonical `autoto.*` keys
-- legacy CodeHarbor CLI and Narrator/Chapter route aliases
-- `window.CODEHARBOR_LOCAL_TOKEN`, which is still injected with the same value as canonical `window.AUTOTO_LOCAL_TOKEN` and read by `runtime.mjs` only as a fallback
-
-Canonical values take precedence when both forms are present. Do not introduce new writes or dependencies on legacy names. The local-token JS global is an explicit compatibility-response-write exception until first-party runtime no longer reads it and the old-UI migration window is complete. The compatibility lifecycle and removal gates are defined only in `PROJECT_PLAN.md`; no legacy surface may be removed before v0.4.0 or without at least two tagged releases of migration runway.
-
-## API overview
-
-Core routes include:
-
-```text
-GET  /api/health
-GET  /api/auth/status
-GET  /api/settings
-GET  /api/models
-GET  /api/licenses
-GET  /api/runtime/summary
-GET  /api/storage/summary
-GET  /api/usage/summary
-GET  /api/monitoring/snapshot
-
-GET  /api/notifications/settings
-PUT  /api/notifications/settings
-POST /api/notifications/test
-GET  /api/notifications/deliveries
-POST /api/notifications/deliveries/{id}/retry
-
-GET    /api/schedules
-POST   /api/schedules
-PATCH  /api/schedules/{id}
-DELETE /api/schedules/{id}
-POST   /api/schedules/{id}/run
-
-GET    /api/lifecycle-hooks
-POST   /api/lifecycle-hooks
-GET    /api/lifecycle-hooks/{id}
-PATCH  /api/lifecycle-hooks/{id}
-DELETE /api/lifecycle-hooks/{id}?expectedRevision=...
-GET    /api/lifecycle-hooks/{id}/history
-POST   /api/lifecycle-hooks/{id}/test
-POST   /api/lifecycle-hook-executions/{id}/cancel
-POST   /api/lifecycle-hook-executions/{id}/retry
-
-GET    /api/integrations/connections
-POST   /api/integrations/connections
-PATCH  /api/integrations/connections/{id}
-DELETE /api/integrations/connections/{id}
-POST   /api/integrations/connections/{id}/test
-
-POST /api/channels/pairing-codes
-GET  /api/channels/pairings
-POST /api/channels/pairings/{id}/revoke
-GET  /api/audit/events
-
-GET  /api/devices?connectionId=...
-POST /api/device-actions
-POST /api/device-actions/{id}/approve
-POST /api/device-actions/{id}/deny
-
-PUT  /api/providers/{name}/config
-
-GET  /api/providers/cliproxyapi/auth-files
-POST /api/providers/cliproxyapi/auth-files/import
-
-GET    /api/backends
-POST   /api/backends
-GET    /api/backends/{id}
-PATCH  /api/backends/{id}
-DELETE /api/backends/{id}
-POST   /api/backends/{id}/activate
-GET    /api/backends/{id}/health
-
-GET    /api/mcp/servers
-POST   /api/mcp/servers
-GET    /api/mcp/servers/{id}
-PATCH  /api/mcp/servers/{id}
-DELETE /api/mcp/servers/{id}
-GET    /api/mcp/servers/{id}/tools
-
-GET  /api/projects
-POST /api/projects
-GET  /api/projects/{id}
-GET  /api/projects/{id}/worklines
-
-GET  /api/worklines/{id}
-POST /api/worklines/{id}/fork
-GET  /api/worklines/{id}/merge-check?targetWorklineId=...
-POST /api/worklines/{id}/merge
-GET  /api/worklines/{id}/agents
-
-GET   /api/agents/{id}
-PATCH /api/agents/{id}/cwd
-PATCH /api/agents/{id}/model
-PATCH /api/agents/{id}/permission-mode
-GET   /api/agents/{id}/messages
-POST  /api/agents/{id}/messages
-GET   /api/agents/{id}/tools
-POST  /api/agents/{id}/tool-calls
-GET   /api/agents/{id}/tool-calls/{toolUseId}
-GET   /api/agents/{id}/git/status
-GET   /api/agents/{id}/git/diff
-GET   /api/agents/{id}/git/log
-POST  /api/agents/{id}/git/commit
-
-GET  /api/fs/browse?path=...
-GET  /api/fs/directories?path=...
-GET  /api/fs/preview?path=...
-POST /api/fs/mkdir
-
-GET  /ws/agent?id={agentId}
-GET  /ws/terminal?agentId={agentId}
-```
-
-Legacy clients can continue using `/api/projects/{id}/chapters`, `/api/chapters/...`, `/api/narrators/...`, and `/ws/narrator`; these compatibility aliases invoke the same canonical Agent/Workline handlers and return the canonical payload shape.
-
-## Validation
-
-Before committing changes, run the unified local check:
-
-```bash
-make check
-```
-
-If `make` is unavailable, run `./scripts/check.sh` directly. The check script verifies Go formatting without rewriting files, runs Go tests/vet/build, checks embedded JavaScript syntax, and runs embedded JavaScript tests. Use `make fmt` to apply Go formatting.
-
-CI runs the same check script and additionally runs `golangci-lint` through `.github/workflows/ci.yml`. The server test suite includes an end-to-end smoke that starts a real `httptest` server, connects the Agent WebSocket, posts a message over HTTP, approves a model-requested Bash tool call, verifies tool-result feedback, and checks persisted messages/tool calls/API requests. Release tags matching `v*` run GoReleaser through `.github/workflows/release.yml`; use this only for publishing Autoto release assets, not for local validation.
-
-## Security notes
-
-Autoto is a local development MVP.
-
-- Do not commit `.env`, local config files, SQLite databases, or API keys.
-- The embedded UI and APIs are intended for trusted local use.
-- Browser-originated API calls require a per-process local token injected into the UI, and WebSocket upgrades are restricted by Origin/Sec-Fetch-Site plus the same token.
-- Public tunnel usage must add authentication. Non-loopback peers/hosts and loopback-proxy forwarding metadata enter the remote authentication boundary: the UI/API require a configured access password. Remote sessions default to `restricted` (`acceptEdits` cap, project-scoped filesystem, no PTY); only a host-local policy change may issue `full` sessions with host filesystem, terminal, and `bypassPermissions` access. Logout, credential rotation, policy changes, expiry, and session eviction close established remote WebSockets.
-- Git status/diff/log/commit APIs resolve the Agent repository and reject repositories outside the project path, configured default project directory, or the Agent Workline worktree path created by Autoto.
-- Tools can read and write local files within their configured working directories. The file path tools hard-block sensitive names such as `.env*`, credentials/secrets, common private keys, and `.git`; this does not make Bash or stdio MCP safe, and both remain powerful local code execution.
-- Schedule runs cannot exceed their persisted `readOnly`/`acceptEdits` permission cap. A busy Agent causes a skipped schedule record rather than cancellation or replacement of the manual run.
-- Telegram uses outbound HTTPS plus long polling only. Pairing is private-chat and Agent-scoped; unauthenticated commands and failed pairing attempts are silent, approval is one-time, and `danger` tool uses cannot be approved from Telegram. Telegram cannot change permission mode, open a terminal, create `/task` runs, or control devices.
-- Telegram bot tokens and Home Assistant access tokens must be supplied through `env:` references. Public integration responses do not return either the reference target or secret value. Rotate suspected credentials immediately; rotating the Telegram bot token invalidates stale pairings, and pairings can also be revoked locally.
-- Home Assistant is restricted to local/private endpoints. State listing is read-only and attribute-filtered. Device changes use a fixed allowlist and require a short-lived request, two local UI confirmations, and direct-loopback approval; unknown or critical actions, including unlock and camera actions, are hard-blocked.
-- Durable notification delivery records may include redacted operational metadata and status/error classes. Delivery retries use bounded exponential backoff and end in `dead`; they do not block the Agent loop.
-- MCP server registry responses list environment variable names only; stored values are used for local process launch and are not returned by the public API.
-- Backend API keys are not returned by the public API; responses only include `apiKeyConfigured`.
-- Runtime, storage, and monitoring summary APIs intentionally expose local paths or operational diagnostics. The monitoring snapshot is local aggregation, not a cloud monitoring service, so keep the service bound to trusted local users.
-
-See `SECURITY.md` for reporting and operational guidance.
-
-## Third-party notices
-
-See `THIRD_PARTY_NOTICES.md` for the initial direct dependency notice. It is a development aid and not legal advice. Before formal distribution, regenerate a complete transitive dependency notice with a license scanner such as `go-licenses`.
-
-## Contributor docs
-
-- `docs/ARCHITECTURE.md` explains how requests flow through server, Agent, provider, tools, WebSocket events, and persistence.
-- `CHANGELOG.md` tracks user-visible changes, migration compatibility, security boundaries, and known release gaps.
-
-## Roadmap
-
-See `PROJECT_PLAN.md` for the current implementation plan, known limitations, and next milestones.
-
-## License
-
-Autoto is licensed under the MIT License. See `LICENSE`.
+Autoto accepts legacy configuration paths and route aliases for backward compatibility. Canonical values always take precedence. The compatibility lifecycle and removal gates are defined in `PROJECT_PLAN.md`; no legacy surface may be removed before v0.4.0 or without at least two tagged releases of migration runway.

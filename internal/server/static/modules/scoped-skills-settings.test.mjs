@@ -88,6 +88,7 @@ test("scoped manager renders explicit contexts, empty project state, escaped sca
   assert.match(markup, /&lt;external&gt;/);
   assert.doesNotMatch(markup, /<script>/);
   assert.doesNotMatch(markup, /prompt <unsafe>/);
+  assert.doesNotMatch(markup, /desc &amp; detail|desc &amp;/);
 
   const empty = renderScopedSkillsManager({ controller, context: { scope: "project", projectId: "" } });
   assert.match(empty, /data-scoped-skills-empty="project"/);
@@ -111,6 +112,7 @@ test("commands helper unwraps effective owners as read-only rows without mutatio
   assert.match(markup, /只读 owner/);
   assert.doesNotMatch(markup, /data-scoped-skill-toggle/);
   assert.doesNotMatch(markup, /data-scoped-skill-delete/);
+  assert.doesNotMatch(markup, /无描述|noDescription/);
 });
 
 test("binder preserves an edited draft when CAS update conflicts", async () => {

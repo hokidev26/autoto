@@ -153,19 +153,34 @@ func scanWindowsCommand(command string) winScan {
 			flushStatement(false)
 		case '>':
 			scan.redirection = true
-			// `>>` appends; a bare `>` truncates an existing file.
+			// `>>` appends; a bare `>` may truncate, depending on the target.
+			truncates := true
 			if i+1 < len(runes) && runes[i+1] == '>' {
 				i++
-			} else {
-				scan.truncating = true
+				truncates = false
 			}
 			flushToken()
-			// Skip the redirection target so it never becomes a program name.
 			for i+1 < len(runes) && (runes[i+1] == ' ' || runes[i+1] == '\t') {
 				i++
 			}
+			// `2>&1` duplicates a handle rather than touching a file. Consume the
+			// `&N` here so the `&` is not mistaken for a statement separator, which
+			// would also leave the digit behind as a bogus program name.
+			if i+1 < len(runes) && runes[i+1] == '&' {
+				i++
+				for i+1 < len(runes) && runes[i+1] >= '0' && runes[i+1] <= '9' {
+					i++
+				}
+				break
+			}
+			// Capture the redirection target so it never becomes a program name.
+			// The text is used only to classify the sink; it is never recorded.
+			targetStart := i + 1
 			for i+1 < len(runes) && !strings.ContainsRune(" \t|&<>", runes[i+1]) {
 				i++
+			}
+			if truncates && !isDiscardRedirectTarget(string(runes[targetStart:i+1])) {
+				scan.truncating = true
 			}
 		case '<':
 			scan.redirection = true
@@ -265,6 +280,18 @@ func winHasFlag(args []winToken, flags ...string) bool {
 			if normalized == flag {
 				return true
 			}
+		}
+	}
+	return false
+}
+
+// winHasDiscardDeviceArgument reports whether any whole argument names the null
+// device. As a copy source it blanks the destination, which is the truncate shape
+// worth blocking.
+func winHasDiscardDeviceArgument(args []winToken) bool {
+	for _, arg := range args {
+		if isDiscardRedirectTarget(arg.text) {
+			return true
 		}
 	}
 	return false
@@ -488,7 +515,9 @@ func (c *windowsFactsCollector) classify(program string, args []winToken, statem
 		c.danger("script-host-execution")
 	case "copy", "move", "xcopy", "robocopy":
 		c.effect("filesystem-write")
-		if winHasAnySubstring(args, "nul") {
+		// `copy nul target` blanks the target. Matched as a whole argument rather
+		// than a substring so ordinary names such as `annul.txt` are not caught.
+		if winHasDiscardDeviceArgument(args) {
 			c.danger("file-truncate")
 		}
 		if program == "robocopy" && winHasFlag(args, "mir", "purge") {

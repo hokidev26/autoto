@@ -1,5 +1,5 @@
 import { fullAccessAllowed, remoteAccessContext } from "./remote-access-capabilities.mjs";
-import { mergeProviderModelDiscovery } from "./model-provider-components.mjs?v=provider-card-clean-3-provider-create-page-2-provider-secrets-1-model-picker-1-provider-full-page-2-provider-placeholders-1-model-configs-1-provider-reference-1-default-openai-responses-1-provider-draft-session-1-native-image-generation-1-provider-hidden-models-1";
+import { mergeProviderModelDiscovery } from "./model-provider-components.mjs?v=provider-card-clean-3-provider-create-page-2-provider-secrets-1-model-picker-1-provider-full-page-2-provider-placeholders-1-model-configs-1-provider-reference-1-default-openai-responses-1-provider-draft-session-1-native-image-generation-1-provider-hidden-models-1-provider-quota-overview-1";
 import { t } from "./i18n.mjs?v=provider-draft-session-1";
 
 const providerConsoleInteractiveSelector = "button, input, select, textarea, a, details, summary, [role=\"switch\"], [contenteditable=\"true\"]";
@@ -118,6 +118,7 @@ export function providerConnectionFingerprint(draft = {}) {
       keepExisting: Boolean(header?.keepExisting),
     })),
     insecureSkipTLSVerify: Boolean(draft.insecureSkipTLSVerify),
+    allowPlaintextHTTP: Boolean(draft.allowPlaintextHTTP),
   });
 }
 
@@ -164,6 +165,7 @@ export function providerConsoleDraftFromForm(currentDraft = {}, form, fallbackTy
     requestHeaders,
     requestHeadersDraft: true,
     insecureSkipTLSVerify: Boolean(fields.insecureSkipTLSVerify?.checked),
+    allowPlaintextHTTP: Boolean(fields.allowPlaintextHTTP?.checked),
     model: value("model", currentDraft.model),
     maxTokens: Number(fields.maxTokens ? fields.maxTokens.value || 0 : currentDraft.maxTokens || 0),
     apiKeyOptional: Boolean(fields.apiKeyOptional?.checked),

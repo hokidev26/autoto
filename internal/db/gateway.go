@@ -244,6 +244,23 @@ func (s *Store) RevokeGatewayKey(ctx context.Context, id string) (GatewayKey, er
 	return s.GetGatewayKey(ctx, id)
 }
 
+func (s *Store) DeleteGatewayKey(ctx context.Context, id string) error {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return sql.ErrNoRows
+	}
+	result, err := s.db.ExecContext(ctx, `DELETE FROM gateway_keys WHERE id = ?`, id)
+	if err != nil {
+		return errors.New("delete gateway key failed")
+	}
+	if affected, err := result.RowsAffected(); err != nil {
+		return err
+	} else if affected == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
 func (s *Store) TouchGatewayKeyLastUsed(ctx context.Context, id, usedAt string) (GatewayKey, error) {
 	id = strings.TrimSpace(id)
 	if id == "" {

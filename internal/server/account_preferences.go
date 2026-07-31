@@ -242,6 +242,19 @@ func (s *Server) accountPreferencesScope(w http.ResponseWriter, r *http.Request)
 		return "", "", false
 	}
 	if !hasUsers {
+		// Remote sessions that have authenticated (restricted or full mode) may
+		// read and write instance-scoped preferences. Preferences are personal
+		// display state, not a security-sensitive mutation, so the sensitive
+		// local token guard that protects settings mutations is not appropriate
+		// here. Unauthenticated remote requests are still rejected below.
+		auth := s.remoteAccessAuthentication(r)
+		if auth.Remote {
+			if !auth.Authenticated {
+				writeError(w, http.StatusUnauthorized, "remote access requires authentication to read or write preferences")
+				return "", "", false
+			}
+			return db.AccountPreferenceScopeInstance, accountPreferencesInstanceID, true
+		}
 		if !s.requireSensitiveLocalToken(w, r) {
 			return "", "", false
 		}

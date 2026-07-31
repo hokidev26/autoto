@@ -1,3 +1,5 @@
+import { withErrorBoundary } from "./error-boundary.mjs?v=error-boundary-1";
+
 export class SettingsPanelRegistry {
   constructor() {
     this.panels = new Map();
@@ -15,11 +17,14 @@ export class SettingsPanelRegistry {
       throw new TypeError(`Settings panel layout must be a non-empty string: ${normalizedKey}`);
     }
 
-    const panel = Object.freeze({
+    // Boundaries are applied here rather than at each registration site so a
+    // panel added later cannot forget one: a throw in any panel shows a card in
+    // that panel's place instead of taking the surrounding shell down with it.
+    const panel = Object.freeze(withErrorBoundary({
       render: definition.render,
       ...(definition.bind ? { bind: definition.bind } : {}),
       ...(definition.layout ? { layout: definition.layout.trim() } : {}),
-    });
+    }, `settings.${normalizedKey}`));
     this.panels.set(normalizedKey, panel);
     return this;
   }

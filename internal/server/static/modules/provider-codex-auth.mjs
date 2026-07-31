@@ -4,6 +4,7 @@ import { apiDownload } from "./runtime.mjs";
 import { formatNumber } from "./formatters.mjs";
 import { t } from "./i18n.mjs?v=provider-draft-session-1";
 import { remoteAccessContext } from "./remote-access-capabilities.mjs";
+import { createProviderDraft, renderProviderModelEditor } from "./model-provider-components.mjs?v=provider-codex-models-1-provider-hidden-models-1-provider-quota-overview-1";
 import {
   codexAccountActionRequest,
   codexAccountBatchRequest,
@@ -24,7 +25,7 @@ import {
   codexAccountStableID,
   finiteNumber,
   renderCodexAccountManagementTable,
-} from "./provider-account-rendering.mjs";
+} from "./provider-account-rendering.mjs?v=provider-quota-overview-1";
 
 const codexBrowserLoginActiveStatuses = new Set(["starting", "pending", "exchanging"]);
 const maxCodexImportFiles = 50;
@@ -49,6 +50,8 @@ export function createCodexAuthController(ctx) {
     providerStatusText,
     providerModelList,
     codexProvider,
+    isModelHidden,
+    modelOptionValue,
   } = ctx;
   const mt = (key, params) => t(`modelProvider.${key}`, params);
 
@@ -63,6 +66,7 @@ export function createCodexAuthController(ctx) {
       const files = await requestAPI("/api/providers/oauth/codex/accounts");
       if (seq !== state.providerAuthSeq) return;
       state.providerAuthFiles = files;
+      state.providerAuthLoaded = true;
       providerConsoleState().codexSelectedIds = normalizeCodexSelectedIds(providerConsoleState().codexSelectedIds, extractAuthFiles(files));
       state.providerAuthError = "";
       state.providerAuthMutationWarning = "";
@@ -576,6 +580,34 @@ export function createCodexAuthController(ctx) {
     }
   }
 
+  function renderCodexModelPanel(provider, hasAccounts) {
+    const providerName = String(provider?.name || "codex").trim() || "codex";
+    const header = `<div class="codex-console-section-head settings-card-header"><div><h2 id="codex-models-title" class="settings-card-title">${escapeHtml(mt("codexModels"))}</h2><p class="settings-card-description" data-settings-help-copy>${escapeHtml(mt("codexModelsDescription"))}</p></div></div>`;
+    if (!provider) {
+      return `<section class="codex-model-panel settings-card" aria-labelledby="codex-models-title">${header}<div class="settings-card-content"><div class="settings-alert attention" role="alert">${escapeHtml(mt("codexProviderNotFound"))}</div></div></section>`;
+    }
+    const baseDraft = createProviderDraft(providerName, provider);
+    const draft = typeof isModelHidden === "function" && typeof modelOptionValue === "function"
+      ? {
+        ...baseDraft,
+        modelConfigs: (baseDraft.modelConfigs || []).map((item) => ({
+          ...item,
+          hidden: isModelHidden(modelOptionValue(provider, item.name)),
+        })),
+      }
+      : baseDraft;
+    const modelBusy = Boolean(providerConsoleState().busy?.refresh);
+    const note = hasAccounts ? "" : `<p class="anthropic-secret-note">${escapeHtml(mt("codexModelsNeedAccount"))}</p>`;
+    return `<section class="codex-model-panel settings-card" aria-labelledby="codex-models-title">
+      ${header}
+      <form class="codex-model-form settings-card-content" data-mp-provider-form data-codex-provider-config="${escapeAttr(providerName)}">
+        <input type="hidden" name="name" value="${escapeAttr(providerName)}"><input type="hidden" name="type" value="${escapeAttr(provider.type || "codex")}"><input type="hidden" name="baseUrl" value="${escapeAttr(provider.baseUrl || "")}"><input type="hidden" name="apiKey" value="">
+        ${note}
+        <div class="codex-model-manager">${renderProviderModelEditor(draft, modelBusy, true, { allowEmpty: true, refreshModels: true })}</div>
+      </form>
+    </section>`;
+  }
+
   function renderCodexConsolePage() {
     const consoleState = providerConsoleState();
     const authFiles = extractAuthFiles(state.providerAuthFiles);
@@ -694,6 +726,7 @@ export function createCodexAuthController(ctx) {
         ${accountAlert}
         ${accountContent}
       </section>
+      ${renderCodexModelPanel(provider, authFiles.length > 0)}
     </div>`;
   }
 

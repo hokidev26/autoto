@@ -265,6 +265,20 @@ function selectOptions(values, selected, group = "") {
   return values.map((value) => `<option value="${escapeAttr(value)}"${value === selected ? " selected" : ""}>${escapeHtml(group ? formatScheduleOptionValue(group, value) : boundedText(value, 160))}</option>`).join("");
 }
 
+// Presets exist so nobody has to know cron. Showing the raw expression as the
+// option label defeated that; the expression still lands in the field below,
+// where it stays editable and visible.
+function presetLabel(expression) {
+  const label = t(`automation.schedule.presetLabels.${expression}`);
+  return label && !label.includes("automation.schedule") ? label : expression;
+}
+
+function presetOptions(selected) {
+  return schedulePresets
+    .map((value) => `<option value="${escapeAttr(value)}"${value === selected ? " selected" : ""}>${escapeHtml(presetLabel(value))}</option>`)
+    .join("");
+}
+
 function conversationOptions(conversations, selectedAgentId) {
   const items = normalizeScheduleConversations(conversations);
   if (selectedAgentId && !items.some((item) => item.agentId === selectedAgentId)) {
@@ -282,7 +296,7 @@ function renderScheduleForm(schedule, conversations, { create = false, busy = fa
     <div class="settings-card-header span-2"><div><h3>${escapeHtml(title)}</h3><p>${escapeHtml(text("formDescription"))}</p></div></div>
     <label><span class="schedule-field-label">${escapeHtml(t("automation.schedule.name"))}</span><input name="name" maxlength="120" value="${escapeAttr(item.name)}" placeholder="${escapeAttr(t("automation.schedule.namePlaceholder"))}" /></label>
     <label><span class="schedule-field-label">${escapeHtml(text("linkedConversation"))}</span><select name="agentId" required>${conversationOptions(conversations, item.agentId)}</select></label>
-    <label><span class="schedule-field-label">${escapeHtml(t("automation.schedule.preset"))}</span><select name="preset" data-schedule-preset aria-describedby="${helpPrefix}-frequency-help"><option value="">${escapeHtml(t("automation.schedule.custom"))}</option>${selectOptions(schedulePresets, schedulePresets.includes(item.expression) ? item.expression : "")}</select></label>
+    <label><span class="schedule-field-label">${escapeHtml(t("automation.schedule.preset"))}</span><select name="preset" data-schedule-preset aria-describedby="${helpPrefix}-frequency-help"><option value="">${escapeHtml(t("automation.schedule.custom"))}</option>${presetOptions(schedulePresets.includes(item.expression) ? item.expression : "")}</select></label>
     <label><span class="schedule-field-label">${escapeHtml(t("automation.schedule.expression"))}</span><input name="expression" maxlength="256" value="${escapeAttr(item.expression)}" placeholder="${escapeAttr(t("automation.schedule.expressionPlaceholder"))}" aria-describedby="${helpPrefix}-frequency-help" required /><small id="${helpPrefix}-frequency-help" class="schedule-field-help">${escapeHtml(text("frequencyHint"))}</small></label>
     <fieldset class="schedule-execution-options span-2">
       <legend>${escapeHtml(text("executionSettings"))}</legend>
@@ -290,7 +304,7 @@ function renderScheduleForm(schedule, conversations, { create = false, busy = fa
       <div class="schedule-execution-grid">
         <label><span class="schedule-field-label">${escapeHtml(t("automation.schedule.timezone"))}</span><input name="timezone" maxlength="128" value="${escapeAttr(item.timezone || "UTC")}" placeholder="${escapeAttr(t("automation.schedule.timezonePlaceholder"))}" aria-describedby="${helpPrefix}-timezone-help" required /><small id="${helpPrefix}-timezone-help" class="schedule-field-help">${escapeHtml(text("timezoneHint"))}</small></label>
         <label><span class="schedule-field-label">${escapeHtml(t("automation.schedule.permission"))}</span><select name="permissionMode" aria-describedby="${helpPrefix}-permission-help">${selectOptions(["readOnly", "acceptEdits"], item.permissionMode, "permissionMode")}</select><small id="${helpPrefix}-permission-help" class="schedule-field-help">${escapeHtml(text("permissionHint"))}</small></label>
-        <label><span class="schedule-field-label">${escapeHtml(t("automation.schedule.environment"))}</span><select name="environmentMode" aria-describedby="${helpPrefix}-environment-help">${selectOptions(["workline", "standalone"], item.environmentMode, "environmentMode")}</select><small id="${helpPrefix}-environment-help" class="schedule-field-help">${escapeHtml(text("environmentHint"))}</small></label>
+        <label data-schedule-environment${item.narratorMode === "reuse" ? " hidden" : ""}><span class="schedule-field-label">${escapeHtml(t("automation.schedule.environment"))}</span><select name="environmentMode" aria-describedby="${helpPrefix}-environment-help">${selectOptions(["workline", "standalone"], item.environmentMode, "environmentMode")}</select><small id="${helpPrefix}-environment-help" class="schedule-field-help">${escapeHtml(text("environmentHint"))}</small></label>
         <label><span class="schedule-field-label">${escapeHtml(t("automation.schedule.narrator"))}</span><select name="narratorMode" aria-describedby="${helpPrefix}-narrator-help">${selectOptions(["reuse", "new"], item.narratorMode, "narratorMode")}</select><small id="${helpPrefix}-narrator-help" class="schedule-field-help">${escapeHtml(text("narratorHint"))}</small></label>
       </div>
     </fieldset>
@@ -703,10 +717,22 @@ export function createScheduleWorkspaceController({
       if (event?.target?.matches?.("[data-schedule-query]")) setQuery(event.target.value);
     });
     root.addEventListener("change", (event) => {
-      if (!event?.target?.matches?.("[data-schedule-preset]") || !event.target.value) return;
-      const form = event.target.closest?.("[data-schedule-form]");
-      const expression = form?.elements?.namedItem?.("expression") || form?.querySelector?.('[name="expression"]');
-      if (expression) expression.value = event.target.value;
+      const target = event?.target;
+      if (target?.matches?.("[data-schedule-preset]")) {
+        if (!target.value) return;
+        const form = target.closest?.("[data-schedule-form]");
+        const expression = form?.elements?.namedItem?.("expression") || form?.querySelector?.('[name="expression"]');
+        if (expression) expression.value = target.value;
+        return;
+      }
+      // Reusing an existing narrator runs wherever that agent already lives, so
+      // the environment is not a choice there -- offering it only invites a
+      // combination the dispatcher has to reconcile.
+      if (target?.matches?.('[name="narratorMode"]')) {
+        const form = target.closest?.("[data-schedule-form]");
+        const environment = form?.querySelector?.("[data-schedule-environment]");
+        if (environment) environment.hidden = target.value === "reuse";
+      }
     });
     root.addEventListener("submit", (event) => {
       const form = event?.target?.matches?.("[data-schedule-form]") ? event.target : event?.target?.closest?.("[data-schedule-form]");

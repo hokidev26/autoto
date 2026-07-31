@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os/exec"
 	"regexp"
 	"runtime"
@@ -19,6 +20,10 @@ const (
 	bashResultMaxBytes = 20000
 	bashStreamMaxBytes = 100000
 	bashMaxTimeout     = 30 * time.Minute
+	// How long output may keep arriving after the shell itself has exited. Only
+	// a process the shell detached can still hold the pipes open at that point,
+	// and waiting on one of those is waiting on the wrong thing.
+	bashDetachedIOGrace = time.Second
 )
 
 type bashInput struct {
@@ -105,13 +110,36 @@ func legacyDangerLabel(command string) string {
 	if strings.Contains(cmd, " /dev/null") && strings.HasPrefix(cmd, "mv ") {
 		return "file-delete"
 	}
-	if truncatingRedirectPattern.MatchString(cmd) {
+	if hasTruncatingRedirect(cmd) {
 		return "file-truncate"
 	}
 	return ""
 }
 
-var truncatingRedirectPattern = regexp.MustCompile(`(^|\s|[;&|])(:\s*)?>\s*[^&\s]`)
+// hasTruncatingRedirect reports whether the raw command text contains a `>`
+// redirect that would overwrite a real file. Two shapes are excluded because
+// they destroy nothing, and both are routine on the cmd.exe lines this
+// string-level layer exists to catch: `>>` appends, and a redirect to a discard
+// sink such as `2>NUL` or `>/dev/null` only silences output.
+func hasTruncatingRedirect(cmd string) bool {
+	for _, match := range truncatingRedirectPattern.FindAllStringSubmatch(cmd, -1) {
+		target := match[3]
+		// An empty target means the `>` was followed by `&` or nothing, so no file
+		// is named; a target starting with `>` is the append operator.
+		if target == "" || strings.HasPrefix(target, ">") {
+			continue
+		}
+		if isDiscardRedirectTarget(target) {
+			continue
+		}
+		return true
+	}
+	return false
+}
+
+// The trailing group captures the redirection target so the caller can tell a
+// real file from an append or a discard sink.
+var truncatingRedirectPattern = regexp.MustCompile(`(^|\s|[;&|])(:\s*)?>\s*([^&\s]*)`)
 
 var legacyNetworkFetchPattern = regexp.MustCompile(`(^|[\s;&|(])(curl|wget|fetch|aria2c)(\s|$)`)
 
@@ -214,6 +242,14 @@ func (BashTool) Execute(ctx context.Context, call Call, env Env) (Result, error)
 	// Use plain Command (not CommandContext) so process.Group owns tree kill on
 	// timeout/cancel. CommandContext only signals the direct child.
 	cmd := exec.Command(shell, args...)
+	useShellCommandLine(cmd, input.Command)
+	// A shell that detaches a child (`start` on Windows, a backgrounded child
+	// elsewhere) exits at once while that grandchild keeps the inherited
+	// stdout/stderr pipes open. Without a bound, Wait blocks on the pipes rather
+	// than on the command, so launching anything long-lived cost the full
+	// timeout and was reported as a failure. WaitDelay closes the pipes shortly
+	// after the shell itself is gone.
+	cmd.WaitDelay = bashDetachedIOGrace
 	if env.CWD != "" {
 		cmd.Dir = env.CWD
 	}
@@ -240,6 +276,12 @@ func (BashTool) Execute(ctx context.Context, call Call, env Env) (Result, error)
 	case <-cmdCtx.Done():
 		err = group.Terminate(cmd, done, 2*time.Second)
 		_ = group.Close()
+	}
+	// Wait reports ErrWaitDelay when it had to close the pipes on a process the
+	// shell left behind. The shell itself finished, so this is not a failure of
+	// the command the model asked for.
+	if errors.Is(err, exec.ErrWaitDelay) {
+		err = nil
 	}
 	text, cut := collector.result()
 	result := Result{Output: text, Meta: map[string]any{"truncated": cut}}

@@ -42,10 +42,19 @@ func (r *Runner) resolveToolPermissionWithSession(ctx context.Context, agentID, 
 	}
 	managedApprovalRequired := managedAutomationMCPApprovalRequired(toolName, risk, input)
 	// A command that static analysis marked serious-but-recoverable, or could not
-	// classify at all, must always reach a human. This gate sits above stored
-	// rules and permission modes so neither a wildcard allow rule nor
-	// bypassPermissions can turn it into a silent execution.
-	reviewRequired, reviewWarning := execRequiresHumanReview(toolName, risk, input)
+	// classify at all, normally has to reach a human, above stored rules so a
+	// wildcard allow rule cannot turn it into a silent execution.
+	//
+	// bypassPermissions is the one exception, because it is the user explicitly
+	// choosing "allow everything" for this conversation. Keeping a mandatory
+	// prompt there made the setting mean something other than its label, and the
+	// prompts were unavoidable for ordinary work such as running a helper script.
+	// The unrecoverable tier above is unaffected: it is a hard deny, not a
+	// prompt, so bypassPermissions never reaches it.
+	reviewRequired, reviewWarning := false, ""
+	if mode != "bypassPermissions" {
+		reviewRequired, reviewWarning = execRequiresHumanReview(toolName, risk, input)
+	}
 	if r != nil && r.store != nil {
 		rules, err := r.store.ListToolPermissionRules(ctx)
 		if err != nil {
@@ -128,14 +137,16 @@ func (r *Runner) defaultToolPermission(ctx context.Context, agentID, mode, toolN
 			return toolPermissionResolution{Decision: toolPermissionAllow, Reason: "allowed by permission mode"}
 		}
 	case tools.RiskExec:
-		// Defense in depth: the caller already gates on this, but a future direct
-		// caller must not be able to reach the unconditional allows below with a
-		// command that static analysis flagged or could not classify.
-		if required, warning := execRequiresHumanReview(toolName, risk, input); required {
-			return toolPermissionResolution{Decision: toolPermissionAsk, Reason: "command requires human review before execution", Warning: warning}
-		}
+		// bypassPermissions is an explicit user choice to allow every exec call in
+		// this conversation, so it is honored before the review gate below.
 		if mode == "bypassPermissions" {
 			return toolPermissionResolution{Decision: toolPermissionAllow, Reason: "allowed by bypassPermissions mode"}
+		}
+		// Defense in depth for every other mode: a future direct caller must not
+		// be able to reach the unconditional allows below with a command that
+		// static analysis flagged or could not classify.
+		if required, warning := execRequiresHumanReview(toolName, risk, input); required {
+			return toolPermissionResolution{Decision: toolPermissionAsk, Reason: "command requires human review before execution", Warning: warning}
 		}
 		if !prefs.RequireConfirmationForExec && execPermittedByMode(mode) {
 			return toolPermissionResolution{Decision: toolPermissionAllow, Reason: "exec risk allowed by workflow preferences"}
@@ -263,9 +274,52 @@ func sessionGrantKey(toolName string, input json.RawMessage) string {
 		return ""
 	}
 	if toolName == "Bash" {
-		return toolName + ":" + normalizeShellCommand(tools.BashCommand(input))
+		return toolName + ":" + sessionGrantCommandKey(tools.BashCommand(input))
 	}
 	return toolName + ":" + strings.TrimSpace(string(input))
+}
+
+// scriptFileExtensions are the interpreted-file suffixes whose trailing
+// arguments are parameters to an already-approved script rather than a
+// different action.
+var scriptFileExtensions = []string{".ps1", ".psm1", ".sh", ".bash", ".bat", ".cmd", ".py", ".rb", ".pl", ".mjs", ".cjs", ".js", ".ts"}
+
+// sessionGrantCommandKey builds the identity a session grant is recorded
+// against. For a script-file invocation it stops at the script path, so
+// re-running the same script with different parameters reuses the approval the
+// human already gave instead of prompting on every call.
+//
+// The boundary stays narrow on purpose: the interpreter, the script path, and
+// any compound prefix all remain part of the key, so a different script, a
+// different interpreter, or extra chained commands still require a fresh
+// approval. Anything that is not a recognizable script invocation keeps the
+// full command as its key.
+func sessionGrantCommandKey(command string) string {
+	normalized := normalizeShellCommand(command)
+	if normalized == "" {
+		return ""
+	}
+	fields := strings.Fields(normalized)
+	for index, field := range fields {
+		if !isScriptFileToken(field) {
+			continue
+		}
+		return strings.Join(fields[:index+1], " ")
+	}
+	return normalized
+}
+
+func isScriptFileToken(token string) bool {
+	trimmed := strings.ToLower(strings.Trim(token, `"'`))
+	if trimmed == "" {
+		return false
+	}
+	for _, ext := range scriptFileExtensions {
+		if strings.HasSuffix(trimmed, ext) {
+			return true
+		}
+	}
+	return false
 }
 
 func autoApprovalReason(toolName string, input json.RawMessage) string {

@@ -222,6 +222,7 @@ func runWailsShell(ctx context.Context, rt *app.Runtime, url string, logger *slo
 	setMainWin(window)
 	dialogHost.AttachWindow(window)
 	lifeHost.AttachWindow(window)
+	attachMainWindowIcon(wailsApp, window, logger)
 	attachSystemTray(wailsApp, window, logger, lifeHost)
 	if hasSavedState {
 		applyWindowState(window, savedState)

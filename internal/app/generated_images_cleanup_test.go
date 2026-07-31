@@ -3,6 +3,7 @@ package app
 import (
 	"bytes"
 	"context"
+	"errors"
 	"image"
 	"image/png"
 	"io"
@@ -66,6 +67,77 @@ func TestCleanupGeneratedImagesUsesDatabaseReferences(t *testing.T) {
 	}
 	if _, err := os.Stat(staging); !os.IsNotExist(err) {
 		t.Fatalf("staging file was not removed: %v", err)
+	}
+}
+
+func TestGeneratedImagesCleanupServiceStartsWithoutWaitingForCleanup(t *testing.T) {
+	started := make(chan struct{})
+	canceled := make(chan struct{})
+	release := make(chan struct{})
+	service := &generatedImagesCleanupService{cleanup: func(ctx context.Context) {
+		close(started)
+		<-ctx.Done()
+		close(canceled)
+		<-release
+	}}
+
+	startResult := make(chan error, 1)
+	go func() { startResult <- service.Start(context.Background()) }()
+	select {
+	case err := <-startResult:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("cleanup service Start blocked on cleanup")
+	}
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("cleanup service did not execute")
+	}
+
+	closeResult := make(chan error, 1)
+	go func() { closeResult <- service.Close(context.Background()) }()
+	select {
+	case <-canceled:
+	case <-time.After(time.Second):
+		t.Fatal("Close did not cancel cleanup")
+	}
+	select {
+	case err := <-closeResult:
+		t.Fatalf("Close returned before cleanup finished: %v", err)
+	case <-time.After(25 * time.Millisecond):
+	}
+	close(release)
+	select {
+	case err := <-closeResult:
+		if err != nil {
+			t.Fatalf("Close() error = %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("Close did not wait for cleanup")
+	}
+}
+
+func TestGeneratedImagesCleanupServiceCloseHonorsContext(t *testing.T) {
+	release := make(chan struct{})
+	service := &generatedImagesCleanupService{cleanup: func(ctx context.Context) {
+		<-ctx.Done()
+		<-release
+	}}
+	if err := service.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+
+	closeCtx, cancel := context.WithTimeout(context.Background(), 25*time.Millisecond)
+	defer cancel()
+	if err := service.Close(closeCtx); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("Close() error = %v, want deadline exceeded", err)
+	}
+	close(release)
+	if err := service.Close(context.Background()); err != nil {
+		t.Fatalf("Close() after worker release = %v", err)
 	}
 }
 

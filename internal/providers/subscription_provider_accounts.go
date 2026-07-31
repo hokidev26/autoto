@@ -146,7 +146,7 @@ func (a *subscriptionProviderAccounts) accountsForRequest(ctx context.Context, r
 	if !req.AllowSubscriptionCredentials {
 		return nil, providerUnavailableError(a.providerName(), "Gateway subscription credential sharing is not authorized")
 	}
-	granted, err := gatewayAccountIDSet(ctx, a.gatewayAccountPolicy(), a.providerName())
+	granted, err := gatewayAccountIDSet(ctx, a.gatewayAccountPolicy(), a.subscriptionProviderName())
 	if err != nil {
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
@@ -372,15 +372,23 @@ func (a *subscriptionProviderAccounts) providerName() string {
 	return "subscription"
 }
 
-// telemetryProviderName is the key attempt and quota rows are stored under. It
-// must be the subscription provider the credential store uses, NOT the config
-// name: the two coincide for grok, but an Antigravity provider is conventionally
-// named "gemini-oauth" while its accounts live under "gemini", so writing rows
-// under the config name filed them where no reader ever looks — the account UI
-// queries by subscription provider, which is why gemini accounts showed neither
-// stats nor quota. The config name is user-editable too, so keying telemetry on
-// it would orphan an account's history the moment the provider is renamed.
-func (a *subscriptionProviderAccounts) telemetryProviderName() string {
+// subscriptionProviderName is the credential store's provider key, and the only
+// safe key for any persisted row that must be found again later. It must be the
+// subscription provider the credential store uses, NOT the config name: the two
+// coincide for grok, but an Antigravity provider is conventionally named
+// "gemini-oauth" while its accounts live under "gemini", so anything written or
+// queried under the config name lands where no reader ever looks. The config
+// name is user-editable too, so keying persisted state on it would orphan that
+// state the moment the provider is renamed.
+//
+// Two separate defects came from keying on the config name. Telemetry wrote
+// attempt and quota rows under it while the account UI queried by subscription
+// provider, so gemini accounts showed neither stats nor quota. Gateway account
+// grants then repeated it from the other side: the account pool stores a grant
+// under "gemini", the gateway looked it up under "gemini-oauth", found nothing,
+// and every Antigravity model silently vanished from /v1/models even with the
+// account shared and the provider marked gateway-eligible.
+func (a *subscriptionProviderAccounts) subscriptionProviderName() string {
 	if a == nil {
 		return "subscription"
 	}
@@ -388,6 +396,11 @@ func (a *subscriptionProviderAccounts) telemetryProviderName() string {
 		return provider
 	}
 	return a.providerName()
+}
+
+// telemetryProviderName keys attempt and quota rows. See subscriptionProviderName.
+func (a *subscriptionProviderAccounts) telemetryProviderName() string {
+	return a.subscriptionProviderName()
 }
 
 func (a *subscriptionProviderAccounts) now() time.Time {

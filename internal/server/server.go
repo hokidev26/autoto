@@ -140,6 +140,7 @@ type Server struct {
 	automationToolCatalog       *AutomationToolCatalog
 	previewManager              *preview.Manager
 	temporaryTunnel             *TemporaryTunnelManager
+	apiTunnel                   *TemporaryTunnelManager
 	peerControl                 *remoteCollaborationRuntime
 	notifier                    *WebhookNotifier
 	automation                  *automation.Manager
@@ -160,6 +161,7 @@ type Server struct {
 	shellDialogHost    ShellDialogHost
 	shellLifecycleHost ShellLifecycleHost
 	shellUpdateHost    ShellUpdateHost
+	storageCache       storageSummaryCache
 }
 
 func New(cfg config.Config, store *db.Store, runner *agentpkg.Runner, hub *agentpkg.Hub, providerRegistries ...*providers.Registry) *Server {
@@ -404,6 +406,13 @@ func (s *Server) SetTemporaryTunnelManager(manager *TemporaryTunnelManager) {
 	s.temporaryTunnel = manager
 }
 
+// SetAPITunnelManager installs the tunnel that exposes the shared API gateway.
+// It is separate from the tunnel above so the public API URL and the management
+// UI never share a hostname.
+func (s *Server) SetAPITunnelManager(manager *TemporaryTunnelManager) {
+	s.apiTunnel = manager
+}
+
 func (s *Server) warnLegacy(key, legacy, replacement, kind string) {
 	if s.legacyWarnings == nil {
 		return
@@ -489,6 +498,7 @@ func (s *Server) Routes() http.Handler {
 		r.Patch("/api/gateway/keys/{id}", s.updateGatewayKey)
 		r.Post("/api/gateway/keys/{id}/rotate", s.rotateGatewayKey)
 		r.Post("/api/gateway/keys/{id}/revoke", s.revokeGatewayKey)
+		r.Delete("/api/gateway/keys/{id}", s.deleteGatewayKey)
 		r.Get("/api/gateway/models", s.listGatewayModels)
 		r.Post("/api/gateway/models", s.createGatewayModel)
 		r.Patch("/api/gateway/models", s.updateGatewayModel)
@@ -496,6 +506,13 @@ func (s *Server) Routes() http.Handler {
 		r.Patch("/api/gateway/models/{alias}", s.updateGatewayModel)
 		r.Delete("/api/gateway/models/{alias}", s.deleteGatewayModel)
 		r.Get("/api/gateway/usage", s.gatewayUsage)
+		// The tunnel that publishes /v1 publicly. Same shape as the UI tunnel
+		// endpoints; each mutating handler enforces remoteSecurityMutationAllowed
+		// itself, so no extra middleware is required here.
+		r.Get("/api/gateway/tunnel", s.getGatewayTunnel)
+		r.Post(gatewayTunnelInstallPath, s.installGatewayTunnel)
+		r.Post("/api/gateway/tunnel", s.startGatewayTunnel)
+		r.Delete("/api/gateway/tunnel", s.stopGatewayTunnel)
 		r.Post("/api/providers/oauth/codex/login/start", s.startCodexOAuthLogin)
 		r.Get("/api/providers/oauth/codex/login/{loginId}", s.getCodexOAuthLogin)
 		r.Delete("/api/providers/oauth/codex/login/{loginId}", s.cancelCodexOAuthLogin)
@@ -638,9 +655,11 @@ func (s *Server) Routes() http.Handler {
 		r.Get("/", s.listProjects)
 		r.Post("/", s.createProject)
 		r.Patch("/{id}/navigation-state", s.patchProjectNavigationState)
+		r.With(s.fullRemoteAccessGuard).Delete("/{id}", s.deleteArchivedProject)
 		r.Get("/{id}", s.getProject)
 		r.Get("/{id}/worklines", s.listProjectWorklines)
 		r.Get("/{id}/chapters", s.listProjectWorklines)
+		r.Post("/{id}/init-git", s.initProjectGit)
 	})
 	r.Get("/api/worklines/{id}", s.getWorkline)
 	r.Post("/api/worklines/{id}/fork", s.forkWorkline)
@@ -659,6 +678,7 @@ func (s *Server) Routes() http.Handler {
 		r.With(s.fullRemoteAccessGuard).Patch("/{id}/context/preferences", s.patchAgentContextPreferences)
 		r.With(s.fullRemoteAccessGuard).Post("/{id}/context/compact", s.compactAgentContext)
 		r.With(s.fullRemoteAccessGuard).Post("/{id}/context/clear", s.clearAgentContext)
+		r.With(s.fullRemoteAccessGuard).Post("/{id}/context/retain", s.retainAgentContextSummary)
 		r.Patch("/{id}/title", s.updateAgentTitle)
 		r.Patch("/{id}/cwd", s.updateAgentCWD)
 		r.Patch("/{id}/model", s.updateAgentModel)
@@ -667,6 +687,7 @@ func (s *Server) Routes() http.Handler {
 		r.Patch("/{id}/permission-mode", s.updateAgentPermissionMode)
 		r.Patch("/{id}/plan-mode", s.updateAgentPlanMode)
 		r.Patch("/{id}/navigation-state", s.patchAgentNavigationState)
+		r.With(s.fullRemoteAccessGuard).Delete("/{id}", s.deleteArchivedAgent)
 		r.Get("/{id}/plans", s.listReviewPlans)
 		r.Post("/{id}/plans", s.createReviewPlan)
 		r.Get("/{id}/plans/{planId}", s.getReviewPlan)

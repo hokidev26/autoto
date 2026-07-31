@@ -31,6 +31,7 @@ func defaultGeminiProvider() ProviderConfig {
 			{Name: "gemini-3.1-flash-lite", ContextTokenLimit: 1048576},
 			{Name: "gemini-3.5-flash-low", ContextTokenLimit: 1048576},
 			{Name: "gemini-3.5-flash-extra-low", ContextTokenLimit: 1048576},
+			{Name: "gemini-3.6-flash-high", ContextTokenLimit: 1048576},
 		},
 	}
 }

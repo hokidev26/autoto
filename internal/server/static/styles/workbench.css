@@ -2785,16 +2785,27 @@ body.white-shell.theme-light .navigation-conversation-row.nested.active .navigat
   color: var(--ws-primary);
 }
 
+/* Sidebar bubble: blue while the agent is busy, green once it is idle/done. */
 body.white-shell.theme-light .navigation-conversation-row.status-running .navigation-agent-icon,
 body.white-shell.theme-light .navigation-conversation-row.status-pending .navigation-agent-icon,
 body.white-shell.theme-light .navigation-conversation-row.status-queued .navigation-agent-icon {
-  color: var(--ws-primary);
+  color: #3b82f6;
+}
+
+body.white-shell.theme-light .navigation-conversation-row.status-idle .navigation-agent-icon,
+body.white-shell.theme-light .navigation-conversation-row.status-completed .navigation-agent-icon {
+  color: #22c55e;
 }
 
 body.white-shell.theme-light .navigation-conversation-row.status-running::after,
 body.white-shell.theme-light .navigation-conversation-row.status-pending::after,
 body.white-shell.theme-light .navigation-conversation-row.status-queued::after {
-  background: var(--ws-primary);
+  background: #3b82f6;
+}
+
+body.white-shell.theme-light .navigation-conversation-row.status-idle::after,
+body.white-shell.theme-light .navigation-conversation-row.status-completed::after {
+  background: #22c55e;
 }
 
 body.white-shell.theme-light .navigation-conversation-row.status-error .navigation-agent-icon,
@@ -2828,8 +2839,20 @@ body.white-shell.theme-light .messages:not(.empty) {
   grid-auto-rows: max-content;
   justify-content: start;
   align-content: start;
-  row-gap: 14px;
+  /* Exposed as a variable so rows that belong to the same turn can close the gap
+     without each density guessing at the number. */
+  --transcript-row-gap: 14px;
+  row-gap: var(--transcript-row-gap);
   padding: 14px 16px 14px;
+}
+
+/* A turn's activity strip is part of that turn, not a separate message, so the
+   message-to-message rhythm reads as a hole above and below it. Pull it back to a
+   fixed 4px on both sides so the strip sits against the turn it belongs to;
+   max() keeps it from ever going negative in densities whose gap is already
+   tighter than that. */
+body.white-shell.theme-light .messages:not(.empty) > [class~="message-tool-activity"] {
+  margin-block: calc(-1 * max(0px, var(--transcript-row-gap, 14px) - 4px));
 }
 
 body.white-shell.theme-light .messages:not(.empty) > [class~="message"],
@@ -2902,12 +2925,13 @@ body.white-shell.theme-light .messages:not(.empty) > [class~="message"]:not([cla
   gap: 7px;
 }
 
-body.white-shell.theme-light .messages:not(.empty) > [class~="message"]:not([class~="live-assistant-message"]) .message-avatar {
+body.white-shell.theme-light .messages:not(.empty) > [class~="message"] .message-avatar {
   width: 18px;
   height: 18px;
   display: inline-grid;
   flex: 0 0 18px;
   place-items: center;
+  overflow: hidden;
   border-radius: 999px;
   background: var(--ws-primary-soft);
   color: var(--ws-primary);
@@ -2916,12 +2940,20 @@ body.white-shell.theme-light .messages:not(.empty) > [class~="message"]:not([cla
   line-height: 1;
 }
 
+/* Keep the Autoto logo SVG inside the 18px avatar chip — without an explicit
+   size the bare viewBox expands to hundreds of pixels and shoves the transcript. */
+body.white-shell.theme-light .messages:not(.empty) > [class~="message"] .message-avatar svg {
+  width: 14px;
+  height: 14px;
+  display: block;
+}
+
 body.white-shell.theme-light .messages:not(.empty) > [class~="message"][class~="user"] .message-avatar {
   background: #f59e0b;
   color: #ffffff;
 }
 
-body.white-shell.theme-light .messages:not(.empty) > [class~="message"]:not([class~="live-assistant-message"]) .message-role {
+body.white-shell.theme-light .messages:not(.empty) > [class~="message"] .message-role {
   min-width: 0;
   display: block;
   overflow: hidden;
@@ -3246,7 +3278,8 @@ body.white-shell.theme-light .messages [class~="plan-card-actions"] > button {
 
   body.white-shell.theme-light .messages:not(.empty) {
     grid-template-columns: minmax(0, 100%);
-    row-gap: 10px;
+    --transcript-row-gap: 10px;
+    row-gap: var(--transcript-row-gap);
   }
 
   body.white-shell.theme-light .messages:not(.empty) > [class~="message"] {
@@ -3454,7 +3487,8 @@ body.white-shell.theme-light .messages [class~="plan-card-actions"] > button {
 
 @media (min-width: 768px) {
   body.white-shell.theme-light.ui-density-compact .messages:not(.empty) {
-    row-gap: 9px;
+    --transcript-row-gap: 9px;
+    row-gap: var(--transcript-row-gap);
     padding-top: 14px;
     padding-bottom: 10px;
   }
@@ -3809,21 +3843,61 @@ body.white-shell.theme-light .composer-select-chevron {
   font-weight: 700;
 }
 
-.composer-permission-danger-reflection-copy {
-  min-width: 0;
-  flex: 1 1 auto;
-  display: flex;
+.composer-permission-danger-reflection {
+  align-items: stretch;
   flex-direction: column;
-  gap: 1px;
+  gap: 7px;
+  background: transparent;
 }
 
-.composer-permission-danger-reflection-toggle {
-  flex: 0 0 auto;
-  width: 16px;
-  height: 16px;
-  margin: 0;
-  accent-color: #4057d6;
+.composer-permission-danger-reflection-heading {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: #20263a;
+  font-weight: 650;
+}
+
+.composer-permission-danger-reflection-levels {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 2px;
+  padding: 3px;
+  border-radius: 7px;
+  background: #eef0f3;
+}
+
+.composer-permission-danger-reflection-level {
+  min-width: 0;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: #505869;
+  padding: 6px 7px;
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.15;
+  text-align: center;
+  white-space: nowrap;
   cursor: pointer;
+}
+
+.composer-permission-danger-reflection-level:is(:hover, :focus-visible) {
+  outline: 0;
+  color: #20263a;
+}
+
+.composer-permission-danger-reflection-level.is-selected {
+  background: #ffffff;
+  color: #20263a;
+  font-weight: 700;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, .16);
+}
+
+.composer-permission-danger-reflection-level:disabled {
+  cursor: wait;
+  opacity: .65;
 }
 
 .composer-message-mode-section-title {
@@ -3871,9 +3945,20 @@ body.white-shell.theme-light .composer-select-chevron {
   color: #3a4150;
 }
 
-.mobile-permission-sheet .composer-permission-danger-reflection-toggle {
-  width: 20px;
-  height: 20px;
+.mobile-permission-sheet .composer-permission-danger-reflection {
+  align-items: stretch;
+  gap: 9px;
+  background: transparent;
+}
+
+.mobile-permission-sheet .composer-permission-danger-reflection-heading {
+  gap: 12px;
+}
+
+.mobile-permission-sheet .composer-permission-danger-reflection-level {
+  min-height: 34px;
+  padding: 7px 5px;
+  font-size: 13px;
 }
 
 .mobile-permission-sheet .composer-message-mode-section-title {

@@ -344,7 +344,7 @@ func (s *Server) updateRuntimeModelSettings(w http.ResponseWriter, r *http.Reque
 	if request.DefaultReasoningEffort.set {
 		effort := strings.ToLower(strings.TrimSpace(request.DefaultReasoningEffort.value))
 		if !validDefaultReasoningEffort(effort) {
-			writeError(w, http.StatusBadRequest, "defaultReasoningEffort must be auto, low, medium, or high")
+			writeError(w, http.StatusBadRequest, "defaultReasoningEffort must be auto, low, medium, high, xhigh, max, or ultra")
 			return
 		}
 		patch.DefaultReasoningEffort = &effort
@@ -392,7 +392,7 @@ func (s *Server) updateAgentReasoningEffort(w http.ResponseWriter, r *http.Reque
 	}
 	effort := strings.ToLower(strings.TrimSpace(request.ReasoningEffort.value))
 	if !validAgentReasoningEffort(effort, true) {
-		writeError(w, http.StatusBadRequest, "reasoningEffort must be empty, auto, low, medium, high, or xhigh")
+		writeError(w, http.StatusBadRequest, "reasoningEffort must be empty, auto, low, medium, high, xhigh, max, or ultra")
 		return
 	}
 	agentID := strings.TrimSpace(chi.URLParam(r, "id"))
@@ -731,16 +731,21 @@ func validAgentReasoningEffort(value string, allowEmpty bool) bool {
 		return allowEmpty
 	}
 	switch value {
-	case "auto", "low", "medium", "high", "xhigh":
+	case "auto", "low", "medium", "high", "xhigh", "max", "ultra":
 		return true
 	default:
 		return false
 	}
 }
 
+// validDefaultReasoningEffort accepts the same levels as a per-agent override,
+// including "xhigh", which Codex serves. The runtime default is provider
+// agnostic, and safeReasoningEffortForCapabilities already clamps an inherited
+// level a given model cannot serve down to "auto", so accepting it here cannot
+// push an unsupported effort at a provider.
 func validDefaultReasoningEffort(value string) bool {
 	switch value {
-	case "auto", "low", "medium", "high":
+	case "auto", "low", "medium", "high", "xhigh", "max", "ultra":
 		return true
 	default:
 		return false

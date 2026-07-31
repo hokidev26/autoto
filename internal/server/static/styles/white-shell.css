@@ -444,6 +444,29 @@ body.white-shell.theme-light .navigation-conversation-row.nested {
   width: calc(100% - 10px);
 }
 
+/* Fork conversations are nested below their root workline sibling */
+body.white-shell.theme-light .navigation-workline-forks {
+  margin-left: 10px;
+}
+
+body.white-shell.theme-light .navigation-conversation-row.fork-conversation {
+  position: relative;
+  padding-left: 8px;
+  border-left: 2px solid var(--ws-border, #e4e7ec);
+}
+
+body.white-shell.theme-light .navigation-conversation-row.fork-conversation.active {
+  border-left-color: var(--ws-primary, #5369f3);
+}
+
+body.white-shell.theme-light .navigation-conversation-row.fork-conversation .navigation-agent-icon {
+  color: var(--ws-muted, #747e90);
+}
+
+body.white-shell.theme-light .navigation-conversation-row.fork-conversation.active .navigation-agent-icon {
+  color: var(--ws-primary, #5369f3);
+}
+
 body.white-shell.theme-light .navigation-agent-icon {
   color: var(--ws-primary);
 }

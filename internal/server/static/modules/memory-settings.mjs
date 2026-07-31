@@ -22,13 +22,29 @@ export function normalizeMemoryPayload(input = {}, { partial = false } = {}) {
   if (!partial || has("keywords")) payload.keywords = parseMemoryKeywords(source.keywords);
   if (!partial || has("pinned")) payload.pinned = Boolean(source.pinned);
   if (partial && has("archived")) payload.archived = Boolean(source.archived);
+  // Ownership is fixed at creation: the server ignores it on update, so the
+  // payload only carries it when creating.
+  if (!partial && has("agentId")) {
+    const agentId = String(source.agentId ?? "").trim();
+    if (agentId) payload.agentId = agentId;
+  }
   return payload;
+}
+
+export const memoryScopes = Object.freeze(["all", "global", "agent"]);
+
+export function normalizeMemoryScope(value) {
+  const scope = String(value ?? "").trim().toLowerCase();
+  return memoryScopes.includes(scope) ? scope : "all";
 }
 
 export function normalizeMemoryItem(item = {}) {
   const source = item && typeof item === "object" ? item : {};
   return {
     id: String(source.id ?? ""),
+    // An empty agentId means the memory is global. A conversation-owned memory
+    // is injected on every run of that conversation and never leaves it.
+    agentId: String(source.agentId ?? source.agentID ?? ""),
     content: String(source.content ?? ""),
     keywords: parseMemoryKeywords(source.keywords),
     pinned: Boolean(source.pinned),
@@ -44,9 +60,12 @@ function memoryKeywordsText(keywords) {
 
 function renderMemoryStatus(item) {
   const badges = [];
+  // Scope comes first: it decides whether the entry needs keywords at all.
+  badges.push(item.agentId
+    ? `<span class="settings-status-pill settings-badge accent">${escapeHtml(t("memory.status.conversation"))}</span>`
+    : `<span class="settings-status-pill settings-badge">${escapeHtml(t("memory.status.global"))}</span>`);
   if (item.pinned) badges.push(`<span class="settings-status-pill settings-badge ok">${escapeHtml(t("memory.status.pinned"))}</span>`);
   if (item.archived) badges.push(`<span class="settings-status-pill settings-badge muted">${escapeHtml(t("memory.status.archived"))}</span>`);
-  if (!badges.length) badges.push(`<span class="settings-status-pill settings-badge">${escapeHtml(t("memory.status.normal"))}</span>`);
   return badges.join(" ");
 }
 
@@ -70,6 +89,7 @@ export function renderMemoryItem(value, { saving = false } = {}) {
           </label>
           <label class="settings-form-span-2">${escapeHtml(t("memory.keywordsLabel"))}
             <textarea class="settings-field settings-textarea" rows="2" data-memory-keywords placeholder="${escapeAttr(t("memory.keywordsPlaceholder"))}"${disabled}>${escapeHtml(memoryKeywordsText(item.keywords))}</textarea>
+            <small>${escapeHtml(t(item.agentId ? "memory.keywordsOptionalForConversation" : "memory.keywordsRequiredForGlobal"))}</small>
           </label>
         </div>
         <div class="settings-action-row settings-form-actions settings-inline-actions">
@@ -91,9 +111,12 @@ export function renderMemorySettingsContent(value = {}) {
     query: String(value.query ?? ""),
     includeArchived: Boolean(value.includeArchived),
     saving: Boolean(value.saving),
+    scope: normalizeMemoryScope(value.scope),
+    agentId: String(value.agentId ?? ""),
+    agentTitle: String(value.agentTitle ?? ""),
   };
   const pinnedCount = state.items.filter((item) => item.pinned).length;
-  const archivedCount = state.items.filter((item) => item.archived).length;
+  const conversationCount = state.items.filter((item) => item.agentId).length;
   const disabled = state.saving ? " disabled" : "";
   let list = "";
   if (state.loading) {
@@ -118,8 +141,8 @@ export function renderMemorySettingsContent(value = {}) {
       </section>
       <div class="settings-status-strip settings-stat-grid" aria-label="${escapeAttr(t("memory.currentResults"))}">
         <div class="settings-stat-card"><strong>${escapeHtml(String(state.items.length))}</strong><span>${escapeHtml(t("memory.currentResults"))}</span></div>
+        <div class="settings-stat-card"><strong>${escapeHtml(String(conversationCount))}</strong><span>${escapeHtml(t("memory.status.conversation"))}</span></div>
         <div class="settings-stat-card"><strong>${escapeHtml(String(pinnedCount))}</strong><span>${escapeHtml(t("memory.status.pinned"))}</span></div>
-        <div class="settings-stat-card"><strong>${escapeHtml(String(archivedCount))}</strong><span>${escapeHtml(t("memory.status.archived"))}</span></div>
       </div>
       ${state.error ? `<div class="settings-inline-alert settings-alert" role="alert" aria-live="assertive">${escapeHtml(state.error)}</div>` : ""}
       <section class="settings-provider-section settings-card settings-page-section highlighted">
@@ -134,11 +157,19 @@ export function renderMemorySettingsContent(value = {}) {
             <label>${escapeHtml(t("memory.searchLabel"))}
               <input id="memorySearchInput" class="settings-field" value="${escapeAttr(state.query)}" placeholder="${escapeAttr(t("memory.searchPlaceholder"))}"${disabled} />
             </label>
+            <label>${escapeHtml(t("memory.scopeLabel"))}
+              <select id="memoryScopeFilter" class="settings-field"${disabled}>
+                <option value="all" ${state.scope === "all" ? "selected" : ""}>${escapeHtml(t("memory.scopeAll"))}</option>
+                <option value="global" ${state.scope === "global" ? "selected" : ""}>${escapeHtml(t("memory.scopeGlobal"))}</option>
+                <option value="agent" ${state.scope === "agent" ? "selected" : ""}${state.agentId ? "" : " disabled"}>${escapeHtml(state.agentTitle ? t("memory.scopeNamedConversation", { title: state.agentTitle }) : t("memory.scopeConversation"))}</option>
+              </select>
+            </label>
             <label class="settings-checkbox-field settings-switch-row">
               <input id="memoryIncludeArchived" type="checkbox" ${state.includeArchived ? "checked" : ""}${disabled} />
               <span>${escapeHtml(t("memory.includeArchived"))}</span>
             </label>
           </div>
+          ${state.scope === "agent" && !state.agentId ? `<p class="settings-card-description">${escapeHtml(t("memory.scopeNeedsConversation"))}</p>` : ""}
           <div class="settings-action-row settings-form-actions settings-inline-actions">
             <button class="settings-action-btn primary" type="submit"${disabled}>${escapeHtml(t("common.search"))}</button>
             <button id="clearMemorySearchBtn" class="settings-action-btn subtle" type="button"${disabled}>${escapeHtml(t("memory.clearSearch"))}</button>
@@ -164,7 +195,12 @@ export function renderMemorySettingsContent(value = {}) {
               <input id="newMemoryPinned" type="checkbox"${disabled} />
               <span>${escapeHtml(t("memory.pinAfterCreate"))}</span>
             </label>
+            ${state.agentId ? `<label class="settings-checkbox-field settings-switch-row settings-form-span-2">
+              <input id="newMemoryOwned" type="checkbox"${disabled} />
+              <span>${escapeHtml(state.agentTitle ? t("memory.ownByNamedConversation", { title: state.agentTitle }) : t("memory.ownByConversation"))}</span>
+            </label>` : ""}
           </div>
+          <p class="settings-card-description" data-settings-help-copy>${escapeHtml(t("memory.scopeHelp"))}</p>
           <div class="settings-action-row settings-form-actions settings-inline-actions">
             <button class="settings-action-btn primary" type="submit"${disabled}>${escapeHtml(t(state.saving ? "memory.saving" : "memory.create"))}</button>
           </div>
@@ -181,6 +217,9 @@ export function createMemorySettingsController({
   showError,
   showToast,
   confirmDelete,
+  // Supplies the conversation the panel is opened next to, so a memory can be
+  // scoped to it without the user pasting an id.
+  getAgent,
 } = {}) {
   if (typeof request !== "function") throw new TypeError("Memory settings request must be a function");
   const state = {
@@ -190,15 +229,25 @@ export function createMemorySettingsController({
     query: "",
     includeArchived: false,
     saving: false,
+    scope: "all",
     requestSeq: 0,
   };
   let loaded = false;
+
+  function currentAgent() {
+    const agent = getAgent?.();
+    return {
+      id: String(agent?.id ?? ""),
+      title: String(agent?.title ?? ""),
+    };
+  }
 
   function emit() {
     onChange?.(getState());
   }
 
   function getState() {
+    const agent = currentAgent();
     return {
       loading: state.loading,
       error: state.error,
@@ -206,6 +255,9 @@ export function createMemorySettingsController({
       query: state.query,
       includeArchived: state.includeArchived,
       saving: state.saving,
+      scope: state.scope,
+      agentId: agent.id,
+      agentTitle: agent.title,
       requestSeq: state.requestSeq,
     };
   }
@@ -215,9 +267,14 @@ export function createMemorySettingsController({
     showError?.(error instanceof Error ? error : new Error(state.error));
   }
 
-  async function load({ query = state.query, includeArchived = state.includeArchived } = {}) {
+  async function load({ query = state.query, includeArchived = state.includeArchived, scope = state.scope } = {}) {
     state.query = String(query ?? "").slice(0, 200);
     state.includeArchived = Boolean(includeArchived);
+    state.scope = normalizeMemoryScope(scope);
+    const agent = currentAgent();
+    // Without a conversation to scope to, "this conversation" cannot be queried;
+    // fall back to everything rather than sending a request the server rejects.
+    if (state.scope === "agent" && !agent.id) state.scope = "all";
     const seq = ++state.requestSeq;
     state.loading = true;
     state.error = "";
@@ -226,6 +283,8 @@ export function createMemorySettingsController({
       q: state.query,
       includeArchived: String(state.includeArchived),
     });
+    if (state.scope !== "all") params.set("scope", state.scope);
+    if (state.scope === "agent") params.set("agentId", agent.id);
     try {
       const result = await request(`/api/memories?${params.toString()}`);
       if (seq !== state.requestSeq) return false;
@@ -317,6 +376,7 @@ export function createMemorySettingsController({
     });
     $("clearMemorySearchBtn")?.addEventListener("click", () => load({ query: "" }));
     $("memoryIncludeArchived")?.addEventListener("change", (event) => load({ includeArchived: event.currentTarget.checked }));
+    $("memoryScopeFilter")?.addEventListener("change", (event) => load({ scope: event.currentTarget.value }));
     $("refreshMemoriesBtn")?.addEventListener("click", () => load());
     $("createMemoryForm")?.addEventListener("submit", (event) => {
       event.preventDefault();
@@ -324,6 +384,7 @@ export function createMemorySettingsController({
         content: $("newMemoryContent")?.value || "",
         keywords: $("newMemoryKeywords")?.value || "",
         pinned: Boolean($("newMemoryPinned")?.checked),
+        agentId: $("newMemoryOwned")?.checked ? currentAgent().id : "",
       });
     });
     document.querySelectorAll("[data-memory-edit-form]").forEach((form) => {

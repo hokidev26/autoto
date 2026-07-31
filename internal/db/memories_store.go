@@ -25,10 +25,13 @@ func (s *Store) CreateMemory(ctx context.Context, memory Memory) (Memory, error)
 	now := Now()
 	canonical.CreatedAt = now
 	canonical.UpdatedAt = now
-	_, err = s.db.ExecContext(ctx, `INSERT INTO memories (id, content, keywords_json, pinned, archived_at, created_at, updated_at) VALUES (?, ?, ?, ?, NULLIF(?, ''), ?, ?)`, canonical.ID, canonical.Content, keywordsJSON, boolInt(canonical.Pinned), canonical.ArchivedAt, canonical.CreatedAt, canonical.UpdatedAt)
+	_, err = s.db.ExecContext(ctx, `INSERT INTO memories (id, agent_id, content, keywords_json, pinned, archived_at, created_at, updated_at) VALUES (?, NULLIF(?, ''), ?, ?, ?, NULLIF(?, ''), ?, ?)`, canonical.ID, canonical.AgentID, canonical.Content, keywordsJSON, boolInt(canonical.Pinned), canonical.ArchivedAt, canonical.CreatedAt, canonical.UpdatedAt)
 	if err != nil {
 		if isUniqueConstraint(err) {
 			return Memory{}, fmt.Errorf("%w: memory id already exists", ErrConflict)
+		}
+		if isForeignKeyConstraint(err) {
+			return Memory{}, fmt.Errorf("%w: memory agent does not exist", ErrConflict)
 		}
 		return Memory{}, err
 	}
@@ -41,7 +44,7 @@ func (s *Store) GetMemory(ctx context.Context, id string) (Memory, error) {
 		return Memory{}, sql.ErrNoRows
 	}
 	return scanMemory(func(dest ...any) error {
-		return s.db.QueryRowContext(ctx, `SELECT id, content, keywords_json, pinned, COALESCE(archived_at,''), created_at, updated_at FROM memories WHERE id = ?`, id).Scan(dest...)
+		return s.db.QueryRowContext(ctx, `SELECT id, COALESCE(agent_id,''), content, keywords_json, pinned, COALESCE(archived_at,''), created_at, updated_at FROM memories WHERE id = ?`, id).Scan(dest...)
 	})
 }
 
@@ -53,7 +56,23 @@ func (s *Store) ListMemories(ctx context.Context, args ...any) ([]Memory, error)
 	if err != nil {
 		return nil, err
 	}
-	rows, err := s.db.QueryContext(ctx, `SELECT id, content, keywords_json, pinned, COALESCE(archived_at,''), created_at, updated_at FROM memories WHERE ? = 1 OR archived_at IS NULL ORDER BY pinned DESC, updated_at DESC, id ASC`, boolInt(options.IncludeArchived))
+	scope, agentID, err := canonicalMemoryScope(options.Scope, options.AgentID)
+	if err != nil {
+		return nil, err
+	}
+	// A scoped listing must not leak another conversation's memories, so the
+	// filter belongs in SQL rather than in the caller.
+	scopeClause := ""
+	scopeArgs := []any{}
+	switch scope {
+	case MemoryScopeGlobal:
+		scopeClause = ` AND agent_id IS NULL`
+	case MemoryScopeAgent:
+		scopeClause = ` AND agent_id = ?`
+		scopeArgs = append(scopeArgs, agentID)
+	}
+	queryArgs := append([]any{boolInt(options.IncludeArchived)}, scopeArgs...)
+	rows, err := s.db.QueryContext(ctx, `SELECT id, COALESCE(agent_id,''), content, keywords_json, pinned, COALESCE(archived_at,''), created_at, updated_at FROM memories WHERE (? = 1 OR archived_at IS NULL)`+scopeClause+` ORDER BY pinned DESC, updated_at DESC, id ASC`, queryArgs...)
 	if err != nil {
 		return nil, err
 	}
@@ -83,6 +102,9 @@ func (s *Store) UpdateMemory(ctx context.Context, memory Memory) (Memory, error)
 	}
 	canonical.CreatedAt = existing.CreatedAt
 	canonical.UpdatedAt = nextMemoryUpdatedAt(existing.UpdatedAt)
+	// Ownership is immutable: moving a memory between conversations would silently
+	// change who can see it, so an update always keeps the stored agent.
+	canonical.AgentID = existing.AgentID
 	result, err := s.db.ExecContext(ctx, `UPDATE memories SET content = ?, keywords_json = ?, pinned = ?, archived_at = NULLIF(?, ''), updated_at = ? WHERE id = ?`, canonical.Content, keywordsJSON, boolInt(canonical.Pinned), canonical.ArchivedAt, canonical.UpdatedAt, canonical.ID)
 	if err != nil {
 		return Memory{}, err
@@ -165,7 +187,17 @@ func (s *Store) ListMatchingUninjectedMemories(ctx context.Context, agentID, tex
 	if limit <= 0 {
 		return []Memory{}, nil
 	}
-	rows, err := s.db.QueryContext(ctx, `SELECT m.id, m.content, m.keywords_json, m.pinned, COALESCE(m.archived_at,''), m.created_at, m.updated_at FROM memories m WHERE m.archived_at IS NULL AND m.keywords_json <> '[]' AND NOT EXISTS (SELECT 1 FROM memory_injections i WHERE i.memory_id = m.id AND i.agent_id = ?) ORDER BY m.pinned DESC, m.updated_at DESC, m.id ASC`, agentID)
+	// Two buckets with deliberately different rules:
+	//
+	//   - A memory owned by this conversation is durable state the user chose to
+	//     keep. It carries no keyword requirement and ignores the injection
+	//     ledger, because the system prompt is rebuilt every run: injecting it
+	//     once would let the next compaction erase it for good.
+	//   - A global memory is opt-in background material. It still needs a keyword
+	//     hit on the trigger text and still injects at most once per agent.
+	//
+	// Owned memories sort first so they win the shared injection budget.
+	rows, err := s.db.QueryContext(ctx, `SELECT m.id, COALESCE(m.agent_id,''), m.content, m.keywords_json, m.pinned, COALESCE(m.archived_at,''), m.created_at, m.updated_at FROM memories m WHERE m.archived_at IS NULL AND (m.agent_id = ? OR (m.agent_id IS NULL AND m.keywords_json <> '[]' AND NOT EXISTS (SELECT 1 FROM memory_injections i WHERE i.memory_id = m.id AND i.agent_id = ?))) ORDER BY (m.agent_id IS NULL), m.pinned DESC, m.updated_at DESC, m.id ASC`, agentID, agentID)
 	if err != nil {
 		return nil, err
 	}
@@ -177,7 +209,7 @@ func (s *Store) ListMatchingUninjectedMemories(ctx context.Context, agentID, tex
 		if err != nil {
 			return nil, err
 		}
-		if len(memory.Keywords) == 0 || !memoryKeywordsMatch(memory.Keywords, lowerText) {
+		if memory.AgentID == "" && (len(memory.Keywords) == 0 || !memoryKeywordsMatch(memory.Keywords, lowerText)) {
 			continue
 		}
 		matches = append(matches, memory)
@@ -189,6 +221,26 @@ func (s *Store) ListMatchingUninjectedMemories(ctx context.Context, agentID, tex
 		return nil, err
 	}
 	return matches, nil
+}
+
+// canonicalMemoryScope normalizes a listing scope and enforces that an
+// agent-scoped listing actually names an agent.
+func canonicalMemoryScope(scope, agentID string) (string, string, error) {
+	scope = strings.ToLower(strings.TrimSpace(scope))
+	agentID = strings.TrimSpace(agentID)
+	switch scope {
+	case "", MemoryScopeAll:
+		return MemoryScopeAll, agentID, nil
+	case MemoryScopeGlobal:
+		return MemoryScopeGlobal, "", nil
+	case MemoryScopeAgent:
+		if agentID == "" {
+			return "", "", errors.New("memory scope agent requires an agent id")
+		}
+		return MemoryScopeAgent, agentID, nil
+	default:
+		return "", "", fmt.Errorf("invalid memory scope %q", scope)
+	}
 }
 
 func (s *Store) MarkMemoriesInjected(ctx context.Context, agentID string, memoryIDs []string) error {
@@ -269,11 +321,15 @@ func parseMemoryListOptions(args []any) (MemoryListOptions, error) {
 
 func canonicalMemory(memory Memory, requireID bool) (Memory, string, error) {
 	memory.ID = strings.TrimSpace(memory.ID)
+	memory.AgentID = strings.TrimSpace(memory.AgentID)
 	memory.ArchivedAt = strings.TrimSpace(memory.ArchivedAt)
 	if requireID || memory.ID != "" {
 		if err := validateMemoryID(memory.ID); err != nil {
 			return Memory{}, "", err
 		}
+	}
+	if memory.AgentID != "" && (len(memory.AgentID) > 128 || !utf8.ValidString(memory.AgentID) || strings.ContainsRune(memory.AgentID, 0)) {
+		return Memory{}, "", errors.New("invalid memory agent id")
 	}
 	if strings.TrimSpace(memory.Content) == "" {
 		return Memory{}, "", errors.New("memory content is required")
@@ -367,7 +423,7 @@ func scanMemory(scan memoryScanner) (Memory, error) {
 	var memory Memory
 	var keywordsJSON string
 	var pinned int
-	if err := scan(&memory.ID, &memory.Content, &keywordsJSON, &pinned, &memory.ArchivedAt, &memory.CreatedAt, &memory.UpdatedAt); err != nil {
+	if err := scan(&memory.ID, &memory.AgentID, &memory.Content, &keywordsJSON, &pinned, &memory.ArchivedAt, &memory.CreatedAt, &memory.UpdatedAt); err != nil {
 		return Memory{}, err
 	}
 	var keywords []string

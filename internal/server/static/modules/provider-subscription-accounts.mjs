@@ -8,7 +8,7 @@ import {
   subscriptionProviderKind,
   subscriptionProviderKinds,
   subscriptionProviderSpec,
-} from "./model-provider-components.mjs?v=provider-subscription-accounts-1-provider-hidden-models-1";
+} from "./model-provider-components.mjs?v=provider-subscription-accounts-1-provider-hidden-models-1-provider-quota-overview-1";
 import {
   normalizeSubscriptionAccountList,
   normalizeSubscriptionLoginStatus,
@@ -24,7 +24,7 @@ import {
   finiteNumber,
   renderSubscriptionAccountManagementTable,
   subscriptionAccountOverview,
-} from "./provider-account-rendering.mjs";
+} from "./provider-account-rendering.mjs?v=provider-quota-overview-1";
 
 const subscriptionLoginActiveStatuses = new Set(["starting", "pending", "exchanging"]);
 
@@ -51,11 +51,23 @@ export function createSubscriptionAccountsController(ctx) {
   const pt = (provider, key, params) => t(`modelProvider.subscription.${provider}.${key}`, params);
 
   function ensureSubscriptionState() {
-    state.subscriptionAccounts ||= { gemini: [], grok: [], kimi: [], kiro: [] };
-    state.subscriptionAccountsLoading ||= { gemini: false, grok: false, kimi: false, kiro: false };
-    state.subscriptionAccountsError ||= { gemini: "", grok: "", kimi: "", kiro: "" };
-    state.subscriptionAccountsSeq ||= { gemini: 0, grok: 0, kimi: 0, kiro: 0 };
-    state.subscriptionAccountBusy ||= { gemini: {}, grok: {}, kimi: {}, kiro: {} };
+    const existingAccounts = state.subscriptionAccounts && typeof state.subscriptionAccounts === "object"
+      ? state.subscriptionAccounts
+      : null;
+    state.subscriptionAccounts ||= {};
+    state.subscriptionAccountsLoaded ||= Object.fromEntries(subscriptionProviderKinds.map((provider) => [provider, Boolean(existingAccounts && Object.hasOwn(existingAccounts, provider))]));
+    state.subscriptionAccountsLoading ||= {};
+    state.subscriptionAccountsError ||= {};
+    state.subscriptionAccountsSeq ||= {};
+    state.subscriptionAccountBusy ||= {};
+    for (const provider of subscriptionProviderKinds) {
+      if (!Object.hasOwn(state.subscriptionAccounts, provider)) state.subscriptionAccounts[provider] = [];
+      if (!Object.hasOwn(state.subscriptionAccountsLoaded, provider)) state.subscriptionAccountsLoaded[provider] = false;
+      if (!Object.hasOwn(state.subscriptionAccountsLoading, provider)) state.subscriptionAccountsLoading[provider] = false;
+      if (!Object.hasOwn(state.subscriptionAccountsError, provider)) state.subscriptionAccountsError[provider] = "";
+      if (!Object.hasOwn(state.subscriptionAccountsSeq, provider)) state.subscriptionAccountsSeq[provider] = 0;
+      if (!state.subscriptionAccountBusy[provider] || typeof state.subscriptionAccountBusy[provider] !== "object") state.subscriptionAccountBusy[provider] = {};
+    }
     return state;
   }
 
@@ -91,6 +103,13 @@ export function createSubscriptionAccountsController(ctx) {
     return normalizeSubscriptionAccountList(state.subscriptionAccounts[provider]);
   }
 
+  function accountsLoaded(provider) {
+    const p = normalizeSubscriptionProvider(provider);
+    if (!p) return false;
+    ensureSubscriptionState();
+    return Boolean(state.subscriptionAccountsLoaded[p]);
+  }
+
   function subscriptionAccountById(provider, id) {
     const target = String(id || "");
     return accountsFor(provider).find((account) => String(account?.id || account?.name || "") === target) || null;
@@ -110,6 +129,7 @@ export function createSubscriptionAccountsController(ctx) {
       const response = await requestAPI(request.path, request.options);
       if (seq !== state.subscriptionAccountsSeq[p]) return false;
       state.subscriptionAccounts[p] = normalizeSubscriptionAccountList(response);
+      state.subscriptionAccountsLoaded[p] = true;
       state.subscriptionAccountsError[p] = "";
       loaded = true;
     } catch (error) {
@@ -227,6 +247,8 @@ export function createSubscriptionAccountsController(ctx) {
       if (!accountsLoaded && state.subscriptionAccountsError[p]) refreshFailures.push(state.subscriptionAccountsError[p]);
       try {
         await loadModelCatalog?.();
+        const quotaSnapshotLoaded = await loadSubscriptionAccounts(p, { silent: true });
+        if (!quotaSnapshotLoaded && state.subscriptionAccountsError[p]) refreshFailures.push(state.subscriptionAccountsError[p]);
       } catch (error) {
         refreshFailures.push(error?.message || st("unknown"));
       }
@@ -585,6 +607,7 @@ export function createSubscriptionAccountsController(ctx) {
     subscriptionPage,
     subscriptionPages,
     accountsFor,
+    accountsLoaded,
     subscriptionAccountById,
     loadSubscriptionAccounts,
     refreshSubscriptionAccounts,

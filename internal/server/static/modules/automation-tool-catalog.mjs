@@ -209,10 +209,19 @@ export function createAutomationToolCatalogController({
     const serverId = String(item?.mcpServerId || "").trim();
     if (!item?.enabled || !serverId) return false;
     return mutate(id, "discover", async () => {
-      const result = await request(`/api/mcp/servers/${encodeURIComponent(serverId)}/tools`);
-      state.automationToolCatalogDiscovery = { ...state.automationToolCatalogDiscovery, [id]: result };
-      emit();
-      showToast?.(t("skillsWorkbench.automationCatalog.discoveredToast", { count: discoveryTools(result).length }), "success");
+      try {
+        const result = await request(`/api/mcp/servers/${encodeURIComponent(serverId)}/tools`);
+        state.automationToolCatalogDiscovery = { ...state.automationToolCatalogDiscovery, [id]: result };
+        emit();
+        showToast?.(t("skillsWorkbench.automationCatalog.discoveredToast", { count: discoveryTools(result).length }), "success");
+      } catch (error) {
+        state.automationToolCatalogDiscovery = {
+          ...state.automationToolCatalogDiscovery,
+          [id]: { error: error?.message || String(error) },
+        };
+        emit();
+        throw error;
+      }
     });
   }
 
@@ -248,23 +257,33 @@ export function createAutomationToolCatalogController({
       ["managedPath", item.managedPath || "—"],
       ["mcpServerId", item.mcpServerId || "—"],
     ];
-    return `<div class="settings-provider-meta settings-card-description">${fields.map(([key, value]) => `${escapeHtml(t(`skillsWorkbench.automationCatalog.${key}`))}: <code>${escapeHtml(value || "—")}</code>`).join(" · ")}</div>`;
+    return `<div class="settings-provider-meta settings-card-description skill-card-meta">${fields.map(([key, value]) => `${escapeHtml(t(`skillsWorkbench.automationCatalog.${key}`))}: <code>${escapeHtml(value || "—")}</code>`).join(" · ")}</div>`;
+  }
+
+  function renderIdentity(item) {
+    return `<div class="settings-provider-meta settings-card-description skill-card-meta"><strong>${escapeHtml(catalogCodeText("purpose", item.purpose))}</strong> · ${escapeHtml(catalogCodeText("risk", item.riskBoundary))}</div>`;
+  }
+
+  function renderDetails(item) {
+    return `<details class="skill-card-details"><summary>${escapeHtml(t("skillsWorkbench.automationCatalog.detailsSummary"))}</summary>${renderMetadata(item)}</details>`;
   }
 
   function renderPrerequisites(item) {
-    const prerequisites = Array.isArray(item.prerequisites) ? item.prerequisites : [];
-    if (!prerequisites.length) return `<div class="settings-provider-meta settings-card-description">${escapeHtml(t("skillsWorkbench.automationCatalog.prerequisites"))}: ${escapeHtml(t("skillsWorkbench.automationCatalog.none"))}</div>`;
-    return `<ul class="skill-findings">${prerequisites.slice(0, 12).map((prerequisite) => {
+    const unavailable = (Array.isArray(item.prerequisites) ? item.prerequisites : []).filter((prerequisite) => !prerequisite?.available).slice(0, 12);
+    if (!unavailable.length) return "";
+    return `<div class="settings-provider-meta settings-card-description skill-card-meta skill-card-prerequisites"><strong>${escapeHtml(t("skillsWorkbench.automationCatalog.prerequisites"))}</strong><ul class="skill-findings">${unavailable.map((prerequisite) => {
       const detail = prerequisiteDetail(prerequisite);
-      return `<li><strong>${escapeHtml(String(prerequisite?.id || "—").slice(0, 80))}</strong> · ${escapeHtml(t(prerequisite?.available ? "skillsWorkbench.automationCatalog.prerequisiteAvailable" : "skillsWorkbench.automationCatalog.prerequisiteUnavailable"))}${detail ? `：${escapeHtml(detail)}` : ""}</li>`;
-    }).join("")}</ul>`;
+      return `<li><strong>${escapeHtml(String(prerequisite?.id || "—").slice(0, 80))}</strong> · ${escapeHtml(t("skillsWorkbench.automationCatalog.prerequisiteUnavailable"))}${detail ? `：${escapeHtml(detail)}` : ""}</li>`;
+    }).join("")}</ul></div>`;
   }
 
   function renderDiscovery(item) {
     const result = state.automationToolCatalogDiscovery[item.id];
     if (!result) return "";
+    if (result.error) return `<div class="settings-inline-alert settings-alert skill-card-discovery" role="alert">${escapeHtml(t("skillsWorkbench.automationCatalog.discoveryFailed", { message: result.error }))}</div>`;
     const tools = discoveryTools(result);
-    return `<div class="settings-empty-card settings-empty-state compact"><strong>${escapeHtml(t("skillsWorkbench.automationCatalog.discoveredTools", { count: tools.length }))}</strong>${tools.length ? `<div class="settings-provider-meta settings-card-description">${tools.map((tool) => escapeHtml(tool?.name || t("skillsWorkbench.automationCatalog.unnamedTool"))).join(" · ")}</div>` : ""}</div>`;
+    if (!tools.length) return "";
+    return `<div class="settings-provider-meta settings-card-description skill-card-meta skill-card-discovery"><strong>${escapeHtml(t("skillsWorkbench.automationCatalog.discoveredTools", { count: tools.length }))}</strong> · ${tools.map((tool) => escapeHtml(tool?.name || t("skillsWorkbench.automationCatalog.unnamedTool"))).join(" · ")}</div>`;
   }
 
   function renderCard(item) {
@@ -277,22 +296,21 @@ export function createAutomationToolCatalogController({
     const anyBusy = installing || configuring || enabling || discovering;
     const officialURL = safeOfficialHTTPSURL(item);
     return `
-      <article class="skill-command-card settings-card settings-data-list-row ${item.enabled ? "" : "disabled"}" data-automation-tool-id="${escapeAttr(id)}" aria-busy="${anyBusy ? "true" : "false"}">
-        <div>
+      <article class="skill-command-card skill-card settings-card settings-data-list-row ${item.enabled ? "" : "disabled"}" data-automation-tool-id="${escapeAttr(id)}" aria-busy="${anyBusy ? "true" : "false"}">
+        <div class="skill-card-main">
           <div class="skill-command-title settings-card-title">${escapeHtml(itemName(item) || t("skillsWorkbench.automationCatalog.unnamed"))}</div>
-          ${renderMetadata(item)}
-          <div class="settings-provider-meta settings-card-description">${escapeHtml(t("skillsWorkbench.automationCatalog.installLocation"))}: <code>${escapeHtml(item.managedPath || t("skillsWorkbench.automationCatalog.externalLocation"))}</code></div>
-          <div class="settings-action-row settings-inline-actions">
+          ${renderIdentity(item)}
+          <div class="settings-action-row settings-inline-actions skill-card-meta">
             <span class="settings-status-pill settings-badge ${item.installed ? "ok" : "muted"}">${escapeHtml(t("skillsWorkbench.automationCatalog.stepInstalled"))}: ${escapeHtml(yesNo(item.installed))}${item.installedVersion ? ` · ${escapeHtml(item.installedVersion)}` : ""}</span>
             <span class="settings-status-pill settings-badge ${item.configured ? "ok" : "muted"}">${escapeHtml(t("skillsWorkbench.automationCatalog.stepConfigured"))}: ${escapeHtml(yesNo(item.configured))}</span>
             <span class="settings-status-pill settings-badge ${item.enabled ? "ok" : "muted"}">${escapeHtml(t("skillsWorkbench.automationCatalog.stepEnabled"))}: ${escapeHtml(yesNo(item.enabled))}</span>
           </div>
-          <div class="settings-provider-meta settings-card-description">${escapeHtml(t("skillsWorkbench.automationCatalog.prerequisites"))}</div>
           ${renderPrerequisites(item)}
-          ${external ? `<div class="settings-inline-alert settings-alert" role="note">${escapeHtml(t("skillsWorkbench.automationCatalog.externalBoundary"))}</div>` : ""}
+          ${external ? `<div class="settings-inline-alert settings-alert skill-card-boundary" role="note">${escapeHtml(t("skillsWorkbench.automationCatalog.externalBoundary"))}</div>` : ""}
           ${renderDiscovery(item)}
+          ${renderDetails(item)}
         </div>
-        <div class="settings-action-row settings-inline-actions">
+        <div class="settings-action-row settings-inline-actions skill-card-actions">
           ${external ? "" : `<button class="settings-action-btn primary" type="button" data-automation-install="${escapeAttr(id)}" ${!item.canInstall || anyBusy ? "disabled" : ""}>${escapeHtml(t(installing ? "skillsWorkbench.automationCatalog.installing" : "skillsWorkbench.automationCatalog.install"))}</button>
           <button class="settings-action-btn subtle" type="button" data-automation-configure="${escapeAttr(id)}" ${!item.canConfigure || anyBusy ? "disabled" : ""}>${escapeHtml(t(configuring ? "skillsWorkbench.automationCatalog.configuring" : "skillsWorkbench.automationCatalog.configure"))}</button>
           <button class="settings-action-btn subtle" type="button" data-automation-enable="${escapeAttr(id)}" data-automation-enabled="${item.enabled ? "true" : "false"}" ${!item.canEnable || !item.mcpServerId || anyBusy ? "disabled" : ""}>${escapeHtml(t(enabling ? "skillsWorkbench.automationCatalog.changing" : item.enabled ? "skillsWorkbench.automationCatalog.disable" : "skillsWorkbench.automationCatalog.enable"))}</button>

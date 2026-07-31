@@ -34,3 +34,7 @@ tmp/
 # Local source/reference repositories
 /autoto-legacy/
 /codeharbor-references/
+
+# Scratch scripts kept beside the source while debugging. They are working
+# notes, not part of the build, and they accumulate fast.
+_tmp_*

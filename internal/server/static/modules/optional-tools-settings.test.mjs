@@ -52,7 +52,7 @@ test("optional tools controller sends inherit/enabled/disabled CAS mutations", a
     target: { scope: "workspace", projectId: "p/1", workspaceId: "w 1" },
     request: async (path, options = {}) => {
       calls.push([path, options]);
-      if (path.endsWith("/catalog")) return { tools: [{ name: "read", domain: "filesystem" }] };
+      if (path.endsWith("/catalog")) return { tools: [{ name: "read", displayName: "Read files", description: "Long catalog explanation", domain: "filesystem" }] };
       if (path.includes("/rules?") && !options.method) {
         loadCount += 1;
         return { rules: loadCount <= 1
@@ -92,6 +92,11 @@ test("optional tools controller sends inherit/enabled/disabled CAS mutations", a
   assert.match(html, /value="inherit"/);
   assert.match(html, /value="enabled"/);
   assert.match(html, /value="disabled"/);
+  assert.match(html, /<label class="optional-tools-search">\s*<span class="optional-tools-search-label">Search tools<\/span><input class="optional-tools-search-input" type="search" data-optional-tools-search aria-label="Search tools"/);
+  assert.doesNotMatch(html, /<label class="settings-field">/);
+  assert.match(html, /<article class="optional-tool-row"[^>]*>\s*<div class="optional-tool-main">[\s\S]*?<\/div>\s*<\/div>\s*<div class="optional-tool-actions"><span class="settings-badge success">Enabled<\/span><select/);
+  assert.match(html, /Read files/);
+  assert.doesNotMatch(html, /Long catalog explanation/);
 });
 
 test("optional tools explains remote 403 restrictions", async () => {

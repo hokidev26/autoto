@@ -95,6 +95,9 @@ type GenerateRequest struct {
 	MaxOutputTokens       int64
 	FastMode              bool
 	EnableImageGeneration bool
+	// ImageOptions frames a dedicated image-generation request. It is ignored by
+	// providers and models that do not generate images.
+	ImageOptions ImageOptions
 	// Scenario identifies the caller boundary. The zero value is treated as an
 	// internal call for backwards compatibility.
 	Scenario CallScenario
@@ -226,10 +229,43 @@ type ModelCapabilities struct {
 	ImageGeneration      bool `json:"imageGeneration"`
 	ImageGenerationKnown bool `json:"-"`
 	ContextTokenLimit    int  `json:"contextTokenLimit"`
+	// ReasoningEfforts overrides the provider-wide list for this model. Codex
+	// levels differ per model — only some serve "max" or "ultra" — and asking a
+	// model for a level it does not serve is rejected outright, so an empty
+	// value here means "no model-specific knowledge, use the provider's list"
+	// rather than "no levels".
+	ReasoningEfforts []string `json:"reasoningEfforts,omitempty"`
+}
+
+// EffectiveReasoningEfforts resolves which levels a specific model accepts.
+// Model knowledge wins because it comes from the authenticated catalog, which
+// is per-account and more precise than the provider's static baseline.
+func EffectiveReasoningEfforts(capabilities Capabilities, model ModelCapabilities) []string {
+	if len(model.ReasoningEfforts) > 0 {
+		return canonicalReasoningEffortValues(model.ReasoningEfforts)
+	}
+	return canonicalCapabilities(capabilities).ReasoningEfforts
+}
+
+// CapabilitiesForModel folds a model's own effort list into the provider
+// capabilities, so a single value can be handed to SupportsReasoningEffort.
+func CapabilitiesForModel(capabilities Capabilities, model ModelCapabilities) Capabilities {
+	efforts := EffectiveReasoningEfforts(capabilities, model)
+	capabilities.ReasoningEfforts = efforts
+	capabilities.ReasoningEffort = len(efforts) > 0
+	return capabilities
 }
 
 type ModelCapabilityProvider interface {
 	ModelCapabilities(model string) ModelCapabilities
+}
+
+// DefaultContextTokenLimitProvider is an optional provider capability.
+// Providers that implement it advertise their protocol-level default context
+// window for models that have no explicit ContextTokenLimit configured. The
+// runner uses this before falling back to the global 120 000-token floor.
+type DefaultContextTokenLimitProvider interface {
+	DefaultContextTokenLimit() int
 }
 
 // ConfigurationProvider reports whether a runtime provider currently has the

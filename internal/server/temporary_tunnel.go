@@ -51,11 +51,17 @@ type temporaryTunnelProcess interface {
 type temporaryTunnelCommand func(context.Context, string, ...string) temporaryTunnelProcess
 type temporaryTunnelLookPath func(string) (string, error)
 
+// temporaryTunnelAddressResolver reports the address a tunnel should point at.
+// An empty return means there is nothing listening yet, which is a refusal to
+// start rather than an error in the tunnel itself.
+type temporaryTunnelAddressResolver func() (string, error)
+
 type temporaryTunnelOptions struct {
-	lookPath     temporaryTunnelLookPath
-	command      temporaryTunnelCommand
-	installer    temporaryTunnelInstaller
-	startTimeout time.Duration
+	lookPath        temporaryTunnelLookPath
+	command         temporaryTunnelCommand
+	installer       temporaryTunnelInstaller
+	startTimeout    time.Duration
+	addressResolver temporaryTunnelAddressResolver
 }
 
 type execTemporaryTunnelProcess struct {
@@ -107,24 +113,43 @@ type temporaryTunnelProcessState struct {
 }
 
 type TemporaryTunnelManager struct {
-	mu           sync.Mutex
-	bindAddress  string
-	binaryPath   string
-	available    bool
-	availableErr string
-	status       string
-	publicURL    string
-	errorMessage string
-	startedAt    time.Time
-	process      *temporaryTunnelProcessState
-	lookPath     temporaryTunnelLookPath
-	command      temporaryTunnelCommand
-	installer    temporaryTunnelInstaller
-	startTimeout time.Duration
+	mu sync.Mutex
+	// bindAddress is fixed for the tunnel that fronts Autoto's own listener.
+	// The gateway tunnel leaves it empty and supplies addressResolver instead,
+	// because the gateway's listener can move: it is bound separately, can be
+	// switched off, and can be reconfigured onto another host or port.
+	bindAddress     string
+	addressResolver temporaryTunnelAddressResolver
+	// startedAddress records what the running process was pointed at, so a
+	// later gateway move can be detected rather than silently breaking the
+	// public URL.
+	startedAddress string
+	binaryPath     string
+	available      bool
+	availableErr   string
+	status         string
+	publicURL      string
+	errorMessage   string
+	startedAt      time.Time
+	process        *temporaryTunnelProcessState
+	lookPath       temporaryTunnelLookPath
+	command        temporaryTunnelCommand
+	installer      temporaryTunnelInstaller
+	startTimeout   time.Duration
 }
 
 func NewTemporaryTunnelManager(bindAddress, homeDir string) *TemporaryTunnelManager {
 	return newTemporaryTunnelManager(bindAddress, temporaryTunnelOptions{installer: newGitHubCloudflaredInstaller(homeDir)})
+}
+
+// NewResolvedTunnelManager builds a manager whose target is resolved each time
+// it starts. The shared API gateway owns a listener of its own, so its address
+// is only known at start time and can change afterwards.
+func NewResolvedTunnelManager(resolver temporaryTunnelAddressResolver, homeDir string) *TemporaryTunnelManager {
+	return newTemporaryTunnelManager("", temporaryTunnelOptions{
+		installer:       newGitHubCloudflaredInstaller(homeDir),
+		addressResolver: resolver,
+	})
 }
 
 func newTemporaryTunnelManager(bindAddress string, options temporaryTunnelOptions) *TemporaryTunnelManager {
@@ -142,12 +167,13 @@ func newTemporaryTunnelManager(bindAddress string, options temporaryTunnelOption
 	}
 
 	manager := &TemporaryTunnelManager{
-		bindAddress:  strings.TrimSpace(bindAddress),
-		lookPath:     lookPath,
-		command:      command,
-		installer:    options.installer,
-		startTimeout: timeout,
-		status:       temporaryTunnelUnavailable,
+		bindAddress:     strings.TrimSpace(bindAddress),
+		addressResolver: options.addressResolver,
+		lookPath:        lookPath,
+		command:         command,
+		installer:       options.installer,
+		startTimeout:    timeout,
+		status:          temporaryTunnelUnavailable,
 	}
 	manager.refreshAvailabilityLocked()
 	return manager
@@ -193,6 +219,69 @@ func (m *TemporaryTunnelManager) refreshAvailabilityLocked() {
 	if m.status != temporaryTunnelError {
 		m.status = temporaryTunnelUnavailable
 	}
+}
+
+// targetAddressLocked reports where the tunnel should point. A resolver that
+// returns nothing means the service being fronted is not listening, which is
+// reported as a refusal the user can act on rather than a malformed address.
+func (m *TemporaryTunnelManager) targetAddressLocked() (string, error) {
+	if m.addressResolver == nil {
+		return m.bindAddress, nil
+	}
+	address, err := m.addressResolver()
+	if err != nil {
+		return "", err
+	}
+	address = strings.TrimSpace(address)
+	if address == "" {
+		return "", errors.New("the shared API is not running, so there is no address to expose")
+	}
+	return address, nil
+}
+
+// RevalidateAddress stops a running tunnel whose target has moved.
+//
+// The gateway rebinds when it is switched off or reconfigured onto another host
+// or port, and cloudflared keeps forwarding to the address it was given at
+// start. Without this the public URL stays up while every request behind it
+// fails, which is both invisible from here and very hard to diagnose from the
+// outside.
+//
+// Stopping is deliberate rather than restarting: a restart mints a different
+// public hostname, so a URL already handed out would break anyway, and doing it
+// silently is harder to understand than being told the tunnel closed.
+func (m *TemporaryTunnelManager) RevalidateAddress(ctx context.Context) (TemporaryTunnelSnapshot, bool) {
+	if m == nil || m.addressResolver == nil {
+		return TemporaryTunnelSnapshot{}, false
+	}
+	m.mu.Lock()
+	if m.process == nil || m.startedAddress == "" {
+		m.mu.Unlock()
+		return m.Snapshot(), false
+	}
+	current, err := m.targetAddressLocked()
+	// A resolver failure is treated the same as a move: either way the recorded
+	// address can no longer be trusted to be the live one.
+	if err == nil && current == m.startedAddress {
+		m.mu.Unlock()
+		return m.Snapshot(), false
+	}
+	m.mu.Unlock()
+
+	if _, stopErr := m.StopTunnel(ctx); stopErr != nil {
+		m.mu.Lock()
+		m.setErrorLocked(stopErr)
+		snapshot := m.snapshotLocked()
+		m.mu.Unlock()
+		return snapshot, true
+	}
+	m.mu.Lock()
+	m.startedAddress = ""
+	m.status = temporaryTunnelError
+	m.errorMessage = "The shared API address changed, so the public URL was closed. Start it again to get a new one."
+	snapshot := m.snapshotLocked()
+	m.mu.Unlock()
+	return snapshot, true
 }
 
 func (m *TemporaryTunnelManager) Snapshot() TemporaryTunnelSnapshot {
@@ -303,7 +392,13 @@ func (m *TemporaryTunnelManager) StartTunnel(ctx context.Context) (TemporaryTunn
 		}
 		return snapshot, errors.New(snapshot.Error)
 	}
-	port, err := tunnelPort(m.bindAddress)
+	address, err := m.targetAddressLocked()
+	if err != nil {
+		m.setErrorLocked(err)
+		m.mu.Unlock()
+		return m.Snapshot(), err
+	}
+	port, err := tunnelPort(address)
 	if err != nil {
 		m.setErrorLocked(err)
 		m.mu.Unlock()
@@ -313,6 +408,7 @@ func (m *TemporaryTunnelManager) StartTunnel(ctx context.Context) (TemporaryTunn
 	m.publicURL = ""
 	m.errorMessage = ""
 	m.startedAt = time.Time{}
+	m.startedAddress = address
 	binaryPath := m.binaryPath
 	command := m.command
 	timeout := m.startTimeout
@@ -398,6 +494,7 @@ func (m *TemporaryTunnelManager) StopTunnel(ctx context.Context) (TemporaryTunne
 		}
 		m.publicURL = ""
 		m.startedAt = time.Time{}
+		m.startedAddress = ""
 		if m.available {
 			m.status = temporaryTunnelIdle
 		} else {
@@ -446,6 +543,7 @@ func (m *TemporaryTunnelManager) waitTemporaryTunnel(running *temporaryTunnelPro
 		m.process = nil
 		m.publicURL = ""
 		m.startedAt = time.Time{}
+		m.startedAddress = ""
 		if running.stopRequested {
 			if m.available {
 				m.status = temporaryTunnelIdle

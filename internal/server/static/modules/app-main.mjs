@@ -8,9 +8,9 @@ import { createBackgroundTasksController } from "./background-tasks.mjs?v=subage
 import { createExecutionNotifications } from "./execution-notifications.mjs";
 import { createBackendRegistryController } from "./backend-registry.mjs?v=agent-admin-removed-1";
 import { createChatComposerController, normalizeChatDrafts, normalizePromptHistory } from "./chat-composer.mjs?v=plan-mode-1-project-context-1-model-save-gate-1-goal-command-2-queue-command-1-reasoning-steps-1-reasoning-history-1-markdown-2";
-import { createChatRenderingController, findToolActivityByIdentity, renderAgentTaskActivityCardHTML } from "./chat-rendering.mjs?v=protected-images-1-message-thread-1-plan-mode-2-user-message-left-1-switch-fix-3-hide-run-loading-1-i18n-shared-1-conversation-boundary-1-subagent-cards-1-message-lifecycle-1-subagent-incremental-1-profile-message-identity-1-profile-avatar-1-provider-errors-1-compact-run-error-1-first-token-task-status-1-tool-activity-lazy-1-tool-protocol-filter-1-live-assistant-last-1-tool-activity-svg-icons-1-reasoning-steps-1-reasoning-history-1-markdown-2";
+import { createChatRenderingController, findToolActivityByIdentity, renderAgentTaskActivityCardHTML } from "./chat-rendering.mjs?v=protected-images-1-message-thread-1-plan-mode-2-user-message-left-1-switch-fix-3-hide-run-loading-1-i18n-shared-1-conversation-boundary-1-subagent-cards-1-message-lifecycle-1-subagent-incremental-1-profile-message-identity-1-profile-avatar-1-provider-errors-1-compact-run-error-1-first-token-task-status-1-tool-activity-lazy-1-tool-protocol-filter-1-live-assistant-last-1-tool-activity-svg-icons-1-reasoning-steps-1-reasoning-history-1-markdown-2-tool-inline-detail-1-md-table-1-tool-position-1-project-run-history-1-dup-activity-fix-1-reasoning-count-1-avatar-logo-fix-1-markdown-stream-1";
 import { releaseProtectedImageURLs } from "./protected-images.mjs?v=protected-images-1";
-import { createContextManagementController } from "./context-management.mjs?v=context-ring-3";
+import { createContextManagementController } from "./context-management.mjs?v=context-ring-3-scoped-memory-1";
 import {
   addRecentConversation,
   buildNavigationView,
@@ -22,7 +22,8 @@ import {
   renderNavigationHTML,
   renderRecentConversationsHTML,
   resolveInitialNavigationTarget,
-} from "./conversation-navigation.mjs?v=mode-boundaries-2-project-flat-1-task-workspace-1-navigation-state-1-project-context-1-recent-sync-1-dual-rail-collapse-1-compact-navigation-1-theme-icons-1-workline-fork-1";
+  standaloneConversationOrderScope,
+} from "./conversation-navigation.mjs?v=mode-boundaries-2-project-flat-1-task-workspace-1-navigation-state-1-project-context-1-recent-sync-1-dual-rail-collapse-1-compact-navigation-1-theme-icons-1-workline-fork-1-conversation-order-1-nav-status-color-1";
 import {
   basename,
   canonicalLocalPath,
@@ -35,7 +36,7 @@ import { $, escapeAttr, escapeHtml, setButtonBusy } from "./dom.mjs";
 import { navigationCreateLabelKey, navigationCreateTarget } from "./navigation-create.mjs";
 import { createSubagentCardCoordinator } from "./subagent-cards.mjs?v=tool-activity-lazy-1";
 import { formatNumber, formatTimestamp } from "./formatters.mjs";
-import { t } from "./i18n.mjs?v=settings-flat-1-codex-browser-login-1-shared-api-1-apple-theme-1-autoto-themes-1-settings-help-1-task-workspace-1-navigation-state-2-archive-1-i18n-shared-1-overview-home-1-settings-cleanup-1-context-ring-3-global-background-1-theme-v2-1-background-upload-1-goal-command-2-queue-command-1-reasoning-steps-1-reasoning-history-1-markdown-2-first-run-setup-1";
+import { t } from "./i18n.mjs?v=settings-flat-1-codex-browser-login-1-shared-api-1-apple-theme-1-autoto-themes-1-settings-help-1-task-workspace-1-navigation-state-2-archive-1-i18n-shared-1-overview-home-1-settings-cleanup-1-context-ring-3-global-background-1-theme-v2-1-background-upload-1-goal-command-2-queue-command-1-reasoning-steps-1-reasoning-history-1-markdown-2-first-run-setup-1-home-launcher-1-scoped-memory-1";
 import { appMainT as am } from "./messages-app-main-extra.mjs?v=workbench-title-edit-1-hidden-toggle-removed-1-settings-cleanup-1";
 import { shellExtraT as sx } from "./messages-shell-extra.mjs";
 import { createGitWorkflowController } from "./git-workflow.mjs?v=merge-review-1";
@@ -44,13 +45,13 @@ import { createMCPRegistryUIController } from "./mcp-registry-ui.mjs";
 import { createPluginRegistryUIController } from "./plugin-registry-ui.mjs";
 import { createMemorySettingsController } from "./memory-settings.mjs";
 import { agentModelSettingsPayload } from "./model-routing-settings.mjs";
-import { createModelProviderSettingsController } from "./model-provider-settings.mjs?v=native-codex-3-provider-console-3-account-wide-1-model-compact-1-codex-export-1-settings-flat-1-aggregates-1-codex-import-open-1-provider-create-page-2-codex-browser-login-1-provider-secrets-1-model-picker-1-provider-full-page-2-provider-placeholders-1-usage-cost-1-codex-usage-clean-1-model-sections-hidden-1-model-configs-1-provider-reference-1-default-openai-responses-1-provider-draft-session-1-native-image-generation-1-provider-auto-name-1-provider-hidden-models-1-gemini-model-quota-1-safety-model-1";
+import { createModelProviderSettingsController } from "./model-provider-settings.mjs?v=native-codex-3-provider-console-3-account-wide-1-model-compact-1-codex-export-1-settings-flat-1-aggregates-1-codex-import-open-1-provider-create-page-2-codex-browser-login-1-provider-secrets-1-model-picker-1-provider-full-page-2-provider-placeholders-1-usage-cost-1-codex-usage-clean-1-model-sections-hidden-1-model-configs-1-provider-reference-1-default-openai-responses-1-provider-draft-session-1-native-image-generation-1-provider-auto-name-1-provider-hidden-models-1-gemini-model-quota-1-safety-model-1-provider-quota-overview-1";
 import {
   createOverviewDashboardController,
   overviewNavigationRoute,
   overviewRailTarget,
   resolveOverviewStartup,
-} from "./overview-dashboard.mjs?v=overview-home-3-nav-schedules-1-mobile-no-home-1-schedule-workspace-1-activity-heatmap-1";
+} from "./overview-dashboard.mjs?v=overview-home-3-nav-schedules-1-mobile-no-home-1-schedule-workspace-1-activity-heatmap-1-home-launcher-1-home-launcher-bottom-1-home-launcher-minimal-1";
 import { createPageLifecycleController } from "./page-lifecycle.mjs";
 import { confirm as platformConfirm } from "./platform.mjs";
 import { createProjectKanbanController } from "./project-kanban.mjs?v=workbench-3-mode-boundaries-1";
@@ -61,7 +62,7 @@ import { createThemeSettingsController } from "./theme-settings.mjs?v=autoto-the
 import { readLocalPreference, recentConversationsKey } from "./preferences-data.mjs?v=autoto-themes-1-schedule-workspace-1-global-background-1";
 import { applyRemoteAccessFailClosed, fullAccessAllowed, remoteAccessContext, terminalAccessAllowed } from "./remote-access-capabilities.mjs";
 import { createRemoteAccessSettingsController } from "./remote-access-settings.mjs?v=remote-control-full-4-remote-full-toggle-3-tunnel-busy-1";
-import { createSharedAPISettingsController } from "./shared-api-settings.mjs?v=shared-api-2-compact-layout-1-no-alias-safety-1";
+import { createSharedAPISettingsController } from "./shared-api-settings.mjs?v=shared-api-2-compact-layout-1-no-alias-safety-1-gateway-tunnel-1";
 import { applyServerSkillsLoadResult, createSkillsPhaseBController, hydrateServerSkillSummaries, isOptimisticSkillConflict, loadServerSkillsWithFallback, normalizeSkillContext } from "./skills-bootstrap.mjs";
 import { api, onAPIAuthorizationFailure, webSocketURL } from "./runtime.mjs";
 import { firstSettingsItemForCategory, groupSettingsItemsByLegacyCategory, legacySettingsCategories, settingsCategoryByKey, settingsCategoryForItem } from "./settings-categories.mjs?v=users-panel-removed-1-shared-api-1-agent-admin-removed-1-archive-1-settings-cleanup-1";
@@ -76,15 +77,16 @@ import { createSkillsContext } from "./skills-context.mjs";
 import { createServerResourceLoaders } from "./server-resource-loaders.mjs";
 import { createSetupWizardController } from "./setup-wizard.mjs?v=first-run-readiness-1";
 import { createSpecBoardController } from "./spec-board.mjs";
-import { createSystemSettingsController } from "./system-settings.mjs?v=users-panel-removed-1-about-brand-license-1-desktop-shell-1-execution-budget-1";
+import { createSystemSettingsController } from "./system-settings.mjs?v=users-panel-removed-1-about-brand-license-1-desktop-shell-1-execution-budget-2";
 import { installDesktopDeepLinkRouter, isDesktopShell } from "./desktop-shell-ui.mjs";
-import { createSkillsWorkbenchController } from "./skills-workbench.mjs?v=users-panel-removed-1-config-center-1-automation-tool-catalog-1";
+import { createSkillsWorkbenchController } from "./skills-workbench.mjs?v=users-panel-removed-1-config-center-1-automation-tool-catalog-1-optional-tools-compact-1-skills-density-1";
 import { createTerminalController } from "./terminal.mjs?v=terminal-actions-compact-2";
-import { createUIShellController, elementVisible, isComposingInput } from "./ui-shell.mjs?v=permission-panel-2-plan-mode-panel-1-mobile-toolbar-right-3-icon-rail-1-mobile-viewport-1-sidebar-wheel-1-settings-cleanup-1-context-ring-3-dual-rail-collapse-1-compact-navigation-1-global-rail-2-model-menu-scroll-1-utility-resize-2-sheet-trim-1-model-provider-groups-1-danger-reflection-desc-1-model-icon-only-1-theme-icon-1";
+import { createUIShellController, elementVisible, isComposingInput } from "./ui-shell.mjs?v=permission-panel-2-plan-mode-panel-1-mobile-toolbar-right-3-icon-rail-1-mobile-viewport-1-sidebar-wheel-1-settings-cleanup-1-context-ring-3-dual-rail-collapse-1-compact-navigation-1-global-rail-2-model-menu-scroll-1-utility-resize-2-sheet-trim-1-model-provider-groups-1-danger-reflection-desc-1-danger-reflection-levels-1-model-icon-only-1-theme-icon-1";
 import { createUsageHistoryController } from "./usage-history.mjs";
 import { createAgentWorkspaceHelpers } from "./agent-workspace-helpers.mjs?v=task-summary-activity-1";
 import { createNavigationContextMenu } from "./navigation-context-menu.mjs";
 import { createOverviewNavHelpers } from "./overview-nav-helpers.mjs";
+import { installPullToRefresh, isPullToRefreshSupported } from "./pull-to-refresh.mjs?v=pull-to-refresh-1";
 import { createWorkbenchSidebarRender, primaryWorkbenchLayout } from "./workbench-sidebar-render.mjs";
 import { createWorkspaceContextHelpers } from "./workspace-context-helpers.mjs";
 import { createWorkspaceExplorerController } from "./workspace-explorer.mjs?v=viewport-menu-1";
@@ -826,6 +828,7 @@ const {
   beginLiveAssistantGeneration,
   clearCurrentAgentApprovals,
   clearLiveImageGenerations,
+  clearLiveToolOutputs,
   clearPlanState,
   clearLiveAssistantText,
   clearMessageRefreshTimer,
@@ -844,6 +847,7 @@ const {
   appendLiveReasoning,
   clearLiveReasoning,
   closeLiveReasoningStep,
+  rememberAssistantToolOwner,
   rememberToolStarted,
   rememberUserQuestion,
   refreshUserMessageIdentity,
@@ -1130,6 +1134,7 @@ const {
   renderModelOptions,
   renderModelSettingsContent,
   renderProviderSettingsContent,
+  resetProviderConsoleToProviderList,
   selectedModelValue,
   setPreferredModel,
 } = modelProviderSettings;
@@ -1535,6 +1540,9 @@ const archiveSettings = createArchiveSettingsController({
   refresh: () => {
     if (state.activeSettingsPanel === "archive") refreshActiveSettingsPanel();
   },
+  // A permanent delete removes rows the sidebar and active selection may still
+  // reference, so resync navigation from the server afterwards.
+  onDeleted: () => loadProjects(),
   showError,
   showToast,
 });
@@ -1641,11 +1649,39 @@ function formatDateTime(value) {
   return formatTimestamp(value);
 }
 
+function overviewLauncherContext() {
+  const modelSelect = $("modelSelect");
+  const models = Array.from(modelSelect?.options || [])
+    .map((option) => ({
+      value: String(option?.value || "").trim(),
+      label: String(option?.textContent || option?.label || option?.value || "").trim(),
+      group: String(option?.parentElement?.label || "").trim(),
+    }))
+    .filter((option) => option.value && option.label);
+  const selectedModel = selectedModelValue() || currentModelValue();
+  return {
+    displayName: accountPreferences.getProfile?.().displayName || "",
+    projects: (Array.isArray(state.projects) ? state.projects : []).map((project) => ({
+      id: String(project?.id || ""),
+      name: String(project?.name || project?.id || ""),
+      path: String(project?.gitPath || ""),
+    })),
+    selectedProjectId: String(state.project?.id || ""),
+    models,
+    selectedModel,
+    selectedEffort: selectedReasoningEffort(selectedModel),
+    hour: new Date().getHours(),
+  };
+}
+
 const overviewDashboard = createOverviewDashboardController({
   request: api,
   host: "#overviewDashboard",
   translate: t,
   formatDateTime,
+  getLauncherContext: overviewLauncherContext,
+  onLaunch: launchOverviewPrompt,
+  onChooseDirectory: () => openDirectoryChooser(state.project?.gitPath || state.agent?.cwd || ""),
   onNavigate: handleOverviewNavigation,
   onError: showError,
 });
@@ -1945,6 +1981,11 @@ function openSettingsModal(key = "providers", { trigger = document.activeElement
   closeConversationDetails();
   if (state.workspaceOpen && state.workspaceTab === "preview") closeWorkspace();
   const itemKey = settingsItemByKey(key)?.key || "providers";
+  // Opening Settings lands on the category itself. The provider account
+  // pages are drill-downs reached from the provider list, so resuming one
+  // made "Settings" appear to open on some account screen instead of the
+  // list the sidebar says is selected.
+  resetProviderConsoleToProviderList();
   const modal = $("settingsModal");
   const wasOpen = !modal?.classList.contains("hidden");
   state.settingsSearchQuery = "";
@@ -2553,20 +2594,33 @@ function setStandaloneConversationCreationBusy(busy) {
   });
 }
 
+function overviewPromptTitle(value) {
+  const firstLine = String(value || "").split(/\r?\n/, 1)[0].replace(/\s+/g, " ").trim();
+  return Array.from(firstLine || t("shell.newConversation")).slice(0, 80).join("");
+}
+
 // Forks a project into a new git branch + worktree and opens its conversation.
 // The branch name is left to the server, which derives it from the title and
 // appends a short id: naming it here would need a dialog this shell does not
 // have, and the conversation title stays renameable afterward while the branch
 // does not.
-async function createProjectWorkline(projectId, trigger = null) {
+async function createProjectWorkline(projectId, trigger = null, options = {}) {
   const id = String(projectId || "").trim();
   if (!id || state.worklineForking) return null;
+  const requestBody = {};
+  const title = String(options?.title || "").trim();
+  const model = String(options?.model || "").trim();
+  const permissionMode = String(options?.permissionMode || "").trim();
+  if (title) requestBody.title = title;
+  if (model) requestBody.model = model;
+  if (permissionMode) requestBody.permissionMode = permissionMode;
   state.worklineForking = true;
   if (trigger) {
     trigger.disabled = true;
     trigger.setAttribute("aria-busy", "true");
   }
   showToast(t("shell.newWorklineCreating"), "info");
+  let gitSetupAttempted = false;
   try {
     const worklines = await api(`/api/projects/${encodeURIComponent(id)}/worklines`);
     const list = Array.isArray(worklines) ? worklines : [];
@@ -2574,20 +2628,45 @@ async function createProjectWorkline(projectId, trigger = null) {
     // than chaining forks onto whichever workline happens to be first.
     const parent = list.find((item) => item?.isRoot) || list[0];
     if (!parent?.id) throw new Error(t("shell.newWorklineFailed"));
-    const created = await api(`/api/worklines/${encodeURIComponent(parent.id)}/fork`, {
+    const fork = () => api(`/api/worklines/${encodeURIComponent(parent.id)}/fork`, {
       method: "POST",
-      body: JSON.stringify({}),
+      body: JSON.stringify(requestBody),
     });
+
+    let created;
+    try {
+      created = await fork();
+    } catch (error) {
+      const setupCode = String(error?.body?.code || "");
+      if (!new Set(["no_git_repo", "git_no_commits"]).has(setupCode)) throw error;
+      const path = error?.body?.path || id;
+      const confirmKey = setupCode === "git_no_commits" ? "shell.gitInitialCommitConfirm" : "shell.gitInitConfirm";
+      if (!await platformConfirm(t(confirmKey, { path }))) return null;
+      gitSetupAttempted = true;
+      await api(`/api/projects/${encodeURIComponent(id)}/init-git`, { method: "POST" });
+      showToast(t("shell.gitInitSuccess"), "success", { force: true });
+      // Keep this retry inside the same busy lifecycle. Recursive re-entry used
+      // to let the outer finally clear the busy flag while the retry was active.
+      created = await fork();
+    }
+
     const agentId = String(created?.agent?.id || "").trim();
     await loadProjects();
     if (agentId) {
-      const conversation = state.navigationConversations.find((item) => item.agentId === agentId);
-      if (conversation) await selectNavigationConversation(conversation);
+      const conversation = state.navigationConversations.find((item) => item.agentId === agentId) || {
+        agentId,
+        agentTitle: created?.agent?.title || title || agentId,
+        projectId: id,
+        worklineId: created?.workline?.id || "",
+        standalone: false,
+        context: "project",
+      };
+      await selectNavigationConversation(conversation);
     }
     showToast(t("shell.newWorklineSuccess", { branch: created?.workline?.branch || "" }), "success", { force: true });
     return created;
   } catch (error) {
-    showToast(error?.message || t("shell.newWorklineFailed"), "error", { force: true });
+    showToast(error?.message || t(gitSetupAttempted ? "shell.gitInitFailed" : "shell.newWorklineFailed"), "error", { force: true });
     return null;
   } finally {
     state.worklineForking = false;
@@ -2598,7 +2677,7 @@ async function createProjectWorkline(projectId, trigger = null) {
   }
 }
 
-async function createStandaloneConversation() {
+async function createStandaloneConversation(options = {}) {
   if (state.standaloneConversationCreating) return null;
   saveCurrentChatDraft();
   hideSlashCommandPalette();
@@ -2606,10 +2685,11 @@ async function createStandaloneConversation() {
   state.standaloneConversationCreating = true;
   setStandaloneConversationCreationBusy(true);
   try {
-    const model = selectedModelValue();
+    const model = String(options?.model || selectedModelValue() || "").trim();
+    const title = String(options?.title || t("shell.newConversation")).trim() || t("shell.newConversation");
     const created = await api("/api/conversations", {
       method: "POST",
-      body: JSON.stringify({ title: t("shell.newConversation"), ...(model ? { model } : {}) }),
+      body: JSON.stringify({ title, ...(model ? { model } : {}) }),
     });
     const agentId = String(created?.agent?.id || created?.agentId || created?.id || "").trim();
     if (!agentId) throw new Error(t("shell.conversationCreateInvalid"));
@@ -2623,6 +2703,30 @@ async function createStandaloneConversation() {
     state.standaloneConversationCreating = false;
     setStandaloneConversationCreationBusy(false);
   }
+}
+
+async function launchOverviewPrompt({ text, mode = "conversation", projectId = "", model = "", reasoningEffort = "auto" } = {}) {
+  const prompt = String(text || "").trim();
+  if (!prompt) throw new Error(t("overview.promptRequired"));
+  const title = overviewPromptTitle(prompt);
+  const selectedModel = String(model || selectedModelValue() || "").trim();
+  let agent = null;
+
+  if (mode === "workspace") {
+    const selectedProjectId = String(projectId || "").trim();
+    if (!selectedProjectId) throw new Error(t("overview.projectRequired"));
+    const created = await createProjectWorkline(selectedProjectId, null, { title, model: selectedModel });
+    agent = state.agent?.id === created?.agent?.id ? state.agent : created?.agent || null;
+    if (!agent?.id || state.agent?.id !== agent.id) throw new Error(t("shell.newWorklineFailed"));
+  } else {
+    agent = await createStandaloneConversation({ title, model: selectedModel });
+    if (!agent?.id) throw new Error(t("shell.conversationCreateInvalid"));
+  }
+
+  await saveReasoningEffort(reasoningEffort || "auto");
+  setMessageInputValue(prompt, { saveDraft: false });
+  await sendMessage({ preventDefault() {} });
+  return true;
 }
 
 function startScheduleCreation() {
@@ -2763,26 +2867,44 @@ function bindConversationDrag(el) {
   if (el.dataset) el.dataset.convDragBound = "true";
 
   let dragAgentId = "";
-  let dragProjectId = "";
+  let dragOrderScope = "";
+
+  function conversationOrderScope(row) {
+    const explicit = String(row?.dataset?.conversationOrderScope || "").trim();
+    if (explicit) return explicit;
+    if (row?.dataset?.standaloneConversation === "true") return standaloneConversationOrderScope;
+    return String(row?.closest?.("[data-navigation-project-group]")?.dataset?.navigationProjectGroup || "").trim();
+  }
+
+  function conversationRows(scope) {
+    if (!scope) return [];
+    const escaped = CSS.escape(scope);
+    const scoped = Array.from(el.querySelectorAll(`[data-navigation-target][data-conversation-order-scope="${escaped}"]`));
+    if (scoped.length) return scoped;
+    if (scope === standaloneConversationOrderScope) {
+      return Array.from(el.querySelectorAll('[data-navigation-target][data-standalone-conversation="true"]'));
+    }
+    return Array.from(el.querySelectorAll(`[data-project-conversations="${escaped}"] [data-navigation-target]`));
+  }
 
   el.addEventListener("dragstart", (event) => {
     const row = event.target?.closest?.("[data-navigation-target][draggable]");
     if (!row) return;
+    const orderScope = conversationOrderScope(row);
+    if (!orderScope) return;
     dragAgentId = row.dataset.navigationId || "";
-    const group = row.closest("[data-navigation-project-group]");
-    dragProjectId = group?.dataset?.navigationProjectGroup || "";
+    dragOrderScope = orderScope;
     event.dataTransfer.setData("text/plain", dragAgentId);
     event.dataTransfer.effectAllowed = "move";
     row.classList.add("conv-dragging");
   });
 
   el.addEventListener("dragover", (event) => {
-    // Only claim the event while a conversation drag is actually in flight.
-    // Without this guard a project drag passing over a conversation row was
-    // hijacked here, so the project never reached its own drop target.
-    if (!dragAgentId) return;
+    // Only claim rows in the same ordering scope. Project conversations stay
+    // inside their project, while standalone conversations share one flat list.
+    if (!dragAgentId || !dragOrderScope) return;
     const row = event.target?.closest?.("[data-navigation-target]");
-    if (!row || row.dataset.navigationId === dragAgentId) return;
+    if (!row || row.dataset.navigationId === dragAgentId || conversationOrderScope(row) !== dragOrderScope) return;
     event.preventDefault();
     event.dataTransfer.dropEffect = "move";
     el.querySelectorAll(".conv-drag-over").forEach((n) => n.classList.remove("conv-drag-over"));
@@ -2796,29 +2918,22 @@ function bindConversationDrag(el) {
   });
 
   el.addEventListener("drop", (event) => {
-    // Bail out before preventDefault when this is not a conversation drag.
-    // This handler is registered before bindProjectDrag's, so an unconditional
-    // preventDefault() here consumed project drops and made project reordering
-    // silently do nothing.
-    if (!dragAgentId) return;
+    // Bail out before preventDefault when this is not a conversation drag so a
+    // project drag can continue to the project-level handler registered later.
+    if (!dragAgentId || !dragOrderScope) return;
     const targetRow = event.target?.closest?.("[data-navigation-target]");
     if (!targetRow) return;
-    event.preventDefault();
-    const targetGroup = targetRow.closest?.("[data-navigation-project-group]");
     const targetAgentId = targetRow.dataset.navigationId || "";
-    const targetProjectId = targetGroup?.dataset?.navigationProjectGroup || "";
-    if (targetAgentId === dragAgentId || targetProjectId !== dragProjectId) return;
+    if (targetAgentId === dragAgentId || conversationOrderScope(targetRow) !== dragOrderScope) return;
+    event.preventDefault();
 
-    const group = el.querySelector(`[data-project-conversations="${CSS.escape(dragProjectId)}"]`);
-    if (!group) return;
-    const rows = Array.from(group.querySelectorAll("[data-navigation-target]"));
-    const ids = rows.map((r) => r.dataset.navigationId || "");
+    const ids = conversationRows(dragOrderScope).map((row) => row.dataset.navigationId || "").filter(Boolean);
     const fromIdx = ids.indexOf(dragAgentId);
     const toIdx = ids.indexOf(targetAgentId);
     if (fromIdx < 0 || toIdx < 0 || fromIdx === toIdx) return;
     ids.splice(fromIdx, 1);
     ids.splice(toIdx, 0, dragAgentId);
-    saveConversationOrder(dragProjectId, ids);
+    saveConversationOrder(dragOrderScope, ids);
     renderProjects();
   });
 
@@ -2827,7 +2942,7 @@ function bindConversationDrag(el) {
       n.classList.remove("conv-dragging", "conv-drag-over");
     });
     dragAgentId = "";
-    dragProjectId = "";
+    dragOrderScope = "";
   });
 }
 
@@ -3412,6 +3527,10 @@ async function handleAgentStreamEvent(event) {
   }
   const runId = event.data?.runId || "";
   const requestId = event.data?.requestId || "";
+  // The assistant turn is persisted and announced before its tools run, so this
+  // is the last message id seen when tool.started arrives -- i.e. the owner of
+  // whatever activity follows.
+  if (event.type === "message.created") rememberAssistantToolOwner(event.messageId || event.data?.messageId);
   const completedMessageEvents = ["message.created", "message.completed"];
   const terminalAgentEvents = ["agent.done", "agent.error", "agent.interrupted"];
   const navigationRefreshEvents = ["agent.started", ...completedMessageEvents, ...terminalAgentEvents];
@@ -3420,6 +3539,7 @@ async function handleAgentStreamEvent(event) {
     syncNavigationConversationFromAgent(state.agent, { status: "running", reason: "agent-started" });
     clearRunSummary();
     clearLiveAssistantText();
+    syncMessageComposerBusy();
     refreshComposerActivityStatus();
   }
   if (event.type === "model.started") {
@@ -3485,15 +3605,29 @@ async function handleAgentStreamEvent(event) {
   if ([...completedMessageEvents, ...terminalAgentEvents].includes(event.type)) {
     clearLiveAssistantText();
     clearLiveImageGenerations({ agentId });
+    syncMessageComposerBusy();
     refreshComposerActivityStatus();
   }
   if ([...completedMessageEvents, ...terminalAgentEvents].includes(event.type)) scheduleMessageRefresh(80, agentId);
   if (navigationRefreshEvents.includes(event.type)) navigationRefresh.request(event.type);
-  // Intentionally not auto-loading the run summary card here: it used to pop up
-  // after every single run, which is unwanted noise. The card is still fully
-  // available on demand (e.g. reopening the conversation restores the latest
-  // run's summary via loadLatestRunSummary, and overview/subagent links can
-  // load a specific run's summary via loadRunSummary).
+  if (["agent.error", "agent.interrupted"].includes(event.type)) {
+    const restore = runId ? loadRunSummary(runId, { agentId }) : loadLatestRunSummary(agentId);
+    void restore.then((summary) => {
+      if (!summary || state.agent?.id !== agentId) return;
+      // The persisted outcome now owns these records; remove the live copy so
+      // the same tool calls are not shown twice.
+      clearLiveToolOutputs({ agentId });
+    }).catch((error) => notifyTerminal(`[warn] ${am("runSummaryRestoreFailed", { message: error?.message || error })}\n`));
+  }
+  // Successful runs: also eagerly persist tool history so it survives before
+  // the next user message triggers pruneLiveToolOutputs and wipes the live view.
+  if (event.type === "agent.done" && runId) {
+    const restore = loadRunSummary(runId, { agentId });
+    void restore.then((summary) => {
+      if (!summary || state.agent?.id !== agentId) return;
+      clearLiveToolOutputs({ agentId });
+    }).catch(() => {});
+  }
 }
 
 function captureAgentSettingsSnapshot() {
@@ -3706,6 +3840,18 @@ $("mobileMenuBtn").addEventListener("click", () => {
 $("mobileSidebarCloseBtn")?.addEventListener("click", closeMobileSidebar);
 $("mobileSidebarBackdrop").addEventListener("click", closeMobileSidebar);
 $("mobileSearchBtn").addEventListener("click", focusMobileSearch);
+// An installed PWA has no browser reload button, so the top bar carries the
+// gesture instead. Bound to the top bar rather than the transcript because the
+// transcript's top edge already loads older history.
+if (isPullToRefreshSupported()) {
+  const mobileTopbar = document.querySelector(".mobile-topbar");
+  if (mobileTopbar) {
+    installPullToRefresh({
+      target: mobileTopbar,
+      onRefresh: () => globalThis.location?.reload?.(),
+    });
+  }
+}
 $("mobileSidebarSettingsBtn")?.addEventListener("click", () => {
   closeMobileSidebar();
   closeSidebarSettingsMenu();

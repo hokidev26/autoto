@@ -38,7 +38,7 @@ test("plugin registry escapes manifest text and never renders secret targets or 
   await controller.loadPlugins();
   const html = controller.renderPluginRegistryPanel({ description: "Plugins <local>" });
   assert.match(html, /&lt;script&gt;alert\(1\)&lt;\/script&gt;/);
-  assert.match(html, /&lt;b&gt;unsafe&lt;\/b&gt;/);
+  assert.doesNotMatch(html, /&lt;b&gt;unsafe&lt;\/b&gt;/);
   assert.match(html, /TOKEN/);
   assert.match(html, /已配置/);
   assert.match(html, /data-plugin-discover="plugin-1" disabled>/);

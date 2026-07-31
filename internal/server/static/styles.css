@@ -1,11 +1,11 @@
 /* Split into cascade-ordered modules under styles/. Order matters: these
    @import rules are equivalent to concatenating the files in this order. */
 @import url("styles/base.css");
-@import url("styles/workspace.css?v=native-image-generation-1-outline-icon-fill-1");
-@import url("styles/settings-legacy.css?v=first-run-setup-1-mobile-composer-4");
+@import url("styles/workspace.css?v=native-image-generation-1-outline-icon-fill-1-conversation-drag-outline-1");
+@import url("styles/settings-legacy.css?v=first-run-setup-1-mobile-composer-4-history-scroll-1");
 @import url("styles/white-shell.css?v=layout-5");
-@import url("styles/workbench.css?v=layout-6-model-provider-groups-1-flat-composer-7-mobile-hide-run-summary-1-mobile-composer-4");
-@import url("styles/settings.css?v=mobile-polish-6-model-provider-groups-1-first-run-setup-1-subscription-login-panel-1-mobile-composer-4");
-@import url("styles/providers.css?v=native-image-generation-1");
-@import url("styles/workspace-tasks.css?v=tool-activity-lazy-1-idle-dot-2-flat-avatar-1");
-@import url("styles/extras.css?v=mobile-polish-8-chat-shell-compact-composer-6-schedule-capability-1-activity-heatmap-1-mobile-composer-4");
+@import url("styles/workbench.css?v=layout-6-model-provider-groups-1-flat-composer-7-mobile-hide-run-summary-1-mobile-composer-4-danger-reflection-levels-1-nav-status-color-1-avatar-logo-fix-1-turn-activity-gap-1");
+@import url("styles/settings.css?v=mobile-polish-6-model-provider-groups-1-first-run-setup-1-subscription-login-panel-1-mobile-composer-4-optional-tools-compact-1-skills-density-1");
+@import url("styles/providers.css?v=native-image-generation-1-provider-quota-overview-1");
+@import url("styles/workspace-tasks.css?v=tool-activity-lazy-1-idle-dot-2-flat-avatar-1-tool-inline-detail-1-turn-activity-gap-1");
+@import url("styles/extras.css?v=mobile-polish-8-chat-shell-compact-composer-6-schedule-capability-1-activity-heatmap-1-mobile-composer-4-home-launcher-1-home-launcher-bottom-1-home-launcher-minimal-1-phone-toolbar-icons-1-rps-svg-1-pull-to-refresh-1");

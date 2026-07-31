@@ -161,6 +161,13 @@ func TestPOSIXSafeCommandsStayClean(t *testing.T) {
 		"echo hello",
 		"cat README.md",
 		"echo x >> log.txt",
+
+		// Redirecting to a discard sink silences output; it destroys nothing, so it
+		// must not reach the file-truncate hard block.
+		"uname -a 2>/dev/null",
+		"command -v node >/dev/null 2>&1",
+		"go test ./... 2>&1",
+		"ls /nope > /dev/null",
 	} {
 		facts := analyzePOSIXShell(command, 0)
 		if len(facts.Dangerous) > 0 || len(facts.Sensitive) > 0 {
@@ -272,6 +279,16 @@ func TestWindowsSafeCommandsStayClean(t *testing.T) {
 		`echo hello`,
 		`type README.md`,
 		`echo x >> log.txt`,
+
+		// The cmd.exe spelling of the same discard idiom. `ver 2>NUL || uname -a`
+		// is the probe that regressed into a hard block.
+		`ver 2>NUL || uname -a`,
+		`ver 2>NUL`,
+		`chcp 65001 >nul`,
+		`npx tsc --noEmit 2>&1`,
+		`findstr /N /C:"test" package.json 2>nul`,
+		`echo hi > \\.\NUL`,
+		`copy report.txt annul.txt`,
 	} {
 		facts := analyzeWindowsCommand(command)
 		if len(facts.Dangerous) > 0 || len(facts.Sensitive) > 0 {
@@ -404,6 +421,33 @@ func TestAnalyzeBashCommandUsesPlatformShell(t *testing.T) {
 	facts := AnalyzeBashCommand("rm -rf /")
 	if !hasLabel(facts.Dangerous, "file-delete") {
 		t.Fatalf("posix dispatcher must classify rm as file-delete, got %+v", facts)
+	}
+}
+
+// TestDiscardRedirectIsNotTruncation covers the whole dispatcher, which is the
+// layer that produced the regression: `ver 2>NUL || uname -a` was denied with the
+// file-truncate hard block. Because that tier ignores the danger-reflection
+// setting, the command could not be approved. Redirecting to a discard sink
+// destroys nothing, while a redirect that names a real file must still block.
+func TestDiscardRedirectIsNotTruncation(t *testing.T) {
+	for _, command := range []string{
+		`ver 2>NUL || uname -a`,
+		`chcp 65001 >nul && echo ok`,
+		`go test ./internal/tools/ 2>&1`,
+		`command -v node >/dev/null 2>&1`,
+		`echo x >> log.txt`,
+	} {
+		if warning := BashDangerWarning(command); warning != "" {
+			t.Errorf("discarding output must not hard-block %q, got warning %q", command, warning)
+		}
+	}
+	for _, command := range []string{
+		`echo hi > important.go`,
+		`echo hi >important.go`,
+	} {
+		if warning := BashDangerWarning(command); warning == "" {
+			t.Errorf("overwriting a real file must still block, got no warning for %q", command)
+		}
 	}
 }
 

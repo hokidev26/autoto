@@ -78,11 +78,12 @@ export {
   renderAnthropicAccountManagementTable,
   renderCodexAccountManagementTable,
   renderSubscriptionAccountManagementTable,
+  providerAccountQuotaSummary,
   subscriptionAccountModelQuotas,
   subscriptionAccountOverview,
   subscriptionAccountQuotaBudgets,
   subscriptionAccountStatus,
-} from "./provider-account-rendering.mjs";
+} from "./provider-account-rendering.mjs?v=provider-quota-overview-1";
 
 export {
   isSubscriptionAccountProvider,
@@ -90,8 +91,8 @@ export {
   subscriptionProviderKinds,
   subscriptionProviderSpec,
   subscriptionProviderSpecs,
-} from "./model-provider-components.mjs?v=provider-hidden-models-1";
+} from "./model-provider-components.mjs?v=provider-hidden-models-1-provider-quota-overview-1";
 
-export { createSubscriptionAccountsController } from "./provider-subscription-accounts.mjs";
+export { createSubscriptionAccountsController } from "./provider-subscription-accounts.mjs?v=provider-quota-overview-1";
 
-export { createModelProviderSettingsController } from "./provider-console.mjs?v=native-image-generation-1-provider-auto-name-1-provider-hidden-models-1";
+export { createModelProviderSettingsController } from "./provider-console.mjs?v=native-image-generation-1-provider-auto-name-1-provider-hidden-models-1-provider-quota-overview-1";

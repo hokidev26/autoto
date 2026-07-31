@@ -7,6 +7,7 @@ import {
   normalizeSubscriptionAccountList,
   normalizeSubscriptionLoginStatus,
   normalizeSubscriptionProvider,
+  providerAccountQuotaSummary,
   renderSubscriptionAccountManagementTable,
   subscriptionAccountActionRequest,
   subscriptionAccountOverview,
@@ -442,6 +443,107 @@ test("cloud code model quotas surface the lowest remaining model", () => {
   assert.doesNotMatch(rendered, /quotaRemainingOfLimit/);
   assert.doesNotMatch(rendered, /quotaLimitOnly/);
   assert.doesNotMatch(rendered, /quotaPending/);
+});
+
+test("official quota summary keeps Antigravity compact and distinguishes zero from missing data", () => {
+  const now = Date.parse("2026-07-28T12:00:00Z");
+  const summary = providerAccountQuotaSummary("gemini", [
+    {
+      id: "available-a",
+      alias: "Work",
+      refresh_token: "refresh-a",
+      quota: {
+        fetched_at: "2026-07-28T10:00:00Z",
+        model_quotas: [
+          { model: "gemini-3-flash", remainingPercent: 82, reset: "2026-07-28T13:00:00Z" },
+          { model: "gemini-3.1-pro", remainingPercent: 12, reset: "2026-07-28T12:30:00Z" },
+        ],
+      },
+    },
+    {
+      id: "disabled-low",
+      disabled: true,
+      quota: { model_quotas: [{ model: "disabled-model", remainingPercent: 0 }] },
+    },
+    {
+      id: "expired-low",
+      expires_at: "2026-07-27T00:00:00Z",
+      quota: { model_quotas: [{ model: "expired-model", remainingPercent: 0 }] },
+    },
+  ], { loaded: true, now });
+  assert.equal(summary.state, "ready");
+  assert.equal(summary.percent, 12);
+  assert.equal(summary.model, "gemini-3.1-pro");
+  assert.equal(summary.accountLabel, "Work");
+  assert.equal(summary.total, 3);
+  assert.equal(summary.available, 1);
+  assert.equal(summary.disabled, 1);
+  assert.equal(summary.expired, 1);
+  assert.equal(summary.tone, "warning");
+
+  const exhausted = providerAccountQuotaSummary("gemini", [{ id: "zero", quota: { model_quotas: [{ model: "gemini-zero", remainingPercent: 0 }] } }], { loaded: true, now });
+  assert.equal(exhausted.state, "ready");
+  assert.equal(exhausted.percent, 0);
+  assert.equal(exhausted.tone, "danger");
+
+  const pending = providerAccountQuotaSummary("gemini", [{ id: "unknown" }], { loaded: true, now });
+  assert.equal(pending.state, "pending");
+  assert.equal(pending.percent, null);
+  assert.equal(pending.hasQuota, false);
+  assert.equal(providerAccountQuotaSummary("gemini", [], { loaded: false, loading: true, now }).state, "loading");
+  assert.equal(providerAccountQuotaSummary("gemini", [], { loaded: false, error: "offline", now }).state, "error");
+});
+
+test("official quota summary normalizes Codex, Anthropic and nominal allowances", () => {
+  const now = Date.parse("2026-07-28T12:00:00Z");
+  const codex = providerAccountQuotaSummary("codex", [{
+    id: "codex-a",
+    alias: "Codex Work",
+    quota: {
+      primary_window: { used_percent: 25, limit_window_seconds: 18000 },
+      secondary_window: { used_percent: 90, limit_window_seconds: 604800, reset_after_seconds: 3600 },
+    },
+  }], { loaded: true, now });
+  assert.equal(codex.percent, 10);
+  assert.equal(codex.bucket, "7d");
+  assert.equal(codex.resetAfterSeconds, 3600);
+  assert.equal(codex.tone, "warning");
+
+  const anthropic = providerAccountQuotaSummary("anthropic", [{
+    id: "claude-a",
+    alias: "Claude Work",
+    quota: {
+      requests: { remaining: 5, limit: 100, reset_at: "2026-07-28T13:00:00Z" },
+      input_tokens: { used_percent: 20 },
+    },
+  }], { loaded: true, now });
+  assert.equal(anthropic.percent, 5);
+  assert.equal(anthropic.bucket, "requests");
+  assert.equal(anthropic.accountLabel, "Claude Work");
+
+  const grok = providerAccountQuotaSummary("grok", [{
+    id: "grok-a",
+    quota: { requests: { remaining: "21", limit: "21" } },
+  }], { loaded: true, now });
+  assert.equal(grok.state, "allowance");
+  assert.equal(grok.percent, null);
+  assert.deepEqual(grok.allowance, {
+    value: 21,
+    mode: "limit",
+    accountLabel: "grok-a",
+    bucket: "requests",
+    updatedAt: "",
+    resetAt: "",
+    resetAfterSeconds: 0,
+  });
+
+  const kimi = providerAccountQuotaSummary("kimi", [{
+    id: "kimi-a",
+    quota: { tokens: { remaining: "20", limit: "100" } },
+  }], { loaded: true, now });
+  assert.equal(kimi.state, "ready");
+  assert.equal(kimi.percent, 20);
+  assert.equal(kimi.bucket, "tokens");
 });
 
 test("model quotas take precedence over header budgets and reject malformed rows", () => {

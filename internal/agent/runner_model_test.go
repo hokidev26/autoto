@@ -26,6 +26,26 @@ func TestModelTurnUsageCalculatesTTFTAndThroughput(t *testing.T) {
 	}
 }
 
+func TestIsTransientProviderErrorTreatsTruncatedJSONAsRetryable(t *testing.T) {
+	tests := []struct {
+		name      string
+		message   string
+		retryable bool
+	}{
+		{name: "truncated json", message: "unexpected end of JSON input", retryable: true},
+		{name: "eof", message: "upstream EOF", retryable: true},
+		{name: "authentication", message: "401 unauthorized", retryable: false},
+		{name: "invalid request", message: "invalid request schema", retryable: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := isTransientProviderError(errors.New(tt.message)); got != tt.retryable {
+				t.Fatalf("isTransientProviderError(%q) = %v, want %v", tt.message, got, tt.retryable)
+			}
+		})
+	}
+}
+
 func TestRunModelTurnAttemptPublishesThroughputLifecycle(t *testing.T) {
 	hub := NewHub()
 	ctx, cancel := context.WithCancel(context.Background())

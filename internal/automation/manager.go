@@ -503,23 +503,13 @@ func (m *Manager) TriggerSchedule(ctx context.Context, id string) (TriggerResult
 		return TriggerResult{}, ErrManagerClosed
 	}
 	now := m.now()
-	leaseUntil := now.Add(m.leaseDuration).Format(time.RFC3339Nano)
-	result, err := m.store.DB().ExecContext(ctx, `UPDATE schedules SET lease_until = ?, updated_at = ? WHERE id = ? AND (lease_until IS NULL OR lease_until <= ?)`, leaseUntil, now.Format(time.RFC3339Nano), strings.TrimSpace(id), now.Format(time.RFC3339Nano))
+	// The store owns the lease format. Writing it here would store a timestamp
+	// that the predicates clearing it cannot match.
+	schedule, err := m.store.ClaimScheduleNow(ctx, strings.TrimSpace(id), now.Format(time.RFC3339Nano), now.Add(m.leaseDuration).Format(time.RFC3339Nano))
 	if err != nil {
-		return TriggerResult{}, err
-	}
-	affected, err := result.RowsAffected()
-	if err != nil {
-		return TriggerResult{}, err
-	}
-	if affected != 1 {
-		if _, getErr := m.store.GetSchedule(ctx, id); getErr != nil {
-			return TriggerResult{}, getErr
+		if errors.Is(err, db.ErrConflict) {
+			return TriggerResult{Outcome: "skipped"}, fmt.Errorf("%w: schedule is already running", db.ErrConflict)
 		}
-		return TriggerResult{Outcome: "skipped"}, fmt.Errorf("%w: schedule is already running", db.ErrConflict)
-	}
-	schedule, err := m.store.GetSchedule(ctx, id)
-	if err != nil {
 		return TriggerResult{}, err
 	}
 	return m.processSchedule(ctx, schedule)
@@ -626,11 +616,16 @@ func (m *Manager) prepareScheduleDispatch(ctx context.Context, schedule db.Sched
 		return db.Schedule{}, err
 	}
 	if schedule.NarratorMode == "reuse" {
-		if schedule.EnvironmentMode == "workline" && template.WorklineID == "" {
-			return db.Schedule{}, fmt.Errorf("%w: reusable agent is not attached to a workline", db.ErrConflict)
-		}
-		if schedule.EnvironmentMode == "standalone" && template.WorklineID != "" {
-			return db.Schedule{}, fmt.Errorf("%w: reusable agent is attached to a workline", db.ErrConflict)
+		// Reuse runs inside an agent that already exists, so that agent's
+		// workline *is* the environment: the stored mode cannot move the run,
+		// it can only disagree with where the agent already lives. Deriving it
+		// keeps a schedule working when its agent is later moved into or out of
+		// a project, instead of failing every run until someone notices a
+		// dropdown no longer matches.
+		if template.WorklineID != "" {
+			schedule.EnvironmentMode = "workline"
+		} else {
+			schedule.EnvironmentMode = "standalone"
 		}
 		return schedule, nil
 	}

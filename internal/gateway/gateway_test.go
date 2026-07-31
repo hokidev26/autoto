@@ -232,6 +232,46 @@ func TestGenerateKeyProducesHashOnlyPersistenceMaterial(t *testing.T) {
 	if len(first.Hash) != 64 || first.Hash != HashToken(first.Token) || strings.Contains(first.Hash, first.Token) {
 		t.Fatalf("unexpected generated key hash: %+v", first)
 	}
+	// The prefix is always sk- now, matching OpenAI-compatible client expectations.
+	if !strings.HasPrefix(first.Token, "sk-") {
+		t.Fatalf("generated token must start with sk-, got %q", first.Token[:min(len(first.Token), 8)])
+	}
+	// KeyPrefix stores the first 16 chars. Verify the prefix change didn't
+	// shorten the token enough to trigger the truncation branch (token.go:28).
+	// sk- is 3 chars vs autoto_ at 7; 16 chars of key prefix must still fit.
+	if len(first.Prefix) < 16 {
+		t.Fatalf("KeyPrefix shorter than 16 chars after prefix change: len=%d", len(first.Prefix))
+	}
+}
+
+// TestOldPrefixTokensRemainValidAfterPrefixChange verifies that tokens issued
+// under the old "autoto_" prefix still authenticate, because verification is
+// hash-based and the prefix never participates.
+func TestOldPrefixTokensRemainValidAfterPrefixChange(t *testing.T) {
+	oldToken := "autoto_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+	oldHash := HashToken(oldToken)
+	oldPrefix := oldToken[:16]
+	// Create a key that looks like it was generated under the old prefix.
+	// Re-use one harness so the service and store share the same DB.
+	harness := newGatewayHarness(t, db.GatewayKey{}, nil, nil)
+	_, err := harness.store.CreateGatewayKey(context.Background(), db.GatewayKey{
+		Name:          "legacy-key",
+		KeyPrefix:     oldPrefix,
+		TokenHash:     oldHash,
+		Enabled:       true,
+		AllowedModels: []string{},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// authenticateToken uses hash comparison — old-prefix token must still work.
+	// A /v1/models call with the old token exercises the full auth path.
+	rec := gatewayRequest(t, harness.service, oldToken, http.MethodGet, "/v1/models", "")
+	// 401 would mean hash lookup failed; anything else (200/403/404) means the
+	// token passed authentication and the prefix change was backward-compatible.
+	if rec.Code == http.StatusUnauthorized {
+		t.Fatalf("old-prefix token rejected after prefix change: %d %s", rec.Code, rec.Body.String())
+	}
 }
 
 func TestGatewayModelsRequireBearerAndRejectBrowserOrigin(t *testing.T) {

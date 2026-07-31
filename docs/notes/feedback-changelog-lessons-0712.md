@@ -6,7 +6,7 @@
 > 方法：逐項對照目前工作樹中的實際程式碼、遷移與測試
 > 姊妹文件：`docs/notes/needtodo0712.md`
 >
-> 名稱說明：專案現名為 **Autoto**；舊 CodeHarbor 名稱只保留在兼容介面或歷史記錄中。領域模型維持 **Agent / Workline**。
+> 名稱說明：專案現名為 **Autoto**；舊 Autoto 名稱只保留在兼容介面或歷史記錄中。領域模型維持 **Agent / Workline**。
 
 ---
 

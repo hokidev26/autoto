@@ -76,6 +76,7 @@ func RegisterCore(registry *Registry) {
 	registry.Register(TodoWriteTool{})
 	registry.Register(WebFetchTool{})
 	registry.Register(WebSearchTool{})
+	registry.Register(OpenURLTool{})
 	registry.Register(MCPListToolsTool{})
 	registry.Register(MCPCallToolTool{})
 }

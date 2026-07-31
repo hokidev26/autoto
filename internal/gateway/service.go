@@ -78,7 +78,7 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	switch r.URL.Path {
-	case "/v1/models":
+	case "/v1/models", "/models":
 		if r.Method != http.MethodGet {
 			w.Header().Set("Allow", http.MethodGet)
 			writeAPIError(w, http.StatusMethodNotAllowed, "method_not_allowed", "Method not allowed.", "invalid_request_error", "")
@@ -92,6 +92,20 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		s.handleChatCompletions(w, r)
+	case "/v1/images/generations":
+		if r.Method != http.MethodPost {
+			w.Header().Set("Allow", http.MethodPost)
+			writeAPIError(w, http.StatusMethodNotAllowed, "method_not_allowed", "Method not allowed.", "invalid_request_error", "")
+			return
+		}
+		s.handleImageGenerations(w, r)
+	case "/v1/images/edits":
+		if r.Method != http.MethodPost {
+			w.Header().Set("Allow", http.MethodPost)
+			writeAPIError(w, http.StatusMethodNotAllowed, "method_not_allowed", "Method not allowed.", "invalid_request_error", "")
+			return
+		}
+		s.handleImageEdits(w, r)
 	case "/v1/responses":
 		if r.Method != http.MethodPost {
 			w.Header().Set("Allow", http.MethodPost)
@@ -124,6 +138,13 @@ func isAnthropicGatewayPath(path string) bool {
 
 func (s *Service) authenticateRequest(w http.ResponseWriter, r *http.Request) (db.GatewayKey, bool) {
 	token, ok := bearerToken(r.Header.Get("Authorization"))
+	if !ok {
+		// Fall back to x-api-key header (used by Anthropic-style clients)
+		xAPIKey := strings.TrimSpace(r.Header.Get("x-api-key"))
+		if xAPIKey != "" && len(xAPIKey) <= 1024 {
+			token, ok = xAPIKey, true
+		}
+	}
 	if !ok {
 		w.Header().Set("WWW-Authenticate", `Bearer realm="autoto-gateway"`)
 		writeProblem(w, invalidAPIKeyProblem())
@@ -251,6 +272,11 @@ func (s *Service) resolveModel(ctx context.Context, key db.GatewayKey, alias str
 	model, err := s.store.GetGatewayModel(ctx, alias)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
+			// No configured alias — try direct provider:model routing.
+			if strings.Contains(alias, ":") {
+				virtual := db.GatewayModel{Alias: alias, TargetModel: alias, Enabled: true}
+				return s.resolveStoredModel(ctx, virtual)
+			}
 			return resolvedModel{}, &apiProblem{Status: http.StatusNotFound, Code: "model_not_found", Type: "invalid_request_error", Message: "The requested model is not available."}
 		}
 		return resolvedModel{}, internalProblem()

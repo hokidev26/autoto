@@ -149,14 +149,17 @@ func (s *Service) handleModels(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	models, err := s.store.ListGatewayModels(r.Context())
+	created := s.now().Unix()
+	items := make([]modelListItem, 0)
+
+	// Configured aliases first (support remapping / renaming).
+	aliases, err := s.store.ListGatewayModels(r.Context())
 	if err != nil {
 		writeProblem(w, internalProblem())
 		return
 	}
-	created := s.now().Unix()
-	items := make([]modelListItem, 0, len(models))
-	for _, model := range models {
+	coveredTargets := make(map[string]struct{}, len(aliases))
+	for _, model := range aliases {
 		if !gatewayKeyAllowsModel(key, model.Alias) {
 			continue
 		}
@@ -164,7 +167,38 @@ func (s *Service) handleModels(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		items = append(items, modelListItem{ID: model.Alias, Object: "model", Created: created, OwnedBy: "autoto"})
+		coveredTargets[model.TargetModel] = struct{}{}
 	}
+
+	// Native provider models — no alias required.
+	// Each permitted provider's own model list is exposed as "provider:model".
+	for _, providerName := range s.providers.Names() {
+		permitted := s.providerPermitted(r.Context(), providerName)
+		slog.Debug("gateway handleModels provider check", "provider", providerName, "permitted", permitted)
+		if !permitted {
+			continue
+		}
+		provider, ok := s.providers.Get(providerName)
+		if !ok || provider == nil {
+			continue
+		}
+		providerModels, err := provider.ListModels(r.Context())
+		slog.Debug("gateway handleModels ListModels", "provider", providerName, "models", providerModels, "err", err)
+		if err != nil {
+			continue
+		}
+		for _, m := range providerModels {
+			nativeID := providerName + ":" + m
+			if _, covered := coveredTargets[nativeID]; covered {
+				continue // already exposed via an alias
+			}
+			if !gatewayKeyAllowsModel(key, nativeID) {
+				continue
+			}
+			items = append(items, modelListItem{ID: nativeID, Object: "model", Created: created, OwnedBy: "autoto"})
+		}
+	}
+
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	_ = json.NewEncoder(w).Encode(modelListResponse{Object: "list", Data: items})
 }
@@ -250,39 +284,10 @@ func convertChatCompletionRequest(request chatCompletionRequest) (convertedChatR
 	if len(request.Messages) > 10000 {
 		return convertedChatRequest{}, invalidParam("messages", "Too many messages were provided.")
 	}
-	if request.N != nil && *request.N != 1 {
-		return convertedChatRequest{}, unsupportedParam("n")
-	}
-	if request.Temperature != nil && *request.Temperature != 1 {
-		return convertedChatRequest{}, unsupportedParam("temperature")
-	}
-	if request.TopP != nil && *request.TopP != 1 {
-		return convertedChatRequest{}, unsupportedParam("top_p")
-	}
-	if request.PresencePenalty != nil && *request.PresencePenalty != 0 {
-		return convertedChatRequest{}, unsupportedParam("presence_penalty")
-	}
-	if request.FrequencyPenalty != nil && *request.FrequencyPenalty != 0 {
-		return convertedChatRequest{}, unsupportedParam("frequency_penalty")
-	}
-	if request.Logprobs != nil && *request.Logprobs {
-		return convertedChatRequest{}, unsupportedParam("logprobs")
-	}
-	if request.Seed != nil {
-		return convertedChatRequest{}, unsupportedParam("seed")
-	}
-	if rawJSONPresent(request.Stop) {
-		var values []string
-		if err := json.Unmarshal(request.Stop, &values); err != nil || len(values) != 0 {
-			return convertedChatRequest{}, unsupportedParam("stop")
-		}
-	}
-	if problem := validateResponseFormat(request.ResponseFormat); problem != nil {
-		return convertedChatRequest{}, problem
-	}
-	if request.ParallelToolCalls != nil && !*request.ParallelToolCalls {
-		return convertedChatRequest{}, unsupportedParam("parallel_tool_calls")
-	}
+	// Standard OpenAI sampling / output parameters (n, temperature, top_p,
+	// presence_penalty, frequency_penalty, logprobs, seed, stop,
+	// parallel_tool_calls) are accepted and silently ignored.
+	// service_tier values other than "auto"/"default"/"priority" are also ignored.
 
 	maxOutput, _, problem := requestMaxOutputTokens(request)
 	if problem != nil {
@@ -292,12 +297,11 @@ func convertChatCompletionRequest(request chatCompletionRequest) (convertedChatR
 		ReasoningEffort: strings.TrimSpace(request.ReasoningEffort),
 		MaxOutputTokens: maxOutput,
 	}
-	switch strings.ToLower(strings.TrimSpace(request.ServiceTier)) {
-	case "", "auto", "default":
-	case "priority":
+	if strings.ToLower(strings.TrimSpace(request.ServiceTier)) == "priority" {
 		providerRequest.FastMode = true
-	default:
-		return convertedChatRequest{}, unsupportedParam("service_tier")
+	}
+	if problem := validateResponseFormat(request.ResponseFormat); problem != nil {
+		return convertedChatRequest{}, problem
 	}
 
 	tools, disableTools, problem := convertTools(request.Tools, request.ToolChoice)

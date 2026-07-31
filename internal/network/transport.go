@@ -176,7 +176,10 @@ func validateURL(ctx context.Context, policy Policy, target *url.URL, cfg option
 	if err != nil {
 		return err
 	}
-	if policy == PolicyProviderDirect && scheme == "http" && !allLoopbackAddresses(addresses) {
+	// Plain HTTP would put the API key and every payload on the wire in the
+	// clear, so it stays limited to loopback unless the caller opted in for this
+	// specific destination.
+	if policy == PolicyProviderDirect && scheme == "http" && !cfg.allowPlaintextHTTP && !allLoopbackAddresses(addresses) {
 		return ErrDestinationDenied
 	}
 	return nil

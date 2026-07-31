@@ -168,6 +168,10 @@ type ProviderConfig struct {
 	UserAgent             string                  `json:"userAgent,omitempty"`
 	RequestHeaders        []ProviderRequestHeader `json:"requestHeaders,omitempty"`
 	InsecureSkipTLSVerify bool                    `json:"insecureSkipTLSVerify,omitempty"`
+	// AllowPlaintextHTTP permits a plain-HTTP base URL that does not resolve to
+	// loopback. It is off by default and must be enabled per provider, because
+	// it puts the API key and all payloads on the wire in cleartext.
+	AllowPlaintextHTTP bool `json:"allowPlaintextHTTP,omitempty"`
 	// SecretRevision coordinates crash-safe Provider API key updates between
 	// config.json and the encrypted SQLite secret vault. It contains no secret.
 	SecretRevision int64 `json:"secretRevision,omitempty"`
@@ -286,7 +290,7 @@ func defaultWithReport(report *compat.Report) (Config, error) {
 			FirstTokenTimeoutMs:      60000,
 			MaxTransientRetries:      10,
 			AutoContinuationMode:     "safe",
-			ContinuationSegmentTurns: 40,
+			ContinuationSegmentTurns: -1,
 			// -1 across the cross-segment budgets: no ceiling by default. See
 			// normalizeAgent for why maxContinuations is included.
 			MaxContinuations:  -1,
@@ -760,8 +764,11 @@ func normalizeAgentConfig(agent AgentConfig) AgentConfig {
 	if agent.AutoContinuationMode != "off" && agent.AutoContinuationMode != "safe" {
 		agent.AutoContinuationMode = "safe"
 	}
-	if agent.ContinuationSegmentTurns <= 0 {
-		agent.ContinuationSegmentTurns = 40
+	// 0 is treated as unset and normalised to -1 (no ceiling). Any negative
+	// value means unlimited turns per segment; users who need a hard cap can
+	// set one via Settings → Execution Budget → Segment turns.
+	if agent.ContinuationSegmentTurns == 0 {
+		agent.ContinuationSegmentTurns = -1
 	}
 	if agent.ContinuationSegmentTurns > 1000 {
 		agent.ContinuationSegmentTurns = 1000
@@ -1113,6 +1120,13 @@ func applyProviderEnvDefaults(provider *ProviderConfig) {
 		if provider.Model == "" {
 			provider.Model = getenv("CODEX_MODEL", "gpt-5.5")
 		}
+		// No hardcoded model list. The authenticated /models catalog is
+		// authoritative and per-account, and merges with whatever the user
+		// configured. A seed list here previously masked a broken catalog fetch
+		// (Autoto sent its own version as client_version, which the endpoint
+		// reads as a Codex client generation and answered with an empty
+		// catalog), and in doing so invented slugs OpenAI does not serve and
+		// overwrote explicitly configured per-model settings.
 	case "openai":
 		if provider.APIKey == "" {
 			provider.APIKey = os.Getenv("OPENAI_API_KEY")

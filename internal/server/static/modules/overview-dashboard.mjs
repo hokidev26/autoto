@@ -11,68 +11,69 @@ const ACTIONS = new Set([
   "tasks",
   "runs",
   "schedules",
-  "approvals",
-  "open-conversation",
-  "open-task",
-  "open-run",
-  "open-schedule",
 ]);
 
+const LAUNCHER_ACTIONS = new Set([
+  "mode",
+  "suggestion",
+  "submit",
+  "choose-directory",
+  "toggle-select",
+  "select-option",
+]);
+const LAUNCHER_MODES = new Set(["conversation", "workspace"]);
+// Provider-agnostic launcher list: the conversation picker narrows this to the
+// levels the chosen model actually serves once an agent exists.
+const REASONING_EFFORTS = Object.freeze(["auto", "low", "medium", "high", "xhigh", "max", "ultra"]);
+const REASONING_EFFORT_SET = new Set(REASONING_EFFORTS);
+
 const DEFAULT_TEXT = Object.freeze({
-  title: "工作总览",
-  subtitle: "快速了解当前进展并继续重要工作。",
+  title: "工作概览",
+  subtitle: "查看近期统计与使用情况。",
   refresh: "刷新",
   refreshing: "正在刷新…",
   capturedAt: "更新于 {time}",
-  loading: "正在加载首页总览…",
-  loadFailed: "首页总览加载失败",
+  loading: "正在加载首页…",
+  loadFailed: "首页加载失败",
   retryHint: "请稍后重试，或使用刷新按钮重新加载。",
-  loaded: "首页总览已更新。",
+  loaded: "首页已更新。",
   conversations: "对话",
   tasks: "任务",
   running: "正在执行",
   schedules: "排程",
+  conversationSummary: "最近对话与历史记录",
   taskBreakdown: "待办 {todo} · 进行中 {doing} · 已完成 {done}",
   scheduleBreakdown: "已启用 {enabled} / 共 {total}",
-  continueWorking: "继续工作",
-  continueWorkingHint: "最近更新的对话",
-  inProgress: "正在进行",
-  inProgressHint: "活跃任务与运行",
-  upcoming: "即将执行",
-  upcomingHint: "计划中的自动执行",
-  pending: "待处理提示",
-  pendingHint: "需要关注的项目",
-  viewAll: "查看全部",
-  viewSection: "查看全部{section}",
-  openConversation: "打开对话",
-  openTask: "打开任务",
-  openRun: "打开运行",
-  openSchedule: "打开排程",
-  recentEmpty: "暂无最近对话。",
-  tasksEmpty: "暂无进行中的任务。",
-  runsEmpty: "暂无活跃运行。",
-  schedulesEmpty: "暂无即将执行的排程。",
-  pendingEmpty: "当前没有待处理提示。",
-  untitledConversation: "未命名对话",
-  untitledTask: "未命名任务",
-  untitledSchedule: "未命名排程",
-  unknownAgent: "未知代理",
-  unknownProject: "未关联项目",
-  unknownStatus: "状态未知",
-  unknownTime: "时间未定",
-  activeTasks: "活跃任务",
   activeRuns: "活跃运行",
   runningAgents: "运行代理",
-  pendingApprovals: "待审批",
-  pendingApprovalsCount: "有 {count} 项操作等待审批",
-  dueSchedules: "到期排程",
-  dueSchedulesCount: "有 {count} 个排程已到执行时间",
-  failedSchedules: "失败排程",
-  failedSchedulesCount: "有 {count} 个排程最近执行失败",
-  startedAt: "开始于 {time}",
-  nextRunAt: "下次执行 {time}",
-  lastOutcome: "上次结果：{outcome}",
-  priority: "优先级：{priority}",
+  greetingMorning: "早上好，{name}",
+  greetingAfternoon: "下午好，{name}",
+  greetingEvening: "晚上好，{name}",
+  greetingFallback: "今天想做什么？",
+  launcherSubtitle: "描述任务或提出问题，Autoto 会立即开始。",
+  promptPlaceholder: "描述任务或提出问题",
+  modeConversation: "对话",
+  modeWorkspace: "工作区",
+  project: "项目",
+  model: "模型",
+  reasoningEffort: "思考强度",
+  reasoningAuto: "自动",
+  reasoningLow: "低",
+  reasoningMedium: "中",
+  reasoningHigh: "高",
+  chooseDirectory: "选择文件夹",
+  noProjects: "暂无项目",
+  send: "发送",
+  starting: "正在启动…",
+  projectRequired: "请先选择一个工作区项目。",
+  suggestionWrite: "编写代码",
+  suggestionFix: "修复问题",
+  suggestionPlan: "规划任务",
+  suggestionExplain: "解释代码",
+  suggestionWritePrompt: "帮我编写代码来实现这个需求：",
+  suggestionFixPrompt: "帮我定位并修复这个问题：",
+  suggestionPlanPrompt: "帮我为这个目标制定实施计划：",
+  suggestionExplainPrompt: "帮我解释这段代码的工作方式：",
   activity: "使用热力图",
   activityTotal: "过去一年共 {count} 次模型请求",
   activityEmpty: "过去一年还没有使用记录。",
@@ -107,6 +108,14 @@ function boundedText(value, maximum = 200) {
   }
 }
 
+function boundedInput(value, maximum = 8_000) {
+  try {
+    return String(value ?? "").replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, "").slice(0, maximum);
+  } catch {
+    return "";
+  }
+}
+
 function boundedCount(value) {
   try {
     const number = Number(value);
@@ -119,6 +128,16 @@ function boundedCount(value) {
 
 function escapeHtml(value) {
   return boundedText(value, 4000).replace(/[&<>"']/g, (character) => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    '"': "&quot;",
+    "'": "&#39;",
+  })[character]);
+}
+
+function escapeInputHtml(value) {
+  return boundedInput(value).replace(/[&<>"']/g, (character) => ({
     "&": "&amp;",
     "<": "&lt;",
     ">": "&gt;",
@@ -421,105 +440,171 @@ function createText(options) {
   };
 }
 
-function createDateFormatter(options) {
-  if (typeof options?.formatDateTime === "function") {
-    return (value) => {
-      if (!value) return "";
-      try {
-        return boundedText(options.formatDateTime(value), 200);
-      } catch {
-        return boundedText(value, 80);
-      }
+function summaryCard(action, title, value, detail) {
+  const ariaLabel = [title, value, detail].filter((part) => part !== "").join(". ");
+  return `<button type="button" class="overview-summary-card settings-stat-card" data-overview-action="${escapeHtml(action)}" aria-label="${escapeHtml(ariaLabel)}"><span>${escapeHtml(title)}</span><strong>${escapeHtml(value)}</strong></button>`;
+}
+
+function normalizeLauncherContext(value = {}) {
+  const source = objectValue(value);
+  const projects = boundedList(source.projects, 200, (project) => {
+    const item = objectValue(project);
+    return {
+      id: boundedText(item.id, 160),
+      name: boundedText(item.name, 240),
+      path: boundedText(item.path, 1000),
     };
+  }).filter((project) => project.id);
+  const models = boundedList(source.models, 200, (model) => {
+    const item = objectValue(model);
+    return {
+      value: boundedText(item.value, 240),
+      label: boundedText(item.label, 240),
+      group: boundedText(item.group, 160),
+    };
+  }).filter((model) => model.value);
+  let hourNumber = Number.NaN;
+  try {
+    hourNumber = Number(source.hour);
+  } catch {
+    hourNumber = Number.NaN;
   }
-  return (value) => {
-    if (!value) return "";
-    const date = new Date(value);
-    if (!Number.isFinite(date.getTime())) return boundedText(value, 80);
-    try {
-      return new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(date);
-    } catch {
-      return boundedText(value, 80);
-    }
+  const hour = Number.isFinite(hourNumber)
+    ? Math.max(0, Math.min(23, Math.floor(hourNumber)))
+    : new Date().getHours();
+  return {
+    displayName: boundedText(source.displayName, 160),
+    projects,
+    selectedProjectId: boundedText(source.selectedProjectId, 160),
+    models,
+    selectedModel: boundedText(source.selectedModel, 240),
+    selectedEffort: REASONING_EFFORT_SET.has(boundedText(source.selectedEffort, 20).toLowerCase())
+      ? boundedText(source.selectedEffort, 20).toLowerCase()
+      : "auto",
+    hour,
   };
 }
 
-function actionButton(action, label, {
-  id = "",
-  className = "overview-link",
-  disabled = false,
-  ariaLabel = "",
-  controls = "",
-} = {}) {
-  const idAttribute = id ? ` data-overview-id="${escapeHtml(id)}"` : "";
-  const ariaLabelAttribute = ariaLabel ? ` aria-label="${escapeHtml(ariaLabel)}"` : "";
-  const controlsAttribute = controls ? ` aria-controls="${escapeHtml(controls)}"` : "";
-  return `<button type="button" class="${escapeHtml(className)}" data-overview-action="${escapeHtml(action)}"${idAttribute}${ariaLabelAttribute}${controlsAttribute}${disabled ? " disabled aria-busy=\"true\"" : ""}>${escapeHtml(label)}</button>`;
+function reconcileLauncherState(value = {}, context = normalizeLauncherContext()) {
+  const source = objectValue(value);
+  const projectIds = new Set(context.projects.map((project) => project.id));
+  const modelValues = new Set(context.models.map((model) => model.value));
+  const requestedProject = boundedText(source.projectId, 160);
+  const requestedModel = boundedText(source.model, 240);
+  const requestedEffort = boundedText(source.reasoningEffort, 20).toLowerCase();
+  const defaultProject = projectIds.has(context.selectedProjectId) ? context.selectedProjectId : (context.projects[0]?.id || "");
+  const defaultModel = modelValues.has(context.selectedModel) ? context.selectedModel : (context.models[0]?.value || "");
+  return {
+    mode: LAUNCHER_MODES.has(source.mode) ? source.mode : "conversation",
+    draft: boundedInput(source.draft),
+    projectId: projectIds.has(requestedProject) ? requestedProject : defaultProject,
+    model: modelValues.has(requestedModel) ? requestedModel : defaultModel,
+    reasoningEffort: REASONING_EFFORT_SET.has(requestedEffort) ? requestedEffort : context.selectedEffort,
+    busy: source.busy === true,
+    error: boundedText(source.error, 500),
+  };
 }
 
-function summaryCard(action, title, value, detail) {
-  const ariaLabel = [title, value, detail].filter((part) => part !== "").join(". ");
-  return `<button type="button" class="overview-summary-card settings-stat-card" data-overview-action="${escapeHtml(action)}" aria-label="${escapeHtml(ariaLabel)}"><span>${escapeHtml(title)}</span><strong>${escapeHtml(value)}</strong><small>${escapeHtml(detail)}</small></button>`;
+function launcherGreeting(context, t) {
+  if (!context.displayName) return t("greetingFallback");
+  const key = context.hour >= 5 && context.hour < 12
+    ? "greetingMorning"
+    : context.hour >= 12 && context.hour < 18
+      ? "greetingAfternoon"
+      : "greetingEvening";
+  return t(key, { name: context.displayName });
 }
 
-function sectionHeader(title, hint, action, t) {
-  const viewAll = action ? actionButton(action, t("viewAll"), { ariaLabel: t("viewSection", { section: title }) }) : "";
-  return `<header class="overview-section-header"><div><h2>${escapeHtml(title)}</h2><p>${escapeHtml(hint)}</p></div>${viewAll}</header>`;
-}
-
-function emptyState(message) {
-  return `<div class="overview-empty-state settings-empty-state">${escapeHtml(message)}</div>`;
-}
-
-function itemMeta(parts) {
-  const values = parts.filter(Boolean).map((part) => escapeHtml(part));
-  return values.length ? `<small>${values.join(" · ")}</small>` : "";
-}
-
-function renderConversation(item, t, formatDateTime) {
-  const title = item.title || t("untitledConversation");
-  const project = item.projectName || item.projectId || t("unknownProject");
-  const updated = formatDateTime(item.updatedAt);
-  return `<article class="overview-list-item"><div><strong>${escapeHtml(title)}</strong>${itemMeta([project, item.status || t("unknownStatus"), updated])}</div>${actionButton("open-conversation", t("continueWorking"), { id: item.id, disabled: !item.id, ariaLabel: `${t("openConversation")} — ${title}` })}</article>`;
-}
-
-function renderTask(item, t, formatDateTime) {
-  const title = item.title || t("untitledTask");
-  const owner = item.agentTitle || item.agentId;
-  const project = item.projectName || item.projectId;
-  const updated = formatDateTime(item.updatedAt);
-  const priority = item.priority ? t("priority", { priority: item.priority }) : "";
-  return `<article class="overview-list-item"><div><strong>${escapeHtml(title)}</strong>${itemMeta([item.status || t("unknownStatus"), priority, owner, project, updated])}</div>${actionButton("open-task", t("openTask"), { id: item.id, disabled: !item.id, ariaLabel: `${t("openTask")} — ${title}` })}</article>`;
-}
-
-function renderRun(item, t, formatDateTime) {
-  const agent = item.agentTitle || item.agentId || t("unknownAgent");
-  const started = formatDateTime(item.startedAt);
-  return `<article class="overview-list-item"><div><strong>${escapeHtml(agent)}</strong>${itemMeta([item.status || t("unknownStatus"), started ? t("startedAt", { time: started }) : ""])}</div>${actionButton("open-run", t("openRun"), { id: item.id, disabled: !item.id, ariaLabel: `${t("openRun")} — ${agent}` })}</article>`;
-}
-
-function renderSchedule(item, t, formatDateTime) {
-  const title = item.name || t("untitledSchedule");
-  const agent = item.agentTitle || item.agentId || t("unknownAgent");
-  const next = formatDateTime(item.nextRunAt);
-  const nextLabel = next ? t("nextRunAt", { time: next }) : t("unknownTime");
-  const outcome = item.lastOutcome ? t("lastOutcome", { outcome: item.lastOutcome }) : "";
-  return `<article class="overview-list-item"><div><strong>${escapeHtml(title)}</strong>${itemMeta([agent, nextLabel, item.timezone, outcome])}</div>${actionButton("open-schedule", t("openSchedule"), { id: item.id, disabled: !item.id, ariaLabel: `${t("openSchedule")} — ${title}` })}</article>`;
-}
-
-function renderPending(payload, t) {
-  const notices = [];
-  if (payload.summary.pendingApprovals) {
-    notices.push({ action: "approvals", title: t("pendingApprovals"), detail: t("pendingApprovalsCount", { count: payload.summary.pendingApprovals }), count: payload.summary.pendingApprovals });
+function renderModelOptions(models, selected) {
+  const groups = new Map();
+  for (const model of models) {
+    const key = model.group || "";
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(model);
   }
-  if (payload.summary.schedules.due) {
-    notices.push({ action: "schedules", title: t("dueSchedules"), detail: t("dueSchedulesCount", { count: payload.summary.schedules.due }), count: payload.summary.schedules.due });
+  return [...groups].map(([group, entries]) => {
+    const options = entries.map((model) => `<option value="${escapeHtml(model.value)}"${model.value === selected ? " selected" : ""}>${escapeHtml(model.label || model.value)}</option>`).join("");
+    return group ? `<optgroup label="${escapeHtml(group)}">${options}</optgroup>` : options;
+  }).join("");
+}
+
+function renderLauncherSelectOption(name, value, label, selected, { model = false } = {}) {
+  const optionLabel = escapeHtml(label || value);
+  const copy = model
+    ? `<span class="composer-model-option-copy"><span class="composer-model-option-name">${optionLabel}</span></span>`
+    : `<span>${optionLabel}</span>`;
+  return `<button type="button" class="composer-select-option${model ? " composer-model-option" : ""}" role="option" aria-selected="${selected ? "true" : "false"}" data-overview-launcher-action="select-option" data-overview-launcher-select="${escapeHtml(name)}" data-overview-launcher-value="${escapeHtml(value)}">${copy}<span class="composer-select-option-check" aria-hidden="true">${selected ? "✓" : ""}</span></button>`;
+}
+
+function renderLauncherSelect({ name, label, options, selected, open = false, model = false, disabled = false }) {
+  const id = `overviewLauncher${name === "model" ? "Model" : "ReasoningEffort"}`;
+  const selectedOption = options.find((option) => option.value === selected) || options[0] || { value: "", label: "" };
+  const nativeOptions = model
+    ? renderModelOptions(options, selected)
+    : options.map((option) => `<option value="${escapeHtml(option.value)}"${option.value === selected ? " selected" : ""}>${escapeHtml(option.label || option.value)}</option>`).join("");
+  let menuOptions = "";
+  if (model) {
+    const groups = new Map();
+    for (const option of options) {
+      const group = option.group || "";
+      if (!groups.has(group)) groups.set(group, []);
+      groups.get(group).push(option);
+    }
+    menuOptions = [...groups].map(([group, entries], index) => {
+      const heading = `<div class="composer-model-group-heading${index > 0 ? " composer-model-group-start" : ""}" role="presentation">${escapeHtml(group || label)}</div>`;
+      return `${heading}${entries.map((option) => renderLauncherSelectOption(name, option.value, option.label, option.value === selected, { model: true })).join("")}`;
+    }).join("");
+  } else {
+    menuOptions = options.map((option) => renderLauncherSelectOption(name, option.value, option.label, option.value === selected)).join("");
   }
-  if (payload.summary.schedules.failed) {
-    notices.push({ action: "schedules", title: t("failedSchedules"), detail: t("failedSchedulesCount", { count: payload.summary.schedules.failed }), count: payload.summary.schedules.failed });
-  }
-  if (!notices.length) return emptyState(t("pendingEmpty"));
-  return notices.map((notice) => `<button type="button" class="overview-pending-item settings-alert" data-overview-action="${escapeHtml(notice.action)}" aria-label="${escapeHtml(`${notice.title}：${notice.detail}`)}"><span><strong>${escapeHtml(notice.title)}</strong><small>${escapeHtml(notice.detail)}</small></span><b>${escapeHtml(notice.count)}</b></button>`).join("");
+  const menu = open ? `<div class="composer-select-popover overview-launcher-select-popover${model ? " composer-model-popover" : ""}" role="listbox" aria-label="${escapeHtml(label)}">
+    <div class="composer-select-popover-title">${escapeHtml(label)}</div>${menuOptions}
+  </div>` : "";
+  return `<div class="overview-launcher-field overview-launcher-custom-field">
+    <label class="overview-launcher-label" for="${id}">${escapeHtml(label)}</label>
+    <div class="overview-launcher-custom-select select-pill${model ? " model-pill" : " effort-pill"}">
+      <select id="${id}" class="overview-launcher-select composer-native-select" data-overview-launcher-field="${escapeHtml(name)}"${disabled ? " disabled" : ""}>${nativeOptions}</select>
+      <button type="button" class="overview-launcher-select-trigger composer-select-trigger" data-overview-launcher-action="toggle-select" data-overview-launcher-select="${escapeHtml(name)}" aria-haspopup="listbox" aria-expanded="${open ? "true" : "false"}" aria-label="${escapeHtml(`${label}：${selectedOption.label || selectedOption.value}`)}"${disabled ? " disabled" : ""}><span class="overview-launcher-select-value composer-select-value">${escapeHtml(selectedOption.label || selectedOption.value)}</span><span class="composer-select-chevron" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m6 15 6-6 6 6"></path></svg></span></button>
+      ${menu}
+    </div>
+  </div>`;
+}
+
+function renderLauncher(contextValue, stateValue, t, openSelect = "") {
+  const context = normalizeLauncherContext(contextValue);
+  const state = reconcileLauncherState(stateValue, context);
+  const projectOptions = context.projects.length
+    ? context.projects.map((project) => `<option value="${escapeHtml(project.id)}"${project.id === state.projectId ? " selected" : ""}>${escapeHtml(project.name || project.path || project.id)}</option>`).join("")
+    : `<option value="">${escapeHtml(t("noProjects"))}</option>`;
+  const effortOptions = REASONING_EFFORTS.map((effort) => ({
+    value: effort,
+    label: t(`reasoning${effort[0].toUpperCase()}${effort.slice(1)}`),
+  }));
+  const workspaceControls = state.mode === "workspace" ? `<div class="overview-launcher-project-row">
+    <label class="overview-launcher-field"><span class="overview-launcher-label">${escapeHtml(t("project"))}</span><select class="overview-launcher-select" data-overview-launcher-field="projectId"${context.projects.length ? "" : " disabled"}>${projectOptions}</select></label>
+    <button type="button" class="overview-launcher-directory" data-overview-launcher-action="choose-directory">${escapeHtml(t("chooseDirectory"))}</button>
+  </div>` : "";
+  const launcherError = state.error ? `<p class="overview-launcher-error" role="alert">${escapeHtml(state.error)}</p>` : "";
+  const hero = `<section class="overview-hero-root overview-launcher-hero">
+    <div class="overview-hero-copy"><div class="overview-hero-heading"><span class="overview-hero-mark" aria-hidden="true"><svg viewBox="0 0 32 32"><circle cx="16" cy="16" r="12.5"></circle><path d="M10.5 17.5c1.6 2 3.4 3 5.5 3s3.9-1 5.5-3"></path><path d="M11.5 12.5h.01M20.5 12.5h.01"></path></svg></span><h1 class="overview-hero-title" id="overviewDashboardTitle">${escapeHtml(launcherGreeting(context, t))}</h1></div></div>
+  </section>`;
+  const composer = `<section class="overview-launcher-root" data-overview-launcher>
+    <div class="overview-launcher-mode-group" role="group" aria-label="${escapeHtml(t("modeConversation"))}">
+      <button type="button" class="overview-launcher-mode" data-overview-launcher-action="mode" data-overview-launcher-mode="conversation" aria-pressed="${state.mode === "conversation" ? "true" : "false"}">${escapeHtml(t("modeConversation"))}</button>
+      <button type="button" class="overview-launcher-mode" data-overview-launcher-action="mode" data-overview-launcher-mode="workspace" aria-pressed="${state.mode === "workspace" ? "true" : "false"}">${escapeHtml(t("modeWorkspace"))}</button>
+    </div>
+    <div class="overview-launcher-form" data-overview-launcher-form>
+      <textarea class="overview-launcher-input" data-overview-launcher-field="draft" rows="3" maxlength="8000" aria-label="${escapeHtml(t("promptPlaceholder"))}" placeholder="${escapeHtml(t("promptPlaceholder"))}"${state.busy ? " disabled" : ""}>${escapeInputHtml(state.draft)}</textarea>
+      ${workspaceControls}
+      <div class="overview-launcher-controls">
+        ${renderLauncherSelect({ name: "model", label: t("model"), options: context.models, selected: state.model, open: openSelect === "model", model: true, disabled: !context.models.length })}
+        ${renderLauncherSelect({ name: "reasoningEffort", label: t("reasoningEffort"), options: effortOptions, selected: state.reasoningEffort, open: openSelect === "reasoningEffort" })}
+        <button type="button" class="overview-launcher-send" data-overview-launcher-action="submit" aria-label="${escapeHtml(t(state.busy ? "starting" : "send"))}"${state.busy ? " disabled aria-busy=\"true\"" : ""}><span class="overview-launcher-send-label">${escapeHtml(t(state.busy ? "starting" : "send"))}</span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 14-7-4.5 14-3-5.5z"></path><path d="M11.5 13.5 19 5"></path></svg></button>
+      </div>
+      ${launcherError}
+    </div>
+  </section>`;
+  return { hero, composer };
 }
 
 function hasDashboardData(payload) {
@@ -539,26 +624,24 @@ function hasDashboardData(payload) {
 export function renderOverviewDashboard(payload, options = {}) {
   const normalized = normalizeOverviewPayload(payload);
   const t = createText(options);
-  const formatDateTime = createDateFormatter(options);
   const status = ["idle", "loading", "ready", "error"].includes(options.status) ? options.status : "ready";
   const error = boundedText(options.error, 500);
-  const captured = formatDateTime(normalized.capturedAt);
   const loading = status === "loading";
   const fullError = status === "error" && !(options.hasData ?? hasDashboardData(normalized));
 
-  const header = `<header class="overview-dashboard-header settings-card-header"><div><h1 id="overviewDashboardTitle">${escapeHtml(t("title"))}</h1><p>${escapeHtml(t("subtitle"))}</p>${captured ? `<small>${escapeHtml(t("capturedAt", { time: captured }))}</small>` : ""}</div>${actionButton("refresh", t(loading ? "refreshing" : "refresh"), { className: "overview-refresh primary", disabled: loading, controls: "overviewDashboard" })}</header>`;
+  const launcher = renderLauncher(options.launcherContext, options.launcherState, t, options.launcherOpenSelect);
   const liveStatus = loading ? t("loading") : status === "ready" ? t("loaded") : "";
   const liveRegion = `<p class="overview-live-region sr-only" role="status" aria-live="polite" aria-atomic="true">${escapeHtml(liveStatus)}</p>`;
   if (loading && !(options.hasData ?? hasDashboardData(normalized))) {
-    return `<div class="overview-dashboard settings-page" data-overview-state="loading" aria-busy="true">${header}${liveRegion}<div class="overview-dashboard-state settings-empty-state">${escapeHtml(t("loading"))}</div></div>`;
+    return `<div class="overview-dashboard settings-page" data-overview-state="loading" aria-busy="true">${launcher.hero}${liveRegion}<div class="overview-dashboard-state settings-empty-state">${escapeHtml(t("loading"))}</div>${launcher.composer}</div>`;
   }
   if (fullError) {
-    return `<div class="overview-dashboard settings-page" data-overview-state="error" aria-busy="false">${header}${liveRegion}<div class="overview-dashboard-state settings-alert" role="alert"><strong>${escapeHtml(t("loadFailed"))}</strong><p>${escapeHtml(error || t("retryHint"))}</p></div></div>`;
+    return `<div class="overview-dashboard settings-page" data-overview-state="error" aria-busy="false">${launcher.hero}${liveRegion}<div class="overview-dashboard-state settings-alert" role="alert"><strong>${escapeHtml(t("loadFailed"))}</strong><p>${escapeHtml(error || t("retryHint"))}</p></div>${launcher.composer}</div>`;
   }
 
   const inlineError = status === "error" ? `<div class="overview-inline-error settings-alert" role="alert"><strong>${escapeHtml(t("loadFailed"))}</strong><span>${escapeHtml(error || t("retryHint"))}</span></div>` : "";
   const summaries = `<section class="overview-summary-grid settings-stat-grid" aria-label="${escapeHtml(t("title"))}">
-    ${summaryCard("conversation", t("conversations"), normalized.summary.conversations, t("continueWorkingHint"))}
+    ${summaryCard("conversation", t("conversations"), normalized.summary.conversations, t("conversationSummary"))}
     ${summaryCard("tasks", t("tasks"), normalized.summary.tasks.total, t("taskBreakdown", normalized.summary.tasks))}
     ${summaryCard("runs", t("running"), normalized.summary.activeRuns, `${t("activeRuns")} · ${normalized.summary.runningAgents} ${t("runningAgents")}`)}
     ${summaryCard("schedules", t("schedules"), normalized.summary.schedules.total, t("scheduleBreakdown", normalized.summary.schedules))}
@@ -570,31 +653,13 @@ export function renderOverviewDashboard(payload, options = {}) {
     ["idle", "loading", "ready", "error"].includes(options.activityStatus) ? options.activityStatus : "ready",
   );
 
-  const conversations = normalized.recentConversations.length
-    ? normalized.recentConversations.map((item) => renderConversation(item, t, formatDateTime)).join("")
-    : emptyState(t("recentEmpty"));
-  const tasks = normalized.activeTasks.length
-    ? normalized.activeTasks.map((item) => renderTask(item, t, formatDateTime)).join("")
-    : emptyState(t("tasksEmpty"));
-  const runs = normalized.activeRuns.length
-    ? normalized.activeRuns.map((item) => renderRun(item, t, formatDateTime)).join("")
-    : emptyState(t("runsEmpty"));
-  const schedules = normalized.upcomingSchedules.length
-    ? normalized.upcomingSchedules.map((item) => renderSchedule(item, t, formatDateTime)).join("")
-    : emptyState(t("schedulesEmpty"));
-
   return `<div class="overview-dashboard settings-page" data-overview-state="${escapeHtml(status)}" aria-busy="${loading ? "true" : "false"}">
-    ${header}
+    ${launcher.hero}
     ${liveRegion}
     ${inlineError}
     ${summaries}
     ${heatmap}
-    <div class="overview-dashboard-grid">
-      <section class="overview-section settings-card" data-overview-section="continue-working">${sectionHeader(t("continueWorking"), t("continueWorkingHint"), "conversation", t)}<div class="overview-list settings-data-list">${conversations}</div></section>
-      <section class="overview-section settings-card" data-overview-section="in-progress">${sectionHeader(t("inProgress"), t("inProgressHint"), "tasks", t)}<div class="overview-progress-groups"><div><h3>${escapeHtml(t("activeTasks"))}</h3><div class="overview-list settings-data-list">${tasks}</div></div><div><h3>${escapeHtml(t("activeRuns"))}</h3><div class="overview-list settings-data-list">${runs}</div></div></div></section>
-      <section class="overview-section settings-card" data-overview-section="upcoming">${sectionHeader(t("upcoming"), t("upcomingHint"), "schedules", t)}<div class="overview-list settings-data-list">${schedules}</div></section>
-      <section class="overview-section settings-card" data-overview-section="pending">${sectionHeader(t("pending"), t("pendingHint"), "", t)}<div class="overview-pending-list">${renderPending(normalized, t)}</div></section>
-    </div>
+    ${launcher.composer}
   </div>`;
 }
 
@@ -633,7 +698,18 @@ function focusWithoutScroll(element) {
   return true;
 }
 
-export function createOverviewDashboardController({ request, host, translate, formatDateTime, onNavigate, onError, today: todayOption } = {}) {
+export function createOverviewDashboardController({
+  request,
+  host,
+  translate,
+  formatDateTime,
+  onNavigate,
+  onError,
+  today: todayOption,
+  getLauncherContext,
+  onLaunch,
+  onChooseDirectory,
+} = {}) {
   if (typeof request !== "function") throw new TypeError("overview dashboard request must be a function");
 
   // Injectable so heatmap layout can be asserted against a fixed calendar.
@@ -655,10 +731,36 @@ export function createOverviewDashboardController({ request, host, translate, fo
     activityTrend: [],
     activityStatus: "idle",
     activitySequence: 0,
+    launcherContext: normalizeLauncherContext(),
+    launcher: {
+      mode: "conversation",
+      draft: "",
+      projectId: "",
+      model: "",
+      reasoningEffort: "",
+      busy: false,
+      error: "",
+    },
+    launcherOpenSelect: "",
   };
+  const t = createText({ translate });
   let inFlight = null;
   let pendingFocus = null;
   const boundHosts = new WeakSet();
+
+  function refreshLauncherContext() {
+    let context = {};
+    if (typeof getLauncherContext === "function") {
+      try {
+        context = getLauncherContext() || {};
+      } catch (error) {
+        reportExternalError(error, "launcher-context");
+      }
+    }
+    state.launcherContext = normalizeLauncherContext(context);
+    state.launcher = reconcileLauncherState(state.launcher, state.launcherContext);
+    return state.launcherContext;
+  }
 
   function getState() {
     return {
@@ -668,6 +770,7 @@ export function createOverviewDashboardController({ request, host, translate, fo
       hasData: state.hasData,
       activityStatus: state.activityStatus,
       activityTrend: state.activityTrend.slice(),
+      launcher: { ...state.launcher },
     };
   }
 
@@ -710,7 +813,7 @@ export function createOverviewDashboardController({ request, host, translate, fo
     })();
   }
 
-  function reportNavigationError(error, action = "", id = "") {
+  function reportExternalError(error, action = "", id = "") {
     try {
       onError?.(error, action, id);
     } catch {
@@ -728,29 +831,186 @@ export function createOverviewDashboardController({ request, host, translate, fo
     try {
       const routeId = id || "";
       const result = onNavigate?.(action, routeId);
-      if (result && typeof result.catch === "function") result.catch((error) => reportNavigationError(error, action, routeId));
+      if (result && typeof result.catch === "function") result.catch((error) => reportExternalError(error, action, routeId));
     } catch (error) {
-      reportNavigationError(error, action, id || "");
+      reportExternalError(error, action, id || "");
     }
     return true;
+  }
+
+  function setLauncherMode(mode) {
+    if (!LAUNCHER_MODES.has(mode) || state.launcher.mode === mode) return false;
+    state.launcher.mode = mode;
+    state.launcherOpenSelect = "";
+    state.launcher.error = "";
+    render();
+    return true;
+  }
+
+  function applySuggestion(name) {
+    const promptKeys = {
+      write: "suggestionWritePrompt",
+      fix: "suggestionFixPrompt",
+      plan: "suggestionPlanPrompt",
+      explain: "suggestionExplainPrompt",
+    };
+    const key = promptKeys[name];
+    if (!key) return false;
+    state.launcher.draft = boundedInput(t(key));
+    state.launcher.error = "";
+    pendingFocus = { launcherField: "draft" };
+    render();
+    return true;
+  }
+
+  async function submitLauncher() {
+    if (state.launcher.busy) return false;
+    refreshLauncherContext();
+    const text = state.launcher.draft.trim();
+    if (!text) return false;
+    if (state.launcher.mode === "workspace" && !state.launcher.projectId) {
+      state.launcher.error = t("projectRequired");
+      render();
+      return false;
+    }
+    const payload = {
+      text,
+      mode: state.launcher.mode,
+      projectId: state.launcher.mode === "workspace" ? state.launcher.projectId : "",
+      model: state.launcher.model,
+      reasoningEffort: state.launcher.reasoningEffort,
+    };
+    state.launcher.busy = true;
+    state.launcher.error = "";
+    render();
+    try {
+      await onLaunch?.({ ...payload });
+      state.launcher.draft = "";
+      return true;
+    } catch (error) {
+      state.launcher.error = boundedText(error?.message || error, 500) || t("retryHint");
+      reportExternalError(error, "launch");
+      return false;
+    } finally {
+      state.launcher.busy = false;
+      render();
+    }
+  }
+
+  async function chooseDirectory() {
+    try {
+      await onChooseDirectory?.();
+      render();
+      return true;
+    } catch (error) {
+      reportExternalError(error, "choose-directory");
+      return false;
+    }
+  }
+
+  function setLauncherSelect(name, value) {
+    refreshLauncherContext();
+    if (name === "model" && state.launcherContext.models.some((model) => model.value === value)) state.launcher.model = value;
+    else if (name === "reasoningEffort" && REASONING_EFFORT_SET.has(value)) state.launcher.reasoningEffort = value;
+    else return false;
+    state.launcherOpenSelect = "";
+    state.launcher.error = "";
+    render();
+    return true;
+  }
+
+  function toggleLauncherSelect(name) {
+    if (name !== "model" && name !== "reasoningEffort") return false;
+    if (name === "model" && !state.launcherContext.models.length) return false;
+    state.launcherOpenSelect = state.launcherOpenSelect === name ? "" : name;
+    render();
+    return true;
+  }
+
+  function handleLauncherAction(trigger) {
+    const action = boundedText(trigger?.dataset?.overviewLauncherAction || trigger?.getAttribute?.("data-overview-launcher-action"), 40);
+    if (!LAUNCHER_ACTIONS.has(action)) return false;
+    if (action === "mode") return setLauncherMode(boundedText(trigger?.dataset?.overviewLauncherMode || trigger?.getAttribute?.("data-overview-launcher-mode"), 20));
+    if (action === "suggestion") return applySuggestion(boundedText(trigger?.dataset?.overviewLauncherSuggestion || trigger?.getAttribute?.("data-overview-launcher-suggestion"), 20));
+    if (action === "toggle-select") return toggleLauncherSelect(boundedText(trigger?.dataset?.overviewLauncherSelect || trigger?.getAttribute?.("data-overview-launcher-select"), 30));
+    if (action === "select-option") return setLauncherSelect(
+      boundedText(trigger?.dataset?.overviewLauncherSelect || trigger?.getAttribute?.("data-overview-launcher-select"), 30),
+      boundedText(trigger?.dataset?.overviewLauncherValue || trigger?.getAttribute?.("data-overview-launcher-value"), 240),
+    );
+    if (action === "submit") {
+      void submitLauncher();
+      return true;
+    }
+    if (action === "choose-directory") {
+      void chooseDirectory();
+      return true;
+    }
+    return false;
   }
 
   function bind(target = resolveHost(host)) {
     if (!target || typeof target.addEventListener !== "function" || boundHosts.has(target)) return false;
     target.addEventListener("click", (event) => {
+      const launcherTrigger = event?.target?.closest?.("[data-overview-launcher-action]");
+      if (launcherTrigger && (typeof target.contains !== "function" || target.contains(launcherTrigger))) {
+        event.preventDefault?.();
+        handleLauncherAction(launcherTrigger);
+        return;
+      }
       const trigger = event?.target?.closest?.("[data-overview-action]");
-      if (!trigger || (typeof target.contains === "function" && !target.contains(trigger))) return;
+      if (!trigger || (typeof target.contains === "function" && !target.contains(trigger))) {
+        if (state.launcherOpenSelect) {
+          state.launcherOpenSelect = "";
+          render();
+        }
+        return;
+      }
       const action = boundedText(trigger.dataset?.overviewAction || trigger.getAttribute?.("data-overview-action"), 40);
       const id = boundedText(trigger.dataset?.overviewId || trigger.getAttribute?.("data-overview-id"), 160);
       if (!ACTIONS.has(action)) return;
+      state.launcherOpenSelect = "";
       event.preventDefault?.();
       handleAction(action, id);
+    });
+    target.addEventListener("input", (event) => {
+      const field = event?.target?.closest?.("[data-overview-launcher-field]");
+      if (!field || (typeof target.contains === "function" && !target.contains(field))) return;
+      const name = boundedText(field.dataset?.overviewLauncherField || field.getAttribute?.("data-overview-launcher-field"), 30);
+      if (name === "draft") state.launcher.draft = boundedInput(field.value);
+    });
+    target.addEventListener("change", (event) => {
+      const field = event?.target?.closest?.("[data-overview-launcher-field]");
+      if (!field || (typeof target.contains === "function" && !target.contains(field))) return;
+      const name = boundedText(field.dataset?.overviewLauncherField || field.getAttribute?.("data-overview-launcher-field"), 30);
+      const value = boundedText(field.value, 240);
+      if (name === "projectId" && state.launcherContext.projects.some((project) => project.id === value)) state.launcher.projectId = value;
+      else if (name === "model" && state.launcherContext.models.some((model) => model.value === value)) state.launcher.model = value;
+      else if (name === "reasoningEffort" && REASONING_EFFORT_SET.has(value)) state.launcher.reasoningEffort = value;
+      else return;
+      state.launcherOpenSelect = "";
+      state.launcher.error = "";
+      render();
+    });
+    target.addEventListener("keydown", (event) => {
+      if (event.key === "Escape" && state.launcherOpenSelect) {
+        state.launcherOpenSelect = "";
+        event.preventDefault?.();
+        render();
+        return;
+      }
+      const field = event?.target?.closest?.("[data-overview-launcher-field=\"draft\"]");
+      if (!field || (typeof target.contains === "function" && !target.contains(field))) return;
+      if (event.key !== "Enter" || event.shiftKey || event.isComposing) return;
+      event.preventDefault?.();
+      state.launcher.draft = boundedInput(field.value);
+      void submitLauncher();
     });
     boundHosts.add(target);
     return true;
   }
 
   function render() {
+    refreshLauncherContext();
     const html = renderOverviewDashboard(state.payload, {
       translate,
       formatDateTime,
@@ -760,6 +1020,9 @@ export function createOverviewDashboardController({ request, host, translate, fo
       activityTrend: state.activityTrend,
       activityStatus: state.activityStatus,
       today: today(),
+      launcherContext: state.launcherContext,
+      launcherState: state.launcher,
+      launcherOpenSelect: state.launcherOpenSelect,
     });
     const target = resolveHost(host);
     if (target && "innerHTML" in target) {
@@ -767,7 +1030,9 @@ export function createOverviewDashboardController({ request, host, translate, fo
       target.setAttribute?.("aria-busy", state.status === "loading" ? "true" : "false");
       bind(target);
       if (pendingFocus) {
-        const focusTarget = actionElement(target, pendingFocus.action, pendingFocus.id);
+        const focusTarget = pendingFocus.launcherField
+          ? target.querySelector?.(`[data-overview-launcher-field="${pendingFocus.launcherField}"]`)
+          : actionElement(target, pendingFocus.action, pendingFocus.id);
         if (focusWithoutScroll(focusTarget)) pendingFocus = null;
       }
     }

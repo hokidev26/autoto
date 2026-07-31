@@ -42,6 +42,17 @@ function fakeHost() {
   const focusLog = [];
   const listenerCounts = new Map();
   let html = "";
+  const node = (dataset = {}, value = "") => ({
+    dataset,
+    value,
+    closest(selector) {
+      if (selector === "[data-overview-action]") return dataset.overviewAction ? this : null;
+      if (selector === "[data-overview-launcher-action]") return dataset.overviewLauncherAction ? this : null;
+      if (selector === "[data-overview-launcher-field]") return dataset.overviewLauncherField ? this : null;
+      if (selector === "[data-overview-launcher-field=\"draft\"]") return dataset.overviewLauncherField === "draft" ? this : null;
+      return null;
+    },
+  });
   return {
     get innerHTML() { return html; },
     set innerHTML(value) { html = String(value); },
@@ -54,6 +65,11 @@ function fakeHost() {
     },
     contains() { return true; },
     setAttribute(name, value) { attributes.set(name, String(value)); },
+    querySelector(selector) {
+      const field = selector.match(/^\[data-overview-launcher-field="([^"]+)"\]$/)?.[1];
+      if (!field) return null;
+      return { disabled: false, focus() { focusLog.push(["field", field]); } };
+    },
     querySelectorAll(selector) {
       if (selector !== "[data-overview-action]") return [];
       return [...html.matchAll(/<button\b([^>]*data-overview-action="([^"]+)"[^>]*)>/g)].map((match) => {
@@ -66,11 +82,30 @@ function fakeHost() {
       });
     },
     click(action, id = "") {
-      const trigger = {
-        dataset: { overviewAction: action, overviewId: id },
-        closest() { return this; },
-      };
-      listeners.get("click")?.({ target: trigger, preventDefault() {} });
+      listeners.get("click")?.({ target: node({ overviewAction: action, overviewId: id }), preventDefault() {} });
+    },
+    launcherClick(action, extra = {}) {
+      listeners.get("click")?.({
+        target: node({ overviewLauncherAction: action, ...extra }),
+        preventDefault() {},
+      });
+    },
+    input(value) {
+      listeners.get("input")?.({ target: node({ overviewLauncherField: "draft" }, value) });
+    },
+    change(field, value) {
+      listeners.get("change")?.({ target: node({ overviewLauncherField: field }, value) });
+    },
+    keydown(value, { key = "Enter", shiftKey = false, isComposing = false } = {}) {
+      let prevented = false;
+      listeners.get("keydown")?.({
+        target: node({ overviewLauncherField: "draft" }, value),
+        key,
+        shiftKey,
+        isComposing,
+        preventDefault() { prevented = true; },
+      });
+      return prevented;
     },
   };
 }
@@ -163,27 +198,29 @@ test("normalization supplies complete defaults, bounds values, and drops unknown
   assert.deepEqual(normalizeOverviewPayload(null).summary.tasks, { total: 0, todo: 0, doing: 0, done: 0 });
 });
 
-test("render escapes every dynamic source including translator and formatter output", () => {
+test("render escapes visible launcher context and state", () => {
   const attack = '\"><img src=x onerror="boom">';
-  const html = renderOverviewDashboard(overview({
-    capturedAt: attack,
-    recentConversations: [{ id: attack, title: "<script>alert(1)</script>", projectName: attack, status: attack, updatedAt: attack }],
-    activeTasks: [{ id: attack, title: "<svg onload=boom>", priority: attack, agentTitle: attack }],
-    activeRuns: [{ id: attack, agentTitle: attack, status: attack }],
-    upcomingSchedules: [{ id: attack, name: attack, timezone: attack, lastOutcome: attack }],
-  }), {
-    translate: (key) => key.endsWith(".title") ? attack : key,
-    formatDateTime: () => "<iframe src=bad>",
+  const html = renderOverviewDashboard(overview({ capturedAt: attack }), {
+    launcherContext: {
+      displayName: attack,
+      hour: 9,
+      projects: [{ id: attack, name: "<script>alert(1)</script>", path: attack }],
+      selectedProjectId: attack,
+      models: [{ value: attack, label: "<svg onload=boom>", group: attack }],
+      selectedModel: attack,
+      selectedEffort: "high",
+    },
+    launcherState: { mode: "workspace", draft: "<textarea autofocus onfocus=boom>", error: attack },
   });
 
-  assert.doesNotMatch(html, /<script>|<img src=x|<svg onload|<iframe/);
+  assert.doesNotMatch(html, /<script>|<img src=x|<svg onload|<textarea autofocus/);
   assert.match(html, /&lt;script&gt;alert\(1\)&lt;\/script&gt;/);
   assert.match(html, /&lt;svg onload=boom&gt;/);
-  assert.match(html, /&lt;iframe src=bad&gt;/);
-  assert.match(html, /data-overview-id="&quot;&gt;&lt;img/);
+  assert.match(html, /&lt;textarea autofocus onfocus=boom&gt;/);
+  assert.match(html, /value="&quot;&gt;&lt;img/);
 });
 
-test("all overview lists are capped before rendering", () => {
+test("normalization keeps capped backend lists even though the launcher no longer renders them", () => {
   const make = (count, prefix, mapper) => Array.from({ length: count }, (_, index) => mapper(index, `${prefix}-${index}`));
   const normalized = normalizeOverviewPayload(overview({
     recentConversations: make(20, "conversation", (index, id) => ({ id, title: `Conversation ${index}` })),
@@ -197,61 +234,48 @@ test("all overview lists are capped before rendering", () => {
   assert.equal(normalized.upcomingSchedules.length, 8);
 
   const html = renderOverviewDashboard(normalized);
-  assert.equal((html.match(/data-overview-action="open-conversation"/g) || []).length, 8);
-  assert.equal((html.match(/data-overview-action="open-task"/g) || []).length, 8);
-  assert.doesNotMatch(html, /Conversation 8|Task 8|Run 6|Schedule 8/);
+  assert.doesNotMatch(html, /Conversation 0|Task 0|Run 0|Schedule 0|data-overview-action="open-/);
 });
 
-test("render includes four summaries, four content sections, all allowed actions, and empty states", () => {
-  const html = renderOverviewDashboard(overview(), { formatDateTime: (value) => `date:${value}` });
+test("render includes the hero launcher, four summaries, and heatmap without legacy list sections", () => {
+  const html = renderOverviewDashboard(overview(), {
+    formatDateTime: (value) => `date:${value}`,
+    launcherContext: {
+      displayName: "Ray",
+      hour: 14,
+      projects: [{ id: "project-1", name: "Autoto", path: "C:/Autoto" }],
+      selectedProjectId: "project-1",
+      models: [{ value: "openai:gpt-5", label: "GPT-5", group: "OpenAI" }],
+      selectedModel: "openai:gpt-5",
+      selectedEffort: "medium",
+    },
+    launcherOpenSelect: "model",
+  });
   assert.equal((html.match(/class="overview-summary-card settings-stat-card"/g) || []).length, 4);
-  for (const section of ["continue-working", "in-progress", "upcoming", "pending"]) {
-    assert.match(html, new RegExp(`data-overview-section="${section}"`));
-  }
-  for (const action of ["refresh", "conversation", "tasks", "runs", "schedules", "approvals", "open-conversation", "open-task", "open-run", "open-schedule"]) {
+  assert.match(html, /data-overview-launcher/);
+  assert.match(html, /下午好，Ray/);
+  assert.match(html, /class="overview-launcher-input"/);
+  assert.match(html, /data-overview-section="activity"/);
+  assert.ok(html.indexOf("overview-launcher-hero") < html.indexOf("overview-summary-grid"));
+  assert.ok(html.indexOf('data-overview-section="activity"') < html.indexOf("data-overview-launcher>"));
+  assert.match(html, /class="overview-launcher-select-trigger composer-select-trigger"[^>]*data-overview-launcher-select="model"/);
+  assert.match(html, /class="composer-select-popover overview-launcher-select-popover composer-model-popover"/);
+  assert.match(html, /class="composer-model-group-heading"[^>]*>OpenAI</);
+  assert.match(html, /class="composer-select-option composer-model-option"[^>]*aria-selected="true"/);
+  for (const action of ["conversation", "tasks", "runs", "schedules"]) {
     assert.match(html, new RegExp(`data-overview-action="${action}"`));
   }
   assert.doesNotMatch(html, /<main\b/i);
   assert.match(html, /id="overviewDashboardTitle"/);
   assert.match(html, /class="overview-live-region sr-only" role="status" aria-live="polite" aria-atomic="true"/);
-  assert.match(html, /data-overview-action="refresh"[^>]*aria-controls="overviewDashboard"/);
-  assert.match(html, /data-overview-id="conversation-1"[^>]*aria-label=/);
-  assert.match(html, /data-overview-id="task-1"[^>]*aria-label=/);
-  assert.match(html, /data-overview-action="approvals"[^>]*aria-label=/);
-  assert.match(html, /待审批/);
-  assert.match(html, /到期排程/);
-  assert.match(html, /失败排程/);
-
-  const empty = renderOverviewDashboard({ summary: {}, recentConversations: [], activeTasks: [], activeRuns: [], upcomingSchedules: [] });
-  assert.match(empty, /暂无最近对话/);
-  assert.match(empty, /暂无进行中的任务/);
-  assert.match(empty, /暂无活跃运行/);
-  assert.match(empty, /暂无即将执行的排程/);
-  assert.match(empty, /当前没有待处理提示/);
+  assert.doesNotMatch(html, /overview-(?:hero-subtitle|dashboard-header|launcher-suggestions)|data-overview-action="refresh"/);
+  assert.doesNotMatch(html, /<small>/);
+  assert.doesNotMatch(html, /data-overview-section="(?:continue-working|in-progress|upcoming|pending)"/);
+  assert.doesNotMatch(html, /继续工作|正在进行|即将执行|待处理提示/);
+  assert.doesNotMatch(html, /data-overview-action="(?:approvals|open-conversation|open-task|open-run|open-schedule)"/);
 });
 
-test("rendering escapes hostile action IDs and caps every dashboard list", () => {
-  const repeated = Array.from({ length: 20 }, (_, index) => ({
-    id: `item-${index}\", onfocus=\"alert(1)`,
-    title: `Item ${index}`,
-    status: "running",
-    href: "https://example.invalid",
-  }));
-  const html = renderOverviewDashboard(overview({
-    recentConversations: repeated,
-    activeTasks: repeated,
-    activeRuns: repeated,
-    upcomingSchedules: repeated,
-  }));
-
-  assert.doesNotMatch(html, /onfocus=\"alert/);
-  assert.equal((html.match(/data-overview-action=\"open-conversation\"/g) || []).length, 8);
-  assert.equal((html.match(/data-overview-action=\"open-task\"/g) || []).length, 8);
-  assert.equal((html.match(/data-overview-action=\"open-run\"/g) || []).length, 6);
-  assert.equal((html.match(/data-overview-action=\"open-schedule\"/g) || []).length, 8);
-});
-
-test("render supports optional translation key and date formatter", () => {
+test("render supports optional translation keys", () => {
   const keys = [];
   const html = renderOverviewDashboard(overview(), {
     key: (name) => `home.${name}`,
@@ -259,10 +283,8 @@ test("render supports optional translation key and date formatter", () => {
       keys.push([key, params]);
       return key === "home.title" ? "Custom title" : key;
     },
-    formatDateTime: () => "Custom time",
   });
-  assert.match(html, /Custom title/);
-  assert.match(html, /Custom time/);
+  assert.match(html, /aria-label="Custom title"/);
   assert.ok(keys.some(([key]) => key === "home.tasks"));
 });
 
@@ -270,17 +292,208 @@ test("translation fallback rejects missing keys and non-string translator output
   const html = renderOverviewDashboard(overview(), {
     translate: (key) => key.endsWith(".title") ? { unsafe: true } : key,
   });
-  assert.match(html, /工作总览/);
+  assert.match(html, /工作概览/);
   assert.doesNotMatch(html, /\[object Object\]/);
 
   const keyFailure = renderOverviewDashboard(overview(), {
     key: () => { throw new Error("bad key builder"); },
     translate: () => "unreachable",
   });
-  assert.match(keyFailure, /工作总览/);
+  assert.match(keyFailure, /工作概览/);
 });
 
-test("real delegated clicks preserve exact action IDs for every shell route", () => {
+test("controller reconciles launcher defaults and returns a safe launcher state copy", () => {
+  const host = fakeHost();
+  let context = {
+    displayName: "Ray",
+    hour: 9,
+    projects: [{ id: "p1", name: "One" }, { id: "p2", name: "Two" }],
+    selectedProjectId: "p2",
+    models: [{ value: "m1", label: "One" }, { value: "m2", label: "Two" }],
+    selectedModel: "m2",
+    selectedEffort: "high",
+  };
+  const controller = createOverviewDashboardController({
+    host,
+    request: async () => overview(),
+    getLauncherContext: () => context,
+  });
+
+  const initial = controller.getState();
+  assert.deepEqual(initial.launcher, {
+    mode: "conversation",
+    draft: "",
+    projectId: "p2",
+    model: "m2",
+    reasoningEffort: "high",
+    busy: false,
+    error: "",
+  });
+  initial.launcher.projectId = "mutated";
+  assert.equal(controller.getState().launcher.projectId, "p2");
+
+  context = {
+    ...context,
+    projects: [{ id: "p3", name: "Three" }],
+    selectedProjectId: "missing",
+    models: [{ value: "m3", label: "Three" }],
+    selectedModel: "missing",
+  };
+  controller.render();
+  assert.equal(controller.getState().launcher.projectId, "p3");
+  assert.equal(controller.getState().launcher.model, "m3");
+});
+
+test("launcher mode, selects, and suggestions update editable state", () => {
+  const host = fakeHost();
+  const controller = createOverviewDashboardController({
+    host,
+    request: async () => overview(),
+    getLauncherContext: () => ({
+      projects: [{ id: "p1", name: "One" }, { id: "p2", name: "Two" }],
+      selectedProjectId: "p1",
+      models: [{ value: "m1", label: "One" }, { value: "m2", label: "Two" }],
+      selectedModel: "m1",
+      selectedEffort: "auto",
+    }),
+    translate: (key) => key === "overview.suggestionFixPrompt" ? "修复这个定制问题：" : key,
+  });
+
+  host.launcherClick("mode", { overviewLauncherMode: "workspace" });
+  assert.equal(controller.getState().launcher.mode, "workspace");
+  assert.match(host.innerHTML, /data-overview-launcher-mode="workspace" aria-pressed="true"/);
+  assert.match(host.innerHTML, /data-overview-launcher-field="projectId"/);
+
+  host.change("projectId", "p2");
+  host.launcherClick("toggle-select", { overviewLauncherSelect: "model" });
+  assert.match(host.innerHTML, /overview-launcher-select-popover composer-model-popover/);
+  host.launcherClick("select-option", { overviewLauncherSelect: "model", overviewLauncherValue: "m2" });
+  assert.doesNotMatch(host.innerHTML, /overview-launcher-select-popover composer-model-popover/);
+  host.launcherClick("toggle-select", { overviewLauncherSelect: "reasoningEffort" });
+  assert.match(host.innerHTML, /class="composer-select-popover overview-launcher-select-popover"/);
+  assert.equal(host.keydown("", { key: "Escape" }), true);
+  assert.doesNotMatch(host.innerHTML, /class="composer-select-popover overview-launcher-select-popover"/);
+  host.launcherClick("toggle-select", { overviewLauncherSelect: "reasoningEffort" });
+  host.launcherClick("select-option", { overviewLauncherSelect: "reasoningEffort", overviewLauncherValue: "high" });
+  assert.deepEqual(controller.getState().launcher, {
+    mode: "workspace",
+    draft: "",
+    projectId: "p2",
+    model: "m2",
+    reasoningEffort: "high",
+    busy: false,
+    error: "",
+  });
+
+  host.launcherClick("suggestion", { overviewLauncherSuggestion: "fix" });
+  assert.equal(controller.getState().launcher.draft, "修复这个定制问题：");
+  assert.deepEqual(host.focusLog.at(-1), ["field", "draft"]);
+  assert.match(host.innerHTML, /修复这个定制问题：<\/textarea>/);
+
+  host.launcherClick("mode", { overviewLauncherMode: "conversation" });
+  assert.equal(controller.getState().launcher.mode, "conversation");
+  assert.doesNotMatch(host.innerHTML, /data-overview-launcher-field="projectId"/);
+});
+
+test("Enter submits the launcher payload, Shift+Enter composes, and busy prevents duplicates", async () => {
+  const host = fakeHost();
+  const launch = deferred();
+  const payloads = [];
+  const controller = createOverviewDashboardController({
+    host,
+    request: async () => overview(),
+    getLauncherContext: () => ({
+      projects: [{ id: "p1", name: "One" }],
+      selectedProjectId: "p1",
+      models: [{ value: "m1", label: "One" }],
+      selectedModel: "m1",
+      selectedEffort: "medium",
+    }),
+    onLaunch: (payload) => {
+      payloads.push(payload);
+      return launch.promise;
+    },
+  });
+
+  host.launcherClick("mode", { overviewLauncherMode: "workspace" });
+  host.input("  build it  ");
+  assert.equal(host.keydown("  build it  ", { shiftKey: true }), false);
+  assert.equal(host.keydown("  build it  ", { isComposing: true }), false);
+  assert.equal(payloads.length, 0);
+  assert.equal(host.keydown("  build it  "), true);
+  assert.deepEqual(payloads, [{
+    text: "build it",
+    mode: "workspace",
+    projectId: "p1",
+    model: "m1",
+    reasoningEffort: "medium",
+  }]);
+  assert.equal(controller.getState().launcher.busy, true);
+  assert.match(host.innerHTML, /正在启动…/);
+  host.keydown("  build it  ");
+  host.launcherClick("submit");
+  assert.equal(payloads.length, 1);
+
+  launch.resolve();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(controller.getState().launcher.busy, false);
+  assert.equal(controller.getState().launcher.draft, "");
+});
+
+test("launcher validates workspace projects, preserves failed drafts, and reports external errors", async () => {
+  const host = fakeHost();
+  const errors = [];
+  let launchCalls = 0;
+  const controller = createOverviewDashboardController({
+    host,
+    request: async () => overview(),
+    getLauncherContext: () => ({ models: [{ value: "m1", label: "One" }], selectedModel: "m1" }),
+    onLaunch: async () => {
+      launchCalls += 1;
+      throw new Error("<launch failed>");
+    },
+    onChooseDirectory: async () => { throw new Error("directory failed"); },
+    onError: (error, action) => errors.push([error.message, action]),
+  });
+
+  host.launcherClick("mode", { overviewLauncherMode: "workspace" });
+  host.input("keep this draft");
+  host.launcherClick("submit");
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(launchCalls, 0);
+  assert.equal(controller.getState().launcher.error, "请先选择一个工作区项目。");
+  assert.match(host.innerHTML, /请先选择一个工作区项目。/);
+
+  host.launcherClick("mode", { overviewLauncherMode: "conversation" });
+  host.launcherClick("submit");
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(launchCalls, 1);
+  assert.equal(controller.getState().launcher.draft, "keep this draft");
+  assert.equal(controller.getState().launcher.error, "<launch failed>");
+  assert.match(host.innerHTML, /&lt;launch failed&gt;/);
+  assert.doesNotMatch(host.innerHTML, /<launch failed>/);
+  assert.deepEqual(errors[0], ["<launch failed>", "launch"]);
+
+  host.launcherClick("choose-directory");
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(errors[1], ["directory failed", "choose-directory"]);
+});
+
+test("empty launcher submissions are ignored", async () => {
+  const host = fakeHost();
+  let calls = 0;
+  createOverviewDashboardController({
+    host,
+    request: async () => overview(),
+    onLaunch: async () => { calls += 1; },
+  });
+  host.input(" \n ");
+  host.launcherClick("submit");
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(calls, 0);
+});
+
+test("delegated summary clicks preserve the four supported navigation actions", () => {
   const host = fakeHost();
   const navigations = [];
   createOverviewDashboardController({
@@ -289,28 +502,14 @@ test("real delegated clicks preserve exact action IDs for every shell route", ()
     onNavigate: (action, id) => navigations.push([action, id]),
   });
 
-  for (const [action, id] of [
-    ["conversation", ""],
-    ["tasks", ""],
-    ["runs", ""],
-    ["schedules", ""],
-    ["approvals", ""],
-    ["open-conversation", "conversation-1"],
-    ["open-task", "task-1"],
-    ["open-run", "run-1"],
-    ["open-schedule", "schedule-1"],
-  ]) host.click(action, id);
+  for (const action of ["conversation", "tasks", "runs", "schedules"]) host.click(action);
+  host.click("open-task", "task-1");
 
   assert.deepEqual(navigations, [
     ["conversation", ""],
     ["tasks", ""],
     ["runs", ""],
     ["schedules", ""],
-    ["approvals", ""],
-    ["open-conversation", "conversation-1"],
-    ["open-task", "task-1"],
-    ["open-run", "run-1"],
-    ["open-schedule", "schedule-1"],
   ]);
 });
 
@@ -349,14 +548,13 @@ test("controller requests /api/overview, deduplicates ordinary loads, and discar
   assert.equal(state.status, "ready");
   assert.equal(state.payload.capturedAt, "new");
   assert.equal(state.payload.recentConversations[0].id, "new");
-  assert.match(host.innerHTML, /New response/);
-  assert.doesNotMatch(host.innerHTML, /Old response/);
+  assert.doesNotMatch(host.innerHTML, /New response|Old response/);
   // The heatmap rides along with every load but on its own request.
   assert.equal(activityPaths.length, 2);
   assert.match(activityPaths[0], /^\/api\/usage\/history\?bucket=day&tzOffset=-?\d+&from=\d{4}-\d{2}-\d{2}&to=\d{4}-\d{2}-\d{2}&limit=1$/);
 });
 
-test("controller renders safe failure state and refresh retries without routing away", async () => {
+test("controller renders safe failure state and retries without routing away", async () => {
   const host = fakeHost();
   const navigations = [];
   let calls = 0;
@@ -376,18 +574,15 @@ test("controller renders safe failure state and refresh retries without routing 
   assert.equal(controller.getState().status, "error");
   assert.match(host.innerHTML, /data-overview-state="error"/);
   assert.match(host.innerHTML, /&lt;bad failure&gt;/);
-  assert.doesNotMatch(host.innerHTML, /<bad failure>/);
-  assert.match(host.innerHTML, /data-overview-action="refresh"/);
+  assert.doesNotMatch(host.innerHTML, /<bad failure>|data-overview-action="refresh"/);
 
-  host.click("open-task", "task-7");
-  assert.deepEqual(navigations.at(-1), ["open-task", "task-7"]);
-  host.click("refresh");
-  await new Promise((resolve) => setImmediate(resolve));
+  host.click("tasks");
+  assert.deepEqual(navigations.at(-1), ["tasks", ""]);
+  assert.equal(await controller.load(), true);
   assert.equal(calls, 2);
-  assert.deepEqual(navigations.at(-1), ["open-task", "task-7"]);
-  assert.deepEqual(host.focusLog.at(-1), ["refresh", ""]);
+  assert.deepEqual(navigations.at(-1), ["tasks", ""]);
   assert.equal(controller.getState().status, "ready");
-  assert.match(host.innerHTML, /recovered/);
+  assert.equal(controller.getState().payload.capturedAt, "recovered");
 });
 
 test("forced refresh errors retain old payload and expose a non-destructive inline error", async () => {
@@ -404,15 +599,13 @@ test("forced refresh errors retain old payload and expose a non-destructive inli
   });
 
   assert.equal(await controller.load(), true);
-  assert.match(host.innerHTML, /old-data/);
-  assert.equal(await controller.load({ force: true, preserveFocus: { action: "refresh", id: "" } }), false);
+  assert.equal(await controller.load({ force: true }), false);
   const state = controller.getState();
   assert.equal(state.status, "error");
   assert.equal(state.payload.capturedAt, "old-data");
   assert.equal(state.error, "refresh failed");
-  assert.match(host.innerHTML, /old-data/);
+  assert.doesNotMatch(host.innerHTML, /old-data/);
   assert.match(host.innerHTML, /refresh failed/);
-  assert.deepEqual(host.focusLog.at(-1), ["refresh", ""]);
   assert.equal(host.listenerCounts.get("click"), 1);
 });
 
@@ -426,9 +619,9 @@ test("rejected async navigation is reported without an unhandled rejection", asy
     onError: (error, action, id) => errors.push([error.message, action, id]),
   });
 
-  host.click("open-conversation", "conversation-9");
+  host.click("conversation");
   await new Promise((resolve) => setImmediate(resolve));
-  assert.deepEqual(errors, [["navigation failed", "open-conversation", "conversation-9"]]);
+  assert.deepEqual(errors, [["navigation failed", "conversation", ""]]);
 });
 
 // 2026-07-26 is a Sunday, so it opens its own week and the final column holds
@@ -500,7 +693,8 @@ test("activity heatmap renders escaped tooltips and a legend, and survives a fai
   const failed = renderOverviewDashboard(overview(), { today: "2026-07-26", activityStatus: "error" });
   assert.match(failed, /使用记录暂时无法加载。/);
   // The heatmap failing must not take the rest of the dashboard down.
-  assert.match(failed, /data-overview-section="continue-working"/);
+  assert.match(failed, /data-overview-launcher/);
+  assert.equal((failed.match(/class="overview-summary-card settings-stat-card"/g) || []).length, 4);
   assert.doesNotMatch(failed, /data-overview-state="error"/);
 
   const empty = renderOverviewDashboard(overview(), { today: "2026-07-26" });

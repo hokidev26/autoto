@@ -210,7 +210,7 @@ func parseAgentPayload(raw json.RawMessage) (agentPayload, error) {
 		payload.AcceptanceCriteria[index] = criterion
 	}
 	switch payload.ReasoningEffort {
-	case "", "auto", "low", "medium", "high", "xhigh":
+	case "", "auto", "low", "medium", "high", "xhigh", "max", "ultra":
 	default:
 		return agentPayload{}, errors.New("agent task reasoning effort is invalid")
 	}

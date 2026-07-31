@@ -95,16 +95,24 @@ func (s *Server) forkWorkline(w http.ResponseWriter, r *http.Request) {
 		writeWorklineWorkflowError(w, err)
 		return
 	}
-	repoRoot, _, err := runGitCommand(r.Context(), sourcePath, 4096, 3*time.Second, nil, "rev-parse", "--show-toplevel")
+	repository, candidates, err := resolveGitRepository(r.Context(), sourcePath)
 	if err != nil {
-		if strings.Contains(strings.ToLower(err.Error()), "not a git repository") {
-			writeError(w, http.StatusBadRequest, "\""+sourcePath+"\" is not a git repository — initialize it first: git init && git add . && git commit -m \"initial\"")
-			return
-		}
 		writeGitError(w, err)
 		return
 	}
-	repoRoot = strings.TrimSpace(repoRoot)
+	if len(candidates) > 1 {
+		writeMultipleGitReposError(w, sourcePath, candidates)
+		return
+	}
+	if repository.Root == "" {
+		writeNoGitRepoError(w, sourcePath)
+		return
+	}
+	if !repository.HasHead {
+		writeNoGitCommitsError(w, repository.Root)
+		return
+	}
+	repoRoot := repository.Root
 	if !s.projectAllowsRepoRoot(project, repoRoot) {
 		writeGitError(w, gitCommandError{Status: http.StatusForbidden, Msg: "git repository is outside the configured project boundary"})
 		return

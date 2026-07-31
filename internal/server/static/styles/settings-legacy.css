@@ -224,6 +224,33 @@
 .settings-panel-icon .settings-icon-svg { width: 26px; height: 26px; display: block; }
 .settings-panel-title { font-size: 20px; font-weight: 800; }
 .settings-panel-card p { color: #64748b; margin: 7px 0 0; }
+
+/* Shown in place of a leaf surface that threw while rendering. Styled as a
+   contained notice rather than a full-page error: the rest of the app is fine,
+   and the card should read that way. */
+.error-boundary-card {
+  display: grid;
+  justify-items: start;
+  gap: 9px;
+  border: 1px solid var(--ws-border, #dfe3e9);
+  border-radius: 12px;
+  background: var(--ws-card, #fff);
+  padding: 18px;
+}
+.error-boundary-title { color: var(--ws-text, #20263a); font-size: 14px; font-weight: 640; }
+.error-boundary-text { margin: 0; color: var(--ws-muted, #747e90); font-size: 12px; line-height: 1.55; }
+.error-boundary-detail {
+  max-width: 100%;
+  margin: 0;
+  overflow-x: auto;
+  border-radius: 8px;
+  background: var(--ws-input, #f5f7fa);
+  padding: 9px 11px;
+  color: var(--ws-muted, #747e90);
+  font-size: 11px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
 .settings-panel-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1176,6 +1203,12 @@ body.theme-dark .skill-findings { color: #fbbf24; }
 .live-assistant-message { border-color: rgba(111, 140, 255, .45); }
 .live-assistant-message .message-head { justify-content: space-between; flex-wrap: wrap; }
 .message-performance {
+  /* Throughput and TTFT are opt-in diagnostics (Settings → Appearance). display
+     is what hides them, so the badge leaves the accessibility tree too instead
+     of being read out invisibly. Only display is switched below: moving the
+     rest into that higher-specificity rule would silently outrank the live and
+     responsive overrides that follow. */
+  display: none;
   width: fit-content;
   max-width: 100%;
   margin-top: 7px;
@@ -1189,6 +1222,7 @@ body.theme-dark .skill-findings { color: #fbbf24; }
   line-height: 1.35;
   overflow-wrap: anywhere;
 }
+body.show-throughput .message-performance { display: block; }
 .message-performance-live { flex: 0 1 auto; margin-top: 0; border-color: rgba(111, 140, 255, .28); color: var(--text-soft); text-align: right; white-space: nowrap; }
 .message-performance.is-estimated { border-style: dashed; }
 body.theme-light .message-performance,
@@ -1196,8 +1230,14 @@ body.white-shell.theme-light .message-performance { background: #f7f8fa; border-
 body.theme-light .message-performance-live,
 body.white-shell.theme-light .message-performance-live { border-color: #cbd4ff; background: #f3f5ff; color: #5262b8; }
 .message-head-actions { display: flex; align-items: center; gap: 6px; }
-.message-history-control { display: flex; justify-content: center; margin: 0 0 14px; }
+/* Doubles as the scroll sentinel for loading history. The min-height gives the
+   observer something to intersect with even while the row is otherwise empty,
+   which is its resting state now that loading is automatic. */
+.message-history-control { display: flex; align-items: center; justify-content: center; min-height: 32px; margin: 0 0 14px; }
 .message-history-control button { min-width: 132px; }
+.message-history-control button[hidden] { display: none; }
+.message-history-status { color: var(--ws-muted, #747e90); font-size: 11px; }
+.message-history-status[hidden] { display: none; }
 .message-correction-editor { display: grid; gap: 10px; }
 .message-correction-text { width: 100%; resize: vertical; border: 1px solid var(--line); border-radius: 10px; background: var(--bg-soft); color: var(--text); padding: 10px; font: inherit; }
 .message-correction-attachments { display: flex; flex-wrap: wrap; gap: 8px; color: var(--text-soft); font-size: 12px; }

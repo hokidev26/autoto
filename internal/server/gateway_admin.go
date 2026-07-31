@@ -194,6 +194,22 @@ func (s *Server) revokeGatewayKey(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"key": key})
 }
 
+func (s *Server) deleteGatewayKey(w http.ResponseWriter, r *http.Request) {
+	if !s.gatewayStoreAvailable(w) {
+		return
+	}
+	id := chi.URLParam(r, "id")
+	if id == "" {
+		writeError(w, http.StatusBadRequest, "key id is required")
+		return
+	}
+	if err := s.store.DeleteGatewayKey(r.Context(), id); err != nil {
+		writeGatewayAdminError(w, err, "gateway key")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
 func (s *Server) listGatewayModels(w http.ResponseWriter, r *http.Request) {
 	if !s.gatewayStoreAvailable(w) {
 		return

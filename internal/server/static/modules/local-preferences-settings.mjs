@@ -718,7 +718,7 @@ export function createLocalPreferencesSettingsController({
       </section>
       <section class="compact-settings-section">
         <div class="compact-settings-section-copy"><h2>${escapeHtml(t("appearance.behaviorTitle"))}</h2><p data-settings-help-copy>${escapeHtml(t("appearance.behaviorMeta"))}</p></div>
-        <div class="compact-settings-section-controls compact-settings-switch-list">${renderAppearanceToggle("terminalDefaultOpen", t("appearance.terminalDefaultOpen"), t("appearance.terminalDefaultOpenDesc"), prefs.terminalDefaultOpen)}${renderAppearanceToggle("showEventLog", t("appearance.showEventLog"), t("appearance.showEventLogDesc"), prefs.showEventLog)}</div>
+        <div class="compact-settings-section-controls compact-settings-switch-list">${renderAppearanceToggle("terminalDefaultOpen", t("appearance.terminalDefaultOpen"), t("appearance.terminalDefaultOpenDesc"), prefs.terminalDefaultOpen)}${renderAppearanceToggle("showEventLog", t("appearance.showEventLog"), t("appearance.showEventLogDesc"), prefs.showEventLog)}${renderAppearanceToggle("showThroughput", t("appearance.showThroughput"), t("appearance.showThroughputDesc"), prefs.showThroughput)}</div>
       </section>
     </div>
   `;

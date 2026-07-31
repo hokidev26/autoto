@@ -11,9 +11,11 @@ import (
 )
 
 type createMemoryRequest struct {
-	Content  string   `json:"content"`
+	Content string   `json:"content"`
 	Keywords []string `json:"keywords"`
 	Pinned   bool     `json:"pinned"`
+	// AgentID scopes the memory to one conversation. Empty keeps it global.
+	AgentID string `json:"agentId"`
 }
 
 type updateMemoryRequest struct {
@@ -33,9 +35,18 @@ func (s *Server) listMemories(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	scope := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("scope")))
+	agentID := strings.TrimSpace(r.URL.Query().Get("agentId"))
+	// Reading one conversation's memories is reading that conversation, so it
+	// goes through the same access check as the conversation itself.
+	if scope == db.MemoryScopeAgent && !s.requireAgentAccess(w, r, agentID) {
+		return
+	}
 	memories, err := s.store.ListMemories(r.Context(), db.MemoryListOptions{
 		Query:           r.URL.Query().Get("q"),
 		IncludeArchived: includeArchived,
+		Scope:           scope,
+		AgentID:         agentID,
 	})
 	if err != nil {
 		writeError(w, statusFromMemoryError(err), err.Error())
@@ -50,7 +61,12 @@ func (s *Server) createMemory(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	agentID := strings.TrimSpace(req.AgentID)
+	if agentID != "" && !s.requireAgentAccess(w, r, agentID) {
+		return
+	}
 	created, err := s.store.CreateMemory(r.Context(), db.Memory{
+		AgentID:  agentID,
 		Content:  req.Content,
 		Keywords: req.Keywords,
 		Pinned:   req.Pinned,
@@ -127,6 +143,9 @@ func statusFromMemoryError(err error) int {
 		strings.HasPrefix(message, "memory keywords") ||
 		strings.HasPrefix(message, "memory id") ||
 		strings.HasPrefix(message, "invalid memory id") ||
+		strings.HasPrefix(message, "invalid memory agent id") ||
+		strings.HasPrefix(message, "memory scope") ||
+		strings.HasPrefix(message, "invalid memory scope") ||
 		strings.HasPrefix(message, "invalid memory archived_at") {
 		return http.StatusBadRequest
 	}

@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -188,6 +189,20 @@ func grepFile(path, rel string, re *regexp.Regexp, mode string, before, after, r
 		return grepFileResult{}, false
 	}
 	defer file.Close()
+
+	// Reject binary files: null bytes are absent in valid UTF-8/ASCII text but
+	// appear in compiled bytecode (.pyc), object files, and other binary formats.
+	// Reading 512 bytes matches the heuristic used by git and ripgrep.
+	var sniff [512]byte
+	n, _ := file.Read(sniff[:])
+	for _, b := range sniff[:n] {
+		if b == 0 {
+			return grepFileResult{}, false
+		}
+	}
+	if _, err := file.Seek(0, io.SeekStart); err != nil {
+		return grepFileResult{}, false
+	}
 
 	scanner := bufio.NewScanner(file)
 	scanner.Buffer(make([]byte, 0, 64*1024), grepMaxLineBytes)

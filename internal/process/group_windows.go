@@ -56,8 +56,13 @@ type jobObjectExtendedLimitInfo struct {
 
 func preparePlatform(cmd *exec.Cmd) platformGroup {
 	// CREATE_NEW_PROCESS_GROUP keeps console control behavior predictable;
-	// the Job Object is what reaps the full tree on close.
-	cmd.SysProcAttr = &syscall.SysProcAttr{CreationFlags: createNewProcessGroup}
+	// the Job Object is what reaps the full tree on close. Merge rather than
+	// replace: a caller may already have set CmdLine to control how the shell
+	// receives its command, and dropping that changes what actually runs.
+	if cmd.SysProcAttr == nil {
+		cmd.SysProcAttr = &syscall.SysProcAttr{}
+	}
+	cmd.SysProcAttr.CreationFlags |= createNewProcessGroup
 	return &windowsGroup{}
 }
 

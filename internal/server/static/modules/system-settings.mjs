@@ -1,7 +1,7 @@
 import { $, escapeAttr, escapeHtml, setButtonBusy } from "./dom.mjs";
 import { formatBytes, formatDuration, formatNumber, formatTimestamp } from "./formatters.mjs";
 import { currentUILocale, t as baseT } from "./i18n.mjs";
-import systemSettingsMessages from "./messages-system-settings.mjs?v=about-brand-license-1-desktop-shell-1-execution-budget-1";
+import systemSettingsMessages from "./messages-system-settings.mjs?v=about-brand-license-1-desktop-shell-1-execution-budget-2";
 import { localPreferenceBackupVersion } from "./preferences-data.mjs";
 import { api } from "./runtime.mjs";
 import {
@@ -36,10 +36,10 @@ function t(key, params = {}) {
 // Ranges mirror strictContinuationSettings in internal/server. `scale` converts
 // the UI unit into the wire unit, so duration is edited in minutes.
 const executionBudgetFields = [
-  { key: "maxTotalTurns", id: "runtimeBudgetTotalTurns", labelKey: "totalTurnsBudget", fallback: 200, min: 1, max: 10000, scale: 1 },
-  { key: "maxRunTokens", id: "runtimeBudgetTokens", labelKey: "tokenBudget", fallback: 2000000, min: 1000, max: 10000000, scale: 1 },
-  { key: "maxRunDurationMs", id: "runtimeBudgetDurationMinutes", labelKey: "durationBudget", fallback: 60, min: 1, max: 1440, scale: 60000 },
-  { key: "maxContinuations", id: "runtimeBudgetContinuations", labelKey: "continuationsBudget", fallback: 8, min: 0, max: 64, scale: 1 },
+  { key: "maxTotalTurns", id: "runtimeBudgetTotalTurns", labelKey: "totalTurnsBudget", unitKey: "turnsUnit", fallback: 200, min: 1, max: 10000, scale: 1, minFollowsSegmentTurns: true },
+  { key: "maxRunTokens", id: "runtimeBudgetTokens", labelKey: "tokenBudget", unitKey: "tokensUnit", fallback: 2000000, min: 1000, max: 10000000, scale: 1 },
+  { key: "maxRunDurationMs", id: "runtimeBudgetDurationMinutes", labelKey: "durationBudget", unitKey: "minutesUnit", fallback: 60, min: 1, max: 1440, scale: 60000 },
+  { key: "maxContinuations", id: "runtimeBudgetContinuations", labelKey: "continuationsBudget", unitKey: "timesUnit", fallback: 8, min: 0, max: 64, scale: 1 },
 ];
 
 const defaultContinuationSegmentTurns = 40;
@@ -202,42 +202,69 @@ export function createSystemSettingsController({
   // number input never has to represent a sentinel the user could mistype.
   function renderExecutionBudgetCard(continuation) {
     const mode = String(continuation.mode || "off").toLowerCase() === "safe" ? "safe" : "off";
+    const segmentTurns = executionBudgetSegmentTurns(continuation);
     return `
-      <section class="settings-info-card settings-card settings-card-content">
+      <section class="settings-info-card settings-card settings-card-content execution-budget-card">
         <div class="settings-info-title">${escapeHtml(t("systemSettings.runtimeResources.executionBudget"))}</div>
-        <div class="settings-form-grid" style="margin-top:12px;gap:8px">
-          <label class="settings-form-field">${escapeHtml(t("systemSettings.runtimeResources.autoContinuation"))}
-            <select id="runtimeBudgetMode" class="settings-field">
-              <option value="off" ${mode === "off" ? "selected" : ""}>${escapeHtml(t("systemSettings.runtimeResources.continuationOff"))}</option>
-              <option value="safe" ${mode === "safe" ? "selected" : ""}>${escapeHtml(t("systemSettings.runtimeResources.continuationSafe"))}</option>
-            </select>
-          </label>
-          ${executionBudgetFields.map((field) => renderExecutionBudgetField(field, continuation[field.key])).join("")}
+        <label class="execution-budget-mode" for="runtimeBudgetMode">
+          <span class="execution-budget-mode-text">
+            <strong>${escapeHtml(t("systemSettings.runtimeResources.autoContinuation"))}</strong>
+            <small>${escapeHtml(t("systemSettings.runtimeResources.autoContinuationHint"))}</small>
+          </span>
+          <select id="runtimeBudgetMode" class="settings-field">
+            <option value="off" ${mode === "off" ? "selected" : ""}>${escapeHtml(t("systemSettings.runtimeResources.continuationOff"))}</option>
+            <option value="safe" ${mode === "safe" ? "selected" : ""}>${escapeHtml(t("systemSettings.runtimeResources.continuationSafe"))}</option>
+          </select>
+        </label>
+        <div class="execution-budget-list">
+          ${executionBudgetFields.map((field) => renderExecutionBudgetField(field, continuation[field.key], segmentTurns)).join("")}
         </div>
-        <div class="settings-action-row" style="margin-top:10px;gap:8px;flex-wrap:wrap">
+        <div class="settings-action-row execution-budget-actions">
+          <p data-settings-help-copy>${escapeHtml(t("systemSettings.runtimeResources.executionBudgetHelp"))}</p>
           <button id="saveExecutionBudgetBtn" class="settings-action-btn primary" type="button">${escapeHtml(t("systemSettings.runtimeResources.saveBudget"))}</button>
         </div>
-        <p data-settings-help-copy>${escapeHtml(t("systemSettings.runtimeResources.executionBudgetHelp"))}</p>
       </section>`;
   }
 
-  function renderExecutionBudgetField(field, rawValue) {
+  function renderExecutionBudgetField(field, rawValue, segmentTurns) {
     const value = Number(rawValue);
     const limited = Number.isFinite(value) && value >= 0;
     const uiValue = limited ? value / (field.scale || 1) : (executionBudgetDrafts[field.key] ?? field.fallback);
     if (limited) executionBudgetDrafts[field.key] = uiValue;
+    const min = executionBudgetFieldMin(field, segmentTurns);
     return `
-          <label class="settings-form-field">${escapeHtml(t(`systemSettings.runtimeResources.${field.labelKey}`))}
-            <span class="settings-action-row" style="gap:8px;align-items:center">
-              <label class="settings-form-field" style="flex-direction:row;gap:6px;align-items:center">
+          <div class="execution-budget-row${limited ? "" : " is-unlimited"}" data-budget-row="${escapeAttr(field.key)}">
+            <div class="execution-budget-row-head">
+              <label class="execution-budget-label" for="${escapeAttr(field.id)}">${escapeHtml(t(`systemSettings.runtimeResources.${field.labelKey}`))}</label>
+              <label class="execution-budget-toggle" for="${escapeAttr(field.id)}Unlimited">
                 <input id="${escapeAttr(field.id)}Unlimited" type="checkbox" data-budget-field="${escapeAttr(field.key)}" ${limited ? "" : "checked"} />
                 <span>${escapeHtml(t("systemSettings.runtimeResources.unlimited"))}</span>
               </label>
+            </div>
+            <div class="execution-budget-control">
               <input id="${escapeAttr(field.id)}" class="settings-field" type="number" inputmode="numeric"
-                min="${escapeAttr(String(field.min))}" max="${escapeAttr(String(field.max))}" step="1"
+                min="${escapeAttr(String(min))}" max="${escapeAttr(String(field.max))}" step="1"
                 value="${escapeAttr(String(uiValue))}" ${limited ? "" : "disabled"} />
-            </span>
-          </label>`;
+              <span class="execution-budget-unit">${escapeHtml(t(`systemSettings.runtimeResources.${field.unitKey}`))}</span>
+            </div>
+            <small class="execution-budget-range">${escapeHtml(t("systemSettings.runtimeResources.budgetRange", {
+              min: formatNumber(min),
+              max: formatNumber(field.max),
+            }))}</small>
+          </div>`;
+  }
+
+  function executionBudgetSegmentTurns(continuation) {
+    const value = Number(continuation?.segmentTurns);
+    return Number.isFinite(value) && value >= 1 ? Math.round(value) : defaultContinuationSegmentTurns;
+  }
+
+  // The server rejects maxTotalTurns below segmentTurns, so the input must not
+  // advertise a floor the save call would refuse.
+  function executionBudgetFieldMin(field, segmentTurns) {
+    if (!field.minFollowsSegmentTurns) return field.min;
+    const floor = Number.isFinite(segmentTurns) && segmentTurns >= 1 ? Math.round(segmentTurns) : defaultContinuationSegmentTurns;
+    return Math.min(Math.max(field.min, floor), field.max);
   }
 
   function renderRuntimeKeyValue(label, value) {
@@ -258,15 +285,18 @@ export function createSystemSettingsController({
   }
 
   function bindExecutionBudgetActions() {
+    const segmentTurns = executionBudgetSegmentTurns(state.runtimeSummary?.agent?.continuation);
     for (const field of executionBudgetFields) {
       const input = $(field.id);
       const toggle = $(`${field.id}Unlimited`);
+      const min = executionBudgetFieldMin(field, segmentTurns);
       input?.addEventListener("change", () => {
         const value = Number(input.value);
         if (Number.isFinite(value) && value >= 0) executionBudgetDrafts[field.key] = value;
       });
       toggle?.addEventListener("change", () => {
         if (!input) return;
+        setExecutionBudgetRowUnlimited(toggle, toggle.checked);
         if (toggle.checked) {
           input.disabled = true;
           return;
@@ -275,11 +305,11 @@ export function createSystemSettingsController({
         // Never leave an empty or invalid box behind: an unchecked box submits a
         // real number, so seed a usable value rather than failing validation.
         const current = Number(input.value);
-        if (!Number.isFinite(current) || current < field.min || current > field.max) {
+        if (!Number.isFinite(current) || current < min || current > field.max) {
           const remembered = Number(executionBudgetDrafts[field.key]);
-          const seed = Number.isFinite(remembered) && remembered >= field.min && remembered <= field.max
+          const seed = Number.isFinite(remembered) && remembered >= min && remembered <= field.max
             ? remembered
-            : field.fallback;
+            : Math.max(min, field.fallback);
           input.value = String(seed);
         }
         input.focus?.();
@@ -290,14 +320,18 @@ export function createSystemSettingsController({
     });
   }
 
+  function setExecutionBudgetRowUnlimited(toggle, unlimited) {
+    toggle?.closest?.("[data-budget-row]")?.classList?.toggle("is-unlimited", Boolean(unlimited));
+  }
+
   function collectExecutionBudget() {
     const continuation = state.runtimeSummary?.agent?.continuation || {};
-    const segmentTurns = Number(continuation.segmentTurns);
+    const segmentTurns = executionBudgetSegmentTurns(continuation);
     const payload = {
       mode: $("runtimeBudgetMode")?.value === "safe" ? "safe" : "off",
       // segmentTurns has no control here, so carry the persisted value forward
       // unchanged; the endpoint is a full overwrite and rejects a missing value.
-      segmentTurns: Number.isFinite(segmentTurns) && segmentTurns >= 1 ? segmentTurns : defaultContinuationSegmentTurns,
+      segmentTurns,
     };
     for (const field of executionBudgetFields) {
       const toggle = $(`${field.id}Unlimited`);
@@ -305,8 +339,9 @@ export function createSystemSettingsController({
         payload[field.key] = -1;
         continue;
       }
+      const min = executionBudgetFieldMin(field, segmentTurns);
       const raw = Number($(field.id)?.value);
-      const uiValue = Number.isFinite(raw) && raw >= field.min && raw <= field.max ? raw : field.fallback;
+      const uiValue = Number.isFinite(raw) && raw >= min && raw <= field.max ? raw : Math.max(min, field.fallback);
       executionBudgetDrafts[field.key] = uiValue;
       payload[field.key] = Math.round(uiValue * (field.scale || 1));
     }

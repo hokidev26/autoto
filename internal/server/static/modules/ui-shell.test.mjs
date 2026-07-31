@@ -195,7 +195,12 @@ function flushMicrotasks() {
   return new Promise((resolve) => setImmediate(resolve));
 }
 
-test("danger reflection toggle is the only row in the safety section", async () => {
+function findDangerLevelButton(menu, level) {
+  return menu.querySelectorAll(".composer-permission-danger-reflection-level")
+    .find((button) => button.dataset.dangerReflectionLevel === level);
+}
+
+test("danger reflection level selector is the only row in the safety section", async () => {
   const { fakeDocument, fakeWindow, trigger, body } = setupComposerSelectDOM();
   await withGlobals(fakeDocument, fakeWindow, async () => {
     const controller = createUIShellController({
@@ -207,21 +212,22 @@ test("danger reflection toggle is the only row in the safety section", async () 
     openPermissionMenu(trigger);
 
     const menu = findMenu(body);
-    const toggle = menu.querySelector(".composer-permission-danger-reflection-toggle");
-    assert.ok(toggle, "expected a danger reflection toggle to be rendered");
-    assert.equal(toggle.type, "checkbox");
-    assert.equal(toggle.getAttribute("role"), "switch");
+    const selector = menu.querySelector(".composer-permission-danger-reflection-levels");
+    assert.ok(selector, "expected a danger reflection level selector to be rendered");
+    assert.equal(selector.getAttribute("role"), "radiogroup");
 
-    // Only the toggle. The old "permission protection / enabled" note was
-    // removed: it restated something always true and could not be acted on, so
-    // it was pure noise above the one control that does something here.
+    const buttons = menu.querySelectorAll(".composer-permission-danger-reflection-level");
+    assert.deepEqual(buttons.map((button) => button.dataset.dangerReflectionLevel), ["off", "loose", "medium", "strict"]);
+    assert.ok(buttons.every((button) => button.type === "button" && button.getAttribute("role") === "radio"));
+    assert.equal(findDangerLevelButton(menu, "medium").getAttribute("aria-checked"), "true");
+
     const safetyRows = menu.querySelectorAll(".composer-permission-safety-status");
     assert.equal(safetyRows.length, 1);
     assert.ok(safetyRows[0].classList.contains("composer-permission-danger-reflection"));
   });
 });
 
-test("danger reflection toggle reflects the value loaded from GET /api/workflow/preferences", async () => {
+test("danger reflection selector reflects the value loaded from GET /api/workflow/preferences", async () => {
   const { fakeDocument, fakeWindow, trigger, body } = setupComposerSelectDOM();
   const calls = [];
   await withGlobals(fakeDocument, fakeWindow, async () => {
@@ -242,21 +248,19 @@ test("danger reflection toggle reflects the value loaded from GET /api/workflow/
     openPermissionMenu(trigger);
 
     const menu = findMenu(body);
-    const toggle = menu.querySelector(".composer-permission-danger-reflection-toggle");
-    // Before the GET resolves the control assumes the server-side default level
-    // (medium), so an unloaded preference never misreports the gate as off.
-    assert.equal(toggle.checked, true);
+    // Before the GET resolves the control assumes the server-side default level.
+    assert.equal(findDangerLevelButton(menu, "medium").getAttribute("aria-checked"), "true");
 
     await flushMicrotasks();
 
-    assert.equal(toggle.checked, false);
-    assert.equal(toggle.getAttribute("aria-checked"), "false");
+    assert.equal(findDangerLevelButton(menu, "off").getAttribute("aria-checked"), "true");
+    assert.equal(findDangerLevelButton(menu, "medium").getAttribute("aria-checked"), "false");
     assert.equal(calls.length, 1);
     assert.equal(calls[0].path, "/api/workflow/preferences");
   });
 });
 
-test("toggling danger reflection sends the full preferences payload as a PUT", async () => {
+test("selecting a danger reflection level sends the full preferences payload as a PUT", async () => {
   const { fakeDocument, fakeWindow, trigger, body } = setupComposerSelectDOM();
   const calls = [];
   await withGlobals(fakeDocument, fakeWindow, async () => {
@@ -279,11 +283,9 @@ test("toggling danger reflection sends the full preferences payload as a PUT", a
     await flushMicrotasks();
 
     const menu = findMenu(body);
-    const toggle = menu.querySelector(".composer-permission-danger-reflection-toggle");
-    assert.equal(toggle.checked, false);
+    assert.equal(findDangerLevelButton(menu, "off").getAttribute("aria-checked"), "true");
 
-    toggle.checked = true;
-    toggle.dispatch("change");
+    findDangerLevelButton(menu, "loose").dispatch("click");
     await flushMicrotasks();
 
     const putCall = calls.find((call) => call.options.method === "PUT");
@@ -293,14 +295,14 @@ test("toggling danger reflection sends the full preferences payload as a PUT", a
       requireConfirmationForExec: true,
       requireConfirmationForWrites: false,
       allowReadOnlyByDefault: true,
-      dangerReflectionLevel: "medium",
+      dangerReflectionLevel: "loose",
     });
-    assert.equal(toggle.checked, true);
-    assert.equal(toggle.getAttribute("aria-checked"), "true");
+    assert.equal(findDangerLevelButton(menu, "loose").getAttribute("aria-checked"), "true");
+    assert.equal(findDangerLevelButton(menu, "off").getAttribute("aria-checked"), "false");
   });
 });
 
-test("an off/on cycle restores the previous strict level instead of downgrading to medium", async () => {
+test("danger reflection can switch directly between all non-off levels", async () => {
   const { fakeDocument, fakeWindow, trigger, body } = setupComposerSelectDOM();
   const puts = [];
   await withGlobals(fakeDocument, fakeWindow, async () => {
@@ -325,22 +327,21 @@ test("an off/on cycle restores the previous strict level instead of downgrading 
     openPermissionMenu(trigger);
     await flushMicrotasks();
 
-    const toggle = findMenu(body).querySelector(".composer-permission-danger-reflection-toggle");
-    assert.equal(toggle.checked, true);
+    const menu = findMenu(body);
+    assert.equal(findDangerLevelButton(menu, "strict").getAttribute("aria-checked"), "true");
 
-    toggle.checked = false;
-    toggle.dispatch("change");
+    findDangerLevelButton(menu, "medium").dispatch("click");
     await flushMicrotasks();
 
-    toggle.checked = true;
-    toggle.dispatch("change");
+    findDangerLevelButton(menu, "loose").dispatch("click");
     await flushMicrotasks();
 
-    assert.deepEqual(puts, ["off", "strict"]);
+    assert.deepEqual(puts, ["medium", "loose"]);
+    assert.equal(findDangerLevelButton(menu, "loose").getAttribute("aria-checked"), "true");
   });
 });
 
-test("a failed PUT reverts the toggle and surfaces the error", async () => {
+test("a failed PUT restores the selected level and surfaces the error", async () => {
   const { fakeDocument, fakeWindow, trigger, body } = setupComposerSelectDOM();
   const errors = [];
   await withGlobals(fakeDocument, fakeWindow, async () => {
@@ -363,21 +364,19 @@ test("a failed PUT reverts the toggle and surfaces the error", async () => {
     await flushMicrotasks();
 
     const menu = findMenu(body);
-    const toggle = menu.querySelector(".composer-permission-danger-reflection-toggle");
-    assert.equal(toggle.checked, false);
+    assert.equal(findDangerLevelButton(menu, "off").getAttribute("aria-checked"), "true");
 
-    toggle.checked = true;
-    toggle.dispatch("change");
+    findDangerLevelButton(menu, "strict").dispatch("click");
     await flushMicrotasks();
 
-    assert.equal(toggle.checked, false, "toggle should revert to its previous state on failure");
-    assert.equal(toggle.getAttribute("aria-checked"), "false");
+    assert.equal(findDangerLevelButton(menu, "off").getAttribute("aria-checked"), "true");
+    assert.equal(findDangerLevelButton(menu, "strict").getAttribute("aria-checked"), "false");
     assert.equal(errors.length, 1);
     assert.equal(errors[0].message, "boom");
   });
 });
 
-test("toggling without a requestAPI reverts instead of silently no-opping", async () => {
+test("selecting a level without requestAPI preserves the current value", async () => {
   const { fakeDocument, fakeWindow, trigger, body } = setupComposerSelectDOM();
   const errors = [];
   await withGlobals(fakeDocument, fakeWindow, async () => {
@@ -392,14 +391,13 @@ test("toggling without a requestAPI reverts instead of silently no-opping", asyn
     await flushMicrotasks();
 
     const menu = findMenu(body);
-    const toggle = menu.querySelector(".composer-permission-danger-reflection-toggle");
-    assert.equal(toggle.checked, true);
+    assert.equal(findDangerLevelButton(menu, "medium").getAttribute("aria-checked"), "true");
 
-    toggle.checked = false;
-    toggle.dispatch("change");
+    findDangerLevelButton(menu, "off").dispatch("click");
     await flushMicrotasks();
 
-    assert.equal(toggle.checked, true);
+    assert.equal(findDangerLevelButton(menu, "medium").getAttribute("aria-checked"), "true");
+    assert.equal(findDangerLevelButton(menu, "off").getAttribute("aria-checked"), "false");
     assert.equal(errors.length, 1);
   });
 });

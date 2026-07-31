@@ -388,6 +388,38 @@ func (s *Store) ReleaseScheduleLease(ctx context.Context, id, leaseUntil string)
 	return requireP2P3Transition(ctx, s.db, result, "schedules", id, "release schedule lease")
 }
 
+// ClaimScheduleNow takes the same lease ClaimDueSchedules takes, for a run the
+// user asked for by hand rather than one that came due. It exists so the lease
+// is written through the same canonicalization: a caller formatting the
+// timestamp itself stores text that GetSchedule then reads back in a different
+// shape, and every compare-and-swap against it -- clearing the lease, recording
+// the outcome -- silently matches no rows and reports a conflict.
+//
+// Returns sql.ErrNoRows when the schedule is gone and ErrConflict when another
+// run already holds the lease.
+func (s *Store) ClaimScheduleNow(ctx context.Context, id, now, leaseUntil string) (Schedule, error) {
+	id = strings.TrimSpace(id)
+	now, err := canonicalP2P3Time("schedule claim time", now, true)
+	if err != nil {
+		return Schedule{}, err
+	}
+	leaseUntil, err = canonicalP2P3Time("schedule lease_until", leaseUntil, true)
+	if err != nil {
+		return Schedule{}, err
+	}
+	if !p2p3TimeAfter(leaseUntil, now) {
+		return Schedule{}, errors.New("schedule lease_until must be after claim time")
+	}
+	result, err := s.db.ExecContext(ctx, `UPDATE schedules SET lease_until = ?, updated_at = ? WHERE id = ? AND (lease_until IS NULL OR lease_until <= ?)`, leaseUntil, Now(), id, now)
+	if err != nil {
+		return Schedule{}, err
+	}
+	if err := requireP2P3Transition(ctx, s.db, result, "schedules", id, "claim schedule"); err != nil {
+		return Schedule{}, err
+	}
+	return s.GetSchedule(ctx, id)
+}
+
 func (s *Store) RecordScheduleRun(ctx context.Context, id, leaseUntil, runID, outcome, lastError, nextRunAt string) (Schedule, error) {
 	id = strings.TrimSpace(id)
 	runID = strings.TrimSpace(runID)

@@ -1162,6 +1162,17 @@ body.theme-dark .mp-provider-drawer-backdrop {
   background: rgba(0, 0, 0, .62);
 }
 
+/* The add-provider chooser itself is the backdrop in the current markup. */
+body.white-shell.theme-light.theme-dark .mp-provider-type-modal,
+body.theme-dark .mp-provider-type-modal {
+  color-scheme: dark;
+  background: rgba(0, 0, 0, .68);
+}
+
+body.white-shell.theme-light .mp-provider-type-modal:not(.theme-dark) {
+  color-scheme: light;
+}
+
 body.ui-density-compact #settingsContentBody .mp-provider-page {
   padding-bottom: 32px;
 }
@@ -1720,8 +1731,19 @@ body.ui-density-compact .mp-provider-drawer-body {
   text-align: center;
 }
 
-/* The current type selector uses the outer modal as the backdrop. */
+/* The current type selector uses the outer modal as the backdrop. Keep its
+   palette local because the modal is mounted outside #settingsContentBody. */
 .mp-provider-type-modal {
+  --mp-canvas: var(--ws-canvas, #f6f7f9);
+  --mp-surface: var(--ws-card, #ffffff);
+  --mp-surface-muted: var(--ws-input, #f3f5f8);
+  --mp-text: var(--ws-text, #20263a);
+  --mp-muted: var(--ws-muted, #64748b);
+  --mp-border: var(--ws-border, #d9dee8);
+  --mp-accent: var(--ws-primary, #4057c8);
+  --mp-accent-strong: var(--ws-primary, #3346ad);
+  --mp-accent-soft: var(--ws-primary-soft, #edf0ff);
+  color-scheme: light;
   position: fixed;
   z-index: 90;
   inset: 0;
@@ -1745,9 +1767,24 @@ body.ui-density-compact .mp-provider-drawer-body {
   overflow: auto;
   border: 1px solid var(--mp-border);
   border-radius: 10px;
-  background: var(--mp-surface);
-  color: var(--mp-text);
+  background: var(--mp-surface) !important;
+  color: var(--mp-text) !important;
   box-shadow: 0 24px 80px rgba(15, 23, 42, .28);
+}
+
+.mp-provider-type-modal .mp-modal-head,
+.mp-provider-type-modal .mp-modal-foot {
+  border-color: var(--mp-border);
+  background: var(--mp-surface) !important;
+  color: var(--mp-text);
+}
+
+.mp-provider-type-modal .settings-card-title {
+  color: var(--mp-text);
+}
+
+.mp-provider-type-modal .settings-card-description {
+  color: var(--mp-muted);
 }
 
 .mp-modal-head,
@@ -1804,6 +1841,20 @@ body.ui-density-compact .mp-provider-drawer-body {
   color: var(--mp-muted);
   font-size: 12px;
   line-height: 1.4;
+}
+
+.mp-provider-type-modal .mp-provider-type-option {
+  border-color: var(--mp-border);
+  background: var(--mp-surface-muted);
+  color: var(--mp-text);
+  transition: border-color .16s ease, background-color .16s ease, box-shadow .16s ease;
+}
+
+.mp-provider-type-modal .mp-provider-type-option:hover,
+.mp-provider-type-modal .mp-provider-type-option:focus-visible {
+  border-color: var(--mp-accent);
+  background: var(--mp-accent-soft);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--mp-accent) 24%, transparent);
 }
 
 /* Mounted drawers are visible immediately; the backdrop receives click-to-close events. */
@@ -2722,6 +2773,100 @@ body.ui-density-compact .mp-provider-drawer-body {
   color: var(--mp-muted);
 }
 
+/* Official account providers use one risk-first quota summary instead of
+   expanding every account and model on the landing page. */
+#settingsContentBody .mp-provider-quota-overview {
+  display: flex;
+  min-width: 0;
+  min-height: 92px;
+  flex-direction: column;
+  gap: 8px;
+  padding: 4px 0 12px;
+  color: var(--mp-muted);
+}
+
+#settingsContentBody .mp-provider-quota-head,
+#settingsContentBody .mp-provider-quota-detail {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+#settingsContentBody .mp-provider-quota-head > span,
+#settingsContentBody .mp-provider-quota-detail > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#settingsContentBody .mp-provider-quota-head > span {
+  font-size: 11px;
+  font-weight: 650;
+}
+
+#settingsContentBody .mp-provider-quota-head > strong {
+  flex: 0 0 auto;
+  color: var(--mp-text);
+  font-size: 13px;
+  font-weight: 760;
+  white-space: nowrap;
+}
+
+#settingsContentBody .mp-provider-quota-detail {
+  margin-top: auto;
+  font-size: 10px;
+}
+
+#settingsContentBody .mp-provider-quota-detail > span:last-child:not(:first-child) {
+  flex: 0 1 auto;
+  text-align: right;
+}
+
+#settingsContentBody .mp-provider-quota-progress {
+  position: relative;
+  height: 5px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--mp-muted) 15%, var(--mp-surface-muted));
+  color: var(--mp-good);
+}
+
+#settingsContentBody .mp-provider-quota-progress > span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: currentColor;
+  transition: width .2s ease;
+}
+
+#settingsContentBody .mp-provider-quota-progress.warning,
+#settingsContentBody .mp-provider-quota-overview.is-warning .mp-provider-quota-head > strong {
+  color: var(--mp-warn);
+}
+
+#settingsContentBody .mp-provider-quota-progress.danger,
+#settingsContentBody .mp-provider-quota-overview.is-danger .mp-provider-quota-head > strong {
+  color: var(--mp-danger);
+}
+
+#settingsContentBody .mp-provider-quota-overview.is-healthy .mp-provider-quota-head > strong {
+  color: var(--mp-good);
+}
+
+#settingsContentBody .mp-provider-quota-overview[data-state="loading"] .mp-provider-quota-detail,
+#settingsContentBody .mp-provider-quota-overview[data-state="idle"] .mp-provider-quota-detail {
+  opacity: .78;
+}
+
+body.ui-density-compact #settingsContentBody .mp-provider-quota-overview {
+  min-height: 80px;
+  gap: 6px;
+  padding-bottom: 9px;
+}
+
 /* Empty state shown inside an account panel — a plain centered message, not a
    nested card, so it doesn't read as a second card stuck inside the panel. */
 #settingsContentBody .mp-console-empty {
@@ -2805,6 +2950,7 @@ body.ui-density-compact .mp-provider-drawer-body {
 }
 
 #settingsContentBody .mp-provider-model-image-generation {
+  position: relative;
   display: grid;
   grid-template-columns: 30px minmax(0, 1fr);
   align-items: center;
@@ -2964,6 +3110,16 @@ body.ui-density-compact .mp-provider-drawer-body {
 body.white-shell.theme-light #settingsContentBody:has(.mp-provider-reference-layout),
 body.white-shell.theme-light #settingsContentBody .mp-provider-reference-layout {
   background: #fff;
+}
+
+/* The rule above hard-codes the white shell on the provider reference layout,
+   and its :has() outranks the generated dark override block, so the dark
+   presets kept a white page under copy that had already been remapped to the
+   themed foreground: every field label rendered near-white on white. Restated
+   here at matching specificity so the dark palettes reach it. */
+body.white-shell.theme-light.theme-dark #settingsContentBody:has(.mp-provider-reference-layout),
+body.white-shell.theme-light.theme-dark #settingsContentBody .mp-provider-reference-layout {
+  background: var(--ws-card);
 }
 
 #settingsContentBody .mp-provider-reference-header {

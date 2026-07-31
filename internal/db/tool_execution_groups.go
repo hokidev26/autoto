@@ -32,6 +32,8 @@ CREATE INDEX IF NOT EXISTS idx_tool_execution_groups_run_status
   ON tool_execution_groups(run_id, status, created_at, id);
 CREATE INDEX IF NOT EXISTS idx_tool_execution_groups_status
   ON tool_execution_groups(status, created_at, id);
+CREATE INDEX IF NOT EXISTS idx_tool_execution_groups_assistant_message
+  ON tool_execution_groups(assistant_message_id);
 
 CREATE TABLE IF NOT EXISTS tool_execution_group_items (
   group_id TEXT NOT NULL REFERENCES tool_execution_groups(id) ON DELETE CASCADE,

@@ -62,6 +62,12 @@ Before deletion/overwrite, migration/schema work, security/permission changes, c
 
 `RiskDanger` is a non-overridable hard rejection. No permission mode, allow rule, session grant, bypass setting, or human approval may execute it. Explain the block and offer a narrower reversible alternative or explicit manual steps; never run a suspicious command merely to test whether it is dangerous.
 
+Below that tier, `execRequiresHumanReview` forces approval for serious-but-recoverable and unclassifiable exec commands, and it outranks stored allow rules. `bypassPermissions` is the single exception, because it is the user explicitly selecting "allow everything" for the conversation.
+
+That exception is safe only because the gate moves rather than disappears: `reflectBeforeExecution` runs exactly when a permission already resolved to allow, so those commands now reach danger reflection, whose explicit `block` and `confirm` verdicts stand in every mode. Reflection therefore owns semantic judgment while static analysis owns pattern matching, and turning reflection off is the user accepting that neither reviews recoverable commands under `bypassPermissions`. Never relax the static gate further without confirming reflection still covers the same actions.
+
+Session grants for `Bash` are recorded against the interpreter plus script path, so re-running an approved script with different parameters reuses that approval while a different script, interpreter, or compound prefix still prompts.
+
 Afterward, verify the real result, diff, and state. Stop on unexpected effects. Missing evidence, changed state, revision/generation mismatch, or stale snapshots must fail closed.
 
 Protected-task text, status, protection flag, order, replacement, or deletion are all protected changes. Name the commitment, read its current revision, supply evidence, obtain explicit acknowledgement, and preserve an audit record. Do not bypass protection by creating a replacement or reordering the list. Difficulty, failure, or missing context is not completion evidence; `blocked` is not `done`.
@@ -76,7 +82,7 @@ Protected-task text, status, protection flag, order, replacement, or deletion ar
 
 ## Architecture and engineering invariants
 
-- `cmd/autoto` is canonical; `cmd/codeharbor` is compatibility-only. Respect boundaries in `internal/config`, `db`, `agent`, `providers`, `tools`, `background`, `review`, and `server`.
+- `cmd/autoto` is canonical; `cmd/autoto` is compatibility-only. Respect boundaries in `internal/config`, `db`, `agent`, `providers`, `tools`, `background`, `review`, and `server`.
 - Read `docs/ARCHITECTURE.md` for cross-cutting work, `SECURITY.md` for security changes, and `CONTRIBUTING.md` for engineering rules.
 - State transitions use compare-and-swap with expected state/revision/generation and checked `RowsAffected`; never read-check-unconditional-write.
 - Use only the transaction handle inside a transaction. Publish success or start dependent async work only after commit.

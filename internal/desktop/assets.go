@@ -2,10 +2,13 @@
 
 package desktop
 
-import _ "embed"
+import (
+	_ "embed"
 
-//go:embed assets/app-icon-256.png
-var appIconPNG []byte
+	"autoto/internal/branding"
+)
+
+var appIconPNG = branding.AppIconPNG()
 
 //go:embed assets/tray-icon-32.png
 var trayIconPNG []byte

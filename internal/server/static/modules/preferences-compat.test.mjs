@@ -398,6 +398,7 @@ test("appearance presets default to light and migrate version 2 and unversioned 
     backgroundPositionY: 50,
     terminalDefaultOpen: false,
     showEventLog: true,
+    showThroughput: false,
   });
 
   withBrowserStorage(new MemoryStorage([[appearancePrefsKey, JSON.stringify({
@@ -508,6 +509,7 @@ test("appearance backup retains the normalized theme preset", () => {
       backgroundPositionY: 50,
       terminalDefaultOpen: false,
       showEventLog: true,
+      showThroughput: false,
     });
     assert.equal(controller.createLocalPreferencesBackup().preferences[appearancePrefsKey].themePreset, "apple");
   });
@@ -709,4 +711,29 @@ test("runtime prefers the Autoto token and falls back to the CodeHarbor token", 
     restoreCanonicalWindow();
     restores.reverse().forEach((restore) => restore());
   }
+});
+
+// The throughput badge is a diagnostic, so an untouched install must not show
+// it. The switch is a body class rather than a render flag: turning it on has
+// to reveal the badges already sitting in the transcript.
+test("throughput badges stay off until the appearance setting turns them on", () => {
+  withBrowserStorage(new MemoryStorage(), (body) => {
+    const controller = createController();
+    assert.equal(controller.currentAppearancePreferences().showThroughput, false);
+    controller.applyAppearancePreferences();
+    assert.equal(body.classList.contains("show-throughput"), false);
+
+    controller.setAppearancePreference("showThroughput", true);
+    assert.equal(body.classList.contains("show-throughput"), true);
+    assert.equal(JSON.parse(localStorage.getItem(appearancePrefsKey)).showThroughput, true);
+
+    controller.setAppearancePreference("showThroughput", false);
+    assert.equal(body.classList.contains("show-throughput"), false);
+  });
+
+  // A preferences blob written before the setting existed must read as off,
+  // not as "field missing therefore truthy".
+  withBrowserStorage(new MemoryStorage([[appearancePrefsKey, JSON.stringify({ styleVersion: 4, themePreset: "light", theme: "light" })]]), () => {
+    assert.equal(createController().loadAppearancePreferences().showThroughput, false);
+  });
 });

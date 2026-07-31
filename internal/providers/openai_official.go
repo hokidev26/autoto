@@ -69,6 +69,8 @@ func (p *OpenAIOfficial) Capabilities() Capabilities {
 	}
 }
 
+func (p *OpenAIOfficial) DefaultContextTokenLimit() int { return 128000 }
+
 func (p *OpenAIOfficial) ModelCapabilities(model string) ModelCapabilities {
 	if p == nil {
 		return ModelCapabilities{}

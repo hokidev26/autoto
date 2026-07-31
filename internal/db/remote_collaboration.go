@@ -158,6 +158,7 @@ CREATE TABLE IF NOT EXISTS remote_peer_grants (
 );
 CREATE INDEX IF NOT EXISTS idx_remote_peer_grants_pairing_project ON remote_peer_grants(pairing_id, project_id, agent_id);
 CREATE INDEX IF NOT EXISTS idx_remote_peer_grants_project_agent ON remote_peer_grants(project_id, agent_id, pairing_id);
+CREATE INDEX IF NOT EXISTS idx_remote_peer_grants_agent ON remote_peer_grants(agent_id);
 `
 
 type RemotePairingInvitation struct {

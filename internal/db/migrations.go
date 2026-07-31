@@ -3,13 +3,14 @@ package db
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"strings"
 
 	"github.com/google/uuid"
 )
 
-const CurrentDBVersion = 57
+const CurrentDBVersion = 61
 
 type migration struct {
 	version int
@@ -75,6 +76,51 @@ var migrations = []migration{
 	{version: 55, name: "superseded messages", up: migrateV55SupersededMessages},
 	{version: 56, name: "assistant reasoning transcript", up: migrateV56AssistantReasoning},
 	{version: 57, name: "danger reflection level", up: migrateV57DangerReflectionLevel},
+	{version: 58, name: "foreign key child indexes", up: migrateV58ForeignKeyChildIndexes},
+	{version: 59, name: "conversation scoped memories", up: migrateV59ScopedMemories},
+	{version: 60, name: "runtime default xhigh effort", up: migrateV60RuntimeXHighEffort},
+	{version: 61, name: "max and ultra reasoning effort", up: migrateV61MaxUltraEffort},
+}
+
+// migrateV61MaxUltraEffort admits the two strongest Codex levels. They are
+// per-model — the authenticated catalog reports "ultra" for gpt-5.6-terra,
+// "max" for gpt-5.6-luna and neither for gpt-5.5 — so storage only has to stop
+// rejecting them; which models offer them is decided from the catalog.
+func migrateV61MaxUltraEffort(ctx context.Context, tx *sql.Tx) error {
+	if err := extendTableCheckConstraint(ctx, tx, "agents",
+		"CHECK (reasoning_effort IS NULL OR reasoning_effort IN ('auto', 'low', 'medium', 'high', 'xhigh'))",
+		"CHECK (reasoning_effort IS NULL OR reasoning_effort IN ('auto', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra'))"); err != nil {
+		return err
+	}
+	if err := extendTableCheckConstraint(ctx, tx, "runtime_settings",
+		"CHECK (default_reasoning_effort IN ('auto', 'low', 'medium', 'high', 'xhigh'))",
+		"CHECK (default_reasoning_effort IN ('auto', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra'))"); err != nil {
+		return err
+	}
+	// Databases created after v25 enforce the agent levels with triggers rather
+	// than a CHECK, so both spellings have to be widened or the limit survives
+	// in whichever form this database happens to use.
+	_, err := tx.ExecContext(ctx, `
+DROP TRIGGER IF EXISTS agents_reasoning_effort_insert;
+DROP TRIGGER IF EXISTS agents_reasoning_effort_update;
+CREATE TRIGGER agents_reasoning_effort_insert BEFORE INSERT ON agents
+WHEN NEW.reasoning_effort IS NOT NULL AND NEW.reasoning_effort NOT IN ('auto', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra')
+BEGIN SELECT RAISE(ABORT, 'invalid agent reasoning effort'); END;
+CREATE TRIGGER agents_reasoning_effort_update BEFORE UPDATE OF reasoning_effort ON agents
+WHEN NEW.reasoning_effort IS NOT NULL AND NEW.reasoning_effort NOT IN ('auto', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra')
+BEGIN SELECT RAISE(ABORT, 'invalid agent reasoning effort'); END;
+`)
+	return err
+}
+
+// migrateV60RuntimeXHighEffort lets the runtime default reach "xhigh", which
+// Codex serves and a per-agent override has accepted since v25. The level was
+// rejected at every layer above this one, but the table's own CHECK constraint
+// had the last word and turned an accepted request into a 500.
+func migrateV60RuntimeXHighEffort(ctx context.Context, tx *sql.Tx) error {
+	return extendTableCheckConstraint(ctx, tx, "runtime_settings",
+		"CHECK (default_reasoning_effort IN ('auto', 'low', 'medium', 'high'))",
+		"CHECK (default_reasoning_effort IN ('auto', 'low', 'medium', 'high', 'xhigh'))")
 }
 
 func runMigrations(ctx context.Context, db *sql.DB) error {
@@ -907,11 +953,26 @@ BEGIN SELECT RAISE(ABORT, 'invalid agent reasoning effort'); END;
 // constraint in sqlite_schema, then advance the schema cookie so SQLite reloads
 // the validated DDL without rebuilding a table referenced by many child tables.
 func extendAgentsReasoningEffortCheck(ctx context.Context, tx *sql.Tx) error {
-	const oldCheck = "CHECK (reasoning_effort IS NULL OR reasoning_effort IN ('auto', 'low', 'medium', 'high'))"
-	const newCheck = "CHECK (reasoning_effort IS NULL OR reasoning_effort IN ('auto', 'low', 'medium', 'high', 'xhigh'))"
+	return extendTableCheckConstraint(ctx, tx, "agents",
+		"CHECK (reasoning_effort IS NULL OR reasoning_effort IN ('auto', 'low', 'medium', 'high'))",
+		"CHECK (reasoning_effort IS NULL OR reasoning_effort IN ('auto', 'low', 'medium', 'high', 'xhigh'))")
+}
 
+// extendTableCheckConstraint swaps one exact CHECK clause for another in a
+// table's stored DDL. It is a no-op when the old clause is absent, so it is safe
+// on databases created after the constraint was widened.
+//
+// The literal match is deliberate: this edits sqlite_schema directly, which
+// bypasses SQLite's own parser, so a loose match could corrupt the DDL. Bumping
+// schema_version afterwards is what makes SQLite reparse and validate the
+// result. The alternative — rebuilding the table — would mean detaching and
+// restoring every child foreign key, which is far riskier for user data.
+func extendTableCheckConstraint(ctx context.Context, tx *sql.Tx, table, oldCheck, newCheck string) error {
 	var definition sql.NullString
-	if err := tx.QueryRowContext(ctx, `SELECT sql FROM sqlite_schema WHERE type = 'table' AND name = 'agents'`).Scan(&definition); err != nil {
+	if err := tx.QueryRowContext(ctx, `SELECT sql FROM sqlite_schema WHERE type = 'table' AND name = ?`, table).Scan(&definition); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil
+		}
 		return err
 	}
 	if !definition.Valid || !strings.Contains(definition.String, oldCheck) {
@@ -925,7 +986,7 @@ func extendAgentsReasoningEffortCheck(ctx context.Context, tx *sql.Tx) error {
 	if _, err := tx.ExecContext(ctx, `PRAGMA writable_schema = ON`); err != nil {
 		return err
 	}
-	if _, err := tx.ExecContext(ctx, `UPDATE sqlite_schema SET sql = ? WHERE type = 'table' AND name = 'agents'`, updated); err != nil {
+	if _, err := tx.ExecContext(ctx, `UPDATE sqlite_schema SET sql = ? WHERE type = 'table' AND name = ?`, updated, table); err != nil {
 		_, _ = tx.ExecContext(ctx, `PRAGMA writable_schema = OFF`)
 		return err
 	}
@@ -1637,7 +1698,7 @@ func legacyNamingSchemaSQL() string {
 func execSchemaStatements(ctx context.Context, tx *sql.Tx, schema string, include func(string) bool) error {
 	for _, raw := range strings.Split(schema, ";") {
 		stmt := strings.TrimSpace(raw)
-		if stmt == "" || !include(stmt) {
+		if stmt == "" || !include(statementKeyword(stmt)) {
 			continue
 		}
 		if _, err := tx.ExecContext(ctx, stmt); err != nil {
@@ -1645,6 +1706,30 @@ func execSchemaStatements(ctx context.Context, tx *sql.Tx, schema string, includ
 		}
 	}
 	return nil
+}
+
+// statementKeyword returns a statement with its leading comment lines removed,
+// so callers that select statements by prefix classify on the SQL rather than
+// on documentation.
+//
+// This is load-bearing for the legacy upgrade path, which runs CREATE TABLE
+// statements before CREATE INDEX ones. A doc comment written above a table
+// definition used to hide that table from the CREATE TABLE pass while its
+// indexes still matched the CREATE INDEX pass, so the upgrade failed with "no
+// such table" — and because the comment lives in a schema fragment, nothing
+// near the migration code hinted at the cause.
+func statementKeyword(stmt string) string {
+	for {
+		stmt = strings.TrimSpace(stmt)
+		if !strings.HasPrefix(stmt, "--") {
+			return stmt
+		}
+		newline := strings.IndexByte(stmt, '\n')
+		if newline < 0 {
+			return ""
+		}
+		stmt = stmt[newline+1:]
+	}
 }
 
 func firstLine(stmt string) string {
@@ -1974,4 +2059,101 @@ func migrateV57DangerReflectionLevel(ctx context.Context, tx *sql.Tx) error {
 	}
 	_, err = tx.ExecContext(ctx, `UPDATE workflow_preferences SET danger_reflection_level = CASE WHEN COALESCE(danger_reflection_enabled,1) = 0 THEN 'off' ELSE 'medium' END WHERE danger_reflection_level = 'medium' OR danger_reflection_level = ''`)
 	return err
+}
+
+// migrateV58ForeignKeyChildIndexes prevents parent updates and deletes from
+// scanning child tables. Every index is non-partial and starts with its FK
+// columns; existing PK, UNIQUE, and complete-prefix indexes are intentionally
+// omitted. Each table group is guarded by tableExists so this migration is
+// idempotent when applied against a partial schema (e.g. old migration tests).
+func migrateV58ForeignKeyChildIndexes(ctx context.Context, tx *sql.Tx) error {
+	type tableIndexes struct {
+		table string
+		ddl   string
+	}
+	groups := []tableIndexes{
+		{"worklines", `
+CREATE INDEX IF NOT EXISTS idx_worklines_parent_workline ON worklines(parent_workline_id);
+CREATE INDEX IF NOT EXISTS idx_worklines_merged_into_workline ON worklines(merged_into_workline_id);
+`},
+		{"runs", `
+CREATE INDEX IF NOT EXISTS idx_runs_trigger_message ON runs(trigger_message_id);
+CREATE INDEX IF NOT EXISTS idx_runs_resume_after_message ON runs(resume_after_message_id);
+CREATE INDEX IF NOT EXISTS idx_runs_waiting_background_task_fk ON runs(waiting_background_task_id);
+`},
+		{"agent_messages", `
+CREATE INDEX IF NOT EXISTS idx_agent_messages_correction ON agent_messages(correction_of_message_id);
+CREATE INDEX IF NOT EXISTS idx_agent_messages_created_by ON agent_messages(created_by);
+`},
+		{"agent_tool_calls", `
+CREATE INDEX IF NOT EXISTS idx_agent_tool_calls_message ON agent_tool_calls(message_id);
+`},
+		{"api_requests", `
+CREATE INDEX IF NOT EXISTS idx_api_requests_agent ON api_requests(agent_id);
+CREATE INDEX IF NOT EXISTS idx_api_requests_message ON api_requests(message_id);
+`},
+		{"agent_message_generated_images", `
+CREATE INDEX IF NOT EXISTS idx_generated_images_run ON agent_message_generated_images(run_id);
+CREATE INDEX IF NOT EXISTS idx_generated_images_agent_message ON agent_message_generated_images(agent_id, message_id);
+`},
+		{"skills", `
+CREATE INDEX IF NOT EXISTS idx_skills_project ON skills(project_id);
+CREATE INDEX IF NOT EXISTS idx_skills_workline ON skills(workline_id);
+`},
+		{"background_tasks", `
+CREATE INDEX IF NOT EXISTS idx_background_tasks_child_agent ON background_tasks(child_agent_id);
+CREATE INDEX IF NOT EXISTS idx_background_tasks_child_run ON background_tasks(child_run_id);
+`},
+		{"plans", `
+CREATE INDEX IF NOT EXISTS idx_plans_source_run_fk ON plans(source_run_id);
+`},
+		{"schedules", `
+CREATE INDEX IF NOT EXISTS idx_schedules_last_run ON schedules(last_run_id);
+`},
+		{"remote_execution_tasks", `
+CREATE INDEX IF NOT EXISTS idx_remote_execution_tasks_project ON remote_execution_tasks(project_id);
+CREATE INDEX IF NOT EXISTS idx_remote_execution_tasks_run ON remote_execution_tasks(run_id);
+`},
+		{"tool_execution_groups", `
+CREATE INDEX IF NOT EXISTS idx_tool_execution_groups_assistant_message ON tool_execution_groups(assistant_message_id);
+`},
+		{"lifecycle_hook_events", `
+CREATE INDEX IF NOT EXISTS idx_lifecycle_hook_events_binding ON lifecycle_hook_events(binding_id);
+`},
+		{"remote_peer_grants", `
+CREATE INDEX IF NOT EXISTS idx_remote_peer_grants_agent ON remote_peer_grants(agent_id);
+`},
+	}
+	for _, g := range groups {
+		exists, err := tableExists(ctx, tx, g.table)
+		if err != nil {
+			return fmt.Errorf("check table %s: %w", g.table, err)
+		}
+		if !exists {
+			continue
+		}
+		if _, err := tx.ExecContext(ctx, g.ddl); err != nil {
+			return fmt.Errorf("index table %s: %w", g.table, err)
+		}
+	}
+	return nil
+}
+
+// migrateV59ScopedMemories gives a memory an optional owning conversation. Every
+// pre-existing row stays global, which is the behaviour those rows already had.
+func migrateV59ScopedMemories(ctx context.Context, tx *sql.Tx) error {
+	exists, err := tableExists(ctx, tx, "memories")
+	if err != nil {
+		return fmt.Errorf("inspect table memories: %w", err)
+	}
+	if !exists {
+		return nil
+	}
+	if err := ensureColumn(ctx, tx, "memories", "agent_id", "TEXT REFERENCES agents(id) ON DELETE CASCADE"); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `CREATE INDEX IF NOT EXISTS idx_memories_agent ON memories(agent_id, pinned DESC, updated_at DESC, id ASC)`); err != nil {
+		return fmt.Errorf("index memories.agent_id: %w", err)
+	}
+	return nil
 }

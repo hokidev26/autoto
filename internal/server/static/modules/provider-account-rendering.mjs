@@ -453,6 +453,245 @@ export function subscriptionAccountModelQuotas(account = {}) {
     .sort((left, right) => left.percent - right.percent || left.model.localeCompare(right.model));
 }
 
+function quotaSummaryPercent(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return null;
+  return Math.round(Math.max(0, Math.min(100, number)) * 10) / 10;
+}
+
+function quotaSummaryTone(percent, limited = false) {
+  if (limited || percent <= 0) return "danger";
+  if (percent <= 20) return "warning";
+  return "healthy";
+}
+
+function quotaSummaryAccountLabel(provider, account = {}) {
+  if (provider === "codex") {
+    return String(account.alias || account.email || account.account_id || account.accountID || account.name || codexAccountStableID(account) || "").trim();
+  }
+  if (provider === "anthropic") {
+    return String(account.alias || account.profile || account.source || account.id || "").trim();
+  }
+  return String(account.alias || account.email || account.id || account.name || "").trim();
+}
+
+function quotaSummaryUpdatedAt(account = {}, quota = null) {
+  return String(quota?.fetched_at || quota?.fetchedAt || quota?.updated_at || quota?.updatedAt || account?.updated_at || account?.updatedAt || "").trim();
+}
+
+function quotaSummaryReset(value) {
+  if (value === null || value === undefined || value === "") return { resetAt: "", resetAfterSeconds: 0 };
+  const number = Number(value);
+  if (Number.isFinite(number) && number >= 0 && number < 1000000000) return { resetAt: "", resetAfterSeconds: number };
+  return { resetAt: String(value), resetAfterSeconds: 0 };
+}
+
+function quotaSummaryOverview(provider, accounts, now) {
+  if (provider === "codex") return codexAccountOverview(accounts, { now });
+  if (provider === "anthropic") return anthropicAccountOverview(accounts);
+  return subscriptionAccountOverview(accounts, { now });
+}
+
+function quotaSummaryAccountEligible(provider, account, now) {
+  const status = provider === "codex"
+    ? codexAccountStatus(account, { now })
+    : provider === "anthropic"
+      ? anthropicAccountStatus(account)
+      : subscriptionAccountStatus(account, { now });
+  return status.key === "available" || status.key === "rateLimited";
+}
+
+function codexQuotaSummaryCandidates(accounts, now) {
+  const candidates = [];
+  for (const account of accounts) {
+    if (!quotaSummaryAccountEligible("codex", account, now)) continue;
+    const quota = account?.quota && typeof account.quota === "object" ? account.quota : {};
+    const accountLabel = quotaSummaryAccountLabel("codex", account);
+    const updatedAt = quotaSummaryUpdatedAt(account, quota);
+    let hasWindow = false;
+    for (const [window, fallback] of [[quota.primary_window || quota.primaryWindow, "5h"], [quota.secondary_window || quota.secondaryWindow, "7d"]]) {
+      if (!window || typeof window !== "object") continue;
+      const usedValue = window.used_percent ?? window.usedPercent;
+      if (usedValue === null || usedValue === undefined || usedValue === "" || !Number.isFinite(Number(usedValue))) continue;
+      const percent = quotaSummaryPercent(100 - Number(usedValue));
+      const reset = quotaSummaryReset(window.reset_at || window.resetAt || window.reset_after_seconds || window.resetAfterSeconds);
+      candidates.push({ percent, accountLabel, bucket: codexQuotaWindowKey(window, fallback), updatedAt, ...reset });
+      hasWindow = true;
+    }
+    if (codexQuotaIsLimited(quota)) {
+      candidates.push({ percent: 0, accountLabel, bucket: "rateLimited", updatedAt, resetAt: "", resetAfterSeconds: 0 });
+    } else if (!hasWindow) {
+      continue;
+    }
+  }
+  return candidates;
+}
+
+function anthropicQuotaSummaryCandidates(accounts, now) {
+  const candidates = [];
+  for (const account of accounts) {
+    if (!quotaSummaryAccountEligible("anthropic", account, now)) continue;
+    const quota = account?.quota ?? account?.rate_limit ?? account?.rateLimit;
+    if (!quota || typeof quota !== "object") continue;
+    const accountLabel = quotaSummaryAccountLabel("anthropic", account);
+    const updatedAt = quotaSummaryUpdatedAt(account, quota);
+    const requestBucket = quota.requests && typeof quota.requests === "object" ? quota.requests : quota;
+    const buckets = [
+      ["requests", requestBucket],
+      ["inputTokens", quota.input_tokens || quota.inputTokens],
+      ["outputTokens", quota.output_tokens || quota.outputTokens],
+    ];
+    let hasCandidate = false;
+    for (const [bucketName, bucket] of buckets) {
+      if (!bucket || typeof bucket !== "object") continue;
+      const remaining = bucket.remaining ?? bucket.remaining_requests ?? bucket.remainingRequests ?? bucket.requests_remaining ?? bucket.requestsRemaining;
+      const limit = bucket.limit ?? bucket.request_limit ?? bucket.requestLimit ?? bucket.total;
+      const used = bucket.used_percent ?? bucket.usedPercent;
+      let percent = null;
+      if (remaining !== null && remaining !== undefined && remaining !== "" && limit !== null && limit !== undefined && limit !== "" && Number.isFinite(Number(limit)) && Number(limit) > 0 && Number.isFinite(Number(remaining))) {
+        percent = quotaSummaryPercent((Number(remaining) / Number(limit)) * 100);
+      } else if (used !== null && used !== undefined && used !== "" && Number.isFinite(Number(used))) {
+        percent = quotaSummaryPercent(100 - Number(used));
+      }
+      if (percent === null) continue;
+      const reset = quotaSummaryReset(bucket.reset || bucket.reset_at || bucket.resetAt || bucket.resets_at || bucket.resetsAt);
+      candidates.push({ percent, accountLabel, bucket: bucketName, updatedAt, ...reset });
+      hasCandidate = true;
+    }
+    if (!hasCandidate && anthropicRateLimitReached(quota)) {
+      candidates.push({ percent: 0, accountLabel, bucket: "requests", updatedAt, resetAt: "", resetAfterSeconds: 0 });
+    }
+  }
+  return candidates;
+}
+
+function subscriptionQuotaSummaryData(provider, accounts, now) {
+  const modelCandidates = [];
+  const budgetCandidates = [];
+  const allowances = [];
+  for (const account of accounts) {
+    if (!quotaSummaryAccountEligible(provider, account, now)) continue;
+    const quota = account?.quota && typeof account.quota === "object" ? account.quota : null;
+    const accountLabel = quotaSummaryAccountLabel(provider, account);
+    const updatedAt = quotaSummaryUpdatedAt(account, quota);
+    if (provider === "gemini") {
+      for (const modelQuota of subscriptionAccountModelQuotas(account)) {
+        modelCandidates.push({
+          percent: modelQuota.percent,
+          accountLabel,
+          model: modelQuota.model,
+          bucket: "model",
+          updatedAt,
+          ...quotaSummaryReset(modelQuota.reset),
+        });
+      }
+    }
+    for (const budget of subscriptionAccountQuotaBudgets(account)) {
+      const bucket = budget.labelKey === "quotaTokens" ? "tokens" : "requests";
+      const reset = quotaSummaryReset(budget.reset);
+      if (provider !== "grok" && budget.remaining !== null && budget.limit !== null && budget.limit > 0) {
+        budgetCandidates.push({
+          percent: quotaSummaryPercent((budget.remaining / budget.limit) * 100),
+          accountLabel,
+          bucket,
+          updatedAt,
+          ...reset,
+        });
+      } else {
+        const value = provider === "grok" && budget.limit !== null ? budget.limit : (budget.limit ?? budget.remaining);
+        if (value !== null) allowances.push({ value, mode: budget.limit !== null ? "limit" : "remaining", accountLabel, bucket, updatedAt, ...reset });
+      }
+    }
+  }
+  return { candidates: modelCandidates.length ? modelCandidates : budgetCandidates, allowances };
+}
+
+// providerAccountQuotaSummary compresses the provider-specific account/quota
+// shapes into one card-sized, risk-first summary. Missing snapshots stay missing:
+// only explicit upstream zeroes become 0%, so the overview never invents an
+// exhausted account from absent data.
+export function providerAccountQuotaSummary(provider, accounts, {
+  loaded = true,
+  loading = false,
+  error = "",
+  now = Date.now(),
+} = {}) {
+  const kind = String(provider || "").trim().toLowerCase();
+  const items = Array.isArray(accounts) ? accounts : [];
+  const overview = quotaSummaryOverview(kind, items, now);
+  const base = {
+    provider: kind,
+    loaded: Boolean(loaded),
+    loading: Boolean(loading),
+    error: String(error || ""),
+    total: overview.total || 0,
+    available: overview.available || 0,
+    limited: overview.rateLimited || 0,
+    disabled: overview.disabled || 0,
+    expired: overview.expired || 0,
+    hasQuota: false,
+    percent: null,
+    tone: "muted",
+    accountLabel: "",
+    model: "",
+    bucket: "",
+    resetAt: "",
+    resetAfterSeconds: 0,
+    updatedAt: "",
+    allowance: null,
+  };
+  if (!base.loaded) {
+    if (base.loading) return { ...base, state: "loading" };
+    if (base.error) return { ...base, state: "error" };
+    return { ...base, state: "idle" };
+  }
+  if (!items.length) {
+    if (base.loading) return { ...base, state: "loading" };
+    if (base.error) return { ...base, state: "error" };
+    return { ...base, state: "empty" };
+  }
+
+  let candidates = [];
+  let allowances = [];
+  if (kind === "codex") candidates = codexQuotaSummaryCandidates(items, now);
+  else if (kind === "anthropic") candidates = anthropicQuotaSummaryCandidates(items, now);
+  else ({ candidates, allowances } = subscriptionQuotaSummaryData(kind, items, now));
+
+  candidates = candidates.filter((candidate) => candidate.percent !== null);
+  if (candidates.length) {
+    candidates.sort((left, right) => left.percent - right.percent || left.accountLabel.localeCompare(right.accountLabel) || String(left.model || left.bucket).localeCompare(String(right.model || right.bucket)));
+    const tightest = candidates[0];
+    return {
+      ...base,
+      ...tightest,
+      state: "ready",
+      hasQuota: true,
+      tone: quotaSummaryTone(tightest.percent, tightest.percent <= 0 || base.limited > 0),
+      refreshing: base.loading,
+      stale: Boolean(base.error),
+    };
+  }
+  if (allowances.length) {
+    allowances.sort((left, right) => Number(left.value) - Number(right.value) || left.accountLabel.localeCompare(right.accountLabel));
+    const allowance = allowances[0];
+    return {
+      ...base,
+      state: "allowance",
+      tone: "healthy",
+      allowance,
+      accountLabel: allowance.accountLabel,
+      bucket: allowance.bucket,
+      resetAt: allowance.resetAt,
+      resetAfterSeconds: allowance.resetAfterSeconds,
+      updatedAt: allowance.updatedAt,
+      refreshing: base.loading,
+      stale: Boolean(base.error),
+    };
+  }
+  if (base.error) return { ...base, state: "error" };
+  return { ...base, state: "pending", refreshing: base.loading };
+}
+
 function renderSubscriptionModelQuotaCell(quotas, st) {
   const lowest = quotas[0];
   // Model ids rather than Google's displayName: the id is what the model picker

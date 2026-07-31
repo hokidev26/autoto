@@ -187,7 +187,10 @@ func TestCodexProviderListsModelsAndStreamsDirectly(t *testing.T) {
 		}
 		switch r.URL.Path {
 		case "/models":
-			if got := r.URL.Query().Get("client_version"); got != "1.2.3" {
+			// The catalog gates on the Codex client generation, not on Autoto's
+			// own version: a value below the generation a model belongs to
+			// silently returns a short or empty catalog.
+			if got := r.URL.Query().Get("client_version"); got != codexCatalogClientVersion {
 				t.Fatalf("unexpected client_version query: %q", got)
 			}
 			w.Header().Set("Content-Type", "application/json")
@@ -1508,4 +1511,164 @@ func testCodexProviderJWT(t *testing.T, claims map[string]any) string {
 		t.Fatal(err)
 	}
 	return base64.RawURLEncoding.EncodeToString(header) + "." + base64.RawURLEncoding.EncodeToString(payload) + ".fixture"
+}
+
+// TestCodexRejectedRequestShapesAreNotSent locks the three payload/header shapes
+// the ChatGPT Codex backend answers with HTTP 400. Each one silently broke every
+// request that reached it, and the surfaced error named no cause, so a
+// regression here is invisible without this test.
+func TestCodexRejectedRequestShapesAreNotSent(t *testing.T) {
+	var captured struct {
+		version string
+		body    map[string]any
+	}
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		captured.version = r.Header.Get("version")
+		_ = json.NewDecoder(r.Body).Decode(&captured.body)
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = fmt.Fprint(w, "data: {\"type\":\"response.completed\",\"response\":{}}\n\n")
+	}))
+	defer upstream.Close()
+	storeDir := filepath.Join(t.TempDir(), "codex")
+	store := codexauth.NewStore(storeDir)
+	if _, err := store.Import([]codexauth.ImportDocument{{Filename: "account.json", Content: []byte(`{"type":"codex","access_token":"fixture-access","account_id":"account-1"}`)}}); err != nil {
+		t.Fatal(err)
+	}
+	provider := newCodexRefreshTestProvider(upstream.URL, storeDir)
+	provider.cfg.ClientVersion = "1.2.3"
+	events, err := provider.Generate(context.Background(), GenerateRequest{
+		SystemPrompt:    "run boundary",
+		MaxOutputTokens: 512,
+		Messages: []Message{
+			{Role: "system", Content: "turn-scoped control"},
+			{Role: "user", Content: "hello"},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for range events {
+	}
+
+	// The backend reads `version` as the Codex CLI version and gates model
+	// access on it; Autoto's own version locked every current model out.
+	if captured.version != "" {
+		t.Fatalf("version header must not be sent to Codex: %q", captured.version)
+	}
+	// "Unsupported parameter: max_output_tokens"
+	if _, exists := captured.body["max_output_tokens"]; exists {
+		t.Fatalf("max_output_tokens must not be sent to Codex: %+v", captured.body)
+	}
+	// "System messages are not allowed"
+	input, _ := captured.body["input"].([]any)
+	if len(input) != 2 {
+		t.Fatalf("unexpected Codex input: %+v", captured.body["input"])
+	}
+	first, _ := input[0].(map[string]any)
+	if first["role"] != "developer" {
+		t.Fatalf("system input message must ride as developer: %+v", first)
+	}
+}
+
+// TestCodexDetailBodySurfacesRejectionReason covers the ChatGPT backend's
+// request-rejection channel: a bare {"detail": ...} body with no code at all.
+// Dropping it reduced every rejection to "HTTP 400 (http_400)".
+func TestCodexDetailBodySurfacesRejectionReason(t *testing.T) {
+	response := &http.Response{
+		StatusCode: http.StatusBadRequest,
+		Body:       io.NopCloser(strings.NewReader(`{"detail":"Unsupported parameter: max_output_tokens"}`)),
+	}
+	err, code := codexHTTPErrorDetails(response, codexauth.Credential{AccessToken: "fixture-access"}, config.ProviderConfig{}, "Codex 模型请求失败")
+	if code != "http_400" {
+		t.Fatalf("codeless rejection lost its stable telemetry code: %q", code)
+	}
+	if !strings.Contains(err.Error(), "Unsupported parameter: max_output_tokens") {
+		t.Fatalf("rejection reason was dropped: %v", err)
+	}
+}
+
+// TestCodexRepairsToolCallPairing covers the failure that permanently bricks a
+// conversation: the Responses API rejects the entire request when a tool call
+// and its output are not paired, so every later message replays the same broken
+// history and fails identically.
+func TestCodexRepairsToolCallPairing(t *testing.T) {
+	request := GenerateRequest{Messages: []Message{
+		// A call whose result was later rewritten into plain text.
+		{Role: "assistant", Blocks: []ContentBlock{{Type: "tool_use", ToolUseID: "orphan_call", ToolName: "Grep", Input: json.RawMessage(`{}`)}}},
+		{Role: "user", Blocks: []ContentBlock{{Type: "text", Text: "Tool Grep (orphan_call) completed: ..."}}},
+		// An output whose call was superseded away.
+		{Role: "user", Blocks: []ContentBlock{{Type: "tool_result", ToolUseID: "orphan_output", Text: "stale"}}},
+		// A healthy pair, plus a duplicate output that is equally fatal.
+		{Role: "assistant", Blocks: []ContentBlock{{Type: "tool_use", ToolUseID: "paired", ToolName: "Read", Input: json.RawMessage(`{}`)}}},
+		{Role: "user", Blocks: []ContentBlock{{Type: "tool_result", ToolUseID: "paired", Text: "ok"}}},
+		{Role: "user", Blocks: []ContentBlock{{Type: "tool_result", ToolUseID: "paired", Text: "ok again"}}},
+		{Role: "user", Content: "carry on"},
+	}}
+	payload, err := buildCodexResponsesPayload(request, "gpt-5.6-luna", "high", "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	input, _ := payload["input"].([]map[string]any)
+	calls := map[string]int{}
+	outputs := map[string]int{}
+	for _, item := range input {
+		id, _ := item["call_id"].(string)
+		switch item["type"] {
+		case "function_call":
+			calls[id]++
+		case "function_call_output":
+			outputs[id]++
+		}
+	}
+	if calls["orphan_call"] != 1 || outputs["orphan_call"] != 1 {
+		t.Fatalf("orphaned call was not given exactly one output: calls=%v outputs=%v", calls, outputs)
+	}
+	if outputs["orphan_output"] != 0 {
+		t.Fatalf("output with no call must be dropped: %v", outputs)
+	}
+	if calls["paired"] != 1 || outputs["paired"] != 1 {
+		t.Fatalf("healthy pair was not preserved exactly once: calls=%v outputs=%v", calls, outputs)
+	}
+	// Every output must follow its call, or the API rejects the ordering.
+	seen := map[string]bool{}
+	for _, item := range input {
+		id, _ := item["call_id"].(string)
+		if item["type"] == "function_call" {
+			seen[id] = true
+		}
+		if item["type"] == "function_call_output" && !seen[id] {
+			t.Fatalf("output for %q precedes its call: %+v", id, input)
+		}
+	}
+}
+
+// TestCodexInvalidRequestErrorSurfacesReason covers the shape that hid the
+// bricked-transcript failure: type "invalid_request_error" with a null code, so
+// the message is the only signal that distinguishes it from an outage.
+func TestCodexInvalidRequestErrorSurfacesReason(t *testing.T) {
+	response := &http.Response{
+		StatusCode: http.StatusBadRequest,
+		Body: io.NopCloser(strings.NewReader(
+			`{"error":{"message":"No tool output found for function call pMxpTBNG.","type":"invalid_request_error","param":"input","code":null}}`)),
+	}
+	err, code := codexHTTPErrorDetails(response, codexauth.Credential{AccessToken: "fixture-access"}, config.ProviderConfig{}, "Codex 模型请求失败")
+	if code != "http_400" {
+		t.Fatalf("codeless rejection lost its stable telemetry code: %q", code)
+	}
+	if !strings.Contains(err.Error(), "No tool output found for function call pMxpTBNG.") {
+		t.Fatalf("invalid_request_error reason was dropped: %v", err)
+	}
+}
+
+// TestCodexDefaultContextTokenLimit covers the window models get when the
+// configuration does not size them, which is now the normal case: the model
+// list comes from the authenticated catalog, not from a hand-written list that
+// carried explicit limits. Without this the runner falls back to the global
+// 120 000-token floor and refuses conversations Codex can hold.
+func TestCodexDefaultContextTokenLimit(t *testing.T) {
+	provider := NewCodexProvider(config.ProviderConfig{Name: "codex", Type: config.ProviderTypeCodex, BaseURL: codexauth.DefaultBaseURL})
+	if got := provider.DefaultContextTokenLimit(); got != 272000 {
+		t.Fatalf("unexpected Codex default context window: %d", got)
+	}
+	var _ DefaultContextTokenLimitProvider = provider
 }

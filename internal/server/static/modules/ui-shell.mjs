@@ -410,37 +410,31 @@ export function createUIShellController({
     let bodyOverflow = "";
     const observers = [];
 
-    // Workflow preferences (currently just dangerReflectionLevel) back the
-    // toggle appended in appendPermissionSafetyStatus(). The permission menu is
-    // rebuilt from scratch on every open, but the preference itself is fetched
-    // once and cached here; loadWorkflowPreferences() is safe to call any
-    // number of times while a request is already in flight or once it has
-    // already resolved.
+    // Workflow preferences back the danger-reflection level selector appended in
+    // appendPermissionSafetyStatus(). The permission menu is rebuilt from scratch
+    // on every open, while the preference itself is fetched once and cached here.
     let workflowPreferences = null;
     let workflowPreferencesPromise = null;
-    const dangerReflectionToggleNodes = new Set();
-
-    // Remembers the last non-off level so switching the toggle back on restores
-    // "strict" instead of silently downgrading the user to "medium".
-    let lastNonOffDangerLevel = "";
+    const dangerReflectionLevelNodes = new Set();
+    const dangerReflectionLevels = Object.freeze(["off", "loose", "medium", "strict"]);
 
     const dangerReflectionLevel = () => {
       const level = String(workflowPreferences?.dangerReflectionLevel || "").trim().toLowerCase();
-      const resolved = ["off", "loose", "medium", "strict"].includes(level) ? level : "medium";
-      if (resolved !== "off") lastNonOffDangerLevel = resolved;
-      return resolved;
+      return dangerReflectionLevels.includes(level) ? level : "medium";
     };
-    const dangerReflectionEnabled = () => dangerReflectionLevel() !== "off";
 
-    const syncDangerReflectionToggleNodes = () => {
-      const enabled = dangerReflectionEnabled();
-      for (const toggle of [...dangerReflectionToggleNodes]) {
-        if (toggle.isConnected === false) {
-          dangerReflectionToggleNodes.delete(toggle);
+    const syncDangerReflectionLevelNodes = () => {
+      const selectedLevel = dangerReflectionLevel();
+      for (const selector of [...dangerReflectionLevelNodes]) {
+        if (selector.isConnected === false) {
+          dangerReflectionLevelNodes.delete(selector);
           continue;
         }
-        toggle.checked = enabled;
-        toggle.setAttribute("aria-checked", enabled ? "true" : "false");
+        selector.querySelectorAll(".composer-permission-danger-reflection-level").forEach((button) => {
+          const selected = button.dataset.dangerReflectionLevel === selectedLevel;
+          button.classList.toggle("is-selected", selected);
+          button.setAttribute("aria-checked", selected ? "true" : "false");
+        });
       }
     };
 
@@ -451,7 +445,7 @@ export function createUIShellController({
       workflowPreferencesPromise = requestAPI("/api/workflow/preferences")
         .then((data) => {
           workflowPreferences = data && typeof data === "object" ? data : {};
-          syncDangerReflectionToggleNodes();
+          syncDangerReflectionLevelNodes();
           return workflowPreferences;
         })
         .catch(() => null)
@@ -461,64 +455,71 @@ export function createUIShellController({
       return workflowPreferencesPromise;
     };
 
-    const toggleDangerReflection = async (toggle) => {
-      const next = toggle.checked;
-      const previous = !next;
-      toggle.disabled = true;
+    const setDangerReflectionLevel = async (selector, nextLevel) => {
+      if (!dangerReflectionLevels.includes(nextLevel) || nextLevel === dangerReflectionLevel()) return;
+      let previousPreferences = workflowPreferences;
+      selector.setAttribute("aria-busy", "true");
+      selector.querySelectorAll(".composer-permission-danger-reflection-level").forEach((button) => { button.disabled = true; });
       try {
         // PUT requires the full preferences object, so the other fields must be
         // known first — if they can't be loaded, refuse rather than risk
         // resending the safety-critical confirmation flags with wrong defaults.
         const current = workflowPreferences || (await loadWorkflowPreferences());
         if (!current || typeof requestAPI !== "function") throw new Error("Workflow preferences are unavailable");
+        previousPreferences ||= current;
         const payload = {
           requireConfirmationForExec: Boolean(current.requireConfirmationForExec),
           requireConfirmationForWrites: Boolean(current.requireConfirmationForWrites),
           allowReadOnlyByDefault: Boolean(current.allowReadOnlyByDefault),
-          // Toggling back on restores the previous non-off level rather than
-          // hardcoding medium, so a strict setting survives an off/on cycle.
-          dangerReflectionLevel: next ? (lastNonOffDangerLevel || "medium") : "off",
+          dangerReflectionLevel: nextLevel,
         };
         const response = await requestAPI("/api/workflow/preferences", { method: "PUT", body: JSON.stringify(payload) });
         workflowPreferences = response && typeof response === "object" ? response : payload;
-        syncDangerReflectionToggleNodes();
       } catch (error) {
-        toggle.checked = previous;
-        toggle.setAttribute("aria-checked", previous ? "true" : "false");
+        workflowPreferences = previousPreferences;
         showError?.(error);
       } finally {
-        toggle.disabled = false;
+        selector.removeAttribute("aria-busy");
+        selector.querySelectorAll(".composer-permission-danger-reflection-level").forEach((button) => { button.disabled = false; });
+        syncDangerReflectionLevelNodes();
       }
     };
 
     const createDangerReflectionRow = () => {
       const row = document.createElement("div");
       row.className = "composer-permission-safety-status composer-permission-danger-reflection";
+      row.title = translate("chat.dangerReflectionDescription");
+
+      const heading = document.createElement("div");
+      heading.className = "composer-permission-danger-reflection-heading";
       const icon = document.createElement("span");
       icon.className = "composer-permission-option-icon composer-permission-safety-icon";
       icon.innerHTML = permissionMenuIconMarkup.default;
-      const copy = document.createElement("span");
-      copy.className = "composer-permission-danger-reflection-copy";
       const label = document.createElement("span");
       label.className = "composer-permission-safety-label";
       label.textContent = translate("chat.dangerReflection");
-      // The subtitle is dropped from the row: every other option in this sheet is
-      // a single line, and on a phone the extra line pushed the sheet taller for
-      // wording the label already implies. It survives as the hover/assistive
-      // description so the meaning is still discoverable.
-      copy.append(label);
-      row.title = translate("chat.dangerReflectionDescription");
-      const toggle = document.createElement("input");
-      toggle.type = "checkbox";
-      toggle.className = "composer-permission-danger-reflection-toggle";
-      toggle.setAttribute("role", "switch");
-      toggle.setAttribute("aria-label", `${translate("chat.dangerReflection")} — ${translate("chat.dangerReflectionDescription")}`);
-      const checked = dangerReflectionEnabled();
-      toggle.checked = checked;
-      toggle.setAttribute("aria-checked", checked ? "true" : "false");
-      toggle.addEventListener("change", () => toggleDangerReflection(toggle));
-      dangerReflectionToggleNodes.add(toggle);
-      row.append(icon, copy, toggle);
+      heading.append(icon, label);
+
+      const selector = document.createElement("div");
+      selector.className = "composer-permission-danger-reflection-levels";
+      selector.setAttribute("role", "radiogroup");
+      selector.setAttribute("aria-label", `${translate("chat.dangerReflection")} — ${translate("chat.dangerReflectionDescription")}`);
+      const selectedLevel = dangerReflectionLevel();
+      dangerReflectionLevels.forEach((level) => {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "composer-permission-danger-reflection-level";
+        button.dataset.dangerReflectionLevel = level;
+        button.setAttribute("role", "radio");
+        const selected = level === selectedLevel;
+        button.classList.toggle("is-selected", selected);
+        button.setAttribute("aria-checked", selected ? "true" : "false");
+        button.textContent = translate(`chat.dangerReflectionLevels.${level}`);
+        button.addEventListener("click", () => setDangerReflectionLevel(selector, level));
+        selector.appendChild(button);
+      });
+      dangerReflectionLevelNodes.add(selector);
+      row.append(heading, selector);
       loadWorkflowPreferences();
       return row;
     };
@@ -819,6 +820,18 @@ export function createUIShellController({
     const summaryModelOptions = (binding) => [...binding.select.options]
       .filter((option) => !option.hidden && String(option.value || "").trim());
 
+    // The same model name can be served by several providers, so the summary
+    // picker mirrors the main model menu: provider headings above their models,
+    // and the provider spelled out next to the current selection.
+    const summaryModelDescriptor = (binding, value) => {
+      const target = String(value || "").trim();
+      if (!target) return null;
+      const option = summaryModelOptions(binding).find((candidate) => String(candidate.value) === target) || null;
+      const presentation = modelOptionPresentation(target, option?.textContent);
+      const provider = String(option?.dataset?.provider || option?.parentElement?.label || presentation.provider || "").trim();
+      return { name: presentation.name || target, provider };
+    };
+
     const applySummaryModel = async (value) => {
       if (typeof setSummaryModel !== "function") return;
       try {
@@ -835,19 +848,35 @@ export function createUIShellController({
       heading.className = "composer-select-popover-title";
       heading.textContent = translate("chat.summaryModel");
       menu.appendChild(heading);
-      summaryModelOptions(binding).forEach((option) => {
-        const value = String(option.value);
-        const button = document.createElement("button");
-        button.type = "button";
-        button.className = "composer-select-option";
-        button.setAttribute("role", "option");
-        button.setAttribute("aria-selected", value === current ? "true" : "false");
-        button.textContent = option.textContent?.trim() || value;
-        button.addEventListener("click", () => {
-          close({ focus: true });
-          void applySummaryModel(value);
+      groupModelSelectOptions(summaryModelOptions(binding)).forEach((group, index) => {
+        const groupHeading = document.createElement("div");
+        groupHeading.className = [
+          "composer-model-group-heading",
+          index > 0 ? "composer-model-group-start" : "",
+        ].filter(Boolean).join(" ");
+        groupHeading.setAttribute("role", "presentation");
+        groupHeading.textContent = group.provider || translate("chat.modelProviderFallback");
+        menu.appendChild(groupHeading);
+        group.options.forEach((option) => {
+          const value = String(option.value);
+          const button = document.createElement("button");
+          button.type = "button";
+          button.className = "composer-select-option composer-model-option";
+          button.setAttribute("role", "option");
+          button.setAttribute("aria-selected", value === current ? "true" : "false");
+          const copy = document.createElement("span");
+          copy.className = "composer-model-option-copy";
+          const name = document.createElement("span");
+          name.className = "composer-model-option-name";
+          name.textContent = modelOptionPresentation(value, option.textContent).name;
+          copy.appendChild(name);
+          button.appendChild(copy);
+          button.addEventListener("click", () => {
+            close({ focus: true });
+            void applySummaryModel(value);
+          });
+          menu.appendChild(button);
         });
-        menu.appendChild(button);
       });
       positionMenu(binding.trigger);
       menu.querySelector('[aria-selected="true"]')?.focus();
@@ -870,9 +899,12 @@ export function createUIShellController({
       copy.appendChild(title);
       const current = String(getSummaryModel?.() || "");
       if (current) {
+        const descriptor = summaryModelDescriptor(binding, current);
         const detail = document.createElement("span");
         detail.className = "composer-model-menu-action-detail";
-        detail.textContent = current;
+        detail.textContent = descriptor?.provider
+          ? `${descriptor.provider} · ${descriptor.name}`
+          : (descriptor?.name || current);
         copy.appendChild(detail);
       }
       const chevron = document.createElement("span");

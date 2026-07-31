@@ -8,6 +8,7 @@ import (
 	"time"
 	"unicode"
 
+	"autoto/internal/db"
 	"autoto/internal/providers"
 )
 
@@ -33,6 +34,76 @@ var conversationPlaceholderTitles = map[string]struct{}{
 	"new conversation": {},
 	"新建对话":             {},
 	"新增對話":             {},
+}
+
+func (r *Runner) autoTitleConversation(ctx context.Context, agentID, prompt string) error {
+	agent, err := r.store.GetAgent(ctx, agentID)
+	if err != nil {
+		return err
+	}
+	if !untitledConversation(agent.Title) && !r.projectNamedConversation(ctx, agent) {
+		return nil
+	}
+	generated, err := r.generateConversationTitle(ctx, prompt)
+	if err != nil {
+		return err
+	}
+	title := sanitizeConversationTitle(generated)
+	if title == "" {
+		return errors.New("conversation title model returned an unusable title")
+	}
+	// A rename that landed while the model was running is a deliberate choice and
+	// outranks the generated name, so the gate is re-checked against fresh state.
+	current, err := r.store.GetAgent(ctx, agentID)
+	if err != nil {
+		return err
+	}
+	if !untitledConversation(current.Title) && !r.projectNamedConversation(ctx, current) {
+		return nil
+	}
+	updated, err := r.store.UpdateAgentTitle(ctx, agentID, title)
+	if err != nil {
+		return err
+	}
+	r.publish(Event{Type: "agent.title_updated", AgentID: agentID, Data: map[string]any{
+		"title":            updated.Title,
+		"entityGeneration": updated.EntityGeneration,
+	}})
+	return nil
+}
+
+// projectNamedConversation returns true when the agent's title was set
+// automatically to either the project name or a "Fork of …" variant — both
+// carry no user intent and should be replaced by an auto-generated title.
+func (r *Runner) projectNamedConversation(ctx context.Context, agent db.Agent) bool {
+	if r.store == nil || agent.WorklineID == "" {
+		return false
+	}
+	workline, err := r.store.GetWorkline(ctx, agent.WorklineID)
+	if err != nil || workline.ProjectID == "" {
+		return false
+	}
+	project, err := r.store.GetProject(ctx, workline.ProjectID)
+	if err != nil {
+		return false
+	}
+	// Standalone conversations are wrapped in a hidden "conversation" flow-mode
+	// project whose name mirrors the agent title. That is a container, not a
+	// user-chosen project name, so it must not suppress auto-titling.
+	if project.FlowMode == db.ProjectFlowModeConversation {
+		return false
+	}
+	agentTitle := strings.ToLower(strings.TrimSpace(agent.Title))
+	projectName := strings.ToLower(strings.TrimSpace(project.Name))
+	// Title equals project name — assigned automatically at project creation.
+	if agentTitle == projectName {
+		return true
+	}
+	// "Fork of <something>" — assigned automatically by forkWorkline.
+	if strings.HasPrefix(agentTitle, "fork of ") {
+		return true
+	}
+	return false
 }
 
 // scheduleConversationTitle names an untitled conversation from its opening user
@@ -75,42 +146,6 @@ func (r *Runner) endConversationTitling(agentID string) {
 	r.titlingMu.Lock()
 	delete(r.titling, agentID)
 	r.titlingMu.Unlock()
-}
-
-func (r *Runner) autoTitleConversation(ctx context.Context, agentID, prompt string) error {
-	agent, err := r.store.GetAgent(ctx, agentID)
-	if err != nil {
-		return err
-	}
-	if !untitledConversation(agent.Title) {
-		return nil
-	}
-	generated, err := r.generateConversationTitle(ctx, prompt)
-	if err != nil {
-		return err
-	}
-	title := sanitizeConversationTitle(generated)
-	if title == "" {
-		return errors.New("conversation title model returned an unusable title")
-	}
-	// A rename that landed while the model was running is a deliberate choice and
-	// outranks the generated name, so the gate is re-checked against fresh state.
-	current, err := r.store.GetAgent(ctx, agentID)
-	if err != nil {
-		return err
-	}
-	if !untitledConversation(current.Title) {
-		return nil
-	}
-	updated, err := r.store.UpdateAgentTitle(ctx, agentID, title)
-	if err != nil {
-		return err
-	}
-	r.publish(Event{Type: "agent.title_updated", AgentID: agentID, Data: map[string]any{
-		"title":            updated.Title,
-		"entityGeneration": updated.EntityGeneration,
-	}})
-	return nil
 }
 
 func untitledConversation(title string) bool {

@@ -279,6 +279,20 @@ func (s *Store) UpdateRunStatus(ctx context.Context, runID, status, errorMessage
 }
 
 func (s *Store) requireRunTransition(ctx context.Context, result sql.Result, runID, action string) error {
+	return requireRunTransitionWithQuerier(ctx, s.db, result, runID, action)
+}
+
+// requireRunTransitionTx keeps a terminal transition's compare-and-swap check
+// on the same connection and within the same transaction as the mutation.
+func requireRunTransitionTx(ctx context.Context, tx *sql.Tx, result sql.Result, runID, action string) error {
+	return requireRunTransitionWithQuerier(ctx, tx, result, runID, action)
+}
+
+type runTransitionQuerier interface {
+	QueryRowContext(context.Context, string, ...any) *sql.Row
+}
+
+func requireRunTransitionWithQuerier(ctx context.Context, querier runTransitionQuerier, result sql.Result, runID, action string) error {
 	affected, err := result.RowsAffected()
 	if err != nil {
 		return err
@@ -287,7 +301,7 @@ func (s *Store) requireRunTransition(ctx context.Context, result sql.Result, run
 		return nil
 	}
 	var exists int
-	if err := s.db.QueryRowContext(ctx, `SELECT 1 FROM runs WHERE id = ?`, runID).Scan(&exists); err != nil {
+	if err := querier.QueryRowContext(ctx, `SELECT 1 FROM runs WHERE id = ?`, runID).Scan(&exists); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return sql.ErrNoRows
 		}
@@ -479,20 +493,28 @@ func (s *Store) CompleteRun(ctx context.Context, runID, status, errorMessage str
 	default:
 		return fmt.Errorf("invalid terminal run status %q", status)
 	}
-	now := Now()
-	result, err := s.db.ExecContext(ctx, `UPDATE runs SET status = ?, completed_at = ?, duration_ms = MAX(0, CAST(ROUND((julianday(?) - julianday(started_at)) * 86400000.0) AS INTEGER)), error_message = NULLIF(?, ''), updated_at = ? WHERE id = ? AND status IN `+allowed, status, now, now, errorMessage, now, runID)
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
-	if err := s.requireRunTransition(ctx, result, runID, status); err != nil {
+	defer tx.Rollback()
+
+	now := Now()
+	result, err := tx.ExecContext(ctx, `UPDATE runs SET status = ?, completed_at = ?, duration_ms = MAX(0, CAST(ROUND((julianday(?) - julianday(started_at)) * 86400000.0) AS INTEGER)), error_message = NULLIF(?, ''), updated_at = ? WHERE id = ? AND status IN `+allowed, status, now, now, errorMessage, now, runID)
+	if err != nil {
+		return err
+	}
+	if err := requireRunTransitionTx(ctx, tx, result, runID, status); err != nil {
 		return err
 	}
 	planStatus := PlanStatusApproved
 	if status == "completed" {
 		planStatus = PlanStatusExecuted
 	}
-	_, err = s.db.ExecContext(ctx, `UPDATE plans SET status = ?, updated_at = ? WHERE id = (SELECT plan_id FROM runs WHERE id = ?) AND status = ?`, planStatus, now, runID, PlanStatusExecuting)
-	return err
+	if _, err := tx.ExecContext(ctx, `UPDATE plans SET status = ?, updated_at = ? WHERE id = (SELECT plan_id FROM runs WHERE id = ?) AND status = ?`, planStatus, now, runID, PlanStatusExecuting); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 func (s *Store) RecoverInterruptedRun(ctx context.Context, runID string) error {

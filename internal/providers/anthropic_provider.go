@@ -133,6 +133,8 @@ func (p *AnthropicProvider) Capabilities() Capabilities {
 	}
 }
 
+func (p *AnthropicProvider) DefaultContextTokenLimit() int { return 200000 }
+
 func (p *AnthropicProvider) ModelCapabilities(model string) ModelCapabilities {
 	if p == nil {
 		return ModelCapabilities{}

@@ -1,5 +1,5 @@
 import { $, escapeAttr, escapeHtml, setButtonBusy } from "./dom.mjs";
-import { currentUILocale, t } from "./i18n.mjs?v=shared-api-2-no-alias-1";
+import { currentUILocale, t } from "./i18n.mjs?v=shared-api-2-no-alias-1-gateway-tunnel-1-key-delete-1-gateway-models-1-tunnel-ui-1";
 import { confirm as platformConfirm } from "./platform.mjs";
 
 const endpoints = Object.freeze({
@@ -7,8 +7,10 @@ const endpoints = Object.freeze({
   config: "/api/gateway/config",
   accounts: "/api/gateway/accounts",
   keys: "/api/gateway/keys",
+  models: "/api/gateway/models",
   usage: "/api/gateway/usage",
   requests: "/api/gateway/requests?limit=50",
+  tunnel: "/api/gateway/tunnel",
 });
 
 function objectValue(value) {
@@ -66,6 +68,20 @@ export function normalizeGatewaySettings(settings = {}) {
     allowRemote: Boolean(gateway.allowRemote),
     maxGlobalConcurrency: integerValue(gateway.maxGlobalConcurrency),
     maxRequestBytes: integerValue(gateway.maxRequestBytes),
+  };
+}
+
+export function normalizeApiTunnel(value = {}) {
+  const source = objectValue(value);
+  const validStatuses = ["idle", "installing", "starting", "running", "stopping", "unavailable", "error"];
+  return {
+    available: Boolean(source.available),
+    installable: !Boolean(source.available) && Boolean(source.installable),
+    status: validStatuses.includes(textValue(source.status)) ? textValue(source.status) : "unavailable",
+    publicUrl: textValue(source.publicApiBaseUrl ?? source.publicUrl),
+    activeKeys: integerValue(source.activeKeys),
+    gatewayRunning: Boolean(source.gatewayRunning),
+    error: textValue(source.error),
   };
 }
 
@@ -278,6 +294,7 @@ export function gatewayKeyRequest(action, keyOrID = {}, draft = {}) {
   if (action === "toggle") return { path: base, options: { method: "PATCH", body: JSON.stringify({ enabled: !Boolean(key.enabled), expectedUpdatedAt }) } };
   if (action === "rotate") return { path: `${base}/rotate`, options: { method: "POST", cache: "no-store" } };
   if (action === "revoke") return { path: `${base}/revoke`, options: { method: "POST" } };
+  if (action === "delete") return { path: base, options: { method: "DELETE" } };
   throw new TypeError(`Unknown gateway key action: ${action}`);
 }
 
@@ -390,6 +407,8 @@ export function createSharedAPISettingsController({
   let oneTimeTokenContext = "";
   let editingKeyID = "";
   let keyEditorOpen = false;
+  let editingModelAlias = "";
+  let modelEditorOpen = false;
   let loadSequence = 0;
 
   function ensureState() {
@@ -401,11 +420,13 @@ export function createSharedAPISettingsController({
     if (!Array.isArray(state.gatewayProtocols)) state.gatewayProtocols = [];
     if (!Array.isArray(state.gatewayAccounts)) state.gatewayAccounts = [];
     if (!Array.isArray(state.gatewayKeys)) state.gatewayKeys = [];
+    if (!Array.isArray(state.gatewayModels)) state.gatewayModels = [];
     if (!Array.isArray(state.gatewayRequests)) state.gatewayRequests = [];
     if (!state.gatewayUsage || typeof state.gatewayUsage !== "object") state.gatewayUsage = { items: [], summary: {} };
     if (typeof state.gatewayDataLoaded !== "boolean") state.gatewayDataLoaded = false;
     if (typeof state.gatewayDataLoading !== "boolean") state.gatewayDataLoading = false;
     if (typeof state.gatewayAPIError !== "string") state.gatewayAPIError = "";
+    if (!state.apiTunnel || typeof state.apiTunnel !== "object") state.apiTunnel = normalizeApiTunnel({});
   }
 
   function gateway() {
@@ -484,6 +505,8 @@ export function createSharedAPISettingsController({
         request(endpoints.keys),
         request(endpoints.usage),
         request(endpoints.requests),
+        request(endpoints.tunnel),
+        request(endpoints.models),
       ]);
       if (sequence !== loadSequence) return false;
       if (results[0].status === "fulfilled") applyGatewayPayload(results[0].value);
@@ -494,6 +517,11 @@ export function createSharedAPISettingsController({
         state.gatewayUsage = { items: Array.isArray(usage.items) ? usage.items : [], summary: objectValue(usage.summary) };
       }
       if (results[4].status === "fulfilled") state.gatewayRequests = normalizeGatewayRequests(results[4].value);
+      if (results[5].status === "fulfilled") state.apiTunnel = normalizeApiTunnel(results[5].value);
+      if (results[6].status === "fulfilled") {
+        const raw = Array.isArray(results[6].value) ? results[6].value : (results[6].value?.models ?? []);
+        state.gatewayModels = raw.map(normalizeGatewayModelItem).filter((m) => m.alias);
+      }
       const failure = results.find((result) => result.status === "rejected");
       if (failure) throw failure.reason;
       state.gatewayDataLoaded = true;
@@ -541,6 +569,56 @@ export function createSharedAPISettingsController({
 
   function setGatewayEnabled(enabled) {
     return updateGatewayConfig({ enabled: Boolean(enabled) });
+  }
+
+  async function controlApiTunnel(method, suffix = "") {
+    const result = await perform(`${endpoints.tunnel}${suffix}`, { method });
+    state.apiTunnel = normalizeApiTunnel(result);
+    changed();
+    return result;
+  }
+
+  async function startApiTunnel() {
+    if (!await confirm(t("sharedAPI.apiTunnelStartConfirm"))) return null;
+    const savedTunnel = state.apiTunnel;
+    state.apiTunnel = normalizeApiTunnel({ ...state.apiTunnel, status: "starting" });
+    changed();
+    try {
+      return await controlApiTunnel("POST");
+    } catch (error) {
+      state.apiTunnel = savedTunnel;
+      changed();
+      throw error;
+    }
+  }
+
+  async function stopApiTunnel() {
+    const savedTunnel = state.apiTunnel;
+    state.apiTunnel = normalizeApiTunnel({ ...state.apiTunnel, status: "stopping" });
+    changed();
+    try {
+      return await controlApiTunnel("DELETE");
+    } catch (error) {
+      state.apiTunnel = savedTunnel;
+      changed();
+      throw error;
+    }
+  }
+
+  async function installCloudflaredForApiTunnel() {
+    return controlApiTunnel("POST", "/install");
+  }
+
+  async function copyApiTunnelUrl() {
+    const url = normalizeApiTunnel(state.apiTunnel || {}).publicUrl;
+    if (!url) return false;
+    try {
+      if (await copyText?.(url) === true) {
+        showToast?.(t("sharedAPI.apiTunnelUrlCopied"));
+        return true;
+      }
+    } catch {}
+    return false;
   }
 
   function revealToken(result, context) {
@@ -634,6 +712,18 @@ export function createSharedAPISettingsController({
     return result;
   }
 
+  async function deleteKey(id) {
+    const key = state.gatewayKeys.find((item) => item.id === id);
+    if (!key || !await confirm(t("sharedAPI.deleteConfirm", { name: key.name || key.keyPrefix }))) return null;
+    const call = gatewayKeyRequest("delete", key);
+    await perform(call.path, call.options);
+    state.gatewayKeys = state.gatewayKeys.filter((item) => item.id !== id);
+    if (editingKeyID === id) editingKeyID = "";
+    showToast?.(t("sharedAPI.keyDeleted"));
+    changed();
+    return true;
+  }
+
   async function toggleProvider(name, enabled) {
     const provider = (state.settings?.providers || []).find((item) => item.name === name);
     if (!provider || gatewayProviderRestriction(provider)) return null;
@@ -656,6 +746,57 @@ export function createSharedAPISettingsController({
     if (!hasOwn(directAccount, "effective")) merged.effective = merged.shared && merged.eligible && !merged.disabled && !accountIsProfile(merged);
     state.gatewayAccounts = replaceAccount(state.gatewayAccounts, merged);
     showToast?.(t(shared ? "sharedAPI.accountShared" : "sharedAPI.accountUnshared", { label: merged.label || merged.accountId }));
+    changed();
+    return result;
+  }
+
+  function normalizeGatewayModelItem(m = {}) {
+    return { alias: textValue(m.alias), targetModel: textValue(m.targetModel), enabled: m.enabled !== false, createdAt: textValue(m.createdAt), updatedAt: textValue(m.updatedAt) };
+  }
+
+  function replaceByAlias(items, item) {
+    const index = items.findIndex((m) => m.alias === item.alias);
+    if (index < 0) return [item, ...items];
+    return items.map((m, i) => (i === index ? item : m));
+  }
+
+  async function createModel(draft) {
+    const result = await perform(endpoints.models, { method: "POST", body: JSON.stringify({ alias: draft.alias, targetModel: draft.targetModel, enabled: draft.enabled !== false }) });
+    const m = result?.model || result;
+    if (m?.alias) state.gatewayModels = replaceByAlias(state.gatewayModels, normalizeGatewayModelItem(m));
+    modelEditorOpen = false;
+    editingModelAlias = "";
+    showToast?.(t("sharedAPI.modelCreated"));
+    changed();
+    return result;
+  }
+
+  async function updateModel(alias, draft) {
+    const result = await perform(`${endpoints.models}?alias=${encoded(alias)}`, { method: "PATCH", body: JSON.stringify({ alias: draft.alias, targetModel: draft.targetModel, enabled: draft.enabled !== false, expectedUpdatedAt: draft.expectedUpdatedAt }) });
+    const m = result?.model || result;
+    if (m?.alias) state.gatewayModels = replaceByAlias(state.gatewayModels, normalizeGatewayModelItem(m));
+    editingModelAlias = "";
+    showToast?.(t("sharedAPI.modelUpdated"));
+    changed();
+    return result;
+  }
+
+  async function deleteModel(alias) {
+    if (!await confirm(t("sharedAPI.modelDeleteConfirm", { alias }))) return null;
+    await perform(`${endpoints.models}?alias=${encoded(alias)}`, { method: "DELETE" });
+    state.gatewayModels = state.gatewayModels.filter((m) => m.alias !== alias);
+    if (editingModelAlias === alias) editingModelAlias = "";
+    showToast?.(t("sharedAPI.modelDeleted"));
+    changed();
+    return true;
+  }
+
+  async function toggleModel(alias) {
+    const model = state.gatewayModels.find((m) => m.alias === alias);
+    if (!model) return null;
+    const result = await perform(`${endpoints.models}?alias=${encoded(alias)}`, { method: "PATCH", body: JSON.stringify({ enabled: !model.enabled, expectedUpdatedAt: model.updatedAt }) });
+    const updated = result?.model || result;
+    state.gatewayModels = replaceByAlias(state.gatewayModels, normalizeGatewayModelItem({ ...model, enabled: !model.enabled, ...(updated?.alias ? updated : {}) }));
     changed();
     return result;
   }
@@ -693,17 +834,69 @@ export function createSharedAPISettingsController({
       </section>`;
   }
 
+  function apiTunnelStatusLabel(status) {
+    const labels = {
+      idle: t("sharedAPI.apiTunnelStop") ? "" : "",
+      running: t("sharedAPI.runtimeRunning"),
+      starting: "…",
+      stopping: "…",
+      installing: "…",
+      error: t("sharedAPI.requestFailed"),
+      unavailable: t("sharedAPI.runtimeStopped"),
+    };
+    // Prefer dedicated per-state label from i18n; fall through to raw status.
+    return textValue(labels[status] ?? status);
+  }
+
+  function renderApiTunnel() {
+    const tunnel = normalizeApiTunnel(state.apiTunnel || {});
+    const isRunning = tunnel.status === "running";
+    const isBusy = ["starting", "stopping", "installing"].includes(tunnel.status);
+    const gatewayDown = !tunnel.gatewayRunning;
+    const noKeys = isRunning && tunnel.activeKeys === 0;
+    let badgeClass, badgeLabel;
+    if (isRunning) { badgeClass = "ok"; badgeLabel = t("sharedAPI.apiTunnelRunning"); }
+    else if (tunnel.status === "starting") { badgeClass = "muted"; badgeLabel = t("sharedAPI.apiTunnelStarting"); }
+    else if (tunnel.status === "stopping") { badgeClass = "muted"; badgeLabel = t("sharedAPI.apiTunnelStopping"); }
+    else if (tunnel.status === "installing") { badgeClass = "muted"; badgeLabel = t("sharedAPI.apiTunnelInstalling"); }
+    else if (tunnel.status === "error") { badgeClass = "warn"; badgeLabel = t("sharedAPI.requestFailed"); }
+    else { badgeClass = "muted"; badgeLabel = t("sharedAPI.apiTunnelStopped"); }
+    const actions = isBusy
+      ? `<button class="settings-action-btn subtle" type="button" disabled aria-busy="true">${escapeHtml(badgeLabel)}</button>`
+      : tunnel.installable
+        ? `<button class="settings-action-btn subtle" type="button" data-api-tunnel-install>${escapeHtml(t("sharedAPI.apiTunnelInstall"))}</button>`
+        : tunnel.available && !isRunning
+          ? `<button class="settings-action-btn ${gatewayDown ? "subtle" : "primary"}" type="button" data-api-tunnel-start ${gatewayDown ? "disabled" : ""}>${escapeHtml(t("sharedAPI.apiTunnelStart"))}</button>`
+          : isRunning
+            ? `<button class="settings-action-btn danger" type="button" data-api-tunnel-stop>${escapeHtml(t("sharedAPI.apiTunnelStop"))}</button>`
+            : "";
+    return `
+      <section class="compact-settings-section shared-api-tunnel-section">
+        <div class="compact-settings-section-copy"><h2>${escapeHtml(t("sharedAPI.apiTunnelTitle"))}</h2><p data-settings-help-copy>${escapeHtml(t("sharedAPI.apiTunnelDescription"))}</p></div>
+        <div class="compact-settings-section-controls">
+          <div class="shared-api-status-row"><span class="settings-status-pill ${badgeClass}">${escapeHtml(badgeLabel)}</span></div>
+          ${isRunning && tunnel.publicUrl ? `<div class="shared-api-tunnel-url-row"><code>${escapeHtml(tunnel.publicUrl)}</code><button class="settings-action-btn subtle" type="button" data-api-tunnel-copy-url>${escapeHtml(t("sharedAPI.apiTunnelCopyUrl"))}</button></div>` : ""}
+          ${noKeys ? `<div class="settings-inline-alert settings-alert" role="alert">${escapeHtml(t("sharedAPI.apiTunnelNoKeys"))}</div>` : ""}
+          ${gatewayDown && !isRunning && !isBusy ? `<div class="settings-inline-alert settings-alert" role="alert">${escapeHtml(t("sharedAPI.apiTunnelGatewayDown"))}</div>` : ""}
+          ${tunnel.error && tunnel.status === "error" ? `<div class="settings-inline-alert settings-alert" role="alert">${escapeHtml(tunnel.error)}</div>` : ""}
+          <div class="settings-inline-actions">${actions}</div>
+        </div>
+      </section>`;
+  }
+
   function renderProviders() {
     const providers = Array.isArray(state.settings?.providers) ? state.settings.providers : [];
     return `
-      <section class="compact-settings-section">
-        <div class="compact-settings-section-copy"><h2>${escapeHtml(t("sharedAPI.providersTitle"))}</h2><p data-settings-help-copy>${escapeHtml(t("sharedAPI.providersDescription"))}</p></div>
-        <div class="compact-settings-section-controls shared-api-list">
-          ${providers.length ? providers.map((provider) => {
-            const restriction = gatewayProviderRestriction(provider);
-            return `<div class="shared-api-row ${restriction ? "is-disabled" : ""}"><span><strong>${escapeHtml(providerLabel(provider))}</strong><small>${escapeHtml(restriction ? t("sharedAPI.oauthProxyUnavailable") : t(provider.gatewayEnabled ? "sharedAPI.providerEligible" : "sharedAPI.providerPrivate"))}</small></span>${restriction ? `<span class="settings-badge">${escapeHtml(t("sharedAPI.notShareable"))}</span>` : `<label class="shared-api-switch"><input type="checkbox" data-gateway-provider="${escapeAttr(provider.name)}" ${provider.gatewayEnabled ? "checked" : ""} /><span>${escapeHtml(t("sharedAPI.shareProvider"))}</span></label>`}</div>`;
-          }).join("") : `<div class="settings-empty-state">${escapeHtml(t("sharedAPI.noProviders"))}</div>`}
-        </div>
+      <section class="compact-settings-section shared-api-providers-section">
+          <details class="shared-api-providers-details" open>
+          <summary class="compact-settings-section-summary"><div class="compact-settings-section-copy"><h2>${escapeHtml(t("sharedAPI.providersTitle"))}</h2><p data-settings-help-copy>${escapeHtml(t("sharedAPI.providersDescription"))}</p></div></summary>
+          <div class="compact-settings-section-controls shared-api-list">
+            ${providers.length ? providers.map((provider) => {
+              const restriction = gatewayProviderRestriction(provider);
+              return `<div class="shared-api-row ${restriction ? "is-disabled" : ""}"><span><strong>${escapeHtml(providerLabel(provider))}</strong><small>${escapeHtml(restriction ? t("sharedAPI.oauthProxyUnavailable") : t(provider.gatewayEnabled ? "sharedAPI.providerEligible" : "sharedAPI.providerPrivate"))}</small></span>${restriction ? `<span class="settings-badge">${escapeHtml(t("sharedAPI.notShareable"))}</span>` : `<label class="shared-api-switch"><input type="checkbox" data-gateway-provider="${escapeAttr(provider.name)}" ${provider.gatewayEnabled ? "checked" : ""} /><span>${escapeHtml(t("sharedAPI.shareProvider"))}</span></label>`}</div>`;
+            }).join("") : `<div class="settings-empty-state">${escapeHtml(t("sharedAPI.noProviders"))}</div>`}
+          </div>
+        </details>
       </section>`;
   }
 
@@ -715,8 +908,9 @@ export function createSharedAPISettingsController({
     });
     return `
       <section class="compact-settings-section shared-api-accounts-section">
-        <div class="compact-settings-section-copy"><h2>${escapeHtml(t("sharedAPI.accountsTitle"))}</h2><p data-settings-help-copy>${escapeHtml(t("sharedAPI.accountsDescription"))}</p></div>
-        <div class="compact-settings-section-controls">
+        <details class="shared-api-accounts-details" open>
+          <summary class="compact-settings-section-summary"><div class="compact-settings-section-copy"><h2>${escapeHtml(t("sharedAPI.accountsTitle"))}</h2><p data-settings-help-copy>${escapeHtml(t("sharedAPI.accountsDescription"))}</p></div></summary>
+          <div class="compact-settings-section-controls">
           <div class="compact-settings-section-toolbar"><span class="settings-badge">${escapeHtml(t("sharedAPI.accountCount", { count: state.gatewayAccounts.length }))}</span></div>
           <div class="shared-api-account-groups">${groups.size ? [...groups.entries()].map(([provider, accounts]) => `<div class="shared-api-account-group"><div class="shared-api-account-group-heading"><strong>${escapeHtml(provider)}</strong><span>${escapeHtml(t("sharedAPI.accountCount", { count: accounts.length }))}</span></div><div class="shared-api-list">${accounts.map((account) => {
             const restriction = accountRestriction(account);
@@ -725,7 +919,8 @@ export function createSharedAPISettingsController({
             const source = account.source || t("sharedAPI.none");
             return `<div class="shared-api-row shared-api-account-row ${restriction ? "is-disabled" : ""}"><span><strong>${escapeHtml(account.label || account.accountId)} <code>${escapeHtml(account.accountId)}</code></strong><small>${escapeHtml(t("sharedAPI.accountMeta", { auth, source, priority: formatNumber(account.priority) }))}</small>${restriction ? `<small class="shared-api-account-reason">${escapeHtml(restriction)}</small>` : ""}</span><div class="shared-api-account-actions"><span class="settings-badge ${account.effective ? "ok" : restriction ? "warn" : ""}">${escapeHtml(t(`sharedAPI.${statusKey}`))}</span><label class="shared-api-switch"><input type="checkbox" data-gateway-account-provider="${escapeAttr(account.provider)}" data-gateway-account-id="${escapeAttr(account.accountId)}" ${account.shared ? "checked" : ""} ${restriction ? "disabled" : ""} /><span>${escapeHtml(t("sharedAPI.shareAccount"))}</span></label></div></div>`;
           }).join("")}</div></div>`).join("") : `<div class="settings-empty-state shared-api-compact-empty">${escapeHtml(t("sharedAPI.noAccounts"))}</div>`}</div>
-        </div>
+          </div>
+        </details>
       </section>`;
   }
 
@@ -759,19 +954,52 @@ export function createSharedAPISettingsController({
     return `<article class="shared-api-key-card ${key.revokedAt ? "is-revoked" : ""}">
       <div class="shared-api-key-head"><span><strong>${escapeHtml(key.name || t("sharedAPI.unnamedKey"))}</strong><code>${escapeHtml(key.keyPrefix || "—")}</code></span><span class="settings-badge ${status.tone}">${escapeHtml(t(`sharedAPI.status.${status.key}`))}</span></div>
       <dl class="shared-api-key-meta"><div><dt>${escapeHtml(t("sharedAPI.lastUsed"))}</dt><dd>${escapeHtml(formatDate(key.lastUsedAt))}</dd></div><div><dt>${escapeHtml(t("sharedAPI.monthlyQuota"))}</dt><dd>${escapeHtml(quota)}</dd></div><div><dt>${escapeHtml(t("sharedAPI.allowedModels"))}</dt><dd title="${escapeAttr(modelText)}">${escapeHtml(modelText)}</dd></div><div><dt>${escapeHtml(t("sharedAPI.expiresAt"))}</dt><dd>${escapeHtml(formatDate(key.expiresAt))}</dd></div></dl>
-      <div class="settings-inline-actions shared-api-key-actions">${key.revokedAt ? "" : `<button class="settings-action-btn subtle" type="button" data-gateway-key-edit="${escapeAttr(key.id)}">${escapeHtml(t("sharedAPI.edit"))}</button><button class="settings-action-btn subtle" type="button" data-gateway-key-toggle="${escapeAttr(key.id)}">${escapeHtml(t(key.enabled ? "sharedAPI.pause" : "sharedAPI.resume"))}</button><button class="settings-action-btn subtle" type="button" data-gateway-key-rotate="${escapeAttr(key.id)}">${escapeHtml(t("sharedAPI.rotate"))}</button><button class="settings-action-btn danger" type="button" data-gateway-key-revoke="${escapeAttr(key.id)}">${escapeHtml(t("sharedAPI.revoke"))}</button>`}</div>
+      <div class="settings-inline-actions shared-api-key-actions">${key.revokedAt ? `<button class="settings-action-btn danger" type="button" data-gateway-key-delete="${escapeAttr(key.id)}">${escapeHtml(t("sharedAPI.delete"))}</button>` : `<button class="settings-action-btn subtle" type="button" data-gateway-key-edit="${escapeAttr(key.id)}">${escapeHtml(t("sharedAPI.edit"))}</button><button class="settings-action-btn subtle" type="button" data-gateway-key-toggle="${escapeAttr(key.id)}">${escapeHtml(t(key.enabled ? "sharedAPI.pause" : "sharedAPI.resume"))}</button><button class="settings-action-btn subtle" type="button" data-gateway-key-rotate="${escapeAttr(key.id)}">${escapeHtml(t("sharedAPI.rotate"))}</button><button class="settings-action-btn danger" type="button" data-gateway-key-revoke="${escapeAttr(key.id)}">${escapeHtml(t("sharedAPI.revoke"))}</button>`}</div>
     </article>`;
   }
 
   function renderKeys() {
     return `
       <section class="compact-settings-section shared-api-keys-section">
-        <div class="compact-settings-section-copy"><h2>${escapeHtml(t("sharedAPI.keysTitle"))}</h2><p data-settings-help-copy>${escapeHtml(t("sharedAPI.keysDescription"))}</p></div>
-        <div class="compact-settings-section-controls">
+        <details class="shared-api-keys-details" open>
+          <summary class="compact-settings-section-summary"><div class="compact-settings-section-copy"><h2>${escapeHtml(t("sharedAPI.keysTitle"))}</h2><p data-settings-help-copy>${escapeHtml(t("sharedAPI.keysDescription"))}</p></div></summary>
+          <div class="compact-settings-section-controls">
           <div class="compact-settings-section-toolbar"><span class="settings-badge">${escapeHtml(t("sharedAPI.keyCount", { count: state.gatewayKeys.length }))}</span><button class="settings-action-btn primary" type="button" data-gateway-key-add>${escapeHtml(t("sharedAPI.addKey"))}</button></div>
           ${renderOneTimeToken()}
           ${keyEditorOpen && !editingKeyID ? renderKeyForm() : ""}
           <div class="shared-api-key-list">${state.gatewayKeys.length ? state.gatewayKeys.map((key) => editingKeyID === key.id ? renderKeyForm(key) : renderKey(key)).join("") : `<div class="settings-empty-state shared-api-compact-empty">${escapeHtml(t("sharedAPI.noKeys"))}</div>`}</div>
+          </div>
+        </details>
+      </section>`;
+  }
+
+  function renderModelForm(model = {}) {
+    const editing = Boolean(model.alias);
+    const providers = Array.isArray(state.settings?.providers) ? state.settings.providers : [];
+    const suggestions = providers.filter((p) => p.gatewayEnabled && p.configured).flatMap((p) => {
+      const configs = Array.isArray(p.modelConfigs) ? p.modelConfigs : [];
+      return configs.map((c) => c.name || "").filter(Boolean).map((m) => `${p.name}:${m}`);
+    });
+    return `<form class="compact-settings-editor shared-api-model-form" data-gateway-model-form="${escapeAttr(editing ? model.alias : "new")}"><div class="compact-settings-grid two-column"><label class="settings-form-field">${escapeHtml(t("sharedAPI.modelAlias"))}<input class="settings-field" name="alias" value="${escapeAttr(model.alias || "")}" required autocomplete="off" /></label><label class="settings-form-field">${escapeHtml(t("sharedAPI.modelTarget"))}<input class="settings-field" name="targetModel" value="${escapeAttr(model.targetModel || "")}" required autocomplete="off" list="gw-model-targets" /><small data-settings-help-copy>${escapeHtml(t("sharedAPI.modelTargetHint"))}</small>${suggestions.length ? `<datalist id="gw-model-targets">${suggestions.map((s) => `<option value="${escapeAttr(s)}"></option>`).join("")}</datalist>` : ""}</label></div><label class="compact-settings-switch-row"><span><strong>${escapeHtml(t("sharedAPI.modelEnabled"))}</strong></span><input name="enabled" type="checkbox" ${model.enabled !== false ? "checked" : ""} /></label><div class="settings-inline-actions compact-settings-editor-actions"><button class="settings-action-btn subtle" type="button" data-gateway-model-cancel>${escapeHtml(t("sharedAPI.cancel"))}</button><button class="settings-action-btn primary" type="submit">${escapeHtml(t(editing ? "sharedAPI.save" : "sharedAPI.addModel"))}</button></div></form>`;
+  }
+
+  function renderModel(model) {
+    return `<div class="shared-api-row"><span><strong>${escapeHtml(model.alias)}</strong><small>${escapeHtml(model.targetModel)}</small></span><div class="settings-inline-actions"><span class="settings-status-pill ${model.enabled ? "ok" : "muted"}">${escapeHtml(t(model.enabled ? "sharedAPI.modelEnabled" : "sharedAPI.paused"))}</span><button class="settings-action-btn subtle" type="button" data-gateway-model-toggle="${escapeAttr(model.alias)}">${escapeHtml(t(model.enabled ? "sharedAPI.pause" : "sharedAPI.resume"))}</button><button class="settings-action-btn subtle" type="button" data-gateway-model-edit="${escapeAttr(model.alias)}">${escapeHtml(t("sharedAPI.edit"))}</button><button class="settings-action-btn danger" type="button" data-gateway-model-delete="${escapeAttr(model.alias)}">${escapeHtml(t("sharedAPI.delete"))}</button></div></div>`;
+  }
+
+  function renderModels() {
+    // An alias publishes one provider model under a public name, so it can only
+    // resolve once the Gateway is up and has an account to route to. Offering
+    // the editor before that is a control that cannot do anything yet, and the
+    // aliases it would create would point nowhere.
+    if (!runtime().running || !state.gatewayAccounts.length) return "";
+    return `
+      <section class="compact-settings-section shared-api-models-section">
+        <div class="compact-settings-section-copy"><h2>${escapeHtml(t("sharedAPI.modelsTitle"))}</h2><p data-settings-help-copy>${escapeHtml(t("sharedAPI.modelsDescription"))}</p></div>
+        <div class="compact-settings-section-controls">
+          <div class="compact-settings-section-toolbar"><span class="settings-badge">${escapeHtml(t("sharedAPI.modelCount", { count: state.gatewayModels.length }))}</span><button class="settings-action-btn primary" type="button" data-gateway-model-add>${escapeHtml(t("sharedAPI.addModel"))}</button></div>
+          ${modelEditorOpen && !editingModelAlias ? renderModelForm() : ""}
+          <div class="shared-api-list">${state.gatewayModels.length ? state.gatewayModels.map((m) => editingModelAlias === m.alias ? renderModelForm(m) : renderModel(m)).join("") : `<div class="settings-empty-state shared-api-compact-empty">${escapeHtml(t("sharedAPI.noModels"))}</div>`}</div>
         </div>
       </section>`;
   }
@@ -809,7 +1037,7 @@ export function createSharedAPISettingsController({
   }
 
   function renderRequests() {
-    return `<section class="compact-settings-section shared-api-requests-section"><div class="compact-settings-section-copy"><h2>${escapeHtml(t("sharedAPI.requestsTitle"))}</h2><p data-settings-help-copy>${escapeHtml(t("sharedAPI.requestsDescription"))}</p></div><div class="compact-settings-section-controls"><div class="compact-settings-section-toolbar"><span class="settings-badge">${escapeHtml(t("sharedAPI.requestCount", { count: state.gatewayRequests.length }))}</span></div><div class="shared-api-request-list">${state.gatewayRequests.length ? state.gatewayRequests.map(renderRequest).join("") : `<div class="settings-empty-state shared-api-compact-empty">${escapeHtml(t("sharedAPI.noRequests"))}</div>`}</div></div></section>`;
+    return `<section class="compact-settings-section shared-api-requests-section"><details class="shared-api-requests-details" open><summary class="compact-settings-section-summary"><div class="compact-settings-section-copy"><h2>${escapeHtml(t("sharedAPI.requestsTitle"))}</h2><p data-settings-help-copy>${escapeHtml(t("sharedAPI.requestsDescription"))}</p></div></summary><div class="compact-settings-section-controls"><div class="compact-settings-section-toolbar"><span class="settings-badge">${escapeHtml(t("sharedAPI.requestCount", { count: state.gatewayRequests.length }))}</span></div><div class="shared-api-request-list">${state.gatewayRequests.length ? state.gatewayRequests.map(renderRequest).join("") : `<div class="settings-empty-state shared-api-compact-empty">${escapeHtml(t("sharedAPI.noRequests"))}</div>`}</div></div></details></section>`;
   }
 
   function render() {
@@ -818,7 +1046,7 @@ export function createSharedAPISettingsController({
     return `<div class="compact-settings-page shared-api-page">
       <header class="compact-settings-header"><div class="compact-settings-heading"><h1>${escapeHtml(t("sharedAPI.title"))}</h1><p data-settings-help-copy>${escapeHtml(t("sharedAPI.description"))}</p></div><div class="compact-settings-header-actions"><span class="settings-badge ${status.running ? "ok" : "warn"}">${escapeHtml(t(status.running ? "sharedAPI.runtimeRunning" : "sharedAPI.runtimeStopped"))}</span><button class="settings-action-btn subtle" type="button" data-gateway-refresh ${state.gatewayDataLoading ? "disabled" : ""}>${escapeHtml(state.gatewayDataLoading ? t("sharedAPI.loading") : t("sharedAPI.refresh"))}</button></div></header>
       ${state.gatewayAPIError ? `<div class="settings-inline-alert settings-alert shared-api-error" role="alert">${escapeHtml(t("sharedAPI.error", { message: state.gatewayAPIError }))}</div>` : ""}
-      ${renderGateway()}${renderProviders()}${renderAccounts()}${renderKeys()}${renderConnections()}${renderUsage()}${renderRequests()}
+      ${renderGateway()}${renderApiTunnel()}${renderProviders()}${renderAccounts()}${renderKeys()}${renderModels()}${renderConnections()}${renderUsage()}${renderRequests()}
     </div>`;
   }
 
@@ -844,6 +1072,14 @@ export function createSharedAPISettingsController({
     };
   }
 
+  function modelDraftFromForm(form) {
+    return {
+      alias: form.elements.alias?.value,
+      targetModel: form.elements.targetModel?.value,
+      enabled: Boolean(form.elements.enabled?.checked),
+    };
+  }
+
   function runButton(button, work) {
     setButtonBusy(button, true);
     Promise.resolve().then(work).catch(showError).finally(() => setButtonBusy(button, false));
@@ -863,10 +1099,21 @@ export function createSharedAPISettingsController({
     root?.querySelectorAll?.("[data-gateway-key-toggle]").forEach((button) => button.addEventListener("click", () => runButton(button, () => toggleKey(button.dataset.gatewayKeyToggle))));
     root?.querySelectorAll?.("[data-gateway-key-rotate]").forEach((button) => button.addEventListener("click", () => runButton(button, () => rotateKey(button.dataset.gatewayKeyRotate))));
     root?.querySelectorAll?.("[data-gateway-key-revoke]").forEach((button) => button.addEventListener("click", () => runButton(button, () => revokeKey(button.dataset.gatewayKeyRevoke))));
+    root?.querySelectorAll?.("[data-gateway-key-delete]").forEach((button) => button.addEventListener("click", () => runButton(button, () => deleteKey(button.dataset.gatewayKeyDelete))));
     root?.querySelectorAll?.("[data-gateway-key-cancel]").forEach((button) => button.addEventListener("click", () => { keyEditorOpen = false; editingKeyID = ""; changed(); }));
     root?.querySelectorAll?.("[data-gateway-key-form]").forEach((form) => form.addEventListener("submit", (event) => { event.preventDefault(); const id = form.dataset.gatewayKeyForm; runButton(form.querySelector("[type=submit]"), () => id === "new" ? createKey(keyDraftFromForm(form)) : updateKey(id, keyDraftFromForm(form))); }));
+    root?.querySelector?.("[data-gateway-model-add]")?.addEventListener("click", () => { modelEditorOpen = true; editingModelAlias = ""; changed(); });
+    root?.querySelectorAll?.("[data-gateway-model-edit]").forEach((button) => button.addEventListener("click", () => { editingModelAlias = button.dataset.gatewayModelEdit; modelEditorOpen = false; changed(); }));
+    root?.querySelectorAll?.("[data-gateway-model-toggle]").forEach((button) => button.addEventListener("click", () => runButton(button, () => toggleModel(button.dataset.gatewayModelToggle))));
+    root?.querySelectorAll?.("[data-gateway-model-delete]").forEach((button) => button.addEventListener("click", () => runButton(button, () => deleteModel(button.dataset.gatewayModelDelete))));
+    root?.querySelectorAll?.("[data-gateway-model-cancel]").forEach((button) => button.addEventListener("click", () => { modelEditorOpen = false; editingModelAlias = ""; changed(); }));
+    root?.querySelectorAll?.("[data-gateway-model-form]").forEach((form) => form.addEventListener("submit", (event) => { event.preventDefault(); const alias = form.dataset.gatewayModelForm; runButton(form.querySelector("[type=submit]"), () => alias === "new" ? createModel(modelDraftFromForm(form)) : updateModel(alias, { ...modelDraftFromForm(form), expectedUpdatedAt: state.gatewayModels.find((m) => m.alias === alias)?.updatedAt })); }));
     root?.querySelector?.("[data-gateway-token-copy]")?.addEventListener("click", (event) => runButton(event.currentTarget, copyOneTimeToken));
     root?.querySelector?.("[data-gateway-token-dismiss]")?.addEventListener("click", dismissToken);
+    root?.querySelector?.("[data-api-tunnel-copy-url]")?.addEventListener("click", (event) => runButton(event.currentTarget, copyApiTunnelUrl));
+    root?.querySelector?.("[data-api-tunnel-install]")?.addEventListener("click", (event) => runButton(event.currentTarget, installCloudflaredForApiTunnel));
+    root?.querySelector?.("[data-api-tunnel-start]")?.addEventListener("click", (event) => runButton(event.currentTarget, startApiTunnel));
+    root?.querySelector?.("[data-api-tunnel-stop]")?.addEventListener("click", (event) => runButton(event.currentTarget, stopApiTunnel));
   }
 
   function consumeOneTimeToken() {
@@ -880,15 +1127,24 @@ export function createSharedAPISettingsController({
   return {
     bind,
     consumeOneTimeToken,
+    copyApiTunnelUrl,
     copyOneTimeToken,
     createKey,
     dismissToken,
+    installCloudflaredForApiTunnel,
     load,
     oneTimeTokenValue: () => oneTimeToken,
     render,
     revokeKey,
+    deleteKey,
     rotateKey,
+    createModel,
+    updateModel,
+    deleteModel,
+    toggleModel,
     setGatewayEnabled,
+    startApiTunnel,
+    stopApiTunnel,
     toggleAccount,
     toggleKey,
     toggleProvider,

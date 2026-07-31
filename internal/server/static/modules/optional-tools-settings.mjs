@@ -152,6 +152,20 @@ export function groupOptionalTools(items = [], search = "") {
     .map(([domain, tools]) => ({ domain, tools }));
 }
 
+function renderOptionalToolCard(item, copy) {
+  const displayName = text(item.displayName) || item.name;
+  const distinctName = displayName !== item.name;
+  const effectiveLabel = item.effectiveEnabled ? copy.enabled : copy.disabled;
+  return `<article class="optional-tool-row" data-tool-name="${escapeHtml(item.name)}">
+    <div class="optional-tool-main"><div class="optional-tool-title"><strong>${escapeHtml(displayName)}</strong>${distinctName ? `<code>${escapeHtml(item.name)}</code>` : ""}</div>${item.orphan ? `<small>${escapeHtml(copy.orphan)}</small>` : ""}</div>
+    <div class="optional-tool-actions"><span class="settings-badge ${item.effectiveEnabled ? "success" : "warning"}">${escapeHtml(effectiveLabel)}</span><select data-optional-tool-state="${escapeHtml(item.name)}" aria-label="${escapeHtml(`${copy.effective}: ${displayName}`)}">
+      <option value="inherit"${item.selection === "inherit" ? " selected" : ""}>${escapeHtml(copy.inherit)}</option>
+      <option value="enabled"${item.selection === "enabled" ? " selected" : ""}>${escapeHtml(copy.enabled)}</option>
+      <option value="disabled"${item.selection === "disabled" ? " selected" : ""}>${escapeHtml(copy.disabled)}</option>
+    </select></div>
+  </article>`;
+}
+
 export function createOptionalToolsSettingsController({
   request,
   refresh,
@@ -263,17 +277,10 @@ export function createOptionalToolsSettingsController({
     if (error) return `<div class="settings-inline-alert" role="alert">${escapeHtml(error)}</div>`;
     const groups = groupOptionalTools(items, search);
     return `<div class="optional-tools-settings">
-      <label class="settings-field"><span>${escapeHtml(copy.search)}</span><input type="search" data-optional-tools-search value="${escapeHtml(search)}"></label>
+      <label class="optional-tools-search"><span class="optional-tools-search-label">${escapeHtml(copy.search)}</span><input class="optional-tools-search-input" type="search" data-optional-tools-search aria-label="${escapeHtml(copy.search)}" value="${escapeHtml(search)}"></label>
       ${groups.length ? groups.map(({ domain, tools: grouped }) => `<section class="settings-card optional-tools-domain" data-tool-domain="${escapeHtml(domain)}">
         <div class="settings-card-header"><strong>${escapeHtml(domain)}</strong><span>${grouped.length}</span></div>
-        <div class="optional-tools-list">${grouped.map((item) => `<article class="optional-tool-row" data-tool-name="${escapeHtml(item.name)}">
-          <div><strong>${escapeHtml(item.displayName)}</strong><code>${escapeHtml(item.name)}</code>${item.description ? `<p>${escapeHtml(item.description)}</p>` : ""}${item.orphan ? `<small>${escapeHtml(copy.orphan)}</small>` : ""}</div>
-          <label><span>${escapeHtml(copy.effective)}: ${escapeHtml(item.effectiveState)}</span><select data-optional-tool-state="${escapeHtml(item.name)}">
-            <option value="inherit"${item.selection === "inherit" ? " selected" : ""}>${escapeHtml(copy.inherit)}</option>
-            <option value="enabled"${item.selection === "enabled" ? " selected" : ""}>${escapeHtml(copy.enabled)}</option>
-            <option value="disabled"${item.selection === "disabled" ? " selected" : ""}>${escapeHtml(copy.disabled)}</option>
-          </select></label>
-        </article>`).join("")}</div>
+        <div class="optional-tools-list">${grouped.map((item) => renderOptionalToolCard(item, copy)).join("")}</div>
       </section>`).join("") : `<div class="settings-empty-state">${escapeHtml(copy.empty)}</div>`}
     </div>`;
   }

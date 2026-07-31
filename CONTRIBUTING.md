@@ -16,13 +16,13 @@ Open:
 http://localhost:16888
 ```
 
-The Go module is `autoto`. `cmd/codeharbor` is retained only as a legacy command shim; use `cmd/autoto` for development, tests, examples, and new automation.
+The Go module is `autoto`. `cmd/autoto` is retained only as a legacy command shim; use `cmd/autoto` for development, tests, examples, and new automation.
 
 ## Project layout
 
 ```text
 cmd/autoto            Canonical application entrypoint
-cmd/codeharbor        Legacy compatibility command shim
+cmd/autoto        Legacy compatibility command shim
 internal/config       Defaults, config migration, and config loading
 internal/db           SQLite schema and persistence
 internal/agent        Agent runner and event hub

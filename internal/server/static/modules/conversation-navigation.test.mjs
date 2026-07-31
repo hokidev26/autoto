@@ -8,6 +8,7 @@ import {
   createNavigationRefreshController,
   createNavigationTargetId,
   createRecentConversationSyncController,
+  aggregateNavigationAgentStatus,
   navigationAgentStatusClass,
   navigationRefreshDefaults,
   normalizeNavigationPayload,
@@ -15,6 +16,7 @@ import {
   renderNavigationHTML,
   renderRecentConversationsHTML,
   resolveInitialNavigationTarget,
+  standaloneConversationOrderScope,
 } from "./conversation-navigation.mjs";
 import { localPreferenceBackupKeys, recentConversationsKey } from "./preferences-data.mjs";
 
@@ -189,6 +191,10 @@ test("navigation status classes remain safe for live agent state styling", () =>
   assert.equal(navigationAgentStatusClass("agent error"), "agent-error");
   assert.equal(navigationAgentStatusClass(`\"><script>`), "script");
   assert.equal(navigationAgentStatusClass(""), "idle");
+  assert.equal(aggregateNavigationAgentStatus([]), "");
+  assert.equal(aggregateNavigationAgentStatus([{ agentStatus: "idle" }, { agentStatus: "running" }]), "running");
+  assert.equal(aggregateNavigationAgentStatus([{ agentStatus: "idle" }, { agentStatus: "error" }]), "error");
+  assert.equal(aggregateNavigationAgentStatus([{ agentStatus: "idle" }]), "idle");
 });
 
 test("navigation refresh runs immediately on demand and pauses network work while hidden", async () => {
@@ -453,16 +459,15 @@ test("the task sidebar hides the fork trigger so its rows stay selection-only", 
   assert.doesNotMatch(html, /data-project-fork-trigger/);
 });
 
-test("conversation rows are draggable, project rows are not", () => {
+test("project and conversation rows are both draggable within their own ordering scopes", () => {
   const payload = {
     projects: [{ id: "p1", name: "autoto", gitPath: "/work" }],
     conversations: [{ projectId: "p1", worklineId: "w1", worklineTitle: "main", agentId: "a1", agentTitle: "main", messageCount: 1 }],
   };
   const html = renderNavigationHTML(buildNavigationView(payload, { mode: "all" }), { activeAgentId: "a1" });
-  // Conversation rows must be draggable
-  assert.match(html, /navigation-conversation-row[^>]*draggable="true"/);
-  // Project rows must NOT be draggable (reordering projects is not implemented)
-  assert.doesNotMatch(html, /data-project-id[^>]*draggable="true"/);
+  assert.match(html, /navigation-project-row[^>]*draggable="true"/);
+  assert.match(html, /navigation-conversation-row nested[^>]*draggable="true"/);
+  assert.match(html, /data-navigation-id="a1"[^>]*data-conversation-order-scope="p1"/);
 });
 
 test("applyConversationOrder reorders conversations and puts unknowns at the end", () => {
@@ -490,4 +495,20 @@ test("renderNavigationHTML applies conversationOrders when provided", () => {
   });
   // b1 must appear before a1 in the HTML
   assert.ok(html.indexOf("a1") > html.indexOf("b1"), "b1 should come before a1 with the given order");
+});
+
+test("standalone conversation order applies in both all and conversations modes", () => {
+  const payload = {
+    projects: [],
+    conversations: [
+      { context: "conversation", agentId: "a1", agentTitle: "A" },
+      { context: "conversation", agentId: "b1", agentTitle: "B" },
+    ],
+  };
+  const options = { conversationOrders: { [standaloneConversationOrderScope]: ["b1", "a1"] } };
+  for (const mode of ["all", "conversations"]) {
+    const html = renderNavigationHTML(buildNavigationView(payload, { mode }), options);
+    assert.ok(html.indexOf('data-navigation-id="b1"') < html.indexOf('data-navigation-id="a1"'), `${mode} should retain the dragged standalone order`);
+    assert.equal((html.match(new RegExp(`data-conversation-order-scope="${standaloneConversationOrderScope}"`, "g")) || []).length, 2);
+  }
 });

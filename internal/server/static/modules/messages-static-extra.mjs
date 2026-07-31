@@ -6,6 +6,8 @@ const messagesStaticExtra = Object.freeze({
       },
       chat: {
         ultraHighEffort: "超高",
+        maxEffort: "极高",
+        ultraEffort: "极限",
       },
       shell: {
         mobileMenu: "菜单",
@@ -84,6 +86,8 @@ const messagesStaticExtra = Object.freeze({
       },
       chat: {
         ultraHighEffort: "超高",
+        maxEffort: "極高",
+        ultraEffort: "極限",
       },
       shell: {
         mobileMenu: "選單",
@@ -162,6 +166,8 @@ const messagesStaticExtra = Object.freeze({
       },
       chat: {
         ultraHighEffort: "Ultra high",
+        maxEffort: "Max",
+        ultraEffort: "Ultra",
       },
       shell: {
         mobileMenu: "Menu",

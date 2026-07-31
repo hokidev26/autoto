@@ -1,5 +1,6 @@
 import { $, escapeAttr, escapeHtml, setButtonBusy } from "./dom.mjs";
 import { t } from "./i18n.mjs?v=settings-flat-1-codex-browser-login-1-shared-api-1-apple-theme-1-settings-help-1-task-workspace-1-navigation-state-2-archive-1";
+import { confirm as platformConfirm } from "./platform.mjs";
 
 function text(value) {
   return String(value ?? "").trim();
@@ -42,13 +43,14 @@ function displayPath(path) {
   return value.replace(/^\/Users\/[^/]+(?=\/)/, "~").replace(/^\/home\/[^/]+(?=\/)/, "~") || "—";
 }
 
-function archiveItem(kind, item, { restoreLabel, projectLabel, conversationLabel } = {}) {
+function archiveItem(kind, item, { restoreLabel, deleteLabel, projectLabel, conversationLabel } = {}) {
   const isProject = kind === "project";
   const title = isProject ? item.name || item.id : item.agentTitle || item.agentId;
   const context = isProject
     ? displayPath(item.gitPath)
     : [item.projectName, item.worklineTitle].filter(Boolean).join(" / ") || displayPath(item.projectPath);
   const stateLabel = isProject ? projectLabel : conversationLabel;
+  const id = escapeAttr(isProject ? item.id : item.agentId);
   return `
     <article class="archive-item">
       <div class="archive-item-icon" aria-hidden="true">${isProject ? "P" : "A"}</div>
@@ -57,7 +59,10 @@ function archiveItem(kind, item, { restoreLabel, projectLabel, conversationLabel
         <small>${escapeHtml(context)}</small>
         <span class="archive-item-state">${escapeHtml(stateLabel)}</span>
       </div>
-      <button class="settings-action-btn subtle archive-restore-btn" type="button" data-archive-restore="${escapeAttr(kind)}" data-archive-id="${escapeAttr(isProject ? item.id : item.agentId)}">${escapeHtml(restoreLabel)}</button>
+      <div class="archive-item-actions">
+        <button class="settings-action-btn subtle archive-restore-btn" type="button" data-archive-restore="${escapeAttr(kind)}" data-archive-id="${id}">${escapeHtml(restoreLabel)}</button>
+        <button class="settings-action-btn danger destructive archive-delete-btn" type="button" data-archive-delete="${escapeAttr(kind)}" data-archive-id="${id}">${escapeHtml(deleteLabel)}</button>
+      </div>
     </article>`;
 }
 
@@ -66,6 +71,8 @@ export function createArchiveSettingsController({
   refresh,
   showError,
   showToast,
+  confirmDelete,
+  onDeleted,
 } = {}) {
   let payload = { projects: [], conversations: [] };
   let loading = false;
@@ -115,6 +122,30 @@ export function createArchiveSettingsController({
     }
   }
 
+  // Permanent removal. The server refuses anything that is not archived or is
+  // still running, and it never touches git worktrees on disk.
+  async function remove(kind, id, button) {
+    const confirmFn = confirmDelete || platformConfirm;
+    const prompt = archiveText(kind === "project" ? "deleteProjectConfirm" : "deleteConversationConfirm");
+    if (!await confirmFn(prompt)) return false;
+    const path = kind === "project"
+      ? `/api/projects/${encodeURIComponent(id)}`
+      : `/api/agents/${encodeURIComponent(id)}`;
+    setButtonBusy(button, true, archiveText("deleting"));
+    try {
+      await request(path, { method: "DELETE" });
+      showToast?.(archiveText("deleted"), "success", { force: true });
+      await load();
+      await onDeleted?.(kind, id);
+      return true;
+    } catch (cause) {
+      showError?.(cause);
+      return false;
+    } finally {
+      if (button) setButtonBusy(button, false);
+    }
+  }
+
   function render() {
     // Only auto-load while idle with no prior failure. A failed load must not
     // re-enter load() via refresh→render, or 401 toasts loop forever.
@@ -145,8 +176,8 @@ export function createArchiveSettingsController({
           <div class="settings-stat-card"><strong>${escapeHtml(String(archivedConversations.length))}</strong><span>${escapeHtml(archiveText("conversations"))}</span></div>
         </div>
         ${total ? `
-          ${archivedProjects.length ? `<section class="settings-provider-section settings-page-section settings-card"><div class="settings-provider-section-head settings-card-header"><div><div class="settings-provider-title settings-card-title">${escapeHtml(archiveText("projectsTitle"))}</div></div></div><div class="archive-item-list">${archivedProjects.map((project) => archiveItem("project", project, { restoreLabel: archiveText("restore"), projectLabel: archiveText("projectArchived"), conversationLabel: "" })).join("")}</div></section>` : ""}
-          ${archivedConversations.length ? `<section class="settings-provider-section settings-page-section settings-card"><div class="settings-provider-section-head settings-card-header"><div><div class="settings-provider-title settings-card-title">${escapeHtml(archiveText("conversationsTitle"))}</div></div></div><div class="archive-item-list">${archivedConversations.map((conversation) => archiveItem("conversation", conversation, { restoreLabel: archiveText("restore"), projectLabel: "", conversationLabel: archiveText("conversationArchived") })).join("")}</div></section>` : ""}
+          ${archivedProjects.length ? `<section class="settings-provider-section settings-page-section settings-card"><div class="settings-provider-section-head settings-card-header"><div><div class="settings-provider-title settings-card-title">${escapeHtml(archiveText("projectsTitle"))}</div></div></div><div class="archive-item-list">${archivedProjects.map((project) => archiveItem("project", project, { restoreLabel: archiveText("restore"), deleteLabel: archiveText("delete"), projectLabel: archiveText("projectArchived"), conversationLabel: "" })).join("")}</div></section>` : ""}
+          ${archivedConversations.length ? `<section class="settings-provider-section settings-page-section settings-card"><div class="settings-provider-section-head settings-card-header"><div><div class="settings-provider-title settings-card-title">${escapeHtml(archiveText("conversationsTitle"))}</div></div></div><div class="archive-item-list">${archivedConversations.map((conversation) => archiveItem("conversation", conversation, { restoreLabel: archiveText("restore"), deleteLabel: archiveText("delete"), projectLabel: "", conversationLabel: archiveText("conversationArchived") })).join("")}</div></section>` : ""}
         ` : `<section class="settings-provider-section settings-page-section settings-card"><div class="archive-empty-state">${escapeHtml(archiveText("empty"))}</div></section>`}
       </div>`;
   }
@@ -156,7 +187,10 @@ export function createArchiveSettingsController({
     document.querySelectorAll("[data-archive-restore]").forEach((button) => {
       button.addEventListener("click", () => restore(button.dataset.archiveRestore, button.dataset.archiveId, button));
     });
+    document.querySelectorAll("[data-archive-delete]").forEach((button) => {
+      button.addEventListener("click", () => remove(button.dataset.archiveDelete, button.dataset.archiveId, button).catch(showError));
+    });
   }
 
-  return { bind, load, normalize: () => payload, render, restore };
+  return { bind, load, normalize: () => payload, remove, render, restore };
 }

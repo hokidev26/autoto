@@ -54,7 +54,9 @@ func (p *AnthropicProvider) accountCandidates(ctx context.Context, req GenerateR
 	var granted map[string]struct{}
 	var grantErr error
 	if scenario == CallScenarioGateway && req.AllowSubscriptionCredentials {
-		granted, grantErr = gatewayAccountIDSet(ctx, p.gatewayAccountPolicy(), p.cfg.Name)
+		// Grants are filed under the credential store's provider name, never the
+		// user-editable config name, so a renamed provider still matches.
+		granted, grantErr = gatewayAccountIDSet(ctx, p.gatewayAccountPolicy(), anthropicauth.DefaultProviderName)
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
 		}

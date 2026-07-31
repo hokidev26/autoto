@@ -36,6 +36,10 @@ import {
 
 const staticRoot = new URL("../", import.meta.url);
 const indexURL = new URL("index.html", staticRoot);
+const oauthAppURL = new URL("oauth-app.html", staticRoot);
+const faviconICOURL = new URL("favicon.ico", staticRoot);
+const favicon16URL = new URL("icons/autoto-tab-16.png", staticRoot);
+const favicon32URL = new URL("icons/autoto-tab-32.png", staticRoot);
 const appURL = new URL("app.js", staticRoot);
 const appMainURL = new URL("modules/app-main.mjs", staticRoot);
 const overviewDashboardURL = new URL("modules/overview-dashboard.mjs", staticRoot);
@@ -123,6 +127,27 @@ test("native directory picker requires capability, loopback, and macOS", () => {
   }
 });
 
+test("browser tabs use the versioned blue smile favicon across entry points", async () => {
+  const [html, oauthHTML, favicon16, favicon32, faviconICO] = await Promise.all([
+    readFile(indexURL, "utf8"),
+    readFile(oauthAppURL, "utf8"),
+    readFile(favicon16URL),
+    readFile(favicon32URL),
+    readFile(faviconICOURL),
+  ]);
+
+  for (const entryHTML of [html, oauthHTML]) {
+    assert.match(entryHTML, /rel="icon" href="\/ui\/icons\/autoto-tab-32\.png\?v=blue-smile-1" type="image\/png" sizes="32x32"/);
+    assert.match(entryHTML, /rel="icon" href="\/ui\/icons\/autoto-tab-16\.png\?v=blue-smile-1" type="image\/png" sizes="16x16"/);
+    assert.match(entryHTML, /rel="shortcut icon" href="\/ui\/favicon\.ico\?v=blue-smile-1"/);
+  }
+  assert.deepEqual([favicon16.readUInt32BE(16), favicon16.readUInt32BE(20)], [16, 16]);
+  assert.deepEqual([favicon32.readUInt32BE(16), favicon32.readUInt32BE(20)], [32, 32]);
+  assert.equal(faviconICO.readUInt16LE(0), 0);
+  assert.equal(faviconICO.readUInt16LE(2), 1);
+  assert.ok(faviconICO.readUInt16LE(4) >= 2);
+});
+
 test("white shell adds the global rail before the conversation sidebar with the expected targets", async () => {
   const [html, appMain] = await Promise.all([
     readFile(indexURL, "utf8"),
@@ -177,7 +202,8 @@ test("desktop home overview stays available while mobile starts in conversation"
   assert.ok(html.indexOf('id="overviewDashboard"') < html.indexOf('id="schedulePanel"'));
   assert.ok(html.indexOf('id="schedulePanel"') < html.indexOf('id="conversationPanel"'));
   assert.doesNotMatch(html, /employeeOverviewModal|employeeOverviewBody/);
-  assert.match(appMain, /createOverviewDashboardController\(\{[\s\S]*?request: api,[\s\S]*?host: "#overviewDashboard",[\s\S]*?translate: t,[\s\S]*?formatDateTime,[\s\S]*?onNavigate: handleOverviewNavigation/);
+  assert.match(appMain, /createOverviewDashboardController\(\{[\s\S]*?request: api,[\s\S]*?host: "#overviewDashboard",[\s\S]*?translate: t,[\s\S]*?formatDateTime,[\s\S]*?getLauncherContext: overviewLauncherContext,[\s\S]*?onLaunch: launchOverviewPrompt,[\s\S]*?onChooseDirectory:[\s\S]*?onNavigate: handleOverviewNavigation/);
+  assert.match(appMain, /async function launchOverviewPrompt\([\s\S]*?createProjectWorkline\(selectedProjectId, null, \{ title, model: selectedModel \}\)[\s\S]*?createStandaloneConversation\(\{ title, model: selectedModel \}\)[\s\S]*?saveReasoningEffort\([\s\S]*?setMessageInputValue\(prompt, \{ saveDraft: false \}\)[\s\S]*?sendMessage\(\{ preventDefault\(\) \{\} \}\)/);
   assert.match(appMain, /key === "home"[\s\S]*?openOverviewDashboard\(\)\.catch\(showError\)/);
   assert.match(appMain, /overviewDashboard\.load\(\)/);
   assert.match(appMain, /function openOverviewTask\(id = ""\)[\s\S]*?taskWorkspace\.selectTask/);
@@ -198,8 +224,12 @@ test("desktop home overview stays available while mobile starts in conversation"
   assert.match(html, /id="schedulePanel" class="schedule-workspace-panel hidden"/);
   assert.match(appMain, /function openOverviewSchedules\(id = ""\)[\s\S]*?scheduleWorkspace\.load[\s\S]*?switchPrimaryWorkbench\("schedules"\)[\s\S]*?scheduleWorkspace\.select/);
   assert.doesNotMatch(appMain, /function openOverviewSchedules\(id = ""\)[\s\S]*?openSettingsModal\("im-gateway"\)/);
-  assert.match(styles, /Desktop home overview dashboard: a first-class white-shell surface, never a modal/);
+  assert.match(styles, /Desktop home: a direct launcher followed by compact work statistics/);
   assert.match(styles, /\.overview-dashboard-page\s*\{[\s\S]*?overflow:\s*auto/);
+  assert.match(styles, /\.overview-hero-root\s*\{[\s\S]*?width:\s*min\(900px, 100%\)/);
+  assert.match(styles, /\.overview-launcher-form\s*\{[\s\S]*?border-radius:\s*23px/);
+  assert.match(styles, /\.overview-launcher-mode\[aria-pressed="true"\]/);
+  assert.match(styles, /\.overview-summary-grid\s*\{[\s\S]*?repeat\(4, minmax\(0, 1fr\)\)/);
   assert.match(styles, /overview-mode :is\(#conversationPanel, #workbenchPanel, #schedulePanel\)[\s\S]*?display:\s*none !important/);
   assert.match(styles, /not\(\.overview-mode\) #overviewDashboard[\s\S]*?display:\s*none !important/);
   assert.match(styles, /@media \(max-width:\s*767px\)\s*\{\s*body\.white-shell\.theme-light \.overview-dashboard-page\s*\{\s*display:\s*none !important;/);
@@ -208,8 +238,37 @@ test("desktop home overview stays available while mobile starts in conversation"
     assert.match(messages, /nav:\s*\{\s*home:/);
     assert.match(messages, /overview:\s*\{/);
     assert.match(messages, /runningAgents:/);
-    assert.match(messages, /pendingApprovalsCount:/);
+    assert.match(messages, /greetingFallback:/);
+    assert.match(messages, /projectRequired:/);
+    assert.doesNotMatch(messages, /continueWorking:|inProgress:|upcoming:|pendingHint:/);
   }
+});
+
+test("home launcher cache stamps reach styles, runtime modules, and locale catalogs", async () => {
+  const [html, app, appMain, i18n, styles] = await Promise.all([
+    readFile(indexURL, "utf8"),
+    readFile(appURL, "utf8"),
+    readFile(appMainURL, "utf8"),
+    readFile(i18nURL, "utf8"),
+    readFile(stylesURL, "utf8"),
+  ]);
+  assert.match(html, /styles\.css\?v=[^"\n]*home-launcher-1/);
+  assert.match(html, /app\.js\?v=[^"\n]*home-launcher-1/);
+  assert.match(styles, /extras\.css\?v=[^"\n]*home-launcher-1/);
+  assert.match(app, /app-main\.mjs\?v=[^"\n]*home-launcher-1/);
+  assert.match(appMain, /overview-dashboard\.mjs\?v=[^"\n]*home-launcher-1/);
+  assert.match(appMain, /i18n\.mjs\?v=[^"\n]*home-launcher-1/);
+  assert.equal((i18n.match(/messages-(?:en|zh-CN|zh-TW)\.mjs\?v=[^"\n]*home-launcher-1/g) || []).length, 3);
+  assert.match(html, /styles\.css\?v=[^"\n]*home-launcher-bottom-1/);
+  assert.match(html, /app\.js\?v=[^"\n]*home-launcher-bottom-1/);
+  assert.match(styles, /extras\.css\?v=[^"\n]*home-launcher-bottom-1/);
+  assert.match(app, /app-main\.mjs\?v=[^"\n]*home-launcher-bottom-1/);
+  assert.match(appMain, /overview-dashboard\.mjs\?v=[^"\n]*home-launcher-bottom-1/);
+  assert.match(html, /styles\.css\?v=[^"\n]*home-launcher-minimal-1/);
+  assert.match(html, /app\.js\?v=[^"\n]*home-launcher-minimal-1/);
+  assert.match(styles, /extras\.css\?v=[^"\n]*home-launcher-minimal-1/);
+  assert.match(app, /app-main\.mjs\?v=[^"\n]*home-launcher-minimal-1/);
+  assert.match(appMain, /overview-dashboard\.mjs\?v=[^"\n]*home-launcher-minimal-1/);
 });
 
 test("dual workbench shell keeps conversation and Kanban views in one runtime", async () => {
@@ -460,7 +519,8 @@ test("conversation sidebar separates projects and standalone conversations witho
   assert.match(html, /id="recentSidebarDirectories"/);
   assert.match(html, /id="globalThemeToggleBtn"/);
   assert.match(html, /id="globalHealthText"/);
-  assert.match(html, /styles\.css\?v=[^"\n]*navigation-split-1/);
+  assert.match(styles, /\.navigation-conversation-row\.conv-drag-over,\s*\.proj-drag-over\s*\{[\s\S]*?outline:\s*2px solid var\(--accent\)/);
+  assert.match(html, /styles\.css\?v=[^"\n]*navigation-split-1[^"\n]*conversation-drag-outline-1/);
   assert.match(html, /app\.js\?v=[^"\n]*navigation-split-1/);
   assert.match(app, /app-main\.mjs\?v=[^"\n]*navigation-split-1/);
 });
@@ -487,8 +547,8 @@ test("conversation creation routes project contexts through folder selection and
   assert.match(appMain, /async function createStandaloneConversation/);
   assert.match(appMain, /if \(state\.standaloneConversationCreating\) return null/);
   assert.match(appMain, /api\("\/api\/conversations", \{[\s\S]*?method: "POST"/);
-  assert.match(appMain, /title: t\("shell\.newConversation"\)/);
-  assert.match(appMain, /const model = selectedModelValue\(\)/);
+  assert.match(appMain, /const title = String\(options\?\.title \|\| t\("shell\.newConversation"\)\)/);
+  assert.match(appMain, /const model = String\(options\?\.model \|\| selectedModelValue\(\) \|\| ""\)\.trim\(\)/);
   assert.match(appMain, /await loadProjects\(\)[\s\S]*?await selectNavigationConversation\(conversation\)/);
   assert.match(appMain, /api\(`\/api\/agents\/\$\{encodeURIComponent\(agentId\)\}`\)/);
   assert.match(appMain, /modelPatchInFlight = true[\s\S]*?applyAgentPatch\("model", \{ model \}\)[\s\S]*?modelPatchInFlight = false/);
@@ -740,7 +800,10 @@ test("desktop conversation layout follows the compact resizable geometry", async
   assert.match(styles, /\.app-shell\.session-sidebar-collapsed\s*\{[\s\S]*?--session-sidebar-layout-width:\s*184px/);
   assert.match(styles, /\.app-shell\.session-sidebar-collapsed \.navigation-conversation-row[\s\S]*?min-height:\s*48px/);
   assert.match(navigation, /data-theme-icon-slot="sidebar-project"/);
-  assert.match(navigation, /data-theme-icon-slot="sidebar-conversation"/);
+  // The slot name became a template expression when forks gained their own
+  // icon, so it is no longer contiguous source text. Assert the row still emits
+  // the attribute and that this slot is one of the values it can carry.
+  assert.match(navigation, /data-theme-icon-slot="\$\{[^}]*sidebar-conversation[^}]*\}"/);
   assert.match(appMain, /bindSidebarResizer\(\)/);
   assert.match(styles, /\.sidebar-search-wrap\.hidden\s*\{[\s\S]*?display:\s*block !important/);
   assert.match(html, /id="messages" class="messages empty" data-initial-chat-state="loading" aria-busy="true"/);
@@ -1875,6 +1938,7 @@ test("unversioned dark appearance migrates once to light and explicit versioned 
       backgroundPositionY: 50,
       terminalDefaultOpen: true,
       showEventLog: false,
+      showThroughput: false,
     });
     assert.deepEqual(JSON.parse(storage.getItem(appearancePrefsKey)), migrated);
 
@@ -1913,6 +1977,7 @@ test("appearance backup import and export normalize the new schema without rejec
       backgroundPositionY: 50,
       terminalDefaultOpen: false,
       showEventLog: true,
+      showThroughput: false,
     });
     assert.deepEqual(controller.createLocalPreferencesBackup().preferences[appearancePrefsKey], {
       styleVersion: 5,
@@ -1928,6 +1993,7 @@ test("appearance backup import and export normalize the new schema without rejec
       backgroundPositionY: 50,
       terminalDefaultOpen: false,
       showEventLog: true,
+      showThroughput: false,
     });
   });
 });
@@ -2026,7 +2092,16 @@ test("finishing a run no longer auto-opens the run summary review card", async (
   const handlerEnd = appMain.indexOf("\nfunction captureAgentSettingsSnapshot", handlerStart);
   assert.ok(handlerEnd > handlerStart);
   const handler = appMain.slice(handlerStart, handlerEnd);
-  assert.doesNotMatch(handler, /loadRunSummary\(runId/);
+  // A finished run does load its summary now, but only to take ownership of the
+  // tool activity the live view was holding -- never to open the review card.
+  // The card's own emptiness rule is covered behaviourally in
+  // chat-rendering.test.mjs ("ordinary completed conversations without tools
+  // render no Run review"), so what matters here is the handoff shape: every
+  // load in this handler is paired with clearing the live copy.
+  for (const call of handler.matchAll(/loadRunSummary\(runId[\s\S]{0,600}?\n  \}/g)) {
+    assert.match(call[0], /clearLiveToolOutputs\(\{ agentId \}\)/);
+  }
+  assert.doesNotMatch(handler, /openRunReview|showRunSummaryPanel/);
   assert.match(handler, /terminalAgentEvents\.includes\(event\.type\)/);
   // The card must stay reachable on demand elsewhere (e.g. the overview "runs" link).
   assert.match(appMain, /const summary = await loadRunSummary\(run\.id, \{ agentId: run\.agentId \}\);/);
@@ -2056,6 +2131,19 @@ test("model picker groups every provider once and lists all of its models undern
   assert.match(uiShell, /appendModelOptionGroups\(binding, options, \{ mobile: true \}\)/);
   assert.match(uiShell, /appendModelOptionGroups\(binding, menu\)/);
   assert.doesNotMatch(uiShell, /composer-model-option-provider/);
+  // The summary model list is provider-grouped too: the same model name can come
+  // from several providers, so a flat list would be ambiguous.
+  assert.match(uiShell, /groupModelSelectOptions\(summaryModelOptions\(binding\)\)\.forEach/);
+  assert.match(
+    uiShell,
+    /const openSummaryModelPicker[\s\S]*?groupHeading\.textContent = group\.provider \|\| translate\("chat\.modelProviderFallback"\)/,
+  );
+  // The collapsed row names the provider next to the current summary model.
+  assert.match(uiShell, /const summaryModelDescriptor = \(binding, value\)/);
+  assert.match(
+    uiShell,
+    /descriptor\?\.provider\s*\n\s*\? `\$\{descriptor\.provider\} · \$\{descriptor\.name\}`\s*\n\s*: \(descriptor\?\.name \|\| current\)/,
+  );
   assert.match(styles, /\.composer-model-group-heading\.composer-model-group-start\s*\{[\s\S]*?border-top:\s*1px solid/);
   assert.match(styles, /\.mobile-model-group-heading\.composer-model-group-start/);
 });

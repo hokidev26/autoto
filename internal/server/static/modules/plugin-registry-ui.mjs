@@ -154,15 +154,15 @@ export function createPluginRegistryUIController({
 
   function renderEnvironment(plugin) {
     const statuses = pluginEnvironmentStatuses(plugin);
-    if (!statuses.length) return `<div class="settings-provider-meta settings-card-description">${escapeHtml(t("pluginRegistry.noEnvironment"))}</div>`;
-    return `<div class="plugin-env-list settings-inline-actions">${statuses.map((entry) => `<span class="settings-status-pill settings-badge ${entry.configured ? "ok" : "warn"}">${escapeHtml(entry.key)} · ${escapeHtml(t(entry.configured ? "pluginRegistry.configured" : "pluginRegistry.notConfigured"))}</span>`).join("")}</div>`;
+    if (!statuses.length) return `<div class="settings-provider-meta settings-card-description skill-card-meta">${escapeHtml(t("pluginRegistry.noEnvironment"))}</div>`;
+    return `<div class="plugin-env-list settings-inline-actions skill-card-meta">${statuses.map((entry) => `<span class="settings-status-pill settings-badge ${entry.configured ? "ok" : "warn"}">${escapeHtml(entry.key)} · ${escapeHtml(t(entry.configured ? "pluginRegistry.configured" : "pluginRegistry.notConfigured"))}</span>`).join("")}</div>`;
   }
 
   function renderDiscovery(result) {
     const tools = pluginTools(result);
     if (!result) return "";
-    if (!tools.length) return `<div class="settings-empty-card settings-empty-state compact" aria-live="polite">${escapeHtml(t("pluginRegistry.noTools"))}</div>`;
-    return `<div class="settings-empty-card settings-card settings-empty-state compact" aria-live="polite"><strong>${escapeHtml(t("pluginRegistry.toolsCount", { count: tools.length }))}</strong><div class="settings-provider-meta settings-card-description">${tools.map((tool) => escapeHtml(tool?.exposedName || tool?.remoteName || t("pluginRegistry.unnamedTool"))).join(" · ")}</div></div>`;
+    if (!tools.length) return `<div class="settings-provider-meta settings-card-description skill-card-meta skill-card-discovery" aria-live="polite">${escapeHtml(t("pluginRegistry.noTools"))}</div>`;
+    return `<div class="settings-provider-meta settings-card-description skill-card-meta skill-card-discovery" aria-live="polite"><strong>${escapeHtml(t("pluginRegistry.toolsCount", { count: tools.length }))}</strong> · ${tools.map((tool) => escapeHtml(tool?.exposedName || tool?.remoteName || t("pluginRegistry.unnamedTool"))).join(" · ")}</div>`;
   }
 
   function renderPluginCard(plugin) {
@@ -175,12 +175,15 @@ export function createPluginRegistryUIController({
     const uninstalling = isPluginActionBusy(id, "uninstall");
     const loadingDetail = isPluginActionBusy(id, "detail");
     const anyBusy = enabling || disabling || discovering || uninstalling || loadingDetail;
+    const metaParts = [
+      `${escapeHtml(t("pluginRegistry.id"))}: <code>${escapeHtml(id)}</code>`,
+      view.version ? escapeHtml(view.version) : "",
+      view.rootPath ? escapeHtml(t("pluginRegistry.sourcePath", { path: view.rootPath })) : "",
+    ].filter(Boolean).join(" · ");
     return `<div class="skill-command-card settings-card settings-data-list-row ${view.enabled ? "" : "disabled"}" aria-busy="${anyBusy ? "true" : "false"}">
       <div>
         <div class="skill-command-title settings-card-title">${escapeHtml(view.name || id || t("pluginRegistry.unnamed"))} <span class="settings-status-pill settings-badge ${view.enabled ? "ok" : "muted"}">${escapeHtml(t(view.enabled ? "pluginRegistry.enabled" : "pluginRegistry.disabled"))}</span></div>
-        <div class="settings-provider-meta settings-card-description">${escapeHtml(t("pluginRegistry.id"))}: <code>${escapeHtml(id)}</code>${view.version ? ` · ${escapeHtml(view.version)}` : ""}</div>
-        ${view.description ? `<div class="settings-provider-meta settings-card-description">${escapeHtml(view.description)}</div>` : ""}
-        ${view.rootPath ? `<div class="settings-provider-meta settings-card-description">${escapeHtml(t("pluginRegistry.sourcePath", { path: view.rootPath }))}</div>` : ""}
+        <div class="settings-provider-meta settings-card-description skill-card-meta">${metaParts}</div>
         ${renderEnvironment(view)}
         ${renderDiscovery(registry.discoveries[id])}
       </div>
@@ -192,6 +195,7 @@ export function createPluginRegistryUIController({
       </div>
     </div>`;
   }
+
 
   function renderPluginRegistryPanel(active) {
     const installing = isPluginActionBusy("new", "install");

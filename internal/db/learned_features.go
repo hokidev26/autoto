@@ -207,9 +207,13 @@ func (s *Store) UpdateRuntimeSettings(ctx context.Context, patch RuntimeSettings
 	return s.GetRuntimeSettings(ctx)
 }
 
+// validDefaultReasoningEffort mirrors validAgentReasoningEffort's level set,
+// including "xhigh", which Codex serves. Keeping the two in step matters: this
+// is the storage-layer gate, so a level the API accepts but this rejects
+// surfaces as a 500 rather than a validation error.
 func validDefaultReasoningEffort(value string) bool {
 	switch value {
-	case "auto", "low", "medium", "high":
+	case "auto", "low", "medium", "high", "xhigh", "max", "ultra":
 		return true
 	default:
 		return false

@@ -341,3 +341,26 @@ test("workspace copy and schedule enum values render in Simplified Chinese, Trad
     setUILocale(previous);
   }
 });
+
+test("frequency presets read as plain language and hide the environment they cannot change", () => {
+  const previous = currentUILocale();
+  try {
+    for (const [locale, label] of [["zh-TW", "每 15 分鐘"], ["zh-CN", "每 15 分钟"], ["en", "Every 15 minutes"]]) {
+      setUILocale(locale);
+      const create = renderScheduleWorkspace({ loaded: true, mode: "create" }, { conversations: conversations() });
+      // The expression still travels as the option's value, so the field below
+      // keeps showing the cron the schedule actually runs on.
+      assert.ok(create.includes(`<option value="@every 15m">${label}</option>`), `${locale}:preset label`);
+      // Reuse is the default: the environment select has nothing to decide.
+      assert.match(create, /<label data-schedule-environment hidden>/, `${locale}:environment hidden`);
+    }
+    setUILocale("en");
+    const newNarrator = renderScheduleWorkspace(
+      { loaded: true, schedules: [schedule({ narratorMode: "new" })], selectedScheduleId: "schedule-1" },
+      { conversations: conversations() },
+    );
+    assert.match(newNarrator, /<label data-schedule-environment>/, "a new narrator still chooses its environment");
+  } finally {
+    setUILocale(previous);
+  }
+});

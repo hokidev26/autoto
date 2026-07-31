@@ -279,7 +279,9 @@ test("message rendering aligns messages left and uses the current profile for us
   assert.equal((html.match(/data-user-profile-avatar>XY<\/span>/g) || []).length, 2);
   assert.equal((html.match(/data-user-profile-name>er&lt;erer<\/span>/g) || []).length, 2);
   assert.doesNotMatch(html, /er<erer/);
-  assert.match(html, /class="message-avatar" aria-hidden="true">A<\/span>/);
+  // The assistant identifies by the product mark, not by a role initial.
+  assert.match(html, /class="message-avatar" aria-hidden="true"><svg[^>]*viewBox="0 0 64 64"/);
+  assert.doesNotMatch(html, /class="message-avatar" aria-hidden="true">A<\/span>/);
   assert.match(html, /<time class="message-time" datetime="2026-02-03T04:05:06Z" title="[^"]+">[^<]+<\/time>/);
   assert.ok(html.indexOf('class="message-meta"') < html.indexOf('class="message-head-actions"'));
   assert.ok(html.indexOf('class="message-head-actions"') < html.indexOf('class="message-time"'));
@@ -479,9 +481,10 @@ test("task reports, tool output, approvals, and errors expose left-aligned bound
   assert.doesNotMatch(html, /data-chat-report="tool-activity"/);
   assert.match(html, /tool-activity-summary/);
   assert.match(html, /data-chat-report="tool-approval"/);
-  // The project-domain run review card is gone from the chat entirely, so a
-  // pending runSummaryError (which used to render inside that card) must not
-  // leak into the DOM in any form, raw or escaped.
+  // Project runs keep a compact failure notice, but the removed legacy review
+  // card and its raw runSummaryError must not return.
+  assert.match(html, /data-chat-report="conversation-run"/);
+  assert.match(html, /conversation-run-notice error/);
   assert.doesNotMatch(html, /data-chat-report="run-summary"|data-run-summary-card/);
   assert.doesNotMatch(html, /run error/);
 });
@@ -517,7 +520,11 @@ test("conversation run failures surface localized provider API failures in an er
   }
 });
 
-test("project run failures never reach the DOM, not even escaped, now that the review card is gone", () => {
+test("project run failures render an escaped compact notice without the old review card", () => {
+  // Project runs now show a compact failure notice identical to conversation
+  // runs. The hostile payload must arrive escaped as entity-encoded text; it
+  // must never execute as markup, and the old stats/checkpoint review card
+  // must remain absent from the DOM.
   const hostile = `<img src=x onerror=boom>${"failure ".repeat(100)}`;
   const { html } = renderSnapshot([], {
     navigationSelectionKind: "project",
@@ -529,7 +536,12 @@ test("project run failures never reach the DOM, not even escaped, now that the r
     },
   });
 
-  assert.doesNotMatch(html, /<img src=x|onerror="boom"|&lt;img src=x onerror=boom&gt;/);
+  // The notice must be present and properly escaped (no raw script/img tags).
+  assert.match(html, /data-chat-report="conversation-run"/);
+  assert.match(html, /conversation-run-notice error/);
+  assert.doesNotMatch(html, /<img\s[^>]*onerror/i);
+  assert.match(html, /&lt;img src=x onerror=boom&gt;/);
+  // Legacy review card structures must not appear.
   assert.doesNotMatch(html, /run-summary-failure-message|data-chat-report="project-run-failure"|data-chat-report="run-summary"/);
 });
 
@@ -626,20 +638,22 @@ test("ordinary interrupted runs are weakly noted while superseded runs stay hidd
   assert.doesNotMatch(superseded.html, /data-run-summary-card|conversation-run-notice|run-summary-card/);
 });
 
-test("project navigation with a non-conversation source renders no chat review card; a conversation-source run still gets the compact outcome notice", () => {
-  // The stats grid and recent-message preview that used to live in the
-  // project review card are gone for good (they duplicated the conversation
-  // details panel and the messages above them); the git checkpoint/rollback
-  // controls moved into the git modal (see git-workflow.test.mjs).
+test("project navigation keeps compact tool history without restoring the legacy review card", () => {
+  // The stats grid, recent-message preview, and git controls stay in their
+  // dedicated project surfaces, while persisted tool activity remains visible
+  // after leaving and reopening the conversation.
   const project = renderSnapshot([], {
     navigationSelectionKind: "project",
     activeRunSummaryRunId: "run-project",
     activeRunSummary: {
       run: { id: "run-project", source: "project", status: "completed", checkpointState: "none", createdAt: "2026-02-03T00:00:00Z", completedAt: "2026-02-03T00:01:00Z" },
-      toolCalls: [],
+      toolCallCount: 1,
+      toolCalls: [{ runId: "run-project", toolUseId: "project-read", toolName: "Read", status: "completed", inputJSON: JSON.stringify({ file_path: "README.md" }) }],
       recentMessages: [{ role: "assistant", contentText: "Visible summary message" }],
     },
   });
+  assert.match(project.html, /data-chat-report="conversation-run"/);
+  assert.match(project.html, /data-tool-activity-select="project-read"/);
   assert.doesNotMatch(project.html, /data-chat-report="run-summary"|run-summary-metrics|run-summary-checkpoint|data-run-summary-open-git|data-run-summary-rollback|data-run-summary-copy|data-run-summary-refresh|Visible summary message/);
 
   const conversationSource = renderSnapshot([{ role: "assistant", contentText: "done" }], {
@@ -1051,7 +1065,388 @@ test("turn usage normalization drops zero, negative, non-finite, extreme, and in
   assert.equal(formatTurnUsagePerformance({ ttftMs: 0 }, { locale: "en" }), "TTFT 0.0s");
   assert.equal(formatTurnUsagePerformance({ outputTokens: 0, durationMs: -4, tokensPerSecond: Number.NaN }, { locale: "en" }), "");
   const { html } = renderSnapshot([{ role: "assistant", contentText: "safe", turnUsage: { tokensPerSecond: `<svg onload=boom>` } }]);
-  assert.doesNotMatch(html, /<svg|onload=boom|message-performance/);
+  // The assistant avatar is itself an inline <svg>, so the injection check has to
+  // target the payload and the metrics footer rather than the tag name.
+  assert.doesNotMatch(html, /onload=boom|message-performance/);
+  assert.doesNotMatch(html, /<svg(?![^>]*viewBox="0 0 64 64")/);
+});
+
+test("a run's tool calls file under the assistant turn that emitted them, not in one stack on top", () => {
+  const { html } = renderSnapshot([
+    { id: "u1", role: "user", contentText: "go" },
+    { id: "a1", role: "assistant", contentText: "First I look around.", reasoningText: "Need the layout." },
+    { id: "a2", role: "assistant", contentText: "Now I edit it." },
+  ], {
+    activeRunSummaryRunId: "run-1",
+    activeRunToolCallsRunId: "run-1",
+    activeRunToolCalls: [
+      { agentId: "agent-1", runId: "run-1", messageId: "a1", toolUseId: "t1", toolName: "Grep", status: "completed", createdAt: "2026-03-16T10:00:01Z" },
+      { agentId: "agent-1", runId: "run-1", messageId: "a2", toolUseId: "t2", toolName: "Edit", status: "completed", createdAt: "2026-03-16T10:00:02Z" },
+    ],
+    activeRunSummary: {
+      run: { id: "run-1", source: "conversation", status: "completed", triggerMessageId: "u1" },
+      toolCallCount: 2,
+    },
+  });
+
+  // Each turn owns its own stack, and each stack leads its own turn: the work
+  // happened before the words it produced.
+  assert.match(html, /data-tool-activity-stack-key="msg:a1"/);
+  assert.match(html, /data-tool-activity-stack-key="msg:a2"/);
+  const a1 = html.indexOf('data-message-id="a1"');
+  const a1Stack = html.indexOf('data-message-activity="a1"');
+  const a2 = html.indexOf('data-message-id="a2"');
+  const a2Stack = html.indexOf('data-message-activity="a2"');
+  assert.ok(a1Stack < a1 && a1 < a2Stack, "the first turn's activity leads it and stays before the second turn");
+  assert.ok(a2Stack < a2, "the second turn's activity leads it");
+
+  // a1 reasoned and called one tool; a2 only called one.
+  const a1Title = html.slice(a1Stack, a1).match(/tool-activity-summary">([^<]+)</)?.[1] || "";
+  const a2Title = html.slice(a2Stack, a2).match(/tool-activity-summary">([^<]+)</)?.[1] || "";
+  assert.equal(a1Title, "活动 · 1 步推理 · 1 次工具");
+  assert.equal(a2Title, "活动 · 1 次工具");
+
+  // Every call found a home, so the run-level card keeps no duplicate of them.
+  const outcome = html.indexOf("data-run-outcome-card");
+  if (outcome >= 0) {
+    const tail = html.slice(outcome);
+    assert.doesNotMatch(tail, /data-tool-activity-select="t1"|data-tool-activity-select="t2"/);
+  }
+});
+
+// The snapshot stub reports no existing nodes, so it only ever exercises the
+// full-paint path. This stub answers the two selectors the incremental path
+// uses, which is the only way to reach the in-place repaint that runs on every
+// tool event once a transcript is already on screen.
+function incrementalMessagesElement(messageIds) {
+  const activity = new Map();
+  const tail = [];
+  const element = {
+    classList: { add() {}, remove() {}, contains: () => false },
+    scrollHeight: 100,
+    scrollTop: 0,
+    get innerHTML() {
+      return messageIds.map((id) => `<div data-message-id="${id}"></div>${activity.get(id) || ""}`).join("");
+    },
+    set innerHTML(_value) { throw new Error("the incremental path must not rebuild the transcript wholesale"); },
+    // The tail stack legitimately appends to the container: it holds calls whose
+    // assistant turn is not persisted yet, so it has no message to anchor on.
+    insertAdjacentHTML(_position, html) { tail.push(html); },
+    querySelector(selector) {
+      const match = /^\[data-message-id="(.*)"\]$/.exec(selector);
+      if (match && messageIds.includes(match[1])) {
+        const id = match[1];
+        return { insertAdjacentHTML: (_position, html) => activity.set(id, html) };
+      }
+      return null;
+    },
+    querySelectorAll(selector) {
+      if (selector !== "[data-message-activity]") return [];
+      return [...activity.keys()].map((id) => ({
+        dataset: { messageActivity: id },
+        set outerHTML(html) { activity.set(id, html); },
+        remove: () => activity.delete(id),
+        // The repaint reads the current <details> state to carry a manual
+        // collapse across the swap; this stub holds markup, not elements.
+        querySelector: () => null,
+      }));
+    },
+  };
+  return { element, activity, tail };
+}
+
+test("the incremental path repaints per-message stacks in place instead of rebuilding the transcript", () => {
+  const previousDocument = globalThis.document;
+  const { element, activity, tail } = incrementalMessagesElement(["u1", "a1"]);
+  globalThis.document = { getElementById: (id) => id === "messages" ? element : null };
+  const state = {
+    agent: { id: "agent-1", status: "idle" },
+    currentMessages: [
+      { id: "u1", role: "user", contentText: "go" },
+      { id: "a1", role: "assistant", contentText: "done", reasoningText: "thinking" },
+    ],
+    liveToolOutputs: {},
+    toolActivitySelections: {},
+    runSummaryLoading: false,
+    runSummaryError: "",
+    activeRunSummaryRunId: "run-1",
+    activeRunToolCallsRunId: "run-1",
+    activeRunToolCalls: [
+      { agentId: "agent-1", runId: "run-1", messageId: "a1", toolUseId: "t1", toolName: "Grep", status: "completed" },
+    ],
+    activeRunSummary: {
+      run: { id: "run-1", source: "conversation", status: "completed", triggerMessageId: "u1" },
+      toolCallCount: 1,
+    },
+  };
+  try {
+    const controller = createChatRenderingController({
+      state,
+      attachmentIcon: () => "file",
+      attachmentKind: () => "file",
+      copyToClipboard: async () => true,
+      notifyTerminal: () => {},
+      selectedModelValue: () => "",
+      shortPath: (value) => value,
+      showError: () => {},
+      showToast: () => {},
+    });
+
+    // A tool event is what drives the incremental repaint in production. This
+    // one belongs to a newer run than the terminal summary above, so it is not
+    // already owned by that summary.
+    const toolEvent = { agentId: "agent-1", data: { toolUseId: "t2", toolName: "Read", runId: "run-2" } };
+
+    // First pass: the stack is created and anchored on its own message.
+    controller.rememberToolStarted(toolEvent);
+    assert.deepEqual([...activity.keys()], ["a1"]);
+    assert.match(activity.get("a1"), /data-message-activity="a1"/);
+    assert.match(activity.get("a1"), /data-tool-activity-select="t1"/);
+    assert.match(activity.get("a1"), /活动 · 1 步推理 · 1 次工具/);
+    // t2 has no persisted owner yet, so it belongs to the tail, not to a1.
+    assert.doesNotMatch(activity.get("a1"), /data-tool-activity-select="t2"/);
+    assert.match(tail.join(""), /data-tool-activity-select="t2"/);
+
+    // Second pass: repaint in place, not duplicate.
+    controller.rememberToolStarted(toolEvent);
+    assert.deepEqual([...activity.keys()], ["a1"]);
+    assert.equal((activity.get("a1").match(/data-message-activity="a1"/g) || []).length, 1);
+
+    // When the run's activity goes away, the stale stack is removed rather than
+    // left behind pointing at calls that no longer exist.
+    state.activeRunToolCalls = [];
+    state.activeRunSummary = null;
+    state.activeRunSummaryRunId = "";
+    state.currentMessages = [
+      { id: "u1", role: "user", contentText: "go" },
+      { id: "a1", role: "assistant", contentText: "done" },
+    ];
+    controller.rememberToolStarted(toolEvent);
+    assert.deepEqual([...activity.keys()], []);
+  } finally {
+    globalThis.document = previousDocument;
+  }
+});
+
+test("live tool calls group under their assistant turn once that turn is on screen", () => {
+  const persisted = { id: "a1", role: "assistant", contentText: "Looking now." };
+  const { html } = renderSnapshot([{ id: "u1", role: "user", contentText: "go" }, persisted], {
+    agent: { id: "agent-1", status: "running" },
+    liveToolOutputs: {
+      owned: { agentId: "agent-1", runId: "run-1", messageId: "a1", toolUseId: "owned", toolName: "Grep", status: "running" },
+      pending: { agentId: "agent-1", runId: "run-1", toolUseId: "pending", toolName: "Bash", status: "running" },
+    },
+  });
+
+  // The call whose turn is already persisted moves under it; the one whose turn
+  // is still streaming has no anchor yet and stays in the tail stack. The tail
+  // stack anchors after the last user message, so it precedes a1 in document
+  // order -- containment is what matters here, not position.
+  const ownedStack = html.indexOf('data-message-activity="a1"');
+  const tailStack = html.indexOf("data-live-tool-output-stack");
+  assert.ok(ownedStack >= 0 && tailStack >= 0, "both surfaces render in this snapshot");
+  const owned = html.slice(ownedStack);
+  const tail = html.slice(tailStack, ownedStack);
+  assert.match(owned, /data-tool-activity-select="owned"/);
+  assert.doesNotMatch(owned, /data-tool-activity-select="pending"/);
+  assert.match(tail, /data-tool-activity-select="pending"/);
+  assert.doesNotMatch(tail, /data-tool-activity-select="owned"/);
+  // Exactly one home each: no call is rendered twice across the two surfaces.
+  assert.equal((html.match(/data-tool-activity-select="owned"/g) || []).length, 1);
+  assert.equal((html.match(/data-tool-activity-select="pending"/g) || []).length, 1);
+});
+
+test("a tool call whose owning message is not on screen falls back to the run-level stack", () => {
+  const { html } = renderSnapshot([
+    { id: "u1", role: "user", contentText: "go" },
+    { id: "a1", role: "assistant", contentText: "done" },
+  ], {
+    activeRunSummaryRunId: "run-1",
+    activeRunToolCallsRunId: "run-1",
+    activeRunToolCalls: [
+      { agentId: "agent-1", runId: "run-1", messageId: "gone", toolUseId: "orphan", toolName: "Bash", status: "completed" },
+      { agentId: "agent-1", runId: "run-1", toolUseId: "legacy", toolName: "Read", status: "completed" },
+    ],
+    activeRunSummary: {
+      run: { id: "run-1", source: "conversation", status: "completed", triggerMessageId: "u1" },
+      toolCallCount: 2,
+    },
+  });
+
+  // Neither an unknown owner nor a pre-messageId row may be dropped.
+  assert.doesNotMatch(html, /data-message-activity/);
+  assert.match(html, /data-run-outcome-card/);
+  assert.match(html, /data-tool-activity-select="orphan"/);
+  assert.match(html, /data-tool-activity-select="legacy"/);
+});
+
+test("an earlier run's tool calls anchor on the turn that triggered them, not on the newest run", () => {
+  const earlierCall = {
+    agentId: "agent-1",
+    runId: "run-old",
+    // The assistant turn that emitted it carried no words, so it never became a
+    // visible message: this is the case that used to lose its history entirely.
+    messageId: "silent",
+    toolUseId: "t-old",
+    toolName: "WebSearch",
+    status: "completed",
+    createdAt: "2026-03-16T09:00:01Z",
+  };
+  const { html } = renderSnapshot([
+    { id: "u1", role: "user", contentText: "open youtube", runId: "run-old" },
+    { id: "a1", role: "assistant", contentText: "Opened it.", runId: "run-old" },
+    { id: "u2", role: "user", contentText: "again", runId: "run-1" },
+    { id: "a2", role: "assistant", contentText: "Done.", runId: "run-1" },
+  ], {
+    activeRunSummaryRunId: "run-1",
+    activeRunToolCallsRunId: "run-1",
+    activeRunToolCalls: [],
+    historyRunToolCalls: { "run-old": [earlierCall] },
+    activeRunSummary: { run: { id: "run-1", source: "conversation", status: "completed", triggerMessageId: "u2" }, toolCallCount: 0 },
+  }, {}, {
+    apiRequest: async () => ({ toolCalls: [] }),
+  });
+
+  assert.match(html, /data-tool-activity-select="t-old"/);
+  assert.match(html, /data-tool-activity-stack-key="run:run-old"/);
+  const trigger = html.indexOf('data-message-id="u1"');
+  const stack = html.indexOf('data-message-activity="u1"');
+  const reply = html.indexOf('data-message-id="a1"');
+  assert.ok(trigger < stack && stack < reply, "the earlier run's tools sit between its user turn and its reply");
+  // The newest run owns the outcome card; an earlier run must not be repeated there.
+  const outcome = html.indexOf("data-run-outcome-card");
+  if (outcome >= 0) assert.doesNotMatch(html.slice(outcome), /data-tool-activity-select="t-old"/);
+});
+
+test("earlier-run tool history is fetched once per run and never for the active run", async () => {
+  const requests = [];
+  const { state } = renderSnapshot([
+    { id: "u1", role: "user", contentText: "go", runId: "run-old" },
+    { id: "a1", role: "assistant", contentText: "done", runId: "run-old" },
+    { id: "u2", role: "user", contentText: "again", runId: "run-1" },
+  ], {
+    activeRunSummaryRunId: "run-1",
+    activeRunToolCallsRunId: "run-1",
+    activeRunToolCalls: [],
+  }, {}, {
+    apiRequest: async (url) => {
+      requests.push(url);
+      return { toolCalls: [{ agentId: "agent-1", runId: "run-old", messageId: "silent", toolUseId: "t-old", toolName: "Bash", status: "error" }] };
+    },
+  });
+
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.deepEqual(requests, ["/api/agents/agent-1/runs/run-old/tool-calls?view=activity&limit=40"]);
+  assert.equal(state.historyRunToolCalls["run-old"].length, 1);
+  assert.equal(state.historyRunToolCalls["run-1"], undefined);
+});
+
+// A container the follow-the-tail logic can actually read: fakeMessagesElement
+// reports no clientHeight, so isNearBottom can never be true against it.
+function tailFollowingMessagesElement(messageIds) {
+  const inserted = new Map();
+  return {
+    classList: { add() {}, remove() {}, contains: () => false },
+    clientHeight: 500,
+    get scrollHeight() { return 500 + inserted.size * 40; },
+    scrollTop: 0,
+    innerHTML: "",
+    removeAttribute() {},
+    dataset: {},
+    insertAdjacentHTML(_position, html) { inserted.set(`tail:${inserted.size}`, html); },
+    querySelector(selector) {
+      const match = /^\[data-message-id="(.*)"\]$/.exec(selector);
+      if (!match || !messageIds.includes(match[1])) return null;
+      return { insertAdjacentHTML: (_position, html) => inserted.set(match[1], html) };
+    },
+    querySelectorAll: () => [],
+    inserted,
+  };
+}
+
+test("recovering an earlier run's activity keeps the reader pinned to the newest message", async () => {
+  const element = tailFollowingMessagesElement(["u1", "a1", "u2"]);
+  const previousDocument = globalThis.document;
+  globalThis.document = { getElementById: (id) => (id === "messages" ? element : null) };
+  try {
+    const state = {
+      agent: { id: "agent-1", status: "idle" },
+      currentMessages: [
+        { id: "u1", role: "user", contentText: "go", runId: "run-old" },
+        { id: "a1", role: "assistant", contentText: "done", runId: "run-old" },
+        { id: "u2", role: "user", contentText: "again", runId: "run-1" },
+      ],
+      messageCopyTexts: [],
+      liveToolOutputs: {},
+      toolActivitySelections: {},
+      activeRunSummaryRunId: "run-1",
+      activeRunToolCallsRunId: "run-1",
+      activeRunToolCalls: [],
+      runSummaryLoading: false,
+      runSummaryError: "",
+    };
+    const controller = createChatRenderingController({
+      state,
+      apiRequest: async () => ({ toolCalls: [{ agentId: "agent-1", runId: "run-old", messageId: "silent", toolUseId: "t-old", toolName: "Bash", status: "completed" }] }),
+      attachmentIcon: () => "file",
+      attachmentKind: () => "file",
+      copyToClipboard: async () => true,
+      notifyTerminal: () => {},
+      selectedModelValue: () => "",
+      shortPath: (value) => value,
+      showError: () => {},
+      showToast: () => {},
+    });
+
+    // The reader is sitting at the tail when the earlier run's strip arrives.
+    element.scrollTop = element.scrollHeight - element.clientHeight;
+    assert.equal(await controller.ensureHistoryRunActivity("agent-1"), true);
+    assert.match(element.inserted.get("u1") || "", /data-tool-activity-select="t-old"/);
+    assert.equal(element.scrollTop, element.scrollHeight, "the tail must stay in view after the strip is inserted");
+  } finally {
+    globalThis.document = previousDocument;
+  }
+});
+
+test("a run leaving the active slot hands its activity to history instead of refetching it", async () => {
+  const requests = [];
+  const messagesElement = fakeMessagesElement();
+  const previousDocument = globalThis.document;
+  globalThis.document = { getElementById: () => messagesElement };
+  try {
+    const state = {
+      agent: { id: "agent-1" },
+      currentMessages: [],
+      messageCopyTexts: [],
+      liveToolOutputs: {},
+      pendingToolApprovals: {},
+      activeRunSummaryRunId: "run-old",
+      activeRunToolCallsRunId: "run-old",
+      activeRunToolCalls: [{ agentId: "agent-1", runId: "run-old", toolUseId: "t-old", toolName: "Bash", status: "completed" }],
+    };
+    const controller = createChatRenderingController({
+      state,
+      apiRequest: async (url) => {
+        requests.push(url);
+        return url.includes("/tool-calls?") ? { toolCalls: [] } : { run: { id: "run-1", status: "completed" } };
+      },
+      attachmentIcon: () => "file",
+      attachmentKind: () => "file",
+      copyToClipboard: async () => true,
+      notifyTerminal: () => {},
+      selectedModelValue: () => "",
+      shortPath: (value) => value,
+      showError: () => {},
+      showToast: () => {},
+    });
+
+    await controller.loadRunSummary("run-1");
+    assert.equal(state.historyRunToolCalls["run-old"].length, 1, "the outgoing run keeps the calls it already had");
+    // Only the new run is fetched; the outgoing one is already in hand.
+    assert.equal(requests.filter((url) => url.includes("run-old")).length, 0);
+  } finally {
+    globalThis.document = previousDocument;
+  }
 });
 
 test("tool activity renders a lightweight directory before hydrating one auditable detail", () => {
@@ -1070,7 +1465,7 @@ test("tool activity renders a lightweight directory before hydrating one auditab
     assert.match(html, new RegExp(className));
   }
   assert.doesNotMatch(html, /tool-activity-card|tool-activity-details|DETAIL_ONLY_OUTPUT|本(?:机|地)服务/);
-  assert.match(html, /可审计摘要/);
+  assert.doesNotMatch(html, /tool-activity-protected|可审计摘要|可稽核摘要|Auditable summary/);
   assert.doesNotMatch(html, /思维链已加密|chain of thought encrypted/i);
 
   const selected = renderToolActivityStackHTML(calls, { selectedToolUseId: "bash" });
@@ -1079,6 +1474,9 @@ test("tool activity renders a lightweight directory before hydrating one auditab
   assert.match(selected, /DETAIL_ONLY_OUTPUT/);
   assert.match(selected, /本(?:机|地)服务/);
   assert.equal((selected.match(/class="tool-activity-card/g) || []).length, 1);
+  // Detail now lives inside the selected row's inline slot, not in the shared bottom slot.
+  assert.match(selected, /data-tool-activity-inline-detail="bash"[^>]*>[^<]/);
+  assert.doesNotMatch(selected, /data-tool-activity-selected-detail[^>]*>[^<\s]/);
 });
 
 test("completed tool activity collapses while active or attention-needed work stays expanded", () => {
@@ -1091,15 +1489,17 @@ test("completed tool activity collapses while active or attention-needed work st
   assert.match(completed, /<details class="tool-activity-group">/);
   assert.doesNotMatch(completed, /<details class="tool-activity-group" open>/);
 
+  // All non-forced cases are collapsed by default now — the user opens the
+  // summary when they want the trail, regardless of run status.
   const running = renderToolActivityStackHTML([
     ...completedTools,
     { toolUseId: "bash-running", toolName: "Bash", status: "running", inputJson: { command: "node --test" } },
   ]);
-  assert.match(running, /data-tool-activity-default="expanded"/);
-  assert.match(running, /<details class="tool-activity-group" open>/);
+  assert.match(running, /data-tool-activity-default="collapsed"/);
+  assert.doesNotMatch(running, /<details class="tool-activity-group" open>/);
 
   const liveActive = renderToolActivityStackHTML(completedTools, { live: true, runActive: true });
-  assert.match(liveActive, /<details class="tool-activity-group" open>/);
+  assert.doesNotMatch(liveActive, /<details class="tool-activity-group" open>/);
   const liveFinished = renderToolActivityStackHTML(completedTools, { live: true, runActive: false });
   assert.doesNotMatch(liveFinished, /<details class="tool-activity-group" open>/);
 
@@ -1107,7 +1507,7 @@ test("completed tool activity collapses while active or attention-needed work st
   const activeSubagent = renderToolActivityStackHTML([agentTool], {
     resolveBackgroundTask: () => ({ id: "task-running", status: "running" }),
   });
-  assert.match(activeSubagent, /<details class="tool-activity-group" open>/);
+  assert.doesNotMatch(activeSubagent, /<details class="tool-activity-group" open>/);
   const completedSubagent = renderToolActivityStackHTML([agentTool], {
     resolveBackgroundTask: () => ({ id: "task-done", status: "succeeded" }),
   });
@@ -1801,8 +2201,9 @@ test("live tool activity follows the Agent lifecycle and collapses after complet
     agent: { id: "agent-1", cwd: "/work/project", status: "running" },
     liveToolOutputs,
   });
-  assert.match(active.html, /data-tool-activity-default="expanded"/);
-  assert.match(active.html, /<details class="tool-activity-group" open>/);
+  // Live stacks are collapsed by default now — same as finished ones.
+  assert.match(active.html, /data-tool-activity-default="collapsed"/);
+  assert.doesNotMatch(active.html, /<details class="tool-activity-group" open>/);
 
   const finished = renderSnapshot([], {
     agent: { id: "agent-1", cwd: "/work/project", status: "idle" },
@@ -2093,7 +2494,7 @@ test("reasoning renders above the action it explains, and titles itself from the
   assert.equal(renderToolActivityStackHTML([], {}), "");
 });
 
-test("a persisted assistant turn replays its reasoning above the answer", () => {
+test("a persisted assistant turn keeps its reasoning on the activity surface, not in the bubble", () => {
   const { html } = renderSnapshot([{
     id: "m1",
     role: "assistant",
@@ -2101,16 +2502,26 @@ test("a persisted assistant turn replays its reasoning above the answer", () => 
     reasoningText: "Checking the current styles first.\nThen widening the gap.",
   }]);
 
-  assert.match(html, /class="message-reasoning"/);
-  assert.match(html, /message-reasoning-body">Checking the current styles first\.\nThen widening the gap\./);
-  assert.ok(html.indexOf("message-reasoning") < html.indexOf("message-content"), "reasoning explains the answer, so it renders above it");
+  // Reasoning has one home now: the activity stack for its own turn. The old
+  // in-bubble disclosure is gone, so live and persisted views agree.
+  assert.doesNotMatch(html, /message-reasoning/);
+  assert.match(html, /data-message-activity="m1"/);
+  assert.match(html, /tool-activity-reasoning-step/);
+  assert.match(html, /<strong>Checking the current styles first<\/strong>/);
+  assert.match(html, /tool-activity-reasoning-body">Checking the current styles first\.\nThen widening the gap\./);
+  // A turn that only thought must not be titled "... · 0 tool calls".
+  assert.match(html, /活动 · 1 步推理</);
+  assert.ok(
+    html.indexOf('data-message-activity="m1"') < html.indexOf('data-message-id="m1"'),
+    "the stack leads the turn it explains, because the thinking came first",
+  );
 
-  // A turn without reasoning must not grow an empty disclosure, and a user
-  // message must never render one even if the field somehow arrives.
+  // A turn without reasoning must not grow an empty stack, and a user message
+  // must never render one even if the field somehow arrives.
   const { html: bare } = renderSnapshot([{ id: "m2", role: "assistant", contentText: "Done." }]);
-  assert.doesNotMatch(bare, /message-reasoning/);
+  assert.doesNotMatch(bare, /message-reasoning|data-message-activity/);
   const { html: user } = renderSnapshot([{ id: "m3", role: "user", contentText: "go", reasoningText: "should not show" }]);
-  assert.doesNotMatch(user, /message-reasoning|should not show/);
+  assert.doesNotMatch(user, /message-reasoning|should not show|data-message-activity/);
 });
 
 test("markdown renders headings, emphasis and nested lists instead of printing their syntax", () => {

@@ -315,6 +315,11 @@ export function createRemoteAccessSettingsController({
       const canManage = securityAdminAllowed && value.credential.configured;
       const actionLabel = active ? rt("stopTunnel") : rt("startTunnel");
       const actionMethod = active ? "stop" : "start";
+      // When no access password is configured the button stays disabled and a
+      // clear hint replaces the generic footer copy so the user knows what to do.
+      if (!value.credential.configured && !active) {
+        footerHint = rt("tunnelNeedCredential");
+      }
       actionButton = `<button id="${actionMethod}RemoteTunnelBtn" class="settings-action-btn remote-access-tunnel-action ${active ? "subtle" : "primary"}" type="button" data-remote-tunnel-action="${actionMethod}" data-remote-tunnel-busy-label="${escapeAttr(active ? rt("tunnelStopping") : rt("tunnelStarting"))}" ${canManage && !busy ? "" : "disabled"}>${escapeHtml(busy ? tunnelStatusLabel(tunnel.status) : actionLabel)}</button>`;
     }
     return `

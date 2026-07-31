@@ -248,6 +248,14 @@ func isUniqueConstraint(err error) bool {
 	return strings.Contains(message, "unique constraint") || strings.Contains(message, "constraint failed: unique")
 }
 
+func isForeignKeyConstraint(err error) bool {
+	if err == nil {
+		return false
+	}
+	message := strings.ToLower(err.Error())
+	return strings.Contains(message, "foreign key constraint")
+}
+
 func IsNotFound(err error) bool {
 	return errors.Is(err, sql.ErrNoRows)
 }

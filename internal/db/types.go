@@ -125,6 +125,7 @@ type NavigationConversation struct {
 	ProjectPinned     bool   `json:"projectPinned"`
 	ProjectArchivedAt string `json:"projectArchivedAt,omitempty"`
 	WorklineID        string `json:"worklineId"`
+	WorklineParentID  string `json:"worklineParentId,omitempty"`
 	WorklineTitle     string `json:"worklineTitle"`
 	WorklineRole      string `json:"worklineRole"`
 	WorklineBranch    string `json:"worklineBranch"`
@@ -597,7 +598,9 @@ const (
 )
 
 type Memory struct {
-	ID         string   `json:"id"`
+	ID string `json:"id"`
+	// AgentID scopes the memory to one conversation. Empty means global.
+	AgentID    string   `json:"agentId,omitempty"`
 	Content    string   `json:"content"`
 	Keywords   []string `json:"keywords"`
 	Pinned     bool     `json:"pinned"`
@@ -606,9 +609,19 @@ type Memory struct {
 	UpdatedAt  string   `json:"updatedAt"`
 }
 
+// MemoryScope selects which ownership bucket a listing covers.
+const (
+	MemoryScopeAll    = "all"
+	MemoryScopeGlobal = "global"
+	MemoryScopeAgent  = "agent"
+)
+
 type MemoryListOptions struct {
 	Query           string `json:"query"`
 	IncludeArchived bool   `json:"includeArchived"`
+	// Scope defaults to MemoryScopeAll. MemoryScopeAgent requires AgentID.
+	Scope   string `json:"scope"`
+	AgentID string `json:"agentId"`
 }
 
 type NotificationSettings struct {

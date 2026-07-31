@@ -4,7 +4,11 @@ import { api } from "./runtime.mjs";
 import { t } from "./i18n.mjs?v=provider-draft-session-1";
 
 export const agentModelRoles = Object.freeze(["explore", "plan", "general", "search"]);
-export const defaultReasoningEffortValues = Object.freeze(["auto", "low", "medium", "high"]);
+// "xhigh" is offered because Codex accepts it. A runtime default is provider
+// agnostic, so a model that cannot serve the chosen level is not a problem here:
+// safeReasoningEffortForCapabilities clamps the inherited value to "auto" per
+// agent rather than failing the request.
+export const defaultReasoningEffortValues = Object.freeze(["auto", "low", "medium", "high", "xhigh", "max", "ultra"]);
 
 export function normalizeDefaultReasoningEffort(value) {
   const normalized = String(value || "").trim().toLowerCase();

@@ -8,7 +8,10 @@ import (
 	"errors"
 )
 
-const generatedTokenPrefix = "autoto_"
+// generatedTokenPrefix matches what OpenAI-compatible clients expect to see.
+// Authentication compares sha256 hashes, so the prefix never participates in
+// verification and keys issued under an older prefix keep working.
+const generatedTokenPrefix = "sk-"
 
 // GeneratedKey contains the only plaintext copy of a newly generated Gateway
 // token. Callers must persist Hash and discard Token after returning it once.

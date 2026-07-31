@@ -454,6 +454,15 @@ func (r *Runner) executeTool(ctx context.Context, agentID, runID string, call to
 		message := strings.TrimSpace(permission.Reason)
 		if permission.Decision == toolPermissionAsk {
 			message = "tool call requires approval in an agent loop"
+			// No human can answer inside a loop, so this text is the only thing
+			// the model gets back. When danger reflection is what escalated the
+			// call, pass its reason and safer alternative through so the model can
+			// choose a different approach instead of retrying the same action.
+			if permission.Source == decisionSourceDangerReflection {
+				if detail := strings.TrimSpace(permission.Warning); detail != "" {
+					message += ": " + detail
+				}
+			}
 		}
 		if message == "" {
 			message = "tool call denied by permission policy"

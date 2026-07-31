@@ -12,12 +12,21 @@ import (
 	"autoto/internal/network"
 )
 
+// providerBaseURLOptions scopes the plain-HTTP exception to the single provider
+// that opted in, so every other provider keeps the default policy.
+func providerBaseURLOptions(cfg config.ProviderConfig) []network.Option {
+	if !cfg.AllowPlaintextHTTP {
+		return nil
+	}
+	return []network.Option{network.WithPlaintextHTTPAllowed()}
+}
+
 func validateProviderRuntimeConfig(cfg config.ProviderConfig) error {
 	if err := validateProviderRuntimeIdentity(cfg); err != nil {
 		return err
 	}
 	if cfg.Type != config.ProviderTypeCodex && strings.TrimSpace(cfg.BaseURL) != "" {
-		if err := network.ValidateProviderBaseURL(context.Background(), cfg.BaseURL); err != nil {
+		if err := network.ValidateProviderBaseURL(context.Background(), cfg.BaseURL, providerBaseURLOptions(cfg)...); err != nil {
 			return err
 		}
 	}
@@ -45,7 +54,7 @@ func providerHTTPClient(cfg config.ProviderConfig, timeout time.Duration) (*http
 		UserAgent:             cfg.UserAgent,
 		Headers:               headers,
 		InsecureSkipTLSVerify: cfg.InsecureSkipTLSVerify,
-	})
+	}, providerBaseURLOptions(cfg)...)
 	if clientErr != nil {
 		return network.NewProviderHTTPClient(timeout), clientErr
 	}

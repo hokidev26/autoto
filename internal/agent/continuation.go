@@ -202,12 +202,13 @@ func continuationLimitsForConfig(cfg config.AgentConfig) continuationLimits {
 		mode = continuationModeSafe
 	}
 	segmentTurns := int64(cfg.ContinuationSegmentTurns)
-	if segmentTurns <= 0 {
+	if segmentTurns == 0 {
+		// 0 means unset; fall back to the per-run MaxTurns when provided.
 		segmentTurns = int64(cfg.MaxTurns)
 	}
-	if segmentTurns <= 0 {
-		segmentTurns = 40
-	}
+	// segmentTurns <= 0 (including -1) means no ceiling — the loop will run
+	// until a stop reason, error, or cross-segment budget fires. Users who
+	// want a hard cap per segment can set it via Settings → Execution Budget.
 	if segmentTurns > 1000 {
 		segmentTurns = 1000
 	}
@@ -586,7 +587,10 @@ func (r *Runner) runContinuationSegment(ctx context.Context, state continuationR
 	if len(messages) > 0 {
 		outcome.segmentStartMessageID = messages[len(messages)-1].ID
 	}
-	for turn := int64(0); turn < state.limits.segmentTurns; turn++ {
+	// segmentTurns <= 0 means no per-segment ceiling; the loop exits via an
+	// internal stop reason, error, or a cross-segment budget (total turns /
+	// continuations / wall clock).
+	for turn := int64(0); state.limits.segmentTurns <= 0 || turn < state.limits.segmentTurns; turn++ {
 		if err := ctx.Err(); err != nil {
 			return segmentOutcome{}, err
 		}

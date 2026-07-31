@@ -1068,6 +1068,36 @@ func hasRecursiveArgument(args []*syntax.Word) bool {
 func truncatesRedirect(redirect *syntax.Redirect) bool {
 	switch redirect.Op.String() {
 	case ">", ">|":
+	default:
+		return false
+	}
+	// Writing to a discard sink destroys nothing: there is no prior content to
+	// lose. `2>/dev/null` and its cmd.exe spelling `2>NUL` are how a command
+	// silences a probe, so classifying them as file-truncate hard-blocks ordinary
+	// read-only work. A target that cannot be resolved statically stays dangerous.
+	if target, ok := safeStaticWord(redirect.Word); ok && isDiscardRedirectTarget(target) {
+		return false
+	}
+	return true
+}
+
+// isDiscardRedirectTarget reports whether a redirection target is a sink that
+// holds no content of its own, so truncating it cannot lose data. It covers the
+// POSIX null device, the cmd.exe spellings of the same device, and the standard
+// stream aliases.
+func isDiscardRedirectTarget(target string) bool {
+	normalized := strings.ToLower(strings.TrimSpace(target))
+	normalized = strings.Trim(normalized, `"'`)
+	if normalized == "" {
+		return false
+	}
+	// cmd.exe accepts `\\.\NUL` and a trailing colon, and tolerates either slash.
+	normalized = strings.ReplaceAll(normalized, `\`, "/")
+	normalized = strings.TrimPrefix(normalized, "//./")
+	normalized = strings.TrimSuffix(normalized, ":")
+	switch normalized {
+	case "nul", "/dev/null", "dev/null", "con", "/dev/tty",
+		"/dev/stdout", "/dev/stderr", "/dev/fd/1", "/dev/fd/2":
 		return true
 	default:
 		return false

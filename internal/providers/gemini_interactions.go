@@ -50,6 +50,8 @@ func (p *GeminiInteractions) Capabilities() Capabilities {
 	return Capabilities{Tools: true, Streaming: true, ImageInput: true, Reasoning: true, ReasoningEffort: true, ReasoningEfforts: []string{"low", "medium", "high"}}
 }
 
+func (p *GeminiInteractions) DefaultContextTokenLimit() int { return 1048576 }
+
 func (p *GeminiInteractions) ModelCapabilities(model string) ModelCapabilities {
 	if p == nil {
 		return ModelCapabilities{}

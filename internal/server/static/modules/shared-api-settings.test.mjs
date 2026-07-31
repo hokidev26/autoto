@@ -21,6 +21,7 @@ import {
   normalizeGatewayRequests,
   normalizeGatewaySettings,
   normalizeGatewayStatus,
+  normalizeApiTunnel,
 } from "./shared-api-settings.mjs";
 
 function enabledState(overrides = {}) {
@@ -49,6 +50,9 @@ function responseFor(path, options = {}) {
   if (path === "/api/gateway/keys" && !options.method) return { keys: [] };
   if (path === "/api/gateway/usage") return { items: [], summary: {} };
   if (path === "/api/gateway/requests?limit=50") return { requests: [] };
+  if (path === "/api/gateway/tunnel") {
+    return { available: true, status: "idle", publicApiBaseUrl: "", activeKeys: 0, gatewayRunning: true };
+  }
   return {};
 }
 
@@ -58,6 +62,10 @@ const loadPaths = [
   "/api/gateway/keys",
   "/api/gateway/usage",
   "/api/gateway/requests?limit=50",
+  "/api/gateway/tunnel",
+  // Every Gateway resource is preloaded in one batch regardless of whether the
+  // section that consumes it renders, so alias data travels with the rest.
+  "/api/gateway/models",
 ];
 
 test("normalizes Gateway runtime, settings, accounts, and safe request records", () => {
@@ -510,14 +518,17 @@ test("newer Shared API loads prevent older responses from overwriting state", as
 
   const stale = controller.load();
   const fresh = controller.load();
-  assert.equal(pending.length, 10);
-  pending.slice(0, 5).forEach(({ path, resolve }) => resolve(responseFor(path)));
+  // Derived from loadPaths so adding a Gateway resource cannot silently
+  // desynchronise the two halves of this race.
+  assert.equal(pending.length, loadPaths.length * 2);
+  pending.slice(0, loadPaths.length).forEach(({ path, resolve }) => resolve(responseFor(path)));
   assert.equal(await stale, false);
-  pending.slice(5).forEach(({ path, resolve }) => {
+  pending.slice(loadPaths.length).forEach(({ path, resolve }) => {
     if (path === "/api/gateway/status") resolve({ desiredEnabled: false, running: false, address: "127.0.0.1:9000", gateway: { enabled: false, host: "127.0.0.1", port: 9000 }, protocols: ["anthropic"] });
     else if (path === "/api/gateway/accounts") resolve({ accounts: [{ provider: "codex", accountId: "new-account", eligible: true }] });
     else if (path === "/api/gateway/keys") resolve({ keys: [{ id: "new", name: "Latest", enabled: true }] });
     else if (path === "/api/gateway/usage") resolve({ items: [], summary: { requests: 2 } });
+    else if (path === "/api/gateway/tunnel") resolve({ available: true, status: "idle", activeKeys: 0, gatewayRunning: true });
     else resolve({ requests: [{ id: "latest-request", createdAt: "2026-07-22T12:00:00Z" }] });
   });
   assert.equal(await fresh, true);
@@ -550,4 +561,120 @@ test("Shared API translation keys stay aligned across all three locales", () => 
   }).sort();
   assert.deepEqual(keys(messagesZhTW.sharedAPI), keys(messagesZhCN.sharedAPI));
   assert.deepEqual(keys(messagesEN.sharedAPI), keys(messagesZhCN.sharedAPI));
+});
+
+test("API tunnel snapshot normalizes status, url, and key count defensively", () => {
+  assert.deepEqual(normalizeApiTunnel({}), {
+    available: false,
+    installable: false,
+    status: "unavailable",
+    publicUrl: "",
+    activeKeys: 0,
+    gatewayRunning: false,
+    error: "",
+  });
+  // An unknown status must fall back rather than reach the DOM verbatim.
+  assert.equal(normalizeApiTunnel({ status: "<script>" }).status, "unavailable");
+  // The backend field is publicApiBaseUrl; publicUrl is accepted as a fallback.
+  assert.equal(normalizeApiTunnel({ publicApiBaseUrl: "https://x.test/v1" }).publicUrl, "https://x.test/v1");
+  assert.equal(normalizeApiTunnel({ publicUrl: "https://y.test/v1" }).publicUrl, "https://y.test/v1");
+  // installable only means something when cloudflared is missing.
+  assert.equal(normalizeApiTunnel({ available: true, installable: true }).installable, false);
+  assert.equal(normalizeApiTunnel({ available: false, installable: true }).installable, true);
+});
+
+test("API tunnel warns about missing keys and blocks starting while the gateway is down", async () => {
+  const noKeysRunning = enabledState();
+  const controller = createSharedAPISettingsController({
+    state: noKeysRunning,
+    request: async (path, options = {}) => {
+      if (path === "/api/gateway/tunnel") {
+        return { available: true, status: "running", publicApiBaseUrl: "https://demo.trycloudflare.com/v1", activeKeys: 0, gatewayRunning: true };
+      }
+      return responseFor(path, options);
+    },
+  });
+  await controller.load();
+  const runningHTML = controller.render();
+  // A public URL with no usable key is a real misconfiguration worth surfacing.
+  assert.match(runningHTML, /没有可用的 sk- 密钥/);
+  assert.match(runningHTML, /https:\/\/demo\.trycloudflare\.com\/v1/);
+  assert.match(runningHTML, /data-api-tunnel-stop/);
+  assert.doesNotMatch(runningHTML, /data-api-tunnel-start/);
+
+  const gatewayDown = enabledState();
+  const downController = createSharedAPISettingsController({
+    state: gatewayDown,
+    request: async (path, options = {}) => {
+      if (path === "/api/gateway/tunnel") {
+        return { available: true, status: "idle", activeKeys: 2, gatewayRunning: false };
+      }
+      return responseFor(path, options);
+    },
+  });
+  await downController.load();
+  const downHTML = downController.render();
+  assert.match(downHTML, /Gateway 未运行/);
+  // The tunnel points at the gateway port, so starting it first is required.
+  assert.match(downHTML, /data-api-tunnel-start[^>]*disabled/);
+});
+
+test("starting the API tunnel requires explicit confirmation of public exposure", async () => {
+  const confirmations = [];
+  const requests = [];
+  const state = enabledState();
+  const controller = createSharedAPISettingsController({
+    state,
+    confirmAction: async (message) => { confirmations.push(message); return false; },
+    request: async (path, options = {}) => {
+      requests.push({ path, method: options.method });
+      if (path === "/api/gateway/tunnel") {
+        return { available: true, status: "idle", activeKeys: 1, gatewayRunning: true };
+      }
+      return responseFor(path, options);
+    },
+  });
+  await controller.load();
+  requests.length = 0;
+
+  // Declining must not open the tunnel: this URL is not password protected.
+  assert.equal(await controller.startApiTunnel(), null);
+  assert.equal(requests.length, 0, "declined confirmation must not POST");
+  assert.equal(confirmations.length, 1);
+  assert.match(confirmations[0], /sk- 密钥/);
+
+  const accepting = createSharedAPISettingsController({
+    state: enabledState(),
+    confirmAction: async () => true,
+    request: async (path, options = {}) => {
+      requests.push({ path, method: options.method });
+      if (path === "/api/gateway/tunnel") {
+        return { available: true, status: "running", publicApiBaseUrl: "https://ok.trycloudflare.com/v1", activeKeys: 1, gatewayRunning: true };
+      }
+      return responseFor(path, options);
+    },
+  });
+  await accepting.startApiTunnel();
+  assert.deepEqual(requests.at(-1), { path: "/api/gateway/tunnel", method: "POST" });
+});
+
+// The two tests above only pin when alias management must stay hidden. Without
+// this one, a gate that hid it in every state would still pass them.
+test("alias management appears once the Gateway is running with an account to route to", async () => {
+  const state = enabledState();
+  const controller = createSharedAPISettingsController({
+    state,
+    request: async (path, options = {}) => {
+      if (path === "/api/gateway/accounts") return { accounts: [{ provider: "codex", accountId: "acct-1", eligible: true }] };
+      if (path === "/api/gateway/models") return { models: [{ alias: "fast", targetModel: "codex:gpt-5", enabled: true }] };
+      return responseFor(path, options);
+    },
+  });
+
+  await controller.load();
+  const html = controller.render();
+  assert.match(html, /模型别名/);
+  assert.match(html, /data-gateway-model-add/);
+  assert.match(html, /fast/);
+  assert.match(html, /codex:gpt-5/);
 });

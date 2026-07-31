@@ -112,7 +112,7 @@ test("model provider console interpolates model, count, and failure details", ()
 
 test("chat activity timeline has concise, safe copy in every locale", () => {
   const keys = [
-    "processTitle", "processProtected", "input", "output", "noOutput", "localService",
+    "processTitle", "input", "output", "noOutput", "localService",
     "details", "diff", "running", "completed", "failed", "searching", "reading",
     "editing", "writing", "runningCommand", "genericStep", "truncated",
   ];
@@ -120,7 +120,6 @@ test("chat activity timeline has concise, safe copy in every locale", () => {
   for (const locale of uiLocales) {
     const activity = chatRenderingExtraMessages[locale].chatRenderingExtra.activity;
     for (const key of keys) assert.equal(typeof activity[key], "string", `${locale}:${key}`);
-    assert.ok(activity.processProtected.length > 0, `${locale}:processProtected`);
     assert.equal(chatRenderingExtraT("activity.processTitle", { count: 3 }, locale).includes("3"), true, locale);
 
     const copy = Object.values(activity).join(" ").toLowerCase();

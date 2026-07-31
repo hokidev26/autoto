@@ -18,10 +18,11 @@ import {
   renderProviderConsolePage,
   setProviderModelHidden,
   setProviderModelHiddenAll,
-} from "./model-provider-components.mjs?v=provider-card-clean-3-provider-create-page-2-provider-secrets-1-model-picker-1-provider-full-page-2-provider-placeholders-1-model-configs-1-provider-reference-1-default-openai-responses-1-provider-draft-session-1-native-image-generation-1-provider-hidden-models-1";
+} from "./model-provider-components.mjs?v=provider-card-clean-3-provider-create-page-2-provider-secrets-1-model-picker-1-provider-full-page-2-provider-placeholders-1-model-configs-1-provider-reference-1-default-openai-responses-1-provider-draft-session-1-native-image-generation-1-provider-hidden-models-1-provider-quota-overview-1";
 import {
   automaticProviderNameUpdate,
   markProviderModelsStale,
+  normalizeAnthropicAccountList,
   normalizeCodexAccountList,
   normalizeCodexSelectedIds,
   providerConsoleDraftFromForm,
@@ -37,12 +38,12 @@ import {
   trapProviderConsoleFocus,
   validateProviderNameValue,
 } from "./provider-settings-normalization.mjs?v=provider-hidden-models-1";
-import { codexAccountStableID, finiteNumber } from "./provider-account-rendering.mjs";
-import { providerCategory, subscriptionProviderKind, subscriptionProviderSpec } from "./model-provider-components.mjs?v=provider-subscription-accounts-1-provider-hidden-models-1";
+import { codexAccountStableID, finiteNumber, providerAccountQuotaSummary } from "./provider-account-rendering.mjs?v=provider-quota-overview-1";
+import { providerCategory, subscriptionProviderKind, subscriptionProviderKinds, subscriptionProviderSpec } from "./model-provider-components.mjs?v=provider-subscription-accounts-1-provider-hidden-models-1-provider-quota-overview-1";
 import { normalizeSubscriptionProvider } from "./provider-settings-normalization.mjs?v=provider-hidden-models-1";
-import { createCodexAuthController } from "./provider-codex-auth.mjs";
-import { createAnthropicAccountsController } from "./provider-anthropic-accounts.mjs?v=provider-hidden-models-1";
-import { createSubscriptionAccountsController } from "./provider-subscription-accounts.mjs";
+import { createCodexAuthController } from "./provider-codex-auth.mjs?v=provider-quota-overview-1";
+import { createAnthropicAccountsController } from "./provider-anthropic-accounts.mjs?v=provider-hidden-models-1-provider-quota-overview-1";
+import { createSubscriptionAccountsController } from "./provider-subscription-accounts.mjs?v=provider-quota-overview-1";
 import { createModelRoutingController } from "./model-routing-settings.mjs";
 
 export function createModelProviderSettingsController({
@@ -63,6 +64,8 @@ export function createModelProviderSettingsController({
 } = {}) {
   let preferredModelFallback = "";
   let modelVisibilityFallback = { hiddenModels: {}, showUnconfiguredProviders: false };
+  let providerQuotaDeferredHandle = null;
+  let providerQuotaDeferredScheduled = false;
   const mt = (key, params) => t(`modelProvider.${key}`, params);
   const ct = (key, params) => t(`modelProvider.console.${key}`, params);
 
@@ -87,6 +90,7 @@ export function createModelProviderSettingsController({
     setModelRefreshButtonsBusy(true);
     try {
       await loadModelCatalog();
+      await reloadLoadedOfficialAccountOverview();
       notifyTerminal?.(`[info] ${mt("modelListRefreshed")}\n`);
     } finally {
       state.modelRefreshing = false;
@@ -159,6 +163,9 @@ export function createModelProviderSettingsController({
 
   const subscriptionAccounts = createSubscriptionAccountsController({ ...ctx, isModelHidden, modelOptionValue });
   const {
+    ensureSubscriptionState,
+    accountsFor,
+    accountsLoaded,
     loadSubscriptionAccounts,
     refreshSubscriptionAccounts,
     subscriptionAccountById,
@@ -348,6 +355,113 @@ export function createModelProviderSettingsController({
     return false;
   }
 
+  function configuredOfficialAccountKinds() {
+    const kinds = new Set();
+    for (const provider of modelProvidersForUI()) {
+      if (providerCategory(provider) !== "official") continue;
+      if (provider.type === "codex" || provider.name === "codex") kinds.add("codex");
+      else if (isAnthropicAccountProvider(provider)) kinds.add("anthropic");
+      else {
+        const kind = subscriptionProviderKind(provider);
+        if (kind) kinds.add(kind);
+      }
+    }
+    return kinds;
+  }
+
+  function officialAccountKindsForCurrentList() {
+    const consoleState = providerConsoleState();
+    if (consoleState.view !== "providers" || consoleState.category === "custom") return new Set();
+    return configuredOfficialAccountKinds();
+  }
+
+  function officialProviderAccountSummaries() {
+    ensureSubscriptionState();
+    const codexLoaded = state.providerAuthLoaded === true || (state.providerAuthFiles !== null && state.providerAuthFiles !== undefined);
+    const anthropicLoaded = state.anthropicAccountsLoaded === true || Object.hasOwn(state, "anthropicAccounts");
+    const summaries = {
+      codex: providerAccountQuotaSummary("codex", normalizeCodexAccountList(state.providerAuthFiles), {
+        loaded: codexLoaded,
+        loading: Boolean(state.providerAuthLoading),
+        error: state.providerAuthError,
+      }),
+      anthropic: providerAccountQuotaSummary("anthropic", normalizeAnthropicAccountList(state.anthropicAccounts), {
+        loaded: anthropicLoaded,
+        loading: Boolean(state.anthropicAccountsLoading),
+        error: state.anthropicAccountsError,
+      }),
+    };
+    for (const provider of subscriptionProviderKinds) {
+      summaries[provider] = providerAccountQuotaSummary(provider, accountsFor(provider), {
+        loaded: accountsLoaded(provider),
+        loading: Boolean(state.subscriptionAccountsLoading?.[provider]),
+        error: state.subscriptionAccountsError?.[provider],
+      });
+    }
+    return summaries;
+  }
+
+  function officialAccountKindNeedsLoad(kind) {
+    if (kind === "codex") {
+      const loaded = state.providerAuthLoaded === true || (state.providerAuthFiles !== null && state.providerAuthFiles !== undefined);
+      return !loaded && !state.providerAuthLoading && !state.providerAuthError;
+    }
+    if (kind === "anthropic") {
+      const loaded = state.anthropicAccountsLoaded === true || Object.hasOwn(state, "anthropicAccounts");
+      return !loaded && !state.anthropicAccountsLoading && !state.anthropicAccountsError;
+    }
+    ensureSubscriptionState();
+    return !accountsLoaded(kind) && !state.subscriptionAccountsLoading[kind] && !state.subscriptionAccountsError[kind];
+  }
+
+  function loadOfficialAccountKind(kind) {
+    if (!officialAccountKindNeedsLoad(kind)) return Promise.resolve(false);
+    if (kind === "codex") return loadProviderAuthFiles({ silent: true });
+    if (kind === "anthropic") return loadAnthropicAccounts({ silent: true });
+    return loadSubscriptionAccounts(kind, { silent: true });
+  }
+
+  function scheduleDeferredOfficialAccountLoads(kinds) {
+    const deferredKinds = [...kinds].filter((kind) => !["codex", "gemini"].includes(kind) && officialAccountKindNeedsLoad(kind));
+    if (!deferredKinds.length || providerQuotaDeferredScheduled) return;
+    providerQuotaDeferredScheduled = true;
+    const run = () => {
+      providerQuotaDeferredScheduled = false;
+      providerQuotaDeferredHandle = null;
+      if (providerConsoleState().view !== "providers") return;
+      Promise.allSettled(deferredKinds.map(loadOfficialAccountKind));
+    };
+    if (typeof globalThis.requestIdleCallback === "function") {
+      providerQuotaDeferredHandle = globalThis.requestIdleCallback(run, { timeout: 800 });
+    } else {
+      providerQuotaDeferredHandle = globalThis.setTimeout(run, 120);
+    }
+  }
+
+  async function loadOfficialProviderAccountOverview({ defer = true } = {}) {
+    const kinds = officialAccountKindsForCurrentList();
+    if (!kinds.size) return [];
+    const immediateKinds = ["codex", "gemini"].filter((kind) => kinds.has(kind));
+    const jobs = immediateKinds.filter(officialAccountKindNeedsLoad).map(loadOfficialAccountKind);
+    if (defer) scheduleDeferredOfficialAccountLoads(kinds);
+    else jobs.push(...[...kinds].filter((kind) => !immediateKinds.includes(kind) && officialAccountKindNeedsLoad(kind)).map(loadOfficialAccountKind));
+    return Promise.allSettled(jobs);
+  }
+
+  async function reloadLoadedOfficialAccountOverview() {
+    ensureSubscriptionState();
+    const kinds = configuredOfficialAccountKinds();
+    const jobs = [];
+    const codexLoaded = state.providerAuthLoaded === true || (state.providerAuthFiles !== null && state.providerAuthFiles !== undefined);
+    const anthropicLoaded = state.anthropicAccountsLoaded === true || Object.hasOwn(state, "anthropicAccounts");
+    if (kinds.has("codex") && codexLoaded) jobs.push(loadProviderAuthFiles({ silent: true }));
+    if (kinds.has("anthropic") && anthropicLoaded) jobs.push(loadAnthropicAccounts({ silent: true }));
+    for (const provider of subscriptionProviderKinds) {
+      if (kinds.has(provider) && accountsLoaded(provider)) jobs.push(loadSubscriptionAccounts(provider, { silent: true }));
+    }
+    return Promise.allSettled(jobs);
+  }
+
   function renderProviderSettingsContent() {
     const consoleState = providerConsoleState();
     if (consoleState.view === "codex") return renderCodexConsolePage();
@@ -358,6 +472,7 @@ export function createModelProviderSettingsController({
     if (consoleState.view === "kiro") return renderKiroConsolePage();
     return renderProviderConsolePage({
       providers: modelProvidersForUI(),
+      accountSummaries: officialProviderAccountSummaries(),
       consoleState: {
         ...consoleState,
         sensitiveAccessAllowed: providerSensitiveDraftAccessAllowed(state),
@@ -718,6 +833,29 @@ export function createModelProviderSettingsController({
     return false;
   }
 
+  // resetProviderConsoleToProviderList returns the console to its top level.
+  // The account pages are drill-downs — they carry their own "back to
+  // providers" control — so reopening Settings from scratch should land on the
+  // provider list rather than resume whichever account page was last open.
+  // Unlike closeProviderConsoleLayer this never refreshes or moves focus: the
+  // caller is about to render the panel itself.
+  function resetProviderConsoleToProviderList() {
+    const consoleState = providerConsoleState();
+    consoleState.view = "providers";
+    consoleState.mode = "";
+    consoleState.type = "";
+    consoleState.providerName = "";
+    consoleState.drawer = "";
+    consoleState.modal = "";
+    consoleState.testOpen = false;
+    consoleState.codexEdit = null;
+    consoleState.codexSelectedIds = [];
+    consoleState.anthropicEdit = null;
+    for (const kind of ["gemini", "grok", "kimi", "kiro"]) {
+      const page = subscriptionPage(kind);
+      if (page) page.edit = null;
+    }
+  }
   function openSubscriptionConsolePage(kind, provider = {}) {
     const spec = subscriptionProviderSpec(kind);
     if (!spec) return;
@@ -787,6 +925,24 @@ export function createModelProviderSettingsController({
     setProviderConsoleResult("");
     refreshProviderConsole({ focusAnthropic: true });
     if (!state.anthropicAccountsLoading) loadAnthropicAccounts({ silent: true }).catch(showError);
+  }
+
+  // syncAccountDraftModelHidden mirrors a visibility change made on an account
+  // page into the open edit draft. Those pages write the shared preference
+  // directly and need no save, but the panel's save button rebuilds the
+  // provider's hidden set from the draft, so the two must not drift apart.
+  // A null model name applies to every model, for the show/hide-all control.
+  function syncAccountDraftModelHidden(modelName, hidden) {
+    const consoleState = providerConsoleState();
+    const draft = consoleState.draft;
+    if (!draft || !Array.isArray(draft.modelConfigs)) return;
+    const name = modelName === null ? null : String(modelName || "").trim();
+    consoleState.draft = {
+      ...draft,
+      modelConfigs: draft.modelConfigs.map((item) => (
+        name === null || item?.name === name ? { ...item, hidden } : item
+      )),
+    };
   }
 
   function providerDraftWithVisibility(draft, providerName = draft?.name) {
@@ -1457,7 +1613,7 @@ export function createModelProviderSettingsController({
       });
     }
     const updated = updateProviderConsoleDraftFromEvent(event);
-    if (updated && target?.name === "insecureSkipTLSVerify") {
+    if (updated && (target?.name === "insecureSkipTLSVerify" || target?.name === "allowPlaintextHTTP")) {
       refreshProviderConsole();
       return;
     }
@@ -1690,13 +1846,18 @@ export function createModelProviderSettingsController({
     }
     if (target.dataset.mpModelVisibility) {
       const name = String(target.dataset.mpModelVisibility || "").trim();
-      // The subscription account pages render the live provider, not an edit
-      // draft, so their eye toggles the shared visibility preference directly.
-      // That preference is what hides a model from the composer's picker, and it
-      // applies immediately instead of waiting for a save that page never does.
-      const subscriptionProviderName = subscriptionModelFormProvider(target);
-      if (subscriptionProviderName) {
-        setModelHidden(`${subscriptionProviderName}:${name}`, target.dataset.hidden !== "true");
+      // Official account pages render the live provider, not an edit draft, so
+      // their eye toggles the shared visibility preference directly. That
+      // preference filters the composer's picker and applies without a save step.
+      const accountProviderName = accountModelFormProvider(target);
+      if (accountProviderName) {
+        const hidden = target.dataset.hidden !== "true";
+        setModelHidden(`${accountProviderName}:${name}`, hidden);
+        // The same panel has a save button, and saving rebuilds this provider's
+        // hidden set from the draft. Leaving the draft behind meant the save
+        // replayed whatever was hidden when the panel opened and silently
+        // un-hid everything toggled since.
+        syncAccountDraftModelHidden(name, hidden);
         return;
       }
       const draft = { ...(consoleState.draft || {}) };
@@ -1712,9 +1873,11 @@ export function createModelProviderSettingsController({
       return;
     }
     if (target.dataset.mpModelVisibilityAll !== undefined) {
-      const subscriptionAllProvider = subscriptionModelFormProvider(target);
-      if (subscriptionAllProvider) {
-        setProviderModelsHidden(subscriptionAllProvider, target.dataset.allVisible === "true");
+      const accountProviderName = accountModelFormProvider(target);
+      if (accountProviderName) {
+        const hidden = target.dataset.allVisible === "true";
+        setProviderModelsHidden(accountProviderName, hidden);
+        syncAccountDraftModelHidden(null, hidden);
         return;
       }
       const draft = { ...(consoleState.draft || {}) };
@@ -1983,8 +2146,8 @@ export function createModelProviderSettingsController({
       root.addEventListener("keydown", handleProviderConsoleKeydown);
       root.addEventListener("submit", handleProviderConsoleSubmit);
     }
-    if (!state.providerAuthFiles && !state.providerAuthError) {
-      loadProviderAuthFiles({ silent: true }).catch(showError);
+    if (providerConsoleState().view === "providers") {
+      loadOfficialProviderAccountOverview().catch(showError);
     }
   }
 
@@ -2119,10 +2282,11 @@ export function createModelProviderSettingsController({
     refreshActiveSettingsPanel?.();
   }
 
-  // Resolves the provider a subscription account page's model panel belongs to,
-  // or "" when the click came from anywhere else.
-  function subscriptionModelFormProvider(target) {
-    const form = target?.closest?.("[data-subscription-provider-config]");
+  // Resolves the provider an official account page's live model panel belongs
+  // to, or "" when the click came from an editable provider draft instead.
+  function accountModelFormProvider(target) {
+    const form = target?.closest?.("[data-subscription-provider-config]")
+      || target?.closest?.("[data-codex-provider-config]");
     return form ? String(form.elements?.name?.value || "").trim() : "";
   }
 
@@ -2379,8 +2543,10 @@ export function createModelProviderSettingsController({
     getPreferredModel,
     isCurrentModelConfigured,
     loadProviderAuthFiles,
+    loadOfficialProviderAccountOverview,
     modelSetupMessage,
     openProviderConsoleType,
+    resetProviderConsoleToProviderList,
     openGeminiConsolePage,
     openGrokConsolePage,
     openKimiConsolePage,

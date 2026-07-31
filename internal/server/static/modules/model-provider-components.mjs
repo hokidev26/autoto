@@ -1,4 +1,5 @@
 import { escapeAttr, escapeHtml } from "./dom.mjs";
+import { formatNumber, formatTimestamp } from "./formatters.mjs";
 import { t } from "./i18n.mjs?v=provider-draft-session-1";
 
 const ct = (key, params) => t(`modelProvider.console.${key}`, params);
@@ -85,6 +86,10 @@ function asArray(value) {
 function stringValue(value) {
   return String(value ?? "").trim();
 }
+
+// DefaultContextTokenLimitProvider in the Go runtime provides a per-protocol
+// fallback before the global 120 000-token floor. Models with an explicit
+// ContextTokenLimit in their config always take precedence.
 
 function contextTokenLimitValue(value) {
   const numeric = Number(value || 0);
@@ -304,6 +309,7 @@ function safeTransportMetadata(provider = {}) {
     requestHeadersPersisted: Boolean(provider.requestHeadersPersisted),
     requestHeadersSource: apiKeySources.has(headerSource) ? headerSource : "none",
     insecureSkipTLSVerify: Boolean(provider.insecureSkipTLSVerify),
+    allowPlaintextHTTP: Boolean(provider.allowPlaintextHTTP),
   };
 }
 
@@ -433,6 +439,21 @@ export function normalizeConsoleProvider(provider = {}) {
 // Settings is authoritative for lifecycle fields while the catalog is authoritative
 // for the currently discovered model list. Keeping the settings-first seed retains
 // disabled providers that the model catalog deliberately excludes.
+function hasMeaningfulCapabilities(value) {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value) && Object.keys(value).length);
+}
+
+// Prefer the catalog copy, which reflects the live runtime instance, but never
+// let an empty or missing capabilities object erase what settings already knows.
+function mergeProviderCapabilities(settingsCapabilities, catalogCapabilities) {
+  const fromCatalog = hasMeaningfulCapabilities(catalogCapabilities);
+  const fromSettings = hasMeaningfulCapabilities(settingsCapabilities);
+  if (fromCatalog && fromSettings) return { ...settingsCapabilities, ...catalogCapabilities };
+  if (fromCatalog) return { ...catalogCapabilities };
+  if (fromSettings) return { ...settingsCapabilities };
+  return {};
+}
+
 export function modelProvidersForUIUnion(settingsProviders, catalogProviders) {
   const records = new Map();
   for (const setting of asArray(settingsProviders)) {
@@ -448,6 +469,10 @@ export function modelProvidersForUIUnion(settingsProviders, catalogProviders) {
       ...setting,
       ...safeCatalog,
       name: catalogName,
+      // The catalog always serializes a capabilities object, so a provider whose
+      // runtime instance could not report capabilities would otherwise blank out
+      // the settings copy and collapse the thinking-effort picker to "auto".
+      capabilities: mergeProviderCapabilities(setting.capabilities, catalog.capabilities),
       type: firstDefined(catalog.type, setting.type, catalogName),
       profile: firstDefined(setting.profile, catalog.profile, ""),
       baseUrl: firstDefined(setting.baseUrl, catalog.baseUrl, ""),
@@ -506,6 +531,7 @@ export function providerDisplayName(provider = {}) {
     case "gemini": return "Antigravity";
     case "grok": return "Grok";
     case "kimi": return "Kimi";
+    case "kiro": return "Kiro";
   }
   return provider.name || provider.type || ct("labels.provider");
 }
@@ -570,6 +596,7 @@ export function createProviderDraft(typeKey, provider = null) {
     requestHeadersPersisted: source?.requestHeadersPersisted ?? false,
     requestHeadersSource: source?.requestHeadersSource || "none",
     insecureSkipTLSVerify: provider?.insecureSkipTLSVerify ?? source?.insecureSkipTLSVerify ?? false,
+    allowPlaintextHTTP: provider?.allowPlaintextHTTP ?? source?.allowPlaintextHTTP ?? false,
     capabilities: source?.capabilities || { imageGeneration: providerSupportsImageGeneration(template) },
     model: source?.defaultModel || template.model || "",
     models: source?.models || [],
@@ -612,6 +639,7 @@ export function providerConfigPayload(draft = {}) {
       keepExisting: Boolean(header?.keepExisting),
     })).filter((header) => header.name || header.value),
     insecureSkipTLSVerify: Boolean(draft.insecureSkipTLSVerify),
+    allowPlaintextHTTP: Boolean(draft.allowPlaintextHTTP),
   };
 }
 
@@ -720,7 +748,7 @@ function renderProviderRequestHeaderRows(headers = []) {
 // allowEmpty lets the last visible model be hidden too. Pages whose visibility is
 // a display preference rather than provider configuration pass it; otherwise the
 // final eye stays disabled so a provider is never left with nothing to offer.
-export function renderProviderModelEditor(draft = {}, modelBusy = false, sensitiveAccessAllowed = true, { allowEmpty = false } = {}) {
+export function renderProviderModelEditor(draft = {}, modelBusy = false, sensitiveAccessAllowed = true, { allowEmpty = false, refreshModels = false } = {}) {
   const configs = normalizeProviderModelConfigs({ modelConfigs: draft.modelConfigs });
   const imageGenerationSupported = providerSupportsImageGeneration(draft);
   const visibleCount = configs.filter((item) => !item.hidden).length;
@@ -732,7 +760,7 @@ export function renderProviderModelEditor(draft = {}, modelBusy = false, sensiti
     const visibilityIcon = item.hidden ? eyeOffIcon : eyeOnIcon;
     return `<div class="mp-provider-model-config-row${item.hidden ? " is-hidden" : ""}" data-mp-model-config="${escapeAttr(item.name)}">
       <div class="mp-provider-model-name"><strong title="${escapeAttr(item.name)}">${escapeHtml(item.name)}</strong>${item.manual ? `<span class="settings-badge">${escapeHtml(ct("statusLabels.manual"))}</span>` : ""}</div>
-      <label class="mp-provider-model-limit"><span>${escapeHtml(ct("fields.contextTokenLimit"))}</span><input type="number" min="0" max="10000000" step="1" inputmode="numeric" value="${escapeAttr(item.contextTokenLimit || 272000)}" data-mp-model-token="${escapeAttr(item.name)}" aria-label="${escapeAttr(ct("fields.contextTokenLimitFor", { model: item.name }))}"></label>
+      <label class="mp-provider-model-limit"><span>${escapeHtml(ct("fields.contextTokenLimit"))}</span><input type="number" min="0" max="10000000" step="1" inputmode="numeric" value="${escapeAttr(item.contextTokenLimit || "")}" placeholder="${escapeAttr(ct("fields.contextTokenLimitPlaceholder"))}" data-mp-model-token="${escapeAttr(item.name)}" aria-label="${escapeAttr(ct("fields.contextTokenLimitFor", { model: item.name }))}"></label>
       <label class="mp-provider-model-image-generation${imageGenerationSupported ? "" : " is-unsupported"}" title="${escapeAttr(imageGenerationSupported ? ct("fields.imageGenerationHelp") : ct("fields.imageGenerationUnsupported"))}"><input type="checkbox" data-mp-model-image-generation="${escapeAttr(item.name)}" ${item.imageGeneration ? "checked" : ""} ${imageGenerationSupported ? "" : "disabled"}><span class="mp-provider-model-image-track" aria-hidden="true"></span><span class="mp-provider-model-image-copy"><strong>${escapeHtml(ct("fields.imageGeneration"))}</strong>${imageGenerationSupported ? "" : `<small>${escapeHtml(ct("fields.protocolUnsupported"))}</small>`}</span></label>
       <button class="mp-provider-model-visibility" type="button" data-mp-model-visibility="${escapeAttr(item.name)}" data-hidden="${item.hidden ? "true" : "false"}" aria-pressed="${item.hidden ? "true" : "false"}" aria-label="${escapeAttr(ct(item.hidden ? "actions.showModel" : "actions.hideModel", { model: item.name }))}" ${hideDisabled ? "disabled" : ""}>${visibilityIcon}</button>
       ${item.manual ? `<button class="mp-provider-model-remove" type="button" data-mp-remove-manual-model="${escapeAttr(item.name)}" aria-label="${escapeAttr(ct("actions.removeManualModel", { model: item.name }))}">×</button>` : `<span class="mp-provider-model-remove-placeholder" aria-hidden="true"></span>`}
@@ -744,7 +772,7 @@ export function renderProviderModelEditor(draft = {}, modelBusy = false, sensiti
   const effectiveDefaultModel = providerDefaultModelForDraft(draft, configs);
   return `<div class="mp-provider-model-workspace" data-mp-model-workspace data-models-ready="${draft.modelsReady ? "true" : "false"}" data-models-stale="${draft.modelsStale ? "true" : "false"}">
     <input type="hidden" name="model" value="${escapeAttr(effectiveDefaultModel)}">
-    <div class="mp-provider-model-toolbar"><button class="mp-action" type="button" data-mp-fetch-models ${(modelBusy || !sensitiveAccessAllowed) ? `disabled${modelBusy ? " aria-busy=\"true\"" : ""}` : ""}>${escapeHtml(modelBusy ? ct("actions.fetchingModels") : ct(draft.modelsReady ? "actions.refetchModels" : "actions.fetchModels"))}</button>${configs.length ? `<button class="mp-provider-model-visibility mp-provider-model-visibility-all" type="button" data-mp-model-visibility-all data-all-visible="${allVisible ? "true" : "false"}" aria-label="${escapeAttr(ct(allVisible ? "actions.hideAllModels" : "actions.showAllModels"))}" title="${escapeAttr(ct(allVisible ? "actions.hideAllModels" : "actions.showAllModels"))}">${allVisible ? eyeOnIcon : eyeOffIcon}</button>` : ""}</div>
+    <div class="mp-provider-model-toolbar"><button class="mp-action" type="button" ${refreshModels ? "data-mp-refresh-models" : "data-mp-fetch-models"} ${(modelBusy || !sensitiveAccessAllowed) ? `disabled${modelBusy ? " aria-busy=\"true\"" : ""}` : ""}>${escapeHtml(modelBusy ? ct("actions.fetchingModels") : ct(draft.modelsReady ? "actions.refetchModels" : "actions.fetchModels"))}</button>${configs.length ? `<button class="mp-provider-model-visibility mp-provider-model-visibility-all" type="button" data-mp-model-visibility-all data-all-visible="${allVisible ? "true" : "false"}" aria-label="${escapeAttr(ct(allVisible ? "actions.hideAllModels" : "actions.showAllModels"))}" title="${escapeAttr(ct(allVisible ? "actions.hideAllModels" : "actions.showAllModels"))}">${allVisible ? eyeOnIcon : eyeOffIcon}</button>` : ""}</div>
     ${rows ? `<div class="mp-provider-model-config-list" role="group" aria-label="${escapeAttr(ct("createPage.modelListLabel"))}">${rows}</div>` : `<div class="mp-provider-model-empty settings-alert">${escapeHtml(ct("createPage.modelEmpty"))}</div>`}
     <div class="mp-provider-manual-model"><input type="text" data-mp-manual-model-input autocomplete="off" spellcheck="false" placeholder="${escapeAttr(ct("fields.manualModelPlaceholder"))}" aria-label="${escapeAttr(ct("fields.manualModel"))}"><button class="mp-action" type="button" data-mp-add-manual-model>${escapeHtml(ct("actions.addManualModel"))}</button></div>
     <small data-settings-help-copy>${escapeHtml(ct("createPage.manualModelHelp"))}</small>
@@ -833,8 +861,10 @@ export function renderProviderCreatePage(consoleState = {}) {
         <div class="mp-provider-reference-switch-list">
           <label class="mp-provider-flat-switch"><input name="apiKeyOptional" type="checkbox" ${draft.apiKeyOptional ? "checked" : ""}><span class="mp-provider-flat-switch-track" aria-hidden="true"></span><span class="mp-provider-flat-switch-copy"><strong>${escapeHtml(ct("fields.apiKeyOptional"))}</strong><small data-settings-help-copy>${escapeHtml(ct("createPage.apiKeyOptionalHelp"))}</small></span></label>
           <label class="mp-provider-flat-switch"><input name="insecureSkipTLSVerify" type="checkbox" ${draft.insecureSkipTLSVerify ? "checked" : ""}><span class="mp-provider-flat-switch-track" aria-hidden="true"></span><span class="mp-provider-flat-switch-copy"><strong>${escapeHtml(ct("fields.insecureSkipTLSVerify"))}</strong><small data-settings-help-copy>${escapeHtml(ct("createPage.tlsHelp"))}</small></span></label>
+          <label class="mp-provider-flat-switch"><input name="allowPlaintextHTTP" type="checkbox" ${draft.allowPlaintextHTTP ? "checked" : ""}><span class="mp-provider-flat-switch-track" aria-hidden="true"></span><span class="mp-provider-flat-switch-copy"><strong>${escapeHtml(ct("fields.allowPlaintextHTTP"))}</strong><small data-settings-help-copy>${escapeHtml(ct("createPage.plaintextHelp"))}</small></span></label>
         </div>
         ${draft.insecureSkipTLSVerify ? `<div class="mp-provider-security-warning settings-alert attention" role="alert">${escapeHtml(ct("createPage.tlsWarning"))}</div>` : ""}
+        ${draft.allowPlaintextHTTP ? `<div class="mp-provider-security-warning settings-alert attention" role="alert">${escapeHtml(ct("createPage.plaintextWarning"))}</div>` : ""}
         <div class="mp-provider-reference-field mp-provider-reference-headers"><div class="mp-provider-reference-label"><span>${escapeHtml(ct("fields.requestHeaders"))}</span><small data-settings-help-copy>${escapeHtml(ct("createPage.headersHelp"))}</small></div><div class="mp-provider-header-list" data-mp-request-header-list>${renderProviderRequestHeaderRows(draft.requestHeaders)}</div><button class="mp-provider-header-add-bar" type="button" data-mp-add-request-header><span aria-hidden="true">＋</span>${escapeHtml(ct("actions.addHeader"))}</button></div>
       </section>
 
@@ -848,7 +878,7 @@ export function renderProviderCreatePage(consoleState = {}) {
   </form>${renderProviderMessageTestDialog(state, draft)}`;
 }
 
-export function renderProviderConsolePage({ providers = [], consoleState = {} } = {}) {
+export function renderProviderConsolePage({ providers = [], consoleState = {}, accountSummaries = {} } = {}) {
   const state = {
     search: "",
     category: "all",
@@ -875,7 +905,7 @@ export function renderProviderConsolePage({ providers = [], consoleState = {} } 
       const headingId = `mp-provider-section-title-${category}`;
       return `<section class="mp-provider-section settings-card" id="${panelId}" data-mp-category-section="${escapeAttr(category)}" aria-labelledby="${headingId}">
         <header class="mp-provider-section-head settings-card-header"><h2 id="${headingId}">${escapeHtml(ct(categoryMeta[category].titleKey))}</h2><span class="settings-badge">${escapeHtml(String(cards.length))}</span></header>
-        <div class="mp-provider-grid settings-card-content">${cards.map((provider) => renderProviderCard(provider, state)).join("")}</div>
+        <div class="mp-provider-grid settings-card-content">${cards.map((provider) => renderProviderCard(provider, state, accountSummaries)).join("")}</div>
       </section>`;
     }).join("");
   const result = state.result && typeof state.result === "object"
@@ -910,13 +940,11 @@ function renderModelPreview(provider, state = {}) {
   const configs = Array.isArray(provider.modelConfigs) && provider.modelConfigs.length
     ? provider.modelConfigs.map((item) => ({ name: stringValue(item?.name), hidden: Boolean(item?.hidden) }))
     : normalizedDiscoveredModels(provider.models).map((name) => ({ name, hidden: false }));
-  const named = configs.filter((item) => item.name);
-  if (!named.length) return "";
-  const hiddenMap = (state?.modelVisibility?.hiddenModels || state?.hiddenModels || {});
-  const providerName = stringValue(provider.name);
-  const isHidden = (item) => item.hidden || Boolean(hiddenMap[`${providerName}:${item.name}`]);
-  const visible = named.filter((item) => !isHidden(item)).map((item) => item.name);
-  const hiddenCount = named.length - visible.length;
+  const hiddenModels = state.hiddenModels && typeof state.hiddenModels === "object" ? state.hiddenModels : {};
+  const rows = configs.filter((item) => item.name).map((item) => ({ ...item, hidden: item.hidden || Boolean(hiddenModels[`${provider.name}:${item.name}`]) }));
+  const visible = rows.filter((item) => !item.hidden).map((item) => item.name);
+  const hiddenCount = rows.length - visible.length;
+  if (!rows.length) return `<div class="mp-provider-model-preview"><div class="mp-provider-model-lines"><div class="mp-model-line">${escapeHtml(ct("createPage.modelEmpty"))}</div></div></div>`;
   const shown = visible.slice(0, 3);
   const moreVisible = visible.length - shown.length;
   // The "+N more" line and the count badge share one row so the card spends a
@@ -927,7 +955,79 @@ function renderModelPreview(provider, state = {}) {
   </div>`;
 }
 
-function renderProviderCard(provider, state = {}) {
+function providerAccountSummaryKind(provider = {}) {
+  if (providerCategory(provider) !== "official") return "";
+  if (provider.type === "codex" || provider.name === "codex") return "codex";
+  if (isAnthropicAccountProvider(provider)) return "anthropic";
+  return subscriptionProviderKind(provider);
+}
+
+function quotaOverviewBucketLabel(bucket) {
+  const key = String(bucket || "");
+  const supported = new Set(["5h", "7d", "rateLimited", "requests", "inputTokens", "outputTokens", "tokens", "model"]);
+  return supported.has(key) ? ct(`quotaOverview.buckets.${key}`) : key;
+}
+
+function quotaOverviewDuration(seconds) {
+  const value = Math.max(0, Number(seconds) || 0);
+  if (!value) return "";
+  const days = Math.floor(value / 86400);
+  const hours = Math.floor((value % 86400) / 3600);
+  const minutes = Math.floor((value % 3600) / 60);
+  if (days) return `${days}d ${hours}h`;
+  if (hours) return `${hours}h ${minutes}m`;
+  return `${Math.max(1, minutes)}m`;
+}
+
+function quotaOverviewMeta(summary = {}) {
+  if (summary.resetAt) return ct("quotaOverview.resetsAt", { time: formatTimestamp(summary.resetAt, { fallback: summary.resetAt }) });
+  if (summary.resetAfterSeconds > 0) return ct("quotaOverview.resetsIn", { time: quotaOverviewDuration(summary.resetAfterSeconds) });
+  if (summary.updatedAt) return ct("quotaOverview.updatedAt", { time: formatTimestamp(summary.updatedAt, { fallback: summary.updatedAt }) });
+  return "";
+}
+
+function renderProviderQuotaOverview(summary = {}) {
+  const state = String(summary.state || "idle");
+  const provider = String(summary.provider || "");
+  const accountText = summary.loaded
+    ? ct("quotaOverview.accounts", { total: summary.total || 0, available: summary.available || 0 })
+    : ct(state === "loading" ? "quotaOverview.loading" : state === "error" ? "quotaOverview.loadFailed" : "quotaOverview.notLoaded");
+  const shell = (body, detail = "", tone = "muted") => `<div class="mp-provider-quota-overview is-${escapeAttr(tone)}" data-mp-provider-quota="${escapeAttr(provider)}" data-state="${escapeAttr(state)}"><div class="mp-provider-quota-head">${body}</div>${detail ? `<div class="mp-provider-quota-detail">${detail}</div>` : ""}</div>`;
+  if (state === "loading" || state === "idle") {
+    return shell(`<span>${escapeHtml(accountText)}</span><strong>—</strong>`, `<span>${escapeHtml(ct("quotaOverview.loadingHint"))}</span>`);
+  }
+  if (state === "error") {
+    return shell(`<span>${escapeHtml(ct("quotaOverview.loadFailed"))}</span><strong>—</strong>`, `<span>${escapeHtml(ct("quotaOverview.retryHint"))}</span>`, "danger");
+  }
+  if (state === "empty") {
+    return shell(`<span>${escapeHtml(accountText)}</span><strong>0</strong>`, `<span>${escapeHtml(ct("quotaOverview.noAccounts"))}</span>`);
+  }
+  if (state === "pending") {
+    return shell(`<span>${escapeHtml(accountText)}</span><strong>—</strong>`, `<span title="${escapeAttr(ct("quotaOverview.refreshHint"))}">${escapeHtml(ct("quotaOverview.noSnapshot"))}</span><span>${escapeHtml(ct("quotaOverview.refreshShort"))}</span>`);
+  }
+
+  const bucket = quotaOverviewBucketLabel(summary.bucket);
+  const detailLabel = [summary.model || bucket, summary.accountLabel].filter(Boolean).join(" · ");
+  const meta = quotaOverviewMeta(summary);
+  const detail = `<span title="${escapeAttr(detailLabel)}">${escapeHtml(detailLabel || ct("quotaOverview.quota"))}</span>${meta ? `<span title="${escapeAttr(meta)}">${escapeHtml(meta)}</span>` : ""}`;
+  if (state === "allowance" && summary.allowance) {
+    const value = formatNumber(summary.allowance.value);
+    const metric = ct(summary.allowance.mode === "remaining" ? "quotaOverview.allowanceRemaining" : "quotaOverview.allowanceLimit", { value });
+    return shell(`<span>${escapeHtml(accountText)}</span><strong>${escapeHtml(metric)}</strong>`, detail, summary.tone || "healthy");
+  }
+
+  const percent = Number(summary.percent);
+  const formattedPercent = Number.isInteger(percent) ? String(percent) : percent.toFixed(1);
+  const tone = summary.tone || "healthy";
+  const progressLabel = ct("quotaOverview.progressLabel", { percent: formattedPercent });
+  return `<div class="mp-provider-quota-overview is-${escapeAttr(tone)}" data-mp-provider-quota="${escapeAttr(provider)}" data-state="${escapeAttr(state)}">
+    <div class="mp-provider-quota-head"><span>${escapeHtml(accountText)}</span><strong>${escapeHtml(ct(percent <= 0 ? "quotaOverview.exhausted" : "quotaOverview.remaining", { percent: formattedPercent }))}</strong></div>
+    <div class="mp-provider-quota-progress ${escapeAttr(tone)}" role="progressbar" aria-label="${escapeAttr(progressLabel)}" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${escapeAttr(percent)}"><span style="width:${escapeAttr(percent)}%"></span></div>
+    <div class="mp-provider-quota-detail">${detail}</div>
+  </div>`;
+}
+
+function renderProviderCard(provider, state = {}, accountSummaries = {}) {
   const disabled = !provider.enabled;
   const deletable = isProviderDeletable(provider);
   const toggleBusy = Boolean(state.busy?.[`toggle:${provider.name}`]);
@@ -935,11 +1035,14 @@ function renderProviderCard(provider, state = {}) {
   const busy = toggleBusy || deleteBusy;
   const displayName = providerDisplayName(provider);
   const toggleLabel = ct(provider.enabled ? "actions.disableProvider" : "actions.enableProvider");
-  // Minimal card: name, type badge, toggle, and the edit/delete footer. Status
-  // and errors live in the provider's edit page to keep the list compact.
+  const accountSummaryKind = providerAccountSummaryKind(provider);
+  const accountSummary = accountSummaryKind ? accountSummaries?.[accountSummaryKind] : null;
+  const preview = accountSummary ? renderProviderQuotaOverview(accountSummary) : renderModelPreview(provider, state);
+  // Minimal card: name, one risk-first account/quota summary (when supported),
+  // and the edit/delete footer. Full account/model detail stays on the provider page.
   return `<article class="mp-provider-card settings-card${disabled ? " is-disabled" : ""}${deletable ? " is-custom" : ""}" data-mp-provider-card="${escapeAttr(provider.name)}" data-disabled="${disabled ? "true" : "false"}" data-origin="${escapeAttr(provider.origin || "unknown")}" aria-busy="${busy ? "true" : "false"}">
     <header class="mp-provider-card-head settings-card-header"><div class="mp-provider-card-identity"><div><h3 class="settings-card-title">${escapeHtml(displayName)}</h3></div></div><div class="mp-provider-card-controls"><button class="mp-provider-switch ${provider.enabled ? "is-on" : "is-off"}" type="button" role="switch" aria-checked="${provider.enabled ? "true" : "false"}" aria-label="${escapeAttr(`${toggleLabel}: ${displayName}`)}" title="${escapeAttr(toggleLabel)}" data-mp-provider-toggle="${escapeAttr(provider.name)}" ${busy ? "disabled" : ""}><span class="mp-provider-switch-thumb" aria-hidden="true"></span></button></div></header>
-    ${renderModelPreview(provider, state)}
+    ${preview}
     <footer class="mp-provider-card-actions"><button class="mp-provider-card-open" type="button" data-mp-provider-open="${escapeAttr(provider.name)}" aria-label="${escapeAttr(ct("aria.configureProvider", { provider: displayName }))}">${escapeHtml(ct("drawer.editProvider"))}</button>${deletable ? `<button class="mp-provider-delete" type="button" data-mp-delete-provider="${escapeAttr(provider.name)}" aria-label="${escapeAttr(`${ct("actions.delete")}: ${displayName}`)}" title="${escapeAttr(ct("actions.delete"))}" ${busy ? "disabled" : ""}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3m-8 0 1 13h8l1-13M10 11v5m4-5v5"/></svg><span>${escapeHtml(ct("actions.delete"))}</span></button>` : ""}</footer>
   </article>`;
 }

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -66,6 +67,109 @@ func TestForkWorklineCreatesGitWorktreeAgentAndAllowsGitStatus(t *testing.T) {
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("expected fork agent git status 200, got %d: %s", recorder.Code, recorder.Body.String())
 	}
+}
+
+func TestForkWorklineAutoDetectsSingleVisibleRepository(t *testing.T) {
+	ctx := context.Background()
+	rootDir := t.TempDir()
+	hiddenRepo := filepath.Join(rootDir, ".hidden-cache")
+	visibleRepo := filepath.Join(rootDir, "visible-project")
+	initCommittedGitRepoAt(t, hiddenRepo, "hidden.txt", "hidden repository\n")
+	visibleHead := initCommittedGitRepoAt(t, visibleRepo, "README.md", "visible repository\n")
+
+	store, err := db.Open(ctx, filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	_, root, _, err := store.CreateProject(ctx, "Container", "", rootDir, "openai:test", "acceptEdits")
+	if err != nil {
+		t.Fatal(err)
+	}
+	app := New(config.Config{Agent: config.AgentConfig{DefaultModel: "openai:test", DefaultPermissionMode: "acceptEdits"}}, store, nil, nil)
+
+	fork := forkWorklineForTest(t, app, root.ID, "feature/visible-repository")
+	if fork.ForkPoint != visibleHead {
+		t.Fatalf("expected visible repository HEAD %q, got %q", visibleHead, fork.ForkPoint)
+	}
+}
+
+func TestForkWorklineReportsRepositoryWithoutCommits(t *testing.T) {
+	ctx := context.Background()
+	repo := t.TempDir()
+	runGitTestCommand(t, repo, "init", "-b", "main")
+
+	store, err := db.Open(ctx, filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	_, root, _, err := store.CreateProject(ctx, "Unborn", "", repo, "openai:test", "acceptEdits")
+	if err != nil {
+		t.Fatal(err)
+	}
+	app := New(config.Config{}, store, nil, nil)
+
+	recorder := httptest.NewRecorder()
+	request := newTestRequest(http.MethodPost, "/api/worklines/"+root.ID+"/fork", strings.NewReader(`{"title":"Feature"}`))
+	request.Header.Set("Content-Type", "application/json")
+	app.Routes().ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusConflict {
+		t.Fatalf("expected 409, got %d: %s", recorder.Code, recorder.Body.String())
+	}
+	var response map[string]any
+	if err := json.NewDecoder(recorder.Body).Decode(&response); err != nil {
+		t.Fatal(err)
+	}
+	if response["code"] != "git_no_commits" || response["path"] == "" {
+		t.Fatalf("unexpected setup response: %#v", response)
+	}
+}
+
+func TestInitProjectGitCreatesVerifiedHeadAndAllowsFork(t *testing.T) {
+	ctx := context.Background()
+	projectDir := t.TempDir()
+	writeGitTestFile(t, projectDir, "README.md", "initial contents\n")
+
+	store, err := db.Open(ctx, filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	project, root, _, err := store.CreateProject(ctx, "Initialize", "", projectDir, "openai:test", "acceptEdits")
+	if err != nil {
+		t.Fatal(err)
+	}
+	app := New(config.Config{Agent: config.AgentConfig{DefaultModel: "openai:test", DefaultPermissionMode: "acceptEdits"}}, store, nil, nil)
+
+	recorder := httptest.NewRecorder()
+	request := newTestRequest(http.MethodPost, "/api/projects/"+project.ID+"/init-git", nil)
+	app.Routes().ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", recorder.Code, recorder.Body.String())
+	}
+	head := strings.TrimSpace(runGitTestOutput(t, projectDir, "rev-parse", "--verify", "HEAD"))
+	if head == "" {
+		t.Fatal("expected initialized repository to have HEAD")
+	}
+	fork := forkWorklineForTest(t, app, root.ID, "feature/after-init")
+	if fork.ForkPoint != head {
+		t.Fatalf("expected fork point %q, got %q", head, fork.ForkPoint)
+	}
+}
+
+func initCommittedGitRepoAt(t *testing.T, repo, name, content string) string {
+	t.Helper()
+	if err := os.MkdirAll(repo, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	runGitTestCommand(t, repo, "init", "-b", "main")
+	runGitTestCommand(t, repo, "config", "user.name", "Autoto Test")
+	runGitTestCommand(t, repo, "config", "user.email", "test@example.com")
+	writeGitTestFile(t, repo, name, content)
+	runGitTestCommand(t, repo, "add", name)
+	runGitTestCommand(t, repo, "commit", "-m", "initial")
+	return strings.TrimSpace(runGitTestOutput(t, repo, "rev-parse", "HEAD"))
 }
 
 func TestDefaultWorklineBranchUsesAutotoPrefix(t *testing.T) {

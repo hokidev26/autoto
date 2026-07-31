@@ -105,6 +105,8 @@ CREATE TABLE IF NOT EXISTS worklines (
   updated_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_worklines_project ON worklines(project_id);
+CREATE INDEX IF NOT EXISTS idx_worklines_parent_workline ON worklines(parent_workline_id);
+CREATE INDEX IF NOT EXISTS idx_worklines_merged_into_workline ON worklines(merged_into_workline_id);
 
 CREATE TABLE IF NOT EXISTS agents (
   id TEXT PRIMARY KEY,
@@ -150,7 +152,7 @@ CREATE TABLE IF NOT EXISTS agents (
   updated_at TEXT NOT NULL,
   CHECK (execution_generation >= 0),
   CHECK (pinned IN (0, 1)),
-  CHECK (reasoning_effort IS NULL OR reasoning_effort IN ('auto', 'low', 'medium', 'high', 'xhigh')),
+  CHECK (reasoning_effort IS NULL OR reasoning_effort IN ('auto', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra')),
   CHECK (length(CAST(execution_device_id AS BLOB)) BETWEEN 1 AND 128)
 );
 CREATE INDEX IF NOT EXISTS idx_agents_workline ON agents(workline_id);
@@ -234,6 +236,9 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_runs_dispatch_id ON runs(dispatch_id) WHER
 CREATE INDEX IF NOT EXISTS idx_runs_agent_execution_after ON runs(agent_id, execution_generation, id);
 CREATE INDEX IF NOT EXISTS idx_runs_continuation_pending ON runs(status, updated_at ASC, id ASC) WHERE status = 'continuation_pending';
 CREATE INDEX IF NOT EXISTS idx_runs_waiting_background_task ON runs(waiting_background_task_id, status, id) WHERE waiting_background_task_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_runs_trigger_message ON runs(trigger_message_id);
+CREATE INDEX IF NOT EXISTS idx_runs_resume_after_message ON runs(resume_after_message_id);
+CREATE INDEX IF NOT EXISTS idx_runs_waiting_background_task_fk ON runs(waiting_background_task_id);
 CREATE TRIGGER IF NOT EXISTS trg_runs_auto_continuation_mode_insert
 BEFORE INSERT ON runs FOR EACH ROW
 WHEN NEW.auto_continuation_mode NOT IN ('off', 'safe')
@@ -288,6 +293,8 @@ CREATE INDEX IF NOT EXISTS idx_messages_run ON agent_messages(run_id, created_at
 -- a conversation in (created_at, id) order, so the filter needs to be cheap on
 -- exactly that path.
 CREATE INDEX IF NOT EXISTS idx_agent_messages_superseded ON agent_messages(agent_id, superseded_at) WHERE superseded_at IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_agent_messages_correction ON agent_messages(correction_of_message_id);
+CREATE INDEX IF NOT EXISTS idx_agent_messages_created_by ON agent_messages(created_by);
 
 CREATE TABLE IF NOT EXISTS agent_message_attachments (
   id TEXT PRIMARY KEY,
@@ -358,6 +365,7 @@ CREATE INDEX IF NOT EXISTS idx_tool_calls_agent ON agent_tool_calls(agent_id, cr
 CREATE INDEX IF NOT EXISTS idx_tool_calls_run ON agent_tool_calls(run_id, created_at);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_tool_calls_tool_use ON agent_tool_calls(agent_id, tool_use_id);
 CREATE INDEX IF NOT EXISTS idx_tool_calls_run_updated ON agent_tool_calls(run_id, updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_agent_tool_calls_message ON agent_tool_calls(message_id);
 
 CREATE TABLE IF NOT EXISTS api_requests (
   id TEXT PRIMARY KEY,
@@ -392,6 +400,8 @@ CREATE INDEX IF NOT EXISTS idx_api_requests_run ON api_requests(run_id, created_
 CREATE INDEX IF NOT EXISTS idx_api_requests_created ON api_requests(created_at DESC, id DESC);
 CREATE INDEX IF NOT EXISTS idx_api_requests_provider_model_created ON api_requests(provider, model, created_at DESC, id DESC);
 CREATE INDEX IF NOT EXISTS idx_api_requests_gateway_key_created ON api_requests(gateway_key_id, created_at DESC, id DESC);
+CREATE INDEX IF NOT EXISTS idx_api_requests_agent ON api_requests(agent_id);
+CREATE INDEX IF NOT EXISTS idx_api_requests_message ON api_requests(message_id);
 
 CREATE TABLE IF NOT EXISTS agent_backends (
   id TEXT PRIMARY KEY,
@@ -454,6 +464,8 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_skills_global_command ON skills(command CO
 CREATE UNIQUE INDEX IF NOT EXISTS idx_skills_project_command ON skills(project_id, command COLLATE NOCASE) WHERE deleted_at IS NULL AND scope = 'project';
 CREATE UNIQUE INDEX IF NOT EXISTS idx_skills_workspace_command ON skills(workline_id, command COLLATE NOCASE) WHERE deleted_at IS NULL AND scope = 'workspace';
 CREATE INDEX IF NOT EXISTS idx_skills_scope_command ON skills(scope, project_id, workline_id, command COLLATE NOCASE, id) WHERE deleted_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_skills_project ON skills(project_id);
+CREATE INDEX IF NOT EXISTS idx_skills_workline ON skills(workline_id);
 
 CREATE TRIGGER IF NOT EXISTS skills_workspace_scope_insert
 BEFORE INSERT ON skills
@@ -598,6 +610,8 @@ CREATE TABLE IF NOT EXISTS agent_message_generated_images (
 CREATE INDEX IF NOT EXISTS idx_generated_images_message ON agent_message_generated_images(message_id, output_index, id);
 CREATE INDEX IF NOT EXISTS idx_generated_images_agent_created ON agent_message_generated_images(agent_id, created_at, id);
 CREATE INDEX IF NOT EXISTS idx_generated_images_storage_key ON agent_message_generated_images(storage_key);
+CREATE INDEX IF NOT EXISTS idx_generated_images_run ON agent_message_generated_images(run_id);
+CREATE INDEX IF NOT EXISTS idx_generated_images_agent_message ON agent_message_generated_images(agent_id, message_id);
 `
 
 const automationAuditSchemaSQL = `
@@ -766,6 +780,8 @@ CREATE INDEX IF NOT EXISTS idx_background_tasks_claim ON background_tasks(status
 CREATE INDEX IF NOT EXISTS idx_background_tasks_owner ON background_tasks(owner_agent_id, created_at DESC, id DESC);
 CREATE INDEX IF NOT EXISTS idx_background_tasks_parent_run ON background_tasks(parent_run_id, created_at ASC, id ASC);
 CREATE INDEX IF NOT EXISTS idx_background_tasks_worker ON background_tasks(worker_instance_id, status, updated_at ASC, id ASC);
+CREATE INDEX IF NOT EXISTS idx_background_tasks_child_agent ON background_tasks(child_agent_id);
+CREATE INDEX IF NOT EXISTS idx_background_tasks_child_run ON background_tasks(child_run_id);
 
 CREATE TABLE IF NOT EXISTS background_task_output (
   task_id TEXT NOT NULL REFERENCES background_tasks(id) ON DELETE CASCADE,
@@ -815,6 +831,7 @@ CREATE TABLE IF NOT EXISTS plans (
 CREATE INDEX IF NOT EXISTS idx_plans_agent_updated ON plans(agent_id, updated_at DESC, id DESC);
 CREATE INDEX IF NOT EXISTS idx_plans_agent_status_updated ON plans(agent_id, status, updated_at DESC, id DESC);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_plans_source_run ON plans(source_run_id) WHERE source_run_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_plans_source_run_fk ON plans(source_run_id);
 
 CREATE TABLE IF NOT EXISTS plan_reviews (
   id TEXT PRIMARY KEY,
@@ -910,8 +927,12 @@ CREATE TABLE IF NOT EXISTS gateway_account_grants (
 
 const memorySchemaSQL = `
 
+-- agent_id scopes a memory to one conversation. NULL means global: available to
+-- every agent through keyword matching. A scoped memory dies with its
+-- conversation, which is why the reference cascades.
 CREATE TABLE IF NOT EXISTS memories (
   id TEXT PRIMARY KEY,
+  agent_id TEXT REFERENCES agents(id) ON DELETE CASCADE,
   content TEXT NOT NULL,
   keywords_json TEXT NOT NULL DEFAULT '[]',
   pinned INTEGER NOT NULL DEFAULT 0,
@@ -923,6 +944,7 @@ CREATE TABLE IF NOT EXISTS memories (
 );
 CREATE INDEX IF NOT EXISTS idx_memories_pinned_updated ON memories(pinned DESC, updated_at DESC, id ASC);
 CREATE INDEX IF NOT EXISTS idx_memories_archived ON memories(archived_at, updated_at DESC, id ASC);
+CREATE INDEX IF NOT EXISTS idx_memories_agent ON memories(agent_id, pinned DESC, updated_at DESC, id ASC);
 
 CREATE TABLE IF NOT EXISTS memory_injections (
   memory_id TEXT NOT NULL REFERENCES memories(id) ON DELETE CASCADE,
@@ -966,6 +988,7 @@ CREATE TABLE IF NOT EXISTS schedules (
 );
 CREATE INDEX IF NOT EXISTS idx_schedules_due ON schedules(enabled, next_run_at, lease_until, id);
 CREATE INDEX IF NOT EXISTS idx_schedules_agent ON schedules(agent_id, created_at DESC, id);
+CREATE INDEX IF NOT EXISTS idx_schedules_last_run ON schedules(last_run_id);
 `
 
 const notificationDeliveriesSchemaSQL = `
@@ -1181,7 +1204,7 @@ CREATE TABLE IF NOT EXISTS runtime_settings (
   account_email TEXT,
   revision INTEGER NOT NULL DEFAULT 1,
   updated_at TEXT NOT NULL,
-  CHECK (default_reasoning_effort IN ('auto', 'low', 'medium', 'high')),
+  CHECK (default_reasoning_effort IN ('auto', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra')),
   CHECK (subscription_tier IN ('free', 'plus', 'pro', 'team', 'enterprise', 'education_k12')),
   CHECK (account_email IS NULL OR length(CAST(account_email AS BLOB)) BETWEEN 3 AND 320),
   CHECK (revision >= 1),
@@ -1336,6 +1359,8 @@ CREATE TABLE IF NOT EXISTS remote_execution_tasks (
 );
 CREATE INDEX IF NOT EXISTS idx_remote_execution_tasks_claim ON remote_execution_tasks(execution_device_id, status, lease_until, created_at, id);
 CREATE INDEX IF NOT EXISTS idx_remote_execution_tasks_agent ON remote_execution_tasks(agent_id, created_at DESC, id DESC);
+CREATE INDEX IF NOT EXISTS idx_remote_execution_tasks_project ON remote_execution_tasks(project_id);
+CREATE INDEX IF NOT EXISTS idx_remote_execution_tasks_run ON remote_execution_tasks(run_id);
 
 CREATE TABLE IF NOT EXISTS transfer_jobs (
   id TEXT PRIMARY KEY,

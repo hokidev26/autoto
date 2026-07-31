@@ -71,11 +71,11 @@ func (s *Server) models(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) modelProviderResponse(ctx context.Context, provider config.ProviderSummary) modelProviderResponse {
-	metadata := s.providerSettingsMetadata(provider)
 	providerConfig, ok := s.providerConfig(provider.Name)
 	if !ok {
 		providerConfig = config.NormalizeProviderConfig(config.ProviderConfig{Name: provider.Name, Type: provider.Type, Model: provider.Model})
 	}
+	metadata := s.providerSettingsMetadata(provider, providerConfig)
 	keyStatus := s.providerAPIKeyStatus(ctx, providerConfig)
 	response := modelProviderResponse{
 		Name:             provider.Name,
@@ -232,7 +232,7 @@ func (s *Server) resolveExecutableModel(model string) (providers.Provider, strin
 	return provider, resolvedModel, nil
 }
 
-func (s *Server) providerSettingsMetadata(provider config.ProviderSummary) providerSettingsMetadata {
+func (s *Server) providerSettingsMetadata(provider config.ProviderSummary, providerConfig config.ProviderConfig) providerSettingsMetadata {
 	metadata := providerSettingsMetadata{Profile: provider.Profile}
 	if provider.Type == config.ProviderTypeCodex {
 		metadata.Management = &providerManagementResponse{AuthFiles: true}
@@ -245,8 +245,13 @@ func (s *Server) providerSettingsMetadata(provider config.ProviderSummary) provi
 	if s.providers != nil {
 		if registered, ok := s.providers.Get(provider.Name); ok {
 			metadata.Capabilities = providers.CapabilitiesFor(registered)
+			return metadata
 		}
 	}
+	// Providers that are configured but not registered yet (or whose registry is
+	// still initializing) must still advertise their protocol capabilities, or
+	// the thinking-effort picker collapses to "auto" in the model catalog.
+	metadata.Capabilities = providers.CapabilitiesForConfig(providerConfig)
 	return metadata
 }
 

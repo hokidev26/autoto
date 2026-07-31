@@ -1,7 +1,14 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { createGitWorkflowController, rollbackPreviewConfirmation, runCheckpointState } from "./git-workflow.mjs";
+import {
+  computeGitDiffWindow,
+  createGitDiffLineCache,
+  createGitWorkflowController,
+  renderUnifiedDiff,
+  rollbackPreviewConfirmation,
+  runCheckpointState,
+} from "./git-workflow.mjs";
 import { resetPlatformDialogs, setPlatformDialogs } from "./platform.mjs";
 import { t as cr } from "./messages-chat-rendering-extra.mjs";
 

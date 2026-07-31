@@ -67,6 +67,10 @@ type options struct {
 	redirectLimit  int
 	requestTimeout time.Duration
 	now            func() time.Time
+	// allowPlaintextHTTP relaxes PolicyProviderDirect for one explicitly
+	// opted-in destination. It defaults to false so every other caller keeps
+	// the "public HTTPS or loopback HTTP" guarantee.
+	allowPlaintextHTTP bool
 }
 
 func defaultOptions() options {
@@ -174,6 +178,20 @@ func WithDiagnosticTimeout(timeout time.Duration) Option {
 		}
 	}
 
+}
+
+// WithPlaintextHTTPAllowed lets one explicitly opted-in destination be reached
+// over plain HTTP even when it does not resolve to loopback. It only affects
+// PolicyProviderDirect.
+//
+// Callers must surface the exposure to the user before enabling this: the API
+// key and every request and response body travel in cleartext, readable by any
+// hop on the path. It exists so a user can reach a relay that has no TLS
+// certificate, scoped to that single provider rather than the whole process.
+func WithPlaintextHTTPAllowed() Option {
+	return func(cfg *options) {
+		cfg.allowPlaintextHTTP = true
+	}
 }
 
 // withClock is intentionally package-private; production diagnostics always use

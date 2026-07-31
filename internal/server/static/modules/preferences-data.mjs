@@ -297,6 +297,9 @@ export const defaultAppearancePrefs = {
   backgroundPositionY: 50,
   terminalDefaultOpen: false,
   showEventLog: true,
+  // Throughput and time-to-first-token are diagnostics, not part of reading a
+  // reply, so the transcript stays quiet until someone asks for them.
+  showThroughput: false,
 };
 
 export const defaultTerminalPrefs = {

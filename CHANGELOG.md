@@ -6,15 +6,19 @@ All notable changes to Autoto are tracked here. The project is still an experime
 
 ### Branding and compatibility
 
-- Renamed the current product to **Autoto**. The canonical Go module and CLI are `autoto` and `cmd/autoto` / `autoto`; `cmd/codeharbor` remains a legacy compatibility shim.
-- Moved default runtime state to `~/.autoto/config.json` and `~/.autoto/autoto.db`. When the canonical config is absent, a legacy `~/.codeharbor/config.json` is copied forward for compatibility.
-- Made `AUTOTO_*` environment variables and `X-Autoto-*` headers canonical. Corresponding `CODEHARBOR_*`, `X-CodeHarbor-*`, and legacy remote-access cookie names remain accepted only for migration compatibility.
-- Legacy compatibility actually used at runtime now warns once per process/compatibility key: the `codeharbor` CLI shim, effective `CODEHARBOR_*` or legacy-config fallback, successful legacy token/access header or cookie use, and the successful CLIProxyAPI legacy management-credential fallback report their canonical replacement. Canonical values suppress fallback warnings, invalid credentials do not warn, and logs never include token, password, cookie, API-key, or credential values.
-- Defined the legacy compatibility lifecycle in `PROJECT_PLAN.md`: canonical names win, legacy aliases are compatibility reads/forwards only, removal is no earlier than v0.4.0, and every runtime surface requires at least two tagged releases of migration runway plus the documented deletion gates. The explicit response-write exception is `window.CODEHARBOR_LOCAL_TOKEN`: the server still injects it with the same value as canonical `window.AUTOTO_LOCAL_TOKEN`, and `runtime.mjs` reads it only as a fallback until first-party runtime no longer depends on it and the old-UI migration window is complete.
-- Historical entries below intentionally retain pre-rename CodeHarbor terminology, endpoint names, commit messages, and other recorded facts; they are legacy history rather than current naming guidance.
+- Renamed the current product to **Autoto**. The canonical Go module and CLI are `autoto` and `cmd/autoto` / `autoto`; `cmd/autoto` remains a legacy compatibility shim.
+- Moved default runtime state to `~/.autoto/config.json` and `~/.autoto/autoto.db`. When the canonical config is absent, a legacy `~/.autoto/config.json` is copied forward for compatibility.
+- Made `AUTOTO_*` environment variables and `X-Autoto-*` headers canonical. Corresponding `AUTOTO_*`, `X-Autoto-*`, and legacy remote-access cookie names remain accepted only for migration compatibility.
+- Legacy compatibility actually used at runtime now warns once per process/compatibility key: the `autoto` CLI shim, effective `AUTOTO_*` or legacy-config fallback, successful legacy token/access header or cookie use, and the successful CLIProxyAPI legacy management-credential fallback report their canonical replacement. Canonical values suppress fallback warnings, invalid credentials do not warn, and logs never include token, password, cookie, API-key, or credential values.
+- Defined the legacy compatibility lifecycle in `PROJECT_PLAN.md`: canonical names win, legacy aliases are compatibility reads/forwards only, removal is no earlier than v0.4.0, and every runtime surface requires at least two tagged releases of migration runway plus the documented deletion gates. The explicit response-write exception is `window.AUTOTO_LOCAL_TOKEN`: the server still injects it with the same value as canonical `window.AUTOTO_LOCAL_TOKEN`, and `runtime.mjs` reads it only as a fallback until first-party runtime no longer depends on it and the old-UI migration window is complete.
+- Historical entries below intentionally retain pre-rename Autoto terminology, endpoint names, commit messages, and other recorded facts; they are legacy history rather than current naming guidance.
 
 ### Added
 
+- Added a native Kiro (Amazon Q) subscription provider using the Event Stream API, with OAuth token refresh, startup token warmup, and `ksk_*` API key authentication as an alternative to the OAuth browser flow.
+- Added a Bash tool danger reflection safety gate with four configurable strictness levels (off / loose / medium / strict): the gate intercepts high-risk commands, queries a separate LLM for a structured verdict, and blocks execution when the risk is not justified. `--version` and `--help` queries are whitelisted and bypass reflection.
+- Added a continuation budget settings panel per workspace: independently configurable limits on continuations, total turns, total tokens, and wall-clock run duration. Defaults to no limit; negative values explicitly opt out of any ceiling. Currently running sessions retain their existing durable budgets on change.
+- Added project drag-to-reorder in the sidebar, with server-persisted order.
 - Added a native `gemini-interactions` provider with SSE streaming, image input, function calling, reasoning effort, internal thought-signature replay, schema sanitization, and `x-goog-api-key` redaction.
 - Added local account sessions, Unicode/case-folded handles, per-user Agent drafts, handle suggestions, and immutable message corrections with retained or newly uploaded attachments.
 - Added a provider/model-driven setup wizard, live assistant streaming cards, clipboard attachments, localized Unicode-safe draft limits, and Agent reasoning controls.
@@ -57,7 +61,7 @@ All notable changes to Autoto are tracked here. The project is still an experime
 - Added SDK streaming for the official Anthropic Messages and OpenAI Responses providers, including text deltas and usage capture.
 - Added automatic Anthropic 5m prompt-cache breakpoints for sufficiently large system/tool/message requests.
 - Added Git workspace status, diff, log, and explicit-path commit APIs with a Git diff UI.
-- Added backend chapter fork APIs that create Git worktrees, child chapters, and primary narrators, plus merge-check preflight and clean-worktree merge APIs that reject conflicts safely.
+- Added backend workline fork APIs that create Git worktrees, child worklines, and primary agents, plus merge-check preflight and clean-worktree merge APIs that reject conflicts safely.
 - Added local dogfood evidence for API-driven project creation, tool execution, Git diff review, and selected-path commit flows.
 - Added model usage cost estimates backed by a small public USD-per-million-token table.
 - Added `WebFetch` as a core read-only tool for public HTTP(S) documentation lookup.
@@ -81,8 +85,8 @@ All notable changes to Autoto are tracked here. The project is still an experime
 - Documented the current local security model, Git workflow boundaries, and dogfood reproduction path.
 - Added CI lint/release scaffolding for `golangci-lint` and GoReleaser binary releases.
 - Added an explicit `.golangci.yml` and front-end `node --test` module coverage for formatter and MCP registry parsing helpers.
-- Added an end-to-end server smoke covering HTTP message submission, narrator WebSocket events, tool approval, Bash execution, tool-result feedback, and persistence.
-- Continued frontend ES module extraction: `app.js` is now a small bootstrap, with main UI logic, Agent Server backend registry/modal/Admin behavior, chat sending/drafts/history/attachments/slash command behavior, chat message rendering/approval/Markdown behavior, directory chooser/browser/recent-directory behavior, shared formatters, Git workflow modal behavior, terminal preferences/settings/WebSocket behavior, API/WebSocket runtime helpers, MCP registry parsing helpers, backend MCP registry UI/actions, Settings Models/Providers UI/model helpers, Settings local preference panels rendering/actions, Settings system/storage/usage/users/about panels, Settings AI Agents/Chapters workspace panels, Settings Skills workbench rendering/actions, global shortcut/sidebar/mobile shell behavior, browser-local settings preference/backup/import behavior, DOM helpers, Settings/Skills static data, and local preference defaults split under `static/modules/`.
+- Added an end-to-end server smoke covering HTTP message submission, agent WebSocket events, tool approval, Bash execution, tool-result feedback, and persistence.
+- Continued frontend ES module extraction: `app.js` is now a small bootstrap, with main UI logic, Agent Server backend registry/modal/Admin behavior, chat sending/drafts/history/attachments/slash command behavior, chat message rendering/approval/Markdown behavior, directory chooser/browser/recent-directory behavior, shared formatters, Git workflow modal behavior, terminal preferences/settings/WebSocket behavior, API/WebSocket runtime helpers, MCP registry parsing helpers, backend MCP registry UI/actions, Settings Models/Providers UI/model helpers, Settings local preference panels rendering/actions, Settings system/storage/usage/users/about panels, Settings AI Agents/Worklines workspace panels, Settings Skills workbench rendering/actions, global shortcut/sidebar/mobile shell behavior, browser-local settings preference/backup/import behavior, DOM helpers, Settings/Skills static data, and local preference defaults split under `static/modules/`.
 
 ### Known gaps
 

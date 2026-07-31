@@ -2,7 +2,7 @@
 
 ## 1. 项目目标
 
-本项目目标是用 Go 实现 Autoto：一个本地 AI 编程 Agent 后端。Go module 为 `autoto`，`cmd/autoto` 与 `autoto` 二进制是当前规范入口；`cmd/codeharbor` 仅保留为 legacy 兼容 shim。
+本项目目标是用 Go 实现 Autoto：一个本地 AI 编程 Agent 后端。Go module 为 `autoto`，`cmd/autoto` 与 `autoto` 二进制是当前规范入口；`cmd/autoto` 仅保留为 legacy 兼容 shim。
 
 核心目标不是一次性堆满所有功能，而是先做出一个可运行、可扩展、可逐步替换/增强的 MVP：
 
@@ -29,87 +29,15 @@
 - HTTP/WebSocket header 与浏览器偏好：`X-Autoto-*`、`autoto.*`
 - 领域与路由：Agent / Workline、`/api/agents`、`/api/worklines`、`/ws/agent`
 
-**当前兼容面**：
+**當前兼容面**：
 
-- `cmd/codeharbor` / `codeharbor` legacy CLI shim；
-- `~/.codeharbor/config.json` 到 canonical home 的一次性配置迁移读取；
-- `CODEHARBOR_*` 环境变量 fallback；
-- `X-CodeHarbor-*` header、`codeharbor_remote_access` cookie 与 `codeharbor.*` localStorage key；
-- `window.CODEHARBOR_LOCAL_TOKEN` legacy JS global：服务端仍将 canonical `window.AUTOTO_LOCAL_TOKEN` 的同值注入该 global，`runtime.mjs` 仅将其作为 fallback 读取；
-- Narrator / Chapter API 与 `/ws/narrator` 路由别名；
-- migration、测试夹具与 CHANGELOG 历史中的旧名。
-
-**优先级与写入规则**：canonical 值存在时必须优先；legacy alias 在移除前只做兼容读取、迁移或路由转发。新代码、文档、配置保存、响应 payload 与客户端写入不得产生新的 legacy 名称依赖。明确例外：服务端当前仍把 canonical `window.AUTOTO_LOCAL_TOKEN` 的同值写入 `window.CODEHARBOR_LOCAL_TOKEN`，供旧 UI 兼容；first-party `runtime.mjs` 只把 legacy global 作为 fallback，不得优先于 canonical global。
-
-**最早移除版本与迁移窗口**：任何 runtime legacy surface **最早只能在 v0.4.0 移除**，并且从首次发布明确 deprecation warning / release note 起，必须至少跨越 **两个 tagged release** 的迁移窗口。历史 CHANGELOG、migration 名称和解释旧数据所必需的测试记录不因 runtime alias 移除而改写。
-
-**删除门槛（全部满足才可移除）**：
-
-1. canonical 替代项已稳定发布并覆盖同等使用场景；
-2. legacy 实际使用会每进程或每兼容面 warn once，且日志只记录 alias 类型，不记录 token、password、cookie 或其他 secret 值；
-3. 至少两个 tagged release 的 CHANGELOG / release note 已持续给出迁移指引；
-4. 仓库自身、示例、CI 与生成配置已不再写入 legacy 名称；
-5. migration 与兼容测试证明 canonical 优先、旧安装可迁移，并为删除后的错误行为提供测试；
-6. 删除项清单经过逐项审查，不把历史文本或数据库迁移事实误删。
-
-`window.CODEHARBOR_LOCAL_TOKEN` 的 canonical 替代是 `window.AUTOTO_LOCAL_TOKEN`，最早移除版本同样为 **v0.4.0**；除上述通用门槛外，必须等到 first-party runtime 不再读取 legacy global，且旧 UI 迁移窗口完成后，才能停止兼容响应写入并删除该 fallback。
-
-MVP 已逐步扩展出：
-
-- 多模型 Provider、流式/tool calling 与最小 capability contract
-- MCP registry、stdio discovery/execution
-- Git worktree / fork / merge-check / merge、run summary 与显式路径 commit
-- 终端 PTY、WebSearch/WebFetch、权限审批与内嵌 Web UI
-- 服务端 Skills 的 global/project/workspace CRUD、effective 解析、revision/restore 与 cursor 分页；设置页 scoped 面板已支持按作用域浏览、详情、分页和修订恢复，写操作 UI 仍限 global scope
-- Agent stream protocol 2 的有界内存 replay 与 snapshot resync
-- P2–P3 自动化持久层：V19 schedules/run source，V20 durable notification deliveries，V21 channel pairing/events/cursor，V22 device action requests
-- 仅 Telegram 的 long polling 控制面：私聊 `/pair`、`/status`、`/approve <toolCallId>`（固定一次性 `allow_once`）与 `/deny`；无 `/task`、无自由聊天、无 webhook 入站、无 Slack/Discord
-- Webhook/Telegram 通知历史、去重、lease、指数退避、`dead` 状态与显式 retry
-- 仅本机/私网 Home Assistant endpoint、只读状态摘要、固定动作 allowlist、本地双确认与 direct-loopback 批准；critical/未知动作硬阻断，IM 不得控制设备
-- 本地监控聚合与 runtime Supervisor 对 channels / automation / HTTP 生命周期的统一管理
-- `Read` / `Write` / `Edit` / `Glob` / `Grep` 对敏感路径的硬阻断或过滤
-
-后续长期能力仍包括 review workline / AI conflict resolve、子代理、显式任务队列与 runtime cleanup。Slack/Discord、IM `/task`、通用 IoT、摄像头动作、门锁解锁与云监控均未实现，不得写成现有能力。
-
----
-
-## 2. 当前 MVP 范围
-
-当前 MVP 的核心闭环是：
-
-```txt
-Task / 用户消息
-  -> message + run 持久化
-  -> background agent loop
-  -> provider streaming / tool call
-  -> permission rule 或显式 approval
-  -> tool result 回灌 provider
-  -> run summary + Git diff review
-  -> explicit-path local commit
-```
-
-Agent WebSocket protocol 2 推送运行事件并支持当前进程内的有界 replay；无法 replay 时由 live snapshot 恢复。手动 tool-call API 仍保留，但不再是唯一工具闭环。
-
-P2–P3 另增加两个受限闭环：
-
-```txt
-schedule 到点/手动触发
-  -> 仅 readOnly / acceptEdits permission cap
-  -> Agent busy 时记录 skipped，不取消人工 run
-  -> 结果进入 durable Webhook/Telegram delivery history
-
-Telegram private chat long polling
-  -> 一次性配对码绑定 connection/chat/user/Agent/token revision
-  -> /status 或 /approve（allow_once）/deny 已存在的 pending tool call
-  -> 未配对、错误配对与非私聊不回 Telegram
-```
-
-这不是通用远程助理：Telegram 不接收 `/task` 或自由聊天，也不能切换权限、打开终端或控制 Home Assistant 设备。
-
----
-
-## 3. 当前已完成内容
-
+- 舊 CLI shim（保留為兼容入口點）；
+- 舊配置目錄的一次性配置遷移讀取；
+- 舊環境變量 fallback；
+- 舊 HTTP header、cookie 與 localStorage key；
+- 舊 JS global（服務端仍注入同值作為 fallback）；
+- 舊 API 路由別名；
+- migration、測試夾具與 CHANGELOG 歷史中的舊名。
 ### 3.1 Go 项目骨架
 
 目录：
@@ -120,7 +48,7 @@ autoto/
   go.sum
   .gitignore
   cmd/autoto/main.go              # canonical application entrypoint
-  cmd/codeharbor/main.go          # legacy compatibility shim
+  cmd/autoto/main.go          # legacy compatibility shim
   internal/config
   internal/db
   internal/server
@@ -155,7 +83,7 @@ http://localhost:16888
 ~/.autoto/autoto.db
 ```
 
-当规范配置文件不存在而旧 `~/.codeharbor/config.json` 存在时，启动会自动将该 legacy 配置复制到 `~/.autoto/config.json` 后继续加载；旧目录仅用于迁移兼容。
+当规范配置文件不存在而旧 `~/.autoto/config.json` 存在时，启动会自动将该 legacy 配置复制到 `~/.autoto/config.json` 后继续加载；旧目录仅用于迁移兼容。
 
 默认项目目录：
 
@@ -204,7 +132,7 @@ AUTOTO_ACCESS_PASSWORD
 AUTOTO_REMOTE_TERMINAL
 ```
 
-同名 legacy `CODEHARBOR_*` 环境变量仍作为回退兼容；当两者同时存在时，`AUTOTO_*` 优先。
+同名 legacy `AUTOTO_*` 环境变量仍作为回退兼容；当两者同时存在时，`AUTOTO_*` 优先。
 
 Provider 支持环境变量：
 
@@ -373,7 +301,7 @@ GET  /ws/agent?id={agentId}
 GET  /ws/terminal?agentId={agentId}
 ```
 
-规范领域实体与路由为 Agent / Workline、`/api/agents`、`/api/worklines` 和 `/ws/agent`。Legacy 客户端仍可使用 `/api/projects/{id}/chapters`、`/api/chapters/...`、`/api/narrators/...` 与 `/ws/narrator`；这些兼容别名复用同一组 Agent/Workline handler。
+规范领域实体与路由为 Agent / Workline、`/api/agents`、`/api/worklines` 和 `/ws/agent`。Legacy 客户端仍可使用 `/api/projects/{id}/worklines`、`/api/worklines/...`、`/api/agents/...` 与 `/ws/agent`；这些兼容别名复用同一组 Agent/Workline handler。
 
 ---
 
@@ -635,7 +563,7 @@ internal/db/schema.go
   - `AGENT_SERVER_URL`
   - `OPENHANDS_SESSION_API_KEY`
   - `AGENT_SERVER_API_KEY`
-- `AUTOTO_AGENT_BACKEND_*` 优先于同名 legacy `CODEHARBOR_AGENT_BACKEND_*`；后者仅保留为回退兼容。
+- `AUTOTO_AGENT_BACKEND_*` 优先于同名 legacy `AUTOTO_AGENT_BACKEND_*`；后者仅保留为回退兼容。
 
 注意：API 返回时只暴露 `apiKeyConfigured`，不会回显后端 API key。
 
@@ -887,7 +815,7 @@ make check
 - `GET /api/agents/{id}/git/diff`
 - `POST /api/agents/{id}/git/commit`
 
-历史 dogfood 证据（Autoto 更名前，以下服务名称、补丁文本和提交信息保留为 legacy 原始记录）：2026-07-07 UTC / 2026-07-08 +08:00 使用临时 CodeHarbor 服务与临时 Git 仓库，通过 API 创建项目，执行 `Write` / `Read` / `Grep`，让已跟踪文件 `demo/notes.md` 变为 `worktree=M`，通过 Git diff API 看到 `added=2 deleted=0` 和补丁行 `+- Updated through CodeHarbor Write tool for tracked diff review.`，再用显式 `paths: ["demo/notes.md"]` 调用 Git commit API 创建提交 `96cd79e Dogfood tracked diff workflow`，提交后仓库 `clean=true`。较早的未跟踪文件 smoke 也创建并提交了 `2484ab7 Dogfood CodeHarbor API workflow`。
+历史 dogfood 证据（Autoto 更名前，以下服务名称、补丁文本和提交信息保留为 legacy 原始记录）：2026-07-07 UTC / 2026-07-08 +08:00 使用临时 Autoto 服务与临时 Git 仓库，通过 API 创建项目，执行 `Write` / `Read` / `Grep`，让已跟踪文件 `demo/notes.md` 变为 `worktree=M`，通过 Git diff API 看到 `added=2 deleted=0` 和补丁行 `+- Updated through Autoto Write tool for tracked diff review.`，再用显式 `paths: ["demo/notes.md"]` 调用 Git commit API 创建提交 `96cd79e Dogfood tracked diff workflow`，提交后仓库 `clean=true`。较早的未跟踪文件 smoke 也创建并提交了 `2484ab7 Dogfood Autoto API workflow`。
 
 ---
 

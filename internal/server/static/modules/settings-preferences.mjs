@@ -572,6 +572,7 @@ export function createSettingsPreferencesController({
       backgroundPositionY: background.positionY,
       terminalDefaultOpen: value.terminalDefaultOpen !== undefined ? Boolean(value.terminalDefaultOpen) : defaultAppearancePrefs.terminalDefaultOpen,
       showEventLog: value.showEventLog !== undefined ? Boolean(value.showEventLog) : defaultAppearancePrefs.showEventLog,
+      showThroughput: value.showThroughput !== undefined ? Boolean(value.showThroughput) : defaultAppearancePrefs.showThroughput,
     };
   }
 
@@ -601,6 +602,10 @@ export function createSettingsPreferencesController({
     if (document.body.dataset) document.body.dataset.themePreset = prefs.themePreset;
     document.body.classList.toggle("ui-density-compact", prefs.density === "compact");
     document.body.classList.toggle("ui-density-comfortable", prefs.density !== "compact");
+    // A class rather than a render flag: the pill is markup the transcript
+    // already produced, so toggling this must not depend on re-rendering every
+    // message that is currently on screen.
+    document.body.classList.toggle("show-throughput", prefs.showThroughput === true);
     const themeResult = applyThemePreference?.(prefs);
     themeResult?.catch?.(() => {});
     const backgroundResult = applyBackgroundPreference?.(prefs);
@@ -619,7 +624,7 @@ export function createSettingsPreferencesController({
       prefs.themeRef = { kind: "preset", id: preset };
     } else if (field === "themeRef") {
       prefs.themeRef = normalizeAppearanceThemeRef(value, prefs.themePreset);
-    } else if (field === "terminalDefaultOpen" || field === "showEventLog") {
+    } else if (field === "terminalDefaultOpen" || field === "showEventLog" || field === "showThroughput") {
       prefs[field] = value === true || value === "true";
     } else {
       prefs[field] = value;

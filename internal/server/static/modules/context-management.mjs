@@ -330,6 +330,15 @@ export function createContextManagementController({
       compactButton.disabled = !hasAgent || !manageAllowed || actionBusy || !status.canCompact || String(currentAgent()?.status || "") === "running";
       compactButton.textContent = busy === "compact" ? translate("context.compacting") : translate("context.compactNow");
     }
+    const retainButton = element("contextRetainBtn");
+    if (retainButton) {
+      // Only a conversation that actually holds a summary has something to
+      // retain, so the affordance stays disabled until compaction produced one.
+      retainButton.disabled = !hasAgent || !manageAllowed || actionBusy || !status.hasSummary;
+      retainButton.textContent = busy === "retain" ? translate("context.retaining") : translate("context.retainSummary");
+    }
+    const retainHint = element("contextRetainHint");
+    if (retainHint) retainHint.classList.toggle("hidden", !hasAgent || !manageAllowed);
     const clearButton = element("contextClearBtn");
     if (clearButton) {
       clearButton.disabled = !hasAgent || !manageAllowed || actionBusy || !status.canClear;
@@ -561,6 +570,14 @@ export function createContextManagementController({
     return response;
   }
 
+  async function retainSummary() {
+    if (!agentId || !canManage?.() || busy || !status.hasSummary) return null;
+    const response = await runAgentAction("retain", "retain", {});
+    if (!response) return null;
+    showToast(translate("context.retainSuccess"), "success");
+    return response;
+  }
+
   function requestClearConfirmation() {
     if (!agentId || busy || !status.canClear) return false;
     clearConfirmation = true;
@@ -726,6 +743,7 @@ export function createContextManagementController({
     listen(element("contextShowPercent"), "change", (event) => setShowPercent(event.currentTarget.checked));
     applyShowPercentPreference(readShowPercentPreference());
     listen(element("contextCompactBtn"), "click", () => compact());
+    listen(element("contextRetainBtn"), "click", () => retainSummary());
     listen(element("contextClearBtn"), "click", requestClearConfirmation);
     listen(element("contextClearCancelBtn"), "click", () => {
       clearConfirmation = false;

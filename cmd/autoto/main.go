@@ -7,5 +7,6 @@ import (
 )
 
 func main() {
+	setPlatformIcon()
 	os.Exit(app.Run(app.Options{OpenBrowser: true}))
 }

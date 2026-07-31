@@ -104,3 +104,135 @@ func storageEntryByKey(entries []storageEntry, key string) storageEntry {
 	}
 	return storageEntry{}
 }
+
+// TestBuildStorageSummaryDeduplicatesNestedPaths verifies that bytes counted
+// inside HomeDir are not double-counted when the database or config file lives
+// inside that same directory.
+func TestBuildStorageSummaryDeduplicatesNestedPaths(t *testing.T) {
+	root := t.TempDir()
+	homeDir := filepath.Join(root, "home")
+	if err := os.MkdirAll(homeDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// Database and config are nested inside homeDir.
+	databasePath := filepath.Join(homeDir, "autoto.db")
+	configPath := filepath.Join(homeDir, "config.json")
+	if err := os.WriteFile(databasePath, []byte("db-content"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(configPath, []byte(`{}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := config.Config{Paths: config.PathsConfig{
+		HomeDir:      homeDir,
+		DatabasePath: databasePath,
+	}}
+	summary := buildStorageSummary(context.Background(), cfg, configPath, storageScanLimit)
+
+	homeEntry := storageEntryByKey(summary.Entries, "home")
+	dbEntry := storageEntryByKey(summary.Entries, "database")
+	cfgEntry := storageEntryByKey(summary.Entries, "config")
+
+	// Individual entries must still report their own sizes.
+	if !homeEntry.Exists || homeEntry.SizeBytes <= 0 {
+		t.Fatalf("home entry: %+v", homeEntry)
+	}
+	if !dbEntry.Exists || dbEntry.SizeBytes <= 0 {
+		t.Fatalf("database entry: %+v", dbEntry)
+	}
+	if !cfgEntry.Exists || cfgEntry.SizeBytes <= 0 {
+		t.Fatalf("config entry: %+v", cfgEntry)
+	}
+
+	// Total must not exceed homeDir bytes (db and config are inside it).
+	if summary.TotalKnownBytes > homeEntry.SizeBytes {
+		t.Fatalf("TotalKnownBytes %d exceeds homeDir %d (nested paths double-counted)",
+			summary.TotalKnownBytes, homeEntry.SizeBytes)
+	}
+}
+
+// TestBuildStorageSummaryNonNestedPathsAccumulate verifies that entries with
+// completely separate roots all contribute to the total.
+func TestBuildStorageSummaryNonNestedPathsAccumulate(t *testing.T) {
+	root := t.TempDir()
+	homeDir := filepath.Join(root, "home")
+	projectDir := filepath.Join(root, "projects")
+	if err := os.MkdirAll(homeDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(projectDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(homeDir, "a.txt"), []byte("home"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(projectDir, "b.txt"), []byte("proj"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := config.Config{Paths: config.PathsConfig{
+		HomeDir:           homeDir,
+		DefaultProjectDir: projectDir,
+	}}
+	summary := buildStorageSummary(context.Background(), cfg, "", storageScanLimit)
+
+	homeEntry := storageEntryByKey(summary.Entries, "home")
+	projEntry := storageEntryByKey(summary.Entries, "projects")
+	if homeEntry.SizeBytes <= 0 || projEntry.SizeBytes <= 0 {
+		t.Fatalf("expected both entries to have bytes: home=%+v projects=%+v", homeEntry, projEntry)
+	}
+	if summary.TotalKnownBytes < homeEntry.SizeBytes+projEntry.SizeBytes {
+		t.Fatalf("TotalKnownBytes %d less than home+projects %d",
+			summary.TotalKnownBytes, homeEntry.SizeBytes+projEntry.SizeBytes)
+	}
+}
+
+// TestIsNestedPath covers the helper used for deduplication.
+func TestIsNestedPath(t *testing.T) {
+	sep := string(filepath.Separator)
+	parent := filepath.Join("a", "b")
+	cases := []struct {
+		child string
+		want  bool
+	}{
+		{parent, true},
+		{parent + sep + "c", true},
+		{parent + sep + "c" + sep + "d", true},
+		{filepath.Join("a", "bc"), false}, // shares prefix but not a child
+		{filepath.Join("a"), false},
+		{"", false},
+	}
+	for _, tc := range cases {
+		if got := isNestedPath(tc.child, parent); got != tc.want {
+			t.Errorf("isNestedPath(%q, %q) = %v, want %v", tc.child, parent, got, tc.want)
+		}
+	}
+}
+
+// TestBuildStorageSummaryWithCacheReturnsCachedResult confirms that a second
+// call with the same paths within TTL reuses the previous result without
+// touching the disk (GeneratedAt stays the same).
+func TestBuildStorageSummaryWithCacheReturnsCachedResult(t *testing.T) {
+	root := t.TempDir()
+	homeDir := filepath.Join(root, "home")
+	if err := os.MkdirAll(homeDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	store, err := db.Open(context.Background(), filepath.Join(root, "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+
+	cfg := config.Config{Paths: config.PathsConfig{HomeDir: homeDir}}
+	app := New(cfg, store, nil, nil)
+
+	first := app.buildStorageSummaryWithCache(context.Background(), cfg, "", storageScanLimit)
+	second := app.buildStorageSummaryWithCache(context.Background(), cfg, "", storageScanLimit)
+
+	if first.GeneratedAt != second.GeneratedAt {
+		t.Fatalf("cache miss: first=%s second=%s", first.GeneratedAt, second.GeneratedAt)
+	}
+}

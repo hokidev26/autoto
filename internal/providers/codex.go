@@ -32,7 +32,18 @@ const (
 	// Snapshot of explicit Fast tiers from OpenAI's public Codex model catalog.
 	// It is used only for the canonical Codex endpoint when the authenticated
 	// model catalog is unavailable; unknown model names are never inferred.
-	codexFallbackFastModelCatalog = `{"models":[{"slug":"gpt-5.6-sol","additional_speed_tiers":["fast"]},{"slug":"gpt-5.6-terra","additional_speed_tiers":["fast"]},{"slug":"gpt-5.6-luna","additional_speed_tiers":["fast"]},{"slug":"gpt-5.5","additional_speed_tiers":["fast"]},{"slug":"gpt-5.4","additional_speed_tiers":["fast"]}]}`
+	codexFallbackFastModelCatalog = `{"models":[{"slug":"gpt-5.6-sol","additional_speed_tiers":["fast"]},{"slug":"gpt-5.6-terra","additional_speed_tiers":["fast"]},{"slug":"gpt-5.6-luna","additional_speed_tiers":["fast"]},{"slug":"gpt-5.5","additional_speed_tiers":["fast"]},{"slug":"gpt-5.4-mini","additional_speed_tiers":["fast"]}]}`
+
+	// codexCatalogClientVersion is the Codex client generation Autoto reports to
+	// the model catalog, which gates it: the endpoint requires the parameter and
+	// silently returns *fewer or zero* models for a version below the generation
+	// a model belongs to. Autoto's own version is unrelated to that scale, and
+	// sending it returned an empty catalog, which then fell through to the seed
+	// list above and hid the real per-account model set entirely.
+	//
+	// Raise this when OpenAI ships a model generation Autoto should offer. A
+	// catalog that comes back empty or short is the symptom of it being stale.
+	codexCatalogClientVersion = "1.0.0"
 )
 
 type CodexProvider struct {
@@ -112,6 +123,14 @@ func (p *CodexProvider) Capabilities() Capabilities {
 		ReasoningEfforts: []string{"low", "medium", "high", "xhigh"},
 	}
 }
+
+// DefaultContextTokenLimit is the context window the current Codex models
+// share. It applies to models the configuration does not size explicitly, which
+// is the normal case now that the model list comes from the authenticated
+// catalog rather than a hand-maintained list; without it those models would
+// fall back to the global 120 000-token floor and reject conversations the
+// model can comfortably hold.
+func (p *CodexProvider) DefaultContextTokenLimit() int { return 272000 }
 
 func (p *CodexProvider) ModelCapabilities(model string) ModelCapabilities {
 	if p == nil {
@@ -252,10 +271,6 @@ func (p *CodexProvider) listModelsWithCredentials(ctx context.Context, credentia
 }
 
 func (p *CodexProvider) Generate(ctx context.Context, req GenerateRequest) (<-chan Event, error) {
-	reasoningEffort, err := normalizeReasoningEffortForCapabilities(req.ReasoningEffort, p.Capabilities(), p.cfg.Name)
-	if err != nil {
-		return nil, err
-	}
 	credentials, err := p.credentialsForRequest(ctx, req)
 	if err != nil {
 		return nil, err
@@ -266,6 +281,13 @@ func (p *CodexProvider) Generate(ctx context.Context, req GenerateRequest) (<-ch
 	model := strings.TrimSpace(req.Model)
 	if model == "" {
 		model = p.cfg.Model
+	}
+	// Effort is validated against the model, not the provider: the levels above
+	// "xhigh" exist only on some models, so the provider-wide list would reject
+	// a level the chosen model genuinely serves.
+	reasoningEffort, err := normalizeReasoningEffortForCapabilities(req.ReasoningEffort, CapabilitiesForModel(p.Capabilities(), p.ModelCapabilities(model)), p.cfg.Name)
+	if err != nil {
+		return nil, err
 	}
 	if req.FastMode && !p.ModelCapabilities(model).FastMode {
 		if _, listErr := p.listModelsWithCredentials(ctx, credentials); listErr != nil {
@@ -372,7 +394,9 @@ func (p *CodexProvider) credentialsForRequest(ctx context.Context, req GenerateR
 	if req.EffectiveScenario() != CallScenarioGateway {
 		return credentials, nil
 	}
-	granted, err := gatewayAccountIDSet(ctx, p.gatewayAccountPolicy(), p.cfg.Name)
+	// Grants are filed under the credential store's provider name, never the
+	// user-editable config name, so a renamed Codex provider still matches.
+	granted, err := gatewayAccountIDSet(ctx, p.gatewayAccountPolicy(), codexauth.DefaultProviderName)
 	if err != nil {
 		return nil, providerUnavailableError(p.cfg.Name, "Gateway account grants are unavailable")
 	}
@@ -573,9 +597,11 @@ func (p *CodexProvider) sendCredentialRequest(ctx context.Context, credential co
 	request.Header.Set("Accept", "text/event-stream, application/json")
 	request.Header.Set("User-Agent", p.userAgent())
 	request.Header.Set("originator", "autoto")
-	if p.cfg.ClientVersion != "" {
-		request.Header.Set("version", p.cfg.ClientVersion)
-	}
+	// The `version` header is read by the ChatGPT backend as the *Codex CLI*
+	// version and gates model access: newer slugs reject anything below their
+	// minimum with "requires a newer version of Codex" (HTTP 400). Autoto's own
+	// version is unrelated to that scale, so sending it locked every current
+	// model out. Omitting the header lets the backend apply its default.
 	if p.cfg.InstallationID != "" {
 		request.Header.Set("x-codex-installation-id", p.cfg.InstallationID)
 	}
@@ -600,11 +626,7 @@ func (p *CodexProvider) modelsURL() string {
 		return base
 	}
 	query := parsed.Query()
-	version := strings.TrimSpace(p.cfg.ClientVersion)
-	if version == "" {
-		version = config.Version
-	}
-	query.Set("client_version", version)
+	query.Set("client_version", codexCatalogClientVersion)
 	parsed.RawQuery = query.Encode()
 	return parsed.String()
 }
@@ -722,28 +744,35 @@ func buildCodexResponsesPayload(req GenerateRequest, model, reasoningEffort, ins
 		}}
 	}
 	payload := map[string]any{
-		"model":               model,
-		"input":               input,
-		"tool_choice":         "auto",
-		"parallel_tool_calls": len(req.Tools) > 0,
-		"store":               false,
-		"stream":              true,
-		"include":             []string{"reasoning.encrypted_content"},
+		"model":  model,
+		"input":  input,
+		"store":  false,
+		"stream": true,
+	}
+	// tool_choice and parallel_tool_calls are only valid when tools are
+	// present; the Responses API returns 400 when they appear with an empty
+	// tool list.
+	tools := codexToolParams(req.Tools, req.EnableImageGeneration)
+	if len(tools) > 0 {
+		payload["tools"] = tools
+		payload["tool_choice"] = "auto"
+		payload["parallel_tool_calls"] = true
+	}
+	// reasoning.encrypted_content is only meaningful when reasoning is active;
+	// include it only then to avoid unexpected 400s on models that do not
+	// support the include parameter.
+	if reasoningEffort != "" {
+		payload["reasoning"] = map[string]any{"effort": reasoningEffort, "summary": "auto"}
+		payload["include"] = []string{"reasoning.encrypted_content"}
 	}
 	if instructions := strings.TrimSpace(req.SystemPrompt); instructions != "" {
 		payload["instructions"] = instructions
 	}
-	if tools := codexToolParams(req.Tools, req.EnableImageGeneration); len(tools) > 0 {
-		payload["tools"] = tools
-	}
-	if reasoningEffort != "" {
-		// encrypted_content above is opaque; "summary" is the readable stream the
-		// activity list renders.
-		payload["reasoning"] = map[string]any{"effort": reasoningEffort, "summary": "auto"}
-	}
-	if req.MaxOutputTokens > 0 {
-		payload["max_output_tokens"] = req.MaxOutputTokens
-	}
+	// max_output_tokens is deliberately dropped: the ChatGPT Codex backend
+	// rejects it outright ("Unsupported parameter: max_output_tokens", HTTP
+	// 400). Callers that set a budget — provider message tests, conversation
+	// titles, danger reflection, context ask, gateway max_tokens — would fail
+	// every request. Output length is bounded by the model's own limit instead.
 	if req.FastMode {
 		payload["service_tier"] = "priority"
 	}
@@ -766,6 +795,14 @@ func codexResponseInput(messages []Message) []map[string]any {
 		role := strings.ToLower(strings.TrimSpace(message.Role))
 		if role == "" {
 			role = "user"
+		}
+		// The ChatGPT Codex backend answers "System messages are not allowed"
+		// (HTTP 400) for system input items — the run's system text belongs in
+		// `instructions`. Turn-scoped system controls (spec tasks, silent
+		// progress) still need to reach the model, so they ride as developer
+		// messages, which the backend accepts with the same precedence.
+		if role == "system" {
+			role = "developer"
 		}
 		blocks := normalizeContentBlocks(message)
 		if len(blocks) == 0 {
@@ -839,7 +876,66 @@ func codexResponseInput(messages []Message) []map[string]any {
 		}
 		items = append(items, structured...)
 	}
-	return items
+	return repairCodexToolCallPairing(items)
+}
+
+// repairCodexToolCallPairing makes a transcript replayable. The Responses API
+// rejects the whole request when a function_call has no matching output ("No
+// tool output found for function call X") or an output has no matching call
+// ("No tool call found for function call output with call_id X"), so a single
+// unpaired item permanently bricks a conversation: every later message replays
+// the same history and fails the same way.
+//
+// Transcripts drift out of pairing for reasons the provider cannot prevent — a
+// run killed mid-tool never records the result, a correction supersedes the
+// message that held one half of the pair, and a tool result rewritten into
+// plain text for a provider without structured tool support leaves its call
+// behind. Repairing here keeps the damage recoverable at the boundary that
+// actually cares, rather than requiring every producer to stay in lockstep.
+//
+// Orphaned outputs are dropped; orphaned calls get a synthetic output, which
+// preserves the assistant's action in the narrative instead of erasing it.
+func repairCodexToolCallPairing(items []map[string]any) []map[string]any {
+	calls := make(map[string]bool)
+	outputs := make(map[string]bool)
+	for _, item := range items {
+		id, _ := item["call_id"].(string)
+		if id == "" {
+			continue
+		}
+		switch item["type"] {
+		case "function_call":
+			calls[id] = true
+		case "function_call_output":
+			outputs[id] = true
+		}
+	}
+	repaired := make([]map[string]any, 0, len(items))
+	emitted := make(map[string]bool, len(outputs))
+	for _, item := range items {
+		id, _ := item["call_id"].(string)
+		switch item["type"] {
+		case "function_call_output":
+			// A duplicate output is as fatal as a missing one, so keep the first.
+			if id == "" || !calls[id] || emitted[id] {
+				continue
+			}
+			emitted[id] = true
+		case "function_call":
+			repaired = append(repaired, item)
+			if id != "" && !outputs[id] {
+				repaired = append(repaired, map[string]any{
+					"type":    "function_call_output",
+					"call_id": id,
+					"output":  "[tool result unavailable]",
+				})
+				emitted[id] = true
+			}
+			continue
+		}
+		repaired = append(repaired, item)
+	}
+	return repaired
 }
 
 func codexToolParams(tools []ToolSpec, enableImageGeneration bool) []map[string]any {
@@ -1086,9 +1182,19 @@ func emitProviderEvent(ctx context.Context, out chan<- Event, event Event) bool 
 	}
 }
 
+type codexReasoningLevel struct {
+	Effort string `json:"effort"`
+}
+
 type codexModelCatalogEntry struct {
-	Slug                  string          `json:"slug"`
-	ID                    string          `json:"id"`
+	Slug string `json:"slug"`
+	ID   string `json:"id"`
+	// SupportedReasoningLevels is the authoritative per-model effort list. The
+	// levels genuinely differ — gpt-5.6-terra serves "ultra", gpt-5.6-luna stops
+	// at "max", gpt-5.5 stops at "xhigh" — and asking for one a model does not
+	// serve is answered with HTTP 400, so this cannot be inferred from the
+	// provider or guessed from the model name.
+	SupportedReasoningLevels []codexReasoningLevel `json:"supported_reasoning_levels"`
 	FastMode              *bool           `json:"fast_mode"`
 	SupportsFastMode      *bool           `json:"supports_fast_mode"`
 	ServiceTier           json.RawMessage `json:"service_tier"`
@@ -1128,6 +1234,11 @@ func parseCodexModelCatalog(reader io.Reader) ([]string, map[string]ModelCapabil
 			current.FastModeKnown = true
 			capabilities[model] = current
 		}
+		if efforts := codexModelEntryReasoningEfforts(item); len(efforts) > 0 {
+			current := capabilities[model]
+			current.ReasoningEfforts = efforts
+			capabilities[model] = current
+		}
 		if _, exists := seen[model]; exists {
 			return
 		}
@@ -1142,6 +1253,19 @@ func parseCodexModelCatalog(reader io.Reader) ([]string, map[string]ModelCapabil
 	}
 	sort.Strings(models)
 	return models, capabilities, nil
+}
+
+// codexModelEntryReasoningEfforts keeps only levels Autoto has a control for.
+// The catalog may name a level this build does not model yet; offering it would
+// produce a picker entry nothing downstream can validate or persist.
+func codexModelEntryReasoningEfforts(item codexModelCatalogEntry) []string {
+	efforts := make([]string, 0, len(item.SupportedReasoningLevels))
+	for _, level := range item.SupportedReasoningLevels {
+		if effort := strings.ToLower(strings.TrimSpace(level.Effort)); effort != "" {
+			efforts = append(efforts, effort)
+		}
+	}
+	return canonicalReasoningEffortValues(efforts)
 }
 
 func codexModelEntryFastModeCapability(item codexModelCatalogEntry) (bool, bool) {
@@ -1258,16 +1382,12 @@ func isCodexSSEFailoverCode(code string) bool {
 }
 
 func codexHTTPErrorDetails(response *http.Response, credential codexauth.Credential, cfg config.ProviderConfig, prefix string) (error, string) {
-	code, message := codexJSONErrorFields(response.Body)
+	code, message, detail := codexJSONErrorFields(response.Body)
 	safeCode := sanitizeCodexErrorCode(code, credential, cfg)
 	if safeCode == "" {
 		safeCode = fmt.Sprintf("http_%d", response.StatusCode)
 	}
-	if codexSafeUpstreamHintCode(safeCode) {
-		message, _ = redactCodexSecrets(strings.TrimSpace(message), credential, cfg)
-	} else {
-		message = ""
-	}
+	message = codexUpstreamHint(safeCode, message, detail, credential, cfg)
 	var text string
 	switch {
 	case safeCode != "" && message != "":
@@ -1280,20 +1400,25 @@ func codexHTTPErrorDetails(response *http.Response, credential codexauth.Credent
 	return errors.New(boundedCodexError(text)), safeTelemetryCode(safeCode, fmt.Sprintf("http_%d", response.StatusCode))
 }
 
-func codexJSONErrorFields(reader io.Reader) (string, string) {
+// codexJSONErrorFields splits an upstream failure body into a code, a free-form
+// upstream message, and the ChatGPT backend's `detail` field. detail is returned
+// separately because the two message channels carry different trust: see
+// codexUpstreamHint.
+func codexJSONErrorFields(reader io.Reader) (string, string, string) {
 	data, err := io.ReadAll(io.LimitReader(reader, (64<<10)+1))
 	if err != nil || len(data) > 64<<10 {
-		return "", ""
+		return "", "", ""
 	}
 	var root map[string]json.RawMessage
 	if json.Unmarshal(data, &root) != nil {
-		return "", ""
+		return "", "", ""
 	}
 	code := codexRawJSONString(root["code"])
 	message := codexRawJSONString(root["message"])
 	if description := codexRawJSONString(root["error_description"]); message == "" {
 		message = description
 	}
+	detail := codexRawJSONString(root["detail"])
 	if rawError := root["error"]; len(rawError) > 0 {
 		if text := codexRawJSONString(rawError); text != "" {
 			if code == "" {
@@ -1310,10 +1435,53 @@ func codexJSONErrorFields(reader io.Reader) (string, string) {
 				} else if nestedDescription := codexRawJSONString(nested["error_description"]); nestedDescription != "" {
 					message = nestedDescription
 				}
+				// Request-validation rejections arrive as type
+				// "invalid_request_error" with a null code, so the code alone
+				// cannot classify them. The message names the offending input
+				// ("No tool output found for function call X") and is the only
+				// way to tell a malformed transcript from an outage.
+				if codexRawJSONString(nested["type"]) == "invalid_request_error" && detail == "" {
+					detail = codexRawJSONString(nested["message"])
+				}
 			}
 		}
 	}
-	return strings.TrimSpace(code), strings.TrimSpace(message)
+	return strings.TrimSpace(code), strings.TrimSpace(message), strings.TrimSpace(detail)
+}
+
+// codexUpstreamHint decides how much of an upstream failure body may reach the
+// operator, and is the single place that decision is made.
+//
+// `detail` is the ChatGPT Codex backend's request-rejection channel. It names
+// the parameter, model or account condition the request got wrong — "Unsupported
+// parameter: max_output_tokens", "System messages are not allowed", "requires a
+// newer version of Codex" — and describes the request rather than the account,
+// so it is always forwarded. Without it a rejected request surfaced only as
+// "HTTP 400 (http_400)", which named no cause at all.
+//
+// `message` is the arbitrary upstream error channel and may carry unbounded
+// internal diagnostics, so it stays restricted to codes that have been vetted as
+// actionable. Both paths run through redactCodexSecrets, which scrubs tokens,
+// JWTs and proxy credentials and bounds the length.
+func codexUpstreamHint(code, message, detail string, credential codexauth.Credential, cfg config.ProviderConfig) string {
+	hint := detail
+	if hint == "" && codexSafeUpstreamHintCode(code) {
+		hint = message
+	}
+	if hint == "" {
+		return ""
+	}
+	redacted, _ := redactCodexSecrets(strings.TrimSpace(hint), credential, cfg)
+	return redacted
+}
+
+func codexSafeUpstreamHintCode(code string) bool {
+	switch strings.ToLower(strings.TrimSpace(code)) {
+	case "image_generation_not_enabled":
+		return true
+	default:
+		return false
+	}
 }
 
 func codexRawJSONString(raw json.RawMessage) string {
@@ -1328,7 +1496,10 @@ func codexRawJSONString(raw json.RawMessage) string {
 }
 
 func codexRefreshError(status int, reader io.Reader) error {
-	code, description := codexJSONErrorFields(reader)
+	code, description, detail := codexJSONErrorFields(reader)
+	if description == "" {
+		description = detail
+	}
 	canonical := classifyCodexRefreshFailure(code, description, status)
 	message := fmt.Sprintf("Codex OAuth 刷新失败（HTTP %d）", status)
 	retryable := false
@@ -1381,11 +1552,9 @@ func classifyCodexRefreshFailure(code, description string, status int) string {
 
 func safeCodexEventError(code, message, fallback string, credential codexauth.Credential, cfg config.ProviderConfig) string {
 	safeCode := sanitizeCodexErrorCode(code, credential, cfg)
-	if codexSafeUpstreamHintCode(safeCode) {
-		message, _ = redactCodexSecrets(strings.TrimSpace(message), credential, cfg)
-	} else {
-		message = ""
-	}
+	// SSE failure events carry only the free-form upstream message channel, so
+	// the vetted-code restriction applies; see codexUpstreamHint.
+	message = codexUpstreamHint(safeCode, message, "", credential, cfg)
 	var text string
 	switch {
 	case safeCode != "" && message != "":
@@ -1400,11 +1569,3 @@ func safeCodexEventError(code, message, fallback string, credential codexauth.Cr
 	return boundedCodexError(text)
 }
 
-func codexSafeUpstreamHintCode(code string) bool {
-	switch strings.ToLower(strings.TrimSpace(code)) {
-	case "image_generation_not_enabled":
-		return true
-	default:
-		return false
-	}
-}

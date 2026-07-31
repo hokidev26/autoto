@@ -2,7 +2,7 @@ import { $, escapeAttr, escapeHtml } from "./dom.mjs";
 import { t } from "./messages-skills.mjs?v=automation-tool-catalog-1";
 import { confirm as platformConfirm } from "./platform.mjs";
 import { normalizeSlashCommandName } from "./skills-commands.mjs";
-import { createSkillsConfigCenter } from "./skills-config-center.mjs";
+import { createSkillsConfigCenter } from "./skills-config-center.mjs?v=optional-tools-compact-1-skills-density-1";
 import { skillTabs } from "./settings-data.mjs?v=users-panel-removed-1-config-center-1";
 
 function currentRestoreReviewChallenge(error) {
@@ -282,7 +282,7 @@ export function createSkillsWorkbenchController({
   function renderScanFindings(findings) {
     return findings.length
       ? `<ul class="skill-findings">${findings.map((finding) => `<li><strong>${escapeHtml(finding.code || "scan")}</strong>：${escapeHtml(finding.message || t("skillsWorkbench.skills.findingDefault"))}</li>`).join("")}</ul>`
-      : `<div class="settings-provider-meta settings-card-description">${escapeHtml(t("skillsWorkbench.skills.noReviewFindings"))}</div>`;
+      : "";
   }
 
   function renderServerSkillCard(skill) {
@@ -290,18 +290,14 @@ export function createSkillsWorkbenchController({
     const tone = verdict === "safe" ? "ok" : verdict === "review" ? "warn" : "muted";
     const detailsLoaded = Boolean(skill.detailLoaded && String(skill.prompt || "").trim());
     const findings = Array.isArray(skill.scanFindings) ? skill.scanFindings : [];
-    const findingCount = Number.isFinite(Number(skill.findingCount)) ? Number(skill.findingCount) : findings.length;
     const canEnable = verdict !== "blocked";
-    const findingsMarkup = detailsLoaded
-      ? renderScanFindings(findings)
-      : `<div class="settings-provider-meta settings-card-description">${escapeHtml(t("skillsWorkbench.skills.findingCount", { count: findingCount }))}</div>`;
     return `
     <div class="skill-command-card settings-card settings-data-list-row ${skill.enabled ? "" : "disabled"}">
       <div>
         <div class="skill-command-title settings-card-title">${escapeHtml(skill.command)} <span class="settings-status-pill settings-badge ${skill.enabled ? "ok" : "muted"}">${escapeHtml(skill.enabled ? t("skillsWorkbench.skills.enabled") : t("skillsWorkbench.skills.disabled"))}</span> <span class="settings-status-pill settings-badge ${tone}">${escapeHtml(skillVerdictLabel(verdict))}</span></div>
-        <div class="settings-provider-meta settings-card-description">${escapeHtml(skill.name || t("skillsWorkbench.skills.unnamed"))} · ${escapeHtml(skill.description || t("skillsWorkbench.skills.noDescription"))} · ${escapeHtml(t("skillsWorkbench.skills.source", { source: skillSourceLabel(skill.source) }))}</div>
-        ${findingsMarkup}
-        ${detailsLoaded ? `<pre class="skill-command-prompt">${escapeHtml(skill.prompt)}</pre>` : `<div class="settings-provider-meta settings-card-description">${skill.detailError ? escapeHtml(t("skillsWorkbench.skills.detailLoadFailed", { message: skill.detailError })) : escapeHtml(t("skillsWorkbench.skills.detailNotLoaded"))}</div>`}
+        <div class="settings-provider-meta settings-card-description skill-card-meta">${escapeHtml(t("skillsWorkbench.skills.source", { source: skillSourceLabel(skill.source) }))}</div>
+        ${renderScanFindings(findings)}
+        ${detailsLoaded ? `<pre class="skill-command-prompt">${escapeHtml(skill.prompt)}</pre>` : skill.detailError ? `<div class="settings-inline-alert settings-alert" role="alert">${escapeHtml(t("skillsWorkbench.skills.detailLoadFailed", { message: skill.detailError }))}</div>` : ""}
       </div>
       <div class="settings-action-row settings-inline-actions">
         ${detailsLoaded ? "" : `<button class="settings-action-btn subtle" type="button" data-server-skill-detail="${escapeAttr(skill.id)}">${escapeHtml(t("skillsWorkbench.skills.loadDetail"))}</button>`}
@@ -323,7 +319,6 @@ export function createSkillsWorkbenchController({
       <div class="skill-command-card settings-card settings-data-list-row ${blocked ? "disabled" : ""}">
         <div>
           <div class="skill-command-title settings-card-title">${escapeHtml(t("skillsWorkbench.skills.preview", { command: preview.command || "" }))}&nbsp;<span class="settings-status-pill settings-badge ${blocked ? "muted" : verdict === "review" ? "warn" : "ok"}">${escapeHtml(skillVerdictLabel(verdict))}</span></div>
-          <div class="settings-provider-meta settings-card-description">${escapeHtml(preview.name || "")} · ${escapeHtml(preview.description || "")}</div>
           ${renderScanFindings(findings)}
         </div>
         <div class="settings-action-row settings-inline-actions"><button id="confirmSkillImportBtn" class="settings-action-btn primary" type="button" ${state.serverSkillsSaving ? "disabled" : ""}>${escapeHtml(t("skillsWorkbench.skills.importConfirm"))}</button></div>
@@ -482,8 +477,7 @@ export function createSkillsWorkbenchController({
     <div class="skill-command-card settings-card settings-data-list-row workflow-rule-card ${rule.enabled ? "" : "disabled"}">
       <div>
         <div class="skill-command-title settings-card-title">${escapeHtml(rule.toolName || "*")} <span class="settings-status-pill settings-badge ${rule.enabled ? "ok" : "muted"}">${escapeHtml(t(rule.enabled ? "skillsWorkbench.skills.enabled" : "skillsWorkbench.skills.disabled"))}</span></div>
-        <div class="settings-provider-meta settings-card-description">${escapeHtml(t("skillsWorkbench.permissions.ruleMeta", { mode: rule.mode || "*", risk: rule.risk || "*", decision: rule.decision || "ask", priority: String(rule.priority || 0) }))}</div>
-        ${rule.description ? `<div class="settings-provider-meta settings-card-description">${escapeHtml(rule.description)}</div>` : ""}
+        <div class="settings-provider-meta settings-card-description skill-card-meta">${escapeHtml(t("skillsWorkbench.permissions.ruleMeta", { mode: rule.mode || "*", risk: rule.risk || "*", decision: rule.decision || "ask", priority: String(rule.priority || 0) }))}</div>
       </div>
       <div class="settings-action-row settings-inline-actions">
         <button class="settings-action-btn subtle" type="button" data-tool-permission-toggle="${escapeAttr(rule.id)}" ${state.toolPermissionRulesSaving ? "disabled" : ""}>${escapeHtml(t(rule.enabled ? "skillsWorkbench.skills.disabled" : "skillsWorkbench.skills.enabled"))}</button>

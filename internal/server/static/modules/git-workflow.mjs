@@ -71,6 +71,135 @@ export function rollbackPreviewConfirmation(preview) {
   return lines.join("\n");
 }
 
+export const GIT_DIFF_CACHE_MAX_ENTRIES = 4;
+export const GIT_DIFF_DIRECT_RENDER_LINE_LIMIT = 600;
+export const GIT_DIFF_VIRTUAL_OVERSCAN = 24;
+export const GIT_DIFF_VIRTUAL_LINE_HEIGHT = 19;
+export const GIT_DIFF_VIRTUAL_DEFAULT_VIEWPORT_HEIGHT = GIT_DIFF_VIRTUAL_LINE_HEIGHT * 96;
+
+function normalizePatchIdentity(identity) {
+  if (identity && typeof identity === "object") return JSON.stringify(identity);
+  return String(identity || "");
+}
+
+function unsignedHash(text) {
+  let hash = 2166136261;
+  for (let index = 0; index < text.length; index++) {
+    hash ^= text.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(36);
+}
+
+export function gitDiffPatchCacheKey(patch, identity = "") {
+  const text = String(patch || "");
+  const identityText = normalizePatchIdentity(identity);
+  return `${text.length}:${unsignedHash(text)}:${unsignedHash(identityText)}`;
+}
+
+export function diffLineClass(line) {
+  const text = String(line || "");
+  if (text.startsWith("@@")) return "hunk";
+  if (text.startsWith("diff --git") || text.startsWith("index ") || text.startsWith("---") || text.startsWith("+++")) return "meta";
+  if (text.startsWith("+")) return "add";
+  if (text.startsWith("-")) return "del";
+  return "context";
+}
+
+export function splitAndClassifyUnifiedDiff(patch) {
+  const text = String(patch || "");
+  if (!text) return [];
+  return text.split("\n").map((line) => ({ text: line || " ", className: diffLineClass(line) }));
+}
+
+export function createGitDiffLineCache({ maxEntries = GIT_DIFF_CACHE_MAX_ENTRIES } = {}) {
+  const entries = new Map();
+  const limit = Math.max(1, Number(maxEntries) || GIT_DIFF_CACHE_MAX_ENTRIES);
+  return {
+    get(patch, identity = "") {
+      const text = String(patch || "");
+      const identityText = normalizePatchIdentity(identity);
+      const key = gitDiffPatchCacheKey(text, identityText);
+      const existing = entries.get(key);
+      if (existing?.patch === text && existing.identity === identityText) {
+        entries.delete(key);
+        entries.set(key, existing);
+        return { key, value: existing.value, hit: true };
+      }
+      const lines = splitAndClassifyUnifiedDiff(text);
+      const value = Object.freeze({ key, lineCount: lines.length, lines });
+      entries.set(key, { patch: text, identity: identityText, value });
+      while (entries.size > limit) entries.delete(entries.keys().next().value);
+      return { key, value, hit: false };
+    },
+    peek(key) {
+      return entries.get(key)?.value || null;
+    },
+    size() {
+      return entries.size;
+    },
+  };
+}
+
+export function shouldVirtualizeGitDiff(lineCount, threshold = GIT_DIFF_DIRECT_RENDER_LINE_LIMIT) {
+  return Number(lineCount || 0) > Number(threshold || GIT_DIFF_DIRECT_RENDER_LINE_LIMIT);
+}
+
+function clampNumber(value, min, max) {
+  return Math.max(min, Math.min(max, value));
+}
+
+export function computeGitDiffWindow({
+  lineCount,
+  scrollTop = 0,
+  viewportHeight = GIT_DIFF_VIRTUAL_DEFAULT_VIEWPORT_HEIGHT,
+  lineHeight = GIT_DIFF_VIRTUAL_LINE_HEIGHT,
+  overscan = GIT_DIFF_VIRTUAL_OVERSCAN,
+} = {}) {
+  const total = Math.max(0, Number(lineCount) || 0);
+  if (!total) return { start: 0, end: 0, topSpacer: 0, bottomSpacer: 0 };
+  const rowHeight = Math.max(1, Number(lineHeight) || GIT_DIFF_VIRTUAL_LINE_HEIGHT);
+  const visibleHeight = Math.max(rowHeight, Number(viewportHeight) || GIT_DIFF_VIRTUAL_DEFAULT_VIEWPORT_HEIGHT);
+  const extra = Math.max(0, Number(overscan) || 0);
+  const firstVisible = clampNumber(Math.floor(Math.max(0, Number(scrollTop) || 0) / rowHeight), 0, total - 1);
+  const visibleCount = Math.max(1, Math.ceil(visibleHeight / rowHeight));
+  const start = clampNumber(firstVisible - extra, 0, total);
+  const end = clampNumber(firstVisible + visibleCount + extra, start, total);
+  return {
+    start,
+    end,
+    topSpacer: start * rowHeight,
+    bottomSpacer: Math.max(0, (total - end) * rowHeight),
+  };
+}
+
+export function renderUnifiedDiffLines(lines) {
+  return lines.map((line) => `<div class="diff-line ${line.className}">${escapeHtml(line.text)}</div>`).join("");
+}
+
+export function renderUnifiedDiffWindow(lines, window) {
+  const topSpacer = window.topSpacer ? `<div class="diff-virtual-spacer" aria-hidden="true" style="height:${window.topSpacer}px"></div>` : "";
+  const bottomSpacer = window.bottomSpacer ? `<div class="diff-virtual-spacer" aria-hidden="true" style="height:${window.bottomSpacer}px"></div>` : "";
+  return `${topSpacer}${renderUnifiedDiffLines(lines.slice(window.start, window.end))}${bottomSpacer}`;
+}
+
+export function renderUnifiedDiff(patch, {
+  cache = createGitDiffLineCache(),
+  identity = "",
+  scrollTop = 0,
+  viewportHeight = GIT_DIFF_VIRTUAL_DEFAULT_VIEWPORT_HEIGHT,
+  threshold = GIT_DIFF_DIRECT_RENDER_LINE_LIMIT,
+} = {}) {
+  if (!patch) return `<pre class="git-diff-view empty">${escapeHtml(t("noDiff"))}</pre>`;
+  const { key, value } = cache.get(patch, identity);
+  const virtual = shouldVirtualizeGitDiff(value.lineCount, threshold);
+  if (!virtual) {
+    return `<pre id="gitDiffView" class="git-diff-view" tabindex="0" data-git-diff-key="${escapeAttr(key)}">${renderUnifiedDiffLines(value.lines)}</pre>`;
+  }
+  const window = computeGitDiffWindow({ lineCount: value.lineCount, scrollTop, viewportHeight });
+  return `<pre id="gitDiffView" class="git-diff-view" tabindex="0" data-git-diff-key="${escapeAttr(key)}" data-git-diff-virtual="true" data-git-diff-line-count="${value.lineCount}" data-git-diff-window-start="${window.start}" data-git-diff-window-end="${window.end}">${renderUnifiedDiffWindow(value.lines, window)}</pre>`;
+}
+
 export function createGitWorkflowController({
   state,
   showError,
@@ -78,6 +207,9 @@ export function createGitWorkflowController({
   apiRequest = api,
 } = {}) {
   const request = apiRequest;
+  const gitDiffLineCache = createGitDiffLineCache();
+  let gitDiffScrollTop = 0;
+  let gitDiffScrollKey = "";
 
   function resetGitWorkflowState() {
     state.gitStatus = null;
@@ -413,11 +545,20 @@ export function createGitWorkflowController({
   function renderGitModal() {
     const body = $("gitModalBody");
     if (!body) return;
+    const previousDiffView = $("gitDiffView");
+    if (previousDiffView?.dataset?.gitDiffKey) {
+      gitDiffScrollKey = previousDiffView.dataset.gitDiffKey;
+      gitDiffScrollTop = Number(previousDiffView.scrollTop || 0);
+    }
     const status = state.gitStatus;
     const files = Array.isArray(status?.files) ? status.files : [];
     const diff = state.gitDiff;
     const log = state.gitLog;
     const selectedPath = state.gitSelectedPath || "";
+    const patch = diff?.patch || "";
+    const diffIdentity = gitDiffRenderIdentity(status, selectedPath);
+    const diffKey = patch ? gitDiffPatchCacheKey(patch, diffIdentity) : "";
+    const diffScrollTop = diffKey && diffKey === gitDiffScrollKey ? gitDiffScrollTop : 0;
     const selectedCommitPaths = selectedGitCommitPaths(files);
     if ($("gitModalPath")) {
       $("gitModalPath").textContent = status?.repoRoot || state.agent?.cwd || state.project?.gitPath || t("pathHint");
@@ -450,7 +591,7 @@ export function createGitWorkflowController({
         <section class="git-diff-panel">
           <div class="git-panel-title">${escapeHtml(t("diff"))} ${selectedPath ? `<span>${escapeHtml(selectedPath)}</span>` : ""}</div>
           ${diff?.truncated ? `<div class="settings-inline-alert">${escapeHtml(t("diffTruncated"))}</div>` : ""}
-          ${renderUnifiedDiff(diff?.patch || "")}
+          ${renderUnifiedDiff(patch, { cache: gitDiffLineCache, identity: diffIdentity, scrollTop: diffScrollTop })}
         </section>
         <aside class="git-log-panel">
           <div class="git-panel-title">${escapeHtml(t("recentCommits"))}</div>
@@ -458,7 +599,55 @@ export function createGitWorkflowController({
         </aside>
       </div>
     `;
+    restoreGitDiffScroll(diffKey, diffScrollTop);
     bindGitModalActions();
+  }
+
+  function gitDiffRenderIdentity(status, selectedPath) {
+    return {
+      agentId: state.agent?.id || "",
+      repoRoot: status?.repoRoot || state.agent?.cwd || state.project?.gitPath || "",
+      scope: state.gitScope || "all",
+      path: selectedPath || "",
+    };
+  }
+
+  function restoreGitDiffScroll(diffKey, scrollTop) {
+    const node = $("gitDiffView");
+    if (!node || !diffKey || node.dataset?.gitDiffKey !== diffKey) return;
+    node.scrollTop = scrollTop;
+  }
+
+  function bindGitDiffVirtualScroll() {
+    const node = $("gitDiffView");
+    if (!node?.dataset || node.dataset.gitDiffVirtual !== "true") return;
+    let frame = 0;
+    const renderWindow = () => {
+      frame = 0;
+      const key = node.dataset.gitDiffKey || "";
+      const prepared = gitDiffLineCache.peek(key);
+      if (!prepared) return;
+      gitDiffScrollKey = key;
+      gitDiffScrollTop = Number(node.scrollTop || 0);
+      const window = computeGitDiffWindow({
+        lineCount: prepared.lineCount,
+        scrollTop: gitDiffScrollTop,
+        viewportHeight: node.clientHeight || GIT_DIFF_VIRTUAL_DEFAULT_VIEWPORT_HEIGHT,
+      });
+      if (String(window.start) === node.dataset.gitDiffWindowStart && String(window.end) === node.dataset.gitDiffWindowEnd) return;
+      node.dataset.gitDiffWindowStart = String(window.start);
+      node.dataset.gitDiffWindowEnd = String(window.end);
+      node.innerHTML = renderUnifiedDiffWindow(prepared.lines, window);
+    };
+    node.addEventListener("scroll", () => {
+      if (frame) return;
+      if (typeof globalThis.requestAnimationFrame === "function") {
+        frame = globalThis.requestAnimationFrame(renderWindow);
+        return;
+      }
+      renderWindow();
+    }, { passive: true });
+    renderWindow();
   }
 
   /**
@@ -606,19 +795,6 @@ export function createGitWorkflowController({
     }).join("");
   }
 
-  function renderUnifiedDiff(patch) {
-    if (!patch) return `<pre class="git-diff-view empty">${escapeHtml(t("noDiff"))}</pre>`;
-    const lines = String(patch).split("\n");
-    return `<pre class="git-diff-view">${lines.map((line) => `<div class="diff-line ${diffLineClass(line)}">${escapeHtml(line || " ")}</div>`).join("")}</pre>`;
-  }
-
-  function diffLineClass(line) {
-    if (line.startsWith("@@")) return "hunk";
-    if (line.startsWith("diff --git") || line.startsWith("index ") || line.startsWith("---") || line.startsWith("+++")) return "meta";
-    if (line.startsWith("+")) return "add";
-    if (line.startsWith("-")) return "del";
-    return "context";
-  }
 
   function renderGitLog(commits) {
     if (!Array.isArray(commits) || !commits.length) return `<div class="settings-empty-card compact">${escapeHtml(t("noHistory"))}</div>`;
@@ -661,6 +837,7 @@ export function createGitWorkflowController({
         loadGitDiff({ path: state.gitSelectedPath }).catch(showError);
       });
     });
+    bindGitDiffVirtualScroll();
   }
 
   function gitStatusLabel(file) {

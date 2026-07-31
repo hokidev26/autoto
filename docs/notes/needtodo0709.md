@@ -1,8 +1,8 @@
-# needtodo0709：CodeHarbor 后续改进计划（审查补强版）
+# needtodo0709：Autoto 后续改进计划（审查补强版）
 
 ## 0. 报告状态与审查来源
 
-本报告已根据当前仓库的只读审查结果补强，目标是把 CodeHarbor 从“功能型 MVP”推进到更稳定、更可用、更有产品差异化的本地 AI 编码代理工作台。
+本报告已根据当前仓库的只读审查结果补强，目标是把 Autoto 从“功能型 MVP”推进到更稳定、更可用、更有产品差异化的本地 AI 编码代理工作台。
 
 本次补强重点审查了四条主线：
 
@@ -27,7 +27,7 @@
 - 已补齐 provider 层的 OpenAI official / OpenAI-compatible 工具与流式方向，retry/backoff 与 first token timeout 也已有测试覆盖。
 - 已支持 `AGENTS.md` / `CLAUDE.md` 项目指令加载。
 - 已把 RunSummary 接到前端聊天区，形成“任务完成 → 回顾 → 查看 Git 变更 → 提交”的产品闭环入口。
-- 已完成 Bash 输出流式事件，长时间运行的测试/构建命令会通过 narrator WebSocket 推送实时输出，并在聊天区显示实时输出卡片。
+- 已完成 Bash 输出流式事件，长时间运行的测试/构建命令会通过 agent WebSocket 推送实时输出，并在聊天区显示实时输出卡片。
 - 已完成 Webhook 通知 MVP：服务端持久化通知配置，等待审批、任务完成、错误/中断/被替代时可异步 POST 到用户配置端点，设置页支持保存与测试发送。
 
 因此，本文件后续旧风险段落可视为历史审查记录；新的执行重点调整为：
@@ -40,7 +40,7 @@
 
 ## 1. 产品目标
 
-CodeHarbor 应继续围绕“本地优先的 AI 编码代理服务器”演进，定位类似自托管版 Claude Code / OpenHands 工作台，但差异化不应只是更多设置项，而是：
+Autoto 应继续围绕“本地优先的 AI 编码代理服务器”演进，定位类似自托管版 Claude Code / OpenHands 工作台，但差异化不应只是更多设置项，而是：
 
 > 用户派任务，agent 后台执行；需要用户决策时主动提醒；完成后自动给出变更回顾；用户审查 diff 后一键提交。
 
@@ -54,7 +54,7 @@ CodeHarbor 应继续围绕“本地优先的 AI 编码代理服务器”演进�
 
 ## 2. 当前项目定位
 
-CodeHarbor 当前是本地优先的 AI 编码代理工作台，核心能力包括：
+Autoto 当前是本地优先的 AI 编码代理工作台，核心能力包括：
 
 - 嵌入式 Web UI。
 - 多 LLM provider 接入。
@@ -63,7 +63,7 @@ CodeHarbor 当前是本地优先的 AI 编码代理工作台，核心能力包�
 - SQLite 持久化。
 - PTY 终端。
 - 本地安全控制。
-- 多 narrator / chapter 工作流。
+- 多 agent / workline 工作流。
 - Git diff / commit modal。
 - WebSocket 驱动的聊天与工具审批事件。
 
@@ -94,7 +94,7 @@ server、agent、providers、tools、db 等模块边界相对明确。Provider �
 
 证据：
 
-- 工具审批持久化在 `narrator_tool_calls`。
+- 工具审批持久化在 `agent_tool_calls`。
 - Git commit API 只提交显式选择路径，并做敏感路径检查。
 - `.gitignore` 已覆盖本地 DB、运行残留、构建产物和 secrets 类文件。
 
@@ -177,7 +177,7 @@ server、agent、providers、tools、db 等模块边界相对明确。Provider �
 - 没有 `runs` 表。
 - 没有 `run_id` 字段。
 - 没有 run summary API。
-- narrator 只有 `running / idle / error / interrupted` 等粗粒度状态。
+- agent 只有 `running / idle / error / interrupted` 等粗粒度状态。
 - tool approval 有持久化，但前端 pending approval 卡片主要保存在浏览器内存中，刷新后可能丢失展示。
 
 现有 Git modal 是全局工作区视角，不知道某一轮 run 的开始和结束范围。
@@ -205,17 +205,17 @@ Settings 中已有不少面板和偏好，但部分能力仍停留在 localStora
 
 当前 `.gitignore` 已覆盖主要产物：
 
-- `/codeharbor`。
-- `.codeharbor-run-*.json`。
+- `/autoto`。
+- `.autoto-run-*.json`。
 - `*.db`、`*.db-wal`、`*.db-shm`。
 - `.env`、`*.log`、`tmp/`、`coverage.out` 等。
 
 观察到的本地残留：
 
-- `codeharbor`：Mach-O 可执行文件，已被忽略。
-- `.codeharbor-run-57314.json`：运行残留，已被忽略。
+- `autoto`：Mach-O 可执行文件，已被忽略。
+- `.autoto-run-57314.json`：运行残留，已被忽略。
 - `needtodo0709`：当前报告文件，未跟踪且未忽略。
-- 空目录：`internal/auth`、`internal/narrator`、`internal/project`。
+- 空目录：`internal/auth`、`internal/agent`、`internal/project`。
 
 因此原计划里“补 `.gitignore`”应改为“确认规则、清理残留、说明空目录用途、决定报告文件是否纳入版本控制”。
 
@@ -240,7 +240,7 @@ Settings 中已有不少面板和偏好，但部分能力仍停留在 localStora
 
 1. Webhook / 多渠道通知。
 2. 检查点与回滚。
-3. Chapters 工作线可视化。
+3. Worklines 工作线可视化。
 4. Skills 服务端化。
 5. 会话全文搜索。
 6. 成本预算与告警。
@@ -270,7 +270,7 @@ Settings 中已有不少面板和偏好，但部分能力仍停留在 localStora
 
 仍缺：
 
-- CodeHarbor 层统一 retry/backoff。
+- Autoto 层统一 retry/backoff。
 - 首 token timeout。
 - 更统一的 provider 错误分类。
 
@@ -392,7 +392,7 @@ Settings 中已有不少面板和偏好，但部分能力仍停留在 localStora
 
 当前 DB 初始化路径：
 
-- `cmd/codeharbor/main.go` 打开数据库。
+- `cmd/autoto/main.go` 打开数据库。
 - `internal/config/defaults.go` 设置默认 DB 路径。
 - `internal/db/db.go` 的 `Open(...)` 调用 `store.migrate(ctx)`。
 - `store.migrate(ctx)` 只执行 `schemaSQL`。
@@ -402,16 +402,16 @@ Settings 中已有不少面板和偏好，但部分能力仍停留在 localStora
 
 - `users`。
 - `projects`。
-- `chapters`。
-- `narrators`。
-- `narrator_messages`。
-- `narrator_message_attachments`。
-- `narrator_tool_calls`。
+- `worklines`。
+- `agents`。
+- `agent_messages`。
+- `agent_message_attachments`。
+- `agent_tool_calls`。
 - `api_requests`。
 - `agent_backends`。
 - `mcp_servers`。
 
-注意：部分文档里的表清单可能已旧，需同步补上 `narrator_message_attachments` 与 `mcp_servers`。
+注意：部分文档里的表清单可能已旧，需同步补上 `agent_message_attachments` 与 `mcp_servers`。
 
 ### 7.3 风险
 
@@ -462,14 +462,14 @@ Settings 中已有不少面板和偏好，但部分能力仍停留在 localStora
 - 新建空数据库后，所有当前表和索引存在。
 - 新建空数据库后，`PRAGMA user_version = CurrentDBVersion`。
 - 当前未标版本但 schema 完整的旧库，打开后不丢数据并设置版本。
-- 人工构造旧库缺代表性字段，例如 `narrators.prune_boundary_message_id`，打开后自动补齐。
+- 人工构造旧库缺代表性字段，例如 `agents.prune_boundary_message_id`，打开后自动补齐。
 - 连续 `Open` 两次不报错，数据行数不变化，migration 幂等。
 - 未来版本库被拒绝，错误信息清晰。
 - 迁移后 `PRAGMA foreign_keys = 1`。
 - 测试建议放在 `internal/db/db_test.go`：
   - `TestOpenInitializesUserVersionForNewDatabase`。
   - `TestOpenMigratesLegacyZeroVersionDatabase`。
-  - `TestOpenMigratesLegacyDatabaseMissingNarratorColumns`。
+  - `TestOpenMigratesLegacyDatabaseMissingAgentColumns`。
   - `TestMigrateIsIdempotent`。
   - `TestOpenRejectsFutureDatabaseVersion`。
   - `TestForeignKeysEnabledAfterOpen`。
@@ -478,7 +478,7 @@ Settings 中已有不少面板和偏好，但部分能力仍停留在 localStora
 
 ### 8.1 目标
 
-形成 CodeHarbor 的核心产品闭环：
+形成 Autoto 的核心产品闭环：
 
 派活 → 后台执行 → 需要审批时提醒 → 用户批准/拒绝 → 工具继续执行 → 完成后回顾 → 审查 diff → 提交。
 
@@ -488,7 +488,7 @@ Settings 中已有不少面板和偏好，但部分能力仍停留在 localStora
 
 - agent loop 可后台 goroutine 执行。
 - WebSocket 有 `agent.started`、`agent.done`、`agent.error`、`tool.approval_required`、`tool.finished` 等事件。
-- 工具审批记录在 `narrator_tool_calls`。
+- 工具审批记录在 `agent_tool_calls`。
 - 前端能显示审批卡片并调用审批 API。
 - Git modal 已支持 status / diff / log / commit。
 - Toast 能显示本地提醒。
@@ -516,7 +516,7 @@ Settings 中已有不少面板和偏好，但部分能力仍停留在 localStora
 新增 `runs` 表：
 
 - `id`。
-- `narrator_id`。
+- `agent_id`。
 - `trigger_message_id`。
 - `status`：`queued / running / waiting_approval / completed / error / interrupted`。
 - `started_at`。
@@ -529,18 +529,18 @@ Settings 中已有不少面板和偏好，但部分能力仍停留在 localStora
 
 新增字段：
 
-- `narrator_messages.run_id`。
-- `narrator_tool_calls.run_id`。
+- `agent_messages.run_id`。
+- `agent_tool_calls.run_id`。
 - 可选：`api_requests.run_id`。
 
 ### 8.5 API 建议
 
 新增：
 
-- `GET /api/narrators/{id}/runs?limit=...`。
-- `GET /api/narrators/{id}/runs/{runId}`。
-- `GET /api/narrators/{id}/runs/{runId}/summary`。
-- `GET /api/narrators/{id}/tool-calls?status=pending_approval` 或 run-scoped pending approvals API。
+- `GET /api/agents/{id}/runs?limit=...`。
+- `GET /api/agents/{id}/runs/{runId}`。
+- `GET /api/agents/{id}/runs/{runId}/summary`。
+- `GET /api/agents/{id}/tool-calls?status=pending_approval` 或 run-scoped pending approvals API。
 
 Run summary 内容：
 
@@ -614,14 +614,14 @@ Run summary 内容：
 
 - server-side webhook URL 配置。
 - run 状态变化触发通知。
-- 通知包含项目名、narrator、run status、工具摘要、跳转链接。
+- 通知包含项目名、agent、run status、工具摘要、跳转链接。
 - 基础重试。
 - 敏感内容脱敏。
 
 #### 阶段 3：多渠道与安全增强
 
 - 通知签名。
-- 每项目/每 narrator 策略。
+- 每项目/每 agent 策略。
 - 多渠道。
 - 失败队列与重放。
 
@@ -701,7 +701,7 @@ Run summary 内容：
 
 任务：
 
-- 支持读取 narrator cwd 下的 `AGENTS.md`。
+- 支持读取 agent cwd 下的 `AGENTS.md`。
 - 可选支持 `CLAUDE.md`。
 - 做路径边界校验。
 - 设置大小上限和截断提示。
@@ -738,9 +738,9 @@ Run summary 内容：
 
 任务：
 
-- 确认 `.gitignore` 已覆盖当前观察到的 `/codeharbor` 和 `.codeharbor-run-*.json`。
-- 删除或保留说明本地残留 `codeharbor`、`.codeharbor-run-57314.json`。
-- 处理空目录 `internal/auth`、`internal/narrator`、`internal/project`：删除或加明确用途占位。
+- 确认 `.gitignore` 已覆盖当前观察到的 `/autoto` 和 `.autoto-run-*.json`。
+- 删除或保留说明本地残留 `autoto`、`.autoto-run-57314.json`。
+- 处理空目录 `internal/auth`、`internal/agent`、`internal/project`：删除或加明确用途占位。
 - 明确 `needtodo0709` 是否纳入版本控制。
 
 验收标准：
@@ -851,7 +851,7 @@ MVP：
 
 - 支持配置 webhook URL。
 - run 进入 waiting_approval / completed / error / interrupted 时发送通知。
-- 通知包含项目名、narrator、工具摘要、跳转链接。
+- 通知包含项目名、agent、工具摘要、跳转链接。
 
 后续增强：
 
@@ -875,18 +875,18 @@ MVP：
 - 必须明确提示会影响当前未提交改动。
 - 不应偷偷执行破坏性 Git 命令。
 
-### 12.4 Chapters 工作线可视化面板
+### 12.4 Worklines 工作线可视化面板
 
 MVP：
 
-- 侧边栏或独立面板展示 chapter 树/列表。
+- 侧边栏或独立面板展示 workline 树/列表。
 - 显示分支名、worktree 状态、merge-check 状态。
 - 提供 fork、merge-check、merge 的入口。
 
 价值：
 
-- 将 CodeHarbor 独特的多工作线能力产品化。
-- 降低用户理解 chapter / fork / merge 的门槛。
+- 将 Autoto 独特的多工作线能力产品化。
+- 降低用户理解 workline / fork / merge 的门槛。
 
 ### 12.5 Skills 服务端化
 
@@ -900,7 +900,7 @@ MVP：
 价值：
 
 - 技能不再只存在浏览器。
-- 可跨 narrator、跨项目或未来跨设备复用。
+- 可跨 agent、跨项目或未来跨设备复用。
 
 ### 12.6 会话全文搜索
 
@@ -909,7 +909,7 @@ MVP：
 - 使用 SQLite FTS5 为消息内容建立索引。
 - 新增搜索 API。
 - 前端提供全局搜索入口。
-- 搜索结果可跳转到对应 narrator / message。
+- 搜索结果可跳转到对应 agent / message。
 
 价值：
 
@@ -920,7 +920,7 @@ MVP：
 MVP：
 
 - 项目级预算。
-- narrator 或 run 级成本统计。
+- agent 或 run 级成本统计。
 - 超过阈值时提醒或阻止继续执行。
 - 明确展示估算价格来源和未知模型 fallback。
 
@@ -935,9 +935,9 @@ MVP：
 - 支持更安全的远程访问。
 - 为未来多设备或多用户能力留接口。
 
-### 13.2 AI 冲突解决与 review chapter
+### 13.2 AI 冲突解决与 review workline
 
-目标：进一步发挥 chapter / worktree 架构价值，让 agent 可以辅助处理 merge conflict 或独立审查另一条工作线。
+目标：进一步发挥 workline / worktree 架构价值，让 agent 可以辅助处理 merge conflict 或独立审查另一条工作线。
 
 ### 13.3 MCP 长连接会话池
 
@@ -963,7 +963,7 @@ MVP：
 | Bash 输出流式显示 | P1 | 中 | 工具卡片实时追加输出 |
 | 后台 webhook 通知 | P2 | 中 | run 状态变化发送 webhook |
 | 检查点与回滚 | P2 | 中 | run 开始前记录 Git 状态 |
-| Chapters 工作线可视化 | P2 | 中 | 展示 chapter、branch、worktree 状态 |
+| Worklines 工作线可视化 | P2 | 中 | 展示 workline、branch、worktree 状态 |
 | 会话全文搜索 | P2 | 低到中 | SQLite FTS5 搜索消息 |
 | 成本预算与告警 | P2 | 低 | 项目预算和阈值提醒 |
 | Skills 服务端化 | P2 | 中 | skills 表 + CRUD API |
@@ -1007,7 +1007,7 @@ MVP：
 
 ## 18. 核心产品判断
 
-CodeHarbor 最有潜力的差异化功能不是继续堆设置项，而是把“常驻服务器 + 持久化 + 多工作线 + 审批工具执行”结合起来，形成普通 CLI agent 难以做到的体验：
+Autoto 最有潜力的差异化功能不是继续堆设置项，而是把“常驻服务器 + 持久化 + 多工作线 + 审批工具执行”结合起来，形成普通 CLI agent 难以做到的体验：
 
 > 用户派任务，agent 后台执行；需要用户决策时主动提醒；完成后自动给出变更回顾；用户审查 diff 后一键提交。
 

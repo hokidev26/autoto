@@ -101,7 +101,7 @@ func (AgentTool) Execute(ctx context.Context, call Call, env Env) (Result, error
 		return Result{Output: "foreground child agents are not supported; set run_in_background to true", IsError: true}, nil
 	}
 	switch input.ReasoningEffort {
-	case "", "auto", "low", "medium", "high", "xhigh":
+	case "", "auto", "low", "medium", "high", "xhigh", "max", "ultra":
 	default:
 		return Result{Output: "invalid reasoning_effort", IsError: true}, nil
 	}

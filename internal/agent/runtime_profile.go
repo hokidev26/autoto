@@ -319,14 +319,16 @@ func (r *Runner) prepareMemoryContext(ctx context.Context, agentID string, run d
 	if err != nil {
 		return "", 0, fmt.Errorf("list matching memories for injection: %w", err)
 	}
-	memoryContext, memoryIDs := boundedMemorySystemContext(memories)
-	if len(memoryIDs) == 0 {
+	memoryContext, ledgerIDs := boundedMemorySystemContext(memories)
+	if memoryContext == "" {
 		return "", 0, nil
 	}
-	if err := r.store.MarkMemoriesInjected(ctx, agentID, memoryIDs); err != nil {
-		return "", 0, fmt.Errorf("record memory injection ledger: %w", err)
+	if len(ledgerIDs) > 0 {
+		if err := r.store.MarkMemoriesInjected(ctx, agentID, ledgerIDs); err != nil {
+			return "", 0, fmt.Errorf("record memory injection ledger: %w", err)
+		}
 	}
-	return memoryContext, len(memoryIDs), nil
+	return memoryContext, renderedMemoryCount(memories), nil
 }
 
 func (snapshot RunPromptSnapshot) systemPrompt() string {
@@ -622,8 +624,9 @@ func conservativeToolRisk(name string) tools.Risk {
 	case "Write", "Edit", "MultiEdit":
 		return tools.RiskWrite
 	// Symbols spawns a language server process, so it belongs with the exec
-	// tools even though callers think of it as a lookup.
-	case "Bash", "Agent", "Task", "Symbols", "MCPCallTool":
+	// tools even though callers think of it as a lookup. OpenURL is here for the
+	// same reason: it starts a program on the user's desktop.
+	case "Bash", "Agent", "Task", "Symbols", "MCPCallTool", "OpenURL":
 		return tools.RiskExec
 	default:
 		// Unknown/dynamic tools are conservatively classified as executable for

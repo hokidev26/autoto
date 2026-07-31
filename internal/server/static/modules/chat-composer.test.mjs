@@ -204,11 +204,29 @@ test("reasoning effort normalizes legacy and unknown values against backend capa
   assert.equal(normalizeReasoningEffort("xhigh", ["auto", "low", "high"]), "auto");
 });
 
-test("codex gpt-5.5 exposes the same five reasoning efforts in every navigation context", () => {
-  const provider = { name: "codex", capabilities: { reasoningEffort: true } };
-  assert.deepEqual(reasoningEffortValuesForModel(provider, "codex:gpt-5.5"), ["auto", "low", "medium", "high", "xhigh"]);
-  for (const navigationSelectionKind of ["conversation", "project"]) {
-    assert.deepEqual(reasoningEffortValuesForModel({ ...provider, navigationSelectionKind }, "codex:gpt-5.5"), ["auto", "low", "medium", "high", "xhigh"]);
+test("a codex model exposes its own catalog levels in every navigation context", () => {
+  // The catalog reports levels per model: gpt-5.6-luna serves "max", gpt-5.5
+  // stops at "xhigh". Navigation context must not change either answer.
+  const provider = {
+    name: "codex",
+    capabilities: { reasoningEffort: true, reasoningEfforts: ["low", "medium", "high", "xhigh"] },
+    modelCapabilities: {
+      "gpt-5.5": { reasoningEfforts: ["low", "medium", "high", "xhigh"] },
+      "gpt-5.6-luna": { reasoningEfforts: ["low", "medium", "high", "xhigh", "max"] },
+    },
+  };
+  const expected = {
+    "codex:gpt-5.5": ["auto", "low", "medium", "high", "xhigh"],
+    "codex:gpt-5.6-luna": ["auto", "low", "medium", "high", "xhigh", "max"],
+    // A model the catalog said nothing about falls back to the provider list
+    // rather than guessing a level the model may reject.
+    "codex:gpt-unknown": ["auto", "low", "medium", "high", "xhigh"],
+  };
+  for (const [model, values] of Object.entries(expected)) {
+    assert.deepEqual(reasoningEffortValuesForModel(provider, model), values);
+    for (const navigationSelectionKind of ["conversation", "project"]) {
+      assert.deepEqual(reasoningEffortValuesForModel({ ...provider, navigationSelectionKind }, model), values);
+    }
   }
 });
 
@@ -884,6 +902,112 @@ test("Composer does not send when the selected and persisted models remain incon
     assert.equal(requests.length, 0);
     assert.equal(input.value, "Keep this draft");
     assert.equal(input.disabled, false);
+  } finally {
+    globalThis.document = previousDocument;
+    globalThis.getComputedStyle = previousGetComputedStyle;
+  }
+});
+
+test("Composer makes an active run a compact, one-click stop action", async () => {
+  const previousDocument = globalThis.document;
+  const previousGetComputedStyle = globalThis.getComputedStyle;
+  const attributes = new Map();
+  const clickHandlers = [];
+  const stopClasses = [];
+  const input = {
+    value: "",
+    disabled: false,
+    scrollHeight: 46,
+    style: {},
+    classList: { toggle() {} },
+    focus() {},
+  };
+  const sendButton = {
+    textContent: "Send",
+    title: "Send",
+    disabled: false,
+    dataset: { mobileLabel: "↑" },
+    classList: { toggle(name, enabled) { stopClasses.push({ name, enabled }); } },
+    setAttribute(name, value) { attributes.set(name, value); },
+    removeAttribute(name) { attributes.delete(name); },
+    addEventListener(type, handler, options) { clickHandlers.push({ type, handler, options }); },
+  };
+  const elements = {
+    messageText: input,
+    sendMessageBtn: sendButton,
+    attachFileBtn: { disabled: false },
+    attachFileInput: { disabled: false },
+  };
+  const state = {
+    agent: { id: "agent-stop", model: "openai:model", status: "running" },
+    navigationSelectionKind: "conversation",
+    messageSendingByAgent: { "agent-stop": true },
+    pendingToolApprovals: {},
+    liveToolOutputs: {},
+    pendingAttachments: [],
+    promptHistory: [],
+    serverSkills: [],
+  };
+  const requests = [];
+  const toasts = [];
+  globalThis.document = { getElementById(id) { return elements[id] || null; } };
+  globalThis.getComputedStyle = () => ({ minHeight: "46px", maxHeight: "128px", getPropertyValue() { return ""; } });
+  try {
+    const controller = createChatComposerController({
+      state,
+      currentSkillsPreferences: () => ({ commands: [] }),
+      request: async (path, options) => {
+        requests.push({ path, options });
+        return { interrupted: true };
+      },
+      showToast: (message, tone) => toasts.push({ message, tone }),
+    });
+
+    // The initial send lock must clear before the stop label is installed.
+    controller.syncMessageComposerBusy();
+    assert.equal(sendButton.disabled, true);
+    assert.equal(attributes.get("aria-busy"), "true");
+    state.messageSendingByAgent = {};
+    controller.syncMessageComposerBusy();
+
+    assert.equal(sendButton.disabled, false);
+    assert.equal(attributes.has("aria-busy"), false);
+    // The test suite runs in Simplified Chinese, while the original DOM label
+    // is deliberately English; this also proves setButtonBusy did not restore
+    // that stale pre-send label over the localized stop action.
+    assert.notEqual(sendButton.textContent, "Send");
+    const stopLabel = sendButton.textContent;
+    assert.equal(sendButton.dataset.mobileLabel, "■");
+    assert.equal(attributes.get("aria-label"), sendButton.title);
+    assert.equal(stopClasses.at(-1).enabled, true);
+    assert.equal(clickHandlers.length, 1);
+    assert.equal(clickHandlers[0].type, "click");
+    assert.equal(clickHandlers[0].options, true);
+
+    let prevented = 0;
+    let stopped = 0;
+    clickHandlers[0].handler({
+      preventDefault() { prevented += 1; },
+      stopPropagation() { stopped += 1; },
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    assert.equal(prevented, 1);
+    assert.equal(stopped, 1);
+    assert.deepEqual(requests, [{
+      path: "/api/agents/agent-stop/interrupt",
+      options: { method: "POST" },
+    }]);
+    assert.equal(toasts.at(-1).tone, "info");
+
+    state.agent.status = "idle";
+    controller.syncMessageComposerBusy();
+    assert.notEqual(sendButton.textContent, stopLabel);
+    assert.equal(sendButton.dataset.mobileLabel, "↑");
+    assert.equal(attributes.get("aria-label").includes(sendButton.title), true);
+    assert.equal(stopClasses.at(-1).enabled, false);
+    assert.equal(clickHandlers.length, 1);
   } finally {
     globalThis.document = previousDocument;
     globalThis.getComputedStyle = previousGetComputedStyle;

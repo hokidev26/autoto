@@ -79,7 +79,9 @@ import {
   providerTestPayload,
   providerMessageTestPayload,
   renderProviderConsolePage,
+  renderProviderModelEditor,
 } from "./model-provider-components.mjs";
+import { reasoningEffortValuesForModel } from "./chat-composer.mjs";
 import { setUILocale } from "./i18n.mjs";
 import { getRegionalPreferences, setRegionalPreferences } from "./locale-registry.mjs";
 
@@ -669,6 +671,66 @@ test("Gemini/Grok/Kimi 各自作为独立官方卡片进入独立管理页且互
   assert.equal(subscriptionProviderKind({ name: "gemini-relay", type: "gemini-interactions", origin: "custom" }), "");
 });
 
+test("官方账号概览优先加载 Codex 与 Antigravity，并在模型刷新后重读快照", async () => {
+  const state = {
+    settings: { providers: [
+      { name: "codex", type: "codex", origin: "builtin", enabled: true, configured: true },
+      { name: "gemini", type: "gemini", origin: "builtin", enabled: true, configured: true },
+      { name: "anthropic", type: "anthropic", origin: "builtin", enabled: true, configured: true },
+      { name: "grok", type: "grok", origin: "builtin", enabled: true, configured: true },
+      { name: "kimi", type: "kimi", origin: "builtin", enabled: true, configured: true },
+      { name: "kiro", type: "kiro", origin: "builtin", enabled: true, configured: true },
+    ] },
+    modelCatalog: { providers: [] },
+    providerConsole: { view: "providers" },
+    providerAuthFiles: null,
+    providerAuthSeq: 0,
+    providerAuthError: "",
+    providerAuthLoading: false,
+  };
+  const requests = [];
+  const events = [];
+  const controller = createModelProviderSettingsController({
+    state,
+    refreshActiveSettingsPanel() {},
+    loadModelCatalog: async () => { events.push("catalog"); },
+    requestAPI: async (path) => {
+      requests.push(path);
+      return { accounts: [] };
+    },
+  });
+
+  await controller.loadOfficialProviderAccountOverview({ defer: false });
+  assert.deepEqual(requests, [
+    "/api/providers/oauth/codex/accounts",
+    "/api/providers/auth/gemini/accounts",
+    "/api/providers/auth/anthropic/accounts",
+    "/api/providers/auth/grok/accounts",
+    "/api/providers/auth/kimi/accounts",
+    "/api/providers/auth/kiro/accounts",
+  ]);
+  await controller.loadOfficialProviderAccountOverview({ defer: false });
+  assert.equal(requests.length, 6, "loaded account sources must not be requested twice");
+
+  const previousDocument = globalThis.document;
+  globalThis.document = { getElementById: () => null };
+  try {
+    await controller.refreshModelCatalog();
+  } finally {
+    globalThis.document = previousDocument;
+  }
+  assert.deepEqual(events, ["catalog"]);
+  assert.equal(requests.length, 12);
+  assert.deepEqual(new Set(requests.slice(6)), new Set([
+    "/api/providers/oauth/codex/accounts",
+    "/api/providers/auth/anthropic/accounts",
+    "/api/providers/auth/gemini/accounts",
+    "/api/providers/auth/grok/accounts",
+    "/api/providers/auth/kimi/accounts",
+    "/api/providers/auth/kiro/accounts",
+  ]));
+});
+
 test("受限远程会话不会发送供应商草稿或 API Key", async () => {
   let requests = 0;
   const state = {
@@ -1040,6 +1102,63 @@ test("model catalog passes through object-shaped Provider reasoning capabilities
   });
 });
 
+test("模型上下文上限未设定时输入框留空并提示回退值，不伪造已保存的数字", () => {
+  const html = renderProviderModelEditor({
+    modelConfigs: [{ name: "unset-model" }, { name: "set-model", contextTokenLimit: 272000 }],
+    capabilities: {},
+    modelsReady: true,
+  }, false, true);
+  const inputs = html.match(/<input[^>]*data-mp-model-token="[^"]*"[^>]*>/g) || [];
+  assert.equal(inputs.length, 2);
+
+  const unset = inputs.find((item) => item.includes('data-mp-model-token="unset-model"'));
+  // 旧行为把 272000 直接写进 value，看起来像已保存，实际后端存的是 0 并回退到 120000。
+  assert.match(unset, /value=""/);
+  assert.doesNotMatch(unset, /value="272000"/);
+  assert.match(unset, /placeholder="[^"]*120000[^"]*"|placeholder="未设定[^"]*"/);
+
+  const set = inputs.find((item) => item.includes('data-mp-model-token="set-model"'));
+  assert.match(set, /value="272000"/);
+});
+
+test("合并供应商时空 capabilities 不覆盖已知能力，思考强度档位得以保留", () => {
+  const capabilities = {
+    tools: true,
+    streaming: true,
+    imageInput: true,
+    reasoningEffort: true,
+    reasoningEfforts: ["low", "medium", "high"],
+  };
+  const settings = [{ name: "myrelay", type: "anthropic", model: "claude-sonnet-4-5", configured: true, enabled: true, capabilities }];
+
+  // 模型目录始终序列化 capabilities 字段，空对象曾经会覆盖设置侧的正确能力。
+  for (const catalogCapabilities of [{}, undefined]) {
+    const providers = modelProvidersForUIUnion(settings, [
+      { name: "myrelay", type: "anthropic", configured: true, models: ["claude-sonnet-4-5"], capabilities: catalogCapabilities },
+    ]);
+    const provider = providers.find((item) => item.name === "myrelay");
+    assert.deepEqual(provider.capabilities.reasoningEfforts, ["low", "medium", "high"]);
+    assert.equal(provider.capabilities.reasoningEffort, true);
+    assert.deepEqual(
+      reasoningEffortValuesForModel(provider, "myrelay:claude-sonnet-4-5"),
+      ["auto", "low", "medium", "high"],
+    );
+  }
+
+  // 目录侧有能力时以目录为准，因为它反映运行时实例。
+  const narrowed = modelProvidersForUIUnion(settings, [
+    { name: "myrelay", type: "anthropic", configured: true, capabilities: { reasoningEffort: true, reasoningEfforts: ["low", "high"] } },
+  ]);
+  assert.deepEqual(narrowed.find((item) => item.name === "myrelay").capabilities.reasoningEfforts, ["low", "high"]);
+
+  // 两侧都没有能力时保持空对象，不得凭空捏造档位。
+  const empty = modelProvidersForUIUnion(
+    [{ name: "plain", type: "openai-compatible", model: "m1", configured: true }],
+    [{ name: "plain", type: "openai-compatible", configured: true, capabilities: {} }],
+  );
+  assert.deepEqual(empty.find((item) => item.name === "plain").capabilities, {});
+});
+
 test("供应商控制台总览合并数据，并在卡片上提供启停与自建供应商删除入口", () => {
   const providers = modelProvidersForUIUnion(
     [
@@ -1082,6 +1201,39 @@ test("供应商控制台总览合并数据，并在卡片上提供启停与自�
   for (const className of ["settings-page-section", "settings-card", "settings-card-header", "settings-card-content", "settings-toolbar", "settings-stat-grid", "settings-stat-card", "settings-form-field", "settings-inline-actions", "settings-badge"]) {
     assert.match(html, new RegExp(className));
   }
+});
+
+test("官方账号平台卡片用单一额度摘要替代模型铺排", () => {
+  const providers = modelProvidersForUIUnion([
+    { name: "gemini", type: "gemini", enabled: true, origin: "builtin", configured: true, model: "gemini-3-flash" },
+    { name: "openai", type: "openai", enabled: true, origin: "builtin", configured: true, model: "gpt-5" },
+    { name: "relay", type: "openai-compatible", enabled: true, origin: "custom", configured: true, model: "relay-a" },
+  ], [
+    { name: "gemini", type: "gemini", configured: true, models: ["gemini-3-flash", "gemini-3.1-pro", "claude-opus"] },
+    { name: "openai", type: "openai", configured: true, models: ["gpt-5", "gpt-4.1"] },
+    { name: "relay", type: "openai-compatible", configured: true, models: ["relay-a", "relay-b"] },
+  ]);
+  const html = renderProviderConsolePage({
+    providers,
+    accountSummaries: {
+      gemini: {
+        provider: "gemini", state: "ready", loaded: true, total: 2, available: 2,
+        percent: 12, tone: "warning", model: "gemini-3.1-pro", accountLabel: "Work",
+        resetAt: "2026-07-28T13:00:00Z", resetAfterSeconds: 0, updatedAt: "", hasQuota: true,
+      },
+    },
+    consoleState: {},
+  });
+  const geminiCard = html.match(/<article[^>]*data-mp-provider-card="gemini"[\s\S]*?<\/article>/)?.[0] || "";
+  const openaiCard = html.match(/<article[^>]*data-mp-provider-card="openai"[\s\S]*?<\/article>/)?.[0] || "";
+  const relayCard = html.match(/<article[^>]*data-mp-provider-card="relay"[\s\S]*?<\/article>/)?.[0] || "";
+  assert.match(geminiCard, /data-mp-provider-quota="gemini"/);
+  assert.match(geminiCard, /role="progressbar"[^>]*aria-valuenow="12"/);
+  assert.match(geminiCard, /gemini-3\.1-pro/);
+  assert.doesNotMatch(geminiCard, /gemini-3-flash|claude-opus|mp-provider-model-preview/);
+  assert.match(openaiCard, /mp-provider-model-preview/);
+  assert.match(openaiCard, /gpt-5/);
+  assert.match(relayCard, /mp-provider-model-preview/);
 });
 
 test("已获取模型在 Provider 页面可见并进入全局模型选择器", () => {
@@ -1492,6 +1644,7 @@ test("供应商控制台配置 payload 保留空 API Key 并规范请求与网�
       { name: "Authorization", value: "", keepExisting: true },
     ],
     insecureSkipTLSVerify: true,
+    allowPlaintextHTTP: false,
   });
 });
 
@@ -1581,6 +1734,7 @@ test("供应商控制台 toggle、草稿预检、delete 与 config 请求遵守�
     userAgent: "Autoto Test Client",
     requestHeaders: [{ name: "X-Test", value: "request-secret", keepExisting: false }],
     insecureSkipTLSVerify: true,
+    allowPlaintextHTTP: false,
   });
   const testConnection = providerConsoleRequest("test", provider, draft);
   assert.equal(testConnection.path, "/api/providers/test");
@@ -1659,6 +1813,7 @@ test("供应商表单草稿实时同步并在后台重绘时保持 dirty 内容"
     requestHeaders: [{ name: "X-Saved", value: "", keepExisting: true, configured: true }],
     requestHeadersDraft: true,
     insecureSkipTLSVerify: true,
+    allowPlaintextHTTP: false,
     model: "acme-model",
     maxTokens: 8192,
     apiKeyOptional: true,
@@ -2031,7 +2186,7 @@ test("缺失 origin 时保守保护删除，明确 custom 才可删除", () => {
 test("Codex 控制台使用独立账号页并让凭证导入区常开", () => {
   const state = {
     settings: { providers: [{ name: "codex", type: "codex", origin: "builtin", enabled: true, model: "gpt-5.5" }] },
-    modelCatalog: { providers: [{ name: "codex", type: "codex", configured: true, models: ["gpt-5.5"] }] },
+    modelCatalog: { providers: [{ name: "codex", type: "codex", configured: true, models: ["gpt-5.5", "gpt-5.4"] }] },
     providerAuthFiles: [{ id: "account-1", alias: "Main", quota: { primary_window: { used_percent: 10, limit_window_seconds: 3600 } } }],
     providerAuthLoading: false,
     codexAccountBusy: {},
@@ -2060,6 +2215,13 @@ test("Codex 控制台使用独立账号页并让凭证导入区常开", () => {
   assert.match(html, /data-codex-select="account-1"/);
   assert.match(html, /data-codex-batch-sync/);
   assert.match(html, /data-codex-export="account-1"/);
+  assert.match(html, /codex-model-panel/);
+  assert.match(html, /Codex 模型/);
+  assert.match(html, /data-mp-provider-form data-codex-provider-config="codex"/);
+  assert.match(html, /data-mp-model-config="gpt-5\.5"/);
+  assert.match(html, /data-mp-model-config="gpt-5\.4"/);
+  assert.match(html, /data-mp-refresh-models/);
+  assert.doesNotMatch(html, /data-mp-fetch-models/);
   assert.doesNotMatch(html, /codex-credits-summary|Credits|Unlimited/);
   assert.equal((html.match(/id="codexCredentialImportSection"/g) || []).length, 1);
   assert.doesNotMatch(html, /data-mp-codex-toggle-import/);
@@ -2087,6 +2249,51 @@ test("Codex 控制台使用独立账号页并让凭证导入区常开", () => {
   const remote = controller.renderProviderSettingsContent();
   assert.match(remote, /浏览器登录只能在运行 Autoto 的本机完成/);
   assert.match(remote, /data-mp-codex-browser-login disabled/);
+});
+
+test("Codex 模型面板的眼睛直接更新模型选择器可见性", () => {
+  let prefs = { hiddenModels: {}, showUnconfiguredProviders: false };
+  let panelRefreshes = 0;
+  const state = {
+    settings: { providers: [{ name: "codex", type: "codex", origin: "builtin", enabled: true, configured: true, model: "gpt-5.5" }] },
+    modelCatalog: { providers: [{ name: "codex", type: "codex", configured: true, models: ["gpt-5.5", "gpt-5.4"] }] },
+    providerAuthFiles: [{ id: "account-1" }],
+    providerAuthLoading: false,
+    providerConsole: { view: "codex", mode: "codex", type: "codex", providerName: "codex", draft: createProviderDraft("codex") },
+  };
+  const controller = createModelProviderSettingsController({
+    state,
+    getModelVisibilityPreference: () => prefs,
+    setModelVisibilityPreference: (next) => { prefs = next; },
+    refreshActiveSettingsPanel: () => { panelRefreshes += 1; },
+  });
+  const listeners = {};
+  const root = {
+    addEventListener: (type, handler) => { listeners[type] = handler; },
+    removeEventListener: () => {},
+  };
+  const previousDocument = globalThis.document;
+  globalThis.document = { getElementById: (id) => (id === "settingsContentBody" ? root : null) };
+  try {
+    controller.bindProviderSettingsActions();
+    assert.ok(listeners.click, "the console must bind a click handler");
+    const form = { elements: { name: { value: "codex" } } };
+    const target = {
+      dataset: { mpModelVisibility: "gpt-5.5", hidden: "false" },
+      closest: (selector) => {
+        if (selector === "[data-subscription-provider-config]") return null;
+        if (selector === "[data-codex-provider-config]") return form;
+        if (selector.includes("button")) return target;
+        return null;
+      },
+    };
+    listeners.click({ target, preventDefault() {}, stopPropagation() {} });
+    assert.equal(prefs.hiddenModels["codex:gpt-5.5"], true);
+    assert.ok(panelRefreshes > 0, "the Codex model panel must re-render after visibility changes");
+    assert.match(controller.renderProviderSettingsContent(), /mp-provider-model-config-row is-hidden[^>]*data-mp-model-config="gpt-5\.5"/);
+  } finally {
+    globalThis.document = previousDocument;
+  }
 });
 
 test("Anthropic 内置卡片使用独立账号页并保留模型配置", () => {
@@ -2129,8 +2336,11 @@ test("Anthropic 内置卡片使用独立账号页并保留模型配置", () => {
   assert.match(html, /anthropic-account-table/);
   assert.match(html, /data-anthropic-provider-config/);
   assert.match(html, /name="model"/);
-  assert.match(html, /name="baseUrl"/);
-  assert.match(html, /name="maxTokens"/);
+  // The Anthropic account page talks to the official endpoint over OAuth, so
+  // it exposes no Base URL or Max tokens field; the stored values survive
+  // because the draft keeps whatever the form does not carry.
+  assert.doesNotMatch(html, /name="baseUrl"/);
+  assert.doesNotMatch(html, /name="maxTokens"/);
   assert.doesNotMatch(html, /name="apiKeyOptional" checked/);
   assert.match(html, /data-mp-fetch-models/);
   assert.match(html, /data-mp-refresh-models/);
@@ -2174,4 +2384,31 @@ test("供应商控制台转义服务端 Provider 文本和错误", () => {
   assert.doesNotMatch(html, /<img /);
   assert.match(html, /&lt;script&gt;/);
   assert.match(html, /&quot;&gt;&lt;script&gt;/);
+});
+
+test("allowPlaintextHTTP 开关渲染、警告横幅和 payload 包含标记", () => {
+  setUILocale("zh-TW");
+  try {
+    const baseState = { drawer: "provider", mode: "create", type: "openai-compatible", dirty: true };
+
+    // Default: switch rendered, warning absent, payload flag false.
+    const defaultDraft = { name: "relay", type: "openai-compatible", baseUrl: "http://154.36.172.121:3000/v1", apiKey: "sk-test", model: "claude-opus-5", allowPlaintextHTTP: false };
+    const defaultHtml = renderProviderConsolePage({ providers: [], consoleState: { ...baseState, draft: defaultDraft } });
+    assert.match(defaultHtml, /name="allowPlaintextHTTP"/, "the toggle must appear in the form");
+    assert.doesNotMatch(defaultHtml, /plaintextWarning|明文 HTTP.*API Key|API Key.*明文/, "warning must be absent when not enabled");
+
+    // Enabled: warning banner must appear.
+    const enabledDraft = { ...defaultDraft, allowPlaintextHTTP: true };
+    const enabledHtml = renderProviderConsolePage({ providers: [], consoleState: { ...baseState, draft: enabledDraft } });
+    assert.match(enabledHtml, /name="allowPlaintextHTTP"[^>]*checked/, "checked when opted-in");
+    assert.match(enabledHtml, /mp-provider-security-warning/, "warning banner must appear when enabled");
+
+    // Payload contains the flag.
+    const defaultPayload = providerConfigPayload(defaultDraft);
+    assert.equal(defaultPayload.allowPlaintextHTTP, false, "false must be included in payload so the server can clear a prior opt-in");
+    const enabledPayload = providerConfigPayload(enabledDraft);
+    assert.equal(enabledPayload.allowPlaintextHTTP, true, "true must be included when opted-in");
+  } finally {
+    setUILocale("zh-CN");
+  }
 });

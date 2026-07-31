@@ -103,6 +103,7 @@ SELECT
   w.id,
   w.title,
   w.role,
+  COALESCE(w.parent_workline_id, ''),
   COALESCE(w.branch, ''),
   w.updated_at,
   a.id,
@@ -147,6 +148,7 @@ ORDER BY CASE WHEN p.archived_at IS NULL THEN 0 ELSE 1 END ASC,
 			&conversation.WorklineID,
 			&conversation.WorklineTitle,
 			&conversation.WorklineRole,
+			&conversation.WorklineParentID,
 			&conversation.WorklineBranch,
 			&conversation.WorklineUpdatedAt,
 			&conversation.AgentID,
@@ -598,7 +600,7 @@ func validAgentReasoningEffort(value string, allowEmpty bool) bool {
 		return allowEmpty
 	}
 	switch value {
-	case "auto", "low", "medium", "high", "xhigh":
+	case "auto", "low", "medium", "high", "xhigh", "max", "ultra":
 		return true
 	default:
 		return false

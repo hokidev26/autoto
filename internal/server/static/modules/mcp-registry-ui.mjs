@@ -200,15 +200,13 @@ export function createMCPRegistryUIController({
     const args = Array.isArray(server.args) && server.args.length ? ` ${server.args.join(" ")}` : "";
     const envText = Array.isArray(server.envKeys) && server.envKeys.length ? t("mcp.environmentWithKeys", { keys: server.envKeys.join(", ") }) : t("mcp.noEnvironment");
     return `
-    <div class="skill-command-card settings-card settings-data-list-row ${server.enabled ? "" : "disabled"}" aria-busy="${discovering || toggling || deleting ? "true" : "false"}">
-      <div>
+    <div class="skill-command-card skill-card settings-card settings-data-list-row ${server.enabled ? "" : "disabled"}" aria-busy="${discovering || toggling || deleting ? "true" : "false"}">
+      <div class="skill-card-main">
         <div class="skill-command-title settings-card-title">${escapeHtml(server.name || t("mcp.defaultServerName"))} <span class="settings-status-pill settings-badge ${server.enabled ? "ok" : "muted"}">${escapeHtml(status)}</span></div>
-        <div class="settings-provider-meta settings-card-description">${escapeHtml(t("mcp.serverId"))}: <code>${escapeHtml(server.id)}</code></div>
-        <div class="settings-provider-meta settings-card-description">${escapeHtml(server.transport || "stdio")} · ${escapeHtml((server.command || "") + args)}</div>
-        <div class="settings-provider-meta settings-card-description">${escapeHtml(envText)}${server.cwd ? ` · ${escapeHtml(t("mcp.cwd", { cwd: server.cwd }))}` : ""}</div>
+        <div class="settings-provider-meta settings-card-description skill-card-meta"><span>${escapeHtml(t("mcp.serverId"))}: <code>${escapeHtml(server.id)}</code></span> · <span>${escapeHtml(server.transport || "stdio")} · ${escapeHtml((server.command || "") + args)}</span> · <span>${escapeHtml(envText)}${server.cwd ? ` · ${escapeHtml(t("mcp.cwd", { cwd: server.cwd }))}` : ""}</span></div>
         ${tools ? renderMCPRegistryToolsResult(tools) : ""}
       </div>
-      <div class="settings-action-row settings-inline-actions">
+      <div class="settings-action-row settings-inline-actions skill-card-actions">
         <button class="settings-action-btn subtle" type="button" data-mcp-registry-tools="${escapeAttr(server.id)}" ${discovering || !server.enabled ? "disabled" : ""}>${escapeHtml(t(discovering ? "mcp.discovering" : "mcp.discoverTools"))}</button>
         <button class="settings-action-btn subtle" type="button" data-mcp-registry-edit="${escapeAttr(server.id)}" ${discovering || toggling || deleting ? "disabled" : ""}>${escapeHtml(t("mcp.edit"))}</button>
         <button class="settings-action-btn subtle" type="button" data-mcp-registry-toggle="${escapeAttr(server.id)}" ${toggling || deleting ? "disabled" : ""}>${escapeHtml(t(toggling ? "mcp.toggling" : (server.enabled ? "mcp.disable" : "mcp.enable")))}</button>
@@ -221,13 +219,8 @@ export function createMCPRegistryUIController({
 
   function renderMCPRegistryToolsResult(result) {
     const tools = Array.isArray(result.tools) ? result.tools : [];
-    if (!tools.length) return `<div class="settings-provider-meta settings-card-description">${escapeHtml(t("mcp.noToolsReturned"))}</div>`;
-    return `
-    <div class="settings-empty-card settings-card settings-empty-state compact" aria-live="polite">
-      <strong>${escapeHtml(t("mcp.toolsListCount", { count: tools.length }))}</strong>
-      <div class="settings-provider-meta settings-card-description">${tools.map((tool) => escapeHtml(tool.name || t("mcp.unnamedTool"))).join(" · ")}</div>
-    </div>
-  `;
+    if (!tools.length) return `<div class="settings-provider-meta settings-card-description skill-card-meta skill-card-discovery" aria-live="polite">${escapeHtml(t("mcp.noToolsReturned"))}</div>`;
+    return `<div class="settings-provider-meta settings-card-description skill-card-meta skill-card-discovery" aria-live="polite"><strong>${escapeHtml(t("mcp.toolsListCount", { count: tools.length }))}</strong> · ${tools.map((tool) => escapeHtml(tool.name || t("mcp.unnamedTool"))).join(" · ")}</div>`;
   }
 
   function bindMCPRegistryActions(body = $("settingsContentBody")) {

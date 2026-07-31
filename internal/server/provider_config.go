@@ -18,6 +18,7 @@ import (
 
 	"autoto/internal/codexauth"
 	"autoto/internal/config"
+	"autoto/internal/network"
 	"autoto/internal/providers"
 	"autoto/internal/secrets"
 )
@@ -52,6 +53,7 @@ type providerConfigUpdateRequest struct {
 	UserAgent             *string                       `json:"userAgent,omitempty"`
 	RequestHeaders        *[]providerRequestHeaderInput `json:"requestHeaders,omitempty"`
 	InsecureSkipTLSVerify *bool                         `json:"insecureSkipTLSVerify,omitempty"`
+	AllowPlaintextHTTP    *bool                         `json:"allowPlaintextHTTP,omitempty"`
 }
 
 type providerConfigUpdateResponse struct {
@@ -100,6 +102,7 @@ type providerMessageTestRequest struct {
 	UserAgent             *string                       `json:"userAgent,omitempty"`
 	RequestHeaders        *[]providerRequestHeaderInput `json:"requestHeaders,omitempty"`
 	InsecureSkipTLSVerify *bool                         `json:"insecureSkipTLSVerify,omitempty"`
+	AllowPlaintextHTTP    *bool                         `json:"allowPlaintextHTTP,omitempty"`
 	Prompt                string                        `json:"prompt"`
 }
 
@@ -132,6 +135,7 @@ func (r providerMessageTestRequest) configUpdateRequest() providerConfigUpdateRe
 		UserAgent:             r.UserAgent,
 		RequestHeaders:        r.RequestHeaders,
 		InsecureSkipTLSVerify: r.InsecureSkipTLSVerify,
+		AllowPlaintextHTTP:    r.AllowPlaintextHTTP,
 	}
 }
 
@@ -641,7 +645,7 @@ func (s *Server) testProviderConfigDraft(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	if _, err := s.newRuntimeProvider(provider); err != nil {
-		writeError(w, http.StatusBadRequest, "Provider 配置无效。")
+		writeError(w, http.StatusBadRequest, describeProviderConfigError(provider, err))
 		return
 	}
 	s.testProviderAdapter(w, r, provider)
@@ -691,7 +695,7 @@ func (s *Server) testProviderMessageDraft(w http.ResponseWriter, r *http.Request
 	}
 	adapter, err := s.newRuntimeProvider(provider)
 	if err != nil {
-		writeJSON(w, http.StatusOK, providerMessageTestResponse{ErrorCode: "invalid_configuration", Message: "Provider 配置无效。"})
+		writeJSON(w, http.StatusOK, providerMessageTestResponse{ErrorCode: "invalid_configuration", Message: describeProviderConfigError(provider, err)})
 		return
 	}
 	configured := providers.ConfiguredForScenario(adapter, provider.IsConfigured(), providers.CallScenarioInternal)
@@ -755,7 +759,7 @@ func (s *Server) testProviderAdapter(w http.ResponseWriter, r *http.Request, pro
 	adapter, err := s.newRuntimeProvider(provider)
 	if err != nil {
 		writeJSON(w, http.StatusOK, providerTestResponse{
-			Configured: provider.IsConfigured(), ErrorCode: "invalid_configuration", Message: "Provider 配置无效。",
+			Configured: provider.IsConfigured(), ErrorCode: "invalid_configuration", Message: describeProviderConfigError(provider, err),
 		})
 		return
 	}
@@ -983,7 +987,8 @@ func providerTransportScopeChanged(current, next config.ProviderConfig) bool {
 		!strings.EqualFold(strings.TrimSpace(current.Profile), strings.TrimSpace(next.Profile)) ||
 		strings.TrimSpace(current.BaseURL) != strings.TrimSpace(next.BaseURL) ||
 		strings.TrimSpace(current.ProxyURL) != strings.TrimSpace(next.ProxyURL) ||
-		current.InsecureSkipTLSVerify != next.InsecureSkipTLSVerify
+		current.InsecureSkipTLSVerify != next.InsecureSkipTLSVerify ||
+		current.AllowPlaintextHTTP != next.AllowPlaintextHTTP
 }
 
 func providerProxySettings(existing config.ProviderConfig, req providerConfigUpdateRequest) (string, string, string, string, bool, error) {
@@ -1190,6 +1195,10 @@ func providerConfigFromUpdateRequest(providerName string, existing config.Provid
 	if req.InsecureSkipTLSVerify != nil {
 		insecureSkipTLSVerify = *req.InsecureSkipTLSVerify
 	}
+	allowPlaintextHTTP := existing.AllowPlaintextHTTP
+	if req.AllowPlaintextHTTP != nil {
+		allowPlaintextHTTP = *req.AllowPlaintextHTTP
+	}
 	updated := config.ProviderConfig{
 		Name:                    name,
 		Type:                    providerType,
@@ -1208,6 +1217,7 @@ func providerConfigFromUpdateRequest(providerName string, existing config.Provid
 		ProxyAuthSource:         proxyAuthSource,
 		UserAgent:               userAgent,
 		InsecureSkipTLSVerify:   insecureSkipTLSVerify,
+		AllowPlaintextHTTP:      allowPlaintextHTTP,
 		Disabled:                existing.Disabled,
 		SecretRevision:          existing.SecretRevision,
 		TransportSecretRevision: existing.TransportSecretRevision,
@@ -1523,6 +1533,47 @@ func distinctModelCount(models []string) int {
 		}
 	}
 	return len(seen)
+}
+
+// describeProviderConfigError explains why building a runtime adapter failed.
+// The three call sites used to collapse every cause into "Provider 配置无效。",
+// which gave no way to tell a denied base URL apart from a malformed header, so
+// a plain-HTTP relay looked like an unexplained rejection.
+//
+// The underlying error is logged rather than returned: the network package keeps
+// its errors free of URL, hostname and resolver detail on purpose, and that
+// property must survive being surfaced in the UI.
+func describeProviderConfigError(provider config.ProviderConfig, err error) string {
+	if err == nil {
+		return "Provider 配置无效。"
+	}
+	slog.Debug("provider runtime configuration rejected", "provider", provider.Name, "error", err.Error())
+	if errors.Is(err, network.ErrDestinationDenied) && isPlaintextHTTPBaseURL(provider.BaseURL) && !provider.AllowPlaintextHTTP {
+		return "明文 HTTP 只允许连接本机。请改用 https://，或为该 Provider 单独开启「允许明文 HTTP」（开启后 API Key 与请求内容会明文传输）。"
+	}
+	if errors.Is(err, network.ErrDestinationDenied) {
+		return "该地址被网络策略拒绝。"
+	}
+	if errors.Is(err, network.ErrInvalidURL) {
+		return "Base URL 格式无效。"
+	}
+	if errors.Is(err, network.ErrNameResolution) {
+		return "无法解析该地址的主机名。"
+	}
+	if errors.Is(err, network.ErrProxyConfiguration) {
+		return "代理配置无效。"
+	}
+	return "Provider 配置无效。"
+}
+
+// isPlaintextHTTPBaseURL reports whether a base URL uses the http scheme, so the
+// guidance above is only shown when it actually applies.
+func isPlaintextHTTPBaseURL(raw string) bool {
+	target, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil {
+		return false
+	}
+	return strings.EqualFold(target.Scheme, "http")
 }
 
 func classifyProviderTestError(err error) (errorCode, message string, reachable bool) {

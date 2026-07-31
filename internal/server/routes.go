@@ -60,6 +60,7 @@ type settingsProviderResponse struct {
 	RequestHeadersPersisted bool                             `json:"requestHeadersPersisted"`
 	RequestHeadersSource    string                           `json:"requestHeadersSource"`
 	InsecureSkipTLSVerify   bool                             `json:"insecureSkipTLSVerify"`
+	AllowPlaintextHTTP      bool                             `json:"allowPlaintextHTTP"`
 	Capabilities            providers.Capabilities           `json:"capabilities"`
 	Management              *providerManagementResponse      `json:"management,omitempty"`
 }
@@ -67,7 +68,7 @@ type settingsProviderResponse struct {
 func (s *Server) settingsProviderResponse(ctx context.Context, provider config.ProviderConfig) settingsProviderResponse {
 	safeProvider := config.NormalizeProviderConfig(provider)
 	summary := safeProvider.Summary()
-	metadata := s.providerSettingsMetadata(summary)
+	metadata := s.providerSettingsMetadata(summary, safeProvider)
 	keyStatus := s.providerAPIKeyStatus(ctx, provider)
 	proxyStatus := s.providerProxyAuthStatus(ctx, provider)
 	headerStatus := s.providerRequestHeadersStatus(ctx, provider)
@@ -87,7 +88,8 @@ func (s *Server) settingsProviderResponse(ctx context.Context, provider config.P
 		Origin: summary.Origin, ProxyURL: safeProvider.ProxyURL, ProxyAuthConfigured: proxyStatus.Configured,
 		ProxyAuthPersisted: proxyStatus.Persisted, ProxyAuthSource: proxyStatus.Source, UserAgent: provider.UserAgent,
 		RequestHeaders: headers, RequestHeadersPersisted: headerStatus.Persisted, RequestHeadersSource: headerStatus.Source,
-		InsecureSkipTLSVerify: provider.InsecureSkipTLSVerify, Capabilities: metadata.Capabilities, Management: metadata.Management,
+		InsecureSkipTLSVerify: provider.InsecureSkipTLSVerify, AllowPlaintextHTTP: provider.AllowPlaintextHTTP,
+		Capabilities: metadata.Capabilities, Management: metadata.Management,
 	}
 }
 
@@ -315,6 +317,45 @@ func (s *Server) patchAgentNavigationState(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	writeJSON(w, http.StatusOK, agent)
+}
+
+// writeArchiveDeleteError maps the archive-deletion guards onto HTTP codes so
+// the UI can tell "you must archive first" apart from "it is still running".
+func writeArchiveDeleteError(w http.ResponseWriter, kind string, err error) {
+	switch {
+	case db.IsNotFound(err):
+		writeError(w, http.StatusNotFound, kind+" not found")
+	case db.IsNotArchived(err):
+		writeError(w, http.StatusConflict, err.Error())
+	case db.HasActiveRun(err):
+		writeError(w, http.StatusConflict, err.Error())
+	default:
+		writeError(w, http.StatusInternalServerError, err.Error())
+	}
+}
+
+func (s *Server) deleteArchivedProject(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	if err := s.store.DeleteArchivedProject(r.Context(), id); err != nil {
+		writeArchiveDeleteError(w, "project", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"deleted": true, "id": id})
+}
+
+func (s *Server) deleteArchivedAgent(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	// The durable runs check lives in the store; this catches a live in-memory
+	// loop that has not yet written a run row.
+	if s.runner != nil && s.runner.IsAgentRunning(id) {
+		writeError(w, http.StatusConflict, "conversation is still running: interrupt it before deleting")
+		return
+	}
+	if err := s.store.DeleteArchivedAgent(r.Context(), id); err != nil {
+		writeArchiveDeleteError(w, "conversation", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"deleted": true, "id": id})
 }
 
 func (s *Server) getProject(w http.ResponseWriter, r *http.Request) {

@@ -33,10 +33,7 @@ function findingsMarkup(skill) {
   if (findings.length) {
     return `<ul class="skill-findings">${findings.map((finding) => `<li><strong>${escapeHtml(finding?.code || "scan")}</strong>：${escapeHtml(finding?.message || t("skillsWorkbench.skills.findingDefault"))}</li>`).join("")}</ul>`;
   }
-  const count = Number(skill?.findingCount || 0);
-  return count > 0
-    ? `<div class="settings-provider-meta settings-card-description">${escapeHtml(t("skillsWorkbench.skills.findingCount", { count }))}</div>`
-    : `<div class="settings-provider-meta settings-card-description">${escapeHtml(t("skillsWorkbench.skills.noReviewFindings"))}</div>`;
+  return "";
 }
 
 function mutationBusy(bucket, key) {
@@ -90,7 +87,6 @@ function renderSkillCard(bucket, skill) {
   return `<article class="skill-command-card settings-card settings-data-list-row skills-v2-card ${skill.enabled ? "" : "disabled"}">
     <div>
       <div class="skill-command-title settings-card-title">${escapeHtml(skill.command || skill.name || t("skillsWorkbench.skills.unnamedCommand"))} ${scopeBadge(skill.scope)} <span class="settings-status-pill settings-badge ${skill.enabled ? "ok" : "muted"}">${escapeHtml(skill.enabled ? t("skillsWorkbench.skills.enabled") : t("skillsWorkbench.skills.disabled"))}</span> <span class="settings-status-pill settings-badge ${verdictTone(verdict)}">${escapeHtml(verdictLabel(verdict))}</span></div>
-      <div class="settings-provider-meta settings-card-description">${escapeHtml(skill.description || t("skillsWorkbench.skills.noDescription"))}</div>
       ${findingsMarkup(skill)}
       ${detailLoaded ? `<pre class="skill-command-prompt">${escapeHtml(skill.prompt)}</pre>` : skill.detailError ? `<div class="settings-inline-alert settings-alert" role="alert">${escapeHtml(skill.detailError)}</div>` : ""}
       ${renderEditor(bucket, skill)}
@@ -129,7 +125,7 @@ function renderImport(bucket) {
   const busy = mutationBusy(bucket, "import") || previewState.status === "loading";
   return `<section class="settings-provider-section settings-card settings-page-section">
     <div class="settings-provider-title settings-card-title">${escapeHtml(t("skillsWorkbench.commands.importTitle"))}</div>
-    <div class="settings-provider-meta settings-card-description">${escapeHtml(t("skillsWorkbench.commands.importDescription"))}</div>
+    <div class="settings-provider-meta settings-card-description" data-settings-help-copy>${escapeHtml(t("skillsWorkbench.commands.importDescription"))}</div>
     <input type="file" accept=".md,text/markdown,text/plain" data-scoped-skill-import-file />
     ${previewState.error ? `<div class="settings-inline-alert settings-alert" role="alert">${escapeHtml(previewState.error)}</div>` : ""}
     ${preview ? `<div class="skill-command-card settings-card settings-data-list-row"><div><strong>${escapeHtml(preview.command || preview.name || t("skillsWorkbench.skills.unnamedCommand"))}</strong> <span class="settings-status-pill settings-badge ${verdictTone(String(preview.scanVerdict || "safe").toLowerCase())}">${escapeHtml(verdictLabel(preview.scanVerdict))}</span>${findingsMarkup(preview)}</div><button class="settings-action-btn primary" type="button" data-scoped-skill-import-confirm ${busy ? "disabled" : ""}>${escapeHtml(t("skillsWorkbench.skills.importConfirm"))}</button></div>` : ""}
@@ -167,7 +163,7 @@ export function effectiveOwnerRows(response) {
 
 export function renderEffectiveCommandsView(response) {
   const rows = effectiveOwnerRows(response);
-  return `<div class="skill-command-list settings-data-list" data-effective-commands-readonly>${rows.length ? rows.map((row) => `<div class="skill-command-card settings-card settings-data-list-row ${row.enabled ? "" : "disabled"}"><div><strong>${escapeHtml(row.command)}</strong> ${scopeBadge(row.scope)}<div class="settings-provider-meta settings-card-description">${escapeHtml(row.description || t("skillsWorkbench.skills.noDescription"))}</div></div><span class="settings-status-pill settings-badge muted">${escapeHtml(t("skillsWorkbench.scoped.readOnly"))}</span></div>`).join("") : `<div class="settings-empty-card settings-empty-state compact">${escapeHtml(t("skillsWorkbench.commands.scopeEmpty"))}</div>`}</div>`;
+  return `<div class="skill-command-list settings-data-list" data-effective-commands-readonly>${rows.length ? rows.map((row) => `<div class="skill-command-card settings-card settings-data-list-row ${row.enabled ? "" : "disabled"}"><div><strong>${escapeHtml(row.command)}</strong> ${scopeBadge(row.scope)}</div><span class="settings-status-pill settings-badge muted">${escapeHtml(t("skillsWorkbench.scoped.readOnly"))}</span></div>`).join("") : `<div class="settings-empty-card settings-empty-state compact">${escapeHtml(t("skillsWorkbench.commands.scopeEmpty"))}</div>`}</div>`;
 }
 
 export function renderScopedSkillsManager({ controller, context } = {}) {

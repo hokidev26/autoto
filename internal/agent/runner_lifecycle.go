@@ -25,6 +25,22 @@ func (r *Runner) ActiveRunCount() int {
 	return len(r.running)
 }
 
+// IsAgentRunning reports whether the given agent currently has an in-memory run
+// loop registered. Callers pair this with the durable runs check when they need
+// to refuse a destructive operation on a live conversation.
+func (r *Runner) IsAgentRunning(agentID string) bool {
+	if r == nil {
+		return false
+	}
+	agentID = strings.TrimSpace(agentID)
+	if agentID == "" {
+		return false
+	}
+	r.runMu.Lock()
+	defer r.runMu.Unlock()
+	return r.running[agentID] != nil
+}
+
 func (r *Runner) RunWithTrigger(ctx context.Context, agentID, triggerMessageID string) {
 	r.runWithRun(ctx, agentID, "", triggerMessageID)
 }

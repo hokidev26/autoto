@@ -44,11 +44,22 @@ var (
 		"generationConfig":  {},
 		"tools":             {},
 		"toolConfig":        {},
+		// Verified against the live endpoint on 2026-07-31 with
+		// gemini-3.1-flash-image: accepted, and the generation still succeeded.
+		"safetySettings": {},
 	}
 	geminiCloudCodeGenerationFields = map[string]struct{}{
 		"maxOutputTokens":    {},
 		"thinkingConfig":     {},
 		"responseModalities": {},
+		// Verified against the live endpoint on 2026-07-31 with
+		// gemini-3.1-flash-image: accepted, and it genuinely takes effect —
+		// 1:1/2K returned 2.8 MB, 16:9/4K returned 10 MB, 21:9/1K returned
+		// 460 KB from the same prompt.
+		"imageConfig": {},
+		// Verified the same way. The upstream serves one image per call, so this
+		// pins the expectation rather than widening it.
+		"candidateCount": {},
 	}
 )
 
@@ -91,7 +102,11 @@ func findGeminiCloudCodeUnknownFields(body []byte) []string {
 	return unknown
 }
 
-func assertGeminiCloudCodePayloadClean(t *testing.T, payload map[string]any, wantRequestKeys []string) {
+// omittedTopLevel names fields this payload is expected not to carry. Image
+// generation and Claude both deliberately drop enabledCreditTypes: the image
+// endpoint rejects it outright, and for Claude it makes Google debit the Gemini
+// credit pool instead of the Claude pool.
+func assertGeminiCloudCodePayloadClean(t *testing.T, payload map[string]any, wantRequestKeys []string, omittedTopLevel ...string) {
 	t.Helper()
 	encoded, err := json.Marshal(payload)
 	if err != nil {
@@ -100,7 +115,17 @@ func assertGeminiCloudCodePayloadClean(t *testing.T, payload map[string]any, wan
 	if unknown := findGeminiCloudCodeUnknownFields(encoded); len(unknown) > 0 {
 		t.Fatalf("payload sends unknown fields %v; Cloud Code answers those with 400 INVALID_ARGUMENT. If Google really accepts one, add it to the allow list in this file.", unknown)
 	}
+	omitted := make(map[string]struct{}, len(omittedTopLevel))
+	for _, key := range omittedTopLevel {
+		omitted[key] = struct{}{}
+		if _, present := payload[key]; present {
+			t.Fatalf("payload must not carry top-level field %q", key)
+		}
+	}
 	for key := range geminiCloudCodeTopLevelFields {
+		if _, skip := omitted[key]; skip {
+			continue
+		}
 		if _, ok := payload[key]; !ok {
 			t.Fatalf("payload is missing required top-level field %q", key)
 		}
@@ -133,8 +158,29 @@ func TestBuildGeminiCloudCodePayloadSendsOnlyKnownFields(t *testing.T) {
 			Tools:                 []ToolSpec{{Name: "lookup", Description: "Lookup", Schema: map[string]any{"type": "object"}}},
 			MaxOutputTokens:       128,
 			EnableImageGeneration: true,
-		}, "gemini-3.1-flash-image", "project-1", "high"),
+		}, "gemini-3-flash", "project-1", "high"),
 			[]string{"contents", "generationConfig", "sessionId", "systemInstruction", "toolConfig", "tools"})
+	})
+
+	// The image endpoint takes a narrower envelope: it rejects
+	// systemInstruction, tools and enabledCreditTypes, and carries imageConfig.
+	t.Run("image generation", func(t *testing.T) {
+		assertGeminiCloudCodePayloadClean(t, buildGeminiCloudCodePayload(GenerateRequest{
+			SystemPrompt: "Be concise.",
+			Messages:     []Message{{Role: "user", Content: "a red circle"}},
+			Tools:        []ToolSpec{{Name: "lookup", Schema: map[string]any{"type": "object"}}},
+			ImageOptions: ImageOptions{Size: "16:9", Quality: "hd"},
+		}, "gemini-3.1-flash-image", "project-1", "high"),
+			[]string{"contents", "generationConfig", "safetySettings", "sessionId"}, "enabledCreditTypes")
+	})
+
+	t.Run("claude", func(t *testing.T) {
+		assertGeminiCloudCodePayloadClean(t, buildGeminiCloudCodePayload(GenerateRequest{
+			SystemPrompt: "Be concise.",
+			Messages:     []Message{{Role: "user", Content: "hello"}},
+			Tools:        []ToolSpec{{Name: "lookup", Schema: map[string]any{"type": "object"}}},
+		}, "claude-sonnet-4-6", "project-1", "high"),
+			[]string{"contents", "generationConfig", "sessionId", "systemInstruction", "toolConfig", "tools"}, "enabledCreditTypes")
 	})
 }
 

@@ -7,7 +7,7 @@ import {
   normalizeConsoleProvider,
   normalizeProviderModelConfigs,
   renderProviderModelEditor,
-} from "./model-provider-components.mjs?v=provider-card-clean-3-provider-create-page-2-provider-secrets-1-model-picker-1-provider-full-page-2-provider-placeholders-1-model-configs-1-provider-reference-1-default-openai-responses-1-provider-draft-session-1-anthropic-model-editor-1-provider-hidden-models-1";
+} from "./model-provider-components.mjs?v=provider-card-clean-3-provider-create-page-2-provider-secrets-1-model-picker-1-provider-full-page-2-provider-placeholders-1-model-configs-1-provider-reference-1-default-openai-responses-1-provider-draft-session-1-anthropic-model-editor-1-provider-hidden-models-1-provider-quota-overview-1";
 import {
   anthropicAccountActionRequest,
   anthropicAccountsListRequest,
@@ -18,7 +18,7 @@ import {
 import {
   anthropicAccountOverview,
   renderAnthropicAccountManagementTable,
-} from "./provider-account-rendering.mjs";
+} from "./provider-account-rendering.mjs?v=provider-quota-overview-1";
 
 // Creates the Anthropic account controller: profile/API-key account creation,
 // per-account save/sync/toggle/delete, and the dedicated account console page.
@@ -50,6 +50,7 @@ export function createAnthropicAccountsController(ctx) {
       const response = await requestAPI(request.path, request.options);
       if (seq !== state.anthropicAccountSeq) return false;
       state.anthropicAccounts = normalizeAnthropicAccountList(response);
+      state.anthropicAccountsLoaded = true;
       state.anthropicAccountsError = "";
       loaded = true;
     } catch (error) {
@@ -340,10 +341,6 @@ export function createAnthropicAccountsController(ctx) {
         <form class="anthropic-config-form settings-card-content" data-mp-provider-form data-anthropic-provider-config>
           <input type="hidden" name="name" value="anthropic"><input type="hidden" name="type" value="anthropic"><input type="hidden" name="apiKey" value=""><input type="checkbox" name="apiKeyOptional" hidden>
           <div class="anthropic-model-manager">${renderProviderModelEditor(draft, modelBusy, true, { allowEmpty: true })}</div>
-          <div class="anthropic-config-grid">
-            <label class="settings-form-field"><span>${escapeHtml(mt("baseUrl"))}</span><input name="baseUrl" value="${escapeAttr(draft.baseUrl || "")}" autocomplete="url" placeholder="${escapeAttr(mt("anthropicOfficialEndpointPlaceholder"))}"></label>
-            <label class="settings-form-field"><span>${escapeHtml(mt("maxTokens"))}</span><input name="maxTokens" data-select-on-focus="true" type="number" min="1" step="1" value="${escapeAttr(draft.maxTokens || 4096)}"></label>
-          </div>
           <p class="anthropic-secret-note">${escapeHtml(mt("anthropic.configNote"))}</p>
           <div class="anthropic-config-actions settings-inline-actions"><button class="settings-action-btn" type="button" data-mp-refresh-models ${refreshBusy ? "disabled aria-busy=\"true\"" : ""}>${escapeHtml(refreshBusy ? mt("refreshing") : mt("refreshModels"))}</button><button class="settings-action-btn primary" type="submit" ${saveBusy ? "disabled aria-busy=\"true\"" : ""}>${escapeHtml(saveBusy ? mt("saving") : ct("actions.saveAndEnable"))}</button></div>
         </form>

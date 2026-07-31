@@ -109,7 +109,8 @@ func sensitiveToolPath(base, target string) bool {
 
 func heavyToolDirectory(name string) bool {
 	switch strings.ToLower(name) {
-	case ".git", ".hg", ".svn", "node_modules", "vendor", "dist", "build", "target", ".next", ".nuxt", "coverage", "out":
+	case ".git", ".hg", ".svn", "node_modules", "vendor", "dist", "build", "target", ".next", ".nuxt", "coverage", "out",
+		"__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache", "venv", ".venv":
 		return true
 	default:
 		return false

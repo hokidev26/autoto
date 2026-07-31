@@ -42,7 +42,7 @@
 關鍵推論：
 
 1. **IM 是控制面，不是聊天產品。** 現有 Telegram 只保留通知、配對、查狀態、一次性審批與拒絕；`/task` 尚未實現，不做通用聊天助理，也不鋪渠道矩陣。
-2. **編碼工作流是本體。** chapter/worktree、run、審批、diff/commit 這條鏈是所有新功能的宿主，任何不掛在這條鏈上的功能先不做。
+2. **編碼工作流是本體。** workline/worktree、run、審批、diff/commit 這條鏈是所有新功能的宿主，任何不掛在這條鏈上的功能先不做。
 3. **README 第一屏應該先展示已實現閉環**，而不是功能羅列。保留現有 demo 資產；若新增 IM 動圖，只能展示已實現的 Telegram 配對/狀態/一次性審批，不得暗示 `/task`、自由聊天或其他渠道。
 
 ### 1.3 從 OpenClaw 應該借鑑的三課
@@ -91,8 +91,8 @@
 
 ### 2.4 原審查時的倉庫衛生建議（歷史快照）
 
-- 空目錄：`internal/auth`、`internal/narrator`、`internal/project` —— 三個月沒放內容就刪掉，需要時再建。
-- 空目錄 `.narrafork/`：舊專案殘留，確認無用後刪除並加入 `.gitignore`。
+- 空目錄：`internal/auth`、`internal/agent`、`internal/project` —— 三個月沒放內容就刪掉，需要時再建。
+- 空目錄 `.autoto/`：舊專案殘留，確認無用後刪除並加入 `.gitignore`。
 - 規劃文件已移至 `docs/notes/`：`needtodo0709.md`、本文件及其姊妹文件 `feedback-changelog-lessons-0712.md` 已歸檔至該目錄。`PROJECT_PLAN.md` 宜持續保持「架構現狀 + 已完成能力」的事實描述。未來待辦應維護在最新一份 plan 文件 + GitHub Issues，避免多份規劃文件同步。
 
 ---
@@ -101,7 +101,7 @@
 
 規範名稱已收斂為 **Autoto / Agent / Workline**，規範入口為 `autoto`、`AUTOTO_*`、`X-Autoto-*`、`/api/agents`、`/api/worklines` 與 `/ws/agent`。
 
-舊 CodeHarbor、Narrator、Chapter 名稱只保留在兼容讀取、路由別名、舊 CLI shim、migration 與歷史記錄中。新的文件、設定、整合與客戶端不得再寫入舊名。兼容面的唯一移除規則以 `PROJECT_PLAN.md` 的 **Legacy compatibility lifecycle** 為準：最早 v0.4.0、至少兩個 tagged release 遷移窗口，且必須滿足刪除門檻。
+舊 Autoto、Agent、Workline 名稱只保留在兼容讀取、路由別名、舊 CLI shim、migration 與歷史記錄中。新的文件、設定、整合與客戶端不得再寫入舊名。兼容面的唯一移除規則以 `PROJECT_PLAN.md` 的 **Legacy compatibility lifecycle** 為準：最早 v0.4.0、至少兩個 tagged release 遷移窗口，且必須滿足刪除門檻。
 
 ---
 

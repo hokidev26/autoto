@@ -134,6 +134,37 @@ func TestSubscriptionProviderAccountsRequiresExplicitGatewayGrant(t *testing.T) 
 	}
 }
 
+// Renaming a provider must not detach it from its grants. Antigravity is
+// conventionally configured as "gemini-oauth" while its accounts live under
+// "gemini", so a lookup keyed on the config name found no grant and every
+// Antigravity model silently vanished from the Gateway model list even with the
+// account shared and the provider marked gateway-eligible.
+func TestSubscriptionProviderAccountsMatchGrantsAfterProviderRename(t *testing.T) {
+	store := subscriptionauth.NewStore(t.TempDir())
+	account := createSubscriptionTestAccount(t, store, subscriptionTestAccountParams{provider: subscriptionauth.ProviderGemini, priority: 10, accessToken: "granted"})
+	accounts := newSubscriptionProviderAccounts(config.ProviderConfig{Name: "gemini-oauth", CredentialStorePath: store.Dir()}, subscriptionauth.ProviderGemini)
+
+	// The account pool files grants under the credential store's provider name.
+	accounts.setGatewayAccountPolicy(subscriptionGatewayPolicy{provider: subscriptionauth.ProviderGemini, ids: []string{account.ID}})
+	items, err := accounts.accountsForRequest(context.Background(), GenerateRequest{Scenario: CallScenarioGateway, AllowSubscriptionCredentials: true})
+	if err != nil {
+		t.Fatalf("renamed provider must still match its grants: %v", err)
+	}
+	if len(items) != 1 || items[0].ID != account.ID {
+		t.Fatalf("unexpected granted accounts: %+v", items)
+	}
+	if !accounts.availableForScenario(context.Background(), ScenarioAvailability{Scenario: CallScenarioGateway, AllowSubscriptionCredentials: true}) {
+		t.Fatal("granted account must keep a renamed provider available to the Gateway")
+	}
+
+	// A grant filed under the user-editable config name is not what the account
+	// pool writes, so honouring it would hide the real lookup key regressing.
+	accounts.setGatewayAccountPolicy(subscriptionGatewayPolicy{provider: "gemini-oauth", ids: []string{account.ID}})
+	if accounts.availableForScenario(context.Background(), ScenarioAvailability{Scenario: CallScenarioGateway, AllowSubscriptionCredentials: true}) {
+		t.Fatal("config-name grants must not authorize Gateway access")
+	}
+}
+
 func TestSubscriptionProviderAccountsRefreshRotationAndPreservation(t *testing.T) {
 	now := time.Date(2026, 7, 24, 12, 0, 0, 0, time.UTC)
 	t.Run("rotates refresh token atomically", func(t *testing.T) {

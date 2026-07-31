@@ -975,31 +975,22 @@ body.white-shell.theme-light.theme-dark .navigation-boundary-empty button {
 }
 
 /* Rows sit directly on each other. The 8px gap made sense when each child was a
-   bordered card; with borderless rows it just spread the list out. */
+   bordered card; with borderless rows it just spread the list out. The old
+   left-rail line is gone: it read as decoration, not structure. */
 .tool-activity-group {
   position: relative;
   display: grid;
   gap: 1px;
   min-width: 0;
-  padding-left: 18px;
+  padding-left: 0;
 }
-
-.tool-activity-group::before {
-  position: absolute;
-  top: 27px;
-  bottom: 13px;
-  left: 5px;
-  width: 1px;
-  background: var(--tool-activity-border);
-  content: "";
-}
-
-.tool-activity-group:not([open])::before { display: none; }
 
 .tool-activity-summary {
   display: flex;
   min-width: 0;
-  min-height: 28px;
+  /* Collapsed, this row is the only thing a finished turn shows, so it is
+     sized to its own text plus a hit area rather than to a card's rhythm. */
+  min-height: 22px;
   align-items: center;
   gap: 7px;
   cursor: pointer;
@@ -1015,12 +1006,6 @@ body.white-shell.theme-light.theme-dark .navigation-boundary-empty button {
 .tool-activity-summary::before { width: 6px; height: 6px; flex: 0 0 6px; border-right: 1px solid currentColor; border-bottom: 1px solid currentColor; content: ""; transform: rotate(-45deg); }
 .tool-activity-group[open] > .tool-activity-summary::before { transform: rotate(45deg) translate(-1px, -1px); }
 
-.tool-activity-protected {
-  color: var(--tool-activity-faint);
-  font-size: 11px;
-  line-height: 1.45;
-  overflow-wrap: anywhere;
-}
 
 .tool-activity-steps {
   display: grid;
@@ -1171,6 +1156,19 @@ body.white-shell.theme-light.theme-dark .navigation-boundary-empty button {
 
 .tool-activity-selected-detail:empty { display: none; }
 
+/* Inline detail: rendered directly inside the row's <li>, immediately below
+   the button that was clicked. Empty when the row is not selected. */
+.tool-activity-inline-detail {
+  min-width: 0;
+}
+
+.tool-activity-inline-detail:empty { display: none; }
+
+.tool-activity-inline-detail:not(:empty) {
+  margin-top: 4px;
+  margin-bottom: 4px;
+}
+
 /* A row in a list, not a card in a stack. The border and shadow separated each
    call from its neighbours, which is the opposite of what a sequence of steps
    wants: the eye should run down them. Status is carried by a left edge instead,
@@ -1197,6 +1195,9 @@ body.white-shell.theme-light.theme-dark .navigation-boundary-empty button {
 .tool-activity-card:has(> .tool-activity-details[open]),
 .tool-activity-card:has(> details[open]) {
   background: var(--tool-activity-surface);
+  border: 1px solid var(--tool-activity-border);
+  border-left-width: 3px;
+  border-radius: 7px;
 }
 
 /* One tool call should read as one line. A 54px card with a 30px icon meant
@@ -1579,22 +1580,27 @@ body.white-shell.theme-light.theme-dark .tool-activity-stack {
 
 @media (max-width: 760px) {
   .tool-activity-stack { width: 100%; gap: 8px; margin: 8px 0 14px; }
-  .tool-activity-group { padding-left: 14px; }
-  .tool-activity-group::before { left: 4px; }
-  .tool-activity-step-button { grid-template-columns: 22px minmax(0, 1fr); gap: 7px; padding: 7px 6px; }
-  .tool-activity-step-copy { display: grid; gap: 2px; }
-  .tool-activity-step-copy > span { white-space: normal; overflow-wrap: anywhere; }
-  .tool-activity-step-status { grid-column: 2; justify-self: start; }
+  .tool-activity-group { padding-left: 0; }
+  /* Larger tap target: 44px min-height, bigger padding, readable font */
+  .tool-activity-step-button { grid-template-columns: 26px minmax(0, 1fr); gap: 8px; padding: 10px 8px; min-height: 44px; }
+  .tool-activity-step-copy { display: grid; gap: 3px; }
+  .tool-activity-step-copy > span { white-space: normal; overflow-wrap: anywhere; font-size: 12px; }
+  .tool-activity-step-copy > strong { font-size: 12.5px; }
+  .tool-activity-step-status { grid-column: 2; justify-self: start; font-size: 11px; }
+  .tool-activity-step-icon { width: 26px; height: 26px; border-radius: 7px; }
+  .tool-activity-step-icon > svg { width: 15px; height: 15px; }
   .tool-activity-head { grid-template-columns: 30px minmax(0, 1fr); gap: 8px; min-height: 62px; padding: 10px; }
   .tool-activity-meta { grid-column: 2; justify-content: flex-start; flex-wrap: wrap; padding-top: 1px; white-space: normal; }
   .tool-activity-title { white-space: normal; overflow-wrap: anywhere; }
   .tool-activity-target { white-space: normal; }
   .tool-activity-status { min-height: 25px; }
-  .tool-activity-details > summary { min-height: 42px; }
+  .tool-activity-details > summary { min-height: 44px; }
   .tool-activity-command, .tool-activity-output { max-height: 190px; font-size: 11px; }
   .tool-diff { max-height: 260px; border-radius: 0; border-right: 0; border-left: 0; }
   .tool-diff-line { min-width: max-content; }
   .tool-diff-line-number { min-width: 4em; padding: 0 6px; }
+  /* Summary row: bigger tap, readable label */
+  .tool-activity-summary { min-height: 36px; padding: 4px 2px; font-size: 13px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -2190,7 +2196,7 @@ body.white-shell.theme-light .messages:not(.empty) > [class~="message"][class~="
 .remote-access-password-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 .remote-access-password-form { display: grid; align-content: start; gap: 10px; min-width: 0; padding: 12px; border: 1px solid var(--border, #dfe3ea); border-radius: 10px; background: var(--surface-subtle, #f8fafc); }
 .remote-access-password-form > strong { color: var(--text, #1f2937); font-size: 13px; }
-.remote-access-generated { display: grid; gap: 8px; margin: 0 16px 16px; border-color: color-mix(in srgb, var(--accent, #5369f3) 45%, var(--border, #dfe3ea)); background: color-mix(in srgb, var(--accent, #5369f3) 8%, var(--surface, #fff)); }
+.remote-access-generated { display: grid; gap: 8px; margin: 12px 16px 16px; border-color: color-mix(in srgb, var(--accent, #5369f3) 45%, var(--border, #dfe3ea)); background: color-mix(in srgb, var(--accent, #5369f3) 8%, var(--surface, #fff)); }
 .remote-access-generated code { display: block; max-width: 100%; overflow: auto; padding: 8px 10px; border-radius: 7px; background: var(--surface, #fff); color: var(--text, #1f2937); font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; overflow-wrap: anywhere; user-select: all; }
 .remote-access-generated span { color: var(--muted, #64748b); font-size: 11px; line-height: 1.45; }
 .remote-access-tunnel-card .settings-provider-section-head { align-items: flex-start; }
@@ -2240,6 +2246,53 @@ body.white-shell.theme-light .messages:not(.empty) > [class~="message"][class~="
   .remote-access-tunnel-phone { grid-template-columns: 1fr; justify-items: center; text-align: left; }
   .remote-access-tunnel-phone-copy { width: 100%; }
 }
+
+/* Remote access — dark mode */
+body.white-shell.theme-light.theme-dark .remote-access-full-access-card {
+  border-color: var(--settings-border);
+  background: var(--settings-surface-muted);
+  color: var(--settings-foreground);
+}
+body.white-shell.theme-light.theme-dark .remote-access-full-access-card.is-on {
+  border-color: color-mix(in srgb, var(--settings-primary, #5369f3) 42%, var(--settings-border));
+  background: color-mix(in srgb, var(--settings-primary, #5369f3) 14%, var(--settings-surface));
+}
+body.white-shell.theme-light.theme-dark .remote-access-full-access-copy strong { color: var(--settings-foreground); }
+body.white-shell.theme-light.theme-dark .remote-access-full-access-copy small { color: var(--settings-muted-foreground); }
+body.white-shell.theme-light.theme-dark .remote-access-switch-track {
+  border-color: var(--settings-border);
+  background: var(--settings-muted);
+}
+body.white-shell.theme-light.theme-dark .settings-check-row {
+  border-color: var(--settings-border);
+  background: var(--settings-surface-muted);
+  color: var(--settings-foreground);
+}
+body.white-shell.theme-light.theme-dark .remote-access-password-form {
+  border-color: var(--settings-border);
+  background: var(--settings-surface-muted);
+}
+body.white-shell.theme-light.theme-dark .remote-access-password-form > strong { color: var(--settings-foreground); }
+body.white-shell.theme-light.theme-dark .remote-access-tunnel-url {
+  border-color: var(--settings-border);
+  background: var(--settings-surface-muted);
+}
+body.white-shell.theme-light.theme-dark .remote-access-tunnel-url a { color: color-mix(in srgb, var(--settings-primary, #5369f3) 80%, #fff); }
+body.white-shell.theme-light.theme-dark .remote-access-tunnel-phone {
+  border-color: var(--settings-border);
+  background: var(--settings-surface);
+}
+body.white-shell.theme-light.theme-dark .remote-access-tunnel-phone-copy > strong { color: var(--settings-foreground); }
+body.white-shell.theme-light.theme-dark .remote-access-phone-steps { color: var(--settings-foreground); }
+body.white-shell.theme-light.theme-dark .remote-access-generated {
+  border-color: color-mix(in srgb, var(--settings-primary, #5369f3) 35%, var(--settings-border));
+  background: color-mix(in srgb, var(--settings-primary, #5369f3) 10%, var(--settings-surface));
+}
+body.white-shell.theme-light.theme-dark .remote-access-generated code {
+  background: var(--settings-surface-muted);
+  color: var(--settings-foreground);
+}
+body.white-shell.theme-light.theme-dark .remote-access-generated span { color: var(--settings-muted-foreground); }
 
 /* Persistent agent model routing settings. */
 #settingsContentBody .agent-model-settings-page,
@@ -3043,32 +3096,21 @@ body.white-shell.theme-light .composer-select-icon svg {
 }
 
 
-/* Reasoning replayed from the transcript. A finished run keeps its tool calls in
-   a separate card, so there are no step boundaries left to interleave with:
-   history gets one collapsed block above the answer it explains. */
-.message-reasoning {
-  margin: 0 0 7px;
-  border-left: 2px solid var(--tool-activity-border, #3a3b45);
-  padding-left: 10px;
+/* One assistant turn's own activity: the reasoning that led to its tool calls,
+   and those calls, directly under the words that caused them. Replaces the old
+   in-bubble .message-reasoning disclosure so thinking has a single home on the
+   activity surface, live and persisted alike. */
+.message-tool-activity {
+  display: grid;
+  min-width: 0;
+  /* Flow layout (non-grid transcripts): the preceding message already supplies
+     its own bottom margin, so only the trailing side needs spacing here. */
+  margin: 0 0 8px;
 }
 
-.message-reasoning > summary {
-  color: var(--tool-activity-muted, #9aa2b8);
-  font-size: 12px;
-  font-style: italic;
-  cursor: pointer;
-  list-style: none;
-}
-
-.message-reasoning > summary::-webkit-details-marker { display: none; }
-.message-reasoning > summary::before { content: "▸ "; font-style: normal; }
-.message-reasoning[open] > summary::before { content: "▾ "; }
-
-.message-reasoning-body {
-  margin-top: 5px;
-  color: var(--tool-activity-muted, #9aa2b8);
-  font-size: 12px;
-  line-height: 1.6;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
+.message-tool-activity > .tool-activity-stack {
+  width: 100%;
+  /* Spacing belongs to the wrapper so the transcript grid can tighten it in one
+     place. The stack's own vertical margin would stack on top of the row gap. */
+  margin: 0;
 }

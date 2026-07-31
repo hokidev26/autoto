@@ -1,6 +1,6 @@
 # Autoto Code Review（2026-07-18）
 
-範圍：`cmd/` + `internal/` + 前端 `internal/server/static/`（排除 `autoto-legacy/`、`codeharbor-references/`）。約 284 個 Go 檔、10.7 萬行。
+範圍：`cmd/` + `internal/` + 前端 `internal/server/static/`（排除 `autoto-legacy/`、`autoto-references/`）。約 284 個 Go 檔、10.7 萬行。
 
 驗證方式：靜態審查 + `node --check` / `node --test`（355 個前端測試全數通過）。審查環境無 Go 1.26 工具鏈，未能執行 `go build/vet/test`，Go 端結論以人工閱讀為準。
 

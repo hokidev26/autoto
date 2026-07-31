@@ -51,6 +51,7 @@ CREATE TABLE IF NOT EXISTS lifecycle_hook_events (
   updated_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS lifecycle_hook_events_run_idx ON lifecycle_hook_events (run_id, created_at DESC, id DESC);
+CREATE INDEX IF NOT EXISTS idx_lifecycle_hook_events_binding ON lifecycle_hook_events(binding_id);
 CREATE TABLE IF NOT EXISTS lifecycle_hook_executions (
   id TEXT PRIMARY KEY,
   event_id TEXT NOT NULL REFERENCES lifecycle_hook_events(id) ON DELETE CASCADE,

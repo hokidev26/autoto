@@ -33,30 +33,41 @@ func platformCommands() (hardDanger, sensitive, unclassified, safe string) {
 	return "rm -rf /", "git push --force origin main", `X=rm; $X -rf /tmp/x`, "go test ./..."
 }
 
-// TestBypassPermissionsStillReviewsSensitiveCommands is the regression test for
-// the core policy hole: bypassPermissions used to allow every exec-risk call
-// unconditionally, so anything the danger tier failed to hard-block ran with no
-// prompt at all. Serious-but-recoverable and unclassifiable commands must now
-// always reach a human, while ordinary work stays friction-free.
-func TestBypassPermissionsStillReviewsSensitiveCommands(t *testing.T) {
+// TestBypassPermissionsAllowsRecoverableCommands pins the meaning of the
+// bypassPermissions label: the user picked "allow everything", so the
+// serious-but-recoverable and unclassifiable tiers execute without a prompt.
+// Forcing approval there made the setting contradict its own label and made
+// ordinary work (running a helper script) prompt on every single call.
+//
+// The unrecoverable tier is deliberately not part of that promise: it is a hard
+// deny rather than a prompt, so no permission mode can reach it.
+func TestBypassPermissionsAllowsRecoverableCommands(t *testing.T) {
 	runner, agent := reviewTestRunner(t, "bypassPermissions")
 	hardDanger, sensitive, unclassified, safe := platformCommands()
 	ctx := context.Background()
 
-	t.Run("sensitive requires approval", func(t *testing.T) {
+	t.Run("sensitive runs without a prompt", func(t *testing.T) {
 		resolution := runner.resolveToolPermission(ctx, agent.ID, "bypassPermissions", "Bash", tools.RiskExec, bashInput(sensitive))
-		if resolution.Decision != toolPermissionAsk {
-			t.Fatalf("expected %q to require approval in bypassPermissions, got %+v", sensitive, resolution)
-		}
-		if resolution.Warning == "" {
-			t.Fatalf("expected an explanatory warning, got %+v", resolution)
+		if resolution.Decision != toolPermissionAllow {
+			t.Fatalf("expected %q to be allowed in bypassPermissions, got %+v", sensitive, resolution)
 		}
 	})
 
-	t.Run("unclassified requires approval", func(t *testing.T) {
+	t.Run("unclassified runs without a prompt", func(t *testing.T) {
 		resolution := runner.resolveToolPermission(ctx, agent.ID, "bypassPermissions", "Bash", tools.RiskExec, bashInput(unclassified))
-		if resolution.Decision != toolPermissionAsk {
-			t.Fatalf("expected unclassified %q to require approval, got %+v", unclassified, resolution)
+		if resolution.Decision != toolPermissionAllow {
+			t.Fatalf("expected unclassified %q to be allowed in bypassPermissions, got %+v", unclassified, resolution)
+		}
+	})
+
+	t.Run("script file execution runs without a prompt", func(t *testing.T) {
+		script := "powershell -File tools/read.ps1 -Start 1 -End 40"
+		if runtime.GOOS != "windows" {
+			script = "bash tools/read.sh --start 1 --end 40"
+		}
+		resolution := runner.resolveToolPermission(ctx, agent.ID, "bypassPermissions", "Bash", tools.RiskExec, bashInput(script))
+		if resolution.Decision != toolPermissionAllow {
+			t.Fatalf("expected %q to be allowed in bypassPermissions, got %+v", script, resolution)
 		}
 	})
 
@@ -75,6 +86,17 @@ func TestBypassPermissionsStillReviewsSensitiveCommands(t *testing.T) {
 		resolution := runner.resolveToolPermission(ctx, agent.ID, "bypassPermissions", "Bash", tools.RiskExec, bashInput(safe))
 		if resolution.Decision != toolPermissionAllow {
 			t.Fatalf("expected %q to stay allowed without friction, got %+v", safe, resolution)
+		}
+	})
+
+	// The relaxation is scoped to the mode the user explicitly opted into; every
+	// other mode keeps the mandatory review.
+	t.Run("other modes still review", func(t *testing.T) {
+		for _, mode := range []string{"acceptEdits", "default"} {
+			resolution := runner.resolveToolPermission(ctx, agent.ID, mode, "Bash", tools.RiskExec, bashInput(sensitive))
+			if resolution.Decision != toolPermissionAsk || resolution.Source != decisionSourceCommandReview {
+				t.Fatalf("mode %q must still review %q, got %+v", mode, sensitive, resolution)
+			}
 		}
 	})
 }

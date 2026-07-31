@@ -227,21 +227,9 @@ func convertAnthropicRequest(request anthropicMessagesRequest, requireMaxTokens 
 	if request.MaxTokens != nil && (*request.MaxTokens <= 0 || *request.MaxTokens > 1_000_000) {
 		return convertedAnthropicRequest{}, invalidParam("max_tokens", "max_tokens must be between 1 and 1000000.")
 	}
-	for _, unsupported := range []struct {
-		name string
-		raw  json.RawMessage
-	}{
-		{name: "metadata", raw: request.Metadata},
-		{name: "stop_sequences", raw: request.StopSequences},
-		{name: "temperature", raw: request.Temperature},
-		{name: "top_p", raw: request.TopP},
-		{name: "top_k", raw: request.TopK},
-		{name: "tool_choice", raw: request.ToolChoice},
-	} {
-		if rawJSONPresent(unsupported.raw) {
-			return convertedAnthropicRequest{}, unsupportedParam(unsupported.name)
-		}
-	}
+	// Standard inference parameters (temperature, top_p, top_k, stop_sequences,
+	// tool_choice, metadata) are accepted and silently ignored — the gateway
+	// routes requests without forwarding sampling knobs to providers directly.
 	if len(request.Messages) == 0 || len(request.Messages) > 10000 {
 		return convertedAnthropicRequest{}, invalidParam("messages", "messages must contain between 1 and 10000 items.")
 	}

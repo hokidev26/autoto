@@ -33,7 +33,67 @@ func providerUnavailableError(providerName, detail string) error {
 
 var legacyReasoningEfforts = []string{"low", "medium", "high"}
 
-var canonicalReasoningEfforts = []string{"low", "medium", "high", "xhigh"}
+// canonicalReasoningEfforts is the full vocabulary, ordered weakest to
+// strongest. It defines what may be stored and validated, not what any given
+// provider offers.
+var canonicalReasoningEfforts = []string{"low", "medium", "high", "xhigh", "max", "ultra"}
+
+// codexBaselineReasoningEfforts is what every Codex model serves. "max" and
+// "ultra" exist on some models only — the authenticated catalog reports the
+// exact set per model — so advertising them provider-wide would offer a level
+// the chosen model answers with HTTP 400. ModelCapabilities.ReasoningEfforts
+// carries the per-model truth and wins over this baseline.
+var codexBaselineReasoningEfforts = []string{"low", "medium", "high", "xhigh"}
+
+// CapabilitiesForConfig derives protocol capabilities from a provider's static
+// configuration, without needing a live registered instance. Model-catalog
+// clients gate the thinking-effort picker on the advertised effort list, so a
+// provider that is configured but not yet registered would otherwise report no
+// effort support and collapse the picker to "auto" only.
+//
+// Values must mirror each adapter's Capabilities() implementation.
+func CapabilitiesForConfig(cfg config.ProviderConfig) Capabilities {
+	capabilities := Capabilities{Tools: true, Streaming: true}
+	switch strings.TrimSpace(cfg.Type) {
+	case "anthropic":
+		capabilities.ImageInput = true
+		capabilities.Reasoning = true
+		capabilities.ReasoningEfforts = legacyReasoningEfforts
+	case config.ProviderTypeCodex:
+		capabilities.ImageInput = true
+		capabilities.ImageGeneration = true
+		capabilities.ReasoningEfforts = codexBaselineReasoningEfforts
+	case "openai":
+		capabilities.ImageInput = true
+		capabilities.ImageGeneration = true
+		capabilities.ReasoningEfforts = legacyReasoningEfforts
+	case "openai-compatible":
+		capabilities.ImageInput = cfg.ImageInput
+		if cfg.Profile == config.ProviderProfileCLIProxyAPI {
+			capabilities.ReasoningEfforts = legacyReasoningEfforts
+		}
+	case config.ProviderTypeGemini:
+		capabilities.ImageInput = true
+		capabilities.ImageGeneration = true
+		capabilities.Reasoning = true
+		capabilities.ReasoningEfforts = legacyReasoningEfforts
+	case config.ProviderTypeGeminiInteractions:
+		capabilities.ImageInput = true
+		capabilities.Reasoning = true
+		capabilities.ReasoningEfforts = legacyReasoningEfforts
+	case config.ProviderTypeGrok:
+		capabilities.ImageInput = true
+		capabilities.ReasoningEfforts = legacyReasoningEfforts
+	case config.ProviderTypeKimi:
+		capabilities.ImageInput = true
+		capabilities.ReasoningEfforts = []string{"low", "high"}
+	case config.ProviderTypeKiro:
+		// Kiro advertises no thinking-effort control.
+	default:
+		return Capabilities{}
+	}
+	return canonicalCapabilities(capabilities)
+}
 
 // canonicalCapabilities preserves the legacy boolean capability while exposing
 // a canonical values list to model-catalog clients. A legacy true boolean means
@@ -101,13 +161,13 @@ func normalizeReasoningEffortForCapabilities(raw string, capabilities Capabiliti
 	switch effort {
 	case "", "auto":
 		return "", nil
-	case "low", "medium", "high", "xhigh":
+	case "low", "medium", "high", "xhigh", "max", "ultra":
 		if canonicalCapabilities(capabilities).SupportsReasoningEffort(effort) {
 			return effort, nil
 		}
 		return "", fmt.Errorf("%w by %s provider (requested %q)", ErrReasoningEffortUnsupported, strings.TrimSpace(providerName), effort)
 	default:
-		return "", fmt.Errorf("invalid reasoning effort %q: supported values are auto, low, medium, high, and xhigh", raw)
+		return "", fmt.Errorf("invalid reasoning effort %q: supported values are auto, low, medium, high, xhigh, max, and ultra", raw)
 	}
 }
 

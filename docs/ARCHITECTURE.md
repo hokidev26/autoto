@@ -1,6 +1,6 @@
 # Autoto Architecture Guide
 
-This guide is a contributor-facing map of how a request flows through the local Autoto MVP. The Go module is `autoto`; `cmd/autoto` is the canonical application entrypoint, while `cmd/codeharbor` is a legacy compatibility shim. For roadmap detail, see `PROJECT_PLAN.md`; for operational security boundaries, see `SECURITY.md`.
+This guide is a contributor-facing map of how a request flows through the local Autoto MVP. The Go module is `autoto`; `cmd/autoto` is the canonical application entrypoint, while `cmd/autoto` is a legacy compatibility shim. For roadmap detail, see `PROJECT_PLAN.md`; for operational security boundaries, see `SECURITY.md`.
 
 ## High-level shape
 
@@ -16,7 +16,7 @@ internal/server
 internal/agent Runner + EventHub
   | persists messages/tool calls and streams events
   +--> internal/providers Provider.Generate
-  |      OpenAI official, Anthropic official, OpenAI-compatible, CLIProxyAPI preset
+  |      OpenAI official, Anthropic official, OpenAI-compatible, Gemini, Kiro, CLIProxyAPI preset
   |
   +--> internal/tools Tool.Execute
          Read, Write, Edit, Bash, Glob, Grep, WebSearch, WebFetch, MCPListTools, MCPCallTool
@@ -30,7 +30,7 @@ internal/db SQLite store
 
 1. `internal/server/ui.go` serves `/` and the embedded static assets.
 2. The page receives a per-process local token as a JS bootstrap value and as a local cookie.
-3. `internal/server/static/app.js` attaches the canonical `X-Autoto-Token` header to API calls and includes the same token on WebSocket URLs. `X-CodeHarbor-Token` remains accepted only for legacy-client compatibility.
+3. `internal/server/static/app.js` attaches the canonical `X-Autoto-Token` header to API calls and includes the same token on WebSocket URLs. `X-Autoto-Token` remains accepted only for legacy-client compatibility.
 
 ### 2. Local request guard
 
@@ -71,6 +71,7 @@ Current adapters include:
 - OpenAI official Responses API with SDK streaming.
 - OpenAI-compatible Chat Completions APIs, including the CLIProxyAPI preset.
 - Gemini Interactions API in stateless mode, with provider-native steps and thought signatures persisted in the internal-only `provider_state_json` message field.
+- Kiro (Amazon Q) Event Stream API with OAuth token refresh, startup token warmup, and `ksk_*` API key authentication as an alternative to the OAuth browser flow.
 
 Provider code is responsible for translating Autoto's normalized message/tool representation into each upstream API shape and translating upstream deltas back into normalized events.
 

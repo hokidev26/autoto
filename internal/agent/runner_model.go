@@ -68,10 +68,12 @@ func (r *Runner) runModelTurnAttempt(ctx context.Context, agentID, runID string,
 	attemptCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	capabilities := providers.CapabilitiesFor(provider)
-	if !capabilities.SupportsReasoningEffort(reasoningEffort) {
-		return modelTurnResult{}, fmt.Errorf("%w: provider %q does not support requested effort %q", providers.ErrReasoningEffortUnsupported, provider.Name(), reasoningEffort), false
-	}
 	modelCapabilities := providers.ModelCapabilitiesFor(provider, model)
+	// Judged against the model rather than the provider: the strongest Codex
+	// levels are served by some models only.
+	if !providers.CapabilitiesForModel(capabilities, modelCapabilities).SupportsReasoningEffort(reasoningEffort) {
+		return modelTurnResult{}, fmt.Errorf("%w: provider %q does not support requested effort %q for model %q", providers.ErrReasoningEffortUnsupported, provider.Name(), reasoningEffort, model), false
+	}
 	fastModeAllowed := false
 	if _, ok := provider.(providers.ModelCapabilityProvider); ok && fastMode {
 		fastModeAllowed = !modelCapabilities.FastModeKnown || modelCapabilities.FastMode
@@ -434,7 +436,7 @@ func isTransientProviderError(err error) bool {
 			return false
 		}
 	}
-	for _, marker := range []string{"408", "409", "425", "429", "500", "502", "503", "504", "rate limit", "too many requests", "temporar", "timeout", "timed out", "deadline exceeded", "eof", "connection reset", "server error", "service unavailable", "bad gateway", "gateway timeout"} {
+	for _, marker := range []string{"408", "409", "425", "429", "500", "502", "503", "504", "rate limit", "too many requests", "temporar", "timeout", "timed out", "deadline exceeded", "eof", "unexpected end of json input", "connection reset", "server error", "service unavailable", "bad gateway", "gateway timeout"} {
 		if strings.Contains(message, marker) {
 			return true
 		}

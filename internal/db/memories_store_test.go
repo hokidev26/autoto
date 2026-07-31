@@ -324,7 +324,7 @@ func TestMemoryFreshSchemaAndV17MigrationMatch(t *testing.T) {
 		t.Fatalf("expected fresh database version %d, got %d", CurrentDBVersion, version)
 	}
 	freshSchema := memorySchemaSnapshot(t, ctx, fresh.DB())
-	for _, name := range []string{"memories", "memory_injections", "idx_memories_pinned_updated", "idx_memories_archived", "idx_memory_injections_agent"} {
+	for _, name := range []string{"memories", "memory_injections", "idx_memories_pinned_updated", "idx_memories_archived", "idx_memories_agent", "idx_memory_injections_agent"} {
 		if !strings.Contains(freshSchema, name) {
 			t.Fatalf("fresh memory schema missing %s: %s", name, freshSchema)
 		}

@@ -51,6 +51,7 @@ type Runtime struct {
 	supervisor        *runtime.Supervisor
 	previewManager    *preview.Manager
 	temporaryTunnel   *server.TemporaryTunnelManager
+	apiTunnel         *server.TemporaryTunnelManager
 	peerManager       *peercontrol.Manager
 	channelManager    *channels.Manager
 	automationManager *automation.Manager
@@ -129,7 +130,6 @@ func NewRuntime(options Options) (*Runtime, error) {
 		cleanup(store)
 		return nil, fmt.Errorf("open generated image store: %w", err)
 	}
-	cleanupGeneratedImages(context.Background(), logger, store, generatedImages)
 	providerVault := secrets.NewProviderVault(store, cfg.Paths.HomeDir)
 	cfg, providerSecretWarnings := hydrateProviderSecrets(context.Background(), cfg, providerVault, providerAPIKeyInputs, resolvedConfigPath)
 	for _, warning := range providerSecretWarnings {
@@ -166,6 +166,18 @@ func NewRuntime(options Options) (*Runtime, error) {
 		if anthropicProvider, ok := provider.(*providers.AnthropicProvider); ok {
 			anthropicProvider.SetAccountTelemetry(store)
 			anthropicProvider.SetGatewayAccountPolicy(store)
+		}
+		if geminiProvider, ok := provider.(*providers.GeminiProvider); ok {
+			geminiProvider.SetAccountTelemetry(store)
+			geminiProvider.SetGatewayAccountPolicy(store)
+		}
+		if grokProvider, ok := provider.(*providers.GrokProvider); ok {
+			grokProvider.SetAccountTelemetry(store)
+			grokProvider.SetGatewayAccountPolicy(store)
+		}
+		if kimiProvider, ok := provider.(*providers.KimiProvider); ok {
+			kimiProvider.SetAccountTelemetry(store)
+			kimiProvider.SetGatewayAccountPolicy(store)
 		}
 		providerRegistry.Register(provider)
 	}
@@ -259,6 +271,16 @@ func NewRuntime(options Options) (*Runtime, error) {
 	}
 	application.SetGatewayRuntimeController(gatewayManager)
 
+	// A second tunnel, pointed at the gateway rather than at Autoto's own
+	// listener. Keeping them separate is the point: the public API URL can be
+	// handed out without also exposing the management UI, and either can be
+	// closed without disturbing the other. The address is resolved on each start
+	// because the gateway binds its own listener, which may be off or may move.
+	apiTunnelManager := server.NewResolvedTunnelManager(func() (string, error) {
+		return gatewayManager.Status().Address, nil
+	}, cfg.Paths.HomeDir)
+	application.SetAPITunnelManager(apiTunnelManager)
+
 	httpServer := &http.Server{
 		Addr:              actualHTTPAddr,
 		Handler:           application.Routes(),
@@ -278,6 +300,7 @@ func NewRuntime(options Options) (*Runtime, error) {
 		gatewayManager:    gatewayManager,
 		previewManager:    previewManager,
 		temporaryTunnel:   temporaryTunnelManager,
+		apiTunnel:         apiTunnelManager,
 		peerManager:       peerManager,
 		channelManager:    channelManager,
 		automationManager: automationManager,
@@ -319,8 +342,11 @@ func (r *Runtime) Start(ctx context.Context) error {
 			r.requestClose()
 		}
 	}
-	services := []runtime.Service{r.previewManager, r.temporaryTunnel, r.peerManager, r.channelManager, r.automationManager, r.backgroundManager, r.gatewayManager}
+	services := []runtime.Service{r.previewManager, r.temporaryTunnel, r.apiTunnel, r.peerManager, r.channelManager, r.automationManager, r.backgroundManager, r.gatewayManager}
 	services = append(services, runtime.NewHTTPServiceWithListener(r.httpServer, r.httpListener, onServeError("http")))
+	// Register cleanup after HTTP so the server is started before the one-shot
+	// sweep begins. Supervisor owns the worker until Runtime.Close.
+	services = append(services, newGeneratedImagesCleanupService(r.logger, r.store, r.generatedImages))
 	if err := registerRuntimeServices(supervisor, services...); err != nil {
 		return err
 	}

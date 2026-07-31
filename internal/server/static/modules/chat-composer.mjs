@@ -7,7 +7,9 @@ import { mergeAuthoritativeEffectiveCommands, mergeBuiltInSlashCommands, mergeSl
 import { isSupportedVideoFile, processVideoAttachment } from "./video-attachments.mjs";
 
 export const defaultReasoningEffortValues = Object.freeze(["auto", "low", "medium", "high"]);
-export const knownReasoningEffortValues = Object.freeze([...defaultReasoningEffortValues, "xhigh"]);
+// Ordered weakest to strongest. "xhigh", "max" and "ultra" are Codex levels
+// and are offered per model, from the catalog, not provider-wide.
+export const knownReasoningEffortValues = Object.freeze([...defaultReasoningEffortValues, "xhigh", "max", "ultra"]);
 
 function normalizedReasoningEffortList(values = defaultReasoningEffortValues) {
   const source = Array.isArray(values) ? values : defaultReasoningEffortValues;
@@ -37,10 +39,11 @@ export function reasoningEffortValuesForCapabilities(capabilities = {}) {
   return source.reasoningEffort === true ? [...defaultReasoningEffortValues] : ["auto"];
 }
 
+// Per-model levels win over the provider list: Codex serves "max" and "ultra"
+// on some models only, and the authenticated catalog reports the exact set.
 export function reasoningEffortValuesForModel(provider, modelValue) {
   const value = String(modelValue || "").trim();
   const separator = value.indexOf(":");
-  const providerName = separator >= 0 ? value.slice(0, separator).trim() : String(provider?.name || "").trim();
   const model = separator >= 0 ? value.slice(separator + 1).trim() : value;
   const modelCapabilities = provider?.modelCapabilities && typeof provider.modelCapabilities === "object"
     ? provider.modelCapabilities[model]
@@ -49,7 +52,6 @@ export function reasoningEffortValuesForModel(provider, modelValue) {
     "reasoningEffort", "reasoningEfforts", "reasoningEffortValues", "effortValues",
   ].some((key) => Object.hasOwn(modelCapabilities, key)));
   if (hasModelReasoningCapabilities) return reasoningEffortValuesForCapabilities(modelCapabilities);
-  if (providerName === "codex" && model === "gpt-5.5") return [...knownReasoningEffortValues];
   return reasoningEffortValuesForCapabilities(provider?.capabilities || {});
 }
 
@@ -542,6 +544,8 @@ export function createChatComposerController({
       medium: t("modelProvider.medium"),
       high: t("modelProvider.high"),
       xhigh: t("staticExtra.chat.ultraHighEffort"),
+      max: t("staticExtra.chat.maxEffort"),
+      ultra: t("staticExtra.chat.ultraEffort"),
     }[value] || t("modelProvider.automatic");
   }
 
@@ -554,6 +558,8 @@ export function createChatComposerController({
       medium: "M",
       high: "H",
       xhigh: "X",
+      max: "M",
+      ultra: "U",
     }[value] || "A";
   }
 
@@ -939,12 +945,63 @@ export function createChatComposerController({
     const attachInput = $("attachFileInput");
     if (attachInput) attachInput.disabled = busy;
     refreshMessageModeControl();
-    const retryMode = !busy && isRetryMode();
+    bindStopButton();
+    // One button, three jobs. While the agent is answering it stops the run —
+    // there was no way to interrupt at all, and the button was sitting there
+    // disabled with nothing else to do. The composer stays usable so the next
+    // message can be typed while the current answer is still streaming.
     const sendBtn = $("sendMessageBtn");
-    if (sendBtn && !busy) {
-      sendBtn.textContent = retryMode ? t("workspace.chat.retryRun") : t("chat.send");
+    const stopMode = !busy && agentTurnInFlight();
+    const retryMode = !busy && !stopMode && isRetryMode();
+    if (sendBtn) {
+      sendBtn.classList?.toggle?.("is-stop", stopMode);
+      // Let setButtonBusy restore its saved label before applying the current
+      // action. Applying the action first would make a just-finished send
+      // briefly revert from Stop back to its old Send label.
+      setButtonBusy(sendBtn, busy, t(processing ? "workspace.chat.videoProcessing" : "workspace.chat.sending"));
+      if (!busy) {
+        const label = stopMode
+          ? t("workspace.chat.stopRun")
+          : retryMode ? t("workspace.chat.retryRun") : t("chat.send");
+        const title = stopMode ? t("workspace.chat.stopRunTitle") : label;
+        const ariaLabel = stopMode ? title : retryMode ? label : t("chat.sendMessage");
+        sendBtn.textContent = label;
+        sendBtn.title = title;
+        sendBtn.setAttribute?.("aria-label", ariaLabel);
+        // Compact layouts render this attribute in a pseudo-element. Keep the
+        // stop affordance a single square glyph instead of overflowing a 30px
+        // circular button with its localized label.
+        sendBtn.dataset.mobileLabel = stopMode ? "■" : "↑";
+      }
     }
-    setButtonBusy(sendBtn, busy, t(processing ? "workspace.chat.videoProcessing" : "workspace.chat.sending"));
+  }
+
+  async function interruptRun() {
+    const agentId = state.agent?.id;
+    if (!agentId) return;
+    // Interrupting is not a send, so it deliberately does not take the sending
+    // lock: the run is already in flight and the button must stay responsive.
+    await request(`/api/agents/${agentId}/interrupt`, { method: "POST" });
+    showToast?.(t("workspace.chat.stopRequested"), "info");
+    syncMessageComposerBusy();
+  }
+
+  // Stop is bound as a click rather than handled inside the submit path,
+  // because Enter submits this form too: typing a follow-up while an answer is
+  // still streaming must not kill the run the user is waiting for. Capture
+  // phase so the form's submit handler never sees the event.
+  function bindStopButton() {
+    const sendBtn = $("sendMessageBtn");
+    if (typeof sendBtn?.addEventListener !== "function") return;
+    if (!sendBtn.dataset) return;
+    if (sendBtn.dataset.stopBound === "true") return;
+    sendBtn.dataset.stopBound = "true";
+    sendBtn.addEventListener("click", (event) => {
+      if (!agentTurnInFlight()) return;
+      event.preventDefault();
+      event.stopPropagation();
+      interruptRun().catch((error) => showToast?.(error?.message || String(error), "error", { force: true }));
+    }, true);
   }
 
   function setMessageSendingFor(agentId, sending) {
