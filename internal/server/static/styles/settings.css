@@ -4011,7 +4011,7 @@ body.white-shell.theme-light[data-theme-preset="cream"] :is(.settings-action-btn
     letter-spacing: .01em;
     text-transform: none;
   }
-  #settingsModal .settings-mobile-index-list { overflow: hidden; border-radius: 15px; background: #fff; box-shadow: 0 1px 1px rgba(0, 0, 0, .03); }
+  #settingsModal .settings-mobile-index-list { overflow: hidden; border-radius: 15px; background: var(--ws-card, #fff); box-shadow: 0 1px 1px rgba(0, 0, 0, .03); }
   #settingsModal .settings-nav-groups .settings-mobile-index-row {
     width: 100%;
     min-height: 62px;
@@ -4021,16 +4021,16 @@ body.white-shell.theme-light[data-theme-preset="cream"] :is(.settings-action-btn
     gap: 10px;
     margin: 0;
     border: 0;
-    border-bottom: 1px solid rgba(60, 60, 67, .10);
+    border-bottom: 1px solid var(--ws-border, rgba(60, 60, 67, .10));
     border-radius: 0;
     background: transparent;
-    color: #1d1d1f;
+    color: var(--ws-text, #1d1d1f);
     padding: 8px 12px;
     text-align: left;
     white-space: normal;
   }
   #settingsModal .settings-mobile-index-row:last-child { border-bottom: 0; }
-  #settingsModal .settings-mobile-index-row:is(:hover, :focus-visible) { outline: 0; background: rgba(118, 118, 128, .07); }
+  #settingsModal .settings-mobile-index-row:is(:hover, :focus-visible) { outline: 0; background: color-mix(in srgb, var(--ws-text, #767680) 7%, transparent); }
   #settingsModal .settings-nav-groups .settings-mobile-index-row::before { display: none; }
   #settingsModal .settings-nav-groups .settings-mobile-index-row .settings-nav-icon {
     width: 36px;
@@ -4038,16 +4038,16 @@ body.white-shell.theme-light[data-theme-preset="cream"] :is(.settings-action-btn
     display: grid;
     place-items: center;
     border-radius: 10px;
-    background: #f2f2f7;
-    color: #3a3a3c;
+    background: var(--ws-input, #f2f2f7);
+    color: var(--ws-text, #3a3a3c);
   }
   #settingsModal .settings-mobile-index-row .settings-nav-icon svg { width: 20px; height: 20px; }
   #settingsModal .settings-mobile-index-copy { min-width: 0; display: grid; gap: 2px; }
   #settingsModal .settings-mobile-index-copy strong,
   #settingsModal .settings-mobile-index-copy small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  #settingsModal .settings-mobile-index-copy strong { color: #1d1d1f; font-size: 14px; font-weight: 620; }
-  #settingsModal .settings-nav-groups .settings-mobile-index-copy small { display: block; color: #8e8e93; font-size: 11px; line-height: 1.3; }
-  #settingsModal .settings-mobile-index-chevron { color: #c7c7cc; font-size: 22px; }
+  #settingsModal .settings-mobile-index-copy strong { color: var(--ws-text, #1d1d1f); font-size: 14px; font-weight: 620; }
+  #settingsModal .settings-nav-groups .settings-mobile-index-copy small { display: block; color: var(--ws-muted, #8e8e93); font-size: 11px; line-height: 1.3; }
+  #settingsModal .settings-mobile-index-chevron { color: var(--ws-muted, #c7c7cc); font-size: 22px; }
   #settingsModal.mobile-settings-index .settings-main { display: none; }
 
   #settingsModal.mobile-settings-detail .settings-sidebar {
