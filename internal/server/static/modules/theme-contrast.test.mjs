@@ -547,3 +547,55 @@ test("no rule paints with a custom property the shell never declares", () => {
       + `--text, --text-soft, --line, --accent -- or a var(--ws-*) directly.\n${offenders.join("\n")}`,
   );
 });
+
+// The palette blocks are the ones that declare the canvas. The narrower preset
+// rules -- the mobile overrides that re-point one or two --ws-* values -- are
+// not palettes and owe no bridges.
+function presetPalettes() {
+  const css = readFileSync(join(stylesDir, "settings.css"), "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
+  const palettes = [];
+  for (const match of css.matchAll(/body\.white-shell\.theme-light\[data-theme-preset="([a-z]+)"\]\s*\{([^}]*)\}/g)) {
+    const [, preset, body] = match;
+    if (!/--ws-canvas\s*:/.test(body)) continue;
+    const declarations = new Map();
+    for (const declaration of body.matchAll(/(--[a-z0-9-]+)\s*:\s*([^;]+);/g)) {
+      declarations.set(declaration[1], declaration[2].trim());
+    }
+    palettes.push({ preset, declarations, line: css.slice(0, match.index).split("\n").length });
+  }
+  return palettes;
+}
+
+// A card can be a translucent white over the canvas (apple), which is a
+// different colour from the one it is written as. Flatten it before measuring,
+// or the contrast is computed against a surface nobody sees.
+function flatten(value, behind) {
+  const rgba = /^rgba?\(\s*([\d.]+)[,\s]+([\d.]+)[,\s]+([\d.]+)(?:[,\s/]+([\d.]+))?\s*\)$/.exec(value.trim());
+  if (!rgba) return /^#[0-9a-fA-F]{3,8}$/.test(value.trim()) ? value.trim().slice(0, 7) : "";
+  const alpha = rgba[4] === undefined ? 1 : Number(rgba[4]);
+  const back = channels(behind);
+  const front = [1, 2, 3].map((i) => Number(rgba[i]));
+  return `#${front.map((c, i) => Math.round(c * alpha + back[i] * (1 - alpha)).toString(16).padStart(2, "0")).join("")}`;
+}
+
+// AA is not a matter of palette taste. --ws-muted is what secondary copy is
+// painted with, so a palette whose muted tone does not clear 4.5:1 against its
+// own card is one where bridging correctly only makes the unreadability
+// on-brand. cream shipped at 4.06 against #fffef9.
+test("every preset's muted tone is readable on its own card", () => {
+  const failures = [];
+  for (const { preset, declarations, line } of presetPalettes()) {
+    const canvas = flatten(declarations.get("--ws-canvas") ?? "", "#ffffff");
+    const card = flatten(declarations.get("--ws-card") ?? "", canvas || "#ffffff");
+    const muted = flatten(declarations.get("--ws-muted") ?? "", card || "#ffffff");
+    if (!card || !muted) {
+      failures.push(`  ${preset} (settings.css:${line}) has an unreadable --ws-card/--ws-muted pair to measure`);
+      continue;
+    }
+    const ratio = contrast(muted, card);
+    if (ratio < AA_CONTRAST) {
+      failures.push(`  ${preset} (settings.css:${line}) muted ${muted} on card ${card} is ${ratio.toFixed(2)}, needs ${AA_CONTRAST}`);
+    }
+  }
+  assert.deepEqual(failures, [], `secondary copy must clear AA against the surface it sits on.\n${failures.join("\n")}`);
+});

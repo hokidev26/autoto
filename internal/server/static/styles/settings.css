@@ -3225,13 +3225,13 @@ body.white-shell.theme-light[data-theme-preset="cream"] {
   --ws-card: #fffef9;
   --ws-input: #fff1d9;
   --ws-text: #413b46;
-  --ws-muted: #887b72;
+  --ws-muted: #7e726a;
   --ws-border: #eadcc7;
   --bg: var(--ws-canvas);
   --bg-soft: var(--ws-card);
   --bg-panel: var(--ws-card);
   --text: var(--ws-text);
-  --text-soft: #887b72;
+  --text-soft: #7e726a;
   --line: var(--ws-border);
   --accent: var(--ws-primary);
 }
