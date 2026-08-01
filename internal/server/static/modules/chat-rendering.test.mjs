@@ -149,6 +149,40 @@ function createAsyncChatRenderingHarness(apiRequest, stateOverrides = {}) {
   };
 }
 
+test("explicit transcript scrolling follows the newest message across mobile layout frames", () => {
+  const harness = createAsyncChatRenderingHarness(async () => ({}));
+  const previousRAF = globalThis.requestAnimationFrame;
+  const previousTimeout = globalThis.setTimeout;
+  const frames = [];
+  const timers = [];
+  globalThis.requestAnimationFrame = (callback) => {
+    frames.push(callback);
+    return frames.length;
+  };
+  globalThis.setTimeout = (callback, delay) => {
+    timers.push({ callback, delay });
+    return timers.length;
+  };
+  try {
+    harness.messagesElement.scrollTop = 0;
+    assert.equal(harness.controller.scrollMessagesToBottom(), true);
+    assert.equal(harness.messagesElement.scrollTop, harness.messagesElement.scrollHeight);
+    assert.equal(frames.length, 1);
+    assert.deepEqual(timers.map(({ delay }) => delay), [320]);
+
+    frames.shift()();
+    assert.equal(harness.messagesElement.scrollTop, harness.messagesElement.scrollHeight);
+    assert.equal(frames.length, 1);
+    frames.shift()();
+    timers[0].callback();
+    assert.equal(harness.messagesElement.scrollTop, harness.messagesElement.scrollHeight);
+  } finally {
+    globalThis.requestAnimationFrame = previousRAF;
+    globalThis.setTimeout = previousTimeout;
+    harness.restore();
+  }
+});
+
 test("chatMessagePresentation keeps user semantics while aligning messages left", () => {
   assert.deepEqual(chatMessagePresentation({ role: "user" }).alignment, "left");
   assert.deepEqual(chatMessagePresentation({ role: "user" }).roleClass, "user");
@@ -1089,16 +1123,16 @@ test("a run's tool calls file under the assistant turn that emitted them, not in
     },
   });
 
-  // Each turn owns its own stack, and each stack leads its own turn: the work
-  // happened before the words it produced.
+  // Each turn owns its own stack, and the activity leads its answer on every
+  // responsive layout so desktop and mobile have the same reading order.
   assert.match(html, /data-tool-activity-stack-key="msg:a1"/);
   assert.match(html, /data-tool-activity-stack-key="msg:a2"/);
   const a1 = html.indexOf('data-message-id="a1"');
   const a1Stack = html.indexOf('data-message-activity="a1"');
   const a2 = html.indexOf('data-message-id="a2"');
   const a2Stack = html.indexOf('data-message-activity="a2"');
-  assert.ok(a1Stack < a1 && a1 < a2Stack, "the first turn's activity leads it and stays before the second turn");
-  assert.ok(a2Stack < a2, "the second turn's activity leads it");
+  assert.ok(a1Stack < a1 && a1 < a2Stack, "the first turn's activity leads its answer and stays before the second turn");
+  assert.ok(a2Stack < a2, "the second turn's activity leads its answer");
 
   // a1 reasoned and called one tool; a2 only called one.
   const a1Title = html.slice(a1Stack, a1).match(/tool-activity-summary">([^<]+)</)?.[1] || "";
@@ -1226,6 +1260,31 @@ test("the incremental path repaints per-message stacks in place instead of rebui
   } finally {
     globalThis.document = previousDocument;
   }
+});
+
+test("reasoning and ownerless same-run tools share one assistant activity stack", () => {
+  const { html } = renderSnapshot([{
+    id: "a1",
+    role: "assistant",
+    runId: "run-1",
+    contentText: "The answer is ready.",
+    reasoningText: "I checked the current conditions first.",
+  }], {
+    agent: { id: "agent-1", status: "running" },
+    activeRunSummaryRunId: "run-1",
+    activeRunToolCallsRunId: "run-1",
+    activeRunToolCalls: [
+      { agentId: "agent-1", runId: "run-1", toolUseId: "t1", toolName: "WebSearch", status: "completed" },
+      { agentId: "agent-1", runId: "run-1", toolUseId: "t2", toolName: "Read", status: "completed" },
+    ],
+  });
+
+  assert.equal((html.match(/data-message-activity="a1"/g) || []).length, 1);
+  assert.equal((html.match(/tool-activity-summary/g) || []).length, 1);
+  assert.match(html, /活动 · 1 步推理 · 2 次工具/);
+  assert.match(html, /data-tool-activity-select="t1"/);
+  assert.match(html, /data-tool-activity-select="t2"/);
+  assert.equal((html.match(/data-live-tool-output-stack/g) || []).length, 0);
 });
 
 test("live tool calls group under their assistant turn once that turn is on screen", () => {
@@ -2513,7 +2572,7 @@ test("a persisted assistant turn keeps its reasoning on the activity surface, no
   assert.match(html, /活动 · 1 步推理</);
   assert.ok(
     html.indexOf('data-message-activity="m1"') < html.indexOf('data-message-id="m1"'),
-    "the stack leads the turn it explains, because the thinking came first",
+    "the activity leads the assistant answer on every responsive layout",
   );
 
   // A turn without reasoning must not grow an empty stack, and a user message

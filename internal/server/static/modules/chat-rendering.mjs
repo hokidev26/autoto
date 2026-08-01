@@ -1351,6 +1351,34 @@ export function createChatRenderingController({
   function scrollToBottomIfFollowing(el) {
     if (isNearBottom(el)) el.scrollTop = el.scrollHeight;
   }
+
+  // Sending on mobile often changes two things in separate browser frames: the
+  // textarea collapses and the on-screen keyboard starts closing. A single
+  // synchronous scroll therefore gets overwritten by the viewport resize. Keep
+  // this explicit helper for send flows and settle the tail after those layout
+  // passes as well. It is intentionally unconditional because a new message is
+  // an explicit request to follow the latest content.
+  function scrollMessagesToBottom() {
+    const el = $("messages");
+    if (!el) return false;
+    const scroll = () => {
+      const current = $("messages");
+      if (current) current.scrollTop = current.scrollHeight;
+    };
+    scroll();
+    const frame = globalThis.requestAnimationFrame;
+    if (typeof frame === "function") {
+      frame(() => {
+        scroll();
+        frame(scroll);
+      });
+    } else {
+      globalThis.setTimeout?.(scroll, 0);
+      globalThis.setTimeout?.(scroll, 120);
+    }
+    globalThis.setTimeout?.(scroll, 320);
+    return true;
+  }
   // ---------------------------------------------------------------------------
 
   // -- Scroll-to-load history --------------------------------------------------
@@ -1850,6 +1878,9 @@ export function createChatRenderingController({
       // look like the cause of the work behind it. A stack anchored to a user
       // row instead belongs to an earlier run that row triggered, so it trails.
       const activityHTML = messageActivityStacks.get(String(message.id || "")) || "";
+      // The activity timeline describes the work that leads to an assistant
+      // answer, so keep it immediately before that answer on every responsive
+      // layout. This matches the desktop transcript order on mobile as well.
       const activityLeadsMessage = chatMessagePresentation(message).normalizedRole === "assistant";
       if (activityLeadsMessage) messagesHTML += activityHTML;
       messagesHTML += renderChatMessageCached(message, index);
@@ -2388,6 +2419,9 @@ export function createChatRenderingController({
       // anchored to a user row belongs to an earlier run that row triggered and
       // trails it. Both read user message → activity → AI answer.
       if (!anchor) continue;
+      // Keep incremental updates aligned with the full transcript renderer:
+      // an assistant turn's activity leads its answer, while activity anchored
+      // to a user message trails that user message.
       const anchorIsAssistant = String(anchor.dataset?.messageRole || "") === "assistant";
       anchor.insertAdjacentHTML(anchorIsAssistant ? "beforebegin" : "afterend", html);
     }
@@ -2586,6 +2620,42 @@ export function createChatRenderingController({
     return anchored;
   }
 
+  // Tool records from older/partial payloads may not carry messageId even though
+  // they do carry runId. In that case use the assistant turn for that run as the
+  // owner before falling back to the run-level anchor. This keeps reasoning and
+  // tools in one activity stack instead of producing one stack on each side of
+  // the answer.
+  function mergeUnownedActivityIntoAssistantTurns(grouped, messages) {
+    const byRun = new Map();
+    for (const message of Array.isArray(messages) ? messages : []) {
+      if (chatMessagePresentation(message).normalizedRole !== "assistant") continue;
+      const runId = String(message?.runId || message?.run_id || "").trim();
+      const messageId = String(message?.id || "").trim();
+      if (runId && messageId) byRun.set(runId, messageId);
+    }
+    if (!byRun.size || !grouped?.unowned?.length) return grouped;
+    const remaining = [];
+    for (const call of grouped.unowned) {
+      const tool = normalizeToolActivity(call);
+      // Only repair incomplete records. An explicit but no-longer-visible
+      // messageId is historical ownership and must continue through the
+      // existing run-level anchoring path.
+      if (tool.messageId) {
+        remaining.push(call);
+        continue;
+      }
+      const ownerId = byRun.get(String(tool.runId || "").trim());
+      if (!ownerId) {
+        remaining.push(call);
+        continue;
+      }
+      if (!grouped.byMessage.has(ownerId)) grouped.byMessage.set(ownerId, []);
+      grouped.byMessage.get(ownerId).push(call);
+    }
+    grouped.unowned = remaining;
+    return grouped;
+  }
+
   // One activity stack per assistant turn, built from that turn's reasoning plus
   // the tool calls it emitted. Persisted and live records are merged into the
   // same stack because they are two views of one timeline: currentLiveToolOutputList
@@ -2602,12 +2672,12 @@ export function createChatRenderingController({
     const knownIds = new Set(messages.map((message) => String(message?.id || "")).filter(Boolean));
     if (!knownIds.size) return { stacks, ownedToolUseIds };
     const runId = state.activeRunSummaryRunId || state.activeRunSummary?.run?.id || "";
-    const persisted = groupToolActivityByMessage([
+    const persisted = mergeUnownedActivityIntoAssistantTurns(groupToolActivityByMessage([
       ...activeRunToolCallList(state.activeRunSummary, runId),
       ...historyRunActivityList(runId),
-    ], knownIds);
-    const live = groupToolActivityByMessage(currentLiveToolOutputList(), knownIds);
-    const anchored = anchorHistoryRunActivity(persisted.unowned, messages, runId);
+    ], knownIds), messages);
+    const live = mergeUnownedActivityIntoAssistantTurns(groupToolActivityByMessage(currentLiveToolOutputList(), knownIds), messages);
+    const anchored = anchorHistoryRunActivity([...persisted.unowned, ...live.unowned], messages, runId);
     const runActive = String(state.agent?.status || "").trim().toLowerCase() === "running";
     for (const message of messages) {
       const messageId = String(message?.id || "");
@@ -4139,5 +4209,6 @@ export function createChatRenderingController({
     scheduleMessageRefresh,
     updateConversationCopyButton,
     updateLiveAssistantPerformance,
+    scrollMessagesToBottom,
   };
 }

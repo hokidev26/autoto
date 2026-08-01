@@ -268,6 +268,7 @@ export function createChatComposerController({
   openDirectoryChooser,
   request = api,
   scheduleMessageRefresh,
+  scrollMessagesToBottom = () => {},
   showModelSetupNotice,
   showToast,
   onMessageAccepted,
@@ -1114,12 +1115,16 @@ export function createChatComposerController({
               body: JSON.stringify({ context }),
             });
             await loadMessages(agentId);
+            scrollMessagesToBottom?.();
             scheduleMessageRefresh(1200, agentId);
           } catch (err) {
             throw err;
           } finally {
             setMessageSendingFor(agentId, false);
-            if (state.agent?.id === agentId) input?.focus();
+            if (state.agent?.id === agentId) {
+              input?.focus?.({ preventScroll: true });
+              scrollMessagesToBottom?.();
+            }
           }
         }
       }
@@ -1185,11 +1190,16 @@ export function createChatComposerController({
         });
       }
       await onMessageAccepted?.(accepted, agentId);
+      // The mobile keyboard collapses asynchronously after send. Ask the
+      // renderer to keep the newest user message visible across those layout
+      // passes instead of relying only on the pre-send near-bottom check.
+      scrollMessagesToBottom?.();
       if (text) rememberPromptHistory(text);
       clearChatDraftForKey(draftKey);
       if (attachments.length) clearPendingAttachments();
       if (!isGoalCommand) {
         await loadMessages(agentId);
+        scrollMessagesToBottom?.();
         scheduleMessageRefresh(1200, agentId);
       }
     } catch (err) {
@@ -1203,7 +1213,14 @@ export function createChatComposerController({
       notifyTerminal(`[warn] Message delivery to the previous agent failed; the draft was kept: ${err.message || err}\n`);
     } finally {
       setMessageSendingFor(agentId, false);
-      if (state.agent?.id === agentId) input.focus();
+      if (state.agent?.id === agentId) {
+        // On mobile, a plain focus() after the request completes can make the
+        // browser scroll the page toward the textarea while the keyboard is
+        // reopening. Keep the caret without allowing that focus operation to
+        // move the message viewport, then settle the transcript tail again.
+        input.focus?.({ preventScroll: true });
+        scrollMessagesToBottom?.();
+      }
     }
   }
 

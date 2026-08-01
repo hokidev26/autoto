@@ -855,6 +855,7 @@ const {
   replacePendingUserQuestions,
   replacePlanState,
   scheduleMessageRefresh,
+  scrollMessagesToBottom,
   updateConversationCopyButton,
   updateLiveAssistantPerformance,
 } = chatRendering;
@@ -1186,6 +1187,7 @@ const chatComposer = createChatComposerController({
   notifyTerminal,
   openDirectoryChooser,
   scheduleMessageRefresh,
+  scrollMessagesToBottom,
   showModelSetupNotice,
   showToast,
   onMessageAccepted: (result, agentId) => specBoard.handleGoalConfirmation(result, agentId),
