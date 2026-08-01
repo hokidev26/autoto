@@ -828,6 +828,16 @@ test("desktop conversation layout follows the compact resizable geometry", async
   // one visible jolt at the end of every turn. This pair only occurs in that
   // handler.
   assert.match(appMain, /clearLiveAssistantText\(\{ preserveView: true \}\);[\s\S]{0,160}?clearLiveImageGenerations\(\{ agentId, preserveView: true \}\)/);
+  // Opening or switching a conversation runs applyAgentLiveSnapshot, which ends
+  // in applyMessageSnapshot rebuilding the whole transcript. Every clear before
+  // that paints a state about to be overwritten, so an unguarded one empties the
+  // view and fills it again -- the flash on switch. The trailing
+  // applyMessageSnapshot is part of the assertion because it is what makes
+  // deferring safe.
+  assert.match(
+    appMain,
+    /async function applyAgentLiveSnapshot\([\s\S]*?clearLiveAssistantText\(\{ preserveView: true \}\)[\s\S]*?clearRunSummary\(\{ preserveView: true \}\)[\s\S]*?applyMessageSnapshot\(/,
+  );
   assert.match(appMain, /function markMessageViewportBusy\(options = \{\}\)[\s\S]*?dataset\.initialChatState = "loading"/);
   assert.match(appMain, /messageViewportBusyDelayMs = 140/);
   assert.match(appMain, /clearMessageViewportBusyTimer\(\)/);

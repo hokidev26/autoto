@@ -3456,7 +3456,12 @@ async function applyAgentLiveSnapshot(snapshot, detail = {}) {
   renderConversationHeaderIdentity();
   syncNavigationConversationFromAgent(state.agent, { reason: "agent-snapshot" });
   navigationRefresh.request("agent-snapshot");
-  clearLiveAssistantText();
+  // applyMessageSnapshot at the end of this function rebuilds the whole
+  // transcript -- live cards, run summary, plans and approvals included -- so
+  // every clear here is painting an intermediate state that is about to be
+  // overwritten. Doing it unguarded is what makes opening or switching a
+  // conversation flash: the view empties, then fills.
+  clearLiveAssistantText({ preserveView: true });
   clearLiveImageGenerations({ agentId, preserveView: true });
   const recoveredToolOutputs = Object.fromEntries(Object.entries(state.liveToolOutputs || {}).filter(([, value]) => value?.agentId && value.agentId !== agentId));
   for (const call of Array.isArray(snapshot.toolActivity) ? snapshot.toolActivity : []) {
@@ -3464,7 +3469,7 @@ async function applyAgentLiveSnapshot(snapshot, detail = {}) {
     if (toolUseId) recoveredToolOutputs[toolUseId] = { ...call, agentId, toolUseId };
   }
   state.liveToolOutputs = recoveredToolOutputs;
-  clearRunSummary();
+  clearRunSummary({ preserveView: true });
   replacePlanState(snapshot.activePlan, snapshot.pendingPlanApproval ?? snapshot.pendingPlan, agentId);
   replacePendingApprovals(snapshot.pendingApprovals, agentId);
   replacePendingUserQuestions(snapshot.pendingUserQuestions, agentId);
