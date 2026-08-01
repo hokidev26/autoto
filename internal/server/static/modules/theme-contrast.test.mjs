@@ -599,3 +599,76 @@ test("every preset's muted tone is readable on its own card", () => {
   }
   assert.deepEqual(failures, [], `secondary copy must clear AA against the surface it sits on.\n${failures.join("\n")}`);
 });
+
+// The audit above never sees inside a media or container query. Its rule regex
+// captures an innermost body, so for `@media (...) { .a { ... } }` the selector
+// it captures is "@media (...) {\n  .a" -- which contains "@" and is skipped by
+// the at-rule guard. Every responsive tier has therefore gone unaudited, and
+// all three dark-mode surfaces reported broken on a phone lived in one: the
+// mobile select sheet, the mobile settings index, and the mobile shell itself.
+//
+// This walks the brace structure instead, so at-rules are descended into rather
+// than skipped, and holds the count of hard-coded light surfaces as a ratchet.
+// It is deliberately a ceiling and not zero: the remaining entries are real and
+// are being migrated to var(--ws-*) file by file. Lowering the number as they
+// go is the point; raising it is what this stops.
+const LIGHT_SURFACE_CEILING = Object.freeze({
+  "settings-legacy.css": 54,
+  "workbench.css": 51,
+  "white-shell.css": 46,
+  "workspace-tasks.css": 30,
+  "settings.css": 21,
+  "workspace.css": 18,
+  "extras.css": 16,
+  "base.css": 9,
+  "providers.css": 3,
+});
+
+function eachStyleRule(css, visit, atRules = []) {
+  let index = 0;
+  while (index < css.length) {
+    const open = css.indexOf("{", index);
+    if (open === -1) return;
+    const prelude = css.slice(index, open).trim();
+    let depth = 1;
+    let cursor = open + 1;
+    while (cursor < css.length && depth > 0) {
+      if (css[cursor] === "{") depth += 1;
+      else if (css[cursor] === "}") depth -= 1;
+      cursor += 1;
+    }
+    const body = css.slice(open + 1, cursor - 1);
+    if (prelude.startsWith("@")) eachStyleRule(body, visit, atRules.concat(prelude));
+    else visit({ selector: prelude, body, atRules, offset: open });
+    index = cursor;
+  }
+}
+
+test("no stylesheet grows its count of hard-coded light surfaces", () => {
+  const counts = {};
+  const samples = [];
+  for (const { name, css } of readStylesheets()) {
+    eachStyleRule(css, ({ selector, body, atRules, offset }) => {
+      if (/theme-dark|data-theme-preset/.test(selector)) return;
+      const background = /(?:^|;)\s*background(?:-color)?:\s*(#[0-9a-fA-F]{3,8})\s*(?:;|$)/.exec(body);
+      if (!background) return;
+      const hex = background[1].slice(0, 7);
+      if (relativeLuminance(hex) <= LIGHT_SURFACE_LUMINANCE) return;
+      counts[name] = (counts[name] || 0) + 1;
+      if (atRules.length) samples.push(`${name}:${css.slice(0, offset).split("\n").length} ${hex} ${selector.replace(/\s+/g, " ").slice(0, 60)}`);
+    });
+  }
+  const grown = Object.entries(counts)
+    .filter(([name, count]) => count > (LIGHT_SURFACE_CEILING[name] ?? 0))
+    .map(([name, count]) => `  ${name}: ${count} light surfaces, ceiling ${LIGHT_SURFACE_CEILING[name] ?? 0}`);
+  assert.deepEqual(
+    grown,
+    [],
+    "A rule painting a literal light background needs a var(--ws-*) instead. The dark palettes cannot\n"
+      + "reach a literal, so the surface stays light while its copy is recoloured for a dark page.\n"
+      + `${grown.join("\n")}\n\nInside at-rules right now:\n${samples.slice(0, 10).join("\n")}`,
+  );
+  for (const [name, ceiling] of Object.entries(LIGHT_SURFACE_CEILING)) {
+    assert.ok((counts[name] ?? 0) <= ceiling, `${name} exceeded its ceiling`);
+  }
+});
