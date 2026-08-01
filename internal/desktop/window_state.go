@@ -82,9 +82,12 @@ func applyWindowState(window *application.WebviewWindow, state windowState) {
 	if window == nil {
 		return
 	}
-	if state.Width > 0 && state.Height > 0 {
-		window.SetSize(state.Width, state.Height)
-	}
+	// The saved Width/Height are already applied through the window options in
+	// the caller (NewWithOptions), so there is no need to SetSize here -- and
+	// WebviewWindow.SetSize has no nil-impl guard, so calling it before the
+	// window is shown panics in the Wails runtime this shell builds against.
+	// SetPosition, Center and Maximise are all guarded: they no-op (or defer
+	// to options) while the window impl is still nil.
 	if state.HasPosition {
 		window.SetPosition(state.X, state.Y)
 	} else {
