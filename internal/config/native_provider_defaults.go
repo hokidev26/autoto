@@ -11,6 +11,9 @@ const (
 	ProviderTypeGrok               = "grok"
 	ProviderTypeKimi               = "kimi"
 	ProviderTypeKiro               = "kiro"
+	// DeepSeek is not a provider type: it is a named preset over the
+	// Anthropic protocol.
+	ProviderNameDeepSeek = "deepseek"
 )
 
 func defaultGeminiProvider() ProviderConfig {
@@ -70,6 +73,34 @@ func defaultKimiProvider() ProviderConfig {
 			{Name: "kimi-k2.7-code", ContextTokenLimit: 262144},
 			{Name: "kimi-k2.7-code-highspeed", ContextTokenLimit: 262144},
 			{Name: "kimi-k3", ContextTokenLimit: 262144},
+		},
+	}
+}
+
+// DeepSeek is reached through its Anthropic-compatible surface rather than a
+// native adapter, because that surface already speaks everything this shell
+// needs: /v1/messages works unchanged, and thinking mode arrives as ordinary
+// thinking blocks that the Anthropic adapter already understands. Verified
+// against the live endpoint -- deepseek-v4-pro with reasoning effort high
+// returns thinking and text blocks.
+//
+// No context window is declared. DeepSeek publishes model ids but not their
+// windows, and /v1/models returns only the id, so inventing a number here
+// would be a guess that silently shapes compaction. Leaving it unset falls
+// back to the Anthropic default.
+//
+// Note for whoever adds sampling controls: DeepSeek documents temperature,
+// top_p, presence_penalty and frequency_penalty as unsupported here.
+func defaultDeepSeekProvider() ProviderConfig {
+	return ProviderConfig{
+		Name:      ProviderNameDeepSeek,
+		Type:      "anthropic",
+		BaseURL:   "https://api.deepseek.com/anthropic",
+		Model:     getenv("DEEPSEEK_MODEL", "deepseek-v4-pro"),
+		MaxTokens: 8192,
+		Models: []ProviderModelConfig{
+			{Name: "deepseek-v4-pro"},
+			{Name: "deepseek-v4-flash"},
 		},
 	}
 }

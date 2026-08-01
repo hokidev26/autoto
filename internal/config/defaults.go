@@ -335,6 +335,7 @@ func defaultWithReport(report *compat.Report) (Config, error) {
 			defaultKimiProvider(),
 			defaultKiroProvider(),
 			defaultCodexProvider(),
+			defaultDeepSeekProvider(),
 			{
 				Name:    "openai-compatible",
 				Type:    "openai-compatible",

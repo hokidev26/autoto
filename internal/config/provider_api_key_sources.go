@@ -214,6 +214,8 @@ func providerAPIKeyFromEnvironment(provider ProviderConfig) (string, bool) {
 		names = []string{"GROQ_API_KEY"}
 	case typeName == ProviderTypeCodex || name == ProviderTypeCodex:
 		return "", false
+	case name == ProviderNameDeepSeek:
+		names = []string{"DEEPSEEK_API_KEY"}
 	case typeName == "anthropic" || name == "anthropic":
 		names = []string{"ANTHROPIC_API_KEY"}
 	case typeName == "gemini-interactions" || name == "gemini-interactions" || name == "gemini":
