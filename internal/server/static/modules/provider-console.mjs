@@ -2337,6 +2337,12 @@ export function createModelProviderSettingsController({
     return state.agent?.model || selectedModelValue();
   }
 
+  // Keyed on the element as well as the markup: if the select is ever
+  // replaced, the new one is empty and must be written even though the markup
+  // is unchanged.
+  let lastModelOptionsSelect = null;
+  let lastModelOptionsMarkup = null;
+
   function renderModelOptions() {
     const select = $("modelSelect");
     if (!select) return;
@@ -2357,7 +2363,18 @@ export function createModelProviderSettingsController({
     const currentOption = currentModel && !optionValues.includes(currentModel)
       ? `<option value="${escapeAttr(currentModel)}" data-configured="false" data-runtime-available="false" disabled>${escapeHtml(currentModel + mt("currentHidden"))}</option>`
       : "";
-    select.innerHTML = currentOption + (groups || `<option value="" data-configured="false">${escapeHtml(mt("modelsNotLoaded"))}</option>`);
+    // Rebuilding the select tears every option out and puts it back, which
+    // reads as a flicker on the composer. Switching a conversation renders this
+    // twice -- once from the list agent in enterAgent, once from the live
+    // snapshot -- and the provider list is identical both times, so the second
+    // pass was nothing but the flash. Compare against what was last written
+    // rather than against select.innerHTML, which the browser reserializes.
+    const markup = currentOption + (groups || `<option value="" data-configured="false">${escapeHtml(mt("modelsNotLoaded"))}</option>`);
+    if (lastModelOptionsSelect !== select || lastModelOptionsMarkup !== markup) {
+      lastModelOptionsSelect = select;
+      lastModelOptionsMarkup = markup;
+      select.innerHTML = markup;
+    }
     if (currentModel) {
       select.value = currentModel;
     }

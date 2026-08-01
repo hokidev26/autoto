@@ -114,32 +114,47 @@ export function createConversationTitleHelpers({
     }
   }
 
+  // Writing innerHTML tears the pills out and puts them back even when nothing
+  // about them changed, which is visible. Switching a conversation calls this
+  // several times -- from enterAgent, from renderModelOptions, and again from
+  // the live snapshot -- so all but the first were pure flicker.
+  // Keyed on the element too: a replaced container is empty and has to be
+  // written even when the markup is unchanged.
+  let lastWorkspaceMetaPillsEl = null;
+  let lastWorkspaceMetaPillsMarkup = null;
+  function writeWorkspaceMetaPills(el, markup) {
+    if (lastWorkspaceMetaPillsEl === el && lastWorkspaceMetaPillsMarkup === markup) return;
+    lastWorkspaceMetaPillsEl = el;
+    lastWorkspaceMetaPillsMarkup = markup;
+    el.innerHTML = markup;
+  }
+
   function updateWorkspaceMetaPills() {
     const el = $("workspaceMetaPills");
     if (!el) return;
     if (!state.project && !state.agent) {
       el.classList.add("hidden");
-      el.innerHTML = "";
+      writeWorkspaceMetaPills(el, "");
       return;
     }
     const model = currentWorkspaceModel();
     if (!projectOperationContextActive()) {
-      el.innerHTML = `
+      writeWorkspaceMetaPills(el, `
         <span class="workspace-pill">${escapeHtml(`${t("shell.filters.conversations")} · ${t("chat.permission.readOnly")}`)}</span>
         <span class="workspace-pill" title="${escapeAttr(model)}">${escapeHtml(t("workspace.main.modelLabel", { model }))}</span>
-      `;
+      `);
       el.classList.remove("hidden");
       return;
     }
     const cwd = canonicalLocalPath(state.agent?.cwd || state.project?.gitPath || "");
     const permission = effectivePermissionForDisplay(state.agent?.permissionMode || $("permissionMode")?.value || state.settings?.agent?.defaultPermissionMode || "acceptEdits");
     const securityText = connectionModeSummary().label;
-    el.innerHTML = `
+    writeWorkspaceMetaPills(el, `
       <span class="workspace-pill" title="${escapeAttr(cwd)}">${escapeHtml(t("workspace.main.directoryLabel", { path: shortPath(cwd) }))}</span>
       <span class="workspace-pill">${escapeHtml(t("workspace.main.permissionLabel", { permission: permissionLabel(permission) }))}</span>
       <span class="workspace-pill security-workspace-pill">${escapeHtml(t("workspace.main.modeLabel", { mode: securityText }))}</span>
       <span class="workspace-pill" title="${escapeAttr(model)}">${escapeHtml(t("workspace.main.modelLabel", { model }))}</span>
-    `;
+    `);
     el.classList.remove("hidden");
   }
 
