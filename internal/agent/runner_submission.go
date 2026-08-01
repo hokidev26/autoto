@@ -168,6 +168,42 @@ func (r *Runner) SubmitCorrectionWithSource(ctx context.Context, agentID, source
 	return msg, nil
 }
 
+// SubmitRerun re-runs an existing user message without writing anything to the
+// conversation. See Store.CreateRerunForMessage for why a retry is not a
+// correction.
+func (r *Runner) SubmitRerun(ctx context.Context, agentID, messageID, runSource string) (db.Run, error) {
+	if err := r.EnsureLocalExecution(ctx, agentID); err != nil {
+		return db.Run{}, err
+	}
+	runSource = strings.TrimSpace(runSource)
+	if runSource == "" {
+		runSource = db.RunSourceManual
+	}
+	if runSource != db.RunSourceManual && runSource != db.RunSourceConversation {
+		return db.Run{}, fmt.Errorf("invalid rerun source %q", runSource)
+	}
+	agent, err := r.store.GetAgent(ctx, agentID)
+	if err != nil {
+		return db.Run{}, err
+	}
+	// Same reasoning as SubmitCorrectionWithSource: the run this creates is an
+	// execute run, so it must not become a way around plan mode.
+	if agent.PlanMode && runSource != db.RunSourceConversation {
+		return db.Run{}, errors.New("plan-mode reruns require an execution-mode-aware Store API")
+	}
+	run, err := r.store.CreateRerunForMessage(ctx, agentID, messageID)
+	if err != nil {
+		return db.Run{}, err
+	}
+	run, err = r.store.BindPendingCorrectionRun(ctx, run.ID, runSource)
+	if err != nil {
+		return db.Run{}, err
+	}
+	r.publish(Event{Type: "message.rerun", AgentID: agentID, MessageID: messageID, Data: mergeEventData(map[string]any{"messageId": messageID}, run.ID)})
+	go r.runWithRun(context.Background(), agentID, run.ID, messageID)
+	return run, nil
+}
+
 func (r *Runner) SubmitSchedule(ctx context.Context, schedule db.Schedule) (db.Run, error) {
 	return r.SubmitScheduleDispatch(ctx, schedule, db.NewID())
 }

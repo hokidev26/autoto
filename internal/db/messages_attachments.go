@@ -299,6 +299,56 @@ func (s *Store) CreateCorrectionWithRun(ctx context.Context, agentID, sourceMess
 	return message, run, nil
 }
 
+// CreateRerunForMessage starts a fresh run for a user message that is already in
+// the conversation, adding nothing to it.
+//
+// Retrying a failed run is the same question asked again, but the only way to
+// re-ask it used to be CreateCorrectionWithRun, which by design writes a new
+// user row and retires the old one. Six retries therefore left six copies of
+// the prompt in the transcript, each labelled as a correction of the last. A
+// rerun leaves the message exactly where it is and only retires what the failed
+// attempt produced after it, so the model is asked against the same history it
+// saw the first time.
+func (s *Store) CreateRerunForMessage(ctx context.Context, agentID, messageID string) (Run, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return Run{}, err
+	}
+	defer tx.Rollback()
+	var role, sourceCreatedAt, supersededAt string
+	if err := tx.QueryRowContext(ctx, `SELECT role, created_at, COALESCE(superseded_at,'') FROM agent_messages WHERE id = ? AND agent_id = ?`, messageID, agentID).Scan(&role, &sourceCreatedAt, &supersededAt); err != nil {
+		return Run{}, err
+	}
+	if role != "user" {
+		return Run{}, fmt.Errorf("%w: a rerun requires a user message", ErrConflict)
+	}
+	if supersededAt != "" {
+		return Run{}, fmt.Errorf("%w: a rerun requires a message that is still current", ErrConflict)
+	}
+	now := Now()
+	// Strictly after: the correction path uses id >= because it retires the
+	// message it replaces, and this one must keep it.
+	if _, err := tx.ExecContext(ctx, `UPDATE agent_messages SET superseded_at = ?
+		WHERE agent_id = ? AND superseded_at IS NULL
+		  AND (created_at > ? OR (created_at = ? AND id > ?))`,
+		now, agentID, sourceCreatedAt, sourceCreatedAt, messageID); err != nil {
+		return Run{}, err
+	}
+	run := Run{ID: NewID(), AgentID: agentID, TriggerMessageID: messageID, Status: "pending", CheckpointState: RunCheckpointNone, CreatedAt: now, UpdatedAt: now}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO runs (id, agent_id, trigger_message_id, status, checkpoint_state, created_at, updated_at) VALUES (?, ?, ?, 'pending', ?, ?, ?)`, run.ID, run.AgentID, run.TriggerMessageID, run.CheckpointState, run.CreatedAt, run.UpdatedAt); err != nil {
+		return Run{}, err
+	}
+	// Point the message at the run now working on it. message_count and
+	// last_message_at stay untouched: nothing was said.
+	if _, err := tx.ExecContext(ctx, `UPDATE agent_messages SET run_id = ? WHERE id = ? AND agent_id = ?`, run.ID, messageID, agentID); err != nil {
+		return Run{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return Run{}, err
+	}
+	return run, nil
+}
+
 func (s *Store) ListMessages(ctx context.Context, agentID string) ([]Message, error) {
 	messages, err := s.listMessages(ctx, agentID)
 	if err != nil {

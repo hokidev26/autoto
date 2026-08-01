@@ -702,6 +702,7 @@ func (s *Server) Routes() http.Handler {
 		r.Put("/{id}/draft", s.putMessageDraft)
 		r.Delete("/{id}/draft", s.deleteMessageDraft)
 		r.Post("/{id}/messages/{messageId}/corrections", s.createCorrection)
+		r.Post("/{id}/messages/{messageId}/rerun", s.rerunMessage)
 		r.Get("/{id}/messages/{messageId}/attachments/{attachmentId}", s.getMessageAttachment)
 		r.Get("/{id}/messages/{messageId}/generated-images/{assetId}", s.getGeneratedImage)
 		r.MethodFunc(http.MethodHead, "/{id}/messages/{messageId}/generated-images/{assetId}", s.getGeneratedImage)

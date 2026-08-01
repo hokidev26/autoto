@@ -138,6 +138,41 @@ func (s *Server) createCorrection(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusAccepted, message)
 }
 
+// rerunMessage re-runs an existing user message. It carries no body beyond the
+// optional context, because a rerun changes nothing about the message -- that
+// is the whole point of it not being a correction.
+func (s *Server) rerunMessage(w http.ResponseWriter, r *http.Request) {
+	if s.runner == nil {
+		writeError(w, http.StatusServiceUnavailable, "agent runner is not initialized")
+		return
+	}
+	var req struct {
+		Context string `json:"context"`
+	}
+	if r.ContentLength > 0 {
+		if err := decodeJSON(r, &req); err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+	}
+	agentID := chi.URLParam(r, "id")
+	_, runSource, err := s.messageRunBoundary(r.Context(), agentID, req.Context)
+	if err != nil {
+		writeError(w, statusFromMessageBoundaryError(err), err.Error())
+		return
+	}
+	if err := s.enforceRemotePermissionCap(r, agentID); err != nil {
+		writeError(w, statusFromError(err), err.Error())
+		return
+	}
+	run, err := s.runner.SubmitRerun(r.Context(), agentID, chi.URLParam(r, "messageId"), runSource)
+	if err != nil {
+		writeError(w, statusFromError(err), err.Error())
+		return
+	}
+	writeJSON(w, http.StatusAccepted, run)
+}
+
 func parseMultipartCorrection(w http.ResponseWriter, r *http.Request) (string, []string, []db.Attachment, string, error) {
 	r.Body = http.MaxBytesReader(w, r.Body, maxMessageUploadBytes)
 	defer func() {

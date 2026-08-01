@@ -1079,11 +1079,15 @@ export function createChatComposerController({
     const mode = context === "project" ? messageModeFor(agentId) : "execute";
     const attachments = [...(state.pendingAttachments || [])];
     if (!text && !attachments.length) {
-      // If the last run failed and there is nothing new to send, re-run the
-      // last user message as a correction (same text, no edits) so the user
-      // does not have to open the correction editor just to retry.
+      // If the last run failed and there is nothing new to send, run the last
+      // user message again. This posts a rerun rather than a correction: a
+      // correction writes a fresh copy of the prompt and retires the old one,
+      // so retrying six times left six near-identical messages in the
+      // transcript, each marked as superseding the last.
       if (isRetryMode()) {
-        const lastUserMessage = [...(state.currentMessages || [])].reverse().find((m) => m?.role === "user" && m?.id);
+        // A retired message cannot be rerun -- the server refuses it -- so pick
+        // the newest user message that is still part of the conversation.
+        const lastUserMessage = [...(state.currentMessages || [])].reverse().find((m) => m?.role === "user" && m?.id && !m?.supersededAt);
         if (lastUserMessage) {
           setMessageSendingFor(agentId, true);
           try {
@@ -1091,10 +1095,9 @@ export function createChatComposerController({
             // picker has to reach the agent first -- the correction runs on
             // whatever the agent record says.
             if (!(await syncSelectedModelToAgent(agentId))) return;
-            const retryText = lastUserMessage.contentText || lastUserMessage.text || "";
-            await request(`/api/agents/${agentId}/messages/${encodeURIComponent(lastUserMessage.id)}/corrections`, {
+            await request(`/api/agents/${agentId}/messages/${encodeURIComponent(lastUserMessage.id)}/rerun`, {
               method: "POST",
-              body: JSON.stringify({ text: retryText }),
+              body: JSON.stringify({ context }),
             });
             await loadMessages(agentId);
             scheduleMessageRefresh(1200, agentId);
