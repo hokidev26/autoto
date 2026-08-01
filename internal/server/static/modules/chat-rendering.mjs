@@ -1362,6 +1362,10 @@ export function createChatRenderingController({
     const el = $("messages");
     if (!el) return false;
     const scroll = () => {
+      // The last of these runs 320ms out, so it can outlive the document that
+      // scheduled it. Re-reading the node each time is deliberate -- a render
+      // in between replaces it -- but the lookup itself has to be safe.
+      if (!globalThis.document) return;
       const current = $("messages");
       if (current) current.scrollTop = current.scrollHeight;
     };
@@ -1947,7 +1951,20 @@ export function createChatRenderingController({
     bindCopyCodeButtons(el);
     // forceRender means a fresh conversation was just opened — always scroll to
     // the tail so the user lands at the latest message, not the top of history.
-    if (!options.preserveScroll && (wasFollowing || options.forceRender)) el.scrollTop = el.scrollHeight;
+    if (!options.preserveScroll && (wasFollowing || options.forceRender)) {
+      if (options.forceRender) {
+        // One synchronous assignment only anchors the tail if the transcript is
+        // finished growing, and on a freshly opened conversation it is not:
+        // activity stacks, code blocks and images all settle over the next few
+        // frames, and every pixel they add lands below the viewport. That is
+        // how switching conversation left the reader in the middle of the
+        // history instead of at the newest message. Re-anchor across those
+        // layout passes rather than betting on the first one.
+        scrollMessagesToBottom();
+      } else {
+        el.scrollTop = el.scrollHeight;
+      }
+    }
     return true;
   }
 

@@ -2733,3 +2733,47 @@ test("one tool call renders one row even when two surfaces claim it", () => {
   const summaries = (html.match(/tool-activity-summary/g) || []).length;
   assert.equal(summaries, 1, `expected one activity row, saw ${summaries}`);
 });
+
+test("opening a conversation re-anchors the tail after the transcript finishes growing", () => {
+  // Switching conversation used to leave the reader in the middle of the
+  // history. The forced render did scroll, but only once and synchronously,
+  // before activity stacks, code blocks and images had settled -- every pixel
+  // they added afterwards landed below the viewport.
+  const harness = createAsyncChatRenderingHarness(async () => ({}));
+  const previousRAF = globalThis.requestAnimationFrame;
+  const previousTimeout = globalThis.setTimeout;
+  const frames = [];
+  const timers = [];
+  globalThis.requestAnimationFrame = (callback) => { frames.push(callback); return frames.length; };
+  globalThis.setTimeout = (callback, delay) => { timers.push({ callback, delay }); return timers.length; };
+  try {
+    // Parked at the top, so nothing but forceRender can drive the scroll.
+    harness.messagesElement.scrollTop = 0;
+    harness.messagesElement.scrollHeight = 800;
+
+    assert.equal(
+      harness.controller.applyMessageSnapshot(
+        [{ id: "m1", role: "user", contentText: "hello" }],
+        "agent-a",
+        { forceRender: true },
+      ),
+      true,
+    );
+    assert.equal(harness.messagesElement.scrollTop, 800, "the first pass still anchors the tail");
+
+    // The late layout the single synchronous scroll used to miss.
+    harness.messagesElement.scrollHeight = 2400;
+    while (frames.length) frames.shift()();
+    for (const timer of timers) timer.callback();
+
+    assert.equal(
+      harness.messagesElement.scrollTop,
+      2400,
+      "the tail must be re-anchored once the transcript stops growing",
+    );
+  } finally {
+    globalThis.requestAnimationFrame = previousRAF;
+    globalThis.setTimeout = previousTimeout;
+    harness.restore();
+  }
+});
