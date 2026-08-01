@@ -166,6 +166,7 @@ func convertResponsesRequest(request responsesRequest) (convertedResponsesReques
 	}{
 		{name: "previous_response_id", raw: request.PreviousResponseID},
 		{name: "background", raw: request.Background},
+		{name: "store", raw: request.Store},
 		{name: "conversation", raw: request.Conversation},
 	} {
 		if rawJSONPresent(unsupported.raw) {
