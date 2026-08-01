@@ -39,6 +39,7 @@ All notable changes to Autoto are tracked here. The project is still an experime
 
 ### Changed
 
+- Truncated Bash results now keep the first 40% and the last 60% of the output instead of the first 20 KB. A command's exit summary, final stack frame, and failing assertion are written last, so the head-only cut discarded exactly the part that explains the failure. The retained halves are joined by a `...[N bytes truncated]...` marker, and both join points are trimmed back to a UTF-8 rune boundary so a multi-byte character is never split; genuinely binary output still passes through untouched.
 - Hardened conversation switching with cancellable, generation-bound message requests so stale A→B→A responses cannot overwrite the active session. Subagent task updates now patch stable `runId`/`toolUseId` cards instead of rebuilding the full message history, and recent-conversation state synchronizes across browser tabs through the existing local preference key.
 - Model discovery now reports whether models were remotely discovered or fallback-only, and the setup wizard accepts any registered provider with usable models.
 - Run summaries no longer load complete tool inputs/outputs; full details remain available from the tool-call detail APIs.
@@ -50,6 +51,8 @@ All notable changes to Autoto are tracked here. The project is still an experime
 
 ### Security
 
+- Scoped tool session grants to attended Runs. A grant is a human's answer to one interactive approval prompt and it outranks the serious-but-recoverable review gate, so a schedule dispatch or internal submission reusing one meant an unattended Run could execute a command nobody was present to approve. Schedule and internal Runs — and any Run source that is not `manual` or `conversation` — now neither spend nor create session grants, and unknown sources fail closed as unattended.
+- Rejected schedule prompts containing a command that stops or restarts Autoto itself, at both create and update. Such a schedule otherwise produces a restart loop that survives every restart: the server dies mid-run, autostart or an OS supervisor revives it, the interrupted Run resumes, and the resumed turn reissues the command — with the UI that would disable the schedule hosted by the process being killed. Matching anchors on command shapes so prompts that merely discuss restarts are unaffected.
 - Bound Agent and terminal WebSockets to the authenticated local account session that opened them. Local logout or session expiry now terminates established sockets immediately, while other independent login sessions remain connected.
 - Hardened tool and filesystem path resolution against symlink escapes, bounded file/DOCX/Git fingerprint work, and restricted remote root-directory browsing.
 - Hardened attachment filenames and MIME detection, explicitly cleans multipart temporary files, defaults downloads to attachment, and only inlines validated safe images with `nosniff`.

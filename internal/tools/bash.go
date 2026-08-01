@@ -4,12 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os/exec"
 	"regexp"
 	"runtime"
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"autoto/internal/process"
 )
@@ -19,7 +21,14 @@ type BashTool struct{}
 const (
 	bashResultMaxBytes = 20000
 	bashStreamMaxBytes = 100000
-	bashMaxTimeout     = 30 * time.Minute
+	// A truncated result keeps the first 40% and the last 60% of the output
+	// instead of the first 100%. What a command failed with — the non-zero exit
+	// summary, the last stack frame, the test that broke — is written last, so a
+	// head-only cut discarded exactly the part the model needs and left it
+	// re-running the command to see the end.
+	bashResultHeadBytes = bashResultMaxBytes * 2 / 5
+	bashResultTailBytes = bashResultMaxBytes - bashResultHeadBytes
+	bashMaxTimeout      = 30 * time.Minute
 	// How long output may keep arriving after the shell itself has exited. Only
 	// a process the shell detached can still hold the pipes open at that point,
 	// and waiting on one of those is waiting on the wrong thing.
@@ -304,16 +313,96 @@ func (BashTool) Execute(ctx context.Context, call Call, env Env) (Result, error)
 
 type bashOutputCollector struct {
 	mu              sync.Mutex
-	resultBuilder   strings.Builder
-	resultBytes     int
-	resultTruncated bool
+	headBuilder     strings.Builder
+	headBytes       int
+	tail            tailRing
+	totalBytes      int
 	streamBytes     int
 	streamTruncated bool
 	output          func(OutputChunk)
 }
 
 func newBashOutputCollector(output func(OutputChunk)) *bashOutputCollector {
-	return &bashOutputCollector{output: output}
+	return &bashOutputCollector{output: output, tail: newTailRing(bashResultTailBytes)}
+}
+
+// tailRing keeps the last N bytes written to it in a fixed buffer. A slice that
+// re-sliced on every write would copy the whole retained window per call, and a
+// command that logs line by line calls Write tens of thousands of times.
+type tailRing struct {
+	buf   []byte
+	start int
+	size  int
+}
+
+func newTailRing(capacity int) tailRing {
+	if capacity < 0 {
+		capacity = 0
+	}
+	return tailRing{buf: make([]byte, capacity)}
+}
+
+func (t *tailRing) write(p []byte) {
+	capacity := len(t.buf)
+	if capacity == 0 || len(p) == 0 {
+		return
+	}
+	if len(p) >= capacity {
+		copy(t.buf, p[len(p)-capacity:])
+		t.start, t.size = 0, capacity
+		return
+	}
+	end := (t.start + t.size) % capacity
+	written := copy(t.buf[end:], p)
+	if written < len(p) {
+		copy(t.buf, p[written:])
+	}
+	if t.size+len(p) <= capacity {
+		t.size += len(p)
+		return
+	}
+	t.size = capacity
+	t.start = (end + len(p)) % capacity
+}
+
+func (t *tailRing) bytes() []byte {
+	if t.size == 0 {
+		return nil
+	}
+	out := make([]byte, 0, t.size)
+	if t.start+t.size <= len(t.buf) {
+		return append(out, t.buf[t.start:t.start+t.size]...)
+	}
+	out = append(out, t.buf[t.start:]...)
+	return append(out, t.buf[:t.size-(len(t.buf)-t.start)]...)
+}
+
+// trimPartialRuneSuffix drops an incomplete UTF-8 sequence left at a byte-count
+// cut. Only the final three bytes are inspected: if no rune start is found
+// there the output is binary and is passed through untouched rather than
+// silently shortened.
+func trimPartialRuneSuffix(b []byte) []byte {
+	for i := len(b) - 1; i >= 0 && i >= len(b)-3; i-- {
+		if !utf8.RuneStart(b[i]) {
+			continue
+		}
+		if r, size := utf8.DecodeRune(b[i:]); r == utf8.RuneError && size <= 1 {
+			return b[:i]
+		}
+		return b
+	}
+	return b
+}
+
+// trimPartialRunePrefix drops the continuation bytes a byte-count cut can leave
+// at the front of the retained tail.
+func trimPartialRunePrefix(b []byte) []byte {
+	for i := 0; i < len(b) && i < 4; i++ {
+		if utf8.RuneStart(b[i]) {
+			return b[i:]
+		}
+	}
+	return b
 }
 
 func (c *bashOutputCollector) Write(p []byte) (int, error) {
@@ -325,19 +414,21 @@ func (c *bashOutputCollector) Write(p []byte) (int, error) {
 	emitText := ""
 	emitTruncationNotice := false
 	c.mu.Lock()
-	if c.resultBytes < bashResultMaxBytes {
-		remaining := bashResultMaxBytes - c.resultBytes
-		if n <= remaining {
-			c.resultBuilder.WriteString(text)
-			c.resultBytes += n
+	c.totalBytes += n
+	rest := p
+	if c.headBytes < bashResultHeadBytes {
+		room := bashResultHeadBytes - c.headBytes
+		if len(rest) <= room {
+			c.headBuilder.Write(rest)
+			c.headBytes += len(rest)
+			rest = nil
 		} else {
-			c.resultBuilder.WriteString(string(p[:remaining]))
-			c.resultBytes += remaining
-			c.resultTruncated = true
+			c.headBuilder.Write(rest[:room])
+			c.headBytes += room
+			rest = rest[room:]
 		}
-	} else {
-		c.resultTruncated = true
 	}
+	c.tail.write(rest)
 	if c.output != nil && !c.streamTruncated {
 		remaining := bashStreamMaxBytes - c.streamBytes
 		if remaining > 0 {
@@ -370,9 +461,14 @@ func (c *bashOutputCollector) Write(p []byte) (int, error) {
 func (c *bashOutputCollector) result() (string, bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	text := c.resultBuilder.String()
-	if !c.resultTruncated {
-		return text, false
+	head := []byte(c.headBuilder.String())
+	tail := c.tail.bytes()
+	dropped := c.totalBytes - len(head) - len(tail)
+	if dropped <= 0 {
+		// Nothing was discarded, so head+tail is the whole output and neither
+		// join can fall inside a rune.
+		return string(head) + string(tail), false
 	}
-	return text + "\n...[truncated]", true
+	marker := fmt.Sprintf("\n...[%d bytes truncated]...\n", dropped)
+	return string(trimPartialRuneSuffix(head)) + marker + string(trimPartialRunePrefix(tail)), true
 }

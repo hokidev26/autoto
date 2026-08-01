@@ -55,6 +55,9 @@ type PolicyContext struct {
 	Conversation         bool
 	ExecCapabilityDenied bool
 	ChildAgent           bool
+	// Unattended marks a Run nobody is watching: a schedule dispatch or an
+	// internal submission rather than something a human just typed.
+	Unattended bool
 }
 
 func (p PolicyContext) IsPlan() bool {
@@ -125,6 +128,7 @@ func (r *Runner) policyContext(ctx context.Context, agentID, runID string) (db.A
 	}
 	mode := executionModeForAgent(agent)
 	conversation := false
+	unattended := false
 	if strings.TrimSpace(runID) != "" {
 		run, err := r.store.GetRun(ctx, agentID, runID)
 		if err != nil {
@@ -133,6 +137,7 @@ func (r *Runner) policyContext(ctx context.Context, agentID, runID string) (db.A
 		agent.PermissionMode = permissionModeWithCap(agent.PermissionMode, run.PermissionModeCap)
 		mode = executionModeForRun(run)
 		conversation = isConversationRun(run)
+		unattended = isUnattendedRun(run)
 	}
 	childAgent := strings.TrimSpace(agent.ParentAgentID) != ""
 	execCapabilityDenied := false
@@ -152,6 +157,7 @@ func (r *Runner) policyContext(ctx context.Context, agentID, runID string) (db.A
 		Conversation:         conversation,
 		ExecCapabilityDenied: execCapabilityDenied,
 		ChildAgent:           childAgent,
+		Unattended:           unattended,
 	}, nil
 }
 
@@ -164,6 +170,20 @@ func executionModeForAgent(agent db.Agent) ExecutionMode {
 
 func isConversationRun(run db.Run) bool {
 	return strings.TrimSpace(run.Source) == db.RunSourceConversation
+}
+
+// isUnattendedRun reports whether nobody is present to answer for this Run.
+// Manual and conversation Runs are started by a human in the UI; everything
+// else — schedule dispatches, internal submissions, and any source added later
+// — is treated as unattended so a new trigger type fails closed instead of
+// inheriting interactive privileges by default.
+func isUnattendedRun(run db.Run) bool {
+	switch strings.TrimSpace(run.Source) {
+	case db.RunSourceManual, db.RunSourceConversation:
+		return false
+	default:
+		return true
+	}
 }
 
 // executionModeForRun reads the durable runs.execution_mode capability. A

@@ -301,6 +301,11 @@ func validateScheduleRequest(schedule db.Schedule) error {
 			return err
 		}
 	}
+	// Both the create and the update handler validate through here, so a
+	// schedule cannot acquire a self-restart prompt after creation either.
+	if err := schedules.CheckLifecycleCommand(schedule.Prompt); err != nil {
+		return err
+	}
 	if schedule.PermissionMode != "readOnly" && schedule.PermissionMode != "acceptEdits" {
 		return errors.New("invalid permissionMode")
 	}

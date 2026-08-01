@@ -303,7 +303,14 @@ func (r *Runner) executeToolForLoop(ctx context.Context, agentID, runID string, 
 		return r.rejectInvalidToolInput(ctx, agentID, runID, messageID, call, executionDeviceID, err), nil
 	}
 	risk := tool.Risk(call.Input)
-	allowSessionApproval := toolAllowsSessionApproval(tool, call.Input)
+	// A session grant is one human's answer to one interactive question, and it
+	// outranks execRequiresHumanReview because a person looked at that exact
+	// command. An unattended Run has no such person: it would be spending a
+	// grant that was given hours earlier, in a different Run, for a command the
+	// scheduler happens to reissue at 03:00. Withholding the grant here also
+	// keeps waitForToolApproval from offering "allow for session" to a Run whose
+	// approver is answering from Telegram.
+	allowSessionApproval := toolAllowsSessionApproval(tool, call.Input) && !policy.Unattended
 	if result, denied := planToolDeniedResult(policy, call, risk); denied {
 		source, scope := decisionSourcePlanMode, "plan"
 		if policy.IsConversation() {
@@ -448,7 +455,7 @@ func (r *Runner) executeTool(ctx context.Context, agentID, runID string, call to
 		r.publish(Event{Type: "tool.finished", AgentID: agentID, Data: toolFinishedEventDataWithResolution(call, risk, executionDeviceID, runID, result, "denied", 0, map[string]any{"warning": result.Output, "executionMode": policy.ExecutionMode}, resolution)})
 		return result, nil
 	}
-	permission := r.resolveToolPermission(ctx, policy.AgentID, policy.PermissionMode, call.Name, risk, call.Input)
+	permission := r.resolveToolPermissionWithSession(ctx, policy.AgentID, policy.PermissionMode, call.Name, risk, call.Input, !policy.Unattended)
 	permission = r.reflectBeforeExecution(ctx, agent, policy.PermissionMode, runID, call, risk, permission)
 	if permission.Decision != toolPermissionAllow {
 		message := strings.TrimSpace(permission.Reason)
