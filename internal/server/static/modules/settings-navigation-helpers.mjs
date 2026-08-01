@@ -108,7 +108,9 @@ export function createSettingsNavigationHelpers({
   }
 
   function focusSettingsSearchInput({ select = false } = {}) {
-    if (state.settingsMobileViewport && state.mobileSettingsView === "index") return;
+    // The search field is display:none below 768px, the same breakpoint this
+    // flag tracks, so there is nothing to focus on a phone in either view.
+    if (state.settingsMobileViewport) return;
     const input = $("settingsSearchInput");
     if (!input) return;
     input.focus();

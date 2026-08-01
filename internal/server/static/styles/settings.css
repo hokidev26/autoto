@@ -2036,11 +2036,13 @@ body.white-shell.theme-light.theme-dark #settingsModal {
     display: none;
   }
 
+  /* Same reasoning as the wizard button above. On a phone the sidebar is a
+     sticky header, and a search field there costs a row of the little vertical
+     space there is while duplicating the category list sitting directly under
+     it -- eighteen sections, all reachable by thumb without typing. It stays on
+     desktop, where the sidebar is a column and the row is free. */
   #settingsModal .settings-sidebar-search {
-    min-height: 40px;
-    flex: 0 0 auto;
-    order: 1;
-    margin: 0 12px 8px;
+    display: none;
   }
 
   #settingsModal .settings-mobile-category-nav,

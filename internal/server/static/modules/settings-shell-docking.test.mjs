@@ -196,3 +196,27 @@ test("docking never touches agent transports or conversation selection", () => {
     restore();
   }
 });
+
+test("narrowing to mobile drops a settings search query the user can no longer clear", () => {
+  // The search field is desktop-only. A query typed before the viewport
+  // narrowed used to survive into mobile and keep filtering the nav, and a
+  // query matching nothing left the settings page blank with no field on
+  // screen to empty. Entering mobile has to reset it.
+  const fixture = makeShellFixture();
+  const { helpers, state, restore } = makeHelpers(fixture, { mobile: true });
+  try {
+    // The mobile view switch stamps the modal through dataset; the shared
+    // fixture only needs it for this path, so it is set here rather than
+    // widening makeNode for every other test.
+    fixture.modal.dataset = {};
+    state.settingsSearchQuery = "zzzz-no-match";
+    state.mobileSettingsView = "index";
+
+    helpers.syncSettingsViewportState();
+
+    assert.equal(state.settingsMobileViewport, true);
+    assert.equal(state.settingsSearchQuery, "", "the stale query is cleared on the way into mobile");
+  } finally {
+    restore();
+  }
+});

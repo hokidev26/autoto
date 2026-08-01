@@ -142,6 +142,12 @@ export function createSettingsShellHelpers({
     }
     if (mobile) {
       if (state.settingsShellOpen) exitSettingsShell();
+      // The search field is desktop-only, so a query typed before the viewport
+      // narrowed would keep filtering a list the user can no longer unfilter --
+      // narrowing after a search that matched nothing left the settings page
+      // blank with no way out but closing it. Entering mobile drops the query,
+      // the same thing opening the mobile index already does.
+      state.settingsSearchQuery = "";
       applyMobileSettingsViewClasses();
       if (state.mobileSettingsView === "index") renderMobileSettingsIndex();
       else renderSettingsNav(state.activeSettingsPanel || "providers");
