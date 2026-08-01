@@ -100,7 +100,22 @@ func migrateV61MaxUltraEffort(ctx context.Context, tx *sql.Tx) error {
 	// Databases created after v25 enforce the agent levels with triggers rather
 	// than a CHECK, so both spellings have to be widened or the limit survives
 	// in whichever form this database happens to use.
-	_, err := tx.ExecContext(ctx, `
+	//
+	// extendTableCheckConstraint above returns nil when the table is absent, but
+	// CREATE TRIGGER does not, so agents has to be checked the same way every
+	// other migration here checks a table it does not itself create. Any real
+	// database has the table by now — v1 creates it — so this only skips for the
+	// partial schemas the per-migration tests build, and skipping is correct
+	// rather than merely safe there: v1 writes the widened level list as the
+	// table's own CHECK, which enforces it without any trigger.
+	exists, err := tableExists(ctx, tx, "agents")
+	if err != nil {
+		return fmt.Errorf("inspect table agents: %w", err)
+	}
+	if !exists {
+		return nil
+	}
+	_, err = tx.ExecContext(ctx, `
 DROP TRIGGER IF EXISTS agents_reasoning_effort_insert;
 DROP TRIGGER IF EXISTS agents_reasoning_effort_update;
 CREATE TRIGGER agents_reasoning_effort_insert BEFORE INSERT ON agents
