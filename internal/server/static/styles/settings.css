@@ -172,6 +172,17 @@ body.white-shell.theme-light.theme-dark #settingsModal {
   padding: 0 10px;
 }
 
+/* The box holds a glyph, the field, and a clear button, so it has to lay them
+   out in a row. Only the container gets this: .sidebar-search above is itself
+   an input, and a grid input is not a thing. Sizing and colour stay with the
+   shared rule; this adds nothing but the track layout. */
+#settingsModal .settings-sidebar-search {
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr) 28px;
+  align-items: center;
+  gap: 6px;
+}
+
 #settingsModal .settings-sidebar-search input,
 #settingsModal input.sidebar-search {
   min-width: 0;

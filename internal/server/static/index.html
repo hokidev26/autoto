@@ -486,7 +486,11 @@
             <div id="settingsModalTitle" class="settings-title" data-i18n="settings.dialogTitle">设置</div>
             <button id="closeSettingsModalBtn" class="settings-close-btn legacy-settings-close" type="button" title="返回聊天" aria-label="返回聊天" data-i18n-title="settings.backToChat" data-i18n-aria-label="settings.backToChat">×</button>
           </header>
-
+          <div class="settings-sidebar-search settings-search-box legacy-settings-search">
+            <span aria-hidden="true">⌕</span>
+            <input id="settingsSearchInput" type="search" placeholder="搜索设置..." data-i18n-placeholder="settings.searchPlaceholder" autocomplete="off" aria-label="搜索设置" data-i18n-aria-label="settings.searchLabel" />
+            <button id="clearSettingsSearchBtn" type="button" aria-label="清空设置搜索" data-i18n-aria-label="settings.clearSearch">×</button>
+          </div>
           <nav id="settingsCategoryNav" class="settings-mobile-category-nav legacy-settings-category-nav" aria-label="设置分类" data-i18n-aria-label="settings.categories"></nav>
           <nav id="settingsNav" class="settings-nav settings-nav-groups legacy-settings-subnav" aria-label="设置目录" data-i18n-aria-label="settings.directory"></nav>
           <button id="settingsWizardBtn" class="settings-wizard-btn legacy-settings-wizard" type="button" data-i18n="settings.wizard">设置向导</button>
