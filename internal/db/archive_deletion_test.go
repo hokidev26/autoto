@@ -85,6 +85,67 @@ func TestDeleteArchivedProjectRemovesWorklinesAndAgents(t *testing.T) {
 	}
 }
 
+func TestDeleteArchivedProjectClearsMessageForeignKeys(t *testing.T) {
+	store := newArchiveDeletionStore(t)
+	ctx := context.Background()
+	project, _, agent, err := store.CreateProject(ctx, "Corrected", "", t.TempDir(), "openai-compatible:test", "acceptEdits")
+	if err != nil {
+		t.Fatal(err)
+	}
+	source, err := store.AddMessage(ctx, Message{AgentID: agent.ID, Role: "user", ContentText: "original"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	correction, err := store.AddMessage(ctx, Message{AgentID: agent.ID, Role: "user", ContentText: "replacement"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.DB().ExecContext(ctx, `UPDATE agent_messages SET correction_of_message_id = ? WHERE id = ?`, source.ID, correction.ID); err != nil {
+		t.Fatal(err)
+	}
+	archiveProject(t, store, project.ID)
+
+	if err := store.DeleteArchivedProject(ctx, project.ID); err != nil {
+		t.Fatalf("archived project with correction messages must be deletable: %v", err)
+	}
+}
+
+func TestDeleteArchivedProjectClearsToolResultMessageForeignKeys(t *testing.T) {
+	store := newArchiveDeletionStore(t)
+	ctx := context.Background()
+	project, _, agent, err := store.CreateProject(ctx, "Tool results", "", t.TempDir(), "openai-compatible:test", "acceptEdits")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.DB().ExecContext(ctx, ToolExecutionGroupSchemaSQL()); err != nil {
+		t.Fatal(err)
+	}
+	run, err := store.CreateRun(ctx, Run{AgentID: agent.ID, Status: "completed"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	assistant, err := store.AddMessage(ctx, Message{AgentID: agent.ID, RunID: run.ID, Role: "assistant", ContentText: "tool call"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := store.AddMessage(ctx, Message{AgentID: agent.ID, RunID: run.ID, Role: "user", ContentText: "tool result"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	groupID := NewID()
+	if _, err := store.DB().ExecContext(ctx, `INSERT INTO tool_execution_groups (id, run_id, assistant_message_id, expected_count, status, created_at, updated_at) VALUES (?, ?, ?, 1, 'settled', ?, ?)`, groupID, run.ID, assistant.ID, Now(), Now()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.DB().ExecContext(ctx, `INSERT INTO tool_execution_group_items (group_id, tool_use_id, tool_name, ordinal, status, result_message_id, created_at, updated_at) VALUES (?, 'tool-1', 'Read', 0, 'completed', ?, ?, ?)`, groupID, result.ID, Now(), Now()); err != nil {
+		t.Fatal(err)
+	}
+	archiveProject(t, store, project.ID)
+
+	if err := store.DeleteArchivedProject(ctx, project.ID); err != nil {
+		t.Fatalf("archived project with tool result messages must be deletable: %v", err)
+	}
+}
+
 func TestDeleteArchivedProjectBlockedByActiveRun(t *testing.T) {
 	store := newArchiveDeletionStore(t)
 	ctx := context.Background()

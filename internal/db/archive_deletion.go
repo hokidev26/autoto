@@ -69,6 +69,34 @@ func projectAgentIDsTx(ctx context.Context, tx *sql.Tx, projectID string) ([]str
 	return ids, rows.Err()
 }
 
+// clearAgentMessageReferencesTx detaches rows that point at messages owned by
+// the agents being removed. Most message children cascade with the agent, but
+// correction_of_message_id is a self-reference with ON DELETE RESTRICT and
+// tool_execution_group_items.result_message_id is a deferred NO ACTION FK.
+// Both must be cleared before the agent cascade starts, otherwise SQLite can
+// reject an otherwise valid archived-project deletion.
+func clearAgentMessageReferencesTx(ctx context.Context, tx *sql.Tx, agentIDs []string) error {
+	if len(agentIDs) == 0 {
+		return nil
+	}
+	placeholders := strings.TrimSuffix(strings.Repeat("?,", len(agentIDs)), ",")
+	args := make([]any, 0, len(agentIDs))
+	for _, id := range agentIDs {
+		args = append(args, id)
+	}
+	messageIDs := `SELECT id FROM agent_messages WHERE agent_id IN (` + placeholders + `)`
+
+	// A correction can technically point across conversations, so clear every
+	// reference whose target is being removed, not only rows with the same agent.
+	if _, err := tx.ExecContext(ctx, `UPDATE agent_messages SET correction_of_message_id = NULL WHERE correction_of_message_id IN (`+messageIDs+`)`, args...); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE tool_execution_group_items SET result_message_id = NULL WHERE result_message_id IN (`+messageIDs+`)`, args...); err != nil {
+		return err
+	}
+	return nil
+}
+
 // deleteAgentsTx removes agents explicitly. Child rows keyed on agent_id are
 // ON DELETE CASCADE, so this also clears messages, runs, tool calls and friends.
 func deleteAgentsTx(ctx context.Context, tx *sql.Tx, agentIDs []string) error {
@@ -116,6 +144,9 @@ func (s *Store) DeleteArchivedProject(ctx context.Context, id string) error {
 	if err := assertNoActiveRunsTx(ctx, tx, agentIDs); err != nil {
 		return err
 	}
+	if err := clearAgentMessageReferencesTx(ctx, tx, agentIDs); err != nil {
+		return err
+	}
 	if err := deleteAgentsTx(ctx, tx, agentIDs); err != nil {
 		return err
 	}
@@ -156,6 +187,9 @@ func (s *Store) DeleteArchivedAgent(ctx context.Context, id string) error {
 		return fmt.Errorf("%w: archive the conversation before deleting it", ErrNotArchived)
 	}
 	if err := assertNoActiveRunsTx(ctx, tx, []string{id}); err != nil {
+		return err
+	}
+	if err := clearAgentMessageReferencesTx(ctx, tx, []string{id}); err != nil {
 		return err
 	}
 
