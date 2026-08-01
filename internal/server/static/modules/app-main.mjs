@@ -32,7 +32,7 @@ import {
   normalizeRecentDirectories,
   shortPath,
 } from "./directory-browser.mjs?v=folder-picker-remote-2-root-card-1-root-shortcut-removed-1";
-import { $, escapeAttr, escapeHtml, setButtonBusy, setHTMLIfChanged } from "./dom.mjs";
+import { $, escapeAttr, escapeHtml, setButtonBusy, setHTMLIfChanged, setTextIfChanged } from "./dom.mjs";
 import { navigationCreateLabelKey, navigationCreateTarget } from "./navigation-create.mjs";
 import { createSubagentCardCoordinator } from "./subagent-cards.mjs?v=tool-activity-lazy-1";
 import { formatNumber, formatTimestamp } from "./formatters.mjs";
@@ -2418,7 +2418,7 @@ function renderAgentTitleEditor(surface) {
   const editing = editable && state.titleEditing;
   const title = titleForSurface(surface);
   if (display) {
-    display.textContent = title;
+    setTextIfChanged(display, title);
     display.disabled = !editable || state.titleSaving;
     display.title = editable ? editLabel : title;
     display.setAttribute("aria-label", editable ? editLabel : title);
@@ -2455,20 +2455,20 @@ function syncMobilePageTitle() {
   const node = $("mobilePageTitle");
   if (!node) return;
   if (state.overviewActive) {
-    node.textContent = t("shell.nav.home");
+    setTextIfChanged(node, t("shell.nav.home"));
     return;
   }
   if (state.activeWorkbench === "workbench") {
-    node.textContent = titleForSurface("workbench") || t("workbench.title");
+    setTextIfChanged(node, titleForSurface("workbench") || t("workbench.title"));
     return;
   }
   if (state.activeWorkbench === "schedules") {
     const scheduleState = scheduleWorkspace.getState();
     const selected = scheduleState.schedules.find((item) => item.id === scheduleState.selectedScheduleId);
-    node.textContent = selected?.name || t("shell.nav.schedules");
+    setTextIfChanged(node, selected?.name || t("shell.nav.schedules"));
     return;
   }
-  node.textContent = (!state.project && !state.agent) ? t("shell.nav.conversation") : titleForSurface("conversation");
+  setTextIfChanged(node, (!state.project && !state.agent) ? t("shell.nav.conversation") : titleForSurface("conversation"));
 }
 
 function renderConversationHeaderIdentity() {

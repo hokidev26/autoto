@@ -1,3 +1,5 @@
+import { setTextIfChanged } from "./dom.mjs";
+
 export const defaultContextSettings = Object.freeze({
   retainTurns: 2,
   maxPrunePercent: 80,
@@ -307,7 +309,7 @@ export function createContextManagementController({
       ring.dataset.tone = tone;
       ring.setAttribute("aria-hidden", "true");
     }
-    if (label) label.textContent = status.known ? `${Math.round(status.percentage)}%` : "—";
+    if (label) setTextIfChanged(label, status.known ? `${Math.round(status.percentage)}%` : "—");
     if (overlay) {
       overlay.classList.toggle("hidden", !open);
       overlay.classList.toggle("is-mobile", open && mobileViewport());
@@ -333,21 +335,21 @@ export function createContextManagementController({
     const compactButton = element("contextCompactBtn");
     if (compactButton) {
       compactButton.disabled = !hasAgent || !manageAllowed || actionBusy || !status.canCompact || String(currentAgent()?.status || "") === "running";
-      compactButton.textContent = busy === "compact" ? translate("context.compacting") : translate("context.compactNow");
+      setTextIfChanged(compactButton, busy === "compact" ? translate("context.compacting") : translate("context.compactNow"));
     }
     const retainButton = element("contextRetainBtn");
     if (retainButton) {
       // Only a conversation that actually holds a summary has something to
       // retain, so the affordance stays disabled until compaction produced one.
       retainButton.disabled = !hasAgent || !manageAllowed || actionBusy || !status.hasSummary;
-      retainButton.textContent = busy === "retain" ? translate("context.retaining") : translate("context.retainSummary");
+      setTextIfChanged(retainButton, busy === "retain" ? translate("context.retaining") : translate("context.retainSummary"));
     }
     const retainHint = element("contextRetainHint");
     if (retainHint) retainHint.classList.toggle("hidden", !hasAgent || !manageAllowed);
     const clearButton = element("contextClearBtn");
     if (clearButton) {
       clearButton.disabled = !hasAgent || !manageAllowed || actionBusy || !status.canClear;
-      clearButton.textContent = translate("context.clear");
+      setTextIfChanged(clearButton, translate("context.clear"));
     }
     const settingsButton = element("contextThresholdBtn");
     if (settingsButton) settingsButton.disabled = !hasAgent || !manageAllowed || actionBusy;
@@ -364,7 +366,7 @@ export function createContextManagementController({
     const confirmButton = element("contextClearConfirmBtn");
     if (confirmButton) {
       confirmButton.disabled = busy === "clear";
-      confirmButton.textContent = busy === "clear" ? translate("context.clearing") : translate("context.clearConfirmAction");
+      setTextIfChanged(confirmButton, busy === "clear" ? translate("context.clearing") : translate("context.clearConfirmAction"));
     }
   }
 
