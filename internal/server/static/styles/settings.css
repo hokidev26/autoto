@@ -3670,7 +3670,7 @@ body.white-shell.theme-light[data-theme-preset="cream"] :is(.settings-action-btn
     font-weight: 680;
   }
   .mobile-drawer-primary-action { grid-column: 1 / -1; border-color: #1d1d1f; background: #1d1d1f; color: #fff; }
-  .mobile-drawer-secondary-action { background: #fff; color: #1d1d1f; }
+  .mobile-drawer-secondary-action { background: var(--ws-card, #fff); color: #1d1d1f; }
   .mobile-drawer-primary-action:is(:hover, :focus-visible),
   .mobile-drawer-secondary-action:is(:hover, :focus-visible) { outline: 0; box-shadow: 0 0 0 3px rgba(0, 122, 255, .15); }
   .sidebar .session-sidebar-header { display: none; }
@@ -3694,7 +3694,7 @@ body.white-shell.theme-light[data-theme-preset="cream"] :is(.settings-action-btn
     margin: 0 10px 8px;
     border: 1px solid rgba(60, 60, 67, .10);
     border-radius: 16px;
-    background: rgba(255, 255, 255, .88);
+    background: color-mix(in srgb, var(--ws-card, #fff) 88%, transparent);
     color: #1d1d1f;
     padding: 8px 10px;
   }
@@ -3828,7 +3828,7 @@ body.white-shell.theme-light[data-theme-preset="cream"] :is(.settings-action-btn
     overflow: visible;
     border: 1px solid rgba(60, 60, 67, .14);
     border-radius: 23px;
-    background: rgba(255, 255, 255, .96);
+    background: color-mix(in srgb, var(--ws-card, #fff) 96%, transparent);
     padding: 8px;
     box-shadow: 0 12px 36px rgba(0, 0, 0, .11), 0 1px 2px rgba(0, 0, 0, .04);
     -webkit-backdrop-filter: blur(18px);
@@ -3863,7 +3863,7 @@ body.white-shell.theme-light[data-theme-preset="cream"] :is(.settings-action-btn
     font-size: 25px;
     font-weight: 400;
   }
-  .composer-attach-btn:is(:hover, :focus-visible) { outline: 0; background: #e5e5ea; }
+  .composer-attach-btn:is(:hover, :focus-visible) { outline: 0; background: var(--ws-input, #e5e5ea); }
   .composer-send-btn {
     width: 42px;
     height: 42px;
@@ -3878,7 +3878,7 @@ body.white-shell.theme-light[data-theme-preset="cream"] :is(.settings-action-btn
     box-shadow: none;
   }
   .composer-send-btn::before { content: attr(data-mobile-label); font-size: 21px; line-height: 1; }
-  .composer-send-btn:disabled { background: #d1d1d6; color: #fff; opacity: 1; }
+  .composer-send-btn:disabled { background: var(--ws-input, #d1d1d6); color: #fff; opacity: 1; }
   .composer-toolbar { order: 2; min-width: 0; display: flex; align-items: center; gap: 5px; overflow: visible; padding: 0 2px 1px; }
   .composer-field { min-width: 0; }
   .composer-field-label,
@@ -3901,7 +3901,7 @@ body.white-shell.theme-light[data-theme-preset="cream"] :is(.settings-action-btn
     color: #3a3a3c;
     padding: 0 8px;
   }
-  .composer-select-trigger:is(:hover, :focus-visible) { outline: 0; background: #f2f2f7; }
+  .composer-select-trigger:is(:hover, :focus-visible) { outline: 0; background: var(--ws-input, #f2f2f7); }
   .composer-model-field .composer-select-trigger { max-width: min(58vw, 246px); }
   .composer-select-icon { width: 18px; height: 18px; }
   .composer-select-value { display: block; overflow: hidden; font-size: 12px; font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
@@ -3922,7 +3922,7 @@ body.white-shell.theme-light[data-theme-preset="cream"] :is(.settings-action-btn
     justify-content: stretch;
     overflow: hidden;
     padding: 0 !important;
-    background: #f2f2f7 !important;
+    background: var(--ws-canvas, #f2f2f7) !important;
     -webkit-backdrop-filter: none;
     backdrop-filter: none;
   }
@@ -3959,7 +3959,7 @@ body.white-shell.theme-light[data-theme-preset="cream"] :is(.settings-action-btn
     gap: 4px;
     padding: max(5px, env(safe-area-inset-top)) 8px 5px;
     border-bottom: 1px solid rgba(60, 60, 67, .10);
-    background: rgba(248, 248, 250, .92);
+    background: color-mix(in srgb, var(--ws-card, #f8f8fa) 92%, transparent);
     -webkit-backdrop-filter: saturate(180%) blur(22px);
     backdrop-filter: saturate(180%) blur(22px);
   }
@@ -4087,11 +4087,11 @@ body.white-shell.theme-light[data-theme-preset="cream"] :is(.settings-action-btn
   #settingsModal.mobile-settings-detail .settings-help-trigger { width: 44px; height: 44px; min-width: 44px; display: grid; place-items: center; border: 0; border-radius: 14px; background: transparent; color: #1d1d1f; pointer-events: auto; }
   #settingsModal.mobile-settings-detail .settings-help-trigger:is(:hover, :focus-visible) { outline: 0; background: rgba(118, 118, 128, .10); }
   #settingsModal.mobile-settings-detail .settings-content,
-  #settingsModal.mobile-settings-detail .legacy-settings-content { min-height: 0; flex: 1 1 auto; overflow: hidden; background: #f2f2f7; }
+  #settingsModal.mobile-settings-detail .legacy-settings-content { min-height: 0; flex: 1 1 auto; overflow: hidden; background: var(--ws-canvas, #f2f2f7); }
   #settingsModal.mobile-settings-detail .settings-content-body,
   #settingsModal.mobile-settings-detail .legacy-settings-content-body { height: 100%; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
   #settingsModal.mobile-settings-detail .settings-page-frame { padding: 14px 12px max(30px, env(safe-area-inset-bottom)); }
-  #settingsModal.mobile-settings-detail #settingsContentBody :is(.settings-card, .settings-page-section, .settings-provider-section, .settings-panel-card, .settings-info-card, .automation-section, .settings-hero-card) { border-radius: 16px; background: #fff; box-shadow: 0 1px 1px rgba(0, 0, 0, .03); }
+  #settingsModal.mobile-settings-detail #settingsContentBody :is(.settings-card, .settings-page-section, .settings-provider-section, .settings-panel-card, .settings-info-card, .automation-section, .settings-hero-card) { border-radius: 16px; background: var(--ws-card, #fff); box-shadow: 0 1px 1px rgba(0, 0, 0, .03); }
   #settingsModal .settings-help-panel { z-index: 126; width: 100%; border-left: 0; }
 
   body.white-shell.theme-light[data-theme-preset="cyber"] :is(.mobile-topbar, .sidebar, .mobile-drawer-header, .mobile-sidebar-account-summary, .mobile-sidebar-action, .composer-card, .mobile-select-sheet, #settingsModal .settings-dialog-shell, #settingsModal .settings-sidebar, #settingsModal.mobile-settings-detail .settings-main) {

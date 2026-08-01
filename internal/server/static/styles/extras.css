@@ -1502,7 +1502,7 @@ body.white-shell.theme-light.theme-dark #settingsContentBody .compact-settings-s
 
   body.white-shell.theme-light .composer-wrap {
     border-top: 1px solid rgba(60, 60, 67, .12);
-    background: rgba(255, 255, 255, .98);
+    background: color-mix(in srgb, var(--ws-card, #fff) 98%, transparent);
     padding: 7px max(10px, env(safe-area-inset-right)) max(8px, env(safe-area-inset-bottom)) max(10px, env(safe-area-inset-left));
     -webkit-backdrop-filter: blur(18px);
     backdrop-filter: blur(18px);
@@ -1730,7 +1730,7 @@ body.white-shell.theme-light.theme-dark #settingsContentBody .compact-settings-s
     stroke-linecap: round;
     stroke-linejoin: round;
   }
-  body.white-shell.theme-light .composer-attach-btn:is(:hover, :focus-visible) { background: #f2f3f5; color: #5369f3; }
+  body.white-shell.theme-light .composer-attach-btn:is(:hover, :focus-visible) { background: var(--ws-input, #f2f3f5); color: #5369f3; }
 
   body.white-shell.theme-light textarea#messageText {
     min-height: 36px;
@@ -1753,7 +1753,7 @@ body.white-shell.theme-light.theme-dark #settingsContentBody .compact-settings-s
     font-weight: 700;
   }
   body.white-shell.theme-light #sendMessageBtn::before { display: none; content: none; }
-  body.white-shell.theme-light #sendMessageBtn:disabled { background: #e9ecf1; color: #9aa2b1; }
+  body.white-shell.theme-light #sendMessageBtn:disabled { background: var(--ws-input, #e9ecf1); color: #9aa2b1; }
   body.white-shell.theme-light .pending-attachments { order: 1; margin: 0; }
 }
 

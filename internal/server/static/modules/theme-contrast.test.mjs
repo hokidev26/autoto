@@ -613,7 +613,7 @@ test("every preset's muted tone is readable on its own card", () => {
 // are being migrated to var(--ws-*) file by file. Lowering the number as they
 // go is the point; raising it is what this stops.
 const LIGHT_SURFACE_CEILING = Object.freeze({
-  "settings-legacy.css": 50,
+  "settings-legacy.css": 47,
   // 46 rather than 45: the html background has to stay a literal, because the
   // palette is declared on body and custom properties do not inherit upward,
   // so a var() there always resolves to its fallback. It is paired with a
@@ -622,8 +622,8 @@ const LIGHT_SURFACE_CEILING = Object.freeze({
   "workbench.css": 37,
   "workspace-tasks.css": 29,
   "workspace.css": 18,
-  "extras.css": 13,
-  "settings.css": 13,
+  "extras.css": 11,
+  "settings.css": 7,
   "base.css": 9,
   "providers.css": 3,
 });

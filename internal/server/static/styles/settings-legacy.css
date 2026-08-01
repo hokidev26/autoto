@@ -874,7 +874,7 @@ body.white-shell.theme-light.theme-dark .codex-hero-card {
   .codex-account-table tbody,
   .codex-account-table tr,
   .codex-account-table td { display: block; width: 100%; }
-  .codex-account-table tr { margin-bottom: 12px; padding: 12px; border: 1px solid var(--ws-border); border-radius: 12px; background: #fff; }
+  .codex-account-table tr { margin-bottom: 12px; padding: 12px; border: 1px solid var(--ws-border); border-radius: 12px; background: var(--ws-card, #fff); }
   .codex-account-table td { display: grid; grid-template-columns: minmax(90px, 32%) 1fr; gap: 10px; padding: 8px 0; border-bottom: 1px solid #edf2f7; }
   .codex-account-table td::before { content: attr(data-label); color: #64748b; font-size: 11px; font-weight: 800; }
   .codex-account-table td:last-child { border-bottom: 0; }
@@ -886,7 +886,7 @@ body.white-shell.theme-light.theme-dark .codex-hero-card {
   .codex-batch-actions > .settings-action-btn { flex: 1 1 calc(50% - 7px); }
   .codex-batch-priority { flex: 1 1 100%; justify-content: space-between; }
   .codex-account-select-cell { display: flex !important; align-items: center; justify-content: space-between; }
-  .codex-account-table tr.is-selected { border-color: #93c5fd; background: #eff6ff; }
+  .codex-account-table tr.is-selected { border-color: #93c5fd; background: var(--ws-primary-soft, #eff6ff); }
 }
 .settings-empty-card.compact { padding: 12px; color: #64748b; }
 .settings-provider-section.collapsed > .settings-provider-section-head { margin-bottom: 0; }
@@ -1533,7 +1533,7 @@ body.white-shell.theme-light:not(.project-operation-context) [data-project-conte
     bottom: 0;
     z-index: 24;
     border-top: 1px solid #e5e7eb;
-    background: rgba(255, 255, 255, .96);
+    background: color-mix(in srgb, var(--ws-card, #fff) 96%, transparent);
     padding: 7px 20px max(9px, env(safe-area-inset-bottom));
   }
   .composer-card {
@@ -1715,7 +1715,7 @@ body.white-shell.theme-light:not(.project-operation-context) [data-project-conte
   .folder-picker-footer { grid-template-columns: 1fr; gap: 8px; padding: 10px 12px; }
   .folder-footer-actions { justify-content: flex-end; }
   .folder-cancel-btn, .folder-confirm-btn { min-width: 86px; height: 44px; font-size: 15px; }
-  .backend-panel, .backend-card { background: #f6f6f7; }
+  .backend-panel, .backend-card { background: var(--ws-card, #f6f6f7); }
   .backend-card { grid-template-columns: 1fr; }
   .backend-card-url, .backend-card-meta, .backend-name { color: #71717a; }
   .backend-panel .ghost-btn.mini, .backend-card-actions .ghost-btn.mini { display: inline-flex; padding: 6px 9px; }
