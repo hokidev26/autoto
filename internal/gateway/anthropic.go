@@ -100,6 +100,9 @@ type convertedAnthropicRequest struct {
 	ProviderRequest          providers.GenerateRequest
 	HasImages                bool
 	HasNativeReasoningBlocks bool
+	// IgnoredParameters names what the caller sent that cannot be forwarded.
+	// See IgnoredParametersHeader.
+	IgnoredParameters []string
 }
 
 type anthropicMessageResponse struct {
@@ -228,8 +231,10 @@ func convertAnthropicRequest(request anthropicMessagesRequest, requireMaxTokens 
 		return convertedAnthropicRequest{}, invalidParam("max_tokens", "max_tokens must be between 1 and 1000000.")
 	}
 	// Standard inference parameters (temperature, top_p, top_k, stop_sequences,
-	// tool_choice, metadata) are accepted and silently ignored — the gateway
-	// routes requests without forwarding sampling knobs to providers directly.
+	// tool_choice, metadata) are accepted but cannot be forwarded, because the
+	// gateway routes through providers.GenerateRequest, which carries no sampling
+	// knobs. They are named in IgnoredParametersHeader instead of being dropped
+	// without a word.
 	if len(request.Messages) == 0 || len(request.Messages) > 10000 {
 		return convertedAnthropicRequest{}, invalidParam("messages", "messages must contain between 1 and 10000 items.")
 	}
@@ -268,7 +273,7 @@ func convertAnthropicRequest(request anthropicMessagesRequest, requireMaxTokens 
 	if request.MaxTokens != nil {
 		providerRequest.MaxOutputTokens = *request.MaxTokens
 	}
-	return convertedAnthropicRequest{ProviderRequest: providerRequest, HasImages: hasImages, HasNativeReasoningBlocks: hasNativeReasoningBlocks}, nil
+	return convertedAnthropicRequest{ProviderRequest: providerRequest, HasImages: hasImages, HasNativeReasoningBlocks: hasNativeReasoningBlocks, IgnoredParameters: anthropicIgnoredParameters(request)}, nil
 }
 
 func convertAnthropicThinking(thinkingRaw, outputConfigRaw json.RawMessage, maxTokens *int64) (string, int64, *apiProblem) {
@@ -680,6 +685,7 @@ func (s *Service) completeAnthropicMessage(w http.ResponseWriter, r *http.Reques
 					ID: messageID, Type: "message", Role: "assistant", Model: resolved.Alias,
 					Content: output.blocksOrEmpty(), StopReason: &stopReason, StopSequence: nil, Usage: anthropicUsageValue(recorder.execution.Usage),
 				}
+				setIgnoredParameters(w, converted.IgnoredParameters)
 				w.Header().Set("Content-Type", "application/json; charset=utf-8")
 				_ = json.NewEncoder(w).Encode(response)
 				return
@@ -713,6 +719,7 @@ func (s *Service) streamAnthropicMessage(w http.ResponseWriter, r *http.Request,
 		return
 	}
 
+	setIgnoredParameters(w, converted.IgnoredParameters)
 	w.Header().Set("Content-Type", "text/event-stream; charset=utf-8")
 	w.Header().Set("Connection", "keep-alive")
 	w.Header().Set("X-Accel-Buffering", "no")

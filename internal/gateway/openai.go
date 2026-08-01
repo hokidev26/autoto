@@ -130,6 +130,9 @@ type convertedChatRequest struct {
 	ProviderRequest providers.GenerateRequest
 	IncludeUsage    bool
 	HasImages       bool
+	// IgnoredParameters names what the caller sent that cannot be forwarded.
+	// See IgnoredParametersHeader.
+	IgnoredParameters []string
 }
 
 type modelListResponse struct {
@@ -286,8 +289,10 @@ func convertChatCompletionRequest(request chatCompletionRequest) (convertedChatR
 	}
 	// Standard OpenAI sampling / output parameters (n, temperature, top_p,
 	// presence_penalty, frequency_penalty, logprobs, seed, stop,
-	// parallel_tool_calls) are accepted and silently ignored.
-	// service_tier values other than "auto"/"default"/"priority" are also ignored.
+	// parallel_tool_calls) are accepted but cannot be forwarded, because
+	// providers.GenerateRequest carries no sampling knobs. The request therefore
+	// succeeds and names them in IgnoredParametersHeader rather than either
+	// failing or dropping them without a word.
 
 	maxOutput, _, problem := requestMaxOutputTokens(request)
 	if problem != nil {
@@ -337,9 +342,10 @@ func convertChatCompletionRequest(request chatCompletionRequest) (convertedChatR
 	providerRequest.Messages = messages
 	providerRequest.SystemPrompt = strings.Join(systemPrompts, "\n\n")
 	return convertedChatRequest{
-		ProviderRequest: providerRequest,
-		IncludeUsage:    request.StreamOptions != nil && request.StreamOptions.IncludeUsage,
-		HasImages:       hasImages,
+		ProviderRequest:   providerRequest,
+		IncludeUsage:      request.StreamOptions != nil && request.StreamOptions.IncludeUsage,
+		HasImages:         hasImages,
+		IgnoredParameters: chatIgnoredParameters(request),
 	}, nil
 }
 
@@ -669,6 +675,7 @@ func (s *Service) completeChatCompletion(w http.ResponseWriter, r *http.Request,
 		Choices: []chatCompletionChoice{{Index: 0, Message: chatCompletionMessage{Role: "assistant", Content: content, ToolCalls: toolCalls}, FinishReason: finishReason}},
 		Usage:   openAIUsage(execution.Usage),
 	}
+	setIgnoredParameters(w, converted.IgnoredParameters)
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	_ = json.NewEncoder(w).Encode(response)
 }
@@ -696,6 +703,7 @@ func (s *Service) streamChatCompletion(w http.ResponseWriter, r *http.Request, k
 		return
 	}
 
+	setIgnoredParameters(w, converted.IgnoredParameters)
 	w.Header().Set("Content-Type", "text/event-stream; charset=utf-8")
 	w.Header().Set("Connection", "keep-alive")
 	w.Header().Set("X-Accel-Buffering", "no")

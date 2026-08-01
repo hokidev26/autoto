@@ -531,7 +531,6 @@ func TestGatewayRejectsUnsupportedAndUnsafeRequestParameters(t *testing.T) {
 		maxBytes   int64
 		wantStatus int
 	}{
-		{name: "temperature", body: validCompletionBody(`"temperature":0.2`), wantStatus: http.StatusBadRequest},
 		{name: "remote image", body: `{"model":"shared","messages":[{"role":"user","content":[{"type":"image_url","image_url":{"url":"https://example.test/image.png"}}]}]}`, wantStatus: http.StatusBadRequest},
 		{name: "oversized", body: validCompletionBody(`"user":"` + strings.Repeat("x", 512) + `"`), maxBytes: 128, wantStatus: http.StatusRequestEntityTooLarge},
 	}
@@ -548,6 +547,52 @@ func TestGatewayRejectsUnsupportedAndUnsafeRequestParameters(t *testing.T) {
 			}
 		})
 	}
+}
+
+// The sampling knobs cannot be forwarded -- providers.GenerateRequest has no
+// field to carry them -- but rejecting them made the endpoint useless, because
+// the standard OpenAI clients set temperature on nearly every call. Dropping
+// them without a word is the other way to be wrong: a caller asking for
+// temperature 0 would be told nothing. So the call succeeds and the response
+// names what it dropped.
+func TestGatewayReportsUnforwardableSamplingParameters(t *testing.T) {
+	t.Run("chat completions", func(t *testing.T) {
+		harness := newGatewayHarness(t, db.GatewayKey{Enabled: true, RequestsPerMinute: 10}, nil, nil)
+		response := gatewayRequest(t, harness.service, harness.generated.Token, http.MethodPost, "/v1/chat/completions",
+			validCompletionBody(`"temperature":0.2,"top_p":0.9,"seed":7`))
+		if response.Code != http.StatusOK || harness.provider.requestCount() != 1 {
+			t.Fatalf("a standard sampling parameter must not fail the call: status=%d body=%s requests=%d", response.Code, response.Body.String(), harness.provider.requestCount())
+		}
+		if got := response.Header().Get(IgnoredParametersHeader); got != "temperature, top_p, seed" {
+			t.Fatalf("the response must name every dropped parameter, got %q", got)
+		}
+	})
+
+	t.Run("anthropic messages", func(t *testing.T) {
+		harness := newGatewayHarness(t, db.GatewayKey{Enabled: true, RequestsPerMinute: 10}, nil, nil)
+		response := gatewayRequestWithHeaders(t, harness.service, http.MethodPost, "/v1/messages",
+			`{"model":"shared","max_tokens":64,"temperature":0.2,"top_k":5,"messages":[{"role":"user","content":"hi"}]}`,
+			map[string]string{"Authorization": "Bearer " + harness.generated.Token, "anthropic-version": supportedAnthropicVersion})
+		if response.Code != http.StatusOK {
+			t.Fatalf("a standard sampling parameter must not fail the call: status=%d body=%s", response.Code, response.Body.String())
+		}
+		if got := response.Header().Get(IgnoredParametersHeader); got != "temperature, top_k" {
+			t.Fatalf("the response must name every dropped parameter, got %q", got)
+		}
+	})
+
+	// Nothing dropped, nothing claimed: a bare request must not carry the header
+	// at all, or a client cannot use its presence as a signal.
+	t.Run("silent when everything was honoured", func(t *testing.T) {
+		harness := newGatewayHarness(t, db.GatewayKey{Enabled: true, RequestsPerMinute: 10}, nil, nil)
+		response := gatewayRequest(t, harness.service, harness.generated.Token, http.MethodPost, "/v1/chat/completions", validCompletionBody(""))
+		if response.Code != http.StatusOK {
+			t.Fatalf("plain request failed: %d %s", response.Code, response.Body.String())
+		}
+		if got := response.Header().Get(IgnoredParametersHeader); got != "" {
+			t.Fatalf("nothing was dropped, so the header must be absent, got %q", got)
+		}
+	})
 }
 
 func TestGatewayRejectsRevokedDisabledAndExpiredKeys(t *testing.T) {
