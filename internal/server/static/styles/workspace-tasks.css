@@ -2123,14 +2123,21 @@ body.white-shell.theme-light .messages:not(.empty) > [class~="message"][class~="
 .background-task-truncated { margin: 8px 12px 0; padding: 8px 10px; border-radius: 8px; color: #991b1b; background: rgba(239, 68, 68, .09); font-size: 11px; }
 .background-task-detail .background-task-error { margin: 0; }
 .background-task-truncated { margin: 0; color: #92400e; background: rgba(245, 158, 11, .12); }
-.conversation-continuation-card { margin-bottom: 14px; padding: 14px; border: 1px solid var(--border, #dfe3ea); border-radius: 13px; background: color-mix(in srgb, var(--surface-subtle, #f8fafc) 90%, transparent); }
+/* --surface and --surface-subtle are not tokens this shell defines -- only
+   oauth-app.css declares them -- so every var(--surface*, #fff) here resolved to
+   its light literal under every palette, painting a white card inside a dark
+   panel. --bg-soft and --line are bridged by the theme presets, so they follow
+   the palette. The inner tiles mix the text colour into the card instead of
+   naming a surface: that steps lighter on a dark palette and darker on a light
+   one, so one declaration reads correctly in both directions. */
+.conversation-continuation-card { margin-bottom: 14px; padding: 14px; border: 1px solid var(--line, var(--ws-border, #dfe3ea)); border-radius: 13px; background: var(--bg-soft, var(--ws-card, #f8fafc)); }
 .conversation-continuation-card > header { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
-.continuation-mode { padding: 3px 8px; border-radius: 999px; background: rgba(100, 116, 139, .12); color: var(--muted, #64748b); font-size: 10px; }
-.continuation-mode.mode-safe { background: rgba(37, 99, 235, .12); color: #1d4ed8; }
+.continuation-mode { padding: 3px 8px; border-radius: 999px; background: color-mix(in srgb, var(--text, #64748b) 12%, transparent); color: var(--muted, #64748b); font-size: 10px; }
+.continuation-mode.mode-safe { background: color-mix(in srgb, var(--accent, #2563eb) 16%, transparent); color: var(--accent, #1d4ed8); }
 .conversation-continuation-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
-.conversation-continuation-grid > div { min-width: 0; display: grid; gap: 3px; padding: 8px; border-radius: 8px; background: color-mix(in srgb, var(--surface, #fff) 76%, transparent); }
+.conversation-continuation-grid > div { min-width: 0; display: grid; gap: 3px; padding: 8px; border-radius: 8px; background: color-mix(in srgb, var(--text, #111827) 5%, transparent); }
 .conversation-continuation-grid span { color: var(--muted, #64748b); font-size: 10px; }
-.conversation-continuation-grid strong { overflow-wrap: anywhere; font-size: 11px; }
+.conversation-continuation-grid strong { overflow-wrap: anywhere; color: var(--text, #111827); font-size: 11px; }
 @media (max-width: 760px) {
   .background-task-tray-grid { grid-template-rows: minmax(150px, 40%) minmax(0, 60%); }
   .background-task-list { max-height: none; }
