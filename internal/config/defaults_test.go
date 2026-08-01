@@ -46,7 +46,11 @@ func TestDefaultConfig(t *testing.T) {
 	// The cross-segment budgets default to -1 (no ceiling): a long run should not
 	// stop because of a limit the user never chose. Settings > Execution budget
 	// is where a ceiling gets imposed.
-	if cfg.Agent.AutoContinuationMode != "safe" || cfg.Agent.ContinuationSegmentTurns != 40 {
+	//
+	// Segment turns is one of them. It kept an assertion of 40 from before the
+	// budgets became opt-in, which is why this test was red: normalizeAgentConfig
+	// coerces 0 to -1 precisely so "unset" and "no ceiling" are the same value.
+	if cfg.Agent.AutoContinuationMode != "safe" || cfg.Agent.ContinuationSegmentTurns != -1 {
 		t.Fatalf("unexpected continuation defaults: %+v", cfg.Agent)
 	}
 	if cfg.Agent.MaxContinuations != -1 || cfg.Agent.MaxTotalTurns != -1 || cfg.Agent.MaxRunDurationMs != -1 || cfg.Agent.MaxRunTokens != -1 {
