@@ -1089,7 +1089,7 @@ test("composer responds to its actual width before the mobile breakpoint", async
   // moved everything to its left by up to 60px whenever the id changed.
   assert.match(responsiveStyles, /@container composer-shell \(max-width:\s*900px\)[\s\S]*?\.composer-model-field\s*\{[^}]*width:\s*200px[^}]*min-width:\s*200px[^}]*max-width:\s*200px[^}]*flex:\s*0 0 200px/);
   assert.match(responsiveStyles, /@container composer-shell \(max-width:\s*900px\)[\s\S]*?\.composer-model-field \.composer-select-value\s*\{[^}]*text-overflow:\s*ellipsis/);
-  assert.match(responsiveStyles, /@container composer-shell \(max-width:\s*900px\)[\s\S]*?\.composer-effort-field\s*\{[^}]*min-width:\s*4\.5em/);
+  assert.match(responsiveStyles, /@container composer-shell \(max-width:\s*900px\)[\s\S]*?\.composer-effort-field\s*\{[^}]*min-width:\s*34px/);
   assert.match(responsiveStyles, /@container composer-shell \(max-width:\s*900px\)[\s\S]*?\.composer-effort-field\s*\{[^}]*width:\s*auto[^}]*min-width:\s*0[^}]*max-width:\s*none[^}]*flex:\s*0 0 auto/);
   assert.match(responsiveStyles, /@container composer-shell \(max-width:\s*900px\)[\s\S]*?\.effort-pill\s*\{[^}]*width:\s*auto[^}]*min-width:\s*0[^}]*max-width:\s*none/);
   assert.match(responsiveStyles, /@container composer-shell \(max-width:\s*620px\)[\s\S]*?\.composer-effort-field\s*\{[^}]*width:\s*auto[^}]*min-width:\s*0[^}]*max-width:\s*none[^}]*flex:\s*0 0 auto/);

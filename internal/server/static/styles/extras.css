@@ -150,10 +150,16 @@ body.white-shell.theme-light .composer-wrap {
     }
 
     /* Every effort label is one or two CJK characters, so a floor wide
-       enough for two stops the pill resizing between 高 and 自動. */
+       enough for two stops the pill resizing between 高 and 自動.
+
+       34px, measured rather than guessed: the widest label renders at 24px
+       and the pill's own chrome adds 9px, so 33px is the natural size of
+       the widest state and 34px clears it. An earlier 4.5em resolved to
+       63px against this element's font size -- nearly double -- which left
+       a single-character label like 高 sitting in a mostly empty box. */
     body.white-shell.theme-light .composer-effort-field {
       width: auto;
-      min-width: 4.5em;
+      min-width: 34px;
       max-width: none;
       flex: 0 0 auto;
     }
