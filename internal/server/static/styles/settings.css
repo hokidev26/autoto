@@ -10,7 +10,7 @@
   --settings-muted: var(--ws-input, #f0f2f5);
   --settings-foreground: var(--ws-text, #1a1a2e);
   --settings-muted-foreground: var(--ws-muted, #6b7280);
-  --settings-border: var(--ws-border, var(--ws-border));
+  --settings-border: var(--ws-border);
   --settings-input: var(--ws-input, #f0f2f5);
   --settings-primary: var(--ws-primary, #4f6ef7);
   --settings-primary-foreground: #ffffff;

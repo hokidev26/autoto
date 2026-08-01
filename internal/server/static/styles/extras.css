@@ -1783,8 +1783,12 @@ body.white-shell.theme-light:not(.workbench-mode):not(.schedule-mode):not(.overv
 .overview-launcher-directory:focus-visible,
 .overview-launcher-send:focus-visible,
 .overview-launcher-suggestion:focus-visible,
-.overview-launcher-select:focus-visible,
-.overview-launcher-input:focus-visible { outline: 3px solid color-mix(in srgb, #5369f3 28%, transparent); outline-offset: 2px; }
+.overview-launcher-select:focus-visible { outline: 3px solid color-mix(in srgb, #5369f3 28%, transparent); outline-offset: 2px; }
+/* The composer textarea is deliberately not in that list. :focus-visible matches
+   a text field on plain mouse focus too, not just keyboard focus, so an outline
+   here drew a hard-cornered rectangle inside the rounded card on every click.
+   The card carries the focus state instead (see .overview-launcher-form
+   :focus-within below), and the caret already marks the field as active. */
 .overview-hero-root {
   width: min(900px, 100%);
   display: grid;
@@ -2061,6 +2065,15 @@ body.white-shell.theme-light .overview-launcher-select-trigger .composer-select-
 body.white-shell.theme-light.theme-dark .overview-dashboard-page { background: var(--ws-canvas); color: var(--ws-text); }
 body.white-shell.theme-light.theme-dark :is(.overview-launcher-form, .overview-summary-card, .overview-section, .overview-refresh, .overview-link, .overview-launcher-directory, .overview-launcher-suggestion, .overview-launcher-mode[aria-pressed="true"]) { border-color: var(--ws-border); background: var(--ws-card); color: var(--ws-text); box-shadow: none; }
 body.white-shell.theme-light.theme-dark :is(.overview-launcher-field, .overview-launcher-mode-group) { border-color: var(--ws-border); background: color-mix(in srgb, var(--ws-canvas) 64%, var(--ws-card)); }
+/* Focus lives on the card now that the textarea has no outline. The dark block
+   above pins border-color on .overview-launcher-form at (0,4,1), which outranks
+   the plain :focus-within rule, so the dark variant has to be spelled out at a
+   higher specificity or focus would be invisible under the dark presets. */
+body.white-shell .overview-launcher-form:focus-within,
+body.white-shell.theme-light.theme-dark .overview-launcher-form:focus-within {
+  border-color: color-mix(in srgb, var(--ws-primary) 62%, var(--ws-border));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ws-primary) 45%, transparent);
+}
 body.white-shell.theme-light.theme-dark :is(.overview-hero-title, .overview-launcher-input, .overview-launcher-select) { color: var(--ws-text); }
 body.white-shell.theme-light.theme-dark :is(.overview-summary-card:hover, .overview-refresh:not(:disabled):hover, .overview-link:not(:disabled):hover, .overview-launcher-directory:hover, .overview-launcher-suggestion:hover) { border-color: #8fa4ff; background: color-mix(in srgb, #5369f3 18%, var(--ws-card)); color: #b7c3ff; }
 body.white-shell.theme-light.theme-dark .overview-refresh.primary,
