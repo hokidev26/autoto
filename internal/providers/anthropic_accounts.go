@@ -3,6 +3,7 @@ package providers
 import (
 	"context"
 	"crypto/subtle"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -18,6 +19,14 @@ import (
 
 	"autoto/internal/anthropicauth"
 	"autoto/internal/config"
+)
+
+// Same-origin OpenAI catalog fallback: how long a fallback catalog request may
+// run, and how much of the catalog body we are willing to decode. Only a model
+// catalog 404 on the Anthropic surface triggers the fallback.
+const (
+	sameOriginModelCatalogTimeout  = 15 * time.Second
+	sameOriginModelCatalogMaxBytes = 4 << 20
 )
 
 type anthropicAccountCandidate struct {
@@ -466,6 +475,120 @@ func anthropicAPIError(err error) *anthropic.Error {
 		return apiErr
 	}
 	return nil
+}
+
+// listSameOriginOpenAIModels falls back to the same origin's OpenAI-compatible
+// model catalog when the Anthropic-compatible surface reports 404 for
+// /v1/models. The Messages API does not require a catalog, and third-party
+// Anthropic-compatible endpoints (DeepSeek's /anthropic surface among them)
+// commonly serve /v1/messages without one while publishing their models
+// through an OpenAI-compatible /v1/models. A 404 is the only trigger: 401/403,
+// timeouts and connection failures are untouched so they still read as
+// failures. Returns ok=false (and leaves the original error intact) whenever
+// there is no key, no derivable same-origin URL, or every candidate fails.
+func (p *AnthropicProvider) listSameOriginOpenAIModels(ctx context.Context, catalogErr error) ([]string, bool) {
+	if p == nil {
+		return nil, false
+	}
+	apiErr := anthropicAPIError(catalogErr)
+	if apiErr == nil || apiErr.StatusCode != http.StatusNotFound {
+		return nil, false
+	}
+	key := strings.TrimSpace(p.cfg.APIKey)
+	if key == "" {
+		return nil, false
+	}
+	httpClient, err := providerHTTPClient(p.cfg, sameOriginModelCatalogTimeout)
+	if err != nil {
+		return nil, false
+	}
+	seen := make(map[string]struct{})
+	for _, catalogURL := range sameOriginOpenAIModelCatalogURLs(p.cfg.BaseURL) {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return nil, false
+		}
+		ids, ok := fetchOpenAIModelCatalog(ctx, httpClient, catalogURL, key)
+		if !ok {
+			continue
+		}
+		models := make([]string, 0, len(ids))
+		for _, id := range ids {
+			if _, dup := seen[id]; dup {
+				continue
+			}
+			seen[id] = struct{}{}
+			models = append(models, id)
+		}
+		if len(models) > 0 {
+			return models, true
+		}
+	}
+	return nil, false
+}
+
+// sameOriginOpenAIModelCatalogURLs derives candidate OpenAI-compatible catalog
+// addresses from an Anthropic-compatible Base URL. A trailing "/anthropic"
+// segment is stripped to reach the origin (https://api.deepseek.com/anthropic
+// -> https://api.deepseek.com), then both /v1/models and /models are tried
+// because OpenAI-compatible providers accept either. Only http/https URLs are
+// returned.
+func sameOriginOpenAIModelCatalogURLs(baseURL string) []string {
+	base := strings.TrimRight(strings.TrimSpace(baseURL), "/")
+	if base == "" {
+		return nil
+	}
+	root := base
+	if strings.HasSuffix(strings.ToLower(base), "/anthropic") {
+		root = base[:len(base)-len("/anthropic")]
+	}
+	urls := make([]string, 0, 2)
+	for _, suffix := range []string{"/v1/models", "/models"} {
+		candidate := root + suffix
+		parsed, err := url.Parse(candidate)
+		if err == nil && (parsed.Scheme == "http" || parsed.Scheme == "https") {
+			urls = append(urls, candidate)
+		}
+	}
+	return urls
+}
+
+// fetchOpenAIModelCatalog performs a single GET against an OpenAI-compatible
+// catalog endpoint. Both Authorization: Bearer and x-api-key are sent so the
+// same key authenticates against OpenAI-style and relay-style endpoints alike.
+// It returns the non-empty model ids parsed from {"data":[{"id":...}]}.
+func fetchOpenAIModelCatalog(ctx context.Context, client *http.Client, catalogURL, apiKey string) ([]string, bool) {
+	if client == nil || strings.TrimSpace(catalogURL) == "" || strings.TrimSpace(apiKey) == "" {
+		return nil, false
+	}
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, catalogURL, nil)
+	if err != nil {
+		return nil, false
+	}
+	request.Header.Set("Authorization", "Bearer "+apiKey)
+	request.Header.Set("x-api-key", apiKey)
+	response, err := client.Do(request)
+	if err != nil {
+		return nil, false
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		return nil, false
+	}
+	var payload struct {
+		Data []struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	if err := json.NewDecoder(io.LimitReader(response.Body, sameOriginModelCatalogMaxBytes)).Decode(&payload); err != nil {
+		return nil, false
+	}
+	ids := make([]string, 0, len(payload.Data))
+	for _, item := range payload.Data {
+		if id := strings.TrimSpace(item.ID); id != "" {
+			ids = append(ids, id)
+		}
+	}
+	return ids, len(ids) > 0
 }
 
 func anthropicErrorMetadata(err error) (int, string) {

@@ -166,6 +166,15 @@ func (p *AnthropicProvider) ListModels(ctx context.Context) ([]string, error) {
 			if shouldTryNextAnthropicAccount(ctx, requestErr) {
 				continue
 			}
+			// The Messages API does not require a model catalog. Third-party
+			// Anthropic-compatible endpoints (DeepSeek's /anthropic surface
+			// among them) commonly serve /v1/messages without /v1/models, so a
+			// 404 there means "no catalog", not "unreachable". Fall back to the
+			// same origin's OpenAI-compatible catalog with the same key before
+			// reporting the failure.
+			if fallbackModels, ok := p.listSameOriginOpenAIModels(ctx, requestErr); ok {
+				return fallbackModels, nil
+			}
 			return nil, sanitizeAnthropicError(ctx, p.cfg.Name, requestErr)
 		}
 		for _, model := range accountModels {
@@ -178,6 +187,9 @@ func (p *AnthropicProvider) ListModels(ctx context.Context) ([]string, error) {
 	}
 	if len(models) == 0 {
 		if lastErr != nil {
+			if fallbackModels, ok := p.listSameOriginOpenAIModels(ctx, lastErr); ok {
+				return fallbackModels, nil
+			}
 			return nil, sanitizeAnthropicError(ctx, p.cfg.Name, lastErr)
 		}
 		if p.cfg.Model != "" {

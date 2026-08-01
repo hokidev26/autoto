@@ -1108,6 +1108,71 @@ func TestAnthropicProviderListModelsUsesAllAccountsAndDeduplicatesWithoutGenerat
 	}
 }
 
+func TestAnthropicProviderListModelsFallsBackToSameOriginOpenAIModels(t *testing.T) {
+	var openAICatalogRequests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/anthropic/v1/models":
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = w.Write([]byte(`{"type":"error","error":{"type":"not_found_error","message":"not found"}}`))
+		case "/v1/models":
+			openAICatalogRequests.Add(1)
+			if r.Header.Get("Authorization") != "Bearer test-key" {
+				t.Errorf("fallback request missing Bearer authorization: %q", r.Header.Get("Authorization"))
+			}
+			if r.Header.Get("X-Api-Key") != "test-key" {
+				t.Errorf("fallback request missing x-api-key: %q", r.Header.Get("X-Api-Key"))
+			}
+			_, _ = w.Write([]byte(`{"data":[{"id":"deepseek-chat","type":"model"},{"id":"deepseek-reasoner","type":"model"}]}`))
+		default:
+			t.Errorf("unexpected request path: %s", r.URL.Path)
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer server.Close()
+	provider := NewAnthropicProvider(config.ProviderConfig{BaseURL: server.URL + "/anthropic", APIKey: "test-key", Model: "deepseek-chat"})
+
+	models, err := provider.ListModels(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(models, ",") != "deepseek-chat,deepseek-reasoner" {
+		t.Fatalf("unexpected fallback models: %v", models)
+	}
+	if openAICatalogRequests.Load() != 1 {
+		t.Fatalf("expected exactly one same-origin catalog request, got %d", openAICatalogRequests.Load())
+	}
+}
+
+func TestAnthropicProviderListModelsDoesNotFallbackWithoutKey(t *testing.T) {
+	var openAICatalogRequests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/anthropic/v1/models":
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = w.Write([]byte(`{"type":"error","error":{"type":"not_found_error","message":"not found"}}`))
+		case "/v1/models", "/models":
+			openAICatalogRequests.Add(1)
+			_, _ = w.Write([]byte(`{"data":[{"id":"deepseek-chat"}]}`))
+		default:
+			t.Errorf("unexpected request path: %s", r.URL.Path)
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer server.Close()
+	provider := NewAnthropicProvider(config.ProviderConfig{BaseURL: server.URL + "/anthropic", Model: "deepseek-chat"})
+
+	models, err := provider.ListModels(context.Background())
+	if err == nil {
+		t.Fatalf("expected the 404 catalog error without a key, got models: %v", models)
+	}
+	if openAICatalogRequests.Load() != 0 {
+		t.Fatalf("fallback must not run without a key: %d same-origin requests", openAICatalogRequests.Load())
+	}
+}
+
 func TestAnthropicProviderErrorsAreRedactedAndNonRetryableErrorsStop(t *testing.T) {
 	storeDir := t.TempDir()
 	store := anthropicauth.NewStore(storeDir)
