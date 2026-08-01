@@ -290,7 +290,15 @@ test("dual workbench shell keeps conversation and Kanban views in one runtime", 
   assert.match(workbenchHeader, /id="editWorkbenchTitleBtn"[\s\S]*?id="saveWorkbenchTitleBtn"[\s\S]*?id="cancelWorkbenchTitleBtn"/);
   assert.match(workbenchHeader, /id="workbenchMeta" class="workbench-meta sr-only"/);
   assert.doesNotMatch(workbenchHeader, /id="workbenchTitle"[^>]*data-i18n/);
-  assert.match(appMain, /function renderWorkbenchHeaderIdentity\(\)[\s\S]*?renderAgentTitleEditor\("workbench"\)/);
+  assert.match(appMain, /function renderWorkbenchHeaderIdentityNow\(\)[\s\S]*?renderAgentTitleEditor\("workbench"\)/);
+  // The header renders are asked for from four independent places while a
+  // switch is in flight, so they are coalesced to one leading run plus at most
+  // one trailing run per frame. The public names stay hoisted functions: they
+  // are passed to the helper factories during module evaluation, above the
+  // coalesced consts, where a const would still be in its dead zone.
+  assert.match(appMain, /const coalescedWorkbenchHeaderIdentity = coalescePerFrame\(renderWorkbenchHeaderIdentityNow\)/);
+  assert.match(appMain, /const coalescedConversationHeaderIdentity = coalescePerFrame\(renderConversationHeaderIdentityNow\)/);
+  assert.match(appMain, /function renderWorkbenchHeaderIdentity\(\) \{ return coalescedWorkbenchHeaderIdentity\(\); \}/);
   assert.match(appMain, /\$\("workbenchTitle"\)\?\.addEventListener\("click", \(\) => beginConversationTitleEdit\("workbench"\)\)/);
   assert.match(appMain, /saveConversationTitle\("workbench"\)\.catch\(showError\)/);
   assert.match(appMain, /workbenchTitleRequired[\s\S]*?workbenchTitleInvalid[\s\S]*?workbenchTitleSaved/);

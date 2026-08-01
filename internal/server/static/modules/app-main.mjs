@@ -32,7 +32,7 @@ import {
   normalizeRecentDirectories,
   shortPath,
 } from "./directory-browser.mjs?v=folder-picker-remote-2-root-card-1-root-shortcut-removed-1";
-import { $, escapeAttr, escapeHtml, setButtonBusy, setHTMLIfChanged, setTextIfChanged } from "./dom.mjs";
+import { $, coalescePerFrame, escapeAttr, escapeHtml, setButtonBusy, setHTMLIfChanged, setTextIfChanged } from "./dom.mjs";
 import { navigationCreateLabelKey, navigationCreateTarget } from "./navigation-create.mjs";
 import { createSubagentCardCoordinator } from "./subagent-cards.mjs?v=tool-activity-lazy-1";
 import { formatNumber, formatTimestamp } from "./formatters.mjs";
@@ -2471,12 +2471,12 @@ function syncMobilePageTitle() {
   setTextIfChanged(node, (!state.project && !state.agent) ? t("shell.nav.conversation") : titleForSurface("conversation"));
 }
 
-function renderConversationHeaderIdentity() {
+function renderConversationHeaderIdentityNow() {
   renderAgentTitleEditor("conversation");
   syncMobilePageTitle();
 }
 
-function renderWorkbenchHeaderIdentity() {
+function renderWorkbenchHeaderIdentityNow() {
   syncMobilePageTitle();
   const workspaceState = taskWorkspace.getState();
   if (workspaceState.scope === "agent") {
@@ -2503,6 +2503,18 @@ function renderWorkbenchHeaderIdentity() {
   save?.classList.add("hidden");
   cancel?.classList.add("hidden");
 }
+
+// The header renders are asked for from four independent places while a
+// switch is in flight. See coalescePerFrame.
+//
+// Declared as hoisted functions rather than as the coalesced consts directly:
+// these names are handed to the helper factories during module evaluation,
+// well above this line, and a const would still be in its temporal dead zone
+// at that point. The wrappers are only ever called after evaluation finishes.
+const coalescedConversationHeaderIdentity = coalescePerFrame(renderConversationHeaderIdentityNow);
+const coalescedWorkbenchHeaderIdentity = coalescePerFrame(renderWorkbenchHeaderIdentityNow);
+function renderConversationHeaderIdentity() { return coalescedConversationHeaderIdentity(); }
+function renderWorkbenchHeaderIdentity() { return coalescedWorkbenchHeaderIdentity(); }
 
 function beginConversationTitleEdit(surface = "conversation") {
   if (!state.agent?.id || state.titleSaving) return;

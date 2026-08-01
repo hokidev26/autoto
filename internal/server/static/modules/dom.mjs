@@ -62,3 +62,45 @@ export function setTextIfChanged(element, text) {
   element.textContent = value;
   return true;
 }
+
+// Collapses a burst of calls into at most two runs per frame: the first call
+// runs synchronously, and everything else in the same frame collapses into one
+// trailing run.
+//
+// A conversation switch calls the header renders eleven times, because the
+// stream status, the navigation selection, enterAgent and the live snapshot all
+// legitimately ask for a repaint while the switch is in flight. Nothing is
+// waiting on data -- the same content is simply drawn over and over.
+//
+// The leading run is what makes this safe to retrofit: a pure trailing
+// scheduler would make rendering asynchronous, and any caller that renders and
+// then measures the DOM in the same tick would silently start reading stale
+// layout. Here the first render still happens before the call returns, and the
+// trailing run only catches up on whatever changed afterwards -- which, with
+// the setTextIfChanged and setHTMLIfChanged guards, usually writes nothing.
+//
+// Only for no-argument renders that read their inputs from shared state: the
+// trailing run takes no arguments, because by then the arguments of whichever
+// call scheduled it are no longer the current truth.
+const scheduleFrame = typeof requestAnimationFrame === "function"
+  ? requestAnimationFrame
+  : (callback) => setTimeout(callback, 0);
+
+export function coalescePerFrame(render) {
+  let ranThisFrame = false;
+  let pending = false;
+  return function coalesced() {
+    if (ranThisFrame) {
+      pending = true;
+      return undefined;
+    }
+    ranThisFrame = true;
+    scheduleFrame(() => {
+      ranThisFrame = false;
+      if (!pending) return;
+      pending = false;
+      render();
+    });
+    return render();
+  };
+}

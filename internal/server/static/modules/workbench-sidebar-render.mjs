@@ -1,4 +1,4 @@
-import { $, setTextIfChanged } from "./dom.mjs";
+import { $, coalescePerFrame, setTextIfChanged } from "./dom.mjs";
 import { t } from "./i18n.mjs";
 import { overviewRailTarget } from "./overview-dashboard.mjs";
 import { terminalAccessAllowed } from "./remote-access-capabilities.mjs";
@@ -155,7 +155,7 @@ export function createWorkbenchSidebarRender({
     }
   }
 
-  function renderWorkbenchShell() {
+  function renderWorkbenchShellNow() {
     const taskWorkspace = getTaskWorkspace();
     const agent = state.agent;
     const project = state.project;
@@ -212,6 +212,10 @@ export function createWorkbenchSidebarRender({
     }
     renderPrimaryModeSidebar();
   }
+
+  // updateAgentStreamStatus alone drives this four times per switch as the
+  // connection moves through its states. See coalescePerFrame.
+  const renderWorkbenchShell = coalescePerFrame(renderWorkbenchShellNow);
 
   function scheduleWorkspaceViewOptions() {
     return {
