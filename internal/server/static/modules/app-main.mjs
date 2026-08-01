@@ -32,7 +32,7 @@ import {
   normalizeRecentDirectories,
   shortPath,
 } from "./directory-browser.mjs?v=folder-picker-remote-2-root-card-1-root-shortcut-removed-1";
-import { $, escapeAttr, escapeHtml, setButtonBusy } from "./dom.mjs";
+import { $, escapeAttr, escapeHtml, setButtonBusy, setHTMLIfChanged } from "./dom.mjs";
 import { navigationCreateLabelKey, navigationCreateTarget } from "./navigation-create.mjs";
 import { createSubagentCardCoordinator } from "./subagent-cards.mjs?v=tool-activity-lazy-1";
 import { formatNumber, formatTimestamp } from "./formatters.mjs";
@@ -1738,7 +1738,7 @@ function renderConversationDetails() {
     verificationStatuses: { not_configured: t("workspace.workState.notConfigured"), declared: t("workspace.workState.declared"), reviewed: t("workspace.workState.reviewed"), stale: t("workspace.workState.stale"), pending: t("workspace.workState.pending"), running: t("workspace.workState.running"), passed: t("workspace.workState.passed"), pass: t("workspace.workState.passed"), failed: t("workspace.workState.failed"), blocked: t("workspace.workState.blocked"), skipped: t("workspace.workState.skipped") },
     reviewerStatuses: { pass: t("workspace.workState.reviewPass"), needs_human: t("workspace.workState.reviewNeedsHuman"), block_recommended: t("workspace.workState.reviewBlockRecommended"), unavailable: t("workspace.workState.reviewUnavailable") },
   });
-  body.innerHTML = `
+  setHTMLIfChanged(body, `
     <section class="conversation-detail-hero"><div><h2>${escapeHtml(state.project?.name || state.agent?.title || sx("app.noConversationSelected"))}</h2><p>${escapeHtml(state.agent?.title || sx("app.selectConversationHint"))}</p></div><span class="conversation-detail-status">${escapeHtml(state.agent?.status || t("chat.idle"))}</span></section>
     ${backgroundTasks.renderContinuationStatusHTML()}
     ${workStateHTML}
@@ -1747,7 +1747,7 @@ function renderConversationDetails() {
     </section>
     <section class="conversation-detail-table">${rows.map(([label, value, copy]) => `<div class="conversation-detail-row"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong>${copy && value !== "—" ? `<button type="button" data-copy-detail="${escapeAttr(value)}">${escapeHtml(t("workspace.chat.copy"))}</button>` : ""}</div>`).join("")}</section>
     <button class="legacy-secondary-btn conversation-runtime-link" type="button" data-details-runtime>${escapeHtml(sx("app.viewRuntime"))}</button>
-  `;
+  `);
   body.querySelectorAll("[data-copy-detail]").forEach((node) => node.addEventListener("click", () => copyText(node.dataset.copyDetail)));
   body.querySelector("[data-details-runtime]")?.addEventListener("click", () => {
     closeConversationDetails();

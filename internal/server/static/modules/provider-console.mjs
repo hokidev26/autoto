@@ -1,4 +1,4 @@
-import { $, escapeAttr, escapeHtml, setButtonBusy } from "./dom.mjs";
+import { $, escapeAttr, escapeHtml, setButtonBusy, setHTMLIfChanged } from "./dom.mjs";
 import { confirm as platformConfirm } from "./platform.mjs";
 import { api } from "./runtime.mjs";
 import { t } from "./i18n.mjs?v=provider-draft-session-1";
@@ -2337,12 +2337,6 @@ export function createModelProviderSettingsController({
     return state.agent?.model || selectedModelValue();
   }
 
-  // Keyed on the element as well as the markup: if the select is ever
-  // replaced, the new one is empty and must be written even though the markup
-  // is unchanged.
-  let lastModelOptionsSelect = null;
-  let lastModelOptionsMarkup = null;
-
   function renderModelOptions() {
     const select = $("modelSelect");
     if (!select) return;
@@ -2370,11 +2364,7 @@ export function createModelProviderSettingsController({
     // pass was nothing but the flash. Compare against what was last written
     // rather than against select.innerHTML, which the browser reserializes.
     const markup = currentOption + (groups || `<option value="" data-configured="false">${escapeHtml(mt("modelsNotLoaded"))}</option>`);
-    if (lastModelOptionsSelect !== select || lastModelOptionsMarkup !== markup) {
-      lastModelOptionsSelect = select;
-      lastModelOptionsMarkup = markup;
-      select.innerHTML = markup;
-    }
+    setHTMLIfChanged(select, markup);
     if (currentModel) {
       select.value = currentModel;
     }

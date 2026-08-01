@@ -1,4 +1,4 @@
-import { escapeAttr, escapeHtml } from "./dom.mjs";
+import { escapeAttr, escapeHtml, setHTMLIfChanged } from "./dom.mjs";
 import { formatDuration, formatTimestamp } from "./formatters.mjs";
 import { t } from "./i18n.mjs";
 
@@ -739,7 +739,7 @@ export function createBackgroundTasksController({
     tray.classList.toggle("hidden", !trayOpen || !agentId);
     if (!trayOpen || !agentId) return;
     const tasks = orderedTasks().slice(0, 12);
-    tray.innerHTML = `<header class="utility-panel-head background-task-tray-head">
+    setHTMLIfChanged(tray, `<header class="utility-panel-head background-task-tray-head">
         <div class="background-task-panel-title"><span class="background-task-panel-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="4" y="5" width="16" height="14" rx="2.5"></rect><path d="M8 9h8M8 13h5M8 17h3"></path></svg></span><div><strong>${escapeHtml(t("backgroundTasks.title"))}</strong><span>${escapeHtml(t("backgroundTasks.summary", { active: activeCount, total: order.length }))}</span></div></div>
         <button type="button" class="icon-btn" data-background-close aria-label="${escapeAttr(t("backgroundTasks.close"))}">×</button>
       </header>
@@ -749,7 +749,7 @@ export function createBackgroundTasksController({
           <div class="background-task-list">${loading && !tasks.length ? `<div class="background-task-empty">${escapeHtml(t("backgroundTasks.loading"))}</div>` : tasks.length ? tasks.map(renderTaskRow).join("") : `<div class="background-task-empty">${escapeHtml(t("backgroundTasks.empty"))}</div>`}</div>
           ${renderSelectedTask(tasksById.get(selected))}
         </div>
-      </div>`;
+      </div>`);
   }
 
   function closeTray(reason = "tray-close") {
