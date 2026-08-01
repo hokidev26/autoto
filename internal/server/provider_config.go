@@ -1588,6 +1588,15 @@ func classifyProviderTestError(err error) (errorCode, message string, reachable 
 		return "not_configured", "Provider 凭据尚未配置。", false
 	case strings.Contains(messageText, "connection refused"), strings.Contains(messageText, "no such host"), strings.Contains(messageText, "network is unreachable"), strings.Contains(messageText, "connect:"):
 		return "unreachable", "无法连接 Provider。", false
+	// A models catalog is optional. The Messages API does not require one, and
+	// third-party Anthropic-compatible endpoints commonly serve /v1/messages
+	// without /v1/models -- DeepSeek returns 404 there while generating
+	// perfectly well. Reporting that as a failed connection told the operator
+	// the provider was unreachable when only its catalog was, and the draft
+	// could not be saved even though the manual model entry below it exists for
+	// exactly this case.
+	case strings.Contains(messageText, "404"), strings.Contains(messageText, "not found"):
+		return "catalog_unavailable", "Provider 可访问，但没有模型目录，请手动填写模型名称。", true
 	default:
 		return "request_failed", "Provider 测试失败。", false
 	}

@@ -1581,6 +1581,7 @@ export default Object.freeze({
         requestFailed: "Request failed",
         currentDraftTestSucceeded: "Current draft connection preflight succeeded.",
         currentDraftTestNeedsApiKey: "An API Key is required; connection preflight was not run.",
+        currentDraftTestNoCatalog: "Reachable, but this provider serves no model catalog. Enter a model name manually below.",
         currentDraftTestFailed: "Current draft connection preflight failed: {message}",
         sensitiveAccessRequiresFullSession: "This page is using a restricted remote session. To protect API keys, provider preflight, tests, and saves require localhost or an authenticated full remote session. Your typed API Key stays only in this editor until you close it.",
         providerSavedEnableFailed: "Configuration was saved, but enabling the provider failed.",

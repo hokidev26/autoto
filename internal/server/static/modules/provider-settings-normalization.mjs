@@ -237,6 +237,17 @@ export function providerPreflightResult(response, translate) {
       terminalLevel: "warn",
     };
   }
+  // Reachable, but the endpoint serves no models list. The Messages API does
+  // not require one and several Anthropic-compatible providers omit it, so
+  // this is a normal state that needs a manual model name rather than a
+  // failure.
+  if (response?.errorCode === "catalog_unavailable") {
+    return {
+      message: translate("messages.currentDraftTestNoCatalog"),
+      tone: "warning",
+      terminalLevel: "warn",
+    };
+  }
   if (response?.reachable === true && response?.configured !== false) {
     return {
       message: translate("messages.currentDraftTestSucceeded"),

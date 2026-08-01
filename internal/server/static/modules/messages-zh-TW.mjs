@@ -1572,6 +1572,7 @@ export default Object.freeze({
         requestFailed: "請求失敗",
         currentDraftTestSucceeded: "目前草稿的連線預檢成功。",
         currentDraftTestNeedsApiKey: "需要 API Key，尚未執行連線預檢。",
+        currentDraftTestNoCatalog: "目前草稿可連線，但供應商未提供模型目錄，請在下方手動填寫模型名稱。",
         currentDraftTestFailed: "目前草稿的連線預檢失敗：{message}",
         sensitiveAccessRequiresFullSession: "目前頁面使用的是受限遠端工作階段。為保護 API Key，供應商預檢、測試和儲存只能透過 localhost，或已驗證的完整遠端工作階段執行。你輸入的 API Key 會保留在目前編輯頁中，關閉後才清除。",
         providerSavedEnableFailed: "設定已儲存，但啟用供應商失敗。",

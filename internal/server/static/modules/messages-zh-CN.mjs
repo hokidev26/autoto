@@ -1576,6 +1576,7 @@ export default Object.freeze({
         requestFailed: "请求失败",
         currentDraftTestSucceeded: "当前草稿的连接预检成功。",
         currentDraftTestNeedsApiKey: "需要 API Key，尚未执行连接预检。",
+        currentDraftTestNoCatalog: "当前草稿可连接，但供应商未提供模型目录，请在下方手动填写模型名称。",
         currentDraftTestFailed: "当前草稿的连接预检失败：{message}",
         sensitiveAccessRequiresFullSession: "当前页面使用的是受限远程会话。为保护 API Key，供应商预检、测试和保存只能通过 localhost，或已验证的完整远程会话执行。你输入的 API Key 会保留在当前编辑页中，关闭后才清除。",
         providerSavedEnableFailed: "配置已保存，但启用失败。",
