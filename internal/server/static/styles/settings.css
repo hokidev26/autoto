@@ -3521,10 +3521,14 @@ body.white-shell.theme-light[data-theme-preset="cream"] :is(.settings-action-btn
 @media (max-width: 767px) {
   :root { --mobile-topbar-height: 56px; --mobile-composer-reserve: 166px; }
 
+  /* The mobile tier forced the shell light regardless of theme: body and the
+     app shell at #fff, the topbar at #fff and the sidebar at #f7f7f8. That is
+     the pale band above the settings sheet on a dark palette. Routed through
+     the palette so the phone follows the theme the same way the desktop does. */
   body {
     min-width: 0;
     overflow: hidden;
-    background: #fff;
+    background: var(--ws-canvas, #fff);
     color: #1d1d1f;
     overscroll-behavior: none;
   }
@@ -3538,7 +3542,7 @@ body.white-shell.theme-light[data-theme-preset="cream"] :is(.settings-action-btn
     grid-template-columns: minmax(0, 1fr);
     grid-template-rows: var(--mobile-topbar-height) minmax(0, 1fr);
     overflow: hidden;
-    background: #fff;
+    background: var(--ws-canvas, #fff);
   }
 
   .mobile-topbar {
@@ -3550,7 +3554,7 @@ body.white-shell.theme-light[data-theme-preset="cream"] :is(.settings-action-btn
     gap: 4px;
     padding: 0 max(8px, env(safe-area-inset-right)) 0 max(8px, env(safe-area-inset-left));
     border-bottom: 0;
-    background: #fff;
+    background: var(--ws-card, #fff);
     color: #1d1d1f;
     z-index: 35;
   }
@@ -3612,7 +3616,7 @@ body.white-shell.theme-light[data-theme-preset="cream"] :is(.settings-action-btn
     flex-direction: column;
     overflow: hidden;
     border-right: 1px solid rgba(60, 60, 67, .12);
-    background: #f7f7f8;
+    background: var(--ws-canvas, #f7f7f8);
     color: #1d1d1f;
     box-shadow: 18px 0 50px rgba(0, 0, 0, .15);
     transform: translateX(-104%);
