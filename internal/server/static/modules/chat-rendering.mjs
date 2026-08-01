@@ -2679,12 +2679,34 @@ export function createChatRenderingController({
     const live = mergeUnownedActivityIntoAssistantTurns(groupToolActivityByMessage(currentLiveToolOutputList(), knownIds), messages);
     const anchored = anchorHistoryRunActivity([...persisted.unowned, ...live.unowned], messages, runId);
     const runActive = String(state.agent?.status || "").trim().toLowerCase() === "running";
+    // One call, one row. A tool call reaches this function from several lists at
+    // once -- the active run summary, the retained history map, and the live
+    // stream -- and the same call carries the same toolUseId in all of them.
+    // Whenever two of those copies land on different surfaces (say, one merged
+    // onto its assistant turn and one still unowned and anchored), the turn
+    // renders the same tools twice: once bare, once beside that turn's
+    // reasoning. Rather than depend on every producer agreeing about ownership,
+    // the invariant is enforced here: the first surface to claim a toolUseId
+    // keeps it, and later surfaces drop it.
+    const claimedToolUseIds = new Set();
+    const claimUnseen = (records) => {
+      const kept = [];
+      for (const record of Array.isArray(records) ? records : []) {
+        const toolUseId = normalizeToolActivity(record).toolUseId;
+        // A record with no id cannot be de-duplicated; keeping it is the safer
+        // side of the trade, since dropping it would lose the row entirely.
+        if (toolUseId && claimedToolUseIds.has(toolUseId)) continue;
+        if (toolUseId) claimedToolUseIds.add(toolUseId);
+        kept.push(record);
+      }
+      return kept;
+    };
     for (const message of messages) {
       const messageId = String(message?.id || "");
       if (!messageId) continue;
       const liveRecords = live.byMessage.get(messageId) || [];
-      const records = [...(persisted.byMessage.get(messageId) || []), ...liveRecords]
-        .sort((left, right) => String(normalizeToolActivity(left).createdAt || "").localeCompare(String(normalizeToolActivity(right).createdAt || "")));
+      const records = claimUnseen([...(persisted.byMessage.get(messageId) || []), ...liveRecords]
+        .sort((left, right) => String(normalizeToolActivity(left).createdAt || "").localeCompare(String(normalizeToolActivity(right).createdAt || ""))));
       const reasoningSteps = persistedReasoningSteps(message, records);
       // This turn's own stack first, then any earlier run this message anchors.
       const rendered = [];
@@ -2702,7 +2724,11 @@ export function createChatRenderingController({
           totalCount: records.length,
         })]);
       }
-      for (const [historyRunId, historyRecords] of anchored.get(messageId) || []) {
+      for (const [historyRunId, anchoredRecords] of anchored.get(messageId) || []) {
+        // Anchored last, so a call already shown in this turn's own stack does
+        // not come back as a second, reasoning-less row underneath it.
+        const historyRecords = claimUnseen(anchoredRecords);
+        if (!historyRecords.length) continue;
         const stackKey = runToolActivityStackKey(historyRunId);
         rendered.push([historyRecords, renderToolActivityStackHTML(historyRecords, {
           compact: true,

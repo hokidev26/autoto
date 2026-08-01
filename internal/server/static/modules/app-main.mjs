@@ -3658,6 +3658,16 @@ async function handleAgentStreamEvent(event) {
     // that is about to replace this content anyway.
     clearLiveAssistantText({ preserveView: true });
     clearLiveImageGenerations({ agentId, preserveView: true });
+    // Live tool records have to be dropped here too, for the same reason and on
+    // the same terms. agentTurnInFlight() reports the turn as running while any
+    // remain, and the composer's send button reads that flag, so leaving them
+    // in place left the button showing "停止" after the answer had arrived. The
+    // clears below run only if a run summary comes back; a summary that is
+    // missing, superseded, or belongs to an agent the user has since left
+    // returns null and skipped the clear entirely, which is the state the
+    // button was getting stuck in. The turn is over either way, so this does
+    // not wait for the fetch.
+    clearLiveToolOutputs({ agentId, preserveView: true });
     syncMessageComposerBusy();
     refreshComposerActivityStatus();
   }
@@ -3670,6 +3680,10 @@ async function handleAgentStreamEvent(event) {
       // The persisted outcome now owns these records; remove the live copy so
       // the same tool calls are not shown twice.
       clearLiveToolOutputs({ agentId });
+      // Records can arrive between the completion event and this callback, and
+      // clearLiveToolOutputs does not touch the composer, so the button state
+      // has to be recomputed against what is left.
+      syncMessageComposerBusy();
     }).catch((error) => notifyTerminal(`[warn] ${am("runSummaryRestoreFailed", { message: error?.message || error })}\n`));
   }
   // Successful runs: also eagerly persist tool history so it survives before
@@ -3679,6 +3693,7 @@ async function handleAgentStreamEvent(event) {
     void restore.then((summary) => {
       if (!summary || state.agent?.id !== agentId) return;
       clearLiveToolOutputs({ agentId });
+      syncMessageComposerBusy();
     }).catch(() => {});
   }
 }

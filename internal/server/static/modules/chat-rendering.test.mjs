@@ -2695,3 +2695,41 @@ test("generated images open in the viewer instead of an unauthenticated new tab"
   assert.doesNotMatch(html, /src="\/api\//);
   assert.doesNotMatch(html, /target="_blank"/);
 });
+
+test("one tool call renders one row even when two surfaces claim it", () => {
+  // Reported as "活動" appearing twice for a single turn: one bare row of tools
+  // and one row of the same tools beside that turn's reasoning. A call arrives
+  // from the run summary, the retained history map and the live stream, and
+  // when two copies land on different surfaces the turn draws both. The
+  // toolUseId is the identity, so it is what de-duplication keys on.
+  const calls = ["t1", "t2", "t3"].map((toolUseId) => ({
+    agentId: "agent-1", runId: "run-1", toolUseId, toolName: "Bash", status: "completed",
+  }));
+
+  const { html } = renderSnapshot([
+    { id: "u1", role: "user", runId: "run-1", contentText: "go" },
+    {
+      id: "a1",
+      role: "assistant",
+      runId: "run-1",
+      contentText: "Done.",
+      reasoningText: "Worked out which commands to run.",
+    },
+  ], {
+    agent: { id: "agent-1", status: "idle" },
+    // The same three calls owned by the assistant turn and, simultaneously,
+    // present as history for that run without an owning message.
+    activeRunSummaryRunId: "run-2",
+    activeRunToolCallsRunId: "run-2",
+    activeRunToolCalls: calls.map((call) => ({ ...call, messageId: "a1" })),
+    historyRunToolCalls: { "run-1": calls.map((call) => ({ ...call })) },
+  });
+
+  for (const toolUseId of ["t1", "t2", "t3"]) {
+    const seen = (html.match(new RegExp(`data-tool-activity-select="${toolUseId}"`, "g")) || []).length;
+    assert.equal(seen, 1, `${toolUseId} must render exactly once, saw ${seen}`);
+  }
+  // And the turn keeps a single activity row rather than one per surface.
+  const summaries = (html.match(/tool-activity-summary/g) || []).length;
+  assert.equal(summaries, 1, `expected one activity row, saw ${summaries}`);
+});
