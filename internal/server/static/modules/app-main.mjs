@@ -3192,11 +3192,19 @@ function beginNavigationSelection(project, options = {}) {
 async function selectProject(id, options = {}) {
   if (state.overviewActive && options.preserveOverview !== true) switchPrimaryWorkbench("conversation");
   const project = state.projects.find((item) => item.id === id) || null;
-  const preserveConversationView = Boolean(
-    state.project?.id
-      && state.project.id !== id
-      && state.agent?.id,
-  );
+  // Preserve whenever there is a conversation on screen, including when this is
+  // the project already open. The `!== id` clause that used to be here made
+  // re-selecting the current project the one case that did NOT preserve, so
+  // clicking an already-open project tore the workspace down to the "loading
+  // project" placeholder and rebuilt it -- a full teardown to load something
+  // that was already loaded. selectNavigationConversation has always used the
+  // plain form.
+  const preserveConversationView = Boolean(state.project?.id && state.agent?.id);
+  // Re-selecting the project that is already open loads nothing that is not
+  // already on screen, so neither the placeholder nor the busy overlay has
+  // anything to cover for. This has to be read before beginNavigationSelection,
+  // which is what moves state.project onto the new selection.
+  const reselectingCurrentProject = Boolean(state.project?.id) && state.project.id === id;
   const seq = beginNavigationSelection(project, { preserveConversationView, selectionKind: "project" });
   if (!state.project) {
     state.chatHydrating = false;
@@ -3207,7 +3215,7 @@ async function selectProject(id, options = {}) {
   if (!preserveConversationView) {
     $("currentTitle").textContent = state.project.name;
     updateWorkspaceMetaPills();
-    if (!options.preserveMessageState) {
+    if (!options.preserveMessageState && !reselectingCurrentProject) {
       showEmptyWorkspaceState({
         title: am("projectLoadingTitle"),
         text: am("projectLoadingDescription"),
@@ -3217,7 +3225,7 @@ async function selectProject(id, options = {}) {
         busy: true,
       });
     }
-  } else {
+  } else if (!reselectingCurrentProject) {
     markMessageViewportBusy({ contextSwitch: true, label: am("projectLoadingTitle") });
   }
   try {
