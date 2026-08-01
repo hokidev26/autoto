@@ -1,4 +1,4 @@
-import { escapeAttr, escapeHtml } from "./dom.mjs";
+import { escapeAttr, escapeHtml, setTextIfChanged } from "./dom.mjs";
 import { t } from "./i18n.mjs";
 import { shellExtraT as sx } from "./messages-shell-extra.mjs";
 import { confirm as platformConfirm } from "./platform.mjs";
@@ -167,7 +167,7 @@ export function createSpecBoardController({
     button.title = !enabled ? t("workspace.spec.selectAgent") : blocked ? t("workspace.spec.statusBlocked", { doing, blocked }) : doing ? t("workspace.spec.statusDoing", { doing }) : t("workspace.spec.open");
     const badge = button.querySelector("[data-spec-tool-badge]");
     if (badge) {
-      badge.textContent = attention > 99 ? "99+" : String(attention);
+      setTextIfChanged(badge, attention > 99 ? "99+" : String(attention));
       badge.classList.toggle("hidden", attention === 0);
     }
   }

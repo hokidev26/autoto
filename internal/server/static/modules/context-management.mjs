@@ -273,9 +273,14 @@ export function createContextManagementController({
     });
   }
 
+  // Assigning textContent replaces the text node even when the string is
+  // identical. render() runs several times per conversation switch, so every
+  // context readout was rewritten five times with the same value and flickered.
   function setText(id, value) {
     const node = element(id);
-    if (node) node.textContent = value;
+    if (!node) return;
+    const text = String(value);
+    if (node.textContent !== text) node.textContent = text;
   }
 
   function render() {

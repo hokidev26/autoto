@@ -1,4 +1,4 @@
-import { $ } from "./dom.mjs";
+import { $, setTextIfChanged } from "./dom.mjs";
 import { t } from "./i18n.mjs";
 import { appMainT as am } from "./messages-app-main-extra.mjs";
 
@@ -123,7 +123,7 @@ export function createAgentWorkspaceHelpers({
     const text = composerActivity?.text || lastConnectionStatus.text || t("chat.idle");
     const busy = Boolean(composerActivity);
     const ok = !busy && Boolean(lastConnectionStatus.ok);
-    if (label) label.textContent = text;
+    if (label) setTextIfChanged(label, text);
     if (dot) {
       dot.classList.toggle("ok", ok);
       dot.classList.toggle("busy", busy);
@@ -171,7 +171,7 @@ export function createAgentWorkspaceHelpers({
     };
     const [badgeText, composerText, ok] = labels[streamStatus] || labels.offline;
     if (badge) {
-      badge.textContent = badgeText;
+      setTextIfChanged(badge, badgeText);
       badge.classList.toggle("ok", ok);
     }
     setComposerConnectionStatus(composerText, ok);

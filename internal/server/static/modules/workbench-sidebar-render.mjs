@@ -1,4 +1,4 @@
-import { $ } from "./dom.mjs";
+import { $, setTextIfChanged } from "./dom.mjs";
 import { t } from "./i18n.mjs";
 import { overviewRailTarget } from "./overview-dashboard.mjs";
 import { terminalAccessAllowed } from "./remote-access-capabilities.mjs";
@@ -53,11 +53,14 @@ export function createWorkbenchSidebarRender({
   // button that also holds an icon silently deletes the icon on every render —
   // which is how the mobile schedule entry lost its glyph while its siblings
   // kept theirs.
+  // Guarded because this renders several times per switch with the same key:
+  // the sidebar titles, the mobile page title and the mobile action labels all
+  // go through here, and each unguarded write replaced their text node.
   function setTranslatedText(element, key) {
     if (!element) return;
     const label = element.querySelector?.("[data-i18n-label]") || element;
-    label.dataset.i18n = key;
-    label.textContent = t(key);
+    if (label.dataset.i18n !== key) label.dataset.i18n = key;
+    setTextIfChanged(label, t(key));
   }
 
   function setTranslatedAttribute(element, attribute, key) {
@@ -103,13 +106,13 @@ export function createWorkbenchSidebarRender({
     setTranslatedText(title, sidebarTitleKey);
     if (compactTitle) {
       compactTitle.removeAttribute("data-i18n");
-      compactTitle.textContent = scheduleMode
+      setTextIfChanged(compactTitle, scheduleMode
         ? t("shell.nav.schedules")
         : taskMode
           ? t("workbench.sidebarTitle")
           : state.navigationSelectionKind === "project"
             ? String(state.project?.name || t("shell.sessionTitle"))
-            : String(state.agent?.title || state.project?.name || t("shell.sessionTitle"));
+            : String(state.agent?.title || state.project?.name || t("shell.sessionTitle")));
     }
     setTranslatedAttribute(actions, "aria-label", sidebarActionsKey);
     setTranslatedAttribute(resizeHandle, "aria-label", scheduleMode ? "shell.resizeScheduleSidebar" : taskMode ? "workbench.resizeSidebar" : "shell.resizeSidebar");
@@ -171,18 +174,18 @@ export function createWorkbenchSidebarRender({
           ? `${t("workbench.currentAgent", { agent: agentTitle })} · ${t("workbench.currentProject", { project: projectTitle || "—" })}`
           : t("workbench.selectAgent");
       } else if (scope === "project" && selectedProject) {
-        meta.textContent = `${selectedProject.agents.length} ${t("taskWorkspace.agents")} · ${selectedProject.counts.total} ${t("taskWorkspace.tasks")}`;
+        setTextIfChanged(meta, `${selectedProject.agents.length} ${t("taskWorkspace.agents")} · ${selectedProject.counts.total} ${t("taskWorkspace.tasks")}`);
       } else {
-        meta.textContent = `${workspaceState.workspace.summary.projectCount} ${t("taskWorkspace.projects")} · ${workspaceState.workspace.summary.agentCount} ${t("taskWorkspace.agents")}`;
+        setTextIfChanged(meta, `${workspaceState.workspace.summary.projectCount} ${t("taskWorkspace.projects")} · ${workspaceState.workspace.summary.agentCount} ${t("taskWorkspace.agents")}`);
       }
     }
     if (status) {
       if (scope === "agent") {
-        status.textContent = agent?.status || "idle";
+        setTextIfChanged(status, agent?.status || "idle");
         status.classList.toggle("ok", Boolean(agent && agent.status === "idle"));
         status.classList.toggle("warn", Boolean(agent && ["running", "interrupted"].includes(agent.status)));
       } else {
-        status.textContent = `${Number(summary?.blocked || 0)} ${t("taskWorkspace.blocked")}`;
+        setTextIfChanged(status, `${Number(summary?.blocked || 0)} ${t("taskWorkspace.blocked")}`);
         status.classList.toggle("ok", Number(summary?.blocked || 0) === 0);
         status.classList.toggle("warn", Number(summary?.blocked || 0) > 0);
       }
@@ -204,7 +207,7 @@ export function createWorkbenchSidebarRender({
     const gitCount = Array.isArray(state.gitStatus?.files) ? state.gitStatus.files.length : 0;
     const gitBadge = document.querySelector("[data-workbench-git-badge]");
     if (gitBadge) {
-      gitBadge.textContent = gitCount > 99 ? "99+" : String(gitCount);
+      setTextIfChanged(gitBadge, gitCount > 99 ? "99+" : String(gitCount));
       gitBadge.classList.toggle("hidden", !enabled || gitCount === 0);
     }
     renderPrimaryModeSidebar();

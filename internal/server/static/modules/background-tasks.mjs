@@ -1,4 +1,4 @@
-import { escapeAttr, escapeHtml, setHTMLIfChanged } from "./dom.mjs";
+import { escapeAttr, escapeHtml, setHTMLIfChanged, setTextIfChanged } from "./dom.mjs";
 import { formatDuration, formatTimestamp } from "./formatters.mjs";
 import { t } from "./i18n.mjs";
 
@@ -725,14 +725,14 @@ export function createBackgroundTasksController({
       headerButton.classList.toggle("has-task", hasCurrentActivity);
       headerButton.classList.toggle("has-foreground-activity", Boolean(foregroundActivity));
     }
-    if (headerText) headerText.textContent = currentText;
+    if (headerText) setTextIfChanged(headerText, currentText);
     if (headerQueue) {
-      headerQueue.textContent = t("backgroundTasks.queueCount", { count: summary.queuedCount });
+      setTextIfChanged(headerQueue, t("backgroundTasks.queueCount", { count: summary.queuedCount }));
       headerQueue.classList.toggle("hidden", summary.queuedCount <= 0);
     }
     if (headerDot) headerDot.className = `header-task-status-dot ${currentTone}`;
     if (badge) {
-      badge.textContent = String(activeCount || order.length);
+      setTextIfChanged(badge, String(activeCount || order.length));
       badge.classList.toggle("hidden", !activeCount && !order.length);
     }
     if (!tray) return;

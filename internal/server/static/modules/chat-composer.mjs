@@ -1,4 +1,4 @@
-import { $, escapeAttr, escapeHtml, setButtonBusy } from "./dom.mjs";
+import { $, escapeAttr, escapeHtml, setButtonBusy, setTextIfChanged } from "./dom.mjs";
 import { formatBytes, formatNumber } from "./formatters.mjs";
 import { chatDraftsKey, messageQueueKey, promptHistoryKey } from "./preferences-data.mjs";
 import { api } from "./runtime.mjs";
@@ -597,7 +597,7 @@ export function createChatComposerController({
     select.dataset.supported = values.length > 1 ? "true" : "false";
     const display = $("reasoningEffortDisplay");
     if (display) {
-      display.textContent = reasoningEffortLabel(selected);
+      setTextIfChanged(display, reasoningEffortLabel(selected));
       (display.dataset ||= {}).mobileLabel = reasoningEffortMobileLabel(selected);
     }
     // The visible control is the custom trigger, not the native select, so it
@@ -1012,7 +1012,7 @@ export function createChatComposerController({
           : retryMode ? t("workspace.chat.retryRun") : t("chat.send");
         const title = stopMode ? t("workspace.chat.stopRunTitle") : label;
         const ariaLabel = stopMode ? title : retryMode ? label : t("chat.sendMessage");
-        sendBtn.textContent = label;
+        setTextIfChanged(sendBtn, label);
         sendBtn.title = title;
         sendBtn.setAttribute?.("aria-label", ariaLabel);
         // Compact layouts render this attribute in a pseudo-element. Keep the

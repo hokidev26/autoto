@@ -1,4 +1,4 @@
-import { $, escapeAttr, escapeHtml } from "./dom.mjs";
+import { $, escapeAttr, escapeHtml, setTextIfChanged } from "./dom.mjs";
 import { formatNumber, formatTimestamp } from "./formatters.mjs";
 import { confirm as platformConfirm } from "./platform.mjs";
 import { api } from "./runtime.mjs";
@@ -315,7 +315,7 @@ export function createGitWorkflowController({
     button.title = !enabled ? t("selectAgent") : hasError ? t("statusUnavailable", { message: state.gitError }) : dirty ? t("changesCount", { count }) : t("clean");
     const badge = button.querySelector("[data-git-tool-badge]");
     if (badge) {
-      badge.textContent = count > 99 ? "99+" : String(count);
+      setTextIfChanged(badge, count > 99 ? "99+" : String(count));
       badge.classList.toggle("hidden", !dirty || count === 0);
     }
   }

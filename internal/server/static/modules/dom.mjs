@@ -45,3 +45,20 @@ export function setHTMLIfChanged(element, markup) {
   element.innerHTML = markup;
   return true;
 }
+
+// Assigning textContent replaces the text node even when the string is
+// identical, which is a real mutation and a real repaint. The measured cost on
+// one project switch: the header tool badges rewrote 14 times, the composer
+// status 7, the reasoning pill 6, the background-task labels 5 each -- all with
+// unchanged text, all visible as a flicker across the toolbar and composer.
+//
+// Only for elements whose entire content is that one string. Do not use it to
+// clear a container: an element holding child nodes with no text reads back as
+// "", so writing "" would look unchanged and the children would survive.
+export function setTextIfChanged(element, text) {
+  if (!element) return false;
+  const value = String(text);
+  if (element.textContent === value) return false;
+  element.textContent = value;
+  return true;
+}
