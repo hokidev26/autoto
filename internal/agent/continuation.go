@@ -286,8 +286,13 @@ func (r *Runner) prepareContinuationRun(ctx context.Context, run db.Run) (db.Run
 	} else if strings.TrimSpace(run.AutoContinuationMode) == "" {
 		run.AutoContinuationMode = limits.mode
 	}
+	// durableBudget for the same reason as the three budgets below: segmentTurns
+	// is -1 when no per-segment ceiling is configured, which is the shipped
+	// default, and the runs table rejects negatives. Assigning the raw limit
+	// here made CreateRun fail with "run continuation counters must not be
+	// negative" on the first message of a stock install.
 	if run.ContinuationSegmentTurns <= 0 {
-		run.ContinuationSegmentTurns = limits.segmentTurns
+		run.ContinuationSegmentTurns = durableBudget(limits.segmentTurns)
 	}
 	// Budgets persist as 0 for "no ceiling" rather than -1. The runs table has
 	// CHECK (max_* >= 0) constraints and 43 columns with 9 indexes, so widening

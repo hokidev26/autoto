@@ -899,3 +899,45 @@ func TestPlanDraftAndUnknownStopReasonsDoNotContinue(t *testing.T) {
 		})
 	}
 }
+
+func TestPrepareContinuationRunPersistsUnlimitedSegmentTurnsAsZero(t *testing.T) {
+	// config.Default ships ContinuationSegmentTurns: -1, meaning "no per-segment
+	// ceiling". Every other budget is written through durableBudget, which spells
+	// unlimited as 0 because the runs table rejects negatives; segment turns was
+	// assigned raw, so a stock install failed CreateRun with "run continuation
+	// counters must not be negative" on the very first message.
+	ctx := context.Background()
+	store, createdAgent := newAgentTestStore(t, t.TempDir(), "acceptEdits")
+	defer store.Close()
+	runner := NewRunner(store, nil, nil, nil, config.AgentConfig{
+		AutoContinuationMode:     "safe",
+		ContinuationSegmentTurns: -1,
+		MaxContinuations:         -1,
+		MaxTotalTurns:            -1,
+	})
+
+	prepared, err := runner.prepareContinuationRun(ctx, db.Run{
+		AgentID:       createdAgent.ID,
+		Status:        "running",
+		ExecutionMode: db.RunExecutionModeExecute,
+	})
+	if err != nil {
+		t.Fatalf("prepare with the shipped defaults must succeed: %v", err)
+	}
+	if prepared.ContinuationSegmentTurns < 0 {
+		t.Fatalf("negative segment turns would be rejected by the runs table: %d", prepared.ContinuationSegmentTurns)
+	}
+	if prepared.ContinuationSegmentTurns != 0 {
+		t.Fatalf("unlimited must persist as 0, got %d", prepared.ContinuationSegmentTurns)
+	}
+
+	// 0 has to read back as "no ceiling" rather than "zero turns allowed",
+	// otherwise the run would be unable to take a single turn.
+	limits, ok := runner.frozenContinuationLimits(prepared.ID)
+	if !ok {
+		t.Fatal("prepared run has no frozen limits")
+	}
+	if limits.segmentTurns > 0 {
+		t.Fatalf("stored 0 must restore as unlimited, got %d", limits.segmentTurns)
+	}
+}
