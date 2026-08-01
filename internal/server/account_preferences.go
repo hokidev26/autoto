@@ -80,7 +80,7 @@ func defaultAccountPreferencesModelVisibility() accountPreferencesModelVisibilit
 }
 
 func (s *Server) getAccountPreferences(w http.ResponseWriter, r *http.Request) {
-	scopeKind, scopeID, ok := s.accountPreferencesScope(w, r)
+	scopeKind, scopeID, ok := s.accountPreferencesScope(w, r, false)
 	if !ok {
 		return
 	}
@@ -98,7 +98,7 @@ func (s *Server) getAccountPreferences(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) patchAccountPreferences(w http.ResponseWriter, r *http.Request) {
-	scopeKind, scopeID, ok := s.accountPreferencesScope(w, r)
+	scopeKind, scopeID, ok := s.accountPreferencesScope(w, r, true)
 	if !ok {
 		return
 	}
@@ -175,7 +175,7 @@ func (s *Server) patchAccountPreferences(w http.ResponseWriter, r *http.Request)
 }
 
 func (s *Server) importLocalAccountPreferences(w http.ResponseWriter, r *http.Request) {
-	scopeKind, scopeID, ok := s.accountPreferencesScope(w, r)
+	scopeKind, scopeID, ok := s.accountPreferencesScope(w, r, true)
 	if !ok {
 		return
 	}
@@ -231,7 +231,7 @@ func (s *Server) importLocalAccountPreferences(w http.ResponseWriter, r *http.Re
 	writeJSON(w, http.StatusOK, response)
 }
 
-func (s *Server) accountPreferencesScope(w http.ResponseWriter, r *http.Request) (string, string, bool) {
+func (s *Server) accountPreferencesScope(w http.ResponseWriter, r *http.Request, mutating bool) (string, string, bool) {
 	if s.store == nil {
 		writeError(w, http.StatusInternalServerError, "preferences store is unavailable")
 		return "", "", false
@@ -242,15 +242,28 @@ func (s *Server) accountPreferencesScope(w http.ResponseWriter, r *http.Request)
 		return "", "", false
 	}
 	if !hasUsers {
-		// Remote sessions that have authenticated (restricted or full mode) may
-		// read and write instance-scoped preferences. Preferences are personal
-		// display state, not a security-sensitive mutation, so the sensitive
-		// local token guard that protects settings mutations is not appropriate
-		// here. Unauthenticated remote requests are still rejected below.
+		// Any authenticated remote session may read these. Reading display state
+		// is harmless and the remote UI cannot render without it.
+		//
+		// Writing is a different thing, and the "personal display state" argument
+		// that used to cover both does not survive the scope: with no local
+		// account registered there is one instance-wide record, shared by
+		// everyone, rather than one per person. Its profile carries gitName and
+		// gitEmail -- the identity commits made here are attributed to -- and an
+		// avatarDataUrl that every local browser then renders. A restricted
+		// session is authenticated, not trusted with shared state, which is the
+		// distinction full mode exists to draw.
+		//
+		// Once a local account exists this branch is not taken at all: the scope
+		// below is per-user and governed by that user's own session.
 		auth := s.remoteAccessAuthentication(r)
 		if auth.Remote {
 			if !auth.Authenticated {
 				writeError(w, http.StatusUnauthorized, "remote access requires authentication to read or write preferences")
+				return "", "", false
+			}
+			if mutating && (!auth.Session || auth.Mode != remoteAccessModeFull) {
+				writeError(w, http.StatusForbidden, "changing instance-wide preferences requires a full remote session")
 				return "", "", false
 			}
 			return db.AccountPreferenceScopeInstance, accountPreferencesInstanceID, true

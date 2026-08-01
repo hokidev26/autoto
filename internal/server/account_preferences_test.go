@@ -238,11 +238,16 @@ func TestAccountPreferencesAvatarValidation(t *testing.T) {
 func TestAccountPreferencesNoUserAuthenticationMatrix(t *testing.T) {
 	type endpoint struct {
 		name, method, path, body string
+		// With no local account registered these preferences are one instance-wide
+		// record rather than one per person, so a restricted remote session may
+		// read them but may not rewrite shared state -- including the Git identity
+		// commits are attributed to. See accountPreferencesScope.
+		restrictedWant int
 	}
 	endpoints := []endpoint{
-		{name: "get", method: http.MethodGet, path: "/api/preferences"},
-		{name: "patch", method: http.MethodPatch, path: "/api/preferences", body: accountPreferencesPatchBody(0, "Allowed")},
-		{name: "import", method: http.MethodPost, path: "/api/preferences/import-local", body: accountPreferencesImportBody("Allowed")},
+		{name: "get", method: http.MethodGet, path: "/api/preferences", restrictedWant: http.StatusOK},
+		{name: "patch", method: http.MethodPatch, path: "/api/preferences", body: accountPreferencesPatchBody(0, "Allowed"), restrictedWant: http.StatusForbidden},
+		{name: "import", method: http.MethodPost, path: "/api/preferences/import-local", body: accountPreferencesImportBody("Allowed"), restrictedWant: http.StatusForbidden},
 	}
 	for _, endpoint := range endpoints {
 		endpoint := endpoint
@@ -270,10 +275,12 @@ func TestAccountPreferencesNoUserAuthenticationMatrix(t *testing.T) {
 				{name: "wrong local token", want: http.StatusUnauthorized, configure: func(*Server) func(*http.Request) {
 					return func(request *http.Request) { request.Header.Set(localTokenHeader, "wrong") }
 				}},
-				{name: "restricted remote", want: http.StatusForbidden, configure: func(app *Server) func(*http.Request) {
+				{name: "restricted remote", want: endpoint.restrictedWant, configure: func(app *Server) func(*http.Request) {
 					return withRemotePreferencesSession(t, app, remoteAccessModeRestricted)
 				}},
-				{name: "restricted remote with local token", want: http.StatusForbidden, configure: func(app *Server) func(*http.Request) {
+				// A local token cannot promote a restricted session: it is exactly
+				// the replay this boundary exists to refuse.
+				{name: "restricted remote with local token", want: endpoint.restrictedWant, configure: func(app *Server) func(*http.Request) {
 					remote := withRemotePreferencesSession(t, app, remoteAccessModeRestricted)
 					return func(request *http.Request) {
 						remote(request)
