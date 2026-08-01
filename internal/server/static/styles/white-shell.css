@@ -1353,8 +1353,21 @@ body.white-shell.theme-light .toast {
 }
 
 @media (max-width: 767px) {
+  /* html cannot read --ws-canvas: the palette is declared on body, and custom
+     properties only inherit downward, so a var() here always resolves to its
+     fallback. The literals stay, and the dark form is written as a sibling
+     rule that actually matches.
+
+     The generated dark override block has an entry for this selector, but it
+     reads `body.white-shell.theme-light.theme-dark html:has(...)` -- an html
+     element descended from a body, which cannot exist. It has never matched,
+     which is why the page behind a phone in dark mode stayed pale. */
   html:has(body.white-shell.theme-light) {
     background: #f7f8fa;
+  }
+
+  html:has(body.white-shell.theme-light.theme-dark) {
+    background: #10111b;
   }
 
   body.white-shell.theme-light {

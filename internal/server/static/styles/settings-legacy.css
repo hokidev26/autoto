@@ -1509,19 +1509,19 @@ body.white-shell.theme-light:not(.project-operation-context) [data-project-conte
   .message-content p { margin: 0 0 8px; }
   .message-content ul { margin-left: 22px; }
   .inline-code {
-    background: #f1f1f3;
+    background: var(--ws-input, #f1f1f3);
     border-color: #e4e4e7;
     color: #111111;
     font-size: .9em;
   }
   .code-block {
-    background: #f3f4f6;
+    background: var(--ws-input, #f3f4f6);
     border-color: #ececef;
     color: #111111;
     margin: 12px 0;
   }
   .code-head {
-    background: #eef0f3;
+    background: var(--ws-input, #eef0f3);
     border-bottom-color: #e2e4e8;
     color: #6b7280;
   }
@@ -1661,7 +1661,7 @@ body.white-shell.theme-light:not(.project-operation-context) [data-project-conte
     border-color: #d8d8dd;
   }
   .shortcut, .directory-row, .ghost-btn {
-    background: #f6f6f7;
+    background: var(--ws-input, #f6f6f7);
     color: #111111;
     border-color: #e3e3e6;
   }

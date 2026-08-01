@@ -3718,7 +3718,7 @@ body.white-shell.theme-light[data-theme-preset="cream"] :is(.settings-action-btn
     gap: 10px;
     border: 1px solid rgba(60, 60, 67, .12);
     border-radius: 13px;
-    background: #fff;
+    background: var(--ws-card, #fff);
     color: #1d1d1f;
     padding: 0 14px;
     text-align: left;
@@ -3764,7 +3764,7 @@ body.white-shell.theme-light[data-theme-preset="cream"] :is(.settings-action-btn
     height: 100%;
     position: relative;
     overflow: hidden;
-    background: #fff;
+    background: var(--ws-card, #fff);
     color: #1d1d1f;
   }
   .chat-header { display: none; }
@@ -3773,7 +3773,7 @@ body.white-shell.theme-light[data-theme-preset="cream"] :is(.settings-action-btn
     height: 100%;
     overflow-y: auto;
     padding: 22px 20px calc(var(--mobile-composer-reserve) + env(safe-area-inset-bottom));
-    background: #fff;
+    background: var(--ws-card, #fff);
     color: #1d1d1f;
     overscroll-behavior: contain;
   }
@@ -3801,7 +3801,7 @@ body.white-shell.theme-light[data-theme-preset="cream"] :is(.settings-action-btn
     margin-bottom: 6px;
     border: 1px solid rgba(60, 60, 67, .10);
     border-radius: 17px;
-    background: #f2f2f7;
+    background: var(--ws-input, #f2f2f7);
     color: #1d1d1f;
     padding: 10px;
     box-shadow: 0 10px 28px rgba(0, 0, 0, .07);
@@ -3858,7 +3858,7 @@ body.white-shell.theme-light[data-theme-preset="cream"] :is(.settings-action-btn
     justify-content: center;
     border: 0;
     border-radius: 50%;
-    background: #f2f2f7;
+    background: var(--ws-input, #f2f2f7);
     color: #3a3a3c;
     font-size: 25px;
     font-weight: 400;
@@ -3937,7 +3937,7 @@ body.white-shell.theme-light[data-theme-preset="cream"] :is(.settings-action-btn
     overflow: hidden;
     border: 0;
     border-radius: 0;
-    background: #f2f2f7;
+    background: var(--ws-canvas, #f2f2f7);
     box-shadow: none;
   }
   #settingsModal .settings-sidebar {
@@ -3949,7 +3949,7 @@ body.white-shell.theme-light[data-theme-preset="cream"] :is(.settings-action-btn
     flex-direction: column;
     overflow: hidden;
     border: 0;
-    background: #f2f2f7;
+    background: var(--ws-canvas, #f2f2f7);
   }
   #settingsModal .settings-modal-header {
     min-height: 56px;
@@ -4067,7 +4067,7 @@ body.white-shell.theme-light[data-theme-preset="cream"] :is(.settings-action-btn
     display: flex;
     flex: 1 1 auto;
     overflow: hidden;
-    background: #f2f2f7;
+    background: var(--ws-canvas, #f2f2f7);
   }
   #settingsModal.mobile-settings-detail .settings-main-header {
     position: fixed;

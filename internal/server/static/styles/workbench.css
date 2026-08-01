@@ -995,7 +995,7 @@ body.white-shell.theme-light #settingsContentBody :is(
     min-height: 28px;
     border: 1px solid #dfe3e9;
     border-radius: 999px;
-    background: #eef1f5;
+    background: var(--ws-input, #eef1f5);
     color: #687184;
     padding: 4px 12px;
     font-size: 12px;
@@ -1004,7 +1004,7 @@ body.white-shell.theme-light #settingsContentBody :is(
   }
   body.white-shell.theme-light .navigation-filter:hover {
     border-color: #b8c3ff;
-    background: #f5f7ff;
+    background: var(--ws-primary-soft, #f5f7ff);
     color: #4f6ef7;
   }
   body.white-shell.theme-light .navigation-filter.active {
@@ -1023,7 +1023,7 @@ body.white-shell.theme-light #settingsContentBody :is(
     min-height: 40px;
     border-color: #dfe3e9;
     border-radius: 10px;
-    background: #eef1f5;
+    background: var(--ws-input, #eef1f5);
     padding: 0 34px 0 12px;
     font-size: 12px;
   }
@@ -1053,7 +1053,7 @@ body.white-shell.theme-light #settingsContentBody :is(
     padding: 10px 12px;
   }
   body.white-shell.theme-light .project-card.active {
-    background: #eef1ff;
+    background: var(--ws-primary-soft, #eef1ff);
     color: #344fcf;
     box-shadow: none;
   }
@@ -1066,7 +1066,7 @@ body.white-shell.theme-light #settingsContentBody :is(
     width: fit-content;
     min-height: 17px;
     border-radius: 5px;
-    background: #eef1ff;
+    background: var(--ws-primary-soft, #eef1ff);
     color: #4f6ef7;
     padding: 1px 7px;
     font-size: 9px;
@@ -1108,7 +1108,7 @@ body.white-shell.theme-light #settingsContentBody :is(
     font-weight: 500;
   }
   body.white-shell.theme-light .navigation-conversation-row.active {
-    background: #eef1ff;
+    background: var(--ws-primary-soft, #eef1ff);
   }
   body.white-shell.theme-light .navigation-conversation-row.active .navigation-conversation-title { color: #4f6ef7; }
   body.white-shell.theme-light .recent-sidebar { display: none; }
@@ -1323,7 +1323,7 @@ body.white-shell.theme-light #settingsContentBody :is(
     max-height: 96px;
     border: 1px solid #dfe3e9;
     border-radius: 12px;
-    background: #eef1f5;
+    background: var(--ws-input, #eef1f5);
     padding: 12px 14px 10px;
     font-size: 14px;
     line-height: 1.45;
@@ -1503,7 +1503,7 @@ body.white-shell.theme-light #settingsContentBody :is(
   body.white-shell.theme-light .legacy-settings-content-body .settings-token-input {
     border: 1px solid #d7dce4;
     border-radius: 7px;
-    background: #eef1f5;
+    background: var(--ws-input, #eef1f5);
     box-shadow: none;
   }
   body.white-shell.theme-light .legacy-settings-content-body .settings-checkbox-field {
@@ -1596,12 +1596,12 @@ body.white-shell.theme-light #settingsContentBody :is(
   }
   body.white-shell.theme-light .legacy-settings-content-body .skills-tab:hover {
     border-color: transparent;
-    background: #f2f4f8;
+    background: var(--ws-primary-soft, #f2f4f8);
     color: #303746;
   }
   body.white-shell.theme-light .legacy-settings-content-body .skills-tab.active {
     border-color: #cbd5ff;
-    background: #eef1ff;
+    background: var(--ws-primary-soft, #eef1ff);
     color: #4f6ef7;
   }
   body.white-shell.theme-light .legacy-settings-content-body .skills-tab.active::after { display: none; }
@@ -4335,7 +4335,7 @@ body.white-shell.theme-light .toolbar-lightning-btn[aria-busy="true"] {
   body.white-shell.theme-light #mobileTerminalBtn,
   body.white-shell.theme-light #mobileSearchBtn {
     border-color: #e3e6ec;
-    background: #f6f7f9;
+    background: var(--ws-input, #f6f7f9);
   }
 
   body.white-shell.theme-light #mobileWorkbenchBtn.active {
@@ -4347,7 +4347,7 @@ body.white-shell.theme-light .toolbar-lightning-btn[aria-busy="true"] {
   body.white-shell.theme-light [class~="mobile-icon-btn"]:hover,
   body.white-shell.theme-light [class~="mobile-icon-btn"]:focus-visible {
     border-color: #ccd4ff;
-    background: #eef1ff;
+    background: var(--ws-primary-soft, #eef1ff);
     color: var(--ws-primary);
   }
 
@@ -4448,7 +4448,7 @@ body.white-shell.theme-light .toolbar-lightning-btn[aria-busy="true"] {
     height: 32px;
     border: 1px solid #e1e4ea;
     border-radius: 10px;
-    background: #f6f7f9;
+    background: var(--ws-input, #f6f7f9);
     color: #394150;
     padding: 0;
   }
@@ -4586,7 +4586,7 @@ body.white-shell.theme-light .toolbar-lightning-btn[aria-busy="true"] {
     flex: 0 0 28px;
     border: 1px solid #e1e4ea;
     border-radius: 9px;
-    background: #f6f7f9;
+    background: var(--ws-input, #f6f7f9);
     color: #596273;
   }
 
