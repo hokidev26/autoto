@@ -216,7 +216,14 @@ test("desktop home overview stays available while mobile starts in conversation"
   assert.match(appMain, /tool-calls\/pending/);
   assert.match(appMain, /loadRunSummary\(run\.id, \{ agentId: run\.agentId \}\)/);
   assert.match(appMain, /setGlobalRailActive\(currentShellRailTarget\(\)\)/);
-  assert.equal((appMain.match(/state\.overviewActive && options\.preserveOverview !== true\) switchPrimaryWorkbench\("conversation"\)/g) || []).length, 2);
+  // Both selection entry points leave the overview unless the caller asked to
+  // keep it. selectProject names the decision because it also has to know, a
+  // few lines later, whether this call is the exact no-op of re-selecting the
+  // project already open -- returning from the overview is real work and must
+  // not be skipped.
+  assert.equal((appMain.match(/state\.overviewActive && options\.preserveOverview !== true/g) || []).length, 2);
+  assert.match(appMain, /const leavingOverview = state\.overviewActive && options\.preserveOverview !== true;\s*\r?\n\s*if \(leavingOverview\) switchPrimaryWorkbench\("conversation"\);/);
+  assert.match(appMain, /if \(state\.overviewActive && options\.preserveOverview !== true\) switchPrimaryWorkbench\("conversation"\);/);
   assert.match(appMain, /preserveOverview: startup\.overviewActive/);
   assert.match(appMain, /mobile:\s*isMobileAppViewport\(\)/);
   assert.match(appMain, /function leaveOverviewForMobile\(\)[\s\S]*?state\.overviewActive = false;[\s\S]*?applyPrimaryWorkbench\("conversation"\)/);

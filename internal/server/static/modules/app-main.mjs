@@ -3190,8 +3190,28 @@ function beginNavigationSelection(project, options = {}) {
 }
 
 async function selectProject(id, options = {}) {
-  if (state.overviewActive && options.preserveOverview !== true) switchPrimaryWorkbench("conversation");
+  const leavingOverview = state.overviewActive && options.preserveOverview !== true;
+  if (leavingOverview) switchPrimaryWorkbench("conversation");
   const project = state.projects.find((item) => item.id === id) || null;
+  // Clicking the project that is already open, while already looking at it,
+  // asks for nothing that is not on screen. It used to re-fetch the worklines
+  // and the agents and re-enter the agent every time, which is why holding the
+  // mouse on a project row made the workspace load over and over.
+  //
+  // Deliberately narrow. Coming back from the overview has real work to do, and
+  // so does clicking the project row while a conversation inside it is open --
+  // that moves the selection back to project scope. Only the exact no-op is
+  // skipped.
+  if (
+    project
+    && !leavingOverview
+    && state.project?.id === id
+    && state.agent?.id
+    && state.navigationSelectionKind === "project"
+    && !options.preserveMessageState
+  ) {
+    return;
+  }
   // Preserve whenever there is a conversation on screen, including when this is
   // the project already open. The `!== id` clause that used to be here made
   // re-selecting the current project the one case that did NOT preserve, so
