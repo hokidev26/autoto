@@ -463,3 +463,87 @@ test("the dark override block resolves through theme variables, not new literals
     assert.ok(contrast(hex, DARK_CARD) >= AA_CONTRAST, `${hex} must clear AA against the dark card`);
   }
 });
+
+// A var() whose custom property nothing declares is not a token. It is its
+// fallback, permanently, under every palette -- so
+// `background: var(--surface-subtle, #f8fafc)` is a hard-coded white surface
+// that merely spells itself like a themeable one.
+//
+// The audit above cannot see those. It decides a rule paints light by testing
+// the declaration against a bare-hex regex, so a var() falls through to the
+// branch that assumes the rule painted a readable background of its own -- the
+// exact opposite of the truth when the property is never defined.
+//
+// That is how the auto-continuation card shipped as a white card carrying 1.01:1
+// copy under the cyber palette: --surface, --surface-subtle and --border are
+// declared only in oauth-app.css, a separate standalone page this shell never
+// loads, so all three resolved to their light literals in every theme.
+//
+// Only colour fallbacks are checked. A var() holding a length or a count is
+// routinely written from JS at runtime -- --utility-panel-width from ui-shell,
+// --overview-heatmap-weeks from the dashboard -- and has no business failing a
+// contrast guard.
+const COLOUR_FALLBACK = /^(?:#[0-9a-fA-F]{3,8}|(?:rgb|rgba|hsl|hsla)\([^()]*\))$/;
+
+// theme-runtime.css is loaded after the shell but lives outside styles/, so it
+// both declares and consumes properties the audit would otherwise not know
+// about. Reading it here keeps its --autoto-* variables from reading as
+// undefined.
+function shippedStylesheets() {
+  const sheets = readStylesheets().map(({ name, css }) => ({ name, css }));
+  sheets.push({
+    name: "theme-runtime.css",
+    css: readFileSync(join(stylesDir, "..", "theme-runtime.css"), "utf8").replace(/\/\*[\s\S]*?\*\//g, ""),
+  });
+  return sheets;
+}
+
+// Split var(--name, fallback) by hand: the fallback can contain commas and
+// parens of its own (rgba(0, 0, 0, .5)), which a regex would cut in the wrong
+// place.
+function varUsages(css) {
+  const usages = [];
+  for (let start = css.indexOf("var("); start !== -1; start = css.indexOf("var(", start + 4)) {
+    let depth = 1;
+    let comma = -1;
+    let i = start + 4;
+    for (; i < css.length && depth > 0; i += 1) {
+      const character = css[i];
+      if (character === "(") depth += 1;
+      else if (character === ")") depth -= 1;
+      else if (character === "," && depth === 1 && comma === -1) comma = i;
+    }
+    if (depth !== 0) continue;
+    const close = i - 1;
+    usages.push({
+      token: (comma === -1 ? css.slice(start + 4, close) : css.slice(start + 4, comma)).trim(),
+      fallback: comma === -1 ? "" : css.slice(comma + 1, close).trim(),
+      index: start,
+    });
+  }
+  return usages;
+}
+
+test("no rule paints with a custom property the shell never declares", () => {
+  const sheets = shippedStylesheets();
+  const declared = new Set();
+  for (const { css } of sheets) {
+    for (const match of css.matchAll(/(--[a-zA-Z0-9-]+)\s*:/g)) declared.add(match[1]);
+  }
+  assert.ok(declared.has("--ws-card"), "no custom properties were found, so the parse is wrong rather than the CSS");
+
+  const offenders = [];
+  for (const { name, css } of sheets) {
+    for (const { token, fallback, index } of varUsages(css)) {
+      if (declared.has(token) || !COLOUR_FALLBACK.test(fallback)) continue;
+      offenders.push(`  ${name}:${css.slice(0, index).split("\n").length} var(${token}, ${fallback})`);
+    }
+  }
+  assert.deepEqual(
+    offenders,
+    [],
+    `${offenders.length} rule(s) paint with a custom property nothing declares, so the fallback colour is\n`
+      + `what ships under every palette. Use a property the presets bridge -- --bg, --bg-soft, --bg-panel,\n`
+      + `--text, --text-soft, --line, --accent -- or a var(--ws-*) directly.\n${offenders.join("\n")}`,
+  );
+});
