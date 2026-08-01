@@ -551,6 +551,14 @@ export function createChatComposerController({
 
   // Mobile shows a single English initial: the compact composer row has no space
   // for the full word, and the localized label is what the desktop trigger uses.
+  // 0 for auto, then one bar per step. xhigh, max and ultra all sit at the top
+  // of a three-bar scale: they differ from each other by degree, not by
+  // anything three bars can show, and the label beside the icon still names
+  // which one is selected.
+  function reasoningEffortIconLevel(value) {
+    return { auto: 0, low: 1, medium: 2, high: 3, xhigh: 3, max: 3, ultra: 3 }[value] ?? 0;
+  }
+
   function reasoningEffortMobileLabel(value) {
     return {
       auto: "A",
@@ -595,6 +603,12 @@ export function createChatComposerController({
     select.disabled = !state.agent || values.length <= 1 || saving;
     select.setAttribute("aria-busy", saving ? "true" : "false");
     select.dataset.supported = values.length > 1 ? "true" : "false";
+    // The row reads as icons, so the level has to be visible in the icon and
+    // not only in the label beside it: three bars, lit up to the selected
+    // level. auto lights none, which is what "let the model decide" looks
+    // like next to an explicit choice.
+    const effortIcon = $("reasoningEffortIcon");
+    if (effortIcon) effortIcon.dataset.effortLevel = String(reasoningEffortIconLevel(selected));
     const display = $("reasoningEffortDisplay");
     if (display) {
       setTextIfChanged(display, reasoningEffortLabel(selected));

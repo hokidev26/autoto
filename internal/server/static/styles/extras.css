@@ -3207,3 +3207,17 @@ body.white-shell.theme-light .composer-task-summary .header-task-status-dot.queu
   0%, 33.3% { opacity: 1; transform: scale(1); }
   33.4%, 100% { opacity: 0; transform: scale(0.7); }
 }
+
+/* The composer toolbar reads as a row of icons, and the reasoning control was
+   the one entry without one -- it rendered a bare letter where its neighbours
+   render a 15px line icon, which is what made the row look mismatched. It now
+   carries the same icon markup as the others, with three bars lit up to the
+   selected level so the icon still says which level is active. */
+body.white-shell.theme-light .reasoning-effort-icon svg [data-effort-bar] {
+  opacity: .28;
+}
+body.white-shell.theme-light .reasoning-effort-icon[data-effort-level="1"] svg [data-effort-bar="1"],
+body.white-shell.theme-light .reasoning-effort-icon[data-effort-level="2"] svg :is([data-effort-bar="1"], [data-effort-bar="2"]),
+body.white-shell.theme-light .reasoning-effort-icon[data-effort-level="3"] svg [data-effort-bar] {
+  opacity: 1;
+}
