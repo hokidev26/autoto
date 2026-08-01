@@ -922,9 +922,56 @@ export function createChatComposerController({
     return isMessageSendingFor(agentId) || isAttachmentProcessing();
   }
 
+  // Push the picker's model onto the agent before anything is submitted, and
+  // report whether submitting may proceed. A retry needs this as much as a send
+  // does: the server resolves the model from the agent record, so retrying
+  // after switching away from a model that just failed would otherwise re-run
+  // on the broken one and fail again identically.
+  //
+  // Returns false when the caller should abort quietly because the user has
+  // been shown the model setup notice. Throws when the selection cannot be
+  // reconciled at all.
+  async function syncSelectedModelToAgent(agentId) {
+    await awaitAgentSettingsSaved(agentId);
+    if (state.agent?.id !== agentId) {
+      throw new Error("The active conversation changed before the message was sent.");
+    }
+    let selectedModel = String($("modelSelect")?.value || state.agent.model || "").trim();
+    let persistedModel = String(state.agent.model || "").trim();
+    if (selectedModel && selectedModel !== persistedModel) {
+      // The picker selection never reached the agent -- e.g. it was chosen
+      // while this conversation had no agent yet, so the save only updated
+      // the model preference and never issued a model PATCH. Force one save
+      // pass now that the agent exists, then re-check before refusing.
+      await saveAgentSettings();
+      await awaitAgentSettingsSaved(agentId);
+      if (state.agent?.id !== agentId) {
+        throw new Error("The active conversation changed before the message was sent.");
+      }
+      selectedModel = String($("modelSelect")?.value || state.agent.model || "").trim();
+      persistedModel = String(state.agent.model || "").trim();
+      if (selectedModel && selectedModel !== persistedModel) {
+        throw new Error("The selected model could not be synchronized. Please try again.");
+      }
+    }
+    if (!isCurrentModelConfigured()) {
+      showModelSetupNotice();
+      return false;
+    }
+    return true;
+  }
+
   function isRetryMode() {
+    // The agent status is consulted alongside the run summary because the two
+    // do not land together: agent.error sets state.agent.status synchronously
+    // and syncs the composer straight away, while the run summary is fetched
+    // afterwards. Reading only the summary left the button saying "send" -- and
+    // an empty submit doing nothing -- until some later event happened to
+    // re-sync.
     const runStatus = String(state.activeRunSummary?.run?.status || "").trim().toLowerCase();
-    if (!["error", "failed"].includes(runStatus)) return false;
+    const agentStatus = String(state.agent?.status || "").trim().toLowerCase();
+    const failed = ["error", "failed"].includes(runStatus) || ["error", "failed"].includes(agentStatus);
+    if (!failed) return false;
     const input = $("messageText");
     const text = input ? input.value.trim() : "";
     const attachments = Array.isArray(state.pendingAttachments) ? state.pendingAttachments : [];
@@ -1040,6 +1087,10 @@ export function createChatComposerController({
         if (lastUserMessage) {
           setMessageSendingFor(agentId, true);
           try {
+            // The usual reason to retry is that the model was wrong, so the
+            // picker has to reach the agent first -- the correction runs on
+            // whatever the agent record says.
+            if (!(await syncSelectedModelToAgent(agentId))) return;
             const retryText = lastUserMessage.contentText || lastUserMessage.text || "";
             await request(`/api/agents/${agentId}/messages/${encodeURIComponent(lastUserMessage.id)}/corrections`, {
               method: "POST",
@@ -1095,32 +1146,7 @@ export function createChatComposerController({
     setMessageSendingFor(agentId, true);
     try {
       if (!isGoalCommand) {
-        await awaitAgentSettingsSaved(agentId);
-        if (state.agent?.id !== agentId) {
-          throw new Error("The active conversation changed before the message was sent.");
-        }
-        let selectedModel = String($("modelSelect")?.value || state.agent.model || "").trim();
-        let persistedModel = String(state.agent.model || "").trim();
-        if (selectedModel && selectedModel !== persistedModel) {
-          // The picker selection never reached the agent -- e.g. it was chosen
-          // while this conversation had no agent yet, so the save only updated
-          // the model preference and never issued a model PATCH. Force one save
-          // pass now that the agent exists, then re-check before refusing.
-          await saveAgentSettings();
-          await awaitAgentSettingsSaved(agentId);
-          if (state.agent?.id !== agentId) {
-            throw new Error("The active conversation changed before the message was sent.");
-          }
-          selectedModel = String($("modelSelect")?.value || state.agent.model || "").trim();
-          persistedModel = String(state.agent.model || "").trim();
-          if (selectedModel && selectedModel !== persistedModel) {
-            throw new Error("The selected model could not be synchronized. Please try again.");
-          }
-        }
-        if (!isCurrentModelConfigured()) {
-          showModelSetupNotice();
-          return;
-        }
+        if (!(await syncSelectedModelToAgent(agentId))) return;
       }
       input.value = "";
       autoResizeMessageInput();
