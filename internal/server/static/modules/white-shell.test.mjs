@@ -1889,7 +1889,7 @@ test("initial shell and default appearance use the versioned light theme", async
   assert.equal(defaultAppearancePrefs.theme, "light");
   assert.equal(defaultAppearancePrefs.styleVersion, appearanceStyleVersion);
   assert.equal(appearanceStyleVersion, 5);
-  assert.deepEqual(appearanceThemePresets, ["light", "dark", "cyber", "cream", "apple"]);
+  assert.deepEqual(appearanceThemePresets, ["light", "dark", "cyber", "cream"]);
 });
 
 test("dark appearance keeps the legacy white-shell geometry and layers colors only", async () => {

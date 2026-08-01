@@ -2266,7 +2266,6 @@ body.ui-density-compact #settingsContentBody .usage-history-page .uh-summary-car
 body.white-shell.theme-light.theme-dark #settingsContentBody,
 body.white-shell.theme-light.theme-dark #settingsContentBody .mp-provider-page,
 body.white-shell.theme-light.theme-dark #settingsContentBody .theme-preset-preview,
-body.white-shell.theme-light.theme-dark #settingsContentBody .theme-preset-preview-apple::after,
 body.white-shell.theme-light.theme-dark #settingsContentBody .theme-preset-preview-cream i,
 body.white-shell.theme-light.theme-dark #settingsContentBody .theme-preset-preview-cream::after,
 body.white-shell.theme-light.theme-dark #settingsContentBody .theme-preset-preview-cyber b,
@@ -3247,35 +3246,6 @@ body.white-shell.theme-light[data-theme-preset="cream"] {
   --accent: var(--ws-primary);
 }
 
-body.white-shell.theme-light[data-theme-preset="apple"] {
-  --ws-primary: #007aff;
-  --ws-primary-soft: rgba(0, 122, 255, .12);
-  --ws-canvas: #f5f5f7;
-  --ws-card: rgba(255, 255, 255, .94);
-  --ws-input: rgba(118, 118, 128, .12);
-  --ws-text: #1d1d1f;
-  --ws-muted: #6e6e73;
-  --ws-border: rgba(60, 60, 67, .18);
-  --ws-shadow: 0 12px 34px rgba(0, 0, 0, .08), 0 1px 2px rgba(0, 0, 0, .04);
-  --bg: var(--ws-canvas);
-  --bg-soft: var(--ws-card);
-  --bg-panel: var(--ws-card);
-  --bg-elevated: var(--ws-primary-soft);
-  --text: var(--ws-text);
-  --text-soft: #3a3a3c;
-  --muted: var(--ws-muted);
-  --line: var(--ws-border);
-  --line-soft: rgba(60, 60, 67, .10);
-  --accent: var(--ws-primary);
-  --accent-strong: #0066d6;
-  --radius: 14px;
-  background: var(--ws-canvas);
-  color: var(--ws-text);
-  color-scheme: light;
-  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Segoe UI", "Microsoft JhengHei", sans-serif;
-  -webkit-font-smoothing: antialiased;
-  text-rendering: optimizeLegibility;
-}
 
 body.white-shell.theme-light[data-theme-preset="cyber"] .app-shell,
 body.white-shell.theme-light[data-theme-preset="cyber"] .workbench-panel,
@@ -3367,101 +3337,20 @@ body.white-shell.theme-light[data-theme-preset="cream"] :is(.settings-action-btn
   box-shadow: 0 8px 18px rgba(219, 95, 121, .18);
 }
 
-body.white-shell.theme-light[data-theme-preset="apple"] .app-shell,
-body.white-shell.theme-light[data-theme-preset="apple"] .workbench-panel,
-body.white-shell.theme-light[data-theme-preset="apple"] .chat-panel,
-body.white-shell.theme-light[data-theme-preset="apple"] .legacy-settings-modal,
-body.white-shell.theme-light[data-theme-preset="apple"] .legacy-settings-content {
-  background-color: var(--ws-canvas);
-  background-image:
-    radial-gradient(circle at 12% -8%, rgba(0, 122, 255, .10), transparent 31%),
-    linear-gradient(180deg, #fafafc 0%, var(--ws-canvas) 46%, #f2f2f7 100%);
-  color: var(--ws-text);
-}
 
-body.white-shell.theme-light[data-theme-preset="apple"] :is(.global-rail, .sidebar, .session-sidebar, .chat-header, .workbench-header, .composer-wrap, .legacy-settings-topbar, .legacy-settings-subbar, .legacy-settings-wizard) {
-  border-color: var(--ws-border);
-  background: rgba(248, 248, 250, .78);
-  color: var(--ws-text);
-  -webkit-backdrop-filter: saturate(180%) blur(24px);
-  backdrop-filter: saturate(180%) blur(24px);
-}
 
-body.white-shell.theme-light[data-theme-preset="apple"] :is(.terminal-panel, .terminal-header, .terminal-command-panel, .terminal-output, .terminal-status-row) {
-  border-color: var(--ws-border);
-  background: rgba(255, 255, 255, .94);
-  color: var(--ws-text);
-}
 
-body.white-shell.theme-light[data-theme-preset="apple"] :is(.project-card, .navigation-conversation-row, .recent-conversation-item, .settings-provider-section, .settings-hero-card, .settings-stat-card, .modal-card, .git-modal-card) {
-  border-color: var(--ws-border);
-  background-color: rgba(255, 255, 255, .92);
-  color: var(--ws-text);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, .055), 0 1px 2px rgba(0, 0, 0, .035);
-}
 
-body.white-shell.theme-light[data-theme-preset="apple"] :is(.message-input, .sidebar-search, .legacy-settings-search, .settings-field, .terminal-command-input) {
-  border-color: rgba(60, 60, 67, .22);
-  background-color: rgba(255, 255, 255, .88);
-  color: var(--ws-text);
-  box-shadow: inset 0 1px rgba(255, 255, 255, .84), 0 1px 2px rgba(0, 0, 0, .025);
-}
 
-body.white-shell.theme-light[data-theme-preset="apple"] :is(.message-mode-toggle, .navigation-filters, .model-pill, .effort-pill) {
-  border-color: var(--ws-border);
-  background: var(--ws-input);
-  color: var(--ws-text);
-}
 
-body.white-shell.theme-light[data-theme-preset="apple"] :is(.global-rail button:hover, .global-rail a:hover, .nav-item:hover, .nav-item-shell:hover, .project-card:hover, .navigation-conversation-row:hover, .recent-conversation-item:hover, .sidebar-account-btn:hover, .sidebar-menu-item:hover) {
-  background: rgba(60, 60, 67, .07);
-  color: var(--ws-text);
-}
 
-body.white-shell.theme-light[data-theme-preset="apple"] :is(.nav-item.selected, .nav-item-shell.selected, .project-card.active, .navigation-conversation-row.active, .recent-conversation-item.active, .global-rail button.active, .global-rail [aria-current="page"], .message-mode-option.active) {
-  background: rgba(0, 122, 255, .12);
-  color: #0066cc;
-  box-shadow: inset 0 0 0 1px rgba(0, 122, 255, .07);
-}
 
-body.white-shell.theme-light[data-theme-preset="apple"] :is(.settings-action-btn.primary, .composer-send-btn, .new-task-btn) {
-  border-color: #007aff;
-  background: #007aff;
-  color: #ffffff;
-  box-shadow: 0 5px 16px rgba(0, 122, 255, .24), inset 0 1px rgba(255, 255, 255, .22);
-}
 
-body.white-shell.theme-light[data-theme-preset="apple"] :is(.settings-action-btn.primary, .composer-send-btn, .new-task-btn):hover {
-  border-color: #0071e3;
-  background: #0071e3;
-  color: #ffffff;
-  filter: none;
-  box-shadow: 0 7px 19px rgba(0, 122, 255, .28), inset 0 1px rgba(255, 255, 255, .22);
-}
 
-body.white-shell.theme-light[data-theme-preset="apple"] :is(.global-rail button, .sidebar button, .sidebar a, .nav-item, .nav-item-shell, .project-card, .navigation-conversation-row, .recent-conversation-item, .settings-action-btn, .appearance-choice, .composer-send-btn, .new-task-btn, .terminal-command-run) {
-  transition: background-color 180ms ease, border-color 180ms ease, color 180ms ease, box-shadow 180ms ease, scale 180ms cubic-bezier(.22, 1, .36, 1);
-}
 
-body.white-shell.theme-light[data-theme-preset="apple"] :is(.global-rail button, .sidebar button, .sidebar a, .nav-item, .nav-item-shell, .project-card, .navigation-conversation-row, .recent-conversation-item, .settings-action-btn, .appearance-choice, .composer-send-btn, .new-task-btn, .terminal-command-run):active:not(:disabled) {
-  scale: .97;
-  transition-duration: 80ms;
-}
 
-body.white-shell.theme-light[data-theme-preset="apple"] :is(button, a, input, select, textarea, summary):focus-visible {
-  outline: 3px solid rgba(0, 122, 255, .34);
-  outline-offset: 2px;
-}
 
-body.white-shell.theme-light[data-theme-preset="apple"] :is(.chat-title-display, .workbench-title, .compact-settings-heading h1, .compact-settings-section-copy h2) {
-  letter-spacing: -.015em;
-}
 
-body.white-shell.theme-light[data-theme-preset="apple"] .modal {
-  background: rgba(29, 29, 31, .22);
-  -webkit-backdrop-filter: blur(14px);
-  backdrop-filter: blur(14px);
-}
 
 /* Five CSS-only preview cards mirror the palette without loading artwork. */
 #settingsContentBody .appearance-theme-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -3512,12 +3401,6 @@ body.white-shell.theme-light[data-theme-preset="apple"] .modal {
 #settingsContentBody .theme-preset-preview-cream i { background: #ffebbb; }
 #settingsContentBody .theme-preset-preview-cream b { background: #69bda5; }
 #settingsContentBody .theme-preset-preview-cream em { background: #db5f79; }
-#settingsContentBody .theme-preset-preview-apple { border-color: rgba(60, 60, 67, .20); background: radial-gradient(circle at 78% 10%, rgba(0, 122, 255, .24), transparent 31%), linear-gradient(145deg, #fbfbfd, #e9e9ee); box-shadow: inset 0 1px rgba(255, 255, 255, .9), 0 5px 14px rgba(0, 0, 0, .08); }
-#settingsContentBody .theme-preset-preview-apple::before { background: #007aff; box-shadow: 0 3px 8px rgba(0, 122, 255, .24); }
-#settingsContentBody .theme-preset-preview-apple::after { background: #c7c7cc; }
-#settingsContentBody .theme-preset-preview-apple i { border: 1px solid rgba(60, 60, 67, .12); background: rgba(255, 255, 255, .88); box-shadow: 0 2px 5px rgba(0, 0, 0, .05); }
-#settingsContentBody .theme-preset-preview-apple b { background: #8e8e93; }
-#settingsContentBody .theme-preset-preview-apple em { background: #34c759; }
 #settingsContentBody .appearance-theme-choice:focus-visible { outline: 3px solid var(--settings-ring); outline-offset: 2px; }
 
 @media (max-width: 760px) {
@@ -4227,52 +4110,18 @@ body.white-shell.theme-light[data-theme-preset="apple"] .modal {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  body.white-shell.theme-light[data-theme-preset="apple"] :is(.global-rail button, .sidebar button, .sidebar a, .nav-item, .nav-item-shell, .project-card, .navigation-conversation-row, .recent-conversation-item, .settings-action-btn, .appearance-choice, .composer-send-btn, .new-task-btn, .terminal-command-run) {
-    transition: none !important;
-  }
 
-  body.white-shell.theme-light[data-theme-preset="apple"] :is(.global-rail button, .sidebar button, .sidebar a, .nav-item, .nav-item-shell, .project-card, .navigation-conversation-row, .recent-conversation-item, .settings-action-btn, .appearance-choice, .composer-send-btn, .new-task-btn, .terminal-command-run):active:not(:disabled) {
-    scale: 1;
-  }
 }
 
 @media (prefers-reduced-transparency: reduce) {
-  body.white-shell.theme-light[data-theme-preset="apple"] {
-    --ws-card: #ffffff;
-    --ws-input: #ececf1;
-  }
 
-  body.white-shell.theme-light[data-theme-preset="apple"] :is(.global-rail, .sidebar, .session-sidebar, .chat-header, .workbench-header, .composer-wrap, .legacy-settings-topbar, .legacy-settings-subbar, .legacy-settings-wizard) {
-    background: #f8f8fa;
-    -webkit-backdrop-filter: none;
-    backdrop-filter: none;
-  }
 
-  body.white-shell.theme-light[data-theme-preset="apple"] :is(.terminal-panel, .terminal-header, .terminal-command-panel, .terminal-output, .terminal-status-row, .project-card, .navigation-conversation-row, .recent-conversation-item, .settings-provider-section, .settings-hero-card, .settings-stat-card, .modal-card, .git-modal-card) {
-    background: var(--ws-card);
-  }
 
-  body.white-shell.theme-light[data-theme-preset="apple"] .modal {
-    -webkit-backdrop-filter: none;
-    backdrop-filter: none;
-  }
 }
 
 @media (prefers-contrast: more), (forced-colors: active) {
-  body.white-shell.theme-light[data-theme-preset="apple"] {
-    --ws-muted: #515154;
-    --ws-border: rgba(29, 29, 31, .46);
-  }
 
-  body.white-shell.theme-light[data-theme-preset="apple"] :is(.global-rail, .sidebar, .session-sidebar, .chat-header, .workbench-header, .composer-wrap, .legacy-settings-topbar, .legacy-settings-subbar, .legacy-settings-wizard) {
-    background: var(--ws-card);
-    -webkit-backdrop-filter: none;
-    backdrop-filter: none;
-  }
 
-  body.white-shell.theme-light[data-theme-preset="apple"] :is(.nav-item.selected, .nav-item-shell.selected, .project-card.active, .navigation-conversation-row.active, .recent-conversation-item.active, .global-rail button.active, .global-rail [aria-current="page"], .message-mode-option.active) {
-    box-shadow: inset 0 0 0 2px currentColor;
-  }
 }
 
 /* Final skills-page compact layer. Keep this last so legacy tab and card rules

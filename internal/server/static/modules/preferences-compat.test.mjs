@@ -383,7 +383,7 @@ test("regional preferences default to auto and import legacy field names", () =>
 
 test("appearance presets default to light and migrate version 2 and unversioned preferences", () => {
   assert.equal(appearanceStyleVersion, 5);
-  assert.deepEqual(appearanceThemePresets, ["light", "dark", "cyber", "cream", "apple"]);
+  assert.deepEqual(appearanceThemePresets, ["light", "dark", "cyber", "cream"]);
   assert.deepEqual(defaultAppearancePrefs, {
     styleVersion: 5,
     themeRef: { kind: "preset", id: "light" },
@@ -452,10 +452,13 @@ test("appearance preset derives the palette, rejects unknown values, and updates
     assert.equal(body.classList.contains("theme-dark"), false);
     assert.deepEqual(JSON.parse(localStorage.getItem(appearancePrefsKey)).themePreset, "cream");
 
+    // "apple" was a preset until it was retired for being indistinguishable
+    // from the light shell. A stored value naming it must fall back rather
+    // than resurrect a palette the stylesheet no longer defines.
     controller.setAppearancePreference("themePreset", "apple");
-    assert.equal(body.dataset.themePreset, "apple");
+    assert.notEqual(body.dataset.themePreset, "apple");
     assert.equal(body.classList.contains("theme-dark"), false);
-    assert.equal(JSON.parse(localStorage.getItem(appearancePrefsKey)).themePreset, "apple");
+    assert.notEqual(JSON.parse(localStorage.getItem(appearancePrefsKey)).themePreset, "apple");
     assert.equal(JSON.parse(localStorage.getItem(appearancePrefsKey)).theme, "light");
   });
 });
@@ -491,15 +494,15 @@ test("appearance backup retains the normalized theme preset", () => {
       kind: localPreferenceBackupKind,
       version: 1,
       preferences: {
-        [appearancePrefsKey]: { styleVersion: 3, themePreset: "apple", density: "compact" },
+        [appearancePrefsKey]: { styleVersion: 3, themePreset: "cream", density: "compact" },
       },
     }));
 
     assert.deepEqual(JSON.parse(localStorage.getItem(appearancePrefsKey)), {
       styleVersion: 5,
-      themeRef: { kind: "preset", id: "apple" },
-      themeSchemeRefs: { light: { kind: "preset", id: "apple" } },
-      themePreset: "apple",
+      themeRef: { kind: "preset", id: "cream" },
+      themeSchemeRefs: { light: { kind: "preset", id: "cream" } },
+      themePreset: "cream",
       theme: "light",
       density: "compact",
       backgroundMode: "theme",
@@ -511,7 +514,7 @@ test("appearance backup retains the normalized theme preset", () => {
       showEventLog: true,
       showThroughput: false,
     });
-    assert.equal(controller.createLocalPreferencesBackup().preferences[appearancePrefsKey].themePreset, "apple");
+    assert.equal(controller.createLocalPreferencesBackup().preferences[appearancePrefsKey].themePreset, "cream");
   });
 });
 
@@ -529,9 +532,9 @@ test("network search settings render one compact strategy form without summary c
   assert.doesNotMatch(markup, /settings-stat-grid|settings-stat-card|settings-hero-card|appearance-choice/);
 });
 
-test("appearance settings render a flat compact form with five accessible preset previews", async () => {
+test("appearance settings render a flat compact form with four accessible preset previews", async () => {
   const settings = createLocalPreferencesSettingsController({
-    currentAppearancePreferences: () => ({ ...defaultAppearancePrefs, themePreset: "apple" }),
+    currentAppearancePreferences: () => ({ ...defaultAppearancePrefs, themePreset: "cream" }),
     currentRegionalPreferences: () => ({ locale: "en-US", timezone: "auto" }),
     backgroundManager: { snapshot: () => ({ background: { mode: "theme", url: "", dim: 18, positionX: 50, positionY: 50 } }) },
   });
@@ -543,11 +546,10 @@ test("appearance settings render a flat compact form with five accessible preset
   assert.match(markup, /compact-settings-choice-grid four-column/);
   assert.doesNotMatch(markup, /settings-stat-grid|settings-stat-card|settings-hero-card/);
   assert.match(markup, /role="radiogroup" aria-label=/);
-  for (const preset of ["light", "dark", "cyber", "cream", "apple"]) {
+  for (const preset of ["light", "dark", "cyber", "cream"]) {
     assert.match(markup, new RegExp(`data-appearance-field="themePreset" data-appearance-value="${preset}"`));
     assert.match(markup, new RegExp(`theme-preset-preview-${preset}`));
   }
-  assert.match(markup, /theme-preset-preview-apple[\s\S]*?aria-checked="true"|aria-checked="true"[\s\S]*?theme-preset-preview-apple/);
   assert.match(markup, /id="appearanceBackgroundFile"[^>]*accept="image\/jpeg,image\/png,image\/webp"/);
   assert.match(markup, /id="appearanceBackgroundMode"/);
   assert.match(markup, /id="appearanceBackgroundDim"[^>]*type="range"/);
@@ -555,13 +557,8 @@ test("appearance settings render a flat compact form with five accessible preset
   assert.match(markup, /id="appearanceBackgroundPositionY"[^>]*type="range"/);
   assert.match(styles, /data-theme-preset="cyber"[\s\S]*?--ws-primary: #a7ff32/);
   assert.match(styles, /data-theme-preset="cream"[\s\S]*?--ws-canvas: #fff9ee/);
-  assert.match(styles, /data-theme-preset="apple"[\s\S]*?--ws-primary: #007aff/);
   assert.match(styles, /\.theme-preset-preview-cyber/);
   assert.match(styles, /\.theme-preset-preview-cream/);
-  assert.match(styles, /\.theme-preset-preview-apple/);
-  assert.match(styles, /@media \(prefers-reduced-motion: reduce\) \{[\s\S]*?data-theme-preset="apple"/);
-  assert.match(styles, /@media \(prefers-reduced-transparency: reduce\) \{[\s\S]*?data-theme-preset="apple"/);
-  assert.match(styles, /@media \(prefers-contrast: more\), \(forced-colors: active\) \{[\s\S]*?data-theme-preset="apple"/);
   assert.match(styles, /@media \(max-width: 760px\) \{[\s\S]*?#settingsContentBody \.appearance-theme-grid \{ grid-template-columns: 1fr; \}/);
 });
 
