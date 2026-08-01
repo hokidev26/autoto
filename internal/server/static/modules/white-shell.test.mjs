@@ -822,6 +822,12 @@ test("desktop conversation layout follows the compact resizable geometry", async
   assert.match(appMain, /const preserveConversationView = Boolean\(state\.agent\?\.id\)/);
   assert.match(appMain, /clearLiveAssistantText\(\{ preserveView: true \}\)/);
   assert.match(appMain, /clearRunSummary\(\{ preserveView: true \}\)/);
+  // Finishing a turn must not repaint the cleared live state on its own. The
+  // persisted message is 80ms behind it, so rendering the gap tears the answer
+  // out of the transcript and puts an equivalent block back a frame later --
+  // one visible jolt at the end of every turn. This pair only occurs in that
+  // handler.
+  assert.match(appMain, /clearLiveAssistantText\(\{ preserveView: true \}\);[\s\S]{0,160}?clearLiveImageGenerations\(\{ agentId, preserveView: true \}\)/);
   assert.match(appMain, /function markMessageViewportBusy\(options = \{\}\)[\s\S]*?dataset\.initialChatState = "loading"/);
   assert.match(appMain, /messageViewportBusyDelayMs = 140/);
   assert.match(appMain, /clearMessageViewportBusyTimer\(\)/);

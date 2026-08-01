@@ -3603,8 +3603,14 @@ async function handleAgentStreamEvent(event) {
     syncNavigationConversationFromAgent(state.agent, { status, reason: event.type });
   }
   if ([...completedMessageEvents, ...terminalAgentEvents].includes(event.type)) {
-    clearLiveAssistantText();
-    clearLiveImageGenerations({ agentId });
+    // preserveView because the persisted message has not arrived yet. Rendering
+    // the cleared state now tears the streamed answer out of the transcript,
+    // the page collapses by its height, and 80ms later loadMessages puts an
+    // equivalent block back -- a visible jolt at the end of every single turn.
+    // The state is cleared either way; only the repaint waits for the refresh
+    // that is about to replace this content anyway.
+    clearLiveAssistantText({ preserveView: true });
+    clearLiveImageGenerations({ agentId, preserveView: true });
     syncMessageComposerBusy();
     refreshComposerActivityStatus();
   }
