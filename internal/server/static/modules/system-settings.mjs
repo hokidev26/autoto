@@ -101,7 +101,11 @@ export function createSystemSettingsController({
     const security = summary.security || {};
     return `
     <div class="usage-summary-grid settings-stat-grid">
-      ${renderUsageMetricCard(t("systemSettings.serverSystem.listenAddress"), server.address || t("systemSettings.serverSystem.notConfigured"), t("systemSettings.serverSystem.description"))}
+      ${/* The hint names where the value comes from, as the sibling cards do with
+           their environment variables. It used to repeat serverSystem.description,
+           the whole panel's help copy, which is already rendered above as
+           data-settings-help-copy -- two sentences inside a 170px stat card. */""}
+      ${renderUsageMetricCard(t("systemSettings.serverSystem.listenAddress"), server.address || t("systemSettings.serverSystem.notConfigured"), "config.json", "identifier")}
       ${renderUsageMetricCard(t("systemSettings.serverSystem.accessMode"), security.remoteAccessRequired ? t("systemSettings.serverSystem.tunnelHardened") : t("systemSettings.serverSystem.local"), security.message || t("systemSettings.serverSystem.securityFallback"))}
       ${renderUsageMetricCard(t("systemSettings.serverSystem.autoExecution"), security.bypassPermissionsAllowed ? t("systemSettings.serverSystem.allowed") : t("systemSettings.serverSystem.disabled"), t("systemSettings.serverSystem.permissionCap", { mode: security.maxPermissionMode || "bypassPermissions" }))}
       ${renderUsageMetricCard(t("systemSettings.serverSystem.remoteTerminal"), security.remoteTerminalAllowed ? t("systemSettings.serverSystem.allowed") : t("systemSettings.serverSystem.disabled"), "AUTOTO_REMOTE_TERMINAL")}
@@ -831,10 +835,15 @@ export function createSystemSettingsController({
     }
   }
 
-  function renderUsageMetricCard(title, value, subtitle) {
+  // valueKind marks a value that is an identifier rather than a headline
+  // number. "localhost:16888" needs 199px at the default 24px/900 and the card
+  // is 141px wide, so it wrapped mid-number to "localhost:1688" + "8" -- a first
+  // line that reads as a plausible, wrong port rather than as truncation.
+  function renderUsageMetricCard(title, value, subtitle, valueKind = "") {
+    const valueClass = valueKind === "identifier" ? "usage-metric-value is-identifier" : "usage-metric-value";
     return `
     <section class="usage-metric-card settings-stat-card">
-      <div class="usage-metric-value">${escapeHtml(formatMetricValue(value))}</div>
+      <div class="${valueClass}">${escapeHtml(formatMetricValue(value))}</div>
       <div class="usage-metric-title">${escapeHtml(title)}</div>
       <div class="usage-metric-subtitle">${escapeHtml(subtitle || "—")}</div>
     </section>

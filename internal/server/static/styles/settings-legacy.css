@@ -253,13 +253,25 @@
   gap: 12px;
 }
 .usage-metric-card {
+  /* A grid item defaults to min-width: auto, so a value wider than the track
+     pushes out of the card instead of letting it wrap. */
+  min-width: 0;
   border: 1px solid var(--ws-border);
   background: var(--ws-card);
   border-radius: 16px;
   padding: 16px;
   box-shadow: 0 10px 24px rgba(15, 23, 42, .04);
 }
-.usage-metric-value { color: #0f172a; font-size: 24px; font-weight: 900; letter-spacing: -0.03em; }
+/* Most values are a number or a word, but the listen address is one long
+   unbreakable token: "localhost:16888" at this weight overran a 170px track and
+   was clipped to "localhost:168", which does not read as truncated -- it reads
+   as a different port. Wrapping is the honest failure mode. */
+.usage-metric-value { color: #0f172a; font-size: 24px; font-weight: 900; letter-spacing: -0.03em; overflow-wrap: anywhere; }
+/* An identifier is read character by character, so it has to survive on one
+   line: 16px puts "localhost:16888" at 129px inside a 141px card, where the
+   headline size needs 199px. The tightened tracking above is for large numerals
+   and only hurts legibility here. */
+.usage-metric-value.is-identifier { font-size: 16px; letter-spacing: 0; }
 .usage-metric-title { color: #334155; font-size: 13px; font-weight: 850; margin-top: 5px; }
 .usage-metric-subtitle { color: #64748b; font-size: 12px; line-height: 1.45; margin-top: 4px; }
 .usage-detail-grid {
