@@ -1349,7 +1349,33 @@ export function createChatRenderingController({
   }
 
   function scrollToBottomIfFollowing(el) {
-    if (isNearBottom(el)) el.scrollTop = el.scrollHeight;
+    // Order matters: "was the reader following?" is a question about the
+    // geometry before the gap is resized, so it is asked first.
+    const following = isNearBottom(el);
+    syncTranscriptTailSpacer(el);
+    if (following && el) el.scrollTop = tailAnchorScrollTop(el);
+  }
+
+  // Where "following the conversation" should land. With the stretchable gap in
+  // place this is the offset of the message you last sent, which for a short
+  // reply is the same position as the bottom of the transcript. For a reply
+  // taller than the viewport the two diverge, and this deliberately keeps the
+  // anchor: scrolling to the true bottom is what threw your message off the top
+  // of the screen in a single 342px jump the moment the answer outgrew the
+  // window. Reading further down the answer is a scroll away; losing the
+  // question you asked is not recoverable without scrolling back.
+  function tailAnchorScrollTop(el) {
+    const target = el || $("messages");
+    if (!target) return 0;
+    const bottom = Math.max(0, target.scrollHeight - target.clientHeight);
+    const spacer = target.querySelector?.("[data-transcript-tail-spacer]");
+    const rows = target.querySelectorAll?.('[data-message-role="user"]');
+    const anchor = rows && rows.length ? rows[rows.length - 1] : null;
+    if (!spacer || !anchor) return target.scrollHeight;
+    const containerTop = target.getBoundingClientRect?.().top ?? 0;
+    const anchorTop = anchor.getBoundingClientRect?.().top ?? 0;
+    const offset = Math.round(anchorTop - containerTop + target.scrollTop);
+    return Math.max(0, Math.min(offset, bottom));
   }
 
   // Anything that resizes the composer resizes the transcript's viewport
@@ -1363,11 +1389,53 @@ export function createChatRenderingController({
   // is already part of the measurement, and a tall enough draft pushes it past
   // the near-bottom threshold, at which point the tail can no longer be
   // recovered. A reader who had scrolled up is left where they were.
+  // Keeps the message you just sent at the top of the viewport while the answer
+  // streams in underneath, instead of letting the transcript's bottom anchor
+  // push it off the screen -- measured at 342px above the fold for a single
+  // reply with one tool call.
+  //
+  // This is done with a stretchable gap after the last card rather than by
+  // changing when the transcript follows its tail. With a gap of
+  // `viewport - (content below your message)`, scrolling to the bottom lands
+  // exactly on your message: scrollTop resolves to its offset. As the reply
+  // grows the gap shrinks by the same amount, so the view holds still, and once
+  // the reply is taller than the viewport the gap is 0 and normal
+  // bottom-following resumes. Every existing scroll path keeps working
+  // unchanged; only the geometry underneath them moves.
+  function syncTranscriptTailSpacer(el) {
+    const target = el || $("messages");
+    const spacer = target?.querySelector?.("[data-transcript-tail-spacer]");
+    if (!target || !spacer) return 0;
+    const rows = target.querySelectorAll?.('[data-message-role="user"]');
+    const anchor = rows && rows.length ? rows[rows.length - 1] : null;
+    if (!anchor) {
+      if (spacer.style.height !== "0px") spacer.style.height = "0px";
+      return 0;
+    }
+    // Collapse before measuring, otherwise the previous gap counts as content
+    // and the reply appears to have filled space it has not. scrollTop is
+    // restored afterwards because shrinking the content clamps it.
+    const savedScrollTop = target.scrollTop;
+    spacer.style.height = "0px";
+    // Measured against the collapsed spacer's own position rather than
+    // scrollHeight: a transcript shorter than its viewport reports
+    // scrollHeight === clientHeight, which overstates what sits below the
+    // anchor and collapses the gap to nothing on exactly the turn that needs
+    // it most -- the first one in a new conversation.
+    const anchorTop = anchor.getBoundingClientRect?.().top ?? 0;
+    const spacerTop = spacer.getBoundingClientRect?.().top ?? anchorTop;
+    const below = Math.max(0, spacerTop - anchorTop);
+    const height = Math.max(0, Math.round(target.clientHeight - below));
+    spacer.style.height = `${height}px`;
+    target.scrollTop = savedScrollTop;
+    return height;
+  }
+
   function withMessagesTailAnchored(mutate) {
     const el = $("messages");
     const following = isNearBottom(el);
     const result = mutate();
-    if (following && el) el.scrollTop = el.scrollHeight;
+    if (following && el) el.scrollTop = tailAnchorScrollTop(el);
     return result;
   }
 
@@ -1377,7 +1445,7 @@ export function createChatRenderingController({
   // this explicit helper for send flows and settle the tail after those layout
   // passes as well. It is intentionally unconditional because a new message is
   // an explicit request to follow the latest content.
-  function scrollMessagesToBottom() {
+  function scrollMessagesToBottom({ anchor = true } = {}) {
     const el = $("messages");
     if (!el) return false;
     const scroll = () => {
@@ -1386,7 +1454,12 @@ export function createChatRenderingController({
       // in between replaces it -- but the lookup itself has to be safe.
       if (!globalThis.document) return;
       const current = $("messages");
-      if (current) current.scrollTop = current.scrollHeight;
+      // Sending anchors on the message just sent; opening a conversation wants
+      // the true end of the transcript, because the reader asked to see where
+      // this conversation got to, not to re-read their last question. While a
+      // reply is still shorter than the viewport the two coincide anyway, since
+      // the gap puts the bottom exactly on the anchor.
+      if (current) current.scrollTop = anchor ? tailAnchorScrollTop(current) : current.scrollHeight;
     };
     scroll();
     const frame = globalThis.requestAnimationFrame;
@@ -1944,7 +2017,7 @@ export function createChatRenderingController({
     // otherwise a subagent refresh that calls applyMessageSnapshot collapses a
     // panel the user explicitly expanded.
     const savedLiveStackOpen = el.querySelector("[data-live-tool-output-stack] details.tool-activity-group")?.open ?? null;
-    el.innerHTML = `${olderMessagesControl}${messagesHTML}${liveImageGenerationCards}${planCards}${tailLiveToolCards}${tailRunSummaryCard}${liveAssistantCard}${approvalCards}`;
+    el.innerHTML = `${olderMessagesControl}${messagesHTML}${liveImageGenerationCards}${planCards}${tailLiveToolCards}${tailRunSummaryCard}${liveAssistantCard}${approvalCards}<div data-transcript-tail-spacer aria-hidden="true"></div>`;
     if (savedLiveStackOpen !== null) {
       const restoredDetails = el.querySelector("[data-live-tool-output-stack] details.tool-activity-group");
       if (restoredDetails && restoredDetails.open !== savedLiveStackOpen) restoredDetails.open = savedLiveStackOpen;
@@ -1968,6 +2041,7 @@ export function createChatRenderingController({
     bindPlanButtons(el);
     bindApprovalButtons(el);
     bindCopyCodeButtons(el);
+    syncTranscriptTailSpacer(el);
     // forceRender means a fresh conversation was just opened — always scroll to
     // the tail so the user lands at the latest message, not the top of history.
     if (!options.preserveScroll && (wasFollowing || options.forceRender)) {
@@ -1979,9 +2053,9 @@ export function createChatRenderingController({
         // how switching conversation left the reader in the middle of the
         // history instead of at the newest message. Re-anchor across those
         // layout passes rather than betting on the first one.
-        scrollMessagesToBottom();
+        scrollMessagesToBottom({ anchor: false });
       } else {
-        el.scrollTop = el.scrollHeight;
+        el.scrollTop = tailAnchorScrollTop(el);
       }
     }
     return true;
@@ -2496,7 +2570,7 @@ export function createChatRenderingController({
         else el.insertAdjacentHTML("beforeend", html);
       }
     }
-    if (wasFollowing) el.scrollTop = el.scrollHeight;
+    if (wasFollowing) el.scrollTop = tailAnchorScrollTop(el);
     bindToolActivityControls(el);
     if (!html) return;
     bindRunSummaryButtons(el);
@@ -2602,7 +2676,7 @@ export function createChatRenderingController({
     // out of view and the next render yanks it back.
     const wasFollowing = isNearBottom(el);
     syncMessageToolActivityStacks(el);
-    if (wasFollowing && el) el.scrollTop = el.scrollHeight;
+    if (wasFollowing && el) el.scrollTop = tailAnchorScrollTop(el);
     return loaded;
   }
 
@@ -3278,7 +3352,8 @@ export function createChatRenderingController({
     }
     // Dropping the live stack (run finished, history took over) shortens the
     // transcript too, so the tail has to be re-anchored on the removal path.
-    if (wasFollowing) el.scrollTop = el.scrollHeight;
+    syncTranscriptTailSpacer(el);
+    if (wasFollowing) el.scrollTop = tailAnchorScrollTop(el);
     bindToolActivityControls(el);
   }
 
@@ -3453,7 +3528,8 @@ export function createChatRenderingController({
     }
     // Re-anchor even when the stack was just removed, otherwise resolving an
     // approval scrolls the thread backwards on every single prompt.
-    if (wasFollowing) el.scrollTop = el.scrollHeight;
+    syncTranscriptTailSpacer(el);
+    if (wasFollowing) el.scrollTop = tailAnchorScrollTop(el);
     if (!html) return;
     bindApprovalButtons(el);
   }
