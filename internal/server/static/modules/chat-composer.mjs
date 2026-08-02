@@ -269,7 +269,6 @@ export function createChatComposerController({
   request = api,
   scheduleMessageRefresh,
   scrollMessagesToBottom = () => {},
-  withMessagesTailAnchored = (mutate) => mutate(),
   showModelSetupNotice,
   showToast,
   onMessageAccepted,
@@ -1238,17 +1237,17 @@ export function createChatComposerController({
       : `${formatNumber(length, locale)} / ${formatNumber(maxChatDraftCharacters, locale)} 个字符`;
   }
 
+  // Typing deliberately does not move the transcript. An earlier version kept
+  // the tail pinned across the composer's growth, which meant every new line of
+  // a draft scrolled the conversation upward under the reader -- the thing this
+  // was supposed to stop. Growing the composer simply covers a little more of
+  // the transcript; the send itself is what re-anchors, and that is the only
+  // point at which the reader asked for the view to move.
   function autoResizeMessageInput() {
-    // The composer takes its extra height out of the transcript, so a reader
-    // parked on the newest message has to be kept there across the resize --
-    // otherwise every line typed pushes that message further under the
-    // composer, and collapsing the textarea on send drops it back with a jolt.
-    return withMessagesTailAnchored(() => {
-      const size = resizeMessageInputElement($("messageText"));
-      updatePromptHistoryHint();
-      updateDraftLimitHint();
-      return size;
-    });
+    const size = resizeMessageInputElement($("messageText"));
+    updatePromptHistoryHint();
+    updateDraftLimitHint();
+    return size;
   }
 
   function scheduleMessageInputResize() {

@@ -1378,17 +1378,6 @@ export function createChatRenderingController({
     return Math.max(0, Math.min(offset, bottom));
   }
 
-  // Anything that resizes the composer resizes the transcript's viewport
-  // without touching its scroll offset, so a reader sitting on the newest
-  // message drifts off it by exactly the height the composer gained -- the
-  // message they are looking at slides under the composer. Growing a draft to
-  // four lines was enough to push the tail 59px out of view, and the snap back
-  // when the textarea collapsed on send read as the whole conversation jumping.
-  //
-  // The anchor has to be sampled before the layout change: afterwards the drift
-  // is already part of the measurement, and a tall enough draft pushes it past
-  // the near-bottom threshold, at which point the tail can no longer be
-  // recovered. A reader who had scrolled up is left where they were.
   // Keeps the message you just sent at the top of the viewport while the answer
   // streams in underneath, instead of letting the transcript's bottom anchor
   // push it off the screen -- measured at 342px above the fold for a single
@@ -1431,13 +1420,6 @@ export function createChatRenderingController({
     return height;
   }
 
-  function withMessagesTailAnchored(mutate) {
-    const el = $("messages");
-    const following = isNearBottom(el);
-    const result = mutate();
-    if (following && el) el.scrollTop = tailAnchorScrollTop(el);
-    return result;
-  }
 
   // Sending on mobile often changes two things in separate browser frames: the
   // textarea collapses and the on-screen keyboard starts closing. A single
@@ -4348,6 +4330,5 @@ export function createChatRenderingController({
     updateConversationCopyButton,
     updateLiveAssistantPerformance,
     scrollMessagesToBottom,
-    withMessagesTailAnchored,
   };
 }
