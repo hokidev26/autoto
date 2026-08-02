@@ -1348,8 +1348,38 @@ export function createChatRenderingController({
     return el.scrollHeight - el.scrollTop - el.clientHeight <= NEAR_BOTTOM_PX;
   }
 
+  // Whether the reader is following the newest content. This is deliberately a
+  // remembered intent rather than something re-derived from the geometry after
+  // each render.
+  //
+  // Deriving it after the fact is what made the transcript stop mid-answer: the
+  // live card appends its text and *then* asks isNearBottom, by which point a
+  // chunk larger than NEAR_BOTTOM_PX has already pushed the view off the
+  // bottom. One 228px arrival was enough. The answer was then judged
+  // "not following" for every render that followed, so the view froze while the
+  // reply kept growing beneath it -- landing the reader partway up a long
+  // answer with no way back except scrolling.
+  //
+  // Only the reader's own scrolling changes it. Programmatic scrolls land at
+  // the bottom and so re-affirm it, which is harmless; the one path that
+  // restores a saved offset runs solely when following is already off.
+  let followingTail = true;
+  let followTracked = null;
+
+  function trackTranscriptFollow(el) {
+    const target = el || $("messages");
+    if (!target || followTracked === target || !target.addEventListener) return;
+    followTracked = target;
+    target.addEventListener("scroll", () => { followingTail = isNearBottom(target); }, { passive: true });
+  }
+
+  function setFollowingTail(value) {
+    followingTail = Boolean(value);
+  }
+
   function scrollToBottomIfFollowing(el) {
-    if (isNearBottom(el)) el.scrollTop = el.scrollHeight;
+    trackTranscriptFollow(el);
+    if (followingTail && el) el.scrollTop = el.scrollHeight;
   }
 
   // Sending on mobile often changes two things in separate browser frames: the
@@ -1361,6 +1391,10 @@ export function createChatRenderingController({
   function scrollMessagesToBottom() {
     const el = $("messages");
     if (!el) return false;
+    // An explicit jump to the newest content also restores following: the
+    // reader asked to be at the end, so the next reply should keep them there.
+    trackTranscriptFollow(el);
+    setFollowingTail(true);
     const scroll = () => {
       // The last of these runs 320ms out, so it can outlive the document that
       // scheduled it. Re-reading the node each time is deliberate -- a render
@@ -1918,7 +1952,7 @@ export function createChatRenderingController({
     // Save scroll position before rewriting innerHTML — the browser resets
     // scrollTop to 0 on assignment, so we must decide "was the user following
     // the tail?" before the reset happens, then restore or scroll after.
-    const wasFollowing = isNearBottom(el);
+    const wasFollowing = (trackTranscriptFollow(el), followingTail);
     // Preserve the user's manual open/collapsed state for the live tool
     // activity group across the full innerHTML replacement. renderLiveToolOutputCards
     // already does this on incremental updates; applyMessageSnapshot must too,
@@ -2460,7 +2494,7 @@ export function createChatRenderingController({
     // Keep the current review card stable while a refresh is in flight. Rendering
     // the transient loading status here makes context switches visibly flash.
     if (state.runSummaryLoading) return;
-    const wasFollowing = isNearBottom(el);
+    const wasFollowing = (trackTranscriptFollow(el), followingTail);
     const owned = syncMessageToolActivityStacks(el);
     const existing = el.querySelector("[data-run-summary-card], [data-run-outcome-card]");
     const html = renderRunSummaryCardHTML(owned);
@@ -2581,7 +2615,7 @@ export function createChatRenderingController({
     // Inserting a strip above the tail grows the transcript under the reader.
     // Follow the same rule every other paint uses, or the newest message slides
     // out of view and the next render yanks it back.
-    const wasFollowing = isNearBottom(el);
+    const wasFollowing = (trackTranscriptFollow(el), followingTail);
     syncMessageToolActivityStacks(el);
     if (wasFollowing && el) el.scrollTop = el.scrollHeight;
     return loaded;
@@ -3219,7 +3253,7 @@ export function createChatRenderingController({
     if (state.chatHydrating) return;
     const el = $("messages");
     if (!el) return;
-    const wasFollowing = isNearBottom(el);
+    const wasFollowing = (trackTranscriptFollow(el), followingTail);
     // Ownership can change on any tool event: the call's assistant turn may have
     // just been persisted, which moves it out of the tail stack and under that
     // turn. Sync first so the tail markup below is computed against the result.
@@ -3419,7 +3453,7 @@ export function createChatRenderingController({
     // "Was the user following the tail?" has to be answered before the DOM
     // changes: approving removes the card, the transcript gets shorter, and a
     // stale scrollTop then lands the viewport back on the tool activity above.
-    const wasFollowing = isNearBottom(el);
+    const wasFollowing = (trackTranscriptFollow(el), followingTail);
     const html = renderApprovalCardsHTML();
     if (existing) {
       if (html) existing.outerHTML = html;
