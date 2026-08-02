@@ -269,6 +269,7 @@ export function createChatComposerController({
   request = api,
   scheduleMessageRefresh,
   scrollMessagesToBottom = () => {},
+  withMessagesTailAnchored = (mutate) => mutate(),
   showModelSetupNotice,
   showToast,
   onMessageAccepted,
@@ -1238,10 +1239,16 @@ export function createChatComposerController({
   }
 
   function autoResizeMessageInput() {
-    const size = resizeMessageInputElement($("messageText"));
-    updatePromptHistoryHint();
-    updateDraftLimitHint();
-    return size;
+    // The composer takes its extra height out of the transcript, so a reader
+    // parked on the newest message has to be kept there across the resize --
+    // otherwise every line typed pushes that message further under the
+    // composer, and collapsing the textarea on send drops it back with a jolt.
+    return withMessagesTailAnchored(() => {
+      const size = resizeMessageInputElement($("messageText"));
+      updatePromptHistoryHint();
+      updateDraftLimitHint();
+      return size;
+    });
   }
 
   function scheduleMessageInputResize() {

@@ -1352,6 +1352,25 @@ export function createChatRenderingController({
     if (isNearBottom(el)) el.scrollTop = el.scrollHeight;
   }
 
+  // Anything that resizes the composer resizes the transcript's viewport
+  // without touching its scroll offset, so a reader sitting on the newest
+  // message drifts off it by exactly the height the composer gained -- the
+  // message they are looking at slides under the composer. Growing a draft to
+  // four lines was enough to push the tail 59px out of view, and the snap back
+  // when the textarea collapsed on send read as the whole conversation jumping.
+  //
+  // The anchor has to be sampled before the layout change: afterwards the drift
+  // is already part of the measurement, and a tall enough draft pushes it past
+  // the near-bottom threshold, at which point the tail can no longer be
+  // recovered. A reader who had scrolled up is left where they were.
+  function withMessagesTailAnchored(mutate) {
+    const el = $("messages");
+    const following = isNearBottom(el);
+    const result = mutate();
+    if (following && el) el.scrollTop = el.scrollHeight;
+    return result;
+  }
+
   // Sending on mobile often changes two things in separate browser frames: the
   // textarea collapses and the on-screen keyboard starts closing. A single
   // synchronous scroll therefore gets overwritten by the viewport resize. Keep
@@ -4253,5 +4272,6 @@ export function createChatRenderingController({
     updateConversationCopyButton,
     updateLiveAssistantPerformance,
     scrollMessagesToBottom,
+    withMessagesTailAnchored,
   };
 }

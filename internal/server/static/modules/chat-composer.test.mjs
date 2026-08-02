@@ -1536,3 +1536,66 @@ test("a restored queue is re-typed and bounded before anything reads it", () => 
   const flood = Array.from({ length: 40 }, (unused, index) => ({ id: `q${index}`, agentId: "agent-1", text: `m${index}` }));
   assert.equal(normalizeMessageQueue(flood).length, maxQueuedMessages);
 });
+
+test("growing the composer keeps a reader pinned to the newest message", () => {
+  // The composer takes its height out of the transcript's viewport without
+  // changing its scroll offset, so typing a multi-line draft used to slide the
+  // newest message under the composer -- measured at 59px for four lines -- and
+  // collapsing the textarea on send dropped it back with a jolt.
+  const transcript = { scrollTop: 200, scrollHeight: 800, clientHeight: 600 };
+  const input = {
+    value: "one\ntwo\nthree\nfour",
+    style: {},
+    scrollHeight: 95,
+    classList: { toggle() {} },
+    focus() {},
+  };
+  const elements = { messageText: input, messages: transcript };
+  const previousDocument = globalThis.document;
+  globalThis.document = { getElementById: (id) => elements[id] || null };
+  try {
+    let anchored = false;
+    const controller = createChatComposerController({
+      state: {
+        agent: { id: "agent-1", status: "idle" },
+        navigationSelectionKind: "conversation",
+        pendingToolApprovals: {},
+        liveToolOutputs: {},
+        pendingAttachments: [],
+        chatDrafts: {},
+        promptHistory: [],
+        messageQueue: [],
+      },
+      isCurrentModelConfigured: () => true,
+      loadMessages: async () => {},
+      scheduleMessageRefresh() {},
+      notifyTerminal() {},
+      showToast() {},
+      // Stand in for the renderer: sample the tail before the resize, restore
+      // it after, exactly as chat-rendering does.
+      withMessagesTailAnchored: (mutate) => {
+        const following = transcript.scrollHeight - transcript.scrollTop - transcript.clientHeight <= 120;
+        const result = mutate();
+        if (following) {
+          transcript.scrollTop = transcript.scrollHeight;
+          anchored = true;
+        }
+        return result;
+      },
+      request: async () => ({}),
+    });
+
+    // The composer eats 59px of the viewport while the draft is being typed.
+    transcript.clientHeight = 541;
+    controller.autoResizeMessageInput();
+
+    assert.equal(anchored, true, "the resize must run inside the tail anchor");
+    assert.equal(
+      transcript.scrollHeight - transcript.scrollTop - transcript.clientHeight <= 0,
+      true,
+      "the newest message must still be in view after the composer grows",
+    );
+  } finally {
+    globalThis.document = previousDocument;
+  }
+});
