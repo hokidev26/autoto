@@ -3670,6 +3670,14 @@ async function handleAgentStreamEvent(event) {
     clearLiveToolOutputs({ agentId, preserveView: true });
     syncMessageComposerBusy();
     refreshComposerActivityStatus();
+    // The context readout and its panel are fed by context.updated, and every
+    // place that publishes it does so only when the context was compacted or
+    // explicitly managed -- never for an ordinary turn. So the numbers stayed
+    // frozen at whatever they were when the conversation was opened, and only a
+    // reload appeared to fix them. A finished turn is exactly when the token
+    // count has changed, so re-read it here. Guarded on the agent still being
+    // the open one so a background conversation cannot overwrite the panel.
+    if (state.agent?.id === agentId) contextManagement.load().catch(() => {});
   }
   if ([...completedMessageEvents, ...terminalAgentEvents].includes(event.type)) scheduleMessageRefresh(80, agentId);
   if (navigationRefreshEvents.includes(event.type)) navigationRefresh.request(event.type);
