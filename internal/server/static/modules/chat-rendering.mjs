@@ -1406,6 +1406,14 @@ export function createChatRenderingController({
     // restored afterwards because shrinking the content clamps it.
     const savedScrollTop = target.scrollTop;
     spacer.style.height = "0px";
+    // The gap only describes the transcript if it is the last thing in it, and
+    // six render paths append with insertAdjacentHTML("beforeend"), which puts
+    // the live answer, tool cards and approvals *after* it. Everything past the
+    // gap then went uncounted, the gap was sized as though the reply were still
+    // empty, and the view lurched back down the moment the agent started
+    // answering. Re-seating it here fixes all of those call sites at once, and
+    // any future one, instead of depending on each to remember.
+    if (target.lastElementChild !== spacer) target.appendChild?.(spacer);
     // Measured against the collapsed spacer's own position rather than
     // scrollHeight: a transcript shorter than its viewport reports
     // scrollHeight === clientHeight, which overstates what sits below the
