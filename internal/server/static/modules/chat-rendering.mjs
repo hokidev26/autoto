@@ -1400,6 +1400,10 @@ export function createChatRenderingController({
       // scheduled it. Re-reading the node each time is deliberate -- a render
       // in between replaces it -- but the lookup itself has to be safe.
       if (!globalThis.document) return;
+      // A reader who scrolls away during the settle has overruled it. Without
+      // this the queued passes would drag them back to the end up to 320ms
+      // after they moved.
+      if (!followingTail) return;
       const current = $("messages");
       if (current) current.scrollTop = current.scrollHeight;
     };
@@ -1986,18 +1990,18 @@ export function createChatRenderingController({
     // forceRender means a fresh conversation was just opened — always scroll to
     // the tail so the user lands at the latest message, not the top of history.
     if (!options.preserveScroll && (wasFollowing || options.forceRender)) {
-      if (options.forceRender) {
-        // One synchronous assignment only anchors the tail if the transcript is
-        // finished growing, and on a freshly opened conversation it is not:
-        // activity stacks, code blocks and images all settle over the next few
-        // frames, and every pixel they add lands below the viewport. That is
-        // how switching conversation left the reader in the middle of the
-        // history instead of at the newest message. Re-anchor across those
-        // layout passes rather than betting on the first one.
-        scrollMessagesToBottom();
-      } else {
-        el.scrollTop = el.scrollHeight;
-      }
+      // One synchronous assignment only reaches the tail if the transcript has
+      // finished growing, and after a full rebuild it has not: activity stacks,
+      // code blocks and images settle over the next few frames, and every pixel
+      // they add lands below the viewport.
+      //
+      // This applies to the rebuild at the end of a turn just as much as to
+      // opening a conversation. The live card is swapped for the persisted
+      // message, the single scroll lands against the pre-layout height, and the
+      // content then grows past it -- leaving the reader above the end, looking
+      // at an earlier part of the conversation. Settle across those passes in
+      // both cases; the deferred passes stop early if the reader scrolls away.
+      scrollMessagesToBottom();
     }
     return true;
   }
