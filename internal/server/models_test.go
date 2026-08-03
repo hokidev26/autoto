@@ -502,6 +502,36 @@ func TestModelsRouteExposesXHighForCodexCapability(t *testing.T) {
 	}
 }
 
+func TestModelsRouteKeepsModelOnlyReasoningCapabilities(t *testing.T) {
+	registry := providers.NewRegistry()
+	registry.Register(fakeModelProvider{
+		name:   "codex",
+		models: []string{"gpt-5.6-sol"},
+		modelCapabilities: map[string]providers.ModelCapabilities{
+			"gpt-5.6-sol": {ReasoningEfforts: []string{"low", "medium", "high", "xhigh", "max"}},
+		},
+		capabilities: providers.Capabilities{
+			ReasoningEfforts: []string{"low", "medium", "high", "xhigh"},
+		},
+	})
+	app := New(config.Config{Providers: config.ProvidersConfig{Instances: []config.ProviderConfig{{
+		Name: "codex", Type: config.ProviderTypeCodex, Model: "gpt-5.6-sol",
+	}}}}, nil, nil, nil, registry)
+
+	recorder := httptest.NewRecorder()
+	app.Routes().ServeHTTP(recorder, newTestRequest(http.MethodGet, "/api/models", nil))
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", recorder.Code, recorder.Body.String())
+	}
+	var body modelsResponse
+	if err := json.NewDecoder(recorder.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	if efforts := strings.Join(body.Providers[0].ModelCapabilities["gpt-5.6-sol"].ReasoningEfforts, ","); efforts != "low,medium,high,xhigh,max" {
+		t.Fatalf("model-only reasoning capabilities were dropped: %q (%+v)", efforts, body.Providers[0].ModelCapabilities)
+	}
+}
+
 func TestModelsRouteFallsBackWhenProviderModelListFails(t *testing.T) {
 	registry := providers.NewRegistry()
 	registry.Register(fakeModelProvider{

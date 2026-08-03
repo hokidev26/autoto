@@ -167,6 +167,35 @@ func TestParseCodexModelCatalogMarksFastModeKnownOnlyForExplicitFields(t *testin
 	}
 }
 
+func TestSupplementCodexModelCapabilitiesFillsKnownMaxOnlyWhenCatalogOmitsIt(t *testing.T) {
+	capabilities := map[string]ModelCapabilities{
+		"gpt-5.6-sol": {FastMode: true, FastModeKnown: true},
+		"gpt-5.5":     {},
+	}
+	models := []string{"gpt-5.6-sol", "gpt-5.5", "unknown-model"}
+	got := supplementCodexModelCapabilities(capabilities, models, codexauth.DefaultBaseURL)
+	if efforts := strings.Join(got["gpt-5.6-sol"].ReasoningEfforts, ","); efforts != "low,medium,high,xhigh,max" {
+		t.Fatalf("known official model did not receive max fallback: %q", efforts)
+	}
+	if len(got["gpt-5.5"].ReasoningEfforts) != 0 || len(got["unknown-model"].ReasoningEfforts) != 0 {
+		t.Fatalf("fallback guessed unsupported model levels: %+v", got)
+	}
+
+	explicit := map[string]ModelCapabilities{
+		"gpt-5.6-sol": {ReasoningEfforts: []string{"low", "medium", "high", "xhigh"}},
+	}
+	supplementCodexModelCapabilities(explicit, []string{"gpt-5.6-sol"}, codexauth.DefaultBaseURL)
+	if efforts := strings.Join(explicit["gpt-5.6-sol"].ReasoningEfforts, ","); efforts != "low,medium,high,xhigh" {
+		t.Fatalf("explicit catalog levels were overwritten: %q", efforts)
+	}
+
+	custom := map[string]ModelCapabilities{}
+	supplementCodexModelCapabilities(custom, []string{"gpt-5.6-sol"}, "https://codex.example.invalid")
+	if len(custom) != 0 {
+		t.Fatalf("custom Codex endpoint inherited official fallback: %+v", custom)
+	}
+}
+
 func TestCodexProviderListsModelsAndStreamsDirectly(t *testing.T) {
 	var responseRequests int
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

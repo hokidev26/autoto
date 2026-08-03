@@ -46,6 +46,15 @@ const (
 	codexCatalogClientVersion = "1.0.0"
 )
 
+// codexKnownOfficialModelReasoningEfforts covers a known omission in the
+// canonical Codex model catalog: gpt-5.6-sol can support max even when its
+// catalog entry does not include supported_reasoning_levels. This is deliberately
+// an exact model allow-list, not a model-name heuristic, and is only applied to
+// the official ChatGPT Codex endpoint when the catalog has no explicit levels.
+var codexKnownOfficialModelReasoningEfforts = map[string][]string{
+	"gpt-5.6-sol": {"low", "medium", "high", "xhigh", "max"},
+}
+
 type CodexProvider struct {
 	cfg                 config.ProviderConfig
 	store               *codexauth.Store
@@ -255,9 +264,11 @@ func (p *CodexProvider) listModelsWithCredentials(ctx context.Context, credentia
 			continue
 		}
 		if len(models) == 0 {
+			fallbackModels := fallbackCodexModels(p.cfg.Model)
 			p.replaceModelCapabilities(fallbackCodexModelCapabilities(p.cfg.BaseURL))
-			return fallbackCodexModels(p.cfg.Model), nil
+			return fallbackModels, nil
 		}
+		modelCapabilities = supplementCodexModelCapabilities(modelCapabilities, models, p.cfg.BaseURL)
 		p.replaceModelCapabilities(modelCapabilities)
 		return models, nil
 	}
@@ -1195,13 +1206,13 @@ type codexModelCatalogEntry struct {
 	// serve is answered with HTTP 400, so this cannot be inferred from the
 	// provider or guessed from the model name.
 	SupportedReasoningLevels []codexReasoningLevel `json:"supported_reasoning_levels"`
-	FastMode              *bool           `json:"fast_mode"`
-	SupportsFastMode      *bool           `json:"supports_fast_mode"`
-	ServiceTier           json.RawMessage `json:"service_tier"`
-	ServiceTiers          json.RawMessage `json:"service_tiers"`
-	SupportedServiceTiers json.RawMessage `json:"supported_service_tiers"`
-	AdditionalSpeedTiers  json.RawMessage `json:"additional_speed_tiers"`
-	SupportedSpeedTiers   json.RawMessage `json:"supported_speed_tiers"`
+	FastMode                 *bool                 `json:"fast_mode"`
+	SupportsFastMode         *bool                 `json:"supports_fast_mode"`
+	ServiceTier              json.RawMessage       `json:"service_tier"`
+	ServiceTiers             json.RawMessage       `json:"service_tiers"`
+	SupportedServiceTiers    json.RawMessage       `json:"supported_service_tiers"`
+	AdditionalSpeedTiers     json.RawMessage       `json:"additional_speed_tiers"`
+	SupportedSpeedTiers      json.RawMessage       `json:"supported_speed_tiers"`
 }
 
 func parseCodexModels(reader io.Reader) ([]string, error) {
@@ -1346,15 +1357,40 @@ func decodeLimitedJSON(reader io.Reader, limit int64, dst any) error {
 	return json.Unmarshal(data, dst)
 }
 
+func supplementCodexModelCapabilities(capabilities map[string]ModelCapabilities, models []string, baseURL string) map[string]ModelCapabilities {
+	if strings.TrimRight(strings.TrimSpace(baseURL), "/") != codexauth.DefaultBaseURL {
+		return capabilities
+	}
+	for _, rawModel := range models {
+		model := strings.TrimSpace(rawModel)
+		knownEfforts, known := codexKnownOfficialModelReasoningEfforts[model]
+		if !known || len(knownEfforts) == 0 {
+			continue
+		}
+		current := capabilities[model]
+		// The authenticated catalog is authoritative. Only fill an omitted list;
+		// never append max to an explicit list that intentionally stops at xhigh.
+		if len(current.ReasoningEfforts) > 0 {
+			continue
+		}
+		current.ReasoningEfforts = append([]string(nil), knownEfforts...)
+		if capabilities == nil {
+			capabilities = make(map[string]ModelCapabilities)
+		}
+		capabilities[model] = current
+	}
+	return capabilities
+}
+
 func fallbackCodexModelCapabilities(baseURL string) map[string]ModelCapabilities {
 	if strings.TrimRight(strings.TrimSpace(baseURL), "/") != codexauth.DefaultBaseURL {
 		return make(map[string]ModelCapabilities)
 	}
-	_, capabilities, err := parseCodexModelCatalog(strings.NewReader(codexFallbackFastModelCatalog))
+	models, capabilities, err := parseCodexModelCatalog(strings.NewReader(codexFallbackFastModelCatalog))
 	if err != nil {
 		return make(map[string]ModelCapabilities)
 	}
-	return capabilities
+	return supplementCodexModelCapabilities(capabilities, models, baseURL)
 }
 
 func fallbackCodexModels(model string) []string {
@@ -1568,4 +1604,3 @@ func safeCodexEventError(code, message, fallback string, credential codexauth.Cr
 	}
 	return boundedCodexError(text)
 }
-

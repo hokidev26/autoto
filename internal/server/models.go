@@ -163,7 +163,7 @@ func attachModelCapabilities(response *modelProviderResponse, provider providers
 		if capabilities.ContextTokenLimit <= 0 {
 			capabilities.ContextTokenLimit = cfg.ModelContextTokenLimit(model)
 		}
-		if capabilities.ContextTokenLimit <= 0 && !capabilities.FastModeKnown && !capabilities.FastMode && !capabilities.ImageGenerationKnown && !capabilities.ImageGeneration {
+		if capabilities.ContextTokenLimit <= 0 && !capabilities.FastModeKnown && !capabilities.FastMode && !capabilities.ImageGenerationKnown && !capabilities.ImageGeneration && len(capabilities.ReasoningEfforts) == 0 {
 			continue
 		}
 		if response.ModelCapabilities == nil {
