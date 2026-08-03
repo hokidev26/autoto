@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"autoto/internal/db"
+	"autoto/internal/tools"
 )
 
 func TestManagerLifecycleWaitOutputAndTerminalHook(t *testing.T) {
@@ -65,6 +66,158 @@ func TestManagerLifecycleWaitOutputAndTerminalHook(t *testing.T) {
 	}
 	if err := manager.Close(ctx); err != nil {
 		t.Fatalf("second close: %v", err)
+	}
+}
+
+func TestManagerRuntimeSettingsExpandConcurrencyWithoutInterruptingTasks(t *testing.T) {
+	ctx := context.Background()
+	store, firstAgent := testStoreAndAgent(t)
+	defer store.Close()
+	secondAgent, err := store.CreateAgent(ctx, db.Agent{
+		WorklineID: firstAgent.WorklineID, Type: "primary", Title: "Second", Model: firstAgent.Model,
+		PermissionMode: "acceptEdits", ExecutionDeviceID: "local", Status: "idle", CWD: firstAgent.CWD,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	manager := NewManager(store, Options{WorkerCount: 1, PerAgentLimit: 1, PollInterval: 5 * time.Millisecond})
+	started := make(chan db.BackgroundTask, 3)
+	release := make(chan struct{}, 3)
+	if err := manager.RegisterExecutor(db.BackgroundTaskKindAgent, ExecutorFunc(func(_ context.Context, task db.BackgroundTask, _ OutputWriter) (Result, error) {
+		started <- task
+		<-release
+		return Result{}, nil
+	})); err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
+	defer manager.Close(context.Background())
+	for _, owner := range []string{firstAgent.ID, firstAgent.ID, secondAgent.ID} {
+		if _, err := manager.Submit(ctx, db.BackgroundTask{OwnerAgentID: owner, Kind: db.BackgroundTaskKindAgent}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	first := <-started
+	if first.OwnerAgentID != firstAgent.ID {
+		t.Fatalf("unexpected first owner: %+v", first)
+	}
+	select {
+	case task := <-started:
+		t.Fatalf("worker limit was not enforced before update: %+v", task)
+	case <-time.After(50 * time.Millisecond):
+	}
+	applied, err := manager.UpdateBackgroundRuntimeSettings(tools.BackgroundRuntimeSettings{WorkerCount: 2, PerAgentLimit: 1, AllowNestedSubagents: true, MaxSubagentDepth: 3})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if applied.WorkerCount != 2 || applied.PerAgentLimit != 1 || !applied.AllowNestedSubagents || applied.MaxSubagentDepth != 3 {
+		t.Fatalf("unexpected applied settings: %+v", applied)
+	}
+	select {
+	case second := <-started:
+		if second.OwnerAgentID != secondAgent.ID {
+			t.Fatalf("per-agent limit did not skip the busy owner: %+v", second)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("increased worker count did not start another owner")
+	}
+	if _, err := manager.UpdateBackgroundRuntimeSettings(tools.BackgroundRuntimeSettings{WorkerCount: 3, PerAgentLimit: 2, MaxSubagentDepth: 2}); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case third := <-started:
+		if third.OwnerAgentID != firstAgent.ID {
+			t.Fatalf("expanded per-agent limit started the wrong task: %+v", third)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("expanded per-agent limit did not release the queued task")
+	}
+	release <- struct{}{}
+	release <- struct{}{}
+	release <- struct{}{}
+	if _, err := manager.UpdateBackgroundRuntimeSettings(tools.BackgroundRuntimeSettings{WorkerCount: 0, PerAgentLimit: 1, MaxSubagentDepth: 2}); err == nil {
+		t.Fatal("invalid worker count was accepted")
+	}
+}
+
+func TestManagerRuntimeSettingsDecreaseQueuesNewWorkWithoutInterruptingRunningTasks(t *testing.T) {
+	ctx := context.Background()
+	store, agent := testStoreAndAgent(t)
+	defer store.Close()
+	manager := NewManager(store, Options{WorkerCount: 3, PerAgentLimit: 3, PollInterval: 5 * time.Millisecond})
+	started := make(chan string, 4)
+	release := make(chan struct{}, 4)
+	interrupted := make(chan string, 4)
+	if err := manager.RegisterExecutor(db.BackgroundTaskKindAgent, ExecutorFunc(func(ctx context.Context, task db.BackgroundTask, _ OutputWriter) (Result, error) {
+		started <- task.ID
+		select {
+		case <-release:
+			return Result{}, nil
+		case <-ctx.Done():
+			interrupted <- task.ID
+			return Result{}, ctx.Err()
+		}
+	})); err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
+	defer manager.Close(context.Background())
+
+	tasks := make([]db.BackgroundTask, 0, 4)
+	for range 4 {
+		task, err := manager.Submit(ctx, db.BackgroundTask{OwnerAgentID: agent.ID, Kind: db.BackgroundTaskKindAgent})
+		if err != nil {
+			t.Fatal(err)
+		}
+		tasks = append(tasks, task)
+	}
+	for range 3 {
+		select {
+		case <-started:
+		case <-time.After(2 * time.Second):
+			t.Fatal("initial workers did not start")
+		}
+	}
+	if _, err := manager.UpdateBackgroundRuntimeSettings(tools.BackgroundRuntimeSettings{WorkerCount: 1, PerAgentLimit: 1, MaxSubagentDepth: 2}); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case id := <-interrupted:
+		t.Fatalf("lowering limits interrupted running task %s", id)
+	case id := <-started:
+		t.Fatalf("queued task %s started above lowered limits", id)
+	case <-time.After(75 * time.Millisecond):
+	}
+
+	for remaining := 2; remaining >= 0; remaining-- {
+		release <- struct{}{}
+		if remaining > 0 {
+			select {
+			case id := <-started:
+				t.Fatalf("queued task %s started while %d task(s) still occupied the lowered limit", id, remaining)
+			case id := <-interrupted:
+				t.Fatalf("running task %s was interrupted after lowering limits", id)
+			case <-time.After(75 * time.Millisecond):
+			}
+		}
+	}
+	select {
+	case <-started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("queued task did not start after running count fell below the lowered limit")
+	}
+	release <- struct{}{}
+	for _, task := range tasks {
+		waitCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+		completed, err := manager.Wait(waitCtx, task.ID)
+		cancel()
+		if err != nil || completed.Status != db.BackgroundTaskStatusSucceeded {
+			t.Fatalf("task %s did not complete successfully: status=%s err=%v", task.ID, completed.Status, err)
+		}
 	}
 }
 

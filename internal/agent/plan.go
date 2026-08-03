@@ -69,6 +69,32 @@ func (r *Runner) currentPlanSnapshot(ctx context.Context, agentID string) (db.Pl
 	return snapshot, true, err
 }
 
+// SetBackgroundTaskSnapshotProvider installs the non-Git runtime snapshot used
+// to revalidate durable background tasks whose tool catalog is frozen without a
+// plan workspace fingerprint. Plan snapshots remain independently Git-strict.
+func (r *Runner) SetBackgroundTaskSnapshotProvider(provider func(context.Context, string) (db.PlanSnapshot, error)) {
+	if r == nil {
+		return
+	}
+	r.planMu.Lock()
+	r.backgroundSnapshotProvider = provider
+	r.planMu.Unlock()
+}
+
+func (r *Runner) currentBackgroundTaskSnapshot(ctx context.Context, agentID string) (db.PlanSnapshot, bool, error) {
+	if r == nil {
+		return db.PlanSnapshot{}, false, nil
+	}
+	r.planMu.RLock()
+	provider := r.backgroundSnapshotProvider
+	r.planMu.RUnlock()
+	if provider == nil {
+		return db.PlanSnapshot{}, false, nil
+	}
+	snapshot, err := provider(ctx, agentID)
+	return snapshot, true, err
+}
+
 func (r *Runner) bindPlanRunSnapshot(ctx context.Context, run db.Run) (db.Run, error) {
 	if run.ExecutionMode != db.RunExecutionModePlan || strings.TrimSpace(run.PlanID) != "" {
 		return run, nil

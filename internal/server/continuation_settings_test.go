@@ -16,6 +16,78 @@ import (
 	"autoto/internal/tools"
 )
 
+type fakeBackgroundRuntimeController struct {
+	settings tools.BackgroundRuntimeSettings
+	err      error
+}
+
+func (fake *fakeBackgroundRuntimeController) BackgroundRuntimeSettings() tools.BackgroundRuntimeSettings {
+	return fake.settings
+}
+
+func (fake *fakeBackgroundRuntimeController) UpdateBackgroundRuntimeSettings(settings tools.BackgroundRuntimeSettings) (tools.BackgroundRuntimeSettings, error) {
+	if fake.err != nil {
+		return tools.BackgroundRuntimeSettings{}, fake.err
+	}
+	fake.settings = settings
+	return settings, nil
+}
+
+func TestBackgroundRuntimeSettingsEndpointPersistsAndApplies(t *testing.T) {
+	ctx := context.Background()
+	store, err := db.Open(ctx, filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	cfg, err := config.Default()
+	if err != nil {
+		t.Fatal(err)
+	}
+	configPath := filepath.Join(t.TempDir(), "config.json")
+	if err := config.Save(configPath, cfg); err != nil {
+		t.Fatal(err)
+	}
+	controller := &fakeBackgroundRuntimeController{settings: tools.BackgroundRuntimeSettings{WorkerCount: 8, PerAgentLimit: 4, MaxSubagentDepth: 2}}
+	app := New(cfg, store, nil, nil)
+	app.SetConfigPath(configPath)
+	app.SetBackgroundRuntimeController(controller)
+	body := []byte(`{"workerCount":12,"perAgentLimit":6,"allowNestedSubagents":true,"maxSubagentDepth":3}`)
+	request := newTestRequest(http.MethodPatch, "/api/runtime/background-task-settings", bytes.NewReader(body))
+	request.Host, request.RemoteAddr = "localhost:7788", "127.0.0.1:1234"
+	request.Header.Set(localTokenHeader, app.localToken)
+	response := httptest.NewRecorder()
+	app.Routes().ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", response.Code, response.Body.String())
+	}
+	if controller.settings.WorkerCount != 12 || controller.settings.PerAgentLimit != 6 || !controller.settings.AllowNestedSubagents || controller.settings.MaxSubagentDepth != 3 {
+		t.Fatalf("runtime settings were not applied: %+v", controller.settings)
+	}
+	persisted, _, err := config.LoadWithReport(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if persisted.Background.WorkerCount != 12 || persisted.Background.PerAgentLimit != 6 || !persisted.Background.AllowNestedSubagents || persisted.Background.MaxSubagentDepth != 3 {
+		t.Fatalf("background settings were not persisted: %+v", persisted.Background)
+	}
+
+	invalid := newTestRequest(http.MethodPatch, "/api/runtime/background-task-settings", bytes.NewReader([]byte(`{"workerCount":17,"perAgentLimit":4,"allowNestedSubagents":false,"maxSubagentDepth":2}`)))
+	invalid.Host, invalid.RemoteAddr = "localhost:7788", "127.0.0.1:1234"
+	invalid.Header.Set(localTokenHeader, app.localToken)
+	invalidResponse := httptest.NewRecorder()
+	app.Routes().ServeHTTP(invalidResponse, invalid)
+	if invalidResponse.Code != http.StatusBadRequest {
+		t.Fatalf("expected strict validation failure, got %d: %s", invalidResponse.Code, invalidResponse.Body.String())
+	}
+
+	unauthorized := httptest.NewRecorder()
+	app.Routes().ServeHTTP(unauthorized, newTestRequest(http.MethodPatch, "/api/runtime/background-task-settings", bytes.NewReader(body)))
+	if unauthorized.Code != http.StatusUnauthorized {
+		t.Fatalf("expected local token requirement, got %d: %s", unauthorized.Code, unauthorized.Body.String())
+	}
+}
+
 func TestContinuationSettingsEndpointPersistsBeforeApplying(t *testing.T) {
 	ctx := context.Background()
 	store, err := db.Open(ctx, filepath.Join(t.TempDir(), "test.db"))

@@ -31,6 +31,9 @@ func TestDefaultConfig(t *testing.T) {
 	if cfg.Gateway.Enabled || cfg.Gateway.AllowRemote || cfg.Gateway.Host != "127.0.0.1" || cfg.Gateway.Port != 8788 || cfg.Gateway.MaxGlobalConcurrency != 16 || cfg.Gateway.MaxRequestBytes != 8<<20 {
 		t.Fatalf("unexpected gateway defaults: %+v", cfg.Gateway)
 	}
+	if cfg.Background.WorkerCount != 8 || cfg.Background.PerAgentLimit != 4 || cfg.Background.AllowNestedSubagents || cfg.Background.MaxSubagentDepth != 2 {
+		t.Fatalf("unexpected background defaults: %+v", cfg.Background)
+	}
 	if filepath.Base(cfg.Paths.HomeDir) != ".autoto" || filepath.Base(cfg.Paths.DatabasePath) != "autoto.db" {
 		t.Fatalf("expected Autoto default paths, got %+v", cfg.Paths)
 	}
@@ -519,6 +522,20 @@ func TestLoadMigratesV1GatewayToSafeBinding(t *testing.T) {
 	}
 	if saved.SchemaVersion != CurrentConfigVersion || !saved.Gateway.AllowRemote || saved.Gateway.Host != "127.0.0.1" {
 		t.Fatalf("unsafe gateway was not normalized on save: %s", persisted)
+	}
+}
+
+func TestNormalizeBackgroundConfigBounds(t *testing.T) {
+	defaults := normalizeBackgroundConfig(BackgroundConfig{})
+	if defaults.WorkerCount != 8 || defaults.PerAgentLimit != 4 || defaults.AllowNestedSubagents || defaults.MaxSubagentDepth != 2 {
+		t.Fatalf("unexpected normalized background defaults: %+v", defaults)
+	}
+	bounded := normalizeBackgroundConfig(BackgroundConfig{WorkerCount: 99, PerAgentLimit: 99, AllowNestedSubagents: true, MaxSubagentDepth: 99})
+	if bounded.WorkerCount != 16 || bounded.PerAgentLimit != 8 || !bounded.AllowNestedSubagents || bounded.MaxSubagentDepth != 4 {
+		t.Fatalf("unexpected normalized background bounds: %+v", bounded)
+	}
+	if err := (BackgroundConfig{WorkerCount: 0, PerAgentLimit: 4, MaxSubagentDepth: 2}).Validate(); err == nil {
+		t.Fatal("expected invalid worker count to be rejected")
 	}
 }
 

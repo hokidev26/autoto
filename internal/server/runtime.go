@@ -13,17 +13,18 @@ import (
 )
 
 type runtimeSummaryResponse struct {
-	GeneratedAt string                 `json:"generatedAt"`
-	Version     string                 `json:"version"`
-	Server      runtimeServerSummary   `json:"server"`
-	Process     runtimeProcessSummary  `json:"process"`
-	Go          runtimeGoSummary       `json:"go"`
-	Memory      runtimeMemorySummary   `json:"memory"`
-	Paths       []runtimePathSummary   `json:"paths"`
-	Agent       runtimeAgentSummary    `json:"agent"`
-	Security    runtimeSecuritySummary `json:"security"`
-	Providers   runtimeProviderStats   `json:"providers"`
-	Backends    runtimeBackendStats    `json:"backends"`
+	GeneratedAt string                   `json:"generatedAt"`
+	Version     string                   `json:"version"`
+	Server      runtimeServerSummary     `json:"server"`
+	Process     runtimeProcessSummary    `json:"process"`
+	Go          runtimeGoSummary         `json:"go"`
+	Memory      runtimeMemorySummary     `json:"memory"`
+	Paths       []runtimePathSummary     `json:"paths"`
+	Agent       runtimeAgentSummary      `json:"agent"`
+	Background  runtimeBackgroundSummary `json:"backgroundTasks"`
+	Security    runtimeSecuritySummary   `json:"security"`
+	Providers   runtimeProviderStats     `json:"providers"`
+	Backends    runtimeBackendStats      `json:"backends"`
 }
 
 type runtimeServerSummary struct {
@@ -87,6 +88,13 @@ type runtimeContinuationSettings struct {
 	MaxTotalTurns    int    `json:"maxTotalTurns"`
 	MaxRunDurationMs int64  `json:"maxRunDurationMs"`
 	MaxRunTokens     int64  `json:"maxRunTokens"`
+}
+
+type runtimeBackgroundSummary struct {
+	WorkerCount          int  `json:"workerCount"`
+	PerAgentLimit        int  `json:"perAgentLimit"`
+	AllowNestedSubagents bool `json:"allowNestedSubagents"`
+	MaxSubagentDepth     int  `json:"maxSubagentDepth"`
 }
 
 type runtimeProviderStats struct {
@@ -213,6 +221,12 @@ func buildRuntimeSummary(cfg config.Config, configPath string, startedAt time.Ti
 			FirstTokenTimeoutMs:    cfg.Agent.FirstTokenTimeoutMs,
 			MaxTransientRetries:    cfg.Agent.MaxTransientRetries,
 			Continuation:           runtimeContinuationSettings{Mode: cfg.Agent.AutoContinuationMode, SegmentTurns: cfg.Agent.ContinuationSegmentTurns, MaxContinuations: cfg.Agent.MaxContinuations, MaxTotalTurns: cfg.Agent.MaxTotalTurns, MaxRunDurationMs: cfg.Agent.MaxRunDurationMs, MaxRunTokens: cfg.Agent.MaxRunTokens},
+		},
+		Background: runtimeBackgroundSummary{
+			WorkerCount:          cfg.Background.WorkerCount,
+			PerAgentLimit:        cfg.Background.PerAgentLimit,
+			AllowNestedSubagents: cfg.Background.AllowNestedSubagents,
+			MaxSubagentDepth:     cfg.Background.MaxSubagentDepth,
 		},
 		Security: runtimeSecuritySummary{
 			Exposed:                  cfg.Security.Exposed,

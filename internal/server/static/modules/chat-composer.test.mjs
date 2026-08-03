@@ -1008,6 +1008,17 @@ test("Composer makes an active run a compact, one-click stop action", async () =
     assert.equal(attributes.get("aria-label").includes(sendButton.title), true);
     assert.equal(stopClasses.at(-1).enabled, false);
     assert.equal(clickHandlers.length, 1);
+
+    // Terminal live rows stay visible until the run summary arrives, but they
+    // are display-only and must not keep the composer in Stop mode.
+    state.liveToolOutputs = { "tool-finished": { status: "completed" } };
+    controller.syncMessageComposerBusy();
+    assert.equal(sendButton.dataset.mobileLabel, "↑");
+    assert.equal(stopClasses.at(-1).enabled, false);
+    state.liveToolOutputs = { "tool-running": { status: "running" } };
+    controller.syncMessageComposerBusy();
+    assert.equal(sendButton.dataset.mobileLabel, "■");
+    assert.equal(stopClasses.at(-1).enabled, true);
   } finally {
     globalThis.document = previousDocument;
     globalThis.getComputedStyle = previousGetComputedStyle;

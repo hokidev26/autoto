@@ -39,6 +39,7 @@ type Config struct {
 	SchemaVersion     int                     `json:"version"`
 	Server            ServerConfig            `json:"server"`
 	Gateway           GatewayConfig           `json:"gateway"`
+	Background        BackgroundConfig        `json:"background"`
 	Paths             PathsConfig             `json:"paths"`
 	Agent             AgentConfig             `json:"agent"`
 	ContextManagement ContextManagementConfig `json:"contextManagement"`
@@ -60,6 +61,13 @@ type GatewayConfig struct {
 	Port                 int    `json:"port"`
 	MaxGlobalConcurrency int    `json:"maxGlobalConcurrency"`
 	MaxRequestBytes      int64  `json:"maxRequestBytes"`
+}
+
+type BackgroundConfig struct {
+	WorkerCount          int  `json:"workerCount"`
+	PerAgentLimit        int  `json:"perAgentLimit"`
+	AllowNestedSubagents bool `json:"allowNestedSubagents"`
+	MaxSubagentDepth     int  `json:"maxSubagentDepth"`
 }
 
 type PathsConfig struct {
@@ -266,6 +274,12 @@ func defaultWithReport(report *compat.Report) (Config, error) {
 			MaxGlobalConcurrency: 16,
 			MaxRequestBytes:      8 << 20,
 		},
+		Background: BackgroundConfig{
+			WorkerCount:          8,
+			PerAgentLimit:        4,
+			AllowNestedSubagents: false,
+			MaxSubagentDepth:     2,
+		},
 		Paths: PathsConfig{
 			HomeDir:           appHome,
 			DatabasePath:      filepath.Join(appHome, "autoto.db"),
@@ -293,10 +307,10 @@ func defaultWithReport(report *compat.Report) (Config, error) {
 			ContinuationSegmentTurns: -1,
 			// -1 across the cross-segment budgets: no ceiling by default. See
 			// normalizeAgent for why maxContinuations is included.
-			MaxContinuations:  -1,
-			MaxTotalTurns:     -1,
-			MaxRunDurationMs:  -1,
-			MaxRunTokens:      -1,
+			MaxContinuations: -1,
+			MaxTotalTurns:    -1,
+			MaxRunDurationMs: -1,
+			MaxRunTokens:     -1,
 		},
 		Auth: AuthConfig{
 			RegistrationOpen: true,
@@ -591,6 +605,7 @@ func normalizeConfig(cfg Config) Config {
 func normalizeConfigWithReport(cfg Config, report *compat.Report) Config {
 	cfg = migrateConfig(cfg)
 	cfg.Gateway = normalizeGatewayConfig(cfg.Gateway)
+	cfg.Background = normalizeBackgroundConfig(cfg.Background)
 	cfg.ContextManagement = normalizeContextManagementConfig(cfg.ContextManagement)
 	cfg.Agent = normalizeAgentConfig(cfg.Agent)
 	cfg.Auth.OAuthApp = cfg.Auth.OAuthApp.Normalized()
@@ -628,6 +643,42 @@ func normalizeGatewayConfig(gateway GatewayConfig) GatewayConfig {
 		gateway.MaxRequestBytes = 64 << 20
 	}
 	return gateway
+}
+
+func normalizeBackgroundConfig(background BackgroundConfig) BackgroundConfig {
+	if background.WorkerCount < 1 {
+		background.WorkerCount = 8
+	} else if background.WorkerCount > 16 {
+		background.WorkerCount = 16
+	}
+	if background.PerAgentLimit < 1 {
+		background.PerAgentLimit = 4
+	} else if background.PerAgentLimit > 8 {
+		background.PerAgentLimit = 8
+	}
+	if background.MaxSubagentDepth < 2 {
+		background.MaxSubagentDepth = 2
+	} else if background.MaxSubagentDepth > 4 {
+		background.MaxSubagentDepth = 4
+	}
+	return background
+}
+
+func (background BackgroundConfig) Normalized() BackgroundConfig {
+	return normalizeBackgroundConfig(background)
+}
+
+func (background BackgroundConfig) Validate() error {
+	if background.WorkerCount < 1 || background.WorkerCount > 16 {
+		return errors.New("workerCount must be between 1 and 16")
+	}
+	if background.PerAgentLimit < 1 || background.PerAgentLimit > 8 {
+		return errors.New("perAgentLimit must be between 1 and 8")
+	}
+	if background.MaxSubagentDepth < 2 || background.MaxSubagentDepth > 4 {
+		return errors.New("maxSubagentDepth must be between 2 and 4")
+	}
+	return nil
 }
 
 func normalizeGatewayHost(raw string, allowRemote bool) string {
@@ -1339,6 +1390,7 @@ func writeConfigAtomically(path string, data []byte) error {
 func sanitizeConfigForDisk(cfg Config) Config {
 	cfg = migrateConfig(cfg)
 	cfg.Gateway = normalizeGatewayConfig(cfg.Gateway)
+	cfg.Background = normalizeBackgroundConfig(cfg.Background)
 	cfg.ContextManagement = normalizeContextManagementConfig(cfg.ContextManagement)
 	cfg.Agent = normalizeAgentConfig(cfg.Agent)
 	cfg.Auth.OAuthApp = cfg.Auth.OAuthApp.Normalized()

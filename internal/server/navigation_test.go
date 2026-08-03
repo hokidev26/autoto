@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -96,7 +97,7 @@ INSERT INTO agents (id, workline_id, type, title, model, system_prompt, permissi
 	}
 }
 
-func TestNavigationHidesStandaloneConversationContainersAndKeepsSafeContext(t *testing.T) {
+func TestNavigationHidesStandaloneConversationContainersButRetainsArchiveCleanupProjection(t *testing.T) {
 	ctx := context.Background()
 	store, err := db.Open(ctx, filepath.Join(t.TempDir(), "standalone-navigation.db"))
 	if err != nil {
@@ -124,15 +125,32 @@ func TestNavigationHidesStandaloneConversationContainersAndKeepsSafeContext(t *t
 	if len(response.Projects) != 1 || response.Projects[0].ID != workspaceProject.ID {
 		t.Fatalf("conversation container leaked into project navigation: %+v", response.Projects)
 	}
-	var standalone *db.NavigationConversation
-	for index := range response.Conversations {
-		if response.Conversations[index].AgentID == conversationAgent.ID {
-			standalone = &response.Conversations[index]
-			break
+	for _, conversation := range response.Conversations {
+		if conversation.AgentID == conversationAgent.ID || conversation.ProjectID == conversationProject.ID || conversation.Context == db.ProjectFlowModeConversation {
+			t.Fatalf("legacy conversation-flow record leaked into navigation: %+v", response.Conversations)
 		}
 	}
-	if standalone == nil || standalone.ProjectID != conversationProject.ID || standalone.Context != db.ProjectFlowModeConversation || standalone.CWD != "" {
-		t.Fatalf("standalone navigation record missing safe conversation context: %+v", standalone)
+
+	archived := true
+	if _, err := store.UpdateAgentNavigationState(ctx, conversationAgent.ID, nil, &archived); err != nil {
+		t.Fatal(err)
+	}
+	archiveRecorder := httptest.NewRecorder()
+	app.Routes().ServeHTTP(archiveRecorder, newTestRequest(http.MethodGet, "/api/navigation?includeArchived=true", nil))
+	if archiveRecorder.Code != http.StatusOK {
+		t.Fatalf("expected archive projection 200, got %d: %s", archiveRecorder.Code, archiveRecorder.Body.String())
+	}
+	var archiveResponse navigationResponse
+	if err := json.NewDecoder(archiveRecorder.Body).Decode(&archiveResponse); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.ContainsFunc(archiveResponse.Projects, func(project db.Project) bool { return project.ID == conversationProject.ID }) {
+		t.Fatalf("archive projection lost legacy container needed for cleanup: %+v", archiveResponse.Projects)
+	}
+	if !slices.ContainsFunc(archiveResponse.Conversations, func(conversation db.NavigationConversation) bool {
+		return conversation.AgentID == conversationAgent.ID && conversation.Context == db.ProjectFlowModeConversation && conversation.AgentArchivedAt != ""
+	}) {
+		t.Fatalf("archive projection lost legacy conversation needed for cleanup: %+v", archiveResponse.Conversations)
 	}
 }
 
@@ -165,8 +183,8 @@ func TestRestrictedRemoteNavigationAllowsFilesystemFreeConversations(t *testing.
 	}
 	recorder := httptest.NewRecorder()
 	app.Routes().ServeHTTP(recorder, request)
-	if recorder.Code != http.StatusOK || !strings.Contains(recorder.Body.String(), conversationAgent.ID) || !strings.Contains(recorder.Body.String(), `"context":"conversation"`) {
-		t.Fatalf("restricted remote navigation hid filesystem-free conversation: %d %s", recorder.Code, recorder.Body.String())
+	if recorder.Code != http.StatusOK || strings.Contains(recorder.Body.String(), conversationAgent.ID) || strings.Contains(recorder.Body.String(), `"context":"conversation"`) {
+		t.Fatalf("restricted remote navigation exposed removed conversation-flow data: %d %s", recorder.Code, recorder.Body.String())
 	}
 }
 
@@ -300,12 +318,12 @@ func TestNavigationRequiresMembershipWhenUsersExist(t *testing.T) {
 		t.Fatalf("expected member navigation 200, got %d: %s", recorder.Code, recorder.Body.String())
 	}
 	body := recorder.Body.String()
-	for _, expected := range []string{firstProject.ID, firstAgent.ID, firstConversationProject.ID, firstConversationAgent.ID} {
+	for _, expected := range []string{firstProject.ID, firstAgent.ID} {
 		if !strings.Contains(body, expected) {
 			t.Fatalf("member navigation omitted %q: %s", expected, body)
 		}
 	}
-	for _, forbidden := range []string{secondProject.ID, secondAgent.ID, secondConversationProject.ID, secondConversationAgent.ID} {
+	for _, forbidden := range []string{firstConversationProject.ID, firstConversationAgent.ID, secondProject.ID, secondAgent.ID, secondConversationProject.ID, secondConversationAgent.ID} {
 		if strings.Contains(body, forbidden) {
 			t.Fatalf("member navigation leaked %q: %s", forbidden, body)
 		}

@@ -10,7 +10,7 @@ import (
 func TestAgentAcceptsSupportedSubagentTypes(t *testing.T) {
 	roles := map[string]string{
 		"executor": "executor", "explorer": "explorer", "reviewer": "reviewer", "tester": "tester",
-		"general": "general", "explore": "explorer", "plan": "plan", "search": "search", "background": "general",
+		"general": "general", "general-purpose": "general", "explore": "explorer", "plan": "plan", "search": "search", "background": "general",
 	}
 	for role, expectedRole := range roles {
 		t.Run(role, func(t *testing.T) {

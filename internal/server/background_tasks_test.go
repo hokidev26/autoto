@@ -128,3 +128,21 @@ func TestBackgroundTaskSensitiveRoutesRequireCanonicalToken(t *testing.T) {
 		t.Fatalf("expected canonical local token requirement, got %d: %s", response.Code, response.Body.String())
 	}
 }
+
+func TestBackgroundTaskRequestErrorPreservesStructuredToolFailure(t *testing.T) {
+	result := backgroundTaskRequestError(tools.Result{
+		Output:  `{"errorCode":"subagent_model_rejected","errorMessage":"requested model is unavailable"}`,
+		IsError: true,
+		Meta:    map[string]any{"errorCode": "stale_code", "errorMessage": "stale message"},
+	})
+	if result.ErrorCode != "subagent_model_rejected" || result.ErrorMessage != "requested model is unavailable" || result.Error != result.ErrorMessage {
+		t.Fatalf("unexpected structured background task error: %+v", result)
+	}
+}
+
+func TestBackgroundTaskRequestErrorUsesRedactedPlainToolFailure(t *testing.T) {
+	result := backgroundTaskRequestError(tools.Result{Output: "tool call requires approval", IsError: true})
+	if result.ErrorCode != "background_task_rejected" || result.ErrorMessage != "tool call requires approval" || result.Error != result.ErrorMessage {
+		t.Fatalf("unexpected fallback background task error: %+v", result)
+	}
+}

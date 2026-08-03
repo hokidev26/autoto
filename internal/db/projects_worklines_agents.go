@@ -181,6 +181,89 @@ func (s *Store) CreateProject(ctx context.Context, name, description, gitPath st
 	return s.createProject(ctx, "", name, description, gitPath, defaultModel, permissionMode)
 }
 
+// CreateProjectConversation adds another project-scoped root conversation to
+// an existing filesystem project without creating a duplicate project row.
+func (s *Store) CreateProjectConversation(ctx context.Context, projectID, title, model, permissionMode string) (Project, Workline, Agent, error) {
+	projectID = strings.TrimSpace(projectID)
+	if projectID == "" {
+		return Project{}, Workline{}, Agent{}, errors.New("project id is required")
+	}
+	project, err := s.GetProject(ctx, projectID)
+	if err != nil {
+		return Project{}, Workline{}, Agent{}, err
+	}
+	if project.Status != "active" || project.FlowMode == ProjectFlowModeConversation {
+		return Project{}, Workline{}, Agent{}, errors.New("project is not available for a project conversation")
+	}
+	model = strings.TrimSpace(model)
+	if model == "" {
+		return Project{}, Workline{}, Agent{}, errors.New("model is required")
+	}
+	permissionMode = strings.TrimSpace(permissionMode)
+	if permissionMode == "" {
+		permissionMode = "acceptEdits"
+	}
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return Project{}, Workline{}, Agent{}, err
+	}
+	defer tx.Rollback()
+	var rootCount int
+	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM worklines WHERE project_id = ? AND is_root = 1`, projectID).Scan(&rootCount); err != nil {
+		return Project{}, Workline{}, Agent{}, err
+	}
+	title = strings.TrimSpace(title)
+	if title == "" {
+		title = project.Name
+	}
+	// A repeated directory choice must remain distinguishable in navigation.
+	// Preserve an explicit title when it is unique, then add a stable numeric
+	// suffix rather than relying on client-only state or random labels.
+	candidate := title
+	var titleCount int
+	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM worklines WHERE project_id = ? AND is_root = 1 AND title = ? COLLATE NOCASE`, projectID, candidate).Scan(&titleCount); err != nil {
+		return Project{}, Workline{}, Agent{}, err
+	}
+	var agentTitleCount int
+	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM agents a JOIN worklines w ON w.id = a.workline_id WHERE w.project_id = ? AND w.is_root = 1 AND a.title = ? COLLATE NOCASE`, projectID, candidate).Scan(&agentTitleCount); err != nil {
+		return Project{}, Workline{}, Agent{}, err
+	}
+	titleCount += agentTitleCount
+	if titleCount > 0 {
+		for suffix := rootCount + 1; ; suffix++ {
+			candidate = fmt.Sprintf("%s (%d)", title, suffix)
+			if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM worklines WHERE project_id = ? AND is_root = 1 AND title = ? COLLATE NOCASE`, projectID, candidate).Scan(&titleCount); err != nil {
+				return Project{}, Workline{}, Agent{}, err
+			}
+			if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM agents a JOIN worklines w ON w.id = a.workline_id WHERE w.project_id = ? AND w.is_root = 1 AND a.title = ? COLLATE NOCASE`, projectID, candidate).Scan(&agentTitleCount); err != nil {
+				return Project{}, Workline{}, Agent{}, err
+			}
+			if titleCount+agentTitleCount == 0 {
+				break
+			}
+		}
+	}
+	title = candidate
+	now := Now()
+	workline := Workline{ID: NewID(), ProjectID: projectID, Title: title, Status: "active", Role: "root", WorktreePath: project.GitPath, IsRoot: true, CreatedAt: now, UpdatedAt: now}
+	agent := Agent{ID: NewID(), WorklineID: workline.ID, Type: "primary", Title: title, Model: model, PermissionMode: permissionMode, ExecutionDeviceID: "local", Status: "idle", CWD: project.GitPath, CreatedAt: now, UpdatedAt: now}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO worklines (id, project_id, title, status, role, worktree_path, is_root, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`, workline.ID, workline.ProjectID, workline.Title, workline.Status, workline.Role, workline.WorktreePath, boolInt(workline.IsRoot), workline.CreatedAt, workline.UpdatedAt); err != nil {
+		return Project{}, Workline{}, Agent{}, err
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO agents (id, workline_id, type, title, model, permission_mode, reasoning_effort, execution_device_id, status, cwd, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, NULLIF(?,''), ?, ?, ?, ?, ?)`, agent.ID, agent.WorklineID, agent.Type, agent.Title, agent.Model, agent.PermissionMode, agent.ReasoningEffort, agent.ExecutionDeviceID, agent.Status, agent.CWD, agent.CreatedAt, agent.UpdatedAt); err != nil {
+		return Project{}, Workline{}, Agent{}, err
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE projects SET updated_at = ? WHERE id = ?`, now, projectID); err != nil {
+		return Project{}, Workline{}, Agent{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return Project{}, Workline{}, Agent{}, err
+	}
+	project.UpdatedAt = now
+	return project, workline, agent, nil
+}
+
 // CreateProjectForUser atomically creates the project hierarchy and makes the
 // creating user its owner.
 func (s *Store) CreateProjectForUser(ctx context.Context, userID, name, description, gitPath string, defaultModel, permissionMode string) (Project, Workline, Agent, error) {
@@ -487,6 +570,39 @@ func (s *Store) UpdateAgentTitle(ctx context.Context, id, title string) (Agent, 
 		return Agent{}, err
 	} else if affected != 1 {
 		return Agent{}, sql.ErrNoRows
+	}
+	return s.GetAgent(ctx, id)
+}
+
+// UpdateAgentTitleCosmeticCAS updates a derived display title without changing
+// the execution entity generation. The expected generation prevents an
+// asynchronous auto-title from overwriting a concurrent user edit.
+func (s *Store) UpdateAgentTitleCosmeticCAS(ctx context.Context, id, title string, expectedEntityGeneration int64) (Agent, error) {
+	id = strings.TrimSpace(id)
+	title = strings.TrimSpace(title)
+	if err := validateP2P3Text("agent id", id, 128, true, false); err != nil {
+		return Agent{}, err
+	}
+	if err := validateP2P3Text("agent title", title, 200, true, false); err != nil || strings.ContainsAny(title, "\r\n") {
+		return Agent{}, errors.New("invalid agent title")
+	}
+	if expectedEntityGeneration <= 0 {
+		return Agent{}, errors.New("expected entity generation must be positive")
+	}
+	result, err := s.db.ExecContext(ctx, `UPDATE agents SET title = ?, updated_at = ? WHERE id = ? AND entity_generation = ?`, title, Now(), id, expectedEntityGeneration)
+	if err != nil {
+		return Agent{}, err
+	}
+	if affected, err := result.RowsAffected(); err != nil {
+		return Agent{}, err
+	} else if affected != 1 {
+		var exists int
+		if err := s.db.QueryRowContext(ctx, `SELECT 1 FROM agents WHERE id = ?`, id).Scan(&exists); errors.Is(err, sql.ErrNoRows) {
+			return Agent{}, sql.ErrNoRows
+		} else if err != nil {
+			return Agent{}, err
+		}
+		return Agent{}, fmt.Errorf("%w: agent title changed", ErrConflict)
 	}
 	return s.GetAgent(ctx, id)
 }

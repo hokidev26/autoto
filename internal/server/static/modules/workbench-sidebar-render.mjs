@@ -91,7 +91,6 @@ export function createWorkbenchSidebarRender({
     const refreshButton = $("refreshBtn");
     const newProjectButton = $("newProjectBtn");
     const newTaskButton = $("newTaskBtn");
-    const mobileNewConversationButton = $("mobileNewConversationBtn");
     const mobileNewScheduleButton = $("mobileNewScheduleBtn");
     const mobileChooseDirectoryButton = $("mobileChooseDirectoryBtn");
     const mobileScheduleModeButton = $("mobileScheduleModeBtn");
@@ -129,7 +128,6 @@ export function createWorkbenchSidebarRender({
     newProjectButton?.classList.toggle("hidden", taskMode);
     if (!taskMode) syncNavigationCreateButton(newProjectButton);
     newTaskButton?.classList.toggle("hidden", !taskMode);
-    mobileNewConversationButton?.classList.toggle("hidden", scheduleMode);
     mobileChooseDirectoryButton?.classList.toggle("hidden", scheduleMode);
     mobileNewScheduleButton?.classList.toggle("hidden", !scheduleMode);
     if (mobileNewScheduleButton) {

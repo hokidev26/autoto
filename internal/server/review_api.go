@@ -583,19 +583,15 @@ func (s *Server) requireCurrentPlan(ctx context.Context, agentID, planID string,
 	return stale, true, errPlanStale
 }
 
-func (s *Server) currentPlanSnapshot(ctx context.Context, agentID string) (db.PlanSnapshot, error) {
+func (s *Server) currentBackgroundTaskSnapshot(ctx context.Context, agentID string) (db.PlanSnapshot, error) {
 	if s.store == nil {
-		return db.PlanSnapshot{}, errors.New("review store is unavailable")
+		return db.PlanSnapshot{}, errors.New("background task store is unavailable")
 	}
 	agent, err := s.store.GetAgent(ctx, strings.TrimSpace(agentID))
 	if err != nil {
 		return db.PlanSnapshot{}, err
 	}
 	generations, err := s.store.GetPermissionGenerations(ctx, agent.ID)
-	if err != nil {
-		return db.PlanSnapshot{}, err
-	}
-	workspace, err := s.reviewWorkspaceFingerprint(ctx, agent)
 	if err != nil {
 		return db.PlanSnapshot{}, err
 	}
@@ -607,8 +603,24 @@ func (s *Server) currentPlanSnapshot(ctx context.Context, agentID string) (db.Pl
 		PolicyGenerationSnapshot: generations.Policy,
 		AgentGenerationSnapshot:  agent.EntityGeneration,
 		ToolCatalogDigest:        toolDigest,
-		WorkspaceFingerprint:     workspace,
 	}, nil
+}
+
+func (s *Server) currentPlanSnapshot(ctx context.Context, agentID string) (db.PlanSnapshot, error) {
+	snapshot, err := s.currentBackgroundTaskSnapshot(ctx, agentID)
+	if err != nil {
+		return db.PlanSnapshot{}, err
+	}
+	agent, err := s.store.GetAgent(ctx, strings.TrimSpace(agentID))
+	if err != nil {
+		return db.PlanSnapshot{}, err
+	}
+	workspace, err := s.reviewWorkspaceFingerprint(ctx, agent)
+	if err != nil {
+		return db.PlanSnapshot{}, err
+	}
+	snapshot.WorkspaceFingerprint = workspace
+	return snapshot, nil
 }
 
 func (s *Server) reviewWorkspaceFingerprint(ctx context.Context, agent db.Agent) (string, error) {

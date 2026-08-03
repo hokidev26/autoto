@@ -8,6 +8,7 @@ import (
 
 	"autoto/internal/agentrole"
 	"autoto/internal/db"
+	"autoto/internal/tools"
 )
 
 func TestAgentRoleContractAcceptsScopedPresetKeyForRuntimeResolution(t *testing.T) {
@@ -77,30 +78,87 @@ func TestAgentRoleContractPublicResultExposesCountNotCriteria(t *testing.T) {
 	}
 }
 
-func TestAgentRoleContractRejectsNestedSubagentSpawn(t *testing.T) {
+func TestAgentRoleContractNestedSubagentPolicyAndDepth(t *testing.T) {
 	ctx := context.Background()
 	store, root := testStoreAndAgent(t)
 	defer store.Close()
 
 	child, err := store.CreateAgent(ctx, db.Agent{
-		WorklineID:     root.WorklineID,
-		ParentAgentID:  root.ID,
-		Type:           "subagent",
-		SubagentType:   "general",
-		Title:          "first-level child",
-		Model:          root.Model,
-		PermissionMode: "readOnly",
-		Status:         "idle",
-		CWD:            root.CWD,
+		WorklineID: root.WorklineID, ParentAgentID: root.ID, Type: "subagent", SubagentType: "general",
+		Title: "first-level child", Model: root.Model, PermissionMode: "readOnly", Status: "idle", CWD: root.CWD,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-
 	task := db.BackgroundTask{OwnerAgentID: child.ID, Kind: db.BackgroundTaskKindAgent}
-	if err := validateAgentTaskScope(store, ctx, task, child); err == nil {
-		t.Fatal("first-level subagent was allowed to spawn another subagent")
+	disabled := tools.BackgroundRuntimeSettings{WorkerCount: 8, PerAgentLimit: 4, MaxSubagentDepth: 2}
+	if err := validateAgentTaskScope(store, ctx, task, child, disabled); err == nil || errorCode(err) != "nested_not_enabled" {
+		t.Fatalf("disabled nested spawn returned %v", err)
 	}
+	enabled := tools.BackgroundRuntimeSettings{WorkerCount: 8, PerAgentLimit: 4, AllowNestedSubagents: true, MaxSubagentDepth: 2}
+	if err := validateAgentTaskScope(store, ctx, task, child, enabled); err != nil {
+		t.Fatalf("enabled first nested level was rejected: %v", err)
+	}
+	grandchild, err := store.CreateAgent(ctx, db.Agent{
+		WorklineID: root.WorklineID, ParentAgentID: child.ID, Type: "subagent", SubagentType: "general",
+		Title: "second-level child", Model: root.Model, PermissionMode: "readOnly", Status: "idle", CWD: root.CWD,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := validateAgentTaskScope(store, ctx, db.BackgroundTask{OwnerAgentID: grandchild.ID, Kind: db.BackgroundTaskKindAgent}, grandchild, enabled); err == nil || errorCode(err) != "nested_depth_exceeded" {
+		t.Fatalf("depth limit returned %v", err)
+	}
+}
+
+func TestAgentRoleContractRejectsInvalidNestedAncestry(t *testing.T) {
+	ctx := context.Background()
+	store, root := testStoreAndAgent(t)
+	defer store.Close()
+	settings := tools.BackgroundRuntimeSettings{WorkerCount: 8, PerAgentLimit: 4, AllowNestedSubagents: true, MaxSubagentDepth: 4}
+
+	t.Run("cross workline", func(t *testing.T) {
+		_, otherWorkline, _, err := store.CreateProject(ctx, "Other", "", t.TempDir(), root.Model, "acceptEdits")
+		if err != nil {
+			t.Fatal(err)
+		}
+		child, err := store.CreateAgent(ctx, db.Agent{
+			WorklineID: otherWorkline.ID, ParentAgentID: root.ID, Type: "subagent", SubagentType: "general",
+			Title: "cross-workline child", Model: root.Model, PermissionMode: "readOnly", Status: "idle", CWD: root.CWD,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		err = validateAgentTaskNesting(store, ctx, child, settings)
+		if err == nil || errorCode(err) != "nested_ancestry_invalid" {
+			t.Fatalf("cross-workline ancestry returned %v", err)
+		}
+	})
+
+	t.Run("cycle", func(t *testing.T) {
+		child, err := store.CreateAgent(ctx, db.Agent{
+			WorklineID: root.WorklineID, ParentAgentID: root.ID, Type: "subagent", SubagentType: "general",
+			Title: "cyclic child", Model: root.Model, PermissionMode: "readOnly", Status: "idle", CWD: root.CWD,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := store.DB().ExecContext(ctx, `UPDATE agents SET parent_agent_id = ? WHERE id = ?`, child.ID, child.ID); err != nil {
+			t.Fatal(err)
+		}
+		child.ParentAgentID = child.ID
+		err = validateAgentTaskNesting(store, ctx, child, settings)
+		if err == nil || errorCode(err) != "nested_ancestry_invalid" {
+			t.Fatalf("cyclic ancestry returned %v", err)
+		}
+	})
+}
+
+func errorCode(err error) string {
+	if coded, ok := err.(interface{ ErrorCode() string }); ok {
+		return coded.ErrorCode()
+	}
+	return ""
 }
 
 func TestAgentRoleContractPermissionCapCanOnlyStayEqualOrNarrow(t *testing.T) {

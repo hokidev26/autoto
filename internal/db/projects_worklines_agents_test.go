@@ -405,3 +405,36 @@ VALUES ('agent-1', 'chapter-1', 'primary', 'Legacy', 'openai:test', 'acceptEdits
 		t.Fatalf("unexpected migrated agent: %+v", agent)
 	}
 }
+
+func TestCreateProjectConversationReusesProjectAndCreatesDistinctRootHierarchy(t *testing.T) {
+	ctx := context.Background()
+	store, err := Open(ctx, filepath.Join(t.TempDir(), "project-conversations.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	project, firstWorkline, firstAgent, err := store.CreateProject(ctx, "Demo", "", t.TempDir(), "fake:first", "acceptEdits")
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondProject, secondWorkline, secondAgent, err := store.CreateProjectConversation(ctx, project.ID, "", "fake:second", "acceptEdits")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if secondProject.ID != project.ID || secondWorkline.ID == firstWorkline.ID || secondAgent.ID == firstAgent.ID {
+		t.Fatalf("conversation did not reuse project with distinct hierarchy: project=%+v workline=%+v agent=%+v", secondProject, secondWorkline, secondAgent)
+	}
+	if secondWorkline.ProjectID != project.ID || !secondWorkline.IsRoot || secondWorkline.Role != "root" || secondAgent.WorklineID != secondWorkline.ID || secondAgent.Type != "primary" {
+		t.Fatalf("unexpected second root hierarchy: workline=%+v agent=%+v", secondWorkline, secondAgent)
+	}
+	if secondWorkline.Title == firstWorkline.Title || secondAgent.Title == firstAgent.Title {
+		t.Fatalf("default titles did not distinguish conversations: first=%q second=%q", firstWorkline.Title, secondWorkline.Title)
+	}
+	conversations, err := store.ListNavigationConversations(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(conversations) != 2 {
+		t.Fatalf("expected two navigable conversations, got %d: %+v", len(conversations), conversations)
+	}
+}

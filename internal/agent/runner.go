@@ -74,9 +74,10 @@ type Runner struct {
 	notifierMu sync.RWMutex
 	notifier   Notifier
 
-	planMu               sync.RWMutex
-	reviewer             *review.Service
-	planSnapshotProvider func(context.Context, string) (db.PlanSnapshot, error)
+	planMu                     sync.RWMutex
+	reviewer                   *review.Service
+	planSnapshotProvider       func(context.Context, string) (db.PlanSnapshot, error)
+	backgroundSnapshotProvider func(context.Context, string) (db.PlanSnapshot, error)
 
 	runtimeStateOnce sync.Once
 	runtimeState     *runtimeSnapshotState
@@ -311,6 +312,9 @@ func (r *Runner) ResolveSubagentModel(role, explicitModel, parentModel string) (
 		if !allowed(explicitModel) {
 			return "", role, fmt.Errorf("model %s is not allowed for %s subagents", explicitModel, role)
 		}
+		if err := r.ValidateSubagentModel(explicitModel); err != nil {
+			return "", role, err
+		}
 		return explicitModel, role, nil
 	}
 	for _, candidate := range []string{preferred, parentModel, defaultModel} {
@@ -324,9 +328,39 @@ func (r *Runner) ResolveSubagentModel(role, explicitModel, parentModel string) (
 	return "", role, errors.New("subagent model is not configured")
 }
 
+// ValidateSubagentModel checks an explicitly requested provider:model without
+// replacing it with a fallback. Providers that cannot expose a model catalog
+// keep their existing provider-level validation semantics.
+func (r *Runner) ValidateSubagentModel(model string) error {
+	model = strings.TrimSpace(model)
+	if model == "" || r == nil || r.providers == nil {
+		return nil
+	}
+	provider, modelName, err := r.providers.Resolve(model)
+	if err != nil {
+		return fmt.Errorf("explicit subagent model %q is unavailable: %w", model, err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	models, err := provider.ListModels(ctx)
+	if err != nil || len(models) == 0 {
+		// Some otherwise runnable providers cannot expose a model catalog (for
+		// example, discovery may require a separate credential or endpoint). Keep
+		// their existing provider-level execution validation instead of turning a
+		// transient catalog failure into a permanent subagent rejection.
+		return nil
+	}
+	for _, candidate := range models {
+		if strings.TrimSpace(candidate) == modelName {
+			return nil
+		}
+	}
+	return fmt.Errorf("explicit subagent model %q is not available", model)
+}
+
 func normalizeSubagentRole(role string) string {
 	switch strings.ToLower(strings.TrimSpace(role)) {
-	case "", "background", "general":
+	case "", "background", "general", "general-purpose":
 		return "general"
 	case "explore", "plan", "search":
 		return strings.ToLower(strings.TrimSpace(role))

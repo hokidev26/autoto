@@ -203,9 +203,23 @@ test("desktop home overview stays available while mobile starts in conversation"
   assert.ok(html.indexOf('id="schedulePanel"') < html.indexOf('id="conversationPanel"'));
   assert.doesNotMatch(html, /employeeOverviewModal|employeeOverviewBody/);
   assert.match(appMain, /createOverviewDashboardController\(\{[\s\S]*?request: api,[\s\S]*?host: "#overviewDashboard",[\s\S]*?translate: t,[\s\S]*?formatDateTime,[\s\S]*?getLauncherContext: overviewLauncherContext,[\s\S]*?onLaunch: launchOverviewPrompt,[\s\S]*?onChooseDirectory:[\s\S]*?onNavigate: handleOverviewNavigation/);
-  assert.match(appMain, /async function launchOverviewPrompt\([\s\S]*?createProjectWorkline\(selectedProjectId, null, \{ title, model: selectedModel \}\)[\s\S]*?createStandaloneConversation\(\{ title, model: selectedModel \}\)[\s\S]*?saveReasoningEffort\([\s\S]*?setMessageInputValue\(prompt, \{ saveDraft: false \}\)[\s\S]*?sendMessage\(\{ preventDefault\(\) \{\} \}\)/);
+  const initStart = appMain.indexOf("async function init()");
+  const initEnd = appMain.indexOf("function openRequestedInitialView", initStart);
+  const initBody = appMain.slice(initStart, initEnd);
+  assert.match(initBody, /await Promise\.all\([\s\S]*?\);\s*if \(seq !== state\.initSeq\) return;[\s\S]*?state\.profile = loadProfilePreferences\(\);[\s\S]*?renderModelOptions\(\);[\s\S]*?navigationRefresh\.start\(\);[\s\S]*?if \(!state\.agent && startupTokenCurrent\(startupToken\)/);
+  assert.doesNotMatch(initBody, /if \(!startupTokenCurrent\(startupToken\)\) return;/);
+  assert.match(initBody, /if \(seq === state\.initSeq\) \{\s*installDesktopDeepLinkRouter\(/);
+  assert.match(appMain, /autoto:auth-changed[\s\S]*?if \(state\.initializing\) state\.initRestartRequested = true[\s\S]*?init\(\)\.catch\(showError\)/);
+  assert.match(initBody, /const restartRequested = seq === state\.initSeq && state\.initRestartRequested[\s\S]*?queueMicrotask\(restart\)/);
+  assert.match(appMain, /async function launchOverviewPrompt\([\s\S]*?resolveTopNavigationProjectId\([\s\S]*?selectProject\(selectedProjectId, \{ preserveMessageState: true \}\)[\s\S]*?saveReasoningEffort\([\s\S]*?setMessageInputValue\(prompt, \{ saveDraft: false \}\)[\s\S]*?sendMessage\(\{ preventDefault\(\) \{\} \}\)/);
+  assert.doesNotMatch(appMain, /createStandaloneConversation|\/api\/conversations/);
   assert.match(appMain, /key === "home"[\s\S]*?openOverviewDashboard\(\)\.catch\(showError\)/);
   assert.match(appMain, /overviewDashboard\.load\(\)/);
+  assert.match(appMain, /createNavigationStartupGuard/);
+  assert.match(appMain, /const startupToken = navigationStartupGuard\.beginInit\(seq\)/);
+  assert.match(appMain, /function beginNavigationSelection\(project, options = \{\}\)[\s\S]*?navigationStartupGuard\.beginUserNavigation\(\)/);
+  assert.match(appMain, /source: "startup",\s*startupToken/);
+  assert.match(appMain, /if \(startupTokenCurrent\(startupToken\)\)/);
   assert.match(appMain, /function openOverviewTask\(id = ""\)[\s\S]*?taskWorkspace\.selectTask/);
   // Action -> surface routing is a table in overview-dashboard.mjs, checked
   // exhaustively in overview-navigation.test.mjs; app-main only dispatches it.
@@ -235,7 +249,8 @@ test("desktop home overview stays available while mobile starts in conversation"
   assert.match(styles, /\.overview-dashboard-page\s*\{[\s\S]*?overflow:\s*auto/);
   assert.match(styles, /\.overview-hero-root\s*\{[\s\S]*?width:\s*min\(900px, 100%\)/);
   assert.match(styles, /\.overview-launcher-form\s*\{[\s\S]*?border-radius:\s*23px/);
-  assert.match(styles, /\.overview-launcher-mode\[aria-pressed="true"\]/);
+  assert.doesNotMatch(styles, /\.overview-launcher-mode(?:-group)?/);
+  assert.doesNotMatch(overviewDashboard, /data-overview-launcher-(?:action="mode"|mode=)/);
   assert.match(styles, /\.overview-summary-grid\s*\{[\s\S]*?repeat\(4, minmax\(0, 1fr\)\)/);
   assert.match(styles, /overview-mode :is\(#conversationPanel, #workbenchPanel, #schedulePanel\)[\s\S]*?display:\s*none !important/);
   assert.match(styles, /not\(\.overview-mode\) #overviewDashboard[\s\S]*?display:\s*none !important/);
@@ -263,6 +278,10 @@ test("home launcher cache stamps reach styles, runtime modules, and locale catal
   assert.match(html, /app\.js\?v=[^"\n]*home-launcher-1/);
   assert.match(styles, /extras\.css\?v=[^"\n]*home-launcher-1/);
   assert.match(app, /app-main\.mjs\?v=[^"\n]*home-launcher-1/);
+  assert.match(app, /app-main\.mjs\?v=[^"\n]*startup-navigation-guard-4/);
+  assert.match(app, /app-main\.mjs\?v=[^"\n]*top-project-1/);
+  assert.match(appMain, /navigation-startup-guard\.mjs\?v=startup-navigation-guard-4/);
+  assert.match(appMain, /conversation-navigation\.mjs\?v=[^"\n]*top-project-1/);
   assert.match(appMain, /overview-dashboard\.mjs\?v=[^"\n]*home-launcher-1/);
   assert.match(appMain, /i18n\.mjs\?v=[^"\n]*home-launcher-1/);
   assert.equal((i18n.match(/messages-(?:en|zh-CN|zh-TW)\.mjs\?v=[^"\n]*home-launcher-1/g) || []).length, 3);
@@ -351,7 +370,7 @@ test("project switching preserves the current view until the next Agent is ready
   const selectBody = appMain.slice(selectStart, selectEnd);
 
   assert.match(selectBody, /const preserveConversationView = Boolean\([\s\S]*?state\.agent\?\.id/);
-  assert.match(selectBody, /beginNavigationSelection\(project, \{ preserveConversationView, selectionKind: "project" \}\)/);
+  assert.match(selectBody, /beginNavigationSelection\(project, \{[\s\S]*?preserveConversationView,[\s\S]*?selectionKind: "project",/);
   assert.match(selectBody, /markMessageViewportBusy\(\{ contextSwitch: true, label: am\("projectLoadingTitle"\) \}\)/);
   assert.match(selectBody, /await enterAgent\(\);[\s\S]*?clearMessageViewportBusy\(\);/);
   assert.match(appMain, /function beginNavigationSelection\(project, options = \{\}\)[\s\S]*?if \(!options\.preserveConversationView\) renderConversationHeaderIdentity\(\);/);
@@ -506,7 +525,7 @@ test("folder picker uses stable SVG actions and directory icons instead of font 
   assert.equal((html.match(/folder-picker-remote-2/g) || []).length, 2);
 });
 
-test("conversation sidebar separates projects and standalone conversations without a redundant list heading", async () => {
+test("conversation sidebar exposes one project navigation without a standalone filter", async () => {
   const [html, app, appMain, styles] = await Promise.all([
     readFile(indexURL, "utf8"),
     readFile(appURL, "utf8"),
@@ -514,22 +533,17 @@ test("conversation sidebar separates projects and standalone conversations witho
     readStylesSource(stylesURL),
   ]);
   const header = html.slice(html.indexOf('<header class="session-sidebar-header">'), html.indexOf("</header>", html.indexOf('<header class="session-sidebar-header">')));
-  const filters = html.slice(html.indexOf('id="navigationFilters"'), html.indexOf("</div>", html.indexOf('id="navigationFilters"')));
 
   assert.match(header, /class="session-sidebar-title"[^>]*>会话</);
   for (const id of ["projectSearchToggleBtn", "newProjectBtn", "refreshBtn"]) {
     assert.match(header, new RegExp(`id="${id}"`));
   }
   assert.doesNotMatch(html, /class="nav-stack"/);
-  assert.equal((filters.match(/data-navigation-mode=/g) || []).length, 2);
-  assert.match(filters, /class="navigation-filter active"[^>]*data-navigation-mode="projects"[^>]*aria-pressed="true"/);
-  assert.match(filters, /data-navigation-mode="conversations"[^>]*aria-pressed="false"/);
-  assert.doesNotMatch(filters, /data-navigation-mode="all"|shell\.filters\.all|>全部</);
+  assert.doesNotMatch(html, /navigationFilters|data-navigation-mode="conversations"|data-create-conversation|mobileNewConversationBtn/);
   assert.doesNotMatch(html, /navigationListHeading|navigation-list-heading/);
   assert.doesNotMatch(styles, /\.navigation-list-heading/);
-  assert.doesNotMatch(appMain, /navigationListHeading/);
+  assert.doesNotMatch(appMain, /navigationListHeading|createStandaloneConversation|\/api\/conversations/);
   assert.match(appMain, /navigationMode:\s*"projects"/);
-  assert.match(appMain, /node\.dataset\.navigationMode \|\| "projects"/);
   assert.match(html, /id="recentSidebarConversations"/);
   assert.match(html, /id="recentSidebarDirectories"/);
   assert.match(html, /id="globalThemeToggleBtn"/);
@@ -537,39 +551,25 @@ test("conversation sidebar separates projects and standalone conversations witho
   assert.match(styles, /\.navigation-conversation-row\.conv-drag-over,\s*\.proj-drag-over\s*\{[\s\S]*?outline:\s*2px solid var\(--accent\)/);
   assert.match(html, /styles\.css\?v=[^"\n]*navigation-split-1[^"\n]*conversation-drag-outline-1/);
   assert.match(html, /app\.js\?v=[^"\n]*navigation-split-1/);
-  assert.match(app, /app-main\.mjs\?v=[^"\n]*navigation-split-1/);
+  assert.match(app, /app-main\.mjs\?v=[^"\n]*navigation-split-1[^"\n]*standalone-removed-2/);
 });
 
-test("conversation creation routes project contexts through folder selection and keeps standalone API", async () => {
+test("all interactive creation routes use project selection and never call the removed API", async () => {
   const [html, app, appMain] = await Promise.all([readFile(indexURL, "utf8"), readFile(appURL, "utf8"), readFile(appMainURL, "utf8")]);
   const desktop = html.match(/<button id="newProjectBtn"[^>]*>/)?.[0] || "";
-  const mobile = html.match(/<button id="mobileNewConversationBtn"[^>]*>/)?.[0] || "";
-  const folder = html.match(/<button id="mobileChooseDirectoryBtn"[^>]*>/)?.[0] || "";
+  const mobile = html.match(/<button id="mobileChooseDirectoryBtn"[^>]*>/)?.[0] || "";
   assert.match(desktop, /data-create-navigation-item/);
-  assert.doesNotMatch(desktop, /data-create-conversation/);
-  assert.match(mobile, /data-create-conversation/);
-  assert.doesNotMatch(`${desktop}${mobile}`, /data-open-directory-shortcut/);
-  assert.match(folder, /data-open-directory-shortcut="current"/);
-  // Which target the create button acts on, and the label that must agree with
-  // it, are decided by navigation-create.mjs and covered in
-  // navigation-create.test.mjs across every workbench/navigation-mode pair.
+  assert.match(desktop, /data-i18n-title="shell\.chooseFolder"/);
+  assert.match(mobile, /data-open-directory-shortcut="current"/);
+  assert.doesNotMatch(html, /data-create-conversation|mobileNewConversationBtn|data-navigation-mode="conversations"/);
   assert.match(appMain, /return navigationCreateTarget\(state\)/);
   assert.match(appMain, /const labelKey = navigationCreateLabelKey\(target\)/);
   assert.match(appMain, /async function createNavigationItem\(trigger = null\)/);
-  assert.match(appMain, /const target = currentNavigationCreateTarget\(\)[\s\S]*?if \(target === "schedule"\) return startScheduleCreation\(\)[\s\S]*?if \(target === "conversation"\) return createStandaloneConversation\(\)/);
-  assert.match(appMain, /openDirectoryChooser\(state\.project\?\.gitPath \|\| state\.agent\?\.cwd \|\| "", \{ trigger \}\)/);
+  assert.match(appMain, /const target = currentNavigationCreateTarget\(\)[\s\S]*?if \(target === "schedule"\) return startScheduleCreation\(\)[\s\S]*?openDirectoryChooser\(state\.project\?\.gitPath \|\| state\.agent\?\.cwd \|\| "", \{ trigger \}\)/);
   assert.match(appMain, /\[data-create-navigation-item\][\s\S]*?createNavigationItem\(button\)/);
-  assert.match(appMain, /async function createStandaloneConversation/);
-  assert.match(appMain, /if \(state\.standaloneConversationCreating\) return null/);
-  assert.match(appMain, /api\("\/api\/conversations", \{[\s\S]*?method: "POST"/);
-  assert.match(appMain, /const title = String\(options\?\.title \|\| t\("shell\.newConversation"\)\)/);
-  assert.match(appMain, /const model = String\(options\?\.model \|\| selectedModelValue\(\) \|\| ""\)\.trim\(\)/);
-  assert.match(appMain, /await loadProjects\(\)[\s\S]*?await selectNavigationConversation\(conversation\)/);
-  assert.match(appMain, /api\(`\/api\/agents\/\$\{encodeURIComponent\(agentId\)\}`\)/);
-  assert.match(appMain, /modelPatchInFlight = true[\s\S]*?applyAgentPatch\("model", \{ model \}\)[\s\S]*?modelPatchInFlight = false/);
-  assert.match(appMain, /if \(modelPatchInFlight && previousAgent[\s\S]*?state\.agent = previousAgent[\s\S]*?renderModelOptions\(\)[\s\S]*?refreshReasoningEffortControl\(\)/);
-  assert.match(html, /app\.js\?v=[^"\n]*standalone-conversation-1[^"\n]*contextual-create-1/);
-  assert.match(app, /app-main\.mjs\?v=[^"\n]*contextual-create-1/);
+  assert.doesNotMatch(`${app}${appMain}`, /createStandaloneConversation|\/api\/conversations|standaloneConversationCreating/);
+  assert.match(html, /app\.js\?v=[^"\n]*standalone-removed-2/);
+  assert.match(app, /app-main\.mjs\?v=[^"\n]*standalone-removed-2/);
 });
 
 test("conversation navigation exposes archive, pin, and accessible context-menu controls", async () => {
@@ -595,7 +595,7 @@ test("conversation navigation exposes archive, pin, and accessible context-menu 
   assert.match(styles, /\.navigation-row-actions\s*\{[\s\S]*?opacity:\s*0/);
 });
 
-test("conversation, task, and schedule modes expose separate creation boundaries", async () => {
+test("project, task, and schedule modes expose separate creation boundaries", async () => {
   const [html, appMain, styles] = await Promise.all([
     readFile(indexURL, "utf8"),
     readFile(appMainURL, "utf8"),
@@ -618,11 +618,10 @@ test("conversation, task, and schedule modes expose separate creation boundaries
   assert.match(html, /id="newTaskBtn" class="[^"]*task-mode-action hidden"[^>]*disabled/);
   assert.match(html, /id="specBoardBtn" class="icon-btn header-tool-btn"[^>]*data-project-context-only/);
   assert.doesNotMatch(html, /id="specBoardBtn" class="[^"]*\bhidden\b/);
-  assert.match(html, /id="navigationFilters" class="[^"]*conversation-mode-only/);
+  assert.doesNotMatch(html, /id="navigationFilters"|data-navigation-mode="conversations"/);
   assert.match(html, /recent-directories-sidebar conversation-mode-only/);
-  assert.match(appMain, /const scheduleContext = state\.activeWorkbench === "schedules"/);
-  assert.match(appMain, /const baseNavigationMode = taskContext \? "projects" : state\.navigationMode/);
-  assert.match(appMain, /const effectiveNavigationMode = !taskContext && compactSessionSidebar \? "all" : baseNavigationMode/);
+  assert.match(appMain, /const effectiveNavigationMode = taskContext \? "projects" : \(compactSessionSidebar \? "all" : "projects"\)/);
+  assert.match(appMain, /state\.navigationMode = "projects"/);
   assert.match(appMain, /if \(scheduleContext\)[\s\S]*?scheduleWorkspace\.renderNavigation/);
   assert.match(appMain, /renderNavigationHTML\(view, \{[\s\S]*?taskContext,/);
   assert.match(appMain, /newTaskBtn"\)\?\.addEventListener\("click", \(\) => focusTaskCreation\(\)\.catch\(showError\)\)/);
@@ -668,7 +667,7 @@ test("composer operation controls are exposed only in project context", async ()
   assert.match(styles, /body\.white-shell\.theme-light:not\(\.project-operation-context\) :is\(\.composer-actions, \.composer-message-mode-field, \.composer-permission-field\) \{ display: none !important; \}/);
   assert.doesNotMatch(appMain, /messageModeToggle/);
   assert.doesNotMatch(styles, /\.composer-field-label,\s*\.composer-actions,[\s\S]{0,180}\.composer-permission-field\s*\{ display: none !important; \}/);
-  assert.match(appMain, /navigationSelectionKind:\s*"conversation"/);
+  assert.match(appMain, /navigationSelectionKind:\s*"project"/);
   assert.match(appMain, /function syncProjectOperationContext\(\)/);
   assert.match(appMain, /selectionKind:\s*"project"/);
   assert.doesNotMatch(html, /id="currentMeta"/);
@@ -973,6 +972,7 @@ test("composer task activity is borderless, left aligned, and spins blue while a
   assert.match(backgroundTasks, /headerQueue\.classList\.toggle\("hidden", summary\.queuedCount <= 0\)/);
   assert.match(agentWorkspaceHelpers, /routeActivityToTaskSummary[\s\S]*?projectOperationContextActive\?\.\(\) && !isMobileAppViewport\?\.\(\)[\s\S]*?backgroundTasks\.setForegroundActivity\(activity\)/);
   assert.match(appMain, /createAgentWorkspaceHelpers\(\{[\s\S]*?projectOperationContextActive,[\s\S]*?isMobileAppViewport,/);
+  assert.match(appMain, /onMessageAccepted:\s*async[\s\S]*?state\.agent = \{ \.\.\.state\.agent, status: "running" \}[\s\S]*?refreshComposerActivityStatus\(\)/);
   assert.match(appMain, /window\.addEventListener\("resize"[\s\S]*?refreshComposerActivityStatus\(\)/);
   assert.match(chatRendering, /function renderLiveAssistantCardHTML\(\)[\s\S]*?if \(!text\) return ""/);
   assert.doesNotMatch(chatRendering, /class="live-assistant-(?:waiting|status)"/);
@@ -1703,7 +1703,6 @@ test("mobile shell skips home and keeps the drawer, settings index, and model sh
   for (const id of [
     "mobilePageTitle",
     "overviewDashboard",
-    "mobileNewConversationBtn",
     "mobileChooseDirectoryBtn",
     "mobileConversationWelcome",
     "mobileSidebarBackdrop",

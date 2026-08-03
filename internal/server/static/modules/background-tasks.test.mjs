@@ -436,6 +436,50 @@ test("unknown task.created events trigger exact asynchronous task hydration", as
   assert.equal(controller.getTaskByParentTool("run-parent", "tool-parent").id, "task-created");
 });
 
+test("first Agent output hydrates child identifiers for running navigation", async () => {
+  const requests = [];
+  const controller = createBackgroundTasksController({
+    request: async (path, options) => {
+      requests.push({ path, method: options.method });
+      if (path.includes("/output?")) return { chunks: [] };
+      return {
+        id: "task-output-child",
+        ownerAgentId: "agent-1",
+        parentRunId: "run-parent",
+        parentToolUseId: "tool-parent",
+        kind: "agent",
+        status: "running",
+        revision: 2,
+        childAgentId: "child-agent",
+        childRunId: "child-run",
+        publicSummary: { description: "Running child" },
+        createdAt: "2026-08-03T05:00:00Z",
+        startedAt: "2026-08-03T05:00:01Z",
+        updatedAt: "2026-08-03T05:00:01Z",
+      };
+    },
+  });
+  controller.setAgent("agent-1");
+  controller.applySnapshot({ backgroundTasks: [{
+    id: "task-output-child",
+    ownerAgentId: "agent-1",
+    kind: "agent",
+    status: "running",
+    revision: 1,
+    publicSummary: { description: "Starting child" },
+  }] }, { agentId: "agent-1" });
+
+  controller.handleEvent({ type: "task.output", agentId: "agent-1", data: { taskId: "task-output-child", kind: "agent", outputBytes: 20 } });
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.deepEqual(requests, [
+    { path: "/api/background-tasks/task-output-child", method: "GET" },
+    { path: "/api/background-tasks/task-output-child/output?afterSequence=0", method: "GET" },
+  ]);
+  assert.equal(controller.getTask("task-output-child").childAgentId, "child-agent");
+  assert.equal(controller.getTask("task-output-child").childRunId, "child-run");
+});
+
 test("newer lifecycle events force exact hydration while an older request is in flight", async () => {
   const requests = [];
   const resolvers = [];

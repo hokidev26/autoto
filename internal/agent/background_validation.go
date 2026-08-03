@@ -8,7 +8,38 @@ import (
 	"strings"
 
 	"autoto/internal/db"
+	"autoto/internal/tools"
 )
+
+type backgroundValidationError struct {
+	code string
+	err  error
+}
+
+func (e *backgroundValidationError) Error() string {
+	if e == nil || e.err == nil {
+		return "background task validation failed"
+	}
+	return e.err.Error()
+}
+
+func (e *backgroundValidationError) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+	return e.err
+}
+
+func (e *backgroundValidationError) ErrorCode() string {
+	if e == nil || strings.TrimSpace(e.code) == "" {
+		return "safety_snapshot_invalid"
+	}
+	return e.code
+}
+
+func backgroundValidationFailure(code string, err error) error {
+	return &backgroundValidationError{code: strings.TrimSpace(code), err: err}
+}
 
 // ValidateBackgroundTask revalidates the durable permission and workspace
 // boundary immediately before a queued task starts. A background task may
@@ -58,29 +89,67 @@ func (r *Runner) ValidateBackgroundTask(ctx context.Context, task db.BackgroundT
 		}
 	}
 
-	if snapshot, configured, err := r.currentPlanSnapshot(ctx, agent.ID); err != nil {
-		return fmt.Errorf("load background task safety snapshot: %w", err)
-	} else if configured {
-		if task.PolicyGenerationSnapshot > 0 && snapshot.PolicyGenerationSnapshot != task.PolicyGenerationSnapshot {
-			return errors.New("background task policy snapshot is stale")
+	// The plan snapshot provider intentionally remains Git-strict. Tasks bound
+	// to a workspace fingerprint use it unchanged. Ordinary non-Git tasks use a
+	// separate runtime snapshot so a frozen tool catalog is still revalidated
+	// without importing the plan approval requirement that CWD itself be a repo.
+	fingerprint := strings.TrimSpace(task.WorkspaceFingerprint)
+	digest := strings.TrimSpace(task.ToolCatalogDigest)
+	if fingerprint != "" {
+		if snapshot, configured, err := r.currentPlanSnapshot(ctx, agent.ID); err != nil {
+			return fmt.Errorf("load background task workspace snapshot: %w", err)
+		} else if !configured {
+			return errors.New("background task workspace snapshot is unavailable")
+		} else {
+			if task.PolicyGenerationSnapshot > 0 && snapshot.PolicyGenerationSnapshot != task.PolicyGenerationSnapshot {
+				return errors.New("background task policy snapshot is stale")
+			}
+			if task.AgentGenerationSnapshot > 0 && snapshot.AgentGenerationSnapshot != task.AgentGenerationSnapshot {
+				return errors.New("background task agent snapshot is stale")
+			}
+			if digest != "" && snapshot.ToolCatalogDigest != digest {
+				return errors.New("background task tool catalog is stale")
+			}
+			if snapshot.WorkspaceFingerprint != fingerprint {
+				return errors.New("background task workspace changed")
+			}
 		}
-		if task.AgentGenerationSnapshot > 0 && snapshot.AgentGenerationSnapshot != task.AgentGenerationSnapshot {
-			return errors.New("background task agent snapshot is stale")
-		}
-		if digest := strings.TrimSpace(task.ToolCatalogDigest); digest != "" && snapshot.ToolCatalogDigest != digest {
-			return errors.New("background task tool catalog is stale")
-		}
-		if fingerprint := strings.TrimSpace(task.WorkspaceFingerprint); fingerprint != "" && snapshot.WorkspaceFingerprint != fingerprint {
-			return errors.New("background task workspace changed")
+	} else if digest != "" {
+		if snapshot, configured, err := r.currentBackgroundTaskSnapshot(ctx, agent.ID); err != nil {
+			return fmt.Errorf("load background task runtime snapshot: %w", err)
+		} else if !configured {
+			return errors.New("background task runtime snapshot is unavailable")
+		} else {
+			if task.PolicyGenerationSnapshot > 0 && snapshot.PolicyGenerationSnapshot != task.PolicyGenerationSnapshot {
+				return errors.New("background task policy snapshot is stale")
+			}
+			if task.AgentGenerationSnapshot > 0 && snapshot.AgentGenerationSnapshot != task.AgentGenerationSnapshot {
+				return errors.New("background task agent snapshot is stale")
+			}
+			if snapshot.ToolCatalogDigest != digest {
+				return errors.New("background task tool catalog is stale")
+			}
 		}
 	}
 
 	var scope struct {
-		CWD string `json:"cwd"`
+		CWD     string `json:"cwd"`
+		Workdir string `json:"workdir"`
 	}
 	if len(task.PayloadJSON) > 0 && json.Unmarshal(task.PayloadJSON, &scope) == nil {
-		if cwd := strings.TrimSpace(scope.CWD); cwd != "" && cwd != strings.TrimSpace(agent.CWD) {
-			return errors.New("background task cwd changed")
+		requested := strings.TrimSpace(scope.Workdir)
+		if requested == "" {
+			requested = strings.TrimSpace(scope.CWD)
+		}
+		if requested != "" {
+			resolved, err := tools.ResolveWorkdirWithin(agent.CWD, requested)
+			if err != nil {
+				return backgroundValidationFailure("workdir_rejected", fmt.Errorf("background task workdir rejected: %w", err))
+			}
+			parent, err := tools.ResolveWorkdirWithin(agent.CWD, "")
+			if err != nil || resolved == "" || parent == "" {
+				return errors.New("background task parent workspace is unavailable")
+			}
 		}
 	}
 	return nil

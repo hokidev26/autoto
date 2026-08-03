@@ -155,11 +155,13 @@ export function createConversationTitleHelpers({
   }
 
   function rememberCurrentConversation() {
-    if (!state.agent?.id) return;
+    if (!state.agent?.id || !state.project?.id || !state.workline?.id) return;
     const navigationConversation = state.navigationConversations.find((item) => item.agentId === state.agent.id);
-    const target = navigationConversation?.targetId || (state.project?.id && state.workline?.id
-      ? { projectId: state.project.id, worklineId: state.workline.id, agentId: state.agent.id }
-      : { projectId: "", worklineId: "", agentId: state.agent.id });
+    const target = navigationConversation?.targetId || {
+      projectId: state.project.id,
+      worklineId: state.workline.id,
+      agentId: state.agent.id,
+    };
     state.recentConversations = addRecentConversation(state.recentConversations, target);
     try {
       localStorage.setItem(recentConversationsKey, JSON.stringify(state.recentConversations));

@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -20,12 +21,49 @@ import (
 type Service struct {
 	manager *Manager
 	store   *db.Store
+	runner  *agent.Runner
 }
 
 var _ tools.BackgroundTaskService = (*Service)(nil)
 
-func NewService(manager *Manager, store *db.Store) *Service {
-	return &Service{manager: manager, store: store}
+func NewService(manager *Manager, store *db.Store, runners ...*agent.Runner) *Service {
+	var runner *agent.Runner
+	if len(runners) > 0 {
+		runner = runners[0]
+	}
+	return &Service{manager: manager, store: store, runner: runner}
+}
+
+func (s *Service) PreflightAgentTask(ctx context.Context, request tools.AgentTaskPreflightRequest) error {
+	if s == nil || s.runner == nil || s.store == nil {
+		return nil
+	}
+	parent, err := s.store.GetAgent(ctx, strings.TrimSpace(request.OwnerAgentID))
+	if err != nil {
+		return &tools.PreflightError{Code: "subagent_role_rejected", Message: fmt.Sprintf("load parent agent for preflight: %v", err)}
+	}
+	if err := validateAgentTaskNesting(s.store, ctx, parent, s.manager.BackgroundRuntimeSettings()); err != nil {
+		code := "scope_rejected"
+		if coded, ok := err.(interface{ ErrorCode() string }); ok && strings.TrimSpace(coded.ErrorCode()) != "" {
+			code = strings.TrimSpace(coded.ErrorCode())
+		}
+		return &tools.PreflightError{Code: code, Message: err.Error()}
+	}
+	requested := strings.ToLower(strings.TrimSpace(request.SubagentType))
+	if requested == "general-purpose" {
+		requested = "general"
+	}
+	resolution, resolveErr := s.runner.ResolveChildRole(ctx, parent.ID, request.ParentRunID, requested)
+	if resolveErr != nil {
+		return &tools.PreflightError{Code: "subagent_role_rejected", Message: resolveErr.Error()}
+	}
+	role := resolution.ModelRole
+	if explicit := strings.TrimSpace(request.ExplicitModel); explicit != "" {
+		if _, _, resolveErr := s.runner.ResolveSubagentModel(role, explicit, parent.Model); resolveErr != nil {
+			return &tools.PreflightError{Code: "subagent_model_rejected", Message: resolveErr.Error()}
+		}
+	}
+	return nil
 }
 
 func (s *Service) Submit(ctx context.Context, request tools.BackgroundTaskRequest) (tools.BackgroundTask, error) {

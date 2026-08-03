@@ -448,15 +448,31 @@ func (r *Runner) ResolveChildRole(ctx context.Context, parentAgentID, parentRunI
 	if err != nil {
 		return ChildRoleResolution{}, err
 	}
-	runtimeSnapshot, err := r.store.GetAgentRunRuntimeSnapshot(ctx, strings.TrimSpace(parentRunID))
-	if err != nil {
-		return ChildRoleResolution{}, fmt.Errorf("load parent run tool snapshot: %w", err)
+	var parentCapabilities agentprofile.CapabilitySet
+	if parentRunID = strings.TrimSpace(parentRunID); parentRunID != "" {
+		runtimeSnapshot, err := r.store.GetAgentRunRuntimeSnapshot(ctx, parentRunID)
+		if err != nil {
+			return ChildRoleResolution{}, fmt.Errorf("load parent run tool snapshot: %w", err)
+		}
+		if runtimeSnapshot.AgentID != parent.ID {
+			return ChildRoleResolution{}, errors.New("parent run snapshot does not belong to parent agent")
+		}
+		parentCapabilities = toolCapabilitySet(runtimeSnapshot.ToolCapabilities)
+	} else {
+		// Direct background-task API calls have no durable parent Run. Resolve the
+		// same capability contract from the parent's current policy snapshot rather
+		// than rejecting every built-in role or widening the available tool set.
+		policy := PolicyContext{AgentID: parent.ID, PermissionMode: parent.PermissionMode, ExecutionMode: executionModeForAgent(parent)}
+		snapshot, err := r.snapshotToolsForPolicy(ctx, tools.ResolutionContext{AgentID: parent.ID, CWD: parent.CWD}, policy)
+		if err != nil {
+			return ChildRoleResolution{}, fmt.Errorf("load parent tool snapshot: %w", err)
+		}
+		parentCapabilities = capabilitiesFromToolSnapshot(snapshot)
 	}
-	if runtimeSnapshot.AgentID != parent.ID {
-		return ChildRoleResolution{}, errors.New("parent run snapshot does not belong to parent agent")
-	}
-	parentCapabilities := toolCapabilitySet(runtimeSnapshot.ToolCapabilities)
 	requested = strings.ToLower(strings.TrimSpace(requested))
+	if requested == "general-purpose" {
+		requested = "general"
+	}
 	if contract, roleErr := agentrole.Resolve(requested); roleErr == nil {
 		return ChildRoleResolution{Key: string(contract.Role), PublicRole: string(contract.Role), BaseRole: contract.Role, ModelRole: subagentModelRoleForCanonical(contract.Role), ImmutableRolePrompt: contract.Prompt, ReadOnly: contract.ReadOnly, AllowedTools: capabilityNamesForContract(parentCapabilities, contract)}, nil
 	}

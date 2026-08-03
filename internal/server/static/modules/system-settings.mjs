@@ -1,7 +1,7 @@
 import { $, escapeAttr, escapeHtml, setButtonBusy } from "./dom.mjs";
 import { formatBytes, formatDuration, formatNumber, formatTimestamp } from "./formatters.mjs";
 import { currentUILocale, t as baseT } from "./i18n.mjs";
-import systemSettingsMessages from "./messages-system-settings.mjs?v=about-brand-license-1-desktop-shell-1-execution-budget-2";
+import systemSettingsMessages from "./messages-system-settings.mjs?v=about-brand-license-1-desktop-shell-1-execution-budget-2-background-task-settings-1";
 import { localPreferenceBackupVersion } from "./preferences-data.mjs";
 import { api } from "./runtime.mjs";
 import {
@@ -47,6 +47,19 @@ const defaultContinuationSegmentTurns = 40;
 // Remembers the last real number per field so toggling "unlimited" off restores
 // what the user typed instead of snapping back to the generic fallback.
 const executionBudgetDrafts = {};
+
+const defaultBackgroundTaskSettings = {
+  workerCount: 8,
+  perAgentLimit: 4,
+  allowNestedSubagents: false,
+  maxSubagentDepth: 2,
+};
+
+const backgroundTaskSettingFields = [
+  { key: "workerCount", id: "runtimeBackgroundWorkerCount", min: 1, max: 16 },
+  { key: "perAgentLimit", id: "runtimeBackgroundPerAgentLimit", min: 1, max: 8 },
+  { key: "maxSubagentDepth", id: "runtimeMaxSubagentDepth", min: 2, max: 4 },
+];
 
 export function createSystemSettingsController({
   state,
@@ -197,9 +210,61 @@ export function createSystemSettingsController({
           ${renderRuntimeKeyValue(t("systemSettings.runtimeResources.sampleTime"), formatTimestamp(summary.generatedAt))}
         </div>
       </section>
+      ${renderBackgroundTaskSettingsCard(summary.backgroundTasks)}
       ${renderExecutionBudgetCard(agent.continuation || {})}
     </div>
   `;
+  }
+
+  function renderBackgroundTaskSettingsCard(backgroundTasks) {
+    const settings = normalizedBackgroundTaskSettings(backgroundTasks);
+    return `
+      <section class="settings-info-card settings-card settings-card-content background-task-settings-card">
+        <div class="settings-info-title">${escapeHtml(t("systemSettings.runtimeResources.backgroundTaskSettings.title"))}</div>
+        <p class="settings-card-description" data-settings-help-copy>${escapeHtml(t("systemSettings.runtimeResources.backgroundTaskSettings.description"))}</p>
+        <div class="settings-provider-form-grid settings-form-grid">
+          ${backgroundTaskSettingFields.filter((field) => field.key !== "maxSubagentDepth").map((field) => renderBackgroundTaskNumberField(field, settings[field.key])).join("")}
+          <label class="settings-switch-row" for="runtimeAllowNestedSubagents">
+            <span>
+              <strong>${escapeHtml(t("systemSettings.runtimeResources.backgroundTaskSettings.allowNestedSubagents"))}</strong>
+              <small data-settings-help-copy>${escapeHtml(t("systemSettings.runtimeResources.backgroundTaskSettings.allowNestedSubagentsHint"))}</small>
+            </span>
+            <input id="runtimeAllowNestedSubagents" type="checkbox" data-background-task-field="allowNestedSubagents" ${settings.allowNestedSubagents ? "checked" : ""} />
+          </label>
+          ${renderBackgroundTaskNumberField(backgroundTaskSettingFields.find((field) => field.key === "maxSubagentDepth"), settings.maxSubagentDepth, !settings.allowNestedSubagents)}
+        </div>
+        <p class="settings-card-description" data-settings-help-copy>${escapeHtml(t("systemSettings.runtimeResources.backgroundTaskSettings.nestedWarning"))}</p>
+        <div class="settings-action-row settings-form-actions settings-card-footer settings-inline-actions">
+          <button id="saveBackgroundTaskSettingsBtn" class="settings-action-btn primary" type="button">${escapeHtml(t("systemSettings.runtimeResources.backgroundTaskSettings.save"))}</button>
+        </div>
+      </section>`;
+  }
+
+  function renderBackgroundTaskNumberField(field, value, disabled = false) {
+    return `
+          <label class="settings-form-field" for="${escapeAttr(field.id)}">
+            ${escapeHtml(t(`systemSettings.runtimeResources.backgroundTaskSettings.${field.key}`))}
+            <input id="${escapeAttr(field.id)}" class="settings-field" type="number" inputmode="numeric"
+              data-background-task-field="${escapeAttr(field.key)}" min="${escapeAttr(String(field.min))}" max="${escapeAttr(String(field.max))}" step="1"
+              value="${escapeAttr(String(value))}" ${disabled ? "disabled" : ""} />
+            <small>${escapeHtml(t("systemSettings.runtimeResources.backgroundTaskSettings.range", { min: field.min, max: field.max }))}</small>
+          </label>`;
+  }
+
+  function normalizedBackgroundTaskSettings(backgroundTasks = {}) {
+    const values = backgroundTasks && typeof backgroundTasks === "object" ? backgroundTasks : {};
+    return {
+      workerCount: normalizedBackgroundTaskInteger(values.workerCount, defaultBackgroundTaskSettings.workerCount, 1, 16),
+      perAgentLimit: normalizedBackgroundTaskInteger(values.perAgentLimit, defaultBackgroundTaskSettings.perAgentLimit, 1, 8),
+      allowNestedSubagents: values.allowNestedSubagents === true,
+      maxSubagentDepth: normalizedBackgroundTaskInteger(values.maxSubagentDepth, defaultBackgroundTaskSettings.maxSubagentDepth, 2, 4),
+    };
+  }
+
+  function normalizedBackgroundTaskInteger(value, fallback, min, max) {
+    const number = Number(value);
+    if (!Number.isFinite(number)) return fallback;
+    return Math.min(max, Math.max(min, Math.round(number)));
   }
 
   // Budgets persist as -1 for "no ceiling". The checkbox owns that state so the
@@ -282,10 +347,22 @@ export function createSystemSettingsController({
 
   function bindRuntimeSettingsActions() {
     $("refreshRuntimeSummaryBtn")?.addEventListener("click", () => loadRuntimeSummary({ notify: true }).catch(showError));
+    bindBackgroundTaskSettingsActions();
     bindExecutionBudgetActions();
     if (!state.runtimeSummary && !state.runtimeError) {
       loadRuntimeSummary().catch(showError);
     }
+  }
+
+  function bindBackgroundTaskSettingsActions() {
+    const nestedToggle = $("runtimeAllowNestedSubagents");
+    const depthInput = $("runtimeMaxSubagentDepth");
+    nestedToggle?.addEventListener("change", () => {
+      if (depthInput) depthInput.disabled = !nestedToggle.checked;
+    });
+    $("saveBackgroundTaskSettingsBtn")?.addEventListener("click", (event) => (
+      saveBackgroundTaskSettings(event.currentTarget).catch(showError)
+    ));
   }
 
   function bindExecutionBudgetActions() {
@@ -326,6 +403,31 @@ export function createSystemSettingsController({
 
   function setExecutionBudgetRowUnlimited(toggle, unlimited) {
     toggle?.closest?.("[data-budget-row]")?.classList?.toggle("is-unlimited", Boolean(unlimited));
+  }
+
+  function collectBackgroundTaskSettings() {
+    return {
+      workerCount: readBackgroundTaskInteger("runtimeBackgroundWorkerCount", defaultBackgroundTaskSettings.workerCount, 1, 16),
+      perAgentLimit: readBackgroundTaskInteger("runtimeBackgroundPerAgentLimit", defaultBackgroundTaskSettings.perAgentLimit, 1, 8),
+      allowNestedSubagents: Boolean($("runtimeAllowNestedSubagents")?.checked),
+      maxSubagentDepth: readBackgroundTaskInteger("runtimeMaxSubagentDepth", defaultBackgroundTaskSettings.maxSubagentDepth, 2, 4),
+    };
+  }
+
+  function readBackgroundTaskInteger(id, fallback, min, max) {
+    return normalizedBackgroundTaskInteger($(id)?.value, fallback, min, max);
+  }
+
+  async function saveBackgroundTaskSettings(button) {
+    const payload = collectBackgroundTaskSettings();
+    setButtonBusy(button, true, t("systemSettings.runtimeResources.backgroundTaskSettings.saving"));
+    try {
+      await api("/api/runtime/background-task-settings", { method: "PATCH", body: JSON.stringify(payload) });
+      showToast?.(t("systemSettings.runtimeResources.backgroundTaskSettings.saved"), "success", { force: true });
+      await loadRuntimeSummary();
+    } finally {
+      setButtonBusy(button, false);
+    }
   }
 
   function collectExecutionBudget() {

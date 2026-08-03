@@ -1803,7 +1803,6 @@ body.white-shell.theme-light:not(.workbench-mode):not(.schedule-mode):not(.overv
 .overview-refresh:focus-visible,
 .overview-link:focus-visible,
 .overview-summary-card:focus-visible,
-.overview-launcher-mode:focus-visible,
 .overview-launcher-directory:focus-visible,
 .overview-launcher-send:focus-visible,
 .overview-launcher-suggestion:focus-visible,
@@ -1834,28 +1833,6 @@ body.white-shell.theme-light:not(.workbench-mode):not(.schedule-mode):not(.overv
 .overview-hero-mark { width: 38px; height: 38px; display: grid; place-items: center; color: #435cff; }
 .overview-hero-mark svg { width: 100%; height: 100%; fill: none; stroke: currentColor; stroke-width: 2.15; stroke-linecap: round; stroke-linejoin: round; }
 .overview-hero-title { margin: 0; color: var(--ws-text, #20263a); font-size: clamp(30px, 4vw, 46px); font-weight: 620; letter-spacing: -.035em; line-height: 1.08; }
-.overview-launcher-mode-group {
-  display: inline-flex;
-  align-items: center;
-  gap: 2px;
-  border-radius: 11px;
-  background: color-mix(in srgb, var(--ws-border, #dfe3e9) 54%, transparent);
-  padding: 3px;
-}
-.overview-launcher-mode {
-  min-width: 76px;
-  min-height: 32px;
-  border: 0;
-  border-radius: 8px;
-  background: transparent;
-  color: var(--ws-muted, #747e90);
-  padding: 5px 13px;
-  font: inherit;
-  font-size: 12px;
-  font-weight: 680;
-  cursor: pointer;
-}
-.overview-launcher-mode[aria-pressed="true"] { background: var(--ws-card, #fff); color: var(--ws-text, #20263a); box-shadow: 0 1px 4px rgba(31, 40, 70, .13); }
 .overview-launcher-form {
   width: 100%;
   display: grid;
@@ -2087,8 +2064,8 @@ body.white-shell.theme-light .overview-launcher-select-trigger .composer-select-
   body.white-shell.theme-light .overview-dashboard-page { display: none !important; }
 }
 body.white-shell.theme-light.theme-dark .overview-dashboard-page { background: var(--ws-canvas); color: var(--ws-text); }
-body.white-shell.theme-light.theme-dark :is(.overview-launcher-form, .overview-summary-card, .overview-section, .overview-refresh, .overview-link, .overview-launcher-directory, .overview-launcher-suggestion, .overview-launcher-mode[aria-pressed="true"]) { border-color: var(--ws-border); background: var(--ws-card); color: var(--ws-text); box-shadow: none; }
-body.white-shell.theme-light.theme-dark :is(.overview-launcher-field, .overview-launcher-mode-group) { border-color: var(--ws-border); background: color-mix(in srgb, var(--ws-canvas) 64%, var(--ws-card)); }
+body.white-shell.theme-light.theme-dark :is(.overview-launcher-form, .overview-summary-card, .overview-section, .overview-refresh, .overview-link, .overview-launcher-directory, .overview-launcher-suggestion) { border-color: var(--ws-border); background: var(--ws-card); color: var(--ws-text); box-shadow: none; }
+body.white-shell.theme-light.theme-dark .overview-launcher-field { border-color: var(--ws-border); background: color-mix(in srgb, var(--ws-canvas) 64%, var(--ws-card)); }
 /* Focus lives on the card now that the textarea has no outline. The dark block
    above pins border-color on .overview-launcher-form at (0,4,1), which outranks
    the plain :focus-within rule, so the dark variant has to be spelled out at a

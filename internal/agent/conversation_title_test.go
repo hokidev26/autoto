@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -143,8 +144,8 @@ func TestAutoTitleConversationPersistsAndPublishesSanitizedTitle(t *testing.T) {
 	if current.Title != "Fix the login redirect" {
 		t.Fatalf("unexpected stored title %q", current.Title)
 	}
-	if current.EntityGeneration <= agent.EntityGeneration {
-		t.Fatalf("entity generation did not advance: %d -> %d", agent.EntityGeneration, current.EntityGeneration)
+	if current.EntityGeneration != agent.EntityGeneration {
+		t.Fatalf("cosmetic title update changed entity generation: %d -> %d", agent.EntityGeneration, current.EntityGeneration)
 	}
 
 	request := provider.request(0)
@@ -162,6 +163,29 @@ func TestAutoTitleConversationPersistsAndPublishesSanitizedTitle(t *testing.T) {
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("timed out waiting for the title event")
+	}
+}
+
+func TestAutoTitleConversationGenerationConflictDoesNotOverwriteUserTitle(t *testing.T) {
+	ctx := context.Background()
+	store, agent := newConversationTitleTestStore(t, "New conversation")
+	defer store.Close()
+
+	userTitle, err := store.UpdateAgentTitle(ctx, agent.ID, "User-chosen title")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = store.UpdateAgentTitleCosmeticCAS(ctx, agent.ID, "Generated title", agent.EntityGeneration)
+	if err == nil || !errors.Is(err, db.ErrConflict) {
+		t.Fatalf("expected stale cosmetic title update conflict, got %v", err)
+	}
+
+	current, err := store.GetAgent(ctx, agent.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if current.Title != userTitle.Title || current.EntityGeneration != userTitle.EntityGeneration {
+		t.Fatalf("stale cosmetic title update overwrote user state: current=%+v user=%+v", current, userTitle)
 	}
 }
 

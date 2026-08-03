@@ -22,7 +22,8 @@ type agentTaskInput struct {
 	Description        string   `json:"description,omitempty" desc:"Short label for this task, shown in the task list."`
 	SubagentType       string   `json:"subagent_type,omitempty" desc:"Configured agent preset to run as. Lower-case letters, digits, dot, underscore, and hyphen only."`
 	Model              string   `json:"model,omitempty" desc:"Model override in provider:model form. Defaults to the preset or parent model."`
-	ReasoningEffort    string   `json:"reasoning_effort,omitempty" jsonschema:"enum=auto|low|medium|high|xhigh" desc:"Reasoning effort for the child agent."`
+	Workdir            string   `json:"workdir,omitempty" desc:"Optional directory inside the parent agent workspace. Defaults to the parent agent working directory."`
+	ReasoningEffort    string   `json:"reasoning_effort,omitempty" jsonschema:"enum=auto|low|medium|high|xhigh|max|ultra" desc:"Reasoning effort for the child agent."`
 	AcceptanceCriteria []string `json:"acceptance_criteria,omitempty" desc:"Completion checks for the child. These are checks only; they never grant the child extra permissions, tools, or scope."`
 	RunInBackground    *bool    `json:"run_in_background,omitempty" desc:"Must be true. Child agents always run as background tasks; poll them with the Task tool."`
 	ResumeParent       bool     `json:"resume_parent,omitempty" desc:"Resume this run automatically once the child agent finishes."`
@@ -33,15 +34,19 @@ type agentTaskPayload struct {
 	Description        string   `json:"description,omitempty"`
 	SubagentType       string   `json:"subagentType,omitempty"`
 	Model              string   `json:"model,omitempty"`
+	Workdir            string   `json:"workdir,omitempty"`
 	ReasoningEffort    string   `json:"reasoningEffort,omitempty"`
 	AcceptanceCriteria []string `json:"acceptanceCriteria,omitempty"`
 }
 
 type agentTaskPublicSummary struct {
-	Description     string `json:"description"`
-	SubagentType    string `json:"subagentType"`
-	Model           string `json:"model"`
-	AcceptanceCount int    `json:"acceptanceCount,omitempty"`
+	Description           string `json:"description"`
+	RequestedSubagentType string `json:"requestedSubagentType,omitempty"`
+	SubagentType          string `json:"subagentType"`
+	RequestedModel        string `json:"requestedModel,omitempty"`
+	Model                 string `json:"model,omitempty"`
+	Workdir               string `json:"workdir,omitempty"`
+	AcceptanceCount       int    `json:"acceptanceCount,omitempty"`
 }
 
 func (AgentTool) Name() string { return "Agent" }
@@ -60,6 +65,7 @@ func (AgentTool) Execute(ctx context.Context, call Call, env Env) (Result, error
 	input.Description = strings.TrimSpace(input.Description)
 	input.SubagentType = strings.TrimSpace(input.SubagentType)
 	input.Model = strings.TrimSpace(input.Model)
+	input.Workdir = strings.TrimSpace(input.Workdir)
 	input.ReasoningEffort = strings.TrimSpace(input.ReasoningEffort)
 	if input.Prompt == "" {
 		return Result{Output: "prompt is required", IsError: true}, nil
@@ -67,16 +73,27 @@ func (AgentTool) Execute(ctx context.Context, call Call, env Env) (Result, error
 	if len([]byte(input.Prompt)) > 64*1024 {
 		return Result{Output: "prompt exceeds size limit", IsError: true}, nil
 	}
-	if len([]byte(input.Description)) > 200 || len([]byte(input.Model)) > 256 || len([]byte(input.SubagentType)) > 64 {
-		return Result{Output: "agent task metadata exceeds size limit", IsError: true}, nil
+	if len([]byte(input.Description)) > 200 || len([]byte(input.Model)) > 256 || len([]byte(input.SubagentType)) > 64 || len([]byte(input.Workdir)) > 1024 {
+		return agentToolError("subagent_payload_rejected", "agent task metadata exceeds size limit"), nil
+	}
+	requestedSubagentType := input.SubagentType
+	if strings.EqualFold(input.SubagentType, "general-purpose") {
+		input.SubagentType = "general"
 	}
 	if role, err := agentrole.Normalize(input.SubagentType); err == nil {
 		input.SubagentType = string(role)
 	} else {
 		input.SubagentType = strings.ToLower(input.SubagentType)
 		if !validAgentPresetKey(input.SubagentType) {
-			return Result{Output: "invalid subagent_type", IsError: true}, nil
+			return agentToolError("subagent_role_rejected", "invalid subagent_type"), nil
 		}
+	}
+	if env.CWD != "" || input.Workdir != "" {
+		workdir, err := ResolveWorkdirWithin(env.CWD, input.Workdir)
+		if err != nil {
+			return agentToolError("workdir_rejected", err.Error()), nil
+		}
+		input.Workdir = workdir
 	}
 	if len(input.AcceptanceCriteria) > maxAcceptanceCriteriaItems {
 		return Result{Output: "acceptance_criteria exceeds item limit", IsError: true}, nil
@@ -112,14 +129,26 @@ func (AgentTool) Execute(ctx context.Context, call Call, env Env) (Result, error
 		return Result{Output: "resume_parent requires a durable parent run", IsError: true}, nil
 	}
 	payload, err := json.Marshal(agentTaskPayload{
-		Prompt: input.Prompt, Description: input.Description, SubagentType: input.SubagentType, Model: input.Model, ReasoningEffort: input.ReasoningEffort, AcceptanceCriteria: input.AcceptanceCriteria,
+		Prompt: input.Prompt, Description: input.Description, SubagentType: input.SubagentType, Model: input.Model, Workdir: input.Workdir, ReasoningEffort: input.ReasoningEffort, AcceptanceCriteria: input.AcceptanceCriteria,
 	})
 	if err != nil {
 		return Result{}, err
 	}
 	publicSummary, _ := json.Marshal(agentTaskPublicSummary{
-		Description: input.Description, SubagentType: input.SubagentType, Model: input.Model, AcceptanceCount: len(input.AcceptanceCriteria),
+		Description: input.Description, RequestedSubagentType: requestedSubagentType, SubagentType: input.SubagentType,
+		RequestedModel: input.Model, Workdir: input.Workdir, AcceptanceCount: len(input.AcceptanceCriteria),
 	})
+	if preflight, ok := env.Background.(AgentTaskPreflightService); ok {
+		if err := preflight.PreflightAgentTask(ctx, AgentTaskPreflightRequest{
+			OwnerAgentID: env.AgentID, ParentRunID: env.RunID, SubagentType: input.SubagentType, ExplicitModel: input.Model,
+		}); err != nil {
+			code := "subagent_preflight_rejected"
+			if coded, ok := err.(interface{ ErrorCode() string }); ok && coded.ErrorCode() != "" {
+				code = coded.ErrorCode()
+			}
+			return agentToolError(code, err.Error()), nil
+		}
+	}
 	task, err := env.Background.Submit(ctx, BackgroundTaskRequest{
 		Kind:                         BackgroundTaskKindAgent,
 		OwnerAgentID:                 env.AgentID,
@@ -140,10 +169,15 @@ func (AgentTool) Execute(ctx context.Context, call Call, env Env) (Result, error
 		if errors.Is(err, context.Canceled) {
 			return Result{}, err
 		}
-		return Result{Output: "background agent task could not be created", IsError: true}, nil
+		return agentToolError("background_task_rejected", "background agent task could not be created"), nil
 	}
 	encoded, _ := json.Marshal(task)
 	return Result{Output: string(encoded), Meta: map[string]any{"backgroundTaskId": task.ID, "background": true}}, nil
+}
+
+func agentToolError(code, message string) Result {
+	payload, _ := json.Marshal(map[string]string{"errorCode": code, "errorMessage": message})
+	return Result{Output: string(payload), IsError: true, Meta: map[string]any{"errorCode": code, "errorMessage": message}}
 }
 
 func validAgentPresetKey(value string) bool {

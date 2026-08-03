@@ -27,7 +27,9 @@ type createBackgroundTaskRequest struct {
 	TimeoutMS       int    `json:"timeoutMs,omitempty"`
 	Prompt          string `json:"prompt,omitempty"`
 	Description     string `json:"description,omitempty"`
+	SubagentType    string `json:"subagentType,omitempty"`
 	Model           string `json:"model,omitempty"`
+	Workdir         string `json:"workdir,omitempty"`
 	ReasoningEffort string `json:"reasoningEffort,omitempty"`
 	ResumeParent    bool   `json:"resumeParent,omitempty"`
 }
@@ -35,6 +37,46 @@ type createBackgroundTaskRequest struct {
 type waitBackgroundTaskRequest struct {
 	AfterRevision int64 `json:"afterRevision,omitempty"`
 	TimeoutMS     int64 `json:"timeoutMs,omitempty"`
+}
+
+type backgroundTaskRequestErrorResponse struct {
+	Error        string `json:"error"`
+	ErrorCode    string `json:"errorCode"`
+	ErrorMessage string `json:"errorMessage"`
+}
+
+func backgroundTaskRequestError(result tools.Result) backgroundTaskRequestErrorResponse {
+	response := backgroundTaskRequestErrorResponse{
+		Error:        "background task request was not authorized",
+		ErrorCode:    "background_task_rejected",
+		ErrorMessage: "background task request was not authorized",
+	}
+	if result.Meta != nil {
+		if code, ok := result.Meta["errorCode"].(string); ok && strings.TrimSpace(code) != "" {
+			response.ErrorCode = strings.TrimSpace(code)
+		}
+		if message, ok := result.Meta["errorMessage"].(string); ok && strings.TrimSpace(message) != "" {
+			response.Error = strings.TrimSpace(message)
+			response.ErrorMessage = response.Error
+		}
+	}
+	var payload struct {
+		ErrorCode    string `json:"errorCode"`
+		ErrorMessage string `json:"errorMessage"`
+	}
+	if json.Unmarshal([]byte(result.Output), &payload) == nil {
+		if strings.TrimSpace(payload.ErrorCode) != "" {
+			response.ErrorCode = strings.TrimSpace(payload.ErrorCode)
+		}
+		if strings.TrimSpace(payload.ErrorMessage) != "" {
+			response.Error = strings.TrimSpace(payload.ErrorMessage)
+			response.ErrorMessage = response.Error
+		}
+	} else if message := publicRunErrorText(strings.TrimSpace(result.Output)); message != "" {
+		response.Error = message
+		response.ErrorMessage = message
+	}
+	return response
 }
 
 func (s *Server) requireBackgroundTasks(w http.ResponseWriter) tools.BackgroundTaskService {
@@ -126,7 +168,8 @@ func (s *Server) createBackgroundTask(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		input, _ := json.Marshal(map[string]any{
-			"prompt": prompt, "description": strings.TrimSpace(req.Description), "model": strings.TrimSpace(req.Model),
+			"prompt": prompt, "description": strings.TrimSpace(req.Description), "subagent_type": strings.TrimSpace(req.SubagentType),
+			"model": strings.TrimSpace(req.Model), "workdir": strings.TrimSpace(req.Workdir),
 			"reasoning_effort": strings.TrimSpace(req.ReasoningEffort), "run_in_background": true,
 		})
 		call.Name, call.Input = "Agent", input
@@ -140,7 +183,7 @@ func (s *Server) createBackgroundTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if result.IsError {
-		writeError(w, http.StatusConflict, "background task request was not authorized")
+		writeJSON(w, http.StatusConflict, backgroundTaskRequestError(result))
 		return
 	}
 	var task tools.BackgroundTask

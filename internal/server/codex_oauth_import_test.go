@@ -638,6 +638,74 @@ func TestNativeCodexBatchSyncIsSequentialAndPerAccountBounded(t *testing.T) {
 	}
 }
 
+func TestNativeCodexSyncPersistsQuotaUnauthorizedStatus(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/backend-api/wham/usage":
+			w.WriteHeader(http.StatusUnauthorized)
+		case "/oauth/token":
+			_, _ = w.Write([]byte(`{"access_token":"server-quota-refreshed","expires_in":3600}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer upstream.Close()
+
+	home := t.TempDir()
+	database, err := db.Open(context.Background(), filepath.Join(home, "autoto.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	app := New(config.Config{
+		Paths: config.PathsConfig{HomeDir: home},
+		Providers: config.ProvidersConfig{Instances: []config.ProviderConfig{{
+			Name: "codex", Type: config.ProviderTypeCodex, BaseURL: upstream.URL + "/backend-api/codex", Model: "gpt-test",
+			CodexAllowInsecureTestEndpoint: true, CodexRefreshURLForTest: upstream.URL + "/oauth/token",
+		}}},
+	}, database, nil, nil, providers.NewRegistry())
+
+	payload, _ := json.Marshal(importAuthFileRequest{
+		Filename: "quota-status.json",
+		Content:  `{"type":"codex","access_token":"server-quota-old","refresh_token":"server-quota-refresh","account_id":"server-quota-account"}`,
+	})
+	importRecorder := httptest.NewRecorder()
+	app.Routes().ServeHTTP(importRecorder, authenticatedCodexRequest(app, http.MethodPost, "/api/providers/oauth/codex/import", bytes.NewReader(payload)))
+	if importRecorder.Code != http.StatusOK {
+		t.Fatalf("import failed: %d %s", importRecorder.Code, importRecorder.Body.String())
+	}
+
+	listRecorder := httptest.NewRecorder()
+	app.Routes().ServeHTTP(listRecorder, authenticatedCodexRequest(app, http.MethodGet, "/api/providers/oauth/codex/accounts", nil))
+	if listRecorder.Code != http.StatusOK {
+		t.Fatalf("initial list failed: %d %s", listRecorder.Code, listRecorder.Body.String())
+	}
+	var listed codexOAuthAccountsResponse
+	if err := json.Unmarshal(listRecorder.Body.Bytes(), &listed); err != nil || len(listed.Accounts) != 1 {
+		t.Fatalf("unexpected initial account list: %+v err=%v", listed, err)
+	}
+	id := listed.Accounts[0].ID
+
+	refreshRecorder := httptest.NewRecorder()
+	app.Routes().ServeHTTP(refreshRecorder, authenticatedCodexRequest(app, http.MethodPost, "/api/providers/oauth/codex/accounts/"+id+"/refresh", nil))
+	if refreshRecorder.Code != http.StatusBadGateway {
+		t.Fatalf("expected quota refresh failure, got %d: %s", refreshRecorder.Code, refreshRecorder.Body.String())
+	}
+	assertCodexResponseHasNoSecrets(t, refreshRecorder.Body.Bytes())
+
+	listRecorder = httptest.NewRecorder()
+	app.Routes().ServeHTTP(listRecorder, authenticatedCodexRequest(app, http.MethodGet, "/api/providers/oauth/codex/accounts", nil))
+	if listRecorder.Code != http.StatusOK {
+		t.Fatalf("post-sync list failed: %d %s", listRecorder.Code, listRecorder.Body.String())
+	}
+	if err := json.Unmarshal(listRecorder.Body.Bytes(), &listed); err != nil || len(listed.Accounts) != 1 || listed.Accounts[0].Stats == nil {
+		t.Fatalf("quota status was not returned with account: %+v err=%v", listed, err)
+	}
+	if listed.Accounts[0].Stats.LastErrorCode != "quota_unauthorized" || listed.Accounts[0].Stats.LastStatusCode != "quota_unauthorized" || listed.Accounts[0].Stats.LastHTTPStatus != http.StatusUnauthorized {
+		t.Fatalf("unexpected persisted quota status: %+v", listed.Accounts[0].Stats)
+	}
+}
+
 func assertCodexResponseHasNoSecrets(t *testing.T, body []byte) {
 	t.Helper()
 	var value any

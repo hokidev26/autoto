@@ -47,20 +47,31 @@ type TaskValidator func(context.Context, db.BackgroundTask) error
 type TaskEventHook func(context.Context, string, db.BackgroundTask)
 
 type Options struct {
-	WorkerCount      int
-	PerAgentLimit    int
-	OutputLimitBytes int64
-	OutputChunkBytes int
-	PollInterval     time.Duration
-	WorkerInstanceID string
+	WorkerCount          int
+	PerAgentLimit        int
+	AllowNestedSubagents bool
+	MaxSubagentDepth     int
+	OutputLimitBytes     int64
+	OutputChunkBytes     int
+	PollInterval         time.Duration
+	WorkerInstanceID     string
 }
 
 func (options Options) withDefaults() Options {
 	if options.WorkerCount <= 0 {
-		options.WorkerCount = 4
+		options.WorkerCount = 8
+	} else if options.WorkerCount > 16 {
+		options.WorkerCount = 16
 	}
 	if options.PerAgentLimit <= 0 {
-		options.PerAgentLimit = 2
+		options.PerAgentLimit = 4
+	} else if options.PerAgentLimit > 8 {
+		options.PerAgentLimit = 8
+	}
+	if options.MaxSubagentDepth < 2 {
+		options.MaxSubagentDepth = 2
+	} else if options.MaxSubagentDepth > 4 {
+		options.MaxSubagentDepth = 4
 	}
 	if options.OutputLimitBytes <= 0 || options.OutputLimitBytes > db.BackgroundTaskDefaultOutputMax {
 		options.OutputLimitBytes = db.BackgroundTaskDefaultOutputMax

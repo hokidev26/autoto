@@ -111,6 +111,8 @@ type Server struct {
 	authLoginMu                 sync.Mutex
 	agentMutationLocksMu        sync.Mutex
 	agentMutationLocks          map[string]*agentMutationLock
+	projectConversationMu       sync.Mutex
+	projectConversationKeys     map[string]projectConversationResult
 	legacyWarnings              *compat.Registry
 	store                       *db.Store
 	runner                      *agentpkg.Runner
@@ -136,6 +138,7 @@ type Server struct {
 	toolRegistry                *tools.Registry
 	toolRegistryMu              sync.RWMutex
 	backgroundTasks             tools.BackgroundTaskService
+	backgroundRuntime           tools.BackgroundRuntimeController
 	automationToolCatalogMu     sync.RWMutex
 	automationToolCatalog       *AutomationToolCatalog
 	previewManager              *preview.Manager
@@ -181,6 +184,7 @@ func New(cfg config.Config, store *db.Store, runner *agentpkg.Runner, hub *agent
 		authSessionConnections:  make(map[string]map[uint64]context.CancelFunc),
 		authLoginFailures:       make(map[string]authLoginFailure),
 		agentMutationLocks:      make(map[string]*agentMutationLock),
+		projectConversationKeys: make(map[string]projectConversationResult),
 		legacyWarnings: compat.NewRegistry(func(usage compat.Usage) {
 			slog.Warn(
 				"legacy compatibility used",
@@ -213,6 +217,7 @@ func New(cfg config.Config, store *db.Store, runner *agentpkg.Runner, hub *agent
 	server.SetReviewService(NewReviewService(providerRegistry, cfg.Agent.ReviewModel))
 	if runner != nil {
 		runner.SetPlanSnapshotProvider(server.currentPlanSnapshot)
+		runner.SetBackgroundTaskSnapshotProvider(server.currentBackgroundTaskSnapshot)
 		runner.SetContextManagementConfig(cfg.ContextManagement)
 	}
 	return server
@@ -263,6 +268,10 @@ func (s *Server) SetToolRegistry(registry *tools.Registry) {
 
 func (s *Server) SetBackgroundTaskService(service tools.BackgroundTaskService) {
 	s.backgroundTasks = service
+}
+
+func (s *Server) SetBackgroundRuntimeController(controller tools.BackgroundRuntimeController) {
+	s.backgroundRuntime = controller
 }
 
 func (s *Server) SetAutomationToolCatalog(catalog *AutomationToolCatalog) {
@@ -552,6 +561,7 @@ func (s *Server) Routes() http.Handler {
 		r.Post("/api/plugins/{id}/discover", s.discoverPlugin)
 		r.Delete("/api/plugins/{id}", s.uninstallPlugin)
 		r.Patch("/api/runtime/continuation-settings", s.continuationSettingsEndpoint)
+		r.Patch("/api/runtime/background-task-settings", s.backgroundRuntimeSettingsEndpoint)
 		r.Post("/api/agents/{id}/background-tasks", s.createBackgroundTask)
 		r.Post("/api/background-tasks/{taskId}/cancel", s.cancelBackgroundTask)
 	})
@@ -657,6 +667,7 @@ func (s *Server) Routes() http.Handler {
 		r.Patch("/{id}/navigation-state", s.patchProjectNavigationState)
 		r.With(s.fullRemoteAccessGuard).Delete("/{id}", s.deleteArchivedProject)
 		r.Get("/{id}", s.getProject)
+		r.Post("/{id}/conversations", s.createProjectConversation)
 		r.Get("/{id}/worklines", s.listProjectWorklines)
 		r.Get("/{id}/chapters", s.listProjectWorklines)
 		r.Post("/{id}/init-git", s.initProjectGit)

@@ -10,9 +10,53 @@ const (
 	BackgroundTaskKindAgent = "agent"
 )
 
+type BackgroundRuntimeSettings struct {
+	WorkerCount          int  `json:"workerCount"`
+	PerAgentLimit        int  `json:"perAgentLimit"`
+	AllowNestedSubagents bool `json:"allowNestedSubagents"`
+	MaxSubagentDepth     int  `json:"maxSubagentDepth"`
+}
+
+type BackgroundRuntimeController interface {
+	BackgroundRuntimeSettings() BackgroundRuntimeSettings
+	UpdateBackgroundRuntimeSettings(BackgroundRuntimeSettings) (BackgroundRuntimeSettings, error)
+}
+
 // BackgroundTaskRequest is the sanitized control-plane request produced only
 // after the normal tool risk and permission gateway has allowed the call.
 // Implementations must still validate the frozen generations before starting.
+type AgentTaskPreflightRequest struct {
+	OwnerAgentID  string
+	ParentRunID   string
+	SubagentType  string
+	ExplicitModel string
+}
+
+// AgentTaskPreflightService lets the concrete background service reject role or
+// explicit-model requests before they become durable queued tasks.
+type AgentTaskPreflightService interface {
+	PreflightAgentTask(context.Context, AgentTaskPreflightRequest) error
+}
+
+type PreflightError struct {
+	Code    string
+	Message string
+}
+
+func (e *PreflightError) Error() string {
+	if e == nil {
+		return "agent task preflight failed"
+	}
+	return e.Message
+}
+
+func (e *PreflightError) ErrorCode() string {
+	if e == nil || e.Code == "" {
+		return "subagent_preflight_rejected"
+	}
+	return e.Code
+}
+
 type BackgroundTaskRequest struct {
 	Kind                         string          `json:"kind"`
 	OwnerAgentID                 string          `json:"ownerAgentId"`

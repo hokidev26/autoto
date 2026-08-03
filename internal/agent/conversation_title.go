@@ -61,7 +61,10 @@ func (r *Runner) autoTitleConversation(ctx context.Context, agentID, prompt stri
 	if !untitledConversation(current.Title) && !r.projectNamedConversation(ctx, current) {
 		return nil
 	}
-	updated, err := r.store.UpdateAgentTitle(ctx, agentID, title)
+	updated, err := r.store.UpdateAgentTitleCosmeticCAS(ctx, agentID, title, current.EntityGeneration)
+	if errors.Is(err, db.ErrConflict) {
+		return nil
+	}
 	if err != nil {
 		return err
 	}

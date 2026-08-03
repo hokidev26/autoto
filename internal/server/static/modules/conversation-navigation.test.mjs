@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import {
   addRecentConversation,
   applyConversationOrder,
+  applyProjectOrder,
   buildNavigationView,
   createNavigationRefreshController,
   createNavigationTargetId,
@@ -16,7 +17,7 @@ import {
   renderNavigationHTML,
   renderRecentConversationsHTML,
   resolveInitialNavigationTarget,
-  standaloneConversationOrderScope,
+  resolveTopNavigationProjectId,
 } from "./conversation-navigation.mjs";
 import { localPreferenceBackupKeys, recentConversationsKey } from "./preferences-data.mjs";
 
@@ -106,15 +107,18 @@ test("normalizeNavigationPayload normalizes the backend contract and target ids"
   assert.equal(normalized.conversations[0].targetId, createNavigationTargetId({ projectId: "p1", worklineId: "w1", agentId: "a1" }));
 });
 
-test("standalone conversations stay out of project synthesis and project groups", () => {
+test("legacy conversation-flow records stay out of navigation and project synthesis", () => {
   const mixed = {
-    projects: payload.projects,
+    projects: [
+      ...payload.projects,
+      { id: "legacy-project", name: "Legacy container", flowMode: "conversation" },
+    ],
     conversations: [
       ...payload.conversations,
       {
         context: "conversation",
         projectFlowMode: false,
-        agentId: "standalone-1",
+        agentId: "legacy-1",
         agentTitle: "Independent chat",
         agentStatus: "idle",
         model: "codex:gpt-5.5",
@@ -122,38 +126,28 @@ test("standalone conversations stay out of project synthesis and project groups"
         lastActivityAt: "2026-01-06T00:00:00Z",
       },
       {
-        projectId: "hidden-project",
-        projectName: "Must stay hidden",
-        projectPath: "/hidden/project",
-        worklineId: "hidden-workline",
-        worklineTitle: "Hidden",
-        agentId: "standalone-2",
-        agentTitle: "Backend-marked standalone",
+        projectId: "legacy-project",
+        projectName: "Legacy container",
+        worklineId: "legacy-workline",
+        agentId: "legacy-2",
         context: "conversation",
         projectFlowMode: false,
       },
     ],
   };
   const normalized = normalizeNavigationPayload(mixed);
-  assert.deepEqual(normalized.conversations.filter((item) => item.standalone).map((item) => item.agentId), ["standalone-1", "standalone-2"]);
-  assert.equal(normalized.projects.some((item) => item.id === "hidden-project"), false);
-  assert.deepEqual(normalized.conversations.find((item) => item.agentId === "standalone-1").targetId, "::::standalone-1");
+  assert.deepEqual(normalized.conversations.map((item) => item.agentId), ["a1", "a3", "a2"]);
+  assert.equal(normalized.projects.some((item) => item.id === "legacy-project"), false);
+  assert.equal(normalized.conversations.some((item) => item.agentId.startsWith("legacy")), false);
 
-  const conversations = buildNavigationView(mixed, { mode: "conversations" });
-  assert.deepEqual(conversations.conversations.map((item) => item.agentId), ["standalone-1", "standalone-2"]);
-  assert.deepEqual(conversations.groups, []);
-  const projects = buildNavigationView(mixed, { mode: "projects" });
-  assert.equal(projects.projects.some((item) => item.id === "hidden-project"), false);
-  assert.equal(projects.groups.flatMap((group) => group.conversations).some((item) => item.standalone), false);
-
-  const all = buildNavigationView(mixed, { mode: "all" });
-  const html = renderNavigationHTML(all);
-  assert.equal((html.match(/data-navigation-target="::::standalone-1"/g) || []).length, 1);
-  assert.equal((html.match(/data-navigation-target="hidden-project::hidden-workline::standalone-2"/g) || []).length, 1);
-  assert.equal((html.match(/data-navigation-target="p1::w1::a1"/g) || []).length, 1);
-  assert.match(html, /data-standalone-conversation="true"/);
-  assert.match(html, /data-navigation-context="conversation"/);
-  assert.match(html, /data-navigation-context="project"/);
+  for (const mode of ["all", "projects", "conversations"]) {
+    const view = buildNavigationView(mixed, { mode });
+    assert.equal(view.projects.some((item) => item.id === "legacy-project"), false);
+    assert.equal(view.conversations.length, 0);
+    assert.equal(view.groups.flatMap((group) => group.conversations).some((item) => item.agentId.startsWith("legacy")), false);
+    const html = renderNavigationHTML(view);
+    assert.doesNotMatch(html, /legacy-project|legacy-1|legacy-2|data-navigation-context="conversation"/);
+  }
 });
 
 test("navigation preserves pin and archive state and exposes action triggers", () => {
@@ -260,7 +254,34 @@ test("project groups contain every conversation once and preserve recent orderin
   assert.doesNotMatch(html, /navigation-breadcrumb/);
 });
 
-test("buildNavigationView supports all, projects, and conversations modes", () => {
+test("project mode and default project selection share message-activity ordering", () => {
+  const activityPayload = {
+    projects: [
+      { id: "project-stale", name: "Stale project", updatedAt: "2026-07-30T00:00:00Z" },
+      { id: "project-recent", name: "Recent project", updatedAt: "2026-01-01T00:00:00Z" },
+      { id: "project-archived", name: "Archived project", archivedAt: "2026-07-31T00:00:00Z", updatedAt: "2026-07-31T00:00:00Z" },
+    ],
+    conversations: [
+      { projectId: "project-stale", worklineId: "work-stale", agentId: "agent-stale", agentTitle: "Stale", lastActivityAt: "2026-07-30T00:00:00Z" },
+      { projectId: "project-recent", worklineId: "work-recent", agentId: "agent-recent", agentTitle: "Recent", lastActivityAt: "2026-08-01T00:00:00Z" },
+      { projectId: "project-archived", projectArchivedAt: "2026-07-31T00:00:00Z", worklineId: "work-archived", agentId: "agent-archived", agentTitle: "Archived", lastActivityAt: "2026-08-02T00:00:00Z" },
+    ],
+  };
+  const view = buildNavigationView(activityPayload, { mode: "projects" });
+
+  assert.deepEqual(view.projects.map((project) => project.id), ["project-recent", "project-stale", "project-archived"]);
+  assert.equal(resolveTopNavigationProjectId(activityPayload), "project-recent");
+  assert.deepEqual(applyProjectOrder(view.projects, ["project-stale", "project-recent"]).map((project) => project.id), ["project-stale", "project-recent", "project-archived"]);
+  assert.equal(resolveTopNavigationProjectId(activityPayload, { projectOrder: ["project-stale", "project-recent"] }), "project-stale");
+  assert.match(renderNavigationHTML(view), /data-project-id="project-recent"[\s\S]*data-project-id="project-stale"/);
+  assert.equal(resolveTopNavigationProjectId({}), "");
+
+  const pinnedPayload = structuredClone(activityPayload);
+  pinnedPayload.projects[0].pinned = true;
+  assert.equal(resolveTopNavigationProjectId(pinnedPayload), "project-stale");
+});
+
+test("buildNavigationView supports grouped and flat project modes", () => {
   const all = buildNavigationView(payload, { mode: "all" });
   assert.equal(all.groups.length, 3);
   assert.deepEqual(all.groups[0].conversations.map((item) => item.agentId), ["a1", "a2"]);
@@ -278,9 +299,9 @@ test("buildNavigationView supports all, projects, and conversations modes", () =
   assert.match(projectsHTML, /navigation-conversation-meta project-path" title="\/work\/alpha">\/work\/alpha<\/span>/);
   assert.doesNotMatch(projectsHTML, /data-navigation-project-group|data-project-conversations|data-navigation-target|project-agent-count/);
 
-  const conversations = buildNavigationView(payload, { mode: "conversations" });
-  assert.deepEqual(conversations.conversations, []);
-  assert.deepEqual(conversations.projects, []);
+  const legacyMode = buildNavigationView(payload, { mode: "conversations" });
+  assert.deepEqual(legacyMode.conversations, []);
+  assert.deepEqual(legacyMode.projects.map((item) => item.id), ["p1", "p2", "invalid"]);
 });
 
 test("task navigation stays project-level and exposes aggregate counts", () => {
@@ -326,7 +347,8 @@ test("recent conversations deduplicate newest targets and truncate to eight", ()
   assert.equal(recent.length, 8);
   assert.equal(recent[0].targetId, createNavigationTargetId(targets[3]));
   assert.equal(recent.filter((item) => item.targetId === recent[0].targetId).length, 1);
-  assert.deepEqual(normalizeRecentConversations([recent[0], recent[0], { targetId: "bad" }]), [recent[0]]);
+  assert.deepEqual(normalizeRecentConversations([recent[0], recent[0], { targetId: "bad" }, { targetId: "::::legacy-agent" }]), [recent[0]]);
+  assert.deepEqual(addRecentConversation(recent, { projectId: "", worklineId: "", agentId: "legacy-agent" }), recent);
 });
 
 test("recent conversation sync accepts only valid canonical storage events", () => {
@@ -497,7 +519,7 @@ test("renderNavigationHTML applies conversationOrders when provided", () => {
   assert.ok(html.indexOf("a1") > html.indexOf("b1"), "b1 should come before a1 with the given order");
 });
 
-test("standalone conversation order applies in both all and conversations modes", () => {
+test("legacy projectless records cannot create a navigation order scope", () => {
   const payload = {
     projects: [],
     conversations: [
@@ -505,10 +527,11 @@ test("standalone conversation order applies in both all and conversations modes"
       { context: "conversation", agentId: "b1", agentTitle: "B" },
     ],
   };
-  const options = { conversationOrders: { [standaloneConversationOrderScope]: ["b1", "a1"] } };
-  for (const mode of ["all", "conversations"]) {
-    const html = renderNavigationHTML(buildNavigationView(payload, { mode }), options);
-    assert.ok(html.indexOf('data-navigation-id="b1"') < html.indexOf('data-navigation-id="a1"'), `${mode} should retain the dragged standalone order`);
-    assert.equal((html.match(new RegExp(`data-conversation-order-scope="${standaloneConversationOrderScope}"`, "g")) || []).length, 2);
+  for (const mode of ["all", "projects", "conversations"]) {
+    const html = renderNavigationHTML(buildNavigationView(payload, { mode }), {
+      conversationOrders: { "__legacy__": ["b1", "a1"] },
+    });
+    assert.doesNotMatch(html, /data-navigation-id="(?:a1|b1)"/);
+    assert.doesNotMatch(html, /__legacy__/);
   }
 });

@@ -29,6 +29,7 @@ func TestRuntimeSummaryRouteReturnsProcessAndConfigStats(t *testing.T) {
 			DatabasePath:      filepath.Join(t.TempDir(), "autoto.db"),
 			DefaultProjectDir: filepath.Join(t.TempDir(), "projects"),
 		},
+		Background: config.BackgroundConfig{WorkerCount: 12, PerAgentLimit: 6, AllowNestedSubagents: true, MaxSubagentDepth: 3},
 		Agent: config.AgentConfig{
 			DefaultModel:          "openai:gpt-4.1-mini",
 			SummaryModel:          "anthropic:claude-sonnet-4-5",
@@ -85,6 +86,9 @@ func TestRuntimeSummaryRouteReturnsProcessAndConfigStats(t *testing.T) {
 	}
 	if len(body.Paths) != 4 || body.Agent.DefaultModel != "openai:gpt-4.1-mini" || body.Agent.ReviewModel != "openai:gpt-4.1" || body.Agent.MaxTurns != 120 {
 		t.Fatalf("unexpected config summary: paths=%+v agent=%+v", body.Paths, body.Agent)
+	}
+	if body.Background.WorkerCount != 12 || body.Background.PerAgentLimit != 6 || !body.Background.AllowNestedSubagents || body.Background.MaxSubagentDepth != 3 {
+		t.Fatalf("unexpected background summary: %+v", body.Background)
 	}
 	if body.Security.RemoteAccessRequired || !body.Security.BypassPermissionsAllowed || body.Security.MaxPermissionMode != "bypassPermissions" {
 		t.Fatalf("unexpected local security summary: %+v", body.Security)

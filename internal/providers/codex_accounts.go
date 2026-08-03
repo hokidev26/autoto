@@ -74,6 +74,8 @@ type AccountQuotaTelemetry interface {
 
 var errCodexQuotaUnauthorized = errors.New("codex quota unauthorized")
 
+const codexQuotaUnauthorizedCode = "quota_unauthorized"
+
 func ValidateCodexProviderConfig(cfg config.ProviderConfig) error {
 	if _, err := codexRefreshEndpointForConfig(cfg); err != nil {
 		return err
@@ -195,6 +197,9 @@ func (p *CodexProvider) SyncAccount(ctx context.Context, id string) (codexauth.A
 		if err == nil {
 			quota, err = p.fetchAccountQuota(ctx, prepared.Credential)
 		}
+	}
+	if errors.Is(err, errCodexQuotaUnauthorized) {
+		p.recordAccountAttempt(ctx, prepared.Credential.ID, false, http.StatusUnauthorized, codexQuotaUnauthorizedCode, codexQuotaUnauthorizedCode)
 	}
 	if err != nil {
 		return codexauth.Summary(prepared), codexauth.QuotaSnapshot{}, err

@@ -3,7 +3,7 @@ import { createAgentStreamController } from "./agent-stream.mjs";
 import { createAutomationControlController } from "./automation-control.mjs?v=nav-schedules-1";
 import { createAutomationToolCatalogController } from "./automation-tool-catalog.mjs?v=automation-tool-catalog-1";
 import { createArchiveSettingsController } from "./archive-settings.mjs?v=archive-settings-1";
-import { createConversationTitleHelpers } from "./conversation-title-helpers.mjs";
+import { createConversationTitleHelpers } from "./conversation-title-helpers.mjs?v=standalone-removed-1";
 import { createBackgroundTasksController } from "./background-tasks.mjs?v=subagent-cards-1-foreground-activity-1";
 import { createExecutionNotifications } from "./execution-notifications.mjs";
 import { createBackendRegistryController } from "./backend-registry.mjs?v=agent-admin-removed-1";
@@ -22,8 +22,8 @@ import {
   renderNavigationHTML,
   renderRecentConversationsHTML,
   resolveInitialNavigationTarget,
-  standaloneConversationOrderScope,
-} from "./conversation-navigation.mjs?v=mode-boundaries-2-project-flat-1-task-workspace-1-navigation-state-1-project-context-1-recent-sync-1-dual-rail-collapse-1-compact-navigation-1-theme-icons-1-workline-fork-1-conversation-order-1-nav-status-color-1";
+  resolveTopNavigationProjectId,
+} from "./conversation-navigation.mjs?v=mode-boundaries-2-project-flat-1-task-workspace-1-navigation-state-1-project-context-1-recent-sync-1-dual-rail-collapse-1-compact-navigation-1-theme-icons-1-workline-fork-1-conversation-order-1-nav-status-color-1-top-project-1-standalone-removed-1";
 import {
   basename,
   canonicalLocalPath,
@@ -33,10 +33,11 @@ import {
   shortPath,
 } from "./directory-browser.mjs?v=folder-picker-remote-2-root-card-1-root-shortcut-removed-1";
 import { $, coalescePerFrame, escapeAttr, escapeHtml, setButtonBusy, setHTMLIfChanged, setTextIfChanged } from "./dom.mjs";
-import { navigationCreateLabelKey, navigationCreateTarget } from "./navigation-create.mjs";
+import { navigationCreateLabelKey, navigationCreateTarget } from "./navigation-create.mjs?v=standalone-removed-1";
 import { createSubagentCardCoordinator } from "./subagent-cards.mjs?v=tool-activity-lazy-1";
+import { createNavigationStartupGuard } from "./navigation-startup-guard.mjs?v=startup-navigation-guard-4";
 import { formatNumber, formatTimestamp } from "./formatters.mjs";
-import { t } from "./i18n.mjs?v=settings-flat-1-codex-browser-login-1-shared-api-1-apple-theme-1-autoto-themes-1-settings-help-1-task-workspace-1-navigation-state-2-archive-1-i18n-shared-1-overview-home-1-settings-cleanup-1-context-ring-3-global-background-1-theme-v2-1-background-upload-1-goal-command-2-queue-command-1-reasoning-steps-1-reasoning-history-1-markdown-2-first-run-setup-1-home-launcher-1-scoped-memory-1";
+import { t } from "./i18n.mjs?v=settings-flat-1-codex-browser-login-1-shared-api-1-apple-theme-1-autoto-themes-1-settings-help-1-task-workspace-1-navigation-state-2-archive-1-i18n-shared-1-overview-home-1-settings-cleanup-1-context-ring-3-global-background-1-theme-v2-1-background-upload-1-goal-command-2-queue-command-1-reasoning-steps-1-reasoning-history-1-markdown-2-first-run-setup-1-home-launcher-1-scoped-memory-1-standalone-removed-2";
 import { appMainT as am } from "./messages-app-main-extra.mjs?v=workbench-title-edit-1-hidden-toggle-removed-1-settings-cleanup-1";
 import { shellExtraT as sx } from "./messages-shell-extra.mjs";
 import { createGitWorkflowController } from "./git-workflow.mjs?v=merge-review-1";
@@ -45,13 +46,13 @@ import { createMCPRegistryUIController } from "./mcp-registry-ui.mjs";
 import { createPluginRegistryUIController } from "./plugin-registry-ui.mjs";
 import { createMemorySettingsController } from "./memory-settings.mjs";
 import { agentModelSettingsPayload } from "./model-routing-settings.mjs";
-import { createModelProviderSettingsController } from "./model-provider-settings.mjs?v=native-codex-3-provider-console-3-account-wide-1-model-compact-1-codex-export-1-settings-flat-1-aggregates-1-codex-import-open-1-provider-create-page-2-codex-browser-login-1-provider-secrets-1-model-picker-1-provider-full-page-2-provider-placeholders-1-usage-cost-1-codex-usage-clean-1-model-sections-hidden-1-model-configs-1-provider-reference-1-default-openai-responses-1-provider-draft-session-1-native-image-generation-1-provider-auto-name-1-provider-hidden-models-1-gemini-model-quota-1-safety-model-1-provider-quota-overview-1";
+import { createModelProviderSettingsController } from "./model-provider-settings.mjs?v=native-codex-3-provider-console-3-account-wide-1-model-compact-1-codex-export-1-settings-flat-1-aggregates-1-codex-import-open-1-provider-create-page-2-codex-browser-login-1-provider-secrets-1-model-picker-1-provider-full-page-2-provider-placeholders-1-usage-cost-1-codex-usage-clean-1-model-sections-hidden-1-model-configs-1-provider-reference-1-default-openai-responses-1-provider-draft-session-1-native-image-generation-1-provider-auto-name-1-provider-hidden-models-1-gemini-model-quota-1-safety-model-1-provider-quota-overview-1-codex-quota-exhausted-1";
 import {
   createOverviewDashboardController,
   overviewNavigationRoute,
   overviewRailTarget,
   resolveOverviewStartup,
-} from "./overview-dashboard.mjs?v=overview-home-3-nav-schedules-1-mobile-no-home-1-schedule-workspace-1-activity-heatmap-1-home-launcher-1-home-launcher-bottom-1-home-launcher-minimal-1";
+} from "./overview-dashboard.mjs?v=overview-home-3-nav-schedules-1-mobile-no-home-1-schedule-workspace-1-activity-heatmap-1-home-launcher-1-home-launcher-bottom-1-home-launcher-minimal-1-standalone-removed-2";
 import { createPageLifecycleController } from "./page-lifecycle.mjs";
 import { confirm as platformConfirm } from "./platform.mjs";
 import { createProjectKanbanController } from "./project-kanban.mjs?v=workbench-3-mode-boundaries-1";
@@ -77,7 +78,7 @@ import { createSkillsContext } from "./skills-context.mjs";
 import { createServerResourceLoaders } from "./server-resource-loaders.mjs";
 import { createSetupWizardController } from "./setup-wizard.mjs?v=first-run-readiness-1";
 import { createSpecBoardController } from "./spec-board.mjs";
-import { createSystemSettingsController } from "./system-settings.mjs?v=users-panel-removed-1-about-brand-license-1-desktop-shell-1-execution-budget-2";
+import { createSystemSettingsController } from "./system-settings.mjs?v=users-panel-removed-1-about-brand-license-1-desktop-shell-1-execution-budget-2-background-task-settings-1";
 import { installDesktopDeepLinkRouter, isDesktopShell } from "./desktop-shell-ui.mjs";
 import { createSkillsWorkbenchController } from "./skills-workbench.mjs?v=users-panel-removed-1-config-center-1-automation-tool-catalog-1-optional-tools-compact-1-skills-density-1";
 import { createTerminalController } from "./terminal.mjs?v=terminal-actions-compact-2";
@@ -87,7 +88,7 @@ import { createAgentWorkspaceHelpers } from "./agent-workspace-helpers.mjs?v=tas
 import { createNavigationContextMenu } from "./navigation-context-menu.mjs";
 import { createOverviewNavHelpers } from "./overview-nav-helpers.mjs";
 import { installPullToRefresh, isPullToRefreshSupported } from "./pull-to-refresh.mjs?v=pull-to-refresh-1";
-import { createWorkbenchSidebarRender, primaryWorkbenchLayout } from "./workbench-sidebar-render.mjs";
+import { createWorkbenchSidebarRender, primaryWorkbenchLayout } from "./workbench-sidebar-render.mjs?v=standalone-removed-1";
 import { createWorkspaceContextHelpers } from "./workspace-context-helpers.mjs";
 import { createWorkspaceExplorerController } from "./workspace-explorer.mjs?v=viewport-menu-1";
 import { runPreviewScreenshot } from "./workspace-screenshot.mjs";
@@ -187,8 +188,9 @@ const state = {
   navigationLoadSeq: 0,
   navigationMode: "projects",
   navigationMenuTarget: null,
-  navigationSelectionKind: "conversation",
+  navigationSelectionKind: "project",
   navigationTransitionTitle: "",
+  startupWorkbenchIntent: "",
   sessionSidebarLayout: "expanded",
   recentConversations: [],
   project: null,
@@ -341,11 +343,11 @@ const state = {
   modelApplySeq: 0,
   agentModelSettings: null,
   projectCreating: false,
-  standaloneConversationCreating: false,
   worklineForking: false,
   projectCreateSeq: 0,
   projectSelectSeq: 0,
   initializing: false,
+  initRestartRequested: false,
   initSeq: 0,
   settingsWarmupStarted: false,
   settingsShellOpen: false,
@@ -386,6 +388,16 @@ const state = {
   ws: null,
   terminalWS: null,
 };
+
+const navigationStartupGuard = createNavigationStartupGuard();
+
+function startupTokenCurrent(token) {
+  return navigationStartupGuard.isCurrent(token) && token?.initSeq === state.initSeq;
+}
+
+function startupSelectionCurrent(options) {
+  return options?.source !== "startup" || startupTokenCurrent(options.startupToken);
+}
 
 const settingsShellHelpers = createSettingsShellHelpers({
   state,
@@ -1190,7 +1202,18 @@ const chatComposer = createChatComposerController({
   scrollMessagesToBottom,
   showModelSetupNotice,
   showToast,
-  onMessageAccepted: (result, agentId) => specBoard.handleGoalConfirmation(result, agentId),
+  onMessageAccepted: async (result, agentId) => {
+    // The POST is acknowledged before the runner necessarily publishes its
+    // first WebSocket event. Mark the run as active now so the activity affordance
+    // gets a real paint instead of depending on a later agent.started/model.started
+    // event that may arrive in the same frame as the response.
+    if (state.agent?.id === agentId) {
+      state.agent = { ...state.agent, status: "running" };
+      syncMessageComposerBusy();
+      refreshComposerActivityStatus();
+    }
+    return specBoard.handleGoalConfirmation(result, agentId);
+  },
 });
 
 const {
@@ -1668,7 +1691,7 @@ function overviewLauncherContext() {
       name: String(project?.name || project?.id || ""),
       path: String(project?.gitPath || ""),
     })),
-    selectedProjectId: String(state.project?.id || ""),
+    selectedProjectId: String(state.project?.id || resolveTopNavigationProjectId({ projects: state.projects, conversations: state.navigationConversations }, { projectOrder: getProjectOrder() }) || ""),
     models,
     selectedModel,
     selectedEffort: selectedReasoningEffort(selectedModel),
@@ -2153,7 +2176,13 @@ function handleOverviewNavigation(action, id = "") {
 }
 
 function activateGlobalRailTarget(target) {
+  // The global rail is immediately interactive after the shell is revealed,
+  // while startup data can still be hydrating. Claim navigation before any UI
+  // write so a late startup restore cannot send the user back to Home.
+  navigationStartupGuard.beginUserNavigation();
   const key = String(target || "conversation");
+  const openingConversationFromOverview = key === "conversation" && state.overviewActive;
+  state.startupWorkbenchIntent = state.initializing ? key : "";
   closeSidebarSettingsMenu();
   closeMobileSidebar();
   if (key === "home") {
@@ -2162,6 +2191,9 @@ function activateGlobalRailTarget(target) {
   }
   if (key === "conversation") {
     switchPrimaryWorkbench("conversation");
+    if (!state.initializing && (openingConversationFromOverview || !state.agent)) {
+      openDefaultConversationTarget({ preserveMessageState: true }).catch(showError);
+    }
     return;
   }
   if (key === "schedules") {
@@ -2599,18 +2631,23 @@ async function loadProjects() {
   }
 }
 
-function setStandaloneConversationCreationBusy(busy) {
-  document.querySelectorAll("[data-create-conversation], [data-create-navigation-item]").forEach((button) => {
-    button.disabled = Boolean(busy);
-    button.classList.toggle("is-busy", Boolean(busy));
-    if (busy) button.setAttribute("aria-busy", "true");
-    else button.removeAttribute("aria-busy");
+async function openDefaultConversationTarget(options = {}) {
+  const projectId = resolveTopNavigationProjectId({
+    projects: state.projects,
+    conversations: state.navigationConversations,
+  }, {
+    projectOrder: getProjectOrder(),
   });
-}
+  if (projectId) {
+    state.navigationMode = "projects";
+    await selectProject(projectId, options);
+    return { kind: "project", id: projectId };
+  }
 
-function overviewPromptTitle(value) {
-  const firstLine = String(value || "").split(/\r?\n/, 1)[0].replace(/\s+/g, " ").trim();
-  return Array.from(firstLine || t("shell.newConversation")).slice(0, 80).join("");
+  state.chatHydrating = false;
+  renderProjects();
+  showEmptyWorkspaceState();
+  return null;
 }
 
 // Forks a project into a new git branch + worktree and opens its conversation.
@@ -2672,7 +2709,6 @@ async function createProjectWorkline(projectId, trigger = null, options = {}) {
         agentTitle: created?.agent?.title || title || agentId,
         projectId: id,
         worklineId: created?.workline?.id || "",
-        standalone: false,
         context: "project",
       };
       await selectNavigationConversation(conversation);
@@ -2691,51 +2727,21 @@ async function createProjectWorkline(projectId, trigger = null, options = {}) {
   }
 }
 
-async function createStandaloneConversation(options = {}) {
-  if (state.standaloneConversationCreating) return null;
-  saveCurrentChatDraft();
-  hideSlashCommandPalette();
-  closeMobileSidebar();
-  state.standaloneConversationCreating = true;
-  setStandaloneConversationCreationBusy(true);
-  try {
-    const model = String(options?.model || selectedModelValue() || "").trim();
-    const title = String(options?.title || t("shell.newConversation")).trim() || t("shell.newConversation");
-    const created = await api("/api/conversations", {
-      method: "POST",
-      body: JSON.stringify({ title, ...(model ? { model } : {}) }),
-    });
-    const agentId = String(created?.agent?.id || created?.agentId || created?.id || "").trim();
-    if (!agentId) throw new Error(t("shell.conversationCreateInvalid"));
-    await loadProjects();
-    const conversation = state.navigationConversations.find((item) => item.agentId === agentId)
-      || { agentId, agentTitle: created?.agent?.title || created?.title || agentId, standalone: true, context: "conversation" };
-    await selectNavigationConversation(conversation);
-    showToast(t("shell.conversationCreated"), "success", { force: true });
-    return state.agent;
-  } finally {
-    state.standaloneConversationCreating = false;
-    setStandaloneConversationCreationBusy(false);
-  }
-}
-
-async function launchOverviewPrompt({ text, mode = "conversation", projectId = "", model = "", reasoningEffort = "auto" } = {}) {
+async function launchOverviewPrompt({ text, projectId = "", model = "", reasoningEffort = "auto" } = {}) {
   const prompt = String(text || "").trim();
   if (!prompt) throw new Error(t("overview.promptRequired"));
-  const title = overviewPromptTitle(prompt);
-  const selectedModel = String(model || selectedModelValue() || "").trim();
-  let agent = null;
-
-  if (mode === "workspace") {
-    const selectedProjectId = String(projectId || "").trim();
-    if (!selectedProjectId) throw new Error(t("overview.projectRequired"));
-    const created = await createProjectWorkline(selectedProjectId, null, { title, model: selectedModel });
-    agent = state.agent?.id === created?.agent?.id ? state.agent : created?.agent || null;
-    if (!agent?.id || state.agent?.id !== agent.id) throw new Error(t("shell.newWorklineFailed"));
-  } else {
-    agent = await createStandaloneConversation({ title, model: selectedModel });
-    if (!agent?.id) throw new Error(t("shell.conversationCreateInvalid"));
+  const selectedProjectId = String(projectId || state.project?.id || resolveTopNavigationProjectId({
+    projects: state.projects,
+    conversations: state.navigationConversations,
+  }, { projectOrder: getProjectOrder() }) || "").trim();
+  if (!selectedProjectId) {
+    await openDirectoryChooser(state.project?.gitPath || state.agent?.cwd || "");
+    throw new Error(t("overview.projectRequired"));
   }
+  if (state.project?.id !== selectedProjectId || !state.agent?.id) {
+    await selectProject(selectedProjectId, { preserveMessageState: true });
+  }
+  if (!state.agent?.id || state.project?.id !== selectedProjectId) throw new Error(t("shell.newWorklineFailed"));
 
   await saveReasoningEffort(reasoningEffort || "auto");
   setMessageInputValue(prompt, { saveDraft: false });
@@ -2756,7 +2762,6 @@ function startScheduleCreation() {
 async function createNavigationItem(trigger = null) {
   const target = currentNavigationCreateTarget();
   if (target === "schedule") return startScheduleCreation();
-  if (target === "conversation") return createStandaloneConversation();
   closeMobileSidebar();
   await openDirectoryChooser(state.project?.gitPath || state.agent?.cwd || "", { trigger });
   return null;
@@ -2886,7 +2891,6 @@ function bindConversationDrag(el) {
   function conversationOrderScope(row) {
     const explicit = String(row?.dataset?.conversationOrderScope || "").trim();
     if (explicit) return explicit;
-    if (row?.dataset?.standaloneConversation === "true") return standaloneConversationOrderScope;
     return String(row?.closest?.("[data-navigation-project-group]")?.dataset?.navigationProjectGroup || "").trim();
   }
 
@@ -2895,9 +2899,6 @@ function bindConversationDrag(el) {
     const escaped = CSS.escape(scope);
     const scoped = Array.from(el.querySelectorAll(`[data-navigation-target][data-conversation-order-scope="${escaped}"]`));
     if (scoped.length) return scoped;
-    if (scope === standaloneConversationOrderScope) {
-      return Array.from(el.querySelectorAll('[data-navigation-target][data-standalone-conversation="true"]'));
-    }
     return Array.from(el.querySelectorAll(`[data-project-conversations="${escaped}"] [data-navigation-target]`));
   }
 
@@ -2914,8 +2915,8 @@ function bindConversationDrag(el) {
   });
 
   el.addEventListener("dragover", (event) => {
-    // Only claim rows in the same ordering scope. Project conversations stay
-    // inside their project, while standalone conversations share one flat list.
+    // Only claim rows in the same project ordering scope. Project
+    // conversations stay inside their project.
     if (!dragAgentId || !dragOrderScope) return;
     const row = event.target?.closest?.("[data-navigation-target]");
     if (!row || row.dataset.navigationId === dragAgentId || conversationOrderScope(row) !== dragOrderScope) return;
@@ -3031,8 +3032,8 @@ function renderProjects() {
   const scheduleContext = state.activeWorkbench === "schedules";
   const taskContext = state.activeWorkbench === "workbench";
   const compactSessionSidebar = state.sessionSidebarLayout === "compact";
-  const baseNavigationMode = taskContext ? "projects" : state.navigationMode;
-  const effectiveNavigationMode = !taskContext && compactSessionSidebar ? "all" : baseNavigationMode;
+  const effectiveNavigationMode = taskContext ? "projects" : (compactSessionSidebar ? "all" : "projects");
+  state.navigationMode = "projects";
   renderPrimaryModeSidebar();
   if (scheduleContext) {
     el.innerHTML = scheduleWorkspace.renderNavigation(scheduleWorkspaceViewOptions());
@@ -3054,11 +3055,6 @@ function renderProjects() {
     taskCounts,
     conversationOrders: getConversationOrders(),
     projectOrder: getProjectOrder(),
-  });
-  $("navigationFilters")?.querySelectorAll("[data-navigation-mode]").forEach((node) => {
-    const active = node.dataset.navigationMode === state.navigationMode;
-    node.classList.toggle("active", active);
-    node.setAttribute("aria-pressed", active ? "true" : "false");
   });
   bindConversationDrag(el);
   bindProjectDrag(el);
@@ -3101,24 +3097,26 @@ async function createProjectFromDirectory(path, options = {}) {
   const existing = projects.find((project) => normalizePath(project.gitPath) === normalizePath(normalizedPath));
   const seq = ++state.projectCreateSeq;
   state.projectCreating = true;
-  const busyText = existing ? t("workspace.main.opening") : t("workspace.main.creating");
+  const busyText = t("workspace.main.creating");
+  const idempotencyKey = options.idempotencyKey || globalThis.crypto?.randomUUID?.() || `project-conversation-${Date.now()}-${seq}`;
   setButtonBusy(button, true, busyText);
   setDirectoryStatus(`${busyText}：${normalizedPath}`, "busy");
   showToast(`${busyText}：${shortPath(normalizedPath)}`, "info", { force: true });
   try {
     rememberDirectory(normalizedPath);
-    if (existing) {
-      if (modalOpen) closeDirectoryModal();
-      await selectProject(existing.id);
-      showToast(t("workspace.main.opened", { path: shortPath(normalizedPath) }), "success", { force: true });
-      return;
-    }
     const name = basename(normalizedPath) || "Project";
     const model = currentModelValue();
-    const created = await api("/api/projects", {
-      method: "POST",
-      body: JSON.stringify({ name, gitPath: normalizedPath, ...(model ? { model } : {}) }),
-    });
+    const created = existing
+      ? await api(`/api/projects/${encodeURIComponent(existing.id)}/conversations`, {
+        method: "POST",
+        headers: { "Idempotency-Key": idempotencyKey },
+        body: JSON.stringify({ title: name, ...(model ? { model } : {}), idempotencyKey }),
+      })
+      : await api("/api/projects", {
+        method: "POST",
+        headers: { "Idempotency-Key": idempotencyKey },
+        body: JSON.stringify({ name, gitPath: normalizedPath, forceNewConversation: true, idempotencyKey, ...(model ? { model } : {}) }),
+      });
     if (seq !== state.projectCreateSeq) return;
     if (modalOpen) closeDirectoryModal();
     await loadProjects();
@@ -3149,13 +3147,22 @@ async function createProjectFromDirectory(path, options = {}) {
 }
 
 function beginNavigationSelection(project, options = {}) {
+  const startupSelection = options.source === "startup";
+  if (startupSelection) {
+    if (!startupTokenCurrent(options.startupToken)) return null;
+  } else {
+    // This must remain the first operation: a click during any pending startup
+    // request immediately owns navigation, before even draft/UI cleanup runs.
+    navigationStartupGuard.beginUserNavigation();
+    state.startupWorkbenchIntent = "";
+  }
   saveCurrentChatDraft();
   hideSlashCommandPalette();
   closeMobileSidebar();
   state.projectCreateSeq++;
   const seq = ++state.projectSelectSeq;
   const previousTitle = conversationHeaderTitle();
-  state.navigationSelectionKind = options.selectionKind === "project" ? "project" : "conversation";
+  state.navigationSelectionKind = "project";
   state.navigationTransitionTitle = options.preserveConversationView ? previousTitle : "";
   disconnectAgentTransports();
   state.project = project || null;
@@ -3227,7 +3234,13 @@ async function selectProject(id, options = {}) {
   // anything to cover for. This has to be read before beginNavigationSelection,
   // which is what moves state.project onto the new selection.
   const reselectingCurrentProject = Boolean(state.project?.id) && state.project.id === id;
-  const seq = beginNavigationSelection(project, { preserveConversationView, selectionKind: "project" });
+  const seq = beginNavigationSelection(project, {
+    preserveConversationView,
+    selectionKind: "project",
+    source: options.source,
+    startupToken: options.startupToken,
+  });
+  if (seq == null) return;
   if (!state.project) {
     state.chatHydrating = false;
     updateWorkspaceMetaPills();
@@ -3252,7 +3265,7 @@ async function selectProject(id, options = {}) {
   }
   try {
     const worklines = await api(`/api/projects/${id}/worklines`);
-    if (seq !== state.projectSelectSeq || state.project?.id !== id) return;
+    if (!startupSelectionCurrent(options) || seq !== state.projectSelectSeq || state.project?.id !== id) return;
     state.projectWorklines = Array.isArray(worklines) ? worklines : [];
     state.workline = state.projectWorklines[0] || null;
     if (!state.workline) {
@@ -3266,7 +3279,7 @@ async function selectProject(id, options = {}) {
     }
     const worklineId = state.workline.id;
     const agents = await api(`/api/worklines/${worklineId}/agents`);
-    if (seq !== state.projectSelectSeq || state.project?.id !== id || state.workline?.id !== worklineId) return;
+    if (!startupSelectionCurrent(options) || seq !== state.projectSelectSeq || state.project?.id !== id || state.workline?.id !== worklineId) return;
     state.worklineAgents = Array.isArray(agents) ? agents : [];
     state.agent = state.worklineAgents.find((agent) => agent.type === "primary") || state.worklineAgents[0] || null;
     if (!state.agent) {
@@ -3279,10 +3292,10 @@ async function selectProject(id, options = {}) {
       return;
     }
     await enterAgent();
-    if (seq !== state.projectSelectSeq) return;
+    if (!startupSelectionCurrent(options) || seq !== state.projectSelectSeq) return;
     clearMessageViewportBusy();
   } catch (err) {
-    if (seq === state.projectSelectSeq && state.project?.id === id) {
+    if (startupSelectionCurrent(options) && seq === state.projectSelectSeq && state.project?.id === id) {
       state.chatHydrating = false;
       clearMessageViewportBusy();
       throw err;
@@ -3298,77 +3311,69 @@ async function selectNavigationConversation(target, options = {}) {
     ? supplied
     : parsed ? state.navigationConversations.find((item) => item.targetId === parsed.targetId) || null : null;
   const agentId = String(navigationConversation?.agentId || parsed?.agentId || "").trim();
-  if (!agentId) throw new Error(am("invalidConversationTarget"));
-  const standalone = navigationConversation?.standalone === true
-    || navigationConversation?.context === "conversation"
-    || navigationConversation?.projectFlowMode === false;
   const projectId = String(navigationConversation?.projectId || parsed?.projectId || "").trim();
   const worklineId = String(navigationConversation?.worklineId || parsed?.worklineId || "").trim();
-  const project = standalone ? null : state.projects.find((item) => item.id === projectId) || (navigationConversation ? {
+  if (!agentId || !projectId || !worklineId || navigationConversation?.context === "conversation" || navigationConversation?.projectFlowMode === false) {
+    throw new Error(am("invalidConversationTarget"));
+  }
+  const project = state.projects.find((item) => item.id === projectId) || (navigationConversation ? {
     id: navigationConversation.projectId,
     name: navigationConversation.projectName,
     gitPath: navigationConversation.projectPath,
     updatedAt: navigationConversation.projectUpdatedAt,
+    flowMode: "workspace",
   } : null);
   const preserveConversationView = Boolean(state.agent?.id);
-  const selectionKind = standalone ? "conversation" : "project";
-  const seq = beginNavigationSelection(project, { preserveConversationView, selectionKind });
-  if (!standalone && !state.project) {
+  const seq = beginNavigationSelection(project, {
+    preserveConversationView,
+    selectionKind: "project",
+    source: options.source,
+    startupToken: options.startupToken,
+  });
+  if (seq == null) return;
+  if (!state.project) {
     state.chatHydrating = false;
     showEmptyWorkspaceState();
     throw new Error(am("projectNoLongerExists"));
   }
 
-  if (!preserveConversationView) {
-    $("currentTitle").textContent = standalone
-      ? navigationConversation?.agentTitle || t("shell.newConversation")
-      : navigationConversation?.projectName || state.project.name;
-  }
+  if (!preserveConversationView) $("currentTitle").textContent = navigationConversation?.projectName || state.project.name;
   updateWorkspaceMetaPills();
   // Keep the previous title and conversation in place while the next one hydrates.
   // Replacing either with an intermediate project/loading state causes a distracting flash.
   markMessageViewportBusy();
 
   try {
-    if (standalone) {
-      const agent = await api(`/api/agents/${encodeURIComponent(agentId)}`);
-      if (seq !== state.projectSelectSeq) return;
-      state.project = null;
-      state.workline = null;
-      state.projectWorklines = [];
-      state.worklineAgents = [];
-      state.agent = agent;
-    } else {
-      const [worklines, agents] = await Promise.all([
-        api(`/api/projects/${encodeURIComponent(projectId)}/worklines`),
-        api(`/api/worklines/${encodeURIComponent(worklineId)}/agents`),
-      ]);
-      if (seq !== state.projectSelectSeq || state.project?.id !== projectId) return;
-      state.projectWorklines = Array.isArray(worklines) ? worklines : [];
-      state.workline = state.projectWorklines.find((item) => item.id === worklineId) || null;
-      state.worklineAgents = Array.isArray(agents) ? agents : [];
-      state.agent = state.worklineAgents.find((item) => item.id === agentId) || null;
-    }
-    if (!state.agent || (!standalone && !state.workline)) {
+    const [worklines, agents] = await Promise.all([
+      api(`/api/projects/${encodeURIComponent(projectId)}/worklines`),
+      api(`/api/worklines/${encodeURIComponent(worklineId)}/agents`),
+    ]);
+    if (!startupSelectionCurrent(options) || seq !== state.projectSelectSeq || state.project?.id !== projectId) return;
+    state.projectWorklines = Array.isArray(worklines) ? worklines : [];
+    state.workline = state.projectWorklines.find((item) => item.id === worklineId) || null;
+    state.worklineAgents = Array.isArray(agents) ? agents : [];
+    state.agent = state.worklineAgents.find((item) => item.id === agentId) || null;
+    if (!state.agent || !state.workline) {
       state.chatHydrating = false;
       clearMessageViewportBusy();
-      if (state.project) $("currentTitle").textContent = state.project.name;
+      $("currentTitle").textContent = state.project.name;
       updateWorkspaceMetaPills();
       showEmptyWorkspaceState({
         title: am("conversationUnavailable"),
         text: am("conversationUnavailableDescription"),
-        action: standalone ? t("shell.newConversation") : am("chooseAnotherFolder"),
+        action: am("chooseAnotherFolder"),
         icon: "◇",
       });
       throw new Error(am("worklineOrAgentMissing"));
     }
     await enterAgent();
-    if (seq !== state.projectSelectSeq) return;
+    if (!startupSelectionCurrent(options) || seq !== state.projectSelectSeq) return;
     clearMessageViewportBusy();
     renderProjects();
   } catch (err) {
-    const stillSelected = seq === state.projectSelectSeq
-      && (standalone ? !state.project : state.project?.id === projectId);
+    const stillSelected = startupSelectionCurrent(options)
+      && seq === state.projectSelectSeq
+      && state.project?.id === projectId;
     if (stillSelected) {
       state.chatHydrating = false;
       clearMessageViewportBusy();
@@ -3433,6 +3438,10 @@ async function enterAgent() {
       connectWS();
     }
   }
+  // The transcript and navigation are ready at this point. Do not hold the
+  // first visible page behind the optional skills-policy request: over a remote
+  // tunnel it can be noticeably slower than the chat data it does not affect.
+  signalAppReady();
   await effectiveSkillsPromise;
   if (state.agent?.id !== agentId) return;
   if (effectiveSkillsError) throw effectiveSkillsError;
@@ -3658,16 +3667,10 @@ async function handleAgentStreamEvent(event) {
     // that is about to replace this content anyway.
     clearLiveAssistantText({ preserveView: true });
     clearLiveImageGenerations({ agentId, preserveView: true });
-    // Live tool records have to be dropped here too, for the same reason and on
-    // the same terms. agentTurnInFlight() reports the turn as running while any
-    // remain, and the composer's send button reads that flag, so leaving them
-    // in place left the button showing "停止" after the answer had arrived. The
-    // clears below run only if a run summary comes back; a summary that is
-    // missing, superseded, or belongs to an agent the user has since left
-    // returns null and skipped the clear entirely, which is the state the
-    // button was getting stuck in. The turn is over either way, so this does
-    // not wait for the fetch.
-    clearLiveToolOutputs({ agentId, preserveView: true });
+    // Keep live tool and reasoning records visible until the persisted run
+    // summary successfully takes ownership of them. The composer separately
+    // treats terminal live records as display-only, so retaining them here no
+    // longer leaves the send button stuck in Stop mode.
     syncMessageComposerBusy();
     refreshComposerActivityStatus();
     // The context readout and its panel are fed by context.updated, and every
@@ -3847,9 +3850,6 @@ $("mobileSidebarThemeBtn")?.addEventListener("click", () => {
   toggleAppearanceColorScheme();
 });
 $("refreshBtn").addEventListener("click", () => refreshPrimaryMode().catch(showError));
-document.querySelectorAll("[data-create-conversation]").forEach((button) => {
-  button.addEventListener("click", () => createStandaloneConversation().catch(showError));
-});
 document.querySelectorAll("[data-create-navigation-item]").forEach((button) => {
   button.addEventListener("click", () => createNavigationItem(button).catch(showError));
 });
@@ -3937,12 +3937,6 @@ $("mobileSidebarLogoutBtn")?.addEventListener("click", () => {
   closeMobileSidebar();
   closeSidebarSettingsMenu();
   logoutRemoteAccess().catch(showError);
-});
-$("navigationFilters")?.querySelectorAll("[data-navigation-mode]").forEach((node) => {
-  node.addEventListener("click", () => {
-    state.navigationMode = node.dataset.navigationMode || "projects";
-    renderProjects();
-  });
 });
 $("navigationContextMenu")?.addEventListener("click", (event) => {
   const action = event.target.closest?.("[data-navigation-menu-action]")?.dataset.navigationMenuAction;
@@ -4076,6 +4070,10 @@ window.addEventListener("resize", () => {
   refreshComposerActivityStatus();
 });
 window.addEventListener("autoto:auth-changed", () => {
+  // Authentication changes start a new data lifecycle; never let the prior
+  // startup restore into the newly authorized/unauthorized workspace.
+  navigationStartupGuard.invalidate();
+  if (state.initializing) state.initRestartRequested = true;
   saveCurrentChatDraft();
   navigationRefresh.stop();
   state.serverDrafts = {};
@@ -4086,7 +4084,7 @@ window.addEventListener("autoto:auth-changed", () => {
   state.workline = null;
   state.agent = null;
   contextManagement.reset(null);
-  state.navigationSelectionKind = "conversation";
+  state.navigationSelectionKind = "project";
   state.workState = null;
   syncProjectOperationContext();
   state.projectWorklines = [];
@@ -4149,6 +4147,7 @@ updateRuntimeStatusButton();
 async function init() {
   if (state.initializing) return;
   const seq = ++state.initSeq;
+  const startupToken = navigationStartupGuard.beginInit(seq);
   state.initializing = true;
   const refreshButton = $("refreshBtn");
   if (refreshButton) {
@@ -4195,14 +4194,28 @@ async function init() {
     autoResizeMessageInput();
     renderRecentSidebarConversations();
     renderRecentSidebarDirectories();
-    await loadHealth();
-    await Promise.all([accountPreferencesHydration, loadSettings(), loadRuntimeSummary(), remoteAccessSettings.load().catch(() => {}), loadModelCatalog(), loadProjects(), loadBackends(), loadServerSkills()]);
+    // Health is informative rather than a prerequisite for rendering the last
+    // conversation. Start it with the other requests so an extra tunnel round
+    // trip never delays the initial screen.
+    const healthPromise = loadHealth();
+    // The static shell already has the selected locale and local preferences.
+    // Reveal it as soon as remote requests are underway rather than holding a
+    // full-screen loading indicator until every settings/catalog request has
+    // completed. The navigation and current transcript continue to hydrate
+    // below without blocking the first paint.
+    signalAppReady();
+    await Promise.all([accountPreferencesHydration, loadSettings(), loadRuntimeSummary(), remoteAccessSettings.load().catch(() => {}), loadModelCatalog(), loadProjects(), loadBackends(), loadServerSkills(), healthPromise]);
     if (seq !== state.initSeq) return;
     state.profile = loadProfilePreferences();
     applyProfilePreferences();
     renderModelOptions();
     navigationRefresh.start();
-    if (!state.agent) {
+    if (!state.agent && state.startupWorkbenchIntent === "conversation" && !state.initRestartRequested) {
+      state.startupWorkbenchIntent = "";
+      if (state.activeWorkbench === "conversation" && !state.overviewActive) {
+        await openDefaultConversationTarget({ preserveMessageState: true });
+      }
+    } else if (!state.agent && startupTokenCurrent(startupToken)) {
       const initialTarget = resolveInitialNavigationTarget(state.recentConversations, state.navigationConversations);
       const requestedView = new URLSearchParams(globalThis.location?.search || "").get("view") || "";
       const startup = resolveOverviewStartup({
@@ -4211,16 +4224,32 @@ async function init() {
         hasProject: state.projects.length > 0,
         mobile: isMobileAppViewport(),
       });
-      state.overviewActive = startup.overviewActive;
-      applyPrimaryWorkbench(startup.workbench);
-      if (startup.restoreConversation && initialTarget) {
-        await selectNavigationConversation(initialTarget, { preserveMessageState: true, preserveOverview: startup.overviewActive });
-      } else if (startup.selectFallbackProject) {
-        await selectProject(state.projects[0].id, { preserveMessageState: true });
-      } else {
+      if (startupTokenCurrent(startupToken)) {
+        state.overviewActive = startup.overviewActive;
+        applyPrimaryWorkbench(startup.workbench);
+      }
+      if (startup.restoreConversation && initialTarget && startupTokenCurrent(startupToken)) {
+        await selectNavigationConversation(initialTarget, {
+          preserveMessageState: true,
+          preserveOverview: startup.overviewActive,
+          source: "startup",
+          startupToken,
+        });
+      } else if (startup.selectFallbackProject && startupTokenCurrent(startupToken)) {
+        await selectProject(state.projects[0].id, {
+          preserveMessageState: true,
+          source: "startup",
+          startupToken,
+        });
+      } else if (startupTokenCurrent(startupToken)) {
         state.chatHydrating = false;
       }
-      if (startup.overviewActive) await overviewDashboard.load();
+      if (startup.overviewActive && startupTokenCurrent(startupToken)) {
+        await overviewDashboard.load();
+        // A user click may invalidate this startup while the dashboard request
+        // is pending. No startup navigation follows this await; the current init
+        // still installs its global router and runs its normal finally cleanup.
+      }
     }
     if (seq === state.initSeq) {
       installDesktopDeepLinkRouter({
@@ -4280,6 +4309,7 @@ async function init() {
       }
     }
   } finally {
+    const restartRequested = seq === state.initSeq && state.initRestartRequested;
     if (seq === state.initSeq) {
       state.initializing = false;
       if (refreshButton) {
@@ -4287,6 +4317,15 @@ async function init() {
         refreshButton.classList.remove("loading");
         refreshButton.removeAttribute("aria-busy");
         renderPrimaryModeSidebar();
+      }
+      if (restartRequested) {
+        // Auth changes can arrive during the single-flight init. The old
+        // startup is already invalidated; restart after its cleanup so the new
+        // auth lifecycle is not silently dropped or left permanently busy.
+        state.initRestartRequested = false;
+        const restart = () => init().catch(showError);
+        if (typeof globalThis.queueMicrotask === "function") globalThis.queueMicrotask(restart);
+        else Promise.resolve().then(restart);
       }
     }
   }

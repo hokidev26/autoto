@@ -2,7 +2,7 @@ import { $, escapeAttr, escapeHtml, setButtonBusy } from "./dom.mjs";
 import { confirm as platformConfirm } from "./platform.mjs";
 import { apiDownload } from "./runtime.mjs";
 import { formatNumber } from "./formatters.mjs";
-import { t } from "./i18n.mjs?v=provider-draft-session-1";
+import { t } from "./i18n.mjs?v=provider-draft-session-1-codex-quota-exhausted-1";
 import { remoteAccessContext } from "./remote-access-capabilities.mjs";
 import { createProviderDraft, renderProviderModelEditor } from "./model-provider-components.mjs?v=provider-codex-models-1-provider-hidden-models-1-provider-quota-overview-1";
 import {
@@ -25,7 +25,7 @@ import {
   codexAccountStableID,
   finiteNumber,
   renderCodexAccountManagementTable,
-} from "./provider-account-rendering.mjs?v=provider-quota-overview-1";
+} from "./provider-account-rendering.mjs?v=provider-quota-overview-1-codex-quota-exhausted-1";
 
 const codexBrowserLoginActiveStatuses = new Set(["starting", "pending", "exchanging"]);
 const maxCodexImportFiles = 50;
@@ -717,6 +717,7 @@ export function createCodexAuthController(ctx) {
       <section class="codex-console-stats settings-stat-grid" aria-label="${escapeAttr(mt("accountSummary"))}">
         <div class="settings-stat-card"><strong>${escapeHtml(String(overview.total))}</strong><span>${escapeHtml(mt("totalAccounts"))}</span></div>
         <div class="settings-stat-card"><strong>${escapeHtml(String(overview.available))}</strong><span>${escapeHtml(mt("availableAccounts"))}</span></div>
+        <div class="settings-stat-card"><strong>${escapeHtml(String(overview.exhausted))}</strong><span>${escapeHtml(mt("exhaustedAccounts"))}</span></div>
         <div class="settings-stat-card"><strong>${escapeHtml(String(overview.rateLimited))}</strong><span>${escapeHtml(mt("limitedAccounts"))}</span></div>
         <div class="settings-stat-card"><strong>${escapeHtml(String(overview.disabled))}</strong><span>${escapeHtml(mt("disabledAccounts"))}</span></div>
       </section>

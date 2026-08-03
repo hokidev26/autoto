@@ -1,8 +1,6 @@
 import { t } from "./i18n.mjs";
 
-const navigationModes = new Set(["all", "projects", "conversations"]);
-
-export const standaloneConversationOrderScope = "__standalone__";
+const navigationModes = new Set(["all", "projects"]);
 
 export const navigationRefreshDefaults = Object.freeze({
   intervalMs: 2000,
@@ -173,7 +171,7 @@ export function parseNavigationTargetId(targetId) {
   if (parts.length !== 3) return null;
   try {
     const [projectId, worklineId, agentId] = parts.map((part) => decodeURIComponent(part));
-    if (!agentId || Boolean(projectId) !== Boolean(worklineId)) return null;
+    if (!agentId || !projectId || !worklineId) return null;
     return { projectId, worklineId, agentId, targetId: createNavigationTargetId({ projectId, worklineId, agentId }) };
   } catch {
     return null;
@@ -189,6 +187,7 @@ function normalizeProject(value = {}) {
     id,
     name: text(value.name || value.projectName) || gitPath || id,
     gitPath,
+    flowMode: text(value.flowMode || value.projectFlowMode).toLocaleLowerCase() || "workspace",
     updatedAt: timestamp(value.updatedAt || value.projectUpdatedAt),
     pinned: booleanValue(value.pinned || value.projectPinned),
     archivedAt: timestamp(value.archivedAt || value.projectArchivedAt),
@@ -208,8 +207,8 @@ function normalizeConversation(value = {}) {
   const worklineId = text(value.worklineId);
   const agentId = text(value.agentId || value.id);
   const context = conversationContext(value);
-  const standalone = context === "conversation";
-  if (!agentId || (!standalone && (!projectId || !worklineId))) return null;
+  const legacyConversation = context === "conversation";
+  if (!agentId || legacyConversation || !projectId || !worklineId) return null;
   const conversation = {
     projectId,
     projectName: text(value.projectName) || projectId,
@@ -234,9 +233,8 @@ function normalizeConversation(value = {}) {
     cwd: text(value.cwd),
     messageCount: Math.max(0, Number.isFinite(Number(value.messageCount)) ? Math.trunc(Number(value.messageCount)) : 0),
     lastActivityAt: timestamp(value.lastActivityAt || value.updatedAt),
-    context,
-    projectFlowMode: !standalone,
-    standalone,
+    context: "project",
+    projectFlowMode: true,
   };
   return { ...conversation, targetId: createNavigationTargetId(conversation) };
 }
@@ -270,10 +268,49 @@ function compareConversationList(left, right) {
     || left.agentTitle.localeCompare(right.agentTitle);
 }
 
+function projectGroupActivity(group) {
+  return Math.max(
+    Date.parse(group?.project?.updatedAt || "") || 0,
+    ...(group?.conversations || []).map((conversation) => conversationActivity(conversation)),
+  );
+}
+
+function compareProjectGroups(left, right) {
+  const leftArchived = left.project.archivedAt ? 1 : 0;
+  const rightArchived = right.project.archivedAt ? 1 : 0;
+  const leftPinned = left.project.pinned ? 1 : 0;
+  const rightPinned = right.project.pinned ? 1 : 0;
+  return leftArchived - rightArchived
+    || rightPinned - leftPinned
+    || projectGroupActivity(right) - projectGroupActivity(left)
+    || left.project.name.localeCompare(right.project.name);
+}
+
+function applyProjectItemOrder(items, orderArr, projectId) {
+  if (!Array.isArray(orderArr) || !orderArr.length) return items;
+  const orderMap = new Map(orderArr.map((id, index) => [String(id), index]));
+  return [...items].sort((left, right) => {
+    const leftIndex = orderMap.has(projectId(left)) ? orderMap.get(projectId(left)) : Infinity;
+    const rightIndex = orderMap.has(projectId(right)) ? orderMap.get(projectId(right)) : Infinity;
+    return leftIndex - rightIndex;
+  });
+}
+
+export function applyProjectOrder(projects, orderArr) {
+  return applyProjectItemOrder(projects, orderArr, (project) => text(project?.id));
+}
+
+function applyProjectGroupOrder(groups, orderArr) {
+  return applyProjectItemOrder(groups, orderArr, (group) => text(group?.project?.id));
+}
+
 export function normalizeNavigationPayload(payload = {}) {
+  // The server already omits legacy conversation-flow containers. Repeat the
+  // boundary here so stale caches or older proxies cannot reintroduce them into
+  // the interactive project navigation.
   const projects = (Array.isArray(payload.projects) ? payload.projects : [])
     .map(normalizeProject)
-    .filter(Boolean);
+    .filter((project) => project && project.flowMode !== "conversation");
   const projectIds = new Set(projects.map((project) => project.id));
   const seenConversationTargets = new Set();
   const conversations = (Array.isArray(payload.conversations) ? payload.conversations : [])
@@ -287,7 +324,7 @@ export function normalizeNavigationPayload(payload = {}) {
     });
 
   conversations.forEach((conversation) => {
-    if (conversation.standalone || projectIds.has(conversation.projectId)) return;
+    if (projectIds.has(conversation.projectId)) return;
     projectIds.add(conversation.projectId);
     projects.push(normalizeProject({
       id: conversation.projectId,
@@ -296,6 +333,7 @@ export function normalizeNavigationPayload(payload = {}) {
       updatedAt: conversation.projectUpdatedAt,
       pinned: conversation.projectPinned,
       archivedAt: conversation.projectArchivedAt,
+      flowMode: "workspace",
     }));
   });
 
@@ -332,20 +370,16 @@ export function projectMatchesSearch(project, conversations, query) {
 
 export function buildNavigationView(payload = {}, options = {}) {
   const normalized = normalizeNavigationPayload(payload);
-  const mode = navigationModes.has(options.mode) ? options.mode : "all";
+  const mode = navigationModes.has(options.mode) ? options.mode : "projects";
   const query = normalizedQuery(options.query);
-  const projectConversations = normalized.conversations.filter((conversation) => !conversation.standalone);
-  const standaloneConversations = normalized.conversations
-    .filter((conversation) => conversation.standalone && conversationMatchesSearch(conversation, query))
-    .sort(compareConversationList);
   const conversationsByProject = new Map();
-  projectConversations.forEach((conversation) => {
+  normalized.conversations.forEach((conversation) => {
     const items = conversationsByProject.get(conversation.projectId) || [];
     items.push(conversation);
     conversationsByProject.set(conversation.projectId, items);
   });
 
-  const projects = normalized.projects.filter((project) => projectMatchesSearch(project, projectConversations, query));
+  const projects = normalized.projects.filter((project) => projectMatchesSearch(project, normalized.conversations, query));
   const groups = projects.map((project) => {
     const conversations = conversationsByProject.get(project.id) || [];
     const projectOwnMatch = includesQuery([project.name, project.gitPath], query);
@@ -357,36 +391,26 @@ export function buildNavigationView(payload = {}, options = {}) {
     };
   });
 
-  // Sort groups so the project with the most recent activity floats to the top.
-  // User-defined drag order (options.projectOrder) applied later in renderNavigationHTML
-  // takes precedence; this is only the default when no manual order exists.
-  groups.sort((a, b) => {
-    const aArchived = a.project.archivedAt ? 1 : 0;
-    const bArchived = b.project.archivedAt ? 1 : 0;
-    const aPinned = a.project.pinned ? 1 : 0;
-    const bPinned = b.project.pinned ? 1 : 0;
-    const aActivity = Math.max(
-      Date.parse(a.project.updatedAt || "") || 0,
-      ...a.conversations.map((c) => conversationActivity(c)),
-    );
-    const bActivity = Math.max(
-      Date.parse(b.project.updatedAt || "") || 0,
-      ...b.conversations.map((c) => conversationActivity(c)),
-    );
-    return aArchived - bArchived || bPinned - aPinned || bActivity - aActivity;
-  });
+  // Sort groups so the project with the most recent message activity floats to
+  // the top. Project pin/archive state still forms the outer boundary. A
+  // user-defined drag order is applied later and takes precedence.
+  groups.sort(compareProjectGroups);
+  const orderedProjects = groups.map((group) => group.project);
 
   return {
     mode,
     query,
     totalProjectCount: normalized.projects.length,
     totalConversationCount: normalized.conversations.length,
-    totalStandaloneConversationCount: normalized.conversations.filter((conversation) => conversation.standalone).length,
-    projects: mode === "conversations" ? [] : projects,
-    conversations: mode === "conversations" ? standaloneConversations : [],
-    standaloneConversations: mode === "all" ? standaloneConversations : [],
-    groups: mode === "conversations" ? [] : groups,
+    projects: orderedProjects,
+    conversations: [],
+    groups,
   };
+}
+
+export function resolveTopNavigationProjectId(payload = {}, options = {}) {
+  const view = buildNavigationView(payload, { mode: "projects", query: options.query });
+  return text(applyProjectOrder(view.projects, options.projectOrder)[0]?.id);
 }
 
 export function normalizeRecentConversations(value, limit = 8) {
@@ -394,7 +418,10 @@ export function normalizeRecentConversations(value, limit = 8) {
   const seen = new Set();
   return items.flatMap((entry) => {
     const parsed = parseNavigationTargetId(typeof entry === "string" ? entry : entry?.targetId);
-    if (!parsed || seen.has(parsed.targetId)) return [];
+    // Projectless targets are legacy standalone conversations. Keep the raw
+    // records in storage untouched, but never let them re-enter the app after a
+    // refresh or cross-tab storage event.
+    if (!parsed?.projectId || !parsed?.worklineId || seen.has(parsed.targetId)) return [];
     seen.add(parsed.targetId);
     const openedAt = timestamp(typeof entry === "object" ? (entry.openedAt || entry.lastOpenedAt) : "");
     return [{ targetId: parsed.targetId, openedAt }];
@@ -458,7 +485,10 @@ export function createRecentConversationSyncController({
 export function resolveInitialNavigationTarget(recent, conversations) {
   const knownTargets = new Set((Array.isArray(conversations) ? conversations : [])
     .map((conversation) => text(conversation?.targetId))
-    .filter((targetId) => parseNavigationTargetId(targetId)));
+    .filter((targetId) => {
+      const parsed = parseNavigationTargetId(targetId);
+      return Boolean(parsed?.projectId && parsed?.worklineId);
+    }));
   const recentMatch = normalizeRecentConversations(recent)
     .find((entry) => knownTargets.has(entry.targetId));
   if (recentMatch) return recentMatch.targetId;
@@ -469,7 +499,8 @@ export function resolveInitialNavigationTarget(recent, conversations) {
 
 export function addRecentConversation(recent, target, openedAt = new Date().toISOString(), limit = 8) {
   const targetId = typeof target === "string" ? parseNavigationTargetId(target)?.targetId : createNavigationTargetId(target);
-  if (!parseNavigationTargetId(targetId)) return normalizeRecentConversations(recent, limit);
+  const parsed = parseNavigationTargetId(targetId);
+  if (!parsed?.projectId || !parsed?.worklineId) return normalizeRecentConversations(recent, limit);
   return normalizeRecentConversations([
     { targetId, openedAt: timestamp(openedAt) || new Date().toISOString() },
     ...normalizeRecentConversations(recent, Number.MAX_SAFE_INTEGER).filter((entry) => entry.targetId !== targetId),
@@ -507,10 +538,9 @@ function navigationMoreTrigger(kind, id) {
   return `<button class="navigation-row-actions" type="button" data-navigation-menu-trigger data-navigation-kind="${escapeNavigationHtml(kind)}" data-navigation-id="${escapeNavigationHtml(id)}" aria-haspopup="menu" aria-label="${escapeNavigationHtml(label)}" title="${escapeNavigationHtml(label)}">…</button>`;
 }
 
-// Deliberately distinct from the sidebar-header "+", which creates a project or
-// a standalone conversation. This one only ever forks the project it sits on
-// into a new git branch + worktree, so its label says so rather than saying
-// "new".
+// Deliberately distinct from the sidebar-header "+", which opens the project
+// directory flow. This one only ever forks the project it sits on into a new
+// git branch + worktree, so its label says so rather than saying "new".
 function navigationForkTrigger(projectId) {
   const label = t("shell.newWorkline");
   return `<button class="navigation-row-fork" type="button" data-project-fork-trigger data-project-id-fork="${escapeNavigationHtml(projectId)}" aria-label="${escapeNavigationHtml(label)}" title="${escapeNavigationHtml(label)}">+</button>`;
@@ -548,11 +578,9 @@ function renderConversation(conversation, activeAgentId, nested = false, options
   const statusClass = navigationAgentStatusClass(conversation.agentStatus);
   const worklineContext = conversation.worklineBranch || conversation.worklineTitle;
   const projectContext = compactDisplayPath(conversation.projectPath) || conversation.projectName;
-  const context = conversation.standalone
-    ? ""
-    : nested
-      ? worklineContext
-      : [projectContext, worklineContext].filter((value, index, items) => value && items.indexOf(value) === index).join(" / ");
+  const context = nested
+    ? worklineContext
+    : [projectContext, worklineContext].filter((value, index, items) => value && items.indexOf(value) === index).join(" / ");
   const metaParts = [context, conversation.model, conversation.agentStatus];
   if (!taskContext) metaParts.push(t("workspace.navigation.messageCount", { count: conversation.messageCount }));
   const meta = metaParts.filter(Boolean).join(" · ");
@@ -566,7 +594,7 @@ function renderConversation(conversation, activeAgentId, nested = false, options
       ? `<svg viewBox="0 0 20 20"><circle cx="7" cy="5" r="1.8"></circle><circle cx="7" cy="15" r="1.8"></circle><circle cx="14" cy="8" r="1.8"></circle><path d="M7 6.8v6.4M7 6.8c2 0 7 .5 7 1.2" stroke-linecap="round"></path></svg>`
       : `<svg viewBox="0 0 20 20"><path d="M5 4.5h10a2 2 0 0 1 2 2V12a2 2 0 0 1-2 2H9l-4 2.5V14a2 2 0 0 1-2-2V6.5a2 2 0 0 1 2-2Z"></path></svg>`;
   return `
-    <div class="navigation-conversation-row ${nested ? "nested " : ""}${nestedFork ? "fork-conversation " : ""}${taskContext ? "task-context " : ""}${active ? "active " : ""}status-${statusClass} ${stateClass}" role="button" tabindex="0" draggable="true" title="${escapeNavigationHtml(conversation.agentTitle)}" data-navigation-target="${escapeNavigationHtml(conversation.targetId)}" data-navigation-kind="conversation" data-navigation-id="${escapeNavigationHtml(conversation.agentId)}" data-agent-status="${escapeNavigationHtml(conversation.agentStatus || "idle")}" data-navigation-context="${taskContext ? "tasks" : conversation.standalone ? "conversation" : "project"}" data-standalone-conversation="${conversation.standalone ? "true" : "false"}"${orderScope ? ` data-conversation-order-scope="${escapeNavigationHtml(orderScope)}"` : ""}>
+    <div class="navigation-conversation-row ${nested ? "nested " : ""}${nestedFork ? "fork-conversation " : ""}${taskContext ? "task-context " : ""}${active ? "active " : ""}status-${statusClass} ${stateClass}" role="button" tabindex="0" draggable="true" title="${escapeNavigationHtml(conversation.agentTitle)}" data-navigation-target="${escapeNavigationHtml(conversation.targetId)}" data-navigation-kind="conversation" data-navigation-id="${escapeNavigationHtml(conversation.agentId)}" data-agent-status="${escapeNavigationHtml(conversation.agentStatus || "idle")}" data-navigation-context="${taskContext ? "tasks" : "project"}"${orderScope ? ` data-conversation-order-scope="${escapeNavigationHtml(orderScope)}"` : ""}>
       <span class="navigation-agent-icon theme-icon-slot" data-theme-icon-slot="${nestedFork ? "sidebar-fork" : "sidebar-conversation"}" aria-hidden="true">${icon}</span>
       <span class="navigation-conversation-main">
         <span class="navigation-conversation-title"><span class="navigation-title-text">${escapeNavigationHtml(conversation.agentTitle)}</span>${stateMeta}</span>
@@ -589,7 +617,7 @@ export function applyConversationOrder(conversations, orderArr) {
 }
 
 export function renderNavigationHTML(view = {}, options = {}) {
-  const mode = navigationModes.has(view.mode) ? view.mode : "all";
+  const mode = navigationModes.has(view.mode) ? view.mode : "projects";
   const activeProjectId = text(options.activeProjectId);
   const activeAgentId = text(options.activeAgentId);
   const taskContext = options.taskContext === true;
@@ -602,24 +630,8 @@ export function renderNavigationHTML(view = {}, options = {}) {
   if (taskContext) {
     html = (view.projects || []).map((project) => renderProject(project, activeProjectId, { taskContext: true, taskCounts: options.taskCounts, activeSelectionKind })).join("");
   } else if (mode === "all") {
-    const standaloneConversations = options.conversationOrders?.[standaloneConversationOrderScope]
-      ? applyConversationOrder(view.standaloneConversations || [], options.conversationOrders[standaloneConversationOrderScope])
-      : (view.standaloneConversations || []);
-    const standalone = standaloneConversations
-      .map((conversation) => renderConversation(conversation, activeAgentId, false, { activeSelectionKind, orderScope: standaloneConversationOrderScope }))
-      .join("");
-    let groups = view.groups || [];
     // Apply user-defined project order (drag-to-reorder, persisted in localStorage).
-    if (Array.isArray(options.projectOrder) && options.projectOrder.length) {
-      const orderMap = new Map(options.projectOrder.map((id, i) => [String(id), i]));
-      const copy = [...groups];
-      copy.sort((a, b) => {
-        const ia = orderMap.has(a.project.id) ? orderMap.get(a.project.id) : Infinity;
-        const ib = orderMap.has(b.project.id) ? orderMap.get(b.project.id) : Infinity;
-        return ia - ib;
-      });
-      groups = copy;
-    }
+    const groups = applyProjectGroupOrder(view.groups || [], options.projectOrder);
     const groupsHTML = groups.map((group) => {
       const orderedConvs = options.conversationOrders?.[group.project.id]
         ? applyConversationOrder(group.conversations, options.conversationOrders[group.project.id])
@@ -675,32 +687,19 @@ export function renderNavigationHTML(view = {}, options = {}) {
         </div>
       </section>`;
     }).join("");
-    html = standalone + groupsHTML;
+    html = groupsHTML;
   } else if (mode === "projects") {
     // Projects-only mode stays a flat list of project rows: no group sections
     // and no conversation structure, which is what the task sidebar relies on.
     // The drag handlers therefore resolve a project from the row itself here,
     // not from a wrapping group. Agent status is still rolled up from groups so
     // the bubble icon can turn blue while a project agent is running.
-    let projects = view.projects || [];
-    if (Array.isArray(options.projectOrder) && options.projectOrder.length) {
-      const orderMap = new Map(options.projectOrder.map((id, i) => [String(id), i]));
-      projects = [...projects].sort((a, b) => {
-        const ia = orderMap.has(a.id) ? orderMap.get(a.id) : Infinity;
-        const ib = orderMap.has(b.id) ? orderMap.get(b.id) : Infinity;
-        return ia - ib;
-      });
-    }
+    const projects = applyProjectOrder(view.projects || [], options.projectOrder);
     const statusByProject = new Map((view.groups || []).map((group) => [group.project.id, aggregateNavigationAgentStatus(group.conversations)]));
     html = projects.map((project) => renderProject(project, activeProjectId, {
       activeSelectionKind,
       agentStatus: statusByProject.get(project.id) || "",
     })).join("");
-  } else {
-    const conversations = options.conversationOrders?.[standaloneConversationOrderScope]
-      ? applyConversationOrder(view.conversations || [], options.conversationOrders[standaloneConversationOrderScope])
-      : (view.conversations || []);
-    html = conversations.map((conversation) => renderConversation(conversation, activeAgentId, false, { taskContext, activeSelectionKind, orderScope: standaloneConversationOrderScope })).join("");
   }
   if (html) return html;
   if (view.query) return `<div class="empty-list">${escapeNavigationHtml(t("workspace.navigation.noResults", { query: view.query }))}</div>`;
@@ -711,9 +710,6 @@ export function renderNavigationHTML(view = {}, options = {}) {
       <button type="button" data-primary-workbench-target="conversation">${escapeNavigationHtml(t("workbench.goToConversation"))}</button>
     </div>`;
   }
-  if (mode === "conversations") {
-    return `<div class="empty-list">${escapeNavigationHtml(t("workspace.navigation.noConversations"))}</div>`;
-  }
   if (!view.totalProjectCount) {
     return `
       <button class="project-card project-card-empty" type="button" data-open-directory-shortcut="new">
@@ -723,7 +719,7 @@ export function renderNavigationHTML(view = {}, options = {}) {
         </span>
       </button>`;
   }
-  return `<div class="empty-list">${escapeNavigationHtml(mode === "conversations" ? t("workspace.navigation.noConversations") : t("workspace.navigation.noProjects"))}</div>`;
+  return `<div class="empty-list">${escapeNavigationHtml(t("workspace.navigation.noProjects"))}</div>`;
 }
 
 export function renderRecentConversationsHTML(recent, conversations, activeAgentId = "") {

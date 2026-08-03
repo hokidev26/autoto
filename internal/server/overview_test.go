@@ -251,7 +251,7 @@ func TestOverviewMatchesTaskWorkspaceAuthenticationAndFiltersMembership(t *testi
 	}
 }
 
-func TestOverviewExcludesArchivedAgentsAndIncludesConversationFlow(t *testing.T) {
+func TestOverviewExcludesArchivedAgentsAndLegacyConversationFlow(t *testing.T) {
 	ctx := context.Background()
 	store, err := db.Open(ctx, filepath.Join(t.TempDir(), "overview-archive.db"))
 	if err != nil {
@@ -302,16 +302,21 @@ func TestOverviewExcludesArchivedAgentsAndIncludesConversationFlow(t *testing.T)
 			t.Fatalf("archived agent resource leaked %q: %s", forbidden, body)
 		}
 	}
-	for _, required := range []string{project.ID, activeAgent.ID, "visible-task", "visible-schedule", conversationProject.ID, conversationAgent.ID, "conversation-schedule"} {
+	for _, required := range []string{project.ID, activeAgent.ID, "visible-task", "visible-schedule"} {
 		if !strings.Contains(body, required) {
 			t.Fatalf("overview omitted visible resource %q: %s", required, body)
+		}
+	}
+	for _, forbidden := range []string{conversationProject.ID, conversationAgent.ID, "conversation-schedule", "conversation-approval"} {
+		if strings.Contains(body, forbidden) {
+			t.Fatalf("legacy conversation-flow resource leaked into overview: %q in %s", forbidden, body)
 		}
 	}
 	var response overviewResponse
 	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
 		t.Fatal(err)
 	}
-	if response.Summary.Conversations != 2 || response.Summary.Tasks.Total != 1 || response.Summary.PendingApprovals != 2 || response.Summary.Schedules.Total != 2 {
+	if response.Summary.Conversations != 1 || response.Summary.Tasks.Total != 1 || response.Summary.PendingApprovals != 1 || response.Summary.Schedules.Total != 1 {
 		t.Fatalf("archived or conversation-flow filtering was incorrect: %+v", response.Summary)
 	}
 }
@@ -389,16 +394,21 @@ func TestOverviewFiltersRestrictedRemoteFilesystemScope(t *testing.T) {
 			t.Fatalf("restricted overview leaked %q: %s", forbidden, body)
 		}
 	}
-	for _, required := range []string{insideProject.ID, insideAgent.ID, "inside-task", "inside-schedule", conversationProject.ID, conversationAgent.ID, "remote-conversation-schedule"} {
+	for _, required := range []string{insideProject.ID, insideAgent.ID, "inside-task", "inside-schedule"} {
 		if !strings.Contains(body, required) {
 			t.Fatalf("restricted overview omitted %q: %s", required, body)
+		}
+	}
+	for _, forbidden := range []string{conversationProject.ID, conversationAgent.ID, "remote-conversation-schedule", "conversation-remote-approval"} {
+		if strings.Contains(body, forbidden) {
+			t.Fatalf("restricted overview exposed removed conversation-flow resource %q: %s", forbidden, body)
 		}
 	}
 	var response overviewResponse
 	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
 		t.Fatal(err)
 	}
-	if response.Summary.Conversations != 2 || response.Summary.Tasks.Total != 1 || response.Summary.PendingApprovals != 2 || response.Summary.Schedules.Total != 2 {
+	if response.Summary.Conversations != 1 || response.Summary.Tasks.Total != 1 || response.Summary.PendingApprovals != 1 || response.Summary.Schedules.Total != 1 {
 		t.Fatalf("restricted overview summary escaped filesystem scope: %+v", response.Summary)
 	}
 }

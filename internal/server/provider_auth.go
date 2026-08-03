@@ -297,6 +297,9 @@ func (s *Server) nativeCodexProvider() (*providers.CodexProvider, error) {
 	if s.providers != nil {
 		if provider, ok := s.providers.Get(codexauth.DefaultProviderName); ok {
 			if codexProvider, ok := provider.(*providers.CodexProvider); ok {
+				if s.store != nil {
+					codexProvider.SetAccountTelemetry(s.store)
+				}
 				return codexProvider, nil
 			}
 		}
@@ -306,6 +309,9 @@ func (s *Server) nativeCodexProvider() (*providers.CodexProvider, error) {
 	}
 	if provider, ok := s.providers.Get(codexauth.DefaultProviderName); ok {
 		if codexProvider, ok := provider.(*providers.CodexProvider); ok {
+			if s.store != nil {
+				codexProvider.SetAccountTelemetry(s.store)
+			}
 			return codexProvider, nil
 		}
 	}

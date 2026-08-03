@@ -1258,7 +1258,7 @@ func backgroundTaskContinuationBoundary(result tools.Result) (string, bool, erro
 	return "", false, errors.New("resumeParent tool result is missing a background task id")
 }
 
-func (r *Runner) toolExecutionEnv(ctx context.Context, agent db.Agent, runID string, output func(tools.OutputChunk)) (tools.Env, error) {
+func (r *Runner) toolExecutionEnv(ctx context.Context, agent db.Agent, runID, toolName string, output func(tools.OutputChunk)) (tools.Env, error) {
 	env := tools.Env{
 		AgentID:            agent.ID,
 		RunID:              runID,
@@ -1283,7 +1283,14 @@ func (r *Runner) toolExecutionEnv(ctx context.Context, agent db.Agent, runID str
 		} else {
 			env.PermissionModeCap = "acceptEdits"
 		}
-		if snapshot, configured, snapshotErr := r.currentPlanSnapshot(ctx, agent.ID); snapshotErr != nil {
+		snapshotProvider := r.currentPlanSnapshot
+		if toolName == "Agent" || toolName == "Bash" {
+			// Out-of-band background-capable tools need a stable tool-catalog
+			// snapshot, but they are not plan approval operations and must not
+			// inherit the plan provider's Git-repository requirement.
+			snapshotProvider = r.currentBackgroundTaskSnapshot
+		}
+		if snapshot, configured, snapshotErr := snapshotProvider(ctx, agent.ID); snapshotErr != nil {
 			return tools.Env{}, snapshotErr
 		} else if configured {
 			env.PolicyGenerationSnapshot = snapshot.PolicyGenerationSnapshot

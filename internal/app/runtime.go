@@ -214,16 +214,21 @@ func NewRuntime(options Options) (*Runtime, error) {
 	automationManager.SetTelegramSender(channelManager)
 	runner.SetNotifier(automationManager)
 
-	backgroundManager := background.NewManager(store, background.Options{})
+	backgroundManager := background.NewManager(store, background.Options{
+		WorkerCount:          cfg.Background.WorkerCount,
+		PerAgentLimit:        cfg.Background.PerAgentLimit,
+		AllowNestedSubagents: cfg.Background.AllowNestedSubagents,
+		MaxSubagentDepth:     cfg.Background.MaxSubagentDepth,
+	})
 	if err := backgroundManager.RegisterExecutor(db.BackgroundTaskKindShell, background.NewShellExecutor()); err != nil {
 		cleanup(store)
 		return nil, fmt.Errorf("register background shell executor: %w", err)
 	}
-	if err := backgroundManager.RegisterExecutor(db.BackgroundTaskKindAgent, background.NewAgentExecutor(store, runner)); err != nil {
+	if err := backgroundManager.RegisterExecutor(db.BackgroundTaskKindAgent, background.NewAgentExecutor(store, runner, backgroundManager)); err != nil {
 		cleanup(store)
 		return nil, fmt.Errorf("register background agent executor: %w", err)
 	}
-	backgroundService := background.NewService(backgroundManager, store)
+	backgroundService := background.NewService(backgroundManager, store, runner)
 	backgroundManager.SetValidator(runner.ValidateBackgroundTask)
 	eventHook, terminalHook := background.NewManagerHooks(hub, automationManager, runner)
 	backgroundManager.SetEventHook(eventHook)
@@ -246,6 +251,7 @@ func NewRuntime(options Options) (*Runtime, error) {
 	application.SetProviderVault(providerVault)
 	application.SetToolRegistry(toolRegistry)
 	application.SetBackgroundTaskService(backgroundService)
+	application.SetBackgroundRuntimeController(backgroundManager)
 	application.SetAutomationToolCatalog(server.NewAutomationToolCatalog(cfg.Paths.HomeDir, store, server.AutomationToolCatalogOptions{}))
 	application.SetAutomationManager(automationManager)
 	application.SetConnectionService(connectionService)

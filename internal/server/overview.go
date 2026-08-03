@@ -122,11 +122,16 @@ func (s *Server) overview(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Match navigation membership and archive behavior before applying the
-	// request-specific remote filesystem filter. Conversation-flow projects have
-	// no host path and remain visible to restricted remote sessions by design.
+	// Match ordinary navigation membership before applying the request-specific
+	// remote filesystem filter. Legacy conversation-flow containers remain in
+	// storage for compatibility but never enter the overview projection.
+	visibleProjects := make([]db.Project, 0, len(projects))
 	allowedProjects := make(map[string]struct{}, len(projects))
 	for _, project := range projects {
+		if project.FlowMode == db.ProjectFlowModeConversation {
+			continue
+		}
+		visibleProjects = append(visibleProjects, project)
 		allowedProjects[project.ID] = struct{}{}
 	}
 	conversations, err := s.store.ListNavigationConversations(r.Context())
@@ -147,7 +152,7 @@ func (s *Server) overview(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "overview unavailable")
 		return
 	}
-	workspace = s.filterTaskWorkspaceForRequest(r, workspace, s.filterProjectsForRequest(r, projects))
+	workspace = s.filterTaskWorkspaceForRequest(r, workspace, s.filterProjectsForRequest(r, visibleProjects))
 
 	// Navigation is the canonical visible-agent projection. In particular, it
 	// excludes archived agents that ListTaskWorkspace intentionally still loads.

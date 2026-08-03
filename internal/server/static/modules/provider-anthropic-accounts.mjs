@@ -18,7 +18,7 @@ import {
 import {
   anthropicAccountOverview,
   renderAnthropicAccountManagementTable,
-} from "./provider-account-rendering.mjs?v=provider-quota-overview-1";
+} from "./provider-account-rendering.mjs?v=provider-quota-overview-1-codex-quota-exhausted-1";
 
 // Creates the Anthropic account controller: profile/API-key account creation,
 // per-account save/sync/toggle/delete, and the dedicated account console page.

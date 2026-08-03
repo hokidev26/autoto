@@ -287,10 +287,22 @@ export function createChatComposerController({
 
   // Mirrors resolveComposerActivityStatus() in agent-workspace-helpers.mjs
   // rather than importing it: the composer must not take a dependency on the
-  // workspace shell, and only the boolean matters here.
+  // workspace shell, and only the boolean matters here. Terminal live records
+  // remain visible until the persisted run summary takes ownership, but they
+  // must not keep the send button in Stop mode.
+  const terminalLiveToolStatuses = new Set([
+    "completed", "complete", "succeeded", "success", "done", "error", "failed",
+    "rejected", "denied", "cancelled", "canceled", "interrupted", "aborted", "superseded",
+  ]);
+
+  function liveToolIsActive(item) {
+    const status = String(item?.status || item?.state || "").trim().toLowerCase().replace(/[\s-]+/g, "_");
+    return !terminalLiveToolStatuses.has(status);
+  }
+
   function agentTurnInFlight() {
     if (Object.keys(state.pendingToolApprovals || {}).length) return true;
-    if (Object.keys(state.liveToolOutputs || {}).length) return true;
+    if (Object.values(state.liveToolOutputs || {}).some(liveToolIsActive)) return true;
     if (state.liveAssistantActive) return true;
     return String(state.agent?.status || "").trim().toLowerCase() === "running";
   }
@@ -401,7 +413,7 @@ export function createChatComposerController({
       await onMessageAccepted?.(accepted, agentId);
       rememberPromptHistory(next.text);
       await loadMessages(agentId);
-      scheduleMessageRefresh(1200, agentId);
+      scheduleMessageRefresh(1200, agentId, { skipWhileActive: true });
     } catch (err) {
       // Put it back at the head so the order the user typed in survives a
       // transient failure, and say so instead of dropping their message.
@@ -1116,7 +1128,7 @@ export function createChatComposerController({
             });
             await loadMessages(agentId);
             scrollMessagesToBottom?.();
-            scheduleMessageRefresh(1200, agentId);
+            scheduleMessageRefresh(1200, agentId, { skipWhileActive: true });
           } catch (err) {
             throw err;
           } finally {
@@ -1200,7 +1212,7 @@ export function createChatComposerController({
       if (!isGoalCommand) {
         await loadMessages(agentId);
         scrollMessagesToBottom?.();
-        scheduleMessageRefresh(1200, agentId);
+        scheduleMessageRefresh(1200, agentId, { skipWhileActive: true });
       }
     } catch (err) {
       const stillCurrent = state.agent?.id === agentId;

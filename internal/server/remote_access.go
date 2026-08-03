@@ -462,16 +462,23 @@ func (s *Server) filterWorklinesForRequest(r *http.Request, worklines []db.Workl
 }
 
 func (s *Server) filterNavigationConversationsForRequest(r *http.Request, conversations []db.NavigationConversation) []db.NavigationConversation {
-	if s.capabilitiesForRequest(r).FilesystemScope != "project" {
-		return conversations
-	}
+	return s.filterNavigationConversationsForRequestWithLegacy(r, conversations, false)
+}
+
+func (s *Server) filterNavigationConversationsForRequestWithLegacy(r *http.Request, conversations []db.NavigationConversation, allowLegacy bool) []db.NavigationConversation {
+	projectScoped := s.capabilitiesForRequest(r).FilesystemScope == "project"
 	filtered := make([]db.NavigationConversation, 0, len(conversations))
 	for _, conversation := range conversations {
-		if conversation.Context == db.ProjectFlowModeConversation && strings.TrimSpace(conversation.CWD) == "" {
-			filtered = append(filtered, conversation)
+		if conversation.Context == db.ProjectFlowModeConversation {
+			// Legacy standalone rows are available only to the explicit archive
+			// projection so users can restore or permanently delete old data. The
+			// ordinary navigation and overview paths always pass allowLegacy=false.
+			if allowLegacy && (!projectScoped || strings.TrimSpace(conversation.CWD) == "") {
+				filtered = append(filtered, conversation)
+			}
 			continue
 		}
-		if s.filesystemPathWithinProjectRoot(conversation.CWD) {
+		if !projectScoped || s.filesystemPathWithinProjectRoot(conversation.CWD) {
 			filtered = append(filtered, conversation)
 		}
 	}

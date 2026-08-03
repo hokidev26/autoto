@@ -29,6 +29,7 @@ import {
 
 function fakeMessagesElement() {
   const classes = new Set(["empty"]);
+  const listeners = new Map();
   return {
     classList: {
       add: (...names) => names.forEach((name) => classes.add(name)),
@@ -39,7 +40,16 @@ function fakeMessagesElement() {
     querySelector: () => null,
     querySelectorAll: () => [],
     insertAdjacentHTML(_position, html) { this.innerHTML += html; },
+    addEventListener(type, listener) {
+      const current = listeners.get(type) || [];
+      current.push(listener);
+      listeners.set(type, current);
+    },
+    dispatchScroll() {
+      (listeners.get("scroll") || []).forEach((listener) => listener());
+    },
     scrollHeight: 100,
+    clientHeight: 0,
     scrollTop: 0,
   };
 }
@@ -183,6 +193,46 @@ test("explicit transcript scrolling follows the newest message across mobile lay
   }
 });
 
+test("full transcript snapshots preserve manual offsets and invalidate stale tail settles", () => {
+  const harness = createAsyncChatRenderingHarness(async () => ({}));
+  const previousRAF = globalThis.requestAnimationFrame;
+  const previousTimeout = globalThis.setTimeout;
+  const timers = [];
+  globalThis.requestAnimationFrame = undefined;
+  globalThis.setTimeout = (callback, delay) => {
+    timers.push({ callback, delay });
+    return timers.length;
+  };
+  try {
+    assert.equal(
+      harness.controller.applyMessageSnapshot([{ id: "m1", role: "assistant", contentText: "history" }], "agent-a"),
+      true,
+    );
+    harness.messagesElement.scrollHeight = 1200;
+    harness.messagesElement.clientHeight = 400;
+    harness.messagesElement.scrollTop = 400;
+    harness.messagesElement.dispatchScroll();
+    harness.controller.applyMessageSnapshot([{ id: "m1", role: "assistant", contentText: "history updated" }], "agent-a");
+    assert.equal(harness.messagesElement.scrollTop, 400, "a reader away from the tail keeps the visible offset");
+
+    harness.messagesElement.scrollTop = 1200;
+    harness.controller.scrollMessagesToBottom();
+    harness.messagesElement.scrollTop = 400;
+    harness.controller.applyMessageSnapshot(
+      [{ id: "m1", role: "assistant", contentText: "history updated" }],
+      "agent-a",
+      { preserveScroll: true },
+    );
+    assert.equal(harness.messagesElement.scrollTop, 400, "preserveScroll restores the saved offset");
+    timers.forEach(({ callback }) => callback());
+    assert.equal(harness.messagesElement.scrollTop, 400, "an older delayed tail settle cannot override the snapshot");
+  } finally {
+    globalThis.requestAnimationFrame = previousRAF;
+    globalThis.setTimeout = previousTimeout;
+    harness.restore();
+  }
+});
+
 test("chatMessagePresentation keeps user semantics while aligning messages left", () => {
   assert.deepEqual(chatMessagePresentation({ role: "user" }).alignment, "left");
   assert.deepEqual(chatMessagePresentation({ role: "user" }).roleClass, "user");
@@ -282,6 +332,39 @@ test("invalidated older-message requests cannot clear the next lifecycle loading
     assert.equal(harness.state.messageOlderLoading, true);
     assert.deepEqual(harness.state.currentMessages.map((message) => message.id), ["current"]);
   } finally {
+    harness.restore();
+  }
+});
+
+test("deferred message refresh skips a full snapshot while the turn is still active", async () => {
+  const requests = [];
+  const harness = createAsyncChatRenderingHarness(async (path) => {
+    requests.push(path);
+    return { messages: [{ id: "m1", role: "assistant", contentText: "fresh" }] };
+  });
+  const previousWindow = globalThis.window;
+  const timers = [];
+  globalThis.window = {
+    setTimeout(callback, delay) {
+      timers.push({ callback, delay });
+      return timers.length;
+    },
+    clearTimeout() {},
+  };
+  try {
+    harness.state.agent.status = "running";
+    harness.controller.scheduleMessageRefresh(1200, "agent-a", { skipWhileActive: true });
+    timers.shift().callback();
+    await Promise.resolve();
+    assert.deepEqual(requests, [], "the running turn stays on incremental live events");
+
+    harness.state.agent.status = "idle";
+    harness.controller.scheduleMessageRefresh(0, "agent-a", { skipWhileActive: true });
+    timers.shift().callback();
+    await Promise.resolve();
+    assert.deepEqual(requests, ["/api/agents/agent-a/messages?limit=100"]);
+  } finally {
+    globalThis.window = previousWindow;
     harness.restore();
   }
 });
@@ -735,6 +818,78 @@ test("Run summary API failures render a lightweight notice instead of a project 
     assert.match(messagesElement.innerHTML, /conversation-run-notice load-error/);
     assert.match(messagesElement.innerHTML, /暂时无法加载本轮详情/);
     assert.doesNotMatch(messagesElement.innerHTML, /run-summary-card|run-summary-metrics|run-summary-checkpoint|data-run-summary-copy|data-run-summary-refresh|<summary error>|&lt;summary error&gt;/);
+  } finally {
+    globalThis.document = previousDocument;
+  }
+});
+
+test("terminal live activity stays visible while the summary loads and transfers once it succeeds", async () => {
+  const messagesElement = fakeMessagesElement();
+  messagesElement.querySelector = (selector) => {
+    if (selector !== "[data-live-tool-output-stack]" || !messagesElement.innerHTML.includes("data-live-tool-output-stack")) return null;
+    return {
+      remove() {
+        const start = messagesElement.innerHTML.indexOf('<section class="live-tool-output-stack');
+        const end = messagesElement.innerHTML.indexOf("</section>", start);
+        if (start >= 0 && end >= 0) messagesElement.innerHTML = `${messagesElement.innerHTML.slice(0, start)}${messagesElement.innerHTML.slice(end + "</section>".length)}`;
+      },
+    };
+  };
+  const previousDocument = globalThis.document;
+  const summary = deferred();
+  const persisted = { agentId: "agent-1", runId: "run-1", toolUseId: "persisted-tool", toolName: "Read", status: "completed" };
+  const live = { agentId: "agent-1", runId: "run-1", toolUseId: "live-tool", toolName: "Read", status: "completed" };
+  globalThis.document = { getElementById: (id) => id === "messages" ? messagesElement : null };
+  const state = {
+    agent: { id: "agent-1" },
+    navigationSelectionKind: "conversation",
+    currentMessages: [],
+    messageCopyTexts: [],
+    liveToolOutputs: { "live-tool": live },
+    liveReasoningSteps: [],
+    liveReasoningDraft: null,
+    liveAssistantActive: false,
+    liveAssistantText: "",
+    liveImageGenerations: {},
+    pendingToolApprovals: {},
+    activeRunSummary: null,
+    activeRunSummaryRunId: "",
+    activeRunToolCalls: [],
+    activeRunToolCallsRunId: "",
+    runSummaryLoading: false,
+    runSummaryError: "",
+  };
+  try {
+    const controller = createChatRenderingController({
+      state,
+      apiRequest: async (url) => {
+        if (url.endsWith("/runs/run-1")) return summary.promise;
+        if (url.includes("/runs/run-1/tool-calls?")) return { toolCalls: [persisted], hasMore: false };
+        throw new Error(`unexpected request ${url}`);
+      },
+      attachmentIcon: () => "file",
+      attachmentKind: () => "file",
+      copyToClipboard: async () => true,
+      notifyTerminal: () => {},
+      selectedModelValue: () => "",
+      shortPath: (value) => value,
+      showError: () => {},
+      showToast: () => {},
+    });
+
+    controller.applyMessageSnapshot([], "agent-1");
+    assert.match(messagesElement.innerHTML, /live-tool/);
+    const loading = controller.loadRunSummary("run-1");
+    await Promise.resolve();
+    assert.ok(state.liveToolOutputs["live-tool"], "the live fallback remains while the summary is pending");
+    assert.match(messagesElement.innerHTML, /live-tool/);
+
+    summary.resolve({ run: { id: "run-1", status: "completed" } });
+    await loading;
+    assert.equal(state.liveToolOutputs["live-tool"], undefined);
+    assert.doesNotMatch(messagesElement.innerHTML, /live-tool/);
+    assert.match(messagesElement.innerHTML, /persisted-tool/);
+    assert.equal((messagesElement.innerHTML.match(/data-tool-activity-select="persisted-tool"/g) || []).length, 1);
   } finally {
     globalThis.document = previousDocument;
   }
@@ -2091,8 +2246,8 @@ test("Agent task normalization keeps dispatch separate from child completion and
   assert.match(html, /role="status" aria-live="polite"/);
   assert.match(html, /status-running/);
   assert.doesNotMatch(html, /status-completed/);
-  assert.doesNotMatch(compact, new RegExp(prompt));
-  assert.match(html.slice(html.indexOf("subagent-task-audit")), new RegExp(prompt));
+  assert.doesNotMatch(html, new RegExp(prompt));
+  assert.match(html, /原始提示词和敏感 payload 已隐藏|原始提示詞和敏感 payload 已隱藏|original prompt and sensitive payload are hidden/i);
 
   const automaticModel = renderAgentTaskActivityCardHTML({
     toolUseId: "agent-auto-model",
@@ -2117,12 +2272,18 @@ test("Agent task card expansion follows the background task status only", () => 
   }
   const waiting = renderAgentTaskActivityCardHTML(tool, { id: "task-waiting", status: "waiting_approval" });
   assert.doesNotMatch(waiting, /子 Agent 内部审批|子代理内部审批/);
+
+  const validating = renderAgentTaskActivityCardHTML(tool, { id: "task-validating", status: "running" });
+  assert.match(validating, /data-subagent-status="validating"/);
+  assert.match(validating, /安全校验|安全驗證|Validating safety/);
+  const childRunning = renderAgentTaskActivityCardHTML(tool, { id: "task-running", status: "running", childAgentId: "child-1", childRunId: "run-1" });
+  assert.match(childRunning, /data-subagent-status="running"/);
 });
 
-test("Agent compact failure notice hides prompt and raw errors while audit details retain tool evidence", () => {
-  const prompt = "PROMPT_SECRET_DO_NOT_SHOW_COMPACT";
-  const toolError = "RAW_TOOL_ERROR_DO_NOT_SHOW_COMPACT";
-  const taskError = "RAW_TASK_ERROR_DO_NOT_SHOW_ANYWHERE";
+test("Agent failure cards hide sensitive tool payloads while showing structured task errors", () => {
+  const prompt = "PROMPT_SECRET_DO_NOT_SHOW_ANYWHERE";
+  const toolError = "RAW_TOOL_ERROR_DO_NOT_SHOW_ANYWHERE";
+  const taskError = "workspace must be a Git repository before a plan can be approved";
   const html = renderAgentTaskActivityCardHTML({
     toolUseId: "agent-failed",
     toolName: "Agent",
@@ -2138,13 +2299,12 @@ test("Agent compact failure notice hides prompt and raw errors while audit detai
   const auditIndex = html.indexOf("subagent-task-audit");
   const compact = html.slice(0, auditIndex);
   const audit = html.slice(auditIndex);
-  assert.doesNotMatch(compact, new RegExp(prompt));
-  assert.doesNotMatch(compact, new RegExp(toolError));
-  assert.doesNotMatch(compact, new RegExp(taskError));
+  assert.doesNotMatch(html, new RegExp(prompt));
+  assert.doesNotMatch(html, new RegExp(toolError));
   assert.match(compact, /subagent-task-notice/);
-  assert.match(audit, new RegExp(prompt));
-  assert.match(audit, new RegExp(toolError));
-  assert.doesNotMatch(html, new RegExp(taskError));
+  assert.match(compact, /child_run_unavailable/);
+  assert.match(compact, new RegExp(taskError));
+  assert.match(audit, /原始提示词和敏感 payload 已隐藏|原始提示詞和敏感 payload 已隱藏|original prompt and sensitive payload are hidden/i);
 });
 
 test("Agent task card escapes and bounds every compact text and action identifier", () => {

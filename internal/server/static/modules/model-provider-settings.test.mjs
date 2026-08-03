@@ -127,6 +127,7 @@ const labels = {
   recordedCostHint: "Based on local request records; not a provider billing statement.",
   never: "Never",
   rateLimited: "Rate limited",
+  exhausted: "Quota exhausted",
   disabled: "Disabled",
   available: "Available",
   expired: "Expired",
@@ -323,19 +324,26 @@ test("Codex quota hides cumulative usage and upstream credit explanations", () =
   assert.doesNotMatch(html, /codex-usage-total-summary|All time|codex-credits-summary|Credits|Unlimited/);
 });
 
-test("Codex account status distinguishes disabled, limited, expired, and available", () => {
+test("Codex account status distinguishes disabled, limited, exhausted, expired, and available", () => {
   const now = Date.parse("2026-01-01T00:00:00Z");
   assert.match(render([{ id: "disabled", disabled: true }], now), />Disabled<\/span>/);
   assert.match(render([{ id: "limited", quota: { rate_limit_reached_type: "primary" } }], now), />Rate limited<\/span>/);
+  assert.match(render([{ id: "exhausted", stats: { last_error_code: "quota_unauthorized", last_attempt_at: "2026-01-01T00:00:00Z" } }], now), />Quota exhausted<\/span>/);
   assert.match(render([{ id: "expired", expires_at: "2025-12-01T00:00:00Z", refreshable: false }], now), />Expired<\/span>/);
   assert.match(render([{ id: "ready" }], now), />Available<\/span>/);
   assert.equal(codexAccountStatus({ expires_at: "2025-12-01T00:00:00Z", refreshable: true }, { now }).key, "available");
+  assert.equal(codexAccountStatus({ stats: { last_error_code: "oauth_unauthorized", last_attempt_at: "2026-01-01T00:00:00Z" } }, { now }).key, "available");
+  assert.equal(codexAccountStatus({
+    stats: { last_error_code: "quota_unauthorized", last_attempt_at: "2025-12-31T23:00:00Z", quota_fetched_at: "2026-01-01T00:00:00Z" },
+    quota: { primary_window: { used_percent: 25 } },
+  }, { now }).key, "available");
   assert.deepEqual(codexAccountOverview([
     { id: "ready" },
     { id: "limited", quota: { rate_limit_reached_type: "primary" } },
+    { id: "exhausted", stats: { last_error_code: "quota_unauthorized", last_attempt_at: "2026-01-01T00:00:00Z" } },
     { id: "disabled", disabled: true },
     { id: "expired", expires_at: "2025-12-01T00:00:00Z" },
-  ], { now }), { total: 4, available: 1, rateLimited: 1, disabled: 1, expired: 1 });
+  ], { now }), { total: 5, available: 1, rateLimited: 1, exhausted: 1, disabled: 1, expired: 1 });
 });
 
 test("Codex mutation success is reported separately from a refresh failure", () => {

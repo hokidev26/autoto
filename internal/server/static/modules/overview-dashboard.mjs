@@ -14,14 +14,12 @@ const ACTIONS = new Set([
 ]);
 
 const LAUNCHER_ACTIONS = new Set([
-  "mode",
   "suggestion",
   "submit",
   "choose-directory",
   "toggle-select",
   "select-option",
 ]);
-const LAUNCHER_MODES = new Set(["conversation", "workspace"]);
 // Provider-agnostic launcher list: the conversation picker narrows this to the
 // levels the chosen model actually serves once an agent exists.
 const REASONING_EFFORTS = Object.freeze(["auto", "low", "medium", "high", "xhigh", "max", "ultra"]);
@@ -52,8 +50,6 @@ const DEFAULT_TEXT = Object.freeze({
   greetingFallback: "今天想做什么？",
   launcherSubtitle: "描述任务或提出问题，Autoto 会立即开始。",
   promptPlaceholder: "描述任务或提出问题",
-  modeConversation: "对话",
-  modeWorkspace: "工作区",
   project: "项目",
   model: "模型",
   reasoningEffort: "思考强度",
@@ -495,7 +491,6 @@ function reconcileLauncherState(value = {}, context = normalizeLauncherContext()
   const defaultProject = projectIds.has(context.selectedProjectId) ? context.selectedProjectId : (context.projects[0]?.id || "");
   const defaultModel = modelValues.has(context.selectedModel) ? context.selectedModel : (context.models[0]?.value || "");
   return {
-    mode: LAUNCHER_MODES.has(source.mode) ? source.mode : "conversation",
     draft: boundedInput(source.draft),
     projectId: projectIds.has(requestedProject) ? requestedProject : defaultProject,
     model: modelValues.has(requestedModel) ? requestedModel : defaultModel,
@@ -580,19 +575,15 @@ function renderLauncher(contextValue, stateValue, t, openSelect = "") {
     value: effort,
     label: t(`reasoning${effort[0].toUpperCase()}${effort.slice(1)}`),
   }));
-  const workspaceControls = state.mode === "workspace" ? `<div class="overview-launcher-project-row">
+  const workspaceControls = `<div class="overview-launcher-project-row">
     <label class="overview-launcher-field"><span class="overview-launcher-label">${escapeHtml(t("project"))}</span><select class="overview-launcher-select" data-overview-launcher-field="projectId"${context.projects.length ? "" : " disabled"}>${projectOptions}</select></label>
     <button type="button" class="overview-launcher-directory" data-overview-launcher-action="choose-directory">${escapeHtml(t("chooseDirectory"))}</button>
-  </div>` : "";
+  </div>`;
   const launcherError = state.error ? `<p class="overview-launcher-error" role="alert">${escapeHtml(state.error)}</p>` : "";
   const hero = `<section class="overview-hero-root overview-launcher-hero">
     <div class="overview-hero-copy"><div class="overview-hero-heading"><span class="overview-hero-mark" aria-hidden="true"><svg viewBox="0 0 32 32"><circle cx="16" cy="16" r="12.5"></circle><path d="M10.5 17.5c1.6 2 3.4 3 5.5 3s3.9-1 5.5-3"></path><path d="M11.5 12.5h.01M20.5 12.5h.01"></path></svg></span><h1 class="overview-hero-title" id="overviewDashboardTitle">${escapeHtml(launcherGreeting(context, t))}</h1></div></div>
   </section>`;
   const composer = `<section class="overview-launcher-root" data-overview-launcher>
-    <div class="overview-launcher-mode-group" role="group" aria-label="${escapeHtml(t("modeConversation"))}">
-      <button type="button" class="overview-launcher-mode" data-overview-launcher-action="mode" data-overview-launcher-mode="conversation" aria-pressed="${state.mode === "conversation" ? "true" : "false"}">${escapeHtml(t("modeConversation"))}</button>
-      <button type="button" class="overview-launcher-mode" data-overview-launcher-action="mode" data-overview-launcher-mode="workspace" aria-pressed="${state.mode === "workspace" ? "true" : "false"}">${escapeHtml(t("modeWorkspace"))}</button>
-    </div>
     <div class="overview-launcher-form" data-overview-launcher-form>
       <textarea class="overview-launcher-input" data-overview-launcher-field="draft" rows="3" maxlength="8000" aria-label="${escapeHtml(t("promptPlaceholder"))}" placeholder="${escapeHtml(t("promptPlaceholder"))}"${state.busy ? " disabled" : ""}>${escapeInputHtml(state.draft)}</textarea>
       ${workspaceControls}
@@ -733,7 +724,6 @@ export function createOverviewDashboardController({
     activitySequence: 0,
     launcherContext: normalizeLauncherContext(),
     launcher: {
-      mode: "conversation",
       draft: "",
       projectId: "",
       model: "",
@@ -838,15 +828,6 @@ export function createOverviewDashboardController({
     return true;
   }
 
-  function setLauncherMode(mode) {
-    if (!LAUNCHER_MODES.has(mode) || state.launcher.mode === mode) return false;
-    state.launcher.mode = mode;
-    state.launcherOpenSelect = "";
-    state.launcher.error = "";
-    render();
-    return true;
-  }
-
   function applySuggestion(name) {
     const promptKeys = {
       write: "suggestionWritePrompt",
@@ -868,15 +849,14 @@ export function createOverviewDashboardController({
     refreshLauncherContext();
     const text = state.launcher.draft.trim();
     if (!text) return false;
-    if (state.launcher.mode === "workspace" && !state.launcher.projectId) {
+    if (!state.launcher.projectId) {
       state.launcher.error = t("projectRequired");
       render();
       return false;
     }
     const payload = {
       text,
-      mode: state.launcher.mode,
-      projectId: state.launcher.mode === "workspace" ? state.launcher.projectId : "",
+      projectId: state.launcher.projectId,
       model: state.launcher.model,
       reasoningEffort: state.launcher.reasoningEffort,
     };
@@ -930,7 +910,6 @@ export function createOverviewDashboardController({
   function handleLauncherAction(trigger) {
     const action = boundedText(trigger?.dataset?.overviewLauncherAction || trigger?.getAttribute?.("data-overview-launcher-action"), 40);
     if (!LAUNCHER_ACTIONS.has(action)) return false;
-    if (action === "mode") return setLauncherMode(boundedText(trigger?.dataset?.overviewLauncherMode || trigger?.getAttribute?.("data-overview-launcher-mode"), 20));
     if (action === "suggestion") return applySuggestion(boundedText(trigger?.dataset?.overviewLauncherSuggestion || trigger?.getAttribute?.("data-overview-launcher-suggestion"), 20));
     if (action === "toggle-select") return toggleLauncherSelect(boundedText(trigger?.dataset?.overviewLauncherSelect || trigger?.getAttribute?.("data-overview-launcher-select"), 30));
     if (action === "select-option") return setLauncherSelect(

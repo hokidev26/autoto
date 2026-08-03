@@ -210,6 +210,29 @@ func TestRunnerDirectToolSetupFailureFinalizesAuditRow(t *testing.T) {
 	}
 }
 
+func TestRunnerDirectBackgroundToolUsesNonGitRuntimeSnapshot(t *testing.T) {
+	ctx := context.Background()
+	store, agent := newAgentTestStore(t, t.TempDir(), "acceptEdits")
+	defer store.Close()
+	runner := NewRunner(store, nil, nil, NewHub(), config.AgentConfig{})
+	runner.SetPlanSnapshotProvider(func(context.Context, string) (db.PlanSnapshot, error) {
+		return db.PlanSnapshot{}, errors.New("workspace must be a Git repository before a plan can be approved")
+	})
+	runner.SetBackgroundTaskSnapshotProvider(func(context.Context, string) (db.PlanSnapshot, error) {
+		return db.PlanSnapshot{PolicyGenerationSnapshot: 11, AgentGenerationSnapshot: 12, ToolCatalogDigest: "runtime-tools"}, nil
+	})
+
+	for _, toolName := range []string{"Agent", "Bash"} {
+		env, err := runner.toolExecutionEnv(ctx, agent, "", toolName, nil)
+		if err != nil {
+			t.Fatalf("direct %s should not use the Git-strict plan snapshot: %v", toolName, err)
+		}
+		if env.ToolCatalogDigest != "runtime-tools" || env.WorkspaceFingerprint != "" || env.PolicyGenerationSnapshot != 11 || env.AgentGenerationSnapshot != 12 {
+			t.Fatalf("unexpected direct %s runtime snapshot: %+v", toolName, env)
+		}
+	}
+}
+
 func TestRunnerReturnsDeniedToolResultToModel(t *testing.T) {
 	ctx := context.Background()
 	store, agent := newAgentTestStore(t, t.TempDir(), "readOnly")

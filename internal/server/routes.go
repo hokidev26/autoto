@@ -3,10 +3,12 @@ package server
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"net/http"
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strings"
 
 	"github.com/go-chi/chi/v5"
@@ -105,18 +107,20 @@ func (s *Server) settings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"server":                       cfg.Server,
-		"gateway":                      cfg.Gateway,
-		"paths":                        cfg.Paths,
-		"agent":                        cfg.Agent,
-		"agentModelSettingsEndpoint":   "/api/runtime/agent-model-settings",
-		"continuationSettingsEndpoint": "/api/runtime/continuation-settings",
-		"contextSettingsEndpoint":      "/api/runtime/context-settings",
-		"contextManagement":            cfg.ContextManagement,
-		"providers":                    providerResponses,
-		"runtimeSettings":              runtimeSettings,
-		"tierOrder":                    subscriptionTierOrderSnapshot(),
-		"version":                      config.Version,
+		"server":                         cfg.Server,
+		"gateway":                        cfg.Gateway,
+		"background":                     cfg.Background,
+		"paths":                          cfg.Paths,
+		"agent":                          cfg.Agent,
+		"agentModelSettingsEndpoint":     "/api/runtime/agent-model-settings",
+		"continuationSettingsEndpoint":   "/api/runtime/continuation-settings",
+		"backgroundTaskSettingsEndpoint": "/api/runtime/background-task-settings",
+		"contextSettingsEndpoint":        "/api/runtime/context-settings",
+		"contextManagement":              cfg.ContextManagement,
+		"providers":                      providerResponses,
+		"runtimeSettings":                runtimeSettings,
+		"tierOrder":                      subscriptionTierOrderSnapshot(),
+		"version":                        config.Version,
 	})
 }
 
@@ -144,10 +148,25 @@ func (s *Server) listProjects(w http.ResponseWriter, r *http.Request) {
 }
 
 type createProjectRequest struct {
-	Name        string `json:"name"`
-	Description string `json:"description"`
-	GitPath     string `json:"gitPath"`
-	Model       string `json:"model"`
+	Name                 string `json:"name"`
+	Description          string `json:"description"`
+	GitPath              string `json:"gitPath"`
+	Model                string `json:"model"`
+	ForceNewConversation bool   `json:"forceNewConversation"`
+	IdempotencyKey       string `json:"idempotencyKey"`
+}
+
+type createProjectConversationRequest struct {
+	Title          string `json:"title"`
+	Name           string `json:"name"`
+	Model          string `json:"model"`
+	IdempotencyKey string `json:"idempotencyKey"`
+}
+
+type projectConversationResult struct {
+	Project  db.Project
+	Workline db.Workline
+	Agent    db.Agent
 }
 
 type navigationStatePatchRequest struct {
@@ -190,89 +209,207 @@ func (s *Server) createProject(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	var project db.Project
-	var workline db.Workline
-	var agent db.Agent
+	userID := ""
 	if hasUsers {
 		user, ok := s.requireUser(w, r)
 		if !ok {
 			return
 		}
-		project, workline, agent, err = s.store.CreateProjectForUser(r.Context(), user.ID, req.Name, req.Description, gitPath, model, permissionMode)
+		userID = user.ID
+	}
+
+	create := func() (projectConversationResult, error) {
+		if req.ForceNewConversation {
+			var projects []db.Project
+			if hasUsers {
+				projects, err = s.store.ListProjectsForUserWithOptions(r.Context(), userID, true)
+			} else {
+				projects, err = s.store.ListProjectsWithOptions(r.Context(), true)
+			}
+			if err != nil {
+				return projectConversationResult{}, err
+			}
+			for _, existing := range projects {
+				if existing.Status != "active" || existing.ArchivedAt != "" || existing.FlowMode == db.ProjectFlowModeConversation || !sameFilesystemProjectPath(existing.GitPath, gitPath) {
+					continue
+				}
+				project, workline, agent, createErr := s.store.CreateProjectConversation(r.Context(), existing.ID, req.Name, model, permissionMode)
+				return projectConversationResult{Project: project, Workline: workline, Agent: agent}, createErr
+			}
+		}
+		var project db.Project
+		var workline db.Workline
+		var agent db.Agent
+		if hasUsers {
+			project, workline, agent, err = s.store.CreateProjectForUser(r.Context(), userID, req.Name, req.Description, gitPath, model, permissionMode)
+		} else {
+			project, workline, agent, err = s.store.CreateProject(r.Context(), req.Name, req.Description, gitPath, model, permissionMode)
+		}
+		return projectConversationResult{Project: project, Workline: workline, Agent: agent}, err
+	}
+
+	key := strings.TrimSpace(r.Header.Get("Idempotency-Key"))
+	if key == "" {
+		key = strings.TrimSpace(req.IdempotencyKey)
+	}
+	if len(key) > 200 {
+		writeError(w, http.StatusBadRequest, "idempotency key is too long")
+		return
+	}
+	cacheKey := ""
+	if req.ForceNewConversation && key != "" {
+		cacheKey = "directory" + "\x00" + userID + "\x00" + filesystemProjectPathKey(gitPath) + "\x00" + key
+	}
+
+	var result projectConversationResult
+	if req.ForceNewConversation {
+		s.projectConversationMu.Lock()
+		defer s.projectConversationMu.Unlock()
+		if s.projectConversationKeys == nil {
+			s.projectConversationKeys = make(map[string]projectConversationResult)
+		}
+		if cacheKey != "" {
+			if cached, ok := s.projectConversationKeys[cacheKey]; ok {
+				writeJSON(w, http.StatusOK, map[string]any{"project": cached.Project, "workline": cached.Workline, "agent": cached.Agent})
+				return
+			}
+		}
+		result, err = create()
 	} else {
-		project, workline, agent, err = s.store.CreateProject(r.Context(), req.Name, req.Description, gitPath, model, permissionMode)
+		result, err = create()
 	}
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	if cfg.Agent.DefaultStartInPlanMode {
-		agent, err = s.updatePersistedAgentPlanMode(r.Context(), agent.ID, true)
+		result.Agent, err = s.updatePersistedAgentPlanMode(r.Context(), result.Agent.ID, true)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "project was created but its default plan mode could not be applied")
 			return
 		}
 	}
-	writeJSON(w, http.StatusCreated, map[string]any{"project": project, "workline": workline, "agent": agent})
+	if req.ForceNewConversation && cacheKey != "" {
+		s.projectConversationKeys[cacheKey] = result
+	}
+	writeJSON(w, http.StatusCreated, map[string]any{"project": result.Project, "workline": result.Workline, "agent": result.Agent})
 }
 
-type createConversationRequest struct {
-	Title string `json:"title"`
-	Model string `json:"model"`
+func filesystemProjectPathKey(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return ""
+	}
+	value = filepath.Clean(value)
+	if absolute, err := filepath.Abs(value); err == nil {
+		value = absolute
+	}
+	if runtime.GOOS == "windows" {
+		return strings.ToLower(value)
+	}
+	return value
 }
 
-func (s *Server) createConversation(w http.ResponseWriter, r *http.Request) {
-	var req createConversationRequest
+func sameFilesystemProjectPath(left, right string) bool {
+	leftKey := filesystemProjectPathKey(left)
+	rightKey := filesystemProjectPathKey(right)
+	return leftKey != "" && leftKey == rightKey
+}
+
+func (s *Server) createProjectConversation(w http.ResponseWriter, r *http.Request) {
+	projectID := strings.TrimSpace(chi.URLParam(r, "id"))
+	var req createProjectConversationRequest
 	if err := decodeJSON(r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	title := strings.TrimSpace(req.Title)
-	if title == "" {
-		title = "New conversation"
+	if strings.TrimSpace(req.Title) == "" {
+		req.Title = strings.TrimSpace(req.Name)
 	}
-	if err := validateAPIText("title", title, 200, true, false); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
-		return
-	}
+	cfg := s.configSnapshot()
 	model := strings.TrimSpace(req.Model)
 	if model == "" {
-		model = strings.TrimSpace(s.configSnapshot().Agent.DefaultModel)
+		model = cfg.Agent.DefaultModel
 	}
-	if err := validateAPIText("model", model, 512, true, false); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	if _, _, err := s.resolveExecutableModel(model); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	if s.store == nil {
-		writeError(w, http.StatusInternalServerError, "conversation store is unavailable")
-		return
-	}
+	permissionMode := s.safeDefaultPermissionModeForRequest(r, cfg.Agent.DefaultPermissionMode)
 	hasUsers, err := s.store.HasUsers(r.Context())
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	var project db.Project
-	var workline db.Workline
-	var agent db.Agent
+	userID := ""
 	if hasUsers {
 		user, ok := s.requireUser(w, r)
 		if !ok {
 			return
 		}
-		project, workline, agent, err = s.store.CreateStandaloneConversationForUser(r.Context(), user.ID, title, model)
-	} else {
-		project, workline, agent, err = s.store.CreateStandaloneConversation(r.Context(), title, model)
+		userID = user.ID
 	}
-	if err != nil {
-		writeError(w, statusFromError(err), err.Error())
+	key := strings.TrimSpace(r.Header.Get("Idempotency-Key"))
+	if key == "" {
+		key = strings.TrimSpace(req.IdempotencyKey)
+	}
+	if len(key) > 200 {
+		writeError(w, http.StatusBadRequest, "idempotency key is too long")
 		return
 	}
-	writeJSON(w, http.StatusCreated, map[string]any{"project": project, "workline": workline, "agent": agent})
+	cacheKey := ""
+	if key != "" {
+		cacheKey = userID + "\x00" + projectID + "\x00" + key
+	}
+
+	create := func() (projectConversationResult, error) {
+		project, workline, agent, createErr := s.store.CreateProjectConversation(r.Context(), projectID, req.Title, model, permissionMode)
+		if createErr != nil {
+			return projectConversationResult{}, createErr
+		}
+		if cfg.Agent.DefaultStartInPlanMode {
+			agent, createErr = s.updatePersistedAgentPlanMode(r.Context(), agent.ID, true)
+			if createErr != nil {
+				return projectConversationResult{}, createErr
+			}
+		}
+		return projectConversationResult{Project: project, Workline: workline, Agent: agent}, nil
+	}
+
+	var result projectConversationResult
+	if cacheKey != "" {
+		s.projectConversationMu.Lock()
+		defer s.projectConversationMu.Unlock()
+		if s.projectConversationKeys == nil {
+			s.projectConversationKeys = make(map[string]projectConversationResult)
+		}
+		if cached, ok := s.projectConversationKeys[cacheKey]; ok {
+			writeJSON(w, http.StatusOK, map[string]any{"project": cached.Project, "workline": cached.Workline, "agent": cached.Agent})
+			return
+		}
+		result, err = create()
+		if err == nil {
+			s.projectConversationKeys[cacheKey] = result
+		}
+	} else {
+		result, err = create()
+	}
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			writeError(w, http.StatusNotFound, "project not found")
+			return
+		}
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusCreated, map[string]any{"project": result.Project, "workline": result.Workline, "agent": result.Agent})
+}
+
+func (s *Server) createConversation(w http.ResponseWriter, r *http.Request) {
+	// Keep the old route during the compatibility window, but make the removed
+	// product boundary explicit. In particular, do not decode, validate, or
+	// touch the store: stale clients must not be able to create a hidden project
+	// container by accident.
+	writeJSON(w, http.StatusGone, map[string]any{
+		"error": "standalone conversations have been removed; create or choose a project instead",
+		"code":  "standalone_conversation_removed",
+	})
 }
 
 func (s *Server) patchProjectNavigationState(w http.ResponseWriter, r *http.Request) {

@@ -150,8 +150,10 @@ export function normalizeBackgroundTask(value, fallback = {}) {
     durationMs,
     childAgentId: text(source.childAgentId || source.childAgent?.id || source.child_agent_id || fallback.childAgentId),
     childRunId: text(source.childRunId || source.childRun?.id || source.runId || source.child_run_id || fallback.childRunId),
+    result: source.result ?? source.resultJson ?? source.result_json ?? fallback.result ?? null,
     errorCode: text(source.errorCode || source.error_code || fallback.errorCode),
-    error: text(source.error || source.errorMessage || source.error_message || (terminalStatuses.has(status) ? source.message : "") || fallback.error),
+    errorMessage: text(source.errorMessage || source.error_message || source.error || (terminalStatuses.has(status) ? source.message : "") || fallback.errorMessage || fallback.error),
+    error: text(source.errorMessage || source.error_message || source.error || (terminalStatuses.has(status) ? source.message : "") || fallback.errorMessage || fallback.error),
     lastOutputSequence: number(source.lastOutputSequence ?? source.last_output_sequence ?? fallback.lastOutputSequence),
     outputBytes: number(source.outputBytes ?? source.output_bytes ?? fallback.outputBytes),
     truncated: Boolean(source.truncated ?? source.outputTruncated ?? source.output_truncated ?? fallback.truncated),
@@ -323,8 +325,10 @@ export function createBackgroundTasksController({
       durationMs: task.durationMs,
       childAgentId: task.childAgentId,
       childRunId: task.childRunId,
+      result: clonePublicValue(task.result),
       errorCode: task.errorCode,
-      error: task.error,
+      errorMessage: task.errorMessage || task.error,
+      error: task.errorMessage || task.error,
       lastOutputSequence: task.lastOutputSequence,
       outputBytes: task.outputBytes,
       truncated: task.truncated,
@@ -604,6 +608,11 @@ export function createBackgroundTasksController({
       const id = taskId(event);
       if (id) {
         if (!tasksById.has(id)) upsertTask({ id, agentId: eventAgentId, status: "running", kind: event.data?.kind });
+        const current = tasksById.get(id);
+        // AgentExecutor attaches child identifiers immediately before its first
+        // output chunk. Refresh the durable task once here so running cards can
+        // expose child navigation without waiting for the terminal event.
+        if (current?.kind === "agent" && (!current.childAgentId || !current.childRunId)) void hydrateTask(id);
         const inlineText = text(event.text || event.output || event.chunk || event.data?.text || event.data?.output || event.data?.chunk);
         if (inlineText) appendOutput(id, [event], event.data || {});
         else loadOutput(id).catch(onError);
@@ -678,7 +687,7 @@ export function createBackgroundTasksController({
     return `<section class="background-task-detail">
       <header><div><span>${escapeHtml(task.kind)}</span><strong>${escapeHtml(task.title || task.id)}</strong></div><span class="background-task-state status-${escapeAttr(task.status)}">${escapeHtml(taskStatusLabel(task.status))}</span></header>
       <div class="background-task-meta"><span>${escapeHtml(task.createdAt ? formatTimestamp(task.createdAt) : "—")}</span><span>${escapeHtml(task.durationMs == null ? "—" : formatDuration(task.durationMs))}</span></div>
-      ${task.error ? `<div class="background-task-error">${escapeHtml(task.error)}</div>` : ""}
+      ${task.error || task.errorCode ? `<div class="background-task-error">${escapeHtml([task.errorCode ? t("backgroundTasks.errorCode", { code: task.errorCode }) : "", task.error ? t("backgroundTasks.errorMessage", { message: task.error }) : ""].filter(Boolean).join(" · "))}</div>` : ""}
       <pre class="background-task-output">${escapeHtml(output || t("backgroundTasks.noOutput"))}</pre>
       ${task.truncated ? `<div class="background-task-truncated">${escapeHtml(t("backgroundTasks.truncated"))}</div>` : ""}
       <div class="background-task-actions">

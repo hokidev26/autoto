@@ -210,7 +210,7 @@ test("render escapes visible launcher context and state", () => {
       selectedModel: attack,
       selectedEffort: "high",
     },
-    launcherState: { mode: "workspace", draft: "<textarea autofocus onfocus=boom>", error: attack },
+    launcherState: { draft: "<textarea autofocus onfocus=boom>", error: attack },
   });
 
   assert.doesNotMatch(html, /<script>|<img src=x|<svg onload|<textarea autofocus/);
@@ -321,7 +321,6 @@ test("controller reconciles launcher defaults and returns a safe launcher state 
 
   const initial = controller.getState();
   assert.deepEqual(initial.launcher, {
-    mode: "conversation",
     draft: "",
     projectId: "p2",
     model: "m2",
@@ -344,7 +343,7 @@ test("controller reconciles launcher defaults and returns a safe launcher state 
   assert.equal(controller.getState().launcher.model, "m3");
 });
 
-test("launcher mode, selects, and suggestions update editable state", () => {
+test("launcher project, selects, and suggestions update editable state", () => {
   const host = fakeHost();
   const controller = createOverviewDashboardController({
     host,
@@ -359,10 +358,9 @@ test("launcher mode, selects, and suggestions update editable state", () => {
     translate: (key) => key === "overview.suggestionFixPrompt" ? "修复这个定制问题：" : key,
   });
 
-  host.launcherClick("mode", { overviewLauncherMode: "workspace" });
-  assert.equal(controller.getState().launcher.mode, "workspace");
-  assert.match(host.innerHTML, /data-overview-launcher-mode="workspace" aria-pressed="true"/);
   assert.match(host.innerHTML, /data-overview-launcher-field="projectId"/);
+  assert.match(host.innerHTML, /data-overview-launcher-action="choose-directory"/);
+  assert.doesNotMatch(host.innerHTML, /data-overview-launcher-(?:action="mode"|mode=)/);
 
   host.change("projectId", "p2");
   host.launcherClick("toggle-select", { overviewLauncherSelect: "model" });
@@ -376,7 +374,6 @@ test("launcher mode, selects, and suggestions update editable state", () => {
   host.launcherClick("toggle-select", { overviewLauncherSelect: "reasoningEffort" });
   host.launcherClick("select-option", { overviewLauncherSelect: "reasoningEffort", overviewLauncherValue: "high" });
   assert.deepEqual(controller.getState().launcher, {
-    mode: "workspace",
     draft: "",
     projectId: "p2",
     model: "m2",
@@ -390,9 +387,6 @@ test("launcher mode, selects, and suggestions update editable state", () => {
   assert.deepEqual(host.focusLog.at(-1), ["field", "draft"]);
   assert.match(host.innerHTML, /修复这个定制问题：<\/textarea>/);
 
-  host.launcherClick("mode", { overviewLauncherMode: "conversation" });
-  assert.equal(controller.getState().launcher.mode, "conversation");
-  assert.doesNotMatch(host.innerHTML, /data-overview-launcher-field="projectId"/);
 });
 
 test("Enter submits the launcher payload, Shift+Enter composes, and busy prevents duplicates", async () => {
@@ -415,7 +409,6 @@ test("Enter submits the launcher payload, Shift+Enter composes, and busy prevent
     },
   });
 
-  host.launcherClick("mode", { overviewLauncherMode: "workspace" });
   host.input("  build it  ");
   assert.equal(host.keydown("  build it  ", { shiftKey: true }), false);
   assert.equal(host.keydown("  build it  ", { isComposing: true }), false);
@@ -423,7 +416,6 @@ test("Enter submits the launcher payload, Shift+Enter composes, and busy prevent
   assert.equal(host.keydown("  build it  "), true);
   assert.deepEqual(payloads, [{
     text: "build it",
-    mode: "workspace",
     projectId: "p1",
     model: "m1",
     reasoningEffort: "medium",
@@ -440,7 +432,7 @@ test("Enter submits the launcher payload, Shift+Enter composes, and busy prevent
   assert.equal(controller.getState().launcher.draft, "");
 });
 
-test("launcher validates workspace projects, preserves failed drafts, and reports external errors", async () => {
+test("launcher requires a project, preserves drafts, and reports directory errors", async () => {
   const host = fakeHost();
   const errors = [];
   let launchCalls = 0;
@@ -456,7 +448,6 @@ test("launcher validates workspace projects, preserves failed drafts, and report
     onError: (error, action) => errors.push([error.message, action]),
   });
 
-  host.launcherClick("mode", { overviewLauncherMode: "workspace" });
   host.input("keep this draft");
   host.launcherClick("submit");
   await new Promise((resolve) => setImmediate(resolve));
@@ -464,19 +455,12 @@ test("launcher validates workspace projects, preserves failed drafts, and report
   assert.equal(controller.getState().launcher.error, "请先选择一个工作区项目。");
   assert.match(host.innerHTML, /请先选择一个工作区项目。/);
 
-  host.launcherClick("mode", { overviewLauncherMode: "conversation" });
-  host.launcherClick("submit");
-  await new Promise((resolve) => setImmediate(resolve));
-  assert.equal(launchCalls, 1);
   assert.equal(controller.getState().launcher.draft, "keep this draft");
-  assert.equal(controller.getState().launcher.error, "<launch failed>");
-  assert.match(host.innerHTML, /&lt;launch failed&gt;/);
-  assert.doesNotMatch(host.innerHTML, /<launch failed>/);
-  assert.deepEqual(errors[0], ["<launch failed>", "launch"]);
+  assert.deepEqual(errors, []);
 
   host.launcherClick("choose-directory");
   await new Promise((resolve) => setImmediate(resolve));
-  assert.deepEqual(errors[1], ["directory failed", "choose-directory"]);
+  assert.deepEqual(errors[0], ["directory failed", "choose-directory"]);
 });
 
 test("empty launcher submissions are ignored", async () => {

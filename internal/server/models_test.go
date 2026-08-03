@@ -84,7 +84,7 @@ func TestCreateProjectUsesRequestedModel(t *testing.T) {
 	}
 }
 
-func TestCreateStandaloneConversationUsesExecutableDefaultModel(t *testing.T) {
+func TestCreateStandaloneConversationRouteReturnsGoneWithoutWritingDatabase(t *testing.T) {
 	ctx := context.Background()
 	store, err := db.Open(ctx, filepath.Join(t.TempDir(), "conversation-api.db"))
 	if err != nil {
@@ -98,38 +98,37 @@ func TestCreateStandaloneConversationUsesExecutableDefaultModel(t *testing.T) {
 		Providers: config.ProvidersConfig{Instances: []config.ProviderConfig{{Name: "ready", Type: "openai-compatible", APIKeyOptional: true}}},
 	}, store, nil, nil, registry)
 
+	rowCounts := func() [3]int {
+		t.Helper()
+		var counts [3]int
+		for index, table := range []string{"projects", "worklines", "agents"} {
+			if err := store.DB().QueryRowContext(ctx, `SELECT COUNT(*) FROM `+table).Scan(&counts[index]); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return counts
+	}
+	before := rowCounts()
 	recorder := httptest.NewRecorder()
-	request := newTestRequest(http.MethodPost, "/api/conversations", strings.NewReader(`{}`))
+	request := newTestRequest(http.MethodPost, "/api/conversations", strings.NewReader(`{"title":"ignored","model":"missing:model"}`))
 	request.Header.Set("Content-Type", "application/json")
 	app.Routes().ServeHTTP(recorder, request)
-	if recorder.Code != http.StatusCreated {
-		t.Fatalf("expected 201, got %d: %s", recorder.Code, recorder.Body.String())
+	if recorder.Code != http.StatusGone {
+		t.Fatalf("expected 410, got %d: %s", recorder.Code, recorder.Body.String())
 	}
-	var created struct {
-		Project  db.Project  `json:"project"`
-		Workline db.Workline `json:"workline"`
-		Agent    db.Agent    `json:"agent"`
+	var body struct {
+		Error string `json:"error"`
+		Code  string `json:"code"`
 	}
-	if err := json.NewDecoder(recorder.Body).Decode(&created); err != nil {
+	if err := json.NewDecoder(recorder.Body).Decode(&body); err != nil {
 		t.Fatal(err)
 	}
-	if created.Project.FlowMode != db.ProjectFlowModeConversation || created.Project.GitPath != "" || created.Workline.WorktreePath != "" || created.Agent.CWD != "" || created.Agent.PermissionMode != "readOnly" || created.Agent.Model != "ready:chat" || created.Agent.Title != "New conversation" {
-		t.Fatalf("unexpected standalone conversation response: %+v", created)
+	if body.Code != "standalone_conversation_removed" || !strings.Contains(body.Error, "project") {
+		t.Fatalf("unexpected compatibility error: %+v", body)
 	}
-
-	failed := httptest.NewRecorder()
-	badRequest := newTestRequest(http.MethodPost, "/api/conversations", strings.NewReader(`{"title":"Bad","model":"missing:model"}`))
-	badRequest.Header.Set("Content-Type", "application/json")
-	app.Routes().ServeHTTP(failed, badRequest)
-	if failed.Code != http.StatusBadRequest {
-		t.Fatalf("expected unregistered model rejection, got %d: %s", failed.Code, failed.Body.String())
-	}
-	var projectCount int
-	if err := store.DB().QueryRowContext(ctx, `SELECT COUNT(*) FROM projects`).Scan(&projectCount); err != nil {
-		t.Fatal(err)
-	}
-	if projectCount != 1 {
-		t.Fatalf("rejected conversation request created partial rows: project count=%d", projectCount)
+	after := rowCounts()
+	if after != before {
+		t.Fatalf("removed conversation route wrote database rows: before=%v after=%v", before, after)
 	}
 }
 

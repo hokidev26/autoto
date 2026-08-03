@@ -12,6 +12,7 @@ import (
 	"autoto/internal/agent"
 	"autoto/internal/agentrole"
 	"autoto/internal/db"
+	"autoto/internal/tools"
 )
 
 const (
@@ -26,6 +27,7 @@ const (
 type AgentExecutor struct {
 	Store        *db.Store
 	Runner       *agent.Runner
+	Runtime      tools.BackgroundRuntimeController
 	PollInterval time.Duration
 }
 
@@ -34,6 +36,7 @@ type agentPayload struct {
 	Description        string   `json:"description,omitempty"`
 	SubagentType       string   `json:"subagentType,omitempty"`
 	Model              string   `json:"model,omitempty"`
+	Workdir            string   `json:"workdir,omitempty"`
 	ReasoningEffort    string   `json:"reasoningEffort,omitempty"`
 	AcceptanceCriteria []string `json:"acceptanceCriteria,omitempty"`
 }
@@ -46,15 +49,30 @@ type agentRole struct {
 }
 
 type agentPublicResult struct {
+	RequestedRole   string `json:"requestedRole,omitempty"`
 	Role            string `json:"role"`
+	RequestedModel  string `json:"requestedModel,omitempty"`
+	Model           string `json:"model,omitempty"`
+	Workdir         string `json:"workdir,omitempty"`
 	AcceptanceCount int    `json:"acceptanceCount"`
 	ChildAgentID    string `json:"childAgentId"`
 	ChildRunID      string `json:"childRunId"`
 	Status          string `json:"status"`
 }
 
-func NewAgentExecutor(store *db.Store, runner *agent.Runner) *AgentExecutor {
-	return &AgentExecutor{Store: store, Runner: runner, PollInterval: 50 * time.Millisecond}
+func NewAgentExecutor(store *db.Store, runner *agent.Runner, controllers ...tools.BackgroundRuntimeController) *AgentExecutor {
+	var runtimeController tools.BackgroundRuntimeController
+	if len(controllers) > 0 {
+		runtimeController = controllers[0]
+	}
+	return &AgentExecutor{Store: store, Runner: runner, Runtime: runtimeController, PollInterval: 50 * time.Millisecond}
+}
+
+func (e *AgentExecutor) runtimeSettings() tools.BackgroundRuntimeSettings {
+	if e == nil || e.Runtime == nil {
+		return tools.BackgroundRuntimeSettings{WorkerCount: 8, PerAgentLimit: 4, MaxSubagentDepth: 2}
+	}
+	return e.Runtime.BackgroundRuntimeSettings()
 }
 
 func (e *AgentExecutor) Execute(ctx context.Context, task db.BackgroundTask, output OutputWriter) (Result, error) {
@@ -69,8 +87,16 @@ func (e *AgentExecutor) Execute(ctx context.Context, task db.BackgroundTask, out
 	if err != nil {
 		return Result{ErrorCode: "parent_agent_unavailable"}, fmt.Errorf("load parent agent: %w", err)
 	}
-	if err := validateAgentTaskScope(e.Store, ctx, task, parent); err != nil {
-		return Result{ErrorCode: "scope_rejected"}, err
+	workdir, err := tools.ResolveWorkdirWithin(parent.CWD, payload.Workdir)
+	if err != nil {
+		return Result{ErrorCode: "workdir_rejected"}, fmt.Errorf("resolve child workdir: %w", err)
+	}
+	if err := validateAgentTaskScope(e.Store, ctx, task, parent, e.runtimeSettings()); err != nil {
+		code := "scope_rejected"
+		if coded, ok := err.(interface{ ErrorCode() string }); ok && strings.TrimSpace(coded.ErrorCode()) != "" {
+			code = strings.TrimSpace(coded.ErrorCode())
+		}
+		return Result{ErrorCode: code}, err
 	}
 	roleResolution, err := e.Runner.ResolveChildRole(ctx, parent.ID, task.ParentRunID, payload.SubagentType)
 	if err != nil {
@@ -100,7 +126,7 @@ func (e *AgentExecutor) Execute(ctx context.Context, task db.BackgroundTask, out
 	child, err := e.Store.CreateAgent(ctx, db.Agent{
 		WorklineID: parent.WorklineID, ParentAgentID: parent.ID, Type: "subagent", SubagentType: string(roleResolution.BaseRole),
 		Title: title, Model: model, SystemPrompt: roleResolution.RoleExtension, PermissionMode: permissionCap, ReasoningEffort: payload.ReasoningEffort,
-		ExecutionDeviceID: parent.ExecutionDeviceID, Status: "idle", CWD: parent.CWD,
+		ExecutionDeviceID: parent.ExecutionDeviceID, Status: "idle", CWD: workdir,
 	})
 	if err != nil {
 		return Result{ErrorCode: "child_agent_create_failed"}, fmt.Errorf("create child agent: %w", err)
@@ -118,7 +144,7 @@ func (e *AgentExecutor) Execute(ctx context.Context, task db.BackgroundTask, out
 		_, _ = e.Runner.Interrupt(context.Background(), child.ID)
 		return Result{ErrorCode: "child_attach_conflict"}, fmt.Errorf("attach child run: %w", err)
 	}
-	started, err := marshalAgentPublicResult(role, len(payload.AcceptanceCriteria), child.ID, childRun.ID, "running")
+	started, err := marshalAgentPublicResultWithDetails(payload.SubagentType, role, payload.Model, model, workdir, len(payload.AcceptanceCriteria), child.ID, childRun.ID, "running")
 	if err != nil {
 		_, _ = e.Runner.Interrupt(context.Background(), child.ID)
 		return Result{ErrorCode: "output_failed"}, err
@@ -127,10 +153,10 @@ func (e *AgentExecutor) Execute(ctx context.Context, task db.BackgroundTask, out
 		_, _ = e.Runner.Interrupt(context.Background(), child.ID)
 		return Result{ErrorCode: "output_failed"}, err
 	}
-	return e.waitChild(ctx, attached, child, role, len(payload.AcceptanceCriteria))
+	return e.waitChild(ctx, attached, child, payload.SubagentType, role, payload.Model, model, workdir, len(payload.AcceptanceCriteria))
 }
 
-func (e *AgentExecutor) waitChild(ctx context.Context, task db.BackgroundTask, child db.Agent, role string, acceptanceCount int) (Result, error) {
+func (e *AgentExecutor) waitChild(ctx context.Context, task db.BackgroundTask, child db.Agent, requestedRole, role, requestedModel, model, workdir string, acceptanceCount int) (Result, error) {
 	interval := e.PollInterval
 	if interval <= 0 {
 		interval = 50 * time.Millisecond
@@ -142,7 +168,7 @@ func (e *AgentExecutor) waitChild(ctx context.Context, task db.BackgroundTask, c
 		}
 		status := strings.ToLower(strings.TrimSpace(run.Status))
 		if terminalRun(status) {
-			result, marshalErr := marshalAgentPublicResult(role, acceptanceCount, child.ID, run.ID, status)
+			result, marshalErr := marshalAgentPublicResultWithDetails(requestedRole, role, requestedModel, model, workdir, acceptanceCount, child.ID, run.ID, status)
 			if marshalErr != nil {
 				return Result{ErrorCode: "invalid_result"}, marshalErr
 			}
@@ -156,7 +182,7 @@ func (e *AgentExecutor) waitChild(ctx context.Context, task db.BackgroundTask, c
 		case <-ctx.Done():
 			_ = timer.Stop()
 			_, _ = e.Runner.Interrupt(context.Background(), child.ID)
-			result, marshalErr := marshalAgentPublicResult(role, acceptanceCount, child.ID, task.ChildRunID, "canceled")
+			result, marshalErr := marshalAgentPublicResultWithDetails(requestedRole, role, requestedModel, model, workdir, acceptanceCount, child.ID, task.ChildRunID, "canceled")
 			if marshalErr != nil {
 				return Result{ErrorCode: "invalid_result"}, marshalErr
 			}
@@ -174,12 +200,16 @@ func parseAgentPayload(raw json.RawMessage) (agentPayload, error) {
 	decoder := json.NewDecoder(strings.NewReader(string(raw)))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&payload); err != nil {
-		return agentPayload{}, errors.New("agent payload must contain only prompt, description, subagentType, model, reasoningEffort, and acceptanceCriteria")
+		return agentPayload{}, errors.New("agent payload must contain only prompt, description, subagentType, model, workdir, reasoningEffort, and acceptanceCriteria")
 	}
 	payload.Prompt = strings.TrimSpace(payload.Prompt)
 	payload.Description = strings.TrimSpace(payload.Description)
 	payload.SubagentType = strings.ToLower(strings.TrimSpace(payload.SubagentType))
+	if payload.SubagentType == "general-purpose" {
+		payload.SubagentType = "general"
+	}
 	payload.Model = strings.TrimSpace(payload.Model)
+	payload.Workdir = strings.TrimSpace(payload.Workdir)
 	payload.ReasoningEffort = strings.ToLower(strings.TrimSpace(payload.ReasoningEffort))
 	if payload.Prompt == "" || len(payload.Prompt) > maxAgentTaskPromptBytes || !utf8.ValidString(payload.Prompt) || strings.ContainsRune(payload.Prompt, 0) {
 		return agentPayload{}, errors.New("agent task prompt is invalid")
@@ -188,6 +218,9 @@ func parseAgentPayload(raw json.RawMessage) (agentPayload, error) {
 		if len(value) > maxAgentTaskMetaBytes || !utf8.ValidString(value) || strings.ContainsRune(value, 0) {
 			return agentPayload{}, fmt.Errorf("agent task %s is invalid", name)
 		}
+	}
+	if len(payload.Workdir) > 1024 || !utf8.ValidString(payload.Workdir) || strings.ContainsRune(payload.Workdir, 0) {
+		return agentPayload{}, errors.New("agent task workdir is invalid")
 	}
 	if canonicalRole, err := agentrole.Normalize(payload.SubagentType); err == nil {
 		payload.SubagentType = string(canonicalRole)
@@ -251,7 +284,14 @@ func agentPromptWithAcceptance(_ string, prompt string, criteria []string) (stri
 }
 
 func marshalAgentPublicResult(role string, acceptanceCount int, childAgentID, childRunID, status string) (json.RawMessage, error) {
+	return marshalAgentPublicResultWithDetails("", role, "", "", "", acceptanceCount, childAgentID, childRunID, status)
+}
+
+func marshalAgentPublicResultWithDetails(requestedRole, role, requestedModel, model, workdir string, acceptanceCount int, childAgentID, childRunID, status string) (json.RawMessage, error) {
 	role = strings.ToLower(strings.TrimSpace(role))
+	if role == "general-purpose" {
+		role = "general"
+	}
 	if normalized, err := agentrole.Normalize(role); err == nil {
 		role = string(normalized)
 	} else if !validAgentPresetKey(role) {
@@ -261,7 +301,9 @@ func marshalAgentPublicResult(role string, acceptanceCount int, childAgentID, ch
 		return nil, errors.New("background agent result acceptance count is invalid")
 	}
 	result, err := json.Marshal(agentPublicResult{
-		Role: role, AcceptanceCount: acceptanceCount, ChildAgentID: strings.TrimSpace(childAgentID),
+		RequestedRole: strings.ToLower(strings.TrimSpace(requestedRole)), Role: role,
+		RequestedModel: strings.TrimSpace(requestedModel), Model: strings.TrimSpace(model), Workdir: strings.TrimSpace(workdir),
+		AcceptanceCount: acceptanceCount, ChildAgentID: strings.TrimSpace(childAgentID),
 		ChildRunID: strings.TrimSpace(childRunID), Status: strings.ToLower(strings.TrimSpace(status)),
 	})
 	if err != nil || len(result) > maxAgentResultBytes {
@@ -270,23 +312,119 @@ func marshalAgentPublicResult(role string, acceptanceCount int, childAgentID, ch
 	return result, nil
 }
 
-func validateAgentTaskScope(_ *db.Store, _ context.Context, task db.BackgroundTask, parent db.Agent) error {
-	if cwd := strings.TrimSpace(taskPayloadCWD(task)); cwd != "" && cwd != parent.CWD {
-		return errors.New("background agent task cwd does not match parent cwd")
+type agentScopeError struct {
+	code string
+	err  error
+}
+
+func (e *agentScopeError) Error() string {
+	if e == nil || e.err == nil {
+		return "background agent task scope is invalid"
 	}
-	if strings.TrimSpace(parent.ParentAgentID) != "" {
-		return errors.New("background agent tasks may only be created by a root agent")
+	return e.err.Error()
+}
+
+func (e *agentScopeError) Unwrap() error {
+	if e == nil {
+		return nil
 	}
-	parentType := strings.ToLower(strings.TrimSpace(parent.Type))
-	if parentType != "primary" && parentType != "root" {
-		return errors.New("background agent tasks require a primary root agent")
+	return e.err
+}
+
+func (e *agentScopeError) ErrorCode() string {
+	if e == nil || strings.TrimSpace(e.code) == "" {
+		return "scope_rejected"
+	}
+	return e.code
+}
+
+func agentScopeFailure(code string, err error) error {
+	return &agentScopeError{code: strings.TrimSpace(code), err: err}
+}
+
+func validateAgentTaskScope(store *db.Store, ctx context.Context, task db.BackgroundTask, parent db.Agent, settings tools.BackgroundRuntimeSettings) error {
+	if requested := strings.TrimSpace(taskPayloadCWD(task)); requested != "" {
+		if _, err := tools.ResolveWorkdirWithin(parent.CWD, requested); err != nil {
+			return agentScopeFailure("workdir_rejected", fmt.Errorf("background agent task workdir rejected: %w", err))
+		}
+	}
+	return validateAgentTaskNesting(store, ctx, parent, settings)
+}
+
+func validateAgentTaskNesting(store *db.Store, ctx context.Context, parent db.Agent, settings tools.BackgroundRuntimeSettings) error {
+	depth, err := agentParentDepth(store, ctx, parent)
+	if err != nil {
+		return agentScopeFailure("nested_ancestry_invalid", err)
+	}
+	if depth > 0 && !settings.AllowNestedSubagents {
+		return agentScopeFailure("nested_not_enabled", errors.New("nested subagent creation is disabled"))
+	}
+	maxDepth := settings.MaxSubagentDepth
+	if maxDepth < 2 {
+		maxDepth = 2
+	}
+	if depth+1 > maxDepth {
+		return agentScopeFailure("nested_depth_exceeded", fmt.Errorf("nested subagent depth %d exceeds configured maximum %d", depth+1, maxDepth))
 	}
 	return nil
 }
 
-// Agent payloads have no CWD field. Keeping this helper makes the invariant
-// explicit and leaves no route for a future payload extension to bypass it.
-func taskPayloadCWD(task db.BackgroundTask) string { return "" }
+func agentParentDepth(store *db.Store, ctx context.Context, parent db.Agent) (int, error) {
+	if store == nil {
+		return 0, errors.New("background agent store is unavailable")
+	}
+	originWorklineID := strings.TrimSpace(parent.WorklineID)
+	current := parent
+	seen := make(map[string]struct{})
+	depth := 0
+	for {
+		currentID := strings.TrimSpace(current.ID)
+		if currentID == "" {
+			return 0, errors.New("agent ancestry contains an empty id")
+		}
+		if _, exists := seen[currentID]; exists {
+			return 0, errors.New("agent ancestry contains a cycle")
+		}
+		seen[currentID] = struct{}{}
+		parentID := strings.TrimSpace(current.ParentAgentID)
+		currentType := strings.ToLower(strings.TrimSpace(current.Type))
+		if parentID == "" {
+			if currentType != "primary" && currentType != "root" {
+				return 0, errors.New("agent ancestry does not terminate at a primary root agent")
+			}
+			return depth, nil
+		}
+		if currentType != "subagent" {
+			return 0, errors.New("nested agent ancestry contains a non-subagent child")
+		}
+		ancestor, err := store.GetAgent(ctx, parentID)
+		if err != nil {
+			return 0, fmt.Errorf("load parent agent ancestry: %w", err)
+		}
+		if originWorklineID != "" && strings.TrimSpace(ancestor.WorklineID) != originWorklineID {
+			return 0, errors.New("nested agent ancestry crosses workline boundaries")
+		}
+		depth++
+		if depth > 32 {
+			return 0, errors.New("agent ancestry exceeds the hard safety limit")
+		}
+		current = ancestor
+	}
+}
+
+func taskPayloadCWD(task db.BackgroundTask) string {
+	var payload struct {
+		CWD     string `json:"cwd"`
+		Workdir string `json:"workdir"`
+	}
+	if len(task.PayloadJSON) == 0 || json.Unmarshal(task.PayloadJSON, &payload) != nil {
+		return ""
+	}
+	if strings.TrimSpace(payload.Workdir) != "" {
+		return strings.TrimSpace(payload.Workdir)
+	}
+	return strings.TrimSpace(payload.CWD)
+}
 
 func childPermissionCap(parentMode, requestedCap string) (string, error) {
 	rank := func(mode string) int {

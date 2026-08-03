@@ -14,6 +14,7 @@ import (
 
 	"autoto/internal/db"
 	"autoto/internal/runtime"
+	"autoto/internal/tools"
 )
 
 type managerState uint8
@@ -45,7 +46,9 @@ type Manager struct {
 	waiters      map[string]chan struct{}
 
 	claimMu        sync.Mutex
+	runningTotal   int
 	runningByAgent map[string]int
+	startedWorkers int
 	wake           chan struct{}
 	workers        sync.WaitGroup
 }
@@ -133,13 +136,77 @@ func (manager *Manager) Start(ctx context.Context) error {
 		return ErrAlreadyStarted
 	}
 	manager.state = managerRunning
-	for worker := 0; worker < manager.options.WorkerCount; worker++ {
-		manager.workers.Add(1)
-		go manager.worker(root)
-	}
+	manager.startWorkersLocked(root, manager.options.WorkerCount)
 	manager.mu.Unlock()
 	manager.signalWake()
 	return nil
+}
+
+func (manager *Manager) startWorkersLocked(ctx context.Context, target int) {
+	if target <= manager.startedWorkers {
+		return
+	}
+	for worker := manager.startedWorkers; worker < target; worker++ {
+		manager.workers.Add(1)
+		go manager.worker(ctx)
+	}
+	manager.startedWorkers = target
+}
+
+func validateRuntimeSettings(settings tools.BackgroundRuntimeSettings) error {
+	if settings.WorkerCount < 1 || settings.WorkerCount > 16 {
+		return errors.New("workerCount must be between 1 and 16")
+	}
+	if settings.PerAgentLimit < 1 || settings.PerAgentLimit > 8 {
+		return errors.New("perAgentLimit must be between 1 and 8")
+	}
+	if settings.MaxSubagentDepth < 2 || settings.MaxSubagentDepth > 4 {
+		return errors.New("maxSubagentDepth must be between 2 and 4")
+	}
+	return nil
+}
+
+func (manager *Manager) BackgroundRuntimeSettings() tools.BackgroundRuntimeSettings {
+	if manager == nil {
+		return tools.BackgroundRuntimeSettings{WorkerCount: 8, PerAgentLimit: 4, MaxSubagentDepth: 2}
+	}
+	manager.claimMu.Lock()
+	defer manager.claimMu.Unlock()
+	return tools.BackgroundRuntimeSettings{
+		WorkerCount:          manager.options.WorkerCount,
+		PerAgentLimit:        manager.options.PerAgentLimit,
+		AllowNestedSubagents: manager.options.AllowNestedSubagents,
+		MaxSubagentDepth:     manager.options.MaxSubagentDepth,
+	}
+}
+
+func (manager *Manager) UpdateBackgroundRuntimeSettings(settings tools.BackgroundRuntimeSettings) (tools.BackgroundRuntimeSettings, error) {
+	if manager == nil {
+		return tools.BackgroundRuntimeSettings{}, ErrClosed
+	}
+	if err := validateRuntimeSettings(settings); err != nil {
+		return tools.BackgroundRuntimeSettings{}, err
+	}
+
+	manager.mu.Lock()
+	if manager.state == managerClosing || manager.state == managerClosed {
+		manager.mu.Unlock()
+		return tools.BackgroundRuntimeSettings{}, ErrClosed
+	}
+	ctx := manager.ctx
+	state := manager.state
+	manager.claimMu.Lock()
+	manager.options.WorkerCount = settings.WorkerCount
+	manager.options.PerAgentLimit = settings.PerAgentLimit
+	manager.options.AllowNestedSubagents = settings.AllowNestedSubagents
+	manager.options.MaxSubagentDepth = settings.MaxSubagentDepth
+	manager.claimMu.Unlock()
+	if state == managerRunning {
+		manager.startWorkersLocked(ctx, settings.WorkerCount)
+	}
+	manager.mu.Unlock()
+	manager.signalWake()
+	return manager.BackgroundRuntimeSettings(), nil
 }
 
 func (manager *Manager) Close(ctx context.Context) error {
@@ -297,6 +364,9 @@ func (manager *Manager) worker(ctx context.Context) {
 func (manager *Manager) claim(ctx context.Context) (db.BackgroundTask, error) {
 	manager.claimMu.Lock()
 	defer manager.claimMu.Unlock()
+	if manager.runningTotal >= manager.options.WorkerCount {
+		return db.BackgroundTask{}, sql.ErrNoRows
+	}
 	excluded := make([]string, 0)
 	for agentID, count := range manager.runningByAgent {
 		if count >= manager.options.PerAgentLimit {
@@ -310,6 +380,7 @@ func (manager *Manager) claim(ctx context.Context) (db.BackgroundTask, error) {
 	if err != nil {
 		return db.BackgroundTask{}, err
 	}
+	manager.runningTotal++
 	manager.runningByAgent[task.OwnerAgentID]++
 	return task, nil
 }
@@ -327,6 +398,9 @@ func (manager *Manager) execute(parent context.Context, claimed db.BackgroundTas
 		delete(manager.active, claimed.ID)
 		manager.mu.Unlock()
 		manager.claimMu.Lock()
+		if manager.runningTotal > 0 {
+			manager.runningTotal--
+		}
 		manager.runningByAgent[claimed.OwnerAgentID]--
 		if manager.runningByAgent[claimed.OwnerAgentID] <= 0 {
 			delete(manager.runningByAgent, claimed.OwnerAgentID)
@@ -348,6 +422,11 @@ func (manager *Manager) execute(parent context.Context, claimed db.BackgroundTas
 		if err := validator(ctx, claimed); err != nil {
 			executeErr = fmt.Errorf("background task safety validation failed: %w", err)
 			result.ErrorCode = "safety_snapshot_invalid"
+			if coded, ok := err.(interface{ ErrorCode() string }); ok {
+				if code := strings.TrimSpace(coded.ErrorCode()); code != "" {
+					result.ErrorCode = code
+				}
+			}
 		}
 	}
 	if executeErr == nil && executor == nil {

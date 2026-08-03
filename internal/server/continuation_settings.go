@@ -6,6 +6,7 @@ import (
 
 	"autoto/internal/agent"
 	"autoto/internal/config"
+	"autoto/internal/tools"
 )
 
 type continuationSettingsRequest struct {
@@ -63,6 +64,84 @@ func (s *Server) continuationSettingsEndpoint(w http.ResponseWriter, r *http.Req
 	s.cfgMu.Unlock()
 	applied := s.runner.SetContinuationSettings(settings)
 	writeJSON(w, http.StatusOK, map[string]any{"continuation": applied, "persisted": true})
+}
+
+type backgroundRuntimeSettingsRequest struct {
+	WorkerCount          int  `json:"workerCount"`
+	PerAgentLimit        int  `json:"perAgentLimit"`
+	AllowNestedSubagents bool `json:"allowNestedSubagents"`
+	MaxSubagentDepth     int  `json:"maxSubagentDepth"`
+}
+
+func (s *Server) backgroundRuntimeSettingsEndpoint(w http.ResponseWriter, r *http.Request) {
+	if s.backgroundRuntime == nil {
+		writeError(w, http.StatusServiceUnavailable, "background runtime controller is unavailable")
+		return
+	}
+	var req backgroundRuntimeSettingsRequest
+	if err := decodeJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	settings, err := strictBackgroundRuntimeSettings(req)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	s.configMutationMu.Lock()
+	defer s.configMutationMu.Unlock()
+	previousRuntime := s.backgroundRuntime.BackgroundRuntimeSettings()
+	applied, err := s.backgroundRuntime.UpdateBackgroundRuntimeSettings(settings)
+	if err != nil {
+		writeError(w, http.StatusServiceUnavailable, "background runtime settings could not be applied")
+		return
+	}
+
+	s.cfgMu.RLock()
+	updated := s.cfg
+	configPath := s.configPath
+	s.cfgMu.RUnlock()
+	updated.Background = config.BackgroundConfig{
+		WorkerCount:          applied.WorkerCount,
+		PerAgentLimit:        applied.PerAgentLimit,
+		AllowNestedSubagents: applied.AllowNestedSubagents,
+		MaxSubagentDepth:     applied.MaxSubagentDepth,
+	}
+	path := effectiveConfigPath(updated, configPath)
+	if strings.TrimSpace(path) == "" {
+		_, _ = s.backgroundRuntime.UpdateBackgroundRuntimeSettings(previousRuntime)
+		writeError(w, http.StatusInternalServerError, "background runtime settings could not be persisted")
+		return
+	}
+	if err := config.Save(path, updated); err != nil {
+		_, _ = s.backgroundRuntime.UpdateBackgroundRuntimeSettings(previousRuntime)
+		writeError(w, http.StatusInternalServerError, "background runtime settings could not be persisted")
+		return
+	}
+	s.cfgMu.Lock()
+	s.cfg = updated
+	s.cfgMu.Unlock()
+	writeJSON(w, http.StatusOK, map[string]any{"backgroundTasks": applied, "persisted": true})
+}
+
+func strictBackgroundRuntimeSettings(req backgroundRuntimeSettingsRequest) (tools.BackgroundRuntimeSettings, error) {
+	settings := tools.BackgroundRuntimeSettings{
+		WorkerCount:          req.WorkerCount,
+		PerAgentLimit:        req.PerAgentLimit,
+		AllowNestedSubagents: req.AllowNestedSubagents,
+		MaxSubagentDepth:     req.MaxSubagentDepth,
+	}
+	if settings.WorkerCount < 1 || settings.WorkerCount > 16 {
+		return tools.BackgroundRuntimeSettings{}, invalidContinuationSetting("workerCount must be between 1 and 16")
+	}
+	if settings.PerAgentLimit < 1 || settings.PerAgentLimit > 8 {
+		return tools.BackgroundRuntimeSettings{}, invalidContinuationSetting("perAgentLimit must be between 1 and 8")
+	}
+	if settings.MaxSubagentDepth < 2 || settings.MaxSubagentDepth > 4 {
+		return tools.BackgroundRuntimeSettings{}, invalidContinuationSetting("maxSubagentDepth must be between 2 and 4")
+	}
+	return settings, nil
 }
 
 func strictContinuationSettings(req continuationSettingsRequest) (agent.ContinuationSettings, error) {

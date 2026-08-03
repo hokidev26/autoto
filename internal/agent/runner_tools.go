@@ -491,7 +491,7 @@ func (r *Runner) executeTool(ctx context.Context, agentID, runID string, call to
 	if hookErr := r.dispatchToolLifecycle(ctx, agentID, runID, hooks.EventToolBefore, call, nil, nil); hookErr != nil {
 		return r.finishToolSetupFailure(ctx, agentID, runID, call, risk, executionDeviceID, permission, hookErr)
 	}
-	env, err := r.toolExecutionEnv(ctx, agent, runID, r.toolOutputPublisher(agentID, runID, call))
+	env, err := r.toolExecutionEnv(ctx, agent, runID, call.Name, r.toolOutputPublisher(agentID, runID, call))
 	if err != nil {
 		return r.finishToolSetupFailure(ctx, agentID, runID, call, risk, executionDeviceID, permission, err)
 	}
@@ -590,7 +590,7 @@ func (r *Runner) executeApprovedTool(ctx context.Context, agent db.Agent, runID 
 		return r.finishToolSetupFailure(ctx, agent.ID, runID, call, risk, normalizedExecutionDeviceID(agent.ExecutionDeviceID), permission, hookErr)
 	}
 	gitBefore := r.captureRunToolGitBefore(ctx, agent, runID, risk)
-	env, err := r.toolExecutionEnv(ctx, agent, runID, r.toolOutputPublisher(agent.ID, runID, call))
+	env, err := r.toolExecutionEnv(ctx, agent, runID, call.Name, r.toolOutputPublisher(agent.ID, runID, call))
 	if err != nil {
 		return r.finishToolSetupFailure(ctx, agent.ID, runID, call, risk, normalizedExecutionDeviceID(agent.ExecutionDeviceID), permission, err)
 	}

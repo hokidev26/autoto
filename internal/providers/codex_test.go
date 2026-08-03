@@ -987,6 +987,112 @@ func TestCodexProviderSyncAccountUsesUsageEndpointWithoutUnnecessaryRefresh(t *t
 	}
 }
 
+func TestCodexProviderSyncAccountRecordsQuotaUnauthorizedAfterRefresh(t *testing.T) {
+	var usageRequests atomic.Int32
+	var refreshRequests atomic.Int32
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/backend-api/wham/usage":
+			usageRequests.Add(1)
+			w.WriteHeader(http.StatusUnauthorized)
+		case "/oauth/token":
+			refreshRequests.Add(1)
+			_, _ = w.Write([]byte(`{"access_token":"quota-refreshed","expires_in":3600}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer upstream.Close()
+
+	storeDir := filepath.Join(t.TempDir(), "codex")
+	store := codexauth.NewStore(storeDir)
+	if _, err := store.Import([]codexauth.ImportDocument{{Filename: "quota-unauthorized.json", Content: []byte(`{"type":"codex","access_token":"quota-old","refresh_token":"quota-refresh","account_id":"quota-unauthorized"}`)}}); err != nil {
+		t.Fatal(err)
+	}
+	accounts, err := store.ListAccounts()
+	if err != nil || len(accounts) != 1 {
+		t.Fatalf("account setup failed: accounts=%+v err=%v", accounts, err)
+	}
+	telemetry := &recordingAccountTelemetry{}
+	provider := NewCodexProvider(config.ProviderConfig{
+		Name:                           "codex",
+		Type:                           config.ProviderTypeCodex,
+		BaseURL:                        upstream.URL + "/backend-api/codex",
+		CredentialStorePath:            storeDir,
+		CodexAllowInsecureTestEndpoint: true,
+		CodexRefreshURLForTest:         upstream.URL + "/oauth/token",
+	})
+	provider.SetAccountTelemetry(telemetry)
+	_, _, err = provider.SyncAccount(context.Background(), accounts[0].ID)
+	if !errors.Is(err, errCodexQuotaUnauthorized) {
+		t.Fatalf("expected quota unauthorized, got %v", err)
+	}
+	if usageRequests.Load() != 2 || refreshRequests.Load() != 1 {
+		t.Fatalf("unexpected quota refresh sequence: usage=%d refresh=%d", usageRequests.Load(), refreshRequests.Load())
+	}
+	telemetry.mu.Lock()
+	defer telemetry.mu.Unlock()
+	if len(telemetry.attempts) != 1 {
+		t.Fatalf("expected one quota telemetry attempt, got %+v", telemetry.attempts)
+	}
+	attempt := telemetry.attempts[0]
+	if attempt.Success || attempt.HTTPStatus != http.StatusUnauthorized || attempt.StatusCode != codexQuotaUnauthorizedCode || attempt.ErrorCode != codexQuotaUnauthorizedCode {
+		t.Fatalf("unexpected quota telemetry: %+v", attempt)
+	}
+}
+
+func TestCodexProviderSyncAccountDoesNotClassifyRefreshFailureAsQuotaExhausted(t *testing.T) {
+	var usageRequests atomic.Int32
+	var refreshRequests atomic.Int32
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/backend-api/wham/usage":
+			usageRequests.Add(1)
+			w.WriteHeader(http.StatusUnauthorized)
+		case "/oauth/token":
+			refreshRequests.Add(1)
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte(`{"error":"invalid_grant"}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer upstream.Close()
+
+	storeDir := filepath.Join(t.TempDir(), "codex")
+	store := codexauth.NewStore(storeDir)
+	if _, err := store.Import([]codexauth.ImportDocument{{Filename: "quota-refresh-failure.json", Content: []byte(`{"type":"codex","access_token":"quota-old","refresh_token":"quota-refresh","account_id":"quota-refresh-failure"}`)}}); err != nil {
+		t.Fatal(err)
+	}
+	accounts, err := store.ListAccounts()
+	if err != nil || len(accounts) != 1 {
+		t.Fatalf("account setup failed: accounts=%+v err=%v", accounts, err)
+	}
+	telemetry := &recordingAccountTelemetry{}
+	provider := NewCodexProvider(config.ProviderConfig{
+		Name:                           "codex",
+		Type:                           config.ProviderTypeCodex,
+		BaseURL:                        upstream.URL + "/backend-api/codex",
+		CredentialStorePath:            storeDir,
+		CodexAllowInsecureTestEndpoint: true,
+		CodexRefreshURLForTest:         upstream.URL + "/oauth/token",
+	})
+	provider.SetAccountTelemetry(telemetry)
+	_, _, err = provider.SyncAccount(context.Background(), accounts[0].ID)
+	var failure *codexCredentialFailure
+	if !errors.As(err, &failure) || failure.code != "invalid_grant" {
+		t.Fatalf("expected invalid_grant refresh failure, got %v", err)
+	}
+	if usageRequests.Load() != 1 || refreshRequests.Load() != 1 {
+		t.Fatalf("unexpected refresh failure sequence: usage=%d refresh=%d", usageRequests.Load(), refreshRequests.Load())
+	}
+	telemetry.mu.Lock()
+	defer telemetry.mu.Unlock()
+	if len(telemetry.attempts) != 0 {
+		t.Fatalf("refresh failure was incorrectly recorded as quota exhaustion: %+v", telemetry.attempts)
+	}
+}
+
 func TestParseCodexQuotaGracefullyHandlesMissingFields(t *testing.T) {
 	quota, err := parseCodexQuota(strings.NewReader(`{"rate_limit":{"primary_window":{"used_percent":"not-a-number"}},"credits":{}}`), time.Unix(123, 0))
 	if err != nil {

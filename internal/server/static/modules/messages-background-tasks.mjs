@@ -20,6 +20,8 @@ export default {
       cancelling: "取消中…",
       openChildAgent: "打开子 Agent",
       openChildRun: "打开子 Run",
+      errorCode: "错误代码：{code}",
+      errorMessage: "错误详情：{message}",
       status: { pending: "等待中", queued: "已排队", waiting: "等待依赖", waiting_approval: "等待审批", running: "运行中", started: "已启动", cancel_requested: "取消中", completed: "已完成", complete: "已完成", succeeded: "已成功", success: "已成功", failed: "失败", error: "错误", cancelled: "已取消", canceled: "已取消", interrupted: "已中断", unknown: "未知" },
       continuation: {
         title: "自动续跑",
@@ -71,6 +73,8 @@ export default {
       cancelling: "取消中…",
       openChildAgent: "開啟子 Agent",
       openChildRun: "開啟子 Run",
+      errorCode: "錯誤代碼：{code}",
+      errorMessage: "錯誤詳情：{message}",
       status: { pending: "等待中", queued: "已排隊", waiting: "等待相依項目", waiting_approval: "等待審批", running: "執行中", started: "已啟動", cancel_requested: "取消中", completed: "已完成", complete: "已完成", succeeded: "已成功", success: "已成功", failed: "失敗", error: "錯誤", cancelled: "已取消", canceled: "已取消", interrupted: "已中斷", unknown: "未知" },
       continuation: {
         title: "自動續跑",
@@ -122,6 +126,8 @@ export default {
       cancelling: "Cancelling…",
       openChildAgent: "Open child Agent",
       openChildRun: "Open child Run",
+      errorCode: "Error code: {code}",
+      errorMessage: "Error details: {message}",
       status: { pending: "Pending", queued: "Queued", waiting: "Waiting", waiting_approval: "Waiting for approval", running: "Running", started: "Started", cancel_requested: "Cancelling", completed: "Completed", complete: "Completed", succeeded: "Succeeded", success: "Succeeded", failed: "Failed", error: "Error", cancelled: "Cancelled", canceled: "Canceled", interrupted: "Interrupted", unknown: "Unknown" },
       continuation: {
         title: "Auto continuation",

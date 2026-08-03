@@ -1,7 +1,17 @@
 import { escapeAttr, escapeHtml } from "./dom.mjs";
 import { formatMoney, formatNumber, formatTimestamp } from "./formatters.mjs";
-import { t } from "./i18n.mjs?v=provider-draft-session-1";
+import { t } from "./i18n.mjs?v=provider-draft-session-1-codex-quota-exhausted-1";
 import { normalizeCodexSelectedIds } from "./provider-settings-normalization.mjs";
+
+function codexQuotaUnauthorizedIsCurrent(account) {
+  const stats = account?.stats && typeof account.stats === "object" ? account.stats : null;
+  if (!stats) return false;
+  const errorCode = String(stats.last_error_code ?? stats.lastErrorCode ?? "").trim().toLowerCase();
+  if (errorCode !== "quota_unauthorized") return false;
+  const attemptedAt = Date.parse(String(stats.last_attempt_at ?? stats.lastAttemptAt ?? ""));
+  const fetchedAt = Date.parse(String(stats.quota_fetched_at ?? stats.quotaFetchedAt ?? ""));
+  return !Number.isFinite(fetchedAt) || !Number.isFinite(attemptedAt) || attemptedAt > fetchedAt;
+}
 
 export function codexAccountStatus(account = {}, { now = Date.now() } = {}) {
   const quota = account?.quota && typeof account.quota === "object" ? account.quota : null;
@@ -10,12 +20,13 @@ export function codexAccountStatus(account = {}, { now = Date.now() } = {}) {
   const expired = Number.isFinite(expiresAtMs) && expiresAtMs <= now && !Boolean(account?.refreshable);
   if (Boolean(account?.disabled)) return { key: "disabled", tone: "muted", expiresAt };
   if (expired) return { key: "expired", tone: "danger", expiresAt };
+  if (codexQuotaUnauthorizedIsCurrent(account)) return { key: "exhausted", tone: "danger", expiresAt };
   if (codexQuotaIsLimited(quota)) return { key: "rateLimited", tone: "warn", expiresAt };
   return { key: "available", tone: "ok", expiresAt };
 }
 
 export function codexAccountOverview(accounts, { now = Date.now() } = {}) {
-  const overview = { total: 0, available: 0, rateLimited: 0, disabled: 0, expired: 0 };
+  const overview = { total: 0, available: 0, rateLimited: 0, exhausted: 0, disabled: 0, expired: 0 };
   for (const account of Array.isArray(accounts) ? accounts : []) {
     overview.total += 1;
     const status = codexAccountStatus(account, { now });

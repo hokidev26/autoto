@@ -818,14 +818,16 @@ export function isAgentToolActivity(item = {}) {
   return String(name || "").trim().toLowerCase() === "agent";
 }
 
-const agentTaskStatuses = new Set(["queued", "waiting_approval", "running", "cancel_requested", "succeeded", "failed", "canceled", "interrupted"]);
+const agentTaskStatuses = new Set(["queued", "waiting_approval", "validating", "running", "cancel_requested", "succeeded", "failed", "canceled", "interrupted"]);
 const agentTaskExpandedStatuses = new Set(["waiting_approval", "failed", "canceled", "interrupted"]);
-const agentTaskCancellableStatuses = new Set(["queued", "waiting_approval", "running"]);
+const agentTaskCancellableStatuses = new Set(["queued", "waiting_approval", "validating", "running"]);
 const maxAgentTaskID = 160;
 const maxAgentTaskDescription = 240;
 const maxAgentTaskRole = 80;
 const maxAgentTaskModel = 256;
+const maxAgentTaskWorkdir = 1024;
 const maxAgentTaskErrorCode = 96;
+const maxAgentTaskErrorMessage = 1024;
 const maxAgentTaskAcceptanceCount = 16;
 
 function safeAgentTaskObject(value) {
@@ -925,27 +927,42 @@ export function normalizeAgentTaskActivity(item = {}, backgroundTask = null) {
   const result = safeAgentTaskJSON(firstToolValue(task, "result", "resultJson", "result_json"));
   const taskId = compactToolText(firstToolValue(task, "id", "taskId", "task_id", "backgroundTaskId", "background_task_id"), maxAgentTaskID);
   const backgroundStatus = agentTaskStatus(firstToolValue(task, "status", "state"));
+  const childAgentId = compactToolText(firstToolValue(task, "childAgentId", "child_agent_id") || firstToolValue(result, "childAgentId", "child_agent_id"), maxAgentTaskID);
+  const childRunId = compactToolText(firstToolValue(task, "childRunId", "child_run_id") || firstToolValue(result, "childRunId", "child_run_id"), maxAgentTaskID);
   const toolDispatched = tool.status === "completed";
-  const status = backgroundStatus || (tool.status === "error" ? "failed" : (toolDispatched ? "dispatched" : "dispatching"));
+  const status = backgroundStatus === "running" && !childAgentId
+    ? "validating"
+    : (backgroundStatus || (tool.status === "error" ? "failed" : (toolDispatched ? "dispatched" : "dispatching")));
   const acceptanceCriteria = firstToolValue(input, "acceptance_criteria", "acceptanceCriteria");
   const acceptanceCount = agentTaskNumber(firstToolValue(summary, "acceptanceCount", "acceptance_count"), maxAgentTaskAcceptanceCount)
     ?? agentTaskNumber(firstToolValue(result, "acceptanceCount", "acceptance_count"), maxAgentTaskAcceptanceCount)
     ?? (Array.isArray(acceptanceCriteria) ? Math.min(acceptanceCriteria.length, maxAgentTaskAcceptanceCount) : 0);
+  const requestedRole = compactToolText(firstToolValue(summary, "requestedSubagentType", "requested_subagent_type") || firstToolValue(input, "subagent_type", "subagentType", "role"), maxAgentTaskRole);
+  const resolvedRole = compactToolText(firstToolValue(result, "role", "subagentType", "subagent_type") || firstToolValue(summary, "subagentType", "subagent_type", "role") || requestedRole || cr("subagent.roleAuto"), maxAgentTaskRole);
+  const requestedModel = compactToolText(firstToolValue(summary, "requestedModel") || firstToolValue(input, "model"), maxAgentTaskModel);
+  const actualModel = compactToolText(firstToolValue(result, "model") || firstToolValue(summary, "model"), maxAgentTaskModel);
+  const workdir = compactToolText(firstToolValue(summary, "workdir", "workingDirectory", "working_directory") || firstToolValue(result, "workdir", "workingDirectory", "working_directory") || firstToolValue(input, "workdir"), maxAgentTaskWorkdir);
+  const errorCode = compactToolText(firstToolValue(task, "errorCode", "error_code") || firstToolValue(result, "errorCode", "error_code"), maxAgentTaskErrorCode);
+  const errorMessage = compactToolText(firstToolValue(task, "errorMessage", "error_message", "error") || firstToolValue(result, "errorMessage", "error_message", "error"), maxAgentTaskErrorMessage);
   return {
     tool,
     taskPresent: Boolean(backgroundStatus),
     taskId,
     description: compactToolText(firstToolValue(summary, "description") || firstToolValue(input, "description") || cr("subagent.descriptionFallback"), maxAgentTaskDescription),
-    role: compactToolText(firstToolValue(summary, "subagentType", "subagent_type", "role") || firstToolValue(result, "role", "subagentType", "subagent_type") || firstToolValue(input, "subagent_type", "subagentType", "role") || cr("subagent.roleAuto"), maxAgentTaskRole),
-    requestedModel: compactToolText(firstToolValue(summary, "model") || firstToolValue(input, "model"), maxAgentTaskModel),
+    requestedRole,
+    role: resolvedRole,
+    requestedModel,
+    actualModel,
+    workdir,
     acceptanceCount,
     status,
     toolDispatched,
     durationMs: agentTaskDuration(task) || tool.durationMs,
-    childAgentId: compactToolText(firstToolValue(task, "childAgentId", "child_agent_id") || firstToolValue(result, "childAgentId", "child_agent_id"), maxAgentTaskID),
-    childRunId: compactToolText(firstToolValue(task, "childRunId", "child_run_id") || firstToolValue(result, "childRunId", "child_run_id"), maxAgentTaskID),
+    childAgentId,
+    childRunId,
     ownerAgentId: compactToolText(firstToolValue(task, "ownerAgentId", "owner_agent_id") || tool.agentId, maxAgentTaskID),
-    errorCode: compactToolText(firstToolValue(task, "errorCode", "error_code"), maxAgentTaskErrorCode),
+    errorCode,
+    errorMessage,
     expanded: agentTaskExpandedStatuses.has(status),
     cancellable: Boolean(taskId && agentTaskCancellableStatuses.has(status)),
   };
@@ -959,7 +976,7 @@ function agentTaskStatusLabel(activity) {
 
 function agentTaskStatusClass(status) {
   if (status === "succeeded") return "status-completed";
-  if (["queued", "running", "dispatching", "dispatched"].includes(status)) return "status-running";
+  if (["queued", "validating", "running", "dispatching", "dispatched"].includes(status)) return "status-running";
   if (["waiting_approval", "cancel_requested", "canceled", "interrupted"].includes(status)) return "status-warn";
   return "status-error";
 }
@@ -980,6 +997,15 @@ function agentTaskFailureNotice(activity) {
   return cr("subagent.failure.generic");
 }
 
+function agentTaskErrorDetails(activity) {
+  if (activity.status !== "failed" || (!activity.errorCode && !activity.errorMessage)) return "";
+  const parts = [
+    activity.errorCode ? cr("subagent.errorCode", { code: activity.errorCode }) : "",
+    activity.errorMessage ? cr("subagent.errorMessage", { message: activity.errorMessage }) : "",
+  ].filter(Boolean);
+  return parts.join(" · ");
+}
+
 function renderAgentTaskActionsHTML(activity) {
   const actions = [];
   if (activity.taskId) actions.push(`<button class="ghost-btn mini" type="button" data-subagent-action="view-task" data-task-id="${escapeAttr(activity.taskId)}">${escapeHtml(cr("subagent.action.viewTask"))}</button>`);
@@ -995,17 +1021,27 @@ export function renderAgentTaskActivityCardHTML(item = {}, backgroundTask = null
   const { tool } = activity;
   const statusLabel = agentTaskStatusLabel(activity);
   const duration = formatAgentTaskDuration(activity.durationMs);
-  const model = activity.requestedModel || cr("subagent.modelAuto");
+  const requestedModel = activity.requestedModel || cr("subagent.modelAuto");
+  const actualModel = activity.actualModel || cr("subagent.modelPending");
   const meta = [
-    cr("subagent.role", { role: activity.role }),
-    cr("subagent.requestedModel", { model }),
+    cr("subagent.requestedRole", { role: activity.requestedRole || cr("subagent.roleAuto") }),
+    cr("subagent.resolvedRole", { role: activity.role }),
+    cr("subagent.requestedModel", { model: requestedModel }),
+    cr("subagent.actualModel", { model: actualModel }),
+    activity.workdir ? cr("subagent.workdir", { path: activity.workdir }) : "",
     cr("subagent.acceptanceCount", { count: activity.acceptanceCount }),
     duration ? cr("subagent.duration", { duration }) : "",
   ].filter(Boolean);
   const taskState = !activity.taskPresent && activity.toolDispatched ? cr("subagent.waitingTaskInfo") : "";
   const failure = agentTaskFailureNotice(activity);
-  const input = toolActivityInputText(tool);
-  const output = toolActivityOutputText(tool);
+  const errorDetails = agentTaskErrorDetails(activity);
+  const safeAudit = [
+    activity.requestedRole ? cr("subagent.requestedRole", { role: activity.requestedRole }) : "",
+    cr("subagent.resolvedRole", { role: activity.role }),
+    requestedModel ? cr("subagent.requestedModel", { model: requestedModel }) : "",
+    actualModel ? cr("subagent.actualModel", { model: actualModel }) : "",
+    activity.workdir ? cr("subagent.workdir", { path: activity.workdir }) : "",
+  ].filter(Boolean).join(" · ");
   const label = [cr("subagent.title"), activity.description, statusLabel].filter(Boolean).join(" · ");
   return `
     <article class="tool-activity-card live-tool-output-card subagent-task-card chat-flow-item chat-flow-left chat-report-card ${escapeAttr(agentTaskStatusClass(activity.status))}" aria-label="${escapeAttr(label)}" data-chat-alignment="left" data-chat-report="subagent-task" data-subagent-card data-subagent-status="${escapeAttr(activity.status)}" data-live-tool-output-card="${escapeAttr(tool.toolUseId)}" data-tool-use-id="${escapeAttr(tool.toolUseId)}" data-run-id="${escapeAttr(tool.runId)}"${activity.taskId ? ` data-task-id="${escapeAttr(activity.taskId)}"` : ""}>
@@ -1021,14 +1057,13 @@ export function renderAgentTaskActivityCardHTML(item = {}, backgroundTask = null
         <div class="tool-activity-meta live-tool-output-meta">${escapeHtml(meta.join(" · "))}</div>
         ${taskState ? `<div class="tool-activity-empty subagent-task-notice">${escapeHtml(taskState)}</div>` : ""}
         ${failure ? `<div class="tool-activity-warning subagent-task-notice" role="alert">${escapeHtml(failure)}</div>` : ""}
+        ${errorDetails ? `<div class="tool-activity-warning subagent-task-notice" role="alert">${escapeHtml(errorDetails)}</div>` : ""}
         ${renderAgentTaskActionsHTML(activity)}
       </details>
       <details class="tool-activity-details subagent-task-audit"${options.detailsExpanded ? " open" : ""}>
         <summary>${escapeHtml(cr("subagent.auditDetails"))}</summary>
-        <div class="tool-activity-meta">${escapeHtml(cr("activity.input"))}</div>
-        <pre class="tool-activity-command">${escapeHtml(input || cr("activity.noOutput"))}</pre>
-        <div class="tool-activity-meta">${escapeHtml(cr("activity.output"))}</div>
-        ${output ? `<pre class="tool-activity-output live-tool-output-body">${escapeHtml(output)}</pre>` : `<div class="tool-activity-empty">${escapeHtml(cr("activity.noOutput"))}</div>`}
+        <div class="tool-activity-meta">${escapeHtml(cr("subagent.safeDetails"))}</div>
+        <pre class="tool-activity-command">${escapeHtml(safeAudit || cr("activity.noOutput"))}</pre>
         ${tool.truncated ? `<div class="tool-activity-truncated">${escapeHtml(cr("activity.truncated"))}</div>` : ""}
       </details>
     </article>
@@ -1365,6 +1400,7 @@ export function createChatRenderingController({
   // restores a saved offset runs solely when following is already off.
   let followingTail = true;
   let followTracked = null;
+  let scrollSettleGeneration = 0;
 
   function trackTranscriptFollow(el) {
     const target = el || $("messages");
@@ -1382,6 +1418,16 @@ export function createChatRenderingController({
     if (followingTail && el) el.scrollTop = el.scrollHeight;
   }
 
+  function clampTranscriptScrollTop(el, value) {
+    const top = Number(value);
+    const scrollHeight = Number(el?.scrollHeight);
+    const clientHeight = Number(el?.clientHeight);
+    const max = Number.isFinite(scrollHeight) && Number.isFinite(clientHeight)
+      ? Math.max(0, scrollHeight - Math.max(0, clientHeight))
+      : Math.max(0, scrollHeight || 0);
+    return Math.min(Math.max(0, Number.isFinite(top) ? top : 0), max);
+  }
+
   // Sending on mobile often changes two things in separate browser frames: the
   // textarea collapses and the on-screen keyboard starts closing. A single
   // synchronous scroll therefore gets overwritten by the viewport resize. Keep
@@ -1395,11 +1441,12 @@ export function createChatRenderingController({
     // reader asked to be at the end, so the next reply should keep them there.
     trackTranscriptFollow(el);
     setFollowingTail(true);
+    const settleGeneration = ++scrollSettleGeneration;
     const scroll = () => {
       // The last of these runs 320ms out, so it can outlive the document that
       // scheduled it. Re-reading the node each time is deliberate -- a render
       // in between replaces it -- but the lookup itself has to be safe.
-      if (!globalThis.document) return;
+      if (!globalThis.document || settleGeneration !== scrollSettleGeneration) return;
       // A reader who scrolls away during the settle has overruled it. Without
       // this the queued passes would drag them back to the end up to 320ms
       // after they moved.
@@ -1847,6 +1894,14 @@ export function createChatRenderingController({
     updateConversationCopyButton();
     if (state.chatHydrating && options.forceRender !== true) return true;
     if (!el) return true;
+    // A full snapshot replaces the container's children and the browser resets
+    // scrollTop as a side effect. Capture both the reader's explicit offset and
+    // follow intent before doing any DOM work, and retire older delayed tail
+    // settles so they cannot run against this newer snapshot.
+    const savedScrollTop = Number(el.scrollTop) || 0;
+    trackTranscriptFollow(el);
+    const wasFollowing = followingTail;
+    scrollSettleGeneration += 1;
     el.removeAttribute?.("aria-busy");
     if (el.dataset) delete el.dataset.initialChatState;
     const liveAssistantCard = renderLiveAssistantCardHTML();
@@ -1862,6 +1917,7 @@ export function createChatRenderingController({
     if (!visibleMessages.length && !liveAssistantCard && !liveImageGenerationCards && !planCards && !liveToolCards && !runSummaryCard && !approvalCards && !messageActivityStacks.size) {
       el.classList.add("empty");
       el.innerHTML = `<div class="empty-conversation-state">${escapeHtml(cr("message.empty"))}</div>`;
+      el.scrollTop = 0;
       return true;
     }
     el.classList.remove("empty");
@@ -1953,10 +2009,6 @@ export function createChatRenderingController({
     // dropping it would lose tool activity instead of de-duplicating it.
     const tailRunSummaryCard = runCardInserted ? "" : runSummaryCard;
     const tailLiveToolCards = liveToolsInserted ? "" : liveToolCards;
-    // Save scroll position before rewriting innerHTML — the browser resets
-    // scrollTop to 0 on assignment, so we must decide "was the user following
-    // the tail?" before the reset happens, then restore or scroll after.
-    const wasFollowing = (trackTranscriptFollow(el), followingTail);
     // Preserve the user's manual open/collapsed state for the live tool
     // activity group across the full innerHTML replacement. renderLiveToolOutputCards
     // already does this on incremental updates; applyMessageSnapshot must too,
@@ -1989,7 +2041,11 @@ export function createChatRenderingController({
     bindCopyCodeButtons(el);
     // forceRender means a fresh conversation was just opened — always scroll to
     // the tail so the user lands at the latest message, not the top of history.
-    if (!options.preserveScroll && (wasFollowing || options.forceRender)) {
+    // Otherwise, only a reader who was already following the tail should move;
+    // a reader who deliberately left it keeps the same visible offset even
+    // though the full snapshot rebuilt every child node.
+    const shouldFollowTail = options.forceRender === true || (!options.preserveScroll && wasFollowing);
+    if (shouldFollowTail) {
       // One synchronous assignment only reaches the tail if the transcript has
       // finished growing, and after a full rebuild it has not: activity stacks,
       // code blocks and images settle over the next few frames, and every pixel
@@ -2002,6 +2058,8 @@ export function createChatRenderingController({
       // at an earlier part of the conversation. Settle across those passes in
       // both cases; the deferred passes stop early if the reader scrolls away.
       scrollMessagesToBottom();
+    } else if (options.preserveScroll || !wasFollowing) {
+      el.scrollTop = clampTranscriptScrollTop(el, savedScrollTop);
     }
     return true;
   }
@@ -3832,6 +3890,26 @@ export function createChatRenderingController({
     showToast(cr("conversation.copyFailed"), "warn");
   }
 
+  const terminalLiveToolStatuses = new Set([
+    "completed", "complete", "succeeded", "success", "done", "error", "failed",
+    "rejected", "denied", "cancelled", "canceled", "interrupted", "aborted", "superseded",
+  ]);
+
+  function liveToolStatusIsActive(item) {
+    const status = String(item?.status || item?.state || "").trim().toLowerCase().replace(/[\s-]+/g, "_");
+    return !terminalLiveToolStatuses.has(status);
+  }
+
+  function agentTurnIsActive(agentId) {
+    if (state.agent?.id !== agentId) return false;
+    if (String(state.agent?.status || "").trim().toLowerCase() === "running") return true;
+    if (state.liveAssistantActive) return true;
+    if (Object.keys(state.pendingToolApprovals || {}).length) return true;
+    return Object.values(state.liveToolOutputs || {}).some((item) => (
+      item && (!item.agentId || item.agentId === agentId) && liveToolStatusIsActive(item)
+    ));
+  }
+
   function clearMessageRefreshTimer(agentId) {
     const timer = state.messageRefreshTimersByAgent?.[agentId];
     if (!timer) return;
@@ -3841,17 +3919,20 @@ export function createChatRenderingController({
     state.messageRefreshTimersByAgent = next;
   }
 
-  function scheduleMessageRefresh(delay = 0, agentId = state.agent?.id) {
+  function scheduleMessageRefresh(delay = 0, agentId = state.agent?.id, options = {}) {
     if (!agentId) return;
     clearMessageRefreshTimer(agentId);
+    const skipWhileActive = options?.skipWhileActive === true;
     const timer = window.setTimeout(() => {
       clearMessageRefreshTimer(agentId);
+      if (skipWhileActive && agentTurnIsActive(agentId)) return;
       loadMessages(agentId).catch((err) => notifyTerminal(`[warn] ${cr("conversation.refreshFailed", { message: err.message || err })}\n`));
     }, Math.max(0, delay));
     state.messageRefreshTimersByAgent = { ...(state.messageRefreshTimersByAgent || {}), [agentId]: timer };
   }
 
   function friendlyMessageText(text) {
+
     const value = String(text || "");
     if (value.includes("OpenAI official provider is not configured")) {
       return cr("provider.openAI");

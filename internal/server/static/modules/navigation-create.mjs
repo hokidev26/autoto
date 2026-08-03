@@ -1,20 +1,15 @@
-// What the sidebar's single create button makes depends on the surface the user
-// is looking at. Schedules mode always creates a schedule; otherwise the
-// navigation mode decides between a standalone conversation and picking a
-// folder for a project. Kept pure so the mapping, and the label that has to
-// agree with it, can be checked without a DOM.
-
-export function navigationCreateTarget({ activeWorkbench = "", navigationMode = "" } = {}) {
-  if (activeWorkbench === "schedules") return "schedule";
-  return navigationMode === "conversations" ? "conversation" : "project";
+// The sidebar has one interactive creation boundary: schedules stay schedules,
+// while every other create action opens the directory/project flow. Chat is a
+// capability of a project, not a separate creation target.
+export function navigationCreateTarget({ activeWorkbench = "" } = {}) {
+  return activeWorkbench === "schedules" ? "schedule" : "project";
 }
 
 const navigationCreateLabelKeys = {
   schedule: "shell.newSchedule",
   project: "shell.chooseFolder",
-  conversation: "shell.newConversation",
 };
 
 export function navigationCreateLabelKey(target) {
-  return navigationCreateLabelKeys[target] || navigationCreateLabelKeys.conversation;
+  return navigationCreateLabelKeys[target] || navigationCreateLabelKeys.project;
 }

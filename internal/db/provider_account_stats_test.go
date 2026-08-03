@@ -92,6 +92,29 @@ func TestProviderAccountStatsAggregateAtomicallyAndStoreSafeQuota(t *testing.T) 
 	}
 }
 
+func TestProviderAccountStatsPersistsQuotaUnauthorizedCode(t *testing.T) {
+	store, err := Open(context.Background(), filepath.Join(t.TempDir(), "quota-status.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+
+	attemptedAt := time.Unix(8000, 123_000_000).UTC()
+	if err := store.RecordProviderAccountAttempt(context.Background(), providers.ProviderAccountAttempt{
+		Provider: "codex", AccountID: "quota-account", Success: false,
+		HTTPStatus: 401, StatusCode: "quota_unauthorized", ErrorCode: "quota_unauthorized", AttemptedAt: attemptedAt,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	stats, err := store.GetProviderAccountStats(context.Background(), "codex", "quota-account")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stats.LastErrorCode != "quota_unauthorized" || stats.LastStatusCode != "quota_unauthorized" || stats.LastHTTPStatus != 401 || stats.LastAttemptAt != attemptedAt.Format(time.RFC3339Nano) {
+		t.Fatalf("quota unauthorized status was not persisted: %+v", stats)
+	}
+}
+
 func TestProviderAccountStatsMigrationCompletesLegacyTable(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "legacy-stats.db")

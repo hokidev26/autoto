@@ -38,27 +38,27 @@ func (s *Server) navigation(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	if hasUsers {
-		allowedProjects := make(map[string]struct{}, len(projects))
-		for _, project := range projects {
-			allowedProjects[project.ID] = struct{}{}
-		}
-		filtered := make([]db.NavigationConversation, 0, len(conversations))
-		for _, conversation := range conversations {
-			if _, ok := allowedProjects[conversation.ProjectID]; ok {
-				filtered = append(filtered, conversation)
-			}
-		}
-		conversations = filtered
-	}
 	visibleProjects := make([]db.Project, 0, len(projects))
 	for _, project := range projects {
-		if project.FlowMode != db.ProjectFlowModeConversation {
+		// Legacy conversation-flow containers stay out of ordinary navigation.
+		// The explicit archive projection may include them so users can restore
+		// or permanently delete historical data without making it interactive.
+		if includeArchived || project.FlowMode != db.ProjectFlowModeConversation {
 			visibleProjects = append(visibleProjects, project)
+		}
+	}
+	allowedProjects := make(map[string]struct{}, len(visibleProjects))
+	for _, project := range visibleProjects {
+		allowedProjects[project.ID] = struct{}{}
+	}
+	filtered := make([]db.NavigationConversation, 0, len(conversations))
+	for _, conversation := range conversations {
+		if _, ok := allowedProjects[conversation.ProjectID]; ok {
+			filtered = append(filtered, conversation)
 		}
 	}
 	writeJSON(w, http.StatusOK, navigationResponse{
 		Projects:      s.filterProjectsForRequest(r, visibleProjects),
-		Conversations: s.filterNavigationConversationsForRequest(r, conversations),
+		Conversations: s.filterNavigationConversationsForRequestWithLegacy(r, filtered, includeArchived),
 	})
 }
