@@ -2745,15 +2745,27 @@ export function createChatRenderingController({
       byRun.get(callRunId).push(call);
     }
     if (!byRun.size) return anchored;
+    // Prefer the run's assistant turn. That turn is the one that called the
+    // tools, and it is also where its reasoning lives -- reasoning is read off
+    // the assistant message, so anchoring the tools anywhere else splits one
+    // run into two rows: the tools under the user's question, the reasoning
+    // alone under the reply.
+    //
+    // The run's first message stays the fallback, which is what a run whose
+    // assistant turn produced no words needs: that turn never became a visible
+    // message, so its tools would otherwise have nowhere to go.
     const firstMessageByRun = new Map();
+    const assistantMessageByRun = new Map();
     for (const message of messages) {
       const messageRunId = String(message?.runId || message?.run_id || "");
       const messageId = String(message?.id || "");
-      if (!messageRunId || !messageId || firstMessageByRun.has(messageRunId)) continue;
-      firstMessageByRun.set(messageRunId, messageId);
+      if (!messageRunId || !messageId) continue;
+      if (!firstMessageByRun.has(messageRunId)) firstMessageByRun.set(messageRunId, messageId);
+      if (chatMessagePresentation(message).normalizedRole !== "assistant") continue;
+      if (!assistantMessageByRun.has(messageRunId)) assistantMessageByRun.set(messageRunId, messageId);
     }
     for (const [callRunId, calls] of byRun) {
-      const messageId = firstMessageByRun.get(callRunId);
+      const messageId = assistantMessageByRun.get(callRunId) || firstMessageByRun.get(callRunId);
       // No visible anchor: keep the previous behaviour of leaving the calls to
       // the run-level fallback rather than moving them under an unrelated turn.
       if (!messageId) continue;

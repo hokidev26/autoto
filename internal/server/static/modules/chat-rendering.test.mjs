@@ -1782,6 +1782,42 @@ test("a tool call whose owning message is not on screen falls back to the run-le
   assert.match(html, /data-tool-activity-select="legacy"/);
 });
 
+// A run's tools and its reasoning reach the transcript by different routes: the
+// tools arrive as activity records anchored by run, while the reasoning lives on
+// the assistant message itself. Anchoring the tools to the run's first message
+// puts them under the user's question, leaving the reasoning alone under the
+// reply -- one run rendering as "activity · 1 tool" followed by "activity · 1
+// reasoning step", which is what the split looks like on screen.
+test("a run's tools and its reasoning share one activity row", () => {
+  const { html } = renderSnapshot([
+    { id: "u1", role: "user", contentText: "recommend a few", runId: "run-1" },
+    {
+      id: "a1", role: "assistant", contentText: "Here are a few.", runId: "run-1",
+      reasoningText: "Checking which ones are still operating.",
+    },
+  ], {
+    activeRunSummaryRunId: "run-2",
+    activeRunToolCallsRunId: "run-2",
+    activeRunToolCalls: [],
+    historyRunToolCalls: {
+      "run-1": [{
+        agentId: "agent-1", runId: "run-1", messageId: "silent",
+        toolUseId: "t1", toolName: "WebSearch", status: "completed",
+        createdAt: "2026-03-16T09:00:01Z",
+      }],
+    },
+    activeRunSummary: { run: { id: "run-2", source: "conversation", status: "completed" }, toolCallCount: 0 },
+  }, {}, { apiRequest: async () => ({ toolCalls: [] }) });
+
+  const stacks = html.match(/data-tool-activity-stack-key="[^"]*"/g) || [];
+  assert.equal(stacks.length, 1, `one run should render one activity row, got ${stacks.length}: ${stacks.join(", ")}`);
+  // Both halves are in that single row.
+  assert.match(html, /data-tool-activity-select="t1"/);
+  assert.match(html, /reasoning/i);
+  // It belongs to the turn that did the work, not to the question above it.
+  assert.match(html, /data-message-activity="a1"/);
+});
+
 test("an earlier run's tool calls anchor on the turn that triggered them, not on the newest run", () => {
   const earlierCall = {
     agentId: "agent-1",
@@ -1810,15 +1846,17 @@ test("an earlier run's tool calls anchor on the turn that triggered them, not on
   });
 
   assert.match(html, /data-tool-activity-select="t-old"/);
-  // u1 belongs to run-old itself, so these calls are that turn's own activity
-  // arriving by the history route rather than a foreign run to be shown apart.
-  // They join u1's single stack; a separate run:run-old row here is what made
-  // one run render as two "activity" lines.
-  assert.match(html, /data-tool-activity-stack-key="msg:u1"/);
+  // a1 is run-old's assistant turn: the one that made the call, and where that
+  // run's reasoning would be read from. Anchoring there keeps one run in one
+  // row. A separate run:run-old row, or a row under the user's question, is
+  // what made a single run render as two "activity" lines.
+  assert.match(html, /data-tool-activity-stack-key="msg:a1"/);
   assert.doesNotMatch(html, /data-tool-activity-stack-key="run:run-old"/);
   const trigger = html.indexOf('data-message-id="u1"');
-  const stack = html.indexOf('data-message-activity="u1"');
+  const stack = html.indexOf('data-message-activity="a1"');
   const reply = html.indexOf('data-message-id="a1"');
+  // Keyed to the assistant turn, but rendered ahead of it, so the order reads
+  // question, then the work, then the answer.
   assert.ok(trigger < stack && stack < reply, "the earlier run's tools sit between its user turn and its reply");
   // The newest run owns the outcome card; an earlier run must not be repeated there.
   const outcome = html.indexOf("data-run-outcome-card");
@@ -1908,7 +1946,9 @@ test("recovering an earlier run's activity keeps the reader pinned to the newest
     // The reader is sitting at the tail when the earlier run's strip arrives.
     element.scrollTop = element.scrollHeight - element.clientHeight;
     assert.equal(await controller.ensureHistoryRunActivity("agent-1"), true);
-    assert.match(element.inserted.get("u1") || "", /data-tool-activity-select="t-old"/);
+    // Lands on run-old's assistant turn, which is where that run's reasoning is
+    // read from, so the run keeps one activity row instead of two.
+    assert.match(element.inserted.get("a1") || "", /data-tool-activity-select="t-old"/);
     assert.equal(element.scrollTop, element.scrollHeight, "the tail must stay in view after the strip is inserted");
   } finally {
     globalThis.document = previousDocument;
