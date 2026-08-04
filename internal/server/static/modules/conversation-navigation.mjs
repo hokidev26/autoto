@@ -546,10 +546,26 @@ function navigationForkTrigger(projectId) {
   return `<button class="navigation-row-fork" type="button" data-project-fork-trigger data-project-id-fork="${escapeNavigationHtml(projectId)}" aria-label="${escapeNavigationHtml(label)}" title="${escapeNavigationHtml(label)}">+</button>`;
 }
 
+// Which conversation gives a project row its name. The open one wins so the row
+// matches the header the reader is looking at; otherwise the list is already in
+// recency order, so the first entry is the most recent.
+function navigationProjectHeadline(conversations, activeAgentId) {
+  const items = Array.isArray(conversations) ? conversations : [];
+  if (!items.length) return "";
+  const activeId = text(activeAgentId);
+  const open = activeId ? items.find((item) => item?.agentId === activeId) : null;
+  return text((open || items[0])?.agentTitle);
+}
+
 function renderProject(project, activeProjectId, options = {}) {
   const active = options.activeSelectionKind !== "conversation" && project.id === activeProjectId;
   const path = project.gitPath || project.id;
   const displayPath = compactDisplayPath(path);
+  // A project's name is normally its directory, so the row used to read as the
+  // same path twice: once as the title and once as the meta line underneath.
+  // Prefer the conversation the row actually represents, which is what the
+  // header shows and what the reader recognises the row by.
+  const headline = text(options.headline) || project.name;
   const counts = options.taskCounts?.[project.id] || {};
   const activeTasks = Number(counts.todo || 0) + Number(counts.doing || 0) + Number(counts.blocked || 0);
   const taskMeta = options.taskContext
@@ -560,10 +576,10 @@ function renderProject(project, activeProjectId, options = {}) {
   const stateMeta = navigationStateMarkup({ pinned: project.pinned, archivedAt: project.archivedAt });
   const icon = `<svg viewBox="0 0 20 20"><path d="M5 4.5h10a2 2 0 0 1 2 2V12a2 2 0 0 1-2 2H9l-4 2.5V14a2 2 0 0 1-2-2V6.5a2 2 0 0 1 2-2Z"></path></svg>`;
   return `
-    <div class="navigation-conversation-row navigation-project-row ${options.taskContext ? "task-context " : ""}${active ? "active " : ""}${statusClass ? `status-${statusClass} ` : ""}project-card ${stateClass}" role="button" tabindex="0" draggable="true" title="${escapeNavigationHtml(project.name)}" data-project-id="${escapeNavigationHtml(project.id)}" data-navigation-kind="project" data-navigation-id="${escapeNavigationHtml(project.id)}"${statusClass ? ` data-agent-status="${escapeNavigationHtml(statusClass)}"` : ""} data-navigation-context="${options.taskContext ? "tasks" : "project"}">
+    <div class="navigation-conversation-row navigation-project-row ${options.taskContext ? "task-context " : ""}${active ? "active " : ""}${statusClass ? `status-${statusClass} ` : ""}project-card ${stateClass}" role="button" tabindex="0" draggable="true"       title="${escapeNavigationHtml(headline)}" data-project-id="${escapeNavigationHtml(project.id)}" data-navigation-kind="project" data-navigation-id="${escapeNavigationHtml(project.id)}"${statusClass ? ` data-agent-status="${escapeNavigationHtml(statusClass)}"` : ""} data-navigation-context="${options.taskContext ? "tasks" : "project"}">
       <span class="navigation-agent-icon theme-icon-slot" data-theme-icon-slot="sidebar-project" aria-hidden="true">${icon}</span>
       <span class="navigation-conversation-main">
-        <span class="navigation-conversation-title navigation-project-title"><span class="project-kind-badge">PROJECT</span><span class="project-name">${escapeNavigationHtml(project.name)}</span>${stateMeta}</span>
+        <span class="navigation-conversation-title navigation-project-title"><span class="project-kind-badge">PROJECT</span><span class="project-name">${escapeNavigationHtml(headline)}</span>${stateMeta}</span>
         <span class="navigation-conversation-meta project-path" title="${escapeNavigationHtml(path)}">${escapeNavigationHtml(displayPath)}</span>
       </span>
       ${taskMeta}
@@ -681,7 +697,14 @@ export function renderNavigationHTML(view = {}, options = {}) {
       const projectStatus = aggregateNavigationAgentStatus(group.conversations);
       return `
       <section class="navigation-project-group" draggable="true" data-navigation-project-group="${escapeNavigationHtml(group.project.id)}" data-conversation-count="${escapeNavigationHtml(String(group.conversations.length))}" data-navigation-context="project">
-        ${renderProject(group.project, activeProjectId, { activeSelectionKind, agentStatus: projectStatus })}
+        ${renderProject(group.project, activeProjectId, {
+          activeSelectionKind,
+          agentStatus: projectStatus,
+          // The open conversation names the row when it belongs to this project;
+          // otherwise the most recent one does. Falls back to the project name
+          // inside renderProject when the group has no conversations yet.
+          headline: navigationProjectHeadline(group.conversations, activeAgentId),
+        })}
         <div class="navigation-project-conversations" data-project-conversations="${escapeNavigationHtml(group.project.id)}">
           ${convsHTML}
         </div>

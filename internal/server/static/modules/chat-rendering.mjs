@@ -1428,6 +1428,25 @@ export function createChatRenderingController({
     return Math.min(Math.max(0, Number.isFinite(top) ? top : 0), max);
   }
 
+  function captureTranscriptView(el) {
+    const target = el || $("messages");
+    if (!target) return { scrollTop: 0, followingTail: true };
+    trackTranscriptFollow(target);
+    return {
+      scrollTop: Number(target.scrollTop) || 0,
+      followingTail,
+    };
+  }
+
+  function restoreTranscriptView(view, el = $("messages")) {
+    if (!el || !view) return;
+    if (view.followingTail) {
+      el.scrollTop = el.scrollHeight;
+      return;
+    }
+    el.scrollTop = clampTranscriptScrollTop(el, view.scrollTop);
+  }
+
   // Sending on mobile often changes two things in separate browser frames: the
   // textarea collapses and the on-screen keyboard starts closing. A single
   // synchronous scroll therefore gets overwritten by the viewport resize. Keep
@@ -1737,7 +1756,10 @@ export function createChatRenderingController({
 
   function renderPlanCards() {
     if (state.chatHydrating || !state.agent?.id) return;
-    applyMessageSnapshot(state.currentMessages, state.agent.id, { forceRender: true });
+    // Plan state can change at the end of a run while the reader is looking at
+    // history. Let the normal follow intent decide whether to stay at the tail;
+    // forceRender here used to pull that reader back to the newest message.
+    applyMessageSnapshot(state.currentMessages, state.agent.id);
   }
 
   function replacePlanState(activePlan, pendingPlanApproval, agentId = state.agent?.id) {
@@ -2556,7 +2578,7 @@ export function createChatRenderingController({
     // Keep the current review card stable while a refresh is in flight. Rendering
     // the transient loading status here makes context switches visibly flash.
     if (state.runSummaryLoading) return;
-    const wasFollowing = (trackTranscriptFollow(el), followingTail);
+    const view = captureTranscriptView(el);
     const owned = syncMessageToolActivityStacks(el);
     const existing = el.querySelector("[data-run-summary-card], [data-run-outcome-card]");
     const html = renderRunSummaryCardHTML(owned);
@@ -2573,7 +2595,7 @@ export function createChatRenderingController({
         else el.insertAdjacentHTML("beforeend", html);
       }
     }
-    if (wasFollowing) el.scrollTop = el.scrollHeight;
+    restoreTranscriptView(view, el);
     bindToolActivityControls(el);
     if (!html) return;
     bindRunSummaryButtons(el);
@@ -2677,9 +2699,9 @@ export function createChatRenderingController({
     // Inserting a strip above the tail grows the transcript under the reader.
     // Follow the same rule every other paint uses, or the newest message slides
     // out of view and the next render yanks it back.
-    const wasFollowing = (trackTranscriptFollow(el), followingTail);
+    const view = captureTranscriptView(el);
     syncMessageToolActivityStacks(el);
-    if (wasFollowing && el) el.scrollTop = el.scrollHeight;
+    restoreTranscriptView(view, el);
     return loaded;
   }
 
@@ -2818,7 +2840,17 @@ export function createChatRenderingController({
       const messageId = String(message?.id || "");
       if (!messageId) continue;
       const liveRecords = live.byMessage.get(messageId) || [];
-      const records = claimUnseen([...(persisted.byMessage.get(messageId) || []), ...liveRecords]
+      // anchorHistoryRunActivity resolves each group's anchor by that group's own
+      // runId, so a group always lands on the first message of the very run it
+      // came from. Its calls are therefore that turn's own activity arriving by
+      // the history route rather than a foreign run needing its own row, and
+      // they belong in the one stack alongside the turn's reasoning.
+      //
+      // Rendering them separately is what split a single run into two adjacent
+      // "activity" lines -- one bare, one with reasoning -- whenever a call
+      // reached the view through both the live stream and the persisted summary.
+      const anchoredRecords = (anchored.get(messageId) || []).flatMap(([, calls]) => calls);
+      const records = claimUnseen([...(persisted.byMessage.get(messageId) || []), ...liveRecords, ...anchoredRecords]
         .sort((left, right) => String(normalizeToolActivity(left).createdAt || "").localeCompare(String(normalizeToolActivity(right).createdAt || ""))));
       const reasoningSteps = persistedReasoningSteps(message, records);
       // This turn's own stack first, then any earlier run this message anchors.
@@ -2835,21 +2867,6 @@ export function createChatRenderingController({
           stackKey,
           selectedToolUseId: selectedToolActivity(stackKey),
           totalCount: records.length,
-        })]);
-      }
-      for (const [historyRunId, anchoredRecords] of anchored.get(messageId) || []) {
-        // Anchored last, so a call already shown in this turn's own stack does
-        // not come back as a second, reasoning-less row underneath it.
-        const historyRecords = claimUnseen(anchoredRecords);
-        if (!historyRecords.length) continue;
-        const stackKey = runToolActivityStackKey(historyRunId);
-        rendered.push([historyRecords, renderToolActivityStackHTML(historyRecords, {
-          compact: true,
-          resolveBackgroundTask,
-          runId: historyRunId,
-          stackKey,
-          selectedToolUseId: selectedToolActivity(stackKey),
-          totalCount: historyRecords.length,
         })]);
       }
       const html = rendered.map(([, markup]) => markup).filter(Boolean).join("");
@@ -3315,7 +3332,7 @@ export function createChatRenderingController({
     if (state.chatHydrating) return;
     const el = $("messages");
     if (!el) return;
-    const wasFollowing = (trackTranscriptFollow(el), followingTail);
+    const view = captureTranscriptView(el);
     // Ownership can change on any tool event: the call's assistant turn may have
     // just been persisted, which moves it out of the tail stack and under that
     // turn. Sync first so the tail markup below is computed against the result.
@@ -3329,9 +3346,6 @@ export function createChatRenderingController({
         // to its template default (expanded), undoing a user collapse and causing
         // a height change that jumps the scroll position and flashes the layout.
         const detailsOpen = existing.querySelector("details.tool-activity-group")?.open ?? null;
-        // For non-following viewports (user scrolled up to read history), also
-        // save scrollTop so the layout reflow does not shift the visible content.
-        const savedScrollTop = wasFollowing ? null : el.scrollTop;
         existing.outerHTML = html;
         // outerHTML replaces the node reference; re-query to restore state.
         const updated = el.querySelector("[data-live-tool-output-stack]");
@@ -3339,7 +3353,6 @@ export function createChatRenderingController({
           const details = updated.querySelector("details.tool-activity-group");
           if (details && details.open !== detailsOpen) details.open = detailsOpen;
         }
-        if (savedScrollTop !== null) el.scrollTop = savedScrollTop;
       } else {
         existing.remove();
       }
@@ -3353,26 +3366,32 @@ export function createChatRenderingController({
         else el.insertAdjacentHTML("beforeend", html);
       }
     }
-    // Dropping the live stack (run finished, history took over) shortens the
-    // transcript too, so the tail has to be re-anchored on the removal path.
-    if (wasFollowing) el.scrollTop = el.scrollHeight;
+    restoreTranscriptView(view, el);
     bindToolActivityControls(el);
   }
 
   function clearLiveToolOutputs({ agentId = state.agent?.id, preserveView = false } = {}) {
     const id = String(agentId || "").trim();
     if (!id) return false;
-    state.liveToolOutputs = Object.fromEntries(
-      Object.entries(state.liveToolOutputs || {}).filter(([, item]) => item?.agentId && item.agentId !== id),
+    const previous = state.liveToolOutputs || {};
+    const next = Object.fromEntries(
+      Object.entries(previous).filter(([, item]) => item?.agentId && item.agentId !== id),
     );
+    const removedToolOutput = Object.keys(previous).some((key) => !Object.prototype.hasOwnProperty.call(next, key));
+    state.liveToolOutputs = next;
     const totals = { ...liveToolOutputTotals() };
-    for (const key of Object.keys(totals)) {
-      if (key.startsWith(`${id}:`)) delete totals[key];
-    }
+    const removedTotals = Object.keys(totals).filter((key) => key.startsWith(`${id}:`));
+    removedTotals.forEach((key) => delete totals[key]);
     state.liveToolOutputTotals = totals;
     // Reasoning is part of the same live activity surface; leaving it behind
     // after tools are cleared recreates a second "活动" card of pure thinking.
+    const hadReasoning = Boolean(
+      (Array.isArray(state.liveReasoningSteps) && state.liveReasoningSteps.length)
+      || String(state.liveReasoningDraft?.text || "").trim(),
+    );
     clearLiveReasoning();
+    const changed = removedToolOutput || removedTotals.length > 0 || hadReasoning;
+    if (!changed) return false;
     if (!preserveView) renderLiveToolOutputCards();
     return true;
   }
@@ -3512,10 +3531,9 @@ export function createChatRenderingController({
     const el = $("messages");
     if (!el) return;
     const existing = el.querySelector("[data-approval-stack]");
-    // "Was the user following the tail?" has to be answered before the DOM
-    // changes: approving removes the card, the transcript gets shorter, and a
-    // stale scrollTop then lands the viewport back on the tool activity above.
-    const wasFollowing = (trackTranscriptFollow(el), followingTail);
+    // Capture the reader's intent before approval state changes the DOM: removing
+    // the card shortens the transcript, while inserting a question grows it.
+    const view = captureTranscriptView(el);
     const html = renderApprovalCardsHTML();
     if (existing) {
       if (html) existing.outerHTML = html;
@@ -3528,9 +3546,7 @@ export function createChatRenderingController({
         el.insertAdjacentHTML("beforeend", html);
       }
     }
-    // Re-anchor even when the stack was just removed, otherwise resolving an
-    // approval scrolls the thread backwards on every single prompt.
-    if (wasFollowing) el.scrollTop = el.scrollHeight;
+    restoreTranscriptView(view, el);
     if (!html) return;
     bindApprovalButtons(el);
   }

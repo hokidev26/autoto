@@ -203,6 +203,6 @@ test("shell mounts the Spec board and forwards accepted messages to goal confirm
     assert.match(html, new RegExp(`id="${id}"`));
   }
   assert.match(appMain, /createSpecBoardController\(\{ request: api, showError, showToast \}\)/);
-  assert.match(appMain, /onMessageAccepted: \(result, agentId\) => specBoard\.handleGoalConfirmation\(result, agentId\)/);
+  assert.match(appMain, /onMessageAccepted: async \(result, agentId\) => \{[\s\S]*?return specBoard\.handleGoalConfirmation\(result, agentId\);\s*\},/);
   assert.match(composer, /await onMessageAccepted\?\.\(accepted, agentId\)/);
 });

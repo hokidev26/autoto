@@ -244,8 +244,13 @@ test("project groups contain every conversation once and preserve recent orderin
   assert.match(projectContextHTML, /navigation-project-row active/);
   assert.doesNotMatch(projectContextHTML, /navigation-conversation-row nested active/);
   assert.match(projectContextHTML, /data-navigation-context="project"/);
-  assert.match(html, /navigation-project-title"><span class="project-kind-badge">PROJECT<\/span><span class="project-name">Alpha<\/span><\/span>/);
-  assert.match(html, /navigation-project-row[^>]*title="Alpha"/);
+  // A project's name is usually its directory, which the meta line below already
+  // shows. The row is named after the conversation it stands for -- the open one
+  // when it belongs here ("a2" => "Writer"), so the row matches the chat header.
+  assert.match(html, /navigation-project-title"><span class="project-kind-badge">PROJECT<\/span><span class="project-name">Writer<\/span><\/span>/);
+  assert.match(html, /navigation-project-row[^>]*title="Writer"/);
+  // The directory is still available, just not as the headline.
+  assert.match(html, /navigation-conversation-meta project-path" title="\/work\/alpha"/);
   assert.match(html, /navigation-conversation-row nested[^>]*title="Writer"/);
   assert.doesNotMatch(html, /project-agent-count|AGENT 2/);
   assert.match(html, /navigation-conversation-row nested[^\"]*status-idle/);
@@ -441,8 +446,17 @@ test("navigation rendering escapes all dynamic text and attributes", () => {
 
   assert.doesNotMatch(`${html}${recentHtml}`, /<script>|<img src=x|<svg onload|<b>/);
   assert.match(html, /class="project-kind-badge">PROJECT<\/span>/);
-  assert.match(html, /&lt;script&gt;alert\(&quot;project&quot;\)&lt;\/script&gt;/);
+  // The row is named after its conversation, so that title is what needs
+  // escaping on the normal path.
   assert.match(html, /&lt;img src=x onerror=&quot;agent&quot;&gt;/);
+  // A project with no conversations still falls back to its own name, so that
+  // path has to stay escaped too.
+  const emptyProjectHTML = renderNavigationHTML(
+    buildNavigationView({ projects: maliciousPayload.projects, conversations: [] }, { mode: "all" }),
+    { activeProjectId: malicious },
+  );
+  assert.doesNotMatch(emptyProjectHTML, /<script>|<img src=x|<svg onload|<b>/);
+  assert.match(emptyProjectHTML, /&lt;script&gt;alert\(&quot;project&quot;\)&lt;\/script&gt;/);
   assert.doesNotMatch(recentHtml, /recent-conversation-item|<img/);
   assert.match(recentHtml, /data-recent-conversations-deduplicated="true"/);
 });

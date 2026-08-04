@@ -112,6 +112,104 @@ function deferred() {
   return { promise, resolve, reject };
 }
 
+function mutationAwareMessagesElement({ liveStack = false, scrollHeight = 2000, clientHeight = 500 } = {}) {
+  const classes = new Set();
+  const listeners = new Map();
+  let markup = "";
+  let liveStackPresent = liveStack;
+  const resetScrollAfterMutation = () => { element.scrollTop = 0; };
+  const liveStackNode = {
+    querySelector: () => null,
+    remove() {
+      liveStackPresent = false;
+      resetScrollAfterMutation();
+    },
+    set outerHTML(_value) {
+      liveStackPresent = true;
+      resetScrollAfterMutation();
+    },
+  };
+  const element = {
+    classList: {
+      add: (...names) => names.forEach((name) => classes.add(name)),
+      remove: (...names) => names.forEach((name) => classes.delete(name)),
+      contains: (name) => classes.has(name),
+    },
+    get innerHTML() { return markup; },
+    set innerHTML(value) {
+      markup = String(value || "");
+      resetScrollAfterMutation();
+    },
+    querySelector(selector) {
+      if (selector === "[data-live-tool-output-stack]") return liveStackPresent ? liveStackNode : null;
+      if (selector === "[data-run-summary-card], [data-run-outcome-card]") return null;
+      if (selector === "[data-live-assistant], [data-approval-stack]") return null;
+      const message = /^\[data-message-id=\"([^\"]+)\"\]$/.exec(selector);
+      if (message) {
+        return {
+          dataset: { messageRole: "user" },
+          insertAdjacentHTML: (_position, html) => {
+            markup += String(html || "");
+            resetScrollAfterMutation();
+          },
+        };
+      }
+      return null;
+    },
+    querySelectorAll: () => [],
+    insertAdjacentHTML(_position, html) {
+      markup += String(html || "");
+      resetScrollAfterMutation();
+    },
+    addEventListener(type, listener) {
+      const current = listeners.get(type) || [];
+      current.push(listener);
+      listeners.set(type, current);
+    },
+    dispatchScroll() {
+      (listeners.get("scroll") || []).forEach((listener) => listener());
+    },
+    removeAttribute() {},
+    dataset: {},
+    scrollHeight,
+    clientHeight,
+    scrollTop: 0,
+  };
+  return element;
+}
+
+function createRenderingState(overrides = {}) {
+  return {
+    agent: { id: "agent-1", cwd: "/work/project", status: "idle" },
+    navigationSelectionKind: "conversation",
+    currentMessages: [],
+    messageCopyTexts: [],
+    messageHasMoreBefore: false,
+    messageNextBefore: "",
+    messageOlderLoading: false,
+    liveToolOutputs: {},
+    liveToolOutputTotals: {},
+    liveReasoningSteps: [],
+    liveReasoningDraft: null,
+    liveAssistantActive: false,
+    liveAssistantText: "",
+    liveAssistantRequestId: "",
+    liveAssistantRunId: "",
+    liveAssistantStartedAt: "",
+    liveAssistantPerformance: null,
+    liveImageGenerations: {},
+    pendingToolApprovals: {},
+    pendingUserQuestions: {},
+    activeRunSummary: null,
+    activeRunSummaryRunId: "",
+    activeRunToolCalls: [],
+    activeRunToolCallsRunId: "",
+    runSummaryLoading: false,
+    runSummaryError: "",
+    ...overrides,
+  };
+}
+
 function createAsyncChatRenderingHarness(apiRequest, stateOverrides = {}) {
   const messagesElement = fakeMessagesElement();
   const previousDocument = globalThis.document;
@@ -139,6 +237,31 @@ function createAsyncChatRenderingHarness(apiRequest, stateOverrides = {}) {
     runSummaryError: "",
     ...stateOverrides,
   };
+  const controller = createChatRenderingController({
+    state,
+    apiRequest,
+    attachmentIcon: () => "file",
+    attachmentKind: () => "file",
+    copyToClipboard: async () => true,
+    notifyTerminal: () => {},
+    selectedModelValue: () => "",
+    shortPath: (value) => value,
+    showError: () => {},
+    showToast: () => {},
+  });
+  return {
+    controller,
+    messagesElement,
+    state,
+    restore() { globalThis.document = previousDocument; },
+  };
+}
+
+function createMutationAwareRenderingHarness({ apiRequest = async () => ({ toolCalls: [] }), elementOptions = {}, stateOverrides = {} } = {}) {
+  const messagesElement = mutationAwareMessagesElement(elementOptions);
+  const previousDocument = globalThis.document;
+  globalThis.document = { getElementById: (id) => (id === "messages" ? messagesElement : null) };
+  const state = createRenderingState(stateOverrides);
   const controller = createChatRenderingController({
     state,
     apiRequest,
@@ -895,6 +1018,98 @@ test("terminal live activity stays visible while the summary loads and transfers
   }
 });
 
+test("run summary handoff preserves a reader's non-tail offset after DOM replacement", async () => {
+  const summary = {
+    run: { id: "run-1", status: "completed", triggerMessageId: "u1" },
+    toolCalls: [],
+  };
+  const harness = createMutationAwareRenderingHarness({
+    apiRequest: async (url) => url.includes("/tool-calls?") ? { toolCalls: [] } : summary,
+  });
+  try {
+    harness.controller.applyMessageSnapshot([], "agent-1");
+    harness.messagesElement.scrollTop = 400;
+    harness.messagesElement.dispatchScroll();
+    assert.equal(await harness.controller.loadRunSummary("run-1"), summary);
+    assert.equal(harness.messagesElement.scrollTop, 400, "summary insertion must restore a reader's parked offset");
+  } finally {
+    harness.restore();
+  }
+});
+
+test("run summary handoff keeps a reader at the tail", async () => {
+  const summary = { run: { id: "run-1", status: "completed" }, toolCalls: [] };
+  const harness = createMutationAwareRenderingHarness({
+    apiRequest: async (url) => url.includes("/tool-calls?") ? { toolCalls: [] } : summary,
+  });
+  try {
+    harness.controller.applyMessageSnapshot([], "agent-1");
+    harness.messagesElement.scrollTop = harness.messagesElement.scrollHeight - harness.messagesElement.clientHeight;
+    harness.messagesElement.dispatchScroll();
+    await harness.controller.loadRunSummary("run-1");
+    assert.equal(harness.messagesElement.scrollTop, harness.messagesElement.scrollHeight, "tail-following must remain at the newest content");
+  } finally {
+    harness.restore();
+  }
+});
+
+test("clearing live activity preserves a parked reader and skips no-op repaints", () => {
+  const harness = createMutationAwareRenderingHarness({
+    elementOptions: { liveStack: true },
+    stateOverrides: {
+      liveToolOutputs: {
+        live: { agentId: "agent-1", runId: "run-1", toolUseId: "live", toolName: "Read", status: "running" },
+      },
+    },
+  });
+  try {
+    harness.controller.applyMessageSnapshot([], "agent-1");
+    harness.messagesElement.scrollTop = 400;
+    harness.messagesElement.dispatchScroll();
+    assert.equal(harness.controller.clearLiveToolOutputs(), true);
+    assert.equal(harness.messagesElement.scrollTop, 400, "removing the live stack must restore a parked reader's offset");
+    assert.equal(harness.controller.clearLiveToolOutputs(), false, "a second clear with no live records must not repaint");
+  } finally {
+    harness.restore();
+  }
+});
+
+test("plan card updates respect a reader's parked transcript position", () => {
+  const harness = createMutationAwareRenderingHarness({
+    stateOverrides: {
+      currentMessages: [{ id: "m1", role: "assistant", contentText: "history" }],
+    },
+  });
+  try {
+    harness.controller.applyMessageSnapshot(harness.state.currentMessages, "agent-1");
+    harness.messagesElement.scrollTop = 400;
+    harness.messagesElement.dispatchScroll();
+    harness.controller.replacePlanState({ id: "plan-1", goal: "inspect", status: "executing" }, null, "agent-1");
+    assert.equal(harness.messagesElement.scrollTop, 400, "plan repaint must not force a history reader to the tail");
+  } finally {
+    harness.restore();
+  }
+});
+
+test("history activity insertion preserves a parked reader's transcript position", async () => {
+  const harness = createMutationAwareRenderingHarness({
+    apiRequest: async () => ({
+      toolCalls: [{ agentId: "agent-1", runId: "run-old", messageId: "u1", toolUseId: "old-tool", toolName: "Read", status: "completed" }],
+    }),
+  });
+  try {
+    harness.controller.applyMessageSnapshot([], "agent-1");
+    harness.state.currentMessages = [{ id: "u1", role: "user", contentText: "go", runId: "run-old" }];
+    harness.state.activeRunSummaryRunId = "run-current";
+    harness.messagesElement.scrollTop = 400;
+    harness.messagesElement.dispatchScroll();
+    assert.equal(await harness.controller.ensureHistoryRunActivity("agent-1"), true);
+    assert.equal(harness.messagesElement.scrollTop, 400, "history activity insertion must not pull the reader toward the tail");
+  } finally {
+    harness.restore();
+  }
+});
+
 test("ordinary Run outcome copy is localized in Simplified Chinese, Traditional Chinese, and English", () => {
   assert.equal(chatRenderingExtraText("run.conversationErrorTitle", {}, "zh-CN"), "本轮回复失败");
   assert.equal(chatRenderingExtraText("run.conversationErrorTitle", {}, "zh-TW"), "本輪回覆失敗");
@@ -1522,7 +1737,12 @@ test("an earlier run's tool calls anchor on the turn that triggered them, not on
   });
 
   assert.match(html, /data-tool-activity-select="t-old"/);
-  assert.match(html, /data-tool-activity-stack-key="run:run-old"/);
+  // u1 belongs to run-old itself, so these calls are that turn's own activity
+  // arriving by the history route rather than a foreign run to be shown apart.
+  // They join u1's single stack; a separate run:run-old row here is what made
+  // one run render as two "activity" lines.
+  assert.match(html, /data-tool-activity-stack-key="msg:u1"/);
+  assert.doesNotMatch(html, /data-tool-activity-stack-key="run:run-old"/);
   const trigger = html.indexOf('data-message-id="u1"');
   const stack = html.indexOf('data-message-activity="u1"');
   const reply = html.indexOf('data-message-id="a1"');
