@@ -300,8 +300,17 @@ test("buildNavigationView supports grouped and flat project modes", () => {
   const projectsHTML = renderNavigationHTML(projects, { activeProjectId: "p1" });
   assert.equal((projectsHTML.match(/class="navigation-conversation-row navigation-project-row/g) || []).length, 3);
   assert.match(projectsHTML, /navigation-project-row active/);
-  assert.match(projectsHTML, /navigation-project-title"><span class="project-kind-badge">PROJECT<\/span><span class="project-name">Alpha<\/span>/);
+  // Flat rows have no nested conversation under them, so the row itself has to
+  // carry the conversation's name. Naming it after the project instead repeats
+  // the directory that the meta line below already shows. No conversation is
+  // open here, so the most recent one names the row.
+  assert.match(projectsHTML, /navigation-project-title"><span class="project-kind-badge">PROJECT<\/span><span class="project-name">Planner<\/span>/);
   assert.match(projectsHTML, /navigation-conversation-meta project-path" title="\/work\/alpha">\/work\/alpha<\/span>/);
+  // The open conversation wins over recency when it belongs to this project.
+  const openInFlatHTML = renderNavigationHTML(projects, { activeProjectId: "p1", activeAgentId: "a2" });
+  assert.match(openInFlatHTML, /navigation-project-title"><span class="project-kind-badge">PROJECT<\/span><span class="project-name">Writer<\/span>/);
+  // A project with no conversations keeps falling back to its own name.
+  assert.match(projectsHTML, /<span class="project-name">Beta<\/span>|<span class="project-name">Verifier<\/span>/);
   assert.doesNotMatch(projectsHTML, /data-navigation-project-group|data-project-conversations|data-navigation-target|project-agent-count/);
 
   const legacyMode = buildNavigationView(payload, { mode: "conversations" });

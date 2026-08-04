@@ -644,7 +644,13 @@ export function renderNavigationHTML(view = {}, options = {}) {
       : activeAgentId ? "conversation" : "project";
   let html = "";
   if (taskContext) {
-    html = (view.projects || []).map((project) => renderProject(project, activeProjectId, { taskContext: true, taskCounts: options.taskCounts, activeSelectionKind })).join("");
+    const taskConversations = new Map((view.groups || []).map((group) => [group.project.id, group.conversations]));
+    html = (view.projects || []).map((project) => renderProject(project, activeProjectId, {
+      taskContext: true,
+      taskCounts: options.taskCounts,
+      activeSelectionKind,
+      headline: navigationProjectHeadline(taskConversations.get(project.id), activeAgentId),
+    })).join("");
   } else if (mode === "all") {
     // Apply user-defined project order (drag-to-reorder, persisted in localStorage).
     const groups = applyProjectGroupOrder(view.groups || [], options.projectOrder);
@@ -719,9 +725,14 @@ export function renderNavigationHTML(view = {}, options = {}) {
     // the bubble icon can turn blue while a project agent is running.
     const projects = applyProjectOrder(view.projects || [], options.projectOrder);
     const statusByProject = new Map((view.groups || []).map((group) => [group.project.id, aggregateNavigationAgentStatus(group.conversations)]));
+    // Flat rows carry no nested conversation underneath, so without this the row
+    // is named by the project -- normally its directory -- and reads as the same
+    // path twice, once as the title and once as the meta line below it.
+    const conversationsByProject = new Map((view.groups || []).map((group) => [group.project.id, group.conversations]));
     html = projects.map((project) => renderProject(project, activeProjectId, {
       activeSelectionKind,
       agentStatus: statusByProject.get(project.id) || "",
+      headline: navigationProjectHeadline(conversationsByProject.get(project.id), activeAgentId),
     })).join("");
   }
   if (html) return html;
