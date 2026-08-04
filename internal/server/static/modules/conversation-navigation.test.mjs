@@ -247,7 +247,7 @@ test("project groups contain every conversation once and preserve recent orderin
   // A project's name is usually its directory, which the meta line below already
   // shows. The row is named after the conversation it stands for -- the open one
   // when it belongs here ("a2" => "Writer"), so the row matches the chat header.
-  assert.match(html, /navigation-project-title"><span class="project-kind-badge">PROJECT<\/span><span class="project-name">Writer<\/span><\/span>/);
+  assert.match(html, /navigation-project-title"><span class="project-name">Writer<\/span><\/span>/);
   assert.match(html, /navigation-project-row[^>]*title="Writer"/);
   // The directory is still available, just not as the headline.
   assert.match(html, /navigation-conversation-meta project-path" title="\/work\/alpha"/);
@@ -304,11 +304,11 @@ test("buildNavigationView supports grouped and flat project modes", () => {
   // carry the conversation's name. Naming it after the project instead repeats
   // the directory that the meta line below already shows. No conversation is
   // open here, so the most recent one names the row.
-  assert.match(projectsHTML, /navigation-project-title"><span class="project-kind-badge">PROJECT<\/span><span class="project-name">Planner<\/span>/);
+  assert.match(projectsHTML, /navigation-project-title"><span class="project-name">Planner<\/span>/);
   assert.match(projectsHTML, /navigation-conversation-meta project-path" title="\/work\/alpha">\/work\/alpha<\/span>/);
   // The open conversation wins over recency when it belongs to this project.
   const openInFlatHTML = renderNavigationHTML(projects, { activeProjectId: "p1", activeAgentId: "a2" });
-  assert.match(openInFlatHTML, /navigation-project-title"><span class="project-kind-badge">PROJECT<\/span><span class="project-name">Writer<\/span>/);
+  assert.match(openInFlatHTML, /navigation-project-title"><span class="project-name">Writer<\/span>/);
   // A project with no conversations keeps falling back to its own name.
   assert.match(projectsHTML, /<span class="project-name">Beta<\/span>|<span class="project-name">Verifier<\/span>/);
   assert.doesNotMatch(projectsHTML, /data-navigation-project-group|data-project-conversations|data-navigation-target|project-agent-count/);
@@ -454,7 +454,6 @@ test("navigation rendering escapes all dynamic text and attributes", () => {
   ], normalized.conversations);
 
   assert.doesNotMatch(`${html}${recentHtml}`, /<script>|<img src=x|<svg onload|<b>/);
-  assert.match(html, /class="project-kind-badge">PROJECT<\/span>/);
   // The row is named after its conversation, so that title is what needs
   // escaping on the normal path.
   assert.match(html, /&lt;img src=x onerror=&quot;agent&quot;&gt;/);

@@ -208,9 +208,19 @@
 }
 .message.user { margin-left: auto; background: transparent; border: 0; color: var(--text); }
 .message.assistant { margin-right: auto; background: transparent; border: 0; }
+/* content-visibility: auto was here with contain-intrinsic-size: auto 200px.
+   It skipped layout for off-screen messages and stood in 200px for each one,
+   which measured ~1690px too tall across 19 messages -- every full snapshot
+   rebuilt the container, so no message carried a remembered size and the
+   estimate was re-applied every time.
+   Anchoring the tail reads scrollHeight, so it aimed at that inflated height
+   and the reader was left roughly that far above the real bottom once the
+   browser resolved the real sizes. The deferred settles usually caught it, but
+   they stop at 320ms and any competing render cancels them, so whether the
+   reader ended up at the newest message depended on layout timing.
+   Messages page 100 at a time, which a browser lays out without help. */
 .chat-message {
-  content-visibility: auto;
-  contain-intrinsic-size: auto 200px;
+  contain-intrinsic-size: none;
 }
 .approval-stack { display: grid; gap: 12px; margin: 10px 0 18px; max-width: min(760px, 92%); }
 .approval-card {
