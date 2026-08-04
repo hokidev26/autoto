@@ -4,7 +4,7 @@ import { readFile } from "node:fs/promises";
 import { readStylesSource } from "./styles-source-helper.mjs";
 
 import {
-  contextRingStyle,
+  contextRingGeometry,
   contextSettingsPayload,
   contextUsagePercentage,
   contextUsageTone,
@@ -99,22 +99,44 @@ test("context status normalizes token usage, preferences, and standard/large thr
   assert.equal(contextUsageTone(directCompact), "warning");
 });
 
-test("context ring uses gray unknown/loading track and threshold tones", () => {
+test("context ring returns SVG geometry, theme track, and threshold tones", () => {
+  const circumference = 2 * Math.PI * 9;
   const unknown = normalizeContextStatus({}, { loading: true });
+  const unknownRing = contextRingGeometry(unknown);
   assert.equal(contextUsageTone(unknown), "unknown");
-  assert.equal(contextRingStyle(unknown), "conic-gradient(#d6d9df 0 100%)");
+  assert.equal(unknownRing.tone, "unknown");
+  assert.equal(unknownRing.toneColor, null);
+  assert.equal(unknownRing.trackColor, "var(--ws-border, #d6d9df)");
+  assert.equal(unknownRing.offset, circumference);
 
   const normal = normalizeContextStatus({ estimatedTokens: 50, limit: 100 });
+  const normalRing = contextRingGeometry(normal);
   assert.equal(contextUsageTone(normal), "normal");
-  assert.match(contextRingStyle(normal), /^conic-gradient\(#4b5563 0 50%, #d6d9df 50% 100%\)$/);
+  assert.equal(normalRing.toneColor, "#4b5563");
+  assert.equal(normalRing.offset, circumference * 0.5);
 
   const warning = normalizeContextStatus({ estimatedTokens: 95, limit: 100 });
+  const warningRing = contextRingGeometry(warning);
   assert.equal(contextUsageTone(warning), "warning");
-  assert.match(contextRingStyle(warning), /#d97706/);
+  assert.equal(warningRing.toneColor, "#d97706");
+  assert.ok(Math.abs(warningRing.offset - circumference * 0.05) < 1e-12);
 
   const danger = normalizeContextStatus({ estimatedTokens: 100, limit: 100 });
+  const dangerRing = contextRingGeometry(danger);
   assert.equal(contextUsageTone(danger), "danger");
-  assert.match(contextRingStyle(danger), /#dc2626/);
+  assert.equal(dangerRing.toneColor, "#dc2626");
+  assert.equal(dangerRing.offset, 0);
+
+  const zero = contextRingGeometry(normalizeContextStatus({ estimatedTokens: 0, limit: 100 }));
+  assert.equal(zero.percentage, 0);
+  assert.equal(zero.offset, circumference);
+  const over = contextRingGeometry(normalizeContextStatus({ estimatedTokens: 200, limit: 100 }));
+  assert.equal(over.percentage, 100);
+  assert.equal(over.offset, 0);
+
+  const belowRange = contextRingGeometry({ settings: {}, known: true, percentage: -25, pruneStart: 95, compactStart: 99 });
+  assert.equal(belowRange.percentage, 0);
+  assert.equal(belowRange.offset, circumference);
 });
 
 test("context settings expose approved defaults and reject invalid pruning semantics", () => {
@@ -236,7 +258,12 @@ test("static shell mounts one shared context ring, accessible overlays, APIs, an
   assert.match(html, /id="contextUsagePanel"[^>]*role="dialog"[^>]*aria-labelledby="contextUsageTitle"/);
   assert.match(html, /id="contextThresholdModal"[^>]*aria-modal="true"[^>]*aria-hidden="true"/);
 
-  assert.match(styles, /\.context-usage-ring[\s\S]*?conic-gradient/);
+  assert.match(html, /<svg id="contextUsageRing"[^>]*viewBox="0 0 24 24"[^>]*aria-hidden="true"[^>]*focusable="false"/);
+  assert.match(html, /class="context-usage-track"[^>]*r="9"[^>]*stroke-width="2\.5"/);
+  assert.match(html, /class="context-usage-progress"[^>]*stroke-linecap="round"[^>]*transform="rotate\(-90 12 12\)"/);
+  assert.doesNotMatch(styles, /\.context-usage-ring[\s\S]*?conic-gradient/);
+  assert.doesNotMatch(contextModule, /conic-gradient/);
+  assert.match(styles, /\.context-usage-ring \.context-usage-track[\s\S]*?stroke:\s*var\(--ws-border/);
   assert.match(styles, /\.context-usage-overlay\.is-mobile \.context-management-panel[\s\S]*?border-radius:\s*20px 20px 0 0/);
   assert.match(styles, /\.context-usage-btn\[data-tone="warning"\]/);
   assert.match(styles, /\.context-usage-btn\[data-tone="danger"\]/);

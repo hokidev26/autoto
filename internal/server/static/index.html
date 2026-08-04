@@ -273,7 +273,10 @@
                 <span id="composerStatusText" class="composer-status-text">空闲</span>
               </div>
               <button id="contextUsageBtn" class="context-usage-btn" type="button" aria-haspopup="dialog" aria-expanded="false" aria-controls="contextUsagePanel" aria-label="上下文用量未知" disabled>
-                <span id="contextUsageRing" class="context-usage-ring" aria-hidden="true"><span></span></span>
+                <svg id="contextUsageRing" class="context-usage-ring" width="24" height="24" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                  <circle class="context-usage-track" cx="12" cy="12" r="9" fill="none" stroke="var(--ws-border, #d6d9df)" stroke-width="2.5" />
+                  <circle class="context-usage-progress" cx="12" cy="12" r="9" fill="none" stroke="none" stroke-width="2.5" stroke-dasharray="56.5486677646" stroke-dashoffset="56.5486677646" stroke-linecap="round" transform="rotate(-90 12 12)" />
+                </svg>
                 <span id="contextUsageLabel" class="context-usage-label">—</span>
               </button>
               <div class="composer-controls" aria-label="模型和权限设置" data-i18n-aria-label="chat.modelPermissions">

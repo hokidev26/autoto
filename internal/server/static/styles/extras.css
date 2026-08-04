@@ -2336,31 +2336,17 @@ body.white-shell.theme-light.theme-dark .schedule-navigation-heading em { backgr
 .context-usage-btn:focus-visible,
 .context-management-panel :is(button, input):focus-visible,
 .context-threshold-dialog :is(button, input):focus-visible { outline: 3px solid color-mix(in srgb, var(--ws-primary, #5369f3) 28%, transparent); outline-offset: 2px; }
-/* Ring thickness is the gap between this box and the disc masking its centre:
-   22/14 drew a 4px band that read as a heavy blob at this size. 20/15 leaves
-   2.5px, thin enough to read as a gauge rather than a dot. */
+/* SVG strokes draw the track and progress directly; keeping the track on the
+   theme token here makes the ring follow light/dark borders without a mask. */
 .context-usage-ring {
   width: 20px;
   height: 20px;
   flex: 0 0 20px;
-  display: grid;
-  place-items: center;
-  border-radius: 50%;
-  background: conic-gradient(#d6d9df 0 100%);
-  transform: rotate(-90deg);
+  display: block;
+  overflow: visible;
 }
-
-/* The conic gradient is the ring TRACK, not decoration: it is the unfilled part
-   of a progress dial, so it has to follow the theme border like any other rule. */
-body.white-shell.theme-light.theme-dark .context-usage-ring {
-  background: conic-gradient(var(--ws-border) 0 100%);
-}
-.context-usage-ring > span {
-  width: 15px;
-  height: 15px;
-  border-radius: 50%;
-  background: var(--ws-card, #fff);
-}
+.context-usage-ring .context-usage-track { stroke: var(--ws-border, #d6d9df); }
+.context-usage-ring .context-usage-progress { fill: none; }
 .context-usage-label { min-width: 22px; font-size: 10px; font-weight: 760; line-height: 1; text-align: center; }
 .context-usage-btn[data-tone="warning"] { color: #a85a00; }
 .context-usage-btn[data-tone="danger"] { color: #b91c1c; }
@@ -2460,7 +2446,6 @@ body.white-shell.theme-light.theme-dark .context-management-panel,
 body.white-shell.theme-light.theme-dark .context-threshold-dialog,
 body.white-shell.theme-light.theme-dark .context-action,
 body.white-shell.theme-light.theme-dark :is(.context-threshold-fields, .context-threshold-group) input { border-color: var(--ws-border); background: var(--ws-card); color: var(--ws-text); }
-body.white-shell.theme-light.theme-dark .context-usage-ring > span { background: var(--ws-card); }
 body.white-shell.theme-light.theme-dark .context-metrics > div { border-color: var(--ws-border); background: color-mix(in srgb, var(--ws-canvas) 64%, var(--ws-card)); }
 body.white-shell.theme-light.theme-dark .context-management-error,
 body.white-shell.theme-light.theme-dark .context-clear-confirmation { border-color: color-mix(in srgb, #ef6a6a 44%, var(--ws-border)); background: color-mix(in srgb, #ef6a6a 10%, var(--ws-card)); color: #ffb4b4; }
@@ -2469,8 +2454,7 @@ body.white-shell.theme-light.theme-dark .context-clear-confirmation :is(strong, 
 @media (max-width: 767px) {
   body.white-shell.theme-light .context-usage-btn { min-width: 32px; width: 32px; height: 32px; border: 0; background: transparent; padding: 5px; }
   body.white-shell.theme-light .context-usage-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; }
-  body.white-shell.theme-light .context-usage-ring { width: 22px; height: 22px; flex-basis: 22px; }
-  body.white-shell.theme-light .context-usage-ring > span { width: 17px; height: 17px; }
+  body.white-shell.theme-light .context-usage-ring { width: 24px; height: 24px; flex-basis: 24px; }
   .context-usage-overlay.is-mobile { pointer-events: auto; }
   .context-usage-overlay.is-mobile .context-usage-backdrop { position: absolute; inset: 0; display: block; background: transparent; }
   .context-usage-overlay.is-mobile .context-management-panel { inset: auto auto calc(84px + env(safe-area-inset-bottom)) 10px; width: min(340px, calc(100vw - 20px)) !important; max-width: 340px; max-height: min(66dvh, 520px); border: 1px solid var(--ws-border, #dfe3e9); border-radius: 18px; padding: 16px; box-shadow: 0 18px 48px rgba(15, 23, 42, .22); }
@@ -2872,8 +2856,10 @@ body.white-shell.theme-light.theme-dark .overview-heatmap-cell:hover { outline-c
 @media (max-width: 767px) {
   body.white-shell.theme-light .composer-toolbar {
     --composer-phone-control-size: 44px;
+    --composer-phone-control-width: 32px;
     --composer-phone-glyph-size: 18px;
     --composer-phone-gauge-size: 24px;
+    --composer-phone-gauge-control-width: 34px;
     min-height: 44px;
     height: 44px;
     flex: 0 0 44px;
@@ -2896,19 +2882,19 @@ body.white-shell.theme-light.theme-dark .overview-heatmap-cell:hover { outline-c
     white-space: nowrap;
   }
 
-  /* Every phone toolbar action uses one square footprint. The effort initial
-     remains visible because it communicates the selected level at a glance. */
+  /* Keep the 44px vertical touch target, but use a snug horizontal footprint;
+     the effort initial remains visible because it communicates the level at a glance. */
   body.white-shell.theme-light .composer-toolbar :is(.composer-model-field, .composer-effort-field, .composer-permission-field),
   body.white-shell.theme-light .composer-toolbar :is(.toolbar-model-pill, .effort-pill, .permission-toolbar-pill),
   body.white-shell.theme-light .composer-toolbar > .context-usage-btn,
   body.white-shell.theme-light .composer-toolbar .composer-toolbar-icon,
   body.white-shell.theme-light .composer-toolbar .model-tool-btn.icon-only.composer-toolbar-icon {
-    width: var(--composer-phone-control-size);
-    min-width: var(--composer-phone-control-size);
-    max-width: var(--composer-phone-control-size);
+    width: var(--composer-phone-control-width);
+    min-width: var(--composer-phone-control-width);
+    max-width: var(--composer-phone-control-width);
     height: var(--composer-phone-control-size);
     min-height: var(--composer-phone-control-size);
-    flex: 0 0 var(--composer-phone-control-size);
+    flex: 0 0 var(--composer-phone-control-width);
   }
 
   body.white-shell.theme-light .composer-toolbar :is(.toolbar-model-pill, .effort-pill, .permission-toolbar-pill),
@@ -2988,7 +2974,13 @@ body.white-shell.theme-light.theme-dark .overview-heatmap-cell:hover { outline-c
     line-height: 1;
   }
 
+  /* The 24px gauge needs a little more horizontal room than the 18px glyphs,
+     while its height remains the shared 44px touch target. */
   body.white-shell.theme-light .composer-toolbar > .context-usage-btn {
+    width: var(--composer-phone-gauge-control-width);
+    min-width: var(--composer-phone-gauge-control-width);
+    max-width: var(--composer-phone-gauge-control-width);
+    flex-basis: var(--composer-phone-gauge-control-width);
     gap: 0;
     margin-left: auto;
   }
@@ -2999,10 +2991,6 @@ body.white-shell.theme-light.theme-dark .overview-heatmap-cell:hover { outline-c
     flex-basis: var(--composer-phone-gauge-size);
   }
 
-  body.white-shell.theme-light .composer-toolbar > .context-usage-btn .context-usage-ring > span {
-    width: 19px;
-    height: 19px;
-  }
 
   /* Earlier mobile rules use several unrelated hover surfaces. One restrained
      treatment keeps the five controls visually part of the same toolbar. */

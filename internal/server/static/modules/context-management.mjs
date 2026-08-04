@@ -140,13 +140,20 @@ export function contextUsageTone(value = {}) {
   return "normal";
 }
 
-export function contextRingStyle(value = {}) {
+const contextRingCircumference = 2 * Math.PI * 9;
+
+export function contextRingGeometry(value = {}) {
   const status = value?.settings ? value : normalizeContextStatus(value);
   const tone = contextUsageTone(status);
-  const track = "#d6d9df";
-  if (tone === "unknown") return `conic-gradient(${track} 0 100%)`;
-  const percentage = boundedNumber(status.percentage, 0, 100, 0);
-  return `conic-gradient(${contextToneColors[tone]} 0 ${percentage}%, ${track} ${percentage}% 100%)`;
+  const percentage = tone === "unknown" ? null : boundedNumber(status.percentage, 0, 100, 0);
+  return {
+    circumference: contextRingCircumference,
+    offset: contextRingCircumference * (1 - (percentage ?? 0) / 100),
+    trackColor: "var(--ws-border, #d6d9df)",
+    toneColor: tone === "unknown" ? null : contextToneColors[tone],
+    tone,
+    percentage,
+  };
 }
 
 export function validateContextSettings(value = {}, translate = (key) => key) {
@@ -305,9 +312,16 @@ export function createContextManagementController({
       button.dataset.tone = tone;
     }
     if (ring) {
-      ring.style.background = contextRingStyle(status);
+      const geometry = contextRingGeometry(status);
+      const track = ring.querySelector?.(".context-usage-track");
+      const progress = ring.querySelector?.(".context-usage-progress");
+      track?.setAttribute("stroke", geometry.trackColor);
+      progress?.setAttribute("stroke", geometry.toneColor || "none");
+      progress?.setAttribute("stroke-dasharray", String(geometry.circumference));
+      progress?.setAttribute("stroke-dashoffset", String(geometry.offset));
       ring.dataset.tone = tone;
       ring.setAttribute("aria-hidden", "true");
+      ring.setAttribute("focusable", "false");
     }
     if (label) setTextIfChanged(label, status.known ? `${Math.round(status.percentage)}%` : "—");
     if (overlay) {
