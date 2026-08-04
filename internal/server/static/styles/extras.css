@@ -1521,9 +1521,9 @@ body.white-shell.theme-light.theme-dark #settingsContentBody .compact-settings-s
 
   body.white-shell.theme-light .composer-input-shell {
     order: 2;
-    /* Follows the 36px row: leaving this at 44px kept 8px of dead space below
-       the controls even after each control shrank. */
-    min-height: 36px;
+    /* Keep the input rail at the same 44px touch height as the toolbar; the
+       imported workbench sheet otherwise leaves the attach/send controls short. */
+    min-height: 44px;
     display: flex;
     align-items: stretch;
     gap: 6px;
@@ -1532,12 +1532,12 @@ body.white-shell.theme-light.theme-dark #settingsContentBody .compact-settings-s
     border-radius: 0;
     padding: 0;
   }
-  /* 36px composer row, matching the reference input metrics. The horizontal
-     inset lives on the textarea (5.5px 12px) rather than here, so the padding
-     is exactly the referenced value instead of being split across two boxes. */
+  /* The 44px input frame owns the row height. The horizontal inset lives on
+     the textarea (5.5px 12px) rather than here, so the padding is exactly the
+     referenced value instead of being split across two boxes. */
   body.white-shell.theme-light .message-input-frame {
     min-width: 0;
-    min-height: 36px;
+    min-height: 44px;
     flex: 1 1 auto;
     display: flex;
     align-items: center;
@@ -1722,11 +1722,11 @@ body.white-shell.theme-light.theme-dark #settingsContentBody .compact-settings-s
     padding: 10px;
   }
   body.white-shell.theme-light .composer-attach-btn svg {
-    width: 22px;
-    height: 22px;
+    width: 18px;
+    height: 18px;
     fill: none;
     stroke: currentColor;
-    stroke-width: 1.8;
+    stroke-width: 2;
     stroke-linecap: round;
     stroke-linejoin: round;
   }
@@ -1743,7 +1743,8 @@ body.white-shell.theme-light.theme-dark #settingsContentBody .compact-settings-s
   body.white-shell.theme-light #sendMessageBtn {
     width: 60px;
     min-width: 60px;
-    height: 36px;
+    height: 44px;
+    min-height: 44px;
     align-self: center;
     border-radius: 8px;
     background: #5369f3;
@@ -2864,13 +2865,18 @@ body.white-shell.theme-light.theme-dark .overview-heatmap-cell:hover { outline-c
 /* ==========================================================================
    Phone composer toolbar
    extras.css is imported last, so these win over the equal-specificity rules
-   earlier in the cascade that this block deliberately overrides.
+   earlier in the cascade that this block deliberately overrides. The explicit
+   row height also lands after the <=480px container rail, whose 32px height
+   otherwise wins by source order and leaves the whole toolbar short.
    ========================================================================== */
 @media (max-width: 767px) {
   body.white-shell.theme-light .composer-toolbar {
-    --composer-phone-control-size: 36px;
-    --composer-phone-glyph-size: 20px;
-    --composer-phone-gauge-size: 20px;
+    --composer-phone-control-size: 44px;
+    --composer-phone-glyph-size: 18px;
+    --composer-phone-gauge-size: 24px;
+    min-height: 44px;
+    height: 44px;
+    flex: 0 0 44px;
     gap: 2px;
     align-items: center;
   }
@@ -2950,6 +2956,14 @@ body.white-shell.theme-light.theme-dark .overview-heatmap-cell:hover { outline-c
     stroke-linejoin: round;
   }
 
+  /* The shield is the permission affordance, not a generic toolbar glyph; its
+     smaller reference size needs a selector after the shared phone icon rule. */
+  body.white-shell.theme-light .composer-toolbar .composer-permission-field .composer-select-icon svg {
+    width: 14px;
+    height: 14px;
+    stroke-width: 2;
+  }
+
   body.white-shell.theme-light .composer-effort-field .composer-select-value {
     position: static;
     width: var(--composer-phone-glyph-size);
@@ -2965,10 +2979,12 @@ body.white-shell.theme-light.theme-dark .overview-heatmap-cell:hover { outline-c
   }
 
   body.white-shell.theme-light .composer-effort-field .composer-select-value::before { content: none; }
+  /* Keep the visible initial at the same 12px/600 reference metrics as the
+     model label; the earlier workbench ::before rule is hidden on phones. */
   body.white-shell.theme-light .composer-effort-field .composer-select-value::after {
     content: attr(data-mobile-label);
-    font-size: 14px;
-    font-weight: 750;
+    font-size: 12px;
+    font-weight: 600;
     line-height: 1;
   }
 
@@ -2984,8 +3000,8 @@ body.white-shell.theme-light.theme-dark .overview-heatmap-cell:hover { outline-c
   }
 
   body.white-shell.theme-light .composer-toolbar > .context-usage-btn .context-usage-ring > span {
-    width: 15px;
-    height: 15px;
+    width: 19px;
+    height: 19px;
   }
 
   /* Earlier mobile rules use several unrelated hover surfaces. One restrained

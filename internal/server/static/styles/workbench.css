@@ -4635,18 +4635,19 @@ body.white-shell.theme-light .toolbar-lightning-btn[aria-busy="true"] {
     color: #596273;
   }
 
-  /* Row height follows the 36px controls; an id selector here outranks the
-     class rules in extras.css, so this is the value that actually applies. */
+  /* The input rail shares the phone toolbar's 44px touch target. The id
+     selector outranks the class rules in extras.css, so this is the value that
+     must agree with the later sheet rather than quietly shrinking the rail. */
   body.white-shell.theme-light #composerInputShell {
-    min-height: 36px;
+    min-height: 44px;
     align-items: center;
     gap: 6px;
   }
 
   body.white-shell.theme-light [class~="composer-attach-wrap"] {
-    flex: 0 0 36px;
-    width: 36px;
-    height: 36px;
+    flex: 0 0 44px;
+    width: 44px;
+    height: 44px;
   }
 
   /* The attach button is a bare icon: message-input-frame is the only surface
@@ -4655,10 +4656,10 @@ body.white-shell.theme-light .toolbar-lightning-btn[aria-busy="true"] {
      same media query set them. */
   body.white-shell.theme-light #attachFileBtn {
     left: 0;
-    width: 36px;
-    min-width: 36px;
-    height: 36px;
-    min-height: 36px;
+    width: 44px;
+    min-width: 44px;
+    height: 44px;
+    min-height: 44px;
     border: 0;
     border-radius: 12px;
     background: transparent;
@@ -4667,7 +4668,7 @@ body.white-shell.theme-light .toolbar-lightning-btn[aria-busy="true"] {
   }
 
   body.white-shell.theme-light [class~="message-input-frame"] {
-    min-height: 36px;
+    min-height: 44px;
     align-items: center;
   }
 
@@ -4696,8 +4697,8 @@ body.white-shell.theme-light .toolbar-lightning-btn[aria-busy="true"] {
   body.white-shell.theme-light #sendMessageBtn {
     width: 44px;
     min-width: 44px;
-    height: 36px;
-    min-height: 36px;
+    height: 44px;
+    min-height: 44px;
     flex: 0 0 44px;
     border-radius: 12px;
     padding: 0;
