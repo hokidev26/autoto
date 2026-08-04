@@ -4388,11 +4388,12 @@ body.white-shell.theme-light .toolbar-lightning-btn[aria-busy="true"] {
   /* A phone keeps the four controls that change what the next message does:
      context headroom, model, reasoning effort, permission mode. The running-task
      summary and the connection status are readouts rather than controls and are
-     reachable elsewhere, and the directory switcher is a rare action -- carrying
-     all of them here is what left six unlabelled glyphs competing for one short
-     row. Attachments are not part of this row; they stay beside the input. */
-  body.white-shell.theme-light [class~="composer-task-summary"],
-  body.white-shell.theme-light [class~="composer-actions"] {
+     reachable elsewhere -- carrying all of them here is what left six unlabelled
+     glyphs competing for one short row. Attachments are not part of this row;
+     they stay beside the input.
+     The directory switcher is handled further down, next to the rule that used to
+     re-show it. */
+  body.white-shell.theme-light [class~="composer-task-summary"] {
     display: none;
   }
 
@@ -4610,11 +4611,16 @@ body.white-shell.theme-light .toolbar-lightning-btn[aria-busy="true"] {
     display: none !important;
   }
 
+  /* The directory switcher is the only thing in here, and it is a rare action
+     rather than something that changes what the next message does, so a phone
+     leaves it out of the composer row.
+     This has to sit at this point in the file: an earlier rule in the same media
+     block already tried to hide it, and this one re-showed it at equal
+     specificity, so the later declaration won and the button stayed on screen.
+     It looked hidden while testing only because the element also carries
+     aria-hidden until a project is open. */
   body.white-shell.theme-light [class~="composer-actions"] {
-    display: flex;
-    flex: 0 0 auto;
-    align-items: center;
-    gap: 2px;
+    display: none;
   }
 
   body.white-shell.theme-light [class~="composer-toolbar-icon"] {
