@@ -129,6 +129,26 @@ function mutationAwareMessagesElement({ liveStack = false, scrollHeight = 2000, 
       resetScrollAfterMutation();
     },
   };
+  // The streamed answer is the tallest thing in a finishing turn, so removing it
+  // is the largest single shrink the transcript ever takes. Returning null for
+  // its selector made every "was the card torn out early?" assertion pass
+  // without the removal being modelled at all.
+  let liveAssistantPresent = false;
+  const liveAssistantNode = {
+    // The in-place update path reads these to decide whether the card on screen
+    // belongs to the current run. Left undefined it throws instead of falling
+    // back, which hides whatever the test was actually checking.
+    dataset: {},
+    querySelector: () => null,
+    remove() {
+      liveAssistantPresent = false;
+      resetScrollAfterMutation();
+    },
+    set outerHTML(_value) {
+      liveAssistantPresent = true;
+      resetScrollAfterMutation();
+    },
+  };
   const element = {
     classList: {
       add: (...names) => names.forEach((name) => classes.add(name)),
@@ -144,6 +164,7 @@ function mutationAwareMessagesElement({ liveStack = false, scrollHeight = 2000, 
       if (selector === "[data-live-tool-output-stack]") return liveStackPresent ? liveStackNode : null;
       if (selector === "[data-run-summary-card], [data-run-outcome-card]") return null;
       if (selector === "[data-live-assistant], [data-approval-stack]") return null;
+      if (selector === "[data-live-assistant]") return liveAssistantPresent ? liveAssistantNode : null;
       const message = /^\[data-message-id=\"([^\"]+)\"\]$/.exec(selector);
       if (message) {
         return {
@@ -158,6 +179,17 @@ function mutationAwareMessagesElement({ liveStack = false, scrollHeight = 2000, 
     },
     querySelectorAll: () => [],
     insertAdjacentHTML(_position, html) {
+      // The card is inserted through the container, not by assigning outerHTML
+      // on a node that does not exist yet, so this is where it starts existing.
+      if (String(html || "").includes("data-live-assistant")) {
+        liveAssistantPresent = true;
+        // The real card carries the run and request it belongs to, and the
+        // in-place update path matches on them. Without that the match always
+        // fails and every update degrades to a destructive full swap, which
+        // makes the harness report scroll loss the real DOM would not have.
+        liveAssistantNode.dataset.runId = /data-run-id="([^"]*)"/.exec(html)?.[1] ?? "";
+        liveAssistantNode.dataset.requestId = /data-request-id="([^"]*)"/.exec(html)?.[1] ?? "";
+      }
       markup += String(html || "");
       resetScrollAfterMutation();
     },
@@ -1048,6 +1080,47 @@ test("run summary handoff keeps a reader at the tail", async () => {
     harness.messagesElement.dispatchScroll();
     await harness.controller.loadRunSummary("run-1");
     assert.equal(harness.messagesElement.scrollTop, harness.messagesElement.scrollHeight, "tail-following must remain at the newest content");
+  } finally {
+    harness.restore();
+  }
+});
+
+// A turn ends by clearing the live text with preserveView, deliberately leaving
+// the streamed card on screen until the persisted message replaces it ~80ms
+// later. A trailing text delta inside that window finds liveAssistantActive
+// already false, so it restarts a generation whose text is empty -- and the
+// empty-text branch tears the streamed card out of the DOM. The transcript
+// collapses by that card's height and the reader is dropped up the page, which
+// is the "jumped back to the first message the moment it finished" report.
+test("a trailing text delta after completion does not tear out the streamed card", () => {
+  const harness = createMutationAwareRenderingHarness();
+  try {
+    harness.controller.applyMessageSnapshot([
+      { id: "u1", role: "user", contentText: "go" },
+      { id: "a1", role: "assistant", contentText: "an earlier answer" },
+    ], "agent-1");
+
+    harness.controller.beginLiveAssistantGeneration({ requestId: "req-1", runId: "run-1" });
+    harness.controller.appendLiveAssistantText("a long streamed answer", { requestId: "req-1", runId: "run-1" });
+    assert.match(harness.messagesElement.innerHTML, /data-live-assistant/, "the streamed card should be on screen");
+
+    // Reader is parked in history while the turn finishes.
+    harness.messagesElement.scrollTop = 700;
+    harness.messagesElement.dispatchScroll();
+
+    // message.created: state cleared, repaint deliberately deferred.
+    harness.controller.clearLiveAssistantText({ preserveView: true });
+    assert.match(harness.messagesElement.innerHTML, /data-live-assistant/, "preserveView must leave the card until the refresh");
+    assert.equal(harness.messagesElement.scrollTop, 700, "clearing state alone must not move the reader");
+
+    // A late delta from the finished run lands before the 80ms refresh.
+    harness.controller.appendLiveAssistantText("", { requestId: "req-1", runId: "run-1" });
+
+    assert.equal(
+      harness.messagesElement.scrollTop,
+      700,
+      "a trailing delta must not drop the reader by removing the card early",
+    );
   } finally {
     harness.restore();
   }

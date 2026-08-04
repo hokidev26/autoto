@@ -2318,6 +2318,16 @@ export function createChatRenderingController({
   function appendLiveAssistantText(text, detail = {}) {
     const delta = String(text || "");
     if (typeof detail === "string") detail = { runId: detail };
+    // An empty delta cannot start an answer. Treating one as the first chunk of
+    // a new generation resets the live text to "" and repaints, and the repaint's
+    // empty-text branch removes the streamed card that a finishing turn is still
+    // deliberately showing -- the transcript loses that card's height and the
+    // reader is dropped up the page at the exact moment the reply lands.
+    //
+    // A trailing empty delta after completion is the common way in: the turn end
+    // sets liveAssistantActive to false, so the next event looks like the start
+    // of something new.
+    if (!delta && !state.liveAssistantActive) return false;
     if (!state.liveAssistantActive) {
       beginLiveAssistantGeneration(detail);
     } else if (!liveAssistantEventMatches(detail)) {
