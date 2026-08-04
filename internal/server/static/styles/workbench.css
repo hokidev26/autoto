@@ -4366,19 +4366,33 @@ body.white-shell.theme-light .toolbar-lightning-btn[aria-busy="true"] {
     box-shadow: none;
   }
 
+  /* 44px is the minimum comfortable touch target. It costs only height, which
+     this row has to spare -- the controls are already 54-96px wide, so raising
+     it takes nothing from the horizontal budget. */
   body.white-shell.theme-light [class~="composer-toolbar"] {
     width: 100%;
-    min-height: 34px;
-    height: 34px;
+    min-height: 44px;
+    height: 44px;
     display: flex;
     align-items: center;
     justify-content: flex-end;
-    gap: 4px;
+    gap: 6px;
     overflow: hidden;
     padding: 0;
   }
 
   body.white-shell.theme-light [class~="composer-status"] {
+    display: none;
+  }
+
+  /* A phone keeps the four controls that change what the next message does:
+     context headroom, model, reasoning effort, permission mode. The running-task
+     summary and the connection status are readouts rather than controls and are
+     reachable elsewhere, and the directory switcher is a rare action -- carrying
+     all of them here is what left six unlabelled glyphs competing for one short
+     row. Attachments are not part of this row; they stay beside the input. */
+  body.white-shell.theme-light [class~="composer-task-summary"],
+  body.white-shell.theme-light [class~="composer-actions"] {
     display: none;
   }
 
@@ -4444,13 +4458,23 @@ body.white-shell.theme-light .toolbar-lightning-btn[aria-busy="true"] {
     width: 100%;
     min-width: 0;
     max-width: none;
-    min-height: 32px;
-    height: 32px;
+    min-height: 44px;
+    height: 44px;
     border: 1px solid #e1e4ea;
-    border-radius: 10px;
+    /* Concentric with the 44px box: a 10px radius on a taller control reads as
+       squarer than the 32px one it replaces. */
+    border-radius: 13px;
     background: var(--ws-input, #f6f7f9);
     color: #394150;
     padding: 0;
+  }
+
+  /* The context ring is the fourth control in this row, so it takes the same
+     touch target as the three pills beside it rather than staying 30px. */
+  body.white-shell.theme-light [class~="context-usage-btn"] {
+    min-height: 44px;
+    height: 44px;
+    padding: 0 6px;
   }
 
   body.white-shell.theme-light [class~="composer-select-trigger"] {
@@ -4481,10 +4505,14 @@ body.white-shell.theme-light .toolbar-lightning-btn[aria-busy="true"] {
     line-height: 0;
   }
 
+  /* 12px at 600 rather than 10px at 760. A short label is the right call here --
+     the reference build abbreviates the same way -- but pushing weight that far
+     to compensate for the small size is what made these read as cramped stamps
+     instead of labels. Size carries the legibility; weight only differentiates. */
   body.white-shell.theme-light [class~="composer-model-field"] [class~="composer-select-value"]::after {
     content: attr(data-mobile-label);
-    font-size: 10px;
-    font-weight: 760;
+    font-size: 12px;
+    font-weight: 600;
     line-height: 1;
   }
 
@@ -4503,9 +4531,8 @@ body.white-shell.theme-light .toolbar-lightning-btn[aria-busy="true"] {
   body.white-shell.theme-light [class~="composer-effort-field"] [class~="composer-select-value"]::before,
   body.white-shell.theme-light [class~="composer-permission-field"] [class~="composer-select-value"]::before {
     content: attr(data-mobile-label);
-    font-size: 10px;
-    font-weight: 780;
-    letter-spacing: .015em;
+    font-size: 12px;
+    font-weight: 600;
     line-height: 1;
   }
 
