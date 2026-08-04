@@ -572,6 +572,10 @@ export function createChatComposerController({
     return { auto: 0, low: 1, medium: 2, high: 3, xhigh: 3, max: 3, ultra: 3 }[value] ?? 0;
   }
 
+  // On a phone the level is the label: there is no room for words, so these have
+  // to be distinguishable from each other on their own. "max" used to share "M"
+  // with "medium", which made the strongest and the middle setting look alike --
+  // the one pair where confusing them costs the most.
   function reasoningEffortMobileLabel(value) {
     return {
       auto: "A",
@@ -579,8 +583,8 @@ export function createChatComposerController({
       medium: "M",
       high: "H",
       xhigh: "X",
-      max: "M",
-      ultra: "U",
+      max: "MX",
+      ultra: "UX",
     }[value] || "A";
   }
 

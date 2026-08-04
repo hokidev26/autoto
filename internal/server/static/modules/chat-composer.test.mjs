@@ -377,6 +377,61 @@ test("reasoning effort control persists the selected Agent override", async () =
   }
 });
 
+// On a phone the letter is the whole control -- no words fit beside it -- so two
+// levels sharing a letter makes them indistinguishable. "max" used to answer "M"
+// like "medium", which is the worst pair to confuse: the strongest setting and
+// the middle one.
+test("every reasoning effort level has a distinct phone label", async () => {
+  const elements = {};
+  const pill = { classList: { toggle() {} } };
+  elements.reasoningEffort = {
+    value: "auto",
+    innerHTML: "",
+    disabled: false,
+    dataset: {},
+    setAttribute(name, value) { this[name] = value; },
+    closest() { return pill; },
+  };
+  elements.reasoningEffortDisplay = { textContent: "", dataset: {} };
+  elements.modelSelect = { value: "codex:gpt-5.6-sol" };
+  const previousDocument = globalThis.document;
+  globalThis.document = { getElementById(id) { return elements[id] || null; } };
+  const state = { agent: { id: "agent-1", model: "codex:gpt-5.6-sol" }, reasoningEffortSaving: false };
+  try {
+    const controller = createChatComposerController({
+      state,
+      // The extra levels are per-model Codex capabilities, so the provider has to
+      // advertise them or every request normalises back to auto.
+      currentProviderConfig: () => ({
+        capabilities: { reasoningEffort: true },
+        modelCapabilities: {
+          "gpt-5.6-sol": { reasoningEffortValues: ["auto", "low", "medium", "high", "xhigh", "max", "ultra"] },
+        },
+      }),
+      request: async () => ({}),
+    });
+
+    const levels = ["auto", "low", "medium", "high", "xhigh", "max", "ultra"];
+    const labels = new Map();
+    for (const level of levels) {
+      controller.refreshReasoningEffortControl({ requestedValue: level });
+      labels.set(level, elements.reasoningEffortDisplay.dataset.mobileLabel);
+    }
+
+    // The mapping the row actually shows.
+    assert.equal(labels.get("low"), "L");
+    assert.equal(labels.get("medium"), "M");
+    assert.equal(labels.get("high"), "H");
+    assert.equal(labels.get("xhigh"), "X");
+    assert.equal(labels.get("max"), "MX");
+
+    const seen = [...labels.values()];
+    assert.equal(new Set(seen).size, seen.length, `phone labels must be unique per level, got ${seen.join(", ")}`);
+  } finally {
+    globalThis.document = previousDocument;
+  }
+});
+
 test("Fast mode button follows model support and persists the Agent override", async () => {
   const classes = new Set(["hidden"]);
   const attributes = new Map();

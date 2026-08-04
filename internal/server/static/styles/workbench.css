@@ -4477,12 +4477,17 @@ body.white-shell.theme-light .toolbar-lightning-btn[aria-busy="true"] {
     padding: 0 6px;
   }
 
+  /* The trigger is what a finger actually hits; the pill around it is only a
+     frame. Growing the pill to 44px while leaving this at 30px moved the border
+     without moving the target, so it has to fill its host. */
   body.white-shell.theme-light [class~="composer-select-trigger"] {
     justify-content: flex-start;
     gap: 4px;
     padding: 0 6px;
     overflow: hidden;
     font-size: 11px;
+    height: 100%;
+    min-height: 44px;
   }
 
   body.white-shell.theme-light [class~="composer-select-icon"] {
@@ -4520,6 +4525,13 @@ body.white-shell.theme-light .toolbar-lightning-btn[aria-busy="true"] {
   body.white-shell.theme-light [class~="composer-permission-field"] [class~="composer-select-trigger"] {
     justify-content: center;
     padding: 0 4px;
+  }
+
+  /* The letter already names the level, so the three-bar meter beside it is the
+     same fact twice in a control this narrow. Dropping it gives the label the
+     whole pill and removes an icon that never read as a level at 14px. */
+  body.white-shell.theme-light [class~="composer-effort-field"] [class~="reasoning-effort-icon"] {
+    display: none;
   }
 
   body.white-shell.theme-light [class~="composer-effort-field"] [class~="composer-select-value"],
