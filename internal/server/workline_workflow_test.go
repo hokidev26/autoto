@@ -69,6 +69,72 @@ func TestForkWorklineCreatesGitWorktreeAgentAndAllowsGitStatus(t *testing.T) {
 	}
 }
 
+// A fork continues the conversation it branched from, so it has to run on that
+// conversation's model. Falling through to the global default silently moved the
+// fork onto a different model, and when that default advertises no
+// reasoning-effort levels the composer reports the level as unsupported on a
+// fork of a conversation where it worked. The project model and the config
+// default differ here on purpose: with both set to the same value the assertion
+// cannot tell inheritance from the fallback.
+func TestForkWorklineInheritsParentConversationModel(t *testing.T) {
+	ctx := context.Background()
+	repo := t.TempDir()
+	initCommittedGitRepoAt(t, repo, "README.md", "initial\n")
+
+	store, err := db.Open(ctx, filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	_, root, parentAgent, err := store.CreateProject(ctx, "Demo", "", repo, "codex:gpt-5.6-sol", "acceptEdits")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if parentAgent.Model != "codex:gpt-5.6-sol" {
+		t.Fatalf("fixture precondition: parent agent should hold the project model, got %q", parentAgent.Model)
+	}
+	app := New(config.Config{Agent: config.AgentConfig{DefaultModel: "openai:unrelated-default", DefaultPermissionMode: "acceptEdits"}}, store, nil, nil)
+
+	fork := forkWorklineForTest(t, app, root.ID, "feature/inherit-model")
+	if fork.Agent.Model != "codex:gpt-5.6-sol" {
+		t.Fatalf("fork should inherit the parent conversation model, got %q", fork.Agent.Model)
+	}
+}
+
+// An explicit model in the request still wins, so callers that deliberately
+// fork onto a different model are unaffected by the inheritance above.
+func TestForkWorklineRequestModelOverridesInheritance(t *testing.T) {
+	ctx := context.Background()
+	repo := t.TempDir()
+	initCommittedGitRepoAt(t, repo, "README.md", "initial\n")
+
+	store, err := db.Open(ctx, filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	_, root, _, err := store.CreateProject(ctx, "Demo", "", repo, "codex:gpt-5.6-sol", "acceptEdits")
+	if err != nil {
+		t.Fatal(err)
+	}
+	app := New(config.Config{Agent: config.AgentConfig{DefaultModel: "openai:unrelated-default", DefaultPermissionMode: "acceptEdits"}}, store, nil, nil)
+
+	recorder := httptest.NewRecorder()
+	request := newTestRequest(http.MethodPost, "/api/worklines/"+root.ID+"/fork", strings.NewReader(`{"title":"Explicit","branch":"feature/explicit-model","model":"openai:chosen"}`))
+	request.Header.Set("Content-Type", "application/json")
+	app.Routes().ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", recorder.Code, recorder.Body.String())
+	}
+	var response forkWorklineResponse
+	if err := json.NewDecoder(recorder.Body).Decode(&response); err != nil {
+		t.Fatal(err)
+	}
+	if response.Agent.Model != "openai:chosen" {
+		t.Fatalf("explicit request model should win, got %q", response.Agent.Model)
+	}
+}
+
 func TestForkWorklineAutoDetectsSingleVisibleRepository(t *testing.T) {
 	ctx := context.Background()
 	rootDir := t.TempDir()

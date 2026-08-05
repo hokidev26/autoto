@@ -162,6 +162,14 @@ func (s *Server) forkWorkline(w http.ResponseWriter, r *http.Request) {
 	cfg := s.configSnapshot()
 	model := strings.TrimSpace(req.Model)
 	if model == "" {
+		// A fork continues the conversation it branched from, so it inherits that
+		// conversation's model. Falling straight through to the global default
+		// silently moved the fork onto a different model than the parent, and if
+		// that default has no reasoning-effort support the composer reports the
+		// level as unsupported on a fork of a conversation where it worked.
+		model = s.parentWorklineModel(r.Context(), parent.ID)
+	}
+	if model == "" {
 		model = cfg.Agent.DefaultModel
 	}
 	permissionMode := strings.TrimSpace(req.PermissionMode)
@@ -191,6 +199,38 @@ func (s *Server) forkWorkline(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	writeJSON(w, http.StatusCreated, forkWorklineResponse{Workline: workline, Agent: agent, ForkPoint: forkPoint})
+}
+
+// parentWorklineModel reports the model the forked conversation was running, so
+// a fork can continue on it. Returns "" when the parent has no agent or none of
+// them recorded a model, leaving the caller to fall back to the global default.
+// A lookup failure is deliberately not fatal: a fork that lands on the default
+// model is a worse outcome than the parent's, but refusing to fork at all is
+// worse still.
+func (s *Server) parentWorklineModel(ctx context.Context, worklineID string) string {
+	if strings.TrimSpace(worklineID) == "" {
+		return ""
+	}
+	agents, err := s.store.ListAgentsByWorkline(ctx, worklineID)
+	if err != nil {
+		return ""
+	}
+	// Prefer the primary agent: subagents can be assigned their own models, and
+	// inheriting one of those would put the fork on a model the reader never
+	// chose for this conversation.
+	for _, agent := range agents {
+		if strings.EqualFold(strings.TrimSpace(agent.Type), "primary") {
+			if model := strings.TrimSpace(agent.Model); model != "" {
+				return model
+			}
+		}
+	}
+	for _, agent := range agents {
+		if model := strings.TrimSpace(agent.Model); model != "" {
+			return model
+		}
+	}
+	return ""
 }
 
 func (s *Server) worklineMergeCheck(w http.ResponseWriter, r *http.Request) {
