@@ -1690,6 +1690,7 @@ export default Object.freeze({
       completed: "完成", pendingApproval: "待核准", denied: "拒絕", error: "錯誤", waitingOutput: "等待命令輸出…", liveOutput: "即時輸出", running: "執行中", outputTruncated: "即時輸出過長，已截斷；最終結果仍會儲存為工具結果摘要。",
     },
     navigation: {
+      toggleConversations: "展開或收起該專案的對話", toggleForks: "展開或收起該對話的分支",
       messageCount: "{count} 條訊息", noResults: "沒有符合「{query}」的結果。", chooseFolder: "選擇資料夾開始", chooseFolderHint: "選擇資料夾後建立或開啟專案", noConversations: "暫無專案對話。", noProjects: "暫無可用專案。", noRecentConversations: "暫無最近對話",
     },
     directory: {

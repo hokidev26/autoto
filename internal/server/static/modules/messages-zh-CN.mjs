@@ -1697,6 +1697,7 @@ export default Object.freeze({
       completed: "完成", pendingApproval: "待审批", denied: "拒绝", error: "错误", waitingOutput: "等待命令输出…", liveOutput: "实时输出", running: "运行中", outputTruncated: "实时输出过长，已截断；最终结果仍会保存为工具结果摘要。",
     },
     navigation: {
+      toggleConversations: "展开或收起该项目的对话", toggleForks: "展开或收起该对话的分支",
       messageCount: "{count} 条消息", noResults: "没有匹配“{query}”的结果。", chooseFolder: "选择资料夹开始", chooseFolderHint: "选择目录后创建或打开项目", noConversations: "暂无项目对话。", noProjects: "暂无可用项目。", noRecentConversations: "暂无最近会话",
     },
     directory: {

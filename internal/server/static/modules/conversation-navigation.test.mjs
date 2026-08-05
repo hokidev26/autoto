@@ -557,3 +557,77 @@ test("legacy projectless records cannot create a navigation order scope", () => 
     assert.doesNotMatch(html, /__legacy__/);
   }
 });
+
+// Forks had no coverage at all, which is how they came to render in only one of
+// the three sidebar widths without a test noticing.
+const forkPayload = {
+  projects: [{ id: "p1", name: "Alpha", gitPath: "/work/alpha" }],
+  conversations: [
+    {
+      projectId: "p1", projectPath: "/work/alpha",
+      worklineId: "w-root", worklineRole: "root", agentId: "a-root", agentTitle: "Mainline", messageCount: 3,
+    },
+    {
+      projectId: "p1", projectPath: "/work/alpha",
+      worklineId: "w-fork", worklineParentId: "w-root", worklineBranch: "feat/x", worklineTitle: "Fork of main",
+      agentId: "a-fork", agentTitle: "Branch work", messageCount: 1,
+    },
+  ],
+};
+
+test("a forked conversation renders nested under the conversation it branched from", () => {
+  const html = renderNavigationHTML(buildNavigationView(forkPayload, { mode: "all" }), { activeProjectId: "p1" });
+  assert.match(html, /navigation-workline-forks/);
+  assert.match(html, /fork-conversation/);
+  const parent = html.indexOf('data-navigation-id="a-root"');
+  const forkGroup = html.indexOf("navigation-workline-forks");
+  const fork = html.indexOf('data-navigation-id="a-fork"');
+  assert.ok(parent >= 0 && parent < forkGroup && forkGroup < fork, "the fork sits in a group after its parent row");
+});
+
+test("disclosure triangles appear only where there is something to disclose", () => {
+  const html = renderNavigationHTML(buildNavigationView(forkPayload, { mode: "all" }), { activeProjectId: "p1" });
+  // The project has conversations and the mainline has a fork, so both get one.
+  assert.match(html, /data-navigation-disclosure="project:p1"/);
+  assert.match(html, /data-navigation-disclosure="conversation:a-root"/);
+  // The fork itself has no children, so it must not carry a control over nothing.
+  assert.doesNotMatch(html, /data-navigation-disclosure="conversation:a-fork"/);
+
+  // A project with no conversations has nothing to disclose either.
+  const bare = renderNavigationHTML(
+    buildNavigationView({ projects: forkPayload.projects, conversations: [] }, { mode: "all" }),
+    { activeProjectId: "p1" },
+  );
+  assert.doesNotMatch(bare, /data-navigation-disclosure/);
+});
+
+test("collapsed nodes hide their children and report it to assistive tech", () => {
+  const open = renderNavigationHTML(buildNavigationView(forkPayload, { mode: "all" }), { activeProjectId: "p1" });
+  assert.match(open, /data-navigation-disclosure="project:p1"[^>]*aria-expanded="true"/);
+  assert.doesNotMatch(open, /data-project-conversations="p1" hidden/);
+
+  const collapsedProject = renderNavigationHTML(buildNavigationView(forkPayload, { mode: "all" }), {
+    activeProjectId: "p1",
+    collapsedNodes: new Set(["project:p1"]),
+  });
+  assert.match(collapsedProject, /data-navigation-disclosure="project:p1"[^>]*aria-expanded="false"/);
+  assert.match(collapsedProject, /data-project-conversations="p1" hidden/);
+
+  // Collapsing the conversation hides its forks without touching the project.
+  const collapsedForks = renderNavigationHTML(buildNavigationView(forkPayload, { mode: "all" }), {
+    activeProjectId: "p1",
+    collapsedNodes: ["conversation:a-root"],
+  });
+  assert.match(collapsedForks, /data-navigation-disclosure="conversation:a-root"[^>]*aria-expanded="false"/);
+  assert.match(collapsedForks, /navigation-workline-forks" hidden/);
+  assert.doesNotMatch(collapsedForks, /data-project-conversations="p1" hidden/);
+});
+
+test("the tree renders at every sidebar width, not only when collapsed", () => {
+  // mode is chosen by the shell, so the guard here is that "all" is the only
+  // mode that can show a fork and the shell must therefore use it everywhere.
+  const all = renderNavigationHTML(buildNavigationView(forkPayload, { mode: "all" }), { activeProjectId: "p1" });
+  assert.match(all, /data-navigation-id="a-fork"/);
+  const flat = renderNavigationHTML(buildNavigationView(forkPayload, { mode: "projects" }), { activeProjectId: "p1" });
+  assert.doesNotMatch(flat, /data-navigation-id="a-fork"/);
+});

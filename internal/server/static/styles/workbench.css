@@ -2597,6 +2597,15 @@ body.white-shell.theme-light .navigation-project-conversations {
   padding: 0 0 1px 12px;
 }
 
+/* The collapse markup carries the hidden attribute, which is only a UA-level
+   display: none and therefore loses to the explicit display above. These make it
+   authoritative for the two containers a disclosure triangle controls, so a
+   collapsed node actually collapses rather than just reporting that it has. */
+body.white-shell.theme-light .navigation-project-conversations[hidden],
+body.white-shell.theme-light .navigation-workline-forks[hidden] {
+  display: none;
+}
+
 body.white-shell.theme-light .navigation-project-conversations::before {
   content: "";
   position: absolute;
@@ -2661,6 +2670,60 @@ body.white-shell.theme-light .navigation-conversation-row {
   gap: 7px;
   border-radius: 8px;
   padding: 5px 8px;
+}
+
+/* A row carrying a disclosure needs a column for it. Keyed off :has rather than
+   a class threaded through the renderer, so the grid cannot drift out of step
+   with the markup: the column exists exactly when the control does.
+   .nested is listed too, and deliberately: that rule restates the three-column
+   template further down this file and is more specific, so without matching its
+   specificity the nested rows -- which are precisely the ones carrying fork
+   triangles -- kept a three-column grid and pushed their own content out of
+   place. */
+body.white-shell.theme-light .navigation-conversation-row:has(> .navigation-disclosure),
+body.white-shell.theme-light .navigation-conversation-row.nested:has(> .navigation-disclosure) {
+  grid-template-columns: 16px 14px minmax(0, 1fr) auto;
+  gap: 5px;
+}
+
+body.white-shell.theme-light .navigation-disclosure {
+  /* 16px of column, but the hit area reaches the full row height so the target
+     is 16x42 rather than a 16px square that has to be aimed at. */
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  align-self: stretch;
+  min-height: 32px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--ws-muted);
+  padding: 0;
+  cursor: pointer;
+}
+
+body.white-shell.theme-light .navigation-disclosure svg {
+  width: 12px;
+  height: 12px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  /* The glyph is a right-pointing chevron; expanded rotates it down. Rotating one
+     shape keeps collapsed and expanded visually related, which two separate
+     glyphs would not. */
+  transition: transform .15s ease;
+}
+
+body.white-shell.theme-light .navigation-disclosure.expanded svg {
+  transform: rotate(90deg);
+}
+
+body.white-shell.theme-light .navigation-disclosure:is(:hover, :focus-visible) {
+  background: var(--ws-input, #f2f3f5);
+  color: var(--ws-text, #20263a);
 }
 
 body.white-shell.theme-light .navigation-conversation-row .navigation-agent-icon {

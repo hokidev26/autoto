@@ -1699,6 +1699,7 @@ export default Object.freeze({
       completed: "Completed", pendingApproval: "Pending approval", denied: "Denied", error: "Error", waitingOutput: "Waiting for command output…", liveOutput: "Live output", running: "Running", outputTruncated: "Live output was truncated; the final result is still saved as a tool-result summary.",
     },
     navigation: {
+      toggleConversations: "Show or hide this project's conversations", toggleForks: "Show or hide this conversation's branches",
       messageCount: "{count} messages", noResults: "No results match “{query}”.", chooseFolder: "Choose a folder to start", chooseFolderHint: "Choose a folder to create or open a project", noConversations: "No project conversations.", noProjects: "No available projects.", noRecentConversations: "No recent conversations",
     },
     directory: {

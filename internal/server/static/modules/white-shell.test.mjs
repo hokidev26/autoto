@@ -620,7 +620,13 @@ test("project, task, and schedule modes expose separate creation boundaries", as
   assert.doesNotMatch(html, /id="specBoardBtn" class="[^"]*\bhidden\b/);
   assert.doesNotMatch(html, /id="navigationFilters"|data-navigation-mode="conversations"/);
   assert.match(html, /recent-directories-sidebar conversation-mode-only/);
-  assert.match(appMain, /const effectiveNavigationMode = taskContext \? "projects" : \(compactSessionSidebar \? "all" : "projects"\)/);
+  // The boundary this test guards is the task sidebar staying flat: there the
+  // project is the unit of work, not the conversations under it. The
+  // conversation sidebar shows the tree at every width -- it used to depend on
+  // the compact/expanded split, which meant collapsing the sidebar revealed more
+  // structure than widening it, and forks had nowhere to render at normal width.
+  assert.match(appMain, /const effectiveNavigationMode = taskContext \? "projects" : "all"/);
+  assert.doesNotMatch(appMain, /compactSessionSidebar \? "all"/);
   assert.match(appMain, /state\.navigationMode = "projects"/);
   assert.match(appMain, /if \(scheduleContext\)[\s\S]*?scheduleWorkspace\.renderNavigation/);
   assert.match(appMain, /renderNavigationHTML\(view, \{[\s\S]*?taskContext,/);

@@ -97,6 +97,34 @@ import { normalizeWorkStateSnapshot, renderWorkStateHTML } from "./work-state.mj
 const CONV_ORDER_KEY_PREFIX = "autoto:conv_order:";
 const SETTINGS_NAV_ORDER_PREFIX = "autoto:settings_nav_order:";
 const PROJ_ORDER_KEY = "autoto:project_order";
+const NAV_COLLAPSED_KEY = "autoto:nav_collapsed";
+
+// Only collapsed nodes are stored, so a project or conversation the reader has
+// never touched starts open and newly arriving ones are not hidden by a stale
+// record. Entries are "scope:id".
+function getCollapsedNavNodes() {
+  try {
+    const raw = localStorage.getItem(NAV_COLLAPSED_KEY);
+    const parsed = raw ? JSON.parse(raw) : null;
+    if (Array.isArray(parsed)) return new Set(parsed.map((entry) => String(entry || "")).filter(Boolean));
+  } catch {}
+  return new Set();
+}
+
+function saveCollapsedNavNodes(nodes) {
+  try {
+    localStorage.setItem(NAV_COLLAPSED_KEY, JSON.stringify([...nodes]));
+  } catch {}
+}
+
+function toggleCollapsedNavNode(key) {
+  const id = String(key || "").trim();
+  if (!id) return;
+  const nodes = getCollapsedNavNodes();
+  if (nodes.has(id)) nodes.delete(id);
+  else nodes.add(id);
+  saveCollapsedNavNodes(nodes);
+}
 
 function getProjectOrder() {
   try {
@@ -3031,8 +3059,12 @@ function renderProjects() {
   if (!el) return;
   const scheduleContext = state.activeWorkbench === "schedules";
   const taskContext = state.activeWorkbench === "workbench";
-  const compactSessionSidebar = state.sessionSidebarLayout === "compact";
-  const effectiveNavigationMode = taskContext ? "projects" : (compactSessionSidebar ? "all" : "projects");
+  // Every sidebar width shows the tree. The compact/expanded split used to
+  // decide this, which meant collapsing the sidebar revealed more structure than
+  // widening it: forks render only in "all", so at normal width a forked
+  // conversation had nowhere to appear at all. The task sidebar stays flat --
+  // there the project is the unit of work, not the conversation under it.
+  const effectiveNavigationMode = taskContext ? "projects" : "all";
   state.navigationMode = "projects";
   renderPrimaryModeSidebar();
   if (scheduleContext) {
@@ -3054,6 +3086,7 @@ function renderProjects() {
     taskContext,
     taskCounts,
     conversationOrders: getConversationOrders(),
+    collapsedNodes: getCollapsedNavNodes(),
     projectOrder: getProjectOrder(),
   });
   bindConversationDrag(el);
@@ -3069,6 +3102,16 @@ function renderProjects() {
     bindNavigationActivation(node, () => selectNavigationConversation(node.dataset.navigationTarget).catch(showError));
   });
   bindNavigationMenuTriggers();
+  el.querySelectorAll("[data-navigation-disclosure]").forEach((node) => {
+    node.addEventListener("click", (event) => {
+      // The row behind the triangle is itself a button, so without this the
+      // toggle would also navigate to whatever it sits on.
+      event.preventDefault();
+      event.stopPropagation();
+      toggleCollapsedNavNode(node.dataset.navigationDisclosure);
+      renderProjects();
+    });
+  });
   el.querySelectorAll("[data-project-fork-trigger]").forEach((node) => {
     node.addEventListener("click", (event) => {
       // The row itself is a button; without this the fork would also switch

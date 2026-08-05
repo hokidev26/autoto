@@ -546,6 +546,15 @@ function navigationForkTrigger(projectId) {
   return `<button class="navigation-row-fork" type="button" data-project-fork-trigger data-project-id-fork="${escapeNavigationHtml(projectId)}" aria-label="${escapeNavigationHtml(label)}" title="${escapeNavigationHtml(label)}">+</button>`;
 }
 
+// A disclosure triangle for a branch of the tree. Rendered as a real button
+// rather than a <details> so the open state can be persisted per node: a details
+// element resets on every re-render, and the sidebar re-renders on any
+// navigation change, which would spring every group open again.
+export function navigationDisclosure(scope, id, expanded, label) {
+  const key = `${scope}:${id}`;
+  return `<button class="navigation-disclosure${expanded ? " expanded" : ""}" type="button" data-navigation-disclosure="${escapeNavigationHtml(key)}" aria-expanded="${expanded ? "true" : "false"}" aria-label="${escapeNavigationHtml(label)}" title="${escapeNavigationHtml(label)}"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m9 6 6 6-6 6"></path></svg></button>`;
+}
+
 // Which conversation gives a project row its name. The open one wins so the row
 // matches the header the reader is looking at; otherwise the list is already in
 // recency order, so the first entry is the most recent.
@@ -577,6 +586,7 @@ function renderProject(project, activeProjectId, options = {}) {
   const icon = `<svg viewBox="0 0 20 20"><path d="M5 4.5h10a2 2 0 0 1 2 2V12a2 2 0 0 1-2 2H9l-4 2.5V14a2 2 0 0 1-2-2V6.5a2 2 0 0 1 2-2Z"></path></svg>`;
   return `
     <div class="navigation-conversation-row navigation-project-row ${options.taskContext ? "task-context " : ""}${active ? "active " : ""}${statusClass ? `status-${statusClass} ` : ""}project-card ${stateClass}" role="button" tabindex="0" draggable="true"       title="${escapeNavigationHtml(headline)}" data-project-id="${escapeNavigationHtml(project.id)}" data-navigation-kind="project" data-navigation-id="${escapeNavigationHtml(project.id)}"${statusClass ? ` data-agent-status="${escapeNavigationHtml(statusClass)}"` : ""} data-navigation-context="${options.taskContext ? "tasks" : "project"}">
+      ${options.disclosure || ""}
       <span class="navigation-agent-icon theme-icon-slot" data-theme-icon-slot="sidebar-project" aria-hidden="true">${icon}</span>
       <span class="navigation-conversation-main">
         <span class="navigation-conversation-title navigation-project-title"><span class="project-name">${escapeNavigationHtml(headline)}</span>${stateMeta}</span>
@@ -611,6 +621,7 @@ function renderConversation(conversation, activeAgentId, nested = false, options
       : `<svg viewBox="0 0 20 20"><path d="M5 4.5h10a2 2 0 0 1 2 2V12a2 2 0 0 1-2 2H9l-4 2.5V14a2 2 0 0 1-2-2V6.5a2 2 0 0 1 2-2Z"></path></svg>`;
   return `
     <div class="navigation-conversation-row ${nested ? "nested " : ""}${nestedFork ? "fork-conversation " : ""}${taskContext ? "task-context " : ""}${active ? "active " : ""}status-${statusClass} ${stateClass}" role="button" tabindex="0" draggable="true" title="${escapeNavigationHtml(conversation.agentTitle)}" data-navigation-target="${escapeNavigationHtml(conversation.targetId)}" data-navigation-kind="conversation" data-navigation-id="${escapeNavigationHtml(conversation.agentId)}" data-agent-status="${escapeNavigationHtml(conversation.agentStatus || "idle")}" data-navigation-context="${taskContext ? "tasks" : "project"}"${orderScope ? ` data-conversation-order-scope="${escapeNavigationHtml(orderScope)}"` : ""}>
+      ${options.disclosure || ""}
       <span class="navigation-agent-icon theme-icon-slot" data-theme-icon-slot="${nestedFork ? "sidebar-fork" : "sidebar-conversation"}" aria-hidden="true">${icon}</span>
       <span class="navigation-conversation-main">
         <span class="navigation-conversation-title"><span class="navigation-title-text">${escapeNavigationHtml(conversation.agentTitle)}</span>${stateMeta}</span>
@@ -642,6 +653,11 @@ export function renderNavigationHTML(view = {}, options = {}) {
     : options.activeSelectionKind === "project" || options.activeSelectionKind === "conversation"
       ? options.activeSelectionKind
       : activeAgentId ? "conversation" : "project";
+  // Collapsed nodes are addressed as "scope:id". Absent means open, so a node
+  // the reader has never touched shows its children.
+  const collapsed = options.collapsedNodes instanceof Set
+    ? options.collapsedNodes
+    : new Set(Array.isArray(options.collapsedNodes) ? options.collapsedNodes.map(text).filter(Boolean) : []);
   let html = "";
   if (taskContext) {
     const taskConversations = new Map((view.groups || []).map((group) => [group.project.id, group.conversations]));
@@ -686,14 +702,22 @@ export function renderNavigationHTML(view = {}, options = {}) {
 
       const convsHTML = [
         ...rootConvs.map((conversation) => {
-          const rootHTML = renderConversation(conversation, activeAgentId, true, { activeSelectionKind, orderScope: group.project.id });
-          if (!hasForks) return rootHTML;
-          const forks = forksByWorklineId.get(conversation.worklineId) || [];
-          if (!forks.length) return rootHTML;
+          const forks = hasForks ? (forksByWorklineId.get(conversation.worklineId) || []) : [];
+          if (!forks.length) {
+            return renderConversation(conversation, activeAgentId, true, { activeSelectionKind, orderScope: group.project.id });
+          }
+          // Only a conversation that actually has forks gets a triangle; giving
+          // every row one would put a control next to nothing to disclose.
+          const forksOpen = !collapsed.has(`conversation:${conversation.agentId}`);
+          const rootHTML = renderConversation(conversation, activeAgentId, true, {
+            activeSelectionKind,
+            orderScope: group.project.id,
+            disclosure: navigationDisclosure("conversation", conversation.agentId, forksOpen, t("workspace.navigation.toggleForks")),
+          });
           const forksHTML = forks.map((fork) =>
             renderConversation(fork, activeAgentId, true, { activeSelectionKind, orderScope: group.project.id, nestedFork: true }),
           ).join("");
-          return `${rootHTML}<div class="navigation-workline-forks">${forksHTML}</div>`;
+          return `${rootHTML}<div class="navigation-workline-forks"${forksOpen ? "" : " hidden"}>${forksHTML}</div>`;
         }),
         ...orphanForks.map((fork) =>
           renderConversation(fork, activeAgentId, true, { activeSelectionKind, orderScope: group.project.id, nestedFork: true }),
@@ -701,6 +725,7 @@ export function renderNavigationHTML(view = {}, options = {}) {
       ].join("");
 
       const projectStatus = aggregateNavigationAgentStatus(group.conversations);
+      const groupOpen = !collapsed.has(`project:${group.project.id}`);
       return `
       <section class="navigation-project-group" draggable="true" data-navigation-project-group="${escapeNavigationHtml(group.project.id)}" data-conversation-count="${escapeNavigationHtml(String(group.conversations.length))}" data-navigation-context="project">
         ${renderProject(group.project, activeProjectId, {
@@ -710,8 +735,12 @@ export function renderNavigationHTML(view = {}, options = {}) {
           // otherwise the most recent one does. Falls back to the project name
           // inside renderProject when the group has no conversations yet.
           headline: navigationProjectHeadline(group.conversations, activeAgentId),
+          // A group with nothing under it has nothing to disclose.
+          disclosure: group.conversations.length
+            ? navigationDisclosure("project", group.project.id, groupOpen, t("workspace.navigation.toggleConversations"))
+            : "",
         })}
-        <div class="navigation-project-conversations" data-project-conversations="${escapeNavigationHtml(group.project.id)}">
+        <div class="navigation-project-conversations" data-project-conversations="${escapeNavigationHtml(group.project.id)}"${groupOpen ? "" : " hidden"}>
           ${convsHTML}
         </div>
       </section>`;
