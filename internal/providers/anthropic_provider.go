@@ -122,13 +122,16 @@ func (p *AnthropicProvider) gatewayAccountPolicy() GatewayAccountPolicy {
 }
 
 func (p *AnthropicProvider) Capabilities() Capabilities {
+	// ReasoningEfforts is the provider-wide upper bound. ModelCapabilities
+	// narrows it per model, because xhigh needs 4.7+ and the manual budget path
+	// serves neither xhigh nor max.
 	return Capabilities{
 		Tools:                 true,
 		Streaming:             true,
 		ImageInput:            true,
 		Reasoning:             true,
 		ReasoningEffort:       true,
-		ReasoningEfforts:      []string{"low", "medium", "high"},
+		ReasoningEfforts:      anthropicBaselineReasoningEfforts,
 		NativeReasoningBlocks: true,
 	}
 }
@@ -139,7 +142,11 @@ func (p *AnthropicProvider) ModelCapabilities(model string) ModelCapabilities {
 	if p == nil {
 		return ModelCapabilities{}
 	}
-	return configuredModelCapabilities(p.cfg, model)
+	capabilities := configuredModelCapabilities(p.cfg, model)
+	// Effort levels are per-model: only 4.7+ serves xhigh, and models still on
+	// the manual budget path serve none of the extended levels.
+	capabilities.ReasoningEfforts = p.anthropicModelReasoningEfforts(model)
+	return capabilities
 }
 
 func (p *AnthropicProvider) ListModels(ctx context.Context) ([]string, error) {
@@ -206,17 +213,23 @@ func (p *AnthropicProvider) Generate(ctx context.Context, req GenerateRequest) (
 	if p.configErr != nil {
 		return nil, p.configErr
 	}
-	effort, err := normalizeReasoningEffortForCapabilities(req.ReasoningEffort, p.Capabilities(), p.cfg.Name)
+	model := strings.TrimSpace(req.Model)
+	if model == "" {
+		model = p.cfg.Model
+	}
+	// Gate on the chosen model, not the provider baseline: xhigh needs 4.7+ and
+	// the manual budget path serves neither xhigh nor max.
+	effort, err := normalizeReasoningEffortForCapabilities(
+		req.ReasoningEffort,
+		CapabilitiesForModel(p.Capabilities(), p.ModelCapabilities(model)),
+		p.cfg.Name,
+	)
 	if err != nil {
 		return nil, err
 	}
 	candidates, err := p.accountCandidates(ctx, req)
 	if err != nil {
 		return nil, err
-	}
-	model := strings.TrimSpace(req.Model)
-	if model == "" {
-		model = p.cfg.Model
 	}
 	messages, system := anthropicMessages(req.Messages, req.SystemPrompt, model)
 	if len(messages) == 0 {
@@ -418,6 +431,14 @@ func anthropicThinkingBudget(maxTokens int64, effort string) (int64, error) {
 		budget = maxTokens / 2
 	case "high":
 		budget = maxTokens * 3 / 4
+	// xhigh and max normally reach the adaptive path instead, which forwards the
+	// effort verbatim. They land here only when catalog metadata reports a
+	// model as enabled-but-not-adaptive after the picker already offered them,
+	// so map them rather than failing the request.
+	case "xhigh":
+		budget = maxTokens * 7 / 8
+	case "max":
+		budget = maxTokens - 1024
 	default:
 		return 0, fmt.Errorf("invalid Anthropic thinking effort %q", effort)
 	}
@@ -447,20 +468,62 @@ func (p *AnthropicProvider) anthropicThinkingSupportForModel(model string) anthr
 }
 
 func fallbackAnthropicThinkingSupport(model string) anthropicThinkingSupport {
-	match := anthropicModelVersionPattern.FindStringSubmatch(strings.ToLower(strings.TrimSpace(model)))
-	if len(match) >= 2 {
-		major, _ := strconv.Atoi(match[1])
-		minor := 0
-		if len(match) > 2 {
-			minor, _ = strconv.Atoi(match[2])
-		}
-		if major >= 5 || (major == 4 && minor >= 6) {
-			return anthropicThinkingSupport{Adaptive: true, Enabled: true}
-		}
+	if anthropicModelAtLeast(model, 4, 6) {
+		return anthropicThinkingSupport{Adaptive: true, Enabled: true}
 	}
 	// Claude 4.5 and older default to manual enabled thinking. This conservative
 	// fallback also works for private aliases until Models API metadata arrives.
 	return anthropicThinkingSupport{Enabled: true}
+}
+
+// anthropicModelAtLeast reports whether a model name parses to a family version
+// at or above major.minor. Names that do not parse — private relay aliases, for
+// example — report false so callers keep their conservative default instead of
+// assuming a capability the model may not have.
+func anthropicModelAtLeast(model string, major, minor int) bool {
+	parsedMajor, parsedMinor, ok := anthropicModelVersion(model)
+	if !ok {
+		return false
+	}
+	return parsedMajor > major || (parsedMajor == major && parsedMinor >= minor)
+}
+
+func anthropicModelVersion(model string) (int, int, bool) {
+	match := anthropicModelVersionPattern.FindStringSubmatch(strings.ToLower(strings.TrimSpace(model)))
+	if len(match) < 2 {
+		return 0, 0, false
+	}
+	major, err := strconv.Atoi(match[1])
+	if err != nil {
+		return 0, 0, false
+	}
+	minor := 0
+	if len(match) > 2 && match[2] != "" {
+		minor, _ = strconv.Atoi(match[2])
+	}
+	return major, minor, true
+}
+
+// anthropicModelReasoningEfforts derives the effort levels one model accepts
+// from its resolved thinking support. Adaptive models forward the effort
+// verbatim to output_config, so they serve the full range; models on the manual
+// budget path only serve the levels anthropicThinkingBudget maps.
+func (p *AnthropicProvider) anthropicModelReasoningEfforts(model string) []string {
+	support := p.anthropicThinkingSupportForModel(model)
+	if support.Known && !support.Supported {
+		return nil
+	}
+	if support.Adaptive {
+		if anthropicModelAtLeast(model, 4, 7) {
+			return []string{"low", "medium", "high", "xhigh", "max"}
+		}
+		// 4.6 serves adaptive effort but not xhigh.
+		return []string{"low", "medium", "high", "max"}
+	}
+	if support.Enabled {
+		return []string{"low", "medium", "high"}
+	}
+	return nil
 }
 
 func (p *AnthropicProvider) rememberAnthropicThinkingSupport(models []anthropic.ModelInfo) {

@@ -381,6 +381,216 @@ func TestAnthropicThinkingConfigValidationAndFallback(t *testing.T) {
 	}
 }
 
+// Effort levels are a per-model property: adaptive models forward the effort to
+// output_config (so xhigh and max are real there), while models on the manual
+// budget path only serve what anthropicThinkingBudget maps.
+func TestAnthropicModelReasoningEffortsFollowThinkingSupport(t *testing.T) {
+	tests := []struct {
+		model string
+		want  string
+	}{
+		{model: "claude-opus-5", want: "low,medium,high,xhigh,max"},
+		{model: "claude-sonnet-5", want: "low,medium,high,xhigh,max"},
+		{model: "claude-opus-4-8", want: "low,medium,high,xhigh,max"},
+		{model: "claude-opus-4-7", want: "low,medium,high,xhigh,max"},
+		{model: "claude-opus-5-20260701", want: "low,medium,high,xhigh,max"},
+		// 4.6 serves adaptive effort but not xhigh.
+		{model: "claude-sonnet-4-6", want: "low,medium,high,max"},
+		{model: "claude-opus-4-6", want: "low,medium,high,max"},
+		{model: "claude-sonnet-4.6", want: "low,medium,high,max"},
+		// Manual budget path.
+		{model: "claude-sonnet-4-5", want: "low,medium,high"},
+		{model: "claude-opus-4-5", want: "low,medium,high"},
+		{model: "claude-haiku-4-5", want: "low,medium,high"},
+		// Unparseable private alias keeps the conservative default.
+		{model: "relay-house-blend", want: "low,medium,high"},
+	}
+	provider := NewAnthropicProvider(config.ProviderConfig{APIKey: "test-key"})
+	for _, test := range tests {
+		t.Run(test.model, func(t *testing.T) {
+			got := strings.Join(provider.ModelCapabilities(test.model).ReasoningEfforts, ",")
+			if got != test.want {
+				t.Fatalf("ReasoningEfforts(%q) = %q, want %q", test.model, got, test.want)
+			}
+		})
+	}
+
+	t.Run("catalog reporting no thinking advertises no effort", func(t *testing.T) {
+		p := NewAnthropicProvider(config.ProviderConfig{APIKey: "test-key"})
+		p.thinkingSupport["claude-no-think"] = anthropicThinkingSupport{Known: true, Supported: false}
+		if efforts := p.ModelCapabilities("claude-no-think").ReasoningEfforts; len(efforts) != 0 {
+			t.Fatalf("expected no efforts, got %v", efforts)
+		}
+	})
+
+	t.Run("catalog adaptive flag wins over version fallback", func(t *testing.T) {
+		// A 4.5 model the catalog reports as adaptive gains the extended levels.
+		p := NewAnthropicProvider(config.ProviderConfig{APIKey: "test-key"})
+		p.thinkingSupport["claude-sonnet-4-5"] = anthropicThinkingSupport{Known: true, Supported: true, Adaptive: true, Enabled: true}
+		if got := strings.Join(p.ModelCapabilities("claude-sonnet-4-5").ReasoningEfforts, ","); got != "low,medium,high,max" {
+			t.Fatalf("ReasoningEfforts = %q, want %q", got, "low,medium,high,max")
+		}
+	})
+}
+
+// Generate must gate the effort on the resolved model rather than the provider
+// baseline, so opus-5 reaches max while a manual-budget model still refuses it.
+func TestAnthropicGenerateGatesReasoningEffortPerModel(t *testing.T) {
+	t.Run("opus-5 accepts max and forwards it to output_config", func(t *testing.T) {
+		var body map[string]any
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				t.Fatal(err)
+			}
+			writeAnthropicSuccessStream(w, "ok")
+		}))
+		defer server.Close()
+
+		provider := NewAnthropicProvider(config.ProviderConfig{BaseURL: server.URL, APIKey: "test-key", Model: "claude-opus-5", MaxTokens: 4096})
+		events, err := provider.Generate(context.Background(), GenerateRequest{
+			Messages:        []Message{{Role: "user", Content: "hello"}},
+			ReasoningEffort: "max",
+		})
+		if err != nil {
+			t.Fatalf("max must be accepted for opus-5: %v", err)
+		}
+		for event := range events {
+			if event.Type == "error" {
+				t.Fatal(event.Text)
+			}
+		}
+		thinking, _ := body["thinking"].(map[string]any)
+		outputConfig, _ := body["output_config"].(map[string]any)
+		if thinking["type"] != "adaptive" || outputConfig["effort"] != "max" {
+			t.Fatalf("effort max did not reach output_config: %+v", body)
+		}
+	})
+
+	t.Run("xhigh reaches output_config for 4.7+", func(t *testing.T) {
+		var body map[string]any
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				t.Fatal(err)
+			}
+			writeAnthropicSuccessStream(w, "ok")
+		}))
+		defer server.Close()
+
+		provider := NewAnthropicProvider(config.ProviderConfig{BaseURL: server.URL, APIKey: "test-key", Model: "claude-opus-4-7", MaxTokens: 4096})
+		events, err := provider.Generate(context.Background(), GenerateRequest{
+			Messages:        []Message{{Role: "user", Content: "hello"}},
+			ReasoningEffort: "xhigh",
+		})
+		if err != nil {
+			t.Fatalf("xhigh must be accepted for 4.7: %v", err)
+		}
+		for event := range events {
+			if event.Type == "error" {
+				t.Fatal(event.Text)
+			}
+		}
+		outputConfig, _ := body["output_config"].(map[string]any)
+		if outputConfig["effort"] != "xhigh" {
+			t.Fatalf("effort xhigh did not reach output_config: %+v", body)
+		}
+	})
+
+	// Refusals must happen before any request leaves the process.
+	refuses := func(t *testing.T, model, effort string) {
+		t.Helper()
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			t.Fatalf("unsupported effort %q reached upstream for %s", effort, model)
+		}))
+		defer server.Close()
+
+		provider := NewAnthropicProvider(config.ProviderConfig{BaseURL: server.URL, APIKey: "test-key", Model: model, MaxTokens: 4096})
+		if _, err := provider.Generate(context.Background(), GenerateRequest{
+			Messages:        []Message{{Role: "user", Content: "hello"}},
+			ReasoningEffort: effort,
+		}); !errors.Is(err, ErrReasoningEffortUnsupported) {
+			t.Fatalf("expected %q to be refused for %s, got %v", effort, model, err)
+		}
+	}
+
+	t.Run("4.6 refuses xhigh", func(t *testing.T) { refuses(t, "claude-sonnet-4-6", "xhigh") })
+	t.Run("manual budget model refuses xhigh", func(t *testing.T) { refuses(t, "claude-sonnet-4-5", "xhigh") })
+	t.Run("manual budget model refuses max", func(t *testing.T) { refuses(t, "claude-sonnet-4-5", "max") })
+
+	t.Run("4.6 still accepts max", func(t *testing.T) {
+		var body map[string]any
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				t.Fatal(err)
+			}
+			writeAnthropicSuccessStream(w, "ok")
+		}))
+		defer server.Close()
+
+		provider := NewAnthropicProvider(config.ProviderConfig{BaseURL: server.URL, APIKey: "test-key", Model: "claude-sonnet-4-6", MaxTokens: 4096})
+		events, err := provider.Generate(context.Background(), GenerateRequest{
+			Messages:        []Message{{Role: "user", Content: "hello"}},
+			ReasoningEffort: "max",
+		})
+		if err != nil {
+			t.Fatalf("max must be accepted for 4.6: %v", err)
+		}
+		for event := range events {
+			if event.Type == "error" {
+				t.Fatal(event.Text)
+			}
+		}
+		outputConfig, _ := body["output_config"].(map[string]any)
+		if outputConfig["effort"] != "max" {
+			t.Fatalf("effort max did not reach output_config: %+v", body)
+		}
+	})
+}
+
+// The extended levels normally reach the adaptive path. They land in the budget
+// mapper only when catalog metadata reports enabled-but-not-adaptive, so the
+// mapper must produce a valid budget instead of failing the request.
+func TestAnthropicThinkingBudgetMapsExtendedEfforts(t *testing.T) {
+	const maxTokens = 32000
+	tests := []struct {
+		effort string
+		want   int64
+	}{
+		{effort: "low", want: 8000},
+		{effort: "medium", want: 16000},
+		{effort: "high", want: 24000},
+		{effort: "xhigh", want: 28000},
+		// 7/8 of 32000 would be 28000; max asks for the ceiling instead.
+		{effort: "max", want: maxTokens - 1024},
+	}
+	for _, test := range tests {
+		t.Run(test.effort, func(t *testing.T) {
+			budget, err := anthropicThinkingBudget(maxTokens, test.effort)
+			if err != nil {
+				t.Fatalf("anthropicThinkingBudget(%q) error: %v", test.effort, err)
+			}
+			if budget != test.want {
+				t.Fatalf("anthropicThinkingBudget(%d, %q) = %d, want %d", maxTokens, test.effort, budget, test.want)
+			}
+		})
+	}
+
+	// The existing max_tokens-1024 ceiling still clamps the extended levels on a
+	// small budget, so they never produce an invalid request.
+	for _, effort := range []string{"xhigh", "max"} {
+		budget, err := anthropicThinkingBudget(4096, effort)
+		if err != nil {
+			t.Fatalf("anthropicThinkingBudget(4096, %q) error: %v", effort, err)
+		}
+		if budget != 3072 {
+			t.Fatalf("anthropicThinkingBudget(4096, %q) = %d, want 3072", effort, budget)
+		}
+	}
+
+	if _, err := anthropicThinkingBudget(32000, "ultra"); err == nil {
+		t.Fatal("unknown effort must still be rejected")
+	}
+}
+
 func TestAnthropicProviderStreamsSignedThinkingBlocks(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")

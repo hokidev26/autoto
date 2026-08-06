@@ -451,7 +451,7 @@ func TestProviderDraftModelsDoNotPersist(t *testing.T) {
 	existing := config.ProviderConfig{Name: "relay", Type: "openai-compatible", BaseURL: "http://127.0.0.1:8080/v1", Model: "saved", Models: []config.ProviderModelConfig{{Name: "saved", ContextTokenLimit: 1000}}}
 	app := New(config.Config{Providers: config.ProvidersConfig{Instances: []config.ProviderConfig{existing}}}, nil, nil, nil, providers.NewRegistry())
 	draftModels := []config.ProviderModelConfig{{Name: "draft", ContextTokenLimit: 2000}}
-	draft, err := app.providerConfigForDraftTest("relay", providerConfigUpdateRequest{Name: "relay", Type: "openai-compatible", BaseURL: existing.BaseURL, Model: "draft", Models: &draftModels})
+	draft, err := app.providerConfigForDraftTest(context.Background(), "relay", providerConfigUpdateRequest{Name: "relay", Type: "openai-compatible", BaseURL: existing.BaseURL, Model: "draft", Models: &draftModels})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -1041,17 +1041,14 @@ export function createModelProviderSettingsController({
   }
 
   async function refreshProviderDataAfterMutation(successMessage) {
-    let refreshFailed = false;
-    try {
-      await loadSettings();
-    } catch {
-      refreshFailed = true;
-    }
-    try {
-      await loadModelCatalog();
-    } catch {
-      refreshFailed = true;
-    }
+    // Settings and the model catalog are independent, and each re-walks every
+    // provider server-side. Awaiting them one after the other doubled the pause
+    // after a save, toggle or delete.
+    const [settingsResult, catalogResult] = await Promise.allSettled([
+      loadSettings(),
+      loadModelCatalog(),
+    ]);
+    let refreshFailed = settingsResult.status === "rejected" || catalogResult.status === "rejected";
     if (state.modelCatalog?.error) refreshFailed = true;
     renderModelOptions();
     if (refreshFailed) {

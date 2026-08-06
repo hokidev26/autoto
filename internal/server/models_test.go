@@ -5,12 +5,15 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"autoto/internal/config"
 	"autoto/internal/db"
@@ -24,6 +27,9 @@ type fakeModelProvider struct {
 	capabilities      providers.Capabilities
 	modelCapabilities map[string]providers.ModelCapabilities
 	listCalls         *int
+	// listDelay simulates a slow or unreachable upstream so catalog fan-out
+	// timing is observable. The zero value keeps ListModels immediate.
+	listDelay time.Duration
 }
 
 func (p fakeModelProvider) Name() string { return p.name }
@@ -37,6 +43,13 @@ func (p fakeModelProvider) ModelCapabilities(model string) providers.ModelCapabi
 func (p fakeModelProvider) ListModels(ctx context.Context) ([]string, error) {
 	if p.listCalls != nil {
 		(*p.listCalls)++
+	}
+	if p.listDelay > 0 {
+		select {
+		case <-time.After(p.listDelay):
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
 	}
 	if p.err != nil {
 		return nil, p.err
@@ -596,4 +609,93 @@ func TestFriendlyModelListErrorUsesAutotoBranding(t *testing.T) {
 	if !strings.Contains(message, "后重启 Autoto。") {
 		t.Fatalf("expected Autoto-branded error message, got %q", message)
 	}
+}
+
+// The catalog is refetched after every provider mutation, so one slow endpoint
+// must not add its latency to every other provider's.
+func TestModelsRouteFetchesProviderCatalogsConcurrently(t *testing.T) {
+	const providerCount = 6
+	const listDelay = 200 * time.Millisecond
+
+	var inFlight atomic.Int32
+	var peakInFlight atomic.Int32
+	registry := providers.NewRegistry()
+	instances := make([]config.ProviderConfig, 0, providerCount)
+	for i := range providerCount {
+		name := fmt.Sprintf("relay-%d", i)
+		registry.Register(concurrencyProbeProvider{
+			fakeModelProvider: fakeModelProvider{
+				name:      name,
+				models:    []string{name + "-model"},
+				listDelay: listDelay,
+			},
+			inFlight: &inFlight,
+			peak:     &peakInFlight,
+		})
+		instances = append(instances, config.ProviderConfig{
+			Name: name, Type: "openai-compatible", BaseURL: "http://127.0.0.1:9/v1",
+			Model: name + "-model", APIKeyOptional: true,
+		})
+	}
+	app := New(config.Config{Providers: config.ProvidersConfig{Instances: instances}}, nil, nil, nil, registry)
+
+	started := time.Now()
+	recorder := httptest.NewRecorder()
+	app.Routes().ServeHTTP(recorder, newTestRequest(http.MethodGet, "/api/models", nil))
+	elapsed := time.Since(started)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", recorder.Code, recorder.Body.String())
+	}
+	var body modelsResponse
+	if err := json.NewDecoder(recorder.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+
+	// Response order must keep following configuration order.
+	if len(body.Providers) != providerCount {
+		t.Fatalf("expected %d providers, got %d", providerCount, len(body.Providers))
+	}
+	for i, provider := range body.Providers {
+		want := fmt.Sprintf("relay-%d", i)
+		if provider.Name != want {
+			t.Fatalf("provider %d = %q, want %q (concurrency must not reorder results)", i, provider.Name, want)
+		}
+		if len(provider.Models) == 0 || provider.Models[0] != want+"-model" {
+			t.Fatalf("provider %q returned the wrong catalog: %+v", provider.Name, provider.Models)
+		}
+	}
+
+	if peak := peakInFlight.Load(); peak < 2 {
+		t.Fatalf("catalog fetches never overlapped (peak in-flight %d); the fan-out is still serial", peak)
+	} else if peak > modelListConcurrency {
+		t.Fatalf("peak in-flight %d exceeded the %d-way bound", peak, modelListConcurrency)
+	}
+
+	// Serial execution would need providerCount*listDelay. Allow generous
+	// scheduling slack while still failing if the work did not overlap.
+	serial := providerCount * listDelay
+	if elapsed >= serial {
+		t.Fatalf("catalog fan-out took %s, which is no better than serial %s", elapsed, serial)
+	}
+}
+
+// concurrencyProbeProvider records how many ListModels calls are in flight at
+// once, which is what proves the fan-out is both parallel and bounded.
+type concurrencyProbeProvider struct {
+	fakeModelProvider
+	inFlight *atomic.Int32
+	peak     *atomic.Int32
+}
+
+func (p concurrencyProbeProvider) ListModels(ctx context.Context) ([]string, error) {
+	current := p.inFlight.Add(1)
+	for {
+		peak := p.peak.Load()
+		if current <= peak || p.peak.CompareAndSwap(peak, current) {
+			break
+		}
+	}
+	defer p.inFlight.Add(-1)
+	return p.fakeModelProvider.ListModels(ctx)
 }

@@ -222,19 +222,28 @@ func (s *Server) updateProviderConfig(w http.ResponseWriter, r *http.Request) {
 	}
 
 	incomingAPIKey := strings.TrimSpace(req.APIKey)
-	storedSecretRenamed := renamed && storedProviderSecretSource(existing.APIKeySource)
-	storedSecretCanMigrate := storedSecretRenamed && !providerTransportScopeChanged(existing, updated)
-	if storedSecretCanMigrate && incomingAPIKey == "" && !req.ClearAPIKey {
+	// A stored key is scoped to the endpoint it was entered for, not to the
+	// protocol spoken there. Switching protocol keeps the same host and
+	// transport, so re-encrypt the stored key under the new binding instead of
+	// making the user paste it again. Anything that moves the endpoint — base
+	// URL, proxy, TLS posture — still falls through to the clearing branch.
+	if storedProviderSecretMigratable(existed, existing, updated) && incomingAPIKey == "" && !req.ClearAPIKey {
 		if s.providerVault == nil {
-			writeError(w, http.StatusBadRequest, "重命名已保存凭据的 Provider 前请重新输入 API Key")
-			return
+			if renamed {
+				writeError(w, http.StatusBadRequest, "重命名已保存凭据的 Provider 前请重新输入 API Key")
+				return
+			}
+		} else if resolved, _, resolveErr := s.providerVault.Resolve(r.Context(), serverProviderSecretBinding(existing)); resolveErr != nil || strings.TrimSpace(resolved) == "" {
+			// A rename with an unreadable key leaves nothing to migrate, so fail
+			// loudly. A protocol switch degrades to "re-enter the key", which is
+			// the behaviour that shipped before migration existed.
+			if renamed {
+				writeError(w, http.StatusBadRequest, "无法读取原 Provider 凭据；请重新输入 API Key 后再重命名")
+				return
+			}
+		} else {
+			incomingAPIKey = strings.TrimSpace(resolved)
 		}
-		resolved, _, resolveErr := s.providerVault.Resolve(r.Context(), serverProviderSecretBinding(existing))
-		if resolveErr != nil || strings.TrimSpace(resolved) == "" {
-			writeError(w, http.StatusBadRequest, "无法读取原 Provider 凭据；请重新输入 API Key 后再重命名")
-			return
-		}
-		incomingAPIKey = strings.TrimSpace(resolved)
 	}
 	secretMutation := ""
 	switch {
@@ -584,7 +593,7 @@ func (s *Server) testProviderConfig(w http.ResponseWriter, r *http.Request) {
 // the explicitly identified original provider and never cross endpoint bindings.
 var errProviderDraftNameConflict = errors.New("Provider 名称已存在")
 
-func (s *Server) providerConfigForDraftTest(providerName string, req providerConfigUpdateRequest) (config.ProviderConfig, error) {
+func (s *Server) providerConfigForDraftTest(ctx context.Context, providerName string, req providerConfigUpdateRequest) (config.ProviderConfig, error) {
 	providerName = strings.TrimSpace(providerName)
 	if req.CreateOnly {
 		if _, occupied := s.providerConfig(providerName); occupied {
@@ -612,8 +621,22 @@ func (s *Server) providerConfigForDraftTest(providerName string, req providerCon
 		return config.ProviderConfig{}, err
 	}
 	if strings.TrimSpace(req.APIKey) == "" && strings.TrimSpace(existing.Name) != "" && providerSecretBindingChanged(existing, provider) {
-		provider.APIKey = ""
-		provider.APIKeySource = secrets.ProviderSecretSourceNone
+		// Mirror the save path: a stored key survives a protocol switch that
+		// keeps the same endpoint, so the draft test can reach upstream and the
+		// model list refreshes without retyping the key.
+		migrated := ""
+		if s.providerVault != nil && storedProviderSecretMigratable(true, existing, provider) {
+			if resolved, _, resolveErr := s.providerVault.Resolve(ctx, serverProviderSecretBinding(existing)); resolveErr == nil {
+				migrated = strings.TrimSpace(resolved)
+			}
+		}
+		if migrated != "" {
+			provider.APIKey = migrated
+			provider.APIKeySource = secrets.ProviderSecretSourceStored
+		} else {
+			provider.APIKey = ""
+			provider.APIKeySource = secrets.ProviderSecretSourceNone
+		}
 	}
 	return provider, nil
 }
@@ -634,7 +657,7 @@ func (s *Server) testProviderConfigDraft(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	s.providerMutationMu.Lock()
-	provider, err := s.providerConfigForDraftTest(providerName, req)
+	provider, err := s.providerConfigForDraftTest(r.Context(), providerName, req)
 	s.providerMutationMu.Unlock()
 	if err != nil {
 		status := http.StatusBadRequest
@@ -683,7 +706,7 @@ func (s *Server) testProviderMessageDraft(w http.ResponseWriter, r *http.Request
 	}
 
 	s.providerMutationMu.Lock()
-	provider, err := s.providerConfigForDraftTest(providerName, req.configUpdateRequest())
+	provider, err := s.providerConfigForDraftTest(r.Context(), providerName, req.configUpdateRequest())
 	s.providerMutationMu.Unlock()
 	if err != nil {
 		status := http.StatusBadRequest
@@ -989,6 +1012,29 @@ func providerTransportScopeChanged(current, next config.ProviderConfig) bool {
 		strings.TrimSpace(current.ProxyURL) != strings.TrimSpace(next.ProxyURL) ||
 		current.InsecureSkipTLSVerify != next.InsecureSkipTLSVerify ||
 		current.AllowPlaintextHTTP != next.AllowPlaintextHTTP
+}
+
+// providerEndpointScopeChanged reports whether an edit moves the provider to a
+// different network endpoint. It deliberately ignores Type and Profile: changing
+// the protocol keeps talking to the same host over the same transport, so a key
+// entered for that endpoint is still in scope. Anything that changes where bytes
+// travel takes the key out of scope.
+func providerEndpointScopeChanged(current, next config.ProviderConfig) bool {
+	return strings.TrimSpace(current.BaseURL) != strings.TrimSpace(next.BaseURL) ||
+		strings.TrimSpace(current.ProxyURL) != strings.TrimSpace(next.ProxyURL) ||
+		current.InsecureSkipTLSVerify != next.InsecureSkipTLSVerify ||
+		current.AllowPlaintextHTTP != next.AllowPlaintextHTTP
+}
+
+// storedProviderSecretMigratable reports whether a vault-stored API key may be
+// re-encrypted under a changed binding. Only keys the user deliberately saved
+// qualify: runtime and environment values stay scoped to where they came from
+// and are never silently forwarded.
+func storedProviderSecretMigratable(existed bool, existing, updated config.ProviderConfig) bool {
+	return existed &&
+		storedProviderSecretSource(existing.APIKeySource) &&
+		!providerEndpointScopeChanged(existing, updated) &&
+		providerSecretBindingChanged(existing, updated)
 }
 
 func providerProxySettings(existing config.ProviderConfig, req providerConfigUpdateRequest) (string, string, string, string, bool, error) {

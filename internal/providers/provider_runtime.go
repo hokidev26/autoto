@@ -45,6 +45,13 @@ var canonicalReasoningEfforts = []string{"low", "medium", "high", "xhigh", "max"
 // carries the per-model truth and wins over this baseline.
 var codexBaselineReasoningEfforts = []string{"low", "medium", "high", "xhigh"}
 
+// anthropicBaselineReasoningEfforts is the widest set any Anthropic model
+// serves. Adaptive models (4.6+) forward the effort verbatim to output_config,
+// and the SDK defines xhigh and max as valid values there. Per-model narrowing
+// lives in AnthropicProvider.ModelCapabilities: xhigh needs 4.7+, and models
+// still on the manual budget path serve only low/medium/high.
+var anthropicBaselineReasoningEfforts = []string{"low", "medium", "high", "xhigh", "max"}
+
 // CapabilitiesForConfig derives protocol capabilities from a provider's static
 // configuration, without needing a live registered instance. Model-catalog
 // clients gate the thinking-effort picker on the advertised effort list, so a
@@ -58,7 +65,7 @@ func CapabilitiesForConfig(cfg config.ProviderConfig) Capabilities {
 	case "anthropic":
 		capabilities.ImageInput = true
 		capabilities.Reasoning = true
-		capabilities.ReasoningEfforts = legacyReasoningEfforts
+		capabilities.ReasoningEfforts = anthropicBaselineReasoningEfforts
 	case config.ProviderTypeCodex:
 		capabilities.ImageInput = true
 		capabilities.ImageGeneration = true

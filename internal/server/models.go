@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"autoto/internal/config"
@@ -14,6 +15,11 @@ import (
 )
 
 const modelListTimeout = 5 * time.Second
+
+// modelListConcurrency caps how many provider catalogs are fetched at once. The
+// work is dominated by network latency; the database stays behind a single
+// connection, so a wider fan-out would only queue on it.
+const modelListConcurrency = 4
 
 type modelsResponse struct {
 	Providers []modelProviderResponse `json:"providers"`
@@ -62,11 +68,25 @@ type providerSettingsMetadata struct {
 }
 
 func (s *Server) models(w http.ResponseWriter, r *http.Request) {
-	providers := s.configSnapshot().Providers.Summaries()
-	out := modelsResponse{Providers: make([]modelProviderResponse, 0, len(providers))}
-	for _, provider := range providers {
-		out.Providers = append(out.Providers, s.modelProviderResponse(r.Context(), provider))
+	summaries := s.configSnapshot().Providers.Summaries()
+	out := modelsResponse{Providers: make([]modelProviderResponse, len(summaries))}
+	// Each entry may perform a live ListModels round trip bounded by
+	// modelListTimeout, so serial iteration made the whole response as slow as
+	// the sum of every provider's timeout. Bounded concurrency keeps one slow or
+	// unreachable endpoint from holding up the rest. Results are written by index
+	// so the response order still follows configuration order.
+	sem := make(chan struct{}, modelListConcurrency)
+	var wg sync.WaitGroup
+	for i, summary := range summaries {
+		wg.Add(1)
+		go func(idx int, ps config.ProviderSummary) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+			out.Providers[idx] = s.modelProviderResponse(r.Context(), ps)
+		}(i, summary)
 	}
+	wg.Wait()
 	writeJSON(w, http.StatusOK, out)
 }
 

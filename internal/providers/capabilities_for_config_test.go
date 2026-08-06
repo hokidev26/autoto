@@ -15,16 +15,18 @@ func TestCapabilitiesForConfigAdvertisesThinkingEffortWithoutInstance(t *testing
 		wantEfforts string
 	}{
 		{
+			// Provider-wide upper bound; per-model narrowing is covered by
+			// TestAnthropicModelReasoningEffortsFollowThinkingSupport.
 			name:        "anthropic relay",
 			cfg:         config.ProviderConfig{Name: "myrelay", Type: "anthropic"},
 			wantEffort:  true,
-			wantEfforts: "low,medium,high",
+			wantEfforts: "low,medium,high,xhigh,max",
 		},
 		{
 			name:        "claude code relay uses anthropic type",
 			cfg:         config.ProviderConfig{Name: "cc", Type: "anthropic", Profile: "claude-code"},
 			wantEffort:  true,
-			wantEfforts: "low,medium,high",
+			wantEfforts: "low,medium,high,xhigh,max",
 		},
 		{
 			name:        "codex relay keeps xhigh",
