@@ -1834,38 +1834,54 @@ body.white-shell.theme-light:not(.workbench-mode):not(.schedule-mode):not(.overv
 .overview-hero-mark { width: 38px; height: 38px; display: grid; place-items: center; color: #435cff; }
 .overview-hero-mark svg { width: 100%; height: 100%; fill: none; stroke: currentColor; stroke-width: 2.15; stroke-linecap: round; stroke-linejoin: round; }
 .overview-hero-title { margin: 0; color: var(--ws-text, #20263a); font-size: clamp(30px, 4vw, 46px); font-weight: 620; letter-spacing: -.035em; line-height: 1.08; }
+/* The launcher is the conversation composer seen on the home page, so it is
+   built the same way rather than as a card: a settings toolbar on top, then one
+   input row that owns the frame with the send button sitting inside it. The
+   frame belongs to the textarea (not to a wrapper) because that is what makes
+   the grey field, its focus ring and the button inset read identically on both
+   surfaces. Values mirror .message-input / .composer-send-btn in workbench.css
+   and white-shell.css. */
 .overview-launcher-form {
   width: 100%;
-  display: grid;
-  gap: 13px;
-  border: 1px solid color-mix(in srgb, var(--ws-border, #dfe3e9) 90%, #5369f3 10%);
-  border-radius: 23px;
-  background: var(--ws-card, #fff);
-  padding: 20px 21px 16px;
-  box-shadow: 0 18px 46px rgba(31, 40, 70, .09);
-  transition: border-color .16s ease, box-shadow .16s ease;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  padding: 0;
+  box-shadow: none;
 }
-.overview-launcher-form:focus-within { border-color: color-mix(in srgb, #5369f3 58%, var(--ws-border, #dfe3e9)); box-shadow: 0 20px 50px rgba(43, 59, 124, .13); }
+.overview-launcher-input-shell { min-width: 0; display: flex; align-items: center; gap: 6px; }
 .overview-launcher-input {
   width: 100%;
-  min-height: 88px;
-  max-height: 230px;
-  border: 0;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 36px;
+  max-height: 132px;
+  border: 1px solid var(--ws-border, #e1e5ea);
+  border-radius: 7px;
   outline: 0;
-  resize: vertical;
-  background: transparent;
+  resize: none;
+  background: var(--ws-input, #f0f2f5);
   color: var(--ws-text, #20263a);
-  padding: 2px 2px 0;
+  padding: 5.5px 12px;
   font: inherit;
-  font-size: clamp(15px, 1.55vw, 18px);
-  line-height: 1.55;
+  font-size: 15px;
+  line-height: 1.4;
+  transition: border-color .16s ease, box-shadow .16s ease, background-color .16s ease;
+}
+.overview-launcher-input:focus {
+  border-color: rgba(79, 110, 247, .45);
+  background: var(--ws-card, #fff);
+  box-shadow: 0 0 0 3px rgba(79, 110, 247, .10);
 }
 .overview-launcher-input::placeholder { color: color-mix(in srgb, var(--ws-muted, #747e90) 78%, transparent); }
 .overview-launcher-input:disabled { cursor: wait; opacity: .68; }
-.overview-launcher-project-row,
-.overview-launcher-controls { min-width: 0; display: flex; align-items: center; gap: 9px; }
-.overview-launcher-project-row { padding-top: 2px; }
-.overview-launcher-controls { justify-content: flex-end; border-top: 1px solid color-mix(in srgb, var(--ws-border, #dfe3e9) 70%, transparent); padding-top: 13px; }
+/* order:-1 is how the composer puts its toolbar above the input while keeping
+   the input first in the DOM, so keyboard and screen-reader order still reach
+   the field before its settings. */
+.overview-launcher-controls { order: -1; min-width: 0; min-height: 30px; display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
 .overview-launcher-field {
   min-width: 0;
   display: inline-flex;
@@ -1876,7 +1892,7 @@ body.white-shell.theme-light:not(.workbench-mode):not(.schedule-mode):not(.overv
   background: color-mix(in srgb, var(--ws-canvas, #f8fafc) 62%, var(--ws-card, #fff));
   padding: 5px 8px;
 }
-.overview-launcher-project-row .overview-launcher-field { flex: 1 1 auto; }
+.overview-launcher-controls > .overview-launcher-field:not(.overview-launcher-custom-field) { flex: 1 1 170px; }
 .overview-launcher-label { flex: 0 0 auto; color: var(--ws-muted, #747e90); font-size: 10px; font-weight: 690; white-space: nowrap; }
 .overview-launcher-select {
   min-width: 0;
@@ -1891,7 +1907,7 @@ body.white-shell.theme-light:not(.workbench-mode):not(.schedule-mode):not(.overv
   font-weight: 650;
   cursor: pointer;
 }
-.overview-launcher-project-row .overview-launcher-select { width: 100%; max-width: none; }
+.overview-launcher-controls > .overview-launcher-field:not(.overview-launcher-custom-field) .overview-launcher-select { width: 100%; max-width: none; }
 .overview-launcher-select:disabled { cursor: not-allowed; opacity: .58; }
 body.white-shell.theme-light .overview-launcher-custom-field { gap: 4px; padding-right: 4px; }
 body.white-shell.theme-light .overview-launcher-custom-select {
@@ -1923,9 +1939,11 @@ body.white-shell.theme-light .overview-launcher-select-trigger .composer-select-
   z-index: 125;
 }
 .overview-launcher-select-popover.composer-model-popover { width: min(340px, calc(100vw - 32px)); }
+/* Sized to the toolbar row it now shares with the pills, so the launcher
+   toolbar keeps the composer toolbar's 30px rhythm. */
 .overview-launcher-directory,
 .overview-launcher-suggestion {
-  min-height: 32px;
+  min-height: 28px;
   border: 1px solid var(--ws-border, #dfe3e9);
   border-radius: 10px;
   background: var(--ws-card, #fff);
@@ -1940,29 +1958,46 @@ body.white-shell.theme-light .overview-launcher-select-trigger .composer-select-
 }
 .overview-launcher-directory:hover,
 .overview-launcher-suggestion:hover { border-color: color-mix(in srgb, #5369f3 48%, var(--ws-border, #dfe3e9)); color: #4057c8; box-shadow: 0 5px 14px rgba(48, 64, 120, .09); transform: translateY(-1px); }
+/* Beside the field, matching its height, exactly as #sendMessageBtn sits next to
+   the composer textarea on desktop. The button shows its label rather than the
+   icon, which is what makes the two surfaces read the same. */
 .overview-launcher-send {
-  width: 40px;
-  height: 40px;
-  flex: 0 0 auto;
+  width: 56px;
+  min-width: 56px;
+  height: 36px;
+  min-height: 36px;
+  flex: 0 0 56px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   border: 0;
-  border-radius: 50%;
-  background: #5369f3;
-  color: #fff;
-  padding: 0;
+  border-radius: 7px;
+  /* Literal rather than var(--ws-primary): this is the value the composer's send
+     button resolves to on an unthemed install, and matching it is the point.
+     Themed installs re-point both buttons together in theme-runtime.css. */
+  background: #5472f7;
+  color: #ffffff;
+  padding: 0 8px;
+  font-size: 13px;
+  line-height: 1;
   cursor: pointer;
-  box-shadow: 0 7px 16px rgba(83, 105, 243, .28);
-  transition: background .16s ease, transform .16s ease, box-shadow .16s ease;
+  transition: background .16s ease, box-shadow .16s ease;
 }
-.overview-launcher-send:hover:not(:disabled) { background: #4359df; box-shadow: 0 9px 20px rgba(83, 105, 243, .34); transform: translateY(-1px); }
-.overview-launcher-send svg { width: 19px; height: 19px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
-.overview-launcher-send:not([aria-busy="true"]) .overview-launcher-send-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
-.overview-launcher-send[aria-busy="true"] { width: auto; min-width: 92px; border-radius: 12px; padding: 0 15px; cursor: wait; opacity: .72; }
-.overview-launcher-send[aria-busy="true"] svg { display: none; }
-.overview-launcher-send-label { font-size: 11px; font-weight: 720; }
-.overview-launcher-error { margin: -2px 2px 0; color: #b63838; font-size: 11px; line-height: 1.45; }
+.overview-launcher-send:hover:not(:disabled) { background: #5873f0; }
+.overview-launcher-send:disabled { cursor: not-allowed; opacity: .58; }
+/* The icon was for the round button; the labelled button carries the wording. */
+.overview-launcher-send svg { display: none; }
+.overview-launcher-send-label { font-size: 13px; font-weight: 650; }
+/* "Starting…" is longer than "Send", so the button is allowed to grow for it
+   instead of clipping the word. */
+.overview-launcher-send[aria-busy="true"] {
+  width: auto;
+  min-width: 92px;
+  flex: 0 0 auto;
+  cursor: wait;
+  opacity: .72;
+}
+.overview-launcher-error { margin: 0 2px; color: #b63838; font-size: 11px; line-height: 1.45; }
 .overview-summary-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -2050,32 +2085,56 @@ body.white-shell.theme-light .overview-launcher-select-trigger .composer-select-
 
 @media (min-width: 768px) {
   body.white-shell.theme-light .overview-dashboard-page { grid-column: 2 / -1; grid-row: 1; }
-  body.white-shell.theme-light.overview-mode :is(#sessionSidebar, #sidebarResizeHandle, #terminalPanel, #expandTerminalBtn) { display: none !important; }
+  body.white-shell.theme-light.overview-mode :is(#sessionSidebar, #terminalPanel, #expandTerminalBtn) { display: none !important; }
+
+  /* The divider stays on the home page. Hiding it here meant the navigation layout
+     could only be changed from inside a conversation, even though the rail it
+     resizes is on screen the whole time. */
+  body.white-shell.theme-light.overview-mode #sidebarResizeHandle {
+    display: block;
+    /* The dashboard spans from column 2, so the reserved sidebar width is behind
+       it. Sit on the rail's edge instead, which is the real boundary here. */
+    left: calc(var(--global-rail-layout-width) - 3px);
+  }
+
+  /* Docked keeps its list on the home page: there it is part of the navigation
+     rail rather than a content column, so hiding it would leave a wide rail with
+     an empty hole in it. */
+  body.white-shell.theme-light.overview-mode .app-shell.nav-mode-docked #sessionSidebar {
+    display: flex !important;
+  }
 }
 @media (max-width: 1120px) {
   .overview-summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 @media (max-width: 900px) {
   .overview-dashboard { padding-inline: 24px; }
-  .overview-launcher-controls { flex-wrap: wrap; }
-  .overview-launcher-controls .overview-launcher-field { flex: 1 1 210px; }
+  .overview-launcher-controls > .overview-launcher-field:not(.overview-launcher-custom-field) { flex: 1 1 100%; }
   .overview-launcher-select { width: 100%; max-width: none; }
 }
 @media (max-width: 767px) {
   body.white-shell.theme-light .overview-dashboard-page { display: none !important; }
 }
 body.white-shell.theme-light.theme-dark .overview-dashboard-page { background: var(--ws-canvas); color: var(--ws-text); }
-body.white-shell.theme-light.theme-dark :is(.overview-launcher-form, .overview-summary-card, .overview-section, .overview-refresh, .overview-link, .overview-launcher-directory, .overview-launcher-suggestion) { border-color: var(--ws-border); background: var(--ws-card); color: var(--ws-text); box-shadow: none; }
+body.white-shell.theme-light.theme-dark :is(.overview-summary-card, .overview-section, .overview-refresh, .overview-link, .overview-launcher-directory, .overview-launcher-suggestion) { border-color: var(--ws-border); background: var(--ws-card); color: var(--ws-text); box-shadow: none; }
 body.white-shell.theme-light.theme-dark .overview-launcher-field { border-color: var(--ws-border); background: color-mix(in srgb, var(--ws-canvas) 64%, var(--ws-card)); }
-/* Focus lives on the card now that the textarea has no outline. The dark block
-   above pins border-color on .overview-launcher-form at (0,4,1), which outranks
-   the plain :focus-within rule, so the dark variant has to be spelled out at a
-   higher specificity or focus would be invisible under the dark presets. */
-body.white-shell .overview-launcher-form:focus-within,
-body.white-shell.theme-light.theme-dark .overview-launcher-form:focus-within {
+/* Same dark treatment .message-input gets, so the field keeps reading as an
+   input under the dark presets instead of blending into the page. Note the dark
+   field keeps its own background on focus rather than turning white, which is
+   also what the composer does. */
+body.white-shell.theme-light.theme-dark .overview-launcher-input,
+body.white-shell.theme-light.theme-dark .overview-launcher-input:focus {
+  background: var(--ws-input);
+  color: var(--ws-text);
+}
+/* Focus ring spelled out at this specificity because the theme-dark selectors it
+   has to outrank for border-color are (0,4,1). */
+body.white-shell .overview-launcher-input:focus,
+body.white-shell.theme-light.theme-dark .overview-launcher-input:focus {
   border-color: color-mix(in srgb, var(--ws-primary) 62%, var(--ws-border));
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--ws-primary) 45%, transparent);
 }
+body.white-shell.theme-light.theme-dark .overview-launcher-input { border-color: var(--ws-border); }
 body.white-shell.theme-light.theme-dark :is(.overview-hero-title, .overview-launcher-input, .overview-launcher-select) { color: var(--ws-text); }
 body.white-shell.theme-light.theme-dark :is(.overview-summary-card:hover, .overview-refresh:not(:disabled):hover, .overview-link:not(:disabled):hover, .overview-launcher-directory:hover, .overview-launcher-suggestion:hover) { border-color: #8fa4ff; background: color-mix(in srgb, #5369f3 18%, var(--ws-card)); color: #b7c3ff; }
 body.white-shell.theme-light.theme-dark .overview-refresh.primary,
@@ -2087,7 +2146,7 @@ body.white-shell.theme-light.theme-dark .overview-inline-error { border-color: c
   .overview-refresh,
   .overview-link,
   .overview-summary-card,
-  .overview-launcher-form,
+  .overview-launcher-input,
   .overview-launcher-directory,
   .overview-launcher-suggestion,
   .overview-launcher-send { transition: none; }
@@ -2828,6 +2887,343 @@ body.white-shell.theme-light.theme-dark .context-clear-confirmation :is(strong, 
 
   body.white-shell.theme-light .app-shell.session-sidebar-narrow .navigation-conversation-row {
     padding-inline: 8px;
+  }
+
+  /* ------------------------------------------------------------------------
+     Three navigation layouts. `nav-mode-columns` is the historical two-column
+     shell and needs no rules of its own -- the block above already describes
+     it. The two below are the collapsed halves of the same cycle.
+
+     Both keep using --session-sidebar-width as the one stored width, so the
+     resize handle drags the conversation list to the same size whichever
+     column it currently occupies.
+     ------------------------------------------------------------------------ */
+
+  /* Icon rail: the conversation list has no room here, so it is removed from
+     the layout rather than squeezed. Pressing the conversation entry restores
+     the previous layout (handled in ui-shell.mjs). */
+  body.white-shell.theme-light .app-shell.nav-mode-icons {
+    --global-rail-layout-width: 48px;
+    --session-sidebar-layout-width: 0px;
+  }
+
+  body.white-shell.theme-light .app-shell.nav-mode-icons .sidebar {
+    display: none !important;
+  }
+
+  /* The divider stays on the icon rail's edge, because dragging is a way back out
+     of this layout and not only a way into it. */
+  body.white-shell.theme-light .app-shell.nav-mode-icons .sidebar-resize-handle {
+    display: block;
+    left: calc(var(--global-rail-layout-width) - 3px);
+  }
+
+  /* Docked: one column. The rail takes the stored width and the second grid
+     column collapses, because the list is now a child of the rail. */
+  body.white-shell.theme-light .app-shell.nav-mode-docked {
+    --global-rail-layout-width: var(--session-sidebar-width, 296px);
+    --session-sidebar-layout-width: 0px;
+  }
+
+  body.white-shell.theme-light .app-shell.nav-mode-docked .sidebar-resize-handle {
+    display: block;
+    left: calc(var(--global-rail-layout-width) - 3px);
+  }
+
+  body.white-shell.theme-light .app-shell.nav-mode-docked .global-rail {
+    padding: 10px 8px 12px;
+    gap: 4px;
+  }
+
+  /* Wide enough for words, so the rail stops being a column of glyphs and
+     becomes a normal list: icon on the left, label beside it. */
+  body.white-shell.theme-light .app-shell.nav-mode-docked .global-rail-brand {
+    min-height: 48px;
+    flex-direction: row;
+    justify-content: flex-start;
+    gap: 10px;
+    padding: 0 10px;
+  }
+
+  body.white-shell.theme-light .app-shell.nav-mode-docked .global-rail-brand-text {
+    font-size: 12px;
+    letter-spacing: .14em;
+  }
+
+  body.white-shell.theme-light .app-shell.nav-mode-docked .global-rail-nav {
+    gap: 2px;
+    overflow: hidden;
+  }
+
+  body.white-shell.theme-light .app-shell.nav-mode-docked .global-rail-nav .global-rail-button,
+  body.white-shell.theme-light .app-shell.nav-mode-docked .global-rail-footer .global-rail-button {
+    min-height: 38px;
+    flex-direction: row;
+    justify-content: flex-start;
+    gap: 10px;
+    padding: 0 10px;
+    border-radius: 9px;
+  }
+
+  body.white-shell.theme-light .app-shell.nav-mode-docked .global-rail-label {
+    font-size: 12.5px;
+    font-weight: 650;
+    letter-spacing: 0;
+    text-align: left;
+  }
+
+  body.white-shell.theme-light .app-shell.nav-mode-docked .global-rail-icon {
+    width: 20px;
+    min-width: 20px;
+    height: 20px;
+  }
+
+  body.white-shell.theme-light .app-shell.nav-mode-docked .global-rail-footer {
+    justify-items: stretch;
+  }
+
+  /* The dock is the flexible row of the rail: the nav entries above and below it
+     keep their natural height and the conversation list takes the rest. */
+  body.white-shell.theme-light .app-shell.nav-mode-docked .global-rail-dock {
+    min-height: 0;
+    flex: 1 1 auto;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  body.white-shell.theme-light .app-shell.nav-mode-docked .global-rail-dock .sidebar {
+    position: static;
+    grid-column: auto;
+    grid-row: auto;
+    width: auto;
+    min-width: 0;
+    min-height: 0;
+    flex: 1 1 auto;
+    border: 0;
+    background: transparent;
+    box-shadow: none;
+    transform: none;
+    overflow: hidden;
+  }
+
+  /* The nav entry directly above is already the heading, so the sidebar's own
+     title, status badge and collapse arrow all go: the arrow in particular would
+     duplicate the rail's three-way control. */
+  body.white-shell.theme-light .app-shell.nav-mode-docked :is(
+    .session-sidebar-heading,
+    #sessionSidebarCollapseBtn,
+    #refreshBtn,
+    .recent-sidebar
+  ) {
+    display: none !important;
+  }
+
+  body.white-shell.theme-light .app-shell.nav-mode-docked .session-sidebar-header {
+    display: none !important;
+  }
+
+  /* Search and create sit *on* the conversation entry rather than beside it. Laid
+     out as flex siblings they landed in the gutter past the entry's background,
+     which read as a pair of loose icons floating next to the rail. Overlaying them
+     on the entry itself keeps the row one object, and costs no extra height. */
+  body.white-shell.theme-light .app-shell.nav-mode-docked .global-rail-nav-row {
+    position: relative;
+    display: block;
+  }
+
+  body.white-shell.theme-light .app-shell.nav-mode-docked .global-rail-nav-row .global-rail-button {
+    width: 100%;
+    min-width: 0;
+    /* Clears the two overlaid controls (2 x 28px + 2px gap, offset 6px from the
+       right edge) so a long label never runs underneath them. */
+    padding-right: 66px;
+  }
+
+  /* At >=1280px the magnifier is hidden because the search field is pinned open
+     there. Docked mode un-pins that field, so the magnifier has to come back --
+     without it the search box would have no way to be opened at all. */
+  body.white-shell.theme-light .app-shell.nav-mode-docked .global-rail-nav-row #projectSearchToggleBtn {
+    display: inline-flex;
+  }
+
+  body.white-shell.theme-light .app-shell.nav-mode-docked .global-rail-nav-row .session-sidebar-actions {
+    position: absolute;
+    top: 50%;
+    right: 6px;
+    transform: translateY(-50%);
+    width: auto;
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 2px;
+    padding: 0;
+    border: 0;
+    background: transparent;
+  }
+
+  body.white-shell.theme-light .app-shell.nav-mode-docked .global-rail-nav-row .session-sidebar-action {
+    width: 28px;
+    min-width: 28px;
+    height: 28px;
+    min-height: 28px;
+    flex: 0 0 28px;
+    padding: 5px;
+    border-radius: 8px;
+  }
+
+  /* At >=1280px the search field is pinned open, which in this layout would spend
+     a whole row on a control the magnifier already toggles. Here it obeys .hidden
+     again and slides in under the row only when asked for. */
+  body.white-shell.theme-light .app-shell.nav-mode-docked .sidebar-search-wrap {
+    display: block !important;
+    margin: 0 0 6px;
+    padding-left: 10px;
+  }
+
+  body.white-shell.theme-light .app-shell.nav-mode-docked .sidebar-search-wrap.hidden {
+    display: none !important;
+  }
+
+  body.white-shell.theme-light .app-shell.nav-mode-docked .agent-list-section {
+    padding: 2px 0 8px;
+    overflow-x: hidden;
+    overflow-y: auto;
+  }
+
+  /* Indented one step so the list reads as belonging to the entry above it. */
+  body.white-shell.theme-light .app-shell.nav-mode-docked .project-list {
+    padding-left: 10px;
+    gap: 3px;
+  }
+
+  /* The >=1280px rule pads these rows for a full-width column. Inside the rail the
+     same padding plus the two-line title/path stack leaves the card noticeably
+     taller than the nav entries above it, so the vertical spacing comes in while
+     both lines stay readable. */
+  body.white-shell.theme-light .app-shell.nav-mode-docked .navigation-conversation-row,
+  body.white-shell.theme-light .app-shell.nav-mode-docked .navigation-conversation-row.nested {
+    min-height: 0;
+    padding: 2px 9px;
+    border-radius: 7px;
+  }
+
+  body.white-shell.theme-light .app-shell.nav-mode-docked .navigation-conversation-main {
+    gap: 0;
+  }
+
+  body.white-shell.theme-light .app-shell.nav-mode-docked .navigation-conversation-title {
+    font-size: 12px;
+    line-height: 1.25;
+  }
+
+  body.white-shell.theme-light .app-shell.nav-mode-docked .navigation-conversation-row .navigation-conversation-meta {
+    font-size: 9px;
+    line-height: 1.2;
+  }
+
+  body.white-shell.theme-light .app-shell.nav-mode-docked .navigation-project-row {
+    min-height: 0;
+    padding: 2px 9px;
+  }
+
+  /* The disclosure stretches to the row and carries a 32px floor, so it -- not the
+     padding -- is what actually holds these cards open. Lowering the padding alone
+     changed nothing until this came down with it. 26px keeps the hit area taller
+     than the glyph while letting the two-line stack set the height. */
+  body.white-shell.theme-light .app-shell.nav-mode-docked .navigation-disclosure {
+    min-height: 26px;
+  }
+
+  /* Settings docked while the rail is in docked mode.
+     layoutSettingsShell pins the first grid column to the columns-mode width
+     (68/76px) because the settings panel needs the stored width for its own
+     category list -- two 296px chrome columns would not fit. That leaves the
+     rail geometrically narrow while still carrying nav-mode-docked, whose rules
+     above are written for 296px: brand and entries laid out horizontally, 12px
+     brand text, 12.5px labels, and the search/create pair absolutely positioned
+     over the conversation entry.
+
+     At 68px that produced three defects: "AUTOTO" overflowed the rail by 22px
+     and was cut to "AUTOT" by .global-rail{overflow:hidden}, each CJK label
+     wrapped to one character per line, and the two 28px action buttons (58px of
+     them) sat on top of a 68px-wide entry.
+
+     The rescue rules that would have hidden the text are bound to
+     .global-rail-collapsed, which only the icons stage carries -- docked never
+     gets it. So rather than widen those, this block restores the columns-stage
+     presentation for exactly this combination. The nav-mode-docked values above
+     are left untouched because they are still correct whenever the rail really
+     is 296px wide. */
+  body.white-shell.theme-light .app-shell.nav-mode-docked.settings-rail-compact .global-rail {
+    padding: 10px 8px 12px;
+    gap: 5px;
+  }
+
+  body.white-shell.theme-light .app-shell.nav-mode-docked.settings-rail-compact .global-rail-brand {
+    min-height: 76px;
+    flex-direction: column;
+    justify-content: center;
+    gap: 4px;
+    padding: 0;
+  }
+
+  body.white-shell.theme-light .app-shell.nav-mode-docked.settings-rail-compact .global-rail-brand-text {
+    font-size: 10px;
+    letter-spacing: .12em;
+  }
+
+  body.white-shell.theme-light .app-shell.nav-mode-docked.settings-rail-compact .global-rail-nav {
+    gap: 5px;
+  }
+
+  body.white-shell.theme-light .app-shell.nav-mode-docked.settings-rail-compact .global-rail-nav .global-rail-button,
+  body.white-shell.theme-light .app-shell.nav-mode-docked.settings-rail-compact .global-rail-footer .global-rail-button {
+    min-height: 58px;
+    flex-direction: column;
+    justify-content: center;
+    gap: 5px;
+    padding: 6px 3px;
+    border-radius: 12px;
+  }
+
+  body.white-shell.theme-light .app-shell.nav-mode-docked.settings-rail-compact .global-rail-label {
+    font-size: 10px;
+    font-weight: 760;
+    letter-spacing: .01em;
+    text-align: center;
+    /* The label is two CJK glyphs at 10px, which fits the 46px of inner width
+       this stage leaves. nowrap keeps it one line even so, because a narrower
+       theme font or a longer translation would otherwise reintroduce the
+       one-character-per-line stack this block exists to remove. */
+    white-space: nowrap;
+  }
+
+  body.white-shell.theme-light .app-shell.nav-mode-docked.settings-rail-compact .global-rail-icon {
+    width: 24px;
+    min-width: 24px;
+    height: 24px;
+  }
+
+  /* The row is only a positioning context for the overlaid actions in docked
+     mode. Back on one column per entry, it is an ordinary block again. */
+  body.white-shell.theme-light .app-shell.nav-mode-docked.settings-rail-compact .global-rail-nav-row .global-rail-button {
+    padding-right: 3px;
+  }
+
+  /* Search and create act on the conversation list, and that list is hidden for
+     the whole time settings is docked. Keeping them would leave two controls
+     with nothing to operate on stacked over the conversation entry, which is the
+     overlap being reported. The columns stage shows nothing here either. */
+  body.white-shell.theme-light .app-shell.nav-mode-docked.settings-rail-compact .global-rail-nav-row .session-sidebar-actions {
+    display: none;
+  }
+
+  /* The dock stretches to absorb the rail's free space when it holds the list.
+     With the list hidden it would push the footer to the bottom on its own,
+     leaving a gap the columns stage does not have. */
+  body.white-shell.theme-light .app-shell.nav-mode-docked.settings-rail-compact .global-rail-dock {
+    flex: 0 0 auto;
   }
 }
 

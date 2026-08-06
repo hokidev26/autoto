@@ -11,7 +11,7 @@ import (
 )
 
 type createMemoryRequest struct {
-	Content string   `json:"content"`
+	Content  string   `json:"content"`
 	Keywords []string `json:"keywords"`
 	Pinned   bool     `json:"pinned"`
 	// AgentID scopes the memory to one conversation. Empty keeps it global.

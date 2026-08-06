@@ -1217,6 +1217,37 @@ body.white-shell.theme-light.theme-dark #settingsModal {
   width: 100%;
 }
 
+/* Available subagent_type disclosure — collapsed by default so the definitions
+   list stays the focus, and the summary reads as a card header when open. */
+#settingsContentBody .skill-role-preview {
+  display: grid;
+  gap: var(--settings-space-3);
+}
+
+#settingsContentBody .skill-role-preview > summary {
+  cursor: pointer;
+  user-select: none;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+#settingsContentBody .skill-role-preview > summary::before {
+  content: "▶";
+  font-size: 9px;
+  color: var(--settings-muted-foreground);
+  transition: transform .15s;
+}
+
+#settingsContentBody .skill-role-preview[open] > summary::before {
+  transform: rotate(90deg);
+}
+
+#settingsContentBody .skill-role-preview:not([open]) > :not(summary) {
+  display: none;
+}
+
 /* scoped skills left-accent */
 #settingsContentBody .skills-page .skills-v2-card {
   border-left: 3px solid var(--settings-primary);
@@ -2638,12 +2669,12 @@ body.white-shell.theme-light.theme-dark .git-log-panel,
 body.white-shell.theme-light.theme-dark .git-log-row,
 body.white-shell.theme-light.theme-dark .git-toolbar,
 body.white-shell.theme-light.theme-dark .global-rail [aria-current="page"],
-body.white-shell.theme-light.theme-dark .global-rail a:hover,
+body.white-shell.theme-light.theme-dark .global-rail a:not(.global-rail-dock *):hover,
 body.white-shell.theme-light.theme-dark .global-rail button.active,
 body.white-shell.theme-light.theme-dark .global-rail button.selected,
-body.white-shell.theme-light.theme-dark .global-rail button:hover,
+body.white-shell.theme-light.theme-dark .global-rail button:not(.global-rail-dock *):hover,
 body.white-shell.theme-light.theme-dark .global-rail-avatar,
-body.white-shell.theme-light.theme-dark .global-rail-item:hover,
+body.white-shell.theme-light.theme-dark .global-rail-item:not(.global-rail-dock *):hover,
 body.white-shell.theme-light.theme-dark .header-tool-btn.active,
 body.white-shell.theme-light.theme-dark .header-tool-btn:hover,
 body.white-shell.theme-light.theme-dark .header-tool-btn[aria-pressed="true"],
@@ -3038,12 +3069,12 @@ body.white-shell.theme-light.theme-dark .git-merge-file-list span,
 body.white-shell.theme-light.theme-dark .git-panel-title span,
 body.white-shell.theme-light.theme-dark .git-summary,
 body.white-shell.theme-light.theme-dark .global-rail .global-rail-theme-toggle,
-body.white-shell.theme-light.theme-dark .global-rail a,
-body.white-shell.theme-light.theme-dark .global-rail button,
+body.white-shell.theme-light.theme-dark .global-rail a:not(.global-rail-dock *),
+body.white-shell.theme-light.theme-dark .global-rail button:not(.global-rail-dock *),
 body.white-shell.theme-light.theme-dark .global-rail button.global-rail-avatar,
 body.white-shell.theme-light.theme-dark .global-rail button.global-rail-collapse-btn,
 body.white-shell.theme-light.theme-dark .global-rail-health,
-body.white-shell.theme-light.theme-dark .global-rail-item,
+body.white-shell.theme-light.theme-dark .global-rail-item:not(.global-rail-dock *),
 body.white-shell.theme-light.theme-dark .goal-confirmation-card p,
 body.white-shell.theme-light.theme-dark .header-tool-btn,
 body.white-shell.theme-light.theme-dark .icon-btn,
@@ -4363,6 +4394,63 @@ body.white-shell.theme-light[data-theme-preset="cream"] :is(.settings-action-btn
   align-items: center;
   justify-content: flex-end;
   gap: 8px;
+}
+
+/* Background tasks card — concurrency limits read as a plain pair, while the
+   nesting switch owns a bordered group so the depth field and its cost warning
+   are visibly subordinate to the switch that reveals them. */
+#settingsContentBody .background-task-settings-card {
+  display: grid;
+  gap: var(--settings-space-3);
+  align-content: start;
+}
+
+#settingsContentBody .background-task-concurrency-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--settings-space-3);
+}
+
+#settingsContentBody .background-task-nested-group {
+  display: grid;
+  gap: var(--settings-space-3);
+  border: 1px solid var(--settings-border);
+  border-radius: var(--settings-radius-lg);
+  background: var(--settings-muted);
+  padding: 10px 12px;
+  transition: border-color .16s ease;
+}
+
+#settingsContentBody .background-task-nested-group.is-on {
+  border-color: color-mix(in srgb, var(--settings-primary) 42%, var(--settings-border));
+}
+
+#settingsContentBody .background-task-nested-group > .settings-switch-row {
+  margin: 0;
+}
+
+#settingsContentBody .background-task-nested-detail {
+  display: grid;
+  gap: var(--settings-space-3);
+  padding-top: var(--settings-space-3);
+  border-top: 1px solid var(--settings-border);
+}
+
+#settingsContentBody .background-task-nested-detail[hidden] {
+  display: none;
+}
+
+#settingsContentBody .background-task-nested-detail > .settings-form-field {
+  max-width: 220px;
+}
+
+@media (max-width: 767px) {
+  #settingsContentBody .background-task-concurrency-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  #settingsContentBody .background-task-nested-detail > .settings-form-field {
+    max-width: none;
+  }
 }
 
 /* Execution budget card — every budget is one self-contained row so the

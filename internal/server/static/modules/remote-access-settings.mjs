@@ -250,6 +250,16 @@ export function createRemoteAccessSettingsController({
     return value ? rt("allowed") : rt("blocked");
   }
 
+  // Boolean capabilities carry a tone so allowed/blocked is scannable; the two
+  // enum capabilities stay plain text because a colour would imply a judgement
+  // the value does not make.
+  function renderCapabilityCell(label, value) {
+    const boolean = typeof value === "boolean";
+    const text = boolean ? capabilityValue(value) : String(value ?? "");
+    const badge = boolean ? `<span class="settings-badge ${value ? "ok" : "warn"}">${escapeHtml(text)}</span>` : `<strong>${escapeHtml(text)}</strong>`;
+    return `<div class="remote-access-capability-cell"><span>${escapeHtml(label)}</span>${badge}</div>`;
+  }
+
   function sessionModeLabel(mode) {
     if (mode === "full") return rt("full");
     if (mode === "restricted") return rt("restricted");
@@ -366,7 +376,7 @@ export function createRemoteAccessSettingsController({
           <div class="settings-stat-card"><strong>${escapeHtml(value.session.expiresAt || rt("never"))}</strong><span>${escapeHtml(rt("expiresAt"))}</span></div>
         </div>
         <section class="settings-provider-section settings-page-section settings-card remote-access-policy-card">
-          <div class="settings-provider-section-head settings-card-header"><div><div class="settings-provider-title settings-card-title">${escapeHtml(rt("policy"))}</div><div class="settings-provider-meta settings-card-description" data-settings-help-copy>${escapeHtml(rt("policyDescription"))}</div></div></div>
+          <div class="settings-provider-section-head settings-card-header"><div><div class="settings-provider-title settings-card-title">${escapeHtml(rt("policy"))}</div><div class="settings-provider-meta settings-card-description" data-settings-help-copy>${escapeHtml(rt("policyDescription"))}</div></div><button class="settings-action-btn primary" type="submit" form="remoteAccessPolicyForm" data-remote-policy-submit ${securityAdminAllowed ? "" : "disabled"}>${escapeHtml(rt("savePolicy"))}</button></div>
           <form id="remoteAccessPolicyForm" class="settings-card-content remote-access-policy-form">
             <div class="settings-provider-form-grid settings-form-grid">
               <div class="remote-access-full-access-card${fullAccessEnabled ? " is-on" : ""}" data-remote-full-card>
@@ -376,7 +386,6 @@ export function createRemoteAccessSettingsController({
               <label class="settings-check-row"><input id="remoteAccessNativePicker" type="checkbox" ${value.policy.allowRemoteNativePicker ? "checked" : ""} ${securityAdminAllowed ? "" : "disabled"} /><span><strong>${escapeHtml(rt("nativePicker"))}</strong><small data-settings-help-copy>${escapeHtml(rt("nativePickerHint"))}</small></span></label>
               ${currentPasswordField("remoteAccessPolicyCurrentPassword")}
             </div>
-            <div class="settings-action-row settings-card-footer"><span class="settings-provider-meta">${escapeHtml(`${rt("revision")}: ${value.policy.revision || "—"}`)} · ${escapeHtml(rt("policySaveHint"))}</span><button class="settings-action-btn primary" type="submit" data-remote-policy-submit ${securityAdminAllowed ? "" : "disabled"}>${escapeHtml(rt("savePolicy"))}</button></div>
           </form>
         </section>
         <section class="settings-provider-section settings-page-section settings-card">
@@ -390,12 +399,12 @@ export function createRemoteAccessSettingsController({
         </section>
         <section class="settings-provider-section settings-page-section settings-card">
           <div class="settings-provider-section-head settings-card-header"><div><div class="settings-provider-title settings-card-title">${escapeHtml(rt("capabilities"))}</div></div></div>
-          <div class="runtime-kv-list settings-data-list settings-card-content">
-            <div><span>${escapeHtml(rt("maxPermissionMode"))}</span><strong>${escapeHtml(value.capabilities.maxPermissionMode)}</strong></div>
-            <div><span>${escapeHtml(rt("terminalAllowed"))}</span><strong>${escapeHtml(capabilityValue(value.capabilities.terminalAllowed))}</strong></div>
-            <div><span>${escapeHtml(rt("filesystemScope"))}</span><strong>${escapeHtml(value.capabilities.filesystemScope)}</strong></div>
-            <div><span>${escapeHtml(rt("nativePickerAllowed"))}</span><strong>${escapeHtml(capabilityValue(value.capabilities.nativePickerAllowed))}</strong></div>
-            <div><span>${escapeHtml(rt("securityAdminAllowed"))}</span><strong>${escapeHtml(capabilityValue(value.capabilities.securityAdminAllowed))}</strong></div>
+          <div class="remote-access-capability-grid settings-card-content">
+            ${renderCapabilityCell(rt("maxPermissionMode"), value.capabilities.maxPermissionMode)}
+            ${renderCapabilityCell(rt("filesystemScope"), value.capabilities.filesystemScope)}
+            ${renderCapabilityCell(rt("terminalAllowed"), value.capabilities.terminalAllowed)}
+            ${renderCapabilityCell(rt("nativePickerAllowed"), value.capabilities.nativePickerAllowed)}
+            ${renderCapabilityCell(rt("securityAdminAllowed"), value.capabilities.securityAdminAllowed)}
           </div>
         </section>
       </div>`;
@@ -464,7 +473,10 @@ export function createRemoteAccessSettingsController({
     });
     $("remoteAccessPolicyForm")?.addEventListener("submit", async (event) => {
       event.preventDefault();
-      const button = event.currentTarget.querySelector("[data-remote-policy-submit]");
+      // The submit button lives in the card header, outside this form, and is
+      // wired to it with the form attribute. Scope the lookup to the document so
+      // the busy state still lands on it.
+      const button = document.querySelector?.("[data-remote-policy-submit]");
       setButtonBusy(button, true);
       try {
         await submitPolicy(event.currentTarget);

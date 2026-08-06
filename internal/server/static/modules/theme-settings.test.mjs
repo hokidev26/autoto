@@ -88,3 +88,26 @@ test("theme runtime keeps artwork on explicit home state only", async () => {
   assert.match(styles, /prefers-reduced-transparency/);
   assert.match(styles, /forced-colors: active/);
 });
+
+test("phone drawer keeps an opaque surface while desktop chrome stays see-through", async () => {
+  const styles = await readFile(new URL("../theme-runtime.css", import.meta.url), "utf8");
+  const source = styles.replace(/\/\*[\s\S]*?\*\//g, "");
+  const drawerBlock = source.match(/@media \(max-width: 767px\)\s*\{([\s\S]*?)\n\}/);
+  assert.ok(drawerBlock, "theme runtime must carry a narrow-screen drawer block");
+  const rules = drawerBlock[1];
+
+  // The wallpaper path, the wallpaper-less theme path, and the generic custom
+  // background path all clear the sidebar background on desktop, so the drawer
+  // has to be repaired for each of them.
+  assert.match(rules, /\[data-background-mode="custom"\]\[data-background-ready="true"\][\s\S]*\.sidebar/);
+  assert.match(rules, /\[data-background-mode="theme"\]\[data-autoto-theme\]\[data-theme-global-background="true"\][\s\S]*\.sidebar/);
+  assert.match(rules, /:not\(\[data-background-mode="custom"\]\):not\(\[data-background-mode="theme"\]\[data-theme-global-background="true"\]\) \.sidebar/);
+
+  // An opaque colour layer plus !important is what actually beats the earlier
+  // `background: transparent !important` declarations.
+  assert.match(rules, /background-color:\s*var\(--ws-card,[^)]*\)\s*!important/);
+  assert.match(rules, /background-image:\s*linear-gradient\([^;]*--ws-sidebar[^;]*\)\s*!important/);
+  assert.match(rules, /box-shadow:\s*[^;]+!important/);
+  assert.match(rules, /backdrop-filter:\s*none/);
+  assert.doesNotMatch(rules, /background:\s*transparent/);
+});

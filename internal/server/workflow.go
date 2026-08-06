@@ -21,9 +21,9 @@ const (
 var pluginToolPermissionNamePattern = regexp.MustCompile(`^plugin__[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?__[a-z0-9_-]{1,128}$`)
 
 type workflowPreferencesRequest struct {
-	RequireConfirmationForExec   *bool   `json:"requireConfirmationForExec"`
-	RequireConfirmationForWrites *bool   `json:"requireConfirmationForWrites"`
-	AllowReadOnlyByDefault       *bool   `json:"allowReadOnlyByDefault"`
+	RequireConfirmationForExec   *bool `json:"requireConfirmationForExec"`
+	RequireConfirmationForWrites *bool `json:"requireConfirmationForWrites"`
+	AllowReadOnlyByDefault       *bool `json:"allowReadOnlyByDefault"`
 	// Optional so an older client that does not know about the setting keeps
 	// the stored value instead of silently resetting the safety gate.
 	DangerReflectionLevel *string `json:"dangerReflectionLevel"`

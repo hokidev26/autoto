@@ -1705,6 +1705,153 @@ test("the incremental path repaints per-message stacks in place instead of rebui
   }
 });
 
+// The incremental stub above only answers the two selectors that path needs, so
+// it cannot express document order. This one keeps an ordered node list and honours
+// beforebegin/afterend, which is what an insertion-position regression needs.
+function orderedMessagesElement(messageIds) {
+  const nodes = messageIds.map((id) => ({
+    kind: "message",
+    id,
+    role: id.startsWith("u") ? "user" : "assistant",
+    html: `<div data-message-id="${id}" data-message-role="${id.startsWith("u") ? "user" : "assistant"}"></div>`,
+  }));
+  const insertAt = (index, html) => nodes.splice(index, 0, { kind: "card", html });
+  const element = {
+    classList: { add() {}, remove() {}, contains: () => false },
+    scrollHeight: 100,
+    clientHeight: 0,
+    scrollTop: 0,
+    get innerHTML() { return nodes.map((node) => node.html).join(""); },
+    set innerHTML(_value) { throw new Error("the incremental path must not rebuild the transcript wholesale"); },
+    insertAdjacentHTML(position, html) {
+      if (position === "beforeend") insertAt(nodes.length, html);
+      else insertAt(0, html);
+    },
+    querySelector(selector) {
+      const messageMatch = /^\[data-message-id="(.*)"\]$/.exec(selector);
+      if (messageMatch) {
+        const index = nodes.findIndex((node) => node.kind === "message" && node.id === messageMatch[1]);
+        if (index < 0) return null;
+        return {
+          dataset: { messageRole: nodes[index].role },
+          insertAdjacentHTML(position, html) {
+            insertAt(position === "afterend" ? index + 1 : index, html);
+          },
+        };
+      }
+      return null;
+    },
+    querySelectorAll(selector) {
+      if (selector !== "[data-message-activity]") return [];
+      return [];
+    },
+  };
+  return { element, nodes };
+}
+
+async function loadTerminalRunSummary(messages, toolCalls, run) {
+  const previousDocument = globalThis.document;
+  const { element } = orderedMessagesElement(messages.map((message) => message.id));
+  globalThis.document = { getElementById: (id) => id === "messages" ? element : null };
+  const state = {
+    agent: { id: "agent-1", status: "idle" },
+    currentMessages: messages,
+    liveToolOutputs: {},
+    toolActivitySelections: {},
+    runSummaryLoading: false,
+    runSummaryError: "",
+    activeRunSummary: null,
+    activeRunSummaryRunId: "",
+    activeRunToolCalls: [],
+    activeRunToolCallsRunId: "",
+  };
+  try {
+    const controller = createChatRenderingController({
+      state,
+      attachmentIcon: () => "file",
+      attachmentKind: () => "file",
+      copyToClipboard: async () => true,
+      notifyTerminal: () => {},
+      selectedModelValue: () => "",
+      shortPath: (value) => value,
+      showError: () => {},
+      showToast: () => {},
+      apiRequest: async (url) => url.includes("/tool-calls")
+        ? { toolCalls }
+        : { run, toolCallCount: toolCalls.length },
+    });
+    await controller.loadRunSummary(run.id, { agentId: "agent-1" });
+    return element.innerHTML;
+  } finally {
+    globalThis.document = previousDocument;
+  }
+}
+
+test("a finished run's outcome card is inserted between the question and the answer", async () => {
+  const html = await loadTerminalRunSummary(
+    [
+      { id: "u1", role: "user", contentText: "go", runId: "run-1" },
+      { id: "a1", role: "assistant", contentText: "done", runId: "run-1" },
+    ],
+    // messageId names a turn that never became a visible message, so the call
+    // stays unowned and the run-level card is what carries it.
+    [{ agentId: "agent-1", runId: "run-1", messageId: "silent", toolUseId: "t1", toolName: "Grep", status: "completed" }],
+    { id: "run-1", source: "conversation", status: "completed", triggerMessageId: "u1" },
+  );
+
+  const question = html.indexOf('data-message-id="u1"');
+  const outcome = html.indexOf("data-run-outcome-card");
+  const answer = html.indexOf('data-message-id="a1"');
+  assert.ok(outcome >= 0, "the outcome card renders for a terminal run with unowned calls");
+  // The incremental path used to look for the streaming assistant card, which is
+  // already gone by the time a run reaches a terminal state. With no anchor it
+  // appended to the container, putting the activity below the answer.
+  assert.ok(question < outcome && outcome < answer, `outcome must sit between the question and the answer, got question=${question} outcome=${outcome} answer=${answer}`);
+});
+
+test("a finished run whose trigger message is not on screen still anchors above the answer", async () => {
+  const html = await loadTerminalRunSummary(
+    [
+      { id: "u9", role: "user", contentText: "again", runId: "run-1" },
+      { id: "a9", role: "assistant", contentText: "done", runId: "run-1" },
+    ],
+    [{ agentId: "agent-1", runId: "run-1", messageId: "silent", toolUseId: "t1", toolName: "Bash", status: "completed" }],
+    // The trigger scrolled out of the loaded window, so its id resolves to nothing.
+    { id: "run-1", source: "conversation", status: "completed", triggerMessageId: "u-not-loaded" },
+  );
+
+  const question = html.indexOf('data-message-id="u9"');
+  const outcome = html.indexOf("data-run-outcome-card");
+  const answer = html.indexOf('data-message-id="a9"');
+  assert.ok(outcome >= 0, "the outcome card still renders without a resolvable trigger");
+  assert.ok(question < outcome && outcome < answer, "the newest user turn is the fallback anchor, not the container tail");
+});
+
+test("the full repaint keeps the outcome card above the answer when the trigger is unloaded", () => {
+  const { html } = renderSnapshot([
+    { id: "u9", role: "user", contentText: "again", runId: "run-1" },
+    { id: "a9", role: "assistant", contentText: "done", runId: "run-1" },
+  ], {
+    activeRunSummaryRunId: "run-1",
+    activeRunToolCallsRunId: "run-1",
+    activeRunToolCalls: [
+      { agentId: "agent-1", runId: "run-1", messageId: "silent", toolUseId: "t1", toolName: "Bash", status: "completed" },
+    ],
+    activeRunSummary: {
+      run: { id: "run-1", source: "conversation", status: "completed", triggerMessageId: "u-not-loaded" },
+      toolCallCount: 1,
+    },
+  });
+
+  const question = html.indexOf('data-message-id="u9"');
+  const outcome = html.indexOf("data-run-outcome-card");
+  const answer = html.indexOf('data-message-id="a9"');
+  assert.ok(outcome >= 0, "the outcome card renders in the full repaint too");
+  // The old code only computed the fallback index when the trigger id was empty,
+  // so an unresolvable trigger fell through to the transcript tail here as well.
+  assert.ok(question < outcome && outcome < answer, "an unresolvable trigger falls back to the newest user turn");
+});
+
 test("reasoning and ownerless same-run tools share one assistant activity stack", () => {
   const { html } = renderSnapshot([{
     id: "a1",
@@ -1756,6 +1903,168 @@ test("live tool calls group under their assistant turn once that turn is on scre
   // Exactly one home each: no call is rendered twice across the two surfaces.
   assert.equal((html.match(/data-tool-activity-select="owned"/g) || []).length, 1);
   assert.equal((html.match(/data-tool-activity-select="pending"/g) || []).length, 1);
+});
+
+// A client that missed message.created -- a reconnect or a plain reload -- has
+// no liveAssistantToolOwnerId, so its tool events carry a runId but no
+// messageId. The turn adopted those calls by run while the tail still counted
+// them as homeless, and the persisted reasoningText was rendered next to the
+// live copy of the same thinking. Both halves duplicated, so the run showed two
+// byte-identical "活动 · 1 步推理 · 2 次工具" rows.
+test("live tools and reasoning stay in one stack when the turn is persisted without a live owner id", () => {
+  const { html } = renderSnapshot([{
+    id: "u1",
+    role: "user",
+    contentText: "go",
+  }, {
+    id: "a1",
+    role: "assistant",
+    runId: "run-1",
+    contentText: "Measured both.",
+    reasoningText: "I checked the current conditions first.",
+  }], {
+    agent: { id: "agent-1", status: "running" },
+    liveToolOutputs: {
+      t1: { agentId: "agent-1", runId: "run-1", toolUseId: "t1", toolName: "Grep", status: "completed" },
+      t2: { agentId: "agent-1", runId: "run-1", toolUseId: "t2", toolName: "Read", status: "completed" },
+    },
+    liveReasoningSteps: [{ id: "reasoning-1", runId: "run-1", text: "I checked the current conditions first.", beforeToolUseId: "t1" }],
+  });
+
+  assert.equal((html.match(/tool-activity-summary/g) || []).length, 1);
+  assert.equal((html.match(/data-message-activity="a1"/g) || []).length, 1);
+  assert.equal((html.match(/data-live-tool-output-stack/g) || []).length, 0);
+  assert.match(html, /活动 · 1 步推理 · 2 次工具/);
+  // One row per call, and the reasoning is not counted on both surfaces.
+  assert.equal((html.match(/data-tool-activity-select="t1"/g) || []).length, 1);
+  assert.equal((html.match(/data-tool-activity-select="t2"/g) || []).length, 1);
+});
+
+// renderLiveToolOutputCards finds its card with a single querySelector, so the
+// marker has to name exactly one node. When an assistant turn's own stack also
+// carried it, a tool event could rewrite or delete that turn's stack instead of
+// the tail.
+test("only the tail activity stack carries the live-stack marker", () => {
+  const { html } = renderSnapshot([{
+    id: "u1",
+    role: "user",
+    contentText: "go",
+  }, {
+    id: "a1",
+    role: "assistant",
+    runId: "run-1",
+    contentText: "Working on it.",
+  }], {
+    agent: { id: "agent-1", status: "running" },
+    liveToolOutputs: {
+      owned: { agentId: "agent-1", runId: "run-1", messageId: "a1", toolUseId: "owned", toolName: "Grep", status: "running" },
+      pending: { agentId: "agent-1", runId: "run-2", toolUseId: "pending", toolName: "Bash", status: "running" },
+    },
+  });
+
+  const markers = (html.match(/data-live-tool-output-stack/g) || []).length;
+  assert.equal(markers, 1, "the marker names one node");
+  // And it is the tail, not the per-message stack.
+  const marker = html.indexOf("data-live-tool-output-stack");
+  const perMessage = html.indexOf('data-message-activity="a1"');
+  assert.ok(perMessage >= 0, "the persisted turn still has its own stack");
+  const stackStart = html.lastIndexOf("<section", marker);
+  assert.ok(stackStart < perMessage || stackStart > html.indexOf("</div>", perMessage), "the marker is outside the per-message wrapper");
+});
+
+test("ownerless live tools alone do not open a second activity stack", () => {
+  const { html } = renderSnapshot([{
+    id: "u1",
+    role: "user",
+    contentText: "go",
+  }, {
+    id: "a1",
+    role: "assistant",
+    runId: "run-1",
+    contentText: "Measured both.",
+    reasoningText: "I checked the current conditions first.",
+  }], {
+    agent: { id: "agent-1", status: "running" },
+    liveToolOutputs: {
+      t1: { agentId: "agent-1", runId: "run-1", toolUseId: "t1", toolName: "Grep", status: "completed" },
+      t2: { agentId: "agent-1", runId: "run-1", toolUseId: "t2", toolName: "Read", status: "completed" },
+    },
+  });
+
+  assert.equal((html.match(/tool-activity-summary/g) || []).length, 1);
+  assert.equal((html.match(/data-live-tool-output-stack/g) || []).length, 0);
+  assert.match(html, /活动 · 1 步推理 · 2 次工具/);
+});
+
+test("live reasoning already saved on its turn is not repeated by the tail stack", () => {
+  const { html } = renderSnapshot([{
+    id: "u1",
+    role: "user",
+    contentText: "go",
+  }, {
+    id: "a1",
+    role: "assistant",
+    runId: "run-1",
+    contentText: "Measured both.",
+    reasoningText: "I checked the current conditions first.",
+  }], {
+    agent: { id: "agent-1", status: "running" },
+    liveReasoningSteps: [{ id: "reasoning-1", runId: "run-1", text: "I checked the current conditions first.", beforeToolUseId: "" }],
+  });
+
+  assert.equal((html.match(/tool-activity-summary/g) || []).length, 1);
+  assert.equal((html.match(/data-live-tool-output-stack/g) || []).length, 0);
+  assert.match(html, /活动 · 1 步推理/);
+});
+
+// The handover is per step, not per run: a run that has already saved one turn
+// keeps showing the thinking of the turn it is working on now.
+test("the tail keeps live reasoning for a turn that is not persisted yet", () => {
+  const { html } = renderSnapshot([{
+    id: "u1",
+    role: "user",
+    contentText: "go",
+  }, {
+    id: "a1",
+    role: "assistant",
+    runId: "run-1",
+    contentText: "First pass done.",
+    reasoningText: "I checked the current conditions first.",
+  }], {
+    agent: { id: "agent-1", status: "running" },
+    liveAssistantRunId: "run-1",
+    liveReasoningSteps: [
+      { id: "reasoning-1", runId: "run-1", text: "I checked the current conditions first.", beforeToolUseId: "" },
+      { id: "reasoning-2", runId: "run-1", text: "Now verifying the second half.", beforeToolUseId: "" },
+    ],
+  });
+
+  assert.equal((html.match(/tool-activity-summary/g) || []).length, 2);
+  assert.equal((html.match(/data-live-tool-output-stack/g) || []).length, 1);
+  assert.match(html, /Now verifying the second half\./);
+  // The saved step is rendered once, by the turn that owns it.
+  assert.equal((html.match(/I checked the current conditions first\./g) || []).length, 1);
+});
+
+test("a streaming reasoning draft is never dropped as already persisted", () => {
+  const { html } = renderSnapshot([{
+    id: "u1",
+    role: "user",
+    contentText: "go",
+  }, {
+    id: "a1",
+    role: "assistant",
+    runId: "run-1",
+    contentText: "First pass done.",
+    reasoningText: "I checked the current conditions first.",
+  }], {
+    agent: { id: "agent-1", status: "running" },
+    liveAssistantRunId: "run-1",
+    liveReasoningDraft: { runId: "run-1", text: "Still thinking about the next step." },
+  });
+
+  assert.match(html, /Still thinking about the next step\./);
+  assert.equal((html.match(/data-live-tool-output-stack/g) || []).length, 1);
 });
 
 test("a tool call whose owning message is not on screen falls back to the run-level stack", () => {

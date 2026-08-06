@@ -148,6 +148,15 @@ test("紧凑配置卡片保留安全边界、信任提示与 Hook 历史控件",
   assert.doesNotMatch(roles, /<img src=x/);
   assert.match(roles, /&lt;img src=x/);
 
+  // The panel is titled for what it manages, not for the fixed boundary field.
+  assert.match(roles, /<h2>自定义子代理<\/h2>/);
+  // The 9-field editor opens on demand so the list stays reachable.
+  assert.match(roles, /data-role-add/);
+  assert.doesNotMatch(roles, /data-role-form/);
+  // Preview is a role list under a collapsed disclosure, not a JSON dump.
+  assert.match(roles, /class="settings-card settings-page-section skill-role-preview"/);
+  assert.doesNotMatch(roles, /skill-command-prompt/);
+
   center.renderTab("global-prompts");
   await tick();
   const globalPrompts = center.renderTab("global-prompts");
@@ -183,4 +192,87 @@ test("紧凑配置卡片保留安全边界、信任提示与 Hook 历史控件",
   assert.match(hooks, /data-hook-retry="e-1"/);
   assert.doesNotMatch(hooks, /普通钩子描述|env:PRIVATE|TOKEN|actual-secret/);
   assert.doesNotMatch(hooks, /<img src=x/);
+});
+
+test("自定义子代理面板按需展开表单、折叠修订并把有效预览渲染成角色清单", async () => {
+  const addButton = fakeNode();
+  const revisionsButton = fakeNode({ roleRevisions: "r-1" });
+  const center = createSkillsConfigCenter({
+    request: async (path) => {
+      if (path.startsWith("/api/agent-role-definitions?")) return { items: [{ id: "r-1", key: "doc-writer", displayName: "Doc writer", scope: "global", revision: 3 }] };
+      if (path === "/api/agent-role-definitions/r-1/revisions") return { items: [{ revision: 1 }, { revision: 2 }] };
+      if (path.startsWith("/api/effective-child-roles")) {
+        return { roles: [
+          { key: "general", baseRole: "general", builtIn: true, readOnly: false, allowedTools: ["Read", "Bash", "Grep"] },
+          { key: "doc-writer", displayName: "Doc writer", baseRole: "general", builtIn: false, readOnly: true, disableExec: true, allowedTools: ["Read"] },
+        ] };
+      }
+      return { items: [] };
+    },
+    skillsController: skillsController(),
+    getAgent: () => ({ id: "a-1" }),
+  });
+
+  center.renderTab("subagents");
+  await tick();
+
+  // Add opens the editor; it is absent until then.
+  const addRoot = fakeRoot({ nodes: {} });
+  addRoot.querySelector = (selector) => (selector === "[data-role-add]" ? addButton : null);
+  center.bind(addRoot, "subagents");
+  assert.doesNotMatch(center.renderTab("subagents"), /data-role-form/);
+  addButton.handlers.get("click")();
+  const opened = center.renderTab("subagents");
+  assert.match(opened, /data-role-form/);
+  // Cancel is always offered now, since it is the only way to close the editor.
+  assert.match(opened, /data-role-cancel/);
+
+  // Revisions land inside a disclosure rather than a bare button row.
+  const revisionsRoot = fakeRoot({ nodes: { "[data-role-revisions]": [revisionsButton] } });
+  center.bind(revisionsRoot, "subagents");
+  await revisionsButton.handlers.get("click")();
+  await tick();
+  const withRevisions = center.renderTab("subagents");
+  assert.match(withRevisions, /<details class="skill-card-details"><summary>修订记录<\/summary>/);
+  assert.match(withRevisions, /data-role-restore="r-1" data-source-revision="2"/);
+  // Scope is surfaced on the card; the summary text still is not.
+  assert.match(withRevisions, /<span>doc-writer<\/span><span>全局<\/span><span>修订 3<\/span>/);
+
+  // Effective preview reads as "which subagent_type can I pass", with built-in
+  // and custom distinguished, instead of a raw JSON dump.
+  const previewRoot = fakeRoot({ nodes: {} });
+  previewRoot.querySelector = (selector) => (selector === "[data-role-effective]" ? addButton : null);
+  center.bind(previewRoot, "subagents");
+  await addButton.handlers.get("click")();
+  await tick();
+  const preview = center.renderTab("subagents");
+  assert.match(preview, /<strong>general<\/strong>/);
+  assert.match(preview, /<strong>doc-writer<\/strong>/);
+  assert.match(preview, /工具 3/);
+  assert.match(preview, /skill-config-badge">内置</);
+  assert.match(preview, /skill-config-badge">自定义</);
+  assert.match(preview, /只读上限/);
+  assert.doesNotMatch(preview, /skill-command-prompt/);
+});
+
+test("有效预览遇到非预期形状时回退到原始负载而不是空白", async () => {
+  const refreshButton = fakeNode();
+  const center = createSkillsConfigCenter({
+    request: async (path) => {
+      if (path.startsWith("/api/effective-child-roles")) return { unexpected: "shape" };
+      return { items: [] };
+    },
+    skillsController: skillsController(),
+    getAgent: () => ({ id: "a-1" }),
+  });
+  center.renderTab("subagents");
+  await tick();
+  const root = fakeRoot({ nodes: {} });
+  root.querySelector = (selector) => (selector === "[data-role-effective]" ? refreshButton : null);
+  center.bind(root, "subagents");
+  await refreshButton.handlers.get("click")();
+  await tick();
+  const preview = center.renderTab("subagents");
+  assert.match(preview, /skill-command-prompt/);
+  assert.match(preview, /unexpected/);
 });

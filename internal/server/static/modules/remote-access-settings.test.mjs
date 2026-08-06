@@ -281,6 +281,66 @@ test("saves host-local policy with revision", async () => {
   assert.doesNotMatch(controller.render(), /href="\/auth\/remote-access"/);
 });
 
+test("policy submit drives the busy state on the header button outside the form", async () => {
+  const previousDocument = globalThis.document;
+  const submitButton = {
+    dataset: {},
+    textContent: "保存策略",
+    disabled: false,
+    attributes: new Map(),
+    setAttribute(name, value) { this.attributes.set(name, String(value)); },
+    removeAttribute(name) { this.attributes.delete(name); },
+  };
+  const form = {
+    listeners: new Map(),
+    addEventListener(name, handler) { this.listeners.set(name, handler); },
+    // The button moved into the card header, so a form-scoped lookup finds
+    // nothing. If the handler regresses to that, the busy state goes missing.
+    querySelector: () => null,
+  };
+  // bind() also wires refresh, tunnel and password controls. They are irrelevant
+  // here, so they get inert stubs rather than shaping the whole test around them.
+  const inert = () => ({ checked: false, value: "", addEventListener() {}, setAttribute() {} });
+  const elements = {
+    remoteAccessPolicyForm: form,
+    remoteAccessAllowFullAccess: { checked: true, addEventListener() {}, setAttribute() {} },
+    remoteAccessNativePicker: { checked: false },
+    remoteAccessPolicyCurrentPassword: { value: "" },
+    refreshRemoteAccessBtn: inert(),
+    remoteAccessGeneratePasswordForm: inert(),
+    remoteAccessCustomPasswordForm: inert(),
+  };
+  let busyDuringRequest = null;
+  globalThis.document = {
+    getElementById: (id) => elements[id] ?? null,
+    querySelector: (selector) => (selector === "[data-remote-policy-submit]" ? submitButton : null),
+  };
+  try {
+    const state = { remoteAccess: localAccess };
+    const controller = createRemoteAccessSettingsController({
+      state,
+      request: async () => {
+        busyDuringRequest = { disabled: submitButton.disabled, aria: submitButton.attributes.get("aria-busy") };
+        return { ...localAccess.policy, allowFullAccess: true, defaultMode: "full", revision: 2 };
+      },
+    });
+    controller.bind();
+    await form.listeners.get("submit")({ preventDefault() {}, currentTarget: form });
+
+    // A form-scoped lookup resolves to null here, and setButtonBusy no-ops on
+    // null, so the old code path would leave the button untouched instead of
+    // throwing. Pinning both halves keeps that silent failure from returning.
+    assert.equal(form.querySelector("[data-remote-policy-submit]"), null);
+    assert.deepEqual(busyDuringRequest, { disabled: true, aria: "true" });
+    assert.equal(submitButton.disabled, false);
+    assert.equal(submitButton.attributes.has("aria-busy"), false);
+    assert.equal(state.remoteAccess.policy.allowFullAccess, true);
+  } finally {
+    if (previousDocument === undefined) delete globalThis.document;
+    else globalThis.document = previousDocument;
+  }
+});
+
 test("generates and consumes a one-time password locally without retaining it in state", async () => {
   const requests = [];
   const state = { remoteAccess: localAccess };
@@ -333,12 +393,26 @@ test("renders remote security settings read-only and host-local settings editabl
   for (const pattern of [
     /<input id="remoteAccessAllowFullAccess"[^>]*>/,
     /<input id="remoteAccessNativePicker"[^>]*>/,
-    /<button class="settings-action-btn primary" type="submit" data-remote-policy-submit[^>]*>/,
+    /<button class="settings-action-btn primary"[^>]*data-remote-policy-submit[^>]*>/,
   ]) {
     const tag = localHTML.match(pattern)?.[0] || "";
     assert.ok(tag);
     assert.equal(tag.includes("disabled"), false);
   }
+
+  // Save moved into the policy card header, so it needs an explicit form
+  // association to keep submitting from outside the <form>.
+  assert.match(localHTML, /data-remote-policy-submit/);
+  assert.match(localHTML, /<button class="settings-action-btn primary"[^>]*form="remoteAccessPolicyForm"[^>]*data-remote-policy-submit/);
+  assert.doesNotMatch(localHTML, /策略版本/);
+  assert.doesNotMatch(localHTML, /保存后请重新登录远程会话/);
+
+  // Capabilities render as a badge grid; booleans carry a tone, enums stay plain.
+  assert.match(localHTML, /class="remote-access-capability-grid settings-card-content"/);
+  assert.match(localHTML, /class="remote-access-capability-cell"><span>终端<\/span><span class="settings-badge ok">允许<\/span>/);
+  assert.match(localHTML, /class="remote-access-capability-cell"><span>文件系统范围<\/span><strong>full<\/strong>/);
+  assert.match(restrictedHTML, /class="remote-access-capability-cell"><span>终端<\/span><span class="settings-badge warn">不允许<\/span>/);
+  assert.doesNotMatch(localHTML, /runtime-kv-list/);
 
   const allowedButRestricted = createRemoteAccessSettingsController({
     state: { remoteAccess: { ...localAccess, policy: { ...localAccess.policy, allowFullAccess: true, defaultMode: "restricted" } } },

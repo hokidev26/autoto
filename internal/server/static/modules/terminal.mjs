@@ -145,10 +145,12 @@ export function createTerminalController({
     output.textContent = lines.slice(lines.length - maxLines).join("\n");
   }
 
+  // Two sections only. Reconnect/collapse are reachable from the terminal panel
+  // and workbench header, so repeating them here was noise. Clear and copy have
+  // no other entry point in the UI, so they stay — promoted into the hero action
+  // row rather than living in a separate card grid.
   function renderTerminalSettingsContent() {
     const prefs = currentTerminalPreferences();
-    const stats = terminalOutputStats();
-    const collapsed = $("appShell")?.classList.contains("terminal-collapsed") || false;
     const wsLabel = terminalConnectionLabel();
     const cwd = state.agent?.cwd || state.project?.gitPath || t("workspace.terminal.agentNotSelected");
     const locked = remoteTerminalLocked();
@@ -156,45 +158,22 @@ export function createTerminalController({
       <div class="settings-live-page terminal-settings-page">
         <section class="settings-hero-card terminal-hero-card settings-page-section settings-card">
           <div class="settings-card-header">
-            <div class="settings-hero-kicker">${escapeHtml(t("workspace.terminal.management"))}</div>
-            <div class="settings-hero-title settings-card-title">${escapeHtml(wsLabel)} · ${escapeHtml(collapsed ? t("workspace.terminal.collapsed") : t("workspace.terminal.expanded"))}</div>
-            <p class="settings-card-description" data-settings-help-copy>${escapeHtml(locked ? remoteTerminalLockedMessage() : sx("terminal.description"))}</p>
+            <div>
+              <div class="settings-hero-kicker">${escapeHtml(t("workspace.terminal.management"))}</div>
+              <div class="settings-hero-title settings-card-title">${escapeHtml(wsLabel)}</div>
+              <p class="settings-card-description path">${escapeHtml(cwd)}</p>
+              <p class="settings-card-description" data-settings-help-copy>${escapeHtml(locked ? remoteTerminalLockedMessage() : sx("terminal.description"))}</p>
+            </div>
+            <span class="settings-status-pill settings-badge ${state.agent ? "ok" : "warn"}">${escapeHtml(state.agent ? t("workspace.terminal.agentSelected") : t("workspace.terminal.agentNotSelected"))}</span>
           </div>
           <div class="settings-action-row settings-toolbar settings-inline-actions settings-card-footer">
             <button id="terminalReconnectSettingsBtn" class="settings-action-btn primary" type="button" ${locked ? "disabled" : ""}>${escapeHtml(t("workspace.terminal.reconnect"))}</button>
             <button id="terminalFocusSettingsBtn" class="settings-action-btn subtle" type="button" ${locked ? "disabled" : ""}>${escapeHtml(t("workspace.terminal.focus"))}</button>
+            <button class="settings-action-btn subtle" type="button" data-terminal-action="clear">${escapeHtml(t("workspace.terminal.clear"))}</button>
+            <button class="settings-action-btn subtle" type="button" data-terminal-action="copy">${escapeHtml(t("workspace.terminal.copy"))}</button>
           </div>
         </section>
         ${locked ? `<section class="settings-provider-section settings-page-section settings-card settings-alert" role="alert"><div class="settings-provider-section-head settings-card-header"><div><div class="settings-provider-title settings-card-title">${escapeHtml(t("workspace.terminal.remoteDisabled"))}</div><div class="settings-provider-meta settings-card-description">${escapeHtml(remoteTerminalLockedMessage())}</div></div></div></section>` : ""}
-        <div class="settings-status-strip settings-stat-grid">
-          <div class="settings-stat-card"><strong>${escapeHtml(wsLabel)}</strong><span>${escapeHtml(t("workspace.terminal.connection"))}</span></div>
-          <div class="settings-stat-card"><strong>${escapeHtml(locked ? t("workspace.terminal.remoteDisabled") : t("workspace.terminal.available"))}</strong><span>${escapeHtml(sx("terminal.terminalPolicy"))}</span></div>
-          <div class="settings-stat-card"><strong>${escapeHtml(formatNumber(stats.lines))}</strong><span>${escapeHtml(sx("terminal.outputLines"))}</span></div>
-          <div class="settings-stat-card"><strong>${escapeHtml(formatNumber(stats.chars))}</strong><span>${escapeHtml(sx("terminal.characters"))}</span></div>
-        </div>
-        <section class="settings-provider-section highlighted settings-page-section settings-card">
-          <div class="settings-provider-section-head settings-card-header">
-            <div>
-              <div class="settings-provider-title settings-card-title">${escapeHtml(t("workspace.terminal.currentSession"))}</div>
-              <div class="settings-provider-meta settings-card-description path">${escapeHtml(cwd)}</div>
-            </div>
-            <span class="settings-status-pill settings-badge ${state.agent ? "ok" : "warn"}">${escapeHtml(state.agent ? t("workspace.terminal.agentSelected") : t("workspace.terminal.agentNotSelected"))}</span>
-          </div>
-          <div class="terminal-control-grid settings-card-content">
-            <button class="terminal-control-card settings-card" type="button" data-terminal-action="reconnect" ${locked ? "disabled" : ""}>
-              <span>${escapeHtml(t("workspace.terminal.reconnect"))}</span>
-            </button>
-            <button class="terminal-control-card settings-card" type="button" data-terminal-action="toggle" ${locked ? "disabled" : ""}>
-              <span>${escapeHtml(collapsed ? t("chat.expandTerminal") : t("terminal.collapse"))}</span>
-            </button>
-            <button class="terminal-control-card settings-card" type="button" data-terminal-action="clear">
-              <span>${escapeHtml(t("workspace.terminal.clear"))}</span>
-            </button>
-            <button class="terminal-control-card settings-card" type="button" data-terminal-action="copy">
-              <span>${escapeHtml(t("workspace.terminal.copy"))}</span>
-            </button>
-          </div>
-        </section>
         <section class="settings-provider-section settings-page-section settings-card">
           <div class="settings-provider-section-head settings-card-header">
             <div>
@@ -211,22 +190,6 @@ export function createTerminalController({
             <div class="appearance-choice-grid terminal-retention-grid settings-data-list">
               ${[1000, 3000, 5000, 10000].map((value) => renderTerminalMaxLineChoice(value, prefs.maxLines)).join("")}
             </div>
-          </div>
-        </section>
-        <section class="settings-provider-section settings-page-section settings-card">
-          <div class="settings-provider-section-head settings-card-header">
-            <div>
-              <div class="settings-provider-title settings-card-title">${escapeHtml(t("workspace.terminal.keyboardShortcuts"))}</div>
-              <div class="settings-provider-meta settings-card-description" data-settings-help-copy>${escapeHtml(sx("terminal.shortcutsDescription"))}</div>
-            </div>
-          </div>
-          <div class="terminal-shortcut-grid settings-data-list settings-card-content">
-            ${renderTerminalShortcut("Enter", sx("terminalExtras.shortcuts.sendReturn"))}
-            ${renderTerminalShortcut("Ctrl + C", sx("terminalExtras.shortcuts.interrupt"))}
-            ${renderTerminalShortcut("Tab", sx("terminalExtras.shortcuts.complete"))}
-            ${renderTerminalShortcut("Arrow keys", sx("terminalExtras.shortcuts.historyAndCursor"))}
-            ${renderTerminalShortcut("Paste", sx("terminalExtras.shortcuts.paste"))}
-            ${renderTerminalShortcut(t("workspace.terminal.reconnect"), sx("terminalExtras.shortcuts.synchronizeSize"))}
           </div>
         </section>
       </div>
@@ -268,10 +231,6 @@ export function createTerminalController({
     `;
   }
 
-  function renderTerminalShortcut(keys, description) {
-    return `<div class="terminal-shortcut-card settings-data-row"><strong>${escapeHtml(keys)}</strong><span>${escapeHtml(description)}</span></div>`;
-  }
-
   function bindTerminalSettingsActions() {
     $("terminalReconnectSettingsBtn")?.addEventListener("click", reconnectTerminalFromSettings);
     $("terminalFocusSettingsBtn")?.addEventListener("click", focusTerminalPanel);
@@ -287,8 +246,6 @@ export function createTerminalController({
   }
 
   async function handleTerminalSettingsAction(action) {
-    if (action === "reconnect") reconnectTerminalFromSettings();
-    if (action === "toggle") toggleTerminal(!$("appShell").classList.contains("terminal-collapsed"));
     if (action === "clear") clearTerminalOutput();
     if (action === "copy") await copyTerminalOutput();
     if (state.activeSettingsPanel === "terminals") refreshActiveSettingsPanel();

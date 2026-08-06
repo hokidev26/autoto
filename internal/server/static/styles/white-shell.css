@@ -186,9 +186,22 @@ body.white-shell.theme-light .global-rail-nav .global-rail-button:last-child {
   margin-top: 0;
 }
 
-body.white-shell.theme-light .global-rail button,
-body.white-shell.theme-light .global-rail a,
-body.white-shell.theme-light .global-rail-item {
+/* A layout-neutral wrapper: its child stays a direct flex item of the nav, so
+   every layout except docked renders exactly as it did before this element
+   existed. Docked mode overrides this to a flex row and puts the search and
+   create controls beside the conversation entry. */
+body.white-shell.theme-light .global-rail-nav-row {
+  display: contents;
+}
+
+/* These describe the rail's own nav entries. The :not() keeps them off the docked
+   conversation list, which in that layout is a real descendant of .global-rail:
+   without it every button in the list (disclosure, fork, row actions) picked up a
+   58px tall, full-width, column-stacked nav entry's shape and forced each card to
+   nearly twice its height. */
+body.white-shell.theme-light .global-rail button:not(.global-rail-dock *),
+body.white-shell.theme-light .global-rail a:not(.global-rail-dock *),
+body.white-shell.theme-light .global-rail-item:not(.global-rail-dock *) {
   width: 100%;
   min-height: 52px;
   border: 0;
@@ -210,15 +223,15 @@ body.white-shell.theme-light .global-rail-item {
 }
 
 body.white-shell.theme-light .global-rail-icon,
-body.white-shell.theme-light .global-rail button > span:first-child,
-body.white-shell.theme-light .global-rail a > span:first-child {
+body.white-shell.theme-light .global-rail button:not(.global-rail-dock *) > span:first-child,
+body.white-shell.theme-light .global-rail a:not(.global-rail-dock *) > span:first-child {
   font-size: 21px;
   line-height: 1;
 }
 
-body.white-shell.theme-light .global-rail button:hover,
-body.white-shell.theme-light .global-rail a:hover,
-body.white-shell.theme-light .global-rail-item:hover {
+body.white-shell.theme-light .global-rail button:not(.global-rail-dock *):hover,
+body.white-shell.theme-light .global-rail a:not(.global-rail-dock *):hover,
+body.white-shell.theme-light .global-rail-item:not(.global-rail-dock *):hover {
   background: #f5f7ff;
   color: var(--ws-primary);
 }

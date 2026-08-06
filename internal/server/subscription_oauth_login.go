@@ -78,15 +78,15 @@ type subscriptionOAuthLoginSession struct {
 	status          subscriptionOAuthLoginStatus
 	// locale is captured when the login starts so the server-rendered callback
 	// page matches the language selected in Autoto, not the browser's.
-	locale          remoteLoginLocale
-	expiresAt       time.Time
-	errorMessage    string
-	account         *subscriptionauth.AccountSummary
-	listeners       []net.Listener
-	callbackPort    int
-	server          *http.Server
-	ctx             context.Context
-	cancel          context.CancelFunc
+	locale       remoteLoginLocale
+	expiresAt    time.Time
+	errorMessage string
+	account      *subscriptionauth.AccountSummary
+	listeners    []net.Listener
+	callbackPort int
+	server       *http.Server
+	ctx          context.Context
+	cancel       context.CancelFunc
 }
 
 type subscriptionOAuthLoginResponse struct {

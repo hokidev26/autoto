@@ -28,7 +28,19 @@ function makeNode(id = "") {
     nextSibling: null,
     children: [],
     hidden: false,
-    classList: { add() {}, remove() {}, toggle() {}, contains: () => false },
+    // A real record rather than a no-op: the rail's compact state is part of the
+    // docking contract, so the tests have to be able to see it go on and come off.
+    classes: new Set(),
+    classList: {
+      add(...names) { names.forEach((n) => node.classes.add(n)); },
+      remove(...names) { names.forEach((n) => node.classes.delete(n)); },
+      toggle(name, force) {
+        const on = force === undefined ? !node.classes.has(name) : Boolean(force);
+        if (on) node.classes.add(name); else node.classes.delete(name);
+        return on;
+      },
+      contains: (name) => node.classes.has(name),
+    },
     getAttribute: (name) => (attrs.has(name) ? attrs.get(name) : null),
     setAttribute: (name, value) => attrs.set(name, value),
     removeAttribute: (name) => attrs.delete(name),
@@ -157,6 +169,80 @@ test("inline styles applied while docked are removed again on exit", () => {
     assert.equal(fixture.card.style.props.size, 0, "card inline styles are cleared");
     assert.equal(fixture.appShell.style.props.size, 0, "app shell grid override is cleared");
   } finally {
+    restore();
+  }
+});
+
+// layoutSettingsShell pins the first grid column to the columns-mode width so
+// the settings panel can use the stored width for its own category list. That
+// leaves the rail narrow while it may still be in docked mode, whose CSS is
+// written for 296px. CSS cannot read an inline grid value, so the narrowing is
+// published as a class; without it the docked rail clipped "AUTOTO" and stacked
+// each label one character per line inside 68px.
+test("docking publishes the rail's narrowed state so CSS can compact it", () => {
+  const fixture = makeShellFixture();
+  const { helpers, restore } = makeHelpers(fixture);
+  try {
+    helpers.enterSettingsShell();
+    assert.ok(
+      fixture.appShell.classList.contains("settings-rail-compact"),
+      "the rail is told it was narrowed",
+    );
+    // The flag has to agree with the inline width that caused it.
+    assert.match(fixture.appShell.style.getPropertyValue("grid-template-columns"), /^(?:68|76)px /);
+
+    helpers.exitSettingsShell();
+    assert.equal(
+      fixture.appShell.classList.contains("settings-rail-compact"),
+      false,
+      "the rail goes back to whatever its navigation stage says",
+    );
+  } finally {
+    restore();
+  }
+});
+
+// Only the desktop branch narrows the rail, so the flag has to follow the
+// viewport across a resize. Otherwise a phone-width layout that never squeezed
+// the rail would keep the compact styling.
+test("the compact flag tracks the viewport, since only desktop narrows the rail", () => {
+  const fixture = makeShellFixture();
+  const { helpers, restore } = makeHelpers(fixture);
+  const previousMatchMedia = globalThis.matchMedia;
+  // The module asks for (min-width: 768px) to pick a branch and (min-width:
+  // 1280px) to pick between 76px and 68px.
+  const setViewport = (width) => {
+    globalThis.matchMedia = (query) => {
+      const min = Number(/min-width:\s*(\d+)px/.exec(query)?.[1] ?? 0);
+      return { matches: width >= min };
+    };
+  };
+  try {
+    setViewport(1440);
+    helpers.enterSettingsShell();
+    assert.ok(fixture.appShell.classList.contains("settings-rail-compact"), "desktop narrows the rail");
+    assert.match(fixture.appShell.style.getPropertyValue("grid-template-columns"), /^76px /, "and uses the wide rail width");
+
+    setViewport(1024);
+    helpers.layoutSettingsShell();
+    assert.match(fixture.appShell.style.getPropertyValue("grid-template-columns"), /^68px /, "narrower desktop still narrows");
+    assert.ok(fixture.appShell.classList.contains("settings-rail-compact"));
+
+    setViewport(500);
+    helpers.layoutSettingsShell();
+    assert.equal(fixture.appShell.style.getPropertyValue("grid-template-columns"), "", "mobile drops the override");
+    assert.equal(
+      fixture.appShell.classList.contains("settings-rail-compact"),
+      false,
+      "and drops the flag with it",
+    );
+
+    setViewport(1440);
+    helpers.layoutSettingsShell();
+    assert.ok(fixture.appShell.classList.contains("settings-rail-compact"), "returning to desktop restores both");
+  } finally {
+    if (previousMatchMedia === undefined) delete globalThis.matchMedia;
+    else globalThis.matchMedia = previousMatchMedia;
     restore();
   }
 });

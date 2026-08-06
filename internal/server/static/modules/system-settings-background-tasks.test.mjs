@@ -58,20 +58,30 @@ async function withElements(elements, run) {
   }
 }
 
-test("background task card renders defaults, ranges, and nested-depth disabled state", () => {
+test("background task card groups concurrency apart from the nesting switch and hides depth while off", () => {
   const controller = createSystemSettingsController({ state: { runtimeSummary: runtimeSummary(undefined) } });
   const markup = controller.renderRuntimeSettingsContent();
 
   assert.match(markup, /class="settings-info-card settings-card settings-card-content background-task-settings-card"/);
+  assert.match(markup, /class="background-task-concurrency-grid settings-form-grid"/);
   assert.match(markup, /id="runtimeBackgroundWorkerCount"[^>]*min="1"[^>]*max="16"[^>]*value="8"/);
   assert.match(markup, /id="runtimeBackgroundPerAgentLimit"[^>]*min="1"[^>]*max="8"[^>]*value="4"/);
   assert.match(markup, /id="runtimeAllowNestedSubagents" type="checkbox"/);
   assert.doesNotMatch(markup, /id="runtimeAllowNestedSubagents"[^>]*checked/);
-  assert.match(markup, /id="runtimeMaxSubagentDepth"[^>]*min="2"[^>]*max="4"[^>]*value="2"[^>]*disabled/);
-  assert.match(markup, /开启嵌套子代理会增加请求、Token 消耗和编辑冲突，但不会扩大权限。/);
+
+  // Nesting off: the group is not lit and the depth/warning block is hidden
+  // rather than rendered as a disabled control.
+  assert.match(markup, /class="background-task-nested-group" data-background-task-nested-group/);
+  assert.match(markup, /data-background-task-nested-detail hidden/);
+  assert.match(markup, /id="runtimeMaxSubagentDepth"[^>]*min="2"[^>]*max="4"[^>]*value="2"/);
+  assert.doesNotMatch(markup, /id="runtimeMaxSubagentDepth"[^>]*disabled/);
+
+  // The cost warning belongs to the nesting group, so it carries the warning
+  // treatment instead of reading as ordinary card copy.
+  assert.match(markup, /class="skill-security-note"[^>]*>开启嵌套子代理会增加请求、Token 消耗和编辑冲突，但不会扩大权限。/);
 });
 
-test("background task card reads persisted values and enables depth when nesting is on", () => {
+test("background task card reads persisted values and reveals depth when nesting is on", () => {
   const controller = createSystemSettingsController({
     state: {
       runtimeSummary: runtimeSummary({
@@ -88,28 +98,37 @@ test("background task card reads persisted values and enables depth when nesting
   assert.match(markup, /id="runtimeBackgroundPerAgentLimit"[^>]*value="7"/);
   assert.match(markup, /id="runtimeAllowNestedSubagents"[^>]*checked/);
   assert.match(markup, /id="runtimeMaxSubagentDepth"[^>]*value="4"/);
-  assert.doesNotMatch(markup, /id="runtimeMaxSubagentDepth"[^>]*disabled/);
+  assert.match(markup, /class="background-task-nested-group is-on"/);
+  assert.doesNotMatch(markup, /data-background-task-nested-detail hidden/);
 });
 
-test("nested sub-agent switch toggles the depth input disabled state", async () => {
+test("nested sub-agent switch reveals the depth block in place without a panel re-render", async () => {
   const controller = createSystemSettingsController({ state: { runtimeSummary: runtimeSummary({}) } });
   controller.renderRuntimeSettingsContent();
 
-  const nestedToggle = fakeInput("", { checked: false });
-  const depthInput = fakeInput(2, { disabled: true });
-  const elements = {
-    runtimeAllowNestedSubagents: nestedToggle,
-    runtimeMaxSubagentDepth: depthInput,
+  const detail = { hidden: true };
+  const group = {
+    classes: new Set(),
+    classList: {
+      toggle(name, on) { if (on) group.classes.add(name); else group.classes.delete(name); },
+    },
+    querySelector: (selector) => (selector === "[data-background-task-nested-detail]" ? detail : null),
   };
+  const nestedToggle = fakeInput("", { checked: false });
+  nestedToggle.closest = (selector) => (selector === "[data-background-task-nested-group]" ? group : null);
 
-  await withElements(elements, async () => {
+  await withElements({ runtimeAllowNestedSubagents: nestedToggle }, async () => {
     controller.bindRuntimeSettingsActions();
+
     nestedToggle.checked = true;
     nestedToggle.dispatch("change");
-    assert.equal(depthInput.disabled, false);
+    assert.equal(detail.hidden, false);
+    assert.equal(group.classes.has("is-on"), true);
+
     nestedToggle.checked = false;
     nestedToggle.dispatch("change");
-    assert.equal(depthInput.disabled, true);
+    assert.equal(detail.hidden, true);
+    assert.equal(group.classes.has("is-on"), false);
   });
 });
 

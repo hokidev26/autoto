@@ -1282,6 +1282,12 @@ export function renderToolActivityStackHTML(toolCalls = [], options = {}) {
   const totalCount = Number.isFinite(requestedTotal) && requestedTotal > records.length ? Math.floor(requestedTotal) : records.length;
   const omitted = Math.max(0, totalCount - records.length);
   const modeClass = options.compact ? "conversation-tool-activity " : "";
+  // data-live-tool-output-stack is how the incremental renderer finds the one
+  // tail card it owns, so only the tail may carry it. A per-message stack is
+  // also "live" whenever it holds streaming records, and letting it publish the
+  // same marker made querySelector return whichever came first in the document:
+  // the tail update then rewrote or removed an assistant turn's own stack.
+  const tail = options.tail === undefined ? Boolean(options.live) && !options.compact : Boolean(options.tail);
   const reasoningCount = reasoningSteps.length;
   // Prefer the combined title when reasoning steps are present so the summary
   // reflects both the thinking trail and the tool calls under it. A turn that
@@ -1293,7 +1299,7 @@ export function renderToolActivityStackHTML(toolCalls = [], options = {}) {
       : cr("activity.processTitleOnlyReasoning", { reasoning: reasoningCount }))
     : cr("activity.processTitle", { count: totalCount });
   return `
-    <section class="${options.live ? "live-tool-output-stack " : ""}${modeClass}tool-activity-stack chat-flow-stack chat-flow-left" data-chat-alignment="left" data-tool-activity-stack data-tool-activity-stack-key="${escapeAttr(stackKey)}" data-tool-activity-source="${escapeAttr(source)}" data-tool-activity-count="${escapeAttr(String(totalCount))}" data-tool-activity-visible-count="${escapeAttr(String(records.length))}" data-tool-activity-default="${expanded ? "expanded" : "collapsed"}"${runId ? ` data-run-id="${escapeAttr(runId)}"` : ""}${options.live ? " data-live-tool-output-stack" : ""}${options.compact ? " data-conversation-run-tool-activity" : ""}>
+    <section class="${options.live ? "live-tool-output-stack " : ""}${modeClass}tool-activity-stack chat-flow-stack chat-flow-left" data-chat-alignment="left" data-tool-activity-stack data-tool-activity-stack-key="${escapeAttr(stackKey)}" data-tool-activity-source="${escapeAttr(source)}" data-tool-activity-count="${escapeAttr(String(totalCount))}" data-tool-activity-visible-count="${escapeAttr(String(records.length))}" data-tool-activity-default="${expanded ? "expanded" : "collapsed"}"${runId ? ` data-run-id="${escapeAttr(runId)}"` : ""}${tail ? " data-live-tool-output-stack" : ""}${options.compact ? " data-conversation-run-tool-activity" : ""}>
       <details class="tool-activity-group"${expanded ? " open" : ""}>
         <summary class="tool-activity-summary">${escapeHtml(summaryTitle)}</summary>
         <ul class="tool-activity-steps">${renderToolActivityRowsHTML(records, reasoningSteps, { ...options, selectedToolUseId })}</ul>
@@ -1969,9 +1975,6 @@ export function createChatRenderingController({
     // the triggering user message. Active runs: anchor the live tool stack at
     // the same position so the order is always: user msg → tools → assistant.
     const anchorRunSummary = isTerminalRunStatus(state.activeRunSummary?.run?.status);
-    const triggerMessageId = state.activeRunSummary?.run?.triggerMessageId
-      || state.activeRunSummary?.run?.trigger_message_id
-      || "";
     let messagesHTML = "";
     let runCardInserted = false;
     let liveToolsInserted = false;
@@ -1979,7 +1982,11 @@ export function createChatRenderingController({
     let lastUserMessageIndex = -1;
     const needsRunAnchor = anchorRunSummary && runSummaryCard;
     const needsLiveAnchor = !anchorRunSummary && liveToolCards;
-    if ((needsRunAnchor && !triggerMessageId) || needsLiveAnchor) {
+    // The outcome anchor resolves the trigger message, the newest user turn, and
+    // the newest assistant turn in one pass, so it is computed whenever the card
+    // needs a home rather than only when the trigger id is missing.
+    const runOutcomeTarget = needsRunAnchor ? runOutcomeAnchor(visibleMessages) : null;
+    if (needsLiveAnchor) {
       visibleMessages.forEach((message, index) => {
         if (userMessageRoles.has(chatMessagePresentation(message).normalizedRole)) {
           lastUserMessageIndex = index;
@@ -2002,19 +2009,20 @@ export function createChatRenderingController({
       // answer, so keep it immediately before that answer on every responsive
       // layout. This matches the desktop transcript order on mobile as well.
       const activityLeadsMessage = chatMessagePresentation(message).normalizedRole === "assistant";
+      // The outcome card leads an assistant anchor for the same reason the
+      // per-message stack does: the work came before the words. Emitting it here,
+      // ahead of both, keeps question → work → answer intact even when the anchor
+      // is the reply itself.
+      if (runSummaryCard && !runCardInserted && runOutcomeTarget?.position === "beforebegin" && message.id === runOutcomeTarget.messageId) {
+        messagesHTML += runSummaryCard;
+        runCardInserted = true;
+      }
       if (activityLeadsMessage) messagesHTML += activityHTML;
       messagesHTML += renderChatMessageCached(message, index);
       if (!activityLeadsMessage) messagesHTML += activityHTML;
-      if (runSummaryCard && !runCardInserted && anchorRunSummary) {
-        // Primary: insert right after the exact trigger message.
-        if (triggerMessageId && message.id === triggerMessageId) {
-          messagesHTML += runSummaryCard;
-          runCardInserted = true;
-        // Fallback: insert after the last user message.
-        } else if (!triggerMessageId && index === lastUserMessageIndex) {
-          messagesHTML += runSummaryCard;
-          runCardInserted = true;
-        }
+      if (runSummaryCard && !runCardInserted && runOutcomeTarget?.position === "afterend" && message.id === runOutcomeTarget.messageId) {
+        messagesHTML += runSummaryCard;
+        runCardInserted = true;
       }
       // For active runs anchor live tool cards after the last user message so
       // the order is: user message → tool activity → assistant reply.
@@ -2146,7 +2154,7 @@ export function createChatRenderingController({
     // markup also depends on the in-progress draft text and attached files,
     // neither of which live on the message object itself.
     const correctionState = editing
-      ? `${state.correctionText ?? ""} ${(Array.isArray(state.correctionFiles) ? state.correctionFiles : []).map((file) => file?.name || "").join(",")}`
+      ? `${state.correctionText ?? ""}\u0000${(Array.isArray(state.correctionFiles) ? state.correctionFiles : []).map((file) => file?.name || "").join(",")}`
       : "";
     return [
       JSON.stringify(message),
@@ -2573,6 +2581,67 @@ export function createChatRenderingController({
     return ownedToolUseIds;
   }
 
+  // The run-level outcome card describes the work between a question and its
+  // answer, so it has exactly one correct home: after the message that triggered
+  // the run, and before the reply that closed it. Both paint paths resolve that
+  // home here so neither can drift from the other.
+  //
+  // The trigger id is only usable when that message is actually on screen. A
+  // conversation opened at its tail may not have loaded the trigger yet, and the
+  // previous code had no fallback for that case: the card fell through to the
+  // container tail, i.e. below the assistant's answer. Hence the ladder --
+  // trigger, then the newest user turn, then the newest assistant turn (which
+  // the card leads rather than trails).
+  function runOutcomeAnchor(visibleMessages) {
+    const messages = Array.isArray(visibleMessages) ? visibleMessages : [];
+    if (!messages.length) return null;
+    const triggerId = String(state.activeRunSummary?.run?.triggerMessageId
+      || state.activeRunSummary?.run?.trigger_message_id
+      || "");
+    let lastUser = null;
+    let lastAssistant = null;
+    for (const message of messages) {
+      const messageId = String(message?.id || "");
+      if (!messageId) continue;
+      const role = chatMessagePresentation(message).normalizedRole;
+      if (triggerId && messageId === triggerId) {
+        return { messageId, position: userMessageRoles.has(role) ? "afterend" : "beforebegin" };
+      }
+      if (userMessageRoles.has(role)) lastUser = messageId;
+      else if (role === "assistant") lastAssistant = messageId;
+    }
+    if (lastUser) return { messageId: lastUser, position: "afterend" };
+    if (lastAssistant) return { messageId: lastAssistant, position: "beforebegin" };
+    return null;
+  }
+
+  // Places a freshly built outcome card in the live DOM using the same anchor the
+  // full repaint uses. Before this existed the incremental path had no anchor at
+  // all: it looked for the streaming assistant card, and once a run finished that
+  // card was already gone, so every terminal run appended its activity to the
+  // very bottom of the transcript -- underneath the answer it belonged above.
+  function insertRunOutcomeCard(el, html) {
+    const target = runOutcomeAnchor(transcriptMessages(state.currentMessages));
+    const anchor = target ? el.querySelector(`[data-message-id="${cssIdentifierEscape(target.messageId)}"]`) : null;
+    if (anchor) {
+      // An assistant anchor already has its own per-message activity stack
+      // rendered immediately above it. Going in before that stack keeps the run
+      // card above both, rather than wedged between a turn's work and its words.
+      if (target.position === "beforebegin") {
+        const stack = el.querySelector(`[data-message-activity="${cssIdentifierEscape(target.messageId)}"]`);
+        (stack || anchor).insertAdjacentHTML("beforebegin", html);
+        return;
+      }
+      anchor.insertAdjacentHTML("afterend", html);
+      return;
+    }
+    // No message anchor at all (an empty or not-yet-painted transcript): keep the
+    // previous behaviour of sitting above the streaming reply and approvals.
+    const fallback = el.querySelector("[data-live-assistant], [data-approval-stack]");
+    if (fallback) fallback.insertAdjacentHTML("beforebegin", html);
+    else el.insertAdjacentHTML("beforeend", html);
+  }
+
   // Message ids are server-generated, but they still reach a selector here, so
   // they go through CSS.escape when the platform provides it.
   function cssIdentifierEscape(value) {
@@ -2600,9 +2669,7 @@ export function createChatRenderingController({
         el.classList.remove("empty");
         el.innerHTML = html;
       } else {
-        const anchor = el.querySelector("[data-live-assistant], [data-approval-stack]");
-        if (anchor) anchor.insertAdjacentHTML("beforebegin", html);
-        else el.insertAdjacentHTML("beforeend", html);
+        insertRunOutcomeCard(el, html);
       }
     }
     restoreTranscriptView(view, el);
@@ -3218,6 +3285,42 @@ export function createChatRenderingController({
     return steps;
   }
 
+  // A closed live reasoning step and its assistant turn's persisted
+  // reasoningText are the same thinking seen twice: the stream wrote the step,
+  // then the runner saved the turn. Once that turn is on screen its own activity
+  // stack renders the reasoning, so the tail must let go of its copy or the run
+  // shows two identical "activity" rows.
+  //
+  // Both sides accumulate in turn order within a run, so the count of persisted
+  // turns is also the count of leading live steps that have found a home. Only
+  // closed steps hand over; the open draft is still streaming and exists nowhere
+  // else. Counting rather than matching text keeps this correct when the stored
+  // reasoning is trimmed for the transcript and no longer equals what streamed.
+  function liveReasoningStepsWithoutPersisted(steps, runId = "") {
+    const list = Array.isArray(steps) ? steps : [];
+    if (!list.length) return list;
+    const persistedPerRun = new Map();
+    for (const message of transcriptMessages(state.currentMessages)) {
+      if (chatMessagePresentation(message).normalizedRole !== "assistant") continue;
+      if (!persistedReasoningSteps(message).length) continue;
+      const owner = String(message?.runId || message?.run_id || "").trim();
+      persistedPerRun.set(owner, (persistedPerRun.get(owner) || 0) + 1);
+    }
+    if (!persistedPerRun.size) return list;
+    const fallbackRunId = String(runId || "").trim();
+    const remaining = new Map(persistedPerRun);
+    return list.filter((step) => {
+      if (step?.open) return true;
+      // A step with no runId belongs to the run being rendered; that is the run
+      // currentLiveReasoningSteps already let it through for.
+      const owner = String(step?.runId || "").trim() || fallbackRunId;
+      const left = remaining.get(owner) || 0;
+      if (left <= 0) return true;
+      remaining.set(owner, left - 1);
+      return false;
+    });
+  }
+
   // Tool lifecycle events carry no messageId of their own, but the assistant
   // message that emitted them is always persisted and announced first (the
   // runner writes the turn, publishes message.created, then executes the calls).
@@ -3315,9 +3418,22 @@ export function createChatRenderingController({
   // Live records whose assistant message is already on screen render under that
   // message instead, so the tail stack keeps only what has nowhere else to go:
   // the current turn, whose message is not persisted yet.
+  //
+  // Ownership has to be decided the exact same way here as in
+  // messageToolActivityStacks. That function repairs records that carry a runId
+  // but no messageId by adopting the run's assistant turn; skipping the repair
+  // here left those records looking unowned to the tail while the turn had
+  // already claimed them, so both surfaces rendered the same calls. That is the
+  // second activity card, and it appears whenever a client misses
+  // message.created (reconnect, reload) and therefore has no
+  // liveAssistantToolOwnerId to stamp on tool events.
   function unownedLiveToolOutputList() {
-    const knownIds = new Set(transcriptMessages(state.currentMessages).map((message) => String(message?.id || "")).filter(Boolean));
-    return groupToolActivityByMessage(currentLiveToolOutputList(), knownIds).unowned;
+    const messages = transcriptMessages(state.currentMessages);
+    const knownIds = new Set(messages.map((message) => String(message?.id || "")).filter(Boolean));
+    return mergeUnownedActivityIntoAssistantTurns(
+      groupToolActivityByMessage(currentLiveToolOutputList(), knownIds),
+      messages,
+    ).unowned;
   }
 
   function renderLiveToolOutputCardsHTML() {
@@ -3330,10 +3446,10 @@ export function createChatRenderingController({
     // currentLiveToolOutputList. Suppressing the whole stack here instead would
     // also hide live records that carry no runId and therefore cannot belong to
     // the finished run.
-    const reasoningSteps = currentLiveReasoningSteps(runId).filter((step) => {
+    const reasoningSteps = liveReasoningStepsWithoutPersisted(currentLiveReasoningSteps(runId).filter((step) => {
       if (!summaryRunId || !isTerminalRunStatus(summaryRun?.status)) return true;
       return String(step?.runId || "") !== summaryRunId;
-    });
+    }), runId);
     if (!records.length && !reasoningSteps.length) return "";
     const stackKey = records.length ? liveToolActivityStackKey(records) : `live:${runId || "current"}`;
     const counterKey = liveToolOutputCounterKey(records.at(-1));

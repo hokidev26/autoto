@@ -20,6 +20,9 @@ const indexURL = new URL("index.html", staticRoot);
 const appURL = new URL("app.js", staticRoot);
 const appMainURL = new URL("modules/app-main.mjs", staticRoot);
 const uiShellURL = new URL("modules/ui-shell.mjs", staticRoot);
+// The composer select menus were split out of ui-shell.mjs, so the guards below
+// have to cover both files or the split would quietly weaken them.
+const selectMenusURL = new URL("modules/composer-select-menus.mjs", staticRoot);
 const i18nURL = new URL("modules/i18n.mjs", staticRoot);
 const stylesURL = new URL("styles.css", staticRoot);
 
@@ -234,7 +237,7 @@ test("controller uses one API path for preferences, compact, and logical clear c
 });
 
 test("static shell mounts one shared context ring, accessible overlays, APIs, and cache stamps", async () => {
-  const [html, styles, app, appMain, uiShell, i18n, contextModule] = await Promise.all([
+  const [html, styles, app, appMain, uiShell, i18n, contextModule, selectMenus] = await Promise.all([
     readFile(indexURL, "utf8"),
     readStylesSource(stylesURL),
     readFile(appURL, "utf8"),
@@ -242,6 +245,7 @@ test("static shell mounts one shared context ring, accessible overlays, APIs, an
     readFile(uiShellURL, "utf8"),
     readFile(i18nURL, "utf8"),
     readFile(new URL("modules/context-management.mjs", staticRoot), "utf8"),
+    readFile(selectMenusURL, "utf8"),
   ]);
 
   assert.equal((html.match(/id="contextUsageBtn"/g) || []).length, 1);
@@ -277,6 +281,8 @@ test("static shell mounts one shared context ring, accessible overlays, APIs, an
   // to the composer is the single entry point, so ui-shell does not manage context.
   assert.doesNotMatch(uiShell, /manageContextAction/);
   assert.doesNotMatch(uiShell, /api\/agents\/.*context\/compact/);
+  assert.doesNotMatch(selectMenus, /manageContextAction/);
+  assert.doesNotMatch(selectMenus, /api\/agents\/.*context\/compact/);
 
   for (const path of [
     "/api/agents/${encodeURIComponent(expectedAgentId)}/context",

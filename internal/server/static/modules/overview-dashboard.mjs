@@ -565,6 +565,35 @@ function renderLauncherSelect({ name, label, options, selected, open = false, mo
   </div>`;
 }
 
+// The launcher field starts one row tall like the composer's, so it has to grow
+// with the draft or a long prompt would be typed through a 40px slot. Same
+// clamp rule as resizeMessageInputElement: rest at the CSS minimum while empty
+// (measuring an empty textarea has been seen to report the maximum), grow to the
+// maximum, then scroll internally. Implemented here rather than imported because
+// this module takes every dependency by injection and pulling in the composer
+// would give the home page the whole chat module graph for one measurement.
+export function resizeLauncherInput(input, computedStyle) {
+  // Sizing is presentation only, so anything that cannot be measured or styled
+  // is left alone rather than throwing: this runs inside render(), and a failure
+  // here would take the whole dashboard down with it.
+  if (!input || !input.style) return { height: 0, scrollable: false };
+  const style = computedStyle || globalThis.getComputedStyle?.(input);
+  const pixels = (value, fallback) => {
+    const parsed = Number.parseFloat(String(value || ""));
+    return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
+  };
+  const minHeight = pixels(style?.minHeight, 40);
+  const maxHeight = pixels(style?.maxHeight, 132);
+  input.style.height = "auto";
+  const empty = typeof input.value === "string" && input.value.length === 0;
+  const content = empty ? minHeight : Math.max(minHeight, Number(input.scrollHeight) || 0);
+  const height = Math.min(content, Math.max(minHeight, maxHeight));
+  const scrollable = content > maxHeight;
+  input.style.height = `${height}px`;
+  input.style.overflowY = scrollable ? "auto" : "hidden";
+  return { height, scrollable };
+}
+
 function renderLauncher(contextValue, stateValue, t, openSelect = "") {
   const context = normalizeLauncherContext(contextValue);
   const state = reconcileLauncherState(stateValue, context);
@@ -575,22 +604,26 @@ function renderLauncher(contextValue, stateValue, t, openSelect = "") {
     value: effort,
     label: t(`reasoning${effort[0].toUpperCase()}${effort.slice(1)}`),
   }));
-  const workspaceControls = `<div class="overview-launcher-project-row">
-    <label class="overview-launcher-field"><span class="overview-launcher-label">${escapeHtml(t("project"))}</span><select class="overview-launcher-select" data-overview-launcher-field="projectId"${context.projects.length ? "" : " disabled"}>${projectOptions}</select></label>
-    <button type="button" class="overview-launcher-directory" data-overview-launcher-action="choose-directory">${escapeHtml(t("chooseDirectory"))}</button>
-  </div>`;
+  const workspaceControls = `<label class="overview-launcher-field"><span class="overview-launcher-label">${escapeHtml(t("project"))}</span><select class="overview-launcher-select" data-overview-launcher-field="projectId"${context.projects.length ? "" : " disabled"}>${projectOptions}</select></label>
+    <button type="button" class="overview-launcher-directory" data-overview-launcher-action="choose-directory">${escapeHtml(t("chooseDirectory"))}</button>`;
   const launcherError = state.error ? `<p class="overview-launcher-error" role="alert">${escapeHtml(state.error)}</p>` : "";
   const hero = `<section class="overview-hero-root overview-launcher-hero">
     <div class="overview-hero-copy"><div class="overview-hero-heading"><span class="overview-hero-mark" aria-hidden="true"><svg viewBox="0 0 32 32"><circle cx="16" cy="16" r="12.5"></circle><path d="M10.5 17.5c1.6 2 3.4 3 5.5 3s3.9-1 5.5-3"></path><path d="M11.5 12.5h.01M20.5 12.5h.01"></path></svg></span><h1 class="overview-hero-title" id="overviewDashboardTitle">${escapeHtml(launcherGreeting(context, t))}</h1></div></div>
   </section>`;
+  // Same shape as the conversation composer: one toolbar of run settings above a
+  // single input row that carries the frame and holds the send button inside it.
+  // The launcher is the first thing a user types into, so the two surfaces
+  // reading the same way matters more than the launcher looking special.
   const composer = `<section class="overview-launcher-root" data-overview-launcher>
     <div class="overview-launcher-form" data-overview-launcher-form>
-      <textarea class="overview-launcher-input" data-overview-launcher-field="draft" rows="3" maxlength="8000" aria-label="${escapeHtml(t("promptPlaceholder"))}" placeholder="${escapeHtml(t("promptPlaceholder"))}"${state.busy ? " disabled" : ""}>${escapeInputHtml(state.draft)}</textarea>
-      ${workspaceControls}
+      <div class="overview-launcher-input-shell">
+        <textarea class="overview-launcher-input" data-overview-launcher-field="draft" rows="1" maxlength="8000" aria-label="${escapeHtml(t("promptPlaceholder"))}" placeholder="${escapeHtml(t("promptPlaceholder"))}"${state.busy ? " disabled" : ""}>${escapeInputHtml(state.draft)}</textarea>
+        <button type="button" class="overview-launcher-send" data-overview-launcher-action="submit" aria-label="${escapeHtml(t(state.busy ? "starting" : "send"))}"${state.busy ? " disabled aria-busy=\"true\"" : ""}><span class="overview-launcher-send-label">${escapeHtml(t(state.busy ? "starting" : "send"))}</span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 14-7-4.5 14-3-5.5z"></path><path d="M11.5 13.5 19 5"></path></svg></button>
+      </div>
       <div class="overview-launcher-controls">
+        ${workspaceControls}
         ${renderLauncherSelect({ name: "model", label: t("model"), options: context.models, selected: state.model, open: openSelect === "model", model: true, disabled: !context.models.length })}
         ${renderLauncherSelect({ name: "reasoningEffort", label: t("reasoningEffort"), options: effortOptions, selected: state.reasoningEffort, open: openSelect === "reasoningEffort" })}
-        <button type="button" class="overview-launcher-send" data-overview-launcher-action="submit" aria-label="${escapeHtml(t(state.busy ? "starting" : "send"))}"${state.busy ? " disabled aria-busy=\"true\"" : ""}><span class="overview-launcher-send-label">${escapeHtml(t(state.busy ? "starting" : "send"))}</span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 14-7-4.5 14-3-5.5z"></path><path d="M11.5 13.5 19 5"></path></svg></button>
       </div>
       ${launcherError}
     </div>
@@ -955,7 +988,11 @@ export function createOverviewDashboardController({
       const field = event?.target?.closest?.("[data-overview-launcher-field]");
       if (!field || (typeof target.contains === "function" && !target.contains(field))) return;
       const name = boundedText(field.dataset?.overviewLauncherField || field.getAttribute?.("data-overview-launcher-field"), 30);
-      if (name === "draft") state.launcher.draft = boundedInput(field.value);
+      if (name !== "draft") return;
+      state.launcher.draft = boundedInput(field.value);
+      // Typing does not re-render (that would move the caret), so the field is
+      // resized in place on every keystroke.
+      resizeLauncherInput(field);
     });
     target.addEventListener("change", (event) => {
       const field = event?.target?.closest?.("[data-overview-launcher-field]");
@@ -1008,6 +1045,10 @@ export function createOverviewDashboardController({
       target.innerHTML = html;
       target.setAttribute?.("aria-busy", state.status === "loading" ? "true" : "false");
       bind(target);
+      // innerHTML replaces the textarea, so the inline height from the last
+      // keystroke is gone: a multi-line draft would snap back to one row on any
+      // re-render (model change, load finishing) until the next keystroke.
+      resizeLauncherInput(target.querySelector?.("[data-overview-launcher-field=\"draft\"]"));
       if (pendingFocus) {
         const focusTarget = pendingFocus.launcherField
           ? target.querySelector?.(`[data-overview-launcher-field="${pendingFocus.launcherField}"]`)

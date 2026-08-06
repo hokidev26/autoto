@@ -1,7 +1,7 @@
 import { $, escapeAttr, escapeHtml, setButtonBusy } from "./dom.mjs";
 import { formatBytes, formatDuration, formatNumber, formatTimestamp } from "./formatters.mjs";
 import { currentUILocale, t as baseT } from "./i18n.mjs";
-import systemSettingsMessages from "./messages-system-settings.mjs?v=about-brand-license-1-desktop-shell-1-execution-budget-2-background-task-settings-1";
+import systemSettingsMessages from "./messages-system-settings.mjs?v=about-brand-license-1-desktop-shell-1-execution-budget-2-background-task-settings-1-settings-ui-cleanup-1";
 import { localPreferenceBackupVersion } from "./preferences-data.mjs";
 import { api } from "./runtime.mjs";
 import {
@@ -216,24 +216,35 @@ export function createSystemSettingsController({
   `;
   }
 
+  // Two groups: plain concurrency limits, then the nesting switch that owns the
+  // depth field and its cost warning. Depth and warning stay in the DOM but are
+  // hidden while nesting is off — a disabled-but-visible control reads as broken,
+  // and keeping the input mounted means turning nesting off and saving cannot
+  // silently reset a depth the user already chose.
   function renderBackgroundTaskSettingsCard(backgroundTasks) {
     const settings = normalizedBackgroundTaskSettings(backgroundTasks);
+    const nested = settings.allowNestedSubagents;
+    const depthField = backgroundTaskSettingFields.find((field) => field.key === "maxSubagentDepth");
     return `
       <section class="settings-info-card settings-card settings-card-content background-task-settings-card">
         <div class="settings-info-title">${escapeHtml(t("systemSettings.runtimeResources.backgroundTaskSettings.title"))}</div>
         <p class="settings-card-description" data-settings-help-copy>${escapeHtml(t("systemSettings.runtimeResources.backgroundTaskSettings.description"))}</p>
-        <div class="settings-provider-form-grid settings-form-grid">
+        <div class="background-task-concurrency-grid settings-form-grid">
           ${backgroundTaskSettingFields.filter((field) => field.key !== "maxSubagentDepth").map((field) => renderBackgroundTaskNumberField(field, settings[field.key])).join("")}
+        </div>
+        <div class="background-task-nested-group${nested ? " is-on" : ""}" data-background-task-nested-group>
           <label class="settings-switch-row" for="runtimeAllowNestedSubagents">
             <span>
               <strong>${escapeHtml(t("systemSettings.runtimeResources.backgroundTaskSettings.allowNestedSubagents"))}</strong>
               <small data-settings-help-copy>${escapeHtml(t("systemSettings.runtimeResources.backgroundTaskSettings.allowNestedSubagentsHint"))}</small>
             </span>
-            <input id="runtimeAllowNestedSubagents" type="checkbox" data-background-task-field="allowNestedSubagents" ${settings.allowNestedSubagents ? "checked" : ""} />
+            <input id="runtimeAllowNestedSubagents" type="checkbox" data-background-task-field="allowNestedSubagents" ${nested ? "checked" : ""} />
           </label>
-          ${renderBackgroundTaskNumberField(backgroundTaskSettingFields.find((field) => field.key === "maxSubagentDepth"), settings.maxSubagentDepth, !settings.allowNestedSubagents)}
+          <div class="background-task-nested-detail" data-background-task-nested-detail ${nested ? "" : "hidden"}>
+            ${renderBackgroundTaskNumberField(depthField, settings.maxSubagentDepth)}
+            <p class="skill-security-note" data-settings-help-copy>${escapeHtml(t("systemSettings.runtimeResources.backgroundTaskSettings.nestedWarning"))}</p>
+          </div>
         </div>
-        <p class="settings-card-description" data-settings-help-copy>${escapeHtml(t("systemSettings.runtimeResources.backgroundTaskSettings.nestedWarning"))}</p>
         <div class="settings-action-row settings-form-actions settings-card-footer settings-inline-actions">
           <button id="saveBackgroundTaskSettingsBtn" class="settings-action-btn primary" type="button">${escapeHtml(t("systemSettings.runtimeResources.backgroundTaskSettings.save"))}</button>
         </div>
@@ -356,9 +367,15 @@ export function createSystemSettingsController({
 
   function bindBackgroundTaskSettingsActions() {
     const nestedToggle = $("runtimeAllowNestedSubagents");
-    const depthInput = $("runtimeMaxSubagentDepth");
+    // Reveal in place rather than re-rendering the panel: a re-render would throw
+    // away unsaved edits in the concurrency inputs and the execution budget card
+    // that shares this page.
     nestedToggle?.addEventListener("change", () => {
-      if (depthInput) depthInput.disabled = !nestedToggle.checked;
+      const enabled = Boolean(nestedToggle.checked);
+      const group = nestedToggle.closest?.("[data-background-task-nested-group]");
+      group?.classList?.toggle("is-on", enabled);
+      const detail = group?.querySelector?.("[data-background-task-nested-detail]");
+      if (detail) detail.hidden = !enabled;
     });
     $("saveBackgroundTaskSettingsBtn")?.addEventListener("click", (event) => (
       saveBackgroundTaskSettings(event.currentTarget).catch(showError)

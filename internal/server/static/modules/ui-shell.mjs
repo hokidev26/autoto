@@ -1,10 +1,60 @@
 import { $ } from "./dom.mjs";
 import { api } from "./runtime.mjs";
+import { createComposerSelectMenus } from "./composer-select-menus.mjs";
 
 export const sidebarWidthPreferenceKey = "autoto.ui.sessionSidebarWidth";
 export const globalRailCollapsedPreferenceKey = "autoto.ui.globalRailCollapsed";
 export const sessionSidebarCollapsedPreferenceKey = "autoto.ui.sessionSidebarCollapsed";
 export const legacySidebarCollapsedPreferenceKey = "autoto.ui.sidebarCollapsed";
+export const navigationLayoutModePreferenceKey = "autoto.ui.navigationLayoutMode";
+// Three navigation layouts, collapsing left to right:
+//   columns - the rail plus a separate conversation column (the long-standing layout)
+//   docked  - one wide rail; the conversation list sits under the "conversation" entry
+//   icons   - a 48px icon-only rail; the conversation list is hidden
+export const navigationLayoutModes = Object.freeze(["columns", "docked", "icons"]);
+
+export function normalizeNavigationLayoutMode(value, fallback = "columns") {
+  const mode = String(value ?? "").trim().toLowerCase();
+  return navigationLayoutModes.includes(mode) ? mode : fallback;
+}
+
+// Collapsing runs columns -> docked -> icons, then wraps back to columns. The
+// wrap is what keeps a single control able to reach every layout.
+export function nextNavigationLayoutMode(current) {
+  const index = navigationLayoutModes.indexOf(normalizeNavigationLayoutMode(current));
+  return navigationLayoutModes[(index + 1) % navigationLayoutModes.length];
+}
+
+// Dragging the divider reaches all three layouts too, so the collapse button is a
+// shortcut rather than the only route. The thresholds below are measured on the
+// divider itself -- the total width of the navigation area, which is what the user
+// is physically holding -- not on the stored sidebar width.
+//
+// Enter and exit differ on purpose. A single boundary makes the layout flip back
+// and forth while the pointer sits on it, and each flip reflows the whole rail.
+// The gap between the pair is the distance you must travel before the layout
+// changes its mind, which is what makes the drag feel settled.
+export const navigationDragIconsEnterWidth = 150;
+export const navigationDragIconsExitWidth = 196;
+export const navigationDragColumnsEnterWidth = 436;
+export const navigationDragColumnsExitWidth = 300;
+
+// Resolves the layout a drag should land in. `total` is the divider position;
+// `current` is the layout being dragged, so the thresholds can be applied in the
+// direction the user is actually moving.
+export function navigationLayoutModeFromDragWidth(total, current = "columns") {
+  const width = Number(total);
+  const mode = normalizeNavigationLayoutMode(current);
+  if (!Number.isFinite(width)) return mode;
+  if (mode === "icons") {
+    // Still inside the icon rail's band: stay put until the pointer clears it.
+    if (width <= navigationDragIconsExitWidth) return "icons";
+    return width >= navigationDragColumnsEnterWidth ? "columns" : "docked";
+  }
+  if (width <= navigationDragIconsEnterWidth) return "icons";
+  if (mode === "columns") return width < navigationDragColumnsExitWidth ? "docked" : "columns";
+  return width >= navigationDragColumnsEnterWidth ? "columns" : "docked";
+}
 export const defaultSidebarWidth = 296;
 export const minSidebarWidth = 184;
 export const compactSidebarWidth = 184;
@@ -79,16 +129,6 @@ export function groupModelSelectOptions(options = []) {
   }
   return groups;
 }
-
-const permissionMenuIconMarkup = Object.freeze({
-  default: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 19 6v5c0 4.5-2.5 7.8-7 10-4.5-2.2-7-5.5-7-10V6z"></path><path d="M9.5 12h5"></path></svg>',
-  acceptEdits: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m14.7 5.3 4 4"></path><path d="M5 19h4l9.7-9.7a2.8 2.8 0 0 0-4-4L5 15z"></path><path d="M13 7 17 11"></path></svg>',
-  bypassPermissions: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 19 6v5c0 4.5-2.5 7.8-7 10-4.5-2.2-7-5.5-7-10V6z"></path><path d="m8.5 8.5 7 7"></path><path d="m15.5 8.5-7 7"></path></svg>',
-  readOnly: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2.5 12s3.5-5 9.5-5 9.5 5 9.5 5-3.5 5-9.5 5-9.5-5-9.5-5z"></path><circle cx="12" cy="12" r="2.5"></circle></svg>',
-  dontAsk: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 11V6.5a1.5 1.5 0 0 1 3 0V10"></path><path d="M11 10V5.5a1.5 1.5 0 0 1 3 0V10"></path><path d="M14 10V7a1.5 1.5 0 0 1 3 0v5"></path><path d="M8 10.5 6.7 9.2a1.7 1.7 0 0 0-2.4 2.4l4.2 5.1A5 5 0 0 0 12.4 19H14a5 5 0 0 0 5-5v-3.5a1.5 1.5 0 0 0-3 0"></path></svg>',
-  plan: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 4h8a2 2 0 0 1 2 2v14l-3-2-3 2-3-2-3 2V6a2 2 0 0 1 2-2z"></path><path d="M9 9h6M9 13h4"></path></svg>',
-  execute: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 7 9 5-9 5z"></path></svg>',
-});
 
 export function normalizeSidebarWidth(value, fallback = defaultSidebarWidth, { compact = false } = {}) {
   const parsed = Number.parseFloat(value);
@@ -363,724 +403,19 @@ export function createUIShellController({
     setTimeout(() => openProjectSearch(), 160);
   }
 
-  function bindComposerSelectMenus() {
-    const triggers = [...(document.querySelectorAll?.("[data-composer-select]") || [])];
-    if (!triggers.length) return () => {};
-
-    const menu = document.createElement("div");
-    menu.id = "composerSelectPopover";
-    menu.className = "composer-select-popover hidden";
-    menu.setAttribute("role", "listbox");
-    document.body.appendChild(menu);
-
-    const mobileBackdrop = document.createElement("div");
-    mobileBackdrop.className = "mobile-select-sheet-backdrop hidden";
-    mobileBackdrop.setAttribute("aria-hidden", "true");
-
-    const mobileSheet = document.createElement("section");
-    mobileSheet.id = "mobileComposerSelectSheet";
-    mobileSheet.className = "mobile-select-sheet";
-    mobileSheet.setAttribute("role", "dialog");
-    mobileSheet.setAttribute("aria-modal", "true");
-    mobileSheet.setAttribute("aria-labelledby", "mobileComposerSelectSheetTitle");
-
-    const mobileHandle = document.createElement("div");
-    mobileHandle.className = "mobile-select-sheet-drag-handle";
-    mobileHandle.setAttribute("aria-hidden", "true");
-
-    const mobileHeader = document.createElement("div");
-    mobileHeader.className = "mobile-select-sheet-header";
-    const mobileTitle = document.createElement("h2");
-    mobileTitle.id = "mobileComposerSelectSheetTitle";
-    mobileTitle.className = "mobile-select-sheet-title";
-    const mobileClose = document.createElement("button");
-    mobileClose.type = "button";
-    mobileClose.className = "mobile-select-sheet-close";
-    mobileClose.setAttribute("aria-label", translate("common.close"));
-    mobileClose.textContent = "×";
-    mobileHeader.append(mobileTitle, mobileClose);
-
-    const mobileBody = document.createElement("div");
-    mobileBody.className = "mobile-select-sheet-body";
-    mobileSheet.append(mobileHandle, mobileHeader, mobileBody);
-    mobileBackdrop.appendChild(mobileSheet);
-    document.body.appendChild(mobileBackdrop);
-
-    let active = null;
-    let bodyOverflow = "";
-    const observers = [];
-
-    // Workflow preferences back the danger-reflection level selector appended in
-    // appendPermissionSafetyStatus(). The permission menu is rebuilt from scratch
-    // on every open, while the preference itself is fetched once and cached here.
-    let workflowPreferences = null;
-    let workflowPreferencesPromise = null;
-    const dangerReflectionLevelNodes = new Set();
-    const dangerReflectionLevels = Object.freeze(["off", "loose", "medium", "strict"]);
-
-    const dangerReflectionLevel = () => {
-      const level = String(workflowPreferences?.dangerReflectionLevel || "").trim().toLowerCase();
-      return dangerReflectionLevels.includes(level) ? level : "medium";
-    };
-
-    const syncDangerReflectionLevelNodes = () => {
-      const selectedLevel = dangerReflectionLevel();
-      for (const selector of [...dangerReflectionLevelNodes]) {
-        if (selector.isConnected === false) {
-          dangerReflectionLevelNodes.delete(selector);
-          continue;
-        }
-        selector.querySelectorAll(".composer-permission-danger-reflection-level").forEach((button) => {
-          const selected = button.dataset.dangerReflectionLevel === selectedLevel;
-          button.classList.toggle("is-selected", selected);
-          button.setAttribute("aria-checked", selected ? "true" : "false");
-        });
-      }
-    };
-
-    const loadWorkflowPreferences = () => {
-      if (workflowPreferences) return Promise.resolve(workflowPreferences);
-      if (workflowPreferencesPromise) return workflowPreferencesPromise;
-      if (typeof requestAPI !== "function") return Promise.resolve(null);
-      workflowPreferencesPromise = requestAPI("/api/workflow/preferences")
-        .then((data) => {
-          workflowPreferences = data && typeof data === "object" ? data : {};
-          syncDangerReflectionLevelNodes();
-          return workflowPreferences;
-        })
-        .catch(() => null)
-        .finally(() => {
-          workflowPreferencesPromise = null;
-        });
-      return workflowPreferencesPromise;
-    };
-
-    const setDangerReflectionLevel = async (selector, nextLevel) => {
-      if (!dangerReflectionLevels.includes(nextLevel) || nextLevel === dangerReflectionLevel()) return;
-      let previousPreferences = workflowPreferences;
-      selector.setAttribute("aria-busy", "true");
-      selector.querySelectorAll(".composer-permission-danger-reflection-level").forEach((button) => { button.disabled = true; });
-      try {
-        // PUT requires the full preferences object, so the other fields must be
-        // known first — if they can't be loaded, refuse rather than risk
-        // resending the safety-critical confirmation flags with wrong defaults.
-        const current = workflowPreferences || (await loadWorkflowPreferences());
-        if (!current || typeof requestAPI !== "function") throw new Error("Workflow preferences are unavailable");
-        previousPreferences ||= current;
-        const payload = {
-          requireConfirmationForExec: Boolean(current.requireConfirmationForExec),
-          requireConfirmationForWrites: Boolean(current.requireConfirmationForWrites),
-          allowReadOnlyByDefault: Boolean(current.allowReadOnlyByDefault),
-          dangerReflectionLevel: nextLevel,
-        };
-        const response = await requestAPI("/api/workflow/preferences", { method: "PUT", body: JSON.stringify(payload) });
-        workflowPreferences = response && typeof response === "object" ? response : payload;
-      } catch (error) {
-        workflowPreferences = previousPreferences;
-        showError?.(error);
-      } finally {
-        selector.removeAttribute("aria-busy");
-        selector.querySelectorAll(".composer-permission-danger-reflection-level").forEach((button) => { button.disabled = false; });
-        syncDangerReflectionLevelNodes();
-      }
-    };
-
-    const createDangerReflectionRow = () => {
-      const row = document.createElement("div");
-      row.className = "composer-permission-safety-status composer-permission-danger-reflection";
-      row.title = translate("chat.dangerReflectionDescription");
-
-      const heading = document.createElement("div");
-      heading.className = "composer-permission-danger-reflection-heading";
-      const icon = document.createElement("span");
-      icon.className = "composer-permission-option-icon composer-permission-safety-icon";
-      icon.innerHTML = permissionMenuIconMarkup.default;
-      const label = document.createElement("span");
-      label.className = "composer-permission-safety-label";
-      label.textContent = translate("chat.dangerReflection");
-      heading.append(icon, label);
-
-      const selector = document.createElement("div");
-      selector.className = "composer-permission-danger-reflection-levels";
-      selector.setAttribute("role", "radiogroup");
-      selector.setAttribute("aria-label", `${translate("chat.dangerReflection")} — ${translate("chat.dangerReflectionDescription")}`);
-      const selectedLevel = dangerReflectionLevel();
-      dangerReflectionLevels.forEach((level) => {
-        const button = document.createElement("button");
-        button.type = "button";
-        button.className = "composer-permission-danger-reflection-level";
-        button.dataset.dangerReflectionLevel = level;
-        button.setAttribute("role", "radio");
-        const selected = level === selectedLevel;
-        button.classList.toggle("is-selected", selected);
-        button.setAttribute("aria-checked", selected ? "true" : "false");
-        button.textContent = translate(`chat.dangerReflectionLevels.${level}`);
-        button.addEventListener("click", () => setDangerReflectionLevel(selector, level));
-        selector.appendChild(button);
-      });
-      dangerReflectionLevelNodes.add(selector);
-      row.append(heading, selector);
-      loadWorkflowPreferences();
-      return row;
-    };
-
-    const bindings = triggers.map((trigger) => {
-      const select = $(trigger.dataset.composerSelect);
-      const valueNode = trigger.querySelector(".composer-select-value");
-      const label = document.querySelector(`label[for="${trigger.dataset.composerSelect}"]`);
-      const binding = {
-        trigger,
-        select,
-        valueNode,
-        label,
-        ariaHaspopup: trigger.getAttribute("aria-haspopup") || "listbox",
-      };
-      const sync = () => {
-        const option = select?.selectedOptions?.[0] || select?.options?.[select?.selectedIndex];
-        if (valueNode && option) {
-          const optionText = option.textContent?.trim() || option.value;
-          const isModel = trigger.dataset.composerSelect === "modelSelect";
-          const presentation = isModel ? modelOptionPresentation(option.value, optionText) : null;
-          const displayText = presentation?.provider ? `${presentation.provider}:${presentation.name}` : optionText;
-          valueNode.textContent = displayText;
-          valueNode.title = displayText;
-          if (isModel) {
-            valueNode.dataset.mobileLabel = compactComposerModelLabel(option.value || option.textContent);
-          }
-          const fieldLabel = label?.textContent?.trim();
-          const triggerLabel = fieldLabel ? `${fieldLabel}：${displayText}` : displayText;
-          trigger.setAttribute("aria-label", triggerLabel);
-          // Also as a tooltip: the model trigger shows only its icon now, so
-          // aria-label alone would leave sighted users with no way to read which
-          // model is selected without opening the menu.
-          trigger.title = triggerLabel;
-        }
-        trigger.disabled = Boolean(select?.disabled);
-      };
-      binding.sync = sync;
-      sync();
-      select?.addEventListener("change", sync);
-      if (select && globalThis.MutationObserver) {
-        const observer = new MutationObserver(sync);
-        observer.observe(select, { childList: true, subtree: true, attributes: true });
-        observers.push(observer);
-      }
-      return binding;
-    }).filter(({ select }) => select);
-
-    const usesMobileSheet = (binding) => mobileViewport()
-      && ["modelSelect", "reasoningEffort", "permissionMode"].includes(binding.select.id);
-
-    const close = ({ focus = false } = {}) => {
-      if (!active) return;
-      const { binding, mobile, returnFocus } = active;
-      active = null;
-      if (mobile) {
-        mobileBackdrop.classList.add("hidden");
-        mobileBackdrop.setAttribute("aria-hidden", "true");
-        mobileSheet.className = "mobile-select-sheet";
-        mobileBody.replaceChildren();
-        document.body.style.overflow = bodyOverflow;
-      } else {
-        menu.classList.add("hidden");
-        menu.classList.remove("composer-permission-popover", "composer-model-popover");
-        menu.replaceChildren();
-      }
-      if (binding?.trigger) {
-        binding.trigger.setAttribute("aria-expanded", "false");
-        binding.trigger.setAttribute("aria-haspopup", binding.ariaHaspopup || "listbox");
-        binding.trigger.removeAttribute("aria-controls");
-      }
-      if (focus && returnFocus?.isConnected !== false) returnFocus?.focus?.();
-    };
-
-    const choose = (binding, option) => {
-      binding.select.value = option.value;
-      const EventConstructor = binding.select.ownerDocument?.defaultView?.Event || globalThis.Event;
-      binding.select.dispatchEvent(new EventConstructor("change", { bubbles: true }));
-      close({ focus: true });
-    };
-
-    const createOptionButton = (binding, option, { permission = false, mobile = false, model = false } = {}) => {
-      const selected = option.value === binding.select.value;
-      const button = document.createElement("button");
-      button.type = "button";
-      button.className = [
-        "composer-select-option",
-        permission ? "composer-permission-option" : "",
-        model ? "composer-model-option" : "",
-        mobile ? "mobile-select-sheet-option" : "",
-      ].filter(Boolean).join(" ");
-      button.setAttribute("role", "option");
-      button.setAttribute("aria-selected", selected ? "true" : "false");
-      button.disabled = option.disabled;
-
-      const label = document.createElement("span");
-      label.textContent = option.textContent?.trim() || option.value;
-      if (permission) {
-        const main = document.createElement("span");
-        main.className = "composer-permission-option-main";
-        const icon = document.createElement("span");
-        icon.className = "composer-permission-option-icon";
-        icon.innerHTML = permissionMenuIconMarkup[option.value] || permissionMenuIconMarkup.default;
-        main.append(icon, label);
-        button.appendChild(main);
-      } else if (model) {
-        const presentation = modelOptionPresentation(option.value, option.textContent);
-        const copy = document.createElement("span");
-        copy.className = "composer-model-option-copy";
-        label.className = "composer-model-option-name";
-        label.textContent = presentation.name;
-        copy.appendChild(label);
-        button.appendChild(copy);
-      } else {
-        button.appendChild(label);
-      }
-
-      const check = document.createElement("span");
-      check.className = "composer-select-option-check";
-      check.setAttribute("aria-hidden", "true");
-      check.textContent = selected ? "✓" : "";
-      button.appendChild(check);
-      button.addEventListener("click", () => choose(binding, option));
-      return button;
-    };
-
-    const createMobileOptionButton = (binding, option, { model = false } = {}) => {
-      const selected = option.value === binding.select.value;
-      const button = document.createElement("button");
-      button.type = "button";
-      button.className = "composer-select-option mobile-select-sheet-option";
-      button.setAttribute("role", "option");
-      button.setAttribute("aria-selected", selected ? "true" : "false");
-      button.disabled = option.disabled;
-
-      if (model) {
-        const presentation = modelOptionPresentation(option.value, option.textContent);
-        const copy = document.createElement("span");
-        copy.className = "mobile-model-option-copy";
-        const name = document.createElement("span");
-        name.className = "mobile-model-option-name";
-        name.textContent = presentation.name;
-        copy.appendChild(name);
-        button.appendChild(copy);
-      } else {
-        const label = document.createElement("span");
-        label.textContent = option.textContent?.trim() || option.value;
-        button.appendChild(label);
-      }
-
-      const check = document.createElement("span");
-      check.className = "composer-select-option-check";
-      check.setAttribute("aria-hidden", "true");
-      check.textContent = selected ? "✓" : "";
-      button.appendChild(check);
-      button.addEventListener("click", () => choose(binding, option));
-      return button;
-    };
-
-    const appendModelOptionGroups = (binding, target, { mobile = false } = {}) => {
-      const options = [...binding.select.options].filter((option) => !option.hidden);
-      groupModelSelectOptions(options).forEach((group, index) => {
-        const heading = document.createElement("div");
-        heading.className = [
-          "composer-model-group-heading",
-          mobile ? "mobile-model-group-heading" : "",
-          index > 0 ? "composer-model-group-start" : "",
-        ].filter(Boolean).join(" ");
-        heading.setAttribute("role", "presentation");
-        heading.textContent = group.provider || translate("chat.modelProviderFallback");
-        target.appendChild(heading);
-        group.options.forEach((option) => target.appendChild(mobile
-          ? createMobileOptionButton(binding, option, { model: true })
-          : createOptionButton(binding, option, { model: true })));
-      });
-    };
-
-    // The old "permission guard / enabled" line was a static note that restated
-    // something always true and could not be acted on, so it is gone; the
-    // divider now introduces the one control in this section that does anything.
-    const appendPermissionSafetyStatus = (target = menu) => {
-      const divider = document.createElement("div");
-      divider.className = "composer-permission-divider";
-      divider.setAttribute("aria-hidden", "true");
-      target.append(divider, createDangerReflectionRow());
-    };
-
-    const chooseMessageMode = (mode) => {
-      setMessageMode?.(mode === "plan" ? "plan" : "execute");
-      close({ focus: true });
-    };
-
-    const createMessageModeOption = (mode, { mobile = false } = {}) => {
-      const selected = resolveMessageMode() === mode;
-      const button = document.createElement("button");
-      button.type = "button";
-      button.className = mobile
-        ? "composer-select-option mobile-select-sheet-option composer-permission-option"
-        : "composer-select-option composer-permission-option";
-      button.setAttribute("role", "option");
-      button.setAttribute("aria-selected", selected ? "true" : "false");
-      button.dataset.messageModeOption = mode;
-
-      const main = document.createElement("span");
-      main.className = "composer-permission-option-main";
-      const icon = document.createElement("span");
-      icon.className = "composer-permission-option-icon";
-      icon.innerHTML = permissionMenuIconMarkup[mode] || permissionMenuIconMarkup.execute;
-      const label = document.createElement("span");
-      label.textContent = mode === "plan"
-        ? translate("chat.enterPlanMode")
-        : translate("chat.executeMode");
-      main.append(icon, label);
-      button.appendChild(main);
-
-      const check = document.createElement("span");
-      check.className = "composer-select-option-check";
-      check.setAttribute("aria-hidden", "true");
-      check.textContent = selected ? "✓" : "";
-      button.appendChild(check);
-      button.addEventListener("click", () => chooseMessageMode(mode));
-      return button;
-    };
-
-    const appendMessageModeSection = (target = menu, { mobile = false } = {}) => {
-      const divider = document.createElement("div");
-      divider.className = "composer-permission-divider";
-      divider.setAttribute("aria-hidden", "true");
-      target.appendChild(divider);
-
-      const heading = document.createElement("div");
-      heading.className = "composer-select-popover-title composer-message-mode-section-title";
-      heading.textContent = translate("chat.messageMode");
-      target.appendChild(heading);
-      target.appendChild(createMessageModeOption("execute", { mobile }));
-      target.appendChild(createMessageModeOption("plan", { mobile }));
-    };
-
-    const appendPermissionOptions = (binding, target = menu, { mobile = false } = {}) => {
-      const options = orderPermissionMenuOptions([...binding.select.options].filter((option) => !option.hidden));
-      const primary = options.filter((option) => permissionMenuPrimaryValues.includes(option.value));
-      const secondary = options.filter((option) => !permissionMenuPrimaryValues.includes(option.value));
-      primary.forEach((option) => target.appendChild(createOptionButton(binding, option, { permission: true, mobile })));
-      appendPermissionSafetyStatus(target);
-      if (secondary.length) {
-        const divider = document.createElement("div");
-        divider.className = "composer-permission-divider";
-        divider.setAttribute("aria-hidden", "true");
-        target.appendChild(divider);
-        secondary.forEach((option) => target.appendChild(createOptionButton(binding, option, { permission: true, mobile })));
-      }
-      appendMessageModeSection(target, { mobile });
-    };
-
-    const positionMenu = (trigger) => {
-      const rect = trigger.getBoundingClientRect();
-      const viewportWidth = globalThis.innerWidth || document.documentElement.clientWidth;
-      const selectId = trigger.dataset.composerSelect;
-      const minimumWidth = selectId === "modelSelect" ? 260 : selectId === "permissionMode" ? 228 : 190;
-      const desiredWidth = Math.max(rect.width, minimumWidth);
-      const width = Math.min(desiredWidth, viewportWidth - 16);
-      const left = Math.min(Math.max(8, rect.left), Math.max(8, viewportWidth - width - 8));
-      menu.style.left = `${left}px`;
-      menu.style.width = `${width}px`;
-      menu.style.bottom = `${Math.max(8, (globalThis.innerHeight || document.documentElement.clientHeight) - rect.top + 6)}px`;
-    };
-
-    const createMobileAction = (title, detail, handler, { disabled = false } = {}) => {
-      const button = document.createElement("button");
-      button.type = "button";
-      button.className = "mobile-model-sheet-action";
-      button.disabled = disabled;
-      const copy = document.createElement("span");
-      copy.className = "mobile-model-sheet-action-copy";
-      const titleNode = document.createElement("span");
-      titleNode.className = "mobile-model-sheet-action-title";
-      titleNode.textContent = title;
-      copy.appendChild(titleNode);
-      if (detail) {
-        const detailNode = document.createElement("span");
-        detailNode.className = "mobile-model-sheet-action-detail";
-        detailNode.textContent = detail;
-        copy.appendChild(detailNode);
-      }
-      const chevron = document.createElement("span");
-      chevron.className = "mobile-model-sheet-action-chevron";
-      chevron.setAttribute("aria-hidden", "true");
-      chevron.textContent = "›";
-      button.append(copy, chevron);
-      button.addEventListener("click", handler);
-      return button;
-    };
-
-
-    // Summary model picker. It is global runtime configuration rather than a
-    // per-conversation choice, but it is surfaced here so compaction can be
-    // retargeted without opening Settings.
-    const summaryModelOptions = (binding) => [...binding.select.options]
-      .filter((option) => !option.hidden && String(option.value || "").trim());
-
-    // The same model name can be served by several providers, so the summary
-    // picker mirrors the main model menu: provider headings above their models,
-    // and the provider spelled out next to the current selection.
-    const summaryModelDescriptor = (binding, value) => {
-      const target = String(value || "").trim();
-      if (!target) return null;
-      const option = summaryModelOptions(binding).find((candidate) => String(candidate.value) === target) || null;
-      const presentation = modelOptionPresentation(target, option?.textContent);
-      const provider = String(option?.dataset?.provider || option?.parentElement?.label || presentation.provider || "").trim();
-      return { name: presentation.name || target, provider };
-    };
-
-    const applySummaryModel = async (value) => {
-      if (typeof setSummaryModel !== "function") return;
-      try {
-        await setSummaryModel(value);
-      } catch (error) {
-        showError?.(error);
-      }
-    };
-
-    const openSummaryModelPicker = (binding) => {
-      const current = String(getSummaryModel?.() || "");
-      menu.replaceChildren();
-      const heading = document.createElement("div");
-      heading.className = "composer-select-popover-title";
-      heading.textContent = translate("chat.summaryModel");
-      menu.appendChild(heading);
-      groupModelSelectOptions(summaryModelOptions(binding)).forEach((group, index) => {
-        const groupHeading = document.createElement("div");
-        groupHeading.className = [
-          "composer-model-group-heading",
-          index > 0 ? "composer-model-group-start" : "",
-        ].filter(Boolean).join(" ");
-        groupHeading.setAttribute("role", "presentation");
-        groupHeading.textContent = group.provider || translate("chat.modelProviderFallback");
-        menu.appendChild(groupHeading);
-        group.options.forEach((option) => {
-          const value = String(option.value);
-          const button = document.createElement("button");
-          button.type = "button";
-          button.className = "composer-select-option composer-model-option";
-          button.setAttribute("role", "option");
-          button.setAttribute("aria-selected", value === current ? "true" : "false");
-          const copy = document.createElement("span");
-          copy.className = "composer-model-option-copy";
-          const name = document.createElement("span");
-          name.className = "composer-model-option-name";
-          name.textContent = modelOptionPresentation(value, option.textContent).name;
-          copy.appendChild(name);
-          button.appendChild(copy);
-          button.addEventListener("click", () => {
-            close({ focus: true });
-            void applySummaryModel(value);
-          });
-          menu.appendChild(button);
-        });
-      });
-      positionMenu(binding.trigger);
-      menu.querySelector('[aria-selected="true"]')?.focus();
-    };
-
-    const appendSummaryModelRow = (binding) => {
-      if (typeof setSummaryModel !== "function") return;
-      const divider = document.createElement("div");
-      divider.className = "composer-model-menu-divider";
-      divider.setAttribute("aria-hidden", "true");
-      menu.appendChild(divider);
-      const button = document.createElement("button");
-      button.type = "button";
-      button.className = "composer-model-menu-action";
-      const copy = document.createElement("span");
-      copy.className = "composer-model-menu-action-copy";
-      const title = document.createElement("span");
-      title.className = "composer-model-menu-action-title";
-      title.textContent = translate("chat.summaryModel");
-      copy.appendChild(title);
-      const current = String(getSummaryModel?.() || "");
-      if (current) {
-        const descriptor = summaryModelDescriptor(binding, current);
-        const detail = document.createElement("span");
-        detail.className = "composer-model-menu-action-detail";
-        detail.textContent = descriptor?.provider
-          ? `${descriptor.provider} · ${descriptor.name}`
-          : (descriptor?.name || current);
-        copy.appendChild(detail);
-      }
-      const chevron = document.createElement("span");
-      chevron.className = "composer-model-menu-action-chevron";
-      chevron.setAttribute("aria-hidden", "true");
-      chevron.textContent = "›";
-      button.append(copy, chevron);
-      button.addEventListener("click", () => openSummaryModelPicker(binding));
-      menu.appendChild(button);
-    };
-
-    const openMobile = (binding, { returnFocus = binding.trigger } = {}) => {
-      const isModel = binding.select.id === "modelSelect";
-      const isPermission = binding.select.id === "permissionMode";
-      active = { binding, mobile: true, returnFocus };
-      mobileSheet.className = `mobile-select-sheet ${isModel ? "mobile-model-sheet" : isPermission ? "mobile-permission-sheet" : "mobile-reasoning-sheet"}`;
-      mobileTitle.textContent = isModel
-        ? translate("chat.selectModel")
-        : isPermission
-          ? translate("chat.permissionMode")
-          : (binding.label?.textContent?.trim() || translate("chat.reasoningEffort"));
-
-      const options = document.createElement("div");
-      options.className = "mobile-select-sheet-options";
-      options.setAttribute("role", "listbox");
-      options.setAttribute("aria-label", mobileTitle.textContent);
-      if (isPermission) {
-        appendPermissionOptions(binding, options, { mobile: true });
-        mobileBody.replaceChildren(options);
-      } else {
-        if (isModel) appendModelOptionGroups(binding, options, { mobile: true });
-        else [...binding.select.options]
-          .filter((option) => !option.hidden)
-          .forEach((option) => options.appendChild(createMobileOptionButton(binding, option)));
-        mobileBody.replaceChildren(options);
-      }
-
-      // The model sheet used to append 思考强度 / 压缩上下文 / 管理模型 shortcuts here.
-      // They are reachable from the composer's own controls (effort trigger, context
-      // ring, model manager), so the sheet now shows only the model list.
-
-      bodyOverflow = document.body.style.overflow;
-      document.body.style.overflow = "hidden";
-      mobileBackdrop.classList.remove("hidden");
-      mobileBackdrop.setAttribute("aria-hidden", "false");
-      binding.trigger?.setAttribute("aria-haspopup", "dialog");
-      binding.trigger?.setAttribute("aria-expanded", "true");
-      binding.trigger?.setAttribute("aria-controls", mobileSheet.id);
-      (options.querySelector('[aria-selected="true"]') || options.querySelector("button") || mobileClose).focus?.();
-    };
-
-    const open = (binding) => {
-      if (active?.binding?.trigger === binding.trigger) {
-        close();
-        return;
-      }
-      close();
-      if (usesMobileSheet(binding)) {
-        openMobile(binding);
-        return;
-      }
-      active = { binding, mobile: false, returnFocus: binding.trigger };
-      const isPermissionMenu = binding.select.id === "permissionMode";
-      const isModelMenu = binding.select.id === "modelSelect";
-      menu.classList.toggle("composer-permission-popover", isPermissionMenu);
-      menu.classList.toggle("composer-model-popover", isModelMenu);
-      const heading = document.createElement("div");
-      heading.className = "composer-select-popover-title";
-      heading.textContent = binding.label?.textContent?.trim() || binding.select.title || "";
-      menu.appendChild(heading);
-      if (isPermissionMenu) {
-        appendPermissionOptions(binding, menu, { mobile: false });
-      } else {
-        if (isModelMenu) appendModelOptionGroups(binding, menu);
-        else [...binding.select.options]
-          .filter((option) => !option.hidden)
-          .forEach((option) => menu.appendChild(createOptionButton(binding, option)));
-      }
-      if (isModelMenu) appendSummaryModelRow(binding);
-      menu.classList.remove("hidden");
-      positionMenu(binding.trigger);
-      binding.trigger.setAttribute("aria-expanded", "true");
-      binding.trigger.setAttribute("aria-controls", menu.id);
-      menu.querySelector('[aria-selected="true"]')?.focus();
-    };
-
-    const openPermissionMenu = (returnFocus = null) => {
-      const permissionBinding = bindings.find(({ select }) => select.id === "permissionMode");
-      if (!permissionBinding) return;
-      if (returnFocus) {
-        close();
-        if (usesMobileSheet(permissionBinding)) {
-          openMobile(permissionBinding, { returnFocus });
-          return;
-        }
-        open(permissionBinding);
-        if (active) {
-          active.returnFocus = returnFocus;
-          positionMenu(returnFocus);
-        }
-        return;
-      }
-      open(permissionBinding);
-    };
-
-    const triggerHandlers = bindings.map((binding) => {
-      const handler = (event) => {
-        event.preventDefault();
-        event.stopPropagation();
-        open(binding);
-      };
-      binding.trigger.addEventListener("click", handler);
-      return [binding.trigger, handler];
-    });
-
-    const handleDocumentPointer = (event) => {
-      if (!active || active.mobile) return;
-      if (menu.contains(event.target)) return;
-      if (active.binding?.trigger?.contains?.(event.target)) return;
-      close();
-    };
-    const handleDocumentKey = (event) => {
-      if (event.key === "Escape" && active) {
-        close({ focus: true });
-        event.preventDefault();
-        return;
-      }
-      if (event.key !== "Tab" || !active?.mobile) return;
-      const focusable = [...mobileSheet.querySelectorAll("button:not([disabled]), [tabindex]:not([tabindex=\"-1\"])")];
-      if (!focusable.length) return;
-      const currentIndex = focusable.indexOf(document.activeElement);
-      const nextIndex = event.shiftKey
-        ? (currentIndex <= 0 ? focusable.length - 1 : currentIndex - 1)
-        : (currentIndex < 0 || currentIndex === focusable.length - 1 ? 0 : currentIndex + 1);
-      focusable[nextIndex]?.focus?.();
-      event.preventDefault();
-    };
-    const handleBackdropClick = (event) => {
-      if (event.target !== mobileBackdrop || !active?.mobile) return;
-      close({ focus: true });
-    };
-    const handleCloseClick = () => close({ focus: true });
-    const handleViewportChange = () => {
-      const restoreFocus = Boolean(active?.mobile);
-      close({ focus: restoreFocus });
-    };
-    const handleDocumentScroll = (event) => {
-      if (!active) return;
-      if (active.mobile && mobileSheet.contains(event.target)) return;
-      if (!active.mobile && (event.target === menu || menu.contains(event.target))) return;
-      close();
-    };
-    mobileBackdrop.addEventListener("click", handleBackdropClick);
-    mobileClose.addEventListener("click", handleCloseClick);
-    document.addEventListener("pointerdown", handleDocumentPointer);
-    document.addEventListener("keydown", handleDocumentKey);
-    window.addEventListener("resize", handleViewportChange);
-    window.addEventListener("orientationchange", handleViewportChange);
-    window.addEventListener("scroll", handleDocumentScroll, true);
-
-    return () => {
-      close();
-      triggerHandlers.forEach(([trigger, handler]) => trigger.removeEventListener("click", handler));
-      bindings.forEach(({ select, sync }) => select.removeEventListener("change", sync));
-      observers.forEach((observer) => observer.disconnect());
-      mobileBackdrop.removeEventListener("click", handleBackdropClick);
-      mobileClose.removeEventListener("click", handleCloseClick);
-      document.removeEventListener("pointerdown", handleDocumentPointer);
-      document.removeEventListener("keydown", handleDocumentKey);
-      window.removeEventListener("resize", handleViewportChange);
-      window.removeEventListener("orientationchange", handleViewportChange);
-      window.removeEventListener("scroll", handleDocumentScroll, true);
-      mobileBackdrop.remove();
-      menu.remove();
-    };
-  }
+  // The select menus live in their own module; they get what they need from
+  // this closure as parameters. bindComposerSelectMenus stays on the public
+  // surface below so callers do not need to know about the split.
+  const { bindComposerSelectMenus } = createComposerSelectMenus({
+    translate,
+    showError,
+    requestAPI,
+    getSummaryModel,
+    setSummaryModel,
+    setMessageMode,
+    resolveMessageMode,
+    mobileViewport,
+  });
 
   function bindSidebarResizer({ storage = globalThis.localStorage } = {}) {
     const shell = $("appShell");
@@ -1089,13 +424,28 @@ export function createUIShellController({
     const separator = $("sidebarResizeHandle");
     const globalCollapseButton = $("globalRailCollapseBtn");
     const sessionCollapseButton = $("sessionSidebarCollapseBtn");
+    const conversationDock = $("railConversationDock");
+    const conversationRailRow = document.querySelector?.("[data-rail-conversation-row]");
+    const sidebarActions = $("sessionSidebarActions");
     if (!shell || !sidebar || !separator) return () => {};
 
     let width = defaultSidebarWidth;
-    let globalRailCollapsed = false;
+    let navigationMode = "columns";
     let sessionSidebarCollapsed = false;
     let dragging = false;
     const originalSeparatorTabIndex = separator.getAttribute?.("tabindex");
+    // Where the sidebar lives outside docked mode. Captured once, before any move,
+    // so returning it is exact rather than "append to whatever looks right".
+    const sidebarHome = { parent: sidebar.parentNode || null, nextSibling: sidebar.nextSibling || null };
+    // Same treatment for the search/create cluster: docked mode lifts it onto the
+    // conversation row, and it has to go back exactly where it came from.
+    const actionsHome = sidebarActions
+      ? { parent: sidebarActions.parentNode || null, nextSibling: sidebarActions.nextSibling || null }
+      : null;
+    let sidebarDocked = false;
+    // The layout to return to when leaving the icon rail via the conversation
+    // entry: whichever of columns/docked the user was last actually using.
+    let lastVisibleNavigationMode = "columns";
 
     const desktopLayout = () => {
       const media = window.matchMedia?.("(max-width: 767px)");
@@ -1103,14 +453,18 @@ export function createUIShellController({
       return (globalThis.innerWidth || document.documentElement?.clientWidth || 1024) > 767;
     };
     const toggleClass = (node, name, force) => node?.classList?.toggle?.(name, Boolean(force));
+    // Only the icon layout is "collapsed" from the control's point of view: it is
+    // the one state where the next press expands. columns and docked both still
+    // have somewhere tighter to go, so both read as "collapse". This is why the
+    // three-way cycle needs no third i18n key.
     const collapseKey = (global) => global
-      ? (globalRailCollapsed ? "shell.expandGlobalNavigation" : "shell.collapseGlobalNavigation")
+      ? (navigationMode === "icons" ? "shell.expandGlobalNavigation" : "shell.collapseGlobalNavigation")
       : (sessionSidebarCollapsed ? "shell.expandSessionSidebar" : "shell.collapseSessionSidebar");
     const syncCollapseControl = (button, global) => {
       if (!button) return;
       const key = collapseKey(global);
       const label = translate(key);
-      button.setAttribute("aria-expanded", (global ? !globalRailCollapsed : !sessionSidebarCollapsed) ? "true" : "false");
+      button.setAttribute("aria-expanded", (global ? navigationMode !== "icons" : !sessionSidebarCollapsed) ? "true" : "false");
       button.setAttribute("title", label);
       button.setAttribute("aria-label", label);
       button.setAttribute(`data-i18n-title`, key);
@@ -1129,8 +483,12 @@ export function createUIShellController({
     };
     const persistCollapseState = () => {
       try {
-        storage?.setItem(globalRailCollapsedPreferenceKey, globalRailCollapsed ? "true" : "false");
-        storage?.setItem(sessionSidebarCollapsedPreferenceKey, sessionSidebarCollapsed ? "true" : "false");
+        storage?.setItem(navigationLayoutModePreferenceKey, navigationMode);
+        // The legacy booleans are still written so anything reading them keeps
+        // seeing a coherent view of the layout: only the icon rail is "collapsed",
+        // and docked has no separate column to be compact about.
+        storage?.setItem(globalRailCollapsedPreferenceKey, navigationMode === "icons" ? "true" : "false");
+        storage?.setItem(sessionSidebarCollapsedPreferenceKey, navigationMode === "columns" && sessionSidebarCollapsed ? "true" : "false");
       } catch {
         // Browser storage is optional; collapse state still works in memory.
       }
@@ -1140,16 +498,47 @@ export function createUIShellController({
       else resizeTerminal?.();
     };
     const sidebarMode = () => sessionSidebarCollapsed ? "compact" : width <= narrowSidebarMaxWidth ? "narrow" : "expanded";
+    // Docking is a real DOM move rather than a CSS reorder: the list has to render
+    // *inside* the rail's scroll box, between the conversation entry and the
+    // entries below it, and grid reordering cannot nest one column inside another.
+    //
+    // The phone drawer is the reason this always reverses on a narrow viewport --
+    // .global-rail is display:none there, and the drawer is #sessionSidebar itself,
+    // so leaving it parented to a hidden rail would make the drawer unreachable.
+    const applySidebarDocking = (docked) => {
+      if (!conversationDock || sidebarDocked === docked) return;
+      if (docked) {
+        conversationDock.removeAttribute?.("hidden");
+        conversationDock.appendChild?.(sidebar);
+        if (sidebarActions && conversationRailRow?.appendChild) conversationRailRow.appendChild(sidebarActions);
+        sidebarDocked = true;
+        return;
+      }
+      if (sidebarHome.parent?.insertBefore) sidebarHome.parent.insertBefore(sidebar, sidebarHome.nextSibling);
+      if (sidebarActions && actionsHome?.parent?.insertBefore) actionsHome.parent.insertBefore(sidebarActions, actionsHome.nextSibling);
+      conversationDock.setAttribute?.("hidden", "");
+      sidebarDocked = false;
+    };
     const applyLayoutState = ({ saveWidth = false, saveCollapse = false } = {}) => {
       const desktop = desktopLayout();
-      const mode = desktop ? sidebarMode() : "expanded";
+      const layout = desktop ? navigationMode : "columns";
+      // compact/narrow describe the standalone column, so they only apply there.
+      // Docked always renders the full-width list; icons renders none of it.
+      const mode = layout === "columns" && desktop ? sidebarMode() : "expanded";
       const effectiveWidth = mode === "compact" ? compactSidebarWidth : width;
+      applySidebarDocking(layout === "docked");
       shell.style?.setProperty?.("--session-sidebar-width", `${effectiveWidth}px`);
       separator.setAttribute?.("aria-valuenow", String(effectiveWidth));
-      toggleClass(shell, "global-rail-collapsed", desktop && globalRailCollapsed);
+      navigationLayoutModes.forEach((candidate) => {
+        toggleClass(shell, `nav-mode-${candidate}`, desktop && layout === candidate);
+        toggleClass(globalRail, `nav-mode-${candidate}`, desktop && layout === candidate);
+      });
+      // Kept in sync with the new classes so the existing icon-rail rules, the
+      // arrow-flip rule, and anything else keyed on them keep working unchanged.
+      toggleClass(shell, "global-rail-collapsed", desktop && layout === "icons");
       toggleClass(shell, "session-sidebar-collapsed", desktop && mode === "compact");
       toggleClass(shell, "session-sidebar-narrow", desktop && mode === "narrow");
-      toggleClass(globalRail, "global-rail-collapsed", desktop && globalRailCollapsed);
+      toggleClass(globalRail, "global-rail-collapsed", desktop && layout === "icons");
       toggleClass(sidebar, "session-sidebar-collapsed", desktop && mode === "compact");
       toggleClass(sidebar, "session-sidebar-narrow", desktop && mode === "narrow");
       separator.removeAttribute?.("aria-hidden");
@@ -1159,29 +548,64 @@ export function createUIShellController({
       if (saveWidth && mode !== "compact") persistWidth();
       if (saveCollapse) persistCollapseState();
       requestTerminalResize();
-      onLayoutChange?.({ sessionSidebarMode: mode, sessionSidebarWidth: effectiveWidth, globalRailCollapsed: desktop && globalRailCollapsed });
+      onLayoutChange?.({
+        sessionSidebarMode: mode,
+        sessionSidebarWidth: effectiveWidth,
+        globalRailCollapsed: desktop && layout === "icons",
+        navigationLayoutMode: layout,
+      });
       return effectiveWidth;
     };
     const applyWidth = (nextWidth, { save = false, dragging = false } = {}) => {
       const candidate = normalizeSidebarWidth(nextWidth);
-      if (dragging) {
+      // Dragging past the compact threshold only means anything for the standalone
+      // column. Docked mode shares the same stored width but has no compact form,
+      // so it just tracks the pointer between the usual bounds.
+      if (dragging && navigationMode === "columns") {
         if (sessionSidebarCollapsed && candidate > compactSidebarExitWidth) sessionSidebarCollapsed = false;
         else if (!sessionSidebarCollapsed && candidate <= compactSidebarEnterWidth) sessionSidebarCollapsed = true;
       }
-      if (!sessionSidebarCollapsed) width = candidate;
+      if (!sessionSidebarCollapsed || navigationMode !== "columns") width = candidate;
       return applyLayoutState({ saveWidth: save, saveCollapse: save });
     };
+    // The divider drives the layout as well as the width. Total is the divider
+    // position; the stored width is then whatever that leaves for the list, which
+    // differs by layout because columns spends the first 68px on the icon rail.
+    const applyDrag = (total) => {
+      const resolved = navigationLayoutModeFromDragWidth(total, navigationMode);
+      if (resolved !== navigationMode) {
+        if (navigationMode !== "icons") lastVisibleNavigationMode = navigationMode;
+        navigationMode = resolved;
+        if (resolved !== "columns") sessionSidebarCollapsed = false;
+      }
+      // The icon rail is a fixed 48px, so there is no width to track while the
+      // pointer is inside its band; only the layout switch matters.
+      if (navigationMode === "icons") return applyLayoutState({ saveCollapse: false });
+      const listWidth = navigationMode === "columns" ? total - globalRailExpandedWidth : total;
+      return applyWidth(listWidth, { dragging: true });
+    };
     const applyCollapseState = ({ save = false } = {}) => applyLayoutState({ saveCollapse: save });
-    const toggleGlobalRail = () => {
-      if (!desktopLayout()) return false;
-      const expandAll = globalRailCollapsed && sessionSidebarCollapsed;
-      globalRailCollapsed = !expandAll;
-      sessionSidebarCollapsed = !expandAll;
-      applyCollapseState({ save: true });
-      return globalRailCollapsed;
+    const setNavigationMode = (mode, { save = true } = {}) => {
+      const next = normalizeNavigationLayoutMode(mode, navigationMode);
+      if (next === navigationMode) return navigationMode;
+      finishDrag();
+      if (navigationMode !== "icons") lastVisibleNavigationMode = navigationMode;
+      navigationMode = next;
+      // Compact is a columns-only refinement; carrying it through docked/icons and
+      // back would silently narrow the column on the way home.
+      if (next !== "columns") sessionSidebarCollapsed = false;
+      applyCollapseState({ save });
+      return navigationMode;
+    };
+    const cycleNavigationMode = () => {
+      if (!desktopLayout()) return navigationMode;
+      return setNavigationMode(nextNavigationLayoutMode(navigationMode));
     };
     const toggleSessionSidebar = () => {
       if (!desktopLayout()) return false;
+      // Only the standalone column has a compact form to toggle. In docked mode
+      // this control is hidden, and in icons mode the sidebar is not rendered.
+      if (navigationMode !== "columns") return sessionSidebarCollapsed;
       if (sessionSidebarCollapsed) {
         sessionSidebarCollapsed = false;
         applyCollapseState({ save: true });
@@ -1196,19 +620,31 @@ export function createUIShellController({
       const storedWidth = normalizeSidebarWidth(storage?.getItem(sidebarWidthPreferenceKey));
       const compactFromWidth = storedWidth <= compactSidebarEnterWidth;
       width = compactFromWidth ? defaultSidebarWidth : storedWidth;
-      globalRailCollapsed = normalizeCollapsedPreference(storage?.getItem(globalRailCollapsedPreferenceKey));
+      const storedMode = storage?.getItem(navigationLayoutModePreferenceKey);
+      // Migration: an existing install has no mode, only the old booleans. A
+      // collapsed rail meant icon-only, so that maps to "icons"; everything else
+      // was the two-column layout.
+      navigationMode = storedMode == null
+        ? (normalizeCollapsedPreference(storage?.getItem(globalRailCollapsedPreferenceKey)) ? "icons" : "columns")
+        : normalizeNavigationLayoutMode(storedMode);
       const legacyCollapsed = normalizeCollapsedPreference(storage?.getItem(legacySidebarCollapsedPreferenceKey), false);
       const storedSessionCollapsed = storage?.getItem(sessionSidebarCollapsedPreferenceKey);
-      sessionSidebarCollapsed = storedSessionCollapsed == null
-        ? legacyCollapsed || compactFromWidth
-        : normalizeCollapsedPreference(storedSessionCollapsed) || compactFromWidth;
-      if (storedSessionCollapsed == null && storage?.setItem) storage.setItem(sessionSidebarCollapsedPreferenceKey, sessionSidebarCollapsed ? "true" : "false");
+      sessionSidebarCollapsed = navigationMode !== "columns"
+        ? false
+        : storedSessionCollapsed == null
+          ? legacyCollapsed || compactFromWidth
+          : normalizeCollapsedPreference(storedSessionCollapsed) || compactFromWidth;
     } catch {
       width = defaultSidebarWidth;
-      globalRailCollapsed = false;
+      navigationMode = "columns";
       sessionSidebarCollapsed = false;
     }
-    applyLayoutState();
+    // Written on the first paint rather than only on the first toggle. Migration
+    // and the non-columns layouts both derive a compact flag that differs from
+    // what is on disk, and leaving the old value there means anything reading
+    // storage before the user touches a control sees a state that is not the one
+    // on screen.
+    applyLayoutState({ saveCollapse: true });
 
     const finishDrag = (event) => {
       if (!dragging) return;
@@ -1220,9 +656,24 @@ export function createUIShellController({
       persistCollapseState();
       applyLayoutState();
     };
+    // Total width of the navigation area, measured from the rail's left edge. That
+    // is the one quantity meaning the same thing in all three layouts, and it is
+    // also what the user is physically holding, so both the layout thresholds and
+    // the width follow from it. Measuring the sidebar instead would shift by the
+    // rail width (columns) or by the rail's padding (docked) and the dragged edge
+    // would trail the cursor.
+    const dragTotalWidth = (clientX) => {
+      const railLeft = globalRail?.getBoundingClientRect?.()?.left;
+      if (railLeft !== undefined) return Number(clientX) - (Number(railLeft) || 0);
+      // No rail element: the sidebar's own edge is the only reference available, so
+      // the rail's nominal width is added back to keep `total` on the same scale
+      // the thresholds and the per-layout width maths expect.
+      const sidebarLeft = Number(sidebar?.getBoundingClientRect?.()?.left) || 0;
+      return Number(clientX) - sidebarLeft + globalRailExpandedWidth;
+    };
     const handlePointerMove = (event) => {
       if (!dragging) return;
-      applyWidth(sidebarWidthFromPointer(event.clientX, sidebar.getBoundingClientRect().left), { dragging: true });
+      applyDrag(dragTotalWidth(event.clientX));
       event.preventDefault();
     };
     const handlePointerDown = (event) => {
@@ -1231,14 +682,20 @@ export function createUIShellController({
       separator.classList?.add?.("is-dragging");
       document.body?.classList?.add?.("sidebar-resizing");
       separator.setPointerCapture?.(event.pointerId);
-      handlePointerMove(event);
+      // Deliberately not applying the press position. The divider does not always
+      // rest at the stored boundary -- on the overview page it sits on the rail's
+      // edge -- so applying on press alone would collapse the layout the instant
+      // the divider was touched. The first actual move drives it instead, which
+      // also means a stray click can no longer change the layout.
     };
     const handleKeyDown = (event) => {
       if (!desktopLayout()) return;
       const step = event.shiftKey ? 24 : 8;
+      const compactAvailable = navigationMode === "columns";
       if (event.key === "Home") {
-        sessionSidebarCollapsed = true;
-        applyLayoutState({ saveCollapse: true });
+        if (compactAvailable) sessionSidebarCollapsed = true;
+        else width = minSidebarWidth;
+        applyLayoutState({ saveWidth: !compactAvailable, saveCollapse: true });
       } else if (event.key === "End") {
         sessionSidebarCollapsed = false;
         width = maxSidebarWidth;
@@ -1292,10 +749,17 @@ export function createUIShellController({
       width = defaultSidebarWidth;
       applyLayoutState({ saveWidth: true, saveCollapse: true });
     };
+    // The icon rail hides the conversation list entirely, so pressing the
+    // conversation entry has to bring a layout back that can actually show it --
+    // otherwise the list is unreachable without finding the collapse arrow.
+    const handleConversationRailClick = () => {
+      if (!desktopLayout() || navigationMode !== "icons") return;
+      setNavigationMode(lastVisibleNavigationMode);
+    };
     const handleGlobalCollapseClick = (event) => {
       event.preventDefault();
       event.stopPropagation();
-      toggleGlobalRail();
+      cycleNavigationMode();
     };
     const handleSessionCollapseClick = (event) => {
       event.preventDefault();
@@ -1307,12 +771,14 @@ export function createUIShellController({
       applyCollapseState();
     };
 
+    const conversationRailButton = document.querySelector?.('[data-global-rail-target="conversation"]');
     separator.addEventListener("pointerdown", handlePointerDown);
     separator.addEventListener("keydown", handleKeyDown);
     separator.addEventListener("wheel", handleWheel, { passive: false });
     separator.addEventListener("dblclick", resetWidth);
     globalCollapseButton?.addEventListener?.("click", handleGlobalCollapseClick);
     sessionCollapseButton?.addEventListener?.("click", handleSessionCollapseClick);
+    conversationRailButton?.addEventListener?.("click", handleConversationRailClick);
     window.addEventListener("pointermove", handlePointerMove);
     window.addEventListener("pointerup", finishDrag);
     window.addEventListener("pointercancel", finishDrag);
@@ -1327,6 +793,7 @@ export function createUIShellController({
       separator.removeEventListener("dblclick", resetWidth);
       globalCollapseButton?.removeEventListener?.("click", handleGlobalCollapseClick);
       sessionCollapseButton?.removeEventListener?.("click", handleSessionCollapseClick);
+      conversationRailButton?.removeEventListener?.("click", handleConversationRailClick);
       window.removeEventListener("pointermove", handlePointerMove);
       window.removeEventListener("pointerup", finishDrag);
       window.removeEventListener("pointercancel", finishDrag);

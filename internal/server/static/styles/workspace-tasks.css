@@ -2199,6 +2199,15 @@ body.white-shell.theme-light .messages:not(.empty) > [class~="message"][class~="
 .settings-check-row small,
 .remote-access-current-password small { color: var(--muted, #64748b); font-size: 11px; font-weight: 500; line-height: 1.4; }
 .remote-access-current-password { grid-column: 1 / -1; }
+/* Capabilities read as a scannable grid rather than a key-value column: the
+   boolean ones carry a tone, so the eye finds what is blocked without reading. */
+.remote-access-capability-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 8px; }
+.remote-access-capability-cell { min-width: 0; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 10px; border: 1px solid var(--line, var(--ws-border, #dfe3ea)); border-radius: 9px; background: var(--bg, var(--ws-canvas, #f8fafc)); }
+.remote-access-capability-cell > span { color: var(--muted, #64748b); font-size: 11px; line-height: 1.4; }
+.remote-access-capability-cell > strong { color: var(--text, #1f2937); font-size: 12px; font-weight: 700; overflow-wrap: anywhere; }
+.remote-access-capability-cell > .settings-badge { flex: 0 0 auto; }
+.remote-access-policy-card .settings-provider-section-head { align-items: flex-start; }
+.remote-access-policy-card .settings-provider-section-head > .settings-action-btn { flex: 0 0 auto; }
 .remote-access-password-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 .remote-access-password-form { display: grid; align-content: start; gap: 10px; min-width: 0; padding: 12px; border: 1px solid var(--line, var(--ws-border, #dfe3ea)); border-radius: 10px; background: var(--bg, var(--ws-canvas, #f8fafc)); }
 .remote-access-password-form > strong { color: var(--text, #1f2937); font-size: 13px; }
@@ -2279,6 +2288,12 @@ body.white-shell.theme-light.theme-dark .remote-access-password-form {
   background: var(--settings-surface-muted);
 }
 body.white-shell.theme-light.theme-dark .remote-access-password-form > strong { color: var(--settings-foreground); }
+body.white-shell.theme-light.theme-dark .remote-access-capability-cell {
+  border-color: var(--settings-border);
+  background: var(--settings-surface-muted);
+}
+body.white-shell.theme-light.theme-dark .remote-access-capability-cell > span { color: var(--settings-muted-foreground); }
+body.white-shell.theme-light.theme-dark .remote-access-capability-cell > strong { color: var(--settings-foreground); }
 body.white-shell.theme-light.theme-dark .remote-access-tunnel-url {
   border-color: var(--settings-border);
   background: var(--settings-surface-muted);

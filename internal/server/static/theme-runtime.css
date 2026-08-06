@@ -241,7 +241,7 @@ body.white-shell[data-autoto-theme] :is(.settings-provider-section, .settings-pa
   box-shadow: var(--ws-shadow);
 }
 
-body.white-shell[data-autoto-theme] :is(.message-input, .sidebar-search, .legacy-settings-search, .settings-field, .terminal-command-input, .model-pill, .effort-pill, .message-mode-toggle) {
+body.white-shell[data-autoto-theme] :is(.message-input, .overview-launcher-input, .sidebar-search, .legacy-settings-search, .settings-field, .terminal-command-input, .model-pill, .effort-pill, .message-mode-toggle) {
   border-color: var(--ws-border);
   background: var(--ws-input);
   color: var(--ws-text);
@@ -253,14 +253,14 @@ body.white-shell[data-autoto-theme] :is(.nav-item.selected, .nav-item-shell.sele
   color: var(--ws-primary);
 }
 
-body.white-shell[data-autoto-theme] :is(.settings-action-btn.primary, .composer-send-btn, .new-task-btn, .empty-workspace-action) {
+body.white-shell[data-autoto-theme] :is(.settings-action-btn.primary, .composer-send-btn, .overview-launcher-send, .new-task-btn, .empty-workspace-action) {
   border-color: var(--ws-primary);
   background: var(--autoto-accent-gradient, var(--ws-primary));
   color: var(--autoto-theme-accent-text, #ffffff);
   box-shadow: 0 9px 24px color-mix(in srgb, var(--ws-primary) 24%, transparent);
 }
 
-body.white-shell[data-autoto-theme] :is(.settings-action-btn.primary, .composer-send-btn, .new-task-btn, .empty-workspace-action):hover {
+body.white-shell[data-autoto-theme] :is(.settings-action-btn.primary, .composer-send-btn, .overview-launcher-send, .new-task-btn, .empty-workspace-action):hover {
   filter: brightness(1.05) saturate(1.04);
 }
 
@@ -582,5 +582,34 @@ body.white-shell[data-autoto-theme]:not([data-background-mode="custom"]):not([da
 
   body.white-shell[data-autoto-theme] :is(.nav-item.selected, .nav-item-shell.selected, .project-card.active, .navigation-conversation-row.active, .recent-conversation-item.active, .global-rail button.active, .global-rail [aria-current="page"], .message-mode-option.active) {
     box-shadow: inset 0 0 0 2px currentColor;
+  }
+}
+
+/* ==========================================================================
+   Phone drawer stays opaque
+   On desktop .sidebar is a column inside the shell, so the rules above make it
+   see-through on purpose: fully transparent under a wallpaper, 94% card with a
+   blur otherwise. Below 767px that same element becomes the hamburger drawer,
+   positioned fixed over the conversation, and both treatments let the
+   transcript read through the menu. Restore a solid surface here (plus the drop
+   shadow the wallpaper rules cleared) for the drawer only; the rails, headers,
+   and composer keep the see-through treatment.
+   ========================================================================== */
+@media (max-width: 767px) {
+  body:is([data-background-mode="custom"][data-background-ready="true"], [data-background-mode="theme"][data-autoto-theme][data-theme-global-background="true"]) .sidebar,
+  body.white-shell[data-autoto-theme]:is([data-background-mode="custom"][data-background-ready="true"], [data-background-mode="theme"][data-theme-global-background="true"]) .sidebar,
+  body.white-shell[data-autoto-theme]:not([data-background-mode="custom"]):not([data-background-mode="theme"][data-theme-global-background="true"]) .sidebar {
+    border-right-color: var(--ws-border);
+    /* --ws-card is the surface every other phone-drawer rule paints, so it is
+       the opaque base here too. Theme packages that ship a dedicated sidebar
+       token layer it on top; if that token carries alpha it still composites
+       against the card colour rather than the conversation underneath. */
+    background-color: var(--ws-card, #f7f7f8) !important;
+    background-image: linear-gradient(to bottom, var(--ws-sidebar, transparent), var(--ws-sidebar, transparent)) !important;
+    color: var(--ws-text);
+    box-shadow: 18px 0 50px rgba(0, 0, 0, .38) !important;
+    /* Nothing shows through an opaque panel, so skip the compositing cost. */
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
   }
 }

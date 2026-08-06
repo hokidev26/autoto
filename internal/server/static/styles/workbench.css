@@ -30,9 +30,12 @@ body.white-shell.theme-light .global-rail-brand-mark {
 body.white-shell.theme-light .global-rail-brand-mark svg { stroke-width: 2; }
 body.white-shell.theme-light .global-rail-brand-text { font-size: 10px; letter-spacing: .12em; }
 body.white-shell.theme-light .global-rail-nav { gap: 5px; }
-body.white-shell.theme-light .global-rail button,
-body.white-shell.theme-light .global-rail a,
-body.white-shell.theme-light .global-rail-item {
+/* Rail nav entries only. See the matching :not() in white-shell.css: the docked
+   conversation list lives inside .global-rail, and this 58px floor was what kept
+   its cards tall no matter how far their own padding came down. */
+body.white-shell.theme-light .global-rail button:not(.global-rail-dock *),
+body.white-shell.theme-light .global-rail a:not(.global-rail-dock *),
+body.white-shell.theme-light .global-rail-item:not(.global-rail-dock *) {
   min-height: 58px;
   gap: 5px;
   border-radius: 12px;
@@ -2704,17 +2707,22 @@ body.white-shell.theme-light .navigation-disclosure {
 }
 
 body.white-shell.theme-light .navigation-disclosure svg {
-  width: 12px;
-  height: 12px;
+  width: 13px;
+  height: 13px;
   fill: none;
   stroke: currentColor;
-  stroke-width: 2.2;
+  /* Morphicons-style hairline. The heavier 2.2 read as a filled arrow at 12px and
+     fought the 1.7 strokes on the row icons beside it. */
+  stroke-width: 1.5;
   stroke-linecap: round;
   stroke-linejoin: round;
   /* The glyph is a right-pointing chevron; expanded rotates it down. Rotating one
      shape keeps collapsed and expanded visually related, which two separate
-     glyphs would not. */
-  transition: transform .15s ease;
+     glyphs would not.
+     The curve overshoots slightly past the target angle and settles back, which is
+     what reads as a spring rather than a slide. Kept short enough that repeated
+     toggling never feels like it is waiting on the animation. */
+  transition: transform .26s cubic-bezier(.34, 1.56, .64, 1);
 }
 
 body.white-shell.theme-light .navigation-disclosure.expanded svg {
@@ -2894,6 +2902,9 @@ body.white-shell.theme-light .navigation-conversation-row.status-queued .navigat
 
 @media (prefers-reduced-motion: reduce) {
   body.white-shell.theme-light .navigation-conversation-row .navigation-agent-icon svg { animation: none; }
+  /* The spring is decoration: the rotation still lands, it just stops overshooting
+     and stops taking time. */
+  body.white-shell.theme-light .navigation-disclosure svg { transition: none; }
 }
 
 body.white-shell.theme-light .messages:not(.empty) {

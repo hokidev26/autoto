@@ -888,7 +888,7 @@ export function createSharedAPISettingsController({
     const providers = Array.isArray(state.settings?.providers) ? state.settings.providers : [];
     return `
       <section class="compact-settings-section shared-api-providers-section">
-          <details class="shared-api-providers-details" open>
+          <details class="shared-api-providers-details">
           <summary class="compact-settings-section-summary"><div class="compact-settings-section-copy"><h2>${escapeHtml(t("sharedAPI.providersTitle"))}</h2><p data-settings-help-copy>${escapeHtml(t("sharedAPI.providersDescription"))}</p></div></summary>
           <div class="compact-settings-section-controls shared-api-list">
             ${providers.length ? providers.map((provider) => {
@@ -908,7 +908,7 @@ export function createSharedAPISettingsController({
     });
     return `
       <section class="compact-settings-section shared-api-accounts-section">
-        <details class="shared-api-accounts-details" open>
+        <details class="shared-api-accounts-details">
           <summary class="compact-settings-section-summary"><div class="compact-settings-section-copy"><h2>${escapeHtml(t("sharedAPI.accountsTitle"))}</h2><p data-settings-help-copy>${escapeHtml(t("sharedAPI.accountsDescription"))}</p></div></summary>
           <div class="compact-settings-section-controls">
           <div class="compact-settings-section-toolbar"><span class="settings-badge">${escapeHtml(t("sharedAPI.accountCount", { count: state.gatewayAccounts.length }))}</span></div>
@@ -959,9 +959,14 @@ export function createSharedAPISettingsController({
   }
 
   function renderKeys() {
+    // Sections collapse by default, but a one-time token is shown exactly once
+    // and an open editor holds unsaved input. Collapsing over either would
+    // destroy state the user cannot recover, so those cases force the section
+    // open.
+    const forceOpen = Boolean(oneTimeToken) || keyEditorOpen || Boolean(editingKeyID);
     return `
       <section class="compact-settings-section shared-api-keys-section">
-        <details class="shared-api-keys-details" open>
+        <details class="shared-api-keys-details" ${forceOpen ? "open" : ""}>
           <summary class="compact-settings-section-summary"><div class="compact-settings-section-copy"><h2>${escapeHtml(t("sharedAPI.keysTitle"))}</h2><p data-settings-help-copy>${escapeHtml(t("sharedAPI.keysDescription"))}</p></div></summary>
           <div class="compact-settings-section-controls">
           <div class="compact-settings-section-toolbar"><span class="settings-badge">${escapeHtml(t("sharedAPI.keyCount", { count: state.gatewayKeys.length }))}</span><button class="settings-action-btn primary" type="button" data-gateway-key-add>${escapeHtml(t("sharedAPI.addKey"))}</button></div>
@@ -1037,7 +1042,7 @@ export function createSharedAPISettingsController({
   }
 
   function renderRequests() {
-    return `<section class="compact-settings-section shared-api-requests-section"><details class="shared-api-requests-details" open><summary class="compact-settings-section-summary"><div class="compact-settings-section-copy"><h2>${escapeHtml(t("sharedAPI.requestsTitle"))}</h2><p data-settings-help-copy>${escapeHtml(t("sharedAPI.requestsDescription"))}</p></div></summary><div class="compact-settings-section-controls"><div class="compact-settings-section-toolbar"><span class="settings-badge">${escapeHtml(t("sharedAPI.requestCount", { count: state.gatewayRequests.length }))}</span></div><div class="shared-api-request-list">${state.gatewayRequests.length ? state.gatewayRequests.map(renderRequest).join("") : `<div class="settings-empty-state shared-api-compact-empty">${escapeHtml(t("sharedAPI.noRequests"))}</div>`}</div></div></details></section>`;
+    return `<section class="compact-settings-section shared-api-requests-section"><details class="shared-api-requests-details"><summary class="compact-settings-section-summary"><div class="compact-settings-section-copy"><h2>${escapeHtml(t("sharedAPI.requestsTitle"))}</h2><p data-settings-help-copy>${escapeHtml(t("sharedAPI.requestsDescription"))}</p></div></summary><div class="compact-settings-section-controls"><div class="compact-settings-section-toolbar"><span class="settings-badge">${escapeHtml(t("sharedAPI.requestCount", { count: state.gatewayRequests.length }))}</span></div><div class="shared-api-request-list">${state.gatewayRequests.length ? state.gatewayRequests.map(renderRequest).join("") : `<div class="settings-empty-state shared-api-compact-empty">${escapeHtml(t("sharedAPI.noRequests"))}</div>`}</div></div></details></section>`;
   }
 
   function render() {

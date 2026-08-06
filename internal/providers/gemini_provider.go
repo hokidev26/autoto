@@ -363,7 +363,7 @@ func (p *GeminiProvider) generateCloudCodeAttempts(ctx context.Context, out chan
 		if strings.HasPrefix(strings.ToLower(model), "claude-") {
 			request.Header.Set("anthropic-beta", "claude-code-20250219")
 		}
-			response, requestErr := p.client.Do(request)
+		response, requestErr := p.client.Do(request)
 		if requestErr != nil {
 			if ctx.Err() != nil {
 				return "", true

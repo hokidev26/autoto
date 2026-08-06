@@ -184,7 +184,11 @@ Cross-cutting implementations should follow the contributor invariants in `CONTR
 
 Caches must declare their source, capacity, expiry, version invalidation, permission/content invalidation, failure behavior, and secret-handling boundary before they are introduced. Security metadata that cannot be trusted must be recomputed or disabled fail-closed.
 
-The Agent WebSocket remains a live event transport rather than a durable replay log. A monotonic persisted event sequence and catch-up protocol are intentionally deferred until an external task/approval channel such as the IM Gateway makes replay a correctness requirement.
+The Agent WebSocket speaks protocol 2 (`internal/agent/hub.go`). Events carry a stream session identifier and a monotonic sequence, and a reconnecting client may replay from an `after` cursor within the same process and stream session. Replay is bounded by named limits (ring size and bytes, per-event bytes, replay limit, subscriber buffer, stream count, and idle timeout) rather than by an unbounded buffer.
+
+When replay cannot be served correctly the hub does not backfill partially. It reports one of five enumerated resync reasons (`session_mismatch`, `cursor_expired`, `replay_limit`, `subscriber_overrun`, `stream_evicted`) and the client re-reads an authoritative live snapshot (`internal/server/stream_recovery.go`, `internal/db/live_snapshot.go`) before resuming from that snapshot's watermark.
+
+The sequence is per process and in memory, not a durable event log. There is no Agent event table, so events cannot be replayed after a restart or across processes, and stream sessions and sequences are not shared between instances. Durable persistence with a retention policy stays deferred until an external task/approval channel such as the IM Gateway makes cross-process replay a correctness requirement; the in-memory ring must not be described as a durable queue.
 
 ## Validation checklist
 

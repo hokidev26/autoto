@@ -63,7 +63,7 @@ test("terminal toggle synchronizes the legacy header button ARIA state", () => {
   }
 });
 
-test("terminal management action cards omit redundant descriptions", () => {
+test("terminal settings page keeps only controls with no other entry point", () => {
   const previousDocument = globalThis.document;
   const elements = {
     appShell: { classList: classList(["terminal-collapsed"]) },
@@ -83,10 +83,29 @@ test("terminal management action cards omit redundant descriptions", () => {
       formatNumber: (value) => String(value),
     });
     const html = controller.renderTerminalSettingsContent();
-    const cards = html.match(/<button class="terminal-control-card settings-card"[\s\S]*?<\/button>/g) || [];
 
-    assert.equal(cards.length, 4);
-    cards.forEach((card) => assert.doesNotMatch(card, /<small>/));
+    // Clear and copy have no button anywhere else in the UI, so the settings
+    // page stays their only entry point.
+    assert.match(html, /data-terminal-action="clear"/);
+    assert.match(html, /data-terminal-action="copy"/);
+    assert.match(html, /id="terminalReconnectSettingsBtn"/);
+    assert.match(html, /id="terminalFocusSettingsBtn"/);
+
+    // Reconnect and collapse duplicated the terminal panel and workbench header,
+    // and the shortcut table was static reference copy. Both are gone.
+    assert.doesNotMatch(html, /terminal-control-card/);
+    assert.doesNotMatch(html, /data-terminal-action="reconnect"/);
+    assert.doesNotMatch(html, /data-terminal-action="toggle"/);
+    assert.doesNotMatch(html, /terminal-shortcut-grid/);
+    assert.doesNotMatch(html, /settings-status-strip/);
+
+    // Local preferences are the page's own reason to exist.
+    assert.match(html, /data-terminal-toggle="clearOnReconnect"/);
+    assert.match(html, /data-terminal-toggle="focusOnConnect"/);
+    assert.match(html, /data-terminal-max-lines="5000"/);
+
+    // Two sections total: hero and local preferences.
+    assert.equal((html.match(/<section/g) || []).length, 2);
   } finally {
     if (previousDocument === undefined) delete globalThis.document;
     else globalThis.document = previousDocument;

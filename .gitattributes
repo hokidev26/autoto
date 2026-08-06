@@ -1,0 +1,9 @@
+# Normalize every text file to LF in the repository and on checkout. Without
+# this, a Windows clone with core.autocrlf=true gets CRLF working-tree files and
+# gofmt flags every .go file, which makes scripts/check.sh unrunnable locally.
+# The index has always been LF, so adding this changes no stored content.
+* text=auto eol=lf
+
+# Declared explicitly so text=auto never has to guess on binary assets.
+*.png binary
+*.ico binary

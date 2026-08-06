@@ -167,12 +167,21 @@ export function createSettingsShellHelpers({
     if (desktop) {
       const railWidth = globalThis.matchMedia?.("(min-width: 1280px)")?.matches ? "76px" : "68px";
       appShell.style.setProperty("grid-template-columns", `${railWidth} var(--session-sidebar-width, 296px) minmax(0, 1fr)`);
+      // Pinning the first column here is what makes the rail narrow, so this is
+      // also where the rail is told about it. CSS cannot read an inline grid
+      // value, and the docked stage's own styles are written for its stored
+      // width (296px); without this flag the rail keeps that horizontal layout
+      // inside 68px and clips its brand and labels.
+      appShell.classList?.add("settings-rail-compact");
       modal.style.setProperty("grid-column", "2 / -1");
       modal.style.setProperty("grid-row", "1");
       card.style.setProperty("grid-template-columns", "var(--session-sidebar-width, 296px) minmax(0, 1fr)");
       card.style.setProperty("grid-template-rows", "minmax(0, 1fr)");
     } else {
       appShell.style.removeProperty("grid-template-columns");
+      // Below 768px the grid override is dropped, so the rail is not narrowed
+      // and must not be told that it is.
+      appShell.classList?.remove("settings-rail-compact");
       modal.style.setProperty("grid-column", "1 / -1");
       modal.style.setProperty("grid-row", "2");
       card.style.setProperty("grid-template-columns", "minmax(0, 1fr)");
@@ -267,6 +276,9 @@ export function createSettingsShellHelpers({
     if (!session) return;
     const { modal, originalParent, originalNextSibling } = session;
     restoreInlineProperties(session.appShellStyle);
+    // Part of the restoration contract: the rail goes back to whatever its
+    // navigation stage says, with no leftover state from the settings panel.
+    session.appShell?.classList?.remove("settings-rail-compact");
     restoreInlineProperties(session.modalStyle);
     restoreInlineProperties(session.cardStyle);
     session.hiddenNodes.forEach(restoreSettingsShellNode);

@@ -16,6 +16,16 @@ trap 'rm -f "$output_file" "$allowed_file" "$actual_file" "$allowed_sorted_file"
 # Exact, reviewed exceptions. Keys deliberately include the source file so
 # identically named package entry points cannot hide a newly unreachable symbol.
 readonly -a allowed_findings=(
+  # The six entries below were already unreachable but stayed hidden while comm
+  # ran under a non-C locale and bailed out before comparing (see the LC_ALL note
+  # further down). They are the same kind of exception as the rest of this list:
+  # documented convenience wrappers, public API accessors, and a test helper.
+  "internal/agent/danger_reflection.go::Runner.dangerReflectionPreferred"
+  "internal/kiroauth/kiro.go::RefreshLead"
+  "internal/peercontrol/invitation.go::EncodeInvitation"
+  "internal/peercontrol/scope.go::AllScopes"
+  "internal/providers/kiro_provider.go::newKiroProviderForTest"
+  "internal/providers/provider_runtime.go::normalizeReasoningEffort"
   "internal/automation/manager.go::New"
   "internal/channels/types.go::WithAPIBase"
   "internal/channels/types.go::WithHTTPClient"
@@ -43,7 +53,7 @@ readonly -a allowed_findings=(
   "internal/gitsnapshot/gitsnapshot.go::FingerprintReader"
   "internal/plugins/service.go::WithTimeout"
   "internal/providers/anthropic_provider.go::emitAnthropicToolCall"
-  "internal/providers/codex.go::parseCodexModels"
+  "internal/providers/codex_models.go::parseCodexModels"
   "internal/review/review.go::ParseVerdict"
   "internal/secrets/secrets.go::Parse"
   "internal/server/agent.go::boundedActivityInput"
@@ -108,8 +118,12 @@ done <"$output_file"
 LC_ALL=C sort -u "$allowed_file" >"$allowed_sorted_file"
 LC_ALL=C sort -u "$actual_file" >"$actual_sorted_file"
 
-unexpected="$(comm -13 "$allowed_sorted_file" "$actual_sorted_file")"
-stale="$(comm -23 "$allowed_sorted_file" "$actual_sorted_file")"
+# comm has to use the same collation the sorts above used. Without LC_ALL=C it
+# applies the caller's locale, decides the C-sorted input is unsorted, and prints
+# "file 1 is not in sorted order" instead of comparing. That made this script
+# fail on any machine whose locale is not C (for example zh_TW.UTF-8).
+unexpected="$(LC_ALL=C comm -13 "$allowed_sorted_file" "$actual_sorted_file")"
+stale="$(LC_ALL=C comm -23 "$allowed_sorted_file" "$actual_sorted_file")"
 if [[ -n "$unexpected" ]]; then
   printf 'Unexpected dead code:\n%s\n' "$unexpected" >&2
 fi

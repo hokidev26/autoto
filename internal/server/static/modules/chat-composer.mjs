@@ -5,6 +5,8 @@ import { api } from "./runtime.mjs";
 import { t } from "./i18n.mjs?v=goal-command-2-queue-command-1-reasoning-steps-1-reasoning-history-1-markdown-2";
 import { mergeAuthoritativeEffectiveCommands, mergeBuiltInSlashCommands, mergeSlashCommands, normalizeSlashCommandName, slashCommandInsertion } from "./skills-commands.mjs?v=goal-command-2-queue-command-1-reasoning-steps-1-reasoning-history-1-markdown-2";
 import { isSupportedVideoFile, processVideoAttachment } from "./video-attachments.mjs";
+import { createComposerAttachments } from "./composer-attachments.mjs";
+import { createComposerPalettes } from "./composer-palettes.mjs";
 
 export const defaultReasoningEffortValues = Object.freeze(["auto", "low", "medium", "high"]);
 // Ordered weakest to strongest. "xhigh", "max" and "ultra" are Codex levels
@@ -1271,252 +1273,42 @@ export function createChatComposerController({
     schedule(() => autoResizeMessageInput());
   }
 
-  function openAttachmentPicker() {
-    const input = $("attachFileInput");
-    if (!input || input.disabled) return;
-    input.value = "";
-    input.click();
-  }
-
-  function attachmentId() {
-    return `att-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
-  }
-
-  function videoAttachmentCandidate(file) {
-    const type = String(file?.type || "").toLowerCase();
-    const name = String(file?.name || "").toLowerCase();
-    return type.startsWith("video/") || /\.(mp4|webm)$/.test(name);
-  }
-
-  function videoAttachmentFailureLabel(error) {
-    const key = {
-      "unsupported-type": "workspace.chat.videoUnsupported",
-      "source-too-large": "workspace.chat.videoSourceTooLarge",
-      "duration-too-long": "workspace.chat.videoDurationTooLong",
-      "derived-budget-exceeded": "workspace.chat.videoDerivedTooLarge",
-      "message-budget-exceeded": "workspace.chat.videoMessageTooLarge",
-    }[error?.code] || "workspace.chat.videoProcessingFailed";
-    return t(key);
-  }
-
-  function pendingAttachmentForFile(file, groupId = "") {
-    const kind = attachmentKind(file);
-    return {
-      id: attachmentId(),
-      file,
-      kind,
-      groupId,
-      previewUrl: kind === "image" ? URL.createObjectURL(file) : "",
-    };
-  }
-
-  function releasePendingAttachmentPreviews(attachments) {
-    (Array.isArray(attachments) ? attachments : []).forEach((item) => {
-      if (item?.previewUrl) URL.revokeObjectURL(item.previewUrl);
-    });
-  }
-
-  function attachmentCancellationError() {
-    return Object.assign(new Error("Attachment processing became stale."), { code: "cancelled" });
-  }
-
-  async function addPendingAttachmentFiles(files) {
-    const pickedFiles = Array.from(files || []).filter(Boolean);
-    if (!pickedFiles.length) return { added: [], skipped: [] };
-    if (isAttachmentProcessing()) {
-      showToast?.(t("workspace.chat.videoProcessing"), "warn", { force: true });
-      return { added: [], skipped: pickedFiles };
-    }
-    const maxFileBytes = 10 * 1024 * 1024;
-    const maxTotalBytes = 25 * 1024 * 1024;
-    const currentAttachments = Array.isArray(state.pendingAttachments) ? state.pendingAttachments : [];
-    const currentTotal = currentAttachments.reduce((sum, item) => sum + (item.file?.size || 0), 0);
-    let nextTotal = currentTotal;
-    const skipped = [];
-    const added = [];
-    const videoNotices = [];
-    const hasVideo = pickedFiles.some(videoAttachmentCandidate);
-    const job = hasVideo ? beginAttachmentProcessing() : null;
-    try {
-      for (const file of pickedFiles) {
-        if (job && !attachmentJobIsCurrent(job)) throw attachmentCancellationError();
-        const name = file.name || t("workspace.chat.unnamedFile");
-        if (videoAttachmentCandidate(file)) {
-          if (!isSupportedVideoFile(file)) {
-            skipped.push(`${name} (${t("workspace.chat.videoUnsupported")})`);
-            continue;
-          }
-          try {
-            const result = await prepareVideoAttachment(file, {
-              currentMessageBytes: nextTotal,
-              signal: job?.controller?.signal,
-            });
-            if (!attachmentJobIsCurrent(job)) throw attachmentCancellationError();
-            const prepared = [];
-            const groupId = `video-${job.generation}-${added.length}`;
-            try {
-              for (const outputFile of result.files || []) {
-                if (!attachmentJobIsCurrent(job)) throw attachmentCancellationError();
-                prepared.push(pendingAttachmentForFile(outputFile, groupId));
-                if (!attachmentJobIsCurrent(job)) throw attachmentCancellationError();
-              }
-            } catch (error) {
-              releasePendingAttachmentPreviews(prepared);
-              throw error;
-            }
-            if (!prepared.length) throw new Error("Video processing produced no readable attachments.");
-            added.push(...prepared);
-            nextTotal += Number(result.totalBytes || prepared.reduce((sum, item) => sum + (item.file?.size || 0), 0));
-            videoNotices.push({
-              key: result.originalIncluded ? "workspace.chat.videoOriginalIncluded" : "workspace.chat.videoFramesOnly",
-              tone: result.originalIncluded ? "success" : "warn",
-              name,
-              count: Number(result.frameFiles?.length || 0),
-            });
-          } catch (error) {
-            if (error?.code === "cancelled" || !attachmentJobIsCurrent(job)) throw attachmentCancellationError();
-            skipped.push(`${name} (${videoAttachmentFailureLabel(error)})`);
-          }
-          continue;
-        }
-        if (file.size > maxFileBytes) {
-          skipped.push(`${name}（${formatBytes(file.size)}）`);
-          continue;
-        }
-        if (nextTotal + file.size > maxTotalBytes) {
-          skipped.push(`${name} (${formatBytes(maxTotalBytes)})`);
-          continue;
-        }
-        try {
-          added.push(pendingAttachmentForFile(file));
-          nextTotal += file.size;
-        } catch {
-          skipped.push(name);
-        }
-      }
-      if (job && !attachmentJobIsCurrent(job)) throw attachmentCancellationError();
-      if (added.length) {
-        state.pendingAttachments = [...(Array.isArray(state.pendingAttachments) ? state.pendingAttachments : []), ...added];
-        renderPendingAttachments();
-        videoNotices.forEach((notice) => showToast?.(t(notice.key, {
-          name: notice.name,
-          count: notice.count,
-        }), notice.tone, { force: true }));
-        showToast?.(t("workspace.chat.attachmentsAdded", { count: added.length }), "success", { force: true });
-      }
-      if (skipped.length) {
-        const preview = skipped.slice(0, 3).join("、");
-        showToast?.(t("workspace.chat.attachmentsSkipped", { count: skipped.length, files: preview, suffix: skipped.length > 3 ? t("workspace.chat.more") : "" }), "warn", { force: true });
-      }
-      return { added, skipped };
-    } catch (error) {
-      if (error?.code === "cancelled" || (job && !attachmentJobIsCurrent(job))) {
-        releasePendingAttachmentPreviews(added);
-        return { added: [], skipped: [], cancelled: true };
-      }
-      releasePendingAttachmentPreviews(added);
-      throw error;
-    } finally {
-      if (job) finishAttachmentProcessing(job);
-    }
-  }
-
-  async function importAttachmentFiles(event) {
-    const picker = event?.target;
-    try {
-      await addPendingAttachmentFiles(picker?.files || []);
-    } finally {
-      if (picker) picker.value = "";
-    }
-  }
-
-  function handleMessagePaste(event) {
-    const files = clipboardFiles(event);
-    if (!files.length) return false;
-    void addPendingAttachmentFiles(files);
-    // Keep the browser's normal text paste and undo stack intact when the
-    // clipboard contains both text and files.
-    return true;
-  }
-
-  function removePendingAttachment(id) {
-    invalidateAttachmentProcessing({ sync: false });
-    const attachments = Array.isArray(state.pendingAttachments) ? state.pendingAttachments : [];
-    const removed = attachments.find((item) => item.id === id);
-    if (removed?.previewUrl) URL.revokeObjectURL(removed.previewUrl);
-    state.pendingAttachments = attachments.filter((item) => item.id !== id);
-    renderPendingAttachments();
-    syncMessageComposerBusy({ checkAttachmentContext: false });
-  }
-
-  function clearPendingAttachments() {
-    invalidateAttachmentProcessing({ sync: false });
-    const attachments = Array.isArray(state.pendingAttachments) ? state.pendingAttachments : [];
-    releasePendingAttachmentPreviews(attachments);
-    state.pendingAttachments = [];
-    renderPendingAttachments();
-    syncMessageComposerBusy({ checkAttachmentContext: false });
-  }
-
-  function renderPendingAttachments() {
-    const wrap = $("pendingAttachments");
-    if (!wrap) return;
-    const attachments = state.pendingAttachments || [];
-    wrap.classList.toggle("hidden", attachments.length === 0);
-    wrap.innerHTML = attachments.map((item) => pendingAttachmentCardHTML(item)).join("");
-    wrap.querySelectorAll("[data-remove-attachment]").forEach((button) => {
-      button.addEventListener("click", () => removePendingAttachment(button.dataset.removeAttachment));
-    });
-  }
-
-  function pendingAttachmentCardHTML(item) {
-    const file = item.file || {};
-    const name = file.name || t("workspace.chat.unnamedFile");
-    if (item.kind === "image" && item.previewUrl) {
-      return `
-        <div class="pending-image-card" title="${escapeAttr(name)}">
-          <img class="pending-image-thumb" src="${escapeAttr(item.previewUrl)}" alt="${escapeAttr(name)}" />
-          <button class="pending-attachment-remove" type="button" title="${escapeAttr(t("workspace.chat.removeAttachment"))}" aria-label="${escapeAttr(t("workspace.chat.removeAttachment"))}" data-remove-attachment="${escapeAttr(item.id)}">×</button>
-        </div>
-      `;
-    }
-    const subtitle = formatBytes(file.size || 0);
-    return `
-      <div class="pending-file-chip" title="${escapeAttr(name)}">
-        <span class="pending-file-icon">▯</span>
-        <span class="pending-file-name">${escapeHtml(name)}</span>
-        <span class="pending-file-size">${escapeHtml(subtitle)}</span>
-        <button class="pending-attachment-remove" type="button" title="${escapeAttr(t("workspace.chat.removeAttachment"))}" aria-label="${escapeAttr(t("workspace.chat.removeAttachment"))}" data-remove-attachment="${escapeAttr(item.id)}">×</button>
-      </div>
-    `;
-  }
-
-  function setComposerDragging(active) {
-    $("composerInputShell")?.classList.toggle("dragging", Boolean(active));
-  }
-
-  function eventHasFiles(event) {
-    return Array.from(event?.dataTransfer?.types || []).includes("Files");
-  }
-
-  function handleAttachmentDragOver(event) {
-    if (!eventHasFiles(event)) return;
-    event.preventDefault();
-    setComposerDragging(true);
-  }
-
-  function handleAttachmentDragLeave(event) {
-    const shell = $("composerInputShell");
-    if (!shell || shell.contains(event.relatedTarget)) return;
-    setComposerDragging(false);
-  }
-
-  function handleAttachmentDrop(event) {
-    if (!eventHasFiles(event)) return;
-    event.preventDefault();
-    setComposerDragging(false);
-    void addPendingAttachmentFiles(event.dataTransfer?.files || []);
-  }
+  // Attachment handling lives in its own module; it shares this closure's
+  // state by reference and calls back into the composer through these
+  // parameters.
+  const {
+    openAttachmentPicker,
+    attachmentId,
+    videoAttachmentCandidate,
+    videoAttachmentFailureLabel,
+    pendingAttachmentForFile,
+    releasePendingAttachmentPreviews,
+    attachmentCancellationError,
+    addPendingAttachmentFiles,
+    importAttachmentFiles,
+    handleMessagePaste,
+    removePendingAttachment,
+    clearPendingAttachments,
+    renderPendingAttachments,
+    pendingAttachmentCardHTML,
+    setComposerDragging,
+    eventHasFiles,
+    handleAttachmentDragOver,
+    handleAttachmentDragLeave,
+    handleAttachmentDrop,
+  } = createComposerAttachments({
+    attachmentJobIsCurrent,
+    attachmentKind,
+    beginAttachmentProcessing,
+    clipboardFiles,
+    finishAttachmentProcessing,
+    invalidateAttachmentProcessing,
+    isAttachmentProcessing,
+    prepareVideoAttachment,
+    showToast,
+    state,
+    syncMessageComposerBusy,
+  });
 
   function setMessageInputValue(value, { saveDraft = true } = {}) {
     const input = $("messageText");
@@ -1545,220 +1337,35 @@ export function createChatComposerController({
           : t("workspace.chat.historyEmpty");
   }
 
-  function hideMentionPalette() {
-    state.mentionOpen = false;
-    state.mentionUsers = [];
-    state.mentionIndex = 0;
-    const palette = $("mentionPalette");
-    if (palette) {
-      palette.classList.add("hidden");
-      palette.innerHTML = "";
-    }
-  }
-
-  function insertMention(user) {
-    const input = $("messageText");
-    const trigger = mentionTrigger(input?.value || "", input?.selectionStart || 0);
-    if (!input || !trigger || !user?.handle) return false;
-    input.setRangeText(`@${user.handle} `, trigger.start, trigger.end, "end");
-    hideMentionPalette();
-    handleMessageInput();
-    input.focus();
-    return true;
-  }
-
-  function renderMentionPalette() {
-    const palette = $("mentionPalette");
-    if (!palette) return;
-    const users = Array.isArray(state.mentionUsers) ? state.mentionUsers : [];
-    if (!state.mentionOpen || !users.length) {
-      hideMentionPalette();
-      return;
-    }
-    state.mentionIndex = Math.max(0, Math.min(Number(state.mentionIndex || 0), users.length - 1));
-    palette.classList.remove("hidden");
-    palette.innerHTML = users.map((user, index) => `
-      <button class="slash-command-item ${index === state.mentionIndex ? "active" : ""}" type="button" data-mention-user="${escapeAttr(user.id || user.handle)}">
-        <span class="slash-command-name">@${escapeHtml(user.handle || "")}</span>
-        <span class="slash-command-desc">${escapeHtml(user.role || "user")}</span>
-      </button>
-    `).join("");
-    palette.querySelectorAll("[data-mention-user]").forEach((button, index) => {
-      button.addEventListener("mousedown", (event) => event.preventDefault());
-      button.addEventListener("click", () => insertMention(users[index]));
-    });
-  }
-
-  async function updateMentionPalette() {
-    if (state.mentionComposing) return;
-    const input = $("messageText");
-    const trigger = mentionTrigger(input?.value || "", input?.selectionStart || 0);
-    if (!trigger) {
-      hideMentionPalette();
-      return;
-    }
-    const seq = Number(state.mentionSeq || 0) + 1;
-    state.mentionSeq = seq;
-    try {
-      const users = await api(`/api/users?handlePrefix=${encodeURIComponent(trigger.query)}&limit=8`);
-      if (seq !== state.mentionSeq) return;
-      state.mentionUsers = Array.isArray(users) ? users : [];
-      state.mentionOpen = state.mentionUsers.length > 0;
-      state.mentionIndex = 0;
-      renderMentionPalette();
-    } catch (error) {
-      if (seq === state.mentionSeq && error?.status === 401) hideMentionPalette();
-    }
-  }
-
-  function handleMentionKeydown(event) {
-    if (!state.mentionOpen || state.mentionComposing) return false;
-    const users = Array.isArray(state.mentionUsers) ? state.mentionUsers : [];
-    if (!users.length) return false;
-    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
-      state.mentionIndex = event.key === "ArrowDown"
-        ? (state.mentionIndex + 1) % users.length
-        : (state.mentionIndex - 1 + users.length) % users.length;
-      renderMentionPalette();
-      event.preventDefault();
-      return true;
-    }
-    if (event.key === "Enter" || event.key === "Tab") {
-      if (insertMention(users[state.mentionIndex])) event.preventDefault();
-      return true;
-    }
-    if (event.key === "Escape") {
-      hideMentionPalette();
-      event.preventDefault();
-      return true;
-    }
-    return false;
-  }
-
-  function enabledSlashCommands() {
-    const localTemplates = currentSkillsPreferences().commands;
-    const skillCommands = typeof getEffectiveSkillsPolicy === "function"
-      ? slashCommandsForEffectivePolicy(getEffectiveSkillsPolicy(), localTemplates)
-      : mergeSlashCommands(state.serverSkills, localTemplates);
-    const context = state.navigationSelectionKind === "project" ? "project" : "conversation";
-    return slashCommandsForContext(context, skillCommands);
-  }
-
-  function slashCommandTrigger(value) {
-    const text = String(value || "");
-    const match = text.match(/^\s*\/([^\s]*)$/);
-    if (!match) return null;
-    return {
-      prefix: text.slice(0, match.index || 0),
-      query: match[1].toLowerCase(),
-    };
-  }
-
-  function slashCommandMatches() {
-    const input = $("messageText");
-    const trigger = slashCommandTrigger(input?.value || "");
-    if (!trigger) return [];
-    const query = trigger.query;
-    return enabledSlashCommands().filter((command) => {
-      const haystack = `${command.name} ${command.description}`.toLowerCase();
-      return !query || haystack.includes(query);
-    }).slice(0, 8);
-  }
-
-  function slashCommandOptionId(command, index) {
-    return `slash-command-option-${String(command?.id || index).replace(/[^a-zA-Z0-9_-]/g, "-")}`;
-  }
-
-  function updateSlashCommandPalette() {
-    const palette = $("slashCommandPalette");
-    if (!palette) return;
-    const input = $("messageText");
-    const trigger = slashCommandTrigger(input?.value || "");
-    const matches = trigger ? slashCommandMatches() : [];
-    state.slashCommandOpen = Boolean(trigger && matches.length);
-    state.slashCommandQuery = trigger?.query || "";
-    if (!state.slashCommandOpen) {
-      state.slashCommandIndex = 0;
-      input?.setAttribute("aria-expanded", "false");
-      input?.removeAttribute("aria-activedescendant");
-      palette.classList.add("hidden");
-      palette.innerHTML = "";
-      return;
-    }
-    state.slashCommandIndex = Math.max(0, Math.min(state.slashCommandIndex, matches.length - 1));
-    input?.setAttribute("aria-expanded", "true");
-    input?.setAttribute("aria-activedescendant", slashCommandOptionId(matches[state.slashCommandIndex], state.slashCommandIndex));
-    palette.classList.remove("hidden");
-    palette.innerHTML = `
-      <div class="slash-command-head">${escapeHtml(t("workspace.chat.slashCommands"))}</div>
-      ${matches.map((command, index) => `
-        <button id="${escapeAttr(slashCommandOptionId(command, index))}" class="slash-command-item ${index === state.slashCommandIndex ? "active" : ""}" type="button" role="option" aria-selected="${index === state.slashCommandIndex ? "true" : "false"}" data-slash-command="${escapeAttr(command.id)}">
-          <span class="slash-command-name">${escapeHtml(command.name)}</span>
-          <span class="slash-command-desc">${escapeHtml(command.description || command.prompt.slice(0, 120))}</span>
-        </button>
-      `).join("")}
-    `;
-    palette.querySelectorAll("[data-slash-command]").forEach((node) => {
-      node.addEventListener("mousedown", (event) => event.preventDefault());
-      node.addEventListener("click", () => applySlashCommand(node.dataset.slashCommand));
-    });
-  }
-
-  function hideSlashCommandPalette() {
-    state.slashCommandOpen = false;
-    state.slashCommandIndex = 0;
-    state.slashCommandQuery = "";
-    const input = $("messageText");
-    input?.setAttribute("aria-expanded", "false");
-    input?.removeAttribute("aria-activedescendant");
-    const palette = $("slashCommandPalette");
-    if (palette) {
-      palette.classList.add("hidden");
-      palette.innerHTML = "";
-    }
-  }
-
-  function applySlashCommand(id) {
-    const command = enabledSlashCommands().find((item) => item.id === id) || slashCommandMatches()[state.slashCommandIndex];
-    if (!command) return false;
-    const input = $("messageText");
-    const value = input?.value || "";
-    const insertion = slashCommandInsertion(command);
-    const next = value.replace(/^\s*\/[^\s]*$/, insertion);
-    setMessageInputValue(next);
-    hideSlashCommandPalette();
-    resetPromptHistoryNavigation();
-    input?.focus();
-    showToast(t("workspace.chat.slashInserted", { name: command.name }), "success");
-    return true;
-  }
-
-  function handleSlashCommandKeydown(event) {
-    if (!state.slashCommandOpen || isComposingInput(event)) return false;
-    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
-      const count = slashCommandMatches().length;
-      if (!count) return false;
-      state.slashCommandIndex = event.key === "ArrowDown"
-        ? (state.slashCommandIndex + 1) % count
-        : (state.slashCommandIndex - 1 + count) % count;
-      updateSlashCommandPalette();
-      event.preventDefault();
-      return true;
-    }
-    if (event.key === "Enter" || event.key === "Tab") {
-      const selected = slashCommandMatches()[state.slashCommandIndex];
-      if (selected && applySlashCommand(selected.id)) {
-        event.preventDefault();
-        return true;
-      }
-    }
-    if (event.key === "Escape") {
-      hideSlashCommandPalette();
-      event.preventDefault();
-      return true;
-    }
-    return false;
-  }
+  // The mention and slash-command palettes live in their own module, wired
+  // the same way as the attachment pipeline above.
+  const {
+    hideMentionPalette,
+    insertMention,
+    renderMentionPalette,
+    updateMentionPalette,
+    handleMentionKeydown,
+    enabledSlashCommands,
+    slashCommandTrigger,
+    slashCommandMatches,
+    slashCommandOptionId,
+    updateSlashCommandPalette,
+    hideSlashCommandPalette,
+    applySlashCommand,
+    handleSlashCommandKeydown,
+  } = createComposerPalettes({
+    currentSkillsPreferences,
+    getEffectiveSkillsPolicy,
+    handleMessageInput,
+    isComposingInput,
+    mentionTrigger,
+    resetPromptHistoryNavigation,
+    setMessageInputValue,
+    showToast,
+    slashCommandsForContext,
+    slashCommandsForEffectivePolicy,
+    state,
+  });
 
   function handlePromptHistoryNavigation(event) {
     if (isComposingInput(event) || event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return false;

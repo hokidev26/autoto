@@ -216,9 +216,9 @@ func kiroTools(tools []ToolSpec) []kiroToolSpec {
 
 // kiroUserMessage is the Kiro wire format for a user turn.
 type kiroUserMessage struct {
-	Content  []map[string]string `json:"content"`
-	ModelID  string              `json:"modelId"`
-	Origin   string              `json:"origin"`
+	Content                 []map[string]string          `json:"content"`
+	ModelID                 string                       `json:"modelId"`
+	Origin                  string                       `json:"origin"`
 	UserInputMessageContext *kiroUserInputMessageContext `json:"userInputMessageContext,omitempty"`
 }
 
@@ -239,7 +239,7 @@ type kiroHistoryTurn struct {
 
 // kiroConversationState is the top-level request object.
 type kiroConversationState struct {
-	ChatTriggerType string            `json:"chatTriggerType"`
+	ChatTriggerType string `json:"chatTriggerType"`
 	CurrentMessage  struct {
 		UserInputMessage kiroUserMessage `json:"userInputMessage"`
 	} `json:"currentMessage"`

@@ -4,9 +4,30 @@
 
 驗證方式：靜態審查 + `node --check` / `node --test`（355 個前端測試全數通過）。審查環境無 Go 1.26 工具鏈，未能執行 `go build/vet/test`，Go 端結論以人工閱讀為準。
 
+> 本文是 2026-07-18 的快照。修復狀態請看下方「修復狀態」表，不要直接把本文的 bug 清單當成當前未決問題。
+
 ## 總評
 
 整體品質相當高：SSRF 防護（DNS pin 到已驗證 IP、metadata 封鎖、redirect 重驗證）、origin/Sec-Fetch-Site 檢查、approval generation 失效機制、git `--` 分隔、輸出全面設限、secret 不入錯誤訊息、CI + golangci-lint + goreleaser 都到位。以下是可以加強的地方，依嚴重度排序。
+
+## 修復狀態（2026-08-05 對照工作樹複核）
+
+本節後加，避免讀者把已修項目當成未決風險。逐條證據見 `docs/notes/feedback-changelog-lessons-0712-revised.md` §8.1。
+
+| # | 項目 | 狀態 |
+| --- | --- | --- |
+| 1 | bcrypt 密碼長度上限矛盾 | ✅ 已修（SHA-256 pre-hash + `sha256-bcrypt-v1$` 版本前綴） |
+| 2 | 死程式碼 `runSingleSegmentLegacy` | ✅ 已修（`internal/agent/loop.go` 整檔已拆分移除） |
+| 3 | `newLocalToken()` 熵失敗 fail-open | ✅ 已修（改為 panic） |
+| 4 | `PRAGMA foreign_keys` 不保證跟隨連線 | ✅ 已修（DSN `_pragma=foreign_keys(1)` + `busy_timeout(5000)`） |
+| 5 | `hasRecursiveArgument` 誤判 | ✅ 已修（只檢查以 `-` 開頭的短選項，並在 `--` 後停止） |
+| 6 | `/login` 無暴力破解防護 | ✅ 已實作（handle 維度 10 次 / 15 分鐘 lockout） |
+| 7 | WebSocket token 走 query string | ⚠️ 淘汰中（`?token=` 會發出 legacy 警告並指向 cookie/header） |
+| 8 | Bash timeout 無上限 | ✅ 已修（`bashMaxTimeout` 30 分鐘，schema 同步宣告上限） |
+| 9 | 動態命令 `dynamic`/`ParseKnown=false` 的審批可見性 | ✅ 已修（`chat-rendering.mjs:739` 以 `role="alert"` 顯示 `activity.unclassifiedDynamicWarning`，走 i18n key 而非硬編碼字串，並有測試覆蓋） |
+| 10 | 核心層硬編碼簡體中文字串 | 🔄 部分（`bash.go`、`command_facts.go` 現已無 CJK 字元；`internal/agent/runner_context.go` 仍有 prompt 導向的 zh-Hans 字串如「图片附件…未发送」。後者只進入送往 Provider 的 prompt，不是使用者介面文案，嚴重度低於原始描述） |
+| 11 | `internal/server` god package | 🔄 部分（`internal/db/db.go` 已按主題拆分並不再存在） |
+| 13 | `internal/compat` 無測試 | ✅ 已修（`report_test.go`） |
 
 ## 應修正（bug）
 
@@ -48,6 +69,8 @@
 
 ### 11. `internal/server` 逐漸變成 god package
 35K 行、60+ 檔案，git、remote access、provider admin、review、automation、oauth 全在同一 package，邊界只靠檔名。`internal/db/db.go` 也有 4.9K 行。建議按 AGENTS.md 的邊界精神逐步拆子package。
+
+> 2026-08-05 補註：`internal/db/db.go` 已按主題拆分並不再存在（Run 轉換現於 `internal/db/runs_checkpoints.go`，Skills 於 `skills_store.go` / `skills_scopes_revisions.go`）。`internal/server` 的拆分尚未完成。
 
 ### 12. 規劃文件已歸檔
 規劃文件已移至 `docs/notes/needtodo0709.md`、`docs/notes/needtodo0712.md`、`docs/notes/feedback-changelog-lessons-0712.md`。

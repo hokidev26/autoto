@@ -23,9 +23,18 @@ import {
   globalRailExpandedWidth,
   groupModelSelectOptions,
   maxSidebarWidth,
+  navigationDragColumnsEnterWidth,
+  navigationDragColumnsExitWidth,
+  navigationDragIconsEnterWidth,
+  navigationDragIconsExitWidth,
+  navigationLayoutModeFromDragWidth,
+  navigationLayoutModePreferenceKey,
+  navigationLayoutModes,
+  nextNavigationLayoutMode,
   sessionSidebarCollapsedPreferenceKey,
   minSidebarWidth,
   normalizeCollapsedPreference,
+  normalizeNavigationLayoutMode,
   normalizeSidebarWidth,
   orderPermissionMenuOptions,
   permissionMenuPrimaryValues,
@@ -52,6 +61,7 @@ const directoryBrowserURL = new URL("modules/directory-browser.mjs", staticRoot)
 const settingsPreferencesURL = new URL("modules/settings-preferences.mjs", staticRoot);
 const stylesURL = new URL("styles.css", staticRoot);
 const uiShellURL = new URL("modules/ui-shell.mjs", staticRoot);
+const selectMenusURL = new URL("modules/composer-select-menus.mjs", staticRoot);
 
 class MemoryStorage {
   constructor(entries = []) {
@@ -189,8 +199,9 @@ test("white shell adds the global rail before the conversation sidebar with the 
 });
 
 test("desktop home overview stays available while mobile starts in conversation", async () => {
-  const [html, appMain, overviewDashboard, styles, messagesCN, messagesTW, messagesEN] = await Promise.all([
+  const [html, appMain, overviewDashboard, styles, themeRuntime, messagesCN, messagesTW, messagesEN] = await Promise.all([
     readFile(indexURL, "utf8"), readFile(appMainURL, "utf8"), readFile(overviewDashboardURL, "utf8"), readStylesSource(stylesURL),
+    readFile(new URL("../theme-runtime.css", import.meta.url), "utf8"),
     readFile(new URL("./messages-zh-CN.mjs", import.meta.url), "utf8"),
     readFile(new URL("./messages-zh-TW.mjs", import.meta.url), "utf8"),
     readFile(new URL("./messages-en.mjs", import.meta.url), "utf8"),
@@ -248,7 +259,37 @@ test("desktop home overview stays available while mobile starts in conversation"
   assert.match(styles, /Desktop home: a direct launcher followed by compact work statistics/);
   assert.match(styles, /\.overview-dashboard-page\s*\{[\s\S]*?overflow:\s*auto/);
   assert.match(styles, /\.overview-hero-root\s*\{[\s\S]*?width:\s*min\(900px, 100%\)/);
-  assert.match(styles, /\.overview-launcher-form\s*\{[\s\S]*?border-radius:\s*23px/);
+  // The launcher is the composer on the home page: the frame belongs to the
+  // textarea rather than to a card around it, and it reuses the composer's own
+  // desktop measurements so the two surfaces read as one control. These are
+  // matched against the rule body only ([^}]*), because a lazy [\s\S]*? happily
+  // runs past the closing brace and finds the value in some unrelated rule.
+  const launcherRule = (selector) => new RegExp(`\\${selector}\\s*\\{[^}]*`);
+  const launcherBody = (selector) => styles.match(launcherRule(selector))?.[0] || "";
+  const launcherFormBody = launcherBody(".overview-launcher-form");
+  assert.match(launcherFormBody, /box-shadow:\s*none/);
+  assert.match(launcherFormBody, /border:\s*0/);
+  assert.doesNotMatch(launcherFormBody, /border-radius:\s*23px/);
+  // Values below are the composer's desktop values (workbench.css, the
+  // >=768px block): textarea#messageText and #sendMessageBtn.
+  const launcherInputBody = launcherBody(".overview-launcher-input");
+  assert.match(launcherInputBody, /border-radius:\s*7px/);
+  assert.match(launcherInputBody, /min-height:\s*36px/);
+  assert.match(launcherInputBody, /max-height:\s*132px/);
+  assert.match(launcherInputBody, /padding:\s*5\.5px 12px/);
+  assert.match(launcherInputBody, /background:\s*var\(--ws-input/);
+  // Controls sit above the field, as .composer-toolbar does.
+  assert.match(launcherBody(".overview-launcher-controls"), /order:\s*-1/);
+  // The send button sits beside the field at the same height, not inside it.
+  const launcherSendBody = launcherBody(".overview-launcher-send");
+  assert.match(launcherSendBody, /width:\s*56px/);
+  assert.match(launcherSendBody, /height:\s*36px/);
+  assert.match(launcherSendBody, /border-radius:\s*7px/);
+  assert.doesNotMatch(launcherSendBody, /position:\s*absolute/);
+  // Themed installs must re-point both send buttons and both fields together.
+  assert.match(themeRuntime, /\.composer-send-btn,\s*\.overview-launcher-send/);
+  assert.match(themeRuntime, /\.message-input,\s*\.overview-launcher-input/);
+  assert.doesNotMatch(overviewDashboard, /overview-launcher-project-row/);
   assert.doesNotMatch(styles, /\.overview-launcher-mode(?:-group)?/);
   assert.doesNotMatch(overviewDashboard, /data-overview-launcher-(?:action="mode"|mode=)/);
   assert.match(styles, /\.overview-summary-grid\s*\{[\s\S]*?repeat\(4, minmax\(0, 1fr\)\)/);
@@ -821,6 +862,103 @@ test("desktop conversation layout follows the compact resizable geometry", async
   assert.match(styles, /\.app-shell\.global-rail-collapsed\s*\{[\s\S]*?--global-rail-layout-width:\s*48px/);
   assert.match(styles, /\.app-shell\.session-sidebar-collapsed\s*\{[\s\S]*?--session-sidebar-layout-width:\s*184px/);
   assert.match(styles, /\.app-shell\.session-sidebar-collapsed \.navigation-conversation-row[\s\S]*?min-height:\s*48px/);
+  // Icon rail: the conversation column is removed from the grid, not narrowed.
+  assert.match(styles, /\.app-shell\.nav-mode-icons\s*\{[\s\S]*?--global-rail-layout-width:\s*48px[\s\S]*?--session-sidebar-layout-width:\s*0px/);
+  assert.match(styles, /\.app-shell\.nav-mode-icons \.sidebar\s*\{[\s\S]*?display:\s*none/);
+  // The divider survives the icon layout, because dragging is a way back out of it
+  // and not only a way into it.
+  assert.match(styles, /\.app-shell\.nav-mode-icons \.sidebar-resize-handle\s*\{[\s\S]*?display:\s*block[\s\S]*?left:\s*calc\(var\(--global-rail-layout-width\) - 3px\)/);
+  // Docked mode lifts the search and create controls onto the conversation row,
+  // and the wrapper is layout-neutral everywhere else.
+  assert.match(styles, /\.global-rail-nav-row\s*\{\s*display:\s*contents/);
+  assert.match(styles, /\.app-shell\.nav-mode-docked \.global-rail-nav-row\s*\{[\s\S]*?display:\s*flex/);
+  // Overlaid on the conversation entry, not laid out beside it: as flex siblings
+  // they sat past the entry's background and read as loose floating icons.
+  assert.match(styles, /\.app-shell\.nav-mode-docked \.global-rail-nav-row\s*\{[\s\S]*?position:\s*relative/);
+  assert.match(styles, /\.app-shell\.nav-mode-docked \.global-rail-nav-row \.session-sidebar-actions\s*\{[\s\S]*?position:\s*absolute[\s\S]*?right:\s*6px/);
+  // The entry reserves room on its right so a long label cannot run underneath.
+  assert.match(styles, /\.app-shell\.nav-mode-docked \.global-rail-nav-row \.global-rail-button\s*\{[\s\S]*?padding-right:\s*66px/);
+  // The >=1280px rules hide the magnifier because the field is pinned open there.
+  // Docked mode un-pins the field, so the magnifier must come back or the search
+  // box has nothing to open it.
+  assert.match(styles, /\.app-shell\.nav-mode-docked \.global-rail-nav-row #projectSearchToggleBtn\s*\{[\s\S]*?display:\s*inline-flex/);
+  // The docked list is a real descendant of .global-rail, so the rail's own nav
+  // entry rules have to exclude it. Without this its buttons took a 58px tall
+  // full-width nav entry's shape and held every card open.
+  assert.match(styles, /\.global-rail button:not\(\.global-rail-dock \*\)/);
+  assert.match(styles, /\.global-rail button:not\(\.global-rail-dock \*\),[\s\S]*?\{[\s\S]*?min-height:\s*58px/);
+  // The divider survives the overview page: the rail it resizes is on screen there,
+  // so the layout must be changeable without opening a conversation first.
+  assert.doesNotMatch(styles, /\.overview-mode :is\(#sessionSidebar, #sidebarResizeHandle/);
+  assert.match(styles, /\.overview-mode #sidebarResizeHandle\s*\{[\s\S]*?display:\s*block[\s\S]*?left:\s*calc\(var\(--global-rail-layout-width\) - 3px\)/);
+  assert.match(styles, /\.overview-mode \.app-shell\.nav-mode-docked #sessionSidebar\s*\{\s*display:\s*flex/);
+  // Docked rows are tightened: the >=1280px padding plus a two-line title/path
+  // stack made each card taller than the nav entries above it.
+  assert.match(styles, /\.app-shell\.nav-mode-docked \.navigation-conversation-row,[\s\S]*?\{[\s\S]*?min-height:\s*0[\s\S]*?padding:\s*2px 9px/);
+  // The disclosure stretches to the row and carries its own floor, so it is what
+  // actually holds these cards open; padding alone could not shorten them.
+  assert.match(styles, /\.app-shell\.nav-mode-docked \.navigation-disclosure\s*\{[\s\S]*?min-height:\s*26px/);
+  // Morphicons-style disclosure: hairline stroke, and a curve that overshoots and
+  // settles rather than sliding linearly.
+  assert.match(styles, /\.navigation-disclosure svg\s*\{[\s\S]*?stroke-width:\s*1\.5/);
+  assert.match(styles, /\.navigation-disclosure svg\s*\{[\s\S]*?transition:\s*transform\s+\.26s\s+cubic-bezier\(\.34,\s*1\.56,\s*\.64,\s*1\)/);
+  assert.match(styles, /@media \(prefers-reduced-motion: reduce\)\s*\{[\s\S]*?\.navigation-disclosure svg\s*\{\s*transition:\s*none/);
+  // The >=1280px rule pins the search field open; docked mode hands it back to the
+  // magnifier so it costs no row until asked for.
+  assert.match(styles, /\.app-shell\.nav-mode-docked \.sidebar-search-wrap\.hidden\s*\{[\s\S]*?display:\s*none/);
+  // Docked: the rail takes over the stored width and the second column collapses,
+  // because the list is now parented inside the rail.
+  assert.match(styles, /\.app-shell\.nav-mode-docked\s*\{[\s\S]*?--global-rail-layout-width:\s*var\(--session-sidebar-width[\s\S]*?--session-sidebar-layout-width:\s*0px/);
+  // Dragging still works when docked, so the handle follows the rail's edge.
+  assert.match(styles, /\.app-shell\.nav-mode-docked \.sidebar-resize-handle\s*\{[\s\S]*?left:\s*calc\(var\(--global-rail-layout-width\) - 3px\)/);
+  // Icon-above-label becomes icon-beside-label once there is room for words.
+  assert.match(styles, /\.app-shell\.nav-mode-docked[\s\S]*?\.global-rail-button[\s\S]*?flex-direction:\s*row/);
+  assert.match(styles, /\.app-shell\.nav-mode-docked \.global-rail-dock\s*\{[\s\S]*?flex:\s*1 1 auto/);
+  // Settings docked while the rail is in docked mode. layoutSettingsShell pins
+  // the first column to the columns-mode width, so the rail is narrow while its
+  // stage styles are still written for 296px. These assertions lock the compact
+  // presentation that restores, matched against the rule body only ([^}]*)
+  // because a lazy [\s\S]*? runs past the closing brace into unrelated rules.
+  const compactRule = (selector) => styles.match(
+    new RegExp(`\\.app-shell\\.nav-mode-docked\\.settings-rail-compact ${selector}\\s*\\{[^}]*`),
+  )?.[0] || "";
+  const compactBrand = compactRule("\\.global-rail-brand");
+  assert.match(compactBrand, /flex-direction:\s*column/, "brand stacks again at rail width");
+  assert.match(compactRule("\\.global-rail-brand-text"), /font-size:\s*10px/, "brand text returns to the size that fits");
+  const compactLabel = compactRule("\\.global-rail-label");
+  assert.match(compactLabel, /font-size:\s*10px/);
+  // Without nowrap a CJK label stacked one character per line inside 68px.
+  assert.match(compactLabel, /white-space:\s*nowrap/);
+  // That rule is a selector group (nav entries plus the footer entry), so the
+  // selector is followed by a comma rather than by the block.
+  const compactButtons = styles.match(
+    /\.app-shell\.nav-mode-docked\.settings-rail-compact \.global-rail-nav \.global-rail-button,[^{]*\{[^}]*/,
+  )?.[0] || "";
+  assert.match(compactButtons, /flex-direction:\s*column/, "entries stack icon over label");
+  // The search/create pair is absolutely positioned over the conversation entry
+  // in docked mode, which does not fit once the rail is 68px wide. The list it
+  // acts on is hidden for the whole time settings is docked.
+  assert.match(
+    compactRule("\\.global-rail-nav-row \\.session-sidebar-actions"),
+    /display:\s*none/,
+    "the overlaid actions step aside",
+  );
+  // The docked values above must stay intact: they are still right at 296px.
+  assert.match(
+    styles,
+    /\.app-shell\.nav-mode-docked \.global-rail-brand\s*\{[^}]*flex-direction:\s*row/,
+    "docked keeps its horizontal brand when the rail really is wide",
+  );
+  // Search and create survive docking; the duplicate collapse arrow does not.
+  assert.match(styles, /\.app-shell\.nav-mode-docked :is\([\s\S]*?#sessionSidebarCollapseBtn[\s\S]*?\)\s*\{[\s\S]*?display:\s*none/);
+  // The dock sits between the conversation entry and the entries below it, which
+  // is what makes the list read as belonging to that entry.
+  const conversationRailEntry = html.indexOf('data-global-rail-target="conversation"');
+  const conversationDock = html.indexOf('id="railConversationDock"');
+  const schedulesRailEntry = html.indexOf('data-global-rail-target="schedules"');
+  assert.ok(conversationDock > conversationRailEntry, "the dock follows the conversation rail entry");
+  assert.ok(conversationDock < schedulesRailEntry, "the dock precedes the entries below it");
+  assert.match(html, /id="railConversationDock" class="global-rail-dock" hidden/);
   assert.match(navigation, /data-theme-icon-slot="sidebar-project"/);
   // The slot name became a template expression when forks gained their own
   // icon, so it is no longer contiguous source text. Assert the row still emits
@@ -879,11 +1017,12 @@ test("desktop conversation layout follows the compact resizable geometry", async
 });
 
 test("composer selects hide external labels and open titled menus upward", async () => {
-  const [html, styles, uiShell, appMain] = await Promise.all([
+  const [html, styles, uiShell, appMain, selectMenus] = await Promise.all([
     readFile(indexURL, "utf8"),
     readStylesSource(stylesURL),
     readFile(uiShellURL, "utf8"),
     readFile(appMainURL, "utf8"),
+    readFile(selectMenusURL, "utf8"),
   ]);
   for (const id of ["modelSelect", "reasoningEffort", "permissionMode"]) {
     assert.match(html, new RegExp(`data-composer-select="${id}"`));
@@ -894,19 +1033,20 @@ test("composer selects hide external labels and open titled menus upward", async
   assert.match(styles, /\.composer-select-popover\.composer-permission-popover\s*\{/);
   assert.match(styles, /\.composer-permission-option-icon svg\s*\{/);
   assert.match(styles, /\.composer-permission-safety-status\s*\{/);
-  assert.match(uiShell, /heading\.textContent = binding\.label\?\.textContent/);
-  assert.match(uiShell, /menu\.classList\.toggle\("composer-permission-popover", isPermissionMenu\)/);
-  assert.match(uiShell, /appendPermissionSafetyStatus\(/);
-  assert.match(uiShell, /appendMessageModeSection\(/);
-  assert.match(uiShell, /usesMobileSheet[\s\S]*permissionMode/);
+  assert.match(selectMenus, /heading\.textContent = binding\.label\?\.textContent/);
+  assert.match(selectMenus, /menu\.classList\.toggle\("composer-permission-popover", isPermissionMenu\)/);
+  assert.match(selectMenus, /appendPermissionSafetyStatus\(/);
+  assert.match(selectMenus, /appendMessageModeSection\(/);
+  assert.match(selectMenus, /usesMobileSheet[\s\S]*permissionMode/);
   assert.doesNotMatch(uiShell, /messageModeToggle/);
-  assert.match(uiShell, /chat\.enterPlanMode/);
-  assert.match(uiShell, /chat\.executeMode/);
-  assert.match(uiShell, /menu\.style\.bottom = `\$\{Math\.max\(8,[\s\S]*?- rect\.top \+ 6\)\}px`/);
-  assert.match(uiShell, /binding\.select\.dispatchEvent\(new EventConstructor\("change"/);
-  assert.match(uiShell, /appendModelOptionGroups\(binding, menu\)/);
-  assert.match(uiShell, /presentation\?\.provider \? `\$\{presentation\.provider\}:\$\{presentation\.name\}`/);
-  assert.match(uiShell, /!active\.mobile && \(event\.target === menu \|\| menu\.contains\(event\.target\)\)/);
+  assert.doesNotMatch(selectMenus, /messageModeToggle/);
+  assert.match(selectMenus, /chat\.enterPlanMode/);
+  assert.match(selectMenus, /chat\.executeMode/);
+  assert.match(selectMenus, /menu\.style\.bottom = `\$\{Math\.max\(8,[\s\S]*?- rect\.top \+ 6\)\}px`/);
+  assert.match(selectMenus, /binding\.select\.dispatchEvent\(new EventConstructor\("change"/);
+  assert.match(selectMenus, /appendModelOptionGroups\(binding, menu\)/);
+  assert.match(selectMenus, /presentation\?\.provider \? `\$\{presentation\.provider\}:\$\{presentation\.name\}`/);
+  assert.match(selectMenus, /!active\.mobile && \(event\.target === menu \|\| menu\.contains\(event\.target\)\)/);
   assert.match(styles, /\.composer-select-popover\s*\{[\s\S]*?overscroll-behavior:\s*contain/);
   assert.match(styles, /\.composer-model-group-heading\s*\{/);
   assert.match(appMain, /agentSavePromise:\s*null/);
@@ -1169,7 +1309,7 @@ test("mobile header and composer use compact icon-first layouts", async () => {
 });
 
 test("narrow composer switches atomically to a fixed unframed icon rail", async () => {
-  const [styles, uiShell] = await Promise.all([readStylesSource(stylesURL), readFile(uiShellURL, "utf8")]);
+  const [styles, uiShell, selectMenus] = await Promise.all([readStylesSource(stylesURL), readFile(uiShellURL, "utf8"), readFile(selectMenusURL, "utf8")]);
   const marker = "/* Narrow composer icon rail: preserve every control at one fixed size. */";
   const iconRail = styles.slice(styles.indexOf(marker), styles.indexOf("/* Flat, single-pass settings layout", styles.indexOf(marker)));
   assert.ok(iconRail.startsWith(marker));
@@ -1190,9 +1330,9 @@ test("narrow composer switches atomically to a fixed unframed icon rail", async 
   // The model trigger renders icon-only, so the composed "field：value" label is
   // the only place the selected model is stated; it must reach both assistive
   // tech and a sighted hover.
-  assert.match(uiShell, /const triggerLabel = fieldLabel \? `\$\{fieldLabel\}：\$\{displayText\}` : displayText;/);
-  assert.match(uiShell, /trigger\.setAttribute\("aria-label", triggerLabel\);/);
-  assert.match(uiShell, /trigger\.title = triggerLabel;/);
+  assert.match(selectMenus, /const triggerLabel = fieldLabel \? `\$\{fieldLabel\}：\$\{displayText\}` : displayText;/);
+  assert.match(selectMenus, /trigger\.setAttribute\("aria-label", triggerLabel\);/);
+  assert.match(selectMenus, /trigger\.title = triggerLabel;/);
 });
 
 test("mobile sidebar closes safely during desktop startup and cache updates propagate", async () => {
@@ -1364,13 +1504,42 @@ test("sidebar resizer restores, drags, keys, persists, and cleans up", () => {
   }
 });
 
-test("dual rail collapse compacts both rails, preserves independent sidebar restore, and stays desktop-only", () => {
+test("navigation collapses through columns, docked and icons, and stays desktop-only", () => {
   assert.equal(globalRailExpandedWidth, 68);
   assert.equal(globalRailCollapsedWidth, 48);
   assert.equal(collapsedSidebarWidth, 184);
   assert.equal(normalizeCollapsedPreference("true"), true);
   assert.equal(normalizeCollapsedPreference("false"), false);
   assert.equal(normalizeCollapsedPreference("unexpected", true), true);
+  assert.deepEqual([...navigationLayoutModes], ["columns", "docked", "icons"]);
+  assert.equal(nextNavigationLayoutMode("columns"), "docked");
+  assert.equal(nextNavigationLayoutMode("docked"), "icons");
+  assert.equal(nextNavigationLayoutMode("icons"), "columns");
+  assert.equal(normalizeNavigationLayoutMode("DOCKED"), "docked");
+  assert.equal(normalizeNavigationLayoutMode("nonsense"), "columns");
+  assert.equal(normalizeNavigationLayoutMode(null, "icons"), "icons");
+
+  // Dragging reaches every layout, so the button is a shortcut rather than the
+  // only route. Shrinking leaves a layout later than expanding re-enters it; that
+  // gap is what stops the rail reflowing back and forth under a resting pointer.
+  const drag = navigationLayoutModeFromDragWidth;
+  assert.equal(drag(500, "columns"), "columns");
+  assert.equal(drag(navigationDragColumnsExitWidth, "columns"), "columns");
+  assert.equal(drag(navigationDragColumnsExitWidth - 1, "columns"), "docked");
+  assert.equal(drag(navigationDragIconsEnterWidth + 1, "columns"), "docked");
+  assert.equal(drag(navigationDragIconsEnterWidth, "columns"), "icons");
+  assert.equal(drag(navigationDragIconsEnterWidth, "docked"), "icons");
+  assert.equal(drag(navigationDragIconsEnterWidth + 1, "docked"), "docked");
+  assert.equal(drag(navigationDragColumnsEnterWidth - 1, "docked"), "docked");
+  assert.equal(drag(navigationDragColumnsEnterWidth, "docked"), "columns");
+  // Leaving the icon rail needs a wider clearance than entering it did.
+  assert.equal(drag(navigationDragIconsExitWidth, "icons"), "icons");
+  assert.equal(drag(navigationDragIconsExitWidth + 1, "icons"), "docked");
+  assert.equal(drag(navigationDragColumnsEnterWidth, "icons"), "columns");
+  assert.ok(navigationDragIconsExitWidth > navigationDragIconsEnterWidth, "the icon band is stickier than its entry point");
+  assert.ok(navigationDragColumnsEnterWidth > navigationDragColumnsExitWidth, "the column band is stickier than its entry point");
+  // A garbage measurement must not move the layout.
+  assert.equal(drag(Number.NaN, "docked"), "docked");
 
   const makeClassList = (initial = []) => {
     const names = new Set(initial);
@@ -1401,6 +1570,8 @@ test("dual rail collapse compacts both rails, preserves independent sidebar rest
     };
     return node;
   };
+  // No stored mode: this is the migration case. The legacy collapsed rail is what
+  // the icon layout replaced, so it has to land on "icons".
   const storage = new MemoryStorage([
     [sidebarWidthPreferenceKey, "342"],
     [globalRailCollapsedPreferenceKey, "true"],
@@ -1408,13 +1579,37 @@ test("dual rail collapse compacts both rails, preserves independent sidebar rest
   ]);
   const shell = makeNode();
   const globalRail = makeNode();
-  const sidebar = makeNode();
   const globalCollapseButton = makeNode();
   const sessionCollapseButton = makeNode();
+  const conversationRailButton = makeNode();
+  const conversationRailRow = makeNode();
+  conversationRailRow.appendChild = (node) => { node.parent = conversationRailRow; return node; };
+  const sidebarHeaderParent = {
+    insertBefore(node) { node.parent = sidebarHeaderParent; return node; },
+  };
+  const sidebarActions = makeNode();
+  sidebarActions.parent = sidebarHeaderParent;
+  sidebarActions.parentNode = sidebarHeaderParent;
+  sidebarActions.nextSibling = null;
+  // Docking is a DOM move, so the sidebar needs a real parent to leave and a dock
+  // to arrive in. These stubs record the move so the test can assert on it.
+  const sidebarShellParent = {
+    insertBefore(node) { node.parent = sidebarShellParent; return node; },
+  };
+  const sidebar = makeNode();
+  sidebar.parent = sidebarShellParent;
+  sidebar.parentNode = sidebarShellParent;
+  sidebar.nextSibling = null;
+  const conversationDock = makeNode();
+  conversationDock.appendChild = (node) => { node.parent = conversationDock; return node; };
   const separator = makeNode({ attributes: { tabindex: "0" } });
   separator.getBoundingClientRect = () => ({ left: 398, width: 6 });
   separator.setPointerCapture = () => {};
   separator.releasePointerCapture = () => {};
+  // The rail meets the viewport edge; a docked sidebar sits inside the rail's
+  // padding. The drag has to measure whichever element the stored width sizes.
+  globalRail.getBoundingClientRect = () => ({ left: 0, width: 296 });
+  sidebar.getBoundingClientRect = () => ({ left: 68, width: 296 });
   const projects = { classList: makeClassList(), clientHeight: 200, clientWidth: 240, scrollHeight: 200, scrollWidth: 240, scrollLeft: 0, scrollTop: 0 };
   const messages = { classList: makeClassList(), clientHeight: 200, clientWidth: 240, scrollHeight: 200, scrollWidth: 240, scrollLeft: 0, scrollTop: 0 };
   const bodyClasses = makeClassList();
@@ -1423,6 +1618,8 @@ test("dual rail collapse compacts both rails, preserves independent sidebar rest
     globalRailCollapseBtn: globalCollapseButton,
     messages,
     projects,
+    railConversationDock: conversationDock,
+    sessionSidebarActions: sidebarActions,
     sessionSidebarCollapseBtn: sessionCollapseButton,
     sidebarResizeHandle: separator,
   };
@@ -1434,6 +1631,8 @@ test("dual rail collapse compacts both rails, preserves independent sidebar rest
       if (selector === ".sidebar") return sidebar;
       if (selector === ".global-rail") return globalRail;
       if (selector === ".agent-list-section") return projects;
+      if (selector === '[data-global-rail-target="conversation"]') return conversationRailButton;
+      if (selector === "[data-rail-conversation-row]") return conversationRailRow;
       return null;
     },
   };
@@ -1448,55 +1647,133 @@ test("dual rail collapse compacts both rails, preserves independent sidebar rest
   const restoreWindow = replaceGlobal("window", fakeWindow);
   const restoreRAF = replaceGlobal("requestAnimationFrame", (callback) => callback());
   try {
+    const click = { preventDefault() {}, stopPropagation() {} };
     const controller = createUIShellController({ state: {}, resizeTerminal() {} });
     const cleanup = controller.bindSidebarResizer({ storage });
+    // Migrated to icons: the rail is collapsed, the list is out of the layout, and
+    // compact is cleared because it only describes the standalone column.
+    assert.equal(shell.classList.contains("nav-mode-icons"), true);
     assert.equal(shell.classList.contains("global-rail-collapsed"), true);
-    assert.equal(shell.classList.contains("session-sidebar-collapsed"), true);
+    assert.equal(shell.classList.contains("session-sidebar-collapsed"), false);
     assert.equal(globalCollapseButton.getAttribute("aria-expanded"), "false");
-    assert.equal(sessionCollapseButton.getAttribute("aria-expanded"), "false");
     assert.equal(separator.getAttribute("tabindex"), "0");
-    assert.equal(shell.styleValues.get("style:--session-sidebar-width"), "184px");
+    assert.equal(storage.getItem(navigationLayoutModePreferenceKey), "icons");
     assert.equal(storage.getItem(globalRailCollapsedPreferenceKey), "true");
-    assert.equal(storage.getItem(sessionSidebarCollapsedPreferenceKey), "true");
-
-    globalCollapseButton.dispatch("click", { preventDefault() {}, stopPropagation() {} });
-    assert.equal(shell.classList.contains("global-rail-collapsed"), false);
-    assert.equal(shell.classList.contains("session-sidebar-collapsed"), false);
-    assert.equal(shell.styleValues.get("style:--session-sidebar-width"), "342px");
-    assert.equal(storage.getItem(globalRailCollapsedPreferenceKey), "false");
     assert.equal(storage.getItem(sessionSidebarCollapsedPreferenceKey), "false");
+    assert.equal(sidebar.parent, sidebarShellParent);
 
-    sessionCollapseButton.dispatch("click", { preventDefault() {}, stopPropagation() {} });
+    // icons -> columns: back to the two-column shell at the stored width.
+    globalCollapseButton.dispatch("click", click);
+    assert.equal(shell.classList.contains("nav-mode-columns"), true);
+    assert.equal(shell.classList.contains("nav-mode-icons"), false);
     assert.equal(shell.classList.contains("global-rail-collapsed"), false);
+    assert.equal(globalCollapseButton.getAttribute("aria-expanded"), "true");
+    assert.equal(shell.styleValues.get("style:--session-sidebar-width"), "342px");
+    assert.equal(storage.getItem(navigationLayoutModePreferenceKey), "columns");
+    assert.equal(sidebar.parent, sidebarShellParent);
+
+    // The column layout keeps its own compact toggle.
+    sessionCollapseButton.dispatch("click", click);
     assert.equal(shell.classList.contains("session-sidebar-collapsed"), true);
     assert.equal(shell.styleValues.get("style:--session-sidebar-width"), "184px");
     assert.equal(storage.getItem(sessionSidebarCollapsedPreferenceKey), "true");
-    sessionCollapseButton.dispatch("click", { preventDefault() {}, stopPropagation() {} });
+    sessionCollapseButton.dispatch("click", click);
     assert.equal(shell.classList.contains("session-sidebar-collapsed"), false);
     assert.equal(shell.styleValues.get("style:--session-sidebar-width"), "342px");
-    assert.equal(storage.getItem(sessionSidebarCollapsedPreferenceKey), "false");
 
-    globalCollapseButton.dispatch("click", { preventDefault() {}, stopPropagation() {} });
-    assert.equal(shell.classList.contains("global-rail-collapsed"), true);
-    assert.equal(shell.classList.contains("session-sidebar-collapsed"), true);
-    assert.equal(shell.styleValues.get("style:--session-sidebar-width"), "184px");
-    globalCollapseButton.dispatch("click", { preventDefault() {}, stopPropagation() {} });
+    // columns -> docked: the list moves inside the rail and the width carries over.
+    globalCollapseButton.dispatch("click", click);
+    assert.equal(shell.classList.contains("nav-mode-docked"), true);
     assert.equal(shell.classList.contains("global-rail-collapsed"), false);
+    assert.equal(globalCollapseButton.getAttribute("aria-expanded"), "true");
+    assert.equal(shell.styleValues.get("style:--session-sidebar-width"), "342px");
+    assert.equal(storage.getItem(navigationLayoutModePreferenceKey), "docked");
+    assert.equal(sidebar.parent, conversationDock, "docked mode parents the sidebar to the rail dock");
+    assert.equal(conversationDock.getAttribute("hidden"), null);
+    // Search and create ride along onto the conversation row: the sidebar's own
+    // header is hidden here, so leaving them behind would lose both controls.
+    assert.equal(sidebarActions.parent, conversationRailRow, "docked mode moves search and create onto the conversation row");
+    // The compact control belongs to the column layout, so it is inert here.
+    sessionCollapseButton.dispatch("click", click);
     assert.equal(shell.classList.contains("session-sidebar-collapsed"), false);
+    assert.equal(shell.classList.contains("nav-mode-docked"), true);
+
+    // Dragging still resizes the list when docked, and it tracks the pointer
+    // exactly: measuring the nested sidebar instead of the rail would subtract
+    // the rail's padding and leave the edge trailing the cursor.
+    // Pressing alone must not resize or switch layout: the divider does not always
+    // rest at the stored boundary, so a press that applied its own position would
+    // change the layout the moment it was touched.
+    separator.dispatch("pointerdown", { button: 0, clientX: 360, pointerId: 1, preventDefault() {} });
+    assert.equal(shell.styleValues.get("style:--session-sidebar-width"), "342px", "a press with no movement leaves the width alone");
+    assert.equal(shell.classList.contains("nav-mode-docked"), true, "a press with no movement leaves the layout alone");
+    windowListeners.get("pointermove")?.({ clientX: 360, preventDefault() {} });
+    assert.equal(shell.styleValues.get("style:--session-sidebar-width"), "360px");
+    assert.equal(shell.classList.contains("session-sidebar-collapsed"), false, "docked mode has no compact form to fall into");
+
+    // Dragging is the second route through the cycle. Widening past the column
+    // threshold hands the list its own column again, mid-drag.
+    windowListeners.get("pointermove")?.({ clientX: navigationDragColumnsEnterWidth, preventDefault() {} });
+    assert.equal(shell.classList.contains("nav-mode-columns"), true, "dragging wide enough restores the column layout");
+    assert.equal(sidebar.parent, sidebarShellParent);
+    assert.equal(sidebarActions.parent, sidebarHeaderParent);
+    // The divider is what the user holds, so the width behind it is the total
+    // minus the icon rail the column layout still shows.
+    assert.equal(shell.styleValues.get("style:--session-sidebar-width"), `${navigationDragColumnsEnterWidth - globalRailExpandedWidth}px`);
+
+    // Shrinking back past the exit threshold docks it again without letting go.
+    windowListeners.get("pointermove")?.({ clientX: navigationDragColumnsExitWidth - 1, preventDefault() {} });
+    assert.equal(shell.classList.contains("nav-mode-docked"), true, "dragging narrow enough docks the list");
+    assert.equal(sidebar.parent, conversationDock);
+
+    // All the way in: the icon rail, reached by drag rather than by the button.
+    windowListeners.get("pointermove")?.({ clientX: navigationDragIconsEnterWidth, preventDefault() {} });
+    assert.equal(shell.classList.contains("nav-mode-icons"), true, "dragging to the far left reaches the icon rail");
+    assert.equal(sidebar.parent, sidebarShellParent);
+    // And back out again, which is why the divider stays put in the icon layout.
+    windowListeners.get("pointermove")?.({ clientX: navigationDragIconsExitWidth + 1, preventDefault() {} });
+    assert.equal(shell.classList.contains("nav-mode-docked"), true, "dragging out of the icon rail is possible");
+
+    windowListeners.get("pointermove")?.({ clientX: 360, preventDefault() {} });
+    windowListeners.get("pointerup")?.({ pointerId: 1 });
+    // One stored width across layouts, so whichever column holds the list next
+    // inherits the size just dragged.
+    assert.equal(storage.getItem(sidebarWidthPreferenceKey), "360");
+    assert.equal(storage.getItem(navigationLayoutModePreferenceKey), "docked");
+
+    // docked -> icons: the sidebar returns to the shell so the hidden rail never
+    // owns it, which is what keeps the phone drawer reachable.
+    globalCollapseButton.dispatch("click", click);
+    assert.equal(shell.classList.contains("nav-mode-icons"), true);
+    assert.equal(sidebar.parent, sidebarShellParent, "leaving docked mode returns the sidebar to the shell");
+    assert.equal(sidebarActions.parent, sidebarHeaderParent, "the action cluster goes back to the sidebar header");
+    assert.equal(conversationDock.getAttribute("hidden"), "");
+
+    // The icon rail hides the list, so its nav entry has to restore a layout that
+    // shows one -- the last one actually in use, which was docked.
+    conversationRailButton.dispatch("click", click);
+    assert.equal(shell.classList.contains("nav-mode-docked"), true);
+    assert.equal(sidebar.parent, conversationDock);
+    // Already visible: pressing it again must not cycle the layout away.
+    conversationRailButton.dispatch("click", click);
+    assert.equal(shell.classList.contains("nav-mode-docked"), true);
 
     mobile = true;
     windowListeners.get("resize")?.();
+    assert.equal(shell.classList.contains("nav-mode-docked"), false);
+    assert.equal(shell.classList.contains("nav-mode-icons"), false);
     assert.equal(shell.classList.contains("global-rail-collapsed"), false);
-    assert.equal(shell.classList.contains("session-sidebar-collapsed"), false);
-    globalCollapseButton.dispatch("click", { preventDefault() {}, stopPropagation() {} });
-    sessionCollapseButton.dispatch("click", { preventDefault() {}, stopPropagation() {} });
+    assert.equal(sidebar.parent, sidebarShellParent, "a phone viewport always undocks");
+    globalCollapseButton.dispatch("click", click);
+    sessionCollapseButton.dispatch("click", click);
+    assert.equal(storage.getItem(navigationLayoutModePreferenceKey), "docked");
     assert.equal(storage.getItem(globalRailCollapsedPreferenceKey), "false");
-    assert.equal(storage.getItem(sessionSidebarCollapsedPreferenceKey), "false");
 
+    // Back on desktop the stored layout resumes.
     mobile = false;
     windowListeners.get("resize")?.();
-    assert.equal(shell.classList.contains("global-rail-collapsed"), false);
-    assert.equal(shell.classList.contains("session-sidebar-collapsed"), false);
+    assert.equal(shell.classList.contains("nav-mode-docked"), true);
+    assert.equal(sidebar.parent, conversationDock);
     cleanup();
     assert.equal(windowListeners.size, 0);
   } finally {
@@ -1696,7 +1973,7 @@ test("settings shell docks beside the global rail and keeps complete mobile navi
 });
 
 test("mobile shell skips home and keeps the drawer, settings index, and model sheet wired", async () => {
-  const [html, styles, app, appMain, uiShell, settingsPreferences, messagesCN, messagesTW, messagesEN] = await Promise.all([
+  const [html, styles, app, appMain, uiShell, settingsPreferences, messagesCN, messagesTW, messagesEN, selectMenus] = await Promise.all([
     readFile(indexURL, "utf8"),
     readStylesSource(stylesURL),
     readFile(appURL, "utf8"),
@@ -1706,6 +1983,7 @@ test("mobile shell skips home and keeps the drawer, settings index, and model sh
     readFile(new URL("./messages-zh-CN.mjs", import.meta.url), "utf8"),
     readFile(new URL("./messages-zh-TW.mjs", import.meta.url), "utf8"),
     readFile(new URL("./messages-en.mjs", import.meta.url), "utf8"),
+    readFile(selectMenusURL, "utf8"),
   ]);
 
   for (const id of [
@@ -1784,24 +2062,28 @@ test("mobile shell skips home and keeps the drawer, settings index, and model sh
   assert.match(appMain, /function requestCloseSettingsModal[\s\S]*?mobileSettingsView === "detail"/);
   assert.match(appMain, /function syncMobilePageTitle[\s\S]*?\(!state\.project && !state\.agent\) \? t\("shell\.nav\.conversation"\)/);
   assert.doesNotMatch(appMain, /\(!state\.project && !state\.agent\) \? t\("shell\.home"\)/);
-  assert.match(uiShell, /mobile-select-sheet-backdrop hidden/);
+  assert.match(selectMenus, /mobile-select-sheet-backdrop hidden/);
   assert.match(uiShell, /mobileSidebarBackdrop/);
   assert.match(uiShell, /mobileSidebarCloseBtn/);
   assert.equal((uiShell.match(/function closeMobileSidebar/g) || []).length, 1);
-  assert.match(uiShell, /translate\("chat\.selectModel"\)/);
+  assert.match(selectMenus, /translate\("chat\.selectModel"\)/);
   // 管理模型 / 思考强度 / 压缩上下文 were removed from the model menu: each already has
   // its own control beside the composer.
   // The model menu instead offers the summary model, which is applied by
   // round-tripping the whole agent payload so the default model and subagent
   // assignments are not dropped.
-  assert.match(uiShell, /translate\("chat\.summaryModel"\)/);
-  assert.match(uiShell, /openSummaryModelPicker/);
+  assert.match(selectMenus, /translate\("chat\.summaryModel"\)/);
+  assert.match(selectMenus, /openSummaryModelPicker/);
   assert.match(appMain, /agentModelSettingsPayload\(\{ \.\.\.\(state\.settings\?\.agent \|\| \{\}\), summaryModel: model \}\)/);
   assert.match(appMain, /api\("\/api\/runtime\/agent-model-settings", \{ method: "PATCH"/);
   assert.doesNotMatch(uiShell, /translate\("chat\.manageModels"\)/);
+  assert.doesNotMatch(selectMenus, /translate\("chat\.manageModels"\)/);
   assert.doesNotMatch(uiShell, /translate\("chat\.compactContext"\)/);
+  assert.doesNotMatch(selectMenus, /translate\("chat\.compactContext"\)/);
   assert.doesNotMatch(uiShell, /openModelSettings/);
+  assert.doesNotMatch(selectMenus, /openModelSettings/);
   assert.doesNotMatch(uiShell, /mobileComposerSelectStyles/);
+  assert.doesNotMatch(selectMenus, /mobileComposerSelectStyles/);
   assert.match(settingsPreferences, /mobileSidebarAvatar/);
   assert.match(settingsPreferences, /mobileSidebarAccountName/);
   assert.match(settingsPreferences, /mobileSidebarAccountMeta/);
@@ -2167,25 +2449,27 @@ test("model picker groups every provider once and lists all of its models undern
     { provider: "lanyangyang", models: ["gpt-5.6-sol"] },
   ]);
 
-  const [uiShell, styles] = await Promise.all([
+  const [uiShell, styles, selectMenus] = await Promise.all([
     readFile(uiShellURL, "utf8"),
     readStylesSource(stylesURL),
+    readFile(selectMenusURL, "utf8"),
   ]);
-  assert.match(uiShell, /groupModelSelectOptions\(options\)\.forEach/);
-  assert.match(uiShell, /appendModelOptionGroups\(binding, options, \{ mobile: true \}\)/);
-  assert.match(uiShell, /appendModelOptionGroups\(binding, menu\)/);
+  assert.match(selectMenus, /groupModelSelectOptions\(options\)\.forEach/);
+  assert.match(selectMenus, /appendModelOptionGroups\(binding, options, \{ mobile: true \}\)/);
+  assert.match(selectMenus, /appendModelOptionGroups\(binding, menu\)/);
   assert.doesNotMatch(uiShell, /composer-model-option-provider/);
+  assert.doesNotMatch(selectMenus, /composer-model-option-provider/);
   // The summary model list is provider-grouped too: the same model name can come
   // from several providers, so a flat list would be ambiguous.
-  assert.match(uiShell, /groupModelSelectOptions\(summaryModelOptions\(binding\)\)\.forEach/);
+  assert.match(selectMenus, /groupModelSelectOptions\(summaryModelOptions\(binding\)\)\.forEach/);
   assert.match(
-    uiShell,
+    selectMenus,
     /const openSummaryModelPicker[\s\S]*?groupHeading\.textContent = group\.provider \|\| translate\("chat\.modelProviderFallback"\)/,
   );
   // The collapsed row names the provider next to the current summary model.
-  assert.match(uiShell, /const summaryModelDescriptor = \(binding, value\)/);
+  assert.match(selectMenus, /const summaryModelDescriptor = \(binding, value\)/);
   assert.match(
-    uiShell,
+    selectMenus,
     /descriptor\?\.provider\s*\n\s*\? `\$\{descriptor\.provider\} · \$\{descriptor\.name\}`\s*\n\s*: \(descriptor\?\.name \|\| current\)/,
   );
   assert.match(styles, /\.composer-model-group-heading\.composer-model-group-start\s*\{[\s\S]*?border-top:\s*1px solid/);
