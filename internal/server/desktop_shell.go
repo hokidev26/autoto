@@ -7,6 +7,29 @@ import (
 	"strings"
 )
 
+// Every shell request below is small metadata: a dialog title and message, a
+// deep-link URL, a staged update path. The ceiling is generous against that and
+// exists so a buggy or hostile local client cannot grow the desktop process by
+// streaming an endless body into a decoder.
+//
+// These routes are already gated on being a desktop process, a loopback peer and
+// the process-local API token, so this is defence in depth rather than a reachable
+// hole. It is here because bounding externally supplied bodies is the convention
+// everywhere else in this package, and these were the last exceptions.
+const maxShellRequestBytes = 64 << 10
+
+// decodeShellRequest bounds the body before decoding it. Returns false when the
+// body was unreadable or oversized, having already written the response.
+func decodeShellRequest(w http.ResponseWriter, r *http.Request, target any, invalidMessage string) bool {
+	r.Body = http.MaxBytesReader(w, r.Body, maxShellRequestBytes)
+	defer r.Body.Close()
+	if err := json.NewDecoder(r.Body).Decode(target); err != nil {
+		writeError(w, http.StatusBadRequest, invalidMessage)
+		return false
+	}
+	return true
+}
+
 // ShellFileFilter describes a native open-file dialog filter.
 type ShellFileFilter struct {
 	Name    string `json:"name"`
@@ -70,8 +93,7 @@ func (s *Server) desktopDialogConfirm(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req shellDialogRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid dialog request")
+	if !decodeShellRequest(w, r, &req, "invalid dialog request") {
 		return
 	}
 	accepted, err := host.Confirm(r.Context(), req.Message, req.Title)
@@ -88,8 +110,7 @@ func (s *Server) desktopDialogAlert(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req shellDialogRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid dialog request")
+	if !decodeShellRequest(w, r, &req, "invalid dialog request") {
 		return
 	}
 	if err := host.Alert(r.Context(), req.Message, req.Title); err != nil {
@@ -105,6 +126,10 @@ func (s *Server) desktopDialogOpenDirectory(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	var req shellDialogRequest
+	// A body is optional here: opening a picker with no title is valid, so a decode
+	// failure is ignored rather than rejected. It still has to be bounded.
+	r.Body = http.MaxBytesReader(w, r.Body, maxShellRequestBytes)
+	defer r.Body.Close()
 	_ = json.NewDecoder(r.Body).Decode(&req)
 	title := strings.TrimSpace(req.Title)
 	if title == "" {
@@ -128,6 +153,9 @@ func (s *Server) desktopDialogOpenFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req shellDialogRequest
+	// Optional body, as above.
+	r.Body = http.MaxBytesReader(w, r.Body, maxShellRequestBytes)
+	defer r.Body.Close()
 	_ = json.NewDecoder(r.Body).Decode(&req)
 	title := strings.TrimSpace(req.Title)
 	if title == "" {

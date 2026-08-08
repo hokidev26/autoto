@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"autoto/internal/config"
@@ -214,5 +215,54 @@ func TestDesktopDialogOpenFileCanceled(t *testing.T) {
 	}
 	if body["canceled"] != true {
 		t.Fatalf("body=%v", body)
+	}
+}
+
+// These routes are already gated on a loopback peer and the process-local token,
+// so the bound is defence in depth: a buggy or hostile local client must not be
+// able to grow the desktop process by streaming an endless body into a decoder.
+func TestDesktopDialogRejectsOversizedBody(t *testing.T) {
+	app := New(config.Config{}, nil, nil, nil)
+	called := false
+	app.SetShellDialogHost(stubShellDialogHost{
+		confirmFn: func(_ context.Context, _, _ string) (bool, error) {
+			called = true
+			return true, nil
+		},
+	})
+	// Valid JSON, just far larger than any dialog message.
+	oversized := `{"message":"` + strings.Repeat("a", maxShellRequestBytes+1024) + `"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/desktop/dialog/confirm", strings.NewReader(oversized))
+	req.RemoteAddr = "127.0.0.1:12345"
+	req.Host = "127.0.0.1:7788"
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set(localTokenHeader, app.localToken)
+	rec := httptest.NewRecorder()
+	app.Routes().ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("oversized body must be rejected, got status %d body %s", rec.Code, rec.Body.String())
+	}
+	if called {
+		t.Fatal("an oversized body must not reach the dialog host")
+	}
+}
+
+// The picker routes accept an absent body on purpose: opening a picker with no
+// title is valid. Bounding the body must not have turned that into an error.
+func TestDesktopDialogPickerAcceptsEmptyBody(t *testing.T) {
+	app := New(config.Config{}, nil, nil, nil)
+	app.SetShellDialogHost(stubShellDialogHost{
+		directoryFn: func(_ context.Context, _, _ string) (string, bool, error) {
+			return "C:\\chosen", false, nil
+		},
+	})
+	req := httptest.NewRequest(http.MethodPost, "/api/desktop/dialog/open-directory", http.NoBody)
+	req.RemoteAddr = "127.0.0.1:12345"
+	req.Host = "127.0.0.1:7788"
+	req.Header.Set(localTokenHeader, app.localToken)
+	rec := httptest.NewRecorder()
+	app.Routes().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("an empty picker body must still work, got status %d body %s", rec.Code, rec.Body.String())
 	}
 }

@@ -1,7 +1,6 @@
 package server
 
 import (
-	"encoding/json"
 	"net/http"
 	"strings"
 
@@ -166,8 +165,7 @@ func (s *Server) desktopDeepLinkPost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req deepLinkRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid deep link request")
+	if !decodeShellRequest(w, r, &req, "invalid deep link request") {
 		return
 	}
 	raw := strings.TrimSpace(req.URL)
@@ -225,8 +223,7 @@ func (s *Server) desktopUpdateStagePost(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	var req stageUpdateRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid stage request")
+	if !decodeShellRequest(w, r, &req, "invalid stage request") {
 		return
 	}
 	sourcePath := strings.TrimSpace(req.SourcePath)
