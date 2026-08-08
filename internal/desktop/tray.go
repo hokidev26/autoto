@@ -86,8 +86,16 @@ func attachSystemTray(app *application.App, window *application.WebviewWindow, l
 		window.Focus()
 	})
 
+	// Closing the window quits. It used to hide to tray and cancel the close, which
+	// reads as a stuck app: the window disappears, so the app looks closed, while the
+	// server, its database handle and every managed child process keep running with
+	// nothing on screen accounting for them. The desktop build has no console either,
+	// so there is not even a stray terminal left as a hint that it is still alive.
+	//
+	// Hiding is still available, deliberately, from the tray menu and by clicking the
+	// tray icon. The difference is that those are asking for it, and this is not.
 	window.RegisterHook(events.Common.WindowClosing, func(e *application.WindowEvent) {
-		window.Hide()
-		e.Cancel()
+		logger.Info("main window closed; quitting desktop shell")
+		app.Quit()
 	})
 }
