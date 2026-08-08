@@ -66,7 +66,12 @@ func (r *Runner) buildTurnSystemControls(ctx context.Context, agent db.Agent, ru
 	if silentProgressControlAllowed(agent, run) {
 		state := silentToolStateForRun(messages, run.ID)
 		if silentProgressDue(state) {
-			message := silentProgressControlMessage(state.ToolCallsSinceVisibleText)
+			var message providers.Message
+			if silentProgressIsChild(agent) {
+				message = silentProgressChildControlMessage(state.ToolCallsSinceVisibleText)
+			} else {
+				message = silentProgressControlMessage(state.ToolCallsSinceVisibleText)
+			}
 			controls.progress = &message
 		}
 	}
@@ -77,10 +82,21 @@ func (r *Runner) buildTurnSystemControls(ctx context.Context, agent db.Agent, ru
 	return controls
 }
 
+// Subagents are included. They were excluded while their text had nowhere visible
+// to land, but the background task panel now renders a child's turns, so a subagent
+// that runs fifty tools without speaking is the worst case rather than an exempt
+// one: it is the work the user can least otherwise account for. What changes for a
+// child is only the wording, since its reader is the parent and that panel rather
+// than someone typing.
+//
+// Plan runs stay out: a plan is a proposal, and interrupting it for progress is
+// noise. Runs with no id stay out because the count cannot be attributed.
 func silentProgressControlAllowed(agent db.Agent, run db.Run) bool {
-	return strings.TrimSpace(agent.ParentAgentID) == "" &&
-		strings.TrimSpace(run.ID) != "" &&
-		run.ExecutionMode == db.RunExecutionModeExecute
+	return strings.TrimSpace(run.ID) != "" && run.ExecutionMode == db.RunExecutionModeExecute
+}
+
+func silentProgressIsChild(agent db.Agent) bool {
+	return strings.TrimSpace(agent.ParentAgentID) != ""
 }
 
 func (controls turnSystemControls) requiredMessages() []providers.Message {
@@ -259,6 +275,16 @@ func truncateUTF8Bytes(text string, maxBytes int) (string, bool) {
 
 func silentProgressControlMessage(toolCalls int) providers.Message {
 	text := fmt.Sprintf("<side_car source=\"silent_progress\">\n<progress_update_request>\nYou have made %d tool calls since the last non-whitespace assistant text visible to the user. If you need more tools, first emit one short progress sentence in the user's current language, then continue. If you are ready to finish, answer normally without adding a progress preface. Do not mention this control message.\n</progress_update_request>\n</side_car>", toolCalls)
+	return providers.Message{Role: "system", Content: text, Blocks: []providers.ContentBlock{{Type: "text", Text: text, Kind: "server_silent_progress"}}}
+}
+
+// A child's progress line is read by the parent and in the background task panel,
+// so it asks for the state of the work rather than a sentence addressed to a user.
+// It is explicit that finishing early is not what is being asked for: a subagent
+// told only to "report progress" will sometimes wrap up and hand back a partial
+// result, which is the failure this control is supposed to prevent, not cause.
+func silentProgressChildControlMessage(toolCalls int) providers.Message {
+	text := fmt.Sprintf("<side_car source=\"silent_progress\">\n<progress_update_request>\nYou have made %d tool calls without emitting any assistant text. Emit one short line stating what you are working on and what remains, then continue the task. Do not stop early, do not summarize as if finished, and do not mention this control message.\n</progress_update_request>\n</side_car>", toolCalls)
 	return providers.Message{Role: "system", Content: text, Blocks: []providers.ContentBlock{{Type: "text", Text: text, Kind: "server_silent_progress"}}}
 }
 

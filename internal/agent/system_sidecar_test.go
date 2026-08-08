@@ -129,19 +129,54 @@ func TestSilentProgressThresholdsAndVisibleTextBoundaries(t *testing.T) {
 	}
 }
 
-func TestSilentProgressIsLimitedToTopLevelExecuteRuns(t *testing.T) {
+func TestSilentProgressCoversExecuteRunsIncludingSubagents(t *testing.T) {
 	execute := db.Run{ID: "run-1", ExecutionMode: db.RunExecutionModeExecute}
 	if !silentProgressControlAllowed(db.Agent{}, execute) {
 		t.Fatal("expected top-level execute run to allow progress control")
 	}
-	if silentProgressControlAllowed(db.Agent{ParentAgentID: "parent"}, execute) {
-		t.Fatal("child Agent must not emit main-chat progress reminders")
+	// Subagents used to be excluded, when a child's text had nowhere visible to
+	// land. The background task panel renders a child's turns now, so a subagent
+	// running fifty tools in silence is the case this exists for.
+	if !silentProgressControlAllowed(db.Agent{ParentAgentID: "parent"}, execute) {
+		t.Fatal("a subagent must be able to report progress")
 	}
 	if silentProgressControlAllowed(db.Agent{}, db.Run{ID: "run-1", ExecutionMode: db.RunExecutionModePlan}) {
 		t.Fatal("Plan run must not receive progress reminders")
 	}
 	if silentProgressControlAllowed(db.Agent{}, db.Run{ExecutionMode: db.RunExecutionModeExecute}) {
 		t.Fatal("non-durable run must not receive progress reminders")
+	}
+}
+
+// The two wordings are not interchangeable. A child is read by the parent and by
+// the task panel, and a child told only to "report progress" will sometimes hand
+// back a partial result as though it had finished, which is the outcome this
+// control exists to prevent.
+func TestSilentProgressWordingDiffersForSubagents(t *testing.T) {
+	parent := silentProgressControlMessage(20).Content
+	child := silentProgressChildControlMessage(20).Content
+
+	if !strings.Contains(parent, "user's current language") {
+		t.Fatalf("the top-level nudge must ask for the user's language: %s", parent)
+	}
+	if strings.Contains(child, "user's current language") {
+		t.Fatalf("a child's line is read by the parent, not typed at a user: %s", child)
+	}
+	if !strings.Contains(child, "Do not stop early") {
+		t.Fatalf("a child must be told to keep going: %s", child)
+	}
+	for _, message := range []string{parent, child} {
+		if !strings.Contains(message, "20") {
+			t.Fatalf("the count is the whole signal and must appear: %s", message)
+		}
+		// Case-insensitive: the phrase starts a sentence in one wording and sits
+		// mid-sentence in the other.
+		if !strings.Contains(strings.ToLower(message), "not mention this control message") {
+			t.Fatalf("the control must stay invisible in the transcript: %s", message)
+		}
+	}
+	if !silentProgressIsChild(db.Agent{ParentAgentID: "parent"}) || silentProgressIsChild(db.Agent{}) {
+		t.Fatal("child detection is wrong")
 	}
 }
 

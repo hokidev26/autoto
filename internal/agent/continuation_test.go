@@ -653,6 +653,92 @@ func TestSilentProgressSidecarAfterTwentyToolCalls(t *testing.T) {
 	}
 }
 
+// A subagent used to be exempt, from when its text had nowhere visible to land. It
+// is now the case this control exists for: it can run for twenty minutes and the
+// only account of it is the task panel. The wording differs because its reader is
+// the parent, and it is told not to stop early, since a child asked only to report
+// progress will otherwise hand back a partial result as though it had finished.
+func TestSilentProgressReachesSubagentsWithChildWording(t *testing.T) {
+	ctx := context.Background()
+	projectDir := t.TempDir()
+	if err := writeTestFile(projectDir, "progress.txt", "progress"); err != nil {
+		t.Fatal(err)
+	}
+	store, parent := newAgentTestStore(t, projectDir, "acceptEdits")
+	defer store.Close()
+
+	child, err := store.CreateAgent(ctx, db.Agent{
+		WorklineID:    parent.WorklineID,
+		Type:          "subagent",
+		ParentAgentID: parent.ID,
+		Title:         "child",
+		Model:         "fake:test",
+		CWD:           projectDir,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	toolTurn := make([]providers.Event, 0, silentProgressInterval+1)
+	for index := 0; index < silentProgressInterval; index++ {
+		toolTurn = append(toolTurn, providers.Event{Type: "tool_call", ToolCall: &providers.ToolCall{ID: fmt.Sprintf("child-read-%d", index), Name: "Read", Input: json.RawMessage(`{"file_path":"progress.txt"}`)}})
+	}
+	toolTurn = append(toolTurn, providers.Event{Type: "done", Done: true, StopReason: "tool_use"})
+	provider := &scriptedProvider{turns: [][]providers.Event{
+		toolTurn,
+		{{Type: "text", Text: "child work complete"}, {Type: "done", Done: true, StopReason: "end_turn"}},
+	}}
+	runner := newAgentTestRunner(store, provider, config.AgentConfig{MaxTurns: 3, AutoContinuationMode: "safe", ContinuationSegmentTurns: 4, MaxContinuations: 2, MaxTotalTurns: 4, MaxRunDurationMs: 60000, MaxRunTokens: 10000})
+	trigger, err := store.AddMessage(ctx, db.Message{AgentID: child.ID, Role: "user", ContentText: "read repeatedly"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	runRequest, err := runner.prepareContinuationRun(ctx, db.Run{AgentID: child.ID, TriggerMessageID: trigger.ID, Status: "running", ExecutionMode: db.RunExecutionModeExecute})
+	if err != nil {
+		t.Fatal(err)
+	}
+	run, err := store.CreateRun(ctx, runRequest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.AssignMessageRun(ctx, child.ID, trigger.ID, run.ID); err != nil {
+		t.Fatal(err)
+	}
+	state := continuationRunState{run: run, limits: continuationLimits{segmentTurns: 4, maxTotalTurns: 4, maxTokens: 10000}, deadline: time.Now().Add(time.Minute)}
+	if _, err := runner.runContinuationSegment(ctx, state, 0); err != nil {
+		t.Fatal(err)
+	}
+
+	if provider.requestCount() != 2 {
+		t.Fatalf("expected two requests, got %d", provider.requestCount())
+	}
+	if requestHasSystemText(provider.request(0), "progress_update_request") {
+		t.Fatal("the nudge must not fire before the threshold")
+	}
+	if !requestHasSystemText(provider.request(1), "progress_update_request") || !requestHasSystemText(provider.request(1), "20 tool calls") {
+		t.Fatal("a subagent did not receive the progress nudge at the threshold")
+	}
+	// The child wording, not the one addressed at a user typing in the composer.
+	if !requestHasSystemText(provider.request(1), "Do not stop early") {
+		t.Fatal("the subagent nudge must tell it to keep going")
+	}
+	if requestHasSystemText(provider.request(1), "user's current language") {
+		t.Fatal("a subagent received the top-level wording")
+	}
+
+	messages, err := store.ListMessages(ctx, child.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, message := range messages {
+		for _, block := range contentBlocksFromMessage(message) {
+			if block.Kind == "server_silent_progress" {
+				t.Fatalf("silent progress control leaked into durable history: %+v", message)
+			}
+		}
+	}
+}
+
 func TestSafeContinuationAtSegmentTurnLimitRequiresCompleteToolResult(t *testing.T) {
 	ctx := context.Background()
 	projectDir := t.TempDir()
