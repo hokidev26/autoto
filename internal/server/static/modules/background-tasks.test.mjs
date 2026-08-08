@@ -965,3 +965,83 @@ test("waiting on a child reaches the task summary as an amber dot", () => {
   controller.setForegroundActivity({ kind: "thinking", tone: "nonsense", text: "still thinking" });
   assert.equal(elements.headerTaskStatusDot.className, "header-task-status-dot running");
 });
+
+// The panel read message.text and message.content. The messages endpoint returns
+// neither: it returns contentText. Every bubble was therefore dropped as empty and
+// a task that had run for twenty minutes showed a blank pane. The reasoning and
+// the tool calls, which are the part of a subagent's work that is otherwise
+// invisible, were not requested at all.
+test("opening a subagent task reads contentText and fetches its tool calls", async () => {
+  const requested = [];
+  const controller = createBackgroundTasksController({
+    request: async (path) => {
+      requested.push(path);
+      if (path.endsWith("/output?afterSequence=0")) return { chunks: [] };
+      if (path.includes("/messages")) {
+        return {
+          messages: [
+            { id: "m1", role: "user", contentText: "do the thing", createdAt: "2026-08-08T15:34:28Z" },
+            // A turn that only reasoned and called a tool, with no answer text.
+            { id: "m2", role: "assistant", contentText: "", reasoningText: "weighing options", createdAt: "2026-08-08T15:35:00Z" },
+            { id: "m3", role: "assistant", contentText: "done", createdAt: "2026-08-08T15:56:00Z" },
+          ],
+        };
+      }
+      if (path.includes("/tool-calls")) {
+        return { toolCalls: [
+          { messageId: "m2", toolName: "Grep", status: "succeeded", durationMs: 120, inputJson: { query: "x" } },
+          { messageId: "m2", toolName: "Read", status: "error", errorMessage: "missing file" },
+        ] };
+      }
+      return {
+        id: "task-sub",
+        agentId: "agent-1",
+        kind: "agent",
+        status: "succeeded",
+        childAgentId: "child-9",
+        childRunId: "run-9",
+        revision: 1,
+        publicSummary: { description: "Queued message attachments" },
+      };
+    },
+  });
+  controller.setAgent("agent-1");
+
+  await controller.selectTask("task-sub");
+
+  // The run is what owns tool calls, so the child run id has to reach the request.
+  assert.ok(
+    requested.some((path) => path === "/api/agents/child-9/runs/run-9/tool-calls?view=activity"),
+    `tool calls were not requested: ${JSON.stringify(requested)}`,
+  );
+  assert.ok(requested.some((path) => path.startsWith("/api/agents/child-9/messages")), "child messages were not requested");
+
+  // Assert the rendered pane, not the stored messages: the data was always present
+  // and only the field read was wrong, so a payload assertion passes either way.
+  const html = controller.renderChildConversationHTMLForTest({ childAgentId: "child-9", childRunId: "run-9" });
+  assert.ok(html.includes("do the thing"), `the user turn did not reach the pane: ${html}`);
+  assert.ok(html.includes("done"), "the final answer did not reach the pane");
+  assert.ok(html.includes("weighing options"), "reasoning was not rendered");
+  assert.ok(html.includes("Grep"), "the tool call was not rendered");
+  assert.ok(html.includes("missing file"), "a failed call must show why");
+  // The reasoning-only turn has no answer text but must still render.
+  assert.equal((html.match(/background-task-bubble/g) || []).length, 3, "every turn must render a bubble");
+});
+
+// A shell task has no child agent, so there is no run to ask about and asking
+// anyway would 404 on every open.
+test("a shell task does not request subagent tool calls", async () => {
+  const requested = [];
+  const controller = createBackgroundTasksController({
+    request: async (path) => {
+      requested.push(path);
+      if (path.endsWith("/output?afterSequence=0")) return { chunks: [] };
+      return { id: "task-shell", agentId: "agent-1", kind: "shell", status: "succeeded", revision: 1 };
+    },
+  });
+  controller.setAgent("agent-1");
+
+  await controller.selectTask("task-shell");
+
+  assert.equal(requested.some((path) => path.includes("/tool-calls")), false, "a shell task has no subagent run");
+});

@@ -284,6 +284,8 @@ export function createBackgroundTasksController({
   const childConversations = new Map();
   const childAgents = new Map();
   const childBusy = new Set();
+  // childAgentId -> Map(messageId -> tool calls), so a turn can show what it ran.
+  const childToolCalls = new Map();
   let detailView = "conversation";
   const hydrationRequests = new Map();
   const listeners = new Set();
@@ -360,25 +362,64 @@ export function createBackgroundTasksController({
     return id ? (childConversations.get(id) || []) : [];
   }
 
+  function childToolCallsByMessage(childAgentId) {
+    const id = text(childAgentId);
+    return (id && childToolCalls.get(id)) || new Map();
+  }
+
+  // A reload triggered from the child composer or its settings knows the agent but
+  // not the run, so recover the run from whichever task owns that agent.
+  function childRunIdFor(childAgentId) {
+    const id = text(childAgentId);
+    if (!id) return "";
+    for (const task of tasksById.values()) {
+      if (text(task?.childAgentId) === id) return text(task?.childRunId);
+    }
+    return "";
+  }
+
   // Loaded on demand rather than with the task list: most tasks are never
   // opened, and each one costs a separate conversation fetch.
-  async function loadChildConversation(childAgentId, { force = false } = {}) {
+  async function loadChildConversation(childAgentId, { force = false, runId = "" } = {}) {
     const id = text(childAgentId);
     if (!id || childBusy.has(id)) return;
     if (!force && childConversations.has(id)) return;
     childBusy.add(id);
     try {
-      const [messages, agent] = await Promise.all([
+      const run = text(runId);
+      const [messages, agent, calls] = await Promise.all([
         request(`/api/agents/${encodeURIComponent(id)}/messages?limit=40`).catch(() => null),
         request(`/api/agents/${encodeURIComponent(id)}`).catch(() => null),
+        // Tool calls hang off the run, not the agent, so a task with no recorded
+        // child run simply has none to show. Failing this must not cost the
+        // messages: the conversation is still readable without it.
+        run
+          ? request(`/api/agents/${encodeURIComponent(id)}/runs/${encodeURIComponent(run)}/tool-calls?view=activity`).catch(() => null)
+          : Promise.resolve(null),
       ]);
       const list = Array.isArray(messages) ? messages : (Array.isArray(messages?.messages) ? messages.messages : []);
       childConversations.set(id, list);
       if (agent && typeof agent === "object") childAgents.set(id, agent);
+      childToolCalls.set(id, groupToolCallsByMessage(calls));
       render();
     } finally {
       childBusy.delete(id);
     }
+  }
+
+  // Grouped by message so each call renders under the turn that made it, in the
+  // order the run recorded them.
+  function groupToolCallsByMessage(payload) {
+    const list = Array.isArray(payload) ? payload : (Array.isArray(payload?.toolCalls) ? payload.toolCalls : []);
+    const grouped = new Map();
+    for (const call of list) {
+      const messageId = text(call?.messageId);
+      if (!messageId) continue;
+      const existing = grouped.get(messageId);
+      if (existing) existing.push(call);
+      else grouped.set(messageId, [call]);
+    }
+    return grouped;
   }
 
   // Model, effort and permission changes are written straight to the subagent so
@@ -391,7 +432,7 @@ export function createBackgroundTasksController({
         method: "PATCH",
         body: JSON.stringify(body),
       });
-      await loadChildConversation(id, { force: true });
+      await loadChildConversation(id, { force: true, runId: childRunIdFor(id) });
     } catch (err) {
       onError?.(err);
     }
@@ -406,7 +447,7 @@ export function createBackgroundTasksController({
         method: "POST",
         body: JSON.stringify({ text: body, mode: "execute", context: "conversation" }),
       });
-      await loadChildConversation(id, { force: true });
+      await loadChildConversation(id, { force: true, runId: childRunIdFor(id) });
     } catch (err) {
       onError?.(err);
     }
@@ -647,8 +688,9 @@ export function createBackgroundTasksController({
       if (!(outputs.get(normalized) || []).length) await loadOutput(normalized, { afterSequence: 0 });
       // Opening a subagent task is a request to read its conversation, so fetch it
       // here rather than waiting for the first render to notice it is missing.
-      const childAgentId = text(tasksById.get(normalized)?.childAgentId);
-      if (childAgentId) await loadChildConversation(childAgentId);
+      const openedTask = tasksById.get(normalized);
+      const childAgentId = text(openedTask?.childAgentId);
+      if (childAgentId) await loadChildConversation(childAgentId, { runId: text(openedTask?.childRunId) });
     } catch (cause) {
       if (operationIsCurrent(expectedAgentId, expectedGeneration)) onError?.(cause);
     }
@@ -853,15 +895,61 @@ export function createBackgroundTasksController({
     if (!messages.length) {
       return `<div class="background-task-empty">${escapeHtml(childBusy.has(childAgentId) ? t("backgroundTasks.loading") : t("backgroundTasks.noConversation"))}</div>`;
     }
+    const callsByMessage = childToolCallsByMessage(childAgentId);
     return `<div class="background-task-conversation">${messages.map((message) => {
       const role = text(message?.role) === "user" ? "user" : "assistant";
-      const body = text(message?.text || message?.content);
-      if (!body) return "";
+      // contentText is what the messages endpoint returns. This read used to be
+      // `message.text || message.content`, and neither field has ever existed on
+      // that payload, so every bubble was dropped as empty below and the pane
+      // rendered blank for a task that had run for twenty minutes.
+      const body = text(message?.contentText || message?.text || message?.content);
+      const reasoning = text(message?.reasoningText);
+      const calls = callsByMessage.get(text(message?.id)) || [];
+      // A turn with no answer text is still worth showing when it reasoned or
+      // called a tool: that is the part of a subagent's work you cannot otherwise
+      // see, and dropping the whole bubble is what hid it.
+      if (!body && !reasoning && !calls.length) return "";
       return `<article class="background-task-bubble role-${role}">
         <header><span>${escapeHtml(role === "user" ? t("backgroundTasks.roleUser") : t("backgroundTasks.roleAgent"))}</span><time>${escapeHtml(message?.createdAt ? formatTimestamp(message.createdAt) : "")}</time></header>
-        <p>${escapeHtml(body)}</p>
+        ${reasoning ? `<details class="background-task-reasoning"><summary>${escapeHtml(t("backgroundTasks.reasoning"))}</summary><p>${escapeHtml(reasoning)}</p></details>` : ""}
+        ${calls.length ? renderChildToolCallsHTML(calls) : ""}
+        ${body ? `<p>${escapeHtml(body)}</p>` : ""}
       </article>`;
     }).join("")}</div>`;
+  }
+
+  // Tool calls are shown collapsed: the name, status and duration answer "what did
+  // it do" on their own, and the arguments are usually long enough to bury the
+  // answer text underneath them.
+  function renderChildToolCallsHTML(calls) {
+    return `<ul class="background-task-tools">${calls.map((call) => {
+      const name = text(call?.toolName) || "tool";
+      const status = text(call?.status);
+      const duration = Number.isFinite(call?.durationMs) ? formatDuration(call.durationMs) : "";
+      const failed = status === "error" || Boolean(text(call?.errorMessage));
+      const detail = text(call?.errorMessage) || boundedInput(call?.inputJson);
+      return `<li class="background-task-tool${failed ? " is-error" : ""}">
+        <span class="background-task-tool-name">${escapeHtml(name)}</span>
+        ${status ? `<span class="background-task-tool-status status-${escapeAttr(status)}">${escapeHtml(status)}</span>` : ""}
+        ${duration ? `<span class="background-task-tool-duration">${escapeHtml(duration)}</span>` : ""}
+        ${detail ? `<details><summary>${escapeHtml(t("backgroundTasks.showMore"))}</summary><pre>${escapeHtml(detail)}</pre></details>` : ""}
+      </li>`;
+    }).join("")}</ul>`;
+  }
+
+  // Arguments arrive as raw JSON and can be a whole file's contents. Bound it here
+  // rather than in CSS so an enormous payload cannot cost a long serialisation on
+  // every render.
+  function boundedInput(value) {
+    if (value == null) return "";
+    let raw = "";
+    try {
+      raw = typeof value === "string" ? value : JSON.stringify(value);
+    } catch {
+      return "";
+    }
+    raw = text(raw);
+    return raw.length > 600 ? `${raw.slice(0, 600)}…` : raw;
   }
 
   // Mirrors the main composer's controls so a subagent can be retargeted without
@@ -1157,6 +1245,11 @@ export function createBackgroundTasksController({
       if (id) childAgents.set(id, agent);
       return renderChildControlsHTML(task || {});
     },
+    // Returns the rendered conversation, not the stored messages. The bug this
+    // guards was a field name: the data was always there and only the read was
+    // wrong, so a test that inspects the payload passes either way. Only the
+    // rendered output shows whether the text actually reached the pane.
+    renderChildConversationHTMLForTest: (task) => renderChildConversationHTML(task || {}),
     state: () => ({
       agentId,
       selected,
