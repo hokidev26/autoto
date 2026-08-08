@@ -1264,8 +1264,8 @@ var commandRiskExplanations = map[string]CommandRiskExplanation{
 	"firewall-change":       {MessageKey: "danger.firewallChange", Summary: "This reconfigures the Windows firewall.", Why: "Firewall changes can expose this machine to the network.", Hard: true},
 
 	// Approval-required: serious but recoverable, and legitimate in normal work.
-	"file-delete-scoped":     {MessageKey: "sensitive.fileDeleteScoped", Summary: "This deletes a specific file or directory.", Why: "The target is removed from disk.", Alternative: "Confirm the path is what you expect before allowing."},
-	"file-truncate-scoped":   {MessageKey: "sensitive.fileTruncateScoped", Summary: "This resizes a file in place.", Why: "Content beyond the new size is discarded."},
+	"file-delete-scoped":   {MessageKey: "sensitive.fileDeleteScoped", Summary: "This deletes a specific file or directory.", Why: "The target is removed from disk.", Alternative: "Confirm the path is what you expect before allowing."},
+	"file-truncate-scoped": {MessageKey: "sensitive.fileTruncateScoped", Summary: "This resizes a file in place.", Why: "Content beyond the new size is discarded."},
 
 	"file-overwrite":         {MessageKey: "sensitive.fileOverwrite", Summary: "This overwrites a file's contents.", Why: "The previous contents are replaced."},
 	"permission-change":      {MessageKey: "sensitive.permissionChange", Summary: "This changes file ownership or permissions.", Why: "Access control for the target changes."},

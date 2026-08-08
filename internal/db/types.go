@@ -262,22 +262,22 @@ type RunGitChange struct {
 }
 
 type RunSummary struct {
-	Run              Run                 `json:"run"`
-	MessageCount     int64               `json:"messageCount"`
-	ToolCallCount    int64               `json:"toolCallCount"`
-	PendingApprovals int64               `json:"pendingApprovals"`
-	DeniedToolCalls  int64               `json:"deniedToolCalls"`
-	ErrorToolCalls   int64               `json:"errorToolCalls"`
-	APIRequestCount  int64               `json:"apiRequestCount"`
-	InputTokens      int64               `json:"inputTokens"`
-	OutputTokens     int64               `json:"outputTokens"`
+	Run              Run   `json:"run"`
+	MessageCount     int64 `json:"messageCount"`
+	ToolCallCount    int64 `json:"toolCallCount"`
+	PendingApprovals int64 `json:"pendingApprovals"`
+	DeniedToolCalls  int64 `json:"deniedToolCalls"`
+	ErrorToolCalls   int64 `json:"errorToolCalls"`
+	APIRequestCount  int64 `json:"apiRequestCount"`
+	InputTokens      int64 `json:"inputTokens"`
+	OutputTokens     int64 `json:"outputTokens"`
 	// api_requests has carried this column all along, but the run summary never
 	// selected it, so the conversation details panel showed a cache figure of
 	// zero for every run.
-	CachedInputTokens int64              `json:"cachedInputTokens"`
-	CostUSD          float64             `json:"costUsd"`
-	ToolCalls        []ToolCallPreview   `json:"toolCalls"`
-	RecentMessages   []RunMessagePreview `json:"recentMessages,omitempty"`
+	CachedInputTokens int64               `json:"cachedInputTokens"`
+	CostUSD           float64             `json:"costUsd"`
+	ToolCalls         []ToolCallPreview   `json:"toolCalls"`
+	RecentMessages    []RunMessagePreview `json:"recentMessages,omitempty"`
 }
 
 type ActiveRunSummary struct {
