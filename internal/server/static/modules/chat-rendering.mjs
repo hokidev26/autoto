@@ -3311,43 +3311,65 @@ export function createChatRenderingController({
   // stack renders the reasoning, so the tail must let go of its copy or the run
   // shows two identical "activity" rows.
   //
-  // Both sides accumulate in turn order within a run, so the count of persisted
-  // turns is also the count of leading live steps that have found a home. Only
-  // closed steps hand over; the open draft is still streaming and exists nowhere
-  // else. Counting rather than matching text keeps this correct when the stored
-  // reasoning is trimmed for the transcript and no longer equals what streamed.
+  // The handover is decided by the thinking itself, because neither of the two
+  // things that look like cheaper keys survives contact with real runs:
+  //
+  //   - runId. A persisted row that reaches the client without one counts under
+  //     a different key than the live step it owns, so nothing is handed over
+  //     and every step renders twice.
+  //   - turn count. One saved turn does not imply one closed live step. A step
+  //     closes at each tool call, so a turn that thought, acted, and thought
+  //     again streams more steps than it saves rows, and the surplus is stranded
+  //     in a second reasoning-only stack.
+  //
+  // Matching text is sound across the two size caps because both keep the tail:
+  // the runner trims to the last maxPersistedReasoningBytes, the stream to the
+  // last maxLiveReasoningCharacters. Equal when short, and the live copy is a
+  // suffix of the saved one when long, so endsWith covers both. Each saved turn
+  // retires at most one step, which keeps the "one home each" invariant when a
+  // model repeats itself verbatim across turns.
+  //
+  // Only closed steps hand over; the open draft is still streaming and exists
+  // nowhere else yet.
+  function reasoningHandoverKey(value) {
+    return String(value || "").trim().replace(/\s+/g, " ");
+  }
+
   function liveReasoningStepsWithoutPersisted(steps, runId = "") {
     const list = Array.isArray(steps) ? steps : [];
     if (!list.length) return list;
-    const persistedPerRun = new Map();
+    const unclaimed = [];
     // Runs whose assistant turn is on screen but has not persisted its reasoning
     // yet. messageToolActivityStacks falls back to the live steps for exactly
     // these, so the tail has to let go of all of them -- including the open
-    // draft, which that fallback also picks up. Keeping the draft here as well
-    // would show the same in-progress thinking in two places.
+    // draft, which that fallback also picks up. This stays keyed by runId because
+    // the fallback it mirrors is itself runId-scoped; content matching cannot see
+    // these turns, which have no saved reasoning to match against.
     const claimedRuns = new Set();
     for (const message of transcriptMessages(state.currentMessages)) {
       if (chatMessagePresentation(message).normalizedRole !== "assistant") continue;
-      const owner = String(message?.runId || message?.run_id || "").trim();
-      if (!persistedReasoningSteps(message).length) {
+      const persisted = persistedReasoningSteps(message);
+      if (!persisted.length) {
+        const owner = String(message?.runId || message?.run_id || "").trim();
         if (owner) claimedRuns.add(owner);
         continue;
       }
-      persistedPerRun.set(owner, (persistedPerRun.get(owner) || 0) + 1);
+      for (const entry of persisted) {
+        const key = reasoningHandoverKey(entry.text);
+        if (key) unclaimed.push(key);
+      }
     }
-    if (!persistedPerRun.size && !claimedRuns.size) return list;
+    if (!unclaimed.length && !claimedRuns.size) return list;
     const fallbackRunId = String(runId || "").trim();
-    const remaining = new Map(persistedPerRun);
     return list.filter((step) => {
-      const claimedOwner = String(step?.runId || "").trim() || fallbackRunId;
-      if (claimedOwner && claimedRuns.has(claimedOwner)) return false;
-      if (step?.open) return true;
-      // A step with no runId belongs to the run being rendered; that is the run
-      // currentLiveReasoningSteps already let it through for.
       const owner = String(step?.runId || "").trim() || fallbackRunId;
-      const left = remaining.get(owner) || 0;
-      if (left <= 0) return true;
-      remaining.set(owner, left - 1);
+      if (owner && claimedRuns.has(owner)) return false;
+      if (step?.open) return true;
+      const key = reasoningHandoverKey(step?.text);
+      if (!key) return true;
+      const at = unclaimed.findIndex((saved) => saved === key || saved.endsWith(key));
+      if (at < 0) return true;
+      unclaimed.splice(at, 1);
       return false;
     });
   }
