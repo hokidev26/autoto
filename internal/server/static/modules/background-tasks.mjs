@@ -885,8 +885,17 @@ export function createBackgroundTasksController({
     const currentTone = foregroundActivity
       ? "running"
       : runningStatuses.has(currentStatus) ? "running" : queuedStatuses.has(currentStatus) ? "queued" : "idle";
-    const currentText = foregroundActivity?.text || summary.current?.title || t("backgroundTasks.headerIdle");
     const hasCurrentActivity = Boolean(foregroundActivity || summary.current);
+    // A lifecycle event carries identifiers and state but no title, and the title
+    // only arrives with the follow-up hydration request. Falling through to the
+    // idle label in that window told the user nothing was running while the dot
+    // beside it was already animating, so fall back to the counts instead: never
+    // claim idle while a task is active.
+    const currentText = foregroundActivity?.text
+      || summary.current?.title
+      || (hasCurrentActivity
+        ? t("backgroundTasks.headerTitle", { queued: summary.queuedCount, running: summary.runningCount })
+        : t("backgroundTasks.headerIdle"));
     if (button) {
       button.disabled = !agentId;
       button.setAttribute("aria-expanded", trayOpen ? "true" : "false");

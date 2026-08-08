@@ -10,7 +10,7 @@ import (
 	"github.com/google/uuid"
 )
 
-const CurrentDBVersion = 63
+const CurrentDBVersion = 64
 
 type migration struct {
 	version int
@@ -82,6 +82,7 @@ var migrations = []migration{
 	{version: 61, name: "max and ultra reasoning effort", up: migrateV61MaxUltraEffort},
 	{version: 62, name: "subagent bypass permission cap", up: migrateV62SubagentBypassCap},
 	{version: 63, name: "agent message queue", up: migrateV63AgentMessageQueue},
+	{version: 64, name: "queued message attachments", up: migrateV64QueuedMessageAttachments},
 }
 
 // migrateV62SubagentBypassCap admits bypassPermissions as a run/task ceiling.
@@ -1268,6 +1269,55 @@ CREATE TABLE IF NOT EXISTS agent_message_queue (
   updated_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_agent_message_queue_agent ON agent_message_queue(agent_id, position, id);
+`)
+	return err
+}
+
+// A parked message could only ever be text, so a user who attached a screenshot
+// had to keep the tab open until the run finished. Storing the files server-side
+// alongside the queue row lets the drain send them unattended.
+//
+// The CHECK constraints are the ones agent_message_attachments already enforces.
+// Duplicating them is deliberate: without them a row could be parked that the
+// destination table refuses, and since the drain retries the head of the queue
+// forever, that one row would block every message behind it.
+func migrateV64QueuedMessageAttachments(ctx context.Context, tx *sql.Tx) error {
+	queueExists, err := tableExists(ctx, tx, "agent_message_queue")
+	if err != nil || !queueExists {
+		return err
+	}
+	_, err = tx.ExecContext(ctx, `
+CREATE TABLE IF NOT EXISTS agent_queued_message_attachments (
+  id TEXT PRIMARY KEY,
+  queued_message_id TEXT NOT NULL REFERENCES agent_message_queue(id) ON DELETE CASCADE,
+  agent_id TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
+  filename TEXT NOT NULL,
+  mime_type TEXT,
+  kind TEXT NOT NULL,
+  size_bytes INTEGER NOT NULL,
+  data_blob BLOB NOT NULL,
+  model_data_blob BLOB,
+  model_mime_type TEXT,
+  image_width INTEGER NOT NULL DEFAULT 0,
+  image_height INTEGER NOT NULL DEFAULT 0,
+  sha256 TEXT NOT NULL DEFAULT '',
+  processing_status TEXT NOT NULL DEFAULT '',
+  processing_code TEXT NOT NULL DEFAULT '',
+  processing_error TEXT NOT NULL DEFAULT '',
+  extracted_text TEXT,
+  created_at TEXT NOT NULL,
+  position INTEGER NOT NULL DEFAULT 0,
+  CHECK (image_width BETWEEN 0 AND 8192),
+  CHECK (image_height BETWEEN 0 AND 8192),
+  CHECK (processing_status IN ('', 'ready', 'rejected')),
+  CHECK (length(COALESCE(model_data_blob, X'')) <= 4194304),
+  CHECK (
+    (processing_status = 'ready' AND length(COALESCE(model_data_blob, X'')) > 0 AND model_mime_type IN ('image/png', 'image/jpeg') AND image_width > 0 AND image_height > 0 AND length(sha256) = 64 AND processing_code = '' AND processing_error = '')
+    OR (processing_status = 'rejected' AND length(COALESCE(model_data_blob, X'')) = 0 AND COALESCE(model_mime_type, '') = '' AND image_width = 0 AND image_height = 0 AND length(sha256) = 64 AND processing_code <> '' AND processing_error <> '')
+    OR (processing_status = '' AND length(COALESCE(model_data_blob, X'')) = 0 AND COALESCE(model_mime_type, '') = '' AND image_width = 0 AND image_height = 0 AND sha256 = '' AND processing_code = '' AND processing_error = '')
+  )
+);
+CREATE INDEX IF NOT EXISTS idx_agent_queued_message_attachments_parent ON agent_queued_message_attachments(queued_message_id, position, id);
 `)
 	return err
 }

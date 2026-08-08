@@ -988,13 +988,6 @@ body.theme-light .slash-command-desc { color: #64748b; }
   background: color-mix(in srgb, var(--accent, #6f8cff) 7%, transparent);
 }
 
-.message-queue-head {
-  margin-bottom: 5px;
-  color: var(--muted, #9aa2b8);
-  font-size: 11.5px;
-  font-weight: 650;
-}
-
 .message-queue-list {
   display: grid;
   gap: 4px;
@@ -1005,11 +998,55 @@ body.theme-light .slash-command-desc { color: #64748b; }
 
 .message-queue-item {
   display: grid;
-  /* Index, text, edit, remove. */
-  grid-template-columns: 18px minmax(0, 1fr) 22px 22px;
+  /* Index, text, attachment chips, controls. The chip span is omitted entirely
+     for a row with no files, so the controls fall back into the third track
+     rather than being stranded past an empty column. */
+  grid-template-columns: 18px minmax(0, 1fr) auto auto;
   align-items: center;
   gap: 8px;
   min-width: 0;
+}
+
+.message-queue-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.message-queue-attachments {
+  display: flex;
+  gap: 4px;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.message-queue-attachment {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 132px;
+  padding: 1px 6px 1px 4px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent, #6f8cff) 16%, transparent);
+  color: var(--muted, #9aa2b8);
+  font-size: 11px;
+}
+
+.message-queue-attachment svg {
+  width: 12px;
+  height: 12px;
+  flex: none;
+}
+
+.message-queue-attachment-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.message-queue-attachments-only {
+  color: var(--muted, #9aa2b8);
+  font-style: italic;
 }
 
 .message-queue-index {

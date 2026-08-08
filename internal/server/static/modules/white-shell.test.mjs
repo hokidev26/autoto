@@ -1118,7 +1118,10 @@ test("composer task activity is borderless, left aligned, and spins blue while a
   assert.match(indicatorStyles, /\.header-task-status-dot\.running,[\s\S]*?\.header-task-status-dot\.queued[\s\S]*?border-top-color:\s*var\(--ws-primary[\s\S]*?animation:\s*composer-task-indicator-spin/);
   assert.match(indicatorStyles, /@keyframes composer-task-indicator-spin[\s\S]*?rotate\(360deg\)/);
   assert.match(backgroundTasks, /function setForegroundActivity[\s\S]*?foregroundActivity = next;[\s\S]*?render\(\)/);
-  assert.match(backgroundTasks, /const currentText = foregroundActivity\?\.text \|\| summary\.current\?\.title/);
+  assert.match(backgroundTasks, /const currentText = foregroundActivity\?\.text\s*\|\|\s*summary\.current\?\.title/);
+  // A lifecycle event has no title, so the label has to fall back to the counts
+  // rather than to the idle string while something is still running.
+  assert.match(backgroundTasks, /summary\.current\?\.title\s*\|\|\s*\(hasCurrentActivity[\s\S]*?headerTitle[\s\S]*?headerIdle/);
   assert.match(backgroundTasks, /headerButton\.classList\.toggle\("has-task", hasCurrentActivity\)/);
   assert.match(backgroundTasks, /headerQueue\.classList\.toggle\("hidden", summary\.queuedCount <= 0\)/);
   assert.match(agentWorkspaceHelpers, /routeActivityToTaskSummary[\s\S]*?projectOperationContextActive\?\.\(\) && !isMobileAppViewport\?\.\(\)[\s\S]*?backgroundTasks\.setForegroundActivity\(activity\)/);

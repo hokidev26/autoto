@@ -50,6 +50,43 @@ CREATE TABLE IF NOT EXISTS agent_message_queue (
 );
 CREATE INDEX IF NOT EXISTS idx_agent_message_queue_agent ON agent_message_queue(agent_id, position, id);
 
+-- Files parked with a queued message live here rather than in the browser so
+-- the server can send them with no page open. The CHECK constraints are copied
+-- from agent_message_attachments on purpose: a row admitted here that the
+-- destination table would reject becomes a poison pill that fails on every
+-- drain and blocks the queue behind it, so the same rules apply at park time.
+CREATE TABLE IF NOT EXISTS agent_queued_message_attachments (
+  id TEXT PRIMARY KEY,
+  queued_message_id TEXT NOT NULL REFERENCES agent_message_queue(id) ON DELETE CASCADE,
+  agent_id TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
+  filename TEXT NOT NULL,
+  mime_type TEXT,
+  kind TEXT NOT NULL,
+  size_bytes INTEGER NOT NULL,
+  data_blob BLOB NOT NULL,
+  model_data_blob BLOB,
+  model_mime_type TEXT,
+  image_width INTEGER NOT NULL DEFAULT 0,
+  image_height INTEGER NOT NULL DEFAULT 0,
+  sha256 TEXT NOT NULL DEFAULT '',
+  processing_status TEXT NOT NULL DEFAULT '',
+  processing_code TEXT NOT NULL DEFAULT '',
+  processing_error TEXT NOT NULL DEFAULT '',
+  extracted_text TEXT,
+  created_at TEXT NOT NULL,
+  position INTEGER NOT NULL DEFAULT 0,
+  CHECK (image_width BETWEEN 0 AND 8192),
+  CHECK (image_height BETWEEN 0 AND 8192),
+  CHECK (processing_status IN ('', 'ready', 'rejected')),
+  CHECK (length(COALESCE(model_data_blob, X'')) <= 4194304),
+  CHECK (
+    (processing_status = 'ready' AND length(COALESCE(model_data_blob, X'')) > 0 AND model_mime_type IN ('image/png', 'image/jpeg') AND image_width > 0 AND image_height > 0 AND length(sha256) = 64 AND processing_code = '' AND processing_error = '')
+    OR (processing_status = 'rejected' AND length(COALESCE(model_data_blob, X'')) = 0 AND COALESCE(model_mime_type, '') = '' AND image_width = 0 AND image_height = 0 AND length(sha256) = 64 AND processing_code <> '' AND processing_error <> '')
+    OR (processing_status = '' AND length(COALESCE(model_data_blob, X'')) = 0 AND COALESCE(model_mime_type, '') = '' AND image_width = 0 AND image_height = 0 AND sha256 = '' AND processing_code = '' AND processing_error = '')
+  )
+);
+CREATE INDEX IF NOT EXISTS idx_agent_queued_message_attachments_parent ON agent_queued_message_attachments(queued_message_id, position, id);
+
 CREATE TABLE IF NOT EXISTS projects (
   id TEXT PRIMARY KEY,
   name TEXT NOT NULL,

@@ -165,6 +165,26 @@ export const queueCollapseThreshold = 3;
 
 // Queued messages survive a reload, so they arrive from storage as untrusted
 // JSON: everything is re-typed and bounded here rather than at each read site.
+// Parked attachments arrive as metadata only: the bytes stay on the server with
+// the queue row so the backend can send them with no browser open.
+export function normalizeQueuedAttachments(value) {
+  if (!Array.isArray(value)) return [];
+  const attachments = [];
+  for (const entry of value) {
+    if (!entry || typeof entry !== "object") continue;
+    const filename = String(entry.filename || entry.name || "").trim();
+    if (!filename) continue;
+    attachments.push({
+      id: String(entry.id || "").trim(),
+      filename,
+      kind: entry.kind === "image" ? "image" : "file",
+      mimeType: String(entry.mimeType || entry.mime_type || "").trim(),
+      sizeBytes: Number.isFinite(Number(entry.sizeBytes ?? entry.size_bytes)) ? Number(entry.sizeBytes ?? entry.size_bytes) : 0,
+    });
+  }
+  return attachments;
+}
+
 export function normalizeMessageQueue(value) {
   if (!Array.isArray(value)) return [];
   const seen = new Set();
@@ -174,7 +194,10 @@ export function normalizeMessageQueue(value) {
     const id = String(item.id || "").trim();
     const agentId = String(item.agentId || "").trim();
     const text = String(item.text || "");
-    if (!id || !agentId || !text.trim() || seen.has(id)) continue;
+    const attachments = normalizeQueuedAttachments(item.attachments);
+    // An attachment-only park is a real message, so empty text is accepted as
+    // long as something is riding along with it.
+    if (!id || !agentId || (!text.trim() && !attachments.length) || seen.has(id)) continue;
     if (text.length > maxChatDraftCharacters) continue;
     seen.add(id);
     queue.push({
@@ -183,6 +206,7 @@ export function normalizeMessageQueue(value) {
       text,
       mode: item.mode === "plan" ? "plan" : "execute",
       context: item.context === "project" ? "project" : "conversation",
+      attachments,
     });
     if (queue.length >= maxQueuedMessages) break;
   }
@@ -365,10 +389,30 @@ export function createChatComposerController({
     return state.messageQueue.filter((item) => item?.agentId === id);
   }
 
+  // Attachments are metadata here on purpose: the bytes live on the server with
+  // the parked row, so the chip only has to say what is coming along.
+  function renderQueuedAttachmentsHTML(item) {
+    const attachments = Array.isArray(item?.attachments) ? item.attachments : [];
+    if (!attachments.length) return "";
+    return `<span class="message-queue-attachments">${attachments.map((attachment) => `
+      <span class="message-queue-attachment" title="${escapeAttr(attachment.filename)}">
+        <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${attachment.kind === "image"
+          ? `<rect x="3.5" y="5" width="17" height="14" rx="2.5"></rect><circle cx="9" cy="10.5" r="1.6"></circle><path d="m5 17 4.5-4 3.5 3 2.5-2.5 4 3.5"></path>`
+          : `<path d="M14 3.5H7.5a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2h9a2 2 0 0 0 2-2V8z"></path><path d="M14 3.5V8h4.5"></path>`}</svg>
+        <span class="message-queue-attachment-name">${escapeHtml(attachment.filename)}</span>
+      </span>`).join("")}</span>`;
+  }
+
   function renderMessageQueue() {
     const host = $("messageQueue");
     if (!host) return;
     const pending = queuedMessages();
+    // Parking a message is what makes the mirror worth polling, and the drain is
+    // also what clears a row the backend has already sent. Starting it from the
+    // render covers every path that can leave something parked -- enqueue, a
+    // server sync, an agent switch, a fresh page load -- and scheduleQueueDrain
+    // is a no-op once a timer is live.
+    if (pending.length) scheduleQueueDrain();
     host.classList.toggle("hidden", pending.length === 0);
     if (!pending.length) {
       queueExpanded = false;
@@ -381,15 +425,20 @@ export function createChatComposerController({
     const toggleLabel = queueExpanded
       ? t("workspace.chat.queueCollapse")
       : t("workspace.chat.queueExpand", { count: hiddenCount });
+    // No heading: the row order and the text are the whole point, and a count
+    // above a list the user can already see was just a line of chrome between the
+    // backlog and the run it is waiting on.
     host.innerHTML = `
-      <div class="message-queue-head">${escapeHtml(t("workspace.chat.queuePending", { count: pending.length }))}</div>
       <ol class="message-queue-list">
         ${visible.map((item, index) => `
           <li class="message-queue-item">
             <span class="message-queue-index">${index + 1}</span>
-            <span class="message-queue-text">${escapeHtml(item.text)}</span>
-            <button class="message-queue-edit" type="button" data-queue-edit="${escapeAttr(item.id)}" title="${escapeAttr(t("workspace.chat.queueEdit"))}" aria-label="${escapeAttr(t("workspace.chat.queueEdit"))}"><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h4l10-10a2.5 2.5 0 0 0-3.5-3.5L4.5 16.5z"></path><path d="m13.5 7 3.5 3.5"></path></svg></button>
-            <button class="message-queue-drop" type="button" data-queue-drop="${escapeAttr(item.id)}" title="${escapeAttr(t("workspace.chat.queueDrop"))}" aria-label="${escapeAttr(t("workspace.chat.queueDrop"))}"><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="m6 6 12 12"></path><path d="m18 6-12 12"></path></svg></button>
+            <span class="message-queue-text">${item.text.trim() ? escapeHtml(item.text) : `<em class="message-queue-attachments-only">${escapeHtml(t("workspace.chat.queueAttachmentsOnly"))}</em>`}</span>
+            ${renderQueuedAttachmentsHTML(item)}
+            <span class="message-queue-actions">
+              <button class="message-queue-edit" type="button" data-queue-edit="${escapeAttr(item.id)}" title="${escapeAttr(t("workspace.chat.queueEdit"))}" aria-label="${escapeAttr(t("workspace.chat.queueEdit"))}"><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h4l10-10a2.5 2.5 0 0 0-3.5-3.5L4.5 16.5z"></path><path d="m13.5 7 3.5 3.5"></path></svg></button>
+              <button class="message-queue-drop" type="button" data-queue-drop="${escapeAttr(item.id)}" title="${escapeAttr(t("workspace.chat.queueDrop"))}" aria-label="${escapeAttr(t("workspace.chat.queueDrop"))}"><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="m6 6 12 12"></path><path d="m18 6-12 12"></path></svg></button>
+            </span>
           </li>
         `).join("")}
       </ol>
@@ -460,9 +509,10 @@ export function createChatComposerController({
     saveCurrentChatDraft();
   }
 
-  function enqueueMessage(agentId, text, mode, context) {
+  function enqueueMessage(agentId, text, mode, context, attachments = []) {
     queueSequence += 1;
     const localId = `queued-${Date.now()}-${queueSequence}`;
+    const files = Array.isArray(attachments) ? attachments : [];
     // Shown immediately, then reconciled: the server owns the real id and the
     // send, but the user should see their message parked without a round trip.
     writeMessageQueue([...(Array.isArray(state.messageQueue) ? state.messageQueue : []), {
@@ -471,12 +521,31 @@ export function createChatComposerController({
       text,
       mode,
       context,
+      attachments: files.map((item) => ({
+        id: "",
+        filename: item.file?.name || item.name || "attachment",
+        kind: String(item.file?.type || item.mimeType || "").startsWith("image/") ? "image" : "file",
+        mimeType: item.file?.type || item.mimeType || "",
+        sizeBytes: Number(item.file?.size || item.sizeBytes || 0),
+      })),
     }]);
     renderMessageQueue();
     if (!agentId) return;
+    // Files have to go up as multipart; the JSON body stays for the common case
+    // so parking plain text is still one small request.
+    let body;
+    if (files.length) {
+      body = new FormData();
+      body.append("text", text);
+      body.append("mode", mode);
+      body.append("context", context);
+      files.forEach((item) => body.append("files", item.file, item.file?.name || "attachment"));
+    } else {
+      body = JSON.stringify({ text, mode, context });
+    }
     request(`/api/agents/${agentId}/queue`, {
       method: "POST",
-      body: JSON.stringify({ text, mode, context }),
+      body,
     }).then(() => syncMessageQueueFromServer(agentId)).catch((err) => {
       writeMessageQueue((state.messageQueue || []).filter((item) => item?.id !== localId));
       renderMessageQueue();
@@ -498,6 +567,10 @@ export function createChatComposerController({
       }
       drainMessageQueue().catch(() => {});
     }, 1500);
+    // Browsers hand back a plain number here. Under Node this is a Timeout that
+    // would hold the event loop open on its own, so a test that leaves something
+    // parked would never let the process exit.
+    queueDrainTimer?.unref?.();
   }
 
   // Sending moved to the backend so a queue drains with every browser closed.
@@ -1271,25 +1344,24 @@ export function createChatComposerController({
     const queueCommand = parseQueueCommandDraft(text);
     // Sending while the turn is still in flight parks the message too. Stop is a
     // separate button, so an Enter here is a follow-up rather than a request to
-    // cut the run short. Attachments and /goal keep their immediate path: the
-    // queue carries neither, and silently dropping either would be worse than
-    // sending now.
-    const autoQueue = agentTurnInFlight()
-      && !isGoalCommandDraft(goalCommand)
-      && !attachments.length;
+    // cut the run short. /goal keeps its immediate path because the queue does
+    // not carry it, and silently dropping it would be worse than sending now.
+    // Attachments do park: they are stored with the queue row server-side.
+    const autoQueue = agentTurnInFlight() && !isGoalCommandDraft(goalCommand);
     if (queueCommand || autoQueue || (queuedMessages(agentId).length && !isGoalCommandDraft(goalCommand))) {
       const queuedText = queueCommand ? queueCommand.queuedText : text;
-      if (!queuedText) {
+      // Text is only required when nothing is attached, matching the immediate
+      // send path, which accepts an image on its own.
+      if (!queuedText && !attachments.length) {
         showToast?.(t("workspace.chat.queueTextRequired"), "warn", { force: true });
         return;
       }
-      if (attachments.length) {
-        showToast?.(t("workspace.chat.queueAttachmentsUnsupported"), "warn", { force: true });
-        return;
-      }
-      enqueueMessage(agentId, queuedText, mode, context);
+      enqueueMessage(agentId, queuedText, mode, context, attachments);
       input.value = "";
       autoResizeMessageInput();
+      // Parking took ownership of the pending files. Leaving them staged would
+      // silently attach them again to whatever is sent next.
+      if (attachments.length) clearPendingAttachments();
       clearChatDraftForKey(draftKey);
       showToast?.(t("workspace.chat.queued", { count: queuedMessages(agentId).length }), "info");
       return;

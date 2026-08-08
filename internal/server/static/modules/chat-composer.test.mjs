@@ -1723,8 +1723,8 @@ test("a long queue collapses past the threshold and the toggle expands it", () =
     const collapsedRows = (queueHost.innerHTML.match(/message-queue-item/g) || []).length;
     assert.equal(collapsedRows, queueCollapseThreshold, "only the threshold rows render while collapsed");
     assert.match(queueHost.innerHTML, /data-queue-toggle aria-expanded="false"/);
-    // The head still reports the true total, not the visible slice.
-    assert.match(queueHost.innerHTML, new RegExp(String(queue.length)));
+    // No heading row: the order and the text carry the list on their own.
+    assert.doesNotMatch(queueHost.innerHTML, /message-queue-head/);
 
     assert.equal(typeof toggleHandler, "function", "the toggle must be bound");
     toggleHandler();
@@ -1747,9 +1747,21 @@ test("a restored queue is re-typed and bounded before anything reads it", () => 
     { id: "d", agentId: "agent-1", text: "defaults", mode: "nonsense", context: "nonsense" },
     "not an object",
   ]), [
-    { id: "a", agentId: "agent-1", text: "keep", mode: "plan", context: "project" },
-    { id: "d", agentId: "agent-1", text: "defaults", mode: "execute", context: "conversation" },
+    { id: "a", agentId: "agent-1", text: "keep", mode: "plan", context: "project", attachments: [] },
+    { id: "d", agentId: "agent-1", text: "defaults", mode: "execute", context: "conversation", attachments: [] },
   ]);
+  // Blank text is only rejected when nothing rides along with it: an image on
+  // its own is a message the immediate send path already accepts.
+  assert.deepEqual(normalizeMessageQueue([
+    { id: "i", agentId: "agent-1", text: "   ", attachments: [{ id: "att-1", filename: "shot.png", kind: "image", mimeType: "image/png", sizeBytes: 2048 }] },
+  ]), [
+    { id: "i", agentId: "agent-1", text: "   ", mode: "execute", context: "conversation", attachments: [{ id: "att-1", filename: "shot.png", kind: "image", mimeType: "image/png", sizeBytes: 2048 }] },
+  ]);
+  // Nameless entries carry nothing a row could label, so they are dropped rather
+  // than rendered as an empty chip.
+  assert.deepEqual(normalizeMessageQueue([
+    { id: "j", agentId: "agent-1", text: "   ", attachments: [{ filename: "   " }] },
+  ]), []);
   const flood = Array.from({ length: 40 }, (unused, index) => ({ id: `q${index}`, agentId: "agent-1", text: `m${index}` }));
   assert.equal(normalizeMessageQueue(flood).length, maxQueuedMessages);
 });
@@ -1797,6 +1809,174 @@ test("typing does not scroll the transcript", () => {
     controller.autoResizeMessageInput();
 
     assert.equal(transcript.scrollTop, 200, "the transcript must stay exactly where the reader left it");
+  } finally {
+    globalThis.document = previousDocument;
+  }
+});
+
+// scheduleQueueDrain existed but nothing ever called it, so the interval never
+// started: the backend sent a parked message and deleted its row, while the
+// browser kept rendering the entry it had already mirrored. Rendering a
+// non-empty queue is what arms it now.
+test("a parked message starts the drain that clears rows the backend already sent", async () => {
+  const queueHost = { className: "", innerHTML: "", classList: { toggle() {} }, querySelectorAll: () => [], querySelector: () => null };
+  const input = { value: "park me", style: {}, focus() {}, classList: { toggle() {} } };
+  const elements = { messageQueue: queueHost, messageText: input, pendingAttachments: null };
+  const state = {
+    agent: { id: "agent-1", status: "running", model: "m" },
+    navigationSelectionKind: "conversation",
+    messageQueue: [],
+    pendingToolApprovals: {},
+    liveToolOutputs: {},
+    pendingAttachments: [],
+    chatDrafts: {},
+    promptHistory: [],
+  };
+  let serverQueue = [];
+  const intervals = [];
+  const previousDocument = globalThis.document;
+  const previousSetInterval = globalThis.setInterval;
+  globalThis.document = { getElementById(id) { return elements[id] || null; } };
+  globalThis.setInterval = (handler, delay) => {
+    intervals.push({ handler, delay });
+    return intervals.length;
+  };
+  try {
+    const controller = createChatComposerController({
+      state,
+      isCurrentModelConfigured: () => true,
+      loadMessages: async () => {},
+      scheduleMessageRefresh() {},
+      notifyTerminal() {},
+      showToast() {},
+      onMessageAccepted: async () => {},
+      request: async (url, options = {}) => {
+        const method = String(options.method || "GET").toUpperCase();
+        if (url.endsWith("/queue") && method === "GET") return { queue: serverQueue };
+        if (url.endsWith("/queue") && method === "POST") {
+          const text = JSON.parse(options.body).text;
+          serverQueue = [...serverQueue, { id: "s1", text }];
+          return { id: "s1", text };
+        }
+        return null;
+      },
+    });
+
+    await controller.sendMessage({ preventDefault() {} });
+    await settleQueue();
+    assert.equal(state.messageQueue.length, 1, "the message is parked");
+    assert.equal(intervals.length, 1, "parking arms the reconcile timer");
+
+    // The backend sent it and dropped the row, so the tick must clear the mirror.
+    serverQueue = [];
+    await intervals[0].handler();
+    await settleQueue();
+    assert.deepEqual(state.messageQueue, [], "a sent message stops being rendered");
+  } finally {
+    globalThis.document = previousDocument;
+    globalThis.setInterval = previousSetInterval;
+  }
+});
+
+test("parking carries attachments and hands the staged files over", async () => {
+  const queueHost = { className: "", innerHTML: "", classList: { toggle() {} }, querySelectorAll: () => [], querySelector: () => null };
+  const input = { value: "look at this", style: {}, focus() {}, classList: { toggle() {} } };
+  const attachmentsHost = { className: "", innerHTML: "", classList: { toggle() {} }, querySelectorAll: () => [], querySelector: () => null };
+  const elements = { messageQueue: queueHost, messageText: input, pendingAttachments: attachmentsHost };
+  const file = new File(["binary"], "shot.png", { type: "image/png" });
+  const state = {
+    agent: { id: "agent-1", status: "running", model: "m" },
+    navigationSelectionKind: "conversation",
+    messageQueue: [],
+    pendingToolApprovals: {},
+    liveToolOutputs: {},
+    pendingAttachments: [{ id: "local-1", file, kind: "image" }],
+    chatDrafts: {},
+    promptHistory: [],
+  };
+  let serverQueue = [];
+  const bodies = [];
+  const previousDocument = globalThis.document;
+  globalThis.document = { getElementById(id) { return elements[id] || null; } };
+  try {
+    const controller = createChatComposerController({
+      state,
+      isCurrentModelConfigured: () => true,
+      loadMessages: async () => {},
+      scheduleMessageRefresh() {},
+      notifyTerminal() {},
+      showToast() {},
+      onMessageAccepted: async () => {},
+      request: async (url, options = {}) => {
+        const method = String(options.method || "GET").toUpperCase();
+        if (url.endsWith("/queue") && method === "GET") return { queue: serverQueue };
+        if (url.endsWith("/queue") && method === "POST") {
+          bodies.push(options.body);
+          serverQueue = [{
+            id: "s1",
+            text: "look at this",
+            attachments: [{ id: "att-1", filename: "shot.png", kind: "image", mimeType: "image/png", sizeBytes: 6 }],
+          }];
+          return serverQueue[0];
+        }
+        return null;
+      },
+    });
+
+    await controller.sendMessage({ preventDefault() {} });
+    await settleQueue();
+
+    assert.equal(bodies.length, 1, "the park is posted once");
+    assert.ok(bodies[0] instanceof FormData, "files have to go up as multipart");
+    assert.equal(bodies[0].get("text"), "look at this");
+    assert.equal(bodies[0].getAll("files").length, 1, "the staged file rides along");
+    assert.deepEqual(state.pendingAttachments, [], "parking takes ownership of the staged files");
+    assert.deepEqual(state.messageQueue[0].attachments, [
+      { id: "att-1", filename: "shot.png", kind: "image", mimeType: "image/png", sizeBytes: 6 },
+    ], "the server's view of the parked attachment replaces the optimistic one");
+    assert.match(queueHost.innerHTML, /message-queue-attachment/);
+    assert.match(queueHost.innerHTML, /shot\.png/);
+  } finally {
+    globalThis.document = previousDocument;
+  }
+});
+
+test("an image parked with no text is accepted and labelled", () => {
+  const queueHost = { className: "", innerHTML: "", classList: { toggle() {} }, querySelectorAll: () => [], querySelector: () => null };
+  const elements = { messageQueue: queueHost, messageText: null, pendingAttachments: null };
+  const state = {
+    agent: { id: "agent-1", status: "running", model: "m" },
+    navigationSelectionKind: "conversation",
+    messageQueue: [{
+      id: "s1",
+      agentId: "agent-1",
+      text: "",
+      mode: "execute",
+      context: "conversation",
+      attachments: [{ id: "att-1", filename: "diagram.pdf", kind: "file", mimeType: "application/pdf", sizeBytes: 12 }],
+    }],
+    pendingToolApprovals: {},
+    liveToolOutputs: {},
+    pendingAttachments: [],
+    chatDrafts: {},
+    promptHistory: [],
+  };
+  const previousDocument = globalThis.document;
+  globalThis.document = { getElementById(id) { return elements[id] || null; } };
+  try {
+    const controller = createChatComposerController({
+      state,
+      isCurrentModelConfigured: () => true,
+      loadMessages: async () => {},
+      scheduleMessageRefresh() {},
+      notifyTerminal() {},
+      showToast() {},
+      onMessageAccepted: async () => {},
+      request: async () => ({ queue: [] }),
+    });
+    controller.renderMessageQueue();
+    assert.match(queueHost.innerHTML, /message-queue-attachments-only/, "an attachment-only row says so");
+    assert.match(queueHost.innerHTML, /diagram\.pdf/);
   } finally {
     globalThis.document = previousDocument;
   }

@@ -43,6 +43,10 @@ func (s *Server) listQueuedMessages(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) enqueueMessage(w http.ResponseWriter, r *http.Request) {
+	if strings.HasPrefix(strings.ToLower(r.Header.Get("Content-Type")), "multipart/form-data") {
+		s.enqueueMultipartMessage(w, r)
+		return
+	}
 	var req queuedMessageRequest
 	if err := decodeLimitedJSON(w, r, &req, 1<<20); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
@@ -79,6 +83,48 @@ func (s *Server) enqueueMessage(w http.ResponseWriter, r *http.Request) {
 	}
 	// An agent that is already idle should not sit on a fresh follow-up waiting
 	// for a run-finished event that has already been and gone.
+	s.ScheduleMessageQueueDrain(agentID)
+	writeJSON(w, http.StatusCreated, item)
+}
+
+// enqueueMultipartMessage parks a follow-up that came with files. It mirrors
+// postMultipartMessage so queueing a message accepts exactly what sending one
+// does, including an image with no caption.
+func (s *Server) enqueueMultipartMessage(w http.ResponseWriter, r *http.Request) {
+	text, _, attachments, err := parseMultipartAttachments(w, r)
+	if err != nil {
+		var uploadErr attachmentUploadError
+		if errors.As(err, &uploadErr) {
+			writeError(w, uploadErr.Status, uploadErr.Message)
+			return
+		}
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	agentID := chi.URLParam(r, "id")
+	if _, _, err := s.messageRunBoundary(r.Context(), agentID, r.FormValue("context")); err != nil {
+		writeError(w, statusFromMessageBoundaryError(err), err.Error())
+		return
+	}
+	createdBy := ""
+	if user, ok, err := s.currentUser(r); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	} else if ok {
+		createdBy = user.ID
+	}
+	item, err := s.store.EnqueueMessage(r.Context(), db.QueuedMessage{
+		AgentID:     agentID,
+		CreatedBy:   createdBy,
+		Text:        text,
+		RunMode:     r.FormValue("mode"),
+		RunContext:  r.FormValue("context"),
+		Attachments: attachments,
+	})
+	if err != nil {
+		writeQueuedMessageError(w, err)
+		return
+	}
 	s.ScheduleMessageQueueDrain(agentID)
 	writeJSON(w, http.StatusCreated, item)
 }
@@ -230,6 +276,6 @@ func (s *Server) sendQueuedMessage(ctx context.Context, item db.QueuedMessage) e
 	}
 	// Draining happens without a request, so there is no remote session to cap
 	// against; the stored context cap still applies.
-	_, err = s.submitReviewRunWithSource(ctx, item.AgentID, item.Text, item.CreatedBy, mode, contextCap, runSource, nil)
+	_, err = s.submitReviewRunWithSource(ctx, item.AgentID, item.Text, item.CreatedBy, mode, contextCap, runSource, item.Attachments)
 	return err
 }

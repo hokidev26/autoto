@@ -4,12 +4,12 @@ import { createAutomationControlController } from "./automation-control.mjs?v=na
 import { createAutomationToolCatalogController } from "./automation-tool-catalog.mjs?v=automation-tool-catalog-1";
 import { createArchiveSettingsController } from "./archive-settings.mjs?v=archive-settings-1";
 import { createConversationTitleHelpers } from "./conversation-title-helpers.mjs?v=standalone-removed-1";
-import { createBackgroundTasksController } from "./background-tasks.mjs?v=subagent-cards-1-foreground-activity-1";
+import { createBackgroundTasksController } from "./background-tasks.mjs?v=subagent-cards-1-foreground-activity-1-queue-attachments-1";
 import { createExecutionNotifications } from "./execution-notifications.mjs";
 import { createNotificationSound } from "./notification-sound.mjs?v=notification-sound-1";
 import { createSystemNotifications } from "./system-notification.mjs?v=system-notification-1";
 import { createBackendRegistryController } from "./backend-registry.mjs?v=agent-admin-removed-1";
-import { createChatComposerController, normalizeChatDrafts, normalizePromptHistory } from "./chat-composer.mjs?v=plan-mode-1-project-context-1-model-save-gate-1-goal-command-2-queue-command-1-reasoning-steps-1-reasoning-history-1-markdown-2-queue-autopark-1";
+import { createChatComposerController, normalizeChatDrafts, normalizePromptHistory } from "./chat-composer.mjs?v=plan-mode-1-project-context-1-model-save-gate-1-goal-command-2-queue-command-1-reasoning-steps-1-reasoning-history-1-markdown-2-queue-autopark-1-queue-attachments-1";
 import { createChatRenderingController, findToolActivityByIdentity, renderAgentTaskActivityCardHTML } from "./chat-rendering.mjs?v=protected-images-1-message-thread-1-plan-mode-2-user-message-left-1-switch-fix-3-hide-run-loading-1-i18n-shared-1-conversation-boundary-1-subagent-cards-1-message-lifecycle-1-subagent-incremental-1-profile-message-identity-1-profile-avatar-1-provider-errors-1-compact-run-error-1-first-token-task-status-1-tool-activity-lazy-1-tool-protocol-filter-1-live-assistant-last-1-tool-activity-svg-icons-1-reasoning-steps-1-reasoning-history-1-markdown-2-tool-inline-detail-1-md-table-1-tool-position-1-project-run-history-1-dup-activity-fix-1-reasoning-count-1-avatar-logo-fix-1-markdown-stream-1-reasoning-handover-1";
 import { releaseProtectedImageURLs } from "./protected-images.mjs?v=protected-images-1";
 import { createContextManagementController } from "./context-management.mjs?v=context-ring-3-scoped-memory-1";

@@ -796,3 +796,53 @@ test("subagent permission modes render translated labels, not raw enum values", 
     assert.ok(label.trim().length > 0, `${value} must have a label`);
   }
 });
+
+// A lifecycle event carries identifiers and state but no title; the title only
+// arrives with the follow-up hydration request. The header used to fall through
+// to the idle string in that window, so a dispatched subagent read as "no
+// running task" while the dot beside it was already animating.
+test("the task summary never reads idle while a task is running", () => {
+  function element() {
+    const classes = new Set();
+    return {
+      attributes: {},
+      className: "",
+      textContent: "",
+      classList: {
+        contains: (name) => classes.has(name),
+        toggle(name, force) { if (force) classes.add(name); else classes.delete(name); },
+      },
+      setAttribute(name, value) { this.attributes[name] = String(value); },
+    };
+  }
+  const elements = {
+    headerTaskSummaryBtn: element(),
+    headerCurrentTaskText: element(),
+    headerTaskQueueBadge: element(),
+    headerTaskStatusDot: element(),
+  };
+  const controller = createBackgroundTasksController({
+    // Hydration is what would supply the title; keep it pending so the render
+    // under test is the one that only has the event payload.
+    request: () => new Promise(() => {}),
+    documentRef: { getElementById: (id) => elements[id] || null },
+  });
+  controller.setAgent("agent-1");
+
+  const idleText = elements.headerCurrentTaskText.textContent;
+
+  // Exactly what the server publishes for a dispatched subagent.
+  controller.handleEvent({ type: "task.created", agentId: "agent-1", data: { taskId: "task-1", kind: "agent", status: "queued", revision: 1 } });
+  assert.equal(elements.headerTaskStatusDot.className, "header-task-status-dot queued");
+  assert.notEqual(elements.headerCurrentTaskText.textContent, idleText, "a queued task must not read as idle");
+
+  controller.handleEvent({ type: "task.status", agentId: "agent-1", data: { taskId: "task-1", kind: "agent", status: "running", revision: 2 } });
+  assert.equal(elements.headerTaskStatusDot.className, "header-task-status-dot running");
+  assert.notEqual(elements.headerCurrentTaskText.textContent, idleText, "a running task must not read as idle");
+  assert.equal(elements.headerTaskSummaryBtn.classList.contains("has-task"), true);
+
+  // Terminal again: the idle label is correct now.
+  controller.handleEvent({ type: "task.completed", agentId: "agent-1", data: { taskId: "task-1", kind: "agent", status: "completed", revision: 3 } });
+  assert.equal(elements.headerTaskStatusDot.className, "header-task-status-dot idle");
+  assert.equal(elements.headerCurrentTaskText.textContent, idleText);
+});
