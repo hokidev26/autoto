@@ -146,15 +146,56 @@ func (s *Store) AddMessageWithGeneratedImages(ctx context.Context, msg Message, 
 	return msg, nil
 }
 
+// populateMessageGeneratedImages fills in GeneratedImages for a whole page in one
+// query, for the same reason populateMessageAttachments does: this runs on every
+// message page load, so one query per message meant up to DefaultMessagePageLimit
+// extra round trips against a pool of a single connection.
+//
+// idx_generated_images_message is (message_id, output_index, id), so both the
+// lookup and the ordering below are index-served.
 func (s *Store) populateMessageGeneratedImages(ctx context.Context, messages []Message) error {
+	if len(messages) == 0 {
+		return nil
+	}
+	byID := make(map[string]*Message, len(messages))
+	args := make([]any, 0, len(messages))
+	placeholders := make([]byte, 0, len(messages)*2)
 	for i := range messages {
-		images, err := s.ListGeneratedImagesByMessage(ctx, messages[i].AgentID, messages[i].ID)
-		if err != nil {
+		id := messages[i].ID
+		if id == "" || byID[id] != nil {
+			continue
+		}
+		byID[id] = &messages[i]
+		if len(placeholders) > 0 {
+			placeholders = append(placeholders, ',')
+		}
+		placeholders = append(placeholders, '?')
+		args = append(args, id)
+	}
+	if len(args) == 0 {
+		return nil
+	}
+	// message_id leads the ordering so each message's images keep the
+	// output_index order the per-message query returned.
+	query := generatedImageSelect + ` WHERE message_id IN (` + string(placeholders) + `) ORDER BY message_id ASC, output_index ASC, created_at ASC, id ASC`
+	rows, err := s.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var image GeneratedImage
+		if err := scanGeneratedImage(rows, &image); err != nil {
 			return err
 		}
-		messages[i].GeneratedImages = images
+		// The per-message query also filtered on agent_id. Messages in a page all
+		// belong to one agent, but the check is kept so a row can never be attached
+		// to a message from a different agent.
+		if owner := byID[image.MessageID]; owner != nil && owner.AgentID == image.AgentID {
+			owner.GeneratedImages = append(owner.GeneratedImages, image)
+		}
 	}
-	return nil
+	return rows.Err()
 }
 
 const generatedImageSelect = `SELECT id, agent_id, message_id, COALESCE(run_id,''), generation_id, storage_key, sha256, mime_type, filename, byte_size, width, height, COALESCE(revised_prompt,''), output_index, status, created_at FROM agent_message_generated_images`

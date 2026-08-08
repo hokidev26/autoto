@@ -1,3 +1,4 @@
+import { objectValue } from "./value-coercion.mjs";
 import { escapeHtml as escapeSharedHtml } from "./dom.mjs";
 
 const LIST_LIMITS = Object.freeze({
@@ -109,10 +110,6 @@ const HEATMAP_LEVELS = 4;
 const DAY_MS = 86_400_000;
 // Only Mon/Wed/Fri are labelled; seven labels in that space become unreadable.
 const HEATMAP_WEEKDAY_LABEL_KEYS = Object.freeze(["", "activityMon", "", "activityWed", "", "activityFri", ""]);
-
-function objectValue(value) {
-  return value && typeof value === "object" && !Array.isArray(value) ? value : {};
-}
 
 function boundedText(value, maximum = 200) {
   try {

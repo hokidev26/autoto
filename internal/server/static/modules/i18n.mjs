@@ -67,7 +67,11 @@ function lookup(catalog, key) {
   return String(key || "").split(".").reduce((value, part) => value && typeof value === "object" ? value[part] : undefined, catalog);
 }
 
-function interpolate(message, params = {}) {
+// Exported because the messages-*.mjs modules that layer extra catalogues on top
+// of this one each need it. They already import from here, and this module does
+// not import them, so there is no cycle -- they had private copies only because
+// this was not exported.
+export function interpolate(message, params = {}) {
   return String(message).replace(/\{([A-Za-z0-9_]+)\}/g, (match, name) => (
     Object.prototype.hasOwnProperty.call(params, name) ? String(params[name] ?? "") : match
   ));

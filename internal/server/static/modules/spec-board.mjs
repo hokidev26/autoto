@@ -1,3 +1,4 @@
+import { objectValue } from "./value-coercion.mjs";
 import { escapeAttr, escapeHtml, setTextIfChanged } from "./dom.mjs";
 import { t } from "./i18n.mjs";
 import { shellExtraT as sx } from "./messages-shell-extra.mjs";
@@ -9,10 +10,6 @@ function specMessage(key, params = {}) {
 
 export const specBoardLimits = Object.freeze({ tasks: 200, children: 100, confirmations: 20 });
 export const specTaskStatuses = Object.freeze(["todo", "doing", "done", "blocked"]);
-
-function objectValue(value) {
-  return value && typeof value === "object" && !Array.isArray(value) ? value : {};
-}
 
 function text(value, limit = 8000) {
   return String(value ?? "").trim().slice(0, limit);

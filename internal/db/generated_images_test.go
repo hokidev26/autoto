@@ -161,3 +161,69 @@ func TestGeneratedImageMetadataSurvivesRestart(t *testing.T) {
 		t.Fatalf("metadata did not survive restart: %+v err=%v", asset, err)
 	}
 }
+
+// Generated images are fetched for a whole page in one query and grouped in Go,
+// so the grouping is what needs pinning: an image landing on the wrong message
+// would show one turn's picture under another.
+func TestMessagePageGroupsGeneratedImagesOntoTheirOwnMessage(t *testing.T) {
+	ctx := context.Background()
+	store, err := Open(ctx, filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	_, _, agent, err := store.CreateProject(ctx, "Images", "", t.TempDir(), "fake:image", "acceptEdits")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	shaA := strings.Repeat("a", 64)
+	shaB := strings.Repeat("b", 64)
+	shaC := strings.Repeat("c", 64)
+	// Two images on one message, so their output_index order can be checked too.
+	first, err := store.AddMessageWithGeneratedImages(ctx, Message{AgentID: agent.ID, Role: "assistant", ContentText: "one"}, []GeneratedImage{
+		{GenerationID: "g1", StorageKey: "objects/aa/" + shaA + ".png", SHA256: shaA, Filename: "one-b.png", ByteSize: 2, Width: 1, Height: 1, OutputIndex: 1},
+		{GenerationID: "g1", StorageKey: "objects/bb/" + shaB + ".png", SHA256: shaB, Filename: "one-a.png", ByteSize: 2, Width: 1, Height: 1, OutputIndex: 0},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	bare, err := store.AddMessage(ctx, Message{AgentID: agent.ID, Role: "assistant", ContentText: "two"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	third, err := store.AddMessageWithGeneratedImages(ctx, Message{AgentID: agent.ID, Role: "assistant", ContentText: "three"}, []GeneratedImage{
+		{GenerationID: "g2", StorageKey: "objects/cc/" + shaC + ".png", SHA256: shaC, Filename: "three.png", ByteSize: 2, Width: 1, Height: 1, OutputIndex: 0},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	page, err := store.ListMessagesPage(ctx, agent.ID, "", 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	byID := make(map[string][]GeneratedImage, len(page.Messages))
+	for _, message := range page.Messages {
+		byID[message.ID] = message.GeneratedImages
+	}
+	got := byID[first.ID]
+	if len(got) != 2 {
+		t.Fatalf("first message lost its images: %+v", got)
+	}
+	// Ordered by output_index, not insertion order.
+	if got[0].Filename != "one-a.png" || got[1].Filename != "one-b.png" {
+		t.Fatalf("images are not in output_index order: %+v", got)
+	}
+	for _, image := range got {
+		if image.MessageID != first.ID {
+			t.Fatalf("image filed under the wrong message: %+v", image)
+		}
+	}
+	if images := byID[bare.ID]; len(images) != 0 {
+		t.Fatalf("a message with no images must stay empty, got %+v", images)
+	}
+	if images := byID[third.ID]; len(images) != 1 || images[0].Filename != "three.png" {
+		t.Fatalf("third message lost its image: %+v", images)
+	}
+}

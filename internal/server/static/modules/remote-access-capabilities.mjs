@@ -1,6 +1,4 @@
-function objectValue(value) {
-  return value && typeof value === "object" && !Array.isArray(value) ? value : {};
-}
+import { objectValue } from "./value-coercion.mjs";
 
 function restrictedCapabilities() {
   return {

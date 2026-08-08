@@ -1,4 +1,4 @@
-import { currentUILocale } from "./i18n.mjs";
+import { currentUILocale, interpolate } from "./i18n.mjs";
 
 export const gitExtraMessages = Object.freeze({
   "zh-CN": {
@@ -188,12 +188,6 @@ export const gitExtraMessages = Object.freeze({
 
 function lookup(catalog, key) {
   return String(key || "").split(".").reduce((value, part) => value && typeof value === "object" ? value[part] : undefined, catalog);
-}
-
-function interpolate(message, params = {}) {
-  return String(message).replace(/\{([A-Za-z0-9_]+)\}/g, (match, name) => (
-    Object.prototype.hasOwnProperty.call(params, name) ? String(params[name] ?? "") : match
-  ));
 }
 
 export function gitExtraT(key, params = {}, locale = currentUILocale()) {

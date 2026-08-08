@@ -1,3 +1,4 @@
+import { objectValue } from "./value-coercion.mjs";
 const APP_API_ROOT = "/app/api";
 const APP_AUTH_ROOT = "/app/auth";
 const MAX_LABEL_LENGTH = 240;
@@ -10,10 +11,6 @@ export const oauthAppRoutes = Object.freeze({
   me: `${APP_API_ROOT}/me`,
   projects: `${APP_API_ROOT}/projects`,
 });
-
-function objectValue(value) {
-  return value && typeof value === "object" && !Array.isArray(value) ? value : {};
-}
 
 function firstArray(value, keys) {
   if (Array.isArray(value)) return value;

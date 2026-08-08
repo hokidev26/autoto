@@ -1,3 +1,4 @@
+import { objectValue } from "./value-coercion.mjs";
 import {
   automationLimits,
   buildSchedulePayload,
@@ -78,10 +79,6 @@ const WORKSPACE_TEXT = Object.freeze({
     capabilityExample: "Workable rewrite: “Search YouTube, choose one public result at random, and return the song title and link without trying to play it.”",
   },
 });
-
-function objectValue(value) {
-  return value && typeof value === "object" && !Array.isArray(value) ? value : {};
-}
 
 function safeRead(value, key) {
   try {

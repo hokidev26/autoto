@@ -1,3 +1,4 @@
+import { objectValue } from "./value-coercion.mjs";
 import { escapeHtml } from "./dom.mjs";
 
 export const workStateLimits = Object.freeze({
@@ -25,10 +26,6 @@ const taskStatusAliases = Object.freeze({
   failed: "blocked",
   error: "blocked",
 });
-
-function objectValue(value) {
-  return value && typeof value === "object" && !Array.isArray(value) ? value : {};
-}
 
 function boundedText(value, limit) {
   return String(value ?? "").trim().slice(0, limit);

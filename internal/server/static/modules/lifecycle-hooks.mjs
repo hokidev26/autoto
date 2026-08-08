@@ -1,3 +1,4 @@
+import { objectValue } from "./value-coercion.mjs";
 import { escapeAttr, escapeHtml } from "./dom.mjs";
 import { lifecycleHookMessage } from "./messages-lifecycle-hooks.mjs";
 
@@ -14,7 +15,6 @@ const environmentNamePattern = /^[A-Za-z_][A-Za-z0-9_]{0,127}$/;
 const headerNamePattern = /^[!#$%&'*+\-.^_`|~0-9A-Za-z]{1,128}$/;
 const forbiddenHTTPHeaders = new Set(["connection", "content-length", "host", "keep-alive", "proxy-connection", "te", "trailer", "transfer-encoding", "upgrade"]);
 
-function objectValue(value) { return value && typeof value === "object" && !Array.isArray(value) ? value : {}; }
 function boundedText(value, maximum = 256) { return String(value ?? "").trim().slice(0, maximum); }
 function uniqueStrings(value, maximum = 128) {
   return [...new Set((Array.isArray(value) ? value : []).map((item) => boundedText(item, 256)).filter(Boolean))].sort().slice(0, maximum);

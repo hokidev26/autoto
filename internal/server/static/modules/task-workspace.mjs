@@ -1,3 +1,4 @@
+import { objectValue } from "./value-coercion.mjs";
 import { escapeAttr, escapeHtml } from "./dom.mjs";
 import { confirm as platformConfirm } from "./platform.mjs";
 
@@ -54,10 +55,6 @@ const fallbackLabels = Object.freeze({
   protectedConfirmAgain: "再次确认：受保护任务的修改会被记录。仍要继续？",
   statuses: { todo: "待办", doing: "进行中", blocked: "已阻塞", done: "已完成" },
 });
-
-function objectValue(value) {
-  return value && typeof value === "object" && !Array.isArray(value) ? value : {};
-}
 
 function text(value, limit = 16000) {
   return String(value ?? "").trim().slice(0, limit);

@@ -1,3 +1,4 @@
+import { objectValue } from "./value-coercion.mjs";
 import { escapeAttr, escapeHtml } from "./dom.mjs";
 import { normalizeSpecBoard, normalizeSpecTask } from "./spec-board.mjs";
 
@@ -23,10 +24,6 @@ export const projectKanbanFallbackLabels = Object.freeze({
   unavailable: "看板操作暂不可用",
   statuses: Object.freeze({ todo: "待办", doing: "进行中", blocked: "已阻塞", done: "已完成" }),
 });
-
-function objectValue(value) {
-  return value && typeof value === "object" && !Array.isArray(value) ? value : {};
-}
 
 function labelAt(labels, key) {
   return key.split(".").reduce((value, part) => objectValue(value)[part], labels);

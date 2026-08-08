@@ -1,4 +1,4 @@
-import { currentUILocale, t as baseT } from "./i18n.mjs";
+import { currentUILocale, t as baseT, interpolate } from "./i18n.mjs";
 
 export const appMainExtraMessages = Object.freeze({
   "zh-CN": Object.freeze({
@@ -380,12 +380,6 @@ export const appMainExtraMessages = Object.freeze({
 
 function lookup(catalog, key) {
   return String(key || "").split(".").reduce((value, part) => value && typeof value === "object" ? value[part] : undefined, catalog);
-}
-
-function interpolate(message, params = {}) {
-  return String(message).replace(/\{([A-Za-z0-9_]+)\}/g, (match, name) => (
-    Object.prototype.hasOwnProperty.call(params, name) ? String(params[name] ?? "") : match
-  ));
 }
 
 export function appMainT(key, params = {}) {

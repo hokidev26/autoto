@@ -1,4 +1,5 @@
-﻿import { escapeAttr, escapeHtml } from "./dom.mjs";
+import { objectValue } from "./value-coercion.mjs";
+import { escapeAttr, escapeHtml } from "./dom.mjs";
 import { formatTimestamp as formatRegionalTimestamp } from "./formatters.mjs";
 import { t } from "./messages-automation.mjs";
 import { confirm as platformConfirm } from "./platform.mjs";
@@ -27,10 +28,6 @@ const SCHEDULE_ENUM_KEYS = Object.freeze({
   narratorMode: Object.freeze({ reuse: "automation.schedule.narratorModes.reuse", new: "automation.schedule.narratorModes.new" }),
 });
 const HOME_ASSISTANT_KINDS = new Set(["home_assistant", "home-assistant", "homeassistant", "ha"]);
-
-function objectValue(value) {
-  return value && typeof value === "object" && !Array.isArray(value) ? value : {};
-}
 
 function boundedText(value, limit = 240) {
   return String(value ?? "").trim().slice(0, limit);

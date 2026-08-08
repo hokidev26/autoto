@@ -1,3 +1,4 @@
+import { objectValue } from "./value-coercion.mjs";
 import { $, escapeAttr, escapeHtml, setButtonBusy } from "./dom.mjs";
 import { currentUILocale, t } from "./i18n.mjs?v=shared-api-2-no-alias-1-gateway-tunnel-1-key-delete-1-gateway-models-1-tunnel-ui-1";
 import { confirm as platformConfirm } from "./platform.mjs";
@@ -12,10 +13,6 @@ const endpoints = Object.freeze({
   requests: "/api/gateway/requests?limit=50",
   tunnel: "/api/gateway/tunnel",
 });
-
-function objectValue(value) {
-  return value && typeof value === "object" && !Array.isArray(value) ? value : {};
-}
 
 function hasOwn(value, key) {
   return Object.prototype.hasOwnProperty.call(objectValue(value), key);
