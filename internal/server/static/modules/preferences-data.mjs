@@ -2,8 +2,6 @@ import { currentUILocale } from "./i18n.mjs";
 import { defaultRegionalPreferences, normalizeRegionalPreferences } from "./locale-registry.mjs";
 import { preferencesMessage } from "./messages-preferences.mjs";
 
-const canonicalLocalPreferencePrefix = "autoto.";
-const legacyLocalPreferencePrefix = "codeharbor.";
 
 export const recentDirectoriesKey = "autoto.recentDirectories";
 export const recentConversationsKey = "autoto.recentConversations";
@@ -23,7 +21,6 @@ export const messageQueueKey = "autoto.messageQueue";
 export const primaryModePrefsKey = "autoto.ui.primaryMode";
 export const defaultPrimaryModePreference = "conversation";
 export const localPreferenceBackupKind = "autoto.local-preferences";
-export const legacyLocalPreferenceBackupKind = "codeharbor.local-preferences";
 export const localPreferenceBackupVersion = 2;
 export const accountPreferenceStorageKeys = Object.freeze([
   profilePrefsKey,
@@ -50,34 +47,8 @@ export const localPreferenceKeys = [
   primaryModePrefsKey,
 ];
 
-export function legacyLocalPreferenceKey(key) {
-  const canonicalKey = String(key || "");
-  if (!canonicalKey.startsWith(canonicalLocalPreferencePrefix)) return "";
-  return `${legacyLocalPreferencePrefix}${canonicalKey.slice(canonicalLocalPreferencePrefix.length)}`;
-}
-
 export function readLocalPreference(key, storage = globalThis.localStorage) {
-  const canonicalKey = String(key || "");
-  const currentValue = storage.getItem(canonicalKey);
-  if (currentValue !== null) return currentValue;
-
-  const legacyKey = legacyLocalPreferenceKey(canonicalKey);
-  if (!legacyKey) return null;
-  const legacyValue = storage.getItem(legacyKey);
-  if (legacyValue === null) return null;
-
-  try {
-    storage.setItem(canonicalKey, legacyValue);
-  } catch {}
-  return legacyValue;
-}
-
-export function migrateLegacyLocalPreferences(storage = globalThis.localStorage) {
-  localPreferenceKeys.forEach((key) => {
-    try {
-      readLocalPreference(key, storage);
-    } catch {}
-  });
+  return storage.getItem(String(key || ""));
 }
 
 export const localPreferenceBackupKeys = [
@@ -179,6 +150,17 @@ export const defaultNotificationPrefs = {
   errorToasts: true,
   terminalNotices: true,
   duration: "normal",
+  // Audible run outcomes. On by default: a task that finishes while the user is
+  // in another window otherwise produces no signal they can perceive.
+  soundEnabled: true,
+  soundOnDone: true,
+  soundOnError: true,
+  // OS notifications stay off until the user opts in, because enabling them
+  // requires a permission prompt that must not appear unrequested.
+  systemNotifications: false,
+  // An error the user never saw is the failure mode being fixed here, so its
+  // toast waits for a dismiss instead of expiring on a timer.
+  errorToastsPersist: true,
 };
 
 export const appearanceStyleVersion = 5;

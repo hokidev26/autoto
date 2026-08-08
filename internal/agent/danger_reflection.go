@@ -128,12 +128,12 @@ func (d dangerReflection) warning() string {
 	return reason
 }
 
-// dangerReflectionEnabled reports whether the gate can run. It requires a
-// configured safety model; without one there is nothing to reflect with, and
-// the runner keeps its previous static-only behavior rather than blocking every
-// command on a capability the deployment does not have.
-func (r *Runner) dangerReflectionEnabled() bool {
-	return r != nil && r.providers != nil && strings.TrimSpace(r.SafetyModel()) != ""
+// dangerReflectionEnabled reports whether the gate can run. Reflection uses
+// the model currently assigned to the conversation, so a missing model keeps
+// the gate inert rather than blocking every command on an unavailable
+// capability.
+func (r *Runner) dangerReflectionEnabled(agent db.Agent) bool {
+	return r != nil && r.providers != nil && strings.TrimSpace(agent.Model) != ""
 }
 
 // dangerReflectionLevel reads the user's chosen strictness level. Falls back to
@@ -178,7 +178,7 @@ func (r *Runner) reflectBeforeExecution(ctx context.Context, agent db.Agent, mod
 	if permission.Decision != toolPermissionAllow {
 		return permission
 	}
-	if !reflectableToolCall(call.Name, risk) || !r.dangerReflectionEnabled() {
+	if !reflectableToolCall(call.Name, risk) || !r.dangerReflectionEnabled(agent) {
 		return permission
 	}
 	level := r.dangerReflectionLevel(ctx)
@@ -226,7 +226,7 @@ func (r *Runner) reflectBeforeExecution(ctx context.Context, agent db.Agent, mod
 		// confirm or block verdict still stands in every mode.
 		if reflection.Unavailable && reflection.Verdict != reflectionConfirm && strings.TrimSpace(mode) == "bypassPermissions" {
 			slog.Warn("danger reflection unavailable; allowed by bypassPermissions mode",
-				"agentId", agent.ID, "toolName", call.Name, "risk", risk, "safetyModel", r.SafetyModel())
+				"agentId", agent.ID, "toolName", call.Name, "risk", risk, "model", agent.Model)
 			return permission
 		}
 		slog.Info("danger reflection escalated tool call to approval", "agentId", agent.ID, "toolName", call.Name, "risk", risk, "unavailable", reflection.Unavailable)
@@ -243,11 +243,14 @@ func (r *Runner) reflectBeforeExecution(ctx context.Context, agent db.Agent, mod
 }
 
 // dangerReflectionFingerprint identifies an action precisely enough that two
-// calls sharing a fingerprint must receive the same verdict. It covers the tool,
-// the working directory, and the full normalized input, so a different command,
-// a different target, or a different directory is a different action.
+// calls sharing a fingerprint must receive the same verdict. It covers the
+// active conversation model, tool, working directory, and full normalized
+// input, so a model switch, different command, target, or directory cannot
+// reuse a verdict from another action.
 func dangerReflectionFingerprint(agent db.Agent, call tools.Call, risk tools.Risk) string {
 	var builder strings.Builder
+	builder.WriteString(strings.TrimSpace(agent.Model))
+	builder.WriteByte('\x00')
 	builder.WriteString(call.Name)
 	builder.WriteByte('\x00')
 	builder.WriteString(string(risk))
@@ -473,14 +476,15 @@ func dangerReflectionSystemPromptForLevel(level string) string {
 	return dangerReflectionSystemPromptBase + "\n\n" + criteria
 }
 
-// reflectOnAction performs the model call. Every failure path returns an
-// Unavailable reflection, which the caller treats as "ask a human".
+// reflectOnAction performs the model call using the model currently assigned
+// to this conversation. Every failure path returns an Unavailable reflection,
+// which the caller treats as "ask a human".
 func (r *Runner) reflectOnAction(ctx context.Context, agent db.Agent, call tools.Call, risk tools.Risk, action, level string) dangerReflection {
-	safetyModel := strings.TrimSpace(r.SafetyModel())
-	provider, model, err := r.providers.Resolve(safetyModel)
+	activeModel := strings.TrimSpace(agent.Model)
+	provider, model, err := r.providers.Resolve(activeModel)
 	if err != nil {
-		slog.Debug("danger reflection provider unavailable", "agentId", agent.ID, "error", err)
-		return dangerReflection{Unavailable: true, Reason: "Safety reflection is unavailable, so this action needs your approval."}
+		slog.Debug("danger reflection provider unavailable for active conversation model", "agentId", agent.ID, "model", activeModel, "error", err)
+		return dangerReflection{Unavailable: true, Reason: "Safety reflection is unavailable for the current conversation model, so this action needs your approval."}
 	}
 
 	facts := tools.CommandFacts{}

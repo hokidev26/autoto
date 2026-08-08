@@ -1,4 +1,4 @@
-import { $ } from "./dom.mjs";
+﻿import { $ } from "./dom.mjs";
 import { normalizeAvatarDataUrl } from "./profile-avatar.mjs?v=profile-avatar-1";
 import { applyDocumentLocale, applyStaticTranslations, currentUILocale } from "./i18n.mjs?v=global-background-1-theme-v2-1";
 import { setRegionalPreferences } from "./locale-registry.mjs";
@@ -21,13 +21,10 @@ import {
   defaultSearchPrefs,
   defaultSkillsPrefs,
   imGatewayPrefsKey,
-  legacyLocalPreferenceBackupKind,
-  legacyLocalPreferenceKey,
   localPreferenceBackupKeys,
   localPreferenceBackupLabel,
   localPreferenceBackupKind,
   localPreferenceBackupVersion,
-  migrateLegacyLocalPreferences,
   modelVisibilityPrefsKey,
   notificationPrefsKey,
   normalizeImportedRegionalPreferences,
@@ -64,7 +61,6 @@ export function createSettingsPreferencesController({
   refreshActiveSettingsPanel,
   renderModelOptions,
   renderRecentModalDirectories,
-  renderRecentSidebarDirectories,
   showToast,
   toggleTerminal,
   trimTerminalOutput,
@@ -72,17 +68,10 @@ export function createSettingsPreferencesController({
   updateSlashCommandPalette,
   updateGlobalThemeToggle,
 } = {}) {
-  let localPreferencesMigrated = false;
   const accountPreferenceStorageKeySet = new Set(accountPreferenceStorageKeys);
 
   function pt(key, params = {}) {
     return preferencesMessage(key, params, currentUILocale());
-  }
-
-  function ensureLocalPreferencesMigrated() {
-    if (localPreferencesMigrated) return;
-    localPreferencesMigrated = true;
-    migrateLegacyLocalPreferences();
   }
 
   function loadProfilePreferences() {
@@ -467,6 +456,11 @@ export function createSettingsPreferencesController({
       errorToasts: value.errorToasts !== undefined ? Boolean(value.errorToasts) : defaultNotificationPrefs.errorToasts,
       terminalNotices: value.terminalNotices !== undefined ? Boolean(value.terminalNotices) : defaultNotificationPrefs.terminalNotices,
       duration,
+      soundEnabled: value.soundEnabled !== undefined ? Boolean(value.soundEnabled) : defaultNotificationPrefs.soundEnabled,
+      soundOnDone: value.soundOnDone !== undefined ? Boolean(value.soundOnDone) : defaultNotificationPrefs.soundOnDone,
+      soundOnError: value.soundOnError !== undefined ? Boolean(value.soundOnError) : defaultNotificationPrefs.soundOnError,
+      systemNotifications: value.systemNotifications !== undefined ? Boolean(value.systemNotifications) : defaultNotificationPrefs.systemNotifications,
+      errorToastsPersist: value.errorToastsPersist !== undefined ? Boolean(value.errorToastsPersist) : defaultNotificationPrefs.errorToastsPersist,
     };
   }
 
@@ -513,6 +507,25 @@ export function createSettingsPreferencesController({
     if (prefs.duration === "short") return variant === "error" ? 4500 : 2400;
     if (prefs.duration === "long") return variant === "error" ? 11000 : 7000;
     return base;
+  }
+
+  // 0 means "wait for the user to dismiss it". An error that expired on its own
+  // was the reason a failed run could go unnoticed entirely.
+  function notificationToastHoldsUntilDismissed(variant) {
+    if (variant !== "error") return false;
+    return currentNotificationPreferences().errorToastsPersist !== false;
+  }
+
+  function notificationSoundEnabled(tone) {
+    const prefs = currentNotificationPreferences();
+    if (!prefs.soundEnabled) return false;
+    if (tone === "error") return prefs.soundOnError !== false;
+    if (tone === "success") return prefs.soundOnDone !== false;
+    return false;
+  }
+
+  function systemNotificationsEnabled() {
+    return currentNotificationPreferences().systemNotifications === true;
   }
 
   function notifyTerminal(message) {
@@ -674,7 +687,6 @@ export function createSettingsPreferencesController({
 
   function safeReadLocalPreference(key) {
     try {
-      ensureLocalPreferencesMigrated();
       return readLocalPreference(key);
     } catch {
       return null;
@@ -793,7 +805,7 @@ export function createSettingsPreferencesController({
       throw new Error(pt("backup.invalidFormat"));
     }
     const kind = String(payload?.kind || "").trim();
-    if (kind && kind !== localPreferenceBackupKind && kind !== legacyLocalPreferenceBackupKind) {
+    if (kind && kind !== localPreferenceBackupKind) {
       throw new Error(pt("backup.unsupportedFormat"));
     }
     const preferences = payload?.preferences || payload?.settings || payload?.values || {};
@@ -805,19 +817,14 @@ export function createSettingsPreferencesController({
     const hasPreference = (key) => Object.prototype.hasOwnProperty.call(preferences, key);
     const updates = localPreferenceBackupKeys
       .filter((entry) => (!accountPreferences || !accountPreferenceStorageKeySet.has(entry.key))
-        && (hasPreference(entry.key) || hasPreference(legacyLocalPreferenceKey(entry.key))))
-      .map((entry) => {
-        const key = hasPreference(entry.key) ? entry.key : legacyLocalPreferenceKey(entry.key);
-        return { entry, raw: normalizeImportedLocalPreference(entry, preferences[key]) };
-      });
+        && hasPreference(entry.key))
+      .map((entry) => ({ entry, raw: normalizeImportedLocalPreference(entry, preferences[entry.key]) }));
     const accountPatch = {};
     if (accountPreferences) {
       const accountSource = accountPayload && typeof accountPayload === "object" ? accountPayload : {};
       const accountValue = (field, key) => {
         if (Object.prototype.hasOwnProperty.call(accountSource, field)) return accountSource[field];
-        if (hasPreference(key)) return preferences[key];
-        const legacyKey = legacyLocalPreferenceKey(key);
-        return hasPreference(legacyKey) ? preferences[legacyKey] : undefined;
+        return hasPreference(key) ? preferences[key] : undefined;
       };
       const profile = accountValue("profile", profilePrefsKey);
       const preferredModel = accountValue("preferredModel", preferredModelKey);
@@ -878,7 +885,6 @@ export function createSettingsPreferencesController({
     applyRegionalPreferences();
     trimTerminalOutput?.();
     updatePromptHistoryHint?.();
-    renderRecentSidebarDirectories?.();
     renderRecentModalDirectories?.();
     renderModelOptions?.();
   }
@@ -925,6 +931,9 @@ export function createSettingsPreferencesController({
     normalizeSkillCommand,
     normalizeSkillsPreferences,
     notificationToastDuration,
+    notificationToastHoldsUntilDismissed,
+    notificationSoundEnabled,
+    systemNotificationsEnabled,
     notificationVariantEnabled,
     notifyTerminal,
     profileDisplayName,

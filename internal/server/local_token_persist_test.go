@@ -11,7 +11,6 @@ import (
 func TestResolveLocalTokenPersistsAcrossServers(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("AUTOTO_LOCAL_TOKEN", "")
-	t.Setenv("CODEHARBOR_LOCAL_TOKEN", "")
 
 	first := New(config.Config{Paths: config.PathsConfig{HomeDir: home}}, nil, nil, nil)
 	if first.localToken == "" {

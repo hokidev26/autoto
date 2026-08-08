@@ -53,11 +53,21 @@ export function createConversationTitleHelpers({
       : text;
   }
 
+  // Older conversations persisted their working directory into the title, which
+  // is no more useful as a heading than the project path was. Treat that as
+  // having no real title so the message-derived one is used instead.
+  function storedConversationTitle() {
+    const title = String(state.agent?.title || "").trim();
+    if (!title) return "";
+    const isPath = /^[A-Za-z]:[\\/]/.test(title) || /^\/[^/]/.test(title) || /^\\\\/.test(title);
+    return isPath ? "" : title;
+  }
+
   function conversationHeaderTitle() {
     // A conversation with nothing in it yet has nothing to derive a title from,
     // and the project path is not a useful heading, so it reads as new until the
     // first message arrives.
-    return state.agent?.title
+    return storedConversationTitle()
       || state.navigationTransitionTitle
       || derivedConversationTitle()
       || t("shell.newConversation");
@@ -77,7 +87,7 @@ export function createConversationTitleHelpers({
   }
 
   function titleForSurface(surface) {
-    if (surface === "workbench") return state.agent?.title || state.navigationTransitionTitle || derivedConversationTitle() || t("workbench.title");
+    if (surface === "workbench") return storedConversationTitle() || state.navigationTransitionTitle || derivedConversationTitle() || t("workbench.title");
     return conversationHeaderTitle();
   }
 

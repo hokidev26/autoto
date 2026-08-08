@@ -10,6 +10,8 @@ import {
   createUsageHistoryController,
   createUsageHistoryState,
   normalizeUsageHistoryResponse,
+  normalizeTrendPointIndex,
+  renderTrendReadout,
   renderUsageHistory,
   renderUsageTrendSVG,
   usageHistoryMetrics,
@@ -116,11 +118,81 @@ test("inline SVG has grid, axes, line, point titles, compact axis labels, and an
   assert.match(svg, /uh-chart-grid/);
   assert.match(svg, /uh-chart-axis/);
   assert.match(svg, /<path class="uh-chart-line"/);
-  assert.equal((svg.match(/<circle class="uh-chart-point"/g) || []).length, 2);
+  assert.equal((svg.match(/<circle class="uh-chart-point[^"]*"/g) || []).length, 2);
   assert.match(svg, /<title>2026-01-02:/);
   const largeAxis = renderUsageTrendSVG([{ bucket: "large", totalTokens: 1250000 }], "totalTokens").split('<line class="uh-chart-axis"')[0];
   assert.doesNotMatch(largeAxis, />1,250,000</);
   assert.match(renderUsageTrendSVG([], "requests"), /uh-chart-empty/);
+});
+
+// Each bucket already carries the whole metric set, so a point can report its
+// token usage no matter which metric the chart is drawing.
+test("trend points report request count and token detail beyond the drawn metric", () => {
+  const point = { bucket: "2026-01-02", requestCount: 5, inputTokens: 1200, outputTokens: 800, totalTokens: 2000 };
+
+  const byRequests = renderUsageTrendSVG([point], "requests");
+  // The drawn metric leads and is not repeated as a detail part.
+  assert.match(byRequests, /<title>2026-01-02: 5 · 2,000 tokens · 输入 1,200 \/ 输出 800<\/title>/);
+  // Focusable points need an accessible name, not just an SVG <title>. They
+  // announce as buttons because clicking one pins its reading.
+  assert.match(byRequests, /<circle class="uh-chart-point"[^>]*role="button" aria-label="2026-01-02: 5 · 2,000 tokens · 输入 1,200 \/ 输出 800"/);
+
+  // Drawing totalTokens: the total is the leading value, so only the request
+  // count and the split are appended.
+  assert.match(renderUsageTrendSVG([point], "totalTokens"), /<title>2026-01-02: 2,000 · 5 次请求 · 输入 1,200 \/ 输出 800<\/title>/);
+  // Drawing inputTokens: the split would restate the leading value.
+  assert.match(renderUsageTrendSVG([point], "inputTokens"), /<title>2026-01-02: 1,200 · 5 次请求 · 2,000 tokens<\/title>/);
+  // No token data recorded: nothing is invented.
+  assert.match(renderUsageTrendSVG([{ bucket: "2026-01-03", requestCount: 4 }], "requests"), /<title>2026-01-03: 4<\/title>/);
+});
+
+// Hover was the only way to read a point, which is unreachable on touch and
+// disappears the moment the pointer moves. Clicking now pins the reading.
+test("圖上的點可點選，選中的點會標記並在 readout 顯示數值", () => {
+  const trend = [
+    { bucket: "2026-01-01", requestCount: 2, totalTokens: 100 },
+    { bucket: "2026-01-02", requestCount: 5, totalTokens: 300 },
+  ];
+
+  // Nothing pinned: no point is marked and the readout invites a click.
+  const bare = renderUsageTrendSVG(trend, "requests");
+  assert.doesNotMatch(bare, /is-selected/);
+  assert.match(bare, /data-usage-trend-point="0"/);
+  assert.match(bare, /data-usage-trend-point="1"/);
+  assert.match(renderTrendReadout(trend, "requests", -1), /uh-trend-readout-hint/);
+
+  // Pinned: only that point is marked, and it is drawn larger so it reads as
+  // selected without relying on colour alone.
+  const pinned = renderUsageTrendSVG(trend, "requests", { selectedIndex: 1 });
+  assert.equal((pinned.match(/is-selected/g) || []).length, 1);
+  assert.match(pinned, /data-usage-trend-point="1"[^>]*$|is-selected[^>]*r="6"|r="6"[^>]*is-selected/);
+  assert.match(pinned, /aria-pressed="true"/);
+
+  const readout = renderTrendReadout(trend, "requests", 1);
+  assert.match(readout, /2026-01-02/);
+  assert.match(readout, /uh-trend-readout-value/);
+  // It stays on screen, so it must be announced and be dismissible.
+  assert.match(readout, /aria-live="polite"/);
+  assert.match(readout, /data-usage-trend-clear/);
+});
+
+// A pinned index must never outlive the series it belonged to: switching bucket
+// can return fewer buckets than were on screen a moment ago.
+test("固定的索引會對照當前資料重新驗證，不會指向不存在的點", () => {
+  assert.equal(normalizeTrendPointIndex(1, 2), 1);
+  assert.equal(normalizeTrendPointIndex(0, 1), 0);
+  // Past the end, negative, and non-numeric all mean "nothing pinned".
+  assert.equal(normalizeTrendPointIndex(5, 2), -1);
+  assert.equal(normalizeTrendPointIndex(-1, 2), -1);
+  assert.equal(normalizeTrendPointIndex("nope", 2), -1);
+  assert.equal(normalizeTrendPointIndex(0, 0), -1);
+  assert.equal(normalizeTrendPointIndex(1.9, 3), 1);
+
+  // The state constructor validates against the trend it actually received.
+  const state = createUsageHistoryState({ ...response(), selectedTrendIndex: 7 });
+  assert.equal(state.selectedTrendIndex, -1);
+  const valid = createUsageHistoryState({ ...response(), selectedTrendIndex: 0 });
+  assert.equal(valid.selectedTrendIndex, 0);
 });
 
 test("render escapes malicious server fields in cards, SVG, filters, and table", () => {
@@ -212,6 +284,34 @@ test("controller ignores stale responses", async () => {
   assert.equal(state.usageHistory.generatedAt, "new");
   assert.deepEqual(state.usageHistory.items.map((item) => item.id), ["new"]);
   assert.equal(state.usageHistory.status, "ready");
+});
+
+test("controller 點同一個點會取消固定，換 bucket 時不會留下失效的選取", async () => {
+  const urls = [];
+  const state = {};
+  const twoPoints = response({
+    trend: [
+      { bucket: "2026-03-01", requestCount: 1, totalTokens: 30 },
+      { bucket: "2026-03-02", requestCount: 4, totalTokens: 90 },
+    ],
+  });
+  const controller = createUsageHistoryController({
+    state,
+    request: async (url) => { urls.push(url); return urls.length === 1 ? twoPoints : response(); },
+  });
+  await controller.load();
+
+  assert.equal(controller.selectTrendPoint(1), 1);
+  // Clicking the pinned point again releases it rather than re-pinning.
+  assert.equal(controller.selectTrendPoint(1), -1);
+  assert.equal(controller.selectTrendPoint(0), 0);
+  // Out of range is treated as nothing pinned, not clamped onto a real point.
+  assert.equal(controller.selectTrendPoint(9), -1);
+
+  // A reload returning a shorter trend must not leave index 1 pinned.
+  assert.equal(controller.selectTrendPoint(1), 1);
+  await controller.setBucket("hour");
+  assert.equal(controller.getState().selectedTrendIndex, -1);
 });
 
 test("controller applies filters, changes bucket with fetch, and metric without fetch", async () => {

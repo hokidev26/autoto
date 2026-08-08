@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net"
 	"net/url"
 	"os"
@@ -14,8 +13,6 @@ import (
 	"strings"
 	"unicode"
 	"unicode/utf8"
-
-	"autoto/internal/compat"
 )
 
 // Version is the product version string. Release builds override it with:
@@ -235,34 +232,23 @@ type ProviderSummary struct {
 }
 
 func Default() (Config, error) {
-	cfg, _, err := DefaultWithReport()
-	return cfg, err
-}
-
-func DefaultWithReport() (Config, compat.Report, error) {
-	var report compat.Report
-	cfg, err := defaultWithReport(&report)
-	return cfg, report, err
-}
-
-func defaultWithReport(report *compat.Report) (Config, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return Config{}, err
 	}
 	appHome := filepath.Join(home, ".autoto")
-	defaultModel := firstEnvFallback(report, "AUTOTO_DEFAULT_MODEL", "CODEHARBOR_DEFAULT_MODEL")
+	defaultModel := os.Getenv("AUTOTO_DEFAULT_MODEL")
 	if defaultModel == "" {
 		defaultModel = "openai:gpt-4.1-mini"
 	}
-	summaryModel := firstEnvFallback(report, "AUTOTO_SUMMARY_MODEL", "CODEHARBOR_SUMMARY_MODEL")
+	summaryModel := os.Getenv("AUTOTO_SUMMARY_MODEL")
 	if summaryModel == "" {
 		summaryModel = defaultModel
 	}
 	// Left empty on purpose when unset: the runner falls back to the summary
 	// model, so an existing config keeps its current behaviour, and only an
 	// explicit value moves the safety gate onto its own model.
-	safetyModel := firstEnvFallback(report, "AUTOTO_SAFETY_MODEL", "CODEHARBOR_SAFETY_MODEL")
+	safetyModel := os.Getenv("AUTOTO_SAFETY_MODEL")
 	return Config{
 		SchemaVersion: CurrentConfigVersion,
 		Server:        ServerConfig{Host: "localhost", Port: 16888},
@@ -300,7 +286,7 @@ func defaultWithReport(report *compat.Report) (Config, error) {
 			DefaultPermissionMode:    "acceptEdits",
 			DefaultStartInPlanMode:   false,
 			MaxTurns:                 200,
-			ContextTokenLimit:        getenvIntFallbackReported(report, []string{"AUTOTO_CONTEXT_TOKEN_LIMIT", "CODEHARBOR_CONTEXT_TOKEN_LIMIT"}, 120000),
+			ContextTokenLimit:        getenvInt("AUTOTO_CONTEXT_TOKEN_LIMIT", 120000),
 			FirstTokenTimeoutMs:      60000,
 			MaxTransientRetries:      10,
 			AutoContinuationMode:     "safe",
@@ -322,13 +308,13 @@ func defaultWithReport(report *compat.Report) (Config, error) {
 			},
 		},
 		Security: SecurityConfig{
-			Exposed:                 getenvBoolFallbackReported(report, []string{"AUTOTO_EXPOSED", "CODEHARBOR_EXPOSED"}, false),
-			AccessPassword:          firstEnvFallback(report, "AUTOTO_ACCESS_PASSWORD", "CODEHARBOR_ACCESS_PASSWORD"),
-			AllowRemoteFullAccess:   getenvBoolFallbackReported(report, []string{"AUTOTO_ALLOW_REMOTE_FULL_ACCESS", "CODEHARBOR_ALLOW_REMOTE_FULL_ACCESS"}, false),
-			DefaultRemoteAccessMode: firstEnvFallback(report, "AUTOTO_DEFAULT_REMOTE_ACCESS_MODE", "CODEHARBOR_DEFAULT_REMOTE_ACCESS_MODE"),
-			AllowRemoteNativePicker: getenvBoolFallbackReported(report, []string{"AUTOTO_ALLOW_REMOTE_NATIVE_PICKER", "CODEHARBOR_ALLOW_REMOTE_NATIVE_PICKER"}, false),
+			Exposed:                 getenvBool("AUTOTO_EXPOSED", false),
+			AccessPassword:          os.Getenv("AUTOTO_ACCESS_PASSWORD"),
+			AllowRemoteFullAccess:   getenvBool("AUTOTO_ALLOW_REMOTE_FULL_ACCESS", false),
+			DefaultRemoteAccessMode: os.Getenv("AUTOTO_DEFAULT_REMOTE_ACCESS_MODE"),
+			AllowRemoteNativePicker: getenvBool("AUTOTO_ALLOW_REMOTE_NATIVE_PICKER", false),
 			CredentialRevision:      1,
-			AllowRemoteTerminal:     getenvBoolFallbackReported(report, []string{"AUTOTO_REMOTE_TERMINAL", "CODEHARBOR_REMOTE_TERMINAL"}, false),
+			AllowRemoteTerminal:     getenvBool("AUTOTO_REMOTE_TERMINAL", false),
 		},
 		Providers: ProvidersConfig{Instances: []ProviderConfig{
 			{
@@ -358,7 +344,7 @@ func defaultWithReport(report *compat.Report) (Config, error) {
 				Model:   getenv("OPENAI_COMPATIBLE_MODEL", getenv("OPENAI_MODEL", "gpt-4.1-mini")),
 			},
 		}},
-		Backends: BackendsConfig{Instances: defaultBackendsFromEnv(report)},
+		Backends: BackendsConfig{Instances: defaultBackendsFromEnv()},
 	}, nil
 }
 
@@ -374,79 +360,43 @@ func ResolvePath(path string) (string, error) {
 }
 
 func Load(path string) (Config, error) {
-	cfg, _, err := LoadWithReport(path)
-	return cfg, err
-}
-
-func LoadWithReport(path string) (Config, compat.Report, error) {
-	var report compat.Report
-	cfg, err := defaultWithReport(&report)
+	cfg, err := Default()
 	if err != nil {
-		return Config{}, report, err
+		return Config{}, err
 	}
 	path, err = ResolvePath(path)
 	if err != nil {
-		return Config{}, report, err
+		return Config{}, err
 	}
-	legacyPath, err := legacyConfigPath()
-	if err != nil {
-		return Config{}, report, err
-	}
-	explicitLegacyPath := filepath.Clean(path) == filepath.Clean(legacyPath)
 	if err := ensureConfigParent(path); err != nil {
-		return Config{}, report, err
+		return Config{}, err
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			if isCanonicalConfigPath(path, cfg) {
-				if copied, copyErr := copyLegacyConfig(legacyPath, path); copyErr != nil {
-					return Config{}, report, copyErr
-				} else if copied {
-					report.Add(legacyConfigUsage("copied"))
-					data, err = os.ReadFile(path)
-					if err != nil {
-						return Config{}, report, err
-					}
-					goto decode
-				}
-			}
 			if writeErr := writeDefaultConfig(path, cfg); writeErr != nil {
-				return Config{}, report, writeErr
+				return Config{}, writeErr
 			}
-			if explicitLegacyPath {
-				report.Add(legacyConfigUsage("loaded"))
-			}
-			return cfg, report, nil
+			return cfg, nil
 		}
-		return Config{}, report, err
+		return Config{}, err
 	}
-
-decode:
-	filterOverriddenDefaultUsages(&report, data)
 	if len(data) == 0 {
-		if explicitLegacyPath {
-			report.Add(legacyConfigUsage("loaded"))
-		}
-		return cfg, report, nil
+		return cfg, nil
 	}
 	if err := json.Unmarshal(data, &cfg); err != nil {
-		return Config{}, report, fmt.Errorf("parse config %s: %w", path, err)
+		return Config{}, fmt.Errorf("parse config %s: %w", path, err)
 	}
 	migratedSecurityPassword, err := migrateLegacySecurityPassword(&cfg, data)
 	if err != nil {
-		return Config{}, report, fmt.Errorf("migrate security credential in %s: %w", path, err)
+		return Config{}, fmt.Errorf("migrate security credential in %s: %w", path, err)
 	}
 	if migratedSecurityPassword {
 		if err := persistMigratedSecurityPassword(path, data, cfg.Security.AccessPasswordHash); err != nil {
-			return Config{}, report, fmt.Errorf("persist migrated security credential in %s: %w", path, err)
+			return Config{}, fmt.Errorf("persist migrated security credential in %s: %w", path, err)
 		}
 	}
-	cfg = normalizeConfigWithReport(cfg, &report)
-	if explicitLegacyPath {
-		report.Add(legacyConfigUsage("loaded"))
-	}
-	return cfg, report, nil
+	return normalizeConfig(cfg), nil
 }
 
 func ensureConfigParent(path string) error {
@@ -478,131 +428,7 @@ func ensureConfigParent(path string) error {
 	return nil
 }
 
-func isCanonicalConfigPath(path string, cfg Config) bool {
-	canonical := filepath.Join(cfg.Paths.HomeDir, "config.json")
-	return filepath.Clean(path) == filepath.Clean(canonical)
-}
-
-func legacyConfigPath() (string, error) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(home, ".codeharbor", "config.json"), nil
-}
-
-func legacyConfigUsage(operation string) compat.Usage {
-	return compat.Usage{
-		Key:         "config:" + operation + ":~/.codeharbor/config.json",
-		Legacy:      "~/.codeharbor/config.json",
-		Replacement: "~/.autoto/config.json",
-		Kind:        operation,
-	}
-}
-
-func filterOverriddenDefaultUsages(report *compat.Report, data []byte) {
-	if report == nil || len(data) == 0 {
-		return
-	}
-	var raw struct {
-		Agent    map[string]json.RawMessage `json:"agent"`
-		Backends map[string]json.RawMessage `json:"backends"`
-	}
-	if json.Unmarshal(data, &raw) != nil {
-		return
-	}
-	remove := map[string]bool{}
-	_, hasDefaultModel := raw.Agent["defaultModel"]
-	_, hasSummaryModel := raw.Agent["summaryModel"]
-	if hasDefaultModel && (hasSummaryModel || os.Getenv("AUTOTO_SUMMARY_MODEL") != "" || os.Getenv("CODEHARBOR_SUMMARY_MODEL") != "") {
-		remove[envUsageKey("CODEHARBOR_DEFAULT_MODEL")] = true
-	}
-	if hasSummaryModel {
-		remove[envUsageKey("CODEHARBOR_SUMMARY_MODEL")] = true
-	}
-	if _, ok := raw.Agent["contextTokenLimit"]; ok {
-		remove[envUsageKey("CODEHARBOR_CONTEXT_TOKEN_LIMIT")] = true
-	}
-	if _, ok := raw.Backends["instances"]; ok {
-		for _, name := range []string{
-			"CODEHARBOR_AGENT_BACKEND_URL",
-			"CODEHARBOR_AGENT_BACKEND_NAME",
-			"CODEHARBOR_AGENT_BACKEND_KIND",
-			"CODEHARBOR_AGENT_BACKEND_API_KEY",
-		} {
-			remove[envUsageKey(name)] = true
-		}
-	}
-	if len(remove) == 0 {
-		return
-	}
-	filtered := report.Usages[:0]
-	for _, usage := range report.Usages {
-		if !remove[usage.Key] {
-			filtered = append(filtered, usage)
-		}
-	}
-	report.Usages = filtered
-}
-
-func copyLegacyConfig(sourcePath, destinationPath string) (bool, error) {
-	linkInfo, err := os.Lstat(sourcePath)
-	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return false, nil
-		}
-		return false, err
-	}
-	if !linkInfo.Mode().IsRegular() {
-		return false, fmt.Errorf("legacy config %s is not a regular file", sourcePath)
-	}
-
-	source, err := os.Open(sourcePath)
-	if err != nil {
-		return false, err
-	}
-	defer source.Close()
-
-	info, err := source.Stat()
-	if err != nil {
-		return false, err
-	}
-	if !info.Mode().IsRegular() || !os.SameFile(linkInfo, info) {
-		return false, fmt.Errorf("legacy config %s changed while opening", sourcePath)
-	}
-
-	destination, err := os.OpenFile(destinationPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
-	if err != nil {
-		if errors.Is(err, os.ErrExist) {
-			return true, nil
-		}
-		return false, err
-	}
-	complete := false
-	defer func() {
-		_ = destination.Close()
-		if !complete {
-			_ = os.Remove(destinationPath)
-		}
-	}()
-	if _, err := io.Copy(destination, source); err != nil {
-		return false, err
-	}
-	if err := destination.Sync(); err != nil {
-		return false, err
-	}
-	if err := destination.Close(); err != nil {
-		return false, err
-	}
-	complete = true
-	return true, nil
-}
-
 func normalizeConfig(cfg Config) Config {
-	return normalizeConfigWithReport(cfg, nil)
-}
-
-func normalizeConfigWithReport(cfg Config, report *compat.Report) Config {
 	cfg = migrateConfig(cfg)
 	cfg.Gateway = normalizeGatewayConfig(cfg.Gateway)
 	cfg.Background = normalizeBackgroundConfig(cfg.Background)
@@ -610,7 +436,7 @@ func normalizeConfigWithReport(cfg Config, report *compat.Report) Config {
 	cfg.Agent = normalizeAgentConfig(cfg.Agent)
 	cfg.Auth.OAuthApp = cfg.Auth.OAuthApp.Normalized()
 	cfg.Security = normalizeSecurityConfig(cfg.Security)
-	applySecurityEnvOverrides(&cfg.Security, report)
+	applySecurityEnvOverrides(&cfg.Security)
 	cfg.Security = normalizeSecurityConfig(cfg.Security)
 
 	cfg.Providers = ensureNativeBuiltinProviders(normalizeProviders(cfg.Providers))
@@ -923,30 +749,30 @@ func normalizeSubagentModelPools(values map[string][]string) map[string][]string
 	return normalized
 }
 
-func applySecurityEnvOverrides(security *SecurityConfig, report *compat.Report) {
-	if value, ok := lookupBoolEnvFallbackReported(report, "AUTOTO_EXPOSED", "CODEHARBOR_EXPOSED"); ok {
+func applySecurityEnvOverrides(security *SecurityConfig) {
+	if value, ok := lookupBoolEnv("AUTOTO_EXPOSED"); ok {
 		security.Exposed = value
 	}
 	if strings.TrimSpace(security.AccessPasswordHash) != "" {
 		// A host-local password rotation persists a hash. Once present, it is the
 		// durable authority and must not be shadowed by a stale startup env value.
 		security.AccessPassword = ""
-	} else if value := firstEnvFallback(report, "AUTOTO_ACCESS_PASSWORD", "CODEHARBOR_ACCESS_PASSWORD"); value != "" {
+	} else if value := os.Getenv("AUTOTO_ACCESS_PASSWORD"); value != "" {
 		// Environment credentials seed the initial password but are never saved
 		// by sanitizeConfigForDisk. A localhost rotation can replace them with a
 		// durable hash for subsequent restarts.
 		security.AccessPassword = value
 	}
-	if value, ok := lookupBoolEnvFallbackReported(report, "AUTOTO_ALLOW_REMOTE_FULL_ACCESS", "CODEHARBOR_ALLOW_REMOTE_FULL_ACCESS"); ok {
+	if value, ok := lookupBoolEnv("AUTOTO_ALLOW_REMOTE_FULL_ACCESS"); ok {
 		security.AllowRemoteFullAccess = value
 	}
-	if value := firstEnvFallback(report, "AUTOTO_DEFAULT_REMOTE_ACCESS_MODE", "CODEHARBOR_DEFAULT_REMOTE_ACCESS_MODE"); value != "" {
+	if value := os.Getenv("AUTOTO_DEFAULT_REMOTE_ACCESS_MODE"); value != "" {
 		security.DefaultRemoteAccessMode = value
 	}
-	if value, ok := lookupBoolEnvFallbackReported(report, "AUTOTO_ALLOW_REMOTE_NATIVE_PICKER", "CODEHARBOR_ALLOW_REMOTE_NATIVE_PICKER"); ok {
+	if value, ok := lookupBoolEnv("AUTOTO_ALLOW_REMOTE_NATIVE_PICKER"); ok {
 		security.AllowRemoteNativePicker = value
 	}
-	if value, ok := lookupBoolEnvFallbackReported(report, "AUTOTO_REMOTE_TERMINAL", "CODEHARBOR_REMOTE_TERMINAL"); ok {
+	if value, ok := lookupBoolEnv("AUTOTO_REMOTE_TERMINAL"); ok {
 		security.AllowRemoteTerminal = value
 	}
 }
@@ -1295,11 +1121,11 @@ func Save(path string, cfg Config) error {
 // environment out of ordinary saves. When a config already exists, its durable
 // values win; when it does not, the zero values are the secure defaults.
 func preserveSecurityEnvOverrides(path string, cfg Config) (Config, error) {
-	_, exposedFromEnv := lookupBoolEnvFallback("AUTOTO_EXPOSED", "CODEHARBOR_EXPOSED")
-	_, fullAccessFromEnv := lookupBoolEnvFallback("AUTOTO_ALLOW_REMOTE_FULL_ACCESS", "CODEHARBOR_ALLOW_REMOTE_FULL_ACCESS")
-	accessModeFromEnv := firstEnv("AUTOTO_DEFAULT_REMOTE_ACCESS_MODE", "CODEHARBOR_DEFAULT_REMOTE_ACCESS_MODE") != ""
-	_, nativePickerFromEnv := lookupBoolEnvFallback("AUTOTO_ALLOW_REMOTE_NATIVE_PICKER", "CODEHARBOR_ALLOW_REMOTE_NATIVE_PICKER")
-	_, terminalFromEnv := lookupBoolEnvFallback("AUTOTO_REMOTE_TERMINAL", "CODEHARBOR_REMOTE_TERMINAL")
+	_, exposedFromEnv := lookupBoolEnv("AUTOTO_EXPOSED")
+	_, fullAccessFromEnv := lookupBoolEnv("AUTOTO_ALLOW_REMOTE_FULL_ACCESS")
+	accessModeFromEnv := os.Getenv("AUTOTO_DEFAULT_REMOTE_ACCESS_MODE") != ""
+	_, nativePickerFromEnv := lookupBoolEnv("AUTOTO_ALLOW_REMOTE_NATIVE_PICKER")
+	_, terminalFromEnv := lookupBoolEnv("AUTOTO_REMOTE_TERMINAL")
 	if !exposedFromEnv && !fullAccessFromEnv && !accessModeFromEnv && !nativePickerFromEnv && !terminalFromEnv {
 		return cfg, nil
 	}
@@ -1419,16 +1245,16 @@ func sanitizeConfigForDisk(cfg Config) Config {
 	return cfg
 }
 
-func defaultBackendsFromEnv(report *compat.Report) []BackendConfig {
-	baseURL := firstEnvFallback(report, "AUTOTO_AGENT_BACKEND_URL", "CODEHARBOR_AGENT_BACKEND_URL", "OPENHANDS_AGENT_SERVER_URL", "AGENT_SERVER_URL")
+func defaultBackendsFromEnv() []BackendConfig {
+	baseURL := firstEnv("AUTOTO_AGENT_BACKEND_URL", "OPENHANDS_AGENT_SERVER_URL", "AGENT_SERVER_URL")
 	if baseURL == "" {
 		return nil
 	}
-	name := firstEnvFallback(report, "AUTOTO_AGENT_BACKEND_NAME", "CODEHARBOR_AGENT_BACKEND_NAME")
+	name := os.Getenv("AUTOTO_AGENT_BACKEND_NAME")
 	if name == "" {
 		name = "Local Agent Server"
 	}
-	kind := firstEnvFallback(report, "AUTOTO_AGENT_BACKEND_KIND", "CODEHARBOR_AGENT_BACKEND_KIND")
+	kind := os.Getenv("AUTOTO_AGENT_BACKEND_KIND")
 	if kind == "" {
 		kind = "local"
 	}
@@ -1437,7 +1263,7 @@ func defaultBackendsFromEnv(report *compat.Report) []BackendConfig {
 			Name:    name,
 			Kind:    kind,
 			BaseURL: normalizeURL(baseURL),
-			APIKey:  firstEnvFallback(report, "AUTOTO_AGENT_BACKEND_API_KEY", "CODEHARBOR_AGENT_BACKEND_API_KEY", "OPENHANDS_SESSION_API_KEY", "AGENT_SERVER_API_KEY"),
+			APIKey:  firstEnv("AUTOTO_AGENT_BACKEND_API_KEY", "OPENHANDS_SESSION_API_KEY", "AGENT_SERVER_API_KEY"),
 			Active:  true,
 		},
 	}

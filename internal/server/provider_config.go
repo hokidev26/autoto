@@ -1187,7 +1187,13 @@ func providerConfigFromUpdateRequest(providerName string, existing config.Provid
 		}
 	}
 	models := append([]config.ProviderModelConfig(nil), existing.Models...)
-	if req.Models != nil {
+	// A present but empty list is treated as "unchanged" rather than "delete
+	// every model". Per-model context limits only exist because the user typed
+	// them, and the console always sends this field: any client path that
+	// reaches save before its model list is populated would otherwise erase
+	// them silently. There is no legitimate empty state to express either,
+	// since NormalizeProviderModels always re-adds the default model.
+	if req.Models != nil && len(*req.Models) > 0 {
 		models = append([]config.ProviderModelConfig(nil), (*req.Models)...)
 	}
 	models = config.NormalizeProviderModels(models, model)

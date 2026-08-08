@@ -29,6 +29,10 @@ const (
 	sameOriginModelCatalogMaxBytes = 4 << 20
 )
 
+// How much of an upstream failure body may be parsed while classifying it. The
+// body itself is never forwarded; see anthropicRequestRejectionHint.
+const anthropicMaxErrorBodyBytes = 64 << 10
+
 type anthropicAccountCandidate struct {
 	id       string
 	priority int
@@ -593,7 +597,13 @@ func fetchOpenAIModelCatalog(ctx context.Context, client *http.Client, catalogUR
 
 func anthropicErrorMetadata(err error) (int, string) {
 	if apiErr := anthropicAPIError(err); apiErr != nil {
-		return apiErr.StatusCode, string(apiErr.Type())
+		errorType := anthropicErrorTypeName(apiErr)
+		if errorType == "" {
+			// Relays have been observed serializing a missing error type as Go's
+			// nil rendering, which sanitizes down to a meaningless "nil" code.
+			errorType = fmt.Sprintf("http_%d", apiErr.StatusCode)
+		}
+		return apiErr.StatusCode, errorType
 	}
 	if isContextTermination(err) {
 		return 0, telemetryErrorCode(err)
@@ -602,6 +612,66 @@ func anthropicErrorMetadata(err error) (int, string) {
 		return 0, "network_error"
 	}
 	return 0, ""
+}
+
+// anthropicErrorTypeName returns the upstream error type, treating values that
+// carry no information as absent. Anthropic-compatible relays do not always
+// populate the type: some omit it, some send JSON null, and some serialize a nil
+// Go value, which arrives as the literal "<nil>".
+func anthropicErrorTypeName(apiErr *anthropic.Error) string {
+	if apiErr == nil {
+		return ""
+	}
+	switch typeName := strings.TrimSpace(string(apiErr.Type())); typeName {
+	case "", "<nil>", "nil", "null":
+		return ""
+	default:
+		return typeName
+	}
+}
+
+// anthropicRequestRejectionHint classifies an upstream rejection body and
+// returns Autoto's own description of it, or "" when the body matches nothing
+// known.
+//
+// It deliberately returns none of the upstream bytes. Response bodies are
+// upstream-controlled and have been observed echoing back request material, so
+// forwarding them would widen the redaction boundary this adapter is tested to
+// hold. Matching locally and emitting a vetted string keeps that boundary while
+// still naming the cause, which is the same tradeoff codexSafeUpstreamHintCode
+// makes on the Codex side.
+//
+// Entries are added only for conditions actually observed against a real
+// endpoint. This one was reproduced against an Anthropic-compatible relay: a
+// turn with parallel tool calls whose tool_result blocks were replayed as
+// separate user messages. It is a defensive net, because appendAnthropicUserContent
+// now prevents Autoto from constructing that request in the first place.
+func anthropicRequestRejectionHint(apiErr *anthropic.Error) string {
+	if apiErr == nil || apiErr.StatusCode != http.StatusBadRequest {
+		return ""
+	}
+	raw := apiErr.RawJSON()
+	if len(raw) == 0 || len(raw) > anthropicMaxErrorBodyBytes {
+		return ""
+	}
+	var envelope struct {
+		Error struct {
+			Message string `json:"message"`
+		} `json:"error"`
+		Message string `json:"message"`
+	}
+	if json.Unmarshal([]byte(raw), &envelope) != nil {
+		return ""
+	}
+	message := envelope.Error.Message
+	if strings.TrimSpace(message) == "" {
+		message = envelope.Message
+	}
+	normalized := strings.ToLower(message)
+	if strings.Contains(normalized, "tool_use") && strings.Contains(normalized, "tool_result") {
+		return "对话历史中的工具调用与工具结果配对不合法，上游拒绝了该请求"
+	}
+	return ""
 }
 
 func sanitizeAnthropicError(ctx context.Context, provider string, err error) error {
@@ -615,14 +685,18 @@ func sanitizeAnthropicError(ctx context.Context, provider string, err error) err
 		return err
 	}
 	if apiErr := anthropicAPIError(err); apiErr != nil {
-		typeName := strings.TrimSpace(string(apiErr.Type()))
+		typeName := anthropicErrorTypeName(apiErr)
 		if typeName == "" {
 			typeName = http.StatusText(apiErr.StatusCode)
 		}
-		if typeName == "" {
-			return fmt.Errorf("%s request failed: HTTP %d", provider, apiErr.StatusCode)
+		text := fmt.Sprintf("%s request failed: HTTP %d", provider, apiErr.StatusCode)
+		if typeName != "" {
+			text = fmt.Sprintf("%s (%s)", text, typeName)
 		}
-		return fmt.Errorf("%s request failed: HTTP %d (%s)", provider, apiErr.StatusCode, typeName)
+		if hint := anthropicRequestRejectionHint(apiErr); hint != "" {
+			text = text + "：" + hint
+		}
+		return errors.New(text)
 	}
 	return providerUnavailableError(provider, "Anthropic request failed")
 }

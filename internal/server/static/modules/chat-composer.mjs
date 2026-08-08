@@ -159,6 +159,10 @@ function isGoalCommandDraft(goalCommand) {
 
 export const maxQueuedMessages = 20;
 
+// Above this many parked messages the list collapses. The composer sits at the
+// bottom of the window, so an uncapped list grows upward over the transcript.
+export const queueCollapseThreshold = 3;
+
 // Queued messages survive a reload, so they arrive from storage as untrusted
 // JSON: everything is re-typed and bounded here rather than at each read site.
 export function normalizeMessageQueue(value) {
@@ -286,6 +290,9 @@ export function createChatComposerController({
   let queueDrainTimer = null;
   let queueDraining = false;
   let queueSequence = 0;
+  // A long queue would push the composer down the screen, so past this many
+  // entries the list collapses to the next few and the rest go behind a toggle.
+  let queueExpanded = false;
 
   // Mirrors resolveComposerActivityStatus() in agent-workspace-helpers.mjs
   // rather than importing it: the composer must not take a dependency on the
@@ -309,11 +316,34 @@ export function createChatComposerController({
     return String(state.agent?.status || "").trim().toLowerCase() === "running";
   }
 
+  // The queue lives on the server so a follow-up parked on a phone is visible on
+  // a desktop and gets sent even with every browser closed. localStorage is kept
+  // only as a mirror, so a queue already on screen survives a reload offline.
   function loadMessageQueue() {
     try {
       return normalizeMessageQueue(JSON.parse(localStorage.getItem(messageQueueKey) || "[]"));
     } catch {
       return [];
+    }
+  }
+
+  async function syncMessageQueueFromServer(agentId = state.agent?.id) {
+    const id = String(agentId || "");
+    if (!id) return;
+    try {
+      const response = await request(`/api/agents/${id}/queue`);
+      // The agent id is stamped on before normalizing, not after: normalization
+      // drops entries without one, so doing it the other way round threw away
+      // the whole server queue and emptied the panel.
+      const items = normalizeMessageQueue((Array.isArray(response?.queue) ? response.queue : [])
+        .map((item) => ({ ...item, agentId: item?.agentId || id })));
+      // Other agents' entries in the mirror are left alone: this response only
+      // speaks for the agent that was asked about.
+      const others = (Array.isArray(state.messageQueue) ? state.messageQueue : []).filter((item) => item?.agentId !== id);
+      writeMessageQueue([...others, ...items]);
+      renderMessageQueue();
+    } catch {
+      // An unreachable server must not wipe what is already on screen.
     }
   }
 
@@ -341,53 +371,125 @@ export function createChatComposerController({
     const pending = queuedMessages();
     host.classList.toggle("hidden", pending.length === 0);
     if (!pending.length) {
+      queueExpanded = false;
       host.innerHTML = "";
       return;
     }
+    const collapsible = pending.length > queueCollapseThreshold;
+    const visible = collapsible && !queueExpanded ? pending.slice(0, queueCollapseThreshold) : pending;
+    const hiddenCount = pending.length - visible.length;
+    const toggleLabel = queueExpanded
+      ? t("workspace.chat.queueCollapse")
+      : t("workspace.chat.queueExpand", { count: hiddenCount });
     host.innerHTML = `
       <div class="message-queue-head">${escapeHtml(t("workspace.chat.queuePending", { count: pending.length }))}</div>
       <ol class="message-queue-list">
-        ${pending.map((item, index) => `
+        ${visible.map((item, index) => `
           <li class="message-queue-item">
             <span class="message-queue-index">${index + 1}</span>
             <span class="message-queue-text">${escapeHtml(item.text)}</span>
+            <button class="message-queue-edit" type="button" data-queue-edit="${escapeAttr(item.id)}" title="${escapeAttr(t("workspace.chat.queueEdit"))}" aria-label="${escapeAttr(t("workspace.chat.queueEdit"))}"><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h4l10-10a2.5 2.5 0 0 0-3.5-3.5L4.5 16.5z"></path><path d="m13.5 7 3.5 3.5"></path></svg></button>
             <button class="message-queue-drop" type="button" data-queue-drop="${escapeAttr(item.id)}" title="${escapeAttr(t("workspace.chat.queueDrop"))}" aria-label="${escapeAttr(t("workspace.chat.queueDrop"))}"><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="m6 6 12 12"></path><path d="m18 6-12 12"></path></svg></button>
           </li>
         `).join("")}
       </ol>
+      ${collapsible ? `<button class="message-queue-toggle" type="button" data-queue-toggle aria-expanded="${queueExpanded ? "true" : "false"}">${escapeHtml(toggleLabel)}</button>` : ""}
     `;
     host.querySelectorAll("[data-queue-drop]").forEach((node) => {
       node.addEventListener("click", () => dropQueuedMessage(node.dataset.queueDrop));
+    });
+    host.querySelectorAll("[data-queue-edit]").forEach((node) => {
+      node.addEventListener("click", () => editQueuedMessage(node.dataset.queueEdit));
+    });
+    host.querySelector?.("[data-queue-toggle]")?.addEventListener("click", () => {
+      queueExpanded = !queueExpanded;
+      renderMessageQueue();
     });
   }
 
   function dropQueuedMessage(id) {
     const key = String(id || "");
     if (!key) return;
+    const agentId = state.agent?.id;
+    // Drop locally first so the row disappears under the finger that tapped it,
+    // then confirm with the server and resync if it disagreed.
     writeMessageQueue((state.messageQueue || []).filter((item) => item?.id !== key));
     renderMessageQueue();
-    scheduleQueueDrain();
+    if (agentId) {
+      request(`/api/agents/${agentId}/queue/${encodeURIComponent(key)}`, { method: "DELETE" })
+        .catch(() => syncMessageQueueFromServer(agentId));
+    }
+  }
+
+  // Editing lifts the message back into the composer rather than opening an
+  // inline field: the composer is where mode, context and history already live,
+  // and re-submitting parks it again while the run is still going.
+  function editQueuedMessage(id) {
+    const key = String(id || "");
+    if (!key) return;
+    const item = (state.messageQueue || []).find((entry) => entry?.id === key);
+    if (!item) return;
+    const input = $("messageText");
+    if (!input) return;
+    const pending = String(input.value || "");
+    // Anything half-typed goes back to the front of the queue instead of being
+    // overwritten by the message being edited.
+    const rest = (state.messageQueue || []).filter((entry) => entry?.id !== key);
+    writeMessageQueue(rest);
+    input.value = item.text;
+    renderMessageQueue();
+    const agentId = state.agent?.id;
+    if (agentId) {
+      // The message is being edited here, so it leaves the shared queue; if the
+      // composer already held text, that text takes its place rather than being
+      // thrown away.
+      request(`/api/agents/${agentId}/queue/${encodeURIComponent(key)}`, { method: "DELETE" })
+        .then(() => (pending.trim()
+          ? request(`/api/agents/${agentId}/queue`, {
+            method: "POST",
+            body: JSON.stringify({ text: pending, mode: item.mode, context: item.context }),
+          })
+          : null))
+        .then(() => syncMessageQueueFromServer(agentId))
+        .catch(() => syncMessageQueueFromServer(agentId));
+    }
+    autoResizeMessageInput();
+    syncMessageComposerBusy({ checkAttachmentContext: false });
+    input.focus();
+    input.setSelectionRange?.(input.value.length, input.value.length);
+    saveCurrentChatDraft();
   }
 
   function enqueueMessage(agentId, text, mode, context) {
     queueSequence += 1;
+    const localId = `queued-${Date.now()}-${queueSequence}`;
+    // Shown immediately, then reconciled: the server owns the real id and the
+    // send, but the user should see their message parked without a round trip.
     writeMessageQueue([...(Array.isArray(state.messageQueue) ? state.messageQueue : []), {
-      id: `queued-${Date.now()}-${queueSequence}`,
+      id: localId,
       agentId: String(agentId || ""),
       text,
       mode,
       context,
     }]);
     renderMessageQueue();
-    scheduleQueueDrain();
+    if (!agentId) return;
+    request(`/api/agents/${agentId}/queue`, {
+      method: "POST",
+      body: JSON.stringify({ text, mode, context }),
+    }).then(() => syncMessageQueueFromServer(agentId)).catch((err) => {
+      writeMessageQueue((state.messageQueue || []).filter((item) => item?.id !== localId));
+      renderMessageQueue();
+      showToast?.(t("workspace.chat.queueSendFailed", { error: err?.message || String(err) }), "warn", { force: true });
+    });
   }
 
   function scheduleQueueDrain() {
     if (queueDrainTimer) return;
     if (!queuedMessages().length) return;
-    // Polled rather than driven off a run-finished event: the composer sees
-    // status through shared state, and a 1s tick that only exists while the
-    // queue is non-empty is cheaper than threading a callback through the shell.
+    // The server owns sending now, so this tick only mirrors its view of the
+    // queue: it is what makes a message queued on another device disappear here
+    // once the backend has sent it.
     queueDrainTimer = setInterval(() => {
       if (!queuedMessages().length) {
         clearInterval(queueDrainTimer);
@@ -395,33 +497,26 @@ export function createChatComposerController({
         return;
       }
       drainMessageQueue().catch(() => {});
-    }, 1000);
+    }, 1500);
   }
 
+  // Sending moved to the backend so a queue drains with every browser closed.
+  // This now only reconciles against the server and pulls in whatever it sent,
+  // which also keeps two open devices from both posting the same message.
   async function drainMessageQueue() {
     if (queueDraining) return;
     const agentId = state.agent?.id;
-    if (!agentId || agentTurnInFlight() || isMessageSendingFor(agentId)) return;
-    const next = queuedMessages(agentId)[0];
-    if (!next) return;
+    if (!agentId) return;
+    const before = queuedMessages(agentId).length;
     queueDraining = true;
-    writeMessageQueue((state.messageQueue || []).filter((item) => item?.id !== next.id));
-    renderMessageQueue();
     try {
-      const accepted = await request(`/api/agents/${agentId}/messages`, {
-        method: "POST",
-        body: JSON.stringify({ text: next.text, mode: next.mode, context: next.context }),
-      });
-      await onMessageAccepted?.(accepted, agentId);
-      rememberPromptHistory(next.text);
-      await loadMessages(agentId);
-      scheduleMessageRefresh(1200, agentId, { skipWhileActive: true });
-    } catch (err) {
-      // Put it back at the head so the order the user typed in survives a
-      // transient failure, and say so instead of dropping their message.
-      writeMessageQueue([next, ...(state.messageQueue || [])]);
-      renderMessageQueue();
-      showToast?.(t("workspace.chat.queueSendFailed", { error: err?.message || String(err) }), "warn", { force: true });
+      await syncMessageQueueFromServer(agentId);
+      // Fewer entries means the backend started one of them, so bring the
+      // conversation into line with the run that is now underway.
+      if (queuedMessages(agentId).length < before) {
+        await loadMessages(agentId);
+        scheduleMessageRefresh(1200, agentId, { skipWhileActive: true });
+      }
     } finally {
       queueDraining = false;
     }
@@ -1031,8 +1126,12 @@ export function createChatComposerController({
     // disabled with nothing else to do. The composer stays usable so the next
     // message can be typed while the current answer is still streaming.
     const sendBtn = $("sendMessageBtn");
-    const stopMode = !busy && agentTurnInFlight();
-    const retryMode = !busy && !stopMode && isRetryMode();
+    // Typing turns Stop back into a send affordance. Submitting mid-run already
+    // parks the text as a follow-up, so a button still labelled Stop was
+    // offering to kill the run the user was queueing behind.
+    const queueMode = !busy && agentTurnInFlight() && Boolean(input?.value?.trim?.());
+    const stopMode = !busy && !queueMode && agentTurnInFlight();
+    const retryMode = !busy && !stopMode && !queueMode && isRetryMode();
     if (sendBtn) {
       sendBtn.classList?.toggle?.("is-stop", stopMode);
       // Let setButtonBusy restore its saved label before applying the current
@@ -1042,9 +1141,10 @@ export function createChatComposerController({
       if (!busy) {
         const label = stopMode
           ? t("workspace.chat.stopRun")
+          : queueMode ? t("workspace.chat.queueSend")
           : retryMode ? t("workspace.chat.retryRun") : t("chat.send");
         const title = stopMode ? t("workspace.chat.stopRunTitle") : label;
-        const ariaLabel = stopMode ? title : retryMode ? label : t("chat.sendMessage");
+        const ariaLabel = stopMode ? title : (queueMode || retryMode) ? label : t("chat.sendMessage");
         setTextIfChanged(sendBtn, label);
         sendBtn.title = title;
         sendBtn.setAttribute?.("aria-label", ariaLabel);
@@ -1052,6 +1152,7 @@ export function createChatComposerController({
         // stop affordance a single square glyph instead of overflowing a 30px
         // circular button with its localized label.
         sendBtn.dataset.mobileLabel = stopMode ? "■" : "↑";
+        sendBtn.classList?.toggle?.("is-queue", queueMode);
       }
     }
   }
@@ -1078,6 +1179,9 @@ export function createChatComposerController({
     sendBtn.dataset.stopBound = "true";
     sendBtn.addEventListener("click", (event) => {
       if (!agentTurnInFlight()) return;
+      // With text waiting, this button is a send: let the submit handler park it
+      // as a follow-up instead of interrupting the run behind it.
+      if ($("messageText")?.value?.trim?.()) return;
       event.preventDefault();
       event.stopPropagation();
       interruptRun().catch((error) => showToast?.(error?.message || String(error), "error", { force: true }));
@@ -1165,7 +1269,15 @@ export function createChatComposerController({
     // joins the back of the line -- otherwise a plain Enter would jump ahead of
     // the follow-ups the user already lined up.
     const queueCommand = parseQueueCommandDraft(text);
-    if (queueCommand || (queuedMessages(agentId).length && !isGoalCommandDraft(goalCommand))) {
+    // Sending while the turn is still in flight parks the message too. Stop is a
+    // separate button, so an Enter here is a follow-up rather than a request to
+    // cut the run short. Attachments and /goal keep their immediate path: the
+    // queue carries neither, and silently dropping either would be worse than
+    // sending now.
+    const autoQueue = agentTurnInFlight()
+      && !isGoalCommandDraft(goalCommand)
+      && !attachments.length;
+    if (queueCommand || autoQueue || (queuedMessages(agentId).length && !isGoalCommandDraft(goalCommand))) {
       const queuedText = queueCommand ? queueCommand.queuedText : text;
       if (!queuedText) {
         showToast?.(t("workspace.chat.queueTextRequired"), "warn", { force: true });
@@ -1439,6 +1551,7 @@ export function createChatComposerController({
     refreshReasoningEffortControl,
     drainMessageQueue,
     loadMessageQueue,
+    syncMessageQueueFromServer,
     removePendingAttachment,
     renderMessageQueue,
     restoreCurrentChatDraft,

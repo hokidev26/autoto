@@ -3579,3 +3579,174 @@ test("opening a conversation re-anchors the tail after the transcript finishes g
     harness.restore();
   }
 });
+
+// A turn's reasoning and the tools it led to are one thought, so they belong in
+// one row. message.reasoningText is only written when the turn finishes, so
+// mid-run the message stack had no reasoning to show while the live steps sat in
+// the tail: one row reading "0 steps reasoning, N tools", and a second row
+// holding the thinking that produced them. That is the split this covers.
+test("a live turn keeps its reasoning and its tools in one activity row", () => {
+  const { html } = renderSnapshot([{
+    id: "u1",
+    role: "user",
+    contentText: "go",
+  }, {
+    id: "a1",
+    role: "assistant",
+    // Visible, and persisted without reasoningText: the runner saves the turn's
+    // words during the run but only writes its reasoning when the turn closes.
+    // That window is what produced "0 步推理 · N 次工具" under the message while
+    // the thinking sat in a second card below it.
+    runId: "run-1",
+    contentText: "Looking into it.",
+  }], {
+    agent: { id: "agent-1", status: "running" },
+    liveAssistantRunId: "run-1",
+    liveToolOutputs: {
+      t1: { agentId: "agent-1", runId: "run-1", messageId: "a1", toolUseId: "t1", toolName: "Grep", status: "completed" },
+      t2: { agentId: "agent-1", runId: "run-1", messageId: "a1", toolUseId: "t2", toolName: "Read", status: "completed" },
+    },
+    liveReasoningSteps: [
+      { id: "reasoning-1", runId: "run-1", text: "First find the caller.", beforeToolUseId: "t1" },
+      { id: "reasoning-2", runId: "run-1", text: "Now read what it does.", beforeToolUseId: "t2" },
+    ],
+  });
+
+  // One row, not two: no separate reasoning-only tail card.
+  assert.equal((html.match(/tool-activity-summary/g) || []).length, 1);
+  assert.equal((html.match(/data-live-tool-output-stack/g) || []).length, 0);
+  // That row owns both, so it counts both.
+  assert.match(html, /活动 · 2 步推理 · 2 次工具/);
+  // Each step is rendered once, not on both surfaces.
+  assert.equal((html.match(/First find the caller\./g) || []).length, 1);
+  assert.equal((html.match(/Now read what it does\./g) || []).length, 1);
+});
+
+// The in-progress draft is the same case and the easiest to double-render: the
+// tail's filter deliberately keeps open steps, so the turn claiming it has to be
+// matched by the tail letting go of it.
+test("the open reasoning draft is not shown on both surfaces", () => {
+  const { html } = renderSnapshot([{
+    id: "u1",
+    role: "user",
+    contentText: "go",
+  }, {
+    id: "a1",
+    role: "assistant",
+    runId: "run-1",
+    contentText: "Working on it.",
+  }], {
+    agent: { id: "agent-1", status: "running" },
+    liveAssistantRunId: "run-1",
+    liveToolOutputs: {
+      t1: { agentId: "agent-1", runId: "run-1", messageId: "a1", toolUseId: "t1", toolName: "Grep", status: "completed" },
+    },
+    liveReasoningDraft: { runId: "run-1", text: "Still deciding what to check next." },
+  });
+
+  assert.equal((html.match(/tool-activity-summary/g) || []).length, 1);
+  assert.equal((html.match(/data-live-tool-output-stack/g) || []).length, 0);
+  assert.equal((html.match(/Still deciding what to check next\./g) || []).length, 1);
+});
+
+// The failure band sat under every image that loaded fine: it carried a bare
+// `display: block`, which outranks the UA stylesheet's [hidden] rule at equal
+// specificity, so the `hidden` attribute in the markup did nothing.
+test("the attachment image failure band stays hidden unless the card is marked missing", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const css = await readFile(new URL("../styles/workspace.css", import.meta.url), "utf8");
+
+  const base = css.match(/\.attachment-image-failed \{[^}]*\}/);
+  assert.ok(base, ".attachment-image-failed must exist");
+  assert.match(base[0], /display:\s*none/, "must default to hidden, not block");
+
+  // Only the is-missing state reveals it, mirroring how the preview is hidden.
+  assert.match(css, /\.attachment-image-card\.is-missing \.attachment-image-failed \{[^}]*display:\s*block/);
+  assert.match(css, /\.attachment-image-card\.is-missing \.attachment-image-preview \{[^}]*display:\s*none/);
+
+  // The markup still ships hidden, and only a real protected-fetch error flips it.
+  const source = await readFile(new URL("./chat-rendering.mjs", import.meta.url), "utf8");
+  assert.match(source, /class="attachment-image-failed" data-attachment-image-failed hidden/);
+  assert.match(source, /protectedImageState !== "error"\) return;/);
+});
+
+// Matches a browser's own image viewer: one centred pill with copy, download and
+// close. Zoom and rotate are deliberately absent.
+test("the image viewer toolbar is centred and offers copy, download and close", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const css = await readFile(new URL("../styles/workspace.css", import.meta.url), "utf8");
+  const source = await readFile(new URL("./image-lightbox.mjs", import.meta.url), "utf8");
+
+  const bar = css.match(/\.image-lightbox-bar \{[^}]*\}/);
+  assert.ok(bar, ".image-lightbox-bar must exist");
+  assert.match(bar[0], /justify-content:\s*center/);
+  assert.match(bar[0], /align-self:\s*center/);
+  assert.match(bar[0], /border-radius:\s*999px/);
+
+  // All three controls share the pill button styling.
+  assert.match(css, /\.image-lightbox-copy,\s*\n\.image-lightbox-download,\s*\n\.image-lightbox-close \{/);
+
+  assert.match(source, /class = "image-lightbox-copy"|className = "image-lightbox-copy"/);
+  assert.match(source, /labels\.copy/);
+  // Copy writes the bytes, not the blob URL: that URL is meaningless elsewhere.
+  assert.match(source, /clipboard\.write/);
+  assert.match(source, /ClipboardItemImpl/);
+  // No zoom or rotate controls.
+  assert.ok(!/zoom|rotate/i.test(source), "the viewer must not add zoom or rotate controls");
+});
+
+test("copying from the image viewer survives an unsupported or blocked clipboard", async () => {
+  const { openImageLightbox } = await import("./image-lightbox.mjs");
+  const nodes = [];
+  const makeNode = (tag) => {
+    const node = {
+      tagName: tag, children: [], attributes: {}, classNames: new Set(),
+      style: {}, textContent: "", listeners: {},
+      appendChild(child) { this.children.push(child); return child; },
+      setAttribute(name, value) { this.attributes[name] = value; },
+      addEventListener(name, handler) { this.listeners[name] = handler; },
+      removeChild() {}, remove() {}, focus() {},
+      classList: {
+        add: (...names) => names.forEach((name) => node.classNames.add(name)),
+        remove: (...names) => names.forEach((name) => node.classNames.delete(name)),
+        contains: (name) => node.classNames.has(name),
+      },
+    };
+    nodes.push(node);
+    return node;
+  };
+  const body = makeNode("body");
+  const documentImpl = {
+    createElement: makeNode,
+    getElementById: () => null,
+    body,
+    addEventListener() {},
+    removeEventListener() {},
+  };
+
+  const opened = await openImageLightbox(
+    { url: "/api/x.png", caption: "shot.png", downloadName: "shot.png", labels: { copy: "Copy image" } },
+    {
+      documentImpl,
+      // protected-images.mjs takes download/createObjectURL overrides, so the
+      // viewer opens without a network call or a real Blob.
+      download: async () => ({ blob: async () => ({ type: "image/png" }) }),
+      createObjectURL: () => "blob:fake",
+      revokeObjectURL: () => {},
+      // Clipboard writes reject, standing in for an unsupported browser.
+      clipboardImpl: { write: async () => { throw new Error("denied"); } },
+      ClipboardItemImpl: class { constructor(items) { this.items = items; } },
+      fetchImpl: async () => ({ blob: async () => ({ type: "image/png" }) }),
+      setTimeoutImpl: () => {},
+    },
+  );
+
+  assert.equal(opened, true, "the viewer must open with the stubbed image runtime");
+  const copy = nodes.find((node) => node.classNames.has("image-lightbox-copy")
+    || node.attributes["data-image-lightbox-copy"] !== undefined);
+  assert.ok(copy, "a copy control must be built");
+  assert.equal(copy.attributes["aria-label"], "Copy image");
+  // The failed copy must be reported inline, never thrown.
+  await copy.listeners.click?.();
+  assert.ok(copy.classNames.has("is-failed"), "a blocked copy marks the control failed");
+});

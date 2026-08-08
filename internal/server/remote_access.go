@@ -217,9 +217,9 @@ func configuredRemoteAccessMode(cfg config.Config) string {
 	return remoteAccessModeRestricted
 }
 
-// remoteAccessAuthentication checks a request credential without emitting
-// legacy warnings. Call validRemoteAccessReporting when warning behavior is
-// required by older callers.
+// remoteAccessAuthentication resolves a request credential to an authenticated
+// mode. Only the canonical cookie, canonical header, and bearer token are
+// accepted.
 func (s *Server) remoteAccessAuthentication(r *http.Request) remoteAccessAuth {
 	auth := remoteAccessAuth{Remote: s.remoteAccessGateRequired(r) || requestHasRemoteAccessCredential(r)}
 	if cookie, err := r.Cookie(remoteAccessCookieName); err == nil {
@@ -229,19 +229,7 @@ func (s *Server) remoteAccessAuthentication(r *http.Request) remoteAccessAuth {
 		}
 		return auth // The canonical cookie deliberately takes precedence.
 	}
-	if cookie, err := r.Cookie(legacyRemoteAccessCookieName); err == nil {
-		if session, ok := s.remoteSessionForToken(cookie.Value); ok {
-			auth.Authenticated, auth.Mode, auth.ExpiresAt, auth.Session = true, session.Mode, session.ExpiresAt, true
-			return auth
-		}
-	}
 	if value := strings.TrimSpace(r.Header.Get(remoteAccessHeader)); value != "" {
-		if s.verifyRemoteAccessPassword(value) {
-			auth.Authenticated, auth.Mode = true, remoteAccessModeRestricted
-		}
-		return auth
-	}
-	if value := strings.TrimSpace(r.Header.Get(legacyRemoteAccessHeader)); value != "" {
 		if s.verifyRemoteAccessPassword(value) {
 			auth.Authenticated, auth.Mode = true, remoteAccessModeRestricted
 		}
@@ -253,8 +241,8 @@ func (s *Server) remoteAccessAuthentication(r *http.Request) remoteAccessAuth {
 		return auth
 	}
 	// Local requests do not need a remote credential. If a credential was
-	// explicitly supplied, however, preserve the compatibility validator's
-	// success/failure result instead of treating a bad credential as local auth.
+	// explicitly supplied, however, preserve its success/failure result instead
+	// of treating a bad credential as local auth.
 	if !auth.Remote && !requestHasRemoteAccessCredential(r) {
 		auth.Authenticated, auth.Mode = true, remoteAccessModeFull
 	}
@@ -265,14 +253,11 @@ func requestHasRemoteAccessCredential(r *http.Request) bool {
 	if _, err := r.Cookie(remoteAccessCookieName); err == nil {
 		return true
 	}
-	if _, err := r.Cookie(legacyRemoteAccessCookieName); err == nil {
-		return true
-	}
 	return requestHasRemotePasswordCredential(r)
 }
 
 func requestHasRemotePasswordCredential(r *http.Request) bool {
-	if strings.TrimSpace(r.Header.Get(remoteAccessHeader)) != "" || strings.TrimSpace(r.Header.Get(legacyRemoteAccessHeader)) != "" {
+	if strings.TrimSpace(r.Header.Get(remoteAccessHeader)) != "" {
 		return true
 	}
 	return strings.HasPrefix(strings.ToLower(strings.TrimSpace(r.Header.Get("Authorization"))), "bearer ")
@@ -280,9 +265,6 @@ func requestHasRemotePasswordCredential(r *http.Request) bool {
 
 func remoteAccessSessionTokenFromRequest(r *http.Request) string {
 	if cookie, err := r.Cookie(remoteAccessCookieName); err == nil {
-		return strings.TrimSpace(cookie.Value)
-	}
-	if cookie, err := r.Cookie(legacyRemoteAccessCookieName); err == nil {
 		return strings.TrimSpace(cookie.Value)
 	}
 	return ""

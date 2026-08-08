@@ -267,7 +267,19 @@ func (r *Runner) SubmitSource(ctx context.Context, submission SourceSubmission) 
 	if len(submission.DispatchID) > 256 {
 		return db.Run{}, errors.New("dispatch id exceeds size limit")
 	}
-	if submission.PermissionModeCap != "readOnly" && submission.PermissionModeCap != "acceptEdits" {
+	// A subagent dispatch may carry bypassPermissions, because its cap is
+	// derived from the parent's own mode by childPermissionCap, which refuses to
+	// widen: only a parent already running under bypassPermissions can produce
+	// it. Schedules keep the narrower contract -- their permission mode is
+	// independently restricted to readOnly/acceptEdits before dispatch, and an
+	// unattended trigger nobody chose per-run must not be able to claim bypass.
+	switch submission.PermissionModeCap {
+	case "readOnly", "acceptEdits":
+	case "bypassPermissions":
+		if submission.Source != "internal" {
+			return db.Run{}, errors.New("permission mode cap must be readOnly or acceptEdits")
+		}
+	default:
 		return db.Run{}, errors.New("permission mode cap must be readOnly or acceptEdits")
 	}
 	if err := ctx.Err(); err != nil {

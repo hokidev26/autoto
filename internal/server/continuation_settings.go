@@ -152,17 +152,31 @@ func strictContinuationSettings(req continuationSettingsRequest) (agent.Continua
 	if settings.Mode != "off" && settings.Mode != "safe" {
 		return agent.ContinuationSettings{}, invalidContinuationSetting("mode must be off or safe")
 	}
-	if settings.SegmentTurns < 1 || settings.SegmentTurns > 1000 {
-		return agent.ContinuationSettings{}, invalidContinuationSetting("segmentTurns must be between 1 and 1000")
-	}
 	// -1 is the one accepted negative value: it means "no ceiling". Any other
 	// negative number is rejected rather than treated as unlimited, so a client
 	// sending -5 gets an error instead of silently removing a budget.
+	//
+	// segmentTurns accepts -1 for the same reason as the budgets below. Requiring
+	// 1..1000 here made the endpoint unable to express its own shipped default
+	// (config.Default sets -1, and continuationLimitsForConfig reads <=0 as "no
+	// ceiling"), so any client that saved budgets had to carry a positive segment
+	// cap forward forever with no way to clear it.
+	if settings.SegmentTurns != unlimitedContinuationBudget && (settings.SegmentTurns < 1 || settings.SegmentTurns > 1000) {
+		return agent.ContinuationSettings{}, invalidContinuationSetting("segmentTurns must be -1 (unlimited) or between 1 and 1000")
+	}
 	if settings.MaxContinuations != unlimitedContinuationBudget && (settings.MaxContinuations < 0 || settings.MaxContinuations > 64) {
 		return agent.ContinuationSettings{}, invalidContinuationSetting("maxContinuations must be -1 (unlimited) or between 0 and 64")
 	}
-	if settings.MaxTotalTurns != unlimitedContinuationBudget && (settings.MaxTotalTurns < settings.SegmentTurns || settings.MaxTotalTurns > 10000) {
-		return agent.ContinuationSettings{}, invalidContinuationSetting("maxTotalTurns must be -1 (unlimited) or between segmentTurns and 10000")
+	// The segmentTurns floor only applies when both are real ceilings: an
+	// unlimited segment cap cannot be a lower bound for the total.
+	if settings.MaxTotalTurns != unlimitedContinuationBudget {
+		floor := settings.SegmentTurns
+		if floor == unlimitedContinuationBudget {
+			floor = 1
+		}
+		if settings.MaxTotalTurns < floor || settings.MaxTotalTurns > 10000 {
+			return agent.ContinuationSettings{}, invalidContinuationSetting("maxTotalTurns must be -1 (unlimited) or between segmentTurns and 10000")
+		}
 	}
 	if settings.MaxRunDurationMs != unlimitedContinuationBudget && (settings.MaxRunDurationMs < 1000 || settings.MaxRunDurationMs > 86400000) {
 		return agent.ContinuationSettings{}, invalidContinuationSetting("maxRunDurationMs must be -1 (unlimited) or between 1000 and 86400000")

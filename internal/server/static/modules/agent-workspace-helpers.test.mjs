@@ -13,8 +13,77 @@ function translate(key) {
     "chat.activity.runningCommand": "正在执行命令",
     "chat.activity.genericStep": "正在处理",
     "chat.activity.awaitingApproval": "等待批准",
+    "chat.activity.retrying": "重试中",
+    "chat.activity.compacting": "压缩中",
   }[key] || key;
 }
+
+test("a provider retry reports itself with the attempt count", () => {
+  assert.deepEqual(
+    resolveComposerActivityStatus({
+      agent: { status: "running" },
+      providerRetry: { attempt: 2, maxAttempts: 3 },
+    }, translate),
+    { kind: "retrying", text: "重试中 2/3" },
+  );
+
+  // Missing counters must not render "undefined/undefined".
+  assert.deepEqual(
+    resolveComposerActivityStatus({ agent: { status: "running" }, providerRetry: {} }, translate),
+    { kind: "retrying", text: "重试中" },
+  );
+});
+
+test("retrying outranks the thinking state it would otherwise be mistaken for", () => {
+  assert.deepEqual(
+    resolveComposerActivityStatus({
+      agent: { status: "running" },
+      liveAssistantActive: true,
+      liveAssistantText: "partial",
+      providerRetry: { attempt: 1, maxAttempts: 3 },
+    }, translate),
+    { kind: "retrying", text: "重试中 1/3" },
+  );
+});
+
+test("compaction outranks retry and tool activity", () => {
+  assert.deepEqual(
+    resolveComposerActivityStatus({
+      agent: { status: "running" },
+      contextCompacting: true,
+      providerRetry: { attempt: 1, maxAttempts: 3 },
+      liveToolOutputs: {
+        "tool-1": { toolUseId: "tool-1", toolName: "Read", status: "running", inputJson: { file_path: "a.go" } },
+      },
+    }, translate),
+    { kind: "compacting", text: "压缩中" },
+  );
+});
+
+test("a pending approval still outranks compaction, since it blocks on the user", () => {
+  assert.deepEqual(
+    resolveComposerActivityStatus({
+      contextCompacting: true,
+      pendingToolApprovals: { "tool-2": { toolUseId: "tool-2", toolName: "Bash" } },
+    }, translate),
+    { kind: "approval", text: "等待批准 · Bash" },
+  );
+});
+
+test("cleared retry and compaction flags fall back to the ordinary states", () => {
+  assert.deepEqual(
+    resolveComposerActivityStatus({
+      agent: { status: "running" },
+      providerRetry: null,
+      contextCompacting: false,
+    }, translate),
+    { kind: "thinking", text: "思考中" },
+  );
+  assert.equal(
+    resolveComposerActivityStatus({ providerRetry: null, contextCompacting: false }, translate),
+    null,
+  );
+});
 
 test("attachment classification recognizes only allowlisted browser video MIME types", () => {
   const helpers = createAgentWorkspaceHelpers({ state: {} });
@@ -112,7 +181,12 @@ test("desktop project conversations use the task summary while mobile and standa
 
     helpers.refreshComposerActivityStatus();
     assert.deepEqual(routed[0], { kind: "thinking", text: "思考中" });
-    assert.equal(wrapper.classList.contains("is-busy"), false);
+    // The text belongs to the task summary so it is not duplicated here, but the
+    // pill must still read as busy: an idle grey dot sitting beside a task
+    // summary animating a running step looked like a stalled workspace.
+    assert.equal(wrapper.classList.contains("is-busy"), true);
+    assert.equal(dot.classList.contains("busy"), true);
+    assert.equal(dot.classList.contains("ok"), false);
     assert.notEqual(label.textContent, "思考中");
 
     mobileViewport = true;

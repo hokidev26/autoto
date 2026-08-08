@@ -55,7 +55,7 @@ func TestGatewayAdminRoutesRequireSensitiveToken(t *testing.T) {
 			}
 
 			legacyRequest := newTestRequest(route.method, route.path, strings.NewReader(route.body))
-			legacyRequest.Header.Set(legacyLocalTokenHeader, app.localToken)
+			legacyRequest.Header.Set(nonCanonicalLocalTokenHeader, app.localToken)
 			legacyResponse := httptest.NewRecorder()
 			app.Routes().ServeHTTP(legacyResponse, legacyRequest)
 			if legacyResponse.Code != http.StatusUnauthorized {

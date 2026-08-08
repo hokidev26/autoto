@@ -21,20 +21,6 @@ builds:
     goarch:
       - amd64
       - arm64
-  - id: codeharbor-compat
-    main: ./cmd/codeharbor
-    binary: codeharbor
-    env:
-      - CGO_ENABLED=0
-    ldflags:
-      - -s -w -X autoto/internal/config.Version={{.Version}}
-    goos:
-      - darwin
-      - linux
-      - windows
-    goarch:
-      - amd64
-      - arm64
   # Native desktop shell requires CGO + platform WebView toolchains.
   # Multi-platform Wails artifacts are produced via scripts/build-desktop-release.sh
   # on developer machines or dedicated OS runners, not this CGO_ENABLED=0 matrix.
@@ -43,7 +29,6 @@ archives:
   - id: autoto
     ids:
       - autoto
-      - codeharbor-compat
     name_template: >-
       {{ .ProjectName }}_
       {{- .Version }}_

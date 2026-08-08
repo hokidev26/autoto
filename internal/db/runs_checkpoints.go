@@ -113,7 +113,12 @@ func (s *Store) CreateRun(ctx context.Context, run Run) (Run, error) {
 	if !validRunStatus(run.Status) {
 		return Run{}, errors.New("invalid run status")
 	}
-	if run.PermissionModeCap != "" && run.PermissionModeCap != "readOnly" && run.PermissionModeCap != "acceptEdits" {
+	// bypassPermissions is a valid ceiling only for an internally dispatched run,
+	// i.e. a subagent whose parent already holds bypass. Schedules and manual runs
+	// keep the narrower set: a schedule's own mode is separately restricted to
+	// readOnly/acceptEdits, and widening it here would be the one place that
+	// restriction could be escaped.
+	if !validRunPermissionModeCap(run.PermissionModeCap, run.TriggerType) {
 		return Run{}, errors.New("invalid run permission mode cap")
 	}
 	if run.TriggerType != "manual" && run.TriggerType != "scheduled" && run.TriggerType != "goal" && run.TriggerType != "internal" {
@@ -261,6 +266,29 @@ func validRunStatus(status string) bool {
 	switch status {
 	case "pending", "running", "continuation_pending", "completed", "interrupted", "error", "superseded", "skipped":
 		return true
+	default:
+		return false
+	}
+}
+
+// validRunPermissionModeCap decides which ceilings a Run may declare. An empty
+// cap means "no ceiling beyond the agent's own mode" and stays allowed.
+//
+// bypassPermissions is admitted only for an internal trigger, which is the
+// subagent dispatch path: childPermissionCap has already proven the parent holds
+// bypass, so the child's ceiling is the parent's own mode rather than a widening.
+// Every other trigger keeps the narrower pair. That matters most for schedules,
+// whose own permission mode is separately restricted to readOnly/acceptEdits --
+// admitting bypass here for a scheduled trigger would be the one place that
+// restriction could be escaped.
+func validRunPermissionModeCap(cap, triggerType string) bool {
+	switch strings.TrimSpace(cap) {
+	case "":
+		return true
+	case "readOnly", "acceptEdits":
+		return true
+	case "bypassPermissions":
+		return strings.TrimSpace(triggerType) == "internal"
 	default:
 		return false
 	}

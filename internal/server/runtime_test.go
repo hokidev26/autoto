@@ -115,7 +115,7 @@ func TestRuntimeSecuritySummaryUsesCanonicalPasswordEnvName(t *testing.T) {
 	request.Host = "demo.trycloudflare.com"
 	markRemoteHTTPS(request)
 	summary := app.runtimeSecuritySummaryForRequest(request)
-	if !strings.Contains(summary.Message, "AUTOTO_ACCESS_PASSWORD") || strings.Contains(summary.Message, "CODEHARBOR_ACCESS_PASSWORD") {
+	if !strings.Contains(summary.Message, "AUTOTO_ACCESS_PASSWORD") {
 		t.Fatalf("expected canonical password env guidance, got %q", summary.Message)
 	}
 }

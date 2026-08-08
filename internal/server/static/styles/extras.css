@@ -1921,6 +1921,10 @@ body.white-shell.theme-light .overview-launcher-custom-select {
   padding: 0;
 }
 body.white-shell.theme-light .overview-launcher-custom-select.effort-pill { width: auto; min-width: 74px; height: 26px; }
+/* Project shares the model pill's box rather than the effort pill's auto width:
+   a project name or path needs the same room a model id does, and the three
+   fields reading as one row of equal controls is the point. */
+body.white-shell.theme-light .overview-launcher-custom-select.project-pill { width: min(220px, 24vw); min-width: 148px; height: 26px; }
 body.white-shell.theme-light .overview-launcher-select-trigger {
   min-height: 26px;
   gap: 7px;
@@ -1939,6 +1943,10 @@ body.white-shell.theme-light .overview-launcher-select-trigger .composer-select-
   z-index: 125;
 }
 .overview-launcher-select-popover.composer-model-popover { width: min(340px, calc(100vw - 32px)); }
+/* Project entries are names or full paths, so the 190px floor the shared rule
+   sets is too narrow to read; the trigger still ellipsises, the menu does not
+   have to. */
+.overview-launcher-select-popover[data-overview-launcher-popover="projectId"] { width: min(340px, calc(100vw - 32px)); }
 /* Sized to the toolbar row it now shares with the pills, so the launcher
    toolbar keeps the composer toolbar's 30px rhythm. */
 .overview-launcher-directory,
@@ -1958,6 +1966,16 @@ body.white-shell.theme-light .overview-launcher-select-trigger .composer-select-
 }
 .overview-launcher-directory:hover,
 .overview-launcher-suggestion:hover { border-color: color-mix(in srgb, #5369f3 48%, var(--ws-border, #dfe3e9)); color: #4057c8; box-shadow: 0 5px 14px rgba(48, 64, 120, .09); transform: translateY(-1px); }
+/* The directory button sits in the same toolbar row as the three pills, so it
+   takes their 38px outer height (26px pill + the field's 5px padding and 1px
+   border on each side) instead of the 28px it inherited from the suggestion
+   chips, which live in a different row. */
+body.white-shell.theme-light .overview-launcher-directory {
+  min-height: 38px;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 11px;
+}
 /* Beside the field, matching its height, exactly as #sendMessageBtn sits next to
    the composer textarea on desktop. The button shows its label rather than the
    icon, which is what makes the two surfaces read the same. */
@@ -2037,6 +2055,54 @@ body.white-shell.theme-light .overview-launcher-select-trigger .composer-select-
 .overview-section-header p { margin: 0; color: var(--ws-muted, #747e90); font-size: 10px; }
 .overview-inline-error { border: 1px solid color-mix(in srgb, #d14343 35%, var(--ws-border, #dfe3e9)); border-radius: 11px; background: #fff4f4; color: #9f2929; padding: 11px 13px; font-size: 11px; }
 
+/* Host resource cards: CPU, memory, and network throughput. Same 4-column
+   rhythm as the summary grid above, but shorter and without the oversized
+   numeral, so they read as a status strip rather than competing with the
+   headline stats. */
+.overview-metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 11px;
+  padding: 13px 15px;
+}
+.overview-metric-card {
+  min-width: 0;
+  display: grid;
+  gap: 5px;
+  border: 1px solid var(--ws-border, #dfe3e9);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--ws-canvas, #f8fafc) 55%, var(--ws-card, #fff));
+  padding: 10px 12px;
+}
+.overview-metric-label { color: var(--ws-muted, #747e90); font-size: 10px; font-weight: 700; }
+.overview-metric-value { font-size: 17px; font-weight: 680; line-height: 1.1; font-variant-numeric: tabular-nums; }
+.overview-metric-bar {
+  height: 5px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--ws-muted, #747e90) 18%, transparent);
+}
+.overview-metric-bar > span { display: block; height: 100%; border-radius: inherit; transition: width .28s ease, background-color .2s ease; }
+.overview-metric-detail {
+  overflow: hidden;
+  color: var(--ws-muted, #747e90);
+  font-size: 9px;
+  line-height: 1.4;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+/* Three pressure levels. The tone word is also rendered in the card text, so
+   the colour reinforces the state rather than being the only way to read it. */
+.overview-metric-card[data-tone="ok"] { border-color: color-mix(in srgb, #1f9d55 26%, var(--ws-border, #dfe3e9)); }
+.overview-metric-card[data-tone="ok"] .overview-metric-bar > span { background: #1f9d55; }
+.overview-metric-card[data-tone="ok"] .overview-metric-value { color: #157347; }
+.overview-metric-card[data-tone="warning"] { border-color: color-mix(in srgb, #d98324 40%, var(--ws-border, #dfe3e9)); background: color-mix(in srgb, #d98324 7%, var(--ws-card, #fff)); }
+.overview-metric-card[data-tone="warning"] .overview-metric-bar > span { background: #d98324; }
+.overview-metric-card[data-tone="warning"] .overview-metric-value { color: #a85a00; }
+.overview-metric-card[data-tone="danger"] { border-color: color-mix(in srgb, #d14343 46%, var(--ws-border, #dfe3e9)); background: color-mix(in srgb, #d14343 8%, var(--ws-card, #fff)); }
+.overview-metric-card[data-tone="danger"] .overview-metric-bar > span { background: #d14343; }
+.overview-metric-card[data-tone="danger"] .overview-metric-value { color: #b91c1c; }
+
 /* Usage heatmap: a month-label row above a 7-row calendar grid, with the
    weekday gutter beside it. The cells flow down each column so one grid column
    is one week, matching the contribution-graph reading order. */
@@ -2106,6 +2172,7 @@ body.white-shell.theme-light .overview-launcher-select-trigger .composer-select-
 }
 @media (max-width: 1120px) {
   .overview-summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .overview-metrics-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 @media (max-width: 900px) {
   .overview-dashboard { padding-inline: 24px; }
@@ -2140,6 +2207,19 @@ body.white-shell.theme-light.theme-dark :is(.overview-summary-card:hover, .overv
 body.white-shell.theme-light.theme-dark .overview-refresh.primary,
 body.white-shell.theme-light.theme-dark .overview-launcher-send { border-color: #7589ff; background: #6175e8; color: #fff; }
 body.white-shell.theme-light.theme-dark .overview-section-header { border-color: var(--ws-border); }
+/* Resource cards under the dark presets (cyber included). The light palette's
+   greens and reds go muddy on a dark canvas, so each tone gets a lifted, more
+   saturated variant while the neutral card takes the standard dark surface. */
+body.white-shell.theme-light.theme-dark .overview-metric-card { border-color: var(--ws-border); background: color-mix(in srgb, var(--ws-canvas) 58%, var(--ws-card)); }
+body.white-shell.theme-light.theme-dark .overview-metric-card[data-tone="ok"] { border-color: color-mix(in srgb, #3ddc84 32%, var(--ws-border)); }
+body.white-shell.theme-light.theme-dark .overview-metric-card[data-tone="ok"] .overview-metric-bar > span { background: #3ddc84; }
+body.white-shell.theme-light.theme-dark .overview-metric-card[data-tone="ok"] .overview-metric-value { color: #6ff0a5; }
+body.white-shell.theme-light.theme-dark .overview-metric-card[data-tone="warning"] { border-color: color-mix(in srgb, #ffb454 44%, var(--ws-border)); background: color-mix(in srgb, #ffb454 12%, var(--ws-card)); }
+body.white-shell.theme-light.theme-dark .overview-metric-card[data-tone="warning"] .overview-metric-bar > span { background: #ffb454; }
+body.white-shell.theme-light.theme-dark .overview-metric-card[data-tone="warning"] .overview-metric-value { color: #ffc978; }
+body.white-shell.theme-light.theme-dark .overview-metric-card[data-tone="danger"] { border-color: color-mix(in srgb, #ff6b6b 48%, var(--ws-border)); background: color-mix(in srgb, #ff6b6b 13%, var(--ws-card)); }
+body.white-shell.theme-light.theme-dark .overview-metric-card[data-tone="danger"] .overview-metric-bar > span { background: #ff6b6b; }
+body.white-shell.theme-light.theme-dark .overview-metric-card[data-tone="danger"] .overview-metric-value { color: #ff9b9b; }
 body.white-shell.theme-light.theme-dark .overview-launcher-error { color: #ffaaaa; }
 body.white-shell.theme-light.theme-dark .overview-inline-error { border-color: color-mix(in srgb, #ef6a6a 42%, var(--ws-border)); background: color-mix(in srgb, #ef6a6a 10%, var(--ws-card)); color: #ffaaaa; }
 @media (prefers-reduced-motion: reduce) {
@@ -2150,6 +2230,9 @@ body.white-shell.theme-light.theme-dark .overview-inline-error { border-color: c
   .overview-launcher-directory,
   .overview-launcher-suggestion,
   .overview-launcher-send { transition: none; }
+  /* The bar animates on every poll, so it is the one element here that would
+     move without any user action. */
+  .overview-metric-bar > span { transition: none; }
 }
 
 /* First-class schedule workspace: one sidebar row per schedule, with an inline editor. */
@@ -2558,7 +2641,7 @@ body.white-shell.theme-light.theme-dark .context-clear-confirmation :is(strong, 
   body.white-shell.theme-light .app-shell.terminal-collapsed.details-open,
   body.white-shell.theme-light .app-shell.terminal-collapsed.background-tasks-open,
   body.white-shell.theme-light .app-shell.terminal-collapsed.preview-open {
-    grid-template-columns: var(--global-rail-layout-width) var(--session-sidebar-layout-width) minmax(0, 1fr) var(--utility-panel-width, clamp(380px, calc(50vw - 186px), 620px));
+    grid-template-columns: var(--global-rail-layout-width) var(--session-sidebar-layout-width) minmax(0, 1fr) var(--utility-panel-width, clamp(260px, calc(50vw - 186px), 620px));
   }
 
   body.white-shell.theme-light .app-shell.global-rail-collapsed {

@@ -32,13 +32,16 @@ type winStatement struct {
 }
 
 type winScan struct {
-	statements   []winStatement
-	compound     bool
-	pipeline     bool
-	redirection  bool
-	truncating   bool
-	substitution bool
-	unbalanced   bool
+	statements  []winStatement
+	compound    bool
+	pipeline    bool
+	redirection bool
+	// The costliest redirect target on the line, as a classifyRedirectTarget tier.
+	// Held as a tier rather than a bool so a scratch log and a raw device are not
+	// treated as the same act.
+	truncationTier int
+	substitution   bool
+	unbalanced     bool
 }
 
 // analyzeWindowsCommand returns a conservative, JSON-safe summary of a cmd.exe
@@ -69,9 +72,16 @@ func analyzeWindowsCommandDepth(command string, depth int) CommandFacts {
 		sensitive: make(map[string]struct{}),
 		depth:     depth,
 	}
-	if scan.truncating {
+	switch scan.truncationTier {
+	case redirectTargetDevice:
 		collector.effect("filesystem-write")
 		collector.danger("file-truncate")
+	case redirectTargetFile:
+		// Unchanged on purpose; see the matching branch in command_facts.go.
+		collector.effect("filesystem-write")
+		collector.danger("file-truncate")
+	case redirectTargetScratch:
+		collector.effect("filesystem-write")
 	}
 	for index := range scan.statements {
 		collector.visitStatement(scan.statements[index])
@@ -179,8 +189,10 @@ func scanWindowsCommand(command string) winScan {
 			for i+1 < len(runes) && !strings.ContainsRune(" \t|&<>", runes[i+1]) {
 				i++
 			}
-			if truncates && !isDiscardRedirectTarget(string(runes[targetStart:i+1])) {
-				scan.truncating = true
+			if truncates {
+				if tier := classifyRedirectTarget(string(runes[targetStart : i+1])); tier > scan.truncationTier {
+					scan.truncationTier = tier
+				}
 			}
 		case '<':
 			scan.redirection = true
@@ -208,6 +220,13 @@ type windowsFactsCollector struct {
 	dangerous map[string]struct{}
 	sensitive map[string]struct{}
 	depth     int
+	// Whether an earlier stage of the pipeline currently being walked was a
+	// network downloader. "curl x | sh" is remote code execution; "go test | sh"
+	// is not, and only the upstream stage can tell them apart. Statements are
+	// visited left to right, so this is set by the downloader and read by the
+	// interpreter. Cleared at every pipeline boundary so a download in one
+	// pipeline cannot taint the next one on the same line.
+	pipedFromNetwork bool
 }
 
 func (c *windowsFactsCollector) effect(label string)         { c.effects[label] = struct{}{} }
@@ -550,10 +569,25 @@ func (c *windowsFactsCollector) classify(program string, args []winToken, statem
 	// A downloader piped into any interpreter is remote code execution.
 	if statement.pipesForth && (program == "curl" || program == "wget" || program == "certutil" || program == "bitsadmin") {
 		c.effect("network-access")
+		c.pipedFromNetwork = true
 	}
 	if statement.pipedInto && windowsInterpreter(program) {
 		c.effect("shell-execution")
-		c.danger("network-pipe-shell")
+		// Only a download reaching the interpreter is remote code execution, which
+		// is what this label means and what the POSIX classifier requires before
+		// applying it. Piping a local program's output into PowerShell to format it
+		// is ordinary shell work: it stays approvable, matching the POSIX
+		// "pipe-to-interpreter" fallback, so danger reflection and human approval
+		// can still stop a genuinely bad one.
+		if c.pipedFromNetwork {
+			c.danger("network-pipe-shell")
+		} else {
+			c.sensitiveLabel("pipe-to-interpreter")
+		}
+	}
+	// A pipeline ends here, so no later stage inherits this one's network state.
+	if !statement.pipesForth {
+		c.pipedFromNetwork = false
 	}
 }
 

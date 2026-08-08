@@ -426,13 +426,26 @@ func taskPayloadCWD(task db.BackgroundTask) string {
 	return strings.TrimSpace(payload.CWD)
 }
 
+// childPermissionCap resolves the permission ceiling a dispatched child may run
+// under. The invariant is one-directional: a child can match its parent or be
+// narrower, never wider.
+//
+// bypassPermissions has its own rank rather than sharing one with acceptEdits.
+// Collapsing the two meant a parent whose user had explicitly chosen "allow
+// everything" still produced children that had to stop and ask, and nobody is
+// present in a dispatched run to answer -- so the task stalled until the
+// approval timed out. Ranking it separately lets that choice reach the child,
+// while the widening check keeps an acceptEdits parent from ever producing a
+// bypassPermissions child.
 func childPermissionCap(parentMode, requestedCap string) (string, error) {
 	rank := func(mode string) int {
 		switch strings.TrimSpace(mode) {
 		case "readOnly":
 			return 1
-		case "acceptEdits", "bypassPermissions", "default", "dontAsk":
+		case "acceptEdits", "default", "dontAsk":
 			return 2
+		case "bypassPermissions":
+			return 3
 		default:
 			return 0
 		}
@@ -448,10 +461,14 @@ func childPermissionCap(parentMode, requestedCap string) (string, error) {
 	if requestedRank == 0 || requestedRank > parentRank {
 		return "", errors.New("background agent task cannot widen permission capability")
 	}
-	if requestedRank == 1 {
+	switch requestedRank {
+	case 1:
 		return "readOnly", nil
+	case 2:
+		return "acceptEdits", nil
+	default:
+		return "bypassPermissions", nil
 	}
-	return "acceptEdits", nil
 }
 
 func validAgentPresetKey(value string) bool {

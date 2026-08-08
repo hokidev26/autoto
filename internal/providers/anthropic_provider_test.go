@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -1411,5 +1412,154 @@ func TestAnthropicProviderErrorsAreRedactedAndNonRetryableErrorsStop(t *testing.
 	}
 	if strings.Contains(collected[1].Text, secret) || strings.Contains(collected[1].Text, "bad key") {
 		t.Fatalf("error leaked upstream secret/body: %q", collected[1].Text)
+	}
+}
+
+// TestAnthropicMessagesMergeParallelToolResults is the regression guard for the
+// bug this merge exists to prevent: a turn with parallel tool calls is stored as
+// one user message per tool result, and replaying that verbatim is rejected with
+// "Invalid message sequence: tool_use and tool_result blocks must be correctly
+// paired and ordered" — permanently, because every later request replays it.
+func TestAnthropicMessagesMergeParallelToolResults(t *testing.T) {
+	messages, _ := anthropicMessages([]Message{
+		{Role: "user", Content: "list the files"},
+		{Role: "assistant", Blocks: []ContentBlock{
+			{Type: "tool_use", ToolUseID: "tool-a", ToolName: "Bash", Input: json.RawMessage(`{"command":"ls"}`)},
+			{Type: "tool_use", ToolUseID: "tool-b", ToolName: "Glob", Input: json.RawMessage(`{"pattern":"*.go"}`)},
+		}},
+		{Role: "user", Blocks: []ContentBlock{{Type: "tool_result", ToolUseID: "tool-a", Output: "out-a"}}},
+		{Role: "user", Blocks: []ContentBlock{{Type: "tool_result", ToolUseID: "tool-b", Output: "out-b"}}},
+	}, "", "claude-sonnet-4-5")
+
+	if len(messages) != 3 {
+		t.Fatalf("parallel tool results must collapse into one user message, got %d messages", len(messages))
+	}
+	if messages[0].Role != anthropic.MessageParamRoleUser || messages[1].Role != anthropic.MessageParamRoleAssistant || messages[2].Role != anthropic.MessageParamRoleUser {
+		t.Fatalf("unexpected roles: %v %v %v", messages[0].Role, messages[1].Role, messages[2].Role)
+	}
+	results := messages[2].Content
+	if len(results) != 2 || results[0].OfToolResult == nil || results[1].OfToolResult == nil {
+		t.Fatalf("expected both tool_result blocks in the trailing user message: %+v", results)
+	}
+	// Order must survive the merge: a tool_result is matched to its tool_use by
+	// id, but reordering would still change what the model reads first.
+	if results[0].OfToolResult.ToolUseID != "tool-a" || results[1].OfToolResult.ToolUseID != "tool-b" {
+		t.Fatalf("tool_result order changed: %s then %s", results[0].OfToolResult.ToolUseID, results[1].OfToolResult.ToolUseID)
+	}
+}
+
+// Merging runs on the emitted slice, so user messages that were not adjacent in
+// the input still merge once the entries between them are hoisted or dropped.
+func TestAnthropicMessagesMergeAcrossVanishedMessages(t *testing.T) {
+	foreignThinking := NewAnthropicThinkingContentBlock("claude-opus-4-6", "other model", "sig-other")
+	messages, system := anthropicMessages([]Message{
+		{Role: "assistant", Blocks: []ContentBlock{
+			{Type: "tool_use", ToolUseID: "tool-a", ToolName: "Bash", Input: json.RawMessage(`{}`)},
+			{Type: "tool_use", ToolUseID: "tool-b", ToolName: "Glob", Input: json.RawMessage(`{}`)},
+		}},
+		{Role: "user", Blocks: []ContentBlock{{Type: "tool_result", ToolUseID: "tool-a", Output: "out-a"}}},
+		// Hoisted into system, so it must not split the tool_result run.
+		{Role: "system", Content: "sidecar note"},
+		// Dropped entirely: its only block is thinking signed by another model.
+		{Role: "assistant", Blocks: []ContentBlock{foreignThinking}},
+		{Role: "user", Blocks: []ContentBlock{{Type: "tool_result", ToolUseID: "tool-b", Output: "out-b"}}},
+	}, "", "claude-sonnet-4-5")
+
+	if len(system) != 1 || system[0].Text != "sidecar note" {
+		t.Fatalf("system message was not hoisted: %+v", system)
+	}
+	if len(messages) != 2 {
+		t.Fatalf("expected assistant + one merged user message, got %d", len(messages))
+	}
+	results := messages[1].Content
+	if len(results) != 2 || results[0].OfToolResult == nil || results[1].OfToolResult == nil {
+		t.Fatalf("tool_result blocks were split across messages: %+v", results)
+	}
+}
+
+// The merge must not flatten an ordinary conversation into one turn.
+func TestAnthropicMessagesPreserveAlternation(t *testing.T) {
+	messages, _ := anthropicMessages([]Message{
+		{Role: "user", Content: "first"},
+		{Role: "assistant", Content: "answer one"},
+		{Role: "user", Content: "second"},
+		{Role: "assistant", Content: "answer two"},
+	}, "", "claude-sonnet-4-5")
+
+	wantRoles := []anthropic.MessageParamRole{
+		anthropic.MessageParamRoleUser,
+		anthropic.MessageParamRoleAssistant,
+		anthropic.MessageParamRoleUser,
+		anthropic.MessageParamRoleAssistant,
+	}
+	if len(messages) != len(wantRoles) {
+		t.Fatalf("alternating turns must not merge, got %d messages", len(messages))
+	}
+	for index, want := range wantRoles {
+		if messages[index].Role != want {
+			t.Fatalf("message %d role = %v, want %v", index, messages[index].Role, want)
+		}
+	}
+}
+
+// A relay that reports no error type used to surface as "HTTP 400 (<nil>)",
+// which named no cause and stored a meaningless "nil" telemetry code. The status
+// text now fills in, the rejection is classified in Autoto's own words, and no
+// upstream byte is forwarded.
+func TestAnthropicProviderClassifiesRejectionWithoutForwardingBody(t *testing.T) {
+	storeDir := t.TempDir()
+	store := anthropicauth.NewStore(storeDir)
+	account := createAnthropicAPIKeyAccount(t, store, "sk-ant-classify-key", 10, false)
+	upstream := "Invalid message sequence: tool_use and tool_result blocks must be correctly paired and ordered. (request id: abc123)"
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(`{"type":"error","error":{"type":"<nil>","message":` + strconv.Quote(upstream) + `}}`))
+	}))
+	defer server.Close()
+	telemetry := &recordingAnthropicTelemetry{}
+	provider := NewAnthropicProvider(config.ProviderConfig{BaseURL: server.URL, CredentialStorePath: storeDir, Model: "claude-test"})
+	provider.SetAccountTelemetry(telemetry)
+	events, err := provider.Generate(context.Background(), GenerateRequest{Messages: []Message{{Role: "user", Content: "hello"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, collected := collectAnthropicEvents(t, events)
+
+	var errorText string
+	for _, event := range collected {
+		if event.Type == "error" {
+			errorText = event.Text
+		}
+	}
+	if errorText == "" {
+		t.Fatalf("expected an error event: %+v", collected)
+	}
+	if !strings.Contains(errorText, "HTTP 400") || !strings.Contains(errorText, "Bad Request") {
+		t.Fatalf("status was not reported: %q", errorText)
+	}
+	if !strings.Contains(errorText, "工具调用与工具结果配对不合法") {
+		t.Fatalf("rejection was not classified: %q", errorText)
+	}
+	if strings.Contains(errorText, "<nil>") || strings.Contains(errorText, "(nil)") {
+		t.Fatalf("uninformative error type reached the operator: %q", errorText)
+	}
+	// The classification is local: none of the upstream body may be echoed.
+	for _, forbidden := range []string{"Invalid message sequence", "request id", "abc123"} {
+		if strings.Contains(errorText, forbidden) {
+			t.Fatalf("upstream body fragment %q leaked: %q", forbidden, errorText)
+		}
+	}
+	telemetry.mu.Lock()
+	defer telemetry.mu.Unlock()
+	if len(telemetry.attempts) != 1 {
+		t.Fatalf("expected exactly one recorded attempt: %+v", telemetry.attempts)
+	}
+	attempt := telemetry.attempts[0]
+	if attempt.Success || attempt.HTTPStatus != http.StatusBadRequest || attempt.AccountID != account.Credential.ID {
+		t.Fatalf("unexpected attempt telemetry: %+v", attempt)
+	}
+	if attempt.ErrorCode != "http_400" {
+		t.Fatalf("telemetry error code = %q, want http_400", attempt.ErrorCode)
 	}
 }

@@ -348,6 +348,32 @@ func (r *Runner) executeToolForLoop(ctx context.Context, agentID, runID string, 
 		r.publish(Event{Type: "tool.finished", AgentID: agentID, Data: toolFinishedEventDataWithResolution(call, risk, executionDeviceID, runID, result, "denied", 0, nil, permission)})
 		return result, nil
 	}
+	// A subagent's approval prompt is addressed to the child's own agentID, which
+	// no one is watching: the parent turn dispatched the task and moved on, and
+	// the panel that shows the child reports status rather than answering for it.
+	// Waiting therefore spends the full toolApprovalTimeout to arrive at the same
+	// deny, minus the reason. Denying now and handing the reason to the child lets
+	// it adjust or explain itself, which is the difference between a task that
+	// stalls and one that finishes with an account of what it could not do.
+	//
+	// Scoped to child agents on purpose. Schedule dispatches are unattended too,
+	// but their approval request does reach a human through the Telegram control
+	// plane's /approve and /deny, so they must keep waiting.
+	if policy.ChildAgent && policy.Unattended {
+		message := strings.TrimSpace(permission.Warning)
+		if message == "" {
+			message = strings.TrimSpace(permission.Reason)
+		}
+		if message == "" {
+			message = "tool call requires approval, and no one is present to answer for this subagent"
+		}
+		slog.Info("unattended subagent tool call denied without waiting for approval",
+			"agentId", agentID, "runId", runID, "toolName", call.Name, "risk", risk, "source", permission.Source)
+		result := tools.Result{Output: message, IsError: true}
+		r.recordImmediateToolResult(ctx, agentID, runID, messageID, call, risk, result, "denied", message)
+		r.publish(Event{Type: "tool.finished", AgentID: agentID, Data: toolFinishedEventDataWithResolution(call, risk, executionDeviceID, runID, result, "denied", 0, nil, permission)})
+		return result, nil
+	}
 	decision, err := r.waitForToolApproval(ctx, agent, runID, call, risk, messageID, permission, allowSessionApproval)
 	if err != nil {
 		return tools.Result{}, err

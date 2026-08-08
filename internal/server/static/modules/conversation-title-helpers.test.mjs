@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-globalThis.window = { AUTOTO_LOCAL_TOKEN: "", CODEHARBOR_LOCAL_TOKEN: "" };
+globalThis.window = { AUTOTO_LOCAL_TOKEN: "" };
 globalThis.location = { origin: "http://localhost", protocol: "http:", host: "localhost" };
 globalThis.document = { getElementById: () => null, documentElement: { lang: "zh-TW" } };
 

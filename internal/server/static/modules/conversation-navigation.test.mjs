@@ -10,6 +10,7 @@ import {
   createNavigationTargetId,
   createRecentConversationSyncController,
   aggregateNavigationAgentStatus,
+  conversationDisplayTitle,
   navigationAgentStatusClass,
   navigationRefreshDefaults,
   normalizeNavigationPayload,
@@ -20,6 +21,38 @@ import {
   resolveTopNavigationProjectId,
 } from "./conversation-navigation.mjs";
 import { localPreferenceBackupKeys, recentConversationsKey } from "./preferences-data.mjs";
+
+// Conversations created before titles were derived from the first message stored
+// their working directory in the title column, so the sidebar row showed a path
+// on both lines. The stored value is left alone; only the display changes.
+test("標題被存成路徑時，側欄顯示資料夾名稱而不是整條路徑", () => {
+  assert.equal(conversationDisplayTitle({ agentTitle: "C:\\Users\\Ray\\Desktop\\autoto" }), "autoto");
+  assert.equal(conversationDisplayTitle({ agentTitle: "C:\\Users\\Ray\\Desktop\\火影忍者 蠍" }), "火影忍者 蠍");
+  // A drive root has no folder name to fall back to, so the original stands.
+  assert.equal(conversationDisplayTitle({ agentTitle: "C:\\" }), "C:\\");
+  // POSIX and UNC forms too.
+  assert.equal(conversationDisplayTitle({ agentTitle: "/home/ray/projects/autoto" }), "autoto");
+  assert.equal(conversationDisplayTitle({ agentTitle: "\\\\server\\share\\work" }), "work");
+  // A trailing separator must not yield an empty title.
+  assert.equal(conversationDisplayTitle({ agentTitle: "/home/ray/projects/autoto/" }), "autoto");
+});
+
+test("真正的標題不會被誤判成路徑", () => {
+  // These mention a slash or a colon but are not paths.
+  for (const title of [
+    "AGENTS.md规则与记忆检索评估",
+    "fix a/b test handling",
+    "修正 input/output 統計",
+    "Fork of main",
+    "ratio 16:9 的版面",
+  ]) {
+    assert.equal(conversationDisplayTitle({ agentTitle: title }), title);
+  }
+  // Missing or empty stays empty rather than becoming a stray fallback.
+  assert.equal(conversationDisplayTitle({}), "");
+  assert.equal(conversationDisplayTitle({ agentTitle: "   " }), "");
+  assert.equal(conversationDisplayTitle(null), "");
+});
 
 class FakeTimers {
   constructor() {
@@ -318,6 +351,59 @@ test("buildNavigationView supports grouped and flat project modes", () => {
   assert.deepEqual(legacyMode.projects.map((item) => item.id), ["p1", "p2", "invalid"]);
 });
 
+// Subagents are dispatched by a parent turn, several at a time, and they reuse
+// the parent's workline -- so in the sidebar they could only ever be plain
+// sibling rows, which is what made it look like every task opened a branch.
+// They have one home instead: the background-task panel.
+test("buildNavigationView keeps subagents out of the sidebar without hiding them from the projection", () => {
+  const withSubagents = {
+    projects: [{ id: "p1", name: "Alpha", gitPath: "/work/alpha", updatedAt: "2026-01-01T00:00:00Z" }],
+    conversations: [
+      {
+        projectId: "p1", projectName: "Alpha", projectPath: "/work/alpha",
+        worklineId: "w1", worklineTitle: "Feature", worklineRole: "root",
+        agentId: "parent-1", agentTitle: "Planner", agentType: "primary", agentStatus: "idle", messageCount: 5,
+      },
+      {
+        // Same workline as its parent: this is exactly the shape that produced a
+        // second flat row rather than anything the tree could nest.
+        projectId: "p1", projectName: "Alpha", projectPath: "/work/alpha",
+        worklineId: "w1", worklineTitle: "Feature", worklineRole: "root",
+        agentId: "child-1", agentTitle: "Review agent", agentType: "subagent", agentStatus: "running", messageCount: 3,
+      },
+      {
+        // No agentType at all must never be treated as a subagent, or an older
+        // payload would silently empty the sidebar.
+        projectId: "p1", projectName: "Alpha", projectPath: "/work/alpha",
+        worklineId: "w2", worklineTitle: "Docs", agentId: "plain-1", agentTitle: "Writer", messageCount: 1,
+      },
+    ],
+  };
+
+  const view = buildNavigationView(withSubagents, { mode: "all" });
+  assert.deepEqual(view.groups[0].conversations.map((item) => item.agentId), ["parent-1", "plain-1"]);
+  assert.equal(view.totalConversationCount, 2);
+
+  // Everything downstream reads group.conversations, so the count, the status
+  // aggregate and the disclosure all have to follow the filter.
+  const html = renderNavigationHTML(view, { activeProjectId: "p1", activeAgentId: "child-1" });
+  assert.doesNotMatch(html, /Review agent/);
+  assert.match(html, /data-conversation-count="2"/);
+
+  // The filter is a rendering decision only. navigateToAgent resolves a child's
+  // targetId out of the unfiltered projection, and the background panel's "open
+  // subagent" button depends on that lookup succeeding.
+  const projection = normalizeNavigationPayload(withSubagents);
+  const child = projection.conversations.find((item) => item.agentId === "child-1");
+  assert.ok(child, "the subagent must stay in the projection the panel resolves against");
+  assert.equal(child.targetId, createNavigationTargetId({ projectId: "p1", worklineId: "w1", agentId: "child-1" }));
+
+  // Opening it must also stay open: nothing reconciles the active selection
+  // against the rendered set, so an activeAgentId absent from groups simply
+  // highlights no row instead of ejecting the reader.
+  assert.doesNotMatch(html, /navigation-conversation-row[^"]*active/);
+});
+
 test("task navigation stays project-level and exposes aggregate counts", () => {
   const taskHTML = renderNavigationHTML(buildNavigationView(payload, { mode: "projects" }), {
     taskContext: true,
@@ -512,6 +598,58 @@ test("project and conversation rows are both draggable within their own ordering
   assert.match(html, /navigation-project-row[^>]*draggable="true"/);
   assert.match(html, /navigation-conversation-row nested[^>]*draggable="true"/);
   assert.match(html, /data-navigation-id="a1"[^>]*data-conversation-order-scope="p1"/);
+});
+
+test("未讀對話帶 unread 標記，正在看的那個不帶", () => {
+  const payload = {
+    projects: [{ id: "p1", name: "Project" }],
+    conversations: [
+      { projectId: "p1", worklineId: "w1", agentId: "unread-agent", agentTitle: "Unread", agentStatus: "idle", lastActivityAt: "2026-08-01T00:00:10Z" },
+      { projectId: "p1", worklineId: "w2", agentId: "read-agent", agentTitle: "Read", agentStatus: "idle", lastActivityAt: "2026-08-01T00:00:10Z" },
+      { projectId: "p1", worklineId: "w3", agentId: "active-agent", agentTitle: "Active", agentStatus: "idle", lastActivityAt: "2026-08-01T00:00:10Z" },
+    ],
+  };
+  const view = buildNavigationView(payload, { mode: "all" });
+  const html = renderNavigationHTML(view, {
+    activeAgentId: "active-agent",
+    seenMap: { "read-agent": Date.parse("2026-08-01T00:00:10Z") },
+  });
+
+  assert.match(html, /data-navigation-id="unread-agent"[^>]*data-agent-unread="true"/);
+  assert.doesNotMatch(html, /data-navigation-id="read-agent"[^>]*data-agent-unread="true"/);
+  // The row being read right now must never render as unread.
+  assert.doesNotMatch(html, /data-navigation-id="active-agent"[^>]*data-agent-unread="true"/);
+});
+
+test("拖曳順序只在置頂／一般／封存層內生效，不會把置頂項目擠下來", () => {
+  const projects = [
+    { id: "pinned", pinned: true },
+    { id: "normal-a" },
+    { id: "normal-b" },
+    { id: "archived", archivedAt: "2026-01-01T00:00:00Z" },
+  ];
+  // A stored order that names the pinned project last, and the archived one
+  // first, must not be able to reorder across the tiers.
+  const ordered = applyProjectOrder(projects, ["archived", "normal-b", "normal-a", "pinned"]);
+  assert.deepEqual(ordered.map((project) => project.id), ["pinned", "normal-b", "normal-a", "archived"]);
+
+  const conversations = [
+    { agentId: "pinned", agentPinned: true },
+    { agentId: "c1" },
+    { agentId: "c2" },
+  ];
+  assert.deepEqual(
+    applyConversationOrder(conversations, ["c2", "c1", "pinned"]).map((c) => c.agentId),
+    ["pinned", "c2", "c1"],
+  );
+});
+
+test("不在拖曳記錄裡的項目保留原本的時間排序，不會被打亂", () => {
+  const projects = [{ id: "newest" }, { id: "middle" }, { id: "oldest" }];
+  // Only "oldest" was ever dragged. The other two must keep their incoming
+  // recency order rather than being shuffled among themselves.
+  const ordered = applyProjectOrder(projects, ["oldest"]);
+  assert.deepEqual(ordered.map((project) => project.id), ["oldest", "newest", "middle"]);
 });
 
 test("applyConversationOrder reorders conversations and puts unknowns at the end", () => {

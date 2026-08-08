@@ -69,8 +69,8 @@ type runtimePathSummary struct {
 type runtimeAgentSummary struct {
 	DefaultModel string `json:"defaultModel"`
 	SummaryModel string `json:"summaryModel"`
-	// SafetyModel is reported as the model actually in force, resolving the
-	// fallback, so the value shown is the one that will judge risky actions.
+	// SafetyModel is retained in the runtime payload for compatibility. Danger
+	// reflection uses each active conversation's model instead.
 	SafetyModel            string                      `json:"safetyModel"`
 	ReviewModel            string                      `json:"reviewModel"`
 	DefaultPermissionMode  string                      `json:"defaultPermissionMode"`
@@ -211,8 +211,10 @@ func buildRuntimeSummary(cfg config.Config, configPath string, startedAt time.Ti
 			{Key: "projects", Label: "Default project directory", Path: cfg.Paths.DefaultProjectDir},
 		},
 		Agent: runtimeAgentSummary{
-			DefaultModel:           cfg.Agent.DefaultModel,
-			SummaryModel:           cfg.Agent.SummaryModel,
+			DefaultModel: cfg.Agent.DefaultModel,
+			SummaryModel: cfg.Agent.SummaryModel,
+			// Keep exposing the legacy configured value for clients that still
+			// render it; it no longer selects the danger-reflection model.
 			SafetyModel:            firstNonEmptyModel(cfg.Agent.SafetyModel, cfg.Agent.SummaryModel),
 			ReviewModel:            cfg.Agent.ReviewModel,
 			DefaultPermissionMode:  cfg.Agent.DefaultPermissionMode,
@@ -302,8 +304,8 @@ func (s *Server) runtimeSecuritySummaryForRequest(r *http.Request) runtimeSecuri
 	return summary
 }
 
-// firstNonEmptyModel mirrors Runner.SafetyModel's fallback so the reported value
-// is what will actually run, not the raw configuration field.
+// firstNonEmptyModel preserves the legacy runtime safety-model field. It no
+// longer determines which model judges danger reflection; that is per Agent.
 func firstNonEmptyModel(values ...string) string {
 	for _, value := range values {
 		if trimmed := strings.TrimSpace(value); trimmed != "" {

@@ -102,7 +102,7 @@ func injectLocalToken(data []byte, token string) []byte {
 	if err != nil {
 		encoded = []byte(`""`)
 	}
-	snippet := `<script>window.AUTOTO_LOCAL_TOKEN=` + string(encoded) + `;window.CODEHARBOR_LOCAL_TOKEN=window.AUTOTO_LOCAL_TOKEN;</script>`
+	snippet := `<script>window.AUTOTO_LOCAL_TOKEN=` + string(encoded) + `;</script>`
 	text := string(data)
 	if strings.Contains(text, "</head>") {
 		text = strings.Replace(text, "</head>", snippet+"\n  </head>", 1)

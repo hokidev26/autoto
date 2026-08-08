@@ -586,7 +586,10 @@ test("conversation sidebar exposes one project navigation without a standalone f
   assert.doesNotMatch(appMain, /navigationListHeading|createStandaloneConversation|\/api\/conversations/);
   assert.match(appMain, /navigationMode:\s*"projects"/);
   assert.match(html, /id="recentSidebarConversations"/);
-  assert.match(html, /id="recentSidebarDirectories"/);
+  // The recent-directories sidebar block is gone from the shell. It used to be
+  // hidden only inside @media (max-width: 767px), so the desktop window kept
+  // rendering an always-empty "recent folders" section.
+  assert.doesNotMatch(html, /id="recentSidebarDirectories"/);
   assert.match(html, /id="globalThemeToggleBtn"/);
   assert.match(html, /id="globalHealthText"/);
   assert.match(styles, /\.navigation-conversation-row\.conv-drag-over,\s*\.proj-drag-over\s*\{[\s\S]*?outline:\s*2px solid var\(--accent\)/);
@@ -660,7 +663,7 @@ test("project, task, and schedule modes expose separate creation boundaries", as
   assert.match(html, /id="specBoardBtn" class="icon-btn header-tool-btn"[^>]*data-project-context-only/);
   assert.doesNotMatch(html, /id="specBoardBtn" class="[^"]*\bhidden\b/);
   assert.doesNotMatch(html, /id="navigationFilters"|data-navigation-mode="conversations"/);
-  assert.match(html, /recent-directories-sidebar conversation-mode-only/);
+  assert.doesNotMatch(html, /recent-directories-sidebar/);
   // The boundary this test guards is the task sidebar staying flat: there the
   // project is the unit of work, not the conversations under it. The
   // conversation sidebar shows the tree at every width -- it used to depend on
@@ -2407,7 +2410,7 @@ test("opening a utility panel does not collapse the app shell's 4th grid column 
   // zero-width column and never become visible.
   assert.match(
     styles,
-    /\.app-shell\.terminal-collapsed\.details-open,[\s\S]*?\.app-shell\.terminal-collapsed\.background-tasks-open,[\s\S]*?\.app-shell\.terminal-collapsed\.preview-open[\s\S]*?\{[\s\S]*?grid-template-columns:[\s\S]*?clamp\(380px, calc\(50vw - 186px\), 620px\)/,
+    /\.app-shell\.terminal-collapsed\.details-open,[\s\S]*?\.app-shell\.terminal-collapsed\.background-tasks-open,[\s\S]*?\.app-shell\.terminal-collapsed\.preview-open[\s\S]*?\{[\s\S]*?grid-template-columns:[\s\S]*?clamp\(260px, calc\(50vw - 186px\), 620px\)/,
   );
 });
 

@@ -269,9 +269,9 @@ func (r *Runner) SummaryModel() string {
 	return model
 }
 
-// SafetyModel is the model that reviews risky actions before they run. It falls
-// back to the summary model so existing deployments keep working, but can be
-// pointed at a stronger model than the one used for titles and compaction.
+// SafetyModel is retained for configuration compatibility. Danger reflection
+// uses the active conversation's model instead; this accessor is no longer used
+// to select the reflection model.
 func (r *Runner) SafetyModel() string {
 	if r == nil {
 		return ""

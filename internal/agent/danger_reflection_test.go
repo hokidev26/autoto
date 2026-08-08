@@ -84,6 +84,32 @@ func TestDangerReflectionAllowsOrdinaryWork(t *testing.T) {
 	}
 }
 
+func TestDangerReflectionUsesActiveConversationModel(t *testing.T) {
+	store, agent := newAgentTestStore(t, t.TempDir(), "bypassPermissions")
+	defer store.Close()
+	provider := &scriptedProvider{turns: [][]providers.Event{{
+		{Type: "text", Text: `{"verdict":"proceed","severity":"none","reason":"Contained development work."}`},
+		{Type: "done", Done: true},
+	}}}
+	runner := newAgentTestRunner(store, provider, config.AgentConfig{
+		MaxTurns:     3,
+		SummaryModel: "fake:summary",
+		SafetyModel:  "fake:configured-safety",
+	})
+	agent.Model = "fake:conversation"
+
+	resolution := runner.reflectBeforeExecution(context.Background(), agent, agent.PermissionMode, "run-1", bashCall("somecmd --thing"), tools.RiskExec, allowResolution())
+	if resolution.Decision != toolPermissionAllow {
+		t.Fatalf("expected active-model verdict to keep the allow, got %+v", resolution)
+	}
+	if provider.requestCount() != 1 {
+		t.Fatalf("expected one reflection call, got %d", provider.requestCount())
+	}
+	if got := provider.request(0).Model; got != "conversation" {
+		t.Fatalf("reflection used model %q; want the active conversation model, not configured summary/safety settings", got)
+	}
+}
+
 // TestDangerReflectionNeverUpgrades is the core security property: reflection is
 // a one-way ratchet. A "proceed" verdict must not rescue an action that static
 // policy denied or held for approval, so a manipulated reflector cannot widen
@@ -202,6 +228,7 @@ func TestDangerReflectionSkipsCheapAndSafePaths(t *testing.T) {
 		defer store.Close()
 		provider := &scriptedProvider{}
 		runner := newAgentTestRunner(store, provider, config.AgentConfig{MaxTurns: 3})
+		agent.Model = ""
 		resolution := runner.reflectBeforeExecution(context.Background(), agent, agent.PermissionMode, "run-1", bashCall("somecmd"), tools.RiskExec, allowResolution())
 		if resolution.Decision != toolPermissionAllow || provider.requestCount() != 0 {
 			t.Fatalf("reflection must be inert without a summary model, got %+v calls=%d", resolution, provider.requestCount())
@@ -362,6 +389,40 @@ func TestDangerReflectionCachesIdenticalActions(t *testing.T) {
 	}
 }
 
+// TestDangerReflectionCacheDoesNotCrossModels is the switch-model counterpart of
+// the cache test above. The judge is the conversation's own model, so a verdict
+// recorded under one model must not answer for another: the user switching
+// models is exactly the moment they expect a fresh opinion, and the earlier
+// model must not keep deciding on its successor's behalf.
+func TestDangerReflectionCacheDoesNotCrossModels(t *testing.T) {
+	store, agent := newAgentTestStore(t, t.TempDir(), "bypassPermissions")
+	defer store.Close()
+	provider := &scriptedProvider{turns: [][]providers.Event{
+		reflectionToolEvents(reflectionToolConfirm, "First model wants a look."),
+		reflectionToolEvents(reflectionToolConfirm, "Second model wants its own look."),
+	}}
+	runner := newAgentTestRunner(store, provider, config.AgentConfig{MaxTurns: 3, SummaryModel: "fake:summary"})
+	ctx := context.Background()
+
+	agent.Model = "fake:first"
+	first := runner.reflectBeforeExecution(ctx, agent, agent.PermissionMode, "run-1", bashCall("somecmd --same"), tools.RiskExec, allowResolution())
+	agent.Model = "fake:second"
+	second := runner.reflectBeforeExecution(ctx, agent, agent.PermissionMode, "run-1", bashCall("somecmd --same"), tools.RiskExec, allowResolution())
+
+	if first.Decision != toolPermissionAsk || second.Decision != toolPermissionAsk {
+		t.Fatalf("expected both to ask, got %s and %s", first.Decision, second.Decision)
+	}
+	if provider.requestCount() != 2 {
+		t.Fatalf("a model switch must be judged afresh, got %d model calls", provider.requestCount())
+	}
+	if got := provider.request(0).Model; got != "first" {
+		t.Fatalf("first reflection used model %q, want the model active at the time", got)
+	}
+	if got := provider.request(1).Model; got != "second" {
+		t.Fatalf("second reflection used model %q, want the newly selected model", got)
+	}
+}
+
 // TestDangerReflectionCacheIsScopedToOneRun bounds the lifetime of a remembered
 // verdict. A cached "proceed" is a security decision, so it must not silently
 // carry into a later Run; the savings come from repeats inside one Run anyway.
@@ -508,6 +569,18 @@ func TestDangerReflectionFingerprintDistinguishesActions(t *testing.T) {
 	}
 	if dangerReflectionFingerprint(base, bashCall("x"), tools.RiskExec) == dangerReflectionFingerprint(base, bashCall("x"), tools.RiskWrite) {
 		t.Fatal("risk tier must be part of the fingerprint")
+	}
+	// The judge is the conversation's own model, so a verdict belongs to the
+	// model that issued it. Two models can reasonably disagree about the same
+	// command, and a cache that ignored the model would let the previous one
+	// keep deciding after the user switched away from it.
+	first := db.Agent{ID: "a", CWD: "/work", Model: "fake:first"}
+	second := db.Agent{ID: "a", CWD: "/work", Model: "fake:second"}
+	if fingerprint(first, "go build ./...") == fingerprint(second, "go build ./...") {
+		t.Fatal("the same command under a different conversation model is a different action")
+	}
+	if fingerprint(first, "go build ./...") == fingerprint(base, "go build ./...") {
+		t.Fatal("a configured model must not share a fingerprint with an unset one")
 	}
 }
 

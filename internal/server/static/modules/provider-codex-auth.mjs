@@ -4,7 +4,7 @@ import { apiDownload } from "./runtime.mjs";
 import { formatNumber } from "./formatters.mjs";
 import { t } from "./i18n.mjs?v=provider-draft-session-1-codex-quota-exhausted-1";
 import { remoteAccessContext } from "./remote-access-capabilities.mjs";
-import { createProviderDraft, renderProviderModelEditor } from "./model-provider-components.mjs?v=provider-codex-models-1-provider-hidden-models-1-provider-quota-overview-1";
+import { createProviderDraft, renderProviderModelEditor } from "./model-provider-components.mjs?v=provider-codex-models-1-provider-hidden-models-1-provider-quota-overview-1-provider-model-limit-persist-1";
 import {
   codexAccountActionRequest,
   codexAccountBatchRequest,
@@ -19,13 +19,13 @@ import {
   normalizeCodexImportBatchResult,
   normalizeCodexSelectedIds,
   trustedCodexBrowserAuthURL,
-} from "./provider-settings-normalization.mjs";
+} from "./provider-settings-normalization.mjs?v=provider-model-limit-persist-1";
 import {
   codexAccountOverview,
   codexAccountStableID,
   finiteNumber,
   renderCodexAccountManagementTable,
-} from "./provider-account-rendering.mjs?v=provider-quota-overview-1-codex-quota-exhausted-1";
+} from "./provider-account-rendering.mjs?v=provider-quota-overview-1-codex-quota-exhausted-1-provider-model-limit-persist-1";
 
 const codexBrowserLoginActiveStatuses = new Set(["starting", "pending", "exchanging"]);
 const maxCodexImportFiles = 50;

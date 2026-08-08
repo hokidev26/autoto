@@ -6,8 +6,10 @@ import { createArchiveSettingsController } from "./archive-settings.mjs?v=archiv
 import { createConversationTitleHelpers } from "./conversation-title-helpers.mjs?v=standalone-removed-1";
 import { createBackgroundTasksController } from "./background-tasks.mjs?v=subagent-cards-1-foreground-activity-1";
 import { createExecutionNotifications } from "./execution-notifications.mjs";
+import { createNotificationSound } from "./notification-sound.mjs?v=notification-sound-1";
+import { createSystemNotifications } from "./system-notification.mjs?v=system-notification-1";
 import { createBackendRegistryController } from "./backend-registry.mjs?v=agent-admin-removed-1";
-import { createChatComposerController, normalizeChatDrafts, normalizePromptHistory } from "./chat-composer.mjs?v=plan-mode-1-project-context-1-model-save-gate-1-goal-command-2-queue-command-1-reasoning-steps-1-reasoning-history-1-markdown-2";
+import { createChatComposerController, normalizeChatDrafts, normalizePromptHistory } from "./chat-composer.mjs?v=plan-mode-1-project-context-1-model-save-gate-1-goal-command-2-queue-command-1-reasoning-steps-1-reasoning-history-1-markdown-2-queue-autopark-1";
 import { createChatRenderingController, findToolActivityByIdentity, renderAgentTaskActivityCardHTML } from "./chat-rendering.mjs?v=protected-images-1-message-thread-1-plan-mode-2-user-message-left-1-switch-fix-3-hide-run-loading-1-i18n-shared-1-conversation-boundary-1-subagent-cards-1-message-lifecycle-1-subagent-incremental-1-profile-message-identity-1-profile-avatar-1-provider-errors-1-compact-run-error-1-first-token-task-status-1-tool-activity-lazy-1-tool-protocol-filter-1-live-assistant-last-1-tool-activity-svg-icons-1-reasoning-steps-1-reasoning-history-1-markdown-2-tool-inline-detail-1-md-table-1-tool-position-1-project-run-history-1-dup-activity-fix-1-reasoning-count-1-avatar-logo-fix-1-markdown-stream-1";
 import { releaseProtectedImageURLs } from "./protected-images.mjs?v=protected-images-1";
 import { createContextManagementController } from "./context-management.mjs?v=context-ring-3-scoped-memory-1";
@@ -23,7 +25,8 @@ import {
   renderRecentConversationsHTML,
   resolveInitialNavigationTarget,
   resolveTopNavigationProjectId,
-} from "./conversation-navigation.mjs?v=mode-boundaries-2-project-flat-1-task-workspace-1-navigation-state-1-project-context-1-recent-sync-1-dual-rail-collapse-1-compact-navigation-1-theme-icons-1-workline-fork-1-conversation-order-1-nav-status-color-1-top-project-1-standalone-removed-1";
+} from "./conversation-navigation.mjs?v=mode-boundaries-2-project-flat-1-task-workspace-1-navigation-state-1-project-context-1-recent-sync-1-dual-rail-collapse-1-compact-navigation-1-theme-icons-1-workline-fork-1-conversation-order-1-nav-status-color-1-top-project-1-standalone-removed-1-unread-state-1";
+import { markConversationSeen, readSeenMap } from "./conversation-seen.mjs?v=unread-state-1";
 import {
   basename,
   canonicalLocalPath,
@@ -31,13 +34,13 @@ import {
   normalizePath,
   normalizeRecentDirectories,
   shortPath,
-} from "./directory-browser.mjs?v=folder-picker-remote-2-root-card-1-root-shortcut-removed-1";
+} from "./directory-browser.mjs?v=folder-picker-remote-2-root-card-1-root-shortcut-removed-1-queue-autopark-1";
 import { $, coalescePerFrame, escapeAttr, escapeHtml, setButtonBusy, setHTMLIfChanged, setTextIfChanged } from "./dom.mjs";
 import { navigationCreateLabelKey, navigationCreateTarget } from "./navigation-create.mjs?v=standalone-removed-1";
 import { createSubagentCardCoordinator } from "./subagent-cards.mjs?v=tool-activity-lazy-1";
 import { createNavigationStartupGuard } from "./navigation-startup-guard.mjs?v=startup-navigation-guard-4";
 import { formatNumber, formatTimestamp } from "./formatters.mjs";
-import { t } from "./i18n.mjs?v=settings-flat-1-codex-browser-login-1-shared-api-1-apple-theme-1-autoto-themes-1-settings-help-1-task-workspace-1-navigation-state-2-archive-1-i18n-shared-1-overview-home-1-settings-cleanup-1-context-ring-3-global-background-1-theme-v2-1-background-upload-1-goal-command-2-queue-command-1-reasoning-steps-1-reasoning-history-1-markdown-2-first-run-setup-1-home-launcher-1-scoped-memory-1-standalone-removed-2";
+import { t } from "./i18n.mjs?v=settings-flat-1-codex-browser-login-1-shared-api-1-apple-theme-1-autoto-themes-1-settings-help-1-task-workspace-1-navigation-state-2-archive-1-i18n-shared-1-overview-home-1-settings-cleanup-1-context-ring-3-global-background-1-theme-v2-1-background-upload-1-goal-command-2-queue-command-1-reasoning-steps-1-reasoning-history-1-markdown-2-first-run-setup-1-home-launcher-1-scoped-memory-1-standalone-removed-2-queue-autopark-1";
 import { appMainT as am } from "./messages-app-main-extra.mjs?v=workbench-title-edit-1-hidden-toggle-removed-1-settings-cleanup-1";
 import { shellExtraT as sx } from "./messages-shell-extra.mjs";
 import { createGitWorkflowController } from "./git-workflow.mjs?v=merge-review-1";
@@ -46,13 +49,13 @@ import { createMCPRegistryUIController } from "./mcp-registry-ui.mjs";
 import { createPluginRegistryUIController } from "./plugin-registry-ui.mjs";
 import { createMemorySettingsController } from "./memory-settings.mjs";
 import { agentModelSettingsPayload } from "./model-routing-settings.mjs";
-import { createModelProviderSettingsController } from "./model-provider-settings.mjs?v=native-codex-3-provider-console-3-account-wide-1-model-compact-1-codex-export-1-settings-flat-1-aggregates-1-codex-import-open-1-provider-create-page-2-codex-browser-login-1-provider-secrets-1-model-picker-1-provider-full-page-2-provider-placeholders-1-usage-cost-1-codex-usage-clean-1-model-sections-hidden-1-model-configs-1-provider-reference-1-default-openai-responses-1-provider-draft-session-1-native-image-generation-1-provider-auto-name-1-provider-hidden-models-1-gemini-model-quota-1-safety-model-1-provider-quota-overview-1-codex-quota-exhausted-1";
+import { createModelProviderSettingsController } from "./model-provider-settings.mjs?v=native-codex-3-provider-console-3-account-wide-1-model-compact-1-codex-export-1-settings-flat-1-aggregates-1-codex-import-open-1-provider-create-page-2-codex-browser-login-1-provider-secrets-1-model-picker-1-provider-full-page-2-provider-placeholders-1-usage-cost-1-codex-usage-clean-1-model-sections-hidden-1-model-configs-1-provider-reference-1-default-openai-responses-1-provider-draft-session-1-native-image-generation-1-provider-auto-name-1-provider-hidden-models-1-gemini-model-quota-1-safety-model-1-provider-quota-overview-1-codex-quota-exhausted-1-provider-model-limit-persist-1";
 import {
   createOverviewDashboardController,
   overviewNavigationRoute,
   overviewRailTarget,
   resolveOverviewStartup,
-} from "./overview-dashboard.mjs?v=overview-home-3-nav-schedules-1-mobile-no-home-1-schedule-workspace-1-activity-heatmap-1-home-launcher-1-home-launcher-bottom-1-home-launcher-minimal-1-standalone-removed-2";
+} from "./overview-dashboard.mjs?v=overview-home-3-nav-schedules-1-mobile-no-home-1-schedule-workspace-1-activity-heatmap-1-home-launcher-1-home-launcher-bottom-1-home-launcher-minimal-1-standalone-removed-2-project-popover-1-activity-tokens-1-system-metrics-1";
 import { createPageLifecycleController } from "./page-lifecycle.mjs";
 import { confirm as platformConfirm } from "./platform.mjs";
 import { createProjectKanbanController } from "./project-kanban.mjs?v=workbench-3-mode-boundaries-1";
@@ -72,12 +75,13 @@ import { createSettingsHelpController } from "./settings-help.mjs?v=settings-hel
 import { createSettingsPanelRegistry } from "./settings-panel-registry.mjs";
 import { createSecurityModeHelpers } from "./security-mode-helpers.mjs";
 import { createSettingsNavigationHelpers } from "./settings-navigation-helpers.mjs";
-import { createSettingsPreferencesController } from "./settings-preferences.mjs?v=apple-theme-1-autoto-themes-1-profile-avatar-1-dual-rail-collapse-1-global-background-1-settings-identity-removed-1";
+import { createSettingsPreferencesController } from "./settings-preferences.mjs?v=apple-theme-1-autoto-themes-1-profile-avatar-1-dual-rail-collapse-1-global-background-1-settings-identity-removed-1-queue-autopark-1";
 import { createSettingsShellHelpers } from "./settings-shell-helpers.mjs";
 import { createSkillsContext } from "./skills-context.mjs";
 import { createServerResourceLoaders } from "./server-resource-loaders.mjs";
 import { createSetupWizardController } from "./setup-wizard.mjs?v=first-run-readiness-1";
 import { createSpecBoardController } from "./spec-board.mjs";
+import { createSystemMetricsPoller, renderSystemMetrics } from "./system-metrics-panel.mjs?v=system-metrics-1";
 import { createSystemSettingsController } from "./system-settings.mjs?v=users-panel-removed-1-about-brand-license-1-desktop-shell-1-execution-budget-2-background-task-settings-1-settings-ui-cleanup-1";
 import { installDesktopDeepLinkRouter, isDesktopShell } from "./desktop-shell-ui.mjs";
 import { createSkillsWorkbenchController } from "./skills-workbench.mjs?v=users-panel-removed-1-config-center-1-automation-tool-catalog-1-optional-tools-compact-1-skills-density-1";
@@ -124,6 +128,15 @@ function toggleCollapsedNavNode(key) {
   if (nodes.has(id)) nodes.delete(id);
   else nodes.add(id);
   saveCollapsedNavNodes(nodes);
+}
+
+function markActiveConversationSeen() {
+  const agentId = state.agent?.id;
+  if (!agentId) return;
+  const active = state.navigationConversations?.find?.((item) => item.agentId === agentId);
+  // lastActivityAt is the same field the unread comparison reads, so marking with
+  // it cannot leave the row unread by a rounding difference.
+  markConversationSeen(agentId, active?.lastActivityAt || active?.updatedAt || new Date().toISOString());
 }
 
 function getProjectOrder() {
@@ -913,12 +926,50 @@ function executionNoticeMessage(notice) {
   return t("backgroundTasks.notifications.truncated");
 }
 
+// An OS notification arrives with no surrounding page, so it has to say which
+// conversation it is about on its own.
+function conversationTitleForNotice(notice) {
+  const agentId = String(notice?.agentId || "").trim();
+  if (!agentId) return "";
+  if (agentId === state.agent?.id && String(state.agent?.title || "").trim()) return String(state.agent.title).trim();
+  const match = (state.recentConversations || []).find((item) => item?.agentId === agentId);
+  return String(match?.title || "").trim();
+}
+
+const notificationSound = createNotificationSound({
+  isEnabled: (tone) => notificationSoundEnabled(tone),
+  onError: (error) => notifyTerminal(`[warn] ${am("notificationSoundFailed", { message: error?.message || error })}\n`),
+});
+notificationSound.bindUnlockGesture();
+
+const systemNotifications = createSystemNotifications({
+  isEnabled: () => systemNotificationsEnabled(),
+  onError: (error) => notifyTerminal(`[warn] ${error?.message || error}\n`),
+  onActivate: (data) => {
+    const agentId = String(data?.agentId || "").trim();
+    if (!agentId || agentId === state.agent?.id) return;
+    selectNavigationConversation(agentId).catch(showError);
+  },
+});
+
 const executionNotifications = createExecutionNotifications({
   notifier: (notice) => {
     const taskStatus = String(notice?.raw?.status || notice?.raw?.data?.status || "").toLowerCase();
     const taskFailed = notice.family === "task_terminal" && ["failed", "error", "interrupted", "cancelled", "canceled"].includes(taskStatus);
     const variant = taskFailed || ["error", "budget_exhausted"].includes(notice.family) ? "error" : ["approval_required", "continuation_blocked", "interrupted", "truncated"].includes(notice.family) ? "warn" : "success";
-    showToast(executionNoticeMessage(notice), variant);
+    const message = executionNoticeMessage(notice);
+    showToast(message, variant);
+    // Audible + OS-level signals ride the same deduplicated notice stream as the
+    // toast, so a run announces itself exactly once regardless of how many
+    // channels are enabled.
+    notificationSound.play(variant === "error" ? "error" : variant === "success" ? "success" : "");
+    if (variant === "error" || variant === "success") {
+      systemNotifications.show(message, {
+        body: conversationTitleForNotice(notice),
+        tag: `autoto-run-${notice.agentId || "unknown"}`,
+        data: { agentId: notice.agentId },
+      });
+    }
   },
   onError: (error) => notifyTerminal(`[warn] ${error?.message || error}\n`),
 });
@@ -935,6 +986,15 @@ const subagentCards = createSubagentCardCoordinator({
 
 backgroundTasks = createBackgroundTasksController({
   request: api,
+  // Read from the composer's own select so the subagent model control always
+  // offers exactly the configured provider models, with no second source to
+  // drift out of sync.
+  getModelOptions: () => Array.from($("modelSelect")?.options || [])
+    .map((option) => ({
+      value: String(option?.value || "").trim(),
+      label: String(option?.textContent || option?.label || option?.value || "").trim(),
+    }))
+    .filter((option) => option.value),
   onChange: (change) => {
     subagentCards.scheduleRefresh(change);
     if ($("appShell")?.classList.contains("details-open")) renderConversationDetails();
@@ -1012,7 +1072,6 @@ const {
   refreshDirectory,
   rememberDirectory,
   renderRecentModalDirectories,
-  renderRecentSidebarDirectories,
   selectNativeDirectory,
   setDirectoryStatus,
   showNewFolderInline,
@@ -1261,6 +1320,7 @@ const {
   refreshMessageModeControl,
   refreshReasoningEffortControl,
   loadMessageQueue,
+  syncMessageQueueFromServer,
   renderMessageQueue,
   restoreCurrentChatDraft,
   saveCurrentChatDraft,
@@ -1308,7 +1368,6 @@ settingsPreferences = createSettingsPreferencesController({
   refreshActiveSettingsPanel,
   renderModelOptions,
   renderRecentModalDirectories,
-  renderRecentSidebarDirectories,
   showToast,
   toggleTerminal,
   trimTerminalOutput,
@@ -1366,6 +1425,9 @@ const {
   normalizeMCPServer,
   normalizeSkillCommand,
   notificationToastDuration,
+  notificationToastHoldsUntilDismissed,
+  notificationSoundEnabled,
+  systemNotificationsEnabled,
   notificationVariantEnabled,
   profileDisplayName,
   profileGitEnvExample,
@@ -1437,6 +1499,14 @@ const localPreferencesSettings = createLocalPreferencesSettingsController({
   bindThemeLibraryActions,
   setAppearancePreference,
   setNotificationPreference,
+  requestSystemNotificationPermission: () => systemNotifications.request(),
+  // Force past the preference gate: the user pressed a button labelled "play a
+  // test sound", so an is-it-enabled check here would be confusing.
+  playNotificationSoundSample: () => {
+    notificationSound.unlock();
+    if (!notificationSound.available()) return false;
+    return notificationSound.play("success", { force: true });
+  },
   showError,
   showToast,
 });
@@ -1737,6 +1807,8 @@ const overviewDashboard = createOverviewDashboardController({
   onChooseDirectory: () => openDirectoryChooser(state.project?.gitPath || state.agent?.cwd || ""),
   onNavigate: handleOverviewNavigation,
   onError: showError,
+  renderSystemMetrics,
+  createSystemMetricsPoller,
 });
 
 const settingsHelp = createSettingsHelpController({
@@ -1762,7 +1834,9 @@ function conversationDetailMetrics() {
     cost: Number(summary.costUsd || 0),
     inputTokens: Number(summary.inputTokens || 0),
     outputTokens: Number(summary.outputTokens || 0),
-    cacheTokens: Number(summary.cacheReadTokens || summary.cachedTokens || 0),
+    // cachedInputTokens is the field the run summary API actually returns; the
+    // two names read here before it were never sent, so this always showed 0.
+    cacheTokens: Number(summary.cachedInputTokens || summary.cacheReadTokens || summary.cachedTokens || 0),
     tools: Number(summary.toolCallCount || (Array.isArray(summary.toolCalls) ? summary.toolCalls.length : 0)),
     terminal: state.terminalWS ? 1 : terminal.lines > 1 ? 1 : 0,
     browser: previewRunning ? 1 : 0,
@@ -1940,6 +2014,8 @@ function applyPrimaryWorkbench(value) {
 function switchPrimaryWorkbench(value) {
   const mode = normalizedPrimaryWorkbench(value);
   state.overviewActive = false;
+  // Off the home page the resource cards are not on screen, so the poll stops.
+  overviewDashboard.stop();
   backgroundTasks.closeTray("workbench-switch");
   closeConversationDetails();
   closeSettingsModal({ restoreWorkbench: false, restoreFocus: false });
@@ -1964,6 +2040,7 @@ function isMobileAppViewport() {
 function leaveOverviewForMobile() {
   if (!isMobileAppViewport() || !state.overviewActive) return false;
   state.overviewActive = false;
+  overviewDashboard.stop();
   applyPrimaryWorkbench("conversation");
   return true;
 }
@@ -2182,11 +2259,17 @@ async function openOverviewDashboard() {
   toggleTerminal(true);
   if (isMobileAppViewport()) {
     state.overviewActive = false;
+    // The mobile viewport never shows the dashboard, so its resource poll would
+    // be pure waste.
+    overviewDashboard.stop();
     applyPrimaryWorkbench("conversation");
     return;
   }
   state.overviewActive = true;
   applyPrimaryWorkbench("conversation");
+  // Started before the await: the resource cards have their own cadence and
+  // should not wait on the dashboard snapshot request.
+  overviewDashboard.start();
   await overviewDashboard.load();
 }
 
@@ -3071,7 +3154,6 @@ function renderProjects() {
     el.innerHTML = scheduleWorkspace.renderNavigation(scheduleWorkspaceViewOptions());
     scheduleWorkspace.bind(el, scheduleWorkspaceViewOptions());
     renderRecentSidebarConversations();
-    renderRecentSidebarDirectories();
     return;
   }
   const view = buildNavigationView({ projects: state.projects, conversations: state.navigationConversations }, {
@@ -3079,6 +3161,11 @@ function renderProjects() {
     query: state.projectQuery,
   });
   const taskCounts = Object.fromEntries(taskWorkspace.getState().workspace.projects.map((project) => [project.id, project.counts]));
+  // Advance the seen mark for the conversation the user is looking at, on every
+  // navigation render. Doing it here rather than only on open means a reply that
+  // lands while the user is reading it is already read when they navigate away,
+  // instead of turning green behind their back.
+  markActiveConversationSeen();
   el.innerHTML = renderNavigationHTML(view, {
     activeProjectId: state.project?.id || "",
     activeAgentId: state.agent?.id || "",
@@ -3088,6 +3175,7 @@ function renderProjects() {
     conversationOrders: getConversationOrders(),
     collapsedNodes: getCollapsedNavNodes(),
     projectOrder: getProjectOrder(),
+    seenMap: readSeenMap(),
   });
   bindConversationDrag(el);
   bindProjectDrag(el);
@@ -3125,7 +3213,6 @@ function renderProjects() {
     node.addEventListener("click", () => switchPrimaryWorkbench(node.dataset.primaryWorkbenchTarget));
   });
   renderRecentSidebarConversations();
-  renderRecentSidebarDirectories();
 }
 
 async function createProjectFromDirectory(path, options = {}) {
@@ -3450,6 +3537,9 @@ async function enterAgent() {
   refreshMessageModeControl();
   await restoreCurrentChatDraft();
   renderMessageQueue();
+  // The queue is server-side, so opening an agent has to fetch whatever was
+  // parked from another device before the panel can be trusted.
+  syncMessageQueueFromServer(agentId);
   syncMessageComposerBusy();
   refreshComposerActivityStatus();
   clearLiveReasoning();
@@ -3633,6 +3723,38 @@ async function handleAgentStreamEvent(event) {
   const completedMessageEvents = ["message.created", "message.completed"];
   const terminalAgentEvents = ["agent.done", "agent.error", "agent.interrupted"];
   const navigationRefreshEvents = ["agent.started", ...completedMessageEvents, ...terminalAgentEvents];
+  // An upstream fault is now retried automatically, so say so. Without this the
+  // run looks frozen for the length of the backoff and the user cannot tell a
+  // retry from a hang.
+  // A long-running segment reports itself so a wedged run is distinguishable
+  // from a finished one. Report-only: the run is not cancelled.
+  if (event.type === "agent.stalled") {
+    const elapsed = Number(event.data?.elapsedSeconds || 0);
+    notifyTerminal(`[warn] ${am("agentStalled", { minutes: Math.max(1, Math.round(elapsed / 60)) })}\n`);
+  }
+  if (event.type === "agent.provider_error_retry") {
+    const attempt = Number(event.data?.attempt || 0);
+    const maxAttempts = Number(event.data?.maxAttempts || 0);
+    const detail = String(event.data?.error || "").trim();
+    // Drives the composer status so the wait between attempts reads as "retrying"
+    // instead of an idle conversation. Cleared when the next attempt produces
+    // anything or the run reaches a terminal state.
+    state.providerRetry = { attempt: attempt || 1, maxAttempts: maxAttempts || 1, at: Date.now() };
+    refreshComposerActivityStatus();
+    notifyTerminal(`[warn] ${am("providerErrorRetry", {
+      attempt: attempt || 1,
+      maxAttempts: maxAttempts || 1,
+      message: detail || am("providerErrorRetryUnknown"),
+    })}\n`);
+  }
+  if (event.type === "context.compaction_started") {
+    state.contextCompacting = true;
+    refreshComposerActivityStatus();
+  }
+  if (event.type === "context.compaction_finished") {
+    state.contextCompacting = false;
+    refreshComposerActivityStatus();
+  }
   if (event.type === "agent.started") {
     state.agent = { ...state.agent, status: "running" };
     syncNavigationConversationFromAgent(state.agent, { status: "running", reason: "agent-started" });
@@ -3642,6 +3764,8 @@ async function handleAgentStreamEvent(event) {
     refreshComposerActivityStatus();
   }
   if (event.type === "model.started") {
+    // The retry produced a live model call, so the retry wait is over.
+    state.providerRetry = null;
     beginLiveAssistantGeneration({
       requestId,
       runId,
@@ -3697,6 +3821,10 @@ async function handleAgentStreamEvent(event) {
   }
   if (event.type === "agent.interrupted") clearCurrentAgentApprovals();
   if (terminalAgentEvents.includes(event.type)) {
+    // Belt and braces: a run that ends during a retry or a compaction must not
+    // leave the composer claiming either is still happening.
+    state.providerRetry = null;
+    state.contextCompacting = false;
     const status = event.type === "agent.error" ? "error" : "idle";
     state.agent = { ...state.agent, status };
     syncNavigationConversationFromAgent(state.agent, { status, reason: event.type });
@@ -3861,6 +3989,12 @@ function showToast(message, variant = "info", options = {}) {
   };
   node.querySelector("button").addEventListener("click", close);
   stack.appendChild(node);
+  // Errors wait for the × unless the user turned that off. Everything else still
+  // expires on its own so the stack cannot fill up with routine chatter.
+  if (options.holdUntilDismissed ?? notificationToastHoldsUntilDismissed(variant)) {
+    node.classList.add("toast-persistent");
+    return;
+  }
   window.setTimeout(close, notificationToastDuration(variant));
 }
 
@@ -4236,7 +4370,6 @@ async function init() {
     updatePermissionModeDisplay();
     autoResizeMessageInput();
     renderRecentSidebarConversations();
-    renderRecentSidebarDirectories();
     // Health is informative rather than a prerequisite for rendering the last
     // conversation. Start it with the other requests so an extra tunnel round
     // trip never delays the initial screen.
@@ -4288,6 +4421,9 @@ async function init() {
         state.chatHydrating = false;
       }
       if (startup.overviewActive && startupTokenCurrent(startupToken)) {
+        // Same ordering as openOverviewDashboard: the resource poll runs on its
+        // own cadence and does not wait for the snapshot.
+        overviewDashboard.start();
         await overviewDashboard.load();
         // A user click may invalidate this startup while the dashboard request
         // is pending. No startup navigation follows this await; the current init

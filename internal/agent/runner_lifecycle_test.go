@@ -667,6 +667,10 @@ func TestRunnerInvalidatesLargeFileCheckpointWithoutBlockingRun(t *testing.T) {
 	}}
 	runner := newAgentTestRunner(store, provider, config.AgentConfig{MaxTurns: 3})
 	runner.tools.Register(largeCheckpointWriteTool{size: int(gitCheckpointMaxFileBytes) + 1})
+	// This test is about the checkpoint budget; disable reflection so the
+	// scripted provider does not need a reflection turn and the test does not
+	// hang waiting for approval.
+	disableReflectionForTest(t, store)
 	runner.Run(ctx, agent.ID)
 
 	updated, err := store.GetAgent(ctx, agent.ID)

@@ -59,6 +59,10 @@ func TestRunnerToolPermissionRuleAllowsBashExec(t *testing.T) {
 		{{Type: "text", Text: "done"}, {Type: "done", Done: true}},
 	}}
 	runner := newAgentTestRunner(store, provider, config.AgentConfig{MaxTurns: 3})
+	// This test is about static permission rules; disable reflection so the
+	// scripted provider does not need a reflection turn and the test does not
+	// hang waiting for an approval that will never arrive.
+	disableReflectionForTest(t, store)
 
 	runner.Run(ctx, agent.ID)
 

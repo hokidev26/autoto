@@ -74,7 +74,7 @@ func TestNativeCodexCredentialRoutesRequireCanonicalToken(t *testing.T) {
 			}
 
 			legacyRequest := newRequest()
-			legacyRequest.Header.Set(legacyLocalTokenHeader, app.localToken)
+			legacyRequest.Header.Set(nonCanonicalLocalTokenHeader, app.localToken)
 			legacy := httptest.NewRecorder()
 			app.Routes().ServeHTTP(legacy, legacyRequest)
 			if legacy.Code != http.StatusUnauthorized {

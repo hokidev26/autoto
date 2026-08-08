@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"autoto/internal/config"
 	"autoto/internal/db"
@@ -552,6 +553,57 @@ func TestRunnerSummarizesOldContextWithLocalFallback(t *testing.T) {
 	}
 	if updated.ContextSummary == "" || updated.PruneBoundaryMessageID != firstMessages[9].ID || updated.PrunedPercent == 0 {
 		t.Fatalf("unexpected stored summary state: %+v", updated)
+	}
+}
+
+// Compaction calls a model and can take seconds in the middle of a turn. Without
+// a start event the UI can only report "thinking", so the pause looks like a
+// stall. Both edges have to reach subscribers.
+func TestContextCompactionPublishesStartAndFinish(t *testing.T) {
+	ctx := context.Background()
+	store, agent := newAgentTestStore(t, t.TempDir(), "acceptEdits")
+	defer store.Close()
+	var messages []db.Message
+	for i := 0; i < 12; i++ {
+		msg, err := store.AddMessage(ctx, db.Message{AgentID: agent.ID, Role: "user", ContentText: "message " + string(rune('a'+i)) + " " + strings.Repeat("body ", 80)})
+		if err != nil {
+			t.Fatal(err)
+		}
+		messages = append(messages, msg)
+	}
+	runner := newAgentTestRunner(store, &scriptedProvider{}, config.AgentConfig{ContextTokenLimit: 1000, SummaryModel: "missing:test"})
+	events := runner.hub.Subscribe(ctx, agent.ID)
+
+	if _, _, err := runner.managedContextForTurn(ctx, agent, messages, nil, turnSystemControls{}); err != nil {
+		t.Fatal(err)
+	}
+
+	var sawStart, sawFinish, startBeforeFinish bool
+	deadline := time.After(5 * time.Second)
+collect:
+	for {
+		select {
+		case event := <-events:
+			switch event.Type {
+			case "context.compaction_started":
+				sawStart = true
+			case "context.compaction_finished":
+				sawFinish = true
+				startBeforeFinish = sawStart
+				break collect
+			}
+		case <-deadline:
+			break collect
+		}
+	}
+	if !sawStart {
+		t.Fatal("compaction did not publish a start event")
+	}
+	if !sawFinish {
+		t.Fatal("compaction did not publish a finish event")
+	}
+	if !startBeforeFinish {
+		t.Fatal("finish must not precede start")
 	}
 }
 

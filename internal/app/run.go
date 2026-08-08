@@ -18,7 +18,6 @@ import (
 
 // Options configures CLI or desktop-hosted runtime startup.
 type Options struct {
-	LegacyCommand bool
 	// ConfigPath is the resolved or unresolved config path. When empty, Run
 	// parses --config from Args (or os.Args).
 	ConfigPath string

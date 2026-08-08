@@ -109,7 +109,7 @@ func TestSkillSourcesRequireDirectLoopbackAndCanonicalLocalToken(t *testing.T) {
 	}
 
 	legacy := newTestRequest(http.MethodGet, path, nil)
-	legacy.Header.Set(legacyLocalTokenHeader, app.localToken)
+	legacy.Header.Set(nonCanonicalLocalTokenHeader, app.localToken)
 	legacyRecorder := httptest.NewRecorder()
 	routes.ServeHTTP(legacyRecorder, legacy)
 	if legacyRecorder.Code != http.StatusUnauthorized {

@@ -1088,20 +1088,8 @@ func (s *Server) providerManagementRequest(ctx context.Context, provider config.
 			return nil, err
 		}
 	}
-	key, explicitlyConfigured := cliProxyAPIManagementKeyWithSource()
-	data, status, err := cliProxyAPIManagementRequestWithKey(ctx, method, endpoint, payload, contentType, key)
-	if !explicitlyConfigured && status == http.StatusUnauthorized {
-		legacyData, _, legacyErr := cliProxyAPIManagementRequestWithKey(ctx, method, endpoint, payload, contentType, legacyCLIProxyAPIManagementKey)
-		if legacyErr == nil {
-			s.warnLegacy(
-				"credential:cliproxyapi-legacy-default-management-key",
-				"CLIProxyAPI legacy default management credential",
-				"CLIPROXYAPI_MANAGEMENT_KEY",
-				"management-credential",
-			)
-		}
-		return legacyData, legacyErr
-	}
+	key, _ := cliProxyAPIManagementKeyWithSource()
+	data, _, err := cliProxyAPIManagementRequestWithKey(ctx, method, endpoint, payload, contentType, key)
 	return data, err
 }
 
@@ -1260,10 +1248,7 @@ func (s *Server) cliProxyAPIProviderSummary() (config.ProviderSummary, bool) {
 	return config.ProviderSummary{}, false
 }
 
-const (
-	defaultCLIProxyAPIManagementKey = "autoto-local"
-	legacyCLIProxyAPIManagementKey  = "codeharbor-local"
-)
+const defaultCLIProxyAPIManagementKey = "autoto-local"
 
 func cliProxyAPIManagementKey() string {
 	key, _ := cliProxyAPIManagementKeyWithSource()

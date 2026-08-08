@@ -1,6 +1,7 @@
 package tools
 
 import (
+	"os"
 	"path/filepath"
 	"runtime"
 	"sort"
@@ -151,9 +152,19 @@ func (c *commandFactsCollector) visit(node syntax.Node) bool {
 		}
 	case *syntax.Redirect:
 		c.facts.Redirection = true
-		if truncatesRedirect(node) {
+		switch redirectTruncationTier(node) {
+		case redirectTargetDevice:
 			c.effect("filesystem-write")
 			c.danger("file-truncate")
+		case redirectTargetFile:
+			// Deliberately unchanged. Overwriting a real file loses its contents with
+			// no undo, and TestBashDangerWarningStillBlocksRealFileOverwrite pins this
+			// precisely so that "agents need to write logs" cannot become a blanket
+			// exemption. The scratch tier below is the narrow relief instead.
+			c.effect("filesystem-write")
+			c.danger("file-truncate")
+		case redirectTargetScratch:
+			c.effect("filesystem-write")
 		}
 	case *syntax.CmdSubst:
 		c.facts.Substitution = true
@@ -1065,20 +1076,24 @@ func hasRecursiveArgument(args []*syntax.Word) bool {
 	return false
 }
 
-func truncatesRedirect(redirect *syntax.Redirect) bool {
+// redirectTruncationTier reports how costly a redirect's overwrite would be,
+// using the same tiers as classifyRedirectTarget.
+//
+// `2>/dev/null` and its cmd.exe spelling `2>NUL` are how a command silences a
+// probe, so those destroy nothing. A target that cannot be resolved statically
+// stays at the recoverable tier: it still requires approval, and guessing that an
+// unresolvable name is a raw device would hard-block ordinary work.
+func redirectTruncationTier(redirect *syntax.Redirect) int {
 	switch redirect.Op.String() {
 	case ">", ">|":
 	default:
-		return false
+		return redirectTargetDiscard
 	}
-	// Writing to a discard sink destroys nothing: there is no prior content to
-	// lose. `2>/dev/null` and its cmd.exe spelling `2>NUL` are how a command
-	// silences a probe, so classifying them as file-truncate hard-blocks ordinary
-	// read-only work. A target that cannot be resolved statically stays dangerous.
-	if target, ok := safeStaticWord(redirect.Word); ok && isDiscardRedirectTarget(target) {
-		return false
+	target, ok := safeStaticWord(redirect.Word)
+	if !ok {
+		return redirectTargetFile
 	}
-	return true
+	return classifyRedirectTarget(target)
 }
 
 // isDiscardRedirectTarget reports whether a redirection target is a sink that
@@ -1102,6 +1117,68 @@ func isDiscardRedirectTarget(target string) bool {
 	default:
 		return false
 	}
+}
+
+// Redirect target tiers, from least to most restrictive.
+const (
+	redirectTargetDiscard = iota // /dev/null, NUL: destroys nothing
+	redirectTargetScratch        // under the OS temp directory: nothing of value to lose
+	redirectTargetFile           // some other named file: recoverable but real
+	redirectTargetDevice         // a raw device: catastrophic and irreversible
+)
+
+// classifyRedirectTarget tiers a `>` target by what overwriting it would cost.
+//
+// Treating every named target as a hard block made ordinary work impossible:
+// capturing a test log with `go test ./... > "%TEMP%\out.txt"` destroys nothing,
+// but a hard block cannot be approved by anyone, so an unattended subagent had no
+// way to collect output at all. Tiering keeps the irreversible cases blocked while
+// letting the rest reach approval, where danger reflection still reviews them.
+func classifyRedirectTarget(target string) int {
+	normalized := strings.ToLower(strings.TrimSpace(target))
+	normalized = strings.Trim(normalized, `"'`)
+	if normalized == "" {
+		return redirectTargetDiscard
+	}
+	if isDiscardRedirectTarget(normalized) {
+		return redirectTargetDiscard
+	}
+	slashed := strings.ReplaceAll(normalized, `\`, "/")
+	// Writing to a raw device or partition is not a file overwrite; it is the
+	// disk-destroying shape `dd` is blocked for, so it stays catastrophic.
+	if strings.HasPrefix(slashed, "/dev/") {
+		return redirectTargetDevice
+	}
+	if isScratchRedirectTarget(slashed) {
+		return redirectTargetScratch
+	}
+	return redirectTargetFile
+}
+
+// isScratchRedirectTarget reports whether a path lives in the OS temp directory.
+// Resolved from the environment rather than matched by name so it follows the
+// real TEMP on this machine, and matched on the expanded and unexpanded spellings
+// because the shell expands %TEMP% and $env:TEMP only at execution time.
+func isScratchRedirectTarget(slashedLowerTarget string) bool {
+	for _, prefix := range scratchRedirectPrefixes() {
+		if prefix != "" && strings.HasPrefix(slashedLowerTarget, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+func scratchRedirectPrefixes() []string {
+	prefixes := []string{"%temp%/", "%tmp%/", "$env:temp/", "$env:tmp/", "/tmp/", "/var/tmp/"}
+	for _, name := range []string{"TEMP", "TMP", "TMPDIR"} {
+		value := strings.TrimSpace(os.Getenv(name))
+		if value == "" {
+			continue
+		}
+		value = strings.ToLower(strings.ReplaceAll(value, `\`, "/"))
+		prefixes = append(prefixes, strings.TrimSuffix(value, "/")+"/")
+	}
+	return prefixes
 }
 
 func sortedFactLabels(labels map[string]struct{}) []string {
@@ -1189,6 +1266,7 @@ var commandRiskExplanations = map[string]CommandRiskExplanation{
 	// Approval-required: serious but recoverable, and legitimate in normal work.
 	"file-delete-scoped":     {MessageKey: "sensitive.fileDeleteScoped", Summary: "This deletes a specific file or directory.", Why: "The target is removed from disk.", Alternative: "Confirm the path is what you expect before allowing."},
 	"file-truncate-scoped":   {MessageKey: "sensitive.fileTruncateScoped", Summary: "This resizes a file in place.", Why: "Content beyond the new size is discarded."},
+
 	"file-overwrite":         {MessageKey: "sensitive.fileOverwrite", Summary: "This overwrites a file's contents.", Why: "The previous contents are replaced."},
 	"permission-change":      {MessageKey: "sensitive.permissionChange", Summary: "This changes file ownership or permissions.", Why: "Access control for the target changes."},
 	"process-kill":           {MessageKey: "sensitive.processKill", Summary: "This terminates a process.", Why: "The target process loses unsaved state."},

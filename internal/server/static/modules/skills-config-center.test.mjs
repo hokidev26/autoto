@@ -156,6 +156,13 @@ test("紧凑配置卡片保留安全边界、信任提示与 Hook 历史控件",
   // Preview is a role list under a collapsed disclosure, not a JSON dump.
   assert.match(roles, /class="settings-card settings-page-section skill-role-preview"/);
   assert.doesNotMatch(roles, /skill-command-prompt/);
+  // Header controls and the disclosure refresh each own one aligned row.
+  assert.match(roles, /skill-config-panel-head/);
+  assert.match(roles, /skill-config-panel-tools/);
+  assert.match(roles, /skill-config-scope-field/);
+  assert.match(roles, /<summary class="skill-role-preview-summary">/);
+  assert.match(roles, /skill-role-preview-actions/);
+  assert.match(roles, /skill-role-preview-body/);
 
   center.renderTab("global-prompts");
   await tick();

@@ -138,7 +138,7 @@ func TestPluginRoutesRequireSensitiveLocalToken(t *testing.T) {
 		})
 	}
 	legacyRequest := newTestRequest(http.MethodGet, "/api/plugins", nil)
-	legacyRequest.Header.Set(legacyLocalTokenHeader, app.localToken)
+	legacyRequest.Header.Set(nonCanonicalLocalTokenHeader, app.localToken)
 	legacyRecorder := httptest.NewRecorder()
 	app.Routes().ServeHTTP(legacyRecorder, legacyRequest)
 	if legacyRecorder.Code != http.StatusUnauthorized {

@@ -20,16 +20,6 @@ func TestRemoteSecurityRegressionEnvironmentOverridesDoNotReplacePersistedPasswo
 	} {
 		t.Setenv(setting.name, setting.value)
 	}
-	for _, legacy := range []string{
-		"CODEHARBOR_EXPOSED",
-		"CODEHARBOR_ACCESS_PASSWORD",
-		"CODEHARBOR_ALLOW_REMOTE_FULL_ACCESS",
-		"CODEHARBOR_DEFAULT_REMOTE_ACCESS_MODE",
-		"CODEHARBOR_ALLOW_REMOTE_NATIVE_PICKER",
-	} {
-		t.Setenv(legacy, "")
-	}
-
 	path := filepath.Join(t.TempDir(), "config.json")
 	persistedSecurity := SecurityConfig{
 		Exposed:                 false,

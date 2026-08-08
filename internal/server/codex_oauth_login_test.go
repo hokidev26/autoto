@@ -515,7 +515,7 @@ func TestCodexOAuthLoginStartRouteRequiresCanonicalTokenAndSameOrigin(t *testing
 		t.Fatalf("wrong canonical token was accepted: %d %s", wrong.Code, wrong.Body.String())
 	}
 	legacyRequest := newTestRequest(http.MethodPost, "/api/providers/oauth/codex/login/start", nil)
-	legacyRequest.Header.Set(legacyLocalTokenHeader, app.localToken)
+	legacyRequest.Header.Set(nonCanonicalLocalTokenHeader, app.localToken)
 	legacy := httptest.NewRecorder()
 	app.Routes().ServeHTTP(legacy, legacyRequest)
 	if legacy.Code != http.StatusUnauthorized {

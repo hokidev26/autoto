@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-globalThis.window = { AUTOTO_LOCAL_TOKEN: "", CODEHARBOR_LOCAL_TOKEN: "" };
+globalThis.window = { AUTOTO_LOCAL_TOKEN: "" };
 globalThis.location = { origin: "http://localhost", protocol: "http:", host: "localhost" };
 
 const {
@@ -20,6 +20,7 @@ const {
   maxQueuedMessages,
   normalizeMessageQueue,
   parseQueueCommandDraft,
+  queueCollapseThreshold,
   reasoningEffortValuesForCapabilities,
   reasoningEffortValuesForModel,
   resizeMessageInputElement,
@@ -963,6 +964,10 @@ test("Composer does not send when the selected and persisted models remain incon
   }
 });
 
+  // Named rather than positional: the button toggles both is-stop and is-queue,
+  // and which one is applied last is not part of the contract.
+  const lastStopToggle = (entries) => entries.filter((entry) => entry.name === "is-stop").at(-1);
+
 test("Composer makes an active run a compact, one-click stop action", async () => {
   const previousDocument = globalThis.document;
   const previousGetComputedStyle = globalThis.getComputedStyle;
@@ -1034,7 +1039,8 @@ test("Composer makes an active run a compact, one-click stop action", async () =
     const stopLabel = sendButton.textContent;
     assert.equal(sendButton.dataset.mobileLabel, "■");
     assert.equal(attributes.get("aria-label"), sendButton.title);
-    assert.equal(stopClasses.at(-1).enabled, true);
+    assert.equal(lastStopToggle(stopClasses).enabled, true);
+    assert.equal(stopClasses.filter((entry) => entry.name === "is-queue").at(-1).enabled, false);
     assert.equal(clickHandlers.length, 1);
     assert.equal(clickHandlers[0].type, "click");
     assert.equal(clickHandlers[0].options, true);
@@ -1061,7 +1067,7 @@ test("Composer makes an active run a compact, one-click stop action", async () =
     assert.notEqual(sendButton.textContent, stopLabel);
     assert.equal(sendButton.dataset.mobileLabel, "↑");
     assert.equal(attributes.get("aria-label").includes(sendButton.title), true);
-    assert.equal(stopClasses.at(-1).enabled, false);
+    assert.equal(lastStopToggle(stopClasses).enabled, false);
     assert.equal(clickHandlers.length, 1);
 
     // Terminal live rows stay visible until the run summary arrives, but they
@@ -1069,11 +1075,11 @@ test("Composer makes an active run a compact, one-click stop action", async () =
     state.liveToolOutputs = { "tool-finished": { status: "completed" } };
     controller.syncMessageComposerBusy();
     assert.equal(sendButton.dataset.mobileLabel, "↑");
-    assert.equal(stopClasses.at(-1).enabled, false);
+    assert.equal(lastStopToggle(stopClasses).enabled, false);
     state.liveToolOutputs = { "tool-running": { status: "running" } };
     controller.syncMessageComposerBusy();
     assert.equal(sendButton.dataset.mobileLabel, "■");
-    assert.equal(stopClasses.at(-1).enabled, true);
+    assert.equal(lastStopToggle(stopClasses).enabled, true);
   } finally {
     globalThis.document = previousDocument;
     globalThis.getComputedStyle = previousGetComputedStyle;
@@ -1525,6 +1531,11 @@ test("Composer keeps invalid goal drafts and attachments without sending", async
   }
 });
 
+// Parking a message paints it immediately and persists it in the background, so
+// the composer never waits on the network to show the queue. Tests have to let
+// that background call settle before asserting on it.
+const settleQueue = () => new Promise((resolve) => setTimeout(resolve, 0));
+
 test("/queue holds messages until the turn ends, then sends them in order", async () => {
   const queueHost = { className: "", innerHTML: "", classList: { toggle() {} }, querySelectorAll: () => [] };
   const input = { value: "/queue second thing", style: {}, focus() {}, classList: { toggle() {} } };
@@ -1539,7 +1550,9 @@ test("/queue holds messages until the turn ends, then sends them in order", asyn
     chatDrafts: {},
     promptHistory: [],
   };
-  const sent = [];
+  const posted = [];
+  const queued = [];
+  let serverQueue = [];
   const previousDocument = globalThis.document;
   globalThis.document = { getElementById(id) { return elements[id] || null; } };
   try {
@@ -1551,35 +1564,173 @@ test("/queue holds messages until the turn ends, then sends them in order", asyn
       notifyTerminal() {},
       showToast() {},
       onMessageAccepted: async () => {},
-      request: async (url, options) => {
-        sent.push(JSON.parse(options.body).text);
-        return { id: `m${sent.length}` };
+      request: async (url, options = {}) => {
+        const method = String(options.method || "GET").toUpperCase();
+        if (url.endsWith("/queue") && method === "GET") return { queue: serverQueue };
+        if (url.endsWith("/queue") && method === "POST") {
+          const text = JSON.parse(options.body).text;
+          queued.push(text);
+          serverQueue = [...serverQueue, { id: `s${queued.length}`, text }];
+          return { id: `s${queued.length}`, text };
+        }
+        if (url.includes("/queue/")) return null;
+        posted.push(JSON.parse(options.body).text);
+        return { id: `m${posted.length}` };
       },
     });
 
     await controller.sendMessage({ preventDefault() {} });
-    assert.deepEqual(sent, [], "a queued message must not be posted while the turn is running");
+    await settleQueue();
+    assert.deepEqual(posted, [], "a queued message must never be posted to /messages by the client");
+    assert.deepEqual(queued, ["second thing"], "parking a message stores it on the server");
     assert.deepEqual(state.messageQueue.map((item) => item.text), ["second thing"]);
 
     // With something already parked, a plain send joins the back of the line
     // rather than overtaking it.
     input.value = "third thing";
     await controller.sendMessage({ preventDefault() {} });
-    assert.deepEqual(sent, []);
+    await settleQueue();
+    assert.deepEqual(posted, []);
+    assert.deepEqual(queued, ["second thing", "third thing"]);
     assert.deepEqual(state.messageQueue.map((item) => item.text), ["second thing", "third thing"]);
 
-    // Still blocked while a tool is mid-flight, even though the agent record
-    // has already flipped away from "running".
-    state.agent.status = "idle";
-    state.liveToolOutputs = { t1: { status: "running" } };
+    // Draining reconciles against the server rather than sending: the backend
+    // owns delivery, which is what lets a queue drain with no browser open.
+    serverQueue = [{ id: "s2", text: "third thing" }];
     await controller.drainMessageQueue();
-    assert.deepEqual(sent, []);
+    assert.deepEqual(posted, [], "the client must not send on drain");
+    assert.deepEqual(state.messageQueue.map((item) => item.text), ["third thing"],
+      "a message the backend already sent drops out of the local view");
 
-    state.liveToolOutputs = {};
+    serverQueue = [];
     await controller.drainMessageQueue();
-    await controller.drainMessageQueue();
-    assert.deepEqual(sent, ["second thing", "third thing"]);
     assert.deepEqual(state.messageQueue, []);
+  } finally {
+    globalThis.document = previousDocument;
+  }
+});
+
+test("sending while the turn is in flight parks the message instead of posting it", async () => {
+  const queueHost = { className: "", innerHTML: "", classList: { toggle() {} }, querySelectorAll: () => [], querySelector: () => null };
+  const input = { value: "follow-up while running", style: {}, focus() {}, classList: { toggle() {} } };
+  const elements = { messageQueue: queueHost, messageText: input, pendingAttachments: null };
+  const state = {
+    agent: { id: "agent-1", status: "running", model: "m" },
+    navigationSelectionKind: "conversation",
+    messageQueue: [],
+    pendingToolApprovals: {},
+    liveToolOutputs: {},
+    pendingAttachments: [],
+    chatDrafts: {},
+    promptHistory: [],
+  };
+  const posted = [];
+  const queued = [];
+  let serverQueue = [];
+  const previousDocument = globalThis.document;
+  globalThis.document = { getElementById(id) { return elements[id] || null; } };
+  try {
+    const controller = createChatComposerController({
+      state,
+      isCurrentModelConfigured: () => true,
+      loadMessages: async () => {},
+      scheduleMessageRefresh() {},
+      notifyTerminal() {},
+      showToast() {},
+      onMessageAccepted: async () => {},
+      request: async (url, options = {}) => {
+        const method = String(options.method || "GET").toUpperCase();
+        if (url.endsWith("/queue") && method === "GET") return { queue: serverQueue };
+        if (url.endsWith("/queue") && method === "POST") {
+          const text = JSON.parse(options.body).text;
+          queued.push(text);
+          serverQueue = [...serverQueue, { id: `s${queued.length}`, text }];
+          return { id: `s${queued.length}`, text };
+        }
+        if (url.includes("/queue/")) return null;
+        posted.push(JSON.parse(options.body).text);
+        return { id: `m${posted.length}` };
+      },
+    });
+
+    // No /queue prefix and nothing already parked: the running turn alone is
+    // what makes this a follow-up rather than an immediate send.
+    await controller.sendMessage({ preventDefault() {} });
+    await settleQueue();
+    assert.deepEqual(posted, [], "a message typed during a run must not be posted");
+    assert.deepEqual(queued, ["follow-up while running"], "it is parked on the server instead");
+    assert.deepEqual(state.messageQueue.map((item) => item.text), ["follow-up while running"]);
+    assert.equal(input.value, "", "the composer clears once the message is parked");
+
+    // Idle again: the same send goes straight out.
+    state.agent.status = "idle";
+    state.messageQueue = [];
+    serverQueue = [];
+    input.value = "immediate";
+    await controller.sendMessage({ preventDefault() {} });
+    assert.deepEqual(posted, ["immediate"]);
+    assert.deepEqual(state.messageQueue, []);
+  } finally {
+    globalThis.document = previousDocument;
+  }
+});
+
+test("a long queue collapses past the threshold and the toggle expands it", () => {
+  let toggleHandler = null;
+  const queueHost = {
+    className: "",
+    innerHTML: "",
+    classList: { toggle() {} },
+    querySelectorAll: () => [],
+    querySelector(selector) {
+      if (selector !== "[data-queue-toggle]") return null;
+      return { addEventListener(event, handler) { toggleHandler = handler; } };
+    },
+  };
+  const elements = { messageQueue: queueHost, messageText: { value: "", style: {}, classList: { toggle() {} } }, pendingAttachments: null };
+  const queue = Array.from({ length: queueCollapseThreshold + 4 }, (unused, index) => ({
+    id: `q${index}`,
+    agentId: "agent-1",
+    text: `message ${index}`,
+    mode: "execute",
+    context: "conversation",
+  }));
+  const state = {
+    agent: { id: "agent-1", status: "running", model: "m" },
+    navigationSelectionKind: "conversation",
+    messageQueue: queue,
+    pendingToolApprovals: {},
+    liveToolOutputs: {},
+    pendingAttachments: [],
+    chatDrafts: {},
+    promptHistory: [],
+  };
+  const previousDocument = globalThis.document;
+  globalThis.document = { getElementById(id) { return elements[id] || null; } };
+  try {
+    const controller = createChatComposerController({
+      state,
+      isCurrentModelConfigured: () => true,
+      loadMessages: async () => {},
+      scheduleMessageRefresh() {},
+      notifyTerminal() {},
+      showToast() {},
+      onMessageAccepted: async () => {},
+      request: async () => ({ id: "m1" }),
+    });
+
+    controller.renderMessageQueue();
+    const collapsedRows = (queueHost.innerHTML.match(/message-queue-item/g) || []).length;
+    assert.equal(collapsedRows, queueCollapseThreshold, "only the threshold rows render while collapsed");
+    assert.match(queueHost.innerHTML, /data-queue-toggle aria-expanded="false"/);
+    // The head still reports the true total, not the visible slice.
+    assert.match(queueHost.innerHTML, new RegExp(String(queue.length)));
+
+    assert.equal(typeof toggleHandler, "function", "the toggle must be bound");
+    toggleHandler();
+    const expandedRows = (queueHost.innerHTML.match(/message-queue-item/g) || []).length;
+    assert.equal(expandedRows, queue.length, "expanding shows every parked message");
+    assert.match(queueHost.innerHTML, /data-queue-toggle aria-expanded="true"/);
   } finally {
     globalThis.document = previousDocument;
   }

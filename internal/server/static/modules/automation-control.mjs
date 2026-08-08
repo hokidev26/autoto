@@ -1,4 +1,4 @@
-import { escapeAttr, escapeHtml } from "./dom.mjs";
+﻿import { escapeAttr, escapeHtml } from "./dom.mjs";
 import { formatTimestamp as formatRegionalTimestamp } from "./formatters.mjs";
 import { t } from "./messages-automation.mjs";
 import { confirm as platformConfirm } from "./platform.mjs";
@@ -16,7 +16,7 @@ export const automationLimits = Object.freeze({
 });
 
 export const schedulePresets = Object.freeze(["@every 15m", "@hourly", "@daily"]);
-export const legacyIMDraftKeys = Object.freeze(["autoto.imGateway", "codeharbor.imGateway"]);
+export const legacyIMDraftKeys = Object.freeze(["autoto.imGateway"]);
 const ENV_REFERENCE_PATTERN = /^env:[A-Za-z_][A-Za-z0-9_]*$/;
 const SAFE_PERMISSION_MODES = new Set(["readOnly", "acceptEdits"]);
 const ENVIRONMENT_MODES = new Set(["workline", "standalone"]);

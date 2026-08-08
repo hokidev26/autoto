@@ -59,7 +59,7 @@ func (s *Server) localSkillSourceGuard(next http.Handler) http.Handler {
 			writeError(w, http.StatusForbidden, "file skill sources are available only to direct loopback requests")
 			return
 		}
-		if strings.TrimSpace(r.Header.Get(legacyLocalTokenHeader)) != "" || strings.TrimSpace(r.URL.Query().Get(localTokenQuery)) != "" || !constantTimeEqualToken(r.Header.Get(localTokenHeader), s.localToken) {
+		if strings.TrimSpace(r.URL.Query().Get(localTokenQuery)) != "" || !constantTimeEqualToken(r.Header.Get(localTokenHeader), s.localToken) {
 			writeError(w, http.StatusUnauthorized, "missing or invalid canonical local API token")
 			return
 		}

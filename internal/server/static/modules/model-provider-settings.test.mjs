@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 
 import messagesEN from "./messages-en.mjs";
 import messagesZhCN from "./messages-zh-CN.mjs";
@@ -799,6 +800,47 @@ test("图片生成模型开关默认关闭并在重新发现时保留已有值",
     ["image-model", true],
     ["fresh-model", false],
   ]);
+});
+
+// 保存会整体替换 models 数组，所以发现结果里少了某个模型时不能丢掉它的行：
+// 上游列表失败会退化成只有默认模型，那一次保存就会把已配置的上限抹掉。
+test("重新发现时保留已配置上限的模型，即使上游不再列出它", () => {
+  const configured = normalizeProviderModelConfigs({
+    modelConfigs: [
+      { name: "claude-opus-5", contextTokenLimit: 1000000 },
+      { name: "claude-haiku-4-5" },
+      { name: "image-model", imageGeneration: true },
+    ],
+  });
+  // 上游只回默认模型（例如 502 后的 fallback 列表）。
+  const merged = mergeProviderModelDiscovery(configured, { models: ["claude-haiku-4-5"] }, "claude-haiku-4-5");
+  const names = merged.map((item) => item.name);
+  assert.ok(names.includes("claude-opus-5"), "带上限的模型必须保留");
+  assert.equal(merged.find((item) => item.name === "claude-opus-5").contextTokenLimit, 1000000);
+  assert.ok(names.includes("image-model"), "开启图片生成的模型也是用户配置");
+  // 没有任何用户配置的行可以随发现结果消失。
+  assert.ok(!names.includes("unconfigured-model"));
+});
+
+test("未设定的行不会把发现到的真实上限覆盖成 0", () => {
+  const unset = normalizeProviderModelConfigs({ modelConfigs: [{ name: "claude-opus-5" }] });
+  assert.equal(unset[0].contextTokenLimit, 0);
+  const merged = mergeProviderModelDiscovery(
+    unset,
+    { models: ["claude-opus-5"], modelCapabilities: { "claude-opus-5": { contextTokenLimit: 1000000 } } },
+    "claude-opus-5",
+  );
+  assert.equal(merged[0].contextTokenLimit, 1000000);
+});
+
+test("已显式设定的上限优先于发现结果", () => {
+  const explicit = normalizeProviderModelConfigs({ modelConfigs: [{ name: "m", contextTokenLimit: 250000 }] });
+  const merged = mergeProviderModelDiscovery(
+    explicit,
+    { models: ["m"], modelCapabilities: { m: { contextTokenLimit: 128000 } } },
+    "m",
+  );
+  assert.equal(merged[0].contextTokenLimit, 250000);
 });
 
 test("图片生成能力只控制模型开关且 OpenAI/Codex 兼容缺省能力", () => {
@@ -1957,9 +1999,8 @@ test("Agent 模型设置规范化角色路由并生成后端 payload", () => {
   assert.deepEqual(normalized, {
     defaultModel: "codex:gpt-5.5",
     summaryModel: "codex:gpt-5.5",
-    // Blank means "follow the summary model". Unlike summaryModel it must NOT
-    // inherit defaultModel, or an unset safety review would silently pin itself
-    // to whatever the chat model happens to be.
+    // Blank means "follow the active conversation model". Unlike summaryModel it
+    // must NOT inherit defaultModel, because the reviewer is selected per agent.
     safetyModel: "",
     defaultReasoningEffort: "high",
     subagentModels: { explore: "openai:gpt-4.1-mini" },
@@ -2048,6 +2089,12 @@ test("模型设置页面仅保留扁平路由表单并移除聚合管理与模�
   assert.match(html, /name="defaultModel" required/);
   assert.match(html, /name="summaryModel" required/);
   assert.match(html, /name="defaultReasoningEffort"[^>]*>[\s\S]*?<option value="high" selected>/);
+  // The runtime supports Codex-specific levels too; they must use translated
+  // labels instead of leaking the modelProvider.* key into the native select.
+  assert.match(html, /<option value="xhigh"[^>]*>超高<\/option>/);
+  assert.match(html, /<option value="max"[^>]*>极高<\/option>/);
+  assert.match(html, /<option value="ultra"[^>]*>极限<\/option>/);
+  assert.doesNotMatch(html, />modelProvider\.(?:xhigh|max|ultra)<\/option>/);
   assert.match(html, /name="subagentModel_explore"/);
   assert.match(html, /<details class="compact-multi-select agent-model-pool-details" data-agent-model-pool-details="explore">/);
   assert.match(html, /data-agent-model-pool-summary="explore"/);
@@ -2419,4 +2466,72 @@ test("allowPlaintextHTTP 开关渲染、警告横幅和 payload 包含标记", (
   } finally {
     setUILocale("zh-CN");
   }
+});
+
+// 手机上「可用模型」每个模型占三行，九个模型就是一屏滚不完；工具栏在窄屏被
+// 拉成一列，让显示/隐藏全部的眼睛图标单独占满一行，看起来像个来源不明的控件。
+// providers.css 有多个 767px 区块，按第一个出现位置切片会把桌面规则也算进
+// 「移动端」，所以这里按大括号配对精确取出区块内容。
+function splitCSSByBreakpoint(css, query) {
+  let inside = "";
+  let outside = "";
+  let cursor = 0;
+  for (;;) {
+    const start = css.indexOf(query, cursor);
+    if (start < 0) { outside += css.slice(cursor); break; }
+    outside += css.slice(cursor, start);
+    const open = css.indexOf("{", start);
+    if (open < 0) { outside += css.slice(start); break; }
+    let depth = 0;
+    let end = open;
+    for (let i = open; i < css.length; i++) {
+      if (css[i] === "{") depth++;
+      else if (css[i] === "}") { depth--; if (depth === 0) { end = i; break; } }
+    }
+    inside += css.slice(open + 1, end);
+    cursor = end + 1;
+  }
+  return { inside, outside };
+}
+
+test("窄屏下模型列表压缩为两行且工具栏保持一行", async () => {
+  const css = await readFile(new URL("../styles/providers.css", import.meta.url), "utf8");
+  const { inside: mobile, outside: desktop } = splitCSSByBreakpoint(css, "@media (max-width: 767px)");
+  assert.ok(mobile.length > 0, "the 767px breakpoint must exist");
+  assert.ok(desktop.includes(".mp-provider-model-limit"), "the desktop rules must be outside the breakpoint");
+
+  // Toolbar stays horizontal so the eye toggle sits beside the refresh action.
+  assert.match(mobile, /\.mp-provider-model-toolbar\s*\{[^}]*flex-direction:\s*row/);
+  assert.match(mobile, /\.mp-provider-model-visibility-all\s*\{[^}]*flex:\s*0 0 auto/);
+
+  // Limit label and field share one line.
+  assert.match(mobile, /\.mp-provider-model-limit\s*\{[^}]*justify-content:\s*space-between/);
+
+  // An unsupported image-generation toggle is not worth a row on a phone.
+  assert.match(mobile, /\.mp-provider-model-image-generation\.is-unsupported\s*\{[^}]*display:\s*none/);
+
+  // Desktop keeps both: the stacked label and the unsupported notice.
+  assert.match(desktop, /\.mp-provider-model-limit\s*\{[^}]*display:\s*grid/);
+  assert.doesNotMatch(desktop, /\.mp-provider-model-image-generation\.is-unsupported\s*\{[^}]*display:\s*none/);
+});
+
+// 上限修复改的是 model-provider-components.mjs 与 provider-settings-normalization.mjs。
+// 只改模块不动 ?v= 时浏览器会继续用缓存副本，修复看起来完全没生效。
+test("模型上限持久化的 cache stamp 贯穿每一层浏览器入口", async () => {
+  const stamp = "provider-model-limit-persist-1";
+  const [html, app, appMain, settings, console_, normalization] = await Promise.all([
+    readFile(new URL("../index.html", import.meta.url), "utf8"),
+    readFile(new URL("../app.js", import.meta.url), "utf8"),
+    readFile(new URL("./app-main.mjs", import.meta.url), "utf8"),
+    readFile(new URL("./model-provider-settings.mjs", import.meta.url), "utf8"),
+    readFile(new URL("./provider-console.mjs", import.meta.url), "utf8"),
+    readFile(new URL("./provider-settings-normalization.mjs", import.meta.url), "utf8"),
+  ]);
+  assert.match(html, new RegExp(`app\\.js\\?v=[^"\\n]*${stamp}`));
+  assert.match(app, new RegExp(`app-main\\.mjs\\?v=[^"\\n]*${stamp}`));
+  assert.match(appMain, new RegExp(`model-provider-settings\\.mjs\\?v=[^"\\n]*${stamp}`));
+  assert.match(settings, new RegExp(`model-provider-components\\.mjs\\?v=[^"\\n]*${stamp}`));
+  assert.match(console_, new RegExp(`model-provider-components\\.mjs\\?v=[^"\\n]*${stamp}`));
+  assert.match(console_, new RegExp(`provider-settings-normalization\\.mjs\\?v=[^"\\n]*${stamp}`));
+  assert.match(normalization, new RegExp(`model-provider-components\\.mjs\\?v=[^"\\n]*${stamp}`));
 });

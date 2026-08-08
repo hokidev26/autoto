@@ -37,6 +37,19 @@ CREATE TABLE IF NOT EXISTS message_drafts (
 );
 CREATE INDEX IF NOT EXISTS idx_message_drafts_agent ON message_drafts(agent_id);
 
+CREATE TABLE IF NOT EXISTS agent_message_queue (
+  id TEXT PRIMARY KEY,
+  agent_id TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
+  created_by TEXT NOT NULL DEFAULT '',
+  content_text TEXT NOT NULL,
+  run_mode TEXT NOT NULL DEFAULT '',
+  run_context TEXT NOT NULL DEFAULT '',
+  position INTEGER NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_agent_message_queue_agent ON agent_message_queue(agent_id, position, id);
+
 CREATE TABLE IF NOT EXISTS projects (
   id TEXT PRIMARY KEY,
   name TEXT NOT NULL,
@@ -204,7 +217,7 @@ CREATE TABLE IF NOT EXISTS runs (
   waiting_background_task_id TEXT REFERENCES background_tasks(id) ON DELETE SET NULL,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL,
-  CHECK (permission_mode_cap IN ('', 'readOnly', 'acceptEdits')),
+  CHECK (permission_mode_cap IN ('', 'readOnly', 'acceptEdits', 'bypassPermissions')),
   CHECK (execution_generation >= 0),
   CHECK (dispatch_id IS NULL OR length(CAST(dispatch_id AS BLOB)) BETWEEN 1 AND 256),
   CHECK (duration_ms IS NULL OR duration_ms >= 0),
@@ -761,7 +774,7 @@ CREATE TABLE IF NOT EXISTS background_tasks (
   CHECK (length(CAST(payload_json AS BLOB)) <= 262144),
   CHECK (length(CAST(public_summary_json AS BLOB)) <= 32768),
   CHECK (length(CAST(result_json AS BLOB)) <= 32768),
-  CHECK (permission_mode_cap IN ('', 'readOnly', 'acceptEdits')),
+  CHECK (permission_mode_cap IN ('', 'readOnly', 'acceptEdits', 'bypassPermissions')),
   CHECK (permission_generation_snapshot >= 0),
   CHECK (policy_generation_snapshot >= 0),
   CHECK (agent_generation_snapshot >= 0),

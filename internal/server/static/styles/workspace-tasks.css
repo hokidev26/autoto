@@ -2010,30 +2010,115 @@ body.white-shell.theme-light .messages:not(.empty) > [class~="message"][class~="
   flex: 1;
   min-height: 0;
   display: grid;
-  grid-template-rows: minmax(180px, .82fr) minmax(230px, 1.18fr);
+  /* The tab strip is one fixed row; everything else belongs to the detail pane. */
+  grid-template-rows: auto minmax(0, 1fr);
   overflow: hidden;
+  /* Lets the detail pane's controls collapse against this panel's own width
+     rather than the viewport, so a docked panel and a full window both fit. */
+  container-name: background-task-panel;
+  container-type: inline-size;
 }
+/* A browser-style tab strip: one row regardless of task count, scrolling
+   sideways instead of pushing the detail pane down the panel. */
 .background-task-list {
   min-height: 0;
-  display: grid;
-  align-content: start;
-  gap: 8px;
-  overflow: auto;
-  padding: 12px;
+  display: flex;
+  align-items: stretch;
+  gap: 2px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 6px 6px 0;
   border-bottom: 1px solid var(--line, var(--ws-border, #e5e7eb));
+  scrollbar-width: thin;
 }
+.background-task-tab {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 190px;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0 2px 0 8px;
+  border: 1px solid var(--line, var(--ws-border, #e5e7eb));
+  border-bottom: 0;
+  border-radius: 8px 8px 0 0;
+  background: color-mix(in srgb, var(--muted, #64748b) 6%, transparent);
+}
+.background-task-tab.active {
+  background: var(--bg-panel, var(--ws-card, #fff));
+  box-shadow: inset 0 2px 0 var(--accent, #5369f3);
+}
+.background-task-tab-main {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 2px;
+  border: 0;
+  background: transparent;
+  color: var(--muted, #64748b);
+  font: inherit;
+  cursor: pointer;
+}
+.background-task-tab.active .background-task-tab-main { color: var(--text, #111827); font-weight: 650; }
+.background-task-tab-label {
+  min-width: 0;
+  overflow: hidden;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* Status rides as a dot on the tab; a word per tab would leave no room for the
+   title that identifies it. */
+.background-task-tab-dot {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--muted, #94a3b8);
+}
+.background-task-tab-dot.status-running,
+.background-task-tab-dot.status-started { background: #2563eb; }
+.background-task-tab-dot.status-queued,
+.background-task-tab-dot.status-pending,
+.background-task-tab-dot.status-waiting { background: #d97706; }
+.background-task-tab-dot.status-completed,
+.background-task-tab-dot.status-complete,
+.background-task-tab-dot.status-succeeded,
+.background-task-tab-dot.status-success { background: #16a34a; }
+.background-task-tab-dot.status-failed,
+.background-task-tab-dot.status-error,
+.background-task-tab-dot.status-interrupted { background: #dc2626; }
+.background-task-tab-close {
+  flex: none;
+  display: grid;
+  width: 18px;
+  height: 18px;
+  place-items: center;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--muted, #94a3b8);
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+}
+.background-task-tab-close:hover:not(:disabled) { background: color-mix(in srgb, #dc2626 12%, transparent); color: #dc2626; }
+.background-task-tab-close:disabled { opacity: .3; cursor: default; }
 .background-task-row {
   width: 100%;
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
-  gap: 9px;
-  padding: 11px;
+  gap: 8px;
+  /* One line per task. These cards were tall enough that two subagents filled
+     the pane, which buried the list this panel exists to browse. */
+  padding: 6px 9px;
   border: 1px solid var(--line, var(--ws-border, #e5e7eb));
-  border-radius: 10px;
+  border-radius: 8px;
   background: var(--bg-panel, var(--ws-card, #fff));
   color: inherit;
-  box-shadow: 0 1px 2px rgba(15, 23, 42, .03);
   text-align: left;
   cursor: pointer;
 }
@@ -2046,12 +2131,13 @@ body.white-shell.theme-light .messages:not(.empty) > [class~="message"][class~="
   background: color-mix(in srgb, var(--accent, #5369f3) 8%, var(--bg-panel, var(--ws-card, #fff)));
   box-shadow: inset 3px 0 0 var(--accent, #5369f3);
 }
-.background-task-kind { max-width: 82px; padding: 4px 7px; overflow: hidden; border-radius: 7px; background: color-mix(in srgb, var(--muted, #64748b) 11%, transparent); color: var(--muted, #64748b); font: 700 10px/1.2 ui-monospace, monospace; text-overflow: ellipsis; white-space: nowrap; }
-.background-task-main { min-width: 0; display: grid; gap: 4px; }
+.background-task-kind { max-width: 64px; padding: 2px 5px; overflow: hidden; border-radius: 5px; background: color-mix(in srgb, var(--muted, #64748b) 11%, transparent); color: var(--muted, #64748b); font: 700 9px/1.2 ui-monospace, monospace; text-overflow: ellipsis; white-space: nowrap; }
+/* Title and preview share one line: the preview is a hint, not a paragraph. */
+.background-task-main { min-width: 0; display: flex; align-items: baseline; gap: 7px; }
 .background-task-main strong,
 .background-task-main small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.background-task-main strong { color: var(--text, #111827); font-size: 12px; }
-.background-task-main small { color: var(--muted, #64748b); font-size: 10px; }
+.background-task-main strong { flex: 0 1 auto; color: var(--text, #111827); font-size: 11.5px; }
+.background-task-main small { flex: 1 1 auto; color: var(--muted, #64748b); font-size: 10px; }
 .background-task-row-state,
 .background-task-state {
   flex: none;
@@ -2110,6 +2196,135 @@ body.white-shell.theme-light .messages:not(.empty) > [class~="message"][class~="
   overflow: auto;
   background: var(--bg-panel, var(--ws-card, #fff));
 }
+/* Subagent conversation view: bubbles, live controls and a composer, so a
+   background task can be read and steered without being promoted to the
+   foreground conversation. */
+.background-task-view-tabs {
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--muted, #64748b) 8%, transparent);
+}
+.background-task-view-tabs button {
+  flex: 1 1 auto;
+  padding: 4px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted, #64748b);
+  font: 600 10.5px/1.3 inherit;
+  cursor: pointer;
+}
+.background-task-view-tabs button.active {
+  background: var(--bg-panel, var(--ws-card, #fff));
+  color: var(--text, #111827);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, .06);
+}
+
+.background-task-conversation {
+  min-height: 0;
+  display: grid;
+  align-content: start;
+  gap: 6px;
+  overflow: auto;
+  padding: 2px;
+}
+.background-task-bubble {
+  display: grid;
+  gap: 3px;
+  padding: 7px 9px;
+  border: 1px solid var(--line, var(--ws-border, #e5e7eb));
+  border-radius: 9px;
+  background: var(--bg-panel, var(--ws-card, #fff));
+}
+.background-task-bubble.role-user {
+  border-color: color-mix(in srgb, var(--accent, #5369f3) 24%, var(--line, #e5e7eb));
+  background: color-mix(in srgb, var(--accent, #5369f3) 7%, var(--bg-panel, #fff));
+}
+.background-task-bubble header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--muted, #64748b);
+  font-size: 9.5px;
+  font-weight: 700;
+}
+.background-task-bubble p {
+  margin: 0;
+  color: var(--text, #111827);
+  font-size: 11.5px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.background-task-child-controls {
+  display: flex;
+  align-items: end;
+  gap: 6px;
+  min-width: 0;
+}
+.background-task-child-field {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+  flex: 1 1 auto;
+}
+.background-task-child-field.compact { flex: 0 1 108px; }
+.background-task-child-field > span {
+  color: var(--muted, #64748b);
+  font-size: 9px;
+  font-weight: 700;
+}
+.background-task-child-field input,
+.background-task-child-field select {
+  min-width: 0;
+  width: 100%;
+  min-height: 26px;
+  padding: 3px 6px;
+  border: 1px solid var(--line, var(--ws-border, #e5e7eb));
+  border-radius: 6px;
+  background: var(--bg-panel, var(--ws-card, #fff));
+  color: var(--text, #111827);
+  font: inherit;
+  font-size: 10.5px;
+}
+.background-task-child-composer {
+  display: flex;
+  gap: 6px;
+  min-width: 0;
+}
+.background-task-child-composer input {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 28px;
+  padding: 4px 8px;
+  border: 1px solid var(--line, var(--ws-border, #e5e7eb));
+  border-radius: 7px;
+  background: var(--bg-panel, var(--ws-card, #fff));
+  color: var(--text, #111827);
+  font: inherit;
+  font-size: 11px;
+}
+
+/* Sized against the panel, not the window: docked narrow or opened wide, the
+   controls stack instead of overflowing. */
+@container background-task-panel (max-width: 420px) {
+  .background-task-child-controls { flex-wrap: wrap; }
+  .background-task-child-field,
+  .background-task-child-field.compact { flex: 1 1 100%; }
+  .background-task-child-field > span { font-size: 8.5px; }
+}
+
+@container background-task-panel (max-width: 300px) {
+  /* The label text is the first thing to go; the control itself still works and
+     its own value says what it is. */
+  .background-task-child-field > span { display: none; }
+  .background-task-row .background-task-kind { display: none; }
+}
+
 .background-task-detail header { justify-content: space-between; gap: 12px; }
 .background-task-detail header > div { min-width: 0; display: grid; gap: 3px; }
 .background-task-detail header span,
@@ -2123,6 +2338,21 @@ body.white-shell.theme-light .messages:not(.empty) > [class~="message"][class~="
 .background-task-truncated { margin: 8px 12px 0; padding: 8px 10px; border-radius: 8px; color: #991b1b; background: rgba(239, 68, 68, .09); font-size: 11px; }
 .background-task-detail .background-task-error { margin: 0; }
 .background-task-truncated { margin: 0; color: #92400e; background: rgba(245, 158, 11, .12); }
+
+/* The tray's lower half is a ~230px pane, not a page. Scoped to the tray rather
+   than to a viewport width, because what is short here is the panel, and that is
+   true on a desktop monitor too: the header, the timestamps and the action row
+   were each claiming a horizontal band that had no room to spread. Stacking them
+   is the phone presentation, applied at every width. */
+.background-task-tray-grid .background-task-detail { gap: 8px; padding: 11px 12px 13px; }
+.background-task-tray-grid .background-task-detail header { flex-direction: column; align-items: flex-start; gap: 5px; }
+.background-task-tray-grid .background-task-meta { flex-wrap: wrap; justify-content: flex-start; gap: 4px 12px; }
+.background-task-tray-grid .background-task-output { min-height: 64px; padding: 9px; font-size: 10.5px; }
+/* Same reasoning for the list above it: the status pill wraps under the title
+   instead of competing with it for the row, which is what the 480px rule
+   already did for phones. */
+.background-task-tray-grid .background-task-row { grid-template-columns: auto minmax(0, 1fr); }
+.background-task-tray-grid .background-task-row-state { grid-column: 2; justify-self: start; }
 /* --surface and --surface-subtle are not tokens this shell defines -- only
    oauth-app.css declares them -- so every var(--surface*, #fff) here resolved to
    its light literal under every palette, painting a white card inside a dark

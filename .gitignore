@@ -1,10 +1,11 @@
 # Go build artifacts
 /autoto
-/codeharbor
 /bin/
 /dist/
 *.exe
 *.exe~
+# Kept-aside binaries from manual rollback testing, e.g. autoto.exe.prev-running.
+*.exe.prev-*
 *.test
 *.out
 coverage.out
@@ -25,7 +26,6 @@ config.local.json
 *.log
 tmp/
 .autoto-run-*.json
-.codeharbor-run-*.json
 .DS_Store
 .narrafork/
 .worktrees/
@@ -33,7 +33,6 @@ tmp/
 
 # Local source/reference repositories
 /autoto-legacy/
-/codeharbor-references/
 
 # Scratch scripts kept beside the source while debugging. They are working
 # notes, not part of the build, and they accumulate fast.

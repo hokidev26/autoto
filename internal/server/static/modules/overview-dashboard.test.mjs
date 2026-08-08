@@ -368,9 +368,12 @@ test("launcher project, selects, and suggestions update editable state", () => {
   host.launcherClick("select-option", { overviewLauncherSelect: "model", overviewLauncherValue: "m2" });
   assert.doesNotMatch(host.innerHTML, /overview-launcher-select-popover composer-model-popover/);
   host.launcherClick("toggle-select", { overviewLauncherSelect: "reasoningEffort" });
-  assert.match(host.innerHTML, /class="composer-select-popover overview-launcher-select-popover"/);
+  // Matched by field rather than by class string: project and effort both render
+  // a plain (non-model) popover with an identical class list, so a class-only
+  // assertion would no longer identify which menu is open.
+  assert.match(host.innerHTML, /data-overview-launcher-popover="reasoningEffort"/);
   assert.equal(host.keydown("", { key: "Escape" }), true);
-  assert.doesNotMatch(host.innerHTML, /class="composer-select-popover overview-launcher-select-popover"/);
+  assert.doesNotMatch(host.innerHTML, /data-overview-launcher-popover="reasoningEffort"/);
   host.launcherClick("toggle-select", { overviewLauncherSelect: "reasoningEffort" });
   host.launcherClick("select-option", { overviewLauncherSelect: "reasoningEffort", overviewLauncherValue: "high" });
   assert.deepEqual(controller.getState().launcher, {
@@ -387,6 +390,62 @@ test("launcher project, selects, and suggestions update editable state", () => {
   assert.deepEqual(host.focusLog.at(-1), ["field", "draft"]);
   assert.match(host.innerHTML, /修复这个定制问题：<\/textarea>/);
 
+});
+
+// The project field used to be a bare native <select>, whose browser-drawn
+// option panel no stylesheet here can colour; under the dark presets that left
+// white text on the platform's white panel. It now renders the same custom
+// popover as model and effort, so the click path has to work for it too.
+test("launcher project renders a themed popover and selects through it", () => {
+  const host = fakeHost();
+  const controller = createOverviewDashboardController({
+    host,
+    request: async () => overview(),
+    getLauncherContext: () => ({
+      projects: [{ id: "p1", name: "One" }, { id: "p2", name: "Two" }],
+      selectedProjectId: "p1",
+      models: [{ value: "m1", label: "One" }],
+      selectedModel: "m1",
+      selectedEffort: "auto",
+    }),
+  });
+
+  // Every field keeps its hidden native select for form semantics.
+  assert.match(host.innerHTML, /data-overview-launcher-field="projectId"/);
+  assert.match(host.innerHTML, /composer-native-select[^>]*data-overview-launcher-field="projectId"/);
+  // Sized like the model pill, not the narrow effort pill.
+  assert.match(host.innerHTML, /overview-launcher-custom-select select-pill project-pill/);
+  assert.doesNotMatch(host.innerHTML, /data-overview-launcher-popover="projectId"/);
+
+  host.launcherClick("toggle-select", { overviewLauncherSelect: "projectId" });
+  assert.match(host.innerHTML, /data-overview-launcher-popover="projectId"/);
+  host.launcherClick("select-option", { overviewLauncherSelect: "projectId", overviewLauncherValue: "p2" });
+  assert.equal(controller.getState().launcher.projectId, "p2");
+  assert.doesNotMatch(host.innerHTML, /data-overview-launcher-popover="projectId"/);
+
+  // A value that is not in the current project list must not be accepted.
+  host.launcherClick("select-option", { overviewLauncherSelect: "projectId", overviewLauncherValue: "gone" });
+  assert.equal(controller.getState().launcher.projectId, "p2");
+
+  // Each field gets its own DOM id; the old two-way branch handed project the
+  // effort field's id.
+  assert.match(host.innerHTML, /id="overviewLauncherProject"/);
+  assert.match(host.innerHTML, /id="overviewLauncherModel"/);
+  assert.match(host.innerHTML, /id="overviewLauncherReasoningEffort"/);
+});
+
+test("launcher project popover stays shut when there are no projects", () => {
+  const host = fakeHost();
+  createOverviewDashboardController({
+    host,
+    request: async () => overview(),
+    getLauncherContext: () => ({ projects: [], models: [{ value: "m1", label: "One" }], selectedModel: "m1", selectedEffort: "auto" }),
+  });
+
+  host.launcherClick("toggle-select", { overviewLauncherSelect: "projectId" });
+  assert.doesNotMatch(host.innerHTML, /data-overview-launcher-popover="projectId"/);
+  // The field still renders, disabled, showing the empty-state label.
+  assert.match(host.innerHTML, /data-overview-launcher-field="projectId"[^>]*disabled/);
 });
 
 test("Enter submits the launcher payload, Shift+Enter composes, and busy prevents duplicates", async () => {
@@ -658,7 +717,134 @@ test("activity heatmap scales levels against the busiest day and ignores days ou
   // Before the window the day is absent entirely; after today it is present as
   // future padding but its count is dropped rather than drawn.
   assert.equal(byDate.get("2025-07-26"), undefined);
-  assert.deepEqual(byDate.get("2026-07-27"), { date: "2026-07-27", count: 0, level: 0, future: true });
+  assert.deepEqual(byDate.get("2026-07-27"), { date: "2026-07-27", count: 0, tokens: 0, level: 0, future: true });
+});
+
+test("activity heatmap accumulates tokens per day alongside request counts", () => {
+  const model = buildActivityHeatmap([
+    { bucket: "2026-07-26", requestCount: 4, inputTokens: 100, outputTokens: 50, totalTokens: 150 },
+    // Same day arriving as a second bucket: both counts and tokens accumulate.
+    { bucket: "2026-07-26", requestCount: 1, inputTokens: 10, outputTokens: 5, totalTokens: 15 },
+    // No totalTokens field: falls back to input + output, matching how the
+    // server derives it.
+    { bucket: "2026-07-25", requestCount: 2, inputTokens: 30, outputTokens: 20 },
+    // Requests recorded but no token data at all.
+    { bucket: "2026-07-24", requestCount: 3 },
+    // Outside the window: excluded from the totals.
+    { bucket: "2026-07-27", requestCount: 9, totalTokens: 9999 },
+  ], { today: "2026-07-26" });
+
+  const byDate = new Map(model.weeks.flatMap((week) => week.days).map((day) => [day.date, day]));
+  assert.equal(byDate.get("2026-07-26").tokens, 165);
+  assert.equal(byDate.get("2026-07-25").tokens, 50);
+  assert.equal(byDate.get("2026-07-24").tokens, 0);
+  assert.equal(model.total, 10);
+  assert.equal(model.totalTokens, 215);
+  // reasoning and cached tokens are reported separately by the server and are
+  // deliberately not folded into the total.
+  assert.equal(buildActivityHeatmap([
+    { bucket: "2026-07-26", requestCount: 1, inputTokens: 10, outputTokens: 5, reasoningTokens: 400, cachedInputTokens: 900 },
+  ], { today: "2026-07-26" }).totalTokens, 15);
+});
+
+test("heatmap tooltips report tokens when present and omit them when zero", () => {
+  const withTokens = renderOverviewDashboard(overview(), {
+    today: "2026-07-26",
+    activityTrend: [{ bucket: "2026-07-26", requestCount: 7, inputTokens: 1500, outputTokens: 900, totalTokens: 2400 }],
+  });
+  assert.match(withTokens, /2026-07-26：7 次请求 · 2,400 tokens/);
+  assert.match(withTokens, /过去一年共 7 次模型请求 · 2,400 tokens/);
+
+  // A day with requests but no token data keeps the shorter wording rather than
+  // asserting "0 tokens".
+  const withoutTokens = renderOverviewDashboard(overview(), {
+    today: "2026-07-26",
+    activityTrend: [{ bucket: "2026-07-26", requestCount: 7 }],
+  });
+  assert.match(withoutTokens, /2026-07-26：7 次请求"/);
+  assert.doesNotMatch(withoutTokens, /0 tokens/);
+});
+
+// The resource cards are injected rather than imported, so the dashboard has to
+// place them, tolerate their absence, and survive a renderer that throws.
+test("system metrics section is injected between the summaries and the heatmap", () => {
+  const html = renderOverviewDashboard(overview(), {
+    today: "2026-07-26",
+    systemMetrics: { cpu: { available: true, percent: 50 } },
+    renderSystemMetrics: (model) => `<section data-fake-metrics="${model?.cpu?.percent ?? ""}"></section>`,
+  });
+
+  assert.match(html, /data-fake-metrics="50"/);
+  assert.equal(html.indexOf("data-fake-metrics") > html.indexOf("overview-summary-grid"), true);
+  assert.equal(html.indexOf("data-fake-metrics") < html.indexOf('data-overview-section="activity"'), true);
+
+  // No renderer supplied: the dashboard renders exactly as before.
+  assert.doesNotMatch(renderOverviewDashboard(overview(), { today: "2026-07-26" }), /data-fake-metrics/);
+  // A renderer returning nothing measurable contributes no markup.
+  assert.doesNotMatch(renderOverviewDashboard(overview(), { today: "2026-07-26", renderSystemMetrics: () => "" }), /overview-metrics/);
+
+  // A throwing renderer must not take the dashboard down.
+  const survived = renderOverviewDashboard(overview(), {
+    today: "2026-07-26",
+    renderSystemMetrics: () => { throw new Error("metrics blew up"); },
+  });
+  assert.match(survived, /data-overview-section="activity"/);
+  assert.match(survived, /data-overview-launcher/);
+});
+
+test("controller drives the injected metrics poller and re-renders on updates", () => {
+  const host = fakeHost();
+  let emit = null;
+  const log = [];
+  const controller = createOverviewDashboardController({
+    host,
+    request: async () => overview(),
+    renderSystemMetrics: (model) => (model?.cpu?.available ? `<section data-fake-metrics="${model.cpu.percent}"></section>` : ""),
+    createSystemMetricsPoller: ({ onUpdate }) => {
+      emit = onUpdate;
+      return {
+        start() { log.push("start"); return true; },
+        stop() { log.push("stop"); return true; },
+      };
+    },
+  });
+
+  assert.doesNotMatch(host.innerHTML, /data-fake-metrics/);
+  controller.start();
+  controller.stop();
+  assert.deepEqual(log, ["start", "stop"]);
+
+  // A reading arriving from the poller re-renders the dashboard in place.
+  emit({ cpu: { available: true, percent: 77 } });
+  assert.match(host.innerHTML, /data-fake-metrics="77"/);
+  assert.equal(controller.getState().systemMetrics.cpu.percent, 77);
+});
+
+test("controller works when no metrics poller is injected", () => {
+  const host = fakeHost();
+  const controller = createOverviewDashboardController({ host, request: async () => overview() });
+
+  // start/stop stay callable so callers need no capability checks.
+  assert.equal(controller.start(), false);
+  assert.equal(controller.stop(), false);
+  assert.equal(controller.getState().systemMetrics, null);
+  assert.match(host.innerHTML, /data-overview-launcher/);
+});
+
+// A poller factory that throws must not prevent the dashboard from existing.
+test("controller survives a failing metrics poller factory", () => {
+  const host = fakeHost();
+  const errors = [];
+  const controller = createOverviewDashboardController({
+    host,
+    request: async () => overview(),
+    createSystemMetricsPoller: () => { throw new Error("no poller"); },
+    onError: (error, action) => errors.push([error.message, action]),
+  });
+
+  assert.deepEqual(errors, [["no poller", "system-metrics"]]);
+  assert.equal(controller.start(), false);
+  assert.match(host.innerHTML, /data-overview-launcher/);
 });
 
 test("activity heatmap renders escaped tooltips and a legend, and survives a failed load", () => {

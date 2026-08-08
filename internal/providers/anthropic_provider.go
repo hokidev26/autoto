@@ -719,11 +719,35 @@ func anthropicMessages(messages []Message, systemPrompt, model string) ([]anthro
 		default:
 			content := anthropicContentBlocks(blocks, false, model)
 			if len(content) > 0 {
-				out = append(out, anthropic.NewUserMessage(content...))
+				out = appendAnthropicUserContent(out, content)
 			}
 		}
 	}
 	return out, system
+}
+
+// appendAnthropicUserContent folds user content into the preceding user message
+// instead of emitting a second one.
+//
+// The Messages API requires every tool_result answering one assistant turn to
+// live in the single user message that follows it. Autoto stores one message per
+// tool result, so a turn with parallel tool calls is persisted as N separate
+// user messages; replaying that verbatim is rejected with "Invalid message
+// sequence: tool_use and tool_result blocks must be correctly paired and
+// ordered", which poisons the conversation permanently because every later
+// request replays the same history.
+//
+// Merging is done on the emitted slice rather than on the input messages so that
+// entries which vanish during conversion — hoisted system messages, assistant
+// messages whose only block was thinking from another model — still leave the
+// surrounding user messages adjacent. Block order inside the merged message is
+// preserved: tool_result blocks do not have to lead, only to share one message.
+func appendAnthropicUserContent(out []anthropic.MessageParam, content []anthropic.ContentBlockParamUnion) []anthropic.MessageParam {
+	if last := len(out) - 1; last >= 0 && out[last].Role == anthropic.MessageParamRoleUser {
+		out[last].Content = append(out[last].Content, content...)
+		return out
+	}
+	return append(out, anthropic.NewUserMessage(content...))
 }
 
 func anthropicContentBlocks(blocks []ContentBlock, assistant bool, model string) []anthropic.ContentBlockParamUnion {

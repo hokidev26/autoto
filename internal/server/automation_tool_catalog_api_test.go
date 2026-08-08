@@ -63,7 +63,7 @@ func TestAutomationToolCatalogRoutesKeepInstallConfigureAndEnableSeparate(t *tes
 		t.Fatalf("install without canonical token must fail before runner: status=%d calls=%d", missingToken.Code, commandCalls)
 	}
 	legacyRequest := newTestRequest(http.MethodPost, "/api/optional-tools/automation/playwright-mcp/install", nil)
-	legacyRequest.Header.Set(legacyLocalTokenHeader, app.localToken)
+	legacyRequest.Header.Set(nonCanonicalLocalTokenHeader, app.localToken)
 	legacy := httptest.NewRecorder()
 	routes.ServeHTTP(legacy, legacyRequest)
 	if legacy.Code != http.StatusForbidden || commandCalls != 0 {

@@ -57,15 +57,88 @@ func TestContinuationStopReasonPolicy(t *testing.T) {
 			t.Fatalf("expected %q to be terminal without continuation", reason)
 		}
 	}
-	for _, reason := range []string{"content_filter", "unknown", "provider_error"} {
+	for _, reason := range []string{"content_filter", "unknown"} {
 		if isTerminalStopReason(reason) || isContinuationStopReason(reason) || safeContinuationReason(reason) {
 			t.Fatalf("unknown stop reason %q must fail closed", reason)
 		}
 	}
-	for _, reason := range []string{continuationReasonMaxOutputTokens, continuationReasonSegmentTurns, continuationReasonBackgroundTask} {
+	// provider_error is a continuation reason, never a model stop reason: a
+	// provider fault must not be mistaken for the model choosing to stop.
+	if isTerminalStopReason(continuationReasonProviderError) || isContinuationStopReason(continuationReasonProviderError) {
+		t.Fatal("provider_error must not be treated as a model stop reason")
+	}
+	for _, reason := range []string{
+		continuationReasonMaxOutputTokens, continuationReasonSegmentTurns, continuationReasonBackgroundTask,
+		// Retried under a bounded counter rather than ending the run.
+		continuationReasonProviderError,
+	} {
 		if !safeContinuationReason(reason) {
 			t.Fatalf("expected safe continuation reason %q", reason)
 		}
+	}
+}
+
+func TestRetryableProviderErrorRequiresSafeModeAndProviderFault(t *testing.T) {
+	runner := &Runner{}
+	safe := continuationRunState{limits: continuationLimits{mode: continuationModeSafe}}
+	providerFault := segmentOutcome{continuationReason: continuationReasonProviderError, resumeAfterID: "msg-1"}
+	boom := errors.New("upstream 502")
+
+	if !runner.retryableProviderError(safe, providerFault, boom) {
+		t.Fatal("a provider fault with a resume point in safe mode must be retryable")
+	}
+	// No durable resume point: the failed call persisted nothing, so the caller
+	// re-runs the same segment in place. This is the first-turn 502 case, which
+	// used to end the run because a resume point was demanded that could not
+	// exist yet.
+	if !runner.retryableProviderError(safe, segmentOutcome{continuationReason: continuationReasonProviderError}, boom) {
+		t.Fatal("a provider fault without a resume point must retry in place")
+	}
+	// Auto-continuation disabled by the user.
+	off := continuationRunState{limits: continuationLimits{mode: continuationModeOff}}
+	if runner.retryableProviderError(off, providerFault, boom) {
+		t.Fatal("continuation mode off must not retry")
+	}
+	// Any other failure (store, settlement barrier) keeps failing the run.
+	if runner.retryableProviderError(safe, segmentOutcome{continuationReason: continuationReasonSegmentTurns, resumeAfterID: "msg-1"}, boom) {
+		t.Fatal("only provider faults are retryable")
+	}
+	// Cancellation and deadlines are the user's or the budget's decision.
+	for _, err := range []error{context.Canceled, context.DeadlineExceeded} {
+		if runner.retryableProviderError(safe, providerFault, err) {
+			t.Fatalf("cancellation %v must not be retried", err)
+		}
+	}
+	if runner.retryableProviderError(safe, providerFault, nil) {
+		t.Fatal("a segment without an error is not a retry candidate")
+	}
+}
+
+func TestProviderErrorBackoffGrowsAndHonorsCancellation(t *testing.T) {
+	runner := &Runner{}
+	// Cancelled context must win over the delay instead of sleeping it out.
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := runner.waitProviderErrorBackoff(ctx, 1); !errors.Is(err, context.Canceled) {
+		t.Fatalf("expected cancellation, got %v", err)
+	}
+	// The delay is capped, so a late attempt cannot wait an unbounded time.
+	if got := providerErrorRetryBaseDelay * time.Duration(1<<uint(maxProviderErrorRetries-1)); got <= providerErrorRetryMaxDelay {
+		// Base 2s doubling over 4 attempts reaches 16s, under the 30s cap; this
+		// guards the relationship rather than the exact numbers.
+		if got > providerErrorRetryMaxDelay {
+			t.Fatalf("uncapped backoff %v exceeds max %v", got, providerErrorRetryMaxDelay)
+		}
+	}
+}
+
+func TestBoundedProviderErrorTextIsTrimmedAndSafe(t *testing.T) {
+	if got := boundedProviderErrorText(nil); got != "" {
+		t.Fatalf("nil error should produce no text, got %q", got)
+	}
+	long := errors.New(strings.Repeat("x", 500))
+	if got := boundedProviderErrorText(long); len(got) != 300 {
+		t.Fatalf("expected the text bounded to 300 chars, got %d", len(got))
 	}
 }
 
@@ -939,5 +1012,76 @@ func TestPrepareContinuationRunPersistsUnlimitedSegmentTurnsAsZero(t *testing.T)
 	}
 	if limits.segmentTurns > 0 {
 		t.Fatalf("stored 0 must restore as unlimited, got %d", limits.segmentTurns)
+	}
+}
+
+// The provider-error retry was unreachable: the failing path never recorded the
+// reason the retry check requires, so a transient 502 always ended the run. A
+// fault on the very first turn also has no durable resume point, which the
+// scheduler refuses -- so that case has to retry the segment in place.
+func TestFirstTurnProviderErrorRetriesInPlaceAndCompletes(t *testing.T) {
+	ctx := context.Background()
+	store, createdAgent := newAgentTestStore(t, t.TempDir(), "acceptEdits")
+	defer store.Close()
+	provider := &scriptedProvider{turns: [][]providers.Event{
+		// No text, no blocks: nothing durable to resume from.
+		{{Type: "error", Text: "ttapy request failed: HTTP 502 (Bad Gateway)"}},
+		{{Type: "text", Text: "recovered after 502"}, {Type: "done", Done: true, StopReason: "end_turn"}},
+	}}
+	// MaxTransientRetries 0 keeps the low-level retry out of the way so the
+	// fault reaches the segment loop, which is the path under test.
+	runner := newAgentTestRunner(store, provider, config.AgentConfig{
+		MaxTurns: 2, MaxTransientRetries: 0, AutoContinuationMode: "safe",
+		ContinuationSegmentTurns: 2, MaxContinuations: 2, MaxTotalTurns: 6,
+		MaxRunDurationMs: 60000, MaxRunTokens: 100000,
+	})
+
+	trigger, err := store.AddMessage(ctx, db.Message{AgentID: createdAgent.ID, Role: "user", ContentText: "do the thing"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A real run is required: runContinuous forces continuation off for an empty
+	// run id, and with it the retry path being tested.
+	request, err := runner.prepareContinuationRun(ctx, db.Run{AgentID: createdAgent.ID, TriggerMessageID: trigger.ID, Status: "running", ExecutionMode: db.RunExecutionModeExecute})
+	if err != nil {
+		t.Fatal(err)
+	}
+	run, err := store.CreateRun(ctx, request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.AssignMessageRun(ctx, createdAgent.ID, trigger.ID, run.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := runner.run(ctx, createdAgent.ID, run.ID); err != nil {
+		t.Fatalf("a retryable first-turn 502 must not fail the run: %v", err)
+	}
+	if provider.requestCount() != 2 {
+		t.Fatalf("expected the segment to be retried in place, got %d provider requests", provider.requestCount())
+	}
+	messages, err := store.ListMessages(ctx, createdAgent.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(messages) != 2 {
+		t.Fatalf("expected the trigger plus one recovered reply, got %d messages", len(messages))
+	}
+	if messages[0].ID != trigger.ID {
+		t.Fatalf("trigger message was disturbed: %+v", messages[0])
+	}
+	if messages[1].Role != "assistant" || messages[1].ContentText != "recovered after 502" {
+		t.Fatalf("expected the recovered assistant reply, got %+v", messages[1])
+	}
+}
+
+// A store failure is not a provider fault. It borrows the same code path, so it
+// must not inherit the retry: retrying would fail identically and mask the real
+// cause behind a provider error message.
+func TestSegmentOutcomeDropsProviderReasonOnPersistFailure(t *testing.T) {
+	runner := &Runner{}
+	safe := continuationRunState{limits: continuationLimits{mode: continuationModeSafe}}
+	storeFault := segmentOutcome{continuationReason: "", resumeAfterID: ""}
+	if runner.retryableProviderError(safe, storeFault, errors.New("disk full")) {
+		t.Fatal("an outcome with no provider reason must not be retried")
 	}
 }

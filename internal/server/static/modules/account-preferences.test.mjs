@@ -183,7 +183,7 @@ test("local import 成功后才删除 Autoto 旧 key", async () => {
 test("local import 失败保留所有旧 key", async () => {
   const storage = new MemoryStorage([
     ["autoto.profile", JSON.stringify({ displayName: "Keep" })],
-    ["codeharbor.profile", JSON.stringify({ displayName: "Also keep" })],
+    ["autoto.preferredModel", "anthropic:keep"],
   ]);
   const queue = requestQueue([serverSnapshot({ localStorageImportVersion: 0 }), httpError(503)]);
   const controller = createAccountPreferencesController({ request: queue.request, storage, eventTarget: new MemoryEvents() });
@@ -191,27 +191,7 @@ test("local import 失败保留所有旧 key", async () => {
   await controller.hydrate();
 
   assert.notEqual(storage.getItem("autoto.profile"), null);
-  assert.notEqual(storage.getItem("codeharbor.profile"), null);
-});
-
-test("legacy CodeHarbor key 可导入且成功后统一删除", async () => {
-  const storage = new MemoryStorage([
-    ["codeharbor.profile", JSON.stringify({ displayName: "CodeHarbor" })],
-    ["codeharbor.preferredModel", "anthropic:legacy"],
-    ["codeharbor.modelVisibility", JSON.stringify({ showUnconfiguredProviders: true })],
-  ]);
-  const queue = requestQueue([
-    serverSnapshot({ localStorageImportVersion: 0 }),
-    serverSnapshot({ profile: { displayName: "CodeHarbor" }, preferredModel: "anthropic:legacy", localStorageImportVersion: 1 }),
-  ]);
-  const controller = createAccountPreferencesController({ request: queue.request, storage, eventTarget: new MemoryEvents() });
-
-  await controller.hydrate();
-
-  assert.equal(queue.calls[1].body.profile.displayName, "CodeHarbor");
-  assert.equal(queue.calls[1].body.preferredModel, "anthropic:legacy");
-  assert.equal(queue.calls[1].body.modelVisibility.showUnconfiguredProviders, true);
-  Object.values(accountPreferenceLegacyKeys).flat().forEach((key) => assert.equal(storage.getItem(key), null));
+  assert.notEqual(storage.getItem("autoto.preferredModel"), null);
 });
 
 test("CAS 409 后重新 GET 并只重放一次", async () => {

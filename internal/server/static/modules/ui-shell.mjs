@@ -156,7 +156,10 @@ export function sidebarWidthFromPointer(clientX, sidebarLeft) {
 // a fixed-position overlay with its own width, so the resize handle has no
 // effect (and stays hidden) there.
 export const utilityPanelWidthPreferenceKey = "autoto.ui.utilityPanelWidth";
-export const minUtilityPanelWidth = 320;
+// Low enough to reach the panel's narrow, phone-shaped tier. The old 320 floor
+// stopped the drag before the compact layout could ever apply, which read as the
+// handle jamming partway.
+export const minUtilityPanelWidth = 260;
 export const maxUtilityPanelWidth = 620;
 export const utilityPanelChatMinWidth = 420;
 export const utilityPanelDesktopBreakpoint = 1280;

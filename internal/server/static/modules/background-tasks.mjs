@@ -259,6 +259,10 @@ export function createBackgroundTasksController({
   onOpenChange,
   onNavigateAgent,
   onNavigateRun,
+  // Supplies the configured provider models so the subagent model control offers
+  // the same list as the main composer. Injected rather than fetched here to
+  // keep one owner of the model catalogue.
+  getModelOptions,
   maxOutputChars = defaultOutputLimit,
 } = {}) {
   if (typeof request !== "function") throw new Error("createBackgroundTasksController requires request");
@@ -270,6 +274,13 @@ export function createBackgroundTasksController({
   const outputCursors = new Map();
   const cancelBusy = new Set();
   const waitBusy = new Set();
+  // A subagent's own conversation and settings, keyed by its agent id. Status
+  // alone could not answer "what did it actually say", which is the reason to
+  // open this panel at all.
+  const childConversations = new Map();
+  const childAgents = new Map();
+  const childBusy = new Set();
+  let detailView = "conversation";
   const hydrationRequests = new Map();
   const listeners = new Set();
   let selected = "";
@@ -295,6 +306,77 @@ export function createBackgroundTasksController({
 
   function orderedTasks() {
     return order.map((id) => tasksById.get(id)).filter(Boolean);
+  }
+
+  function availableModels() {
+    const raw = typeof getModelOptions === "function" ? getModelOptions() : [];
+    if (!Array.isArray(raw)) return [];
+    const seen = new Set();
+    const options = [];
+    for (const entry of raw) {
+      const value = text(typeof entry === "string" ? entry : entry?.value ?? entry?.id ?? entry?.name);
+      if (!value || seen.has(value)) continue;
+      seen.add(value);
+      options.push({ value, label: text(typeof entry === "string" ? entry : entry?.label ?? entry?.title) || value });
+    }
+    return options;
+  }
+
+  function childMessages(childAgentId) {
+    const id = text(childAgentId);
+    return id ? (childConversations.get(id) || []) : [];
+  }
+
+  // Loaded on demand rather than with the task list: most tasks are never
+  // opened, and each one costs a separate conversation fetch.
+  async function loadChildConversation(childAgentId, { force = false } = {}) {
+    const id = text(childAgentId);
+    if (!id || childBusy.has(id)) return;
+    if (!force && childConversations.has(id)) return;
+    childBusy.add(id);
+    try {
+      const [messages, agent] = await Promise.all([
+        request(`/api/agents/${encodeURIComponent(id)}/messages?limit=40`).catch(() => null),
+        request(`/api/agents/${encodeURIComponent(id)}`).catch(() => null),
+      ]);
+      const list = Array.isArray(messages) ? messages : (Array.isArray(messages?.messages) ? messages.messages : []);
+      childConversations.set(id, list);
+      if (agent && typeof agent === "object") childAgents.set(id, agent);
+      render();
+    } finally {
+      childBusy.delete(id);
+    }
+  }
+
+  // Model, effort and permission changes are written straight to the subagent so
+  // a task can be steered without leaving this panel.
+  async function updateChildAgent(childAgentId, path, body) {
+    const id = text(childAgentId);
+    if (!id) return;
+    try {
+      await request(`/api/agents/${encodeURIComponent(id)}/${path}`, {
+        method: "PATCH",
+        body: JSON.stringify(body),
+      });
+      await loadChildConversation(id, { force: true });
+    } catch (err) {
+      onError?.(err);
+    }
+  }
+
+  async function sendToChildAgent(childAgentId, message) {
+    const id = text(childAgentId);
+    const body = text(message);
+    if (!id || !body) return;
+    try {
+      await request(`/api/agents/${encodeURIComponent(id)}/messages`, {
+        method: "POST",
+        body: JSON.stringify({ text: body, mode: "execute", context: "conversation" }),
+      });
+      await loadChildConversation(id, { force: true });
+    } catch (err) {
+      onError?.(err);
+    }
   }
 
   function taskSummary() {
@@ -529,6 +611,10 @@ export function createBackgroundTasksController({
       if (alreadyLoaded) await loadTask(normalized);
       if (!operationIsCurrent(expectedAgentId, expectedGeneration)) return null;
       if (!(outputs.get(normalized) || []).length) await loadOutput(normalized, { afterSequence: 0 });
+      // Opening a subagent task is a request to read its conversation, so fetch it
+      // here rather than waiting for the first render to notice it is missing.
+      const childAgentId = text(tasksById.get(normalized)?.childAgentId);
+      if (childAgentId) await loadChildConversation(childAgentId);
     } catch (cause) {
       if (operationIsCurrent(expectedAgentId, expectedGeneration)) onError?.(cause);
     }
@@ -668,15 +754,91 @@ export function createBackgroundTasksController({
     return (outputs.get(id) || []).map((chunk) => chunk.text).join("");
   }
 
+  // Browser-style tabs rather than stacked cards: picking a task is the common
+  // action, and a tab strip makes that one click while costing one row of height
+  // no matter how many tasks there are.
   function renderTaskRow(task) {
     const active = task.id === selected;
-    const duration = task.durationMs === null || task.durationMs === undefined ? "—" : formatDuration(task.durationMs);
-    const preview = text(task.error || task.summary?.description || task.summary?.command);
-    return `<button class="background-task-row ${active ? "active" : ""}" type="button" data-background-task="${escapeAttr(task.id)}" aria-pressed="${active ? "true" : "false"}">
-      <span class="background-task-kind">${escapeHtml(task.kind || t("backgroundTasks.task"))}</span>
-      <span class="background-task-main"><strong>${escapeHtml(task.title || task.id)}</strong><small>${escapeHtml(preview || `${taskStatusLabel(task.status)} · ${duration}`)}</small></span>
-      <span class="background-task-row-state status-${escapeAttr(task.status)}">${escapeHtml(taskStatusLabel(task.status))}</span>
-    </button>`;
+    const canCancel = cancellableStatuses.has(task.status);
+    const closeLabel = canCancel ? t("backgroundTasks.cancel") : t("backgroundTasks.close");
+    return `<span class="background-task-tab ${active ? "active" : ""}" data-background-tab-wrap>
+      <button class="background-task-tab-main" type="button" data-background-task="${escapeAttr(task.id)}" aria-pressed="${active ? "true" : "false"}" title="${escapeAttr(task.title || task.id)}">
+        <span class="background-task-tab-dot status-${escapeAttr(task.status)}" aria-hidden="true"></span>
+        <span class="background-task-tab-label">${escapeHtml(task.title || task.id)}</span>
+      </button>
+      <button class="background-task-tab-close" type="button" data-background-cancel="${escapeAttr(task.id)}" ${canCancel && !cancelBusy.has(task.id) ? "" : "disabled"} title="${escapeAttr(closeLabel)}" aria-label="${escapeAttr(closeLabel)}">×</button>
+    </span>`;
+  }
+
+  const effortOptions = ["auto", "low", "medium", "high", "xhigh", "max", "ultra"];
+  // Same keys the main composer's permission select uses, so a raw
+  // "bypassPermissions" is never shown where every other control is translated.
+  const permissionOptions = [
+    ["readOnly", "chat.permission.readOnly"],
+    ["acceptEdits", "chat.permission.editable"],
+    ["bypassPermissions", "chat.permission.allowAll"],
+    ["default", "chat.permission.automatic"],
+    ["dontAsk", "chat.permission.dontAsk"],
+  ];
+
+  function renderChildConversationHTML(task) {
+    const childAgentId = text(task.childAgentId);
+    if (!childAgentId) return `<div class="background-task-empty">${escapeHtml(t("backgroundTasks.noChildAgent"))}</div>`;
+    const messages = childMessages(childAgentId);
+    if (!messages.length) {
+      return `<div class="background-task-empty">${escapeHtml(childBusy.has(childAgentId) ? t("backgroundTasks.loading") : t("backgroundTasks.noConversation"))}</div>`;
+    }
+    return `<div class="background-task-conversation">${messages.map((message) => {
+      const role = text(message?.role) === "user" ? "user" : "assistant";
+      const body = text(message?.text || message?.content);
+      if (!body) return "";
+      return `<article class="background-task-bubble role-${role}">
+        <header><span>${escapeHtml(role === "user" ? t("backgroundTasks.roleUser") : t("backgroundTasks.roleAgent"))}</span><time>${escapeHtml(message?.createdAt ? formatTimestamp(message.createdAt) : "")}</time></header>
+        <p>${escapeHtml(body)}</p>
+      </article>`;
+    }).join("")}</div>`;
+  }
+
+  // Mirrors the main composer's controls so a subagent can be retargeted without
+  // opening it as the foreground conversation.
+  function renderChildControlsHTML(task) {
+    const childAgentId = text(task.childAgentId);
+    if (!childAgentId) return "";
+    const agent = childAgents.get(childAgentId) || {};
+    const model = text(agent.model);
+    const effort = text(agent.reasoningEffort) || "auto";
+    const permission = text(agent.permissionMode) || "default";
+    // The model list comes from the configured providers, so this offers the same
+    // choices as the main composer instead of asking the user to type an id.
+    const options = availableModels();
+    const known = options.some((option) => option.value === model);
+    return `<div class="background-task-child-controls">
+      <label class="background-task-child-field">
+        <span>${escapeHtml(t("chat.model"))}</span>
+        ${options.length
+          ? `<select data-background-child-model="${escapeAttr(childAgentId)}">
+              ${!known && model ? `<option value="${escapeAttr(model)}" selected>${escapeHtml(model)}</option>` : ""}
+              ${options.map((option) => `<option value="${escapeAttr(option.value)}" ${option.value === model ? "selected" : ""}>${escapeHtml(option.label)}</option>`).join("")}
+            </select>`
+          : `<input type="text" data-background-child-model="${escapeAttr(childAgentId)}" value="${escapeAttr(model)}" spellcheck="false" />`}
+      </label>
+      <label class="background-task-child-field compact">
+        <span>${escapeHtml(t("chat.reasoningEffort"))}</span>
+        <select data-background-child-effort="${escapeAttr(childAgentId)}">
+          ${effortOptions.map((option) => `<option value="${escapeAttr(option)}" ${option === effort ? "selected" : ""}>${escapeHtml(option === "auto" ? t("modelProvider.automatic") : option)}</option>`).join("")}
+        </select>
+      </label>
+      <label class="background-task-child-field compact">
+        <span>${escapeHtml(t("chat.permissionMode"))}</span>
+        <select data-background-child-permission="${escapeAttr(childAgentId)}">
+          ${permissionOptions.map(([value, key]) => `<option value="${escapeAttr(value)}" ${value === permission ? "selected" : ""}>${escapeHtml(t(key))}</option>`).join("")}
+        </select>
+      </label>
+    </div>
+    <form class="background-task-child-composer" data-background-child-form="${escapeAttr(childAgentId)}">
+      <input type="text" name="message" placeholder="${escapeAttr(t("chat.messagePlaceholder"))}" autocomplete="off" />
+      <button type="submit" class="ghost-btn mini">${escapeHtml(t("chat.send"))}</button>
+    </form>`;
   }
 
   function renderSelectedTask(task) {
@@ -684,18 +846,27 @@ export function createBackgroundTasksController({
     const output = taskOutputText(task.id);
     const canCancel = cancellableStatuses.has(task.status);
     const isTerminal = terminalStatuses.has(task.status);
+    const hasChild = Boolean(text(task.childAgentId));
+    // Conversation is the default view because "what did it say" is the usual
+    // question; raw output stays one click away for shell tasks and diagnostics.
+    const view = hasChild ? detailView : "output";
+    // No title block here: the active tab above already names the task and shows
+    // its status, and repeating both cost a third of the pane.
     return `<section class="background-task-detail">
-      <header><div><span>${escapeHtml(task.kind)}</span><strong>${escapeHtml(task.title || task.id)}</strong></div><span class="background-task-state status-${escapeAttr(task.status)}">${escapeHtml(taskStatusLabel(task.status))}</span></header>
-      <div class="background-task-meta"><span>${escapeHtml(task.createdAt ? formatTimestamp(task.createdAt) : "—")}</span><span>${escapeHtml(task.durationMs == null ? "—" : formatDuration(task.durationMs))}</span></div>
+      <div class="background-task-meta"><span class="background-task-state status-${escapeAttr(task.status)}">${escapeHtml(taskStatusLabel(task.status))}</span><span>${escapeHtml(task.createdAt ? formatTimestamp(task.createdAt) : "—")}</span><span>${escapeHtml(task.durationMs == null ? "—" : formatDuration(task.durationMs))}</span></div>
       ${task.error || task.errorCode ? `<div class="background-task-error">${escapeHtml([task.errorCode ? t("backgroundTasks.errorCode", { code: task.errorCode }) : "", task.error ? t("backgroundTasks.errorMessage", { message: task.error }) : ""].filter(Boolean).join(" · "))}</div>` : ""}
-      <pre class="background-task-output">${escapeHtml(output || t("backgroundTasks.noOutput"))}</pre>
-      ${task.truncated ? `<div class="background-task-truncated">${escapeHtml(t("backgroundTasks.truncated"))}</div>` : ""}
+      ${hasChild ? `<div class="background-task-view-tabs" role="tablist">
+        <button type="button" role="tab" class="${view === "conversation" ? "active" : ""}" aria-selected="${view === "conversation" ? "true" : "false"}" data-background-view="conversation">${escapeHtml(t("backgroundTasks.viewConversation"))}</button>
+        <button type="button" role="tab" class="${view === "output" ? "active" : ""}" aria-selected="${view === "output" ? "true" : "false"}" data-background-view="output">${escapeHtml(t("backgroundTasks.viewOutput"))}</button>
+      </div>` : ""}
+      ${view === "conversation"
+        ? renderChildConversationHTML(task)
+        : `<pre class="background-task-output">${escapeHtml(output || t("backgroundTasks.noOutput"))}</pre>`}
+      ${task.truncated && view === "output" ? `<div class="background-task-truncated">${escapeHtml(t("backgroundTasks.truncated"))}</div>` : ""}
+      ${view === "conversation" ? renderChildControlsHTML(task) : ""}
       <div class="background-task-actions">
-        ${task.outputHasMore ? `<button type="button" class="ghost-btn mini" data-background-output-more="${escapeAttr(task.id)}">${escapeHtml(t("backgroundTasks.loadMore"))}</button>` : ""}
+        ${task.outputHasMore && view === "output" ? `<button type="button" class="ghost-btn mini" data-background-output-more="${escapeAttr(task.id)}">${escapeHtml(t("backgroundTasks.loadMore"))}</button>` : ""}
         ${!isTerminal ? `<button type="button" class="ghost-btn mini" data-background-wait="${escapeAttr(task.id)}" ${waitBusy.has(task.id) ? "disabled" : ""}>${escapeHtml(waitBusy.has(task.id) ? t("backgroundTasks.waiting") : t("backgroundTasks.wait"))}</button>` : ""}
-        <button type="button" class="ghost-btn mini danger" data-background-cancel="${escapeAttr(task.id)}" ${canCancel && !cancelBusy.has(task.id) ? "" : "disabled"}>${escapeHtml(cancelBusy.has(task.id) ? t("backgroundTasks.cancelling") : t("backgroundTasks.cancel"))}</button>
-        ${task.childAgentId ? `<button type="button" class="ghost-btn mini" data-background-agent="${escapeAttr(task.childAgentId)}">${escapeHtml(t("backgroundTasks.openChildAgent"))}</button>` : ""}
-        ${task.childRunId ? `<button type="button" class="ghost-btn mini" data-background-run="${escapeAttr(task.childRunId)}" data-background-run-agent="${escapeAttr(task.childAgentId || task.agentId)}">${escapeHtml(t("backgroundTasks.openChildRun"))}</button>` : ""}
       </div>
     </section>`;
   }
@@ -781,16 +952,47 @@ export function createBackgroundTasksController({
     host("backgroundTasksBtn")?.addEventListener("click", toggleTray);
     host("headerTaskSummaryBtn")?.addEventListener("click", toggleTray);
     host("backgroundTaskTray")?.addEventListener("click", (event) => {
-      const target = event.target?.closest?.("[data-background-task],[data-background-close],[data-background-output-more],[data-background-wait],[data-background-cancel],[data-background-agent],[data-background-run]");
+      const target = event.target?.closest?.("[data-background-task],[data-background-close],[data-background-output-more],[data-background-wait],[data-background-cancel],[data-background-agent],[data-background-run],[data-background-view]");
       if (!target) return;
       if (target.hasAttribute("data-background-close")) {
         closeTray();
-      } else if (target.dataset.backgroundTask) selectTask(target.dataset.backgroundTask).catch(onError);
-      else if (target.dataset.backgroundOutputMore) loadOutput(target.dataset.backgroundOutputMore).catch(onError);
+      } else if (target.dataset.backgroundView) {
+        detailView = target.dataset.backgroundView === "output" ? "output" : "conversation";
+        render();
+      } else if (target.dataset.backgroundTask) {
+        // Opens inside this panel only. Navigating the main conversation as well
+        // hijacked the window: the user was reading one thread, and a glance at a
+        // subagent replaced it and lost their place.
+        selectTask(target.dataset.backgroundTask).catch(onError);
+      } else if (target.dataset.backgroundOutputMore) loadOutput(target.dataset.backgroundOutputMore).catch(onError);
       else if (target.dataset.backgroundWait) wait(target.dataset.backgroundWait).catch(onError);
       else if (target.dataset.backgroundCancel) cancel(target.dataset.backgroundCancel).catch(onError);
       else if (target.dataset.backgroundAgent) onNavigateAgent?.(target.dataset.backgroundAgent);
       else if (target.dataset.backgroundRun) onNavigateRun?.(target.dataset.backgroundRunAgent, target.dataset.backgroundRun);
+    });
+    // Settings commit on change rather than behind a save button: this panel is
+    // for steering a task mid-flight, and a second click would only add delay.
+    host("backgroundTaskTray")?.addEventListener("change", (event) => {
+      const node = event.target;
+      if (!node?.dataset) return;
+      if (node.dataset.backgroundChildEffort) {
+        updateChildAgent(node.dataset.backgroundChildEffort, "reasoning-effort", { reasoningEffort: node.value }).catch(onError);
+      } else if (node.dataset.backgroundChildPermission) {
+        updateChildAgent(node.dataset.backgroundChildPermission, "permission-mode", { permissionMode: node.value }).catch(onError);
+      } else if (node.dataset.backgroundChildModel) {
+        const model = text(node.value);
+        if (model) updateChildAgent(node.dataset.backgroundChildModel, "model", { model }).catch(onError);
+      }
+    });
+    host("backgroundTaskTray")?.addEventListener("submit", (event) => {
+      const form = event.target?.closest?.("[data-background-child-form]");
+      if (!form) return;
+      event.preventDefault();
+      const input = form.elements?.message;
+      const message = text(input?.value);
+      if (!message) return;
+      if (input) input.value = "";
+      sendToChildAgent(form.dataset.backgroundChildForm, message).catch(onError);
     });
     render();
   }
@@ -848,6 +1050,16 @@ export function createBackgroundTasksController({
     setForegroundActivity,
     subscribe,
     wait,
+    loadChildConversation,
+    updateChildAgentSetting: updateChildAgent,
+    sendChildAgentMessage: sendToChildAgent,
+    // Exposed so the control markup can be asserted without a DOM: it renders
+    // from the injected model list and the translated permission keys.
+    renderChildControlsHTMLForTest: (task, agent = {}) => {
+      const id = text(task?.childAgentId);
+      if (id) childAgents.set(id, agent);
+      return renderChildControlsHTML(task || {});
+    },
     state: () => ({
       agentId,
       selected,

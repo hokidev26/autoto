@@ -31,6 +31,7 @@ import (
 	"autoto/internal/providers"
 	"autoto/internal/review"
 	"autoto/internal/secrets"
+	"autoto/internal/sysmetrics"
 	"autoto/internal/themes"
 	"autoto/internal/tools"
 )
@@ -116,6 +117,9 @@ type Server struct {
 	legacyWarnings              *compat.Registry
 	store                       *db.Store
 	runner                      *agentpkg.Runner
+	queueDrainer                messageQueueDrainer
+	notifierMu                  sync.RWMutex
+	nextNotifier                agentpkg.Notifier
 	hub                         *agentpkg.Hub
 	providers                   *providers.Registry
 	providerVault               *secrets.ProviderVault
@@ -165,6 +169,10 @@ type Server struct {
 	shellLifecycleHost ShellLifecycleHost
 	shellUpdateHost    ShellUpdateHost
 	storageCache       storageSummaryCache
+	// Held for the process lifetime: CPU and network utilisation are deltas
+	// between consecutive readings, so the previous reading has to outlive the
+	// request that took it.
+	sysMetrics *sysmetrics.Sampler
 }
 
 func New(cfg config.Config, store *db.Store, runner *agentpkg.Runner, hub *agentpkg.Hub, providerRegistries ...*providers.Registry) *Server {
@@ -185,6 +193,7 @@ func New(cfg config.Config, store *db.Store, runner *agentpkg.Runner, hub *agent
 		authLoginFailures:       make(map[string]authLoginFailure),
 		agentMutationLocks:      make(map[string]*agentMutationLock),
 		projectConversationKeys: make(map[string]projectConversationResult),
+		sysMetrics:              sysmetrics.NewSampler(),
 		legacyWarnings: compat.NewRegistry(func(usage compat.Usage) {
 			slog.Warn(
 				"legacy compatibility used",
@@ -487,6 +496,7 @@ func (s *Server) Routes() http.Handler {
 	r.Get("/api/usage/history", s.usageHistory)
 	r.Get("/api/navigation", s.navigation)
 	r.Get("/api/overview", s.overview)
+	r.Get("/api/system/metrics", s.systemMetrics)
 	r.Post("/api/conversations", s.createConversation)
 	r.Get("/api/task-workspace", s.taskWorkspace)
 	r.Group(func(r chi.Router) {
@@ -712,6 +722,10 @@ func (s *Server) Routes() http.Handler {
 		r.Get("/{id}/draft", s.getMessageDraft)
 		r.Put("/{id}/draft", s.putMessageDraft)
 		r.Delete("/{id}/draft", s.deleteMessageDraft)
+		r.Get("/{id}/queue", s.listQueuedMessages)
+		r.Post("/{id}/queue", s.enqueueMessage)
+		r.Put("/{id}/queue/{queueId}", s.updateQueuedMessage)
+		r.Delete("/{id}/queue/{queueId}", s.deleteQueuedMessage)
 		r.Post("/{id}/messages/{messageId}/corrections", s.createCorrection)
 		r.Post("/{id}/messages/{messageId}/rerun", s.rerunMessage)
 		r.Get("/{id}/messages/{messageId}/attachments/{attachmentId}", s.getMessageAttachment)

@@ -53,6 +53,17 @@ function buildOverlay(doc, { objectURL, caption, downloadName, labels }) {
   const actions = doc.createElement("div");
   actions.className = "image-lightbox-actions";
 
+  // Copy puts the image itself on the clipboard, not its URL: the URL is a blob
+  // handle that means nothing outside this page, and the /api/ path needs a
+  // token header. Wired up by the caller, which owns the async clipboard work.
+  const copy = doc.createElement("button");
+  copy.type = "button";
+  copy.className = "image-lightbox-copy";
+  copy.textContent = "⧉";
+  copy.setAttribute("aria-label", labels.copy || "Copy");
+  copy.setAttribute("data-image-lightbox-copy", "");
+  actions.appendChild(copy);
+
   // Downloading from the blob URL keeps the save path authenticated-free: the
   // bytes are already in the page, so no second request can 401.
   const download = doc.createElement("a");
@@ -74,7 +85,24 @@ function buildOverlay(doc, { objectURL, caption, downloadName, labels }) {
   bar.appendChild(actions);
   overlay.appendChild(bar);
   overlay.appendChild(frame);
-  return { overlay, close };
+  return { overlay, close, copy };
+}
+
+// Writes the displayed bytes to the clipboard. Falls back to nothing rather than
+// throwing: clipboard image writes are unsupported in some browsers and blocked
+// without a user gesture in others, and a failed copy must not break the viewer.
+async function copyImageToClipboard(objectURL, runtime = {}) {
+  const clipboard = runtime.clipboardImpl || globalThis.navigator?.clipboard;
+  const ClipboardItemImpl = runtime.ClipboardItemImpl || globalThis.ClipboardItem;
+  const fetchImpl = runtime.fetchImpl || globalThis.fetch;
+  if (!clipboard?.write || !ClipboardItemImpl || !fetchImpl) return false;
+  try {
+    const blob = await (await fetchImpl(objectURL)).blob();
+    await clipboard.write([new ClipboardItemImpl({ [blob.type || "image/png"]: blob })]);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 export async function openImageLightbox({ url, caption = "", downloadName = "", labels = {} } = {}, runtime = {}) {
@@ -87,7 +115,18 @@ export async function openImageLightbox({ url, caption = "", downloadName = "", 
     return false;
   }
   closeImageLightbox(runtime);
-  const { overlay, close } = buildOverlay(doc, { objectURL, caption, downloadName, labels });
+  const { overlay, close, copy } = buildOverlay(doc, { objectURL, caption, downloadName, labels });
+
+  copy.addEventListener("click", async () => {
+    const ok = await copyImageToClipboard(objectURL, runtime);
+    // Brief inline confirmation; the viewer stays open either way.
+    copy.textContent = ok ? "✓" : "✕";
+    copy.classList.add(ok ? "is-copied" : "is-failed");
+    (runtime.setTimeoutImpl || globalThis.setTimeout)?.(() => {
+      copy.textContent = "⧉";
+      copy.classList.remove("is-copied", "is-failed");
+    }, 1200);
+  });
 
   // Clicking the backdrop closes; clicking the image itself must not, so the
   // frame swallows its own clicks.

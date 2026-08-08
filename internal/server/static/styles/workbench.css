@@ -320,7 +320,7 @@ body.white-shell.theme-light .terminal-status-row {
     left: calc(76px + var(--session-sidebar-width) - 3px);
   }
   body.white-shell.theme-light .app-shell {
-    grid-template-columns: 76px var(--session-sidebar-width) minmax(420px, 1fr) clamp(380px, calc(50vw - 186px), 620px);
+    grid-template-columns: 76px var(--session-sidebar-width) minmax(420px, 1fr) clamp(260px, calc(50vw - 186px), 620px);
   }
   body.white-shell.theme-light .app-shell.terminal-collapsed {
     grid-template-columns: 76px var(--session-sidebar-width) minmax(420px, 1fr) 0;
@@ -827,14 +827,14 @@ body.white-shell.theme-light .workspace-preview-dock-mode .workspace-preview-emp
   body.white-shell.theme-light .app-shell.details-open,
   body.white-shell.theme-light .app-shell.background-tasks-open,
   body.white-shell.theme-light .app-shell.preview-open {
-    grid-template-columns: 76px var(--session-sidebar-width) minmax(420px, 1fr) var(--utility-panel-width, clamp(380px, calc(50vw - 186px), 620px));
+    grid-template-columns: 76px var(--session-sidebar-width) minmax(420px, 1fr) var(--utility-panel-width, clamp(260px, calc(50vw - 186px), 620px));
   }
 
   body.white-shell.theme-light .app-shell.details-open .utility-panel-resize-handle,
   body.white-shell.theme-light .app-shell.background-tasks-open .utility-panel-resize-handle,
   body.white-shell.theme-light .app-shell.preview-open .utility-panel-resize-handle {
     display: block;
-    right: calc(var(--utility-panel-width, clamp(380px, calc(50vw - 186px), 620px)) - 3px);
+    right: calc(var(--utility-panel-width, clamp(260px, calc(50vw - 186px), 620px)) - 3px);
   }
 }
 
@@ -2856,7 +2856,14 @@ body.white-shell.theme-light .navigation-conversation-row.nested.active .navigat
   color: var(--ws-primary);
 }
 
-/* Sidebar bubble: blue while the agent is busy, green once it is idle/done. */
+/* Sidebar bubble, four states:
+     running                  -> blue, pulsing
+     replied, not yet read    -> green   (.unread, browser-local)
+     read, nothing running    -> grey
+     error                    -> red
+   Grey is the resting state, so idle/completed carry no colour of their own and
+   only the unread mark lifts them to green. Making idle green unconditionally is
+   what previously left every finished conversation looking permanently new. */
 body.white-shell.theme-light .navigation-conversation-row.status-running .navigation-agent-icon,
 body.white-shell.theme-light .navigation-conversation-row.status-pending .navigation-agent-icon,
 body.white-shell.theme-light .navigation-conversation-row.status-queued .navigation-agent-icon {
@@ -2865,6 +2872,10 @@ body.white-shell.theme-light .navigation-conversation-row.status-queued .navigat
 
 body.white-shell.theme-light .navigation-conversation-row.status-idle .navigation-agent-icon,
 body.white-shell.theme-light .navigation-conversation-row.status-completed .navigation-agent-icon {
+  color: var(--ws-muted, #747e90);
+}
+
+body.white-shell.theme-light .navigation-conversation-row.unread:not(.status-running):not(.status-pending):not(.status-queued):not(.status-error):not(.status-failed) .navigation-agent-icon {
   color: #22c55e;
 }
 
@@ -2876,7 +2887,17 @@ body.white-shell.theme-light .navigation-conversation-row.status-queued::after {
 
 body.white-shell.theme-light .navigation-conversation-row.status-idle::after,
 body.white-shell.theme-light .navigation-conversation-row.status-completed::after {
+  background: var(--ws-muted, #747e90);
+}
+
+body.white-shell.theme-light .navigation-conversation-row.unread:not(.status-running):not(.status-pending):not(.status-queued):not(.status-error):not(.status-failed)::after {
   background: #22c55e;
+}
+
+/* An unread reply is worth noticing without being loud: the title goes from
+   regular to semibold, which reads as "new" even for a colour-blind reader. */
+body.white-shell.theme-light .navigation-conversation-row.unread .navigation-conversation-title {
+  font-weight: 700;
 }
 
 body.white-shell.theme-light .navigation-conversation-row.status-error .navigation-agent-icon,
@@ -5092,6 +5113,32 @@ body.white-shell.theme-light .toolbar-lightning-btn[aria-busy="true"] {
 }
 #settingsContentBody .usage-history-page .uh-chart-point:hover,
 #settingsContentBody .usage-history-page .uh-chart-point:focus { fill: var(--uh-primary); outline: none; }
+/* Points are clickable now, so say so before the click. */
+#settingsContentBody .usage-history-page .uh-chart-point { cursor: pointer; }
+/* A pinned point stays filled after the pointer leaves, which is the entire
+   difference from the old hover-only tooltip. */
+#settingsContentBody .usage-history-page .uh-chart-point.is-selected {
+  fill: var(--uh-primary);
+  stroke-width: 3;
+}
+#settingsContentBody .usage-history-page .uh-trend-readout { margin-top: 12px; min-height: 34px; }
+#settingsContentBody .usage-history-page .uh-trend-readout-hint {
+  margin: 0;
+  color: var(--uh-muted);
+  font-size: 13px;
+}
+#settingsContentBody .usage-history-page .uh-trend-readout-value {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  border: 1px solid var(--uh-border, rgba(255, 255, 255, 0.12));
+  border-radius: 10px;
+  background: var(--uh-surface);
+}
+#settingsContentBody .usage-history-page .uh-trend-readout-value span { color: var(--uh-muted); font-size: 13px; }
+#settingsContentBody .usage-history-page .uh-trend-readout-clear { margin-left: auto; }
 #settingsContentBody .usage-history-page .uh-chart-empty,
 #settingsContentBody .usage-history-page .uh-state-card {
   min-height: 150px;

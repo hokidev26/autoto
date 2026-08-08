@@ -819,7 +819,11 @@ func canonicalBackgroundTask(task BackgroundTask) (BackgroundTask, error) {
 	if task.Status != BackgroundTaskStatusQueued && task.Status != BackgroundTaskStatusWaitingApproval {
 		return BackgroundTask{}, errors.New("new background task must be queued or waiting approval")
 	}
-	if task.PermissionModeCap != "" && task.PermissionModeCap != "readOnly" && task.PermissionModeCap != "acceptEdits" {
+	// A task inherits its parent Run's ceiling. Once a subagent may hold bypass,
+	// a subagent that dispatches another one carries bypass in here, so the agent
+	// kind has to admit it. Shell tasks keep the narrower pair: nothing in that
+	// path establishes a parent's bypass the way childPermissionCap does.
+	if !validBackgroundTaskPermissionModeCap(task.PermissionModeCap, task.Kind) {
 		return BackgroundTask{}, errors.New("invalid background task permission mode cap")
 	}
 	if task.Revision < 1 || task.AttemptCount < 0 || task.MaxAttempts < 1 || task.MaxAttempts > 100 || task.PermissionGenerationSnapshot < 0 || task.PolicyGenerationSnapshot < 0 || task.AgentGenerationSnapshot < 0 || task.LastOutputSequence < 0 || task.OutputBytes < 0 {
@@ -866,6 +870,25 @@ func validBackgroundTaskStatus(status string) bool {
 	switch status {
 	case BackgroundTaskStatusQueued, BackgroundTaskStatusWaitingApproval, BackgroundTaskStatusRunning, BackgroundTaskStatusCancelRequested, BackgroundTaskStatusSucceeded, BackgroundTaskStatusFailed, BackgroundTaskStatusCanceled, BackgroundTaskStatusInterrupted:
 		return true
+	default:
+		return false
+	}
+}
+
+// validBackgroundTaskPermissionModeCap mirrors validRunPermissionModeCap for the
+// task queue. An agent task inherits its cap from the dispatching run, so a
+// subagent that itself holds bypass can carry that ceiling into a nested task.
+// Shell tasks keep the narrower set: nothing about running a command needs a
+// bypass ceiling, and leaving it unavailable there keeps the widening surface
+// as small as the feature requires.
+func validBackgroundTaskPermissionModeCap(cap, kind string) bool {
+	switch cap {
+	case "":
+		return true
+	case "readOnly", "acceptEdits":
+		return true
+	case "bypassPermissions":
+		return kind == BackgroundTaskKindAgent
 	default:
 		return false
 	}

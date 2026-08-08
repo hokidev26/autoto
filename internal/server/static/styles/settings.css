@@ -1073,6 +1073,14 @@ body.white-shell.theme-light.theme-dark #settingsModal {
   margin-bottom: 0;
 }
 
+/* Empty placeholders on this page sit between a header and a preview card, so a
+   100px void made the surrounding cards look crammed against each other. */
+#settingsContentBody .skills-page :is(.settings-empty-state, .settings-empty-card.compact) {
+  min-height: 64px;
+  padding: 14px 12px;
+  font-size: 13px;
+}
+
 /* Shared compact card for config-center items (role, prompt, hook) */
 #settingsContentBody .skill-config-card {
   min-width: 0;
@@ -1217,11 +1225,62 @@ body.white-shell.theme-light.theme-dark #settingsModal {
   width: 100%;
 }
 
+/* Config-center panel header — the heading block and its control cluster are
+   separate columns so a wrapping note never squeezes the scope select and
+   buttons into a crooked stack. */
+#settingsContentBody .skill-config-panel-head {
+  align-items: start;
+  gap: var(--settings-space-3) var(--settings-space-4);
+}
+
+#settingsContentBody .skill-config-panel-heading {
+  min-width: 0;
+  flex: 1 1 260px;
+}
+
+#settingsContentBody .skill-config-panel-heading h2 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1.3;
+}
+
+#settingsContentBody .skill-config-panel-tools {
+  flex: 0 1 auto;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--settings-space-2);
+}
+
+/* Inline scope field: label and select on one line so the control matches the
+   button height it sits next to. */
+#settingsContentBody .skill-config-scope-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+#settingsContentBody .skill-config-scope-field > span {
+  color: var(--settings-muted-foreground);
+}
+
+#settingsContentBody .skills-page .skill-config-scope-field > select {
+  width: auto;
+  min-width: 116px;
+  padding: 6px 8px;
+}
+
 /* Available subagent_type disclosure — collapsed by default so the definitions
-   list stays the focus, and the summary reads as a card header when open. */
+   list stays the focus. Summary and refresh share the first row; the body spans
+   both columns underneath. */
 #settingsContentBody .skill-role-preview {
   display: grid;
-  gap: var(--settings-space-3);
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--settings-space-2) var(--settings-space-3);
 }
 
 #settingsContentBody .skill-role-preview > summary {
@@ -1231,10 +1290,18 @@ body.white-shell.theme-light.theme-dark #settingsModal {
   display: flex;
   align-items: center;
   gap: 6px;
+  min-width: 0;
+  color: var(--settings-foreground);
+  font-size: 13px;
+}
+
+#settingsContentBody .skill-role-preview > summary::-webkit-details-marker {
+  display: none;
 }
 
 #settingsContentBody .skill-role-preview > summary::before {
   content: "▶";
+  flex: 0 0 auto;
   font-size: 9px;
   color: var(--settings-muted-foreground);
   transition: transform .15s;
@@ -1244,7 +1311,19 @@ body.white-shell.theme-light.theme-dark #settingsModal {
   transform: rotate(90deg);
 }
 
-#settingsContentBody .skill-role-preview:not([open]) > :not(summary) {
+#settingsContentBody .skill-role-preview-actions {
+  grid-column: 2;
+  justify-content: flex-end;
+}
+
+#settingsContentBody .skill-role-preview-body {
+  grid-column: 1 / -1;
+  min-width: 0;
+  display: grid;
+  gap: var(--settings-space-2);
+}
+
+#settingsContentBody .skill-role-preview:not([open]) > .skill-role-preview-body {
   display: none;
 }
 
@@ -1263,6 +1342,26 @@ body.white-shell.theme-light.theme-dark #settingsModal {
   }
   #settingsContentBody .skills-page .skill-command-card {
     grid-template-columns: minmax(0, 1fr);
+  }
+  /* Narrow widths: the control cluster owns a full row and the scope field
+     stretches instead of colliding with the buttons. */
+  #settingsContentBody .skill-config-panel-tools {
+    flex: 1 1 100%;
+    justify-content: flex-start;
+  }
+  #settingsContentBody .skill-config-scope-field {
+    flex: 1 1 100%;
+  }
+  #settingsContentBody .skills-page .skill-config-scope-field > select {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+  #settingsContentBody .skill-role-preview {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  #settingsContentBody .skill-role-preview-actions {
+    grid-column: 1;
+    justify-content: flex-start;
   }
 }
 
@@ -3712,7 +3811,6 @@ body.white-shell.theme-light[data-theme-preset="cream"] :is(.settings-action-btn
   .sidebar .navigation-filter { min-height: 34px; border-radius: 9px; }
   .sidebar .project-list { min-height: 0; flex: 0 1 auto; align-content: start; overflow-y: auto; }
   .sidebar .recent-sidebar { flex: 0 0 auto; }
-  .sidebar .recent-directories-sidebar { display: none; }
   .sidebar .sidebar-search-wrap { margin: 8px 4px; }
   .sidebar .sidebar-search { min-height: 42px; border-radius: 12px; border-color: rgba(60, 60, 67, .12); background: rgba(118, 118, 128, .08); }
   .sidebar .sidebar-list { min-height: 0; flex: 1 1 auto; overflow-y: auto; padding: 4px 8px 12px; }

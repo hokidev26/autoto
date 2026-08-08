@@ -108,7 +108,14 @@ test("clearing unlimited seeds a value at or above the effective minimum and un-
   row.classList.toggle("is-unlimited", true);
   const input = fakeInput("", { disabled: true });
   const toggle = fakeInput("", { checked: true, row });
-  const elements = { runtimeBudgetTotalTurns: input, runtimeBudgetTotalTurnsUnlimited: toggle };
+  const elements = {
+    runtimeBudgetTotalTurns: input,
+    runtimeBudgetTotalTurnsUnlimited: toggle,
+    // The segment cap is a real control now, so the total-turns floor reads it
+    // live rather than replaying the persisted value.
+    runtimeBudgetSegmentTurns: fakeInput("300"),
+    runtimeBudgetSegmentTurnsUnlimited: fakeInput("", { checked: false, row: fakeRow() }),
+  };
 
   withElements(elements, () => {
     controller.bindRuntimeSettingsActions();
@@ -121,7 +128,7 @@ test("clearing unlimited seeds a value at or above the effective minimum and un-
   assert.equal(row.classList.contains("is-unlimited"), false);
 });
 
-test("saving sends -1 for unlimited budgets, scaled minutes, and carries segmentTurns forward", async () => {
+test("saving sends -1 for unlimited budgets, scaled minutes, and the segment cap the user chose", async () => {
   const requests = [];
   const controller = createSystemSettingsController({
     state: { runtimeSummary: runtimeSummary({ ...limitedContinuation, segmentTurns: 40 }) },
@@ -133,6 +140,8 @@ test("saving sends -1 for unlimited budgets, scaled minutes, and carries segment
   const saveButton = { dataset: {}, textContent: "save", listeners: new Map(), addEventListener(name, handler) { this.listeners.set(name, handler); }, setAttribute() {}, removeAttribute() {} };
   const elements = {
     runtimeBudgetMode: { value: "safe" },
+    runtimeBudgetSegmentTurns: fakeInput("40"),
+    runtimeBudgetSegmentTurnsUnlimited: fakeInput("", { checked: false, row: fakeRow() }),
     runtimeBudgetTotalTurns: fakeInput("500"),
     runtimeBudgetTotalTurnsUnlimited: fakeInput("", { checked: false, row: fakeRow() }),
     runtimeBudgetTokens: fakeInput("2000000", { disabled: true }),
@@ -167,5 +176,76 @@ test("saving sends -1 for unlimited budgets, scaled minutes, and carries segment
     maxRunTokens: -1,
     maxRunDurationMs: 5400000,
     maxContinuations: 12,
+  });
+});
+
+// The whole point of adding the control: a stored segment cap used to be
+// unreachable, so ticking every "unlimited" box still left runs stopping at that
+// cap and asking the user to continue.
+test("段輪次上限有自己的控制項，可以真的清成不限制", () => {
+  const controller = createSystemSettingsController({ state: { runtimeSummary: runtimeSummary({ ...limitedContinuation, segmentTurns: 40 }) } });
+  const markup = controller.renderRuntimeSettingsContent();
+
+  assert.match(markup, /data-budget-row="segmentTurns"/);
+  assert.match(markup, /id="runtimeBudgetSegmentTurns"[^>]*value="40"/);
+});
+
+test("段輪次設為不限制時，總輪次不再被它綁住下限", () => {
+  const controller = createSystemSettingsController({ state: { runtimeSummary: runtimeSummary({ ...limitedContinuation, segmentTurns: -1 }) } });
+  const markup = controller.renderRuntimeSettingsContent();
+
+  // An unlimited segment cap imposes no floor, so the total falls back to its
+  // own minimum instead of being pinned to a coerced default.
+  assert.match(markup, /id="runtimeBudgetTotalTurns"[\s\S]*?min="1"/);
+  assert.match(markup, /class="execution-budget-row is-unlimited" data-budget-row="segmentTurns"/);
+});
+
+test("儲存時送出的段輪次是使用者剛勾的不限制，不是持久化的舊值", async () => {
+  const requests = [];
+  const controller = createSystemSettingsController({
+    state: { runtimeSummary: runtimeSummary({ ...limitedContinuation, segmentTurns: 40 }) },
+    loadRuntimeSummary: async () => {},
+    showToast: () => {},
+  });
+  controller.renderRuntimeSettingsContent();
+
+  const saveButton = { dataset: {}, textContent: "save", listeners: new Map(), addEventListener(name, handler) { this.listeners.set(name, handler); }, setAttribute() {}, removeAttribute() {} };
+  const elements = {
+    runtimeBudgetMode: { value: "safe" },
+    // Freshly ticked unlimited, while 40 is still what was persisted.
+    runtimeBudgetSegmentTurns: fakeInput("40", { disabled: true }),
+    runtimeBudgetSegmentTurnsUnlimited: fakeInput("", { checked: true, row: fakeRow() }),
+    runtimeBudgetTotalTurns: fakeInput("200", { disabled: true }),
+    runtimeBudgetTotalTurnsUnlimited: fakeInput("", { checked: true, row: fakeRow() }),
+    runtimeBudgetTokens: fakeInput("2000000", { disabled: true }),
+    runtimeBudgetTokensUnlimited: fakeInput("", { checked: true, row: fakeRow() }),
+    runtimeBudgetDurationMinutes: fakeInput("60", { disabled: true }),
+    runtimeBudgetDurationMinutesUnlimited: fakeInput("", { checked: true, row: fakeRow() }),
+    runtimeBudgetContinuations: fakeInput("8", { disabled: true }),
+    runtimeBudgetContinuationsUnlimited: fakeInput("", { checked: true, row: fakeRow() }),
+    saveExecutionBudgetBtn: saveButton,
+  };
+
+  const previousFetch = globalThis.fetch;
+  globalThis.fetch = async (url, options) => {
+    requests.push({ url: String(url), body: JSON.parse(options.body) });
+    return { ok: true, status: 200, headers: { get: () => "application/json" }, json: async () => ({ persisted: true }), text: async () => "{}" };
+  };
+  try {
+    await withElements(elements, async () => {
+      controller.bindRuntimeSettingsActions();
+      await saveButton.listeners.get("click")({ currentTarget: saveButton });
+    });
+  } finally {
+    globalThis.fetch = previousFetch;
+  }
+
+  assert.deepEqual(requests[0].body, {
+    mode: "safe",
+    segmentTurns: -1,
+    maxTotalTurns: -1,
+    maxRunTokens: -1,
+    maxRunDurationMs: -1,
+    maxContinuations: -1,
   });
 });

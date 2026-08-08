@@ -20,14 +20,11 @@ import (
 )
 
 const localTokenHeader = "X-Autoto-Token"
-const legacyLocalTokenHeader = "X-CodeHarbor-Token"
 const localTokenCookieName = "autoto_local_token"
 const localTokenQuery = "token"
 
 const remoteAccessCookieName = "autoto_remote_access"
-const legacyRemoteAccessCookieName = "codeharbor_remote_access"
 const remoteAccessHeader = "X-Autoto-Access"
-const legacyRemoteAccessHeader = "X-CodeHarbor-Access"
 
 const remoteAccessPath = "/auth/remote-access"
 const remoteAccessLogoutPath = "/auth/remote-access/logout"
@@ -66,9 +63,6 @@ func localAPITokenPath(homeDir string) string {
 
 func resolveLocalToken(homeDir string) string {
 	if token := strings.TrimSpace(os.Getenv("AUTOTO_LOCAL_TOKEN")); token != "" {
-		return token
-	}
-	if token := strings.TrimSpace(os.Getenv("CODEHARBOR_LOCAL_TOKEN")); token != "" {
 		return token
 	}
 	path := localAPITokenPath(homeDir)
@@ -232,11 +226,7 @@ func (s *Server) validateWebSocketRequest(w http.ResponseWriter, r *http.Request
 }
 
 func (s *Server) validHeaderToken(r *http.Request) bool {
-	valid, legacy := validTokenFromHeadersWithSource(r, s.localToken, localTokenHeader, legacyLocalTokenHeader)
-	if valid && legacy {
-		s.warnLegacy("credential:"+legacyLocalTokenHeader, legacyLocalTokenHeader, localTokenHeader, "request-header")
-	}
-	return valid
+	return constantTimeEqualToken(r.Header.Get(localTokenHeader), s.localToken)
 }
 
 func (s *Server) validWebSocketToken(r *http.Request) bool {
@@ -251,19 +241,6 @@ func (s *Server) validWebSocketToken(r *http.Request) bool {
 		return true
 	}
 	return false
-}
-
-func validTokenFromHeaders(r *http.Request, want string, canonicalName, legacyName string) bool {
-	valid, _ := validTokenFromHeadersWithSource(r, want, canonicalName, legacyName)
-	return valid
-}
-
-func validTokenFromHeadersWithSource(r *http.Request, want string, canonicalName, legacyName string) (bool, bool) {
-	if canonicalValue := strings.TrimSpace(r.Header.Get(canonicalName)); canonicalValue != "" {
-		return constantTimeEqualToken(canonicalValue, want), false
-	}
-	valid := constantTimeEqualToken(r.Header.Get(legacyName), want)
-	return valid, valid
 }
 
 func constantTimeEqualToken(got, want string) bool {
@@ -658,12 +635,10 @@ func (s *Server) handleRemoteAccessLogout(w http.ResponseWriter, r *http.Request
 		writeError(w, http.StatusForbidden, "remote access requires HTTPS")
 		return
 	}
-	if s.validRemoteAccessWithoutWarning(r) {
+	if s.validRemoteAccess(r) {
 		s.clearRemoteAccessFailures(r)
 		if cookie, err := r.Cookie(remoteAccessCookieName); err == nil {
 			s.revokeRemoteAccessSession(cookie.Value)
-		} else if legacyCookie, legacyErr := r.Cookie(legacyRemoteAccessCookieName); legacyErr == nil {
-			s.revokeRemoteAccessSession(legacyCookie.Value)
 		}
 	}
 	s.clearRemoteAccessCookie(w, r)
@@ -877,29 +852,7 @@ func headerClientIP(value string) string {
 }
 
 func (s *Server) validRemoteAccess(r *http.Request) bool {
-	return s.validRemoteAccessReporting(r, true)
-}
-
-func (s *Server) validRemoteAccessWithoutWarning(r *http.Request) bool {
-	return s.validRemoteAccessReporting(r, false)
-}
-
-func (s *Server) validRemoteAccessReporting(r *http.Request, warn bool) bool {
-	auth := s.remoteAccessAuthentication(r)
-	if !auth.Authenticated {
-		return false
-	}
-	if warn {
-		if _, err := r.Cookie(remoteAccessCookieName); err != nil {
-			if _, legacyErr := r.Cookie(legacyRemoteAccessCookieName); legacyErr == nil {
-				s.warnLegacy("credential:"+legacyRemoteAccessCookieName, legacyRemoteAccessCookieName, remoteAccessCookieName, "cookie")
-			}
-		}
-		if strings.TrimSpace(r.Header.Get(remoteAccessHeader)) == "" && strings.TrimSpace(r.Header.Get(legacyRemoteAccessHeader)) != "" {
-			s.warnLegacy("credential:"+legacyRemoteAccessHeader, legacyRemoteAccessHeader, remoteAccessHeader, "request-header")
-		}
-	}
-	return true
+	return s.remoteAccessAuthentication(r).Authenticated
 }
 
 func (s *Server) setRemoteAccessCookie(w http.ResponseWriter, r *http.Request, token string) {
@@ -915,7 +868,7 @@ func (s *Server) setRemoteAccessCookie(w http.ResponseWriter, r *http.Request, t
 }
 
 func (s *Server) clearRemoteAccessCookie(w http.ResponseWriter, r *http.Request) {
-	for _, name := range []string{remoteAccessCookieName, legacyRemoteAccessCookieName} {
+	for _, name := range []string{remoteAccessCookieName} {
 		http.SetCookie(w, &http.Cookie{
 			Name:     name,
 			Value:    "",

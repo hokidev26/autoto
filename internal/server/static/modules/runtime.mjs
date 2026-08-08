@@ -1,6 +1,5 @@
 const runtimeWindow = globalThis.window || {};
-const localAPIToken = String(runtimeWindow.AUTOTO_LOCAL_TOKEN || "").trim()
-  || String(runtimeWindow.CODEHARBOR_LOCAL_TOKEN || "").trim();
+const localAPIToken = String(runtimeWindow.AUTOTO_LOCAL_TOKEN || "").trim();
 const apiAuthorizationFailureListeners = new Set();
 
 export function onAPIAuthorizationFailure(listener) {

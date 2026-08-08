@@ -52,7 +52,9 @@ test("utility panel width helpers clamp values, respect available space, and kee
   assert.equal(utilityPanelWidthPreferenceKey, "autoto.ui.utilityPanelWidth");
   assert.equal(utilityPanelDesktopBreakpoint, 1280);
   assert.equal(utilityPanelChatMinWidth, 420);
-  assert.equal(minUtilityPanelWidth, 320);
+  // Low enough that the panel can reach its narrow, phone-shaped tier; the old
+  // 320 floor ended the drag before that layout could apply.
+  assert.equal(minUtilityPanelWidth, 260);
   assert.equal(maxUtilityPanelWidth, 620);
 
   // Flat clamp, no viewport info supplied.
@@ -101,12 +103,12 @@ test("utility panel resize handle styles stay hidden until a panel opens at the 
   const wideBreakpointStart = styles.indexOf("@media (min-width: 1280px) {\n  body.white-shell.theme-light .app-shell.details-open,");
   assert.ok(wideBreakpointStart > -1, "expected the >=1280px details/background-tasks/preview open block");
   const wideBreakpointBlock = styles.slice(wideBreakpointStart, styles.indexOf("\n}\n", wideBreakpointStart) + 3);
-  assert.match(wideBreakpointBlock, /grid-template-columns:\s*76px var\(--session-sidebar-width\) minmax\(420px, 1fr\) var\(--utility-panel-width, clamp\(380px, calc\(50vw - 186px\), 620px\)\)/);
-  assert.match(wideBreakpointBlock, /\.app-shell\.details-open \.utility-panel-resize-handle,[\s\S]*?\.app-shell\.preview-open \.utility-panel-resize-handle\s*\{[\s\S]*?display:\s*block;[\s\S]*?right:\s*calc\(var\(--utility-panel-width, clamp\(380px, calc\(50vw - 186px\), 620px\)\) - 3px\)/);
+  assert.match(wideBreakpointBlock, /grid-template-columns:\s*76px var\(--session-sidebar-width\) minmax\(420px, 1fr\) var\(--utility-panel-width, clamp\(260px, calc\(50vw - 186px\), 620px\)\)/);
+  assert.match(wideBreakpointBlock, /\.app-shell\.details-open \.utility-panel-resize-handle,[\s\S]*?\.app-shell\.preview-open \.utility-panel-resize-handle\s*\{[\s\S]*?display:\s*block;[\s\S]*?right:\s*calc\(var\(--utility-panel-width, clamp\(260px, calc\(50vw - 186px\), 620px\)\) - 3px\)/);
 
   // The higher-specificity rule that actually wins once the terminal auto-
   // collapses behind an open panel must honour the same custom property.
-  assert.match(styles, /\.app-shell\.terminal-collapsed\.preview-open\s*\{\s*\n\s*grid-template-columns:\s*var\(--global-rail-layout-width\) var\(--session-sidebar-layout-width\) minmax\(0, 1fr\) var\(--utility-panel-width, clamp\(380px, calc\(50vw - 186px\), 620px\)\)/);
+  assert.match(styles, /\.app-shell\.terminal-collapsed\.preview-open\s*\{\s*\n\s*grid-template-columns:\s*var\(--global-rail-layout-width\) var\(--session-sidebar-layout-width\) minmax\(0, 1fr\) var\(--utility-panel-width, clamp\(260px, calc\(50vw - 186px\), 620px\)\)/);
 
   // The docked workspace preview card is not a grid child, so its own width
   // must track the same variable to stay visually aligned with the divider.

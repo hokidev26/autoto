@@ -43,6 +43,8 @@ export function createLocalPreferencesSettingsController({
   refreshActiveSettingsPanel,
   setAppearancePreference,
   setNotificationPreference,
+  requestSystemNotificationPermission,
+  playNotificationSoundSample,
   showError,
   showToast,
 } = {}) {
@@ -541,6 +543,24 @@ export function createLocalPreferencesSettingsController({
           ${renderNotificationToggle("successToasts", t("notification.successToasts"), t("notification.successToastsDesc"), prefs.successToasts)}
           ${renderNotificationToggle("warningToasts", t("notification.warningToasts"), t("notification.warningToastsDesc"), prefs.warningToasts)}
           ${renderNotificationToggle("errorToasts", t("notification.errorToasts"), t("notification.errorToastsDesc"), prefs.errorToasts)}
+          ${renderNotificationToggle("errorToastsPersist", t("notification.errorToastsPersist"), t("notification.errorToastsPersistDesc"), prefs.errorToastsPersist)}
+        </div>
+      </section>
+      <section class="settings-provider-section settings-page-section settings-card">
+        <div class="settings-provider-section-head settings-card-header">
+          <div>
+            <div class="settings-provider-title settings-card-title">${escapeHtml(t("notification.soundTitle"))}</div>
+            <div class="settings-provider-meta settings-card-description" data-settings-help-copy>${escapeHtml(t("notification.soundMeta"))}</div>
+          </div>
+        </div>
+        <div class="appearance-toggle-list">
+          ${renderNotificationToggle("soundEnabled", t("notification.soundEnabled"), t("notification.soundEnabledDesc"), prefs.soundEnabled)}
+          ${renderNotificationToggle("soundOnDone", t("notification.soundOnDone"), t("notification.soundOnDoneDesc"), prefs.soundOnDone)}
+          ${renderNotificationToggle("soundOnError", t("notification.soundOnError"), t("notification.soundOnErrorDesc"), prefs.soundOnError)}
+          ${renderNotificationToggle("systemNotifications", t("notification.systemNotifications"), t("notification.systemNotificationsDesc"), prefs.systemNotifications)}
+        </div>
+        <div class="settings-action-row settings-form-actions settings-card-footer settings-inline-actions">
+          <button id="testNotificationSoundBtn" class="settings-action-btn subtle" type="button">${escapeHtml(t("notification.soundTest"))}</button>
         </div>
       </section>
       <section class="settings-provider-section settings-page-section settings-card">
@@ -618,7 +638,28 @@ export function createLocalPreferencesSettingsController({
       node.addEventListener("change", () => saveServerNotificationSettingsFromPanel().catch(showError));
     });
     document.querySelectorAll("[data-notification-toggle]").forEach((node) => {
-      node.addEventListener("change", () => setNotificationPreference(node.dataset.notificationToggle, node.checked));
+      node.addEventListener("change", () => {
+        const field = node.dataset.notificationToggle;
+        // Turning on OS notifications has to ask the browser, and the request
+        // only counts while this gesture is still being handled. If the user
+        // declines, revert the toggle rather than leaving it on and silent.
+        if (field === "systemNotifications" && node.checked && requestSystemNotificationPermission) {
+          requestSystemNotificationPermission().then((permission) => {
+            if (permission === "granted") {
+              setNotificationPreference(field, true);
+              return;
+            }
+            node.checked = false;
+            setNotificationPreference(field, false);
+            showToast?.(t(permission === "unsupported" ? "notification.systemUnsupported" : "notification.systemDenied"), "warn", { force: true });
+          }).catch((error) => {
+            node.checked = false;
+            showError?.(error);
+          });
+          return;
+        }
+        setNotificationPreference(field, node.checked);
+      });
     });
     document.querySelectorAll("[data-notification-duration]").forEach((node) => {
       node.addEventListener("click", () => setNotificationPreference("duration", node.dataset.notificationDuration));
@@ -626,6 +667,13 @@ export function createLocalPreferencesSettingsController({
     $("testNotificationBtn")?.addEventListener("click", () => {
       showToast(t("notification.testToast"), "info", { force: true });
       notifyTerminal?.(`[info] ${t("notification.testTerminal")}\n`);
+    });
+    // Playing from the click doubles as the gesture that unlocks the audio
+    // context, so this button both previews the tone and makes later run
+    // notifications audible in browsers that gate autoplay.
+    $("testNotificationSoundBtn")?.addEventListener("click", () => {
+      const played = playNotificationSoundSample?.();
+      if (played === false) showToast?.(t("notification.soundUnavailable"), "warn", { force: true });
     });
     $("resetNotificationPrefsBtn")?.addEventListener("click", resetNotificationPreferences);
   }

@@ -228,8 +228,8 @@ export function createModelRoutingController(ctx) {
   }
 
   // inheritLabel names what an empty value falls back to. Subagent roles inherit
-  // the global default; the safety model inherits the summary model, so the two
-  // cannot share one label without misdescribing one of them.
+  // the global default. The legacy safety-model field is retained only for
+  // compatibility; runtime reflection follows the active conversation model.
   function renderAgentModelSelectOptions(current, options, { allowInherited = false, inheritLabel = "" } = {}) {
     const selected = String(current || "").trim();
     const inherited = allowInherited || inheritLabel

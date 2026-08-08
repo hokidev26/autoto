@@ -17,7 +17,6 @@ import (
 	"autoto/internal/automation"
 	"autoto/internal/background"
 	"autoto/internal/channels"
-	"autoto/internal/compat"
 	"autoto/internal/config"
 	"autoto/internal/db"
 	"autoto/internal/gateway"
@@ -80,15 +79,11 @@ func NewRuntime(options Options) (*Runtime, error) {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	if options.LegacyCommand {
-		logger.Warn("codeharbor command is deprecated; use autoto", "replacement", "autoto", "removalVersion", compat.RemovalVersion)
-	}
-
 	resolvedConfigPath, err := config.ResolvePath(options.ConfigPath)
 	if err != nil {
 		return nil, fmt.Errorf("resolve config: %w", err)
 	}
-	cfg, legacyReport, err := config.LoadWithReport(resolvedConfigPath)
+	cfg, err := config.Load(resolvedConfigPath)
 	if err != nil {
 		return nil, fmt.Errorf("load config: %w", err)
 	}
@@ -96,15 +91,6 @@ func NewRuntime(options Options) (*Runtime, error) {
 	if err != nil {
 		return nil, fmt.Errorf("inspect provider credential sources: %w", err)
 	}
-	if !legacyReport.Empty() {
-		logger.Warn(
-			"legacy compatibility used",
-			"legacy", legacyReport.LegacyNames(),
-			"replacement", legacyReport.Replacements(),
-			"removalVersion", compat.RemovalVersion,
-		)
-	}
-
 	httpListener, _, err := bindConfiguredHTTPListeners(cfg, options.EphemeralHTTP)
 	if err != nil {
 		return nil, err
@@ -247,6 +233,11 @@ func NewRuntime(options Options) (*Runtime, error) {
 	reviewService := server.NewReviewService(providerRegistry, cfg.Agent.ReviewModel)
 	runner.SetReviewService(reviewService)
 	application := server.New(cfg, store, runner, hub, providerRegistry)
+	// The runner exposes one notifier slot. The server chains in front of the
+	// automation manager so a finished run can drain that agent's queued
+	// follow-ups without automation losing any event.
+	application.SetChainedNotifier(automationManager)
+	runner.SetNotifier(application)
 	application.SetGeneratedImageStore(generatedImages)
 	application.SetProviderVault(providerVault)
 	application.SetToolRegistry(toolRegistry)
@@ -598,6 +589,13 @@ func (r *Runtime) requestCloseLocked() {
 	}
 }
 
+// The port the desktop shell prefers. It must differ from the configured CLI
+// port so the two never fight, but it must also stay the same between launches:
+// the browser scopes localStorage to an origin, and an origin includes the port.
+// An OS-assigned port therefore gave every launch a fresh, empty store, silently
+// discarding read/unread marks, panel widths, drafts, and language choices.
+const desktopPreferredPort = 16889
+
 func bindConfiguredHTTPListeners(cfg config.Config, ephemeralHTTP bool) (net.Listener, net.Listener, error) {
 	httpAddr := cfg.Addr()
 	if ephemeralHTTP {
@@ -605,6 +603,14 @@ func bindConfiguredHTTPListeners(cfg config.Config, ephemeralHTTP bool) (net.Lis
 		// port. Always bind IPv4 loopback so local token/origin checks treat the
 		// instance as local even when user config uses 0.0.0.0 or ::.
 		httpAddr = "127.0.0.1:0"
+		if preferred := desktopStableAddr(cfg); preferred != "" {
+			// Fall back to an OS-assigned port when the stable one is busy, which is
+			// what a second concurrent instance sees. That instance loses persistence
+			// across launches, exactly as every instance did before.
+			if listener, err := net.Listen("tcp", preferred); err == nil {
+				return listener, nil, nil
+			}
+		}
 	}
 	httpListener, err := net.Listen("tcp", httpAddr)
 	if err != nil {
@@ -614,6 +620,15 @@ func bindConfiguredHTTPListeners(cfg config.Config, ephemeralHTTP bool) (net.Lis
 	// pre-bound during NewRuntime. Keep the second return value for compatibility
 	// with existing in-package callers while always returning nil.
 	return httpListener, nil, nil
+}
+
+// desktopStableAddr returns the loopback address the desktop shell should prefer,
+// or "" when that port would collide with the user's configured CLI port.
+func desktopStableAddr(cfg config.Config) string {
+	if cfg.Server.Port == desktopPreferredPort {
+		return ""
+	}
+	return fmt.Sprintf("127.0.0.1:%d", desktopPreferredPort)
 }
 
 const generatedImageCleanupGrace = 24 * time.Hour

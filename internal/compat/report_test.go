@@ -12,8 +12,8 @@ func TestReportAddDeduplicatesAndPreservesOrder(t *testing.T) {
 		t.Fatal("zero-value report should be empty")
 	}
 
-	first := Usage{Key: "legacy-token", Legacy: "CODEHARBOR_LOCAL_TOKEN", Replacement: "AUTOTO_LOCAL_TOKEN", Kind: "environment"}
-	second := Usage{Key: "legacy-path", Legacy: ".codeharbor", Replacement: ".autoto", Kind: "path"}
+	first := Usage{Key: "legacy-token", Legacy: "WebSocket ?token= query parameter", Replacement: "X-Autoto-Token header", Kind: "query-parameter"}
+	second := Usage{Key: "legacy-path", Legacy: "old-path", Replacement: "new-path", Kind: "path"}
 	report.Add(first)
 	report.Add(Usage{Key: first.Key, Legacy: "duplicate", Replacement: "ignored"})
 	report.Add(Usage{})
@@ -38,7 +38,7 @@ func TestReportAddDeduplicatesAndPreservesOrder(t *testing.T) {
 
 func TestRegistryWarnDeduplicatesConcurrentCalls(t *testing.T) {
 	const callers = 64
-	usage := Usage{Key: "legacy-token", Legacy: "CODEHARBOR_LOCAL_TOKEN", Replacement: "AUTOTO_LOCAL_TOKEN", Kind: "environment"}
+	usage := Usage{Key: "legacy-token", Legacy: "WebSocket ?token= query parameter", Replacement: "X-Autoto-Token header", Kind: "query-parameter"}
 	warnings := make(chan Usage, callers)
 	registry := NewRegistry(func(got Usage) {
 		warnings <- got

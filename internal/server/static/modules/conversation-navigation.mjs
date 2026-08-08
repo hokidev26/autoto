@@ -1,4 +1,5 @@
 import { t } from "./i18n.mjs";
+import { conversationUnread } from "./conversation-seen.mjs";
 
 const navigationModes = new Set(["all", "projects"]);
 
@@ -146,6 +147,34 @@ function compactDisplayPath(value) {
     .replace(/^\/home\/[^/]+(?=\/)/, "~");
 }
 
+// Conversations created before titles were derived from the opening message had
+// their working directory persisted into the title column, so the row rendered
+// the same path twice: once as the title and once as the meta line underneath.
+// renderProject already avoids that for project rows; this is the conversation
+// equivalent. Presentational only -- the stored title is left untouched, and the
+// folder name is what a reader would call the directory anyway.
+export function conversationDisplayTitle(conversation) {
+  const title = text(conversation?.agentTitle);
+  if (!looksLikeFilesystemPath(title)) return title;
+  return pathBasename(title) || title;
+}
+
+function looksLikeFilesystemPath(value) {
+  const candidate = text(value);
+  if (!candidate) return false;
+  // A Windows drive prefix, a POSIX absolute path, or a UNC share. A title that
+  // merely mentions a slash (\"fix a/b handling\") is not treated as a path.
+  return /^[A-Za-z]:[\\/]/.test(candidate) || /^\/[^/]/.test(candidate) || /^\\\\/.test(candidate);
+}
+
+function pathBasename(value) {
+  const parts = text(value).split(/[\\/]+/).filter(Boolean);
+  const last = parts.length ? parts[parts.length - 1] : "";
+  // A drive root ("C:\") splits to just the drive letter, which is not a folder
+  // name. Report nothing so the caller keeps the original string.
+  return /^[A-Za-z]:$/.test(last) ? "" : last;
+}
+
 function timestamp(value) {
   const normalized = text(value);
   return normalized && !Number.isNaN(Date.parse(normalized)) ? normalized : "";
@@ -286,22 +315,40 @@ function compareProjectGroups(left, right) {
     || left.project.name.localeCompare(right.project.name);
 }
 
-function applyProjectItemOrder(items, orderArr, projectId) {
+// Pinned stays above normal, archived stays below both. A stored drag order
+// must reorder rows *within* those tiers only: sorting purely by stored index
+// let one past drag outrank pinning, so a pinned project stopped sitting at the
+// top once the user had ever reordered the sidebar.
+function projectOrderTier(pinned, archived) {
+  if (archived) return 2;
+  return pinned ? 0 : 1;
+}
+
+function applyProjectItemOrder(items, orderArr, projectId, tierOf) {
   if (!Array.isArray(orderArr) || !orderArr.length) return items;
   const orderMap = new Map(orderArr.map((id, index) => [String(id), index]));
-  return [...items].sort((left, right) => {
-    const leftIndex = orderMap.has(projectId(left)) ? orderMap.get(projectId(left)) : Infinity;
-    const rightIndex = orderMap.has(projectId(right)) ? orderMap.get(projectId(right)) : Infinity;
-    return leftIndex - rightIndex;
-  });
+  const indexOf = (item) => (orderMap.has(projectId(item)) ? orderMap.get(projectId(item)) : Infinity);
+  // Array.prototype.sort is stable, so items absent from the stored order keep
+  // the recency order they arrived in instead of being shuffled arbitrarily.
+  return [...items].sort((left, right) => tierOf(left) - tierOf(right) || indexOf(left) - indexOf(right));
 }
 
 export function applyProjectOrder(projects, orderArr) {
-  return applyProjectItemOrder(projects, orderArr, (project) => text(project?.id));
+  return applyProjectItemOrder(
+    projects,
+    orderArr,
+    (project) => text(project?.id),
+    (project) => projectOrderTier(project?.pinned, project?.archivedAt),
+  );
 }
 
 function applyProjectGroupOrder(groups, orderArr) {
-  return applyProjectItemOrder(groups, orderArr, (group) => text(group?.project?.id));
+  return applyProjectItemOrder(
+    groups,
+    orderArr,
+    (group) => text(group?.project?.id),
+    (group) => projectOrderTier(group?.project?.pinned, group?.project?.archivedAt),
+  );
 }
 
 export function normalizeNavigationPayload(payload = {}) {
@@ -372,14 +419,25 @@ export function buildNavigationView(payload = {}, options = {}) {
   const normalized = normalizeNavigationPayload(payload);
   const mode = navigationModes.has(options.mode) ? options.mode : "projects";
   const query = normalizedQuery(options.query);
+  // Subagents belong to the background-task panel, not the sidebar. A parent
+  // turn can dispatch several at once, and they reuse the parent's workline, so
+  // the tree cannot express them as anything but plain sibling rows -- which is
+  // what made the sidebar look like it was opening branches. Nesting here stays
+  // reserved for git worklines, one row per conversation.
+  //
+  // Filtered at view-build time rather than in /api/navigation on purpose:
+  // navigateToAgent resolves a child's targetId out of the unfiltered
+  // state.navigationConversations projection, so removing subagents upstream
+  // would break the panel's own "open subagent" button.
+  const visibleConversations = normalized.conversations.filter((conversation) => conversation.agentType !== "subagent");
   const conversationsByProject = new Map();
-  normalized.conversations.forEach((conversation) => {
+  visibleConversations.forEach((conversation) => {
     const items = conversationsByProject.get(conversation.projectId) || [];
     items.push(conversation);
     conversationsByProject.set(conversation.projectId, items);
   });
 
-  const projects = normalized.projects.filter((project) => projectMatchesSearch(project, normalized.conversations, query));
+  const projects = normalized.projects.filter((project) => projectMatchesSearch(project, visibleConversations, query));
   const groups = projects.map((project) => {
     const conversations = conversationsByProject.get(project.id) || [];
     const projectOwnMatch = includesQuery([project.name, project.gitPath], query);
@@ -401,7 +459,7 @@ export function buildNavigationView(payload = {}, options = {}) {
     mode,
     query,
     totalProjectCount: normalized.projects.length,
-    totalConversationCount: normalized.conversations.length,
+    totalConversationCount: visibleConversations.length,
     projects: orderedProjects,
     conversations: [],
     groups,
@@ -511,6 +569,14 @@ export function navigationAgentStatusClass(value) {
   return text(value).toLocaleLowerCase().replace(/[^a-z0-9_-]+/g, "-").replace(/^-+|-+$/g, "") || "idle";
 }
 
+// A collapsed group hides its rows, so the project row has to carry the unread
+// mark for the conversations underneath it or a finished reply would be
+// invisible until the user expanded the group.
+export function aggregateNavigationUnread(conversations = [], seenMap = {}, activeAgentId = "") {
+  const list = Array.isArray(conversations) ? conversations : [];
+  return list.some((conversation) => conversation?.agentId !== activeAgentId && conversationUnread(conversation, seenMap));
+}
+
 // Project rows inherit the liveliest agent under them so the sidebar icon can
 // still signal "running / done" when the list is in projects-only mode.
 export function aggregateNavigationAgentStatus(conversations = []) {
@@ -581,11 +647,12 @@ function renderProject(project, activeProjectId, options = {}) {
     ? `<span class="project-task-counts"><span>${escapeNavigationHtml(String(activeTasks))}</span>${Number(counts.blocked || 0) ? `<span class="blocked">${escapeNavigationHtml(String(counts.blocked))}</span>` : ""}</span>`
     : "";
   const statusClass = text(options.agentStatus) ? navigationAgentStatusClass(options.agentStatus) : "";
+  const unread = options.unread === true;
   const stateClass = `${project.pinned ? "pinned " : ""}${project.archivedAt ? "archived " : ""}`;
   const stateMeta = navigationStateMarkup({ pinned: project.pinned, archivedAt: project.archivedAt });
   const icon = `<svg viewBox="0 0 20 20"><path d="M5 4.5h10a2 2 0 0 1 2 2V12a2 2 0 0 1-2 2H9l-4 2.5V14a2 2 0 0 1-2-2V6.5a2 2 0 0 1 2-2Z"></path></svg>`;
   return `
-    <div class="navigation-conversation-row navigation-project-row ${options.taskContext ? "task-context " : ""}${active ? "active " : ""}${statusClass ? `status-${statusClass} ` : ""}project-card ${stateClass}" role="button" tabindex="0" draggable="true"       title="${escapeNavigationHtml(headline)}" data-project-id="${escapeNavigationHtml(project.id)}" data-navigation-kind="project" data-navigation-id="${escapeNavigationHtml(project.id)}"${statusClass ? ` data-agent-status="${escapeNavigationHtml(statusClass)}"` : ""} data-navigation-context="${options.taskContext ? "tasks" : "project"}">
+    <div class="navigation-conversation-row navigation-project-row ${options.taskContext ? "task-context " : ""}${active ? "active " : ""}${statusClass ? `status-${statusClass} ` : ""}${unread ? "unread " : ""}project-card ${stateClass}" role="button" tabindex="0" draggable="true"       title="${escapeNavigationHtml(headline)}" data-project-id="${escapeNavigationHtml(project.id)}" data-navigation-kind="project" data-navigation-id="${escapeNavigationHtml(project.id)}"${statusClass ? ` data-agent-status="${escapeNavigationHtml(statusClass)}"` : ""}${unread ? " data-agent-unread=\"true\"" : ""} data-navigation-context="${options.taskContext ? "tasks" : "project"}">
       ${options.disclosure || ""}
       <span class="navigation-agent-icon theme-icon-slot" data-theme-icon-slot="sidebar-project" aria-hidden="true">${icon}</span>
       <span class="navigation-conversation-main">
@@ -602,6 +669,9 @@ function renderConversation(conversation, activeAgentId, nested = false, options
   const taskContext = options.taskContext === true;
   const nestedFork = options.nestedFork === true;
   const statusClass = navigationAgentStatusClass(conversation.agentStatus);
+  // The row a reader is currently looking at is read by definition, so it must
+  // never render as unread even before the seen mark is written.
+  const unread = !active && conversationUnread(conversation, options.seenMap);
   const worklineContext = conversation.worklineBranch || conversation.worklineTitle;
   const projectContext = compactDisplayPath(conversation.projectPath) || conversation.projectName;
   const context = nested
@@ -613,6 +683,9 @@ function renderConversation(conversation, activeAgentId, nested = false, options
   const stateClass = `${conversation.agentPinned ? "pinned " : ""}${conversation.agentArchivedAt ? "archived " : ""}`;
   const stateMeta = navigationStateMarkup({ pinned: conversation.agentPinned, archivedAt: conversation.agentArchivedAt });
   const orderScope = text(options.orderScope);
+  // The full stored value stays in the row's tooltip, so a path-titled
+  // conversation is still identifiable on hover.
+  const displayTitle = conversationDisplayTitle(conversation);
   // Fork conversations use a branch icon instead of the default conversation bubble.
   const icon = taskContext
     ? `<svg viewBox="0 0 20 20"><circle cx="10" cy="6.5" r="3"></circle><path d="M4.5 17c.7-3.5 2.5-5.2 5.5-5.2s4.8 1.7 5.5 5.2"></path></svg>`
@@ -620,27 +693,29 @@ function renderConversation(conversation, activeAgentId, nested = false, options
       ? `<svg viewBox="0 0 20 20"><circle cx="7" cy="5" r="1.8"></circle><circle cx="7" cy="15" r="1.8"></circle><circle cx="14" cy="8" r="1.8"></circle><path d="M7 6.8v6.4M7 6.8c2 0 7 .5 7 1.2" stroke-linecap="round"></path></svg>`
       : `<svg viewBox="0 0 20 20"><path d="M5 4.5h10a2 2 0 0 1 2 2V12a2 2 0 0 1-2 2H9l-4 2.5V14a2 2 0 0 1-2-2V6.5a2 2 0 0 1 2-2Z"></path></svg>`;
   return `
-    <div class="navigation-conversation-row ${nested ? "nested " : ""}${nestedFork ? "fork-conversation " : ""}${taskContext ? "task-context " : ""}${active ? "active " : ""}status-${statusClass} ${stateClass}" role="button" tabindex="0" draggable="true" title="${escapeNavigationHtml(conversation.agentTitle)}" data-navigation-target="${escapeNavigationHtml(conversation.targetId)}" data-navigation-kind="conversation" data-navigation-id="${escapeNavigationHtml(conversation.agentId)}" data-agent-status="${escapeNavigationHtml(conversation.agentStatus || "idle")}" data-navigation-context="${taskContext ? "tasks" : "project"}"${orderScope ? ` data-conversation-order-scope="${escapeNavigationHtml(orderScope)}"` : ""}>
+    <div class="navigation-conversation-row ${nested ? "nested " : ""}${nestedFork ? "fork-conversation " : ""}${taskContext ? "task-context " : ""}${active ? "active " : ""}status-${statusClass} ${unread ? "unread " : ""}${stateClass}" role="button" tabindex="0" draggable="true" title="${escapeNavigationHtml(conversation.agentTitle)}" data-navigation-target="${escapeNavigationHtml(conversation.targetId)}" data-navigation-kind="conversation" data-navigation-id="${escapeNavigationHtml(conversation.agentId)}" data-agent-status="${escapeNavigationHtml(conversation.agentStatus || "idle")}"${unread ? " data-agent-unread=\"true\"" : ""} data-navigation-context="${taskContext ? "tasks" : "project"}"${orderScope ? ` data-conversation-order-scope="${escapeNavigationHtml(orderScope)}"` : ""}>
       ${options.disclosure || ""}
       <span class="navigation-agent-icon theme-icon-slot" data-theme-icon-slot="${nestedFork ? "sidebar-fork" : "sidebar-conversation"}" aria-hidden="true">${icon}</span>
       <span class="navigation-conversation-main">
-        <span class="navigation-conversation-title"><span class="navigation-title-text">${escapeNavigationHtml(conversation.agentTitle)}</span>${stateMeta}</span>
+        <span class="navigation-conversation-title"><span class="navigation-title-text">${escapeNavigationHtml(displayTitle)}</span>${stateMeta}</span>
         <span class="navigation-conversation-meta" title="${escapeNavigationHtml(meta)}">${escapeNavigationHtml(meta)}</span>
       </span>
       ${navigationMoreTrigger("conversation", conversation.agentId)}
     </div>`;
 }
 
+// Same tier rule as the project order: a stored drag order reorders rows inside
+// the pinned/normal/archived tiers, and never lifts a normal conversation above
+// a pinned one.
 export function applyConversationOrder(conversations, orderArr) {
   if (!Array.isArray(orderArr) || !orderArr.length) return conversations;
   const orderMap = new Map(orderArr.map((id, i) => [String(id), i]));
-  const copy = [...conversations];
-  copy.sort((a, b) => {
-    const ia = orderMap.has(a.agentId) ? orderMap.get(a.agentId) : Infinity;
-    const ib = orderMap.has(b.agentId) ? orderMap.get(b.agentId) : Infinity;
-    return ia - ib;
-  });
-  return copy;
+  const tierOf = (conversation) => projectOrderTier(
+    conversation?.agentPinned,
+    conversation?.agentArchivedAt || conversation?.projectArchivedAt,
+  );
+  const indexOf = (conversation) => (orderMap.has(conversation.agentId) ? orderMap.get(conversation.agentId) : Infinity);
+  return [...conversations].sort((a, b) => tierOf(a) - tierOf(b) || indexOf(a) - indexOf(b));
 }
 
 export function renderNavigationHTML(view = {}, options = {}) {
@@ -658,6 +733,8 @@ export function renderNavigationHTML(view = {}, options = {}) {
   const collapsed = options.collapsedNodes instanceof Set
     ? options.collapsedNodes
     : new Set(Array.isArray(options.collapsedNodes) ? options.collapsedNodes.map(text).filter(Boolean) : []);
+  // Passed in rather than read here so the renderer stays pure and testable.
+  const seenMap = options.seenMap && typeof options.seenMap === "object" ? options.seenMap : {};
   let html = "";
   if (taskContext) {
     const taskConversations = new Map((view.groups || []).map((group) => [group.project.id, group.conversations]));
@@ -704,7 +781,7 @@ export function renderNavigationHTML(view = {}, options = {}) {
         ...rootConvs.map((conversation) => {
           const forks = hasForks ? (forksByWorklineId.get(conversation.worklineId) || []) : [];
           if (!forks.length) {
-            return renderConversation(conversation, activeAgentId, true, { activeSelectionKind, orderScope: group.project.id });
+            return renderConversation(conversation, activeAgentId, true, { activeSelectionKind, orderScope: group.project.id, seenMap });
           }
           // Only a conversation that actually has forks gets a triangle; giving
           // every row one would put a control next to nothing to disclose.
@@ -712,15 +789,16 @@ export function renderNavigationHTML(view = {}, options = {}) {
           const rootHTML = renderConversation(conversation, activeAgentId, true, {
             activeSelectionKind,
             orderScope: group.project.id,
+            seenMap,
             disclosure: navigationDisclosure("conversation", conversation.agentId, forksOpen, t("workspace.navigation.toggleForks")),
           });
           const forksHTML = forks.map((fork) =>
-            renderConversation(fork, activeAgentId, true, { activeSelectionKind, orderScope: group.project.id, nestedFork: true }),
+            renderConversation(fork, activeAgentId, true, { activeSelectionKind, orderScope: group.project.id, nestedFork: true, seenMap }),
           ).join("");
           return `${rootHTML}<div class="navigation-workline-forks"${forksOpen ? "" : " hidden"}>${forksHTML}</div>`;
         }),
         ...orphanForks.map((fork) =>
-          renderConversation(fork, activeAgentId, true, { activeSelectionKind, orderScope: group.project.id, nestedFork: true }),
+          renderConversation(fork, activeAgentId, true, { activeSelectionKind, orderScope: group.project.id, nestedFork: true, seenMap }),
         ),
       ].join("");
 
@@ -731,6 +809,8 @@ export function renderNavigationHTML(view = {}, options = {}) {
         ${renderProject(group.project, activeProjectId, {
           activeSelectionKind,
           agentStatus: projectStatus,
+          // Only while collapsed: an expanded group shows the unread row itself.
+          unread: !groupOpen && aggregateNavigationUnread(group.conversations, seenMap, activeAgentId),
           // The open conversation names the row when it belongs to this project;
           // otherwise the most recent one does. Falls back to the project name
           // inside renderProject when the group has no conversations yet.
@@ -761,6 +841,7 @@ export function renderNavigationHTML(view = {}, options = {}) {
     html = projects.map((project) => renderProject(project, activeProjectId, {
       activeSelectionKind,
       agentStatus: statusByProject.get(project.id) || "",
+      unread: aggregateNavigationUnread(conversationsByProject.get(project.id), seenMap, activeAgentId),
       headline: navigationProjectHeadline(conversationsByProject.get(project.id), activeAgentId),
     })).join("");
   }

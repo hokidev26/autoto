@@ -594,3 +594,205 @@ test("subscriptions receive read-only public snapshots and unsubscribe cleanly",
   assert.equal(typeof controller.getTaskByParentTool, "function");
   assert.equal(typeof controller.subscribe, "function");
 });
+
+// Status alone could not answer "what did the subagent actually say", which is
+// the reason to open this panel. Selecting an agent task therefore has to fetch
+// that subagent's own conversation and settings.
+test("selecting a subagent task loads its conversation and agent settings", async () => {
+  const requests = [];
+  const controller = createBackgroundTasksController({
+    request: async (path, options = {}) => {
+      requests.push(path);
+      if (path.endsWith("/output?afterSequence=0")) return { chunks: [] };
+      if (path.includes("/messages")) {
+        return [
+          { role: "user", text: "stay on standby", createdAt: "2026-01-01T00:00:00Z" },
+          { role: "assistant", text: "standing by", createdAt: "2026-01-01T00:00:05Z" },
+        ];
+      }
+      if (path === "/api/agents/child-7") return { id: "child-7", model: "codex:gpt-5.6", reasoningEffort: "low", permissionMode: "bypassPermissions" };
+      return {
+        id: "task-child",
+        agentId: "agent-1",
+        kind: "agent",
+        status: "succeeded",
+        childAgentId: "child-7",
+        publicSummary: { description: "Subagent task" },
+      };
+    },
+  });
+  controller.setAgent("agent-1");
+
+  await controller.selectTask("task-child");
+
+  assert.ok(requests.some((path) => path.startsWith("/api/agents/child-7/messages")),
+    "the subagent's conversation must be fetched");
+  assert.ok(requests.includes("/api/agents/child-7"),
+    "the subagent's model and effort must be fetched so the controls show real values");
+});
+
+// The panel exists to steer a task mid-flight, so a model or effort change is
+// written straight to the subagent rather than only to local state.
+test("changing a subagent's effort patches that agent", async () => {
+  const calls = [];
+  const controller = createBackgroundTasksController({
+    request: async (path, options = {}) => {
+      calls.push({ path, method: options.method || "GET", body: options.body });
+      if (path.endsWith("/output?afterSequence=0")) return { chunks: [] };
+      if (path.includes("/messages")) return [];
+      if (path === "/api/agents/child-9") return { id: "child-9", model: "m", reasoningEffort: "auto" };
+      return { id: "task-9", agentId: "agent-1", kind: "agent", status: "running", childAgentId: "child-9" };
+    },
+  });
+  controller.setAgent("agent-1");
+  await controller.selectTask("task-9");
+  calls.length = 0;
+
+  await controller.updateChildAgentSetting("child-9", "reasoning-effort", { reasoningEffort: "high" });
+
+  const patch = calls.find((call) => call.method === "PATCH");
+  assert.ok(patch, "a settings change must reach the API");
+  assert.equal(patch.path, "/api/agents/child-9/reasoning-effort");
+  assert.deepEqual(JSON.parse(patch.body), { reasoningEffort: "high" });
+});
+
+test("sending a message to a subagent posts to that agent and refreshes its conversation", async () => {
+  const calls = [];
+  let messages = [];
+  const controller = createBackgroundTasksController({
+    request: async (path, options = {}) => {
+      calls.push({ path, method: options.method || "GET", body: options.body });
+      if (path.endsWith("/output?afterSequence=0")) return { chunks: [] };
+      if (path.includes("/messages") && (options.method || "GET") === "GET") return messages;
+      if (path.includes("/messages")) {
+        messages = [{ role: "user", text: JSON.parse(options.body).text }];
+        return { id: "m1" };
+      }
+      if (path === "/api/agents/child-3") return { id: "child-3", model: "m" };
+      return { id: "task-3", agentId: "agent-1", kind: "agent", status: "running", childAgentId: "child-3" };
+    },
+  });
+  controller.setAgent("agent-1");
+  await controller.selectTask("task-3");
+  calls.length = 0;
+
+  await controller.sendChildAgentMessage("child-3", "keep waiting");
+
+  const post = calls.find((call) => call.method === "POST");
+  assert.ok(post, "the message must be posted to the subagent");
+  assert.equal(post.path, "/api/agents/child-3/messages");
+  assert.equal(JSON.parse(post.body).text, "keep waiting");
+  assert.ok(calls.filter((call) => call.path.includes("/messages") && call.method === "GET").length > 0,
+    "the conversation is refetched so the sent message appears");
+});
+
+// A blank message must not start a run on the subagent.
+test("an empty subagent message is not sent", async () => {
+  const calls = [];
+  const controller = createBackgroundTasksController({
+    request: async (path, options = {}) => {
+      calls.push({ path, method: options.method || "GET" });
+      return {};
+    },
+  });
+  controller.setAgent("agent-1");
+  await controller.sendChildAgentMessage("child-1", "   ");
+  assert.deepEqual(calls, []);
+});
+
+// Two subagent cards used to fill the pane, burying the list this panel exists
+// to browse, and the detail pane had to be reachable without scrolling past it.
+test("the task list is a one-row tab strip and the detail pane owns the rest", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const css = await readFile(new URL("../styles/workspace-tasks.css", import.meta.url), "utf8");
+
+  // One fixed row for the tabs, everything else for the detail pane. Stacked
+  // cards used to push the detail pane down the panel as tasks accumulated.
+  const grid = css.match(/\.background-task-tray-grid \{[^}]*\}/);
+  assert.ok(grid, "the tray grid rule must exist");
+  assert.match(grid[0], /grid-template-rows:\s*auto minmax\(0, 1fr\)/);
+
+  // Tabs scroll sideways rather than wrapping into more rows.
+  const list = css.match(/\.background-task-list \{[^}]*\}/);
+  assert.ok(list, ".background-task-list must exist");
+  assert.match(list[0], /display:\s*flex/);
+  assert.match(list[0], /overflow-x:\s*auto/);
+  assert.match(list[0], /overflow-y:\s*hidden/);
+
+  // Status is a dot on the tab; a word per tab would crowd out the title.
+  assert.match(css, /\.background-task-tab-dot \{[^}]*border-radius:\s*50%/);
+  assert.match(css, /\.background-task-tab-dot\.status-failed/);
+
+  // Sized against the panel, not the window, so a docked panel collapses too.
+  assert.match(css, /\.background-task-tray-grid \{[^}]*container-type:\s*inline-size/);
+  assert.match(css, /@container background-task-panel \(max-width: 420px\)/);
+  assert.match(css, /@container background-task-panel \(max-width: 300px\)/);
+});
+
+// Selecting a tab now navigates too, which is what allowed the separate "open
+// subagent" and "open run" buttons below the pane to be removed.
+test("clicking a task tab opens it in the panel without hijacking the main conversation", async () => {
+  const navigated = [];
+  const controller = createBackgroundTasksController({
+    request: async (path) => {
+      if (path.endsWith("/output?afterSequence=0")) return { chunks: [] };
+      if (path.includes("/messages")) return [];
+      if (path === "/api/agents/child-42") return { id: "child-42", model: "m" };
+      return { id: "task-42", agentId: "agent-1", kind: "agent", status: "running", childAgentId: "child-42" };
+    },
+    onNavigateAgent: (childAgentId) => navigated.push(childAgentId),
+  });
+  controller.setAgent("agent-1");
+
+  const task = await controller.selectTask("task-42");
+  assert.equal(controller.state().selected, "task-42");
+  assert.equal(task.childAgentId, "child-42");
+  // Selecting must never navigate: the user was reading one thread and a glance
+  // at a subagent used to replace it.
+  assert.deepEqual(navigated, []);
+
+  // The click handler itself must not call the navigate hook for a tab either.
+  const source = await (await import("node:fs/promises")).readFile(new URL("./background-tasks.mjs", import.meta.url), "utf8");
+  const branch = source.slice(source.indexOf("} else if (target.dataset.backgroundTask) {"));
+  const branchBody = branch.slice(0, branch.indexOf("} else if (target.dataset.backgroundOutputMore)"));
+  assert.ok(!branchBody.includes("onNavigateAgent"), "a tab click must not navigate the main conversation");
+  assert.match(branchBody, /selectTask\(target\.dataset\.backgroundTask\)/);
+});
+
+// The model control has to offer the configured provider models rather than ask
+// for a hand-typed id, and it must not invent a catalogue of its own.
+test("subagent model options come from the injected provider list", () => {
+  const controller = createBackgroundTasksController({
+    request: async () => ({}),
+    getModelOptions: () => [
+      { value: "anthropic:claude-opus-5", label: "claude-opus-5" },
+      { value: "anthropic:claude-opus-5", label: "duplicate" },
+      { value: "", label: "blank is dropped" },
+      "codex:gpt-5.6",
+    ],
+  });
+  const html = controller.renderChildControlsHTMLForTest({ childAgentId: "child-1" }, { model: "anthropic:claude-opus-5" });
+
+  assert.match(html, /<select data-background-child-model="child-1">/);
+  assert.match(html, /value="anthropic:claude-opus-5" selected/);
+  assert.match(html, /codex:gpt-5\.6/);
+  // Duplicates collapse and blanks are dropped.
+  assert.equal((html.match(/value="anthropic:claude-opus-5"/g) || []).length, 1);
+  assert.ok(!html.includes("blank is dropped"));
+});
+
+// Every other control in this panel is translated; a raw "bypassPermissions"
+// leaking into the select was the one exception.
+test("subagent permission modes render translated labels, not raw enum values", () => {
+  const controller = createBackgroundTasksController({ request: async () => ({}) });
+  const html = controller.renderChildControlsHTMLForTest({ childAgentId: "child-2" }, { permissionMode: "bypassPermissions" });
+
+  assert.match(html, /<option value="bypassPermissions" selected>/);
+  // The option's visible text must not be the enum value itself.
+  const options = [...html.matchAll(/<option value="(readOnly|acceptEdits|bypassPermissions|default|dontAsk)"[^>]*>([^<]*)</g)];
+  assert.equal(options.length, 5, "all five permission modes must be offered");
+  for (const [, value, label] of options) {
+    assert.notEqual(label.trim(), value, `${value} must render a translated label`);
+    assert.ok(label.trim().length > 0, `${value} must have a label`);
+  }
+});

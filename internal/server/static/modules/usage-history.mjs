@@ -153,6 +153,9 @@ export function createUsageHistoryState(value = {}) {
     error: normalizeUsageHistoryText(source.error, 2000),
     seq: Math.floor(normalizeUsageHistoryNumber(source.seq)),
     ...normalized,
+    // Validated against the trend that came back, so a pinned point cannot
+    // outlive the series it belonged to.
+    selectedTrendIndex: normalizeTrendPointIndex(source.selectedTrendIndex, (normalized.trend || []).length),
   };
 }
 
@@ -216,6 +219,28 @@ function svgNumber(value) {
   return Number(value).toFixed(2).replace(/\.00$/, "");
 }
 
+// Every bucket already carries the full metric set, so a point can report its
+// request count and token split regardless of which metric the chart is drawing.
+// The selected metric leads; the token detail is appended only when it adds
+// something the leading value does not already say.
+function trendPointLabel(point, metric, value) {
+  const parts = [`${point.bucket || "—"}: ${formatMetric(metric, value)}`];
+  if (metric !== "requests") {
+    parts.push(t("usageHistory.trend.pointRequests", { count: formatNumber(metricValue(point, "requests")) }));
+  }
+  const totalTokens = metricValue(point, "totalTokens");
+  if (totalTokens > 0 && metric !== "totalTokens") {
+    parts.push(t("usageHistory.trend.pointTokens", { total: formatNumber(totalTokens) }));
+  }
+  if (totalTokens > 0 && metric !== "inputTokens" && metric !== "outputTokens") {
+    parts.push(t("usageHistory.trend.pointTokenSplit", {
+      input: formatNumber(metricValue(point, "inputTokens")),
+      output: formatNumber(metricValue(point, "outputTokens")),
+    }));
+  }
+  return parts.join(" · ");
+}
+
 export function renderUsageTrendSVG(value, metric = "totalTokens", options = {}) {
   const trend = (Array.isArray(value) ? value : []).map(normalizeUsageHistoryTrendItem);
   const selectedMetric = normalizeChoice(metric, usageHistoryMetrics, "totalTokens");
@@ -241,12 +266,55 @@ export function renderUsageTrendSVG(value, metric = "totalTokens", options = {})
   }).join("");
   const labelIndexes = [...new Set([0, Math.floor((trend.length - 1) / 2), trend.length - 1])];
   const xLabels = labelIndexes.map((index) => `<text class="uh-chart-x-label" x="${svgNumber(x(index))}" y="${svgNumber(height - 12)}" text-anchor="${index === 0 ? "start" : (index === trend.length - 1 ? "end" : "middle")}">${escapeHtml(trend[index].bucket || "—")}</text>`).join("");
+  const selectedIndex = normalizeTrendPointIndex(options.selectedIndex, trend.length);
   const points = trend.map((point, index) => {
-    const label = `${point.bucket || "—"}: ${formatMetric(selectedMetric, values[index])}`;
-    return `<circle class="uh-chart-point" cx="${svgNumber(x(index))}" cy="${svgNumber(y(values[index]))}" r="4" tabindex="0"><title>${escapeHtml(label)}</title></circle>`;
+    const label = trendPointLabel(point, selectedMetric, values[index]);
+    const active = index === selectedIndex;
+    // The native <title> only appears on hover, which is unreachable on touch
+    // and leaves nothing on screen once the pointer moves away. The click and
+    // keyboard handlers in bindTrendPointSelection pin the same text into a
+    // readout instead, so data-usage-trend-point carries what they need.
+    //
+    // aria-label as well as <title>: the circle is focusable, and a focused
+    // element with only an SVG <title> child reads as nothing in several
+    // screen readers.
+    return `<circle class="uh-chart-point${active ? " is-selected" : ""}" cx="${svgNumber(x(index))}" cy="${svgNumber(y(values[index]))}" r="${active ? 6 : 4}"`
+      + ` tabindex="0" role="button" aria-label="${escapeAttr(label)}" aria-pressed="${active ? "true" : "false"}"`
+      + ` data-usage-trend-point="${escapeAttr(String(index))}" data-usage-trend-label="${escapeAttr(label)}"`
+      + `><title>${escapeHtml(label)}</title></circle>`;
   }).join("");
   const ariaLabel = `${t("usageHistory.trend.title")}: ${t(`usageHistory.trend.metrics.${selectedMetric}`)}`;
   return `<svg class="uh-trend-svg" viewBox="0 0 ${svgNumber(width)} ${svgNumber(height)}" role="img" aria-label="${escapeAttr(ariaLabel)}" preserveAspectRatio="none">${grid}<line class="uh-chart-axis" x1="${margin.left}" y1="${margin.top}" x2="${margin.left}" y2="${svgNumber(margin.top + plotHeight)}"></line><line class="uh-chart-axis" x1="${margin.left}" y1="${svgNumber(margin.top + plotHeight)}" x2="${svgNumber(width - margin.right)}" y2="${svgNumber(margin.top + plotHeight)}"></line><path class="uh-chart-line" d="${escapeAttr(path)}"></path>${points}${xLabels}</svg>`;
+}
+
+// A pinned point survives re-renders, so the index has to be validated against
+// the trend that is actually on screen: switching bucket or metric can shrink
+// the series and leave a stale index pointing past the end.
+export function normalizeTrendPointIndex(value, length) {
+  const count = Number(length);
+  if (!Number.isFinite(count) || count <= 0) return -1;
+  const index = Number(value);
+  if (!Number.isFinite(index)) return -1;
+  const rounded = Math.trunc(index);
+  return rounded >= 0 && rounded < count ? rounded : -1;
+}
+
+// The readout is what makes a pinned point useful: it stays on screen after the
+// pointer leaves, which the hover-only <title> never did.
+export function renderTrendReadout(trend, metric, selectedIndex) {
+  const items = (Array.isArray(trend) ? trend : []).map(normalizeUsageHistoryTrendItem);
+  const index = normalizeTrendPointIndex(selectedIndex, items.length);
+  if (index < 0) {
+    return `<p class="uh-trend-readout-hint" data-usage-trend-readout>${escapeHtml(t("usageHistory.trend.readoutHint"))}</p>`;
+  }
+  const selectedMetric = normalizeChoice(metric, usageHistoryMetrics, "totalTokens");
+  const point = items[index];
+  const label = trendPointLabel(point, selectedMetric, metricValue(point, selectedMetric));
+  return `<div class="uh-trend-readout-value" data-usage-trend-readout role="status" aria-live="polite">`
+    + `<strong>${escapeHtml(point.bucket || "—")}</strong>`
+    + `<span>${escapeHtml(label)}</span>`
+    + `<button type="button" class="uh-button uh-trend-readout-clear" data-usage-trend-clear>${escapeHtml(t("usageHistory.trend.readoutClear"))}</button>`
+    + `</div>`;
 }
 
 function formatCompactCount(value) {
@@ -360,7 +428,7 @@ export function renderUsageHistory(value = {}) {
     <header class="uh-hero settings-card"><div><div class="uh-kicker">${escapeHtml(t("usageHistory.kicker"))}</div><h2 id="usageHistoryTitle">${escapeHtml(t("usageHistory.title"))}</h2><p class="settings-card-description" data-settings-help-copy>${escapeHtml(t("usageHistory.description"))}</p><small aria-live="polite">${escapeHtml(generatedAt)}</small></div><button id="usageHistoryRefresh" class="uh-button primary" type="button"${state.status === "loading" ? " disabled aria-busy=\"true\"" : ""}>${escapeHtml(t(state.status === "loading" ? "usageHistory.refreshing" : "usageHistory.refresh"))}</button></header>
     ${state.error && state.items.length ? `<div class="uh-inline-error settings-alert" role="alert">${escapeHtml(t("usageHistory.history.error", { message: state.error }))}</div>` : ""}
     ${renderSummary(state.summary, "uh-summary-grid settings-stat-grid")}
-    <section class="uh-panel uh-trend-panel settings-card" aria-labelledby="usageHistoryTrendTitle"><div class="uh-section-head settings-card-header"><div><h3 id="usageHistoryTrendTitle" class="settings-card-title">${escapeHtml(t("usageHistory.trend.title"))}</h3><p class="settings-card-description" data-settings-help-copy>${escapeHtml(t("usageHistory.trend.description"))}</p></div><div class="uh-trend-controls settings-toolbar">${renderBucketControls(state.bucket)}${renderMetricSelect(state.metric)}</div></div>${state.trendTruncated ? `<div class="uh-truncated settings-badge">${escapeHtml(t("usageHistory.trend.truncated"))}</div>` : ""}<div id="usageHistoryTrendChart" class="uh-chart-host">${renderUsageTrendSVG(state.trend, state.metric)}</div></section>
+    <section class="uh-panel uh-trend-panel settings-card" aria-labelledby="usageHistoryTrendTitle"><div class="uh-section-head settings-card-header"><div><h3 id="usageHistoryTrendTitle" class="settings-card-title">${escapeHtml(t("usageHistory.trend.title"))}</h3><p class="settings-card-description" data-settings-help-copy>${escapeHtml(t("usageHistory.trend.description"))}</p></div><div class="uh-trend-controls settings-toolbar">${renderBucketControls(state.bucket)}${renderMetricSelect(state.metric)}</div></div>${state.trendTruncated ? `<div class="uh-truncated settings-badge">${escapeHtml(t("usageHistory.trend.truncated"))}</div>` : ""}<div id="usageHistoryTrendChart" class="uh-chart-host">${renderUsageTrendSVG(state.trend, state.metric, { selectedIndex: state.selectedTrendIndex })}</div><div id="usageHistoryTrendReadout" class="uh-trend-readout">${renderTrendReadout(state.trend, state.metric, state.selectedTrendIndex)}</div></section>
     ${renderFilters(state)}
     ${renderHistoryTable(state)}
   </main>`;
@@ -388,6 +456,11 @@ export function createUsageHistoryController({ state = {}, request, onChange, on
       usage.summary = normalized.summary;
       usage.trend = normalized.trend;
       usage.trendTruncated = normalized.trendTruncated;
+      // The series was just replaced, so a pinned point from the previous one
+      // may no longer exist. Re-validate here rather than only at redraw: the
+      // state is read by render() too, and a stale index would pin the wrong
+      // bucket.
+      usage.selectedTrendIndex = normalizeTrendPointIndex(usage.selectedTrendIndex, normalized.trend.length);
       usage.options = normalized.options;
       usage.items = append ? appendUsageHistoryItems(usage.items, normalized.items) : normalized.items;
       usage.nextCursor = normalized.nextCursor;
@@ -406,8 +479,47 @@ export function createUsageHistoryController({ state = {}, request, onChange, on
   }
 
   function redrawTrend() {
+    const state = current();
+    // Re-validate every redraw: a metric switch keeps the series but a bucket
+    // change or reload can shorten it, and a stale index must not survive.
+    state.selectedTrendIndex = normalizeTrendPointIndex(state.selectedTrendIndex, (state.trend || []).length);
     const chart = globalThis.document?.getElementById?.("usageHistoryTrendChart");
-    if (chart) chart.innerHTML = renderUsageTrendSVG(current().trend, current().metric);
+    if (chart) chart.innerHTML = renderUsageTrendSVG(state.trend, state.metric, { selectedIndex: state.selectedTrendIndex });
+    const readout = globalThis.document?.getElementById?.("usageHistoryTrendReadout");
+    if (readout) readout.innerHTML = renderTrendReadout(state.trend, state.metric, state.selectedTrendIndex);
+    // The chart markup was just replaced, so the handlers on the old circles
+    // went with it.
+    bindTrendPointSelection();
+  }
+
+  // Clicking a point pins its reading; clicking the same point again releases
+  // it. Hover alone was unusable on touch and vanished the moment the pointer
+  // moved, which is the whole reason this exists.
+  function selectTrendPoint(index) {
+    const state = current();
+    const next = normalizeTrendPointIndex(index, (state.trend || []).length);
+    state.selectedTrendIndex = next === state.selectedTrendIndex ? -1 : next;
+    redrawTrend();
+    return state.selectedTrendIndex;
+  }
+
+  function bindTrendPointSelection() {
+    const chart = globalThis.document?.getElementById?.("usageHistoryTrendChart");
+    chart?.querySelectorAll?.("[data-usage-trend-point]").forEach((node) => {
+      node.addEventListener("click", () => { selectTrendPoint(node.dataset?.usageTrendPoint); });
+      // The circle is focusable and announces as a button, so it has to answer
+      // Enter and Space like one.
+      node.addEventListener("keydown", (event) => {
+        if (event?.key !== "Enter" && event?.key !== " " && event?.key !== "Spacebar") return;
+        event.preventDefault?.();
+        selectTrendPoint(node.dataset?.usageTrendPoint);
+      });
+    });
+    const readout = globalThis.document?.getElementById?.("usageHistoryTrendReadout");
+    readout?.querySelector?.("[data-usage-trend-clear]")?.addEventListener("click", () => {
+      current().selectedTrendIndex = -1;
+      redrawTrend();
+    });
   }
 
   function setMetric(metric) {
@@ -449,6 +561,7 @@ export function createUsageHistoryController({ state = {}, request, onChange, on
       node.addEventListener("click", () => { void setBucket(node.dataset.usageBucket); });
     });
     $("usageHistoryMetric")?.addEventListener("change", (event) => setMetric(event.target.value));
+    bindTrendPointSelection();
     $("usageHistoryFilters")?.addEventListener("submit", (event) => {
       event.preventDefault();
       void applyFilters({
@@ -473,6 +586,7 @@ export function createUsageHistoryController({ state = {}, request, onChange, on
     refresh,
     render: () => renderUsageHistory(current()),
     resetFilters,
+    selectTrendPoint,
     setBucket,
     setMetric,
   };

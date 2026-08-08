@@ -126,10 +126,11 @@ func legacyDangerLabel(command string) string {
 }
 
 // hasTruncatingRedirect reports whether the raw command text contains a `>`
-// redirect that would overwrite a real file. Two shapes are excluded because
-// they destroy nothing, and both are routine on the cmd.exe lines this
-// string-level layer exists to catch: `>>` appends, and a redirect to a discard
-// sink such as `2>NUL` or `>/dev/null` only silences output.
+// redirect that would overwrite something worth keeping. Shapes that destroy
+// nothing are excluded, and all are routine on the cmd.exe lines this string-level
+// layer exists to catch: `>>` appends, a discard sink such as `2>NUL` or
+// `>/dev/null` only silences output, and a path under the OS temp directory holds
+// nothing of value.
 func hasTruncatingRedirect(cmd string) bool {
 	for _, match := range truncatingRedirectPattern.FindAllStringSubmatch(cmd, -1) {
 		target := match[3]
@@ -138,10 +139,9 @@ func hasTruncatingRedirect(cmd string) bool {
 		if target == "" || strings.HasPrefix(target, ">") {
 			continue
 		}
-		if isDiscardRedirectTarget(target) {
-			continue
+		if classifyRedirectTarget(target) > redirectTargetScratch {
+			return true
 		}
-		return true
 	}
 	return false
 }

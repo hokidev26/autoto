@@ -148,6 +148,24 @@ func newAgentTestRunner(store *db.Store, provider providers.Provider, cfg config
 	return NewRunner(store, registry, toolRegistry, NewHub(), cfg)
 }
 
+// disableReflectionForTest turns the danger-reflection gate off for the
+// duration of a test that is not exercising the reflection code path. Tests
+// that test static permission policy or lifecycle behaviour should call this so
+// they do not hang waiting for approval when the scripted provider has no
+// reflection turns queued.
+func disableReflectionForTest(t *testing.T, store *db.Store) {
+	t.Helper()
+	ctx := context.Background()
+	prefs, err := store.GetWorkflowPreferences(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	prefs.DangerReflectionLevel = "off"
+	if _, err := store.UpdateWorkflowPreferences(ctx, prefs); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func waitForPendingApproval(t *testing.T, runner *Runner, agentID, toolUseID string) {
 	t.Helper()
 	deadline := time.Now().Add(2 * time.Second)

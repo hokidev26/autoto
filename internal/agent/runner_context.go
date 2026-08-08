@@ -852,13 +852,31 @@ func estimateTextTokens(text string) int {
 	return (asciiRunes+3)/4 + nonASCII
 }
 
+// summarizeOldestMessages is the single choke point for every compaction path:
+// the manual endpoint, the pre-turn automatic threshold, and the hard-window
+// fallback. Announcing start and finish here means the UI can show that the
+// conversation is being compacted without each caller remembering to say so.
+// Compaction calls a model and can take seconds, which previously looked like an
+// unexplained stall in the middle of a turn.
 func (r *Runner) summarizeOldestMessages(ctx context.Context, agent db.Agent, candidates []db.Message) string {
+	r.publish(Event{Type: "context.compaction_started", AgentID: agent.ID, Data: map[string]any{
+		"messageCount": len(candidates),
+	}})
+	summary, ok := r.compactionSummary(ctx, agent, candidates)
+	r.publish(Event{Type: "context.compaction_finished", AgentID: agent.ID, Data: map[string]any{
+		"messageCount": len(candidates),
+		"modelSummary": ok,
+	}})
+	return summary
+}
+
+func (r *Runner) compactionSummary(ctx context.Context, agent db.Agent, candidates []db.Message) (string, bool) {
 	if summary, err := r.summarizeWithModel(ctx, agent.ContextSummary, candidates); err == nil && strings.TrimSpace(summary) != "" {
-		return strings.TrimSpace(summary)
+		return strings.TrimSpace(summary), true
 	} else if err != nil {
 		slog.Warn("summary model unavailable, using local context summary", "agentId", agent.ID, "error", err)
 	}
-	return deterministicSummary(agent.ContextSummary, candidates)
+	return deterministicSummary(agent.ContextSummary, candidates), false
 }
 
 func (r *Runner) summarizeWithModel(ctx context.Context, existingSummary string, candidates []db.Message) (string, error) {

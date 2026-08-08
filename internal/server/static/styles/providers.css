@@ -3780,15 +3780,31 @@ body.white-shell.theme-light.theme-dark #settingsContentBody .mp-provider-refere
   }
 
   #settingsContentBody .mp-provider-network-details > summary,
-  #settingsContentBody .mp-provider-model-toolbar,
   #settingsContentBody .mp-provider-manual-model {
     align-items: stretch;
     flex-direction: column;
   }
 
-  #settingsContentBody .mp-provider-model-toolbar .mp-action,
   #settingsContentBody .mp-provider-manual-model .mp-action {
     width: 100%;
+  }
+
+  /* The toolbar stays a row on narrow screens. As a stretched column the
+     show/hide-all eye button became a full-width icon floating on its own line
+     above the list, reading as a stray control rather than a toggle. */
+  #settingsContentBody .mp-provider-model-toolbar {
+    align-items: center;
+    flex-direction: row;
+    gap: 8px;
+  }
+
+  #settingsContentBody .mp-provider-model-toolbar .mp-action {
+    flex: 1 1 auto;
+    width: auto;
+  }
+
+  #settingsContentBody .mp-provider-model-toolbar .mp-provider-model-visibility-all {
+    flex: 0 0 auto;
   }
 
   #settingsContentBody .mp-provider-model-config-list {
@@ -3817,17 +3833,33 @@ body.white-shell.theme-light.theme-dark #settingsContentBody .mp-provider-refere
     padding-right: 82px;
   }
 
+  /* Label beside the field rather than stacked above it. Nine models stacked
+     three rows deep each turned this panel into a long scroll on a phone. */
   #settingsContentBody .mp-provider-model-limit {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
     grid-column: 1 / -1;
+    gap: 10px;
+    font-size: 11px;
   }
 
   #settingsContentBody .mp-provider-model-limit input {
-    max-width: 160px;
+    flex: 0 0 auto;
+    width: 132px;
+    max-width: 132px;
   }
 
   #settingsContentBody .mp-provider-model-image-generation {
     grid-column: 1 / -1;
     width: fit-content;
+  }
+
+  /* An unsupported toggle is disabled and says only "protocol unsupported", so
+     on a phone it costs a row per model to repeat what the provider's protocol
+     already implies. Desktop still shows it. */
+  #settingsContentBody .mp-provider-model-image-generation.is-unsupported {
+    display: none;
   }
 
   #settingsContentBody .mp-provider-model-visibility {

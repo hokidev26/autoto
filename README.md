@@ -53,7 +53,7 @@ Projects: ~/projects
   - MCPListTools
   - MCPCallTool
 - Sensitive-path hard blocking for the file path tools: `Read`, `Write`, and `Edit` reject protected files, while `Glob` and `Grep` omit them. The blocked set includes `.env*`, credential/secret files, common private-key material, and `.git` contents
-- Danger reflection for Bash tool calls: a configurable LLM safety gate (off / loose / medium / strict) that intercepts high-risk commands before execution and blocks or allows them based on a structured verdict
+- Danger reflection for Bash tool calls: a configurable LLM safety gate (off / loose / medium / strict) that uses the active conversation model to review high-risk commands before execution and blocks or allows them based on a structured verdict
 - Continuation budget settings panel: per-workspace limits on continuations, total turns, total tokens, and wall-clock run duration; defaults to no limit, and negative values explicitly opt out of any ceiling
 - Project drag-to-reorder in the sidebar, with server-persisted order
 - Git workspace APIs and UI for status, diff, log, and explicit-path commits without automatic push, amend, reset, clean, force, or `git add -A`

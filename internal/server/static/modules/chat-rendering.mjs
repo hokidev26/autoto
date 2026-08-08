@@ -1935,11 +1935,11 @@ export function createChatRenderingController({
     const liveAssistantCard = renderLiveAssistantCardHTML();
     const liveImageGenerationCards = renderLiveImageGenerationCardsHTML();
     const planCards = renderPlanCardsHTML();
-    const liveToolCards = renderLiveToolOutputCardsHTML();
     // Per-message stacks are computed first: whatever finds a home under its own
-    // assistant turn is subtracted from the run-level card, so a call is never
-    // shown in both places.
+    // assistant turn is subtracted from both the live tail and the run-level card,
+    // so a call is never shown in more than one place.
     const { stacks: messageActivityStacks, ownedToolUseIds } = messageToolActivityStacks(visibleMessages);
+    const liveToolCards = renderLiveToolOutputCardsHTML(ownedToolUseIds);
     const runSummaryCard = renderRunSummaryCardHTML(ownedToolUseIds);
     const approvalCards = renderApprovalCardsHTML();
     if (!visibleMessages.length && !liveAssistantCard && !liveImageGenerationCards && !planCards && !liveToolCards && !runSummaryCard && !approvalCards && !messageActivityStacks.size) {
@@ -2892,6 +2892,8 @@ export function createChatRenderingController({
   function messageToolActivityStacks(visibleMessages) {
     const stacks = new Map();
     const ownedToolUseIds = new Set();
+    // Live reasoning steps this pass moved under a message. The tail subtracts
+    // them so one turn's thinking is not rendered in two places.
     const messages = Array.isArray(visibleMessages) ? visibleMessages : [];
     const knownIds = new Set(messages.map((message) => String(message?.id || "")).filter(Boolean));
     if (!knownIds.size) return { stacks, ownedToolUseIds };
@@ -2941,7 +2943,25 @@ export function createChatRenderingController({
       const anchoredRecords = (anchored.get(messageId) || []).flatMap(([, calls]) => calls);
       const records = claimUnseen([...(persisted.byMessage.get(messageId) || []), ...liveRecords, ...anchoredRecords]
         .sort((left, right) => String(normalizeToolActivity(left).createdAt || "").localeCompare(String(normalizeToolActivity(right).createdAt || ""))));
-      const reasoningSteps = persistedReasoningSteps(message, records);
+      // reasoningText is only written when the turn finishes, so during a live
+      // run this turn has tools but no reasoning to show -- while its reasoning
+      // is still streaming into the tail stack. That is the split: one row
+      // reading "0 steps reasoning, N tools" and a second row holding the
+      // thinking that produced them.
+      //
+      // Falling back to the live steps for this message's own run keeps the pair
+      // together, and renderToolActivityStackHTML already interleaves them by
+      // beforeToolUseId, so the row reads reasoning -> tool -> reasoning -> tool.
+      // liveReasoningStepsWithoutPersisted drops the tail's copy for any run
+      // whose assistant turn is on screen, which is the same condition that
+      // makes this fallback fire.
+      const messageRunId = String(message?.runId || message?.run_id || "").trim();
+      const persistedSteps = persistedReasoningSteps(message, records);
+      // Only with a runId: currentLiveReasoningSteps("") matches every step and
+      // would pull another run's thinking under this turn.
+      const reasoningSteps = persistedSteps.length || !messageRunId
+        ? persistedSteps
+        : currentLiveReasoningSteps(messageRunId);
       // This turn's own stack first, then any earlier run this message anchors.
       const rendered = [];
       if (records.length || reasoningSteps.length) {
@@ -3300,16 +3320,27 @@ export function createChatRenderingController({
     const list = Array.isArray(steps) ? steps : [];
     if (!list.length) return list;
     const persistedPerRun = new Map();
+    // Runs whose assistant turn is on screen but has not persisted its reasoning
+    // yet. messageToolActivityStacks falls back to the live steps for exactly
+    // these, so the tail has to let go of all of them -- including the open
+    // draft, which that fallback also picks up. Keeping the draft here as well
+    // would show the same in-progress thinking in two places.
+    const claimedRuns = new Set();
     for (const message of transcriptMessages(state.currentMessages)) {
       if (chatMessagePresentation(message).normalizedRole !== "assistant") continue;
-      if (!persistedReasoningSteps(message).length) continue;
       const owner = String(message?.runId || message?.run_id || "").trim();
+      if (!persistedReasoningSteps(message).length) {
+        if (owner) claimedRuns.add(owner);
+        continue;
+      }
       persistedPerRun.set(owner, (persistedPerRun.get(owner) || 0) + 1);
     }
-    if (!persistedPerRun.size) return list;
+    if (!persistedPerRun.size && !claimedRuns.size) return list;
     const fallbackRunId = String(runId || "").trim();
     const remaining = new Map(persistedPerRun);
     return list.filter((step) => {
+      const claimedOwner = String(step?.runId || "").trim() || fallbackRunId;
+      if (claimedOwner && claimedRuns.has(claimedOwner)) return false;
       if (step?.open) return true;
       // A step with no runId belongs to the run being rendered; that is the run
       // currentLiveReasoningSteps already let it through for.
@@ -3436,8 +3467,19 @@ export function createChatRenderingController({
     ).unowned;
   }
 
-  function renderLiveToolOutputCardsHTML() {
-    const records = unownedLiveToolOutputList();
+  // ownedToolUseIds is the set produced by messageToolActivityStacks so the
+  // tail can exclude any call that already found a home under its own message.
+  // Without this, a call whose runId maps to a visible assistant turn is
+  // claimed by anchorHistoryRunActivity inside messageToolActivityStacks but
+  // still returned by unownedLiveToolOutputList — rendering it twice.
+  function renderLiveToolOutputCardsHTML(ownedToolUseIds = null) {
+    const allRecords = unownedLiveToolOutputList();
+    const records = ownedToolUseIds instanceof Set
+      ? allRecords.filter((r) => {
+        const id = normalizeToolActivity(r).toolUseId;
+        return !id || !ownedToolUseIds.has(id);
+      })
+      : allRecords;
     const runActive = String(state.agent?.status || "").trim().toLowerCase() === "running";
     const runId = records.length ? normalizeToolActivity(records.at(-1)).runId : String(state.liveAssistantRunId || "");
     const summaryRun = state.activeRunSummary?.run;
@@ -3474,9 +3516,11 @@ export function createChatRenderingController({
     // Ownership can change on any tool event: the call's assistant turn may have
     // just been persisted, which moves it out of the tail stack and under that
     // turn. Sync first so the tail markup below is computed against the result.
-    syncMessageToolActivityStacks(el);
+    // The returned set of claimed tool-use ids is passed to the tail renderer so
+    // records already anchored under a message are not rendered a second time.
+    const ownedToolUseIds = syncMessageToolActivityStacks(el);
     const existing = el.querySelector("[data-live-tool-output-stack]");
-    const html = renderLiveToolOutputCardsHTML();
+    const html = renderLiveToolOutputCardsHTML(ownedToolUseIds);
     if (existing) {
       if (html) {
         // Preserve the <details> open/collapsed state across the outerHTML
@@ -4390,7 +4434,11 @@ export function createChatRenderingController({
           url,
           caption: opener.dataset?.imageLightboxCaption || name,
           downloadName: name,
-          labels: { close: cr("attachment.closeViewer"), download: cr("imageGeneration.download") },
+          labels: {
+            close: cr("attachment.closeViewer"),
+            download: cr("imageGeneration.download"),
+            copy: cr("attachment.copyImage"),
+          },
         }).then((opened) => {
           if (!opened) showToast(cr("attachment.unavailable"), "warn");
         });

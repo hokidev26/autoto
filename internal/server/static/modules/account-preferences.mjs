@@ -5,9 +5,9 @@ export const accountPreferencesImportVersion = 1;
 export const accountPreferencesCurrentSetupVersion = 1;
 export const accountPreferenceFields = Object.freeze(["profile", "preferredModel", "modelVisibility", "setupVersion"]);
 export const accountPreferenceLegacyKeys = Object.freeze({
-  profile: ["autoto.profile", "codeharbor.profile"],
-  preferredModel: ["autoto.preferredModel", "codeharbor.preferredModel"],
-  modelVisibility: ["autoto.modelVisibility", "codeharbor.modelVisibility"],
+  profile: ["autoto.profile"],
+  preferredModel: ["autoto.preferredModel"],
+  modelVisibility: ["autoto.modelVisibility"],
 });
 
 const cachePrefix = "autoto.accountPreferences.cache.";

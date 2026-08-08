@@ -36,6 +36,7 @@ function t(key, params = {}) {
 // Ranges mirror strictContinuationSettings in internal/server. `scale` converts
 // the UI unit into the wire unit, so duration is edited in minutes.
 const executionBudgetFields = [
+  { key: "segmentTurns", id: "runtimeBudgetSegmentTurns", labelKey: "segmentTurnsBudget", unitKey: "turnsUnit", fallback: 40, min: 1, max: 1000, scale: 1 },
   { key: "maxTotalTurns", id: "runtimeBudgetTotalTurns", labelKey: "totalTurnsBudget", unitKey: "turnsUnit", fallback: 200, min: 1, max: 10000, scale: 1, minFollowsSegmentTurns: true },
   { key: "maxRunTokens", id: "runtimeBudgetTokens", labelKey: "tokenBudget", unitKey: "tokensUnit", fallback: 2000000, min: 1000, max: 10000000, scale: 1 },
   { key: "maxRunDurationMs", id: "runtimeBudgetDurationMinutes", labelKey: "durationBudget", unitKey: "minutesUnit", fallback: 60, min: 1, max: 1440, scale: 60000 },
@@ -282,7 +283,9 @@ export function createSystemSettingsController({
   // number input never has to represent a sentinel the user could mistype.
   function renderExecutionBudgetCard(continuation) {
     const mode = String(continuation.mode || "off").toLowerCase() === "safe" ? "safe" : "off";
-    const segmentTurns = executionBudgetSegmentTurns(continuation);
+    // Raw, not coerced: -1 has to stay -1 so the total-turns floor knows the
+    // segment cap is unlimited and imposes no minimum.
+    const segmentTurns = Number(continuation?.segmentTurns);
     return `
       <section class="settings-info-card settings-card settings-card-content execution-budget-card">
         <div class="settings-info-title">${escapeHtml(t("systemSettings.runtimeResources.executionBudget"))}</div>
@@ -339,12 +342,22 @@ export function createSystemSettingsController({
     return Number.isFinite(value) && value >= 1 ? Math.round(value) : defaultContinuationSegmentTurns;
   }
 
+  // What the segment-turns control is about to send. Unlimited means the total
+  // turns field has no segment floor to respect.
+  function executionBudgetSubmittedSegmentTurns() {
+    const toggle = $("runtimeBudgetSegmentTurnsUnlimited");
+    if (!toggle || toggle.checked) return -1;
+    const raw = Number($("runtimeBudgetSegmentTurns")?.value);
+    return Number.isFinite(raw) && raw >= 1 && raw <= 1000 ? Math.round(raw) : defaultContinuationSegmentTurns;
+  }
+
   // The server rejects maxTotalTurns below segmentTurns, so the input must not
   // advertise a floor the save call would refuse.
   function executionBudgetFieldMin(field, segmentTurns) {
     if (!field.minFollowsSegmentTurns) return field.min;
-    const floor = Number.isFinite(segmentTurns) && segmentTurns >= 1 ? Math.round(segmentTurns) : defaultContinuationSegmentTurns;
-    return Math.min(Math.max(field.min, floor), field.max);
+    // An unlimited segment cap imposes no floor on the total.
+    if (!Number.isFinite(segmentTurns) || segmentTurns < 1) return field.min;
+    return Math.min(Math.max(field.min, Math.round(segmentTurns)), field.max);
   }
 
   function renderRuntimeKeyValue(label, value) {
@@ -383,11 +396,12 @@ export function createSystemSettingsController({
   }
 
   function bindExecutionBudgetActions() {
-    const segmentTurns = executionBudgetSegmentTurns(state.runtimeSummary?.agent?.continuation);
     for (const field of executionBudgetFields) {
       const input = $(field.id);
       const toggle = $(`${field.id}Unlimited`);
-      const min = executionBudgetFieldMin(field, segmentTurns);
+      // Read live: turning the segment cap unlimited must relax the total-turns
+      // floor straight away, without waiting for a save and re-render.
+      const min = executionBudgetFieldMin(field, executionBudgetSubmittedSegmentTurns());
       input?.addEventListener("change", () => {
         const value = Number(input.value);
         if (Number.isFinite(value) && value >= 0) executionBudgetDrafts[field.key] = value;
@@ -448,14 +462,13 @@ export function createSystemSettingsController({
   }
 
   function collectExecutionBudget() {
-    const continuation = state.runtimeSummary?.agent?.continuation || {};
-    const segmentTurns = executionBudgetSegmentTurns(continuation);
     const payload = {
       mode: $("runtimeBudgetMode")?.value === "safe" ? "safe" : "off",
-      // segmentTurns has no control here, so carry the persisted value forward
-      // unchanged; the endpoint is a full overwrite and rejects a missing value.
-      segmentTurns,
     };
+    // segmentTurns is a normal field now, so read the control the user sees
+    // rather than replaying whatever was persisted. The maxTotalTurns floor
+    // follows the value being submitted, not the stored one.
+    const segmentTurns = executionBudgetSubmittedSegmentTurns();
     for (const field of executionBudgetFields) {
       const toggle = $(`${field.id}Unlimited`);
       if (!toggle || toggle.checked) {

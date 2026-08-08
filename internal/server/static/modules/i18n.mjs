@@ -1,4 +1,4 @@
-import { resolveLocale } from "./locale-registry.mjs";
+﻿import { resolveLocale } from "./locale-registry.mjs";
 import messagesEN from "./messages-en.mjs?v=settings-flat-1-codex-browser-login-1-shared-api-1-apple-theme-1-autoto-themes-1-settings-help-1-task-workspace-1-navigation-state-2-archive-1-settings-cleanup-1-schedule-workspace-1-provider-draft-session-1-context-ring-3-global-background-1-theme-v2-1-formal-theme-assets-1-background-upload-1-goal-command-2-queue-command-1-reasoning-steps-1-reasoning-history-1-markdown-2-home-launcher-1-scoped-memory-1-standalone-removed-2-codex-quota-exhausted-1";
 import backgroundTaskMessages from "./messages-background-tasks.mjs";
 import remoteAccessMessages from "./messages-remote-access.mjs?v=remote-control-full-4-remote-full-toggle-3-cloudflared-install-1-settings-ui-cleanup-1";
@@ -46,7 +46,7 @@ export const messageCatalogs = Object.freeze({
 
 function initialLocalePreference() {
   if (!globalThis.localStorage?.getItem) return "zh-CN";
-  for (const key of ["autoto.regional", "codeharbor.regional"]) {
+  for (const key of ["autoto.regional"]) {
     try {
       const raw = globalThis.localStorage?.getItem?.(key);
       if (!raw) continue;

@@ -173,6 +173,17 @@ func TestAgentRoleContractPermissionCapCanOnlyStayEqualOrNarrow(t *testing.T) {
 		{name: "retain read only", parent: "readOnly", requested: "readOnly", want: "readOnly"},
 		{name: "narrow edit to read only", parent: "acceptEdits", requested: "readOnly", want: "readOnly"},
 		{name: "normalize edit aliases", parent: "bypassPermissions", requested: "default", want: "acceptEdits"},
+		// A parent whose user chose "allow everything" passes that through when
+		// the child asks for nothing narrower. Collapsing it to acceptEdits meant
+		// the child stopped to ask in a run where nobody could answer.
+		{name: "inherit bypass", parent: "bypassPermissions", requested: "", want: "bypassPermissions"},
+		{name: "retain bypass", parent: "bypassPermissions", requested: "bypassPermissions", want: "bypassPermissions"},
+		{name: "narrow bypass to edit", parent: "bypassPermissions", requested: "acceptEdits", want: "acceptEdits"},
+		{name: "narrow bypass to read only", parent: "bypassPermissions", requested: "readOnly", want: "readOnly"},
+		// The one-directional invariant: bypass must never be reachable from a
+		// parent that does not already have it.
+		{name: "reject widening to bypass", parent: "acceptEdits", requested: "bypassPermissions", wantErr: true},
+		{name: "reject read only widening to bypass", parent: "readOnly", requested: "bypassPermissions", wantErr: true},
 		{name: "reject widening", parent: "readOnly", requested: "acceptEdits", wantErr: true},
 		{name: "reject unknown requested mode", parent: "acceptEdits", requested: "root", wantErr: true},
 		{name: "reject unknown parent mode", parent: "root", requested: "readOnly", wantErr: true},

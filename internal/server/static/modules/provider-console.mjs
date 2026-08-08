@@ -18,7 +18,7 @@ import {
   renderProviderConsolePage,
   setProviderModelHidden,
   setProviderModelHiddenAll,
-} from "./model-provider-components.mjs?v=provider-card-clean-3-provider-create-page-2-provider-secrets-1-model-picker-1-provider-full-page-2-provider-placeholders-1-model-configs-1-provider-reference-1-default-openai-responses-1-provider-draft-session-1-native-image-generation-1-provider-hidden-models-1-provider-quota-overview-1";
+} from "./model-provider-components.mjs?v=provider-card-clean-3-provider-create-page-2-provider-secrets-1-model-picker-1-provider-full-page-2-provider-placeholders-1-model-configs-1-provider-reference-1-default-openai-responses-1-provider-draft-session-1-native-image-generation-1-provider-hidden-models-1-provider-quota-overview-1-provider-model-limit-persist-1";
 import {
   automaticProviderNameUpdate,
   markProviderModelsStale,
@@ -37,13 +37,13 @@ import {
   syncProviderConsoleDraft,
   trapProviderConsoleFocus,
   validateProviderNameValue,
-} from "./provider-settings-normalization.mjs?v=provider-hidden-models-1";
-import { codexAccountStableID, finiteNumber, providerAccountQuotaSummary } from "./provider-account-rendering.mjs?v=provider-quota-overview-1-codex-quota-exhausted-1";
-import { providerCategory, subscriptionProviderKind, subscriptionProviderKinds, subscriptionProviderSpec } from "./model-provider-components.mjs?v=provider-subscription-accounts-1-provider-hidden-models-1-provider-quota-overview-1";
-import { normalizeSubscriptionProvider } from "./provider-settings-normalization.mjs?v=provider-hidden-models-1";
-import { createCodexAuthController } from "./provider-codex-auth.mjs?v=provider-quota-overview-1-codex-quota-exhausted-1";
-import { createAnthropicAccountsController } from "./provider-anthropic-accounts.mjs?v=provider-hidden-models-1-provider-quota-overview-1-codex-quota-exhausted-1";
-import { createSubscriptionAccountsController } from "./provider-subscription-accounts.mjs?v=provider-quota-overview-1-codex-quota-exhausted-1";
+} from "./provider-settings-normalization.mjs?v=provider-hidden-models-1-provider-model-limit-persist-1";
+import { codexAccountStableID, finiteNumber, providerAccountQuotaSummary } from "./provider-account-rendering.mjs?v=provider-quota-overview-1-codex-quota-exhausted-1-provider-model-limit-persist-1";
+import { providerCategory, subscriptionProviderKind, subscriptionProviderKinds, subscriptionProviderSpec } from "./model-provider-components.mjs?v=provider-subscription-accounts-1-provider-hidden-models-1-provider-quota-overview-1-provider-model-limit-persist-1";
+import { normalizeSubscriptionProvider } from "./provider-settings-normalization.mjs?v=provider-hidden-models-1-provider-model-limit-persist-1";
+import { createCodexAuthController } from "./provider-codex-auth.mjs?v=provider-quota-overview-1-codex-quota-exhausted-1-provider-model-limit-persist-1";
+import { createAnthropicAccountsController } from "./provider-anthropic-accounts.mjs?v=provider-hidden-models-1-provider-quota-overview-1-codex-quota-exhausted-1-provider-model-limit-persist-1";
+import { createSubscriptionAccountsController } from "./provider-subscription-accounts.mjs?v=provider-quota-overview-1-codex-quota-exhausted-1-provider-model-limit-persist-1";
 import { createModelRoutingController } from "./model-routing-settings.mjs";
 
 export function createModelProviderSettingsController({

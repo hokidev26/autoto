@@ -64,6 +64,27 @@ export function resolveComposerActivityStatus(state, translate = t) {
     };
   }
 
+  // Compaction calls a summary model and can take seconds. It outranks the tool
+  // and thinking states because it happens *instead of* progress on the turn:
+  // reporting "thinking" there is what made it look like an unexplained stall.
+  if (state?.contextCompacting) {
+    return { kind: "compacting", text: translate("chat.activity.compacting") };
+  }
+
+  // A provider fault being retried is not idle time and not a failure yet. Say
+  // so, with the attempt count, so a 502 does not look like a hang.
+  const retry = state?.providerRetry;
+  if (retry) {
+    const attempt = Number(retry.attempt) || 0;
+    const maxAttempts = Number(retry.maxAttempts) || 0;
+    return {
+      kind: "retrying",
+      text: attempt && maxAttempts
+        ? `${translate("chat.activity.retrying")} ${attempt}/${maxAttempts}`
+        : translate("chat.activity.retrying"),
+    };
+  }
+
   const [tool] = runningLiveTools(state);
   if (tool) {
     const verb = toolActivityVerbLabel(tool.toolName, translate);
@@ -121,7 +142,10 @@ export function createAgentWorkspaceHelpers({
     else backgroundTasks?.setForegroundActivity?.(null);
     const composerActivity = routeActivityToTaskSummary ? null : activity;
     const text = composerActivity?.text || lastConnectionStatus.text || t("chat.idle");
-    const busy = Boolean(composerActivity);
+    // Handing the activity to the task summary must not let this pill claim the
+    // workspace is idle. Both sit on the same toolbar, so a grey "idle" dot
+    // beside a task summary still animating a running step reads as a bug.
+    const busy = Boolean(composerActivity) || (routeActivityToTaskSummary && Boolean(activity));
     const ok = !busy && Boolean(lastConnectionStatus.ok);
     if (label) setTextIfChanged(label, text);
     if (dot) {

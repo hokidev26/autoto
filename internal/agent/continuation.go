@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"autoto/internal/db"
@@ -24,6 +25,19 @@ const (
 	continuationReasonSegmentTurns    = "segment_turn_limit"
 	continuationReasonBackgroundTask  = "background_task_wait"
 	continuationReasonProviderError   = "provider_error"
+
+	// Consecutive upstream failures to absorb before giving the run back to the
+	// user. Small on purpose: a provider that fails four times in a row with
+	// backoff is not a blip, and the user is better served by the error than by a
+	// run that keeps retrying invisibly.
+	maxProviderErrorRetries = 4
+
+	providerErrorRetryBaseDelay = 2 * time.Second
+	providerErrorRetryMaxDelay  = 30 * time.Second
+
+	// How long a segment may go without finishing before the run says it is still
+	// working. Long enough that a normal build or test run does not trip it.
+	stallWarningInterval = 3 * time.Minute
 
 	conversationSystemBoundary = "General conversation context is active. Respond as a conversational and research assistant, not as a project workspace agent. Do not inspect, search, read, modify, execute, or otherwise interact with local project or workspace resources. Only the explicitly provided conversation, attachments, and public-web research tools may be used."
 )
@@ -189,6 +203,13 @@ func (r *Runner) runContinuous(ctx context.Context, agentID, runID string) (runE
 	}
 
 	continuationIndex := state.run.ContinuationCount
+	// Consecutive provider failures only. A transient upstream fault (502, rate
+	// limit, a relay running out of credit for a moment) used to end the run and
+	// wait for the user to say "continue"; retrying it a bounded number of times
+	// keeps long tasks moving. The counter resets on any successful segment so a
+	// long run is not capped by failures it already recovered from, and a provider
+	// that is genuinely down still surfaces its error after the last attempt.
+	providerErrorRetries := 0
 	for {
 		if err := ctx.Err(); err != nil {
 			return err
@@ -216,8 +237,49 @@ func (r *Runner) runContinuous(ctx context.Context, agentID, runID string) (runE
 		}
 		state.run = updatedRun
 		if segmentErr != nil {
+			// A provider fault is the one error worth retrying by itself: nothing
+			// about the conversation is wrong, the upstream call just failed.
+			if r.retryableProviderError(state, outcome, segmentErr) && providerErrorRetries < maxProviderErrorRetries {
+				providerErrorRetries++
+				resumeAfterID := strings.TrimSpace(outcome.resumeAfterID)
+				r.publishContinuationLifecycle("provider_error_retry", "agent.provider_error_retry", agentID, mergeEventData(map[string]any{
+					"attempt":     providerErrorRetries,
+					"maxAttempts": maxProviderErrorRetries,
+					"reason":      continuationReasonProviderError,
+					"error":       boundedProviderErrorText(segmentErr),
+					"inPlace":     resumeAfterID == "",
+				}, runID))
+				if err := r.waitProviderErrorBackoff(ctx, providerErrorRetries); err != nil {
+					return err
+				}
+				// The failing call persisted nothing, so there is no durable resume
+				// point and nothing to continue *from* -- but also nothing to skip or
+				// duplicate. Re-run the same segment against the same messages
+				// instead of ending the run. This is the first-segment 502 case,
+				// where scheduleContinuation would refuse for want of a resume
+				// message and the transient fault would surface as a dead run.
+				if resumeAfterID == "" {
+					continue
+				}
+				outcome.disposition = segmentContinue
+				outcome.continuationReason = continuationReasonProviderError
+				updated, scheduleErr := r.scheduleContinuation(ctx, state, outcome)
+				if scheduleErr != nil {
+					// Could not schedule a retry: report the original provider fault
+					// rather than the scheduling detail, which is what the user needs.
+					return segmentErr
+				}
+				resumed, resumeErr := r.resumeContinuationCAS(ctx, updated)
+				if resumeErr != nil {
+					return segmentErr
+				}
+				state.run = resumed
+				continuationIndex = resumed.ContinuationCount
+				continue
+			}
 			return segmentErr
 		}
+		providerErrorRetries = 0
 		outcome.turns = 0
 		outcome.inputTokens = 0
 		outcome.outputTokens = 0
@@ -331,12 +393,50 @@ func (r *Runner) loadContinuationState(ctx context.Context, agentID, runID strin
 // leaves the context untouched so the existing between-segment budget check
 // reports the stop reason instead of surfacing a bare cancellation.
 func (r *Runner) runSegmentWithDeadline(ctx context.Context, state continuationRunState, continuationIndex int64) (segmentOutcome, error) {
+	// Report-only watchdog. A segment that produces nothing for a long stretch is
+	// indistinguishable from a finished run to anyone watching the UI, so say it
+	// is still working. It deliberately does not cancel: a slow build or a large
+	// download is not a hang, and killing it would lose real work. MaxRunDuration
+	// remains the only thing that ends a run on time.
+	stop := r.startSegmentStallWatchdog(ctx, state.run, continuationIndex)
+	defer stop()
 	if state.deadline.IsZero() || !time.Now().Before(state.deadline) {
 		return r.runContinuationSegment(ctx, state, continuationIndex)
 	}
 	segmentCtx, cancel := context.WithDeadline(ctx, state.deadline)
 	defer cancel()
 	return r.runContinuationSegment(segmentCtx, state, continuationIndex)
+}
+
+// startSegmentStallWatchdog publishes agent.stalled every stallWarningInterval
+// while a segment is still running, and returns a stop function. Repeating
+// rather than firing once means a run that is wedged for an hour keeps saying so
+// instead of going quiet after the first warning.
+func (r *Runner) startSegmentStallWatchdog(ctx context.Context, run db.Run, continuationIndex int64) func() {
+	if r == nil || strings.TrimSpace(run.AgentID) == "" {
+		return func() {}
+	}
+	done := make(chan struct{})
+	go func() {
+		ticker := time.NewTicker(stallWarningInterval)
+		defer ticker.Stop()
+		started := time.Now()
+		for {
+			select {
+			case <-done:
+				return
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				r.publishContinuationLifecycle("stalled", "agent.stalled", run.AgentID, mergeEventData(map[string]any{
+					"continuationCount": continuationIndex,
+					"elapsedSeconds":    int64(time.Since(started).Seconds()),
+				}, run.ID))
+			}
+		}
+	}()
+	var once sync.Once
+	return func() { once.Do(func() { close(done) }) }
 }
 
 func (r *Runner) runContinuationSegment(ctx context.Context, state continuationRunState, continuationIndex int64) (segmentOutcome, error) {
@@ -397,9 +497,17 @@ func (r *Runner) runContinuationSegment(ctx context.Context, state continuationR
 		outcome.inputTokens += maxInt64(result.Usage.InputTokens, 0)
 		outcome.outputTokens += maxInt64(result.Usage.OutputTokens, 0)
 		if turnErr != nil {
+			// Mark the fault as a provider error so the retry path in
+			// runContinuous can recognise it. Without this the reason stays empty,
+			// retryableProviderError never matches, and a transient 502 ends the
+			// run even though retrying was safe.
+			outcome.continuationReason = continuationReasonProviderError
 			if strings.TrimSpace(result.Text) != "" || len(result.ResponseBlocks) > 0 || len(result.ToolCalls) > 0 || len(result.GeneratedImages) > 0 {
 				messageID, persistErr := r.persistPartialAssistant(ctx, agentID, runID, result, continuationReasonProviderError)
 				if persistErr != nil {
+					// A store failure is not a provider fault; retrying it would just
+					// fail the same way. Drop the reason so the retry path declines.
+					outcome.continuationReason = ""
 					return outcome, persistErr
 				}
 				outcome.resumeAfterID = messageID
@@ -964,11 +1072,65 @@ func isToolStopReason(reason string) bool {
 
 func safeContinuationReason(reason string) bool {
 	switch strings.TrimSpace(reason) {
-	case continuationReasonMaxOutputTokens, continuationReasonSegmentTurns, continuationReasonBackgroundTask:
+	case continuationReasonMaxOutputTokens, continuationReasonSegmentTurns, continuationReasonBackgroundTask,
+		// Bounded by maxProviderErrorRetries in runContinuousRun, so an upstream
+		// that stays broken still stops the run and reports itself.
+		continuationReasonProviderError:
 		return true
 	default:
 		return false
 	}
+}
+
+// retryableProviderError reports whether a failed segment can be resumed. It
+// requires the partial-assistant persist to have produced a resume point, which
+// runSegment only does for provider faults, so this cannot silently retry an
+// unrelated failure such as a store or settlement error.
+func (r *Runner) retryableProviderError(state continuationRunState, outcome segmentOutcome, segmentErr error) bool {
+	if segmentErr == nil || errors.Is(segmentErr, context.Canceled) || errors.Is(segmentErr, context.DeadlineExceeded) {
+		return false
+	}
+	if state.limits.mode != continuationModeSafe {
+		return false
+	}
+	if outcome.continuationReason != continuationReasonProviderError {
+		return false
+	}
+	// A resume point is not required. When the failed call persisted nothing the
+	// caller re-runs the same segment in place, which is safe precisely because
+	// there is no partial output to duplicate. Requiring one here is what made
+	// this whole path unreachable for a fault on the first turn.
+	return true
+}
+
+// waitProviderErrorBackoff spaces out retries so a rate-limited or briefly
+// unavailable upstream is not hammered. Cancellation wins over the delay.
+func (r *Runner) waitProviderErrorBackoff(ctx context.Context, attempt int) error {
+	delay := providerErrorRetryBaseDelay * time.Duration(1<<uint(attempt-1))
+	if delay > providerErrorRetryMaxDelay {
+		delay = providerErrorRetryMaxDelay
+	}
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
+}
+
+// boundedProviderErrorText keeps the retry event small; the full text is already
+// persisted on the run when the retries are exhausted.
+func boundedProviderErrorText(err error) string {
+	if err == nil {
+		return ""
+	}
+	text := strings.TrimSpace(err.Error())
+	if len(text) > 300 {
+		return text[:300]
+	}
+	return text
 }
 
 func toolExecutionOutputSummaryJSON(result tools.Result) (json.RawMessage, error) {

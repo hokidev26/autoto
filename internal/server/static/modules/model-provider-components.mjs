@@ -144,16 +144,28 @@ export function mergeProviderModelDiscovery(currentConfigs = [], response = {}, 
   });
   const merged = discovered.map((item) => {
     const previous = existing.get(item.name);
-    return previous
-      ? { ...item, contextTokenLimit: previous.contextTokenLimit, imageGeneration: previous.imageGeneration, hidden: previous.hidden, manual: false }
-      : { ...item, imageGeneration: false, manual: false };
+    if (!previous) return { ...item, imageGeneration: false, manual: false };
+    return {
+      ...item,
+      // Only an explicitly set limit wins over what discovery reports. Taking
+      // previous.contextTokenLimit unconditionally let an unset row (0) erase a
+      // real capability limit the provider had just told us about.
+      contextTokenLimit: previous.contextTokenLimit > 0 ? previous.contextTokenLimit : item.contextTokenLimit,
+      imageGeneration: previous.imageGeneration,
+      hidden: previous.hidden,
+      manual: false,
+    };
   });
   const included = new Set(merged.map((item) => item.name));
   existing.forEach((item) => {
-    if (item.manual && !included.has(item.name)) {
-      merged.push({ ...item, manual: true });
-      included.add(item.name);
-    }
+    if (included.has(item.name)) return;
+    // Keep rows the user has configured even when discovery stops listing them.
+    // A failed or fallback model list is routine (an upstream 502 reduces it to
+    // the default model alone), and because saving replaces the whole models
+    // array, dropping the row here silently erased the stored limit.
+    if (!item.manual && item.contextTokenLimit <= 0 && !item.imageGeneration) return;
+    merged.push({ ...item });
+    included.add(item.name);
   });
   const selected = stringValue(defaultModel);
   if (selected && !included.has(selected)) merged.push({ name: selected, contextTokenLimit: 0, imageGeneration: false, hidden: false, manual: true });

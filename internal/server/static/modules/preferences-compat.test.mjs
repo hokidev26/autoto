@@ -11,7 +11,6 @@ import {
   defaultPrimaryModePreference,
   defaultRegionalPrefs,
   defaultSearchPrefs,
-  legacyLocalPreferenceBackupKind,
   localPreferenceBackupKeys,
   localPreferenceBackupKind,
   localPreferenceBackupVersion,
@@ -112,53 +111,6 @@ test("legacy relay protocol preference stays outside writable migration and back
   assert.equal(localPreferenceBackupKeys.some((entry) => entry.key === "autoto.relayProtocol"), false);
 });
 
-test("settings lazily migrates legacy CodeHarbor preferences without deleting them", () => {
-  const legacyKey = "codeharbor.profile";
-  const legacyValue = JSON.stringify({ displayName: "Legacy user" });
-  const storage = new MemoryStorage([[legacyKey, legacyValue]]);
-
-  withBrowserStorage(storage, () => {
-    const profile = createController().loadProfilePreferences();
-
-    assert.equal(profile.displayName, "Legacy user");
-    assert.equal(profile.avatarInitials, "AT");
-    assert.equal(storage.getItem(profilePrefsKey), legacyValue);
-    assert.equal(storage.getItem(legacyKey), legacyValue);
-  });
-});
-
-test("canonical Autoto preference takes priority over its legacy value", () => {
-  const legacyKey = "codeharbor.profile";
-  const canonicalValue = JSON.stringify({ displayName: "Autoto user" });
-  const legacyValue = JSON.stringify({ displayName: "Legacy user" });
-  const storage = new MemoryStorage([
-    [profilePrefsKey, canonicalValue],
-    [legacyKey, legacyValue],
-  ]);
-
-  withBrowserStorage(storage, () => {
-    const profile = createController().loadProfilePreferences();
-
-    assert.equal(profile.displayName, "Autoto user");
-    assert.equal(storage.getItem(profilePrefsKey), canonicalValue);
-    assert.equal(storage.getItem(legacyKey), legacyValue);
-  });
-});
-
-test("primary mode migrates from the legacy CodeHarbor key", () => {
-  const legacyKey = "codeharbor.ui.primaryMode";
-  const storage = new MemoryStorage([[legacyKey, "workbench"]]);
-
-  withBrowserStorage(storage, () => {
-    const controller = createController();
-
-    assert.equal(controller.loadPrimaryModePreference(), "workbench");
-    assert.equal(controller.currentPrimaryModePreference(), "workbench");
-    assert.equal(storage.getItem(primaryModePrefsKey), "workbench");
-    assert.equal(storage.getItem(legacyKey), "workbench");
-  });
-});
-
 test("primary mode backup normalizes invalid stored values", () => {
   const storage = new MemoryStorage([[primaryModePrefsKey, "kanban"]]);
 
@@ -169,16 +121,16 @@ test("primary mode backup normalizes invalid stored values", () => {
   });
 });
 
-test("backup export uses Autoto format and import accepts legacy CodeHarbor format", () => {
+test("backup export and import both use the Autoto format", () => {
   const storage = new MemoryStorage();
 
   withBrowserStorage(storage, () => {
     const controller = createController({ settings: { version: "1.2.3" } });
     const imported = controller.restoreLocalPreferencesBackup(JSON.stringify({
-      kind: legacyLocalPreferenceBackupKind,
+      kind: localPreferenceBackupKind,
       version: 1,
       preferences: {
-        "codeharbor.profile": { displayName: "Imported user", avatarInitials: "ch" },
+        "autoto.profile": { displayName: "Imported user", avatarInitials: "ch" },
       },
     }));
 
@@ -257,12 +209,12 @@ test("v2 backup exports account snapshot and imports both v1 and v2 account fiel
     assert.equal(Object.hasOwn(backup.preferences, modelVisibilityPrefsKey), false);
 
     const v1Count = await controller.restoreLocalPreferencesBackup(JSON.stringify({
-      kind: legacyLocalPreferenceBackupKind,
+      kind: localPreferenceBackupKind,
       version: 1,
       preferences: {
-        "codeharbor.profile": { displayName: "V1 user" },
-        "codeharbor.preferredModel": "anthropic:v1",
-        "codeharbor.modelVisibility": { showUnconfiguredProviders: true },
+        "autoto.profile": { displayName: "V1 user" },
+        "autoto.preferredModel": "anthropic:v1",
+        "autoto.modelVisibility": { showUnconfiguredProviders: true },
       },
     }));
     assert.equal(v1Count, 3);
@@ -295,10 +247,10 @@ test("primary mode import reloads state and reapplies the injected UI callback",
     const state = {};
     const controller = createController(state, { applyPrimaryMode: (mode) => appliedModes.push(mode) });
     const imported = controller.restoreLocalPreferencesBackup(JSON.stringify({
-      kind: legacyLocalPreferenceBackupKind,
+      kind: localPreferenceBackupKind,
       version: 1,
       preferences: {
-        "codeharbor.ui.primaryMode": "workbench",
+        "autoto.ui.primaryMode": "workbench",
       },
     }));
 
@@ -358,10 +310,10 @@ test("regional preferences default to auto and import legacy field names", () =>
     });
 
     const imported = controller.restoreLocalPreferencesBackup(JSON.stringify({
-      kind: legacyLocalPreferenceBackupKind,
+      kind: localPreferenceBackupKind,
       version: 1,
       preferences: {
-        "codeharbor.regional": { language: "en", timeZone: "UTC" },
+        "autoto.regional": { language: "en", timeZone: "UTC" },
       },
     }));
 
@@ -672,7 +624,7 @@ test("toggling the color scheme restores a package theme", () => {
   });
 });
 
-test("runtime prefers the Autoto token and falls back to the CodeHarbor token", async () => {
+test("runtime reads the Autoto token and never sends it as a WebSocket query", async () => {
   const requests = [];
   const restores = [
     replaceGlobal("location", new URL("https://local.example.test/")),
@@ -683,36 +635,21 @@ test("runtime prefers the Autoto token and falls back to the CodeHarbor token", 
   ];
   if (!globalThis.FormData) restores.push(replaceGlobal("FormData", class FormData {}));
 
-  const restoreCanonicalWindow = replaceGlobal("window", {
-    AUTOTO_LOCAL_TOKEN: "autoto-token",
-    CODEHARBOR_LOCAL_TOKEN: "legacy-token",
-  });
+  const restoreWindow = replaceGlobal("window", { AUTOTO_LOCAL_TOKEN: "autoto-token" });
   try {
-    const canonicalRuntime = await import(new URL("./runtime.mjs?compat=canonical", import.meta.url).href);
-    assert.equal(new URL(canonicalRuntime.withLocalToken("/api/status"), "https://local.example.test").searchParams.get("token"), "autoto-token");
-    const socketURL = new URL(canonicalRuntime.webSocketURL("/ws/agent?id=agent-1"));
+    const runtime = await import(new URL("./runtime.mjs?compat=canonical", import.meta.url).href);
+    assert.equal(new URL(runtime.withLocalToken("/api/status"), "https://local.example.test").searchParams.get("token"), "autoto-token");
+    const socketURL = new URL(runtime.webSocketURL("/ws/agent?id=agent-1"));
     assert.equal(socketURL.protocol, "wss:");
     assert.equal(socketURL.searchParams.get("token"), null);
 
-    const restoreLegacyWindow = replaceGlobal("window", { CODEHARBOR_LOCAL_TOKEN: "legacy-token" });
-    try {
-      const legacyRuntime = await import(new URL("./runtime.mjs?compat=legacy", import.meta.url).href);
-      assert.equal(new URL(legacyRuntime.withLocalToken("/api/status"), "https://local.example.test").searchParams.get("token"), "legacy-token");
-      await legacyRuntime.api("/api/status");
-      assert.equal(requests.at(-1).options.headers["X-Autoto-Token"], "legacy-token");
-      assert.equal(requests.at(-1).options.headers["X-CodeHarbor-Token"], undefined);
-    } finally {
-      restoreLegacyWindow();
-    }
+    await runtime.api("/api/status");
+    assert.equal(requests.at(-1).options.headers["X-Autoto-Token"], "autoto-token");
   } finally {
-    restoreCanonicalWindow();
+    restoreWindow();
     restores.reverse().forEach((restore) => restore());
   }
 });
-
-// The throughput badge is a diagnostic, so an untouched install must not show
-// it. The switch is a body class rather than a render flag: turning it on has
-// to reveal the badges already sitting in the transcript.
 test("throughput badges stay off until the appearance setting turns them on", () => {
   withBrowserStorage(new MemoryStorage(), (body) => {
     const controller = createController();

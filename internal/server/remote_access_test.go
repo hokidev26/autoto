@@ -80,9 +80,9 @@ func loginRemoteAccess(t *testing.T, app *Server, mode string) []*http.Cookie {
 	return recorder.Result().Cookies()
 }
 
-func TestLegacyRemoteAccessCookieCarriesOnlySessionTokens(t *testing.T) {
+func TestRemoteAccessCookieCarriesOnlySessionTokens(t *testing.T) {
 	app := remoteAccessTestServer(t)
-	legacyToken, _, err := app.newRemoteAccessSession(remoteAccessModeRestricted)
+	sessionToken, _, err := app.newRemoteAccessSession(remoteAccessModeRestricted)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -90,42 +90,42 @@ func TestLegacyRemoteAccessCookieCarriesOnlySessionTokens(t *testing.T) {
 	valid := newTestRequest(http.MethodGet, "/api/health", nil)
 	valid.Host = "remote.example.test"
 	markRemoteHTTPS(valid)
-	valid.AddCookie(&http.Cookie{Name: legacyRemoteAccessCookieName, Value: legacyToken})
+	valid.AddCookie(&http.Cookie{Name: remoteAccessCookieName, Value: sessionToken})
 	validRecorder := httptest.NewRecorder()
 	app.Routes().ServeHTTP(validRecorder, valid)
 	if validRecorder.Code != http.StatusOK {
-		t.Fatalf("legacy cookie must carry a regular session token, got %d: %s", validRecorder.Code, validRecorder.Body.String())
+		t.Fatalf("cookie must carry a regular session token, got %d: %s", validRecorder.Code, validRecorder.Body.String())
 	}
 
 	forged := newTestRequest(http.MethodGet, "/api/health", nil)
 	forged.Host = "remote.example.test"
 	markRemoteHTTPS(forged)
-	forged.AddCookie(&http.Cookie{Name: legacyRemoteAccessCookieName, Value: app.remoteAccessToken})
+	forged.AddCookie(&http.Cookie{Name: remoteAccessCookieName, Value: app.remoteAccessToken})
 	forgedRecorder := httptest.NewRecorder()
 	app.Routes().ServeHTTP(forgedRecorder, forged)
 	if forgedRecorder.Code != http.StatusUnauthorized {
-		t.Fatalf("obsolete singleton token must not authenticate legacy cookies, got %d: %s", forgedRecorder.Code, forgedRecorder.Body.String())
+		t.Fatalf("obsolete singleton token must not authenticate cookies, got %d: %s", forgedRecorder.Code, forgedRecorder.Body.String())
 	}
 
 	logout := newTestRequest(http.MethodPost, remoteAccessLogoutPath, nil)
 	logout.Host = "remote.example.test"
 	markRemoteHTTPS(logout)
 	logout.Header.Set("Accept", "application/json")
-	logout.AddCookie(&http.Cookie{Name: legacyRemoteAccessCookieName, Value: legacyToken})
+	logout.AddCookie(&http.Cookie{Name: remoteAccessCookieName, Value: sessionToken})
 	logoutRecorder := httptest.NewRecorder()
 	app.Routes().ServeHTTP(logoutRecorder, logout)
 	if logoutRecorder.Code != http.StatusOK {
-		t.Fatalf("legacy session logout returned %d: %s", logoutRecorder.Code, logoutRecorder.Body.String())
+		t.Fatalf("session logout returned %d: %s", logoutRecorder.Code, logoutRecorder.Body.String())
 	}
 
 	revoked := newTestRequest(http.MethodGet, "/api/health", nil)
 	revoked.Host = "remote.example.test"
 	markRemoteHTTPS(revoked)
-	revoked.AddCookie(&http.Cookie{Name: legacyRemoteAccessCookieName, Value: legacyToken})
+	revoked.AddCookie(&http.Cookie{Name: remoteAccessCookieName, Value: sessionToken})
 	revokedRecorder := httptest.NewRecorder()
 	app.Routes().ServeHTTP(revokedRecorder, revoked)
 	if revokedRecorder.Code != http.StatusUnauthorized {
-		t.Fatalf("logout must revoke the legacy-named session, got %d", revokedRecorder.Code)
+		t.Fatalf("logout must revoke the session, got %d", revokedRecorder.Code)
 	}
 }
 
@@ -253,7 +253,7 @@ func TestConcurrentConfigMutationsPreserveProviderContinuationAndSecurity(t *tes
 	if !got.Security.AllowRemoteFullAccess || got.Security.DefaultRemoteAccessMode != remoteAccessModeFull || !got.Security.AllowRemoteNativePicker || got.Security.CredentialRevision != 2 {
 		t.Fatalf("concurrent mutations lost security policy: %+v", got.Security)
 	}
-	persisted, _, err := config.LoadWithReport(configPath)
+	persisted, err := config.Load(configPath)
 	if err != nil {
 		t.Fatal(err)
 	}

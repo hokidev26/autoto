@@ -10,7 +10,7 @@ import (
 	"github.com/google/uuid"
 )
 
-const CurrentDBVersion = 61
+const CurrentDBVersion = 63
 
 type migration struct {
 	version int
@@ -80,6 +80,26 @@ var migrations = []migration{
 	{version: 59, name: "conversation scoped memories", up: migrateV59ScopedMemories},
 	{version: 60, name: "runtime default xhigh effort", up: migrateV60RuntimeXHighEffort},
 	{version: 61, name: "max and ultra reasoning effort", up: migrateV61MaxUltraEffort},
+	{version: 62, name: "subagent bypass permission cap", up: migrateV62SubagentBypassCap},
+	{version: 63, name: "agent message queue", up: migrateV63AgentMessageQueue},
+}
+
+// migrateV62SubagentBypassCap admits bypassPermissions as a run/task ceiling.
+// It is reachable only through an internal subagent dispatch: childPermissionCap
+// derives a child's cap from its parent's own mode and refuses to widen, so only
+// a parent already running under bypassPermissions can produce it. Storage has
+// to stop rejecting the value; which dispatches may use it stays enforced in Go
+// (validRunPermissionModeCap keys on trigger_type, and the schedule path is
+// independently restricted to readOnly/acceptEdits before dispatch).
+func migrateV62SubagentBypassCap(ctx context.Context, tx *sql.Tx) error {
+	for _, table := range []string{"runs", "background_tasks"} {
+		if err := extendTableCheckConstraint(ctx, tx, table,
+			"CHECK (permission_mode_cap IN ('', 'readOnly', 'acceptEdits'))",
+			"CHECK (permission_mode_cap IN ('', 'readOnly', 'acceptEdits', 'bypassPermissions'))"); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // migrateV61MaxUltraEffort admits the two strongest Codex levels. They are
@@ -711,7 +731,7 @@ func migrateV19Schedules(ctx context.Context, tx *sql.Tx) error {
 	}{
 		{"source", "TEXT NOT NULL DEFAULT 'manual'"},
 		{"source_id", "TEXT NOT NULL DEFAULT ''"},
-		{"permission_mode_cap", "TEXT NOT NULL DEFAULT '' CHECK (permission_mode_cap IN ('', 'readOnly', 'acceptEdits'))"},
+		{"permission_mode_cap", "TEXT NOT NULL DEFAULT '' CHECK (permission_mode_cap IN ('', 'readOnly', 'acceptEdits', 'bypassPermissions'))"},
 	}
 	for _, column := range columns {
 		if err := ensureColumn(ctx, tx, "runs", column.name, column.definition); err != nil {
@@ -1222,6 +1242,32 @@ CREATE TABLE IF NOT EXISTS message_drafts (
   PRIMARY KEY (user_id, agent_id)
 );
 CREATE INDEX IF NOT EXISTS idx_message_drafts_agent ON message_drafts(agent_id);
+`)
+	return err
+}
+
+// The follow-up queue used to live in browser localStorage, so a message parked
+// on a phone was invisible on a desktop and never sent unless that same browser
+// stayed open. Persisting it per agent lets any device see the queue and lets
+// the server drain it on its own.
+func migrateV63AgentMessageQueue(ctx context.Context, tx *sql.Tx) error {
+	agentsExist, err := tableExists(ctx, tx, "agents")
+	if err != nil || !agentsExist {
+		return err
+	}
+	_, err = tx.ExecContext(ctx, `
+CREATE TABLE IF NOT EXISTS agent_message_queue (
+  id TEXT PRIMARY KEY,
+  agent_id TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
+  created_by TEXT NOT NULL DEFAULT '',
+  content_text TEXT NOT NULL,
+  run_mode TEXT NOT NULL DEFAULT '',
+  run_context TEXT NOT NULL DEFAULT '',
+  position INTEGER NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_agent_message_queue_agent ON agent_message_queue(agent_id, position, id);
 `)
 	return err
 }

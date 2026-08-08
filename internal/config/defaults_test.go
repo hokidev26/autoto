@@ -7,8 +7,6 @@ import (
 	"runtime"
 	"strings"
 	"testing"
-
-	"autoto/internal/compat"
 )
 
 func setTestHome(t *testing.T, home string) {
@@ -222,21 +220,8 @@ func TestSaveDoesNotChangeExistingCustomParentPermissions(t *testing.T) {
 	}
 }
 
-func TestCodeHarborEnvFallbacksRemainSupported(t *testing.T) {
-	t.Setenv("CODEHARBOR_DEFAULT_MODEL", "legacy:default")
-	t.Setenv("CODEHARBOR_SUMMARY_MODEL", "legacy:summary")
-	t.Setenv("CODEHARBOR_CONTEXT_TOKEN_LIMIT", "23456")
-	cfg, err := Default()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if cfg.Agent.DefaultModel != "legacy:default" || cfg.Agent.SummaryModel != "legacy:summary" || cfg.Agent.ContextTokenLimit != 23456 {
-		t.Fatalf("expected legacy agent env fallbacks, got %+v", cfg.Agent)
-	}
-}
-
 func TestContextTokenLimitFromEnv(t *testing.T) {
-	t.Setenv("CODEHARBOR_CONTEXT_TOKEN_LIMIT", "12345")
+	t.Setenv("AUTOTO_CONTEXT_TOKEN_LIMIT", "12345")
 	cfg, err := Default()
 	if err != nil {
 		t.Fatal(err)
@@ -246,50 +231,10 @@ func TestContextTokenLimitFromEnv(t *testing.T) {
 	}
 }
 
-func TestAutotoEnvTakesPriorityOverCodeHarborEnv(t *testing.T) {
-	t.Setenv("AUTOTO_DEFAULT_MODEL", "autoto:default")
-	t.Setenv("CODEHARBOR_DEFAULT_MODEL", "legacy:default")
-	t.Setenv("AUTOTO_SUMMARY_MODEL", "autoto:summary")
-	t.Setenv("CODEHARBOR_SUMMARY_MODEL", "legacy:summary")
-	t.Setenv("AUTOTO_CONTEXT_TOKEN_LIMIT", "54321")
-	t.Setenv("CODEHARBOR_CONTEXT_TOKEN_LIMIT", "12345")
-	t.Setenv("AUTOTO_EXPOSED", "false")
-	t.Setenv("CODEHARBOR_EXPOSED", "true")
-	t.Setenv("AUTOTO_ACCESS_PASSWORD", "autoto-secret")
-	t.Setenv("CODEHARBOR_ACCESS_PASSWORD", "legacy-secret")
-	t.Setenv("AUTOTO_REMOTE_TERMINAL", "true")
-	t.Setenv("CODEHARBOR_REMOTE_TERMINAL", "false")
-	t.Setenv("AUTOTO_AGENT_BACKEND_URL", "http://127.0.0.1:9000/")
-	t.Setenv("CODEHARBOR_AGENT_BACKEND_URL", "http://127.0.0.1:8000/")
-	t.Setenv("AUTOTO_AGENT_BACKEND_NAME", "Autoto Backend")
-	t.Setenv("CODEHARBOR_AGENT_BACKEND_NAME", "Legacy Backend")
-	t.Setenv("AUTOTO_AGENT_BACKEND_KIND", "cloud")
-	t.Setenv("CODEHARBOR_AGENT_BACKEND_KIND", "local")
-	t.Setenv("AUTOTO_AGENT_BACKEND_API_KEY", "autoto-key")
-	t.Setenv("CODEHARBOR_AGENT_BACKEND_API_KEY", "legacy-key")
-
-	cfg, err := Default()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if cfg.Agent.DefaultModel != "autoto:default" || cfg.Agent.SummaryModel != "autoto:summary" || cfg.Agent.ContextTokenLimit != 54321 {
-		t.Fatalf("expected canonical agent env values, got %+v", cfg.Agent)
-	}
-	if cfg.Security.Exposed || cfg.Security.AccessPassword != "autoto-secret" || !cfg.Security.AllowRemoteTerminal {
-		t.Fatalf("expected canonical security env values, got %+v", cfg.Security)
-	}
-	if len(cfg.Backends.Instances) != 1 {
-		t.Fatalf("expected one canonical backend, got %+v", cfg.Backends.Instances)
-	}
-	backend := cfg.Backends.Instances[0]
-	if backend.BaseURL != "http://127.0.0.1:9000" || backend.Name != "Autoto Backend" || backend.Kind != "cloud" || backend.APIKey != "autoto-key" {
-		t.Fatalf("expected canonical backend env values, got %+v", backend)
-	}
-}
-
 func TestSecurityConfigFromEnv(t *testing.T) {
-	t.Setenv("CODEHARBOR_EXPOSED", "true")
-	t.Setenv("CODEHARBOR_ACCESS_PASSWORD", "remote-secret")
+	t.Setenv("AUTOTO_EXPOSED", "true")
+	t.Setenv("AUTOTO_ACCESS_PASSWORD", "remote-secret")
+	t.Setenv("AUTOTO_REMOTE_TERMINAL", "false")
 	cfg, err := Default()
 	if err != nil {
 		t.Fatal(err)
@@ -297,7 +242,7 @@ func TestSecurityConfigFromEnv(t *testing.T) {
 	if !cfg.Security.Exposed || cfg.Security.AccessPassword != "remote-secret" || cfg.Security.AllowRemoteTerminal {
 		t.Fatalf("expected security env overrides without remote terminal, got %+v", cfg.Security)
 	}
-	t.Setenv("CODEHARBOR_REMOTE_TERMINAL", "true")
+	t.Setenv("AUTOTO_REMOTE_TERMINAL", "true")
 	cfg, err = Default()
 	if err != nil {
 		t.Fatal(err)
@@ -309,7 +254,6 @@ func TestSecurityConfigFromEnv(t *testing.T) {
 
 func TestPersistedAccessPasswordHashTakesPrecedenceOverEnvironment(t *testing.T) {
 	t.Setenv("AUTOTO_ACCESS_PASSWORD", "environment-secret")
-	t.Setenv("CODEHARBOR_ACCESS_PASSWORD", "legacy-environment-secret")
 	hash, err := HashAccessPassword("stored-secret")
 	if err != nil {
 		t.Fatal(err)
@@ -334,7 +278,7 @@ func TestLoadBackfillsLegacyConfigVersion(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.json")
 	if err := os.WriteFile(path, []byte(`{
   "server": {"host": "127.0.0.1", "port": 9000},
-  "paths": {"homeDir": "/tmp/codeharbor", "databasePath": "/tmp/codeharbor/db.sqlite", "defaultProjectDir": "/tmp/codeharbor/projects"},
+  "paths": {"homeDir": "/tmp/autoto", "databasePath": "/tmp/autoto/db.sqlite", "defaultProjectDir": "/tmp/autoto/projects"},
   "agent": {"defaultModel": "openai:test", "summaryModel": "openai:test", "defaultPermissionMode": "acceptEdits", "maxTurns": 3, "contextTokenLimit": 1000},
   "auth": {"registrationOpen": true},
   "providers": {"instances": []},
@@ -351,84 +295,6 @@ func TestLoadBackfillsLegacyConfigVersion(t *testing.T) {
 	}
 	if cfg.Server.Port != 9000 {
 		t.Fatalf("expected loaded legacy server port, got %d", cfg.Server.Port)
-	}
-}
-
-func TestLoadMigratesLegacyConfigToCanonicalPath(t *testing.T) {
-	home := t.TempDir()
-	setTestHome(t, home)
-	legacyDir := filepath.Join(home, ".codeharbor")
-	legacyPath := filepath.Join(legacyDir, "config.json")
-	legacyDatabasePath := filepath.Join(legacyDir, "codeharbor.db")
-	if err := os.MkdirAll(legacyDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	legacyData, err := json.MarshalIndent(map[string]any{
-		"version": 1,
-		"server":  map[string]any{"host": "127.0.0.1", "port": 9091},
-		"paths": map[string]any{
-			"homeDir":           legacyDir,
-			"databasePath":      legacyDatabasePath,
-			"defaultProjectDir": filepath.Join(home, "projects"),
-		},
-		"agent": map[string]any{"defaultModel": "openai:legacy", "summaryModel": "openai:legacy", "defaultPermissionMode": "acceptEdits", "maxTurns": 3, "contextTokenLimit": 1000},
-	}, "", "  ")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(legacyPath, legacyData, 0o600); err != nil {
-		t.Fatal(err)
-	}
-
-	canonicalPath, err := ResolvePath("")
-	if err != nil {
-		t.Fatal(err)
-	}
-	cfg, report, err := LoadWithReport(canonicalPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !reportHasLegacy(report, "~/.codeharbor/config.json") {
-		t.Fatalf("expected copied legacy config report, got %+v", report.Usages)
-	}
-	if cfg.Server.Port != 9091 || cfg.Paths.DatabasePath != legacyDatabasePath {
-		t.Fatalf("expected migrated legacy values and database path, got %+v", cfg)
-	}
-	canonicalData, err := os.ReadFile(canonicalPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if string(canonicalData) != string(legacyData) {
-		t.Fatalf("expected byte-for-byte config copy, got %q", canonicalData)
-	}
-	if _, err := os.Stat(legacyDatabasePath); !os.IsNotExist(err) {
-		t.Fatalf("migration must not create or move the legacy database, stat err=%v", err)
-	}
-	if legacyAfter, err := os.ReadFile(legacyPath); err != nil || string(legacyAfter) != string(legacyData) {
-		t.Fatalf("expected legacy config to remain unchanged, err=%v", err)
-	}
-}
-
-func TestLoadExplicitPathDoesNotMigrateLegacyConfig(t *testing.T) {
-	home := t.TempDir()
-	setTestHome(t, home)
-	legacyDir := filepath.Join(home, ".codeharbor")
-	if err := os.MkdirAll(legacyDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(legacyDir, "config.json"), []byte(`{"server":{"port":9091}}`), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	explicitPath := filepath.Join(home, "custom", "config.json")
-	cfg, err := Load(explicitPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if cfg.Server.Port != 16888 {
-		t.Fatalf("expected explicit path to use new defaults, got port %d", cfg.Server.Port)
-	}
-	if _, err := os.Stat(explicitPath); err != nil {
-		t.Fatalf("expected explicit config to be created: %v", err)
 	}
 }
 
@@ -581,9 +447,8 @@ func TestMigrateConfigKeepsFutureVersion(t *testing.T) {
 }
 
 func TestDefaultBackendsFromEnv(t *testing.T) {
-	t.Setenv("CODEHARBOR_AGENT_BACKEND_URL", "http://127.0.0.1:8000/")
-	t.Setenv("CODEHARBOR_AGENT_BACKEND_API_KEY", "secret")
-
+	t.Setenv("AUTOTO_AGENT_BACKEND_URL", "http://127.0.0.1:8000/")
+	t.Setenv("AUTOTO_AGENT_BACKEND_API_KEY", "secret")
 	cfg, err := Default()
 	if err != nil {
 		t.Fatal(err)
@@ -603,9 +468,9 @@ func TestLoadWritesDefaultConfigWithoutEnvSecrets(t *testing.T) {
 	t.Setenv("GEMINI_API_KEY", "gemini-secret")
 	t.Setenv("OPENAI_COMPATIBLE_API_KEY", "compatible-secret")
 	t.Setenv("CLIPROXYAPI_API_KEY", "cliproxy-secret")
-	t.Setenv("CODEHARBOR_AGENT_BACKEND_URL", "http://127.0.0.1:8000")
-	t.Setenv("CODEHARBOR_AGENT_BACKEND_API_KEY", "backend-secret")
-	t.Setenv("CODEHARBOR_ACCESS_PASSWORD", "remote-access-secret")
+	t.Setenv("AUTOTO_AGENT_BACKEND_URL", "http://127.0.0.1:8000")
+	t.Setenv("AUTOTO_AGENT_BACKEND_API_KEY", "backend-secret")
+	t.Setenv("AUTOTO_ACCESS_PASSWORD", "remote-access-secret")
 
 	path := filepath.Join(t.TempDir(), "config.json")
 	cfg, err := Load(path)
@@ -899,135 +764,8 @@ func TestProviderModelConfigJSONContract(t *testing.T) {
 	}
 }
 
-func TestDefaultWithReportTracksOnlyEffectiveLegacyFallbacks(t *testing.T) {
-	for _, name := range []string{
-		"AUTOTO_DEFAULT_MODEL",
-		"CODEHARBOR_DEFAULT_MODEL",
-		"AUTOTO_SUMMARY_MODEL",
-		"CODEHARBOR_SUMMARY_MODEL",
-	} {
-		t.Setenv(name, "")
-	}
-	const secretValue = "legacy-secret-model"
-	t.Setenv("CODEHARBOR_DEFAULT_MODEL", secretValue)
-
-	cfg, report, err := DefaultWithReport()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if cfg.Agent.DefaultModel != secretValue || cfg.Agent.SummaryModel != secretValue {
-		t.Fatalf("expected effective legacy fallback, got %+v", cfg.Agent)
-	}
-	if len(report.Usages) != 1 || report.Usages[0].Legacy != "CODEHARBOR_DEFAULT_MODEL" || report.Usages[0].Replacement != "AUTOTO_DEFAULT_MODEL" {
-		t.Fatalf("unexpected legacy report: %+v", report.Usages)
-	}
-	encoded, err := json.Marshal(report)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if strings.Contains(string(encoded), secretValue) {
-		t.Fatalf("legacy report leaked fallback value: %s", encoded)
-	}
-}
-
-func TestDefaultWithReportCanonicalEnvSuppressesLegacyReport(t *testing.T) {
-	t.Setenv("AUTOTO_DEFAULT_MODEL", "canonical-model")
-	t.Setenv("CODEHARBOR_DEFAULT_MODEL", "legacy-secret-model")
-
-	cfg, report, err := DefaultWithReport()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if cfg.Agent.DefaultModel != "canonical-model" {
-		t.Fatalf("expected canonical value, got %q", cfg.Agent.DefaultModel)
-	}
-	if reportHasLegacy(report, "CODEHARBOR_DEFAULT_MODEL") {
-		t.Fatalf("canonical env must suppress legacy report: %+v", report.Usages)
-	}
-}
-
-func TestDefaultWithReportInvalidLegacyEnvIsNotReported(t *testing.T) {
-	t.Setenv("AUTOTO_EXPOSED", "")
-	t.Setenv("CODEHARBOR_EXPOSED", "not-a-bool")
-
-	cfg, report, err := DefaultWithReport()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if cfg.Security.Exposed {
-		t.Fatal("invalid legacy bool must not become effective")
-	}
-	if reportHasLegacy(report, "CODEHARBOR_EXPOSED") {
-		t.Fatalf("invalid legacy env must not be reported: %+v", report.Usages)
-	}
-}
-
-func TestLoadWithReportFiltersConfigOverriddenLegacyDefaults(t *testing.T) {
-	t.Setenv("AUTOTO_DEFAULT_MODEL", "")
-	t.Setenv("CODEHARBOR_DEFAULT_MODEL", "legacy-secret-model")
-	path := filepath.Join(t.TempDir(), "config.json")
-	if err := os.WriteFile(path, []byte(`{"agent":{"defaultModel":"canonical:file","summaryModel":"canonical:summary"}}`), 0o600); err != nil {
-		t.Fatal(err)
-	}
-
-	cfg, report, err := LoadWithReport(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if cfg.Agent.DefaultModel != "canonical:file" || cfg.Agent.SummaryModel != "canonical:summary" {
-		t.Fatalf("expected config values, got %+v", cfg.Agent)
-	}
-	if reportHasLegacy(report, "CODEHARBOR_DEFAULT_MODEL") {
-		t.Fatalf("config-overridden fallback must not be reported: %+v", report.Usages)
-	}
-}
-
-func TestLoadWithReportTracksExplicitLegacyConfig(t *testing.T) {
-	home := t.TempDir()
-	setTestHome(t, home)
-	legacyPath := filepath.Join(home, ".codeharbor", "config.json")
-	if err := os.MkdirAll(filepath.Dir(legacyPath), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(legacyPath, []byte(`{"server":{"port":9092}}`), 0o600); err != nil {
-		t.Fatal(err)
-	}
-
-	cfg, report, err := LoadWithReport(legacyPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if cfg.Server.Port != 9092 {
-		t.Fatalf("expected explicitly loaded legacy config, got port %d", cfg.Server.Port)
-	}
-	if !reportHasLegacy(report, "~/.codeharbor/config.json") {
-		t.Fatalf("expected explicit legacy config report, got %+v", report.Usages)
-	}
-}
-
-func TestLoadWithReportTracksNewConfigCreatedAtExplicitLegacyPath(t *testing.T) {
-	home := t.TempDir()
-	setTestHome(t, home)
-	legacyPath := filepath.Join(home, ".codeharbor", "config.json")
-
-	cfg, report, err := LoadWithReport(legacyPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if cfg.Server.Port != 16888 {
-		t.Fatalf("expected default config at explicit legacy path, got port %d", cfg.Server.Port)
-	}
-	if !reportHasLegacy(report, "~/.codeharbor/config.json") {
-		t.Fatalf("expected explicit legacy path usage report, got %+v", report.Usages)
-	}
-	if _, err := os.Stat(legacyPath); err != nil {
-		t.Fatalf("expected config to be written at explicit legacy path: %v", err)
-	}
-}
-
 func TestLoadMigratesLegacyAccessPasswordAndRemovesPlaintextFromDisk(t *testing.T) {
 	t.Setenv("AUTOTO_ACCESS_PASSWORD", "")
-	t.Setenv("CODEHARBOR_ACCESS_PASSWORD", "")
 	path := filepath.Join(t.TempDir(), "config.json")
 	legacyPassword := "Legacy-Remote-Password-9!"
 	input := `{
@@ -1071,15 +809,6 @@ func TestLoadMigratesLegacyAccessPasswordAndRemovesPlaintextFromDisk(t *testing.
 	if !VerifyAccessPassword(reloaded.Security.AccessPasswordHash, legacyPassword) {
 		t.Fatal("persisted migrated hash did not verify after reload")
 	}
-}
-
-func reportHasLegacy(report compat.Report, legacy string) bool {
-	for _, usage := range report.Usages {
-		if usage.Legacy == legacy {
-			return true
-		}
-	}
-	return false
 }
 
 func providerByName(cfg Config, name string) *ProviderConfig {

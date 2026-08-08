@@ -235,26 +235,7 @@ export function createDirectoryBrowserController({
     if (!normalized) return;
     const next = [normalized, ...getRecentDirectories().filter((item) => normalizePath(item) !== normalizePath(normalized))].slice(0, 8);
     localStorage.setItem(recentDirectoriesKey, JSON.stringify(next));
-    renderRecentSidebarDirectories();
     renderRecentModalDirectories();
-  }
-
-  function renderRecentSidebarDirectories() {
-    const el = $("recentSidebarDirectories");
-    if (!el) return;
-    const recent = getRecentDirectories();
-    el.innerHTML = recent.length ? recent.map((rawPath) => {
-      const path = canonicalLocalPath(rawPath);
-      return `
-      <button class="recent-item" type="button" data-path="${escapeAttr(path)}">
-        <span>${escapeHtml(basename(path) || path)}</span>
-        <small>${escapeHtml(projectPathLabel(path))}</small>
-      </button>
-    `;
-    }).join("") : `<div class="empty-list">${escapeHtml(t("workspace.directory.noRecent"))}</div>`;
-    el.querySelectorAll("[data-path]").forEach((node) => {
-      node.addEventListener("click", () => createProjectFromDirectory(node.dataset.path).catch(reportError));
-    });
   }
 
   function renderRecentModalDirectories() {
@@ -400,7 +381,6 @@ export function createDirectoryBrowserController({
     refreshDirectory,
     rememberDirectory,
     renderRecentModalDirectories,
-    renderRecentSidebarDirectories,
     selectNativeDirectory,
     setDirectoryStatus,
     showNewFolderInline,

@@ -24,6 +24,9 @@ const LAUNCHER_ACTIONS = new Set([
 // levels the chosen model actually serves once an agent exists.
 const REASONING_EFFORTS = Object.freeze(["auto", "low", "medium", "high", "xhigh", "max", "ultra"]);
 const REASONING_EFFORT_SET = new Set(REASONING_EFFORTS);
+// The launcher fields rendered as a custom popover rather than a bare native
+// select. Keyed on the same names the popover markup carries.
+const LAUNCHER_SELECT_FIELDS = new Set(["model", "reasoningEffort", "projectId"]);
 
 const DEFAULT_TEXT = Object.freeze({
   title: "工作概览",
@@ -75,12 +78,25 @@ const DEFAULT_TEXT = Object.freeze({
   activityEmpty: "过去一年还没有使用记录。",
   activityUnavailable: "使用记录暂时无法加载。",
   activityDay: "{date}：{count} 次请求",
+  activityDayTokens: "{date}：{count} 次请求 · {tokens} tokens",
+  activityTotalTokens: "过去一年共 {count} 次模型请求 · {tokens} tokens",
   activityDayEmpty: "{date}：没有使用",
   activityLess: "少",
   activityMore: "多",
   activityMon: "周一",
   activityWed: "周三",
   activityFri: "周五",
+  // Consumed by the injected resource-card renderer, which is handed this
+  // module's translator so its keys resolve in the same overview.* namespace.
+  systemMetrics: "系统资源",
+  systemMetricsHint: "每 3 秒更新",
+  cpu: "CPU",
+  memory: "内存",
+  networkDown: "下载",
+  networkUp: "上传",
+  toneOk: "正常",
+  toneWarning: "有点压力",
+  toneDanger: "有压力",
 });
 
 // A GitHub-style contribution grid: 53 columns of 7 weekdays, the last column
@@ -122,6 +138,38 @@ function boundedCount(value) {
   }
 }
 
+// Token totals over a year run far past the request-count ceiling, so they get
+// their own bound instead of being silently clamped to 999,999,999.
+function boundedTokens(value) {
+  try {
+    const number = Number(value);
+    if (!Number.isFinite(number)) return 0;
+    return Math.min(Number.MAX_SAFE_INTEGER, Math.max(0, Math.floor(number)));
+  } catch {
+    return 0;
+  }
+}
+
+// The server derives totalTokens as input + output (reasoning and cached are
+// reported separately and deliberately excluded), so the fallback matches that
+// definition rather than inventing a different total.
+function trendPointTokens(point) {
+  const total = boundedTokens(point?.totalTokens);
+  if (total > 0) return total;
+  return boundedTokens(point?.inputTokens) + boundedTokens(point?.outputTokens);
+}
+
+// Thousands separators, with a plain fallback because this module is used in
+// tests and environments where Intl may be unavailable.
+function formatCount(value) {
+  const number = boundedTokens(value);
+  try {
+    return new Intl.NumberFormat().format(number);
+  } catch {
+    return String(number);
+  }
+}
+
 function escapeHtml(value) {
   return boundedText(value, 4000).replace(/[&<>"']/g, (character) => ({
     "&": "&amp;",
@@ -130,6 +178,12 @@ function escapeHtml(value) {
     '"': "&quot;",
     "'": "&#39;",
   })[character]);
+}
+
+// Injected renderers return markup, so it is length-bounded rather than escaped.
+// The bound stops a malfunctioning renderer from producing an unbounded string.
+function boundedHtml(value, maximum = 20_000) {
+  return typeof value === "string" ? value.slice(0, maximum) : "";
 }
 
 function escapeInputHtml(value) {
@@ -333,7 +387,11 @@ export function buildActivityHeatmap(trend, { today = localTodayISO(), weeks = H
   for (const point of points) {
     const day = boundedText(point?.bucket, 10);
     if (parseISODay(day) === null) continue;
-    counts.set(day, (counts.get(day) || 0) + boundedCount(point?.requestCount));
+    const previous = counts.get(day) || { count: 0, tokens: 0 };
+    counts.set(day, {
+      count: previous.count + boundedCount(point?.requestCount),
+      tokens: previous.tokens + trendPointTokens(point),
+    });
   }
 
   const columns = Math.max(1, Math.min(53, Math.floor(weeks) || HEATMAP_WEEKS));
@@ -344,12 +402,14 @@ export function buildActivityHeatmap(trend, { today = localTodayISO(), weeks = H
   const startStamp = endStamp - (columns * 7 - 1) * DAY_MS;
 
   let total = 0;
+  let totalTokens = 0;
   let max = 0;
-  for (const [day, count] of counts) {
+  for (const [day, entry] of counts) {
     const stamp = parseISODay(day);
     if (stamp === null || stamp < startStamp || stamp > todayStamp) continue;
-    total += count;
-    if (count > max) max = count;
+    total += entry.count;
+    totalTokens += entry.tokens;
+    if (entry.count > max) max = entry.count;
   }
 
   const grid = [];
@@ -360,8 +420,12 @@ export function buildActivityHeatmap(trend, { today = localTodayISO(), weeks = H
       const stamp = startStamp + (column * 7 + row) * DAY_MS;
       const date = formatISODay(stamp);
       const future = stamp > todayStamp;
-      const count = future ? 0 : (counts.get(date) || 0);
-      days.push({ date, count, level: future ? 0 : heatmapLevel(count, max), future });
+      const entry = future ? null : counts.get(date);
+      const count = entry?.count || 0;
+      const tokens = entry?.tokens || 0;
+      // The colour scale still reads request count: tokens are additional detail
+      // in the tooltip, not a change to what the grid's intensity means.
+      days.push({ date, count, tokens, level: future ? 0 : heatmapLevel(count, max), future });
     }
     const columnMonth = new Date(startStamp + column * 7 * DAY_MS).getUTCMonth();
     // Label a column only where the month turns over, and never in the first
@@ -371,7 +435,7 @@ export function buildActivityHeatmap(trend, { today = localTodayISO(), weeks = H
     grid.push({ days, monthLabel: label });
   }
 
-  return { weeks: grid, total, max, start: formatISODay(startStamp), end: formatISODay(todayStamp) };
+  return { weeks: grid, total, totalTokens, max, start: formatISODay(startStamp), end: formatISODay(todayStamp) };
 }
 
 function renderActivityHeatmap(model, t, status) {
@@ -385,8 +449,12 @@ function renderActivityHeatmap(model, t, status) {
     .flatMap((week) => week.days)
     .map((day) => {
       if (day.future) return `<span class="overview-heatmap-cell is-future" aria-hidden="true"></span>`;
+      // A day with requests but no recorded tokens keeps the shorter wording;
+      // "0 tokens" would read as a fact rather than as missing data.
       const label = day.count > 0
-        ? t("activityDay", { date: day.date, count: day.count })
+        ? day.tokens > 0
+          ? t("activityDayTokens", { date: day.date, count: day.count, tokens: formatCount(day.tokens) })
+          : t("activityDay", { date: day.date, count: day.count })
         : t("activityDayEmpty", { date: day.date });
       return `<span class="overview-heatmap-cell" data-level="${day.level}" role="img" tabindex="-1" title="${escapeHtml(label)}" aria-label="${escapeHtml(label)}"></span>`;
     })
@@ -395,7 +463,9 @@ function renderActivityHeatmap(model, t, status) {
   const caption = status === "error"
     ? t("activityUnavailable")
     : model.total > 0
-      ? t("activityTotal", { count: model.total })
+      ? model.totalTokens > 0
+        ? t("activityTotalTokens", { count: model.total, tokens: formatCount(model.totalTokens) })
+        : t("activityTotal", { count: model.total })
       : t("activityEmpty");
 
   return `<section class="overview-section overview-activity settings-card" data-overview-section="activity">
@@ -531,8 +601,23 @@ function renderLauncherSelectOption(name, value, label, selected, { model = fals
   return `<button type="button" class="composer-select-option${model ? " composer-model-option" : ""}" role="option" aria-selected="${selected ? "true" : "false"}" data-overview-launcher-action="select-option" data-overview-launcher-select="${escapeHtml(name)}" data-overview-launcher-value="${escapeHtml(value)}">${copy}<span class="composer-select-option-check" aria-hidden="true">${selected ? "✓" : ""}</span></button>`;
 }
 
+// One DOM id and one pill width per field. Derived from a table rather than a
+// ternary because a third field (projectId) made the two-way branch silently
+// hand out a duplicate id and the wrong pill width.
+const LAUNCHER_SELECT_IDS = Object.freeze({
+  model: "overviewLauncherModel",
+  reasoningEffort: "overviewLauncherReasoningEffort",
+  projectId: "overviewLauncherProject",
+});
+const LAUNCHER_SELECT_PILLS = Object.freeze({
+  model: "model-pill",
+  reasoningEffort: "effort-pill",
+  projectId: "project-pill",
+});
+
 function renderLauncherSelect({ name, label, options, selected, open = false, model = false, disabled = false }) {
-  const id = `overviewLauncher${name === "model" ? "Model" : "ReasoningEffort"}`;
+  const id = LAUNCHER_SELECT_IDS[name] || `overviewLauncher${name}`;
+  const pill = LAUNCHER_SELECT_PILLS[name] || "effort-pill";
   const selectedOption = options.find((option) => option.value === selected) || options[0] || { value: "", label: "" };
   const nativeOptions = model
     ? renderModelOptions(options, selected)
@@ -552,12 +637,12 @@ function renderLauncherSelect({ name, label, options, selected, open = false, mo
   } else {
     menuOptions = options.map((option) => renderLauncherSelectOption(name, option.value, option.label, option.value === selected)).join("");
   }
-  const menu = open ? `<div class="composer-select-popover overview-launcher-select-popover${model ? " composer-model-popover" : ""}" role="listbox" aria-label="${escapeHtml(label)}">
+  const menu = open ? `<div class="composer-select-popover overview-launcher-select-popover${model ? " composer-model-popover" : ""}" data-overview-launcher-popover="${escapeHtml(name)}" role="listbox" aria-label="${escapeHtml(label)}">
     <div class="composer-select-popover-title">${escapeHtml(label)}</div>${menuOptions}
   </div>` : "";
   return `<div class="overview-launcher-field overview-launcher-custom-field">
     <label class="overview-launcher-label" for="${id}">${escapeHtml(label)}</label>
-    <div class="overview-launcher-custom-select select-pill${model ? " model-pill" : " effort-pill"}">
+    <div class="overview-launcher-custom-select select-pill ${escapeHtml(pill)}">
       <select id="${id}" class="overview-launcher-select composer-native-select" data-overview-launcher-field="${escapeHtml(name)}"${disabled ? " disabled" : ""}>${nativeOptions}</select>
       <button type="button" class="overview-launcher-select-trigger composer-select-trigger" data-overview-launcher-action="toggle-select" data-overview-launcher-select="${escapeHtml(name)}" aria-haspopup="listbox" aria-expanded="${open ? "true" : "false"}" aria-label="${escapeHtml(`${label}：${selectedOption.label || selectedOption.value}`)}"${disabled ? " disabled" : ""}><span class="overview-launcher-select-value composer-select-value">${escapeHtml(selectedOption.label || selectedOption.value)}</span><span class="composer-select-chevron" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m6 15 6-6 6 6"></path></svg></span></button>
       ${menu}
@@ -597,14 +682,26 @@ export function resizeLauncherInput(input, computedStyle) {
 function renderLauncher(contextValue, stateValue, t, openSelect = "") {
   const context = normalizeLauncherContext(contextValue);
   const state = reconcileLauncherState(stateValue, context);
+  // A native <select> was unreadable here: its dropdown panel is drawn by the
+  // browser, no stylesheet in this app targets <option>, and the dark presets
+  // set --ws-text near-white, so the inherited option colour landed white on the
+  // platform's white panel. The custom popover the model and effort fields
+  // already use is themed like the rest of the app, so project now shares it.
   const projectOptions = context.projects.length
-    ? context.projects.map((project) => `<option value="${escapeHtml(project.id)}"${project.id === state.projectId ? " selected" : ""}>${escapeHtml(project.name || project.path || project.id)}</option>`).join("")
-    : `<option value="">${escapeHtml(t("noProjects"))}</option>`;
+    ? context.projects.map((project) => ({ value: project.id, label: project.name || project.path || project.id }))
+    : [{ value: "", label: t("noProjects") }];
   const effortOptions = REASONING_EFFORTS.map((effort) => ({
     value: effort,
     label: t(`reasoning${effort[0].toUpperCase()}${effort.slice(1)}`),
   }));
-  const workspaceControls = `<label class="overview-launcher-field"><span class="overview-launcher-label">${escapeHtml(t("project"))}</span><select class="overview-launcher-select" data-overview-launcher-field="projectId"${context.projects.length ? "" : " disabled"}>${projectOptions}</select></label>
+  const workspaceControls = `${renderLauncherSelect({
+    name: "projectId",
+    label: t("project"),
+    options: projectOptions,
+    selected: state.projectId,
+    open: openSelect === "projectId",
+    disabled: !context.projects.length,
+  })}
     <button type="button" class="overview-launcher-directory" data-overview-launcher-action="choose-directory">${escapeHtml(t("chooseDirectory"))}</button>`;
   const launcherError = state.error ? `<p class="overview-launcher-error" role="alert">${escapeHtml(state.error)}</p>` : "";
   const hero = `<section class="overview-hero-root overview-launcher-hero">
@@ -677,11 +774,26 @@ export function renderOverviewDashboard(payload, options = {}) {
     ["idle", "loading", "ready", "error"].includes(options.activityStatus) ? options.activityStatus : "ready",
   );
 
+  // Injected rather than imported: this module takes every dependency by
+  // injection, and a host that does not pass a renderer simply gets no resource
+  // cards. The renderer returns "" when nothing is measurable.
+  let systemMetrics = "";
+  if (typeof options.renderSystemMetrics === "function") {
+    try {
+      systemMetrics = boundedHtml(options.renderSystemMetrics(options.systemMetrics, t));
+    } catch {
+      // Resource cards are supplementary; a failure here must not take the
+      // dashboard down.
+      systemMetrics = "";
+    }
+  }
+
   return `<div class="overview-dashboard settings-page" data-overview-state="${escapeHtml(status)}" aria-busy="${loading ? "true" : "false"}">
     ${launcher.hero}
     ${liveRegion}
     ${inlineError}
     ${summaries}
+    ${systemMetrics}
     ${heatmap}
     ${launcher.composer}
   </div>`;
@@ -733,6 +845,8 @@ export function createOverviewDashboardController({
   getLauncherContext,
   onLaunch,
   onChooseDirectory,
+  renderSystemMetrics,
+  createSystemMetricsPoller,
 } = {}) {
   if (typeof request !== "function") throw new TypeError("overview dashboard request must be a function");
 
@@ -765,11 +879,31 @@ export function createOverviewDashboardController({
       error: "",
     },
     launcherOpenSelect: "",
+    systemMetrics: null,
   };
   const t = createText({ translate });
   let inFlight = null;
   let pendingFocus = null;
   const boundHosts = new WeakSet();
+
+  // The poller owns its own cadence, independent of the dashboard's load cycle:
+  // resource utilisation is only meaningful when sampled repeatedly, while the
+  // rest of the dashboard is a snapshot fetched on navigation.
+  let metricsPoller = null;
+  if (typeof createSystemMetricsPoller === "function") {
+    try {
+      metricsPoller = createSystemMetricsPoller({
+        request,
+        onUpdate: (value) => {
+          state.systemMetrics = value;
+          render();
+        },
+      });
+    } catch (error) {
+      reportExternalError(error, "system-metrics");
+      metricsPoller = null;
+    }
+  }
 
   function refreshLauncherContext() {
     let context = {};
@@ -794,6 +928,7 @@ export function createOverviewDashboardController({
       activityStatus: state.activityStatus,
       activityTrend: state.activityTrend.slice(),
       launcher: { ...state.launcher },
+      systemMetrics: state.systemMetrics ? { ...state.systemMetrics } : null,
     };
   }
 
@@ -925,6 +1060,9 @@ export function createOverviewDashboardController({
     refreshLauncherContext();
     if (name === "model" && state.launcherContext.models.some((model) => model.value === value)) state.launcher.model = value;
     else if (name === "reasoningEffort" && REASONING_EFFORT_SET.has(value)) state.launcher.reasoningEffort = value;
+    // Same membership check the change handler applies, so a stale popover from
+    // before a project list refresh cannot select a project that is now gone.
+    else if (name === "projectId" && state.launcherContext.projects.some((project) => project.id === value)) state.launcher.projectId = value;
     else return false;
     state.launcherOpenSelect = "";
     state.launcher.error = "";
@@ -933,8 +1071,10 @@ export function createOverviewDashboardController({
   }
 
   function toggleLauncherSelect(name) {
-    if (name !== "model" && name !== "reasoningEffort") return false;
+    if (!LAUNCHER_SELECT_FIELDS.has(name)) return false;
+    // An empty list would open a popover with nothing to pick.
     if (name === "model" && !state.launcherContext.models.length) return false;
+    if (name === "projectId" && !state.launcherContext.projects.length) return false;
     state.launcherOpenSelect = state.launcherOpenSelect === name ? "" : name;
     render();
     return true;
@@ -1039,6 +1179,8 @@ export function createOverviewDashboardController({
       launcherContext: state.launcherContext,
       launcherState: state.launcher,
       launcherOpenSelect: state.launcherOpenSelect,
+      renderSystemMetrics,
+      systemMetrics: state.systemMetrics,
     });
     const target = resolveHost(host);
     if (target && "innerHTML" in target) {
@@ -1101,6 +1243,16 @@ export function createOverviewDashboardController({
     return current;
   }
 
+  // Polling only while the home page is on screen: away from it the cards are
+  // not visible, so the requests would be pure waste.
+  function start() {
+    return Boolean(metricsPoller?.start());
+  }
+
+  function stop() {
+    return Boolean(metricsPoller?.stop());
+  }
+
   bind();
   render();
 
@@ -1110,5 +1262,7 @@ export function createOverviewDashboardController({
     load,
     loadActivity,
     render,
+    start,
+    stop,
   };
 }
