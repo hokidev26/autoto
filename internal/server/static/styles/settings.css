@@ -4503,6 +4503,87 @@ body.white-shell.theme-light[data-theme-preset="cream"] :is(.settings-action-btn
   align-content: start;
 }
 
+#settingsContentBody .retry-policy-card {
+  display: grid;
+  gap: var(--settings-space-3);
+  align-content: start;
+}
+
+#settingsContentBody .retry-policy-list {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+#settingsContentBody .retry-policy-row {
+  display: flex;
+  align-items: center;
+  gap: var(--settings-space-2);
+  border: 1px solid var(--settings-border);
+  border-radius: var(--settings-radius-lg);
+  background: var(--settings-muted);
+  padding: 6px 6px 6px 10px;
+}
+
+/* The pattern is matched literally, so it is shown literally: a monospace run
+   makes a stray space or a smart quote visible before it silently fails to
+   match anything. */
+#settingsContentBody .retry-policy-pattern {
+  flex: 1 1 auto;
+  min-width: 0;
+  color: var(--settings-foreground);
+  overflow-wrap: anywhere;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+}
+
+#settingsContentBody .retry-policy-remove {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--settings-radius-sm);
+  background: transparent;
+  color: var(--settings-muted-foreground);
+  cursor: pointer;
+}
+
+#settingsContentBody .retry-policy-remove svg { width: 14px; height: 14px; }
+
+#settingsContentBody .retry-policy-remove:hover {
+  background: var(--settings-destructive-soft);
+  color: var(--settings-destructive);
+}
+
+#settingsContentBody .retry-policy-remove:focus-visible {
+  outline: 1px solid var(--settings-destructive);
+  outline-offset: 1px;
+}
+
+#settingsContentBody .retry-policy-empty {
+  color: var(--settings-muted-foreground);
+  font-size: 12px;
+}
+
+/* Input and button on one line, with the field taking the slack so the action
+   stays put as the panel resizes. */
+#settingsContentBody .retry-policy-add {
+  display: flex;
+  align-items: end;
+  gap: var(--settings-space-2);
+}
+
+#settingsContentBody .retry-policy-add > .settings-form-field {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
 #settingsContentBody .background-task-concurrency-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

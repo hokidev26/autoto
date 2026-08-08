@@ -1362,6 +1362,7 @@ export function createChatRenderingController({
   copyToClipboard,
   notifyTerminal,
   resolveBackgroundTask,
+  retryLastRun,
   selectedModelValue,
   shortPath,
   showError,
@@ -1377,6 +1378,10 @@ export function createChatRenderingController({
   const historyRunActivityLimit = 8;
   const historyRunActivityRequests = new Set();
   let historyRunActivityInFlight = false;
+  // Failure banners the user closed, by run id. Kept in memory only: dismissing
+  // is about the current view, and a reload asking again is better than
+  // permanently hiding why a run failed.
+  const dismissedRunNotices = new Set();
 
   // -- Scroll-intent tracking --------------------------------------------------
   // We only scroll to the bottom when the user was already following the tail.
@@ -3087,11 +3092,19 @@ export function createChatRenderingController({
   function renderConversationRunNoticeHTML(run, status) {
     if (status === "error" || status === "failed") {
       const message = runFailureMessage(run);
+      const runId = String(run?.id || "");
+      if (dismissedRunNotices.has(runId)) return "";
+      // One line: the message is the whole point, and the title restated the
+      // colour while the history hint said the same thing under every failure.
+      // Retry and dismiss sit at the end, where the eye lands after reading.
       return `
         <div class="conversation-run-notice error" role="status">
-          <strong>${escapeHtml(cr("run.conversationErrorTitle"))}</strong>
-          <div class="conversation-run-error-message">${escapeHtml(message)}</div>
-          <span>${escapeHtml(cr("run.conversationHistoryHint"))}</span>
+          <span class="conversation-run-notice-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4.5 21 19.5H3z"></path><path d="M12 10v4.2"></path><path d="M12 17.2h.01"></path></svg></span>
+          <span class="conversation-run-notice-message" title="${escapeAttr(message)}">${escapeHtml(message)}</span>
+          <span class="conversation-run-notice-actions">
+            <button type="button" class="conversation-run-notice-btn" data-run-retry="${escapeAttr(runId)}" title="${escapeAttr(cr("run.retry"))}" aria-label="${escapeAttr(cr("run.retry"))}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 11a8 8 0 1 0-2.3 5.7"></path><path d="M20 5.5V11h-5.5"></path></svg></button>
+            <button type="button" class="conversation-run-notice-btn" data-run-notice-dismiss="${escapeAttr(runId)}" title="${escapeAttr(cr("run.dismissError"))}" aria-label="${escapeAttr(cr("run.dismissError"))}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="m6 6 12 12"></path><path d="m18 6-12 12"></path></svg></button>
+          </span>
         </div>
       `;
     }
@@ -3135,6 +3148,31 @@ export function createChatRenderingController({
     root.querySelectorAll("[data-run-tool-activity-more]").forEach((button) => {
       button.addEventListener("click", () => loadEarlierRunToolCalls(button.dataset.runToolActivityMore || "").catch(showError));
     });
+    root.querySelectorAll("[data-run-notice-dismiss]").forEach((button) => {
+      button.addEventListener("click", () => {
+        dismissedRunNotices.add(String(button.dataset.runNoticeDismiss || ""));
+        button.closest(".conversation-run-notice")?.remove();
+      });
+    });
+    root.querySelectorAll("[data-run-retry]").forEach((button) => {
+      button.addEventListener("click", () => retryFailedRun(button).catch(showError));
+    });
+  }
+
+  // The composer owns the retry: it syncs the model picker to the agent and
+  // holds the busy flag, so the banner delegates rather than posting its own
+  // rerun and racing a send already in flight.
+  async function retryFailedRun(button) {
+    if (button.disabled) return;
+    button.disabled = true;
+    const runId = String(button.dataset.runRetry || "");
+    try {
+      if (await retryLastRun?.()) dismissedRunNotices.add(runId);
+      else button.disabled = false;
+    } catch (cause) {
+      button.disabled = false;
+      throw cause;
+    }
   }
 
   function isTerminalRunStatus(status) {

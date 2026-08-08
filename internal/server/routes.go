@@ -115,6 +115,7 @@ func (s *Server) settings(w http.ResponseWriter, r *http.Request) {
 		"agentModelSettingsEndpoint":     "/api/runtime/agent-model-settings",
 		"continuationSettingsEndpoint":   "/api/runtime/continuation-settings",
 		"backgroundTaskSettingsEndpoint": "/api/runtime/background-task-settings",
+		"retryPolicySettingsEndpoint":    "/api/runtime/retry-policy-settings",
 		"contextSettingsEndpoint":        "/api/runtime/context-settings",
 		"contextManagement":              cfg.ContextManagement,
 		"providers":                      providerResponses,

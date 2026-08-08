@@ -36,6 +36,15 @@ func TestIsTransientProviderErrorTreatsTruncatedJSONAsRetryable(t *testing.T) {
 		{name: "eof", message: "upstream EOF", retryable: true},
 		{name: "authentication", message: "401 unauthorized", retryable: false},
 		{name: "invalid request", message: "invalid request schema", retryable: false},
+		// A wrong base URL answers 404 forever, so retrying only delays the error.
+		{name: "not found", message: "cliproxyapi model request failed: 404", retryable: false},
+		// 408 and 429 are 4xx that do clear on their own, so the status rule must
+		// not sweep the whole 4xx range into permanent.
+		{name: "request timeout", message: "openai model request failed: 408", retryable: true},
+		{name: "rate limited", message: "openai model request failed: 429", retryable: true},
+		// A bare 404 in free text is not a status line. Without the phrase anchor
+		// this would be read as permanent and the timeout would stop retrying.
+		{name: "digits outside a status line", message: "stream stalled after 404 tokens: timeout", retryable: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

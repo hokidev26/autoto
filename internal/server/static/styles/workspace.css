@@ -401,17 +401,51 @@
 .conversation-run-notice strong { color: var(--text-soft); font-size: 12px; }
 .conversation-run-notice.error { border-left-color: var(--bad); background: rgba(255, 107, 107, .045); }
 .conversation-run-notice.error strong { color: var(--bad); }
+/* The error variant is one row: icon, message, then the actions. The message
+   takes the slack so the buttons stay pinned at the end. */
+.conversation-run-notice.error {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.conversation-run-notice-icon {
+  display: inline-flex;
+  flex: none;
+  color: var(--bad);
+}
+.conversation-run-notice-icon svg { width: 14px; height: 14px; }
+.conversation-run-notice-message {
+  flex: 1 1 auto;
+  min-width: 0;
+  color: var(--text-soft);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.conversation-run-notice-actions {
+  display: inline-flex;
+  flex: none;
+  gap: 2px;
+}
+.conversation-run-notice-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+.conversation-run-notice-btn svg { width: 13px; height: 13px; }
+.conversation-run-notice-btn:hover:not(:disabled) { background: rgba(255, 107, 107, .12); color: var(--bad); }
+.conversation-run-notice-btn:disabled { opacity: .45; cursor: default; }
+.conversation-run-notice-btn:focus-visible { outline: 1px solid var(--bad); outline-offset: 1px; }
 .conversation-run-notice.interrupted { opacity: .78; }
 .conversation-run-notice.load-error { border-left-color: #f59e0b; background: rgba(245, 158, 11, .04); }
-.conversation-run-error-message {
-  display: -webkit-box;
-  max-width: 100%;
-  overflow: hidden;
-  color: var(--text-soft);
-  overflow-wrap: anywhere;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 3;
-}
 .conversation-run-outcome > .conversation-tool-activity { width: 100%; margin: 0; }
 .conversation-tool-activity .tool-activity-group { gap: 1px; }
 .conversation-tool-activity-more { justify-self: start; margin-left: 18px; }

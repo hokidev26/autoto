@@ -109,6 +109,12 @@ type AgentConfig struct {
 	MaxTotalTurns            int                 `json:"maxTotalTurns"`
 	MaxRunDurationMs         int64               `json:"maxRunDurationMs"`
 	MaxRunTokens             int64               `json:"maxRunTokens"`
+	// NonRetryableErrorPatterns are case-insensitive substrings of a provider
+	// error that mark it permanent, so the run reports it instead of spending the
+	// retry budget on a fault that answers the same way every time. The built-in
+	// status rule already covers plain 4xx; this is for upstreams that return 200
+	// or 500 with the real reason only in the body.
+	NonRetryableErrorPatterns []string `json:"nonRetryableErrorPatterns,omitempty"`
 }
 
 type AuthConfig struct {
@@ -297,6 +303,10 @@ func Default() (Config, error) {
 			MaxTotalTurns:    -1,
 			MaxRunDurationMs: -1,
 			MaxRunTokens:     -1,
+			// Empty by default: the status rule handles the common cases, and
+			// guessing at body text would make runs stop for faults that would have
+			// cleared on their own.
+			NonRetryableErrorPatterns: nil,
 		},
 		Auth: AuthConfig{
 			RegistrationOpen: true,
@@ -629,6 +639,48 @@ func (c ContextManagementConfig) WindowForLimit(limit int) ContextManagementWind
 	return c.Standard
 }
 
+// Bounds on the user-maintained permanent-error list. The cap is not about
+// storage: every pattern is matched against every provider failure, and a
+// pattern short enough to appear in unrelated text would stop runs that would
+// have recovered.
+const (
+	MaxNonRetryableErrorPatterns   = 32
+	MinNonRetryableErrorPatternLen = 3
+	MaxNonRetryableErrorPatternLen = 200
+)
+
+// NormalizeNonRetryableErrorPatterns lowercases, trims and de-duplicates the
+// list, dropping entries that are too short or too long. Matching is
+// case-insensitive, so storing them lowercased keeps the comparison a plain
+// substring test at request time.
+func NormalizeNonRetryableErrorPatterns(patterns []string) []string {
+	if len(patterns) == 0 {
+		return nil
+	}
+	seen := make(map[string]struct{}, len(patterns))
+	normalized := make([]string, 0, len(patterns))
+	for _, pattern := range patterns {
+		// Newlines and tabs would never match a single-line provider error and
+		// make the list hard to read back, so they collapse to spaces first.
+		candidate := strings.ToLower(strings.Join(strings.Fields(pattern), " "))
+		if len(candidate) < MinNonRetryableErrorPatternLen || len(candidate) > MaxNonRetryableErrorPatternLen {
+			continue
+		}
+		if _, exists := seen[candidate]; exists {
+			continue
+		}
+		seen[candidate] = struct{}{}
+		normalized = append(normalized, candidate)
+		if len(normalized) == MaxNonRetryableErrorPatterns {
+			break
+		}
+	}
+	if len(normalized) == 0 {
+		return nil
+	}
+	return normalized
+}
+
 func normalizeAgentConfig(agent AgentConfig) AgentConfig {
 	agent.DefaultModel = strings.TrimSpace(agent.DefaultModel)
 	agent.SummaryModel = strings.TrimSpace(agent.SummaryModel)
@@ -638,6 +690,7 @@ func normalizeAgentConfig(agent AgentConfig) AgentConfig {
 	}
 	agent.SubagentModels = normalizeSubagentModels(agent.SubagentModels)
 	agent.SubagentModelPools = normalizeSubagentModelPools(agent.SubagentModelPools)
+	agent.NonRetryableErrorPatterns = NormalizeNonRetryableErrorPatterns(agent.NonRetryableErrorPatterns)
 	agent.AutoContinuationMode = strings.ToLower(strings.TrimSpace(agent.AutoContinuationMode))
 	if agent.AutoContinuationMode != "off" && agent.AutoContinuationMode != "safe" {
 		agent.AutoContinuationMode = "safe"

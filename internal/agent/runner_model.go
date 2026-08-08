@@ -101,7 +101,7 @@ func (r *Runner) runModelTurnAttempt(ctx context.Context, agentID, runID string,
 	events, err := provider.Generate(attemptCtx, request)
 	if err != nil {
 		r.recordAPIRequest(agentID, runID, "", provider.Name(), model, "", time.Since(started), 0, providers.Usage{}, err.Error())
-		return modelTurnResult{}, err, isTransientProviderError(err)
+		return modelTurnResult{}, err, r.isTransientProviderError(err)
 	}
 
 	var result modelTurnResult
@@ -271,7 +271,7 @@ func (r *Runner) runModelTurnAttempt(ctx context.Context, agentID, runID string,
 				if modelOutputStarted {
 					return finalize(false), err, false
 				}
-				return modelTurnResult{}, err, isTransientProviderError(err)
+				return modelTurnResult{}, err, r.isTransientProviderError(err)
 			case "done":
 				result.StopReason = event.StopReason
 				return finalize(shouldRecordAPIRequest(result.StopReason)), nil, false
@@ -421,27 +421,6 @@ func jitteredBackoff(attempt int, randomInt63n func(int64) int64) time.Duration 
 		return delay
 	}
 	return modelRetryBaseDelay + time.Duration(randomInt63n(spread+1))
-}
-
-func isTransientProviderError(err error) bool {
-	if err == nil {
-		return false
-	}
-	message := strings.ToLower(strings.TrimSpace(err.Error()))
-	if message == "" {
-		return false
-	}
-	for _, marker := range []string{"401", "403", "unauthorized", "forbidden", "invalid_request", "invalid request", "invalid schema", "context canceled"} {
-		if strings.Contains(message, marker) {
-			return false
-		}
-	}
-	for _, marker := range []string{"408", "409", "425", "429", "500", "502", "503", "504", "rate limit", "too many requests", "temporar", "timeout", "timed out", "deadline exceeded", "eof", "unexpected end of json input", "connection reset", "server error", "service unavailable", "bad gateway", "gateway timeout"} {
-		if strings.Contains(message, marker) {
-			return true
-		}
-	}
-	return false
 }
 
 func shouldRecordAPIRequest(stopReason string) bool {

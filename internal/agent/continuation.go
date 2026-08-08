@@ -1082,27 +1082,6 @@ func safeContinuationReason(reason string) bool {
 	}
 }
 
-// retryableProviderError reports whether a failed segment can be resumed. It
-// requires the partial-assistant persist to have produced a resume point, which
-// runSegment only does for provider faults, so this cannot silently retry an
-// unrelated failure such as a store or settlement error.
-func (r *Runner) retryableProviderError(state continuationRunState, outcome segmentOutcome, segmentErr error) bool {
-	if segmentErr == nil || errors.Is(segmentErr, context.Canceled) || errors.Is(segmentErr, context.DeadlineExceeded) {
-		return false
-	}
-	if state.limits.mode != continuationModeSafe {
-		return false
-	}
-	if outcome.continuationReason != continuationReasonProviderError {
-		return false
-	}
-	// A resume point is not required. When the failed call persisted nothing the
-	// caller re-runs the same segment in place, which is safe precisely because
-	// there is no partial output to duplicate. Requiring one here is what made
-	// this whole path unreachable for a fault on the first turn.
-	return true
-}
-
 // waitProviderErrorBackoff spaces out retries so a rate-limited or briefly
 // unavailable upstream is not hammered. Cancellation wins over the delay.
 func (r *Runner) waitProviderErrorBackoff(ctx context.Context, attempt int) error {

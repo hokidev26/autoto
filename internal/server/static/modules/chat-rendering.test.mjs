@@ -874,7 +874,7 @@ test("ordinary legacy manual runs keep a compact tool activity stack and load-ea
   assert.doesNotMatch(html, /run-summary-metrics|run-summary-checkpoint|data-run-summary-copy|data-run-summary-refresh|data-run-summary-open-git|data-run-summary-rollback/);
 });
 
-test("ordinary error and failed runs render escaped, visually bounded, history-recoverable notices", () => {
+test("ordinary error and failed runs render one escaped line carrying retry and dismiss", () => {
   for (const status of ["error", "failed"]) {
     const hostile = `<img src=x onerror=boom>${"failure ".repeat(100)}`;
     const { html } = renderSnapshot([], {
@@ -888,9 +888,14 @@ test("ordinary error and failed runs render escaped, visually bounded, history-r
 
     assert.match(html, /data-chat-report="conversation-run"/);
     assert.match(html, /conversation-run-notice error/);
-    assert.match(html, /conversation-run-error-message/);
-    assert.match(html, /错误已保留在对话历史中/);
+    assert.match(html, /conversation-run-notice-message/);
+    assert.match(html, new RegExp(`data-run-retry="run-${status}"`));
+    assert.match(html, new RegExp(`data-run-notice-dismiss="run-${status}"`));
     assert.match(html, /&lt;img src=x onerror=boom&gt;/);
+    // The row is the message plus its two actions: the restated title and the
+    // "send another message to retry" hint both went away once retry became a
+    // button, so their absence is what keeps the notice one line.
+    assert.doesNotMatch(html, /错误已保留在对话历史中|conversation-run-error-message|<strong>/);
     assert.doesNotMatch(html, /<img|data-run-id|run-summary-metrics|data-run-summary-copy|data-run-summary-refresh/);
   }
 });

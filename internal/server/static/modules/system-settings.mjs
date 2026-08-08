@@ -49,6 +49,12 @@ const defaultContinuationSegmentTurns = 40;
 // what the user typed instead of snapping back to the generic fallback.
 const executionBudgetDrafts = {};
 
+// Mirrors the bounds in internal/config so the UI rejects what the endpoint
+// would reject, instead of showing a pattern that disappears after saving.
+const retryPolicyMaxPatterns = 32;
+const retryPolicyPatternMinLength = 3;
+const retryPolicyPatternMaxLength = 200;
+
 const defaultBackgroundTaskSettings = {
   workerCount: 8,
   perAgentLimit: 4,
@@ -77,6 +83,15 @@ export function createSystemSettingsController({
   showError,
   showToast,
 } = {}) {
+  // Unsaved edits to the permanent-error list. Null means "show what the server
+  // returned"; an array means the user has pending changes that a summary reload
+  // must not silently discard.
+  //
+  // Scoped to the controller rather than the module: a module-level draft
+  // outlives the panel that created it, so a stale list would shadow the stored
+  // one after the value changed elsewhere.
+  let retryPolicyDraft = null;
+
   function renderServerSystemSettingsContent() {
     const summary = state.runtimeSummary;
     const server = summary?.server || {};
@@ -213,6 +228,7 @@ export function createSystemSettingsController({
       </section>
       ${renderBackgroundTaskSettingsCard(summary.backgroundTasks)}
       ${renderExecutionBudgetCard(agent.continuation || {})}
+      ${renderRetryPolicyCard(agent.nonRetryableErrorPatterns)}
     </div>
   `;
   }
@@ -373,6 +389,7 @@ export function createSystemSettingsController({
     $("refreshRuntimeSummaryBtn")?.addEventListener("click", () => loadRuntimeSummary({ notify: true }).catch(showError));
     bindBackgroundTaskSettingsActions();
     bindExecutionBudgetActions();
+    bindRetryPolicyActions();
     if (!state.runtimeSummary && !state.runtimeError) {
       loadRuntimeSummary().catch(showError);
     }
@@ -434,6 +451,150 @@ export function createSystemSettingsController({
 
   function setExecutionBudgetRowUnlimited(toggle, unlimited) {
     toggle?.closest?.("[data-budget-row]")?.classList?.toggle("is-unlimited", Boolean(unlimited));
+  }
+
+  // Provider errors the runner must treat as permanent. The built-in rule already
+  // refuses plain 4xx, so this list is for upstreams that answer 200 or 500 and
+  // put the real reason only in the body.
+  function renderRetryPolicyCard(patterns) {
+    const rows = retryPolicyDraft ?? normalizedRetryPolicyPatterns(patterns);
+    retryPolicyDraft = rows;
+    return `
+      <section class="settings-info-card settings-card settings-card-content retry-policy-card">
+        <div class="settings-info-title">${escapeHtml(t("systemSettings.runtimeResources.retryPolicy.title"))}</div>
+        <p class="settings-card-description" data-settings-help-copy>${escapeHtml(t("systemSettings.runtimeResources.retryPolicy.description"))}</p>
+        <ul class="retry-policy-list" data-retry-policy-list>
+          ${rows.length
+            ? rows.map((pattern, index) => renderRetryPolicyRow(pattern, index)).join("")
+            : `<li class="retry-policy-empty">${escapeHtml(t("systemSettings.runtimeResources.retryPolicy.empty"))}</li>`}
+        </ul>
+        <div class="retry-policy-add">
+          <label class="settings-form-field" for="retryPolicyPatternInput">
+            ${escapeHtml(t("systemSettings.runtimeResources.retryPolicy.addLabel"))}
+            <input id="retryPolicyPatternInput" class="settings-field" type="text"
+              maxlength="${escapeAttr(String(retryPolicyPatternMaxLength))}"
+              placeholder="${escapeAttr(t("systemSettings.runtimeResources.retryPolicy.placeholder"))}" />
+            <small>${escapeHtml(t("systemSettings.runtimeResources.retryPolicy.range", {
+              min: retryPolicyPatternMinLength,
+              max: retryPolicyPatternMaxLength,
+              count: retryPolicyMaxPatterns,
+            }))}</small>
+          </label>
+          <button id="addRetryPolicyPatternBtn" class="settings-action-btn" type="button">${escapeHtml(t("systemSettings.runtimeResources.retryPolicy.add"))}</button>
+        </div>
+        <div class="settings-action-row settings-form-actions settings-card-footer settings-inline-actions">
+          <p data-settings-help-copy>${escapeHtml(t("systemSettings.runtimeResources.retryPolicy.help"))}</p>
+          <button id="saveRetryPolicyBtn" class="settings-action-btn primary" type="button">${escapeHtml(t("systemSettings.runtimeResources.retryPolicy.save"))}</button>
+        </div>
+      </section>`;
+  }
+
+  function renderRetryPolicyRow(pattern, index) {
+    return `
+          <li class="retry-policy-row">
+            <code class="retry-policy-pattern">${escapeHtml(pattern)}</code>
+            <button type="button" class="retry-policy-remove" data-retry-policy-remove="${escapeAttr(String(index))}"
+              title="${escapeAttr(t("systemSettings.runtimeResources.retryPolicy.remove"))}"
+              aria-label="${escapeAttr(t("systemSettings.runtimeResources.retryPolicy.removeNamed", { pattern }))}">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="m6 6 12 12"></path><path d="m18 6-12 12"></path></svg>
+            </button>
+          </li>`;
+  }
+
+  // Mirrors NormalizeNonRetryableErrorPatterns in internal/config: collapse
+  // whitespace, fold case, drop duplicates and anything outside the length
+  // bounds. Matching the server here means the list shown is the list stored.
+  function normalizedRetryPolicyPatterns(patterns) {
+    if (!Array.isArray(patterns)) return [];
+    const seen = new Set();
+    const rows = [];
+    for (const raw of patterns) {
+      const candidate = String(raw ?? "").trim().replace(/\s+/g, " ").toLowerCase();
+      if (candidate.length < retryPolicyPatternMinLength || candidate.length > retryPolicyPatternMaxLength) continue;
+      if (seen.has(candidate)) continue;
+      seen.add(candidate);
+      rows.push(candidate);
+      if (rows.length === retryPolicyMaxPatterns) break;
+    }
+    return rows;
+  }
+
+  function bindRetryPolicyActions() {
+    bindRetryPolicyRemoveButtons();
+    const input = $("retryPolicyPatternInput");
+    $("addRetryPolicyPatternBtn")?.addEventListener("click", () => addRetryPolicyPattern(input));
+    // Enter is the natural way to add another entry, and without this it submits
+    // nothing and looks broken.
+    input?.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter") return;
+      event.preventDefault();
+      addRetryPolicyPattern(input);
+    });
+    $("saveRetryPolicyBtn")?.addEventListener("click", (event) => {
+      saveRetryPolicy(event.currentTarget).catch(showError);
+    });
+  }
+
+  function addRetryPolicyPattern(input) {
+    const candidate = String(input?.value ?? "").trim().replace(/\s+/g, " ").toLowerCase();
+    if (!candidate) return;
+    // Rejected reasons are reported rather than silently swallowed: a pattern
+    // that vanishes on add reads as a bug.
+    if (candidate.length < retryPolicyPatternMinLength) {
+      showToast?.(t("systemSettings.runtimeResources.retryPolicy.tooShort", { min: retryPolicyPatternMinLength }), "warn", { force: true });
+      return;
+    }
+    if (retryPolicyDraft.length >= retryPolicyMaxPatterns) {
+      showToast?.(t("systemSettings.runtimeResources.retryPolicy.tooMany", { count: retryPolicyMaxPatterns }), "warn", { force: true });
+      return;
+    }
+    if (retryPolicyDraft.includes(candidate)) {
+      showToast?.(t("systemSettings.runtimeResources.retryPolicy.duplicate"), "warn", { force: true });
+      return;
+    }
+    retryPolicyDraft.push(candidate);
+    if (input) input.value = "";
+    refreshRetryPolicyList();
+    input?.focus?.();
+  }
+
+  // Repaints just the list and rebinds it, so adding a pattern cannot discard
+  // unsaved edits in the budget or background-task cards on the same page.
+  function refreshRetryPolicyList() {
+    const list = document.querySelector?.("[data-retry-policy-list]");
+    if (!list) return;
+    list.innerHTML = retryPolicyDraft.length
+      ? retryPolicyDraft.map((pattern, index) => renderRetryPolicyRow(pattern, index)).join("")
+      : `<li class="retry-policy-empty">${escapeHtml(t("systemSettings.runtimeResources.retryPolicy.empty"))}</li>`;
+    bindRetryPolicyRemoveButtons();
+  }
+
+  function bindRetryPolicyRemoveButtons() {
+    const list = document.querySelector?.("[data-retry-policy-list]");
+    list?.querySelectorAll("[data-retry-policy-remove]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const index = Number(button.dataset.retryPolicyRemove);
+        if (!Array.isArray(retryPolicyDraft) || !Number.isInteger(index) || index < 0 || index >= retryPolicyDraft.length) return;
+        retryPolicyDraft.splice(index, 1);
+        refreshRetryPolicyList();
+      });
+    });
+  }
+
+  async function saveRetryPolicy(button) {
+    setButtonBusy(button, true);
+    try {
+      await api("/api/runtime/retry-policy-settings", {
+        method: "PATCH",
+        body: JSON.stringify({ nonRetryableErrorPatterns: retryPolicyDraft }),
+      });
+      showToast?.(t("systemSettings.runtimeResources.retryPolicy.saved"), "success", { force: true });
+      // Drop the draft so the reload shows what the server actually stored.
+      retryPolicyDraft = null;
+      await loadRuntimeSummary();
+    } finally {
+      setButtonBusy(button, false);
+    }
   }
 
   function collectBackgroundTaskSettings() {

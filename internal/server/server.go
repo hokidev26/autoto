@@ -572,6 +572,7 @@ func (s *Server) Routes() http.Handler {
 		r.Delete("/api/plugins/{id}", s.uninstallPlugin)
 		r.Patch("/api/runtime/continuation-settings", s.continuationSettingsEndpoint)
 		r.Patch("/api/runtime/background-task-settings", s.backgroundRuntimeSettingsEndpoint)
+		r.Patch("/api/runtime/retry-policy-settings", s.retryPolicySettingsEndpoint)
 		r.Post("/api/agents/{id}/background-tasks", s.createBackgroundTask)
 		r.Post("/api/background-tasks/{taskId}/cancel", s.cancelBackgroundTask)
 	})

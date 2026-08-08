@@ -112,6 +112,49 @@ func TestRetryableProviderErrorRequiresSafeModeAndProviderFault(t *testing.T) {
 	if runner.retryableProviderError(safe, providerFault, nil) {
 		t.Fatal("a segment without an error is not a retry candidate")
 	}
+	// A configuration fault answers the same way every attempt. Retrying a 404
+	// four times with backoff only delays the error the user has to act on, which
+	// is what a base URL ending in /v1/messages produced.
+	permanent := errors.New("cliproxyapi model request failed: 404")
+	if runner.retryableProviderError(safe, providerFault, permanent) {
+		t.Fatal("a permanent 4xx must not be retried")
+	}
+	// The 4xx that do clear on their own stay retryable.
+	for _, message := range []string{"openai model request failed: 408", "openai model request failed: 429"} {
+		if !runner.retryableProviderError(safe, providerFault, errors.New(message)) {
+			t.Fatalf("%q must stay retryable", message)
+		}
+	}
+}
+
+func TestRetryableProviderErrorHonoursUserPatterns(t *testing.T) {
+	runner := &Runner{}
+	safe := continuationRunState{limits: continuationLimits{mode: continuationModeSafe}}
+	providerFault := segmentOutcome{continuationReason: continuationReasonProviderError, resumeAfterID: "msg-1"}
+	// An upstream that reports a permanent fault with a 500 defeats the status
+	// rule: the number says retry, the body says it will never work. This is the
+	// case the user-maintained list exists for.
+	bodyFault := errors.New("openai model request failed: 500 insufficient balance")
+	if !runner.retryableProviderError(safe, providerFault, bodyFault) {
+		t.Fatal("without a configured pattern a 500 must stay retryable")
+	}
+	runner.SetNonRetryableErrorPatterns([]string{"Insufficient Balance"})
+	if runner.retryableProviderError(safe, providerFault, bodyFault) {
+		t.Fatal("a configured pattern must stop the retry despite the 5xx status")
+	}
+	// Matching is case-insensitive and substring-based, but must not reach
+	// errors that merely look similar.
+	if runner.retryableProviderError(safe, providerFault, errors.New("openai model request failed: 500 INSUFFICIENT BALANCE for account")) {
+		t.Fatal("pattern matching must be case-insensitive")
+	}
+	if !runner.retryableProviderError(safe, providerFault, errors.New("openai model request failed: 503 balance service unavailable")) {
+		t.Fatal("an unrelated 5xx must stay retryable")
+	}
+	// Clearing the list restores the built-in behaviour.
+	runner.SetNonRetryableErrorPatterns(nil)
+	if !runner.retryableProviderError(safe, providerFault, bodyFault) {
+		t.Fatal("clearing the patterns must restore retrying")
+	}
 }
 
 func TestProviderErrorBackoffGrowsAndHonorsCancellation(t *testing.T) {

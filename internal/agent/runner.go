@@ -38,6 +38,11 @@ type Runner struct {
 	continuationConfig    config.AgentConfig
 	continuationRunLimits map[string]continuationLimits
 
+	// User-maintained permanent-error patterns, read on every provider failure
+	// and replaced wholesale when the setting changes.
+	retryPolicyMu             sync.RWMutex
+	nonRetryableErrorPatterns []string
+
 	dynamicToolsMu sync.RWMutex
 	toolSource     tools.ToolSource
 	toolResolver   tools.Resolver
@@ -132,7 +137,7 @@ const (
 )
 
 func NewRunner(store *db.Store, providers *providers.Registry, toolRegistry *tools.Registry, hub *Hub, cfg config.AgentConfig) *Runner {
-	runner := &Runner{store: store, providers: providers, tools: toolRegistry, toolOutputPipeline: toolpipeline.NewManager(), hub: hub, cfg: cfg, contextManagement: (config.ContextManagementConfig{}).Normalized(), continuationConfig: cfg, continuationRunLimits: make(map[string]continuationLimits), defaultReasoningEffort: "auto", running: make(map[string]*activeRun), compacting: make(map[string]struct{}), titling: make(map[string]struct{}), approvals: make(map[string]*pendingApproval), sessionGrants: make(map[string]map[string]sessionGrant), userQuestions: make(map[string]*pendingUserQuestion)}
+	runner := &Runner{store: store, providers: providers, tools: toolRegistry, toolOutputPipeline: toolpipeline.NewManager(), hub: hub, cfg: cfg, contextManagement: (config.ContextManagementConfig{}).Normalized(), continuationConfig: cfg, nonRetryableErrorPatterns: config.NormalizeNonRetryableErrorPatterns(cfg.NonRetryableErrorPatterns), continuationRunLimits: make(map[string]continuationLimits), defaultReasoningEffort: "auto", running: make(map[string]*activeRun), compacting: make(map[string]struct{}), titling: make(map[string]struct{}), approvals: make(map[string]*pendingApproval), sessionGrants: make(map[string]map[string]sessionGrant), userQuestions: make(map[string]*pendingUserQuestion)}
 	runner.SetAgentModelSettings(cfg)
 	if store != nil {
 		if settings, err := store.GetRuntimeSettings(context.Background()); err == nil {

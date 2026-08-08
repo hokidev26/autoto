@@ -4,7 +4,7 @@ import { createAutomationControlController } from "./automation-control.mjs?v=na
 import { createAutomationToolCatalogController } from "./automation-tool-catalog.mjs?v=automation-tool-catalog-1";
 import { createArchiveSettingsController } from "./archive-settings.mjs?v=archive-settings-1";
 import { createConversationTitleHelpers } from "./conversation-title-helpers.mjs?v=standalone-removed-1";
-import { createBackgroundTasksController } from "./background-tasks.mjs?v=subagent-cards-1-foreground-activity-1-queue-attachments-1";
+import { createBackgroundTasksController } from "./background-tasks.mjs?v=subagent-cards-1-foreground-activity-1-queue-attachments-1-task-overview-tabs-1";
 import { createExecutionNotifications } from "./execution-notifications.mjs";
 import { createNotificationSound } from "./notification-sound.mjs?v=notification-sound-1";
 import { createSystemNotifications } from "./system-notification.mjs?v=system-notification-1";
@@ -88,7 +88,7 @@ import { createSkillsWorkbenchController } from "./skills-workbench.mjs?v=users-
 import { createTerminalController } from "./terminal.mjs?v=terminal-actions-compact-2";
 import { createUIShellController, elementVisible, isComposingInput } from "./ui-shell.mjs?v=permission-panel-2-plan-mode-panel-1-mobile-toolbar-right-3-icon-rail-1-mobile-viewport-1-sidebar-wheel-1-settings-cleanup-1-context-ring-3-dual-rail-collapse-1-compact-navigation-1-global-rail-2-model-menu-scroll-1-utility-resize-2-sheet-trim-1-model-provider-groups-1-danger-reflection-desc-1-danger-reflection-levels-1-model-icon-only-1-theme-icon-1";
 import { createUsageHistoryController } from "./usage-history.mjs";
-import { createAgentWorkspaceHelpers } from "./agent-workspace-helpers.mjs?v=task-summary-activity-1";
+import { createAgentWorkspaceHelpers } from "./agent-workspace-helpers.mjs?v=task-summary-activity-1-task-overview-tabs-1";
 import { createNavigationContextMenu } from "./navigation-context-menu.mjs";
 import { createOverviewNavHelpers } from "./overview-nav-helpers.mjs";
 import { installPullToRefresh, isPullToRefreshSupported } from "./pull-to-refresh.mjs?v=pull-to-refresh-1";
@@ -805,6 +805,7 @@ const chatRendering = createChatRenderingController({
   openGitModal: () => gitWorkflow.openGitModal?.(),
   refreshGitWorkflow: (options) => gitWorkflow.refreshGitWorkflow?.(options),
   resolveBackgroundTask: (tool) => backgroundTasks?.getTaskByParentTool?.(tool?.runId, tool?.toolUseId) || null,
+  retryLastRun: () => chatComposer.rerunLastUserMessage?.(),
   selectedModelValue: getSelectedModelValue,
   shortPath,
   showError,

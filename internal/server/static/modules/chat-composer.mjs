@@ -1270,6 +1270,36 @@ export function createChatComposerController({
     syncMessageComposerBusy();
   }
 
+  // Runs the last still-live user message again. Shared by the composer's
+  // empty-send retry and the failure banner's retry button so both go through
+  // the model sync and the busy flag rather than posting a bare rerun.
+  async function rerunLastUserMessage(agentId = state.agent?.id) {
+    if (!agentId || isMessageSendingFor(agentId)) return false;
+    // A retired message cannot be rerun -- the server refuses it -- so pick the
+    // newest user message that is still part of the conversation.
+    const lastUserMessage = [...(state.currentMessages || [])].reverse()
+      .find((m) => m?.role === "user" && m?.id && !m?.supersededAt);
+    if (!lastUserMessage) return false;
+    const context = state.navigationSelectionKind === "project" ? "project" : "conversation";
+    setMessageSendingFor(agentId, true);
+    try {
+      // The usual reason to retry is that the model was wrong, so the picker has
+      // to reach the agent first -- the rerun uses whatever the agent record says.
+      if (!(await syncSelectedModelToAgent(agentId))) return false;
+      await request(`/api/agents/${agentId}/messages/${encodeURIComponent(lastUserMessage.id)}/rerun`, {
+        method: "POST",
+        body: JSON.stringify({ context }),
+      });
+      await loadMessages(agentId);
+      scrollMessagesToBottom?.();
+      scheduleMessageRefresh(1200, agentId, { skipWhileActive: true });
+      return true;
+    } finally {
+      setMessageSendingFor(agentId, false);
+      if (state.agent?.id === agentId) scrollMessagesToBottom?.();
+    }
+  }
+
   async function sendMessage(event) {
     event.preventDefault();
     if (!state.agent) {
@@ -1295,33 +1325,8 @@ export function createChatComposerController({
       // so retrying six times left six near-identical messages in the
       // transcript, each marked as superseding the last.
       if (isRetryMode()) {
-        // A retired message cannot be rerun -- the server refuses it -- so pick
-        // the newest user message that is still part of the conversation.
-        const lastUserMessage = [...(state.currentMessages || [])].reverse().find((m) => m?.role === "user" && m?.id && !m?.supersededAt);
-        if (lastUserMessage) {
-          setMessageSendingFor(agentId, true);
-          try {
-            // The usual reason to retry is that the model was wrong, so the
-            // picker has to reach the agent first -- the correction runs on
-            // whatever the agent record says.
-            if (!(await syncSelectedModelToAgent(agentId))) return;
-            await request(`/api/agents/${agentId}/messages/${encodeURIComponent(lastUserMessage.id)}/rerun`, {
-              method: "POST",
-              body: JSON.stringify({ context }),
-            });
-            await loadMessages(agentId);
-            scrollMessagesToBottom?.();
-            scheduleMessageRefresh(1200, agentId, { skipWhileActive: true });
-          } catch (err) {
-            throw err;
-          } finally {
-            setMessageSendingFor(agentId, false);
-            if (state.agent?.id === agentId) {
-              input?.focus?.({ preventScroll: true });
-              scrollMessagesToBottom?.();
-            }
-          }
-        }
+        await rerunLastUserMessage(agentId);
+        if (state.agent?.id === agentId) input?.focus?.({ preventScroll: true });
       }
       return;
     }
@@ -1634,6 +1639,7 @@ export function createChatComposerController({
     setMessageMode,
     selectedReasoningEffort,
     sendMessage,
+    rerunLastUserMessage,
     setMessageInputValue,
     syncMessageComposerBusy,
     toggleFastMode,
