@@ -315,3 +315,86 @@ PRAGMA user_version = 48;`); err != nil {
 		t.Fatalf("expected version %d, got %d", CurrentDBVersion, version)
 	}
 }
+
+// Attachments are fetched for a whole page in one query, so the grouping happens
+// in Go. This pins the part that a batch query can silently get wrong: every
+// attachment landing on the message that actually owns it, in creation order,
+// with untouched messages left empty.
+func TestMessagePageGroupsAttachmentsOntoTheirOwnMessage(t *testing.T) {
+	ctx := context.Background()
+	store, err := Open(ctx, filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	_, _, agent, err := store.CreateProject(ctx, "Demo", "", t.TempDir(), "openai:test", "acceptEdits")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	first, err := store.AddMessageWithAttachments(ctx, Message{AgentID: agent.ID, Role: "user", ContentText: "one"}, []Attachment{
+		{Filename: "a1.txt", MIMEType: "text/plain", Kind: "file", SizeBytes: 3, Data: []byte("aaa")},
+		{Filename: "a2.txt", MIMEType: "text/plain", Kind: "file", SizeBytes: 3, Data: []byte("bbb")},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A message with no attachments between two that have them: the batch must not
+	// spill rows onto it.
+	bare, err := store.AddMessage(ctx, Message{AgentID: agent.ID, Role: "assistant", ContentText: "two"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	third, err := store.AddMessageWithAttachments(ctx, Message{AgentID: agent.ID, Role: "user", ContentText: "three"}, []Attachment{
+		{Filename: "c1.txt", MIMEType: "text/plain", Kind: "file", SizeBytes: 3, Data: []byte("ccc")},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	page, err := store.ListMessagesPage(ctx, agent.ID, "", 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	byID := make(map[string][]Attachment, len(page.Messages))
+	for _, message := range page.Messages {
+		byID[message.ID] = message.Attachments
+	}
+	if got := byID[first.ID]; len(got) != 2 || got[0].Filename != "a1.txt" || got[1].Filename != "a2.txt" {
+		t.Fatalf("first message lost its attachments or their order: %+v", got)
+	}
+	if got := byID[bare.ID]; len(got) != 0 {
+		t.Fatalf("a message with no attachments must stay empty, got %+v", got)
+	}
+	if got := byID[third.ID]; len(got) != 1 || got[0].Filename != "c1.txt" {
+		t.Fatalf("third message lost its attachment: %+v", got)
+	}
+	for _, attachment := range byID[first.ID] {
+		if attachment.MessageID != first.ID {
+			t.Fatalf("attachment filed under the wrong message: %+v", attachment)
+		}
+		// The page is metadata-only, so blobs must not be loaded.
+		if len(attachment.Data) != 0 {
+			t.Fatalf("message page must not carry attachment bytes: %+v", attachment)
+		}
+	}
+
+	// The live snapshot batches the same table through its own query.
+	snapshot, err := store.ReadAgentLiveSnapshot(ctx, agent.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshotByID := make(map[string][]Attachment, len(snapshot.Messages))
+	for _, message := range snapshot.Messages {
+		snapshotByID[message.ID] = message.Attachments
+	}
+	if got := snapshotByID[first.ID]; len(got) != 2 || got[0].Filename != "a1.txt" || got[1].Filename != "a2.txt" {
+		t.Fatalf("snapshot lost the first message's attachments: %+v", got)
+	}
+	if got := snapshotByID[bare.ID]; len(got) != 0 {
+		t.Fatalf("snapshot spilled attachments onto a bare message: %+v", got)
+	}
+	if got := snapshotByID[third.ID]; len(got) != 1 || got[0].Filename != "c1.txt" {
+		t.Fatalf("snapshot lost the third message's attachment: %+v", got)
+	}
+}

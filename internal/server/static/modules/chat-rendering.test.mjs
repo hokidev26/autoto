@@ -2051,6 +2051,67 @@ test("the tail keeps live reasoning for a turn that is not persisted yet", () =>
   assert.equal((html.match(/I checked the current conditions first\./g) || []).length, 1);
 });
 
+// One run persists an assistant turn per model round, so the live fallback used
+// to hand every unsaved turn of that run the same full step list: three activity
+// rows all reading "16 steps reasoning", none of them true. A step now names the
+// turn that produced it, so each row shows only its own.
+test("unsaved turns of one run do not all claim the same live reasoning", () => {
+  const { html } = renderSnapshot([{
+    id: "u1",
+    role: "user",
+    contentText: "go",
+  }, {
+    id: "a1",
+    role: "assistant",
+    runId: "run-1",
+    contentText: "First pass done.",
+  }, {
+    id: "a2",
+    role: "assistant",
+    runId: "run-1",
+    contentText: "Second pass done.",
+  }], {
+    agent: { id: "agent-1", status: "running" },
+    liveAssistantRunId: "run-1",
+    liveAssistantToolOwnerId: "a2",
+    liveReasoningSteps: [
+      { id: "reasoning-1", runId: "run-1", messageId: "a1", text: "Thinking for the first turn.", beforeToolUseId: "" },
+      { id: "reasoning-2", runId: "run-1", messageId: "a2", text: "Thinking for the second turn.", beforeToolUseId: "" },
+    ],
+  });
+
+  // Each thought appears once, under its own turn, rather than once per turn.
+  assert.equal((html.match(/Thinking for the first turn\./g) || []).length, 1);
+  assert.equal((html.match(/Thinking for the second turn\./g) || []).length, 1);
+  // The first turn's stack must not contain the second turn's thinking.
+  const firstStack = html.slice(html.indexOf('data-message-activity="a1"'), html.indexOf('data-message-activity="a2"'));
+  assert.match(firstStack, /Thinking for the first turn\./);
+  assert.doesNotMatch(firstStack, /Thinking for the second turn\./);
+});
+
+// An unstamped step predates any saved turn of the run, so it has no owner to
+// compete over and must stay visible rather than being dropped by every turn.
+test("live reasoning with no owning turn is still rendered", () => {
+  const { html } = renderSnapshot([{
+    id: "u1",
+    role: "user",
+    contentText: "go",
+  }, {
+    id: "a1",
+    role: "assistant",
+    runId: "run-1",
+    contentText: "Working.",
+  }], {
+    agent: { id: "agent-1", status: "running" },
+    liveAssistantRunId: "run-1",
+    liveReasoningSteps: [
+      { id: "reasoning-1", runId: "run-1", text: "Thought before the first turn was saved.", beforeToolUseId: "" },
+    ],
+  });
+
+  assert.equal((html.match(/Thought before the first turn was saved\./g) || []).length, 1);
+});
+
 test("a streaming reasoning draft is never dropped as already persisted", () => {
   const { html } = renderSnapshot([{
     id: "u1",

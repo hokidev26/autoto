@@ -34,8 +34,11 @@ type importAuthFileRequest struct {
 }
 
 const (
-	maxProviderAuthImportBytes    = 8 << 20
-	maxProviderAuthImportAccounts = 200
+	maxProviderAuthImportBytes = 8 << 20
+	// An auth-file listing is metadata, so this is generous rather than tight;
+	// the point is that a ceiling exists at all.
+	maxProviderManagementResponseBytes = 16 << 20
+	maxProviderAuthImportAccounts      = 200
 )
 
 type providerAuthImportFile struct {
@@ -1114,7 +1117,14 @@ func cliProxyAPIManagementRequestWithKey(ctx context.Context, method, endpoint s
 		return nil, 0, errors.New("CLIProxyAPI 管理请求失败")
 	}
 	defer res.Body.Close()
-	data, err := io.ReadAll(res.Body)
+	// Bounded like every other read of an outside body. This one is reachable
+	// from GET /api/providers/{name}/auth-files, and the management endpoint is
+	// whatever host the user configured, so an unbounded read lets a misbehaving
+	// or hostile upstream exhaust memory.
+	data, err := io.ReadAll(io.LimitReader(res.Body, maxProviderManagementResponseBytes+1))
+	if err == nil && len(data) > maxProviderManagementResponseBytes {
+		return nil, res.StatusCode, fmt.Errorf("CLIProxyAPI management response exceeded %d MiB", maxProviderManagementResponseBytes>>20)
+	}
 	if err != nil {
 		return nil, res.StatusCode, errors.New("无法读取 CLIProxyAPI 管理响应")
 	}

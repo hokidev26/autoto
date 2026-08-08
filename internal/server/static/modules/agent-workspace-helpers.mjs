@@ -59,13 +59,37 @@ export function waitingOnBackgroundTasks(backgroundTasks, translate = t) {
   const running = Number(summary?.runningCount) || 0;
   const queued = Number(summary?.queuedCount) || 0;
   if (!running && !queued) return null;
+  // Name the task when there is exactly one: "waiting for 1 sub-agent" says
+  // nothing the count did not, while its title says which work is outstanding.
+  const only = running === 1 && !queued ? activityTaskLabel(summary?.current) : "";
   return {
     kind: "waiting",
     tone: "waiting",
-    text: running
+    text: only || (running
       ? translate("chat.activity.waitingSubagent", { count: running })
-      : translate("chat.activity.waitingSubagentQueued", { count: queued }),
+      : translate("chat.activity.waitingSubagentQueued", { count: queued })),
   };
+}
+
+function activityTaskLabel(task) {
+  const title = String(task?.title || "").trim();
+  return title ? compactActivityTarget(title, 32) : "";
+}
+
+// What the parent is doing locally and what it delegated are both true at once,
+// and the bar had room for only the first. A turn that dispatched three
+// sub-agents and then kept reading files reported just "reading foo.go", so the
+// delegated work vanished from the one place the user looks for it.
+export function withDelegatedActivitySuffix(activity, backgroundTasks, translate = t) {
+  if (!activity) return activity;
+  // Already the delegated state itself; adding its own count twice reads badly.
+  if (activity.kind === "waiting") return activity;
+  const summary = backgroundTasks?.getSummary?.();
+  const running = Number(summary?.runningCount) || 0;
+  if (running <= 0) return activity;
+  const suffix = translate("chat.activity.alsoRunningSubagents", { count: running });
+  if (!suffix) return activity;
+  return { ...activity, text: `${activity.text} · ${suffix}` };
 }
 
 export function resolveComposerActivityStatus(state, translate = t) {
@@ -158,7 +182,8 @@ export function createAgentWorkspaceHelpers({
     // reads idle while the work is still going. The task counts are the only place
     // that knows, which is why this is resolved here rather than in
     // resolveComposerActivityStatus.
-    const activity = localActivity || waitingOnBackgroundTasks(backgroundTasks);
+    const activity = withDelegatedActivitySuffix(localActivity, backgroundTasks, t)
+      || waitingOnBackgroundTasks(backgroundTasks, t);
     // The summary sits where the user looks for "what is it doing", so it takes
     // the activity whenever it is on screen. It used to require the project
     // context, which left a plain conversation reporting no running task through

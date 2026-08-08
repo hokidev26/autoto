@@ -956,11 +956,14 @@ export function createBackgroundTasksController({
     // idle label in that window told the user nothing was running while the dot
     // beside it was already animating, so fall back to the counts instead: never
     // claim idle while a task is active.
+    // Prefer a name over a count wherever one exists: the foreground activity's
+    // own words, then the running task's title, and only then the counts.
     const currentText = foregroundActivity?.text
       || summary.current?.title
       || (hasCurrentActivity
         ? t("backgroundTasks.headerTitle", { queued: summary.queuedCount, running: summary.runningCount })
         : t("backgroundTasks.headerIdle"));
+
     if (button) {
       button.disabled = !agentId;
       button.setAttribute("aria-expanded", trayOpen ? "true" : "false");

@@ -67,6 +67,19 @@ func Open(ctx context.Context, path string) (*Store, error) {
 	if err != nil {
 		return nil, err
 	}
+	// One connection serializes every statement, readers included, which gives up
+	// the multiple-readers half of what WAL above buys. That is a deliberate
+	// trade, and the reason is correctness rather than performance: the write paths
+	// here are compare-and-set sequences (read a revision, decide, write it back)
+	// spread across many methods, and a single connection makes them mutually
+	// exclusive without every one of them having to hold an explicit transaction
+	// and handle SQLITE_BUSY retries.
+	//
+	// The cost is real: an SSE stream, UI polling, and several concurrent agents all
+	// queue behind each other's writes. Lifting it means a split handle -- one
+	// writer connection plus a read-only pool -- and auditing those read-modify-write
+	// sequences first, which is why it has not been done rather than that it was
+	// never considered.
 	database.SetMaxOpenConns(1)
 	store := &Store{db: database}
 	if err := store.migrate(ctx); err != nil {

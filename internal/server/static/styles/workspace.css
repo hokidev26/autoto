@@ -159,6 +159,43 @@
   0%, 100% { opacity: .72; }
   50% { opacity: 1; }
 }
+/* A file dragged in from outside can be aimed at the whole transcript, not only
+   the composer, so the transcript says so while the drag is over it. Both layers
+   are pointer-events:none: the drop is handled on .messages itself, and an
+   overlay that swallowed the pointer would cancel the drag it is advertising. */
+.messages.dropping-files::before {
+  position: absolute;
+  z-index: 6;
+  inset: 0;
+  border: 2px dashed color-mix(in srgb, #7f8cff 70%, transparent);
+  border-radius: 12px;
+  background: color-mix(in srgb, #6f8cff 10%, transparent);
+  content: "";
+  pointer-events: none;
+}
+.messages.dropping-files::after {
+  position: absolute;
+  z-index: 7;
+  top: 50%;
+  left: 50%;
+  max-width: min(360px, calc(100% - 40px));
+  border: 1px solid color-mix(in srgb, #7f8cff 60%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--bg-elevated) 96%, transparent);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, .16);
+  color: var(--text);
+  content: attr(data-drop-hint);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.3;
+  padding: 8px 14px;
+  text-align: center;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+/* The empty state centres its child, which would stretch the dashed frame to the
+   card instead of the panel. */
+.messages.empty.dropping-files::before { inset: 8px; }
 .empty-workspace-card {
   width: min(420px, 92%);
   border: 1px solid var(--line);

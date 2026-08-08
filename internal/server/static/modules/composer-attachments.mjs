@@ -267,6 +267,66 @@ export function createComposerAttachments({
     void addPendingAttachmentFiles(event.dataTransfer?.files || []);
   }
 
+  // Dropping onto the transcript means the same thing as dropping onto the
+  // composer: the file becomes an attachment on the next message. The transcript
+  // is the far bigger target and the one people actually aim at, so it takes the
+  // drop as well rather than letting the browser navigate away from the app.
+  //
+  // Depth is counted rather than testing relatedTarget: the transcript is full of
+  // nested cards and every boundary between them fires dragleave, which made the
+  // hint flicker while the pointer was still well inside.
+  let conversationDragDepth = 0;
+
+  function setConversationDragging(active) {
+    const host = $("messages");
+    if (!host) return;
+    if (active) host.dataset.dropHint = t("workspace.chat.dropHint");
+    else delete host.dataset.dropHint;
+    host.classList.toggle("dropping-files", Boolean(active));
+  }
+
+  function handleConversationDragEnter(event) {
+    if (!eventHasFiles(event)) return;
+    event.preventDefault();
+    conversationDragDepth += 1;
+    setConversationDragging(true);
+  }
+
+  function handleConversationDragOver(event) {
+    if (!eventHasFiles(event)) return;
+    // Without preventDefault the browser handles the drop itself and opens the
+    // file, discarding the whole workspace.
+    event.preventDefault();
+    if (event.dataTransfer) event.dataTransfer.dropEffect = "copy";
+    if (!conversationDragDepth) conversationDragDepth = 1;
+    setConversationDragging(true);
+  }
+
+  function handleConversationDragLeave(event) {
+    if (!eventHasFiles(event)) return;
+    conversationDragDepth = Math.max(0, conversationDragDepth - 1);
+    if (!conversationDragDepth) setConversationDragging(false);
+  }
+
+  function handleConversationDrop(event) {
+    if (!eventHasFiles(event)) return;
+    event.preventDefault();
+    conversationDragDepth = 0;
+    setConversationDragging(false);
+    void addPendingAttachmentFiles(event.dataTransfer?.files || []);
+  }
+
+  // A file dropped just off-target would otherwise be opened by the browser,
+  // navigating away and losing everything unsent. Only file drags are swallowed;
+  // the sidebar's own project and conversation drags carry text/plain and still
+  // reach their handlers.
+  function swallowStrayFileDrop(event) {
+    if (!eventHasFiles(event)) return;
+    event.preventDefault();
+    conversationDragDepth = 0;
+    setConversationDragging(false);
+  }
+
   return {
     openAttachmentPicker,
     attachmentId,
@@ -287,5 +347,11 @@ export function createComposerAttachments({
     handleAttachmentDragOver,
     handleAttachmentDragLeave,
     handleAttachmentDrop,
+    setConversationDragging,
+    handleConversationDragEnter,
+    handleConversationDragOver,
+    handleConversationDragLeave,
+    handleConversationDrop,
+    swallowStrayFileDrop,
   };
 }

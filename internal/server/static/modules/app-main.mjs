@@ -1309,6 +1309,11 @@ const {
   handleAttachmentDragLeave,
   handleAttachmentDragOver,
   handleAttachmentDrop,
+  handleConversationDragEnter,
+  handleConversationDragOver,
+  handleConversationDragLeave,
+  handleConversationDrop,
+  swallowStrayFileDrop,
   handleMessageInput,
   handleMessageKeydown,
   handleMessagePaste,
@@ -4223,6 +4228,16 @@ $("attachFileInput")?.addEventListener("change", (event) => importAttachmentFile
 $("composerInputShell")?.addEventListener("dragover", handleAttachmentDragOver);
 $("composerInputShell")?.addEventListener("dragleave", handleAttachmentDragLeave);
 $("composerInputShell")?.addEventListener("drop", handleAttachmentDrop);
+// The transcript accepts dropped files too, so a file dragged in from the desktop
+// can be aimed at the conversation rather than threaded into the small composer.
+$("messages")?.addEventListener("dragenter", handleConversationDragEnter);
+$("messages")?.addEventListener("dragover", handleConversationDragOver);
+$("messages")?.addEventListener("dragleave", handleConversationDragLeave);
+$("messages")?.addEventListener("drop", handleConversationDrop);
+// Last line of defence: a file dropped just outside either zone would otherwise
+// be opened by the browser, discarding unsent work.
+window.addEventListener("dragover", swallowStrayFileDrop);
+window.addEventListener("drop", swallowStrayFileDrop);
 $("messageText").addEventListener("input", handleMessageInput);
 $("messageText").addEventListener("paste", scheduleMessageInputResize);
 $("messageText").addEventListener("keydown", handleMessageKeydown);

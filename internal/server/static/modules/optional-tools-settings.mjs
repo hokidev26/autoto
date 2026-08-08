@@ -1,14 +1,7 @@
+import { escapeHtml } from "./dom.mjs";
+
 function text(value) {
   return String(value ?? "").trim();
-}
-
-function escapeHtml(value) {
-  return String(value ?? "")
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#39;");
 }
 
 function normalizeTarget(target = {}) {

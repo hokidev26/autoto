@@ -1,11 +1,41 @@
 export const $ = (id) => document.getElementById(id);
 
+// The single escaping implementation for the whole frontend. Four other modules
+// used to keep private copies with three different character sets, which is the
+// kind of drift that becomes an XSS hole the first time a value moves between
+// them.
+//
+// The two functions differ by context, and deliberately so:
+//
+//   escapeHtml is for text content, where only the characters that can open a tag
+//   or an entity are dangerous. Quotes and backticks are left alone because text
+//   is full of them -- shell commands, prose, markdown inline code -- and escaping
+//   them there makes the output unreadable without making it safer.
+//
+//   escapeAttr is for attribute values, where a quote can close the attribute and
+//   start a new one. It escapes both quote styles and the backtick, the last
+//   because older Edge accepted it as an attribute delimiter.
+//
+// Anything written into an attribute must therefore use escapeAttr, even though
+// every attribute in this codebase currently uses double quotes.
+const HTML_TEXT_ESCAPES = Object.freeze({
+  "&": "&amp;",
+  "<": "&lt;",
+  ">": "&gt;",
+  '"': "&quot;",
+});
+
+const HTML_ATTR_ESCAPES = Object.freeze({
+  "'": "&#39;",
+  "`": "&#96;",
+});
+
 export function escapeHtml(value) {
-  return String(value ?? "").replace(/[&<>"]/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[ch]));
+  return String(value ?? "").replace(/[&<>"]/g, (ch) => HTML_TEXT_ESCAPES[ch]);
 }
 
 export function escapeAttr(value) {
-  return escapeHtml(value).replace(/'/g, "&#39;");
+  return escapeHtml(value).replace(/['`]/g, (ch) => HTML_ATTR_ESCAPES[ch]);
 }
 
 export function setButtonBusy(button, busy, busyLabel) {

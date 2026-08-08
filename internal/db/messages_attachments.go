@@ -489,15 +489,60 @@ func scanMessages(rows *sql.Rows) ([]Message, error) {
 	return messages, rows.Err()
 }
 
+// populateMessageAttachments fills in Attachments for a whole page in one query.
+// It used to call ListMessageAttachments per message, which meant a full page
+// (DefaultMessagePageLimit, 100) issued 100 queries against a pool of a single
+// connection. Attachments is tagged omitempty, so leaving a message without rows
+// as nil rather than an empty slice is not observable in the API.
 func (s *Store) populateMessageAttachments(ctx context.Context, messages []Message, includeData bool) error {
+	if len(messages) == 0 {
+		return nil
+	}
+	byID := make(map[string]*Message, len(messages))
+	args := make([]any, 0, len(messages))
+	placeholders := make([]byte, 0, len(messages)*2)
 	for i := range messages {
-		attachments, err := s.ListMessageAttachments(ctx, messages[i].ID, includeData)
+		id := messages[i].ID
+		if id == "" || byID[id] != nil {
+			continue
+		}
+		byID[id] = &messages[i]
+		if len(placeholders) > 0 {
+			placeholders = append(placeholders, ',')
+		}
+		placeholders = append(placeholders, '?')
+		args = append(args, id)
+	}
+	if len(args) == 0 {
+		return nil
+	}
+	selectData := `X''`
+	selectModelData := `X''`
+	selectText := `''`
+	if includeData {
+		selectData = `data_blob`
+		selectModelData = `COALESCE(model_data_blob,X'')`
+		selectText = `COALESCE(extracted_text,'')`
+	}
+	// message_id leads the ordering so each message keeps its attachments in
+	// creation order, exactly as the per-message query returned them.
+	query := `SELECT ` + fmt.Sprintf(attachmentSelectColumns, selectData, selectModelData, selectText) +
+		` FROM agent_message_attachments WHERE message_id IN (` + string(placeholders) + `) ORDER BY message_id ASC, created_at ASC`
+	rows, err := s.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		attachment, err := scanMessageAttachment(rows.Scan)
 		if err != nil {
 			return err
 		}
-		messages[i].Attachments = attachments
+		if owner := byID[attachment.MessageID]; owner != nil {
+			owner.Attachments = append(owner.Attachments, attachment)
+		}
 	}
-	return nil
+	return rows.Err()
 }
 
 func (s *Store) ListMessageAttachments(ctx context.Context, messageID string, includeData bool) ([]Attachment, error) {

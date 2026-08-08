@@ -1,3 +1,5 @@
+import { escapeHtml as escapeSharedHtml } from "./dom.mjs";
+
 const LIST_LIMITS = Object.freeze({
   recentConversations: 8,
   activeTasks: 8,
@@ -170,14 +172,11 @@ function formatCount(value) {
   }
 }
 
+// The length cap is this module's own concern -- dashboard cards must not be
+// stretched by one enormous field -- so it stays here and the escaping itself
+// defers to the shared implementation.
 function escapeHtml(value) {
-  return boundedText(value, 4000).replace(/[&<>"']/g, (character) => ({
-    "&": "&amp;",
-    "<": "&lt;",
-    ">": "&gt;",
-    '"': "&quot;",
-    "'": "&#39;",
-  })[character]);
+  return escapeSharedHtml(boundedText(value, 4000));
 }
 
 // Injected renderers return markup, so it is length-bounded rather than escaped.

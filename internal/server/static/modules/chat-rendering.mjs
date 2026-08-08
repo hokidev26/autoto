@@ -2964,9 +2964,13 @@ export function createChatRenderingController({
       const persistedSteps = persistedReasoningSteps(message, records);
       // Only with a runId: currentLiveReasoningSteps("") matches every step and
       // would pull another run's thinking under this turn.
+      // Scoped to this message, not just its run. A run persists one assistant
+      // turn per model round, so a run-scoped fallback handed every turn of the
+      // run the same full list and each row rendered an identical "N steps
+      // reasoning" until the turns saved their own.
       const reasoningSteps = persistedSteps.length || !messageRunId
         ? persistedSteps
-        : currentLiveReasoningSteps(messageRunId);
+        : currentLiveReasoningSteps(messageRunId, messageId);
       // This turn's own stack first, then any earlier run this message anchors.
       const rendered = [];
       if (records.length || reasoningSteps.length) {
@@ -3320,6 +3324,11 @@ export function createChatRenderingController({
     state.liveReasoningSteps = [...steps, {
       id: `reasoning-${steps.length + 1}`,
       runId: draft.runId,
+      // Stamped with the turn that produced it, the same way tool records are.
+      // runId alone is too coarse: one run persists several assistant turns, so
+      // every turn of that run claimed the whole run's thinking and each of them
+      // rendered the identical full list.
+      messageId: String(state.liveAssistantToolOwnerId || ""),
       text: String(draft.text).trim(),
       beforeToolUseId: String(beforeToolUseId || ""),
     }].slice(-maxLiveReasoningSteps);
@@ -3332,13 +3341,26 @@ export function createChatRenderingController({
     state.liveReasoningDraft = null;
   }
 
-  function currentLiveReasoningSteps(runId = "") {
+  // messageId narrows the result to one assistant turn's own thinking. Without it
+  // the caller gets the whole run, which is right for the tail stack and wrong for
+  // a per-message stack.
+  function currentLiveReasoningSteps(runId = "", messageId = "") {
     const expected = String(runId || "");
+    const owner = String(messageId || "");
     const steps = (Array.isArray(state.liveReasoningSteps) ? state.liveReasoningSteps : [])
-      .filter((step) => !expected || !step.runId || step.runId === expected);
+      .filter((step) => !expected || !step.runId || step.runId === expected)
+      // An unstamped step predates any assistant turn of this run (the model
+      // reasoned before the first turn was saved), so it has no owner to compete
+      // over and stays visible either way.
+      .filter((step) => !owner || !step.messageId || step.messageId === owner);
     const draft = state.liveReasoningDraft;
     if (draft && String(draft.text || "").trim() && (!expected || !draft.runId || draft.runId === expected)) {
-      steps.push({ id: "reasoning-open", runId: draft.runId, text: String(draft.text).trim(), beforeToolUseId: "", open: true });
+      // The open draft belongs to whichever turn is currently streaming, so it
+      // only joins a per-message stack when that turn is the current owner.
+      const draftOwner = String(state.liveAssistantToolOwnerId || "");
+      if (!owner || !draftOwner || draftOwner === owner) {
+        steps.push({ id: "reasoning-open", runId: draft.runId, messageId: draftOwner, text: String(draft.text).trim(), beforeToolUseId: "", open: true });
+      }
     }
     return steps;
   }
@@ -3386,19 +3408,25 @@ export function createChatRenderingController({
     const list = Array.isArray(steps) ? steps : [];
     if (!list.length) return list;
     const unclaimed = [];
-    // Runs whose assistant turn is on screen but has not persisted its reasoning
-    // yet. messageToolActivityStacks falls back to the live steps for exactly
-    // these, so the tail has to let go of all of them -- including the open
-    // draft, which that fallback also picks up. This stays keyed by runId because
-    // the fallback it mirrors is itself runId-scoped; content matching cannot see
-    // these turns, which have no saved reasoning to match against.
+    // Assistant turns on screen that have not persisted their reasoning yet.
+    // messageToolActivityStacks falls back to the live steps for exactly these, so
+    // the tail has to let go of what they take -- including the open draft, which
+    // that fallback also picks up. Content matching cannot see these turns: they
+    // have no saved reasoning to match against.
+    //
+    // Both the message id and its run are recorded because the fallback narrows by
+    // message where a step carries one and by run where it does not, and the two
+    // sides have to release exactly the same steps.
+    const claimedMessages = new Set();
     const claimedRuns = new Set();
     for (const message of transcriptMessages(state.currentMessages)) {
       if (chatMessagePresentation(message).normalizedRole !== "assistant") continue;
       const persisted = persistedReasoningSteps(message);
       if (!persisted.length) {
         const owner = String(message?.runId || message?.run_id || "").trim();
+        const ownerMessage = String(message?.id || "").trim();
         if (owner) claimedRuns.add(owner);
+        if (ownerMessage) claimedMessages.add(ownerMessage);
         continue;
       }
       for (const entry of persisted) {
@@ -3408,11 +3436,19 @@ export function createChatRenderingController({
         if (key) unclaimed.push({ text: key, cursor: 0 });
       }
     }
-    if (!unclaimed.length && !claimedRuns.size) return list;
+    if (!unclaimed.length && !claimedRuns.size && !claimedMessages.size) return list;
     const fallbackRunId = String(runId || "").trim();
     return list.filter((step) => {
-      const owner = String(step?.runId || "").trim() || fallbackRunId;
-      if (owner && claimedRuns.has(owner)) return false;
+      // A stamped step is claimed only by the turn that produced it. Falling back
+      // to the run for these is what let one unsaved turn hide the thinking of
+      // every other turn in the same run.
+      const stepMessage = String(step?.messageId || "").trim();
+      if (stepMessage) {
+        if (claimedMessages.has(stepMessage)) return false;
+      } else {
+        const owner = String(step?.runId || "").trim() || fallbackRunId;
+        if (owner && claimedRuns.has(owner)) return false;
+      }
       if (step?.open) return true;
       const key = reasoningHandoverKey(step?.text);
       if (!key) return true;

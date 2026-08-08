@@ -1,3 +1,4 @@
+import { escapeAttr, escapeHtml } from "./dom.mjs";
 import { lifecycleHookMessage } from "./messages-lifecycle-hooks.mjs";
 
 export const lifecycleHookEvents = Object.freeze(["run.before", "run.after", "tool.before", "tool.after"]);
@@ -20,8 +21,7 @@ function uniqueStrings(value, maximum = 128) {
 }
 function clone(value) { return globalThis.structuredClone ? structuredClone(value) : JSON.parse(JSON.stringify(value)); }
 function hasOwn(value, key) { return Object.prototype.hasOwnProperty.call(value || {}, key); }
-function escapeHtml(value) { return String(value ?? "").replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[char])); }
-function escapeAttr(value) { return escapeHtml(value).replace(/`/g, "&#96;"); }
+
 
 export function redactLifecycleText(value) {
   return String(value ?? "")

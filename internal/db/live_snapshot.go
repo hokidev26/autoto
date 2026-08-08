@@ -103,26 +103,11 @@ func (s *Store) ReadAgentLiveSnapshot(ctx context.Context, agentID string) (Agen
 			return AgentLiveSnapshot{}, err
 		}
 	}
-	for i := range snapshot.Messages {
-		attachmentRows, err := tx.QueryContext(ctx, `SELECT id, message_id, agent_id, filename, COALESCE(mime_type,''), kind, size_bytes, created_at FROM agent_message_attachments WHERE message_id = ? ORDER BY created_at ASC`, snapshot.Messages[i].ID)
-		if err != nil {
-			return AgentLiveSnapshot{}, err
-		}
-		for attachmentRows.Next() {
-			var attachment Attachment
-			if err := attachmentRows.Scan(&attachment.ID, &attachment.MessageID, &attachment.AgentID, &attachment.Filename, &attachment.MIMEType, &attachment.Kind, &attachment.SizeBytes, &attachment.CreatedAt); err != nil {
-				attachmentRows.Close()
-				return AgentLiveSnapshot{}, err
-			}
-			snapshot.Messages[i].Attachments = append(snapshot.Messages[i].Attachments, attachment)
-		}
-		if err := attachmentRows.Err(); err != nil {
-			attachmentRows.Close()
-			return AgentLiveSnapshot{}, err
-		}
-		if err := attachmentRows.Close(); err != nil {
-			return AgentLiveSnapshot{}, err
-		}
+	// One batched query rather than one per message. A page is up to
+	// DefaultMessagePageLimit messages, so the per-message form issued up to 101
+	// queries inside this transaction, against a pool of a single connection.
+	if err := attachMessageAttachments(ctx, tx, snapshot.Messages); err != nil {
+		return AgentLiveSnapshot{}, err
 	}
 
 	callRows, err := tx.QueryContext(ctx, `SELECT id, agent_id, COALESCE(run_id,''), COALESCE(message_id,''), tool_use_id, tool_name, COALESCE(input_json,''), COALESCE(output_json,''), status, COALESCE(duration_ms,0), COALESCE(error_message,''), COALESCE(permission_decided_by,''), COALESCE(permission_decided_at,''), COALESCE(permission_deny_message,''), COALESCE(permission_decision_reason,''), COALESCE(permission_suggestions,''), COALESCE(permission_generation,1), COALESCE(policy_generation,1), COALESCE(execution_device_id,'local'), COALESCE(started_at,''), COALESCE(completed_at,''), created_at, COALESCE(updated_at, created_at) FROM agent_tool_calls WHERE agent_id = ? AND status = 'pending_approval' ORDER BY created_at ASC`, agentID)
@@ -173,4 +158,51 @@ func (s *Store) ReadAgentLiveSnapshot(ctx context.Context, agentID string) (Agen
 		return AgentLiveSnapshot{}, err
 	}
 	return snapshot, nil
+}
+
+// attachMessageAttachments fills in Attachments for every message in one query.
+// The rows are grouped by message_id in Go, which is the same shape the pending
+// approval query above already uses: fetch the set once, distribute in memory.
+func attachMessageAttachments(ctx context.Context, tx *sql.Tx, messages []Message) error {
+	if len(messages) == 0 {
+		return nil
+	}
+	// Index by id so a row lands on its message without scanning the slice, and so
+	// an unexpected message_id is ignored rather than mis-filed.
+	byID := make(map[string]*Message, len(messages))
+	args := make([]any, 0, len(messages))
+	placeholders := make([]byte, 0, len(messages)*2)
+	for i := range messages {
+		id := messages[i].ID
+		if id == "" || byID[id] != nil {
+			continue
+		}
+		byID[id] = &messages[i]
+		if len(placeholders) > 0 {
+			placeholders = append(placeholders, ',')
+		}
+		placeholders = append(placeholders, '?')
+		args = append(args, id)
+	}
+	if len(args) == 0 {
+		return nil
+	}
+	// Ordered by message first so each message's attachments stay in creation
+	// order, matching what the per-message query returned.
+	query := `SELECT id, message_id, agent_id, filename, COALESCE(mime_type,''), kind, size_bytes, created_at FROM agent_message_attachments WHERE message_id IN (` + string(placeholders) + `) ORDER BY message_id ASC, created_at ASC`
+	rows, err := tx.QueryContext(ctx, query, args...)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var attachment Attachment
+		if err := rows.Scan(&attachment.ID, &attachment.MessageID, &attachment.AgentID, &attachment.Filename, &attachment.MIMEType, &attachment.Kind, &attachment.SizeBytes, &attachment.CreatedAt); err != nil {
+			return err
+		}
+		if owner := byID[attachment.MessageID]; owner != nil {
+			owner.Attachments = append(owner.Attachments, attachment)
+		}
+	}
+	return rows.Err()
 }

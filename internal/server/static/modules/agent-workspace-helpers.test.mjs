@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { createAgentWorkspaceHelpers, resolveComposerActivityStatus, waitingOnBackgroundTasks } from "./agent-workspace-helpers.mjs";
+import { createAgentWorkspaceHelpers, resolveComposerActivityStatus, waitingOnBackgroundTasks, withDelegatedActivitySuffix } from "./agent-workspace-helpers.mjs";
 
 function translate(key) {
   return {
@@ -249,4 +249,61 @@ test("the parent's own activity outranks waiting on a child", () => {
     liveAssistantText: "writing it out",
   }, translate);
   assert.equal(local.kind, "generating", "the parent's own state is still resolved first");
+});
+
+// Local work and delegated work are both true at once, and the bar had room for
+// only the first. A turn that dispatched sub-agents and then kept editing
+// reported just "editing", so the delegated work vanished from the one place the
+// user looks for it.
+test("local activity carries the delegated count alongside it", () => {
+  const suffixTranslate = (key, params = {}) => {
+    if (key === "chat.activity.alsoRunningSubagents") return `also ${params.count} running`;
+    return translate(key);
+  };
+  const local = { kind: "tool", text: "editing app.mjs" };
+
+  assert.deepEqual(
+    withDelegatedActivitySuffix(local, { getSummary: () => ({ runningCount: 2, queuedCount: 0 }) }, suffixTranslate),
+    { kind: "tool", text: "editing app.mjs · also 2 running" },
+  );
+
+  // Nothing delegated: the text must be left exactly as it was, not decorated
+  // with a zero.
+  assert.deepEqual(
+    withDelegatedActivitySuffix(local, { getSummary: () => ({ runningCount: 0, queuedCount: 0 }) }, suffixTranslate),
+    local,
+  );
+  assert.equal(withDelegatedActivitySuffix(null, { getSummary: () => ({ runningCount: 2 }) }, suffixTranslate), null);
+
+  // The waiting state already counts children; suffixing it would say it twice.
+  const waiting = { kind: "waiting", tone: "waiting", text: "waiting 2" };
+  assert.deepEqual(
+    withDelegatedActivitySuffix(waiting, { getSummary: () => ({ runningCount: 2 }) }, suffixTranslate),
+    waiting,
+  );
+});
+
+// "waiting for 1 sub-agent" says nothing the dot did not already say. With a
+// single child, its title is the useful thing.
+test("a single delegated task is named rather than counted", () => {
+  const waitTranslate = (key, params = {}) => {
+    if (key === "chat.activity.waitingSubagent") return `waiting ${params.count}`;
+    if (key === "chat.activity.waitingSubagentQueued") return `queued ${params.count}`;
+    return translate(key);
+  };
+
+  assert.equal(
+    waitingOnBackgroundTasks({ getSummary: () => ({ runningCount: 1, queuedCount: 0, current: { title: "Review the migration" } }) }, waitTranslate).text,
+    "Review the migration",
+  );
+  // Two children have no single name to show, so the count stands.
+  assert.equal(
+    waitingOnBackgroundTasks({ getSummary: () => ({ runningCount: 2, queuedCount: 0, current: { title: "Review the migration" } }) }, waitTranslate).text,
+    "waiting 2",
+  );
+  // One child with no title yet falls back rather than rendering an empty pill.
+  assert.equal(
+    waitingOnBackgroundTasks({ getSummary: () => ({ runningCount: 1, queuedCount: 0, current: {} }) }, waitTranslate).text,
+    "waiting 1",
+  );
 });

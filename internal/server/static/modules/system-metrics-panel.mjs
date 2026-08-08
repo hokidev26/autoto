@@ -5,6 +5,7 @@
 // and injected into it rather than imported by it, matching that module's
 // take-every-dependency-by-injection design.
 
+import { escapeHtml } from "./dom.mjs";
 import { formatBytes, formatNumber } from "./formatters.mjs";
 
 // Thresholds are percentages of capacity for CPU and memory. Both leave a wide
@@ -39,15 +40,7 @@ function boundedNumber(value, maximum = Number.MAX_SAFE_INTEGER) {
   return Math.min(maximum, Math.max(0, number));
 }
 
-function escapeHtml(value) {
-  return String(value ?? "").replace(/[&<>"']/g, (character) => ({
-    "&": "&amp;",
-    "<": "&lt;",
-    ">": "&gt;",
-    '"': "&quot;",
-    "'": "&#39;",
-  })[character]);
-}
+
 
 // A metric counts as present only when the server said so. "Unavailable" and
 // "measured as zero" are different facts: the first hides the card, the second

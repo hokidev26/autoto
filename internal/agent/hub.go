@@ -102,10 +102,18 @@ type hubSubscriber struct {
 	resync chan ResyncReason
 }
 
+// ringEntry carries the encoded size alongside the event. Publish is the hottest
+// path in the process and holds a hub-wide lock, so the size is computed once
+// when the event is admitted rather than re-marshalled on every eviction.
+type ringEntry struct {
+	event Event
+	size  int
+}
+
 type stream struct {
 	session      string
 	sequence     uint64
-	ring         []Event
+	ring         []ringEntry
 	ringBytes    int
 	subscribers  map[*hubSubscriber]struct{}
 	lastActivity time.Time
@@ -139,7 +147,7 @@ func (h *Hub) Watermark(agentID string) StreamWatermark {
 	}
 	watermark := StreamWatermark{StreamSession: current.session, LatestSequence: current.sequence}
 	if len(current.ring) > 0 {
-		watermark.OldestSequence = current.ring[0].Sequence
+		watermark.OldestSequence = current.ring[0].event.Sequence
 	}
 	return watermark
 }
@@ -154,7 +162,8 @@ func (h *Hub) ToolOutputSnapshots(agentID string) map[string]ToolOutputSnapshot 
 		return nil
 	}
 	result := make(map[string]ToolOutputSnapshot)
-	for _, event := range current.ring {
+	for _, entry := range current.ring {
+		event := entry.event
 		if event.Type != "tool.output" || event.Text == "" {
 			continue
 		}
@@ -251,7 +260,7 @@ func (h *Hub) SubscribeProtocol(ctx context.Context, options SubscribeOptions) *
 		LatestSequence: current.sequence,
 	}
 	if len(current.ring) > 0 {
-		result.OldestSequence = current.ring[0].Sequence
+		result.OldestSequence = current.ring[0].event.Sequence
 	}
 	if options.StreamSession != "" && options.StreamSession != current.session {
 		result.Reason = ResyncSessionMismatch
@@ -265,7 +274,7 @@ func (h *Hub) SubscribeProtocol(ctx context.Context, options SubscribeOptions) *
 			return result
 		}
 		if len(current.ring) > 0 {
-			earliest := current.ring[0].Sequence
+			earliest := current.ring[0].event.Sequence
 			if options.After < earliest-1 {
 				result.Reason = ResyncCursorExpired
 				h.mu.Unlock()
@@ -299,16 +308,18 @@ func (h *Hub) SubscribeProtocol(ctx context.Context, options SubscribeOptions) *
 	return result
 }
 
-func replayAfter(events []Event, after uint64) []Event {
+func replayAfter(entries []ringEntry, after uint64) []Event {
 	first := 0
-	for first < len(events) && events[first].Sequence <= after {
+	for first < len(entries) && entries[first].event.Sequence <= after {
 		first++
 	}
-	if first == len(events) {
+	if first == len(entries) {
 		return nil
 	}
-	replay := make([]Event, len(events)-first)
-	copy(replay, events[first:])
+	replay := make([]Event, 0, len(entries)-first)
+	for _, entry := range entries[first:] {
+		replay = append(replay, entry.event)
+	}
 	return replay
 }
 
@@ -316,7 +327,9 @@ func replayAfter(events []Event, after uint64) []Event {
 // delivering the event. Slow subscribers are explicitly marked for resync.
 func (h *Hub) Publish(event Event) {
 	now := h.now()
-	event = boundedHubEvent(event, h.config.MaxEventBytes)
+	// Bounded outside the lock, and the size it computed is carried forward so the
+	// recheck after the envelope is assigned does not have to re-encode the event.
+	event, boundedSize := boundedHubEventWithSize(event, h.config.MaxEventBytes)
 	h.mu.Lock()
 	h.collectGarbageLocked(now)
 	current := h.ensureStreamLocked(event.AgentID, now)
@@ -338,14 +351,35 @@ func (h *Hub) Publish(event Event) {
 	if event.CreatedAt == "" {
 		event.CreatedAt = now.UTC().Format(time.RFC3339Nano)
 	}
-	event = boundedHubEvent(event, h.config.MaxEventBytes)
-	eventBytes := hubEventSize(event)
-	current.ring = append(current.ring, event)
+	// The envelope assigned above (protocol, session, sequence, createdAt) grows the
+	// encoding, so the bound has to be rechecked. Re-bounding unconditionally cost a
+	// second full pass -- up to four more Marshal calls -- on every event while the
+	// hub-wide lock was held. The envelope's contribution is bounded and measurable,
+	// so the common case now only re-bounds when the headroom is actually at risk.
+	eventBytes := boundedSize
+	if boundedSize+hubEventEnvelopeMaxGrowth(event) > h.maxEventBytes() {
+		event, eventBytes = boundedHubEventWithSize(event, h.config.MaxEventBytes)
+	} else {
+		// Still exact enough for the byte budget: the stamped values are known, so
+		// add their real lengths instead of re-encoding the whole event.
+		eventBytes += hubEventEnvelopeMaxGrowth(event)
+	}
+	current.ring = append(current.ring, ringEntry{event: event, size: eventBytes})
 	current.ringBytes += eventBytes
-	for len(current.ring) > h.config.RingSize || current.ringBytes > h.config.RingBytes {
-		current.ringBytes -= hubEventSize(current.ring[0])
-		copy(current.ring, current.ring[1:])
-		current.ring = current.ring[:len(current.ring)-1]
+	// Evictions are counted first and dropped in one reslice. The previous form
+	// shifted the whole slice per eviction, so a single large event that forced
+	// several evictions turned this into O(n^2) inside the lock.
+	evict := 0
+	for evict < len(current.ring) && (len(current.ring)-evict > h.config.RingSize || current.ringBytes > h.config.RingBytes) {
+		current.ringBytes -= current.ring[evict].size
+		evict++
+	}
+	if evict > 0 {
+		// Copied down rather than resliced so the evicted events become unreachable
+		// and the backing array does not grow without bound.
+		remaining := copy(current.ring, current.ring[evict:])
+		clear(current.ring[remaining:])
+		current.ring = current.ring[:remaining]
 	}
 	if current.ringBytes < 0 {
 		current.ringBytes = 0
@@ -362,6 +396,14 @@ func (h *Hub) Publish(event Event) {
 }
 
 func boundedHubEvent(event Event, maximum int) Event {
+	bounded, _ := boundedHubEventWithSize(event, maximum)
+	return bounded
+}
+
+// boundedHubEventWithSize returns the bounded event and its encoded size. The
+// size is a by-product of the checks below, so handing it back saves the caller a
+// full re-marshal of an event it just measured.
+func boundedHubEventWithSize(event Event, maximum int) (Event, int) {
 	if maximum <= 0 {
 		maximum = DefaultMaxEventBytes
 	}
@@ -373,27 +415,27 @@ func boundedHubEvent(event Event, maximum int) Event {
 	if truncated {
 		event.Data = markHubEventTruncated(event.Data)
 	}
-	if hubEventSize(event) <= maximum {
-		return event
+	if size := hubEventSize(event); size <= maximum {
+		return event, size
 	}
 	event.Data = boundedHubEventData(event.Data, hubEventDataStringSoftLimitBytes, hubEventDataMaxFields, hubEventDataMaxItems, 4)
 	event.Data = markHubEventTruncated(event.Data)
-	if hubEventSize(event) <= maximum {
-		return event
+	if size := hubEventSize(event); size <= maximum {
+		return event, size
 	}
 	event.Data = boundedHubEventData(event.Data, hubEventDataStringTightLimitBytes, hubEventDataTightMaxFields, hubEventDataTightMaxItems, 3)
 	event.Data = markHubEventTruncated(event.Data)
-	if hubEventSize(event) <= maximum {
-		return event
+	if size := hubEventSize(event); size <= maximum {
+		return event, size
 	}
 	event.Data = criticalHubEventData(event.Data)
 	event.Text = hubEventTextThatFits(event, maximum)
-	if hubEventSize(event) <= maximum {
-		return event
+	if size := hubEventSize(event); size <= maximum {
+		return event, size
 	}
 	event.Data = map[string]any{"truncated": true}
 	event.Text = hubEventTextThatFits(event, maximum)
-	return event
+	return event, hubEventSize(event)
 }
 
 func boundedHubEventData(data map[string]any, stringLimit, maxFields, maxItems, maxDepth int) map[string]any {
@@ -548,6 +590,28 @@ func hubEventTextThatFits(event Event, maximum int) string {
 		}
 	}
 	return best
+}
+
+// maxEventBytes is the configured ceiling with the same zero-value fallback
+// boundedHubEventWithSize applies, so the two agree on what "too big" means.
+func (h *Hub) maxEventBytes() int {
+	if h.config.MaxEventBytes <= 0 {
+		return DefaultMaxEventBytes
+	}
+	return h.config.MaxEventBytes
+}
+
+// hubEventEnvelopeMaxGrowth is the most the JSON can grow when Publish stamps the
+// envelope onto an event.
+//
+// The four envelope fields have no omitempty, so their keys, quotes and
+// separators are already in the size measured before the stamp; only the values
+// get longer. This deliberately ignores the characters the zero values already
+// occupied, which makes it an upper bound rather than an estimate: if it says the
+// event still fits, it fits, and the re-bound is genuinely unnecessary.
+func hubEventEnvelopeMaxGrowth(event Event) int {
+	// uint64 is at most 20 digits, int at most 11 with sign.
+	return len(event.StreamSession) + len(event.CreatedAt) + 20 + 11
 }
 
 func hubEventSize(event Event) int {
