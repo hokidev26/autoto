@@ -256,6 +256,8 @@ export default Object.freeze({
       awaitingApproval: "Awaiting approval",
       retrying: "Retrying",
       compacting: "Compacting context",
+      waitingSubagent: "Waiting on {count} subagent",
+      waitingSubagentQueued: "Subagent queued ({count})",
     },
     permissionGuard: "Permission protection",
     dangerReflection: "Danger reflection",

@@ -91,7 +91,7 @@ test("foreground generation activity temporarily owns the composer task summary"
   controller.applySnapshot({ backgroundTasks: [{ id: "task-1", status: "running", title: "Run checks" }] }, { agentId: "agent-1" });
 
   assert.equal(controller.setForegroundActivity({ kind: "thinking", text: "思考中" }), true);
-  assert.deepEqual(controller.state().foregroundActivity, { kind: "thinking", text: "思考中" });
+  assert.deepEqual(controller.state().foregroundActivity, { kind: "thinking", text: "思考中", tone: "running" });
   assert.equal(elements.headerCurrentTaskText.textContent, "思考中");
   assert.equal(elements.headerTaskStatusDot.className, "header-task-status-dot running");
   assert.equal(elements.headerTaskSummaryBtn.attributes["aria-busy"], "true");
@@ -713,11 +713,14 @@ test("the task list is a one-row tab strip and the detail pane owns the rest", a
   assert.match(grid[0], /grid-template-rows:\s*auto minmax\(0, 1fr\)/);
 
   // Tabs scroll sideways rather than wrapping into more rows.
-  const list = css.match(/\.background-task-list \{[^}]*\}/);
-  assert.ok(list, ".background-task-list must exist");
-  assert.match(list[0], /display:\s*flex/);
-  assert.match(list[0], /overflow-x:\s*auto/);
-  assert.match(list[0], /overflow-y:\s*hidden/);
+  const strip = css.match(/\.background-task-tabs \{[^}]*\}/);
+  assert.ok(strip, ".background-task-tabs must exist");
+  assert.match(strip[0], /display:\s*flex/);
+  assert.match(strip[0], /overflow-x:\s*auto/);
+  assert.match(strip[0], /overflow-y:\s*hidden/);
+  // The narrow-width override must not reintroduce a row split: the strip is one
+  // auto row at every width, and a 40% share of the panel would be absurd for it.
+  assert.doesNotMatch(css, /@media \(max-width: 760px\) \{[^}]*\.background-task-tray-grid \{[^}]*grid-template-rows/);
 
   // Status is a dot on the tab; a word per tab would crowd out the title.
   assert.match(css, /\.background-task-tab-dot \{[^}]*border-radius:\s*50%/);
@@ -845,4 +848,120 @@ test("the task summary never reads idle while a task is running", () => {
   controller.handleEvent({ type: "task.completed", agentId: "agent-1", data: { taskId: "task-1", kind: "agent", status: "completed", revision: 3 } });
   assert.equal(elements.headerTaskStatusDot.className, "header-task-status-dot idle");
   assert.equal(elements.headerCurrentTaskText.textContent, idleText);
+});
+
+// Every task used to get a tab whether or not it had been looked at, so five
+// background tasks meant five truncated titles competing for one row. The strip
+// now starts from the overview and grows only when the user opens something.
+test("the tab strip starts at the overview and grows only for opened tasks", async () => {
+  const controller = createBackgroundTasksController({
+    request: async (path) => {
+      if (path.includes("/background-tasks?limit=")) {
+        return { tasks: [
+          { id: "task-1", status: "running", title: "First", createdAt: "2026-08-08T10:00:02Z", updatedAt: "2026-08-08T10:00:02Z" },
+          { id: "task-2", status: "succeeded", title: "Second", createdAt: "2026-08-08T10:00:01Z", updatedAt: "2026-08-08T10:00:01Z" },
+        ] };
+      }
+      if (path.endsWith("/output?afterSequence=0")) return { chunks: [] };
+      if (path.includes("/output")) return { chunks: [] };
+      const id = path.split("/").pop();
+      return { id, status: "running", title: id === "task-1" ? "First" : "Second", createdAt: "2026-08-08T10:00:02Z", updatedAt: "2026-08-08T10:00:02Z" };
+    },
+  });
+  controller.setAgent("agent-1");
+  await controller.loadAgent("agent-1");
+
+  assert.equal(controller.state().selected, "", "the overview is the default view");
+  assert.deepEqual(controller.state().openTabs, [], "no task has a tab until it is opened");
+
+  await controller.selectTask("task-1");
+  assert.equal(controller.state().selected, "task-1");
+  assert.deepEqual(controller.state().openTabs, ["task-1"], "opening a task gives it a tab");
+
+  await controller.selectTask("task-2");
+  assert.deepEqual(controller.state().openTabs, ["task-1", "task-2"], "tabs accumulate in the order they were opened");
+
+  // Closing the active tab falls back to the overview rather than to a task the
+  // user did not ask for.
+  assert.equal(controller.closeTab("task-2"), true);
+  assert.deepEqual(controller.state().openTabs, ["task-1"]);
+  assert.equal(controller.state().selected, "", "closing the active tab returns to the overview");
+
+  // Reopening goes back through the overview, which still lists everything.
+  await controller.selectTask("task-2");
+  assert.deepEqual(controller.state().openTabs, ["task-1", "task-2"]);
+
+  controller.showOverview();
+  assert.equal(controller.state().selected, "");
+  assert.deepEqual(controller.state().openTabs, ["task-1", "task-2"], "the overview does not discard open tabs");
+});
+
+// Closing a tab is housekeeping; stopping the work is not. They were the same
+// button, so tidying the strip cancelled whatever was running behind it.
+test("closing a tab leaves the task running", async () => {
+  const cancelled = [];
+  const controller = createBackgroundTasksController({
+    request: async (path, options = {}) => {
+      if (String(options.method || "").toUpperCase() === "POST" && path.includes("/cancel")) {
+        cancelled.push(path);
+        return { id: "task-1", status: "cancelled" };
+      }
+      if (path.includes("/output")) return { chunks: [] };
+      return { id: "task-1", status: "running", title: "First", createdAt: "2026-08-08T10:00:02Z", updatedAt: "2026-08-08T10:00:02Z" };
+    },
+  });
+  controller.setAgent("agent-1");
+  await controller.selectTask("task-1");
+  assert.deepEqual(controller.state().openTabs, ["task-1"]);
+
+  controller.closeTab("task-1");
+  assert.deepEqual(cancelled, [], "closing a tab must not cancel the task");
+  assert.equal(controller.state().tasksById["task-1"].status, "running", "the task keeps running");
+  assert.deepEqual(controller.state().openTabs, []);
+
+  // Cancelling is still available, from the overview row.
+  await controller.cancel("task-1");
+  assert.equal(cancelled.length, 1, "cancel is still reachable");
+});
+
+// End to end across the two layers: the helper decides the parent is blocked on a
+// child, and the controller renders that as an amber dot rather than the working
+// blue. The tone has to survive the hand-off for the distinction to reach anyone.
+test("waiting on a child reaches the task summary as an amber dot", () => {
+  function element() {
+    const classes = new Set();
+    return {
+      attributes: {},
+      className: "",
+      textContent: "",
+      classList: {
+        contains: (name) => classes.has(name),
+        toggle(name, force) { if (force) classes.add(name); else classes.delete(name); },
+      },
+      setAttribute(name, value) { this.attributes[name] = String(value); },
+    };
+  }
+  const elements = {
+    headerTaskSummaryBtn: element(),
+    headerCurrentTaskText: element(),
+    headerTaskQueueBadge: element(),
+    headerTaskStatusDot: element(),
+  };
+  const controller = createBackgroundTasksController({
+    request: async () => ({}),
+    documentRef: { getElementById: (id) => elements[id] || null },
+  });
+  controller.setAgent("agent-1");
+
+  controller.setForegroundActivity({ kind: "waiting", tone: "waiting", text: "waiting on 1 subagent" });
+  assert.equal(elements.headerTaskStatusDot.className, "header-task-status-dot waiting");
+  assert.equal(elements.headerCurrentTaskText.textContent, "waiting on 1 subagent");
+
+  // The parent picking the work back up returns to the working blue.
+  controller.setForegroundActivity({ kind: "thinking", text: "thinking" });
+  assert.equal(elements.headerTaskStatusDot.className, "header-task-status-dot running");
+
+  // An unknown tone must not render an unstyled dot.
+  controller.setForegroundActivity({ kind: "thinking", tone: "nonsense", text: "still thinking" });
+  assert.equal(elements.headerTaskStatusDot.className, "header-task-status-dot running");
 });

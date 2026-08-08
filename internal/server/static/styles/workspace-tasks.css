@@ -2020,7 +2020,7 @@ body.white-shell.theme-light .messages:not(.empty) > [class~="message"][class~="
 }
 /* A browser-style tab strip: one row regardless of task count, scrolling
    sideways instead of pushing the detail pane down the panel. */
-.background-task-list {
+.background-task-tabs {
   min-height: 0;
   display: flex;
   align-items: stretch;
@@ -2031,6 +2031,92 @@ body.white-shell.theme-light .messages:not(.empty) > [class~="message"][class~="
   border-bottom: 1px solid var(--line, var(--ws-border, #e5e7eb));
   scrollbar-width: thin;
 }
+.background-task-tray-pane {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.background-task-overview {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 8px;
+  overflow-y: auto;
+}
+
+.background-task-overview-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  border-radius: 8px;
+}
+
+.background-task-overview-row:hover {
+  background: color-mix(in srgb, var(--muted, #64748b) 8%, transparent);
+}
+
+.background-task-overview-open {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text, #111827);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.background-task-overview-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.background-task-overview-time {
+  flex: none;
+  color: var(--muted, #64748b);
+  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+.background-task-overview-cancel {
+  flex: none;
+  display: grid;
+  width: 24px;
+  height: 24px;
+  place-items: center;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted, #64748b);
+  cursor: pointer;
+}
+
+.background-task-overview-cancel:hover:not(:disabled) {
+  background: color-mix(in srgb, #dc2626 12%, transparent);
+  color: #dc2626;
+}
+
+.background-task-overview-cancel:disabled { opacity: .45; cursor: default; }
+.background-task-overview-cancel svg { width: 13px; height: 13px; }
+
+/* The overview tab is permanent, so it gets no close control and keeps its icon
+   visible even when the label is squeezed out. */
+.background-task-tab.overview { max-width: 132px; padding-right: 8px; }
+.background-task-tab-icon { flex: none; display: grid; place-items: center; }
+.background-task-tab-icon svg { width: 13px; height: 13px; }
+
 .background-task-tab {
   flex: 0 1 auto;
   min-width: 0;
@@ -2369,8 +2455,10 @@ body.white-shell.theme-light .messages:not(.empty) > [class~="message"][class~="
 .conversation-continuation-grid span { color: var(--muted, #64748b); font-size: 10px; }
 .conversation-continuation-grid strong { overflow-wrap: anywhere; color: var(--text, #111827); font-size: 11px; }
 @media (max-width: 760px) {
-  .background-task-tray-grid { grid-template-rows: minmax(150px, 40%) minmax(0, 60%); }
-  .background-task-list { max-height: none; }
+  /* No row split to restore here: the strip is one auto row at every width and
+     the pane takes the rest. The old 40/60 override dated from the stacked
+     list-above-detail layout and would hand the tab strip 40% of the panel. */
+  .background-task-tabs { max-height: none; }
   .conversation-continuation-grid { grid-template-columns: 1fr; }
 }
 
@@ -3057,7 +3145,10 @@ body.white-shell.theme-light.theme-dark .remote-access-generated span { color: v
   box-shadow: 0 0 0 4px rgba(37, 99, 235, .12);
 }
 
-.header-task-status-dot.queued {
+.header-task-status-dot.queued,
+/* Blocked on a child rather than working: amber reads as "not my turn", which
+   is different information from the working blue. */
+.header-task-status-dot.waiting {
   background: #d97706;
   box-shadow: 0 0 0 4px rgba(217, 119, 6, .11);
 }
@@ -3279,12 +3370,20 @@ body.white-shell.theme-light .composer-task-summary .header-task-status-dot:not(
 }
 
 body.white-shell.theme-light .composer-task-summary .header-task-status-dot.running,
-body.white-shell.theme-light .composer-task-summary .header-task-status-dot.queued {
+body.white-shell.theme-light .composer-task-summary .header-task-status-dot.queued,
+body.white-shell.theme-light .composer-task-summary .header-task-status-dot.waiting {
   border-color: color-mix(in srgb, var(--ws-primary, #2563eb) 24%, transparent);
   border-top-color: var(--ws-primary, #2563eb);
   background: transparent;
   box-shadow: none;
   animation: composer-task-indicator-spin .8s linear infinite;
+}
+
+/* Still spinning, because the work is still going, but amber: the parent is
+   blocked on a child rather than doing the work itself. */
+body.white-shell.theme-light .composer-task-summary .header-task-status-dot.waiting {
+  border-color: rgba(217, 119, 6, .24);
+  border-top-color: #d97706;
 }
 
 @keyframes composer-task-indicator-spin {

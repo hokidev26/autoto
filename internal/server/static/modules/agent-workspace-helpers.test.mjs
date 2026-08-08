@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { createAgentWorkspaceHelpers, resolveComposerActivityStatus } from "./agent-workspace-helpers.mjs";
+import { createAgentWorkspaceHelpers, resolveComposerActivityStatus, waitingOnBackgroundTasks } from "./agent-workspace-helpers.mjs";
 
 function translate(key) {
   return {
@@ -141,7 +141,7 @@ test("composer activity prefers pending approval, then tools, then thinking/gene
   );
 });
 
-test("desktop project conversations use the task summary while mobile and standalone views keep the composer fallback", () => {
+test("desktop conversations use the task summary and only mobile keeps the composer fallback", () => {
   const previousDocument = globalThis.document;
   const classes = () => {
     const values = new Set();
@@ -195,13 +195,58 @@ test("desktop project conversations use the task summary while mobile and standa
     assert.equal(label.textContent, "思考中");
     assert.equal(wrapper.classList.contains("is-busy"), true);
 
+    // A conversation outside a project routes too. Requiring the project context
+    // left an ordinary chat reporting no running task for a whole turn, which is
+    // the one place the user looks to see what the agent is doing.
     mobileViewport = false;
     projectContext = false;
     helpers.refreshComposerActivityStatus();
-    assert.equal(routed[2], null);
-    assert.equal(label.textContent, "思考中");
+    assert.deepEqual(routed[2], { kind: "thinking", text: "思考中" });
+    assert.notEqual(label.textContent, "思考中");
     assert.equal(wrapper.classList.contains("is-busy"), true);
   } finally {
     globalThis.document = previousDocument;
   }
+});
+
+// Dispatching a subagent returns a handle and ends the parent run, so every
+// local signal reads idle while the work is still going. The task counts are the
+// only thing that knows, and the parent being blocked is different information
+// from the parent working: amber, not the busy blue.
+test("waiting on a child agent is its own state, not idle and not working", () => {
+  const waitTranslate = (key, params = {}) => {
+    if (key === "chat.activity.waitingSubagent") return `waiting ${params.count}`;
+    if (key === "chat.activity.waitingSubagentQueued") return `queued ${params.count}`;
+    return translate(key);
+  };
+
+  assert.equal(waitingOnBackgroundTasks(null, waitTranslate), null, "no controller means nothing to report");
+  assert.equal(
+    waitingOnBackgroundTasks({ getSummary: () => ({ runningCount: 0, queuedCount: 0 }) }, waitTranslate),
+    null,
+    "an idle agent with no tasks stays idle",
+  );
+
+  assert.deepEqual(
+    waitingOnBackgroundTasks({ getSummary: () => ({ runningCount: 2, queuedCount: 0 }) }, waitTranslate),
+    { kind: "waiting", tone: "waiting", text: "waiting 2" },
+  );
+
+  // Queued still counts as waiting: the work is accepted and the parent cannot
+  // proceed, which is the same thing to the person watching.
+  assert.deepEqual(
+    waitingOnBackgroundTasks({ getSummary: () => ({ runningCount: 0, queuedCount: 1 }) }, waitTranslate),
+    { kind: "waiting", tone: "waiting", text: "queued 1" },
+  );
+});
+
+// The local activity is the parent's own work and has to win: "editing app.mjs"
+// says more than "waiting on a subagent" when both are true.
+test("the parent's own activity outranks waiting on a child", () => {
+  const local = resolveComposerActivityStatus({
+    agent: { status: "running" },
+    liveAssistantActive: true,
+    liveAssistantText: "writing it out",
+  }, translate);
+  assert.equal(local.kind, "generating", "the parent's own state is still resolved first");
 });

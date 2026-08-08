@@ -52,6 +52,22 @@ function runningLiveTools(state) {
     .sort((a, b) => String(b.createdAt || "").localeCompare(String(a.createdAt || "")));
 }
 
+// Amber rather than the busy blue: the parent is not working, it is blocked on
+// something else that is, and those read differently at a glance.
+export function waitingOnBackgroundTasks(backgroundTasks, translate = t) {
+  const summary = backgroundTasks?.getSummary?.();
+  const running = Number(summary?.runningCount) || 0;
+  const queued = Number(summary?.queuedCount) || 0;
+  if (!running && !queued) return null;
+  return {
+    kind: "waiting",
+    tone: "waiting",
+    text: running
+      ? translate("chat.activity.waitingSubagent", { count: running })
+      : translate("chat.activity.waitingSubagentQueued", { count: queued }),
+  };
+}
+
 export function resolveComposerActivityStatus(state, translate = t) {
   const approvals = Object.values(state?.pendingToolApprovals || {}).filter(Boolean);
   if (approvals.length) {
@@ -135,9 +151,19 @@ export function createAgentWorkspaceHelpers({
     const label = $("composerStatusText");
     const dot = $("composerStatusDot");
     const wrap = label?.closest?.(".composer-status") || document.querySelector?.(".composer-status");
-    const activity = resolveComposerActivityStatus(state, t);
+    const localActivity = resolveComposerActivityStatus(state, t);
     const backgroundTasks = getBackgroundTasks?.();
-    const routeActivityToTaskSummary = Boolean(projectOperationContextActive?.() && !isMobileAppViewport?.() && backgroundTasks?.setForegroundActivity);
+    // Waiting on a child is the parent's own state, but nothing local reports it:
+    // dispatching returns a handle and the parent run ends, so every local signal
+    // reads idle while the work is still going. The task counts are the only place
+    // that knows, which is why this is resolved here rather than in
+    // resolveComposerActivityStatus.
+    const activity = localActivity || waitingOnBackgroundTasks(backgroundTasks);
+    // The summary sits where the user looks for "what is it doing", so it takes
+    // the activity whenever it is on screen. It used to require the project
+    // context, which left a plain conversation reporting no running task through
+    // an entire turn.
+    const routeActivityToTaskSummary = Boolean(!isMobileAppViewport?.() && backgroundTasks?.setForegroundActivity);
     if (routeActivityToTaskSummary) backgroundTasks.setForegroundActivity(activity);
     else backgroundTasks?.setForegroundActivity?.(null);
     const composerActivity = routeActivityToTaskSummary ? null : activity;

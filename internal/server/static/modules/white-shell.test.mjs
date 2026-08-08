@@ -1124,7 +1124,14 @@ test("composer task activity is borderless, left aligned, and spins blue while a
   assert.match(backgroundTasks, /summary\.current\?\.title\s*\|\|\s*\(hasCurrentActivity[\s\S]*?headerTitle[\s\S]*?headerIdle/);
   assert.match(backgroundTasks, /headerButton\.classList\.toggle\("has-task", hasCurrentActivity\)/);
   assert.match(backgroundTasks, /headerQueue\.classList\.toggle\("hidden", summary\.queuedCount <= 0\)/);
-  assert.match(agentWorkspaceHelpers, /routeActivityToTaskSummary[\s\S]*?projectOperationContextActive\?\.\(\) && !isMobileAppViewport\?\.\(\)[\s\S]*?backgroundTasks\.setForegroundActivity\(activity\)/);
+  // Mobile is the only view that keeps the composer pill as the fallback. The
+  // project context used to gate this too, which left an ordinary conversation
+  // reporting no running task for a whole turn.
+  assert.match(agentWorkspaceHelpers, /routeActivityToTaskSummary[\s\S]*?!isMobileAppViewport\?\.\(\)[\s\S]*?backgroundTasks\.setForegroundActivity\(activity\)/);
+  assert.doesNotMatch(agentWorkspaceHelpers, /routeActivityToTaskSummary = Boolean\(projectOperationContextActive/);
+  // Blocked on a child is a distinct state, and it has to survive as far as the dot.
+  assert.match(agentWorkspaceHelpers, /waitingOnBackgroundTasks[\s\S]*?tone: "waiting"/);
+  assert.match(backgroundTasks, /foregroundActivity\.tone \|\| "running"/);
   assert.match(appMain, /createAgentWorkspaceHelpers\(\{[\s\S]*?projectOperationContextActive,[\s\S]*?isMobileAppViewport,/);
   assert.match(appMain, /onMessageAccepted:\s*async[\s\S]*?state\.agent = \{ \.\.\.state\.agent, status: "running" \}[\s\S]*?refreshComposerActivityStatus\(\)/);
   assert.match(appMain, /window\.addEventListener\("resize"[\s\S]*?refreshComposerActivityStatus\(\)/);

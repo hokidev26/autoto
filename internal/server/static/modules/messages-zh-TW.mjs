@@ -256,6 +256,8 @@ export default Object.freeze({
       awaitingApproval: "等待核准",
       retrying: "重試中",
       compacting: "壓縮中",
+      waitingSubagent: "等待 {count} 個子代理",
+      waitingSubagentQueued: "子代理排隊中（{count}）",
     },
     permissionGuard: "權限保護",
     dangerReflection: "危險反思",

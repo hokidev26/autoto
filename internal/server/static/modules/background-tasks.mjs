@@ -15,9 +15,13 @@ function text(value) {
 function normalizeForegroundActivity(value) {
   const label = text(value?.text || value?.label);
   if (!label) return null;
+  const tone = text(value?.tone);
   return {
     kind: text(value?.kind) || "activity",
     text: label,
+    // Only the tones the dot has a style for; anything else falls back to the
+    // working blue rather than rendering an unstyled dot.
+    tone: tone === "waiting" || tone === "queued" ? tone : "running",
   };
 }
 
@@ -283,6 +287,12 @@ export function createBackgroundTasksController({
   let detailView = "conversation";
   const hydrationRequests = new Map();
   const listeners = new Set();
+  // Tabs the user opened, in the order they opened them. Every task used to get
+  // a tab whether or not it had been looked at, so five background tasks meant
+  // five truncated titles competing for one row. The strip now starts from the
+  // overview and grows only on demand.
+  const openTabs = [];
+  // "" is the overview: the list of everything, and where a closed tab returns to.
   let selected = "";
   let agentId = "";
   let agentGeneration = 0;
@@ -295,6 +305,29 @@ export function createBackgroundTasksController({
 
   const host = (id) => documentRef?.getElementById?.(id) || null;
   const operationIsCurrent = (expectedAgentId, expectedGeneration) => agentId === expectedAgentId && agentGeneration === expectedGeneration;
+
+  function openTabIds() {
+    return openTabs.filter((id) => tasksById.has(id));
+  }
+
+  function rememberOpenTab(id) {
+    const normalized = text(id);
+    if (!normalized || openTabs.includes(normalized)) return;
+    openTabs.push(normalized);
+  }
+
+  // Closes the tab only. Cancelling is a separate, destructive action that lives
+  // on the overview row and in the detail pane, so tidying the strip cannot stop
+  // work by accident.
+  function closeTab(id) {
+    const normalized = text(id);
+    const at = openTabs.indexOf(normalized);
+    if (at < 0) return false;
+    openTabs.splice(at, 1);
+    if (selected === normalized) selected = "";
+    emit("tab-closed");
+    return true;
+  }
 
   function setTrayOpen(nextOpen, reason = "tray-change") {
     const open = Boolean(nextOpen && agentId);
@@ -606,6 +639,7 @@ export function createBackgroundTasksController({
       if (!alreadyLoaded) await loadTask(normalized);
       if (!operationIsCurrent(expectedAgentId, expectedGeneration) || !tasksById.has(normalized)) return null;
       selected = normalized;
+      rememberOpenTab(normalized);
       setTrayOpen(true, "task-selected");
       emit("selected");
       if (alreadyLoaded) await loadTask(normalized);
@@ -716,7 +750,7 @@ export function createBackgroundTasksController({
 
   function setForegroundActivity(value) {
     const next = agentId ? normalizeForegroundActivity(value) : null;
-    if (next?.kind === foregroundActivity?.kind && next?.text === foregroundActivity?.text) return true;
+    if (next?.kind === foregroundActivity?.kind && next?.text === foregroundActivity?.text && next?.tone === foregroundActivity?.tone) return true;
     foregroundActivity = next;
     render();
     return true;
@@ -732,6 +766,7 @@ export function createBackgroundTasksController({
     tasksByParentTool.clear();
     hydrationRequests.clear();
     order.splice(0);
+    openTabs.splice(0);
     outputs.clear();
     outputCursors.clear();
     cancelBusy.clear();
@@ -754,20 +789,50 @@ export function createBackgroundTasksController({
     return (outputs.get(id) || []).map((chunk) => chunk.text).join("");
   }
 
-  // Browser-style tabs rather than stacked cards: picking a task is the common
-  // action, and a tab strip makes that one click while costing one row of height
-  // no matter how many tasks there are.
-  function renderTaskRow(task) {
-    const active = task.id === selected;
+  // Browser-style tabs, but only for tasks the user opened. The leading tab is
+  // the overview and cannot be closed, so there is always somewhere to go back
+  // to and somewhere to reopen a task from.
+  function renderTabStripHTML() {
+    const overviewActive = !selected;
+    const tabs = openTabIds().map((id) => {
+      const task = tasksById.get(id);
+      const active = id === selected;
+      const label = task.title || task.id;
+      return `<span class="background-task-tab ${active ? "active" : ""}" data-background-tab-wrap>
+        <button class="background-task-tab-main" type="button" data-background-task="${escapeAttr(id)}" aria-pressed="${active ? "true" : "false"}" title="${escapeAttr(label)}">
+          <span class="background-task-tab-dot status-${escapeAttr(task.status)}" aria-hidden="true"></span>
+          <span class="background-task-tab-label">${escapeHtml(label)}</span>
+        </button>
+        <button class="background-task-tab-close" type="button" data-background-tab-close="${escapeAttr(id)}" title="${escapeAttr(t("backgroundTasks.closeTab"))}" aria-label="${escapeAttr(t("backgroundTasks.closeTab"))}">×</button>
+      </span>`;
+    }).join("");
+    return `<div class="background-task-tabs" role="tablist">
+      <span class="background-task-tab overview ${overviewActive ? "active" : ""}" data-background-tab-wrap>
+        <button class="background-task-tab-main" type="button" data-background-overview aria-pressed="${overviewActive ? "true" : "false"}" title="${escapeAttr(t("backgroundTasks.overview"))}">
+          <span class="background-task-tab-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 6h16M4 12h16M4 18h10"></path></svg></span>
+          <span class="background-task-tab-label">${escapeHtml(t("backgroundTasks.overview"))}</span>
+        </button>
+      </span>
+      ${tabs}
+    </div>`;
+  }
+
+  // The overview row carries the cancel, because the tab's × now only closes the
+  // tab and stopping a task still has to be reachable.
+  function renderOverviewRowHTML(task) {
     const canCancel = cancellableStatuses.has(task.status);
-    const closeLabel = canCancel ? t("backgroundTasks.cancel") : t("backgroundTasks.close");
-    return `<span class="background-task-tab ${active ? "active" : ""}" data-background-tab-wrap>
-      <button class="background-task-tab-main" type="button" data-background-task="${escapeAttr(task.id)}" aria-pressed="${active ? "true" : "false"}" title="${escapeAttr(task.title || task.id)}">
+    const label = task.title || task.id;
+    return `<div class="background-task-overview-row">
+      <button class="background-task-overview-open" type="button" data-background-task="${escapeAttr(task.id)}" title="${escapeAttr(label)}">
         <span class="background-task-tab-dot status-${escapeAttr(task.status)}" aria-hidden="true"></span>
-        <span class="background-task-tab-label">${escapeHtml(task.title || task.id)}</span>
+        <span class="background-task-overview-title">${escapeHtml(label)}</span>
+        <span class="background-task-state status-${escapeAttr(task.status)}">${escapeHtml(taskStatusLabel(task.status))}</span>
+        <span class="background-task-overview-time">${escapeHtml(task.durationMs == null ? (task.createdAt ? formatTimestamp(task.createdAt) : "—") : formatDuration(task.durationMs))}</span>
       </button>
-      <button class="background-task-tab-close" type="button" data-background-cancel="${escapeAttr(task.id)}" ${canCancel && !cancelBusy.has(task.id) ? "" : "disabled"} title="${escapeAttr(closeLabel)}" aria-label="${escapeAttr(closeLabel)}">×</button>
-    </span>`;
+      ${canCancel
+        ? `<button class="background-task-overview-cancel" type="button" data-background-cancel="${escapeAttr(task.id)}" ${cancelBusy.has(task.id) ? "disabled" : ""} title="${escapeAttr(t("backgroundTasks.cancel"))}" aria-label="${escapeAttr(t("backgroundTasks.cancel"))}"><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="m6 6 12 12"></path><path d="m18 6-12 12"></path></svg></button>`
+        : ""}
+    </div>`;
   }
 
   const effortOptions = ["auto", "low", "medium", "high", "xhigh", "max", "ultra"];
@@ -883,7 +948,7 @@ export function createBackgroundTasksController({
     const activeCount = summary.activeCount;
     const currentStatus = summary.current?.status || "idle";
     const currentTone = foregroundActivity
-      ? "running"
+      ? foregroundActivity.tone || "running"
       : runningStatuses.has(currentStatus) ? "running" : queuedStatuses.has(currentStatus) ? "queued" : "idle";
     const hasCurrentActivity = Boolean(foregroundActivity || summary.current);
     // A lifecycle event carries identifiers and state but no title, and the title
@@ -935,8 +1000,16 @@ export function createBackgroundTasksController({
       <div class="background-task-panel-body">
         ${error ? `<div class="background-task-error">${escapeHtml(error)}</div>` : ""}
         <div class="background-task-tray-grid">
-          <div class="background-task-list">${loading && !tasks.length ? `<div class="background-task-empty">${escapeHtml(t("backgroundTasks.loading"))}</div>` : tasks.length ? tasks.map(renderTaskRow).join("") : `<div class="background-task-empty">${escapeHtml(t("backgroundTasks.empty"))}</div>`}</div>
-          ${renderSelectedTask(tasksById.get(selected))}
+          ${renderTabStripHTML()}
+          <div class="background-task-tray-pane">
+            ${selected
+              ? renderSelectedTask(tasksById.get(selected))
+              : `<div class="background-task-overview">${loading && !tasks.length
+                ? `<div class="background-task-empty">${escapeHtml(t("backgroundTasks.loading"))}</div>`
+                : tasks.length
+                  ? tasks.map(renderOverviewRowHTML).join("")
+                  : `<div class="background-task-empty">${escapeHtml(t("backgroundTasks.empty"))}</div>`}</div>`}
+          </div>
         </div>
       </div>`);
   }
@@ -949,7 +1022,9 @@ export function createBackgroundTasksController({
 
   function toggleTray() {
     const nextOpen = !trayOpen;
-    if (nextOpen && !selected) selected = taskSummary().current?.id || order[0] || "";
+    // Opens on the overview rather than guessing a task: the strip is now built
+    // from what the user opened, and preselecting would put a tab there that they
+    // never asked for.
     setTrayOpen(nextOpen, "tray-toggle");
     emit("tray-toggle");
     if (nextOpen && agentId && !order.length) loadAgent(agentId).catch(onError);
@@ -961,10 +1036,15 @@ export function createBackgroundTasksController({
     host("backgroundTasksBtn")?.addEventListener("click", toggleTray);
     host("headerTaskSummaryBtn")?.addEventListener("click", toggleTray);
     host("backgroundTaskTray")?.addEventListener("click", (event) => {
-      const target = event.target?.closest?.("[data-background-task],[data-background-close],[data-background-output-more],[data-background-wait],[data-background-cancel],[data-background-agent],[data-background-run],[data-background-view]");
+      const target = event.target?.closest?.("[data-background-task],[data-background-close],[data-background-output-more],[data-background-wait],[data-background-cancel],[data-background-agent],[data-background-run],[data-background-view],[data-background-overview],[data-background-tab-close]");
       if (!target) return;
       if (target.hasAttribute("data-background-close")) {
         closeTray();
+      } else if (target.hasAttribute("data-background-overview")) {
+        selected = "";
+        emit("overview-selected");
+      } else if (target.dataset.backgroundTabClose) {
+        closeTab(target.dataset.backgroundTabClose);
       } else if (target.dataset.backgroundView) {
         detailView = target.dataset.backgroundView === "output" ? "output" : "conversation";
         render();
@@ -1043,7 +1123,12 @@ export function createBackgroundTasksController({
     applySnapshot,
     bind,
     cancel,
+    closeTab,
     closeTray,
+    showOverview: () => {
+      selected = "";
+      emit("overview-selected");
+    },
     getContinuation: () => readonlySnapshot(clonePublicValue(continuation)),
     getSummary: () => readonlySnapshot(publicSummarySnapshot()),
     getTask: getTaskSnapshot,
@@ -1072,6 +1157,7 @@ export function createBackgroundTasksController({
     state: () => ({
       agentId,
       selected,
+      openTabs: openTabIds(),
       order: [...order],
       tasksById: Object.fromEntries([...tasksById].map(([id, task]) => [id, { ...task }])),
       outputs: Object.fromEntries([...outputs].map(([id, chunks]) => [id, chunks.map((chunk) => ({ ...chunk }))])),
