@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -48,6 +49,40 @@ func TestWindowsJobObjectKillsProcessTree(t *testing.T) {
 
 	// Best-effort: marker file must not keep growing after kill (optional).
 	_ = os.Remove(marker)
+}
+
+// Every child started through this package is piped and has no user at a
+// console, so it must not be given one. Without CREATE_NO_WINDOW each shell tool,
+// MCP server and LSP server allocates its own console, which the desktop build
+// shows as a console window flashing on screen for the duration of the command.
+func TestPrepareGivesChildrenNoConsoleWindow(t *testing.T) {
+	cmd := exec.Command("cmd", "/C", "echo hi")
+	Prepare(cmd)
+	if cmd.SysProcAttr == nil {
+		t.Fatal("Prepare must set SysProcAttr")
+	}
+	if cmd.SysProcAttr.CreationFlags&createNoWindow == 0 {
+		t.Fatalf("CREATE_NO_WINDOW missing, children would flash a console: flags %#x", cmd.SysProcAttr.CreationFlags)
+	}
+	// The process group flag is what makes tree reaping predictable, so the new
+	// flag must be merged alongside it rather than replacing it.
+	if cmd.SysProcAttr.CreationFlags&createNewProcessGroup == 0 {
+		t.Fatalf("CREATE_NEW_PROCESS_GROUP lost: flags %#x", cmd.SysProcAttr.CreationFlags)
+	}
+}
+
+// A caller may already have set CmdLine to control exactly what the shell
+// receives. Prepare merges into SysProcAttr, so that must survive.
+func TestPreparePreservesAnExistingCommandLine(t *testing.T) {
+	cmd := exec.Command("cmd")
+	cmd.SysProcAttr = &syscall.SysProcAttr{CmdLine: `cmd.exe /S /C "echo hi"`}
+	Prepare(cmd)
+	if cmd.SysProcAttr.CmdLine != `cmd.exe /S /C "echo hi"` {
+		t.Fatalf("CmdLine was overwritten: %q", cmd.SysProcAttr.CmdLine)
+	}
+	if cmd.SysProcAttr.CreationFlags&createNoWindow == 0 {
+		t.Fatalf("CREATE_NO_WINDOW missing: flags %#x", cmd.SysProcAttr.CreationFlags)
+	}
 }
 
 func TestWindowsJobObjectCreateAndAssign(t *testing.T) {

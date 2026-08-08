@@ -17,6 +17,7 @@ import (
 const (
 	jobObjectExtendedLimitInformationClass = 9
 	createNewProcessGroup                  = 0x00000200
+	createNoWindow                         = 0x08000000
 )
 
 type windowsGroup struct {
@@ -63,6 +64,17 @@ func preparePlatform(cmd *exec.Cmd) platformGroup {
 		cmd.SysProcAttr = &syscall.SysProcAttr{}
 	}
 	cmd.SysProcAttr.CreationFlags |= createNewProcessGroup
+	// CREATE_NO_WINDOW: every process started through this package is a piped
+	// background child -- shell tools, MCP stdio servers, LSP servers, preview and
+	// lifecycle commands -- and none of them has a user at a console. Without this
+	// each one allocates its own console, which the desktop build shows as a
+	// console window flashing on screen for the lifetime of the command.
+	//
+	// Safe alongside the flag above because nothing here delivers console control
+	// events: terminate and kill both work through the Job Object, falling back to
+	// Process.Kill. It is only invalid combined with CREATE_NEW_CONSOLE or
+	// DETACHED_PROCESS, neither of which this package sets.
+	cmd.SysProcAttr.CreationFlags |= createNoWindow
 	return &windowsGroup{}
 }
 
