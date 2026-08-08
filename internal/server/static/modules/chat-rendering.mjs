@@ -3360,12 +3360,21 @@ export function createChatRenderingController({
   //     again streams more steps than it saves rows, and the surplus is stranded
   //     in a second reasoning-only stack.
   //
-  // Matching text is sound across the two size caps because both keep the tail:
-  // the runner trims to the last maxPersistedReasoningBytes, the stream to the
-  // last maxLiveReasoningCharacters. Equal when short, and the live copy is a
-  // suffix of the saved one when long, so endsWith covers both. Each saved turn
-  // retires at most one step, which keeps the "one home each" invariant when a
-  // model repeats itself verbatim across turns.
+  // One saved row can own several steps. The runner concatenates every reasoning
+  // delta of a model turn into a single ReasoningText, while the stream closes a
+  // step at each tool call and at the switch to answering, so a turn that thought
+  // and acted repeatedly saves one row covering all of it. Matching only the end
+  // of that row retired the last step and stranded the earlier ones in a
+  // reasoning-only stack that grew with every turn. Each row is therefore scanned
+  // forward with a cursor: several steps may be retired, in streaming order, and
+  // each occurrence is spent once so a thought repeated verbatim across turns
+  // still keeps one home each.
+  //
+  // The two size caps do not line up, either. The runner trims to the last
+  // maxPersistedReasoningBytes and the stream to the last
+  // maxLiveReasoningCharacters, so for CJK -- three bytes per character against a
+  // smaller byte budget -- the saved row can be the shorter of the two and is a
+  // tail of the live step rather than containing it.
   //
   // Only closed steps hand over; the open draft is still streaming and exists
   // nowhere else yet.
@@ -3394,7 +3403,9 @@ export function createChatRenderingController({
       }
       for (const entry of persisted) {
         const key = reasoningHandoverKey(entry.text);
-        if (key) unclaimed.push(key);
+        // A cursor per row, not a bare string: one row can own several steps, and
+        // each occurrence inside it may only be spent once.
+        if (key) unclaimed.push({ text: key, cursor: 0 });
       }
     }
     if (!unclaimed.length && !claimedRuns.size) return list;
@@ -3405,10 +3416,27 @@ export function createChatRenderingController({
       if (step?.open) return true;
       const key = reasoningHandoverKey(step?.text);
       if (!key) return true;
-      const at = unclaimed.findIndex((saved) => saved === key || saved.endsWith(key));
-      if (at < 0) return true;
-      unclaimed.splice(at, 1);
-      return false;
+      // Search forward from the cursor so a row spends each occurrence once, in
+      // the order the steps streamed. `indexOf` rather than `endsWith` is the
+      // whole point: the runner concatenates a turn's reasoning into one row, so
+      // every step except the last sits in the middle of it.
+      const claimed = unclaimed.some((saved) => {
+        const at = saved.text.indexOf(key, saved.cursor);
+        if (at >= 0) {
+          saved.cursor = at + key.length;
+          return true;
+        }
+        // The saved row is trimmed to a byte budget while the live copy is
+        // trimmed to a character budget, so for CJK the saved text can be the
+        // shorter of the two. Then the row is a tail of the step, not the other
+        // way round, and the row is spent whole.
+        if (saved.cursor === 0 && saved.text && key.endsWith(saved.text)) {
+          saved.cursor = saved.text.length;
+          return true;
+        }
+        return false;
+      });
+      return !claimed;
     });
   }
 

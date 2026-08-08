@@ -3812,6 +3812,100 @@ test("a turn that streamed more steps than it saved keeps only the unsaved ones"
   assert.equal((html.match(/First thought, before the tool\./g) || []).length, 1);
 });
 
+// The runner concatenates every reasoning delta of one model turn into a single
+// saved row, while the client closes a step at each tool call and each switch to
+// answering. One row therefore owns several live steps, and only the last of
+// them is a suffix of it -- the earlier ones sit in the middle. Matching only the
+// end retired that last step and stranded the rest in a reasoning-only stack that
+// grew with every turn, which is the second "activity" row above an answer that
+// had already been written.
+test("one saved row retires every step it concatenated, not just the last", () => {
+  const first = "First I read the failing test.";
+  const second = "Then I checked what the runner saves.";
+  const third = "Finally I compared the two caps.";
+  const { html } = renderSnapshot([{
+    id: "u1",
+    role: "user",
+    contentText: "go",
+  }, {
+    id: "a1",
+    role: "assistant",
+    runId: "run-1",
+    contentText: "Done.",
+    reasoningText: `${first}\n\n${second}\n\n${third}`,
+  }], {
+    agent: { id: "agent-1", status: "running" },
+    liveAssistantRunId: "run-1",
+    liveReasoningSteps: [
+      { id: "reasoning-1", runId: "run-1", text: first, beforeToolUseId: "t1" },
+      { id: "reasoning-2", runId: "run-1", text: second, beforeToolUseId: "t2" },
+      { id: "reasoning-3", runId: "run-1", text: third, beforeToolUseId: "" },
+    ],
+  });
+
+  // One stack, the turn's own. A stranded tail stack would be a second one.
+  assert.equal((html.match(/tool-activity-summary/g) || []).length, 1);
+  assert.equal((html.match(/data-live-tool-output-stack/g) || []).length, 0);
+  for (const step of [first, second, third]) {
+    assert.equal((html.match(new RegExp(step.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "g")) || []).length, 1, `${step} must render exactly once`);
+  }
+});
+
+// A step that the saved row genuinely does not contain still belongs to the tail:
+// the turn cannot render what it never saved.
+test("a step missing from the saved row stays in the tail", () => {
+  const saved = "Only the first thought was saved.";
+  const { html } = renderSnapshot([{
+    id: "u1",
+    role: "user",
+    contentText: "go",
+  }, {
+    id: "a1",
+    role: "assistant",
+    runId: "run-1",
+    contentText: "Done.",
+    reasoningText: saved,
+  }], {
+    agent: { id: "agent-1", status: "running" },
+    liveAssistantRunId: "run-1",
+    liveReasoningSteps: [
+      { id: "reasoning-1", runId: "run-1", text: saved, beforeToolUseId: "t1" },
+      { id: "reasoning-2", runId: "run-1", text: "This thought was never saved.", beforeToolUseId: "" },
+    ],
+  });
+
+  assert.equal((html.match(/Only the first thought was saved\./g) || []).length, 1);
+  assert.equal((html.match(/This thought was never saved\./g) || []).length, 1);
+});
+
+// Two turns can think the same thing verbatim. Each saved row owns one
+// occurrence, so the second turn's live step must not be retired by the first
+// turn's row while its own turn is still unsaved.
+test("a repeated thought is retired once per saved occurrence", () => {
+  const repeated = "Checking the same invariant again.";
+  const { html } = renderSnapshot([{
+    id: "u1",
+    role: "user",
+    contentText: "go",
+  }, {
+    id: "a1",
+    role: "assistant",
+    runId: "run-1",
+    contentText: "First pass.",
+    reasoningText: repeated,
+  }], {
+    agent: { id: "agent-1", status: "running" },
+    liveAssistantRunId: "run-1",
+    liveReasoningSteps: [
+      { id: "reasoning-1", runId: "run-1", text: repeated, beforeToolUseId: "t1" },
+      { id: "reasoning-2", runId: "run-1", text: repeated, beforeToolUseId: "" },
+    ],
+  });
+
+  // One saved occurrence, two live steps: one is handed over, one stays live.
+  assert.equal((html.match(/Checking the same invariant again\./g) || []).length, 2);
+});
+
 // The runner trims saved reasoning to the last maxPersistedReasoningBytes and
 // the stream trims to the last maxLiveReasoningCharacters, so a long turn's live
 // copy is a suffix of the saved one rather than equal to it. The saved row here
