@@ -3015,6 +3015,22 @@ export function createChatRenderingController({
     // reasoning. Rather than depend on every producer agreeing about ownership,
     // the invariant is enforced here: the first surface to claim a toolUseId
     // keeps it, and later surfaces drop it.
+    // A live reasoning step is stamped with the turn that produced it, but the
+    // owner id is only known once that turn has been persisted, so steps that
+    // close before then carry no messageId. Such a step precedes the run's first
+    // assistant turn, and the per-message filter lets an unstamped step through
+    // for every message -- so a later turn with no reasoning of its own adopted
+    // the whole backlog and rendered it as a bare "N steps of reasoning" row
+    // beside the turn that actually did the work. Only the run's first assistant
+    // turn may claim them.
+    const firstAssistantTurnByRun = new Map();
+    for (const message of messages) {
+      if (chatMessagePresentation(message).normalizedRole !== "assistant") continue;
+      const messageRun = String(message?.runId || message?.run_id || "").trim();
+      const id = String(message?.id || "");
+      if (!messageRun || !id || firstAssistantTurnByRun.has(messageRun)) continue;
+      firstAssistantTurnByRun.set(messageRun, id);
+    }
     const claimedToolUseIds = new Set();
     const claimUnseen = (records) => {
       const kept = [];
@@ -3066,7 +3082,9 @@ export function createChatRenderingController({
       // reasoning" until the turns saved their own.
       const reasoningSteps = persistedSteps.length || !messageRunId
         ? persistedSteps
-        : currentLiveReasoningSteps(messageRunId, messageId);
+        : currentLiveReasoningSteps(messageRunId, messageId, {
+          claimUnstamped: firstAssistantTurnByRun.get(messageRunId) === messageId,
+        });
       // This turn's own stack first, then any earlier run this message anchors.
       const rendered = [];
       if (records.length || reasoningSteps.length) {
@@ -3491,15 +3509,24 @@ export function createChatRenderingController({
   // messageId narrows the result to one assistant turn's own thinking. Without it
   // the caller gets the whole run, which is right for the tail stack and wrong for
   // a per-message stack.
-  function currentLiveReasoningSteps(runId = "", messageId = "") {
+  function currentLiveReasoningSteps(runId = "", messageId = "", options = {}) {
     const expected = String(runId || "");
     const owner = String(messageId || "");
+    // An unstamped step predates any assistant turn of this run: the model
+    // reasoned before the first turn was saved, so nothing stamped it. It still
+    // has to be shown, but by exactly one turn. Letting every turn take it made
+    // a later turn with no reasoning of its own display the run's whole backlog
+    // as a bare "N steps of reasoning" row. The tail stack passes no owner and
+    // keeps taking them, which is what covers the gap before the first turn.
+    const claimUnstamped = options.claimUnstamped !== false;
     const steps = (Array.isArray(state.liveReasoningSteps) ? state.liveReasoningSteps : [])
       .filter((step) => !expected || !step.runId || step.runId === expected)
-      // An unstamped step predates any assistant turn of this run (the model
-      // reasoned before the first turn was saved), so it has no owner to compete
-      // over and stays visible either way.
-      .filter((step) => !owner || !step.messageId || step.messageId === owner);
+      .filter((step) => {
+        if (!owner) return true;
+        const stepOwner = String(step?.messageId || "");
+        if (!stepOwner) return claimUnstamped;
+        return stepOwner === owner;
+      });
     const draft = state.liveReasoningDraft;
     if (draft && String(draft.text || "").trim() && (!expected || !draft.runId || draft.runId === expected)) {
       // The open draft belongs to whichever turn is currently streaming, so it
@@ -3566,13 +3593,24 @@ export function createChatRenderingController({
     // sides have to release exactly the same steps.
     const claimedMessages = new Set();
     const claimedRuns = new Set();
+    // Only the run's first assistant turn takes unstamped steps, so only that
+    // turn's state may release them here. Releasing on any unsaved turn of the
+    // run left the steps unrendered: the tail let go while the message stack was
+    // no longer taking them.
+    const firstAssistantTurnByRun = new Map();
+    for (const message of transcriptMessages(state.currentMessages)) {
+      if (chatMessagePresentation(message).normalizedRole !== "assistant") continue;
+      const owner = String(message?.runId || message?.run_id || "").trim();
+      const id = String(message?.id || "").trim();
+      if (owner && id && !firstAssistantTurnByRun.has(owner)) firstAssistantTurnByRun.set(owner, id);
+    }
     for (const message of transcriptMessages(state.currentMessages)) {
       if (chatMessagePresentation(message).normalizedRole !== "assistant") continue;
       const persisted = persistedReasoningSteps(message);
       if (!persisted.length) {
         const owner = String(message?.runId || message?.run_id || "").trim();
         const ownerMessage = String(message?.id || "").trim();
-        if (owner) claimedRuns.add(owner);
+        if (owner && firstAssistantTurnByRun.get(owner) === ownerMessage) claimedRuns.add(owner);
         if (ownerMessage) claimedMessages.add(ownerMessage);
         continue;
       }
@@ -4236,15 +4274,25 @@ export function createChatRenderingController({
     const next = { ...(state.blockedToolNotices || {}) };
     delete next[toolUseId];
     state.blockedToolNotices = next;
+    renderApprovalCards();
+  }
+
+  // A refusal belongs to the turn that hit it. Kept past that turn, it waits for
+  // the next stop and lands as if it were the reason for that one.
+  function clearBlockedToolNotices(agentId = state.agent?.id) {
+    if (!Object.keys(state.blockedToolNotices || {}).length) return;
+    const next = { ...(state.blockedToolNotices || {}) };
+    for (const [key, value] of Object.entries(next)) {
+      if (!agentId || !value?.agentId || value.agentId === agentId) delete next[key];
+    }
+    state.blockedToolNotices = next;
+    renderApprovalCards();
   }
 
   function currentBlockedToolNoticeList() {
     const agentId = state.agent?.id || "";
-    // A refused call is not necessarily the end of the turn: the agent usually
-    // takes another route and finishes the work. Showing the refusal while it is
-    // still working reports a step, not an outcome, and the row then sits there
-    // contradicting a run that went on to succeed. So it is held back until the
-    // agent actually stops, which is the moment it explains something.
+    // Held back while the agent works: a refusal it routes around is a step, not
+    // an outcome, and would otherwise sit above a run that went on to succeed.
     if (!agentHasStopped()) return [];
     return Object.values(state.blockedToolNotices || {})
       .filter((item) => item && (!item.agentId || item.agentId === agentId))
@@ -4990,6 +5038,7 @@ export function createChatRenderingController({
     clearRunSummary,
     clearToolApproval,
     clearAgentRunError,
+    clearBlockedToolNotices,
     dismissBlockedToolNotice,
     rememberAgentRunError,
     // Exported for tests: the approval stack is the surface that reports why a run

@@ -189,9 +189,63 @@ export function createChatComposerController({
     });
   }
 
+  // Which parked row the composer is currently rewriting, when that row carries
+  // attachments. Held here rather than in the queue entry so a server sync cannot
+  // drop it mid-edit.
+  let queueEditTarget = null;
+
+  function editQueuedMessageTextInPlace(item) {
+    const input = $("messageText");
+    if (!input) return;
+    // A half-typed draft would be lost by loading the parked text over it, and
+    // unlike the plain path there is no free slot to park it in, since the row
+    // being edited is staying put.
+    if (input.value.trim() && input.value.trim() !== String(item.text || "").trim()) {
+      showToast?.(t("workspace.chat.queueEditComposerBusy"), "warn", { force: true });
+      return;
+    }
+    queueEditTarget = { id: item.id, agentId: item.agentId || state.agent?.id || "" };
+    input.value = String(item.text || "");
+    autoResizeMessageInput();
+    syncMessageComposerBusy({ checkAttachmentContext: false });
+    input.focus();
+    input.setSelectionRange?.(input.value.length, input.value.length);
+    showToast?.(t("workspace.chat.queueEditingAttachments", { count: item.attachments.length }), "info");
+  }
+
+  function clearQueueEditTarget() {
+    queueEditTarget = null;
+  }
+
+  // Returns true when the send was consumed as an edit of a parked row.
+  async function commitQueueEdit(agentId, text) {
+    if (!queueEditTarget || queueEditTarget.agentId !== agentId) return false;
+    const target = queueEditTarget;
+    const row = (state.messageQueue || []).find((entry) => entry?.id === target.id);
+    if (!row) {
+      clearQueueEditTarget();
+      return false;
+    }
+    clearQueueEditTarget();
+    writeMessageQueue((state.messageQueue || []).map((entry) => (entry?.id === target.id ? { ...entry, text } : entry)));
+    renderMessageQueue();
+    try {
+      await request(`/api/agents/${agentId}/queue/${encodeURIComponent(target.id)}`, {
+        method: "PUT",
+        body: JSON.stringify({ text }),
+      });
+      await syncMessageQueueFromServer(agentId);
+    } catch (err) {
+      await syncMessageQueueFromServer(agentId).catch(() => {});
+      showToast?.(t("workspace.chat.queueEditFailed", { error: err?.message || String(err) }), "warn", { force: true });
+    }
+    return true;
+  }
+
   function dropQueuedMessage(id) {
     const key = String(id || "");
     if (!key) return;
+    if (queueEditTarget?.id === key) clearQueueEditTarget();
     const agentId = state.agent?.id;
     // Drop locally first so the row disappears under the finger that tapped it,
     // then confirm with the server and resync if it disagreed.
@@ -213,6 +267,13 @@ export function createChatComposerController({
     if (!item) return;
     const input = $("messageText");
     if (!input) return;
+    // Attachments live on the server with the queue row; the composer only ever
+    // held metadata, so pulling the row back cannot restore the files. Editing in
+    // place keeps them, where delete-and-repost silently dropped them.
+    if (Array.isArray(item.attachments) && item.attachments.length) {
+      editQueuedMessageTextInPlace(item);
+      return;
+    }
     const pending = String(input.value || "");
     // Anything half-typed goes back to the front of the queue instead of being
     // overwritten by the message being edited.
@@ -1065,6 +1126,16 @@ export function createChatComposerController({
       }
       return;
     }
+    // An edit of a parked row that carries attachments rewrites that row in place
+    // and consumes the send, so the files stay with it on the server.
+    if (queueEditTarget && !attachments.length && text) {
+      if (await commitQueueEdit(agentId, text)) {
+        input.value = "";
+        autoResizeMessageInput();
+        clearChatDraftForKey(draftKey);
+        return;
+      }
+    }
     const goalCommand = parseGoalCommandDraft(text);
     if (goalCommand && context !== "project") {
       showToast?.(t("workspace.chat.goalProjectOnly"), "warn", { force: true });
@@ -1452,6 +1523,7 @@ export function createChatComposerController({
     refreshMessageModeControl,
     refreshReasoningEffortControl,
     drainMessageQueue,
+    editQueuedMessage,
     loadMessageQueue,
     syncMessageQueueFromServer,
     removePendingAttachment,

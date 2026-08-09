@@ -884,6 +884,7 @@ const {
   applyPlanEvent,
   beginLiveAssistantGeneration,
   clearAgentRunError,
+  clearBlockedToolNotices,
   clearCurrentAgentApprovals,
   rememberAgentRunError,
   clearLiveImageGenerations,
@@ -1961,6 +1962,17 @@ function openConversationDetails() {
   $("runtimeStatusBtn")?.classList.add("active");
   $("runtimeStatusBtn")?.setAttribute("aria-expanded", "true");
   renderConversationDetails();
+  // Every token and cost figure here comes from the run summary, and a new turn
+  // clears it. Rendering from whatever is left in state showed a conversation
+  // with a hundred messages as costing nothing, so fetch it when it is missing.
+  const agentId = state.agent?.id;
+  if (agentId && !state.activeRunSummary && !state.runSummaryLoading) {
+    loadLatestRunSummary(agentId)
+      .then(() => {
+        if (state.agent?.id === agentId) renderConversationDetails();
+      })
+      .catch(() => {});
+  }
 }
 
 // The workspace panel, the Dynamic Spec board, the conversation details panel and
@@ -3886,6 +3898,7 @@ async function handleAgentStreamEvent(event) {
     // A new turn supersedes the previous failure, so the old reason must not sit
     // above a run that is already under way.
     clearAgentRunError(agentId);
+    clearBlockedToolNotices(agentId);
     clearRunSummary();
     clearLiveAssistantText();
     syncMessageComposerBusy();
@@ -3947,7 +3960,12 @@ async function handleAgentStreamEvent(event) {
     finishToolOutput(event);
     refreshComposerActivityStatus();
   }
-  if (event.type === "agent.interrupted") clearCurrentAgentApprovals();
+  if (event.type === "agent.interrupted") {
+    clearCurrentAgentApprovals();
+    // Stopping is the reader's own decision, so it needs no explanation. Refusals
+    // the agent already routed around are not why this run ended.
+    clearBlockedToolNotices(event.agentId || state.agent?.id);
+  }
   // Keep the reason the moment it arrives. Everything downstream of here depends
   // on a fetch that may return nothing, so this is the only copy guaranteed to
   // exist for a run that failed before it was ever recorded.
