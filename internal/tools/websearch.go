@@ -391,7 +391,7 @@ func looksLikeSnippetElement(attrs map[string]string) bool {
 
 func snippetFromPlainText(window string) string {
 	var longest string
-	for _, line := range strings.Split(htmlToText(window), "\n") {
+	for _, line := range strings.Split(htmlToTextSnippet(window), "\n") {
 		line = sanitizeSearchText(line)
 		if line == "" || looksLikeBareURL(line) {
 			continue
@@ -510,7 +510,7 @@ func collectClassAndIDTokens(body string) map[string]bool {
 }
 
 func cleanSearchText(raw string) string {
-	return sanitizeSearchText(htmlToText(raw))
+	return sanitizeSearchText(htmlToTextSnippet(raw))
 }
 
 // sanitizeSearchText drops control and formatting runes before remote text

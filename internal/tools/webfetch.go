@@ -11,6 +11,7 @@ import (
 	"net/netip"
 	"net/url"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -262,31 +263,179 @@ func simplifyFetchedContent(contentType, body string) string {
 }
 
 var (
-	scriptRE     = regexp.MustCompile(`(?is)<script[^>]*>.*?</script>`)
-	styleRE      = regexp.MustCompile(`(?is)<style[^>]*>.*?</style>`)
-	noscriptRE   = regexp.MustCompile(`(?is)<noscript[^>]*>.*?</noscript>`)
-	tagBreakRE   = regexp.MustCompile(`(?i)</?(p|br|div|section|article|header|footer|main|li|ul|ol|h[1-6]|tr|table|pre|blockquote)[^>]*>`)
+	scriptRE   = regexp.MustCompile(`(?is)<script[^>]*>.*?</script>`)
+	styleRE    = regexp.MustCompile(`(?is)<style[^>]*>.*?</style>`)
+	noscriptRE = regexp.MustCompile(`(?is)<noscript[^>]*>.*?</noscript>`)
+	// Site furniture, dropped with its contents. On a documentation page the
+	// sidebar, breadcrumb, cookie banner, and footer link farm are often larger
+	// than the article, and they arrive first, so without this they consume the
+	// caller's byte budget before the answer appears.
+	//
+	// One expression per tag, each closing against itself. A single alternation
+	// with a non-greedy body is wrong here: a <header> containing a <nav> would
+	// match from <header> to the inner </nav>, deleting a fragment and leaving
+	// the rest of the header behind as text. Real pages nest these constantly.
+	chromeREs = buildChromeMatchers()
+	// pre is deliberately absent here: its contents are extracted first and its
+	// internal newlines must survive, which this rule would destroy.
+	tagBreakRE   = regexp.MustCompile(`(?i)</?(p|br|div|section|article|main|li|ul|ol|tr|table|blockquote|dl|dt|dd)[^>]*>`)
+	headingRE    = regexp.MustCompile(`(?is)<h([1-6])[^>]*>(.*?)</h[1-6]>`)
+	preRE        = regexp.MustCompile(`(?is)<pre[^>]*>(.*?)</pre>`)
+	inlineCodeRE = regexp.MustCompile(`(?is)<code[^>]*>(.*?)</code>`)
+	anchorRE     = regexp.MustCompile(`(?is)<a\b[^>]*\shref\s*=\s*("([^"]*)"|'([^']*)'|([^\s>]+))[^>]*>(.*?)</a>`)
+	cellRE       = regexp.MustCompile(`(?i)</(td|th)>`)
+	rowEndRE     = regexp.MustCompile(`(?i)</tr>`)
 	tagRE        = regexp.MustCompile(`(?s)<[^>]+>`)
 	blankLinesRE = regexp.MustCompile(`\n{3,}`)
 	spacesRE     = regexp.MustCompile(`[ \t\f\r]+`)
+	trailingBarRE = regexp.MustCompile(`(?m)\s*\|\s*$`)
 )
 
+// htmlToText renders HTML as plain text for a model to read. It is a lossy
+// extractor rather than a parser, and stays regex-based on purpose: the
+// standard library has no HTML tokenizer, so parsing properly would mean adding
+// golang.org/x/net, which is not currently in the module graph in any form.
+//
+// The structures below are kept because they are the ones a coding agent reads
+// documentation for. Flattening them does not merely lose formatting, it loses
+// the answer: a stripped table turns a parameter reference into one unreadable
+// line, a stripped <pre> makes an indentation-sensitive example unusable, and a
+// stripped anchor leaves the link text with no address to follow.
+// htmlToText renders a whole document, so it keeps the structures a reader needs.
 func htmlToText(body string) string {
+	return htmlToTextWithOptions(body, true)
+}
+
+// htmlToTextSnippet renders a fragment that has to survive as a single line of
+// prose. Search results reuse this conversion for their one-line summaries, and
+// there a code fence is noise rather than structure: it would wrap a few words of
+// example code in ``` inside a sentence.
+func htmlToTextSnippet(body string) string {
+	return htmlToTextWithOptions(body, false)
+}
+
+func htmlToTextWithOptions(body string, fenceCode bool) string {
 	body = scriptRE.ReplaceAllString(body, "")
 	body = styleRE.ReplaceAllString(body, "")
 	body = noscriptRE.ReplaceAllString(body, "")
+	body = stripSiteFurniture(body)
+
+	// Preformatted blocks are lifted out before any other rule can touch them,
+	// held aside under a marker, and restored at the end as fenced code. The
+	// marker uses a rune that cannot appear in HTML text at this stage, so it
+	// cannot collide with page content.
+	var blocks []string
+	body = preRE.ReplaceAllStringFunc(body, func(match string) string {
+		inner := preRE.FindStringSubmatch(match)[1]
+		inner = inlineCodeRE.ReplaceAllString(inner, "$1")
+		inner = tagRE.ReplaceAllString(inner, "")
+		inner = html.UnescapeString(inner)
+		blocks = append(blocks, strings.Trim(inner, "\n"))
+		return "\n\x00PRE" + strconv.Itoa(len(blocks)-1) + "\x00\n"
+	})
+
+	// Heading level carries the document outline, which is how a reader finds the
+	// relevant section in a long reference page.
+	body = headingRE.ReplaceAllStringFunc(body, func(match string) string {
+		m := headingRE.FindStringSubmatch(match)
+		level, err := strconv.Atoi(m[1])
+		if err != nil || level < 1 || level > 6 {
+			level = 1
+		}
+		return "\n\n" + strings.Repeat("#", level) + " " + strings.TrimSpace(tagRE.ReplaceAllString(m[2], "")) + "\n\n"
+	})
+
+	// Keep the address, not just the label. Anchors whose text already equals the
+	// href, or which have no visible text, would only produce noise.
+	body = anchorRE.ReplaceAllStringFunc(body, func(match string) string {
+		m := anchorRE.FindStringSubmatch(match)
+		href := strings.TrimSpace(firstNonEmpty(m[2], m[3], m[4]))
+		text := strings.TrimSpace(tagRE.ReplaceAllString(m[5], ""))
+		text = strings.TrimSpace(spacesRE.ReplaceAllString(html.UnescapeString(text), " "))
+		switch {
+		case text == "":
+			return " "
+		case href == "" || strings.HasPrefix(href, "#") || strings.HasPrefix(href, "javascript:"):
+			return text
+		case text == href:
+			return text
+		default:
+			return text + " (" + href + ")"
+		}
+	})
+
+	// Table cells become bar-separated so a row stays one readable line instead
+	// of collapsing into a run of unlabelled values.
+	body = cellRE.ReplaceAllString(body, " | ")
+	body = rowEndRE.ReplaceAllString(body, "\n")
+
+	body = inlineCodeRE.ReplaceAllString(body, "`$1`")
 	body = tagBreakRE.ReplaceAllString(body, "\n")
 	body = tagRE.ReplaceAllString(body, "")
 	body = html.UnescapeString(body)
+
 	lines := strings.Split(body, "\n")
 	out := make([]string, 0, len(lines))
 	for _, line := range lines {
 		line = strings.TrimSpace(spacesRE.ReplaceAllString(line, " "))
+		line = trailingBarRE.ReplaceAllString(line, "")
 		if line != "" {
 			out = append(out, line)
 		}
 	}
-	return strings.TrimSpace(blankLinesRE.ReplaceAllString(strings.Join(out, "\n"), "\n\n"))
+	text := blankLinesRE.ReplaceAllString(strings.Join(out, "\n"), "\n\n")
+
+	for i, block := range blocks {
+		replacement := block
+		if fenceCode {
+			replacement = "```\n" + block + "\n```"
+		}
+		if strings.TrimSpace(block) == "" {
+			replacement = ""
+		}
+		text = strings.ReplaceAll(text, "\x00PRE"+strconv.Itoa(i)+"\x00", replacement)
+	}
+	return strings.TrimSpace(blankLinesRE.ReplaceAllString(text, "\n\n"))
+}
+
+// siteFurnitureTags are containers whose contents are navigation or chrome
+// rather than the page's answer. form is included because search boxes and
+// newsletter signups otherwise contribute stray labels and button text.
+var siteFurnitureTags = []string{"nav", "aside", "header", "footer", "form", "svg", "dialog"}
+
+func buildChromeMatchers() []*regexp.Regexp {
+	matchers := make([]*regexp.Regexp, 0, len(siteFurnitureTags))
+	for _, tag := range siteFurnitureTags {
+		matchers = append(matchers, regexp.MustCompile(`(?is)<`+tag+`\b[^>]*>.*?</`+tag+`>`))
+	}
+	return matchers
+}
+
+// stripSiteFurniture removes each furniture container together with its
+// contents. It repeats until nothing more matches, because the innermost
+// element of a nested pair is the one a non-greedy match finds first, and
+// removing it is what exposes the outer one.
+func stripSiteFurniture(body string) string {
+	const maxPasses = 6
+	for pass := 0; pass < maxPasses; pass++ {
+		before := body
+		for _, matcher := range chromeREs {
+			body = matcher.ReplaceAllString(body, "\n")
+		}
+		if body == before {
+			break
+		}
+	}
+	return body
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if value != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 func min(a, b int) int {
