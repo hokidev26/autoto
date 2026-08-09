@@ -2,13 +2,33 @@
 
 English | [繁體中文](README.zh-TW.md) | [简体中文](README.zh-CN.md)
 
-Autoto is a local-first coding-agent server that turns a task into a background run with approval-gated tools, a run summary, diff review, and an explicit-path local commit.
+Autoto is a coding agent that runs on your own machine. You give it a task, it works in the background, and it asks before it does anything you would want to be asked about.
 
 **Task → background run → approval → run summary → diff → explicit-path commit**
 
 ![Autoto local agent workflow demo](docs/demo.svg)
 
-Autoto is an experimental local-development MVP, not an untrusted multi-user or production service. Its current remote control surface is deliberately narrow: Telegram uses Bot API long polling for private-chat pairing, minimal status, one-time tool approval, and denial. It is not a general IM assistant: there is no `/task`, free-form chat, Telegram webhook receiver, Slack, or Discord channel.
+## What you can do with it
+
+**Give it work and walk away.** Tasks run in the background, so you can queue several and let them proceed. Each run ends with a summary, a diff to review, and a commit that stages only the paths you picked. It never pushes, amends, resets, or runs `git add -A` on your behalf.
+
+**Keep an eye on it from your phone.** The UI is built for small screens, not merely shrunk to fit: pull-to-refresh, swipe-to-dismiss notifications, and a composer that stays reachable. It installs to a home screen as a standalone app, so it opens without browser chrome and behaves like an app.
+
+**Reach your machine from outside your network.** Open a temporary Cloudflare tunnel from the settings panel and get a URL and a QR code to scan. Remote sessions are password-gated and have two modes: restricted for following along and approving, or full control when you explicitly allow it. Sessions expire, and tightening the policy revokes the ones already open.
+
+**Approve from your phone, or from Telegram.** When a run needs permission for something risky, you can approve or deny it remotely. Telegram pairing is private-chat only and deliberately narrow: status, one-time approve, deny. It is not a chat assistant and there is no `/task`.
+
+**Share your models as an API.** Autoto can expose the providers you have configured as an OpenAI-compatible `/v1` endpoint for your other tools and devices. Each key gets its own model whitelist and usage accounting, so you can hand one out without handing over everything.
+
+**Work in an isolated copy.** Fork a workline into its own Git worktree, let the agent work there, then merge back after a preflight check that the merge is clean.
+
+## What it will not do
+
+Autoto is an experimental local-development MVP, not a hardened multi-user or production service.
+
+Some operations are refused outright rather than merely gated. Recursive deletes, raw disk writes, permission weakening, and piping a download straight into a shell are classified as irreversible, and no permission mode, allow rule, or approval can execute them. The gate is deliberately not something you can turn off for convenience.
+
+Files that usually hold secrets are hard-blocked from the file tools: `.env*`, credential and key material, and `.git` contents. `Read`, `Write`, and `Edit` refuse them; `Glob` and `Grep` leave them out of results entirely.
 
 ## Quick start
 
@@ -33,6 +53,8 @@ Projects: ~/projects
 ```
 
 ## Features
+
+The full per-item list follows. It is deliberately exhaustive and reads as a specification rather than a tour; the sections above cover what most people want to know.
 
 - Local HTTP server with embedded HTML/CSS/JS UI, using a no-build ES module seam for frontend bootstrap/runtime helpers and extracted Settings local-preference panels
 - SQLite persistence for projects, worklines, agents, messages, tool calls, backend registry entries, and stdio MCP server registry entries
