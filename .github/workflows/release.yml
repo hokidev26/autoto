@@ -32,3 +32,93 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # The Wails desktop shell links each platform's native WebView, so it cannot be
+  # cross-compiled from the CGO_ENABLED=0 matrix above and has to be built on the
+  # target OS. These jobs upload to the release GoReleaser just created, which is
+  # why they wait for it.
+  desktop:
+    name: Desktop (${{ matrix.label }})
+    needs: goreleaser
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      # One platform failing to build should not withhold the others' artifacts.
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-14
+            label: macOS arm64
+            goos: darwin
+            goarch: arm64
+          # macos-13 was retired on 2025-12-04, and macos-14 and later are Apple
+          # silicon only, so this is the only remaining hosted x86_64 Mac image.
+          # It is itself scheduled for retirement; when it goes, Intel Mac users
+          # fall back to the CLI, which cross-compiles and is unaffected.
+          - runner: macos-15-intel
+            label: macOS amd64
+            goos: darwin
+            goarch: amd64
+          - runner: ubuntu-latest
+            label: Linux amd64
+            goos: linux
+            goarch: amd64
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+
+      - name: Install Linux WebView toolchain
+        if: matrix.goos == 'linux'
+        # Same packages the CI workflow already installs to build this package,
+        # so this is a known-good combination rather than a guess.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev
+
+      - name: Build desktop shell
+        env:
+          # CGO is required: this is the one build that links a native toolchain.
+          CGO_ENABLED: '1'
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          out="autoto-desktop_${version}_${GOOS}_${GOARCH}"
+          # production drops Wails devtools. -H windowsgui is Windows-only and
+          # deliberately absent here.
+          go build -tags "desktop,production" \
+            -ldflags "-s -w -X autoto/internal/config.Version=${version}" \
+            -o "${out}" ./cmd/autoto-desktop
+          ls -l "${out}"
+
+      - name: Package
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          out="autoto-desktop_${version}_${GOOS}_${GOARCH}"
+          tar -czf "${out}.tar.gz" "${out}"
+          # Match the CLI archives' checksum style so both can be verified the
+          # same way. shasum exists on both runners; sha256sum does not on macOS.
+          shasum -a 256 "${out}.tar.gz" > "${out}.tar.gz.sha256"
+          cat "${out}.tar.gz.sha256"
+
+      - name: Attach to release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          out="autoto-desktop_${version}_${GOOS}_${GOARCH}"
+          gh release upload "${GITHUB_REF_NAME}" \
+            "${out}.tar.gz" "${out}.tar.gz.sha256" --clobber

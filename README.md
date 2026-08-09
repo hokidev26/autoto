@@ -1,5 +1,7 @@
 # Autoto
 
+English | [繁體中文](README.zh-TW.md) | [简体中文](README.zh-CN.md)
+
 Autoto is a local-first coding-agent server that turns a task into a background run with approval-gated tools, a run summary, diff review, and an explicit-path local commit.
 
 **Task → background run → approval → run summary → diff → explicit-path commit**
@@ -98,7 +100,15 @@ Projects: ~/projects
 
 ## Installation details
 
-Tagged releases publish Autoto release assets for macOS, Linux, and Windows, named like `autoto_<version>_<os>_<arch>`. Download the matching asset from GitHub Releases, unpack it, then run the `autoto` binary.
+Tagged releases publish two kinds of binary. Both serve the same product; they differ only in how you reach the UI.
+
+**CLI** — `autoto_<version>_<os>_<arch>`, for macOS, Linux, and Windows on both amd64 and arm64. It runs a local server and you open the UI in your browser. Cross-compiled, so every platform is built from one job.
+
+**Desktop** — `autoto-desktop_<version>_<os>_<arch>.tar.gz`, for macOS (arm64 and amd64) and Linux amd64. Same server with a native window instead of a browser tab. Each one is built on its own runner because the shell links that platform's system WebView, which cannot be cross-compiled.
+
+Download the matching asset from GitHub Releases, unpack it, then run the binary. Checksums are published alongside: `checksums.txt` for the CLI archives, and a `.sha256` file next to each desktop archive.
+
+Two limits worth knowing before you download the desktop build. It is not code-signed or notarized, so macOS Gatekeeper will refuse it on first launch until you allow it explicitly in System Settings → Privacy & Security, and Windows may warn similarly. And Linux desktop is amd64 only; on arm64 Linux, use the CLI.
 
 From source:
 
