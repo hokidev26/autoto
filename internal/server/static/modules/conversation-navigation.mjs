@@ -1,4 +1,4 @@
-import { t } from "./i18n.mjs";
+﻿import { t } from "./i18n.mjs";
 import { conversationUnread } from "./conversation-seen.mjs";
 
 const navigationModes = new Set(["all", "projects"]);
@@ -671,7 +671,13 @@ function renderConversation(conversation, activeAgentId, nested = false, options
   const statusClass = navigationAgentStatusClass(conversation.agentStatus);
   // The row a reader is currently looking at is read by definition, so it must
   // never render as unread even before the seen mark is written.
-  const unread = !active && conversationUnread(conversation, options.seenMap);
+  //
+  // hiddenUnread lets a row that has collapsed children carry their mark, the same
+  // way a collapsed project row carries its conversations'. The active guard still
+  // wins: an open conversation whose own forks are unread is reporting on them, not
+  // on itself, so the mark is legitimate there -- but a row can never be unread on
+  // its own behalf while it is the one being read.
+  const unread = !active && (conversationUnread(conversation, options.seenMap) || options.hiddenUnread === true);
   const worklineContext = conversation.worklineBranch || conversation.worklineTitle;
   const projectContext = compactDisplayPath(conversation.projectPath) || conversation.projectName;
   const context = nested
@@ -728,8 +734,10 @@ export function renderNavigationHTML(view = {}, options = {}) {
     : options.activeSelectionKind === "project" || options.activeSelectionKind === "conversation"
       ? options.activeSelectionKind
       : activeAgentId ? "conversation" : "project";
-  // Collapsed nodes are addressed as "scope:id". Absent means open, so a node
-  // the reader has never touched shows its children.
+  // Nodes are addressed as "scope:id". For "project" the entry means collapsed,
+  // so an untouched group shows its children. The "fork-open" scope reads the
+  // other way -- presence means expanded -- because branches start closed; see
+  // the forksOpen call below for why that scope is separate.
   const collapsed = options.collapsedNodes instanceof Set
     ? options.collapsedNodes
     : new Set(Array.isArray(options.collapsedNodes) ? options.collapsedNodes.map(text).filter(Boolean) : []);
@@ -785,12 +793,38 @@ export function renderNavigationHTML(view = {}, options = {}) {
           }
           // Only a conversation that actually has forks gets a triangle; giving
           // every row one would put a control next to nothing to disclose.
-          const forksOpen = !collapsed.has(`conversation:${conversation.agentId}`);
+          //
+          // Forks are the one node type that starts closed, so the scope is
+          // "fork-open" and presence means expanded -- the opposite of every
+          // other entry in this set. Inverting the "conversation" scope in place
+          // would have been smaller, but it would also have redefined records
+          // already in localStorage: a reader who had collapsed a fork would find
+          // it forced open. Under a new scope the old entries simply stop
+          // applying, and what they used to describe is now the default anyway.
+          // Only the reader's own record decides this. Being inside one of the
+          // forks used to force the group open, which defeated both halves of the
+          // contract: branches no longer rested closed, and the triangle became a
+          // dead control, because collapsing removed a record the override
+          // immediately outvoted, so the group sprang back open on the next render.
+          // The conversation itself is what shows where the reader is; the sidebar
+          // does not have to hold a group open to say so.
+          const forksOpen = collapsed.has(`fork-open:${conversation.agentId}`);
           const rootHTML = renderConversation(conversation, activeAgentId, true, {
             activeSelectionKind,
             orderScope: group.project.id,
             seenMap,
-            disclosure: navigationDisclosure("conversation", conversation.agentId, forksOpen, t("workspace.navigation.toggleForks")),
+            // Same rule as the project row one tier up, which was missing here: while
+            // the forks are folded away this row is the only thing standing for them,
+            // so it carries their unread mark.
+            //
+            // Without it the mark vanished on the way down. A collapsed project row
+            // aggregates over every conversation in the group, forks included, so an
+            // unread fork turned it green; expanding the project stopped that
+            // aggregation, and the fork was still hidden inside its own collapsed
+            // group, so nothing on screen was green any more. Expanding a group to
+            // look for the new reply was what hid it.
+            hiddenUnread: !forksOpen && aggregateNavigationUnread(forks, seenMap, activeAgentId),
+            disclosure: navigationDisclosure("fork-open", conversation.agentId, forksOpen, t("workspace.navigation.toggleForks")),
           });
           const forksHTML = forks.map((fork) =>
             renderConversation(fork, activeAgentId, true, { activeSelectionKind, orderScope: group.project.id, nestedFork: true, seenMap }),

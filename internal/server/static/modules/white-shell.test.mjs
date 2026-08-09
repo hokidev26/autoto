@@ -1,4 +1,4 @@
-import test from "node:test";
+﻿import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { readStylesSource } from "./styles-source-helper.mjs";
@@ -826,7 +826,7 @@ test("desktop conversation layout follows the compact resizable geometry", async
     readFile(new URL("./conversation-navigation.mjs", import.meta.url), "utf8"),
   ]);
   const finalDesktopComposer = styles.slice(styles.indexOf("/* Final desktop full-width composer override. */"));
-  assert.match(styles, /grid-template-columns:\s*76px var\(--session-sidebar-width\) minmax\(420px, 1fr\)/);
+  assert.match(styles, /grid-template-columns:\s*76px var\(--session-sidebar-width\) minmax\(390px, 1fr\)/);
   assert.match(styles, /body\.white-shell\.theme-light \.sidebar-resize-handle\s*\{[\s\S]*?position:\s*fixed[\s\S]*?left:\s*calc\(68px \+ var\(--session-sidebar-width\) - 3px\)/);
   assert.match(styles, /body\.white-shell\.theme-light \.chat-panel\s*\{[\s\S]*?grid-column:\s*3/);
   assert.match(styles, /body\.white-shell\.theme-light \.terminal-panel\s*\{[\s\S]*?grid-column:\s*4/);
@@ -2024,7 +2024,10 @@ test("mobile shell skips home and keeps the drawer, settings index, and model sh
   const marker = "/* Mobile shell refresh: conversation, drawer, settings, and composer selection sheets. */";
   const refreshedStyles = styles.slice(styles.indexOf(marker));
   assert.ok(refreshedStyles.startsWith(marker));
-  assert.match(styles, /\.mobile-topbar,\s*\.mobile-backdrop,\s*\.mobile-drawer-header,\s*\.mobile-drawer-primary-actions,\s*\.mobile-drawer-schedule-btn,\s*\.mobile-sidebar-account-summary,\s*\.mobile-sidebar-quick-actions,\s*\.mobile-drawer-footer,\s*\.mobile-conversation-welcome,\s*\.composer-status\s*\{\s*display:\s*none;/);
+  // .mobile-sidebar-metrics joins this list: the drawer's CPU / memory cell is
+  // mobile-only for the same reason as the rest of the drawer furniture, since the
+  // desktop already shows those numbers on the home dashboard.
+  assert.match(styles, /\.mobile-topbar,\s*\.mobile-backdrop,\s*\.mobile-drawer-header,\s*\.mobile-drawer-primary-actions,\s*\.mobile-drawer-schedule-btn,\s*\.mobile-sidebar-account-summary,\s*\.mobile-sidebar-quick-actions,\s*\.mobile-sidebar-metrics,\s*\.mobile-drawer-footer,\s*\.mobile-conversation-welcome,\s*\.composer-status\s*\{\s*display:\s*none;/);
   assert.match(refreshedStyles, /:is\(\.composer-task-summary, \.permission-safety-indicator, \.permission-risk-badge, \.toolbar-lightning-btn\)/);
   assert.match(refreshedStyles, /\.composer-status:not\(\.is-busy\)/);
   assert.match(refreshedStyles, /\.composer-status\.is-busy\s*\{[^}]*display:\s*inline-flex !important/);
@@ -2420,7 +2423,7 @@ test("opening a utility panel does not collapse the app shell's 4th grid column 
   // zero-width column and never become visible.
   assert.match(
     styles,
-    /\.app-shell\.terminal-collapsed\.details-open,[\s\S]*?\.app-shell\.terminal-collapsed\.background-tasks-open,[\s\S]*?\.app-shell\.terminal-collapsed\.preview-open[\s\S]*?\{[\s\S]*?grid-template-columns:[\s\S]*?clamp\(260px, calc\(50vw - 186px\), 620px\)/,
+    /\.app-shell\.terminal-collapsed\.details-open,[\s\S]*?\.app-shell\.terminal-collapsed\.background-tasks-open,[\s\S]*?\.app-shell\.terminal-collapsed\.preview-open[\s\S]*?\{[\s\S]*?grid-template-columns:[\s\S]*?clamp\(260px, calc\(50vw - 186px\), 900px\)/,
   );
 });
 

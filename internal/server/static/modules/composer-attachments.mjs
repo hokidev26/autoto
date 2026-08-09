@@ -207,6 +207,35 @@ export function createComposerAttachments({
     syncMessageComposerBusy({ checkAttachmentContext: false });
   }
 
+  // Hands the staged files to a send without destroying them, so the composer can
+  // empty in the same beat as the textarea instead of waiting for the upload.
+  //
+  // Deliberately not clearPendingAttachments: that revokes the preview object URLs,
+  // and a failed send has to put the cards back with their thumbnails intact. The
+  // send owns them from here and decides which way it goes -- releasePending on
+  // success, restore on failure -- so a caller that takes them must do one or the
+  // other or the previews leak.
+  function detachPendingAttachments() {
+    const attachments = Array.isArray(state.pendingAttachments) ? state.pendingAttachments : [];
+    if (!attachments.length) return [];
+    state.pendingAttachments = [];
+    renderPendingAttachments();
+    syncMessageComposerBusy({ checkAttachmentContext: false });
+    return attachments;
+  }
+
+  // Puts detached files back after a send failed. Prepended so they keep their place
+  // ahead of anything staged while the request was in flight.
+  function restorePendingAttachments(attachments) {
+    const restored = Array.isArray(attachments) ? attachments.filter(Boolean) : [];
+    if (!restored.length) return;
+    const current = Array.isArray(state.pendingAttachments) ? state.pendingAttachments : [];
+    const known = new Set(current.map((item) => item?.id).filter(Boolean));
+    state.pendingAttachments = [...restored.filter((item) => !known.has(item?.id)), ...current];
+    renderPendingAttachments();
+    syncMessageComposerBusy({ checkAttachmentContext: false });
+  }
+
   function renderPendingAttachments() {
     const wrap = $("pendingAttachments");
     if (!wrap) return;
@@ -340,6 +369,8 @@ export function createComposerAttachments({
     handleMessagePaste,
     removePendingAttachment,
     clearPendingAttachments,
+    detachPendingAttachments,
+    restorePendingAttachments,
     renderPendingAttachments,
     pendingAttachmentCardHTML,
     setComposerDragging,

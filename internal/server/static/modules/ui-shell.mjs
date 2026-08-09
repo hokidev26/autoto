@@ -160,7 +160,11 @@ export const utilityPanelWidthPreferenceKey = "autoto.ui.utilityPanelWidth";
 // stopped the drag before the compact layout could ever apply, which read as the
 // handle jamming partway.
 export const minUtilityPanelWidth = 260;
-export const maxUtilityPanelWidth = 620;
+// Raised from 620. A diff or a file tree in the dock is often the thing being
+// worked on, not a reference, and 620 stopped it well short of usable on a wide
+// screen. The chat column keeps its own floor, so the transcript cannot be
+// squeezed away no matter how far this is dragged.
+export const maxUtilityPanelWidth = 900;
 export const utilityPanelChatMinWidth = 420;
 export const utilityPanelDesktopBreakpoint = 1280;
 
@@ -207,6 +211,11 @@ export function createUIShellController({
   renderProjects,
   onLayoutChange = renderProjects,
   resizeTerminal,
+  // Injected so the shell does not need to know how metrics are fetched; it only
+  // says when the drawer is visible. Default to no-ops so existing callers and
+  // tests that do not pass them keep working unchanged.
+  startDrawerMetrics = () => {},
+  stopDrawerMetrics = () => {},
   showError,
   translate = (key) => key,
   // Overridable for tests, same convention as provider-console.mjs's requestAPI.
@@ -364,6 +373,18 @@ export function createUIShellController({
     $("mobileSidebarBackdrop")?.classList.remove("hidden");
     $("sessionSidebar")?.setAttribute("aria-hidden", "false");
     $("mobileSidebarCloseBtn")?.focus();
+    // The drawer becoming visible is the moment those rows are read, so the list is
+    // rendered here rather than relying on whatever last happened to render it.
+    // renderProjects advances the seen mark for the open conversation, and without
+    // this the row for the conversation you are already looking at could stay green:
+    // a reply that lands while the app is backgrounded is not picked up by the
+    // navigation refresh (it skips while the page is hidden), so nothing had
+    // advanced the mark by the time the drawer opened.
+    renderProjects?.();
+    // Metrics poll only while the drawer is on screen, which is the same rule the
+    // dashboard follows: a closed drawer would otherwise keep asking the server
+    // every three seconds for numbers nobody can see.
+    startDrawerMetrics?.();
     resizeTerminal?.();
   }
 
@@ -376,6 +397,7 @@ export function createUIShellController({
     else $("sessionSidebar")?.removeAttribute("aria-hidden");
     closeSidebarSettingsMenu({ restoreFocus: false });
     if (wasOpen && options.restoreFocus !== false) $("mobileMenuBtn")?.focus();
+    stopDrawerMetrics?.();
     resizeTerminal?.();
   }
 

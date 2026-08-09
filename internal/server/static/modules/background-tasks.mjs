@@ -7,6 +7,12 @@ const runningStatuses = new Set(["running", "started", "cancel_requested"]);
 const queuedStatuses = new Set(["queued", "pending", "waiting", "waiting_approval"]);
 const cancellableStatuses = new Set(["queued", "pending", "waiting", "waiting_approval", "running", "started", "cancel_requested"]);
 const defaultOutputLimit = 24000;
+// How often to re-read a subagent's conversation while its run is active, and how
+// many times before giving up. 1.5s keeps a reply feeling prompt without hammering
+// the API; the cap is a safety net for a run that never reports itself finished,
+// and at this interval it covers roughly ten minutes of work.
+const childPollIntervalMs = 1500;
+const childPollMaxAttempts = 400;
 
 function text(value) {
   return String(value ?? "").trim();
@@ -286,7 +292,13 @@ export function createBackgroundTasksController({
   const childBusy = new Set();
   // childAgentId -> Map(messageId -> tool calls), so a turn can show what it ran.
   const childToolCalls = new Map();
-  let detailView = "conversation";
+  // childAgentId -> poll timer. handleEvent drops any event whose agentId is not
+  // this panel's agent, and a child's replies carry the child's id, so nothing
+  // the child does ever reaches us as an event. Without polling, a message sent
+  // from this panel looked like it went nowhere: the POST succeeded, the one
+  // refresh after it ran before the child had answered, and no later refresh
+  // existed. Poll the child directly while it works.
+  const childPolls = new Map();
   const hydrationRequests = new Map();
   const listeners = new Set();
   // Tabs the user opened, in the order they opened them. Every task used to get
@@ -335,6 +347,9 @@ export function createBackgroundTasksController({
     const open = Boolean(nextOpen && agentId);
     if (trayOpen === open) return false;
     trayOpen = open;
+    // Nothing is on screen to update once the tray is closed, so stop polling
+    // rather than keep requesting on the user's behalf.
+    if (!open) stopAllChildPolls();
     onOpenChange?.(open, { reason, agentId, selected });
     return true;
   }
@@ -448,9 +463,82 @@ export function createBackgroundTasksController({
         body: JSON.stringify({ text: body, mode: "execute", context: "conversation" }),
       });
       await loadChildConversation(id, { force: true, runId: childRunIdFor(id) });
+      // The reply does not exist yet: the refresh above only shows the message
+      // just sent. Follow the run until it finishes so the answer appears on its
+      // own, the way it does in the main conversation.
+      startChildPoll(id);
     } catch (err) {
       onError?.(err);
     }
+  }
+
+  // Returns the child's active run, or null once it has none.
+  async function childActiveRun(childAgentId) {
+    const id = text(childAgentId);
+    if (!id) return null;
+    // 404 is the documented idle answer here, not a failure, so a rejection of
+    // any kind means "not working" rather than something worth reporting.
+    const summary = await request(`/api/agents/${encodeURIComponent(id)}/runs/active`).catch(() => null);
+    const run = summary?.run || summary?.Run || null;
+    return run && text(run.id || run.ID) ? run : null;
+  }
+
+  function stopChildPoll(childAgentId) {
+    const id = text(childAgentId);
+    const timer = childPolls.get(id);
+    if (timer == null) return;
+    clearTimeout(timer);
+    childPolls.delete(id);
+  }
+
+  // Refreshes the child's conversation on a timer until its run goes idle, then
+  // refreshes once more so the final turn is not left off, and stops. Bounded by
+  // childPollMaxAttempts so a wedged run cannot poll forever.
+  function startChildPoll(childAgentId, attempt = 0) {
+    const id = text(childAgentId);
+    if (!id) return;
+    stopChildPoll(id);
+    if (attempt >= childPollMaxAttempts) {
+      render();
+      return;
+    }
+    const timer = setTimeout(async () => {
+      childPolls.delete(id);
+      // The panel may have moved on while this was pending; a background refresh
+      // for a child nobody is looking at is wasted work.
+      if (!isChildVisible(id)) {
+        render();
+        return;
+      }
+      try {
+        const run = await childActiveRun(id);
+        await loadChildConversation(id, { force: true, runId: text(run?.id || run?.ID) || childRunIdFor(id) });
+        if (run) startChildPoll(id, attempt + 1);
+        else render();
+      } catch (err) {
+        onError?.(err);
+        render();
+      }
+    }, childPollIntervalMs);
+    childPolls.set(id, timer);
+    render();
+  }
+
+  // Whether this child's conversation is on screen right now.
+  function isChildVisible(childAgentId) {
+    const id = text(childAgentId);
+    if (!id || !trayOpen) return false;
+    const task = selected ? tasksById.get(selected) : null;
+    return Boolean(task && text(task.childAgentId) === id);
+  }
+
+  function childIsWorking(childAgentId) {
+    return childPolls.has(text(childAgentId));
+  }
+
+  function stopAllChildPolls() {
+    for (const timer of childPolls.values()) clearTimeout(timer);
+    childPolls.clear();
   }
 
   function taskSummary() {
@@ -690,7 +778,12 @@ export function createBackgroundTasksController({
       // here rather than waiting for the first render to notice it is missing.
       const openedTask = tasksById.get(normalized);
       const childAgentId = text(openedTask?.childAgentId);
-      if (childAgentId) await loadChildConversation(childAgentId, { runId: text(openedTask?.childRunId) });
+      if (childAgentId) {
+        await loadChildConversation(childAgentId, { runId: text(openedTask?.childRunId) });
+        // A child that is still working would otherwise render as a frozen
+        // snapshot for as long as the panel stayed open.
+        if (await childActiveRun(childAgentId)) startChildPoll(childAgentId);
+      }
     } catch (cause) {
       if (operationIsCurrent(expectedAgentId, expectedGeneration)) onError?.(cause);
     }
@@ -813,6 +906,9 @@ export function createBackgroundTasksController({
     outputCursors.clear();
     cancelBusy.clear();
     waitBusy.clear();
+    // Timers outlive a state reset, so a poll for the previous agent's child would
+    // keep firing against a panel that has moved on.
+    stopAllChildPolls();
     selected = "";
     continuation = normalizeContinuation();
     loading = false;
@@ -913,9 +1009,44 @@ export function createBackgroundTasksController({
         <header><span>${escapeHtml(role === "user" ? t("backgroundTasks.roleUser") : t("backgroundTasks.roleAgent"))}</span><time>${escapeHtml(message?.createdAt ? formatTimestamp(message.createdAt) : "")}</time></header>
         ${reasoning ? `<details class="background-task-reasoning"><summary>${escapeHtml(t("backgroundTasks.reasoning"))}</summary><p>${escapeHtml(reasoning)}</p></details>` : ""}
         ${calls.length ? renderChildToolCallsHTML(calls) : ""}
-        ${body ? `<p>${escapeHtml(body)}</p>` : ""}
+        ${body ? renderChildBubbleBodyHTML(body) : ""}
       </article>`;
     }).join("")}</div>`;
+  }
+
+  // How much of a message body the pane shows before folding the rest away. A briefing
+  // to a subagent, or its report back, routinely quotes file excerpts and grep hits,
+  // and one such message ran to hundreds of numbered lines: the panel became a wall of
+  // source with no indication of which file any of it came from, and the status and
+  // error above it were pushed out of view.
+  //
+  // The tool arguments beside this already get the same treatment for the same stated
+  // reason -- see boundedInput -- and the body was simply never given it.
+  const childBubbleBodyLineLimit = 12;
+  const childBubbleBodyCharLimit = 900;
+
+  // Nothing is discarded: past the limit the head stays visible and the remainder goes
+  // into a disclosure, so the shape of the conversation survives while the whole text
+  // is still one click away.
+  function renderChildBubbleBodyHTML(body) {
+    const lines = body.split("\n");
+    const tooManyLines = lines.length > childBubbleBodyLineLimit;
+    const tooLong = body.length > childBubbleBodyCharLimit;
+    if (!tooManyLines && !tooLong) return `<p>${escapeHtml(body)}</p>`;
+    // Whichever limit bites first decides the cut, so a single enormous line is
+    // bounded too rather than only a tall one.
+    const headByLines = tooManyLines ? lines.slice(0, childBubbleBodyLineLimit).join("\n") : body;
+    const head = headByLines.length > childBubbleBodyCharLimit
+      ? headByLines.slice(0, childBubbleBodyCharLimit)
+      : headByLines;
+    const rest = body.slice(head.length).replace(/^\n/, "");
+    if (!rest) return `<p>${escapeHtml(body)}</p>`;
+    const hiddenLines = rest.split("\n").length;
+    return `<p>${escapeHtml(head)}</p>
+      <details class="background-task-bubble-more">
+        <summary>${escapeHtml(t("backgroundTasks.moreLines", { count: String(hiddenLines) }))}</summary>
+        <p>${escapeHtml(rest)}</p>
+      </details>`;
   }
 
   // Tool calls are shown collapsed: the name, status and duration answer "what did
@@ -961,6 +1092,7 @@ export function createBackgroundTasksController({
     const model = text(agent.model);
     const effort = text(agent.reasoningEffort) || "auto";
     const permission = text(agent.permissionMode) || "default";
+    const working = childIsWorking(childAgentId);
     // The model list comes from the configured providers, so this offers the same
     // choices as the main composer instead of asking the user to type an id.
     const options = availableModels();
@@ -991,7 +1123,8 @@ export function createBackgroundTasksController({
     <form class="background-task-child-composer" data-background-child-form="${escapeAttr(childAgentId)}">
       <input type="text" name="message" placeholder="${escapeAttr(t("chat.messagePlaceholder"))}" autocomplete="off" />
       <button type="submit" class="ghost-btn mini">${escapeHtml(t("chat.send"))}</button>
-    </form>`;
+    </form>
+    ${working ? `<div class="background-task-child-working" role="status"><span class="background-task-child-working-dot" aria-hidden="true"></span>${escapeHtml(t("backgroundTasks.childWorking"))}</div>` : ""}`;
   }
 
   function renderSelectedTask(task) {
@@ -1000,18 +1133,17 @@ export function createBackgroundTasksController({
     const canCancel = cancellableStatuses.has(task.status);
     const isTerminal = terminalStatuses.has(task.status);
     const hasChild = Boolean(text(task.childAgentId));
-    // Conversation is the default view because "what did it say" is the usual
-    // question; raw output stays one click away for shell tasks and diagnostics.
-    const view = hasChild ? detailView : "output";
+    // An agent task reads as a conversation, full stop. The conversation/output
+    // tabs made the pane look like a debugging surface and the "output" side was
+    // empty for agent tasks anyway, since their result is the transcript. Shell
+    // tasks have no child agent and no transcript, so those still show raw output
+    // -- that is the only thing they produce.
+    const view = hasChild ? "conversation" : "output";
     // No title block here: the active tab above already names the task and shows
     // its status, and repeating both cost a third of the pane.
     return `<section class="background-task-detail">
       <div class="background-task-meta"><span class="background-task-state status-${escapeAttr(task.status)}">${escapeHtml(taskStatusLabel(task.status))}</span><span>${escapeHtml(task.createdAt ? formatTimestamp(task.createdAt) : "—")}</span><span>${escapeHtml(task.durationMs == null ? "—" : formatDuration(task.durationMs))}</span></div>
       ${task.error || task.errorCode ? `<div class="background-task-error">${escapeHtml([task.errorCode ? t("backgroundTasks.errorCode", { code: task.errorCode }) : "", task.error ? t("backgroundTasks.errorMessage", { message: task.error }) : ""].filter(Boolean).join(" · "))}</div>` : ""}
-      ${hasChild ? `<div class="background-task-view-tabs" role="tablist">
-        <button type="button" role="tab" class="${view === "conversation" ? "active" : ""}" aria-selected="${view === "conversation" ? "true" : "false"}" data-background-view="conversation">${escapeHtml(t("backgroundTasks.viewConversation"))}</button>
-        <button type="button" role="tab" class="${view === "output" ? "active" : ""}" aria-selected="${view === "output" ? "true" : "false"}" data-background-view="output">${escapeHtml(t("backgroundTasks.viewOutput"))}</button>
-      </div>` : ""}
       ${view === "conversation"
         ? renderChildConversationHTML(task)
         : `<pre class="background-task-output">${escapeHtml(output || t("backgroundTasks.noOutput"))}</pre>`}
@@ -1019,7 +1151,6 @@ export function createBackgroundTasksController({
       ${view === "conversation" ? renderChildControlsHTML(task) : ""}
       <div class="background-task-actions">
         ${task.outputHasMore && view === "output" ? `<button type="button" class="ghost-btn mini" data-background-output-more="${escapeAttr(task.id)}">${escapeHtml(t("backgroundTasks.loadMore"))}</button>` : ""}
-        ${!isTerminal ? `<button type="button" class="ghost-btn mini" data-background-wait="${escapeAttr(task.id)}" ${waitBusy.has(task.id) ? "disabled" : ""}>${escapeHtml(waitBusy.has(task.id) ? t("backgroundTasks.waiting") : t("backgroundTasks.wait"))}</button>` : ""}
       </div>
     </section>`;
   }
@@ -1127,7 +1258,7 @@ export function createBackgroundTasksController({
     host("backgroundTasksBtn")?.addEventListener("click", toggleTray);
     host("headerTaskSummaryBtn")?.addEventListener("click", toggleTray);
     host("backgroundTaskTray")?.addEventListener("click", (event) => {
-      const target = event.target?.closest?.("[data-background-task],[data-background-close],[data-background-output-more],[data-background-wait],[data-background-cancel],[data-background-agent],[data-background-run],[data-background-view],[data-background-overview],[data-background-tab-close]");
+      const target = event.target?.closest?.("[data-background-task],[data-background-close],[data-background-output-more],[data-background-cancel],[data-background-agent],[data-background-run],[data-background-overview],[data-background-tab-close]");
       if (!target) return;
       if (target.hasAttribute("data-background-close")) {
         closeTray();
@@ -1136,16 +1267,12 @@ export function createBackgroundTasksController({
         emit("overview-selected");
       } else if (target.dataset.backgroundTabClose) {
         closeTab(target.dataset.backgroundTabClose);
-      } else if (target.dataset.backgroundView) {
-        detailView = target.dataset.backgroundView === "output" ? "output" : "conversation";
-        render();
       } else if (target.dataset.backgroundTask) {
         // Opens inside this panel only. Navigating the main conversation as well
         // hijacked the window: the user was reading one thread, and a glance at a
         // subagent replaced it and lost their place.
         selectTask(target.dataset.backgroundTask).catch(onError);
       } else if (target.dataset.backgroundOutputMore) loadOutput(target.dataset.backgroundOutputMore).catch(onError);
-      else if (target.dataset.backgroundWait) wait(target.dataset.backgroundWait).catch(onError);
       else if (target.dataset.backgroundCancel) cancel(target.dataset.backgroundCancel).catch(onError);
       else if (target.dataset.backgroundAgent) onNavigateAgent?.(target.dataset.backgroundAgent);
       else if (target.dataset.backgroundRun) onNavigateRun?.(target.dataset.backgroundRunAgent, target.dataset.backgroundRun);
@@ -1250,6 +1377,8 @@ export function createBackgroundTasksController({
     // wrong, so a test that inspects the payload passes either way. Only the
     // rendered output shows whether the text actually reached the pane.
     renderChildConversationHTMLForTest: (task) => renderChildConversationHTML(task || {}),
+    // Lets a test isolate one trigger for following a child from the others.
+    stopChildPollingForTest: stopAllChildPolls,
     state: () => ({
       agentId,
       selected,
@@ -1260,6 +1389,10 @@ export function createBackgroundTasksController({
       outputCursors: Object.fromEntries(outputCursors),
       cancelBusy: [...cancelBusy],
       waitBusy: [...waitBusy],
+      childConversations: Object.fromEntries([...childConversations].map(([id, list]) => [id, list.map((entry) => ({ ...entry }))])),
+      // Which subagents the panel is currently following, so a test can tell a
+      // finished poll from one that never started.
+      childPolling: [...childPolls.keys()],
       continuation: { ...continuation },
       foregroundActivity: foregroundActivity ? { ...foregroundActivity } : null,
       trayOpen,

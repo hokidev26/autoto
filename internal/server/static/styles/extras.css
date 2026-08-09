@@ -1,4 +1,4 @@
-/* Responsive composer tiers follow the editor's real width, not the full viewport. */
+﻿/* Responsive composer tiers follow the editor's real width, not the full viewport. */
 body.white-shell.theme-light .composer-wrap {
   container-name: composer-shell;
   container-type: inline-size;
@@ -1386,6 +1386,22 @@ body.white-shell.theme-light.theme-dark #settingsContentBody .compact-settings-s
     --mobile-composer-reserve: 120px;
   }
 
+  /* Full width, hanging under the phone's top bar.
+     These notices used to sit at the bottom, where they shared an edge with the
+     fixed composer and landed on the message box and the send button; the reader had
+     to wait one out before they could type. That was first patched by reserving the
+     composer's height here, but the notice still covered the transcript tail. Moving
+     the whole stack to the top removes the conflict instead of negotiating with it,
+     so the composer clearance is gone rather than adjusted. */
+  .toast-stack {
+    right: max(12px, env(safe-area-inset-right));
+    left: max(12px, env(safe-area-inset-left));
+    top: calc(var(--mobile-topbar-height, 58px) + 8px + env(safe-area-inset-top));
+    width: auto;
+  }
+
+
+
   body.white-shell.theme-light .mobile-topbar {
     grid-template-columns: 46px minmax(0, 1fr) auto;
     gap: 2px;
@@ -1395,25 +1411,90 @@ body.white-shell.theme-light.theme-dark #settingsContentBody .compact-settings-s
     position: relative;
   }
 
+  /* The indicator is positioned against the top bar, so the bar has to be the
+     containing block in every theme. This used to be declared only on the light
+     shell, which left the pill positioned against the page in dark mode: it
+     appeared far from the thumb, nowhere near the bar it belongs to. The gesture
+     is not theme-specific, so neither is its anchor. */
+  .mobile-topbar {
+    position: relative;
+  }
+
   /* Sits below the bar and is revealed by the drag rather than overlapping the
-     bar's own controls. */
+     bar's own controls.
+
+     Centred with a translate rather than a fixed negative margin: the label goes
+     from "pull" to "release" to "refreshing", each a different width, and a fixed
+     margin made the pill slide sideways every time the text changed. The
+     translate carries the vertical follow too, so both live in one transform. */
   .pull-to-refresh-indicator {
     position: absolute;
     top: 100%;
     left: 50%;
     z-index: 1;
+    display: flex;
+    align-items: center;
+    gap: 7px;
     border-radius: 999px;
     background: var(--ws-card, #fff);
     box-shadow: 0 4px 14px rgba(17, 24, 39, .12);
-    padding: 5px 13px;
+    padding: 5px 13px 5px 9px;
     color: var(--ws-muted, #747e90);
     font-size: 11px;
     white-space: nowrap;
     opacity: 0;
-    transform: translateY(0);
+    transform: translate(-50%, 0);
     transition: opacity .16s ease;
     pointer-events: none;
-    margin-left: -50px;
+  }
+
+  /* The pull's progress, drawn as an arc that fills as the thumb travels. This is
+     the part the gesture was missing: three words changing gave no sense of how
+     much further to go, so the pull felt like guesswork until it fired. */
+  .pull-to-refresh-ring {
+    flex: none;
+    width: 13px;
+    height: 13px;
+    border-radius: 50%;
+    background: conic-gradient(
+      currentColor calc(var(--pull-progress, 0) * 360deg),
+      rgba(120, 128, 145, .22) 0
+    );
+    /* Punched out to a ring so it reads as progress rather than a filled blob. */
+    mask: radial-gradient(circle, transparent 54%, #000 56%);
+    -webkit-mask: radial-gradient(circle, transparent 54%, #000 56%);
+    color: var(--accent, #6f8cff);
+  }
+
+  /* Armed: the gesture will fire on release. The vibration says so through the
+     fingertip, this says so on screen, and neither is load-bearing alone. */
+  .pull-to-refresh-indicator.is-armed {
+    color: var(--ws-text, #111318);
+  }
+
+  .pull-to-refresh-indicator.is-armed .pull-to-refresh-ring {
+    background: conic-gradient(currentColor 360deg, currentColor 0);
+    color: var(--accent, #6f8cff);
+  }
+
+  .pull-to-refresh-indicator.is-refreshing .pull-to-refresh-ring {
+    /* Progress is unknowable once the reload is in flight, so the ring stops
+       reporting a fraction and just spins. */
+    background: conic-gradient(transparent 0deg, currentColor 90deg, transparent 260deg);
+    color: var(--accent, #6f8cff);
+    animation: pull-to-refresh-spin .7s linear infinite;
+  }
+
+  @keyframes pull-to-refresh-spin {
+    to { transform: rotate(1turn); }
+  }
+
+  /* The spin is the one part that must not run when motion is reduced; the arc
+     still fills, because that is information rather than decoration. */
+  @media (prefers-reduced-motion: reduce) {
+    .pull-to-refresh-indicator.is-refreshing .pull-to-refresh-ring {
+      animation: none;
+    }
   }
 
   body.white-shell.theme-light .mobile-topbar-center {
@@ -2641,7 +2722,7 @@ body.white-shell.theme-light.theme-dark .context-clear-confirmation :is(strong, 
   body.white-shell.theme-light .app-shell.terminal-collapsed.details-open,
   body.white-shell.theme-light .app-shell.terminal-collapsed.background-tasks-open,
   body.white-shell.theme-light .app-shell.terminal-collapsed.preview-open {
-    grid-template-columns: var(--global-rail-layout-width) var(--session-sidebar-layout-width) minmax(0, 1fr) var(--utility-panel-width, clamp(260px, calc(50vw - 186px), 620px));
+    grid-template-columns: var(--global-rail-layout-width) var(--session-sidebar-layout-width) minmax(0, 1fr) var(--utility-panel-width, clamp(260px, calc(50vw - 186px), 900px));
   }
 
   body.white-shell.theme-light .app-shell.global-rail-collapsed {

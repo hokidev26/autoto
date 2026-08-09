@@ -580,9 +580,6 @@ export function createGitWorkflowController({
         </div>
       </div>
       ${state.gitError ? `<div class="settings-inline-alert">${escapeHtml(state.gitError)}</div>` : ""}
-      ${renderRunCheckpointSection()}
-      ${renderWorklineMergePanel()}
-      ${renderGitCommitPanel(files, selectedCommitPaths)}
       <div class="git-layout">
         <aside class="git-file-list">
           <div class="git-panel-title">${escapeHtml(t("changedFiles"))}</div>
@@ -593,9 +590,20 @@ export function createGitWorkflowController({
           ${diff?.truncated ? `<div class="settings-inline-alert">${escapeHtml(t("diffTruncated"))}</div>` : ""}
           ${renderUnifiedDiff(patch, { cache: gitDiffLineCache, identity: diffIdentity, scrollTop: diffScrollTop })}
         </section>
-        <aside class="git-log-panel">
-          <div class="git-panel-title">${escapeHtml(t("recentCommits"))}</div>
-          ${renderGitLog(log?.commits || [])}
+        <!-- Checkpoint, merge, commit and history used to be four full-width cards
+             stacked above the file list. On a repository with any real number of
+             changes that pushed the files and the diff -- the reason the panel is
+             open -- entirely below the fold, behind three panels of controls the
+             user had not asked for yet. They are actions on the selection, so they
+             belong beside it in a column that scrolls on its own. -->
+        <aside class="git-side-column">
+          ${renderRunCheckpointSection()}
+          ${renderWorklineMergePanel()}
+          ${renderGitCommitPanel(files, selectedCommitPaths)}
+          <div class="git-log-panel">
+            <div class="git-panel-title">${escapeHtml(t("recentCommits"))}</div>
+            ${renderGitLog(log?.commits || [])}
+          </div>
         </aside>
       </div>
     `;

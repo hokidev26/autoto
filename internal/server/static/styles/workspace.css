@@ -486,6 +486,16 @@
 .conversation-run-outcome > .conversation-tool-activity { width: 100%; margin: 0; }
 .conversation-tool-activity .tool-activity-group { gap: 1px; }
 .conversation-tool-activity-more { justify-self: start; margin-left: 18px; }
+/* Sits inside the activity disclosure, so it is indented with the rows it pages
+   rather than aligned to the card edge like a second heading. */
+.conversation-run-activity-paging {
+  display: grid;
+  justify-items: start;
+  gap: 6px;
+  padding-left: 18px;
+}
+.conversation-run-activity-paging .conversation-tool-activity-more { margin-left: 0; }
+.conversation-run-activity-paging .conversation-run-omitted { padding-left: 0; }
 @media (max-width: 760px) {
   .live-tool-output-stack, .run-summary-card, .plan-card { width: 100%; }
   .plan-card-head { align-items: flex-start; }
@@ -1862,10 +1872,18 @@ body.theme-light .composer-toolbar-icon { color: #3f3f46; }
 .prompt { color: var(--good); font: 13px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
 .terminal-rail { display: none; }
 
+/* Notices drop from under the header tool row rather than rising from the bottom
+   edge. At the bottom they shared that edge with the composer, so a finished task
+   landed on the message box on a phone and beside the transcript tail on a desktop:
+   the two places the reader is actually looking. Under the toolbar they sit against
+   the controls they report on, and nothing has to move out of their way.
+
+   --header-tool-row-bottom is the one number describing where that row ends, so the
+   desktop and phone offsets stay in agreement instead of each carrying a guess. */
 .toast-stack {
   position: fixed;
   right: 18px;
-  bottom: 18px;
+  top: var(--header-tool-row-bottom, 64px);
   z-index: 80;
   display: grid;
   gap: 10px;
@@ -1886,7 +1904,19 @@ body.theme-light .composer-toolbar-icon { color: #3f3f46; }
   padding: 12px 13px 12px 14px;
   animation: toast-in .18s ease-out;
 }
-.toast span { line-height: 1.45; }
+/* Two lines is the ceiling. A toast reports that something happened; the surface
+   that explains it in full is the task tray or the transcript, and an unbounded
+   message here turned a passing notice into a panel. */
+.toast span {
+  min-width: 0;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
 .toast button {
   border: 0;
   background: transparent;
@@ -1909,8 +1939,24 @@ body.theme-light .composer-toolbar-icon { color: #3f3f46; }
 }
 .toast-persistent button:hover { background: rgba(148, 163, 184, .22); }
 .toast-persistent button:focus-visible { outline: 2px solid #93c5fd; outline-offset: 2px; }
-.toast.leaving { opacity: 0; transform: translateY(6px); transition: opacity .18s ease, transform .18s ease; }
-@keyframes toast-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+/* Enter and leave now move upward, back toward the toolbar the notice came from.
+   Sliding down on the way out would read as the card falling into the transcript. */
+.toast.leaving { opacity: 0; transform: translateY(-6px); transition: opacity .18s ease, transform .18s ease; }
+@keyframes toast-in { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: translateY(0); } }
+
+/* Swiped away rather than aimed at: the close button is a small target on a phone,
+   and a notice is the kind of thing people want gone with one gesture. Horizontal
+   only -- a vertical drag belongs to the transcript underneath. */
+.toast.swiping {
+  /* The finger owns the card mid-drag, so no transition competes with it. */
+  transition: none;
+  touch-action: pan-y;
+  will-change: transform;
+}
+.toast.swiped-out {
+  opacity: 0;
+  transition: opacity .16s ease, transform .16s ease;
+}
 
 .modal {
   position: fixed;

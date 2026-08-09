@@ -1847,6 +1847,56 @@ body.white-shell.theme-light:not(.project-operation-context) [data-project-conte
     padding: 0 12px 10px;
   }
 
+  /* One cell holding CPU, memory and the two network rates. The dashboard that
+     carries these on a desktop is hidden below 768px, so this is the phone's only
+     view of them. Laid out 2x2 to match the dashboard grid at narrow widths. */
+  .mobile-sidebar-metrics {
+    display: block;
+    padding: 0 12px 10px;
+  }
+  .mobile-sidebar-metrics:empty { display: none; }
+  .mobile-sidebar-metrics-inner {
+    border: 1px solid #42434a;
+    border-radius: 12px;
+    background: #2b2b2e;
+    padding: 10px 12px;
+  }
+  .mobile-sidebar-metrics-title {
+    display: block;
+    color: #9aa0ad;
+    font-size: 11px;
+    font-weight: 700;
+    margin-bottom: 8px;
+  }
+  .mobile-sidebar-metric-rows {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px 10px;
+  }
+  .mobile-sidebar-metric-row {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 6px;
+    min-width: 0;
+  }
+  .mobile-sidebar-metric-label {
+    color: #9aa0ad;
+    font-size: 11px;
+    white-space: nowrap;
+  }
+  /* Tone drives colour only. The label already says which metric it is, so colour
+     is never the sole carrier of meaning. */
+  .mobile-sidebar-metric-value {
+    color: #ececf1;
+    font-size: 13px;
+    font-weight: 760;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+  .mobile-sidebar-metric-row[data-tone="warning"] .mobile-sidebar-metric-value { color: #ffcf70; }
+  .mobile-sidebar-metric-row[data-tone="danger"] .mobile-sidebar-metric-value { color: #ff8f8f; }
+
   .mobile-sidebar-action {
     min-height: 42px;
     border: 1px solid #42434a;
@@ -2883,7 +2933,31 @@ body.white-shell.theme-light.theme-dark .git-merge-panel {
 }
 .git-merge-file-list.conflicts span { border-color: #fecaca; background: #fef2f2; color: #b91c1c; }
 .git-merge-file-list em { align-self: center; color: #64748b; font-size: 11px; font-style: normal; }
-.git-layout { flex: 1; min-height: 0; display: grid; grid-template-columns: 240px minmax(0, 1fr) 250px; gap: 12px; }
+/* Files, diff, then the actions. The third column is wider than the old log column
+   because it now carries the commit box and the merge panel, which need room for a
+   message field and a button row rather than one line of commit subject. */
+.git-layout { flex: 1; min-height: 0; display: grid; grid-template-columns: 240px minmax(0, 1fr) 320px; gap: 12px; }
+
+/* Scrolls as one column so a long history cannot push the commit box out of reach,
+   and so each card keeps its own height instead of stretching to the tallest. */
+.git-side-column {
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+/* The cards were built to sit in a full-width stack, where a fixed height was
+   harmless. In a 320px column they have to give that up or they overflow it. */
+.git-side-column > * {
+  flex: 0 0 auto;
+  width: auto;
+  max-width: 100%;
+}
+
 .git-file-list, .git-diff-panel, .git-log-panel {
   min-height: 0;
   border: 1px solid var(--ws-border);
@@ -2957,5 +3031,9 @@ body.white-shell.theme-light.theme-dark .git-merge-panel {
   .git-layout { grid-template-columns: 1fr; grid-template-rows: auto minmax(260px, 1fr) auto; }
   .git-file-list { max-height: 160px; }
   .git-log-panel { max-height: 180px; }
+  /* Stacked, the actions are the last row and scroll with the panel. Keeping the
+     column's own scroller here would nest one scroll region inside another, which
+     on a touch screen means the wrong one moves. */
+  .git-side-column { overflow-y: visible; }
 }
 

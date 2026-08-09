@@ -1,4 +1,4 @@
-import { $, escapeAttr, escapeHtml, setButtonBusy, setTextIfChanged } from "./dom.mjs";
+﻿import { $, escapeAttr, escapeHtml, setButtonBusy, setTextIfChanged } from "./dom.mjs";
 import { formatBytes, formatNumber } from "./formatters.mjs";
 import { chatDraftsKey, messageQueueKey, promptHistoryKey } from "./preferences-data.mjs";
 import { api } from "./runtime.mjs";
@@ -23,6 +23,10 @@ export function createChatComposerController({
   awaitAgentSettingsSaved = async () => {},
   saveAgentSettings = async () => {},
   loadMessages,
+  // Optional: existing callers that do not pass these keep the previous behaviour
+  // of the transcript only appearing once the reload lands.
+  echoPendingUserMessage = () => "",
+  discardPendingUserMessage = () => false,
   notifyTerminal,
   openDirectoryChooser,
   request = api,
@@ -432,7 +436,9 @@ export function createChatComposerController({
           setMessageInputValue("", { saveDraft: false });
           return;
         }
-        if (error?.status !== 401) notifyTerminal?.(`[warn] 私有草稿读取失败，已回退到浏览器草稿：${error?.message || error}\n`);
+        if (error?.status !== 401) {
+          notifyTerminal?.(`[warn] ${t("workspace.chat.draftFallback", { message: error?.message || error })}\n`);
+        }
       }
     }
   }
@@ -1102,12 +1108,49 @@ export function createChatComposerController({
     }
     const isGoalCommand = Boolean(goalCommand);
     setMessageSendingFor(agentId, true);
+    // Declared out here because both the success and the failure paths have to settle
+    // it: whichever one runs, these files are either released or handed back.
+    let staged = [];
+    // Puts the composer back exactly as it was. Used by the two ways a send can fall
+    // over after the box has been emptied: the model sync refusing, and the POST
+    // failing. Both have to undo the same three things, and doing it in one place is
+    // what keeps them from drifting apart.
+    const restoreComposerAfterFailedSend = () => {
+      discardPendingUserMessage?.(agentId);
+      if (staged.length) restorePendingAttachments(staged);
+      staged = [];
+      if (!input.value.trim()) input.value = text;
+      autoResizeMessageInput();
+    };
     try {
-      if (!isGoalCommand) {
-        if (!(await syncSelectedModelToAgent(agentId))) return;
-      }
+      // Emptied in the same synchronous beat the button became "sending", before the
+      // model sync below. That sync awaits any pending settings save, so it used to
+      // split the send into stages: the button changed, then a round trip, then the
+      // words went. One beat means the composer never disagrees with the button.
       input.value = "";
       autoResizeMessageInput();
+      // The whole composer empties at once. The text used to go here while the
+      // attachment cards stayed until the upload came back, so a send with a file
+      // played out in three steps: the words vanished, the cards sat there for as
+      // long as the transfer took, and only then did the button change. The files are
+      // taken rather than cleared, because the failure path below has to put them
+      // back; success releases their previews once the turn is safely delivered.
+      staged = attachments.length ? detachPendingAttachments() : [];
+      // Paint the user's turn in the same beat the composer is cleared. Waiting
+      // for the POST and the reload after it left the text nowhere on screen for
+      // 1-2 seconds, which read as the send being stuck. /goal is excluded
+      // because it is a command rather than a transcript turn.
+      if (!isGoalCommand) {
+        echoPendingUserMessage?.(agentId, text, attachments);
+        // Refusal is not an error: an unconfigured model shows its own notice. The
+        // composer has already been emptied by this point, so it has to be put back or
+        // the message would be gone with nothing sent and nothing said about it.
+        if (!(await syncSelectedModelToAgent(agentId))) {
+          if (state.agent?.id === agentId) restoreComposerAfterFailedSend();
+          else if (staged.length) releasePendingAttachmentPreviews(staged);
+          return;
+        }
+      }
       let accepted;
       if (attachments.length) {
         const form = new FormData();
@@ -1132,22 +1175,59 @@ export function createChatComposerController({
       scrollMessagesToBottom?.();
       if (text) rememberPromptHistory(text);
       clearChatDraftForKey(draftKey);
-      if (attachments.length) clearPendingAttachments();
+      // The cards left the composer before the upload started; this is the other half
+      // of that handover, freeing the preview URLs now that the turn is delivered and
+      // the files will not be handed back.
+      if (staged.length) releasePendingAttachmentPreviews(staged);
+      // The send is done here: the server has the turn, and the echo has been on
+      // screen since the composer was cleared. Holding the busy flag through the
+      // transcript reload below kept the textarea *disabled* for another round
+      // trip, which is the part that hurt on a phone -- over a remote tunnel you
+      // could not start typing the next message for a second or more, and the
+      // button still read "sending" for a message that had already been accepted.
+      //
+      // Releasing here is safe against a double send rather than relying on the
+      // flag: onMessageAccepted has just marked the run active, so agentTurnInFlight()
+      // is true and a second Enter parks the text as a follow-up instead of posting
+      // it again. The error path still releases in the finally below, because it
+      // never reaches this line.
+      setMessageSendingFor(agentId, false);
       if (!isGoalCommand) {
-        await loadMessages(agentId);
-        scrollMessagesToBottom?.();
+        // The reload gets its own failure handling because by this point the
+        // message is already delivered. Letting it fall into the catch below made
+        // a failed *reload* look like a failed *send*: the draft came back in the
+        // composer -- and the optimistic echo was pulled off screen -- for a turn
+        // the server had accepted, which invites sending the same thing twice.
+        try {
+          await loadMessages(agentId);
+          scrollMessagesToBottom?.();
+        } catch (reloadError) {
+          notifyTerminal(`[warn] The transcript reload after send failed; the message was already delivered: ${reloadError?.message || reloadError}\n`);
+        }
         scheduleMessageRefresh(1200, agentId, { skipWhileActive: true });
       }
     } catch (err) {
       const stillCurrent = state.agent?.id === agentId;
+      // The send failed, so the echo would otherwise keep claiming a message was
+      // delivered while the draft is being restored below.
       saveChatDraftForKey(draftKey, text);
       if (stillCurrent) {
-        if (!input.value.trim()) input.value = text;
-        autoResizeMessageInput();
+        // Text and files go back together. Restoring only the words would leave the
+        // message looking ready to resend while its attachments had been dropped.
+        restoreComposerAfterFailedSend();
         throw err;
       }
+      // The echo still has to go even when the reader has moved on, or that
+      // conversation keeps a turn that was never delivered.
+      discardPendingUserMessage?.(agentId);
+      // The reader has moved to another conversation, so the cards cannot go back into
+      // this composer; the draft keeps the text. Release the previews here or those
+      // object URLs stay allocated for the rest of the session with nothing to show.
+      if (staged.length) releasePendingAttachmentPreviews(staged);
       notifyTerminal(`[warn] Message delivery to the previous agent failed; the draft was kept: ${err.message || err}\n`);
     } finally {
+      // A no-op on the success path, which already released above. Still required:
+      // the error path never reaches that line.
       setMessageSendingFor(agentId, false);
       if (state.agent?.id === agentId) {
         // On mobile, a plain focus() after the request completes can make the
@@ -1155,7 +1235,11 @@ export function createChatComposerController({
         // reopening. Keep the caret without allowing that focus operation to
         // move the message viewport, then settle the transcript tail again.
         input.focus?.({ preventScroll: true });
-        scrollMessagesToBottom?.();
+        // Only when the user has not started composing the next message. The
+        // composer is usable during the reload now, so this landed on people who
+        // had already begun typing and scrolled up to re-read something: settling
+        // the tail then yanked the transcript out from under them.
+        if (!input?.value?.trim?.()) scrollMessagesToBottom?.();
       }
     }
   }
@@ -1207,6 +1291,8 @@ export function createChatComposerController({
     handleMessagePaste,
     removePendingAttachment,
     clearPendingAttachments,
+    detachPendingAttachments,
+    restorePendingAttachments,
     renderPendingAttachments,
     pendingAttachmentCardHTML,
     setComposerDragging,

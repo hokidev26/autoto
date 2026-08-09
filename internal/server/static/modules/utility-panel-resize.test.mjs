@@ -1,4 +1,4 @@
-import test from "node:test";
+﻿import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { readStylesSource } from "./styles-source-helper.mjs";
@@ -55,7 +55,7 @@ test("utility panel width helpers clamp values, respect available space, and kee
   // Low enough that the panel can reach its narrow, phone-shaped tier; the old
   // 320 floor ended the drag before that layout could apply.
   assert.equal(minUtilityPanelWidth, 260);
-  assert.equal(maxUtilityPanelWidth, 620);
+  assert.equal(maxUtilityPanelWidth, 900);
 
   // Flat clamp, no viewport info supplied.
   assert.equal(normalizeUtilityPanelWidth(undefined), maxUtilityPanelWidth);
@@ -74,14 +74,22 @@ test("utility panel width helpers clamp values, respect available space, and kee
   assert.equal(tightAvailable, 1280 - 76 - 296 - 420);
   assert.equal(normalizeUtilityPanelWidth(620, undefined, { maxAvailable: tightAvailable }), Math.max(minUtilityPanelWidth, tightAvailable));
   const roomyAvailable = utilityPanelMaxAvailable({ viewportWidth: 2000, railWidth: 76, sidebarWidth: 296 });
-  assert.equal(normalizeUtilityPanelWidth(620, undefined, { maxAvailable: roomyAvailable }), maxUtilityPanelWidth);
+  // A width the layout can honour is returned untouched...
+  assert.equal(normalizeUtilityPanelWidth(620, undefined, { maxAvailable: roomyAvailable }), 620);
+  // ...and only a width past the ceiling is pulled back to it. Asking for 620 used
+  // to be the same as asking for the maximum, which stopped saying anything once the
+  // ceiling moved above it.
+  assert.equal(
+    normalizeUtilityPanelWidth(maxUtilityPanelWidth + 400, undefined, { maxAvailable: roomyAvailable }),
+    maxUtilityPanelWidth,
+  );
 });
 
 test("utility panel resize handle markup mirrors the sidebar separator's accessible shape", async () => {
   const html = await readFile(indexURL, "utf8");
   assert.match(
     html,
-    /<div id="utilityPanelResizeHandle" class="utility-panel-resize-handle" role="separator" aria-orientation="vertical"[^>]*aria-valuemin="320"[^>]*aria-valuemax="620"[^>]*aria-valuenow="480"[^>]*tabindex="0">/,
+    /<div id="utilityPanelResizeHandle" class="utility-panel-resize-handle" role="separator" aria-orientation="vertical"[^>]*aria-valuemin="320"[^>]*aria-valuemax="900"[^>]*aria-valuenow="480"[^>]*tabindex="0">/,
   );
   // Placed as a sibling of the panels it resizes, not nested inside any one
   // of them, just like #sidebarResizeHandle sits beside (not inside) .sidebar.
@@ -103,16 +111,16 @@ test("utility panel resize handle styles stay hidden until a panel opens at the 
   const wideBreakpointStart = styles.indexOf("@media (min-width: 1280px) {\n  body.white-shell.theme-light .app-shell.details-open,");
   assert.ok(wideBreakpointStart > -1, "expected the >=1280px details/background-tasks/preview open block");
   const wideBreakpointBlock = styles.slice(wideBreakpointStart, styles.indexOf("\n}\n", wideBreakpointStart) + 3);
-  assert.match(wideBreakpointBlock, /grid-template-columns:\s*76px var\(--session-sidebar-width\) minmax\(420px, 1fr\) var\(--utility-panel-width, clamp\(260px, calc\(50vw - 186px\), 620px\)\)/);
-  assert.match(wideBreakpointBlock, /\.app-shell\.details-open \.utility-panel-resize-handle,[\s\S]*?\.app-shell\.preview-open \.utility-panel-resize-handle\s*\{[\s\S]*?display:\s*block;[\s\S]*?right:\s*calc\(var\(--utility-panel-width, clamp\(260px, calc\(50vw - 186px\), 620px\)\) - 3px\)/);
+  assert.match(wideBreakpointBlock, /grid-template-columns:\s*76px var\(--session-sidebar-width\) minmax\(390px, 1fr\) var\(--utility-panel-width, clamp\(260px, calc\(50vw - 186px\), 900px\)\)/);
+  assert.match(wideBreakpointBlock, /\.app-shell\.details-open \.utility-panel-resize-handle,[\s\S]*?\.app-shell\.preview-open \.utility-panel-resize-handle\s*\{[\s\S]*?display:\s*block;[\s\S]*?right:\s*calc\(var\(--utility-panel-width, clamp\(260px, calc\(50vw - 186px\), 900px\)\) - 3px\)/);
 
   // The higher-specificity rule that actually wins once the terminal auto-
   // collapses behind an open panel must honour the same custom property.
-  assert.match(styles, /\.app-shell\.terminal-collapsed\.preview-open\s*\{\s*\n\s*grid-template-columns:\s*var\(--global-rail-layout-width\) var\(--session-sidebar-layout-width\) minmax\(0, 1fr\) var\(--utility-panel-width, clamp\(260px, calc\(50vw - 186px\), 620px\)\)/);
+  assert.match(styles, /\.app-shell\.terminal-collapsed\.preview-open\s*\{\s*\n\s*grid-template-columns:\s*var\(--global-rail-layout-width\) var\(--session-sidebar-layout-width\) minmax\(0, 1fr\) var\(--utility-panel-width, clamp\(260px, calc\(50vw - 186px\), 900px\)\)/);
 
   // The docked workspace preview card is not a grid child, so its own width
   // must track the same variable to stay visually aligned with the divider.
-  assert.match(styles, /\.workspace-preview-dock-mode \.workspace-modal-card\s*\{\s*\n\s*width:\s*var\(--utility-panel-width, clamp\(420px, calc\(50vw - 186px\), 620px\)\)/);
+  assert.match(styles, /\.workspace-preview-dock-mode \.workspace-modal-card\s*\{\s*\n\s*width:\s*var\(--utility-panel-width, clamp\(420px, calc\(50vw - 186px\), 900px\)\)/);
 });
 
 test("utility panel resizer drags, keys, resets, persists, and cleans up", () => {
@@ -205,8 +213,19 @@ test("utility panel resizer drags, keys, resets, persists, and cleans up", () =>
     elementListeners.get("keydown")({ key: "ArrowRight", shiftKey: true, preventDefault() {} });
     assert.equal(styleValues.get("--utility-panel-width"), "484px");
 
+    // End asks for the widest panel allowed. The ceiling is not the only limit: the
+    // panel may never eat the chat column, so on this fixture's viewport the
+    // available-space cap is what End lands on. Computed rather than written as a
+    // number so the assertion keeps meaning the same thing if either limit moves.
+    // Matches the fixture above: a 1440px viewport, a 76px rail, a 296px sidebar.
+    const availableCap = utilityPanelMaxAvailable({
+      viewportWidth: 1440,
+      railWidth: 76,
+      sidebarWidth: 296,
+    });
+    const widestAllowed = Math.min(maxUtilityPanelWidth, availableCap);
     elementListeners.get("keydown")({ key: "End", preventDefault() {} });
-    assert.equal(styleValues.get("--utility-panel-width"), `${maxUtilityPanelWidth}px`);
+    assert.equal(styleValues.get("--utility-panel-width"), `${widestAllowed}px`);
 
     elementListeners.get("keydown")({ key: "Home", preventDefault() {} });
     assert.equal(styleValues.get("--utility-panel-width"), `${minUtilityPanelWidth}px`);

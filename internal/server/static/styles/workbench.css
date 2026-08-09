@@ -1,4 +1,4 @@
-/* ==========================================================================
+﻿/* ==========================================================================
    Legacy workbench polish
    Matches the classic rail / conversations / chat / terminal composition.
    ========================================================================== */
@@ -320,10 +320,10 @@ body.white-shell.theme-light .terminal-status-row {
     left: calc(76px + var(--session-sidebar-width) - 3px);
   }
   body.white-shell.theme-light .app-shell {
-    grid-template-columns: 76px var(--session-sidebar-width) minmax(420px, 1fr) clamp(260px, calc(50vw - 186px), 620px);
+    grid-template-columns: 76px var(--session-sidebar-width) minmax(390px, 1fr) clamp(260px, calc(50vw - 186px), 900px);
   }
   body.white-shell.theme-light .app-shell.terminal-collapsed {
-    grid-template-columns: 76px var(--session-sidebar-width) minmax(420px, 1fr) 0;
+    grid-template-columns: 76px var(--session-sidebar-width) minmax(390px, 1fr) 0;
   }
 }
 
@@ -716,6 +716,38 @@ body.white-shell.theme-light .conversation-detail-row > strong { min-width: 0; c
 body.white-shell.theme-light .conversation-detail-row button { border: 1px solid #d8dde6; border-radius: 8px; background: var(--ws-card); color: #687184; padding: 5px 9px; cursor: pointer; }
 body.white-shell.theme-light .conversation-runtime-link { width: 100%; margin-top: 18px; }
 
+/* Geometry only, shared by every panel that docks into the right-hand utility
+   column: the files browser, the preview, and the Dynamic Spec board. Each of
+   those keeps its own chrome rules; this block just moves a centred dialog into
+   the column and hands the backdrop back to the page, so the conversation stays
+   usable beside an open panel instead of sitting behind a modal scrim.
+
+   Colours come from var(--ws-*) so the dark palettes recolour it for free. */
+body.white-shell.theme-light .shell-dock-mode {
+  align-items: stretch;
+  justify-content: flex-end;
+  padding: 0;
+  background: transparent;
+  backdrop-filter: none;
+  pointer-events: none;
+}
+body.white-shell.theme-light .shell-dock-mode > .modal-card {
+  width: var(--utility-panel-width, clamp(420px, calc(50vw - 186px), 900px));
+  min-width: 0;
+  height: 100dvh;
+  min-height: 0;
+  max-height: none;
+  margin-left: auto;
+  border-radius: 0;
+  border-top: 0;
+  border-bottom: 0;
+  border-right: 0;
+  background: var(--ws-card);
+  box-shadow: -18px 0 50px rgba(15, 23, 42, .12);
+  pointer-events: auto;
+  position: relative;
+}
+
 body.white-shell.theme-light .workspace-preview-dock-mode {
   align-items: stretch;
   justify-content: flex-end;
@@ -725,7 +757,7 @@ body.white-shell.theme-light .workspace-preview-dock-mode {
   pointer-events: none;
 }
 body.white-shell.theme-light .workspace-preview-dock-mode .workspace-modal-card {
-  width: var(--utility-panel-width, clamp(420px, calc(50vw - 186px), 620px));
+  width: var(--utility-panel-width, clamp(420px, calc(50vw - 186px), 900px));
   min-width: 0;
   height: 100dvh;
   min-height: 0;
@@ -827,14 +859,14 @@ body.white-shell.theme-light .workspace-preview-dock-mode .workspace-preview-emp
   body.white-shell.theme-light .app-shell.details-open,
   body.white-shell.theme-light .app-shell.background-tasks-open,
   body.white-shell.theme-light .app-shell.preview-open {
-    grid-template-columns: 76px var(--session-sidebar-width) minmax(420px, 1fr) var(--utility-panel-width, clamp(260px, calc(50vw - 186px), 620px));
+    grid-template-columns: 76px var(--session-sidebar-width) minmax(390px, 1fr) var(--utility-panel-width, clamp(260px, calc(50vw - 186px), 900px));
   }
 
   body.white-shell.theme-light .app-shell.details-open .utility-panel-resize-handle,
   body.white-shell.theme-light .app-shell.background-tasks-open .utility-panel-resize-handle,
   body.white-shell.theme-light .app-shell.preview-open .utility-panel-resize-handle {
     display: block;
-    right: calc(var(--utility-panel-width, clamp(260px, calc(50vw - 186px), 620px)) - 3px);
+    right: calc(var(--utility-panel-width, clamp(260px, calc(50vw - 186px), 900px)) - 3px);
   }
 }
 
@@ -869,7 +901,27 @@ body.white-shell.theme-light .workspace-preview-dock-mode .workspace-preview-emp
   body.white-shell.theme-light .legacy-about-version-row { min-height: 54px; padding: 0 16px; font-size: 14px; }
   body.white-shell.theme-light .legacy-about-version-row strong { font-size: 14px; }
   body.white-shell.theme-light .legacy-about-update-button { width: 100%; }
-  body.white-shell.theme-light .utility-panel { position: fixed; inset: 64px 0 0; z-index: 46; width: 100%; }
+  /* Utility panels (background tasks / conversation details / preview) used to take
+     the screen from the topbar down, so opening one on a phone hid the whole
+     conversation and the composer with it -- and a task that had already finished
+     kept holding all of it until the × was found. Capping the height leaves the
+     tail of the transcript and the composer reachable underneath, so reading a
+     task's output no longer means leaving the conversation.
+
+     The panel scrolls internally, so nothing inside it is lost to the cap. */
+  body.white-shell.theme-light .utility-panel {
+    position: fixed;
+    inset: 64px 0 auto;
+    z-index: 46;
+    width: 100%;
+    max-height: min(62dvh, calc(100dvh - 64px));
+    display: flex;
+    flex-direction: column;
+    border-bottom: 1px solid var(--line, #38383c);
+    box-shadow: 0 18px 40px rgba(0, 0, 0, .34);
+  }
+  /* The body is the part that scrolls; the head stays put so × is always in reach. */
+  body.white-shell.theme-light .utility-panel > :not(.utility-panel-head) { min-height: 0; overflow-y: auto; }
   body.white-shell.theme-light .conversation-metric-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   body.white-shell.theme-light .workspace-preview-dock-mode .workspace-modal-card { width: 100%; height: calc(100dvh - 64px); margin-top: 64px; }
   body.white-shell.theme-light .workspace-browser-toolbar { grid-template-columns: repeat(4, 32px) minmax(72px, 1fr) auto; padding: 6px 8px; }

@@ -1625,6 +1625,56 @@ export function createChatRenderingController({
     return messageLifecycleGeneration;
   }
 
+  // Sending used to clear the composer and then show nothing until two round
+  // trips had finished: the POST, and the full transcript reload after it. For
+  // 1-2 seconds the text existed nowhere on screen, so the send read as a stall.
+  // This paints the user's own turn immediately from local data.
+  //
+  // Nothing here needs to reconcile with the server copy. applyMessageSnapshot
+  // assigns state.currentMessages wholesale, so the authoritative snapshot
+  // replaces this entry rather than sitting beside it, and the optimistic id is
+  // never sent anywhere. Attachments are described only well enough to render a
+  // count, because the real rows arrive with the snapshot moments later.
+  function echoPendingUserMessage(agentId, text, attachments = []) {
+    if (!agentId || state.agent?.id !== agentId) return "";
+    const trimmed = String(text || "").trim();
+    const files = Array.isArray(attachments) ? attachments : [];
+    if (!trimmed && !files.length) return "";
+    const id = `optimistic-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    state.optimisticUserMessageId = id;
+    const echo = {
+      id,
+      role: "user",
+      // contentText, not content: visibleMessageText reads contentText, and
+      // isTranscriptMessageVisible drops a message whose text is empty, so the
+      // wrong field here renders nothing at all.
+      contentText: trimmed,
+      createdAt: new Date().toISOString(),
+      optimistic: true,
+      attachments: files.map((item, index) => ({
+        id: `${id}-attachment-${index}`,
+        name: String(item?.file?.name || ""),
+        mimeType: String(item?.file?.type || ""),
+        size: Number(item?.file?.size || 0),
+      })),
+    };
+    applyMessageSnapshot([...(state.currentMessages || []), echo], agentId, { forceRender: true });
+    scrollMessagesToBottom();
+    return id;
+  }
+
+  // Called when the POST failed. The turn never reached the server, so leaving the
+  // echo on screen would claim a message was sent that was not.
+  function discardPendingUserMessage(agentId = state.agent?.id, id = state.optimisticUserMessageId) {
+    if (!id) return false;
+    state.optimisticUserMessageId = "";
+    if (!agentId || state.agent?.id !== agentId) return false;
+    const remaining = (state.currentMessages || []).filter((message) => message?.id !== id);
+    if (remaining.length === (state.currentMessages || []).length) return false;
+    applyMessageSnapshot(remaining, agentId, { forceRender: true });
+    return true;
+  }
+
   async function loadMessages(agentId = state.agent?.id) {
     if (!agentId) return false;
     const generation = messageLifecycleGeneration;
@@ -2042,7 +2092,14 @@ export function createChatRenderingController({
     // Live records owned by a terminal run summary are already filtered out in
     // currentLiveToolOutputList, so whatever is left here still needs a home;
     // dropping it would lose tool activity instead of de-duplicating it.
-    const tailRunSummaryCard = runCardInserted ? "" : runSummaryCard;
+    // ...with one exception: a run whose own turn is off screen must not take the
+    // tail, because the tail now belongs to a newer question. Placing it there put
+    // a finished run's tool activity under a message it never ran for, which is the
+    // stale "load earlier tool calls" strip that appeared under a freshly sent
+    // message and vanished when the next summary arrived.
+    const tailRunSummaryCard = runCardInserted || (needsRunAnchor && !runOutcomeTarget && runOutcomeHomeIsOffScreen(visibleMessages))
+      ? ""
+      : runSummaryCard;
     const tailLiveToolCards = liveToolsInserted ? "" : liveToolCards;
     // Preserve the user's manual open/collapsed state for the live tool
     // activity group across the full innerHTML replacement. renderLiveToolOutputCards
@@ -2597,13 +2654,32 @@ export function createChatRenderingController({
   // container tail, i.e. below the assistant's answer. Hence the ladder --
   // trigger, then the newest user turn, then the newest assistant turn (which
   // the card leads rather than trails).
+  // True when the transcript holds messages but the newest user turn belongs to a
+  // different run than the card being placed. That is the superseded case, and it
+  // is what separates "no anchor yet" from "no anchor ever".
+  function runOutcomeHomeIsOffScreen(visibleMessages) {
+    const messages = Array.isArray(visibleMessages) ? visibleMessages : [];
+    if (!messages.length) return false;
+    const run = state.activeRunSummary?.run;
+    const cardRunId = String(state.activeRunSummaryRunId || run?.id || "");
+    if (!cardRunId) return false;
+    for (let index = messages.length - 1; index >= 0; index -= 1) {
+      const message = messages[index];
+      if (!userMessageRoles.has(chatMessagePresentation(message).normalizedRole)) continue;
+      const runId = String(message?.runId || message?.run_id || "");
+      return Boolean(runId) && runId !== cardRunId;
+    }
+    return false;
+  }
+
   function runOutcomeAnchor(visibleMessages) {
     const messages = Array.isArray(visibleMessages) ? visibleMessages : [];
     if (!messages.length) return null;
-    const triggerId = String(state.activeRunSummary?.run?.triggerMessageId
-      || state.activeRunSummary?.run?.trigger_message_id
-      || "");
+    const run = state.activeRunSummary?.run;
+    const triggerId = String(run?.triggerMessageId || run?.trigger_message_id || "");
+    const cardRunId = String(state.activeRunSummaryRunId || run?.id || "");
     let lastUser = null;
+    let lastUserRunId = "";
     let lastAssistant = null;
     for (const message of messages) {
       const messageId = String(message?.id || "");
@@ -2612,9 +2688,23 @@ export function createChatRenderingController({
       if (triggerId && messageId === triggerId) {
         return { messageId, position: userMessageRoles.has(role) ? "afterend" : "beforebegin" };
       }
-      if (userMessageRoles.has(role)) lastUser = messageId;
-      else if (role === "assistant") lastAssistant = messageId;
+      if (userMessageRoles.has(role)) {
+        lastUser = messageId;
+        lastUserRunId = String(message?.runId || message?.run_id || "");
+      } else if (role === "assistant") lastAssistant = messageId;
     }
+    // The fallbacks below assume this run is the newest turn, which is what makes
+    // "the last user message" a sane home for its card. In a long conversation the
+    // trigger can sit outside the loaded window, and then the assumption breaks:
+    // the newest user message is the one just submitted for the *next* run, so a
+    // finished run's activity was attached under a question it had never seen.
+    // That is the flash of "load earlier tool calls" under a fresh message, which
+    // cleared itself once the new run's summary replaced the card.
+    //
+    // A user turn that already belongs to another run is therefore disqualifying:
+    // this card's real home is off screen, and showing nothing is right until the
+    // trigger loads.
+    if (lastUser && cardRunId && lastUserRunId && lastUserRunId !== cardRunId) return null;
     if (lastUser) return { messageId: lastUser, position: "afterend" };
     if (lastAssistant) return { messageId: lastAssistant, position: "beforebegin" };
     return null;
@@ -2626,7 +2716,13 @@ export function createChatRenderingController({
   // card was already gone, so every terminal run appended its activity to the
   // very bottom of the transcript -- underneath the answer it belonged above.
   function insertRunOutcomeCard(el, html) {
-    const target = runOutcomeAnchor(transcriptMessages(state.currentMessages));
+    const messages = transcriptMessages(state.currentMessages);
+    const target = runOutcomeAnchor(messages);
+    // A card whose run owns no message on screen has no home. The tail fallback
+    // below is for a transcript that has not painted yet, not for a run that has
+    // been superseded, so taking it would drop this run's activity under whatever
+    // happens to be last -- typically the question that started the next run.
+    if (!target && runOutcomeHomeIsOffScreen(messages)) return;
     const anchor = target ? el.querySelector(`[data-message-id="${cssIdentifierEscape(target.messageId)}"]`) : null;
     if (anchor) {
       // An assistant anchor already has its own per-message activity stack
@@ -3029,6 +3125,14 @@ export function createChatRenderingController({
       /(?:model.{0,80}(?:not found|does not exist|unsupported|unavailable)|(?:unsupported|unknown) model|模型.{0,24}(?:不存在|不可用|無法使用|无法使用|不支持|不支援))/.test(haystack)
     ) {
       message = cr("run.providerErrorModelUnavailable");
+    } else if (haystack.includes("must be a git repository")) {
+      // Continuation anchors its safety snapshot in Git. The raw text names an
+      // internal precondition and never says which directory is wrong or what
+      // to do, so a long task can stop on something the user could fix in
+      // seconds if anyone told them.
+      message = cr("run.continuationWorkspaceNotGitRepo");
+    } else if (haystack.includes("load continuation safety snapshot")) {
+      message = cr("run.continuationSnapshotUnavailable", { detail: compactText(normalized, 200) });
     }
     const httpStatus = normalized.match(/\b([45]\d{2})\b/)?.[1] || "";
     const bounded = compactText(message || normalized, 600);
@@ -3076,6 +3180,16 @@ export function createChatRenderingController({
       selectedToolUseId: selectedToolActivity(stackKey),
       totalCount: leftover.length,
     });
+    // Counted against everything fetched for the run, not against this card's
+    // leftovers, and deliberately so. The sentence describes the run across the whole
+    // transcript: calls filed under their own assistant message are on screen and
+    // therefore not missing. Counting only the leftovers would tell a run whose calls
+    // all found a home that it is showing none of them.
+    //
+    // It does mean this note and the summary above it count different things, which
+    // looks like a contradiction when the split moved most rows elsewhere: "showing
+    // the latest 40" above a summary reading 24. The alternative states something
+    // false, so the note stays and the disclosure below keeps the two apart.
     const omitted = Math.max(0, Number(summary?.toolCallCount || 0) - toolCalls.length);
     const omittedNote = omitted > 0
       ? `<div class="tool-activity-more conversation-run-omitted">${escapeHtml(cr("activity.recentOnly", { visible: toolCalls.length, count: omitted }))}</div>`
@@ -3083,12 +3197,19 @@ export function createChatRenderingController({
     const loadEarlier = renderEarlierRunToolCallsButton(runId, { compact: true });
     const notice = renderConversationRunNoticeHTML(run, status);
     if (!toolActivity && !loadEarlier && !notice && !omittedNote) return "";
+    // The paging note and the load button belong to the disclosure, not beside it.
+    // Left as siblings of the collapsed <details> they stayed on screen while the
+    // activity itself was folded away, so a run the reader had deliberately collapsed
+    // still occupied three lines: a summary, a sentence pointing at the run history,
+    // and a button offering to load the same calls inline. Inside the group they
+    // appear only once the reader opens it and the offer is relevant.
+    const paging = omittedNote || loadEarlier
+      ? `<div class="conversation-run-activity-paging">${omittedNote}${loadEarlier}</div>`
+      : "";
     return `
       <section class="conversation-run-outcome chat-flow-item chat-flow-left ${escapeAttr(runStatusClass(status))}" data-chat-alignment="left" data-chat-report="conversation-run" data-run-outcome-card>
         ${notice}
-        ${toolActivity}
-        ${omittedNote}
-        ${loadEarlier}
+        ${toolActivity ? injectRunActivityPaging(toolActivity, paging) : paging}
       </section>
     `;
   }
@@ -3113,7 +3234,17 @@ export function createChatRenderingController({
       `;
     }
     if (status === "interrupted") {
-      return `<div class="conversation-run-notice interrupted" role="status"><span>${escapeHtml(cr("run.conversationInterrupted"))}</span></div>`;
+      // An interrupted run can still carry a reason, and it is usually the only
+      // place that reason is visible. Dropping it left the generic sentence as
+      // the whole story, so a run blocked by something fixable looked identical
+      // to one the user stopped on purpose.
+      const reason = String(run?.errorMessage || "").trim()
+        ? runFailureMessage(run)
+        : "";
+      const detail = reason
+        ? `<span class="conversation-run-notice-message" title="${escapeAttr(reason)}">${escapeHtml(reason)}</span>`
+        : "";
+      return `<div class="conversation-run-notice interrupted" role="status"><span>${escapeHtml(cr("run.conversationInterrupted"))}</span>${detail}</div>`;
     }
     return "";
   }
@@ -3127,6 +3258,22 @@ export function createChatRenderingController({
         </div>
       </section>
     `;
+  }
+
+  // Places the paging controls inside the activity disclosure so they fold with it.
+  // The stack is built by renderToolActivityStackHTML, which has no notion of the run
+  // card's paging, and threading an extra slot through it would put a run-level
+  // concern into the shared renderer used by every per-message stack. Splicing at the
+  // group's closing tag keeps that boundary intact.
+  //
+  // If the expected shape is not found the paging is appended after the stack instead
+  // of being dropped: worse placement is recoverable, a load button that silently
+  // stops rendering is not.
+  function injectRunActivityPaging(stackHTML, paging) {
+    if (!paging) return stackHTML;
+    const closeAt = stackHTML.lastIndexOf("</details>");
+    if (closeAt === -1) return `${stackHTML}${paging}`;
+    return `${stackHTML.slice(0, closeAt)}${paging}${stackHTML.slice(closeAt)}`;
   }
 
   function renderEarlierRunToolCallsButton(runId, { compact = false } = {}) {
@@ -3723,12 +3870,38 @@ export function createChatRenderingController({
       .sort((a, b) => String(a.createdAt || "").localeCompare(String(b.createdAt || "")));
   }
 
+  // Deliberately the same markup and classes as the run failure notice. A blocked
+  // call and a failed turn are the same thing to the reader -- work stopped, here is
+  // why -- so they should not look like two different features. Retry is omitted:
+  // re-running a hard-blocked command reaches the same block every time.
+  function renderBlockedToolNoticeHTML(notice) {
+    const toolUseId = String(notice?.toolUseId || "");
+    const reason = String(notice?.warning || "").trim() || cr("approval.blockedWarning");
+    const toolName = String(notice?.toolName || "").trim();
+    const message = toolName ? `${toolName}: ${reason}` : reason;
+    return `
+      <div class="conversation-run-notice error" role="status" data-blocked-tool-notice="${escapeAttr(toolUseId)}">
+        <span class="conversation-run-notice-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4.5 21 19.5H3z"></path><path d="M12 10v4.2"></path><path d="M12 17.2h.01"></path></svg></span>
+        <span class="conversation-run-notice-message" title="${escapeAttr(message)}">${escapeHtml(message)}</span>
+        <span class="conversation-run-notice-actions">
+          <button type="button" class="conversation-run-notice-btn" data-blocked-notice-dismiss="${escapeAttr(toolUseId)}" title="${escapeAttr(cr("run.dismissError"))}" aria-label="${escapeAttr(cr("run.dismissError"))}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="m6 6 12 12"></path><path d="m18 6-12 12"></path></svg></button>
+        </span>
+      </div>
+    `;
+  }
+
   function renderApprovalCardsHTML() {
     const approvals = currentApprovalList();
     const questions = currentUserQuestionList();
-    if (!approvals.length && !questions.length) return "";
+    const blocked = currentBlockedToolNoticeList();
+    // The stack renders from live state without waiting on a fetch, which is why
+    // the failure reason belongs here: it is on screen the moment the run stops.
+    const runError = currentAgentRunError();
+    if (!approvals.length && !questions.length && !blocked.length && !runError) return "";
     return `
       <div class="approval-stack chat-flow-stack chat-flow-left" data-chat-alignment="left" data-approval-stack>
+        ${runError ? renderAgentRunErrorNoticeHTML(runError) : ""}
+        ${blocked.map(renderBlockedToolNoticeHTML).join("")}
         ${approvals.map(renderApprovalCard).join("")}
         ${questions.map(renderUserQuestionCard).join("")}
       </div>
@@ -3866,6 +4039,22 @@ export function createChatRenderingController({
     });
     root.querySelectorAll("[data-user-question-skip]").forEach((button) => {
       button.addEventListener("click", () => submitUserQuestion(button.dataset.userQuestionSkip, true, button));
+    });
+    root.querySelectorAll("[data-blocked-notice-dismiss]").forEach((button) => {
+      button.addEventListener("click", () => {
+        // Drop the record first, then the row: a re-render triggered by the next
+        // tool event would otherwise bring the dismissed notice straight back.
+        dismissBlockedToolNotice(String(button.dataset.blockedNoticeDismiss || ""));
+        button.closest(".conversation-run-notice")?.remove();
+      });
+    });
+    root.querySelectorAll("[data-agent-error-dismiss]").forEach((button) => {
+      button.addEventListener("click", () => {
+        // Recorded in the same dismissed set the run notices use, so closing it
+        // survives the re-render that the next snapshot triggers.
+        dismissedRunNotices.add(String(button.dataset.agentErrorDismiss || ""));
+        button.closest(".conversation-run-notice")?.remove();
+      });
     });
   }
 
@@ -4018,11 +4207,136 @@ export function createChatRenderingController({
     }
   }
 
+  // A hard block is not a decision anyone can make, so it is recorded as a notice
+  // instead of an approval. Filing it under pendingToolApprovals used to make the
+  // card appear and then vanish a moment later, when tool.finished cleared it: the
+  // only lasting trace was a toast, and the reason was gone before it could be read.
+  function rememberBlockedToolNotice(event) {
+    const data = event.data || {};
+    const toolUseId = String(data.toolUseId || data.tool_use_id || "");
+    const agentId = event.agentId || state.agent?.id;
+    if (!toolUseId || !agentId) return;
+    state.blockedToolNotices = {
+      ...(state.blockedToolNotices || {}),
+      [toolUseId]: {
+        toolUseId,
+        agentId,
+        toolName: String(data.toolName || data.tool_name || ""),
+        // The warning is the whole point of the notice: it names what was refused
+        // and why. Without it the row would only repeat that something was blocked.
+        warning: String(data.warning || "").trim(),
+        createdAt: event.createdAt || new Date().toISOString(),
+      },
+    };
+    renderApprovalCards();
+  }
+
+  function dismissBlockedToolNotice(toolUseId) {
+    if (!toolUseId || !state.blockedToolNotices?.[toolUseId]) return;
+    const next = { ...(state.blockedToolNotices || {}) };
+    delete next[toolUseId];
+    state.blockedToolNotices = next;
+  }
+
+  function currentBlockedToolNoticeList() {
+    const agentId = state.agent?.id || "";
+    // A refused call is not necessarily the end of the turn: the agent usually
+    // takes another route and finishes the work. Showing the refusal while it is
+    // still working reports a step, not an outcome, and the row then sits there
+    // contradicting a run that went on to succeed. So it is held back until the
+    // agent actually stops, which is the moment it explains something.
+    if (!agentHasStopped()) return [];
+    return Object.values(state.blockedToolNotices || {})
+      .filter((item) => item && (!item.agentId || item.agentId === agentId))
+      .sort((a, b) => String(a.createdAt || "").localeCompare(String(b.createdAt || "")));
+  }
+
+  // "Has the agent stopped?" -- deliberately narrower than the composer's
+  // agentTurnInFlight(). That one also counts live tool records that have not
+  // reached a terminal status, which is right for the send button but wrong here:
+  // those records are kept on screen on purpose after a run ends, until the
+  // persisted summary takes them over. Reusing it would let one leftover record
+  // hide a failure reason indefinitely -- the same class of silent omission this
+  // notice exists to fix. Status and streaming are what actually say the agent is
+  // working; a pending approval means it is mid-turn waiting on the reader.
+  function agentHasStopped() {
+    if (state.liveAssistantActive) return false;
+    if (Object.keys(state.pendingToolApprovals || {}).length) return false;
+    return String(state.agent?.status || "").trim().toLowerCase() !== "running";
+  }
+
+  // Why a stopped run needs its own notice: agent.error already carries the
+  // reason in event.text, but the transcript used to show it only by way of the
+  // persisted run summary. That summary is fetched afterwards and can legitimately
+  // not exist -- when registerRun fails before a run row is created, the server
+  // publishes agent.error with runId "" and never calls CompleteRun. The fetch
+  // then falls back to the latest run, finds one that is not terminal, and returns
+  // nothing, so the run stopped with the reason in hand and the screen stayed
+  // empty. Keeping the text from the event makes the reason independent of that
+  // fetch succeeding.
+  function rememberAgentRunError(event) {
+    const agentId = event?.agentId || state.agent?.id || "";
+    if (!agentId) return;
+    const message = String(event?.text || event?.data?.message || event?.data?.error || "").trim();
+    if (!message) return;
+    state.lastAgentError = {
+      agentId,
+      runId: String(event?.data?.runId || event?.data?.run_id || ""),
+      message,
+      createdAt: event?.createdAt || new Date().toISOString(),
+    };
+    renderApprovalCards();
+  }
+
+  function clearAgentRunError(agentId = state.agent?.id) {
+    const current = state.lastAgentError;
+    if (!current) return;
+    if (agentId && current.agentId && current.agentId !== agentId) return;
+    state.lastAgentError = null;
+  }
+
+  function currentAgentRunError() {
+    const current = state.lastAgentError;
+    if (!current || !agentHasStopped()) return null;
+    if (current.agentId && current.agentId !== (state.agent?.id || "")) return null;
+    if (dismissedRunNotices.has(agentRunErrorNoticeKey(current))) return null;
+    // The run summary carries the richer version of the same failure, complete
+    // with a retry button, so defer to it whenever it is on screen for this run
+    // rather than stacking two rows that say the same thing.
+    const run = state.activeRunSummary?.run;
+    const summaryStatus = String(run?.status || "").trim().toLowerCase();
+    const summaryShowsError = Boolean(run) && (summaryStatus === "error" || summaryStatus === "failed");
+    if (summaryShowsError && (!current.runId || current.runId === String(run?.id || ""))) return null;
+    return current;
+  }
+
+  function agentRunErrorNoticeKey(item) {
+    return `agent-error:${item?.runId || item?.createdAt || ""}`;
+  }
+
+  function renderAgentRunErrorNoticeHTML(item) {
+    const message = runFailureMessage({ errorMessage: item?.message });
+    const key = agentRunErrorNoticeKey(item);
+    return `
+      <div class="conversation-run-notice error" role="status" data-agent-error-notice="${escapeAttr(key)}">
+        <span class="conversation-run-notice-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4.5 21 19.5H3z"></path><path d="M12 10v4.2"></path><path d="M12 17.2h.01"></path></svg></span>
+        <span class="conversation-run-notice-message" title="${escapeAttr(message)}">${escapeHtml(message)}</span>
+        <span class="conversation-run-notice-actions">
+          <button type="button" class="conversation-run-notice-btn" data-agent-error-dismiss="${escapeAttr(key)}" title="${escapeAttr(cr("run.dismissError"))}" aria-label="${escapeAttr(cr("run.dismissError"))}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="m6 6 12 12"></path><path d="m18 6-12 12"></path></svg></button>
+        </span>
+      </div>
+    `;
+  }
+
   function rememberToolApproval(event) {
     const data = event.data || {};
     const toolUseId = data.toolUseId || data.tool_use_id;
     const agentId = event.agentId || state.agent?.id;
     if (!toolUseId || !agentId) return;
+    if (data.risk === "danger") {
+      rememberBlockedToolNotice(event);
+      return;
+    }
     state.pendingToolApprovals = {
       ...(state.pendingToolApprovals || {}),
       [toolUseId]: {
@@ -4675,6 +4989,19 @@ export function createChatRenderingController({
     clearMessageRefreshTimer,
     clearRunSummary,
     clearToolApproval,
+    clearAgentRunError,
+    dismissBlockedToolNotice,
+    rememberAgentRunError,
+    // Exported for tests: the approval stack is the surface that reports why a run
+    // stopped, so asserting on its markup is more direct than driving a DOM.
+    renderApprovalCardsHTML,
+    // Also for tests. Where the run outcome card lands is a placement decision made
+    // from state alone, so asserting on the decision is steadier than asserting on
+    // the position of a node inside a rebuilt transcript.
+    runOutcomeAnchorForTest: runOutcomeAnchor,
+    runOutcomeHomeIsOffScreenForTest: runOutcomeHomeIsOffScreen,
+    echoPendingUserMessage,
+    discardPendingUserMessage,
     clearUserQuestion,
     copyCurrentConversationMarkdown,
     ensureHistoryRunActivity,

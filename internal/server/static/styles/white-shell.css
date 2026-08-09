@@ -5,6 +5,13 @@
    ========================================================================== */
 
 body.white-shell.theme-light {
+  /* Where the header tool row ends, and so where the toast stack begins. Declared on
+     the body rather than on .chat-header: the stack is position:fixed and lives
+     outside that subtree, and a custom property only reaches descendants, so on the
+     header it would have silently fallen back to the default. Mirrors the
+     .chat-header height further down, and is re-pointed at the narrow breakpoint
+     where that height changes. */
+  --header-tool-row-bottom: 64px;
   --ws-primary: #4f6ef7;
   --ws-primary-soft: #eef1fe;
   --ws-canvas: #f8fafc;
@@ -92,7 +99,9 @@ body.white-shell.theme-light .utility-panel-resize-handle {
   position: fixed;
   top: 0;
   bottom: 0;
-  right: calc(clamp(260px, calc(50vw - 186px), 620px) - 3px);
+  /* Tracks the same clamp as the grid column it sits against. If the two disagree
+     the handle floats away from the panel edge and the drag target is wrong. */
+  right: calc(clamp(260px, calc(50vw - 186px), 900px) - 3px);
   width: 6px;
   border: 0;
   background: transparent;
@@ -1576,6 +1585,11 @@ body.white-shell.theme-light .toast {
     color: var(--ws-text);
   }
 
+  /* The header is shorter here, so the notices have to follow it up. */
+  body.white-shell.theme-light {
+    --header-tool-row-bottom: 56px;
+  }
+
   body.white-shell.theme-light .chat-header {
     flex-basis: 56px;
     height: 56px;
@@ -2003,10 +2017,28 @@ body.white-shell.theme-light .workspace-entry.active {
   background: var(--ws-primary-soft);
 }
 
+/* Sized for the drawn icon rather than for a text glyph: font-size did nothing for an
+   SVG, which would have taken its own default 300x150 box and blown the 28px column
+   apart. Stroked and unfilled to match the header tool icons. */
 body.white-shell.theme-light .workspace-entry-icon {
   color: var(--ws-primary);
-  font-size: 19px;
-  text-align: center;
+  display: grid;
+  place-items: center;
+}
+body.white-shell.theme-light .workspace-entry-icon svg {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+/* A directory is the thing you act on in this list, so it carries a filled tint while
+   a file stays an outline. That distinction used to rest entirely on telling a
+   parallelogram from a diamond at 19px. */
+body.white-shell.theme-light .workspace-entry[data-workspace-dir="true"] .workspace-entry-icon svg {
+  fill: color-mix(in srgb, var(--ws-primary) 14%, transparent);
 }
 
 body.white-shell.theme-light .workspace-entry-main { min-width: 0; display: grid; gap: 2px; }

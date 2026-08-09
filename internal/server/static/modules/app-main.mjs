@@ -81,7 +81,7 @@ import { createSkillsContext } from "./skills-context.mjs";
 import { createServerResourceLoaders } from "./server-resource-loaders.mjs";
 import { createSetupWizardController } from "./setup-wizard.mjs?v=first-run-readiness-1";
 import { createSpecBoardController } from "./spec-board.mjs";
-import { createSystemMetricsPoller, renderSystemMetrics } from "./system-metrics-panel.mjs?v=system-metrics-1";
+import { createSystemMetricsPoller, renderCompactSystemMetrics, renderSystemMetrics } from "./system-metrics-panel.mjs?v=system-metrics-2";
 import { createSystemSettingsController } from "./system-settings.mjs?v=users-panel-removed-1-about-brand-license-1-desktop-shell-1-execution-budget-2-background-task-settings-1-settings-ui-cleanup-1";
 import { installDesktopDeepLinkRouter, isDesktopShell } from "./desktop-shell-ui.mjs";
 import { createSkillsWorkbenchController } from "./skills-workbench.mjs?v=users-panel-removed-1-config-center-1-automation-tool-catalog-1-optional-tools-compact-1-skills-density-1";
@@ -367,6 +367,16 @@ const state = {
   liveAssistantPerformance: null,
   liveImageGenerations: {},
   pendingToolApprovals: {},
+  // Hard-blocked calls are recorded separately from pending approvals. They are
+  // already decided, so they must not count towards agentTurnInFlight(), which
+  // treats any pending approval as a turn still running and would leave the
+  // composer waiting forever on a decision nobody can make.
+  blockedToolNotices: {},
+  // The reason the last run stopped, taken straight from agent.error. Held here
+  // because the persisted run summary that normally carries it is fetched
+  // afterwards and can be absent entirely, which used to leave a failed run with
+  // no explanation anywhere on screen.
+  lastAgentError: null,
   pendingUserQuestions: {},
   gitStatus: null,
   gitDiff: null,
@@ -763,15 +773,8 @@ const workspaceExplorer = createWorkspaceExplorerController({
   request: api,
   showError,
   showToast,
-  onPreviewOpen: () => {
-    backgroundTasks?.closeTray?.("preview-open");
-    closeConversationDetails();
-    toggleTerminal(true);
-    $("appShell")?.classList.add("preview-open");
-  },
-  onPreviewClose: () => {
-    $("appShell")?.classList.remove("preview-open");
-  },
+  onPreviewOpen: () => claimUtilityColumn("workspace"),
+  onPreviewClose: () => releaseUtilityColumn(),
   // chatComposer is declared further below; this callback is only ever
   // invoked from a later click event, well after module evaluation
   // finishes, so referencing it here (instead of at call-construction
@@ -880,7 +883,9 @@ const {
   applyMessageSnapshot,
   applyPlanEvent,
   beginLiveAssistantGeneration,
+  clearAgentRunError,
   clearCurrentAgentApprovals,
+  rememberAgentRunError,
   clearLiveImageGenerations,
   clearLiveToolOutputs,
   clearPlanState,
@@ -890,6 +895,8 @@ const {
   clearToolApproval,
   clearUserQuestion,
   copyCurrentConversationMarkdown,
+  echoPendingUserMessage,
+  discardPendingUserMessage,
   finishToolOutput,
   invalidateMessageLifecycle,
   loadLatestRunSummary,
@@ -914,10 +921,24 @@ const {
   updateLiveAssistantPerformance,
 } = chatRendering;
 
+// A background task carries a title often enough, but not always, and the fallback
+// used to be its id: a line of hex that tells the reader nothing, wraps onto a second
+// line, and made the toast taller than the sentence it contained. The conversation
+// the task belongs to is the answer to "which one finished?", so it comes first, and
+// the generic word for a task is the last resort. The id stays out of the toast; the
+// task tray is where an id is actually useful.
+function backgroundTaskNoticeLabel(notice, raw, data) {
+  const explicit = String(raw.title || data.title || "").trim();
+  if (explicit) return explicit;
+  const conversation = conversationTitleForNotice(notice);
+  if (conversation) return conversation;
+  return t("backgroundTasks.task");
+}
+
 function executionNoticeMessage(notice) {
   const raw = notice?.raw || {};
   const data = raw.data && typeof raw.data === "object" ? raw.data : {};
-  if (notice?.family === "task_terminal") return t("backgroundTasks.notifications.taskCompleted", { task: raw.title || data.title || notice.taskId || t("backgroundTasks.task") });
+  if (notice?.family === "task_terminal") return t("backgroundTasks.notifications.taskCompleted", { task: backgroundTaskNoticeLabel(notice, raw, data) });
   if (notice?.family === "continuation_blocked") return t("backgroundTasks.continuation.blocked", { reason: notice.reason || data.reason || "—" });
   if (notice?.family === "budget_exhausted") return t("backgroundTasks.continuation.budgetExhausted", { reason: notice.reason || data.reason || notice.budget || "—" });
   if (notice?.family === "approval_required") return t("backgroundTasks.notifications.approvalRequired");
@@ -1120,6 +1141,37 @@ const messageModeBridge = {
   set: () => "execute",
 };
 
+// CPU / memory / network for the mobile drawer. The dashboard's own poller is
+// tied to the home page, which does not exist below 768px, so the drawer runs its
+// own and only while it is open. Created lazily because most sessions are on a
+// desktop and never open the drawer at all.
+let drawerMetricsPoller = null;
+
+function renderDrawerMetrics(payload) {
+  const host = $("mobileSidebarMetrics");
+  if (!host) return;
+  // An empty string is the renderer's way of saying nothing is measurable, so the
+  // cell collapses instead of showing a box of zeroes.
+  // The panel asks for short keys ("cpu", "memory"); the catalog stores them under
+  // the dashboard's namespace, so the labels stay identical to the desktop cards.
+  host.innerHTML = renderCompactSystemMetrics(payload, (key) => t(`overview.${key}`));
+  host.classList.toggle("hidden", !host.innerHTML);
+}
+
+function startDrawerMetrics() {
+  if (!drawerMetricsPoller) {
+    drawerMetricsPoller = createSystemMetricsPoller({
+      request: api,
+      onUpdate: renderDrawerMetrics,
+    });
+  }
+  drawerMetricsPoller.start();
+}
+
+function stopDrawerMetrics() {
+  drawerMetricsPoller?.stop();
+}
+
 const uiShell = createUIShellController({
   state,
   clearSettingsSearchQuery,
@@ -1143,6 +1195,8 @@ const uiShell = createUIShellController({
     return String(savedAgent.summaryModel || model);
   },
   renderProjects,
+  startDrawerMetrics,
+  stopDrawerMetrics,
   onLayoutChange: ({ sessionSidebarMode = "expanded" } = {}) => {
     const changed = state.sessionSidebarLayout !== sessionSidebarMode;
     state.sessionSidebarLayout = sessionSidebarMode;
@@ -1259,7 +1313,13 @@ const setupWizard = createSetupWizardController({
 const { bindSetupWizardActions, maybeOpenSetupWizard, openSetupWizard, resumeAfterProviderSettings } = setupWizard;
 resumeSetupWizardAfterSettings = resumeAfterProviderSettings;
 
-const specBoard = createSpecBoardController({ request: api, showError, showToast });
+const specBoard = createSpecBoardController({
+  request: api,
+  showError,
+  showToast,
+  onDockOpen: () => claimUtilityColumn("spec"),
+  onDockClose: () => releaseUtilityColumn(),
+});
 specBoard.bind();
 
 const projectKanban = createProjectKanbanController({
@@ -1284,6 +1344,8 @@ const chatComposer = createChatComposerController({
   awaitAgentSettingsSaved: (agentId) => waitForAgentSettingsSave(agentId),
   saveAgentSettings: () => saveAgentSettings(),
   loadMessages,
+  echoPendingUserMessage,
+  discardPendingUserMessage,
   notifyTerminal,
   openDirectoryChooser,
   scheduleMessageRefresh,
@@ -1430,6 +1492,7 @@ const {
   localSkillID,
   normalizeMCPServer,
   normalizeSkillCommand,
+  hapticFeedbackEnabled,
   notificationToastDuration,
   notificationToastHoldsUntilDismissed,
   notificationSoundEnabled,
@@ -1898,6 +1961,29 @@ function openConversationDetails() {
   $("runtimeStatusBtn")?.classList.add("active");
   $("runtimeStatusBtn")?.setAttribute("aria-expanded", "true");
   renderConversationDetails();
+}
+
+// The workspace panel, the Dynamic Spec board, the conversation details panel and
+// the background task tray all live in the same right-hand grid cell, so exactly
+// one may be open. "preview-open" is what allocates that column; the name predates
+// the other panels docking into it and is kept because three stylesheets key their
+// four-column layouts off it.
+//
+// The terminal is deliberately left alone. It used to be forced shut to make room,
+// but the shell has styles for a docked panel beside an open terminal, so there was
+// nothing to make room for and closing it discarded the reader's own choice.
+function claimUtilityColumn(owner) {
+  backgroundTasks?.closeTray?.("utility-column");
+  closeConversationDetails();
+  // Declared later in this module; only ever reached from a click, long after
+  // evaluation, so the lazy lookup avoids the temporal dead zone.
+  if (owner !== "spec" && typeof specBoard !== "undefined") specBoard?.close?.();
+  if (owner !== "workspace" && typeof workspaceExplorer !== "undefined") workspaceExplorer?.closeWorkspace?.();
+  $("appShell")?.classList.add("preview-open");
+}
+
+function releaseUtilityColumn() {
+  $("appShell")?.classList.remove("preview-open");
 }
 
 function closeConversationDetails() {
@@ -3270,6 +3356,7 @@ async function createProjectFromDirectory(path, options = {}) {
     await enterAgent();
     showToast(t("workspace.main.selectedDirectory", { path: shortPath(created.project?.gitPath || normalizedPath) }), "success", { force: true });
     appendTerminal(`Created project: ${created.project.name}\nPath: ${created.project.gitPath}\n`);
+    warnIfProjectWorkspaceIsNotGitRepository(created.workspace);
   } catch (err) {
     if (seq === state.projectCreateSeq) {
       const message = err.message || String(err);
@@ -3280,6 +3367,25 @@ async function createProjectFromDirectory(path, options = {}) {
     state.projectCreating = false;
     setButtonBusy(button, false, busyText);
   }
+}
+
+// A project pointed at a directory that is not a Git repository still works for
+// ordinary editing, so this warns instead of blocking. It matters because Git is
+// what anchors the auto-continuation safety snapshot: without it a long task
+// stops partway with an internal message about a snapshot, days after the
+// directory was chosen and with nothing connecting the two.
+function warnIfProjectWorkspaceIsNotGitRepository(workspace) {
+  if (!workspace || typeof workspace !== "object") return;
+  if (workspace.isGitRepository || workspace.gitStateUnavailable) return;
+  // Git resolves a repository by walking upward, so a parent never inherits a
+  // child's repository. When exactly one subdirectory holds one, naming it is
+  // almost always the fix.
+  const discovered = String(workspace.discoveredRoot || "").trim();
+  const message = discovered
+    ? t("workspace.main.projectPathNotGitRepoWithCandidate", { path: shortPath(discovered) })
+    : t("workspace.main.projectPathNotGitRepo");
+  showToast(message, "warn", { force: true });
+  appendTerminal(`[warn] ${message}\n`);
 }
 
 function beginNavigationSelection(project, options = {}) {
@@ -3541,7 +3647,16 @@ async function enterAgent() {
   refreshReasoningEffortControl();
   refreshFastModeControl();
   refreshMessageModeControl();
-  await restoreCurrentChatDraft();
+  // The draft is a server round trip of its own, and awaiting it here put a whole
+  // request in front of the transcript load. Switching conversations, the transcript
+  // is what the user is waiting to see; the draft only fills the composer below it.
+  // Started now, awaited after the messages, so the two overlap instead of queueing.
+  // restoreCurrentChatDraft carries its own per-agent sequence guard, so a late
+  // reply for the conversation you just left cannot overwrite the composer.
+  let draftError = null;
+  const draftPromise = restoreCurrentChatDraft().catch((error) => {
+    draftError = error;
+  });
   renderMessageQueue();
   // The queue is server-side, so opening an agent has to fetch whatever was
   // parked from another device before the panel can be trusted.
@@ -3581,8 +3696,12 @@ async function enterAgent() {
   // first visible page behind the optional skills-policy request: over a remote
   // tunnel it can be noticeably slower than the chat data it does not affect.
   signalAppReady();
-  await effectiveSkillsPromise;
+  await Promise.all([effectiveSkillsPromise, draftPromise]);
   if (state.agent?.id !== agentId) return;
+  // The draft failure is reported after the transcript is on screen, and it never
+  // takes the conversation down with it: a composer that fell back to the local
+  // draft is a far smaller problem than a conversation that refused to open.
+  if (draftError) notifyTerminal(`[warn] ${draftError?.message || draftError}\n`);
   if (effectiveSkillsError) throw effectiveSkillsError;
   rememberCurrentConversation();
   renderProjects();
@@ -3764,6 +3883,9 @@ async function handleAgentStreamEvent(event) {
   if (event.type === "agent.started") {
     state.agent = { ...state.agent, status: "running" };
     syncNavigationConversationFromAgent(state.agent, { status: "running", reason: "agent-started" });
+    // A new turn supersedes the previous failure, so the old reason must not sit
+    // above a run that is already under way.
+    clearAgentRunError(agentId);
     clearRunSummary();
     clearLiveAssistantText();
     syncMessageComposerBusy();
@@ -3826,6 +3948,10 @@ async function handleAgentStreamEvent(event) {
     refreshComposerActivityStatus();
   }
   if (event.type === "agent.interrupted") clearCurrentAgentApprovals();
+  // Keep the reason the moment it arrives. Everything downstream of here depends
+  // on a fetch that may return nothing, so this is the only copy guaranteed to
+  // exist for a run that failed before it was ever recorded.
+  if (event.type === "agent.error") rememberAgentRunError({ ...event, agentId });
   if (terminalAgentEvents.includes(event.type)) {
     // Belt and braces: a run that ends during a retry or a compaction must not
     // leave the composer claiming either is still happening.
@@ -3982,10 +4108,105 @@ async function waitForAgentSettingsSave(agentId = state.agent?.id) {
   }
 }
 
+// How many toasts may be on screen at once. The stack was unbounded, so a batch of
+// background tasks finishing together grew a column of cards; on a phone, where the
+// stack now sits above the composer and grows upward, that column covered the
+// conversation it was reporting on. The oldest goes when a new one arrives, because
+// the newest notice is the one still worth reading.
+const maxVisibleToasts = 3;
+
+function trimToastStack(stack) {
+  // Persistent toasts are excluded: those are waiting for a deliberate dismissal,
+  // and dropping one silently would lose an error the reader never saw.
+  const expiring = [...stack.querySelectorAll(".toast:not(.toast-persistent):not(.leaving)")];
+  for (const node of expiring.slice(0, Math.max(0, expiring.length - (maxVisibleToasts - 1)))) {
+    node.remove();
+  }
+}
+
+// Past this the card is gone on release; short of it, it springs back. Deliberately
+// smaller than a comfortable drag so a decisive flick does not need to cross the
+// whole card, and large enough that a thumb resting mid-scroll does not dismiss.
+const toastSwipeDismissPx = 56;
+
+// Swipe a notice away instead of aiming at its close button. The button is a small
+// target on a phone, and these cards now sit under the top bar where the reader's
+// thumb rarely is.
+//
+// Horizontal only, and the axis is decided once per gesture: a vertical drag belongs
+// to whatever is underneath, and a card that follows both axes turns every attempted
+// scroll into an accidental dismissal.
+function bindToastSwipeDismiss(node, close) {
+  let startX = 0;
+  let startY = 0;
+  let axis = "";
+  let offset = 0;
+
+  const settle = () => {
+    node.classList.remove("swiping");
+    node.style.transform = "";
+    node.style.opacity = "";
+  };
+
+  node.addEventListener("touchstart", (event) => {
+    const touch = event.touches?.[0];
+    if (!touch) return;
+    startX = touch.clientX;
+    startY = touch.clientY;
+    axis = "";
+    offset = 0;
+  }, { passive: true });
+
+  node.addEventListener("touchmove", (event) => {
+    const touch = event.touches?.[0];
+    if (!touch) return;
+    const deltaX = touch.clientX - startX;
+    const deltaY = touch.clientY - startY;
+    if (!axis) {
+      // Wait for a few pixels before claiming a direction; below that the numbers are
+      // noise and the guess would be wrong as often as right.
+      if (Math.abs(deltaX) < 6 && Math.abs(deltaY) < 6) return;
+      axis = Math.abs(deltaX) > Math.abs(deltaY) ? "x" : "y";
+      if (axis === "x") node.classList.add("swiping");
+    }
+    if (axis !== "x") return;
+    offset = deltaX;
+    // Claimed only once this is known to be a horizontal drag on the card, so the
+    // transcript keeps its own scrolling.
+    if (event.cancelable) event.preventDefault();
+    node.style.transform = `translateX(${offset}px)`;
+    // Fades toward the threshold so the gesture shows how close it is to dismissing.
+    node.style.opacity = String(Math.max(0.25, 1 - Math.abs(offset) / (toastSwipeDismissPx * 2.4)));
+  }, { passive: false });
+
+  const release = () => {
+    if (axis !== "x") {
+      settle();
+      return;
+    }
+    if (Math.abs(offset) < toastSwipeDismissPx) {
+      settle();
+      return;
+    }
+    // Leaves in the direction it was pushed rather than snapping back first.
+    node.classList.remove("swiping");
+    node.classList.add("swiped-out");
+    node.style.transform = `translateX(${offset > 0 ? "120%" : "-120%"})`;
+    close();
+  };
+
+  node.addEventListener("touchend", release, { passive: true });
+  node.addEventListener("touchcancel", () => {
+    axis = "";
+    settle();
+  }, { passive: true });
+}
+
 function showToast(message, variant = "info", options = {}) {
   if (!options.force && !notificationVariantEnabled(variant)) return;
   const stack = $("toastStack");
   if (!stack) return;
+  trimToastStack(stack);
   const node = document.createElement("div");
   node.className = `toast toast-${variant}`;
   node.innerHTML = `<span>${escapeHtml(message)}</span><button type="button" aria-label="${escapeAttr(am("closeNotification"))}">×</button>`;
@@ -3994,6 +4215,7 @@ function showToast(message, variant = "info", options = {}) {
     window.setTimeout(() => node.remove(), 180);
   };
   node.querySelector("button").addEventListener("click", close);
+  bindToastSwipeDismiss(node, close);
   stack.appendChild(node);
   // Errors wait for the × unless the user turned that off. Everything else still
   // expires on its own so the stack cannot fill up with routine chatter.
@@ -4093,7 +4315,14 @@ $("resetBackendFormBtn").addEventListener("click", resetBackendForm);
 $("mobileMenuBtn").addEventListener("click", () => {
   // The drawer always opens on the conversation/project list, never the
   // last-used "schedules/任務" view. Reach schedules via the 排程 button.
-  switchPrimaryWorkbench("conversation");
+  //
+  // Only when the view actually has to change: switchPrimaryWorkbench re-runs the
+  // whole layout, re-renders the sidebar, and reloads the task workspace, and doing
+  // that on a tap that changes nothing put a full render in front of the drawer
+  // opening. Already on the conversation list, the tap now just opens the drawer.
+  if (state.activeWorkbench !== "conversation" || state.overviewActive) {
+    switchPrimaryWorkbench("conversation");
+  }
   openMobileSidebar();
 });
 $("mobileSidebarCloseBtn")?.addEventListener("click", closeMobileSidebar);
@@ -4108,6 +4337,15 @@ if (isPullToRefreshSupported()) {
     installPullToRefresh({
       target: mobileTopbar,
       onRefresh: () => globalThis.location?.reload?.(),
+      // The module shipped with hardcoded Simplified defaults, so a Traditional or
+      // English shell showed the wrong script mid-gesture. The strings come from
+      // the active locale like every other label.
+      labels: {
+        pull: t("shell.pullToRefreshPull"),
+        release: t("shell.pullToRefreshRelease"),
+        refreshing: t("shell.pullToRefreshRefreshing"),
+      },
+      haptics: hapticFeedbackEnabled(),
     });
   }
 }
@@ -4253,8 +4491,17 @@ $("terminalOutput").addEventListener("paste", (event) => {
   sendTerminalInput(event.clipboardData?.getData("text") || "");
 });
 $("reconnectTerminalBtn").addEventListener("click", connectTerminal);
+// The drawer is a phone-only surface, so growing into the desktop layout has to
+// dismiss it. Closing on *every* resize went much further than that: on a phone,
+// resize fires when the URL bar collapses and when the on-screen keyboard opens or
+// closes, and both happen exactly as a run starts streaming. The drawer opened on
+// the first tap and the next resize shut it, which is why it took two taps to stay
+// open. Only a viewport that is no longer a phone dismisses it now.
+let lastViewportWasMobile = isMobileAppViewport();
 window.addEventListener("resize", () => {
-  closeMobileSidebar({ restoreFocus: false });
+  const mobile = isMobileAppViewport();
+  if (lastViewportWasMobile && !mobile) closeMobileSidebar({ restoreFocus: false });
+  lastViewportWasMobile = mobile;
   leaveOverviewForMobile();
   syncSettingsViewportState();
   layoutSettingsShell();

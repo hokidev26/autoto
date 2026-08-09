@@ -23,6 +23,16 @@ export function buildWorkspaceSavePayload(path, content, expectedModTime) {
   };
 }
 
+// These rows used to be labelled with the geometric characters U+25B1 WHITE
+// PARALLELOGRAM for a directory and U+25C7 WHITE DIAMOND for a file. Nothing was
+// broken in the font: a leaning parallelogram simply does not read as a folder and a
+// diamond does not read as a file, and at 19px both arrived as small hollow outlines
+// that told the reader nothing. Everything else in this UI draws its icons as inline
+// stroked SVG on a 24x24 box, so these now do too -- a folder with a tab, and a page
+// with its corner turned down.
+const workspaceDirectoryIcon = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 7.2A1.7 1.7 0 0 1 5.2 5.5h3.4l1.9 2.2h8.3a1.7 1.7 0 0 1 1.7 1.7v7.9a1.7 1.7 0 0 1-1.7 1.7H5.2a1.7 1.7 0 0 1-1.7-1.7z"></path></svg>';
+const workspaceFileIcon = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6.5 4.5h7l4.5 4.6v10.4a1 1 0 0 1-1 1H6.5a1 1 0 0 1-1-1v-14a1 1 0 0 1 1-1z"></path><path d="M13.4 4.6v4.7h4.6"></path></svg>';
+
 export function renderWorkspaceEntriesHTML(entries, selectedPath = "") {
   const sorted = [...(Array.isArray(entries) ? entries : [])].sort((a, b) => {
     const directoryOrder = Number(Boolean(b?.isDir)) - Number(Boolean(a?.isDir));
@@ -38,7 +48,7 @@ export function renderWorkspaceEntriesHTML(entries, selectedPath = "") {
     const meta = isDir ? t("workspace.explorer.directory") : `${formatBytes(size)}${editable ? "" : ` · ${t("workspace.explorer.readOnly")}`}`;
     return `
       <button class="workspace-entry ${path === selectedPath ? "active" : ""}" type="button" data-workspace-path="${escapeAttr(path)}" data-workspace-dir="${isDir ? "true" : "false"}" title="${escapeAttr(path || name)}">
-        <span class="workspace-entry-icon" aria-hidden="true">${isDir ? "▱" : "◇"}</span>
+        <span class="workspace-entry-icon" aria-hidden="true">${isDir ? workspaceDirectoryIcon : workspaceFileIcon}</span>
         <span class="workspace-entry-main"><strong>${escapeHtml(name)}</strong><small>${escapeHtml(meta)}</small></span>
         <span class="workspace-entry-arrow" aria-hidden="true">${isDir ? "›" : ""}</span>
       </button>
@@ -189,13 +199,15 @@ export function createWorkspaceExplorerController({
       renderWorkspaceButtonState();
       return false;
     }
-    const wasPreview = state.workspaceOpen && state.workspaceTab === "preview";
+    const wasOpen = state.workspaceOpen;
     invalidateRequests();
     stopPreviewPolling();
     state.workspaceOpen = false;
     element("workspaceModal")?.classList.add("hidden");
-    element("workspaceModal")?.classList.remove("workspace-preview-dock-mode");
-    if (wasPreview) onPreviewClose();
+    element("workspaceModal")?.classList.remove("workspace-preview-dock-mode", "shell-dock-mode");
+    // Only when it really was open. Releasing a column this panel never claimed
+    // would tear down whichever panel is actually in it.
+    if (wasOpen) onPreviewClose();
     state.workspaceAgentId = nextId;
     resetWorkspaceView();
     renderWorkspaceButtonState();
@@ -240,8 +252,14 @@ export function createWorkspaceExplorerController({
     state.workspaceOpen = true;
     const modal = element("workspaceModal");
     modal?.classList.remove("hidden");
+    // Both tabs dock into the right-hand utility column. "shell-dock-mode" carries
+    // the geometry for any panel that docks there; the preview adds a second class
+    // because it also trims chrome that only makes sense in a centred dialog.
+    modal?.classList.add("shell-dock-mode");
     modal?.classList.toggle("workspace-preview-dock-mode", state.workspaceTab === "preview");
-    if (state.workspaceTab === "preview") onPreviewOpen();
+    // Tied to the modal rather than to the preview tab: the column is allocated for
+    // whichever tab is showing, so switching tabs inside it must not release it.
+    onPreviewOpen();
     renderWorkspaceButtonState();
     renderWorkspace();
     if (state.workspaceTab === "preview") loadPreview().catch(showError);
@@ -250,7 +268,7 @@ export function createWorkspaceExplorerController({
   }
 
   function closeWorkspace() {
-    const wasPreview = state.workspaceOpen && state.workspaceTab === "preview";
+    const wasOpen = state.workspaceOpen;
     state.workspaceOpen = false;
     invalidateRequests();
     stopPreviewPolling();
@@ -261,8 +279,10 @@ export function createWorkspaceExplorerController({
     state.workspacePreviewBusy = false;
     const modal = element("workspaceModal");
     modal?.classList.add("hidden");
-    modal?.classList.remove("workspace-preview-dock-mode");
-    if (wasPreview) onPreviewClose();
+    modal?.classList.remove("workspace-preview-dock-mode", "shell-dock-mode");
+    // Guarded for the same reason as the agent-switch path: a close that closed
+    // nothing must not release a column another panel is holding.
+    if (wasOpen) onPreviewClose();
     renderWorkspaceButtonState();
   }
 
@@ -390,13 +410,13 @@ export function createWorkspaceExplorerController({
       renderWorkspaceButtonState();
       return;
     }
-    const previous = state.workspaceTab;
     state.workspaceTab = next;
     state.workspacePreviewSeq += 1;
     stopPreviewPolling();
+    // Only the preview-specific chrome class changes here. The column itself was
+    // allocated when the panel opened and both tabs live in it, so releasing it on
+    // a tab switch would collapse the panel the reader is still using.
     element("workspaceModal")?.classList.toggle("workspace-preview-dock-mode", next === "preview");
-    if (state.workspaceOpen && previous !== "preview" && next === "preview") onPreviewOpen();
-    if (state.workspaceOpen && previous === "preview" && next !== "preview") onPreviewClose();
     renderWorkspaceButtonState();
     renderWorkspace();
     if (next === "preview") loadPreview().catch(showError);
@@ -731,8 +751,20 @@ export function createWorkspaceExplorerController({
   function bind() {
     ensureScreenshotButton();
     element("workspacePreviewScreenshotBtn")?.addEventListener("click", () => onScreenshot());
-    element("workspaceExplorerBtn")?.addEventListener("click", () => openWorkspace("files"));
-    element("workspacePreviewBtn")?.addEventListener("click", () => openWorkspace("preview"));
+    // Same toggle contract as the preview button below: it reports aria-expanded,
+    // so pressing it while the files dialog is already up must close it.
+    element("workspaceExplorerBtn")?.addEventListener("click", () => {
+      if (state.workspaceOpen && state.workspaceTab === "files") closeWorkspace();
+      else openWorkspace("files");
+    });
+    // A toggle, not just an opener. The button reports aria-expanded and lights up
+    // while the panel is docked, so pressing it again has to be what closes it;
+    // re-opening an already-open panel is a no-op the reader reads as a dead
+    // button, leaving the × as the only way out of a panel the button opened.
+    element("workspacePreviewBtn")?.addEventListener("click", () => {
+      if (state.workspaceOpen && state.workspaceTab === "preview") closeWorkspace();
+      else openWorkspace("preview");
+    });
     element("closeWorkspaceModalBtn")?.addEventListener("click", closeWorkspace);
     element("workspaceModal")?.addEventListener("click", (event) => {
       if (event.target?.id === "workspaceModal") closeWorkspace();
