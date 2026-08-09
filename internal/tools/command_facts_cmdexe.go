@@ -4,13 +4,22 @@ import (
 	"strings"
 )
 
-// This file implements the Windows side of command danger analysis. BashTool
-// executes `cmd /C <command>` on Windows, so the POSIX shell parser in
+// This file implements the cmd.exe/PowerShell side of command danger analysis.
+// BashTool executes `cmd /C <command>` on Windows, so the POSIX shell parser in
 // command_facts.go cannot see the commands that actually run. Without this
 // analyzer the entire danger tier is inert on Windows: native destructive verbs
 // such as `del /s /q`, `rd /s /q`, `format`, `vssadmin delete shadows`, and
 // `powershell -c "Remove-Item -Recurse -Force"` would classify as ordinary exec
 // risk and bypass the hard block that stops their POSIX equivalents.
+//
+// Deliberately *not* named command_facts_windows.go. That filename is an
+// implicit GOOS=windows build constraint, but analyzeBashCommand dispatches to
+// this analyzer on `runtime.GOOS == "windows"` rather than at compile time, so
+// the constrained spelling left the call undefined on every other platform and
+// broke `GOOS=linux`/`GOOS=darwin` builds of the CLI outright. Nothing here
+// touches a Windows API -- it is string analysis over a command line -- so it
+// compiles everywhere, and building it everywhere is also what keeps the
+// classifier's tests running on the Linux CI runner that gates this repo.
 //
 // Like the POSIX analyzer, the output is deliberately argument-free: only
 // allowlisted category labels are recorded, never raw arguments, paths, or
