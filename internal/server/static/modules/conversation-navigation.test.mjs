@@ -727,9 +727,11 @@ test("disclosure triangles appear only where there is something to disclose", ()
   const html = renderNavigationHTML(buildNavigationView(forkPayload, { mode: "all" }), { activeProjectId: "p1" });
   // The project has conversations and the mainline has a fork, so both get one.
   assert.match(html, /data-navigation-disclosure="project:p1"/);
-  assert.match(html, /data-navigation-disclosure="conversation:a-root"/);
+  // Forks are addressed under the "fork-open" scope because they start closed and
+  // the stored entry therefore means expanded, not collapsed.
+  assert.match(html, /data-navigation-disclosure="fork-open:a-root"/);
   // The fork itself has no children, so it must not carry a control over nothing.
-  assert.doesNotMatch(html, /data-navigation-disclosure="conversation:a-fork"/);
+  assert.doesNotMatch(html, /data-navigation-disclosure="fork-open:a-fork"/);
 
   // A project with no conversations has nothing to disclose either.
   const bare = renderNavigationHTML(
@@ -751,14 +753,44 @@ test("collapsed nodes hide their children and report it to assistive tech", () =
   assert.match(collapsedProject, /data-navigation-disclosure="project:p1"[^>]*aria-expanded="false"/);
   assert.match(collapsedProject, /data-project-conversations="p1" hidden/);
 
-  // Collapsing the conversation hides its forks without touching the project.
-  const collapsedForks = renderNavigationHTML(buildNavigationView(forkPayload, { mode: "all" }), {
+  // Forks rest closed, so the untouched tree hides them and says so.
+  assert.match(open, /data-navigation-disclosure="fork-open:a-root"[^>]*aria-expanded="false"/);
+  assert.match(open, /navigation-workline-forks" hidden/);
+
+  // Expanding is the explicit act, and it must not disturb the project group.
+  const expandedForks = renderNavigationHTML(buildNavigationView(forkPayload, { mode: "all" }), {
     activeProjectId: "p1",
-    collapsedNodes: ["conversation:a-root"],
+    collapsedNodes: ["fork-open:a-root"],
   });
-  assert.match(collapsedForks, /data-navigation-disclosure="conversation:a-root"[^>]*aria-expanded="false"/);
-  assert.match(collapsedForks, /navigation-workline-forks" hidden/);
-  assert.doesNotMatch(collapsedForks, /data-project-conversations="p1" hidden/);
+  assert.match(expandedForks, /data-navigation-disclosure="fork-open:a-root"[^>]*aria-expanded="true"/);
+  assert.doesNotMatch(expandedForks, /navigation-workline-forks" hidden/);
+  assert.doesNotMatch(expandedForks, /data-project-conversations="p1" hidden/);
+});
+
+test("only the reader's own record opens a branch, even the one they are inside", () => {
+  // Being inside a fork used to force its group open. That defeated both halves of
+  // the contract: branches no longer rested closed, and the triangle became a dead
+  // control, because collapsing removed a record the override immediately outvoted
+  // and the group sprang back open on the next render.
+  //
+  // The tradeoff accepted here is that the sidebar no longer reveals which fork is
+  // active while the group is closed. The conversation itself carries that.
+  const html = renderNavigationHTML(buildNavigationView(forkPayload, { mode: "all" }), {
+    activeProjectId: "p1",
+    activeAgentId: "a-fork",
+  });
+  assert.match(html, /data-navigation-disclosure="fork-open:a-root"[^>]*aria-expanded="false"/);
+  assert.match(html, /navigation-workline-forks" hidden/);
+
+  // And the record still opens it while the reader is inside that same fork, which
+  // is what the override used to make indistinguishable from its own default.
+  const opened = renderNavigationHTML(buildNavigationView(forkPayload, { mode: "all" }), {
+    activeProjectId: "p1",
+    activeAgentId: "a-fork",
+    collapsedNodes: ["fork-open:a-root"],
+  });
+  assert.match(opened, /data-navigation-disclosure="fork-open:a-root"[^>]*aria-expanded="true"/);
+  assert.doesNotMatch(opened, /navigation-workline-forks" hidden/);
 });
 
 test("the tree renders at every sidebar width, not only when collapsed", () => {

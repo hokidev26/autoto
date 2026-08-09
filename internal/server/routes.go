@@ -293,7 +293,50 @@ func (s *Server) createProject(w http.ResponseWriter, r *http.Request) {
 	if req.ForceNewConversation && cacheKey != "" {
 		s.projectConversationKeys[cacheKey] = result
 	}
-	writeJSON(w, http.StatusCreated, map[string]any{"project": result.Project, "workline": result.Workline, "agent": result.Agent})
+	writeJSON(w, http.StatusCreated, map[string]any{
+		"project":   result.Project,
+		"workline":  result.Workline,
+		"agent":     result.Agent,
+		"workspace": s.projectWorkspaceGitReport(r.Context(), gitPath),
+	})
+}
+
+// projectWorkspaceGitReport describes the Git state of a newly configured
+// project path. Creation deliberately still succeeds when the path is not a
+// repository, because init-git exists for exactly that flow, but staying silent
+// was the actual defect: a project pointed at a directory that merely *contains*
+// a repository looks fine for days, then blocks auto-continuation with an
+// internal message about a safety snapshot. Reporting the state here lets the UI
+// say so while the user is still looking at the dialog.
+//
+// discoveredRoot carries the useful half. Git resolves a repository by walking
+// upward, never downward, so a parent directory never inherits a child's
+// repository; when the chosen path is not a repository but exactly one
+// subdirectory is, that subdirectory is almost always what the user meant.
+func (s *Server) projectWorkspaceGitReport(ctx context.Context, gitPath string) map[string]any {
+	report := map[string]any{"path": gitPath, "isGitRepository": false}
+	repository, candidates, err := resolveGitRepository(ctx, gitPath)
+	if err != nil {
+		// A probe failure must not fail project creation, and the raw Git error
+		// is not something the dialog should show.
+		report["gitStateUnavailable"] = true
+		return report
+	}
+	if repository.Root != "" && sameFilesystemProjectPath(repository.Root, gitPath) {
+		report["isGitRepository"] = true
+		report["hasCommits"] = repository.HasHead
+		return report
+	}
+	if paths := gitCandidatePaths(candidates); len(paths) > 0 {
+		report["discoveredRoots"] = paths
+		if len(paths) == 1 {
+			report["discoveredRoot"] = paths[0]
+		}
+	} else if repository.Root != "" {
+		// The path sits inside a repository whose root is somewhere above it.
+		report["enclosingRoot"] = repository.Root
+	}
+	return report
 }
 
 func filesystemProjectPathKey(value string) string {

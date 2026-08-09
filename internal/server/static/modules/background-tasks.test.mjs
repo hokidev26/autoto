@@ -1,4 +1,4 @@
-import test from "node:test";
+import test, { mock } from "node:test";
 import assert from "node:assert/strict";
 
 import {
@@ -684,6 +684,64 @@ test("sending a message to a subagent posts to that agent and refreshes its conv
   assert.equal(JSON.parse(post.body).text, "keep waiting");
   assert.ok(calls.filter((call) => call.path.includes("/messages") && call.method === "GET").length > 0,
     "the conversation is refetched so the sent message appears");
+});
+
+// The panel drops any event whose agentId is not its own, and a subagent's
+// replies carry the subagent's id, so nothing it does arrives as an event. The
+// single refresh after POST runs before the reply exists, so without polling a
+// sent message looked like it went nowhere for as long as the panel stayed open.
+test("a subagent's reply arrives without the user doing anything", async () => {
+  mock.timers.enable({ apis: ["setTimeout"] });
+  try {
+    let messages = [{ role: "user", text: "keep waiting" }];
+    let activeRunCalls = 0;
+    const controller = createBackgroundTasksController({
+      request: async (path, options = {}) => {
+        const method = options.method || "GET";
+        if (path.endsWith("/output?afterSequence=0")) return { chunks: [] };
+        if (path.endsWith("/runs/active")) {
+          activeRunCalls += 1;
+          // Working for the first two polls, then idle.
+          if (activeRunCalls > 2) throw new Error("active run not found");
+          return { run: { id: "run-9", status: "running" } };
+        }
+        if (path.includes("/messages") && method === "GET") return messages;
+        if (path.includes("/messages")) {
+          messages = [{ role: "user", text: JSON.parse(options.body).text }];
+          return { id: "m1" };
+        }
+        if (path === "/api/agents/child-3") return { id: "child-3", model: "m" };
+        return { id: "task-3", agentId: "agent-1", kind: "agent", status: "running", childAgentId: "child-3" };
+      },
+    });
+    controller.setAgent("agent-1");
+    await controller.selectTask("task-3");
+    // Isolate the send path: whatever opening the task started must not be what
+    // makes this pass, or the test would still pass with sending left unwired.
+    controller.stopChildPollingForTest();
+    assert.deepEqual(controller.state().childPolling, [], "precondition: nothing is being followed");
+
+    await controller.sendChildAgentMessage("child-3", "keep waiting");
+    assert.deepEqual(controller.state().childPolling, ["child-3"],
+      "sending must start following the child, or its reply never arrives");
+
+    // The reply lands on the provider's own schedule, with no further user input.
+    messages = [{ role: "user", text: "keep waiting" }, { role: "assistant", text: "here is the answer" }];
+    for (let tick = 0; tick < 4; tick += 1) {
+      mock.timers.tick(1600);
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    }
+
+    const conversation = controller.state().childConversations?.["child-3"] || [];
+    assert.ok(conversation.some((entry) => entry.role === "assistant"),
+      "the reply must appear on its own, without the user reopening the task");
+    assert.ok(activeRunCalls > 0, "the panel must follow the child's run to know when it is done");
+  } finally {
+    mock.timers.reset();
+  }
 });
 
 // A blank message must not start a run on the subagent.

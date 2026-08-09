@@ -1463,7 +1463,7 @@ func isProviderNameChar(r rune) bool {
 }
 
 func (s *Server) newRuntimeProvider(provider config.ProviderConfig) (providers.Provider, error) {
-	provider.ClientVersion = config.Version
+	provider.ClientVersion = providers.ClientVersionFromBuildStamp(config.Version)
 	// ApplyCredentialStorePath is the single source of truth for where each
 	// provider's account store lives. The three separate assignments that used
 	// to be here (Codex, Anthropic, Gemini/Grok/Kimi) drifted from that

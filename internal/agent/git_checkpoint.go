@@ -15,6 +15,7 @@ import (
 	"autoto/internal/db"
 	"autoto/internal/gitlock"
 	"autoto/internal/gitsnapshot"
+	"autoto/internal/process"
 	"autoto/internal/tools"
 )
 
@@ -567,6 +568,9 @@ func runCheckpointGit(ctx context.Context, dir string, args ...string) (string, 
 		limit = gitCheckpointIndexMaxBytes
 	}
 	cmd := exec.CommandContext(cmdCtx, "git", args...)
+	// Checkpoint git runs on every run start and for tool attribution, so without
+	// this a console window flashes on screen continuously while a task works.
+	process.HideWindow(cmd)
 	cmd.Dir = dir
 	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0", "GIT_OPTIONAL_LOCKS=0")
 	stdout := &checkpointLimitedBuffer{max: limit}

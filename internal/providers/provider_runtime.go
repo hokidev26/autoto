@@ -188,6 +188,27 @@ func validateProviderRuntimeIdentity(cfg config.ProviderConfig) error {
 	return nil
 }
 
+// ClientVersionFromBuildStamp adapts a build stamp such as config.Version into a
+// value that is safe to place in ProviderConfig.ClientVersion.
+//
+// The stamp is a human-facing string with no format guarantee: release tooling
+// derives it from `git describe`, which yields values like
+// "windows-preview-20260722-220-g778feef-dirty". ClientVersion is validated as
+// strict semver, so assigning the stamp directly made every provider fail
+// construction at once, and the only visible symptom was an empty model list.
+//
+// An unusable stamp therefore degrades to "", which validateClientVersion
+// accepts and autotoClientHeaderValue renders as "omit the header". This is a
+// deliberate one-way adapter for trusted internal build metadata; it must not be
+// used on configured or remote input, where a rejected value has to stay an
+// error so header injection cannot be laundered into a silent fallback.
+func ClientVersionFromBuildStamp(stamp string) string {
+	if validateClientVersion(stamp) != nil {
+		return ""
+	}
+	return stamp
+}
+
 func validateClientVersion(value string) error {
 	if value == "" {
 		return nil

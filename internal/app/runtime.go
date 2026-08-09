@@ -596,6 +596,19 @@ func (r *Runtime) requestCloseLocked() {
 // discarding read/unread marks, panel widths, drafts, and language choices.
 const desktopPreferredPort = 16889
 
+// How long a desktop launch waits for the stable port before accepting an
+// OS-assigned one. Sized for a restart handover, not for waiting out another
+// instance that intends to keep the port.
+const (
+	desktopStablePortWait  = 1500 * time.Millisecond
+	desktopStablePortRetry = 50 * time.Millisecond
+)
+
+// Overridable so the tests can exercise the handover on a port they own. A real
+// launch always uses desktopPreferredPort; a test that hard-coded it could only
+// pass on a machine where nothing else already held it.
+var desktopStablePortOverride = 0
+
 func bindConfiguredHTTPListeners(cfg config.Config, ephemeralHTTP bool) (net.Listener, net.Listener, error) {
 	httpAddr := cfg.Addr()
 	if ephemeralHTTP {
@@ -604,11 +617,26 @@ func bindConfiguredHTTPListeners(cfg config.Config, ephemeralHTTP bool) (net.Lis
 		// instance as local even when user config uses 0.0.0.0 or ::.
 		httpAddr = "127.0.0.1:0"
 		if preferred := desktopStableAddr(cfg); preferred != "" {
-			// Fall back to an OS-assigned port when the stable one is busy, which is
-			// what a second concurrent instance sees. That instance loses persistence
-			// across launches, exactly as every instance did before.
-			if listener, err := net.Listen("tcp", preferred); err == nil {
-				return listener, nil, nil
+			// Retried briefly rather than abandoned on the first refusal. The common
+			// reason the stable port is busy is a restart: the previous instance is
+			// still closing its listener, and TCP keeps the address unavailable for a
+			// moment after the process is gone. Giving up immediately handed that
+			// restart an OS-assigned port, and because the browser scopes localStorage
+			// to an origin -- port included -- the window came back with an empty
+			// store, silently discarding read/unread marks, panel widths and drafts.
+			//
+			// Bounded so a genuinely occupied port (a second concurrent instance) still
+			// starts promptly on an ephemeral port instead of hanging the launch.
+			deadline := time.Now().Add(desktopStablePortWait)
+			for {
+				listener, err := net.Listen("tcp", preferred)
+				if err == nil {
+					return listener, nil, nil
+				}
+				if !time.Now().Add(desktopStablePortRetry).Before(deadline) {
+					break
+				}
+				time.Sleep(desktopStablePortRetry)
 			}
 		}
 	}
@@ -625,10 +653,14 @@ func bindConfiguredHTTPListeners(cfg config.Config, ephemeralHTTP bool) (net.Lis
 // desktopStableAddr returns the loopback address the desktop shell should prefer,
 // or "" when that port would collide with the user's configured CLI port.
 func desktopStableAddr(cfg config.Config) string {
-	if cfg.Server.Port == desktopPreferredPort {
+	port := desktopPreferredPort
+	if desktopStablePortOverride != 0 {
+		port = desktopStablePortOverride
+	}
+	if cfg.Server.Port == port {
 		return ""
 	}
-	return fmt.Sprintf("127.0.0.1:%d", desktopPreferredPort)
+	return fmt.Sprintf("127.0.0.1:%d", port)
 }
 
 const generatedImageCleanupGrace = 24 * time.Hour
@@ -710,7 +742,7 @@ func registerRuntimeServices(supervisor *runtime.Supervisor, services ...runtime
 }
 
 func providerConfigForRuntime(providerCfg config.ProviderConfig, settings db.RuntimeSettings) config.ProviderConfig {
-	providerCfg.ClientVersion = config.Version
+	providerCfg.ClientVersion = providers.ClientVersionFromBuildStamp(config.Version)
 	providerCfg.InstallationID = settings.InstallationID
 	return providerCfg
 }

@@ -558,8 +558,10 @@ func subscriptionTierOrderSnapshot() []string {
 
 func identityResponse(settings db.RuntimeSettings) clientIdentityResponse {
 	return clientIdentityResponse{
-		InstallationID:             settings.InstallationID,
-		ClientVersion:              config.Version,
+		InstallationID: settings.InstallationID,
+		// ClientVersion reports what providers actually receive, so it mirrors the
+		// adapted value. Version stays the raw build stamp for display.
+		ClientVersion:              providers.ClientVersionFromBuildStamp(config.Version),
 		Version:                    config.Version,
 		Authentication:             false,
 		IsAuthenticationCredential: false,
@@ -584,7 +586,10 @@ func (s *Server) refreshProviderRuntimeIdentity(installationID string) {
 			s.providers.Unregister(providerCfg.Name)
 			continue
 		}
-		providerCfg.ClientVersion = config.Version
+		// A non-semver build stamp must not reach ClientVersion: NewProvider below
+		// fails closed and this loop skips silently, so one bad stamp empties the
+		// whole registry and the UI only shows "no usable models".
+		providerCfg.ClientVersion = providers.ClientVersionFromBuildStamp(config.Version)
 		providerCfg.InstallationID = installationID
 		providerCfg = providers.ApplyCredentialStorePath(providerCfg, cfg.Paths.HomeDir)
 		provider, err := providers.NewProvider(providerCfg)

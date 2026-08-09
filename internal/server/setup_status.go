@@ -9,6 +9,8 @@ import (
 	"runtime"
 	"strings"
 	"time"
+
+	"autoto/internal/process"
 )
 
 const (
@@ -94,6 +96,8 @@ func runBoundedSetupVersion(ctx context.Context, executable string, args ...stri
 
 	output := &boundedSetupOutput{limit: setupVersionOutputLimit}
 	command := exec.CommandContext(probeCtx, executable, args...)
+	// A version probe has no user at a console, so it must not be given one.
+	process.HideWindow(command)
 	command.Stdout = output
 	command.Stderr = output
 	if err := command.Run(); err != nil {

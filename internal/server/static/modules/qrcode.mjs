@@ -5,19 +5,22 @@
  * Ported from a compact public-domain style encoder; API is local-only.
  */
 
+// ECC codewords PER BLOCK (ISO/IEC 18004 tables), L, M, Q, H for versions 1..10.
+// These are per-block counts because getNumDataCodewords and addEccAndInterleave
+// both multiply by NUM_ERROR_CORRECTION_BLOCKS. Storing per-version totals here
+// double-counted ECC from version 4 onward and produced negative capacities.
 const ECC_CODEWORDS_PER_BLOCK = [
-  // L, M, Q, H for versions 1..10 (we only use M)
   null,
   [7, 10, 13, 17],
   [10, 16, 22, 28],
-  [15, 26, 36, 44],
-  [20, 36, 52, 64],
-  [26, 48, 72, 88],
-  [36, 64, 96, 112],
-  [40, 72, 108, 130],
-  [48, 88, 132, 156],
-  [60, 110, 160, 192],
-  [72, 130, 192, 224],
+  [15, 26, 18, 22],
+  [20, 18, 26, 16],
+  [26, 24, 18, 22],
+  [18, 16, 24, 28],
+  [20, 18, 18, 26],
+  [24, 22, 22, 26],
+  [30, 22, 20, 24],
+  [18, 26, 24, 28],
 ];
 
 const NUM_ERROR_CORRECTION_BLOCKS = [
@@ -191,6 +194,127 @@ function applyMask(mask, modules, isFunction) {
   }
 }
 
+// Versions 7+ reserve two 18-bit version blocks. getNumRawDataModules already
+// subtracts those 36 modules, so they must also be drawn and flagged as function
+// modules or codewords would be written over them and no scanner could decode.
+function drawVersionBits(version, modules, isFunction) {
+  if (version < 7) return;
+  let rem = version;
+  for (let i = 0; i < 12; i++) {
+    rem = (rem << 1) ^ ((rem >>> 11) * 0x1f25);
+  }
+  const bits = (version << 12) | rem;
+  const size = modules.length;
+  for (let i = 0; i < 18; i++) {
+    const bit = ((bits >>> i) & 1) !== 0;
+    const a = size - 11 + (i % 3);
+    const b = Math.floor(i / 3);
+    setFunctionModule(a, b, bit, modules, isFunction);
+    setFunctionModule(b, a, bit, modules, isFunction);
+  }
+}
+
+// ISO/IEC 18004 requires choosing the mask with the lowest penalty score.
+// A hard-coded mask leaves large uniform regions and finder-like runs that
+// many phone scanners reject, so all eight candidates are scored.
+function getPenaltyScore(modules) {
+  const size = modules.length;
+  let result = 0;
+  const N1 = 3;
+  const N2 = 3;
+  const N3 = 40;
+  const N4 = 10;
+
+  for (let y = 0; y < size; y++) {
+    let runColor = false;
+    let runLength = 0;
+    const runHistory = new Array(7).fill(0);
+    for (let x = 0; x < size; x++) {
+      if (modules[y][x] === runColor) {
+        runLength++;
+        if (runLength === 5) result += N1;
+        else if (runLength > 5) result++;
+      } else {
+        finderPenaltyAddHistory(runLength, runHistory, size);
+        if (!runColor) result += finderPenaltyCountPatterns(runHistory) * N3;
+        runColor = modules[y][x];
+        runLength = 1;
+      }
+    }
+    result += finderPenaltyTerminateAndCount(runColor, runLength, runHistory, size) * N3;
+  }
+  return result + penaltyColumnsBlocksBalance(modules, N1, N2, N3, N4);
+}
+
+// Column runs, 2x2 blocks, and the dark-module balance ratio. Split from
+// getPenaltyScore only to keep each function readable.
+function penaltyColumnsBlocksBalance(modules, N1, N2, N3, N4) {
+  const size = modules.length;
+  let result = 0;
+
+  for (let x = 0; x < size; x++) {
+    let runColor = false;
+    let runLength = 0;
+    const runHistory = new Array(7).fill(0);
+    for (let y = 0; y < size; y++) {
+      if (modules[y][x] === runColor) {
+        runLength++;
+        if (runLength === 5) result += N1;
+        else if (runLength > 5) result++;
+      } else {
+        finderPenaltyAddHistory(runLength, runHistory, size);
+        if (!runColor) result += finderPenaltyCountPatterns(runHistory) * N3;
+        runColor = modules[y][x];
+        runLength = 1;
+      }
+    }
+    result += finderPenaltyTerminateAndCount(runColor, runLength, runHistory, size) * N3;
+  }
+
+  for (let y = 0; y < size - 1; y++) {
+    for (let x = 0; x < size - 1; x++) {
+      const color = modules[y][x];
+      if (color === modules[y][x + 1] && color === modules[y + 1][x] && color === modules[y + 1][x + 1]) {
+        result += N2;
+      }
+    }
+  }
+
+  let dark = 0;
+  for (const row of modules) {
+    for (const cell of row) if (cell) dark++;
+  }
+  const total = size * size;
+  const k = Math.ceil(Math.abs(dark * 20 - total * 10) / total) - 1;
+  return result + k * N4;
+}
+
+function finderPenaltyAddHistory(currentRunLength, runHistory, size) {
+  let run = currentRunLength;
+  if (runHistory[0] === 0) run += size; // add light border to initial run
+  runHistory.pop();
+  runHistory.unshift(run);
+}
+
+function finderPenaltyCountPatterns(runHistory) {
+  const n = runHistory[1];
+  const core = n > 0 && runHistory[2] === n && runHistory[3] === n * 3
+    && runHistory[4] === n && runHistory[5] === n;
+  return (core && runHistory[0] >= n * 4 && runHistory[6] >= n ? 1 : 0)
+    + (core && runHistory[6] >= n * 4 && runHistory[0] >= n ? 1 : 0);
+}
+
+function finderPenaltyTerminateAndCount(currentRunColor, currentRunLength, runHistory, size) {
+  let run = currentRunLength;
+  if (currentRunColor) {
+    finderPenaltyAddHistory(run, runHistory, size);
+    run = 0;
+  }
+  run += size; // add light border to final run
+  finderPenaltyAddHistory(run, runHistory, size);
+  return finderPenaltyCountPatterns(runHistory);
+}
+
 function encodeSegments(text, version) {
   const bytes = new TextEncoder().encode(text);
   const bb = [];
@@ -258,9 +382,26 @@ function createModules(version, dataCodewords, mask, eclBits) {
 
   // format placeholder then real
   drawFormatBits(0, modules, isFunction, eclBits);
+  drawVersionBits(version, modules, isFunction);
   drawCodewords(dataCodewords, modules, isFunction);
-  applyMask(mask, modules, isFunction);
-  drawFormatBits(mask, modules, isFunction, eclBits);
+
+  // mask < 0 means "pick the lowest-penalty mask", as the spec requires.
+  let chosen = mask;
+  if (chosen < 0) {
+    let minPenalty = Infinity;
+    for (let candidate = 0; candidate < 8; candidate++) {
+      applyMask(candidate, modules, isFunction);
+      drawFormatBits(candidate, modules, isFunction, eclBits);
+      const penalty = getPenaltyScore(modules);
+      if (penalty < minPenalty) {
+        chosen = candidate;
+        minPenalty = penalty;
+      }
+      applyMask(candidate, modules, isFunction); // XOR is its own inverse
+    }
+  }
+  applyMask(chosen, modules, isFunction);
+  drawFormatBits(chosen, modules, isFunction, eclBits);
   return modules;
 }
 
@@ -279,8 +420,12 @@ export function encodeQRModules(text) {
   for (let version = 1; version <= 10; version++) {
     const dataCapacity = getNumDataCodewords(version, eclIndex) * 8;
     const bb = encodeSegments(value, version);
+    // Reject before computing the terminator. Deriving it with Math.min made it
+    // negative on overflow, which silently passed the guard, no-oped appendBits,
+    // and truncated the payload inside addEccAndInterleave: the QR rendered but
+    // decoded to a cut-off URL.
+    if (bb.length > dataCapacity) continue;
     const terminator = Math.min(4, dataCapacity - bb.length);
-    if (bb.length + terminator > dataCapacity) continue;
     appendBits(0, terminator, bb);
     while (bb.length % 8 !== 0) bb.push(0);
     const dataCodewords = [];
@@ -294,14 +439,17 @@ export function encodeQRModules(text) {
       dataCodewords.push(i % 2 === 0 ? 0xec : 0x11);
     }
     const allCodewords = addEccAndInterleave(dataCodewords, version, eclIndex);
-    // fixed mask 0 — good enough for URL payloads in UI
-    return createModules(version, allCodewords, 0, eclBits);
+    return createModules(version, allCodewords, -1, eclBits);
   }
   throw new Error("QR payload exceeds supported versions");
 }
 
-/** Render QR as an SVG string (black modules on transparent/white). */
-export function qrToSvg(text, { size = 180, margin = 2, dark = "#111", light = "#fff" } = {}) {
+/**
+ * Render QR as an SVG string (black modules on white).
+ * margin defaults to the 4-module quiet zone the spec requires; smaller values
+ * make phone scanners miss the finder patterns.
+ */
+export function qrToSvg(text, { size = 180, margin = 4, dark = "#111", light = "#fff" } = {}) {
   const modules = encodeQRModules(text);
   const n = modules.length;
   const scale = size / (n + margin * 2);

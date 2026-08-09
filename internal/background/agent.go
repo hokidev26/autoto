@@ -22,6 +22,9 @@ const (
 	maxAgentAcceptanceCriterionBytes = 1000
 	maxAgentAcceptanceTotalBytes     = maxAgentAcceptanceCriteria * maxAgentAcceptanceCriterionBytes
 	maxAgentResultBytes              = 4096
+	// Bounded well under maxAgentResultBytes so attaching the child's failure
+	// reason cannot push an otherwise valid result over its budget.
+	maxAgentChildErrorBytes = 512
 )
 
 type AgentExecutor struct {
@@ -58,6 +61,15 @@ type agentPublicResult struct {
 	ChildAgentID    string `json:"childAgentId"`
 	ChildRunID      string `json:"childRunId"`
 	Status          string `json:"status"`
+	// ChildError carries the child Run's own failure reason. Without it the
+	// parent only ever sees "background child agent did not complete", which
+	// names the outcome but not the cause: an unconfigured provider, a rejected
+	// model, and a mid-run provider fault are indistinguishable, so the parent
+	// cannot correct course and a human has to read the database to find out
+	// what happened. The Run message is server-generated and already bounded by
+	// the schema; it is truncated again here to keep the result inside its
+	// budget.
+	ChildError string `json:"childError,omitempty"`
 }
 
 func NewAgentExecutor(store *db.Store, runner *agent.Runner, controllers ...tools.BackgroundRuntimeController) *AgentExecutor {
@@ -144,7 +156,7 @@ func (e *AgentExecutor) Execute(ctx context.Context, task db.BackgroundTask, out
 		_, _ = e.Runner.Interrupt(context.Background(), child.ID)
 		return Result{ErrorCode: "child_attach_conflict"}, fmt.Errorf("attach child run: %w", err)
 	}
-	started, err := marshalAgentPublicResultWithDetails(payload.SubagentType, role, payload.Model, model, workdir, len(payload.AcceptanceCriteria), child.ID, childRun.ID, "running")
+	started, err := marshalAgentPublicResultWithDetails(payload.SubagentType, role, payload.Model, model, workdir, len(payload.AcceptanceCriteria), child.ID, childRun.ID, "running", "")
 	if err != nil {
 		_, _ = e.Runner.Interrupt(context.Background(), child.ID)
 		return Result{ErrorCode: "output_failed"}, err
@@ -168,12 +180,22 @@ func (e *AgentExecutor) waitChild(ctx context.Context, task db.BackgroundTask, c
 		}
 		status := strings.ToLower(strings.TrimSpace(run.Status))
 		if terminalRun(status) {
-			result, marshalErr := marshalAgentPublicResultWithDetails(requestedRole, role, requestedModel, model, workdir, acceptanceCount, child.ID, run.ID, status)
+			childError := ""
+			if status != "completed" {
+				childError = publicError(run.ErrorMessage)
+			}
+			result, marshalErr := marshalAgentPublicResultWithDetails(requestedRole, role, requestedModel, model, workdir, acceptanceCount, child.ID, run.ID, status, childError)
 			if marshalErr != nil {
 				return Result{ErrorCode: "invalid_result"}, marshalErr
 			}
 			if status == "completed" {
 				return Result{JSON: result}, nil
+			}
+			// Name the cause, not just the outcome. "did not complete" alone sends
+			// the parent back to guessing when the real reason -- an unconfigured
+			// provider, say -- is already sitting on the Run.
+			if childError != "" {
+				return Result{JSON: result, ErrorCode: "child_" + status}, fmt.Errorf("background child agent did not complete: %s", childError)
 			}
 			return Result{JSON: result, ErrorCode: "child_" + status}, errors.New("background child agent did not complete")
 		}
@@ -182,7 +204,7 @@ func (e *AgentExecutor) waitChild(ctx context.Context, task db.BackgroundTask, c
 		case <-ctx.Done():
 			_ = timer.Stop()
 			_, _ = e.Runner.Interrupt(context.Background(), child.ID)
-			result, marshalErr := marshalAgentPublicResultWithDetails(requestedRole, role, requestedModel, model, workdir, acceptanceCount, child.ID, task.ChildRunID, "canceled")
+			result, marshalErr := marshalAgentPublicResultWithDetails(requestedRole, role, requestedModel, model, workdir, acceptanceCount, child.ID, task.ChildRunID, "canceled", "")
 			if marshalErr != nil {
 				return Result{ErrorCode: "invalid_result"}, marshalErr
 			}
@@ -284,10 +306,10 @@ func agentPromptWithAcceptance(_ string, prompt string, criteria []string) (stri
 }
 
 func marshalAgentPublicResult(role string, acceptanceCount int, childAgentID, childRunID, status string) (json.RawMessage, error) {
-	return marshalAgentPublicResultWithDetails("", role, "", "", "", acceptanceCount, childAgentID, childRunID, status)
+	return marshalAgentPublicResultWithDetails("", role, "", "", "", acceptanceCount, childAgentID, childRunID, status, "")
 }
 
-func marshalAgentPublicResultWithDetails(requestedRole, role, requestedModel, model, workdir string, acceptanceCount int, childAgentID, childRunID, status string) (json.RawMessage, error) {
+func marshalAgentPublicResultWithDetails(requestedRole, role, requestedModel, model, workdir string, acceptanceCount int, childAgentID, childRunID, status, childError string) (json.RawMessage, error) {
 	role = strings.ToLower(strings.TrimSpace(role))
 	if role == "general-purpose" {
 		role = "general"
@@ -300,14 +322,25 @@ func marshalAgentPublicResultWithDetails(requestedRole, role, requestedModel, mo
 	if acceptanceCount < 0 || acceptanceCount > maxAgentAcceptanceCriteria {
 		return nil, errors.New("background agent result acceptance count is invalid")
 	}
-	result, err := json.Marshal(agentPublicResult{
+	payload := agentPublicResult{
 		RequestedRole: strings.ToLower(strings.TrimSpace(requestedRole)), Role: role,
 		RequestedModel: strings.TrimSpace(requestedModel), Model: strings.TrimSpace(model), Workdir: strings.TrimSpace(workdir),
 		AcceptanceCount: acceptanceCount, ChildAgentID: strings.TrimSpace(childAgentID),
 		ChildRunID: strings.TrimSpace(childRunID), Status: strings.ToLower(strings.TrimSpace(status)),
-	})
-	if err != nil || len(result) > maxAgentResultBytes {
+		ChildError: truncateUTF8(strings.TrimSpace(childError), maxAgentChildErrorBytes),
+	}
+	result, err := json.Marshal(payload)
+	if err != nil {
 		return nil, errors.New("background agent result exceeds size limit")
+	}
+	if len(result) > maxAgentResultBytes {
+		// The diagnostic is the only optional part of this result, so drop it
+		// rather than fail: the caller still needs role, model, and status.
+		payload.ChildError = ""
+		result, err = json.Marshal(payload)
+		if err != nil || len(result) > maxAgentResultBytes {
+			return nil, errors.New("background agent result exceeds size limit")
+		}
 	}
 	return result, nil
 }

@@ -3,6 +3,7 @@ package app
 import (
 	"fmt"
 	"net"
+	"strconv"
 	"testing"
 
 	"autoto/internal/config"
@@ -17,6 +18,12 @@ func TestDesktopBindsAStablePortSoLocalStorageSurvivesRestarts(t *testing.T) {
 	cfg.Server.Host = "localhost"
 	cfg.Server.Port = 16888
 
+	// Redirected to a port this test owns. Asserting against the real preferred
+	// port made the test fail on any machine already running Autoto -- including the
+	// developer's own -- which says nothing about the behaviour under test.
+	stableAddr, probe := reserveStablePort(t)
+	probe.Close()
+
 	first, _, err := bindConfiguredHTTPListeners(cfg, true)
 	if err != nil {
 		t.Fatalf("bind: %v", err)
@@ -24,9 +31,8 @@ func TestDesktopBindsAStablePortSoLocalStorageSurvivesRestarts(t *testing.T) {
 	defer first.Close()
 
 	firstAddr := first.Addr().String()
-	wantAddr := fmt.Sprintf("127.0.0.1:%d", desktopPreferredPort)
-	if firstAddr != wantAddr {
-		t.Fatalf("desktop must prefer the stable port, got %s want %s", firstAddr, wantAddr)
+	if firstAddr != stableAddr {
+		t.Fatalf("desktop must prefer the stable port, got %s want %s", firstAddr, stableAddr)
 	}
 	// It must not take the port the CLI/browser instance uses.
 	if desktopPreferredPort == cfg.Server.Port {
@@ -51,9 +57,21 @@ func TestDesktopBindsAStablePortSoLocalStorageSurvivesRestarts(t *testing.T) {
 // When the user has configured the CLI onto the desktop's preferred port, the
 // desktop must yield rather than steal it.
 func TestDesktopYieldsWhenConfiguredPortMatches(t *testing.T) {
+	stableAddr, probe := reserveStablePort(t)
+	probe.Close()
+	_, portText, err := net.SplitHostPort(stableAddr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	port, err := strconv.Atoi(portText)
+	if err != nil {
+		t.Fatal(err)
+	}
+
 	cfg := config.Config{}
 	cfg.Server.Host = "localhost"
-	cfg.Server.Port = desktopPreferredPort
+	// The CLI is configured onto the very port the desktop would prefer.
+	cfg.Server.Port = port
 
 	if addr := desktopStableAddr(cfg); addr != "" {
 		t.Fatalf("desktop must not claim the configured CLI port, got %q", addr)
@@ -64,7 +82,7 @@ func TestDesktopYieldsWhenConfiguredPortMatches(t *testing.T) {
 		t.Fatalf("bind: %v", err)
 	}
 	defer listener.Close()
-	if listener.Addr().String() == fmt.Sprintf("127.0.0.1:%d", desktopPreferredPort) {
+	if listener.Addr().String() == stableAddr {
 		t.Fatal("desktop took the configured CLI port")
 	}
 }

@@ -96,6 +96,7 @@ export default Object.freeze({
     online: "在线",
     offline: "离线",
     mobileSettingsActions: "移动端设置操作",
+    systemResources: "系统资源",
     accountSettings: "账户和设置",
     collapseGlobalNavigation: "收起全局导航",
     expandGlobalNavigation: "展开全局导航",
@@ -103,6 +104,9 @@ export default Object.freeze({
     expandSessionSidebar: "展开会话栏",
     signOut: "退出登录",
     openSourceLicense: "开源协议",
+    pullToRefreshPull: "下拉刷新",
+    pullToRefreshRelease: "松手即刷新",
+    pullToRefreshRefreshing: "正在刷新…",
   },
   overview: {
     title: "工作概览", subtitle: "查看近期统计与使用情况。", refresh: "刷新", refreshing: "正在刷新…", capturedAt: "更新于 {time}", loading: "正在加载首页…", loadFailed: "首页加载失败", retryHint: "请稍后重试，或使用刷新按钮重新加载。", loaded: "首页已更新。",
@@ -864,6 +868,8 @@ export default Object.freeze({
     soundUnavailable: "此浏览器不支持合成提示音。",
     systemDenied: "浏览器已拒绝通知权限；请在网站设置中允许后再启用。",
     systemUnsupported: "此浏览器不支持系统通知。",
+    hapticFeedback: "触控震动反馈",
+    hapticFeedbackDesc: "下拉刷新等手势达成条件时震一下。仅在支持震动的设备上生效。",
   },
   about: {
     productTagline: "你的 AI 智能助理",
@@ -1715,11 +1721,12 @@ export default Object.freeze({
       historyCommands: "输入 / 可使用 {count} 个斜杠命令；空输入时 ↑/↓ 召回历史。", historySaved: "空输入时 ↑ 查看上一条提示，↓ 返回草稿。本地已保存 {count}/30 条。", historyEmpty: "输入框为空时 ↑/↓ 可召回最近提示。",
       slashCommands: "斜杠命令", slashInserted: "已插入 {name} 命令。", noConversationToCopy: "当前没有可复制的对话。", conversationCopied: "当前对话 Markdown 已复制。", conversationCopyFailed: "复制当前对话失败，请稍后重试。",
       goalCommandDescription: "向任务清单添加一个受保护任务。", goalTextRequired: "请在 /goal 后输入目标内容。", goalProjectOnly: "/goal 仅可在项目上下文中使用。", goalAttachmentsUnsupported: "创建目标前请先移除待发送附件。",
-      queueCommandDescription: "把这条消息排队，等本次对话结束后再发送。", queueAttachmentsOnly: "仅附件", queueTextRequired: "请在 /queue 后输入消息内容。", queued: "已排队 · 等待 {count} 条", queuePending: "等待本次对话结束 · {count} 条", queueDrop: "移出队列", queueEdit: "重新编辑这条消息", queueSend: "排队", queueExpand: "展开其余 {count} 条", queueCollapse: "收起队列", queueSendFailed: "排队消息发送失败：{error}",
+      queueCommandDescription: "把这条消息排队，等本次对话结束后再发送。", seedReviewDiffDescription: "审查当前工作区改动并给出风险提示。", seedReviewDiffPrompt: "请审查当前工作区的变更，重点关注正确性、测试覆盖、安全性与用户可见行为。", seedWriteTestsDescription: "为当前改动补充必要测试。", seedWriteTestsPrompt: "请根据当前改动补充最小必要测试，并说明测试覆盖的行为。", queueAttachmentsOnly: "仅附件", queueTextRequired: "请在 /queue 后输入消息内容。", queued: "已排队 · 等待 {count} 条", queuePending: "等待本次对话结束 · {count} 条", queueDrop: "移出队列", queueEdit: "重新编辑这条消息", queueSend: "排队", queueExpand: "展开其余 {count} 条", queueCollapse: "收起队列", queueSendFailed: "排队消息发送失败：{error}",
       toolApproval: "有工具调用等待审批。", userQuestionRequired: "Agent 需要你的选择。", dangerousToolBlocked: "危险工具调用已被阻止。", allowOnce: "允许一次", allowSession: "本次会话都允许", deny: "拒绝", approvalRequired: "需要批准执行命令", dangerBlocked: "危险命令已被阻止", expiresAt: "到期：{time}", backendBlocked: "后端已硬阻断该命令，无法通过 UI 放行。",
       runReview: "任务回顾", refreshReview: "刷新回顾", copySummary: "复制摘要", rollback: "回滚到开始前", rollingBack: "回滚中…", runReviewRefreshed: "Run 回顾已刷新。", noCheckpoint: "当前 Run 没有可用 checkpoint。", rollbackSuccess: "已回滚到任务开始前 checkpoint。",
       runCompleted: "任务已完成", runFailed: "任务失败", runInterrupted: "任务已中断", runSuperseded: "任务已被新请求替换", runRunning: "任务运行中", runPending: "任务等待运行", runLoading: "正在加载任务回顾", runUnknown: "任务状态未知",
       completed: "完成", pendingApproval: "待审批", denied: "拒绝", error: "错误", waitingOutput: "等待命令输出…", liveOutput: "实时输出", running: "运行中", outputTruncated: "实时输出过长，已截断；最终结果仍会保存为工具结果摘要。",
+      draftFallback: "私有草稿读取失败，已改用浏览器本地草稿：{message}",
     },
     navigation: {
       toggleConversations: "展开或收起该项目的对话", toggleForks: "展开或收起该对话的分支",
@@ -1745,7 +1752,7 @@ export default Object.freeze({
       title: "工作状态", goal: "目标", role: "角色", taskCounts: "任务计数", activeTask: "活动任务", verification: "验证", reviewer: "审查者", declaredTest: "声明的测试", todo: "待办", doing: "进行中", done: "已完成", blocked: "阻塞", notConfigured: "未配置", declared: "已声明", reviewed: "已审查", stale: "已失效", pending: "待验证", running: "验证中", passed: "已通过", failed: "失败", skipped: "已跳过", reviewPass: "通过", reviewNeedsHuman: "需要人工审查", reviewBlockRecommended: "建议阻止", reviewUnavailable: "不可用",
     },
     main: {
-      conversationDetails: "会话详情", selectConversation: "请先选择一个会话。", copySuccess: "已复制到剪贴板。", copyFailed: "复制失败，请手动选择文本复制。", remoteHardened: "隧道收紧", local: "本地", passwordEnabled: "访问密码已启用", passwordMissing: "未配置访问密码", terminalLocked: "终端已锁定", terminalOpen: "终端显式开放", autoExecutionDisabled: "已禁用自动执行", remoteTerminalDisabled: "远程收紧模式默认禁用交互式终端", directoryLabel: "目录：{path}", permissionLabel: "权限：{permission}", modeLabel: "模式：{mode}", modelLabel: "模型：{model}", noModel: "未选择模型", selectDirectory: "请先选择一个目录", opening: "正在打开", creating: "正在创建", opened: "已打开：{path}", selectedDirectory: "已选择资料夹：{path}", openFailed: "打开失败：{message}", loadingProject: "正在加载项目…", loadingProjectTitle: "正在加载项目", loadingProjectDescription: "Autoto 正在准备工作线和 AI 代理。", chooseAnotherFolder: "选择其他资料夹", noWorkline: "此项目还没有可用工作线", noAgent: "此工作线还没有可用代理", openingConversation: "正在打开指定会话…", openingConversationTitle: "正在打开会话", conversationUnavailable: "指定会话已不可用", agentReady: "AI 代理已就绪", modelKeyMissing: "当前模型尚未配置 API Key", openModelSettings: "打开模型设置", openProviderSettings: "打开提供商设置", idle: "空闲", syncing: "同步中", recovering: "恢复中", connecting: "连接中", reconnecting: "重连中", connected: "已连接", offline: "离线", closeNotification: "关闭通知", terminalNotConnected: "终端尚未连接，请稍后重试。", localMvpNoLogout: "本地 MVP 暂未启用完整账户系统，无需退出登录。", remoteLoggedOut: "已退出远程访问，请重新输入访问密码。",
+      conversationDetails: "会话详情", selectConversation: "请先选择一个会话。", copySuccess: "已复制到剪贴板。", copyFailed: "复制失败，请手动选择文本复制。", remoteHardened: "隧道收紧", local: "本地", passwordEnabled: "访问密码已启用", passwordMissing: "未配置访问密码", terminalLocked: "终端已锁定", terminalOpen: "终端显式开放", autoExecutionDisabled: "已禁用自动执行", remoteTerminalDisabled: "远程收紧模式默认禁用交互式终端", directoryLabel: "目录：{path}", permissionLabel: "权限：{permission}", modeLabel: "模式：{mode}", modelLabel: "模型：{model}", noModel: "未选择模型", selectDirectory: "请先选择一个目录", opening: "正在打开", creating: "正在创建", opened: "已打开：{path}", selectedDirectory: "已选择资料夹：{path}", projectPathNotGitRepo: "此文件夹不是 Git 仓库。可以正常编辑，但长任务无法自动续跑。请改指向仓库根目录，或在项目中初始化 Git。", projectPathNotGitRepoWithCandidate: "此文件夹不是 Git 仓库，但下面的 {path} 是。Git 只会往上层找、不会往下找，建议改指向该文件夹，否则长任务无法自动续跑。", openFailed: "打开失败：{message}", loadingProject: "正在加载项目…", loadingProjectTitle: "正在加载项目", loadingProjectDescription: "Autoto 正在准备工作线和 AI 代理。", chooseAnotherFolder: "选择其他资料夹", noWorkline: "此项目还没有可用工作线", noAgent: "此工作线还没有可用代理", openingConversation: "正在打开指定会话…", openingConversationTitle: "正在打开会话", conversationUnavailable: "指定会话已不可用", agentReady: "AI 代理已就绪", modelKeyMissing: "当前模型尚未配置 API Key", openModelSettings: "打开模型设置", openProviderSettings: "打开提供商设置", idle: "空闲", syncing: "同步中", recovering: "恢复中", connecting: "连接中", reconnecting: "重连中", connected: "已连接", offline: "离线", closeNotification: "关闭通知", terminalNotConnected: "终端尚未连接，请稍后重试。", localMvpNoLogout: "本地 MVP 暂未启用完整账户系统，无需退出登录。", remoteLoggedOut: "已退出远程访问，请重新输入访问密码。",
     },
   },
 });

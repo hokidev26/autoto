@@ -378,16 +378,70 @@ func isWhitelistedExecCommand(command string) bool {
 	}
 	switch fields[0] {
 	case "go":
-		return len(fields) >= 2 && oneOf(fields[1], "test", "vet", "build", "version")
+		return len(fields) >= 2 && oneOf(fields[1], "test", "vet", "build", "version") &&
+			operandsAreSafe(fields[2:], goSafeFlags)
 	case "npm":
 		return len(fields) == 2 && fields[1] == "test" || len(fields) == 3 && fields[1] == "run" && oneOf(fields[2], "test", "build", "lint", "check")
 	case "pnpm", "yarn", "bun":
 		return len(fields) == 2 && oneOf(fields[1], "test", "build", "lint", "check")
 	case "git":
-		return len(fields) >= 2 && oneOf(fields[1], "status", "diff", "log", "show")
+		return len(fields) >= 2 && oneOf(fields[1], "status", "diff", "log", "show") &&
+			operandsAreSafe(fields[2:], gitSafeFlags)
 	default:
 		return false
 	}
+}
+
+// The subcommand alone does not make an invocation read-only. `go` and `git`
+// both accept flags that hand execution to another program or write a file,
+// which turns an allowlisted verb into an arbitrary-code or arbitrary-write
+// primitive:
+//
+//	go test -exec <cmd>      runs <cmd> instead of the test binary
+//	go build -toolexec <cmd> runs <cmd> for every compiler invocation
+//	go vet -vettool <bin>    runs <bin> as the analysis tool
+//	git diff --output=<path> writes to <path>, anywhere on disk
+//	git diff --ext-diff      runs the repository's configured external differ
+//
+// Matching on the verb and ignoring the rest let all of those skip both danger
+// reflection and, through canAutoExecuteTool, the approval prompt itself.
+//
+// These are allowlists rather than denylists on purpose. A denylist has to
+// predict the next flag Go or Git adds; an allowlist that fails closed does not.
+// Being wrong here costs one model call, not a broken command, because a
+// rejected invocation is still reviewed and can still run.
+var goSafeFlags = map[string]struct{}{
+	"-v": {}, "-race": {}, "-short": {}, "-count": {}, "-run": {}, "-bench": {},
+	"-timeout": {}, "-tags": {}, "-cover": {}, "-covermode": {}, "-coverprofile": {},
+	"-json": {}, "-failfast": {}, "-shuffle": {}, "-parallel": {}, "-vet": {},
+	"-o": {}, "-mod": {}, "-C": {},
+}
+
+var gitSafeFlags = map[string]struct{}{
+	"--short": {}, "--stat": {}, "--numstat": {}, "--shortstat": {}, "--oneline": {},
+	"--name-only": {}, "--name-status": {}, "--cached": {}, "--staged": {}, "--porcelain": {},
+	"--graph": {}, "--decorate": {}, "--no-color": {}, "--color": {}, "--branch": {},
+	"-p": {}, "-s": {}, "-n": {}, "-1": {}, "-2": {}, "-3": {}, "--": {},
+}
+
+// operandsAreSafe reports whether every argument after the subcommand is either
+// a plain operand (a path, a package pattern, a flag value) or a flag on the
+// allowlist. `--flag=value` is split first, so `--stat` passes while
+// `--output=/etc/passwd` does not.
+func operandsAreSafe(operands []string, safeFlags map[string]struct{}) bool {
+	for _, operand := range operands {
+		if !strings.HasPrefix(operand, "-") {
+			continue
+		}
+		name := operand
+		if index := strings.Index(name, "="); index >= 0 {
+			name = name[:index]
+		}
+		if _, ok := safeFlags[name]; !ok {
+			return false
+		}
+	}
+	return true
 }
 
 func normalizeShellCommand(command string) string {

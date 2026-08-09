@@ -168,6 +168,45 @@ export function renderSystemMetrics(payload, t = (key) => DEFAULT_TEXT[key] ?? k
   </section>`;
 }
 
+// The mobile drawer version. The home dashboard these cards were built for does
+// not exist below 768px, so on a phone this is the only way to see them.
+//
+// It shares normalizeSystemMetrics and metricTone with the full section rather
+// than re-deriving anything: a second copy of the thresholds would eventually
+// disagree with the dashboard about what counts as "under load". Only the layout
+// differs -- one row per metric, no bars -- because a drawer cell has room for a
+// label and a number, not four cards.
+export function renderCompactSystemMetrics(payload, t = (key) => DEFAULT_TEXT[key] ?? key) {
+  const model = normalizeSystemMetrics(payload);
+  const rows = [];
+
+  const row = (kind, label, tone, value) =>
+    `<div class="mobile-sidebar-metric-row" data-metric="${escapeHtml(kind)}" data-tone="${escapeHtml(tone)}">
+      <span class="mobile-sidebar-metric-label">${escapeHtml(label)}</span>
+      <span class="mobile-sidebar-metric-value">${escapeHtml(value)}</span>
+    </div>`;
+
+  if (model.cpu.available) {
+    rows.push(row("cpu", t("cpu"), metricTone("cpu", model.cpu.percent), formatPercent(model.cpu.percent)));
+  }
+  if (model.memory.available) {
+    rows.push(row("memory", t("memory"), metricTone("memory", model.memory.percent), formatPercent(model.memory.percent)));
+  }
+  if (model.network.available) {
+    rows.push(row("networkDown", t("networkDown"), metricTone("network", model.network.rxBytesPerSec), formatRate(model.network.rxBytesPerSec)));
+    rows.push(row("networkUp", t("networkUp"), metricTone("network", model.network.txBytesPerSec), formatRate(model.network.txBytesPerSec)));
+  }
+
+  // Same rule as the dashboard: nothing measurable means render nothing, so the
+  // drawer does not carry an empty box with zeroes in it.
+  if (!rows.length) return "";
+
+  return `<div class="mobile-sidebar-metrics-inner">
+    <span class="mobile-sidebar-metrics-title">${escapeHtml(t("systemMetrics"))}</span>
+    <div class="mobile-sidebar-metric-rows">${rows.join("")}</div>
+  </div>`;
+}
+
 const DEFAULT_INTERVAL_MS = 3_000;
 // After this many consecutive failures the poller gives up. Resource cards are
 // supplementary; a server that is not answering should not be asked every three

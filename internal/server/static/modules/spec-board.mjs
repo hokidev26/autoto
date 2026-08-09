@@ -126,6 +126,8 @@ export function createSpecBoardController({
   showError,
   showToast,
   confirmAction,
+  onDockOpen = () => {},
+  onDockClose = () => {},
   document: documentImpl = globalThis.document,
 } = {}) {
   if (typeof request !== "function") throw new TypeError("Spec board request must be a function");
@@ -386,6 +388,12 @@ export function createSpecBoardController({
     if (!state.rootAgent?.id) return false;
     state.open = true;
     modal()?.classList.remove("hidden");
+    // Docks into the right-hand utility column rather than opening as a centred
+    // dialog over the conversation. onDockOpen is what allocates that column and
+    // closes the other panels sharing it -- all of them occupy the same grid cell,
+    // so two open at once would render on top of each other.
+    modal()?.classList.add("shell-dock-mode");
+    onDockOpen();
     renderButtonState();
     render();
     load();
@@ -393,17 +401,43 @@ export function createSpecBoardController({
   }
 
   function close() {
+    const wasOpen = state.open;
     state.open = false;
     modal()?.classList.add("hidden");
+    modal()?.classList.remove("shell-dock-mode");
+    // Only when it really was open: the column is shared, so releasing one this
+    // board never claimed would tear down whichever panel is actually in it.
+    if (wasOpen) onDockClose();
     renderButtonState();
+  }
+
+  function toggle() {
+    if (state.open) {
+      close();
+      return false;
+    }
+    return open();
   }
 
   function bind() {
-    documentImpl?.getElementById?.("specBoardBtn")?.addEventListener("click", open);
+    // A toggle rather than an opener. renderButtonState already reports
+    // aria-expanded and lights the button while the board is up, so pressing it
+    // again has to close it; wiring open() directly made a lit, expanded button
+    // do nothing, leaving the × as the only way out of a panel it had opened.
+    documentImpl?.getElementById?.("specBoardBtn")?.addEventListener("click", toggle);
     documentImpl?.getElementById?.("closeSpecBoardBtn")?.addEventListener("click", close);
     modal()?.addEventListener("click", (event) => { if (event.target?.id === "specBoardModal") close(); });
+    // Escape closes every other dialog in the app -- the workspace explorer, the
+    // setup wizard, the context panel, the provider console, the screenshot editor.
+    // This board was the one that trapped the reader with only the mouse.
+    documentImpl?.addEventListener?.("keydown", (event) => {
+      if (event.key === "Escape" && state.open) {
+        close();
+        event.preventDefault();
+      }
+    });
     renderButtonState();
   }
 
-  return { bind, close, createTask, deleteTask, getState: snapshot, handleGoalConfirmation, load, moveTask, open, render, renderButtonState, selectAgent, setAgent, subscribe, unsubscribe, updateTask };
+  return { bind, close, createTask, deleteTask, getState: snapshot, handleGoalConfirmation, load, moveTask, open, render, renderButtonState, selectAgent, setAgent, subscribe, toggle, unsubscribe, updateTask };
 }

@@ -558,6 +558,7 @@ export function createLocalPreferencesSettingsController({
           ${renderNotificationToggle("soundOnDone", t("notification.soundOnDone"), t("notification.soundOnDoneDesc"), prefs.soundOnDone)}
           ${renderNotificationToggle("soundOnError", t("notification.soundOnError"), t("notification.soundOnErrorDesc"), prefs.soundOnError)}
           ${renderNotificationToggle("systemNotifications", t("notification.systemNotifications"), t("notification.systemNotificationsDesc"), prefs.systemNotifications)}
+          ${renderNotificationToggle("hapticFeedback", t("notification.hapticFeedback"), t("notification.hapticFeedbackDesc"), prefs.hapticFeedback)}
         </div>
         <div class="settings-action-row settings-form-actions settings-card-footer settings-inline-actions">
           <button id="testNotificationSoundBtn" class="settings-action-btn subtle" type="button">${escapeHtml(t("notification.soundTest"))}</button>

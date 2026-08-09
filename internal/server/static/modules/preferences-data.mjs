@@ -116,20 +116,47 @@ export const defaultIMGatewayPrefs = {
   blockedSenders: "",
 };
 
+// The two shipped commands are seed data, not built-ins: they are copied into
+// localStorage on first load and stay editable afterwards. That is why they cannot
+// hold literal text the way the other defaults do. A literal freezes at the locale
+// of whoever first opened the app, so a zh-TW profile kept showing the zh-CN seed
+// for as long as that profile lived, and switching language never fixed it.
+//
+// description and prompt are therefore resolved from the keys below on every read.
+// seedSkillCommandTexts records every literal these two commands have ever shipped
+// with, in every locale, so the resolver can tell an untouched seed from wording the
+// user typed. Never delete an entry: a string dropped from this list stops being
+// recognised as a seed and freezes in place for everyone still storing it.
+export const seedSkillCommandKeys = Object.freeze({
+  "review-diff": { descriptionKey: "workspace.chat.seedReviewDiffDescription", promptKey: "workspace.chat.seedReviewDiffPrompt" },
+  "write-tests": { descriptionKey: "workspace.chat.seedWriteTestsDescription", promptKey: "workspace.chat.seedWriteTestsPrompt" },
+});
+
+export const seedSkillCommandTexts = Object.freeze([
+  "审查当前工作区改动并给出风险提示。",
+  "请审查当前工作区变更，重点关注正确性、测试覆盖、安全风险和用户可见行为。",
+  "为当前改动补充必要测试。",
+  "请根据当前改动补充最小必要测试，并说明测试覆盖的行为。",
+]);
+
 export const defaultSkillsPrefs = {
   commands: [
     {
       id: "review-diff",
       name: "/review-diff",
-      description: "审查当前工作区改动并给出风险提示。",
-      prompt: "请审查当前工作区变更，重点关注正确性、测试覆盖、安全风险和用户可见行为。",
+      descriptionKey: "workspace.chat.seedReviewDiffDescription",
+      promptKey: "workspace.chat.seedReviewDiffPrompt",
+      description: "",
+      prompt: "",
       enabled: true,
     },
     {
       id: "write-tests",
       name: "/write-tests",
-      description: "为当前改动补充必要测试。",
-      prompt: "请根据当前改动补充最小必要测试，并说明测试覆盖的行为。",
+      descriptionKey: "workspace.chat.seedWriteTestsDescription",
+      promptKey: "workspace.chat.seedWriteTestsPrompt",
+      description: "",
+      prompt: "",
       enabled: true,
     },
   ],
@@ -161,6 +188,11 @@ export const defaultNotificationPrefs = {
   // An error the user never saw is the failure mode being fixed here, so its
   // toast waits for a dismiss instead of expiring on a timer.
   errorToastsPersist: true,
+  // Haptic confirmation for touch gestures, on by default. A pull-to-refresh that
+  // only reports itself on screen asks the user to watch the indicator while their
+  // own thumb covers it; a short tick lands where they are already looking, which
+  // is at their hand. Ignored outright on hardware with no vibration motor.
+  hapticFeedback: true,
 };
 
 export const appearanceStyleVersion = 5;

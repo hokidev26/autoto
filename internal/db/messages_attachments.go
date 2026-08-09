@@ -136,9 +136,28 @@ func (s *Store) AddMessage(ctx context.Context, msg Message) (Message, error) {
 	return s.AddMessageWithAttachments(ctx, msg, msg.Attachments)
 }
 
+// AssignMessageRun reports sql.ErrNoRows when the message it was told to bind
+// does not exist, so IsNotFound recognises it.
+//
+// It used to be a bare UPDATE returning only the driver error. A wrong or deleted
+// message ID matched no row, changed nothing, and reported success, so the message
+// silently kept no run. Every caller here creates the message immediately before
+// binding it, which means a miss is a real inconsistency rather than an expected
+// outcome, and staying quiet about it hid the failure from the caller that could
+// still do something about it.
 func (s *Store) AssignMessageRun(ctx context.Context, agentID, messageID, runID string) error {
-	_, err := s.db.ExecContext(ctx, `UPDATE agent_messages SET run_id = NULLIF(?, '') WHERE agent_id = ? AND id = ?`, runID, agentID, messageID)
-	return err
+	result, err := s.db.ExecContext(ctx, `UPDATE agent_messages SET run_id = NULLIF(?, '') WHERE agent_id = ? AND id = ?`, runID, agentID, messageID)
+	if err != nil {
+		return err
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected == 0 {
+		return fmt.Errorf("assign run %s to message %s for agent %s: %w", runID, messageID, agentID, sql.ErrNoRows)
+	}
+	return nil
 }
 
 func (s *Store) AddMessageWithAttachments(ctx context.Context, msg Message, attachments []Attachment) (Message, error) {

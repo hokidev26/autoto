@@ -3995,3 +3995,66 @@ test("a live step trimmed shorter than the saved reasoning is still handed over"
   // The streamed tail must appear once, under the turn that saved it.
   assert.equal((html.match(/then the part that streamed\./g) || []).length, 1);
 });
+
+// An interrupted run used to render only the generic "this turn was
+// interrupted" sentence, discarding run.errorMessage. A run stopped by
+// something the user could fix therefore looked exactly like one they stopped
+// themselves, and the only copy of the reason sat in the database.
+test("interrupted conversation runs show the reason they stopped", () => {
+  const { html } = renderSnapshot([], {
+    activeRunSummaryRunId: "run-interrupted-reason",
+    activeRunSummary: {
+      run: {
+        id: "run-interrupted-reason",
+        source: "conversation",
+        status: "interrupted",
+        errorMessage: "load continuation safety snapshot: workspace must be a Git repository before a plan can be approved",
+      },
+      toolCalls: [],
+      recentMessages: [],
+    },
+  });
+
+  assert.match(html, /conversation-run-notice interrupted/);
+  // The actionable translation, not the internal precondition text.
+  assert.ok(html.includes("工作目录不是 Git 仓库"));
+  assert.ok(html.includes(".git"));
+  assert.doesNotMatch(html, /must be a Git repository/);
+});
+
+test("interrupted conversation runs with no reason keep the plain notice", () => {
+  const { html } = renderSnapshot([], {
+    activeRunSummaryRunId: "run-interrupted-plain",
+    activeRunSummary: {
+      run: { id: "run-interrupted-plain", source: "conversation", status: "interrupted", errorMessage: "" },
+      toolCalls: [],
+      recentMessages: [],
+    },
+  });
+
+  assert.match(html, /conversation-run-notice interrupted/);
+  // No empty detail span, and no fallback copy borrowed from the error branch.
+  assert.doesNotMatch(html, /conversation-run-notice-message/);
+  assert.doesNotMatch(html, /本轮未能完成回复/);
+});
+
+// A continuation failure that is not the Git case must still say something
+// specific rather than falling back to the generic sentence.
+test("interrupted runs report other continuation snapshot failures", () => {
+  const { html } = renderSnapshot([], {
+    activeRunSummaryRunId: "run-interrupted-other",
+    activeRunSummary: {
+      run: {
+        id: "run-interrupted-other",
+        source: "conversation",
+        status: "interrupted",
+        errorMessage: "load continuation safety snapshot: tool catalog snapshot changed or is missing",
+      },
+      toolCalls: [],
+      recentMessages: [],
+    },
+  });
+
+  assert.match(html, /conversation-run-notice interrupted/);
+  assert.ok(html.includes("无法建立续跑安全快照"));
+});

@@ -202,7 +202,10 @@ test("shell mounts the Spec board and forwards accepted messages to goal confirm
   for (const id of ["specBoardBtn", "specBoardModal", "specBoardBody", "closeSpecBoardBtn", "goalConfirmationStack"]) {
     assert.match(html, new RegExp(`id="${id}"`));
   }
-  assert.match(appMain, /createSpecBoardController\(\{ request: api, showError, showToast \}\)/);
+  // Matched across newlines: the call gained dock callbacks and wrapped onto several
+  // lines, and the point here is that the shell mounts the board with the shared
+  // request and reporting helpers, not how that call is formatted.
+  assert.match(appMain, /createSpecBoardController\(\{[\s\S]*?request: api,[\s\S]*?showError,[\s\S]*?showToast,?[\s\S]*?\}\)/);
   assert.match(appMain, /onMessageAccepted: async \(result, agentId\) => \{[\s\S]*?return specBoard\.handleGoalConfirmation\(result, agentId\);\s*\},/);
   assert.match(composer, /await onMessageAccepted\?\.\(accepted, agentId\)/);
 });

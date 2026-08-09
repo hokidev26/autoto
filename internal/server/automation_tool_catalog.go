@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"autoto/internal/db"
+	"autoto/internal/process"
 	"autoto/internal/tools"
 )
 
@@ -199,6 +200,9 @@ func normalizeAutomationHomeDir(homeDir string) string {
 func runAutomationToolCommand(ctx context.Context, invocation AutomationToolCommand) (AutomationToolCommandResult, error) {
 	output := &boundedAutomationToolOutput{limit: automationToolOutputLimit}
 	command := exec.CommandContext(ctx, invocation.Executable, invocation.Args...)
+	// Piped background child with no console user; without this it flashes a
+	// window on Windows.
+	process.HideWindow(command)
 	command.Dir = invocation.Dir
 	command.Env = append([]string(nil), invocation.Env...)
 	command.Stdout = output

@@ -4270,6 +4270,11 @@ body.white-shell.theme-light[data-theme-preset="cream"] :is(.settings-action-btn
   --skill-card-padding: 10px 12px;
   min-width: 0;
   min-height: 0;
+  /* The gap below needs a grid to act on. Without this the page was a plain
+     block, so every gap declared for it was inert and the tab strip sat flush
+     against the panel underneath it. */
+  display: grid;
+  align-content: start;
   gap: var(--skill-page-gap);
   border: 0;
   border-radius: 0;
@@ -4334,6 +4339,22 @@ body.white-shell.theme-light[data-theme-preset="cream"] :is(.settings-action-btn
 
 #settingsContentBody .skills-page .skills-tab-panel > :is(.settings-provider-section, .settings-page-section, .skill-config-card) {
   padding: 12px;
+}
+
+/* A scope manager stacks its own header, alert, list, pager and forms straight
+   into the section, with no inner content wrapper to inherit spacing from. The
+   section had padding and a border but never a display, so those blocks butted
+   together and the global skills, project skills and subagent panels each read as
+   one slab.
+   A descendant selector rather than a child one: the import and create blocks are
+   themselves sections nested one level deeper, and they stack the same way.
+   The page itself is excluded for free, since a descendant cannot match it, and
+   skill-config-card is left out because it is a two-column row whose own rule
+   below supplies the template it needs. */
+#settingsContentBody .skills-page :is(.settings-provider-section, .settings-page-section) {
+  display: grid;
+  align-content: start;
+  gap: 10px;
 }
 
 #settingsContentBody .skills-page :is(.settings-provider-section, .settings-page-section) > :is(.settings-card, .settings-page-section, .skill-config-card) {

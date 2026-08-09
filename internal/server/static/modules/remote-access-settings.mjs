@@ -285,7 +285,7 @@ export function createRemoteAccessSettingsController({
     if (!url) return "";
     let svg = "";
     try {
-      svg = qrToSvg(url, { size: 168, margin: 2 });
+      svg = qrToSvg(url, { size: 168 });
     } catch {
       return `<p class="settings-card-description">${escapeHtml(rt("tunnelQrUnavailable"))}</p>`;
     }

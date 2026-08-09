@@ -1,6 +1,6 @@
 ﻿import { $ } from "./dom.mjs";
 import { normalizeAvatarDataUrl } from "./profile-avatar.mjs?v=profile-avatar-1";
-import { applyDocumentLocale, applyStaticTranslations, currentUILocale } from "./i18n.mjs?v=global-background-1-theme-v2-1";
+import { applyDocumentLocale, applyStaticTranslations, currentUILocale, t } from "./i18n.mjs?v=global-background-1-theme-v2-1";
 import { setRegionalPreferences } from "./locale-registry.mjs";
 import {
   accountPreferenceStorageKeys,
@@ -20,6 +20,8 @@ import {
   defaultRegionalPrefs,
   defaultSearchPrefs,
   defaultSkillsPrefs,
+  seedSkillCommandKeys,
+  seedSkillCommandTexts,
   imGatewayPrefsKey,
   localPreferenceBackupKeys,
   localPreferenceBackupLabel,
@@ -207,6 +209,10 @@ export function createSettingsPreferencesController({
     state.regionalPrefs = setRegionalPreferences(currentRegionalPreferences());
     applyDocumentLocale(state.regionalPrefs.locale);
     applyStaticTranslations();
+    // Seed command text is resolved when preferences are normalised, so the cached
+    // copy still holds the previous language. Dropping it makes the next read
+    // re-resolve; without this the slash palette keeps the old wording until reload.
+    state.skillsPrefs = null;
     return state.regionalPrefs;
   }
 
@@ -319,16 +325,45 @@ export function createSettingsPreferencesController({
     };
   }
 
+  // Seed text is resolved here rather than stored, so the shipped commands follow
+  // the active language instead of the language of whoever first opened the app.
+  // A stored literal that still matches something the seed once shipped counts as
+  // untouched and is re-resolved; anything else is the user's own wording and is
+  // returned verbatim. The key is kept on the object so a later locale change can
+  // resolve it again.
+  function resolveSeedText(stored, key, limit) {
+    const text = String(stored || "").trim();
+    if (!key) return text.slice(0, limit);
+    if (text && !seedSkillCommandTexts.includes(text)) return text.slice(0, limit);
+    // t, not pt: pt reads the preferences catalog, while these keys live in the
+    // shared workspace catalog alongside the built-in /goal and /queue text.
+    const translated = String(t(key, {}, currentUILocale()) || "").trim();
+    // t falls back to the key itself when a catalog entry is missing. Showing a
+    // dotted key in the palette would be worse than showing the stored text.
+    if (!translated || translated === key) return text.slice(0, limit);
+    return translated.slice(0, limit);
+  }
+
   function normalizeSkillCommand(command = {}) {
     const rawName = String(command.name || "").trim();
     const name = rawName ? (rawName.startsWith("/") ? rawName : `/${rawName}`) : "";
-    return {
+    // Profiles written before the seed carried keys hold only the literal text, so
+    // the key is recovered from the seed id. Matching on id alone is not enough:
+    // a user may have renamed or rewritten that command, and resolveSeedText is what
+    // decides, by comparing the stored text against what the seed once shipped.
+    const seedKeys = seedSkillCommandKeys[String(command.id || "")] || {};
+    const descriptionKey = String(command.descriptionKey || seedKeys.descriptionKey || "").trim();
+    const promptKey = String(command.promptKey || seedKeys.promptKey || "").trim();
+    const normalized = {
       id: String(command.id || localSkillID("cmd")),
       name: name.slice(0, 40),
-      description: String(command.description || "").trim().slice(0, 160),
-      prompt: String(command.prompt || "").trim().slice(0, 4000),
+      description: resolveSeedText(command.description, descriptionKey, 160),
+      prompt: resolveSeedText(command.prompt, promptKey, 4000),
       enabled: command.enabled !== undefined ? Boolean(command.enabled) : true,
     };
+    if (descriptionKey) normalized.descriptionKey = descriptionKey;
+    if (promptKey) normalized.promptKey = promptKey;
+    return normalized;
   }
 
   function normalizeMCPServer(server = {}) {
@@ -461,6 +496,7 @@ export function createSettingsPreferencesController({
       soundOnError: value.soundOnError !== undefined ? Boolean(value.soundOnError) : defaultNotificationPrefs.soundOnError,
       systemNotifications: value.systemNotifications !== undefined ? Boolean(value.systemNotifications) : defaultNotificationPrefs.systemNotifications,
       errorToastsPersist: value.errorToastsPersist !== undefined ? Boolean(value.errorToastsPersist) : defaultNotificationPrefs.errorToastsPersist,
+      hapticFeedback: value.hapticFeedback !== undefined ? Boolean(value.hapticFeedback) : defaultNotificationPrefs.hapticFeedback,
     };
   }
 
@@ -526,6 +562,12 @@ export function createSettingsPreferencesController({
 
   function systemNotificationsEnabled() {
     return currentNotificationPreferences().systemNotifications === true;
+  }
+
+  // Whether touch gestures may vibrate. Absent hardware support is handled at the
+  // call site, so this answers the preference question only.
+  function hapticFeedbackEnabled() {
+    return currentNotificationPreferences().hapticFeedback !== false;
   }
 
   function notifyTerminal(message) {
@@ -932,6 +974,7 @@ export function createSettingsPreferencesController({
     normalizeSkillsPreferences,
     notificationToastDuration,
     notificationToastHoldsUntilDismissed,
+    hapticFeedbackEnabled,
     notificationSoundEnabled,
     systemNotificationsEnabled,
     notificationVariantEnabled,

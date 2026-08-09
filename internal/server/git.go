@@ -20,6 +20,7 @@ import (
 	"autoto/internal/db"
 	"autoto/internal/gitlock"
 	"autoto/internal/gitsnapshot"
+	"autoto/internal/process"
 )
 
 const (
@@ -991,6 +992,9 @@ func runGitCommand(parent context.Context, dir string, maxBytes int, timeout tim
 	ctx, cancel := context.WithTimeout(parent, timeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "git", args...)
+	// Git status and diff refresh often while a task runs; each one would flash a
+	// console window on Windows without this.
+	process.HideWindow(cmd)
 	cmd.Dir = dir
 	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0", "GIT_OPTIONAL_LOCKS=0", "GIT_EXTERNAL_DIFF=")
 	stdout := &limitedBuffer{max: maxBytes}

@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"context"
 	"strings"
 	"time"
 
@@ -154,6 +155,50 @@ func (r *Runner) freezeContinuationLimits(runID string, limits continuationLimit
 		r.continuationRunLimits[runID] = limits
 	}
 	r.continuationMu.Unlock()
+}
+
+// completeRun gives a run its terminal status and then drops the budgets frozen
+// against it. Every terminal transition in the runner goes through here so the
+// release cannot be forgotten at one of the several call sites.
+//
+// The release is tied to the store actually having made the run terminal. A
+// conflict or a missing row means it already is, so those count too; any other
+// error leaves the entry alone, because the run may still be live.
+func (r *Runner) completeRun(ctx context.Context, runID, status, errorMessage string) error {
+	err := r.store.CompleteRun(ctx, runID, status, errorMessage)
+	if err == nil || db.IsConflict(err) || db.IsNotFound(err) {
+		r.releaseContinuationLimits(runID)
+	}
+	return err
+}
+
+// releaseContinuationLimits drops the budgets frozen against a run.
+//
+// The freeze exists so a run keeps the budgets it started with even if the user
+// edits the settings midway, which means it has to outlive each segment. Nothing
+// released it, so the map kept one entry per run for the lifetime of the process:
+// a local server that stays open for days accumulates every run it ever executed.
+//
+// Only a terminal run may be released. A run parked as continuation_pending is
+// resumed later under the same ID, and re-freezing then would rebuild its budgets
+// from whatever the settings say at that moment -- exactly what the freeze is
+// there to prevent.
+func (r *Runner) releaseContinuationLimits(runID string) {
+	if r == nil || strings.TrimSpace(runID) == "" {
+		return
+	}
+	r.continuationMu.Lock()
+	delete(r.continuationRunLimits, runID)
+	r.continuationMu.Unlock()
+}
+
+func (r *Runner) countFrozenContinuationLimits() int {
+	if r == nil {
+		return 0
+	}
+	r.continuationMu.RLock()
+	defer r.continuationMu.RUnlock()
+	return len(r.continuationRunLimits)
 }
 
 func (r *Runner) frozenContinuationLimits(runID string) (continuationLimits, bool) {

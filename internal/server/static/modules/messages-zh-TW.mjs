@@ -96,6 +96,7 @@ export default Object.freeze({
     online: "在線",
     offline: "離線",
     mobileSettingsActions: "行動版設定操作",
+    systemResources: "系統資源",
     accountSettings: "帳戶與設定",
     collapseGlobalNavigation: "收起全域導覽",
     expandGlobalNavigation: "展開全域導覽",
@@ -103,6 +104,9 @@ export default Object.freeze({
     expandSessionSidebar: "展開對話側欄",
     signOut: "登出",
     openSourceLicense: "開源授權",
+    pullToRefreshPull: "下拉重新載入",
+    pullToRefreshRelease: "放開即重新載入",
+    pullToRefreshRefreshing: "重新載入中…",
   },
   overview: {
     title: "工作概覽", subtitle: "查看近期統計與使用情況。", refresh: "重新整理", refreshing: "正在重新整理…", capturedAt: "更新於 {time}", loading: "正在載入首頁…", loadFailed: "首頁載入失敗", retryHint: "請稍後再試，或使用重新整理按鈕再次載入。", loaded: "首頁已更新。",
@@ -860,6 +864,8 @@ export default Object.freeze({
     soundUnavailable: "此瀏覽器不支援合成提示音。",
     systemDenied: "瀏覽器已拒絕通知權限；請在網站設定中允許後再啟用。",
     systemUnsupported: "此瀏覽器不支援系統通知。",
+    hapticFeedback: "觸控震動回饋",
+    hapticFeedbackDesc: "下拉重新載入等手勢達成條件時震一下。僅在支援震動的裝置上生效。",
   },
   about: {
     productTagline: "你的 AI 智慧助理",
@@ -1708,11 +1714,12 @@ export default Object.freeze({
       historyCommands: "輸入 / 可使用 {count} 個斜線命令；空白輸入時 ↑/↓ 可叫回記錄。", historySaved: "空白輸入時 ↑ 可查看上一則提示，↓ 返回草稿。本機已儲存 {count}/30 則。", historyEmpty: "輸入框為空時 ↑/↓ 可叫回最近提示。",
       slashCommands: "斜線命令", slashInserted: "已插入 {name} 命令。", noConversationToCopy: "目前沒有可複製的對話。", conversationCopied: "目前對話 Markdown 已複製。", conversationCopyFailed: "複製目前對話失敗，請稍後再試。",
       goalCommandDescription: "將受保護工作加入工作清單。", goalTextRequired: "請在 /goal 後輸入目標內容。", goalProjectOnly: "/goal 僅可在專案上下文中使用。", goalAttachmentsUnsupported: "建立目標前請先移除待傳送附件。",
-      queueCommandDescription: "把這則訊息排隊，等本次對話結束後再送出。", queueAttachmentsOnly: "僅附件", queueTextRequired: "請在 /queue 後輸入訊息內容。", queued: "已排隊 · 等待 {count} 則", queuePending: "等待本次對話結束 · {count} 則", queueDrop: "移出佇列", queueEdit: "重新編輯這則訊息", queueSend: "排隊", queueExpand: "展開其餘 {count} 則", queueCollapse: "收合佇列", queueSendFailed: "排隊訊息傳送失敗：{error}",
+      queueCommandDescription: "把這則訊息排隊，等本次對話結束後再送出。", seedReviewDiffDescription: "審查目前工作區的改動並指出風險。", seedReviewDiffPrompt: "請審查目前工作區的改動，重點關注正確性、測試覆蓋、安全性，以及使用者會察覺的行為變化。", seedWriteTestsDescription: "為目前的改動補上必要的測試。", seedWriteTestsPrompt: "請為目前的改動補上最小必要的測試，並說明每個測試釘住的是什麼行為。", queueAttachmentsOnly: "僅附件", queueTextRequired: "請在 /queue 後輸入訊息內容。", queued: "已排隊 · 等待 {count} 則", queuePending: "等待本次對話結束 · {count} 則", queueDrop: "移出佇列", queueEdit: "重新編輯這則訊息", queueSend: "排隊", queueExpand: "展開其餘 {count} 則", queueCollapse: "收合佇列", queueSendFailed: "排隊訊息傳送失敗：{error}",
       toolApproval: "有工具呼叫等待核准。", userQuestionRequired: "Agent 需要你的選擇。", dangerousToolBlocked: "危險工具呼叫已被阻止。", allowOnce: "允許一次", allowSession: "本次對話都允許", deny: "拒絕", approvalRequired: "需要核准才能執行命令", dangerBlocked: "危險命令已被阻止", expiresAt: "到期：{time}", backendBlocked: "後端已硬性阻擋該命令，無法透過 UI 放行。",
       runReview: "工作回顧", refreshReview: "重新整理回顧", copySummary: "複製摘要", rollback: "回滾到開始前", rollingBack: "回滾中…", runReviewRefreshed: "Run 回顧已重新整理。", noCheckpoint: "目前 Run 沒有可用 checkpoint。", rollbackSuccess: "已回滾到工作開始前的 checkpoint。",
       runCompleted: "工作已完成", runFailed: "工作失敗", runInterrupted: "工作已中斷", runSuperseded: "工作已被新請求取代", runRunning: "工作執行中", runPending: "工作等待執行", runLoading: "正在載入工作回顧", runUnknown: "工作狀態未知",
       completed: "完成", pendingApproval: "待核准", denied: "拒絕", error: "錯誤", waitingOutput: "等待命令輸出…", liveOutput: "即時輸出", running: "執行中", outputTruncated: "即時輸出過長，已截斷；最終結果仍會儲存為工具結果摘要。",
+      draftFallback: "私有草稿讀取失敗，已改用瀏覽器本機草稿：{message}",
     },
     navigation: {
       toggleConversations: "展開或收起該專案的對話", toggleForks: "展開或收起該對話的分支",
@@ -1738,7 +1745,7 @@ export default Object.freeze({
       title: "工作狀態", goal: "目標", role: "角色", taskCounts: "工作計數", activeTask: "進行中工作", verification: "驗證", reviewer: "審查者", declaredTest: "宣告的測試", todo: "待辦", doing: "進行中", done: "已完成", blocked: "阻塞", notConfigured: "尚未設定", declared: "已宣告", reviewed: "已審查", stale: "已失效", pending: "待驗證", running: "驗證中", passed: "已通過", failed: "失敗", skipped: "已略過", reviewPass: "通過", reviewNeedsHuman: "需要人工審查", reviewBlockRecommended: "建議阻止", reviewUnavailable: "無法使用",
     },
     main: {
-      conversationDetails: "對話詳細資料", selectConversation: "請先選擇一個對話。", copySuccess: "已複製到剪貼簿。", copyFailed: "複製失敗，請手動選擇文字複製。", remoteHardened: "隧道收緊", local: "本機", passwordEnabled: "存取密碼已啟用", passwordMissing: "未設定存取密碼", terminalLocked: "終端機已鎖定", terminalOpen: "終端機明確開放", autoExecutionDisabled: "已停用自動執行", remoteTerminalDisabled: "遠端收緊模式預設停用互動式終端機", directoryLabel: "目錄：{path}", permissionLabel: "權限：{permission}", modeLabel: "模式：{mode}", modelLabel: "模型：{model}", noModel: "未選擇模型", selectDirectory: "請先選擇一個目錄", opening: "正在開啟", creating: "正在建立", opened: "已開啟：{path}", selectedDirectory: "已選擇資料夾：{path}", openFailed: "開啟失敗：{message}", loadingProject: "正在載入專案…", loadingProjectTitle: "正在載入專案", loadingProjectDescription: "Autoto 正在準備工作線和 AI 代理。", chooseAnotherFolder: "選擇其他資料夾", noWorkline: "此專案還沒有可用工作線", noAgent: "此工作線還沒有可用代理", openingConversation: "正在開啟指定對話…", openingConversationTitle: "正在開啟對話", conversationUnavailable: "指定對話已不可用", agentReady: "AI 代理已就緒", modelKeyMissing: "目前模型尚未設定 API Key", openModelSettings: "開啟模型設定", openProviderSettings: "開啟供應商設定", idle: "閒置", syncing: "同步中", recovering: "復原中", connecting: "連線中", reconnecting: "重新連線中", connected: "已連線", offline: "離線", closeNotification: "關閉通知", terminalNotConnected: "終端機尚未連線，請稍後再試。", localMvpNoLogout: "本機 MVP 尚未啟用完整帳戶系統，無需登出。", remoteLoggedOut: "已登出遠端存取，請重新輸入存取密碼。",
+      conversationDetails: "對話詳細資料", selectConversation: "請先選擇一個對話。", copySuccess: "已複製到剪貼簿。", copyFailed: "複製失敗，請手動選擇文字複製。", remoteHardened: "隧道收緊", local: "本機", passwordEnabled: "存取密碼已啟用", passwordMissing: "未設定存取密碼", terminalLocked: "終端機已鎖定", terminalOpen: "終端機明確開放", autoExecutionDisabled: "已停用自動執行", remoteTerminalDisabled: "遠端收緊模式預設停用互動式終端機", directoryLabel: "目錄：{path}", permissionLabel: "權限：{permission}", modeLabel: "模式：{mode}", modelLabel: "模型：{model}", noModel: "未選擇模型", selectDirectory: "請先選擇一個目錄", opening: "正在開啟", creating: "正在建立", opened: "已開啟：{path}", selectedDirectory: "已選擇資料夾：{path}", projectPathNotGitRepo: "此資料夾不是 Git 儲存庫。可以正常編輯，但長工作無法自動續跑。請改指向儲存庫根目錄，或在專案中初始化 Git。", projectPathNotGitRepoWithCandidate: "此資料夾不是 Git 儲存庫，但底下的 {path} 是。Git 只會往上層找、不會往下找，建議改指向該資料夾，否則長工作無法自動續跑。", openFailed: "開啟失敗：{message}", loadingProject: "正在載入專案…", loadingProjectTitle: "正在載入專案", loadingProjectDescription: "Autoto 正在準備工作線和 AI 代理。", chooseAnotherFolder: "選擇其他資料夾", noWorkline: "此專案還沒有可用工作線", noAgent: "此工作線還沒有可用代理", openingConversation: "正在開啟指定對話…", openingConversationTitle: "正在開啟對話", conversationUnavailable: "指定對話已不可用", agentReady: "AI 代理已就緒", modelKeyMissing: "目前模型尚未設定 API Key", openModelSettings: "開啟模型設定", openProviderSettings: "開啟供應商設定", idle: "閒置", syncing: "同步中", recovering: "復原中", connecting: "連線中", reconnecting: "重新連線中", connected: "已連線", offline: "離線", closeNotification: "關閉通知", terminalNotConnected: "終端機尚未連線，請稍後再試。", localMvpNoLogout: "本機 MVP 尚未啟用完整帳戶系統，無需登出。", remoteLoggedOut: "已登出遠端存取，請重新輸入存取密碼。",
     },
   },
 });

@@ -12,6 +12,8 @@ import (
 	"runtime"
 	"sort"
 	"strings"
+
+	"autoto/internal/process"
 )
 
 type fsEntry struct {
@@ -258,6 +260,10 @@ if ($dialog.ShowDialog($owner) -eq [System.Windows.Forms.DialogResult]::OK) { [C
 $owner.Dispose()`
 
 	cmd := exec.CommandContext(ctx, "powershell", "-NoProfile", "-STA", "-Command", script)
+	// The dialog is the only window this should show. Without this, PowerShell
+	// also allocates a console, so picking a folder flashes a black window next
+	// to the picker.
+	process.HideWindow(cmd)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr

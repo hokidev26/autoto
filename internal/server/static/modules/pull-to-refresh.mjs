@@ -16,6 +16,32 @@ const PULL_DAMPING = 0.4;
 // Past this the drag is a horizontal swipe, not a pull, and is abandoned.
 const HORIZONTAL_TOLERANCE_PX = 24;
 const MAX_INDICATOR_TRAVEL_PX = 96;
+// A short tick at the moment the gesture arms. Long enough to register as a
+// deliberate confirmation, short enough not to feel like an error buzz.
+const ARM_VIBRATION_MS = 12;
+
+// The gesture used to report itself with three words and nothing else, so during
+// the drag there was no sign of how much further the pull had to go. Progress is
+// published as a 0..1 ratio and drawn as a ring, which is what makes the halfway
+// point visible instead of implied.
+function pullProgress(distance, threshold) {
+  if (!(threshold > 0)) return 0;
+  const ratio = distance / threshold;
+  return ratio < 0 ? 0 : ratio > 1 ? 1 : ratio;
+}
+
+// Vibration is a courtesy, not a dependency: it is missing on desktop, refused
+// without a user gesture in some engines, and can throw rather than return false.
+// A failure here must never interrupt a refresh, so it is swallowed deliberately.
+function vibrate(view, pattern) {
+  const navigator = view?.navigator;
+  if (typeof navigator?.vibrate !== "function") return false;
+  try {
+    return navigator.vibrate(pattern) === true;
+  } catch {
+    return false;
+  }
+}
 
 function touchPoint(event) {
   const touch = event?.touches?.[0] || event?.changedTouches?.[0];
@@ -40,21 +66,32 @@ export function installPullToRefresh({
   view = globalThis,
   threshold = PULL_THRESHOLD_PX,
   labels = {},
+  haptics = true,
 } = {}) {
   if (!target?.addEventListener || typeof onRefresh !== "function") return () => {};
 
+  // The defaults are a last resort for a caller that passes no labels. They are
+  // deliberately Traditional here to match the shell's default script; the real
+  // strings arrive translated from the caller.
   const text = {
-    pull: labels.pull ?? "下拉刷新",
-    release: labels.release ?? "松手刷新",
-    refreshing: labels.refreshing ?? "正在刷新…",
+    pull: labels.pull ?? "下拉重新載入",
+    release: labels.release ?? "放開即重新載入",
+    refreshing: labels.refreshing ?? "重新載入中…",
   };
 
   const doc = view.document || globalThis.document;
   const indicator = doc?.createElement?.("div");
+  let ring = null;
+  let caption = null;
   if (indicator) {
     indicator.className = "pull-to-refresh-indicator";
     indicator.setAttribute("aria-hidden", "true");
-    indicator.textContent = text.pull;
+    ring = doc.createElement("span");
+    ring.className = "pull-to-refresh-ring";
+    caption = doc.createElement("span");
+    caption.className = "pull-to-refresh-label";
+    caption.textContent = text.pull;
+    indicator.append(ring, caption);
     target.appendChild(indicator);
   }
 
@@ -69,18 +106,28 @@ export function installPullToRefresh({
   let armed = false;
   let refreshing = false;
 
-  function paint(travel, label) {
+  function paint(travel, label, progress = 0) {
     if (!indicator) return;
-    indicator.textContent = label;
-    indicator.style.transform = reducedMotion ? "" : `translateY(${travel}px)`;
+    if (caption) caption.textContent = label;
+    // Centring is done here rather than with a fixed negative margin, because the
+    // three labels have three different widths and a fixed margin made the pill
+    // jump sideways as the text changed.
+    const slide = reducedMotion ? 0 : travel;
+    indicator.style.transform = `translate(-50%, ${slide}px)`;
     indicator.style.opacity = travel > 0 || refreshing ? "1" : "0";
+    // Exposed as a custom property so the ring is drawn in CSS; the module stays
+    // responsible for the gesture and not for how the arc looks.
+    indicator.style.setProperty("--pull-progress", String(progress));
+    indicator.classList.toggle("is-armed", armed && !refreshing);
+    indicator.classList.toggle("is-refreshing", refreshing);
+    if (ring) ring.style.setProperty("--pull-progress", String(progress));
   }
 
   function reset() {
     startPoint = null;
     distance = 0;
     armed = false;
-    paint(0, text.pull);
+    paint(0, text.pull, 0);
   }
 
   function handleStart(event) {
@@ -106,11 +153,21 @@ export function installPullToRefresh({
       return;
     }
     distance = raw * PULL_DAMPING;
+    const wasArmed = armed;
     armed = distance >= threshold;
+    // The tick fires on the crossing, not on the armed state, so holding past the
+    // threshold buzzes once instead of on every touchmove the browser delivers.
+    // Dragging back above the line re-arms it, which is the confirmation people
+    // expect when they change their mind and pull again.
+    if (armed && !wasArmed && haptics) vibrate(view, ARM_VIBRATION_MS);
     // Only claimed once this is clearly a pull, so a tap on a top-bar button is
     // never swallowed by the gesture.
     if (distance > 4 && event.cancelable) event.preventDefault();
-    paint(Math.min(distance, MAX_INDICATOR_TRAVEL_PX), armed ? text.release : text.pull);
+    paint(
+      Math.min(distance, MAX_INDICATOR_TRAVEL_PX),
+      armed ? text.release : text.pull,
+      pullProgress(distance, threshold),
+    );
   }
 
   function handleEnd() {
@@ -121,7 +178,7 @@ export function installPullToRefresh({
     }
     refreshing = true;
     startPoint = null;
-    paint(threshold, text.refreshing);
+    paint(threshold, text.refreshing, 1);
     // A reload replaces the page, so there is nothing to restore afterwards. If
     // the handler resolves without navigating, the indicator is cleared so the
     // gesture stays usable.

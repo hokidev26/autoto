@@ -68,6 +68,10 @@ func (s *Server) terminalWS(w http.ResponseWriter, r *http.Request) {
 		cmd.Dir = agent.CWD
 	}
 	cmd.Env = append(os.Environ(), "TERM=xterm-256color")
+	// No console-suppression flag here on purpose: creack/pty has no Windows
+	// implementation, so StartWithSize returns ErrUnsupported below without ever
+	// starting the process. Nothing is spawned, so nothing can flash a window.
+	// Giving Windows a working terminal means ConPTY, not a creation flag.
 	ptyFile, err := pty.StartWithSize(cmd, &pty.Winsize{Cols: 100, Rows: 28})
 	if err != nil {
 		writeTerminalJSON(wsCtx, conn, terminalMessage{Type: "error", Data: err.Error()})

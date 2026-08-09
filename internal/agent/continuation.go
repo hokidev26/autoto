@@ -988,7 +988,7 @@ func (r *Runner) validateContinuationBoundary(ctx context.Context, run db.Run, c
 func (r *Runner) completeContinuousRun(ctx context.Context, agentID, runID string, outcome segmentOutcome) error {
 	if runID != "" {
 		r.captureRunEndHead(runID)
-		if err := r.store.CompleteRun(ctx, runID, "completed", ""); err != nil {
+		if err := r.completeRun(ctx, runID, "completed", ""); err != nil {
 			return err
 		}
 		r.closeToolOutputPipelineRun(agentID, runID)

@@ -15,6 +15,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"autoto/internal/process"
 )
 
 const (
@@ -100,6 +102,7 @@ func (p *execTemporaryTunnelProcess) Kill() error {
 
 func defaultTemporaryTunnelCommand(ctx context.Context, name string, args ...string) temporaryTunnelProcess {
 	command := exec.CommandContext(ctx, name, args...)
+	process.HideWindow(command)
 	command.Env = append(os.Environ(), "NO_COLOR=1")
 	return &execTemporaryTunnelProcess{command: command}
 }
