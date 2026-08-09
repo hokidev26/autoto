@@ -635,7 +635,13 @@ export function providerConfigPayload(draft = {}) {
     ...(draft.createOnly ? { createOnly: true } : {}),
     ...(stringValue(draft.originalName) ? { originalName: stringValue(draft.originalName) } : {}),
     model: stringValue(draft.model),
-    models: normalizeProviderModelConfigs({ modelConfigs: draft.modelConfigs }).map((item) => ({
+    // The whole draft, not just modelConfigs: a saved provider's list arrives
+    // under `models`, and normalizeProviderModelConfigs reads both keys plus the
+    // default model. Passing modelConfigs alone made a draft that held its list
+    // under `models` send an empty array, which the server reads as "keep what
+    // is saved" -- so a limit typed into the drawer was dropped on the way out
+    // while the save still reported success.
+    models: normalizeProviderModelConfigs(draft).map((item) => ({
       name: item.name,
       contextTokenLimit: item.contextTokenLimit,
       imageGeneration: item.imageGeneration,

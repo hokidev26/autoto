@@ -1524,7 +1524,9 @@ export function createModelProviderSettingsController({
       const value = Math.min(10_000_000, Math.max(0, Math.floor(Number(rawTarget.value || 0) || 0)));
       consoleState.draft = {
         ...(consoleState.draft || {}),
-        modelConfigs: normalizeProviderModelConfigs({ modelConfigs: consoleState.draft?.modelConfigs }).map((item) => item.name === name ? { ...item, contextTokenLimit: value } : item),
+        // The whole draft: a provider whose list lives under `models` would
+        // otherwise rebuild from nothing and lose every row but the edited one.
+        modelConfigs: normalizeProviderModelConfigs(consoleState.draft || {}).map((item) => item.name === name ? { ...item, contextTokenLimit: value } : item),
       };
       consoleState.dirty = true;
       return;
@@ -1587,7 +1589,7 @@ export function createModelProviderSettingsController({
       const name = String(target.dataset.mpModelImageGeneration || "").trim();
       consoleState.draft = {
         ...(consoleState.draft || {}),
-        modelConfigs: normalizeProviderModelConfigs({ modelConfigs: consoleState.draft?.modelConfigs }).map((item) => item.name === name ? { ...item, imageGeneration: Boolean(target.checked) } : item),
+        modelConfigs: normalizeProviderModelConfigs(consoleState.draft || {}).map((item) => item.name === name ? { ...item, imageGeneration: Boolean(target.checked) } : item),
       };
       consoleState.dirty = true;
       return;
