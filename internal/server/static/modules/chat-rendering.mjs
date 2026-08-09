@@ -3083,7 +3083,8 @@ export function createChatRenderingController({
       const reasoningSteps = persistedSteps.length || !messageRunId
         ? persistedSteps
         : currentLiveReasoningSteps(messageRunId, messageId, {
-          claimUnstamped: firstAssistantTurnByRun.get(messageRunId) === messageId,
+          claimOrphans: firstAssistantTurnByRun.get(messageRunId) === messageId,
+          visibleIds: knownIds,
         });
       // This turn's own stack first, then any earlier run this message anchors.
       const rendered = [];
@@ -3509,23 +3510,36 @@ export function createChatRenderingController({
   // messageId narrows the result to one assistant turn's own thinking. Without it
   // the caller gets the whole run, which is right for the tail stack and wrong for
   // a per-message stack.
+  // A step is an orphan when no turn on screen can own it: either nothing stamped
+  // it (it closed before the run's first turn was saved) or it was stamped to a
+  // turn the transcript does not show. A turn whose only content is a tool_use
+  // block is invisible, and a run makes one of those per tool round, so most of a
+  // run's thinking is stamped to turns that never reach the per-message loop.
+  // Orphans have to be claimed by the run's anchor turn -- the same turn the run's
+  // tool calls are anchored onto -- or they strand on the tail as a bare
+  // "N steps of reasoning" row beside the row holding the tools they explain.
+  function liveReasoningStepIsOrphan(step, visibleIds) {
+    const stepOwner = String(step?.messageId || "");
+    if (!stepOwner) return true;
+    return visibleIds instanceof Set ? !visibleIds.has(stepOwner) : false;
+  }
+
   function currentLiveReasoningSteps(runId = "", messageId = "", options = {}) {
     const expected = String(runId || "");
     const owner = String(messageId || "");
-    // An unstamped step predates any assistant turn of this run: the model
-    // reasoned before the first turn was saved, so nothing stamped it. It still
-    // has to be shown, but by exactly one turn. Letting every turn take it made
-    // a later turn with no reasoning of its own display the run's whole backlog
-    // as a bare "N steps of reasoning" row. The tail stack passes no owner and
-    // keeps taking them, which is what covers the gap before the first turn.
-    const claimUnstamped = options.claimUnstamped !== false;
+    // The anchor turn takes the orphans on top of its own stamped steps. Every
+    // other turn takes only what is stamped to it, so no two rows show the same
+    // thinking. The tail passes no owner and keeps everything, which is what
+    // covers a run with no visible turn yet.
+    const claimOrphans = options.claimOrphans === true;
+    const visibleIds = options.visibleIds instanceof Set ? options.visibleIds : null;
     const steps = (Array.isArray(state.liveReasoningSteps) ? state.liveReasoningSteps : [])
       .filter((step) => !expected || !step.runId || step.runId === expected)
       .filter((step) => {
         if (!owner) return true;
         const stepOwner = String(step?.messageId || "");
-        if (!stepOwner) return claimUnstamped;
-        return stepOwner === owner;
+        if (stepOwner === owner) return true;
+        return claimOrphans && liveReasoningStepIsOrphan(step, visibleIds);
       });
     const draft = state.liveReasoningDraft;
     if (draft && String(draft.text || "").trim() && (!expected || !draft.runId || draft.runId === expected)) {
@@ -3593,18 +3607,30 @@ export function createChatRenderingController({
     // sides have to release exactly the same steps.
     const claimedMessages = new Set();
     const claimedRuns = new Set();
-    // Only the run's first assistant turn takes unstamped steps, so only that
-    // turn's state may release them here. Releasing on any unsaved turn of the
-    // run left the steps unrendered: the tail let go while the message stack was
-    // no longer taking them.
+    // The anchor turn of each run claims that run's orphan steps, so the tail has
+    // to release them on exactly the same condition. Releasing on any unsaved turn
+    // of the run left them unrendered; releasing on none of them stranded a bare
+    // reasoning row beside the row holding the tools.
+    const visible = transcriptMessages(state.currentMessages);
+    const visibleIds = new Set(visible.map((message) => String(message?.id || "")).filter(Boolean));
     const firstAssistantTurnByRun = new Map();
-    for (const message of transcriptMessages(state.currentMessages)) {
+    for (const message of visible) {
       if (chatMessagePresentation(message).normalizedRole !== "assistant") continue;
       const owner = String(message?.runId || message?.run_id || "").trim();
       const id = String(message?.id || "").trim();
       if (owner && id && !firstAssistantTurnByRun.has(owner)) firstAssistantTurnByRun.set(owner, id);
     }
-    for (const message of transcriptMessages(state.currentMessages)) {
+    // Runs whose anchor turn is on screen and has no saved reasoning of its own:
+    // that turn is taking the orphans, so the tail must not also show them.
+    const runsClaimingOrphans = new Set();
+    for (const message of visible) {
+      if (chatMessagePresentation(message).normalizedRole !== "assistant") continue;
+      const owner = String(message?.runId || message?.run_id || "").trim();
+      const id = String(message?.id || "").trim();
+      if (!owner || firstAssistantTurnByRun.get(owner) !== id) continue;
+      if (!persistedReasoningSteps(message).length) runsClaimingOrphans.add(owner);
+    }
+    for (const message of visible) {
       if (chatMessagePresentation(message).normalizedRole !== "assistant") continue;
       const persisted = persistedReasoningSteps(message);
       if (!persisted.length) {
@@ -3628,11 +3654,13 @@ export function createChatRenderingController({
       // to the run for these is what let one unsaved turn hide the thinking of
       // every other turn in the same run.
       const stepMessage = String(step?.messageId || "").trim();
-      if (stepMessage) {
+      // A step stamped to a turn the transcript shows is claimed by that turn.
+      // Anything else is an orphan, and the run's anchor turn takes it.
+      if (stepMessage && visibleIds.has(stepMessage)) {
         if (claimedMessages.has(stepMessage)) return false;
       } else {
         const owner = String(step?.runId || "").trim() || fallbackRunId;
-        if (owner && claimedRuns.has(owner)) return false;
+        if (owner && (claimedRuns.has(owner) || runsClaimingOrphans.has(owner))) return false;
       }
       if (step?.open) return true;
       const key = reasoningHandoverKey(step?.text);
