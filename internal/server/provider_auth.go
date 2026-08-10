@@ -1070,14 +1070,6 @@ func authImportLooksLikeUUID(value string) bool {
 	return true
 }
 
-func (s *Server) cliProxyAPIManagementRequest(ctx context.Context, method, path string, body io.Reader, contentType string) ([]byte, error) {
-	provider, ok := s.cliProxyAPIProviderSummary()
-	if !ok {
-		return nil, fmt.Errorf("CLIProxyAPI provider is not configured")
-	}
-	return s.providerManagementRequest(ctx, provider, method, path, body, contentType)
-}
-
 func (s *Server) providerManagementRequest(ctx context.Context, provider config.ProviderSummary, method, path string, body io.Reader, contentType string) ([]byte, error) {
 	base, err := providerManagementBaseURL(provider)
 	if err != nil {
@@ -1207,14 +1199,6 @@ func parseCLIProxyAPIManagementURL(raw string) (*url.URL, error) {
 	return parsed, nil
 }
 
-func (s *Server) cliProxyAPIManagementBaseURL() (string, error) {
-	provider, ok := s.cliProxyAPIProviderSummary()
-	if !ok {
-		return "http://127.0.0.1:8317/v0/management", nil
-	}
-	return providerManagementBaseURL(provider)
-}
-
 func providerManagementBaseURL(provider config.ProviderSummary) (string, error) {
 	if provider.Profile != config.ProviderProfileCLIProxyAPI {
 		return "", fmt.Errorf("provider %s does not support management auth files", provider.Name)
@@ -1249,7 +1233,7 @@ func (s *Server) authFileProvider(name string) (config.ProviderSummary, error) {
 	return config.ProviderSummary{}, fmt.Errorf("provider %s is not configured", name)
 }
 
-func (s *Server) cliProxyAPIProviderSummary() (config.ProviderSummary, bool) {
+func (s *Server) unusedCliProxyAPIProviderSummaryMarker() (config.ProviderSummary, bool) {
 	for _, provider := range s.configSnapshot().Providers.Summaries() {
 		if provider.Profile == config.ProviderProfileCLIProxyAPI {
 			return provider, true

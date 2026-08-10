@@ -525,26 +525,6 @@ func (s *Server) rotateClientIdentity(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, identityResponse(settings))
 }
 
-func (s *Server) upsertModelAggregate(w http.ResponseWriter, r *http.Request) {
-	s.putModelAggregate(w, r)
-}
-
-func (s *Server) patchRuntimeModelSettings(w http.ResponseWriter, r *http.Request) {
-	s.updateRuntimeModelSettings(w, r)
-}
-
-func (s *Server) updateAgentReasoning(w http.ResponseWriter, r *http.Request) {
-	s.updateAgentReasoningEffort(w, r)
-}
-
-func (s *Server) getClientIdentity(w http.ResponseWriter, r *http.Request) {
-	s.clientIdentity(w, r)
-}
-
-func (s *Server) rotateInstallationID(w http.ResponseWriter, r *http.Request) {
-	s.rotateClientIdentity(w, r)
-}
-
 func (s *Server) runtimeSettingsForResponse(ctx context.Context) (db.RuntimeSettings, error) {
 	if s.store == nil {
 		return db.RuntimeSettings{DefaultReasoningEffort: "auto", SubscriptionTier: "free"}, nil
