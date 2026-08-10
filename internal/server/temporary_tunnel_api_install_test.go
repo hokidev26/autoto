@@ -19,7 +19,7 @@ func TestTemporaryTunnelInstallRouteIsLocalOnlyAndDoesNotAutoStart(t *testing.T)
 	manager := newTemporaryTunnelManager("127.0.0.1:7788", temporaryTunnelOptions{
 		lookPath:  func(string) (string, error) { return "", errors.New("not found") },
 		installer: installer,
-		command: func(context.Context, string, ...string) temporaryTunnelProcess {
+		command: func(context.Context, string, temporaryTunnelSpec) temporaryTunnelProcess {
 			commandCalls++
 			return newFakeTemporaryTunnelProcess()
 		},

@@ -58,6 +58,11 @@ type GatewayConfig struct {
 	Port                 int    `json:"port"`
 	MaxGlobalConcurrency int    `json:"maxGlobalConcurrency"`
 	MaxRequestBytes      int64  `json:"maxRequestBytes"`
+	// NamedTunnel is the gateway's own named tunnel. It is separate from the one
+	// under Security because the two tunnels front different listeners and cannot
+	// share a hostname: the point of keeping them apart is that the public API URL
+	// can be handed out without also exposing the management UI.
+	NamedTunnel NamedTunnelConfig `json:"namedTunnel,omitzero"`
 }
 
 type BackgroundConfig struct {
@@ -136,6 +141,46 @@ type SecurityConfig struct {
 	// AllowRemoteTerminal is retained only to read older configurations. New
 	// remote terminal access is granted exclusively by a full remote session.
 	AllowRemoteTerminal bool `json:"allowRemoteTerminal,omitempty"`
+	// NamedTunnel configures a Cloudflare named tunnel as an alternative to the
+	// ephemeral quick tunnel. Absent or incomplete means the quick tunnel stays
+	// the only mode, which is why every field is optional.
+	NamedTunnel NamedTunnelConfig `json:"namedTunnel,omitzero"`
+}
+
+// NamedTunnelConfig describes a Cloudflare named tunnel. Unlike a quick tunnel
+// the hostname is chosen in advance rather than discovered from process output,
+// so it is configuration rather than runtime state.
+//
+// TokenRef is a logical reference in the same env:VARIABLE_NAME form the
+// integration connections use, never the token itself. A named tunnel token
+// grants the ability to publish traffic under the account's hostname, so it is
+// treated as credential material: it is resolved at start time, handed to
+// cloudflared through its environment, and never written to config.json, the
+// database, logs, or API responses.
+type NamedTunnelConfig struct {
+	Hostname string `json:"hostname,omitempty"`
+	TokenRef string `json:"tokenRef,omitempty"`
+	// AutoStart is opt-in on purpose. A named tunnel keeps a stable hostname, so
+	// starting it automatically makes the machine reachable from the moment
+	// Autoto boots, with the access password as the only barrier. That is a
+	// larger exposure than a tunnel someone opened deliberately, and it should
+	// never become true by upgrading.
+	AutoStart bool `json:"autoStart,omitempty"`
+}
+
+// Configured reports whether both required fields are present. A half-filled
+// section cannot start a tunnel, and treating it as configured would replace a
+// working quick tunnel with a broken named one.
+func (c NamedTunnelConfig) Configured() bool {
+	return strings.TrimSpace(c.Hostname) != "" && strings.TrimSpace(c.TokenRef) != ""
+}
+
+// NormalizeNamedTunnel exposes the normalization rules so callers can check what
+// would actually be stored before storing it. Without this an API could accept a
+// value the config layer later discards, which looks like a save that silently
+// did nothing.
+func NormalizeNamedTunnel(tunnel NamedTunnelConfig) NamedTunnelConfig {
+	return normalizeNamedTunnelConfig(tunnel)
 }
 
 type ProvidersConfig struct {
@@ -478,6 +523,7 @@ func normalizeGatewayConfig(gateway GatewayConfig) GatewayConfig {
 	} else if gateway.MaxRequestBytes > 64<<20 {
 		gateway.MaxRequestBytes = 64 << 20
 	}
+	gateway.NamedTunnel = normalizeNamedTunnelConfig(gateway.NamedTunnel)
 	return gateway
 }
 

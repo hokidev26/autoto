@@ -85,6 +85,10 @@ test("normalizes and controls a temporary tunnel through the security endpoint",
     publicUrl: "https://bright-sun.trycloudflare.com",
     error: "",
     startedAt: "2026-07-18T00:00:00Z",
+    // A response without a mode is treated as a quick tunnel, so an older server
+    // is never described as having a stable address.
+    mode: "quick",
+    namedConfigured: false,
   });
   assert.equal(state.remoteAccess.tunnel.publicUrl, "https://bright-sun.trycloudflare.com");
 
@@ -570,4 +574,42 @@ test("authoritative refresh clears a previous fail-closed state", async () => {
   assert.equal(state.remoteAccessFailClosed, false);
   assert.equal(state.remoteAccess.session.remote, false);
   assert.equal(state.remoteAccess.capabilities.terminalAllowed, true);
+});
+
+test("a named tunnel is described as stable and an unknown mode falls back to quick", () => {
+  const named = normalizeRemoteAccess({
+    ...localAccess,
+    tunnel: { available: true, status: "running", publicUrl: "https://autoto.example.com", mode: "named", namedConfigured: true },
+  }).tunnel;
+  assert.equal(named.mode, "named");
+  assert.equal(named.namedConfigured, true);
+
+  // Anything other than "named" must read as quick. Describing an unknown mode as
+  // stable would tell the user the address persists when it may not.
+  for (const mode of ["quick", "", "NAMED", "unexpected", undefined, null, 7]) {
+    const tunnel = normalizeRemoteAccess({ ...localAccess, tunnel: { available: true, status: "idle", mode } }).tunnel;
+    assert.equal(tunnel.mode, "quick", `mode ${String(mode)} should normalize to quick`);
+  }
+});
+
+test("the tunnel card names the mode it is actually running", () => {
+  const state = {
+    remoteAccess: {
+      ...localAccess,
+      tunnel: {
+        available: true,
+        installable: false,
+        status: "running",
+        publicUrl: "https://autoto.example.com",
+        error: "",
+        startedAt: "2026-07-18T00:00:00Z",
+        mode: "named",
+        namedConfigured: true,
+      },
+    },
+  };
+  const controller = createRemoteAccessSettingsController({ state, request: async () => state.remoteAccess });
+  const html = controller.render();
+  assert.match(html, /autoto\.example\.com/);
+  assert.doesNotMatch(html, /trycloudflare/);
 });
