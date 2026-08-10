@@ -481,6 +481,28 @@ body.white-shell.theme-light .navigation-conversation-row.fork-conversation.acti
   border-left-color: var(--ws-primary, #5369f3);
 }
 
+/* Which conversation you are in has to survive a sidebar full of near-identical
+   rows: forks of one workline differ only by a branch name in the meta line, and
+   the soft tint alone sat too close to both the hover fill and the project row
+   above it. An accent bar and a weighted title read as "you are here" at a glance
+   without shouting. Built from --ws-primary so the cyber and cream presets, which
+   redefine it, stay coherent instead of turning blue here. */
+body.white-shell.theme-light .navigation-conversation-row.active {
+  box-shadow: inset 2px 0 0 0 var(--ws-primary, #4f6ef7);
+}
+
+body.white-shell.theme-light .navigation-conversation-row.active .navigation-conversation-title,
+body.white-shell.theme-light .navigation-conversation-row.active .navigation-title-text {
+  font-weight: 600;
+}
+
+/* The fork rows own their left border, so the accent goes there rather than in a
+   shadow that would sit on top of it. */
+body.white-shell.theme-light .navigation-conversation-row.fork-conversation.active {
+  border-left-width: 3px;
+  box-shadow: none;
+}
+
 body.white-shell.theme-light .navigation-conversation-row.fork-conversation .navigation-agent-icon {
   color: var(--ws-muted, #747e90);
 }

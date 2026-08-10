@@ -3569,6 +3569,18 @@ async function selectProject(id, options = {}) {
   }
 }
 
+// focusOpenConversation does what re-selecting an already-open conversation is
+// actually for: put the reader back on it. It repaints the navigation so the row
+// reads as current, scrolls it into view when the click came from somewhere else,
+// and returns focus to the composer. No requests, no transcript rebuild.
+function focusOpenConversation(agentId) {
+  rememberCurrentConversation();
+  renderProjects();
+  const row = $("projects")?.querySelector(`[data-navigation-kind="conversation"][data-navigation-id="${CSS.escape(agentId)}"]`);
+  row?.scrollIntoView?.({ block: "nearest" });
+  if (state.activeWorkbench === "conversation") $("messageInput")?.focus?.({ preventScroll: true });
+}
+
 async function selectNavigationConversation(target, options = {}) {
   if (state.overviewActive && options.preserveOverview !== true) switchPrimaryWorkbench("conversation");
   const supplied = target && typeof target === "object" ? target : null;
@@ -3581,6 +3593,20 @@ async function selectNavigationConversation(target, options = {}) {
   const worklineId = String(navigationConversation?.worklineId || parsed?.worklineId || "").trim();
   if (!agentId || !projectId || !worklineId || navigationConversation?.context === "conversation" || navigationConversation?.projectFlowMode === false) {
     throw new Error(am("invalidConversationTarget"));
+  }
+  // Clicking the conversation that is already open used to run the whole entry
+  // pipeline again: two requests here, then enterAgent with its own transcript,
+  // summary, draft and background-task loads, a terminal reconnect, and a reset of
+  // the live reasoning, run summary and plan state. On a running turn that visibly
+  // threw away live output, and the transcript re-hydrated and jumped, so a stray
+  // second click looked like the conversation had reloaded itself.
+  //
+  // Re-entry is only skipped when this conversation is genuinely already loaded.
+  // The view work above still runs, so clicking it from the overview or another
+  // workbench brings the conversation back, which is what that click means there.
+  if (!options.force && state.agent?.id === agentId && state.project?.id === projectId && state.workline?.id === worklineId && !state.chatHydrating) {
+    focusOpenConversation(agentId);
+    return;
   }
   const project = state.projects.find((item) => item.id === projectId) || (navigationConversation ? {
     id: navigationConversation.projectId,
