@@ -3289,34 +3289,51 @@ export function createChatRenderingController({
   // reasoningText are the same thinking seen twice: the stream wrote the step,
   // then the runner saved the turn. Once that turn is on screen its own activity
   // stack renders the reasoning, so the tail must let go of its copy or the run
-  // shows two identical "activity" rows.
+  // shows the same thinking under two "activity" headers.
   //
-  // Both sides accumulate in turn order within a run, so the count of persisted
-  // turns is also the count of leading live steps that have found a home. Only
-  // closed steps hand over; the open draft is still streaming and exists nowhere
-  // else. Counting rather than matching text keeps this correct when the stored
-  // reasoning is trimmed for the transcript and no longer equals what streamed.
-  function liveReasoningStepsWithoutPersisted(steps, runId = "") {
+  // The handover is decided by the thinking itself, because neither of the two
+  // things that look like cheaper keys survives contact with real runs:
+  //
+  //   - runId. A persisted row that reaches the client without one counts under
+  //     a different key than the live step it owns, so nothing is handed over
+  //     and every step renders twice.
+  //   - turn count. One saved turn does not imply one closed live step. A step
+  //     closes at each tool call, so a turn that thought, acted, and thought
+  //     again streams more steps than it saves rows, and the surplus is stranded
+  //     in a second reasoning-only stack.
+  //
+  // Matching text is sound across the two size caps because both keep the tail:
+  // the runner trims to the last maxPersistedReasoningBytes, the stream to the
+  // last maxLiveReasoningCharacters. Equal when short, and the live copy is a
+  // suffix of the saved one when long, so endsWith covers both. Each saved turn
+  // retires at most one step, which keeps the "one home each" invariant when a
+  // model repeats itself verbatim across turns.
+  //
+  // Only closed steps hand over; the open draft is still streaming and exists
+  // nowhere else yet.
+  function reasoningHandoverKey(text) {
+    return String(text || "").trim().replace(/\s+/g, " ");
+  }
+
+  function liveReasoningStepsWithoutPersisted(steps) {
     const list = Array.isArray(steps) ? steps : [];
     if (!list.length) return list;
-    const persistedPerRun = new Map();
+    const unclaimed = [];
     for (const message of transcriptMessages(state.currentMessages)) {
       if (chatMessagePresentation(message).normalizedRole !== "assistant") continue;
-      if (!persistedReasoningSteps(message).length) continue;
-      const owner = String(message?.runId || message?.run_id || "").trim();
-      persistedPerRun.set(owner, (persistedPerRun.get(owner) || 0) + 1);
+      for (const persisted of persistedReasoningSteps(message)) {
+        const key = reasoningHandoverKey(persisted.text);
+        if (key) unclaimed.push(key);
+      }
     }
-    if (!persistedPerRun.size) return list;
-    const fallbackRunId = String(runId || "").trim();
-    const remaining = new Map(persistedPerRun);
+    if (!unclaimed.length) return list;
     return list.filter((step) => {
       if (step?.open) return true;
-      // A step with no runId belongs to the run being rendered; that is the run
-      // currentLiveReasoningSteps already let it through for.
-      const owner = String(step?.runId || "").trim() || fallbackRunId;
-      const left = remaining.get(owner) || 0;
-      if (left <= 0) return true;
-      remaining.set(owner, left - 1);
+      const key = reasoningHandoverKey(step?.text);
+      if (!key) return true;
+      const at = unclaimed.findIndex((saved) => saved === key || saved.endsWith(key));
+      if (at < 0) return true;
+      unclaimed.splice(at, 1);
       return false;
     });
   }
@@ -3449,7 +3466,7 @@ export function createChatRenderingController({
     const reasoningSteps = liveReasoningStepsWithoutPersisted(currentLiveReasoningSteps(runId).filter((step) => {
       if (!summaryRunId || !isTerminalRunStatus(summaryRun?.status)) return true;
       return String(step?.runId || "") !== summaryRunId;
-    }), runId);
+    }));
     if (!records.length && !reasoningSteps.length) return "";
     const stackKey = records.length ? liveToolActivityStackKey(records) : `live:${runId || "current"}`;
     const counterKey = liveToolOutputCounterKey(records.at(-1));

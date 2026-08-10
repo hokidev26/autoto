@@ -2046,6 +2046,87 @@ test("the tail keeps live reasoning for a turn that is not persisted yet", () =>
   assert.equal((html.match(/I checked the current conditions first\./g) || []).length, 1);
 });
 
+// The handover used to be keyed on runId. A persisted row that arrives without
+// one counted under a different key than the live step it owns, so nothing was
+// handed over: the tail kept the whole thinking trail while each turn also
+// rendered its own copy, and the run showed the same reasoning under two
+// "activity" headers.
+test("reasoning is handed over even when the persisted turn carries no runId", () => {
+  const { html } = renderSnapshot([{
+    id: "u1",
+    role: "user",
+    contentText: "go",
+  }, {
+    id: "a1",
+    role: "assistant",
+    contentText: "Measured both.",
+    reasoningText: "I checked the current conditions first.",
+  }], {
+    agent: { id: "agent-1", status: "running" },
+    liveAssistantRunId: "run-1",
+    liveToolOutputs: {
+      t1: { agentId: "agent-1", runId: "run-1", toolUseId: "t1", toolName: "Grep", status: "completed" },
+    },
+    liveReasoningSteps: [{ id: "reasoning-1", runId: "run-1", text: "I checked the current conditions first.", beforeToolUseId: "t1" }],
+  });
+
+  // Rendered once, by the turn that saved it.
+  assert.equal((html.match(/I checked the current conditions first\./g) || []).length, 1);
+  assert.doesNotMatch(html, /步推理 · 1 次工具/);
+});
+
+// A step closes at every tool call, so a turn that thought, acted, then thought
+// again streams more steps than it saves rows. Counting turns retired only one
+// of them and stranded the rest in a second reasoning-only stack.
+test("a turn that streamed more steps than it saved keeps only the unsaved ones", () => {
+  const { html } = renderSnapshot([{
+    id: "u1",
+    role: "user",
+    contentText: "go",
+  }, {
+    id: "a1",
+    role: "assistant",
+    runId: "run-1",
+    contentText: "Done.",
+    reasoningText: "Second thought, after the tool.",
+  }], {
+    agent: { id: "agent-1", status: "running" },
+    liveAssistantRunId: "run-1",
+    liveReasoningSteps: [
+      { id: "reasoning-1", runId: "run-1", text: "First thought, before the tool.", beforeToolUseId: "t1" },
+      { id: "reasoning-2", runId: "run-1", text: "Second thought, after the tool.", beforeToolUseId: "" },
+    ],
+  });
+
+  assert.equal((html.match(/Second thought, after the tool\./g) || []).length, 1);
+  assert.equal((html.match(/First thought, before the tool\./g) || []).length, 1);
+});
+
+// The runner trims saved reasoning to the last maxPersistedReasoningBytes and
+// the stream trims to the last maxLiveReasoningCharacters, so a long turn's
+// live copy is a suffix of the saved one rather than equal to it.
+test("a live step trimmed shorter than the saved reasoning is still handed over", () => {
+  const saved = `${"pre".repeat(40)} then the part that streamed.`;
+  const { html } = renderSnapshot([{
+    id: "u1",
+    role: "user",
+    contentText: "go",
+  }, {
+    id: "a1",
+    role: "assistant",
+    runId: "run-1",
+    contentText: "Done.",
+    reasoningText: saved,
+  }], {
+    agent: { id: "agent-1", status: "running" },
+    liveAssistantRunId: "run-1",
+    liveReasoningSteps: [{ id: "reasoning-1", runId: "run-1", text: "then the part that streamed.", beforeToolUseId: "" }],
+  });
+
+  assert.equal((html.match(/tool-activity-summary/g) || []).length, 1);
+  assert.equal((html.match(/data-live-tool-output-stack/g) || []).length, 0);
+});
+
 test("a streaming reasoning draft is never dropped as already persisted", () => {
   const { html } = renderSnapshot([{
     id: "u1",
