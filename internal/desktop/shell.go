@@ -143,7 +143,14 @@ func runWailsShell(ctx context.Context, rt *app.Runtime, url string, logger *slo
 		Name:        "Autoto",
 		Description: "Local-first coding agent (desktop shell)",
 		Logger:      logger,
-		OnShutdown:  closeRuntime,
+		// Wails otherwise derives WebView2's data directory from the executable
+		// name (%APPDATA%\\autoto-desktop-integration-<version>.exe). Every
+		// versioned desktop build would therefore get a new localStorage and lose
+		// browser-local state such as the conversation seen marks. Keep the profile
+		// stable across replacement binaries; the application name, not the build
+		// filename, owns the user's desktop data.
+		Windows:    application.WindowsOptions{WebviewUserDataPath: stableWebviewUserDataPath(logger)},
+		OnShutdown: closeRuntime,
 		Mac: application.MacOptions{
 			// Tray keeps the process alive when the main window is hidden.
 			ApplicationShouldTerminateAfterLastWindowClosed: false,

@@ -2336,6 +2336,22 @@ export function createModelProviderSettingsController({
     return state.agent?.model || selectedModelValue();
   }
 
+  // The model the user has chosen but the server has not confirmed yet. Changing
+  // the picker starts a PATCH and returns immediately, so for as long as that save
+  // is in flight state.agent.model is still the previous model. Any repaint in
+  // that window -- and an interrupt forces one, because it resyncs the live
+  // snapshot -- wrote the old value straight back into the select, which read as
+  // the picker undoing the user's choice on its own.
+  //
+  // Scoped to the agent the save belongs to, so a repaint after switching
+  // conversations cannot apply a pending pick to the wrong one.
+  function pendingModelSelection() {
+    if (!state.agentSavePending && !state.agentSaving) return "";
+    const snapshot = state.agentSaveSnapshot;
+    if (!snapshot || !state.agent?.id || snapshot.agentId !== state.agent.id) return "";
+    return String(snapshot.model || "").trim();
+  }
+
   function renderModelOptions() {
     const select = $("modelSelect");
     if (!select) return;
@@ -2352,7 +2368,7 @@ export function createModelProviderSettingsController({
       }).join("");
       return `<optgroup label="${escapeAttr(groupLabel)}">${options}</optgroup>`;
     }).join("");
-    const currentModel = currentModelValue();
+    const currentModel = pendingModelSelection() || currentModelValue();
     const currentOption = currentModel && !optionValues.includes(currentModel)
       ? `<option value="${escapeAttr(currentModel)}" data-configured="false" data-runtime-available="false" disabled>${escapeHtml(currentModel + mt("currentHidden"))}</option>`
       : "";

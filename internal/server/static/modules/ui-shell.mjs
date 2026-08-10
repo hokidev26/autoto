@@ -188,8 +188,22 @@ export function utilityPanelWidthFromPointer(clientX, viewportRight) {
   return normalizeUtilityPanelWidth(Number(viewportRight) - Number(clientX));
 }
 
-export function utilityPanelMaxAvailable({ viewportWidth, railWidth = 0, sidebarWidth = 0, chatMinWidth = utilityPanelChatMinWidth } = {}) {
-  return (Number(viewportWidth) || 0) - (Number(railWidth) || 0) - (Number(sidebarWidth) || 0) - (Number(chatMinWidth) || 0);
+// `sidebarInsideRail` describes the docked navigation layout, where the
+// conversation list is a real DOM child of the rail instead of its own grid
+// column. The rail's measured width already contains the list there, and the
+// shell's second grid column is 0px, so subtracting the list as well removed
+// roughly a sidebar's worth of travel from the drag. That missing travel is why
+// the middle column could not be pushed into its phone-shaped tier from the
+// docked layout the way it can from the two-column one.
+export function utilityPanelMaxAvailable({
+  viewportWidth,
+  railWidth = 0,
+  sidebarWidth = 0,
+  chatMinWidth = utilityPanelChatMinWidth,
+  sidebarInsideRail = false,
+} = {}) {
+  const sidebarColumn = sidebarInsideRail ? 0 : (Number(sidebarWidth) || 0);
+  return (Number(viewportWidth) || 0) - (Number(railWidth) || 0) - sidebarColumn - (Number(chatMinWidth) || 0);
 }
 
 export function elementVisible(id) {
@@ -861,6 +875,11 @@ export function createUIShellController({
       viewportWidth: globalThis.innerWidth || document.documentElement?.clientWidth || 0,
       railWidth: globalRail?.getBoundingClientRect?.()?.width ?? 0,
       sidebarWidth: sidebar?.getBoundingClientRect?.()?.width ?? 0,
+      // Asked of the DOM rather than read off a class, because containment is the
+      // double-count itself: docking moves .sidebar into the rail, so the rail's
+      // rect already includes it. Re-checked on every call because docking is
+      // reversible while the resizer stays bound.
+      sidebarInsideRail: Boolean(globalRail && sidebar && globalRail.contains?.(sidebar)),
     });
     const currentPanelWidth = () => {
       const node = shell.classList?.contains("details-open") ? detailsPanel

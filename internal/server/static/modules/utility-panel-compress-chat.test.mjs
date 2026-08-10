@@ -51,6 +51,37 @@ test("中間欄仍然保有底線，不會被壓到消失", () => {
   assert.ok(utilityPanelChatMinWidth >= 320, "底線不能低到讓對話無法閱讀");
 });
 
+// The docked layout (the middle stop when collapsing the navigation area) is the
+// same drag with a different DOM: the conversation list is a child of the rail,
+// so the rail's measured width already contains it and the shell's second grid
+// column is 0px. Subtracting the list on top of the rail removed about a
+// sidebar's worth of travel, which is why the middle column stalled well above
+// the phone tier here while the two-column layout could reach it.
+test("二階段（docked）版面也能把中間欄壓進手機樣式的層級", () => {
+  const viewportWidth = 1568;
+  // The rail carries the stored sidebar width in this layout...
+  const railWidth = 296;
+  // ...and the list sits inside it, so it measures the rail minus the rail's padding.
+  const sidebarWidth = 280;
+
+  const available = utilityPanelMaxAvailable({ viewportWidth, railWidth, sidebarWidth, sidebarInsideRail: true });
+  const widest = normalizeUtilityPanelWidth(maxUtilityPanelWidth, undefined, { maxAvailable: available });
+  // No sidebar column to subtract: the viewport is the rail, the chat, and the panel.
+  const chatAtWidest = viewportWidth - railWidth - widest;
+
+  assert.equal(chatAtWidest, utilityPanelChatMinWidth, "壓到底時剩下的寬度就是設定的底線");
+  assert.ok(
+    chatAtWidest <= composerNarrowTier - 100,
+    `docked 版面的中間欄要能壓到 ${composerNarrowTier - 100}px 以下，實際 ${chatAtWidest}px`,
+  );
+
+  // The two-column layout still has a real second column, so there the list must
+  // keep being subtracted. Asserted alongside so the fix cannot be "stop
+  // subtracting the sidebar" everywhere.
+  const twoColumn = utilityPanelMaxAvailable({ viewportWidth, railWidth: 68, sidebarWidth: 296 });
+  assert.equal(twoColumn, viewportWidth - 68 - 296 - utilityPanelChatMinWidth);
+});
+
 test("窄螢幕上讓路給對話，面板不會溢出視窗", () => {
   const available = utilityPanelMaxAvailable({ viewportWidth: 1280, railWidth: 76, sidebarWidth: 296 });
   const widest = normalizeUtilityPanelWidth(maxUtilityPanelWidth, undefined, { maxAvailable: available });

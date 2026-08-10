@@ -200,6 +200,36 @@ export function createSystemSettingsController({
   `;
   }
 
+  // Collapsible runtime-resources card, built the way the Shared API page builds
+  // its provider/account/key sections: a native <details> whose <summary> carries
+  // the card's own title, collapsed on first paint. Native disclosure means the
+  // body stays in the DOM while folded, so the ids the save handlers read are
+  // still there and nothing has to be re-bound on expand.
+  //
+  // The description keeps data-settings-help-copy, which is display:none until
+  // help mode is on, so a folded card shows its title and the chevron only.
+  //
+  // No card forces itself open the way the Shared API key section does. That
+  // section has to, because a one-time token is shown once and an open editor
+  // holds unsaved input; here every draft lives in a DOM input that a re-render
+  // replaces regardless, and the retry-policy list repaints surgically rather
+  // than through this function.
+  function renderCollapsibleRuntimeCard({ sectionClass = "", title, description = "", body }) {
+    const classes = ["settings-info-card", "settings-card", "settings-card-content", ...(sectionClass ? [sectionClass] : [])];
+    return `
+      <section class="${escapeAttr(classes.join(" "))}">
+        <details class="runtime-resource-details">
+          <summary class="compact-settings-section-summary runtime-resource-summary">
+            <div class="compact-settings-section-copy">
+              <div class="settings-info-title">${escapeHtml(title)}</div>
+              ${description ? `<p class="settings-card-description" data-settings-help-copy>${escapeHtml(description)}</p>` : ""}
+            </div>
+          </summary>
+          ${body}
+        </details>
+      </section>`;
+  }
+
   function renderRuntimeResourceSummary(summary) {
     const memory = summary.memory || {};
     const go = summary.go || {};
@@ -215,25 +245,27 @@ export function createSystemSettingsController({
       ${renderUsageMetricCard(t("systemSettings.runtimeResources.totalAlloc"), formatBytes(memory.totalAllocBytes || 0), t("systemSettings.runtimeResources.sinceStart"))}
     </div>
     <div class="usage-detail-grid">
-      <section class="settings-info-card settings-card settings-card-content">
-        <div class="settings-info-title">${escapeHtml(t("systemSettings.runtimeResources.agentDefaults"))}</div>
+      ${renderCollapsibleRuntimeCard({
+        title: t("systemSettings.runtimeResources.agentDefaults"),
+        body: `
         <div class="runtime-kv-list settings-data-list">
           ${renderRuntimeKeyValue(t("systemSettings.runtimeResources.defaultModel"), agent.defaultModel || t("systemSettings.runtimeResources.notConfigured"))}
           ${renderRuntimeKeyValue(t("systemSettings.runtimeResources.summaryModel"), agent.summaryModel || t("systemSettings.runtimeResources.notConfigured"))}
           ${renderRuntimeKeyValue(t("systemSettings.runtimeResources.defaultPermission"), agent.defaultPermissionMode || "acceptEdits")}
           ${renderRuntimeKeyValue(t("systemSettings.runtimeResources.currentPermissionCap"), security.maxPermissionMode || "bypassPermissions")}
           ${renderRuntimeKeyValue(t("systemSettings.runtimeResources.defaultPlanMode"), agent.defaultStartInPlanMode ? t("systemSettings.runtimeResources.enabled") : t("systemSettings.runtimeResources.disabled"))}
-        </div>
-      </section>
-      <section class="settings-info-card settings-card settings-card-content">
-        <div class="settings-info-title">${escapeHtml(t("systemSettings.runtimeResources.runLimits"))}</div>
+        </div>`,
+      })}
+      ${renderCollapsibleRuntimeCard({
+        title: t("systemSettings.runtimeResources.runLimits"),
+        body: `
         <div class="runtime-kv-list settings-data-list">
           ${renderRuntimeKeyValue(t("systemSettings.runtimeResources.maxTurns"), formatNumber(agent.maxTurns || 0))}
           ${renderRuntimeKeyValue(t("systemSettings.runtimeResources.firstTokenTimeout"), formatDuration(agent.firstTokenTimeoutMs || 0))}
           ${renderRuntimeKeyValue(t("systemSettings.runtimeResources.transientRetries"), formatNumber(agent.maxTransientRetries || 0))}
           ${renderRuntimeKeyValue(t("systemSettings.runtimeResources.sampleTime"), formatTimestamp(summary.generatedAt))}
-        </div>
-      </section>
+        </div>`,
+      })}
       ${renderBackgroundTaskSettingsCard(summary.backgroundTasks)}
       ${renderExecutionBudgetCard(agent.continuation || {}, agent)}
       ${renderRetryPolicyCard(agent.nonRetryableErrorPatterns)}
@@ -250,10 +282,11 @@ export function createSystemSettingsController({
     const settings = normalizedBackgroundTaskSettings(backgroundTasks);
     const nested = settings.allowNestedSubagents;
     const depthField = backgroundTaskSettingFields.find((field) => field.key === "maxSubagentDepth");
-    return `
-      <section class="settings-info-card settings-card settings-card-content background-task-settings-card">
-        <div class="settings-info-title">${escapeHtml(t("systemSettings.runtimeResources.backgroundTaskSettings.title"))}</div>
-        <p class="settings-card-description" data-settings-help-copy>${escapeHtml(t("systemSettings.runtimeResources.backgroundTaskSettings.description"))}</p>
+    return renderCollapsibleRuntimeCard({
+      sectionClass: "background-task-settings-card",
+      title: t("systemSettings.runtimeResources.backgroundTaskSettings.title"),
+      description: t("systemSettings.runtimeResources.backgroundTaskSettings.description"),
+      body: `
         <div class="background-task-concurrency-grid settings-form-grid">
           ${backgroundTaskSettingFields.filter((field) => field.key !== "maxSubagentDepth").map((field) => renderBackgroundTaskNumberField(field, settings[field.key])).join("")}
         </div>
@@ -272,8 +305,8 @@ export function createSystemSettingsController({
         </div>
         <div class="settings-action-row settings-form-actions settings-card-footer settings-inline-actions">
           <button id="saveBackgroundTaskSettingsBtn" class="settings-action-btn primary" type="button">${escapeHtml(t("systemSettings.runtimeResources.backgroundTaskSettings.save"))}</button>
-        </div>
-      </section>`;
+        </div>`,
+    });
   }
 
   function renderBackgroundTaskNumberField(field, value, disabled = false) {
@@ -310,9 +343,10 @@ export function createSystemSettingsController({
     // Raw, not coerced: -1 has to stay -1 so the total-turns floor knows the
     // segment cap is unlimited and imposes no minimum.
     const segmentTurns = Number(continuation?.segmentTurns);
-    return `
-      <section class="settings-info-card settings-card settings-card-content execution-budget-card">
-        <div class="settings-info-title">${escapeHtml(t("systemSettings.runtimeResources.executionBudget"))}</div>
+    return renderCollapsibleRuntimeCard({
+      sectionClass: "execution-budget-card",
+      title: t("systemSettings.runtimeResources.executionBudget"),
+      body: `
         <label class="execution-budget-mode" for="runtimeBudgetMode">
           <span class="execution-budget-mode-text">
             <strong>${escapeHtml(t("systemSettings.runtimeResources.autoContinuation"))}</strong>
@@ -333,8 +367,8 @@ export function createSystemSettingsController({
         <div class="settings-action-row execution-budget-actions">
           <p data-settings-help-copy>${escapeHtml(t("systemSettings.runtimeResources.executionBudgetHelp"))}</p>
           <button id="saveExecutionBudgetBtn" class="settings-action-btn primary" type="button">${escapeHtml(t("systemSettings.runtimeResources.saveBudget"))}</button>
-        </div>
-      </section>`;
+        </div>`,
+    });
   }
 
   function renderExecutionBudgetField(field, rawValue, segmentTurns) {
@@ -471,10 +505,11 @@ export function createSystemSettingsController({
   function renderRetryPolicyCard(patterns) {
     const rows = retryPolicyDraft ?? normalizedRetryPolicyPatterns(patterns);
     retryPolicyDraft = rows;
-    return `
-      <section class="settings-info-card settings-card settings-card-content retry-policy-card">
-        <div class="settings-info-title">${escapeHtml(t("systemSettings.runtimeResources.retryPolicy.title"))}</div>
-        <p class="settings-card-description" data-settings-help-copy>${escapeHtml(t("systemSettings.runtimeResources.retryPolicy.description"))}</p>
+    return renderCollapsibleRuntimeCard({
+      sectionClass: "retry-policy-card",
+      title: t("systemSettings.runtimeResources.retryPolicy.title"),
+      description: t("systemSettings.runtimeResources.retryPolicy.description"),
+      body: `
         <ul class="retry-policy-list" data-retry-policy-list>
           ${rows.length
             ? rows.map((pattern, index) => renderRetryPolicyRow(pattern, index)).join("")
@@ -497,8 +532,8 @@ export function createSystemSettingsController({
         <div class="settings-action-row settings-form-actions settings-card-footer settings-inline-actions">
           <p data-settings-help-copy>${escapeHtml(t("systemSettings.runtimeResources.retryPolicy.help"))}</p>
           <button id="saveRetryPolicyBtn" class="settings-action-btn primary" type="button">${escapeHtml(t("systemSettings.runtimeResources.retryPolicy.save"))}</button>
-        </div>
-      </section>`;
+        </div>`,
+    });
   }
 
   function renderRetryPolicyRow(pattern, index) {

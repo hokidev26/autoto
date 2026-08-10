@@ -1327,11 +1327,13 @@ test("narrow composer switches atomically to a fixed unframed icon rail", async 
   const iconRail = styles.slice(styles.indexOf(marker), styles.indexOf("/* Flat, single-pass settings layout", styles.indexOf(marker)));
   assert.ok(iconRail.startsWith(marker));
   assert.match(iconRail, /@container composer-shell \(max-width:\s*480px\)/);
-  assert.match(iconRail, /\.composer-status\s*\{[^}]*width:\s*28px[^}]*display:\s*inline-flex[^}]*flex:\s*0 0 28px/);
-  assert.match(iconRail, /\.composer-status\.is-busy\s*\{[^}]*width:\s*auto[^}]*flex:\s*0 1 auto/);
-  assert.match(iconRail, /\.composer-status-dot\.busy,[\s\S]*?animation:\s*composer-task-indicator-spin/);
-  assert.match(iconRail, /\.composer-status\.is-busy \.composer-status-text\s*\{[^}]*display:\s*inline/);
-  assert.match(iconRail, /\.composer-status-dot,[\s\S]*?\.composer-status-dot\.ok\s*\{[^}]*width:\s*14px[^}]*border:\s*2px solid[^}]*background:\s*transparent/);
+  // The connection pill is gone from this tier rather than resized into it. On
+  // desktop paintComposerStatus hands the running step to the task summary, so the
+  // pill held only the connection text and still spun a ring beside it: two
+  // indicators for one fact, the spinning one describing nothing. See
+  // narrow-toolbar-icons.test.mjs for the rest of that rule.
+  assert.match(iconRail, /\.composer-status \{\s*display:\s*none;\s*\}/);
+  assert.doesNotMatch(iconRail, /\.composer-status[^{}]*\{[^}]*display:\s*(?:inline-)?flex/);
   assert.match(iconRail, /\.composer-controls\s*\{[^}]*min-width:\s*max-content[^}]*flex:\s*0 0 auto[^}]*overflow:\s*visible/);
   assert.match(iconRail, /:is\(\.composer-model-field, \.composer-effort-field, \.composer-permission-field\)\s*\{[^}]*width:\s*28px[^}]*min-width:\s*28px[^}]*max-width:\s*28px[^}]*flex:\s*0 0 28px/);
   assert.match(iconRail, /:is\(\.toolbar-model-pill, \.effort-pill, \.permission-toolbar-pill\)\s*\{[^}]*width:\s*28px[^}]*flex:\s*0 0 28px[^}]*border:\s*0[^}]*background:\s*transparent/);

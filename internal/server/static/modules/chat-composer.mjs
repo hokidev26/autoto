@@ -552,8 +552,6 @@ export function createChatComposerController({
     }[value] || t("modelProvider.automatic");
   }
 
-  // Mobile shows a single English initial: the compact composer row has no space
-  // for the full word, and the localized label is what the desktop trigger uses.
   // 0 for auto, then one bar per step. xhigh, max and ultra all sit at the top
   // of a three-bar scale: they differ from each other by degree, not by
   // anything three bars can show, and the label beside the icon still names
@@ -562,10 +560,10 @@ export function createChatComposerController({
     return { auto: 0, low: 1, medium: 2, high: 3, xhigh: 3, max: 3, ultra: 3 }[value] ?? 0;
   }
 
-  // The initials are the fallback for locales whose words do not fit the phone
-  // row. They have to be distinguishable from each other on their own: "max" used
-  // to share "M" with "medium", which made the strongest and the middle setting
-  // look alike -- the one pair where confusing them costs the most.
+  // The compact row shows the level as its English initial in every locale. They
+  // have to be distinguishable from each other on their own: "max" used to share
+  // "M" with "medium", which made the strongest and the middle setting look alike
+  // -- the one pair where confusing them costs the most.
   const reasoningEffortInitials = {
     auto: "A",
     low: "L",
@@ -576,22 +574,14 @@ export function createChatComposerController({
     ultra: "UX",
   };
 
-  // On a phone the level is the label, so it has to be readable in the language
-  // the rest of the row is written in. A CJK label is one or two characters, which
-  // is no wider than the initials it replaces, so the localized word is used
-  // whenever it fits: the narrow desktop tier already shows the word, and showing
-  // "X" for the same setting on a phone made the two layouts disagree about what
-  // is selected. Longer words (English "medium", "ultra") still fall back to the
-  // initial, which is what the compact row has room for.
-  const maxReasoningEffortMobileCharacters = 3;
-
+  // The initial, in every locale. This used to prefer the localized word whenever
+  // it was short enough to fit, which meant a CJK reader saw a word here and a
+  // Latin reader saw a letter, and the same slot changed width with the language.
+  // One glyph in a fixed 28px cell also cannot be truncated or wrapped, which the
+  // word could be. The full localized name is still on the trigger's tooltip and in
+  // the open menu, so nothing is only knowable from the letter.
   function reasoningEffortMobileLabel(value) {
-    const initial = reasoningEffortInitials[value] || "A";
-    const localized = String(reasoningEffortLabel(value) || "").trim();
-    if (!localized) return initial;
-    // Count characters, not code units, so an astral glyph is not judged as two.
-    if ([...localized].length > maxReasoningEffortMobileCharacters) return initial;
-    return localized;
+    return reasoningEffortInitials[value] || "A";
   }
 
   function reasoningEffortValues(modelValue = $("modelSelect")?.value || state.agent?.model || "") {
@@ -1222,6 +1212,10 @@ export function createChatComposerController({
     // Declared out here because both the success and the failure paths have to settle
     // it: whichever one runs, these files are either released or handed back.
     let staged = [];
+    // Set the moment the POST resolves. The catch below distinguishes "the send
+    // failed" from "the send worked and something after it did not", which are
+    // opposite situations: the first has to give the text back, the second must not.
+    let delivered = false;
     // Puts the composer back exactly as it was. Used by the two ways a send can fall
     // over after the box has been emptied: the model sync refusing, and the POST
     // failing. Both have to undo the same three things, and doing it in one place is
@@ -1279,6 +1273,15 @@ export function createChatComposerController({
           body: JSON.stringify({ text, mode, context }),
         });
       }
+      // The server has the turn from here on. Everything below is bookkeeping, and
+      // none of it may reach the catch: restoring the composer for a delivered
+      // message puts the text back on screen beside the message itself and invites
+      // sending it twice. loadMessages already had its own guard for exactly this
+      // reason; the calls between the POST and that reload did not, so a throw in
+      // any of them -- the goal-confirmation reload inside onMessageAccepted, a
+      // localStorage write in rememberPromptHistory, a scroll during a layout pass
+      // -- produced the same resurrection the reload guard was added to prevent.
+      delivered = true;
       await onMessageAccepted?.(accepted, agentId);
       // The mobile keyboard collapses asynchronously after send. Ask the
       // renderer to keep the newest user message visible across those layout
@@ -1319,6 +1322,19 @@ export function createChatComposerController({
       }
     } catch (err) {
       const stillCurrent = state.agent?.id === agentId;
+      // Delivered already: the transcript owns this turn, so the composer stays
+      // empty and the draft stays cleared. Only the post-send bookkeeping failed,
+      // and that is worth a line in the terminal rather than an undo of the send.
+      if (delivered) {
+        // Whatever threw did so partway through the bookkeeping, so the two steps
+        // that must not be skipped are done here instead. Leaving the draft would let
+        // a later conversation switch restore a sent message; leaking the previews
+        // holds their object URLs for the rest of the session.
+        clearChatDraftForKey(draftKey);
+        if (staged.length) releasePendingAttachmentPreviews(staged);
+        notifyTerminal(`[warn] Post-send bookkeeping failed; the message was already delivered: ${err?.message || err}\n`);
+        return;
+      }
       // The send failed, so the echo would otherwise keep claiming a message was
       // delivered while the draft is being restored below.
       saveChatDraftForKey(draftKey, text);

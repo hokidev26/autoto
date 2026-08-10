@@ -1658,6 +1658,16 @@ export function createChatRenderingController({
         size: Number(item?.file?.size || 0),
       })),
     };
+    // The previous turn's outcome card goes now, not when the next run starts.
+    // state.activeRunSummary still described the finished run at this point, so the
+    // snapshot below used to paint that card -- tool activity, omitted-count note
+    // and "load earlier tool calls" button -- one more time, and it stayed on
+    // screen until agent.started cleared it. The card was already destined to be
+    // replaced, so showing it again for that gap only read as a flicker.
+    //
+    // preserveView because applyMessageSnapshot repaints the whole transcript on
+    // the next line; asking clearRunSummary to render as well would paint twice.
+    clearRunSummary({ preserveView: true });
     applyMessageSnapshot([...(state.currentMessages || []), echo], agentId, { forceRender: true });
     scrollMessagesToBottom();
     return id;

@@ -318,9 +318,9 @@ test("reasoning effort control crops unsupported values when the selected model 
     assert.equal(elements.reasoningEffort.value, "auto");
     assert.equal(elements.reasoningEffort.disabled, true);
     assert.equal(elements.reasoningEffortDisplay.textContent, "自动");
-    // The phone label is the localized word when it is short enough to fit, so the
-    // narrow desktop tier and the phone tier name the same setting.
-    assert.equal(elements.reasoningEffortDisplay.dataset.mobileLabel, elements.reasoningEffortDisplay.textContent);
+    // The compact row shows the English initial in every locale: one glyph in a
+    // fixed-width cell, rather than a word whose width changes with the language.
+    assert.equal(elements.reasoningEffortDisplay.dataset.mobileLabel, "A");
     assert.equal(controller.selectedReasoningEffort("basic:model"), "auto");
   } finally {
     globalThis.document = previousDocument;
@@ -372,7 +372,8 @@ test("reasoning effort control persists the selected Agent override", async () =
     });
     assert.equal(state.agent.reasoningEffort, "high");
     assert.equal(elements.reasoningEffortDisplay.textContent, "高");
-    assert.equal(elements.reasoningEffortDisplay.dataset.mobileLabel, elements.reasoningEffortDisplay.textContent);
+    // The trigger keeps the localized word; the compact row shows the initial.
+    assert.equal(elements.reasoningEffortDisplay.dataset.mobileLabel, "H");
     assert.ok(pillClasses.some(([name]) => name === "reasoning-effort-saving"));
   } finally {
     globalThis.document = previousDocument;
@@ -420,15 +421,14 @@ test("every reasoning effort level has a distinct phone label", async () => {
       labels.set(level, elements.reasoningEffortDisplay.dataset.mobileLabel);
     }
 
-    // The mapping the row actually shows.
-    // Every level still gets its own label; what it says is the localized word
-    // where that fits, and the initial only where it does not.
-    for (const level of levels) {
-      const label = labels.get(level);
-      assert.ok(label && label.length > 0, `${level} must have a phone label`);
-      assert.ok([...label].length <= 3, `${level} phone label must stay compact, got ${label}`);
-    }
+    // The mapping the row actually shows: an English initial per level, never a
+    // localized word, so the cell keeps one width in every language.
+    assert.deepEqual(Object.fromEntries(labels), {
+      auto: "A", low: "L", medium: "M", high: "H", xhigh: "X", max: "MX", ultra: "UX",
+    });
 
+    // "max" used to share "M" with "medium": the strongest and the middle setting
+    // looked alike, which is the one pair where confusing them costs the most.
     const seen = [...labels.values()];
     assert.equal(new Set(seen).size, seen.length, `phone labels must be unique per level, got ${seen.join(", ")}`);
   } finally {
@@ -961,6 +961,75 @@ test("Composer does not send when the selected and persisted models remain incon
     assert.equal(requests.length, 0);
     assert.equal(input.value, "Keep this draft");
     assert.equal(input.disabled, false);
+  } finally {
+    globalThis.document = previousDocument;
+    globalThis.getComputedStyle = previousGetComputedStyle;
+  }
+});
+
+// A throw *after* the POST is a different situation from a throw instead of it.
+// The server already has the turn, so putting the text back leaves it on screen
+// beside the message it produced and invites sending the same thing twice --
+// which is exactly what a failed goal-confirmation reload, a localStorage write
+// or a scroll during a layout pass used to do.
+test("a failure after the message is accepted leaves the composer empty", async () => {
+  const previousDocument = globalThis.document;
+  const previousGetComputedStyle = globalThis.getComputedStyle;
+  const input = {
+    value: "Already delivered",
+    disabled: false,
+    scrollHeight: 46,
+    style: {},
+    classList: { toggle() {} },
+    focus() {},
+  };
+  const elements = {
+    messageText: input,
+    modelSelect: { value: "openai:model-a" },
+    promptHistoryHint: { textContent: "" },
+    slashCommandPalette: { classList: { add() {}, remove() {} }, innerHTML: "" },
+  };
+  const requests = [];
+  const terminal = [];
+  const state = {
+    agent: { id: "agent-post-send", model: "openai:model-a" },
+    navigationSelectionKind: "conversation",
+    promptHistory: [],
+    pendingAttachments: [],
+    serverSkills: [],
+  };
+  globalThis.document = { getElementById(id) { return elements[id] || null; } };
+  globalThis.getComputedStyle = () => ({ minHeight: "46px", maxHeight: "128px", getPropertyValue() { return ""; } });
+  try {
+    const controller = createChatComposerController({
+      state,
+      awaitAgentSettingsSaved: async () => {},
+      currentSkillsPreferences: () => ({ commands: [] }),
+      isCurrentModelConfigured: () => true,
+      loadMessages: async () => {},
+      notifyTerminal: (line) => terminal.push(line),
+      request: async (...args) => {
+        requests.push(args);
+        return { accepted: true };
+      },
+      // Stands in for every post-POST step: onMessageAccepted is the first of them
+      // and the one that actually did this, by awaiting a spec-board reload.
+      onMessageAccepted: async () => {
+        throw new Error("goal confirmation reload failed");
+      },
+      scheduleMessageRefresh() {},
+    });
+
+    // The send itself must not report failure: the message was accepted.
+    await controller.sendMessage({ preventDefault() {} });
+
+    assert.equal(requests.length, 1, "the message must still be posted once");
+    assert.equal(input.value, "", "a delivered message must not come back in the composer");
+    assert.equal(input.disabled, false);
+    assert.ok(
+      terminal.some((line) => line.includes("already delivered")),
+      `the failure must be reported rather than silently swallowed, got ${JSON.stringify(terminal)}`,
+    );
   } finally {
     globalThis.document = previousDocument;
     globalThis.getComputedStyle = previousGetComputedStyle;
