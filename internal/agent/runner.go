@@ -348,6 +348,13 @@ func (r *Runner) ValidateSubagentModel(model string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 	models, err := provider.ListModels(ctx)
+	if err != nil && errors.Is(err, providers.ErrProviderUnavailable) {
+		// The provider itself cannot run, which is not a catalog problem and will
+		// not resolve by trying. Deferring here spent a whole child Run to discover
+		// something knowable now: the child passed preflight, started, and died on
+		// the first model call.
+		return fmt.Errorf("explicit subagent model %q is unavailable: %w", model, err)
+	}
 	if err != nil || len(models) == 0 {
 		// Some otherwise runnable providers cannot expose a model catalog (for
 		// example, discovery may require a separate credential or endpoint). Keep
