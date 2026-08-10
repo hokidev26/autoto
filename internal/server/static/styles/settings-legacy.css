@@ -278,6 +278,13 @@
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 13px;
+  /* Each card takes its own height. These cards are forms of very different
+     lengths -- the background-task card ends at its save button while the
+     execution-budget card beside it runs several rows longer -- and the default
+     stretch pulled the short one down to match, leaving a bordered box with a
+     third of it empty. Aligning to the start also lets the next row begin under
+     whichever card actually ended, instead of under the taller one. */
+  align-items: start;
 }
 .usage-map-row span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .usage-map-row strong { color: #0f172a; }
