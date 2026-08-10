@@ -2136,7 +2136,16 @@ export function createChatRenderingController({
     // Otherwise, only a reader who was already following the tail should move;
     // a reader who deliberately left it keeps the same visible offset even
     // though the full snapshot rebuilt every child node.
-    const shouldFollowTail = options.forceRender === true || (!options.preserveScroll && wasFollowing);
+    //
+    // preserveScroll outranks forceRender. The two answer different questions:
+    // forceRender is about rebuilding the DOM even when the markup is unchanged,
+    // preserveScroll is about leaving the viewport alone. Testing forceRender
+    // first meant a caller asking for both had its scroll request silently
+    // dropped, and the one caller that does that -- the subagent refresh -- runs
+    // repeatedly while the answer streams. Every background-task update then
+    // yanked the transcript to the tail, pulling the conversation upward under a
+    // reader who had deliberately scrolled back.
+    const shouldFollowTail = !options.preserveScroll && (options.forceRender === true || wasFollowing);
     if (shouldFollowTail) {
       // One synchronous assignment only reaches the tail if the transcript has
       // finished growing, and after a full rebuild it has not: activity stacks,
@@ -2932,15 +2941,29 @@ export function createChatRenderingController({
       if (chatMessagePresentation(message).normalizedRole !== "assistant") continue;
       if (!assistantMessageByRun.has(messageRunId)) assistantMessageByRun.set(messageRunId, messageId);
     }
+    const visibleTurnsByRun = visibleAssistantTurnsByRun(messages);
     for (const [callRunId, calls] of byRun) {
-      const messageId = assistantMessageByRun.get(callRunId) || firstMessageByRun.get(callRunId);
+      const fallbackId = assistantMessageByRun.get(callRunId) || firstMessageByRun.get(callRunId);
       // No visible anchor: keep the previous behaviour of leaving the calls to
       // the run-level fallback rather than moving them under an unrelated turn.
-      if (!messageId) continue;
+      if (!fallbackId) continue;
       calls.sort((left, right) => String(normalizeToolActivity(left).createdAt || "")
         .localeCompare(String(normalizeToolActivity(right).createdAt || "")));
-      if (!anchored.has(messageId)) anchored.set(messageId, []);
-      anchored.get(messageId).push([callRunId, calls]);
+      // Split by the turn each call actually belongs under, for the same reason
+      // as the unowned merge above. Anchoring a whole run onto its first
+      // assistant turn put every later round's tools on the earliest row, so the
+      // counts described the run rather than the round the reader was looking at.
+      const turns = visibleTurnsByRun.get(callRunId) || [];
+      const byOwner = new Map();
+      for (const call of calls) {
+        const ownerId = adoptingTurnForActivity(turns, normalizeToolActivity(call).createdAt) || fallbackId;
+        if (!byOwner.has(ownerId)) byOwner.set(ownerId, []);
+        byOwner.get(ownerId).push(call);
+      }
+      for (const [ownerId, ownedCalls] of byOwner) {
+        if (!anchored.has(ownerId)) anchored.set(ownerId, []);
+        anchored.get(ownerId).push([callRunId, ownedCalls]);
+      }
     }
     return anchored;
   }
@@ -2950,14 +2973,47 @@ export function createChatRenderingController({
   // owner before falling back to the run-level anchor. This keeps reasoning and
   // tools in one activity stack instead of producing one stack on each side of
   // the answer.
-  function mergeUnownedActivityIntoAssistantTurns(grouped, messages) {
+  // Every visible assistant turn of a run, in transcript order, with the time it
+  // was saved. A run makes one assistant turn per tool round and most of those
+  // turns are invisible -- their only content is a tool_use block, whose text is
+  // stripped, so they never reach the transcript. Their tool calls therefore
+  // arrive unowned and have to be adopted by a turn that is on screen.
+  function visibleAssistantTurnsByRun(messages) {
     const byRun = new Map();
     for (const message of Array.isArray(messages) ? messages : []) {
       if (chatMessagePresentation(message).normalizedRole !== "assistant") continue;
       const runId = String(message?.runId || message?.run_id || "").trim();
       const messageId = String(message?.id || "").trim();
-      if (runId && messageId) byRun.set(runId, messageId);
+      if (!runId || !messageId) continue;
+      if (!byRun.has(runId)) byRun.set(runId, []);
+      byRun.get(runId).push({ id: messageId, createdAt: String(message?.createdAt || message?.created_at || "") });
     }
+    return byRun;
+  }
+
+  // The visible turn a piece of unowned activity belongs under: the last one
+  // saved at or before the activity happened. Anything older than the first
+  // visible turn goes to that first turn, since there is nothing earlier to hold
+  // it.
+  function adoptingTurnForActivity(turns, createdAt) {
+    if (!Array.isArray(turns) || !turns.length) return "";
+    const at = String(createdAt || "");
+    if (!at) return turns[turns.length - 1].id;
+    let chosen = turns[0].id;
+    for (const turn of turns) {
+      if (turn.createdAt && turn.createdAt > at) break;
+      chosen = turn.id;
+    }
+    return chosen;
+  }
+
+  function mergeUnownedActivityIntoAssistantTurns(grouped, messages) {
+    // Spreading the calls across the run's visible turns by time, rather than
+    // giving every one of them to a single turn. Keeping only the last turn per
+    // run is what produced one row carrying a whole run's tools -- "9 次工具" --
+    // while the rows around it showed nothing, even though each of those rows is
+    // a real round that ran its own tools.
+    const byRun = visibleAssistantTurnsByRun(messages);
     if (!byRun.size || !grouped?.unowned?.length) return grouped;
     const remaining = [];
     for (const call of grouped.unowned) {
@@ -2969,7 +3025,7 @@ export function createChatRenderingController({
         remaining.push(call);
         continue;
       }
-      const ownerId = byRun.get(String(tool.runId || "").trim());
+      const ownerId = adoptingTurnForActivity(byRun.get(String(tool.runId || "").trim()), tool.createdAt);
       if (!ownerId) {
         remaining.push(call);
         continue;
