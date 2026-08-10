@@ -32,7 +32,11 @@ func writeTestConfig(t *testing.T, home string, port int) string {
 
 func TestRunHeadlessStartsAndStopsCleanly(t *testing.T) {
 	home := t.TempDir()
-	configPath := writeTestConfig(t, home, 16888)
+	// The configured port is the desktop's own preferred port on purpose. Any other
+	// value makes bindConfiguredHTTPListeners try 16889 first, and on a machine where
+	// Autoto is already running that retry loop outlasts this test's cancel window.
+	// desktopStableAddr declines to claim the configured CLI port, so this skips it.
+	configPath := writeTestConfig(t, home, 16889)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)

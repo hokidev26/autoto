@@ -322,68 +322,18 @@ body.white-shell.theme-light .composer-wrap {
     overflow: visible;
   }
 
+  /* One activity indicator on this rail, not two. The task summary beside it is
+     the one that reports work: paintComposerStatus hands the running step to it on
+     desktop and leaves this pill holding only the connection text, so the pill spun
+     a ring next to the word "connected" while the summary described the actual step
+     -- two indicators for one fact, and the spinning one was the wrong one.
+
+     It is also not a control: a <span> ring inside a <div>, which at 28px reads as a
+     button and does nothing when pressed. The connection state itself is still
+     reported by the workspace status badge, so hiding it here loses nothing.
+     Replaces a rule that only hid the idle form and so left the misleading spinner. */
   body.white-shell.theme-light .composer-status {
-    width: 28px;
-    min-width: 28px;
-    height: 30px;
-    display: inline-flex;
-    flex: 0 0 28px;
-    align-items: center;
-    justify-content: center;
-    gap: 0;
-    margin: 0;
-    overflow: visible;
-  }
-
-  body.white-shell.theme-light .composer-status.is-busy {
-    width: auto;
-    min-width: 0;
-    max-width: min(48vw, 200px);
-    flex: 0 1 auto;
-    justify-content: flex-start;
-    gap: 6px;
-    padding-right: 2px;
-  }
-
-  body.white-shell.theme-light .composer-toolbar:has(.composer-task-summary.has-task) .composer-status:not(.is-busy) {
     display: none;
-  }
-
-  body.white-shell.theme-light .composer-status-dot,
-  body.white-shell.theme-light .composer-status-dot.ok {
-    width: 14px;
-    height: 14px;
-    flex: 0 0 14px;
-    border: 2px solid #cbd3df;
-    border-top-color: var(--ws-primary, #5369f3);
-    border-right-color: var(--ws-primary, #5369f3);
-    border-radius: 50%;
-    background: transparent;
-    box-shadow: none;
-  }
-
-  body.white-shell.theme-light .composer-status-dot.busy,
-  body.white-shell.theme-light .composer-status.is-busy .composer-status-dot {
-    border-color: color-mix(in srgb, var(--ws-primary, #2563eb) 22%, transparent);
-    border-top-color: var(--ws-primary, #2563eb);
-    border-right-color: color-mix(in srgb, var(--ws-primary, #2563eb) 22%, transparent);
-    animation: composer-task-indicator-spin .8s linear infinite;
-  }
-
-  body.white-shell.theme-light .composer-status-bars,
-  body.white-shell.theme-light .composer-status:not(.is-busy) .composer-status-text {
-    display: none;
-  }
-
-  body.white-shell.theme-light .composer-status.is-busy .composer-status-text {
-    display: inline;
-    overflow: hidden;
-    color: var(--ws-primary, #2563eb);
-    font-size: 11px;
-    font-weight: 650;
-    line-height: 1.2;
-    text-overflow: ellipsis;
-    white-space: nowrap;
   }
 
   body.white-shell.theme-light .composer-controls {
@@ -455,6 +405,41 @@ body.white-shell.theme-light .composer-wrap {
     clip: rect(0 0 0 0);
     clip-path: inset(50%);
     white-space: nowrap;
+  }
+
+  /* Reasoning effort reads as a letter here, the same as on a phone. The three-bar
+     meter is the one glyph in this rail whose neighbours name a *kind* of control
+     while it tries to encode a *level*, and at 17px the lit-versus-dim bars are
+     not separable -- which is why the phone layout drops it and shows A / M / H
+     instead. The first rule takes the bars away; the second undoes the shared
+     visually-hidden rule above for this one field, which is what puts the letter
+     back. */
+  body.white-shell.theme-light .composer-effort-field .reasoning-effort-icon {
+    display: none;
+  }
+
+  body.white-shell.theme-light .composer-effort-field .composer-select-value {
+    position: static;
+    width: 17px;
+    height: 17px;
+    min-width: 17px;
+    margin: 0;
+    display: grid;
+    place-items: center;
+    overflow: visible;
+    clip: auto;
+    clip-path: none;
+    font-size: 0;
+    line-height: 0;
+  }
+
+  body.white-shell.theme-light .composer-effort-field .composer-select-value::before { content: none; }
+
+  body.white-shell.theme-light .composer-effort-field .composer-select-value::after {
+    content: attr(data-mobile-label);
+    font-size: 12px;
+    font-weight: 600;
+    line-height: 1;
   }
 
   body.white-shell.theme-light .composer-select-chevron {
@@ -987,6 +972,24 @@ body.white-shell.theme-light.theme-dark #settingsContentBody .compact-settings-s
   padding: 7px 0;
   font-size: 10px;
 }
+/* Runtime-resources collapsible cards — the same native <details> disclosure the
+   Shared API sections above use, with one difference: those sections are a
+   two-column row (copy | controls), while these cards already sit in the
+   .usage-detail-grid two-column grid, so each one folds downward instead.
+   The card's spacing lived on the section, which now has a single child, so the
+   grid moves onto <details> to keep the summary clear of the body. */
+#settingsContentBody .runtime-resource-details {
+  display: grid;
+  min-width: 0;
+  gap: var(--settings-space-3);
+  align-content: start;
+}
+#settingsContentBody .runtime-resource-details > summary { list-style: none; cursor: pointer; }
+#settingsContentBody .runtime-resource-details > summary::-webkit-details-marker { display: none; }
+#settingsContentBody .runtime-resource-details > summary .compact-settings-section-copy { pointer-events: none; }
+/* The shared ::after starts rotated 90deg (open). Point it back along the row
+   while the card is folded, matching the Shared API sections. */
+#settingsContentBody .runtime-resource-details:not([open]) .compact-settings-section-summary::after { transform: rotate(0deg); }
 #settingsContentBody .shared-api-status-row,
 #settingsContentBody .shared-api-row,
 #settingsContentBody .shared-api-key-head {

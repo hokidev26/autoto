@@ -26,6 +26,10 @@ const (
 	continuationReasonSegmentTurns    = "segment_turn_limit"
 	continuationReasonBackgroundTask  = "background_task_wait"
 	continuationReasonProviderError   = "provider_error"
+	// Labels output salvaged when the user stopped the run. Never a continuation
+	// trigger: stopping is a decision, so the reason exists to mark the stored
+	// message as cut short rather than to schedule anything.
+	continuationReasonInterrupted = "interrupted"
 
 	// Consecutive upstream failures to absorb before giving the run back to the
 	// user. Small on purpose: a provider that fails four times in a row with
@@ -516,7 +520,9 @@ func (r *Runner) runContinuationSegment(ctx context.Context, state continuationR
 			return outcome, turnErr
 		}
 		if err := ctx.Err(); err != nil {
-			r.recordCompletedModelTurn(agentID, runID, "", provider.Name(), model, result)
+			messageID := r.salvageInterruptedAssistantOutput(ctx, agentID, runID, result)
+			outcome.resumeAfterID = messageID
+			r.recordCompletedModelTurn(agentID, runID, messageID, provider.Name(), model, result)
 			return outcome, err
 		}
 
@@ -1011,6 +1017,41 @@ func (r *Runner) completeContinuousRun(ctx context.Context, agentID, runID strin
 	r.publish(Event{Type: "agent.done", AgentID: agentID, Data: mergeEventData(data, runID)})
 	r.notify(NotificationEvent{Event: "completed", RunID: runID, AgentID: agentID, Status: "completed"})
 	return r.store.SetAgentStatus(ctx, agentID, "idle", "")
+}
+
+// Stores output that a completed model turn produced just before the run was
+// cancelled, and answers with the message ID it wrote (empty when there was
+// nothing to write, or when writing failed).
+//
+// This is the "stopped a moment too late" case: the stream had already closed
+// cleanly, so the text was in hand, and the cancellation was noticed only
+// afterwards. Returning without storing it dropped a finished answer -- the live
+// card is cleared once the run reaches a terminal state, and with nothing behind
+// it the transcript came back missing the stretch of work the reader had just
+// watched arrive.
+//
+// The write uses a detached, bounded context: ctx is already cancelled, so the
+// store would refuse it. The interrupt path in runner_lifecycle.go completes its
+// run on a background context for the same reason, and the timeout keeps a
+// wedged store from holding the interrupt open.
+//
+// The message is marked partial, not completed: the run was stopped, so this is
+// not the finished product of the turn even though the model call finished. That
+// matches how a turn that ends early is stored.
+func (r *Runner) salvageInterruptedAssistantOutput(ctx context.Context, agentID, runID string, result modelTurnResult) string {
+	if strings.TrimSpace(result.Text) == "" && len(result.ResponseBlocks) == 0 && len(result.ToolCalls) == 0 && len(result.GeneratedImages) == 0 {
+		return ""
+	}
+	persistCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+	defer cancel()
+	messageID, err := r.persistPartialAssistant(persistCtx, agentID, runID, result, continuationReasonInterrupted)
+	if err != nil {
+		// The cancellation is what the caller has to report; a failed write of the
+		// salvaged text must not replace it.
+		slog.Warn("persist interrupted assistant output failed", "agentId", agentID, "runId", runID, "error", err)
+		return ""
+	}
+	return messageID
 }
 
 func (r *Runner) persistPartialAssistant(ctx context.Context, agentID, runID string, result modelTurnResult, stopReason string) (string, error) {

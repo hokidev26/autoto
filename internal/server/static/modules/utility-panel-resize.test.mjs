@@ -259,6 +259,107 @@ test("utility panel resizer drags, keys, resets, persists, and cleans up", () =>
   }
 });
 
+// Docking the conversation list is a real DOM move into the rail, so the rail's
+// rect starts including the list and the shell's second grid column becomes 0px.
+// The resizer has to notice that, or it subtracts the list twice and the drag
+// stops about a sidebar's width early -- which read as the middle column being
+// unable to reach the phone-shaped layout from the docked navigation stop.
+test("utility panel resizer stops double-counting the conversation list once it is docked inside the rail", () => {
+  const elementListeners = new Map();
+  const windowListeners = new Map();
+  const styleValues = new Map();
+  const storage = new MemoryStorage();
+  const shellClasses = new Set(["details-open"]);
+  const viewportWidth = 1568;
+  const railRectWidth = 296; // the rail carries the stored sidebar width when docked
+  const sidebarRectWidth = 280; // the list inside it, minus the rail's padding
+  let docked = false;
+  const separator = {
+    classList: { add() {}, remove() {} },
+    addEventListener(name, handler) { elementListeners.set(name, handler); },
+    removeEventListener(name) { elementListeners.delete(name); },
+    setAttribute() {},
+    setPointerCapture() {},
+    releasePointerCapture() {},
+  };
+  const sidebar = { getBoundingClientRect() { return { width: sidebarRectWidth }; } };
+  const globalRail = {
+    getBoundingClientRect() { return { width: railRectWidth }; },
+    contains(node) { return docked && node === sidebar; },
+  };
+  const shell = {
+    classList: { contains(name) { return shellClasses.has(name); } },
+    style: { setProperty() {}, removeProperty() {} },
+  };
+  const fakeDocument = {
+    body: { classList: { add() {}, remove() {}, contains: () => false } },
+    documentElement: {
+      clientWidth: viewportWidth,
+      style: {
+        setProperty(name, value) { styleValues.set(name, value); },
+        removeProperty(name) { styleValues.delete(name); },
+      },
+    },
+    getElementById(id) {
+      return {
+        appShell: shell,
+        utilityPanelResizeHandle: separator,
+        conversationDetailsPanel: { getBoundingClientRect() { return { width: 480 }; } },
+        backgroundTaskTray: { getBoundingClientRect() { return { width: 0 }; } },
+      }[id] || null;
+    },
+    querySelector(selector) {
+      if (selector === ".global-rail") return globalRail;
+      if (selector === ".sidebar") return sidebar;
+      return null;
+    },
+  };
+  const fakeWindow = {
+    matchMedia(query) { return { matches: query.includes("1280") }; },
+    addEventListener(name, handler) { windowListeners.set(name, handler); },
+    removeEventListener(name) { windowListeners.delete(name); },
+    innerWidth: viewportWidth,
+  };
+  const restoreDocument = replaceGlobal("document", fakeDocument);
+  const restoreWindow = replaceGlobal("window", fakeWindow);
+  try {
+    const controller = createUIShellController({ state: {}, resizeTerminal() {} });
+    const cleanup = controller.bindUtilityPanelResizer({ storage });
+    const widestViaEnd = () => {
+      elementListeners.get("keydown")({ key: "End", preventDefault() {} });
+      return Number.parseFloat(styleValues.get("--utility-panel-width"));
+    };
+
+    // Two columns: the list has its own grid column, so it must still be subtracted.
+    const undockedWidest = widestViaEnd();
+    assert.equal(
+      undockedWidest,
+      utilityPanelMaxAvailable({ viewportWidth, railWidth: railRectWidth, sidebarWidth: sidebarRectWidth }),
+    );
+
+    // Docked: same rects, but the list is now inside the rail.
+    docked = true;
+    const dockedWidest = widestViaEnd();
+    assert.equal(
+      dockedWidest,
+      utilityPanelMaxAvailable({ viewportWidth, railWidth: railRectWidth, sidebarWidth: sidebarRectWidth, sidebarInsideRail: true }),
+    );
+    assert.equal(dockedWidest - undockedWidest, sidebarRectWidth, "docked 時多出來的可拖曳距離，正好是原本被重複扣掉的那份清單寬");
+
+    // What the user actually sees: the middle column reaches its floor, which is
+    // under the composer's 480px phone tier.
+    assert.equal(viewportWidth - railRectWidth - dockedWidest, utilityPanelChatMinWidth);
+    assert.ok(viewportWidth - railRectWidth - dockedWidest < 480);
+
+    cleanup();
+    assert.equal(elementListeners.size, 0);
+    assert.equal(windowListeners.size, 0);
+  } finally {
+    restoreWindow();
+    restoreDocument();
+  }
+});
+
 test("utility panel resizer ignores drag/key input once the panel closes or the viewport narrows", () => {
   const elementListeners = new Map();
   const windowListeners = new Map();

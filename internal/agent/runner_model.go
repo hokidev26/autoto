@@ -60,6 +60,29 @@ func (r *Runner) runModelTurn(ctx context.Context, agentID, runID string, provid
 		}
 		backoff := modelRetryBackoff(attempt)
 		slog.Warn("retrying transient provider error", "agentId", agentID, "provider", provider.Name(), "model", model, "attempt", attempt+1, "maxRetries", maxRetries, "backoff", backoff.String(), "error", err)
+		// Said out loud, not only logged. This loop owns the retries that happen
+		// *inside* one segment -- a first-token timeout is the common one -- and it
+		// used to wait here silently, so the composer showed an idle conversation
+		// for the whole backoff and the run read as hung. The continuation-level
+		// retry already publishes this event and the client already renders it, so
+		// the same shape reaches the same handler.
+		//
+		// maxAttempts is 0 when the ceiling is the unlimited sentinel: there is no
+		// total to count towards, and the client treats a missing total as "say
+		// retrying without a fraction" rather than inventing one.
+		retryCeiling := 0
+		if !unlimited {
+			retryCeiling = maxRetries + 1
+		}
+		r.publish(Event{Type: "agent.provider_error_retry", AgentID: agentID, Data: mergeEventData(map[string]any{
+			"attempt":     attempt + 1,
+			"maxAttempts": retryCeiling,
+			"provider":    provider.Name(),
+			"model":       model,
+			"backoffMs":   backoff.Milliseconds(),
+			"error":       boundedProviderErrorText(err),
+			"scope":       "model_turn",
+		}, runID)})
 		select {
 		case <-ctx.Done():
 			return modelTurnResult{}, ctx.Err()
