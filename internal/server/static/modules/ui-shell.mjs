@@ -160,12 +160,18 @@ export const utilityPanelWidthPreferenceKey = "autoto.ui.utilityPanelWidth";
 // stopped the drag before the compact layout could ever apply, which read as the
 // handle jamming partway.
 export const minUtilityPanelWidth = 260;
-// Raised from 620. A diff or a file tree in the dock is often the thing being
-// worked on, not a reference, and 620 stopped it well short of usable on a wide
-// screen. The chat column keeps its own floor, so the transcript cannot be
-// squeezed away no matter how far this is dragged.
-export const maxUtilityPanelWidth = 900;
-export const utilityPanelChatMinWidth = 420;
+// Raised from 900, which had become the thing that ended the drag on a wide
+// screen rather than a deliberate limit: at 1568px with the sidebar anywhere near
+// its default, 900 was reached while the chat column was still wide, so the panel
+// could not compress the chat the way dragging the sidebar can. The viewport-aware
+// ceiling below is the real guard, so this only has to be past any layout the
+// available space will actually permit.
+export const maxUtilityPanelWidth = 1200;
+// The chat column's floor, held back from the panel. Lowered from 420 so dragging
+// from the right can take the composer into its narrow, phone-shaped tier, which
+// begins at a 480px container. A 420 floor left the chat sitting just above that
+// tier, which is why only the sidebar appeared able to produce the compact layout.
+export const utilityPanelChatMinWidth = 360;
 export const utilityPanelDesktopBreakpoint = 1280;
 
 export function normalizeUtilityPanelWidth(value, fallback = maxUtilityPanelWidth, { maxAvailable } = {}) {

@@ -101,7 +101,7 @@ body.white-shell.theme-light .utility-panel-resize-handle {
   bottom: 0;
   /* Tracks the same clamp as the grid column it sits against. If the two disagree
      the handle floats away from the panel edge and the drag target is wrong. */
-  right: calc(clamp(260px, calc(50vw - 186px), 900px) - 3px);
+  right: calc(clamp(260px, calc(50vw - 186px), 1200px) - 3px);
   width: 6px;
   border: 0;
   background: transparent;

@@ -320,10 +320,10 @@ body.white-shell.theme-light .terminal-status-row {
     left: calc(76px + var(--session-sidebar-width) - 3px);
   }
   body.white-shell.theme-light .app-shell {
-    grid-template-columns: 76px var(--session-sidebar-width) minmax(390px, 1fr) clamp(260px, calc(50vw - 186px), 900px);
+    grid-template-columns: 76px var(--session-sidebar-width) minmax(360px, 1fr) clamp(260px, calc(50vw - 186px), 1200px);
   }
   body.white-shell.theme-light .app-shell.terminal-collapsed {
-    grid-template-columns: 76px var(--session-sidebar-width) minmax(390px, 1fr) 0;
+    grid-template-columns: 76px var(--session-sidebar-width) minmax(360px, 1fr) 0;
   }
 }
 
@@ -732,7 +732,7 @@ body.white-shell.theme-light .shell-dock-mode {
   pointer-events: none;
 }
 body.white-shell.theme-light .shell-dock-mode > .modal-card {
-  width: var(--utility-panel-width, clamp(420px, calc(50vw - 186px), 900px));
+  width: var(--utility-panel-width, clamp(420px, calc(50vw - 186px), 1200px));
   min-width: 0;
   height: 100dvh;
   min-height: 0;
@@ -757,7 +757,7 @@ body.white-shell.theme-light .workspace-preview-dock-mode {
   pointer-events: none;
 }
 body.white-shell.theme-light .workspace-preview-dock-mode .workspace-modal-card {
-  width: var(--utility-panel-width, clamp(420px, calc(50vw - 186px), 900px));
+  width: var(--utility-panel-width, clamp(420px, calc(50vw - 186px), 1200px));
   min-width: 0;
   height: 100dvh;
   min-height: 0;
@@ -859,14 +859,14 @@ body.white-shell.theme-light .workspace-preview-dock-mode .workspace-preview-emp
   body.white-shell.theme-light .app-shell.details-open,
   body.white-shell.theme-light .app-shell.background-tasks-open,
   body.white-shell.theme-light .app-shell.preview-open {
-    grid-template-columns: 76px var(--session-sidebar-width) minmax(390px, 1fr) var(--utility-panel-width, clamp(260px, calc(50vw - 186px), 900px));
+    grid-template-columns: 76px var(--session-sidebar-width) minmax(360px, 1fr) var(--utility-panel-width, clamp(260px, calc(50vw - 186px), 1200px));
   }
 
   body.white-shell.theme-light .app-shell.details-open .utility-panel-resize-handle,
   body.white-shell.theme-light .app-shell.background-tasks-open .utility-panel-resize-handle,
   body.white-shell.theme-light .app-shell.preview-open .utility-panel-resize-handle {
     display: block;
-    right: calc(var(--utility-panel-width, clamp(260px, calc(50vw - 186px), 900px)) - 3px);
+    right: calc(var(--utility-panel-width, clamp(260px, calc(50vw - 186px), 1200px)) - 3px);
   }
 }
 

@@ -826,7 +826,7 @@ test("desktop conversation layout follows the compact resizable geometry", async
     readFile(new URL("./conversation-navigation.mjs", import.meta.url), "utf8"),
   ]);
   const finalDesktopComposer = styles.slice(styles.indexOf("/* Final desktop full-width composer override. */"));
-  assert.match(styles, /grid-template-columns:\s*76px var\(--session-sidebar-width\) minmax\(390px, 1fr\)/);
+  assert.match(styles, /grid-template-columns:\s*76px var\(--session-sidebar-width\) minmax\(360px, 1fr\)/);
   assert.match(styles, /body\.white-shell\.theme-light \.sidebar-resize-handle\s*\{[\s\S]*?position:\s*fixed[\s\S]*?left:\s*calc\(68px \+ var\(--session-sidebar-width\) - 3px\)/);
   assert.match(styles, /body\.white-shell\.theme-light \.chat-panel\s*\{[\s\S]*?grid-column:\s*3/);
   assert.match(styles, /body\.white-shell\.theme-light \.terminal-panel\s*\{[\s\S]*?grid-column:\s*4/);
@@ -2423,7 +2423,7 @@ test("opening a utility panel does not collapse the app shell's 4th grid column 
   // zero-width column and never become visible.
   assert.match(
     styles,
-    /\.app-shell\.terminal-collapsed\.details-open,[\s\S]*?\.app-shell\.terminal-collapsed\.background-tasks-open,[\s\S]*?\.app-shell\.terminal-collapsed\.preview-open[\s\S]*?\{[\s\S]*?grid-template-columns:[\s\S]*?clamp\(260px, calc\(50vw - 186px\), 900px\)/,
+    /\.app-shell\.terminal-collapsed\.details-open,[\s\S]*?\.app-shell\.terminal-collapsed\.background-tasks-open,[\s\S]*?\.app-shell\.terminal-collapsed\.preview-open[\s\S]*?\{[\s\S]*?grid-template-columns:[\s\S]*?clamp\(260px, calc\(50vw - 186px\), 1200px\)/,
   );
 });
 

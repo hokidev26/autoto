@@ -51,16 +51,22 @@ function replaceGlobal(name, value) {
 test("utility panel width helpers clamp values, respect available space, and keep a stable preference key", () => {
   assert.equal(utilityPanelWidthPreferenceKey, "autoto.ui.utilityPanelWidth");
   assert.equal(utilityPanelDesktopBreakpoint, 1280);
-  assert.equal(utilityPanelChatMinWidth, 420);
+  // Low enough that dragging the panel can take the composer into its narrow,
+  // phone-shaped tier, which begins at a 480px container. A 420 floor left the
+  // chat just above that tier, so only the sidebar appeared able to reach it.
+  assert.equal(utilityPanelChatMinWidth, 360);
   // Low enough that the panel can reach its narrow, phone-shaped tier; the old
   // 320 floor ended the drag before that layout could apply.
   assert.equal(minUtilityPanelWidth, 260);
-  assert.equal(maxUtilityPanelWidth, 900);
+  // The viewport-aware ceiling is the real guard; this only has to sit past any
+  // layout the available space will permit. At 900 the drag ended while the chat
+  // column was still wide on a large screen.
+  assert.equal(maxUtilityPanelWidth, 1200);
 
   // Flat clamp, no viewport info supplied.
   assert.equal(normalizeUtilityPanelWidth(undefined), maxUtilityPanelWidth);
   assert.equal(normalizeUtilityPanelWidth(100), minUtilityPanelWidth);
-  assert.equal(normalizeUtilityPanelWidth(900), maxUtilityPanelWidth);
+  assert.equal(normalizeUtilityPanelWidth(1200), maxUtilityPanelWidth);
   assert.equal(normalizeUtilityPanelWidth("450.6"), 451);
 
   // Pointer-driven width: anchored to the viewport's right edge, mirroring
@@ -71,7 +77,7 @@ test("utility panel width helpers clamp values, respect available space, and kee
   // Viewport-aware cap: never allowed to squeeze the chat column or overflow
   // the viewport, even if that is narrower than maxUtilityPanelWidth.
   const tightAvailable = utilityPanelMaxAvailable({ viewportWidth: 1280, railWidth: 76, sidebarWidth: 296 });
-  assert.equal(tightAvailable, 1280 - 76 - 296 - 420);
+  assert.equal(tightAvailable, 1280 - 76 - 296 - 360);
   assert.equal(normalizeUtilityPanelWidth(620, undefined, { maxAvailable: tightAvailable }), Math.max(minUtilityPanelWidth, tightAvailable));
   const roomyAvailable = utilityPanelMaxAvailable({ viewportWidth: 2000, railWidth: 76, sidebarWidth: 296 });
   // A width the layout can honour is returned untouched...
@@ -89,7 +95,7 @@ test("utility panel resize handle markup mirrors the sidebar separator's accessi
   const html = await readFile(indexURL, "utf8");
   assert.match(
     html,
-    /<div id="utilityPanelResizeHandle" class="utility-panel-resize-handle" role="separator" aria-orientation="vertical"[^>]*aria-valuemin="320"[^>]*aria-valuemax="900"[^>]*aria-valuenow="480"[^>]*tabindex="0">/,
+    /<div id="utilityPanelResizeHandle" class="utility-panel-resize-handle" role="separator" aria-orientation="vertical"[^>]*aria-valuemin="260"[^>]*aria-valuemax="1200"[^>]*aria-valuenow="480"[^>]*tabindex="0">/,
   );
   // Placed as a sibling of the panels it resizes, not nested inside any one
   // of them, just like #sidebarResizeHandle sits beside (not inside) .sidebar.
@@ -111,16 +117,16 @@ test("utility panel resize handle styles stay hidden until a panel opens at the 
   const wideBreakpointStart = styles.indexOf("@media (min-width: 1280px) {\n  body.white-shell.theme-light .app-shell.details-open,");
   assert.ok(wideBreakpointStart > -1, "expected the >=1280px details/background-tasks/preview open block");
   const wideBreakpointBlock = styles.slice(wideBreakpointStart, styles.indexOf("\n}\n", wideBreakpointStart) + 3);
-  assert.match(wideBreakpointBlock, /grid-template-columns:\s*76px var\(--session-sidebar-width\) minmax\(390px, 1fr\) var\(--utility-panel-width, clamp\(260px, calc\(50vw - 186px\), 900px\)\)/);
-  assert.match(wideBreakpointBlock, /\.app-shell\.details-open \.utility-panel-resize-handle,[\s\S]*?\.app-shell\.preview-open \.utility-panel-resize-handle\s*\{[\s\S]*?display:\s*block;[\s\S]*?right:\s*calc\(var\(--utility-panel-width, clamp\(260px, calc\(50vw - 186px\), 900px\)\) - 3px\)/);
+  assert.match(wideBreakpointBlock, /grid-template-columns:\s*76px var\(--session-sidebar-width\) minmax\(360px, 1fr\) var\(--utility-panel-width, clamp\(260px, calc\(50vw - 186px\), 1200px\)\)/);
+  assert.match(wideBreakpointBlock, /\.app-shell\.details-open \.utility-panel-resize-handle,[\s\S]*?\.app-shell\.preview-open \.utility-panel-resize-handle\s*\{[\s\S]*?display:\s*block;[\s\S]*?right:\s*calc\(var\(--utility-panel-width, clamp\(260px, calc\(50vw - 186px\), 1200px\)\) - 3px\)/);
 
   // The higher-specificity rule that actually wins once the terminal auto-
   // collapses behind an open panel must honour the same custom property.
-  assert.match(styles, /\.app-shell\.terminal-collapsed\.preview-open\s*\{\s*\n\s*grid-template-columns:\s*var\(--global-rail-layout-width\) var\(--session-sidebar-layout-width\) minmax\(0, 1fr\) var\(--utility-panel-width, clamp\(260px, calc\(50vw - 186px\), 900px\)\)/);
+  assert.match(styles, /\.app-shell\.terminal-collapsed\.preview-open\s*\{\s*\n\s*grid-template-columns:\s*var\(--global-rail-layout-width\) var\(--session-sidebar-layout-width\) minmax\(0, 1fr\) var\(--utility-panel-width, clamp\(260px, calc\(50vw - 186px\), 1200px\)\)/);
 
   // The docked workspace preview card is not a grid child, so its own width
   // must track the same variable to stay visually aligned with the divider.
-  assert.match(styles, /\.workspace-preview-dock-mode \.workspace-modal-card\s*\{\s*\n\s*width:\s*var\(--utility-panel-width, clamp\(420px, calc\(50vw - 186px\), 900px\)\)/);
+  assert.match(styles, /\.workspace-preview-dock-mode \.workspace-modal-card\s*\{\s*\n\s*width:\s*var\(--utility-panel-width, clamp\(420px, calc\(50vw - 186px\), 1200px\)\)/);
 });
 
 test("utility panel resizer drags, keys, resets, persists, and cleans up", () => {
