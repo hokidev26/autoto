@@ -729,12 +729,12 @@ export function createSystemSettingsController({
         <button id="checkForUpdatesBtn" class="legacy-about-update-button" type="button">${escapeHtml(t("systemSettings.about.checkUpdates"))}</button>
         <p class="legacy-about-update-note" data-settings-help-copy>${escapeHtml(t("systemSettings.about.updateNote"))}</p>
         ${state.updateError ? `<div class="settings-inline-alert settings-alert legacy-about-update-error" role="alert">${escapeHtml(state.updateError)}</div>` : ""}
-        ${isDesktopShell() ? renderDesktopShellAboutExtras() : ""}
         </section>
       </section>
       <details class="legacy-about-more">
         <summary>${escapeHtml(t("systemSettings.about.advanced"))}</summary>
         <div class="legacy-about-more-content">
+          ${isDesktopShell() ? renderDesktopShellAboutExtras() : ""}
           ${renderLocalPreferencesBackupSection()}
           <section class="settings-provider-section legacy-about-license-section settings-page-section settings-card">
             <div class="settings-provider-section-head settings-card-header">
@@ -902,7 +902,12 @@ export function createSystemSettingsController({
       ? t("systemSettings.desktop.pendingVersion", { version: pending.version || "—" })
       : t("systemSettings.desktop.noPending");
     return `
-        <section class="legacy-about-desktop-shell settings-page-section" aria-label="${escapeHtml(t("systemSettings.desktop.title"))}">
+        <section class="settings-provider-section legacy-about-desktop-shell settings-page-section settings-card" aria-label="${escapeHtml(t("systemSettings.desktop.title"))}">
+          <div class="settings-provider-section-head settings-card-header">
+            <div>
+              <div class="settings-provider-title settings-card-title">${escapeHtml(t("systemSettings.desktop.title"))}</div>
+            </div>
+          </div>
           <div class="legacy-about-version-table settings-data-list">
             <div class="legacy-about-version-row">
               <span>${escapeHtml(t("systemSettings.desktop.loginItem"))}</span>
