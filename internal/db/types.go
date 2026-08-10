@@ -695,11 +695,15 @@ type ToolExecutionGroup struct {
 }
 
 type ToolExecutionItem struct {
-	GroupID           string          `json:"groupId"`
-	ToolUseID         string          `json:"toolUseId"`
-	ToolName          string          `json:"toolName"`
-	Ordinal           int             `json:"ordinal"`
-	Status            string          `json:"status"`
+	GroupID   string `json:"groupId"`
+	ToolUseID string `json:"toolUseId"`
+	ToolName  string `json:"toolName"`
+	Ordinal   int    `json:"ordinal"`
+	Status    string `json:"status"`
+	// ReplayClass is derived on the trusted server when the item is recorded and
+	// is re-narrowed on read. Recovery uses it to decide whether an interrupted
+	// call may be dispatched again; anything other than "safe" means it may not.
+	ReplayClass       string          `json:"replayClass"`
 	ResultMessageID   string          `json:"resultMessageId,omitempty"`
 	OutputSummaryJSON json.RawMessage `json:"outputSummary,omitempty"`
 	TerminalAt        string          `json:"terminalAt,omitempty"`
@@ -718,6 +722,9 @@ type ToolExecutionGroupCreateInput struct {
 type ToolExecutionItemInput struct {
 	ToolUseID string `json:"toolUseId"`
 	ToolName  string `json:"toolName"`
+	// ReplayClass must already be derived from the resolved tool and its
+	// effective arguments by the caller. An empty value stores "never".
+	ReplayClass string `json:"replayClass,omitempty"`
 }
 
 type ToolExecutionItemTerminalInput struct {

@@ -113,6 +113,9 @@ func (LSTool) Description() string {
 func (LSTool) Schema() any               { return lsInput{} }
 func (LSTool) Risk(json.RawMessage) Risk { return RiskRead }
 
+// ReplayClass is safe: listing a directory twice observes it without changing it.
+func (LSTool) ReplayClass(json.RawMessage) ReplayClass { return ReplaySafe }
+
 func (LSTool) Execute(ctx context.Context, call Call, env Env) (Result, error) {
 	var input lsInput
 	if err := StrictDecode(call.Input, &input); err != nil {

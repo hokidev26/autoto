@@ -41,6 +41,7 @@ CREATE TABLE IF NOT EXISTS tool_execution_group_items (
   tool_name TEXT NOT NULL,
   ordinal INTEGER NOT NULL,
   status TEXT NOT NULL DEFAULT 'pending',
+  replay_class TEXT NOT NULL DEFAULT 'never',
   result_message_id TEXT UNIQUE REFERENCES agent_messages(id) ON DELETE NO ACTION DEFERRABLE INITIALLY DEFERRED,
   output_summary_json TEXT,
   terminal_at TEXT,
@@ -50,6 +51,7 @@ CREATE TABLE IF NOT EXISTS tool_execution_group_items (
   UNIQUE (group_id, ordinal),
   CHECK (ordinal >= 0),
   CHECK (status IN ('pending', 'completed', 'error', 'denied', 'failed', 'aborted')),
+  CHECK (replay_class IN ('never', 'safe')),
   CHECK (length(CAST(tool_use_id AS BLOB)) BETWEEN 1 AND 256),
   CHECK (length(CAST(tool_name AS BLOB)) BETWEEN 1 AND 256),
   CHECK (output_summary_json IS NULL OR length(CAST(output_summary_json AS BLOB)) <= 8192)
@@ -128,7 +130,7 @@ func (s *Store) CreateToolExecutionGroup(ctx context.Context, input ToolExecutio
 	}
 	if inserted == 1 {
 		for ordinal, item := range input.Items {
-			if _, err := tx.ExecContext(ctx, `INSERT INTO tool_execution_group_items (group_id, tool_use_id, tool_name, ordinal, status, created_at, updated_at) VALUES (?, ?, ?, ?, 'pending', ?, ?)`, input.ID, item.ToolUseID, item.ToolName, ordinal, now, now); err != nil {
+			if _, err := tx.ExecContext(ctx, `INSERT INTO tool_execution_group_items (group_id, tool_use_id, tool_name, ordinal, status, replay_class, created_at, updated_at) VALUES (?, ?, ?, ?, 'pending', ?, ?, ?)`, input.ID, item.ToolUseID, item.ToolName, ordinal, normalizeStoredReplayClass(item.ReplayClass), now, now); err != nil {
 				return ToolExecutionGroup{}, err
 			}
 		}
@@ -167,6 +169,33 @@ func (s *Store) GetToolExecutionGroupByAssistantMessage(ctx context.Context, run
 	}
 	group.Items, err = listToolExecutionItems(ctx, s.db, group.ID)
 	return group, err
+}
+
+// GetToolExecutionGroupAssistantMessage reads only the assistant-message fields
+// needed to cross-check a ledger against the turn that produced it.
+//
+// It is intentionally narrower than a general message getter: recovery needs the
+// role and the tool-call content, and nothing else. Attachment blobs and
+// provider state are excluded so a startup integrity check cannot pull image
+// payloads or opaque adapter state into memory.
+func (s *Store) GetToolExecutionGroupAssistantMessage(ctx context.Context, messageID string) (Message, error) {
+	messageID = strings.TrimSpace(messageID)
+	if messageID == "" {
+		return Message{}, errors.New("assistant message id is required")
+	}
+	var message Message
+	var contentJSON string
+	err := s.db.QueryRowContext(ctx,
+		`SELECT id, COALESCE(run_id,''), role, COALESCE(content_json,'') FROM agent_messages WHERE id = ?`,
+		messageID,
+	).Scan(&message.ID, &message.RunID, &message.Role, &contentJSON)
+	if err != nil {
+		return Message{}, err
+	}
+	if contentJSON != "" {
+		message.ContentJSON = json.RawMessage(contentJSON)
+	}
+	return message, nil
 }
 
 func (s *Store) RecordToolExecutionItemTerminal(ctx context.Context, groupID string, input ToolExecutionItemTerminalInput) (ToolExecutionItem, error) {
@@ -435,7 +464,7 @@ func getToolExecutionGroupTx(ctx context.Context, tx *sql.Tx, runID, assistantMe
 }
 
 func listToolExecutionItems(ctx context.Context, query toolExecutionQuerier, groupID string) ([]ToolExecutionItem, error) {
-	rows, err := query.QueryContext(ctx, `SELECT group_id, tool_use_id, tool_name, ordinal, status, COALESCE(result_message_id,''), COALESCE(output_summary_json,''), COALESCE(terminal_at,''), created_at, updated_at FROM tool_execution_group_items WHERE group_id = ? ORDER BY ordinal ASC`, groupID)
+	rows, err := query.QueryContext(ctx, `SELECT group_id, tool_use_id, tool_name, ordinal, status, COALESCE(replay_class,'never'), COALESCE(result_message_id,''), COALESCE(output_summary_json,''), COALESCE(terminal_at,''), created_at, updated_at FROM tool_execution_group_items WHERE group_id = ? ORDER BY ordinal ASC`, groupID)
 	if err != nil {
 		return nil, err
 	}
@@ -444,9 +473,12 @@ func listToolExecutionItems(ctx context.Context, query toolExecutionQuerier, gro
 	for rows.Next() {
 		var item ToolExecutionItem
 		var summary string
-		if err := rows.Scan(&item.GroupID, &item.ToolUseID, &item.ToolName, &item.Ordinal, &item.Status, &item.ResultMessageID, &summary, &item.TerminalAt, &item.CreatedAt, &item.UpdatedAt); err != nil {
+		if err := rows.Scan(&item.GroupID, &item.ToolUseID, &item.ToolName, &item.Ordinal, &item.Status, &item.ReplayClass, &item.ResultMessageID, &summary, &item.TerminalAt, &item.CreatedAt, &item.UpdatedAt); err != nil {
 			return nil, err
 		}
+		// Re-narrow on read. The CHECK constraint covers rows this build wrote, but
+		// a hand-edited database or a downgraded schema must not grant replay.
+		item.ReplayClass = normalizeStoredReplayClass(item.ReplayClass)
 		if summary != "" {
 			item.OutputSummaryJSON = json.RawMessage(summary)
 		}
@@ -458,7 +490,8 @@ func listToolExecutionItems(ctx context.Context, query toolExecutionQuerier, gro
 func getToolExecutionItem(ctx context.Context, query toolExecutionQuerier, groupID, toolUseID string) (ToolExecutionItem, error) {
 	var item ToolExecutionItem
 	var summary string
-	err := query.QueryRowContext(ctx, `SELECT group_id, tool_use_id, tool_name, ordinal, status, COALESCE(result_message_id,''), COALESCE(output_summary_json,''), COALESCE(terminal_at,''), created_at, updated_at FROM tool_execution_group_items WHERE group_id = ? AND tool_use_id = ?`, groupID, toolUseID).Scan(&item.GroupID, &item.ToolUseID, &item.ToolName, &item.Ordinal, &item.Status, &item.ResultMessageID, &summary, &item.TerminalAt, &item.CreatedAt, &item.UpdatedAt)
+	err := query.QueryRowContext(ctx, `SELECT group_id, tool_use_id, tool_name, ordinal, status, COALESCE(replay_class,'never'), COALESCE(result_message_id,''), COALESCE(output_summary_json,''), COALESCE(terminal_at,''), created_at, updated_at FROM tool_execution_group_items WHERE group_id = ? AND tool_use_id = ?`, groupID, toolUseID).Scan(&item.GroupID, &item.ToolUseID, &item.ToolName, &item.Ordinal, &item.Status, &item.ReplayClass, &item.ResultMessageID, &summary, &item.TerminalAt, &item.CreatedAt, &item.UpdatedAt)
+	item.ReplayClass = normalizeStoredReplayClass(item.ReplayClass)
 	if summary != "" {
 		item.OutputSummaryJSON = json.RawMessage(summary)
 	}
@@ -484,6 +517,25 @@ func recordableToolExecutionTerminalStatus(status string) bool {
 	default:
 		return false
 	}
+}
+
+// Replay classes are duplicated as plain strings here because internal/tools
+// already imports internal/db; the store cannot import the tools package back.
+// tools.ReplayClass values must stay identical to these.
+const (
+	ToolExecutionReplayNever = "never"
+	ToolExecutionReplaySafe  = "safe"
+)
+
+// normalizeStoredReplayClass narrows any caller-supplied value to the known set
+// before it is written, defaulting to "never". Callers derive the class from the
+// resolved tool, but the store still refuses to persist a value it cannot
+// enforce, so an unrecognised or future class can never widen replay permission.
+func normalizeStoredReplayClass(value string) string {
+	if strings.TrimSpace(value) == ToolExecutionReplaySafe {
+		return ToolExecutionReplaySafe
+	}
+	return ToolExecutionReplayNever
 }
 
 func normalizeToolExecutionSummary(value json.RawMessage) (json.RawMessage, error) {

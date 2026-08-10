@@ -871,12 +871,16 @@ func (r *Runner) summarizeOldestMessages(ctx context.Context, agent db.Agent, ca
 }
 
 func (r *Runner) compactionSummary(ctx context.Context, agent db.Agent, candidates []db.Message) (string, bool) {
+	// File provenance is attached after generation rather than requested in the
+	// prompt. A model asked to preserve paths does so unreliably, and the
+	// deterministic fallback cannot do it at all, so the paths are derived from
+	// the tool calls themselves and carried forward across every compaction.
 	if summary, err := r.summarizeWithModel(ctx, agent.ContextSummary, candidates); err == nil && strings.TrimSpace(summary) != "" {
-		return strings.TrimSpace(summary), true
+		return withFileProvenance(strings.TrimSpace(summary), agent.ContextSummary, candidates), true
 	} else if err != nil {
 		slog.Warn("summary model unavailable, using local context summary", "agentId", agent.ID, "error", err)
 	}
-	return deterministicSummary(agent.ContextSummary, candidates), false
+	return withFileProvenance(deterministicSummary(agent.ContextSummary, candidates), agent.ContextSummary, candidates), false
 }
 
 func (r *Runner) summarizeWithModel(ctx context.Context, existingSummary string, candidates []db.Message) (string, error) {
