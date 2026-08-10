@@ -562,20 +562,36 @@ export function createChatComposerController({
     return { auto: 0, low: 1, medium: 2, high: 3, xhigh: 3, max: 3, ultra: 3 }[value] ?? 0;
   }
 
-  // On a phone the level is the label: there is no room for words, so these have
-  // to be distinguishable from each other on their own. "max" used to share "M"
-  // with "medium", which made the strongest and the middle setting look alike --
-  // the one pair where confusing them costs the most.
+  // The initials are the fallback for locales whose words do not fit the phone
+  // row. They have to be distinguishable from each other on their own: "max" used
+  // to share "M" with "medium", which made the strongest and the middle setting
+  // look alike -- the one pair where confusing them costs the most.
+  const reasoningEffortInitials = {
+    auto: "A",
+    low: "L",
+    medium: "M",
+    high: "H",
+    xhigh: "X",
+    max: "MX",
+    ultra: "UX",
+  };
+
+  // On a phone the level is the label, so it has to be readable in the language
+  // the rest of the row is written in. A CJK label is one or two characters, which
+  // is no wider than the initials it replaces, so the localized word is used
+  // whenever it fits: the narrow desktop tier already shows the word, and showing
+  // "X" for the same setting on a phone made the two layouts disagree about what
+  // is selected. Longer words (English "medium", "ultra") still fall back to the
+  // initial, which is what the compact row has room for.
+  const maxReasoningEffortMobileCharacters = 3;
+
   function reasoningEffortMobileLabel(value) {
-    return {
-      auto: "A",
-      low: "L",
-      medium: "M",
-      high: "H",
-      xhigh: "X",
-      max: "MX",
-      ultra: "UX",
-    }[value] || "A";
+    const initial = reasoningEffortInitials[value] || "A";
+    const localized = String(reasoningEffortLabel(value) || "").trim();
+    if (!localized) return initial;
+    // Count characters, not code units, so an astral glyph is not judged as two.
+    if ([...localized].length > maxReasoningEffortMobileCharacters) return initial;
+    return localized;
   }
 
   function reasoningEffortValues(modelValue = $("modelSelect")?.value || state.agent?.model || "") {

@@ -318,8 +318,9 @@ test("reasoning effort control crops unsupported values when the selected model 
     assert.equal(elements.reasoningEffort.value, "auto");
     assert.equal(elements.reasoningEffort.disabled, true);
     assert.equal(elements.reasoningEffortDisplay.textContent, "自动");
-    // Mobile shows the English initial only.
-    assert.equal(elements.reasoningEffortDisplay.dataset.mobileLabel, "A");
+    // The phone label is the localized word when it is short enough to fit, so the
+    // narrow desktop tier and the phone tier name the same setting.
+    assert.equal(elements.reasoningEffortDisplay.dataset.mobileLabel, elements.reasoningEffortDisplay.textContent);
     assert.equal(controller.selectedReasoningEffort("basic:model"), "auto");
   } finally {
     globalThis.document = previousDocument;
@@ -371,7 +372,7 @@ test("reasoning effort control persists the selected Agent override", async () =
     });
     assert.equal(state.agent.reasoningEffort, "high");
     assert.equal(elements.reasoningEffortDisplay.textContent, "高");
-    assert.equal(elements.reasoningEffortDisplay.dataset.mobileLabel, "H");
+    assert.equal(elements.reasoningEffortDisplay.dataset.mobileLabel, elements.reasoningEffortDisplay.textContent);
     assert.ok(pillClasses.some(([name]) => name === "reasoning-effort-saving"));
   } finally {
     globalThis.document = previousDocument;
@@ -420,11 +421,13 @@ test("every reasoning effort level has a distinct phone label", async () => {
     }
 
     // The mapping the row actually shows.
-    assert.equal(labels.get("low"), "L");
-    assert.equal(labels.get("medium"), "M");
-    assert.equal(labels.get("high"), "H");
-    assert.equal(labels.get("xhigh"), "X");
-    assert.equal(labels.get("max"), "MX");
+    // Every level still gets its own label; what it says is the localized word
+    // where that fits, and the initial only where it does not.
+    for (const level of levels) {
+      const label = labels.get(level);
+      assert.ok(label && label.length > 0, `${level} must have a phone label`);
+      assert.ok([...label].length <= 3, `${level} phone label must stay compact, got ${label}`);
+    }
 
     const seen = [...labels.values()];
     assert.equal(new Set(seen).size, seen.length, `phone labels must be unique per level, got ${seen.join(", ")}`);
