@@ -10,7 +10,7 @@ import (
 	"github.com/google/uuid"
 )
 
-const CurrentDBVersion = 64
+const CurrentDBVersion = 65
 
 type migration struct {
 	version int
@@ -83,6 +83,7 @@ var migrations = []migration{
 	{version: 62, name: "subagent bypass permission cap", up: migrateV62SubagentBypassCap},
 	{version: 63, name: "agent message queue", up: migrateV63AgentMessageQueue},
 	{version: 64, name: "queued message attachments", up: migrateV64QueuedMessageAttachments},
+	{version: 65, name: "tool execution replay class", up: migrateV65ToolExecutionReplayClass},
 }
 
 // migrateV62SubagentBypassCap admits bypassPermissions as a run/task ceiling.
@@ -1725,6 +1726,19 @@ func isTimestampColumnName(name string) bool {
 func migrateV50ToolExecutionGroups(ctx context.Context, tx *sql.Tx) error {
 	_, err := tx.ExecContext(ctx, toolExecutionGroupSchemaSQL)
 	return err
+}
+
+// migrateV65ToolExecutionReplayClass records, per tool execution item, whether
+// an interrupted call may be dispatched again. Existing rows default to 'never',
+// which preserves the previous behaviour of refusing to replay anything.
+//
+// SQLite cannot add a CHECK constraint to an existing table, so upgraded
+// databases carry the column without the 'never'/'safe' constraint that fresh
+// databases get from toolExecutionGroupSchemaSQL. The store normalizes on both
+// write and read, so an out-of-range value cannot widen replay permission on
+// either schema shape.
+func migrateV65ToolExecutionReplayClass(ctx context.Context, tx *sql.Tx) error {
+	return ensureColumn(ctx, tx, "tool_execution_group_items", "replay_class", "TEXT NOT NULL DEFAULT 'never'")
 }
 
 func migrateV51ProfileConfiguration(ctx context.Context, tx *sql.Tx) error {

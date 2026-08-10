@@ -40,6 +40,9 @@ func (GrepTool) Description() string {
 func (GrepTool) Schema() any               { return grepInput{} }
 func (GrepTool) Risk(json.RawMessage) Risk { return RiskRead }
 
+// ReplayClass is safe: searching twice observes file contents without changing them.
+func (GrepTool) ReplayClass(json.RawMessage) ReplayClass { return ReplaySafe }
+
 type grepFileResult struct {
 	rel     string
 	count   int

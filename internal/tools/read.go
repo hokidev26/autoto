@@ -48,6 +48,9 @@ func (ReadTool) Description() string {
 func (ReadTool) Schema() any               { return readInput{} }
 func (ReadTool) Risk(json.RawMessage) Risk { return RiskRead }
 
+// ReplayClass is safe: reading a file twice yields a result and leaves no trace.
+func (ReadTool) ReplayClass(json.RawMessage) ReplayClass { return ReplaySafe }
+
 func (ReadTool) Execute(ctx context.Context, call Call, env Env) (Result, error) {
 	var input readInput
 	if err := StrictDecode(call.Input, &input); err != nil {

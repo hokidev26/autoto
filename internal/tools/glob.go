@@ -157,6 +157,9 @@ func (GlobTool) Description() string {
 func (GlobTool) Schema() any               { return globInput{} }
 func (GlobTool) Risk(json.RawMessage) Risk { return RiskRead }
 
+// ReplayClass is safe: matching paths twice observes the tree without changing it.
+func (GlobTool) ReplayClass(json.RawMessage) ReplayClass { return ReplaySafe }
+
 func (GlobTool) Execute(ctx context.Context, call Call, env Env) (Result, error) {
 	var input globInput
 	if err := StrictDecode(call.Input, &input); err != nil {

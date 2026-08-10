@@ -80,7 +80,12 @@ func (r *Runner) runModelTurnAttempt(ctx context.Context, agentID, runID string,
 	}
 	requestCapabilities := capabilities
 	requestCapabilities.ImageGeneration = capabilities.ImageGeneration && modelCapabilities.ImageGeneration
-	requestMessages := enforceProviderMediaBudget(prepareProviderMessagesForCapabilities(messages, requestCapabilities))
+	// Repair tool-call pairing before anything rewrites the blocks. A run killed
+	// mid-tool leaves a tool_use with no tool_result, which providers reject
+	// outright, and prepareProviderMessagesForCapabilities may turn these blocks
+	// into plain text further down. Doing it here means every provider is covered
+	// by one implementation instead of each adapter remembering to handle it.
+	requestMessages := enforceProviderMediaBudget(prepareProviderMessagesForCapabilities(repairToolCallPairing(messages), requestCapabilities))
 	requestTools := toolSpecs
 	if !capabilities.Tools {
 		requestTools = nil

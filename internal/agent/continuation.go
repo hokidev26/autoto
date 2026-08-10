@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 	"sync"
 	"time"
@@ -597,7 +598,14 @@ func (r *Runner) runContinuationSegment(ctx context.Context, state continuationR
 		ledgerItems := make([]db.ToolExecutionItemInput, len(result.ToolCalls))
 		for index, call := range result.ToolCalls {
 			normalizedToolCalls[index] = normalizeProviderToolCall(call)
-			ledgerItems[index] = db.ToolExecutionItemInput{ToolUseID: normalizedToolCalls[index].ID, ToolName: normalizedToolCalls[index].Name}
+			ledgerItems[index] = db.ToolExecutionItemInput{
+				ToolUseID: normalizedToolCalls[index].ID,
+				ToolName:  normalizedToolCalls[index].Name,
+				// Derived here, while the run's frozen tool snapshot still describes the
+				// tool that is about to start. Deriving it at recovery time instead would
+				// consult a registry that may have changed across the restart.
+				ReplayClass: string(r.replayClassForCall(runID, normalizedToolCalls[index])),
+			}
 		}
 		result.ToolCalls = normalizedToolCalls
 		assistantText := assistantToolUseText(result.Text, result.ToolCalls)
@@ -1406,7 +1414,33 @@ func (r *Runner) RecoverInterruptedToolExecutionGroups(ctx context.Context) erro
 		} else if !errors.Is(settleErr, db.ErrConflict) {
 			return fmt.Errorf("settle recovered tool execution group %s: %w", group.ID, settleErr)
 		}
-		if _, abortErr := r.store.AbortToolExecutionGroup(ctx, group.ID, "process restarted while tool execution group was incomplete"); abortErr != nil {
+		// Cross-check the ledger against the assistant message that produced it
+		// before drawing any conclusion from the ledger's contents. The two are
+		// separate durable records of one event, and a disagreement between them is
+		// not ordinary interruption: it means one of them is wrong. Reporting the
+		// named reason is more useful than aborting as though the process had simply
+		// stopped, which would silently hide the inconsistency.
+		if assistant, msgErr := r.store.GetToolExecutionGroupAssistantMessage(ctx, group.AssistantMessageID); msgErr == nil {
+			if validateErr := ValidateToolExecutionLedger(group, assistant); validateErr != nil {
+				var corruption *LedgerCorruption
+				if errors.As(validateErr, &corruption) {
+					slog.Error("tool execution ledger disagrees with its assistant message",
+						"groupId", group.ID, "runId", group.RunID,
+						"reason", string(corruption.Reason), "detail", corruption.Message)
+				}
+			}
+		}
+		// The group cannot be settled, so it must be aborted: leaving it open would
+		// permanently fail the run's settlement barrier. Classify the stranded items
+		// first so the durable reason distinguishes work that was safe to redo from
+		// work that was not, instead of collapsing both into one opaque message.
+		summary := summarizeInterruptedGroup(group)
+		if summary.Replayable > 0 {
+			slog.Info("interrupted tool execution group had replay-safe calls",
+				"groupId", group.ID, "runId", group.RunID,
+				"pending", summary.Pending, "replaySafe", summary.Replayable, "notReplayable", summary.Unreplayable)
+		}
+		if _, abortErr := r.store.AbortToolExecutionGroup(ctx, group.ID, interruptedAbortReason(summary)); abortErr != nil {
 			if errors.Is(abortErr, db.ErrConflict) {
 				refreshed, getErr := r.store.GetToolExecutionGroup(ctx, group.ID)
 				if getErr == nil && (refreshed.Status == db.ToolExecutionGroupStatusSettled || refreshed.Status == db.ToolExecutionGroupStatusAborted) {
