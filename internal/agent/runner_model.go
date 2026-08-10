@@ -38,18 +38,24 @@ type modelTurnResult struct {
 }
 
 func (r *Runner) runModelTurn(ctx context.Context, agentID, runID string, provider providers.Provider, model, systemPrompt string, messages []providers.Message, toolSpecs []providers.ToolSpec, reasoningEffort string, fastMode bool) (modelTurnResult, error) {
-	maxRetries := r.cfg.MaxTransientRetries
-	if maxRetries < 0 {
-		maxRetries = 0
-	}
+	// Read the live ceiling rather than the frozen config, so saving the setting
+	// applies to the next turn instead of the next restart. A negative value is
+	// the unlimited sentinel, which used to be clamped to zero here -- turning
+	// "keep trying" into "never retry", the exact opposite.
+	maxRetries := r.MaxTransientRetries()
+	unlimited := maxRetries < 0
 	var lastErr error
-	for attempt := 0; attempt <= maxRetries; attempt++ {
+	for attempt := 0; unlimited || attempt <= maxRetries; attempt++ {
 		result, err, retryable := r.runModelTurnAttempt(ctx, agentID, runID, provider, model, systemPrompt, messages, toolSpecs, reasoningEffort, fastMode)
 		if err == nil {
 			return result, nil
 		}
 		lastErr = err
-		if ctx.Err() != nil || !retryable || attempt == maxRetries {
+		// Unlimited never exhausts its attempts, so only cancellation or a
+		// permanent error ends it. Stating that here rather than relying on
+		// attempt never reaching -1 keeps the exit visible next to the entry.
+		exhausted := !unlimited && attempt == maxRetries
+		if ctx.Err() != nil || !retryable || exhausted {
 			return result, err
 		}
 		backoff := modelRetryBackoff(attempt)

@@ -42,6 +42,11 @@ type Runner struct {
 	// and replaced wholesale when the setting changes.
 	retryPolicyMu             sync.RWMutex
 	nonRetryableErrorPatterns []string
+	// maxTransientRetriesSet distinguishes "set to 0" from "never set". Zero is a
+	// real choice here (no retry at all), so it cannot double as the empty value
+	// or saving it would silently fall back to the config default instead.
+	maxTransientRetries    int
+	maxTransientRetriesSet bool
 
 	dynamicToolsMu sync.RWMutex
 	toolSource     tools.ToolSource

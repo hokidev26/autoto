@@ -69,6 +69,59 @@ func isTransientProviderError(err error) bool {
 	return false
 }
 
+// unlimitedTransientRetries is the stored form of "keep trying". It matches the
+// -1 the execution budgets already use for a removed ceiling, so the settings
+// card has one sentinel rather than one per field.
+//
+// Zero keeps its own meaning: no retry at all. That is a deliberately different
+// state from unlimited, and tests rely on it to take the low-level retry out of
+// the way while they exercise the continuation loop above it.
+const unlimitedTransientRetries = -1
+
+// SetMaxTransientRetries replaces the live ceiling on retries of a transient
+// provider failure. Returns the value actually stored, so the caller reports what
+// took effect rather than what it sent.
+//
+// Held under the retry mutex next to the pattern list because the two are read
+// together on every provider failure, and a run must not see a half-applied
+// policy: a new ceiling with the old patterns retries the wrong errors.
+func (r *Runner) SetMaxTransientRetries(value int) int {
+	normalized := normalizeMaxTransientRetries(value)
+	if r == nil {
+		return normalized
+	}
+	r.retryPolicyMu.Lock()
+	r.maxTransientRetries = normalized
+	r.maxTransientRetriesSet = true
+	r.retryPolicyMu.Unlock()
+	return normalized
+}
+
+// MaxTransientRetries reports the live ceiling, falling back to the value frozen
+// into the runner's config when nothing has overridden it yet.
+func (r *Runner) MaxTransientRetries() int {
+	if r == nil {
+		return 0
+	}
+	r.retryPolicyMu.RLock()
+	value, ok := r.maxTransientRetries, r.maxTransientRetriesSet
+	r.retryPolicyMu.RUnlock()
+	if ok {
+		return value
+	}
+	return normalizeMaxTransientRetries(r.cfg.MaxTransientRetries)
+}
+
+// normalizeMaxTransientRetries collapses every negative number to the unlimited
+// sentinel. A client sending -5 means "no ceiling" as clearly as -1 does, and the
+// alternative is silently retrying five times less than never.
+func normalizeMaxTransientRetries(value int) int {
+	if value < 0 {
+		return unlimitedTransientRetries
+	}
+	return value
+}
+
 // SetNonRetryableErrorPatterns replaces the user-maintained permanent-error
 // list. Returns the normalized list actually stored so the caller can report
 // what took effect rather than what was sent.

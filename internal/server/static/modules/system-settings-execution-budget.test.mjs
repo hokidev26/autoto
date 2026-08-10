@@ -176,6 +176,7 @@ test("saving sends -1 for unlimited budgets, scaled minutes, and the segment cap
     maxRunTokens: -1,
     maxRunDurationMs: 5400000,
     maxContinuations: 12,
+    maxTransientRetries: -1,
   });
 });
 
@@ -247,5 +248,6 @@ test("儲存時送出的段輪次是使用者剛勾的不限制，不是持久�
     maxRunTokens: -1,
     maxRunDurationMs: -1,
     maxContinuations: -1,
+    maxTransientRetries: -1,
   });
 });

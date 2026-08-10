@@ -41,6 +41,14 @@ const executionBudgetFields = [
   { key: "maxRunTokens", id: "runtimeBudgetTokens", labelKey: "tokenBudget", unitKey: "tokensUnit", fallback: 2000000, min: 1000, max: 10000000, scale: 1 },
   { key: "maxRunDurationMs", id: "runtimeBudgetDurationMinutes", labelKey: "durationBudget", unitKey: "minutesUnit", fallback: 60, min: 1, max: 1440, scale: 60000 },
   { key: "maxContinuations", id: "runtimeBudgetContinuations", labelKey: "continuationsBudget", unitKey: "timesUnit", fallback: 8, min: 0, max: 64, scale: 1 },
+  // Retries live on the agent config rather than inside continuation, so this row
+  // reads its value from a sibling field. Everything else about it -- the
+  // unlimited toggle, the draft memory, the -1 wire form -- is the same as the
+  // budgets above, which is why it belongs in this table rather than hand-rolled.
+  //
+  // min 0 is meaningful and is not unlimited: it reports a transient provider
+  // failure on the first attempt. Unlimited is the checkbox.
+  { key: "maxTransientRetries", id: "runtimeBudgetTransientRetries", labelKey: "transientRetriesBudget", unitKey: "timesUnit", fallback: 10, min: 0, max: 64, scale: 1, source: "agent" },
 ];
 
 const defaultContinuationSegmentTurns = 40;
@@ -227,7 +235,7 @@ export function createSystemSettingsController({
         </div>
       </section>
       ${renderBackgroundTaskSettingsCard(summary.backgroundTasks)}
-      ${renderExecutionBudgetCard(agent.continuation || {})}
+      ${renderExecutionBudgetCard(agent.continuation || {}, agent)}
       ${renderRetryPolicyCard(agent.nonRetryableErrorPatterns)}
     </div>
   `;
@@ -297,7 +305,7 @@ export function createSystemSettingsController({
 
   // Budgets persist as -1 for "no ceiling". The checkbox owns that state so the
   // number input never has to represent a sentinel the user could mistype.
-  function renderExecutionBudgetCard(continuation) {
+  function renderExecutionBudgetCard(continuation, agent = {}) {
     const mode = String(continuation.mode || "off").toLowerCase() === "safe" ? "safe" : "off";
     // Raw, not coerced: -1 has to stay -1 so the total-turns floor knows the
     // segment cap is unlimited and imposes no minimum.
@@ -316,7 +324,11 @@ export function createSystemSettingsController({
           </select>
         </label>
         <div class="execution-budget-list">
-          ${executionBudgetFields.map((field) => renderExecutionBudgetField(field, continuation[field.key], segmentTurns)).join("")}
+          ${executionBudgetFields.map((field) => renderExecutionBudgetField(
+            field,
+            field.source === "agent" ? agent?.[field.key] : continuation[field.key],
+            segmentTurns,
+          )).join("")}
         </div>
         <div class="settings-action-row execution-budget-actions">
           <p data-settings-help-copy>${escapeHtml(t("systemSettings.runtimeResources.executionBudgetHelp"))}</p>

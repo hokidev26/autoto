@@ -16,6 +16,9 @@ type continuationSettingsRequest struct {
 	MaxTotalTurns    int64  `json:"maxTotalTurns"`
 	MaxRunDurationMs int64  `json:"maxRunDurationMs"`
 	MaxRunTokens     int64  `json:"maxRunTokens"`
+	// Pointer so an older client that omits the field keeps the stored value
+	// instead of resetting it to zero, which would silently mean "never retry".
+	MaxTransientRetries *int `json:"maxTransientRetries"`
 }
 
 func (s *Server) continuationSettingsEndpoint(w http.ResponseWriter, r *http.Request) {
@@ -29,6 +32,11 @@ func (s *Server) continuationSettingsEndpoint(w http.ResponseWriter, r *http.Req
 		return
 	}
 	settings, err := strictContinuationSettings(req)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	retries, retriesProvided, err := strictMaxTransientRetries(req.MaxTransientRetries)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
@@ -48,6 +56,9 @@ func (s *Server) continuationSettingsEndpoint(w http.ResponseWriter, r *http.Req
 	updated.Agent.MaxTotalTurns = int(settings.MaxTotalTurns)
 	updated.Agent.MaxRunDurationMs = settings.MaxRunDurationMs
 	updated.Agent.MaxRunTokens = settings.MaxRunTokens
+	if retriesProvided {
+		updated.Agent.MaxTransientRetries = retries
+	}
 	path := effectiveConfigPath(updated, configPath)
 	if strings.TrimSpace(path) == "" {
 		writeError(w, http.StatusInternalServerError, "continuation settings could not be persisted")
@@ -63,7 +74,17 @@ func (s *Server) continuationSettingsEndpoint(w http.ResponseWriter, r *http.Req
 	s.cfg = updated
 	s.cfgMu.Unlock()
 	applied := s.runner.SetContinuationSettings(settings)
-	writeJSON(w, http.StatusOK, map[string]any{"continuation": applied, "persisted": true})
+	// Applied to the live runner too, so the new ceiling covers the next turn
+	// rather than waiting for a restart to re-read the config.
+	appliedRetries := s.runner.MaxTransientRetries()
+	if retriesProvided {
+		appliedRetries = s.runner.SetMaxTransientRetries(retries)
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"continuation":        applied,
+		"maxTransientRetries": appliedRetries,
+		"persisted":           true,
+	})
 }
 
 type backgroundRuntimeSettingsRequest struct {
@@ -142,6 +163,28 @@ func strictBackgroundRuntimeSettings(req backgroundRuntimeSettingsRequest) (tool
 		return tools.BackgroundRuntimeSettings{}, invalidContinuationSetting("maxSubagentDepth must be between 2 and 4")
 	}
 	return settings, nil
+}
+
+// strictMaxTransientRetries validates the retry ceiling on the same terms as the
+// budgets beside it: -1 removes the ceiling, and any other negative number is an
+// error rather than a second spelling of unlimited. Reports whether the field was
+// present at all, so omitting it leaves the stored value alone.
+//
+// Zero is accepted and is not unlimited: it means a transient provider failure is
+// reported on the first attempt. The upper bound matches maxContinuations, since
+// both count repeats of work the user is waiting on.
+func strictMaxTransientRetries(value *int) (int, bool, error) {
+	if value == nil {
+		return 0, false, nil
+	}
+	retries := *value
+	if retries == int(unlimitedContinuationBudget) {
+		return retries, true, nil
+	}
+	if retries < 0 || retries > 64 {
+		return 0, false, invalidContinuationSetting("maxTransientRetries must be -1 (unlimited) or between 0 and 64")
+	}
+	return retries, true, nil
 }
 
 func strictContinuationSettings(req continuationSettingsRequest) (agent.ContinuationSettings, error) {
