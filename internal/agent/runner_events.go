@@ -249,14 +249,14 @@ func sanitizeToolActivityURL(value string) string {
 }
 
 func RedactToolActivityText(value string) string {
-	value = strings.ToValidUTF8(value, "�")
+	value = sanitizedToolText(value)
 	value = toolActivityBearerPattern.ReplaceAllString(value, "Bearer [redacted]")
 	value = toolActivitySecretAssignmentPattern.ReplaceAllString(value, `${1}[redacted]`)
 	return toolActivitySensitiveQueryPattern.ReplaceAllString(value, `${1}[redacted]`)
 }
 
 func boundedToolEventString(value string, limit int) (string, bool) {
-	value = strings.ToValidUTF8(value, "�")
+	value = sanitizedToolText(value)
 	if len(value) <= limit {
 		return value, false
 	}
@@ -274,8 +274,29 @@ func normalizedExecutionDeviceID(executionDeviceID string) string {
 	return executionDeviceID
 }
 
+// sanitizedToolText makes arbitrary child-process output safe to persist. The
+// trusted store accepts valid UTF-8 with no NUL, and ToValidUTF8 alone does not
+// satisfy that: U+0000 is a legal code point, so it survives repair untouched.
+//
+// A UTF-16 writer is the common source. Every ASCII character it emits carries a
+// trailing zero byte, so a single such command used to fill the preview with NUL,
+// the store rejected the row, and the whole run died on the tool ledger write
+// instead of merely losing a readable preview.
+//
+// NUL is dropped rather than replaced. Substituting U+FFFD for each one would
+// triple the byte count of UTF-16 output while adding nothing readable, and the
+// digest and byte count are taken from the untouched output, so audit fidelity
+// does not depend on what the preview keeps.
+func sanitizedToolText(value string) string {
+	value = strings.ToValidUTF8(value, "\ufffd")
+	if !strings.ContainsRune(value, 0) {
+		return value
+	}
+	return strings.ReplaceAll(value, "\x00", "")
+}
+
 func boundedToolResultPreview(output string) (string, bool) {
-	output = strings.ToValidUTF8(output, "�")
+	output = sanitizedToolText(output)
 	if len(output) <= maxToolResultPreviewBytes {
 		return output, false
 	}

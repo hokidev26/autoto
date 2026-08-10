@@ -92,6 +92,17 @@ export function withDelegatedActivitySuffix(activity, backgroundTasks, translate
   return { ...activity, text: `${activity.text} · ${suffix}` };
 }
 
+// contextCompactingForAgent reports whether the compaction notice belongs to the
+// conversation on screen. A string value is an agent id and must match; anything
+// else truthy is treated as unscoped.
+export function contextCompactingForAgent(state) {
+  const flag = state?.contextCompacting;
+  if (!flag) return false;
+  if (typeof flag !== "string") return true;
+  const current = String(state?.agent?.id || "");
+  return current !== "" && flag === current;
+}
+
 export function resolveComposerActivityStatus(state, translate = t) {
   const approvals = Object.values(state?.pendingToolApprovals || {}).filter(Boolean);
   if (approvals.length) {
@@ -107,7 +118,14 @@ export function resolveComposerActivityStatus(state, translate = t) {
   // Compaction calls a summary model and can take seconds. It outranks the tool
   // and thinking states because it happens *instead of* progress on the turn:
   // reporting "thinking" there is what made it look like an unexplained stall.
-  if (state?.contextCompacting) {
+  //
+  // The flag carries the agent it belongs to, because a manual compaction has no
+  // run behind it: nothing reaches a terminal state afterwards to clear a stray
+  // value. An unscoped boolean therefore survived switching conversations and
+  // left an unrelated composer claiming it was still compacting. A non-string
+  // truthy value stays agent-agnostic so a caller that only knows "compacting"
+  // still works.
+  if (contextCompactingForAgent(state)) {
     return { kind: "compacting", text: translate("chat.activity.compacting") };
   }
 

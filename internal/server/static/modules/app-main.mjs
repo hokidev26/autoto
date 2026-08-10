@@ -1945,11 +1945,23 @@ function renderConversationDetails() {
     <section class="conversation-detail-table">${rows.map(([label, value, copy]) => `<div class="conversation-detail-row"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong>${copy && value !== "—" ? `<button type="button" data-copy-detail="${escapeAttr(value)}">${escapeHtml(t("workspace.chat.copy"))}</button>` : ""}</div>`).join("")}</section>
     <button class="legacy-secondary-btn conversation-runtime-link" type="button" data-details-runtime>${escapeHtml(sx("app.viewRuntime"))}</button>
   `);
-  body.querySelectorAll("[data-copy-detail]").forEach((node) => node.addEventListener("click", () => copyText(node.dataset.copyDetail)));
-  body.querySelector("[data-details-runtime]")?.addEventListener("click", () => {
-    closeConversationDetails();
-    openSettingsModal("runtime");
+  // setHTMLIfChanged leaves the DOM alone when the markup is identical, and this
+  // panel re-renders on every background-task change while it is open. Binding
+  // unconditionally therefore stacked a second listener on surviving buttons, so
+  // one click copied twice and raised two toasts. Mark the binding instead, the
+  // same way the streamed code-block buttons do.
+  body.querySelectorAll("[data-copy-detail]:not([data-copy-bound])").forEach((node) => {
+    node.dataset.copyBound = "1";
+    node.addEventListener("click", () => copyText(node.dataset.copyDetail));
   });
+  const runtimeLink = body.querySelector("[data-details-runtime]:not([data-runtime-bound])");
+  if (runtimeLink) {
+    runtimeLink.dataset.runtimeBound = "1";
+    runtimeLink.addEventListener("click", () => {
+      closeConversationDetails();
+      openSettingsModal("runtime");
+    });
+  }
 }
 
 function openConversationDetails() {
@@ -3769,6 +3781,12 @@ async function applyAgentLiveSnapshot(snapshot, detail = {}) {
   const nextAgent = snapshot.agent;
   const nextWorkState = normalizeWorkStateSnapshot(snapshot);
   state.agent = nextAgent;
+  // A snapshot is the authoritative server state, and neither of these is part of
+  // it: both are local guesses driven purely by live events. Keeping them across a
+  // resync is what let a dropped compaction_finished or retry-cleared event pin the
+  // composer to a status the server no longer reports.
+  state.contextCompacting = false;
+  state.providerRetry = null;
   contextManagement.applyStatus(snapshot.context || {}, { agentId });
   state.workState = nextWorkState;
   backgroundTasks.applySnapshot(snapshot, { agentId });
@@ -3828,6 +3846,11 @@ async function handleAgentStreamEvent(event) {
   applyPlanEvent(event);
   if (event.type === "context.updated") {
     const contextUpdate = event.data?.context || event.data?.status || event.data || {};
+    // A compacted context.updated is the server saying the work landed, and it is
+    // the only completion signal the manual endpoint sends on the path that
+    // rewrites the summary. Treating it as terminal means a lost or filtered
+    // compaction_finished cannot leave the notice spinning after the fact.
+    if (contextUpdate.compacted || event.data?.compacted) state.contextCompacting = false;
     if (Number.isInteger(Number(contextUpdate.entityGeneration))) {
       state.agent = {
         ...state.agent,
@@ -3885,7 +3908,10 @@ async function handleAgentStreamEvent(event) {
     })}\n`);
   }
   if (event.type === "context.compaction_started") {
-    state.contextCompacting = true;
+    // Scoped to the agent, so switching conversations cannot leave an unrelated
+    // composer stuck on "compacting". A manual compaction has no run behind it,
+    // so no terminal agent event arrives later to clear a stray flag.
+    state.contextCompacting = event.agentId || agentId || true;
     refreshComposerActivityStatus();
   }
   if (event.type === "context.compaction_finished") {

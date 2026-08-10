@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -178,8 +179,60 @@ func fitTurnSystemControls(systemPrompt string, conversation []providers.Message
 	return fitted, nil
 }
 
+// ErrContextTokenBudget marks a turn that cannot be made to fit its context
+// window. It is a sentinel rather than a text match so callers can annotate or
+// classify the failure without depending on the message wording.
+var ErrContextTokenBudget = errors.New("context token budget exceeded")
+
 func errorsContextBudget(limit, estimated int) error {
-	return fmt.Errorf("context token budget exceeded: estimated %d tokens exceeds limit %d", estimated, limit)
+	return fmt.Errorf("%w: estimated %d tokens exceeds limit %d", ErrContextTokenBudget, estimated, limit)
+}
+
+// contextLimitOrigin records which rule produced the window a turn was measured
+// against.
+type contextLimitOrigin string
+
+const (
+	// contextLimitOriginModel is an explicit per-model contextTokenLimit.
+	contextLimitOriginModel contextLimitOrigin = "model"
+	// contextLimitOriginProtocol is the provider adapter's protocol default,
+	// reached only when the model carries no configured limit.
+	contextLimitOriginProtocol contextLimitOrigin = "protocol"
+	// contextLimitOriginServer is the server-wide agent.contextTokenLimit.
+	contextLimitOriginServer contextLimitOrigin = "server"
+	// contextLimitOriginDefault is the compiled-in floor.
+	contextLimitOriginDefault contextLimitOrigin = "builtin"
+)
+
+// describeContextLimit explains a window in the terms the user can act on. The
+// protocol and floor cases name the setting to change, because those are the two
+// that surprise a user who believes they configured a larger window: a limit that
+// was never saved, or saved against a different model name, reads back as the
+// adapter's own default rather than as a missing value.
+func describeContextLimit(model string, origin contextLimitOrigin) string {
+	model = strings.TrimSpace(model)
+	if model == "" {
+		model = "(unset)"
+	}
+	switch origin {
+	case contextLimitOriginModel:
+		return fmt.Sprintf("model %q, from its configured per-model context limit", model)
+	case contextLimitOriginProtocol:
+		return fmt.Sprintf("model %q, from the provider protocol default because no per-model context limit is configured; set one in provider settings if this model's real window is larger", model)
+	case contextLimitOriginServer:
+		return fmt.Sprintf("model %q, from the server-wide agent context token limit because the provider reports no window for it", model)
+	default:
+		return fmt.Sprintf("model %q, from the built-in fallback limit", model)
+	}
+}
+
+// annotateContextBudgetError appends the limit's provenance to a budget failure
+// and leaves every other error untouched.
+func annotateContextBudgetError(err error, model string, origin contextLimitOrigin) error {
+	if err == nil || !errors.Is(err, ErrContextTokenBudget) {
+		return err
+	}
+	return fmt.Errorf("%w (%s)", err, describeContextLimit(model, origin))
 }
 
 func appendProviderMessages(base, suffix []providers.Message) []providers.Message {
