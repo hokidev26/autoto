@@ -85,9 +85,14 @@ func (r *Runner) runModelTurnAttempt(ctx context.Context, agentID, runID string,
 	if !capabilities.Tools {
 		requestTools = nil
 	}
-	if limit := r.contextTokenLimit(model); limit > 0 {
+	// Ask about the window using the provider this turn is actually calling. The
+	// bare model name alone would resolve to the default provider and measure the
+	// turn against that adapter's protocol default instead of this model's
+	// configured limit.
+	qualifiedModel := modelWithProvider(provider.Name(), model)
+	if limit, origin := r.contextTokenLimitWithOrigin(qualifiedModel); limit > 0 {
 		if estimated := estimateRequestTokens(systemPrompt, requestMessages, requestTools); estimated > limit {
-			return modelTurnResult{}, errorsContextBudget(limit, estimated), false
+			return modelTurnResult{}, annotateContextBudgetError(errorsContextBudget(limit, estimated), qualifiedModel, origin), false
 		}
 	}
 	request := providers.GenerateRequest{Model: model, SystemPrompt: systemPrompt, Messages: requestMessages, Tools: requestTools, ReasoningEffort: reasoningEffort, FastMode: fastModeAllowed, EnableImageGeneration: capabilities.ImageGeneration && modelCapabilities.ImageGeneration, Scenario: providers.CallScenarioInternal}

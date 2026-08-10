@@ -255,7 +255,7 @@ func (r *Runner) managedContextForTurn(ctx context.Context, agent db.Agent, mess
 		result = append(result, conversation...)
 		return result
 	}
-	limit := r.contextTokenLimit(agent.Model)
+	limit, limitOrigin := r.contextTokenLimitWithOrigin(agent.Model)
 	preferredControls := controls.preferredMessages()
 	preferredRequest := appendProviderMessages(withPrefix(providerMessages), preferredControls)
 	initialEstimate := estimateRequestTokens(agent.SystemPrompt, preferredRequest, toolSpecs)
@@ -327,35 +327,67 @@ func (r *Runner) managedContextForTurn(ctx context.Context, agent db.Agent, mess
 	providerMessages = compactConversationForBudget(agent.SystemPrompt, withPrefix(providerMessages), toolSpecs, limit, controls.requiredMessages())
 	fittedControls, err := fitTurnSystemControls(agent.SystemPrompt, providerMessages, toolSpecs, limit, controls)
 	if err != nil {
-		return nil, agent, err
+		return nil, agent, annotateContextBudgetError(err, agent.Model, limitOrigin)
 	}
 	return appendProviderMessages(providerMessages, fittedControls), agent, nil
 }
 
 func (r *Runner) contextTokenLimit(model string) int {
+	limit, _ := r.contextTokenLimitWithOrigin(model)
+	return limit
+}
+
+// modelWithProvider re-attaches the provider a model was already resolved
+// against. The run path splits agent.Model into a provider and a bare model name
+// and then carries them separately, so asking about a window with the bare name
+// alone re-enters resolution with nothing to key on and lands on the default
+// provider. That adapter has no limit configured for another vendor's model, so
+// its protocol default answers instead, and a turn is measured against a window
+// that belongs to a provider it is not calling.
+func modelWithProvider(providerName, model string) string {
+	providerName = strings.TrimSpace(providerName)
+	model = strings.TrimSpace(model)
+	if providerName == "" || model == "" {
+		return model
+	}
+	// Already qualified, including the aggregate prefix, which is its own rule.
+	if existing, _ := providers.SplitModel(model); existing != "" {
+		return model
+	}
+	return providerName + ":" + model
+}
+
+// contextTokenLimitWithOrigin also reports where the limit came from. A run that
+// dies on the window is otherwise indistinguishable from one the user configured
+// that way: the number alone cannot tell "your provider has no per-model limit,
+// so this is the protocol default" apart from "this is the limit you set", and
+// those two have opposite fixes.
+func (r *Runner) contextTokenLimitWithOrigin(model string) (int, contextLimitOrigin) {
 	globalLimit := defaultContextTokenLimit
+	globalOrigin := contextLimitOriginDefault
 	if r != nil && r.cfg.ContextTokenLimit > 0 {
 		globalLimit = r.cfg.ContextTokenLimit
+		globalOrigin = contextLimitOriginServer
 	}
 	model = strings.TrimSpace(model)
 	providerName, _ := providers.SplitModel(model)
 	if r == nil || r.providers == nil || strings.EqualFold(providerName, "aggregate") || strings.HasPrefix(strings.ToLower(model), "aggregate:") {
-		return globalLimit
+		return globalLimit, globalOrigin
 	}
 	provider, resolvedModel, err := r.providers.Resolve(model)
 	if err != nil || provider == nil || strings.EqualFold(strings.TrimSpace(provider.Name()), "aggregate") {
-		return globalLimit
+		return globalLimit, globalOrigin
 	}
 	if limit := providers.ModelCapabilitiesFor(provider, resolvedModel).ContextTokenLimit; limit > 0 {
-		return limit
+		return limit, contextLimitOriginModel
 	}
 	// Use the provider's protocol-level default before the global 120 000-token floor.
 	if p, ok := provider.(providers.DefaultContextTokenLimitProvider); ok {
 		if def := p.DefaultContextTokenLimit(); def > 0 {
-			return def
+			return def, contextLimitOriginProtocol
 		}
 	}
-	return globalLimit
+	return globalLimit, globalOrigin
 }
 
 func providerMessagesForContext(agent db.Agent, messages []db.Message) []providers.Message {
