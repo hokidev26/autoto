@@ -3079,6 +3079,31 @@ export function createChatRenderingController({
     // the whole backlog and rendered it as a bare "N steps of reasoning" row
     // beside the turn that actually did the work. Only the run's first assistant
     // turn may claim them.
+    // When a step names a turn that is not on screen, the run it belongs to is
+    // known and so is when that turn was saved, so it can be placed the same way
+    // an unowned tool call is: under the last visible turn at or before it. Those
+    // invisible turns are the tool rounds, and they hold most of a run's thinking,
+    // so handing all of them to the run's first visible turn is what made one row
+    // read "3 步推理" while the rounds beside it showed one step each.
+    //
+    // Read from state.currentMessages rather than the visible subset, because the
+    // turns being located are precisely the ones filtered out of it.
+    const invisibleTurnCreatedAt = new Map();
+    for (const message of Array.isArray(state.currentMessages) ? state.currentMessages : []) {
+      const id = String(message?.id || "");
+      if (!id || knownIds.has(id)) continue;
+      invisibleTurnCreatedAt.set(id, String(message?.createdAt || message?.created_at || ""));
+    }
+    const visibleTurnsByRun = visibleAssistantTurnsByRun(messages);
+    // The visible turn a step stamped to an invisible turn belongs under, or ""
+    // when the step is not that case and the existing orphan rules apply.
+    const adoptStampedStep = (step, messageRunId) => {
+      const stepOwner = String(step?.messageId || "");
+      if (!stepOwner || knownIds.has(stepOwner)) return "";
+      const createdAt = invisibleTurnCreatedAt.get(stepOwner);
+      if (createdAt === undefined) return "";
+      return adoptingTurnForActivity(visibleTurnsByRun.get(messageRunId) || [], createdAt);
+    };
     const firstAssistantTurnByRun = new Map();
     for (const message of messages) {
       if (chatMessagePresentation(message).normalizedRole !== "assistant") continue;
@@ -3141,6 +3166,7 @@ export function createChatRenderingController({
         : currentLiveReasoningSteps(messageRunId, messageId, {
           claimOrphans: firstAssistantTurnByRun.get(messageRunId) === messageId,
           visibleIds: knownIds,
+          adoptStampedStep,
         });
       // This turn's own stack first, then any earlier run this message anchors.
       const rendered = [];
@@ -3589,12 +3615,25 @@ export function createChatRenderingController({
     // covers a run with no visible turn yet.
     const claimOrphans = options.claimOrphans === true;
     const visibleIds = options.visibleIds instanceof Set ? options.visibleIds : null;
+    // Placement for a step stamped to a turn that is not on screen. Those turns
+    // are the run's tool rounds and they carry most of its thinking, so spreading
+    // them over the visible turns by time is what keeps each row's step count
+    // describing its own round. Returns "" when the step is some other case, which
+    // leaves the rules below in charge.
+    const adoptStampedStep = typeof options.adoptStampedStep === "function" ? options.adoptStampedStep : null;
     const steps = (Array.isArray(state.liveReasoningSteps) ? state.liveReasoningSteps : [])
       .filter((step) => !expected || !step.runId || step.runId === expected)
       .filter((step) => {
         if (!owner) return true;
         const stepOwner = String(step?.messageId || "");
         if (stepOwner === owner) return true;
+        if (adoptStampedStep) {
+          const adopter = adoptStampedStep(step, expected);
+          // Only decides steps it recognises. An unstamped step returns "" and
+          // stays with the run-anchor rule, which is what keeps a backlog that
+          // precedes every saved turn off the later turns entirely.
+          if (adopter) return adopter === owner;
+        }
         return claimOrphans && liveReasoningStepIsOrphan(step, visibleIds);
       });
     const draft = state.liveReasoningDraft;
