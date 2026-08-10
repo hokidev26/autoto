@@ -409,7 +409,10 @@ export function createChatComposerController({
   function serverDraftState(agentId = state.agent?.id) {
     if (!state.serverDrafts || typeof state.serverDrafts !== "object") state.serverDrafts = {};
     if (!agentId) return null;
-    if (!state.serverDrafts[agentId]) state.serverDrafts[agentId] = { enabled: false, version: 0, seq: 0, timer: null };
+    // epoch rises every time the draft is cleared. A save that was already in
+    // flight when the message went out belongs to the previous epoch and must not
+    // be allowed to write, or it restores the text the user just sent.
+    if (!state.serverDrafts[agentId]) state.serverDrafts[agentId] = { enabled: false, version: 0, seq: 0, timer: null, epoch: 0 };
     return state.serverDrafts[agentId];
   }
 
@@ -430,13 +433,17 @@ export function createChatComposerController({
     writeChatDrafts(drafts);
   }
 
-  async function persistServerDraft(agentId, value) {
+  async function persistServerDraft(agentId, value, epoch) {
     const draftState = serverDraftState(agentId);
     if (!draftState?.enabled) return;
+    // The send already deleted this draft, so writing now would put the sent text
+    // back on the server and hand it to the composer on the next restore.
+    if (epoch !== undefined && draftState.epoch !== epoch) return;
     const result = await api(`/api/agents/${agentId}/draft`, {
       method: "PUT",
       body: JSON.stringify({ text: truncateChatDraft(value).text, version: draftState.version }),
     });
+    if (draftState.epoch !== epoch && epoch !== undefined) return;
     if (state.agent?.id === agentId) draftState.version = Number(result?.version || draftState.version + 1);
   }
 
@@ -444,17 +451,26 @@ export function createChatComposerController({
     const draftState = serverDraftState(agentId);
     if (!draftState?.enabled) return;
     window.clearTimeout(draftState.timer);
+    const epoch = draftState.epoch;
     draftState.timer = window.setTimeout(() => {
-      persistServerDraft(agentId, value).catch(async (error) => {
-        if (error?.status === 409) {
+      persistServerDraft(agentId, value, epoch).catch(async (error) => {
+        // A 409 means someone else moved the draft on. Re-reading the version and
+        // writing again is right for a genuine conflict between two editors, but
+        // not when the conflict is our own send having just deleted the draft:
+        // that retry is what resurrected the sent message in the composer. The
+        // epoch separates the two cases.
+        if (error?.status === 409 && draftState.epoch === epoch) {
           try {
             const latest = await api(`/api/agents/${agentId}/draft`);
+            if (draftState.epoch !== epoch) return;
             draftState.version = Number(latest?.version || 0);
-            await persistServerDraft(agentId, value);
+            await persistServerDraft(agentId, value, epoch);
             return;
           } catch (retryError) {
             error = retryError;
           }
+        } else if (error?.status === 409) {
+          return;
         }
         notifyTerminal?.(`[warn] 私有草稿保存失败：${error?.message || error}\n`);
       });
@@ -509,8 +525,16 @@ export function createChatComposerController({
     const draftState = serverDraftState(agentId);
     if (agentId && draftState?.enabled) {
       window.clearTimeout(draftState.timer);
+      // Retiring the epoch cancels a save that is already on the wire as well as
+      // one still waiting on the debounce. Clearing the timer alone only covered
+      // the second, which is why sending inside the 400ms debounce window left the
+      // message sitting in the composer afterwards.
+      draftState.epoch += 1;
       draftState.version = 0;
       api(`/api/agents/${agentId}/draft`, { method: "DELETE" }).catch(() => {});
+      // The local fallback is also cleared: a draft saved before the server route
+      // was known to work would otherwise survive the send.
+      saveChatDraftForKey(key, "");
       return;
     }
     saveChatDraftForKey(key, "");
