@@ -84,9 +84,9 @@ func TestTemporaryTunnelManagerStartsAndStopsWithFakeProcess(t *testing.T) {
 	var commandArgs []string
 	manager := newTemporaryTunnelManager("127.0.0.1:7788", temporaryTunnelOptions{
 		lookPath: func(string) (string, error) { return "/fake/cloudflared", nil },
-		command: func(_ context.Context, name string, args ...string) temporaryTunnelProcess {
+		command: func(_ context.Context, name string, spec temporaryTunnelSpec) temporaryTunnelProcess {
 			commandName = name
-			commandArgs = append([]string(nil), args...)
+			commandArgs = append([]string(nil), spec.Args...)
 			return process
 		},
 		startTimeout: time.Second,
@@ -119,7 +119,7 @@ func TestTemporaryTunnelManagerTimesOutAndCleansUp(t *testing.T) {
 	process := newFakeTemporaryTunnelProcess()
 	manager := newTemporaryTunnelManager("127.0.0.1:7788", temporaryTunnelOptions{
 		lookPath: func(string) (string, error) { return "/fake/cloudflared", nil },
-		command: func(context.Context, string, ...string) temporaryTunnelProcess {
+		command: func(context.Context, string, temporaryTunnelSpec) temporaryTunnelProcess {
 			return processWithoutURL{fakeTemporaryTunnelProcess: process}
 		},
 		startTimeout: 15 * time.Millisecond,

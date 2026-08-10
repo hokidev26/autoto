@@ -373,7 +373,7 @@ func TestTemporaryTunnelManagerInstallsThenStartsManagedBinary(t *testing.T) {
 	manager := newTemporaryTunnelManager("127.0.0.1:7788", temporaryTunnelOptions{
 		lookPath:  func(string) (string, error) { return "", errors.New("not found") },
 		installer: installer,
-		command: func(_ context.Context, name string, _ ...string) temporaryTunnelProcess {
+		command: func(_ context.Context, name string, _ temporaryTunnelSpec) temporaryTunnelProcess {
 			commandName = name
 			return process
 		},

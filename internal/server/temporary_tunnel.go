@@ -16,7 +16,9 @@ import (
 	"sync"
 	"time"
 
+	"autoto/internal/config"
 	"autoto/internal/process"
+	"autoto/internal/secrets"
 )
 
 const (
@@ -32,6 +34,18 @@ const (
 
 var cloudflareQuickTunnelURL = regexp.MustCompile(`https://[a-z0-9][a-z0-9-]*\.trycloudflare\.com(?:/[^\s"'<>]*)?`)
 
+// cloudflareNamedTunnelReady matches the line cloudflared logs once an edge
+// connection is live. A named tunnel never prints a public URL, because its
+// hostname was chosen in advance, so this is the only available readiness
+// signal. Waiting for it rather than assuming success keeps a failed tunnel
+// from being reported as running.
+var cloudflareNamedTunnelReady = regexp.MustCompile(`Registered tunnel connection`)
+
+const (
+	temporaryTunnelModeQuick = "quick"
+	temporaryTunnelModeNamed = "named"
+)
+
 type TemporaryTunnelSnapshot struct {
 	Available   bool   `json:"available"`
 	Installable bool   `json:"installable"`
@@ -39,6 +53,14 @@ type TemporaryTunnelSnapshot struct {
 	PublicURL   string `json:"publicUrl,omitempty"`
 	Error       string `json:"error,omitempty"`
 	StartedAt   string `json:"startedAt,omitempty"`
+	// Mode tells the client which kind of tunnel this is. The two behave
+	// differently enough to matter: a quick tunnel's URL changes on every start
+	// and carries no uptime guarantee, a named tunnel's hostname is stable.
+	Mode string `json:"mode"`
+	// NamedConfigured reports whether a named tunnel could be started. It is
+	// derived from configuration, never from the token value, so it is safe to
+	// return to a client.
+	NamedConfigured bool `json:"namedConfigured"`
 }
 
 type temporaryTunnelProcess interface {
@@ -50,8 +72,44 @@ type temporaryTunnelProcess interface {
 	Kill() error
 }
 
-type temporaryTunnelCommand func(context.Context, string, ...string) temporaryTunnelProcess
+// temporaryTunnelSpec is the full description of the child process. Environment
+// is part of the spec rather than a separate argument because the named tunnel
+// token must travel in the environment: process listings on every supported
+// platform expose argv, so a token passed as --token would be readable by any
+// local process.
+type temporaryTunnelSpec struct {
+	Args []string
+	// Env holds additional KEY=VALUE entries merged over the parent environment.
+	// It may contain credential material and must never be logged or surfaced.
+	Env []string
+}
+
+type temporaryTunnelCommand func(context.Context, string, temporaryTunnelSpec) temporaryTunnelProcess
 type temporaryTunnelLookPath func(string) (string, error)
+
+// namedTunnelSettings is the manager's view of the configured named tunnel. The
+// token is resolved fresh at start time rather than cached, so rotating the
+// environment value takes effect on the next start without a restart.
+type namedTunnelSettings struct {
+	Hostname string
+	Token    string
+}
+
+// temporaryTunnelNamedResolver reports the named tunnel to start. Returning a
+// zero value with no error means none is configured, which selects the quick
+// tunnel instead. An error means a named tunnel was configured but unusable,
+// and that must fail the start rather than silently downgrade: falling back to
+// a quick tunnel would publish a different, unexpected hostname.
+//
+// This runs only at start time. It resolves credential material, so it is
+// deliberately not called on the status path, which is polled.
+type temporaryTunnelNamedResolver func(context.Context) (namedTunnelSettings, error)
+
+// temporaryTunnelNamedProbe reports whether a named tunnel is configured without
+// resolving its token. Status is polled frequently, and a probe that touched the
+// environment on every poll would turn a display concern into repeated credential
+// access.
+type temporaryTunnelNamedProbe func() bool
 
 // temporaryTunnelAddressResolver reports the address a tunnel should point at.
 // An empty return means there is nothing listening yet, which is a refusal to
@@ -64,6 +122,8 @@ type temporaryTunnelOptions struct {
 	installer       temporaryTunnelInstaller
 	startTimeout    time.Duration
 	addressResolver temporaryTunnelAddressResolver
+	namedResolver   temporaryTunnelNamedResolver
+	namedProbe      temporaryTunnelNamedProbe
 }
 
 type execTemporaryTunnelProcess struct {
@@ -100,10 +160,113 @@ func (p *execTemporaryTunnelProcess) Kill() error {
 	return p.command.Process.Kill()
 }
 
-func defaultTemporaryTunnelCommand(ctx context.Context, name string, args ...string) temporaryTunnelProcess {
-	command := exec.CommandContext(ctx, name, args...)
+// resolveNamedTunnel asks the resolver for a named tunnel and validates what it
+// returns. A resolver that reports a hostname without a token, or the reverse,
+// is a bug rather than a configuration state, and starting on it would either
+// publish nothing or authenticate as the wrong tunnel.
+func resolveNamedTunnel(ctx context.Context, resolver temporaryTunnelNamedResolver) (namedTunnelSettings, error) {
+	if resolver == nil {
+		return namedTunnelSettings{}, nil
+	}
+	named, err := resolver(ctx)
+	if err != nil {
+		return namedTunnelSettings{}, err
+	}
+	named.Hostname = strings.TrimSpace(named.Hostname)
+	named.Token = strings.TrimSpace(named.Token)
+	if named.Hostname == "" && named.Token == "" {
+		return namedTunnelSettings{}, nil
+	}
+	if named.Hostname == "" || named.Token == "" {
+		// The error text deliberately names neither value.
+		return namedTunnelSettings{}, errors.New("named tunnel is incompletely configured")
+	}
+	return named, nil
+}
+
+// AttachNamedTunnel connects a manager to live named-tunnel configuration.
+//
+// select must read from the server's current configuration rather than from a
+// captured copy. Configuration is held by value in several places, so a closure
+// over one of those copies would keep resolving the hostname and token reference
+// that were present at wiring time and silently ignore every later edit.
+//
+// The token is resolved from the environment at start time and handed straight to
+// the child process. It is never stored on the manager, so it cannot be read back
+// out through a snapshot or leak into a later start, and rotating the environment
+// value takes effect on the next start without restarting Autoto.
+func (s *Server) AttachNamedTunnel(manager *TemporaryTunnelManager, selectTunnel func(config.Config) config.NamedTunnelConfig) {
+	if s == nil || manager == nil || selectTunnel == nil {
+		return
+	}
+	load := func() config.NamedTunnelConfig { return selectTunnel(s.configSnapshot()) }
+	attachNamedTunnel(manager, load)
+}
+
+func attachNamedTunnel(manager *TemporaryTunnelManager, load func() config.NamedTunnelConfig) {
+	if manager == nil || load == nil {
+		return
+	}
+	resolver := func(ctx context.Context) (namedTunnelSettings, error) {
+		settings := load()
+		if !settings.Configured() {
+			return namedTunnelSettings{}, nil
+		}
+		// ResolveString validates the reference and resolves it without ever
+		// including the resolved value in an error.
+		token, err := secrets.ResolveString(ctx, secrets.EnvResolver{}, settings.TokenRef)
+		if err != nil {
+			return namedTunnelSettings{}, fmt.Errorf("named tunnel token is unavailable: %w", err)
+		}
+		if strings.TrimSpace(token) == "" {
+			return namedTunnelSettings{}, errors.New("named tunnel token is empty")
+		}
+		return namedTunnelSettings{Hostname: settings.Hostname, Token: token}, nil
+	}
+	// The probe reads configuration only. Status is polled, and resolving a
+	// credential on every poll would be unnecessary access to secret material.
+	probe := func() bool { return load().Configured() }
+	manager.SetNamedTunnelResolver(resolver, probe)
+}
+
+// namedPublicURL builds the origin a named tunnel will serve. cloudflared only
+// terminates TLS at the Cloudflare edge, so the public scheme is always https
+// regardless of the plaintext hop to the local listener.
+func namedPublicURL(named namedTunnelSettings) string {
+	if named.Hostname == "" {
+		return ""
+	}
+	return "https://" + named.Hostname
+}
+
+// temporaryTunnelProcessSpec builds the cloudflared invocation for either mode.
+//
+// Two decisions are load-bearing:
+//
+//   - --config os.DevNull is kept for both modes. It isolates the child from any
+//     cloudflared configuration already on the machine, so a stray local config
+//     cannot redirect Autoto's tunnel somewhere else.
+//   - --url is always passed. Without it a token-run tunnel takes its ingress
+//     from the dashboard, and if no ingress rule exists cloudflared answers every
+//     request with 503 while still reporting a healthy connection.
+//
+// The token goes in the environment via TUNNEL_TOKEN, never argv, because argv is
+// world-readable through process listings.
+func temporaryTunnelProcessSpec(port int, named namedTunnelSettings) temporaryTunnelSpec {
+	args := []string{"--config", os.DevNull, "tunnel", "--no-autoupdate"}
+	if named.Hostname != "" {
+		// "run" with no tunnel argument uses the token from the environment.
+		args = append(args, "run", "--url", "http://127.0.0.1:"+strconv.Itoa(port))
+		return temporaryTunnelSpec{Args: args, Env: []string{"TUNNEL_TOKEN=" + named.Token}}
+	}
+	return temporaryTunnelSpec{Args: append(args, "--url", "http://127.0.0.1:"+strconv.Itoa(port))}
+}
+
+func defaultTemporaryTunnelCommand(ctx context.Context, name string, spec temporaryTunnelSpec) temporaryTunnelProcess {
+	command := exec.CommandContext(ctx, name, spec.Args...)
 	process.HideWindow(command)
 	command.Env = append(os.Environ(), "NO_COLOR=1")
+	command.Env = append(command.Env, spec.Env...)
 	return &execTemporaryTunnelProcess{command: command}
 }
 
@@ -114,6 +277,12 @@ type temporaryTunnelProcessState struct {
 	url           chan string
 	stopRequested bool
 }
+
+// ready reports the channel that signals a usable tunnel. Both modes converge on
+// the same channel so the start path has a single wait: a quick tunnel sends the
+// scraped URL, a named tunnel sends its configured hostname once an edge
+// connection registers.
+func (s *temporaryTunnelProcessState) ready() <-chan string { return s.url }
 
 type TemporaryTunnelManager struct {
 	mu sync.Mutex
@@ -139,10 +308,26 @@ type TemporaryTunnelManager struct {
 	command        temporaryTunnelCommand
 	installer      temporaryTunnelInstaller
 	startTimeout   time.Duration
+	namedResolver  temporaryTunnelNamedResolver
+	namedProbe     temporaryTunnelNamedProbe
+	// mode records which kind of tunnel is running or last ran. It is reported to
+	// clients so a stable named hostname is not mistaken for a throwaway one.
+	mode string
 }
 
 func NewTemporaryTunnelManager(bindAddress, homeDir string) *TemporaryTunnelManager {
 	return newTemporaryTunnelManager(bindAddress, temporaryTunnelOptions{installer: newGitHubCloudflaredInstaller(homeDir)})
+}
+
+// SetNamedTunnelResolver installs the named tunnel lookup. It is separate from
+// construction because configuration is loaded after the managers are built, and
+// because the resolver reads live configuration on every start so a rotated
+// token or a changed hostname applies without restarting Autoto.
+func (m *TemporaryTunnelManager) SetNamedTunnelResolver(resolver temporaryTunnelNamedResolver, probe temporaryTunnelNamedProbe) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.namedResolver = resolver
+	m.namedProbe = probe
 }
 
 // NewResolvedTunnelManager builds a manager whose target is resolved each time
@@ -177,6 +362,9 @@ func newTemporaryTunnelManager(bindAddress string, options temporaryTunnelOption
 		installer:       options.installer,
 		startTimeout:    timeout,
 		status:          temporaryTunnelUnavailable,
+		namedResolver:   options.namedResolver,
+		namedProbe:      options.namedProbe,
+		mode:            temporaryTunnelModeQuick,
 	}
 	manager.refreshAvailabilityLocked()
 	return manager
@@ -302,7 +490,15 @@ func (m *TemporaryTunnelManager) snapshotLocked() TemporaryTunnelSnapshot {
 		Status:      m.status,
 		PublicURL:   m.publicURL,
 		Error:       m.errorMessage,
+		Mode:        m.mode,
 	}
+	if snapshot.Mode == "" {
+		snapshot.Mode = temporaryTunnelModeQuick
+	}
+	// Reporting whether a named tunnel is configured lets the UI describe what a
+	// start will actually do. Only the boolean crosses the boundary; the hostname
+	// is already public once running, but the token reference is not exposed.
+	snapshot.NamedConfigured = m.namedProbe != nil && m.namedProbe()
 	if !m.available && snapshot.Error == "" {
 		snapshot.Error = m.availableErr
 	}
@@ -407,18 +603,38 @@ func (m *TemporaryTunnelManager) StartTunnel(ctx context.Context) (TemporaryTunn
 		m.mu.Unlock()
 		return m.Snapshot(), err
 	}
+	namedResolver := m.namedResolver
+	m.mu.Unlock()
+
+	// Resolving the named tunnel happens outside the lock because it reads the
+	// environment and must not be held across a start. A configured-but-broken
+	// named tunnel fails the start instead of falling back to a quick tunnel,
+	// which would publish an unexpected hostname.
+	named, err := resolveNamedTunnel(ctx, namedResolver)
+	if err != nil {
+		m.mu.Lock()
+		m.setErrorLocked(err)
+		m.mu.Unlock()
+		return m.Snapshot(), err
+	}
+
+	m.mu.Lock()
 	m.status = temporaryTunnelStarting
 	m.publicURL = ""
 	m.errorMessage = ""
 	m.startedAt = time.Time{}
 	m.startedAddress = address
+	m.mode = temporaryTunnelModeQuick
+	if named.Hostname != "" {
+		m.mode = temporaryTunnelModeNamed
+	}
 	binaryPath := m.binaryPath
 	command := m.command
 	timeout := m.startTimeout
 	m.mu.Unlock()
 
 	processContext, cancel := context.WithCancel(context.Background())
-	process := command(processContext, binaryPath, "--config", os.DevNull, "tunnel", "--no-autoupdate", "--url", "http://127.0.0.1:"+strconv.Itoa(port))
+	process := command(processContext, binaryPath, temporaryTunnelProcessSpec(port, named))
 	stdout, err := process.StdoutPipe()
 	if err != nil {
 		cancel()
@@ -451,8 +667,8 @@ func (m *TemporaryTunnelManager) StartTunnel(ctx context.Context) (TemporaryTunn
 		m.mu.Unlock()
 		return m.Snapshot(), err
 	}
-	go scanTemporaryTunnelOutput(stdout, running.url)
-	go scanTemporaryTunnelOutput(stderr, running.url)
+	go scanTemporaryTunnelOutput(stdout, running.url, namedPublicURL(named))
+	go scanTemporaryTunnelOutput(stderr, running.url, namedPublicURL(named))
 	go m.waitTemporaryTunnel(running)
 
 	timer := time.NewTimer(timeout)
@@ -474,7 +690,14 @@ func (m *TemporaryTunnelManager) StartTunnel(ctx context.Context) (TemporaryTunn
 		}
 		return m.Snapshot(), err
 	case <-timer.C:
+		// The two modes fail for different reasons, and the distinction is what
+		// makes the message actionable: a quick tunnel never got a URL, a named
+		// tunnel never registered an edge connection, which usually means a
+		// rejected token or a hostname that routes elsewhere.
 		err := errors.New("cloudflared did not expose a temporary URL before the startup timeout")
+		if named.Hostname != "" {
+			err = errors.New("cloudflared did not register a named tunnel connection before the startup timeout")
+		}
 		_ = m.stopProcess(ctx, running)
 		return m.failStart(err)
 	case <-ctx.Done():
@@ -587,14 +810,32 @@ func (m *TemporaryTunnelManager) setErrorLocked(err error) {
 	}
 }
 
-func scanTemporaryTunnelOutput(reader io.ReadCloser, urls chan<- string) {
+// scanTemporaryTunnelOutput watches cloudflared's output for the readiness
+// signal. When namedURL is empty this is a quick tunnel and the URL is scraped
+// from the output. When it is set this is a named tunnel, whose hostname is
+// already known, so the scanner instead waits for an edge connection to register
+// and then reports the configured URL.
+//
+// Output lines are never forwarded anywhere else. cloudflared logs request URLs
+// and headers at debug level, so treating its output as a data source to scan
+// rather than a stream to surface keeps that out of Autoto's logs and API.
+func scanTemporaryTunnelOutput(reader io.ReadCloser, urls chan<- string, namedURL string) {
 	defer reader.Close()
 	scanner := bufio.NewScanner(reader)
 	scanner.Buffer(make([]byte, 1024), 64*1024)
 	for scanner.Scan() {
-		if publicURL := parseCloudflareQuickTunnelURL(scanner.Text()); publicURL != "" {
+		line := scanner.Text()
+		ready := ""
+		if namedURL != "" {
+			if cloudflareNamedTunnelReady.MatchString(line) {
+				ready = namedURL
+			}
+		} else {
+			ready = parseCloudflareQuickTunnelURL(line)
+		}
+		if ready != "" {
 			select {
-			case urls <- publicURL:
+			case urls <- ready:
 			default:
 			}
 		}

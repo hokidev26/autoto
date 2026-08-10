@@ -251,6 +251,12 @@ func NewRuntime(options Options) (*Runtime, error) {
 	application.SetAuditRecorder(auditRecorder)
 	application.SetPreviewManager(previewManager)
 	application.SetTemporaryTunnelManager(temporaryTunnelManager)
+	// Attached through the server so the resolver reads live configuration. Wiring
+	// this against the local cfg copy would freeze the hostname and token
+	// reference at startup and ignore any later edit from settings.
+	application.AttachNamedTunnel(temporaryTunnelManager, func(current config.Config) config.NamedTunnelConfig {
+		return current.Security.NamedTunnel
+	})
 	application.SetPeerControlManager(peerManager)
 	application.SetConfigPath(resolvedConfigPath)
 
@@ -276,6 +282,11 @@ func NewRuntime(options Options) (*Runtime, error) {
 	apiTunnelManager := server.NewResolvedTunnelManager(func() (string, error) {
 		return gatewayManager.Status().Address, nil
 	}, cfg.Paths.HomeDir)
+	// The gateway carries its own named tunnel for the same reason it carries its
+	// own quick tunnel: the API hostname must be separable from the UI hostname.
+	application.AttachNamedTunnel(apiTunnelManager, func(current config.Config) config.NamedTunnelConfig {
+		return current.Gateway.NamedTunnel
+	})
 	application.SetAPITunnelManager(apiTunnelManager)
 
 	httpServer := &http.Server{
@@ -367,11 +378,72 @@ func (r *Runtime) Start(ctx context.Context) error {
 
 	r.supervisor = supervisor
 	r.state = runtimeStarted
+	// Named tunnels can be configured to come up with Autoto. This runs after the
+	// runtime is marked started, in the background, so a tunnel that cannot reach
+	// the Cloudflare edge delays nothing and cannot prevent Autoto from serving
+	// locally.
+	go r.autoStartNamedTunnels(runCtx)
 	// Proactively refresh any expired Anthropic OAuth tokens in the background
 	// so the first real inference request does not pay a cold TLS+DNS penalty
 	// against the token endpoint on Windows or slow-network environments.
 	go r.warmupAnthropicOAuthTokens(runCtx)
 	return nil
+}
+
+// autoStartNamedTunnels opens the named tunnels that asked to start with Autoto.
+//
+// A named tunnel keeps a stable hostname, so starting one at boot makes this
+// machine continuously reachable with the access password as the only barrier.
+// That is why the credential check here is not a convenience: without a password
+// the tunnel would publish an unauthenticated UI, so a missing credential skips
+// the start and says so rather than proceeding.
+//
+// Only autoStart tunnels are touched. A tunnel the user opens by hand is
+// unaffected, and failure is logged rather than fatal because losing the tunnel
+// must not take down local access.
+func (r *Runtime) autoStartNamedTunnels(ctx context.Context) {
+	if r == nil {
+		return
+	}
+	if configured, _ := r.credentialConfigured(); !configured {
+		if r.cfg.Security.NamedTunnel.AutoStart || r.cfg.Gateway.NamedTunnel.AutoStart {
+			r.logger.Warn("named tunnel auto-start skipped: no access password is configured")
+		}
+		return
+	}
+	for _, target := range []struct {
+		name    string
+		enabled bool
+		manager *server.TemporaryTunnelManager
+	}{
+		{"remote access", r.cfg.Security.NamedTunnel.AutoStart, r.temporaryTunnel},
+		{"shared API", r.cfg.Gateway.NamedTunnel.AutoStart, r.apiTunnel},
+	} {
+		if !target.enabled || target.manager == nil {
+			continue
+		}
+		snapshot, err := target.manager.StartTunnel(ctx)
+		if err != nil {
+			r.logger.Error("named tunnel auto-start failed", "tunnel", target.name, "error", err)
+			continue
+		}
+		// The hostname is public by design once the tunnel is up, so logging it is
+		// safe. The token is not logged anywhere.
+		r.logger.Info("named tunnel started", "tunnel", target.name, "url", snapshot.PublicURL)
+	}
+}
+
+// credentialConfigured reports whether any access credential exists. It mirrors
+// the server's own check so auto-start cannot be a weaker gate than the manual
+// start path exposed over HTTP.
+func (r *Runtime) credentialConfigured() (bool, string) {
+	if strings.TrimSpace(r.cfg.Security.AccessPassword) != "" {
+		return true, "environment"
+	}
+	if strings.TrimSpace(r.cfg.Security.AccessPasswordHash) != "" {
+		return true, "config"
+	}
+	return false, "none"
 }
 
 // WaitReady polls /api/health until the HTTP server answers or ctx ends.

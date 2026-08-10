@@ -783,6 +783,82 @@ body.white-shell.theme-light.theme-dark #settingsModal {
 #settingsContentBody :is(.settings-stat-card, .settings-status-strip > div) :is(span, small) { color: var(--settings-muted-foreground); font-size: 12px; }
 #settingsContentBody .automation-metrics.settings-stat-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 
+/* The settings body is both #settingsContentBody and .legacy-settings-content-body, so
+   the automation page is styled by two sheets at once and they disagree about what a
+   section is. The legacy sheet flattens sections into borderless full-bleed rows, each
+   carrying its own vertical padding and a bottom divider, and for that shape gap: 0 is
+   correct -- the divider is the separation. The rules above restyle those same elements
+   back into bordered, rounded, shadowed cards, and they win on ID specificity while the
+   legacy gap: 0 keeps applying because no ID-scoped rule ever claimed these grids. Cards
+   with no gap and no divider between them read as one slab, which is the crowding on the
+   channels, schedules, and appliance page. Restore the spacing the card shape needs.
+
+   Columns are driven by container queries rather than media queries because this page
+   renders inside a settings panel that sits beside a category sidebar: the viewport is
+   wide long before the panel is, so a viewport breakpoint would commit to two columns
+   while the panel is still narrow. Single column is the unconditional base and widening
+   is the override, so nothing has to out-specify the legacy sheet's narrow breakpoints. */
+#settingsContentBody .automation-control-page {
+  container: automation-page / inline-size;
+}
+
+#settingsContentBody .automation-section-grid {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--settings-space-4);
+}
+
+/* Each section is its own query container so the card grid inside it can react to the
+   width that section actually got, which differs between a full-bleed span-2 section and
+   one sharing a row. */
+#settingsContentBody .automation-section {
+  container: automation-section / inline-size;
+}
+
+#settingsContentBody .automation-card-grid,
+#settingsContentBody .automation-card-grid.single {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--settings-space-3);
+}
+
+@container automation-page (min-width: 720px) {
+  #settingsContentBody .automation-section-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  /* The legacy sheet pins every section, span-2 included, to grid-column 1 for its
+     single-column layout. Two columns only mean anything once the wide sections are
+     allowed to span again, so the pin is lifted in the same breakpoint that adds the
+     second column -- never separately. */
+  #settingsContentBody .automation-section.span-2 {
+    grid-column: span 2;
+  }
+}
+
+/* Deliberately narrower than the section-grid threshold: a section sharing a row is
+   roughly half the page, and pairing cards up inside it would rebuild the crowding this
+   block just removed. In practice only full-bleed sections get wide enough to qualify. */
+@container automation-section (min-width: 560px) {
+  #settingsContentBody .automation-card-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  /* .single is the render-side opt-out for cards that hold a form or a wide row, so it
+     stays one-up at every width. */
+  #settingsContentBody .automation-card-grid.single {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+#settingsContentBody .automation-list {
+  min-width: 0;
+  display: grid;
+  gap: var(--settings-space-2);
+}
+
 #settingsContentBody .archive-summary-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 #settingsContentBody .archive-item-list { display: grid; gap: var(--settings-space-2); }
 #settingsContentBody .archive-item {

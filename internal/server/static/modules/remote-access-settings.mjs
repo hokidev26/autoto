@@ -51,6 +51,11 @@ export function normalizeRemoteAccess(value = {}) {
       publicUrl: textValue(tunnel.publicUrl),
       error: textValue(tunnel.error),
       startedAt: textValue(tunnel.startedAt),
+      // A named tunnel keeps a stable hostname and a quick tunnel does not, so the
+      // card has to say which one is in play. Defaulting to quick keeps an older
+      // server that omits the field from being described as stable.
+      mode: textValue(tunnel.mode) === "named" ? "named" : "quick",
+      namedConfigured: Boolean(tunnel.namedConfigured),
     },
   };
 }
@@ -329,9 +334,19 @@ export function createRemoteAccessSettingsController({
       }
       actionButton = `<button id="${actionMethod}RemoteTunnelBtn" class="settings-action-btn remote-access-tunnel-action ${active ? "subtle" : "primary"}" type="button" data-remote-tunnel-action="${actionMethod}" data-remote-tunnel-busy-label="${escapeAttr(active ? rt("tunnelStopping") : rt("tunnelStarting"))}" ${canManage && !busy ? "" : "disabled"}>${escapeHtml(busy ? tunnelStatusLabel(tunnel.status) : actionLabel)}</button>`;
     }
+    // The named tunnel is described where it is relevant rather than in a card of
+    // its own: the user is choosing how this one tunnel behaves, not adding a
+    // second tunnel.
+    const named = tunnel.mode === "named";
+    const title = named ? rt("namedTunnel") : rt("temporaryTunnel");
+    const description = named
+      ? rt("namedTunnelHint")
+      : tunnel.namedConfigured
+        ? rt("namedTunnelReadyHint")
+        : rt("temporaryTunnelHint");
     return `
         <section class="settings-provider-section settings-page-section settings-card remote-access-tunnel-card">
-          <div class="settings-provider-section-head settings-card-header"><div><div class="settings-provider-title settings-card-title">${escapeHtml(rt("temporaryTunnel"))}</div><div class="settings-provider-meta settings-card-description" data-settings-help-copy>${escapeHtml(rt("temporaryTunnelHint"))}</div></div><span class="settings-status-pill settings-badge ${active ? "ok" : tunnel.status === "error" ? "warn" : ""}">${escapeHtml(tunnelStatusLabel(tunnel.status))}</span></div>
+          <div class="settings-provider-section-head settings-card-header"><div><div class="settings-provider-title settings-card-title">${escapeHtml(title)}</div><div class="settings-provider-meta settings-card-description" data-settings-help-copy>${escapeHtml(description)}</div></div><span class="settings-status-pill settings-badge ${active ? "ok" : tunnel.status === "error" ? "warn" : ""}">${escapeHtml(tunnelStatusLabel(tunnel.status))}</span></div>
           ${tunnel.error && tunnel.status === "error" ? `<div class="settings-inline-alert settings-alert" role="status">${escapeHtml(tunnel.error)}</div>` : ""}
           ${tunnel.publicUrl ? `<div class="remote-access-tunnel-url"><a href="${escapeAttr(tunnel.publicUrl)}" target="_blank" rel="noopener noreferrer">${escapeHtml(tunnel.publicUrl)}</a><button id="copyRemoteTunnelUrlBtn" class="settings-action-btn subtle" type="button">${escapeHtml(rt("copyTunnelUrl"))}</button></div>${renderTunnelQr(tunnel.publicUrl)}` : `<p class="settings-card-description">${escapeHtml(tunnel.available ? rt("tunnelStopped") : rt("tunnelUnavailableHint"))}</p>`}
           <div class="settings-action-row settings-card-footer"><span class="settings-provider-meta">${escapeHtml(footerHint)}</span>${actionButton}</div>
