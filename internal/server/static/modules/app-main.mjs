@@ -4048,6 +4048,12 @@ async function handleAgentStreamEvent(event) {
     // the agent already routed around are not why this run ended.
     clearBlockedToolNotices(event.agentId || state.agent?.id);
   }
+  // A run that finished its answer routed around every refusal it hit, so those
+  // are steps, not the outcome -- surfaced under a successful reply they read
+  // as "something went wrong at the end". Only a failed stop keeps them: there
+  // the refusal may be exactly why the run ended, and agent.error is the one
+  // terminal event that does not clear.
+  if (event.type === "agent.done") clearBlockedToolNotices(event.agentId || state.agent?.id);
   // Keep the reason the moment it arrives. Everything downstream of here depends
   // on a fetch that may return nothing, so this is the only copy guaranteed to
   // exist for a run that failed before it was ever recorded.
