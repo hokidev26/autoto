@@ -1,7 +1,7 @@
 import { objectValue } from "./value-coercion.mjs";
 import { escapeAttr, escapeHtml } from "./dom.mjs";
 import { formatTimestamp as formatRegionalTimestamp } from "./formatters.mjs";
-import { t } from "./messages-automation.mjs";
+import { t } from "./messages-automation.mjs?v=automation-hub-1";
 import { confirm as platformConfirm } from "./platform.mjs";
 
 export const automationLimits = Object.freeze({
@@ -16,7 +16,7 @@ export const automationLimits = Object.freeze({
   activity: 40,
 });
 
-export const schedulePresets = Object.freeze(["@every 15m", "@hourly", "@daily"]);
+export const schedulePresets = Object.freeze(["@every 15m", "@every 30m", "@hourly", "@daily", "@weekly", "0 9 * * 1", "0 22 * * *"]);
 export const legacyIMDraftKeys = Object.freeze(["autoto.imGateway"]);
 const ENV_REFERENCE_PATTERN = /^env:[A-Za-z_][A-Za-z0-9_]*$/;
 const SAFE_PERMISSION_MODES = new Set(["readOnly", "acceptEdits"]);
@@ -129,6 +129,83 @@ export function normalizeEnvReference(value, { required = true, label = t("autom
     throw new Error(t("automation.validation.envReference", { label }));
   }
   return reference;
+}
+
+export function normalizeAgentOption(value = {}) {
+  const source = objectValue(value);
+  return {
+    id: boundedText(source.id ?? source.agentId, 160),
+    title: boundedText(source.title ?? source.name, 160),
+  };
+}
+
+// Client-side preview only: the server stays authoritative for scheduling. The
+// preview covers the preset grammar (@every/@hourly/@daily/@weekly) and plain
+// numeric five-field cron; anything fancier reports valid: false and the form
+// says the server will do the math. The estimate uses the browser clock, which
+// is why the label says "estimated" -- the schedule's own timezone is applied
+// server-side.
+export function describeCronExpression(expression, now = Date.now()) {
+  const text = boundedText(expression, 256);
+  if (!text) return { valid: false };
+  const from = new Date(Number(now));
+  if (Number.isNaN(from.getTime())) return { valid: false };
+  const every = text.match(/^@every\s+(\d+)(s|m|h)$/i);
+  if (every) {
+    const amount = Number(every[1]);
+    if (!amount) return { valid: false };
+    const unit = { s: 1000, m: 60000, h: 3600000 }[every[2].toLowerCase()];
+    return { valid: true, nextAt: new Date(from.getTime() + amount * unit).toISOString() };
+  }
+  if (/^@hourly$/i.test(text)) {
+    const next = new Date(from);
+    next.setMinutes(0, 0, 0);
+    next.setHours(next.getHours() + 1);
+    return { valid: true, nextAt: next.toISOString() };
+  }
+  if (/^@(daily|midnight)$/i.test(text)) {
+    const next = new Date(from);
+    next.setHours(0, 0, 0, 0);
+    next.setDate(next.getDate() + 1);
+    return { valid: true, nextAt: next.toISOString() };
+  }
+  if (/^@weekly$/i.test(text)) {
+    const next = new Date(from);
+    next.setHours(0, 0, 0, 0);
+    do {
+      next.setDate(next.getDate() + 1);
+    } while (next.getDay() !== 0);
+    return { valid: true, nextAt: next.toISOString() };
+  }
+  const fields = text.split(/\s+/);
+  if (fields.length !== 5) return { valid: false };
+  const numericField = (field, min, max) => {
+    if (field === "*") return null;
+    if (!/^\d+$/.test(field)) return undefined;
+    const value = Number(field);
+    return value >= min && value <= max ? value : undefined;
+  };
+  const minute = numericField(fields[0], 0, 59);
+  const hour = numericField(fields[1], 0, 23);
+  const dayOfMonth = numericField(fields[2], 1, 31);
+  const month = numericField(fields[3], 1, 12);
+  const dayOfWeek = numericField(fields[4], 0, 7);
+  // Wildcard minutes or hours mean sub-daily cadence with offsets this preview
+  // does not model, so only fully pinned times are estimated.
+  if (minute === null || minute === undefined || hour === null || hour === undefined) return { valid: false };
+  if (dayOfMonth === undefined || month === undefined || dayOfWeek === undefined) return { valid: false };
+  const candidate = new Date(from);
+  candidate.setHours(hour, minute, 0, 0);
+  for (let step = 0; step <= 366; step += 1) {
+    if (candidate.getTime() > from.getTime()
+      && (dayOfMonth === null || candidate.getDate() === dayOfMonth)
+      && (month === null || candidate.getMonth() + 1 === month)
+      && (dayOfWeek === null || candidate.getDay() === (dayOfWeek === 7 ? 0 : dayOfWeek))) {
+      return { valid: true, nextAt: candidate.toISOString() };
+    }
+    candidate.setDate(candidate.getDate() + 1);
+  }
+  return { valid: false };
 }
 
 export function normalizeSchedule(value = {}) {
@@ -453,8 +530,96 @@ function renderSectionState({ loading = false, error = "", empty = false, emptyT
   return "";
 }
 
-function renderMetric(label, value, tone = "") {
-  return `<div class="automation-metric settings-stat-card ${escapeAttr(tone)}"><strong>${escapeHtml(String(boundedNumber(value)))}</strong><span>${escapeHtml(label)}</span></div>`;
+// Metrics double as navigation: each one names the section that explains its
+// number, and clicking scrolls there.
+function renderMetric(label, value, tone = "", target = "") {
+  return `<button class="automation-metric settings-stat-card ${escapeAttr(tone)}" type="button" data-metric-jump="${escapeAttr(target)}"><strong>${escapeHtml(String(boundedNumber(value)))}</strong><span>${escapeHtml(label)}</span></button>`;
+}
+
+function presetLabel(preset) {
+  const key = `automation.schedule.presetLabels.${preset}`;
+  const label = t(key);
+  return label === key ? preset : label;
+}
+
+// Sections keep their data list on screen and tuck the create form behind this
+// toggle. An empty section auto-opens its form instead, so first-run users are
+// not shown a bare empty state with the way in hidden.
+function renderFormToggle(key, open, openLabelKey) {
+  return `<button class="automation-btn subtle automation-form-toggle" type="button" data-form-toggle="${escapeAttr(key)}" data-form-open="${open ? "true" : "false"}" aria-expanded="${open ? "true" : "false"}">${escapeHtml(t(open ? "automation.buttons.closeForm" : openLabelKey))}</button>`;
+}
+
+function renderPillarCard({ key, target, configured, title, description, summary, ctaLabel }) {
+  return `
+    <article class="automation-pillar settings-card" data-feature-card="${escapeAttr(key)}">
+      <div class="automation-pillar-head">
+        <h3>${escapeHtml(title)}</h3>
+        <span class="automation-status settings-badge ${configured ? "ok" : "muted"}">${escapeHtml(t(configured ? "automation.pillars.configured" : "automation.pillars.notConfigured"))}</span>
+      </div>
+      <p>${escapeHtml(configured ? summary : description)}</p>
+      <button class="automation-btn ${configured ? "subtle" : "primary"}" type="button" data-feature-cta="${escapeAttr(key)}" data-feature-target="${escapeAttr(target)}"${configured ? "" : ` data-feature-open="true"`}>${escapeHtml(configured ? t("automation.pillars.manage") : ctaLabel)}</button>
+    </article>`;
+}
+
+// The three pillars of this page, as entry cards: each shows whether it is set
+// up, a one-line summary once it is, and the way in when it is not.
+function renderFeaturePillars({ telegramConnections, pairings, schedules, homeAssistantConnections, deviceCount }) {
+  const activePairings = pairings.filter((item) => item.status !== "revoked").length;
+  const enabledSchedules = schedules.filter((item) => item.enabled).length;
+  return `
+    <div class="automation-pillars" data-automation-pillars>
+      ${renderPillarCard({
+        key: "telegram",
+        target: "connections",
+        configured: telegramConnections.length > 0,
+        title: t("automation.pillars.telegram.title"),
+        description: t("automation.pillars.telegram.description"),
+        summary: t("automation.pillars.telegram.summary", { count: telegramConnections.length, paired: activePairings }),
+        ctaLabel: t("automation.pillars.telegram.cta"),
+      })}
+      ${renderPillarCard({
+        key: "schedule",
+        target: "schedules",
+        configured: schedules.length > 0,
+        title: t("automation.pillars.schedules.title"),
+        description: t("automation.pillars.schedules.description"),
+        summary: t("automation.pillars.schedules.summary", { count: schedules.length, enabled: enabledSchedules }),
+        ctaLabel: t("automation.pillars.schedules.cta"),
+      })}
+      ${renderPillarCard({
+        key: "homeAssistant",
+        target: "home-assistant",
+        configured: homeAssistantConnections.length > 0,
+        title: t("automation.pillars.home.title"),
+        description: t("automation.pillars.home.description"),
+        summary: t("automation.pillars.home.summary", { count: homeAssistantConnections.length, devices: deviceCount }),
+        ctaLabel: t("automation.pillars.home.cta"),
+      })}
+    </div>`;
+}
+
+// Pending device actions are the one thing on this page that expires while the
+// reader scrolls, so they are pinned above everything else. The cards reuse the
+// standard renderer, and their approve/deny buttons share the section bindings.
+function renderPendingApprovals(deviceActions, busy, now) {
+  const pending = deviceActions.filter((item) => ["pending", "pending_approval"].includes(item.status) && !isDeviceActionExpired(item, now));
+  if (!pending.length) return "";
+  return `
+    <section class="automation-pending settings-card" data-automation-pending role="region" aria-label="${escapeAttr(t("automation.pending.title"))}">
+      <div class="automation-section-head settings-card-header">
+        <div><span>${escapeHtml(t("automation.deviceActions.kicker"))}</span><h3>${escapeHtml(t("automation.pending.title", { count: pending.length }))}</h3><p data-settings-help-copy>${escapeHtml(t("automation.pending.description"))}</p></div>
+        <button class="automation-btn subtle" type="button" data-metric-jump="device-actions">${escapeHtml(t("automation.pending.jump"))}</button>
+      </div>
+      <div class="automation-card-grid settings-data-list">${pending.slice(0, 5).map((item) => renderDeviceAction(item, busy, now)).join("")}</div>
+    </section>`;
+}
+
+// Agent IDs are opaque; nobody should have to copy one from another screen.
+// With the agent list loaded the field becomes a picker; the plain input stays
+// as the fallback so the form still works when that list is unavailable.
+function renderAgentField(id, agents, selectLabelKey) {
+  if (!agents.length) return `<input id="${escapeAttr(id)}" maxlength="128" placeholder="agent-id" required />`;
+  return `<select id="${escapeAttr(id)}" required><option value="">${escapeHtml(t(selectLabelKey))}</option>${agents.map((agent) => `<option value="${escapeAttr(agent.id)}">${escapeHtml(agent.title ? `${agent.title} · ${agent.id.slice(0, 8)}` : agent.id)}</option>`).join("")}</select>`;
 }
 
 function renderScheduleHistory(value = {}) {
@@ -498,7 +663,7 @@ function renderScheduleCard(value, busy = {}, history = {}) {
         ${renderStatusPill(schedule.enabled ? "enabled" : "disabled")}
       </div>
       <p class="automation-card-copy">${escapeHtml(schedule.prompt || t("automation.defaults.taskMissing"))}</p>
-      <dl class="automation-kv"><div><dt>${escapeHtml(t("automation.schedule.agentId"))}</dt><dd>${escapeHtml(schedule.agentId || t("automation.timestamp.empty"))}</dd></div><div><dt>${escapeHtml(t("automation.schedule.permission"))}</dt><dd>${escapeHtml(formatScheduleEnumValue("permissionMode", permissionMode))}</dd></div><div><dt>${escapeHtml(t("automation.schedule.environment"))}</dt><dd>${escapeHtml(formatScheduleEnumValue("environmentMode", environmentMode))}</dd></div><div><dt>${escapeHtml(t("automation.schedule.narrator"))}</dt><dd>${escapeHtml(formatScheduleEnumValue("narratorMode", narratorMode))}</dd></div><div><dt>${escapeHtml(t("automation.schedule.nextRun"))}</dt><dd>${escapeHtml(formatTimestamp(schedule.nextRunAt))}</dd></div></dl>
+      <dl class="automation-kv"><div><dt>${escapeHtml(t("automation.schedule.agentId"))}</dt><dd>${escapeHtml(schedule.agentId || t("automation.timestamp.empty"))}</dd></div><div><dt>${escapeHtml(t("automation.schedule.permission"))}</dt><dd>${escapeHtml(formatScheduleEnumValue("permissionMode", permissionMode))}</dd></div><div><dt>${escapeHtml(t("automation.schedule.environment"))}</dt><dd>${escapeHtml(formatScheduleEnumValue("environmentMode", environmentMode))}</dd></div><div><dt>${escapeHtml(t("automation.schedule.narrator"))}</dt><dd>${escapeHtml(formatScheduleEnumValue("narratorMode", narratorMode))}</dd></div><div><dt>${escapeHtml(t("automation.schedule.nextRun"))}</dt><dd>${escapeHtml(formatTimestamp(schedule.nextRunAt))}</dd></div><div><dt>${escapeHtml(t("automation.schedule.lastRun"))}</dt><dd>${escapeHtml(schedule.lastRunAt ? `${statusLabel(schedule.lastOutcome || "unknown")} · ${formatTimestamp(schedule.lastRunAt)}` : t("automation.schedule.neverRan"))}</dd></div></dl>
       ${schedule.lastError ? `<div class="automation-inline-error">${escapeHtml(schedule.lastError)}</div>` : ""}
       <div class="automation-actions settings-inline-actions">
         <button class="automation-btn subtle" type="button" data-schedule-history="${escapeAttr(schedule.id)}"${historyBusy ? " disabled" : ""}>${escapeHtml(t(historyBusy ? "automation.buttons.loading" : "automation.buttons.history"))}</button>
@@ -553,14 +718,34 @@ function renderDeliveryRow(value, busy = {}) {
     </article>`;
 }
 
-function renderDeviceRow(value) {
+function renderDeviceRow(value, connectionId = "") {
   const device = normalizeDevice(value);
   return `
-    <article class="automation-device-row settings-data-list-row">
+    <article class="automation-device-row settings-data-list-row${connectionId ? " has-action" : ""}" data-entity-row data-entity-search="${escapeAttr(`${device.entityId} ${device.name}`.toLowerCase())}">
       <div><strong>${escapeHtml(device.name || device.entityId)}</strong><small class="mono">${escapeHtml(device.entityId)}</small></div>
       <span>${escapeHtml(device.state)}</span>
       <span class="automation-readonly">${escapeHtml(t("automation.homeAssistant.readonly"))}</span>
+      ${connectionId ? `<button class="automation-btn subtle" type="button" data-entity-action="${escapeAttr(device.entityId)}">${escapeHtml(t("automation.homeAssistant.requestAction"))}</button>` : ""}
     </article>`;
+}
+
+// Entities arrive as one flat list; grouped by domain they read as rooms of a
+// house rather than a dump. The group heads collapse out of view when a search
+// filters all their rows away.
+function renderDeviceGroups(devices, connectionId = "") {
+  const groups = new Map();
+  for (const device of devices.map(normalizeDevice)) {
+    const domain = device.domain || "other";
+    if (!groups.has(domain)) groups.set(domain, []);
+    groups.get(domain).push(device);
+  }
+  return [...groups.entries()]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([domain, items]) => `
+      <div class="automation-device-group" data-device-group>
+        <div class="automation-device-group-head"><strong>${escapeHtml(domain)}</strong><span>${escapeHtml(String(items.length))}</span></div>
+        ${items.map((item) => renderDeviceRow(item, connectionId)).join("")}
+      </div>`).join("");
 }
 
 function renderDeviceAction(value, busy = {}, now = Date.now()) {
@@ -627,6 +812,20 @@ export function renderAutomationControl(value = {}) {
   const pairingCode = normalizePairingCode(source.latestPairingCode);
   const telegramConnections = connections.filter((item) => item.kind === "telegram");
   const homeAssistantConnections = connections.filter((item) => item.kind === "home-assistant");
+  const agents = (Array.isArray(source.agents) ? source.agents : []).slice(0, 200).map(normalizeAgentOption).filter((item) => item.id);
+  const deviceFilter = boundedText(source.deviceFilter, 120);
+  const deviceActionPrefill = objectValue(source.deviceActionPrefill);
+  const formOpen = objectValue(source.formOpen);
+  // Explicit user intent wins; otherwise a section with nothing in it opens its
+  // form, because an empty list plus a hidden form is a dead end.
+  const formVisible = (key, autoOpen) => (Object.hasOwn(formOpen, key) ? booleanValue(formOpen[key], false) : Boolean(autoOpen && loaded && !loading));
+  const showForm = {
+    schedule: formVisible("schedule", !schedules.length),
+    telegram: formVisible("telegram", !telegramConnections.length),
+    homeAssistant: formVisible("homeAssistant", !homeAssistantConnections.length),
+    pairing: formVisible("pairing", !pairings.length),
+    deviceAction: formVisible("deviceAction", !deviceActions.length),
+  };
   const scheduleState = renderSectionState({ loading: loading && !loaded, error: errors.schedules, empty: !schedules.length, emptyText: t("automation.schedule.empty") });
   const deliveryState = renderSectionState({ loading: loading && !loaded, error: errors.deliveries, empty: !deliveries.length, emptyText: t("automation.deliveries.empty") });
   const connectionState = renderSectionState({ loading: loading && !loaded, error: errors.connections, empty: !connections.length, emptyText: t("automation.connections.empty") });
@@ -651,86 +850,103 @@ export function renderAutomationControl(value = {}) {
       ${legacyDraft.present ? `<div class="automation-migration settings-alert" role="status" aria-live="polite"><strong>${escapeHtml(t("automation.hero.migrationTitle"))}</strong><span>${escapeHtml(t("automation.hero.migration", { key: legacyDraft.key || "localStorage", channel: legacyDraft.channel ? t("automation.hero.migrationChannel", { channel: legacyDraft.channel }) : "" }))}</span></div>` : ""}
       ${errors.global ? `<div class="automation-inline-error settings-alert" role="alert" aria-live="assertive">${escapeHtml(redactSensitiveText(errors.global))}</div>` : ""}
 
+      ${renderPendingApprovals(deviceActions, busy, boundedNumber(source.now, Date.now()) || Date.now())}
+
+      ${renderFeaturePillars({
+        telegramConnections,
+        pairings,
+        schedules,
+        homeAssistantConnections,
+        deviceCount: monitoring.deviceCount || devices.length,
+      })}
+
       <section class="automation-metrics settings-stat-grid" aria-label="${escapeAttr(t("automation.metrics.ariaLabel"))}">
-        ${renderMetric(t("automation.metrics.activeRuns"), monitoring.activeRuns, monitoring.activeRuns ? "active" : "")}
-        ${renderMetric(t("automation.metrics.pendingApprovals"), monitoring.pendingApprovals, monitoring.pendingApprovals ? "warn" : "")}
-        ${renderMetric(t("automation.metrics.schedules"), monitoring.scheduleCount || schedules.length)}
-        ${renderMetric(t("automation.metrics.notifications"), monitoring.notificationCount || deliveries.length)}
-        ${renderMetric(t("automation.metrics.channels"), monitoring.channelCount || connections.length)}
-        ${renderMetric(t("automation.metrics.devices"), monitoring.deviceCount || devices.length)}
+        ${renderMetric(t("automation.metrics.activeRuns"), monitoring.activeRuns, monitoring.activeRuns ? "active" : "", "schedules")}
+        ${renderMetric(t("automation.metrics.pendingApprovals"), monitoring.pendingApprovals, monitoring.pendingApprovals ? "warn" : "", "device-actions")}
+        ${renderMetric(t("automation.metrics.schedules"), monitoring.scheduleCount || schedules.length, "", "schedules")}
+        ${renderMetric(t("automation.metrics.notifications"), monitoring.notificationCount || deliveries.length, "", "deliveries")}
+        ${renderMetric(t("automation.metrics.channels"), monitoring.channelCount || connections.length, "", "connections")}
+        ${renderMetric(t("automation.metrics.devices"), monitoring.deviceCount || devices.length, "", "home-assistant")}
       </section>
 
       <div class="automation-section-grid">
         <section class="automation-section settings-card settings-page-section span-2" data-automation-section="schedules">
-          <div class="automation-section-head settings-card-header"><div><span>${escapeHtml(t("automation.schedule.kicker"))}</span><h3>${escapeHtml(t("automation.schedule.title"))}</h3><p data-settings-help-copy>${escapeHtml(t("automation.schedule.description"))}</p></div>${errors.monitoring ? `<small class="error">${escapeHtml(redactSensitiveText(errors.monitoring))}</small>` : ""}</div>
+          <div class="automation-section-head settings-card-header"><div><span>${escapeHtml(t("automation.schedule.kicker"))}</span><h3>${escapeHtml(t("automation.schedule.title"))}</h3><p data-settings-help-copy>${escapeHtml(t("automation.schedule.description"))}</p></div>${scheduleViewMode === "history" ? "" : renderFormToggle("schedule", showForm.schedule, "automation.buttons.newSchedule")}${errors.monitoring ? `<small class="error">${escapeHtml(redactSensitiveText(errors.monitoring))}</small>` : ""}</div>
           ${scheduleViewMode === "history" ? renderScheduleHistoryMode(selectedScheduleHistoryId, selectedSchedule, scheduleRunHistory[selectedScheduleHistoryId]) : `
-          <form id="createScheduleForm" class="automation-form settings-form-grid">
+          ${showForm.schedule ? `<form id="createScheduleForm" class="automation-form settings-form-grid">
             <label>${escapeHtml(t("automation.schedule.name"))}<input id="scheduleNameInput" maxlength="120" placeholder="${escapeAttr(t("automation.schedule.namePlaceholder"))}" required /></label>
-            <label>${escapeHtml(t("automation.schedule.preset"))}<select id="schedulePresetInput"><option value="">${escapeHtml(t("automation.schedule.custom"))}</option>${schedulePresets.map((preset) => `<option value="${escapeAttr(preset)}">${escapeHtml(preset)}</option>`).join("")}</select></label>
-            <label>${escapeHtml(t("automation.schedule.expression"))}<input id="scheduleExpressionInput" maxlength="256" placeholder="@every 15m" required /></label>
-            <label>${escapeHtml(t("automation.schedule.agentId"))}<input id="scheduleAgentInput" maxlength="128" placeholder="agent-id" required /></label>
+            <label>${escapeHtml(t("automation.schedule.preset"))}<select id="schedulePresetInput"><option value="">${escapeHtml(t("automation.schedule.custom"))}</option>${schedulePresets.map((preset) => `<option value="${escapeAttr(preset)}">${escapeHtml(presetLabel(preset))}</option>`).join("")}</select></label>
+            <label>${escapeHtml(t("automation.schedule.expression"))}<input id="scheduleExpressionInput" maxlength="256" placeholder="@every 15m" required /><small id="scheduleCronPreview" class="automation-cron-preview" aria-live="polite"></small></label>
+            <label>${escapeHtml(t("automation.schedule.agentId"))}${renderAgentField("scheduleAgentInput", agents, "automation.schedule.selectAgent")}</label>
             <label>${escapeHtml(t("automation.schedule.timezone"))}<input id="scheduleTimezoneInput" maxlength="128" value="UTC" placeholder="Asia/Shanghai" required /></label>
             <label>${escapeHtml(t("automation.schedule.permission"))}<select id="schedulePermissionInput">${scheduleEnumOptions("permissionMode", ["readOnly", "acceptEdits"], "readOnly")}</select></label>
             <label>${escapeHtml(t("automation.schedule.environment"))}<select id="scheduleEnvironmentInput">${scheduleEnumOptions("environmentMode", ["workline", "standalone"], "workline")}</select></label>
             <label>${escapeHtml(t("automation.schedule.narrator"))}<select id="scheduleNarratorInput">${scheduleEnumOptions("narratorMode", ["reuse", "new"], "reuse")}</select></label>
             <label class="span-2">${escapeHtml(t("automation.schedule.prompt"))}<textarea id="schedulePromptInput" rows="3" maxlength="8000" placeholder="${escapeAttr(t("automation.schedule.promptPlaceholder"))}" required></textarea></label>
             <div class="automation-form-actions settings-inline-actions span-2"><button class="automation-btn primary" type="submit"${busy["schedule:create"] ? " disabled" : ""}>${escapeHtml(t(busy["schedule:create"] ? "automation.buttons.creating" : "automation.buttons.createSchedule"))}</button></div>
-          </form>
+          </form>` : ""}
           <div class="automation-card-grid settings-data-list">${scheduleState || schedules.map((item, index) => renderScheduleCard(scheduleSources[index], busy, scheduleRunHistory[item.id])).join("")}</div>`}
         </section>
 
-        <section class="automation-section settings-card settings-page-section">
-          <div class="automation-section-head settings-card-header"><div><span>${escapeHtml(t("automation.deliveries.kicker"))}</span><h3>${escapeHtml(t("automation.deliveries.title"))}</h3><p data-settings-help-copy>${escapeHtml(t("automation.deliveries.description"))}</p></div></div>
-          <div class="automation-list settings-data-list settings-table">${deliveryState || deliveries.map((item) => renderDeliveryRow(item, busy)).join("")}</div>
-        </section>
-
-        <section class="automation-section settings-card settings-page-section">
-          <div class="automation-section-head settings-card-header"><div><span>${escapeHtml(t("automation.connections.kicker"))}</span><h3>${escapeHtml(t("automation.connections.title"))}</h3><p data-settings-help-copy>${escapeHtml(t("automation.connections.description"))}</p></div></div>
-          <form id="createTelegramConnectionForm" class="automation-form settings-form-grid compact">
+        <!-- The Telegram flow reads left to right: connect, pair, then watch
+             deliveries. All three are usually short lists, so alone in a
+             two-column grid each left half a row of dead space; as a trio they
+             share one full-width row and their lists scroll past a cap instead
+             of stretching the row. -->
+        <div class="automation-trio" data-automation-trio>
+        <section class="automation-section settings-card settings-page-section" data-automation-section="connections">
+          <div class="automation-section-head settings-card-header"><div><span>${escapeHtml(t("automation.connections.kicker"))}</span><h3>${escapeHtml(t("automation.connections.title"))}</h3><p data-settings-help-copy>${escapeHtml(t("automation.connections.description"))}</p></div>${renderFormToggle("telegram", showForm.telegram, "automation.buttons.newTelegram")}</div>
+          ${showForm.telegram ? `<form id="createTelegramConnectionForm" class="automation-form settings-form-grid compact">
             <label>${escapeHtml(t("automation.connections.name"))}<input id="telegramNameInput" maxlength="160" placeholder="${escapeAttr(t("automation.connections.namePlaceholder"))}" /></label>
             <label>${escapeHtml(t("automation.connections.credential"))}<input id="telegramCredentialInput" maxlength="160" placeholder="env:AUTOTO_TELEGRAM_BOT_TOKEN" autocomplete="off" required /></label>
             <div class="automation-form-actions settings-inline-actions"><button class="automation-btn primary" type="submit"${busy["connection:create:telegram"] ? " disabled" : ""}>${escapeHtml(t("automation.buttons.createTelegram"))}</button></div>
-          </form>
+          </form>` : ""}
           <div class="automation-card-grid single">${connectionState || telegramConnections.map((item) => renderConnectionCard(item, busy)).join("") || `<div class="automation-empty">${escapeHtml(t("automation.connections.emptyTelegram"))}</div>`}</div>
         </section>
 
-        <section class="automation-section settings-card settings-page-section">
-          <div class="automation-section-head settings-card-header"><div><span>${escapeHtml(t("automation.pairing.kicker"))}</span><h3>${escapeHtml(t("automation.pairing.title"))}</h3><p data-settings-help-copy>${escapeHtml(t("automation.pairing.description"))}</p></div></div>
-          <form id="createPairingCodeForm" class="automation-form settings-form-grid compact">
+        <section class="automation-section settings-card settings-page-section" data-automation-section="pairing">
+          <div class="automation-section-head settings-card-header"><div><span>${escapeHtml(t("automation.pairing.kicker"))}</span><h3>${escapeHtml(t("automation.pairing.title"))}</h3><p data-settings-help-copy>${escapeHtml(t("automation.pairing.description"))}</p></div>${renderFormToggle("pairing", showForm.pairing, "automation.buttons.newPairingCode")}</div>
+          ${showForm.pairing ? `<form id="createPairingCodeForm" class="automation-form settings-form-grid compact">
             <label>${escapeHtml(t("automation.pairing.connection"))}<select id="pairingConnectionInput" required><option value="">${escapeHtml(t("automation.pairing.selectConnection"))}</option>${connectionOptions(connections, "telegram")}</select></label>
-            <label>${escapeHtml(t("automation.pairing.agentId"))}<input id="pairingAgentInput" maxlength="160" placeholder="agent-id" required /></label>
+            <label>${escapeHtml(t("automation.pairing.agentId"))}${renderAgentField("pairingAgentInput", agents, "automation.pairing.selectAgent")}</label>
             <div class="automation-form-actions settings-inline-actions"><button class="automation-btn primary" type="submit"${busy["pairing:create"] ? " disabled" : ""}>${escapeHtml(t("automation.buttons.createPairingCode"))}</button></div>
-          </form>
+          </form>` : ""}
           ${pairingCode.code ? `<div class="automation-pairing-code"><span>${escapeHtml(t("automation.pairing.code"))}</span><strong>${escapeHtml(pairingCode.code)}</strong><small>${escapeHtml(t("automation.pairing.expiresAt", { timestamp: formatTimestamp(pairingCode.expiresAt) }))}</small></div>` : ""}
           <div class="automation-list settings-data-list settings-table">${pairingState || pairings.map((item) => renderPairingCard(item, busy)).join("")}</div>
         </section>
 
-        <section class="automation-section settings-card settings-page-section span-2">
-          <div class="automation-section-head settings-card-header"><div><span>${escapeHtml(t("automation.homeAssistant.kicker"))}</span><h3>${escapeHtml(t("automation.homeAssistant.title"))}</h3><p data-settings-help-copy>${escapeHtml(t("automation.homeAssistant.description"))}</p></div></div>
-          <form id="createHomeAssistantConnectionForm" class="automation-form settings-form-grid">
+        <section class="automation-section settings-card settings-page-section" data-automation-section="deliveries">
+          <div class="automation-section-head settings-card-header"><div><span>${escapeHtml(t("automation.deliveries.kicker"))}</span><h3>${escapeHtml(t("automation.deliveries.title"))}</h3><p data-settings-help-copy>${escapeHtml(t("automation.deliveries.description"))}</p></div></div>
+          <div class="automation-list settings-data-list settings-table">${deliveryState || deliveries.map((item) => renderDeliveryRow(item, busy)).join("")}</div>
+        </section>
+        </div>
+
+        <section class="automation-section settings-card settings-page-section span-2" data-automation-section="home-assistant">
+          <div class="automation-section-head settings-card-header"><div><span>${escapeHtml(t("automation.homeAssistant.kicker"))}</span><h3>${escapeHtml(t("automation.homeAssistant.title"))}</h3><p data-settings-help-copy>${escapeHtml(t("automation.homeAssistant.description"))}</p></div>${renderFormToggle("homeAssistant", showForm.homeAssistant, "automation.buttons.newHomeAssistant")}</div>
+          ${showForm.homeAssistant ? `<form id="createHomeAssistantConnectionForm" class="automation-form settings-form-grid">
             <label>${escapeHtml(t("automation.homeAssistant.name"))}<input id="homeAssistantNameInput" maxlength="160" placeholder="Home Assistant" /></label>
             <label>${escapeHtml(t("automation.homeAssistant.url"))}<input id="homeAssistantUrlInput" maxlength="400" placeholder="http://homeassistant.local:8123" required /></label>
             <label class="span-2">${escapeHtml(t("automation.homeAssistant.credential"))}<input id="homeAssistantCredentialInput" maxlength="160" placeholder="env:AUTOTO_HOME_ASSISTANT_TOKEN" autocomplete="off" required /></label>
             <div class="automation-form-actions settings-inline-actions span-2"><button class="automation-btn primary" type="submit"${busy["connection:create:home-assistant"] ? " disabled" : ""}>${escapeHtml(t("automation.buttons.createHomeAssistant"))}</button></div>
-          </form>
+          </form>` : ""}
           <div class="automation-card-grid settings-data-list">${homeAssistantConnections.length ? homeAssistantConnections.map((item) => renderConnectionCard(item, busy)).join("") : `<div class="automation-empty">${escapeHtml(t("automation.homeAssistant.empty"))}</div>`}</div>
-          <div class="automation-device-toolbar"><label>${escapeHtml(t("automation.homeAssistant.viewConnection"))}<select id="deviceConnectionSelect"><option value="">${escapeHtml(t("automation.homeAssistant.selectConnection"))}</option>${connectionOptions(connections, "home-assistant", selectedConnectionId)}</select></label><span>${escapeHtml(t("automation.homeAssistant.devicesLimit", { count: automationLimits.devices }))}</span></div>
-          <div class="automation-device-list settings-data-list settings-table">${deviceState || devices.map(renderDeviceRow).join("")}</div>
+          <div class="automation-device-toolbar"><label>${escapeHtml(t("automation.homeAssistant.viewConnection"))}<select id="deviceConnectionSelect"><option value="">${escapeHtml(t("automation.homeAssistant.selectConnection"))}</option>${connectionOptions(connections, "home-assistant", selectedConnectionId)}</select></label><label class="automation-device-search">${escapeHtml(t("automation.homeAssistant.search"))}<input id="deviceSearchInput" maxlength="120" value="${escapeAttr(deviceFilter)}" placeholder="${escapeAttr(t("automation.homeAssistant.searchPlaceholder"))}" /></label><span>${escapeHtml(t("automation.homeAssistant.devicesLimit", { count: automationLimits.devices }))}</span></div>
+          <div class="automation-device-list settings-data-list settings-table">${deviceState || renderDeviceGroups(devices, selectedConnectionId)}</div>
         </section>
 
-        <section class="automation-section span-2 danger-section">
-          <div class="automation-section-head settings-card-header"><div><span>${escapeHtml(t("automation.deviceActions.kicker"))}</span><h3>${escapeHtml(t("automation.deviceActions.title"))}</h3><p data-settings-help-copy>${escapeHtml(t("automation.deviceActions.description"))}</p></div><span class="automation-danger-badge settings-badge destructive">${escapeHtml(t("automation.deviceActions.riskBoundary"))}</span></div>
-          <form id="createDeviceActionForm" class="automation-form settings-form-grid">
-            <label>${escapeHtml(t("automation.deviceActions.connection"))}<select id="deviceActionConnectionInput" required><option value="">${escapeHtml(t("automation.deviceActions.selectConnection"))}</option>${connectionOptions(connections, "home-assistant", selectedConnectionId)}</select></label>
-            <label>${escapeHtml(t("automation.deviceActions.entityId"))}<input id="deviceActionEntityInput" maxlength="255" placeholder="light.living_room" required /></label>
+        <section class="automation-section span-2 danger-section" data-automation-section="device-actions">
+          <div class="automation-section-head settings-card-header"><div><span>${escapeHtml(t("automation.deviceActions.kicker"))}</span><h3>${escapeHtml(t("automation.deviceActions.title"))}</h3><p data-settings-help-copy>${escapeHtml(t("automation.deviceActions.description"))}</p></div>${renderFormToggle("deviceAction", showForm.deviceAction, "automation.buttons.newDeviceAction")}<span class="automation-danger-badge settings-badge destructive">${escapeHtml(t("automation.deviceActions.riskBoundary"))}</span></div>
+          ${showForm.deviceAction ? `<form id="createDeviceActionForm" class="automation-form settings-form-grid">
+            <label>${escapeHtml(t("automation.deviceActions.connection"))}<select id="deviceActionConnectionInput" required><option value="">${escapeHtml(t("automation.deviceActions.selectConnection"))}</option>${connectionOptions(connections, "home-assistant", boundedText(deviceActionPrefill.connectionId, 160) || selectedConnectionId)}</select></label>
+            <label>${escapeHtml(t("automation.deviceActions.entityId"))}<input id="deviceActionEntityInput" maxlength="255" placeholder="light.living_room" value="${escapeAttr(boundedText(deviceActionPrefill.entityId, 220))}" required /></label>
             <label>${escapeHtml(t("automation.deviceActions.service"))}<input id="deviceActionServiceInput" maxlength="64" placeholder="turn_off" required /></label>
             <label>${escapeHtml(t("automation.deviceActions.input"))}<input id="deviceActionInput" maxlength="1200" placeholder='{"brightness": 0}' /></label>
             <div class="automation-form-actions settings-inline-actions span-2"><button class="automation-btn danger destructive" type="submit"${busy["device-action:create"] ? " disabled" : ""}>${escapeHtml(t("automation.buttons.requestLocal"))}</button></div>
-          </form>
+          </form>` : ""}
           <div class="automation-card-grid settings-data-list">${actionState || deviceActions.map((item) => renderDeviceAction(item, busy, source.now)).join("")}</div>
         </section>
 
-        <section class="automation-section settings-card settings-page-section span-2">
+        <section class="automation-section settings-card settings-page-section span-2" data-automation-section="audit">
           <div class="automation-section-head settings-card-header"><div><span>${escapeHtml(t("automation.audit.kicker"))}</span><h3>${escapeHtml(t("automation.audit.title"))}</h3><p data-settings-help-copy>${escapeHtml(t("automation.audit.description"))}</p></div></div>
           <div class="automation-audit-list settings-data-list settings-table">${auditState || auditEvents.map(renderAuditRow).join("")}</div>
           ${activity.length ? `<details class="automation-activity"><summary>${escapeHtml(t("automation.audit.activity", { count: activity.length }))}</summary><ol>${activity.map(renderActivityRow).join("")}</ol></details>` : ""}
@@ -773,6 +989,15 @@ export function createAutomationControlController({
     activity: [],
     loadSeq: 0,
     deviceSeq: 0,
+    agents: [],
+    // Explicit open/closed choices per create form; a key that was never
+    // touched falls back to the render's auto-open-when-empty rule.
+    formOpen: {},
+    deviceFilter: "",
+    deviceActionPrefill: null,
+    // Section to scroll to after the next render, set by feature-card CTAs and
+    // entity action shortcuts whose target only exists in the new DOM.
+    pendingFocus: "",
   };
 
   function getState() {
@@ -800,6 +1025,10 @@ export function createAutomationControlController({
       now: now(),
       loadSeq: state.loadSeq,
       deviceSeq: state.deviceSeq,
+      agents: state.agents.map((item) => ({ ...item })),
+      formOpen: { ...state.formOpen },
+      deviceFilter: state.deviceFilter,
+      deviceActionPrefill: state.deviceActionPrefill ? { ...state.deviceActionPrefill } : null,
     };
   }
 
@@ -840,6 +1069,9 @@ export function createAutomationControlController({
       ["pairings", "/api/channels/pairings"],
       ["monitoring", "/api/monitoring/snapshot"],
       ["auditEvents", "/api/audit/events?limit=50"],
+      // Feeds the agent pickers in the schedule and pairing forms. Failure is
+      // tolerable: the forms fall back to a plain agent-id input.
+      ["agents", "/api/agents?limit=200"],
     ];
     const results = await Promise.allSettled(requests.map(([, path]) => request(path)));
     if (seq !== state.loadSeq) return false;
@@ -859,6 +1091,7 @@ export function createAutomationControlController({
         state.deviceActions = state.monitoring.deviceActions;
       }
       if (section === "auditEvents") state.auditEvents = collectionResult(result.value, ["events", "auditEvents", "items"], automationLimits.auditEvents, normalizeAuditEvent);
+      if (section === "agents") state.agents = collectionResult(result.value, ["agents", "items"], 200, normalizeAgentOption).filter((item) => item.id);
     });
     const homeAssistantConnections = state.connections.filter((item) => item.kind === "home-assistant");
     if (!homeAssistantConnections.some((item) => item.id === state.selectedConnectionId)) {
@@ -993,6 +1226,7 @@ export function createAutomationControlController({
       path: "/api/schedules",
       options: { method: "POST", body: JSON.stringify(payload) },
       success: t("automation.toast.scheduleCreated"),
+      onResult: () => { state.formOpen.schedule = false; },
     });
   }
 
@@ -1056,6 +1290,7 @@ export function createAutomationControlController({
       path: "/api/integrations/connections",
       options: { method: "POST", body: JSON.stringify(payload) },
       success: t("automation.toast.connectionCreated", { kind: kindLabel(payload.kind) }),
+      onResult: () => { state.formOpen[payload.kind === "telegram" ? "telegram" : "homeAssistant"] = false; },
     });
   }
 
@@ -1108,7 +1343,10 @@ export function createAutomationControlController({
       path: "/api/channels/pairing-codes",
       options: { method: "POST", body: JSON.stringify(payload) },
       success: t("automation.toast.pairingCodeCreated"),
-      onResult: (result) => { state.latestPairingCode = normalizePairingCode({ ...objectValue(result), ...payload }); },
+      onResult: (result) => {
+        state.latestPairingCode = normalizePairingCode({ ...objectValue(result), ...payload });
+        state.formOpen.pairing = false;
+      },
     });
   }
 
@@ -1148,6 +1386,8 @@ export function createAutomationControlController({
       onResult: (result) => {
         const normalized = normalizeDeviceAction({ entityId: payload.input.entity_id, ...payload, ...objectValue(result) });
         state.deviceActions = [normalized, ...state.deviceActions.filter((item) => item.id !== normalized.id)].slice(0, automationLimits.deviceActions);
+        state.formOpen.deviceAction = false;
+        state.deviceActionPrefill = null;
       },
     });
   }
@@ -1192,10 +1432,47 @@ export function createAutomationControlController({
     const root = document.getElementById("automationControlPage");
     if (!root) return;
     const byId = (id) => root.querySelector(`#${id}`);
+    // Targets are the fixed section slugs this module renders itself, so the
+    // selector needs no escaping.
+    const scrollToSection = (target) => {
+      if (!/^[a-z-]+$/.test(String(target || ""))) return;
+      root.querySelector(`[data-automation-section="${target}"]`)?.scrollIntoView?.({ behavior: "smooth", block: "start" });
+    };
     byId("refreshAutomationControlBtn")?.addEventListener("click", () => load());
+    root.querySelectorAll("[data-form-toggle]").forEach((button) => button.addEventListener("click", () => {
+      state.formOpen[button.dataset.formToggle] = button.dataset.formOpen !== "true";
+      emit();
+    }));
+    root.querySelectorAll("[data-metric-jump]").forEach((button) => button.addEventListener("click", () => scrollToSection(button.dataset.metricJump)));
+    root.querySelectorAll("[data-feature-cta]").forEach((button) => button.addEventListener("click", () => {
+      const target = button.dataset.featureTarget || "";
+      if (button.dataset.featureOpen === "true") {
+        state.formOpen[button.dataset.featureCta] = true;
+        state.pendingFocus = target;
+        emit();
+        return;
+      }
+      scrollToSection(target);
+    }));
+    const cronPreview = byId("scheduleCronPreview");
+    const updateCronPreview = () => {
+      const expression = String(byId("scheduleExpressionInput")?.value || "").trim();
+      if (!cronPreview) return;
+      if (!expression) {
+        cronPreview.textContent = "";
+        return;
+      }
+      const described = describeCronExpression(expression, now());
+      cronPreview.textContent = described.valid
+        ? t("automation.schedule.preview", { timestamp: formatTimestamp(described.nextAt) })
+        : t("automation.schedule.previewUnknown");
+    };
+    byId("scheduleExpressionInput")?.addEventListener("input", updateCronPreview);
     byId("schedulePresetInput")?.addEventListener("change", (event) => {
       if (event.currentTarget.value && byId("scheduleExpressionInput")) byId("scheduleExpressionInput").value = event.currentTarget.value;
+      updateCronPreview();
     });
+    updateCronPreview();
     byId("createScheduleForm")?.addEventListener("submit", (event) => {
       event.preventDefault();
       createSchedule({
@@ -1222,6 +1499,29 @@ export function createAutomationControlController({
       createPairingCode({ connectionId: byId("pairingConnectionInput")?.value, agentId: byId("pairingAgentInput")?.value });
     });
     byId("deviceConnectionSelect")?.addEventListener("change", (event) => loadDevices(event.currentTarget.value));
+    // The entity search filters in place: it touches only hidden flags on the
+    // rendered rows and never emits, so typing does not trigger a re-render
+    // that would steal focus. The query is kept on state solely so a re-render
+    // triggered by something else can restore the filter.
+    const deviceSearch = byId("deviceSearchInput");
+    const applyDeviceFilter = () => {
+      const query = String(deviceSearch?.value || "").trim().toLowerCase();
+      state.deviceFilter = query;
+      root.querySelectorAll("[data-entity-row]").forEach((row) => {
+        row.hidden = Boolean(query) && !String(row.dataset.entitySearch || "").includes(query);
+      });
+      root.querySelectorAll("[data-device-group]").forEach((group) => {
+        group.hidden = !group.querySelector("[data-entity-row]:not([hidden])");
+      });
+    };
+    deviceSearch?.addEventListener("input", applyDeviceFilter);
+    if (state.deviceFilter) applyDeviceFilter();
+    root.querySelectorAll("[data-entity-action]").forEach((button) => button.addEventListener("click", () => {
+      state.deviceActionPrefill = { entityId: button.dataset.entityAction, connectionId: state.selectedConnectionId };
+      state.formOpen.deviceAction = true;
+      state.pendingFocus = "device-actions";
+      emit();
+    }));
     byId("createDeviceActionForm")?.addEventListener("submit", (event) => {
       event.preventDefault();
       requestDeviceAction({
@@ -1243,6 +1543,16 @@ export function createAutomationControlController({
     root.querySelectorAll("[data-pairing-revoke]").forEach((button) => button.addEventListener("click", () => revokePairing(button.dataset.pairingRevoke)));
     root.querySelectorAll("[data-device-action-approve]").forEach((button) => button.addEventListener("click", () => approveDeviceAction(button.dataset.deviceActionApprove)));
     root.querySelectorAll("[data-device-action-deny]").forEach((button) => button.addEventListener("click", () => denyDeviceAction(button.dataset.deviceActionDeny)));
+    // A CTA that opened a form re-rendered the page before its target section
+    // existed; this bind runs against the new DOM, so honor the deferred scroll
+    // here. The prefill is consumed the same way: it is baked into the markup
+    // just rendered, and clearing it keeps later re-renders from stomping on
+    // whatever the user edits in the form.
+    if (state.pendingFocus) {
+      scrollToSection(state.pendingFocus);
+      state.pendingFocus = "";
+    }
+    state.deviceActionPrefill = null;
     if (!state.loaded && !state.loading) load();
   }
 

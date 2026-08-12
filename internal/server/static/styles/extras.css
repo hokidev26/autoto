@@ -228,10 +228,29 @@ body.white-shell.theme-light .composer-wrap {
       gap: 3px;
     }
 
+    /* The model pill stops ellipsizing the full provider:model id inside a
+       flexible 42-88px box (which produced cuts like "codex:gp…") and shows
+       the compact family label already computed into data-mobile-label
+       (gpt-5.6, sonnet, ...) at its natural width instead. */
     body.white-shell.theme-light .composer-model-field {
-      min-width: 42px;
-      max-width: 88px;
-      flex: 1 1 62px;
+      width: auto;
+      min-width: 0;
+      max-width: none;
+      flex: 0 0 auto;
+    }
+
+    body.white-shell.theme-light .composer-model-field .composer-select-value {
+      font-size: 0;
+      line-height: 0;
+      overflow: visible;
+    }
+
+    body.white-shell.theme-light .composer-model-field .composer-select-value::before {
+      content: attr(data-mobile-label);
+      font-size: 11px;
+      font-weight: 650;
+      line-height: 1;
+      letter-spacing: .01em;
     }
 
     body.white-shell.theme-light .composer-effort-field {
@@ -245,8 +264,12 @@ body.white-shell.theme-light .composer-wrap {
       flex: 0 0 58px;
     }
 
+    /* The permission pill keeps its localized label at this tier; the English
+       initials (RO/ALL/...) belong to the icon rail and the phone toolbar,
+       where there is genuinely no room for words. Mid-squeeze they made this
+       one pill switch language while its neighbours stayed Chinese. */
     body.white-shell.theme-light .composer-permission-field {
-      flex: 0 0 46px;
+      flex: 0 0 auto;
     }
 
     body.white-shell.theme-light .toolbar-model-pill,
@@ -265,6 +288,14 @@ body.white-shell.theme-light .composer-wrap {
 
     body.white-shell.theme-light .composer-effort-field .effort-pill {
       width: auto;
+      /* Wide enough for the widest two-character level, so the pill does not
+         resize as the user flips between 高 and 自動. */
+      min-width: 34px;
+    }
+
+    body.white-shell.theme-light .permission-toolbar-pill {
+      width: auto;
+      min-width: 0;
     }
 
     body.white-shell.theme-light .composer-select-trigger {
@@ -291,24 +322,21 @@ body.white-shell.theme-light .composer-wrap {
       content: none;
     }
 
-    body.white-shell.theme-light .composer-effort-field .composer-select-chevron {
-      display: inline;
-    }
-
     body.white-shell.theme-light .composer-permission-field .composer-select-value {
-      font-size: 0;
-      line-height: 0;
-    }
-
-    body.white-shell.theme-light .composer-permission-field .composer-select-value::before {
-      content: attr(data-mobile-label);
-      font-size: 10px;
-      font-weight: 780;
-      letter-spacing: .015em;
+      font-size: 11px;
       line-height: 1;
     }
 
-    body.white-shell.theme-light .composer-permission-field .composer-select-chevron {
+    body.white-shell.theme-light .composer-permission-field .composer-select-value::before {
+      content: none;
+    }
+
+    /* One rule for every pill: the carets go together. At this width an 8px
+       chevron beside a one-character label read as clutter, and the trio was
+       inconsistent -- permission had already dropped its caret while model
+       and effort kept theirs. The pills stay recognizable as buttons through
+       their border and icon. */
+    body.white-shell.theme-light .composer-toolbar .composer-select-chevron {
       display: none;
     }
 
@@ -465,10 +493,10 @@ body.white-shell.theme-light .composer-toolbar .toolbar-lightning-btn {
     line-height: 1;
   }
 
-  /* The extra .composer-toolbar hop matters: the 620px tier above re-shows
-     the effort caret with a two-class selector, which outranked the plain
-     one-hop rule that used to live here and left a caret squeezed into the
-     28px icon slot. */
+  /* The 620px tier already hides every caret with this same two-class
+     selector; restated here so the rail does not depend on the wider tier
+     staying that way. (Historically the 620px tier re-showed the effort caret
+     with a selector that outranked a plain one-hop rule here.) */
   body.white-shell.theme-light .composer-toolbar .composer-select-chevron {
     display: none;
   }

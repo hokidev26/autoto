@@ -850,6 +850,108 @@ body.white-shell.theme-light.theme-dark #settingsModal {
   }
 }
 
+/* The Telegram trio (connections, pairing, deliveries) shares one full-width
+   row. Three-up only once the page is wide enough for ~280px columns; below
+   that it stacks -- a two-column step would strand the third section next to
+   an empty cell, which is exactly the layout this wrapper exists to avoid. */
+#settingsContentBody .automation-trio {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--settings-space-4);
+  align-items: stretch;
+}
+
+#settingsContentBody .automation-trio > .automation-section {
+  min-width: 0;
+}
+
+@container automation-page (min-width: 720px) {
+  #settingsContentBody .automation-trio {
+    grid-column: span 2;
+  }
+}
+
+@container automation-page (min-width: 860px) {
+  #settingsContentBody .automation-trio {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  /* The legacy sheet pins every .automation-section to grid-column 1 for its
+     flattened single-column layout; inside the trio that would stack all three
+     into the first column, so the pin is lifted exactly where the columns
+     appear. */
+  #settingsContentBody .automation-trio > .automation-section {
+    grid-column: auto;
+  }
+}
+
+/* Short sections side by side must not be stretched by one long neighbour:
+   past this cap the lists scroll instead. */
+#settingsContentBody .automation-trio .automation-list {
+  max-height: 300px;
+  overflow: auto;
+}
+
+/* Blocks inside the trio cards. The shared automation form/empty styles are
+   shaped for a half-page section; at a third of the page they need their own
+   geometry. */
+
+/* The legacy sheet forces two form columns even on .compact, and ~300px cannot
+   fit two: the token input truncated and the submit button wrapped. Inside the
+   trio every field takes the full row and the button spans it. */
+#settingsContentBody .automation-trio .automation-form,
+#settingsContentBody .automation-trio .automation-form.compact {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+#settingsContentBody .automation-trio .automation-form .span-2 {
+  grid-column: span 1;
+}
+
+#settingsContentBody .automation-trio .automation-form-actions {
+  display: grid;
+}
+
+#settingsContentBody .automation-trio .automation-form-actions .automation-btn {
+  width: 100%;
+}
+
+/* The three cards sit shoulder to shoulder, so each body flexes: the list (or
+   its empty placeholder) absorbs the leftover height. Rows stay top-aligned;
+   only a lone placeholder stretches, so the dashed boxes line up across the
+   row instead of floating at arbitrary heights. */
+#settingsContentBody .automation-trio > .automation-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--settings-space-3);
+}
+
+#settingsContentBody .automation-trio > .automation-section > :is(.automation-list, .automation-card-grid) {
+  flex: 1;
+  align-content: start;
+}
+
+#settingsContentBody .automation-trio > .automation-section > :is(.automation-list, .automation-card-grid):has(> .automation-empty) {
+  align-content: stretch;
+}
+
+/* Empty and loading placeholders across the automation page: one calm, centered
+   dashed block instead of a cramped strip of left-aligned text. */
+#settingsContentBody .automation-control-page .automation-empty {
+  display: grid;
+  place-content: center;
+  min-height: 120px;
+  padding: 16px;
+  text-align: center;
+  color: var(--settings-muted-foreground);
+  font-size: 12.5px;
+  line-height: 1.7;
+  border: 1px dashed var(--settings-border);
+  border-radius: var(--settings-radius);
+  background: color-mix(in srgb, var(--settings-surface) 94%, var(--settings-muted));
+}
+
 /* Deliberately narrower than the section-grid threshold: a section sharing a row is
    roughly half the page, and pairing cards up inside it would rebuild the crowding this
    block just removed. In practice only full-bleed sections get wide enough to qualify. */
@@ -869,6 +971,116 @@ body.white-shell.theme-light.theme-dark #settingsModal {
   min-width: 0;
   display: grid;
   gap: var(--settings-space-2);
+}
+
+/* Feature entry cards: the three pillars of the page, one column until the
+   panel is wide enough for all three side by side. */
+#settingsContentBody .automation-pillars {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--settings-space-3);
+}
+
+@container automation-page (min-width: 720px) {
+  #settingsContentBody .automation-pillars {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+#settingsContentBody .automation-pillar {
+  min-width: 0;
+  display: grid;
+  gap: var(--settings-space-2);
+  align-content: start;
+}
+
+#settingsContentBody .automation-pillar-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--settings-space-2);
+}
+
+#settingsContentBody .automation-pillar h3 {
+  margin: 0;
+  font-size: 15px;
+}
+
+#settingsContentBody .automation-pillar p {
+  margin: 0;
+  color: var(--settings-muted-foreground);
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
+#settingsContentBody .automation-pillar .automation-btn {
+  justify-self: start;
+}
+
+/* Pending device-action approvals pinned above everything else. */
+#settingsContentBody .automation-pending {
+  border-color: color-mix(in srgb, var(--settings-destructive, #dc2626) 45%, var(--settings-border));
+  background: color-mix(in srgb, var(--settings-destructive, #dc2626) 6%, var(--settings-surface));
+}
+
+/* Metric cards double as section links; undo button chrome the stat-card class
+   does not set, and give them affordance. */
+#settingsContentBody button.automation-metric {
+  appearance: none;
+  font: inherit;
+  text-align: inherit;
+  cursor: pointer;
+  color: inherit;
+}
+
+#settingsContentBody button.automation-metric:hover,
+#settingsContentBody button.automation-metric:focus-visible {
+  border-color: var(--settings-primary);
+}
+
+#settingsContentBody .automation-form-toggle {
+  align-self: start;
+  white-space: nowrap;
+}
+
+#settingsContentBody .automation-cron-preview {
+  display: block;
+  margin-top: 4px;
+  color: var(--settings-muted-foreground);
+  font-size: 12px;
+}
+
+#settingsContentBody .automation-device-group {
+  min-width: 0;
+  display: grid;
+  gap: var(--settings-space-2);
+}
+
+#settingsContentBody .automation-device-group-head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--settings-space-2);
+  padding-top: var(--settings-space-2);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  color: var(--settings-muted-foreground);
+}
+
+#settingsContentBody .automation-device-group-head strong {
+  color: var(--settings-foreground);
+}
+
+#settingsContentBody .automation-device-search {
+  min-width: 160px;
+  flex: 1;
+}
+
+/* Rows that carry the per-entity action shortcut need a fourth column so the
+   button does not wrap under the entity name. */
+#settingsContentBody .automation-device-row.has-action {
+  grid-template-columns: minmax(0, 1fr) minmax(80px, auto) 44px auto;
 }
 
 #settingsContentBody .archive-summary-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }

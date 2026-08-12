@@ -491,6 +491,13 @@ export function createChatComposerController({
 
   async function restoreCurrentChatDraft() {
     const agentId = state.agent?.id;
+    // A send empties the composer immediately but clears the stored draft only
+    // once the message is delivered. In between, the draft still holds the sent
+    // text -- and the send's own model sync can re-enter the agent (a fresh
+    // session saves the model on first send, and that save ends in enterAgent),
+    // which lands here and writes the sent message straight back into the box.
+    // While a send owns the composer, the restore stands down.
+    if (isMessageSendingFor(agentId)) return;
     const localDraft = currentChatDrafts()[currentChatDraftKey()] || "";
     setMessageInputValue(localDraft, { saveDraft: false });
     if (agentId && state.authUser) {

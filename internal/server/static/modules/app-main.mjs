@@ -1,6 +1,6 @@
 import { createAccountPreferencesController } from "./account-preferences.mjs?v=profile-avatar-1-first-run-setup-1";
 import { createAgentStreamController } from "./agent-stream.mjs";
-import { createAutomationControlController } from "./automation-control.mjs?v=nav-schedules-1";
+import { createAutomationControlController } from "./automation-control.mjs?v=automation-hub-1";
 import { createAutomationToolCatalogController } from "./automation-tool-catalog.mjs?v=automation-tool-catalog-1";
 import { createArchiveSettingsController } from "./archive-settings.mjs?v=archive-settings-1";
 import { createConversationTitleHelpers } from "./conversation-title-helpers.mjs?v=standalone-removed-1";

@@ -10,6 +10,7 @@ import {
   buildPairingCodePayload,
   buildSchedulePayload,
   createAutomationControlController,
+  describeCronExpression,
   formatScheduleEnumValue,
   normalizeConnection,
   normalizeSchedule,
@@ -290,6 +291,9 @@ test("connection normalization and rendering never echo returned secret fields",
     }],
     auditEvents: [{ type: "connection.test", summary: "token=123456:abcdefghijklmnopqrstuvwxyzABCDE" }],
     errors: { global: "Bearer top-secret-bearer-value" },
+    // Force both credential forms to render so the no-echo assertions below
+    // exercise real inputs rather than passing vacuously on a collapsed form.
+    formOpen: { telegram: true, homeAssistant: true },
   });
   assert.doesNotMatch(html, /abcdefghijklmnopqrstuvwxyzABCDE/);
   assert.doesNotMatch(html, /server-secret-value/);
@@ -339,6 +343,9 @@ test("automation renders localized schedule enum options, summaries, and safe un
           { id: "known", name: "Known", expression: "@daily", timezone: "UTC", agentId: "agent", prompt: "run", permissionMode: "acceptEdits", environmentMode: "standalone", narratorMode: "new", enabled: true },
           { id: "future", name: "Future", expression: "@hourly", timezone: "UTC", agentId: "agent", prompt: "run", permissionMode: "future<mode>", environmentMode: "workline", narratorMode: "reuse", enabled: true },
         ],
+        // The schedule section has rows, so its create form only renders when
+        // opened explicitly; the option assertions below live in that form.
+        formOpen: { schedule: true },
       });
       assert.ok(html.includes(labels.title), locale);
       assert.match(html, /placeholder="@every 15m"/, locale);
@@ -362,4 +369,196 @@ test("automation renders localized schedule enum options, summaries, and safe un
   } finally {
     setUILocale(previous);
   }
+});
+
+test("cron preview estimates presets and pinned five-field crons, and refuses the rest", () => {
+  const now = Date.parse("2026-08-12T10:15:30Z");
+  assert.deepEqual(describeCronExpression("@every 30m", now), { valid: true, nextAt: new Date(now + 30 * 60000).toISOString() });
+  const hourly = describeCronExpression("@hourly", now);
+  assert.equal(hourly.valid, true);
+  assert.equal(new Date(hourly.nextAt).getMinutes(), 0);
+  assert.ok(Date.parse(hourly.nextAt) > now);
+  assert.ok(Date.parse(hourly.nextAt) - now <= 3600000);
+  const daily = describeCronExpression("@daily", now);
+  assert.equal(new Date(daily.nextAt).getHours(), 0);
+  assert.ok(Date.parse(daily.nextAt) > now);
+  const weekly = describeCronExpression("@weekly", now);
+  assert.equal(new Date(weekly.nextAt).getDay(), 0);
+  // The five-field estimate runs in the browser's local clock, so the
+  // assertions read the result back with local getters.
+  const monday = describeCronExpression("0 9 * * 1", now);
+  assert.equal(monday.valid, true);
+  assert.equal(new Date(monday.nextAt).getDay(), 1);
+  assert.equal(new Date(monday.nextAt).getHours(), 9);
+  assert.equal(new Date(monday.nextAt).getMinutes(), 0);
+  const nightly = describeCronExpression("0 22 * * *", now);
+  assert.equal(nightly.valid, true);
+  assert.equal(new Date(nightly.nextAt).getHours(), 22);
+  for (const unsupported of ["", "not-cron", "* * * * *", "*/5 * * * *", "0 9 * * mon", "@every 0m", "61 9 * * *"]) {
+    assert.equal(describeCronExpression(unsupported, now).valid, false, unsupported);
+  }
+});
+
+test("feature pillars summarize configured areas and expose CTAs into the sections", () => {
+  const configured = renderAutomationControl({
+    loaded: true,
+    connections: [{ id: "tg-1", kind: "telegram", name: "TG", secretConfigured: { botToken: true } }],
+    pairings: [{ id: "p-1", connectionId: "tg-1", agentId: "agent-1", status: "active" }],
+    schedules: [{ id: "s-1", name: "Nightly", expression: "@daily", agentId: "agent-1", prompt: "run", enabled: true }],
+  });
+  assert.equal((configured.match(/data-feature-card=/g) || []).length, 3);
+  // Configured areas offer a plain jump; the unconfigured one also opens its form.
+  assert.match(configured, /data-feature-cta="telegram" data-feature-target="connections">/);
+  assert.match(configured, /data-feature-cta="schedule" data-feature-target="schedules">/);
+  assert.match(configured, /data-feature-cta="homeAssistant" data-feature-target="home-assistant" data-feature-open="true">/);
+  assert.match(configured, /data-automation-section="connections"/);
+  assert.match(configured, /data-automation-section="home-assistant"/);
+  assert.match(configured, /data-metric-jump="device-actions"/);
+  // Every metric card is a jump button now.
+  assert.equal((configured.match(/data-metric-jump=/g) || []).length >= 6, true);
+});
+
+test("pending device actions pin an approval banner unless they are expired", () => {
+  const base = {
+    loaded: true,
+    deviceActions: [{ id: "act-1", entityId: "light.desk", domain: "light", service: "turn_on", status: "pending", expiresAt: "2099-01-01T00:00:00Z" }],
+    now: Date.parse("2026-01-01T00:00:00Z"),
+  };
+  const pinned = renderAutomationControl(base);
+  assert.match(pinned, /data-automation-pending/);
+  const expired = renderAutomationControl({
+    ...base,
+    deviceActions: [{ ...base.deviceActions[0], expiresAt: "2020-01-01T00:00:00Z" }],
+  });
+  assert.doesNotMatch(expired, /data-automation-pending/);
+  const approvedOnly = renderAutomationControl({
+    ...base,
+    deviceActions: [{ ...base.deviceActions[0], status: "approved" }],
+  });
+  assert.doesNotMatch(approvedOnly, /data-automation-pending/);
+});
+
+test("create forms collapse behind toggles once a section has data and auto-open when empty", () => {
+  const populated = renderAutomationControl({
+    loaded: true,
+    schedules: [{ id: "s-1", name: "Nightly", expression: "@daily", agentId: "agent-1", prompt: "run", enabled: true }],
+    connections: [
+      { id: "tg-1", kind: "telegram", name: "TG", secretConfigured: { botToken: true } },
+      { id: "ha-1", kind: "home-assistant", name: "Home", endpoint: "http://ha.local:8123", secretConfigured: { accessToken: true } },
+    ],
+    pairings: [{ id: "p-1", connectionId: "tg-1", agentId: "agent-1", status: "active" }],
+    deviceActions: [{ id: "act-1", entityId: "light.desk", domain: "light", service: "turn_on", status: "approved" }],
+  });
+  for (const formId of ["createScheduleForm", "createTelegramConnectionForm", "createHomeAssistantConnectionForm", "createPairingCodeForm", "createDeviceActionForm"]) {
+    assert.doesNotMatch(populated, new RegExp(formId), formId);
+  }
+  assert.match(populated, /data-form-toggle="schedule" data-form-open="false"/);
+
+  const empty = renderAutomationControl({ loaded: true });
+  for (const formId of ["createScheduleForm", "createTelegramConnectionForm", "createHomeAssistantConnectionForm", "createPairingCodeForm", "createDeviceActionForm"]) {
+    assert.match(empty, new RegExp(formId), formId);
+  }
+
+  const explicitlyOpened = renderAutomationControl({
+    loaded: true,
+    schedules: [{ id: "s-1", name: "Nightly", expression: "@daily", agentId: "agent-1", prompt: "run", enabled: true }],
+    formOpen: { schedule: true },
+  });
+  assert.match(explicitlyOpened, /createScheduleForm/);
+  assert.match(explicitlyOpened, /data-form-toggle="schedule" data-form-open="true"/);
+
+  const explicitlyClosed = renderAutomationControl({ loaded: true, formOpen: { schedule: false } });
+  assert.doesNotMatch(explicitlyClosed, /createScheduleForm/);
+});
+
+test("agent pickers use the loaded agent directory and fall back to plain inputs", () => {
+  const withAgents = renderAutomationControl({
+    loaded: true,
+    agents: [{ id: "agent-12345678", title: "Nightly bot" }, { id: "agent-plain" }],
+    formOpen: { schedule: true, pairing: true },
+  });
+  assert.match(withAgents, /<select id="scheduleAgentInput" required>/);
+  assert.match(withAgents, /<select id="pairingAgentInput" required>/);
+  assert.match(withAgents, /<option value="agent-12345678">Nightly bot · agent-12<\/option>/);
+  assert.match(withAgents, /<option value="agent-plain">agent-plain<\/option>/);
+
+  const withoutAgents = renderAutomationControl({ loaded: true, formOpen: { schedule: true, pairing: true } });
+  assert.match(withoutAgents, /<input id="scheduleAgentInput"/);
+  assert.match(withoutAgents, /<input id="pairingAgentInput"/);
+});
+
+test("schedule cards report the last run outcome or say the schedule never ran", () => {
+  const html = renderAutomationControl({
+    loaded: true,
+    schedules: [
+      { id: "ran", name: "Ran", expression: "@daily", agentId: "a", prompt: "p", enabled: true, lastRunAt: "2026-01-02T03:04:05Z", lastOutcome: "succeeded" },
+      { id: "fresh", name: "Fresh", expression: "@daily", agentId: "a", prompt: "p", enabled: true },
+    ],
+  });
+  assert.match(html, /上次运行/);
+  assert.match(html, /成功 · /);
+  assert.match(html, /从未运行/);
+});
+
+test("entities group by domain with search metadata and per-row action shortcuts", () => {
+  const html = renderAutomationControl({
+    loaded: true,
+    connections: [{ id: "ha-1", kind: "home-assistant", name: "Home", endpoint: "http://ha.local:8123", secretConfigured: { accessToken: true } }],
+    selectedConnectionId: "ha-1",
+    devices: [
+      { entityId: "light.desk", name: "Desk lamp", state: "on" },
+      { entityId: "switch.heater", name: "Heater", state: "off" },
+      { entityId: "light.hall", name: "Hall", state: "off" },
+    ],
+    deviceFilter: "desk",
+  });
+  assert.equal((html.match(/automation-device-group-head/g) || []).length, 2);
+  assert.match(html, /data-entity-search="light\.desk desk lamp"/);
+  assert.equal((html.match(/data-entity-action=/g) || []).length, 3);
+  assert.match(html, /id="deviceSearchInput" maxlength="120" value="desk"/);
+  // Without a selected connection there is nothing to prefill, so no shortcut.
+  const unselected = renderAutomationControl({
+    loaded: true,
+    devices: [{ entityId: "light.desk", name: "Desk lamp", state: "on" }],
+  });
+  assert.doesNotMatch(unselected, /data-entity-action=/);
+});
+
+test("controller loads the agent directory for the pickers and tolerates its failure", async () => {
+  const controller = createAutomationControlController({
+    request: async (path) => {
+      if (path === "/api/agents?limit=200") return [{ id: "agent-1", title: "Alpha" }, { id: "", title: "dropped: no id" }];
+      return emptyAPI(path);
+    },
+  });
+  assert.equal(await controller.load(), true);
+  assert.deepEqual(controller.getState().agents, [{ id: "agent-1", title: "Alpha" }]);
+  assert.match(controller.render(), /<select id="scheduleAgentInput" required>/);
+
+  const failing = createAutomationControlController({
+    request: async (path) => {
+      if (path.startsWith("/api/agents")) throw new Error("agents endpoint down");
+      return emptyAPI(path);
+    },
+  });
+  assert.equal(await failing.load(), true);
+  assert.deepEqual(failing.getState().agents, []);
+  assert.match(failing.render(), /<input id="scheduleAgentInput"/);
+});
+
+test("the Telegram trio shares one row: connections, pairing, then deliveries", () => {
+  const html = renderAutomationControl({ loaded: true });
+  const trio = html.match(/<div class="automation-trio" data-automation-trio>([\s\S]*?)<\/div>\s*<section class="automation-section settings-card settings-page-section span-2" data-automation-section="home-assistant"/);
+  assert.ok(trio, "trio wrapper renders before the home-assistant section");
+  const order = ["connections", "pairing", "deliveries"].map((slug) => trio[1].indexOf(`data-automation-section="${slug}"`));
+  assert.ok(order.every((index) => index >= 0), "all three sections live inside the trio");
+  assert.deepEqual([...order].sort((a, b) => a - b), order, "sections follow the connect, pair, deliver flow");
+});
+
+test("a successful create collapses the section form again", async () => {
+  const controller = createAutomationControlController({ request: async (path) => emptyAPI(path) });
+  assert.equal(await controller.createSchedule({ name: "n", expression: "@daily", agentId: "agent-1", prompt: "p" }), true);
+  assert.equal(controller.getState().formOpen.schedule, false);
+  assert.equal(await controller.createConnection({ kind: "telegram", credentialRef: "env:AUTOTO_TELEGRAM_BOT_TOKEN" }), true);
+  assert.equal(controller.getState().formOpen.telegram, false);
 });

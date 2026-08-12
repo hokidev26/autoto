@@ -9,7 +9,7 @@ import { createChatComposerController } from "./chat-composer.mjs";
 // deleted the draft, so it recreated it; and once the delete had reset the
 // version, that PUT came back 409 and the recovery path deliberately re-read the
 // version and wrote the stale text again.
-function createHarness() {
+function createHarness({ modelSelectValue, saveAgentSettings } = {}) {
   let messageValue = "";
   const input = {
     disabled: false,
@@ -28,6 +28,7 @@ function createHarness() {
     promptHistoryHint: { textContent: "" },
     slashCommandPalette: { classList: { add() {}, remove() {} }, innerHTML: "" },
   };
+  if (modelSelectValue !== undefined) elements.modelSelect = { value: modelSelectValue };
   const timers = [];
   const previous = {
     document: globalThis.document,
@@ -81,9 +82,13 @@ function createHarness() {
     serverDrafts: { "agent-1": { enabled: true, version: 1, seq: 0, timer: null, epoch: 0 } },
   };
 
+  // Handed to the saveAgentSettings hook so a test can reach the controller
+  // from inside the save, the way app-main's settings pass re-enters the agent.
+  const handle = {};
   const controller = createChatComposerController({
     state,
     awaitAgentSettingsSaved: async () => {},
+    saveAgentSettings: async () => { await saveAgentSettings?.(handle); },
     currentSkillsPreferences: () => ({ commands: [] }),
     isCurrentModelConfigured: () => true,
     loadMessages: async () => {},
@@ -93,7 +98,7 @@ function createHarness() {
     scrollMessagesToBottom() {},
   });
 
-  return {
+  Object.assign(handle, {
     controller,
     input,
     state,
@@ -111,7 +116,8 @@ function createHarness() {
       globalThis.localStorage = previous.localStorage;
       globalThis.fetch = previous.fetch;
     },
-  };
+  });
+  return handle;
 }
 
 test("送出訊息後，還在等待的草稿儲存不會把文字寫回去", async () => {
@@ -163,6 +169,37 @@ test("沒有送出時，草稿照常儲存", async () => {
     await Promise.resolve();
     await Promise.resolve();
     assert.deepEqual(harness.puts(), ["PUT /api/agents/agent-1/draft"], "一般輸入仍要存草稿");
+  } finally {
+    harness.restore();
+  }
+});
+
+// A fresh session saves the model on the first send: the picker was chosen
+// before the agent record had it, so the send's model sync runs a settings
+// save, and that save ends in enterAgent, whose draft restore runs while the
+// send is still in flight. The stored draft is only cleared after delivery, so
+// the restore found the just-sent text intact and wrote it back into the box.
+// Only the first message tripped this; from the second send on the model
+// already matches and nothing re-enters the agent.
+test("送出途中觸發的草稿還原不得把剛送出的字寫回輸入框", async () => {
+  const harness = createHarness({
+    modelSelectValue: "openai:other",
+    async saveAgentSettings(h) {
+      // What app-main's persistAgentSettingsPass does: patch the model on the
+      // agent, then re-enter it, which restores the draft.
+      h.state.agent = { ...h.state.agent, model: "openai:other" };
+      await h.controller.restoreCurrentChatDraft();
+    },
+  });
+  try {
+    // The cold-boot desktop shape: the server draft route is not confirmed yet,
+    // so typing backs the text up locally and the restore reads it back
+    // synchronously.
+    harness.state.serverDrafts["agent-1"].enabled = false;
+    harness.input.value = "開場第一句";
+    harness.controller.handleMessageInput();
+    await harness.controller.sendMessage({ preventDefault() {} });
+    assert.equal(harness.input.value, "", "第一則訊息送出後輸入框要保持清空");
   } finally {
     harness.restore();
   }
