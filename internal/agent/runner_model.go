@@ -148,6 +148,32 @@ func (r *Runner) runModelTurnAttempt(ctx context.Context, agentID, runID string,
 	// Kept apart from builder so reasoning never leaks into the assistant
 	// message that is sent back to the model on the next turn.
 	var reasoning strings.Builder
+	// One preview per tool call id. A nil entry records that the tool has no
+	// streamable argument, so the lookup is not repeated per fragment.
+	var inputPreviews map[string]*toolInputStreamPreview
+	publishToolInputDelta := func(id, name string, preview *toolInputStreamPreview, chunk string) {
+		data := map[string]any{
+			"requestId": requestID,
+			"toolUseId": id,
+			"toolName":  name,
+			"field":     preview.Field(),
+		}
+		// Snapshot previews (Bash) resend the whole redacted text each time
+		// instead of appending, because redaction is only reliable on the
+		// complete accumulated command.
+		if preview.SnapshotMode() {
+			data["replace"] = true
+		}
+		// The file path is worth naming the card early, while the content is
+		// still streaming; it is reported exactly once.
+		if path, ok := preview.FilePath(); ok {
+			data["inputJson"] = map[string]any{"file_path": path}
+		}
+		if chunk == "" && data["inputJson"] == nil {
+			return
+		}
+		r.publish(Event{Type: "tool.input_delta", AgentID: agentID, Text: chunk, Data: mergeEventData(data, runID)})
+	}
 	var firstOutputAt time.Time
 	var outputRunes int64
 	modelOutputStarted := false
@@ -269,6 +295,34 @@ func (r *Runner) runModelTurnAttempt(ctx context.Context, agentID, runID string,
 				block.Input = append([]byte(nil), block.Input...)
 				block.ProviderState = append([]byte(nil), block.ProviderState...)
 				result.ResponseBlocks = append(result.ResponseBlocks, block)
+			case "tool_call_delta":
+				// A live preview of the arguments the model is composing. Like
+				// reasoning it marks first output but not modelOutputStarted: a turn
+				// that died mid-arguments produced nothing and must stay retryable.
+				if !capabilities.Tools || event.ToolCall == nil || event.Text == "" {
+					continue
+				}
+				toolUseID := strings.TrimSpace(event.ToolCall.ID)
+				if toolUseID == "" {
+					continue
+				}
+				preview, tracked := inputPreviews[toolUseID]
+				if !tracked {
+					preview = newToolInputStreamPreview(event.ToolCall.Name)
+					if inputPreviews == nil {
+						inputPreviews = make(map[string]*toolInputStreamPreview)
+					}
+					inputPreviews[toolUseID] = preview
+				}
+				if preview == nil {
+					continue
+				}
+				markModelOutput(time.Now())
+				chunk := preview.Feed(event.Text)
+				if preview.SnapshotMode() {
+					chunk, _ = preview.SnapshotText(time.Now(), false)
+				}
+				publishToolInputDelta(toolUseID, event.ToolCall.Name, preview, chunk)
 			case "tool_call":
 				if !capabilities.Tools {
 					err := &ProviderError{Message: "provider emitted a tool call without declaring tool capability"}
@@ -282,6 +336,20 @@ func (r *Runner) runModelTurnAttempt(ctx context.Context, agentID, runID string,
 					toolCall := normalizeProviderToolCall(*event.ToolCall)
 					result.ToolCalls = append(result.ToolCalls, toolCall)
 					outputRunes += estimatedToolCallOutputRunes(toolCall)
+					// Whatever the delta stream did not cover is flushed now, so
+					// providers without argument streaming still produce a preview
+					// and streamed previews always end complete.
+					preview, tracked := inputPreviews[toolCall.ID]
+					if !tracked {
+						preview = newToolInputStreamPreview(toolCall.Name)
+						if inputPreviews == nil {
+							inputPreviews = make(map[string]*toolInputStreamPreview)
+						}
+						inputPreviews[toolCall.ID] = preview
+					}
+					if preview != nil {
+						publishToolInputDelta(toolCall.ID, toolCall.Name, preview, preview.Finalize(toolCall.Input))
+					}
 					publishStreamingUsage()
 				}
 			case "image_generation":

@@ -165,12 +165,18 @@ type ImageGeneration struct {
 }
 
 // Event.Type is one of "dispatch", "text", "reasoning", "content_block",
-// "tool_call", "image_generation", "error" or "done".
+// "tool_call", "tool_call_delta", "image_generation", "error" or "done".
 //
 // "reasoning" carries the model's own summary of what it is about to do, in
 // Text, and is advisory: providers that do not expose a readable summary (or
 // expose only encrypted reasoning, as the Codex backend does) simply never emit
 // it, and every consumer must behave identically when it is absent.
+//
+// "tool_call_delta" is likewise advisory: Text carries the next raw fragment
+// of the argument JSON for the tool call identified by ToolCall.ID/Name (Input
+// stays empty). It exists so the UI can preview a Write's content while the
+// model is still composing the call. Providers that cannot stream arguments
+// simply never emit it; the complete "tool_call" remains the source of truth.
 type Event struct {
 	Type            string
 	Text            string

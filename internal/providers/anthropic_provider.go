@@ -317,6 +317,21 @@ func (p *AnthropicProvider) Generate(ctx context.Context, req GenerateRequest) (
 							_ = stream.Close()
 							return
 						}
+					case anthropic.InputJSONDelta:
+						// A preview of the tool arguments, not an answer, so like thinking it
+						// does not set emittedContent. The accumulated message already holds
+						// the block's id and name from content_block_start.
+						if delta.PartialJSON == "" {
+							break
+						}
+						toolDelta, ok := anthropicToolCallDeltaEvent(acc, typed.Index, delta.PartialJSON)
+						if !ok {
+							break
+						}
+						if !emitDispatch() || !emitProviderEvent(ctx, out, toolDelta) {
+							_ = stream.Close()
+							return
+						}
 					}
 				case anthropic.ContentBlockStopEvent:
 					if blockEvent, ok := anthropicContentBlockEvent(acc, typed.Index, model); ok {
@@ -656,6 +671,17 @@ func anthropicContentBlockEvent(message anthropic.Message, index int64, model st
 		return Event{}, false
 	}
 	return Event{Type: "content_block", ContentBlock: &content, BlockType: content.Type, BlockIndex: index}, true
+}
+
+func anthropicToolCallDeltaEvent(message anthropic.Message, index int64, partial string) (Event, bool) {
+	if index < 0 || index >= int64(len(message.Content)) {
+		return Event{}, false
+	}
+	block := message.Content[index]
+	if block.Type != "tool_use" || block.ID == "" || block.Name == "" {
+		return Event{}, false
+	}
+	return Event{Type: "tool_call_delta", Text: partial, ToolCall: &ToolCall{ID: block.ID, Name: block.Name}, BlockIndex: index}, true
 }
 
 func anthropicToolCallEvent(message anthropic.Message, index int64) (Event, bool) {

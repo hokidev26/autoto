@@ -50,6 +50,32 @@ func TestHubProtocolEnvelopeAndReplay(t *testing.T) {
 	}
 }
 
+func TestHubToolInputPreviewSnapshots(t *testing.T) {
+	hub := NewHub()
+	hub.Publish(Event{Type: "tool.input_delta", AgentID: "agent-1", Text: "hello ", Data: map[string]any{"toolUseId": "write-1"}})
+	hub.Publish(Event{Type: "tool.input_delta", AgentID: "agent-1", Text: "world", Data: map[string]any{"toolUseId": "write-1"}})
+	// Snapshot-style previews replace what was accumulated before them.
+	hub.Publish(Event{Type: "tool.input_delta", AgentID: "agent-1", Text: "curl -v", Data: map[string]any{"toolUseId": "bash-1", "replace": true}})
+	hub.Publish(Event{Type: "tool.input_delta", AgentID: "agent-1", Text: "curl -v https://example.com", Data: map[string]any{"toolUseId": "bash-1", "replace": true}})
+	// Output events must stay out of the input previews and vice versa.
+	hub.Publish(Event{Type: "tool.output", AgentID: "agent-1", Text: "ok", Data: map[string]any{"toolUseId": "bash-1"}})
+
+	previews := hub.ToolInputPreviewSnapshots("agent-1")
+	if previews["write-1"].Text != "hello world" {
+		t.Fatalf("append preview = %+v", previews["write-1"])
+	}
+	if previews["bash-1"].Text != "curl -v https://example.com" {
+		t.Fatalf("replace preview = %+v", previews["bash-1"])
+	}
+	outputs := hub.ToolOutputSnapshots("agent-1")
+	if outputs["bash-1"].Text != "ok" {
+		t.Fatalf("output snapshot = %+v", outputs["bash-1"])
+	}
+	if _, ok := outputs["write-1"]; ok {
+		t.Fatal("input deltas must not leak into output snapshots")
+	}
+}
+
 func TestHubResyncReasonsAreExplicit(t *testing.T) {
 	hub := NewHubWithConfig(HubConfig{
 		RingSize:         3,

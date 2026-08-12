@@ -348,14 +348,21 @@ func (s *Server) getAgentLiveSnapshot(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		outputSnapshots := s.hub.ToolOutputSnapshots(agentID)
+		inputPreviews := s.hub.ToolInputPreviewSnapshots(agentID)
 		toolActivity = make([]activityToolCall, 0, len(calls))
 		for _, call := range calls {
 			projected := projectActivityToolCall(call)
+			inFlight := call.Status == "running" || call.Status == "pending_approval"
 			if output, ok := outputSnapshots[call.ToolUseID]; ok && call.Status == "running" {
 				text, truncated := truncateActivityString(agentpkg.RedactToolActivityText(output.Text), activityOutputTextBytes)
 				encoded, _ := json.Marshal(activityToolResult{Output: text})
 				projected.OutputJSON = encoded
 				projected.OutputTruncated = projected.OutputTruncated || output.Truncated || truncated
+			}
+			if preview, ok := inputPreviews[call.ToolUseID]; ok && inFlight {
+				text, truncated := truncateActivityString(agentpkg.RedactToolActivityText(preview.Text), activityOutputTextBytes)
+				projected.InputPreview = text
+				projected.InputPreviewTruncated = preview.Truncated || truncated
 			}
 			toolActivity = append(toolActivity, projected)
 		}
@@ -1068,6 +1075,11 @@ type activityToolCall struct {
 	CommandFacts             *tools.CommandFacts `json:"commandFacts,omitempty"`
 	InputTruncated           bool                `json:"inputTruncated,omitempty"`
 	OutputTruncated          bool                `json:"outputTruncated,omitempty"`
+	// InputPreview restores the argument text that was streamed while the
+	// model composed the call (tool.input_delta), so a reconnecting client
+	// does not lose the live written-content view for in-flight calls.
+	InputPreview          string `json:"inputPreview,omitempty"`
+	InputPreviewTruncated bool   `json:"inputPreviewTruncated,omitempty"`
 }
 
 type activityToolResult struct {

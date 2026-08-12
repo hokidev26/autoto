@@ -4,7 +4,7 @@ import { t } from "./i18n.mjs";
 import { api } from "./runtime.mjs";
 import { visibleMessageText } from "./skills-commands.mjs";
 import { normalizeAvatarDataUrl } from "./profile-avatar.mjs?v=profile-avatar-1";
-import { t as cr } from "./messages-chat-rendering-extra.mjs?v=plan-mode-1-i18n-shared-1-subagent-cards-1-provider-errors-1-tool-activity-lazy-1-reasoning-count-1-per-message-activity-1-message-menu-1";
+import { t as cr } from "./messages-chat-rendering-extra.mjs?v=plan-mode-1-i18n-shared-1-subagent-cards-1-provider-errors-1-tool-activity-lazy-1-reasoning-count-1-per-message-activity-1-message-menu-1-write-stream-1";
 import {
   bindProtectedDownloads,
   hydrateProtectedImages,
@@ -563,8 +563,13 @@ export function normalizeToolActivity(call = {}, fallback = {}) {
     outputJson: parseToolJSON(outputValue),
     resultPreview: firstToolValue(source, "resultPreview", "result_preview", "outputPreview", "output_preview") || "",
     output: firstToolValue(source, "output") || "",
+    // Argument text streamed while the model was still composing the call
+    // (Write content, Edit replacement). Carried on the record so later
+    // lifecycle events do not wipe what was already shown.
+    inputPreview: String(firstToolValue(source, "inputPreview", "input_preview") || ""),
+    inputPreviewField: String(firstToolValue(source, "inputPreviewField", "input_preview_field") || ""),
     errorMessage: firstToolValue(source, "errorMessage", "error_message", "error") || "",
-    truncated: Boolean(firstToolValue(source, "truncated", "inputTruncated", "input_truncated", "outputTruncated", "output_truncated", "resultTruncated", "result_truncated", "diffTruncated", "diff_truncated")),
+    truncated: Boolean(firstToolValue(source, "truncated", "inputTruncated", "input_truncated", "outputTruncated", "output_truncated", "resultTruncated", "result_truncated", "diffTruncated", "diff_truncated", "inputPreviewTruncated", "input_preview_truncated")),
     eventVersion: Number.isSafeInteger(eventVersionValue) && eventVersionValue > 0 && eventVersionValue <= maxToolActivityEventVersion ? eventVersionValue : null,
     decision: safeToolEnum(firstToolValue(source, "decision", "permissionDecision", "permission_decision"), toolDecisionValues),
     decisionSource,
@@ -1106,6 +1111,7 @@ export function renderAgentTaskActivityCardHTML(item = {}, backgroundTask = null
         <summary>${escapeHtml(cr("subagent.auditDetails"))}</summary>
         <div class="tool-activity-meta">${escapeHtml(cr("subagent.safeDetails"))}</div>
         <pre class="tool-activity-command">${escapeHtml(safeAudit || cr("activity.noOutput"))}</pre>
+        ${streamedInputBlockHTML(tool)}
         ${tool.truncated ? `<div class="tool-activity-truncated">${escapeHtml(cr("activity.truncated"))}</div>` : ""}
       </details>
     </article>
@@ -1121,6 +1127,27 @@ function toolActivityBlockControlsHTML(text) {
   const copy = `<button class="ghost-btn mini" type="button" data-tool-block-copy>${escapeHtml(cr("code.copy"))}</button>`;
   const toggle = long ? `<button class="ghost-btn mini" type="button" data-tool-block-toggle>${escapeHtml(cr("activity.expandBlock"))}</button>` : "";
   return `<span class="tool-activity-block-actions">${copy}${toggle}</span>`;
+}
+
+// The streamed-argument block names what is being streamed: file content for
+// Write/Edit, the task brief for a subagent, the (redacted) command for Bash.
+function streamedInputLabel(field) {
+  if (field === "prompt") return cr("activity.streamedPrompt");
+  if (field === "command") return cr("activity.streamedCommand");
+  return cr("activity.streamedInput");
+}
+
+function streamedInputBlockHTML(tool) {
+  const preview = String(tool.inputPreview || "");
+  if (!preview) return "";
+  return `
+        <div class="tool-activity-block">
+          <div class="tool-activity-block-bar">
+            <div class="tool-activity-meta">${escapeHtml(streamedInputLabel(tool.inputPreviewField))}</div>
+            ${toolActivityBlockControlsHTML(preview)}
+          </div>
+          <pre class="tool-activity-output live-tool-output-body" data-tool-input-preview>${escapeHtml(preview)}</pre>
+        </div>`;
 }
 
 function renderGenericToolActivityCardHTML(item = {}, options = {}) {
@@ -1154,6 +1181,7 @@ function renderGenericToolActivityCardHTML(item = {}, options = {}) {
           </div>
           <pre class="tool-activity-command">${escapeHtml(input || cr("activity.noInput"))}</pre>
         </div>
+        ${streamedInputBlockHTML(tool)}
         ${diff ? `<div class="tool-activity-meta">${escapeHtml(cr("activity.diff"))}</div>${diff}` : ""}
         <div class="tool-activity-block">
           <div class="tool-activity-block-bar">
@@ -4091,6 +4119,52 @@ export function createChatRenderingController({
     renderLiveToolOutputCards();
   }
 
+  // Streams the argument text (Write content, Edit replacement) while the
+  // model is still composing the call, so the expanded card follows the write
+  // in real time. The record usually does not exist yet: input deltas arrive
+  // before tool.started, so this creates it in a running state and
+  // tool.started later merges onto it.
+  function appendToolInputDelta(event) {
+    const data = event?.data || {};
+    const toolUseId = firstToolValue(data, "toolUseId", "tool_use_id");
+    if (!toolUseId) return;
+    const delta = String(event?.text ?? data.text ?? "");
+    const inputJson = data.inputJson && typeof data.inputJson === "object" ? data.inputJson : null;
+    if (!delta && !inputJson) return;
+    const known = Object.prototype.hasOwnProperty.call(state.liveToolOutputs || {}, toolUseId);
+    const current = state.liveToolOutputs?.[toolUseId] || {};
+    const normalized = normalizeToolActivity({
+      ...current,
+      agentId: event?.agentId || current.agentId || state.agent?.id,
+      runId: current.runId || data.runId || data.run_id || "",
+      toolName: current.toolName || data.toolName || data.tool_name || "",
+      createdAt: current.createdAt || event?.createdAt || new Date().toISOString(),
+      status: current.status || "running",
+      inputJson: inputJson || current.inputJson || null,
+      inputPreviewField: String(data.field || current.inputPreviewField || ""),
+    });
+    // Snapshot previews (Bash commands) resend the whole redacted text, so a
+    // replace event supersedes the accumulated preview instead of extending it.
+    const replace = data.replace === true;
+    const inputPreview = !delta
+      ? String(current.inputPreview || "")
+      : replace
+        ? trimLiveToolOutput(delta)
+        : trimLiveToolOutput(`${current.inputPreview || ""}${delta}`);
+    const updated = {
+      ...normalized,
+      toolUseId: String(toolUseId),
+      messageId: String(current.messageId || state.liveAssistantToolOwnerId || ""),
+      inputPreview,
+    };
+    rememberLiveToolCount(updated, known);
+    state.liveToolOutputs = pruneLiveToolOutputs({
+      ...(state.liveToolOutputs || {}),
+      [toolUseId]: updated,
+    }, updated.agentId || state.agent?.id || "");
+    renderLiveToolOutputCards();
+  }
+
   function finishToolOutput(event) {
     const data = event?.data || {};
     const toolUseId = firstToolValue(data, "toolUseId", "tool_use_id");
@@ -4248,6 +4322,14 @@ export function createChatRenderingController({
     }
     restoreTranscriptView(view, el);
     bindToolActivityControls(el);
+    // Streamed input blocks follow their tail like a terminal: each repaint
+    // rebuilds the <pre>, which resets its scroll to the top, so pin it back
+    // to the newest content while the call is still being composed.
+    if (typeof el.querySelectorAll === "function") {
+      el.querySelectorAll("[data-tool-input-preview]").forEach((block) => {
+        if (typeof block.scrollHeight === "number") block.scrollTop = block.scrollHeight;
+      });
+    }
   }
 
   function clearLiveToolOutputs({ agentId = state.agent?.id, preserveView = false } = {}) {
@@ -4407,6 +4489,14 @@ export function createChatRenderingController({
           ? cr("approval.unclassifiedWarning")
           : approval.warning || (isDanger ? cr("approval.blockedWarning") : cr("approval.warning"));
     const allowDisabled = commandOmitted || commandLoadFailed;
+    // The content the model streamed while composing this call (Write body,
+    // Edit replacement, subagent brief) is exactly what the human is being
+    // asked to approve, so surface it on the card instead of just byte counts.
+    const liveRecord = state.liveToolOutputs?.[String(approval.toolUseId || "")] || {};
+    const streamedTool = {
+      inputPreview: String(tool.inputPreview || liveRecord.inputPreview || ""),
+      inputPreviewField: String(tool.inputPreviewField || liveRecord.inputPreviewField || ""),
+    };
     return `
       <section class="approval-card chat-flow-item chat-flow-left chat-report-card ${isDanger ? "danger" : ""}" data-chat-alignment="left" data-chat-report="tool-approval" data-approval-card="${escapeAttr(approval.toolUseId || "")}">
         <div class="approval-card-head">
@@ -4417,6 +4507,7 @@ export function createChatRenderingController({
           <span class="approval-risk">${escapeHtml(risk)}</span>
         </div>
         <pre class="approval-command">${escapeHtml(command)}</pre>
+        ${streamedInputBlockHTML(streamedTool)}
         ${factTags}
         ${safetySummary}
         <div class="approval-warning">${escapeHtml(warning)}</div>
@@ -5440,6 +5531,7 @@ export function createChatRenderingController({
   return {
     appendLiveAssistantText,
     appendLiveReasoning,
+    appendToolInputDelta,
     appendToolOutput,
     clearLiveReasoning,
     closeLiveReasoningStep,

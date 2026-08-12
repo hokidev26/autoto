@@ -4,13 +4,13 @@ import { createAutomationControlController } from "./automation-control.mjs?v=au
 import { createAutomationToolCatalogController } from "./automation-tool-catalog.mjs?v=automation-tool-catalog-1";
 import { createArchiveSettingsController } from "./archive-settings.mjs?v=archive-settings-1";
 import { createConversationTitleHelpers } from "./conversation-title-helpers.mjs?v=standalone-removed-1";
-import { createBackgroundTasksController } from "./background-tasks.mjs?v=subagent-cards-1-foreground-activity-1-queue-attachments-1-task-overview-tabs-1-child-transcript-1";
+import { createBackgroundTasksController } from "./background-tasks.mjs?v=subagent-cards-1-foreground-activity-1-queue-attachments-1-task-overview-tabs-1-child-transcript-1-composer-pills-1-waiting-tone-1-working-in-transcript-1-stable-detail-1";
 import { createExecutionNotifications } from "./execution-notifications.mjs";
 import { createNotificationSound } from "./notification-sound.mjs?v=notification-sound-1";
 import { createSystemNotifications } from "./system-notification.mjs?v=system-notification-1";
 import { createBackendRegistryController } from "./backend-registry.mjs?v=agent-admin-removed-1";
 import { createChatComposerController, normalizeChatDrafts, normalizePromptHistory } from "./chat-composer.mjs?v=plan-mode-1-project-context-1-model-save-gate-1-goal-command-2-queue-command-1-reasoning-steps-1-reasoning-history-1-markdown-2-queue-autopark-1-queue-attachments-1-effort-initial-1";
-import { createChatRenderingController, findToolActivityByIdentity, renderAgentTaskActivityCardHTML } from "./chat-rendering.mjs?v=protected-images-1-message-thread-1-plan-mode-2-user-message-left-1-switch-fix-3-hide-run-loading-1-i18n-shared-1-conversation-boundary-1-subagent-cards-1-message-lifecycle-1-subagent-incremental-1-profile-message-identity-1-profile-avatar-1-provider-errors-1-compact-run-error-1-first-token-task-status-1-tool-activity-lazy-1-tool-protocol-filter-1-live-assistant-last-1-tool-activity-svg-icons-1-reasoning-steps-1-reasoning-history-1-markdown-2-tool-inline-detail-1-md-table-1-tool-position-1-project-run-history-1-dup-activity-fix-1-reasoning-count-1-avatar-logo-fix-1-markdown-stream-1-reasoning-handover-1-message-menu-1";
+import { createChatRenderingController, findToolActivityByIdentity, renderAgentTaskActivityCardHTML } from "./chat-rendering.mjs?v=protected-images-1-message-thread-1-plan-mode-2-user-message-left-1-switch-fix-3-hide-run-loading-1-i18n-shared-1-conversation-boundary-1-subagent-cards-1-message-lifecycle-1-subagent-incremental-1-profile-message-identity-1-profile-avatar-1-provider-errors-1-compact-run-error-1-first-token-task-status-1-tool-activity-lazy-1-tool-protocol-filter-1-live-assistant-last-1-tool-activity-svg-icons-1-reasoning-steps-1-reasoning-history-1-markdown-2-tool-inline-detail-1-md-table-1-tool-position-1-project-run-history-1-dup-activity-fix-1-reasoning-count-1-avatar-logo-fix-1-markdown-stream-1-reasoning-handover-1-message-menu-1-write-stream-1";
 import { releaseProtectedImageURLs } from "./protected-images.mjs?v=protected-images-1";
 import { createContextManagementController } from "./context-management.mjs?v=context-ring-3-scoped-memory-1";
 import {
@@ -25,7 +25,7 @@ import {
   renderRecentConversationsHTML,
   resolveInitialNavigationTarget,
   resolveTopNavigationProjectId,
-} from "./conversation-navigation.mjs?v=mode-boundaries-2-project-flat-1-task-workspace-1-navigation-state-1-project-context-1-recent-sync-1-dual-rail-collapse-1-compact-navigation-1-theme-icons-1-workline-fork-1-conversation-order-1-nav-status-color-1-top-project-1-standalone-removed-1-unread-state-1";
+} from "./conversation-navigation.mjs?v=mode-boundaries-2-project-flat-1-task-workspace-1-navigation-state-1-project-context-1-recent-sync-1-dual-rail-collapse-1-compact-navigation-1-theme-icons-1-workline-fork-1-conversation-order-1-nav-status-color-1-top-project-1-standalone-removed-1-unread-state-1-live-status-1";
 import { markConversationSeen, readSeenMap } from "./conversation-seen.mjs?v=unread-state-1";
 import {
   basename,
@@ -40,7 +40,7 @@ import { navigationCreateLabelKey, navigationCreateTarget } from "./navigation-c
 import { createSubagentCardCoordinator } from "./subagent-cards.mjs?v=tool-activity-lazy-1";
 import { createNavigationStartupGuard } from "./navigation-startup-guard.mjs?v=startup-navigation-guard-4";
 import { formatNumber, formatTimestamp } from "./formatters.mjs";
-import { t } from "./i18n.mjs?v=settings-flat-1-codex-browser-login-1-shared-api-1-apple-theme-1-autoto-themes-1-settings-help-1-task-workspace-1-navigation-state-2-archive-1-i18n-shared-1-overview-home-1-settings-cleanup-1-context-ring-3-global-background-1-theme-v2-1-background-upload-1-goal-command-2-queue-command-1-reasoning-steps-1-reasoning-history-1-markdown-2-first-run-setup-1-home-launcher-1-scoped-memory-1-standalone-removed-2-queue-autopark-1-home-redesign-1";
+import { t } from "./i18n.mjs?v=settings-flat-1-codex-browser-login-1-shared-api-1-apple-theme-1-autoto-themes-1-settings-help-1-task-workspace-1-navigation-state-2-archive-1-i18n-shared-1-overview-home-1-settings-cleanup-1-context-ring-3-global-background-1-theme-v2-1-background-upload-1-goal-command-2-queue-command-1-reasoning-steps-1-reasoning-history-1-markdown-2-first-run-setup-1-home-launcher-1-scoped-memory-1-standalone-removed-2-queue-autopark-1-home-redesign-1-child-thinking-1-home-claude-3";
 import { appMainT as am } from "./messages-app-main-extra.mjs?v=workbench-title-edit-1-hidden-toggle-removed-1-settings-cleanup-1";
 import { shellExtraT as sx } from "./messages-shell-extra.mjs";
 import { createGitWorkflowController } from "./git-workflow.mjs?v=merge-review-1";
@@ -55,7 +55,7 @@ import {
   overviewNavigationRoute,
   overviewRailTarget,
   resolveOverviewStartup,
-} from "./overview-dashboard.mjs?v=overview-home-3-nav-schedules-1-mobile-no-home-1-schedule-workspace-1-activity-heatmap-1-home-launcher-1-home-launcher-bottom-1-home-launcher-minimal-1-standalone-removed-2-project-popover-1-activity-tokens-1-system-metrics-1-home-redesign-1-home-claude-1";
+} from "./overview-dashboard.mjs?v=overview-home-3-nav-schedules-1-mobile-no-home-1-schedule-workspace-1-activity-heatmap-1-home-launcher-1-home-launcher-bottom-1-home-launcher-minimal-1-standalone-removed-2-project-popover-1-activity-tokens-1-system-metrics-1-home-redesign-1-home-claude-4";
 import { createPageLifecycleController } from "./page-lifecycle.mjs";
 import { confirm as platformConfirm } from "./platform.mjs";
 import { createProjectKanbanController } from "./project-kanban.mjs?v=workbench-3-mode-boundaries-1";
@@ -881,6 +881,7 @@ const {
 
 const {
   appendLiveAssistantText,
+  appendToolInputDelta,
   appendToolOutput,
   applyMessageSnapshot,
   applyPlanEvent,
@@ -1067,8 +1068,12 @@ backgroundTasks = createBackgroundTasksController({
   request: api,
   // Read from the composer's own select so the subagent model control always
   // offers exactly the configured provider models, with no second source to
-  // drift out of sync.
+  // drift out of sync. Hidden options stay hidden: the native select keeps
+  // models the user hid in provider settings (the composer's custom menu
+  // filters them at render time), and the subagent picker must apply the same
+  // filter rather than resurface them.
   getModelOptions: () => Array.from($("modelSelect")?.options || [])
+    .filter((option) => !option?.hidden && !option?.disabled)
     .map((option) => ({
       value: String(option?.value || "").trim(),
       label: String(option?.textContent || option?.label || option?.value || "").trim(),
@@ -4031,6 +4036,15 @@ async function handleAgentStreamEvent(event) {
     syncMessageComposerBusy();
     refreshComposerActivityStatus();
   }
+  if (event.type === "agent.waiting") {
+    // The run parked on a subagent boundary: the conversation is not over, it
+    // is waiting for the child's report. The sidebar and composer both say so
+    // instead of spinning as if the model were still generating.
+    state.agent = { ...state.agent, status: "waiting" };
+    syncNavigationConversationFromAgent(state.agent, { status: "waiting", reason: "agent-waiting" });
+    syncMessageComposerBusy();
+    refreshComposerActivityStatus();
+  }
   if (event.type === "model.started") {
     // The retry produced a live model call, so the retry wait is over.
     state.providerRetry = null;
@@ -4071,6 +4085,9 @@ async function handleAgentStreamEvent(event) {
     refreshComposerActivityStatus();
   }
   if (event.type === "tool.output") appendToolOutput(event);
+  // Argument text streamed while the model composes a Write/Edit call; the
+  // card exists before tool.started so the content can be followed live.
+  if (event.type === "tool.input_delta") appendToolInputDelta(event);
   if (event.type === "tool.approval_required") {
     rememberToolApproval(event);
     showToast(event.data?.risk === "danger" ? t("workspace.chat.dangerousToolBlocked") : t("workspace.chat.toolApproval"), event.data?.risk === "danger" ? "error" : "warn");

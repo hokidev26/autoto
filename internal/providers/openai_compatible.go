@@ -424,6 +424,10 @@ type openAICompatibleStreamToolCall struct {
 	ID        string
 	Name      string
 	Arguments strings.Builder
+	// streamed marks how much of Arguments has already been forwarded as a
+	// tool_call_delta. Fragments that arrive before the call's id and name are
+	// known accumulate here and are flushed on the first delta after both.
+	streamed int
 }
 
 func handleOpenAICompatibleStream(out chan<- Event, reader io.Reader) {
@@ -501,6 +505,15 @@ func handleOpenAICompatibleStream(out chan<- Event, reader io.Reader) {
 				}
 				if delta.Function.Arguments != "" {
 					call.Arguments.WriteString(delta.Function.Arguments)
+				}
+				// Forward argument fragments live so the UI can preview the call
+				// while it is still being composed. The complete tool_call emitted
+				// after the stream ends stays authoritative.
+				if strings.TrimSpace(call.ID) != "" && strings.TrimSpace(call.Name) != "" {
+					if pending := call.Arguments.String(); len(pending) > call.streamed {
+						out <- Event{Type: "tool_call_delta", Text: pending[call.streamed:], ToolCall: &ToolCall{ID: strings.TrimSpace(call.ID), Name: strings.TrimSpace(call.Name)}}
+						call.streamed = len(pending)
+					}
 				}
 			}
 		}

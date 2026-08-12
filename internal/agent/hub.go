@@ -153,6 +153,17 @@ func (h *Hub) Watermark(agentID string) StreamWatermark {
 }
 
 func (h *Hub) ToolOutputSnapshots(agentID string) map[string]ToolOutputSnapshot {
+	return h.toolTextSnapshots(agentID, "tool.output")
+}
+
+// ToolInputPreviewSnapshots rebuilds the streamed argument previews
+// (tool.input_delta) still held in the ring, so a client that reconnects
+// mid-call can restore what the model had already composed.
+func (h *Hub) ToolInputPreviewSnapshots(agentID string) map[string]ToolOutputSnapshot {
+	return h.toolTextSnapshots(agentID, "tool.input_delta")
+}
+
+func (h *Hub) toolTextSnapshots(agentID, eventType string) map[string]ToolOutputSnapshot {
 	now := h.now()
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -164,7 +175,7 @@ func (h *Hub) ToolOutputSnapshots(agentID string) map[string]ToolOutputSnapshot 
 	result := make(map[string]ToolOutputSnapshot)
 	for _, entry := range current.ring {
 		event := entry.event
-		if event.Type != "tool.output" || event.Text == "" {
+		if event.Type != eventType || event.Text == "" {
 			continue
 		}
 		toolUseID, _ := event.Data["toolUseId"].(string)
@@ -173,7 +184,13 @@ func (h *Hub) ToolOutputSnapshots(agentID string) map[string]ToolOutputSnapshot 
 			continue
 		}
 		snapshot := result[toolUseID]
-		snapshot.Text, snapshot.Truncated = appendToolOutputSnapshot(snapshot.Text, event.Text, snapshot.Truncated)
+		// Snapshot-style previews (Bash commands) resend the whole text, so
+		// each replace event supersedes what was accumulated before it.
+		if replace, _ := event.Data["replace"].(bool); replace {
+			snapshot.Text, snapshot.Truncated = appendToolOutputSnapshot("", event.Text, false)
+		} else {
+			snapshot.Text, snapshot.Truncated = appendToolOutputSnapshot(snapshot.Text, event.Text, snapshot.Truncated)
+		}
 		if truncated, _ := event.Data["truncated"].(bool); truncated {
 			snapshot.Truncated = true
 		}

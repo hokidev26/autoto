@@ -2987,6 +2987,87 @@ test("live tool events retain all tools and preserve streamed Bash output after 
   }
 });
 
+test("tool.input_delta streams Write content live, names the file early, and survives tool.started", () => {
+  const messagesElement = fakeMessagesElement();
+  const previousDocument = globalThis.document;
+  globalThis.document = { getElementById: () => messagesElement };
+  const state = { agent: { id: "agent-1" }, liveToolOutputs: {}, pendingToolApprovals: {}, currentMessages: [], messageCopyTexts: [] };
+  try {
+    const controller = createChatRenderingController({
+      state,
+      attachmentIcon: () => "file",
+      attachmentKind: () => "file",
+      copyToClipboard: async () => true,
+      notifyTerminal: () => {},
+      selectedModelValue: () => "",
+      shortPath: (value) => value,
+      showError: () => {},
+      showToast: () => {},
+    });
+    controller.appendToolInputDelta({ agentId: "agent-1", createdAt: "2026-01-01T00:00:00Z", text: "line one\n", data: { toolUseId: "write-1", toolName: "Write", runId: "run-1", field: "content" } });
+    controller.appendToolInputDelta({ agentId: "agent-1", text: "line two", data: { toolUseId: "write-1", toolName: "Write", runId: "run-1", field: "content", inputJson: { file_path: "notes.md" } } });
+
+    assert.equal(state.liveToolOutputs["write-1"].inputPreview, "line one\nline two");
+    assert.equal(state.liveToolOutputs["write-1"].status, "running");
+    assert.equal(state.liveToolOutputs["write-1"].inputJson.file_path, "notes.md");
+    assert.equal(state.liveToolOutputTotals["agent-1:run-1"], 1);
+
+    // tool.started merges onto the record without wiping the streamed text,
+    // and without double-counting the call.
+    controller.rememberToolStarted({ agentId: "agent-1", data: { toolUseId: "write-1", toolName: "Write", runId: "run-1", inputJson: { file_path: "notes.md", contentBytes: 17 } } });
+    assert.equal(state.liveToolOutputs["write-1"].inputPreview, "line one\nline two");
+    assert.equal(state.liveToolOutputs["write-1"].status, "running");
+    assert.equal(state.liveToolOutputTotals["agent-1:run-1"], 1);
+
+    const selected = renderToolActivityStackHTML(Object.values(state.liveToolOutputs), {
+      live: true,
+      runActive: true,
+      selectedToolUseId: "write-1",
+      stackKey: "live:agent-1:run-1",
+      totalCount: 1,
+    });
+    assert.match(selected, /data-tool-input-preview/);
+    assert.match(selected, /line one\nline two/);
+
+    // The approval card shows the streamed content: it is exactly what the
+    // human is being asked to approve.
+    controller.rememberToolApproval({ agentId: "agent-1", data: { toolUseId: "write-1", toolName: "Write", risk: "write", inputJson: { file_path: "notes.md", contentBytes: 17 } } });
+    const approvalHTML = controller.renderApprovalCardsHTML();
+    assert.match(approvalHTML, /data-tool-input-preview/);
+    assert.match(approvalHTML, /line one\nline two/);
+  } finally {
+    globalThis.document = previousDocument;
+  }
+});
+
+test("tool.input_delta replace events supersede the accumulated preview (Bash snapshots)", () => {
+  const messagesElement = fakeMessagesElement();
+  const previousDocument = globalThis.document;
+  globalThis.document = { getElementById: () => messagesElement };
+  const state = { agent: { id: "agent-1" }, liveToolOutputs: {}, pendingToolApprovals: {}, currentMessages: [], messageCopyTexts: [] };
+  try {
+    const controller = createChatRenderingController({
+      state,
+      attachmentIcon: () => "file",
+      attachmentKind: () => "file",
+      copyToClipboard: async () => true,
+      notifyTerminal: () => {},
+      selectedModelValue: () => "",
+      shortPath: (value) => value,
+      showError: () => {},
+      showToast: () => {},
+    });
+    controller.appendToolInputDelta({ agentId: "agent-1", text: "curl https://a", data: { toolUseId: "bash-1", toolName: "Bash", runId: "run-1", field: "command", replace: true } });
+    controller.appendToolInputDelta({ agentId: "agent-1", text: "curl https://api.example.com -H [redacted]", data: { toolUseId: "bash-1", toolName: "Bash", runId: "run-1", field: "command", replace: true } });
+
+    assert.equal(state.liveToolOutputs["bash-1"].inputPreview, "curl https://api.example.com -H [redacted]");
+    assert.equal(state.liveToolOutputs["bash-1"].inputPreviewField, "command");
+    assert.equal(state.liveToolOutputTotals["agent-1:run-1"], 1);
+  } finally {
+    globalThis.document = previousDocument;
+  }
+});
+
 test("live tool activity retains a bounded recent window while preserving the total count", () => {
   const messagesElement = fakeMessagesElement();
   const previousDocument = globalThis.document;
@@ -4288,9 +4369,13 @@ test("transcript components fold against the column width, not the window", asyn
 
   // Each converted group answers to the container. [^{]* spans the block up to
   // the first nested rule, which is enough to prove the group moved.
-  assert.match(css, /@container chat-transcript \(max-width: 760px\) \{\s*\.tool-activity-stack/);
+  // The activity and subagent-card folds additionally require a coarse primary
+  // pointer: they inflate rows to tap-target sizes, which is for fingers, not
+  // for a desktop column that a docked panel happens to have squeezed. The
+  // user-bubble fold stays width-only -- it reshapes without inflating.
+  assert.match(css, /@container chat-transcript \(max-width: 760px\) \{\s*@media \(pointer: coarse\) \{\s*\.tool-activity-stack/);
   assert.match(css, /@container chat-transcript \(max-width: 760px\) \{\s*body\.white-shell\.theme-light \.messages:not\(\.empty\)/);
-  assert.match(css, /@container chat-transcript \(max-width: 760px\) \{\s*\.subagent-task-card/);
+  assert.match(css, /@container chat-transcript \(max-width: 760px\) \{\s*@media \(pointer: coarse\) \{\s*\.subagent-task-card/);
 
   // And no viewport query may reintroduce them: that regresses the docked case.
   assert.doesNotMatch(css, /@media \(max-width: 760px\) \{[^}]*\.tool-activity-stack/);
