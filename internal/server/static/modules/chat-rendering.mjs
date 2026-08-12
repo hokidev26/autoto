@@ -1492,16 +1492,34 @@ export function createChatRenderingController({
   let followingTail = true;
   let followTracked = null;
   let scrollSettleGeneration = 0;
+  let jumpToLatestBound = null;
+
+  // The floating "jump to latest" pill mirrors the follow intent: it appears
+  // the moment the reader scrolls away from the tail and disappears once they
+  // are following again, whether they scrolled back themselves or clicked it.
+  function syncJumpToLatestButton() {
+    const button = $("jumpToLatestBtn");
+    if (!button?.classList) return;
+    if (jumpToLatestBound !== button && typeof button.addEventListener === "function") {
+      jumpToLatestBound = button;
+      button.addEventListener("click", () => { scrollMessagesToBottom(); });
+    }
+    button.classList.toggle("hidden", followingTail);
+  }
 
   function trackTranscriptFollow(el) {
     const target = el || $("messages");
     if (!target || followTracked === target || !target.addEventListener) return;
     followTracked = target;
-    target.addEventListener("scroll", () => { followingTail = isNearBottom(target); }, { passive: true });
+    target.addEventListener("scroll", () => {
+      followingTail = isNearBottom(target);
+      syncJumpToLatestButton();
+    }, { passive: true });
   }
 
   function setFollowingTail(value) {
     followingTail = Boolean(value);
+    syncJumpToLatestButton();
   }
 
   function scrollToBottomIfFollowing(el) {

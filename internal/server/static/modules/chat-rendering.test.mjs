@@ -389,6 +389,52 @@ test("full transcript snapshots preserve manual offsets and invalidate stale tai
   }
 });
 
+test("the jump-to-latest pill shows when the reader leaves the tail and a click brings them back", () => {
+  const harness = createAsyncChatRenderingHarness(async () => ({}));
+  const buttonClasses = new Set(["hidden"]);
+  let buttonClick = null;
+  const button = {
+    classList: {
+      toggle(name, force) {
+        if (force) buttonClasses.add(name);
+        else buttonClasses.delete(name);
+      },
+      contains: (name) => buttonClasses.has(name),
+    },
+    addEventListener(type, listener) {
+      if (type === "click") buttonClick = listener;
+    },
+  };
+  const innerDocument = globalThis.document;
+  globalThis.document = {
+    getElementById: (id) => (id === "jumpToLatestBtn" ? button : innerDocument.getElementById(id)),
+  };
+  const previousRAF = globalThis.requestAnimationFrame;
+  const previousTimeout = globalThis.setTimeout;
+  globalThis.requestAnimationFrame = undefined;
+  globalThis.setTimeout = () => 0;
+  try {
+    harness.controller.scrollMessagesToBottom();
+    assert.equal(buttonClasses.has("hidden"), true, "following the tail keeps the pill hidden");
+
+    harness.messagesElement.scrollHeight = 1200;
+    harness.messagesElement.clientHeight = 400;
+    harness.messagesElement.scrollTop = 100;
+    harness.messagesElement.dispatchScroll();
+    assert.equal(buttonClasses.has("hidden"), false, "scrolling away from the tail must reveal the pill");
+
+    assert.equal(typeof buttonClick, "function", "the pill must be wired to a click handler");
+    buttonClick();
+    assert.equal(harness.messagesElement.scrollTop, harness.messagesElement.scrollHeight, "the click returns the reader to the tail");
+    assert.equal(buttonClasses.has("hidden"), true, "reaching the tail hides the pill again");
+  } finally {
+    globalThis.requestAnimationFrame = previousRAF;
+    globalThis.setTimeout = previousTimeout;
+    globalThis.document = innerDocument;
+    harness.restore();
+  }
+});
+
 test("chatMessagePresentation keeps user semantics while aligning messages left", () => {
   assert.deepEqual(chatMessagePresentation({ role: "user" }).alignment, "left");
   assert.deepEqual(chatMessagePresentation({ role: "user" }).roleClass, "user");

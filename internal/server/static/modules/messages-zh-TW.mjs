@@ -214,6 +214,8 @@ export default Object.freeze({
     noAgent: "尚未選擇 Agent",
     startHint: "點擊左側 ＋ 選擇資料夾開始。",
     copyMarkdown: "複製目前對話 Markdown",
+    jumpToLatest: "跳到最新訊息",
+    jumpToLatestLabel: "跳到最新",
     workspaceFeatures: "工作區功能",
     selectAgentFirst: "請先選擇 Agent",
     openWorkspace: "開啟工作區檔案",

@@ -324,30 +324,58 @@ function projectOrderTier(pinned, archived) {
   return pinned ? 0 : 1;
 }
 
-function applyProjectItemOrder(items, orderArr, projectId, tierOf) {
+// "Fresh activity" = the agent is working right now, or it left a reply the
+// user has not looked at yet -- the same signal as the unread mark. Rows with
+// fresh activity float above the stored drag order inside their tier, ordered
+// by the recency the caller already sorted them in; once the run ends and the
+// reply is read, the row settles back into its dragged position. This is the
+// compromise between chat-style "latest bubbles up" and a fully manual order.
+export function conversationHasFreshActivity(conversation, seenMap = {}) {
+  const status = text(conversation?.agentStatus).toLocaleLowerCase();
+  if (status === "running" || status === "pending" || status === "queued") return true;
+  return conversationUnread(conversation, seenMap);
+}
+
+function applyProjectItemOrder(items, orderArr, projectId, tierOf, isFresh) {
   if (!Array.isArray(orderArr) || !orderArr.length) return items;
   const orderMap = new Map(orderArr.map((id, index) => [String(id), index]));
   const indexOf = (item) => (orderMap.has(projectId(item)) ? orderMap.get(projectId(item)) : Infinity);
-  // Array.prototype.sort is stable, so items absent from the stored order keep
-  // the recency order they arrived in instead of being shuffled arbitrarily.
-  return [...items].sort((left, right) => tierOf(left) - tierOf(right) || indexOf(left) - indexOf(right));
+  const freshOf = typeof isFresh === "function" ? (item) => (isFresh(item) ? 1 : 0) : () => 0;
+  // Array.prototype.sort is stable, so items absent from the stored order --
+  // and fresh items among themselves -- keep the recency order they arrived in
+  // instead of being shuffled arbitrarily.
+  return [...items].sort((left, right) => {
+    const tier = tierOf(left) - tierOf(right);
+    if (tier) return tier;
+    const leftFresh = freshOf(left);
+    const rightFresh = freshOf(right);
+    if (leftFresh || rightFresh) return rightFresh - leftFresh;
+    return indexOf(left) - indexOf(right);
+  });
 }
 
-export function applyProjectOrder(projects, orderArr) {
+export function applyProjectOrder(projects, orderArr, isFresh) {
   return applyProjectItemOrder(
     projects,
     orderArr,
     (project) => text(project?.id),
     (project) => projectOrderTier(project?.pinned, project?.archivedAt),
+    isFresh,
   );
 }
 
-function applyProjectGroupOrder(groups, orderArr) {
+function groupFreshness(seenMap) {
+  if (!seenMap) return undefined;
+  return (group) => (group?.conversations || []).some((conversation) => conversationHasFreshActivity(conversation, seenMap));
+}
+
+function applyProjectGroupOrder(groups, orderArr, seenMap) {
   return applyProjectItemOrder(
     groups,
     orderArr,
     (group) => text(group?.project?.id),
     (group) => projectOrderTier(group?.project?.pinned, group?.project?.archivedAt),
+    groupFreshness(seenMap),
   );
 }
 
@@ -712,16 +740,19 @@ function renderConversation(conversation, activeAgentId, nested = false, options
 
 // Same tier rule as the project order: a stored drag order reorders rows inside
 // the pinned/normal/archived tiers, and never lifts a normal conversation above
-// a pinned one.
-export function applyConversationOrder(conversations, orderArr) {
-  if (!Array.isArray(orderArr) || !orderArr.length) return conversations;
-  const orderMap = new Map(orderArr.map((id, i) => [String(id), i]));
-  const tierOf = (conversation) => projectOrderTier(
-    conversation?.agentPinned,
-    conversation?.agentArchivedAt || conversation?.projectArchivedAt,
+// a pinned one. When a seenMap is provided, rows with fresh activity (running,
+// or unread) additionally float above the dragged rows of their tier.
+export function applyConversationOrder(conversations, orderArr, seenMap) {
+  return applyProjectItemOrder(
+    conversations,
+    orderArr,
+    (conversation) => text(conversation?.agentId),
+    (conversation) => projectOrderTier(
+      conversation?.agentPinned,
+      conversation?.agentArchivedAt || conversation?.projectArchivedAt,
+    ),
+    seenMap ? (conversation) => conversationHasFreshActivity(conversation, seenMap) : undefined,
   );
-  const indexOf = (conversation) => (orderMap.has(conversation.agentId) ? orderMap.get(conversation.agentId) : Infinity);
-  return [...conversations].sort((a, b) => tierOf(a) - tierOf(b) || indexOf(a) - indexOf(b));
 }
 
 export function renderNavigationHTML(view = {}, options = {}) {
@@ -753,11 +784,13 @@ export function renderNavigationHTML(view = {}, options = {}) {
       headline: navigationProjectHeadline(taskConversations.get(project.id), activeAgentId),
     })).join("");
   } else if (mode === "all") {
-    // Apply user-defined project order (drag-to-reorder, persisted in localStorage).
-    const groups = applyProjectGroupOrder(view.groups || [], options.projectOrder);
+    // Apply user-defined project order (drag-to-reorder, persisted in
+    // localStorage). Rows with fresh activity outrank the drag order; see
+    // conversationHasFreshActivity for the compromise this implements.
+    const groups = applyProjectGroupOrder(view.groups || [], options.projectOrder, seenMap);
     const groupsHTML = groups.map((group) => {
       const orderedConvs = options.conversationOrders?.[group.project.id]
-        ? applyConversationOrder(group.conversations, options.conversationOrders[group.project.id])
+        ? applyConversationOrder(group.conversations, options.conversationOrders[group.project.id], seenMap)
         : group.conversations;
 
       // Split into root workline conversations and fork conversations. Root
@@ -866,12 +899,13 @@ export function renderNavigationHTML(view = {}, options = {}) {
     // The drag handlers therefore resolve a project from the row itself here,
     // not from a wrapping group. Agent status is still rolled up from groups so
     // the bubble icon can turn blue while a project agent is running.
-    const projects = applyProjectOrder(view.projects || [], options.projectOrder);
     const statusByProject = new Map((view.groups || []).map((group) => [group.project.id, aggregateNavigationAgentStatus(group.conversations)]));
     // Flat rows carry no nested conversation underneath, so without this the row
     // is named by the project -- normally its directory -- and reads as the same
     // path twice, once as the title and once as the meta line below it.
     const conversationsByProject = new Map((view.groups || []).map((group) => [group.project.id, group.conversations]));
+    const projects = applyProjectOrder(view.projects || [], options.projectOrder, (project) =>
+      (conversationsByProject.get(project.id) || []).some((conversation) => conversationHasFreshActivity(conversation, seenMap)));
     html = projects.map((project) => renderProject(project, activeProjectId, {
       activeSelectionKind,
       agentStatus: statusByProject.get(project.id) || "",

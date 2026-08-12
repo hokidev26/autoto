@@ -214,6 +214,8 @@ export default Object.freeze({
     noAgent: "No agent selected",
     startHint: "Click the + button on the left to choose a folder.",
     copyMarkdown: "Copy the current conversation as Markdown",
+    jumpToLatest: "Jump to the latest message",
+    jumpToLatestLabel: "Jump to latest",
     workspaceFeatures: "Workspace tools",
     selectAgentFirst: "Select an agent first",
     openWorkspace: "Open workspace files",

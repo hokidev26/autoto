@@ -793,10 +793,51 @@ body.theme-light .live-image-generation-skeleton { background: rgba(15, 23, 42, 
 .tok-comment { color: #7c8594; }
 
 .composer-wrap {
+  position: relative;
   border-top: 1px solid var(--line);
   background: linear-gradient(180deg, rgba(32, 33, 36, .72), var(--bg-panel));
   padding: 14px 18px 18px;
 }
+
+/* Floating "jump to latest" pill. Anchored to the composer rather than the
+   transcript because #messages is re-rendered wholesale on every snapshot,
+   which would destroy a button living inside it. */
+.jump-to-latest-btn {
+  position: absolute;
+  bottom: calc(100% + 12px);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 26;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--ws-border, var(--line, rgba(255, 255, 255, .16)));
+  border-radius: 999px;
+  background: var(--ws-card, var(--bg-elevated, #26272b));
+  color: var(--ws-text, var(--text, #f2f2f4));
+  box-shadow: 0 8px 22px rgba(0, 0, 0, .16);
+  padding: 8px 14px;
+  font-size: 12.5px;
+  font-weight: 650;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.jump-to-latest-btn:is(:hover, :focus-visible) {
+  border-color: var(--accent, #5369f3);
+  color: var(--accent, #5369f3);
+  outline: 0;
+}
+.jump-to-latest-btn svg {
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
 .composer-card {
   position: relative;
   max-width: 980px;

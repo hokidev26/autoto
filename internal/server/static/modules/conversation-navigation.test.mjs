@@ -664,6 +664,57 @@ test("applyConversationOrder reorders conversations and puts unknowns at the end
   assert.deepEqual(new Set(withUnknown.map((c) => c.agentId)), new Set(["a1", "a2", "a3"]));
 });
 
+test("有新活動的對話浮到拖曳順序之上，讀過之後回到手動位置", () => {
+  const seenMap = { done: 200, fresh: 100 };
+  const convs = [
+    // Unread: activity 150 is newer than the seen mark at 100.
+    { agentId: "fresh", agentStatus: "idle", lastActivityAt: new Date(150).toISOString() },
+    { agentId: "running", agentStatus: "running" },
+    // Read: activity 150 is older than the seen mark at 200.
+    { agentId: "done", agentStatus: "idle", lastActivityAt: new Date(150).toISOString() },
+    { agentId: "quiet", agentStatus: "idle" },
+  ];
+  const order = ["quiet", "done", "running", "fresh"];
+
+  // Fresh rows float in their incoming (recency) order; the read and quiet
+  // rows below them still follow the drag order.
+  assert.deepEqual(
+    applyConversationOrder(convs, order, seenMap).map((c) => c.agentId),
+    ["fresh", "running", "quiet", "done"],
+  );
+
+  // Callers without a seenMap keep the pure drag-order behaviour.
+  assert.deepEqual(
+    applyConversationOrder(convs, order).map((c) => c.agentId),
+    ["quiet", "done", "running", "fresh"],
+  );
+
+  // Freshness never lifts a normal row above the pinned tier.
+  const withPinned = [{ agentId: "pin", agentPinned: true, agentStatus: "idle" }, ...convs];
+  assert.equal(applyConversationOrder(withPinned, order, seenMap)[0].agentId, "pin");
+});
+
+test("有新活動的專案群組浮到拖曳順序之上", () => {
+  const payload = {
+    projects: [
+      { id: "p-quiet", name: "quiet", gitPath: "/quiet" },
+      { id: "p-fresh", name: "fresh", gitPath: "/fresh" },
+    ],
+    conversations: [
+      { projectId: "p-quiet", worklineId: "w1", worklineTitle: "main", agentId: "q1", agentTitle: "Q", agentStatus: "idle" },
+      { projectId: "p-fresh", worklineId: "w2", worklineTitle: "main", agentId: "f1", agentTitle: "F", agentStatus: "running" },
+    ],
+  };
+  const html = renderNavigationHTML(buildNavigationView(payload, { mode: "all" }), {
+    projectOrder: ["p-quiet", "p-fresh"],
+    seenMap: {},
+  });
+  assert.ok(
+    html.indexOf('data-navigation-project-group="p-fresh"') < html.indexOf('data-navigation-project-group="p-quiet"'),
+    "the group with a running agent must float above the dragged-first group",
+  );
+});
+
 test("renderNavigationHTML applies conversationOrders when provided", () => {
   const payload = {
     projects: [{ id: "p1", name: "autoto", gitPath: "/work" }],
