@@ -1031,6 +1031,7 @@ export default Object.freeze({
     runLimits: "运行限制",
     maxTurns: "最大轮次",
     firstTokenTimeout: "首 token 超时",
+    streamIdleTimeout: "流式空闲超时",
     transientRetries: "瞬时重试",
     sampleTime: "采样时间",
   },
@@ -1760,7 +1761,7 @@ export default Object.freeze({
   workspace: {
     chat: {
       emptyMessages: "还没有消息。输入你的需求开始对话。", copy: "复制", copyMessage: "复制消息原文", copied: "已复制", copyFailed: "复制失败",
-      sending: "发送中", retryRun: "重试", stopRun: "停止", stopRunTitle: "停止当前执行", stopRequested: "正在停止当前执行…", attachmentsAdded: "已加入 {count} 个待发送附件。", attachmentsSkipped: "已跳过 {count} 个文件：{files}{suffix}。", more: " 等",
+      sending: "发送中", retryRun: "重试", stopRun: "停止", stopRunTitle: "停止当前执行", stopRequested: "正在停止当前执行…", stopFoundNothing: "没有正在执行的工作可停止；已清除界面上残留的执行状态。", attachmentsAdded: "已加入 {count} 个待发送附件。", attachmentsSkipped: "已跳过 {count} 个文件：{files}{suffix}。", more: " 等",
       videoProcessing: "正在处理视频…", videoSendBlocked: "请等待视频关键帧处理完成后再发送。", videoUnsupported: "仅支持 MP4 和 WebM 视频。", videoSourceTooLarge: "源视频超过 50 MiB。", videoDurationTooLong: "视频时长超过 60 秒。", videoDerivedTooLarge: "关键帧超过 4 MiB 派生图片预算。", videoMessageTooLarge: "派生附件超过 25 MiB 消息总预算。", videoProcessingFailed: "浏览器无法读取或处理此视频。", videoOriginalIncluded: "已将 {name} 处理为 {count} 个关键帧，并会同时发送原视频。", videoFramesOnly: "已将 {name} 处理为 {count} 个关键帧。原视频因超过 10 MiB 或 25 MiB 消息总预算而不发送；仅分析画面，不分析音频。",
       removeAttachment: "移除附件", dropHint: "释放以加入附件", unnamedFile: "未命名文件", historyActive: "历史 {index}/{count} · ↑ 更早，↓ 更新，Enter 发送，Esc 返回草稿。",
       historyCommands: "输入 / 可使用 {count} 个斜杠命令；空输入时 ↑/↓ 召回历史。", historySaved: "空输入时 ↑ 查看上一条提示，↓ 返回草稿。本地已保存 {count}/30 条。", historyEmpty: "输入框为空时 ↑/↓ 可召回最近提示。",

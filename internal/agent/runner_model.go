@@ -154,6 +154,8 @@ func (r *Runner) runModelTurnAttempt(ctx context.Context, agentID, runID string,
 	generatedImageIndexes := make(map[string]int)
 	firstEventTimer, stopFirstEventTimer := firstEventTimeoutTimer(r.cfg.FirstTokenTimeoutMs)
 	defer stopFirstEventTimer()
+	idleTimer := newStreamIdleTimer(r.cfg.StreamIdleTimeoutMs)
+	defer idleTimer.stop()
 	markModelOutput := func(outputAt time.Time) {
 		if firstOutputAt.IsZero() {
 			firstOutputAt = outputAt
@@ -211,10 +213,26 @@ func (r *Runner) runModelTurnAttempt(ctx context.Context, agentID, runID string,
 			cancel()
 			r.recordAttributedAPIRequest(agentID, runID, "", provider.Name(), model, result.Dispatch, time.Since(started), 0, result.Usage, err.Error())
 			return modelTurnResult{}, err, true
+		case <-idleTimer.expired():
+			// A stream that opened and then went silent is indistinguishable from
+			// one that is still working, so without this the turn waited on the
+			// event channel for as long as the provider kept the connection open.
+			// That wait is what a wedged agent looked like from the outside.
+			err := &ProviderError{Message: fmt.Sprintf("provider stream idle timeout after %dms", r.cfg.StreamIdleTimeoutMs)}
+			cancel()
+			r.recordAttributedAPIRequest(agentID, runID, "", provider.Name(), model, result.Dispatch, time.Since(started), modelTurnTTFTMS(started, firstOutputAt), result.Usage, err.Error())
+			// Matches the mid-stream provider error above: partial output is kept
+			// and the turn is not retried, because a retry would duplicate what
+			// the user has already seen.
+			if modelOutputStarted {
+				return finalize(false), err, false
+			}
+			return modelTurnResult{}, err, true
 		case event, ok := <-events:
 			if !ok {
 				return finalize(true), nil, false
 			}
+			idleTimer.observe()
 			if event.Dispatch != nil {
 				result.Dispatch = *event.Dispatch
 			}
@@ -421,6 +439,59 @@ func firstEventTimeoutTimer(timeoutMS int) (<-chan time.Time, func()) {
 		}
 	}
 	return timer.C, stop
+}
+
+// streamIdleTimer bounds the gap between provider stream events. It is separate
+// from firstEventTimeoutTimer because the two answer different questions: that
+// one asks whether the provider ever started, this one asks whether it is still
+// going. A zero timeout disables the guard, which is what every caller that does
+// not configure one gets.
+type streamIdleTimer struct {
+	timeout time.Duration
+	timer   *time.Timer
+}
+
+func newStreamIdleTimer(timeoutMS int) *streamIdleTimer {
+	if timeoutMS <= 0 {
+		return &streamIdleTimer{}
+	}
+	timeout := time.Duration(timeoutMS) * time.Millisecond
+	return &streamIdleTimer{timeout: timeout, timer: time.NewTimer(timeout)}
+}
+
+func (t *streamIdleTimer) expired() <-chan time.Time {
+	if t == nil || t.timer == nil {
+		return nil
+	}
+	return t.timer.C
+}
+
+// observe restarts the window because the stream just proved it is alive. Any
+// event counts, including usage metadata: the question here is whether the
+// connection is still producing, not whether it produced anything useful.
+func (t *streamIdleTimer) observe() {
+	if t == nil || t.timer == nil {
+		return
+	}
+	if !t.timer.Stop() {
+		select {
+		case <-t.timer.C:
+		default:
+		}
+	}
+	t.timer.Reset(t.timeout)
+}
+
+func (t *streamIdleTimer) stop() {
+	if t == nil || t.timer == nil {
+		return
+	}
+	if !t.timer.Stop() {
+		select {
+		case <-t.timer.C:
+		default:
+		}
+	}
 }
 
 const (

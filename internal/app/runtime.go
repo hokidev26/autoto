@@ -355,6 +355,9 @@ func (r *Runtime) Start(ctx context.Context) error {
 	// Register cleanup after HTTP so the server is started before the one-shot
 	// sweep begins. Supervisor owns the worker until Runtime.Close.
 	services = append(services, newGeneratedImagesCleanupService(r.logger, r.store, r.generatedImages))
+	// Registered after the background manager so its own reconciliation has
+	// already run: the first sweep must not compete with startup recovery.
+	services = append(services, newStuckWorkReaperService(r.logger, r.runner, r.backgroundManager))
 	if err := registerRuntimeServices(supervisor, services...); err != nil {
 		return err
 	}

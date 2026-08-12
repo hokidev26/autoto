@@ -141,7 +141,7 @@ func (r *Runner) policyContext(ctx context.Context, agentID, runID string) (db.A
 	}
 	childAgent := strings.TrimSpace(agent.ParentAgentID) != ""
 	execCapabilityDenied := false
-	if child, ok := r.childRuntimeProfile(agent.ID); ok {
+	if child, ok := r.ensureChildRuntimeProfile(ctx, agent); ok {
 		execCapabilityDenied = child.resolution.ReadOnly || !toolNamesIncludeExecCapability(child.resolution.AllowedTools)
 	} else if childAgent {
 		// A persisted child without its immutable runtime profile must fail closed.

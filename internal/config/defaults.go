@@ -99,21 +99,26 @@ type AgentConfig struct {
 	// SummaryModel when unset, but is separate because the summary model is
 	// routinely pointed at a small cheap model for titles and compaction, and
 	// that silently downgrades the safety gate to the same tier.
-	SafetyModel              string              `json:"safetyModel,omitempty"`
-	SubagentModels           map[string]string   `json:"subagentModels,omitempty"`
-	SubagentModelPools       map[string][]string `json:"subagentModelPools,omitempty"`
-	DefaultPermissionMode    string              `json:"defaultPermissionMode"`
-	DefaultStartInPlanMode   bool                `json:"defaultStartInPlanMode"`
-	MaxTurns                 int                 `json:"maxTurns"`
-	ContextTokenLimit        int                 `json:"contextTokenLimit"`
-	FirstTokenTimeoutMs      int                 `json:"firstTokenTimeoutMs"`
-	MaxTransientRetries      int                 `json:"maxTransientRetries"`
-	AutoContinuationMode     string              `json:"autoContinuationMode"`
-	ContinuationSegmentTurns int                 `json:"continuationSegmentTurns"`
-	MaxContinuations         int                 `json:"maxContinuations"`
-	MaxTotalTurns            int                 `json:"maxTotalTurns"`
-	MaxRunDurationMs         int64               `json:"maxRunDurationMs"`
-	MaxRunTokens             int64               `json:"maxRunTokens"`
+	SafetyModel            string              `json:"safetyModel,omitempty"`
+	SubagentModels         map[string]string   `json:"subagentModels,omitempty"`
+	SubagentModelPools     map[string][]string `json:"subagentModelPools,omitempty"`
+	DefaultPermissionMode  string              `json:"defaultPermissionMode"`
+	DefaultStartInPlanMode bool                `json:"defaultStartInPlanMode"`
+	MaxTurns               int                 `json:"maxTurns"`
+	ContextTokenLimit      int                 `json:"contextTokenLimit"`
+	FirstTokenTimeoutMs    int                 `json:"firstTokenTimeoutMs"`
+	// StreamIdleTimeoutMs bounds the gap between provider stream events once the
+	// stream is under way. FirstTokenTimeoutMs only covers the wait for the first
+	// event, so a stream that opened and then went silent left the turn parked on
+	// a channel receive forever. Zero disables the guard.
+	StreamIdleTimeoutMs      int    `json:"streamIdleTimeoutMs"`
+	MaxTransientRetries      int    `json:"maxTransientRetries"`
+	AutoContinuationMode     string `json:"autoContinuationMode"`
+	ContinuationSegmentTurns int    `json:"continuationSegmentTurns"`
+	MaxContinuations         int    `json:"maxContinuations"`
+	MaxTotalTurns            int    `json:"maxTotalTurns"`
+	MaxRunDurationMs         int64  `json:"maxRunDurationMs"`
+	MaxRunTokens             int64  `json:"maxRunTokens"`
 	// NonRetryableErrorPatterns are case-insensitive substrings of a provider
 	// error that mark it permanent, so the run reports it instead of spending the
 	// retry budget on a fault that answers the same way every time. The built-in
@@ -330,15 +335,19 @@ func Default() (Config, error) {
 			Large:            ContextManagementWindowConfig{PruneStart: 95, CompactStart: 99},
 		},
 		Agent: AgentConfig{
-			DefaultModel:             defaultModel,
-			SummaryModel:             summaryModel,
-			ReviewModel:              defaultModel,
-			SafetyModel:              safetyModel,
-			DefaultPermissionMode:    "acceptEdits",
-			DefaultStartInPlanMode:   false,
-			MaxTurns:                 200,
-			ContextTokenLimit:        getenvInt("AUTOTO_CONTEXT_TOKEN_LIMIT", 120000),
-			FirstTokenTimeoutMs:      60000,
+			DefaultModel:           defaultModel,
+			SummaryModel:           summaryModel,
+			ReviewModel:            defaultModel,
+			SafetyModel:            safetyModel,
+			DefaultPermissionMode:  "acceptEdits",
+			DefaultStartInPlanMode: false,
+			MaxTurns:               200,
+			ContextTokenLimit:      getenvInt("AUTOTO_CONTEXT_TOKEN_LIMIT", 120000),
+			FirstTokenTimeoutMs:    60000,
+			// Five minutes: generous enough that a long reasoning pause is never
+			// mistaken for a dead stream, short enough that a wedged turn is
+			// reported instead of holding the run open indefinitely.
+			StreamIdleTimeoutMs:      300000,
 			MaxTransientRetries:      10,
 			AutoContinuationMode:     "safe",
 			ContinuationSegmentTurns: -1,
@@ -793,6 +802,16 @@ func normalizeAgentConfig(agent AgentConfig) AgentConfig {
 		agent.MaxRunTokens = 1000
 	} else if agent.MaxRunTokens > 10000000 {
 		agent.MaxRunTokens = 10000000
+	}
+	// A negative idle timeout means off, same as zero. The 5s floor keeps a
+	// mistyped value from cutting off every healthy stream, and the one-hour
+	// ceiling keeps the guard meaningful.
+	if agent.StreamIdleTimeoutMs < 0 {
+		agent.StreamIdleTimeoutMs = 0
+	} else if agent.StreamIdleTimeoutMs > 0 && agent.StreamIdleTimeoutMs < 5000 {
+		agent.StreamIdleTimeoutMs = 5000
+	} else if agent.StreamIdleTimeoutMs > 3600000 {
+		agent.StreamIdleTimeoutMs = 3600000
 	}
 	return agent
 }

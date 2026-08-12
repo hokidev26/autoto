@@ -1293,14 +1293,42 @@ func (r *Runner) publishContinuationLifecycle(legacyType, canonicalType, agentID
 	}
 }
 
+// ContinuationBlockReasonPreempted and ContinuationBlockReasonInterrupted are
+// the two ordinary outcomes: the user typed again, or the user pressed Stop.
+// Everything else is a genuine failure.
+const (
+	ContinuationBlockReasonPreempted   = "preempted by a new user message"
+	ContinuationBlockReasonInterrupted = "interrupted by user"
+)
+
+// continuationBlockedReasonCode classifies why a pending continuation was
+// dropped. The client rendered one sentence for every reason, so a continuation
+// cancelled because the user simply sent another message read exactly like a
+// fault. Sending a code keeps that judgement off the English prose.
+func continuationBlockedReasonCode(reason string) string {
+	switch strings.TrimSpace(reason) {
+	case ContinuationBlockReasonPreempted:
+		return "preempted"
+	case ContinuationBlockReasonInterrupted:
+		return "interrupted"
+	default:
+		return "error"
+	}
+}
+
 func (r *Runner) publishContinuationBlocked(run db.Run, reason string) {
 	r.publishContinuationLifecycle("continuation_blocked", "agent.continuation_blocked", run.AgentID, mergeEventData(map[string]any{
 		"continuationCount": run.ContinuationCount,
 		"reason":            reason,
+		"reasonCode":        continuationBlockedReasonCode(reason),
 	}, run.ID))
 }
 
 func (r *Runner) cancelPendingContinuationsForAgent(ctx context.Context, agentID, reason string) (int, error) {
+	return r.cancelPendingContinuationsForAgentAtDepth(ctx, agentID, reason, 0)
+}
+
+func (r *Runner) cancelPendingContinuationsForAgentAtDepth(ctx context.Context, agentID, reason string, depth int) (int, error) {
 	store, err := r.continuationStore()
 	if err != nil {
 		return 0, err
@@ -1320,8 +1348,48 @@ func (r *Runner) cancelPendingContinuationsForAgent(ctx context.Context, agentID
 		r.closeToolOutputPipelineRun(run.AgentID, run.ID)
 		canceled++
 		r.publishContinuationBlocked(run, reason)
+		r.abandonWaitingBackgroundTask(ctx, run, depth)
 	}
 	return canceled, nil
+}
+
+// abandonWaitingBackgroundTask stops the subagent a cancelled continuation was
+// waiting on. Cancelling the Run alone orphaned it: the task kept working
+// against a boundary that can no longer be resumed, because
+// WakeBackgroundContinuation refuses a Run that is not continuation_pending. The
+// subagent therefore spent its whole budget and its result was discarded without
+// anything being reported.
+func (r *Runner) abandonWaitingBackgroundTask(ctx context.Context, run db.Run, depth int) {
+	taskID := strings.TrimSpace(run.WaitingBackgroundTaskID)
+	if r == nil || taskID == "" || depth >= maxInterruptSubagentDepth {
+		return
+	}
+	service := r.backgroundTaskService()
+	if service == nil {
+		return
+	}
+	task, err := service.Get(ctx, run.AgentID, taskID)
+	if err != nil {
+		slog.Warn("loading the background task behind a cancelled continuation failed",
+			"agentId", run.AgentID, "runId", run.ID, "taskId", taskID, "error", err)
+		return
+	}
+	status := strings.ToLower(strings.TrimSpace(task.Status))
+	if backgroundTaskStatusTerminal(status) {
+		return
+	}
+	if status != db.BackgroundTaskStatusCancelRequested {
+		if _, cancelErr := service.Cancel(ctx, run.AgentID, taskID); cancelErr != nil {
+			slog.Warn("cancelling the background task behind a cancelled continuation failed",
+				"agentId", run.AgentID, "runId", run.ID, "taskId", taskID, "error", cancelErr)
+		}
+	}
+	if child := strings.TrimSpace(task.ChildAgentID); child != "" {
+		if _, childErr := r.interruptAgentTree(ctx, child, depth+1); childErr != nil {
+			slog.Warn("interrupting the child agent behind a cancelled continuation failed",
+				"agentId", run.AgentID, "runId", run.ID, "childAgentId", child, "error", childErr)
+		}
+	}
 }
 
 // ResumeContinuationRun is the app/background integration point for waking a

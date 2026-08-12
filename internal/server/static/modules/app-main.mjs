@@ -4,7 +4,7 @@ import { createAutomationControlController } from "./automation-control.mjs?v=na
 import { createAutomationToolCatalogController } from "./automation-tool-catalog.mjs?v=automation-tool-catalog-1";
 import { createArchiveSettingsController } from "./archive-settings.mjs?v=archive-settings-1";
 import { createConversationTitleHelpers } from "./conversation-title-helpers.mjs?v=standalone-removed-1";
-import { createBackgroundTasksController } from "./background-tasks.mjs?v=subagent-cards-1-foreground-activity-1-queue-attachments-1-task-overview-tabs-1";
+import { createBackgroundTasksController } from "./background-tasks.mjs?v=subagent-cards-1-foreground-activity-1-queue-attachments-1-task-overview-tabs-1-child-transcript-1";
 import { createExecutionNotifications } from "./execution-notifications.mjs";
 import { createNotificationSound } from "./notification-sound.mjs?v=notification-sound-1";
 import { createSystemNotifications } from "./system-notification.mjs?v=system-notification-1";
@@ -936,11 +936,23 @@ function backgroundTaskNoticeLabel(notice, raw, data) {
   return t("backgroundTasks.task");
 }
 
+// A pending auto-continuation is dropped for three quite different reasons, and
+// they used to share one sentence built from the server's raw English reason. So
+// "you sent another message" — the most common one by far, and not a problem at
+// all — read like a fault report. The server now classifies the reason, so each
+// case gets its own wording and only the genuine failures still quote a reason.
+function continuationBlockedNoticeMessage(notice, data) {
+  const reasonCode = String(notice?.reasonCode || data.reasonCode || "").trim();
+  if (reasonCode === "preempted") return t("backgroundTasks.continuation.preempted");
+  if (reasonCode === "interrupted") return t("backgroundTasks.continuation.stopped");
+  return t("backgroundTasks.continuation.blocked", { reason: notice?.reason || data.reason || "—" });
+}
+
 function executionNoticeMessage(notice) {
   const raw = notice?.raw || {};
   const data = raw.data && typeof raw.data === "object" ? raw.data : {};
   if (notice?.family === "task_terminal") return t("backgroundTasks.notifications.taskCompleted", { task: backgroundTaskNoticeLabel(notice, raw, data) });
-  if (notice?.family === "continuation_blocked") return t("backgroundTasks.continuation.blocked", { reason: notice.reason || data.reason || "—" });
+  if (notice?.family === "continuation_blocked") return continuationBlockedNoticeMessage(notice, data);
   if (notice?.family === "budget_exhausted") return t("backgroundTasks.continuation.budgetExhausted", { reason: notice.reason || data.reason || notice.budget || "—" });
   if (notice?.family === "approval_required") return t("backgroundTasks.notifications.approvalRequired");
   if (notice?.family === "completed") return t("backgroundTasks.notifications.completed");
@@ -979,7 +991,13 @@ const executionNotifications = createExecutionNotifications({
   notifier: (notice) => {
     const taskStatus = String(notice?.raw?.status || notice?.raw?.data?.status || "").toLowerCase();
     const taskFailed = notice.family === "task_terminal" && ["failed", "error", "interrupted", "cancelled", "canceled"].includes(taskStatus);
-    const variant = taskFailed || ["error", "budget_exhausted"].includes(notice.family) ? "error" : ["approval_required", "continuation_blocked", "interrupted", "truncated"].includes(notice.family) ? "warn" : "success";
+    // A continuation dropped because the user typed again is not a warning; it is
+    // the expected consequence of what they just did.
+    const continuationPreempted = notice.family === "continuation_blocked"
+      && String(notice.reasonCode || notice.raw?.data?.reasonCode || "").trim() === "preempted";
+    const variant = taskFailed || ["error", "budget_exhausted"].includes(notice.family) ? "error"
+      : continuationPreempted ? "info"
+      : ["approval_required", "continuation_blocked", "interrupted", "truncated"].includes(notice.family) ? "warn" : "success";
     const message = executionNoticeMessage(notice);
     showToast(message, variant);
     // Audible + OS-level signals ride the same deduplicated notice stream as the
@@ -1018,6 +1036,9 @@ backgroundTasks = createBackgroundTasksController({
       label: String(option?.textContent || option?.label || option?.value || "").trim(),
     }))
     .filter((option) => option.value),
+  // One markdown pipeline for both transcripts, so a subagent's tables, lists
+  // and fenced code read the same in the panel as they do in the main thread.
+  renderMarkdown: (value) => chatRendering.renderMarkdown(value),
   onChange: (change) => {
     subagentCards.scheduleRefresh(change);
     if ($("appShell")?.classList.contains("details-open")) renderConversationDetails();

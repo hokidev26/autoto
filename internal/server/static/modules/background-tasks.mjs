@@ -1,6 +1,18 @@
 import { escapeAttr, escapeHtml, setHTMLIfChanged, setTextIfChanged } from "./dom.mjs";
 import { formatDuration, formatTimestamp } from "./formatters.mjs";
 import { t } from "./i18n.mjs";
+// The child transcript is a conversation, so it is rendered with the same
+// components the main thread uses rather than a second, thinner imitation of
+// them. The version string matches app-main's import so the browser resolves
+// both to one module instance.
+import {
+  groupToolActivityByMessage,
+  nextToolActivitySelection,
+  normalizeToolActivity,
+  persistedReasoningSteps,
+  renderToolActivityCardHTML,
+  renderToolActivityStackHTML,
+} from "./chat-rendering.mjs?v=protected-images-1-message-thread-1-plan-mode-2-user-message-left-1-switch-fix-3-hide-run-loading-1-i18n-shared-1-conversation-boundary-1-subagent-cards-1-message-lifecycle-1-subagent-incremental-1-profile-message-identity-1-profile-avatar-1-provider-errors-1-compact-run-error-1-first-token-task-status-1-tool-activity-lazy-1-tool-protocol-filter-1-live-assistant-last-1-tool-activity-svg-icons-1-reasoning-steps-1-reasoning-history-1-markdown-2-tool-inline-detail-1-md-table-1-tool-position-1-project-run-history-1-dup-activity-fix-1-reasoning-count-1-avatar-logo-fix-1-markdown-stream-1-reasoning-handover-1";
 
 const terminalStatuses = new Set(["completed", "complete", "succeeded", "success", "failed", "error", "cancelled", "canceled", "interrupted"]);
 const runningStatuses = new Set(["running", "started", "cancel_requested"]);
@@ -289,6 +301,11 @@ export function createBackgroundTasksController({
   // the same list as the main composer. Injected rather than fetched here to
   // keep one owner of the model catalogue.
   getModelOptions,
+  // The main transcript's markdown renderer. It lives inside the chat rendering
+  // controller because it shares that closure's code-block helpers, so it is
+  // handed in rather than imported. Without it the pane falls back to the
+  // bounded plain-text body, which is what a headless test gets.
+  renderMarkdown,
   maxOutputChars = defaultOutputLimit,
 } = {}) {
   if (typeof request !== "function") throw new Error("createBackgroundTasksController requires request");
@@ -308,6 +325,15 @@ export function createBackgroundTasksController({
   const childBusy = new Set();
   // childAgentId -> Map(messageId -> tool calls), so a turn can show what it ran.
   const childToolCalls = new Map();
+  // childAgentId -> the same calls unsplit. Grouping by message drops anything
+  // whose owning turn is outside the loaded window, and those calls are still
+  // part of the run: the flat list is what lets them close the transcript the
+  // way the main thread's run outcome does.
+  const childToolCallList = new Map();
+  // Which tool row is open, keyed by activity stack. The main thread keeps the
+  // same map for the same reason: a re-render must not close a detail the
+  // reader just opened.
+  const childToolSelection = new Map();
   // childAgentId -> poll timer. handleEvent drops any event whose agentId is not
   // this panel's agent, and a child's replies carry the child's id, so nothing
   // the child does ever reaches us as an event. Without polling, a message sent
@@ -398,6 +424,11 @@ export function createBackgroundTasksController({
     return (id && childToolCalls.get(id)) || new Map();
   }
 
+  function childToolCallsFlat(childAgentId) {
+    const id = text(childAgentId);
+    return (id && childToolCallList.get(id)) || [];
+  }
+
   // A reload triggered from the child composer or its settings knows the agent but
   // not the run, so recover the run from whichever task owns that agent.
   function childRunIdFor(childAgentId) {
@@ -432,16 +463,21 @@ export function createBackgroundTasksController({
       childConversations.set(id, list);
       if (agent && typeof agent === "object") childAgents.set(id, agent);
       childToolCalls.set(id, groupToolCallsByMessage(calls));
+      childToolCallList.set(id, toolCallList(calls));
       render();
     } finally {
       childBusy.delete(id);
     }
   }
 
+  function toolCallList(payload) {
+    return Array.isArray(payload) ? payload : (Array.isArray(payload?.toolCalls) ? payload.toolCalls : []);
+  }
+
   // Grouped by message so each call renders under the turn that made it, in the
   // order the run recorded them.
   function groupToolCallsByMessage(payload) {
-    const list = Array.isArray(payload) ? payload : (Array.isArray(payload?.toolCalls) ? payload.toolCalls : []);
+    const list = toolCallList(payload);
     const grouped = new Map();
     for (const call of list) {
       const messageId = text(call?.messageId);
@@ -476,7 +512,11 @@ export function createBackgroundTasksController({
     try {
       await request(`/api/agents/${encodeURIComponent(id)}/messages`, {
         method: "POST",
-        body: JSON.stringify({ text: body, mode: "execute", context: "conversation" }),
+        // Project context, the same one the main composer sends. The
+        // conversation context caps the run at readOnly, which turned every
+        // follow-up here into a research-only reply: the subagent could be
+        // asked to fix what it just did and had no way to touch a file.
+        body: JSON.stringify({ text: body, mode: "execute", context: "project" }),
       });
       await loadChildConversation(id, { force: true, runId: childRunIdFor(id) });
       // The reply does not exist yet: the refresh above only shows the message
@@ -1007,8 +1047,10 @@ export function createBackgroundTasksController({
     if (!messages.length) {
       return `<div class="background-task-empty">${escapeHtml(childBusy.has(childAgentId) ? t("backgroundTasks.loading") : t("backgroundTasks.noConversation"))}</div>`;
     }
+    const runId = text(task.childRunId);
     const callsByMessage = childToolCallsByMessage(childAgentId);
-    return `<div class="background-task-conversation">${messages.map((message) => {
+    const knownMessageIds = new Set(messages.map((message) => text(message?.id)).filter(Boolean));
+    const bubbles = messages.map((message) => {
       const role = text(message?.role) === "user" ? "user" : "assistant";
       // contentText is what the messages endpoint returns. This read used to be
       // `message.text || message.content`, and neither field has ever existed on
@@ -1023,11 +1065,39 @@ export function createBackgroundTasksController({
       if (!body && !reasoning && !calls.length) return "";
       return `<article class="background-task-bubble role-${role}">
         <header><span>${escapeHtml(role === "user" ? t("backgroundTasks.roleUser") : t("backgroundTasks.roleAgent"))}</span><time>${escapeHtml(message?.createdAt ? formatTimestamp(message.createdAt) : "")}</time></header>
-        ${reasoning ? `<details class="background-task-reasoning"><summary>${escapeHtml(t("backgroundTasks.reasoning"))}</summary><p>${escapeHtml(reasoning)}</p></details>` : ""}
-        ${calls.length ? renderChildToolCallsHTML(calls) : ""}
-        ${body ? renderChildBubbleBodyHTML(body) : ""}
+        ${renderChildActivityHTML(childAgentId, `msg:${text(message?.id)}`, calls, persistedReasoningSteps(message, calls), runId)}
+        ${body ? renderChildBodyHTML(body) : ""}
       </article>`;
-    }).join("")}</div>`;
+    }).join("");
+    // Calls whose owning turn is not in the loaded window close the transcript on
+    // their own, the way the main thread's run outcome card does, so a run whose
+    // first turns have scrolled out of the window still accounts for its work.
+    const { unowned } = groupToolActivityByMessage(childToolCallsFlat(childAgentId), knownMessageIds);
+    const trailing = renderChildActivityHTML(childAgentId, "run", unowned, [], runId);
+    return `<div class="background-task-conversation">${bubbles}${trailing}</div>`;
+  }
+
+  // Same activity stack as the main transcript: one "活動" disclosure per turn,
+  // reasoning steps filed against the tool that ended them, rows that open their
+  // own detail. Compact because this pane is a column, not a page.
+  function renderChildActivityHTML(childAgentId, scope, calls, reasoningSteps, runId) {
+    const stackKey = `child:${text(childAgentId)}:${scope}`;
+    return renderToolActivityStackHTML(calls, {
+      compact: true,
+      runId,
+      stackKey,
+      reasoningSteps,
+      selectedToolUseId: childToolSelection.get(stackKey) || "",
+    });
+  }
+
+  // Markdown when the main renderer was injected, the bounded plain-text body
+  // otherwise. A subagent writes the same lists, tables and fenced code the main
+  // agent does, and rendering it as one escaped paragraph was the largest visible
+  // difference between this pane and the conversation it mirrors.
+  function renderChildBodyHTML(body) {
+    if (typeof renderMarkdown !== "function") return renderChildBubbleBodyHTML(body);
+    return `<div class="message-content background-task-bubble-body">${renderMarkdown(body)}</div>`;
   }
 
   // How much of a message body the pane shows before folding the rest away. A briefing
@@ -1036,8 +1106,9 @@ export function createBackgroundTasksController({
   // source with no indication of which file any of it came from, and the status and
   // error above it were pushed out of view.
   //
-  // The tool arguments beside this already get the same treatment for the same stated
-  // reason -- see boundedInput -- and the body was simply never given it.
+  // This is the fallback path. When the main transcript's markdown renderer is
+  // injected the body goes through that instead, and the clamping there is the
+  // pane's own scrolling rather than a disclosure.
   const childBubbleBodyLineLimit = 12;
   const childBubbleBodyCharLimit = 900;
 
@@ -1065,38 +1136,48 @@ export function createBackgroundTasksController({
       </details>`;
   }
 
-  // Tool calls are shown collapsed: the name, status and duration answer "what did
-  // it do" on their own, and the arguments are usually long enough to bury the
-  // answer text underneath them.
-  function renderChildToolCallsHTML(calls) {
-    return `<ul class="background-task-tools">${calls.map((call) => {
-      const name = text(call?.toolName) || "tool";
-      const status = text(call?.status);
-      const duration = Number.isFinite(call?.durationMs) ? formatDuration(call.durationMs) : "";
-      const failed = status === "error" || Boolean(text(call?.errorMessage));
-      const detail = text(call?.errorMessage) || boundedInput(call?.inputJson);
-      return `<li class="background-task-tool${failed ? " is-error" : ""}">
-        <span class="background-task-tool-name">${escapeHtml(name)}</span>
-        ${status ? `<span class="background-task-tool-status status-${escapeAttr(status)}">${escapeHtml(status)}</span>` : ""}
-        ${duration ? `<span class="background-task-tool-duration">${escapeHtml(duration)}</span>` : ""}
-        ${detail ? `<details><summary>${escapeHtml(t("backgroundTasks.showMore"))}</summary><pre>${escapeHtml(detail)}</pre></details>` : ""}
-      </li>`;
-    }).join("")}</ul>`;
+  // A stack key is "child:<agentId>:<scope>", and the detail lookup needs the
+  // agent back out of it: the clicked row only knows which stack it belongs to.
+  function childAgentIdFromStackKey(stackKey) {
+    const parts = text(stackKey).split(":");
+    return parts.length >= 3 && parts[0] === "child" ? parts.slice(1, -1).join(":") : "";
   }
 
-  // Arguments arrive as raw JSON and can be a whole file's contents. Bound it here
-  // rather than in CSS so an enormous payload cannot cost a long serialisation on
-  // every render.
-  function boundedInput(value) {
-    if (value == null) return "";
-    let raw = "";
-    try {
-      raw = typeof value === "string" ? value : JSON.stringify(value);
-    } catch {
-      return "";
-    }
-    raw = text(raw);
-    return raw.length > 600 ? `${raw.slice(0, 600)}…` : raw;
+  // Fills the clicked row's own detail slot and clears the rest, matching the
+  // main transcript. Rendering into the row rather than a shared slot at the
+  // bottom is what keeps the detail next to the tool it describes.
+  function renderChildActivitySelection(stack, toolUseId) {
+    if (!stack) return;
+    const selected = text(toolUseId);
+    const childAgentId = childAgentIdFromStackKey(stack.dataset?.toolActivityStackKey);
+    stack.querySelectorAll?.("[data-tool-activity-select]").forEach((button) => {
+      const active = text(button.dataset?.toolActivitySelect) === selected;
+      button.setAttribute?.("aria-expanded", active ? "true" : "false");
+      button.closest?.(".tool-activity-step")?.classList?.toggle?.("selected", active);
+    });
+    stack.querySelectorAll?.("[data-tool-activity-inline-detail]").forEach((slot) => {
+      if (text(slot.dataset?.toolActivityInlineDetail) !== selected) {
+        slot.innerHTML = "";
+        return;
+      }
+      const record = childToolCallsFlat(childAgentId).find((item) => normalizeToolActivity(item).toolUseId === selected);
+      slot.innerHTML = record ? renderToolActivityCardHTML(record, { detailsExpanded: true, inlineDetail: true }) : "";
+    });
+  }
+
+  // Returns true once it has handled the click, so the panel's own routing does
+  // not also run for a press inside an activity stack.
+  function handleChildActivityClick(event) {
+    const button = event.target?.closest?.("[data-tool-activity-select]");
+    if (!button) return false;
+    const stack = button.closest?.("[data-tool-activity-stack]");
+    const stackKey = text(stack?.dataset?.toolActivityStackKey);
+    if (!stack || !stackKey) return false;
+    const next = nextToolActivitySelection(childToolSelection.get(stackKey) || "", text(button.dataset?.toolActivitySelect));
+    if (next) childToolSelection.set(stackKey, next);
+    else childToolSelection.delete(stackKey);
+    renderChildActivitySelection(stack, next);
+    return true;
   }
 
   // Mirrors the main composer's controls so a subagent can be retargeted without
@@ -1274,6 +1355,7 @@ export function createBackgroundTasksController({
     host("backgroundTasksBtn")?.addEventListener("click", toggleTray);
     host("headerTaskSummaryBtn")?.addEventListener("click", toggleTray);
     host("backgroundTaskTray")?.addEventListener("click", (event) => {
+      if (handleChildActivityClick(event)) return;
       const target = event.target?.closest?.("[data-background-task],[data-background-close],[data-background-output-more],[data-background-cancel],[data-background-agent],[data-background-run],[data-background-overview],[data-background-tab-close]");
       if (!target) return;
       if (target.hasAttribute("data-background-close")) {

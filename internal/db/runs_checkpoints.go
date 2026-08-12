@@ -582,6 +582,48 @@ func (s *Store) RecoverInterruptedRun(ctx context.Context, runID string) error {
 	return tx.Commit()
 }
 
+// AbandonStrandedRun gives a terminal status to a Run whose executor is gone
+// while this process is still alive. RecoverInterruptedRun answers the restart
+// case and hard-codes its reason; this one carries the caller's, so an operator
+// can tell a run reaped mid-session from one lost to a restart. The cleanup is
+// otherwise identical: without denying the stranded tool calls the run keeps a
+// live-looking call in the transcript and the UI never leaves its busy state.
+func (s *Store) AbandonStrandedRun(ctx context.Context, runID, reason string) error {
+	reason = strings.TrimSpace(reason)
+	if reason == "" {
+		return errors.New("abandoning a stranded run requires a reason")
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	var agentID string
+	if err := tx.QueryRowContext(ctx, `SELECT agent_id FROM runs WHERE id = ?`, runID).Scan(&agentID); err != nil {
+		return err
+	}
+	now := Now()
+	result, err := tx.ExecContext(ctx, `UPDATE runs SET status = 'interrupted', completed_at = ?, duration_ms = MAX(0, CAST(ROUND((julianday(?) - julianday(started_at)) * 86400000.0) AS INTEGER)), error_message = ?, updated_at = ? WHERE id = ? AND status IN ('pending', 'running')`, now, now, reason, now, runID)
+	if err != nil {
+		return err
+	}
+	if affected, err := result.RowsAffected(); err != nil {
+		return err
+	} else if affected != 1 {
+		return fmt.Errorf("%w: run is no longer strandable: %s", ErrConflict, runID)
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE plans SET status = ?, updated_at = ? WHERE id = (SELECT plan_id FROM runs WHERE id = ?) AND status = ?`, PlanStatusApproved, now, runID, PlanStatusExecuting); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE agents SET status = 'interrupted', error_message = ?, updated_at = ? WHERE id = ?`, reason, now, agentID); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE agent_tool_calls SET status = 'denied', completed_at = COALESCE(completed_at, ?), updated_at = ?, error_message = ?, permission_decided_by = 'system', permission_decided_at = ?, permission_deny_message = ?, permission_decision_reason = ?, permission_suggestions = NULL WHERE run_id = ? AND status IN ('pending_approval', 'approved', 'running')`, now, now, reason, now, reason, reason, runID); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
 const runSelectSQL = `SELECT id, agent_id, COALESCE(trigger_message_id,''), status, COALESCE(started_at,''), COALESCE(completed_at,''), COALESCE(error_message,''), COALESCE(base_head,''), COALESCE(end_head,''), COALESCE(checkpoint_repo_root,''), COALESCE(git_snapshot_at,''), COALESCE(checkpoint_state,'none'), COALESCE(checkpoint_error,''), COALESCE(rolled_back_at,''), COALESCE(source,'manual'), COALESCE(source_id,''), COALESCE(permission_mode_cap,''), COALESCE(execution_generation,0), COALESCE(dispatch_id,''), COALESCE(duration_ms,0), COALESCE(trigger_type,'manual'), COALESCE(execution_device_id,'local'), COALESCE(execution_mode,'execute'), COALESCE(plan_id,''), COALESCE(policy_generation_snapshot,0), COALESCE(agent_generation_snapshot,0), COALESCE(tool_catalog_digest,''), COALESCE(workspace_fingerprint,''), COALESCE(auto_continuation_mode,'off'), COALESCE(continuation_count,0), COALESCE(continuation_segment_turns,0), COALESCE(turn_count,0), COALESCE(max_total_turns,0), COALESCE(max_continuations,0), COALESCE(max_total_tokens,0), COALESCE(consumed_input_tokens,0), COALESCE(consumed_output_tokens,0), COALESCE(deadline_at,''), COALESCE(resume_after_message_id,''), COALESCE(last_stop_reason,''), COALESCE(continuation_reason,''), COALESCE(waiting_background_task_id,''), created_at, updated_at FROM runs`
 
 type runScanner func(dest ...any) error

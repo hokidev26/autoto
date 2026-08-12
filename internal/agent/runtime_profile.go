@@ -603,6 +603,63 @@ func (r *Runner) childRuntimeProfile(agentID string) (*childRuntimeProfile, bool
 	return &copy, true
 }
 
+// ensureChildRuntimeProfile finds a child's runtime contract, rebuilding it from
+// durable state when the in-memory copy is gone. The copy registered at dispatch
+// dies with the run that created it, so every later message to a finished
+// subagent used to hit the fail-closed branch in policyContext and lose every
+// exec tool -- the child could still be talked to but could no longer do
+// anything. Rebuilding restores the same contract rather than a fresh one, so a
+// follow-up can only reach what the child already had.
+func (r *Runner) ensureChildRuntimeProfile(ctx context.Context, agent db.Agent) (*childRuntimeProfile, bool) {
+	if profile, ok := r.childRuntimeProfile(agent.ID); ok {
+		return profile, true
+	}
+	if strings.TrimSpace(agent.ParentAgentID) == "" && !strings.EqualFold(strings.TrimSpace(agent.Type), "subagent") {
+		return nil, false
+	}
+	resolution, ok := r.persistedChildRoleResolution(ctx, agent)
+	if !ok {
+		return nil, false
+	}
+	if err := r.RegisterChildRuntimeProfile(agent.ID, resolution); err != nil {
+		return nil, false
+	}
+	return r.childRuntimeProfile(agent.ID)
+}
+
+// persistedChildRoleResolution replays a child's contract out of the newest
+// runtime snapshot its own runs wrote. The tool list comes from that snapshot
+// rather than from re-resolving the role, because re-resolving a custom role by
+// its canonical base would hand back the built-in contract's tools and could
+// widen what the child is allowed to touch.
+func (r *Runner) persistedChildRoleResolution(ctx context.Context, agent db.Agent) (ChildRoleResolution, bool) {
+	if r == nil || r.store == nil {
+		return ChildRoleResolution{}, false
+	}
+	snapshot, err := r.store.LatestAgentRunRuntimeSnapshot(ctx, agent.ID)
+	if err != nil || snapshot.AgentID != agent.ID {
+		return ChildRoleResolution{}, false
+	}
+	allowed := runtimeToolNames(snapshot.ToolCapabilities)
+	if len(allowed) == 0 {
+		return ChildRoleResolution{}, false
+	}
+	contract, err := agentrole.Resolve(agent.SubagentType)
+	if err != nil {
+		return ChildRoleResolution{}, false
+	}
+	return ChildRoleResolution{
+		Key:                 string(contract.Role),
+		PublicRole:          string(contract.Role),
+		BaseRole:            contract.Role,
+		ModelRole:           subagentModelRoleForCanonical(contract.Role),
+		ImmutableRolePrompt: contract.Prompt,
+		RoleExtension:       strings.TrimSpace(agent.SystemPrompt),
+		ReadOnly:            contract.ReadOnly,
+		AllowedTools:        allowed,
+	}, true
+}
+
 func filterToolSnapshotByNames(snapshot runToolSnapshot, allowed []string) runToolSnapshot {
 	allowedSet := make(map[string]bool, len(allowed))
 	for _, name := range allowed {
@@ -707,7 +764,7 @@ func (r *Runner) prepareRunRuntimeSnapshot(ctx context.Context, agentID, runID s
 	if err != nil {
 		return nil, false, fmt.Errorf("snapshot tools: %w", err)
 	}
-	child, hasChild := r.childRuntimeProfile(agent.ID)
+	child, hasChild := r.ensureChildRuntimeProfile(ctx, agent)
 	if hasChild {
 		toolSnapshot = filterToolSnapshotByNames(toolSnapshot, child.resolution.AllowedTools)
 	}

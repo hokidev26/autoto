@@ -77,6 +77,7 @@ type runtimeAgentSummary struct {
 	DefaultStartInPlanMode bool                        `json:"defaultStartInPlanMode"`
 	MaxTurns               int                         `json:"maxTurns"`
 	FirstTokenTimeoutMs    int                         `json:"firstTokenTimeoutMs"`
+	StreamIdleTimeoutMs    int                         `json:"streamIdleTimeoutMs"`
 	MaxTransientRetries    int                         `json:"maxTransientRetries"`
 	Continuation           runtimeContinuationSettings `json:"continuation"`
 }
@@ -221,6 +222,7 @@ func buildRuntimeSummary(cfg config.Config, configPath string, startedAt time.Ti
 			DefaultStartInPlanMode: cfg.Agent.DefaultStartInPlanMode,
 			MaxTurns:               cfg.Agent.MaxTurns,
 			FirstTokenTimeoutMs:    cfg.Agent.FirstTokenTimeoutMs,
+			StreamIdleTimeoutMs:    cfg.Agent.StreamIdleTimeoutMs,
 			MaxTransientRetries:    cfg.Agent.MaxTransientRetries,
 			Continuation:           runtimeContinuationSettings{Mode: cfg.Agent.AutoContinuationMode, SegmentTurns: cfg.Agent.ContinuationSegmentTurns, MaxContinuations: cfg.Agent.MaxContinuations, MaxTotalTurns: cfg.Agent.MaxTotalTurns, MaxRunDurationMs: cfg.Agent.MaxRunDurationMs, MaxRunTokens: cfg.Agent.MaxRunTokens},
 		},

@@ -426,9 +426,9 @@ type worklineUnmergeRequest struct {
 }
 
 type worklineUnmergeResponse struct {
-	GeneratedAt      string      `json:"generatedAt"`
-	SourceWorklineID string      `json:"sourceWorklineId"`
-	TargetWorklineID string      `json:"targetWorklineId"`
+	GeneratedAt      string `json:"generatedAt"`
+	SourceWorklineID string `json:"sourceWorklineId"`
+	TargetWorklineID string `json:"targetWorklineId"`
 	// Strategy is "reset" when the merge commit was still the target head and
 	// history could simply be rewound, or "revert" when the target had moved on
 	// and a counter-commit was created instead.

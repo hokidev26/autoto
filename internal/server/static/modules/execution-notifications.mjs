@@ -145,6 +145,7 @@ function notificationRecord(value, fallback = {}) {
     taskId: firstString(value.taskId, value.backgroundTaskId, value.task?.id, value.backgroundTask?.id, data?.taskId, data?.backgroundTaskId, data?.task?.id),
     continuationCount: normalizedGeneration(value.continuationCount ?? value.count ?? data?.continuationCount ?? data?.count),
     reason: firstString(value.reason, data?.reason, data?.blockedReason),
+    reasonCode: firstString(value.reasonCode, data?.reasonCode),
     budget: firstString(value.budget, value.budgetKind, data?.budget, data?.budgetKind),
     raw: value,
   };

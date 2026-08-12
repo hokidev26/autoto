@@ -91,7 +91,7 @@ func (r *Runner) submitUserMessageWithModeAndPermissionCap(ctx context.Context, 
 	if mode != db.RunExecutionModePlan && mode != db.RunExecutionModeExecute {
 		return db.Message{}, errors.New("invalid durable run execution mode")
 	}
-	if _, err := r.cancelPendingContinuationsForAgent(ctx, agentID, "preempted by a new user message"); err != nil && !errors.Is(err, errContinuationStoreUnavailable) {
+	if _, err := r.cancelPendingContinuationsForAgent(ctx, agentID, ContinuationBlockReasonPreempted); err != nil && !errors.Is(err, errContinuationStoreUnavailable) {
 		return db.Message{}, err
 	}
 	contentText, commandText, err := r.expandServerSkillCommand(ctx, agentID, text)

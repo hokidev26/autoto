@@ -7,7 +7,13 @@ import (
 	"strings"
 
 	"autoto/internal/db"
+	"autoto/internal/tools"
 )
+
+// maxInterruptSubagentDepth bounds the subagent tree an interrupt walks. Nesting
+// is already limited by MaxSubagentDepth, so this only exists so a corrupt
+// parent/child cycle in the task rows cannot turn Stop into infinite recursion.
+const maxInterruptSubagentDepth = 8
 
 type runCompletion struct {
 	pending          bool
@@ -132,6 +138,16 @@ func (r *Runner) Interrupt(ctx context.Context, agentID string) (bool, error) {
 	if _, err := r.store.GetAgent(ctx, agentID); err != nil {
 		return false, err
 	}
+	return r.interruptAgentTree(ctx, agentID, 0)
+}
+
+// interruptAgentTree stops this agent's own Run and everything it dispatched.
+// Cancelling only the Run was not enough: a subagent executes under the
+// background manager's context rather than the parent's, so stopping a parent
+// that was waiting on a subagent left the child working with nobody watching it
+// -- and because the parent's tool call never reached a terminal state, the Stop
+// button appeared to do nothing at all.
+func (r *Runner) interruptAgentTree(ctx context.Context, agentID string, depth int) (bool, error) {
 	r.runMu.Lock()
 	active := r.running[agentID]
 	var cancel context.CancelFunc
@@ -150,18 +166,73 @@ func (r *Runner) Interrupt(ctx context.Context, agentID string) (bool, error) {
 		_ = r.completeRun(context.Background(), pendingRunID, "interrupted", "")
 		r.closeToolOutputPipelineRun(agentID, pendingRunID)
 	}
+	stoppedTasks := r.stopDispatchedBackgroundWork(ctx, agentID, depth)
 	if cancel == nil {
-		canceled, cancelErr := r.cancelPendingContinuationsForAgent(ctx, agentID, "interrupted by user")
+		canceled, cancelErr := r.cancelPendingContinuationsForAgentAtDepth(ctx, agentID, ContinuationBlockReasonInterrupted, depth)
 		if cancelErr != nil && !errors.Is(cancelErr, errContinuationStoreUnavailable) {
 			return false, cancelErr
 		}
 		if canceled > 0 {
 			r.closeToolOutputPipelineAgent(agentID)
 		}
-		return canceled > 0, nil
+		return canceled > 0 || stoppedTasks > 0, nil
 	}
 	cancel()
 	return true, nil
+}
+
+// stopDispatchedBackgroundWork cancels every non-terminal background task the
+// agent owns and interrupts the child agents behind them, reporting how many
+// tasks it stopped. The child is interrupted directly rather than left to the
+// task's own cancellation, because that path only reaches the child through the
+// worker still polling it: a worker that has already gone away would otherwise
+// leave the child running with its task marked cancelled.
+func (r *Runner) stopDispatchedBackgroundWork(ctx context.Context, agentID string, depth int) int {
+	if r == nil || depth >= maxInterruptSubagentDepth {
+		return 0
+	}
+	service := r.backgroundTaskService()
+	if service == nil {
+		return 0
+	}
+	tasks, err := service.List(ctx, tools.BackgroundTaskListOptions{OwnerAgentID: agentID, Limit: db.BackgroundTaskMaxListLimit})
+	if err != nil {
+		slog.Warn("listing dispatched background tasks during interrupt failed", "agentId", agentID, "error", err)
+		return 0
+	}
+	stopped := 0
+	for _, task := range tasks {
+		status := strings.ToLower(strings.TrimSpace(task.Status))
+		if backgroundTaskStatusTerminal(status) {
+			continue
+		}
+		if status != db.BackgroundTaskStatusCancelRequested {
+			if _, cancelErr := service.Cancel(ctx, agentID, task.ID); cancelErr != nil {
+				slog.Warn("cancelling a dispatched background task during interrupt failed",
+					"agentId", agentID, "taskId", task.ID, "error", cancelErr)
+			} else {
+				stopped++
+			}
+		}
+		child := strings.TrimSpace(task.ChildAgentID)
+		if child == "" {
+			continue
+		}
+		if _, childErr := r.interruptAgentTree(ctx, child, depth+1); childErr != nil {
+			slog.Warn("interrupting a dispatched child agent failed",
+				"agentId", agentID, "childAgentId", child, "taskId", task.ID, "error", childErr)
+		}
+	}
+	return stopped
+}
+
+func backgroundTaskStatusTerminal(status string) bool {
+	switch strings.ToLower(strings.TrimSpace(status)) {
+	case db.BackgroundTaskStatusSucceeded, db.BackgroundTaskStatusFailed, db.BackgroundTaskStatusCanceled, db.BackgroundTaskStatusInterrupted:
+		return true
+	default:
+		return false
+	}
 }
 
 // registerRun also reports the run ID that still needs a terminal status when it

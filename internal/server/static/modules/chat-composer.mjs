@@ -1056,14 +1056,44 @@ export function createChatComposerController({
     }
   }
 
+  // A live tool record only reaches a terminal status through its own event, so
+  // stopping a wedged call left every card mid-flight: the send button stayed in
+  // Stop mode and the turn still looked like it was running, which is what made
+  // pressing Stop feel like it had done nothing at all. Marking them here is
+  // optimistic on purpose — a real tool.finished event overwrites this, so a call
+  // that turns out to have completed normally is unaffected.
+  function markLiveToolOutputsInterrupted(agentId) {
+    const live = state.liveToolOutputs || {};
+    const next = {};
+    let changed = false;
+    for (const [toolUseId, item] of Object.entries(live)) {
+      if (item && (!item.agentId || item.agentId === agentId) && liveToolIsActive(item)) {
+        next[toolUseId] = { ...item, status: "interrupted" };
+        changed = true;
+        continue;
+      }
+      next[toolUseId] = item;
+    }
+    if (changed) state.liveToolOutputs = next;
+    return changed;
+  }
+
   async function interruptRun() {
     const agentId = state.agent?.id;
     if (!agentId) return;
     // Interrupting is not a send, so it deliberately does not take the sending
     // lock: the run is already in flight and the button must stay responsive.
-    await request(`/api/agents/${agentId}/interrupt`, { method: "POST" });
-    showToast?.(t("workspace.chat.stopRequested"), "info");
+    const response = await request(`/api/agents/${agentId}/interrupt`, { method: "POST" });
+    // The server reports whether anything was actually stopped. Saying "stop
+    // requested" either way is how a stop that had nothing to cancel became
+    // indistinguishable from one that worked.
+    const interrupted = response?.interrupted !== false;
+    markLiveToolOutputsInterrupted(agentId);
+    state.liveAssistantActive = false;
+    if (interrupted) showToast?.(t("workspace.chat.stopRequested"), "info");
+    else showToast?.(t("workspace.chat.stopFoundNothing"), "warn");
     syncMessageComposerBusy();
+    scheduleMessageRefresh?.(600, agentId);
   }
 
   // Stop is bound as a click rather than handled inside the submit path,

@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
+	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -25,6 +27,13 @@ const (
 	// Bounded well under maxAgentResultBytes so attaching the child's failure
 	// reason cannot push an otherwise valid result over its budget.
 	maxAgentChildErrorBytes = 512
+	// defaultChildIdleTimeout bounds how long waitChild will keep polling a
+	// child Run that shows no observable progress. A child whose goroutine died
+	// without writing a terminal status leaves its row at "running" forever, and
+	// an unbounded wait turned that into a task that never reaches a terminal
+	// state -- so the parent's resumeParent boundary was never woken and the
+	// subagent's outcome was never reported at all.
+	defaultChildIdleTimeout = 15 * time.Minute
 )
 
 type AgentExecutor struct {
@@ -32,6 +41,14 @@ type AgentExecutor struct {
 	Runner       *agent.Runner
 	Runtime      tools.BackgroundRuntimeController
 	PollInterval time.Duration
+	// ChildIdleTimeout gives up on a child Run that has not changed in this
+	// long. It measures progress rather than total duration, so a subagent that
+	// legitimately works for hours is never cut short.
+	ChildIdleTimeout time.Duration
+	// ChildMaxDuration is an optional hard ceiling on the whole wait. Zero
+	// disables it: idle detection is the primary guard, and a wall-clock cap
+	// that fires on a healthy long task is worse than no cap at all.
+	ChildMaxDuration time.Duration
 }
 
 type agentPayload struct {
@@ -77,7 +94,7 @@ func NewAgentExecutor(store *db.Store, runner *agent.Runner, controllers ...tool
 	if len(controllers) > 0 {
 		runtimeController = controllers[0]
 	}
-	return &AgentExecutor{Store: store, Runner: runner, Runtime: runtimeController, PollInterval: 50 * time.Millisecond}
+	return &AgentExecutor{Store: store, Runner: runner, Runtime: runtimeController, PollInterval: 50 * time.Millisecond, ChildIdleTimeout: defaultChildIdleTimeout}
 }
 
 func (e *AgentExecutor) runtimeSettings() tools.BackgroundRuntimeSettings {
@@ -168,11 +185,70 @@ func (e *AgentExecutor) Execute(ctx context.Context, task db.BackgroundTask, out
 	return e.waitChild(ctx, attached, child, payload.SubagentType, role, payload.Model, model, workdir, len(payload.AcceptanceCriteria))
 }
 
+// childProgressFingerprint captures every part of a child Run that moves while
+// the child is working. A status that stays "running" cannot tell a subagent
+// that is thinking apart from one that will never write a terminal status, and
+// the two used to be indistinguishable to waitChild.
+func childProgressFingerprint(run db.Run) string {
+	return strings.Join([]string{
+		run.Status,
+		run.UpdatedAt,
+		run.LastStopReason,
+		strconv.FormatInt(run.ContinuationCount, 10),
+		strconv.FormatInt(run.ContinuationSegmentTurns, 10),
+		strconv.FormatInt(run.TurnCount, 10),
+		strconv.FormatInt(run.ConsumedInputTokens, 10),
+		strconv.FormatInt(run.ConsumedOutputTokens, 10),
+	}, "|")
+}
+
+func childWaitAbandonReason(startedAt, lastProgressAt time.Time, idleTimeout, maxDuration time.Duration) string {
+	if maxDuration > 0 {
+		if elapsed := time.Since(startedAt); elapsed >= maxDuration {
+			return fmt.Sprintf("child run exceeded the %s maximum duration", maxDuration)
+		}
+	}
+	if idleTimeout > 0 {
+		if idle := time.Since(lastProgressAt); idle >= idleTimeout {
+			return fmt.Sprintf("child run made no progress for %s", idleTimeout)
+		}
+	}
+	return ""
+}
+
+// abandonStuckChild ends the wait with a terminal result instead of polling on.
+// Reporting the timeout is the whole point: the background task has to reach a
+// terminal state for the terminal hook to wake the parent, so a parent parked on
+// a resumeParent boundary learns that its subagent is gone rather than waiting
+// for a signal that can no longer arrive.
+func (e *AgentExecutor) abandonStuckChild(task db.BackgroundTask, child db.Agent, requestedRole, role, requestedModel, model, workdir string, acceptanceCount int, reason string) (Result, error) {
+	slog.Warn("background child agent abandoned as stuck",
+		"taskId", task.ID, "childAgentId", child.ID, "childRunId", task.ChildRunID, "reason", reason)
+	interruptCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if _, err := e.Runner.Interrupt(interruptCtx, child.ID); err != nil {
+		slog.Warn("interrupting a stuck background child agent failed",
+			"taskId", task.ID, "childAgentId", child.ID, "error", err)
+	}
+	result, marshalErr := marshalAgentPublicResultWithDetails(requestedRole, role, requestedModel, model, workdir, acceptanceCount, child.ID, task.ChildRunID, "timed_out", reason)
+	if marshalErr != nil {
+		return Result{ErrorCode: "invalid_result"}, marshalErr
+	}
+	return Result{JSON: result, ErrorCode: "child_timed_out"}, fmt.Errorf("background child agent did not complete: %s", reason)
+}
+
 func (e *AgentExecutor) waitChild(ctx context.Context, task db.BackgroundTask, child db.Agent, requestedRole, role, requestedModel, model, workdir string, acceptanceCount int) (Result, error) {
 	interval := e.PollInterval
 	if interval <= 0 {
 		interval = 50 * time.Millisecond
 	}
+	idleTimeout := e.ChildIdleTimeout
+	if idleTimeout <= 0 {
+		idleTimeout = defaultChildIdleTimeout
+	}
+	startedAt := time.Now()
+	lastProgressAt := startedAt
+	progress := ""
 	for {
 		run, err := e.Store.GetRunByID(ctx, task.ChildRunID)
 		if err != nil {
@@ -198,6 +274,13 @@ func (e *AgentExecutor) waitChild(ctx context.Context, task db.BackgroundTask, c
 				return Result{JSON: result, ErrorCode: "child_" + status}, fmt.Errorf("background child agent did not complete: %s", childError)
 			}
 			return Result{JSON: result, ErrorCode: "child_" + status}, errors.New("background child agent did not complete")
+		}
+		if current := childProgressFingerprint(run); current != progress {
+			progress = current
+			lastProgressAt = time.Now()
+		}
+		if reason := childWaitAbandonReason(startedAt, lastProgressAt, idleTimeout, e.ChildMaxDuration); reason != "" {
+			return e.abandonStuckChild(task, child, requestedRole, role, requestedModel, model, workdir, acceptanceCount, reason)
 		}
 		timer := time.NewTimer(interval)
 		select {

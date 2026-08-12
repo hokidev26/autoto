@@ -2364,65 +2364,30 @@ body.white-shell.theme-light .messages:not(.empty) > [class~="message"][class~="
   overscroll-behavior: contain;
 }
 
-/* Reasoning and tool calls are the part of a subagent's work you cannot otherwise
-   see, but they are also the bulk of it. Both stay collapsed so the answer is what
-   the pane leads with, and both are muted so they read as supporting detail. */
-.background-task-reasoning summary,
-.background-task-tool details summary {
-  cursor: pointer;
-  color: var(--muted, #64748b);
-  font-size: 9.5px;
-  font-weight: 700;
-}
-.background-task-reasoning p {
-  margin: 4px 0 0;
-  color: var(--muted, #64748b);
-  font-size: 11px;
-}
-.background-task-tools {
-  display: grid;
-  gap: 3px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-.background-task-tool {
-  display: flex;
-  align-items: baseline;
-  flex-wrap: wrap;
-  gap: 6px;
-  font-size: 10.5px;
-}
-.background-task-tool-name {
-  font-family: var(--mono, ui-monospace, monospace);
-  font-weight: 700;
-  color: var(--text, #111827);
-}
-.background-task-tool-status,
-.background-task-tool-duration {
-  color: var(--muted, #64748b);
-  font-size: 9.5px;
-}
-.background-task-tool.is-error .background-task-tool-name,
-.background-task-tool.is-error .background-task-tool-status {
-  color: var(--danger, #dc2626);
-}
-.background-task-tool details {
-  flex: 1 1 100%;
+/* A markdown body arrives already split into blocks, so the plain-text bubble's
+   pre-wrap would double every line break inside it. min-width: 0 is what lets a
+   fenced block or a table scroll instead of widening the pane, which in a column
+   this narrow pushes the composer off screen. */
+.background-task-bubble-body {
   min-width: 0;
+  font-size: 11.5px;
+  line-height: 1.5;
 }
-/* Arguments are already bounded in JS; this only stops a single long line from
-   widening the whole panel. */
-.background-task-tool pre {
-  margin: 3px 0 0;
-  padding: 5px 6px;
-  border-radius: 6px;
-  background: var(--bg-subtle, color-mix(in srgb, var(--muted, #64748b) 10%, transparent));
-  color: var(--muted, #64748b);
-  font-size: 10px;
-  overflow-x: auto;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
+.background-task-bubble-body :is(p, li, td, th) {
+  white-space: normal;
+}
+.background-task-bubble-body :is(pre, .code-block, .md-table-wrap) {
+  max-width: 100%;
+  overflow: auto;
+}
+/* The activity stack is the main transcript's own component, dropped into a
+   pane sized for a sidebar. Only its scale is adjusted; its structure is shared
+   on purpose so the two surfaces cannot drift apart. */
+.background-task-bubble > .tool-activity-stack,
+.background-task-conversation > .tool-activity-stack {
+  min-width: 0;
+  margin: 0;
+  font-size: 10.5px;
 }
 
 .background-task-child-controls {

@@ -262,6 +262,7 @@ export function createSystemSettingsController({
         <div class="runtime-kv-list settings-data-list">
           ${renderRuntimeKeyValue(t("systemSettings.runtimeResources.maxTurns"), formatNumber(agent.maxTurns || 0))}
           ${renderRuntimeKeyValue(t("systemSettings.runtimeResources.firstTokenTimeout"), formatDuration(agent.firstTokenTimeoutMs || 0))}
+          ${renderRuntimeKeyValue(t("systemSettings.runtimeResources.streamIdleTimeout"), agent.streamIdleTimeoutMs > 0 ? formatDuration(agent.streamIdleTimeoutMs) : t("systemSettings.runtimeResources.disabled"))}
           ${renderRuntimeKeyValue(t("systemSettings.runtimeResources.transientRetries"), formatNumber(agent.maxTransientRetries || 0))}
           ${renderRuntimeKeyValue(t("systemSettings.runtimeResources.sampleTime"), formatTimestamp(summary.generatedAt))}
         </div>`,

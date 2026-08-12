@@ -96,6 +96,31 @@ func (s *Store) GetAgentRunRuntimeSnapshot(ctx context.Context, runID string) (A
 	return snapshot, nil
 }
 
+// LatestAgentRunRuntimeSnapshot returns the newest snapshot an agent's runs
+// recorded, closed ones included. A finished run's snapshot is the only durable
+// record of the capability set that run was granted, so it is what a later
+// caller can replay to rebuild the same contract instead of guessing one.
+func (s *Store) LatestAgentRunRuntimeSnapshot(ctx context.Context, agentID string) (AgentRunRuntimeSnapshot, error) {
+	if err := s.EnsureAgentRunRuntimeSnapshots(ctx); err != nil {
+		return AgentRunRuntimeSnapshot{}, err
+	}
+	agentID = strings.TrimSpace(agentID)
+	if agentID == "" {
+		return AgentRunRuntimeSnapshot{}, errors.New("agent id is required for runtime snapshot lookup")
+	}
+	var snapshot AgentRunRuntimeSnapshot
+	var toolsJSON, promptJSON string
+	err := s.db.QueryRowContext(ctx, `SELECT run_id,agent_id,tool_capabilities_json,prompt_snapshot_json,status,created_at,updated_at FROM agent_run_runtime_snapshots WHERE agent_id=? ORDER BY created_at DESC, run_id DESC LIMIT 1`, agentID).Scan(&snapshot.RunID, &snapshot.AgentID, &toolsJSON, &promptJSON, &snapshot.Status, &snapshot.CreatedAt, &snapshot.UpdatedAt)
+	if err != nil {
+		return AgentRunRuntimeSnapshot{}, err
+	}
+	if err := json.Unmarshal([]byte(toolsJSON), &snapshot.ToolCapabilities); err != nil || !json.Valid([]byte(promptJSON)) {
+		return AgentRunRuntimeSnapshot{}, errors.New("invalid stored agent runtime snapshot")
+	}
+	snapshot.PromptSnapshot = json.RawMessage(promptJSON)
+	return snapshot, nil
+}
+
 func (s *Store) CloseAgentRunRuntimeSnapshot(ctx context.Context, runID string) (AgentRunRuntimeSnapshot, error) {
 	if err := s.EnsureAgentRunRuntimeSnapshots(ctx); err != nil {
 		return AgentRunRuntimeSnapshot{}, err

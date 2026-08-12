@@ -7,8 +7,8 @@ import { readFileSync } from "node:fs";
 // of source: the status, the duration and the error that explained why the task failed
 // were all pushed out of view above it.
 //
-// The tool arguments in the same pane were already bounded for exactly this reason. The
-// message body never was.
+// This clamp is the fallback the pane uses when it has no markdown renderer to hand the
+// body to, so it has to keep holding a body of any size on its own.
 const source = readFileSync(new URL("background-tasks.mjs", import.meta.url), "utf8");
 const messages = readFileSync(new URL("messages-background-tasks.mjs", import.meta.url), "utf8");
 const css = readFileSync(new URL("../styles/workspace-tasks.css", import.meta.url), "utf8");
@@ -22,7 +22,7 @@ function loadBodyRenderer() {
   assert.ok(lineLimit && charLimit, "both limits must stay named constants");
   const startAt = source.indexOf("function renderChildBubbleBodyHTML(body) {");
   assert.notEqual(startAt, -1);
-  const endAt = source.indexOf("\n  // Tool calls are shown collapsed", startAt);
+  const endAt = source.indexOf("\n  // A stack key is", startAt);
   assert.notEqual(endAt, -1);
   const factory = new Function(
     "escapeHtml",
@@ -104,12 +104,11 @@ test("the folded tail scrolls instead of growing the pane", () => {
   assert.match(body, /overflow:\s*auto/);
 });
 
-test("the body limit sits next to the tool-argument limit it mirrors", () => {
-  // boundedInput bounds tool arguments for the same stated reason. Keeping both in this
-  // module, with the reasoning written once, is what stops one being fixed alone.
-  assert.match(source, /function boundedInput\(value\)/);
-  assert.ok(
-    source.indexOf("childBubbleBodyLineLimit") < source.indexOf("function boundedInput"),
-    "declared before it, in the same region of the file",
-  );
+test("the clamp is the fallback, not a branch nobody reaches", () => {
+  // The pane renders a subagent's answer with the main transcript's markdown pipeline
+  // whenever it is handed one, so this clamp only runs for a caller without it. Asserting
+  // the branch keeps the fallback wired: dropping it silently would leave the tests above
+  // exercising code the panel never calls.
+  assert.match(source, /function renderChildBodyHTML\(body\) \{[\s\S]*?renderChildBubbleBodyHTML\(body\)/);
+  assert.match(source, /typeof renderMarkdown !== "function"/);
 });
