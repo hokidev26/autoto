@@ -1358,6 +1358,16 @@ body.white-shell.theme-light.theme-dark .navigation-boundary-empty button {
   overflow-wrap: anywhere;
 }
 
+.tool-activity-safety-hint {
+  margin-top: 3px;
+  padding-left: 7px;
+  border-left: 2px solid color-mix(in srgb, var(--tool-activity-warn) 60%, transparent);
+  color: var(--tool-activity-muted);
+  font-size: 11px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
 .tool-activity-warning {
   margin-top: 5px;
   padding: 6px 8px;

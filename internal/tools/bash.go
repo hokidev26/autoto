@@ -147,8 +147,11 @@ func hasTruncatingRedirect(cmd string) bool {
 }
 
 // The trailing group captures the redirection target so the caller can tell a
-// real file from an append or a discard sink.
-var truncatingRedirectPattern = regexp.MustCompile(`(^|\s|[;&|])(:\s*)?>\s*([^&\s]*)`)
+// real file from an append or a discard sink. The target stops at every shell
+// separator, not just `&` and whitespace: leaving `;` or `,` attached turned
+// `>NUL;` into the unknown file "NUL;", which no longer matched the discard
+// list and hard-blocked a command that destroys nothing.
+var truncatingRedirectPattern = regexp.MustCompile(`(^|\s|[;&|])(:\s*)?>\s*([^&|<>;,\s]*)`)
 
 var legacyNetworkFetchPattern = regexp.MustCompile(`(^|[\s;&|(])(curl|wget|fetch|aria2c)(\s|$)`)
 

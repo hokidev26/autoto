@@ -436,6 +436,11 @@ func TestDiscardRedirectIsNotTruncation(t *testing.T) {
 		`go test ./internal/tools/ 2>&1`,
 		`command -v node >/dev/null 2>&1`,
 		`echo x >> log.txt`,
+		// A separator directly after the sink must not become part of the target:
+		// `>NUL;` once classified as the unknown file "NUL;" and hard-blocked.
+		`git ls-files | findstr /C:"pattern" >NUL; echo done`,
+		`findstr x >NUL,echo next`,
+		`type nothing 2>nul;`,
 	} {
 		if warning := BashDangerWarning(command); warning != "" {
 			t.Errorf("discarding output must not hard-block %q, got warning %q", command, warning)

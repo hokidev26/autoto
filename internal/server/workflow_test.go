@@ -62,6 +62,45 @@ func TestWorkflowPreferencesAPI(t *testing.T) {
 	}
 }
 
+// The permissions panel saves the three confirmation toggles without a
+// dangerReflectionLevel field, relying on the server to keep the stored level.
+// This pins that contract: a PUT that omits the field must not resurrect the
+// default and silently re-enable a gate the user turned off elsewhere.
+func TestWorkflowPreferencesPutWithoutLevelKeepsStoredLevel(t *testing.T) {
+	ctx := context.Background()
+	store, err := db.Open(ctx, filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	app := New(config.Config{}, store, nil, nil)
+	routes := app.Routes()
+
+	off := "off"
+	requireExec := true
+	requireWrites := false
+	allowReadOnly := true
+	putJSON(t, routes, http.MethodPut, "/api/workflow/preferences", workflowPreferencesRequest{RequireConfirmationForExec: &requireExec, RequireConfirmationForWrites: &requireWrites, AllowReadOnlyByDefault: &allowReadOnly, DangerReflectionLevel: &off}, http.StatusOK)
+
+	// The same payload shape the workbench panel sends: toggles only, no level.
+	recorder := httptest.NewRecorder()
+	routes.ServeHTTP(recorder, newTestRequest(http.MethodPut, "/api/workflow/preferences", strings.NewReader(`{"requireConfirmationForExec":false,"requireConfirmationForWrites":true,"allowReadOnlyByDefault":true}`)))
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected toggles-only PUT 200, got %d: %s", recorder.Code, recorder.Body.String())
+	}
+
+	prefs, err := store.GetWorkflowPreferences(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if prefs.DangerReflectionLevel != "off" {
+		t.Fatalf("a PUT without dangerReflectionLevel must keep the stored level, got %q", prefs.DangerReflectionLevel)
+	}
+	if prefs.RequireConfirmationForExec || !prefs.RequireConfirmationForWrites {
+		t.Fatalf("the toggles themselves must still update: %+v", prefs)
+	}
+}
+
 func TestWorkflowPreferencesAPIRejectsMissingFields(t *testing.T) {
 	ctx := context.Background()
 	store, err := db.Open(ctx, filepath.Join(t.TempDir(), "test.db"))

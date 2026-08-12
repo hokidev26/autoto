@@ -194,8 +194,12 @@ func scanWindowsCommand(command string) winScan {
 			}
 			// Capture the redirection target so it never becomes a program name.
 			// The text is used only to classify the sink; it is never recorded.
+			// The stop set must match the token separators below: cmd.exe also
+			// delimits on `;` and `,`, and leaving them in the target turned
+			// `>NUL;` into the unknown file "NUL;", which hard-blocked a command
+			// that destroys nothing.
 			targetStart := i + 1
-			for i+1 < len(runes) && !strings.ContainsRune(" \t|&<>", runes[i+1]) {
+			for i+1 < len(runes) && !strings.ContainsRune(" \t|&<>,;\r\n", runes[i+1]) {
 				i++
 			}
 			if truncates {

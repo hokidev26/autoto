@@ -584,13 +584,15 @@ export function createSkillsWorkbenchController({
   }
 
   async function saveWorkflowPreferencesFromPanel() {
+    // dangerReflectionLevel is deliberately omitted: this panel has no
+    // reflection control, and the server keeps the stored level when the field
+    // is absent. Echoing this panel's cached copy instead could silently
+    // overwrite a level the user changed elsewhere (e.g. "off" set from the
+    // composer permission menu) with a stale or defaulted value.
     const payload = {
       requireConfirmationForExec: Boolean(document.querySelector('[data-workflow-policy="requireConfirmationForExec"]')?.checked),
       requireConfirmationForWrites: Boolean(document.querySelector('[data-workflow-policy="requireConfirmationForWrites"]')?.checked),
       allowReadOnlyByDefault: Boolean(document.querySelector('[data-workflow-policy="allowReadOnlyByDefault"]')?.checked),
-      // This panel has no reflection control, so the stored level is echoed back
-      // rather than omitted, which would let the server resolve it on its own.
-      dangerReflectionLevel: String(state.workflowPreferences?.dangerReflectionLevel || "medium"),
     };
     await saveWorkflowPreferences?.(payload);
     notifyTerminal?.(`[info] ${t("skillsWorkbench.toast.workflowSaved")}\n`);
