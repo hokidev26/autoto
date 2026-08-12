@@ -96,6 +96,9 @@ function fakeHost() {
     change(field, value) {
       listeners.get("change")?.({ target: node({ overviewLauncherField: field }, value) });
     },
+    focusout(target, relatedTarget = null) {
+      listeners.get("focusout")?.({ target, relatedTarget });
+    },
     keydown(value, { key = "Enter", shiftKey = false, isComposing = false } = {}) {
       let prevented = false;
       listeners.get("keydown")?.({
@@ -233,15 +236,18 @@ test("normalization still caps the payload lists even though none render", () =>
   assert.equal(normalized.activeRuns.length, 6);
   assert.equal(normalized.upcomingSchedules.length, 8);
 
-  // The minimal home renders none of the payload rows: the composer and the
-  // heatmap are the whole page.
+  // The minimal home renders none of the payload rows: greeting, heatmap,
+  // resources, and the composer are the whole page.
   const html = renderOverviewDashboard(normalized);
   assert.doesNotMatch(html, /Conversation 0|Schedule 0|Task 0|Run 0/);
   assert.doesNotMatch(html, /data-overview-action="open-(?:conversation|schedule|task|run)"/);
 });
 
-test("render centres the hero and composer, then the heatmap; stats and lists are gone", () => {
+test("render orders greeting, heatmap, resources, then the composer at the bottom", () => {
   const html = renderOverviewDashboard(overview(), {
+    formatDateTime: (value) => `date:${value}`,
+    systemMetrics: { cpu: { available: true, percent: 50 } },
+    renderSystemMetrics: (model) => `<section data-fake-metrics="${model?.cpu?.percent ?? ""}"></section>`,
     launcherContext: {
       displayName: "Ray",
       hour: 14,
@@ -255,21 +261,17 @@ test("render centres the hero and composer, then the heatmap; stats and lists ar
   });
   assert.match(html, /data-overview-launcher/);
   assert.match(html, /下午好，Ray/);
-  assert.match(html, /class="overview-home-center"/);
   assert.match(html, /class="overview-launcher-card"/);
   assert.match(html, /class="overview-launcher-toolbar"/);
   assert.match(html, /class="overview-launcher-input"/);
   assert.match(html, /data-overview-section="activity"/);
-  // Greeting, then the composer card with its suggestion chips, and only then
-  // the heatmap: the page opens on the question, not on data.
-  assert.ok(html.indexOf("overview-launcher-hero") < html.indexOf("data-overview-launcher>"));
-  assert.ok(html.indexOf("data-overview-launcher>") < html.indexOf("overview-launcher-suggestions"));
-  assert.ok(html.indexOf("overview-launcher-suggestions") < html.indexOf('data-overview-section="activity"'));
-  // All four suggestion chips render as launcher actions.
-  assert.equal((html.match(/data-overview-launcher-action="suggestion"/g) || []).length, 4);
-  for (const name of ["write", "fix", "plan", "explain"]) {
-    assert.match(html, new RegExp(`data-overview-launcher-suggestion="${name}"`));
-  }
+  // Greeting on top, then the data sections in the requested order -- heatmap,
+  // the resource strip -- and the composer card resting at the bottom of the
+  // page. The suggestion chips were tried under the card and removed again.
+  assert.ok(html.indexOf("overview-launcher-hero") < html.indexOf('data-overview-section="activity"'));
+  assert.ok(html.indexOf('data-overview-section="activity"') < html.indexOf("data-fake-metrics"));
+  assert.ok(html.indexOf("data-fake-metrics") < html.indexOf("data-overview-launcher>"));
+  assert.doesNotMatch(html, /overview-launcher-suggestions|data-overview-launcher-action="suggestion"/);
   // The toolbar keeps the folder picker and the icon send button inside the card.
   assert.match(html, /data-overview-launcher-action="choose-directory"/);
   assert.match(html, /data-overview-launcher-action="submit"/);
@@ -280,7 +282,7 @@ test("render centres the hero and composer, then the heatmap; stats and lists ar
   assert.doesNotMatch(html, /<main\b/i);
   assert.match(html, /id="overviewDashboardTitle"/);
   assert.match(html, /class="overview-live-region sr-only" role="status" aria-live="polite" aria-atomic="true"/);
-  // The stat rows, resume lists, and their sections no longer exist.
+  // The stat rows, resume lists, and their sections stayed gone.
   assert.doesNotMatch(html, /class="overview-stat"|overview-columns|overview-side-column|overview-list/);
   assert.doesNotMatch(html, /data-overview-section="(?:stats|recent-conversations|upcoming-schedules)"/);
   assert.doesNotMatch(html, /data-overview-action=/);
@@ -854,6 +856,55 @@ test("controller drives the injected metrics poller and re-renders on updates", 
   emit({ cpu: { available: true, percent: 77 } });
   assert.match(host.innerHTML, /data-fake-metrics="77"/);
   assert.equal(controller.getState().systemMetrics.cpu.percent, 77);
+});
+
+// Re-rendering replaces the composer textarea, which drops focus and kills an
+// in-progress IME composition. While the draft field is focused, background
+// updates must hold their repaint and flush it when the field blurs.
+test("background updates defer their repaint while the draft field is focused", () => {
+  const host = fakeHost();
+  let emit = null;
+  const controller = createOverviewDashboardController({
+    host,
+    request: async () => overview(),
+    renderSystemMetrics: (model) => (model?.cpu?.available ? `<section data-fake-metrics="${model.cpu.percent}"></section>` : ""),
+    createSystemMetricsPoller: ({ onUpdate }) => {
+      emit = onUpdate;
+      return { start: () => true, stop: () => true };
+    },
+  });
+
+  const draftNode = {
+    closest(selector) {
+      return selector === "[data-overview-launcher-field=\"draft\"]" ? this : null;
+    },
+  };
+  const originalDocument = globalThis.document;
+  globalThis.document = { activeElement: draftNode };
+  try {
+    // A reading arriving mid-typing updates state but leaves the DOM alone.
+    emit({ cpu: { available: true, percent: 42 } });
+    assert.equal(controller.getState().systemMetrics.cpu.percent, 42);
+    assert.doesNotMatch(host.innerHTML, /data-fake-metrics/);
+
+    // Focus moving to another launcher control still must not repaint: the
+    // control under the pointer would be replaced and the click swallowed.
+    globalThis.document = { activeElement: null };
+    const launcherButton = { closest: (selector) => (selector === "[data-overview-launcher]" ? {} : null) };
+    host.focusout(draftNode, launcherButton);
+    assert.doesNotMatch(host.innerHTML, /data-fake-metrics/);
+
+    // Leaving the composer entirely flushes the deferred repaint.
+    host.focusout(draftNode, null);
+    assert.match(host.innerHTML, /data-fake-metrics="42"/);
+
+    // Nothing pending: a later blur does not repaint again (innerHTML stable).
+    const settled = host.innerHTML;
+    host.focusout(draftNode, null);
+    assert.equal(host.innerHTML, settled);
+  } finally {
+    globalThis.document = originalDocument;
+  }
 });
 
 test("controller works when no metrics poller is injected", () => {

@@ -67,6 +67,9 @@ const DEFAULT_TEXT = Object.freeze({
   reasoningLow: "低",
   reasoningMedium: "中",
   reasoningHigh: "高",
+  reasoningXhigh: "超高",
+  reasoningMax: "最强",
+  reasoningUltra: "极致",
   chooseDirectory: "选择文件夹",
   noProjects: "暂无项目",
   send: "发送",
@@ -629,15 +632,6 @@ const LAUNCHER_SELECT_PILLS = Object.freeze({
   projectId: "project-pill",
 });
 
-// Suggestion chips under the composer, Claude-style: icon plus a short verb.
-// The names key into applySuggestion, which swaps the draft for the prompt.
-const LAUNCHER_SUGGESTIONS = Object.freeze([
-  { name: "write", labelKey: "suggestionWrite", icon: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M17 3a2.83 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"></path></svg>` },
-  { name: "fix", labelKey: "suggestionFix", icon: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"></path></svg>` },
-  { name: "plan", labelKey: "suggestionPlan", icon: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"></path></svg>` },
-  { name: "explain", labelKey: "suggestionExplain", icon: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path></svg>` },
-]);
-
 function renderLauncherSelect({ name, label, options, selected, open = false, model = false, disabled = false }) {
   const id = LAUNCHER_SELECT_IDS[name] || `overviewLauncher${name}`;
   const pill = LAUNCHER_SELECT_PILLS[name] || "effort-pill";
@@ -667,7 +661,7 @@ function renderLauncherSelect({ name, label, options, selected, open = false, mo
     <label class="overview-launcher-label sr-only" for="${id}">${escapeHtml(label)}</label>
     <div class="overview-launcher-custom-select select-pill ${escapeHtml(pill)}">
       <select id="${id}" class="overview-launcher-select composer-native-select" data-overview-launcher-field="${escapeHtml(name)}"${disabled ? " disabled" : ""}>${nativeOptions}</select>
-      <button type="button" class="overview-launcher-select-trigger composer-select-trigger" data-overview-launcher-action="toggle-select" data-overview-launcher-select="${escapeHtml(name)}" aria-haspopup="listbox" aria-expanded="${open ? "true" : "false"}" aria-label="${escapeHtml(`${label}：${selectedOption.label || selectedOption.value}`)}"${disabled ? " disabled" : ""}><span class="overview-launcher-select-value composer-select-value">${escapeHtml(selectedOption.label || selectedOption.value)}</span><span class="composer-select-chevron" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"></path></svg></span></button>
+      <button type="button" class="overview-launcher-select-trigger composer-select-trigger" data-overview-launcher-action="toggle-select" data-overview-launcher-select="${escapeHtml(name)}" aria-haspopup="listbox" aria-expanded="${open ? "true" : "false"}" aria-label="${escapeHtml(`${label}：${selectedOption.label || selectedOption.value}`)}"${disabled ? " disabled" : ""}><span class="overview-launcher-select-value composer-select-value">${escapeHtml(selectedOption.label || selectedOption.value)}</span><span class="composer-select-chevron" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m6 15 6-6 6 6"></path></svg></span></button>
       ${menu}
     </div>
   </div>`;
@@ -721,13 +715,9 @@ function renderLauncher(contextValue, stateValue, t, openSelect = "") {
   const hero = `<section class="overview-hero-root overview-launcher-hero">
     <div class="overview-hero-copy"><div class="overview-hero-heading"><span class="overview-hero-mark" aria-hidden="true"><svg viewBox="0 0 32 32"><circle cx="16" cy="16" r="12.5"></circle><path d="M10.5 17.5c1.6 2 3.4 3 5.5 3s3.9-1 5.5-3"></path><path d="M11.5 12.5h.01M20.5 12.5h.01"></path></svg></span><h1 class="overview-hero-title" id="overviewDashboardTitle">${escapeHtml(launcherGreeting(context, t))}</h1></div></div>
   </section>`;
-  const suggestions = LAUNCHER_SUGGESTIONS
-    .map((chip) => `<button type="button" class="overview-launcher-suggestion" data-overview-launcher-action="suggestion" data-overview-launcher-suggestion="${chip.name}"${state.busy ? " disabled" : ""}>${chip.icon}<span>${escapeHtml(t(chip.labelKey))}</span></button>`)
-    .join("");
   // One rounded card holding the whole composer: the textarea on top and one
   // toolbar row along the card's bottom edge -- workspace controls on the left,
-  // model, effort, and the round send button on the right. The suggestion chips
-  // sit under the card as ready-made openers.
+  // model, effort, and the round send button on the right.
   const composer = `<section class="overview-launcher-root" data-overview-launcher>
     <div class="overview-launcher-form" data-overview-launcher-form>
       <div class="overview-launcher-card">
@@ -752,7 +742,6 @@ function renderLauncher(contextValue, stateValue, t, openSelect = "") {
         </div>
       </div>
       ${launcherError}
-      <div class="overview-launcher-suggestions">${suggestions}</div>
     </div>
   </section>`;
   return { hero, composer };
@@ -787,10 +776,10 @@ export function renderOverviewDashboard(payload, options = {}) {
   // is the page's primary action and must not depend on the dashboard data
   // having loaded.
   if (loading && !(options.hasData ?? hasDashboardData(normalized))) {
-    return `<div class="overview-dashboard settings-page" data-overview-state="loading" aria-busy="true"><div class="overview-home-center">${launcher.hero}${liveRegion}${launcher.composer}</div><div class="overview-dashboard-state settings-empty-state">${escapeHtml(t("loading"))}</div></div>`;
+    return `<div class="overview-dashboard settings-page" data-overview-state="loading" aria-busy="true">${launcher.hero}${liveRegion}<div class="overview-dashboard-state settings-empty-state">${escapeHtml(t("loading"))}</div>${launcher.composer}</div>`;
   }
   if (fullError) {
-    return `<div class="overview-dashboard settings-page" data-overview-state="error" aria-busy="false"><div class="overview-home-center">${launcher.hero}${liveRegion}${launcher.composer}</div><div class="overview-dashboard-state settings-alert" role="alert"><strong>${escapeHtml(t("loadFailed"))}</strong><p>${escapeHtml(error || t("retryHint"))}</p></div></div>`;
+    return `<div class="overview-dashboard settings-page" data-overview-state="error" aria-busy="false">${launcher.hero}${liveRegion}<div class="overview-dashboard-state settings-alert" role="alert"><strong>${escapeHtml(t("loadFailed"))}</strong><p>${escapeHtml(error || t("retryHint"))}</p></div>${launcher.composer}</div>`;
   }
 
   const inlineError = status === "error" ? `<div class="overview-inline-error settings-alert" role="alert"><strong>${escapeHtml(t("loadFailed"))}</strong><span>${escapeHtml(error || t("retryHint"))}</span></div>` : "";
@@ -814,18 +803,16 @@ export function renderOverviewDashboard(payload, options = {}) {
     }
   }
 
-  // Claude-style home: greeting and composer form one centred group at the top
-  // of the page, the heatmap follows as the only data section, and the injected
-  // resource cards (when any) close the page.
+  // Greeting on top, then the data sections -- heatmap and the injected
+  // resource strip -- with the composer card resting at the bottom of the
+  // page, where the eye comes down to after the data.
   return `<div class="overview-dashboard settings-page" data-overview-state="${escapeHtml(status)}" aria-busy="${loading ? "true" : "false"}">
-    <div class="overview-home-center">
-      ${launcher.hero}
-      ${liveRegion}
-      ${inlineError}
-      ${launcher.composer}
-    </div>
+    ${launcher.hero}
+    ${liveRegion}
+    ${inlineError}
     ${heatmap}
     ${systemMetrics}
+    ${launcher.composer}
   </div>`;
 }
 
@@ -914,7 +901,33 @@ export function createOverviewDashboardController({
   const t = createText({ translate });
   let inFlight = null;
   let pendingFocus = null;
+  let deferredRender = false;
   const boundHosts = new WeakSet();
+
+  // render() replaces the host's innerHTML, which tears the composer textarea
+  // out from under the user: focus drops, the caret resets, and an in-progress
+  // IME composition is killed. Background updates (the metrics poller, data
+  // loads finishing) must therefore wait while the draft field is focused; the
+  // deferred repaint runs when the field blurs.
+  function draftFieldFocused(target = resolveHost(host)) {
+    try {
+      const active = globalThis.document?.activeElement || null;
+      if (!active || typeof active.closest !== "function") return false;
+      if (!active.closest('[data-overview-launcher-field="draft"]')) return false;
+      return Boolean(target && (typeof target.contains !== "function" || target.contains(active)));
+    } catch {
+      return false;
+    }
+  }
+
+  function renderUnlessTyping() {
+    if (draftFieldFocused()) {
+      deferredRender = true;
+      return false;
+    }
+    render();
+    return true;
+  }
 
   // The poller owns its own cadence, independent of the dashboard's load cycle:
   // resource utilisation is only meaningful when sampled repeatedly, while the
@@ -926,7 +939,7 @@ export function createOverviewDashboardController({
         request,
         onUpdate: (value) => {
           state.systemMetrics = value;
-          render();
+          renderUnlessTyping();
         },
       });
     } catch (error) {
@@ -996,7 +1009,7 @@ export function createOverviewDashboardController({
         state.activityTrend = [];
         state.activityStatus = "error";
       }
-      render();
+      renderUnlessTyping();
       return state.activityStatus === "ready";
     })();
   }
@@ -1177,6 +1190,20 @@ export function createOverviewDashboardController({
       state.launcher.error = "";
       render();
     });
+    // The repaint a background update skipped while the user was typing runs
+    // once the draft field blurs, so the page catches up the moment the typing
+    // is no longer interruptible. Focus moving to another launcher control is
+    // excluded: re-rendering mid-click would replace the control under the
+    // pointer and swallow the click, and every launcher interaction ends in its
+    // own render() anyway.
+    target.addEventListener("focusout", (event) => {
+      if (!deferredRender) return;
+      const field = event?.target?.closest?.("[data-overview-launcher-field=\"draft\"]");
+      if (!field || (typeof target.contains === "function" && !target.contains(field))) return;
+      const next = event.relatedTarget || null;
+      if (next && typeof next.closest === "function" && next.closest("[data-overview-launcher]")) return;
+      render();
+    });
     target.addEventListener("keydown", (event) => {
       if (event.key === "Escape" && state.launcherOpenSelect) {
         state.launcherOpenSelect = "";
@@ -1196,6 +1223,7 @@ export function createOverviewDashboardController({
   }
 
   function render() {
+    deferredRender = false;
     refreshLauncherContext();
     const html = renderOverviewDashboard(state.payload, {
       translate,
@@ -1257,13 +1285,13 @@ export function createOverviewDashboardController({
         state.hasData = true;
         state.status = "ready";
         state.error = "";
-        render();
+        renderUnlessTyping();
         return true;
       } catch (error) {
         if (sequence !== state.sequence) return false;
         state.status = "error";
         state.error = boundedText(error?.message || error, 500) || "Request failed";
-        render();
+        renderUnlessTyping();
         return false;
       } finally {
         if (sequence === state.sequence) inFlight = null;

@@ -285,8 +285,8 @@ test("desktop home overview stays available while mobile starts in conversation"
   assert.match(launcherSendBody, /height:\s*34px/);
   assert.match(launcherSendBody, /border-radius:\s*999px/);
   assert.doesNotMatch(launcherSendBody, /position:\s*absolute/);
-  // Suggestion chips centre under the card.
-  assert.match(launcherBody(".overview-launcher-suggestions"), /justify-content:\s*center/);
+  // The suggestion chips were removed with the bottom-aligned composer pass.
+  assert.doesNotMatch(styles, /\.overview-launcher-suggestion/);
   // Themed installs must re-point both send buttons together, and the themed
   // input treatment lands on the card (the textarea inside stays transparent).
   assert.match(themeRuntime, /\.composer-send-btn,\s*\.overview-launcher-send/);

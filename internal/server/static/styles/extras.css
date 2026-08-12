@@ -1931,13 +1931,18 @@ body.white-shell.theme-light:not(.workbench-mode):not(.schedule-mode):not(.overv
   color: var(--ws-muted, #747e90);
   font-size: 13px;
 }
+/* Flex column with a full-height minimum so the composer's auto margin can
+   push it to the bottom edge even when the sections above run short. */
 .overview-dashboard {
   width: min(880px, 100%);
   min-width: 0;
-  display: grid;
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
   gap: 18px;
   margin: 0 auto;
-  padding: clamp(20px, 4vh, 44px) clamp(22px, 4vw, 54px) 64px;
+  padding: clamp(20px, 4vh, 44px) clamp(22px, 4vw, 54px) 44px;
 }
 .overview-dashboard-header > div { min-width: 0; display: grid; gap: 3px; }
 .overview-dashboard-header h2 { margin: 0; color: var(--ws-text, #20263a); font-size: 16px; line-height: 1.25; }
@@ -1953,37 +1958,29 @@ body.white-shell.theme-light:not(.workbench-mode):not(.schedule-mode):not(.overv
 .overview-link:focus-visible,
 .overview-launcher-directory:focus-visible,
 .overview-launcher-send:focus-visible,
-.overview-launcher-suggestion:focus-visible,
 .overview-launcher-select:focus-visible { outline: 3px solid color-mix(in srgb, #5369f3 28%, transparent); outline-offset: 2px; }
 /* The composer textarea is deliberately not in that list. :focus-visible matches
    a text field on plain mouse focus too, not just keyboard focus, so an outline
    here drew a hard-cornered rectangle inside the rounded card on every click.
    The card carries the focus state instead (see .overview-launcher-form
    :focus-within below), and the caret already marks the field as active. */
-/* Claude-style home: greeting and composer form one centred group with air
-   above it, so the page opens on the question instead of on data. */
-.overview-home-center {
-  width: 100%;
-  display: grid;
-  justify-items: center;
-  gap: 26px;
-  padding-top: clamp(28px, 12vh, 130px);
-  margin-bottom: clamp(18px, 5vh, 46px);
-}
 .overview-hero-root {
   width: min(900px, 100%);
   display: grid;
   justify-items: center;
   gap: 13px;
-  margin: 0 auto;
+  margin: clamp(8px, 3vh, 30px) auto 10px;
 }
+/* The composer card rests against the bottom of the page, under the heatmap
+   and the resource strip; the auto top margin absorbs any spare height. */
 .overview-launcher-root {
   width: min(720px, 100%);
   min-width: 0;
   display: grid;
   justify-items: center;
   gap: 16px;
-  margin: 0 auto;
+  margin: auto auto 0;
+  padding-top: 14px;
 }
 .overview-hero-copy { display: grid; justify-items: center; gap: 7px; text-align: center; }
 .overview-hero-heading { display: flex; align-items: center; justify-content: center; gap: 12px; }
@@ -2093,11 +2090,11 @@ body.white-shell.theme-light .overview-launcher-select-trigger {
 }
 body.white-shell.theme-light .overview-launcher-select-trigger[aria-expanded="true"] { color: var(--ws-primary, #5369f3); }
 body.white-shell.theme-light .overview-launcher-select-trigger .composer-select-chevron { display: inline-flex; }
-/* The composer sits near the top of the page now, so menus drop below their
-   trigger instead of rising above it. */
+/* The composer sits at the bottom of the page, so menus rise above their
+   trigger where the room is. */
 .overview-launcher-select-popover {
   position: absolute;
-  inset: calc(100% + 9px) 0 auto auto;
+  inset: auto 0 calc(100% + 9px) auto;
   width: max(190px, 100%);
   max-width: min(360px, calc(100vw - 32px));
   max-height: min(420px, calc(100vh - 40px));
@@ -2153,29 +2150,6 @@ body.white-shell.theme-light .overview-launcher-select-trigger .composer-select-
 .overview-launcher-send svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }
 .overview-launcher-send[aria-busy="true"] { cursor: wait; opacity: .72; }
 .overview-launcher-error { margin: 0 2px; color: #b63838; font-size: 11px; line-height: 1.45; }
-/* Suggestion chips under the card: rounded openers with a small icon. */
-.overview-launcher-suggestions { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 8px; }
-.overview-launcher-suggestion {
-  min-height: 32px;
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  border: 1px solid var(--ws-border, #dfe3e9);
-  border-radius: 999px;
-  background: var(--ws-card, #fff);
-  color: var(--ws-text, #20263a);
-  padding: 6px 14px;
-  font: inherit;
-  font-size: 12px;
-  font-weight: 620;
-  cursor: pointer;
-  box-shadow: 0 2px 7px rgba(31, 40, 70, .04);
-  transition: border-color .16s ease, color .16s ease, transform .16s ease, box-shadow .16s ease;
-}
-.overview-launcher-suggestion svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; color: var(--ws-muted, #747e90); }
-.overview-launcher-suggestion:hover { border-color: color-mix(in srgb, #5369f3 48%, var(--ws-border, #dfe3e9)); color: #4057c8; box-shadow: 0 5px 14px rgba(48, 64, 120, .09); transform: translateY(-1px); }
-.overview-launcher-suggestion:hover svg { color: inherit; }
-.overview-launcher-suggestion:disabled { cursor: wait; opacity: .6; transform: none; }
 .overview-section {
   min-width: 0;
   overflow: hidden;
@@ -2300,7 +2274,7 @@ body.white-shell.theme-light .overview-launcher-select-trigger .composer-select-
   body.white-shell.theme-light .overview-dashboard-page { display: none !important; }
 }
 body.white-shell.theme-light.theme-dark .overview-dashboard-page { background: var(--ws-canvas); color: var(--ws-text); }
-body.white-shell.theme-light.theme-dark :is(.overview-section, .overview-refresh, .overview-link, .overview-launcher-card, .overview-launcher-suggestion) { border-color: var(--ws-border); background: var(--ws-card); color: var(--ws-text); box-shadow: none; }
+body.white-shell.theme-light.theme-dark :is(.overview-section, .overview-refresh, .overview-link, .overview-launcher-card) { border-color: var(--ws-border); background: var(--ws-card); color: var(--ws-text); box-shadow: none; }
 /* Card and pills stay quiet in dark too: the textarea is borderless inside the
    card, so only the card itself carries the frame and the focus ring. */
 body.white-shell.theme-light.theme-dark .overview-launcher-card:focus-within {
@@ -2315,7 +2289,7 @@ body.white-shell.theme-light.theme-dark .overview-launcher-input:focus {
   color: var(--ws-text);
 }
 body.white-shell.theme-light.theme-dark :is(.overview-hero-title, .overview-launcher-input, .overview-launcher-select) { color: var(--ws-text); }
-body.white-shell.theme-light.theme-dark :is(.overview-refresh:not(:disabled):hover, .overview-link:not(:disabled):hover, .overview-launcher-suggestion:hover) { border-color: #8fa4ff; background: color-mix(in srgb, #5369f3 18%, var(--ws-card)); color: #b7c3ff; }
+body.white-shell.theme-light.theme-dark :is(.overview-refresh:not(:disabled):hover, .overview-link:not(:disabled):hover) { border-color: #8fa4ff; background: color-mix(in srgb, #5369f3 18%, var(--ws-card)); color: #b7c3ff; }
 body.white-shell.theme-light.theme-dark .overview-refresh.primary,
 body.white-shell.theme-light.theme-dark .overview-launcher-send { border-color: #7589ff; background: #6175e8; color: #fff; }
 body.white-shell.theme-light.theme-dark .overview-section-header { border-color: var(--ws-border); }
@@ -2339,7 +2313,6 @@ body.white-shell.theme-light.theme-dark .overview-inline-error { border-color: c
   .overview-launcher-field,
   .overview-launcher-input,
   .overview-launcher-directory,
-  .overview-launcher-suggestion,
   .overview-launcher-send { transition: none; }
   /* The bar animates on every poll, so it is the one element here that would
      move without any user action. */
