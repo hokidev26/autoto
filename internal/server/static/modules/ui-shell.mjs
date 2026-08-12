@@ -37,7 +37,15 @@ export function nextNavigationLayoutMode(current) {
 export const navigationDragIconsEnterWidth = 150;
 export const navigationDragIconsExitWidth = 196;
 export const navigationDragColumnsEnterWidth = 436;
-export const navigationDragColumnsExitWidth = 300;
+// The columns exit must sit below the tightest divider position the columns
+// layout can rest at: the compact column parks the divider at rail (68) +
+// compact width (184) = 252, and the narrow band a little above that. The old
+// 300 sat above both, so grabbing a compact or narrow column flipped the whole
+// layout to docked on the first pixel of travel. 228 leaves ~24px of
+// deliberate travel from the compact resting point before the layout docks,
+// and an expanded column dragged left now passes through its narrow and
+// compact stages before leaving the layout instead of jumping out at 300.
+export const navigationDragColumnsExitWidth = 228;
 
 // Resolves the layout a drag should land in. `total` is the divider position;
 // `current` is the layout being dragged, so the thresholds can be applied in the

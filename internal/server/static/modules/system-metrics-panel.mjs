@@ -99,15 +99,22 @@ function networkFill(bytesPerSec) {
   return Math.min(100, (boundedNumber(bytesPerSec) / NETWORK_DANGER_BYTES) * 100);
 }
 
+// One inline reading per metric: label, value, and a short pressure bar on a
+// single line. These are background numbers, so they get a strip, not a row of
+// full-height cards refreshing every three seconds above the actual content.
 function metricCard({ kind, label, tone, value, detail, fill, t }) {
   const toneLabel = t(`tone${tone[0].toUpperCase()}${tone.slice(1)}`);
   // The tone word is rendered, not just the colour: colour alone would carry the
-  // whole signal for anyone who cannot distinguish these hues.
-  return `<div class="overview-metric-card" data-overview-metric="${escapeHtml(kind)}" data-tone="${escapeHtml(tone)}" role="group" aria-label="${escapeHtml(`${label} ${value} ${toneLabel}`)}">
+  // whole signal for anyone who cannot distinguish these hues. Under pressure it
+  // is shown inline; at rest it stays in the tooltip and the accessible name so
+  // the strip is not four repetitions of "normal".
+  const toneNote = tone === "ok" ? "" : `<small class="overview-metric-tone">${escapeHtml(toneLabel)}</small>`;
+  const tooltip = detail ? `${toneLabel} · ${detail}` : toneLabel;
+  return `<div class="overview-metric-inline" data-overview-metric="${escapeHtml(kind)}" data-tone="${escapeHtml(tone)}" role="group" aria-label="${escapeHtml(`${label} ${value} ${toneLabel}${detail ? ` ${detail}` : ""}`)}" title="${escapeHtml(tooltip)}">
     <span class="overview-metric-label">${escapeHtml(label)}</span>
     <strong class="overview-metric-value">${escapeHtml(value)}</strong>
-    <div class="overview-metric-bar" role="presentation"><span style="width:${fill.toFixed(1)}%"></span></div>
-    <small class="overview-metric-detail">${escapeHtml(detail ? `${toneLabel} · ${detail}` : toneLabel)}</small>
+    <span class="overview-metric-bar" role="presentation"><span style="width:${fill.toFixed(1)}%"></span></span>
+    ${toneNote}
   </div>`;
 }
 
@@ -162,9 +169,11 @@ export function renderSystemMetrics(payload, t = (key) => DEFAULT_TEXT[key] ?? k
   // rather than an empty shell with zeroed bars.
   if (!cards.length) return "";
 
-  return `<section class="overview-section overview-metrics settings-card" data-overview-section="system-metrics">
-    <header class="overview-section-header"><div><h2>${escapeHtml(t("systemMetrics"))}</h2><p>${escapeHtml(t("systemMetricsHint"))}</p></div></header>
-    <div class="overview-metrics-grid">${cards.join("")}</div>
+  return `<section class="overview-section overview-metrics overview-metrics-slim settings-card" data-overview-section="system-metrics">
+    <div class="overview-metrics-strip" role="group" aria-label="${escapeHtml(t("systemMetrics"))}">
+      <span class="overview-metrics-strip-title" title="${escapeHtml(t("systemMetricsHint"))}">${escapeHtml(t("systemMetrics"))}</span>
+      ${cards.join("")}
+    </div>
   </section>`;
 }
 

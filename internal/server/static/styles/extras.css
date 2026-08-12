@@ -1923,7 +1923,8 @@ body.white-shell.theme-light:not(.workbench-mode):not(.schedule-mode):not(.overv
 .overview-link:not(:disabled):hover { border-color: #5369f3; background: #eef1ff; color: #4057c8; transform: translateY(-1px); }
 .overview-refresh:focus-visible,
 .overview-link:focus-visible,
-.overview-summary-card:focus-visible,
+.overview-stat:focus-visible,
+.overview-list-item:focus-visible,
 .overview-launcher-directory:focus-visible,
 .overview-launcher-send:focus-visible,
 .overview-launcher-suggestion:focus-visible,
@@ -2000,8 +2001,9 @@ body.white-shell.theme-light:not(.workbench-mode):not(.schedule-mode):not(.overv
 .overview-launcher-input:disabled { cursor: wait; opacity: .68; }
 /* order:-1 is how the composer puts its toolbar above the input while keeping
    the input first in the DOM, so keyboard and screen-reader order still reach
-   the field before its settings. */
-.overview-launcher-controls { order: -1; min-width: 0; min-height: 30px; display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
+   the field before its settings. The pills sit at the row's right edge, out of
+   the way of the reading path from the greeting down into the input. */
+.overview-launcher-controls { order: -1; min-width: 0; min-height: 30px; display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 6px; }
 .overview-launcher-field {
   min-width: 0;
   display: inline-flex;
@@ -2136,31 +2138,58 @@ body.white-shell.theme-light .overview-launcher-directory {
   opacity: .72;
 }
 .overview-launcher-error { margin: 0 2px; color: #b63838; font-size: 11px; line-height: 1.45; }
-.overview-summary-grid {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 11px;
-}
-.overview-summary-card {
+/* The conversation list is the page's real content and takes the wide column;
+   the stat card and the (usually short) schedule list stack in the side column
+   so the right half of the page is not one mostly-empty card. Stretching the
+   columns and growing the last side card keeps the two column bottoms level. */
+.overview-columns { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); gap: 11px; align-items: stretch; }
+.overview-side-column { min-width: 0; display: flex; flex-direction: column; gap: 11px; }
+.overview-side-column > .overview-list-section:last-child { flex: 1 1 auto; }
+
+/* One clickable stat row per surface: label left, number right. A zero is
+   muted so the eye lands on live numbers. */
+.overview-stats-rows { display: grid; gap: 1px; padding: 5px 8px 8px; }
+.overview-stat {
+  width: 100%;
   min-width: 0;
-  min-height: 108px;
-  display: grid;
-  align-content: space-between;
-  gap: 7px;
-  border: 1px solid var(--ws-border, #dfe3e9);
-  border-radius: 14px;
-  background: var(--ws-card, #fff);
-  color: var(--ws-text, #20263a);
-  padding: 14px 15px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 9px;
+  padding: 8px 9px;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: inherit;
   text-align: left;
   cursor: pointer;
-  box-shadow: 0 6px 18px rgba(31, 40, 70, .045);
-  transition: border-color .16s ease, box-shadow .16s ease, transform .16s ease;
 }
-.overview-summary-card:hover { border-color: color-mix(in srgb, #5369f3 48%, var(--ws-border, #dfe3e9)); box-shadow: 0 10px 24px rgba(48, 64, 120, .09); transform: translateY(-2px); }
-.overview-summary-card span { color: var(--ws-muted, #747e90); font-size: 11px; font-weight: 700; }
-.overview-summary-card strong { font-size: clamp(25px, 2.4vw, 34px); line-height: 1; }
-.overview-summary-card small { overflow: hidden; color: var(--ws-muted, #747e90); font-size: 9px; line-height: 1.4; text-overflow: ellipsis; }
+.overview-stat:hover { background: color-mix(in srgb, #5369f3 9%, transparent); }
+.overview-stat-label { color: var(--ws-muted, #747e90); font-size: 12px; font-weight: 650; }
+.overview-stat-value { font-size: 15px; line-height: 1; font-variant-numeric: tabular-nums; }
+.overview-stat[data-zero="true"] .overview-stat-value { color: var(--ws-muted, #747e90); font-weight: 600; }
+
+/* The two resume lists: recent conversations and upcoming schedules. Each row
+   is one button so the whole line is the click target. */
+.overview-list { margin: 0; padding: 5px 8px 8px; list-style: none; display: grid; gap: 1px; }
+.overview-list-item {
+  width: 100%;
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+  padding: 7px 9px;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.overview-list-item:hover { background: color-mix(in srgb, #5369f3 9%, transparent); }
+.overview-list-item-title { overflow: hidden; font-size: 12.5px; font-weight: 600; white-space: nowrap; text-overflow: ellipsis; }
+.overview-list-item-meta { overflow: hidden; color: var(--ws-muted, #747e90); font-size: 10.5px; white-space: nowrap; text-overflow: ellipsis; }
+.overview-list-empty { margin: 0; padding: 12px 15px 16px; color: var(--ws-muted, #747e90); font-size: 11.5px; }
+
 .overview-section {
   min-width: 0;
   overflow: hidden;
@@ -2175,53 +2204,40 @@ body.white-shell.theme-light .overview-launcher-directory {
 .overview-section-header p { margin: 0; color: var(--ws-muted, #747e90); font-size: 10px; }
 .overview-inline-error { border: 1px solid color-mix(in srgb, #d14343 35%, var(--ws-border, #dfe3e9)); border-radius: 11px; background: #fff4f4; color: #9f2929; padding: 11px 13px; font-size: 11px; }
 
-/* Host resource cards: CPU, memory, and network throughput. Same 4-column
-   rhythm as the summary grid above, but shorter and without the oversized
-   numeral, so they read as a status strip rather than competing with the
-   headline stats. */
-.overview-metrics-grid {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 11px;
-  padding: 13px 15px;
+/* Host resources: CPU, memory, and network throughput on a single slim line at
+   the bottom of the page. Background numbers refreshing every three seconds do
+   not deserve card-sized real estate above the actual content. */
+.overview-metrics-strip {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 20px;
+  padding: 11px 15px;
 }
-.overview-metric-card {
-  min-width: 0;
-  display: grid;
-  gap: 5px;
-  border: 1px solid var(--ws-border, #dfe3e9);
-  border-radius: 12px;
-  background: color-mix(in srgb, var(--ws-canvas, #f8fafc) 55%, var(--ws-card, #fff));
-  padding: 10px 12px;
-}
-.overview-metric-label { color: var(--ws-muted, #747e90); font-size: 10px; font-weight: 700; }
-.overview-metric-value { font-size: 17px; font-weight: 680; line-height: 1.1; font-variant-numeric: tabular-nums; }
+.overview-metrics-strip-title { color: var(--ws-muted, #747e90); font-size: 11px; font-weight: 700; }
+.overview-metric-inline { min-width: 0; display: inline-flex; align-items: center; gap: 7px; }
+.overview-metric-label { color: var(--ws-muted, #747e90); font-size: 10.5px; font-weight: 700; }
+.overview-metric-value { font-size: 12.5px; font-weight: 680; line-height: 1.1; font-variant-numeric: tabular-nums; }
 .overview-metric-bar {
-  height: 5px;
+  width: 56px;
+  height: 4px;
   overflow: hidden;
   border-radius: 999px;
   background: color-mix(in srgb, var(--ws-muted, #747e90) 18%, transparent);
 }
 .overview-metric-bar > span { display: block; height: 100%; border-radius: inherit; transition: width .28s ease, background-color .2s ease; }
-.overview-metric-detail {
-  overflow: hidden;
-  color: var(--ws-muted, #747e90);
-  font-size: 9px;
-  line-height: 1.4;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-}
-/* Three pressure levels. The tone word is also rendered in the card text, so
-   the colour reinforces the state rather than being the only way to read it. */
-.overview-metric-card[data-tone="ok"] { border-color: color-mix(in srgb, #1f9d55 26%, var(--ws-border, #dfe3e9)); }
-.overview-metric-card[data-tone="ok"] .overview-metric-bar > span { background: #1f9d55; }
-.overview-metric-card[data-tone="ok"] .overview-metric-value { color: #157347; }
-.overview-metric-card[data-tone="warning"] { border-color: color-mix(in srgb, #d98324 40%, var(--ws-border, #dfe3e9)); background: color-mix(in srgb, #d98324 7%, var(--ws-card, #fff)); }
-.overview-metric-card[data-tone="warning"] .overview-metric-bar > span { background: #d98324; }
-.overview-metric-card[data-tone="warning"] .overview-metric-value { color: #a85a00; }
-.overview-metric-card[data-tone="danger"] { border-color: color-mix(in srgb, #d14343 46%, var(--ws-border, #dfe3e9)); background: color-mix(in srgb, #d14343 8%, var(--ws-card, #fff)); }
-.overview-metric-card[data-tone="danger"] .overview-metric-bar > span { background: #d14343; }
-.overview-metric-card[data-tone="danger"] .overview-metric-value { color: #b91c1c; }
+.overview-metric-tone { color: var(--ws-muted, #747e90); font-size: 10px; line-height: 1; }
+/* Three pressure levels. The tone word is carried in the tooltip and accessible
+   name (and shown inline under pressure), so the colour reinforces the state
+   rather than being the only way to read it. */
+.overview-metric-inline[data-tone="ok"] .overview-metric-bar > span { background: #1f9d55; }
+.overview-metric-inline[data-tone="ok"] .overview-metric-value { color: #157347; }
+.overview-metric-inline[data-tone="warning"] .overview-metric-bar > span { background: #d98324; }
+.overview-metric-inline[data-tone="warning"] .overview-metric-value { color: #a85a00; }
+.overview-metric-inline[data-tone="warning"] .overview-metric-tone { color: #a85a00; }
+.overview-metric-inline[data-tone="danger"] .overview-metric-bar > span { background: #d14343; }
+.overview-metric-inline[data-tone="danger"] .overview-metric-value { color: #b91c1c; }
+.overview-metric-inline[data-tone="danger"] .overview-metric-tone { color: #b91c1c; }
 
 /* Usage heatmap: a month-label row above a 7-row calendar grid, with the
    weekday gutter beside it. The cells flow down each column so one grid column
@@ -2291,8 +2307,7 @@ body.white-shell.theme-light .overview-launcher-directory {
   }
 }
 @media (max-width: 1120px) {
-  .overview-summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .overview-metrics-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .overview-columns { grid-template-columns: minmax(0, 1fr); }
 }
 @media (max-width: 900px) {
   .overview-dashboard { padding-inline: 24px; }
@@ -2303,7 +2318,8 @@ body.white-shell.theme-light .overview-launcher-directory {
   body.white-shell.theme-light .overview-dashboard-page { display: none !important; }
 }
 body.white-shell.theme-light.theme-dark .overview-dashboard-page { background: var(--ws-canvas); color: var(--ws-text); }
-body.white-shell.theme-light.theme-dark :is(.overview-summary-card, .overview-section, .overview-refresh, .overview-link, .overview-launcher-directory, .overview-launcher-suggestion) { border-color: var(--ws-border); background: var(--ws-card); color: var(--ws-text); box-shadow: none; }
+body.white-shell.theme-light.theme-dark :is(.overview-section, .overview-refresh, .overview-link, .overview-launcher-directory, .overview-launcher-suggestion) { border-color: var(--ws-border); background: var(--ws-card); color: var(--ws-text); box-shadow: none; }
+body.white-shell.theme-light.theme-dark .overview-stat { background: transparent; color: var(--ws-text); }
 body.white-shell.theme-light.theme-dark .overview-launcher-field { border-color: var(--ws-border); background: color-mix(in srgb, var(--ws-canvas) 64%, var(--ws-card)); }
 /* Same dark treatment .message-input gets, so the field keeps reading as an
    input under the dark presets instead of blending into the page. Note the dark
@@ -2323,29 +2339,28 @@ body.white-shell.theme-light.theme-dark .overview-launcher-input:focus {
 }
 body.white-shell.theme-light.theme-dark .overview-launcher-input { border-color: var(--ws-border); }
 body.white-shell.theme-light.theme-dark :is(.overview-hero-title, .overview-launcher-input, .overview-launcher-select) { color: var(--ws-text); }
-body.white-shell.theme-light.theme-dark :is(.overview-summary-card:hover, .overview-refresh:not(:disabled):hover, .overview-link:not(:disabled):hover, .overview-launcher-directory:hover, .overview-launcher-suggestion:hover) { border-color: #8fa4ff; background: color-mix(in srgb, #5369f3 18%, var(--ws-card)); color: #b7c3ff; }
+body.white-shell.theme-light.theme-dark :is(.overview-refresh:not(:disabled):hover, .overview-link:not(:disabled):hover, .overview-launcher-directory:hover, .overview-launcher-suggestion:hover) { border-color: #8fa4ff; background: color-mix(in srgb, #5369f3 18%, var(--ws-card)); color: #b7c3ff; }
+body.white-shell.theme-light.theme-dark :is(.overview-list-item:hover, .overview-stat:hover) { background: color-mix(in srgb, #5369f3 22%, transparent); }
 body.white-shell.theme-light.theme-dark .overview-refresh.primary,
 body.white-shell.theme-light.theme-dark .overview-launcher-send { border-color: #7589ff; background: #6175e8; color: #fff; }
 body.white-shell.theme-light.theme-dark .overview-section-header { border-color: var(--ws-border); }
-/* Resource cards under the dark presets (cyber included). The light palette's
-   greens and reds go muddy on a dark canvas, so each tone gets a lifted, more
-   saturated variant while the neutral card takes the standard dark surface. */
-body.white-shell.theme-light.theme-dark .overview-metric-card { border-color: var(--ws-border); background: color-mix(in srgb, var(--ws-canvas) 58%, var(--ws-card)); }
-body.white-shell.theme-light.theme-dark .overview-metric-card[data-tone="ok"] { border-color: color-mix(in srgb, #3ddc84 32%, var(--ws-border)); }
-body.white-shell.theme-light.theme-dark .overview-metric-card[data-tone="ok"] .overview-metric-bar > span { background: #3ddc84; }
-body.white-shell.theme-light.theme-dark .overview-metric-card[data-tone="ok"] .overview-metric-value { color: #6ff0a5; }
-body.white-shell.theme-light.theme-dark .overview-metric-card[data-tone="warning"] { border-color: color-mix(in srgb, #ffb454 44%, var(--ws-border)); background: color-mix(in srgb, #ffb454 12%, var(--ws-card)); }
-body.white-shell.theme-light.theme-dark .overview-metric-card[data-tone="warning"] .overview-metric-bar > span { background: #ffb454; }
-body.white-shell.theme-light.theme-dark .overview-metric-card[data-tone="warning"] .overview-metric-value { color: #ffc978; }
-body.white-shell.theme-light.theme-dark .overview-metric-card[data-tone="danger"] { border-color: color-mix(in srgb, #ff6b6b 48%, var(--ws-border)); background: color-mix(in srgb, #ff6b6b 13%, var(--ws-card)); }
-body.white-shell.theme-light.theme-dark .overview-metric-card[data-tone="danger"] .overview-metric-bar > span { background: #ff6b6b; }
-body.white-shell.theme-light.theme-dark .overview-metric-card[data-tone="danger"] .overview-metric-value { color: #ff9b9b; }
+/* Resource readings under the dark presets (cyber included). The light
+   palette's greens and reds go muddy on a dark canvas, so each tone gets a
+   lifted, more saturated variant. */
+body.white-shell.theme-light.theme-dark .overview-metric-inline[data-tone="ok"] .overview-metric-bar > span { background: #3ddc84; }
+body.white-shell.theme-light.theme-dark .overview-metric-inline[data-tone="ok"] .overview-metric-value { color: #6ff0a5; }
+body.white-shell.theme-light.theme-dark .overview-metric-inline[data-tone="warning"] .overview-metric-bar > span { background: #ffb454; }
+body.white-shell.theme-light.theme-dark .overview-metric-inline[data-tone="warning"] .overview-metric-value { color: #ffc978; }
+body.white-shell.theme-light.theme-dark .overview-metric-inline[data-tone="warning"] .overview-metric-tone { color: #ffc978; }
+body.white-shell.theme-light.theme-dark .overview-metric-inline[data-tone="danger"] .overview-metric-bar > span { background: #ff6b6b; }
+body.white-shell.theme-light.theme-dark .overview-metric-inline[data-tone="danger"] .overview-metric-value { color: #ff9b9b; }
+body.white-shell.theme-light.theme-dark .overview-metric-inline[data-tone="danger"] .overview-metric-tone { color: #ff9b9b; }
 body.white-shell.theme-light.theme-dark .overview-launcher-error { color: #ffaaaa; }
 body.white-shell.theme-light.theme-dark .overview-inline-error { border-color: color-mix(in srgb, #ef6a6a 42%, var(--ws-border)); background: color-mix(in srgb, #ef6a6a 10%, var(--ws-card)); color: #ffaaaa; }
 @media (prefers-reduced-motion: reduce) {
   .overview-refresh,
   .overview-link,
-  .overview-summary-card,
+  .overview-stat,
   .overview-launcher-input,
   .overview-launcher-directory,
   .overview-launcher-suggestion,
@@ -2787,6 +2802,33 @@ body.white-shell.theme-light.theme-dark .context-clear-confirmation :is(strong, 
     gap: 5px;
     padding: 4px 0 2px;
   }
+
+  /* Theme toggle and collapse share one compact row: each was a full-width
+     38px row of its own, which made the footer taller than the nav above it. */
+  body.white-shell.theme-light .global-rail-footer-actions {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+  }
+
+  body.white-shell.theme-light .global-rail .global-rail-footer-actions .global-rail-theme-toggle,
+  body.white-shell.theme-light .global-rail .global-rail-footer-actions button.global-rail-collapse-btn {
+    width: 28px;
+    min-width: 28px;
+    height: 28px;
+    min-height: 28px;
+    flex: 0 0 28px;
+    border-radius: 8px;
+    padding: 0;
+    font-size: 15px;
+  }
+
+  body.white-shell.theme-light .global-rail .global-rail-footer-actions .theme-toggle-icon { width: 15px; height: 15px; font-size: 15px; }
+  body.white-shell.theme-light .global-rail .global-rail-footer-actions .global-rail-collapse-btn svg { width: 15px; height: 15px; }
+
+  /* The collapsed rail is 48px wide; the pair does not fit side by side. */
+  body.white-shell.theme-light .app-shell.global-rail-collapsed .global-rail-footer-actions { flex-direction: column; }
 
   body.white-shell.theme-light .global-rail button.global-rail-avatar,
   body.white-shell.theme-light .global-rail button.global-rail-collapse-btn {

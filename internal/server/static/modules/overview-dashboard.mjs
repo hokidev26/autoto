@@ -14,6 +14,10 @@ const ACTIONS = new Set([
   "tasks",
   "runs",
   "schedules",
+  // List rows: each carries the entity id and opens that entity directly,
+  // unlike the bare stat actions above which only switch surface.
+  "open-conversation",
+  "open-schedule",
 ]);
 
 const LAUNCHER_ACTIONS = new Set([
@@ -76,7 +80,14 @@ const DEFAULT_TEXT = Object.freeze({
   suggestionFixPrompt: "帮我定位并修复这个问题：",
   suggestionPlanPrompt: "帮我为这个目标制定实施计划：",
   suggestionExplainPrompt: "帮我解释这段代码的工作方式：",
+  recentSection: "最近会话",
+  recentEmpty: "还没有对话。在上方输入需求，开始第一个。",
+  untitledConversation: "未命名会话",
+  upcomingSection: "即将执行的排程",
+  upcomingEmpty: "目前没有排定的执行。",
+  scheduleNextRun: "下次执行 {time}",
   activity: "使用热力图",
+  activityRecent: "近 7 天 {week} 次请求 · 近 30 天 {month} 次请求",
   activityTotal: "过去一年共 {count} 次模型请求",
   activityEmpty: "过去一年还没有使用记录。",
   activityUnavailable: "使用记录暂时无法加载。",
@@ -400,11 +411,17 @@ export function buildActivityHeatmap(trend, { today = localTodayISO(), weeks = H
   let total = 0;
   let totalTokens = 0;
   let max = 0;
+  // Rolling 7- and 30-day request sums, both ending today, for the header's
+  // recent-usage line. Windowed here because the caller only has the grid.
+  let recentWeek = 0;
+  let recentMonth = 0;
   for (const [day, entry] of counts) {
     const stamp = parseISODay(day);
     if (stamp === null || stamp < startStamp || stamp > todayStamp) continue;
     total += entry.count;
     totalTokens += entry.tokens;
+    if (stamp > todayStamp - 7 * DAY_MS) recentWeek += entry.count;
+    if (stamp > todayStamp - 30 * DAY_MS) recentMonth += entry.count;
     if (entry.count > max) max = entry.count;
   }
 
@@ -431,7 +448,7 @@ export function buildActivityHeatmap(trend, { today = localTodayISO(), weeks = H
     grid.push({ days, monthLabel: label });
   }
 
-  return { weeks: grid, total, totalTokens, max, start: formatISODay(startStamp), end: formatISODay(todayStamp) };
+  return { weeks: grid, total, totalTokens, max, recentWeek, recentMonth, start: formatISODay(startStamp), end: formatISODay(todayStamp) };
 }
 
 function renderActivityHeatmap(model, t, status) {
@@ -463,9 +480,15 @@ function renderActivityHeatmap(model, t, status) {
         ? t("activityTotalTokens", { count: model.total, tokens: formatCount(model.totalTokens) })
         : t("activityTotal", { count: model.total })
       : t("activityEmpty");
+  // The year total alone hides whether the recent pace changed; the rolling
+  // windows answer that at a glance. Omitted while empty or failed, where the
+  // caption already says everything there is to say.
+  const recent = status !== "error" && model.total > 0
+    ? `<p class="overview-heatmap-recent">${escapeHtml(t("activityRecent", { week: model.recentWeek, month: model.recentMonth }))}</p>`
+    : "";
 
   return `<section class="overview-section overview-activity settings-card" data-overview-section="activity">
-    <header class="overview-section-header"><div><h2>${escapeHtml(t("activity"))}</h2><p>${escapeHtml(caption)}</p></div></header>
+    <header class="overview-section-header"><div><h2>${escapeHtml(t("activity"))}</h2><p>${escapeHtml(caption)}</p>${recent}</div></header>
     <div class="overview-heatmap" style="--overview-heatmap-weeks:${model.weeks.length}">
       <div class="overview-heatmap-months" aria-hidden="true">${months}</div>
       <div class="overview-heatmap-weekdays" aria-hidden="true">${weekdays}</div>
@@ -502,9 +525,72 @@ function createText(options) {
   };
 }
 
-function summaryCard(action, title, value, detail) {
+// One clickable stat row per surface: label left, number right, stacked in the
+// side column's card. A zero is marked so the styling can mute it: three of
+// these read 0 most of the day and should not compete with live numbers.
+function summaryStat(action, title, value, detail) {
   const ariaLabel = [title, value, detail].filter((part) => part !== "").join(". ");
-  return `<button type="button" class="overview-summary-card settings-stat-card" data-overview-action="${escapeHtml(action)}" aria-label="${escapeHtml(ariaLabel)}"><span>${escapeHtml(title)}</span><strong>${escapeHtml(value)}</strong></button>`;
+  return `<button type="button" class="overview-stat" data-overview-action="${escapeHtml(action)}"${value === 0 ? ` data-zero="true"` : ""} aria-label="${escapeHtml(ariaLabel)}"><span class="overview-stat-label">${escapeHtml(title)}</span><strong class="overview-stat-value">${escapeHtml(value)}</strong></button>`;
+}
+
+// Timestamps in list rows go through the host's regional formatter when one is
+// injected; the raw ISO string is a readable fallback, not an error.
+function formatListTime(value, formatDateTime) {
+  const raw = boundedText(value, 80);
+  if (!raw) return "";
+  if (typeof formatDateTime !== "function") return raw;
+  try {
+    return boundedText(formatDateTime(raw), 80) || raw;
+  } catch {
+    return raw;
+  }
+}
+
+function overviewListItem({ action, id, title, meta }) {
+  return `<li><button type="button" class="overview-list-item" data-overview-action="${escapeHtml(action)}" data-overview-id="${escapeHtml(id)}">
+    <span class="overview-list-item-title">${escapeHtml(title)}</span>
+    ${meta ? `<span class="overview-list-item-meta">${escapeHtml(meta)}</span>` : ""}
+  </button></li>`;
+}
+
+function overviewListSection(section, title, items, emptyText) {
+  const body = items.length
+    ? `<ul class="overview-list">${items.join("")}</ul>`
+    : `<p class="overview-list-empty">${escapeHtml(emptyText)}</p>`;
+  return `<section class="overview-section overview-list-section settings-card" data-overview-section="${escapeHtml(section)}">
+    <header class="overview-section-header"><div><h2>${escapeHtml(title)}</h2></div></header>
+    ${body}
+  </section>`;
+}
+
+// The payload has carried these lists all along; the launcher redesign dropped
+// their sections and left the ids dead weight. A returning user's next step is
+// almost always "continue where I left off" or "check what fires next", so the
+// two lists that answer those get the room the zero-stat cards gave up.
+function renderOverviewLists(model, t, formatDateTime) {
+  const conversations = model.recentConversations
+    .filter((item) => item.id)
+    .map((item) => overviewListItem({
+      action: "open-conversation",
+      id: item.id,
+      title: item.title || t("untitledConversation"),
+      meta: [item.projectName, formatListTime(item.updatedAt, formatDateTime)].filter(Boolean).join(" · "),
+    }));
+  const schedules = model.upcomingSchedules
+    .filter((item) => item.id)
+    .map((item) => overviewListItem({
+      action: "open-schedule",
+      id: item.id,
+      title: item.name || item.agentTitle || item.id,
+      meta: [
+        item.nextRunAt ? t("scheduleNextRun", { time: formatListTime(item.nextRunAt, formatDateTime) }) : "",
+        item.agentTitle,
+      ].filter(Boolean).join(" · "),
+    }));
+  return {
+    conversations: overviewListSection("recent-conversations", t("recentSection"), conversations, t("recentEmpty")),
+    schedules: overviewListSection("upcoming-schedules", t("upcomingSection"), schedules, t("upcomingEmpty")),
+  };
 }
 
 function normalizeLauncherContext(value = {}) {
@@ -749,6 +835,9 @@ export function renderOverviewDashboard(payload, options = {}) {
   const launcher = renderLauncher(options.launcherContext, options.launcherState, t, options.launcherOpenSelect);
   const liveStatus = loading ? t("loading") : status === "ready" ? t("loaded") : "";
   const liveRegion = `<p class="overview-live-region sr-only" role="status" aria-live="polite" aria-atomic="true">${escapeHtml(liveStatus)}</p>`;
+  // The composer stays available in the degraded states too: typing a request
+  // is the page's primary action and must not depend on the dashboard data
+  // having loaded.
   if (loading && !(options.hasData ?? hasDashboardData(normalized))) {
     return `<div class="overview-dashboard settings-page" data-overview-state="loading" aria-busy="true">${launcher.hero}${liveRegion}<div class="overview-dashboard-state settings-empty-state">${escapeHtml(t("loading"))}</div>${launcher.composer}</div>`;
   }
@@ -757,12 +846,26 @@ export function renderOverviewDashboard(payload, options = {}) {
   }
 
   const inlineError = status === "error" ? `<div class="overview-inline-error settings-alert" role="alert"><strong>${escapeHtml(t("loadFailed"))}</strong><span>${escapeHtml(error || t("retryHint"))}</span></div>` : "";
-  const summaries = `<section class="overview-summary-grid settings-stat-grid" aria-label="${escapeHtml(t("title"))}">
-    ${summaryCard("conversation", t("conversations"), normalized.summary.conversations, t("conversationSummary"))}
-    ${summaryCard("tasks", t("tasks"), normalized.summary.tasks.total, t("taskBreakdown", normalized.summary.tasks))}
-    ${summaryCard("runs", t("running"), normalized.summary.activeRuns, `${t("activeRuns")} · ${normalized.summary.runningAgents} ${t("runningAgents")}`)}
-    ${summaryCard("schedules", t("schedules"), normalized.summary.schedules.total, t("scheduleBreakdown", normalized.summary.schedules))}
+  const summaries = `<section class="overview-section overview-stats-card settings-card" data-overview-section="stats" aria-label="${escapeHtml(t("title"))}">
+    <header class="overview-section-header"><div><h2>${escapeHtml(t("title"))}</h2></div></header>
+    <div class="overview-stats-rows">
+      ${summaryStat("conversation", t("conversations"), normalized.summary.conversations, t("conversationSummary"))}
+      ${summaryStat("tasks", t("tasks"), normalized.summary.tasks.total, t("taskBreakdown", normalized.summary.tasks))}
+      ${summaryStat("runs", t("running"), normalized.summary.activeRuns, `${t("activeRuns")} · ${normalized.summary.runningAgents} ${t("runningAgents")}`)}
+      ${summaryStat("schedules", t("schedules"), normalized.summary.schedules.total, t("scheduleBreakdown", normalized.summary.schedules))}
+    </div>
   </section>`;
+  const lists = renderOverviewLists(normalized, t, options.formatDateTime);
+  // The conversation list carries the page's real content and takes the wide
+  // column; the stats and the (usually short) schedule list stack beside it so
+  // the right half of the page is not one mostly-empty card.
+  const columns = `<div class="overview-columns">
+    ${lists.conversations}
+    <div class="overview-side-column">
+      ${summaries}
+      ${lists.schedules}
+    </div>
+  </div>`;
 
   const heatmap = renderActivityHeatmap(
     buildActivityHeatmap(options.activityTrend, { today: options.today }),
@@ -784,13 +887,16 @@ export function renderOverviewDashboard(payload, options = {}) {
     }
   }
 
+  // Greeting first, the composer at the bottom of the page where the eye (and
+  // pointer) come to rest after scanning the lists -- the position was tried
+  // directly under the greeting and read as glued to the top of the window.
   return `<div class="overview-dashboard settings-page" data-overview-state="${escapeHtml(status)}" aria-busy="${loading ? "true" : "false"}">
     ${launcher.hero}
     ${liveRegion}
     ${inlineError}
-    ${summaries}
-    ${systemMetrics}
+    ${columns}
     ${heatmap}
+    ${systemMetrics}
     ${launcher.composer}
   </div>`;
 }

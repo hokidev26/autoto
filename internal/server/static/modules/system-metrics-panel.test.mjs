@@ -87,12 +87,14 @@ test("rates and percentages use the shared formatters", () => {
   assert.equal(formatPercent(Number.NaN), "0%");
 });
 
-test("render emits one card per available metric with tone, value, and bar", () => {
+test("render emits one inline reading per available metric with tone, value, and bar", () => {
   const html = renderSystemMetrics(fullPayload());
 
   assert.match(html, /data-overview-section="system-metrics"/);
+  // A single slim strip rather than a grid of cards.
+  assert.match(html, /class="overview-metrics-strip"/);
   // CPU, memory, download, upload.
-  assert.equal((html.match(/class="overview-metric-card"/g) || []).length, 4);
+  assert.equal((html.match(/class="overview-metric-inline"/g) || []).length, 4);
   assert.match(html, /data-overview-metric="cpu" data-tone="ok"/);
   assert.match(html, /data-overview-metric="memory" data-tone="ok"/);
   assert.match(html, /data-overview-metric="networkDown"/);
@@ -100,10 +102,12 @@ test("render emits one card per available metric with tone, value, and bar", () 
   assert.match(html, />12%</);
   // 512 is past the 100 mark in its unit, so the decimal is dropped.
   assert.match(html, />512 KB\/s</);
-  // Memory shows the absolute figures alongside the percentage.
+  // Memory keeps the absolute figures in the tooltip and accessible name.
   assert.match(html, /8 GB \/ 20 GB/);
   // The bar length is the metric's share of capacity.
   assert.match(html, /style="width:40\.0%"/);
+  // At rest the strip does not repeat "normal" four times in a row.
+  assert.doesNotMatch(html, /class="overview-metric-tone"/);
 });
 
 test("render escalates tone and reports the level as text, not colour alone", () => {
@@ -117,9 +121,10 @@ test("render escalates tone and reports the level as text, not colour alone", ()
   assert.match(stressed, /data-overview-metric="memory" data-tone="warning"/);
   assert.match(stressed, /data-overview-metric="networkDown" data-tone="danger"/);
   assert.match(stressed, /data-overview-metric="networkUp" data-tone="warning"/);
-  // Anyone who cannot distinguish the hues still gets the state in words.
-  assert.match(stressed, /有压力/);
-  assert.match(stressed, /有点压力/);
+  // Anyone who cannot distinguish the hues still gets the state in words,
+  // rendered inline once a metric is under pressure.
+  assert.match(stressed, /class="overview-metric-tone">有压力/);
+  assert.match(stressed, /class="overview-metric-tone">有点压力/);
   // Network has no capacity ceiling, so its bar is clamped rather than
   // reporting a percentage it cannot know.
   assert.match(stressed, /style="width:100\.0%"/);
@@ -131,7 +136,7 @@ test("render omits unavailable metrics and the whole section when nothing is mea
     memory: { available: true, percent: 30, usedBytes: 3, totalBytes: 10 },
     network: { available: false },
   });
-  assert.equal((memoryOnly.match(/class="overview-metric-card"/g) || []).length, 1);
+  assert.equal((memoryOnly.match(/class="overview-metric-inline"/g) || []).length, 1);
   assert.match(memoryOnly, /data-overview-metric="memory"/);
   assert.doesNotMatch(memoryOnly, /data-overview-metric="cpu"/);
 

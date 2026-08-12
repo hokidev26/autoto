@@ -40,7 +40,7 @@ import { navigationCreateLabelKey, navigationCreateTarget } from "./navigation-c
 import { createSubagentCardCoordinator } from "./subagent-cards.mjs?v=tool-activity-lazy-1";
 import { createNavigationStartupGuard } from "./navigation-startup-guard.mjs?v=startup-navigation-guard-4";
 import { formatNumber, formatTimestamp } from "./formatters.mjs";
-import { t } from "./i18n.mjs?v=settings-flat-1-codex-browser-login-1-shared-api-1-apple-theme-1-autoto-themes-1-settings-help-1-task-workspace-1-navigation-state-2-archive-1-i18n-shared-1-overview-home-1-settings-cleanup-1-context-ring-3-global-background-1-theme-v2-1-background-upload-1-goal-command-2-queue-command-1-reasoning-steps-1-reasoning-history-1-markdown-2-first-run-setup-1-home-launcher-1-scoped-memory-1-standalone-removed-2-queue-autopark-1";
+import { t } from "./i18n.mjs?v=settings-flat-1-codex-browser-login-1-shared-api-1-apple-theme-1-autoto-themes-1-settings-help-1-task-workspace-1-navigation-state-2-archive-1-i18n-shared-1-overview-home-1-settings-cleanup-1-context-ring-3-global-background-1-theme-v2-1-background-upload-1-goal-command-2-queue-command-1-reasoning-steps-1-reasoning-history-1-markdown-2-first-run-setup-1-home-launcher-1-scoped-memory-1-standalone-removed-2-queue-autopark-1-home-redesign-1";
 import { appMainT as am } from "./messages-app-main-extra.mjs?v=workbench-title-edit-1-hidden-toggle-removed-1-settings-cleanup-1";
 import { shellExtraT as sx } from "./messages-shell-extra.mjs";
 import { createGitWorkflowController } from "./git-workflow.mjs?v=merge-review-1";
@@ -55,7 +55,7 @@ import {
   overviewNavigationRoute,
   overviewRailTarget,
   resolveOverviewStartup,
-} from "./overview-dashboard.mjs?v=overview-home-3-nav-schedules-1-mobile-no-home-1-schedule-workspace-1-activity-heatmap-1-home-launcher-1-home-launcher-bottom-1-home-launcher-minimal-1-standalone-removed-2-project-popover-1-activity-tokens-1-system-metrics-1";
+} from "./overview-dashboard.mjs?v=overview-home-3-nav-schedules-1-mobile-no-home-1-schedule-workspace-1-activity-heatmap-1-home-launcher-1-home-launcher-bottom-1-home-launcher-minimal-1-standalone-removed-2-project-popover-1-activity-tokens-1-system-metrics-1-home-redesign-1";
 import { createPageLifecycleController } from "./page-lifecycle.mjs";
 import { confirm as platformConfirm } from "./platform.mjs";
 import { createProjectKanbanController } from "./project-kanban.mjs?v=workbench-3-mode-boundaries-1";
@@ -81,12 +81,12 @@ import { createSkillsContext } from "./skills-context.mjs";
 import { createServerResourceLoaders } from "./server-resource-loaders.mjs";
 import { createSetupWizardController } from "./setup-wizard.mjs?v=first-run-readiness-1";
 import { createSpecBoardController } from "./spec-board.mjs";
-import { createSystemMetricsPoller, renderCompactSystemMetrics, renderSystemMetrics } from "./system-metrics-panel.mjs?v=system-metrics-2";
+import { createSystemMetricsPoller, renderCompactSystemMetrics, renderSystemMetrics } from "./system-metrics-panel.mjs?v=system-metrics-2-home-redesign-1";
 import { createSystemSettingsController } from "./system-settings.mjs?v=users-panel-removed-1-about-brand-license-1-desktop-shell-1-execution-budget-2-background-task-settings-1-settings-ui-cleanup-1";
 import { installDesktopDeepLinkRouter, isDesktopShell } from "./desktop-shell-ui.mjs";
 import { createSkillsWorkbenchController } from "./skills-workbench.mjs?v=users-panel-removed-1-config-center-1-automation-tool-catalog-1-optional-tools-compact-1-skills-density-1";
 import { createTerminalController } from "./terminal.mjs?v=terminal-actions-compact-2";
-import { createUIShellController, elementVisible, isComposingInput } from "./ui-shell.mjs?v=permission-panel-2-plan-mode-panel-1-mobile-toolbar-right-3-icon-rail-1-mobile-viewport-1-sidebar-wheel-1-settings-cleanup-1-context-ring-3-dual-rail-collapse-1-compact-navigation-1-global-rail-2-model-menu-scroll-1-utility-resize-2-sheet-trim-1-model-provider-groups-1-danger-reflection-desc-1-danger-reflection-levels-1-model-icon-only-1-theme-icon-1";
+import { createUIShellController, elementVisible, isComposingInput } from "./ui-shell.mjs?v=permission-panel-2-plan-mode-panel-1-mobile-toolbar-right-3-icon-rail-1-mobile-viewport-1-sidebar-wheel-1-settings-cleanup-1-context-ring-3-dual-rail-collapse-1-compact-navigation-1-global-rail-2-model-menu-scroll-1-utility-resize-2-sheet-trim-1-model-provider-groups-1-danger-reflection-desc-1-danger-reflection-levels-1-model-icon-only-1-theme-icon-1-home-redesign-1";
 import { createUsageHistoryController } from "./usage-history.mjs";
 import { createAgentWorkspaceHelpers } from "./agent-workspace-helpers.mjs?v=task-summary-activity-1-task-overview-tabs-1";
 import { createNavigationContextMenu } from "./navigation-context-menu.mjs";

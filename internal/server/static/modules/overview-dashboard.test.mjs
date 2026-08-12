@@ -220,7 +220,7 @@ test("render escapes visible launcher context and state", () => {
   assert.match(html, /value="&quot;&gt;&lt;img/);
 });
 
-test("normalization keeps capped backend lists even though the launcher no longer renders them", () => {
+test("the resume lists render the capped conversations and schedules but not tasks or runs", () => {
   const make = (count, prefix, mapper) => Array.from({ length: count }, (_, index) => mapper(index, `${prefix}-${index}`));
   const normalized = normalizeOverviewPayload(overview({
     recentConversations: make(20, "conversation", (index, id) => ({ id, title: `Conversation ${index}` })),
@@ -234,10 +234,18 @@ test("normalization keeps capped backend lists even though the launcher no longe
   assert.equal(normalized.upcomingSchedules.length, 8);
 
   const html = renderOverviewDashboard(normalized);
-  assert.doesNotMatch(html, /Conversation 0|Task 0|Run 0|Schedule 0|data-overview-action="open-/);
+  // The rendered rows are exactly the capped list, each opening its entity.
+  assert.equal((html.match(/data-overview-action="open-conversation"/g) || []).length, 8);
+  assert.equal((html.match(/data-overview-action="open-schedule"/g) || []).length, 8);
+  assert.match(html, /Conversation 0/);
+  assert.match(html, /Schedule 7/);
+  assert.doesNotMatch(html, /Conversation 8|Schedule 8/);
+  // Tasks and runs stay stat-only: their surfaces are one click away and their
+  // titles add nothing the stat numbers do not already say.
+  assert.doesNotMatch(html, /Task 0|Run 0|data-overview-action="open-task"|data-overview-action="open-run"/);
 });
 
-test("render includes the hero launcher, four summaries, and heatmap without legacy list sections", () => {
+test("render orders hero, the list-and-stats columns, heatmap, then the composer", () => {
   const html = renderOverviewDashboard(overview(), {
     formatDateTime: (value) => `date:${value}`,
     launcherContext: {
@@ -251,13 +259,31 @@ test("render includes the hero launcher, four summaries, and heatmap without leg
     },
     launcherOpenSelect: "model",
   });
-  assert.equal((html.match(/class="overview-summary-card settings-stat-card"/g) || []).length, 4);
+  assert.equal((html.match(/class="overview-stat"/g) || []).length, 4);
+  // Every fixture stat is non-zero; nothing here should be muted.
+  assert.doesNotMatch(html, /data-zero="true"/);
+  // An all-zero summary mutes all four numbers so live figures stand out.
+  assert.equal((renderOverviewDashboard(overview({ summary: {} })).match(/data-zero="true"/g) || []).length, 4);
   assert.match(html, /data-overview-launcher/);
   assert.match(html, /下午好，Ray/);
   assert.match(html, /class="overview-launcher-input"/);
   assert.match(html, /data-overview-section="activity"/);
-  assert.ok(html.indexOf("overview-launcher-hero") < html.indexOf("overview-summary-grid"));
+  // Greeting, then the two-column block (conversations wide, stats and
+  // schedules stacked beside them), the heatmap, and the composer resting at
+  // the bottom of the page.
+  assert.ok(html.indexOf("overview-launcher-hero") < html.indexOf("overview-columns"));
+  assert.ok(html.indexOf('data-overview-section="recent-conversations"') < html.indexOf("overview-side-column"));
+  assert.ok(html.indexOf("overview-side-column") < html.indexOf('data-overview-section="stats"'));
+  assert.ok(html.indexOf('data-overview-section="stats"') < html.indexOf('data-overview-section="upcoming-schedules"'));
+  assert.ok(html.indexOf('data-overview-section="upcoming-schedules"') < html.indexOf('data-overview-section="activity"'));
   assert.ok(html.indexOf('data-overview-section="activity"') < html.indexOf("data-overview-launcher>"));
+  // The lists carry the fixture rows with the host's date formatting.
+  assert.match(html, /data-overview-action="open-conversation" data-overview-id="conversation-1"/);
+  assert.match(html, /Release plan/);
+  assert.match(html, /Autoto · date:2026-07-19T11:00:00Z/);
+  assert.match(html, /data-overview-action="open-schedule" data-overview-id="schedule-1"/);
+  assert.match(html, /Nightly tests/);
+  assert.match(html, /下次执行 date:2026-07-20T00:00:00Z · Tester/);
   assert.match(html, /class="overview-launcher-select-trigger composer-select-trigger"[^>]*data-overview-launcher-select="model"/);
   assert.match(html, /class="composer-select-popover overview-launcher-select-popover composer-model-popover"/);
   assert.match(html, /class="composer-model-group-heading"[^>]*>OpenAI</);
@@ -269,10 +295,33 @@ test("render includes the hero launcher, four summaries, and heatmap without leg
   assert.match(html, /id="overviewDashboardTitle"/);
   assert.match(html, /class="overview-live-region sr-only" role="status" aria-live="polite" aria-atomic="true"/);
   assert.doesNotMatch(html, /overview-(?:hero-subtitle|dashboard-header|launcher-suggestions)|data-overview-action="refresh"/);
-  assert.doesNotMatch(html, /<small>/);
-  assert.doesNotMatch(html, /data-overview-section="(?:continue-working|in-progress|upcoming|pending)"/);
-  assert.doesNotMatch(html, /继续工作|正在进行|即将执行|待处理提示/);
-  assert.doesNotMatch(html, /data-overview-action="(?:approvals|open-conversation|open-task|open-run|open-schedule)"/);
+  assert.doesNotMatch(html, /data-overview-section="(?:continue-working|in-progress|pending)"/);
+  assert.doesNotMatch(html, /继续工作|正在进行|待处理提示/);
+  assert.doesNotMatch(html, /data-overview-action="(?:approvals|open-task|open-run)"/);
+});
+
+test("resume lists fall back to placeholders for empty data and untitled rows", () => {
+  const empty = renderOverviewDashboard(overview({ recentConversations: [], upcomingSchedules: [] }));
+  assert.match(empty, /还没有对话。在上方输入需求，开始第一个。/);
+  assert.match(empty, /目前没有排定的执行。/);
+  assert.doesNotMatch(empty, /data-overview-action="open-conversation"|data-overview-action="open-schedule"/);
+
+  const untitled = renderOverviewDashboard(overview({
+    recentConversations: [{ id: "conversation-9" }],
+    upcomingSchedules: [{ id: "schedule-9", agentTitle: "Tester" }],
+  }));
+  assert.match(untitled, /未命名会话/);
+  // A schedule without a name borrows its agent title; without nextRunAt the
+  // meta line simply omits the next-run part.
+  assert.match(untitled, /data-overview-id="schedule-9"[\s\S]*?Tester/);
+  assert.doesNotMatch(untitled, /下次执行/);
+
+  // Rows without ids cannot navigate anywhere and are dropped, not rendered.
+  const idless = renderOverviewDashboard(overview({
+    recentConversations: [{ title: "ghost" }],
+    upcomingSchedules: [{ name: "ghost" }],
+  }));
+  assert.doesNotMatch(idless, /ghost/);
 });
 
 test("render supports optional translation keys", () => {
@@ -536,7 +585,7 @@ test("empty launcher submissions are ignored", async () => {
   assert.equal(calls, 0);
 });
 
-test("delegated summary clicks preserve the four supported navigation actions", () => {
+test("delegated clicks dispatch the stat surfaces and the list rows, nothing else", () => {
   const host = fakeHost();
   const navigations = [];
   createOverviewDashboardController({
@@ -546,13 +595,19 @@ test("delegated summary clicks preserve the four supported navigation actions", 
   });
 
   for (const action of ["conversation", "tasks", "runs", "schedules"]) host.click(action);
+  host.click("open-conversation", "conversation-1");
+  host.click("open-schedule", "schedule-1");
+  // Tasks and runs render no list rows, so their open- actions stay unrouted.
   host.click("open-task", "task-1");
+  host.click("open-run", "run-1");
 
   assert.deepEqual(navigations, [
     ["conversation", ""],
     ["tasks", ""],
     ["runs", ""],
     ["schedules", ""],
+    ["open-conversation", "conversation-1"],
+    ["open-schedule", "schedule-1"],
   ]);
 });
 
@@ -591,7 +646,9 @@ test("controller requests /api/overview, deduplicates ordinary loads, and discar
   assert.equal(state.status, "ready");
   assert.equal(state.payload.capturedAt, "new");
   assert.equal(state.payload.recentConversations[0].id, "new");
-  assert.doesNotMatch(host.innerHTML, /New response|Old response/);
+  // The stale first response must not resurface in the rendered list.
+  assert.match(host.innerHTML, /New response/);
+  assert.doesNotMatch(host.innerHTML, /Old response/);
   // The heatmap rides along with every load but on its own request.
   assert.equal(activityPaths.length, 2);
   assert.match(activityPaths[0], /^\/api\/usage\/history\?bucket=day&tzOffset=-?\d+&from=\d{4}-\d{2}-\d{2}&to=\d{4}-\d{2}-\d{2}&limit=1$/);
@@ -740,11 +797,31 @@ test("activity heatmap accumulates tokens per day alongside request counts", () 
   assert.equal(byDate.get("2026-07-24").tokens, 0);
   assert.equal(model.total, 10);
   assert.equal(model.totalTokens, 215);
+  assert.equal(model.recentWeek, 10);
+  assert.equal(model.recentMonth, 10);
   // reasoning and cached tokens are reported separately by the server and are
   // deliberately not folded into the total.
   assert.equal(buildActivityHeatmap([
     { bucket: "2026-07-26", requestCount: 1, inputTokens: 10, outputTokens: 5, reasoningTokens: 400, cachedInputTokens: 900 },
   ], { today: "2026-07-26" }).totalTokens, 15);
+});
+
+test("heatmap recent windows cover the trailing 7 and 30 days ending today", () => {
+  const model = buildActivityHeatmap([
+    { bucket: "2026-07-26", requestCount: 3 },
+    // Six days back: the last day inside the 7-day window.
+    { bucket: "2026-07-20", requestCount: 2 },
+    // Seven days back: outside the week, inside the month.
+    { bucket: "2026-07-19", requestCount: 7 },
+    // Twenty-nine days back: the last day inside the 30-day window.
+    { bucket: "2026-06-27", requestCount: 11 },
+    // Thirty days back: outside both windows but inside the year total.
+    { bucket: "2026-06-26", requestCount: 13 },
+  ], { today: "2026-07-26" });
+
+  assert.equal(model.recentWeek, 5);
+  assert.equal(model.recentMonth, 23);
+  assert.equal(model.total, 36);
 });
 
 test("heatmap tooltips report tokens when present and omit them when zero", () => {
@@ -767,7 +844,7 @@ test("heatmap tooltips report tokens when present and omit them when zero", () =
 
 // The resource cards are injected rather than imported, so the dashboard has to
 // place them, tolerate their absence, and survive a renderer that throws.
-test("system metrics section is injected between the summaries and the heatmap", () => {
+test("system metrics section is injected after the heatmap, at the bottom of the page", () => {
   const html = renderOverviewDashboard(overview(), {
     today: "2026-07-26",
     systemMetrics: { cpu: { available: true, percent: 50 } },
@@ -775,8 +852,7 @@ test("system metrics section is injected between the summaries and the heatmap",
   });
 
   assert.match(html, /data-fake-metrics="50"/);
-  assert.equal(html.indexOf("data-fake-metrics") > html.indexOf("overview-summary-grid"), true);
-  assert.equal(html.indexOf("data-fake-metrics") < html.indexOf('data-overview-section="activity"'), true);
+  assert.equal(html.indexOf("data-fake-metrics") > html.indexOf('data-overview-section="activity"'), true);
 
   // No renderer supplied: the dashboard renders exactly as before.
   assert.doesNotMatch(renderOverviewDashboard(overview(), { today: "2026-07-26" }), /data-fake-metrics/);
@@ -859,12 +935,16 @@ test("activity heatmap renders escaped tooltips and a legend, and survives a fai
   // 53 weeks x 7 days of grid, plus the 5 legend swatches.
   assert.equal(html.match(/class="overview-heatmap-cell"|class="overview-heatmap-cell is-future"/g).length, 53 * 7 + 5);
   assert.match(html, /过去一年共 7 次模型请求/);
+  // The header also reports the recent pace alongside the year total.
+  assert.match(html, /近 7 天 7 次请求 · 近 30 天 7 次请求/);
 
   const failed = renderOverviewDashboard(overview(), { today: "2026-07-26", activityStatus: "error" });
   assert.match(failed, /使用记录暂时无法加载。/);
+  // The failed load renders no recent-usage line alongside the error caption.
+  assert.doesNotMatch(failed, /overview-heatmap-recent/);
   // The heatmap failing must not take the rest of the dashboard down.
   assert.match(failed, /data-overview-launcher/);
-  assert.equal((failed.match(/class="overview-summary-card settings-stat-card"/g) || []).length, 4);
+  assert.equal((failed.match(/class="overview-stat"/g) || []).length, 4);
   assert.doesNotMatch(failed, /data-overview-state="error"/);
 
   const empty = renderOverviewDashboard(overview(), { today: "2026-07-26" });

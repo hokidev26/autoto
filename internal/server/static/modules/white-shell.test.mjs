@@ -292,7 +292,9 @@ test("desktop home overview stays available while mobile starts in conversation"
   assert.doesNotMatch(overviewDashboard, /overview-launcher-project-row/);
   assert.doesNotMatch(styles, /\.overview-launcher-mode(?:-group)?/);
   assert.doesNotMatch(overviewDashboard, /data-overview-launcher-(?:action="mode"|mode=)/);
-  assert.match(styles, /\.overview-summary-grid\s*\{[\s\S]*?repeat\(4, minmax\(0, 1fr\)\)/);
+  assert.match(styles, /\.overview-columns\s*\{[\s\S]*?minmax\(0, 1\.6fr\) minmax\(0, 1fr\)/);
+  assert.match(styles, /\.overview-side-column\s*\{[\s\S]*?flex-direction:\s*column/);
+  assert.match(styles, /\.overview-launcher-controls\s*\{[\s\S]*?justify-content:\s*flex-end/);
   assert.match(styles, /overview-mode :is\(#conversationPanel, #workbenchPanel, #schedulePanel\)[\s\S]*?display:\s*none !important/);
   assert.match(styles, /not\(\.overview-mode\) #overviewDashboard[\s\S]*?display:\s*none !important/);
   assert.match(styles, /@media \(max-width:\s*767px\)\s*\{\s*body\.white-shell\.theme-light \.overview-dashboard-page\s*\{\s*display:\s*none !important;/);
@@ -1265,8 +1267,21 @@ test("composer responds to its actual width before the mobile breakpoint", async
   assert.match(responsiveStyles, /@container composer-shell \(max-width:\s*900px\)[\s\S]*?\.permission-toolbar-pill\s*\{[^}]*width:\s*auto[^}]*min-width:\s*max-content/);
   assert.match(responsiveStyles, /@container composer-shell \(max-width:\s*900px\)[\s\S]*?\.message-mode-option::after\s*\{[^}]*content:\s*attr\(data-mobile-label\)/);
   assert.match(responsiveStyles, /@container composer-shell \(max-width:\s*900px\)[\s\S]*?\.permission-safety-indicator\s*\{[^}]*display:\s*none/);
-  assert.match(responsiveStyles, /@container composer-shell \(max-width:\s*620px\)[\s\S]*?\.composer-model-field\s*\{[^}]*max-width:\s*88px[^}]*flex:\s*1 1 62px/);
-  assert.match(responsiveStyles, /@container composer-shell \(max-width:\s*620px\)[\s\S]*?\.composer-permission-field \.composer-select-value::before\s*\{[^}]*content:\s*attr\(data-mobile-label\)/);
+  // Mid-squeeze (620px) the pills keep their identity and only get tighter.
+  // The model pill shows the compact family label (gpt-5.6, sonnet) from
+  // data-mobile-label at natural width, instead of ellipsizing the full
+  // provider:model id inside a flexible 42-88px box.
+  assert.match(responsiveStyles, /@container composer-shell \(max-width:\s*620px\)[\s\S]*?\.composer-model-field\s*\{[^}]*width:\s*auto[^}]*flex:\s*0 0 auto/);
+  assert.match(responsiveStyles, /@container composer-shell \(max-width:\s*620px\)[\s\S]*?\.composer-model-field \.composer-select-value::before\s*\{[^}]*content:\s*attr\(data-mobile-label\)/);
+  // The permission pill keeps its localized label at this tier; the English
+  // initials (RO/ALL/...) stay exclusive to the icon rail and the phone
+  // toolbar. Mid-squeeze they made one pill switch language while its
+  // neighbours stayed localized.
+  assert.match(responsiveStyles, /@container composer-shell \(max-width:\s*620px\)[\s\S]*?\.composer-permission-field \.composer-select-value\s*\{[^}]*font-size:\s*11px/);
+  assert.match(responsiveStyles, /@container composer-shell \(max-width:\s*620px\)[\s\S]*?\.composer-permission-field \.composer-select-value::before\s*\{[^}]*content:\s*none/);
+  // Every pill drops its caret together at 620px; permission had already
+  // dropped its own, which left the trio inconsistent.
+  assert.match(responsiveStyles, /@container composer-shell \(max-width:\s*620px\)[\s\S]*?\.composer-toolbar \.composer-select-chevron\s*\{[^}]*display:\s*none/);
 });
 
 test("mobile header and composer use compact icon-first layouts", async () => {
@@ -1587,6 +1602,17 @@ test("navigation collapses through columns, docked and icons, and stays desktop-
   assert.equal(drag(navigationDragColumnsEnterWidth, "icons"), "columns");
   assert.ok(navigationDragIconsExitWidth > navigationDragIconsEnterWidth, "the icon band is stickier than its entry point");
   assert.ok(navigationDragColumnsEnterWidth > navigationDragColumnsExitWidth, "the column band is stickier than its entry point");
+  // The compact column rests its divider at rail + compact width (252), and the
+  // narrow band a little above that. Both sat below the old 300px exit, so
+  // grabbing either flipped the layout to docked on the first pixel of travel.
+  // The exit must leave deliberate travel below the compact resting point.
+  const compactRestingTotal = globalRailExpandedWidth + collapsedSidebarWidth;
+  assert.equal(drag(compactRestingTotal, "columns"), "columns");
+  assert.equal(drag(compactRestingTotal - 1, "columns"), "columns");
+  assert.ok(
+    navigationDragColumnsExitWidth <= compactRestingTotal - 20,
+    "a compact column can be grabbed and moved without instantly docking",
+  );
   // A garbage measurement must not move the layout.
   assert.equal(drag(Number.NaN, "docked"), "docked");
 
