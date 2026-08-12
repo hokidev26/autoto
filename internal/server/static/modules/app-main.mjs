@@ -55,7 +55,7 @@ import {
   overviewNavigationRoute,
   overviewRailTarget,
   resolveOverviewStartup,
-} from "./overview-dashboard.mjs?v=overview-home-3-nav-schedules-1-mobile-no-home-1-schedule-workspace-1-activity-heatmap-1-home-launcher-1-home-launcher-bottom-1-home-launcher-minimal-1-standalone-removed-2-project-popover-1-activity-tokens-1-system-metrics-1-home-redesign-1";
+} from "./overview-dashboard.mjs?v=overview-home-3-nav-schedules-1-mobile-no-home-1-schedule-workspace-1-activity-heatmap-1-home-launcher-1-home-launcher-bottom-1-home-launcher-minimal-1-standalone-removed-2-project-popover-1-activity-tokens-1-system-metrics-1-home-redesign-1-home-claude-1";
 import { createPageLifecycleController } from "./page-lifecycle.mjs";
 import { confirm as platformConfirm } from "./platform.mjs";
 import { createProjectKanbanController } from "./project-kanban.mjs?v=workbench-3-mode-boundaries-1";

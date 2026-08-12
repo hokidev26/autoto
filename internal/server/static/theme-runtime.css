@@ -241,7 +241,7 @@ body.white-shell[data-autoto-theme] :is(.settings-provider-section, .settings-pa
   box-shadow: var(--ws-shadow);
 }
 
-body.white-shell[data-autoto-theme] :is(.message-input, .overview-launcher-input, .sidebar-search, .legacy-settings-search, .settings-field, .terminal-command-input, .model-pill, .effort-pill, .message-mode-toggle) {
+body.white-shell[data-autoto-theme] :is(.message-input, .overview-launcher-card, .sidebar-search, .legacy-settings-search, .settings-field, .terminal-command-input, .model-pill, .effort-pill, .message-mode-toggle) {
   border-color: var(--ws-border);
   background: var(--ws-input);
   color: var(--ws-text);

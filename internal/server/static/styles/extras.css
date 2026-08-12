@@ -1907,7 +1907,7 @@ body.white-shell.theme-light.theme-dark #settingsContentBody .compact-settings-s
 }
 
 
-/* Desktop home: a direct launcher followed by compact work statistics. */
+/* Desktop home: a centred greeting and composer card, then the usage heatmap. */
 .overview-dashboard-page {
   min-width: 0;
   min-height: 0;
@@ -1932,12 +1932,12 @@ body.white-shell.theme-light:not(.workbench-mode):not(.schedule-mode):not(.overv
   font-size: 13px;
 }
 .overview-dashboard {
-  width: min(1120px, 100%);
+  width: min(880px, 100%);
   min-width: 0;
   display: grid;
-  gap: 20px;
+  gap: 18px;
   margin: 0 auto;
-  padding: clamp(38px, 6vh, 72px) clamp(22px, 4vw, 54px) 64px;
+  padding: clamp(20px, 4vh, 44px) clamp(22px, 4vw, 54px) 64px;
 }
 .overview-dashboard-header > div { min-width: 0; display: grid; gap: 3px; }
 .overview-dashboard-header h2 { margin: 0; color: var(--ws-text, #20263a); font-size: 16px; line-height: 1.25; }
@@ -1951,8 +1951,6 @@ body.white-shell.theme-light:not(.workbench-mode):not(.schedule-mode):not(.overv
 .overview-link:not(:disabled):hover { border-color: #5369f3; background: #eef1ff; color: #4057c8; transform: translateY(-1px); }
 .overview-refresh:focus-visible,
 .overview-link:focus-visible,
-.overview-stat:focus-visible,
-.overview-list-item:focus-visible,
 .overview-launcher-directory:focus-visible,
 .overview-launcher-send:focus-visible,
 .overview-launcher-suggestion:focus-visible,
@@ -1962,87 +1960,99 @@ body.white-shell.theme-light:not(.workbench-mode):not(.schedule-mode):not(.overv
    here drew a hard-cornered rectangle inside the rounded card on every click.
    The card carries the focus state instead (see .overview-launcher-form
    :focus-within below), and the caret already marks the field as active. */
+/* Claude-style home: greeting and composer form one centred group with air
+   above it, so the page opens on the question instead of on data. */
+.overview-home-center {
+  width: 100%;
+  display: grid;
+  justify-items: center;
+  gap: 26px;
+  padding-top: clamp(28px, 12vh, 130px);
+  margin-bottom: clamp(18px, 5vh, 46px);
+}
 .overview-hero-root {
   width: min(900px, 100%);
   display: grid;
   justify-items: center;
   gap: 13px;
-  margin: 0 auto 6px;
+  margin: 0 auto;
 }
 .overview-launcher-root {
-  width: min(900px, 100%);
+  width: min(720px, 100%);
   min-width: 0;
   display: grid;
   justify-items: center;
-  gap: 13px;
-  margin: 10px auto 0;
-  padding-top: 2px;
+  gap: 16px;
+  margin: 0 auto;
 }
 .overview-hero-copy { display: grid; justify-items: center; gap: 7px; text-align: center; }
 .overview-hero-heading { display: flex; align-items: center; justify-content: center; gap: 12px; }
 .overview-hero-mark { width: 38px; height: 38px; display: grid; place-items: center; color: #435cff; }
 .overview-hero-mark svg { width: 100%; height: 100%; fill: none; stroke: currentColor; stroke-width: 2.15; stroke-linecap: round; stroke-linejoin: round; }
 .overview-hero-title { margin: 0; color: var(--ws-text, #20263a); font-size: clamp(30px, 4vw, 46px); font-weight: 620; letter-spacing: -.035em; line-height: 1.08; }
-/* The launcher is the conversation composer seen on the home page, so it is
-   built the same way rather than as a card: a settings toolbar on top, then one
-   input row that owns the frame with the send button sitting inside it. The
-   frame belongs to the textarea (not to a wrapper) because that is what makes
-   the grey field, its focus ring and the button inset read identically on both
-   surfaces. Values mirror .message-input / .composer-send-btn in workbench.css
-   and white-shell.css. */
 .overview-launcher-form {
   width: 100%;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 12px;
   border: 0;
   border-radius: 0;
   background: transparent;
   padding: 0;
   box-shadow: none;
 }
-.overview-launcher-input-shell { min-width: 0; display: flex; align-items: center; gap: 6px; }
+/* One rounded card owns the whole composer -- textarea on top, toolbar along
+   the bottom edge -- so the surface reads like the reference launcher rather
+   than a form. The card carries the focus ring for the borderless textarea. */
+.overview-launcher-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  border: 1px solid var(--ws-border, #e1e5ea);
+  border-radius: 18px;
+  background: var(--ws-card, #fff);
+  padding: 12px 12px 10px;
+  box-shadow: 0 10px 34px rgba(31, 40, 70, .07);
+  transition: border-color .16s ease, box-shadow .16s ease;
+}
+.overview-launcher-card:focus-within {
+  border-color: rgba(79, 110, 247, .45);
+  box-shadow: 0 10px 34px rgba(31, 40, 70, .07), 0 0 0 3px rgba(79, 110, 247, .10);
+}
 .overview-launcher-input {
   width: 100%;
-  flex: 1 1 auto;
   min-width: 0;
-  min-height: 36px;
-  max-height: 132px;
-  border: 1px solid var(--ws-border, #e1e5ea);
-  border-radius: 7px;
+  min-height: 44px;
+  max-height: 200px;
+  border: 0;
+  border-radius: 0;
   outline: 0;
   resize: none;
-  background: var(--ws-input, #f0f2f5);
+  background: transparent;
   color: var(--ws-text, #20263a);
-  padding: 5.5px 12px;
+  padding: 2px 4px;
   font: inherit;
   font-size: 15px;
-  line-height: 1.4;
-  transition: border-color .16s ease, box-shadow .16s ease, background-color .16s ease;
-}
-.overview-launcher-input:focus {
-  border-color: rgba(79, 110, 247, .45);
-  background: var(--ws-card, #fff);
-  box-shadow: 0 0 0 3px rgba(79, 110, 247, .10);
+  line-height: 1.45;
 }
 .overview-launcher-input::placeholder { color: color-mix(in srgb, var(--ws-muted, #747e90) 78%, transparent); }
 .overview-launcher-input:disabled { cursor: wait; opacity: .68; }
-/* order:-1 is how the composer puts its toolbar above the input while keeping
-   the input first in the DOM, so keyboard and screen-reader order still reach
-   the field before its settings. The pills sit at the row's right edge, out of
-   the way of the reading path from the greeting down into the input. */
-.overview-launcher-controls { order: -1; min-width: 0; min-height: 30px; display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 6px; }
+.overview-launcher-toolbar { min-width: 0; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 6px; }
+.overview-launcher-toolbar-group { min-width: 0; display: inline-flex; align-items: center; flex-wrap: wrap; gap: 6px; }
+/* Quiet pills inside the card: no frame of their own until hovered, so the
+   toolbar reads as labels rather than as a row of form fields. */
 .overview-launcher-field {
   min-width: 0;
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  border: 1px solid var(--ws-border, #dfe3e9);
-  border-radius: 10px;
-  background: color-mix(in srgb, var(--ws-canvas, #f8fafc) 62%, var(--ws-card, #fff));
-  padding: 5px 8px;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  background: transparent;
+  padding: 3px 4px;
+  transition: background-color .16s ease, border-color .16s ease;
 }
-.overview-launcher-controls > .overview-launcher-field:not(.overview-launcher-custom-field) { flex: 1 1 170px; }
+.overview-launcher-field:hover { background: color-mix(in srgb, var(--ws-canvas, #f8fafc) 78%, var(--ws-card, #fff)); border-color: var(--ws-border, #e6e9ee); }
 .overview-launcher-label { flex: 0 0 auto; color: var(--ws-muted, #747e90); font-size: 10px; font-weight: 690; white-space: nowrap; }
 .overview-launcher-select {
   min-width: 0;
@@ -2057,7 +2067,6 @@ body.white-shell.theme-light:not(.workbench-mode):not(.schedule-mode):not(.overv
   font-weight: 650;
   cursor: pointer;
 }
-.overview-launcher-controls > .overview-launcher-field:not(.overview-launcher-custom-field) .overview-launcher-select { width: 100%; max-width: none; }
 .overview-launcher-select:disabled { cursor: not-allowed; opacity: .58; }
 body.white-shell.theme-light .overview-launcher-custom-field { gap: 4px; padding-right: 4px; }
 body.white-shell.theme-light .overview-launcher-custom-select {
@@ -2084,9 +2093,11 @@ body.white-shell.theme-light .overview-launcher-select-trigger {
 }
 body.white-shell.theme-light .overview-launcher-select-trigger[aria-expanded="true"] { color: var(--ws-primary, #5369f3); }
 body.white-shell.theme-light .overview-launcher-select-trigger .composer-select-chevron { display: inline-flex; }
+/* The composer sits near the top of the page now, so menus drop below their
+   trigger instead of rising above it. */
 .overview-launcher-select-popover {
   position: absolute;
-  inset: auto 0 calc(100% + 9px) auto;
+  inset: calc(100% + 9px) 0 auto auto;
   width: max(190px, 100%);
   max-width: min(360px, calc(100vw - 32px));
   max-height: min(420px, calc(100vh - 40px));
@@ -2097,127 +2108,74 @@ body.white-shell.theme-light .overview-launcher-select-trigger .composer-select-
    sets is too narrow to read; the trigger still ellipsises, the menu does not
    have to. */
 .overview-launcher-select-popover[data-overview-launcher-popover="projectId"] { width: min(340px, calc(100vw - 32px)); }
-/* Sized to the toolbar row it now shares with the pills, so the launcher
-   toolbar keeps the composer toolbar's 30px rhythm. */
-.overview-launcher-directory,
-.overview-launcher-suggestion {
-  min-height: 28px;
-  border: 1px solid var(--ws-border, #dfe3e9);
-  border-radius: 10px;
-  background: var(--ws-card, #fff);
-  color: var(--ws-text, #20263a);
-  padding: 6px 11px;
-  font: inherit;
-  font-size: 11px;
-  font-weight: 640;
-  cursor: pointer;
-  box-shadow: 0 2px 7px rgba(31, 40, 70, .04);
-  transition: border-color .16s ease, color .16s ease, transform .16s ease, box-shadow .16s ease;
-}
-.overview-launcher-directory:hover,
-.overview-launcher-suggestion:hover { border-color: color-mix(in srgb, #5369f3 48%, var(--ws-border, #dfe3e9)); color: #4057c8; box-shadow: 0 5px 14px rgba(48, 64, 120, .09); transform: translateY(-1px); }
-/* The directory button sits in the same toolbar row as the three pills, so it
-   takes their 38px outer height (26px pill + the field's 5px padding and 1px
-   border on each side) instead of the 28px it inherited from the suggestion
-   chips, which live in a different row. */
-body.white-shell.theme-light .overview-launcher-directory {
-  min-height: 38px;
+/* Icon-only folder button beside the project pill. */
+.overview-launcher-directory {
+  width: 30px;
+  height: 30px;
   display: inline-flex;
   align-items: center;
-  padding: 0 11px;
+  justify-content: center;
+  flex: none;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--ws-muted, #747e90);
+  padding: 0;
+  cursor: pointer;
+  transition: background-color .16s ease, color .16s ease, border-color .16s ease;
 }
-/* Beside the field, matching its height, exactly as #sendMessageBtn sits next to
-   the composer textarea on desktop. The button shows its label rather than the
-   icon, which is what makes the two surfaces read the same. */
+.overview-launcher-directory:hover { background: color-mix(in srgb, var(--ws-canvas, #f8fafc) 78%, var(--ws-card, #fff)); border-color: var(--ws-border, #e6e9ee); color: #4057c8; }
+.overview-launcher-directory svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; }
+/* Round send button in the toolbar's right corner, icon only. */
 .overview-launcher-send {
-  width: 56px;
-  min-width: 56px;
-  height: 36px;
-  min-height: 36px;
-  flex: 0 0 56px;
+  width: 34px;
+  height: 34px;
+  min-width: 34px;
+  min-height: 34px;
+  flex: none;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   border: 0;
-  border-radius: 7px;
+  border-radius: 999px;
   /* Literal rather than var(--ws-primary): this is the value the composer's send
      button resolves to on an unthemed install, and matching it is the point.
      Themed installs re-point both buttons together in theme-runtime.css. */
   background: #5472f7;
   color: #ffffff;
-  padding: 0 8px;
-  font-size: 13px;
+  padding: 0;
   line-height: 1;
   cursor: pointer;
   transition: background .16s ease, box-shadow .16s ease;
 }
-.overview-launcher-send:hover:not(:disabled) { background: #5873f0; }
+.overview-launcher-send:hover:not(:disabled) { background: #5873f0; box-shadow: 0 4px 12px rgba(84, 114, 247, .35); }
 .overview-launcher-send:disabled { cursor: not-allowed; opacity: .58; }
-/* The icon was for the round button; the labelled button carries the wording. */
-.overview-launcher-send svg { display: none; }
-.overview-launcher-send-label { font-size: 13px; font-weight: 650; }
-/* "Starting…" is longer than "Send", so the button is allowed to grow for it
-   instead of clipping the word. */
-.overview-launcher-send[aria-busy="true"] {
-  width: auto;
-  min-width: 92px;
-  flex: 0 0 auto;
-  cursor: wait;
-  opacity: .72;
-}
+.overview-launcher-send svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }
+.overview-launcher-send[aria-busy="true"] { cursor: wait; opacity: .72; }
 .overview-launcher-error { margin: 0 2px; color: #b63838; font-size: 11px; line-height: 1.45; }
-/* The conversation list is the page's real content and takes the wide column;
-   the stat card and the (usually short) schedule list stack in the side column
-   so the right half of the page is not one mostly-empty card. Stretching the
-   columns and growing the last side card keeps the two column bottoms level. */
-.overview-columns { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); gap: 11px; align-items: stretch; }
-.overview-side-column { min-width: 0; display: flex; flex-direction: column; gap: 11px; }
-.overview-side-column > .overview-list-section:last-child { flex: 1 1 auto; }
-
-/* One clickable stat row per surface: label left, number right. A zero is
-   muted so the eye lands on live numbers. */
-.overview-stats-rows { display: grid; gap: 1px; padding: 5px 8px 8px; }
-.overview-stat {
-  width: 100%;
-  min-width: 0;
-  display: flex;
+/* Suggestion chips under the card: rounded openers with a small icon. */
+.overview-launcher-suggestions { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 8px; }
+.overview-launcher-suggestion {
+  min-height: 32px;
+  display: inline-flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 9px;
-  padding: 8px 9px;
-  border: 0;
-  border-radius: 9px;
-  background: transparent;
-  color: inherit;
-  text-align: left;
+  gap: 7px;
+  border: 1px solid var(--ws-border, #dfe3e9);
+  border-radius: 999px;
+  background: var(--ws-card, #fff);
+  color: var(--ws-text, #20263a);
+  padding: 6px 14px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 620;
   cursor: pointer;
+  box-shadow: 0 2px 7px rgba(31, 40, 70, .04);
+  transition: border-color .16s ease, color .16s ease, transform .16s ease, box-shadow .16s ease;
 }
-.overview-stat:hover { background: color-mix(in srgb, #5369f3 9%, transparent); }
-.overview-stat-label { color: var(--ws-muted, #747e90); font-size: 12px; font-weight: 650; }
-.overview-stat-value { font-size: 15px; line-height: 1; font-variant-numeric: tabular-nums; }
-.overview-stat[data-zero="true"] .overview-stat-value { color: var(--ws-muted, #747e90); font-weight: 600; }
-
-/* The two resume lists: recent conversations and upcoming schedules. Each row
-   is one button so the whole line is the click target. */
-.overview-list { margin: 0; padding: 5px 8px 8px; list-style: none; display: grid; gap: 1px; }
-.overview-list-item {
-  width: 100%;
-  min-width: 0;
-  display: grid;
-  gap: 2px;
-  padding: 7px 9px;
-  border: 0;
-  border-radius: 9px;
-  background: transparent;
-  color: inherit;
-  text-align: left;
-  cursor: pointer;
-}
-.overview-list-item:hover { background: color-mix(in srgb, #5369f3 9%, transparent); }
-.overview-list-item-title { overflow: hidden; font-size: 12.5px; font-weight: 600; white-space: nowrap; text-overflow: ellipsis; }
-.overview-list-item-meta { overflow: hidden; color: var(--ws-muted, #747e90); font-size: 10.5px; white-space: nowrap; text-overflow: ellipsis; }
-.overview-list-empty { margin: 0; padding: 12px 15px 16px; color: var(--ws-muted, #747e90); font-size: 11.5px; }
-
+.overview-launcher-suggestion svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; color: var(--ws-muted, #747e90); }
+.overview-launcher-suggestion:hover { border-color: color-mix(in srgb, #5369f3 48%, var(--ws-border, #dfe3e9)); color: #4057c8; box-shadow: 0 5px 14px rgba(48, 64, 120, .09); transform: translateY(-1px); }
+.overview-launcher-suggestion:hover svg { color: inherit; }
+.overview-launcher-suggestion:disabled { cursor: wait; opacity: .6; transform: none; }
 .overview-section {
   min-width: 0;
   overflow: hidden;
@@ -2334,41 +2292,30 @@ body.white-shell.theme-light .overview-launcher-directory {
     display: flex !important;
   }
 }
-@media (max-width: 1120px) {
-  .overview-columns { grid-template-columns: minmax(0, 1fr); }
-}
 @media (max-width: 900px) {
   .overview-dashboard { padding-inline: 24px; }
-  .overview-launcher-controls > .overview-launcher-field:not(.overview-launcher-custom-field) { flex: 1 1 100%; }
   .overview-launcher-select { width: 100%; max-width: none; }
 }
 @media (max-width: 767px) {
   body.white-shell.theme-light .overview-dashboard-page { display: none !important; }
 }
 body.white-shell.theme-light.theme-dark .overview-dashboard-page { background: var(--ws-canvas); color: var(--ws-text); }
-body.white-shell.theme-light.theme-dark :is(.overview-section, .overview-refresh, .overview-link, .overview-launcher-directory, .overview-launcher-suggestion) { border-color: var(--ws-border); background: var(--ws-card); color: var(--ws-text); box-shadow: none; }
-body.white-shell.theme-light.theme-dark .overview-stat { background: transparent; color: var(--ws-text); }
-body.white-shell.theme-light.theme-dark .overview-launcher-field { border-color: var(--ws-border); background: color-mix(in srgb, var(--ws-canvas) 64%, var(--ws-card)); }
-/* Same dark treatment .message-input gets, so the field keeps reading as an
-   input under the dark presets instead of blending into the page. Note the dark
-   field keeps its own background on focus rather than turning white, which is
-   also what the composer does. */
+body.white-shell.theme-light.theme-dark :is(.overview-section, .overview-refresh, .overview-link, .overview-launcher-card, .overview-launcher-suggestion) { border-color: var(--ws-border); background: var(--ws-card); color: var(--ws-text); box-shadow: none; }
+/* Card and pills stay quiet in dark too: the textarea is borderless inside the
+   card, so only the card itself carries the frame and the focus ring. */
+body.white-shell.theme-light.theme-dark .overview-launcher-card:focus-within {
+  border-color: color-mix(in srgb, var(--ws-primary) 62%, var(--ws-border));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ws-primary) 40%, transparent);
+}
+body.white-shell.theme-light.theme-dark .overview-launcher-field { border-color: transparent; background: transparent; }
+body.white-shell.theme-light.theme-dark :is(.overview-launcher-field:hover, .overview-launcher-directory:hover) { border-color: var(--ws-border); background: color-mix(in srgb, var(--ws-canvas) 64%, var(--ws-card)); }
 body.white-shell.theme-light.theme-dark .overview-launcher-input,
 body.white-shell.theme-light.theme-dark .overview-launcher-input:focus {
-  background: var(--ws-input);
+  background: transparent;
   color: var(--ws-text);
 }
-/* Focus ring spelled out at this specificity because the theme-dark selectors it
-   has to outrank for border-color are (0,4,1). */
-body.white-shell .overview-launcher-input:focus,
-body.white-shell.theme-light.theme-dark .overview-launcher-input:focus {
-  border-color: color-mix(in srgb, var(--ws-primary) 62%, var(--ws-border));
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ws-primary) 45%, transparent);
-}
-body.white-shell.theme-light.theme-dark .overview-launcher-input { border-color: var(--ws-border); }
 body.white-shell.theme-light.theme-dark :is(.overview-hero-title, .overview-launcher-input, .overview-launcher-select) { color: var(--ws-text); }
-body.white-shell.theme-light.theme-dark :is(.overview-refresh:not(:disabled):hover, .overview-link:not(:disabled):hover, .overview-launcher-directory:hover, .overview-launcher-suggestion:hover) { border-color: #8fa4ff; background: color-mix(in srgb, #5369f3 18%, var(--ws-card)); color: #b7c3ff; }
-body.white-shell.theme-light.theme-dark :is(.overview-list-item:hover, .overview-stat:hover) { background: color-mix(in srgb, #5369f3 22%, transparent); }
+body.white-shell.theme-light.theme-dark :is(.overview-refresh:not(:disabled):hover, .overview-link:not(:disabled):hover, .overview-launcher-suggestion:hover) { border-color: #8fa4ff; background: color-mix(in srgb, #5369f3 18%, var(--ws-card)); color: #b7c3ff; }
 body.white-shell.theme-light.theme-dark .overview-refresh.primary,
 body.white-shell.theme-light.theme-dark .overview-launcher-send { border-color: #7589ff; background: #6175e8; color: #fff; }
 body.white-shell.theme-light.theme-dark .overview-section-header { border-color: var(--ws-border); }
@@ -2388,7 +2335,8 @@ body.white-shell.theme-light.theme-dark .overview-inline-error { border-color: c
 @media (prefers-reduced-motion: reduce) {
   .overview-refresh,
   .overview-link,
-  .overview-stat,
+  .overview-launcher-card,
+  .overview-launcher-field,
   .overview-launcher-input,
   .overview-launcher-directory,
   .overview-launcher-suggestion,

@@ -256,45 +256,46 @@ test("desktop home overview stays available while mobile starts in conversation"
   assert.match(html, /id="schedulePanel" class="schedule-workspace-panel hidden"/);
   assert.match(appMain, /function openOverviewSchedules\(id = ""\)[\s\S]*?scheduleWorkspace\.load[\s\S]*?switchPrimaryWorkbench\("schedules"\)[\s\S]*?scheduleWorkspace\.select/);
   assert.doesNotMatch(appMain, /function openOverviewSchedules\(id = ""\)[\s\S]*?openSettingsModal\("im-gateway"\)/);
-  assert.match(styles, /Desktop home: a direct launcher followed by compact work statistics/);
+  assert.match(styles, /Desktop home: a centred greeting and composer card, then the usage heatmap/);
   assert.match(styles, /\.overview-dashboard-page\s*\{[\s\S]*?overflow:\s*auto/);
   assert.match(styles, /\.overview-hero-root\s*\{[\s\S]*?width:\s*min\(900px, 100%\)/);
-  // The launcher is the composer on the home page: the frame belongs to the
-  // textarea rather than to a card around it, and it reuses the composer's own
-  // desktop measurements so the two surfaces read as one control. These are
-  // matched against the rule body only ([^}]*), because a lazy [\s\S]*? happily
-  // runs past the closing brace and finds the value in some unrelated rule.
+  // The home composer is one rounded card: the frame and the focus ring belong
+  // to the card, the textarea inside it is borderless, and the toolbar shares
+  // the card's bottom edge. Matched against the rule body only ([^}]*), because
+  // a lazy [\s\S]*? happily runs past the closing brace and finds the value in
+  // some unrelated rule.
   const launcherRule = (selector) => new RegExp(`\\${selector}\\s*\\{[^}]*`);
   const launcherBody = (selector) => styles.match(launcherRule(selector))?.[0] || "";
   const launcherFormBody = launcherBody(".overview-launcher-form");
   assert.match(launcherFormBody, /box-shadow:\s*none/);
   assert.match(launcherFormBody, /border:\s*0/);
-  assert.doesNotMatch(launcherFormBody, /border-radius:\s*23px/);
-  // Values below are the composer's desktop values (workbench.css, the
-  // >=768px block): textarea#messageText and #sendMessageBtn.
+  const launcherCardBody = launcherBody(".overview-launcher-card");
+  assert.match(launcherCardBody, /border-radius:\s*18px/);
+  assert.match(launcherCardBody, /background:\s*var\(--ws-card/);
+  assert.match(styles, /\.overview-launcher-card:focus-within\s*\{[^}]*border-color/);
   const launcherInputBody = launcherBody(".overview-launcher-input");
-  assert.match(launcherInputBody, /border-radius:\s*7px/);
-  assert.match(launcherInputBody, /min-height:\s*36px/);
-  assert.match(launcherInputBody, /max-height:\s*132px/);
-  assert.match(launcherInputBody, /padding:\s*5\.5px 12px/);
-  assert.match(launcherInputBody, /background:\s*var\(--ws-input/);
-  // Controls sit above the field, as .composer-toolbar does.
-  assert.match(launcherBody(".overview-launcher-controls"), /order:\s*-1/);
-  // The send button sits beside the field at the same height, not inside it.
+  assert.match(launcherInputBody, /border:\s*0/);
+  assert.match(launcherInputBody, /background:\s*transparent/);
+  assert.match(launcherInputBody, /max-height:\s*200px/);
+  // The toolbar splits into a workspace group left and a model group right.
+  assert.match(launcherBody(".overview-launcher-toolbar"), /justify-content:\s*space-between/);
+  // The send button is a round icon control inside the card's toolbar.
   const launcherSendBody = launcherBody(".overview-launcher-send");
-  assert.match(launcherSendBody, /width:\s*56px/);
-  assert.match(launcherSendBody, /height:\s*36px/);
-  assert.match(launcherSendBody, /border-radius:\s*7px/);
+  assert.match(launcherSendBody, /width:\s*34px/);
+  assert.match(launcherSendBody, /height:\s*34px/);
+  assert.match(launcherSendBody, /border-radius:\s*999px/);
   assert.doesNotMatch(launcherSendBody, /position:\s*absolute/);
-  // Themed installs must re-point both send buttons and both fields together.
+  // Suggestion chips centre under the card.
+  assert.match(launcherBody(".overview-launcher-suggestions"), /justify-content:\s*center/);
+  // Themed installs must re-point both send buttons together, and the themed
+  // input treatment lands on the card (the textarea inside stays transparent).
   assert.match(themeRuntime, /\.composer-send-btn,\s*\.overview-launcher-send/);
-  assert.match(themeRuntime, /\.message-input,\s*\.overview-launcher-input/);
+  assert.match(themeRuntime, /\.message-input,\s*\.overview-launcher-card/);
   assert.doesNotMatch(overviewDashboard, /overview-launcher-project-row/);
   assert.doesNotMatch(styles, /\.overview-launcher-mode(?:-group)?/);
   assert.doesNotMatch(overviewDashboard, /data-overview-launcher-(?:action="mode"|mode=)/);
-  assert.match(styles, /\.overview-columns\s*\{[\s\S]*?minmax\(0, 1\.6fr\) minmax\(0, 1fr\)/);
-  assert.match(styles, /\.overview-side-column\s*\{[\s\S]*?flex-direction:\s*column/);
-  assert.match(styles, /\.overview-launcher-controls\s*\{[\s\S]*?justify-content:\s*flex-end/);
+  // The stat columns and resume lists left with the redesign.
+  assert.doesNotMatch(styles, /\.overview-columns|\.overview-side-column|\.overview-stats-rows/);
   assert.match(styles, /overview-mode :is\(#conversationPanel, #workbenchPanel, #schedulePanel\)[\s\S]*?display:\s*none !important/);
   assert.match(styles, /not\(\.overview-mode\) #overviewDashboard[\s\S]*?display:\s*none !important/);
   assert.match(styles, /@media \(max-width:\s*767px\)\s*\{\s*body\.white-shell\.theme-light \.overview-dashboard-page\s*\{\s*display:\s*none !important;/);

@@ -220,7 +220,7 @@ test("render escapes visible launcher context and state", () => {
   assert.match(html, /value="&quot;&gt;&lt;img/);
 });
 
-test("the resume lists render the capped conversations and schedules but not tasks or runs", () => {
+test("normalization still caps the payload lists even though none render", () => {
   const make = (count, prefix, mapper) => Array.from({ length: count }, (_, index) => mapper(index, `${prefix}-${index}`));
   const normalized = normalizeOverviewPayload(overview({
     recentConversations: make(20, "conversation", (index, id) => ({ id, title: `Conversation ${index}` })),
@@ -233,21 +233,15 @@ test("the resume lists render the capped conversations and schedules but not tas
   assert.equal(normalized.activeRuns.length, 6);
   assert.equal(normalized.upcomingSchedules.length, 8);
 
+  // The minimal home renders none of the payload rows: the composer and the
+  // heatmap are the whole page.
   const html = renderOverviewDashboard(normalized);
-  // The rendered rows are exactly the capped list, each opening its entity.
-  assert.equal((html.match(/data-overview-action="open-conversation"/g) || []).length, 8);
-  assert.equal((html.match(/data-overview-action="open-schedule"/g) || []).length, 8);
-  assert.match(html, /Conversation 0/);
-  assert.match(html, /Schedule 7/);
-  assert.doesNotMatch(html, /Conversation 8|Schedule 8/);
-  // Tasks and runs stay stat-only: their surfaces are one click away and their
-  // titles add nothing the stat numbers do not already say.
-  assert.doesNotMatch(html, /Task 0|Run 0|data-overview-action="open-task"|data-overview-action="open-run"/);
+  assert.doesNotMatch(html, /Conversation 0|Schedule 0|Task 0|Run 0/);
+  assert.doesNotMatch(html, /data-overview-action="open-(?:conversation|schedule|task|run)"/);
 });
 
-test("render orders hero, the list-and-stats columns, heatmap, then the composer", () => {
+test("render centres the hero and composer, then the heatmap; stats and lists are gone", () => {
   const html = renderOverviewDashboard(overview(), {
-    formatDateTime: (value) => `date:${value}`,
     launcherContext: {
       displayName: "Ray",
       hour: 14,
@@ -259,69 +253,38 @@ test("render orders hero, the list-and-stats columns, heatmap, then the composer
     },
     launcherOpenSelect: "model",
   });
-  assert.equal((html.match(/class="overview-stat"/g) || []).length, 4);
-  // Every fixture stat is non-zero; nothing here should be muted.
-  assert.doesNotMatch(html, /data-zero="true"/);
-  // An all-zero summary mutes all four numbers so live figures stand out.
-  assert.equal((renderOverviewDashboard(overview({ summary: {} })).match(/data-zero="true"/g) || []).length, 4);
   assert.match(html, /data-overview-launcher/);
   assert.match(html, /下午好，Ray/);
+  assert.match(html, /class="overview-home-center"/);
+  assert.match(html, /class="overview-launcher-card"/);
+  assert.match(html, /class="overview-launcher-toolbar"/);
   assert.match(html, /class="overview-launcher-input"/);
   assert.match(html, /data-overview-section="activity"/);
-  // Greeting, then the two-column block (conversations wide, stats and
-  // schedules stacked beside them), the heatmap, and the composer resting at
-  // the bottom of the page.
-  assert.ok(html.indexOf("overview-launcher-hero") < html.indexOf("overview-columns"));
-  assert.ok(html.indexOf('data-overview-section="recent-conversations"') < html.indexOf("overview-side-column"));
-  assert.ok(html.indexOf("overview-side-column") < html.indexOf('data-overview-section="stats"'));
-  assert.ok(html.indexOf('data-overview-section="stats"') < html.indexOf('data-overview-section="upcoming-schedules"'));
-  assert.ok(html.indexOf('data-overview-section="upcoming-schedules"') < html.indexOf('data-overview-section="activity"'));
-  assert.ok(html.indexOf('data-overview-section="activity"') < html.indexOf("data-overview-launcher>"));
-  // The lists carry the fixture rows with the host's date formatting.
-  assert.match(html, /data-overview-action="open-conversation" data-overview-id="conversation-1"/);
-  assert.match(html, /Release plan/);
-  assert.match(html, /Autoto · date:2026-07-19T11:00:00Z/);
-  assert.match(html, /data-overview-action="open-schedule" data-overview-id="schedule-1"/);
-  assert.match(html, /Nightly tests/);
-  assert.match(html, /下次执行 date:2026-07-20T00:00:00Z · Tester/);
+  // Greeting, then the composer card with its suggestion chips, and only then
+  // the heatmap: the page opens on the question, not on data.
+  assert.ok(html.indexOf("overview-launcher-hero") < html.indexOf("data-overview-launcher>"));
+  assert.ok(html.indexOf("data-overview-launcher>") < html.indexOf("overview-launcher-suggestions"));
+  assert.ok(html.indexOf("overview-launcher-suggestions") < html.indexOf('data-overview-section="activity"'));
+  // All four suggestion chips render as launcher actions.
+  assert.equal((html.match(/data-overview-launcher-action="suggestion"/g) || []).length, 4);
+  for (const name of ["write", "fix", "plan", "explain"]) {
+    assert.match(html, new RegExp(`data-overview-launcher-suggestion="${name}"`));
+  }
+  // The toolbar keeps the folder picker and the icon send button inside the card.
+  assert.match(html, /data-overview-launcher-action="choose-directory"/);
+  assert.match(html, /data-overview-launcher-action="submit"/);
   assert.match(html, /class="overview-launcher-select-trigger composer-select-trigger"[^>]*data-overview-launcher-select="model"/);
   assert.match(html, /class="composer-select-popover overview-launcher-select-popover composer-model-popover"/);
   assert.match(html, /class="composer-model-group-heading"[^>]*>OpenAI</);
   assert.match(html, /class="composer-select-option composer-model-option"[^>]*aria-selected="true"/);
-  for (const action of ["conversation", "tasks", "runs", "schedules"]) {
-    assert.match(html, new RegExp(`data-overview-action="${action}"`));
-  }
   assert.doesNotMatch(html, /<main\b/i);
   assert.match(html, /id="overviewDashboardTitle"/);
   assert.match(html, /class="overview-live-region sr-only" role="status" aria-live="polite" aria-atomic="true"/);
-  assert.doesNotMatch(html, /overview-(?:hero-subtitle|dashboard-header|launcher-suggestions)|data-overview-action="refresh"/);
-  assert.doesNotMatch(html, /data-overview-section="(?:continue-working|in-progress|pending)"/);
-  assert.doesNotMatch(html, /继续工作|正在进行|待处理提示/);
-  assert.doesNotMatch(html, /data-overview-action="(?:approvals|open-task|open-run)"/);
-});
-
-test("resume lists fall back to placeholders for empty data and untitled rows", () => {
-  const empty = renderOverviewDashboard(overview({ recentConversations: [], upcomingSchedules: [] }));
-  assert.match(empty, /还没有对话。在上方输入需求，开始第一个。/);
-  assert.match(empty, /目前没有排定的执行。/);
-  assert.doesNotMatch(empty, /data-overview-action="open-conversation"|data-overview-action="open-schedule"/);
-
-  const untitled = renderOverviewDashboard(overview({
-    recentConversations: [{ id: "conversation-9" }],
-    upcomingSchedules: [{ id: "schedule-9", agentTitle: "Tester" }],
-  }));
-  assert.match(untitled, /未命名会话/);
-  // A schedule without a name borrows its agent title; without nextRunAt the
-  // meta line simply omits the next-run part.
-  assert.match(untitled, /data-overview-id="schedule-9"[\s\S]*?Tester/);
-  assert.doesNotMatch(untitled, /下次执行/);
-
-  // Rows without ids cannot navigate anywhere and are dropped, not rendered.
-  const idless = renderOverviewDashboard(overview({
-    recentConversations: [{ title: "ghost" }],
-    upcomingSchedules: [{ name: "ghost" }],
-  }));
-  assert.doesNotMatch(idless, /ghost/);
+  // The stat rows, resume lists, and their sections no longer exist.
+  assert.doesNotMatch(html, /class="overview-stat"|overview-columns|overview-side-column|overview-list/);
+  assert.doesNotMatch(html, /data-overview-section="(?:stats|recent-conversations|upcoming-schedules)"/);
+  assert.doesNotMatch(html, /data-overview-action=/);
+  assert.doesNotMatch(html, /overview-(?:hero-subtitle|dashboard-header)/);
 });
 
 test("render supports optional translation keys", () => {
@@ -330,25 +293,25 @@ test("render supports optional translation keys", () => {
     key: (name) => `home.${name}`,
     translate: (key, params) => {
       keys.push([key, params]);
-      return key === "home.title" ? "Custom title" : key;
+      return key === "home.activity" ? "Custom activity" : key;
     },
   });
-  assert.match(html, /aria-label="Custom title"/);
-  assert.ok(keys.some(([key]) => key === "home.tasks"));
+  assert.match(html, /<h2>Custom activity<\/h2>/);
+  assert.ok(keys.some(([key]) => key === "home.promptPlaceholder"));
 });
 
 test("translation fallback rejects missing keys and non-string translator output", () => {
   const html = renderOverviewDashboard(overview(), {
-    translate: (key) => key.endsWith(".title") ? { unsafe: true } : key,
+    translate: (key) => key.endsWith(".activity") ? { unsafe: true } : key,
   });
-  assert.match(html, /工作概览/);
+  assert.match(html, /使用热力图/);
   assert.doesNotMatch(html, /\[object Object\]/);
 
   const keyFailure = renderOverviewDashboard(overview(), {
     key: () => { throw new Error("bad key builder"); },
     translate: () => "unreachable",
   });
-  assert.match(keyFailure, /工作概览/);
+  assert.match(keyFailure, /使用热力图/);
 });
 
 test("controller reconciles launcher defaults and returns a safe launcher state copy", () => {
@@ -646,9 +609,6 @@ test("controller requests /api/overview, deduplicates ordinary loads, and discar
   assert.equal(state.status, "ready");
   assert.equal(state.payload.capturedAt, "new");
   assert.equal(state.payload.recentConversations[0].id, "new");
-  // The stale first response must not resurface in the rendered list.
-  assert.match(host.innerHTML, /New response/);
-  assert.doesNotMatch(host.innerHTML, /Old response/);
   // The heatmap rides along with every load but on its own request.
   assert.equal(activityPaths.length, 2);
   assert.match(activityPaths[0], /^\/api\/usage\/history\?bucket=day&tzOffset=-?\d+&from=\d{4}-\d{2}-\d{2}&to=\d{4}-\d{2}-\d{2}&limit=1$/);
@@ -944,7 +904,6 @@ test("activity heatmap renders escaped tooltips and a legend, and survives a fai
   assert.doesNotMatch(failed, /overview-heatmap-recent/);
   // The heatmap failing must not take the rest of the dashboard down.
   assert.match(failed, /data-overview-launcher/);
-  assert.equal((failed.match(/class="overview-stat"/g) || []).length, 4);
   assert.doesNotMatch(failed, /data-overview-state="error"/);
 
   const empty = renderOverviewDashboard(overview(), { today: "2026-07-26" });
