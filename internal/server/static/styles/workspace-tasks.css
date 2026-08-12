@@ -1604,7 +1604,13 @@ body.white-shell.theme-light.theme-dark .tool-activity-stack {
   --tool-activity-code: #101722;
 }
 
-@media (max-width: 760px) {
+/* The transcript column is user-resizable: docking a utility panel can squeeze
+   it to 360px while the window stays desktop-wide, and a viewport query never
+   saw that squeeze. Everything in the transcript that folds for phones should
+   fold against this container instead. */
+.messages { container-name: chat-transcript; container-type: inline-size; }
+
+@container chat-transcript (max-width: 760px) {
   .tool-activity-stack { width: 100%; gap: 8px; margin: 8px 0 14px; }
   .tool-activity-group { padding-left: 0; }
   /* Larger tap target: 44px min-height, bigger padding, readable font */
@@ -1789,7 +1795,7 @@ body.white-shell.theme-light .messages:not(.empty) > [class~="message"][class~="
 
 .tool-activity-load-more { justify-self: start; margin-top: 8px; }
 
-@media (max-width: 760px) {
+@container chat-transcript (max-width: 760px) {
   body.white-shell.theme-light .messages:not(.empty) > [class~="message"][class~="user"][class~="chat-flow-left"] {
     width: fit-content;
     max-width: 92%;
@@ -1950,7 +1956,7 @@ body.white-shell.theme-light .messages:not(.empty) > [class~="message"][class~="
   padding-block: 6px;
 }
 
-@media (max-width: 760px) {
+@container chat-transcript (max-width: 760px) {
   .subagent-task-card .tool-activity-head {
     min-height: 52px;
     grid-template-columns: 26px minmax(0, 1fr);
@@ -2036,7 +2042,9 @@ body.white-shell.theme-light .messages:not(.empty) > [class~="message"][class~="
   flex: 1;
   min-height: 0;
   display: grid;
-  /* The tab strip is one fixed row; everything else belongs to the detail pane. */
+  /* The tab strip is one fixed row; everything else belongs to the detail pane.
+     No narrow-width override splits this 40/60: that ratio dated from the
+     stacked list-above-detail layout and would hand the strip 40% of the panel. */
   grid-template-rows: auto minmax(0, 1fr);
   overflow: hidden;
   /* Lets the detail pane's controls collapse against this panel's own width
@@ -2505,8 +2513,8 @@ body.white-shell.theme-light .messages:not(.empty) > [class~="message"][class~="
 .background-task-tray-grid .background-task-meta { flex-wrap: wrap; justify-content: flex-start; gap: 4px 12px; }
 .background-task-tray-grid .background-task-output { min-height: 64px; padding: 9px; font-size: 10.5px; }
 /* Same reasoning for the list above it: the status pill wraps under the title
-   instead of competing with it for the row, which is what the 480px rule
-   already did for phones. */
+   instead of competing with it for the row. This replaces a 480px viewport
+   rule that did the same thing for phones only. */
 .background-task-tray-grid .background-task-row { grid-template-columns: auto minmax(0, 1fr); }
 .background-task-tray-grid .background-task-row-state { grid-column: 2; justify-self: start; }
 /* --surface and --surface-subtle are not tokens this shell defines -- only
@@ -2524,17 +2532,12 @@ body.white-shell.theme-light .messages:not(.empty) > [class~="message"][class~="
 .conversation-continuation-grid > div { min-width: 0; display: grid; gap: 3px; padding: 8px; border-radius: 8px; background: color-mix(in srgb, var(--text, #111827) 5%, transparent); }
 .conversation-continuation-grid span { color: var(--muted, #64748b); font-size: 10px; }
 .conversation-continuation-grid strong { overflow-wrap: anywhere; color: var(--text, #111827); font-size: 11px; }
-@media (max-width: 760px) {
-  /* No row split to restore here: the strip is one auto row at every width and
-     the pane takes the rest. The old 40/60 override dated from the stacked
-     list-above-detail layout and would hand the tab strip 40% of the panel. */
-  .background-task-tabs { max-height: none; }
+/* The details panel this card lives in is user-resizable, so its width has
+   nothing to do with the window's. Sized against the panel, a narrow panel on a
+   wide screen folds to one column instead of squashing both values. */
+.conversation-details-body { container-name: conversation-details-panel; container-type: inline-size; }
+@container conversation-details-panel (max-width: 420px) {
   .conversation-continuation-grid { grid-template-columns: 1fr; }
-}
-
-@media (max-width: 480px) {
-  .background-task-row { grid-template-columns: auto minmax(0, 1fr); }
-  .background-task-row-state { grid-column: 2; justify-self: start; }
 }
 
 /* Remote access policy and one-time password controls. */

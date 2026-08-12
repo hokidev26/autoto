@@ -805,6 +805,11 @@ test("the task list is a one-row tab strip and the detail pane owns the rest", a
   assert.match(css, /\.background-task-tray-grid \{[^}]*container-type:\s*inline-size/);
   assert.match(css, /@container background-task-panel \(max-width: 420px\)/);
   assert.match(css, /@container background-task-panel \(max-width: 300px\)/);
+  // Continuation grid lives in the resizable details panel, not the task tray.
+  assert.match(css, /\.conversation-details-body \{[^}]*container-type:\s*inline-size/);
+  assert.match(css, /@container conversation-details-panel \(max-width: 420px\)/);
+  assert.doesNotMatch(css, /@media \(max-width: 760px\) \{[^}]*\.conversation-continuation-grid/);
+  assert.doesNotMatch(css, /@media \(max-width: 480px\) \{[^}]*\.background-task-row/);
 });
 
 // Selecting a tab now navigates too, which is what allowed the separate "open

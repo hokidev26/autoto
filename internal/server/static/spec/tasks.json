@@ -1,8 +1,8 @@
 {
   "tasks": [
-    { "text": "修复 ■ 在桌面显示：删除 extras.css 中 is-stop::before 和 font-size:0", "status": "doing" },
-    { "text": "添加 Markdown 表格解析到 renderMarkdownText", "status": "todo" },
-    { "text": "修复工具活动位置：fallback 插到最后一条 user 消息之后", "status": "todo" },
-    { "text": "重建 EXE 并运行测试", "status": "todo" }
+    { "text": "修复 ■ 在桌面显示：删除 extras.css 中 is-stop::before 和 font-size:0", "status": "done" },
+    { "text": "添加 Markdown 表格解析到 renderMarkdownText", "status": "done" },
+    { "text": "修复工具活动位置：fallback 插到最后一条 user 消息之后", "status": "done" },
+    { "text": "重建 EXE 并运行测试", "status": "done" }
   ]
 }

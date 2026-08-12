@@ -5,6 +5,14 @@ body.white-shell.theme-light .composer-wrap {
 }
 
 @media (min-width: 768px) {
+  /* workbench pins toolbar items to the top of the row. The controls are not
+     one height (30px icon buttons beside 32-34px pills depending on the
+     container tier), so top-alignment reads as a crooked rail: every glyph
+     sits on its own line. Centring gives them one optical centre instead. */
+  body.white-shell.theme-light .composer-toolbar {
+    align-items: center;
+  }
+
   body.white-shell.theme-light .composer-controls {
     align-items: center;
   }
@@ -247,8 +255,11 @@ body.white-shell.theme-light .composer-wrap {
       width: 100%;
       min-width: 0;
       max-width: none;
-      height: 32px;
-      min-height: 32px;
+      /* 30px, not 32px: the task-summary dot and context gauge on this row
+         are 30px, and the toolbar row itself is 30px. Two extra pixels made
+         the pill group hang below its neighbours. */
+      height: 30px;
+      min-height: 30px;
       padding: 0;
     }
 
@@ -310,6 +321,18 @@ body.white-shell.theme-light .composer-wrap {
       flex: 0 0 28px;
     }
   }
+}
+
+/* Icon-only toolbar buttons (the lightning button today) are block-level in
+   their base rule, so their 18px svg sits on the text baseline -- two pixels
+   above the centre of the 30px button, visibly higher than the pill glyphs
+   beside it. The phone tier already centres them; do the same everywhere. */
+body.white-shell.theme-light .composer-toolbar .composer-toolbar-icon,
+body.white-shell.theme-light .composer-toolbar .model-tool-btn.icon-only,
+body.white-shell.theme-light .composer-toolbar .toolbar-lightning-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 
 /* Narrow composer icon rail: preserve every control at one fixed size. */
@@ -442,8 +465,26 @@ body.white-shell.theme-light .composer-wrap {
     line-height: 1;
   }
 
-  body.white-shell.theme-light .composer-select-chevron {
+  /* The extra .composer-toolbar hop matters: the 620px tier above re-shows
+     the effort caret with a two-class selector, which outranked the plain
+     one-hop rule that used to live here and left a caret squeezed into the
+     28px icon slot. */
+  body.white-shell.theme-light .composer-toolbar .composer-select-chevron {
     display: none;
+  }
+
+  /* No room for the percent readout beside the ring at this width; the phone
+     tier keeps it for screen readers the same way. */
+  body.white-shell.theme-light .composer-toolbar > .context-usage-btn .context-usage-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    clip-path: inset(50%);
+    white-space: nowrap;
   }
 
   body.white-shell.theme-light .composer-message-mode-field {
@@ -527,11 +568,6 @@ body.white-shell.theme-light .composer-wrap {
   body.white-shell.theme-light .composer-toolbar-icon svg {
     width: 18px;
     height: 18px;
-  }
-
-  body.white-shell.theme-light .composer-actions {
-    flex: 0 0 auto;
-    gap: 4px;
   }
 
   body.white-shell.theme-light :is(.composer-select-trigger, .message-mode-option, .toolbar-lightning-btn, .composer-toolbar-icon):focus-visible {
@@ -3576,14 +3612,10 @@ body.white-shell.theme-light.theme-dark .overview-heatmap-cell:hover { outline-c
   body.white-shell.theme-light .composer-select-chevron { display: none; }
 
   /* Group the whole control cluster on the right, in DOM order: context gauge,
-     model, reasoning effort, permission and directory. */
+     model, reasoning effort and permission. */
   body.white-shell.theme-light .composer-toolbar > .composer-controls {
     flex: 0 0 auto;
     justify-content: flex-end;
-    gap: 6px;
-  }
-
-  body.white-shell.theme-light .composer-toolbar > .composer-actions {
     gap: 6px;
   }
 }

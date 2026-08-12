@@ -710,8 +710,11 @@ test("composer operation controls are exposed only in project context", async ()
   assert.match(composer, /class="composer-field composer-permission-field" data-project-context-only aria-hidden="true"/);
   assert.match(composer, /class="permission-safety-indicator hidden"[^>]*aria-hidden="true"/);
   assert.match(composer, /id="permissionRiskBadge" class="permission-risk-badge hidden" aria-hidden="true"/);
-  assert.match(composer, /class="composer-actions" data-project-context-only aria-hidden="true"/);
-  assert.match(composer, /id="composerFolderBtn"/);
+  // The composer directory button is gone: the sidebar + and the mobile
+  // top-bar button reach the same openDirectoryChooser, so a third entry on
+  // the toolbar only spent 28px repeating them.
+  assert.doesNotMatch(composer, /class="composer-actions"/);
+  assert.doesNotMatch(composer, /id="composerFolderBtn"/);
   assert.doesNotMatch(composer, /id="composerTerminalBtn"/);
   assert.match(styles, /body\.white-shell\.theme-light:not\(\.project-operation-context\) \[data-project-context-only\]\s*\{[^}]*display:\s*none !important/);
   assert.match(styles, /body\.white-shell\.theme-light:not\(\.project-operation-context\) :is\(\.composer-actions, \.composer-message-mode-field, \.composer-permission-field\) \{ display: none !important; \}/);
@@ -1212,7 +1215,10 @@ test("Subagent compact cards integrate background tasks without polling child to
   assert.doesNotMatch(cardStyles, /\.tool-activity-icon::before/);
   assert.match(chatRendering, /agentTaskStatusGlyphKind\(activity\.status\)/);
   assert.match(cardStyles, /\.subagent-task-card :is\(summary, button\):focus-visible/);
-  assert.match(cardStyles, /@media \(max-width: 760px\)[\s\S]*?\.subagent-task-actions \.ghost-btn\.mini/);
+  // The narrow tier follows the transcript column's own width, not the
+  // window's: a docked utility panel squeezes the column while the viewport
+  // stays desktop-wide, which a media query cannot see.
+  assert.match(cardStyles, /@container chat-transcript \(max-width: 760px\)[\s\S]*?\.subagent-task-actions \.ghost-btn\.mini/);
   assert.doesNotMatch(cardStyles, /(?:^|\n)\s*\.tool-activity-card\s*\{/);
 });
 
@@ -1274,7 +1280,7 @@ test("mobile header and composer use compact icon-first layouts", async () => {
   assert.match(html, /app\.js\?v=[^"]*mobile-short-labels-1/);
   assert.match(app, /app-main\.mjs\?v=[^"]*mobile-short-labels-1/);
   assert.match(html, /id="mobileSearchBtn"[\s\S]*?<svg viewBox="0 0 24 24"/);
-  assert.match(html, /id="composerFolderBtn"[\s\S]*?<svg viewBox="0 0 24 24"/);
+  assert.doesNotMatch(html, /id="composerFolderBtn"/);
   assert.doesNotMatch(html, /id="composerTerminalBtn"/);
   assert.match(html, /data-composer-select="modelSelect"[\s\S]*?class="composer-select-icon"[\s\S]*?id="modelSelectDisplay"[^>]*data-mobile-label="模型"/);
   // The effort trigger has no icon any more: the sparkle was removed, and mobile
@@ -1341,13 +1347,43 @@ test("narrow composer switches atomically to a fixed unframed icon rail", async 
   assert.match(iconRail, /\.composer-select-chevron\s*\{[^}]*display:\s*none/);
   assert.match(iconRail, /\.toolbar-lightning-btn:not\(\.hidden\),[\s\S]*?\.composer-toolbar-icon\s*\{[^}]*width:\s*28px[^}]*display:\s*inline-flex[^}]*border:\s*0[^}]*background:\s*transparent/);
   assert.match(iconRail, /\.model-tool-btn\.icon-only\.composer-toolbar-icon\s*\{[^}]*width:\s*28px[^}]*height:\s*30px[^}]*min-height:\s*30px/);
-  assert.match(iconRail, /\.composer-actions\s*\{[^}]*flex:\s*0 0 auto[^}]*gap:\s*4px/);
+  // No .composer-actions sizing any more: the directory button that lived
+  // in it was removed from the composer toolbar.
+  assert.doesNotMatch(iconRail, /\.composer-actions\s*\{/);
   // The model trigger renders icon-only, so the composed "field：value" label is
   // the only place the selected model is stated; it must reach both assistive
   // tech and a sighted hover.
   assert.match(selectMenus, /const triggerLabel = fieldLabel \? `\$\{fieldLabel\}：\$\{displayText\}` : displayText;/);
   assert.match(selectMenus, /trigger\.setAttribute\("aria-label", triggerLabel\);/);
   assert.match(selectMenus, /trigger\.title = triggerLabel;/);
+});
+
+test("composer toolbar controls share one vertical centre line", async () => {
+  const styles = await readStylesSource(stylesURL);
+  const marker = "/* Responsive composer tiers follow the editor's real width, not the full viewport. */";
+  const responsiveStyles = styles.slice(styles.indexOf(marker), styles.indexOf("/* Flat, single-pass settings layout", styles.indexOf(marker)));
+
+  // workbench top-aligns the toolbar row; with 30px icon buttons beside taller
+  // pills that left every glyph on its own line. The desktop block re-centres it.
+  assert.match(responsiveStyles, /\.composer-toolbar\s*\{[^}]*align-items:\s*center/);
+
+  // The 620px tier used to size pills at 32px inside the 30px row, so the
+  // model/effort/permission group hung two pixels below the directory button.
+  assert.match(responsiveStyles, /@container composer-shell \(max-width:\s*620px\)[\s\S]*?\.permission-toolbar-pill\s*\{[^}]*height:\s*30px[^}]*min-height:\s*30px/);
+  assert.doesNotMatch(responsiveStyles, /@container composer-shell \(max-width:\s*620px\)[\s\S]*?\.permission-toolbar-pill\s*\{[^}]*height:\s*32px/);
+
+  // Block-level icon buttons render their svg on the text baseline, two pixels
+  // above centre; they must be flex-centred like the pill glyphs beside them.
+  assert.match(responsiveStyles, /\.composer-toolbar \.composer-toolbar-icon,[\s\S]*?\.composer-toolbar \.model-tool-btn\.icon-only,[\s\S]*?\{[^}]*display:\s*inline-flex[^}]*align-items:\s*center[^}]*justify-content:\s*center/);
+
+  // In the <=480px icon rail the caret hide needs the .composer-toolbar hop:
+  // the 620px tier re-shows the effort caret with a two-class selector that
+  // outranked the old one-hop rule and squeezed a caret into the 28px slot.
+  const railMarker = "/* Narrow composer icon rail: preserve every control at one fixed size. */";
+  const iconRail = styles.slice(styles.indexOf(railMarker), styles.indexOf("/* Flat, single-pass settings layout", styles.indexOf(railMarker)));
+  assert.match(iconRail, /\.composer-toolbar \.composer-select-chevron\s*\{\s*display:\s*none/);
+  // And the percent readout leaves no room beside the ring at that width.
+  assert.match(iconRail, /\.context-usage-btn \.context-usage-label\s*\{[^}]*position:\s*absolute[^}]*clip-path:\s*inset\(50%\)/);
 });
 
 test("mobile sidebar closes safely during desktop startup and cache updates propagate", async () => {
@@ -2204,7 +2240,6 @@ test("static shell controls localize without marking runtime-owned content", asy
     ["gitWorkflowBtn", 'data-i18n-aria-label="chat.gitChanges"'],
     ["specBoardBtn", 'data-i18n-aria-label="chat.taskList"'],
     ["runtimeStatusBtn", 'data-i18n-aria-label="chat.conversationDetails"'],
-    ["composerFolderBtn", 'data-i18n-title="chat.switchDirectory"'],
     ["reconnectTerminalBtn", 'data-i18n="common.reconnect"'],
     ["conversationDetailsPanel", 'data-i18n-aria-label="staticExtra.workspace.main.conversationDetails"'],
     ["backendsModalTitle", 'data-i18n="staticExtra.backend.modalTitle"'],
