@@ -1,6 +1,7 @@
 import { $, escapeAttr, escapeHtml } from "./dom.mjs";
 import { t } from "./i18n.mjs?v=global-background-1-theme-v2-1-formal-theme-assets-1";
 import { confirm as platformConfirm } from "./platform.mjs";
+import { createThemeEditorController } from "./theme-editor.mjs?v=theme-studio-1";
 
 function themeSourceLabel(theme) {
   return theme.source === "local" ? t("appearance.themeSourceLocal") : t("appearance.themeSourceBundled");
@@ -20,9 +21,10 @@ function themeCard(theme, active, snapshot) {
           <strong>${escapeHtml(theme.name)}</strong>
           <small>${escapeHtml(theme.description || t("appearance.themePackageDescriptionFallback"))}</small>
           <span class="theme-package-meta"><span>${escapeHtml(themeSourceLabel(theme))}</span>${theme.version ? `<span>v${escapeHtml(theme.version)}</span>` : ""}${theme.author ? `<span>${escapeHtml(theme.author)}</span>` : ""}</span>
-          <span class="theme-package-capabilities"><span class="theme-capability ${hasPreview ? "supported" : "fallback"}" data-theme-capability="preview">${escapeHtml(hasPreview ? t("appearance.themeCapabilityPreview") : t("appearance.themeCapabilityPreviewFallback"))}</span><span class="theme-capability ${theme.capabilities?.background ? "supported" : "fallback"}" data-theme-capability="background">${escapeHtml(theme.capabilities?.background ? t("appearance.themeCapabilityBackground") : t("appearance.themeCapabilityBackgroundFallback"))}</span><span class="theme-capability ${theme.capabilities?.icons ? "supported" : "fallback"}" data-theme-capability="icons">${escapeHtml(theme.capabilities?.icons ? t("appearance.themeCapabilityIcons") : t("appearance.themeCapabilityIconsFallback"))}</span></span>
+          <span class="theme-package-capabilities"><span class="theme-capability ${hasPreview ? "supported" : "fallback"}" data-theme-capability="preview">${escapeHtml(hasPreview ? t("appearance.themeCapabilityPreview") : t("appearance.themeCapabilityPreviewFallback"))}</span><span class="theme-capability ${theme.capabilities?.background ? "supported" : "fallback"}" data-theme-capability="background">${escapeHtml(theme.capabilities?.background ? t("appearance.themeCapabilityBackground") : t("appearance.themeCapabilityBackgroundFallback"))}</span><span class="theme-capability ${theme.capabilities?.icons ? "supported" : "fallback"}" data-theme-capability="icons">${escapeHtml(theme.capabilities?.icons ? t("appearance.themeCapabilityIcons") : t("appearance.themeCapabilityIconsFallback"))}</span>${theme.capabilities?.darkVariant ? `<span class="theme-capability supported" data-theme-capability="dark-variant">${escapeHtml(t("appearance.themeCapabilityDarkVariant"))}</span>` : ""}</span>
         </span>
       </button>
+      <button class="theme-package-export" type="button" data-theme-export="${escapeAttr(theme.id)}" title="${escapeAttr(t("appearance.themeExport"))}" aria-label="${escapeAttr(t("appearance.themeExport"))}" ${snapshot.importing || deleting ? "disabled" : ""}>&#8681;</button>
       ${theme.deletable ? `<button class="theme-package-delete" type="button" data-theme-delete="${escapeAttr(theme.id)}" title="${escapeAttr(t("appearance.themeDelete"))}" aria-label="${escapeAttr(t("appearance.themeDelete"))}" ${snapshot.importing || deleting ? "disabled" : ""}>${deleting ? "…" : "×"}</button>` : ""}
     </article>
   `;
@@ -37,6 +39,15 @@ export function createThemeSettingsController({
   showToast,
   confirmAction = platformConfirm,
 } = {}) {
+  const themeEditor = createThemeEditorController({
+    themeManager,
+    t,
+    showToast,
+    showError,
+    refreshActiveSettingsPanel,
+    confirmAction,
+  });
+
   function renderThemeLibrarySection() {
     const prefs = currentAppearancePreferences?.() || {};
     const snapshot = themeManager?.snapshot?.() || { status: "idle", themes: [] };
@@ -63,9 +74,11 @@ export function createThemeSettingsController({
         <div class="compact-settings-section-controls theme-library-controls">
           <div class="theme-library-toolbar">
             <button id="importThemeBtn" class="settings-action-btn primary" type="button" ${snapshot.importing ? "disabled" : ""}>${escapeHtml(snapshot.importing ? t("appearance.themeImporting") : t("appearance.themeImport"))}</button>
+            <button id="createThemeBtn" class="settings-action-btn" type="button" ${snapshot.importing ? "disabled" : ""}>${escapeHtml(t("appearance.themeCreate"))}</button>
             <button id="restoreDefaultThemeBtn" class="settings-action-btn" type="button">${escapeHtml(t("appearance.themeRestoreDefault"))}</button>
             <input id="themePackageInput" class="hidden" type="file" accept=".autoto-theme,.zip,application/zip" />
           </div>
+          ${themeEditor.renderSection()}
           ${missing}
           ${body}
         </div>
@@ -73,19 +86,40 @@ export function createThemeSettingsController({
     `;
   }
 
+  // The install toast reports the update semantics the server measured:
+  // "updated v1.0.0 → v1.1.0" when a replace changed versions, and any
+  // advisory contrast warnings so unreadable palettes surface before use.
+  function announceThemeInstall(result, replaced) {
+    if (result?.replaced && result.previousVersion && result.theme?.version && result.previousVersion !== result.theme.version) {
+      showToast?.(t("appearance.themeUpdated", { from: result.previousVersion, to: result.theme.version }), "success");
+    } else {
+      showToast?.(t(replaced ? "appearance.themeReplaced" : "appearance.themeImported"), "success");
+    }
+    if (result?.warnings?.length) {
+      showToast?.(t("appearance.themeContrastWarnings", { count: result.warnings.length, pair: result.warnings[0].pair }), "warn");
+    }
+  }
+
+  // Conflict errors name the installed version, so the replace prompt can say
+  // exactly what would be overwritten.
+  function replacePrompt(error) {
+    const installed = String(error?.message || "").match(/installed version ([A-Za-z0-9._+-]+)/);
+    return installed
+      ? t("appearance.themeReplaceConfirmVersion", { version: installed[1] })
+      : t("appearance.themeReplaceConfirm");
+  }
+
   async function importSelectedTheme(file) {
     if (!file) return;
     try {
-      const installed = await themeManager.importTheme(file);
-      showToast?.(t("appearance.themeImported"), "success");
-      const id = installed?.id || installed?.themeId;
-      if (id) await themeManager.activateTheme(id);
+      const result = await themeManager.importTheme(file);
+      announceThemeInstall(result, false);
+      if (result?.theme?.id) await themeManager.activateTheme(result.theme.id);
     } catch (error) {
-      if (error?.status === 409 && await confirmAction(t("appearance.themeReplaceConfirm"))) {
-        const installed = await themeManager.importTheme(file, { replace: true });
-        showToast?.(t("appearance.themeReplaced"), "success");
-        const id = installed?.id || installed?.themeId;
-        if (id) await themeManager.activateTheme(id);
+      if (error?.status === 409 && await confirmAction(replacePrompt(error))) {
+        const result = await themeManager.importTheme(file, { replace: true });
+        announceThemeInstall(result, true);
+        if (result?.theme?.id) await themeManager.activateTheme(result.theme.id);
       } else {
         throw error;
       }
@@ -95,12 +129,34 @@ export function createThemeSettingsController({
     }
   }
 
+  // Exports are plain same-origin GET downloads; an anchor keeps the browser's
+  // native download UX and cookie handling.
+  function downloadThemeExport(id) {
+    const anchor = document.createElement("a");
+    anchor.href = `/api/themes/${encodeURIComponent(id)}/export`;
+    anchor.download = "";
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+  }
+
   function bindThemeLibraryActions() {
     $("importThemeBtn")?.addEventListener("click", () => $("themePackageInput")?.click());
+    $("createThemeBtn")?.addEventListener("click", () => {
+      // Start from the active package theme when there is one: remixing an
+      // installed look is the most common reason to open the editor.
+      const prefs = currentAppearancePreferences?.() || {};
+      const activeID = prefs.themeRef?.kind === "package" ? prefs.themeRef.id : "";
+      themeEditor.openFromTheme(activeID).catch(() => themeEditor.open());
+    });
     $("restoreDefaultThemeBtn")?.addEventListener("click", () => setAppearancePreference?.("themePreset", "light"));
     $("themePackageInput")?.addEventListener("change", (event) => {
       importSelectedTheme(event.currentTarget.files?.[0]).catch(showError);
     });
+    document.querySelectorAll("[data-theme-export]").forEach((node) => {
+      node.addEventListener("click", () => downloadThemeExport(node.dataset.themeExport));
+    });
+    themeEditor.bindSection();
     document.querySelectorAll("[data-theme-package]").forEach((node) => {
       node.addEventListener("click", () => {
         themeManager.activateTheme(node.dataset.themePackage)

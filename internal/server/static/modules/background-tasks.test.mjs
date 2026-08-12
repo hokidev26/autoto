@@ -90,14 +90,31 @@ test("foreground generation activity temporarily owns the composer task summary"
   controller.setAgent("agent-1");
   controller.applySnapshot({ backgroundTasks: [{ id: "task-1", status: "running", title: "Run checks" }] }, { agentId: "agent-1" });
 
+  // The kind carries the state to the dot: "thinking" gets its own tone rather
+  // than collapsing into the generic working blue.
   assert.equal(controller.setForegroundActivity({ kind: "thinking", text: "思考中" }), true);
-  assert.deepEqual(controller.state().foregroundActivity, { kind: "thinking", text: "思考中", tone: "running" });
+  assert.deepEqual(controller.state().foregroundActivity, { kind: "thinking", text: "思考中", tone: "thinking" });
   assert.equal(elements.headerCurrentTaskText.textContent, "思考中");
-  assert.equal(elements.headerTaskStatusDot.className, "header-task-status-dot running");
+  assert.equal(elements.headerTaskStatusDot.className, "header-task-status-dot thinking");
   assert.equal(elements.headerTaskSummaryBtn.attributes["aria-busy"], "true");
   assert.equal(elements.headerTaskSummaryBtn.attributes["aria-label"], "思考中");
   assert.equal(elements.headerTaskSummaryBtn.classList.contains("has-task"), true);
   assert.equal(elements.headerTaskSummaryBtn.classList.contains("has-foreground-activity"), true);
+
+  // Every state the activity resolver produces reaches the dot with its own
+  // tone: a provider retry, a pending approval and compaction each look
+  // different from ordinary progress.
+  controller.setForegroundActivity({ kind: "retrying", text: "重试中 2/3" });
+  assert.equal(elements.headerTaskStatusDot.className, "header-task-status-dot retrying");
+  controller.setForegroundActivity({ kind: "approval", text: "等待批准 · Bash" });
+  assert.equal(elements.headerTaskStatusDot.className, "header-task-status-dot approval");
+  controller.setForegroundActivity({ kind: "compacting", text: "压缩中" });
+  assert.equal(elements.headerTaskStatusDot.className, "header-task-status-dot compacting");
+  controller.setForegroundActivity({ kind: "generating", text: "正在生成" });
+  assert.equal(elements.headerTaskStatusDot.className, "header-task-status-dot generating");
+  // A tool step is ordinary progress and keeps the generic working tone.
+  controller.setForegroundActivity({ kind: "tool", text: "正在读取 main.go" });
+  assert.equal(elements.headerTaskStatusDot.className, "header-task-status-dot running");
 
   controller.setForegroundActivity(null);
   assert.equal(controller.state().foregroundActivity, null);
@@ -1015,12 +1032,17 @@ test("waiting on a child reaches the task summary as an amber dot", () => {
   assert.equal(elements.headerTaskStatusDot.className, "header-task-status-dot waiting");
   assert.equal(elements.headerCurrentTaskText.textContent, "waiting on 1 subagent");
 
-  // The parent picking the work back up returns to the working blue.
+  // The parent picking the work back up leaves the amber for its own state.
   controller.setForegroundActivity({ kind: "thinking", text: "thinking" });
-  assert.equal(elements.headerTaskStatusDot.className, "header-task-status-dot running");
+  assert.equal(elements.headerTaskStatusDot.className, "header-task-status-dot thinking");
 
-  // An unknown tone must not render an unstyled dot.
+  // An unknown tone falls back to the kind's own tone rather than rendering an
+  // unstyled dot.
   controller.setForegroundActivity({ kind: "thinking", tone: "nonsense", text: "still thinking" });
+  assert.equal(elements.headerTaskStatusDot.className, "header-task-status-dot thinking");
+
+  // Unknown tone and unknown kind together still land on the working blue.
+  controller.setForegroundActivity({ kind: "mystery", tone: "nonsense", text: "doing something" });
   assert.equal(elements.headerTaskStatusDot.className, "header-task-status-dot running");
 });
 

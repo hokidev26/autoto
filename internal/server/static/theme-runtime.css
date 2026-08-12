@@ -552,6 +552,116 @@ body.white-shell[data-autoto-theme]:not([data-background-mode="custom"]):not([da
   color: var(--autoto-theme-danger, #c43f52);
 }
 
+/* Export mirrors delete but sits beside it; every theme has one, so it keeps
+   the same quiet footprint. */
+.theme-package-export {
+  position: absolute;
+  z-index: 2;
+  right: 42px;
+  bottom: 10px;
+  width: 27px;
+  height: 27px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--settings-border, var(--ws-border));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--ws-card) 92%, transparent);
+  color: var(--settings-muted-foreground, var(--ws-muted, #64748b));
+  cursor: pointer;
+}
+
+.theme-package-card:not(:has(.theme-package-delete)) .theme-package-export {
+  right: 8px;
+}
+
+.theme-package-export:hover {
+  border-color: color-mix(in srgb, var(--ws-primary, #3b82f6) 40%, var(--ws-border));
+  color: var(--ws-primary, #3b82f6);
+}
+
+/* Theme editor: a bordered worksheet inside the library section. */
+.theme-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin: 10px 0 14px;
+  padding: 14px;
+  border: 1px solid var(--settings-border, var(--ws-border));
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--ws-card) 94%, transparent);
+}
+
+.theme-editor h3 { margin: 0; font-size: 15px; }
+.theme-editor h4 { margin: 2px 0 0; font-size: 13px; color: var(--settings-muted-foreground, var(--ws-muted, #64748b)); }
+
+.theme-editor-meta-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px;
+}
+
+.theme-editor-meta-grid label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--settings-muted-foreground, var(--ws-muted, #64748b));
+}
+
+.theme-editor-meta-grid input,
+.theme-editor-meta-grid select {
+  padding: 7px 10px;
+  border: 1px solid var(--settings-border, var(--ws-border));
+  border-radius: 9px;
+  background: var(--ws-input, var(--ws-surface-muted));
+  color: var(--ws-text, inherit);
+  font: inherit;
+  font-size: 13px;
+}
+
+.theme-editor-wide { grid-column: 1 / -1; }
+
+.theme-editor-color-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(128px, 1fr));
+  gap: 8px;
+}
+
+.theme-editor-color {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border: 1px solid var(--settings-border, var(--ws-border));
+  border-radius: 10px;
+  font-size: 12px;
+  color: var(--ws-text, inherit);
+}
+
+.theme-editor-color input[type="color"] {
+  width: 30px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  background: none;
+  cursor: pointer;
+}
+
+.theme-editor-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--ws-text, inherit);
+  cursor: pointer;
+}
+
+.theme-editor-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
 @media (max-width: 760px) {
   .theme-package-grid { grid-template-columns: minmax(0, 1fr); }
   .theme-package-card { max-width: none; }

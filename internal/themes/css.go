@@ -54,6 +54,7 @@ func GenerateCSS(theme Theme) (string, error) {
 	builder.WriteString("  --autoto-theme-terminal: var(--autoto-color-terminal);\n")
 	builder.WriteString("  --ws-message-user: var(--autoto-color-message);\n")
 	builder.WriteString("  --autoto-theme-message-user: var(--autoto-color-message);\n")
+	writeStatusTokenCSS(&builder, manifest, false)
 	materials := []struct {
 		name  string
 		value Material
@@ -83,7 +84,7 @@ func GenerateCSS(theme Theme) (string, error) {
 	builder.WriteString("  --autoto-theme-global-position: 50% 50%;\n")
 	builder.WriteString("  --autoto-theme-global-fallback-opacity: 0;\n")
 	builder.WriteString("  --autoto-theme-home-position: 50% 50%;\n")
-	if manifest.SchemaVersion == SchemaVersionV2 && manifest.Backgrounds != nil {
+	if manifest.SchemaVersion >= SchemaVersionV2 && manifest.Backgrounds != nil {
 		if asset := manifest.Backgrounds.Global; asset != nil {
 			x, y := backgroundPosition(asset)
 			fmt.Fprintf(&builder, "  --autoto-theme-global-image: url(\"/themes/%s/%s/%s\");\n", manifest.ID, theme.Revision, escapeResourcePath(asset.Path))
@@ -91,7 +92,7 @@ func GenerateCSS(theme Theme) (string, error) {
 			fmt.Fprintf(&builder, "  --autoto-theme-global-fallback-opacity: %s;\n", strconv.FormatFloat(asset.FallbackOpacity, 'f', -1, 64))
 		}
 	}
-	if manifest.SchemaVersion == SchemaVersionV2 && manifest.Backgrounds != nil && manifest.Backgrounds.Home != nil {
+	if manifest.SchemaVersion >= SchemaVersionV2 && manifest.Backgrounds != nil && manifest.Backgrounds.Home != nil {
 		asset := manifest.Backgrounds.Home
 		x, y := backgroundPosition(asset)
 		fmt.Fprintf(&builder, "  --autoto-theme-home-image: url(\"/themes/%s/%s/%s\");\n", manifest.ID, theme.Revision, escapeResourcePath(asset.Path))
@@ -112,7 +113,65 @@ func GenerateCSS(theme Theme) (string, error) {
 		}
 	}
 	builder.WriteString("}\n")
+	// The shell ships its own dark restatement of the status vocabulary at
+	// body.white-shell.theme-light.theme-dark specificity, so a theme that can
+	// render in dark mode must restate its declarations at equal specificity
+	// (this stylesheet loads later, so it wins the tie). The dark variant also
+	// restates only the raw palette variables here: every alias above
+	// references them through var(), so the whole vocabulary follows.
+	if manifest.DarkTokens != nil || manifest.ColorScheme == ColorSchemeDark {
+		fmt.Fprintf(&builder, "body.white-shell[data-autoto-theme=\"%s\"].theme-dark {\n", manifest.ID)
+		if manifest.DarkTokens != nil {
+			darkColors := []struct {
+				name  string
+				value string
+			}{
+				{"canvas", manifest.DarkTokens.Canvas}, {"sidebar", manifest.DarkTokens.Sidebar},
+				{"card", manifest.DarkTokens.Card}, {"input", manifest.DarkTokens.Input},
+				{"text", manifest.DarkTokens.Text}, {"muted", manifest.DarkTokens.Muted},
+				{"border", manifest.DarkTokens.Border}, {"primary", manifest.DarkTokens.Primary},
+				{"secondary", manifest.DarkTokens.Secondary}, {"danger", manifest.DarkTokens.Danger},
+				{"terminal", manifest.DarkTokens.Terminal}, {"message", manifest.DarkTokens.Message},
+			}
+			for _, color := range darkColors {
+				fmt.Fprintf(&builder, "  --autoto-color-%s: %s;\n", color.name, color.value)
+			}
+		}
+		writeStatusTokenCSS(&builder, manifest, true)
+		builder.WriteString("}\n")
+	}
 	return builder.String(), nil
+}
+
+// writeStatusTokenCSS emits the status color vocabulary. Unset entries derive
+// from the palette (attention from danger, info from primary) or use stock
+// values chosen for the mode being rendered, so pre-v3 themes keep working
+// status colors.
+func writeStatusTokenCSS(builder *strings.Builder, manifest Manifest, dark bool) {
+	success, warning := "#16a34a", "#d97706"
+	if dark || manifest.ColorScheme == ColorSchemeDark {
+		success, warning = "#4ade80", "#fbbf24"
+	}
+	attention := "var(--autoto-color-danger)"
+	info := "var(--autoto-color-primary)"
+	if tokens := manifest.StatusTokens; tokens != nil {
+		if tokens.Success != "" {
+			success = tokens.Success
+		}
+		if tokens.Warning != "" {
+			warning = tokens.Warning
+		}
+		if tokens.Attention != "" {
+			attention = tokens.Attention
+		}
+		if tokens.Info != "" {
+			info = tokens.Info
+		}
+	}
+	fmt.Fprintf(builder, "  --autoto-status-success: %s;\n", success)
+	fmt.Fprintf(builder, "  --autoto-status-warning: %s;\n", warning)
+	fmt.Fprintf(builder, "  --autoto-status-attention: %s;\n", attention)
+	fmt.Fprintf(builder, "  --autoto-status-info: %s;\n", info)
 }
 
 func backgroundPosition(asset *BackgroundAsset) (int, int) {

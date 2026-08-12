@@ -157,6 +157,145 @@ func TestThemeRoutesImportReplaceAndDeleteLocalTheme(t *testing.T) {
 	}
 }
 
+func TestThemeRoutesImportReportsUpdateSemanticsAndWarnings(t *testing.T) {
+	home := t.TempDir()
+	app := New(config.Config{Paths: config.PathsConfig{HomeDir: home}}, nil, nil, nil)
+	manifest := serverThemeManifest("update-flow")
+	// Muted text nearly identical to the canvas: readable nowhere.
+	manifest.Tokens.Muted = "#0A1524"
+	first := importThemeRequest(t, app, serverThemeArchive(t, manifest, nil), false)
+	if first.Code != http.StatusCreated {
+		t.Fatalf("first import returned %d: %s", first.Code, first.Body.String())
+	}
+	var firstResponse themeMutationResponse
+	if err := json.NewDecoder(first.Body).Decode(&firstResponse); err != nil {
+		t.Fatal(err)
+	}
+	if firstResponse.Replaced || firstResponse.PreviousVersion != "" {
+		t.Fatalf("fresh import reported an update: %+v", firstResponse)
+	}
+	if len(firstResponse.Warnings) == 0 {
+		t.Fatalf("unreadable palette produced no contrast warnings: %+v", firstResponse)
+	}
+
+	duplicate := importThemeRequest(t, app, serverThemeArchive(t, manifest, nil), false)
+	if duplicate.Code != http.StatusConflict || !strings.Contains(duplicate.Body.String(), "installed version 1.0.0") {
+		t.Fatalf("duplicate import returned %d: %s", duplicate.Code, duplicate.Body.String())
+	}
+
+	updated := manifest
+	updated.Version = "2.0.0"
+	replaced := importThemeRequest(t, app, serverThemeArchive(t, updated, nil), true)
+	if replaced.Code != http.StatusCreated {
+		t.Fatalf("update import returned %d: %s", replaced.Code, replaced.Body.String())
+	}
+	var replacedResponse themeMutationResponse
+	if err := json.NewDecoder(replaced.Body).Decode(&replacedResponse); err != nil {
+		t.Fatal(err)
+	}
+	if !replacedResponse.Replaced || replacedResponse.PreviousVersion != "1.0.0" || replacedResponse.Theme.Version != "2.0.0" {
+		t.Fatalf("update semantics missing from response: %+v", replacedResponse)
+	}
+}
+
+func TestThemeRoutesCreateManifestAndExport(t *testing.T) {
+	home := t.TempDir()
+	app := New(config.Config{Paths: config.PathsConfig{HomeDir: home}}, nil, nil, nil)
+	manifest := serverThemeManifest("editor-draft")
+	manifestJSON, err := json.Marshal(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload, err := json.Marshal(map[string]json.RawMessage{"manifest": manifestJSON})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// The create endpoint mutates the store, so it must sit behind the same
+	// local-token guard as import and delete.
+	unguarded := httptest.NewRecorder()
+	app.Routes().ServeHTTP(unguarded, newTestRequest(http.MethodPost, "/api/themes", bytes.NewReader(payload)))
+	if unguarded.Code != http.StatusUnauthorized && unguarded.Code != http.StatusForbidden {
+		t.Fatalf("unguarded theme create returned %d: %s", unguarded.Code, unguarded.Body.String())
+	}
+
+	createRequest := newTestRequest(http.MethodPost, "/api/themes", bytes.NewReader(payload))
+	createRequest.Header.Set("Content-Type", "application/json")
+	createRequest.Header.Set(localTokenHeader, app.localToken)
+	created := httptest.NewRecorder()
+	app.Routes().ServeHTTP(created, createRequest)
+	if created.Code != http.StatusCreated {
+		t.Fatalf("theme create returned %d: %s", created.Code, created.Body.String())
+	}
+	var mutation themeMutationResponse
+	if err := json.NewDecoder(created.Body).Decode(&mutation); err != nil {
+		t.Fatal(err)
+	}
+	if mutation.Theme.ID != manifest.ID || mutation.Theme.Source != themes.SourceLocal {
+		t.Fatalf("created theme metadata: %+v", mutation.Theme)
+	}
+
+	manifestRequest := newTestRequest(http.MethodGet, "/api/themes/"+manifest.ID+"/manifest", nil)
+	fetched := httptest.NewRecorder()
+	app.Routes().ServeHTTP(fetched, manifestRequest)
+	if fetched.Code != http.StatusOK {
+		t.Fatalf("theme manifest returned %d: %s", fetched.Code, fetched.Body.String())
+	}
+	var manifestResponse themeManifestResponse
+	if err := json.NewDecoder(fetched.Body).Decode(&manifestResponse); err != nil {
+		t.Fatal(err)
+	}
+	if manifestResponse.Manifest.ID != manifest.ID || manifestResponse.Manifest.Tokens.Canvas != manifest.Tokens.Canvas {
+		t.Fatalf("manifest response mismatch: %+v", manifestResponse.Manifest)
+	}
+
+	exportRequest := newTestRequest(http.MethodGet, "/api/themes/"+manifest.ID+"/export", nil)
+	exported := httptest.NewRecorder()
+	app.Routes().ServeHTTP(exported, exportRequest)
+	if exported.Code != http.StatusOK {
+		t.Fatalf("theme export returned %d: %s", exported.Code, exported.Body.String())
+	}
+	if got := exported.Header().Get("Content-Type"); got != "application/zip" {
+		t.Fatalf("export content type = %q", got)
+	}
+	if got := exported.Header().Get("Content-Disposition"); !strings.Contains(got, manifest.ID+"-1.0.0.autoto-theme") {
+		t.Fatalf("export disposition = %q", got)
+	}
+	archive := exported.Body.Bytes()
+	if _, err := zip.NewReader(bytes.NewReader(archive), int64(len(archive))); err != nil {
+		t.Fatalf("export is not a readable ZIP: %v", err)
+	}
+
+	// The exported package must survive a round trip through import.
+	deleteRequest := newTestRequest(http.MethodDelete, "/api/themes/"+manifest.ID, nil)
+	deleteRequest.Header.Set(localTokenHeader, app.localToken)
+	deleted := httptest.NewRecorder()
+	app.Routes().ServeHTTP(deleted, deleteRequest)
+	if deleted.Code != http.StatusNoContent {
+		t.Fatalf("theme delete returned %d: %s", deleted.Code, deleted.Body.String())
+	}
+	reimported := importThemeRequest(t, app, archive, false)
+	if reimported.Code != http.StatusCreated {
+		t.Fatalf("re-import of export returned %d: %s", reimported.Code, reimported.Body.String())
+	}
+
+	invalidPayload := []byte(`{"manifest":{"schemaVersion":9}}`)
+	invalidRequest := newTestRequest(http.MethodPost, "/api/themes", bytes.NewReader(invalidPayload))
+	invalidRequest.Header.Set("Content-Type", "application/json")
+	invalidRequest.Header.Set(localTokenHeader, app.localToken)
+	invalid := httptest.NewRecorder()
+	app.Routes().ServeHTTP(invalid, invalidRequest)
+	if invalid.Code != http.StatusBadRequest {
+		t.Fatalf("invalid manifest create returned %d: %s", invalid.Code, invalid.Body.String())
+	}
+
+	missingExport := httptest.NewRecorder()
+	app.Routes().ServeHTTP(missingExport, newTestRequest(http.MethodGet, "/api/themes/never-installed/export", nil))
+	if missingExport.Code != http.StatusNotFound {
+		t.Fatalf("missing theme export returned %d: %s", missingExport.Code, missingExport.Body.String())
+	}
+}
+
 func TestRestrictedRemoteSessionCanUseButCannotManageThemes(t *testing.T) {
 	app := remoteAccessTestServer(t)
 	store, err := themes.NewStore(t.TempDir())

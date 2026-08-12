@@ -22,146 +22,206 @@ const (
 	MaxImageBytes     = 8 << 20
 )
 
+// ImportResult reports the installed theme plus the update semantics: whether
+// an existing install was replaced and, if so, which version it carried. The
+// UI uses this to say "updated v1.0.0 → v1.1.0" instead of a bare "imported".
+type ImportResult struct {
+	Theme           Theme  `json:"theme"`
+	Replaced        bool   `json:"replaced"`
+	PreviousVersion string `json:"previousVersion,omitempty"`
+}
+
 // Import validates and installs a .autoto-theme ZIP stream.
-func (store *Store) Import(reader io.Reader, options ImportOptions) (Theme, error) {
+func (store *Store) Import(reader io.Reader, options ImportOptions) (ImportResult, error) {
 	if store == nil {
-		return Theme{}, errors.New("theme store is unavailable")
+		return ImportResult{}, errors.New("theme store is unavailable")
 	}
 	if reader == nil {
-		return Theme{}, fmt.Errorf("%w: archive reader is required", ErrInvalidArchive)
+		return ImportResult{}, fmt.Errorf("%w: archive reader is required", ErrInvalidArchive)
 	}
 	if _, err := secureDirectory(store.root); err != nil {
-		return Theme{}, err
+		return ImportResult{}, err
 	}
 	archiveFile, err := os.CreateTemp(store.root, ".upload-*.autoto-theme")
 	if err != nil {
-		return Theme{}, fmt.Errorf("create bounded theme upload: %w", err)
+		return ImportResult{}, fmt.Errorf("create bounded theme upload: %w", err)
 	}
 	archivePath := archiveFile.Name()
 	defer os.Remove(archivePath)
 	if err := archiveFile.Chmod(0o600); err != nil {
 		archiveFile.Close()
-		return Theme{}, fmt.Errorf("protect theme upload: %w", err)
+		return ImportResult{}, fmt.Errorf("protect theme upload: %w", err)
 	}
 	written, err := io.Copy(archiveFile, io.LimitReader(reader, MaxArchiveBytes+1))
 	if err != nil {
 		archiveFile.Close()
-		return Theme{}, fmt.Errorf("read theme archive: %w", err)
+		return ImportResult{}, fmt.Errorf("read theme archive: %w", err)
 	}
 	if written > MaxArchiveBytes {
 		archiveFile.Close()
-		return Theme{}, fmt.Errorf("%w: archive exceeds %d bytes", ErrInvalidArchive, MaxArchiveBytes)
+		return ImportResult{}, fmt.Errorf("%w: archive exceeds %d bytes", ErrInvalidArchive, MaxArchiveBytes)
 	}
 	if err := archiveFile.Sync(); err != nil {
 		archiveFile.Close()
-		return Theme{}, fmt.Errorf("flush theme upload: %w", err)
+		return ImportResult{}, fmt.Errorf("flush theme upload: %w", err)
 	}
 	if _, err := archiveFile.Seek(0, io.SeekStart); err != nil {
 		archiveFile.Close()
-		return Theme{}, fmt.Errorf("rewind theme upload: %w", err)
+		return ImportResult{}, fmt.Errorf("rewind theme upload: %w", err)
 	}
 	zipReader, err := zip.NewReader(archiveFile, written)
 	if err != nil {
 		archiveFile.Close()
-		return Theme{}, fmt.Errorf("%w: open ZIP: %v", ErrInvalidArchive, err)
+		return ImportResult{}, fmt.Errorf("%w: open ZIP: %v", ErrInvalidArchive, err)
 	}
 	if len(zipReader.File) == 0 || len(zipReader.File) > MaxArchiveEntries {
 		archiveFile.Close()
-		return Theme{}, fmt.Errorf("%w: archive entries must be between 1 and %d", ErrInvalidArchive, MaxArchiveEntries)
+		return ImportResult{}, fmt.Errorf("%w: archive entries must be between 1 and %d", ErrInvalidArchive, MaxArchiveEntries)
 	}
 	entries, manifestEntry, err := inspectArchive(zipReader.File)
 	if err != nil {
 		archiveFile.Close()
-		return Theme{}, err
+		return ImportResult{}, err
 	}
 	manifestBytes, err := readZipEntry(manifestEntry, MaxManifestBytes)
 	if err != nil {
 		archiveFile.Close()
-		return Theme{}, fmt.Errorf("%w: manifest: %v", ErrInvalidArchive, err)
+		return ImportResult{}, fmt.Errorf("%w: manifest: %v", ErrInvalidArchive, err)
 	}
 	manifest, err := ParseManifest(manifestBytes)
 	if err != nil {
 		archiveFile.Close()
-		return Theme{}, fmt.Errorf("%w: %v", ErrInvalidArchive, err)
+		return ImportResult{}, fmt.Errorf("%w: %v", ErrInvalidArchive, err)
 	}
 	if err := validateArchiveDeclarations(entries, manifest); err != nil {
 		archiveFile.Close()
-		return Theme{}, err
+		return ImportResult{}, err
 	}
 	staging, err := os.MkdirTemp(store.root, ".staging-*")
 	if err != nil {
 		archiveFile.Close()
-		return Theme{}, fmt.Errorf("create theme staging directory: %w", err)
+		return ImportResult{}, fmt.Errorf("create theme staging directory: %w", err)
 	}
+	if err := os.Chmod(staging, 0o700); err != nil {
+		archiveFile.Close()
+		_ = os.RemoveAll(staging)
+		return ImportResult{}, fmt.Errorf("protect theme staging directory: %w", err)
+	}
+	if err := extractArchive(staging, entries, manifest, manifestBytes); err != nil {
+		archiveFile.Close()
+		_ = os.RemoveAll(staging)
+		return ImportResult{}, err
+	}
+	if err := archiveFile.Close(); err != nil {
+		_ = os.RemoveAll(staging)
+		return ImportResult{}, fmt.Errorf("close theme upload: %w", err)
+	}
+	return store.publishStaging(staging, manifest, options)
+}
+
+// InstallManifest installs a theme described entirely by its manifest, with no
+// image resources. This is the theme editor's save path: the manifest passes
+// exactly the same validation and publish steps as an imported archive.
+func (store *Store) InstallManifest(manifest Manifest, options ImportOptions) (ImportResult, error) {
+	if store == nil {
+		return ImportResult{}, errors.New("theme store is unavailable")
+	}
+	if err := ValidateManifest(manifest); err != nil {
+		return ImportResult{}, fmt.Errorf("%w: %v", ErrInvalidArchive, err)
+	}
+	if len(declaredResourcePaths(manifest)) != 0 {
+		return ImportResult{}, fmt.Errorf("%w: a manifest-only install cannot declare image resources", ErrInvalidArchive)
+	}
+	if _, err := secureDirectory(store.root); err != nil {
+		return ImportResult{}, err
+	}
+	staging, err := os.MkdirTemp(store.root, ".staging-*")
+	if err != nil {
+		return ImportResult{}, fmt.Errorf("create theme staging directory: %w", err)
+	}
+	if err := os.Chmod(staging, 0o700); err != nil {
+		_ = os.RemoveAll(staging)
+		return ImportResult{}, fmt.Errorf("protect theme staging directory: %w", err)
+	}
+	if err := extractArchive(staging, nil, manifest, nil); err != nil {
+		_ = os.RemoveAll(staging)
+		return ImportResult{}, err
+	}
+	return store.publishStaging(staging, manifest, options)
+}
+
+// publishStaging hashes a fully staged theme directory and atomically installs
+// it as the active revision. It owns the staging directory: on every path the
+// directory is either renamed into place or removed.
+func (store *Store) publishStaging(staging string, manifest Manifest, options ImportOptions) (ImportResult, error) {
 	stagingOwned := true
 	defer func() {
 		if stagingOwned {
 			_ = os.RemoveAll(staging)
 		}
 	}()
-	if err := os.Chmod(staging, 0o700); err != nil {
-		archiveFile.Close()
-		return Theme{}, fmt.Errorf("protect theme staging directory: %w", err)
-	}
-	if err := extractArchive(staging, entries, manifest, manifestBytes); err != nil {
-		archiveFile.Close()
-		return Theme{}, err
-	}
-	if err := archiveFile.Close(); err != nil {
-		return Theme{}, fmt.Errorf("close theme upload: %w", err)
-	}
 	revision, err := hashThemeDirectory(staging, manifest, "", nil)
 	if err != nil {
-		return Theme{}, fmt.Errorf("hash imported theme: %w", err)
+		return ImportResult{}, fmt.Errorf("hash imported theme: %w", err)
 	}
 
 	store.mu.Lock()
 	defer store.mu.Unlock()
 	if _, bundled := store.bundled[manifest.ID]; bundled {
-		return Theme{}, fmt.Errorf("%w: %s", ErrBundledProtected, manifest.ID)
+		return ImportResult{}, fmt.Errorf("%w: %s", ErrBundledProtected, manifest.ID)
 	}
 	if _, err := secureDirectory(store.root); err != nil {
-		return Theme{}, err
+		return ImportResult{}, err
 	}
 	themeDir := filepath.Join(store.root, manifest.ID)
 	existing, statErr := os.Lstat(themeDir)
 	exists := statErr == nil
 	createdThemeDir := false
 	if statErr != nil && !errors.Is(statErr, os.ErrNotExist) {
-		return Theme{}, fmt.Errorf("inspect theme destination: %w", statErr)
+		return ImportResult{}, fmt.Errorf("inspect theme destination: %w", statErr)
 	}
+	result := ImportResult{}
 	if exists {
 		if existing.Mode()&os.ModeSymlink != 0 || !existing.IsDir() {
-			return Theme{}, errors.New("theme destination is not a safe directory")
+			return ImportResult{}, errors.New("theme destination is not a safe directory")
 		}
 		if !options.Replace {
-			return Theme{}, fmt.Errorf("%w: %s", ErrConflict, manifest.ID)
+			// Name the installed version so the conflict prompt can show what
+			// a replace would overwrite without a second request.
+			if previous, previousErr := store.loadActiveLocal(manifest.ID); previousErr == nil {
+				return ImportResult{}, fmt.Errorf("%w: %s (installed version %s)", ErrConflict, manifest.ID, previous.Version)
+			}
+			return ImportResult{}, fmt.Errorf("%w: %s", ErrConflict, manifest.ID)
+		}
+		result.Replaced = true
+		if previous, previousErr := store.loadActiveLocal(manifest.ID); previousErr == nil {
+			result.PreviousVersion = previous.Version
 		}
 	} else {
 		if err := os.Mkdir(themeDir, 0o700); err != nil {
-			return Theme{}, fmt.Errorf("create theme destination: %w", err)
+			return ImportResult{}, fmt.Errorf("create theme destination: %w", err)
 		}
 		createdThemeDir = true
 	}
 	if err := os.Chmod(themeDir, 0o700); err != nil {
-		return Theme{}, fmt.Errorf("protect theme destination: %w", err)
+		return ImportResult{}, fmt.Errorf("protect theme destination: %w", err)
 	}
 	versionDir := filepath.Join(themeDir, revision)
 	publishedVersion := false
 	if info, err := os.Lstat(versionDir); err == nil {
 		if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
-			return Theme{}, errors.New("theme revision destination is unsafe")
+			return ImportResult{}, errors.New("theme revision destination is unsafe")
 		}
 		storedManifest, err := loadManifestSecure(versionDir)
 		if err != nil {
-			return Theme{}, err
+			return ImportResult{}, err
 		}
 		storedRevision, err := hashThemeDirectory(versionDir, storedManifest, "", nil)
 		if err != nil || storedRevision != revision || storedManifest.ID != manifest.ID {
-			return Theme{}, errors.New("existing theme revision content is inconsistent")
+			return ImportResult{}, errors.New("existing theme revision content is inconsistent")
 		}
 		if err := os.RemoveAll(staging); err != nil {
-			return Theme{}, fmt.Errorf("discard duplicate theme revision: %w", err)
+			return ImportResult{}, fmt.Errorf("discard duplicate theme revision: %w", err)
 		}
 		stagingOwned = false
 	} else if errors.Is(err, os.ErrNotExist) {
@@ -169,12 +229,12 @@ func (store *Store) Import(reader io.Reader, options ImportOptions) (Theme, erro
 			if createdThemeDir {
 				_ = os.Remove(themeDir)
 			}
-			return Theme{}, fmt.Errorf("publish theme revision: %w", err)
+			return ImportResult{}, fmt.Errorf("publish theme revision: %w", err)
 		}
 		publishedVersion = true
 		stagingOwned = false
 	} else {
-		return Theme{}, fmt.Errorf("inspect theme revision destination: %w", err)
+		return ImportResult{}, fmt.Errorf("inspect theme revision destination: %w", err)
 	}
 	if err := writeCurrentRevision(themeDir, revision); err != nil {
 		if createdThemeDir {
@@ -182,13 +242,14 @@ func (store *Store) Import(reader io.Reader, options ImportOptions) (Theme, erro
 		} else if publishedVersion {
 			_ = os.RemoveAll(versionDir)
 		}
-		return Theme{}, err
+		return ImportResult{}, err
 	}
 	theme, err := store.loadActiveLocal(manifest.ID)
 	if err != nil {
-		return Theme{}, err
+		return ImportResult{}, err
 	}
-	return theme, nil
+	result.Theme = theme
+	return result, nil
 }
 
 type archiveEntry struct {

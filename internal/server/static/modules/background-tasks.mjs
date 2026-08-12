@@ -18,16 +18,32 @@ function text(value) {
   return String(value ?? "").trim();
 }
 
+// Only the tones the status dot has a style for; anything else falls back to
+// the activity's kind, and finally to the working blue, rather than rendering
+// an unstyled dot.
+const activityTones = new Set(["running", "queued", "waiting", "thinking", "generating", "retrying", "approval", "compacting"]);
+// The activity resolver names its states by kind and only sets an explicit
+// tone for "waiting". Every kind with a styled glyph maps here, so thinking,
+// retrying and the rest reach the dot instead of collapsing into "running".
+const activityKindTones = Object.freeze({
+  thinking: "thinking",
+  generating: "generating",
+  retrying: "retrying",
+  approval: "approval",
+  compacting: "compacting",
+  waiting: "waiting",
+  tool: "running",
+});
+
 function normalizeForegroundActivity(value) {
   const label = text(value?.text || value?.label);
   if (!label) return null;
+  const kind = text(value?.kind) || "activity";
   const tone = text(value?.tone);
   return {
-    kind: text(value?.kind) || "activity",
+    kind,
     text: label,
-    // Only the tones the dot has a style for; anything else falls back to the
-    // working blue rather than rendering an unstyled dot.
-    tone: tone === "waiting" || tone === "queued" ? tone : "running",
+    tone: activityTones.has(tone) ? tone : (activityKindTones[kind] || "running"),
   };
 }
 

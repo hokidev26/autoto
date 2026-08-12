@@ -1,6 +1,7 @@
 package server
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -19,10 +20,27 @@ type themeListResponse struct {
 
 type themeMutationResponse struct {
 	Theme themes.Theme `json:"theme"`
+	// Contrast warnings are advisory: the install already succeeded, but the
+	// user learns which token pairs will be hard to read before activating.
+	Warnings        []themes.ContrastWarning `json:"warnings,omitempty"`
+	Replaced        bool                     `json:"replaced,omitempty"`
+	PreviousVersion string                   `json:"previousVersion,omitempty"`
+}
+
+type themeManifestResponse struct {
+	Manifest themes.Manifest `json:"manifest"`
+}
+
+type themeCreateRequest struct {
+	Manifest json.RawMessage `json:"manifest"`
+	Replace  bool            `json:"replace,omitempty"`
 }
 
 func (s *Server) mountThemeRoutes(router chi.Router) {
 	router.Get("/api/themes", s.listThemes)
+	router.Get("/api/themes/{themeID}/manifest", s.themeManifest)
+	router.Get("/api/themes/{themeID}/export", s.exportTheme)
+	router.With(s.sensitiveLocalTokenGuard).Post("/api/themes", s.createTheme)
 	router.With(s.sensitiveLocalTokenGuard).Post("/api/themes/import", s.importTheme)
 	router.With(s.sensitiveLocalTokenGuard).Delete("/api/themes/{themeID}", s.deleteTheme)
 
@@ -81,12 +99,86 @@ func (s *Server) importTheme(w http.ResponseWriter, r *http.Request) {
 		}
 		replace = parsed
 	}
-	installed, err := store.Import(archive, themes.ImportOptions{Replace: replace})
+	result, err := store.Import(archive, themes.ImportOptions{Replace: replace})
 	if err != nil {
 		writeThemeStoreError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusCreated, themeMutationResponse{Theme: installed})
+	writeJSON(w, http.StatusCreated, themeMutationResponse{
+		Theme:           result.Theme,
+		Warnings:        themes.AuditContrast(result.Theme.Manifest),
+		Replaced:        result.Replaced,
+		PreviousVersion: result.PreviousVersion,
+	})
+}
+
+// createTheme installs a theme from a bare manifest, with no image resources.
+// This is the theme editor's save path; the manifest goes through the same
+// strict parser and store validation as an imported archive.
+func (s *Server) createTheme(w http.ResponseWriter, r *http.Request) {
+	store, ok := s.requireThemeStore(w)
+	if !ok {
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, themes.MaxManifestBytes+themeImportMultipartOverhead)
+	var request themeCreateRequest
+	decoder := json.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&request); err != nil {
+		writeError(w, http.StatusBadRequest, fmt.Sprintf("parse theme create request: %v", err))
+		return
+	}
+	manifest, err := themes.ParseManifest(request.Manifest)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	result, err := store.InstallManifest(manifest, themes.ImportOptions{Replace: request.Replace})
+	if err != nil {
+		writeThemeStoreError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, themeMutationResponse{
+		Theme:           result.Theme,
+		Warnings:        themes.AuditContrast(result.Theme.Manifest),
+		Replaced:        result.Replaced,
+		PreviousVersion: result.PreviousVersion,
+	})
+}
+
+// themeManifest returns the validated manifest of one installed theme. The
+// editor uses it to prefill "start from this theme"; manifests are controlled
+// data with no secrets, so it shares the catalog's access level.
+func (s *Server) themeManifest(w http.ResponseWriter, r *http.Request) {
+	store, ok := s.requireThemeStore(w)
+	if !ok {
+		return
+	}
+	theme, err := store.Get(chi.URLParam(r, "themeID"))
+	if err != nil {
+		writeThemeStoreError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, themeManifestResponse{Manifest: theme.Manifest})
+}
+
+func (s *Server) exportTheme(w http.ResponseWriter, r *http.Request) {
+	store, ok := s.requireThemeStore(w)
+	if !ok {
+		return
+	}
+	archive, filename, err := store.ExportArchive(chi.URLParam(r, "themeID"))
+	if err != nil {
+		writeThemeStoreError(w, err)
+		return
+	}
+	w.Header().Set("Content-Type", "application/zip")
+	w.Header().Set("Content-Length", strconv.Itoa(len(archive)))
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", filename))
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set("Cross-Origin-Resource-Policy", "same-origin")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(archive)
 }
 
 func (s *Server) deleteTheme(w http.ResponseWriter, r *http.Request) {

@@ -18,6 +18,7 @@ import (
 const (
 	SchemaVersionV1  = 1
 	SchemaVersionV2  = 2
+	SchemaVersionV3  = 3
 	ManifestFilename = "manifest.json"
 	LicenseFilename  = "LICENSE.txt"
 
@@ -49,7 +50,7 @@ var AllowedIconSlots = []string{
 	"sidebar-search", "sidebar-create", "sidebar-refresh", "sidebar-project", "sidebar-conversation", "sidebar-collapse",
 }
 
-// Manifest is the schemaVersion=1 or schemaVersion=2 theme description.
+// Manifest is the schemaVersion=1, 2, or 3 theme description.
 type Manifest struct {
 	SchemaVersion  int               `json:"schemaVersion"`
 	ID             string            `json:"id"`
@@ -64,6 +65,8 @@ type Manifest struct {
 	HomeBackground *HomeBackground   `json:"homeBackground,omitempty"`
 	Backgrounds    *Backgrounds      `json:"backgrounds,omitempty"`
 	Icons          map[string]string `json:"icons,omitempty"`
+	StatusTokens   *StatusTokens     `json:"statusTokens,omitempty"`
+	DarkTokens     *Tokens           `json:"darkTokens,omitempty"`
 }
 
 // Tokens is the complete v1 color vocabulary. Values are restricted to hex
@@ -81,6 +84,18 @@ type Tokens struct {
 	Danger    string `json:"danger"`
 	Terminal  string `json:"terminal"`
 	Message   string `json:"message"`
+}
+
+// StatusTokens is the optional schema v3 status color vocabulary: the colors
+// the UI uses for "going well", "not progressing", "needs you", and neutral
+// information. Every field is optional; unset entries fall back to defaults
+// the CSS generator derives from the main palette, so a minimal manifest is
+// still complete.
+type StatusTokens struct {
+	Success   string `json:"success,omitempty"`
+	Warning   string `json:"warning,omitempty"`
+	Attention string `json:"attention,omitempty"`
+	Info      string `json:"info,omitempty"`
 }
 
 // Materials controls fixed server-side material recipes. It cannot contain CSS.
@@ -127,6 +142,8 @@ type ThemeCapabilities struct {
 	GlobalBackground bool `json:"globalBackground"`
 	HomeBackground   bool `json:"homeBackground"`
 	Icons            bool `json:"icons"`
+	StatusTokens     bool `json:"statusTokens"`
+	DarkVariant      bool `json:"darkVariant"`
 }
 
 // ParseManifest strictly decodes and validates one schemaVersion=1 or v2 manifest.
@@ -193,14 +210,17 @@ func LoadManifest(filename string) (Manifest, error) {
 
 // ValidateManifest validates a programmatically constructed manifest.
 func ValidateManifest(manifest Manifest) error {
-	if manifest.SchemaVersion != SchemaVersionV1 && manifest.SchemaVersion != SchemaVersionV2 {
-		return fmt.Errorf("theme schemaVersion must be %d or %d", SchemaVersionV1, SchemaVersionV2)
+	if manifest.SchemaVersion != SchemaVersionV1 && manifest.SchemaVersion != SchemaVersionV2 && manifest.SchemaVersion != SchemaVersionV3 {
+		return fmt.Errorf("theme schemaVersion must be %d, %d, or %d", SchemaVersionV1, SchemaVersionV2, SchemaVersionV3)
 	}
 	if manifest.SchemaVersion == SchemaVersionV1 && (manifest.Backgrounds != nil || len(manifest.Icons) != 0) {
 		return errors.New("schemaVersion=1 does not support backgrounds or icons")
 	}
-	if manifest.SchemaVersion == SchemaVersionV2 && manifest.HomeBackground != nil {
-		return errors.New("schemaVersion=2 must use backgrounds.home instead of homeBackground")
+	if manifest.SchemaVersion >= SchemaVersionV2 && manifest.HomeBackground != nil {
+		return fmt.Errorf("schemaVersion=%d must use backgrounds.home instead of homeBackground", manifest.SchemaVersion)
+	}
+	if manifest.SchemaVersion < SchemaVersionV3 && (manifest.StatusTokens != nil || manifest.DarkTokens != nil) {
+		return errors.New("statusTokens and darkTokens require schemaVersion=3")
 	}
 	if !validID(manifest.ID) {
 		return errors.New("theme id must be 1-63 lowercase ASCII letters, digits, or interior hyphens")
@@ -220,20 +240,28 @@ func ValidateManifest(manifest Manifest) error {
 	if manifest.ColorScheme != ColorSchemeLight && manifest.ColorScheme != ColorSchemeDark {
 		return errors.New("theme colorScheme must be light or dark")
 	}
-	colors := []struct {
-		name  string
-		value string
-	}{
-		{"canvas", manifest.Tokens.Canvas}, {"sidebar", manifest.Tokens.Sidebar},
-		{"card", manifest.Tokens.Card}, {"input", manifest.Tokens.Input},
-		{"text", manifest.Tokens.Text}, {"muted", manifest.Tokens.Muted},
-		{"border", manifest.Tokens.Border}, {"primary", manifest.Tokens.Primary},
-		{"secondary", manifest.Tokens.Secondary}, {"danger", manifest.Tokens.Danger},
-		{"terminal", manifest.Tokens.Terminal}, {"message", manifest.Tokens.Message},
+	if err := validateTokens("token", manifest.Tokens); err != nil {
+		return err
 	}
-	for _, color := range colors {
-		if !validColor(color.value) {
-			return fmt.Errorf("theme token %s must be a #RGB, #RGBA, #RRGGBB, or #RRGGBBAA color", color.name)
+	// A dark variant is a complete alternative palette or nothing: a partial
+	// one would silently mix the light palette into dark mode.
+	if manifest.DarkTokens != nil {
+		if err := validateTokens("darkTokens token", *manifest.DarkTokens); err != nil {
+			return err
+		}
+	}
+	if manifest.StatusTokens != nil {
+		statusColors := []struct {
+			name  string
+			value string
+		}{
+			{"success", manifest.StatusTokens.Success}, {"warning", manifest.StatusTokens.Warning},
+			{"attention", manifest.StatusTokens.Attention}, {"info", manifest.StatusTokens.Info},
+		}
+		for _, color := range statusColors {
+			if color.value != "" && !validColor(color.value) {
+				return fmt.Errorf("theme statusTokens %s must be a #RGB, #RGBA, #RRGGBB, or #RRGGBBAA color", color.name)
+			}
 		}
 	}
 	materials := []struct {
@@ -281,7 +309,7 @@ func ValidateManifest(manifest Manifest) error {
 			return err
 		}
 	}
-	if manifest.SchemaVersion == SchemaVersionV2 {
+	if manifest.SchemaVersion >= SchemaVersionV2 {
 		if manifest.Backgrounds != nil {
 			for role, asset := range map[string]*BackgroundAsset{"backgrounds.global": manifest.Backgrounds.Global, "backgrounds.home": manifest.Backgrounds.Home} {
 				if asset == nil {
@@ -382,6 +410,26 @@ func walkJSONValue(decoder *json.Decoder) error {
 		}
 	default:
 		return errors.New("unexpected JSON delimiter")
+	}
+	return nil
+}
+
+func validateTokens(role string, tokens Tokens) error {
+	colors := []struct {
+		name  string
+		value string
+	}{
+		{"canvas", tokens.Canvas}, {"sidebar", tokens.Sidebar},
+		{"card", tokens.Card}, {"input", tokens.Input},
+		{"text", tokens.Text}, {"muted", tokens.Muted},
+		{"border", tokens.Border}, {"primary", tokens.Primary},
+		{"secondary", tokens.Secondary}, {"danger", tokens.Danger},
+		{"terminal", tokens.Terminal}, {"message", tokens.Message},
+	}
+	for _, color := range colors {
+		if !validColor(color.value) {
+			return fmt.Errorf("theme %s %s must be a #RGB, #RGBA, #RRGGBB, or #RRGGBBAA color", role, color.name)
+		}
 	}
 	return nil
 }
@@ -507,6 +555,8 @@ func capabilitiesForManifest(manifest Manifest) ThemeCapabilities {
 	capabilities.GlobalBackground = manifest.Backgrounds != nil && manifest.Backgrounds.Global != nil
 	capabilities.HomeBackground = manifest.Backgrounds != nil && manifest.Backgrounds.Home != nil
 	capabilities.Icons = len(manifest.Icons) > 0
+	capabilities.StatusTokens = manifest.StatusTokens != nil
+	capabilities.DarkVariant = manifest.DarkTokens != nil
 	return capabilities
 }
 
@@ -518,7 +568,7 @@ func declaredResourcePaths(manifest Manifest) []string {
 	if manifest.SchemaVersion == SchemaVersionV1 && manifest.HomeBackground != nil {
 		paths = append(paths, manifest.HomeBackground.Path)
 	}
-	if manifest.SchemaVersion == SchemaVersionV2 && manifest.Backgrounds != nil {
+	if manifest.SchemaVersion >= SchemaVersionV2 && manifest.Backgrounds != nil {
 		if manifest.Backgrounds.Global != nil {
 			paths = append(paths, manifest.Backgrounds.Global.Path)
 		}
@@ -526,7 +576,7 @@ func declaredResourcePaths(manifest Manifest) []string {
 			paths = append(paths, manifest.Backgrounds.Home.Path)
 		}
 	}
-	if manifest.SchemaVersion == SchemaVersionV2 {
+	if manifest.SchemaVersion >= SchemaVersionV2 {
 		for _, slot := range AllowedIconSlots {
 			if resource := manifest.Icons[slot]; resource != "" {
 				paths = append(paths, resource)

@@ -3668,45 +3668,66 @@ body.white-shell.theme-light[data-theme-preset] .composer-send-btn.is-stop:hover
   color: #fff;
 }
 
-/* Rock-paper-scissors thinking indicator */
+/* Task-state indicator: one line-art glyph per activity state, replacing the
+   rock-paper-scissors rotation. Line art keeps the theme accent, stays crisp at
+   small sizes, and renders identically across platforms. Every state the
+   activity resolver can produce has its own glyph, colour and motion, so
+   "retrying" no longer masquerades as the generic working blue. */
 body.white-shell.theme-light .composer-task-summary .header-task-status-dot {
+  position: relative;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   width: 18px;
   height: 18px;
   border: 0;
+  border-radius: 0;
   background: transparent;
   box-shadow: none;
+  animation: none;
 }
 
-body.white-shell.theme-light .composer-task-summary .header-task-status-dot:not(.running):not(.queued) {
-  width: 8px;
-  height: 8px;
-  background: #aab3c2;
-  border-radius: 50%;
+/* Status color vocabulary. Theme packages (schema v3 statusTokens) override
+   these at higher specificity from their generated stylesheet; without a
+   package these defaults are the palette. */
+body.white-shell.theme-light {
+  --autoto-status-success: #16a34a;
+  --autoto-status-warning: #d97706;
+  --autoto-status-attention: #dc2626;
+  --autoto-status-info: var(--ws-primary, #3b82f6);
 }
 
-body.white-shell.theme-light .composer-task-summary .header-task-status-dot:not(.running):not(.queued) .rps-hand {
-  display: none;
+body.white-shell.theme-light.theme-dark {
+  --autoto-status-success: #4ade80;
+  --autoto-status-warning: #fbbf24;
+  --autoto-status-attention: #ff9aaa;
 }
 
-/* Line-art hands instead of emoji: they inherit the theme accent, stay crisp at
-   small sizes, and render identically across platforms. */
-.rps-hand {
+/* Same footprint for the tones workspace-tasks.css styles as rings or dots:
+   the glyph replaces them entirely in this shell. */
+body.white-shell.theme-light .composer-task-summary .header-task-status-dot.idle,
+body.white-shell.theme-light .composer-task-summary .header-task-status-dot.running,
+body.white-shell.theme-light .composer-task-summary .header-task-status-dot.queued,
+body.white-shell.theme-light .composer-task-summary .header-task-status-dot.waiting {
+  width: 18px;
+  height: 18px;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  animation: none;
+}
+
+.task-state-icon {
   position: absolute;
-  display: inline-flex;
+  display: none;
   align-items: center;
   justify-content: center;
   width: 17px;
   height: 17px;
   line-height: 1;
-  color: var(--ws-primary, #3b82f6);
-  opacity: 0;
-  animation: none;
 }
 
-.rps-hand svg {
+.task-state-icon svg {
   width: 17px;
   height: 17px;
   fill: none;
@@ -3716,40 +3737,118 @@ body.white-shell.theme-light .composer-task-summary .header-task-status-dot:not(
   stroke-linejoin: round;
 }
 
-body.white-shell.theme-light .composer-task-summary .header-task-status-dot.running,
-body.white-shell.theme-light .composer-task-summary .header-task-status-dot.queued {
-  position: relative;
-  animation: none;
-  border: 0;
-  background: transparent;
+/* Idle: a resting moon in the muted grey the old dot used, so the button still
+   reads quiet -- but no longer as a bare dot next to the context-usage ring. */
+body.white-shell.theme-light .composer-task-summary .header-task-status-dot.idle .task-state-idle {
+  display: inline-flex;
+  color: #aab3c2;
 }
 
-body.white-shell.theme-light .composer-task-summary .header-task-status-dot.running .rps-rock,
-body.white-shell.theme-light .composer-task-summary .header-task-status-dot.queued .rps-rock {
-  animation: rps-show 1.8s steps(1) infinite;
-  animation-delay: 0s;
+/* Working blue family: generic running, thinking and generating are all "the
+   agent itself is busy", each with its own glyph and cadence. Theme packages
+   can recolor the whole family through --autoto-status-info (schema v3). */
+body.white-shell.theme-light .composer-task-summary .header-task-status-dot.running .task-state-running {
+  display: inline-flex;
+  color: var(--autoto-status-info, var(--ws-primary, #3b82f6));
+  animation: task-state-spin 0.9s linear infinite;
 }
 
-body.white-shell.theme-light .composer-task-summary .header-task-status-dot.running .rps-paper,
-body.white-shell.theme-light .composer-task-summary .header-task-status-dot.queued .rps-paper {
-  animation: rps-show 1.8s steps(1) infinite;
-  animation-delay: 0.6s;
+body.white-shell.theme-light .composer-task-summary .header-task-status-dot.thinking .task-state-thinking {
+  display: inline-flex;
+  color: var(--autoto-status-info, var(--ws-primary, #3b82f6));
+  animation: task-state-pulse 1.6s ease-in-out infinite;
 }
 
-body.white-shell.theme-light .composer-task-summary .header-task-status-dot.running .rps-scissors,
-body.white-shell.theme-light .composer-task-summary .header-task-status-dot.queued .rps-scissors {
-  animation: rps-show 1.8s steps(1) infinite;
-  animation-delay: 1.2s;
+body.white-shell.theme-light .composer-task-summary .header-task-status-dot.generating .task-state-generating {
+  display: inline-flex;
+  color: var(--autoto-status-info, var(--ws-primary, #3b82f6));
+  animation: task-state-write 0.9s ease-in-out infinite;
 }
 
-/* Queued keeps the amber language used by the rest of the queue affordances. */
-body.white-shell.theme-light .composer-task-summary .header-task-status-dot.queued .rps-hand {
-  color: #d97706;
+/* Compacting is housekeeping rather than progress on the task, so it gets its
+   own violet instead of borrowing the working blue. */
+body.white-shell.theme-light .composer-task-summary .header-task-status-dot.compacting .task-state-compacting {
+  display: inline-flex;
+  color: #7c3aed;
+  animation: task-state-squeeze 1.4s ease-in-out infinite;
 }
 
-@keyframes rps-show {
-  0%, 33.3% { opacity: 1; transform: scale(1); }
-  33.4%, 100% { opacity: 0; transform: scale(0.7); }
+/* Amber family: not failing, but not progressing either -- a provider fault
+   being retried, a queued task, or a parent blocked on its children. Theme
+   packages recolor it through --autoto-status-warning (schema v3). */
+body.white-shell.theme-light .composer-task-summary .header-task-status-dot.retrying .task-state-retrying {
+  display: inline-flex;
+  color: var(--autoto-status-warning, #d97706);
+  animation: task-state-spin 1.3s cubic-bezier(0.55, 0.2, 0.4, 0.85) infinite;
+}
+
+body.white-shell.theme-light .composer-task-summary .header-task-status-dot.queued .task-state-queued {
+  display: inline-flex;
+  color: var(--autoto-status-warning, #d97706);
+  animation: task-state-pulse 2s ease-in-out infinite;
+}
+
+body.white-shell.theme-light .composer-task-summary .header-task-status-dot.waiting .task-state-waiting {
+  display: inline-flex;
+  color: var(--autoto-status-warning, #d97706);
+  animation: task-state-flip 2.6s ease-in-out infinite;
+}
+
+/* Approval blocks on the user, which is the one state worth interrupting for:
+   a red bell that swings to catch the eye. Themes recolor it through
+   --autoto-status-attention (schema v3). */
+body.white-shell.theme-light .composer-task-summary .header-task-status-dot.approval .task-state-approval {
+  display: inline-flex;
+  color: var(--autoto-status-attention, #dc2626);
+  transform-origin: 50% 25%;
+  animation: task-state-swing 1.6s ease-in-out infinite;
+}
+
+@keyframes task-state-spin {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes task-state-pulse {
+  0%, 100% { opacity: 0.55; transform: scale(0.9); }
+  50% { opacity: 1; transform: scale(1.06); }
+}
+
+@keyframes task-state-write {
+  0%, 100% { transform: translate(-0.5px, 0.5px) rotate(-3deg); }
+  50% { transform: translate(1px, -0.5px) rotate(2deg); }
+}
+
+@keyframes task-state-flip {
+  0%, 42% { transform: rotate(0deg); }
+  58%, 92% { transform: rotate(180deg); }
+  100% { transform: rotate(360deg); }
+}
+
+@keyframes task-state-swing {
+  0%, 55%, 100% { transform: rotate(0deg); }
+  10% { transform: rotate(13deg); }
+  25% { transform: rotate(-10deg); }
+  40% { transform: rotate(5deg); }
+}
+
+@keyframes task-state-squeeze {
+  0%, 100% { transform: scaleY(1); }
+  50% { transform: scaleY(0.74); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .task-state-icon { animation: none !important; }
+}
+
+/* The light shades of violet and red disappear against the dark cards, so the
+   dark themes restate them brighter, like the heatmap cells above. Theme
+   packages that declare their own status colors still win via the variable. */
+body.white-shell.theme-light.theme-dark .composer-task-summary .header-task-status-dot.compacting .task-state-compacting {
+  color: #b7a6ff;
+}
+
+body.white-shell.theme-light.theme-dark .composer-task-summary .header-task-status-dot.approval .task-state-approval {
+  color: var(--autoto-status-attention, #ff9aaa);
 }
 
 /* The composer toolbar reads as a row of icons, and the reasoning control was

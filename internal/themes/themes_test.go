@@ -166,9 +166,13 @@ func TestStoreImportReplaceRevisionResourceAndDelete(t *testing.T) {
 	background := testPNG(t, color.RGBA{R: 0xf1, G: 0xbf, B: 0x00, A: 0xff})
 	firstArchive := themeArchive(t, manifest, firstPNG, background, []byte("Original test license\n"))
 
-	first, err := store.Import(bytes.NewReader(firstArchive), ImportOptions{})
+	firstResult, err := store.Import(bytes.NewReader(firstArchive), ImportOptions{})
 	if err != nil {
 		t.Fatalf("Import(first) error = %v", err)
+	}
+	first := firstResult.Theme
+	if firstResult.Replaced || firstResult.PreviousVersion != "" {
+		t.Fatalf("fresh install must not report an update: %#v", firstResult)
 	}
 	if first.Bundled || first.Source != SourceLocal || !first.Deletable || first.ID != manifest.ID || !validRevision(first.Revision) || len(first.Resources) != 2 {
 		t.Fatalf("first theme metadata = %#v", first)
@@ -185,6 +189,10 @@ func TestStoreImportReplaceRevisionResourceAndDelete(t *testing.T) {
 	}
 	if _, err := store.Import(bytes.NewReader(firstArchive), ImportOptions{}); !errors.Is(err, ErrConflict) {
 		t.Fatalf("duplicate import error = %v", err)
+	} else if !strings.Contains(err.Error(), "installed version "+manifest.Version) {
+		// The conflict prompt shows what a replace would overwrite, so the
+		// installed version has to survive into the error text.
+		t.Fatalf("conflict error must name the installed version: %v", err)
 	}
 
 	resource, err := store.OpenResource(manifest.ID, first.Revision, manifest.Preview)
@@ -202,9 +210,13 @@ func TestStoreImportReplaceRevisionResourceAndDelete(t *testing.T) {
 
 	secondPNG := testPNG(t, color.RGBA{R: 0xaa, G: 0x15, B: 0x1b, A: 0xff})
 	secondArchive := themeArchive(t, manifest, secondPNG, background, []byte("Original test license\n"))
-	second, err := store.Import(bytes.NewReader(secondArchive), ImportOptions{Replace: true})
+	secondResult, err := store.Import(bytes.NewReader(secondArchive), ImportOptions{Replace: true})
 	if err != nil {
 		t.Fatalf("Import(replace) error = %v", err)
+	}
+	second := secondResult.Theme
+	if !secondResult.Replaced || secondResult.PreviousVersion != manifest.Version {
+		t.Fatalf("replace must report the previous version: %#v", secondResult)
 	}
 	if second.Revision == first.Revision {
 		t.Fatal("content change did not change revision")
@@ -237,15 +249,17 @@ func TestStoreImportReplaceRevisionResourceAndDelete(t *testing.T) {
 func TestRevisionStableAndTamperingFailsClosed(t *testing.T) {
 	manifest := testManifest()
 	archive := themeArchive(t, manifest, testPNG(t, color.RGBA{B: 0xff, A: 0xff}), testPNG(t, color.RGBA{R: 0xff, G: 0xff, A: 0xff}), nil)
-	first, err := newTestStore(t).Import(bytes.NewReader(archive), ImportOptions{})
+	firstResult, err := newTestStore(t).Import(bytes.NewReader(archive), ImportOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
+	first := firstResult.Theme
 	secondStore := newTestStore(t)
-	second, err := secondStore.Import(bytes.NewReader(archive), ImportOptions{})
+	secondResult, err := secondStore.Import(bytes.NewReader(archive), ImportOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
+	second := secondResult.Theme
 	if first.Revision != second.Revision {
 		t.Fatalf("stable revisions differ: %s != %s", first.Revision, second.Revision)
 	}
@@ -265,10 +279,11 @@ func TestRevisionStableAndTamperingFailsClosed(t *testing.T) {
 func TestResourceSymlinkRejectedAtOpen(t *testing.T) {
 	store := newTestStore(t)
 	manifest := testManifest()
-	theme, err := store.Import(bytes.NewReader(themeArchive(t, manifest, testPNG(t, color.RGBA{B: 0xff, A: 0xff}), testPNG(t, color.RGBA{R: 0xff, G: 0xff, A: 0xff}), nil)), ImportOptions{})
+	imported, err := store.Import(bytes.NewReader(themeArchive(t, manifest, testPNG(t, color.RGBA{B: 0xff, A: 0xff}), testPNG(t, color.RGBA{R: 0xff, G: 0xff, A: 0xff}), nil)), ImportOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
+	theme := imported.Theme
 	resourcePath := filepath.Join(store.Root(), manifest.ID, theme.Revision, filepath.FromSlash(manifest.Preview))
 	outside := filepath.Join(t.TempDir(), "outside.png")
 	if err := os.WriteFile(outside, testPNG(t, color.RGBA{R: 0xff, A: 0xff}), 0o600); err != nil {
@@ -288,10 +303,11 @@ func TestResourceSymlinkRejectedAtOpen(t *testing.T) {
 func TestThemeDirectorySymlinkRejectedAtOpen(t *testing.T) {
 	store := newTestStore(t)
 	manifest := testManifest()
-	theme, err := store.Import(bytes.NewReader(themeArchive(t, manifest, testPNG(t, color.RGBA{B: 0xff, A: 0xff}), testPNG(t, color.RGBA{R: 0xff, G: 0xff, A: 0xff}), nil)), ImportOptions{})
+	imported, err := store.Import(bytes.NewReader(themeArchive(t, manifest, testPNG(t, color.RGBA{B: 0xff, A: 0xff}), testPNG(t, color.RGBA{R: 0xff, G: 0xff, A: 0xff}), nil)), ImportOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
+	theme := imported.Theme
 	themeDir := filepath.Join(store.Root(), manifest.ID)
 	outsideDir := filepath.Join(t.TempDir(), manifest.ID)
 	if err := os.Rename(themeDir, outsideDir); err != nil {
@@ -425,10 +441,11 @@ func TestCSSAccentFallsBackWhenGradientHasNoSharedForeground(t *testing.T) {
 func TestCSSUsesRevisionedLocalResourceURL(t *testing.T) {
 	store := newTestStore(t)
 	manifest := testManifest()
-	theme, err := store.Import(bytes.NewReader(themeArchive(t, manifest, testPNG(t, color.RGBA{B: 0xff, A: 0xff}), testPNG(t, color.RGBA{R: 0xff, G: 0xff, A: 0xff}), nil)), ImportOptions{})
+	imported, err := store.Import(bytes.NewReader(themeArchive(t, manifest, testPNG(t, color.RGBA{B: 0xff, A: 0xff}), testPNG(t, color.RGBA{R: 0xff, G: 0xff, A: 0xff}), nil)), ImportOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
+	theme := imported.Theme
 	css, err := store.CSS(manifest.ID)
 	if err != nil {
 		t.Fatal(err)
@@ -442,10 +459,11 @@ func TestCSSUsesRevisionedLocalResourceURL(t *testing.T) {
 func TestPrivatePermissions(t *testing.T) {
 	store := newTestStore(t)
 	manifest := testManifest()
-	theme, err := store.Import(bytes.NewReader(themeArchive(t, manifest, testPNG(t, color.RGBA{B: 0xff, A: 0xff}), testPNG(t, color.RGBA{R: 0xff, G: 0xff, A: 0xff}), nil)), ImportOptions{})
+	imported, err := store.Import(bytes.NewReader(themeArchive(t, manifest, testPNG(t, color.RGBA{B: 0xff, A: 0xff}), testPNG(t, color.RGBA{R: 0xff, G: 0xff, A: 0xff}), nil)), ImportOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
+	theme := imported.Theme
 	for _, item := range []struct {
 		path string
 		mode os.FileMode

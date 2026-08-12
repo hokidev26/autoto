@@ -30,9 +30,28 @@ export function normalizeThemeRecord(value = {}) {
       globalBackground: value.capabilities?.globalBackground === true,
       homeBackground: value.capabilities?.homeBackground === true,
       icons: value.capabilities?.icons === true || value.supportsIcons === true,
+      statusTokens: value.capabilities?.statusTokens === true,
+      darkVariant: value.capabilities?.darkVariant === true,
     },
     iconVariables: value.iconVariables && typeof value.iconVariables === "object" ? Object.keys(value.iconVariables).slice(0, 32) : [],
     deletable: source === "local" && value.deletable !== false,
+  };
+}
+
+// Server mutation responses carry the installed theme plus advisory contrast
+// warnings and update semantics. Bound and normalize them so a malformed
+// payload cannot inject markup or unbounded text into toasts.
+export function normalizeThemeMutationResult(payload = {}) {
+  const rawWarnings = Array.isArray(payload?.warnings) ? payload.warnings : [];
+  return {
+    theme: normalizeThemeRecord(payload?.theme || payload),
+    replaced: payload?.replaced === true,
+    previousVersion: String(payload?.previousVersion || "").trim().slice(0, 64),
+    warnings: rawWarnings.slice(0, 32).map((warning) => ({
+      pair: String(warning?.pair || "").trim().slice(0, 80),
+      ratio: Number(warning?.ratio) || 0,
+      minimum: Number(warning?.minimum) || 0,
+    })).filter((warning) => warning.pair),
   };
 }
 
@@ -99,6 +118,8 @@ export class ThemeManager {
     this.catalogSequence = 0;
     this.stylesheetSequence = 0;
     this.missingNoticeID = "";
+    this.darkVariantQuery = null;
+    this.darkVariantListener = null;
     this.state = {
       status: "idle",
       themes: [],
@@ -258,10 +279,34 @@ export class ThemeManager {
     try {
       const result = await this.api("/api/themes/import", { method: "POST", body: form });
       await this.loadCatalog({ force: true });
-      return result?.theme || result;
+      return normalizeThemeMutationResult(result);
     } finally {
       this.updateState({ importing: false });
     }
+  }
+
+  // createTheme installs a theme from a bare manifest with no image
+  // resources: the editor's save path. Same shape as importTheme's result.
+  async createTheme(manifest, { replace = false } = {}) {
+    this.updateState({ importing: true, error: "" });
+    try {
+      const result = await this.api("/api/themes", {
+        method: "POST",
+        body: JSON.stringify({ manifest, replace: replace === true }),
+      });
+      await this.loadCatalog({ force: true });
+      return normalizeThemeMutationResult(result);
+    } finally {
+      this.updateState({ importing: false });
+    }
+  }
+
+  async fetchThemeManifest(id) {
+    const normalized = String(id || "").trim().toLowerCase();
+    const payload = await this.api(`/api/themes/${encodeURIComponent(normalized)}/manifest`);
+    const manifest = payload?.manifest;
+    if (!manifest || typeof manifest !== "object") throw new Error(this.translate("appearance.themeNotFound", { id: normalized }));
+    return manifest;
   }
 
   async deleteTheme(id) {
@@ -284,6 +329,50 @@ export class ThemeManager {
     } finally {
       this.updateState({ deletingThemeID: "" });
     }
+  }
+
+  systemPrefersDark() {
+    try {
+      return this.window?.matchMedia?.("(prefers-color-scheme: dark)")?.matches === true;
+    } catch {
+      return false;
+    }
+  }
+
+  // A theme with a dark variant palette renders it whenever the system asks
+  // for dark; a single-palette theme keeps its declared scheme regardless.
+  resolveThemeDarkMode(theme) {
+    if (theme?.capabilities?.darkVariant === true) return theme.colorScheme === "dark" || this.systemPrefersDark();
+    return theme?.colorScheme === "dark";
+  }
+
+  // Follow live system scheme flips while a dark-variant theme is active. The
+  // generated stylesheet already contains both palettes, so the switch is just
+  // the body class; no request or re-render is needed.
+  bindDarkVariantListener() {
+    if (this.darkVariantListener) return;
+    let query;
+    try {
+      query = this.window?.matchMedia?.("(prefers-color-scheme: dark)");
+    } catch {
+      query = null;
+    }
+    if (!query?.addEventListener) return;
+    this.darkVariantQuery = query;
+    this.darkVariantListener = () => {
+      const active = this.findTheme(this.state.activeThemeID);
+      if (!active || active.capabilities?.darkVariant !== true) return;
+      this.applyResolvedScheme(active);
+    };
+    query.addEventListener("change", this.darkVariantListener);
+  }
+
+  applyResolvedScheme(theme) {
+    const dark = this.resolveThemeDarkMode(theme);
+    const body = this.document?.body;
+    if (body?.dataset) body.dataset.themePreset = dark ? "dark" : "light";
+    body?.classList?.toggle?.("theme-light", true);
+    body?.classList?.toggle?.("theme-dark", dark);
   }
 
   applyPresetFallback(preset = "light", { missingThemeID = "" } = {}) {
@@ -356,12 +445,11 @@ export class ThemeManager {
       body.dataset.autotoTheme = theme.id;
       body.dataset.themeRevision = theme.revision;
       body.dataset.themeSource = theme.source;
-      body.dataset.themePreset = theme.colorScheme;
       body.dataset.themeGlobalBackground = theme.capabilities.globalBackground ? "true" : "false";
       body.dataset.themeIcons = theme.capabilities.icons ? "true" : "false";
     }
-    body?.classList?.toggle?.("theme-light", true);
-    body?.classList?.toggle?.("theme-dark", theme.colorScheme === "dark");
+    this.applyResolvedScheme(theme);
+    if (theme.capabilities.darkVariant === true) this.bindDarkVariantListener();
     this.updateState({
       status: "ready",
       activeThemeID: theme.id,

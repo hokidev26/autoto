@@ -8,6 +8,7 @@ import {
   createThemeManager,
   normalizeAppearanceBackgroundRecord,
   normalizeThemeCatalog,
+  normalizeThemeMutationResult,
   safeAppearanceBackgroundUploadFilename,
   safeAppearanceBackgroundURL,
   setThemePageContext,
@@ -191,6 +192,76 @@ test("switching back to a preset cancels an in-flight package activation", async
   assert.equal(body.dataset.themeGlobalBackground, undefined);
   assert.equal(body.dataset.themeIcons, undefined);
   assert.deepEqual(prefs.themeRef, { kind: "preset", id: "light" });
+});
+
+test("mutation results carry bounded update semantics and contrast warnings", () => {
+  const result = normalizeThemeMutationResult({
+    theme: catalog.themes[0],
+    replaced: true,
+    previousVersion: "0.9.0",
+    warnings: [
+      { pair: "muted on canvas", ratio: 1.42, minimum: 3 },
+      { pair: "<script>".repeat(40), ratio: "NaN", minimum: 4.5 },
+      { notAPair: true },
+    ],
+  });
+  assert.equal(result.theme.id, "argentina-spain-final");
+  assert.equal(result.replaced, true);
+  assert.equal(result.previousVersion, "0.9.0");
+  assert.equal(result.warnings.length, 2);
+  assert.deepEqual(result.warnings[0], { pair: "muted on canvas", ratio: 1.42, minimum: 3 });
+  assert.ok(result.warnings[1].pair.length <= 80);
+
+  const bare = normalizeThemeMutationResult({ theme: catalog.themes[0] });
+  assert.equal(bare.replaced, false);
+  assert.equal(bare.previousVersion, "");
+  assert.deepEqual(bare.warnings, []);
+});
+
+test("a dark-variant theme follows the system scheme and live flips", async () => {
+  const { documentRef, body } = fakeDocument();
+  const listeners = [];
+  const query = {
+    matches: false,
+    addEventListener(event, listener) {
+      assert.equal(event, "change");
+      listeners.push(listener);
+    },
+  };
+  const pairedCatalog = {
+    themes: [{
+      ...catalog.themes[0],
+      id: "paired",
+      colorScheme: "light",
+      stylesheetUrl: "/themes/paired/rev-1/theme.css",
+      previewUrl: "",
+      capabilities: { ...catalog.themes[0].capabilities, darkVariant: true },
+    }],
+  };
+  const manager = createThemeManager({
+    api: async () => pairedCatalog,
+    documentRef,
+    windowRef: { matchMedia: () => query, setTimeout: globalThis.setTimeout.bind(globalThis), clearTimeout: globalThis.clearTimeout.bind(globalThis) },
+  });
+  manager.setPreferenceAdapter({ currentAppearancePreferences: () => ({}), saveAppearancePreferences() {} });
+  await manager.loadCatalog();
+  await manager.activateTheme("paired");
+
+  assert.equal(body.classList.contains("theme-dark"), false);
+  assert.equal(body.dataset.themePreset, "light");
+  assert.equal(listeners.length, 1);
+
+  // System flips to dark: the same stylesheet already carries the dark
+  // palette, so only the body class and preset flip with it.
+  query.matches = true;
+  listeners[0]();
+  assert.equal(body.classList.contains("theme-dark"), true);
+  assert.equal(body.dataset.themePreset, "dark");
+
+  query.matches = false;
+  listeners[0]();
+  assert.equal(body.classList.contains("theme-dark"), false);
+  assert.equal(body.dataset.themePreset, "light");
 });
 
 test("theme page context is explicit and removable", () => {

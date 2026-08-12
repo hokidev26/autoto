@@ -3235,17 +3235,35 @@ body.white-shell.theme-light.theme-dark .remote-access-generated span { color: v
   background: #94a3b8;
 }
 
-.header-task-status-dot.running {
+.header-task-status-dot.running,
+/* Thinking and generating are still "the agent itself is busy": same blue as
+   running for shells that only render the coloured dot. */
+.header-task-status-dot.thinking,
+.header-task-status-dot.generating {
   background: #2563eb;
   box-shadow: 0 0 0 4px rgba(37, 99, 235, .12);
 }
 
 .header-task-status-dot.queued,
 /* Blocked on a child rather than working: amber reads as "not my turn", which
-   is different information from the working blue. */
-.header-task-status-dot.waiting {
+   is different information from the working blue. Retrying is the same story
+   told by a provider fault: not failing, not progressing. */
+.header-task-status-dot.waiting,
+.header-task-status-dot.retrying {
   background: #d97706;
   box-shadow: 0 0 0 4px rgba(217, 119, 6, .11);
+}
+
+/* Blocked on the user: the one state that asks for attention. */
+.header-task-status-dot.approval {
+  background: #dc2626;
+  box-shadow: 0 0 0 4px rgba(220, 38, 38, .12);
+}
+
+/* Housekeeping rather than progress on the task. */
+.header-task-status-dot.compacting {
+  background: #7c3aed;
+  box-shadow: 0 0 0 4px rgba(124, 58, 237, .12);
 }
 
 body.white-shell.theme-light .security-mode-pill.tunnel:not(.warn) {
@@ -3455,8 +3473,10 @@ body.white-shell.theme-light .composer-task-summary .header-task-status-dot {
 }
 
 /* Idle (no task running): a small solid grey dot, not a ring — so it does not
-   read as another context-usage ring next to it. */
-body.white-shell.theme-light .composer-task-summary .header-task-status-dot:not(.running):not(.queued) {
+   read as another context-usage ring next to it. Named .idle rather than a
+   :not() chain so the per-state glyph rules in extras.css can win on source
+   order instead of losing a specificity fight. */
+body.white-shell.theme-light .composer-task-summary .header-task-status-dot.idle {
   width: 8px;
   height: 8px;
   border: 0;
