@@ -1863,6 +1863,10 @@ export function createChatRenderingController({
     const busy = Boolean(plan.id && state.planActionBusy?.[plan.id]);
     const executable = ["approved", "ready", "accepted"].includes(status);
     const cancellable = !["executed", "cancelled"].includes(status);
+    // Mirrors the backend transition rule: replan is a 409 from these states,
+    // so the button and the feedback box should not be offered at all.
+    const replannable = !["executing", "executed", "cancelled"].includes(status);
+    const feedbackDraft = plan.id ? String(state.planFeedbackDrafts?.[plan.id] || "") : "";
     const title = plan.goal || cr("plan.untitled");
     const steps = plan.steps.length ? `
       <section class="plan-card-section">
@@ -1895,11 +1899,16 @@ export function createChatRenderingController({
         </div>
         <section class="plan-card-section plan-card-goal"><h4>${escapeHtml(cr("plan.goal"))}</h4><p>${escapeHtml(title)}</p></section>
         ${steps}${risks}${review}${stale}
+        ${replannable ? `
+        <div class="plan-card-feedback">
+          <label for="plan-feedback-${escapeAttr(plan.id)}">${escapeHtml(cr("plan.feedbackLabel"))}</label>
+          <textarea id="plan-feedback-${escapeAttr(plan.id)}" data-plan-feedback="${escapeAttr(plan.id)}" rows="2" placeholder="${escapeAttr(cr("plan.feedbackPlaceholder"))}" ${busy ? "disabled" : ""}>${escapeHtml(feedbackDraft)}</textarea>
+        </div>` : ""}
         <div class="plan-card-actions">
           ${pending ? `<button class="ghost-btn mini" type="button" data-plan-action="approve" data-plan-id="${escapeAttr(plan.id)}" ${busy ? "disabled" : ""}>${escapeHtml(cr("plan.approve"))}</button>` : ""}
           ${executable ? `<button class="ghost-btn mini primary" type="button" data-plan-action="execute" data-plan-id="${escapeAttr(plan.id)}" ${busy ? "disabled" : ""}>${escapeHtml(busy ? cr("plan.working") : cr("plan.execute"))}</button>` : ""}
           ${cancellable ? `<button class="ghost-btn mini danger" type="button" data-plan-action="cancel" data-plan-id="${escapeAttr(plan.id)}" ${busy ? "disabled" : ""}>${escapeHtml(cr("plan.cancel"))}</button>` : ""}
-          <button class="ghost-btn mini" type="button" data-plan-action="replan" data-plan-id="${escapeAttr(plan.id)}" ${busy ? "disabled" : ""}>${escapeHtml(cr("plan.replan"))}</button>
+          ${replannable ? `<button class="ghost-btn mini" type="button" data-plan-action="replan" data-plan-id="${escapeAttr(plan.id)}" ${busy ? "disabled" : ""}>${escapeHtml(cr("plan.replan"))}</button>` : ""}
         </div>
       </section>
     `;
@@ -1959,12 +1968,20 @@ export function createChatRenderingController({
     const plan = currentPlanForAgent(agentId);
     if (!agentId || !plan?.id || plan.id !== planId || !action || state.planActionBusy?.[planId]) return;
     state.planActionBusy = { ...(state.planActionBusy || {}), [planId]: true };
+    // Replanning carries the reviewer's notes so the next plan revision can
+    // address them instead of guessing why the previous one was rejected.
+    const feedback = action === "replan" ? String(state.planFeedbackDrafts?.[planId] || "").trim() : "";
     renderPlanCards();
     try {
       const result = await request(`/api/agents/${encodeURIComponent(agentId)}/plans/${encodeURIComponent(planId)}/${encodeURIComponent(action)}`, {
         method: "POST",
-        body: JSON.stringify({ revision: plan.revision }),
+        body: JSON.stringify(feedback ? { revision: plan.revision, comment: feedback } : { revision: plan.revision }),
       });
+      if (action === "replan" && state.planFeedbackDrafts?.[planId] !== undefined) {
+        const drafts = { ...state.planFeedbackDrafts };
+        delete drafts[planId];
+        state.planFeedbackDrafts = drafts;
+      }
       if (state.agent?.id !== agentId) return;
       const next = normalizeAgentPlan(result?.activePlan ?? result?.pendingPlanApproval ?? result?.pendingPlan ?? result?.plan ?? result, agentId) || {
         ...plan,
@@ -1987,6 +2004,16 @@ export function createChatRenderingController({
   function bindPlanButtons(root) {
     root.querySelectorAll("[data-plan-action]").forEach((button) => {
       button.addEventListener("click", () => performPlanAction(button.dataset.planId || "", button.dataset.planAction || "", button));
+    });
+    // The card is re-rendered on every plan event, which would wipe whatever
+    // the reviewer has typed. The draft therefore lives in state, keyed by
+    // plan id, and is written back into the textarea on each render.
+    root.querySelectorAll("[data-plan-feedback]").forEach((input) => {
+      input.addEventListener("input", () => {
+        const planId = input.dataset.planFeedback || "";
+        if (!planId) return;
+        state.planFeedbackDrafts = { ...(state.planFeedbackDrafts || {}), [planId]: input.value };
+      });
     });
   }
 

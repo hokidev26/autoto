@@ -246,7 +246,7 @@ export default Object.freeze({
     messageMode: "消息模式",
     plan: "计划",
     execute: "执行",
-    enterPlanMode: "进入计划模式",
+    enterPlanMode: "计划模式",
     executeMode: "执行模式",
     activity: {
       thinking: "思考中",

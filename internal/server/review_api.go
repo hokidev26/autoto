@@ -410,6 +410,10 @@ func (s *Server) replanReviewPlan(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "revision is required")
 		return
 	}
+	if err := validateAPIText("comment", req.Comment, 16<<10, false, true); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	agentID, planID := chi.URLParam(r, "id"), chi.URLParam(r, "planId")
 	plan, err := s.store.GetPlan(r.Context(), agentID, planID)
 	if err != nil {
@@ -434,7 +438,11 @@ func (s *Server) replanReviewPlan(w http.ResponseWriter, r *http.Request) {
 		writeReviewServiceError(w, err)
 		return
 	}
-	prompt := "Create a revised plan for the previously reviewed goal. Address prior risks and review findings. Previous plan JSON:\n" + string(plan.ContentJSON)
+	prompt := "Create a revised plan for the previously reviewed goal. Address prior risks and review findings."
+	if feedback := strings.TrimSpace(req.Comment); feedback != "" {
+		prompt += "\n\nThe reviewer rejected the previous plan with this feedback, and the revised plan must address it:\n" + feedback
+	}
+	prompt += "\n\nPrevious plan JSON:\n" + string(plan.ContentJSON)
 	message, err := s.submitReviewRun(r.Context(), agentID, prompt, actor, db.RunExecutionModePlan, s.remotePermissionModeCapForRequest(r), nil)
 	if err != nil {
 		writeReviewServiceError(w, err)

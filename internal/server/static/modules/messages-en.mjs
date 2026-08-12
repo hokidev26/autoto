@@ -246,7 +246,7 @@ export default Object.freeze({
     messageMode: "Message mode",
     plan: "Plan",
     execute: "Execute",
-    enterPlanMode: "Enter plan mode",
+    enterPlanMode: "Plan mode",
     executeMode: "Execute mode",
     activity: {
       thinking: "Thinking",

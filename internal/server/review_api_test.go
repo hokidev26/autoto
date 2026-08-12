@@ -548,18 +548,25 @@ func TestReplanCancelsOldPlanAndStartsNewPlanRun(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 	}
 
+	const replanFeedback = "step 2 touches production data; add a dry-run step first"
 	replan := httptest.NewRecorder()
-	request = newTestRequest(http.MethodPost, "/api/agents/"+agent.ID+"/plans/"+oldPlan.ID+"/replan", strings.NewReader(fmt.Sprintf(`{"revision":%d}`, oldPlan.Revision)))
+	request = newTestRequest(http.MethodPost, "/api/agents/"+agent.ID+"/plans/"+oldPlan.ID+"/replan", strings.NewReader(fmt.Sprintf(`{"revision":%d,"comment":%q}`, oldPlan.Revision, replanFeedback)))
 	request.Header.Set("Content-Type", "application/json")
 	app.Routes().ServeHTTP(replan, request)
 	if replan.Code != http.StatusAccepted {
 		t.Fatalf("expected replan 202, got %d: %s", replan.Code, replan.Body.String())
 	}
 	var replanResponse struct {
-		RunID string `json:"runId"`
+		RunID   string     `json:"runId"`
+		Message db.Message `json:"message"`
 	}
 	if err := json.NewDecoder(replan.Body).Decode(&replanResponse); err != nil {
 		t.Fatal(err)
+	}
+	// The reviewer's feedback must reach the replan prompt, otherwise the next
+	// revision cannot know why the previous one was rejected.
+	if !strings.Contains(replanResponse.Message.ContentText, replanFeedback) {
+		t.Fatalf("replan prompt does not carry the reviewer feedback: %q", replanResponse.Message.ContentText)
 	}
 	cancelled, err := store.GetPlan(context.Background(), agent.ID, oldPlan.ID)
 	if err != nil {

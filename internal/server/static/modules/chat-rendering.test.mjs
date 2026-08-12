@@ -1232,6 +1232,21 @@ test("plan cards render pending review data safely and react to live plan events
   assert.match(html, /&lt;workspace changed&gt;/);
   assert.doesNotMatch(html, /onmouseover="boom"|<Ship auth safely>/);
 
+  // While a plan can still be replanned, the card offers a notes box so the
+  // reviewer can say what the next revision must change.
+  assert.match(html, /class="plan-card-feedback"/);
+  assert.match(html, /data-plan-feedback=/);
+
+  // Executed plans cannot be replanned (the backend rejects the transition),
+  // so the card must offer neither the button nor the notes box.
+  const executed = renderSnapshot([], {
+    activePlan: { ...rawPlan, id: "plan-done", status: "executed" },
+    pendingPlanApproval: null,
+    planActionBusy: {},
+  });
+  assert.doesNotMatch(executed.html, /data-plan-action="replan"/);
+  assert.doesNotMatch(executed.html, /plan-card-feedback/);
+
   const previousDocument = globalThis.document;
   const messagesElement = fakeMessagesElement();
   globalThis.document = { getElementById(id) { return id === "messages" ? messagesElement : null; } };
@@ -1298,6 +1313,51 @@ test("plan actions use the Agent plan action contract and update local state", a
     }]);
     assert.equal(state.activePlan.status, "executing");
     assert.deepEqual(state.planActionBusy, {});
+  } finally {
+    globalThis.document = previousDocument;
+    globalThis.window = previousWindow;
+  }
+});
+
+test("replan carries the reviewer feedback draft and clears it on success", async () => {
+  const previousDocument = globalThis.document;
+  const previousWindow = globalThis.window;
+  const messagesElement = fakeMessagesElement();
+  const requests = [];
+  globalThis.document = { getElementById(id) { return id === "messages" ? messagesElement : null; } };
+  globalThis.window = { setTimeout() { return 0; }, clearTimeout() {} };
+  try {
+    const state = {
+      agent: { id: "agent-1" },
+      currentMessages: [],
+      activePlan: { id: "plan-1", revision: 3, goal: "Ship it", status: "pending_approval" },
+      pendingPlanApproval: null,
+      planActionBusy: {},
+      planFeedbackDrafts: { "plan-1": "  step 2 needs a dry-run first  " },
+      chatHydrating: true,
+    };
+    const controller = createChatRenderingController({
+      state,
+      apiRequest: async (path, options) => {
+        requests.push({ path, options });
+        return { plan: { id: "plan-1", goal: "Ship it", status: "cancelled" } };
+      },
+      attachmentIcon: () => "file",
+      attachmentKind: () => "file",
+      copyToClipboard: async () => true,
+      notifyTerminal: () => {},
+      selectedModelValue: () => "",
+      shortPath: (value) => value,
+      showError: () => {},
+      showToast: () => {},
+    });
+
+    await controller.performPlanAction("plan-1", "replan");
+    assert.deepEqual(requests, [{
+      path: "/api/agents/agent-1/plans/plan-1/replan",
+      options: { method: "POST", body: JSON.stringify({ revision: 3, comment: "step 2 needs a dry-run first" }) },
+    }]);
+    assert.deepEqual(state.planFeedbackDrafts, {}, "the sent draft must not leak into the next plan");
   } finally {
     globalThis.document = previousDocument;
     globalThis.window = previousWindow;
