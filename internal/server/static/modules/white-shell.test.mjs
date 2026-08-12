@@ -1060,22 +1060,20 @@ test("composer selects hide external labels and open titled menus upward", async
   assert.match(appMain, /awaitAgentSettingsSaved:\s*\(agentId\) => waitForAgentSettingsSave\(agentId\)/);
 });
 
-test("permission menu groups the real modes in figure-two order", () => {
+test("permission menu lists every mode in the primary group, least permissive first", () => {
   const options = [
     { value: "readOnly" },
     { value: "acceptEdits" },
     { value: "bypassPermissions" },
     { value: "default" },
-    { value: "dontAsk" },
   ];
-  assert.deepEqual(permissionMenuPrimaryValues, ["default", "acceptEdits", "bypassPermissions"]);
-  assert.deepEqual(permissionMenuSecondaryValues, ["readOnly", "dontAsk"]);
+  assert.deepEqual(permissionMenuPrimaryValues, ["readOnly", "default", "acceptEdits", "bypassPermissions"]);
+  assert.deepEqual(permissionMenuSecondaryValues, []);
   assert.deepEqual(orderPermissionMenuOptions(options).map((option) => option.value), [
+    "readOnly",
     "default",
     "acceptEdits",
     "bypassPermissions",
-    "readOnly",
-    "dontAsk",
   ]);
 });
 

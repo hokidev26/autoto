@@ -450,7 +450,7 @@ export function createSkillsWorkbenchController({
       <form id="toolPermissionRuleForm" class="skill-command-form workflow-rule-form">
         <div class="settings-provider-title settings-card-title">${escapeHtml(t("skillsWorkbench.permissions.addRule"))}</div>
         <div class="settings-provider-form-grid settings-form-grid">
-          <label>${escapeHtml(t("skillsWorkbench.permissions.modeLabel"))}<select id="toolPermissionMode" class="settings-field">${renderPermissionRuleOptions(["*", "readOnly", "acceptEdits", "bypassPermissions", "default", "dontAsk"], "acceptEdits")}</select></label>
+          <label>${escapeHtml(t("skillsWorkbench.permissions.modeLabel"))}<select id="toolPermissionMode" class="settings-field">${renderPermissionRuleOptions(["*", "readOnly", "acceptEdits", "bypassPermissions", "default"], "acceptEdits")}</select></label>
           <label>${escapeHtml(t("skillsWorkbench.permissions.toolNameLabel"))}<input id="toolPermissionToolName" class="settings-field" value="Bash" placeholder="${escapeAttr(t("skillsWorkbench.permissions.toolNamePlaceholder"))}" /></label>
           <label>${escapeHtml(t("skillsWorkbench.permissions.riskLabel"))}<select id="toolPermissionRisk" class="settings-field">${renderPermissionRuleOptions(["read", "write", "exec", "danger", "*"], "exec")}</select></label>
           <label>${escapeHtml(t("skillsWorkbench.permissions.decisionLabel"))}<select id="toolPermissionDecision" class="settings-field">${renderPermissionRuleOptions(["ask", "deny", "allow"], "ask")}</select></label>

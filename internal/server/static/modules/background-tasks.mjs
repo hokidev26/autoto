@@ -1037,7 +1037,6 @@ export function createBackgroundTasksController({
     ["acceptEdits", "chat.permission.editable"],
     ["bypassPermissions", "chat.permission.allowAll"],
     ["default", "chat.permission.automatic"],
-    ["dontAsk", "chat.permission.dontAsk"],
   ];
 
   function renderChildConversationHTML(task) {
@@ -1188,7 +1187,10 @@ export function createBackgroundTasksController({
     const agent = childAgents.get(childAgentId) || {};
     const model = text(agent.model);
     const effort = text(agent.reasoningEffort) || "auto";
-    const permission = text(agent.permissionMode) || "default";
+    // dontAsk no longer exists as an option; the backend treats it exactly like
+    // default, so legacy child agents that still carry it select 自動 here.
+    const storedPermission = text(agent.permissionMode);
+    const permission = (storedPermission === "dontAsk" ? "default" : storedPermission) || "default";
     const working = childIsWorking(childAgentId);
     // The model list comes from the configured providers, so this offers the same
     // choices as the main composer instead of asking the user to type an id.

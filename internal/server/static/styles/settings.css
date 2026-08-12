@@ -583,6 +583,18 @@ body.white-shell.theme-light.theme-dark #settingsModal {
   background: linear-gradient(135deg, var(--settings-surface), color-mix(in srgb, var(--settings-primary-soft) 55%, var(--settings-surface)));
 }
 
+/* The terminal hero holds a header plus an action-row footer. The generic hero
+   card lays its children out as one flex row, which squeezed the two blocks
+   side by side and made the buttons overlap the header copy on phones. */
+#settingsContentBody .terminal-hero-card {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+#settingsContentBody .terminal-hero-card .settings-card-footer {
+  justify-content: flex-start;
+}
+
 #settingsContentBody :is(.settings-card-content, .settings-card-footer) {
   min-width: 0;
   display: grid;
@@ -929,6 +941,13 @@ body.white-shell.theme-light.theme-dark #settingsModal {
   min-height: 52px;
   align-content: center;
   gap: 0;
+}
+
+/* Retention choices are just line counts, so the generic 88px choice card reads
+   as a large empty box whenever the help copy is hidden. */
+#settingsContentBody .terminal-retention-grid .appearance-choice {
+  min-height: 52px;
+  align-content: center;
 }
 
 /* Notification durations are short choices, so keep them compact and on one row. */
@@ -2349,6 +2368,9 @@ body.white-shell.theme-light.theme-dark #settingsModal {
   #settingsModal .legacy-settings-content-body { padding: 0; }
   #settingsContentBody :is(.settings-card, .settings-page-section, .settings-provider-section, .settings-panel-card, .settings-info-card, .automation-section, .settings-hero-card) { padding: 14px; }
   #settingsContentBody :is(.settings-form-grid, .settings-provider-form-grid, .automation-form, .settings-choice-grid, .appearance-choice-grid, .terminal-retention-grid) { grid-template-columns: minmax(0, 1fr); }
+  /* Line-count choices are short numbers; a full-width column per choice wastes
+     most of a phone screen, so keep them two abreast. */
+  #settingsContentBody .terminal-retention-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   #settingsContentBody .automation-metrics.settings-stat-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   #settingsContentBody .settings-form-span-2,
   #settingsContentBody .automation-form .span-2 { grid-column: span 1; }

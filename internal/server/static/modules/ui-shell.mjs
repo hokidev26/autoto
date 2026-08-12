@@ -66,8 +66,10 @@ export const maxSidebarWidth = 420;
 export const globalRailExpandedWidth = 68;
 export const globalRailCollapsedWidth = 48;
 export const collapsedSidebarWidth = compactSidebarWidth;
-export const permissionMenuPrimaryValues = Object.freeze(["default", "acceptEdits", "bypassPermissions"]);
-export const permissionMenuSecondaryValues = Object.freeze(["readOnly", "dontAsk"]);
+// readOnly joined the primary group (least- to most-permissive order); the
+// redundant dontAsk mode is gone, so the secondary section renders nothing.
+export const permissionMenuPrimaryValues = Object.freeze(["readOnly", "default", "acceptEdits", "bypassPermissions"]);
+export const permissionMenuSecondaryValues = Object.freeze([]);
 
 export function orderPermissionMenuOptions(options = []) {
   const remaining = new Map([...options].map((option) => [option.value, option]));

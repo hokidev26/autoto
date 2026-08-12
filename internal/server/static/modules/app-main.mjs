@@ -2648,6 +2648,13 @@ function syncProjectOperationContext() {
   return active;
 }
 
+// The dontAsk mode was removed from the UI because the backend treats it
+// exactly like default; agents saved before the removal still carry it.
+function normalizeStoredPermissionMode(mode) {
+  const value = String(mode || "").trim();
+  return value === "dontAsk" ? "default" : value;
+}
+
 function permissionLabel(value) {
   const labels = {
     readOnly: t("chat.permission.readOnly"),
@@ -3711,7 +3718,7 @@ async function enterAgent() {
   renderWorkbenchShell();
   if (state.activeWorkbench === "workbench" && taskWorkspace.getState().scope === "agent") specBoard.load().catch(showError);
   renderConversationHeaderIdentity();
-  $("permissionMode").value = state.agent.permissionMode || "acceptEdits";
+  $("permissionMode").value = normalizeStoredPermissionMode(state.agent.permissionMode) || "acceptEdits";
   enforcePermissionSelectCap();
   updateWorkspaceMetaPills();
   renderModelOptions();
@@ -3868,7 +3875,7 @@ async function applyAgentLiveSnapshot(snapshot, detail = {}) {
   // the header rendered above.
   renderConversationHeaderIdentity();
   const permissionMode = $("permissionMode");
-  if (permissionMode) permissionMode.value = state.agent.permissionMode || "acceptEdits";
+  if (permissionMode) permissionMode.value = normalizeStoredPermissionMode(state.agent.permissionMode) || "acceptEdits";
   enforcePermissionSelectCap();
   renderModelOptions();
   refreshReasoningEffortControl();

@@ -207,9 +207,8 @@ test("empty enabled Gateway loads visible settings without alias management", as
 
   assert.deepEqual(requests.map((item) => item.path), loadPaths);
   assert.match(html, /Gateway 运行中/);
-  assert.match(html, /http:\/\/127\.0\.0\.1:7788\/v1\/chat\/completions/);
-  assert.match(html, /\/v1\/responses/);
-  assert.match(html, /\/v1\/messages/);
+  // The client connection examples section was removed from the page.
+  assert.doesNotMatch(html, /shared-api-connections-section/);
   assert.doesNotMatch(html, /模型别名|data-gateway-model|Token 安全示例|shared-api-security-note/);
   assert.match(html, /0 把密钥/);
   assert.match(html, /0 个账号/);
@@ -369,8 +368,7 @@ test("create and rotate expose plaintext tokens only in the controller one-time 
   const createdHTML = controller.render();
   assert.match(createdHTML, />secret-create-once<\/code>/);
   assert.doesNotMatch(createdHTML, /data-[^=]+="[^"]*secret-create-once/);
-  const connectionHTML = createdHTML.match(/shared-api-connections-section[\s\S]*?<\/section>/)?.[0] || "";
-  assert.doesNotMatch(connectionHTML, /secret-create-once|Bearer|sk-/);
+  assert.doesNotMatch(createdHTML, /shared-api-connections-section/);
   await controller.copyOneTimeToken();
   assert.deepEqual(copied, ["secret-create-once"]);
 

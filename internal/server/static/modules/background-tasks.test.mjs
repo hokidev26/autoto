@@ -872,8 +872,8 @@ test("subagent permission modes render translated labels, not raw enum values", 
 
   assert.match(html, /<option value="bypassPermissions" selected>/);
   // The option's visible text must not be the enum value itself.
-  const options = [...html.matchAll(/<option value="(readOnly|acceptEdits|bypassPermissions|default|dontAsk)"[^>]*>([^<]*)</g)];
-  assert.equal(options.length, 5, "all five permission modes must be offered");
+  const options = [...html.matchAll(/<option value="(readOnly|acceptEdits|bypassPermissions|default)"[^>]*>([^<]*)</g)];
+  assert.equal(options.length, 4, "all four permission modes must be offered");
   for (const [, value, label] of options) {
     assert.notEqual(label.trim(), value, `${value} must render a translated label`);
     assert.ok(label.trim().length > 0, `${value} must have a label`);

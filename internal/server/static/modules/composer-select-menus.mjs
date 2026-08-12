@@ -23,7 +23,6 @@ const permissionMenuIconMarkup = Object.freeze({
   acceptEdits: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m14.7 5.3 4 4"></path><path d="M5 19h4l9.7-9.7a2.8 2.8 0 0 0-4-4L5 15z"></path><path d="M13 7 17 11"></path></svg>',
   bypassPermissions: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 19 6v5c0 4.5-2.5 7.8-7 10-4.5-2.2-7-5.5-7-10V6z"></path><path d="m8.5 8.5 7 7"></path><path d="m15.5 8.5-7 7"></path></svg>',
   readOnly: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2.5 12s3.5-5 9.5-5 9.5 5 9.5 5-3.5 5-9.5 5-9.5-5-9.5-5z"></path><circle cx="12" cy="12" r="2.5"></circle></svg>',
-  dontAsk: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 11V6.5a1.5 1.5 0 0 1 3 0V10"></path><path d="M11 10V5.5a1.5 1.5 0 0 1 3 0V10"></path><path d="M14 10V7a1.5 1.5 0 0 1 3 0v5"></path><path d="M8 10.5 6.7 9.2a1.7 1.7 0 0 0-2.4 2.4l4.2 5.1A5 5 0 0 0 12.4 19H14a5 5 0 0 0 5-5v-3.5a1.5 1.5 0 0 0-3 0"></path></svg>',
   plan: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 4h8a2 2 0 0 1 2 2v14l-3-2-3 2-3-2-3 2V6a2 2 0 0 1 2-2z"></path><path d="M9 9h6M9 13h4"></path></svg>',
   execute: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 7 9 5-9 5z"></path></svg>',
 });

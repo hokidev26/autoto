@@ -348,18 +348,6 @@ function gatewayAddress(gateway) {
   return gateway.port ? `${host}:${gateway.port}` : host;
 }
 
-function gatewayBaseURL(runtime, gateway) {
-  let address = textValue(runtime.address);
-  if (!address) {
-    const host = displayHost(gateway.host || "127.0.0.1");
-    address = gateway.port ? `${host}:${gateway.port}` : host;
-  }
-  address = address.replace(/\/+$/, "");
-  if (/^https?:\/\//i.test(address)) return address;
-  if (address.startsWith(":")) address = `127.0.0.1${address}`;
-  return `http://${address}`;
-}
-
 function keyUsageValue(key) {
   return integerValue(key.usage.monthlyTokens ?? key.usage.tokens ?? key.usage.tokenCount);
 }
@@ -978,11 +966,19 @@ export function createSharedAPISettingsController({
   function renderModelForm(model = {}) {
     const editing = Boolean(model.alias);
     const providers = Array.isArray(state.settings?.providers) ? state.settings.providers : [];
-    const suggestions = providers.filter((p) => p.gatewayEnabled && p.configured).flatMap((p) => {
+    // The target is picked from the models the user has opened to the Gateway
+    // instead of typed as free text; the alias is then filled in after it.
+    const available = [...new Set(providers.filter((p) => p.gatewayEnabled && p.configured).flatMap((p) => {
       const configs = Array.isArray(p.modelConfigs) ? p.modelConfigs : [];
       return configs.map((c) => c.name || "").filter(Boolean).map((m) => `${p.name}:${m}`);
-    });
-    return `<form class="compact-settings-editor shared-api-model-form" data-gateway-model-form="${escapeAttr(editing ? model.alias : "new")}"><div class="compact-settings-grid two-column"><label class="settings-form-field">${escapeHtml(t("sharedAPI.modelAlias"))}<input class="settings-field" name="alias" value="${escapeAttr(model.alias || "")}" required autocomplete="off" /></label><label class="settings-form-field">${escapeHtml(t("sharedAPI.modelTarget"))}<input class="settings-field" name="targetModel" value="${escapeAttr(model.targetModel || "")}" required autocomplete="off" list="gw-model-targets" /><small data-settings-help-copy>${escapeHtml(t("sharedAPI.modelTargetHint"))}</small>${suggestions.length ? `<datalist id="gw-model-targets">${suggestions.map((s) => `<option value="${escapeAttr(s)}"></option>`).join("")}</datalist>` : ""}</label></div><label class="compact-settings-switch-row"><span><strong>${escapeHtml(t("sharedAPI.modelEnabled"))}</strong></span><input name="enabled" type="checkbox" ${model.enabled !== false ? "checked" : ""} /></label><div class="settings-inline-actions compact-settings-editor-actions"><button class="settings-action-btn subtle" type="button" data-gateway-model-cancel>${escapeHtml(t("sharedAPI.cancel"))}</button><button class="settings-action-btn primary" type="submit">${escapeHtml(t(editing ? "sharedAPI.save" : "sharedAPI.addModel"))}</button></div></form>`;
+    }))];
+    // An alias saved before its provider was closed off must keep showing its
+    // real target while being edited.
+    if (model.targetModel && !available.includes(model.targetModel)) available.unshift(model.targetModel);
+    const targetField = available.length
+      ? `<label class="settings-form-field">${escapeHtml(t("sharedAPI.modelTarget"))}<select class="settings-field" name="targetModel" required>${model.targetModel ? "" : `<option value="" disabled selected>${escapeHtml(t("sharedAPI.modelTargetPlaceholder"))}</option>`}${available.map((s) => `<option value="${escapeAttr(s)}" ${s === model.targetModel ? "selected" : ""}>${escapeHtml(s)}</option>`).join("")}</select><small data-settings-help-copy>${escapeHtml(t("sharedAPI.modelTargetSelectHint"))}</small></label>`
+      : `<label class="settings-form-field">${escapeHtml(t("sharedAPI.modelTarget"))}<input class="settings-field" name="targetModel" value="${escapeAttr(model.targetModel || "")}" required autocomplete="off" /><small data-settings-help-copy>${escapeHtml(t("sharedAPI.modelTargetHint"))}</small></label>`;
+    return `<form class="compact-settings-editor shared-api-model-form" data-gateway-model-form="${escapeAttr(editing ? model.alias : "new")}"><div class="compact-settings-grid two-column">${targetField}<label class="settings-form-field">${escapeHtml(t("sharedAPI.modelAlias"))}<input class="settings-field" name="alias" value="${escapeAttr(model.alias || "")}" required autocomplete="off" /></label></div><label class="compact-settings-switch-row"><span><strong>${escapeHtml(t("sharedAPI.modelEnabled"))}</strong></span><input name="enabled" type="checkbox" ${model.enabled !== false ? "checked" : ""} /></label><div class="settings-inline-actions compact-settings-editor-actions"><button class="settings-action-btn subtle" type="button" data-gateway-model-cancel>${escapeHtml(t("sharedAPI.cancel"))}</button><button class="settings-action-btn primary" type="submit">${escapeHtml(t(editing ? "sharedAPI.save" : "sharedAPI.addModel"))}</button></div></form>`;
   }
 
   function renderModel(model) {
@@ -1004,17 +1000,6 @@ export function createSharedAPISettingsController({
           <div class="shared-api-list">${state.gatewayModels.length ? state.gatewayModels.map((m) => editingModelAlias === m.alias ? renderModelForm(m) : renderModel(m)).join("") : `<div class="settings-empty-state shared-api-compact-empty">${escapeHtml(t("sharedAPI.noModels"))}</div>`}</div>
         </div>
       </section>`;
-  }
-
-  function renderConnections() {
-    const baseURL = gatewayBaseURL(runtime(), gateway());
-    const examples = [
-      ["baseURL", baseURL],
-      ["chatCompletions", `${baseURL}/v1/chat/completions`],
-      ["responsesEndpoint", `${baseURL}/v1/responses`],
-      ["messagesEndpoint", `${baseURL}/v1/messages`],
-    ];
-    return `<section class="compact-settings-section shared-api-connections-section"><div class="compact-settings-section-copy"><h2>${escapeHtml(t("sharedAPI.connectionsTitle"))}</h2><p data-settings-help-copy>${escapeHtml(t("sharedAPI.connectionsDescription"))}</p></div><div class="compact-settings-section-controls"><div class="shared-api-connection-list">${examples.map(([key, value]) => `<div class="shared-api-connection-row"><span>${escapeHtml(t(`sharedAPI.${key}`))}</span><code>${escapeHtml(value)}</code></div>`).join("")}</div></div></section>`;
   }
 
   function renderUsage() {
@@ -1048,7 +1033,7 @@ export function createSharedAPISettingsController({
     return `<div class="compact-settings-page shared-api-page">
       <header class="compact-settings-header"><div class="compact-settings-heading"><h1>${escapeHtml(t("sharedAPI.title"))}</h1><p data-settings-help-copy>${escapeHtml(t("sharedAPI.description"))}</p></div><div class="compact-settings-header-actions"><span class="settings-badge ${status.running ? "ok" : "warn"}">${escapeHtml(t(status.running ? "sharedAPI.runtimeRunning" : "sharedAPI.runtimeStopped"))}</span><button class="settings-action-btn subtle" type="button" data-gateway-refresh ${state.gatewayDataLoading ? "disabled" : ""}>${escapeHtml(state.gatewayDataLoading ? t("sharedAPI.loading") : t("sharedAPI.refresh"))}</button></div></header>
       ${state.gatewayAPIError ? `<div class="settings-inline-alert settings-alert shared-api-error" role="alert">${escapeHtml(t("sharedAPI.error", { message: state.gatewayAPIError }))}</div>` : ""}
-      ${renderGateway()}${renderApiTunnel()}${renderProviders()}${renderAccounts()}${renderKeys()}${renderModels()}${renderConnections()}${renderUsage()}${renderRequests()}
+      ${renderGateway()}${renderApiTunnel()}${renderProviders()}${renderAccounts()}${renderKeys()}${renderModels()}${renderUsage()}${renderRequests()}
     </div>`;
   }
 
