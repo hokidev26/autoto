@@ -504,6 +504,70 @@ func (s *Store) CreateWorklineFork(ctx context.Context, parent Workline, title, 
 	return workline, agent, nil
 }
 
+// WorklineHasActiveRuns reports whether any agent in the workline still has a
+// durable run in flight. Cleanup paths use it to refuse deleting a worktree an
+// agent loop may still be writing into.
+func (s *Store) WorklineHasActiveRuns(ctx context.Context, worklineID string) (bool, error) {
+	var busy int
+	err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM runs r JOIN agents a ON a.id = r.agent_id WHERE a.workline_id = ? AND r.status IN `+activeRunStatusList, strings.TrimSpace(worklineID)).Scan(&busy)
+	if err != nil {
+		return false, err
+	}
+	return busy > 0, nil
+}
+
+// ClearWorklineWorktree records that the workline's git worktree was removed
+// from disk: the path is cleared on the workline and on every agent whose cwd
+// pointed into it, so nothing keeps resolving git operations against a
+// directory that no longer exists.
+func (s *Store) ClearWorklineWorktree(ctx context.Context, worklineID string) (Workline, error) {
+	worklineID = strings.TrimSpace(worklineID)
+	if worklineID == "" {
+		return Workline{}, errors.New("workline id is required")
+	}
+	now := Now()
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return Workline{}, err
+	}
+	defer tx.Rollback()
+	var worktreePath sql.NullString
+	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(worktree_path,'') FROM worklines WHERE id = ?`, worklineID).Scan(&worktreePath); err != nil {
+		return Workline{}, err
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE worklines SET worktree_path = '', updated_at = ? WHERE id = ?`, now, worklineID); err != nil {
+		return Workline{}, err
+	}
+	if strings.TrimSpace(worktreePath.String) != "" {
+		if _, err := tx.ExecContext(ctx, `UPDATE agents SET cwd = '', updated_at = ? WHERE workline_id = ? AND cwd = ?`, now, worklineID, worktreePath.String); err != nil {
+			return Workline{}, err
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return Workline{}, err
+	}
+	return s.GetWorkline(ctx, worklineID)
+}
+
+// DeleteWorklineIfEmpty removes a non-root workline row once its last agent is
+// gone. Worklines only cascade with their project, so deleting a fork
+// conversation used to leave the workline row behind forever.
+func (s *Store) DeleteWorklineIfEmpty(ctx context.Context, worklineID string) (bool, error) {
+	worklineID = strings.TrimSpace(worklineID)
+	if worklineID == "" {
+		return false, errors.New("workline id is required")
+	}
+	result, err := s.db.ExecContext(ctx, `DELETE FROM worklines WHERE id = ? AND is_root = 0 AND NOT EXISTS (SELECT 1 FROM agents WHERE workline_id = ?)`, worklineID, worklineID)
+	if err != nil {
+		return false, err
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return false, err
+	}
+	return affected == 1, nil
+}
+
 func (s *Store) MarkWorklineMerged(ctx context.Context, sourceWorklineID, targetWorklineID, preMergeTargetSHA, mergeCommitSHA, strategy string) (Workline, error) {
 	if sourceWorklineID == "" || targetWorklineID == "" || mergeCommitSHA == "" {
 		return Workline{}, errors.New("source workline, target workline, and merge commit are required")
@@ -518,6 +582,33 @@ func (s *Store) MarkWorklineMerged(ctx context.Context, sourceWorklineID, target
 		return Workline{}, err
 	}
 	if _, err := tx.ExecContext(ctx, `UPDATE worklines SET head_commit_sha = ?, updated_at = ? WHERE id = ?`, mergeCommitSHA, now, targetWorklineID); err != nil {
+		return Workline{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return Workline{}, err
+	}
+	return s.GetWorkline(ctx, sourceWorklineID)
+}
+
+// MarkWorklineUnmerged is the inverse of MarkWorklineMerged: the merge was
+// undone on the target branch (via reset or revert), so the source workline
+// returns to active and its merge bookkeeping is cleared. Both heads are
+// re-recorded because the unmerge moved the target and the source's head no
+// longer equals the merge commit.
+func (s *Store) MarkWorklineUnmerged(ctx context.Context, sourceWorklineID, sourceHeadSHA, targetWorklineID, targetHeadSHA string) (Workline, error) {
+	if sourceWorklineID == "" || targetWorklineID == "" {
+		return Workline{}, errors.New("source and target worklines are required")
+	}
+	now := Now()
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return Workline{}, err
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, `UPDATE worklines SET status = 'active', merged_into_workline_id = NULL, merge_commit_sha = NULL, merge_strategy = NULL, pre_merge_target_sha = NULL, head_commit_sha = NULLIF(?, ''), updated_at = ? WHERE id = ?`, sourceHeadSHA, now, sourceWorklineID); err != nil {
+		return Workline{}, err
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE worklines SET head_commit_sha = NULLIF(?, ''), updated_at = ? WHERE id = ?`, targetHeadSHA, now, targetWorklineID); err != nil {
 		return Workline{}, err
 	}
 	if err := tx.Commit(); err != nil {

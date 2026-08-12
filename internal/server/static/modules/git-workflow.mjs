@@ -220,11 +220,13 @@ export function createGitWorkflowController({
     state.gitCommitMessage = "";
     state.gitCommitSelected = {};
     state.gitCommitBusy = false;
+    state.gitDiscardBusy = false;
     state.gitOpen = false;
     state.mergeCheck = null;
     state.mergeCheckBusy = false;
     state.mergeCheckError = "";
     state.mergeBusy = false;
+    state.worklineUnmergeBusy = false;
     state.gitSeq++;
     renderGitButtonState();
   }
@@ -286,7 +288,9 @@ export function createGitWorkflowController({
       // The check is now stale whatever the outcome, so it is cleared rather
       // than left showing a verdict that no longer describes the repository.
       state.mergeCheck = null;
+      if (result?.workline && state.workline?.id === sourceId) state.workline = result.workline;
       showToast(t("mergeDone", { commit: shortGitHash(result?.mergeCommit || "") }), "success", { force: true });
+      await offerWorklineCleanup(sourceId, check.sourceBranch || "");
       await refreshGitWorkflow({ silent: true });
       return result;
     } catch (error) {
@@ -297,6 +301,62 @@ export function createGitWorkflowController({
     } finally {
       state.mergeBusy = false;
       renderGitModal();
+    }
+  }
+
+  // Undo of a completed merge. The backend picks the strategy: a hard reset to
+  // the pre-merge head when the merge commit is still the target's tip, or a
+  // revert commit when the target has moved on. Only offered while the source
+  // branch still exists, so the workline can genuinely return to active work.
+  async function unmergeCurrentWorkline() {
+    const workline = state.workline;
+    const sourceId = String(workline?.id || "");
+    if (!sourceId || workline?.status !== "merged" || state.worklineUnmergeBusy) return null;
+    const confirmed = await platformConfirm(t("unmergeConfirm", {
+      branch: workline.branch || workline.title || sourceId,
+      commit: shortGitHash(workline.mergeCommitSha || ""),
+    }));
+    if (!confirmed) return null;
+    state.worklineUnmergeBusy = true;
+    renderGitModal();
+    try {
+      const result = await request(`/api/worklines/${encodeURIComponent(sourceId)}/unmerge`, {
+        method: "POST",
+        body: JSON.stringify({ confirm: true }),
+      });
+      if (result?.workline && state.workline?.id === sourceId) state.workline = result.workline;
+      state.mergeCheck = null;
+      if (result?.strategy === "reset") showToast(t("unmergeDoneReset"), "success", { force: true });
+      else showToast(t("unmergeDoneRevert", { commit: shortGitHash(result?.newTargetHead || "") }), "success", { force: true });
+      await refreshGitWorkflow({ silent: true });
+      return result;
+    } catch (error) {
+      showToast(t("unmergeFailed", { message: error?.message || String(error) }), "error", { force: true });
+      return null;
+    } finally {
+      state.worklineUnmergeBusy = false;
+      renderGitModal();
+    }
+  }
+
+  // Merging only flips the database status; the source branch and its worktree
+  // directory would otherwise accumulate forever. Cleanup stays a separate,
+  // explicitly confirmed step because it retires the branch for good.
+  async function offerWorklineCleanup(worklineId, branch) {
+    if (!worklineId) return;
+    const confirmed = await platformConfirm(t("cleanupConfirm", { branch: branch || worklineId }));
+    if (!confirmed) return;
+    try {
+      const result = await request(`/api/worklines/${encodeURIComponent(worklineId)}/cleanup`, {
+        method: "POST",
+        body: JSON.stringify({ confirm: true }),
+      });
+      if (result?.workline && state.workline?.id === worklineId) state.workline = result.workline;
+      const warnings = Array.isArray(result?.warnings) ? result.warnings.filter(Boolean) : [];
+      if (warnings.length) showToast(t("cleanupWarnings", { message: warnings.join("; ") }), "warn", { force: true });
+      else showToast(t("cleanupDone"), "success", { force: true });
+    } catch (error) {
+      showToast(t("cleanupFailed", { message: error?.message || String(error) }), "error", { force: true });
     }
   }
 
@@ -524,6 +584,64 @@ export function createGitWorkflowController({
     }
   }
 
+  /**
+   * The general-purpose escape hatch beside the run checkpoint: when no
+   * checkpoint is available (dirty start, later commits, hand edits), the
+   * checked selection can still be reverted to HEAD. Untracked files in the
+   * selection are deleted, which is why this is a separate confirmed action
+   * rather than a side effect of anything else.
+   */
+  async function discardGitSelection() {
+    if (state.gitDiscardBusy) return;
+    const agentId = state.agent?.id;
+    if (!agentId) return;
+    const paths = selectedGitCommitPaths();
+    if (!paths.length) {
+      showToast(t("discardSelectionRequired"), "warn", { force: true });
+      return;
+    }
+    const shownPaths = paths.slice(0, 20).map((path) => `- ${path}`);
+    if (paths.length > 20) shownPaths.push(`… +${paths.length - 20}`);
+    const confirmed = await platformConfirm([
+      t("discardConfirm", { count: formatNumber(paths.length) }),
+      "",
+      t("discardPathsHeader"),
+      ...shownPaths,
+    ].join("\n"));
+    if (!confirmed) return;
+    state.gitDiscardBusy = true;
+    state.gitError = "";
+    renderGitModal();
+    try {
+      const result = await request(`/api/agents/${agentId}/git/discard`, {
+        method: "POST",
+        body: JSON.stringify({ paths, confirm: true }),
+      });
+      if (state.agent?.id !== agentId) return;
+      state.gitCommitSelected = {};
+      if (result?.status) {
+        state.gitStatus = result.status;
+        state.gitDiff = null;
+      }
+      const warning = String(result?.warning || "").trim();
+      const summary = t("discardDone", {
+        restored: formatNumber((result?.restoredPaths || []).length),
+        deleted: formatNumber((result?.deletedPaths || []).length),
+      });
+      showToast(warning ? `${summary} ${warning}` : summary, warning ? "warn" : "success", { force: true });
+      await refreshGitWorkflow({ silent: true });
+    } catch (err) {
+      if (state.agent?.id !== agentId) return;
+      state.gitError = err.message || String(err);
+      showError(err);
+    } finally {
+      if (state.agent?.id === agentId) {
+        state.gitDiscardBusy = false;
+        renderGitModal();
+      }
+    }
+  }
+
   function openGitModal() {
     if (!state.agent?.id) return;
     state.gitOpen = true;
@@ -706,6 +824,27 @@ export function createGitWorkflowController({
   function renderWorklineMergePanel() {
     const workline = state.workline;
     if (!workline?.id) return "";
+    // A merged workline gets the undo panel instead of the merge controls:
+    // there is nothing further to integrate, but the merge itself can still be
+    // taken back while the source branch survives.
+    if (workline.status === "merged" && workline.mergeCommitSha) {
+      const unmergeBusy = Boolean(state.worklineUnmergeBusy);
+      const cleaned = !String(workline.worktreePath || "").trim();
+      return `
+        <section class="git-commit-panel git-merge-panel" data-workline-merge-panel>
+          <div class="git-commit-head">
+            <div>
+              <strong>${escapeHtml(t("mergeSectionTitle"))}</strong>
+              <span>${escapeHtml(t("unmergedNotice", { commit: shortGitHash(workline.mergeCommitSha || "") }))}</span>
+            </div>
+          </div>
+          ${cleaned ? `<div class="settings-empty-card compact">${escapeHtml(t("unmergeCleanedHint"))}</div>` : ""}
+          <div class="git-commit-actions">
+            <button id="worklineUnmergeBtn" class="ghost-btn mini danger" type="button" ${unmergeBusy || cleaned ? "disabled" : ""}>${escapeHtml(unmergeBusy ? t("unmerging") : t("unmergeAction"))}</button>
+          </div>
+        </section>
+      `;
+    }
     const check = state.mergeCheck;
     const busy = Boolean(state.mergeCheckBusy);
     const merging = Boolean(state.mergeBusy);
@@ -765,7 +904,8 @@ export function createGitWorkflowController({
 
   function renderGitCommitPanel(files, selectedPaths) {
     const selectedCount = selectedPaths.length;
-    const disabled = state.gitCommitBusy || selectedCount === 0 || !String(state.gitCommitMessage || "").trim();
+    const busy = state.gitCommitBusy || Boolean(state.gitDiscardBusy);
+    const disabled = busy || selectedCount === 0 || !String(state.gitCommitMessage || "").trim();
     return `
       <form id="gitCommitForm" class="git-commit-panel">
         <div class="git-commit-head">
@@ -777,8 +917,9 @@ export function createGitWorkflowController({
         </div>
         <textarea id="gitCommitMessageInput" class="git-commit-message" rows="2" maxlength="10000" placeholder="${escapeAttr(t("commitPlaceholder"))}">${escapeHtml(state.gitCommitMessage || "")}</textarea>
         <div class="git-commit-actions">
-          <button id="selectAllGitFilesBtn" class="ghost-btn mini git-mini-btn" type="button" ${files.length && !state.gitCommitBusy ? "" : "disabled"}>${escapeHtml(t("selectAll"))}</button>
-          <button id="clearGitFilesBtn" class="ghost-btn mini git-mini-btn" type="button" ${selectedCount && !state.gitCommitBusy ? "" : "disabled"}>${escapeHtml(t("clearSelection"))}</button>
+          <button id="selectAllGitFilesBtn" class="ghost-btn mini git-mini-btn" type="button" ${files.length && !busy ? "" : "disabled"}>${escapeHtml(t("selectAll"))}</button>
+          <button id="clearGitFilesBtn" class="ghost-btn mini git-mini-btn" type="button" ${selectedCount && !busy ? "" : "disabled"}>${escapeHtml(t("clearSelection"))}</button>
+          <button id="gitDiscardBtn" class="ghost-btn mini git-mini-btn danger" type="button" ${selectedCount && !busy ? "" : "disabled"}>${escapeHtml(state.gitDiscardBusy ? t("discarding") : t("discardFiles"))}</button>
           <button id="gitCommitBtn" class="send-btn git-commit-submit" type="submit" ${disabled ? "disabled" : ""}>${escapeHtml(state.gitCommitBusy ? t("committing") : t("commitFiles"))}</button>
         </div>
       </form>
@@ -819,12 +960,14 @@ export function createGitWorkflowController({
     $("runCheckpointRollbackBtn")?.addEventListener("click", () => rollbackMostRecentRun().catch(showError));
     $("worklineMergeCheckBtn")?.addEventListener("click", () => loadWorklineMergeCheck().catch(showError));
     $("worklineMergeBtn")?.addEventListener("click", () => mergeCurrentWorkline().catch(showError));
+    $("worklineUnmergeBtn")?.addEventListener("click", () => unmergeCurrentWorkline().catch(showError));
     $("refreshGitBtn")?.addEventListener("click", () => refreshGitWorkflow({ notify: true }).catch(showError));
     $("gitScopeSelect")?.addEventListener("change", (event) => {
       state.gitScope = event.target.value || "all";
       loadGitDiff().catch(showError);
     });
     $("gitCommitForm")?.addEventListener("submit", (event) => commitGitSelection(event).catch(showError));
+    $("gitDiscardBtn")?.addEventListener("click", () => discardGitSelection().catch(showError));
     $("gitCommitMessageInput")?.addEventListener("input", updateGitCommitControls);
     $("selectAllGitFilesBtn")?.addEventListener("click", () => setGitCommitSelection((state.gitStatus?.files || []).map((file) => file.path || "").filter(Boolean)));
     $("clearGitFilesBtn")?.addEventListener("click", () => setGitCommitSelection([]));
@@ -862,6 +1005,7 @@ export function createGitWorkflowController({
 
   return {
     closeGitModal,
+    discardGitSelection,
     loadGitDiff,
     loadGitLog,
     loadGitStatus,

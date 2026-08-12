@@ -13,6 +13,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"autoto/internal/db"
+	"autoto/internal/gitlock"
 )
 
 const worklineGitOutputMaxBytes = 512 << 10
@@ -155,10 +156,16 @@ func (s *Server) forkWorkline(w http.ResponseWriter, r *http.Request) {
 		writeGitError(w, err)
 		return
 	}
+	// Serialized against agent tool writes and commits on the same repository:
+	// `worktree add` mutates refs and the worktree list, and racing a concurrent
+	// git mutation can corrupt either side.
+	unlockGitMutation := gitlock.Default.Lock(repoRoot)
 	if _, _, err := runGitCommand(r.Context(), repoRoot, worklineGitOutputMaxBytes, 15*time.Second, nil, "worktree", "add", "-b", branch, worktreePath, baseRef); err != nil {
+		unlockGitMutation()
 		writeGitError(w, err)
 		return
 	}
+	unlockGitMutation()
 	cfg := s.configSnapshot()
 	model := strings.TrimSpace(req.Model)
 	if model == "" {
@@ -365,6 +372,12 @@ func (s *Server) worklineMerge(w http.ResponseWriter, r *http.Request) {
 		writeGitError(w, err)
 		return
 	}
+	// The merge writes into the target worktree, which an agent may be mutating
+	// at the same time. Holding the target's git lock from the dirty check
+	// through the merge keeps the check and the write atomic with respect to
+	// every other locked git mutation on that repository.
+	unlockGitMutation := gitlock.Default.Lock(targetRepo)
+	defer unlockGitMutation()
 	if dirty, err := gitRepoDirty(r.Context(), sourceRepo); err != nil {
 		writeGitError(w, err)
 		return
@@ -406,6 +419,319 @@ func (s *Server) worklineMerge(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, worklineMergeResponse{GeneratedAt: time.Now().UTC().Format(time.RFC3339Nano), SourceWorklineID: source.ID, TargetWorklineID: target.ID, SourceHead: sourceHead, PreMergeTarget: targetHead, MergeCommit: mergeCommit, Merged: true, Output: strings.TrimSpace(mergeOut), Workline: updated})
+}
+
+type worklineUnmergeRequest struct {
+	Confirm bool `json:"confirm"`
+}
+
+type worklineUnmergeResponse struct {
+	GeneratedAt      string      `json:"generatedAt"`
+	SourceWorklineID string      `json:"sourceWorklineId"`
+	TargetWorklineID string      `json:"targetWorklineId"`
+	// Strategy is "reset" when the merge commit was still the target head and
+	// history could simply be rewound, or "revert" when the target had moved on
+	// and a counter-commit was created instead.
+	Strategy      string      `json:"strategy"`
+	MergeCommit   string      `json:"mergeCommit"`
+	NewTargetHead string      `json:"newTargetHead"`
+	Conflicts     []string    `json:"conflicts,omitempty"`
+	Output        string      `json:"output,omitempty"`
+	Workline      db.Workline `json:"workline"`
+}
+
+// worklineUnmerge undoes a workline merge on the target branch. The merge
+// endpoint records preMergeTargetSha and mergeCommitSha for exactly this
+// moment: if the target head is still the merge commit the target is hard-reset
+// to its pre-merge position, otherwise the merge commit is reverted with a new
+// commit so later target work survives. Either way the source workline returns
+// to active so it can be fixed up and merged again.
+func (s *Server) worklineUnmerge(w http.ResponseWriter, r *http.Request) {
+	source, project, err := s.worklineAndProject(r.Context(), chi.URLParam(r, "id"))
+	if err != nil {
+		writeWorklineWorkflowError(w, err)
+		return
+	}
+	var req worklineUnmergeRequest
+	if err := decodeJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if !req.Confirm {
+		writeError(w, http.StatusBadRequest, "confirm must be true")
+		return
+	}
+	if source.Status != "merged" || strings.TrimSpace(source.MergeCommitSHA) == "" || strings.TrimSpace(source.MergedIntoWorklineID) == "" {
+		writeError(w, http.StatusConflict, "workline has no recorded merge to undo")
+		return
+	}
+	// After cleanup the fork's branch and worktree are gone, so the workline
+	// cannot return to active; on the reset path the merged commits would also
+	// lose their last named ref. Undoing then is a manual git operation.
+	if strings.TrimSpace(source.WorktreePath) == "" {
+		writeError(w, http.StatusConflict, "workline branch was already cleaned up; undo the merge manually with git revert")
+		return
+	}
+	target, err := s.store.GetWorkline(r.Context(), source.MergedIntoWorklineID)
+	if err != nil {
+		writeWorklineWorkflowError(w, err)
+		return
+	}
+	if target.ProjectID != project.ID {
+		writeError(w, http.StatusConflict, "merge target belongs to a different project")
+		return
+	}
+	_, sourceHead, err := s.worklineRepoAndHead(r.Context(), project, source)
+	if err != nil {
+		writeGitError(w, err)
+		return
+	}
+	targetRepo, _, err := s.worklineRepoAndHead(r.Context(), project, target)
+	if err != nil {
+		writeGitError(w, err)
+		return
+	}
+	mergeCommit := strings.TrimSpace(source.MergeCommitSHA)
+	// The unmerge rewrites the target worktree; holding its git lock keeps the
+	// head/dirty inspection and the reset-or-revert decision atomic against
+	// agent commits landing on the same repository.
+	unlockGitMutation := gitlock.Default.Lock(targetRepo)
+	defer unlockGitMutation()
+	if dirty, err := gitRepoDirty(r.Context(), targetRepo); err != nil {
+		writeGitError(w, err)
+		return
+	} else if dirty {
+		writeGitError(w, gitCommandError{Status: http.StatusConflict, Msg: "target workline worktree has uncommitted changes"})
+		return
+	}
+	targetHead, _, err := runGitCommand(r.Context(), targetRepo, 256, 3*time.Second, nil, "rev-parse", "HEAD")
+	if err != nil {
+		writeGitError(w, err)
+		return
+	}
+	targetHead = strings.TrimSpace(targetHead)
+	// The merge commit must still be part of the target history: if someone
+	// already rewound or reverted it by hand there is nothing left to undo.
+	if _, _, err := runGitCommand(r.Context(), targetRepo, 256, 3*time.Second, nil, "merge-base", "--is-ancestor", mergeCommit, targetHead); err != nil {
+		writeGitError(w, gitCommandError{Status: http.StatusConflict, Msg: "merge commit is no longer part of the target branch history"})
+		return
+	}
+	strategy := "revert"
+	output := ""
+	if targetHead == mergeCommit && strings.TrimSpace(source.PreMergeTargetSHA) != "" {
+		strategy = "reset"
+		out, _, err := runGitCommand(r.Context(), targetRepo, worklineGitOutputMaxBytes, 30*time.Second, nil, "reset", "--hard", strings.TrimSpace(source.PreMergeTargetSHA))
+		if err != nil {
+			writeGitError(w, err)
+			return
+		}
+		output = strings.TrimSpace(out)
+	} else {
+		out, _, revertErr := runGitCommand(r.Context(), targetRepo, worklineGitOutputMaxBytes, 30*time.Second, nil, "revert", "-m", "1", "--no-edit", mergeCommit)
+		if revertErr != nil {
+			conflicts := mergeCheckConflicts(r.Context(), targetRepo)
+			_ = abortGitRevert(context.Background(), targetRepo)
+			if len(conflicts) > 0 {
+				writeJSON(w, http.StatusConflict, worklineUnmergeResponse{
+					GeneratedAt:      time.Now().UTC().Format(time.RFC3339Nano),
+					SourceWorklineID: source.ID,
+					TargetWorklineID: target.ID,
+					Strategy:         strategy,
+					MergeCommit:      mergeCommit,
+					Conflicts:        conflicts,
+					Output:           strings.TrimSpace(out),
+					Workline:         source,
+				})
+				return
+			}
+			writeGitError(w, revertErr)
+			return
+		}
+		output = strings.TrimSpace(out)
+	}
+	newTargetHead, _, err := runGitCommand(r.Context(), targetRepo, 256, 3*time.Second, nil, "rev-parse", "HEAD")
+	if err != nil {
+		writeGitError(w, err)
+		return
+	}
+	newTargetHead = strings.TrimSpace(newTargetHead)
+	updated, err := s.store.MarkWorklineUnmerged(r.Context(), source.ID, sourceHead, target.ID, newTargetHead)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "merge was undone in git but the workline record could not be updated: "+err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, worklineUnmergeResponse{
+		GeneratedAt:      time.Now().UTC().Format(time.RFC3339Nano),
+		SourceWorklineID: source.ID,
+		TargetWorklineID: target.ID,
+		Strategy:         strategy,
+		MergeCommit:      mergeCommit,
+		NewTargetHead:    newTargetHead,
+		Output:           output,
+		Workline:         updated,
+	})
+}
+
+type worklineCleanupRequest struct {
+	Confirm bool `json:"confirm"`
+}
+
+type worklineCleanupResponse struct {
+	GeneratedAt     string      `json:"generatedAt"`
+	WorklineID      string      `json:"worklineId"`
+	Branch          string      `json:"branch,omitempty"`
+	WorktreePath    string      `json:"worktreePath,omitempty"`
+	RemovedWorktree bool        `json:"removedWorktree"`
+	DeletedBranch   bool        `json:"deletedBranch"`
+	Warnings        []string    `json:"warnings,omitempty"`
+	Workline        db.Workline `json:"workline"`
+}
+
+// worklineCleanup removes the git worktree and branch of a merged fork
+// workline. Merging alone only flips the database status, so without this the
+// worktree directory and the autoto/* branch outlive every conversation that
+// referenced them.
+func (s *Server) worklineCleanup(w http.ResponseWriter, r *http.Request) {
+	workline, project, err := s.worklineAndProject(r.Context(), chi.URLParam(r, "id"))
+	if err != nil {
+		writeWorklineWorkflowError(w, err)
+		return
+	}
+	var req worklineCleanupRequest
+	if err := decodeJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if !req.Confirm {
+		writeError(w, http.StatusBadRequest, "confirm must be true")
+		return
+	}
+	if workline.IsRoot {
+		writeError(w, http.StatusBadRequest, "mainline workline has no fork worktree to clean up")
+		return
+	}
+	if workline.Status != "merged" {
+		writeError(w, http.StatusConflict, "only merged worklines can be cleaned up")
+		return
+	}
+	worktreePath := strings.TrimSpace(workline.WorktreePath)
+	branch := strings.TrimSpace(workline.Branch)
+	// The branch name is kept on the row as history; a cleared worktree path is
+	// what marks the cleanup as already done.
+	if worktreePath == "" {
+		writeError(w, http.StatusConflict, "workline was already cleaned up")
+		return
+	}
+	if busy, err := s.store.WorklineHasActiveRuns(r.Context(), workline.ID); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	} else if busy {
+		writeError(w, http.StatusConflict, "workline conversation is still running: interrupt it before cleaning up")
+		return
+	}
+	if s.runner != nil {
+		agents, err := s.store.ListAgentsByWorkline(r.Context(), workline.ID)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		for _, agent := range agents {
+			if s.runner.IsAgentRunning(agent.ID) {
+				writeError(w, http.StatusConflict, "workline conversation is still running: interrupt it before cleaning up")
+				return
+			}
+		}
+	}
+	// Only paths autoto created for this project may be force-removed; anything
+	// else recorded in the row is treated as user territory.
+	if worktreePath != "" && !pathWithin(s.worklineWorktreeBaseDir(project), worktreePath) {
+		writeError(w, http.StatusBadRequest, "workline worktree is outside the managed worktree directory")
+		return
+	}
+	repoRoot, err := s.projectMainRepoRoot(r.Context(), project)
+	if err != nil {
+		writeGitError(w, err)
+		return
+	}
+	result := cleanupWorklineGitArtifacts(r.Context(), repoRoot, worktreePath, branch)
+	updated, err := s.store.ClearWorklineWorktree(r.Context(), workline.ID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "git cleanup finished but the workline record could not be updated: "+err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, worklineCleanupResponse{
+		GeneratedAt:     time.Now().UTC().Format(time.RFC3339Nano),
+		WorklineID:      workline.ID,
+		Branch:          branch,
+		WorktreePath:    worktreePath,
+		RemovedWorktree: result.removedWorktree,
+		DeletedBranch:   result.deletedBranch,
+		Warnings:        result.warnings,
+		Workline:        updated,
+	})
+}
+
+// projectMainRepoRoot resolves the primary repository a project's fork
+// worktrees hang off. Worktree and branch removal must run against the main
+// repository, not the (possibly already deleted) linked worktree.
+func (s *Server) projectMainRepoRoot(ctx context.Context, project db.Project) (string, error) {
+	gitPath := strings.TrimSpace(project.GitPath)
+	if gitPath == "" {
+		return "", gitCommandError{Status: http.StatusBadRequest, Msg: "project has no git path configured"}
+	}
+	if err := validateDir(gitPath); err != nil {
+		return "", err
+	}
+	repoRoot, _, err := runGitCommand(ctx, gitPath, 4096, 3*time.Second, nil, "rev-parse", "--show-toplevel")
+	if err != nil {
+		return "", err
+	}
+	repoRoot = strings.TrimSpace(repoRoot)
+	if !s.projectAllowsRepoRoot(project, repoRoot) {
+		return "", gitCommandError{Status: http.StatusForbidden, Msg: "git repository is outside the configured project boundary"}
+	}
+	return repoRoot, nil
+}
+
+type worklineGitCleanupResult struct {
+	removedWorktree bool
+	deletedBranch   bool
+	warnings        []string
+}
+
+// cleanupWorklineGitArtifacts best-effort removes a fork workline's linked
+// worktree and branch from the main repository. Every failure is reported as a
+// warning rather than aborting: a half-cleaned workline is still better than a
+// fully leaked one, and the caller records the row as cleaned either way.
+func cleanupWorklineGitArtifacts(ctx context.Context, repoRoot, worktreePath, branch string) worklineGitCleanupResult {
+	result := worklineGitCleanupResult{}
+	unlockGitMutation := gitlock.Default.Lock(repoRoot)
+	defer unlockGitMutation()
+	if worktreePath = strings.TrimSpace(worktreePath); worktreePath != "" {
+		if _, statErr := os.Stat(worktreePath); statErr == nil {
+			if err := removeGitWorktree(ctx, repoRoot, worktreePath); err != nil {
+				result.warnings = append(result.warnings, "worktree removal failed: "+err.Error())
+			} else {
+				result.removedWorktree = true
+			}
+		}
+	}
+	// Prune clears stale administrative entries whether the directory was just
+	// removed above or had already disappeared from disk.
+	if _, _, err := runGitCommand(ctx, repoRoot, worklineGitOutputMaxBytes, 10*time.Second, nil, "worktree", "prune"); err != nil {
+		result.warnings = append(result.warnings, "worktree prune failed: "+err.Error())
+	}
+	if branch = strings.TrimSpace(branch); branch != "" {
+		exists, _, verifyErr := runGitCommand(ctx, repoRoot, 256, 3*time.Second, []int{1, 128}, "rev-parse", "--verify", "--quiet", "refs/heads/"+branch)
+		if verifyErr == nil && strings.TrimSpace(exists) != "" {
+			if _, _, err := runGitCommand(ctx, repoRoot, worklineGitOutputMaxBytes, 10*time.Second, nil, "branch", "-D", branch); err != nil {
+				result.warnings = append(result.warnings, "branch deletion failed: "+err.Error())
+			} else {
+				result.deletedBranch = true
+			}
+		}
+	}
+	return result
 }
 
 func (s *Server) worklineAndProject(ctx context.Context, worklineID string) (db.Workline, db.Project, error) {
@@ -582,6 +908,11 @@ func gitRepoDirty(ctx context.Context, repoRoot string) (bool, error) {
 
 func abortGitMerge(ctx context.Context, repoRoot string) error {
 	_, _, err := runGitCommand(ctx, repoRoot, worklineGitOutputMaxBytes, 10*time.Second, []int{128}, "merge", "--abort")
+	return err
+}
+
+func abortGitRevert(ctx context.Context, repoRoot string) error {
+	_, _, err := runGitCommand(ctx, repoRoot, worklineGitOutputMaxBytes, 10*time.Second, []int{128}, "revert", "--abort")
 	return err
 }
 

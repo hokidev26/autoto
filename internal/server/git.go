@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
@@ -17,6 +18,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	agentpkg "autoto/internal/agent"
 	"autoto/internal/db"
 	"autoto/internal/gitlock"
 	"autoto/internal/gitsnapshot"
@@ -324,14 +326,77 @@ func (s *Server) rollbackRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	response := gitRollbackResponse{GeneratedAt: time.Now().UTC().Format(time.RFC3339Nano), RepoRoot: repoRoot, RunID: runID, BaseHead: plan.baseHead}
+	// The transcript still claims the run's edits exist; without this durable
+	// notice the next model turn reasons from a workspace state that the
+	// rollback just erased.
+	if err := s.recordRollbackNotice(r.Context(), agentID, runID, plan); err != nil {
+		response.Warning = "rollback completed, but the conversation rollback notice could not be recorded: " + err.Error()
+		slog.Warn("record rollback notice failed", "runId", runID, "agentId", agentID, "error", err)
+	}
 	status, err := s.gitStatusForRepo(r.Context(), repoRoot, cwd)
 	if err != nil {
-		response.Warning = "rollback completed, but git status refresh failed: " + err.Error()
+		if response.Warning != "" {
+			response.Warning += "; "
+		}
+		response.Warning += "rollback completed, but git status refresh failed: " + err.Error()
 		slog.Warn("refresh git status after rollback failed", "runId", runID, "repoRoot", repoRoot, "error", err)
 	} else {
 		response.Status = &status
 	}
 	writeJSON(w, http.StatusOK, response)
+}
+
+// recordRollbackNotice appends a durable system message describing what the
+// rollback undid and announces it on the event stream so open clients repaint.
+func (s *Server) recordRollbackNotice(ctx context.Context, agentID, runID string, plan gitRollbackPlan) error {
+	text := rollbackNoticeText(plan.baseHead, plan.restorePaths, plan.deletePaths)
+	// CreatedBy stays empty: the column references users(id) and this notice is
+	// server-generated, not attributable to any account.
+	message, err := s.store.AddMessage(ctx, db.Message{
+		AgentID:     agentID,
+		RunID:       runID,
+		Role:        "system",
+		ContentText: text,
+	})
+	if err != nil {
+		return err
+	}
+	if s.hub != nil {
+		s.hub.Publish(agentpkg.Event{Type: "message.created", AgentID: agentID, MessageID: message.ID, Text: text, Data: map[string]any{"runId": runID, "rollback": true}})
+	}
+	return nil
+}
+
+const rollbackNoticeMaxPaths = 20
+
+func rollbackNoticeText(baseHead string, restorePaths, deletePaths []string) string {
+	var builder strings.Builder
+	builder.WriteString("[系统] 用户已将本次运行的文件改动回滚到运行前检查点 ")
+	head := strings.TrimSpace(baseHead)
+	if len(head) > 8 {
+		head = head[:8]
+	}
+	builder.WriteString(head)
+	builder.WriteString("。")
+	if len(restorePaths) > 0 {
+		builder.WriteString("已还原文件：")
+		builder.WriteString(joinBoundedPaths(restorePaths, rollbackNoticeMaxPaths))
+		builder.WriteString("。")
+	}
+	if len(deletePaths) > 0 {
+		builder.WriteString("已删除运行期间新建的文件：")
+		builder.WriteString(joinBoundedPaths(deletePaths, rollbackNoticeMaxPaths))
+		builder.WriteString("。")
+	}
+	builder.WriteString("此前对话中描述的这些改动已不存在于工作区，请以当前文件内容为准。")
+	return builder.String()
+}
+
+func joinBoundedPaths(paths []string, maximum int) string {
+	if len(paths) <= maximum {
+		return strings.Join(paths, ", ")
+	}
+	return strings.Join(paths[:maximum], ", ") + fmt.Sprintf(" 等 %d 个文件", len(paths))
 }
 
 func (s *Server) failRollbackAfterClaim(ctx context.Context, runID, reason string, status int) error {
@@ -649,6 +714,176 @@ func (s *Server) gitCommit(w http.ResponseWriter, r *http.Request) {
 		RemainingFiles: parseGitPorcelainStatus(remainingOut),
 		Truncated:      logTruncated || remainingTruncated,
 	})
+}
+
+type gitDiscardRequest struct {
+	Paths   []string `json:"paths"`
+	Confirm bool     `json:"confirm"`
+}
+
+type gitDiscardResponse struct {
+	GeneratedAt   string             `json:"generatedAt"`
+	RepoRoot      string             `json:"repoRoot"`
+	RestoredPaths []string           `json:"restoredPaths"`
+	DeletedPaths  []string           `json:"deletedPaths"`
+	Status        *gitStatusResponse `json:"status,omitempty"`
+	Warning       string             `json:"warning,omitempty"`
+}
+
+// gitDiscard reverts the selected working-tree paths to HEAD. It is the
+// general-purpose escape hatch for when a run checkpoint is unavailable (dirty
+// start, later commits, hand edits): tracked files are restored from HEAD in
+// both index and worktree, and files HEAD does not know about are deleted.
+// Scope is strictly the caller's explicit selection; nothing resembling
+// `reset --hard` or `clean` ever runs.
+func (s *Server) gitDiscard(w http.ResponseWriter, r *http.Request) {
+	cwd, repoRoot, err := s.resolveAgentGitRepo(r.Context(), chi.URLParam(r, "id"))
+	if err != nil {
+		writeGitError(w, err)
+		return
+	}
+	var req gitDiscardRequest
+	if err := decodeJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if !req.Confirm {
+		writeError(w, http.StatusBadRequest, "confirm must be true")
+		return
+	}
+	paths, err := cleanGitCommitPaths(repoRoot, req.Paths)
+	if err != nil {
+		writeGitError(w, err)
+		return
+	}
+	unlockGitMutation := gitlock.Default.Lock(repoRoot)
+	defer unlockGitMutation()
+	statusOut, _, err := runGitCommand(r.Context(), repoRoot, gitStatusMaxBytes, 3*time.Second, nil, "status", "--porcelain=v1", "-z", "--untracked-files=all")
+	if err != nil {
+		writeGitError(w, err)
+		return
+	}
+	plan, err := buildGitDiscardPlan(parseGitPorcelainStatus(statusOut), paths)
+	if err != nil {
+		writeGitError(w, err)
+		return
+	}
+	hasHead := gitRepoHasHead(r.Context(), repoRoot)
+	if !hasHead && len(plan.restoreFromHead) > 0 {
+		writeGitError(w, gitCommandError{Status: http.StatusConflict, Msg: "repository has no commits to restore from"})
+		return
+	}
+	// Order matters: the index is reset first so a staged add becomes untracked
+	// before its file is deleted, and worktree contents are restored last from
+	// an index that already matches HEAD.
+	if len(plan.unstageOnly) > 0 {
+		if hasHead {
+			args := append([]string{"restore", "--staged", "--source", "HEAD", "--"}, plan.unstageOnly...)
+			if _, _, err := runGitCommand(r.Context(), repoRoot, gitCommitOutputMaxBytes, 10*time.Second, nil, args...); err != nil {
+				writeGitError(w, err)
+				return
+			}
+		} else {
+			args := append([]string{"rm", "--cached", "--force", "-q", "--"}, plan.unstageOnly...)
+			if _, _, err := runGitCommand(r.Context(), repoRoot, gitCommitOutputMaxBytes, 10*time.Second, nil, args...); err != nil {
+				writeGitError(w, err)
+				return
+			}
+		}
+	}
+	for _, path := range plan.deleteFiles {
+		if err := removeScopedRunFile(repoRoot, path); err != nil {
+			writeGitError(w, gitCommandError{Status: http.StatusInternalServerError, Msg: "discard stopped after a file could not be removed; remaining selections were left untouched: " + path + ": " + err.Error()})
+			return
+		}
+	}
+	if len(plan.restoreFromHead) > 0 {
+		args := append([]string{"restore", "--staged", "--worktree", "--source", "HEAD", "--"}, plan.restoreFromHead...)
+		if _, _, err := runGitCommand(r.Context(), repoRoot, gitCommitOutputMaxBytes, 15*time.Second, nil, args...); err != nil {
+			writeGitError(w, err)
+			return
+		}
+	}
+	response := gitDiscardResponse{
+		GeneratedAt:   time.Now().UTC().Format(time.RFC3339Nano),
+		RepoRoot:      repoRoot,
+		RestoredPaths: plan.restoreFromHead,
+		DeletedPaths:  plan.deleteFiles,
+	}
+	status, err := s.gitStatusForRepo(r.Context(), repoRoot, cwd)
+	if err != nil {
+		response.Warning = "discard completed, but git status refresh failed: " + err.Error()
+	} else {
+		response.Status = &status
+	}
+	writeJSON(w, http.StatusOK, response)
+}
+
+type gitDiscardPlan struct {
+	// restoreFromHead exists in HEAD: index and worktree are restored from it.
+	restoreFromHead []string
+	// unstageOnly is in the index but not in HEAD (adds, rename targets); the
+	// index entry is dropped and the file is then deleted from disk.
+	unstageOnly []string
+	// deleteFiles are removed from the worktree: untracked files plus everything
+	// in unstageOnly.
+	deleteFiles []string
+}
+
+// buildGitDiscardPlan classifies the selected status entries. Every selected
+// path must match at least one change so a stale client selection fails loudly
+// instead of silently discarding nothing.
+func buildGitDiscardPlan(files []gitStatusFile, paths []string) (gitDiscardPlan, error) {
+	plan := gitDiscardPlan{}
+	matched := make(map[string]bool, len(paths))
+	restoreSet := make(map[string]bool)
+	unstageSet := make(map[string]bool)
+	deleteSet := make(map[string]bool)
+	for _, file := range files {
+		selected := false
+		for _, path := range paths {
+			if gitStatusFileMatchesPath(file, path) {
+				matched[path] = true
+				selected = true
+			}
+		}
+		if !selected {
+			continue
+		}
+		switch {
+		case file.Untracked:
+			deleteSet[file.Path] = true
+		case file.Renamed && file.OrigPath != "":
+			// The new name never existed in HEAD: unstage and delete it, then
+			// bring the original name back.
+			unstageSet[file.Path] = true
+			deleteSet[file.Path] = true
+			restoreSet[file.OrigPath] = true
+		case file.Index == "A":
+			unstageSet[file.Path] = true
+			deleteSet[file.Path] = true
+		default:
+			restoreSet[file.Path] = true
+		}
+	}
+	for _, path := range paths {
+		if !matched[path] {
+			return plan, gitCommandError{Status: http.StatusConflict, Msg: "selected path has no worktree changes: " + path}
+		}
+	}
+	plan.restoreFromHead = sortedPathSet(restoreSet)
+	plan.unstageOnly = sortedPathSet(unstageSet)
+	plan.deleteFiles = sortedPathSet(deleteSet)
+	return plan, nil
+}
+
+func sortedPathSet(set map[string]bool) []string {
+	paths := make([]string, 0, len(set))
+	for path := range set {
+		paths = append(paths, path)
+	}
+	sort.Strings(paths)
+	return paths
 }
 
 func (s *Server) resolveAgentGitRepo(ctx context.Context, agentID string) (string, string, error) {

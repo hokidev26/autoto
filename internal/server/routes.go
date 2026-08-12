@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -517,11 +518,64 @@ func writeArchiveDeleteError(w http.ResponseWriter, kind string, err error) {
 
 func (s *Server) deleteArchivedProject(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
+	// Captured before the rows disappear: after DeleteArchivedProject succeeds
+	// there is no record left of which worktrees and branches this project
+	// created, and they would leak on disk forever.
+	targets := s.collectProjectWorktreeCleanupTargets(r.Context(), id)
 	if err := s.store.DeleteArchivedProject(r.Context(), id); err != nil {
 		writeArchiveDeleteError(w, "project", err)
 		return
 	}
+	for _, target := range targets {
+		result := cleanupWorklineGitArtifacts(context.Background(), target.repoRoot, target.worktreePath, target.branch)
+		for _, warning := range result.warnings {
+			slog.Warn("project deletion git cleanup", "projectId", id, "worklineBranch", target.branch, "warning", warning)
+		}
+	}
 	writeJSON(w, http.StatusOK, map[string]any{"deleted": true, "id": id})
+}
+
+type worktreeCleanupTarget struct {
+	repoRoot     string
+	worktreePath string
+	branch       string
+}
+
+// collectProjectWorktreeCleanupTargets lists the fork worktrees and branches a
+// project owns so the deletion handler can remove them after the database rows
+// are gone. Lookup failures return nothing: cleanup is best effort and must
+// never block the deletion itself.
+func (s *Server) collectProjectWorktreeCleanupTargets(ctx context.Context, projectID string) []worktreeCleanupTarget {
+	project, err := s.store.GetProject(ctx, projectID)
+	if err != nil {
+		return nil
+	}
+	repoRoot, err := s.projectMainRepoRoot(ctx, project)
+	if err != nil {
+		return nil
+	}
+	worklines, err := s.store.ListWorklinesByProject(ctx, projectID)
+	if err != nil {
+		return nil
+	}
+	baseDir := s.worklineWorktreeBaseDir(project)
+	targets := make([]worktreeCleanupTarget, 0, len(worklines))
+	for _, workline := range worklines {
+		if workline.IsRoot {
+			continue
+		}
+		worktreePath := strings.TrimSpace(workline.WorktreePath)
+		// Only autoto-managed directories are ever force-removed.
+		if worktreePath != "" && !pathWithin(baseDir, worktreePath) {
+			worktreePath = ""
+		}
+		branch := strings.TrimSpace(workline.Branch)
+		if worktreePath == "" && branch == "" {
+			continue
+		}
+		targets = append(targets, worktreeCleanupTarget{repoRoot: repoRoot, worktreePath: worktreePath, branch: branch})
+	}
+	return targets
 }
 
 func (s *Server) deleteArchivedAgent(w http.ResponseWriter, r *http.Request) {
@@ -532,11 +586,60 @@ func (s *Server) deleteArchivedAgent(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusConflict, "conversation is still running: interrupt it before deleting")
 		return
 	}
+	// Resolved before deletion for the same reason as the project handler: once
+	// the agent row cascades away, the workline it pointed at is unreachable.
+	worklineID := ""
+	if agent, err := s.store.GetAgent(r.Context(), id); err == nil {
+		worklineID = strings.TrimSpace(agent.WorklineID)
+	}
 	if err := s.store.DeleteArchivedAgent(r.Context(), id); err != nil {
 		writeArchiveDeleteError(w, "conversation", err)
 		return
 	}
+	s.cleanupWorklineAfterAgentDeletion(worklineID)
 	writeJSON(w, http.StatusOK, map[string]any{"deleted": true, "id": id})
+}
+
+// cleanupWorklineAfterAgentDeletion removes the fork workline, its worktree
+// and its branch once the deleted conversation was the last agent using them.
+// Best effort: a failed cleanup only logs, the conversation deletion already
+// succeeded.
+func (s *Server) cleanupWorklineAfterAgentDeletion(worklineID string) {
+	if worklineID == "" {
+		return
+	}
+	ctx := context.Background()
+	workline, err := s.store.GetWorkline(ctx, worklineID)
+	if err != nil || workline.IsRoot {
+		return
+	}
+	agents, err := s.store.ListAgentsByWorkline(ctx, worklineID)
+	if err != nil || len(agents) > 0 {
+		return
+	}
+	project, err := s.store.GetProject(ctx, workline.ProjectID)
+	if err != nil {
+		return
+	}
+	worktreePath := strings.TrimSpace(workline.WorktreePath)
+	if worktreePath != "" && !pathWithin(s.worklineWorktreeBaseDir(project), worktreePath) {
+		worktreePath = ""
+	}
+	branch := strings.TrimSpace(workline.Branch)
+	if worktreePath != "" || branch != "" {
+		repoRoot, err := s.projectMainRepoRoot(ctx, project)
+		if err != nil {
+			slog.Warn("workline git cleanup skipped: main repository unavailable", "worklineId", worklineID, "error", err)
+		} else {
+			result := cleanupWorklineGitArtifacts(ctx, repoRoot, worktreePath, branch)
+			for _, warning := range result.warnings {
+				slog.Warn("workline git cleanup", "worklineId", worklineID, "warning", warning)
+			}
+		}
+	}
+	if _, err := s.store.DeleteWorklineIfEmpty(ctx, worklineID); err != nil {
+		slog.Warn("empty workline deletion failed", "worklineId", worklineID, "error", err)
+	}
 }
 
 func (s *Server) getProject(w http.ResponseWriter, r *http.Request) {
