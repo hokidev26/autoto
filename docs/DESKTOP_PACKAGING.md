@@ -1,56 +1,56 @@
-# Autoto 桌面打包与签名（边界说明）
+# Autoto 桌面打包與簽名（邊界說明）
 
 > 配套：`docs/DESKTOP_FRAMEWORK_WAILS_TAURI_ASSESSMENT.md` §12.2  
-> 原则：**CLI 浏览器远程路径永远可用**；桌面壳是可选客户端。
+> 原則：**CLI 瀏覽器遠端路徑永遠可用**；桌面殼是可選客戶端。
 
-## 1. 开发入口（日常）
+## 1. 開發入口（日常）
 
 ```bash
-# CLI + 手机隧道（推荐作为常驻服务）
+# CLI + 手機隧道（推薦作為常駐服務）
 make build-cli && ./autoto
 
-# 本机原生窗口（默认 ephemeral 端口，不抢 CLI）
+# 本機原生視窗（預設 ephemeral 埠，不搶 CLI）
 make build-desktop && ./autoto-desktop
 ```
 
-`go build -tags desktop` 需要本机 WebView / Wails 依赖。Linux CI 默认 **不** 链 Wails（`//go:build desktop`）。
+`go build -tags desktop` 需要本機 WebView / Wails 依賴。Linux CI 預設 **不** 鏈 Wails（`//go:build desktop`）。
 
-## 2. 正式安装包（本仓库边界）
+## 2. 正式安裝包（本倉庫邊界）
 
-| 产物 | 状态 | 说明 |
+| 產物 | 狀態 | 說明 |
 |---|---|---|
-| 裸二进制 `autoto-desktop` | 支持 | 开发与内测 |
-| macOS `.app` / 公证 | 未产品化 | 需 Apple Developer + notarize CI |
-| Windows `.msi` / Authenticode | 未产品化 | 需证书与独立 release job |
-| Linux AppImage/deb | 未产品化 | 可选后续 |
+| 裸二進位制 `autoto-desktop` | 支援 | 開發與內測 |
+| macOS `.app` / 公證 | 未產品化 | 需 Apple Developer + notarize CI |
+| Windows `.msi` / Authenticode | 未產品化 | 需證書與獨立 release job |
+| Linux AppImage/deb | 未產品化 | 可選後續 |
 
-Wails v3 官方打包仍为 Alpha。正式签名流水线应在 **release CI** 完成，**不要**在运行时自签名。
+Wails v3 官方打包仍為 Alpha。正式簽名流水線應在 **release CI** 完成，**不要**在執行時自簽名。
 
-建议独立任务（不在壳进程内）：
+建議獨立任務（不在殼程序內）：
 
-1. 构建带版本 ldflags 的 `autoto` + `autoto-desktop`
+1. 構建帶版本 ldflags 的 `autoto` + `autoto-desktop`
 2. 生成 checksums（SHA-256）
-3. 平台签名 / 公证
-4. 发布 **惰性** update manifest（`internal/update` 仅元数据，无 URL/脚本字段）
-5. 用户在 **本机** 下载后，用壳 API `POST /api/desktop/update/stage` 暂存；**远程不可 stage/apply**
+3. 平台簽名 / 公證
+4. 釋出 **惰性** update manifest（`internal/update` 僅後設資料，無 URL/腳本欄位）
+5. 使用者在 **本機** 下載後，用殼 API `POST /api/desktop/update/stage` 暫存；**遠端不可 stage/apply**
 
-## 3. 更新骨架（已实现边界）
+## 3. 更新骨架（已實現邊界）
 
-- `GET /api/update/status`：只读计划元数据（远程可读，不可装）
-- `POST /api/desktop/update/stage`：**loopback + 桌面 host**，复制本地文件到 `$HOME/updates/staged/`
-- `GET/DELETE /api/desktop/update/pending`：查看/取消暂存
-- **无**静默下载、**无**请求路径内替换正在运行的二进制、**无**远程触发安装
+- `GET /api/update/status`：只讀計劃後設資料（遠端可讀，不可裝）
+- `POST /api/desktop/update/stage`：**loopback + 桌面 host**，複製本地檔案到 `$HOME/updates/staged/`
+- `GET/DELETE /api/desktop/update/pending`：檢視/取消暫存
+- **無**靜默下載、**無**請求路徑內替換正在執行的二進位制、**無**遠端觸發安裝
 
-## 4. 深度链接与自启动（壳级）
+## 4. 深度連結與自啟動（殼級）
 
-- 自启动：托盘菜单 Enable/Disable Login Item；或 loopback  
+- 自啟動：托盤選單 Enable/Disable Login Item；或 loopback  
   `GET|POST|DELETE /api/desktop/autostart`
-- 深度链接：`autoto://agent?id=…`、`autoto://project?id=…`、`autoto://settings?panel=…`  
-  注册 OS URL scheme 需要打包进 `.app` / 安装器；开发期可用 argv：  
+- 深度連結：`autoto://agent?id=…`、`autoto://project?id=…`、`autoto://settings?panel=…`  
+  註冊 OS URL scheme 需要打包進 `.app` / 安裝器；開發期可用 argv：  
   `./autoto-desktop 'autoto://settings?panel=remote-access'`
 
-## 5. 手机远程不受影响
+## 5. 手機遠端不受影響
 
-- 常驻请用 `./autoto` + 临时/命名 Cloudflare 隧道  
-- 桌面 7–9 API 全部要求 **非远程 + loopback**；手机会话继续用既有 `/api/*` 与 Agent WebSocket  
-- 关闭桌面窗只关 **该进程** Runtime（且 desktop 默认 ephemeral）；**不要**把手机会话挂在 desktop 临时进程上  
+- 常駐請用 `./autoto` + 臨時/命名 Cloudflare 隧道  
+- 桌面 7–9 API 全部要求 **非遠端 + loopback**；手機會話繼續用既有 `/api/*` 與 Agent WebSocket  
+- 關閉桌面窗只關 **該程序** Runtime（且 desktop 預設 ephemeral）；**不要**把手機會話掛在 desktop 臨時程序上  

@@ -118,7 +118,7 @@
 
 ### 2.6 Skills 摘要列表與詳情 API
 
-原文描述準確，補充實作細節：`ListSkillSummaries`（`skills_store.go:256`）的 SELECT 清單不含 `prompt`，且把 `scan_findings_json` 只解析成 `FindingCount` 整數，`SkillSummary` 結構本身沒有 prompt/findings 欄位——這是型別層面的保證，不只靠 handler 過濾。`GetSkill`（:281）才回傳完整 prompt。
+原文描述準確，補充實作細節：`ListSkillSummaries`（`skills_store.go:256`）的 SELECT 清單不含 `prompt`，且把 `scan_findings_json` 只解析成 `FindingCount` 整數，`SkillSummary` 結構本身沒有 prompt/findings 欄位——這是類型層面的保證，不只靠 handler 過濾。`GetSkill`（:281）才回傳完整 prompt。
 
 **補充邊界**：`ListSkillSummaries` 的查詢寫死 `AND scope = 'global'`，因此這個舊 endpoint 本質上是 global-only 列表；scoped 列表走 `skills_scopes_revisions.go` 的分頁 API。
 
@@ -190,7 +190,7 @@ DB 與 API 層已完成：
 
 **Go 端證據需要降級說明；前端證據本次已實際執行。**
 
-Go 端：當前環境沒有 Go 工具鏈（`go` 不在 PATH，亦未找到安裝），`make check` / `go test -race` 均無法執行。`docs/CODE_REVIEW_2026-07-18.md` 受同一限制（該次審查明確記載「審查環境無 Go 1.26 工具鏈」）。因此所有 Go 端結論的性質是**靜態程式碼核對**——逐條比對 schema、SQL、型別、常數與 handler 實作——不是測試通過證明。
+Go 端：當前環境沒有 Go 工具鏈（`go` 不在 PATH，亦未找到安裝），`make check` / `go test -race` 均無法執行。`docs/CODE_REVIEW_2026-07-18.md` 受同一限制（該次審查明確記載「審查環境無 Go 1.26 工具鏈」）。因此所有 Go 端結論的性質是**靜態程式碼核對**——逐條比對 schema、SQL、類型、常數與 handler 實作——不是測試通過證明。
 
 前端：Node **21.7.3 可用**，`node --test internal/server/static/modules/*.test.mjs` 本次實際執行兩輪——18:46 為 957 個測試 955 通過 2 失敗，18:53 重跑為 **957 個測試全數通過**。中間的差異來自工作樹擁有者同步修正了兩條過期斷言，非本文改動所致（見 §8.2）。前端證據因此是執行結果，不只是靜態核對。
 

@@ -1,6 +1,6 @@
 # Autoto
 
-[English](README.md) | 繁體中文 | [简体中文](README.zh-CN.md)
+[English](README.md) | 繁體中文 | [簡體中文](README.zh-CN.md)
 
 Autoto 是一個跑在你自己機器上的 coding agent。你給它一個任務，它在背景做，遇到你會想被問一聲的事情，它會先問。
 
@@ -105,9 +105,9 @@ go run ./cmd/autoto --config /path/to/config.json
 
 - Workline 與容器設定，支援建立 Git worktree 的 workline fork、合併前檢查，以及乾淨 worktree 的合併 API
 - 互動式 PTY 終端機 WebSocket，含終端機管理與瀏覽器端的保留／聚焦偏好
-- 排程 worker，支援 cron 與 `@every` 表達式和 IANA 時區。排程權限上限為 `readOnly` 或 `acceptEdits`，不會中斷或取代正在跑的手動 run，且無人值守的 run 不會沿用互動時給過的 session 核准
+- 排程 worker，支援 cron 與 `@every` 表示式和 IANA 時區。排程權限上限為 `readOnly` 或 `acceptEdits`，不會中斷或取代正在跑的手動 run，且無人值守的 run 不會沿用互動時給過的 session 核准
 - 具持久性的 Webhook／Telegram 通知投遞紀錄，含去重、租約、指數退避、次數上限與明確重試
-- 伺服器端 Skills 與生命週期 hooks，含版本歷史、還原、快照穩定的分派，以及沿用既有核准與稽核閘道的 Shell／HTTP 動作
+- 伺服器端 Skills 與生命週期 hooks，含版本歷史、還原、快照穩定的分派，以及沿用既有核準與稽核閘道的 Shell／HTTP 動作
 - 設定頁涵蓋 Providers、自動化、通知、外觀、儲存、用量、使用者與授權資訊
 
 ## 設定

@@ -1,33 +1,33 @@
-# Autoto Go MVP 项目规划
+# Autoto Go MVP 專案規劃
 
-## 1. 项目目标
+## 1. 專案目標
 
-本项目目标是用 Go 实现 Autoto：一个本地 AI 编程 Agent 后端。Go module 为 `autoto`，`cmd/autoto` 与 `autoto` 二进制是当前规范入口；`cmd/autoto` 仅保留为 legacy 兼容 shim。
+本專案目標是用 Go 實現 Autoto：一個本地 AI 程式設計 Agent 後端。Go module 為 `autoto`，`cmd/autoto` 與 `autoto` 二進位制是當前規範入口；`cmd/autoto` 僅保留為 legacy 相容 shim。
 
-核心目标不是一次性堆满所有功能，而是先做出一个可运行、可扩展、可逐步替换/增强的 MVP：
+核心目標不是一次性堆滿所有功能，而是先做出一個可執行、可擴充、可逐步替換/增強的 MVP：
 
-- 本地 HTTP 服务
+- 本地 HTTP 服務
 - SQLite 持久化
-- Project / Workline / Agent 数据模型
-- Agent 会话与消息记录
+- Project / Workline / Agent 資料模型
+- Agent 會話與訊息記錄
 - Provider 抽象
-- Tool 抽象与基础工具执行
+- Tool 抽象與基礎工具執行
 - WebSocket 事件推送
-- 基础文件系统 API
-- 基础开源协议依赖清单
-- 简单内嵌 Web UI
-- 公开仓库入口文档、MIT License、CI 与安全说明
+- 基礎檔案系統 API
+- 基礎開源協議依賴清單
+- 簡單內嵌 Web UI
+- 公開倉庫入口文件、MIT License、CI 與安全說明
 
-### 1.1 Legacy compatibility lifecycle（唯一事实源）
+### 1.1 Legacy compatibility lifecycle（唯一事實源）
 
-本节是 legacy 兼容面的**唯一生命周期事实源**；README、CHANGELOG、SECURITY 与历史计划只能引用，不得另设不同移除日期或窗口。
+本節是 legacy 相容面的**唯一生命週期事實源**；README、CHANGELOG、SECURITY 與歷史計劃只能引用，不得另設不同移除日期或視窗。
 
-**规范名称（canonical names）**：
+**規範名稱（canonical names）**：
 
-- 产品、CLI、module、release asset：Autoto / `autoto`
-- 本地状态与配置：`~/.autoto`、`AUTOTO_*`
-- HTTP/WebSocket header 与浏览器偏好：`X-Autoto-*`、`autoto.*`
-- 领域与路由：Agent / Workline、`/api/agents`、`/api/worklines`、`/ws/agent`
+- 產品、CLI、module、release asset：Autoto / `autoto`
+- 本地狀態與配置：`~/.autoto`、`AUTOTO_*`
+- HTTP/WebSocket header 與瀏覽器偏好：`X-Autoto-*`、`autoto.*`
+- 領域與路由：Agent / Workline、`/api/agents`、`/api/worklines`、`/ws/agent`
 
 **當前兼容面**：
 
@@ -38,9 +38,9 @@
 - 舊 JS global（服務端仍注入同值作為 fallback）；
 - 舊 API 路由別名；
 - migration、測試夾具與 CHANGELOG 歷史中的舊名。
-### 3.1 Go 项目骨架
+### 3.1 Go 專案骨架
 
-目录：
+目錄：
 
 ```txt
 autoto/
@@ -57,35 +57,35 @@ autoto/
   internal/tools
 ```
 
-启动方式：
+啟動方式：
 
 ```bash
 go run ./cmd/autoto
 ```
 
-构建后的规范 CLI 名称为 `autoto`，例如 `go build -o autoto ./cmd/autoto && ./autoto`。
+構建後的規範 CLI 名稱為 `autoto`，例如 `go build -o autoto ./cmd/autoto && ./autoto`。
 
-默认监听：
+預設監聽：
 
 ```txt
 http://localhost:16888
 ```
 
-默认配置路径：
+預設配置路徑：
 
 ```txt
 ~/.autoto/config.json
 ```
 
-默认数据库路径：
+預設資料庫路徑：
 
 ```txt
 ~/.autoto/autoto.db
 ```
 
-当规范配置文件不存在而旧 `~/.autoto/config.json` 存在时，启动会自动将该 legacy 配置复制到 `~/.autoto/config.json` 后继续加载；旧目录仅用于迁移兼容。
+當規範配置檔案不存在而舊 `~/.autoto/config.json` 存在時，啟動會自動將該 legacy 配置複製到 `~/.autoto/config.json` 後繼續載入；舊目錄僅用於遷移相容。
 
-默认项目目录：
+預設專案目錄：
 
 ```txt
 ~/projects
@@ -93,7 +93,7 @@ http://localhost:16888
 
 ---
 
-### 3.2 配置模块
+### 3.2 配置模組
 
 文件：
 
@@ -101,18 +101,18 @@ http://localhost:16888
 internal/config/defaults.go
 ```
 
-当前默认配置包含：
+當前預設配置包含：
 
-- config schema version（当前 `version = 1`，老配置缺字段时加载回填）
+- config schema version（當前 `version = 1`，老配置缺欄位時載入回填）
 - server host / port
 - home dir
 - database path
 - default project dir
-- agent 默认模型
-- agent 默认权限模式
-- 多 provider 实例配置（OpenAI 官方 / Anthropic 官方 / OpenAI-compatible / CLIProxyAPI 本地预置）
+- agent 預設模型
+- agent 預設權限模式
+- 多 provider 例項配置（OpenAI 官方 / Anthropic 官方 / OpenAI-compatible / CLIProxyAPI 本地預置）
 
-当前默认：
+當前預設：
 
 ```txt
 server.host = localhost
@@ -121,7 +121,7 @@ agent.defaultPermissionMode = acceptEdits
 agent.defaultModel = openai:gpt-4.1-mini
 ```
 
-Agent 与核心运行时支持的规范环境变量：
+Agent 與核心執行時支援的規範環境變數：
 
 ```txt
 AUTOTO_DEFAULT_MODEL
@@ -132,9 +132,9 @@ AUTOTO_ACCESS_PASSWORD
 AUTOTO_REMOTE_TERMINAL
 ```
 
-同名 legacy `AUTOTO_*` 环境变量仍作为回退兼容；当两者同时存在时，`AUTOTO_*` 优先。
+同名 legacy `AUTOTO_*` 環境變數仍作為回退相容；當兩者同時存在時，`AUTOTO_*` 優先。
 
-Provider 支持环境变量：
+Provider 支援環境變數：
 
 ```txt
 OPENAI_API_KEY
@@ -152,7 +152,7 @@ CLIPROXYAPI_BIN
 CLIPROXYAPI_CONFIG
 ```
 
-首次生成默认 `config.json` 时，运行时仍会读取环境变量中的 API key，但写入磁盘的默认配置会清空 provider/backend API key，避免把 shell 环境里的 secret 持久化。
+首次生成預設 `config.json` 時，執行時仍會讀取環境變數中的 API key，但寫入磁碟的預設配置會清空 provider/backend API key，避免把 shell 環境裡的 secret 持久化。
 
 P2–P3 integration connection 的 bot/access token 不接受明文，只保存 `env:VARIABLE_NAME` 引用，例如：
 
@@ -161,11 +161,11 @@ Telegram botToken     -> env:AUTOTO_TELEGRAM_BOT_TOKEN
 Home Assistant token -> env:AUTOTO_HOME_ASSISTANT_TOKEN
 ```
 
-公开 API 只返回对应 logical secret 是否已配置，不返回引用目标或解析后的值。Telegram bot token 轮换会改变 credential revision 并撤销旧配对；怀疑泄漏时还应从本地 UI/API 显式撤销配对并重新配对。Home Assistant 不使用 channel pairing，token 轮换后应重启/重测或禁用连接。
+公開 API 只返回對應 logical secret 是否已配置，不返回引用目標或解析後的值。Telegram bot token 輪換會改變 credential revision 並撤銷舊配對；懷疑洩漏時還應從本地 UI/API 顯式撤銷配對並重新配對。Home Assistant 不使用 channel pairing，token 輪換後應重啟/重測或停用連線。
 
 ---
 
-### 3.3 SQLite 数据库
+### 3.3 SQLite 資料庫
 
 文件：
 
@@ -174,7 +174,7 @@ internal/db/schema.go
 internal/db/db.go
 ```
 
-当前核心表（节选）：
+當前核心表（節選）：
 
 ```txt
 users
@@ -196,9 +196,9 @@ channel_cursors
 device_action_requests
 ```
 
-这些表的命名与字段风格尽量贴近 AI 编程工作台数据模型，方便后续迁移或扩展。
+這些表的命名與欄位風格儘量貼近 AI 程式設計工作臺資料模型，方便後續遷移或擴充。
 
-核心关系：
+核心關係：
 
 ```txt
 projects
@@ -212,7 +212,7 @@ projects
 
 ### 3.4 HTTP API
 
-当前已实现：
+當前已實現：
 
 ```txt
 GET  /api/health
@@ -301,13 +301,13 @@ GET  /ws/agent?id={agentId}
 GET  /ws/terminal?agentId={agentId}
 ```
 
-规范领域实体与路由为 Agent / Workline、`/api/agents`、`/api/worklines` 和 `/ws/agent`。Legacy 客户端仍可使用 `/api/projects/{id}/worklines`、`/api/worklines/...`、`/api/agents/...` 与 `/ws/agent`；这些兼容别名复用同一组 Agent/Workline handler。
+規範領域實體與路由為 Agent / Workline、`/api/agents`、`/api/worklines` 和 `/ws/agent`。Legacy 客戶端仍可使用 `/api/projects/{id}/worklines`、`/api/worklines/...`、`/api/agents/...` 與 `/ws/agent`；這些相容別名複用同一組 Agent/Workline handler。
 
 ---
 
-### 3.5 Project 创建行为
+### 3.5 Project 建立行為
 
-`POST /api/projects` 请求示例：
+`POST /api/projects` 請求示例：
 
 ```json
 {
@@ -318,7 +318,7 @@ GET  /ws/terminal?agentId={agentId}
 }
 ```
 
-如果未传 `gitPath`，系统会自动创建：
+如果未傳 `gitPath`，系統會自動建立：
 
 ```txt
 ~/projects/<project-name-slug>
@@ -330,7 +330,7 @@ GET  /ws/terminal?agentId={agentId}
 ~/projects/demo-project
 ```
 
-并自动创建：
+並自動建立：
 
 - project
 - root workline
@@ -347,17 +347,17 @@ internal/agent/loop.go
 internal/agent/hub.go
 ```
 
-当前能力：
+當前能力：
 
-- 接收用户消息
-- 写入 `agent_messages`
-- 启动 goroutine 执行 agent loop
-- 调用默认 provider
-- 写入 assistant message
+- 接收使用者訊息
+- 寫入 `agent_messages`
+- 啟動 goroutine 執行 agent loop
+- 呼叫預設 provider
+- 寫入 assistant message
 - 更新 agent status
-- 经 WebSocket 推送事件
+- 經 WebSocket 推送事件
 
-当前 WebSocket 事件包括：
+當前 WebSocket 事件包括：
 
 ```txt
 connected
@@ -370,7 +370,7 @@ tool.started
 tool.finished
 ```
 
-Agent stream 已使用 protocol 2 envelope（`protocol`、`streamSession`、`sequence`）：同一进程内由有界 ring buffer 提供有限 replay，并在 cursor 过期、replay 超限、订阅者溢出、stream 淘汰、session 不匹配或前端检测到序列缺口时要求读取 authoritative live snapshot 后 resync。该机制不持久化事件，服务重启或跨进程后不能 replay，不能称为 durable event log。
+Agent stream 已使用 protocol 2 envelope（`protocol`、`streamSession`、`sequence`）：同一程序內由有界 ring buffer 提供有限 replay，並在 cursor 過期、replay 超限、訂閱者溢位、stream 淘汰、session 不匹配或前端檢測到序列缺口時要求讀取 authoritative live snapshot 後 resync。該機制不持久化事件，服務重啟或跨程序後不能 replay，不能稱為 durable event log。
 
 ---
 
@@ -385,16 +385,16 @@ internal/providers/openai_official.go
 internal/providers/anthropic_provider.go
 ```
 
-当前实现：
+當前實現：
 
 ```txt
 openai              -> OpenAI 官方 Go SDK，Responses API
 anthropic           -> Anthropic 官方 Go SDK，Messages API
-openai-compatible   -> 手写 OpenAI-compatible Chat Completions 兼容层
-cliproxyapi         -> 基于 OpenAI-compatible 的本地 CLIProxyAPI 预置
+openai-compatible   -> 手寫 OpenAI-compatible Chat Completions 相容層
+cliproxyapi         -> 基於 OpenAI-compatible 的本地 CLIProxyAPI 預置
 ```
 
-模型字符串使用 `provider:model` 前缀路由，例如：
+模型字串使用 `provider:model` 字首路由，例如：
 
 ```txt
 openai:gpt-4.1-mini
@@ -403,9 +403,9 @@ openai-compatible:gpt-4.1-mini
 cliproxyapi:gpt-5.5
 ```
 
-如果没有设置对应 API key，provider 会返回配置提示，不会真正请求外部模型；CLIProxyAPI 本地预置例外，它默认允许无客户端 API key 连接 `http://127.0.0.1:8317/v1`，如 CLIProxyAPI 启用了 `api-keys` 再通过 `CLIPROXYAPI_API_KEY` 注入。内建 OpenAI official、Anthropic official 与 OpenAI-compatible Provider 均已接入流式输出、tool calling 与 tool result 回灌，并通过统一最小能力契约声明 `Tools`、`Streaming`、`ImageInput`。未知或未实现 capability 接口的 Provider 按不支持可选能力处理，Agent loop 按能力降级，不在业务层按 Provider 名称特判。
+如果沒有設定對應 API key，provider 會返回配置提示，不會真正請求外部模型；CLIProxyAPI 本地預置例外，它預設允許無客戶端 API key 連線 `http://127.0.0.1:8317/v1`，如 CLIProxyAPI 啟用了 `api-keys` 再通過 `CLIPROXYAPI_API_KEY` 注入。內建 OpenAI official、Anthropic official 與 OpenAI-compatible Provider 均已接入流式輸出、tool calling 與 tool result 回灌，並通過統一最小能力契約宣告 `Tools`、`Streaming`、`ImageInput`。未知或未實現 capability 介面的 Provider 按不支援可選能力處理，Agent loop 按能力降級，不在業務層按 Provider 名稱特判。
 
-环境变量：
+環境變數：
 
 ```txt
 OPENAI_API_KEY
@@ -423,16 +423,16 @@ CLIPROXYAPI_BIN
 CLIPROXYAPI_CONFIG
 ```
 
-后续计划支持：
+後續計劃支援：
 
-- Codex 凭证导入体验继续完善（账号状态、额度、错误恢复）
+- Codex 憑證匯入體驗繼續完善（賬號狀態、額度、錯誤恢復）
 - Kiro-like provider
 - 本地模型 provider
 - 多 provider fallback / load balancing
 
 ---
 
-### 3.8 Tool 抽象与核心工具
+### 3.8 Tool 抽象與核心工具
 
 文件：
 
@@ -440,7 +440,7 @@ CLIPROXYAPI_CONFIG
 internal/tools
 ```
 
-当前工具：
+當前工具：
 
 ```txt
 Read
@@ -467,7 +467,7 @@ type Tool interface {
 }
 ```
 
-当前风险类型：
+當前風險類型：
 
 ```txt
 read
@@ -476,7 +476,7 @@ exec
 danger
 ```
 
-当前权限模式：
+當前權限模式：
 
 ```txt
 readOnly
@@ -488,12 +488,12 @@ bypassPermissions
 
 初版策略：
 
-- `readOnly`：只允许 read 风险工具
-- `acceptEdits/default/dontAsk`：允许 read/write，默认不允许 Bash exec
-- `bypassPermissions`：允许大多数工具，但仍阻止 danger
-- danger：当前总是拒绝
+- `readOnly`：只允許 read 風險工具
+- `acceptEdits/default/dontAsk`：允許 read/write，預設不允許 Bash exec
+- `bypassPermissions`：允許大多數工具，但仍阻止 danger
+- danger：當前總是拒絕
 
-危险命令初步识别：
+危險命令初步識別：
 
 ```txt
 rm
@@ -501,11 +501,11 @@ rmdir
 shred
 ```
 
-P2–P3 进一步把敏感路径阻断下沉到文件路径工具：`Read`、`Write`、`Edit` 直接拒绝，`Glob`、`Grep` 遍历时过滤 `.env*`、credentials/secret、常见私钥文件及 `.git`；同时继续拒绝 symlink 逃逸。此边界不覆盖 Bash/stdio MCP，二者仍是强本地执行能力，不能把敏感路径过滤描述成完整 sandbox。
+P2–P3 進一步把敏感路徑阻斷下沉到檔案路徑工具：`Read`、`Write`、`Edit` 直接拒絕，`Glob`、`Grep` 遍歷時過濾 `.env*`、credentials/secret、常見私鑰檔案及 `.git`；同時繼續拒絕 symlink 逃逸。此邊界不覆蓋 Bash/stdio MCP，二者仍是強本地執行能力，不能把敏感路徑過濾描述成完整 sandbox。
 
 ---
 
-### 3.9 文件系统 API
+### 3.9 檔案系統 API
 
 文件：
 
@@ -513,7 +513,7 @@ P2–P3 进一步把敏感路径阻断下沉到文件路径工具：`Read`、`Wr
 internal/server/fs.go
 ```
 
-当前 API：
+當前 API：
 
 ```txt
 GET  /api/fs/browse?path=...
@@ -522,22 +522,22 @@ GET  /api/fs/preview?path=...
 POST /api/fs/mkdir
 ```
 
-安全边界：
+安全邊界：
 
-- 默认限制在 `paths.defaultProjectDir`
-- 相对路径基于 default project dir
+- 預設限制在 `paths.defaultProjectDir`
+- 相對路徑基於 default project dir
 - 阻止 `..` 逃逸
 
-后续计划：
+後續計劃：
 
-- 支持 agent cwd 边界
-- 支持项目维度 path scope
-- 支持二进制文件识别
-- 支持图片/Notebook/PDF 预览
+- 支援 agent cwd 邊界
+- 支援專案維度 path scope
+- 支援二進位制檔案識別
+- 支援圖片/Notebook/PDF 預覽
 
 ---
 
-### 3.10 Agent Server 后端注册表
+### 3.10 Agent Server 後端登錄檔
 
 文件：
 
@@ -547,14 +547,14 @@ internal/db/db.go
 internal/db/schema.go
 ```
 
-当前能力：
+當前能力：
 
-- 持久化多个兼容 OpenHands Agent Server 的后端
-- 保证同一时间只有一个 active 后端
-- 支持本地后端 `X-Session-API-Key` 与云端后端 `Authorization: Bearer ...`
-- 健康检查 `/alive`、`/health`、`/ready`、`/server_info`
-- UI 中可以添加、检测、切换、删除后端
-- 可通过环境变量 seed 初始后端：
+- 持久化多個相容 OpenHands Agent Server 的後端
+- 保證同一時間只有一個 active 後端
+- 支援本地後端 `X-Session-API-Key` 與雲端後端 `Authorization: Bearer ...`
+- 健康檢查 `/alive`、`/health`、`/ready`、`/server_info`
+- UI 中可以新增、檢測、切換、刪除後端
+- 可通過環境變數 seed 初始後端：
   - `AUTOTO_AGENT_BACKEND_URL`
   - `AUTOTO_AGENT_BACKEND_NAME`
   - `AUTOTO_AGENT_BACKEND_KIND`
@@ -563,13 +563,13 @@ internal/db/schema.go
   - `AGENT_SERVER_URL`
   - `OPENHANDS_SESSION_API_KEY`
   - `AGENT_SERVER_API_KEY`
-- `AUTOTO_AGENT_BACKEND_*` 优先于同名 legacy `AUTOTO_AGENT_BACKEND_*`；后者仅保留为回退兼容。
+- `AUTOTO_AGENT_BACKEND_*` 優先於同名 legacy `AUTOTO_AGENT_BACKEND_*`；後者僅保留為回退相容。
 
-注意：API 返回时只暴露 `apiKeyConfigured`，不会回显后端 API key。
+注意：API 返回時只暴露 `apiKeyConfigured`，不會回顯後端 API key。
 
 ---
 
-### 3.11 内嵌 Web UI
+### 3.11 內嵌 Web UI
 
 文件：
 
@@ -577,8 +577,8 @@ internal/db/schema.go
 internal/server/ui.go
 internal/server/static/index.html
 internal/server/static/styles.css
-internal/server/static/app.js                  # 轻量 bootstrap
-internal/server/static/modules/app-main.mjs    # 当前主 UI 模块
+internal/server/static/app.js                  # 輕量 bootstrap
+internal/server/static/modules/app-main.mjs    # 當前主 UI 模組
 internal/server/static/modules/backend-registry.mjs # Agent Server backend registry/modal/Admin controller
 internal/server/static/modules/chat-composer.mjs # chat send/draft/history/attachments/slash command controller
 internal/server/static/modules/chat-rendering.mjs # chat message rendering/approval/markdown controller
@@ -600,9 +600,9 @@ internal/server/static/modules/settings-data.mjs # settings/skills static naviga
 internal/server/static/modules/preferences-data.mjs # localStorage keys/default preference data
 ```
 
-当前 UI 是 **shadcn-inspired**，参考 shadcn/ui 的简洁 card、button、input、badge、border、radius 风格，但没有直接引入 React、Tailwind、Radix 或 shadcn 组件源码。前端已开始无构建 ES module 拆分：`app.js` 只负责 bootstrap，业务主模块在 `modules/app-main.mjs`，Agent Server backend registry/弹窗/Agent Admin controller 在 `modules/backend-registry.mjs`，Chat 发送/草稿/历史/附件/slash command controller 在 `modules/chat-composer.mjs`，Chat 消息渲染/审批/Markdown controller 在 `modules/chat-rendering.mjs`，目录选择/浏览/最近目录/路径格式化 controller 在 `modules/directory-browser.mjs`，通用格式化函数在 `modules/formatters.mjs`，Git status/diff/log/commit modal controller 在 `modules/git-workflow.mjs`，终端偏好/设置页/WebSocket controller 在 `modules/terminal.mjs`，API/token/WebSocket helper 在 `modules/runtime.mjs`，后端 MCP registry UI/action controller 在 `modules/mcp-registry-ui.mjs`，Settings Models/Providers UI 与模型选择 helper 在 `modules/model-provider-settings.mjs`，Settings 本地偏好面板（Profile/Network Search/IM Gateway/Notifications/Appearance）UI/action controller 在 `modules/local-preferences-settings.mjs`，Settings 系统/存储/使用/用户/About 面板 controller 在 `modules/system-settings.mjs`，Settings Skills 工作台 UI/action controller 在 `modules/skills-workbench.mjs`，全局快捷键/侧栏/移动端 shell/项目搜索 controller 在 `modules/ui-shell.mjs`，浏览器本地 Settings 偏好/备份/导入 controller 在 `modules/settings-preferences.mjs`。
+當前 UI 是 **shadcn-inspired**，參考 shadcn/ui 的簡潔 card、button、input、badge、border、radius 風格，但沒有直接引入 React、Tailwind、Radix 或 shadcn 元件原始碼。前端已開始無構建 ES module 拆分：`app.js` 只負責 bootstrap，業務主模組在 `modules/app-main.mjs`，Agent Server backend registry/彈窗/Agent Admin controller 在 `modules/backend-registry.mjs`，Chat 傳送/草稿/歷史/附件/slash command controller 在 `modules/chat-composer.mjs`，Chat 訊息渲染/審批/Markdown controller 在 `modules/chat-rendering.mjs`，目錄選擇/瀏覽/最近目錄/路徑格式化 controller 在 `modules/directory-browser.mjs`，通用格式化函式在 `modules/formatters.mjs`，Git status/diff/log/commit modal controller 在 `modules/git-workflow.mjs`，終端偏好/設定頁/WebSocket controller 在 `modules/terminal.mjs`，API/token/WebSocket helper 在 `modules/runtime.mjs`，後端 MCP registry UI/action controller 在 `modules/mcp-registry-ui.mjs`，Settings Models/Providers UI 與模型選擇 helper 在 `modules/model-provider-settings.mjs`，Settings 本地偏好面板（Profile/Network Search/IM Gateway/Notifications/Appearance）UI/action controller 在 `modules/local-preferences-settings.mjs`，Settings 系統/儲存/使用/使用者/About 面板 controller 在 `modules/system-settings.mjs`，Settings Skills 工作臺 UI/action controller 在 `modules/skills-workbench.mjs`，全域性快捷鍵/側欄/移動端 shell/專案搜尋 controller 在 `modules/ui-shell.mjs`，瀏覽器本地 Settings 偏好/備份/匯入 controller 在 `modules/settings-preferences.mjs`。
 
-当前路由：
+當前路由：
 
 ```txt
 GET /
@@ -610,52 +610,52 @@ GET /ui/styles.css
 GET /ui/app.js
 ```
 
-当前页面能力：
+當前頁面能力：
 
-- 查看健康状态
-- 查看项目列表
-- 创建项目
-- 自动选择 root workline / primary agent
+- 檢視健康狀態
+- 檢視專案列表
+- 建立專案
+- 自動選擇 root workline / primary agent
 - 查看 agent messages
-- 复制任意用户/助手消息原文，或一键复制当前对话 Markdown，便于整理 issue、PR 描述或外部笔记
-- 发送消息
-- 按当前 agent 浏览器本地自动保存/恢复聊天输入草稿，切换项目或刷新页面不丢失未发送内容
-- 在聊天输入框中通过浏览器本地提示词历史保存最近提示，并在空输入时用 ↑/↓ 快速召回
-- 在聊天输入框输入 `/` 调出已启用的本地技能命令模板，并通过键盘或点击插入提示词
-- 连接 `/ws/agent`
+- 複製任意使用者/助手訊息原文，或一鍵複製當前對話 Markdown，便於整理 issue、PR 描述或外部筆記
+- 傳送訊息
+- 按當前 agent 瀏覽器本地自動儲存/恢復聊天輸入草稿，切換專案或重新整理頁面不丟失未傳送內容
+- 在聊天輸入框中通過瀏覽器本地提示詞歷史儲存最近提示，並在空輸入時用 ↑/↓ 快速召回
+- 在聊天輸入框輸入 `/` 調出已啟用的本地技能命令模板，並通過鍵盤或點選插入提示詞
+- 連線 `/ws/agent`
 - 查看 WebSocket event log
-- 连接 `/ws/terminal` 交互式 PTY
-- 通过设置 → 终端管理查看 PTY 状态、重连/清空/复制/聚焦终端，并管理输出保留和连接后聚焦偏好
+- 連線 `/ws/terminal` 互動式 PTY
+- 通過設定 → 終端管理檢視 PTY 狀態、重連/清空/複製/聚焦終端，並管理輸出保留和連線後聚焦偏好
 - 更新 agent cwd / model / permission mode
-- 浏览 `/api/fs/browse`
-- 预览 `/api/fs/preview`
-- 在设置弹窗内搜索/过滤个人设置、实例管理和各产品化设置面板，并支持快捷键聚焦搜索
-- 查看 settings 简要统计，并在设置 → 关于中通过 `/api/licenses` 查看第三方依赖许可证清单
-- 在设置 → 关于中复制、下载、导入浏览器本地偏好备份，迁移个人资料、技能草案、聊天草稿、提示词历史、搜索/IM/通知/外观/终端/模型和中转协议设置
-- 查看 `/api/runtime/summary` 驱动的服务器与系统、运行资源、Go runtime、内存和 Agent 限制概览
-- 查看 `/api/storage/summary` 驱动的储存空间、数据库、配置文件和默认项目目录容量统计
-- 查看 `/api/usage/summary` 驱动的使用历史、消息/工具/模型请求和成本统计；未实现真实后台任务前不创建/展示 background_tasks 僵尸模型
-- 查看 `/api/auth/status` 驱动的用户初始化和注册开放状态
-- 从 `/api/models` 动态刷新 CLIProxyAPI 凭证账号可用模型
-- 在 Git 变更面板中查看 status/diff/log，并显式选择文件创建本地 commit（不自动 push）
+- 瀏覽 `/api/fs/browse`
+- 預覽 `/api/fs/preview`
+- 在設定彈窗內搜尋/過濾個人設定、例項管理和各產品化設定面板，並支援快捷鍵聚焦搜尋
+- 檢視 settings 簡要統計，並在設定 → 關於中通過 `/api/licenses` 檢視第三方依賴許可證清單
+- 在設定 → 關於中複製、下載、匯入瀏覽器本地偏好備份，遷移個人資料、技能草案、聊天草稿、提示詞歷史、搜尋/IM/通知/外觀/終端/模型和中轉協議設定
+- 檢視 `/api/runtime/summary` 驅動的伺服器與系統、執行資源、Go runtime、記憶體和 Agent 限制概覽
+- 檢視 `/api/storage/summary` 驅動的儲存空間、資料庫、配置檔案和預設專案目錄容量統計
+- 檢視 `/api/usage/summary` 驅動的使用歷史、訊息/工具/模型請求和成本統計；未實現真實後台任務前不建立/展示 background_tasks 殭屍模型
+- 檢視 `/api/auth/status` 驅動的使用者初始化和註冊開放狀態
+- 從 `/api/models` 動態重新整理 CLIProxyAPI 憑證賬號可用模型
+- 在 Git 變更面板中檢視 status/diff/log，並顯式選擇檔案建立本地 commit（不自動 push）
 
-- 设置 → 个人资料页内完成浏览器本地显示名、头像缩写、身份标签、工作台标签和 Git 身份辅助
-- 设置 → 网络搜索页内完成浏览器本地搜索提供商、结果数、安全/确认开关、GitHub 优先和域名规则策略；Agent 工具层已提供 `WebSearch` 公网搜索结果工具和 `WebFetch` 公网 HTTP(S) 文档抓取工具
-- 设置 → P2–P3 管理控制台已接入服务端 schedules、durable deliveries、integration connections、Telegram pairing/revoke、Home Assistant 只读实体/本地动作审批、monitoring snapshot 与 audit events。旧 `localStorage` IM 草稿只作为“已停用”的迁移提示，不会启动服务或计入运行状态
-- Telegram 当前只通过 long polling 接收私聊 `/pair`、`/status`、`/approve`（固定一次性 `allow_once`）与 `/deny`；无 `/task`、无自由聊天、无 Telegram webhook、无 Slack/Discord。未配对与错误配对保持静默
-- Home Assistant 只允许本机/私网 endpoint；状态列表只读，动作仅限固定 allowlist，创建和批准均要求本地 UI 双确认，最终执行批准还要求 direct loopback。critical/未知动作硬阻断，IM 不得控制设备
-- 设置 → 技能页已接入服务端 Skills：后端支持 global/project/workspace CRUD、effective Skills、revision 历史/restore 与 snapshot-stable cursor 分页；scoped 面板支持按作用域浏览、详情、分页、修订历史与恢复，但创建、SKILL.md 导入、启停、编辑、删除 UI 仍只操作 global scope。MCP registry 仍可创建/启停/删除 server、运行 tools/list，并通过 exec-risk 审批调用 stdio MCP tools
-- 设置 → 生命周期钩子页已接入 global/project/agent 配置、CAS 更新、执行历史、测试/取消/重试与独立中英繁中目录。Shell/HTTP 动作复用现有工具审批和审计网关；`env:` 引用只在审批通过后的执行阶段解析，Shell cwd 保持在工作区内，HTTP 复用防 SSRF 网络策略，LLM gate 保持隔离且不开放工具
-- 设置 → 工作线与容器页内完成当前项目工作线、当前工作线 Agent、worktree/branch/容器隔离边界概览和快速切换
-- 设置 → AI 代理页内完成默认 Agent 策略概览、当前 agent 状态、模型/权限/workdir 快速调整和 ID 复制
-- 设置 → 用户管理页内完成本地 auth status 只读视图、注册状态、安全边界和后续多用户路线提示
-- 设置 → 通知页内完成浏览器本地 toast 类型、显示时长和 UI 终端提示偏好；服务端 Webhook/Telegram 通知改为持久 delivery history，具去重、lease、指数退避、最大尝试次数、delivered/dead 状态和显式 retry
-- 设置 → 外观与界面页内完成浏览器本地主题、布局密度、终端默认展开和 Agent 事件日志显示偏好
-- 设置 → 关于页内完成浏览器本地偏好备份、下载、复制和导入恢复，便于跨浏览器或跨机器迁移工作台设置
-- 设置 → 模型/提供商页内完成模型刷新、Codex Token/JSON 凭证导入、账号列表刷新、中转站 API Key/Base URL/协议/默认模型保存、模型选择和首选模型保存
-- 设置 → 代理管理页内完成 Agent Server 后端列表、健康检测、启用切换、双击确认删除和新增后端
+- 設定 → 個人資料頁內完成瀏覽器本地顯示名、頭像縮寫、身份標籤、工作臺標籤和 Git 身份輔助
+- 設定 → 網路搜尋頁內完成瀏覽器本地搜尋提供商、結果數、安全/確認開關、GitHub 優先和域名規則策略；Agent 工具層已提供 `WebSearch` 公網搜尋結果工具和 `WebFetch` 公網 HTTP(S) 文件抓取工具
+- 設定 → P2–P3 管理控制台已接入服務端 schedules、durable deliveries、integration connections、Telegram pairing/revoke、Home Assistant 只讀實體/本地動作審批、monitoring snapshot 與 audit events。舊 `localStorage` IM 草稿只作為“已停用”的遷移提示，不會啟動服務或計入執行狀態
+- Telegram 當前只通過 long polling 接收私聊 `/pair`、`/status`、`/approve`（固定一次性 `allow_once`）與 `/deny`；無 `/task`、無自由聊天、無 Telegram webhook、無 Slack/Discord。未配對與錯誤配對保持靜默
+- Home Assistant 只允許本機/私網 endpoint；狀態列表只讀，動作僅限固定 allowlist，建立和批准均要求本地 UI 雙確認，最終執行批准還要求 direct loopback。critical/未知動作硬阻斷，IM 不得控制裝置
+- 設定 → 技能頁已接入服務端 Skills：後端支援 global/project/workspace CRUD、effective Skills、revision 歷史/restore 與 snapshot-stable cursor 分頁；scoped 面板支援按作用域瀏覽、詳情、分頁、修訂歷史與恢復，但建立、SKILL.md 匯入、啟停、編輯、刪除 UI 仍只操作 global scope。MCP registry 仍可建立/啟停/刪除 server、執行 tools/list，並通過 exec-risk 審批呼叫 stdio MCP tools
+- 設定 → 生命週期鉤子頁已接入 global/project/agent 配置、CAS 更新、執行歷史、測試/取消/重試與獨立中英繁中目錄。Shell/HTTP 動作複用現有工具審批和審計閘道器；`env:` 引用只在審批通過後的執行階段解析，Shell cwd 保持在工作區內，HTTP 複用防 SSRF 網路策略，LLM gate 保持隔離且不開放工具
+- 設定 → 工作線與容器頁內完成當前專案工作線、當前工作線 Agent、worktree/branch/容器隔離邊界概覽和快速切換
+- 設定 → AI 代理頁內完成預設 Agent 策略概覽、當前 agent 狀態、模型/權限/workdir 快速調整和 ID 複製
+- 設定 → 使用者管理頁內完成本地 auth status 只讀檢視、註冊狀態、安全邊界和後續多使用者路線提示
+- 設定 → 通知頁內完成瀏覽器本地 toast 類型、顯示時長和 UI 終端提示偏好；服務端 Webhook/Telegram 通知改為持久 delivery history，具去重、lease、指數退避、最大嘗試次數、delivered/dead 狀態和顯式 retry
+- 設定 → 外觀與介面頁內完成瀏覽器本地主題、佈局密度、終端預設展開和 Agent 事件日誌顯示偏好
+- 設定 → 關於頁內完成瀏覽器本地偏好備份、下載、複製和匯入恢復，便於跨瀏覽器或跨機器遷移工作臺設定
+- 設定 → 模型/提供商頁內完成模型重新整理、Codex Token/JSON 憑證匯入、賬號列表重新整理、中轉站 API Key/Base URL/協議/預設模型儲存、模型選擇和首選模型儲存
+- 設定 → 代理管理頁內完成 Agent Server 後端列表、健康檢測、啟用切換、雙擊確認刪除和新增後端
 
-后续如果需要正式使用 shadcn/ui，可升级为：
+後續如果需要正式使用 shadcn/ui，可升級為：
 
 ```txt
 web/
@@ -665,7 +665,7 @@ web/
   components/ui/*
 ```
 
-并使用 React + Tailwind + shadcn registry。正式引入前需要重新整理 Node 依赖协议。
+並使用 React + Tailwind + shadcn registry。正式引入前需要重新整理 Node 依賴協議。
 
 ---
 
@@ -677,19 +677,19 @@ web/
 internal/server/licenses.go
 ```
 
-当前 API：
+當前 API：
 
 ```txt
 GET /api/licenses
 ```
 
-当前用途：
+當前用途：
 
-- 读取 Go build info 中的依赖
-- 对已确认模块标注 license
-- 未确认模块标为 `unknown`
+- 讀取 Go build info 中的依賴
+- 對已確認模組標註 license
+- 未確認模組標為 `unknown`
 
-当前已确认直接依赖：
+當前已確認直接依賴：
 
 ```txt
 github.com/go-chi/chi/v5               MIT
@@ -703,13 +703,13 @@ github.com/creack/pty                  MIT
 
 注意：
 
-此接口只是开发期合规辅助，不是法律意见。发布前仍需生成完整 third-party notice。
+此介面只是開發期合規輔助，不是法律意見。釋出前仍需生成完整 third-party notice。
 
 ---
 
-### 3.13 公开仓库基础建设
+### 3.13 公開倉庫基礎建設
 
-当前已补齐：
+當前已補齊：
 
 ```txt
 README.md
@@ -724,21 +724,21 @@ docs/ARCHITECTURE.md
 .goreleaser.yaml
 ```
 
-说明：
+說明：
 
-- 仓库入口以 `README.md` 为准。
-- `PROJECT_PLAN.md` 用于开发规划和实现状态跟踪。
-- `CHANGELOG.md` 记录 tag 级用户可见变更、安全边界和已知缺口。
-- `docs/ARCHITECTURE.md` 面向贡献者说明请求如何流过 server、agent、provider、tools、WebSocket 和 SQLite。
-- `THIRD_PARTY_NOTICES.md` 是直接依赖初版说明，不是法律意见；正式发布前仍应生成完整 transitive notice。
-- CI 会检查 Go 格式、测试、vet、构建、内嵌 JavaScript 语法，并通过 `golangci-lint` 增加 static analysis。
-- `v*` tag 会触发 GoReleaser release workflow，构建 macOS/Linux/Windows archives；README 保留轻量 `docs/demo.svg` 工作流预览，后续如有真实录屏可再替换。
+- 倉庫入口以 `README.md` 為準。
+- `PROJECT_PLAN.md` 用於開發規劃和實現狀態跟蹤。
+- `CHANGELOG.md` 記錄 tag 級使用者可見變更、安全邊界和已知缺口。
+- `docs/ARCHITECTURE.md` 面向貢獻者說明請求如何流過 server、agent、provider、tools、WebSocket 和 SQLite。
+- `THIRD_PARTY_NOTICES.md` 是直接依賴初版說明，不是法律意見；正式釋出前仍應生成完整 transitive notice。
+- CI 會檢查 Go 格式、測試、vet、構建、內嵌 JavaScript 語法，並通過 `golangci-lint` 增加 static analysis。
+- `v*` tag 會觸發 GoReleaser release workflow，構建 macOS/Linux/Windows archives；README 保留輕量 `docs/demo.svg` 工作流預覽，後續如有真實錄屏可再替換。
 
 ---
 
-## 4. 当前测试
+## 4. 當前測試
 
-已有测试：
+已有測試：
 
 ```txt
 internal/agent/loop_test.go
@@ -767,41 +767,41 @@ internal/server/automation_api_test.go
 internal/server/static/modules/automation-control.test.mjs
 ```
 
-覆盖：
+覆蓋：
 
-- 默认配置与后端环境变量 seed
-- 创建 project/workline/agent
-- agent backend registry 单 active 约束
-- OpenHands Agent Server 健康检查
-- 工具路径越界检查
-- Write 后 Read
-- WebFetch HTML 简化与 local/private host 拒绝
-- WebSearch query 校验、DuckDuckGo HTML 结果解析、格式化输出和 core 注册
-- MCP stdio client 初始化、tools/list、tools/call、文本结果格式化、registered serverId 查找和 core 注册
-- MCP server registry：SQLite CRUD、HTTP CRUD、Settings UI 创建/启停/删除/发现工具、env value 响应脱敏、`GET /api/mcp/servers/{id}/tools` discovery
-- 本地 token、Origin、Sec-Fetch-Site 与 WebSocket 握手防护
-- 官方 Anthropic/OpenAI SDK provider 流式事件、usage 与 fallback 行为
-- usage cost 估算：OpenAI、Anthropic Sonnet/Opus 与未知模型分支
-- Git commit API 的显式 paths 提交、安全路径拒绝、空仓库 diff 降级
-- 全链路 E2E：真实 httptest server、WebSocket agent stream、HTTP message submit、假 provider tool call、审批 route、Bash 工具执行、tool result 回灌模型、消息/tool_call/api_requests 落库
-- Workline workflow：fork API 创建 Git worktree/child workline/agent，fork agent Git API 边界可用，merge-check 能报告冲突文件，merge API 能成功合并 clean 分支并在冲突时 abort
-- V19–V22 migration 与 schedules/deliveries/integration/channel/device action 持久状态、CAS/lease、统计和敏感 payload 拒绝
-- Schedule cron/`@every`/timezone、busy skip、不替换人工 run，以及 run permission cap 不放宽 Agent 权限
-- Webhook/Telegram delivery retry/backoff、`dead`、历史与 Agent-scoped Telegram 路由/脱敏
-- Telegram 私聊配对、失败锁定与静默、event/cursor 幂等、`/status`、一次性 `/approve`、`/deny`、danger 拒绝、审计 fail-closed 与限流
-- Home Assistant 私网 endpoint、只读属性过滤、固定动作 catalog、canonical seal、本地 direct-loopback 二次批准，以及 unlock/camera/script 等 critical/未知动作硬阻断
-- monitoring snapshot 聚合、runtime Supervisor 启停/回滚顺序、Settings P2–P3 控制台的有界 DOM 与 secret 不回显
-- 文件路径工具对 `.env*`、credentials/secrets、私钥与 `.git` 的硬阻断/过滤
+- 預設配置與後端環境變數 seed
+- 建立 project/workline/agent
+- agent backend registry 單 active 約束
+- OpenHands Agent Server 健康檢查
+- 工具路徑越界檢查
+- Write 後 Read
+- WebFetch HTML 簡化與 local/private host 拒絕
+- WebSearch query 校驗、DuckDuckGo HTML 結果解析、格式化輸出和 core 註冊
+- MCP stdio client 初始化、tools/list、tools/call、文本結果格式化、registered serverId 查詢和 core 註冊
+- MCP server registry：SQLite CRUD、HTTP CRUD、Settings UI 建立/啟停/刪除/發現工具、env value 響應脫敏、`GET /api/mcp/servers/{id}/tools` discovery
+- 本地 token、Origin、Sec-Fetch-Site 與 WebSocket 握手防護
+- 官方 Anthropic/OpenAI SDK provider 流式事件、usage 與 fallback 行為
+- usage cost 估算：OpenAI、Anthropic Sonnet/Opus 與未知模型分支
+- Git commit API 的顯式 paths 提交、安全路徑拒絕、空倉庫 diff 降級
+- 全鏈路 E2E：真實 httptest server、WebSocket agent stream、HTTP message submit、假 provider tool call、審批 route、Bash 工具執行、tool result 回灌模型、訊息/tool_call/api_requests 落庫
+- Workline workflow：fork API 建立 Git worktree/child workline/agent，fork agent Git API 邊界可用，merge-check 能報告衝突檔案，merge API 能成功合併 clean 分支並在衝突時 abort
+- V19–V22 migration 與 schedules/deliveries/integration/channel/device action 持久狀態、CAS/lease、統計和敏感 payload 拒絕
+- Schedule cron/`@every`/timezone、busy skip、不替換人工 run，以及 run permission cap 不放寬 Agent 權限
+- Webhook/Telegram delivery retry/backoff、`dead`、歷史與 Agent-scoped Telegram 路由/脫敏
+- Telegram 私聊配對、失敗鎖定與靜默、event/cursor 冪等、`/status`、一次性 `/approve`、`/deny`、danger 拒絕、審計 fail-closed 與限流
+- Home Assistant 私網 endpoint、只讀屬性過濾、固定動作 catalog、canonical seal、本地 direct-loopback 二次批准，以及 unlock/camera/script 等 critical/未知動作硬阻斷
+- monitoring snapshot 聚合、runtime Supervisor 啟停/回滾順序、Settings P2–P3 控制台的有界 DOM 與 secret 不回顯
+- 檔案路徑工具對 `.env*`、credentials/secrets、私鑰與 `.git` 的硬阻斷/過濾
 
-当前验证命令已收敛为统一入口：
+當前驗證命令已收斂為統一入口：
 
 ```bash
 make check
 ```
 
-如果本地没有 `make`，可直接运行 `./scripts/check.sh`。该脚本会检查 Go 格式但不自动改写，随后运行 Go tests/vet/build、前端 `node --check` 与前端 `node --test`。如需格式化 Go 代码，运行 `make fmt`。
+如果本地沒有 `make`，可直接執行 `./scripts/check.sh`。該腳本會檢查 Go 格式但不自動改寫，隨後執行 Go tests/vet/build、前端 `node --check` 與前端 `node --test`。如需格式化 Go 程式碼，執行 `make fmt`。
 
-短启动验证包括：
+短啟動驗證包括：
 
 - `/api/health`
 - `/api/licenses`
@@ -815,17 +815,17 @@ make check
 - `GET /api/agents/{id}/git/diff`
 - `POST /api/agents/{id}/git/commit`
 
-历史 dogfood 证据（Autoto 更名前，以下服务名称、补丁文本和提交信息保留为 legacy 原始记录）：2026-07-07 UTC / 2026-07-08 +08:00 使用临时 Autoto 服务与临时 Git 仓库，通过 API 创建项目，执行 `Write` / `Read` / `Grep`，让已跟踪文件 `demo/notes.md` 变为 `worktree=M`，通过 Git diff API 看到 `added=2 deleted=0` 和补丁行 `+- Updated through Autoto Write tool for tracked diff review.`，再用显式 `paths: ["demo/notes.md"]` 调用 Git commit API 创建提交 `96cd79e Dogfood tracked diff workflow`，提交后仓库 `clean=true`。较早的未跟踪文件 smoke 也创建并提交了 `2484ab7 Dogfood Autoto API workflow`。
+歷史 dogfood 證據（Autoto 更名前，以下服務名稱、補丁文本和提交資訊保留為 legacy 原始記錄）：2026-07-07 UTC / 2026-07-08 +08:00 使用臨時 Autoto 服務與臨時 Git 倉庫，通過 API 建立專案，執行 `Write` / `Read` / `Grep`，讓已跟蹤檔案 `demo/notes.md` 變為 `worktree=M`，通過 Git diff API 看到 `added=2 deleted=0` 和補丁行 `+- Updated through Autoto Write tool for tracked diff review.`，再用顯式 `paths: ["demo/notes.md"]` 呼叫 Git commit API 建立提交 `96cd79e Dogfood tracked diff workflow`，提交後倉庫 `clean=true`。較早的未跟蹤檔案 smoke 也建立並提交了 `2484ab7 Dogfood Autoto API workflow`。
 
 ---
 
-## 5. 工程工作流状态（历史 Phase 1–6）
+## 5. 工程工作流狀態（歷史 Phase 1–6）
 
-本节的 Phase 1–6 是早期**工程工作流编号**，只用于追踪实现主题；它们不是 `docs/notes/needtodo0712.md` 的产品 Phase A/B/C。产品 **Phase B 专指 IM 控制面**；当前只完成受限 Telegram 配对/状态/一次性审批/拒绝，不包含 `/task`、自由聊天或其他渠道。不得把本节的 Provider、Tools、Skills 或前端工作称为产品 Phase B。
+本節的 Phase 1–6 是早期**工程工作流編號**，只用於追蹤實現主題；它們不是 `docs/notes/needtodo0712.md` 的產品 Phase A/B/C。產品 **Phase B 專指 IM 控制面**；當前只完成受限 Telegram 配對/狀態/一次性審批/拒絕，不包含 `/task`、自由聊天或其他渠道。不得把本節的 Provider、Tools、Skills 或前端工作稱為產品 Phase B。
 
-### Engineering Phase 1：当前 MVP 完善
+### Engineering Phase 1：當前 MVP 完善
 
-目标：让后端更适合手工/CLI 调试。
+目標：讓後端更適合手工/CLI 除錯。
 
 待做：
 
@@ -835,34 +835,34 @@ make check
 - [x] `PATCH /api/agents/{id}/model`
 - [x] `PATCH /api/agents/{id}/permission-mode`
 - [x] `POST /api/agents/{id}/interrupt`
-- [x] 工具调用 WebSocket 事件
-- [x] provider request/response 记录到 `api_requests`
-- [x] 最简 context 管理（粗略 token 估算、旧消息摘要、旧工具输出降级）
-- [x] agent status 更细化：`idle/running/error/interrupted`
+- [x] 工具呼叫 WebSocket 事件
+- [x] provider request/response 記錄到 `api_requests`
+- [x] 最簡 context 管理（粗略 token 估算、舊訊息摘要、舊工具輸出降級）
+- [x] agent status 更細化：`idle/running/error/interrupted`
 
 ---
 
-### Engineering Phase 2：工具系统增强
+### Engineering Phase 2：工具系統增強
 
-目标：让工具更接近可用编码 Agent。
+目標：讓工具更接近可用編碼 Agent。
 
 待做：
 
 - [x] Edit 工具
-- [x] Bash 支持显式审批状态
-- [x] Bash 输出流式事件
-- [ ] 工具执行超时配置
-- [ ] 工具输出截断策略配置
-- [ ] 工具输入 JSON schema 输出
-- [ ] 工具权限规则表
+- [x] Bash 支援顯式審批狀態
+- [x] Bash 輸出流式事件
+- [ ] 工具執行超時配置
+- [ ] 工具輸出截斷策略配置
+- [ ] 工具輸入 JSON schema 輸出
+- [ ] 工具權限規則表
 - [ ] whitelist/blacklist dirs
-- [ ] whitelist/blacklist commands（已内置 exec 白名单 matcher 与 danger 阻断，规则配置 UI/表待补）
+- [ ] whitelist/blacklist commands（已內建 exec 白名單 matcher 與 danger 阻斷，規則配置 UI/表待補）
 
 ---
 
-### Engineering Phase 3：Provider 增强
+### Engineering Phase 3：Provider 增強
 
-目标：支持真实模型流式与 tool calling。
+目標：支援真實模型流式與 tool calling。
 
 待做：
 
@@ -873,9 +873,9 @@ make check
 - [x] tool result 回灌模型（Anthropic / OpenAI official / OpenAI-compatible）
 - [x] Anthropic 官方 SDK provider（非流式 MVP）
 - [x] OpenAI 官方 Responses API provider（非流式 MVP）
-- [x] provider 前缀路由与基础 model list
-- [x] usage/cost 统计（usage 写入 `api_requests`，cost 使用内置 per-model USD/MTok 价格表估算；价格来源在 `internal/agent/loop.go` 注释和 README 中记录，未知模型估算为 0）
-- [x] Anthropic prompt caching（足够大的 system/tool/message 请求自动添加 5m cache_control breakpoint，小请求跳过以避免额外 cache write 成本）
+- [x] provider 字首路由與基礎 model list
+- [x] usage/cost 統計（usage 寫入 `api_requests`，cost 使用內建 per-model USD/MTok 價格表估算；價格來源在 `internal/agent/loop.go` 註釋和 README 中記錄，未知模型估算為 0）
+- [x] Anthropic prompt caching（足夠大的 system/tool/message 請求自動新增 5m cache_control breakpoint，小請求跳過以避免額外 cache write 成本）
 - [x] retry/backoff
 - [x] first token timeout
 
@@ -883,18 +883,18 @@ make check
 
 ### Engineering Phase 4：Git / Workline 工作流
 
-目标：实现多分支、多工作线能力。
+目標：實現多分支、多工作線能力。
 
 待做：
 
-- [x] Git status/diff/log API（只读）
-- [x] UI diff 查看器（只读 Git 变更面板）
+- [x] Git status/diff/log API（只讀）
+- [x] UI diff 檢視器（只讀 Git 變更面板）
 - [x] Git commit API
-- [x] project git path 检查（repo root 必须位于项目路径或 default project dir 内）
-- [x] workline fork（后端 API 创建 child workline + primary agent）
-- [x] git worktree 创建（`POST /api/worklines/{id}/fork` 使用 sibling `.autoto-worktrees`，避免嵌套进主 repo）
-- [x] workline merge-check（`GET /api/worklines/{id}/merge-check` 使用临时 worktree 做非破坏性冲突预检）
-- [x] merge（`POST /api/worklines/{id}/merge` 要求 source/target clean，冲突时 abort 并返回 409，成功后记录 merge metadata）
+- [x] project git path 檢查（repo root 必須位於專案路徑或 default project dir 內）
+- [x] workline fork（後端 API 建立 child workline + primary agent）
+- [x] git worktree 建立（`POST /api/worklines/{id}/fork` 使用 sibling `.autoto-worktrees`，避免巢狀進主 repo）
+- [x] workline merge-check（`GET /api/worklines/{id}/merge-check` 使用臨時 worktree 做非破壞性衝突預檢）
+- [x] merge（`POST /api/worklines/{id}/merge` 要求 source/target clean，衝突時 abort 並返回 409，成功後記錄 merge metadata）
 - [ ] AI resolve conflict
 - [ ] review workline
 
@@ -902,27 +902,27 @@ make check
 
 ### Engineering Phase 5：MCP / Terminal / Runtime
 
-目标：补齐高级能力。
+目標：補齊高階能力。
 
 待做：
 
-- [x] WebFetch 公网 HTTP(S) 文档抓取工具（local/private host 默认拒绝）
-- [x] WebSearch 公网搜索结果工具（默认 DuckDuckGo HTML，query/limit 校验，local/private search endpoint 防护）
-- [x] MCP server registry（后端持久注册表/API + Settings UI 创建/启停/删除/发现工具：CRUD、env value 脱敏响应、registered server tools/list discovery）
-- [x] MCP tool discovery（`MCPListTools` 通过 stdio initialize + tools/list，并支持 `serverId` 引用已注册 server）
-- [x] MCP tool execution（`MCPCallTool` 通过 stdio initialize + tools/call，支持 `serverId`，exec-risk 审批）
+- [x] WebFetch 公網 HTTP(S) 文件抓取工具（local/private host 預設拒絕）
+- [x] WebSearch 公網搜尋結果工具（預設 DuckDuckGo HTML，query/limit 校驗，local/private search endpoint 防護）
+- [x] MCP server registry（後端持久登錄檔/API + Settings UI 建立/啟停/刪除/發現工具：CRUD、env value 脫敏響應、registered server tools/list discovery）
+- [x] MCP tool discovery（`MCPListTools` 通過 stdio initialize + tools/list，並支援 `serverId` 引用已註冊 server）
+- [x] MCP tool execution（`MCPCallTool` 通過 stdio initialize + tools/call，支援 `serverId`，exec-risk 審批）
 - [x] PTY terminal
 - [x] `/ws/terminal`
-- [x] V19 schedules + run source/permission cap（仅 `readOnly` / `acceptEdits`，busy skip，不取消人工 run）
-- [x] V20 durable Webhook/Telegram deliveries（历史、去重、lease、指数退避、`dead`、retry）
-- [x] V21 Telegram pairing/events/cursor（long polling，`/pair` `/status` `/approve`-once `/deny`，未配对静默）
-- [x] V22 Home Assistant device action requests（本机/私网、只读状态、固定 allowlist、本地双确认、critical hard block、IM 禁止）
-- [x] V51 profile configuration + lifecycle hooks（global/project/agent 配置、快照绑定、CAS、历史、测试；Shell/HTTP 复用审批审计，密钥延迟解析，HTTP 防 SSRF）
-- [x] monitoring snapshot 聚合与 runtime Supervisor 管理 channels / automation / HTTP
+- [x] V19 schedules + run source/permission cap（僅 `readOnly` / `acceptEdits`，busy skip，不取消人工 run）
+- [x] V20 durable Webhook/Telegram deliveries（歷史、去重、lease、指數退避、`dead`、retry）
+- [x] V21 Telegram pairing/events/cursor（long polling，`/pair` `/status` `/approve`-once `/deny`，未配對靜默）
+- [x] V22 Home Assistant device action requests（本機/私網、只讀狀態、固定 allowlist、本地雙確認、critical hard block、IM 禁止）
+- [x] V51 profile configuration + lifecycle hooks（global/project/agent 配置、快照繫結、CAS、歷史、測試；Shell/HTTP 複用審批審計，金鑰延遲解析，HTTP 防 SSRF）
+- [x] monitoring snapshot 聚合與 runtime Supervisor 管理 channels / automation / HTTP
 - [ ] Slack/Discord channel adapter
-- [ ] IM `/task` 与自由聊天（当前明确不提供）
-- [ ] 通用 IoT、摄像头动作、门锁解锁、云监控
-- [ ] 显式通用 background task queue（schedule 已实现，但不等于通用任务队列）
+- [ ] IM `/task` 與自由聊天（當前明確不提供）
+- [ ] 通用 IoT、攝像頭動作、門鎖解鎖、雲監控
+- [ ] 顯式通用 background task queue（schedule 已實現，但不等於通用任務佇列）
 - [ ] process list
 - [ ] runtime cleanup
 
@@ -930,34 +930,34 @@ make check
 
 ### Engineering Phase 6：前端
 
-目标：提供本地 Web UI。
+目標：提供本地 Web UI。
 
-初版 UI 页面：
+初版 UI 頁面：
 
 - [x] Project list
 - [ ] Workline detail
 - [x] Agent chat
-- [x] Run summary 回顾卡片（接入 `/api/agents/{id}/runs/{runId}`，支持复制摘要与打开 Git 变更）
+- [x] Run summary 回顧卡片（接入 `/api/agents/{id}/runs/{runId}`，支援複製摘要與開啟 Git 變更）
 - [ ] Tool calls panel
 - [x] File browser
 - [x] Settings
 - [x] License report
 
-可选技术：
+可選技術：
 
 - React + Vite
 - SvelteKit
 - HTMX + Go templates
 
-建议先用简单 React/Vite，后端静态托管 `web/dist`。
+建議先用簡單 React/Vite，後端靜態託管 `web/dist`。
 
 ---
 
-## 6. 开源协议整理计划
+## 6. 開源協議整理計劃
 
-### 当前 Go MVP
+### 當前 Go MVP
 
-可以从：
+可以從：
 
 ```txt
 go.mod
@@ -966,9 +966,9 @@ Go module cache LICENSE files
 runtime/debug BuildInfo
 ```
 
-生成依赖协议表。
+生成依賴協議表。
 
-后续可以增加命令：
+後續可以增加命令：
 
 ```txt
 autoto licenses export
@@ -981,11 +981,11 @@ THIRD_PARTY_NOTICES.md
 licenses.json
 ```
 
-### 上游参考二进制
+### 上游參考二進位制
 
-仅靠二进制字符串不能可靠确定完整依赖协议。
+僅靠二進位制字串不能可靠確定完整依賴協議。
 
-若要整理上游参考实现的协议，需要输入：
+若要整理上游參考實現的協議，需要輸入：
 
 ```txt
 package.json
@@ -994,55 +994,55 @@ pnpm-lock.yaml / package-lock.json / yarn.lock
 LICENSE
 NOTICE
 THIRD_PARTY_NOTICES
-licenses 目录
-其它子项目的 go.mod / Cargo.lock 等
+licenses 目錄
+其它子專案的 go.mod / Cargo.lock 等
 ```
 
-拿到这些文件后，可以整理：
+拿到這些檔案後，可以整理：
 
 ```txt
-依赖名
+依賴名
 版本
 license
 是否 copyleft
 是否需要 NOTICE
-是否需要源代码公开
+是否需要原始碼公開
 是否可商用
-风险等级
-备注
+風險等級
+備註
 ```
 
 ---
 
-## 7. 当前已知限制
+## 7. 當前已知限制
 
-当前 MVP 仍有这些限制：
+當前 MVP 仍有這些限制：
 
-- Telegram 是唯一入站渠道且只使用 long polling；命令仅 `/pair`、`/status`、`/approve <toolCallId>`（一次性）和 `/deny`。没有 `/task`、自由聊天、Telegram webhook、Slack 或 Discord。
-- Telegram durable event/cursor 与 notification delivery history 不等于 Agent durable event log。Agent stream protocol 2 的 replay 仍只位于当前进程的有界内存；没有持久 retention、服务重启后或跨进程 replay。
-- Home Assistant 是唯一设备适配器，且只允许本机/私网 endpoint。没有通用 IoT、摄像头动作、门锁解锁或云监控；本地 monitoring snapshot 只是聚合状态。
-- Home Assistant 状态读取只返回过滤后的实体/属性；动作仅限固定 allowlist，并要求本地双确认和 direct-loopback 最终批准。IM 永远不能控制设备。
-- Schedule 已实现，但不是通用任务队列：只允许 `readOnly` / `acceptEdits`，Agent busy 时跳过并记录，不排队，也不取消人工 run。
-- 文件路径工具已硬阻断敏感路径，但 Bash 与 stdio MCP 仍能执行强本地操作，不能视为 sandbox。
-- 前端 UI 已按 ES module 拆分，但仍有较多业务逻辑留在 `app-main.mjs`，不是完整 React/shadcn 实现。
-- `/api/fs` 当前以 default project dir 为边界，尚未按 agent cwd 动态限制。
-- Browser-originated API / WebSocket 已有本地 token 与 Origin/Sec-Fetch-Site 防护，但仍应只绑定可信本地地址。
-- Git API 与 workline merge API 已限制 repo root 位于项目路径、default project dir 或 Autoto 创建的 `.autoto-worktrees` workline worktree 内；尚未实现 AI conflict resolve 与完整 review workline。
-- license API 只确认了部分依赖协议。
-- 已有 stdio MCP discovery/execution 与 registry；尚未实现 MCP 长连接会话池。
-- 显式通用任务队列、进程列表与 runtime cleanup 尚未实现。
+- Telegram 是唯一入站渠道且只使用 long polling；命令僅 `/pair`、`/status`、`/approve <toolCallId>`（一次性）和 `/deny`。沒有 `/task`、自由聊天、Telegram webhook、Slack 或 Discord。
+- Telegram durable event/cursor 與 notification delivery history 不等於 Agent durable event log。Agent stream protocol 2 的 replay 仍只位於當前程序的有界記憶體；沒有持久 retention、服務重啟後或跨程序 replay。
+- Home Assistant 是唯一裝置介面卡，且只允許本機/私網 endpoint。沒有通用 IoT、攝像頭動作、門鎖解鎖或雲監控；本地 monitoring snapshot 只是聚合狀態。
+- Home Assistant 狀態讀取只返回過濾後的實體/屬性；動作僅限固定 allowlist，並要求本地雙確認和 direct-loopback 最終批准。IM 永遠不能控制裝置。
+- Schedule 已實現，但不是通用任務佇列：只允許 `readOnly` / `acceptEdits`，Agent busy 時跳過並記錄，不排隊，也不取消人工 run。
+- 檔案路徑工具已硬阻斷敏感路徑，但 Bash 與 stdio MCP 仍能執行強本地操作，不能視為 sandbox。
+- 前端 UI 已按 ES module 拆分，但仍有較多業務邏輯留在 `app-main.mjs`，不是完整 React/shadcn 實現。
+- `/api/fs` 當前以 default project dir 為邊界，尚未按 agent cwd 動態限制。
+- Browser-originated API / WebSocket 已有本地 token 與 Origin/Sec-Fetch-Site 防護，但仍應只繫結可信本地地址。
+- Git API 與 workline merge API 已限制 repo root 位於專案路徑、default project dir 或 Autoto 建立的 `.autoto-worktrees` workline worktree 內；尚未實現 AI conflict resolve 與完整 review workline。
+- license API 只確認了部分依賴協議。
+- 已有 stdio MCP discovery/execution 與 registry；尚未實現 MCP 長連線會話池。
+- 顯式通用任務佇列、程序列表與 runtime cleanup 尚未實現。
 
 ---
 
-## 8. 下一步建议
+## 8. 下一步建議
 
-产品 Phase A 的 Provider capability、Agent stream 与 Skills 基础已经收口；P2–P3 已把 schedules、durable deliveries、Telegram pairing/status/一次性 approval/deny、Home Assistant 受限适配、监控聚合和 Supervisor 生命周期接通。下一轮应先稳定现有边界，而不是扩张渠道或设备矩阵：
+產品 Phase A 的 Provider capability、Agent stream 與 Skills 基礎已經收口；P2–P3 已把 schedules、durable deliveries、Telegram pairing/status/一次性 approval/deny、Home Assistant 受限適配、監控聚合和 Supervisor 生命週期接通。下一輪應先穩定現有邊界，而不是擴張渠道或裝置矩陣：
 
-1. 为真实 Telegram bot + Home Assistant 环境补一份可重复的本地 dogfood/重启恢复记录，尤其验证 token 轮换撤销配对、delivery 重试和 busy schedule skip；
-2. 保持 Telegram 命令面只含 `/pair`、`/status`、一次性 `/approve` 与 `/deny`，除非完成独立威胁模型与默认关闭设计，否则不加入 `/task`；
-3. 保持 IM 与设备控制隔离，不允许 Telegram 创建或批准 Home Assistant action；
-4. 补齐通知历史、channel events、device actions 的 retention/清理策略与更细监控，但不要称为云监控；
-5. Slack/Discord、通用 IoT、摄像头动作和门锁解锁继续保持未完成，只有真实需求与安全审查后再立项；
-6. 继续推进 review workline / AI conflict resolve、通用队列、process list 与 runtime cleanup。
+1. 為真實 Telegram bot + Home Assistant 環境補一份可重複的本地 dogfood/重啟恢復記錄，尤其驗證 token 輪換撤銷配對、delivery 重試和 busy schedule skip；
+2. 保持 Telegram 命令面只含 `/pair`、`/status`、一次性 `/approve` 與 `/deny`，除非完成獨立威脅模型與預設關閉設計，否則不加入 `/task`；
+3. 保持 IM 與裝置控制隔離，不允許 Telegram 建立或批准 Home Assistant action；
+4. 補齊通知歷史、channel events、device actions 的 retention/清理策略與更細監控，但不要稱為雲監控；
+5. Slack/Discord、通用 IoT、攝像頭動作和門鎖解鎖繼續保持未完成，只有真實需求與安全審查後再立項；
+6. 繼續推進 review workline / AI conflict resolve、通用佇列、process list 與 runtime cleanup。
 
-所有文档与 UI 必须持续明确：当前有受限 Telegram 入站控制，但没有 `/task` 或通用 IM 聊天；当前有受限 Home Assistant 动作，但没有通用 IoT、摄像头动作、门锁解锁或云监控。
+所有文件與 UI 必須持續明確：當前有受限 Telegram 入站控制，但沒有 `/task` 或通用 IM 聊天；當前有受限 Home Assistant 動作，但沒有通用 IoT、攝像頭動作、門鎖解鎖或雲監控。
