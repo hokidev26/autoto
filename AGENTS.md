@@ -96,6 +96,14 @@ Protected-task text, status, protection flag, order, replacement, or deletion ar
 - EventHub/WebSocket replay is live transport, not a durable cross-process ledger.
 - Keep the no-build ES-module frontend modular. Guard async requests with monotonic sequences, use explicit lifecycle states, update all locales, and test new logic. UI hiding never replaces server enforcement.
 
+## Kitesurf cloud browser (registered MCP server)
+
+- A `kitesurf` MCP server is registered with serverId `cb33b8f3-9e7a-49c2-9a1c-7754c4168ae8`. It connects to Cloudflare Kitesurf (a cloud Chrome browser on Workers) through `chrome-devtools-mcp`; no local Chrome is needed.
+- When the user asks to browse a web page, take a screenshot, read a page's DOM/console/network, run a Lighthouse audit, or explicitly mentions "kitesurf", call `MCPListTools`/`MCPCallTool` with that serverId. Available tools include `navigate_page`, `new_page`, `take_screenshot`, `take_snapshot`, `click`, `fill_form`, `evaluate_script`, `list_network_requests`, and `lighthouse_audit`.
+- Typical flow: `new_page` or `navigate_page` with the target URL, then `take_snapshot` (DOM) or `take_screenshot` as evidence.
+- Kitesurf playground limits: each navigation gets roughly 20 seconds of CPU time and 60 seconds of wall-clock time; heavy pages may be stopped. Only `https://` URLs are accepted.
+- These calls execute a host-side process and are classified as exec risk, so each `MCPCallTool` may require user approval; that is expected behavior, not an error.
+
 ## Validation and delivery
 
 - Run focused tests, then `make check`. Use `make fmt` only when needed and inspect unrelated formatting changes.
