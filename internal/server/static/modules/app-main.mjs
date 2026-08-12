@@ -10,7 +10,7 @@ import { createNotificationSound } from "./notification-sound.mjs?v=notification
 import { createSystemNotifications } from "./system-notification.mjs?v=system-notification-1";
 import { createBackendRegistryController } from "./backend-registry.mjs?v=agent-admin-removed-1";
 import { createChatComposerController, normalizeChatDrafts, normalizePromptHistory } from "./chat-composer.mjs?v=plan-mode-1-project-context-1-model-save-gate-1-goal-command-2-queue-command-1-reasoning-steps-1-reasoning-history-1-markdown-2-queue-autopark-1-queue-attachments-1-effort-initial-1";
-import { createChatRenderingController, findToolActivityByIdentity, renderAgentTaskActivityCardHTML } from "./chat-rendering.mjs?v=protected-images-1-message-thread-1-plan-mode-2-user-message-left-1-switch-fix-3-hide-run-loading-1-i18n-shared-1-conversation-boundary-1-subagent-cards-1-message-lifecycle-1-subagent-incremental-1-profile-message-identity-1-profile-avatar-1-provider-errors-1-compact-run-error-1-first-token-task-status-1-tool-activity-lazy-1-tool-protocol-filter-1-live-assistant-last-1-tool-activity-svg-icons-1-reasoning-steps-1-reasoning-history-1-markdown-2-tool-inline-detail-1-md-table-1-tool-position-1-project-run-history-1-dup-activity-fix-1-reasoning-count-1-avatar-logo-fix-1-markdown-stream-1-reasoning-handover-1";
+import { createChatRenderingController, findToolActivityByIdentity, renderAgentTaskActivityCardHTML } from "./chat-rendering.mjs?v=protected-images-1-message-thread-1-plan-mode-2-user-message-left-1-switch-fix-3-hide-run-loading-1-i18n-shared-1-conversation-boundary-1-subagent-cards-1-message-lifecycle-1-subagent-incremental-1-profile-message-identity-1-profile-avatar-1-provider-errors-1-compact-run-error-1-first-token-task-status-1-tool-activity-lazy-1-tool-protocol-filter-1-live-assistant-last-1-tool-activity-svg-icons-1-reasoning-steps-1-reasoning-history-1-markdown-2-tool-inline-detail-1-md-table-1-tool-position-1-project-run-history-1-dup-activity-fix-1-reasoning-count-1-avatar-logo-fix-1-markdown-stream-1-reasoning-handover-1-message-menu-1";
 import { releaseProtectedImageURLs } from "./protected-images.mjs?v=protected-images-1";
 import { createContextManagementController } from "./context-management.mjs?v=context-ring-3-scoped-memory-1";
 import {
@@ -90,6 +90,8 @@ import { createUIShellController, elementVisible, isComposingInput } from "./ui-
 import { createUsageHistoryController } from "./usage-history.mjs";
 import { createAgentWorkspaceHelpers } from "./agent-workspace-helpers.mjs?v=task-summary-activity-1-task-overview-tabs-1";
 import { createNavigationContextMenu } from "./navigation-context-menu.mjs";
+import { createBrandConfirm } from "./brand-confirm.mjs?v=brand-confirm-1";
+import { createMessageContextMenu } from "./message-context-menu.mjs?v=message-menu-1-brand-confirm-1";
 import { createOverviewNavHelpers } from "./overview-nav-helpers.mjs";
 import { installPullToRefresh, isPullToRefreshSupported } from "./pull-to-refresh.mjs?v=pull-to-refresh-1";
 import { createWorkbenchSidebarRender, primaryWorkbenchLayout } from "./workbench-sidebar-render.mjs?v=standalone-removed-1";
@@ -921,6 +923,42 @@ const {
   updateConversationCopyButton,
   updateLiveAssistantPerformance,
 } = chatRendering;
+
+// Message-menu confirmations use the branded in-app dialog (Autoto mark in
+// the corner) instead of the bare native dialog; native stays as fallback.
+const brandConfirm = createBrandConfirm({ fallback: (message) => platformConfirm(message) });
+const messageContextMenu = createMessageContextMenu({
+  state,
+  request: api,
+  showToast,
+  showError,
+  confirmAction: (message) => brandConfirm.confirm(message),
+  copyToClipboard,
+  openCorrectionEditor: (messageId) => chatRendering.openCorrectionEditor?.(messageId),
+  loadMessages: (agentId) => loadMessages(agentId),
+  // contextManagement is constructed later in this module; the closure only
+  // runs from user-triggered menu actions, long after initialization.
+  refreshContextStatus: () => contextManagement.load().catch(() => {}),
+  onBeforeOpen: () => closeNavigationContextMenu(),
+  onForkCreated: async (agent) => {
+    await loadProjects();
+    const conversation = state.navigationConversations.find((item) => item.agentId === agent.id) || {
+      agentId: agent.id,
+      agentTitle: agent.title || agent.id,
+      projectId: state.project?.id || "",
+      worklineId: agent.worklineId || "",
+      context: "project",
+    };
+    await selectNavigationConversation(conversation);
+  },
+});
+
+const {
+  closeMessageContextMenu,
+  handleMessageContextMenu,
+  bindMessageLongPress,
+  applyMessageMenuAction,
+} = messageContextMenu;
 
 // A background task carries a title often enough, but not always, and the fallback
 // used to be its id: a line of hex that tells the reader nothing, wraps onto a second
@@ -4099,6 +4137,10 @@ async function handleAgentStreamEvent(event) {
     if (state.agent?.id === agentId) contextManagement.load().catch(() => {});
   }
   if ([...completedMessageEvents, ...terminalAgentEvents].includes(event.type)) scheduleMessageRefresh(80, agentId);
+  // Another client rolled back, deleted, or forked: refresh this transcript
+  // (and navigation, where a fork shows up as a new conversation).
+  if (["message.rollback", "message.deleted"].includes(event.type)) scheduleMessageRefresh(80, agentId);
+  if (event.type === "message.forked") navigationRefresh.request(event.type);
   if (navigationRefreshEvents.includes(event.type)) navigationRefresh.request(event.type);
   if (["agent.error", "agent.interrupted"].includes(event.type)) {
     const restore = runId ? loadRunSummary(runId, { agentId }) : loadLatestRunSummary(agentId);
@@ -4492,6 +4534,33 @@ document.addEventListener("keydown", (event) => {
   closeNavigationContextMenu({ restoreFocus: true });
   event.preventDefault();
 });
+$("messageContextMenu")?.addEventListener("click", (event) => {
+  const action = event.target.closest?.("[data-message-menu-action]")?.dataset.messageMenuAction;
+  if (!action) return;
+  event.preventDefault();
+  event.stopPropagation();
+  applyMessageMenuAction(action).catch(showError);
+});
+document.addEventListener("contextmenu", (event) => {
+  // A right-click anywhere else dismisses an open message menu, including a
+  // right-click that opens the navigation menu instead.
+  const menu = $("messageContextMenu");
+  if (menu && !menu.classList.contains("hidden") && !menu.contains(event.target)) closeMessageContextMenu();
+  handleMessageContextMenu(event);
+});
+document.addEventListener("click", (event) => {
+  const menu = $("messageContextMenu");
+  if (!menu || menu.classList.contains("hidden")) return;
+  if (menu.contains(event.target)) return;
+  closeMessageContextMenu();
+});
+document.addEventListener("keydown", (event) => {
+  if (event.key !== "Escape") return;
+  if (!(state.messageMenuTarget && !$("messageContextMenu")?.classList.contains("hidden"))) return;
+  closeMessageContextMenu({ restoreFocus: true });
+  event.preventDefault();
+});
+bindMessageLongPress();
 $("projectSearchToggleBtn")?.addEventListener("click", (event) => {
   event.preventDefault();
   event.stopPropagation();

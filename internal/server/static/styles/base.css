@@ -407,6 +407,72 @@ body.ui-density-compact .terminal-header { height: 38px; }
 }
 .navigation-context-menu button:hover,
 .navigation-context-menu button:focus-visible { background: var(--bg); color: var(--text); outline: none; }
+.navigation-context-menu button[hidden] { display: none; }
+.navigation-context-menu button.context-menu-danger { color: #ef6b6b; }
+.navigation-context-menu button.context-menu-danger:hover,
+.navigation-context-menu button.context-menu-danger:focus-visible { background: rgba(239, 107, 107, .12); color: #ff8484; }
+/* Branded in-app confirmation dialog: the native desktop dialog cannot carry
+   the Autoto mark, so destructive message actions confirm through this one. */
+.brand-confirm-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1400;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: rgba(8, 10, 18, .45);
+}
+.brand-confirm-backdrop.hidden { display: none; }
+.brand-confirm {
+  width: min(420px, 100%);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--bg-elevated);
+  box-shadow: 0 22px 60px rgba(0, 0, 0, .35);
+  padding: 16px 18px;
+  display: grid;
+  gap: 12px;
+}
+.brand-confirm-header { display: flex; align-items: center; gap: 9px; }
+.brand-confirm-mark {
+  width: 26px;
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+}
+.brand-confirm-mark svg {
+  width: 100%;
+  height: 100%;
+  fill: none;
+  stroke: #4f6ef7;
+  stroke-width: 2.2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.brand-confirm-title { font-weight: 700; font-size: 14px; color: var(--text); letter-spacing: .02em; }
+.brand-confirm-message { color: var(--text-soft); font-size: 13px; line-height: 1.6; white-space: pre-wrap; word-break: break-word; }
+.brand-confirm-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.brand-confirm-btn {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-soft);
+  cursor: pointer;
+  padding: 7px 16px;
+  font-size: 13px;
+}
+.brand-confirm-btn:hover,
+.brand-confirm-btn:focus-visible { background: var(--bg); color: var(--text); outline: none; }
+.brand-confirm-btn.brand-confirm-primary {
+  border-color: transparent;
+  background: #4f6ef7;
+  color: #fff;
+}
+.brand-confirm-btn.brand-confirm-primary:hover,
+.brand-confirm-btn.brand-confirm-primary:focus-visible { background: #6079f2; color: #fff; }
 .navigation-breadcrumb,
 .navigation-conversation-meta { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: 11px; }
 .navigation-conversation-meta:empty { display: none; }

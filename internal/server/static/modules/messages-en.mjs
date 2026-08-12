@@ -72,6 +72,7 @@ export default Object.freeze({
     showActive: "Show active",
     archivedItems: "Archived",
     navigationActions: "Project or conversation actions",
+    messageActions: "Message actions",
     newWorkline: "New work branch",
     newWorklinePrompt: "Work branch name (creates a Git branch and its own worktree)",
     newWorklineCreating: "Creating the work branch…",

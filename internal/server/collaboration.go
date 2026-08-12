@@ -10,6 +10,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	agentpkg "autoto/internal/agent"
 	"autoto/internal/db"
 )
 
@@ -171,6 +172,85 @@ func (s *Server) rerunMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusAccepted, run)
+}
+
+// rollbackConversationToMessage retires every turn after the target message so
+// the conversation resumes from that point. Soft like a correction: the retired
+// rows stay readable in the transcript but leave the model's view.
+func (s *Server) rollbackConversationToMessage(w http.ResponseWriter, r *http.Request) {
+	if s.runner == nil {
+		writeError(w, http.StatusServiceUnavailable, "agent runner is not initialized")
+		return
+	}
+	agentID := strings.TrimSpace(chi.URLParam(r, "id"))
+	if !s.requireAgentAccess(w, r, agentID) {
+		return
+	}
+	superseded, err := s.runner.RollbackConversationToMessage(r.Context(), agentID, chi.URLParam(r, "messageId"))
+	if err != nil {
+		writeError(w, statusFromMessageOperationError(err), err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"rolledBack": true, "supersededCount": superseded})
+}
+
+type forkConversationRequest struct {
+	Title string `json:"title"`
+}
+
+// forkConversationFromMessage copies the transcript up to the target message
+// into a new conversation beside the original (same workline, same directory).
+func (s *Server) forkConversationFromMessage(w http.ResponseWriter, r *http.Request) {
+	if s.runner == nil {
+		writeError(w, http.StatusServiceUnavailable, "agent runner is not initialized")
+		return
+	}
+	var req forkConversationRequest
+	if r.ContentLength > 0 {
+		if err := decodeJSON(r, &req); err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+	}
+	agentID := strings.TrimSpace(chi.URLParam(r, "id"))
+	if !s.requireAgentAccess(w, r, agentID) {
+		return
+	}
+	fork, err := s.runner.ForkConversationFromMessage(r.Context(), agentID, chi.URLParam(r, "messageId"), req.Title)
+	if err != nil {
+		writeError(w, statusFromMessageOperationError(err), err.Error())
+		return
+	}
+	writeJSON(w, http.StatusCreated, map[string]any{"agent": fork})
+}
+
+// deleteConversationMessage removes one message permanently, together with the
+// hidden tool-result rows produced by its tool calls.
+func (s *Server) deleteConversationMessage(w http.ResponseWriter, r *http.Request) {
+	if s.runner == nil {
+		writeError(w, http.StatusServiceUnavailable, "agent runner is not initialized")
+		return
+	}
+	agentID := strings.TrimSpace(chi.URLParam(r, "id"))
+	if !s.requireAgentAccess(w, r, agentID) {
+		return
+	}
+	deleted, err := s.runner.DeleteConversationMessage(r.Context(), agentID, chi.URLParam(r, "messageId"))
+	if err != nil {
+		writeError(w, statusFromMessageOperationError(err), err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"deleted": true, "deletedMessageIds": deleted})
+}
+
+func statusFromMessageOperationError(err error) int {
+	if errors.Is(err, agentpkg.ErrAgentBusy) {
+		return http.StatusConflict
+	}
+	if errors.Is(err, sql.ErrNoRows) {
+		return http.StatusNotFound
+	}
+	return statusFromError(err)
 }
 
 func parseMultipartCorrection(w http.ResponseWriter, r *http.Request) (string, []string, []db.Attachment, string, error) {

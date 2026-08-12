@@ -478,6 +478,9 @@ type agentContextStatus struct {
 type compactAgentContextRequest struct {
 	EntityGeneration        strictInt64 `json:"entityGeneration"`
 	ExpectedLatestMessageID string      `json:"expectedLatestMessageId,omitempty"`
+	// ThroughMessageID switches compaction from "keep the last N turns" to
+	// "compact everything up to and including this message".
+	ThroughMessageID string `json:"throughMessageId,omitempty"`
 }
 
 type agentContextPreferencesRequest struct {
@@ -632,7 +635,14 @@ func (s *Server) compactAgentContext(w http.ResponseWriter, r *http.Request) {
 	if !s.requireAgentAccess(w, r, agentID) {
 		return
 	}
-	result, updated, err := s.runner.CompactAgentContext(r.Context(), agentID, req.EntityGeneration.value, req.ExpectedLatestMessageID)
+	var result agentpkg.ContextCompactionResult
+	var updated db.Agent
+	var err error
+	if strings.TrimSpace(req.ThroughMessageID) != "" {
+		result, updated, err = s.runner.CompactAgentContextThroughMessage(r.Context(), agentID, req.EntityGeneration.value, req.ThroughMessageID, req.ExpectedLatestMessageID)
+	} else {
+		result, updated, err = s.runner.CompactAgentContext(r.Context(), agentID, req.EntityGeneration.value, req.ExpectedLatestMessageID)
+	}
 	if err != nil {
 		switch {
 		case errors.Is(err, agentpkg.ErrAgentBusy), errors.Is(err, db.ErrConflict):

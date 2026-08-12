@@ -72,6 +72,7 @@ export default Object.freeze({
     showActive: "返回活动项目",
     archivedItems: "已归档",
     navigationActions: "项目或对话操作",
+    messageActions: "消息操作",
     newWorkline: "新建工作分支",
     newWorklinePrompt: "工作分支名称（会新建 Git 分支与独立工作目录）",
     newWorklineCreating: "正在创建工作分支…",

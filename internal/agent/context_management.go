@@ -198,6 +198,39 @@ func selectManualContextCandidates(messages []db.Message, boundaryID string, cfg
 	return selectContextTurnCandidates(messages, boundaryID, cfg.CompactKeepTurns)
 }
 
+// selectContextCandidatesThroughMessage picks every message from the current
+// boundary through the target, then extends the cut to the end of the turn the
+// target sits in: a boundary inside a turn would resume the raw transcript on
+// an unmatched tool result.
+func selectContextCandidatesThroughMessage(messages []db.Message, boundaryID, throughID string) ([]db.Message, error) {
+	start := messagesStartAfterBoundary(messages, boundaryID)
+	target := -1
+	for i, message := range messages {
+		if message.ID == throughID {
+			if message.SupersededAt != "" {
+				return nil, fmt.Errorf("%w: compaction requires a message that is still current", db.ErrConflict)
+			}
+			target = i
+			break
+		}
+	}
+	if target < 0 {
+		return nil, fmt.Errorf("%w: compaction target message was not found", db.ErrConflict)
+	}
+	if target < start {
+		// Already behind the boundary: everything up to it is compacted.
+		return nil, nil
+	}
+	end := target + 1
+	for end < len(messages) && !contextMessageStartsTurn(messages[end]) {
+		end++
+	}
+	if end <= start {
+		return nil, nil
+	}
+	return append([]db.Message(nil), messages[start:end]...), nil
+}
+
 func contextCandidateBoundary(candidates []db.Message) string {
 	if len(candidates) == 0 {
 		return ""

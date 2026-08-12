@@ -4,7 +4,7 @@ import { t } from "./i18n.mjs";
 import { api } from "./runtime.mjs";
 import { visibleMessageText } from "./skills-commands.mjs";
 import { normalizeAvatarDataUrl } from "./profile-avatar.mjs?v=profile-avatar-1";
-import { t as cr } from "./messages-chat-rendering-extra.mjs?v=plan-mode-1-i18n-shared-1-subagent-cards-1-provider-errors-1-tool-activity-lazy-1-reasoning-count-1-per-message-activity-1";
+import { t as cr } from "./messages-chat-rendering-extra.mjs?v=plan-mode-1-i18n-shared-1-subagent-cards-1-provider-errors-1-tool-activity-lazy-1-reasoning-count-1-per-message-activity-1-message-menu-1";
 import {
   bindProtectedDownloads,
   hydrateProtectedImages,
@@ -5477,6 +5477,9 @@ export function createChatRenderingController({
     loadMessages,
     loadOlderMessages,
     loadRunSummary,
+    // The message context menu's "edit" entry drives the same in-place
+    // correction editor as the inline button.
+    openCorrectionEditor,
     performPlanAction,
     rememberImageGenerationStatus,
     rememberAssistantToolOwner,

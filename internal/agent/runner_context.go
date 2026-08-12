@@ -39,6 +39,23 @@ type ContextCompactionResult struct {
 }
 
 func (r *Runner) CompactAgentContext(ctx context.Context, agentID string, expectedEntityGeneration int64, expectedLatestMessageID ...string) (ContextCompactionResult, db.Agent, error) {
+	return r.compactAgentContext(ctx, agentID, expectedEntityGeneration, "", expectedLatestMessageID...)
+}
+
+// CompactAgentContextThroughMessage compacts every turn up to and including
+// the chosen message instead of the keep-last-N-turns default. The boundary is
+// snapped forward to the end of the turn containing the message, so the raw
+// transcript always resumes at a turn start and never re-enters a half-served
+// tool exchange.
+func (r *Runner) CompactAgentContextThroughMessage(ctx context.Context, agentID string, expectedEntityGeneration int64, throughMessageID string, expectedLatestMessageID ...string) (ContextCompactionResult, db.Agent, error) {
+	throughMessageID = strings.TrimSpace(throughMessageID)
+	if throughMessageID == "" {
+		return ContextCompactionResult{}, db.Agent{}, errors.New("through message id is required")
+	}
+	return r.compactAgentContext(ctx, agentID, expectedEntityGeneration, throughMessageID, expectedLatestMessageID...)
+}
+
+func (r *Runner) compactAgentContext(ctx context.Context, agentID string, expectedEntityGeneration int64, throughMessageID string, expectedLatestMessageID ...string) (ContextCompactionResult, db.Agent, error) {
 	if r == nil || r.store == nil {
 		return ContextCompactionResult{}, db.Agent{}, errors.New("agent context store is unavailable")
 	}
@@ -72,7 +89,15 @@ func (r *Runner) CompactAgentContext(ctx context.Context, agentID string, expect
 		}
 	}
 	result := ContextCompactionResult{MessageCount: len(messages), PrunedPercent: agent.PrunedPercent}
-	candidates := selectManualContextCandidates(messages, agent.PruneBoundaryMessageID, r.ContextManagementConfig())
+	var candidates []db.Message
+	if throughMessageID != "" {
+		candidates, err = selectContextCandidatesThroughMessage(messages, agent.PruneBoundaryMessageID, throughMessageID)
+		if err != nil {
+			return ContextCompactionResult{}, db.Agent{}, err
+		}
+	} else {
+		candidates = selectManualContextCandidates(messages, agent.PruneBoundaryMessageID, r.ContextManagementConfig())
+	}
 	if len(candidates) == 0 {
 		return result, agent, nil
 	}
