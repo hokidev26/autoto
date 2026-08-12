@@ -1278,7 +1278,32 @@ func (r *Runner) toolExecutionEnv(ctx context.Context, agent db.Agent, runID, to
 	env.AgentGenerationSnapshot = run.AgentGenerationSnapshot
 	env.ToolCatalogDigest = run.ToolCatalogDigest
 	env.WorkspaceFingerprint = run.WorkspaceFingerprint
+	env.ResumeParentSupported = r.runSupportsResumeParent(run)
 	return env, nil
+}
+
+// runSupportsResumeParent mirrors how runContinuous and loadContinuationState
+// resolve the effective continuation mode for a run. A resume_parent boundary
+// in a run whose mode is off fails the whole run at the segment boundary, so
+// the Agent tool defaults resume_parent from this answer instead of promising
+// a wake-up the run cannot deliver.
+func (r *Runner) runSupportsResumeParent(run db.Run) bool {
+	if strings.TrimSpace(run.ID) == "" {
+		return false
+	}
+	if run.ExecutionMode == db.RunExecutionModePlan || isConversationRun(run) {
+		return false
+	}
+	limits, frozen := r.frozenContinuationLimits(run.ID)
+	if !frozen {
+		limits = r.currentContinuationLimits()
+	}
+	mode := limits.mode
+	legacyUnfrozen := run.MaxContinuations == 0 && run.MaxTotalTurns == 0 && run.MaxTotalTokens == 0 && strings.TrimSpace(run.DeadlineAt) == ""
+	if value := strings.ToLower(strings.TrimSpace(run.AutoContinuationMode)); !legacyUnfrozen && (value == continuationModeOff || value == continuationModeSafe) {
+		mode = value
+	}
+	return mode == continuationModeSafe
 }
 
 func (r *Runner) publishContinuationLifecycle(legacyType, canonicalType, agentID string, data map[string]any) {

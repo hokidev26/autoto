@@ -323,7 +323,13 @@ func (r *Runner) ResolveSubagentModel(role, explicitModel, parentModel string) (
 			return "", role, fmt.Errorf("model %s is not allowed for %s subagents", explicitModel, role)
 		}
 		if err := r.ValidateSubagentModel(explicitModel); err != nil {
-			return "", role, err
+			// The caller is usually a parent model that guessed a model name it
+			// cannot see; telling it how to recover lets it retry instead of
+			// bouncing the failure to the user.
+			if parentModel != "" {
+				return "", role, fmt.Errorf("%w; omit the model field to inherit the parent model %q", err, parentModel)
+			}
+			return "", role, fmt.Errorf("%w; omit the model field to use the default model", err)
 		}
 		return explicitModel, role, nil
 	}

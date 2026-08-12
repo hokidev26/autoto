@@ -25,6 +25,9 @@ const defaultOutputLimit = 24000;
 // and at this interval it covers roughly ten minutes of work.
 const childPollIntervalMs = 1500;
 const childPollMaxAttempts = 400;
+// How often to re-check tasks the store still holds as running or queued. This
+// only runs while such tasks exist, so an idle panel costs nothing.
+const activeTaskReconcileMs = 10000;
 
 function text(value) {
   return String(value ?? "").trim();
@@ -358,6 +361,11 @@ export function createBackgroundTasksController({
   let loading = false;
   let error = "";
   let foregroundActivity = null;
+  // Reconciles tasks the store still believes are active against the server.
+  // The terminal push event is the primary signal; this timer is the safety net
+  // for the one event that never arrives, without which a lost "task.completed"
+  // leaves the composer spinner running forever. Slow on purpose.
+  let activeTaskReconcileTimer = null;
 
   const host = (id) => documentRef?.getElementById?.(id) || null;
   const operationIsCurrent = (expectedAgentId, expectedGeneration) => agentId === expectedAgentId && agentGeneration === expectedGeneration;
@@ -438,6 +446,15 @@ export function createBackgroundTasksController({
       if (text(task?.childAgentId) === id) return text(task?.childRunId);
     }
     return "";
+  }
+
+  function taskForChild(childAgentId) {
+    const id = text(childAgentId);
+    if (!id) return null;
+    for (const task of tasksById.values()) {
+      if (text(task?.childAgentId) === id) return task;
+    }
+    return null;
   }
 
   // Loaded on demand rather than with the task list: most tasks are never
@@ -570,7 +587,15 @@ export function createBackgroundTasksController({
         const run = await childActiveRun(id);
         await loadChildConversation(id, { force: true, runId: text(run?.id || run?.ID) || childRunIdFor(id) });
         if (run) startChildPoll(id, attempt + 1);
-        else render();
+        else {
+          // This poll is the last observer that knows the child stopped. The
+          // terminal push event can be lost to a reconnect gap, and a task the
+          // store still believes is running keeps the composer spinner going
+          // forever, so refresh the durable record before settling.
+          const owner = taskForChild(id);
+          if (owner && !terminalStatuses.has(owner.status)) await hydrateTask(owner.id, { force: true });
+          render();
+        }
       } catch (err) {
         onError?.(err);
         render();
@@ -595,6 +620,40 @@ export function createBackgroundTasksController({
   function stopAllChildPolls() {
     for (const timer of childPolls.values()) clearTimeout(timer);
     childPolls.clear();
+  }
+
+  function activeStoreTasks() {
+    return orderedTasks().filter((task) => runningStatuses.has(task.status) || queuedStatuses.has(task.status));
+  }
+
+  function stopActiveTaskReconcile() {
+    if (activeTaskReconcileTimer == null) return;
+    clearTimeout(activeTaskReconcileTimer);
+    activeTaskReconcileTimer = null;
+  }
+
+  function scheduleActiveTaskReconcile() {
+    if (activeTaskReconcileTimer != null || !agentId || !activeStoreTasks().length) return;
+    const expectedAgentId = agentId;
+    const expectedGeneration = agentGeneration;
+    activeTaskReconcileTimer = setTimeout(async () => {
+      // Kept non-null through the sweep: hydration emits re-enter
+      // scheduleActiveTaskReconcile, and releasing early would arm a second,
+      // overlapping sweep.
+      try {
+        if (!operationIsCurrent(expectedAgentId, expectedGeneration)) return;
+        for (const task of activeStoreTasks()) {
+          await hydrateTask(task.id, { force: true });
+          if (!operationIsCurrent(expectedAgentId, expectedGeneration)) return;
+        }
+      } finally {
+        activeTaskReconcileTimer = null;
+      }
+      scheduleActiveTaskReconcile();
+    }, activeTaskReconcileMs);
+    // In Node (tests) a pending timer keeps the process alive; a safety net
+    // must never be the reason the runner hangs. No-op in browsers.
+    activeTaskReconcileTimer?.unref?.();
   }
 
   function taskSummary() {
@@ -656,6 +715,9 @@ export function createBackgroundTasksController({
   }
 
   function emit(reason = "change") {
+    // Every mutation funnels through here, so this is where an active task
+    // arriving by any route (load, snapshot, event) arms the reconcile net.
+    scheduleActiveTaskReconcile();
     render();
     const snapshot = publicStateSnapshot(reason);
     onChange?.(snapshot);
@@ -965,6 +1027,7 @@ export function createBackgroundTasksController({
     // Timers outlive a state reset, so a poll for the previous agent's child would
     // keep firing against a panel that has moved on.
     stopAllChildPolls();
+    stopActiveTaskReconcile();
     selected = "";
     continuation = normalizeContinuation();
     loading = false;

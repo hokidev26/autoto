@@ -137,7 +137,12 @@ type Env struct {
 	ContextAsk                   ContextAskService
 	UserQuestion                 UserQuestionService
 	ToolOutputPipeline           ToolOutputPipelineService
-	PermissionModeCap            string
+	PermissionModeCap string
+	// ResumeParentSupported reports whether the current run can park on a
+	// background task boundary and be woken when the task finishes. The Agent
+	// tool defaults resume_parent from this, so a dispatch never promises a
+	// wake-up that the run's continuation mode cannot deliver.
+	ResumeParentSupported        bool
 	PermissionGenerationSnapshot int64
 	PolicyGenerationSnapshot     int64
 	AgentGenerationSnapshot      int64

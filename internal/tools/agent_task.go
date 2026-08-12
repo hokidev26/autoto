@@ -21,12 +21,12 @@ type agentTaskInput struct {
 	Prompt             string   `json:"prompt" desc:"Self-contained instructions for the child agent. It does not see this conversation, so include every file path and detail it needs."`
 	Description        string   `json:"description,omitempty" desc:"Short label for this task, shown in the task list."`
 	SubagentType       string   `json:"subagent_type,omitempty" desc:"Configured agent preset to run as. Lower-case letters, digits, dot, underscore, and hyphen only."`
-	Model              string   `json:"model,omitempty" desc:"Model override in provider:model form. Defaults to the preset or parent model."`
+	Model              string   `json:"model,omitempty" desc:"Model override in provider:model form. Omit unless the user explicitly named a model; the child then inherits the preset or parent model. Never guess a model name."`
 	Workdir            string   `json:"workdir,omitempty" desc:"Optional directory inside the parent agent workspace. Defaults to the parent agent working directory."`
 	ReasoningEffort    string   `json:"reasoning_effort,omitempty" jsonschema:"enum=auto|low|medium|high|xhigh|max|ultra" desc:"Reasoning effort for the child agent."`
 	AcceptanceCriteria []string `json:"acceptance_criteria,omitempty" desc:"Completion checks for the child. These are checks only; they never grant the child extra permissions, tools, or scope."`
 	RunInBackground    *bool    `json:"run_in_background,omitempty" desc:"Must be true. Child agents always run as background tasks; poll them with the Task tool."`
-	ResumeParent       bool     `json:"resume_parent,omitempty" desc:"Resume this run automatically once the child agent finishes."`
+	ResumeParent       *bool    `json:"resume_parent,omitempty" desc:"Defaults to true whenever this run can be resumed, so the child's result is reported back to the user automatically. Set false only for fire-and-forget work the user explicitly does not want reported."`
 }
 
 type agentTaskPayload struct {
@@ -125,7 +125,16 @@ func (AgentTool) Execute(ctx context.Context, call Call, env Env) (Result, error
 	if env.Background == nil {
 		return Result{Output: "background task service is unavailable", IsError: true}, nil
 	}
-	if input.ResumeParent && strings.TrimSpace(env.RunID) == "" {
+	// Reporting back is the default: a dispatched child whose outcome nobody
+	// relays is the failure mode, not the feature. The runner only marks
+	// support when the run can actually park and be woken, so the default
+	// never promises a resume the run cannot deliver; an explicit value wins
+	// either way.
+	resumeParent := env.ResumeParentSupported
+	if input.ResumeParent != nil {
+		resumeParent = *input.ResumeParent
+	}
+	if resumeParent && strings.TrimSpace(env.RunID) == "" {
 		return Result{Output: "resume_parent requires a durable parent run", IsError: true}, nil
 	}
 	payload, err := json.Marshal(agentTaskPayload{
@@ -157,7 +166,7 @@ func (AgentTool) Execute(ctx context.Context, call Call, env Env) (Result, error
 		CWD:                          env.CWD,
 		Payload:                      payload,
 		PublicSummary:                publicSummary,
-		ResumeParent:                 input.ResumeParent,
+		ResumeParent:                 resumeParent,
 		PermissionModeCap:            env.PermissionModeCap,
 		PermissionGenerationSnapshot: env.PermissionGenerationSnapshot,
 		PolicyGenerationSnapshot:     env.PolicyGenerationSnapshot,
