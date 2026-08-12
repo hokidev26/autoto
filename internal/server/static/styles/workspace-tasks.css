@@ -1472,6 +1472,22 @@ body.white-shell.theme-light.theme-dark .navigation-boundary-empty button {
 .tool-activity-output { color: #cdd5df; }
 .tool-activity-command + .tool-activity-output { margin-top: 8px; }
 
+/* Inline detail variant: the row button above already names the tool, its
+   target and its status, so the card keeps only the meta line and the detail
+   sections. */
+.tool-activity-inline-card { display: grid; min-width: 0; }
+.tool-activity-inline-card > .tool-activity-inline-meta { display: grid; gap: 4px; padding: 8px 11px 0; }
+.tool-activity-inline-card > .tool-activity-inline-meta .tool-activity-meta { justify-content: flex-start; white-space: normal; }
+
+/* Input/output block: a label-and-actions bar above the capped <pre>. */
+.tool-activity-block { display: grid; gap: 4px; min-width: 0; }
+.tool-activity-block-bar { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.tool-activity-block-bar > .tool-activity-meta { flex: 1 1 auto; justify-content: flex-start; }
+.tool-activity-block-actions { display: inline-flex; flex: 0 0 auto; gap: 4px; }
+.tool-activity-block > pre { margin: 0; }
+.tool-activity-command.is-expanded,
+.tool-activity-output.is-expanded { max-height: none; }
+
 .tool-activity-empty {
   display: grid;
   min-height: 58px;

@@ -41,6 +41,24 @@ function toolActivityTargetLabel(item) {
   return "";
 }
 
+// The bottom pill and the activity stack describe the same stream; a bare
+// "thinking" beside a visible reasoning trail reads like an unexplained stall.
+// The opening sentence of the current draft is the step's intent (the same
+// slice the reasoning rows use as their title), so it stays stable while the
+// step streams instead of flickering with every delta.
+function liveReasoningStatusTitle(state) {
+  const text = String(state?.liveReasoningDraft?.text || "").replace(/\s+/g, " ").trim();
+  if (!text) return "";
+  const boundary = text.search(/[。．.!！?？]/);
+  return compactActivityTarget(boundary > 0 ? text.slice(0, boundary) : text, 42);
+}
+
+function thinkingActivityText(state, translate) {
+  const title = liveReasoningStatusTitle(state);
+  const base = translate("chat.activity.thinking");
+  return title ? `${base} · ${title}` : base;
+}
+
 function runningLiveTools(state) {
   const agentId = state?.agent?.id || "";
   return Object.values(state?.liveToolOutputs || {})
@@ -157,12 +175,12 @@ export function resolveComposerActivityStatus(state, translate = t) {
     const hasText = Boolean(String(state.liveAssistantText || "").trim());
     return {
       kind: hasText ? "generating" : "thinking",
-      text: hasText ? translate("chat.activity.generating") : translate("chat.activity.thinking"),
+      text: hasText ? translate("chat.activity.generating") : thinkingActivityText(state, translate),
     };
   }
 
   if (String(state?.agent?.status || "").toLowerCase() === "running") {
-    return { kind: "thinking", text: translate("chat.activity.thinking") };
+    return { kind: "thinking", text: thinkingActivityText(state, translate) };
   }
 
   return null;

@@ -240,6 +240,47 @@ test("waiting on a child agent is its own state, not idle and not working", () =
   );
 });
 
+// The pill and the reasoning rows describe the same stream, so a bare
+// "thinking" beside a visible reasoning trail read like an unexplained stall.
+test("thinking names the current reasoning step instead of a bare label", () => {
+  assert.deepEqual(
+    resolveComposerActivityStatus({
+      agent: { status: "running" },
+      liveReasoningDraft: { runId: "run-1", text: "Planning the requirement inference. Then I will check the tests." },
+    }, translate),
+    { kind: "thinking", text: "思考中 · Planning the requirement inference" },
+  );
+
+  // The streaming-without-text state carries the same title.
+  assert.deepEqual(
+    resolveComposerActivityStatus({
+      liveAssistantActive: true,
+      liveAssistantText: "",
+      liveReasoningDraft: { runId: "run-1", text: "Reading the failing test first." },
+    }, translate),
+    { kind: "thinking", text: "思考中 · Reading the failing test first" },
+  );
+
+  // A long opening sentence is compacted, not dumped into the pill.
+  const long = resolveComposerActivityStatus({
+    agent: { status: "running" },
+    liveReasoningDraft: { runId: "run-1", text: `${"x".repeat(200)}. done` },
+  }, translate);
+  assert.ok(long.text.length < 60, `pill text stays short, got ${long.text.length}`);
+
+  // A running tool still outranks the titled thinking state.
+  assert.deepEqual(
+    resolveComposerActivityStatus({
+      agent: { status: "running" },
+      liveReasoningDraft: { runId: "run-1", text: "Planning." },
+      liveToolOutputs: {
+        "tool-1": { toolUseId: "tool-1", toolName: "Read", status: "running", inputJson: { file_path: "a.go" } },
+      },
+    }, translate).kind,
+    "tool",
+  );
+});
+
 // The local activity is the parent's own work and has to win: "editing app.mjs"
 // says more than "waiting on a subagent" when both are true.
 test("the parent's own activity outranks waiting on a child", () => {

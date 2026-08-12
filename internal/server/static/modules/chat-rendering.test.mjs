@@ -24,6 +24,7 @@ import {
   reasoningStepTitle,
   renderToolActivityStackHTML,
   renderToolDiffHTML,
+  toolActivityDedupeKey,
   transcriptMessageText,
 } from "./chat-rendering.mjs";
 
@@ -1437,6 +1438,44 @@ test("tool activity is labelled with line-art SVG icons classed by what the tool
   assert.match(card, /class="tool-activity-icon tool-activity-icon-command"[^>]*><svg/);
 });
 
+test("one tool call keeps one identity across every list it reaches the view through", () => {
+  // toolUseId is authoritative, however the payload spells it.
+  assert.equal(toolActivityDedupeKey({ toolUseId: "tool-1", runId: "run-1" }), "tool-1");
+  assert.equal(toolActivityDedupeKey({ tool_use_id: "tool-1" }), "tool-1");
+  assert.equal(toolActivityDedupeKey({ id: "tool-1" }), "tool-1");
+  // The same persisted row arriving twice without an id still collides on the
+  // fields both copies share.
+  const persisted = { runId: "run-1", toolName: "Bash", createdAt: "2026-03-16T10:00:00Z", status: "completed" };
+  assert.equal(toolActivityDedupeKey(persisted), toolActivityDedupeKey({ ...persisted }));
+  assert.notEqual(toolActivityDedupeKey(persisted), toolActivityDedupeKey({ ...persisted, createdAt: "2026-03-16T10:00:01Z" }));
+  // A record with neither id nor timestamp cannot be de-duplicated.
+  assert.equal(toolActivityDedupeKey({ toolName: "Bash" }), "");
+});
+
+test("the inline detail repeats nothing the row above it already says", () => {
+  const call = { toolUseId: "tool-1", runId: "run-1", toolName: "Bash", status: "completed", inputJson: { command: "pwd" }, output: "/home" };
+  const inline = renderToolActivityCardHTML(call, { detailsExpanded: true, inlineDetail: true });
+  // No head: the row button already carries the tool name, target, and status.
+  assert.doesNotMatch(inline, /tool-activity-head/);
+  assert.doesNotMatch(inline, /tool-activity-title/);
+  assert.match(inline, /tool-activity-inline-card/);
+  assert.match(inline, /<details class="tool-activity-details" open>/);
+  // The full card keeps its head for surfaces without a row above it.
+  const full = renderToolActivityCardHTML(call, { detailsExpanded: true });
+  assert.match(full, /tool-activity-head/);
+});
+
+test("input and output blocks offer copy, and long blocks an expand toggle", () => {
+  const short = renderToolActivityCardHTML({ toolUseId: "t1", runId: "run-1", toolName: "Bash", status: "completed", inputJson: { command: "pwd" }, output: "/home" });
+  assert.match(short, /data-tool-block-copy/);
+  assert.doesNotMatch(short, /data-tool-block-toggle/, "a block that fits needs no expand toggle");
+  const long = renderToolActivityCardHTML({ toolUseId: "t2", runId: "run-1", toolName: "Bash", status: "completed", inputJson: { command: "ls" }, output: Array.from({ length: 40 }, (_, i) => `line ${i}`).join("\n") });
+  assert.match(long, /data-tool-block-toggle/);
+  // An empty input is reported as missing input, not missing output.
+  const emptyInput = renderToolActivityCardHTML({ toolUseId: "t3", runId: "run-1", toolName: "Bash", status: "completed" });
+  assert.match(emptyInput, new RegExp(chatRenderingExtraText("activity.noInput")));
+});
+
 test("the assistant's own words close the thread, below the run's tool activity", () => {
   const { html } = renderSnapshot([{ role: "user", contentText: "continue" }], {
     navigationSelectionKind: "conversation",
@@ -1748,7 +1787,20 @@ function orderedMessagesElement(messageIds) {
     },
     querySelectorAll(selector) {
       if (selector !== "[data-message-activity]") return [];
-      return [];
+      // Model the inserted per-message activity cards, or a second sync pass
+      // inserts a fresh copy beside the first and every "one call, one row"
+      // assertion silently tests the stub instead of the renderer.
+      return nodes
+        .filter((node) => node.kind === "card" && node.html.includes("data-message-activity="))
+        .map((node) => ({
+          dataset: { messageActivity: (node.html.match(/data-message-activity="([^"]*)"/) || [])[1] || "" },
+          querySelector: () => null,
+          set outerHTML(html) { node.html = html; },
+          remove() {
+            const index = nodes.indexOf(node);
+            if (index >= 0) nodes.splice(index, 1);
+          },
+        }));
     },
   };
   return { element, nodes };
@@ -1792,26 +1844,29 @@ async function loadTerminalRunSummary(messages, toolCalls, run) {
   }
 }
 
-test("a finished run's outcome card is inserted between the question and the answer", async () => {
+// A terminal run's unowned calls used to park on the run outcome card while the
+// answering turn's stack held the reasoning, splitting one round into two
+// adjacent rows. They are now adopted by the turn itself -- the same rule
+// history runs follow -- so the trail still reads question -> work -> answer,
+// on one surface instead of two.
+test("a finished run's activity is adopted by the answer, between the question and it", async () => {
   const html = await loadTerminalRunSummary(
     [
       { id: "u1", role: "user", contentText: "go", runId: "run-1" },
       { id: "a1", role: "assistant", contentText: "done", runId: "run-1" },
     ],
     // messageId names a turn that never became a visible message, so the call
-    // stays unowned and the run-level card is what carries it.
+    // arrives unowned and has to be adopted by the answering turn.
     [{ agentId: "agent-1", runId: "run-1", messageId: "silent", toolUseId: "t1", toolName: "Grep", status: "completed" }],
     { id: "run-1", source: "conversation", status: "completed", triggerMessageId: "u1" },
   );
 
   const question = html.indexOf('data-message-id="u1"');
-  const outcome = html.indexOf("data-run-outcome-card");
+  const activity = html.indexOf('data-tool-activity-select="t1"');
   const answer = html.indexOf('data-message-id="a1"');
-  assert.ok(outcome >= 0, "the outcome card renders for a terminal run with unowned calls");
-  // The incremental path used to look for the streaming assistant card, which is
-  // already gone by the time a run reaches a terminal state. With no anchor it
-  // appended to the container, putting the activity below the answer.
-  assert.ok(question < outcome && outcome < answer, `outcome must sit between the question and the answer, got question=${question} outcome=${outcome} answer=${answer}`);
+  assert.ok(activity >= 0, "the run's call renders on the answering turn's stack");
+  assert.equal((html.match(/data-tool-activity-select="t1"/g) || []).length, 1, "one call, one row");
+  assert.ok(question < activity && activity < answer, `activity must sit between the question and the answer, got question=${question} activity=${activity} answer=${answer}`);
 });
 
 test("a finished run whose trigger message is not on screen still anchors above the answer", async () => {
@@ -1821,18 +1876,20 @@ test("a finished run whose trigger message is not on screen still anchors above 
       { id: "a9", role: "assistant", contentText: "done", runId: "run-1" },
     ],
     [{ agentId: "agent-1", runId: "run-1", messageId: "silent", toolUseId: "t1", toolName: "Bash", status: "completed" }],
-    // The trigger scrolled out of the loaded window, so its id resolves to nothing.
+    // The trigger scrolled out of the loaded window, so its id resolves to
+    // nothing. Adoption anchors on the run's own assistant turn, which does not
+    // depend on the trigger at all.
     { id: "run-1", source: "conversation", status: "completed", triggerMessageId: "u-not-loaded" },
   );
 
   const question = html.indexOf('data-message-id="u9"');
-  const outcome = html.indexOf("data-run-outcome-card");
+  const activity = html.indexOf('data-tool-activity-select="t1"');
   const answer = html.indexOf('data-message-id="a9"');
-  assert.ok(outcome >= 0, "the outcome card still renders without a resolvable trigger");
-  assert.ok(question < outcome && outcome < answer, "the newest user turn is the fallback anchor, not the container tail");
+  assert.ok(activity >= 0, "the activity still renders without a resolvable trigger");
+  assert.ok(question < activity && activity < answer, "the run's own turn is the anchor, not the container tail");
 });
 
-test("the full repaint keeps the outcome card above the answer when the trigger is unloaded", () => {
+test("the full repaint keeps the activity above the answer when the trigger is unloaded", () => {
   const { html } = renderSnapshot([
     { id: "u9", role: "user", contentText: "again", runId: "run-1" },
     { id: "a9", role: "assistant", contentText: "done", runId: "run-1" },
@@ -1849,12 +1906,11 @@ test("the full repaint keeps the outcome card above the answer when the trigger 
   });
 
   const question = html.indexOf('data-message-id="u9"');
-  const outcome = html.indexOf("data-run-outcome-card");
+  const activity = html.indexOf('data-tool-activity-select="t1"');
   const answer = html.indexOf('data-message-id="a9"');
-  assert.ok(outcome >= 0, "the outcome card renders in the full repaint too");
-  // The old code only computed the fallback index when the trigger id was empty,
-  // so an unresolvable trigger fell through to the transcript tail here as well.
-  assert.ok(question < outcome && outcome < answer, "an unresolvable trigger falls back to the newest user turn");
+  assert.ok(activity >= 0, "the activity renders in the full repaint too");
+  assert.equal((html.match(/data-tool-activity-select="t1"/g) || []).length, 1, "one call, one row");
+  assert.ok(question < activity && activity < answer, "the run's own turn carries the activity, not the transcript tail");
 });
 
 test("reasoning and ownerless same-run tools share one assistant activity stack", () => {
@@ -2664,6 +2720,24 @@ test("tool activity localizes every backend decision source", () => {
   const liveReason = normalizeToolActivity({ toolUseId: "live-reason", toolName: "Read", decision: "allow", decisionSource: "default_policy", reason: "Allowed <by live policy>" });
   assert.equal(liveReason.permissionDecisionReason, "Allowed <by live policy>");
   assert.match(renderToolActivityStackHTML([liveReason], { selectedToolUseId: "live-reason" }), /Allowed &lt;by live policy&gt;/);
+});
+
+// The two danger layers wear confusingly similar names. The card is where the
+// user meets them, so it must say which layer decided and what the user can do:
+// a hard block can never be approved, a reflection escalation can.
+test("safety layer hints tell hard blocks and danger reflection apart", () => {
+  const hard = normalizeToolActivity({ toolUseId: "hint-hard", toolName: "Bash", decision: "deny", decisionSource: "hard_danger_block" });
+  const hardHTML = renderToolActivityStackHTML([hard], { selectedToolUseId: "hint-hard" });
+  assert.match(hardHTML, /tool-activity-safety-hint/);
+  assert.match(hardHTML, /系统底线拦截/);
+
+  const reflected = normalizeToolActivity({ toolUseId: "hint-reflect", toolName: "Bash", decision: "ask", decisionSource: "danger_reflection" });
+  const reflectedHTML = renderToolActivityStackHTML([reflected], { selectedToolUseId: "hint-reflect" });
+  assert.match(reflectedHTML, /tool-activity-safety-hint/);
+  assert.match(reflectedHTML, /AI 危险反思判定/);
+
+  const rule = normalizeToolActivity({ toolUseId: "hint-none", toolName: "Bash", decision: "deny", decisionSource: "rule" });
+  assert.doesNotMatch(renderToolActivityStackHTML([rule], { selectedToolUseId: "hint-none" }), /tool-activity-safety-hint/);
 });
 
 test("live omitted approval commands remain fail-closed until detail hydration", async () => {
@@ -3939,6 +4013,41 @@ test("a step missing from the saved row stays in the tail", () => {
   assert.equal((html.match(/This thought was never saved\./g) || []).length, 1);
 });
 
+// A run's tool rounds persist their reasoning on assistant turns the transcript
+// never shows. That thinking used to vanish the moment the run ended and the
+// live steps were cleared; now each round's saved reasoning is filed under the
+// visible turn, above the round's own tool calls, so the full trail survives
+// the run's end and a reload alike.
+test("a finished run keeps every round's reasoning interleaved with its tools", () => {
+  const { html } = renderSnapshot([
+    { id: "u1", role: "user", contentText: "go", runId: "run-1", createdAt: "2026-03-16T10:00:00Z" },
+    { id: "r1", role: "assistant", contentText: "", runId: "run-1", createdAt: "2026-03-16T10:00:05Z", reasoningText: "Round one: find the failing test." },
+    { id: "a1", role: "assistant", contentText: "Done.", runId: "run-1", createdAt: "2026-03-16T10:00:20Z", reasoningText: "Final check before answering." },
+  ], {
+    activeRunSummaryRunId: "run-1",
+    activeRunSummary: {
+      run: { id: "run-1", source: "conversation", status: "completed", checkpointState: "none", createdAt: "2026-03-16T10:00:00Z" },
+      toolCalls: [
+        { runId: "run-1", messageId: "r1", toolUseId: "t1", toolName: "Read", status: "completed", createdAt: "2026-03-16T10:00:06Z" },
+        { runId: "run-1", messageId: "r1", toolUseId: "t2", toolName: "Bash", status: "completed", createdAt: "2026-03-16T10:00:08Z" },
+      ],
+      recentMessages: [],
+    },
+  });
+
+  assert.equal((html.match(/Round one: find the failing test\./g) || []).length, 1, "the invisible round's reasoning renders exactly once");
+  assert.equal((html.match(/Final check before answering\./g) || []).length, 1, "the visible turn's own reasoning renders exactly once");
+  // Interleaved, not stacked at the top: round reasoning -> its tools -> final thought.
+  const round = html.indexOf("Round one: find the failing test.");
+  const firstTool = html.indexOf('data-tool-activity-select="t1"');
+  const final = html.indexOf("Final check before answering.");
+  assert.ok(round >= 0 && firstTool >= 0 && final >= 0, "all three rows are on screen");
+  assert.ok(round < firstTool, "the round's reasoning leads its own tool calls");
+  assert.ok(firstTool < final, "the turn's own reasoning trails the work it followed");
+  // The summary counts both steps.
+  assert.match(html, /2 步推理 · 2 次工具|2 reasoning · 2 tool calls/);
+});
+
 // Two turns can think the same thing verbatim. Each saved row owns one
 // occurrence, so the second turn's live step must not be retired by the first
 // turn's row while its own turn is still unsaved.
@@ -4057,4 +4166,28 @@ test("interrupted runs report other continuation snapshot failures", () => {
 
   assert.match(html, /conversation-run-notice interrupted/);
   assert.ok(html.includes("无法建立续跑安全快照"));
+});
+
+// The transcript column is user-resizable: docking a utility panel squeezes it
+// to 360px while the window stays desktop-wide, so viewport queries never saw
+// the squeeze and the phone layouts for tool activity, user bubbles and
+// subagent cards failed to engage exactly when the column was phone-narrow.
+test("transcript components fold against the column width, not the window", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const css = await readFile(new URL("../styles/workspace-tasks.css", import.meta.url), "utf8");
+
+  // The transcript itself is the container every folding rule measures.
+  assert.match(css, /\.messages \{[^}]*container-type:\s*inline-size/);
+  assert.match(css, /\.messages \{[^}]*container-name:\s*chat-transcript/);
+
+  // Each converted group answers to the container. [^{]* spans the block up to
+  // the first nested rule, which is enough to prove the group moved.
+  assert.match(css, /@container chat-transcript \(max-width: 760px\) \{\s*\.tool-activity-stack/);
+  assert.match(css, /@container chat-transcript \(max-width: 760px\) \{\s*body\.white-shell\.theme-light \.messages:not\(\.empty\)/);
+  assert.match(css, /@container chat-transcript \(max-width: 760px\) \{\s*\.subagent-task-card/);
+
+  // And no viewport query may reintroduce them: that regresses the docked case.
+  assert.doesNotMatch(css, /@media \(max-width: 760px\) \{[^}]*\.tool-activity-stack/);
+  assert.doesNotMatch(css, /@media \(max-width: 760px\) \{[^}]*\.messages:not\(\.empty\)/);
+  assert.doesNotMatch(css, /@media \(max-width: 760px\) \{[^}]*\.subagent-task-card/);
 });

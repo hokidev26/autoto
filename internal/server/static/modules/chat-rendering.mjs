@@ -595,6 +595,9 @@ export function findToolActivityByIdentity(collections, runId, toolUseId) {
 
 function toolActivityInputText(item) {
   const input = item.inputJson && typeof item.inputJson === "object" ? item.inputJson : {};
+  // An empty object is no input; serialising it to "{}" made the card show two
+  // braces where the "no input" empty state should speak instead.
+  if (!Object.keys(input).length) return "";
   try {
     return safeToolText(JSON.stringify(input, null, 2));
   } catch {
@@ -619,6 +622,33 @@ function toolActivityOutputText(item) {
     }
   }
   return "";
+}
+
+// Identity for de-duplicating one tool call seen through several lists (active
+// run summary, retained history, live stream). toolUseId is authoritative when
+// present. Records that never got one can still collide -- the same persisted
+// row reaching the view twice keeps its server-side createdAt in both copies --
+// so those fall back to a fingerprint of the fields such copies share. A live
+// and a persisted view of one call do not share createdAt, but they always
+// carry a toolUseId, so the fingerprint never has to bridge that pair.
+export function toolActivityDedupeKey(record) {
+  const tool = normalizeToolActivity(record);
+  if (tool.toolUseId) return tool.toolUseId;
+  const createdAt = String(tool.createdAt || "");
+  if (!createdAt) return "";
+  return `fp:${tool.runId}|${tool.toolName}|${createdAt}`;
+}
+
+// The first copy of a call wins its slot, but a live duplicate may hold
+// streamed output the persisted row has not hydrated yet. Borrow the missing
+// output so the expanded card is never emptier than what the user already saw
+// streaming.
+function mergeDuplicateToolActivity(kept, duplicate) {
+  if (toolActivityOutputText(normalizeToolActivity(kept))) return kept;
+  const dupTool = normalizeToolActivity(duplicate);
+  const output = dupTool.output || dupTool.resultPreview;
+  if (!output) return kept;
+  return { ...kept, output };
 }
 
 function toolActivityTarget(item) {
@@ -739,6 +769,17 @@ function renderToolActivityClassificationWarning(item) {
   return `<div class="tool-activity-warning" role="alert">${escapeHtml(cr("activity.unclassifiedDynamicWarning"))}</div>`;
 }
 
+// The two model-facing danger layers are easy to conflate: both labels talk
+// about danger, but one is a static rule floor that nothing can override and
+// the other is a configurable LLM gate whose escalations a human can approve.
+// The hint answers the reader's actual question -- "who decided this, and what
+// can I do about it" -- right on the card.
+function toolDecisionSourceHint(source) {
+  if (source === "hard_danger_block") return cr("activity.sourceHintHardBlock");
+  if (source === "danger_reflection") return cr("activity.sourceHintReflection");
+  return "";
+}
+
 function renderToolActivitySafetySummary(item) {
   const decision = toolDecisionLabel(item.decision);
   const source = toolDecisionSourceLabel(item.decisionSource);
@@ -751,7 +792,8 @@ function renderToolActivitySafetySummary(item) {
     item.permissionDecisionReason ? cr("activity.decisionReason", { reason: item.permissionDecisionReason }) : "",
   ].filter(Boolean);
   if (!parts.length) return "";
-  return `<div class="tool-activity-safety"><div class="tool-activity-meta">${escapeHtml(cr("activity.safetyDecision"))}</div><div class="tool-activity-safety-summary">${escapeHtml(parts.join(" · "))}</div></div>`;
+  const hint = toolDecisionSourceHint(item.decisionSource);
+  return `<div class="tool-activity-safety"><div class="tool-activity-meta">${escapeHtml(cr("activity.safetyDecision"))}</div><div class="tool-activity-safety-summary">${escapeHtml(parts.join(" · "))}</div>${hint ? `<div class="tool-activity-safety-hint">${escapeHtml(hint)}</div>` : ""}</div>`;
 }
 
 function toolActivityDiffText(item) {
@@ -1070,6 +1112,17 @@ export function renderAgentTaskActivityCardHTML(item = {}, backgroundTask = null
   `;
 }
 
+// Copy always earns its place on a non-empty block; the expand toggle only
+// when the text is likely to overflow the capped height (~12 monospace lines
+// is what 220px fits).
+function toolActivityBlockControlsHTML(text) {
+  const value = String(text || "");
+  const long = value.length > 1200 || value.split("\n").length > 12;
+  const copy = `<button class="ghost-btn mini" type="button" data-tool-block-copy>${escapeHtml(cr("code.copy"))}</button>`;
+  const toggle = long ? `<button class="ghost-btn mini" type="button" data-tool-block-toggle>${escapeHtml(cr("activity.expandBlock"))}</button>` : "";
+  return `<span class="tool-activity-block-actions">${copy}${toggle}</span>`;
+}
+
 function renderGenericToolActivityCardHTML(item = {}, options = {}) {
   const tool = normalizeToolActivity(item);
   const status = tool.status;
@@ -1090,6 +1143,42 @@ function renderGenericToolActivityCardHTML(item = {}, options = {}) {
   ].filter(Boolean).join(" · ");
   const cardLabel = [tool.toolName, target, toolActivityStatusLabel(status)].filter(Boolean).join(" · ");
   const icon = toolActivityIconHTML(tool.toolName, "tool-activity-icon");
+  const detailsHTML = `
+      <details class="tool-activity-details"${options.detailsExpanded ? " open" : ""}>
+        <summary>${escapeHtml(cr("activity.details"))}</summary>
+        ${safetySummary}
+        <div class="tool-activity-block">
+          <div class="tool-activity-block-bar">
+            <div class="tool-activity-meta">${escapeHtml(cr("activity.input"))}</div>
+            ${input ? toolActivityBlockControlsHTML(input) : ""}
+          </div>
+          <pre class="tool-activity-command">${escapeHtml(input || cr("activity.noInput"))}</pre>
+        </div>
+        ${diff ? `<div class="tool-activity-meta">${escapeHtml(cr("activity.diff"))}</div>${diff}` : ""}
+        <div class="tool-activity-block">
+          <div class="tool-activity-block-bar">
+            <div class="tool-activity-meta">${escapeHtml(cr("activity.output"))}</div>
+            ${output ? toolActivityBlockControlsHTML(output) : ""}
+          </div>
+          ${output ? `<pre class="tool-activity-output live-tool-output-body">${escapeHtml(output)}</pre>` : `<div class="tool-activity-empty">${escapeHtml(cr("activity.noOutput"))}</div>`}
+        </div>
+        ${tool.truncated ? `<div class="tool-activity-truncated">${escapeHtml(cr("activity.truncated"))}</div>` : ""}
+      </details>`;
+  // Inline variant: the row button this detail expands under already names the
+  // tool, its target, and its status, so repeating that head read as a
+  // duplicate. Keep only what the row does not show -- fact tags, warnings,
+  // the meta line -- above the detail sections.
+  if (options.inlineDetail) {
+    const inlineMeta = factTags || classificationWarning || meta
+      ? `<div class="tool-activity-inline-meta">${factTags}${classificationWarning}${meta ? `<div class="tool-activity-meta">${escapeHtml(meta)}</div>` : ""}</div>`
+      : "";
+    return `
+    <article class="tool-activity-card tool-activity-inline-card chat-report-card ${escapeAttr(toolActivityStatusClass(status))}" aria-label="${escapeAttr(cardLabel)}" data-chat-report="tool-activity" data-tool-use-id="${escapeAttr(tool.toolUseId)}" data-run-id="${escapeAttr(tool.runId)}">
+      ${inlineMeta}
+      ${detailsHTML}
+    </article>
+  `;
+  }
   return `
     <article class="tool-activity-card live-tool-output-card chat-flow-item chat-flow-left chat-report-card ${escapeAttr(toolActivityStatusClass(status))}" aria-label="${escapeAttr(cardLabel)}" data-chat-alignment="left" data-chat-report="tool-activity" data-live-tool-output-card="${escapeAttr(tool.toolUseId)}" data-tool-use-id="${escapeAttr(tool.toolUseId)}" data-run-id="${escapeAttr(tool.runId)}">
       <div class="tool-activity-head live-tool-output-head">
@@ -1103,16 +1192,7 @@ function renderGenericToolActivityCardHTML(item = {}, options = {}) {
         </div>
         <span class="tool-activity-status live-tool-output-dot">${escapeHtml(toolActivityStatusLabel(status))}</span>
       </div>
-      <details class="tool-activity-details"${options.detailsExpanded ? " open" : ""}>
-        <summary>${escapeHtml(cr("activity.details"))}</summary>
-        ${safetySummary}
-        <div class="tool-activity-meta">${escapeHtml(cr("activity.input"))}</div>
-        <pre class="tool-activity-command">${escapeHtml(input || cr("activity.noOutput"))}</pre>
-        ${diff ? `<div class="tool-activity-meta">${escapeHtml(cr("activity.diff"))}</div>${diff}` : ""}
-        <div class="tool-activity-meta">${escapeHtml(cr("activity.output"))}</div>
-        ${output ? `<pre class="tool-activity-output live-tool-output-body">${escapeHtml(output)}</pre>` : `<div class="tool-activity-empty">${escapeHtml(cr("activity.noOutput"))}</div>`}
-        ${tool.truncated ? `<div class="tool-activity-truncated">${escapeHtml(cr("activity.truncated"))}</div>` : ""}
-      </details>
+      ${detailsHTML}
     </article>
   `;
 }
@@ -1188,7 +1268,7 @@ function renderToolActivityRowHTML(record, options = {}) {
   // clicks update this slot directly rather than a shared bottom slot so the
   // detail always appears immediately below the row that was clicked.
   const inlineDetail = selected
-    ? renderToolActivityCardHTML(item, { ...options, detailsExpanded: true })
+    ? renderToolActivityCardHTML(item, { ...options, detailsExpanded: true, inlineDetail: true })
     : "";
   return `
     <li class="tool-activity-step ${escapeAttr(presentation.statusClass)}${selected ? " selected" : ""}"${subagentAttrs}>
@@ -3070,7 +3150,14 @@ export function createChatRenderingController({
       ...historyRunActivityList(runId),
     ], knownIds), messages);
     const live = mergeUnownedActivityIntoAssistantTurns(groupToolActivityByMessage(currentLiveToolOutputList(), knownIds), messages);
-    const anchored = anchorHistoryRunActivity([...persisted.unowned, ...live.unowned], messages, runId);
+    // While a run is active its unowned calls belong to the run outcome card,
+    // which is the only surface that exists before the closing turn is saved.
+    // Once the run is terminal that turn is on screen, and parking the calls on
+    // the card while the turn's stack holds the reasoning split one round into
+    // two rows: tools in the card, thinking beside the answer. A terminal run
+    // is therefore anchored like a history run -- everything on the turn.
+    const activeRunTerminal = isTerminalRunStatus(state.activeRunSummary?.run?.status);
+    const anchored = anchorHistoryRunActivity([...persisted.unowned, ...live.unowned], messages, activeRunTerminal ? "" : runId);
     const runActive = String(state.agent?.status || "").trim().toLowerCase() === "running";
     // One call, one row. A tool call reaches this function from several lists at
     // once -- the active run summary, the retained history map, and the live
@@ -3099,12 +3186,50 @@ export function createChatRenderingController({
     // Read from state.currentMessages rather than the visible subset, because the
     // turns being located are precisely the ones filtered out of it.
     const invisibleTurnCreatedAt = new Map();
+    const invisibleReasoningTurns = [];
     for (const message of Array.isArray(state.currentMessages) ? state.currentMessages : []) {
       const id = String(message?.id || "");
       if (!id || knownIds.has(id)) continue;
-      invisibleTurnCreatedAt.set(id, String(message?.createdAt || message?.created_at || ""));
+      const createdAt = String(message?.createdAt || message?.created_at || "");
+      invisibleTurnCreatedAt.set(id, createdAt);
+      // The tool rounds persist their reasoning too (one reasoningText per
+      // assistant turn), but the turns themselves never reach the transcript,
+      // so that thinking used to vanish the moment the live steps were cleared.
+      // Collect it here so each round's reasoning can be filed under the
+      // visible turn that adopts the round's tool calls.
+      if (chatMessagePresentation(message).normalizedRole !== "assistant") continue;
+      const text = String(message?.reasoningText || message?.reasoning_text || "").trim();
+      const turnRunId = String(message?.runId || message?.run_id || "").trim();
+      if (!text || !turnRunId) continue;
+      invisibleReasoningTurns.push({ id, runId: turnRunId, createdAt, text });
     }
     const visibleTurnsByRun = visibleAssistantTurnsByRun(messages);
+    // Persisted reasoning of invisible turns, grouped by the visible turn that
+    // adopts it -- the same placement rule unowned tool calls use, so a round's
+    // thinking and its tools always land on the same row.
+    const adoptedReasoningByOwner = new Map();
+    for (const turn of invisibleReasoningTurns) {
+      const owner = adoptingTurnForActivity(visibleTurnsByRun.get(turn.runId) || [], turn.createdAt);
+      if (!owner) continue;
+      if (!adoptedReasoningByOwner.has(owner)) adoptedReasoningByOwner.set(owner, []);
+      adoptedReasoningByOwner.get(owner).push(turn);
+    }
+    for (const turns of adoptedReasoningByOwner.values()) {
+      turns.sort((left, right) => left.createdAt.localeCompare(right.createdAt));
+    }
+    // The tool call a turn's reasoning renders above: the turn's own first call
+    // when the records carry its messageId, otherwise the first call at or
+    // after the turn was saved. Records are already in createdAt order.
+    const turnAnchorToolUseId = (records, turnId, createdAt) => {
+      let byTime = "";
+      for (const record of records) {
+        const tool = normalizeToolActivity(record);
+        if (!tool.toolUseId) continue;
+        if (turnId && tool.messageId === turnId) return tool.toolUseId;
+        if (!byTime && createdAt && String(tool.createdAt || "") >= createdAt) byTime = tool.toolUseId;
+      }
+      return byTime;
+    };
     // The visible turn a step stamped to an invisible turn belongs under, or ""
     // when the step is not that case and the existing orphan rules apply.
     const adoptStampedStep = (step, messageRunId) => {
@@ -3122,15 +3247,27 @@ export function createChatRenderingController({
       if (!messageRun || !id || firstAssistantTurnByRun.has(messageRun)) continue;
       firstAssistantTurnByRun.set(messageRun, id);
     }
-    const claimedToolUseIds = new Set();
+    const claimedToolKeys = new Set();
     const claimUnseen = (records) => {
       const kept = [];
+      // Key -> index into kept, for this invocation only: a duplicate arriving
+      // in the same turn's list can still donate its streamed output to the
+      // copy that won the slot. Cross-turn duplicates just drop, as before.
+      const keptIndexByKey = new Map();
       for (const record of Array.isArray(records) ? records : []) {
-        const toolUseId = normalizeToolActivity(record).toolUseId;
-        // A record with no id cannot be de-duplicated; keeping it is the safer
-        // side of the trade, since dropping it would lose the row entirely.
-        if (toolUseId && claimedToolUseIds.has(toolUseId)) continue;
-        if (toolUseId) claimedToolUseIds.add(toolUseId);
+        // toolUseId when present, a content fingerprint otherwise. A record
+        // with neither cannot be de-duplicated; keeping it is the safer side
+        // of the trade, since dropping it would lose the row entirely.
+        const key = toolActivityDedupeKey(record);
+        if (key && claimedToolKeys.has(key)) {
+          const keptIndex = keptIndexByKey.get(key);
+          if (keptIndex !== undefined) kept[keptIndex] = mergeDuplicateToolActivity(kept[keptIndex], record);
+          continue;
+        }
+        if (key) {
+          claimedToolKeys.add(key);
+          keptIndexByKey.set(key, kept.length);
+        }
         kept.push(record);
       }
       return kept;
@@ -3151,33 +3288,44 @@ export function createChatRenderingController({
       const anchoredRecords = (anchored.get(messageId) || []).flatMap(([, calls]) => calls);
       const records = claimUnseen([...(persisted.byMessage.get(messageId) || []), ...liveRecords, ...anchoredRecords]
         .sort((left, right) => String(normalizeToolActivity(left).createdAt || "").localeCompare(String(normalizeToolActivity(right).createdAt || ""))));
-      // reasoningText is only written when the turn finishes, so during a live
-      // run this turn has tools but no reasoning to show -- while its reasoning
-      // is still streaming into the tail stack. That is the split: one row
-      // reading "0 steps reasoning, N tools" and a second row holding the
-      // thinking that produced them.
-      //
-      // Falling back to the live steps for this message's own run keeps the pair
-      // together, and renderToolActivityStackHTML already interleaves them by
-      // beforeToolUseId, so the row reads reasoning -> tool -> reasoning -> tool.
-      // liveReasoningStepsWithoutPersisted drops the tail's copy for any run
-      // whose assistant turn is on screen, which is the same condition that
-      // makes this fallback fire.
       const messageRunId = String(message?.runId || message?.run_id || "").trim();
-      const persistedSteps = persistedReasoningSteps(message, records);
+      // The full persisted trail: each adopted tool round's reasoning anchored
+      // before that round's own first call, so the row reads
+      // reasoning -> tools -> reasoning -> tools even after a reload -- the
+      // same shape the live path streams.
+      const adoptedSteps = (adoptedReasoningByOwner.get(messageId) || []).map((turn) => ({
+        id: `reasoning:${turn.id}`,
+        runId: turn.runId,
+        messageId: turn.id,
+        text: turn.text,
+        beforeToolUseId: turnAnchorToolUseId(records, turn.id, turn.createdAt),
+      }));
+      let ownSteps = persistedReasoningSteps(message, records);
+      if (ownSteps.length && adoptedSteps.length) {
+        // With earlier rounds' thinking on the row, this turn's own reasoning
+        // is the *last* thought, not the first: anchor it to the turn's own
+        // first tool call, or let it trail when the turn only spoke.
+        const ownAnchor = turnAnchorToolUseId(records, messageId, "");
+        ownSteps = ownSteps.map((step) => ({ ...step, beforeToolUseId: ownAnchor }));
+      }
+      const persistedSteps = [...adoptedSteps, ...ownSteps];
+      // Live steps still cover whatever has not persisted yet -- the round that
+      // is streaming right now. They are only consulted while this turn's own
+      // reasoning is unsaved: a saved turn trusts its row as complete, and the
+      // ownerless backlog stays on the tail as before. Content matching drops
+      // the live copy of anything the adopted rows above already carry, so a
+      // round is never rendered twice while the run is still going.
+      //
       // Only with a runId: currentLiveReasoningSteps("") matches every step and
-      // would pull another run's thinking under this turn.
-      // Scoped to this message, not just its run. A run persists one assistant
-      // turn per model round, so a run-scoped fallback handed every turn of the
-      // run the same full list and each row rendered an identical "N steps
-      // reasoning" until the turns saved their own.
-      const reasoningSteps = persistedSteps.length || !messageRunId
-        ? persistedSteps
-        : currentLiveReasoningSteps(messageRunId, messageId, {
-          claimOrphans: firstAssistantTurnByRun.get(messageRunId) === messageId,
-          visibleIds: knownIds,
-          adoptStampedStep,
-        });
+      // would pull another run's thinking under this turn. Scoped to this
+      // message, not just its run: a run persists one assistant turn per model
+      // round, so a run-scoped fallback handed every turn the same full list.
+      const liveSteps = ownSteps.length || !messageRunId ? [] : currentLiveReasoningSteps(messageRunId, messageId, {
+        claimOrphans: firstAssistantTurnByRun.get(messageRunId) === messageId,
+        visibleIds: knownIds,
+        adoptStampedStep,
+      });
+      const reasoningSteps = [...persistedSteps, ...reasoningStepsNotCoveredByPersisted(liveSteps, persistedSteps)];
       // This turn's own stack first, then any earlier run this message anchors.
       const rendered = [];
       if (records.length || reasoningSteps.length) {
@@ -3199,8 +3347,8 @@ export function createChatRenderingController({
       for (const [group, markup] of rendered) {
         if (!markup) continue;
         for (const record of group) {
-          const toolUseId = normalizeToolActivity(record).toolUseId;
-          if (toolUseId) ownedToolUseIds.add(toolUseId);
+          const key = toolActivityDedupeKey(record);
+          if (key) ownedToolUseIds.add(key);
         }
       }
       stacks.set(messageId, `<div class="message-tool-activity" data-message-activity="${escapeAttr(messageId)}">${html}</div>`);
@@ -3280,7 +3428,10 @@ export function createChatRenderingController({
     if (status === "superseded") return "";
     const owned = ownedToolUseIds instanceof Set ? ownedToolUseIds : new Set();
     const leftover = owned.size
-      ? toolCalls.filter((call) => !owned.has(normalizeToolActivity(call).toolUseId))
+      ? toolCalls.filter((call) => {
+        const key = toolActivityDedupeKey(call);
+        return !key || !owned.has(key);
+      })
       : toolCalls;
     const stackKey = runToolActivityStackKey(runId);
     const toolActivity = renderToolActivityStackHTML(leftover, {
@@ -3399,8 +3550,11 @@ export function createChatRenderingController({
     const page = await request(`/api/agents/${agentId}/runs/${encodeURIComponent(runId)}/tool-calls?view=activity&limit=${maxToolActivityCards}&offset=${offset}`);
     if (state.agent?.id !== agentId || state.activeRunSummaryRunId !== runId) return;
     const calls = Array.isArray(page) ? page : (Array.isArray(page?.toolCalls) ? page.toolCalls : []);
-    const known = new Set((state.activeRunToolCalls || []).map((call) => call?.toolUseId || call?.tool_use_id).filter(Boolean));
-    state.activeRunToolCalls = [...calls.filter((call) => !known.has(call?.toolUseId || call?.tool_use_id)), ...(state.activeRunToolCalls || [])];
+    // Key through the normalizer so a payload that spells the id differently
+    // (toolUseId / tool_use_id / id) still matches its earlier copy; comparing
+    // raw fields let the same call re-enter the list on every page load.
+    const known = new Set((state.activeRunToolCalls || []).map((call) => normalizeToolActivity(call).toolUseId).filter(Boolean));
+    state.activeRunToolCalls = [...calls.filter((call) => !known.has(normalizeToolActivity(call).toolUseId)), ...(state.activeRunToolCalls || [])];
     state.activeRunToolCallsHasMore = Boolean(page?.hasMore);
     state.activeRunToolCallsNextOffset = Number(page?.nextOffset || offset + calls.length);
     renderRunSummaryCard();
@@ -3697,6 +3851,37 @@ export function createChatRenderingController({
     return String(value || "").trim().replace(/\s+/g, " ");
   }
 
+  // Same handover rule as the tail, scoped to one turn's stack: a live step
+  // whose text the persisted rows already carry is the same thinking seen
+  // twice, so only the copy the transcript will keep survives. The open draft
+  // always stays -- it exists nowhere else yet.
+  function reasoningStepsNotCoveredByPersisted(liveSteps, persistedSteps) {
+    const list = Array.isArray(liveSteps) ? liveSteps : [];
+    const rows = (Array.isArray(persistedSteps) ? persistedSteps : [])
+      .map((step) => ({ text: reasoningHandoverKey(step?.text), cursor: 0 }))
+      .filter((row) => row.text);
+    if (!list.length || !rows.length) return list;
+    return list.filter((step) => {
+      if (step?.open) return true;
+      const key = reasoningHandoverKey(step?.text);
+      if (!key) return true;
+      return !rows.some((saved) => {
+        const at = saved.text.indexOf(key, saved.cursor);
+        if (at >= 0) {
+          saved.cursor = at + key.length;
+          return true;
+        }
+        // The saved row is byte-bounded while the live copy is character
+        // bounded, so for CJK the saved text can be a tail of the step.
+        if (saved.cursor === 0 && key.endsWith(saved.text)) {
+          saved.cursor = saved.text.length;
+          return true;
+        }
+        return false;
+      });
+    });
+  }
+
   function liveReasoningStepsWithoutPersisted(steps, runId = "") {
     const list = Array.isArray(steps) ? steps : [];
     if (!list.length) return list;
@@ -3749,6 +3934,23 @@ export function createChatRenderingController({
         const key = reasoningHandoverKey(entry.text);
         // A cursor per row, not a bare string: one row can own several steps, and
         // each occurrence inside it may only be spent once.
+        if (key) unclaimed.push({ text: key, cursor: 0 });
+      }
+    }
+    // Invisible tool-round turns persist their reasoning too, and once their
+    // run has a visible turn the per-message stacks surface those rows. The
+    // tail must then hand over the live copies the same way it does for
+    // visible turns' rows, or the run shows the same thinking twice. A run
+    // with no visible turn keeps its live copies: the tail is still their only
+    // home.
+    for (const message of Array.isArray(state.currentMessages) ? state.currentMessages : []) {
+      const id = String(message?.id || "");
+      if (!id || visibleIds.has(id)) continue;
+      if (chatMessagePresentation(message).normalizedRole !== "assistant") continue;
+      const owner = String(message?.runId || message?.run_id || "").trim();
+      if (!owner || !firstAssistantTurnByRun.has(owner)) continue;
+      for (const entry of persistedReasoningSteps(message)) {
+        const key = reasoningHandoverKey(entry.text);
         if (key) unclaimed.push({ text: key, cursor: 0 });
       }
     }
@@ -3875,6 +4077,15 @@ export function createChatRenderingController({
     const reviewedIds = runToolsHaveVisibleHome && state.activeRunToolCallsRunId && Array.isArray(state.activeRunToolCalls)
       ? new Set(state.activeRunToolCalls.map((call) => normalizeToolActivity(call).toolUseId).filter(Boolean))
       : new Set();
+    // A terminal summary owns this run's records for good. Delete the live
+    // copies instead of re-filtering them on every paint, so a late event
+    // replay or a paint racing the summary load cannot resurrect them as a
+    // second activity stack.
+    if (terminalHome && reviewedRunId) {
+      const entries = Object.entries(state.liveToolOutputs || {});
+      const kept = entries.filter(([, item]) => String(item?.runId || "") !== reviewedRunId);
+      if (kept.length !== entries.length) state.liveToolOutputs = Object.fromEntries(kept);
+    }
     return Object.values(state.liveToolOutputs || {})
       .filter((item) => item && (!item.agentId || item.agentId === agentId))
       .filter((item) => {
@@ -3918,8 +4129,8 @@ export function createChatRenderingController({
     const allRecords = unownedLiveToolOutputList();
     const records = ownedToolUseIds instanceof Set
       ? allRecords.filter((r) => {
-        const id = normalizeToolActivity(r).toolUseId;
-        return !id || !ownedToolUseIds.has(id);
+        const key = toolActivityDedupeKey(r);
+        return !key || !ownedToolUseIds.has(key);
       })
       : allRecords;
     const runActive = String(state.agent?.status || "").trim().toLowerCase() === "running";
@@ -4977,7 +5188,15 @@ export function createChatRenderingController({
     const source = String(stack?.dataset?.toolActivitySource || "run");
     if (source === "live") return currentLiveToolOutputList();
     const runId = String(stack?.dataset?.runId || state.activeRunSummaryRunId || state.activeRunSummary?.run?.id || "");
-    return activeRunToolCallList(state.activeRunSummary, runId);
+    // A per-message stack may hold records from any of the three lists (active
+    // run, retained history, live stream), so the detail lookup must search
+    // them all: searching only the active run made clicking a history row
+    // answer "detail unavailable".
+    return [
+      ...activeRunToolCallList(state.activeRunSummary, runId),
+      ...(historyRunActivityMap()[runId] || []),
+      ...currentLiveToolOutputList(),
+    ];
   }
 
   function renderToolActivitySelection(stack, toolUseId) {
@@ -4999,7 +5218,7 @@ export function createChatRenderingController({
       }
       const record = toolActivityRecordsForStack(stack).find((item) => normalizeToolActivity(item).toolUseId === selected);
       slot.innerHTML = record
-        ? renderToolActivityCardHTML(record, { resolveBackgroundTask, detailsExpanded: true })
+        ? renderToolActivityCardHTML(record, { resolveBackgroundTask, detailsExpanded: true, inlineDetail: true })
         : `<div class="tool-activity-empty">${escapeHtml(cr("activity.detailUnavailable"))}</div>`;
     });
     // Keep the legacy shared slot empty (it is still in the DOM for older renders).
@@ -5011,6 +5230,26 @@ export function createChatRenderingController({
     if (!root?.addEventListener || !root.dataset || root.dataset.toolActivityControlsBound === "true") return;
     root.dataset.toolActivityControlsBound = "true";
     root.addEventListener("click", (event) => {
+      const copyButton = event.target?.closest?.("[data-tool-block-copy]");
+      if (copyButton) {
+        // The block's own <pre> is the source of truth; embedding the text in a
+        // data attribute would double every large output in the DOM.
+        const pre = copyButton.closest?.(".tool-activity-block")?.querySelector?.("pre");
+        const original = copyButton.textContent;
+        copyToClipboard(pre?.textContent || "").then((ok) => {
+          copyButton.textContent = ok ? cr("code.copied") : cr("code.copyFailed");
+          setTimeout(() => { copyButton.textContent = original; }, 1200);
+        });
+        return;
+      }
+      const toggleButton = event.target?.closest?.("[data-tool-block-toggle]");
+      if (toggleButton) {
+        const pre = toggleButton.closest?.(".tool-activity-block")?.querySelector?.("pre");
+        if (!pre) return;
+        const expanded = pre.classList.toggle("is-expanded");
+        toggleButton.textContent = cr(expanded ? "activity.collapseBlock" : "activity.expandBlock");
+        return;
+      }
       const button = event.target?.closest?.("[data-tool-activity-select]");
       if (!button) return;
       const stack = button.closest?.("[data-tool-activity-stack]");
@@ -5200,6 +5439,10 @@ export function createChatRenderingController({
     rememberToolStarted,
     rememberUserQuestion,
     refreshUserMessageIdentity,
+    // Handed to the background task panel so a subagent's answer is rendered by
+    // the same markdown pipeline as the main thread instead of a second one that
+    // would drift from it.
+    renderMarkdown,
     replacePendingApprovals,
     replacePendingUserQuestions,
     replacePlanState,
