@@ -302,8 +302,8 @@ export default Object.freeze({
   context: {
     title: "上下文用量", description: "查看目前模型視窗並管理後續模型可見的上下文。", close: "關閉上下文面板", openAria: "上下文用量：{percentage}",
     estimatedTokens: "預估 Token", limit: "視窗上限", percentage: "已使用", windowType: "視窗類型", standardWindow: "標準視窗", largeWindow: "大視窗", largeWindowLegend: "大視窗（>600K）", unknown: "未知", loading: "載入中",
-    currentThresholds: "目前閾值", thresholdSummary: "自動裁剪 {prune}% · 壓縮 {compact}%", updatedAt: "更新於 {time}", readOnly: "目前遠端工作階段只能查看上下文狀態。",
-    autoPrune: "自動裁剪", autoPruneDescription: "達到閾值後自動縮減較早上下文。", autoPruneEnabled: "已開啟自動裁剪", autoPruneDisabled: "已關閉自動裁剪",
+    currentThresholds: "目前閾值", thresholdSummary: "自動裁剪 {prune}% · 自動壓縮 {compact}%", thresholdSummaryPruneOff: "自動裁剪：未啟用 · 自動壓縮 {compact}%", updatedAt: "更新於 {time}", readOnly: "目前遠端工作階段只能查看上下文狀態。",
+    autoPrune: "自動裁剪", autoPruneDescription: "達到閾值後以可逆方式縮減較早的工具內容。無論是否開啟，達到壓縮閾值時系統仍會自動壓縮，避免超出視窗。", autoPruneEnabled: "已開啟自動裁剪", autoPruneDisabled: "已關閉自動裁剪",
     showPercent: "顯示百分比", showPercentDescription: "在輸入框用量圓環上顯示百分比數字。",
     compactNow: "立即壓縮", compacting: "正在壓縮…", compactSuccess: "上下文已壓縮", compactNoop: "目前沒有可繼續壓縮的上下文",
     retainSummary: "留存摘要", retaining: "正在留存…", retainSuccess: "摘要已複製為對話專屬記憶", retainHint: "壓縮摘要會被後續壓縮覆蓋。留存會把目前摘要複製成這個對話的專屬記憶，之後不再被覆蓋，清空上下文也不會刪除。",

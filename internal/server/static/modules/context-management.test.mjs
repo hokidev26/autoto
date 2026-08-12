@@ -118,11 +118,11 @@ test("context ring returns SVG geometry, theme track, and threshold tones", () =
   assert.equal(normalRing.toneColor, "#4b5563");
   assert.equal(normalRing.offset, circumference * 0.5);
 
-  const warning = normalizeContextStatus({ estimatedTokens: 95, limit: 100 });
+  const warning = normalizeContextStatus({ estimatedTokens: 85, limit: 100 });
   const warningRing = contextRingGeometry(warning);
   assert.equal(contextUsageTone(warning), "warning");
   assert.equal(warningRing.toneColor, "#d97706");
-  assert.ok(Math.abs(warningRing.offset - circumference * 0.05) < 1e-12);
+  assert.ok(Math.abs(warningRing.offset - circumference * 0.15) < 1e-12);
 
   const danger = normalizeContextStatus({ estimatedTokens: 100, limit: 100 });
   const dangerRing = contextRingGeometry(danger);
@@ -154,9 +154,33 @@ test("context settings expose approved defaults and reject invalid pruning seman
     compactKeepTurns: 2,
     maxPrunePercent: 80,
     minPrunePercent: 30,
-    standard: { pruneStart: 95, compactStart: 99 },
-    large: { pruneStart: 95, compactStart: 99 },
+    standard: { pruneStart: 80, compactStart: 90 },
+    large: { pruneStart: 85, compactStart: 92 },
   });
+});
+
+test("threshold summary says compaction stays automatic when auto-prune is off", async () => {
+  const stubs = browserStubs();
+  const summaryNode = { textContent: "" };
+  stubs.document.getElementById = (id) => (id === "contextThresholdSummary" ? summaryNode : null);
+  const agent = { id: "agent-1", entityGeneration: 1 };
+  let pruneEnabled = false;
+  const controller = createContextManagementController({
+    async request() {
+      return { context: { estimatedTokens: 10, limitTokens: 100, usagePercent: 10, estimated: true, pruneEnabled, thresholds: { pruneStartPercent: 80, compactStartPercent: 90 } } };
+    },
+    getAgent: () => agent,
+    translate: (key, params = {}) => `${key}|prune=${params.prune}|compact=${params.compact}`,
+    document: stubs.document,
+    window: stubs.window,
+  });
+
+  await controller.setAgent(agent);
+  assert.equal(summaryNode.textContent, "context.thresholdSummaryPruneOff|prune=80|compact=90");
+
+  pruneEnabled = true;
+  await controller.load();
+  assert.equal(summaryNode.textContent, "context.thresholdSummary|prune=80|compact=90");
 });
 
 test("controller ignores stale agent context responses", async () => {

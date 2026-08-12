@@ -1,14 +1,17 @@
 import { setTextIfChanged } from "./dom.mjs";
 
+// Threshold defaults mirror the backend (config.defaultStandardContextWindow /
+// defaultLargeContextWindow): token counts are rough estimates and the reply
+// needs room too, so both actions fire well before the window is full.
 export const defaultContextSettings = Object.freeze({
   retainTurns: 2,
   maxPrunePercent: 80,
   minPrunePercent: 30,
-  standardPruneStart: 95,
-  standardCompactStart: 99,
+  standardPruneStart: 80,
+  standardCompactStart: 90,
   largeWindowTokens: 600000,
-  largePruneStart: 95,
-  largeCompactStart: 99,
+  largePruneStart: 85,
+  largeCompactStart: 92,
 });
 
 const contextToneColors = Object.freeze({
@@ -276,7 +279,12 @@ export function createContextManagementController({
   }
 
   function thresholdSummary(next = status) {
-    return translate("context.thresholdSummary", {
+    // Mirrors the runner's gate: progressive pruning only runs when the switch
+    // is on and its threshold sits strictly below compaction. Compaction is an
+    // automatic safety action either way, and the summary must say so instead
+    // of implying that the unchecked toggle silences both thresholds.
+    const pruneActive = Boolean(next.autoPrune) && next.pruneStart < next.compactStart;
+    return translate(pruneActive ? "context.thresholdSummary" : "context.thresholdSummaryPruneOff", {
       prune: next.pruneStart,
       compact: next.compactStart,
     });

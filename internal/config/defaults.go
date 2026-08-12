@@ -30,7 +30,7 @@ var Version = "0.1.0-dev"
 // When set, it is shown in the startup banner as "Autoto <version> (<commit>)".
 var Commit = ""
 
-const CurrentConfigVersion = 3
+const CurrentConfigVersion = 4
 
 type Config struct {
 	SchemaVersion     int                     `json:"version"`
@@ -90,6 +90,22 @@ type ContextManagementConfig struct {
 	Standard         ContextManagementWindowConfig `json:"standard"`
 	Large            ContextManagementWindowConfig `json:"large"`
 }
+
+// Token counts are chars/4 estimates with a real error margin of ±10-20%, and
+// the model's own reply must also fit inside the window. Triggering compaction
+// at 99% therefore often meant the request had already overflowed before the
+// safety action could run. The defaults leave enough headroom for both the
+// estimation error and the response; large windows get proportionally more
+// absolute slack, so their percentages sit slightly higher.
+var (
+	defaultStandardContextWindow = ContextManagementWindowConfig{PruneStart: 80, CompactStart: 90}
+	defaultLargeContextWindow    = ContextManagementWindowConfig{PruneStart: 85, CompactStart: 92}
+
+	// legacyContextWindowDefaults is the shipped default before config schema
+	// version 4. Configs still carrying it verbatim are migrated to the new
+	// defaults; anything else is a deliberate user choice and is kept.
+	legacyContextWindowDefaults = ContextManagementWindowConfig{PruneStart: 95, CompactStart: 99}
+)
 
 type AgentConfig struct {
 	DefaultModel string `json:"defaultModel"`
@@ -331,8 +347,8 @@ func Default() (Config, error) {
 			CompactKeepTurns: 2,
 			MaxPrunePercent:  80,
 			MinPrunePercent:  30,
-			Standard:         ContextManagementWindowConfig{PruneStart: 95, CompactStart: 99},
-			Large:            ContextManagementWindowConfig{PruneStart: 95, CompactStart: 99},
+			Standard:         defaultStandardContextWindow,
+			Large:            defaultLargeContextWindow,
 		},
 		Agent: AgentConfig{
 			DefaultModel:           defaultModel,
@@ -509,6 +525,18 @@ func normalizeConfig(cfg Config) Config {
 }
 
 func migrateConfig(cfg Config) Config {
+	if cfg.SchemaVersion < 4 {
+		// The pre-v4 shipped thresholds (95/99) left less headroom than the
+		// token estimation error, so compaction often fired only after the
+		// request had already overflowed. Only the untouched shipped default
+		// is rewritten; any other stored value is a user's own setting.
+		if cfg.ContextManagement.Standard == legacyContextWindowDefaults {
+			cfg.ContextManagement.Standard = defaultStandardContextWindow
+		}
+		if cfg.ContextManagement.Large == legacyContextWindowDefaults {
+			cfg.ContextManagement.Large = defaultLargeContextWindow
+		}
+	}
 	if cfg.SchemaVersion < CurrentConfigVersion {
 		cfg.SchemaVersion = CurrentConfigVersion
 	}
@@ -634,23 +662,23 @@ func normalizeContextManagementConfig(value ContextManagementConfig) ContextMana
 	if value.MinPrunePercent > value.MaxPrunePercent {
 		value.MinPrunePercent = value.MaxPrunePercent
 	}
-	normalizeWindow := func(window ContextManagementWindowConfig) ContextManagementWindowConfig {
+	normalizeWindow := func(window, fallback ContextManagementWindowConfig) ContextManagementWindowConfig {
 		if window.PruneStart <= 0 {
-			window.PruneStart = 95
+			window.PruneStart = fallback.PruneStart
 		}
 		if window.PruneStart > 100 {
 			window.PruneStart = 100
 		}
 		if window.CompactStart <= 0 {
-			window.CompactStart = 99
+			window.CompactStart = fallback.CompactStart
 		}
 		if window.CompactStart > 100 {
 			window.CompactStart = 100
 		}
 		return window
 	}
-	value.Standard = normalizeWindow(value.Standard)
-	value.Large = normalizeWindow(value.Large)
+	value.Standard = normalizeWindow(value.Standard, defaultStandardContextWindow)
+	value.Large = normalizeWindow(value.Large, defaultLargeContextWindow)
 	return value
 }
 

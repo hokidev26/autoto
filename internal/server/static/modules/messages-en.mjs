@@ -302,8 +302,8 @@ export default Object.freeze({
   context: {
     title: "Context usage", description: "View the current model window and manage context visible to future model calls.", close: "Close context panel", openAria: "Context usage: {percentage}",
     estimatedTokens: "Estimated tokens", limit: "Window limit", percentage: "Used", windowType: "Window type", standardWindow: "Standard window", largeWindow: "Large window", largeWindowLegend: "Large window (>600K)", unknown: "Unknown", loading: "Loading",
-    currentThresholds: "Current thresholds", thresholdSummary: "Auto-prune {prune}% · compact {compact}%", updatedAt: "Updated {time}", readOnly: "This remote session can only view context status.",
-    autoPrune: "Auto-prune", autoPruneDescription: "Reduce older context automatically when the threshold is reached.", autoPruneEnabled: "Auto-prune enabled", autoPruneDisabled: "Auto-prune disabled",
+    currentThresholds: "Current thresholds", thresholdSummary: "Auto-prune {prune}% · auto-compact {compact}%", thresholdSummaryPruneOff: "Auto-prune: off · auto-compact {compact}%", updatedAt: "Updated {time}", readOnly: "This remote session can only view context status.",
+    autoPrune: "Auto-prune", autoPruneDescription: "Reversibly reduces older tool content when the threshold is reached. Compaction still runs automatically at its own threshold either way, to keep the request inside the window.", autoPruneEnabled: "Auto-prune enabled", autoPruneDisabled: "Auto-prune disabled",
     showPercent: "Show percentage", showPercentDescription: "Show the percentage number on the composer usage ring.",
     compactNow: "Compact now", compacting: "Compacting…", compactSuccess: "Context compacted", compactNoop: "There is no more context to compact",
     retainSummary: "Retain summary", retaining: "Retaining…", retainSuccess: "Summary copied as a conversation memory", retainHint: "The compaction summary is overwritten by later compactions. Retaining copies it into a conversation-scoped memory that is never overwritten and survives a context clear.",

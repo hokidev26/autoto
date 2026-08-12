@@ -302,8 +302,8 @@ export default Object.freeze({
   context: {
     title: "上下文用量", description: "查看当前模型窗口并管理后续模型可见的上下文。", close: "关闭上下文面板", openAria: "上下文用量：{percentage}",
     estimatedTokens: "预估 Token", limit: "窗口上限", percentage: "已使用", windowType: "窗口类型", standardWindow: "标准窗口", largeWindow: "大窗口", largeWindowLegend: "大窗口（>600K）", unknown: "未知", loading: "加载中",
-    currentThresholds: "当前阈值", thresholdSummary: "自动裁剪 {prune}% · 压缩 {compact}%", updatedAt: "更新于 {time}", readOnly: "当前远端会话只能查看上下文状态。",
-    autoPrune: "自动裁剪", autoPruneDescription: "达到阈值后自动缩减较早上下文。", autoPruneEnabled: "已开启自动裁剪", autoPruneDisabled: "已关闭自动裁剪",
+    currentThresholds: "当前阈值", thresholdSummary: "自动裁剪 {prune}% · 自动压缩 {compact}%", thresholdSummaryPruneOff: "自动裁剪：未启用 · 自动压缩 {compact}%", updatedAt: "更新于 {time}", readOnly: "当前远端会话只能查看上下文状态。",
+    autoPrune: "自动裁剪", autoPruneDescription: "达到阈值后以可逆方式缩减较早的工具内容。无论是否开启，达到压缩阈值时系统仍会自动压缩，避免超出窗口。", autoPruneEnabled: "已开启自动裁剪", autoPruneDisabled: "已关闭自动裁剪",
     showPercent: "显示百分比", showPercentDescription: "在输入框用量圆环上显示百分比数字。",
     compactNow: "立即压缩", compacting: "正在压缩…", compactSuccess: "上下文已压缩", compactNoop: "当前没有可继续压缩的上下文",
     retainSummary: "留存摘要", retaining: "正在留存…", retainSuccess: "摘要已复制为对话专属记忆", retainHint: "压缩摘要会被后续压缩覆盖。留存会把当前摘要复制成这个对话的专属记忆，之后不再被覆盖，清空上下文也不会删除。",

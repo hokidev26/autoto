@@ -115,7 +115,7 @@ func TestContextManagementDefaultsNormalizeAndPersist(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := cfg.ContextManagement
-	if got.CompactKeepTurns != 2 || got.MinPrunePercent != 30 || got.MaxPrunePercent != 80 || got.Standard.PruneStart != 95 || got.Standard.CompactStart != 99 || got.Large.PruneStart != 95 || got.Large.CompactStart != 99 {
+	if got.CompactKeepTurns != 2 || got.MinPrunePercent != 30 || got.MaxPrunePercent != 80 || got.Standard.PruneStart != 80 || got.Standard.CompactStart != 90 || got.Large.PruneStart != 85 || got.Large.CompactStart != 92 {
 		t.Fatalf("unexpected context management defaults: %+v", got)
 	}
 	if got.WindowForLimit(600000) != got.Standard || got.WindowForLimit(600001) != got.Large {
@@ -132,6 +132,33 @@ func TestContextManagementDefaultsNormalizeAndPersist(t *testing.T) {
 	}
 	if loaded.ContextManagement.CompactKeepTurns != 2 || loaded.ContextManagement.MinPrunePercent != 40 || loaded.ContextManagement.MaxPrunePercent != 40 || loaded.ContextManagement.Standard.PruneStart != 100 || loaded.ContextManagement.Standard.CompactStart != 1 {
 		t.Fatalf("unexpected normalized persisted context settings: %+v", loaded.ContextManagement)
+	}
+}
+
+func TestContextManagementMigratesLegacyDefaultThresholds(t *testing.T) {
+	legacy := ContextManagementWindowConfig{PruneStart: 95, CompactStart: 99}
+
+	// A pre-v4 config still carrying the shipped 95/99 defaults picks up the
+	// safer thresholds on load.
+	migrated := normalizeConfig(Config{SchemaVersion: 3, ContextManagement: ContextManagementConfig{Standard: legacy, Large: legacy}})
+	if migrated.ContextManagement.Standard != (ContextManagementWindowConfig{PruneStart: 80, CompactStart: 90}) {
+		t.Fatalf("legacy standard window was not migrated: %+v", migrated.ContextManagement.Standard)
+	}
+	if migrated.ContextManagement.Large != (ContextManagementWindowConfig{PruneStart: 85, CompactStart: 92}) {
+		t.Fatalf("legacy large window was not migrated: %+v", migrated.ContextManagement.Large)
+	}
+
+	// A pre-v4 config with any other value is a user's own choice and is kept.
+	custom := ContextManagementWindowConfig{PruneStart: 70, CompactStart: 99}
+	kept := normalizeConfig(Config{SchemaVersion: 3, ContextManagement: ContextManagementConfig{Standard: custom, Large: custom}})
+	if kept.ContextManagement.Standard != custom || kept.ContextManagement.Large != custom {
+		t.Fatalf("user thresholds must survive migration: %+v", kept.ContextManagement)
+	}
+
+	// A v4 config that deliberately chose 95/99 is never rewritten again.
+	deliberate := normalizeConfig(Config{SchemaVersion: 4, ContextManagement: ContextManagementConfig{Standard: legacy, Large: legacy}})
+	if deliberate.ContextManagement.Standard != legacy || deliberate.ContextManagement.Large != legacy {
+		t.Fatalf("post-migration thresholds must be kept verbatim: %+v", deliberate.ContextManagement)
 	}
 }
 
