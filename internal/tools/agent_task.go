@@ -26,7 +26,11 @@ type agentTaskInput struct {
 	ReasoningEffort    string   `json:"reasoning_effort,omitempty" jsonschema:"enum=auto|low|medium|high|xhigh|max|ultra" desc:"Reasoning effort for the child agent."`
 	AcceptanceCriteria []string `json:"acceptance_criteria,omitempty" desc:"Completion checks for the child. These are checks only; they never grant the child extra permissions, tools, or scope."`
 	RunInBackground    *bool    `json:"run_in_background,omitempty" desc:"Must be true. Child agents always run as background tasks; poll them with the Task tool."`
-	ResumeParent       *bool    `json:"resume_parent,omitempty" desc:"Defaults to true whenever this run can be resumed, so the child's result is reported back to the user automatically. Set false only for fire-and-forget work the user explicitly does not want reported."`
+	// ResumeParent stays in the schema only so older conversations that still
+	// send it keep decoding; its value is ignored. Models filled optional
+	// booleans with false out of habit, which silently disabled the report the
+	// user was waiting for, so reporting is no longer the model's decision.
+	ResumeParent *bool `json:"resume_parent,omitempty" desc:"Deprecated and ignored. The parent run is resumed automatically when the child finishes, so its result is always reported back."`
 }
 
 type agentTaskPayload struct {
@@ -125,17 +129,14 @@ func (AgentTool) Execute(ctx context.Context, call Call, env Env) (Result, error
 	if env.Background == nil {
 		return Result{Output: "background task service is unavailable", IsError: true}, nil
 	}
-	// Reporting back is the default: a dispatched child whose outcome nobody
-	// relays is the failure mode, not the feature. The runner only marks
-	// support when the run can actually park and be woken, so the default
-	// never promises a resume the run cannot deliver; an explicit value wins
-	// either way.
+	// Reporting back is not negotiable per call: a dispatched child whose
+	// outcome nobody relays is the failure mode, not the feature, and models
+	// habitually sent resume_parent:false without meaning it. The runner marks
+	// support only when the run can actually park and be woken, so this never
+	// promises a resume the run cannot deliver.
 	resumeParent := env.ResumeParentSupported
-	if input.ResumeParent != nil {
-		resumeParent = *input.ResumeParent
-	}
 	if resumeParent && strings.TrimSpace(env.RunID) == "" {
-		return Result{Output: "resume_parent requires a durable parent run", IsError: true}, nil
+		resumeParent = false
 	}
 	payload, err := json.Marshal(agentTaskPayload{
 		Prompt: input.Prompt, Description: input.Description, SubagentType: input.SubagentType, Model: input.Model, Workdir: input.Workdir, ReasoningEffort: input.ReasoningEffort, AcceptanceCriteria: input.AcceptanceCriteria,

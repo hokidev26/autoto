@@ -77,7 +77,15 @@ func (r *Runner) buildTurnSystemControls(ctx context.Context, agent db.Agent, ru
 		}
 	}
 	if continuationIndex > 0 {
-		message := continuationControlMessage(run, continuationIndex)
+		// A wake-up from a subagent boundary carries the child's report inline,
+		// so the parent can relay it without a round of tool calls that -- for
+		// agent-kind tasks, whose result is a transcript rather than an output
+		// stream -- used to come back empty.
+		report := ""
+		if strings.TrimSpace(run.WaitingBackgroundTaskID) != "" {
+			report = r.waitingBackgroundTaskReport(ctx, run)
+		}
+		message := continuationControlMessageWithReport(run, continuationIndex, report)
 		controls.continuation = &message
 	}
 	return controls

@@ -24,7 +24,13 @@ func shouldTryNextCodexCredential(status int, code string) bool {
 
 func isCodexSSEFailoverCode(code string) bool {
 	switch strings.ToLower(strings.TrimSpace(code)) {
-	case "authentication_error", "invalid_authentication", "invalid_token", "access_token_expired", "token_expired", "unauthorized", "forbidden", "permission_denied", "insufficient_permissions", "rate_limit_error", "rate_limit_exceeded", "too_many_requests", "insufficient_quota":
+	case "authentication_error", "invalid_authentication", "invalid_token", "access_token_expired", "token_expired", "unauthorized", "forbidden", "permission_denied", "insufficient_permissions", "rate_limit_error", "rate_limit_exceeded", "too_many_requests", "insufficient_quota",
+		// A subscription whose own budget ran out reports itself as an SSE
+		// error with one of these codes rather than an HTTP 429. That is an
+		// account-level condition exactly like a rate limit: the next account
+		// in priority order may still have quota, so it must be tried instead
+		// of surfacing "usage limit reached" while a fresh account sits idle.
+		"usage_limit_reached", "usage_not_included", "quota_exceeded", "quota_exhausted", "plan_limit_reached":
 		return true
 	default:
 		return false

@@ -288,7 +288,9 @@ test("project groups contain every conversation once and preserve recent orderin
   assert.doesNotMatch(html, /project-agent-count|AGENT 2/);
   assert.match(html, /navigation-conversation-row nested[^\"]*status-idle/);
   assert.match(html, /data-agent-status="idle"/);
-  assert.match(html, /navigation-conversation-meta" title="feat\/login · claude-sonnet · idle ·/);
+  // The status in the meta line is localized ("空闲"), not the raw backend enum.
+  assert.match(html, /navigation-conversation-meta" title="feat\/login · claude-sonnet · 空闲 ·/);
+  assert.doesNotMatch(html, /navigation-conversation-meta" title="[^"]*· idle ·/);
   assert.doesNotMatch(html, /navigation-breadcrumb/);
 });
 

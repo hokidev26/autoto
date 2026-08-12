@@ -113,7 +113,7 @@ export default Object.freeze({
     title: "工作概览", subtitle: "查看近期统计与使用情况。", refresh: "刷新", refreshing: "正在刷新…", capturedAt: "更新于 {time}", loading: "正在加载首页…", loadFailed: "首页加载失败", retryHint: "请稍后重试，或使用刷新按钮重新加载。", loaded: "首页已更新。",
     conversations: "对话", tasks: "任务", running: "正在执行", schedules: "排程", conversationSummary: "最近对话与历史记录", taskBreakdown: "待办 {todo} · 进行中 {doing} · 已完成 {done}", scheduleBreakdown: "已启用 {enabled} / 共 {total}", activeRuns: "活跃运行", runningAgents: "运行代理",
     greetingMorning: "早上好，{name}", greetingAfternoon: "下午好，{name}", greetingEvening: "晚上好，{name}", greetingFallback: "今天想做什么？", launcherSubtitle: "描述任务或提出问题，Autoto 会立即开始。", promptPlaceholder: "描述任务或提出问题", promptRequired: "请输入要发送的内容。",
-    project: "项目", model: "模型", reasoningEffort: "思考强度", reasoningAuto: "自动", reasoningLow: "低", reasoningMedium: "中", reasoningHigh: "高", chooseDirectory: "选择文件夹", noProjects: "暂无项目", send: "发送", starting: "正在启动…", projectRequired: "请先选择一个工作区项目。",
+    project: "项目", model: "模型", reasoningEffort: "思考强度", reasoningAuto: "自动", reasoningLow: "低", reasoningMedium: "中", reasoningHigh: "高", reasoningXhigh: "超高", reasoningMax: "最强", reasoningUltra: "极致", chooseDirectory: "选择文件夹", noProjects: "暂无项目", send: "发送", starting: "正在启动…", projectRequired: "请先选择一个工作区项目。",
     suggestionWrite: "编写代码", suggestionFix: "修复问题", suggestionPlan: "规划任务", suggestionExplain: "解释代码", suggestionWritePrompt: "帮我编写代码来实现这个需求：", suggestionFixPrompt: "帮我定位并修复这个问题：", suggestionPlanPrompt: "帮我为这个目标制定实施计划：", suggestionExplainPrompt: "帮我解释这段代码的工作方式：",
     conversationUnavailable: "该对话已不可用。", taskUnavailable: "该任务已不可用。", runUnavailable: "该运行已不可用。", scheduleUnavailable: "该排程已不可用。", approvalsUnavailable: "未找到仍可处理的待审批操作。总览数据可能刚刚变化，请刷新后重试。",
     recentSection: "最近会话", recentEmpty: "还没有对话。在上方输入需求，开始第一个。", untitledConversation: "未命名会话", upcomingSection: "即将执行的排程", upcomingEmpty: "目前没有排定的执行。", scheduleNextRun: "下次执行 {time}",
@@ -1779,6 +1779,7 @@ export default Object.freeze({
     navigation: {
       toggleConversations: "展开或收起该项目的对话", toggleForks: "展开或收起该对话的分支",
       messageCount: "{count} 条消息", noResults: "没有匹配“{query}”的结果。", chooseFolder: "选择资料夹开始", chooseFolderHint: "选择目录后创建或打开项目", noConversations: "暂无项目对话。", noProjects: "暂无可用项目。", noRecentConversations: "暂无最近会话",
+      statusRunning: "执行中", statusWaiting: "等待子代理", statusError: "出错", statusInterrupted: "已中断", statusIdle: "空闲",
     },
     directory: {
       folderNotSet: "未设置目录", pathNotSet: "未设置路径", nativeUnavailable: "原生选择器不可用，已切换到内置目录浏览器。", openingNative: "正在打开系统资料夹选择器…", selectionCanceled: "已取消选择资料夹。", selected: "已选择：{path}", loading: "正在载入目录…", chooseHint: "选择当前目录后会创建或打开项目。", currentPath: "当前路径", home: "主目录", desktop: "桌面", downloads: "下载", documents: "文档", projects: "项目", root: "根目录", noRecent: "暂无最近目录", noFavorites: "暂无收藏", parent: "上一级", folder: "文件夹", empty: "此目录下没有可进入的文件夹。", nameRequired: "请输入新文件夹名称。", nameDots: "文件夹名称不能是 . 或 ..。", nameTooLong: "文件夹名称过长，请控制在 255 个字符以内。", nameInvalid: "文件夹名称不能包含路径分隔符或空字符", created: "文件夹已创建。",

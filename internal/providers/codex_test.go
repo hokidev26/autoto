@@ -771,7 +771,10 @@ func TestCodexTerminalRefreshFailureSwitchesAccountWithoutDisabling(t *testing.T
 }
 
 func TestCodexSSEPreOutputAuthOrRateLimitCanFailOver(t *testing.T) {
-	for _, code := range []string{"authentication_error", "rate_limit_exceeded"} {
+	// usage_limit_reached / usage_not_included: the account's own subscription
+	// budget ran out. The first-priority account being exhausted must roll the
+	// request to the next account instead of ending the turn with an error.
+	for _, code := range []string{"authentication_error", "rate_limit_exceeded", "usage_limit_reached", "usage_not_included"} {
 		t.Run(code, func(t *testing.T) {
 			var requests atomic.Int32
 			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

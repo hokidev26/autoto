@@ -113,7 +113,7 @@ export default Object.freeze({
     title: "工作概覽", subtitle: "查看近期統計與使用情況。", refresh: "重新整理", refreshing: "正在重新整理…", capturedAt: "更新於 {time}", loading: "正在載入首頁…", loadFailed: "首頁載入失敗", retryHint: "請稍後再試，或使用重新整理按鈕再次載入。", loaded: "首頁已更新。",
     conversations: "對話", tasks: "任務", running: "正在執行", schedules: "排程", conversationSummary: "最近對話與歷史紀錄", taskBreakdown: "待辦 {todo} · 進行中 {doing} · 已完成 {done}", scheduleBreakdown: "已啟用 {enabled} / 共 {total}", activeRuns: "活躍執行", runningAgents: "執行代理",
     greetingMorning: "早安，{name}", greetingAfternoon: "午安，{name}", greetingEvening: "晚安，{name}", greetingFallback: "今天想做什麼？", launcherSubtitle: "描述任務或提出問題，Autoto 會立即開始。", promptPlaceholder: "描述任務或提出問題", promptRequired: "請輸入要傳送的內容。",
-    project: "專案", model: "模型", reasoningEffort: "思考強度", reasoningAuto: "自動", reasoningLow: "低", reasoningMedium: "中", reasoningHigh: "高", chooseDirectory: "選擇資料夾", noProjects: "暫無專案", send: "傳送", starting: "正在啟動…", projectRequired: "請先選擇一個工作區專案。",
+    project: "專案", model: "模型", reasoningEffort: "思考強度", reasoningAuto: "自動", reasoningLow: "低", reasoningMedium: "中", reasoningHigh: "高", reasoningXhigh: "超高", reasoningMax: "最強", reasoningUltra: "極致", chooseDirectory: "選擇資料夾", noProjects: "暫無專案", send: "傳送", starting: "正在啟動…", projectRequired: "請先選擇一個工作區專案。",
     suggestionWrite: "編寫程式碼", suggestionFix: "修復問題", suggestionPlan: "規劃任務", suggestionExplain: "解釋程式碼", suggestionWritePrompt: "幫我編寫程式碼來實作這個需求：", suggestionFixPrompt: "幫我定位並修復這個問題：", suggestionPlanPrompt: "幫我為這個目標制定實作計畫：", suggestionExplainPrompt: "幫我解釋這段程式碼的運作方式：",
     conversationUnavailable: "該對話已無法使用。", taskUnavailable: "該任務已無法使用。", runUnavailable: "該執行已無法使用。", scheduleUnavailable: "該排程已無法使用。", approvalsUnavailable: "找不到仍可處理的待審批操作。總覽資料可能剛剛變更，請重新整理後再試。",
     recentSection: "最近對話", recentEmpty: "還沒有對話。在上方輸入需求開始第一個。", untitledConversation: "未命名對話", upcomingSection: "即將執行的排程", upcomingEmpty: "目前沒有排定的執行。", scheduleNextRun: "下次執行 {time}",
@@ -1772,6 +1772,7 @@ export default Object.freeze({
     navigation: {
       toggleConversations: "展開或收起該專案的對話", toggleForks: "展開或收起該對話的分支",
       messageCount: "{count} 條訊息", noResults: "沒有符合「{query}」的結果。", chooseFolder: "選擇資料夾開始", chooseFolderHint: "選擇資料夾後建立或開啟專案", noConversations: "暫無專案對話。", noProjects: "暫無可用專案。", noRecentConversations: "暫無最近對話",
+      statusRunning: "執行中", statusWaiting: "等待子代理", statusError: "發生錯誤", statusInterrupted: "已中斷", statusIdle: "閒置",
     },
     directory: {
       folderNotSet: "未設定目錄", pathNotSet: "未設定路徑", nativeUnavailable: "原生選擇器不可用，已切換到內建目錄瀏覽器。", openingNative: "正在開啟系統資料夾選擇器…", selectionCanceled: "已取消選擇資料夾。", selected: "已選擇：{path}", loading: "正在載入目錄…", chooseHint: "選擇目前目錄後會建立或開啟專案。", currentPath: "目前路徑", home: "主目錄", desktop: "桌面", downloads: "下載項目", documents: "文件", projects: "專案", root: "根目錄", noRecent: "暫無最近目錄", noFavorites: "暫無收藏", parent: "上一層", folder: "資料夾", empty: "此目錄下沒有可進入的資料夾。", nameRequired: "請輸入新資料夾名稱。", nameDots: "資料夾名稱不能是 . 或 ..。", nameTooLong: "資料夾名稱過長，請控制在 255 個字元以內。", nameInvalid: "資料夾名稱不能包含路徑分隔符號或空字元", created: "資料夾已建立。",

@@ -332,7 +332,8 @@ function projectOrderTier(pinned, archived) {
 // compromise between chat-style "latest bubbles up" and a fully manual order.
 export function conversationHasFreshActivity(conversation, seenMap = {}) {
   const status = text(conversation?.agentStatus).toLocaleLowerCase();
-  if (status === "running" || status === "pending" || status === "queued") return true;
+  // "waiting" counts: a conversation parked on a subagent is mid-task, not done.
+  if (status === "running" || status === "pending" || status === "queued" || status === "waiting") return true;
   return conversationUnread(conversation, seenMap);
 }
 
@@ -597,6 +598,26 @@ export function navigationAgentStatusClass(value) {
   return text(value).toLocaleLowerCase().replace(/[^a-z0-9_-]+/g, "-").replace(/^-+|-+$/g, "") || "idle";
 }
 
+// The meta line spells out what the conversation is doing right now, in the
+// reader's language. Raw backend statuses ("idle", "running") used to leak
+// into the sidebar untranslated and said nothing about a parked parent.
+const navigationStatusLabelKeys = Object.freeze({
+  running: "workspace.navigation.statusRunning",
+  pending: "workspace.navigation.statusRunning",
+  queued: "workspace.navigation.statusRunning",
+  waiting: "workspace.navigation.statusWaiting",
+  error: "workspace.navigation.statusError",
+  failed: "workspace.navigation.statusError",
+  interrupted: "workspace.navigation.statusInterrupted",
+  idle: "workspace.navigation.statusIdle",
+  completed: "workspace.navigation.statusIdle",
+});
+
+export function navigationStatusLabel(value) {
+  const key = navigationStatusLabelKeys[navigationAgentStatusClass(value)];
+  return key ? t(key) : text(value);
+}
+
 // A collapsed group hides its rows, so the project row has to carry the unread
 // mark for the conversations underneath it or a finished reply would be
 // invisible until the user expanded the group.
@@ -612,6 +633,7 @@ export function aggregateNavigationAgentStatus(conversations = []) {
   if (!list.length) return "";
   const statuses = list.map((item) => navigationAgentStatusClass(item?.agentStatus || item?.status));
   if (statuses.some((status) => status === "running" || status === "pending" || status === "queued")) return "running";
+  if (statuses.some((status) => status === "waiting")) return "waiting";
   if (statuses.some((status) => status === "error" || status === "failed")) return "error";
   return "idle";
 }
@@ -711,7 +733,7 @@ function renderConversation(conversation, activeAgentId, nested = false, options
   const context = nested
     ? worklineContext
     : [projectContext, worklineContext].filter((value, index, items) => value && items.indexOf(value) === index).join(" / ");
-  const metaParts = [context, conversation.model, conversation.agentStatus];
+  const metaParts = [context, conversation.model, navigationStatusLabel(conversation.agentStatus)];
   if (!taskContext) metaParts.push(t("workspace.navigation.messageCount", { count: conversation.messageCount }));
   const meta = metaParts.filter(Boolean).join(" · ");
   const stateClass = `${conversation.agentPinned ? "pinned " : ""}${conversation.agentArchivedAt ? "archived " : ""}`;

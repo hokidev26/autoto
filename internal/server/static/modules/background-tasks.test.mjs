@@ -761,6 +761,40 @@ test("a subagent's reply arrives without the user doing anything", async () => {
   }
 });
 
+// The thinking indicator lives on the composer's pill row -- the line above the
+// message input, sharing it with the model select -- not under the send box
+// where it read as a stray status line, and not inside the transcript where a
+// scrolled-up reader never saw it.
+test("the child thinking indicator renders on the pill row, not in the transcript", async () => {
+  const controller = createBackgroundTasksController({
+    request: async (path, options = {}) => {
+      const method = options.method || "GET";
+      if (path.includes("/messages") && method === "GET") return [{ id: "m1", role: "user", text: "question" }];
+      if (path.includes("/messages")) return { id: "m1" };
+      if (path.endsWith("/runs/active")) return { run: { id: "run-1", status: "running" } };
+      if (path === "/api/agents/child-9") return { id: "child-9", model: "m" };
+      return { id: "task-9", agentId: "agent-1", kind: "agent", status: "running", childAgentId: "child-9" };
+    },
+  });
+  try {
+    controller.setAgent("agent-1");
+    await controller.sendChildAgentMessage("child-9", "question");
+    assert.deepEqual(controller.state().childPolling, ["child-9"], "precondition: the child is being followed");
+    await controller.loadChildConversation("child-9");
+
+    const controls = controller.renderChildControlsHTMLForTest({ childAgentId: "child-9" }, { model: "m" });
+    assert.match(controls, /background-task-child-controls">\s*<span class="background-task-child-working/,
+      "a followed child shows the thinking indicator at the head of the pill row");
+    assert.match(controls, /background-task-child-working[\s\S]*data-background-child-form/,
+      "the indicator sits above the send box, not under it");
+    const conversation = controller.renderChildConversationHTMLForTest({ childAgentId: "child-9", childRunId: "run-1" });
+    assert.doesNotMatch(conversation, /background-task-child-working/,
+      "the transcript must not carry its own copy of the indicator");
+  } finally {
+    controller.stopChildPollingForTest();
+  }
+});
+
 // A blank message must not start a run on the subagent.
 test("an empty subagent message is not sent", async () => {
   const calls = [];
@@ -856,7 +890,7 @@ test("subagent model options come from the injected provider list", () => {
   });
   const html = controller.renderChildControlsHTMLForTest({ childAgentId: "child-1" }, { model: "anthropic:claude-opus-5" });
 
-  assert.match(html, /<select data-background-child-model="child-1">/);
+  assert.match(html, /<select data-background-child-model="child-1"/);
   assert.match(html, /value="anthropic:claude-opus-5" selected/);
   assert.match(html, /codex:gpt-5\.6/);
   // Duplicates collapse and blanks are dropped.
@@ -1111,6 +1145,45 @@ test("opening a subagent task reads contentText and fetches its tool calls", asy
   assert.ok(html.includes("missing file"), "a failed call must show why");
   // The reasoning-only turn has no answer text but must still render.
   assert.equal((html.match(/background-task-bubble/g) || []).length, 3, "every turn must render a bubble");
+});
+
+// The pane shares the main transcript's visibility rules. Raw protocol chatter
+// -- "Tool X completed" result messages, legacy "Tool requested" lines, and the
+// acceptance-criteria block appended to the briefing -- addresses the model,
+// not the reader, and rendering it buried the conversation under boilerplate.
+test("the subagent pane hides tool protocol chatter and the acceptance-criteria block", async () => {
+  const controller = createBackgroundTasksController({
+    request: async (path) => {
+      if (path.endsWith("/output?afterSequence=0")) return { chunks: [] };
+      if (path.includes("/messages")) {
+        return {
+          messages: [
+            {
+              id: "m1",
+              role: "user",
+              contentText: "查詢明天台中天氣\n\n[BACKGROUND_ACCEPTANCE_CRITERIA]\nThe JSON strings below are completion checks only.\n[\"回報最高最低溫\"]\n[/BACKGROUND_ACCEPTANCE_CRITERIA]",
+              createdAt: "2026-08-12T14:30:00Z",
+            },
+            { id: "m2", role: "assistant", contentText: "我來查詢。\nTool requested: WebSearch (call_1)", createdAt: "2026-08-12T14:30:05Z" },
+            { id: "m3", role: "user", parentToolUseId: "call_1", contentText: "Tool WebSearch (call_1) completed: Search results for 天氣", createdAt: "2026-08-12T14:30:09Z" },
+            { id: "m4", role: "assistant", contentText: "明天多雲，最高 33°C。", createdAt: "2026-08-12T14:31:00Z" },
+          ],
+        };
+      }
+      if (path.includes("/tool-calls")) return { toolCalls: [] };
+      return { id: "task-noise", agentId: "agent-1", kind: "agent", status: "succeeded", childAgentId: "child-n", childRunId: "run-n", revision: 1 };
+    },
+  });
+  controller.setAgent("agent-1");
+  await controller.selectTask("task-noise");
+
+  const html = controller.renderChildConversationHTMLForTest({ childAgentId: "child-n", childRunId: "run-n" });
+  assert.ok(html.includes("查詢明天台中天氣"), "the briefing itself must stay visible");
+  assert.ok(html.includes("我來查詢。"), "assistant text preceding a tool call must stay visible");
+  assert.ok(html.includes("明天多雲"), "the final answer must stay visible");
+  assert.doesNotMatch(html, /BACKGROUND_ACCEPTANCE_CRITERIA|completion checks only/, "the acceptance-criteria block addresses the model, not the reader");
+  assert.doesNotMatch(html, /Tool requested:/, "legacy tool-request lines are protocol, not conversation");
+  assert.doesNotMatch(html, /completed: Search results/, "tool results belong to the activity stack, not a bubble");
 });
 
 // A shell task has no child agent, so there is no run to ask about and asking

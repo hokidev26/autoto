@@ -104,11 +104,23 @@ func TestBashBackgroundRejectsShellEscape(t *testing.T) {
 	}
 }
 
-func TestAgentResumeParentRequiresDurableRun(t *testing.T) {
+// The model's resume_parent value is deprecated and ignored: models filled the
+// optional boolean with false out of habit, which silently disabled the report
+// the user was waiting for. Reporting follows the runner's support flag alone,
+// and a run that cannot park downgrades to a plain dispatch instead of failing.
+func TestAgentResumeParentFollowsRunnerSupportNotModelInput(t *testing.T) {
 	service := &fakeBackgroundTaskService{}
-	result, err := (AgentTool{}).Execute(context.Background(), Call{ID: "agent-call", Name: "Agent", Input: json.RawMessage(`{"prompt":"inspect","resume_parent":true}`)}, Env{AgentID: "parent", CWD: t.TempDir(), Background: service})
-	if err != nil || !result.IsError || len(service.submitted) != 0 {
-		t.Fatalf("expected resume_parent rejection without a run, result=%+v err=%v requests=%+v", result, err, service.submitted)
+	// Explicit false from the model is overridden when the run supports resume.
+	input := json.RawMessage(`{"prompt":"inspect","resume_parent":false,"run_in_background":true}`)
+	result, err := (AgentTool{}).Execute(context.Background(), Call{ID: "agent-call", Name: "Agent", Input: input}, Env{AgentID: "parent", RunID: "run-1", CWD: t.TempDir(), Background: service, ResumeParentSupported: true})
+	if err != nil || result.IsError || len(service.submitted) != 1 || !service.submitted[0].ResumeParent {
+		t.Fatalf("expected dispatch to resume the parent despite resume_parent:false, result=%+v err=%v requests=%+v", result, err, service.submitted)
+	}
+	// Explicit true without a durable run downgrades instead of rejecting.
+	service.submitted = nil
+	result, err = (AgentTool{}).Execute(context.Background(), Call{ID: "agent-call-2", Name: "Agent", Input: json.RawMessage(`{"prompt":"inspect","resume_parent":true}`)}, Env{AgentID: "parent", CWD: t.TempDir(), Background: service})
+	if err != nil || result.IsError || len(service.submitted) != 1 || service.submitted[0].ResumeParent {
+		t.Fatalf("expected a plain dispatch without a durable run, result=%+v err=%v requests=%+v", result, err, service.submitted)
 	}
 }
 

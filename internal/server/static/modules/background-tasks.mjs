@@ -12,6 +12,7 @@ import {
   persistedReasoningSteps,
   renderToolActivityCardHTML,
   renderToolActivityStackHTML,
+  transcriptMessageText,
 } from "./chat-rendering.mjs?v=protected-images-1-message-thread-1-plan-mode-2-user-message-left-1-switch-fix-3-hide-run-loading-1-i18n-shared-1-conversation-boundary-1-subagent-cards-1-message-lifecycle-1-subagent-incremental-1-profile-message-identity-1-profile-avatar-1-provider-errors-1-compact-run-error-1-first-token-task-status-1-tool-activity-lazy-1-tool-protocol-filter-1-live-assistant-last-1-tool-activity-svg-icons-1-reasoning-steps-1-reasoning-history-1-markdown-2-tool-inline-detail-1-md-table-1-tool-position-1-project-run-history-1-dup-activity-fix-1-reasoning-count-1-avatar-logo-fix-1-markdown-stream-1-reasoning-handover-1";
 
 const terminalStatuses = new Set(["completed", "complete", "succeeded", "success", "failed", "error", "cancelled", "canceled", "interrupted"]);
@@ -31,6 +32,15 @@ const activeTaskReconcileMs = 10000;
 
 function text(value) {
   return String(value ?? "").trim();
+}
+
+// The dispatcher appends a bracketed acceptance-criteria protocol block to the
+// child's briefing. It addresses the child model, so the panel showing the
+// briefing to a person renders the task itself without the contract boilerplate.
+function stripAcceptanceCriteriaBlock(value) {
+  return String(value ?? "")
+    .replace(/\n*\[BACKGROUND_ACCEPTANCE_CRITERIA\][\s\S]*?\[\/BACKGROUND_ACCEPTANCE_CRITERIA\]/g, "")
+    .trim();
 }
 
 // Only the tones the status dot has a style for; anything else falls back to
@@ -353,6 +363,10 @@ export function createBackgroundTasksController({
   const openTabs = [];
   // "" is the overview: the list of everything, and where a closed tab returns to.
   let selected = "";
+  // Which task's detail pane the last render actually drew, so a re-render can
+  // tell "same conversation updated" (preserve the reader's scroll) apart from
+  // "a different task opened" (land on its newest turn).
+  let renderedDetailTaskId = "";
   let agentId = "";
   let agentGeneration = 0;
   let trayOpen = false;
@@ -1114,11 +1128,12 @@ export function createBackgroundTasksController({
     const knownMessageIds = new Set(messages.map((message) => text(message?.id)).filter(Boolean));
     const bubbles = messages.map((message) => {
       const role = text(message?.role) === "user" ? "user" : "assistant";
-      // contentText is what the messages endpoint returns. This read used to be
-      // `message.text || message.content`, and neither field has ever existed on
-      // that payload, so every bubble was dropped as empty below and the pane
-      // rendered blank for a task that had run for twenty minutes.
-      const body = text(message?.contentText || message?.text || message?.content);
+      // Same visibility rules as the main transcript: tool result messages
+      // render as rows in the activity stack, not as raw "Tool X completed"
+      // bubbles, and legacy "Tool requested" lines are stripped from assistant
+      // text. The briefing additionally drops the acceptance-criteria protocol
+      // block, which is a contract for the child model, not for the reader.
+      const body = stripAcceptanceCriteriaBlock(transcriptMessageText(message));
       const reasoning = text(message?.reasoningText);
       const calls = callsByMessage.get(text(message?.id)) || [];
       // A turn with no answer text is still worth showing when it reasoned or
@@ -1242,6 +1257,36 @@ export function createBackgroundTasksController({
     return true;
   }
 
+  // How each control folds when the panel is squeezed, mirroring the main
+  // composer's phone rendering: model and permission fall back to their icons,
+  // reasoning effort to a letter.
+  const effortShortLabels = Object.freeze({ auto: "A", low: "L", medium: "M", high: "H", xhigh: "XH", max: "MX", ultra: "UL" });
+  const effortLabelKeys = Object.freeze({ auto: "overview.reasoningAuto", low: "overview.reasoningLow", medium: "overview.reasoningMedium", high: "overview.reasoningHigh" });
+  const childPillIcons = Object.freeze({
+    model: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m12 3 7.5 4.2v8.6L12 20l-7.5-4.2V7.2z"></path><path d="m4.8 7.4 7.2 4.1 7.2-4.1M12 11.5V20"></path></svg>`,
+    permission: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 19 6v5c0 4.5-2.5 7.8-7 10-4.5-2.2-7-5.5-7-10V6z"></path><path d="M9 12.2 11 14l4-4"></path></svg>`,
+  });
+
+  function effortValueLabel(effort) {
+    const key = effortLabelKeys[effort];
+    return key ? t(key) : effort;
+  }
+
+  // One pill = the visible value, a folded short form, and an invisible native
+  // select stretched over the whole pill. The row reads like the main composer
+  // (wide: value pills; squeezed: icons and a letter) while the interaction
+  // stays the platform's own dropdown, so no menu wiring is duplicated here.
+  function childControlPillHTML({ title, iconHTML, shortText, valueLabel, selectHTML }) {
+    const short = shortText
+      ? `<span class="background-task-pill-short" aria-hidden="true">${escapeHtml(shortText)}</span>`
+      : `<span class="background-task-pill-short" aria-hidden="true">${iconHTML || ""}</span>`;
+    return `<span class="background-task-child-pill" title="${escapeAttr(title)}">
+      <span class="background-task-pill-value">${escapeHtml(valueLabel)}</span>
+      ${short}
+      ${selectHTML}
+    </span>`;
+  }
+
   // Mirrors the main composer's controls so a subagent can be retargeted without
   // opening it as the foreground conversation.
   function renderChildControlsHTML(task) {
@@ -1259,41 +1304,57 @@ export function createBackgroundTasksController({
     // choices as the main composer instead of asking the user to type an id.
     const options = availableModels();
     const known = options.some((option) => option.value === model);
-    return `<div class="background-task-child-controls">
-      <label class="background-task-child-field">
-        <span>${escapeHtml(t("chat.model"))}</span>
-        ${options.length
-          ? `<select data-background-child-model="${escapeAttr(childAgentId)}">
+    const modelLabel = options.find((option) => option.value === model)?.label || model || t("chat.model");
+    const permissionKey = (permissionOptions.find(([value]) => value === permission) || permissionOptions[3])[1];
+    const modelControl = options.length
+      ? childControlPillHTML({
+          title: t("chat.model"),
+          iconHTML: childPillIcons.model,
+          valueLabel: modelLabel,
+          selectHTML: `<select data-background-child-model="${escapeAttr(childAgentId)}" aria-label="${escapeAttr(t("chat.model"))}">
               ${!known && model ? `<option value="${escapeAttr(model)}" selected>${escapeHtml(model)}</option>` : ""}
               ${options.map((option) => `<option value="${escapeAttr(option.value)}" ${option.value === model ? "selected" : ""}>${escapeHtml(option.label)}</option>`).join("")}
-            </select>`
-          : `<input type="text" data-background-child-model="${escapeAttr(childAgentId)}" value="${escapeAttr(model)}" spellcheck="false" />`}
-      </label>
-      <label class="background-task-child-field compact">
-        <span>${escapeHtml(t("chat.reasoningEffort"))}</span>
-        <select data-background-child-effort="${escapeAttr(childAgentId)}">
-          ${effortOptions.map((option) => `<option value="${escapeAttr(option)}" ${option === effort ? "selected" : ""}>${escapeHtml(option === "auto" ? t("modelProvider.automatic") : option)}</option>`).join("")}
-        </select>
-      </label>
-      <label class="background-task-child-field compact">
-        <span>${escapeHtml(t("chat.permissionMode"))}</span>
-        <select data-background-child-permission="${escapeAttr(childAgentId)}">
+            </select>`,
+        })
+      : `<label class="background-task-child-field">
+          <span>${escapeHtml(t("chat.model"))}</span>
+          <input type="text" data-background-child-model="${escapeAttr(childAgentId)}" value="${escapeAttr(model)}" spellcheck="false" />
+        </label>`;
+    // The thinking status shares the row with the pills, sitting at its left
+    // edge while the pills keep the right: it reads as part of the composer
+    // strip instead of a stray line floating under the send box.
+    return `<div class="background-task-child-controls">
+      ${working ? `<span class="background-task-child-working" role="status"><span class="background-task-child-working-dot" aria-hidden="true"></span>${escapeHtml(t("backgroundTasks.childWorking"))}</span>` : ""}
+      ${modelControl}
+      ${childControlPillHTML({
+        title: t("chat.reasoningEffort"),
+        shortText: effortShortLabels[effort] || effort.slice(0, 2).toUpperCase(),
+        valueLabel: effortValueLabel(effort),
+        selectHTML: `<select data-background-child-effort="${escapeAttr(childAgentId)}" aria-label="${escapeAttr(t("chat.reasoningEffort"))}">
+          ${effortOptions.map((option) => `<option value="${escapeAttr(option)}" ${option === effort ? "selected" : ""}>${escapeHtml(effortValueLabel(option))}</option>`).join("")}
+        </select>`,
+      })}
+      ${childControlPillHTML({
+        title: t("chat.permissionMode"),
+        iconHTML: childPillIcons.permission,
+        valueLabel: t(permissionKey),
+        selectHTML: `<select data-background-child-permission="${escapeAttr(childAgentId)}" aria-label="${escapeAttr(t("chat.permissionMode"))}">
           ${permissionOptions.map(([value, key]) => `<option value="${escapeAttr(value)}" ${value === permission ? "selected" : ""}>${escapeHtml(t(key))}</option>`).join("")}
-        </select>
-      </label>
+        </select>`,
+      })}
     </div>
     <form class="background-task-child-composer" data-background-child-form="${escapeAttr(childAgentId)}">
       <input type="text" name="message" placeholder="${escapeAttr(t("chat.messagePlaceholder"))}" autocomplete="off" />
       <button type="submit" class="ghost-btn mini">${escapeHtml(t("chat.send"))}</button>
-    </form>
-    ${working ? `<div class="background-task-child-working" role="status"><span class="background-task-child-working-dot" aria-hidden="true"></span>${escapeHtml(t("backgroundTasks.childWorking"))}</div>` : ""}`;
+    </form>`;
   }
 
-  function renderSelectedTask(task) {
-    if (!task) return `<div class="background-task-empty">${escapeHtml(t("backgroundTasks.selectTask"))}</div>`;
+  // The <section class="background-task-detail"> wrapper is NOT part of this
+  // markup: render() keeps that element alive across updates and only replaces
+  // its children, because destroying the pane's scroll container on every poll
+  // tick is what kept throwing the reader back to the top of the conversation.
+  function renderSelectedTaskContentHTML(task) {
     const output = taskOutputText(task.id);
-    const canCancel = cancellableStatuses.has(task.status);
-    const isTerminal = terminalStatuses.has(task.status);
     const hasChild = Boolean(text(task.childAgentId));
     // An agent task reads as a conversation, full stop. The conversation/output
     // tabs made the pane look like a debugging surface and the "output" side was
@@ -1303,8 +1364,7 @@ export function createBackgroundTasksController({
     const view = hasChild ? "conversation" : "output";
     // No title block here: the active tab above already names the task and shows
     // its status, and repeating both cost a third of the pane.
-    return `<section class="background-task-detail">
-      <div class="background-task-meta"><span class="background-task-state status-${escapeAttr(task.status)}">${escapeHtml(taskStatusLabel(task.status))}</span><span>${escapeHtml(task.createdAt ? formatTimestamp(task.createdAt) : "—")}</span><span>${escapeHtml(task.durationMs == null ? "—" : formatDuration(task.durationMs))}</span></div>
+    return `<div class="background-task-meta"><span class="background-task-state status-${escapeAttr(task.status)}">${escapeHtml(taskStatusLabel(task.status))}</span><span>${escapeHtml(task.createdAt ? formatTimestamp(task.createdAt) : "—")}</span><span>${escapeHtml(task.durationMs == null ? "—" : formatDuration(task.durationMs))}</span></div>
       ${task.error || task.errorCode ? `<div class="background-task-error">${escapeHtml([task.errorCode ? t("backgroundTasks.errorCode", { code: task.errorCode }) : "", task.error ? t("backgroundTasks.errorMessage", { message: task.error }) : ""].filter(Boolean).join(" · "))}</div>` : ""}
       ${view === "conversation"
         ? renderChildConversationHTML(task)
@@ -1313,8 +1373,7 @@ export function createBackgroundTasksController({
       ${view === "conversation" ? renderChildControlsHTML(task) : ""}
       <div class="background-task-actions">
         ${task.outputHasMore && view === "output" ? `<button type="button" class="ghost-btn mini" data-background-output-more="${escapeAttr(task.id)}">${escapeHtml(t("backgroundTasks.loadMore"))}</button>` : ""}
-      </div>
-    </section>`;
+      </div>`;
   }
 
   function render() {
@@ -1362,6 +1421,9 @@ export function createBackgroundTasksController({
       headerButton.classList.toggle("active", trayOpen);
       headerButton.classList.toggle("has-task", hasCurrentActivity);
       headerButton.classList.toggle("has-foreground-activity", Boolean(foregroundActivity));
+      // The tone drives the text colour too: an amber spinner beside blue text
+      // read as two unrelated indicators.
+      headerButton.setAttribute("data-task-tone", currentTone);
     }
     if (headerText) setTextIfChanged(headerText, currentText);
     if (headerQueue) {
@@ -1377,7 +1439,26 @@ export function createBackgroundTasksController({
     tray.classList.toggle("hidden", !trayOpen || !agentId);
     if (!trayOpen || !agentId) return;
     const tasks = orderedTasks().slice(0, 12);
-    setHTMLIfChanged(tray, `<header class="utility-panel-head background-task-tray-head">
+    const detailTask = selected ? tasksById.get(selected) : null;
+    // The detail pane's <section> goes into the tray markup as an EMPTY shell
+    // and its content is written separately below. A content update -- a poll
+    // tick, a new turn, a status change -- then replaces the section's children
+    // without destroying the section, and the browser keeps the reader's scroll
+    // position on its own. Rebuilding the section on every update is what kept
+    // yanking the conversation back to the top while a subagent was thinking.
+    // A tray-level rewrite (tab strip, counts, errors) still replaces the
+    // section, so its position is captured here and carried across by hand.
+    const prevDetail = tray.querySelector?.(".background-task-detail");
+    const prevScrollTop = prevDetail ? prevDetail.scrollTop : 0;
+    const prevAtBottom = Boolean(prevDetail)
+      && prevDetail.scrollHeight - prevDetail.scrollTop - prevDetail.clientHeight < 48;
+    const sameDetail = Boolean(prevDetail) && renderedDetailTaskId === selected;
+    // The composer draft and its focus survive the swap too: a rewrite mid-poll
+    // must not eat the message being typed to the child.
+    const prevComposer = prevDetail?.querySelector?.(".background-task-child-composer input");
+    const composerDraft = prevComposer ? String(prevComposer.value || "") : "";
+    const composerHadFocus = Boolean(prevComposer) && typeof document !== "undefined" && document.activeElement === prevComposer;
+    const trayRewrote = setHTMLIfChanged(tray, `<header class="utility-panel-head background-task-tray-head">
         <div class="background-task-panel-title"><span class="background-task-panel-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="4" y="5" width="16" height="14" rx="2.5"></rect><path d="M8 9h8M8 13h5M8 17h3"></path></svg></span><div><strong>${escapeHtml(t("backgroundTasks.title"))}</strong><span>${escapeHtml(t("backgroundTasks.summary", { active: activeCount, total: order.length }))}</span></div></div>
         <button type="button" class="icon-btn" data-background-close aria-label="${escapeAttr(t("backgroundTasks.close"))}">×</button>
       </header>
@@ -1387,7 +1468,9 @@ export function createBackgroundTasksController({
           ${renderTabStripHTML()}
           <div class="background-task-tray-pane">
             ${selected
-              ? renderSelectedTask(tasksById.get(selected))
+              ? (detailTask
+                ? `<section class="background-task-detail"></section>`
+                : `<div class="background-task-empty">${escapeHtml(t("backgroundTasks.selectTask"))}</div>`)
               : `<div class="background-task-overview">${loading && !tasks.length
                 ? `<div class="background-task-empty">${escapeHtml(t("backgroundTasks.loading"))}</div>`
                 : tasks.length
@@ -1396,6 +1479,23 @@ export function createBackgroundTasksController({
           </div>
         </div>
       </div>`);
+    renderedDetailTaskId = detailTask ? selected : "";
+    const detail = tray.querySelector?.(".background-task-detail");
+    if (!detail || !detailTask) return;
+    // When the section survived, read its live position (the pre-write capture
+    // and the live value are the same element, but this keeps the logic honest).
+    const atBottom = trayRewrote ? prevAtBottom : detail.scrollHeight - detail.scrollTop - detail.clientHeight < 48;
+    const contentRewrote = setHTMLIfChanged(detail, renderSelectedTaskContentHTML(detailTask));
+    if (contentRewrote && (composerDraft || composerHadFocus)) {
+      const input = detail.querySelector?.(".background-task-child-composer input");
+      if (input) {
+        input.value = composerDraft;
+        if (composerHadFocus) input.focus?.({ preventScroll: true });
+      }
+    }
+    if (!sameDetail) detail.scrollTop = detail.scrollHeight;
+    else if (trayRewrote) detail.scrollTop = prevAtBottom ? detail.scrollHeight : prevScrollTop;
+    else if (contentRewrote && atBottom) detail.scrollTop = detail.scrollHeight;
   }
 
   function closeTray(reason = "tray-close") {

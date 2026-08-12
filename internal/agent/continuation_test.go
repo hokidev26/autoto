@@ -363,6 +363,162 @@ func TestBackgroundTaskContinuationBoundaryRequiresResumeParent(t *testing.T) {
 	}
 }
 
+// A chat is where users actually dispatch subagents, so the conversation run
+// must support the resume_parent boundary; the safe-mode gate only exists to
+// stop runaway auto-continuation, not a deliberate park. Plan drafts stay out
+// because validateContinuationBoundary refuses to resume them at all.
+func TestRunSupportsResumeParentCoversConversationRuns(t *testing.T) {
+	runner := &Runner{}
+	cases := []struct {
+		name string
+		run  db.Run
+		want bool
+	}{
+		{"conversation run", db.Run{ID: "run-1", Source: db.RunSourceConversation, ExecutionMode: db.RunExecutionModeExecute, AutoContinuationMode: continuationModeOff}, true},
+		{"manual execute run", db.Run{ID: "run-2", Source: db.RunSourceManual, ExecutionMode: db.RunExecutionModeExecute}, true},
+		{"plan draft run", db.Run{ID: "run-3", ExecutionMode: db.RunExecutionModePlan}, false},
+		{"no durable run", db.Run{}, false},
+	}
+	for _, tc := range cases {
+		if got := runner.runSupportsResumeParent(tc.run); got != tc.want {
+			t.Fatalf("%s: runSupportsResumeParent = %v, want %v", tc.name, got, tc.want)
+		}
+	}
+}
+
+// The wait boundary must schedule even when the run's continuation mode is
+// off: conversation runs force mode off, and refusing the boundary there is
+// what silently swallowed every subagent report in chats.
+func TestScheduleContinuationAllowsBackgroundTaskBoundaryWhenModeOff(t *testing.T) {
+	runner := &Runner{}
+	state := continuationRunState{limits: continuationLimits{
+		mode:             continuationModeOff,
+		maxContinuations: 10,
+		maxTotalTurns:    continuationUnlimited,
+		maxTokens:        continuationUnlimited,
+	}}
+	// Ordinary auto-continuation stays refused with mode off.
+	if _, err := runner.scheduleContinuation(context.Background(), state, segmentOutcome{continuationReason: continuationReasonMaxOutputTokens}); err == nil || !strings.Contains(err.Error(), "disabled") {
+		t.Fatalf("expected the safe-mode gate to refuse ordinary continuation, got %v", err)
+	}
+	// The background boundary passes the gate; with no store wired the next
+	// failure must be about the missing durable resume message, proving the
+	// mode gate itself no longer rejects it.
+	_, err := runner.scheduleContinuation(context.Background(), state, segmentOutcome{continuationReason: continuationReasonBackgroundTask})
+	if err == nil || !strings.Contains(err.Error(), "no durable resume message") {
+		t.Fatalf("expected the boundary to pass the mode gate and fail on the resume message, got %v", err)
+	}
+}
+
+// The wake-up itself must hand the parent its child's answer. Pointing the
+// parent at the Task status/output tools failed in practice: agent-kind tasks
+// have no raw output stream, so the parent inspected an empty result and told
+// the user the child's work was unavailable while the answer sat in the
+// child's transcript.
+func TestWakeControlMessageCarriesSubagentReport(t *testing.T) {
+	ctx := context.Background()
+	store, parent := newAgentTestStore(t, t.TempDir(), "acceptEdits")
+	defer store.Close()
+	runner := newAgentTestRunner(store, &scriptedProvider{}, config.AgentConfig{})
+	child, err := store.CreateAgent(ctx, db.Agent{WorklineID: parent.WorklineID, ParentAgentID: parent.ID, Type: "subagent", SubagentType: "research", Title: "Research", Model: "fake:test", PermissionMode: "readOnly", Status: "idle", CWD: parent.CWD})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.AddMessage(ctx, db.Message{AgentID: child.ID, Role: "assistant", ContentText: "下週高雄有三場活動：A、B、C。"}); err != nil {
+		t.Fatal(err)
+	}
+	runner.SetBackgroundTaskService(&staticBackgroundTaskService{task: tools.BackgroundTask{
+		ID: "task-report", OwnerAgentID: parent.ID, ParentRunID: "run-1", Kind: tools.BackgroundTaskKindAgent,
+		Status: "succeeded", ResumeParent: true, ChildAgentID: child.ID,
+	}})
+	run := db.Run{ID: "run-1", AgentID: parent.ID, WaitingBackgroundTaskID: "task-report", ContinuationReason: continuationReasonBackgroundTask, ResumeAfterMessageID: "message-1"}
+	report := runner.waitingBackgroundTaskReport(ctx, run)
+	if !strings.Contains(report, "status: succeeded") || !strings.Contains(report, "下週高雄有三場活動") {
+		t.Fatalf("report must carry the child's answer, got %q", report)
+	}
+	message := continuationControlMessageWithReport(run, 1, report)
+	if !strings.Contains(message.Content, "[BEGIN SUBAGENT REPORT]") || !strings.Contains(message.Content, "下週高雄有三場活動") {
+		t.Fatalf("control message must embed the report, got %q", message.Content)
+	}
+	// A task with neither an answer nor an error keeps the old inspect wording
+	// rather than embedding an empty report.
+	runner.SetBackgroundTaskService(&staticBackgroundTaskService{task: tools.BackgroundTask{
+		ID: "task-report", OwnerAgentID: parent.ID, Kind: tools.BackgroundTaskKindShell, Status: "succeeded",
+	}})
+	if report := runner.waitingBackgroundTaskReport(ctx, run); report != "" {
+		t.Fatalf("expected no report without an answer or error, got %q", report)
+	}
+	fallback := continuationControlMessageWithReport(run, 1, "")
+	if !strings.Contains(fallback.Content, "inspect it with the Task status/output actions") {
+		t.Fatalf("fallback wording missing, got %q", fallback.Content)
+	}
+}
+
+// A chat in a plain folder parks on a subagent boundary with no workspace
+// snapshot: the Git-anchored plan snapshot provider fails there by design and
+// prepareContinuationRun tolerates it for non-plan runs. Waking that boundary
+// must apply the same tolerance -- refusing it is the exact failure that let a
+// dispatch succeed while the child's report could never be delivered
+// ("load continuation safety snapshot: workspace must be a Git repository").
+func TestWakeToleratesMissingSnapshotForBackgroundWaitBoundary(t *testing.T) {
+	ctx := context.Background()
+	store, createdAgent := newAgentTestStore(t, t.TempDir(), "acceptEdits")
+	defer store.Close()
+	runner := newAgentTestRunner(store, &scriptedProvider{}, config.AgentConfig{AutoContinuationMode: "safe", ContinuationSegmentTurns: 2, MaxContinuations: 2, MaxTotalTurns: 4, MaxRunDurationMs: 60000, MaxRunTokens: 10000})
+	runner.SetPlanSnapshotProvider(func(context.Context, string) (db.PlanSnapshot, error) {
+		return db.PlanSnapshot{}, errors.New("workspace must be a Git repository before a plan can be approved")
+	})
+	trigger, err := store.AddMessage(ctx, db.Message{AgentID: createdAgent.ID, Role: "user", ContentText: "dispatch a subagent"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	request, err := runner.prepareContinuationRun(ctx, db.Run{AgentID: createdAgent.ID, TriggerMessageID: trigger.ID, Status: "running", ExecutionMode: db.RunExecutionModeExecute, Source: db.RunSourceManual})
+	if err != nil {
+		t.Fatal(err)
+	}
+	run, err := store.CreateRun(ctx, request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	partial, err := store.AddMessage(ctx, db.Message{AgentID: createdAgent.ID, RunID: run.ID, Role: "assistant", ContentText: "dispatched"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	createdTask, err := store.CreateBackgroundTask(ctx, db.BackgroundTask{
+		ID: "task-1", OwnerAgentID: createdAgent.ID, ParentRunID: run.ID, ParentToolUseID: "tool-1",
+		Kind: db.BackgroundTaskKindAgent, ResumeParent: true, PermissionModeCap: run.PermissionModeCap,
+		PermissionGenerationSnapshot: 1, PolicyGenerationSnapshot: run.PolicyGenerationSnapshot,
+		AgentGenerationSnapshot: run.AgentGenerationSnapshot,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	parked, err := store.MarkRunContinuationPending(ctx, run.ID, db.RunContinuationPendingInput{
+		ExpectedContinuationCount: 0,
+		TurnCount:                 1,
+		ResumeAfterMessageID:      partial.ID,
+		LastStopReason:            "tool_use",
+		ContinuationReason:        continuationReasonBackgroundTask,
+		WaitingBackgroundTaskID:   createdTask.ID,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if parked.ToolCatalogDigest != "" || parked.WorkspaceFingerprint != "" {
+		t.Fatalf("test premise broken: the parked run must have no snapshot, got %+v", parked)
+	}
+	if err := runner.validateContinuationBoundary(ctx, parked, true); err != nil {
+		t.Fatalf("waking a snapshotless background wait must be tolerated, got %v", err)
+	}
+	// Without the background wait the wake stays strict: an ordinary
+	// continuation still refuses to proceed blind.
+	strict := parked
+	strict.WaitingBackgroundTaskID = ""
+	if err := runner.validateContinuationBoundary(ctx, strict, true); err == nil || !strings.Contains(err.Error(), "load continuation safety snapshot") {
+		t.Fatalf("expected the strict refusal without a background wait, got %v", err)
+	}
+}
+
 func TestCompletedBackgroundTaskResumesAfterParentRunUnregisters(t *testing.T) {
 	ctx := context.Background()
 	store, createdAgent := newAgentTestStore(t, t.TempDir(), "acceptEdits")

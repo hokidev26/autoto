@@ -2908,8 +2908,9 @@ body.white-shell.theme-light .navigation-conversation-row.nested.active .navigat
   color: var(--ws-primary);
 }
 
-/* Sidebar bubble, four states:
+/* Sidebar bubble, five states:
      running                  -> blue, pulsing
+     waiting on a subagent    -> amber, slow pulse
      replied, not yet read    -> green   (.unread, browser-local)
      read, nothing running    -> grey
      error                    -> red
@@ -2927,7 +2928,11 @@ body.white-shell.theme-light .navigation-conversation-row.status-completed .navi
   color: var(--ws-muted, #747e90);
 }
 
-body.white-shell.theme-light .navigation-conversation-row.unread:not(.status-running):not(.status-pending):not(.status-queued):not(.status-error):not(.status-failed) .navigation-agent-icon {
+body.white-shell.theme-light .navigation-conversation-row.status-waiting .navigation-agent-icon {
+  color: #d97706;
+}
+
+body.white-shell.theme-light .navigation-conversation-row.unread:not(.status-running):not(.status-pending):not(.status-queued):not(.status-waiting):not(.status-error):not(.status-failed) .navigation-agent-icon {
   color: #22c55e;
 }
 
@@ -2942,7 +2947,11 @@ body.white-shell.theme-light .navigation-conversation-row.status-completed::afte
   background: var(--ws-muted, #747e90);
 }
 
-body.white-shell.theme-light .navigation-conversation-row.unread:not(.status-running):not(.status-pending):not(.status-queued):not(.status-error):not(.status-failed)::after {
+body.white-shell.theme-light .navigation-conversation-row.status-waiting::after {
+  background: #d97706;
+}
+
+body.white-shell.theme-light .navigation-conversation-row.unread:not(.status-running):not(.status-pending):not(.status-queued):not(.status-waiting):not(.status-error):not(.status-failed)::after {
   background: #22c55e;
 }
 
@@ -2966,6 +2975,11 @@ body.white-shell.theme-light .navigation-conversation-row.status-running .naviga
 body.white-shell.theme-light .navigation-conversation-row.status-pending .navigation-agent-icon svg,
 body.white-shell.theme-light .navigation-conversation-row.status-queued .navigation-agent-icon svg {
   animation: navigation-agent-pulse 1.2s ease-in-out infinite;
+}
+
+/* The wait breathes slower than a live run: something is happening, elsewhere. */
+body.white-shell.theme-light .navigation-conversation-row.status-waiting .navigation-agent-icon svg {
+  animation: navigation-agent-pulse 2.4s ease-in-out infinite;
 }
 
 @keyframes navigation-agent-pulse {
