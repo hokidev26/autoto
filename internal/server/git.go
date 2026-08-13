@@ -5,7 +5,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
 	"net/http"
 	"os"
 	"os/exec"
@@ -18,9 +17,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	agentpkg "autoto/internal/agent"
 	"autoto/internal/db"
-	"autoto/internal/gitlock"
 	"autoto/internal/gitsnapshot"
 	"autoto/internal/process"
 )
@@ -151,12 +148,7 @@ type gitCommandError struct {
 func (e gitCommandError) Error() string { return e.Msg }
 
 func (s *Server) gitStatus(w http.ResponseWriter, r *http.Request) {
-	cwd, repoRoot, err := s.resolveAgentGitRepo(r.Context(), chi.URLParam(r, "id"))
-	if err != nil {
-		writeGitError(w, err)
-		return
-	}
-	status, err := s.gitStatusForRepo(r.Context(), repoRoot, cwd)
+	status, err := s.git().status(r.Context(), chi.URLParam(r, "id"))
 	if err != nil {
 		writeGitError(w, err)
 		return
@@ -164,207 +156,45 @@ func (s *Server) gitStatus(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, status)
 }
 
-func (s *Server) gitStatusForRepo(ctx context.Context, repoRoot, cwd string) (gitStatusResponse, error) {
-	statusOut, truncated, err := runGitCommand(ctx, repoRoot, gitStatusMaxBytes, 3*time.Second, nil, "status", "--porcelain=v1", "-z", "--untracked-files=all")
-	if err != nil {
-		return gitStatusResponse{}, err
-	}
-	files := parseGitPorcelainStatus(statusOut)
-	head, _, _ := runGitCommand(ctx, repoRoot, 256, 2*time.Second, nil, "rev-parse", "--short", "HEAD")
-	branch, _, _ := runGitCommand(ctx, repoRoot, 512, 2*time.Second, nil, "branch", "--show-current")
-	upstream, _, _ := runGitCommand(ctx, repoRoot, 512, 2*time.Second, nil, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}")
-	ahead, behind := 0, 0
-	if strings.TrimSpace(upstream) != "" {
-		counts, _, err := runGitCommand(ctx, repoRoot, 128, 2*time.Second, nil, "rev-list", "--left-right", "--count", "HEAD...@{u}")
-		if err == nil {
-			ahead, behind = parseAheadBehind(counts)
-		}
-	}
-	return gitStatusResponse{GeneratedAt: time.Now().UTC().Format(time.RFC3339Nano), CWD: cwd, RepoRoot: repoRoot, Head: strings.TrimSpace(head), Branch: strings.TrimSpace(branch), Upstream: strings.TrimSpace(upstream), Ahead: ahead, Behind: behind, Clean: len(files) == 0, Files: files, Truncated: truncated}, nil
-}
-
 func (s *Server) gitDiff(w http.ResponseWriter, r *http.Request) {
-	_, repoRoot, err := s.resolveAgentGitRepo(r.Context(), chi.URLParam(r, "id"))
+	diff, err := s.git().diff(r.Context(), chi.URLParam(r, "id"), r.URL.Query().Get("scope"), r.URL.Query().Get("path"), r.URL.Query().Get("context"))
 	if err != nil {
 		writeGitError(w, err)
 		return
 	}
-	scope := strings.TrimSpace(r.URL.Query().Get("scope"))
-	if scope == "" {
-		scope = "all"
-	}
-	if scope != "all" && scope != "staged" && scope != "unstaged" {
-		writeError(w, http.StatusBadRequest, "invalid git diff scope")
-		return
-	}
-	relPath, err := cleanGitPath(repoRoot, r.URL.Query().Get("path"))
-	if err != nil {
-		writeGitError(w, err)
-		return
-	}
-	contextLines := boundedInt(r.URL.Query().Get("context"), 3, 0, 20)
-	hasHead := true
-	if scope == "all" {
-		hasHead = gitRepoHasHead(r.Context(), repoRoot)
-	}
-	patchArgs := gitDiffArgs(scope, contextLines, false, relPath, hasHead)
-	patch, truncated, err := runGitCommand(r.Context(), repoRoot, gitDiffMaxBytes, 5*time.Second, nil, patchArgs...)
-	if err != nil {
-		writeGitError(w, err)
-		return
-	}
-	statArgs := gitDiffArgs(scope, contextLines, true, relPath, hasHead)
-	statOut, statTruncated, _ := runGitCommand(r.Context(), repoRoot, gitLogMaxBytes, 5*time.Second, nil, statArgs...)
-	writeJSON(w, http.StatusOK, gitDiffResponse{
-		GeneratedAt: time.Now().UTC().Format(time.RFC3339Nano),
-		RepoRoot:    repoRoot,
-		Scope:       scope,
-		Path:        relPath,
-		Patch:       safeUTF8(patch),
-		Files:       parseGitNumstat(statOut),
-		Truncated:   truncated || statTruncated,
-	})
+	writeJSON(w, http.StatusOK, diff)
 }
 
 func (s *Server) gitLog(w http.ResponseWriter, r *http.Request) {
-	_, repoRoot, err := s.resolveAgentGitRepo(r.Context(), chi.URLParam(r, "id"))
+	log, err := s.git().log(r.Context(), chi.URLParam(r, "id"), r.URL.Query().Get("limit"))
 	if err != nil {
 		writeGitError(w, err)
 		return
 	}
-	limit := boundedInt(r.URL.Query().Get("limit"), 30, 1, 100)
-	format := "%H%x00%h%x00%an%x00%ae%x00%aI%x00%s%x00%x1e"
-	out, truncated, err := runGitCommand(r.Context(), repoRoot, gitLogMaxBytes, 3*time.Second, nil, "log", "--max-count="+strconv.Itoa(limit), "--date=iso-strict", "--pretty=format:"+format)
-	if err != nil {
-		writeGitError(w, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, gitLogResponse{GeneratedAt: time.Now().UTC().Format(time.RFC3339Nano), RepoRoot: repoRoot, Commits: parseGitLog(out), Truncated: truncated})
+	writeJSON(w, http.StatusOK, log)
 }
 
 func (s *Server) rollbackRunPreview(w http.ResponseWriter, r *http.Request) {
-	agentID := chi.URLParam(r, "id")
-	runID := chi.URLParam(r, "runId")
-	_, repoRoot, err := s.resolveAgentGitRepo(r.Context(), agentID)
+	preview, err := s.git().rollbackPreview(r.Context(), chi.URLParam(r, "id"), chi.URLParam(r, "runId"))
 	if err != nil {
 		writeGitError(w, err)
 		return
 	}
-	run, err := s.store.GetRun(r.Context(), agentID, runID)
-	if err != nil {
-		writeError(w, statusFromError(err), err.Error())
-		return
-	}
-	plan, err := s.buildRollbackPlan(r.Context(), repoRoot, run, db.RunCheckpointReady)
-	if err != nil {
-		plan = gitRollbackPlan{reason: err.Error()}
-	}
-	writeJSON(w, http.StatusOK, gitRollbackPreview(repoRoot, runID, plan))
+	writeJSON(w, http.StatusOK, preview)
 }
 
 func (s *Server) rollbackRun(w http.ResponseWriter, r *http.Request) {
-	agentID := chi.URLParam(r, "id")
-	runID := chi.URLParam(r, "runId")
-	cwd, repoRoot, err := s.resolveAgentGitRepo(r.Context(), agentID)
-	if err != nil {
-		writeGitError(w, err)
-		return
-	}
 	var req gitRollbackRequest
 	if err := decodeJSON(r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	if !req.Confirm {
-		writeError(w, http.StatusBadRequest, "confirm must be true")
-		return
-	}
-
-	unlockGitMutation := gitlock.Default.Lock(repoRoot)
-	defer unlockGitMutation()
-	run, err := s.store.GetRun(r.Context(), agentID, runID)
-	if err != nil {
-		writeError(w, statusFromError(err), err.Error())
-		return
-	}
-	plan, err := s.buildRollbackPlan(r.Context(), repoRoot, run, db.RunCheckpointReady)
+	response, err := s.git().rollback(r.Context(), chi.URLParam(r, "id"), chi.URLParam(r, "runId"), req.Confirm)
 	if err != nil {
 		writeGitError(w, err)
 		return
 	}
-	if !plan.available {
-		writeGitError(w, gitCommandError{Status: http.StatusConflict, Msg: plan.reason})
-		return
-	}
-	if err := s.store.ClaimRunGitRollback(r.Context(), runID); err != nil {
-		writeGitError(w, gitCommandError{Status: http.StatusConflict, Msg: "run rollback is no longer available: " + err.Error()})
-		return
-	}
-
-	run, err = s.store.GetRun(r.Context(), agentID, runID)
-	if err != nil {
-		writeGitError(w, s.failRollbackAfterClaim(r.Context(), runID, "reload run after rollback claim failed: "+err.Error(), http.StatusInternalServerError))
-		return
-	}
-	plan, err = s.buildRollbackPlan(r.Context(), repoRoot, run, db.RunCheckpointRollingBack)
-	if err != nil || !plan.available {
-		reason := "rollback verification failed after claim"
-		if err != nil {
-			reason += ": " + err.Error()
-		} else if plan.reason != "" {
-			reason += ": " + plan.reason
-		}
-		writeGitError(w, s.failRollbackAfterClaim(r.Context(), runID, reason, http.StatusConflict))
-		return
-	}
-	if err := restoreRunGitChanges(r.Context(), repoRoot, plan.baseHead, plan.changes); err != nil {
-		writeGitError(w, s.failRollbackAfterClaim(r.Context(), runID, "rollback file operations failed: "+err.Error(), http.StatusInternalServerError))
-		return
-	}
-	if err := s.store.MarkRunGitCheckpointRolledBack(r.Context(), runID); err != nil {
-		writeGitError(w, s.failRollbackAfterClaim(r.Context(), runID, "rollback file operations completed, but checkpoint state could not be marked rolled back: "+err.Error(), http.StatusInternalServerError))
-		return
-	}
-	response := gitRollbackResponse{GeneratedAt: time.Now().UTC().Format(time.RFC3339Nano), RepoRoot: repoRoot, RunID: runID, BaseHead: plan.baseHead}
-	// The transcript still claims the run's edits exist; without this durable
-	// notice the next model turn reasons from a workspace state that the
-	// rollback just erased.
-	if err := s.recordRollbackNotice(r.Context(), agentID, runID, plan); err != nil {
-		response.Warning = "rollback completed, but the conversation rollback notice could not be recorded: " + err.Error()
-		slog.Warn("record rollback notice failed", "runId", runID, "agentId", agentID, "error", err)
-	}
-	status, err := s.gitStatusForRepo(r.Context(), repoRoot, cwd)
-	if err != nil {
-		if response.Warning != "" {
-			response.Warning += "; "
-		}
-		response.Warning += "rollback completed, but git status refresh failed: " + err.Error()
-		slog.Warn("refresh git status after rollback failed", "runId", runID, "repoRoot", repoRoot, "error", err)
-	} else {
-		response.Status = &status
-	}
 	writeJSON(w, http.StatusOK, response)
-}
-
-// recordRollbackNotice appends a durable system message describing what the
-// rollback undid and announces it on the event stream so open clients repaint.
-func (s *Server) recordRollbackNotice(ctx context.Context, agentID, runID string, plan gitRollbackPlan) error {
-	text := rollbackNoticeText(plan.baseHead, plan.restorePaths, plan.deletePaths)
-	// CreatedBy stays empty: the column references users(id) and this notice is
-	// server-generated, not attributable to any account.
-	message, err := s.store.AddMessage(ctx, db.Message{
-		AgentID:     agentID,
-		RunID:       runID,
-		Role:        "system",
-		ContentText: text,
-	})
-	if err != nil {
-		return err
-	}
-	if s.hub != nil {
-		s.hub.Publish(agentpkg.Event{Type: "message.created", AgentID: agentID, MessageID: message.ID, Text: text, Data: map[string]any{"runId": runID, "rollback": true}})
-	}
-	return nil
 }
 
 const rollbackNoticeMaxPaths = 20
@@ -397,74 +227,6 @@ func joinBoundedPaths(paths []string, maximum int) string {
 		return strings.Join(paths, ", ")
 	}
 	return strings.Join(paths[:maximum], ", ") + fmt.Sprintf(" 等 %d 个文件", len(paths))
-}
-
-func (s *Server) failRollbackAfterClaim(ctx context.Context, runID, reason string, status int) error {
-	if err := s.store.FailRunGitRollback(ctx, runID, reason); err != nil {
-		return gitCommandError{Status: http.StatusInternalServerError, Msg: reason + "; checkpoint remains rolling_back because failure state could not be persisted: " + err.Error()}
-	}
-	return gitCommandError{Status: status, Msg: reason}
-}
-
-func (s *Server) buildRollbackPlan(ctx context.Context, repoRoot string, run db.Run, expectedState string) (gitRollbackPlan, error) {
-	plan := gitRollbackPlan{}
-	if run.CheckpointState != expectedState {
-		plan.reason = rollbackCheckpointStateReason(run)
-		return plan, nil
-	}
-	plan.baseHead = strings.TrimSpace(run.BaseHead)
-	if plan.baseHead == "" {
-		plan.reason = "run has no clean-start checkpoint"
-		return plan, nil
-	}
-	if strings.TrimSpace(run.CheckpointRepoRoot) == "" || strings.TrimSpace(run.GitSnapshotAt) == "" {
-		plan.reason = "run has no completed scoped file checkpoint"
-		return plan, nil
-	}
-	if canonicalPath(run.CheckpointRepoRoot) != canonicalPath(repoRoot) {
-		plan.reason = "run checkpoint belongs to a different git repository"
-		return plan, nil
-	}
-	if endHead := strings.TrimSpace(run.EndHead); endHead != "" && endHead != plan.baseHead {
-		plan.reason = "run changed HEAD; refusing rollback across commits"
-		return plan, nil
-	}
-	currentHead, truncated, err := runGitCommand(ctx, repoRoot, 256, 3*time.Second, nil, "rev-parse", "HEAD")
-	if err != nil {
-		return plan, err
-	}
-	if truncated || strings.TrimSpace(currentHead) != plan.baseHead {
-		plan.reason = "current HEAD differs from run checkpoint"
-		return plan, nil
-	}
-	changes, err := s.store.ListRunGitChanges(ctx, run.ID)
-	if err != nil {
-		return plan, err
-	}
-	if len(changes) == 0 {
-		plan.reason = "run checkpoint has no owned git changes to roll back"
-		return plan, nil
-	}
-	if err := verifyRunGitChanges(ctx, repoRoot, changes); err != nil {
-		return plan, err
-	}
-	plan.changes = append([]db.RunGitChange{}, changes...)
-	for _, change := range changes {
-		path, err := cleanGitPath(repoRoot, change.Path)
-		if err != nil || path == "" || change.OrigPath != "" {
-			return plan, gitCommandError{Status: http.StatusConflict, Msg: "run checkpoint contains an invalid or legacy rename path"}
-		}
-		if change.Untracked {
-			plan.deletePaths = append(plan.deletePaths, path)
-		} else {
-			plan.restorePaths = append(plan.restorePaths, path)
-		}
-	}
-	sort.Strings(plan.restorePaths)
-	sort.Strings(plan.deletePaths)
-	plan.available = true
-	plan.reason = "verified run-owned changes are ready to roll back"
-	return plan, nil
 }
 
 func rollbackCheckpointStateReason(run db.Run) string {
@@ -624,96 +386,17 @@ func removeScopedRunFile(repoRoot, path string) error {
 }
 
 func (s *Server) gitCommit(w http.ResponseWriter, r *http.Request) {
-	_, repoRoot, err := s.resolveAgentGitRepo(r.Context(), chi.URLParam(r, "id"))
-	if err != nil {
-		writeGitError(w, err)
-		return
-	}
 	var req gitCommitRequest
 	if err := decodeJSON(r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	message := strings.TrimSpace(req.Message)
-	if message == "" {
-		writeError(w, http.StatusBadRequest, "commit message is required")
-		return
-	}
-	if len(message) > gitCommitMessageMaxBytes {
-		writeError(w, http.StatusBadRequest, "commit message is too long")
-		return
-	}
-	paths, err := cleanGitCommitPaths(repoRoot, req.Paths)
+	result, err := s.git().commit(r.Context(), chi.URLParam(r, "id"), req)
 	if err != nil {
 		writeGitError(w, err)
 		return
 	}
-	for _, path := range paths {
-		if isSensitiveGitPath(path) {
-			writeError(w, http.StatusBadRequest, "refusing to commit sensitive-looking path: "+path)
-			return
-		}
-	}
-	unlockGitMutation := gitlock.Default.Lock(repoRoot)
-	defer unlockGitMutation()
-	statusOut, _, err := runGitCommand(r.Context(), repoRoot, gitStatusMaxBytes, 3*time.Second, nil, "status", "--porcelain=v1", "-z", "--untracked-files=all")
-	if err != nil {
-		writeGitError(w, err)
-		return
-	}
-	statusFiles := parseGitPorcelainStatus(statusOut)
-	if err := validateGitCommitSelection(statusFiles, paths); err != nil {
-		writeGitError(w, err)
-		return
-	}
-	commitPaths := expandGitCommitPaths(statusFiles, paths)
-	for _, path := range commitPaths {
-		if isSensitiveGitPath(path) {
-			writeError(w, http.StatusBadRequest, "refusing to commit sensitive-looking path: "+path)
-			return
-		}
-	}
-	addArgs := append([]string{"add", "--"}, commitPaths...)
-	if _, _, err := runGitCommand(r.Context(), repoRoot, gitCommitOutputMaxBytes, 10*time.Second, nil, addArgs...); err != nil {
-		writeGitError(w, err)
-		return
-	}
-	diffArgs := append([]string{"diff", "--cached", "--name-only", "-z", "--"}, commitPaths...)
-	stagedOut, _, err := runGitCommand(r.Context(), repoRoot, gitCommitOutputMaxBytes, 5*time.Second, nil, diffArgs...)
-	if err != nil {
-		writeGitError(w, err)
-		return
-	}
-	stagedPaths := parseGitPathList(stagedOut)
-	if len(stagedPaths) == 0 {
-		writeGitError(w, gitCommandError{Status: http.StatusConflict, Msg: "no staged changes for selected paths"})
-		return
-	}
-	commitArgs := append([]string{"commit", "-m", message, "--"}, commitPaths...)
-	if _, _, err := runGitCommand(r.Context(), repoRoot, gitCommitOutputMaxBytes, 20*time.Second, nil, commitArgs...); err != nil {
-		writeGitError(w, normalizeGitCommitError(err))
-		return
-	}
-	format := "%H%x00%h%x00%an%x00%ae%x00%aI%x00%s%x00%x1e"
-	logOut, logTruncated, err := runGitCommand(r.Context(), repoRoot, gitLogMaxBytes, 3*time.Second, nil, "log", "-1", "--date=iso-strict", "--pretty=format:"+format)
-	if err != nil {
-		writeGitError(w, err)
-		return
-	}
-	commits := parseGitLog(logOut)
-	if len(commits) == 0 {
-		writeGitError(w, gitCommandError{Status: http.StatusInternalServerError, Msg: "commit succeeded but new commit could not be read"})
-		return
-	}
-	remainingOut, remainingTruncated, _ := runGitCommand(r.Context(), repoRoot, gitStatusMaxBytes, 3*time.Second, nil, "status", "--porcelain=v1", "-z", "--untracked-files=all")
-	writeJSON(w, http.StatusCreated, gitCommitResponse{
-		GeneratedAt:    time.Now().UTC().Format(time.RFC3339Nano),
-		RepoRoot:       repoRoot,
-		Commit:         commits[0],
-		Paths:          paths,
-		RemainingFiles: parseGitPorcelainStatus(remainingOut),
-		Truncated:      logTruncated || remainingTruncated,
-	})
+	writeJSON(w, http.StatusCreated, result)
 }
 
 type gitDiscardRequest struct {
@@ -737,84 +420,15 @@ type gitDiscardResponse struct {
 // Scope is strictly the caller's explicit selection; nothing resembling
 // `reset --hard` or `clean` ever runs.
 func (s *Server) gitDiscard(w http.ResponseWriter, r *http.Request) {
-	cwd, repoRoot, err := s.resolveAgentGitRepo(r.Context(), chi.URLParam(r, "id"))
-	if err != nil {
-		writeGitError(w, err)
-		return
-	}
 	var req gitDiscardRequest
 	if err := decodeJSON(r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	if !req.Confirm {
-		writeError(w, http.StatusBadRequest, "confirm must be true")
-		return
-	}
-	paths, err := cleanGitCommitPaths(repoRoot, req.Paths)
+	response, err := s.git().discard(r.Context(), chi.URLParam(r, "id"), req)
 	if err != nil {
 		writeGitError(w, err)
 		return
-	}
-	unlockGitMutation := gitlock.Default.Lock(repoRoot)
-	defer unlockGitMutation()
-	statusOut, _, err := runGitCommand(r.Context(), repoRoot, gitStatusMaxBytes, 3*time.Second, nil, "status", "--porcelain=v1", "-z", "--untracked-files=all")
-	if err != nil {
-		writeGitError(w, err)
-		return
-	}
-	plan, err := buildGitDiscardPlan(parseGitPorcelainStatus(statusOut), paths)
-	if err != nil {
-		writeGitError(w, err)
-		return
-	}
-	hasHead := gitRepoHasHead(r.Context(), repoRoot)
-	if !hasHead && len(plan.restoreFromHead) > 0 {
-		writeGitError(w, gitCommandError{Status: http.StatusConflict, Msg: "repository has no commits to restore from"})
-		return
-	}
-	// Order matters: the index is reset first so a staged add becomes untracked
-	// before its file is deleted, and worktree contents are restored last from
-	// an index that already matches HEAD.
-	if len(plan.unstageOnly) > 0 {
-		if hasHead {
-			args := append([]string{"restore", "--staged", "--source", "HEAD", "--"}, plan.unstageOnly...)
-			if _, _, err := runGitCommand(r.Context(), repoRoot, gitCommitOutputMaxBytes, 10*time.Second, nil, args...); err != nil {
-				writeGitError(w, err)
-				return
-			}
-		} else {
-			args := append([]string{"rm", "--cached", "--force", "-q", "--"}, plan.unstageOnly...)
-			if _, _, err := runGitCommand(r.Context(), repoRoot, gitCommitOutputMaxBytes, 10*time.Second, nil, args...); err != nil {
-				writeGitError(w, err)
-				return
-			}
-		}
-	}
-	for _, path := range plan.deleteFiles {
-		if err := removeScopedRunFile(repoRoot, path); err != nil {
-			writeGitError(w, gitCommandError{Status: http.StatusInternalServerError, Msg: "discard stopped after a file could not be removed; remaining selections were left untouched: " + path + ": " + err.Error()})
-			return
-		}
-	}
-	if len(plan.restoreFromHead) > 0 {
-		args := append([]string{"restore", "--staged", "--worktree", "--source", "HEAD", "--"}, plan.restoreFromHead...)
-		if _, _, err := runGitCommand(r.Context(), repoRoot, gitCommitOutputMaxBytes, 15*time.Second, nil, args...); err != nil {
-			writeGitError(w, err)
-			return
-		}
-	}
-	response := gitDiscardResponse{
-		GeneratedAt:   time.Now().UTC().Format(time.RFC3339Nano),
-		RepoRoot:      repoRoot,
-		RestoredPaths: plan.restoreFromHead,
-		DeletedPaths:  plan.deleteFiles,
-	}
-	status, err := s.gitStatusForRepo(r.Context(), repoRoot, cwd)
-	if err != nil {
-		response.Warning = "discard completed, but git status refresh failed: " + err.Error()
-	} else {
-		response.Status = &status
 	}
 	writeJSON(w, http.StatusOK, response)
 }
@@ -884,69 +498,6 @@ func sortedPathSet(set map[string]bool) []string {
 	}
 	sort.Strings(paths)
 	return paths
-}
-
-func (s *Server) resolveAgentGitRepo(ctx context.Context, agentID string) (string, string, error) {
-	agent, err := s.store.GetAgent(ctx, agentID)
-	if err != nil {
-		return "", "", err
-	}
-	if err := requireLocalExecutionAgent(agent); err != nil {
-		return "", "", gitCommandError{Status: http.StatusConflict, Msg: "remote execution transport is disabled; local fallback is forbidden"}
-	}
-	cwd := strings.TrimSpace(agent.CWD)
-	if cwd == "" && agent.WorklineID != "" {
-		workline, err := s.store.GetWorkline(ctx, agent.WorklineID)
-		if err == nil {
-			cwd = strings.TrimSpace(workline.WorktreePath)
-		}
-	}
-	if cwd == "" {
-		return "", "", gitCommandError{Status: http.StatusBadRequest, Msg: "agent cwd is not configured"}
-	}
-	info, err := os.Stat(cwd)
-	if err != nil {
-		return "", "", err
-	}
-	if !info.IsDir() {
-		return "", "", gitCommandError{Status: http.StatusBadRequest, Msg: "agent cwd must be a directory"}
-	}
-	repoRoot, _, err := runGitCommand(ctx, cwd, 4096, 3*time.Second, nil, "rev-parse", "--show-toplevel")
-	if err != nil {
-		return "", "", err
-	}
-	repoRoot = strings.TrimSpace(repoRoot)
-	if err := s.validateAgentGitRepoBoundary(ctx, agent, repoRoot); err != nil {
-		return "", "", err
-	}
-	return cwd, repoRoot, nil
-}
-
-func (s *Server) validateAgentGitRepoBoundary(ctx context.Context, agent db.Agent, repoRoot string) error {
-	repoRoot = strings.TrimSpace(repoRoot)
-	if repoRoot == "" {
-		return gitCommandError{Status: http.StatusConflict, Msg: "git repository root is not configured"}
-	}
-	allowedRoots := make([]string, 0, 2)
-	if agent.WorklineID != "" {
-		if workline, err := s.store.GetWorkline(ctx, agent.WorklineID); err == nil {
-			if strings.TrimSpace(workline.WorktreePath) != "" {
-				allowedRoots = append(allowedRoots, workline.WorktreePath)
-			}
-			if project, err := s.store.GetProject(ctx, workline.ProjectID); err == nil && strings.TrimSpace(project.GitPath) != "" {
-				allowedRoots = append(allowedRoots, project.GitPath)
-			}
-		}
-	}
-	if defaultDir := strings.TrimSpace(s.configSnapshot().Paths.DefaultProjectDir); defaultDir != "" {
-		allowedRoots = append(allowedRoots, defaultDir)
-	}
-	for _, root := range allowedRoots {
-		if pathWithin(root, repoRoot) {
-			return nil
-		}
-	}
-	return gitCommandError{Status: http.StatusForbidden, Msg: "git repository is outside the configured project boundary"}
 }
 
 func pathWithin(root, path string) bool {

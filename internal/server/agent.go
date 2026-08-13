@@ -7,7 +7,6 @@ import (
 	"errors"
 	"mime"
 	"net/http"
-	"os"
 	"sort"
 	"strconv"
 	"strings"
@@ -183,221 +182,22 @@ func (s *Server) liveSnapshotChildrenForRequest(r *http.Request, children []db.A
 }
 
 func (s *Server) buildWorkState(ctx context.Context, agent db.Agent, spec *db.SpecBoard, children []db.Agent, reviewState agentReviewState, backgroundTasks []tools.BackgroundTask) *workStateSnapshot {
-	state := &workStateSnapshot{
-		SchemaVersion:  1,
-		Tasks:          []workStateTask{},
-		ExecutionRoles: []workStateExecutionRole{},
-		Verification: workStateVerification{
-			Status:         "not_configured",
-			Tests:          []reviewPlanTestSummary{},
-			ReviewFindings: []string{},
-		},
-	}
-	if spec != nil {
-		tasksByID := make(map[string]db.SpecTask, len(spec.Tasks))
-		for _, task := range spec.Tasks {
-			tasksByID[task.ID] = task
-			state.Tasks = append(state.Tasks, workStateTask{ID: task.ID, Text: task.Text, Status: task.Status, Protected: task.Protected})
-			state.TaskCounts.Total++
-			switch task.Status {
-			case "todo":
-				state.TaskCounts.Todo++
-			case "doing":
-				state.TaskCounts.Doing++
-			case "blocked":
-				state.TaskCounts.Blocked++
-			case "done":
-				state.TaskCounts.Done++
-			}
-		}
-		for _, confirmation := range spec.Confirmations {
-			if confirmation.Status != "confirmed" {
-				continue
-			}
-			if task, ok := tasksByID[confirmation.TaskID]; ok {
-				state.Goal = &workStateGoal{Text: task.Text, Source: "spec", Status: confirmation.Status, QueueState: confirmation.QueueState}
-				break
-			}
-		}
-	}
-
-	plan := reviewState.ActivePlan
-	if plan == nil {
-		plan = reviewState.PendingPlanApproval
-	}
-	if plan != nil {
-		state.Verification.PlanID = plan.ID
-		state.Verification.PlanStatus = plan.Status
-		state.Verification.Tests = append(state.Verification.Tests, plan.Tests...)
-		state.Verification.ReviewVerdict = plan.ReviewVerdict
-		state.Verification.ReviewFindings = append(state.Verification.ReviewFindings, plan.ReviewFindings...)
-		switch {
-		case plan.Status == db.PlanStatusStale:
-			state.Verification.Status = "stale"
-		case len(plan.Tests) > 0:
-			state.Verification.Status = "declared"
-		case strings.TrimSpace(plan.ReviewVerdict) != "":
-			state.Verification.Status = "reviewed"
-		default:
-			state.Verification.Status = "pending"
-		}
-		if len(plan.ReviewFindings) > 0 {
-			state.Verification.Summary = plan.ReviewFindings[0]
-		} else {
-			state.Verification.Summary = plan.Summary
-		}
-		if state.Goal == nil && strings.TrimSpace(plan.Goal) != "" {
-			state.Goal = &workStateGoal{Text: plan.Goal, Source: "plan", Status: plan.Status}
-		}
-	}
-
-	appendAgentRole := func(item db.Agent) {
-		role := strings.TrimSpace(item.SubagentType)
-		if role == "" {
-			role = strings.TrimSpace(item.Type)
-		}
-		projected := workStateExecutionRole{Kind: "agent", Role: role, Status: item.Status, AgentID: item.ID, Title: item.Title, WorklineID: item.WorklineID}
-		if s != nil && s.store != nil && strings.TrimSpace(item.WorklineID) != "" {
-			if workline, err := s.store.GetWorkline(ctx, item.WorklineID); err == nil {
-				projected.WorklineRole = workline.Role
-				if strings.TrimSpace(projected.Role) == "" {
-					projected.Role = workline.Role
-				}
-			}
-		}
-		state.ExecutionRoles = append(state.ExecutionRoles, projected)
-	}
-	appendAgentRole(agent)
-	for _, child := range children {
-		appendAgentRole(child)
-	}
-	for _, task := range backgroundTasks {
-		state.ExecutionRoles = append(state.ExecutionRoles, workStateExecutionRole{
-			Kind: "backgroundTask", Role: task.Kind, Status: task.Status, BackgroundTaskID: task.ID,
-			BackgroundKind: task.Kind, ChildAgentID: task.ChildAgentID,
-		})
-	}
-	return state
+	return s.agents().buildWorkState(ctx, agent, spec, children, reviewState, backgroundTasks)
 }
 
 func (s *Server) getAgentLiveSnapshot(w http.ResponseWriter, r *http.Request) {
-	if s.hub == nil {
-		writeError(w, http.StatusServiceUnavailable, "agent event hub is not initialized")
-		return
-	}
 	if err := rejectUnknownQuery(r, "afterExecutionGeneration"); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	agentID := chi.URLParam(r, "id")
-	watermark := s.hub.Watermark(agentID)
-	snapshot, err := s.store.ReadAgentLiveSnapshot(r.Context(), agentID)
-	if err != nil {
-		writeError(w, statusFromError(err), err.Error())
-		return
-	}
-	var executions []db.Run
-	var truncated bool
-	if raw := strings.TrimSpace(r.URL.Query().Get("afterExecutionGeneration")); raw != "" {
-		after, parseErr := strconv.ParseInt(raw, 10, 64)
-		if parseErr != nil || after < 0 {
-			writeError(w, http.StatusBadRequest, "invalid afterExecutionGeneration")
-			return
-		}
-		executions, truncated, err = s.store.ListRunsAfterExecutionGeneration(r.Context(), agentID, after, 20)
-		if err != nil {
-			writeError(w, statusFromError(err), err.Error())
-			return
-		}
-	}
-	board, err := s.store.GetSpecBoard(r.Context(), agentID)
-	if err != nil {
-		writeError(w, statusFromError(err), err.Error())
-		return
-	}
-	spec := &board
-	listedChildren, err := s.store.ListChildAgents(r.Context(), agentID)
-	if err != nil {
-		writeError(w, statusFromError(err), err.Error())
-		return
-	}
-	children, err := s.liveSnapshotChildrenForRequest(r, listedChildren)
-	if err != nil {
-		writeError(w, statusFromError(err), err.Error())
-		return
-	}
-	reviewState, err := s.agentReviewState(r.Context(), agentID, snapshot.LatestRun)
-	if err != nil {
-		writeError(w, statusFromError(err), err.Error())
-		return
-	}
-	var backgroundTasks []tools.BackgroundTask
-	if s.backgroundTasks != nil {
-		backgroundTasks, err = s.backgroundTasks.List(r.Context(), tools.BackgroundTaskListOptions{OwnerAgentID: agentID, Limit: 20})
-		if err != nil {
-			writeError(w, http.StatusInternalServerError, "background task snapshot is unavailable")
-			return
-		}
-	}
-	continuation := continuationSnapshot(snapshot.LatestRun)
-	var toolActivity []activityToolCall
-	if snapshot.LatestRun != nil && !terminalAgentRunStatus(snapshot.LatestRun.Status) {
-		calls, listErr := s.store.ListToolCallsByRunWindow(r.Context(), agentID, snapshot.LatestRun.ID, activityMaxLimit, 0)
-		if listErr != nil {
-			writeError(w, statusFromError(listErr), listErr.Error())
-			return
-		}
-		outputSnapshots := s.hub.ToolOutputSnapshots(agentID)
-		inputPreviews := s.hub.ToolInputPreviewSnapshots(agentID)
-		toolActivity = make([]activityToolCall, 0, len(calls))
-		for _, call := range calls {
-			projected := projectActivityToolCall(call)
-			inFlight := call.Status == "running" || call.Status == "pending_approval"
-			if output, ok := outputSnapshots[call.ToolUseID]; ok && call.Status == "running" {
-				text, truncated := truncateActivityString(agentpkg.RedactToolActivityText(output.Text), activityOutputTextBytes)
-				encoded, _ := json.Marshal(activityToolResult{Output: text})
-				projected.OutputJSON = encoded
-				projected.OutputTruncated = projected.OutputTruncated || output.Truncated || truncated
-			}
-			if preview, ok := inputPreviews[call.ToolUseID]; ok && inFlight {
-				text, truncated := truncateActivityString(agentpkg.RedactToolActivityText(preview.Text), activityOutputTextBytes)
-				projected.InputPreview = text
-				projected.InputPreviewTruncated = preview.Truncated || truncated
-			}
-			toolActivity = append(toolActivity, projected)
-		}
-	}
-	workState := s.buildWorkState(r.Context(), snapshot.Agent, spec, children, reviewState, backgroundTasks)
-	var pendingUserQuestions []map[string]any
-	if s.runner != nil {
-		pendingUserQuestions = s.runner.ListPendingUserQuestions(agentID)
-	}
-	writeJSON(w, http.StatusOK, agentLiveSnapshotResponse{
-		Protocol:              agentpkg.ProtocolVersion,
-		Agent:                 publicLiveSnapshotAgent(snapshot.Agent),
-		Messages:              snapshot.Messages,
-		MessageHasMoreBefore:  snapshot.MessageHasMoreBefore,
-		MessageNextBefore:     snapshot.MessageNextBefore,
-		PendingApprovals:      snapshot.PendingApprovals,
-		PendingUserQuestions:  pendingUserQuestions,
-		ToolActivity:          toolActivity,
-		LatestRun:             snapshot.LatestRun,
-		Generations:           snapshot.Generations,
-		ExecutionGeneration:   snapshot.Agent.ExecutionGeneration,
-		ExecutionsSince:       executions,
-		ExecutionsTruncated:   truncated,
-		Spec:                  spec,
-		ChildAgents:           children,
-		ActivePlan:            reviewState.ActivePlan,
-		PendingPlanApproval:   reviewState.PendingPlanApproval,
-		Review:                reviewState.Review,
-		BackgroundTasks:       backgroundTasks,
-		RecentBackgroundTasks: recentBackgroundTasks(backgroundTasks, 8),
-		Continuation:          continuation,
-		Context:               s.agentContextStatusForRequest(r.Context(), snapshot.Agent),
-		WorkState:             workState,
-		Stream:                watermark,
+	snapshot, err := s.agents().liveSnapshot(r.Context(), chi.URLParam(r, "id"), r.URL.Query().Get("afterExecutionGeneration"), func(children []db.Agent) ([]db.Agent, error) {
+		return s.liveSnapshotChildrenForRequest(r, children)
 	})
+	if err != nil {
+		writeAPIError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, snapshot)
 }
 
 func recentBackgroundTasks(tasks []tools.BackgroundTask, limit int) []tools.BackgroundTask {
@@ -451,17 +251,11 @@ func continuationSnapshot(run *db.Run) map[string]any {
 }
 
 func (s *Server) getAgent(w http.ResponseWriter, r *http.Request) {
-	agent, err := s.store.GetAgent(r.Context(), chi.URLParam(r, "id"))
+	agent, err := s.agents().get(r.Context(), chi.URLParam(r, "id"))
 	if err != nil {
-		if err == sql.ErrNoRows {
-			writeError(w, http.StatusNotFound, "agent not found")
-			return
-		}
-		writeError(w, http.StatusInternalServerError, err.Error())
+		writeAPIError(w, err)
 		return
 	}
-	agent.SystemPrompt = ""
-	agent.ContextSummary = ""
 	writeJSON(w, http.StatusOK, agent)
 }
 
@@ -516,41 +310,20 @@ type compactAgentContextResponse struct {
 }
 
 func (s *Server) agentContextStatusForRequest(ctx context.Context, agent db.Agent) agentContextStatus {
-	summaryModelConfigured := s != nil && s.runner != nil && strings.TrimSpace(s.runner.SummaryModel()) != ""
-	status := agentpkg.ContextTokenStatus{MessageCount: agent.MessageCount, PruneEnabled: agent.PruneEnabled, HasSummary: strings.TrimSpace(agent.ContextSummary) != ""}
-	if s != nil && s.runner != nil {
-		if estimated, _, err := s.runner.ContextStatus(ctx, agent.ID); err == nil {
-			status = estimated
-		}
-	}
-	return agentContextStatus{
-		HasSummary: status.HasSummary, PrunedPercent: agent.PrunedPercent, MessageCount: status.MessageCount,
-		CanCompact: status.CanCompact, CanClear: status.CanClear, SummaryModelConfigured: summaryModelConfigured,
-		EstimatedTokens: status.EstimatedTokens, LimitTokens: status.LimitTokens, UsagePercent: status.UsagePercent,
-		WindowClass: status.WindowClass, Thresholds: status.Thresholds, LatestMessageID: status.LatestMessageID,
-		PruneEnabled: status.PruneEnabled, Estimated: status.Estimated,
-		EstimateBasis: status.EstimateBasis, LastActualInputTokens: status.LastActualInputTokens,
-	}
+	return s.agents().contextStatus(ctx, agent)
 }
 
 func (s *Server) getAgentContext(w http.ResponseWriter, r *http.Request) {
-	if s == nil || s.store == nil {
-		writeError(w, http.StatusServiceUnavailable, "agent context store is unavailable")
-		return
-	}
 	agentID := strings.TrimSpace(chi.URLParam(r, "id"))
 	if !s.requireAgentAccess(w, r, agentID) {
 		return
 	}
-	agent, err := s.store.GetAgent(r.Context(), agentID)
+	view, err := s.agents().getContext(r.Context(), agentID)
 	if err != nil {
-		writeError(w, statusFromError(err), err.Error())
+		writeAPIError(w, err)
 		return
 	}
-	status := s.agentContextStatusForRequest(r.Context(), agent)
-	// Only this endpoint returns the summary body; snapshots and events omit it.
-	status.SummaryText = strings.TrimSpace(agent.ContextSummary)
-	writeJSON(w, http.StatusOK, map[string]any{"context": status, "entityGeneration": agent.EntityGeneration})
+	writeJSON(w, http.StatusOK, map[string]any{"context": view.Context, "entityGeneration": view.EntityGeneration})
 }
 
 func (s *Server) patchAgentContextPreferences(w http.ResponseWriter, r *http.Request) {
@@ -559,30 +332,16 @@ func (s *Server) patchAgentContextPreferences(w http.ResponseWriter, r *http.Req
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	if !req.PruneEnabled.set {
-		writeError(w, http.StatusBadRequest, "pruneEnabled is required")
-		return
-	}
 	agentID := strings.TrimSpace(chi.URLParam(r, "id"))
 	if !s.requireAgentAccess(w, r, agentID) {
 		return
 	}
-	current, err := s.store.GetAgent(r.Context(), agentID)
+	result, err := s.agents().patchContextPreferences(r.Context(), agentID, req)
 	if err != nil {
-		writeError(w, statusFromError(err), err.Error())
+		writeAPIError(w, err)
 		return
 	}
-	if req.EntityGeneration.set && req.EntityGeneration.value != current.EntityGeneration {
-		writeError(w, http.StatusConflict, "agent context preferences changed; refresh and try again")
-		return
-	}
-	updated, err := s.store.UpdateAgentPruneEnabled(r.Context(), agentID, req.PruneEnabled.value, current.EntityGeneration)
-	if err != nil {
-		writeError(w, statusFromError(err), err.Error())
-		return
-	}
-	s.publishContextUpdated(r.Context(), agentID, updated)
-	writeJSON(w, http.StatusOK, map[string]any{"context": s.agentContextStatusForRequest(r.Context(), updated), "agent": updated})
+	writeJSON(w, http.StatusOK, map[string]any{"context": result.Context, "agent": result.Agent})
 }
 
 func (s *Server) clearAgentContext(w http.ResponseWriter, r *http.Request) {
@@ -591,46 +350,20 @@ func (s *Server) clearAgentContext(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	if !req.EntityGeneration.set || req.EntityGeneration.value <= 0 || !req.ExpectedLatestMessageID.set || strings.TrimSpace(req.ExpectedLatestMessageID.value) == "" {
-		writeError(w, http.StatusBadRequest, "entityGeneration and expectedLatestMessageId are required")
-		return
-	}
-	if s.runner == nil {
-		writeError(w, http.StatusServiceUnavailable, "agent runner is unavailable")
-		return
-	}
 	agentID := strings.TrimSpace(chi.URLParam(r, "id"))
 	if !s.requireAgentAccess(w, r, agentID) {
 		return
 	}
-	updated, err := s.runner.ClearAgentContext(r.Context(), agentID, req.EntityGeneration.value, req.ExpectedLatestMessageID.value)
+	result, err := s.agents().clearContext(r.Context(), agentID, req)
 	if err != nil {
-		if errors.Is(err, agentpkg.ErrAgentBusy) || errors.Is(err, db.ErrConflict) {
-			writeError(w, http.StatusConflict, err.Error())
-		} else {
-			writeError(w, statusFromError(err), err.Error())
-		}
+		writeAPIError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"context": s.agentContextStatusForRequest(r.Context(), updated), "cleared": true})
+	writeJSON(w, http.StatusOK, map[string]any{"context": result.Context, "cleared": result.Cleared})
 }
 
 func (s *Server) publishContextUpdated(ctx context.Context, agentID string, agent db.Agent) {
-	if s == nil || s.hub == nil {
-		return
-	}
-	// The hub event is additive and intentionally carries only state metadata;
-	// context summaries never enter the event payload.
-	data := map[string]any{"entityGeneration": agent.EntityGeneration, "prunedPercent": agent.PrunedPercent, "pruneEnabled": agent.PruneEnabled, "messageCount": agent.MessageCount}
-	if s.runner != nil && s.store != nil {
-		if messages, err := s.store.ListMessages(ctx, agentID); err == nil {
-			status := s.runner.ContextStatusForEvent(agent, messages)
-			for key, value := range status {
-				data[key] = value
-			}
-		}
-	}
-	s.hub.Publish(agentpkg.Event{Type: "context.updated", AgentID: agentID, Data: data})
+	s.agents().publishContextUpdated(ctx, agentID, agent)
 }
 
 func (s *Server) compactAgentContext(w http.ResponseWriter, r *http.Request) {
@@ -639,46 +372,16 @@ func (s *Server) compactAgentContext(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	if !req.EntityGeneration.set || req.EntityGeneration.value <= 0 {
-		writeError(w, http.StatusBadRequest, "entityGeneration must be a positive integer")
-		return
-	}
-	if s == nil || s.runner == nil {
-		writeError(w, http.StatusServiceUnavailable, "agent runner is unavailable")
-		return
-	}
 	agentID := strings.TrimSpace(chi.URLParam(r, "id"))
-	if err := validateAPIIdentifier("agent id", agentID); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
-		return
-	}
 	if !s.requireAgentAccess(w, r, agentID) {
 		return
 	}
-	var result agentpkg.ContextCompactionResult
-	var updated db.Agent
-	var err error
-	if strings.TrimSpace(req.ThroughMessageID) != "" {
-		result, updated, err = s.runner.CompactAgentContextThroughMessage(r.Context(), agentID, req.EntityGeneration.value, req.ThroughMessageID, req.ExpectedLatestMessageID)
-	} else {
-		result, updated, err = s.runner.CompactAgentContext(r.Context(), agentID, req.EntityGeneration.value, req.ExpectedLatestMessageID)
-	}
+	result, err := s.agents().compactContext(r.Context(), agentID, req)
 	if err != nil {
-		switch {
-		case errors.Is(err, agentpkg.ErrAgentBusy), errors.Is(err, db.ErrConflict):
-			writeError(w, http.StatusConflict, err.Error())
-		case errors.Is(err, sql.ErrNoRows):
-			writeError(w, http.StatusNotFound, "agent not found")
-		default:
-			writeError(w, http.StatusInternalServerError, err.Error())
-		}
+		writeAPIError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, compactAgentContextResponse{
-		Context:               s.agentContextStatusForRequest(r.Context(), updated),
-		Compacted:             result.Compacted,
-		CompactedMessageCount: result.CompactedMessageCount,
-	})
+	writeJSON(w, http.StatusOK, result)
 }
 
 type retainAgentContextRequest struct {
@@ -700,45 +403,16 @@ func (s *Server) retainAgentContextSummary(w http.ResponseWriter, r *http.Reques
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	if s == nil || s.store == nil {
-		writeError(w, http.StatusServiceUnavailable, "agent context store is unavailable")
-		return
-	}
 	agentID := strings.TrimSpace(chi.URLParam(r, "id"))
-	if err := validateAPIIdentifier("agent id", agentID); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
-		return
-	}
 	if !s.requireAgentAccess(w, r, agentID) {
 		return
 	}
-	agent, err := s.store.GetAgent(r.Context(), agentID)
+	result, err := s.agents().retainContextSummary(r.Context(), agentID, req)
 	if err != nil {
-		writeError(w, statusFromError(err), err.Error())
+		writeAPIError(w, err)
 		return
 	}
-	summary := strings.TrimSpace(agent.ContextSummary)
-	if summary == "" {
-		writeError(w, http.StatusConflict, "agent has no context summary to retain")
-		return
-	}
-	if len(summary) > db.MemoryContentMaxBytes {
-		summary = truncateMemoryContentBytes(summary, db.MemoryContentMaxBytes)
-	}
-	created, err := s.store.CreateMemory(r.Context(), db.Memory{
-		AgentID:  agentID,
-		Content:  summary,
-		Keywords: req.Keywords,
-		Pinned:   req.Pinned,
-	})
-	if err != nil {
-		writeError(w, statusFromMemoryError(err), err.Error())
-		return
-	}
-	writeJSON(w, http.StatusCreated, retainAgentContextResponse{
-		Memory:  created,
-		Context: s.agentContextStatusForRequest(r.Context(), agent),
-	})
+	writeJSON(w, http.StatusCreated, result)
 }
 
 // truncateMemoryContentBytes trims to a byte ceiling without splitting a rune.
@@ -764,42 +438,9 @@ func (s *Server) updateAgentTitle(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	if !req.Title.set {
-		writeError(w, http.StatusBadRequest, "title is required")
-		return
-	}
-	title := strings.TrimSpace(req.Title.value)
-	if title == "" || len(title) > 200 || !utf8.ValidString(title) || strings.ContainsAny(title, "\x00\r\n") {
-		writeError(w, http.StatusBadRequest, "invalid agent title")
-		return
-	}
-	if s.store == nil {
-		writeError(w, http.StatusInternalServerError, "agent store is unavailable")
-		return
-	}
-	agentID := strings.TrimSpace(chi.URLParam(r, "id"))
-	if err := validateAPIIdentifier("agent id", agentID); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	unlock := s.lockAgentMutation(agentID)
-	defer unlock()
-	current, err := s.store.GetAgent(r.Context(), agentID)
+	agent, err := s.agents().updateTitle(r.Context(), strings.TrimSpace(chi.URLParam(r, "id")), req)
 	if err != nil {
-		writeError(w, statusFromError(err), err.Error())
-		return
-	}
-	if req.EntityGeneration.set && req.EntityGeneration.value != current.EntityGeneration {
-		writeError(w, http.StatusConflict, "agent title changed; refresh and try again")
-		return
-	}
-	if title == current.Title {
-		writeJSON(w, http.StatusOK, current)
-		return
-	}
-	agent, err := s.store.UpdateAgentTitle(r.Context(), agentID, title)
-	if err != nil {
-		writeError(w, statusFromError(err), err.Error())
+		writeAPIError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, agent)
@@ -824,23 +465,10 @@ func (s *Server) updateAgentCWD(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	info, err := os.Stat(cwd)
+	agent, err := s.agents().updateCWD(r.Context(), chi.URLParam(r, "id"), cwd)
 	if err != nil {
-		writeError(w, statusFromFSError(err), err.Error())
+		writeAPIError(w, err)
 		return
-	}
-	if !info.IsDir() {
-		writeError(w, http.StatusBadRequest, "cwd must be a directory")
-		return
-	}
-	agentID := chi.URLParam(r, "id")
-	agent, err := s.store.UpdateAgentCWD(r.Context(), agentID, cwd)
-	if err != nil {
-		writeError(w, statusFromError(err), err.Error())
-		return
-	}
-	if s.runner != nil {
-		s.runner.InvalidateAgentApprovals(agentID, "tool approval invalidated because the agent workspace changed")
 	}
 	writeJSON(w, http.StatusOK, agent)
 }
@@ -860,85 +488,28 @@ func (s *Server) updateAgentModel(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "model is required")
 		return
 	}
-	if s.store == nil {
-		writeError(w, http.StatusInternalServerError, "agent store is unavailable")
-		return
-	}
 	if _, _, err := s.resolveExecutableModel(model); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	agentID := strings.TrimSpace(chi.URLParam(r, "id"))
-	unlock := s.lockAgentMutation(agentID)
-	defer unlock()
-
-	current, err := s.store.GetAgent(r.Context(), agentID)
+	agent, err := s.agents().updateModel(r.Context(), strings.TrimSpace(chi.URLParam(r, "id")), model)
 	if err != nil {
-		writeError(w, statusFromError(err), err.Error())
-		return
-	}
-	// Persist the model and compatible runtime controls in one SQL UPDATE. A
-	// model switch must not leave reasoning or Fast settings attached to a model
-	// that cannot honor them.
-	effort := s.safeReasoningEffortForCapabilities(r.Context(), current.ReasoningEffort, s.capabilitiesForAgentModel(model))
-	fastMode := current.FastMode && s.modelCapabilitiesForAgentModel(model).FastMode
-	agent, err := s.store.UpdateAgentModelRuntime(r.Context(), agentID, model, effort, fastMode)
-	if err != nil {
-		writeError(w, statusFromError(err), err.Error())
+		writeAPIError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, agent)
 }
 
 func (s *Server) capabilitiesForAgentModel(model string) providers.Capabilities {
-	providerName, _ := providers.SplitModel(model)
-	if s == nil || s.providers == nil {
-		// Preserve the legacy Gemini reasoning route for lightweight/test servers
-		// that do not install a provider registry.
-		if providerName == "gemini" {
-			return providers.Capabilities{Reasoning: true}
-		}
-		return providers.Capabilities{}
-	}
-	provider, resolvedModel, err := s.providers.Resolve(model)
-	if err != nil {
-		return providers.Capabilities{}
-	}
-	// Folded with the model's own levels, because Codex serves "max"/"ultra" on
-	// some models only: judging by the provider alone would refuse a level the
-	// selected model accepts.
-	return providers.CapabilitiesForModel(providers.CapabilitiesFor(provider), providers.ModelCapabilitiesFor(provider, resolvedModel))
+	return s.agents().capabilitiesForModel(model)
 }
 
 func (s *Server) modelCapabilitiesForAgentModel(model string) providers.ModelCapabilities {
-	if s == nil || s.providers == nil {
-		return providers.ModelCapabilities{}
-	}
-	provider, resolvedModel, err := s.providers.Resolve(model)
-	if err != nil {
-		return providers.ModelCapabilities{}
-	}
-	return providers.ModelCapabilitiesFor(provider, resolvedModel)
+	return s.agents().modelCapabilities(model)
 }
 
 func (s *Server) safeReasoningEffortForCapabilities(ctx context.Context, effort string, capabilities providers.Capabilities) string {
-	effort = strings.ToLower(strings.TrimSpace(effort))
-	effectiveEffort := effort
-	if effectiveEffort == "" {
-		// An empty override inherits the runtime default. Preserve that inheritance
-		// only when the target can support its actual value; otherwise persist an
-		// explicit auto so a model switch cannot inherit an unsupported default.
-		effectiveEffort = "auto"
-		if s != nil && s.store != nil {
-			if settings, err := s.store.GetRuntimeSettings(ctx); err == nil {
-				effectiveEffort = strings.ToLower(strings.TrimSpace(settings.DefaultReasoningEffort))
-			}
-		}
-	}
-	if capabilities.SupportsReasoningEffort(effectiveEffort) {
-		return effort
-	}
-	return "auto"
+	return s.agents().safeReasoningEffort(ctx, effort, capabilities)
 }
 
 type updatePermissionModeRequest struct {
@@ -956,14 +527,10 @@ func (s *Server) updateAgentPermissionMode(w http.ResponseWriter, r *http.Reques
 		writeError(w, http.StatusBadRequest, message)
 		return
 	}
-	agentID := chi.URLParam(r, "id")
-	agent, err := s.store.UpdateAgentPermissionMode(r.Context(), agentID, permissionMode)
+	agent, err := s.agents().updatePermissionMode(r.Context(), chi.URLParam(r, "id"), permissionMode)
 	if err != nil {
-		writeError(w, statusFromError(err), err.Error())
+		writeAPIError(w, err)
 		return
-	}
-	if s.runner != nil {
-		s.runner.InvalidateAgentApprovals(agentID, "tool approval invalidated because the permission mode changed")
 	}
 	writeJSON(w, http.StatusOK, agent)
 }
@@ -1139,37 +706,10 @@ func (s *Server) listRunToolCalls(w http.ResponseWriter, r *http.Request) {
 		}
 		offset = parsed
 	}
-	calls, err := s.store.ListToolCallsByRunWindow(r.Context(), agentID, runID, limit+1, offset)
+	page, err := s.agents().activityToolCalls(r.Context(), agentID, runID, limit, offset)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		writeAPIError(w, err)
 		return
-	}
-	hasMore := len(calls) > limit
-	if hasMore {
-		calls = calls[1:]
-	}
-	activity := make([]activityToolCall, 0, len(calls))
-	pageBytes := 0
-	consumed := 0
-	pageTruncated := false
-	for index := len(calls) - 1; index >= 0; index-- {
-		projected := projectActivityToolCall(calls[index])
-		encoded, _ := json.Marshal(projected)
-		if len(activity) > 0 && pageBytes+len(encoded) > activityPageMaxBytes-activityPageReserveBytes {
-			hasMore = true
-			pageTruncated = true
-			break
-		}
-		activity = append(activity, projected)
-		pageBytes += len(encoded)
-		consumed++
-	}
-	for left, right := 0, len(activity)-1; left < right; left, right = left+1, right-1 {
-		activity[left], activity[right] = activity[right], activity[left]
-	}
-	page := activityToolCallPage{ToolCalls: activity, HasMore: hasMore, Truncated: pageTruncated}
-	if hasMore {
-		page.NextOffset = offset + consumed
 	}
 	writeJSON(w, http.StatusOK, page)
 }

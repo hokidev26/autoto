@@ -147,17 +147,10 @@ type clientIdentityResponse struct {
 }
 
 func (s *Server) listModelAggregates(w http.ResponseWriter, r *http.Request) {
-	if s.store == nil {
-		writeError(w, http.StatusInternalServerError, "model aggregate store is unavailable")
-		return
-	}
-	aggregates, err := s.store.ListModelAggregates(r.Context())
+	aggregates, err := s.modelRuntime().listAggregates(r.Context())
 	if err != nil {
 		writeModelRuntimeError(w, err)
 		return
-	}
-	if aggregates == nil {
-		aggregates = []db.ModelAggregate{}
 	}
 	writeJSON(w, http.StatusOK, aggregates)
 }
@@ -168,11 +161,7 @@ func (s *Server) getModelAggregate(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	if s.store == nil {
-		writeError(w, http.StatusInternalServerError, "model aggregate store is unavailable")
-		return
-	}
-	aggregate, err := s.store.GetModelAggregate(r.Context(), name)
+	aggregate, err := s.modelRuntime().getAggregate(r.Context(), name)
 	if err != nil {
 		writeModelRuntimeError(w, err)
 		return
@@ -191,33 +180,7 @@ func (s *Server) putModelAggregate(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	revision, err := requestRevision(request.Revision, request.ExpectedRevision, true)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	if !request.Members.set {
-		writeError(w, http.StatusBadRequest, "members are required")
-		return
-	}
-	mode := providers.AggregateStrategyPriority
-	if request.Mode.set {
-		mode = strings.TrimSpace(request.Mode.value)
-		if mode != providers.AggregateStrategyPriority {
-			writeError(w, http.StatusBadRequest, "mode must be priority")
-			return
-		}
-	}
-	members, err := validateModelAggregateMembers(request.Members.values)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	if s.store == nil {
-		writeError(w, http.StatusInternalServerError, "model aggregate store is unavailable")
-		return
-	}
-	aggregate, err := s.store.UpsertModelAggregate(r.Context(), db.ModelAggregate{Name: name, Mode: mode, Members: members}, revision)
+	aggregate, err := s.modelRuntime().putAggregate(r.Context(), name, request)
 	if err != nil {
 		writeModelRuntimeError(w, err)
 		return
@@ -236,16 +199,8 @@ func (s *Server) deleteModelAggregate(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	revision, err := requestRevision(request.Revision, request.ExpectedRevision, false)
+	revision, err := s.modelRuntime().deleteAggregate(r.Context(), name, request)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	if s.store == nil {
-		writeError(w, http.StatusInternalServerError, "model aggregate store is unavailable")
-		return
-	}
-	if err := s.store.DeleteModelAggregate(r.Context(), name, revision); err != nil {
 		writeModelRuntimeError(w, err)
 		return
 	}
@@ -330,52 +285,10 @@ func (s *Server) updateRuntimeModelSettings(w http.ResponseWriter, r *http.Reque
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	revision, err := requestRevision(request.Revision, request.ExpectedRevision, false)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	if !request.DefaultReasoningEffort.set && !request.SubscriptionTier.set && !request.AccountEmail.set {
-		writeError(w, http.StatusBadRequest, "at least one runtime model setting is required")
-		return
-	}
-
-	patch := db.RuntimeSettingsPatch{ExpectedRevision: revision}
-	if request.DefaultReasoningEffort.set {
-		effort := strings.ToLower(strings.TrimSpace(request.DefaultReasoningEffort.value))
-		if !validDefaultReasoningEffort(effort) {
-			writeError(w, http.StatusBadRequest, "defaultReasoningEffort must be auto, low, medium, high, xhigh, max, or ultra")
-			return
-		}
-		patch.DefaultReasoningEffort = &effort
-	}
-	if request.SubscriptionTier.set {
-		tier := strings.ToLower(strings.TrimSpace(request.SubscriptionTier.value))
-		if !validSubscriptionTier(tier) {
-			writeError(w, http.StatusBadRequest, "invalid subscriptionTier")
-			return
-		}
-		patch.SubscriptionTier = &tier
-	}
-	if request.AccountEmail.set {
-		email := strings.TrimSpace(request.AccountEmail.value)
-		if err := validateRuntimeAccountEmail(email); err != nil {
-			writeError(w, http.StatusBadRequest, err.Error())
-			return
-		}
-		patch.AccountEmail = &email
-	}
-	if s.store == nil {
-		writeError(w, http.StatusInternalServerError, "runtime settings store is unavailable")
-		return
-	}
-	settings, err := s.store.UpdateRuntimeSettings(r.Context(), patch)
+	settings, err := s.modelRuntime().updateRuntimeSettings(r.Context(), request)
 	if err != nil {
 		writeModelRuntimeError(w, err)
 		return
-	}
-	if s.runner != nil {
-		s.runner.SetDefaultReasoningEffort(settings.DefaultReasoningEffort)
 	}
 	writeJSON(w, http.StatusOK, settings)
 }
@@ -386,51 +299,11 @@ func (s *Server) updateAgentReasoningEffort(w http.ResponseWriter, r *http.Reque
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	if !request.ReasoningEffort.set {
-		writeError(w, http.StatusBadRequest, "reasoningEffort is required")
-		return
-	}
-	effort := strings.ToLower(strings.TrimSpace(request.ReasoningEffort.value))
-	if !validAgentReasoningEffort(effort, true) {
-		writeError(w, http.StatusBadRequest, "reasoningEffort must be empty, auto, low, medium, high, xhigh, max, or ultra")
-		return
-	}
 	agentID := strings.TrimSpace(chi.URLParam(r, "id"))
 	if agentID == "" {
 		agentID = strings.TrimSpace(chi.URLParam(r, "agentId"))
 	}
-	if agentID == "" || len(agentID) > 128 {
-		writeError(w, http.StatusBadRequest, "invalid agent id")
-		return
-	}
-	if s.store == nil {
-		writeError(w, http.StatusInternalServerError, "agent store is unavailable")
-		return
-	}
-	unlock := s.lockAgentMutation(agentID)
-	defer unlock()
-
-	current, err := s.store.GetAgent(r.Context(), agentID)
-	if err != nil {
-		writeModelRuntimeError(w, err)
-		return
-	}
-	if request.Model.set && strings.TrimSpace(request.Model.value) != current.Model {
-		writeModelRuntimeError(w, fmt.Errorf("%w: agent model changed", db.ErrConflict))
-		return
-	}
-	if request.EntityGeneration.set && request.EntityGeneration.value != current.EntityGeneration {
-		writeModelRuntimeError(w, fmt.Errorf("%w: agent settings changed", db.ErrConflict))
-		return
-	}
-	capabilities := s.capabilitiesForAgentModel(current.Model)
-	if effort == "" {
-		effort = s.safeReasoningEffortForCapabilities(r.Context(), effort, capabilities)
-	} else if !capabilities.SupportsReasoningEffort(effort) {
-		writeError(w, http.StatusBadRequest, "reasoningEffort is not supported by the current model")
-		return
-	}
-	agent, err := s.store.UpdateAgentReasoningEffort(r.Context(), agentID, effort)
+	agent, err := s.modelRuntime().updateReasoningEffort(r.Context(), agentID, request)
 	if err != nil {
 		writeModelRuntimeError(w, err)
 		return
@@ -444,43 +317,11 @@ func (s *Server) updateAgentFastMode(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	if !request.FastMode.set {
-		writeError(w, http.StatusBadRequest, "fastMode is required")
-		return
-	}
 	agentID := strings.TrimSpace(chi.URLParam(r, "id"))
 	if agentID == "" {
 		agentID = strings.TrimSpace(chi.URLParam(r, "agentId"))
 	}
-	if agentID == "" || len(agentID) > 128 {
-		writeError(w, http.StatusBadRequest, "invalid agent id")
-		return
-	}
-	if s.store == nil {
-		writeError(w, http.StatusInternalServerError, "agent store is unavailable")
-		return
-	}
-	unlock := s.lockAgentMutation(agentID)
-	defer unlock()
-
-	current, err := s.store.GetAgent(r.Context(), agentID)
-	if err != nil {
-		writeModelRuntimeError(w, err)
-		return
-	}
-	if request.Model.set && strings.TrimSpace(request.Model.value) != current.Model {
-		writeModelRuntimeError(w, fmt.Errorf("%w: agent model changed", db.ErrConflict))
-		return
-	}
-	if request.EntityGeneration.set && request.EntityGeneration.value != current.EntityGeneration {
-		writeModelRuntimeError(w, fmt.Errorf("%w: agent settings changed", db.ErrConflict))
-		return
-	}
-	if request.FastMode.value && !s.modelCapabilitiesForAgentModel(current.Model).FastMode {
-		writeError(w, http.StatusBadRequest, "fastMode is not supported by the current model")
-		return
-	}
-	agent, err := s.store.UpdateAgentFastMode(r.Context(), agentID, request.FastMode.value)
+	agent, err := s.modelRuntime().updateFastMode(r.Context(), agentID, request)
 	if err != nil {
 		writeModelRuntimeError(w, err)
 		return
@@ -489,11 +330,7 @@ func (s *Server) updateAgentFastMode(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) clientIdentity(w http.ResponseWriter, r *http.Request) {
-	if s.store == nil {
-		writeError(w, http.StatusInternalServerError, "runtime settings store is unavailable")
-		return
-	}
-	settings, err := s.store.GetRuntimeSettings(r.Context())
+	settings, err := s.modelRuntime().clientIdentity(r.Context())
 	if err != nil {
 		writeModelRuntimeError(w, err)
 		return
@@ -507,16 +344,7 @@ func (s *Server) rotateClientIdentity(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	revision, err := requestRevision(request.Revision, request.ExpectedRevision, false)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	if s.store == nil {
-		writeError(w, http.StatusInternalServerError, "runtime settings store is unavailable")
-		return
-	}
-	settings, err := s.store.RotateInstallationID(r.Context(), revision)
+	settings, err := s.modelRuntime().rotateClientIdentity(r.Context(), request)
 	if err != nil {
 		writeModelRuntimeError(w, err)
 		return
@@ -761,6 +589,11 @@ func validateRuntimeAccountEmail(value string) error {
 }
 
 func writeModelRuntimeError(w http.ResponseWriter, err error) {
+	var api apiError
+	if errors.As(err, &api) {
+		writeError(w, api.status, api.msg)
+		return
+	}
 	switch {
 	case errors.Is(err, sql.ErrNoRows):
 		writeError(w, http.StatusNotFound, err.Error())
