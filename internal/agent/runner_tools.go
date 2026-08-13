@@ -70,6 +70,18 @@ func toolAllowsSessionApproval(tool tools.Tool, input json.RawMessage) bool {
 	return !ok || policy.SessionApprovalAllowed()
 }
 
+// PendingApprovalAllowsSession reports whether the pending approval for
+// toolUseID can carry an allow_session decision. Callers that accept session
+// decisions from less expressive channels (e.g. the peer protocol) use this to
+// downgrade to allow_once instead of failing the whole resolution.
+func (r *Runner) PendingApprovalAllowsSession(agentID, toolUseID string) bool {
+	key := approvalKey(agentID, toolUseID)
+	r.approvalMu.Lock()
+	approval := r.approvals[key]
+	r.approvalMu.Unlock()
+	return approval != nil && approval.AllowSession
+}
+
 func (r *Runner) ApproveToolCall(ctx context.Context, agentID, toolUseID string, decision ToolApprovalDecision) (bool, error) {
 	generations, err := r.store.GetPermissionGenerations(ctx, agentID)
 	if err != nil {

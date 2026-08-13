@@ -1,0 +1,868 @@
+import { objectValue } from "./value-coercion.mjs";
+import { escapeAttr, escapeHtml, setButtonBusy } from "./dom.mjs";
+import { t } from "./i18n.mjs";
+import { qrToSvg } from "./qrcode.mjs";
+
+const endpoint = "/api/remote-collaboration";
+
+export const peerScopes = Object.freeze(["observe", "send_task", "approve_once", "approve_session", "execute_tools"]);
+export const peerPermissionCaps = Object.freeze(["readOnly", "acceptEdits"]);
+
+const invitationStatuses = Object.freeze(["open", "claimed", "approved", "rejected", "revoked", "expired"]);
+const pairingStatuses = Object.freeze(["active", "revoked", "expired"]);
+const pairingRoles = Object.freeze(["host", "controller"]);
+const invitationTTLChoices = Object.freeze([600, 1800, 3600]);
+
+function textValue(value, fallback = "") {
+  const text = String(value ?? "").trim();
+  return text || fallback;
+}
+
+function positiveInteger(value) {
+  const parsed = Number(value);
+  return Number.isSafeInteger(parsed) && parsed >= 1 ? parsed : 0;
+}
+
+// Scope order is normalized server-side; matching it here keeps a draft that was
+// built by clicking checkboxes comparable with what the server echoes back.
+export function normalizePeerScopes(value) {
+  const requested = new Set((Array.isArray(value) ? value : []).map((scope) => textValue(scope)));
+  return peerScopes.filter((scope) => requested.has(scope));
+}
+
+export function normalizePeerGrant(value = {}) {
+  const source = objectValue(value);
+  const cap = textValue(source.permissionModeCap);
+  return {
+    id: textValue(source.id),
+    pairingId: textValue(source.pairingId),
+    projectId: textValue(source.projectId),
+    agentId: textValue(source.agentId),
+    scopes: normalizePeerScopes(source.scopes),
+    permissionModeCap: peerPermissionCaps.includes(cap) ? cap : "readOnly",
+    revision: positiveInteger(source.revision),
+  };
+}
+
+export function normalizePeerInvitation(value = {}) {
+  const source = objectValue(value);
+  const status = textValue(source.status);
+  return {
+    id: textValue(source.id),
+    status: invitationStatuses.includes(status) ? status : "expired",
+    requesterDisplayName: textValue(source.requesterDisplayName),
+    requesterInstallationId: textValue(source.requesterInstallationId),
+    requesterFingerprint: textValue(source.requesterFingerprint),
+    failedAttempts: Number.isSafeInteger(Number(source.failedAttempts)) ? Number(source.failedAttempts) : 0,
+    lockedUntil: textValue(source.lockedUntil),
+    expiresAt: textValue(source.expiresAt),
+    revision: positiveInteger(source.revision),
+    createdAt: textValue(source.createdAt),
+    updatedAt: textValue(source.updatedAt),
+  };
+}
+
+// The server wraps a pairing as { pairing, grants } while the normalized form is
+// flat, and normalized state is re-read on every render. Accepting both shapes
+// keeps a second pass from emptying the record it already produced.
+export function normalizePeerPairing(value = {}) {
+  const source = objectValue(value);
+  const wrapped = source.pairing && typeof source.pairing === "object" && !Array.isArray(source.pairing);
+  const pairing = wrapped ? source.pairing : source;
+  const role = textValue(pairing.localRole);
+  const status = textValue(pairing.status);
+  return {
+    id: textValue(pairing.id),
+    localRole: pairingRoles.includes(role) ? role : "host",
+    displayName: textValue(pairing.displayName),
+    peerInstallationId: textValue(pairing.peerInstallationId),
+    peerFingerprint: textValue(pairing.peerFingerprint),
+    endpointOrigin: textValue(pairing.endpointOrigin),
+    status: pairingStatuses.includes(status) ? status : "expired",
+    scopes: normalizePeerScopes(pairing.scopes),
+    credentialRevision: positiveInteger(pairing.credentialRevision),
+    grantRevision: positiveInteger(pairing.grantRevision),
+    expiresAt: textValue(pairing.expiresAt),
+    lastSeenAt: textValue(pairing.lastSeenAt),
+    pairedAt: textValue(pairing.pairedAt),
+    grants: (Array.isArray(source.grants) ? source.grants : []).map(normalizePeerGrant),
+  };
+}
+
+export function normalizePeerCollaboration(value = {}) {
+  const source = objectValue(value);
+  const identity = objectValue(source.identity);
+  const tunnel = objectValue(source.tunnel);
+  return {
+    available: Boolean(source.available),
+    sharingEnabled: Boolean(source.sharingEnabled),
+    identity: {
+      fingerprint: textValue(identity.fingerprint),
+      protocolVersion: positiveInteger(identity.protocolVersion),
+    },
+    tunnel: {
+      status: textValue(tunnel.status, "unavailable"),
+      publicUrl: textValue(tunnel.publicUrl),
+    },
+    invitations: (Array.isArray(source.invitations) ? source.invitations : []).map(normalizePeerInvitation),
+    pairings: (Array.isArray(source.pairings) ? source.pairings : []).map(normalizePeerPairing),
+  };
+}
+
+// The approve and authorization endpoints replace the whole grant set, so a
+// draft always carries every grant the pairing should keep, not a delta.
+export function authorizationPayload(draft, { revisionKey, revision }) {
+  const source = objectValue(draft);
+  const scopes = normalizePeerScopes(source.scopes);
+  const allowed = new Set(scopes);
+  const payload = {
+    [revisionKey]: revision,
+    scopes,
+    grants: (Array.isArray(source.grants) ? source.grants : [])
+      .filter((grant) => textValue(grant?.agentId) && textValue(grant?.projectId))
+      .map((grant) => ({
+        projectId: textValue(grant.projectId),
+        agentId: textValue(grant.agentId),
+        scopes: normalizePeerScopes(grant.scopes).filter((scope) => allowed.has(scope)),
+        permissionModeCap: peerPermissionCaps.includes(grant.permissionModeCap) ? grant.permissionModeCap : "readOnly",
+      })),
+  };
+  const hours = Number(source.expiresInHours);
+  if (Number.isFinite(hours) && hours > 0) {
+    payload.expiresAt = new Date(Date.now() + Math.round(hours * 3600000)).toISOString();
+  }
+  return payload;
+}
+
+export function createPeerCollaborationSettingsController({
+  state,
+  request,
+  copyText,
+  onChange,
+  showError,
+  showToast,
+  confirmAction,
+}) {
+  // Agents come from the navigation projection because a grant needs the
+  // project a conversation belongs to, and the agent record alone does not
+  // carry it.
+  let agentOptions = [];
+  let createdInvitation = null;
+  let loadSequence = 0;
+  const pendingClaims = new Map();
+  const approvalDrafts = new Map();
+  const authorizationDrafts = new Map();
+  let openApproval = "";
+  let openAuthorization = "";
+
+  const rt = (key, params = {}) => t(`peerCollaboration.${key}`, params);
+
+  function status() {
+    return normalizePeerCollaboration(state?.peerCollaboration || {});
+  }
+
+  function invitation(id) {
+    return status().invitations.find((item) => item.id === id) || null;
+  }
+
+  function pairing(id) {
+    return status().pairings.find((item) => item.id === id) || null;
+  }
+
+  function agentLabel(agentId) {
+    const option = agentOptions.find((item) => item.agentId === agentId);
+    if (!option) return agentId;
+    return option.projectName ? `${option.projectName} / ${option.agentTitle}` : option.agentTitle;
+  }
+
+  function approvalDraft(id) {
+    if (!approvalDrafts.has(id)) {
+      approvalDrafts.set(id, { scopes: ["observe"], expiresInHours: 24, grants: [] });
+    }
+    return approvalDrafts.get(id);
+  }
+
+  function authorizationDraft(id) {
+    if (!authorizationDrafts.has(id)) {
+      const current = pairing(id);
+      authorizationDrafts.set(id, {
+        scopes: current ? [...current.scopes] : ["observe"],
+        expiresInHours: 0,
+        grants: (current?.grants || []).map((grant) => ({
+          projectId: grant.projectId,
+          agentId: grant.agentId,
+          scopes: [...grant.scopes],
+          permissionModeCap: grant.permissionModeCap,
+        })),
+      });
+    }
+    return authorizationDrafts.get(id);
+  }
+
+  function draftFor(kind, id) {
+    return kind === "approval" ? approvalDraft(id) : authorizationDraft(id);
+  }
+
+  async function load() {
+    const sequence = ++loadSequence;
+    state.peerCollaborationLoading = true;
+    state.peerCollaborationError = "";
+    try {
+      const [statusResult, navigationResult] = await Promise.allSettled([
+        request(endpoint + "/status"),
+        request("/api/navigation"),
+      ]);
+      if (sequence !== loadSequence) return state.peerCollaboration;
+      if (statusResult.status === "rejected") throw statusResult.reason;
+      state.peerCollaboration = normalizePeerCollaboration(statusResult.value);
+      if (navigationResult.status === "fulfilled") {
+        agentOptions = collectAgentOptions(navigationResult.value);
+      }
+      return state.peerCollaboration;
+    } catch (err) {
+      if (sequence !== loadSequence) throw err;
+      state.peerCollaborationError = err?.status === 403 ? rt("localOnlyNotice") : (err?.message || String(err));
+      throw err;
+    } finally {
+      if (sequence === loadSequence) {
+        state.peerCollaborationLoading = false;
+        onChange?.(state.peerCollaboration);
+      }
+    }
+  }
+
+  async function setSharing(enabled) {
+    const result = await request(endpoint + "/sharing", { method: "PUT", body: JSON.stringify({ enabled: Boolean(enabled) }) });
+    state.peerCollaboration = normalizePeerCollaboration({ ...status(), sharingEnabled: Boolean(objectValue(result).sharingEnabled) });
+    showToast?.(rt(enabled ? "sharingEnabledToast" : "sharingDisabledToast"));
+    onChange?.(state.peerCollaboration);
+    return state.peerCollaboration.sharingEnabled;
+  }
+
+  async function createInvitation(expiresInSeconds) {
+    const ttl = invitationTTLChoices.includes(Number(expiresInSeconds)) ? Number(expiresInSeconds) : invitationTTLChoices[0];
+    const result = objectValue(await request(endpoint + "/invitations", { method: "POST", body: JSON.stringify({ expiresInSeconds: ttl }) }));
+    const invited = normalizePeerInvitation(result.invitation);
+    createdInvitation = {
+      id: invited.id,
+      encodedInvitation: textValue(result.encodedInvitation),
+      hostFingerprint: textValue(result.hostFingerprint),
+      expiresAt: invited.expiresAt,
+    };
+    showToast?.(rt("invitationCreatedToast"));
+    await load();
+    return createdInvitation;
+  }
+
+  async function approveInvitation(id) {
+    const current = invitation(id);
+    if (!current) throw new Error(rt("invitationMissing"));
+    const result = await request(`${endpoint}/invitations/${encodeURIComponent(id)}/approve`, {
+      method: "POST",
+      body: JSON.stringify(authorizationPayload(approvalDraft(id), { revisionKey: "revision", revision: current.revision })),
+    });
+    approvalDrafts.delete(id);
+    if (openApproval === id) openApproval = "";
+    showToast?.(rt("pairingApprovedToast"));
+    await load();
+    return normalizePeerPairing(result);
+  }
+
+  async function transitionInvitation(id, action) {
+    const current = invitation(id);
+    if (!current) throw new Error(rt("invitationMissing"));
+    await request(`${endpoint}/invitations/${encodeURIComponent(id)}/${action}`, {
+      method: "POST",
+      body: JSON.stringify({ status: current.status, revision: current.revision }),
+    });
+    approvalDrafts.delete(id);
+    if (openApproval === id) openApproval = "";
+    showToast?.(rt(action === "reject" ? "invitationRejectedToast" : "invitationRevokedToast"));
+    await load();
+  }
+
+  async function saveAuthorization(id) {
+    const current = pairing(id);
+    if (!current) throw new Error(rt("pairingMissing"));
+    const result = await request(`${endpoint}/pairings/${encodeURIComponent(id)}/authorization`, {
+      method: "PUT",
+      body: JSON.stringify(authorizationPayload(authorizationDraft(id), { revisionKey: "grantRevision", revision: current.grantRevision })),
+    });
+    authorizationDrafts.delete(id);
+    if (openAuthorization === id) openAuthorization = "";
+    showToast?.(rt("authorizationSavedToast"));
+    await load();
+    return normalizePeerPairing(result);
+  }
+
+  async function revokePairing(id) {
+    const current = pairing(id);
+    if (!current) throw new Error(rt("pairingMissing"));
+    await request(`${endpoint}/pairings/${encodeURIComponent(id)}/revoke`, {
+      method: "POST",
+      body: JSON.stringify({ status: current.status, credentialRevision: current.credentialRevision }),
+    });
+    authorizationDrafts.delete(id);
+    if (openAuthorization === id) openAuthorization = "";
+    showToast?.(rt("pairingRevokedToast"));
+    await load();
+  }
+
+  async function connectPeer(invitationCode, displayName) {
+    const code = textValue(invitationCode);
+    if (!code) throw new Error(rt("connectCodeRequired"));
+    const result = objectValue(await request(endpoint + "/connect", {
+      method: "POST",
+      body: JSON.stringify({ invitation: code, displayName: textValue(displayName, "Autoto") }),
+    }));
+    const claim = objectValue(result.claim);
+    const claimId = textValue(claim.invitationId);
+    if (claimId) {
+      pendingClaims.set(claimId, {
+        origin: textValue(result.origin),
+        hostFingerprint: textValue(result.hostFingerprint),
+        status: textValue(claim.status, "claimed"),
+      });
+    }
+    showToast?.(rt("claimSentToast"));
+    onChange?.(state.peerCollaboration);
+    return claimId;
+  }
+
+  async function pollClaim(id) {
+    const result = objectValue(await request(`${endpoint}/claims/${encodeURIComponent(id)}/poll`, { method: "POST" }));
+    const claimStatus = textValue(result.status, "claimed");
+    const pending = pendingClaims.get(id);
+    if (pending) pendingClaims.set(id, { ...pending, status: claimStatus });
+    if (claimStatus === "approved") {
+      pendingClaims.delete(id);
+      showToast?.(rt("claimApprovedToast"));
+      await load();
+      return claimStatus;
+    }
+    if (["rejected", "revoked", "expired"].includes(claimStatus)) {
+      pendingClaims.delete(id);
+      showToast?.(rt("claimClosedToast"));
+    }
+    onChange?.(state.peerCollaboration);
+    return claimStatus;
+  }
+
+  function scopeLabel(scope) {
+    return rt(`scope.${scope}`);
+  }
+
+  function renderScopeChecks(kind, id, selected, available = peerScopes) {
+    const chosen = new Set(selected);
+    return available.map((scope) => `
+      <label class="settings-check-row peer-collaboration-scope">
+        <input type="checkbox" data-peer-scope="${escapeAttr(scope)}" data-peer-draft-kind="${escapeAttr(kind)}" data-peer-draft-id="${escapeAttr(id)}" ${chosen.has(scope) ? "checked" : ""} />
+        <span><strong>${escapeHtml(scopeLabel(scope))}</strong><small>${escapeHtml(rt(`scopeHint.${scope}`))}</small></span>
+      </label>`).join("");
+  }
+
+  function renderGrantRows(kind, id, draft) {
+    if (!draft.grants.length) {
+      return `<p class="settings-card-description">${escapeHtml(rt("grantsEmpty"))}</p>`;
+    }
+    const available = normalizePeerScopes(draft.scopes);
+    return draft.grants.map((grant, index) => `
+      <div class="peer-collaboration-grant-row settings-card-content" data-peer-grant-index="${index}">
+        <div class="peer-collaboration-grant-head">
+          <strong>${escapeHtml(agentLabel(grant.agentId))}</strong>
+          <button class="settings-action-btn subtle" type="button" data-peer-action="remove-grant" data-peer-draft-kind="${escapeAttr(kind)}" data-peer-draft-id="${escapeAttr(id)}" data-peer-grant-index="${index}">${escapeHtml(rt("removeGrant"))}</button>
+        </div>
+        <label class="settings-form-field">${escapeHtml(rt("permissionModeCap"))}
+          <select class="settings-field" data-peer-grant-cap="${index}" data-peer-draft-kind="${escapeAttr(kind)}" data-peer-draft-id="${escapeAttr(id)}">
+            ${peerPermissionCaps.map((cap) => `<option value="${escapeAttr(cap)}" ${grant.permissionModeCap === cap ? "selected" : ""}>${escapeHtml(rt(`cap.${cap}`))}</option>`).join("")}
+          </select>
+        </label>
+        <div class="peer-collaboration-grant-scopes">
+          ${available.length ? available.map((scope) => `
+            <label class="settings-check-row peer-collaboration-scope">
+              <input type="checkbox" data-peer-grant-scope="${escapeAttr(scope)}" data-peer-grant-index="${index}" data-peer-draft-kind="${escapeAttr(kind)}" data-peer-draft-id="${escapeAttr(id)}" ${grant.scopes.includes(scope) ? "checked" : ""} />
+              <span>${escapeHtml(scopeLabel(scope))}</span>
+            </label>`).join("") : `<p class="settings-card-description">${escapeHtml(rt("selectPairingScopesFirst"))}</p>`}
+        </div>
+      </div>`).join("");
+  }
+
+  function renderGrantPicker(kind, id, draft) {
+    const used = new Set(draft.grants.map((grant) => grant.agentId));
+    const options = agentOptions.filter((option) => !used.has(option.agentId));
+    if (!agentOptions.length) {
+      return `<p class="settings-card-description">${escapeHtml(rt("agentsUnavailable"))}</p>`;
+    }
+    if (!options.length) {
+      return `<p class="settings-card-description">${escapeHtml(rt("allAgentsGranted"))}</p>`;
+    }
+    return `
+      <label class="settings-form-field">${escapeHtml(rt("addGrant"))}
+        <select class="settings-field" data-peer-add-grant="1" data-peer-draft-kind="${escapeAttr(kind)}" data-peer-draft-id="${escapeAttr(id)}">
+          <option value="">${escapeHtml(rt("addGrantPlaceholder"))}</option>
+          ${options.map((option) => `<option value="${escapeAttr(option.agentId)}">${escapeHtml(option.projectName ? `${option.projectName} / ${option.agentTitle}` : option.agentTitle)}</option>`).join("")}
+        </select>
+      </label>`;
+  }
+
+  function renderAuthorizationEditor(kind, id, draft, { submitAction, submitLabel }) {
+    return `
+      <div class="peer-collaboration-editor settings-card-content" data-peer-editor="${escapeAttr(kind)}-${escapeAttr(id)}">
+        <div class="peer-collaboration-editor-block">
+          <strong>${escapeHtml(rt("pairingScopes"))}</strong>
+          <p class="settings-card-description">${escapeHtml(rt("pairingScopesHint"))}</p>
+          <div class="settings-form-grid">${renderScopeChecks(kind, id, draft.scopes)}</div>
+        </div>
+        <label class="settings-form-field">${escapeHtml(rt("expiresInHours"))}
+          <input class="settings-field" type="number" min="0" step="1" value="${escapeAttr(String(draft.expiresInHours || 0))}" data-peer-expiry="1" data-peer-draft-kind="${escapeAttr(kind)}" data-peer-draft-id="${escapeAttr(id)}" />
+          <small>${escapeHtml(rt("expiresInHoursHint"))}</small>
+        </label>
+        <div class="peer-collaboration-editor-block">
+          <strong>${escapeHtml(rt("grants"))}</strong>
+          <p class="settings-card-description">${escapeHtml(rt("grantsHint"))}</p>
+          ${renderGrantRows(kind, id, draft)}
+          ${renderGrantPicker(kind, id, draft)}
+        </div>
+        <div class="settings-action-row settings-card-footer">
+          <button class="settings-action-btn subtle" type="button" data-peer-action="${escapeAttr(kind === "approval" ? "close-approve" : "close-auth")}" data-peer-id="${escapeAttr(id)}">${escapeHtml(rt("cancel"))}</button>
+          <button class="settings-action-btn primary" type="button" data-peer-action="${escapeAttr(submitAction)}" data-peer-id="${escapeAttr(id)}" ${draft.scopes.length ? "" : "disabled"}>${escapeHtml(submitLabel)}</button>
+        </div>
+      </div>`;
+  }
+
+  function renderCreatedInvitation() {
+    if (!createdInvitation?.encodedInvitation) return "";
+    let qr = "";
+    try {
+      qr = `<div class="peer-collaboration-qr">${qrToSvg(createdInvitation.encodedInvitation, { size: 200 })}</div>`;
+    } catch {
+      qr = `<p class="settings-card-description">${escapeHtml(rt("qrUnavailable"))}</p>`;
+    }
+    return `
+      <div class="peer-collaboration-created settings-inline-alert" role="status">
+        <strong>${escapeHtml(rt("invitationReady"))}</strong>
+        <p class="settings-card-description">${escapeHtml(rt("invitationReadyHint", { expiresAt: createdInvitation.expiresAt || "" }))}</p>
+        ${qr}
+        <code class="peer-collaboration-code">${escapeHtml(createdInvitation.encodedInvitation)}</code>
+        <div class="settings-action-row">
+          <span class="settings-provider-meta">${escapeHtml(rt("hostFingerprint"))}: ${escapeHtml(createdInvitation.hostFingerprint)}</span>
+          <button class="settings-action-btn subtle" type="button" data-peer-action="copy-invitation">${escapeHtml(rt("copyInvitation"))}</button>
+        </div>
+      </div>`;
+  }
+
+  function renderInvitation(item) {
+    const actionable = item.status === "open" || item.status === "claimed";
+    const approvable = item.status === "claimed";
+    const editing = openApproval === item.id;
+    return `
+      <div class="peer-collaboration-invitation settings-provider-section settings-card" data-peer-invitation="${escapeAttr(item.id)}">
+        <div class="settings-provider-section-head settings-card-header">
+          <div>
+            <div class="settings-provider-title settings-card-title">${escapeHtml(item.requesterDisplayName || rt("awaitingRequester"))}</div>
+            <div class="settings-provider-meta settings-card-description">${escapeHtml(rt("invitationMeta", {
+              fingerprint: item.requesterFingerprint ? item.requesterFingerprint.slice(0, 12) : "—",
+              expiresAt: item.expiresAt || "—",
+            }))}</div>
+          </div>
+          <span class="settings-status-pill settings-badge ${item.status === "approved" ? "ok" : actionable ? "" : "warn"}">${escapeHtml(rt(`invitationStatus.${item.status}`))}</span>
+        </div>
+        ${item.failedAttempts ? `<div class="settings-inline-alert settings-alert" role="status">${escapeHtml(rt("failedAttempts", { count: String(item.failedAttempts) }))}</div>` : ""}
+        ${item.lockedUntil ? `<div class="settings-inline-alert settings-alert" role="status">${escapeHtml(rt("lockedUntil", { lockedUntil: item.lockedUntil }))}</div>` : ""}
+        ${editing ? renderAuthorizationEditor("approval", item.id, approvalDraft(item.id), { submitAction: "approve", submitLabel: rt("approvePairing") }) : ""}
+        <div class="settings-action-row settings-card-footer">
+          <span class="settings-provider-meta">${escapeHtml(approvable ? rt("claimedHint") : rt("openHint"))}</span>
+          ${approvable && !editing ? `<button class="settings-action-btn primary" type="button" data-peer-action="open-approve" data-peer-id="${escapeAttr(item.id)}">${escapeHtml(rt("reviewClaim"))}</button>` : ""}
+          ${approvable ? `<button class="settings-action-btn subtle" type="button" data-peer-action="reject" data-peer-id="${escapeAttr(item.id)}">${escapeHtml(rt("rejectClaim"))}</button>` : ""}
+          ${actionable ? `<button class="settings-action-btn subtle" type="button" data-peer-action="revoke-invitation" data-peer-id="${escapeAttr(item.id)}">${escapeHtml(rt("revokeInvitation"))}</button>` : ""}
+        </div>
+      </div>`;
+  }
+
+  function renderPairing(item) {
+    const editing = openAuthorization === item.id;
+    const active = item.status === "active";
+    const grants = item.grants.length
+      ? `<ul class="peer-collaboration-grant-list">${item.grants.map((grant) => `<li>${escapeHtml(agentLabel(grant.agentId))} — ${escapeHtml(rt(`cap.${grant.permissionModeCap}`))}${grant.scopes.length ? ` · ${escapeHtml(grant.scopes.map(scopeLabel).join(", "))}` : ""}</li>`).join("")}</ul>`
+      : `<p class="settings-card-description">${escapeHtml(rt("pairingNoGrants"))}</p>`;
+    return `
+      <div class="peer-collaboration-pairing settings-provider-section settings-card" data-peer-pairing="${escapeAttr(item.id)}">
+        <div class="settings-provider-section-head settings-card-header">
+          <div>
+            <div class="settings-provider-title settings-card-title">${escapeHtml(item.displayName || item.id)}</div>
+            <div class="settings-provider-meta settings-card-description">${escapeHtml(rt("pairingMeta", {
+              role: rt(`role.${item.localRole}`),
+              fingerprint: item.peerFingerprint ? item.peerFingerprint.slice(0, 12) : "—",
+              lastSeenAt: item.lastSeenAt || rt("neverSeen"),
+            }))}</div>
+          </div>
+          <span class="settings-status-pill settings-badge ${active ? "ok" : "warn"}">${escapeHtml(rt(`pairingStatus.${item.status}`))}</span>
+        </div>
+        <div class="settings-stat-grid peer-collaboration-pairing-stats">
+          <div class="settings-stat-card"><strong>${escapeHtml(item.scopes.length ? item.scopes.map(scopeLabel).join(", ") : rt("noScopes"))}</strong><span>${escapeHtml(rt("pairingScopes"))}</span></div>
+          <div class="settings-stat-card"><strong>${escapeHtml(item.expiresAt || rt("noExpiry"))}</strong><span>${escapeHtml(rt("expiresAt"))}</span></div>
+          ${item.endpointOrigin ? `<div class="settings-stat-card"><strong>${escapeHtml(item.endpointOrigin)}</strong><span>${escapeHtml(rt("endpointOrigin"))}</span></div>` : ""}
+        </div>
+        ${grants}
+        ${editing ? renderAuthorizationEditor("authorization", item.id, authorizationDraft(item.id), { submitAction: "save-auth", submitLabel: rt("saveAuthorization") }) : ""}
+        <div class="settings-action-row settings-card-footer">
+          <span class="settings-provider-meta">${escapeHtml(item.localRole === "host" ? rt("hostPairingHint") : rt("controllerPairingHint"))}</span>
+          ${active && item.localRole === "host" && !editing ? `<button class="settings-action-btn primary" type="button" data-peer-action="open-auth" data-peer-id="${escapeAttr(item.id)}">${escapeHtml(rt("editAuthorization"))}</button>` : ""}
+          ${active ? `<button class="settings-action-btn subtle" type="button" data-peer-action="revoke-pairing" data-peer-id="${escapeAttr(item.id)}">${escapeHtml(rt("revokePairing"))}</button>` : ""}
+        </div>
+      </div>`;
+  }
+
+  function renderPendingClaims() {
+    if (!pendingClaims.size) return "";
+    return Array.from(pendingClaims.entries()).map(([id, claim]) => `
+      <div class="peer-collaboration-claim settings-inline-alert" role="status">
+        <strong>${escapeHtml(rt("claimPending"))}</strong>
+        <p class="settings-card-description">${escapeHtml(rt("claimPendingHint", {
+          origin: claim.origin,
+          fingerprint: claim.hostFingerprint ? claim.hostFingerprint.slice(0, 12) : "—",
+          status: rt(`invitationStatus.${invitationStatuses.includes(claim.status) ? claim.status : "claimed"}`),
+        }))}</p>
+        <div class="settings-action-row">
+          <button class="settings-action-btn primary" type="button" data-peer-action="poll-claim" data-peer-id="${escapeAttr(id)}">${escapeHtml(rt("pollClaim"))}</button>
+        </div>
+      </div>`).join("");
+  }
+
+  function render() {
+    if (!state?.peerCollaboration && state?.peerCollaborationLoading) {
+      return `<div class="settings-empty-card settings-empty-state">${escapeHtml(rt("loading"))}</div>`;
+    }
+    const value = status();
+    const tunnelReady = value.tunnel.status === "running" && Boolean(value.tunnel.publicUrl);
+    const invitations = value.invitations.filter((item) => item.status !== "approved");
+    const hostPairings = value.pairings.filter((item) => item.localRole === "host");
+    const controllerPairings = value.pairings.filter((item) => item.localRole === "controller");
+    return `
+      <div class="settings-live-page peer-collaboration-page" id="peerCollaborationPage">
+        <section class="settings-hero-card settings-page-section settings-card">
+          <div class="settings-card-header">
+            <div>
+              <div class="settings-hero-kicker">${escapeHtml(rt("kicker"))}</div>
+              <div class="settings-hero-title settings-card-title">${escapeHtml(rt("title"))}</div>
+              <p class="settings-card-description" data-settings-help-copy>${escapeHtml(rt("description"))}</p>
+            </div>
+            <span class="settings-status-pill settings-badge ${value.sharingEnabled ? "ok" : "warn"}">${escapeHtml(rt(value.sharingEnabled ? "sharingOn" : "sharingOff"))}</span>
+          </div>
+          <div class="settings-form-grid">
+            <label class="settings-check-row">
+              <input id="peerCollaborationSharing" type="checkbox" ${value.sharingEnabled ? "checked" : ""} ${value.available ? "" : "disabled"} />
+              <span><strong>${escapeHtml(rt("enableSharing"))}</strong><small data-settings-help-copy>${escapeHtml(rt("enableSharingHint"))}</small></span>
+            </label>
+          </div>
+          <div class="settings-stat-grid">
+            <div class="settings-stat-card"><strong>${escapeHtml(value.identity.fingerprint ? value.identity.fingerprint.slice(0, 16) : "—")}</strong><span>${escapeHtml(rt("identityFingerprint"))}</span></div>
+            <div class="settings-stat-card"><strong>${escapeHtml(tunnelReady ? value.tunnel.publicUrl : rt("tunnelMissing"))}</strong><span>${escapeHtml(rt("invitationOrigin"))}</span></div>
+          </div>
+          <div class="settings-action-row settings-card-footer">
+            <button class="settings-action-btn subtle" type="button" data-peer-action="copy-fingerprint">${escapeHtml(rt("copyFingerprint"))}</button>
+            <button class="settings-action-btn subtle" type="button" data-peer-action="refresh">${escapeHtml(rt("refresh"))}</button>
+          </div>
+        </section>
+        ${state?.peerCollaborationError ? `<div class="settings-inline-alert settings-alert" role="alert">${escapeHtml(state.peerCollaborationError)}</div>` : ""}
+        ${value.available ? "" : `<div class="settings-inline-alert settings-alert" role="status">${escapeHtml(rt("unavailableNotice"))}</div>`}
+        <section class="settings-provider-section settings-page-section settings-card">
+          <div class="settings-provider-section-head settings-card-header">
+            <div>
+              <div class="settings-provider-title settings-card-title">${escapeHtml(rt("inviteTitle"))}</div>
+              <div class="settings-provider-meta settings-card-description" data-settings-help-copy>${escapeHtml(rt("inviteDescription"))}</div>
+            </div>
+          </div>
+          ${tunnelReady ? "" : `<div class="settings-inline-alert settings-alert" role="status">${escapeHtml(rt("tunnelRequired"))}</div>`}
+          <form id="peerCollaborationInviteForm" class="settings-card-content settings-form-grid">
+            <label class="settings-form-field">${escapeHtml(rt("invitationLifetime"))}
+              <select id="peerCollaborationInviteTTL" class="settings-field">
+                ${invitationTTLChoices.map((seconds) => `<option value="${seconds}">${escapeHtml(rt(`ttl.${seconds}`))}</option>`).join("")}
+              </select>
+            </label>
+            <button class="settings-action-btn primary" type="submit" data-peer-invite-submit ${value.sharingEnabled && tunnelReady ? "" : "disabled"}>${escapeHtml(rt("createInvitation"))}</button>
+          </form>
+          ${renderCreatedInvitation()}
+        </section>
+        <section class="settings-provider-section settings-page-section settings-card">
+          <div class="settings-provider-section-head settings-card-header">
+            <div>
+              <div class="settings-provider-title settings-card-title">${escapeHtml(rt("invitationsTitle"))}</div>
+              <div class="settings-provider-meta settings-card-description">${escapeHtml(rt("invitationsDescription"))}</div>
+            </div>
+          </div>
+          ${invitations.length ? invitations.map(renderInvitation).join("") : `<p class="settings-card-description">${escapeHtml(rt("invitationsEmpty"))}</p>`}
+        </section>
+        <section class="settings-provider-section settings-page-section settings-card">
+          <div class="settings-provider-section-head settings-card-header">
+            <div>
+              <div class="settings-provider-title settings-card-title">${escapeHtml(rt("hostPairingsTitle"))}</div>
+              <div class="settings-provider-meta settings-card-description">${escapeHtml(rt("hostPairingsDescription"))}</div>
+            </div>
+          </div>
+          ${hostPairings.length ? hostPairings.map(renderPairing).join("") : `<p class="settings-card-description">${escapeHtml(rt("hostPairingsEmpty"))}</p>`}
+        </section>
+        <section class="settings-provider-section settings-page-section settings-card">
+          <div class="settings-provider-section-head settings-card-header">
+            <div>
+              <div class="settings-provider-title settings-card-title">${escapeHtml(rt("connectTitle"))}</div>
+              <div class="settings-provider-meta settings-card-description" data-settings-help-copy>${escapeHtml(rt("connectDescription"))}</div>
+            </div>
+          </div>
+          <form id="peerCollaborationConnectForm" class="settings-card-content settings-form-grid">
+            <label class="settings-form-field">${escapeHtml(rt("invitationCode"))}
+              <input id="peerCollaborationConnectCode" class="settings-field" type="text" autocomplete="off" spellcheck="false" placeholder="${escapeAttr(rt("invitationCodePlaceholder"))}" />
+            </label>
+            <label class="settings-form-field">${escapeHtml(rt("controllerDisplayName"))}
+              <input id="peerCollaborationConnectName" class="settings-field" type="text" autocomplete="off" placeholder="${escapeAttr(rt("controllerDisplayNamePlaceholder"))}" />
+            </label>
+            <button class="settings-action-btn primary" type="submit" data-peer-connect-submit ${value.available ? "" : "disabled"}>${escapeHtml(rt("connect"))}</button>
+          </form>
+          ${renderPendingClaims()}
+          ${controllerPairings.length ? controllerPairings.map(renderPairing).join("") : `<p class="settings-card-description">${escapeHtml(rt("controllerPairingsEmpty"))}</p>`}
+        </section>
+      </div>`;
+  }
+
+  function updateDraftScope(kind, id, scope, checked) {
+    const draft = draftFor(kind, id);
+    const scopes = new Set(draft.scopes);
+    if (checked) scopes.add(scope);
+    else scopes.delete(scope);
+    draft.scopes = normalizePeerScopes(Array.from(scopes));
+    const allowed = new Set(draft.scopes);
+    draft.grants = draft.grants.map((grant) => ({ ...grant, scopes: grant.scopes.filter((value) => allowed.has(value)) }));
+    onChange?.(state.peerCollaboration);
+  }
+
+  function updateGrantScope(kind, id, index, scope, checked) {
+    const draft = draftFor(kind, id);
+    const grant = draft.grants[index];
+    if (!grant) return;
+    const scopes = new Set(grant.scopes);
+    if (checked) scopes.add(scope);
+    else scopes.delete(scope);
+    grant.scopes = normalizePeerScopes(Array.from(scopes));
+  }
+
+  function addGrant(kind, id, agentId) {
+    const option = agentOptions.find((item) => item.agentId === agentId);
+    if (!option) return;
+    const draft = draftFor(kind, id);
+    if (draft.grants.some((grant) => grant.agentId === agentId)) return;
+    draft.grants.push({
+      projectId: option.projectId,
+      agentId: option.agentId,
+      scopes: normalizePeerScopes(draft.scopes),
+      permissionModeCap: "readOnly",
+    });
+    onChange?.(state.peerCollaboration);
+  }
+
+  function removeGrant(kind, id, index) {
+    const draft = draftFor(kind, id);
+    if (index < 0 || index >= draft.grants.length) return;
+    draft.grants.splice(index, 1);
+    onChange?.(state.peerCollaboration);
+  }
+
+  async function runAction(button, action, id) {
+    switch (action) {
+      case "refresh":
+        await load();
+        showToast?.(rt("refreshed"));
+        return;
+      case "copy-fingerprint": {
+        const fingerprint = status().identity.fingerprint;
+        if (!fingerprint) return;
+        await copyText?.(fingerprint);
+        showToast?.(rt("fingerprintCopied"));
+        return;
+      }
+      case "copy-invitation": {
+        if (!createdInvitation?.encodedInvitation) return;
+        await copyText?.(createdInvitation.encodedInvitation);
+        showToast?.(rt("invitationCopied"));
+        return;
+      }
+      case "open-approve":
+        openApproval = id;
+        onChange?.(state.peerCollaboration);
+        return;
+      case "close-approve":
+        openApproval = "";
+        onChange?.(state.peerCollaboration);
+        return;
+      case "approve":
+        await approveInvitation(id);
+        return;
+      case "reject":
+        await transitionInvitation(id, "reject");
+        return;
+      case "revoke-invitation":
+        await transitionInvitation(id, "revoke");
+        return;
+      case "open-auth":
+        openAuthorization = id;
+        onChange?.(state.peerCollaboration);
+        return;
+      case "close-auth":
+        openAuthorization = "";
+        onChange?.(state.peerCollaboration);
+        return;
+      case "save-auth":
+        await saveAuthorization(id);
+        return;
+      case "revoke-pairing": {
+        const confirmed = confirmAction ? await confirmAction(rt("revokePairingConfirm")) : true;
+        if (!confirmed) return;
+        await revokePairing(id);
+        return;
+      }
+      case "poll-claim":
+        await pollClaim(id);
+        return;
+      case "remove-grant":
+        removeGrant(button.dataset.peerDraftKind, button.dataset.peerDraftId, Number(button.dataset.peerGrantIndex));
+        return;
+      default:
+        return;
+    }
+  }
+
+  function bind() {
+    const root = document.getElementById("peerCollaborationPage");
+    if (!root) {
+      // The loading placeholder has no controls, so the first paint still has to
+      // start the fetch that replaces it.
+      if (!state?.peerCollaboration && !state?.peerCollaborationLoading) void load().catch(() => {});
+      return;
+    }
+    if (!state?.peerCollaboration && !state?.peerCollaborationLoading) void load().catch(() => {});
+    root.addEventListener("click", async (event) => {
+      const button = event.target?.closest?.("[data-peer-action]");
+      if (!button || !root.contains(button)) return;
+      const action = button.dataset.peerAction;
+      const id = button.dataset.peerId || "";
+      setButtonBusy(button, true, rt("working"));
+      try {
+        await runAction(button, action, id);
+      } catch (err) {
+        showError?.(err);
+      } finally {
+        setButtonBusy(button, false);
+      }
+    });
+    root.addEventListener("change", (event) => {
+      const target = event.target;
+      if (!target?.dataset) return;
+      const kind = target.dataset.peerDraftKind;
+      const id = target.dataset.peerDraftId;
+      if (target.id === "peerCollaborationSharing") return;
+      if (kind && id && target.dataset.peerScope) {
+        updateDraftScope(kind, id, target.dataset.peerScope, Boolean(target.checked));
+        return;
+      }
+      if (kind && id && target.dataset.peerGrantScope) {
+        updateGrantScope(kind, id, Number(target.dataset.peerGrantIndex), target.dataset.peerGrantScope, Boolean(target.checked));
+        return;
+      }
+      if (kind && id && target.dataset.peerGrantCap) {
+        const draft = draftFor(kind, id);
+        const grant = draft.grants[Number(target.dataset.peerGrantCap)];
+        if (grant) grant.permissionModeCap = peerPermissionCaps.includes(target.value) ? target.value : "readOnly";
+        return;
+      }
+      if (kind && id && target.dataset.peerExpiry) {
+        const draft = draftFor(kind, id);
+        const hours = Number(target.value);
+        draft.expiresInHours = Number.isFinite(hours) && hours > 0 ? hours : 0;
+        return;
+      }
+      if (kind && id && target.dataset.peerAddGrant) {
+        const agentId = String(target.value || "");
+        target.value = "";
+        if (agentId) addGrant(kind, id, agentId);
+      }
+    });
+    document.getElementById("peerCollaborationSharing")?.addEventListener("change", async (event) => {
+      const input = event.currentTarget;
+      const enabled = Boolean(input.checked);
+      input.disabled = true;
+      try {
+        await setSharing(enabled);
+      } catch (err) {
+        input.checked = !enabled;
+        showError?.(err);
+      } finally {
+        input.disabled = false;
+      }
+    });
+    document.getElementById("peerCollaborationInviteForm")?.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const button = event.currentTarget.querySelector("[data-peer-invite-submit]");
+      setButtonBusy(button, true, rt("working"));
+      try {
+        await createInvitation(document.getElementById("peerCollaborationInviteTTL")?.value);
+      } catch (err) {
+        showError?.(err);
+      } finally {
+        setButtonBusy(button, false);
+      }
+    });
+    document.getElementById("peerCollaborationConnectForm")?.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const button = event.currentTarget.querySelector("[data-peer-connect-submit]");
+      setButtonBusy(button, true, rt("working"));
+      try {
+        await connectPeer(
+          document.getElementById("peerCollaborationConnectCode")?.value,
+          document.getElementById("peerCollaborationConnectName")?.value,
+        );
+      } catch (err) {
+        showError?.(err);
+      } finally {
+        setButtonBusy(button, false);
+      }
+    });
+  }
+
+  return {
+    addGrant,
+    approveInvitation,
+    bind,
+    connectPeer,
+    createInvitation,
+    load,
+    pollClaim,
+    render,
+    revokePairing,
+    saveAuthorization,
+    setSharing,
+    transitionInvitation,
+  };
+}
+
+// Grants are keyed by project and agent together, and the navigation projection
+// is the only response that pairs them.
+export function collectAgentOptions(navigation = {}) {
+  const source = objectValue(navigation);
+  const conversations = Array.isArray(source.conversations) ? source.conversations : [];
+  const seen = new Set();
+  const options = [];
+  conversations.forEach((entry) => {
+    const value = objectValue(entry);
+    const agentId = textValue(value.agentId);
+    const projectId = textValue(value.projectId);
+    if (!agentId || !projectId || seen.has(agentId)) return;
+    if (textValue(value.agentArchivedAt)) return;
+    seen.add(agentId);
+    options.push({
+      agentId,
+      projectId,
+      agentTitle: textValue(value.agentTitle, agentId),
+      projectName: textValue(value.projectName),
+    });
+  });
+  return options.slice(0, 500);
+}

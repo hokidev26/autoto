@@ -885,7 +885,7 @@ func TestMCPFakeServerProcess(t *testing.T) {
 func TestRegisterCoreIncludesWebAndMCPTools(t *testing.T) {
 	registry := NewRegistry()
 	RegisterCore(registry)
-	for _, name := range []string{"WebFetch", "WebSearch", "MCPListTools", "MCPCallTool", "ContextAsk", "StartPipeline", "EndPipeline"} {
+	for _, name := range []string{"WebFetch", "WebSearch", "MCPListTools", "MCPCallTool", "ContextAsk", "StartPipeline", "EndPipeline", "PeerSnapshot", "PeerSendTask", "PeerResolveApproval"} {
 		if _, ok := registry.Get(name); !ok {
 			t.Fatalf("expected %s to be registered", name)
 		}

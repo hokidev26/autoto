@@ -349,6 +349,67 @@ func (c *Client) ResolveApproval(ctx context.Context, request ResolveApprovalReq
 	return response, nil
 }
 
+// ExecutionHeartbeat reports device liveness. It is idempotent, so a stale
+// bearer is refreshed and the call retried once, exactly like GetSnapshot.
+func (c *Client) ExecutionHeartbeat(ctx context.Context, request ExecutionHeartbeatRequest) (ExecutionHeartbeatResponse, error) {
+	var response ExecutionHeartbeatResponse
+	token, err := c.sessionToken(ctx, request.PairingID)
+	if err != nil {
+		return ExecutionHeartbeatResponse{}, err
+	}
+	err = c.doJSON(ctx, http.MethodPost, executionHeartbeatEndpoint, request, token, &response)
+	if !errors.Is(err, ErrUnauthorized) {
+		return response, err
+	}
+	c.clearSessionToken(token)
+	token, refreshErr := c.sessionToken(ctx, request.PairingID)
+	if refreshErr != nil {
+		return ExecutionHeartbeatResponse{}, refreshErr
+	}
+	response = ExecutionHeartbeatResponse{}
+	if err := c.doJSON(ctx, http.MethodPost, executionHeartbeatEndpoint, request, token, &response); err != nil {
+		c.clearSessionTokenIfUnauthorized(token, err)
+		return ExecutionHeartbeatResponse{}, err
+	}
+	return response, nil
+}
+
+// ClaimExecutionTask leases the next queued task. Claiming consumes host state
+// and increments the attempt count, so it is never retried automatically: a
+// silent retry would burn an attempt on a task this device may already hold.
+func (c *Client) ClaimExecutionTask(ctx context.Context, request ExecutionClaimRequest) (ExecutionClaimResponse, error) {
+	token, err := c.sessionToken(ctx, request.PairingID)
+	if err != nil {
+		return ExecutionClaimResponse{}, err
+	}
+	var response ExecutionClaimResponse
+	if err := c.doJSON(ctx, http.MethodPost, executionClaimEndpoint, request, token, &response); err != nil {
+		c.clearSessionTokenIfUnauthorized(token, err)
+		return ExecutionClaimResponse{}, err
+	}
+	if task := response.Task; task != nil {
+		if validateIdentifier(task.TaskID) != nil || validateIdentifier(task.AgentID) != nil || task.Revision < 1 || !c.now().Before(task.LeaseUntil) {
+			return ExecutionClaimResponse{}, fmt.Errorf("%w: invalid execution task", ErrProtocol)
+		}
+	}
+	return response, nil
+}
+
+// ReportExecutionTask advances a leased task. The revision in the request makes
+// the host side a compare-and-swap, so this is not retried automatically either.
+func (c *Client) ReportExecutionTask(ctx context.Context, request ExecutionReportRequest) (ExecutionReportResponse, error) {
+	token, err := c.sessionToken(ctx, request.PairingID)
+	if err != nil {
+		return ExecutionReportResponse{}, err
+	}
+	var response ExecutionReportResponse
+	if err := c.doJSON(ctx, http.MethodPost, executionReportEndpoint, request, token, &response); err != nil {
+		c.clearSessionTokenIfUnauthorized(token, err)
+		return ExecutionReportResponse{}, err
+	}
+	return response, nil
+}
+
 func (c *Client) establishSession(ctx context.Context, challenge SessionChallenge) (EstablishSessionResponse, error) {
 	if err := c.requireOpen(); err != nil {
 		return EstablishSessionResponse{}, err

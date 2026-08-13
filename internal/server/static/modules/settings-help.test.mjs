@@ -180,6 +180,7 @@ test("registered settings renderers expose help-copy markers without hiding crit
     "provider-codex-auth.mjs",
     "provider-anthropic-accounts.mjs",
     "model-routing-settings.mjs",
+    "peer-collaboration-settings.mjs",
     "plugin-registry-ui.mjs",
     "remote-access-settings.mjs",
     "shared-api-settings.mjs",

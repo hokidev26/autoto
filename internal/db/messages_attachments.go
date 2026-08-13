@@ -160,6 +160,18 @@ func (s *Store) AssignMessageRun(ctx context.Context, agentID, messageID, runID 
 	return nil
 }
 
+// messageCreatedByColumn maps non-user actors to NULL before the insert:
+// agent_messages.created_by has a foreign key to users(id), so only local user
+// ids may be stored. "api" and remote peers ("peer:<fingerprint prefix>") keep
+// their attribution in the audit trail instead of this column.
+func messageCreatedByColumn(createdBy string) string {
+	createdBy = strings.TrimSpace(createdBy)
+	if createdBy == "api" || strings.HasPrefix(createdBy, "peer:") {
+		return ""
+	}
+	return createdBy
+}
+
 func (s *Store) AddMessageWithAttachments(ctx context.Context, msg Message, attachments []Attachment) (Message, error) {
 	if msg.ID == "" {
 		msg.ID = NewID()
@@ -179,10 +191,7 @@ func (s *Store) AddMessageWithAttachments(ctx context.Context, msg Message, atta
 		}
 		turnUsageJSON = string(encoded)
 	}
-	createdBy := msg.CreatedBy
-	if createdBy == "api" {
-		createdBy = ""
-	}
+	createdBy := messageCreatedByColumn(msg.CreatedBy)
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return Message{}, err
@@ -263,9 +272,7 @@ func (s *Store) CreateCorrectionWithRun(ctx context.Context, agentID, sourceMess
 		content, _ := json.Marshal([]map[string]string{{"type": "text", "text": message.ContentText}})
 		message.ContentJSON = content
 	}
-	if createdBy == "api" {
-		createdBy = ""
-	}
+	createdBy = messageCreatedByColumn(createdBy)
 	if _, err := tx.ExecContext(ctx, `INSERT INTO agent_messages (id, agent_id, role, content_json, content_text, command_text, correction_of_message_id, created_by, created_at) VALUES (?, ?, 'user', ?, ?, NULLIF(?, ''), ?, NULLIF(?, ''), ?)`, message.ID, message.AgentID, string(message.ContentJSON), message.ContentText, message.CommandText, sourceMessageID, createdBy, message.CreatedAt); err != nil {
 		return Message{}, Run{}, err
 	}

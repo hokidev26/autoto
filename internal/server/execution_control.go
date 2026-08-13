@@ -233,8 +233,9 @@ func (s *Server) listRemoteExecutionTasks(w http.ResponseWriter, r *http.Request
 	defer rows.Close()
 
 	tasks := make([]remoteExecutionTaskLedgerResponse, 0)
+	transportReady := s.remoteExecutionTransportReady()
 	for rows.Next() {
-		task, scanErr := scanRemoteExecutionTaskLedger(rows.Scan)
+		task, scanErr := scanRemoteExecutionTaskLedger(rows.Scan, transportReady)
 		if scanErr != nil {
 			writeError(w, http.StatusInternalServerError, "failed to list remote execution tasks")
 			return
@@ -273,7 +274,7 @@ func (s *Server) getRemoteExecutionTask(w http.ResponseWriter, r *http.Request) 
 	if !s.requireExecutionTaskAccess(w, r, task.ProjectID, task.AgentID) {
 		return
 	}
-	writeJSON(w, http.StatusOK, makeRemoteExecutionTaskLedger(task))
+	writeJSON(w, http.StatusOK, makeRemoteExecutionTaskLedger(task, s.remoteExecutionTransportReady()))
 }
 
 func (s *Server) createRemoteExecutionTask(w http.ResponseWriter, r *http.Request) {
@@ -320,7 +321,7 @@ func (s *Server) createRemoteExecutionTask(w http.ResponseWriter, r *http.Reques
 	if !s.requireExecutionTaskAccess(w, r, created.ProjectID, created.AgentID) {
 		return
 	}
-	writeJSON(w, http.StatusCreated, makeRemoteExecutionTaskLedger(created))
+	writeJSON(w, http.StatusCreated, makeRemoteExecutionTaskLedger(created, s.remoteExecutionTransportReady()))
 }
 
 func (req registerRemoteExecutionDeviceRequest) identityFingerprint() (string, bool) {
@@ -471,7 +472,7 @@ func writeExecutionResourceLookupError(w http.ResponseWriter, err error, notFoun
 	writeError(w, http.StatusInternalServerError, "failed to load execution control resource")
 }
 
-func makeRemoteExecutionTaskLedger(task db.RemoteExecutionTask) remoteExecutionTaskLedgerResponse {
+func makeRemoteExecutionTaskLedger(task db.RemoteExecutionTask, transportReady bool) remoteExecutionTaskLedgerResponse {
 	payload := append(json.RawMessage(nil), task.Payload...)
 	if len(payload) == 0 {
 		payload = json.RawMessage(`{}`)
@@ -491,11 +492,11 @@ func makeRemoteExecutionTaskLedger(task db.RemoteExecutionTask) remoteExecutionT
 		CreatedAt:            task.CreatedAt,
 		UpdatedAt:            task.UpdatedAt,
 		CompletedAt:          task.CompletedAt,
-		TransportImplemented: false,
+		TransportImplemented: transportReady,
 	}
 }
 
-func scanRemoteExecutionTaskLedger(scan func(...any) error) (remoteExecutionTaskLedgerResponse, error) {
+func scanRemoteExecutionTaskLedger(scan func(...any) error, transportReady bool) (remoteExecutionTaskLedgerResponse, error) {
 	var task remoteExecutionTaskLedgerResponse
 	var payload string
 	var noFallback int
@@ -520,6 +521,6 @@ func scanRemoteExecutionTaskLedger(scan func(...any) error) (remoteExecutionTask
 	}
 	task.Payload = json.RawMessage(payload)
 	task.NoFallback = noFallback != 0
-	task.TransportImplemented = false
+	task.TransportImplemented = transportReady
 	return task, nil
 }

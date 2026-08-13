@@ -9,16 +9,22 @@ import (
 type Scope string
 
 const (
-	ScopeObserve      Scope = "observe"
-	ScopeSendTask     Scope = "send_task"
-	ScopeApproveOnce  Scope = "approve_once"
-	ScopeExecuteTools Scope = "execute_tools"
+	ScopeObserve     Scope = "observe"
+	ScopeSendTask    Scope = "send_task"
+	ScopeApproveOnce Scope = "approve_once"
+	// ScopeApproveSession extends ScopeApproveOnce: it lets the peer resolve a
+	// pending approval with allow_session, which auto-approves that tool grant
+	// for the rest of the local session. The resolve endpoint still requires
+	// ScopeApproveOnce as its base capability.
+	ScopeApproveSession Scope = "approve_session"
+	ScopeExecuteTools   Scope = "execute_tools"
 )
 
 var scopeOrder = []Scope{
 	ScopeObserve,
 	ScopeSendTask,
 	ScopeApproveOnce,
+	ScopeApproveSession,
 	ScopeExecuteTools,
 }
 
@@ -31,7 +37,7 @@ func AllScopes() []Scope {
 func NormalizeScope(value string) (Scope, error) {
 	normalized := Scope(strings.ToLower(strings.TrimSpace(value)))
 	switch normalized {
-	case ScopeObserve, ScopeSendTask, ScopeApproveOnce, ScopeExecuteTools:
+	case ScopeObserve, ScopeSendTask, ScopeApproveOnce, ScopeApproveSession, ScopeExecuteTools:
 		return normalized, nil
 	default:
 		return "", errors.New("unknown peer scope")

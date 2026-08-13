@@ -50,6 +50,9 @@ func (s *Server) mountPeerAPIRoutes(router chi.Router) {
 		router.Post("/snapshot", s.peerSnapshot)
 		router.Post("/tasks", s.peerSendTask)
 		router.Post("/approvals/resolve", s.peerResolveApproval)
+		router.Post("/execution/heartbeat", s.peerExecutionHeartbeat)
+		router.Post("/execution/claim", s.peerExecutionClaim)
+		router.Post("/execution/report", s.peerExecutionReport)
 	})
 }
 
@@ -482,8 +485,17 @@ func (s *Server) peerResolveApproval(w http.ResponseWriter, r *http.Request) {
 	request.Decision = strings.TrimSpace(request.Decision)
 	request.Reason = boundedPeerText(agentpkg.RedactToolActivityText(strings.TrimSpace(request.Reason)), remotePeerApprovalTextBytes)
 	request.ApprovalID = strings.TrimSpace(request.ApprovalID)
-	if (request.Decision != "allow_once" && request.Decision != "deny") || request.ApprovalID == "" || len(request.ApprovalID) > 128 {
+	validDecision := request.Decision == "allow_once" || request.Decision == "allow_session" || request.Decision == "deny"
+	if !validDecision || request.ApprovalID == "" || len(request.ApprovalID) > 128 {
 		writeError(w, http.StatusBadRequest, "invalid peer approval request")
+		return
+	}
+	// allow_session outlives the single call it approves, so it needs its own
+	// scope on both the pairing and the agent grant; approve_once alone stays a
+	// strictly one-shot capability.
+	if request.Decision == "allow_session" &&
+		(!scopeStringsContain(authorized.pairing.Scopes, peercontrol.ScopeApproveSession) || !scopeStringsContain(authorized.grant.Scopes, peercontrol.ScopeApproveSession)) {
+		writeError(w, http.StatusForbidden, "peer grant does not allow session approvals")
 		return
 	}
 	if s.runner == nil {
@@ -499,20 +511,26 @@ func (s *Server) peerResolveApproval(w http.ResponseWriter, r *http.Request) {
 	if tool, found := s.toolRegistrySnapshot().Get(call.ToolName); found {
 		risk = tool.Risk(call.InputJSON)
 	}
-	if request.Decision == "allow_once" && authorized.grant.PermissionModeCap == db.RemotePeerPermissionModeReadOnly && risk != tools.RiskRead {
+	if request.Decision != "deny" && authorized.grant.PermissionModeCap == db.RemotePeerPermissionModeReadOnly && risk != tools.RiskRead {
 		writeError(w, http.StatusForbidden, "read-only peer grant cannot approve this tool")
 		return
+	}
+	// Some tool calls cannot carry a session grant; apply the safest decision
+	// that still honors the peer's intent instead of failing the resolution.
+	appliedDecision := request.Decision
+	if appliedDecision == "allow_session" && !s.runner.PendingApprovalAllowsSession(request.AgentID, request.ApprovalID) {
+		appliedDecision = "allow_once"
 	}
 	if err := s.recordRequiredPeerAudit(r.Context(), audit.Event{
 		Category: "peer", Action: "approval.resolve", Actor: peerActor(authorized.pairing.PeerFingerprint), AgentID: request.AgentID, RunID: call.RunID,
 		SubjectType: "tool_use", SubjectID: request.ApprovalID, Outcome: "success", Risk: "critical",
-		Details: map[string]any{"pairingId": authorized.pairing.ID, "decision": request.Decision, "toolRisk": string(risk)},
+		Details: map[string]any{"pairingId": authorized.pairing.ID, "decision": request.Decision, "appliedDecision": appliedDecision, "toolRisk": string(risk)},
 	}); err != nil {
 		writeError(w, http.StatusInternalServerError, "peer approval was not applied because audit persistence failed")
 		return
 	}
 	accepted, err := s.runner.ApproveToolCall(r.Context(), request.AgentID, request.ApprovalID, agentpkg.ToolApprovalDecision{
-		Decision: request.Decision, Reason: request.Reason, DecidedBy: peerActor(authorized.pairing.PeerFingerprint),
+		Decision: appliedDecision, Reason: request.Reason, DecidedBy: peerActor(authorized.pairing.PeerFingerprint),
 		PermissionGeneration: call.PermissionGeneration, PolicyGeneration: call.PolicyGeneration,
 	})
 	if err != nil {
@@ -528,10 +546,10 @@ func (s *Server) peerResolveApproval(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	status := "approved"
-	if request.Decision == "deny" {
+	if appliedDecision == "deny" {
 		status = "denied"
 	}
-	writeJSON(w, http.StatusOK, peercontrol.ResolveApprovalResponse{ApprovalID: request.ApprovalID, Status: status, ResolvedAt: s.now().UTC()})
+	writeJSON(w, http.StatusOK, peercontrol.ResolveApprovalResponse{ApprovalID: request.ApprovalID, Status: status, AppliedDecision: appliedDecision, ResolvedAt: s.now().UTC()})
 }
 
 func (s *Server) authorizePeerRequest(w http.ResponseWriter, r *http.Request, destination any, requiredScope peercontrol.Scope, agentID string) (peerAuthorizedRequest, bool) {
@@ -667,6 +685,12 @@ func peerRequestPairingID(request any) string {
 	case *peercontrol.SendTaskRequest:
 		return strings.TrimSpace(typed.PairingID)
 	case *peercontrol.ResolveApprovalRequest:
+		return strings.TrimSpace(typed.PairingID)
+	case *peercontrol.ExecutionHeartbeatRequest:
+		return strings.TrimSpace(typed.PairingID)
+	case *peercontrol.ExecutionClaimRequest:
+		return strings.TrimSpace(typed.PairingID)
+	case *peercontrol.ExecutionReportRequest:
 		return strings.TrimSpace(typed.PairingID)
 	default:
 		return ""

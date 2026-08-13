@@ -1295,41 +1295,6 @@ func scanRemoteExecutionTask(scan func(...any) error) (RemoteExecutionTask, erro
 	return task, err
 }
 
-func (s *Store) ClaimRemoteExecutionTask(ctx context.Context, deviceID, leaseOwner string, leaseUntil time.Time) (RemoteExecutionTask, error) {
-	deviceID = strings.TrimSpace(deviceID)
-	leaseOwner = strings.TrimSpace(leaseOwner)
-	if deviceID == "" || deviceID == "local" || leaseOwner == "" || len(leaseOwner) > 128 {
-		return RemoteExecutionTask{}, errors.New("invalid remote execution lease")
-	}
-	now := time.Now().UTC()
-	if !leaseUntil.After(now) || leaseUntil.After(now.Add(ExecutionLeaseMaxDuration)) {
-		return RemoteExecutionTask{}, errors.New("invalid remote execution lease duration")
-	}
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return RemoteExecutionTask{}, err
-	}
-	defer tx.Rollback()
-	var id string
-	if err := tx.QueryRowContext(ctx, `SELECT id FROM remote_execution_tasks WHERE execution_device_id = ? AND status = 'queued' ORDER BY created_at ASC, id ASC LIMIT 1`, deviceID).Scan(&id); err != nil {
-		return RemoteExecutionTask{}, err
-	}
-	result, err := tx.ExecContext(ctx, `UPDATE remote_execution_tasks SET status = 'leased', lease_owner = ?, lease_until = ?, attempt_count = attempt_count + 1, revision = revision + 1, updated_at = ? WHERE id = ? AND status = 'queued'`, leaseOwner, leaseUntil.UTC().Format(time.RFC3339Nano), Now(), id)
-	if err != nil {
-		return RemoteExecutionTask{}, err
-	}
-	if affected, err := result.RowsAffected(); err != nil || affected != 1 {
-		if err != nil {
-			return RemoteExecutionTask{}, err
-		}
-		return RemoteExecutionTask{}, fmt.Errorf("%w: remote task was claimed", ErrConflict)
-	}
-	if err := tx.Commit(); err != nil {
-		return RemoteExecutionTask{}, err
-	}
-	return s.GetRemoteExecutionTask(ctx, id)
-}
-
 func (s *Store) TransitionRemoteExecutionTask(ctx context.Context, id string, expectedRevision int64, status string, resultJSON json.RawMessage, lastError string) (RemoteExecutionTask, error) {
 	current, err := s.GetRemoteExecutionTask(ctx, id)
 	if err != nil {

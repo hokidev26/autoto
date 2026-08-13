@@ -13,10 +13,13 @@ import (
 	"testing"
 	"time"
 
+	agentpkg "autoto/internal/agent"
 	"autoto/internal/audit"
 	"autoto/internal/config"
 	"autoto/internal/db"
 	"autoto/internal/peercontrol"
+	"autoto/internal/providers"
+	"autoto/internal/tools"
 )
 
 func TestPeerRoutesRejectBrowserOriginAndDisabledSharing(t *testing.T) {
@@ -263,4 +266,136 @@ func peerAPITestRequest(t *testing.T, method, target string, body any) *http.Req
 	request.TLS = &tls.ConnectionState{}
 	request.Header.Set("Content-Type", "application/json")
 	return request
+}
+
+func resolvePeerApproval(t *testing.T, app *Server, token string, body peercontrol.ResolveApprovalRequest) *httptest.ResponseRecorder {
+	t.Helper()
+	request := peerAPITestRequest(t, http.MethodPost, "/api/peer/v1/approvals/resolve", body)
+	request.Header.Set("Authorization", "Bearer "+token)
+	response := httptest.NewRecorder()
+	app.Routes().ServeHTTP(response, request)
+	return response
+}
+
+// allow_session is a wider capability than approve_once, so the pairing must
+// carry approve_session before the host accepts the decision.
+func TestPeerResolveApprovalAllowSessionRequiresPairingScope(t *testing.T) {
+	app, store, manager := newPeerAPITestServer(t)
+	enablePeerManagerForAPI(t, manager)
+	controller := newPeerAPIIdentity(t)
+	pairing, hostAgent := createPeerAPIHostPairing(t, store, controller,
+		[]string{db.RemotePeerScopeObserve, db.RemotePeerScopeApproveOnce},
+		[]string{db.RemotePeerScopeObserve, db.RemotePeerScopeApproveOnce},
+		db.RemotePeerPermissionModeReadOnly,
+	)
+	token := peerAPISessionToken(t, manager, controller, pairing.ID)
+	response := resolvePeerApproval(t, app, token, peercontrol.ResolveApprovalRequest{
+		PairingID: pairing.ID, AgentID: hostAgent.ID, ApprovalID: "approval-1", Decision: "allow_session",
+	})
+	if response.Code != http.StatusForbidden || !strings.Contains(response.Body.String(), "session approvals") {
+		t.Fatalf("allow_session without scope returned %d: %s", response.Code, response.Body.String())
+	}
+}
+
+// A pairing-wide approve_session is not enough: the specific agent grant must
+// also carry it.
+func TestPeerResolveApprovalAllowSessionRequiresGrantScope(t *testing.T) {
+	app, store, manager := newPeerAPITestServer(t)
+	enablePeerManagerForAPI(t, manager)
+	controller := newPeerAPIIdentity(t)
+	pairing, hostAgent := createPeerAPIHostPairing(t, store, controller,
+		[]string{db.RemotePeerScopeObserve, db.RemotePeerScopeApproveOnce, db.RemotePeerScopeApproveSession},
+		[]string{db.RemotePeerScopeObserve, db.RemotePeerScopeApproveOnce},
+		db.RemotePeerPermissionModeReadOnly,
+	)
+	token := peerAPISessionToken(t, manager, controller, pairing.ID)
+	response := resolvePeerApproval(t, app, token, peercontrol.ResolveApprovalRequest{
+		PairingID: pairing.ID, AgentID: hostAgent.ID, ApprovalID: "approval-1", Decision: "allow_session",
+	})
+	if response.Code != http.StatusForbidden || !strings.Contains(response.Body.String(), "session approvals") {
+		t.Fatalf("allow_session without grant scope returned %d: %s", response.Code, response.Body.String())
+	}
+}
+
+func newPeerAPITestServerWithRunner(t *testing.T) (*Server, *db.Store, *peercontrol.Manager) {
+	t.Helper()
+	ctx := context.Background()
+	store, err := db.Open(ctx, filepath.Join(t.TempDir(), "peer-api-runner.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	manager, err := peercontrol.NewManager(peercontrol.ManagerOptions{HomeDir: t.TempDir(), Store: store})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = manager.Close(context.Background()) })
+	var cfg config.Config
+	runner := agentpkg.NewRunner(store, providers.NewRegistry(), tools.NewRegistry(), agentpkg.NewHub(), cfg.Agent)
+	app := New(cfg, store, runner, agentpkg.NewHub())
+	app.SetAuditRecorder(audit.NewRecorder(store))
+	app.SetPeerControlManager(manager)
+	app.setPeerControlLoopbackHTTPForTests(true)
+	return app, store, manager
+}
+
+// A read-only grant must not approve non-read tools regardless of whether the
+// peer asks for a single or a session-wide allowance.
+func TestPeerResolveApprovalReadOnlyCapBlocksAllowSession(t *testing.T) {
+	app, store, manager := newPeerAPITestServerWithRunner(t)
+	enablePeerManagerForAPI(t, manager)
+	controller := newPeerAPIIdentity(t)
+	scopes := []string{db.RemotePeerScopeObserve, db.RemotePeerScopeApproveOnce, db.RemotePeerScopeApproveSession}
+	pairing, hostAgent := createPeerAPIHostPairing(t, store, controller, scopes, scopes, db.RemotePeerPermissionModeReadOnly)
+	if _, err := store.AddToolCall(context.Background(), db.ToolCall{
+		AgentID: hostAgent.ID, ToolUseID: "approval-exec", ToolName: "Bash", InputJSON: json.RawMessage(`{"command":"echo hello"}`),
+		Status: "pending_approval",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	token := peerAPISessionToken(t, manager, controller, pairing.ID)
+	response := resolvePeerApproval(t, app, token, peercontrol.ResolveApprovalRequest{
+		PairingID: pairing.ID, AgentID: hostAgent.ID, ApprovalID: "approval-exec", Decision: "allow_session",
+	})
+	if response.Code != http.StatusForbidden || !strings.Contains(response.Body.String(), "read-only") {
+		t.Fatalf("read-only cap allowed allow_session: %d %s", response.Code, response.Body.String())
+	}
+}
+
+// When the pending approval cannot carry a session grant, the host applies
+// allow_once instead of failing, and the audit trail records both decisions.
+func TestPeerResolveApprovalDowngradesSessionDecision(t *testing.T) {
+	app, store, manager := newPeerAPITestServerWithRunner(t)
+	enablePeerManagerForAPI(t, manager)
+	controller := newPeerAPIIdentity(t)
+	scopes := []string{db.RemotePeerScopeObserve, db.RemotePeerScopeApproveOnce, db.RemotePeerScopeApproveSession}
+	pairing, hostAgent := createPeerAPIHostPairing(t, store, controller, scopes, scopes, db.RemotePeerPermissionModeAcceptEdits)
+	// The ledger row exists but the runner holds no live approval, so the
+	// session-capable check reports false and the decision degrades.
+	if _, err := store.AddToolCall(context.Background(), db.ToolCall{
+		AgentID: hostAgent.ID, ToolUseID: "approval-stale", ToolName: "Bash", InputJSON: json.RawMessage(`{"command":"echo hello"}`),
+		Status: "pending_approval",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	token := peerAPISessionToken(t, manager, controller, pairing.ID)
+	response := resolvePeerApproval(t, app, token, peercontrol.ResolveApprovalRequest{
+		PairingID: pairing.ID, AgentID: hostAgent.ID, ApprovalID: "approval-stale", Decision: "allow_session",
+	})
+	// Without a live approval the resolution reports not-found, but only after
+	// the downgrade decision was made and audited.
+	if response.Code != http.StatusNotFound {
+		t.Fatalf("stale approval returned %d: %s", response.Code, response.Body.String())
+	}
+	audits := listPeerBridgeAudits(t, store, "approval.resolve")
+	if len(audits) != 1 {
+		t.Fatalf("expected one approval.resolve audit, got %d", len(audits))
+	}
+	details := string(audits[0].DetailsJSON)
+	if !strings.Contains(details, `"decision":"allow_session"`) || !strings.Contains(details, `"appliedDecision":"allow_once"`) {
+		t.Fatalf("audit does not record the downgrade: %s", details)
+	}
 }

@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
-	"strings"
 	"unicode/utf8"
 )
 
@@ -279,9 +278,6 @@ func prepareGeneratedImageMessage(msg Message) (Message, string, string, error) 
 		}
 		turnUsageJSON = string(encoded)
 	}
-	createdBy := strings.TrimSpace(msg.CreatedBy)
-	if createdBy == "api" {
-		createdBy = ""
-	}
+	createdBy := messageCreatedByColumn(msg.CreatedBy)
 	return msg, turnUsageJSON, createdBy, nil
 }

@@ -65,6 +65,7 @@ import { createAppearanceBackgroundManager, createThemeManager, setThemePageCont
 import { createThemeSettingsController } from "./theme-settings.mjs";
 import { readLocalPreference, recentConversationsKey } from "./preferences-data.mjs";
 import { applyRemoteAccessFailClosed, fullAccessAllowed, remoteAccessContext, terminalAccessAllowed } from "./remote-access-capabilities.mjs";
+import { createPeerCollaborationSettingsController } from "./peer-collaboration-settings.mjs";
 import { createRemoteAccessSettingsController } from "./remote-access-settings.mjs";
 import { createSharedAPISettingsController } from "./shared-api-settings.mjs";
 import { applyServerSkillsLoadResult, createSkillsPhaseBController, hydrateServerSkillSummaries, isOptimisticSkillConflict, loadServerSkillsWithFallback, normalizeSkillContext } from "./skills-bootstrap.mjs";
@@ -1361,6 +1362,7 @@ const {
 
 const setupWizard = createSetupWizardController({
   state,
+  request: api,
   loadModelCatalog,
   loadSettings,
   loadSetupStatus: ({ force = false } = {}) => api(force ? "/api/setup/status?refresh=1" : "/api/setup/status"),
@@ -1839,6 +1841,18 @@ const remoteAccessSettings = createRemoteAccessSettingsController({
   showToast,
 });
 
+const peerCollaborationSettings = createPeerCollaborationSettingsController({
+  state,
+  request: api,
+  copyText: copyToClipboard,
+  onChange: () => {
+    if (state.activeSettingsPanel === "peer-collaboration") refreshActiveSettingsPanel();
+  },
+  showError,
+  showToast,
+  confirmAction: async (message) => platformConfirm(message),
+});
+
 const sharedAPISettings = createSharedAPISettingsController({
   state,
   request: api,
@@ -1877,6 +1891,7 @@ const settingsPanelRegistry = createSettingsPanelRegistry();
   ["servers-system", { render: renderServerSystemSettingsContent, bind: bindRuntimeSettingsActions }],
   ["runtime", { render: renderRuntimeSettingsContent, bind: bindRuntimeSettingsActions }],
   ["remote-access", { render: remoteAccessSettings.render, bind: remoteAccessSettings.bind }],
+  ["peer-collaboration", { render: peerCollaborationSettings.render, bind: peerCollaborationSettings.bind }],
   ["terminals", { render: renderTerminalSettingsContent, bind: bindTerminalSettingsActions }],
   ["about", { render: renderAboutSettingsContent, bind: bindAboutSettingsActions, layout: "about" }],
 ].forEach(([key, panel]) => settingsPanelRegistry.register(key, panel));

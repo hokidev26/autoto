@@ -13,6 +13,23 @@ import (
 	"autoto/internal/tools"
 )
 
+func TestPendingApprovalAllowsSession(t *testing.T) {
+	store, agent := newAgentTestStore(t, t.TempDir(), "acceptEdits")
+	defer store.Close()
+	runner := newAgentTestRunner(store, &scriptedProvider{}, config.AgentConfig{})
+	if runner.PendingApprovalAllowsSession(agent.ID, "tool-1") {
+		t.Fatal("missing approval must not report session capability")
+	}
+	runner.addPendingApproval(&pendingApproval{AgentID: agent.ID, ToolUseID: "tool-1", AllowSession: true, Decision: make(chan ToolApprovalDecision, 1)})
+	runner.addPendingApproval(&pendingApproval{AgentID: agent.ID, ToolUseID: "tool-2", Decision: make(chan ToolApprovalDecision, 1)})
+	if !runner.PendingApprovalAllowsSession(agent.ID, "tool-1") {
+		t.Fatal("session-capable approval was not reported")
+	}
+	if runner.PendingApprovalAllowsSession(agent.ID, "tool-2") {
+		t.Fatal("allow-once approval must not report session capability")
+	}
+}
+
 func TestRunnerAutoExecutesToolCallsAndRecordsUsage(t *testing.T) {
 	ctx := context.Background()
 	projectDir := t.TempDir()

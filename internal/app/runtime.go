@@ -258,6 +258,7 @@ func NewRuntime(options Options) (*Runtime, error) {
 		return current.Security.NamedTunnel
 	})
 	application.SetPeerControlManager(peerManager)
+	runner.SetPeerCollaborationService(application)
 	application.SetConfigPath(resolvedConfigPath)
 
 	gatewayManager, err := gateway.NewManager(gateway.ManagerOptions{

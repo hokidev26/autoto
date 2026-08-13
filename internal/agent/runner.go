@@ -55,6 +55,9 @@ type Runner struct {
 	backgroundMu sync.RWMutex
 	background   tools.BackgroundTaskService
 
+	peerCollaborationMu sync.RWMutex
+	peerCollaboration   tools.PeerCollaborationService
+
 	generatedImagesMu sync.RWMutex
 	generatedImages   *imageassets.Store
 
@@ -203,6 +206,27 @@ func (r *Runner) backgroundTaskService() tools.BackgroundTaskService {
 	r.backgroundMu.RLock()
 	defer r.backgroundMu.RUnlock()
 	return r.background
+}
+
+// SetPeerCollaborationService installs the bridge the Peer* tools use to reach
+// paired remote Autoto instances. App wiring points this at the server, which
+// owns the authenticated peer clients.
+func (r *Runner) SetPeerCollaborationService(service tools.PeerCollaborationService) {
+	if r == nil {
+		return
+	}
+	r.peerCollaborationMu.Lock()
+	r.peerCollaboration = service
+	r.peerCollaborationMu.Unlock()
+}
+
+func (r *Runner) peerCollaborationService() tools.PeerCollaborationService {
+	if r == nil {
+		return nil
+	}
+	r.peerCollaborationMu.RLock()
+	defer r.peerCollaborationMu.RUnlock()
+	return r.peerCollaboration
 }
 
 // SetGeneratedImageStore installs the optional disk store used for generated

@@ -554,9 +554,11 @@ func (s *Server) proxyRemoteCollaborationTask(w http.ResponseWriter, r *http.Req
 		request.RequestID = db.NewID()
 	}
 	agentID := chi.URLParam(r, "agentId")
+	// The forwarded agent lives on the peer, so it cannot go into the
+	// FK-constrained agent_id column; it is recorded in the details instead.
 	if err := s.recordRequiredPeerAudit(r.Context(), audit.Event{
-		Category: "peer", Action: "task.forward", Actor: "local-api", AgentID: agentID, SubjectType: "peer_task", SubjectID: request.RequestID,
-		Outcome: "success", Risk: "high", Details: map[string]any{"pairingId": pairing.ID, "messageDigest": digestString(request.Message)},
+		Category: "peer", Action: "task.forward", Actor: "local-api", SubjectType: "peer_task", SubjectID: request.RequestID,
+		Outcome: "success", Risk: "high", Details: map[string]any{"pairingId": pairing.ID, "remoteAgentId": agentID, "messageDigest": digestString(request.Message)},
 	}); err != nil {
 		writeError(w, http.StatusInternalServerError, "remote task was not sent because audit persistence failed")
 		return
@@ -585,15 +587,17 @@ func (s *Server) proxyRemoteCollaborationApproval(w http.ResponseWriter, r *http
 		return
 	}
 	request.Decision = strings.TrimSpace(request.Decision)
-	if request.Decision != "allow_once" && request.Decision != "deny" {
-		writeError(w, http.StatusBadRequest, "remote approval decision must be allow_once or deny")
+	if request.Decision != "allow_once" && request.Decision != "allow_session" && request.Decision != "deny" {
+		writeError(w, http.StatusBadRequest, "remote approval decision must be allow_once, allow_session or deny")
 		return
 	}
 	agentID := chi.URLParam(r, "agentId")
 	approvalID := chi.URLParam(r, "approvalId")
+	// The remote agent id belongs to the peer's database, not the local
+	// FK-constrained agent_id column; keep it in the details.
 	if err := s.recordRequiredPeerAudit(r.Context(), audit.Event{
-		Category: "peer", Action: "approval.forward", Actor: "local-api", AgentID: agentID, SubjectType: "tool_use", SubjectID: approvalID,
-		Outcome: "success", Risk: "critical", Details: map[string]any{"pairingId": pairing.ID, "decision": request.Decision},
+		Category: "peer", Action: "approval.forward", Actor: "local-api", SubjectType: "tool_use", SubjectID: approvalID,
+		Outcome: "success", Risk: "critical", Details: map[string]any{"pairingId": pairing.ID, "remoteAgentId": agentID, "decision": request.Decision},
 	}); err != nil {
 		writeError(w, http.StatusInternalServerError, "remote approval was not sent because audit persistence failed")
 		return
@@ -621,18 +625,19 @@ func (s *Server) remoteControllerClient(w http.ResponseWriter, r *http.Request, 
 	if !ok {
 		return nil, db.RemotePeerPairing{}, nil, false
 	}
-	pairing, err := s.store.GetRemotePeerPairing(r.Context(), pairingID)
+	pairing, client, err := s.controllerPeerClient(r.Context(), pairingID)
 	if err != nil {
-		writeStoreError(w, err)
-		return nil, db.RemotePeerPairing{}, nil, false
-	}
-	if pairing.LocalRole != db.RemotePeerLocalRoleController || pairing.Status != db.RemotePeerPairingStatusActive || remotePairingExpired(pairing, s.now()) {
-		writeError(w, http.StatusGone, "remote peer pairing is inactive")
-		return nil, db.RemotePeerPairing{}, nil, false
-	}
-	client, err := runtime.clientForPairing(pairing)
-	if err != nil {
-		writePeerControlError(w, err)
+		var storeErr *remotePeerStoreError
+		switch {
+		case errors.Is(err, errRemoteCollaborationUnavailable):
+			writeError(w, http.StatusServiceUnavailable, "remote collaboration is unavailable")
+		case errors.As(err, &storeErr):
+			writeStoreError(w, storeErr.Unwrap())
+		case errors.Is(err, errRemotePeerPairingInactive):
+			writeError(w, http.StatusGone, "remote peer pairing is inactive")
+		default:
+			writePeerControlError(w, err)
+		}
 		return nil, db.RemotePeerPairing{}, nil, false
 	}
 	return runtime, pairing, client, true

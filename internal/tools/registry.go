@@ -79,4 +79,7 @@ func RegisterCore(registry *Registry) {
 	registry.Register(OpenURLTool{})
 	registry.Register(MCPListToolsTool{})
 	registry.Register(MCPCallToolTool{})
+	registry.Register(PeerSnapshotTool{})
+	registry.Register(PeerSendTaskTool{})
+	registry.Register(PeerResolveApprovalTool{})
 }

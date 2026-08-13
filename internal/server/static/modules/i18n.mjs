@@ -1,6 +1,7 @@
 ﻿import { resolveLocale } from "./locale-registry.mjs";
 import messagesEN from "./messages-en.mjs";
 import backgroundTaskMessages from "./messages-background-tasks.mjs";
+import peerCollaborationMessages from "./messages-peer-collaboration.mjs";
 import remoteAccessMessages from "./messages-remote-access.mjs";
 import preferencesMessages from "./messages-preferences.mjs";
 import providerSubscriptionAccountsMessages from "./messages-provider-subscription-accounts.mjs";
@@ -28,6 +29,7 @@ function mergeMessageTree(target, source) {
 function createMergedCatalog(locale, base) {
   return [
     backgroundTaskMessages,
+    peerCollaborationMessages,
     remoteAccessMessages,
     preferencesMessages,
     providerSubscriptionAccountsMessages,

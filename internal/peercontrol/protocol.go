@@ -1,6 +1,9 @@
 package peercontrol
 
-import "time"
+import (
+	"encoding/json"
+	"time"
+)
 
 const (
 	claimEndpoint                 = "/api/peer/v1/claim"
@@ -10,6 +13,9 @@ const (
 	getSnapshotEndpoint           = "/api/peer/v1/snapshot"
 	sendTaskEndpoint              = "/api/peer/v1/tasks"
 	resolveApprovalEndpoint       = "/api/peer/v1/approvals/resolve"
+	executionHeartbeatEndpoint    = "/api/peer/v1/execution/heartbeat"
+	executionClaimEndpoint        = "/api/peer/v1/execution/claim"
+	executionReportEndpoint       = "/api/peer/v1/execution/report"
 )
 
 // ClaimRequest submits the controller's signed invitation claim proof.
@@ -125,8 +131,9 @@ type SnapshotRun struct {
 	UpdatedAt   string `json:"updatedAt"`
 }
 
-// SnapshotApproval is the safe projection needed for an allow-once or deny
-// decision. InputJSON and raw Bash commands are deliberately absent.
+// SnapshotApproval is the safe projection needed for an allow_once,
+// allow_session, or deny decision. InputJSON and raw Bash commands are
+// deliberately absent.
 type SnapshotApproval struct {
 	ApprovalID           string `json:"approvalId"`
 	AgentID              string `json:"agentId"`
@@ -181,7 +188,8 @@ type SendTaskResponse struct {
 	CreatedAt time.Time `json:"createdAt"`
 }
 
-// ResolveApprovalRequest is the fixed one-time approval decision shape.
+// ResolveApprovalRequest is the fixed approval decision shape. Decision is
+// allow_once, allow_session (requires the approve_session scope), or deny.
 type ResolveApprovalRequest struct {
 	PairingID  string `json:"pairingId"`
 	AgentID    string `json:"agentId"`
@@ -190,9 +198,85 @@ type ResolveApprovalRequest struct {
 	Reason     string `json:"reason,omitempty"`
 }
 
-// ResolveApprovalResponse reports the final approval state.
+// ResolveApprovalResponse reports the final approval state. AppliedDecision
+// echoes the decision the host actually applied: an allow_session request
+// degrades to allow_once when that tool call cannot carry a session grant.
 type ResolveApprovalResponse struct {
-	ApprovalID string    `json:"approvalId"`
-	Status     string    `json:"status"`
-	ResolvedAt time.Time `json:"resolvedAt"`
+	ApprovalID      string    `json:"approvalId"`
+	Status          string    `json:"status"`
+	AppliedDecision string    `json:"appliedDecision,omitempty"`
+	ResolvedAt      time.Time `json:"resolvedAt"`
+}
+
+// ExecutionHeartbeatRequest reports that a remote execution device is alive and
+// how it currently sees itself. DeviceID is the host-side registration the
+// device claims to be; the host only accepts it when the registration is bound
+// to this pairing's identity fingerprint.
+type ExecutionHeartbeatRequest struct {
+	PairingID string `json:"pairingId"`
+	DeviceID  string `json:"deviceId"`
+	Status    string `json:"status,omitempty"`
+}
+
+// ExecutionHeartbeatResponse returns the device state the host recorded, plus
+// the bounds a polling device needs in order to pace itself.
+type ExecutionHeartbeatResponse struct {
+	ProtocolVersion  int    `json:"protocolVersion"`
+	DeviceID         string `json:"deviceId"`
+	Status           string `json:"status"`
+	QueuedTasks      int    `json:"queuedTasks"`
+	LeaseMaxSeconds  int    `json:"leaseMaxSeconds"`
+	HeartbeatSeconds int    `json:"heartbeatSeconds"`
+}
+
+// ExecutionClaimRequest asks for the next queued task for a device. The host
+// only ever hands over work for agents this pairing was granted.
+type ExecutionClaimRequest struct {
+	PairingID    string `json:"pairingId"`
+	DeviceID     string `json:"deviceId"`
+	LeaseSeconds int    `json:"leaseSeconds,omitempty"`
+}
+
+// ExecutionTask is the leased unit of work. It carries the ledger revision the
+// device must echo back when reporting, and the permission cap the host's grant
+// imposes, so the device cannot widen its own authority.
+type ExecutionTask struct {
+	TaskID            string          `json:"taskId"`
+	ProjectID         string          `json:"projectId"`
+	AgentID           string          `json:"agentId"`
+	RunID             string          `json:"runId,omitempty"`
+	Payload           json.RawMessage `json:"payload"`
+	PermissionModeCap string          `json:"permissionModeCap"`
+	Revision          int64           `json:"revision"`
+	AttemptCount      int             `json:"attemptCount"`
+	LeaseUntil        time.Time       `json:"leaseUntil"`
+}
+
+// ExecutionClaimResponse carries the leased task, or no task when the queue is
+// empty. An empty queue is a normal answer rather than an error.
+type ExecutionClaimResponse struct {
+	ProtocolVersion int            `json:"protocolVersion"`
+	Task            *ExecutionTask `json:"task,omitempty"`
+}
+
+// ExecutionReportRequest advances a leased task. Revision is the ledger revision
+// the device received, which makes every report a compare-and-swap instead of a
+// blind overwrite of whatever the host currently holds.
+type ExecutionReportRequest struct {
+	PairingID string          `json:"pairingId"`
+	DeviceID  string          `json:"deviceId"`
+	TaskID    string          `json:"taskId"`
+	Revision  int64           `json:"revision"`
+	Status    string          `json:"status"`
+	Result    json.RawMessage `json:"result,omitempty"`
+	Error     string          `json:"error,omitempty"`
+}
+
+// ExecutionReportResponse returns the ledger state the host committed.
+type ExecutionReportResponse struct {
+	ProtocolVersion int       `json:"protocolVersion"`
+	TaskID          string    `json:"taskId"`
+	Status          string    `json:"status"`
+	Revision        int64     `json:"revision"`
+	ReportedAt      time.Time `json:"reportedAt"`
 }

@@ -17,6 +17,7 @@ const settingsIconPaths = Object.freeze({
   storage: `<path d="M5 5h14l2 5v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-8l2-5ZM3 10h18M8 15h.01M12 15h4"/>`,
   runtime: `<circle cx="12" cy="12" r="9"/><path d="m10 8 6 4-6 4z"/>`,
   "remote-access": `<path d="M5 9.5a10 10 0 0 1 14 0M8 13a6 6 0 0 1 8 0M10.5 16.5a2.5 2.5 0 0 1 3 0"/><circle cx="12" cy="20" r=".9" fill="currentColor" stroke="none"/>`,
+  "peer-collaboration": `<rect x="2.5" y="6" width="8" height="12" rx="1.5"/><rect x="13.5" y="8.5" width="8" height="7" rx="1.5"/><path d="M10.5 12h3"/><circle cx="6.5" cy="15" r=".9" fill="currentColor" stroke="none"/>`,
   usage: `<path d="M3 20h18M5 17v-6M10 17V5M15 17v-9M20 17v-3"/>`,
   about: `<circle cx="12" cy="12" r="9"/><path d="M12 10v6M12 7h.01"/>`,
 });
@@ -62,6 +63,7 @@ export const settingsSections = [
       settingItem("storage", "storage"),
       settingItem("runtime", "runtime"),
       settingItem("remote-access", "remoteAccess"),
+      settingItem("peer-collaboration", "peerCollaboration"),
       settingItem("usage", "usage"),
       settingItem("about", "about"),
     ],

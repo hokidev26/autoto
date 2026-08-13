@@ -38,7 +38,7 @@ test("every existing settings page remains reachable from a legacy category", ()
   assert.equal(settingsItemByKey("agent-admin"), null);
   assert.equal(settingsItemByKey("agents"), null);
   assert.equal(settingsItemByKey("worklines-containers"), null);
-  assert.deepEqual(legacySettingsCategories.find((category) => category.key === "network")?.items, ["network-search", "remote-access"]);
+  assert.deepEqual(legacySettingsCategories.find((category) => category.key === "network")?.items, ["network-search", "remote-access", "peer-collaboration"]);
   assert.equal(legacySettingsCategories.some((category) => category.key === "permissions"), false);
   assert.equal(settingsItemByKey("users"), null);
   assert.equal(legacySettingsCategories.some((category) => category.items.includes("users")), false);

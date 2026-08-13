@@ -1345,6 +1345,7 @@ func (r *Runner) toolExecutionEnv(ctx context.Context, agent db.Agent, runID, to
 		Store:              r.store,
 		Output:             output,
 		Background:         r.backgroundTaskService(),
+		PeerCollaboration:  r.peerCollaborationService(),
 		ContextAsk:         r,
 		UserQuestion:       r,
 		ToolOutputPipeline: r.toolOutputPipeline,

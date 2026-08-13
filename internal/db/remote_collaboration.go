@@ -33,10 +33,11 @@ const (
 	RemotePeerPairingStatusRevoked = "revoked"
 	RemotePeerPairingStatusExpired = "expired"
 
-	RemotePeerScopeObserve      = "observe"
-	RemotePeerScopeSendTask     = "send_task"
-	RemotePeerScopeApproveOnce  = "approve_once"
-	RemotePeerScopeExecuteTools = "execute_tools"
+	RemotePeerScopeObserve        = "observe"
+	RemotePeerScopeSendTask       = "send_task"
+	RemotePeerScopeApproveOnce    = "approve_once"
+	RemotePeerScopeApproveSession = "approve_session"
+	RemotePeerScopeExecuteTools   = "execute_tools"
 
 	RemotePeerPermissionModeReadOnly    = "readOnly"
 	RemotePeerPermissionModeAcceptEdits = "acceptEdits"
@@ -1031,7 +1032,7 @@ func validateStoredRemotePairingInvitation(invitation RemotePairingInvitation) e
 }
 
 func normalizeRemoteScopes(scopes []string) ([]string, string, error) {
-	allowed := map[string]struct{}{RemotePeerScopeObserve: {}, RemotePeerScopeSendTask: {}, RemotePeerScopeApproveOnce: {}, RemotePeerScopeExecuteTools: {}}
+	allowed := map[string]struct{}{RemotePeerScopeObserve: {}, RemotePeerScopeSendTask: {}, RemotePeerScopeApproveOnce: {}, RemotePeerScopeApproveSession: {}, RemotePeerScopeExecuteTools: {}}
 	unique := make(map[string]struct{}, len(scopes))
 	for _, scope := range scopes {
 		scope = strings.TrimSpace(scope)
@@ -1040,7 +1041,7 @@ func normalizeRemoteScopes(scopes []string) ([]string, string, error) {
 		}
 		unique[scope] = struct{}{}
 	}
-	order := []string{RemotePeerScopeObserve, RemotePeerScopeSendTask, RemotePeerScopeApproveOnce, RemotePeerScopeExecuteTools}
+	order := []string{RemotePeerScopeObserve, RemotePeerScopeSendTask, RemotePeerScopeApproveOnce, RemotePeerScopeApproveSession, RemotePeerScopeExecuteTools}
 	normalized := make([]string, 0, len(unique))
 	for _, scope := range order {
 		if _, ok := unique[scope]; ok {

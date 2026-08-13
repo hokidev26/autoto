@@ -128,16 +128,17 @@ type ToolOutputPipelineService interface {
 }
 
 type Env struct {
-	AgentID                      string
-	RunID                        string
-	CWD                          string
-	Store                        *db.Store
-	Output                       func(OutputChunk)
-	Background                   BackgroundTaskService
-	ContextAsk                   ContextAskService
-	UserQuestion                 UserQuestionService
-	ToolOutputPipeline           ToolOutputPipelineService
-	PermissionModeCap string
+	AgentID            string
+	RunID              string
+	CWD                string
+	Store              *db.Store
+	Output             func(OutputChunk)
+	Background         BackgroundTaskService
+	PeerCollaboration  PeerCollaborationService
+	ContextAsk         ContextAskService
+	UserQuestion       UserQuestionService
+	ToolOutputPipeline ToolOutputPipelineService
+	PermissionModeCap  string
 	// ResumeParentSupported reports whether the current run can park on a
 	// background task boundary and be woken when the task finishes. The Agent
 	// tool defaults resume_parent from this, so a dispatch never promises a

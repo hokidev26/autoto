@@ -292,6 +292,7 @@ func TestRemoteScopesNormalizeAndRawPairingCodeIsNotStored(t *testing.T) {
 		EndpointOrigin:     "http://127.0.0.1:8080",
 		Scopes: []string{
 			RemotePeerScopeSendTask,
+			RemotePeerScopeApproveSession,
 			RemotePeerScopeApproveOnce,
 			RemotePeerScopeObserve,
 			RemotePeerScopeSendTask,
@@ -300,7 +301,7 @@ func TestRemoteScopesNormalizeAndRawPairingCodeIsNotStored(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	wantScopes := []string{RemotePeerScopeObserve, RemotePeerScopeSendTask, RemotePeerScopeApproveOnce}
+	wantScopes := []string{RemotePeerScopeObserve, RemotePeerScopeSendTask, RemotePeerScopeApproveOnce, RemotePeerScopeApproveSession}
 	if !reflect.DeepEqual(pairing.Scopes, wantScopes) {
 		t.Fatalf("normalized scopes=%v, want %v", pairing.Scopes, wantScopes)
 	}
@@ -308,7 +309,7 @@ func TestRemoteScopesNormalizeAndRawPairingCodeIsNotStored(t *testing.T) {
 	if err := store.DB().QueryRowContext(ctx, `SELECT scopes_json FROM remote_peer_pairings WHERE id = ?`, pairing.ID).Scan(&storedScopes); err != nil {
 		t.Fatal(err)
 	}
-	if storedScopes != `["observe","send_task","approve_once"]` {
+	if storedScopes != `["observe","send_task","approve_once","approve_session"]` {
 		t.Fatalf("stored scopes=%s", storedScopes)
 	}
 	if _, err := store.CreateRemotePeerPairing(ctx, RemotePeerPairing{

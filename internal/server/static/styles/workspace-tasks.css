@@ -2781,9 +2781,13 @@ body.white-shell.theme-light .messages:not(.empty) > [class~="message"][class~="
   border-radius: 10px;
   overflow: hidden;
   border: 1px solid var(--border, var(--ws-border));
-  background: #fff;
 }
 .remote-access-tunnel-qr svg { display: block; width: 100%; height: 100%; }
+/* A QR surface is the one place a literal white is the correct answer: phone
+   cameras read dark modules on a light quiet zone, so it must not follow the
+   palette into a dark background. Both QR surfaces share this one rule. */
+.remote-access-tunnel-qr,
+.peer-collaboration-qr { background: #fff; }
 .remote-access-tunnel-phone-copy { min-width: 0; display: grid; gap: 8px; }
 .remote-access-tunnel-phone-copy > strong { color: var(--text, #1f2937); font-size: 14px; font-weight: 750; }
 .remote-access-phone-steps {
@@ -2804,6 +2808,74 @@ body.white-shell.theme-light .messages:not(.empty) > [class~="message"][class~="
   .remote-access-tunnel-phone { grid-template-columns: 1fr; justify-items: center; text-align: left; }
   .remote-access-tunnel-phone-copy { width: 100%; }
 }
+
+/* Peer collaboration — pairing invitations, grants and scope editors */
+.peer-collaboration-page .settings-provider-section + .settings-provider-section { margin-top: 12px; }
+.peer-collaboration-invitation,
+.peer-collaboration-pairing { display: grid; gap: 10px; }
+.peer-collaboration-created { display: grid; gap: 10px; justify-items: start; }
+.peer-collaboration-qr {
+  width: 200px;
+  height: 200px;
+  padding: 8px;
+  border: 1px solid var(--border, var(--ws-border, #dfe3ea));
+  border-radius: 10px;
+}
+.peer-collaboration-qr svg { display: block; width: 100%; height: 100%; }
+/* The invitation code is long and single-token, so it has to wrap anywhere or it
+   pushes the settings column wider than the panel. */
+.peer-collaboration-code {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--line, var(--ws-border, #dfe3ea));
+  border-radius: 8px;
+  background: var(--bg, var(--ws-canvas, #f8fafc));
+  color: var(--text, #1f2937);
+  font-family: var(--mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 11px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.peer-collaboration-editor { display: grid; gap: 12px; }
+.peer-collaboration-editor-block { display: grid; gap: 6px; }
+.peer-collaboration-scope small { display: block; color: var(--muted, #64748b); font-size: 11px; line-height: 1.4; }
+.peer-collaboration-grant-row {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--line, var(--ws-border, #dfe3ea));
+  border-radius: 10px;
+  background: var(--bg, var(--ws-canvas, #f8fafc));
+}
+.peer-collaboration-grant-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.peer-collaboration-grant-head > strong { min-width: 0; color: var(--text, #1f2937); font-size: 12px; font-weight: 700; overflow-wrap: anywhere; }
+.peer-collaboration-grant-scopes { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 6px; }
+.peer-collaboration-grant-list {
+  margin: 0;
+  padding-left: 1.15rem;
+  display: grid;
+  gap: 4px;
+  color: var(--text, #334155);
+  font-size: 12px;
+  line-height: 1.45;
+}
+.peer-collaboration-claim { display: grid; gap: 8px; }
+@media (max-width: 760px) {
+  .peer-collaboration-qr { width: 100%; height: auto; aspect-ratio: 1; }
+  .peer-collaboration-grant-scopes { grid-template-columns: 1fr; }
+}
+
+/* Peer collaboration — dark mode */
+body.white-shell.theme-light.theme-dark .peer-collaboration-code,
+body.white-shell.theme-light.theme-dark .peer-collaboration-grant-row {
+  border-color: var(--settings-border);
+  background: var(--settings-surface-muted);
+  color: var(--settings-foreground);
+}
+body.white-shell.theme-light.theme-dark .peer-collaboration-grant-head > strong { color: var(--settings-foreground); }
+body.white-shell.theme-light.theme-dark .peer-collaboration-grant-list { color: var(--settings-foreground); }
+body.white-shell.theme-light.theme-dark .peer-collaboration-scope small { color: var(--settings-muted-foreground); }
+body.white-shell.theme-light.theme-dark .peer-collaboration-qr { border-color: var(--settings-border); }
 
 /* Remote access — dark mode */
 body.white-shell.theme-light.theme-dark .remote-access-full-access-card {
