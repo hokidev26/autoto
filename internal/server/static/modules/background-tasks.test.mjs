@@ -1379,3 +1379,45 @@ test("a shell task does not request subagent tool calls", async () => {
 
   assert.equal(requested.some((path) => path.includes("/tool-calls")), false, "a shell task has no subagent run");
 });
+
+// The pane loads the newest slice of messages but fetches the task's whole run
+// of tool calls, so a long-lived subagent always has calls whose owning turn
+// has scrolled out. Emitting those after the bubbles parked an earlier task's
+// entire tool history directly beneath the newest reply, where it read as work
+// that reply had caused.
+test("subagent activity older than the loaded window leads the transcript", async () => {
+  const controller = createBackgroundTasksController({
+    request: async (path) => {
+      if (path.endsWith("/output?afterSequence=0")) return { chunks: [] };
+      if (path.includes("/messages")) {
+        return {
+          messages: [
+            { id: "m1", role: "user", contentText: "下沙確實好聽", createdAt: "2026-08-14T03:45:00Z" },
+            { id: "m2", role: "assistant", contentText: "真的，很耐聽。", createdAt: "2026-08-14T03:45:58Z" },
+          ],
+        };
+      }
+      if (path.includes("/tool-calls")) {
+        return {
+          toolCalls: [
+            // Owned by a turn from an earlier task, no longer in the window.
+            { toolUseId: "t-old", toolName: "WebSearch", status: "completed", runId: "run-1", messageId: "scrolled-out", createdAt: "2026-08-12T16:29:31Z" },
+          ],
+        };
+      }
+      return {
+        id: "task-id", agentId: "agent-1", kind: "agent", status: "succeeded",
+        childAgentId: "child-1", childRunId: "run-1", revision: 1,
+      };
+    },
+  });
+  controller.setAgent("agent-1");
+  await controller.selectTask("task-id");
+
+  const html = controller.renderChildConversationHTMLForTest({ childAgentId: "child-1", childRunId: "run-1" });
+  const activityAt = html.indexOf("tool-activity-stack");
+  const firstBubbleAt = html.indexOf(`<article class="background-task-bubble`);
+  assert.ok(activityAt >= 0, "the orphaned activity still has to be accounted for");
+  assert.ok(firstBubbleAt >= 0, "the loaded turns still render");
+  assert.ok(activityAt < firstBubbleAt, "activity older than every loaded turn leads the transcript instead of trailing the newest reply");
+});
