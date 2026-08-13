@@ -3,9 +3,9 @@ import { currentUILocale } from "./i18n.mjs";
 import { canonicalChildRoles, createAgentRoleSettingsController } from "./agent-role-settings.mjs";
 import { createLifecycleHooksController, lifecycleHookActionKinds, lifecycleHookEvents, lifecycleHookFailurePolicies, lifecycleHookModes, lifecycleHookScopes } from "./lifecycle-hooks.mjs";
 import { lifecycleHookMessage } from "./messages-lifecycle-hooks.mjs";
-import { createOptionalToolsSettingsController } from "./optional-tools-settings.mjs?v=compact-cards-1";
+import { createOptionalToolsSettingsController } from "./optional-tools-settings.mjs";
 import { createPromptSettingsController, promptLayerPresentation } from "./prompt-settings.mjs";
-import { bindScopedSkillsManager, renderScopedSkillsManager } from "./scoped-skills-settings.mjs?v=skills-density-1";
+import { bindScopedSkillsManager, renderScopedSkillsManager } from "./scoped-skills-settings.mjs";
 import { normalizeSkillContext, skillContextAvailability } from "./skills-bootstrap.mjs";
 
 const copy = {

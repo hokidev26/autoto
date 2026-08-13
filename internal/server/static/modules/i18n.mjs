@@ -1,15 +1,15 @@
 ﻿import { resolveLocale } from "./locale-registry.mjs";
-import messagesEN from "./messages-en.mjs?v=settings-flat-1-codex-browser-login-1-shared-api-1-apple-theme-1-autoto-themes-1-settings-help-1-task-workspace-1-navigation-state-2-archive-1-settings-cleanup-1-schedule-workspace-1-provider-draft-session-1-context-ring-3-global-background-1-theme-v2-1-formal-theme-assets-1-background-upload-1-goal-command-2-queue-command-1-reasoning-steps-1-reasoning-history-1-markdown-2-home-launcher-1-scoped-memory-1-standalone-removed-2-codex-quota-exhausted-1-home-redesign-1-nav-status-labels-1-home-claude-2";
-import backgroundTaskMessages from "./messages-background-tasks.mjs?v=child-thinking-1";
-import remoteAccessMessages from "./messages-remote-access.mjs?v=remote-control-full-4-remote-full-toggle-3-cloudflared-install-1-settings-ui-cleanup-1";
+import messagesEN from "./messages-en.mjs";
+import backgroundTaskMessages from "./messages-background-tasks.mjs";
+import remoteAccessMessages from "./messages-remote-access.mjs";
 import preferencesMessages from "./messages-preferences.mjs";
 import providerSubscriptionAccountsMessages from "./messages-provider-subscription-accounts.mjs";
-import setupWizardMessages from "./messages-setup-wizard.mjs?v=first-run-readiness-1";
+import setupWizardMessages from "./messages-setup-wizard.mjs";
 import staticExtraMessages from "./messages-static-extra.mjs";
 import systemSettingsMessages from "./messages-system-settings.mjs";
 import usageHistoryMessages from "./messages-usage-history.mjs";
-import messagesZhCN from "./messages-zh-CN.mjs?v=settings-flat-1-codex-browser-login-1-shared-api-1-apple-theme-1-autoto-themes-1-settings-help-1-task-workspace-1-navigation-state-2-archive-1-settings-cleanup-1-schedule-workspace-1-provider-draft-session-1-context-ring-3-global-background-1-theme-v2-1-formal-theme-assets-1-background-upload-1-goal-command-2-queue-command-1-reasoning-steps-1-reasoning-history-1-markdown-2-home-launcher-1-scoped-memory-1-standalone-removed-2-codex-quota-exhausted-1-home-redesign-1-nav-status-labels-1-home-claude-2";
-import messagesZhTW from "./messages-zh-TW.mjs?v=settings-flat-1-codex-browser-login-1-shared-api-1-apple-theme-1-autoto-themes-1-settings-help-1-task-workspace-1-navigation-state-2-archive-1-settings-cleanup-1-schedule-workspace-1-provider-draft-session-1-context-ring-3-global-background-1-theme-v2-1-formal-theme-assets-1-background-upload-1-goal-command-2-queue-command-1-reasoning-steps-1-reasoning-history-1-markdown-2-home-launcher-1-scoped-memory-1-standalone-removed-2-codex-quota-exhausted-1-home-redesign-1-nav-status-labels-1-home-claude-2";
+import messagesZhCN from "./messages-zh-CN.mjs";
+import messagesZhTW from "./messages-zh-TW.mjs";
 
 export const uiLocales = Object.freeze(["zh-TW", "zh-CN", "en"]);
 
@@ -57,11 +57,12 @@ function initialLocalePreference() {
   return "auto";
 }
 
-const localeRuntimeKey = Symbol.for("autoto.i18n.runtime");
-const existingLocaleRuntime = globalThis[localeRuntimeKey];
-const localeRuntime = existingLocaleRuntime && typeof existingLocaleRuntime === "object" ? existingLocaleRuntime : {};
-if (!uiLocales.includes(localeRuntime.activeLocale)) localeRuntime.activeLocale = resolveUILocale(initialLocalePreference());
-globalThis[localeRuntimeKey] = localeRuntime;
+// Module-local state is safe because every import of this module resolves to
+// the same URL (no ?v= query strings anywhere), so the browser and Node both
+// evaluate it exactly once. A globalThis-keyed runtime used to bridge the
+// duplicate instances created by divergent ?v= imports; that split no longer
+// exists, and the source guard test keeps it that way.
+let activeLocale = resolveUILocale(initialLocalePreference());
 
 function lookup(catalog, key) {
   return String(key || "").split(".").reduce((value, part) => value && typeof value === "object" ? value[part] : undefined, catalog);
@@ -87,24 +88,24 @@ export function resolveUILocale(value = "auto") {
 }
 
 export function currentUILocale() {
-  return localeRuntime.activeLocale;
+  return activeLocale;
 }
 
-export function t(key, params = {}, locale = localeRuntime.activeLocale) {
+export function t(key, params = {}, locale = activeLocale) {
   const resolved = resolveUILocale(locale);
   const message = lookup(messageCatalogs[resolved], key) ?? lookup(messageCatalogs["zh-CN"], key) ?? key;
   return interpolate(message, params);
 }
 
-export function applyDocumentLocale(locale = localeRuntime.activeLocale, root = globalThis.document) {
-  localeRuntime.activeLocale = resolveUILocale(locale);
+export function applyDocumentLocale(locale = activeLocale, root = globalThis.document) {
+  activeLocale = resolveUILocale(locale);
   const element = root?.documentElement;
   if (element) {
-    element.lang = localeRuntime.activeLocale === "zh-TW" ? "zh-Hant-TW" : localeRuntime.activeLocale === "zh-CN" ? "zh-Hans-CN" : "en";
-    element.dataset.uiLocale = localeRuntime.activeLocale;
+    element.lang = activeLocale === "zh-TW" ? "zh-Hant-TW" : activeLocale === "zh-CN" ? "zh-Hans-CN" : "en";
+    element.dataset.uiLocale = activeLocale;
   }
   if (root && "title" in root) root.title = t("app.title");
-  return localeRuntime.activeLocale;
+  return activeLocale;
 }
 
 function nodesWithAttribute(root, attribute) {
@@ -124,7 +125,7 @@ function translateAttribute(root, marker, attribute) {
 }
 
 export function applyStaticTranslations(root = globalThis.document) {
-  if (!root) return localeRuntime.activeLocale;
+  if (!root) return activeLocale;
   nodesWithAttribute(root, "data-i18n").forEach((node) => {
     const key = node.getAttribute("data-i18n");
     if (!key) return;
@@ -134,13 +135,13 @@ export function applyStaticTranslations(root = globalThis.document) {
   translateAttribute(root, "data-i18n-title", "title");
   translateAttribute(root, "data-i18n-placeholder", "placeholder");
   translateAttribute(root, "data-i18n-aria-label", "aria-label");
-  return localeRuntime.activeLocale;
+  return activeLocale;
 }
 
 export function setUILocale(locale, root = globalThis.document) {
   applyDocumentLocale(locale, root);
   applyStaticTranslations(root);
-  return localeRuntime.activeLocale;
+  return activeLocale;
 }
 
 export function flattenMessageKeys(catalog) {

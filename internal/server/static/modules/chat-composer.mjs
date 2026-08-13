@@ -2,7 +2,7 @@
 import { formatBytes, formatNumber } from "./formatters.mjs";
 import { chatDraftsKey, messageQueueKey, promptHistoryKey } from "./preferences-data.mjs";
 import { api } from "./runtime.mjs";
-import { t } from "./i18n.mjs?v=goal-command-2-queue-command-1-reasoning-steps-1-reasoning-history-1-markdown-2";
+import { t } from "./i18n.mjs";
 import { isSupportedVideoFile, processVideoAttachment } from "./video-attachments.mjs";
 import { createComposerAttachments } from "./composer-attachments.mjs";
 import { createComposerPalettes } from "./composer-palettes.mjs";

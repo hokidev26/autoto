@@ -7,8 +7,8 @@
 // or writes controller state, so all of it is directly testable, while everything left
 // behind is bound to a live composer instance. chat-composer.mjs re-exports the whole
 // surface, so existing importers do not need to know this file exists.
-import { t } from "./i18n.mjs?v=goal-command-2-queue-command-1-reasoning-steps-1-reasoning-history-1-markdown-2";
-import { mergeAuthoritativeEffectiveCommands, mergeBuiltInSlashCommands, normalizeSlashCommandName } from "./skills-commands.mjs?v=goal-command-2-queue-command-1-reasoning-steps-1-reasoning-history-1-markdown-2";
+import { t } from "./i18n.mjs";
+import { mergeAuthoritativeEffectiveCommands, mergeBuiltInSlashCommands, normalizeSlashCommandName } from "./skills-commands.mjs";
 
 export const defaultReasoningEffortValues = Object.freeze(["auto", "low", "medium", "high"]);
 // Ordered weakest to strongest. "xhigh", "max" and "ultra" are Codex levels

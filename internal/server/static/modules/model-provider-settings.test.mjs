@@ -2514,24 +2514,3 @@ test("窄屏下模型列表压缩为两行且工具栏保持一行", async () =>
   assert.match(desktop, /\.mp-provider-model-limit\s*\{[^}]*display:\s*grid/);
   assert.doesNotMatch(desktop, /\.mp-provider-model-image-generation\.is-unsupported\s*\{[^}]*display:\s*none/);
 });
-
-// 上限修复改的是 model-provider-components.mjs 与 provider-settings-normalization.mjs。
-// 只改模块不动 ?v= 时浏览器会继续用缓存副本，修复看起来完全没生效。
-test("模型上限持久化的 cache stamp 贯穿每一层浏览器入口", async () => {
-  const stamp = "provider-model-limit-persist-1";
-  const [html, app, appMain, settings, console_, normalization] = await Promise.all([
-    readFile(new URL("../index.html", import.meta.url), "utf8"),
-    readFile(new URL("../app.js", import.meta.url), "utf8"),
-    readFile(new URL("./app-main.mjs", import.meta.url), "utf8"),
-    readFile(new URL("./model-provider-settings.mjs", import.meta.url), "utf8"),
-    readFile(new URL("./provider-console.mjs", import.meta.url), "utf8"),
-    readFile(new URL("./provider-settings-normalization.mjs", import.meta.url), "utf8"),
-  ]);
-  assert.match(html, new RegExp(`app\\.js\\?v=[^"\\n]*${stamp}`));
-  assert.match(app, new RegExp(`app-main\\.mjs\\?v=[^"\\n]*${stamp}`));
-  assert.match(appMain, new RegExp(`model-provider-settings\\.mjs\\?v=[^"\\n]*${stamp}`));
-  assert.match(settings, new RegExp(`model-provider-components\\.mjs\\?v=[^"\\n]*${stamp}`));
-  assert.match(console_, new RegExp(`model-provider-components\\.mjs\\?v=[^"\\n]*${stamp}`));
-  assert.match(console_, new RegExp(`provider-settings-normalization\\.mjs\\?v=[^"\\n]*${stamp}`));
-  assert.match(normalization, new RegExp(`model-provider-components\\.mjs\\?v=[^"\\n]*${stamp}`));
-});

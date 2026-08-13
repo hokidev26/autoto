@@ -1,6 +1,6 @@
 import { objectValue } from "./value-coercion.mjs";
 import { $, escapeAttr, escapeHtml, setButtonBusy } from "./dom.mjs";
-import { currentUILocale, t } from "./i18n.mjs?v=shared-api-2-no-alias-1-gateway-tunnel-1-key-delete-1-gateway-models-1-tunnel-ui-1";
+import { currentUILocale, t } from "./i18n.mjs";
 import { confirm as platformConfirm } from "./platform.mjs";
 
 const endpoints = Object.freeze({

@@ -129,16 +129,16 @@ test("chat activity timeline has concise, safe copy in every locale", () => {
   assert.equal(chatRenderingExtraT("activity.input", {}, "fr-FR"), "输入");
 });
 
-test("versioned i18n instances share locale state with dynamic message packs", async () => {
+// Imports carry no query strings anywhere in the frontend, so every module sees
+// the same i18n instance; dynamic message packs must follow its locale directly.
+test("dynamic message packs follow the shared i18n locale state", () => {
   const previous = currentUILocale();
   const root = { title: "", documentElement: { lang: "", dataset: {} }, querySelectorAll() { return []; } };
-  const versionedI18n = await import("./i18n.mjs?shared-runtime-regression-1");
-  const versionedChatMessages = await import("./messages-chat-rendering-extra.mjs?shared-runtime-regression-1");
   try {
-    versionedI18n.setUILocale("zh-TW", root);
+    setUILocale("zh-TW", root);
     assert.equal(currentUILocale(), "zh-TW");
-    assert.equal(versionedChatMessages.t("run.review"), "任務回顧");
-    assert.equal(versionedChatMessages.t("run.rollback"), "回復到開始前");
+    assert.equal(chatRenderingExtraT("run.review"), "任務回顧");
+    assert.equal(chatRenderingExtraT("run.rollback"), "回復到開始前");
   } finally {
     setUILocale(previous, root);
   }

@@ -1,5 +1,5 @@
 import { escapeAttr, escapeHtml } from "./dom.mjs";
-import { t } from "./messages-skills.mjs?v=automation-tool-catalog-1";
+import { t } from "./messages-skills.mjs";
 
 const catalogPath = "/api/optional-tools/automation";
 

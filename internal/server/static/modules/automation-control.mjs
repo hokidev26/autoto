@@ -1,7 +1,7 @@
 import { objectValue } from "./value-coercion.mjs";
 import { escapeAttr, escapeHtml } from "./dom.mjs";
 import { formatTimestamp as formatRegionalTimestamp } from "./formatters.mjs";
-import { t } from "./messages-automation.mjs?v=automation-hub-1";
+import { t } from "./messages-automation.mjs";
 import { confirm as platformConfirm } from "./platform.mjs";
 
 export const automationLimits = Object.freeze({

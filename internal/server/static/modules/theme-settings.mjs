@@ -1,7 +1,7 @@
 import { $, escapeAttr, escapeHtml } from "./dom.mjs";
-import { t } from "./i18n.mjs?v=global-background-1-theme-v2-1-formal-theme-assets-1";
+import { t } from "./i18n.mjs";
 import { confirm as platformConfirm } from "./platform.mjs";
-import { createThemeEditorController } from "./theme-editor.mjs?v=theme-studio-1";
+import { createThemeEditorController } from "./theme-editor.mjs";
 
 function themeSourceLabel(theme) {
   return theme.source === "local" ? t("appearance.themeSourceLocal") : t("appearance.themeSourceBundled");

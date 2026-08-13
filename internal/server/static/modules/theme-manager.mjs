@@ -1,4 +1,4 @@
-import { appearanceThemeForPreset, normalizeAppearanceThemePreset } from "./preferences-data.mjs?v=global-background-1-theme-v2-1";
+import { appearanceThemeForPreset, normalizeAppearanceThemePreset } from "./preferences-data.mjs";
 
 const packageThemeIDPattern = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const themeStylesheetLinkID = "autotoThemeStylesheet";

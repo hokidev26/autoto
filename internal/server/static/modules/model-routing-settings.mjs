@@ -1,7 +1,7 @@
 import { $, escapeAttr, escapeHtml } from "./dom.mjs";
 import { confirm as platformConfirm } from "./platform.mjs";
 import { api } from "./runtime.mjs";
-import { t } from "./i18n.mjs?v=provider-draft-session-1";
+import { t } from "./i18n.mjs";
 
 export const agentModelRoles = Object.freeze(["explore", "plan", "general", "search"]);
 // "xhigh" is offered because Codex accepts it. A runtime default is provider

@@ -1,5 +1,5 @@
 import { defaultProfilePrefs } from "./preferences-data.mjs";
-import { normalizeAvatarDataUrl } from "./profile-avatar.mjs?v=profile-avatar-1";
+import { normalizeAvatarDataUrl } from "./profile-avatar.mjs";
 
 export const accountPreferencesImportVersion = 1;
 export const accountPreferencesCurrentSetupVersion = 1;

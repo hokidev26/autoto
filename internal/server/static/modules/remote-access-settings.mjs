@@ -1,6 +1,6 @@
 import { objectValue } from "./value-coercion.mjs";
 import { $, escapeAttr, escapeHtml, setButtonBusy } from "./dom.mjs";
-import { t } from "./i18n.mjs?v=remote-control-full-3-remote-full-toggle-3-cloudflared-install-1";
+import { t } from "./i18n.mjs";
 import { applyRemoteAccessFailClosed, fullAccessAllowed, remoteAccessContext } from "./remote-access-capabilities.mjs";
 import { qrToSvg } from "./qrcode.mjs";
 

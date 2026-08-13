@@ -1,19 +1,19 @@
 import { $, escapeAttr, escapeHtml } from "./dom.mjs";
-import { formatBytes, formatNumber, formatTimestamp } from "./formatters.mjs?v=message-thread-1";
+import { formatBytes, formatNumber, formatTimestamp } from "./formatters.mjs";
 import { t } from "./i18n.mjs";
 import { api } from "./runtime.mjs";
 import { visibleMessageText } from "./skills-commands.mjs";
-import { normalizeAvatarDataUrl } from "./profile-avatar.mjs?v=profile-avatar-1";
-import { t as cr } from "./messages-chat-rendering-extra.mjs?v=plan-mode-1-i18n-shared-1-subagent-cards-1-provider-errors-1-tool-activity-lazy-1-reasoning-count-1-per-message-activity-1-message-menu-1-write-stream-1";
+import { normalizeAvatarDataUrl } from "./profile-avatar.mjs";
+import { t as cr } from "./messages-chat-rendering-extra.mjs";
 import {
   bindProtectedDownloads,
   hydrateProtectedImages,
   loadProtectedImageURL,
   protectedDownloadAttribute,
   protectedImageAttribute,
-} from "./protected-images.mjs?v=protected-images-1";
-import { openImageLightbox } from "./image-lightbox.mjs?v=protected-images-1";
-import { createStreamingMarkdown } from "./markdown-stream.mjs?v=markdown-stream-1";
+} from "./protected-images.mjs";
+import { openImageLightbox } from "./image-lightbox.mjs";
+import { createStreamingMarkdown } from "./markdown-stream.mjs";
 
 const userMessageRoles = new Set(["user", "human"]);
 const maxTokenCount = 1_000_000_000;

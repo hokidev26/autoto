@@ -190,5 +190,4 @@ test("static shell mounts the three-level task workspace in the main workbench",
   assert.match(workspaceViewRule, /width:\s*100%/);
   assert.match(workspaceViewRule, /margin:\s*0/);
   assert.doesNotMatch(workspaceViewRule, /1280px|auto/);
-  assert.match(appEntry, /task-workspace-1/);
 });

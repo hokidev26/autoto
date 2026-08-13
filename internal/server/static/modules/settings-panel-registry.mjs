@@ -1,4 +1,4 @@
-import { withErrorBoundary } from "./error-boundary.mjs?v=error-boundary-1";
+import { withErrorBoundary } from "./error-boundary.mjs";
 
 export class SettingsPanelRegistry {
   constructor() {

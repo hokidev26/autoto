@@ -1,10 +1,13 @@
 package server
 
 import (
+	"crypto/rand"
 	"crypto/sha256"
 	"embed"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"io/fs"
 	"net/http"
 	"strings"
@@ -16,7 +19,20 @@ import (
 //go:embed static/* static/modules/* static/icons/*
 var staticFiles embed.FS
 
-const uiDocumentCSP = "object-src 'none'; base-uri 'self'; frame-ancestors 'none'"
+// uiDocumentCSPTemplate is the Content-Security-Policy for the SPA document
+// (and the /app OAuth page, which carries its own stricter meta CSP on top).
+// The %s is a per-response nonce authorizing only the injected local-token
+// script. Directives follow what the embedded frontend actually uses:
+//   - script-src 'self' + nonce: modules and app.js are same-origin; the only
+//     inline script is the local-token snippet, which gets the nonce.
+//   - style-src 'unsafe-inline': rendered markup relies on style="" attributes.
+//   - img-src/media-src data: blob:: attachments, avatars and video previews
+//     use data URLs and object URLs.
+//   - connect-src ws: wss:: agent/terminal streams; explicit schemes because
+//     some engines historically did not match websockets against 'self'.
+//   - frame-src http: https:: the workspace preview iframe loads dev servers
+//     on other ports (cross-origin), so it cannot be limited to 'self'.
+const uiDocumentCSPTemplate = "default-src 'self'; script-src 'self' 'nonce-%s'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' data: blob:; connect-src 'self' ws: wss:; frame-src http: https:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
 
 // uiAssetETags maps each embedded asset to a hash of its bytes, so the browser
 // can revalidate instead of re-downloading. Built once, from content rather
@@ -59,11 +75,12 @@ func (s *Server) mountUI(r interface {
 	r.Handle("/ui/*", compress(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// no-cache is not no-store: it means "ask me first", and the answer is a
 		// 304 with no body whenever the asset has not changed. Long-lived
-		// immutable caching is deliberately not used here -- most module imports
-		// carry no ?v= at all, and the ?v= tags that do exist are hand-written
-		// feature names rather than content hashes, so they cannot be trusted to
-		// change when a file does. Getting that wrong serves a stale app after a
-		// rebuild, which is far worse than one revalidation request.
+		// immutable caching is deliberately not used here -- asset URLs carry no
+		// version stamp at all (a ?v= query string on a module import forks it
+		// into a second instance, which is how the i18n locale state once split),
+		// so freshness must come from this revalidation. Getting that wrong
+		// serves a stale app after a rebuild, which is far worse than one
+		// revalidation request.
 		if etag, ok := uiAssetETags()[strings.TrimPrefix(r.URL.Path, "/ui/")]; ok {
 			w.Header().Set("ETag", etag)
 			w.Header().Set("Cache-Control", "no-cache")
@@ -85,7 +102,7 @@ func (s *Server) index(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	setNoStore(w)
-	setUIDocumentSecurityHeaders(w)
+	nonce := setUIDocumentSecurityHeaders(w)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if s.remoteAccessGateRequired(r) {
 		// Remote sessions authenticate with their own HttpOnly cookie. Never expose
@@ -94,15 +111,15 @@ func (s *Server) index(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	setLocalTokenCookie(w, r, s.localToken)
-	_, _ = w.Write(injectLocalToken(data, s.localToken))
+	_, _ = w.Write(injectLocalToken(data, s.localToken, nonce))
 }
 
-func injectLocalToken(data []byte, token string) []byte {
+func injectLocalToken(data []byte, token, nonce string) []byte {
 	encoded, err := json.Marshal(token)
 	if err != nil {
 		encoded = []byte(`""`)
 	}
-	snippet := `<script>window.AUTOTO_LOCAL_TOKEN=` + string(encoded) + `;</script>`
+	snippet := `<script nonce="` + nonce + `">window.AUTOTO_LOCAL_TOKEN=` + string(encoded) + `;</script>`
 	text := string(data)
 	if strings.Contains(text, "</head>") {
 		text = strings.Replace(text, "</head>", snippet+"\n  </head>", 1)
@@ -129,10 +146,21 @@ func setNoStore(w http.ResponseWriter) {
 	w.Header().Set("Expires", "0")
 }
 
-func setUIDocumentSecurityHeaders(w http.ResponseWriter) {
-	w.Header().Set("Content-Security-Policy", uiDocumentCSP)
+// setUIDocumentSecurityHeaders returns the freshly generated CSP script nonce
+// so the caller can stamp it onto any inline script it injects.
+func setUIDocumentSecurityHeaders(w http.ResponseWriter) string {
+	nonce := uiCSPNonce()
+	w.Header().Set("Content-Security-Policy", fmt.Sprintf(uiDocumentCSPTemplate, nonce))
 	w.Header().Set("X-Frame-Options", "DENY")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("Referrer-Policy", "no-referrer")
 	w.Header().Set("Permissions-Policy", "camera=(), geolocation=(), microphone=()")
+	return nonce
+}
+
+func uiCSPNonce() string {
+	buf := make([]byte, 16)
+	// crypto/rand.Read is documented to never fail as of Go 1.24.
+	_, _ = rand.Read(buf)
+	return base64.RawStdEncoding.EncodeToString(buf)
 }

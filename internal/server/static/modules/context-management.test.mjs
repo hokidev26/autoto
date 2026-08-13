@@ -317,9 +317,4 @@ test("static shell mounts one shared context ring, accessible overlays, APIs, an
   assert.match(contextModule, /pruneEnabled: Boolean\(enabled\)/);
   assert.match(contextModule, /expectedLatestMessageId: status\.latestMessageId/);
   assert.match(contextModule, /compactKeepTurns: settings\.retainTurns/);
-
-  assert.match(html, /context-ring-3/);
-  assert.match(app, /context-ring-3/);
-  assert.match(appMain, /context-ring-3/);
-  assert.match(i18n, /context-ring-3/);
 });

@@ -1,13 +1,13 @@
 import { $, escapeAttr, escapeHtml, setButtonBusy } from "./dom.mjs";
 import { formatBytes, formatNumber } from "./formatters.mjs";
-import { resolveUILocale, t } from "./i18n.mjs?v=apple-theme-1-autoto-themes-1-global-background-1-theme-v2-1-background-upload-1";
-import { defaultIMGatewayPrefs, defaultSearchPrefs } from "./preferences-data.mjs?v=apple-theme-1-autoto-themes-1-global-background-1";
+import { resolveUILocale, t } from "./i18n.mjs";
+import { defaultIMGatewayPrefs, defaultSearchPrefs } from "./preferences-data.mjs";
 import {
   avatarDataUrlByteLength,
   compressProfileAvatar,
   normalizeAvatarDataUrl,
   profileAvatarErrorCodes,
-} from "./profile-avatar.mjs?v=profile-avatar-1";
+} from "./profile-avatar.mjs";
 
 export function createLocalPreferencesSettingsController({
   state,

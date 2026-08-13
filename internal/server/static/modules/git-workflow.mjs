@@ -6,7 +6,7 @@ import { gitExtraT as t } from "./messages-git-extra.mjs";
 // The run-checkpoint/rollback copy already lives in the run.* namespace of
 // this pack (it used to back the chat-side run review card); reuse it here
 // instead of forking a parallel set of git-extra keys.
-import { t as cr } from "./messages-chat-rendering-extra.mjs?v=git-modal-rollback-1";
+import { t as cr } from "./messages-chat-rendering-extra.mjs";
 
 /**
  * Whether the most recently loaded run recorded a Git checkpoint that can

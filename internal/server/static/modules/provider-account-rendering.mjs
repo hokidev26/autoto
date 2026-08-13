@@ -1,7 +1,7 @@
 import { escapeAttr, escapeHtml } from "./dom.mjs";
 import { formatMoney, formatNumber, formatTimestamp } from "./formatters.mjs";
-import { t } from "./i18n.mjs?v=provider-draft-session-1-codex-quota-exhausted-1";
-import { normalizeCodexSelectedIds } from "./provider-settings-normalization.mjs?v=provider-model-limit-persist-1";
+import { t } from "./i18n.mjs";
+import { normalizeCodexSelectedIds } from "./provider-settings-normalization.mjs";
 
 function codexQuotaUnauthorizedIsCurrent(account) {
   const stats = account?.stats && typeof account.stats === "object" ? account.stats : null;

@@ -1,6 +1,6 @@
-import { accountPreferencesCurrentSetupVersion } from "./account-preferences.mjs?v=profile-avatar-1-first-run-setup-1";
+import { accountPreferencesCurrentSetupVersion } from "./account-preferences.mjs";
 import { $, escapeAttr, escapeHtml, setButtonBusy } from "./dom.mjs";
-import { t } from "./i18n.mjs?v=first-run-readiness-1";
+import { t } from "./i18n.mjs";
 
 export const setupWizardVersion = accountPreferencesCurrentSetupVersion;
 export const setupWizardStepIds = Object.freeze(["welcome", "environment", "model", "complete"]);

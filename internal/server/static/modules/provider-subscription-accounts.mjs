@@ -1,6 +1,6 @@
 import { escapeAttr, escapeHtml, setButtonBusy } from "./dom.mjs";
 import { confirm as platformConfirm } from "./platform.mjs";
-import { currentUILocale, t } from "./i18n.mjs?v=provider-subscription-accounts-1";
+import { currentUILocale, t } from "./i18n.mjs";
 import { remoteAccessContext } from "./remote-access-capabilities.mjs";
 import {
   createProviderDraft,
@@ -8,7 +8,7 @@ import {
   subscriptionProviderKind,
   subscriptionProviderKinds,
   subscriptionProviderSpec,
-} from "./model-provider-components.mjs?v=provider-subscription-accounts-1-provider-hidden-models-1-provider-quota-overview-1-provider-model-limit-persist-1";
+} from "./model-provider-components.mjs";
 import {
   normalizeSubscriptionAccountList,
   normalizeSubscriptionLoginStatus,
@@ -19,12 +19,12 @@ import {
   subscriptionKiroSubmitRequest,
   subscriptionKiroSubmitAPIKeyRequest,
   trustedSubscriptionAuthURL,
-} from "./provider-settings-normalization.mjs?v=provider-model-limit-persist-1";
+} from "./provider-settings-normalization.mjs";
 import {
   finiteNumber,
   renderSubscriptionAccountManagementTable,
   subscriptionAccountOverview,
-} from "./provider-account-rendering.mjs?v=provider-quota-overview-1-codex-quota-exhausted-1-provider-model-limit-persist-1";
+} from "./provider-account-rendering.mjs";
 
 const subscriptionLoginActiveStatuses = new Set(["starting", "pending", "exchanging"]);
 

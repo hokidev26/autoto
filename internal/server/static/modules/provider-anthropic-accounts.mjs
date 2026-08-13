@@ -1,24 +1,24 @@
 import { escapeAttr, escapeHtml, setButtonBusy } from "./dom.mjs";
 import { confirm as platformConfirm } from "./platform.mjs";
-import { t } from "./i18n.mjs?v=provider-draft-session-1";
+import { t } from "./i18n.mjs";
 import {
   createProviderDraft,
   isAnthropicAccountProvider,
   normalizeConsoleProvider,
   normalizeProviderModelConfigs,
   renderProviderModelEditor,
-} from "./model-provider-components.mjs?v=provider-card-clean-3-provider-create-page-2-provider-secrets-1-model-picker-1-provider-full-page-2-provider-placeholders-1-model-configs-1-provider-reference-1-default-openai-responses-1-provider-draft-session-1-anthropic-model-editor-1-provider-hidden-models-1-provider-quota-overview-1-provider-model-limit-persist-1";
+} from "./model-provider-components.mjs";
 import {
   anthropicAccountActionRequest,
   anthropicAccountsListRequest,
   anthropicProfileLoginCommand,
   consumeAnthropicAccountCreateRequest,
   normalizeAnthropicAccountList,
-} from "./provider-settings-normalization.mjs?v=provider-model-limit-persist-1";
+} from "./provider-settings-normalization.mjs";
 import {
   anthropicAccountOverview,
   renderAnthropicAccountManagementTable,
-} from "./provider-account-rendering.mjs?v=provider-quota-overview-1-codex-quota-exhausted-1-provider-model-limit-persist-1";
+} from "./provider-account-rendering.mjs";
 
 // Creates the Anthropic account controller: profile/API-key account creation,
 // per-account save/sync/toggle/delete, and the dedicated account console page.

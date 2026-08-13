@@ -1,9 +1,9 @@
 import { $, escapeAttr, escapeHtml } from "./dom.mjs";
-import { t } from "./messages-skills.mjs?v=automation-tool-catalog-1";
+import { t } from "./messages-skills.mjs";
 import { confirm as platformConfirm } from "./platform.mjs";
 import { normalizeSlashCommandName } from "./skills-commands.mjs";
-import { createSkillsConfigCenter } from "./skills-config-center.mjs?v=optional-tools-compact-1-skills-density-1-settings-ui-cleanup-1";
-import { skillTabs } from "./settings-data.mjs?v=users-panel-removed-1-config-center-1";
+import { createSkillsConfigCenter } from "./skills-config-center.mjs";
+import { skillTabs } from "./settings-data.mjs";
 
 function currentRestoreReviewChallenge(error) {
   const body = error?.body;

@@ -1,7 +1,7 @@
 import { $, escapeAttr, escapeHtml, setButtonBusy } from "./dom.mjs";
 import { formatBytes, formatDuration, formatNumber, formatTimestamp } from "./formatters.mjs";
 import { currentUILocale, t as baseT } from "./i18n.mjs";
-import systemSettingsMessages from "./messages-system-settings.mjs?v=about-brand-license-1-desktop-shell-1-execution-budget-2-background-task-settings-1-settings-ui-cleanup-1";
+import systemSettingsMessages from "./messages-system-settings.mjs";
 import { localPreferenceBackupVersion } from "./preferences-data.mjs";
 import { api } from "./runtime.mjs";
 import {
@@ -751,7 +751,7 @@ export function createSystemSettingsController({
         <section class="legacy-about-brand-card settings-page-section settings-card settings-card-content">
         <div class="legacy-about-brand">
           <span class="legacy-about-logo" aria-hidden="true">
-            <img src="/ui/autoto-logo.svg?v=about-brand-license-1" alt="" />
+            <img src="/ui/autoto-logo.svg" alt="" />
           </span>
           <div>
             <h2 id="legacyAboutProductName">Autoto</h2>

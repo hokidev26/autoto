@@ -1,5 +1,5 @@
 import { $, escapeAttr, escapeHtml, setButtonBusy } from "./dom.mjs";
-import { t } from "./i18n.mjs?v=settings-flat-1-codex-browser-login-1-shared-api-1-apple-theme-1-settings-help-1-task-workspace-1-navigation-state-2-archive-1";
+import { t } from "./i18n.mjs";
 import { confirm as platformConfirm } from "./platform.mjs";
 
 function text(value) {

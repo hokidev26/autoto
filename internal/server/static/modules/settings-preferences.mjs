@@ -1,6 +1,6 @@
 ﻿import { $ } from "./dom.mjs";
-import { normalizeAvatarDataUrl } from "./profile-avatar.mjs?v=profile-avatar-1";
-import { applyDocumentLocale, applyStaticTranslations, currentUILocale, t } from "./i18n.mjs?v=global-background-1-theme-v2-1";
+import { normalizeAvatarDataUrl } from "./profile-avatar.mjs";
+import { applyDocumentLocale, applyStaticTranslations, currentUILocale, t } from "./i18n.mjs";
 import { setRegionalPreferences } from "./locale-registry.mjs";
 import {
   accountPreferenceStorageKeys,
@@ -42,7 +42,7 @@ import {
   searchPrefsKey,
   skillsPrefsKey,
   terminalPrefsKey,
-} from "./preferences-data.mjs?v=apple-theme-1-autoto-themes-1-schedule-workspace-1-global-background-1";
+} from "./preferences-data.mjs";
 import { preferencesMessage } from "./messages-preferences.mjs";
 
 export function createSettingsPreferencesController({

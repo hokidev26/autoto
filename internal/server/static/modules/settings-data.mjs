@@ -1,4 +1,4 @@
-import { t } from "./i18n.mjs?v=settings-flat-1-codex-browser-login-1-shared-api-1-apple-theme-1-settings-help-1-task-workspace-1-navigation-state-2-archive-1-settings-cleanup-1";
+import { t } from "./i18n.mjs";
 
 const settingsIconPaths = Object.freeze({
   profile: `<circle cx="12" cy="8" r="3.25"/><path d="M5.5 20c.7-3.8 3-5.8 6.5-5.8s5.8 2 6.5 5.8"/>`,

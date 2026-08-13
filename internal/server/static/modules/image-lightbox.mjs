@@ -2,7 +2,7 @@
 // new tab cannot work: the tab is a plain navigation with no X-Autoto-Token
 // header, so it renders 401 JSON. The viewer therefore reuses the already
 // hydrated blob URL and never navigates.
-import { loadProtectedImageURL } from "./protected-images.mjs?v=protected-images-1";
+import { loadProtectedImageURL } from "./protected-images.mjs";
 
 const overlayId = "imageLightbox";
 

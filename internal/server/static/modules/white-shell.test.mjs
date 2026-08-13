@@ -137,7 +137,7 @@ test("native directory picker requires capability, loopback, and macOS", () => {
   }
 });
 
-test("browser tabs use the versioned blue smile favicon across entry points", async () => {
+test("browser tabs use the blue smile favicon across entry points", async () => {
   const [html, oauthHTML, favicon16, favicon32, faviconICO] = await Promise.all([
     readFile(indexURL, "utf8"),
     readFile(oauthAppURL, "utf8"),
@@ -147,15 +147,34 @@ test("browser tabs use the versioned blue smile favicon across entry points", as
   ]);
 
   for (const entryHTML of [html, oauthHTML]) {
-    assert.match(entryHTML, /rel="icon" href="\/ui\/icons\/autoto-tab-32\.png\?v=blue-smile-1" type="image\/png" sizes="32x32"/);
-    assert.match(entryHTML, /rel="icon" href="\/ui\/icons\/autoto-tab-16\.png\?v=blue-smile-1" type="image\/png" sizes="16x16"/);
-    assert.match(entryHTML, /rel="shortcut icon" href="\/ui\/favicon\.ico\?v=blue-smile-1"/);
+    assert.match(entryHTML, /rel="icon" href="\/ui\/icons\/autoto-tab-32\.png" type="image\/png" sizes="32x32"/);
+    assert.match(entryHTML, /rel="icon" href="\/ui\/icons\/autoto-tab-16\.png" type="image\/png" sizes="16x16"/);
+    assert.match(entryHTML, /rel="shortcut icon" href="\/ui\/favicon\.ico"/);
   }
   assert.deepEqual([favicon16.readUInt32BE(16), favicon16.readUInt32BE(20)], [16, 16]);
   assert.deepEqual([favicon32.readUInt32BE(16), favicon32.readUInt32BE(20)], [32, 32]);
   assert.equal(faviconICO.readUInt16LE(0), 0);
   assert.equal(faviconICO.readUInt16LE(2), 1);
   assert.ok(faviconICO.readUInt16LE(4) >= 2);
+});
+
+// The browser keys ES module identity on the full URL, so a ?v= query string on
+// any import forks that module into a second instance with its own state (the
+// i18n locale split was the worst case). Freshness comes from the server's
+// content ETag + Cache-Control: no-cache revalidation instead, so no source
+// file may reference a ?v= stamp again.
+test("static sources carry no ?v= cache-busting query strings", async () => {
+  const { readdir } = await import("node:fs/promises");
+  const { fileURLToPath } = await import("node:url");
+  const root = fileURLToPath(staticRoot);
+  const offenders = [];
+  for (const relative of await readdir(root, { recursive: true })) {
+    const name = String(relative).replaceAll("\\", "/");
+    if (!/\.(mjs|js|html|css)$/.test(name) || name.endsWith(".test.mjs")) continue;
+    const source = await readFile(new URL(name, staticRoot), "utf8");
+    if (/\?v=[A-Za-z0-9-]/.test(source)) offenders.push(name);
+  }
+  assert.deepEqual(offenders, []);
 });
 
 test("white shell adds the global rail before the conversation sidebar with the expected targets", async () => {
@@ -310,37 +329,6 @@ test("desktop home overview stays available while mobile starts in conversation"
   }
 });
 
-test("home launcher cache stamps reach styles, runtime modules, and locale catalogs", async () => {
-  const [html, app, appMain, i18n, styles] = await Promise.all([
-    readFile(indexURL, "utf8"),
-    readFile(appURL, "utf8"),
-    readFile(appMainURL, "utf8"),
-    readFile(i18nURL, "utf8"),
-    readFile(stylesURL, "utf8"),
-  ]);
-  assert.match(html, /styles\.css\?v=[^"\n]*home-launcher-1/);
-  assert.match(html, /app\.js\?v=[^"\n]*home-launcher-1/);
-  assert.match(styles, /extras\.css\?v=[^"\n]*home-launcher-1/);
-  assert.match(app, /app-main\.mjs\?v=[^"\n]*home-launcher-1/);
-  assert.match(app, /app-main\.mjs\?v=[^"\n]*startup-navigation-guard-4/);
-  assert.match(app, /app-main\.mjs\?v=[^"\n]*top-project-1/);
-  assert.match(appMain, /navigation-startup-guard\.mjs\?v=startup-navigation-guard-4/);
-  assert.match(appMain, /conversation-navigation\.mjs\?v=[^"\n]*top-project-1/);
-  assert.match(appMain, /overview-dashboard\.mjs\?v=[^"\n]*home-launcher-1/);
-  assert.match(appMain, /i18n\.mjs\?v=[^"\n]*home-launcher-1/);
-  assert.equal((i18n.match(/messages-(?:en|zh-CN|zh-TW)\.mjs\?v=[^"\n]*home-launcher-1/g) || []).length, 3);
-  assert.match(html, /styles\.css\?v=[^"\n]*home-launcher-bottom-1/);
-  assert.match(html, /app\.js\?v=[^"\n]*home-launcher-bottom-1/);
-  assert.match(styles, /extras\.css\?v=[^"\n]*home-launcher-bottom-1/);
-  assert.match(app, /app-main\.mjs\?v=[^"\n]*home-launcher-bottom-1/);
-  assert.match(appMain, /overview-dashboard\.mjs\?v=[^"\n]*home-launcher-bottom-1/);
-  assert.match(html, /styles\.css\?v=[^"\n]*home-launcher-minimal-1/);
-  assert.match(html, /app\.js\?v=[^"\n]*home-launcher-minimal-1/);
-  assert.match(styles, /extras\.css\?v=[^"\n]*home-launcher-minimal-1/);
-  assert.match(app, /app-main\.mjs\?v=[^"\n]*home-launcher-minimal-1/);
-  assert.match(appMain, /overview-dashboard\.mjs\?v=[^"\n]*home-launcher-minimal-1/);
-});
-
 test("dual workbench shell keeps conversation and Kanban views in one runtime", async () => {
   const [html, appMain, styles] = await Promise.all([
     readFile(indexURL, "utf8"),
@@ -458,48 +446,6 @@ test("boot transition waits for app readiness and cross-fades the localized shel
   assert.match(app, /const appReady = waitForAppReady\(\);[\s\S]*?await import\("\.\/modules\/app-main\.mjs[\s\S]*?await appReady;[\s\S]*?revealLocalizedUI\(\)/);
   assert.match(appMain, /function signalAppReady\(\)[\s\S]*?new EventConstructor\("autoto:app-ready"\)/);
   assert.match(appMain, /init\(\)\.then\(\(\) => \{[\s\S]*?openRequestedInitialView\(\);[\s\S]*?const setupStartup = maybeOpenSetupWizard\(\);[\s\S]*?signalAppReady\(\);[\s\S]*?return setupStartup;[\s\S]*?\}\)\.catch\(\(error\) => \{[\s\S]*?signalAppReady\(\);[\s\S]*?showError\(error\);/);
-  assert.match(html, /app\.js\?v=[^"\n]*boot-dots-only-1/);
-  assert.match(html, /styles\.css\?v=[^"\n]*boot-dots-only-1/);
-  assert.match(app, /app-main\.mjs\?v=[^"\n]*boot-ready-transition-1/);
-});
-
-test("static entry points share throughput and usage-history cache stamps", async () => {
-  const [html, app] = await Promise.all([
-    readFile(indexURL, "utf8"),
-    readFile(appURL, "utf8"),
-  ]);
-  assert.equal((html.match(/-fast-mode-1-throughput-1-usage-history-1/g) || []).length, 2);
-  assert.equal((app.match(/-fast-mode-1-throughput-1-usage-history-1/g) || []).length, 1);
-  assert.doesNotMatch(html, /-throughput-1["']/);
-  assert.doesNotMatch(app, /-throughput-1["']/);
-});
-
-test("Codex browser login cache stamps reach the static entry and locale catalogs", async () => {
-  const [html, app, appMain, i18n] = await Promise.all([
-    readFile(indexURL, "utf8"),
-    readFile(appURL, "utf8"),
-    readFile(appMainURL, "utf8"),
-    readFile(i18nURL, "utf8"),
-  ]);
-  assert.equal((html.match(/codex-browser-login-1/g) || []).length, 2);
-  assert.equal((app.match(/codex-browser-login-1/g) || []).length, 1);
-  assert.match(appMain, /model-provider-settings\.mjs\?v=[^"\n]*codex-browser-login-1/);
-  assert.match(appMain, /i18n\.mjs\?v=[^"\n]*codex-browser-login-1/);
-  assert.equal((i18n.match(/messages-(?:en|zh-CN|zh-TW)\.mjs\?v=[^"\n]*codex-browser-login-1/g) || []).length, 3);
-});
-
-test("settings help cache stamps reach the shell and locale catalogs", async () => {
-  const [html, app, appMain, i18n] = await Promise.all([
-    readFile(indexURL, "utf8"),
-    readFile(appURL, "utf8"),
-    readFile(appMainURL, "utf8"),
-    readFile(i18nURL, "utf8"),
-  ]);
-  assert.equal((html.match(/settings-help-1/g) || []).length, 2);
-  assert.equal((app.match(/settings-help-1/g) || []).length, 1);
-  assert.match(appMain, /settings-help\.mjs\?v=settings-help-1/);
-  assert.match(appMain, /i18n\.mjs\?v=[^"\n]*settings-help-1/);
-  assert.equal((i18n.match(/messages-(?:en|zh-CN|zh-TW)\.mjs\?v=[^"\n]*settings-help-1/g) || []).length, 3);
 });
 
 test("storage settings cards keep visible vertical spacing", async () => {
@@ -509,7 +455,6 @@ test("storage settings cards keep visible vertical spacing", async () => {
   ]);
 
   assert.match(styles, /body\.white-shell\.theme-light \.legacy-settings-content-body \.storage-entry-list\s*\{[\s\S]*?gap:\s*12px/);
-  assert.match(html, /styles\.css\?v=[^"\n]*storage-card-gap-1/);
 });
 
 test("network proxy settings remove duplicate agent management while keeping the backend modal", async () => {
@@ -528,9 +473,6 @@ test("network proxy settings remove duplicate agent management while keeping the
   assert.doesNotMatch(settingsCategories, /items:\s*\["network-search",\s*"agent-admin"\]/);
   assert.doesNotMatch(appMain, /\["agent-admin",\s*\{\s*render:/);
   assert.doesNotMatch(backendRegistry, /renderAgentAdminSettingsContent|bindAgentAdminSettingsActions|settingsBackendForm/);
-  assert.match(appMain, /backend-registry\.mjs\?v=agent-admin-removed-1/);
-  assert.match(app, /app-main\.mjs\?v=[^"\n]*agent-admin-removed-1/);
-  assert.match(html, /app\.js\?v=[^"\n]*agent-admin-removed-1/);
 });
 
 test("folder picker uses stable SVG actions and directory icons instead of font glyphs", async () => {
@@ -561,12 +503,6 @@ test("folder picker uses stable SVG actions and directory icons instead of font 
   assert.match(directoryBrowser, /trigger\?\.setAttribute\("aria-expanded", "false"\)/);
   assert.match(styles, /\.folder-tool-btn-labeled \{/);
   assert.match(styles, /\.directory-folder-stroke \{/);
-  assert.match(appMain, /directory-browser\.mjs\?v=[^"\n]*root-shortcut-removed-1/);
-  assert.match(appMain, /messages-app-main-extra\.mjs\?v=[^"\n]*hidden-toggle-removed-1/);
-  assert.match(app, /app-main\.mjs\?v=[^"\n]*hidden-toggle-removed-1/);
-  assert.match(html, /app\.js\?v=[^"\n]*hidden-toggle-removed-1/);
-  assert.match(html, /styles\.css\?v=[^"\n]*root-shortcut-removed-1/);
-  assert.equal((html.match(/folder-picker-remote-2/g) || []).length, 2);
 });
 
 test("conversation sidebar exposes one project navigation without a standalone filter", async () => {
@@ -596,9 +532,6 @@ test("conversation sidebar exposes one project navigation without a standalone f
   assert.match(html, /id="globalThemeToggleBtn"/);
   assert.match(html, /id="globalHealthText"/);
   assert.match(styles, /\.navigation-conversation-row\.conv-drag-over,\s*\.proj-drag-over\s*\{[\s\S]*?outline:\s*2px solid var\(--accent\)/);
-  assert.match(html, /styles\.css\?v=[^"\n]*navigation-split-1[^"\n]*conversation-drag-outline-1/);
-  assert.match(html, /app\.js\?v=[^"\n]*navigation-split-1/);
-  assert.match(app, /app-main\.mjs\?v=[^"\n]*navigation-split-1[^"\n]*standalone-removed-2/);
 });
 
 test("all interactive creation routes use project selection and never call the removed API", async () => {
@@ -615,8 +548,6 @@ test("all interactive creation routes use project selection and never call the r
   assert.match(appMain, /const target = currentNavigationCreateTarget\(\)[\s\S]*?if \(target === "schedule"\) return startScheduleCreation\(\)[\s\S]*?openDirectoryChooser\(state\.project\?\.gitPath \|\| state\.agent\?\.cwd \|\| "", \{ trigger \}\)/);
   assert.match(appMain, /\[data-create-navigation-item\][\s\S]*?createNavigationItem\(button\)/);
   assert.doesNotMatch(`${app}${appMain}`, /createStandaloneConversation|\/api\/conversations|standaloneConversationCreating/);
-  assert.match(html, /app\.js\?v=[^"\n]*standalone-removed-2/);
-  assert.match(app, /app-main\.mjs\?v=[^"\n]*standalone-removed-2/);
 });
 
 test("conversation navigation exposes archive, pin, and accessible context-menu controls", async () => {
@@ -747,7 +678,6 @@ test("lightning control is a capability-gated Fast mode toggle", async () => {
     readStylesSource(stylesURL),
     readFile(appMainURL, "utf8"),
   ]);
-  assert.match(html, /styles\.css\?v=[^"]*lightning-icon-1/);
   assert.match(html, /id="openProviderLoginBtn"[^>]*class="[^"]*toolbar-lightning-btn[^"]*hidden[^"]*"[^>]*aria-pressed="false"[^>]*data-i18n-title="chat\.fastModeDisabled"/);
   assert.match(appMain, /openProviderLoginBtn"\)\?\.addEventListener\("click", \(\) => toggleFastMode\(\)\.catch\(showError\)\)/);
   assert.doesNotMatch(appMain, /openProviderLoginBtn"\)\.addEventListener\("click", \(\) => openSettingsModal\("providers"\)\)/);
@@ -837,7 +767,6 @@ test("desktop conversation layout follows the compact resizable geometry", async
   assert.match(styles, /body\.white-shell\.theme-light \.chat-panel\s*\{[\s\S]*?grid-column:\s*3/);
   assert.match(styles, /body\.white-shell\.theme-light \.terminal-panel\s*\{[\s\S]*?grid-column:\s*4/);
   assert.match(styles, /body\.white-shell\.theme-light \.session-sidebar-header\s*\{[^}]*flex:\s*0 0 64px[^}]*height:\s*64px[^}]*min-height:\s*64px/);
-  assert.match(html, /styles\.css\?v=[^"\n]*header-divider-align-1/);
   assert.match(styles, /body\.white-shell\.theme-light \.composer-wrap\s*\{[\s\S]*?padding:\s*6px 12px 8px/);
   assert.match(styles, /body\.white-shell\.theme-light \.message-input\s*\{[\s\S]*?min-height:\s*40px/);
   assert.match(styles, /body\.white-shell\.theme-light \.composer-send-btn\s*\{[\s\S]*?width:\s*34px/);
@@ -1154,12 +1083,6 @@ test("Subagent compact cards integrate background tasks without polling child to
     readFile(backgroundTasksURL, "utf8"),
   ]);
 
-  assert.match(html, /styles\.css\?v=[^"\n]*subagent-cards-1/);
-  assert.match(html, /app\.js\?v=[^"\n]*subagent-cards-1/);
-  assert.match(app, /app-main\.mjs\?v=[^"\n]*subagent-cards-1/);
-  assert.match(appMain, /background-tasks\.mjs\?v=subagent-cards-1/);
-  assert.match(appMain, /chat-rendering\.mjs\?v=[^"\n]*subagent-cards-1/);
-  assert.match(chatRendering, /messages-chat-rendering-extra\.mjs\?v=[^"\n]*subagent-cards-1/);
 
   assert.match(appMain, /resolveBackgroundTask:\s*\(tool\)\s*=>\s*backgroundTasks\?\.getTaskByParentTool\?\.\(tool\?\.runId, tool\?\.toolUseId\)/);
   assert.match(chatRendering, /options\.resolveBackgroundTask\(tool\)/);
@@ -1225,8 +1148,6 @@ test("Subagent compact cards integrate background tasks without polling child to
 
 test("composer responds to its actual width before the mobile breakpoint", async () => {
   const [html, styles] = await Promise.all([readFile(indexURL, "utf8"), readStylesSource(stylesURL)]);
-  assert.match(html, /styles\.css\?v=[^"]*composer-responsive-2/);
-  assert.match(html, /styles\.css\?v=[^"]*composer-effort-compact-2/);
   const marker = "/* Responsive composer tiers follow the editor's real width, not the full viewport. */";
   const responsiveStyles = styles.slice(styles.indexOf(marker), styles.indexOf("/* Flat, single-pass settings layout", styles.indexOf(marker)));
   assert.ok(responsiveStyles.startsWith(marker));
@@ -1290,9 +1211,6 @@ test("mobile header and composer use compact icon-first layouts", async () => {
   const marker = "/* Compact mobile composer: one utility row plus one message row. */";
   const mobileComposerStyles = styles.slice(styles.indexOf(marker), styles.indexOf("/* Model provider settings.", styles.indexOf(marker)));
   assert.ok(mobileComposerStyles.startsWith(marker));
-  assert.match(html, /styles\.css\?v=[^"]*mobile-short-labels-1/);
-  assert.match(html, /app\.js\?v=[^"]*mobile-short-labels-1/);
-  assert.match(app, /app-main\.mjs\?v=[^"]*mobile-short-labels-1/);
   assert.match(html, /id="mobileSearchBtn"[\s\S]*?<svg viewBox="0 0 24 24"/);
   assert.doesNotMatch(html, /id="composerFolderBtn"/);
   assert.doesNotMatch(html, /id="composerTerminalBtn"/);
@@ -1407,14 +1325,6 @@ test("mobile sidebar closes safely during desktop startup and cache updates prop
     readFile(appMainURL, "utf8"),
     readFile(uiShellURL, "utf8"),
   ]);
-  assert.match(html, /app\.js\?v=[^"\n]*mobile-viewport-1/);
-  assert.match(app, /app-main\.mjs\?v=[^"\n]*mobile-viewport-1/);
-  assert.match(appMain, /ui-shell\.mjs\?v=[^"\n]*mobile-viewport-1/);
-  assert.match(html, /styles\.css\?v=[^"\n]*model-save-scroll-1/);
-  assert.match(html, /app\.js\?v=[^"\n]*model-save-scroll-1/);
-  assert.match(app, /app-main\.mjs\?v=[^"\n]*model-save-scroll-1/);
-  assert.match(appMain, /chat-composer\.mjs\?v=[^"\n]*model-save-gate-1/);
-  assert.match(appMain, /ui-shell\.mjs\?v=[^"\n]*model-menu-scroll-1/);
   assert.equal((uiShell.match(/const mobileViewport/g) || []).length, 1);
 
   const bodyClasses = new Set(["mobile-sidebar-open"]);
@@ -2013,32 +1923,8 @@ test("settings shell docks beside the global rail and keeps complete mobile navi
   assert.match(html, /class="settings-page-scroll"[^>]*role="region"[^>]*data-i18n-aria-label="settings\.details"/);
   assert.match(appMain, /settingsIconSVG\(item\.icon\)/);
   assert.doesNotMatch(appMain, /escapeHtml\(item\.icon\)/);
-  assert.match(html, /styles\.css\?v=[^"\n]*settings-icons-1/);
-  assert.match(html, /styles\.css\?v=[^"\n]*settings-content-left-1/);
-  assert.match(html, /app\.js\?v=[^"\n]*settings-icons-1/);
-  assert.match(app, /app-main\.mjs\?v=[^"\n]*settings-icons-1/);
-  assert.match(appMain, /settings-data\.mjs\?v=[^"\n]*settings-icons-1/);
-  assert.match(html, /app\.js\?v=[^"\n]*default-openai-responses-1/);
-  assert.match(app, /app-main\.mjs\?v=[^"\n]*default-openai-responses-1/);
-  assert.match(appMain, /model-provider-settings\.mjs\?v=[^"\n]*default-openai-responses-1/);
-  assert.match(html, /app\.js\?v=[^"\n]*provider-draft-session-1/);
-  assert.match(app, /app-main\.mjs\?v=[^"\n]*provider-draft-session-1/);
-  assert.match(appMain, /model-provider-settings\.mjs\?v=[^"\n]*provider-draft-session-1/);
-  assert.match(html, /app\.js\?v=[^"\n]*remote-full-toggle-3/);
-  assert.match(app, /app-main\.mjs\?v=[^"\n]*remote-full-toggle-3/);
-  assert.match(appMain, /remote-access-settings\.mjs\?v=[^"\n]*remote-full-toggle-3/);
-  assert.match(html, /styles\.css\?v=[^"\n]*profile-message-identity-1/);
-  assert.match(html, /app\.js\?v=[^"\n]*profile-message-identity-1/);
-  assert.match(app, /app-main\.mjs\?v=[^"\n]*profile-message-identity-1/);
-  assert.match(appMain, /chat-rendering\.mjs\?v=[^"\n]*profile-message-identity-1/);
-  assert.match(html, /styles\.css\?v=[^"\n]*profile-avatar-1/);
-  assert.match(html, /app\.js\?v=[^"\n]*profile-avatar-1/);
-  assert.match(app, /app-main\.mjs\?v=[^"\n]*profile-avatar-1/);
-  assert.match(appMain, /account-preferences\.mjs\?v=profile-avatar-1/);
-  assert.match(appMain, /local-preferences-settings\.mjs\?v=[^"\n]*profile-avatar-1/);
   assert.match(settingsStyles, /\.settings-nav-icon \.settings-icon-svg\s*\{[^}]*width:\s*18px;[^}]*height:\s*18px;/);
   assert.match(settingsStyles, /\[aria-current="page"\] \.settings-nav-icon\s*\{[^}]*background:\s*transparent;[^}]*color:\s*var\(--settings-primary\);[^}]*box-shadow:\s*none;/);
-  assert.match(html, /styles\.css\?v=[^"\n]*settings-active-icon-frame-removed-1/);
 
   const mobile = settingsStyles.slice(settingsStyles.indexOf("@media (max-width: 767px)"));
   assert.match(mobile, /\.settings-sidebar\s*\{[\s\S]*?display:\s*grid;/);
@@ -2082,7 +1968,6 @@ test("mobile shell skips home and keeps the drawer, settings index, and model sh
   assert.doesNotMatch(html, /id="mobileSettingsIndex"/);
   assert.doesNotMatch(html, /id="mobileModelPanel"/);
   assert.match(html, /id="attachFileBtn"[^>]*data-i18n-aria-label="chat\.attachFile"/);
-  assert.match(html, /styles\.css\?v=[^"\n]*mobile-sidebar-list-compact-1/);
 
   const marker = "/* Mobile shell refresh: conversation, drawer, settings, and composer selection sheets. */";
   const refreshedStyles = styles.slice(styles.indexOf(marker));
@@ -2126,15 +2011,6 @@ test("mobile shell skips home and keeps the drawer, settings index, and model sh
   assert.match(cascadeGuard, /\.composer-select-value,[\s\S]*?position:\s*static;[\s\S]*?clip-path:\s*none/);
   assert.match(cascadeGuard, /\.composer-model-field \.composer-select-trigger\s*\{\s*max-width:\s*min\(58vw, 246px\)/);
 
-  assert.match(html, /styles\.css\?v=[^"\n]*mobile-settings-compact-1/);
-  assert.match(html, /styles\.css\?v=[^"\n]*mobile-logo-1/);
-  assert.match(html, /styles\.css\?v=[^"\n]*mobile-no-home-1/);
-  assert.match(html, /app\.js\?v=[^"\n]*mobile-settings-compact-1/);
-  assert.match(html, /app\.js\?v=[^"\n]*mobile-no-home-1/);
-  assert.match(html, /app\.js\?v=[^"\n]*mobile-title-1/);
-  assert.match(app, /app-main\.mjs\?v=[^"\n]*mobile-settings-compact-1/);
-  assert.match(app, /app-main\.mjs\?v=[^"\n]*mobile-no-home-1/);
-  assert.match(app, /app-main\.mjs\?v=[^"\n]*mobile-title-1/);
   assert.match(appMain, /mobileSettingsView:\s*"detail"/);
   assert.match(appMain, /function showMobileSettingsIndex[\s\S]*?settings\.mobile\.indexTitle/);
   assert.match(appMain, /showMobileSettingsIndex[\s\S]*?querySelector\?\.\("\.settings-mobile-index-row"\)\?\.focus/);
@@ -2249,11 +2125,6 @@ test("legacy font stack and static shell translations are wired", async () => {
   assert.match(html, /data-i18n="shell\.nav\.conversation"/);
   assert.match(html, /data-i18n-placeholder="chat\.messagePlaceholder"/);
   assert.match(html, /data-i18n-aria-label="settings\.categories"/);
-  assert.match(html, /app\.js\?v=[^"\n]*i18n-shared-1/);
-  assert.match(app, /app-main\.mjs\?v=[^"\n]*i18n-shared-1/);
-  assert.match(appMain, /i18n\.mjs\?v=[^"\n]*i18n-shared-1/);
-  assert.match(appMain, /chat-rendering\.mjs\?v=[^"\n]*i18n-shared-1/);
-  assert.match(chatRendering, /messages-chat-rendering-extra\.mjs\?v=[^"\n]*i18n-shared-1/);
 });
 
 test("static shell controls localize without marking runtime-owned content", async () => {
@@ -2287,8 +2158,6 @@ test("initial shell and default appearance use the versioned light theme", async
   const html = await readFile(indexURL, "utf8");
 
   assert.match(html, /<body class="theme-light white-shell ui-density-comfortable">/);
-  assert.match(html, /styles\.css\?v=white-shell-2/);
-  assert.match(html, /app\.js\?v=white-shell-2/);
   assert.equal(defaultAppearancePrefs.themePreset, "light");
   assert.equal(defaultAppearancePrefs.theme, "light");
   assert.equal(defaultAppearancePrefs.styleVersion, appearanceStyleVersion);

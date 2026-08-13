@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { setUILocale } from "./i18n.mjs?v=settings-flat-1-codex-browser-login-1-shared-api-1-apple-theme-1-settings-help-1-task-workspace-1-navigation-state-2-archive-1";
+import { setUILocale } from "./i18n.mjs";
 import { createArchiveSettingsController, normalizeArchivePayload } from "./archive-settings.mjs";
 
 test("normalizeArchivePayload keeps archived project and conversation navigation fields", () => {

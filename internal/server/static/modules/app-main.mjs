@@ -1,18 +1,18 @@
-import { createAccountPreferencesController } from "./account-preferences.mjs?v=profile-avatar-1-first-run-setup-1";
+import { createAccountPreferencesController } from "./account-preferences.mjs";
 import { createAgentStreamController } from "./agent-stream.mjs";
-import { createAutomationControlController } from "./automation-control.mjs?v=automation-hub-1";
-import { createAutomationToolCatalogController } from "./automation-tool-catalog.mjs?v=automation-tool-catalog-1";
-import { createArchiveSettingsController } from "./archive-settings.mjs?v=archive-settings-1";
-import { createConversationTitleHelpers } from "./conversation-title-helpers.mjs?v=standalone-removed-1";
-import { createBackgroundTasksController } from "./background-tasks.mjs?v=subagent-cards-1-foreground-activity-1-queue-attachments-1-task-overview-tabs-1-child-transcript-1-composer-pills-1-waiting-tone-1-working-in-transcript-1-stable-detail-1";
+import { createAutomationControlController } from "./automation-control.mjs";
+import { createAutomationToolCatalogController } from "./automation-tool-catalog.mjs";
+import { createArchiveSettingsController } from "./archive-settings.mjs";
+import { createConversationTitleHelpers } from "./conversation-title-helpers.mjs";
+import { createBackgroundTasksController } from "./background-tasks.mjs";
 import { createExecutionNotifications } from "./execution-notifications.mjs";
-import { createNotificationSound } from "./notification-sound.mjs?v=notification-sound-1";
-import { createSystemNotifications } from "./system-notification.mjs?v=system-notification-1";
-import { createBackendRegistryController } from "./backend-registry.mjs?v=agent-admin-removed-1";
-import { createChatComposerController, normalizeChatDrafts, normalizePromptHistory } from "./chat-composer.mjs?v=plan-mode-1-project-context-1-model-save-gate-1-goal-command-2-queue-command-1-reasoning-steps-1-reasoning-history-1-markdown-2-queue-autopark-1-queue-attachments-1-effort-initial-1";
-import { createChatRenderingController, findToolActivityByIdentity, renderAgentTaskActivityCardHTML } from "./chat-rendering.mjs?v=protected-images-1-message-thread-1-plan-mode-2-user-message-left-1-switch-fix-3-hide-run-loading-1-i18n-shared-1-conversation-boundary-1-subagent-cards-1-message-lifecycle-1-subagent-incremental-1-profile-message-identity-1-profile-avatar-1-provider-errors-1-compact-run-error-1-first-token-task-status-1-tool-activity-lazy-1-tool-protocol-filter-1-live-assistant-last-1-tool-activity-svg-icons-1-reasoning-steps-1-reasoning-history-1-markdown-2-tool-inline-detail-1-md-table-1-tool-position-1-project-run-history-1-dup-activity-fix-1-reasoning-count-1-avatar-logo-fix-1-markdown-stream-1-reasoning-handover-1-message-menu-1-write-stream-1";
-import { releaseProtectedImageURLs } from "./protected-images.mjs?v=protected-images-1";
-import { createContextManagementController } from "./context-management.mjs?v=context-ring-3-scoped-memory-1";
+import { createNotificationSound } from "./notification-sound.mjs";
+import { createSystemNotifications } from "./system-notification.mjs";
+import { createBackendRegistryController } from "./backend-registry.mjs";
+import { createChatComposerController, normalizeChatDrafts, normalizePromptHistory } from "./chat-composer.mjs";
+import { createChatRenderingController, findToolActivityByIdentity, renderAgentTaskActivityCardHTML } from "./chat-rendering.mjs";
+import { releaseProtectedImageURLs } from "./protected-images.mjs";
+import { createContextManagementController } from "./context-management.mjs";
 import {
   addRecentConversation,
   buildNavigationView,
@@ -25,8 +25,8 @@ import {
   renderRecentConversationsHTML,
   resolveInitialNavigationTarget,
   resolveTopNavigationProjectId,
-} from "./conversation-navigation.mjs?v=mode-boundaries-2-project-flat-1-task-workspace-1-navigation-state-1-project-context-1-recent-sync-1-dual-rail-collapse-1-compact-navigation-1-theme-icons-1-workline-fork-1-conversation-order-1-nav-status-color-1-top-project-1-standalone-removed-1-unread-state-1-live-status-1";
-import { markConversationSeen, readSeenMap } from "./conversation-seen.mjs?v=unread-state-1";
+} from "./conversation-navigation.mjs";
+import { markConversationSeen, readSeenMap } from "./conversation-seen.mjs";
 import {
   basename,
   canonicalLocalPath,
@@ -34,69 +34,69 @@ import {
   normalizePath,
   normalizeRecentDirectories,
   shortPath,
-} from "./directory-browser.mjs?v=folder-picker-remote-2-root-card-1-root-shortcut-removed-1-queue-autopark-1";
+} from "./directory-browser.mjs";
 import { $, coalescePerFrame, escapeAttr, escapeHtml, setButtonBusy, setHTMLIfChanged, setTextIfChanged } from "./dom.mjs";
-import { navigationCreateLabelKey, navigationCreateTarget } from "./navigation-create.mjs?v=standalone-removed-1";
-import { createSubagentCardCoordinator } from "./subagent-cards.mjs?v=tool-activity-lazy-1";
-import { createNavigationStartupGuard } from "./navigation-startup-guard.mjs?v=startup-navigation-guard-4";
+import { navigationCreateLabelKey, navigationCreateTarget } from "./navigation-create.mjs";
+import { createSubagentCardCoordinator } from "./subagent-cards.mjs";
+import { createNavigationStartupGuard } from "./navigation-startup-guard.mjs";
 import { formatNumber, formatTimestamp } from "./formatters.mjs";
-import { t } from "./i18n.mjs?v=settings-flat-1-codex-browser-login-1-shared-api-1-apple-theme-1-autoto-themes-1-settings-help-1-task-workspace-1-navigation-state-2-archive-1-i18n-shared-1-overview-home-1-settings-cleanup-1-context-ring-3-global-background-1-theme-v2-1-background-upload-1-goal-command-2-queue-command-1-reasoning-steps-1-reasoning-history-1-markdown-2-first-run-setup-1-home-launcher-1-scoped-memory-1-standalone-removed-2-queue-autopark-1-home-redesign-1-child-thinking-1-home-claude-3";
-import { appMainT as am } from "./messages-app-main-extra.mjs?v=workbench-title-edit-1-hidden-toggle-removed-1-settings-cleanup-1";
+import { t } from "./i18n.mjs";
+import { appMainT as am } from "./messages-app-main-extra.mjs";
 import { shellExtraT as sx } from "./messages-shell-extra.mjs";
-import { createGitWorkflowController } from "./git-workflow.mjs?v=merge-review-1";
-import { createLocalPreferencesSettingsController } from "./local-preferences-settings.mjs?v=settings-flat-1-apple-theme-1-autoto-themes-1-profile-avatar-1-global-background-1-background-upload-1";
+import { createGitWorkflowController } from "./git-workflow.mjs";
+import { createLocalPreferencesSettingsController } from "./local-preferences-settings.mjs";
 import { createMCPRegistryUIController } from "./mcp-registry-ui.mjs";
 import { createPluginRegistryUIController } from "./plugin-registry-ui.mjs";
 import { createMemorySettingsController } from "./memory-settings.mjs";
 import { agentModelSettingsPayload } from "./model-routing-settings.mjs";
-import { createModelProviderSettingsController } from "./model-provider-settings.mjs?v=native-codex-3-provider-console-3-account-wide-1-model-compact-1-codex-export-1-settings-flat-1-aggregates-1-codex-import-open-1-provider-create-page-2-codex-browser-login-1-provider-secrets-1-model-picker-1-provider-full-page-2-provider-placeholders-1-usage-cost-1-codex-usage-clean-1-model-sections-hidden-1-model-configs-1-provider-reference-1-default-openai-responses-1-provider-draft-session-1-native-image-generation-1-provider-auto-name-1-provider-hidden-models-1-gemini-model-quota-1-safety-model-1-provider-quota-overview-1-codex-quota-exhausted-1-provider-model-limit-persist-1";
+import { createModelProviderSettingsController } from "./model-provider-settings.mjs";
 import {
   createOverviewDashboardController,
   overviewNavigationRoute,
   overviewRailTarget,
   resolveOverviewStartup,
-} from "./overview-dashboard.mjs?v=overview-home-3-nav-schedules-1-mobile-no-home-1-schedule-workspace-1-activity-heatmap-1-home-launcher-1-home-launcher-bottom-1-home-launcher-minimal-1-standalone-removed-2-project-popover-1-activity-tokens-1-system-metrics-1-home-redesign-1-home-claude-4";
+} from "./overview-dashboard.mjs";
 import { createPageLifecycleController } from "./page-lifecycle.mjs";
 import { confirm as platformConfirm } from "./platform.mjs";
-import { createProjectKanbanController } from "./project-kanban.mjs?v=workbench-3-mode-boundaries-1";
-import { createScheduleWorkspaceController } from "./schedule-workspace.mjs?v=schedule-workspace-2-browser-boundary-1";
-import { createTaskWorkspaceController } from "./task-workspace.mjs?v=task-workspace-1";
-import { createAppearanceBackgroundManager, createThemeManager, setThemePageContext } from "./theme-manager.mjs?v=autoto-themes-2-background-2-theme-v2-1-background-upload-1-theme-studio-1";
-import { createThemeSettingsController } from "./theme-settings.mjs?v=autoto-themes-2-theme-v2-1-formal-assets-1-theme-studio-1";
-import { readLocalPreference, recentConversationsKey } from "./preferences-data.mjs?v=autoto-themes-1-schedule-workspace-1-global-background-1";
+import { createProjectKanbanController } from "./project-kanban.mjs";
+import { createScheduleWorkspaceController } from "./schedule-workspace.mjs";
+import { createTaskWorkspaceController } from "./task-workspace.mjs";
+import { createAppearanceBackgroundManager, createThemeManager, setThemePageContext } from "./theme-manager.mjs";
+import { createThemeSettingsController } from "./theme-settings.mjs";
+import { readLocalPreference, recentConversationsKey } from "./preferences-data.mjs";
 import { applyRemoteAccessFailClosed, fullAccessAllowed, remoteAccessContext, terminalAccessAllowed } from "./remote-access-capabilities.mjs";
-import { createRemoteAccessSettingsController } from "./remote-access-settings.mjs?v=remote-control-full-4-remote-full-toggle-3-tunnel-busy-1-settings-ui-cleanup-1";
-import { createSharedAPISettingsController } from "./shared-api-settings.mjs?v=shared-api-2-compact-layout-1-no-alias-safety-1-gateway-tunnel-1-settings-ui-cleanup-1";
+import { createRemoteAccessSettingsController } from "./remote-access-settings.mjs";
+import { createSharedAPISettingsController } from "./shared-api-settings.mjs";
 import { applyServerSkillsLoadResult, createSkillsPhaseBController, hydrateServerSkillSummaries, isOptimisticSkillConflict, loadServerSkillsWithFallback, normalizeSkillContext } from "./skills-bootstrap.mjs";
 import { api, onAPIAuthorizationFailure, webSocketURL } from "./runtime.mjs";
-import { firstSettingsItemForCategory, groupSettingsItemsByLegacyCategory, legacySettingsCategories, settingsCategoryByKey, settingsCategoryForItem } from "./settings-categories.mjs?v=users-panel-removed-1-shared-api-1-agent-admin-removed-1-archive-1-settings-cleanup-1";
-import { settingsIconSVG, settingsItemByKey, settingsItems, settingsSections } from "./settings-data.mjs?v=users-panel-removed-1-shared-api-1-agent-admin-removed-1-archive-1-settings-icons-1-settings-cleanup-1";
-import { createSettingsHelpController } from "./settings-help.mjs?v=settings-help-1";
+import { firstSettingsItemForCategory, groupSettingsItemsByLegacyCategory, legacySettingsCategories, settingsCategoryByKey, settingsCategoryForItem } from "./settings-categories.mjs";
+import { settingsIconSVG, settingsItemByKey, settingsItems, settingsSections } from "./settings-data.mjs";
+import { createSettingsHelpController } from "./settings-help.mjs";
 import { createSettingsPanelRegistry } from "./settings-panel-registry.mjs";
 import { createSecurityModeHelpers } from "./security-mode-helpers.mjs";
 import { createSettingsNavigationHelpers } from "./settings-navigation-helpers.mjs";
-import { createSettingsPreferencesController } from "./settings-preferences.mjs?v=apple-theme-1-autoto-themes-1-profile-avatar-1-dual-rail-collapse-1-global-background-1-settings-identity-removed-1-queue-autopark-1";
+import { createSettingsPreferencesController } from "./settings-preferences.mjs";
 import { createSettingsShellHelpers } from "./settings-shell-helpers.mjs";
 import { createSkillsContext } from "./skills-context.mjs";
 import { createServerResourceLoaders } from "./server-resource-loaders.mjs";
-import { createSetupWizardController } from "./setup-wizard.mjs?v=first-run-readiness-1";
+import { createSetupWizardController } from "./setup-wizard.mjs";
 import { createSpecBoardController } from "./spec-board.mjs";
-import { createSystemMetricsPoller, renderCompactSystemMetrics, renderSystemMetrics } from "./system-metrics-panel.mjs?v=system-metrics-2-home-redesign-1";
-import { createSystemSettingsController } from "./system-settings.mjs?v=users-panel-removed-1-about-brand-license-1-desktop-shell-1-execution-budget-2-background-task-settings-1-settings-ui-cleanup-1";
+import { createSystemMetricsPoller, renderCompactSystemMetrics, renderSystemMetrics } from "./system-metrics-panel.mjs";
+import { createSystemSettingsController } from "./system-settings.mjs";
 import { installDesktopDeepLinkRouter, isDesktopShell } from "./desktop-shell-ui.mjs";
-import { createSkillsWorkbenchController } from "./skills-workbench.mjs?v=users-panel-removed-1-config-center-1-automation-tool-catalog-1-optional-tools-compact-1-skills-density-1";
-import { createTerminalController } from "./terminal.mjs?v=terminal-actions-compact-2";
-import { createUIShellController, elementVisible, isComposingInput } from "./ui-shell.mjs?v=permission-panel-2-plan-mode-panel-1-mobile-toolbar-right-3-icon-rail-1-mobile-viewport-1-sidebar-wheel-1-settings-cleanup-1-context-ring-3-dual-rail-collapse-1-compact-navigation-1-global-rail-2-model-menu-scroll-1-utility-resize-2-sheet-trim-1-model-provider-groups-1-danger-reflection-desc-1-danger-reflection-levels-1-model-icon-only-1-theme-icon-1-home-redesign-1";
+import { createSkillsWorkbenchController } from "./skills-workbench.mjs";
+import { createTerminalController } from "./terminal.mjs";
+import { createUIShellController, elementVisible, isComposingInput } from "./ui-shell.mjs";
 import { createUsageHistoryController } from "./usage-history.mjs";
-import { createAgentWorkspaceHelpers } from "./agent-workspace-helpers.mjs?v=task-summary-activity-1-task-overview-tabs-1";
+import { createAgentWorkspaceHelpers } from "./agent-workspace-helpers.mjs";
 import { createNavigationContextMenu } from "./navigation-context-menu.mjs";
-import { createBrandConfirm } from "./brand-confirm.mjs?v=brand-confirm-1";
-import { createMessageContextMenu } from "./message-context-menu.mjs?v=message-menu-1-brand-confirm-1";
+import { createBrandConfirm } from "./brand-confirm.mjs";
+import { createMessageContextMenu } from "./message-context-menu.mjs";
 import { createOverviewNavHelpers } from "./overview-nav-helpers.mjs";
-import { installPullToRefresh, isPullToRefreshSupported } from "./pull-to-refresh.mjs?v=pull-to-refresh-1";
-import { createWorkbenchSidebarRender, primaryWorkbenchLayout } from "./workbench-sidebar-render.mjs?v=standalone-removed-1";
+import { installPullToRefresh, isPullToRefreshSupported } from "./pull-to-refresh.mjs";
+import { createWorkbenchSidebarRender, primaryWorkbenchLayout } from "./workbench-sidebar-render.mjs";
 import { createWorkspaceContextHelpers } from "./workspace-context-helpers.mjs";
-import { createWorkspaceExplorerController } from "./workspace-explorer.mjs?v=viewport-menu-1";
+import { createWorkspaceExplorerController } from "./workspace-explorer.mjs";
 import { runPreviewScreenshot } from "./workspace-screenshot.mjs";
 import { normalizeWorkStateSnapshot, renderWorkStateHTML } from "./work-state.mjs";
 

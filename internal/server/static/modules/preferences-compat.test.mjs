@@ -527,45 +527,6 @@ test("appearance settings keeps the original Unicode background filename visible
   assert.match(markup, /class="appearance-background-status" role="status" aria-live="polite"/);
 });
 
-test("apple theme cache stamps reach the static entry and updated modules", async () => {
-  const [html, app, appMain, i18n, localPreferences, settingsPreferences] = await Promise.all([
-    readFile(new URL("../index.html", import.meta.url), "utf8"),
-    readFile(new URL("../app.js", import.meta.url), "utf8"),
-    readFile(new URL("./app-main.mjs", import.meta.url), "utf8"),
-    readFile(new URL("./i18n.mjs", import.meta.url), "utf8"),
-    readFile(new URL("./local-preferences-settings.mjs", import.meta.url), "utf8"),
-    readFile(new URL("./settings-preferences.mjs", import.meta.url), "utf8"),
-  ]);
-
-  assert.equal((html.match(/apple-theme-1/g) || []).length, 2);
-  assert.equal((app.match(/apple-theme-1/g) || []).length, 1);
-  assert.match(appMain, /local-preferences-settings\.mjs\?v=[^"\n]*apple-theme-1/);
-  assert.match(appMain, /settings-preferences\.mjs\?v=apple-theme-1/);
-  assert.match(localPreferences, /i18n\.mjs\?v=apple-theme-1/);
-  assert.match(localPreferences, /preferences-data\.mjs\?v=apple-theme-1/);
-  assert.match(settingsPreferences, /preferences-data\.mjs\?v=apple-theme-1/);
-  assert.equal((i18n.match(/messages-(?:en|zh-CN|zh-TW)\.mjs\?v=[^"\n]*apple-theme-1/g) || []).length, 3);
-});
-
-test("background upload cache stamps reach the static entry, upload modules, and locale catalogs", async () => {
-  const [html, app, appMain, i18n, localPreferences] = await Promise.all([
-    readFile(new URL("../index.html", import.meta.url), "utf8"),
-    readFile(new URL("../app.js", import.meta.url), "utf8"),
-    readFile(new URL("./app-main.mjs", import.meta.url), "utf8"),
-    readFile(new URL("./i18n.mjs", import.meta.url), "utf8"),
-    readFile(new URL("./local-preferences-settings.mjs", import.meta.url), "utf8"),
-  ]);
-
-  assert.match(html, /app\.js\?v=[^"\n]*background-upload-1/);
-  assert.match(app, /i18n\.mjs\?v=[^"\n]*background-upload-1/);
-  assert.match(app, /app-main\.mjs\?v=[^"\n]*background-upload-1/);
-  assert.match(appMain, /theme-manager\.mjs\?v=[^"\n]*background-upload-1/);
-  assert.match(appMain, /local-preferences-settings\.mjs\?v=[^"\n]*background-upload-1/);
-  assert.match(appMain, /i18n\.mjs\?v=[^"\n]*background-upload-1/);
-  assert.match(localPreferences, /i18n\.mjs\?v=[^"\n]*background-upload-1/);
-  assert.equal((i18n.match(/messages-(?:en|zh-CN|zh-TW)\.mjs\?v=[^"\n]*background-upload-1/g) || []).length, 3);
-});
-
 test("global theme toggle switches scheme and is wired to the shared helper", async () => {
   const appMain = await readFile(new URL("./app-main.mjs", import.meta.url), "utf8");
 

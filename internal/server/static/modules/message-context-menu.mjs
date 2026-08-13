@@ -1,5 +1,5 @@
 import { $ } from "./dom.mjs";
-import { t as cr } from "./messages-chat-rendering-extra.mjs?v=plan-mode-1-i18n-shared-1-subagent-cards-1-provider-errors-1-tool-activity-lazy-1-reasoning-count-1-per-message-activity-1-message-menu-1-brand-confirm-1";
+import { t as cr } from "./messages-chat-rendering-extra.mjs";
 
 const menuActions = ["copy", "edit", "rollback", "fork", "compress", "delete"];
 

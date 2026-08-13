@@ -265,15 +265,3 @@ test("background task settings include the required keys in all supported locale
   assert.match(systemSettingsMessages.en.systemSettings.runtimeResources.backgroundTaskSettings.nestedWarning, /requests.*token.*edit conflicts.*permissions/i);
 });
 
-test("background task settings cache stamps reach every browser entry layer", async () => {
-  const [html, app, appMain, systemSettings] = await Promise.all([
-    readFile(new URL("../index.html", import.meta.url), "utf8"),
-    readFile(new URL("../app.js", import.meta.url), "utf8"),
-    readFile(new URL("./app-main.mjs", import.meta.url), "utf8"),
-    readFile(new URL("./system-settings.mjs", import.meta.url), "utf8"),
-  ]);
-  assert.match(html, /app\.js\?v=[^"\n]*background-task-settings-1/);
-  assert.match(app, /app-main\.mjs\?v=[^"\n]*background-task-settings-1/);
-  assert.match(appMain, /system-settings\.mjs\?v=[^"\n]*background-task-settings-1/);
-  assert.match(systemSettings, /messages-system-settings\.mjs\?v=[^"\n]*background-task-settings-1/);
-});

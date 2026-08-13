@@ -1,6 +1,6 @@
 import { escapeAttr, escapeHtml } from "./dom.mjs";
 import { formatNumber, formatTimestamp } from "./formatters.mjs";
-import { t } from "./i18n.mjs?v=provider-draft-session-1";
+import { t } from "./i18n.mjs";
 
 const ct = (key, params) => t(`modelProvider.console.${key}`, params);
 

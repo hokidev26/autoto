@@ -1,4 +1,4 @@
-import { t } from "./i18n.mjs?v=settings-flat-1-codex-browser-login-1-shared-api-1-apple-theme-1-settings-help-1-task-workspace-1-navigation-state-2-archive-1-settings-cleanup-1";
+import { t } from "./i18n.mjs";
 
 export const legacySettingsCategories = Object.freeze([
   { key: "api", label: t("settings.category.api"), items: ["providers", "shared-api", "models", "profile", "appearance"] },
