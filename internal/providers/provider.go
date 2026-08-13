@@ -16,6 +16,12 @@ type Message struct {
 	Role    string         `json:"role"`
 	Content string         `json:"content"`
 	Blocks  []ContentBlock `json:"blocks,omitempty"`
+	// TurnControl marks a server-injected message that changes between turns
+	// (spec sidecar, silent-progress reminder, continuation control, ...).
+	// Providers with prompt caching must keep such messages out of any
+	// cache-stable region: the cached prefix has to end before them, or the
+	// cache is written every turn and never read.
+	TurnControl bool `json:"turnControl,omitempty"`
 }
 
 const (

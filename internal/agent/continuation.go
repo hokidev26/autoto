@@ -1130,7 +1130,7 @@ func continuationControlMessageWithReport(run db.Run, continuationIndex int64, r
 			text += fmt.Sprintf(" Background task %s has reached a terminal state; inspect it with the Task status/output actions before relying on its result.", taskID)
 		}
 	}
-	return providers.Message{Role: "system", Content: text, Blocks: []providers.ContentBlock{{Type: "text", Text: text, Kind: "server_continuation_control"}}}
+	return turnControlMessage("server_continuation_control", text)
 }
 
 // subagentReportMaxBytes bounds the child answer embedded in a wake-up. Large

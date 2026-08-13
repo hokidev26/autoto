@@ -27,7 +27,7 @@ func (r *Runner) toolOutputPipelineControl(agentID, runID string) *providers.Mes
 		return nil
 	}
 	text := "SERVER TOOL OUTPUT PIPELINE CONTROL (trusted): A tool output pipeline is active for this Run. Before giving a final answer, call EndPipeline to retrieve the filtered captures, or call EndPipeline with discard=true if none are needed. Do not answer from previews alone."
-	message := providers.Message{Role: "system", Content: text, Blocks: []providers.ContentBlock{{Type: "text", Text: text, Kind: "server_tool_output_pipeline_control"}}}
+	message := turnControlMessage("server_tool_output_pipeline_control", text)
 	return &message
 }
 

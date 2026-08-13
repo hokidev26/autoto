@@ -687,7 +687,7 @@ func TestAnthropicProviderStreamsSignedThinkingBlocks(t *testing.T) {
 func TestAnthropicMessagesReplaySignedThinkingInOriginalOrder(t *testing.T) {
 	thinking := NewAnthropicThinkingContentBlock("claude-sonnet-4-5", "inspect first", "sig-1")
 	redacted := NewAnthropicRedactedThinkingContentBlock("claude-sonnet-4-5", "opaque-1")
-	messages, _ := anthropicMessages([]Message{
+	messages, _, _ := anthropicMessages([]Message{
 		{Role: "assistant", Blocks: []ContentBlock{thinking, {Type: "text", Text: "checking"}, redacted, {Type: "tool_use", ToolUseID: "tool-1", ToolName: "Read", Input: json.RawMessage(`{"file_path":"README.md"}`)}}},
 		{Role: "user", Blocks: []ContentBlock{{Type: "tool_result", ToolUseID: "tool-1", Output: "ok"}}},
 	}, "", "claude-sonnet-4-5")
@@ -708,7 +708,7 @@ func TestAnthropicMessagesReplaySignedThinkingInOriginalOrder(t *testing.T) {
 		}
 	}
 
-	switched, _ := anthropicMessages([]Message{{Role: "assistant", Blocks: []ContentBlock{thinking, {Type: "text", Text: "answer"}}}}, "", "claude-sonnet-4-6")
+	switched, _, _ := anthropicMessages([]Message{{Role: "assistant", Blocks: []ContentBlock{thinking, {Type: "text", Text: "answer"}}}}, "", "claude-sonnet-4-6")
 	switchedJSON, err := json.Marshal(switched)
 	if err != nil {
 		t.Fatal(err)
@@ -719,7 +719,7 @@ func TestAnthropicMessagesReplaySignedThinkingInOriginalOrder(t *testing.T) {
 }
 
 func TestAnthropicMessagesPreserveToolBlocks(t *testing.T) {
-	messages, _ := anthropicMessages([]Message{
+	messages, _, _ := anthropicMessages([]Message{
 		{Role: "assistant", Blocks: []ContentBlock{{Type: "text", Text: "checking"}, {Type: "tool_use", ToolUseID: "tool-1", ToolName: "Read", Input: json.RawMessage(`{"file_path":"README.md"}`)}}},
 		{Role: "user", Blocks: []ContentBlock{{Type: "tool_result", ToolUseID: "tool-1", ToolName: "Read", Output: "ok", IsError: true}}},
 	}, "", "claude-sonnet-4-5")
@@ -736,7 +736,7 @@ func TestAnthropicMessagesPreserveToolBlocks(t *testing.T) {
 }
 
 func TestAnthropicMessagesPreserveImageBlocks(t *testing.T) {
-	messages, _ := anthropicMessages([]Message{{Role: "user", Blocks: []ContentBlock{{Type: "text", Text: "see image"}, {Type: "image", MIMEType: "image/png", Data: []byte{1, 2, 3}, Filename: "a.png"}}}}, "", "claude-sonnet-4-5")
+	messages, _, _ := anthropicMessages([]Message{{Role: "user", Blocks: []ContentBlock{{Type: "text", Text: "see image"}, {Type: "image", MIMEType: "image/png", Data: []byte{1, 2, 3}, Filename: "a.png"}}}}, "", "claude-sonnet-4-5")
 	data, err := json.Marshal(messages)
 	if err != nil {
 		t.Fatal(err)
@@ -860,7 +860,7 @@ func TestAnthropicProviderWithoutAPIKeyReturnsUnavailableError(t *testing.T) {
 }
 
 func TestAnthropicPromptCachingMarksLargeRequests(t *testing.T) {
-	messages, system := anthropicMessages([]Message{{Role: "user", Content: strings.Repeat("please inspect the repository context. ", 120)}}, strings.Repeat("stable coding agent instructions. ", 120), "claude-sonnet-4-5")
+	messages, system, durable := anthropicMessages([]Message{{Role: "user", Content: strings.Repeat("please inspect the repository context. ", 120)}}, strings.Repeat("stable coding agent instructions. ", 120), "claude-sonnet-4-5")
 	params := anthropic.MessageNewParams{
 		MaxTokens: 128,
 		Model:     anthropic.Model("claude-sonnet-4-5"),
@@ -879,7 +879,7 @@ func TestAnthropicPromptCachingMarksLargeRequests(t *testing.T) {
 	if anthropicPromptCacheFootprint(params) < anthropicPromptCacheMinBytes {
 		t.Fatalf("test request should be large enough for prompt caching")
 	}
-	applyAnthropicPromptCaching(&params)
+	applyAnthropicPromptCaching(&params, durable)
 	data, err := json.Marshal(params)
 	if err != nil {
 		t.Fatal(err)
@@ -896,15 +896,123 @@ func TestAnthropicPromptCachingMarksLargeRequests(t *testing.T) {
 }
 
 func TestAnthropicPromptCachingSkipsSmallRequests(t *testing.T) {
-	messages, system := anthropicMessages([]Message{{Role: "user", Content: "hello"}}, "short system", "claude-sonnet-4-5")
+	messages, system, durable := anthropicMessages([]Message{{Role: "user", Content: "hello"}}, "short system", "claude-sonnet-4-5")
 	params := anthropic.MessageNewParams{MaxTokens: 128, Model: anthropic.Model("claude-sonnet-4-5"), Messages: messages, System: system}
-	applyAnthropicPromptCaching(&params)
+	applyAnthropicPromptCaching(&params, durable)
 	data, err := json.Marshal(params)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if strings.Contains(string(data), `"cache_control"`) {
 		t.Fatalf("small request should not include cache_control: %s", string(data))
+	}
+}
+
+// Turn controls change every turn. Anthropic's prompt-cache hierarchy is
+// tools → system → messages, so hoisting them into the system blocks would
+// invalidate the cached conversation history on every turn.
+func TestAnthropicTurnControlsStayOutOfSystemBlocks(t *testing.T) {
+	control := Message{Role: "system", TurnControl: true, Blocks: []ContentBlock{{Type: "text", Text: "<side_car>spec state rev 7</side_car>", Kind: "server_spec_tasks"}}}
+	messages, system, durable := anthropicMessages([]Message{
+		{Role: "user", Content: "start the task"},
+		{Role: "assistant", Content: "working"},
+		{Role: "user", Content: "continue"},
+		control,
+	}, "stable agent instructions", "claude-sonnet-4-5")
+	if len(system) != 1 || system[0].Text != "stable agent instructions" {
+		t.Fatalf("turn control leaked into system blocks: %+v", system)
+	}
+	if durable != 3 || len(messages) != 4 {
+		t.Fatalf("expected 3 durable + 1 control message, got durable=%d total=%d", durable, len(messages))
+	}
+	last := messages[len(messages)-1]
+	if last.Role != anthropic.MessageParamRoleUser {
+		t.Fatalf("turn control must become a trailing user message, got role %v", last.Role)
+	}
+	data, err := json.Marshal(last)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), "spec state rev 7") {
+		t.Fatalf("turn control content missing from trailing message: %s", string(data))
+	}
+}
+
+// The message cache breakpoint must land on the last durable message. A
+// breakpoint on the per-turn control would be written but never read, because
+// the next turn rebuilds the conversation without that control at the same
+// position.
+func TestAnthropicPromptCachingSkipsTrailingTurnControls(t *testing.T) {
+	control := Message{Role: "system", TurnControl: true, Blocks: []ContentBlock{{Type: "text", Text: "<side_car>per-turn progress reminder</side_car>", Kind: "server_silent_progress"}}}
+	messages, system, durable := anthropicMessages([]Message{
+		{Role: "user", Content: strings.Repeat("please inspect the repository context. ", 120)},
+		{Role: "assistant", Content: "inspecting the files now"},
+		control,
+	}, strings.Repeat("stable coding agent instructions. ", 120), "claude-sonnet-4-5")
+	params := anthropic.MessageNewParams{MaxTokens: 128, Model: anthropic.Model("claude-sonnet-4-5"), Messages: messages, System: system}
+	applyAnthropicPromptCaching(&params, durable)
+
+	lastJSON, err := json.Marshal(params.Messages[len(params.Messages)-1])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(lastJSON), `"cache_control"`) {
+		t.Fatalf("cache breakpoint landed on the per-turn control: %s", string(lastJSON))
+	}
+	durableJSON, err := json.Marshal(params.Messages[durable-1])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(durableJSON), `"cache_control"`) {
+		t.Fatalf("cache breakpoint missing from the last durable message: %s", string(durableJSON))
+	}
+}
+
+// Two consecutive turns of the same run must produce byte-identical system
+// blocks, and the earlier turn's durable messages must be an exact prefix of
+// the later turn's messages. If either drifts, the provider-side prompt cache
+// is written every turn and never read.
+func TestAnthropicRequestPrefixStableAcrossTurns(t *testing.T) {
+	systemPrompt := "stable agent instructions"
+	history := []Message{{Role: "user", Content: "start the task"}}
+	controlAt := func(revision int) Message {
+		text := fmt.Sprintf("<side_car>spec state rev %d</side_car>", revision)
+		return Message{Role: "system", Content: text, TurnControl: true, Blocks: []ContentBlock{{Type: "text", Text: text, Kind: "server_spec_tasks"}}}
+	}
+
+	turn1Input := append(append([]Message(nil), history...), controlAt(1))
+	turn1Messages, turn1System, turn1Durable := anthropicMessages(turn1Input, systemPrompt, "claude-sonnet-4-5")
+
+	turn2Input := append(append([]Message(nil), history...),
+		Message{Role: "assistant", Content: "finished step one"},
+		Message{Role: "user", Content: "keep going"},
+		controlAt(2),
+	)
+	turn2Messages, turn2System, _ := anthropicMessages(turn2Input, systemPrompt, "claude-sonnet-4-5")
+
+	turn1SystemJSON, err := json.Marshal(turn1System)
+	if err != nil {
+		t.Fatal(err)
+	}
+	turn2SystemJSON, err := json.Marshal(turn2System)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(turn1SystemJSON) != string(turn2SystemJSON) {
+		t.Fatalf("system blocks drifted between turns:\nturn1: %s\nturn2: %s", turn1SystemJSON, turn2SystemJSON)
+	}
+	for index := 0; index < turn1Durable; index++ {
+		earlier, err := json.Marshal(turn1Messages[index])
+		if err != nil {
+			t.Fatal(err)
+		}
+		later, err := json.Marshal(turn2Messages[index])
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(earlier) != string(later) {
+			t.Fatalf("durable message %d drifted between turns:\nturn1: %s\nturn2: %s", index, earlier, later)
+		}
 	}
 }
 
@@ -1421,7 +1529,7 @@ func TestAnthropicProviderErrorsAreRedactedAndNonRetryableErrorsStop(t *testing.
 // "Invalid message sequence: tool_use and tool_result blocks must be correctly
 // paired and ordered" — permanently, because every later request replays it.
 func TestAnthropicMessagesMergeParallelToolResults(t *testing.T) {
-	messages, _ := anthropicMessages([]Message{
+	messages, _, _ := anthropicMessages([]Message{
 		{Role: "user", Content: "list the files"},
 		{Role: "assistant", Blocks: []ContentBlock{
 			{Type: "tool_use", ToolUseID: "tool-a", ToolName: "Bash", Input: json.RawMessage(`{"command":"ls"}`)},
@@ -1452,7 +1560,7 @@ func TestAnthropicMessagesMergeParallelToolResults(t *testing.T) {
 // the input still merge once the entries between them are hoisted or dropped.
 func TestAnthropicMessagesMergeAcrossVanishedMessages(t *testing.T) {
 	foreignThinking := NewAnthropicThinkingContentBlock("claude-opus-4-6", "other model", "sig-other")
-	messages, system := anthropicMessages([]Message{
+	messages, system, _ := anthropicMessages([]Message{
 		{Role: "assistant", Blocks: []ContentBlock{
 			{Type: "tool_use", ToolUseID: "tool-a", ToolName: "Bash", Input: json.RawMessage(`{}`)},
 			{Type: "tool_use", ToolUseID: "tool-b", ToolName: "Glob", Input: json.RawMessage(`{}`)},
@@ -1479,7 +1587,7 @@ func TestAnthropicMessagesMergeAcrossVanishedMessages(t *testing.T) {
 
 // The merge must not flatten an ordinary conversation into one turn.
 func TestAnthropicMessagesPreserveAlternation(t *testing.T) {
-	messages, _ := anthropicMessages([]Message{
+	messages, _, _ := anthropicMessages([]Message{
 		{Role: "user", Content: "first"},
 		{Role: "assistant", Content: "answer one"},
 		{Role: "user", Content: "second"},

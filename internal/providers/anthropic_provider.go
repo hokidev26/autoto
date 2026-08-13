@@ -231,9 +231,10 @@ func (p *AnthropicProvider) Generate(ctx context.Context, req GenerateRequest) (
 	if err != nil {
 		return nil, err
 	}
-	messages, system := anthropicMessages(req.Messages, req.SystemPrompt, model)
+	messages, system, durableMessages := anthropicMessages(req.Messages, req.SystemPrompt, model)
 	if len(messages) == 0 {
 		messages = append(messages, anthropic.NewUserMessage(anthropic.NewTextBlock("Continue.")))
+		durableMessages = len(messages)
 	}
 	maxTokens := p.cfg.MaxTokens
 	if req.MaxOutputTokens > 0 && (maxTokens <= 0 || req.MaxOutputTokens < maxTokens) {
@@ -250,7 +251,7 @@ func (p *AnthropicProvider) Generate(ctx context.Context, req GenerateRequest) (
 	if err != nil {
 		return nil, err
 	}
-	applyAnthropicPromptCaching(&params)
+	applyAnthropicPromptCaching(&params, durableMessages)
 
 	out := make(chan Event, 8)
 	go func() {
@@ -720,8 +721,21 @@ func hasAnthropicClaudeCodeIdentity(system []anthropic.TextBlockParam) bool {
 	return strings.TrimSpace(system[0].Text) == anthropicauth.ClaudeCodeIdentity
 }
 
-func anthropicMessages(messages []Message, systemPrompt, model string) ([]anthropic.MessageParam, []anthropic.TextBlockParam) {
+// anthropicMessages returns the converted conversation, the system blocks, and
+// the count of leading durable messages.
+//
+// System-role messages are hoisted into the system blocks except when they are
+// turn controls. Anthropic's prompt-cache hierarchy is tools → system →
+// messages, so a per-turn control hoisted into the system array changes the
+// system blocks every turn and invalidates the cached conversation history
+// behind them. Turn controls are therefore emitted as standalone user messages
+// after the durable conversation (the Messages API combines consecutive
+// same-role messages into one turn), and the durable count lets the caller
+// place the message cache breakpoint on content that the next turn replays
+// verbatim.
+func anthropicMessages(messages []Message, systemPrompt, model string) ([]anthropic.MessageParam, []anthropic.TextBlockParam, int) {
 	out := make([]anthropic.MessageParam, 0, len(messages))
+	controls := make([]anthropic.MessageParam, 0, 2)
 	system := make([]anthropic.TextBlockParam, 0, 1)
 	if strings.TrimSpace(systemPrompt) != "" {
 		system = append(system, anthropic.TextBlockParam{Text: systemPrompt})
@@ -738,6 +752,15 @@ func anthropicMessages(messages []Message, systemPrompt, model string) ([]anthro
 				out = append(out, anthropic.NewAssistantMessage(content...))
 			}
 		case "system":
+			if message.TurnControl {
+				// Collected separately instead of merged into the previous
+				// user message: the control must stay a distinct trailing
+				// message so the cache breakpoint can end before it.
+				if content := anthropicContentBlocks(blocks, false, model); len(content) > 0 {
+					controls = append(controls, anthropic.NewUserMessage(content...))
+				}
+				continue
+			}
 			content := strings.TrimSpace(contentBlocksText(blocks))
 			if content != "" {
 				system = append(system, anthropic.TextBlockParam{Text: content})
@@ -749,7 +772,9 @@ func anthropicMessages(messages []Message, systemPrompt, model string) ([]anthro
 			}
 		}
 	}
-	return out, system
+	durable := len(out)
+	out = append(out, controls...)
+	return out, system, durable
 }
 
 // appendAnthropicUserContent folds user content into the preceding user message
@@ -856,7 +881,11 @@ func anthropicTools(specs []ToolSpec) []anthropic.ToolUnionParam {
 
 const anthropicPromptCacheMinBytes = 4096
 
-func applyAnthropicPromptCaching(params *anthropic.MessageNewParams) {
+// applyAnthropicPromptCaching marks the cache breakpoints: last system block,
+// last tool, and the last durable message. Trailing turn-control messages
+// change every turn, so a breakpoint on them would be written but never read;
+// durableMessages bounds the search to content the next turn replays verbatim.
+func applyAnthropicPromptCaching(params *anthropic.MessageNewParams, durableMessages int) {
 	if params == nil || anthropicPromptCacheFootprint(*params) < anthropicPromptCacheMinBytes {
 		return
 	}
@@ -866,7 +895,10 @@ func applyAnthropicPromptCaching(params *anthropic.MessageNewParams) {
 		params.System[len(params.System)-1].CacheControl = cacheControl
 	}
 	setLastAnthropicToolCache(params.Tools, cacheControl)
-	setLastAnthropicMessageCache(params.Messages, cacheControl)
+	if durableMessages > len(params.Messages) {
+		durableMessages = len(params.Messages)
+	}
+	setLastAnthropicMessageCache(params.Messages[:durableMessages], cacheControl)
 }
 
 func anthropicPromptCacheFootprint(params anthropic.MessageNewParams) int {

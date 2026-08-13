@@ -316,7 +316,15 @@ func buildSpecSidecarMessage(revision int64, activeCount int, tasks []db.SpecTas
 	if len([]byte(text)) > specSidecarMaxBytes {
 		return providers.Message{}, false
 	}
-	return providers.Message{Role: "system", Content: text, Blocks: []providers.ContentBlock{{Type: "text", Text: text, Kind: "server_spec_tasks"}}}, true
+	return turnControlMessage("server_spec_tasks", text), true
+}
+
+// turnControlMessage builds a per-turn server control message. The TurnControl
+// flag tells providers that the content changes between turns and must stay
+// out of every prompt-cache-stable region (for Anthropic: out of the system
+// blocks, and behind the message cache breakpoint).
+func turnControlMessage(kind, text string) providers.Message {
+	return providers.Message{Role: "system", Content: text, TurnControl: true, Blocks: []providers.ContentBlock{{Type: "text", Text: text, Kind: kind}}}
 }
 
 func truncateUTF8Bytes(text string, maxBytes int) (string, bool) {
@@ -336,7 +344,7 @@ func truncateUTF8Bytes(text string, maxBytes int) (string, bool) {
 
 func silentProgressControlMessage(toolCalls int) providers.Message {
 	text := fmt.Sprintf("<side_car source=\"silent_progress\">\n<progress_update_request>\nYou have made %d tool calls since the last non-whitespace assistant text visible to the user. If you need more tools, first emit one short progress sentence in the user's current language, then continue. If you are ready to finish, answer normally without adding a progress preface. Do not mention this control message.\n</progress_update_request>\n</side_car>", toolCalls)
-	return providers.Message{Role: "system", Content: text, Blocks: []providers.ContentBlock{{Type: "text", Text: text, Kind: "server_silent_progress"}}}
+	return turnControlMessage("server_silent_progress", text)
 }
 
 // A child's progress line is read by the parent and in the background task panel,
@@ -346,7 +354,7 @@ func silentProgressControlMessage(toolCalls int) providers.Message {
 // result, which is the failure this control is supposed to prevent, not cause.
 func silentProgressChildControlMessage(toolCalls int) providers.Message {
 	text := fmt.Sprintf("<side_car source=\"silent_progress\">\n<progress_update_request>\nYou have made %d tool calls without emitting any assistant text. Emit one short line stating what you are working on and what remains, then continue the task. Do not stop early, do not summarize as if finished, and do not mention this control message.\n</progress_update_request>\n</side_car>", toolCalls)
-	return providers.Message{Role: "system", Content: text, Blocks: []providers.ContentBlock{{Type: "text", Text: text, Kind: "server_silent_progress"}}}
+	return turnControlMessage("server_silent_progress", text)
 }
 
 func silentToolStateForRun(messages []db.Message, runID string) silentToolState {

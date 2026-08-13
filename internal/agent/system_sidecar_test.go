@@ -46,6 +46,32 @@ func TestSpecSidecarTreatsTaskTextAsBoundedUntrustedData(t *testing.T) {
 	}
 }
 
+// Every per-turn control must carry the TurnControl flag: providers use it to
+// keep the control out of prompt-cache-stable regions (for Anthropic, out of
+// the system blocks and behind the message cache breakpoint). A control
+// without the flag silently invalidates the cached conversation every turn.
+func TestTurnControlMessagesAreMarkedTurnControl(t *testing.T) {
+	spec, ok := buildSpecSidecarMessage(1, 2, nil, 0)
+	if !ok {
+		t.Fatal("expected a Spec sidecar message")
+	}
+	controls := map[string]providers.Message{
+		"spec sidecar":          spec,
+		"silent progress":       silentProgressControlMessage(5),
+		"silent progress child": silentProgressChildControlMessage(5),
+		"continuation":          continuationControlMessage(db.Run{ID: "run-1", ResumeAfterMessageID: "message-1", ContinuationReason: continuationReasonMaxOutputTokens}, 1),
+		"tool output pipeline":  turnControlMessage("server_tool_output_pipeline_control", "pipeline active"),
+	}
+	for name, message := range controls {
+		if !message.TurnControl {
+			t.Errorf("%s control is not marked TurnControl: %+v", name, message)
+		}
+		if message.Role != "system" {
+			t.Errorf("%s control changed role: %+v", name, message)
+		}
+	}
+}
+
 func TestSpecSidecarFitsCountOnlyBeforeSafeOmission(t *testing.T) {
 	tasks := make([]db.SpecTask, 0, specSidecarTaskLimit)
 	for index := 0; index < specSidecarTaskLimit; index++ {
