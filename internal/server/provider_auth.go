@@ -591,7 +591,7 @@ func buildProviderAuthImportPlan(filename, content string, now time.Time) (provi
 	if err := json.Unmarshal([]byte(content), &value); err == nil {
 		return buildProviderAuthJSONImportPlan(filename, value, now)
 	} else if trimmed := strings.TrimSpace(content); strings.HasPrefix(trimmed, "{") || strings.HasPrefix(trimmed, "[") {
-		return providerAuthImportPlan{}, fmt.Errorf("JSON 格式无效：%v", err)
+		return providerAuthImportPlan{}, fmt.Errorf("JSON 格式无效：%w", err)
 	}
 	return buildProviderAuthTokenImportPlan(filename, content, now)
 }
