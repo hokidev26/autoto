@@ -8,7 +8,7 @@ import { appMainExtraMessages } from "./messages-app-main-extra.mjs";
 // A first-token timeout is absorbed by the retry loop inside a single model turn,
 // and that loop used to wait in silence: no event, so the composer showed an idle
 // conversation for the whole backoff and a recovering run looked like a hung one.
-const appMain = readFileSync(new URL("./app-main.mjs", import.meta.url), "utf8");
+  const appMain = readFileSync(new URL("./app-main-stream.mjs", import.meta.url), "utf8");
 const runnerModel = readFileSync(new URL("../../../agent/runner_model.go", import.meta.url), "utf8");
 
 function translate(key) {

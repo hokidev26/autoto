@@ -7,6 +7,7 @@ import {
   isSupportedProfileAvatarFile,
   normalizeAvatarDataUrl,
   profileAvatarErrorCodes,
+  profileAvatarHTML,
   profileAvatarMaxBytes,
 } from "./profile-avatar.mjs";
 
@@ -57,4 +58,13 @@ test("avatar compressor rejects non-raster input before reading it", async () =>
     compressProfileAvatar({ type: "image/svg+xml" }, { documentImpl: { createElement: () => ({}) } }),
     (error) => error.code === profileAvatarErrorCodes.unsupportedType,
   );
+});
+
+test("profile avatar HTML prefers a data URL and escapes initials", () => {
+  assert.equal(
+    profileAvatarHTML({ avatarDataUrl: tinyJPEGDataUrl, avatarInitials: "XY" }),
+    `<img class="message-avatar-image" data-user-profile-avatar-image src="${tinyJPEGDataUrl}" alt="" aria-hidden="true" />`,
+  );
+  assert.equal(profileAvatarHTML({ avatarInitials: "r<a" }), "r&lt;a");
+  assert.equal(profileAvatarHTML({}), "AT");
 });

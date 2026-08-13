@@ -113,7 +113,7 @@ test("即時快照重繪的路徑上，模型選單就是這一個函式", () =>
   // The revert was observed after an interrupt because that resyncs the snapshot,
   // and this is the call in that path which writes the select. Pinned as source so
   // the fix cannot be bypassed by a second repaint route.
-  const appMain = readFileSync(new URL("./app-main.mjs", import.meta.url), "utf8");
+  const appMain = readFileSync(new URL("./app-main-stream.mjs", import.meta.url), "utf8");
   const snapshotFn = appMain.slice(appMain.indexOf("async function applyAgentLiveSnapshot"));
   const body = snapshotFn.slice(0, snapshotFn.indexOf("\n}\n"));
   assert.match(body, /renderModelOptions\(\);/, "快照套用時仍然會重繪模型選單");

@@ -1185,8 +1185,70 @@ test("opening a subagent task reads contentText and fetches its tool calls", asy
   assert.ok(html.includes("weighing options"), "reasoning was not rendered");
   assert.ok(html.includes("Grep"), "the tool call was not rendered");
   assert.ok(html.includes("missing file"), "a failed call must show why");
+  assert.match(html, /data-user-profile-avatar>AT<\/span>/);
+  assert.match(html, /data-user-profile-name>Autoto User<\/span>/);
   // The reasoning-only turn has no answer text but must still render.
   assert.equal((html.match(/background-task-bubble/g) || []).length, 3, "every turn must render a bubble");
+});
+
+test("subagent user messages render the current profile avatar and display name", async () => {
+  const tinyJPEGDataUrl = "data:image/jpeg;base64,AAAA";
+  const controller = createBackgroundTasksController({
+    request: async (path) => {
+      if (path.endsWith("/output?afterSequence=0")) return { chunks: [] };
+      if (path.includes("/messages")) {
+        return {
+          messages: [
+            { id: "m1", role: "user", contentText: "brief the child", createdAt: "2026-08-14T02:29:39Z" },
+            { id: "m2", role: "assistant", contentText: "on it", createdAt: "2026-08-14T02:30:00Z" },
+          ],
+        };
+      }
+      if (path.includes("/tool-calls")) return { toolCalls: [] };
+      return {
+        id: "task-id",
+        agentId: "agent-1",
+        kind: "agent",
+        status: "succeeded",
+        childAgentId: "child-1",
+        childRunId: "run-1",
+        revision: 1,
+      };
+    },
+    getProfile: () => ({ displayName: "chang", avatarInitials: "RAY", avatarDataUrl: tinyJPEGDataUrl }),
+  });
+  controller.setAgent("agent-1");
+  await controller.selectTask("task-id");
+
+  const html = controller.renderChildConversationHTMLForTest({ childAgentId: "child-1", childRunId: "run-1" });
+  assert.match(html, /data-message-role="user"/);
+  assert.match(html, /class="message-head"/);
+  assert.match(html, /class="message-avatar" aria-hidden="true" data-user-profile-avatar>/);
+  assert.match(html, /<img class="message-avatar-image" data-user-profile-avatar-image src="data:image\/jpeg;base64,AAAA" alt="" aria-hidden="true" \/>/);
+  assert.match(html, /data-user-profile-name>chang<\/span>/);
+  assert.match(html, /<time class="message-time" datetime="2026-08-14T02:29:39Z"/);
+  assert.doesNotMatch(html, />你<\/span>/);
+  assert.doesNotMatch(html, />You<\/span>/);
+  assert.match(html, /<article class="background-task-bubble role-assistant">/);
+  assert.match(html, /<header><span>代理<\/span>|<header><span>Agent<\/span>/);
+
+  const identityOnly = createBackgroundTasksController({
+    request: async (path) => {
+      if (path.includes("/messages")) {
+        return { messages: [{ id: "u1", role: "user", contentText: "hi", createdAt: "2026-08-14T02:29:39Z" }] };
+      }
+      if (path.includes("/tool-calls")) return { toolCalls: [] };
+      if (path.endsWith("/output?afterSequence=0")) return { chunks: [] };
+      return { id: "task-esc", agentId: "agent-1", kind: "agent", status: "succeeded", childAgentId: "child-e", childRunId: "run-e", revision: 1 };
+    },
+    getProfile: () => ({ displayName: "er<erer", avatarInitials: "xy" }),
+  });
+  identityOnly.setAgent("agent-1");
+  await identityOnly.selectTask("task-esc");
+  const escapedHTML = identityOnly.renderChildConversationHTMLForTest({ childAgentId: "child-e", childRunId: "run-e" });
+  assert.match(escapedHTML, /data-user-profile-avatar>XY<\/span>/);
+  assert.match(escapedHTML, /data-user-profile-name>er&lt;erer<\/span>/);
+  assert.doesNotMatch(escapedHTML, /er<erer/);
 });
 
 // The pane shares the main transcript's visibility rules. Raw protocol chatter

@@ -2349,10 +2349,10 @@ body.white-shell.theme-light .messages:not(.empty) > [class~="message"][class~="
 /* Subagent conversation view: bubbles, live controls and a composer, so a
    background task can be read and steered without being promoted to the
    foreground conversation. */
-/* Mirrors the phone rendering of the main transcript rather than inventing a
-   third look: agent turns are plain text without card chrome, the briefing the
-   parent sent is a compact accent bubble, and the role header shrinks to a
-   metadata line instead of titling a card. */
+/* Mirrors the main transcript rather than inventing a third look: agent turns
+   stay plain text without card chrome, the briefing the parent sent is a compact
+   accent bubble, and the user header uses the same avatar + display name as the
+   middle conversation. */
 .background-task-conversation {
   min-height: 0;
   display: grid;
@@ -2383,6 +2383,80 @@ body.white-shell.theme-light .messages:not(.empty) > [class~="message"][class~="
   border-radius: 9px;
   border: 1px solid color-mix(in srgb, var(--accent, #5369f3) 24%, var(--line, #e5e7eb));
   background: color-mix(in srgb, var(--accent, #5369f3) 7%, var(--bg-panel, #fff));
+}
+/* User turns reuse the main transcript's avatar + name header classes. Those
+   rules are scoped to `.messages > .message`, so the same look is applied here
+   without putting `.message.user` on the article (that class right-aligns and
+   restyles the whole bubble, including tool cards). */
+.background-task-bubble.role-user > .message-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 24px;
+  margin-bottom: 6px;
+}
+.background-task-bubble.role-user .message-meta {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+.background-task-bubble.role-user .message-avatar {
+  width: 24px;
+  height: 24px;
+  flex: 0 0 24px;
+  display: inline-grid;
+  place-items: center;
+  overflow: hidden;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--ws-primary, var(--accent, #5369f3)) 42%, transparent);
+  background: var(--ws-primary, var(--accent, #5369f3));
+  color: #ffffff;
+  box-shadow: 0 2px 6px color-mix(in srgb, var(--ws-primary, var(--accent, #5369f3)) 18%, transparent);
+  font-size: 9px;
+  font-weight: 850;
+  letter-spacing: -.02em;
+}
+.background-task-bubble.role-user .message-avatar-image {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: cover;
+  border-radius: inherit;
+}
+.background-task-bubble.role-user .message-role {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ws-primary, var(--accent, #5369f3));
+  font-size: 13px;
+  font-weight: 800;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  text-transform: none;
+  white-space: nowrap;
+}
+.background-task-bubble.role-user .message-time {
+  flex: 0 0 auto;
+  color: var(--ws-muted, var(--muted, #64748b));
+  font-size: 11px;
+  font-weight: 400;
+}
+body.white-shell.theme-light .background-task-bubble.role-user .message-avatar {
+  background: var(--ws-primary);
+  border-color: color-mix(in srgb, var(--ws-primary) 42%, transparent);
+  color: #ffffff;
+}
+body.white-shell.theme-light .background-task-bubble.role-user .message-role {
+  color: var(--ws-primary);
+  font-size: 13px;
+  font-weight: 800;
+  line-height: 1.25;
+  text-transform: none;
+}
+body.white-shell.theme-light .background-task-bubble.role-user .message-time {
+  color: var(--ws-muted);
+  font-size: 11px;
 }
 .background-task-bubble header {
   display: flex;

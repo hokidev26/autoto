@@ -20,6 +20,7 @@ const staticRoot = new URL("../", import.meta.url);
 const indexURL = new URL("index.html", staticRoot);
 const appURL = new URL("app.js", staticRoot);
 const appMainURL = new URL("modules/app-main.mjs", staticRoot);
+const appMainStreamURL = new URL("modules/app-main-stream.mjs", staticRoot);
 const uiShellURL = new URL("modules/ui-shell.mjs", staticRoot);
 // The composer select menus were split out of ui-shell.mjs, so the guards below
 // have to cover both files or the split would quietly weaken them.
@@ -357,16 +358,18 @@ test("summary viewer refetches status on open, shows the text, and falls back wh
 });
 
 test("static shell mounts one shared context ring, accessible overlays, APIs, and cache stamps", async () => {
-  const [html, styles, app, appMain, uiShell, i18n, contextModule, selectMenus] = await Promise.all([
+  const [html, styles, app, appMainFile, appMainStream, uiShell, i18n, contextModule, selectMenus] = await Promise.all([
     readFile(indexURL, "utf8"),
     readStylesSource(stylesURL),
     readFile(appURL, "utf8"),
     readFile(appMainURL, "utf8"),
+    readFile(appMainStreamURL, "utf8"),
     readFile(uiShellURL, "utf8"),
     readFile(i18nURL, "utf8"),
     readFile(new URL("modules/context-management.mjs", staticRoot), "utf8"),
     readFile(selectMenusURL, "utf8"),
   ]);
+  const appMain = appMainFile + "\n" + appMainStream;
 
   assert.equal((html.match(/id="contextUsageBtn"/g) || []).length, 1);
   assert.ok(html.indexOf('id="composerStatusText"') < html.indexOf('id="contextUsageBtn"'));

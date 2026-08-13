@@ -57,6 +57,30 @@ const backgroundTasksURL = new URL("modules/background-tasks.mjs", staticRoot);
 const agentWorkspaceHelpersURL = new URL("modules/agent-workspace-helpers.mjs", staticRoot);
 const chatRenderingURL = new URL("modules/chat-rendering.mjs", staticRoot);
 const chatRenderingMessagesURL = new URL("modules/messages-chat-rendering-extra.mjs", staticRoot);
+const appMainStreamURL = new URL("modules/app-main-stream.mjs", staticRoot);
+const navigationOrderURL = new URL("modules/navigation-order.mjs", staticRoot);
+const chatRenderingSplitURLs = [
+  chatRenderingURL,
+  new URL("modules/chat-rendering-messages.mjs", staticRoot),
+  new URL("modules/chat-rendering-tools.mjs", staticRoot),
+  new URL("modules/chat-rendering-plan.mjs", staticRoot),
+  new URL("modules/chat-rendering-correction.mjs", staticRoot),
+  new URL("modules/chat-rendering-attachments.mjs", staticRoot),
+  new URL("modules/chat-rendering-history.mjs", staticRoot),
+];
+
+async function readChatRenderingSource() {
+  return (await Promise.all(chatRenderingSplitURLs.map((url) => readFile(url, "utf8")))).join("\n");
+}
+
+async function readAppMainSource() {
+  const [main, stream, order] = await Promise.all([
+    readFile(appMainURL, "utf8"),
+    readFile(appMainStreamURL, "utf8"),
+    readFile(navigationOrderURL, "utf8"),
+  ]);
+  return `${main}\n${stream}\n${order}`;
+}
 const directoryBrowserURL = new URL("modules/directory-browser.mjs", staticRoot);
 const settingsPreferencesURL = new URL("modules/settings-preferences.mjs", staticRoot);
 const stylesURL = new URL("styles.css", staticRoot);
@@ -180,7 +204,7 @@ test("static sources carry no ?v= cache-busting query strings", async () => {
 test("white shell adds the global rail before the conversation sidebar with the expected targets", async () => {
   const [html, appMain] = await Promise.all([
     readFile(indexURL, "utf8"),
-    readFile(appMainURL, "utf8"),
+    readAppMainSource(),
   ]);
 
   assert.ok(html.indexOf('class="global-rail"') < html.indexOf('class="sidebar"'));
@@ -221,7 +245,7 @@ test("white shell adds the global rail before the conversation sidebar with the 
 
 test("desktop home overview stays available while mobile starts in conversation", async () => {
   const [html, appMain, overviewDashboard, styles, themeRuntime, messagesCN, messagesTW, messagesEN] = await Promise.all([
-    readFile(indexURL, "utf8"), readFile(appMainURL, "utf8"), readFile(overviewDashboardURL, "utf8"), readStylesSource(stylesURL),
+    readFile(indexURL, "utf8"), readAppMainSource(), readFile(overviewDashboardURL, "utf8"), readStylesSource(stylesURL),
     readFile(new URL("../theme-runtime.css", import.meta.url), "utf8"),
     readFile(new URL("./messages-zh-CN.mjs", import.meta.url), "utf8"),
     readFile(new URL("./messages-zh-TW.mjs", import.meta.url), "utf8"),
@@ -334,7 +358,7 @@ test("desktop home overview stays available while mobile starts in conversation"
 test("dual workbench shell keeps conversation and Kanban views in one runtime", async () => {
   const [html, appMain, styles] = await Promise.all([
     readFile(indexURL, "utf8"),
-    readFile(appMainURL, "utf8"),
+    readAppMainSource(),
     readStylesSource(stylesURL),
   ]);
 
@@ -396,7 +420,7 @@ test("dual workbench shell keeps conversation and Kanban views in one runtime", 
 
 test("project switching preserves the current view until the next Agent is ready", async () => {
   const [appMain, styles] = await Promise.all([
-    readFile(appMainURL, "utf8"),
+    readAppMainSource(),
     readStylesSource(stylesURL),
   ]);
   const selectStart = appMain.indexOf("async function selectProject");
@@ -417,7 +441,7 @@ test("boot transition waits for app readiness and cross-fades the localized shel
   const [html, app, appMain, styles] = await Promise.all([
     readFile(indexURL, "utf8"),
     readFile(appURL, "utf8"),
-    readFile(appMainURL, "utf8"),
+    readAppMainSource(),
     readStylesSource(stylesURL),
   ]);
 
@@ -463,7 +487,7 @@ test("network proxy settings remove duplicate agent management while keeping the
   const [html, app, appMain, settingsData, settingsCategories, backendRegistry] = await Promise.all([
     readFile(indexURL, "utf8"),
     readFile(appURL, "utf8"),
-    readFile(appMainURL, "utf8"),
+    readAppMainSource(),
     readFile(new URL("./settings-data.mjs", import.meta.url), "utf8"),
     readFile(new URL("./settings-categories.mjs", import.meta.url), "utf8"),
     readFile(new URL("./backend-registry.mjs", import.meta.url), "utf8"),
@@ -482,7 +506,7 @@ test("folder picker uses stable SVG actions and directory icons instead of font 
     readFile(indexURL, "utf8"),
     readFile(directoryBrowserURL, "utf8"),
     readStylesSource(stylesURL),
-    readFile(appMainURL, "utf8"),
+    readAppMainSource(),
     readFile(appURL, "utf8"),
   ]);
   const toolbar = html.slice(html.indexOf('<div class="folder-toolbar"'), html.indexOf('<div id="newFolderInline"'));
@@ -511,7 +535,7 @@ test("conversation sidebar exposes one project navigation without a standalone f
   const [html, app, appMain, styles] = await Promise.all([
     readFile(indexURL, "utf8"),
     readFile(appURL, "utf8"),
-    readFile(appMainURL, "utf8"),
+    readAppMainSource(),
     readStylesSource(stylesURL),
   ]);
   const header = html.slice(html.indexOf('<header class="session-sidebar-header">'), html.indexOf("</header>", html.indexOf('<header class="session-sidebar-header">')));
@@ -537,7 +561,7 @@ test("conversation sidebar exposes one project navigation without a standalone f
 });
 
 test("all interactive creation routes use project selection and never call the removed API", async () => {
-  const [html, app, appMain] = await Promise.all([readFile(indexURL, "utf8"), readFile(appURL, "utf8"), readFile(appMainURL, "utf8")]);
+  const [html, app, appMain] = await Promise.all([readFile(indexURL, "utf8"), readFile(appURL, "utf8"), readAppMainSource()]);
   const desktop = html.match(/<button id="newProjectBtn"[^>]*>/)?.[0] || "";
   const mobile = html.match(/<button id="mobileChooseDirectoryBtn"[^>]*>/)?.[0] || "";
   assert.match(desktop, /data-create-navigation-item/);
@@ -555,7 +579,7 @@ test("all interactive creation routes use project selection and never call the r
 test("conversation navigation exposes archive, pin, and accessible context-menu controls", async () => {
   const [html, appMain, navigation, styles] = await Promise.all([
     readFile(indexURL, "utf8"),
-    readFile(appMainURL, "utf8"),
+    readAppMainSource(),
     readFile(new URL("./conversation-navigation.mjs", import.meta.url), "utf8"),
     readStylesSource(stylesURL),
   ]);
@@ -578,7 +602,7 @@ test("conversation navigation exposes archive, pin, and accessible context-menu 
 test("project, task, and schedule modes expose separate creation boundaries", async () => {
   const [html, appMain, styles] = await Promise.all([
     readFile(indexURL, "utf8"),
-    readFile(appMainURL, "utf8"),
+    readAppMainSource(),
     readStylesSource(stylesURL),
   ]);
 
@@ -625,7 +649,7 @@ test("composer operation controls are exposed only in project context", async ()
   const [html, styles, appMain] = await Promise.all([
     readFile(indexURL, "utf8"),
     readStylesSource(stylesURL),
-    readFile(appMainURL, "utf8"),
+    readAppMainSource(),
   ]);
   const formStart = html.indexOf('<form id="messageForm"');
   const formEnd = html.indexOf("</form>", formStart);
@@ -678,7 +702,7 @@ test("lightning control is a capability-gated Fast mode toggle", async () => {
   const [html, styles, appMain] = await Promise.all([
     readFile(indexURL, "utf8"),
     readStylesSource(stylesURL),
-    readFile(appMainURL, "utf8"),
+    readAppMainSource(),
   ]);
   assert.match(html, /id="openProviderLoginBtn"[^>]*class="[^"]*toolbar-lightning-btn[^"]*hidden[^"]*"[^>]*aria-pressed="false"[^>]*data-i18n-title="chat\.fastModeDisabled"/);
   assert.match(appMain, /openProviderLoginBtn"\)\?\.addEventListener\("click", \(\) => toggleFastMode\(\)\.catch\(showError\)\)/);
@@ -689,13 +713,13 @@ test("lightning control is a capability-gated Fast mode toggle", async () => {
 });
 
 test("permission mode display targets only the permission toolbar pill", async () => {
-  const appMain = await readFile(appMainURL, "utf8");
+  const appMain = await readAppMainSource();
   assert.match(appMain, /querySelector\("\.permission-toolbar-pill \.mode-display"\)/);
   assert.doesNotMatch(appMain, /querySelector\("\.mode-display"\)/);
 });
 
 test("chat header exposes the legacy six-tool order with real SVG icons", async () => {
-  const [html, appMain] = await Promise.all([readFile(indexURL, "utf8"), readFile(appMainURL, "utf8")]);
+  const [html, appMain] = await Promise.all([readFile(indexURL, "utf8"), readAppMainSource()]);
   const headerStart = html.indexOf('<header class="chat-header">');
   const headerEnd = html.indexOf("</header>", headerStart);
   const header = html.slice(headerStart, headerEnd);
@@ -720,7 +744,7 @@ test("background tasks share the right utility column instead of overlaying chat
   const [html, styles, appMain] = await Promise.all([
     readFile(indexURL, "utf8"),
     readStylesSource(stylesURL),
-    readFile(appMainURL, "utf8"),
+    readAppMainSource(),
   ]);
   const detailsPanel = html.indexOf('id="conversationDetailsPanel"');
   const taskPanel = html.indexOf('id="backgroundTaskTray"');
@@ -759,8 +783,8 @@ test("desktop conversation layout follows the compact resizable geometry", async
   const [html, styles, appMain, chatRendering, navigation] = await Promise.all([
     readFile(indexURL, "utf8"),
     readStylesSource(stylesURL),
-    readFile(appMainURL, "utf8"),
-    readFile(chatRenderingURL, "utf8"),
+    readAppMainSource(),
+    readChatRenderingSource(),
     readFile(new URL("./conversation-navigation.mjs", import.meta.url), "utf8"),
   ]);
   const finalDesktopComposer = styles.slice(styles.indexOf("/* Final desktop full-width composer override. */"));
@@ -962,7 +986,7 @@ test("composer selects hide external labels and open titled menus upward", async
     readFile(indexURL, "utf8"),
     readStylesSource(stylesURL),
     readFile(uiShellURL, "utf8"),
-    readFile(appMainURL, "utf8"),
+    readAppMainSource(),
     readFile(selectMenusURL, "utf8"),
   ]);
   for (const id of ["modelSelect", "reasoningEffort", "permissionMode"]) {
@@ -1037,8 +1061,8 @@ test("composer task activity is borderless, left aligned, and spins blue while a
     readStylesSource(stylesURL),
     readFile(backgroundTasksURL, "utf8"),
     readFile(agentWorkspaceHelpersURL, "utf8"),
-    readFile(chatRenderingURL, "utf8"),
-    readFile(appMainURL, "utf8"),
+    readChatRenderingSource(),
+    readAppMainSource(),
   ]);
   const marker = "/* Minimal left-aligned task activity, matching the inline running indicator. */";
   const indicatorStyles = styles.slice(styles.indexOf(marker));
@@ -1079,8 +1103,8 @@ test("Subagent compact cards integrate background tasks without polling child to
   const [html, app, appMain, chatRendering, messages, styles, backgroundTasks] = await Promise.all([
     readFile(indexURL, "utf8"),
     readFile(appURL, "utf8"),
-    readFile(appMainURL, "utf8"),
-    readFile(chatRenderingURL, "utf8"),
+    readAppMainSource(),
+    readChatRenderingSource(),
     readFile(chatRenderingMessagesURL, "utf8"),
     readStylesSource(stylesURL),
     readFile(backgroundTasksURL, "utf8"),
@@ -1210,7 +1234,7 @@ test("composer responds to its actual width before the mobile breakpoint", async
 });
 
 test("mobile header and composer use compact icon-first layouts", async () => {
-  const [html, styles, appMain, app] = await Promise.all([readFile(indexURL, "utf8"), readStylesSource(stylesURL), readFile(appMainURL, "utf8"), readFile(appURL, "utf8")]);
+  const [html, styles, appMain, app] = await Promise.all([readFile(indexURL, "utf8"), readStylesSource(stylesURL), readAppMainSource(), readFile(appURL, "utf8")]);
   const marker = "/* Compact mobile composer: one utility row plus one message row. */";
   const mobileComposerStyles = styles.slice(styles.indexOf(marker), styles.indexOf("/* Model provider settings.", styles.indexOf(marker)));
   assert.ok(mobileComposerStyles.startsWith(marker));
@@ -1325,7 +1349,7 @@ test("mobile sidebar closes safely during desktop startup and cache updates prop
   const [html, app, appMain, uiShell] = await Promise.all([
     readFile(indexURL, "utf8"),
     readFile(appURL, "utf8"),
-    readFile(appMainURL, "utf8"),
+    readAppMainSource(),
     readFile(uiShellURL, "utf8"),
   ]);
   assert.equal((uiShell.match(/const mobileViewport/g) || []).length, 1);
@@ -1764,8 +1788,8 @@ test("navigation collapses through columns, docked and icons, and stays desktop-
 test("legacy chat alignment keeps the composer untouched and flattens the transcript", async () => {
   const [styles, chatRendering, appMain] = await Promise.all([
     readStylesSource(stylesURL),
-    readFile(chatRenderingURL, "utf8"),
-    readFile(appMainURL, "utf8"),
+    readChatRenderingSource(),
+    readAppMainSource(),
   ]);
   const marker = "/* Legacy chat transcript alignment. Intentionally excludes every composer/input selector. */";
   const legacyStart = styles.indexOf(marker);
@@ -1793,7 +1817,7 @@ test("legacy chat alignment keeps the composer untouched and flattens the transc
 test("settings dialog mounts the shadcn shell without dropping legacy entry points", async () => {
   const [html, appMain, uiShell] = await Promise.all([
     readFile(indexURL, "utf8"),
-    readFile(appMainURL, "utf8"),
+    readAppMainSource(),
     readFile(uiShellURL, "utf8"),
   ]);
   for (const id of [
@@ -1876,7 +1900,7 @@ test("settings shell docks beside the global rail and keeps complete mobile navi
     readFile(indexURL, "utf8"),
     readStylesSource(stylesURL),
     readFile(appURL, "utf8"),
-    readFile(appMainURL, "utf8"),
+    readAppMainSource(),
   ]);
   const settingsMarker = "Settings shadcn system — scoped integration.";
   const dockMarker = "/* Settings mode occupies the workbench beside the persistent global rail. */";
@@ -1931,7 +1955,7 @@ test("mobile shell skips home and keeps the drawer, settings index, and model sh
     readFile(indexURL, "utf8"),
     readStylesSource(stylesURL),
     readFile(appURL, "utf8"),
-    readFile(appMainURL, "utf8"),
+    readAppMainSource(),
     readFile(uiShellURL, "utf8"),
     readFile(new URL("./settings-preferences.mjs", import.meta.url), "utf8"),
     readFile(new URL("./messages-zh-CN.mjs", import.meta.url), "utf8"),
@@ -2100,8 +2124,8 @@ test("legacy font stack and static shell translations are wired", async () => {
     readFile(indexURL, "utf8"),
     readStylesSource(stylesURL),
     readFile(appURL, "utf8"),
-    readFile(appMainURL, "utf8"),
-    readFile(chatRenderingURL, "utf8"),
+    readAppMainSource(),
+    readChatRenderingSource(),
   ]);
   assert.match(styles, /--ui-font:\s*-apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft JhengHei", sans-serif/);
   assert.match(styles, /font:\s*14px\/1\.45 var\(--ui-font\)/);
@@ -2351,10 +2375,10 @@ test("opening a utility panel does not collapse the app shell's 4th grid column 
 });
 
 test("finishing a run no longer auto-opens the run summary review card", async () => {
-  const appMain = await readFile(appMainURL, "utf8");
+  const appMain = await readAppMainSource();
   const handlerStart = appMain.indexOf("async function handleAgentStreamEvent");
   assert.ok(handlerStart >= 0);
-  const handlerEnd = appMain.indexOf("\nfunction captureAgentSettingsSnapshot", handlerStart);
+  const handlerEnd = appMain.indexOf("return { applyAgentLiveSnapshot, handleAgentStreamEvent }", handlerStart);
   assert.ok(handlerEnd > handlerStart);
   const handler = appMain.slice(handlerStart, handlerEnd);
   // A finished run does load its summary now, but only to take ownership of the

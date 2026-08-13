@@ -3992,7 +3992,10 @@ test("the attachment image failure band stays hidden unless the card is marked m
   assert.match(css, /\.attachment-image-card\.is-missing \.attachment-image-preview \{[^}]*display:\s*none/);
 
   // The markup still ships hidden, and only a real protected-fetch error flips it.
-  const source = await readFile(new URL("./chat-rendering.mjs", import.meta.url), "utf8");
+  const source = [
+    await readFile(new URL("./chat-rendering.mjs", import.meta.url), "utf8"),
+    await readFile(new URL("./chat-rendering-attachments.mjs", import.meta.url), "utf8"),
+  ].join("\n");
   assert.match(source, /class="attachment-image-failed" data-attachment-image-failed hidden/);
   assert.match(source, /protectedImageState !== "error"\) return;/);
 });

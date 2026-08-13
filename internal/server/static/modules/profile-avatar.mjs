@@ -1,3 +1,5 @@
+import { escapeAttr, escapeHtml } from "./dom.mjs";
+
 export const profileAvatarMaxDimension = 256;
 export const profileAvatarMaxBytes = 96 * 1024;
 export const profileAvatarMaxDataUrlLength = 140_000;
@@ -37,6 +39,12 @@ export function avatarDataUrlByteLength(value = "") {
   if (!encoded) return 0;
   const padding = encoded.endsWith("==") ? 2 : (encoded.endsWith("=") ? 1 : 0);
   return Math.max(0, Math.floor(encoded.length * 3 / 4) - padding);
+}
+
+export function profileAvatarHTML(identity = {}) {
+  return identity?.avatarDataUrl
+    ? `<img class="message-avatar-image" data-user-profile-avatar-image src="${escapeAttr(identity.avatarDataUrl)}" alt="" aria-hidden="true" />`
+    : escapeHtml(identity?.avatarInitials || "AT");
 }
 
 export function normalizeAvatarDataUrl(value = "") {

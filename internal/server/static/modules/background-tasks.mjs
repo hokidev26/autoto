@@ -2,6 +2,8 @@ import { escapeAttr, escapeHtml, setHTMLIfChanged, setTextIfChanged } from "./do
 import { groupModelSelectOptions, modelOptionPresentation } from "./ui-shell.mjs";
 import { formatDuration, formatTimestamp } from "./formatters.mjs";
 import { t } from "./i18n.mjs";
+import { normalizeMessageProfileIdentity } from "./chat-rendering-messages.mjs";
+import { profileAvatarHTML } from "./profile-avatar.mjs";
 // The child transcript is a conversation, so it is rendered with the same
 // components the main thread uses rather than a second, thinner imitation of
 // them. The version string matches app-main's import so the browser resolves
@@ -315,6 +317,11 @@ export function createBackgroundTasksController({
   // the same list as the main composer. Injected rather than fetched here to
   // keep one owner of the model catalogue.
   getModelOptions,
+  // Same profile the main transcript reads (`state.profile`). Injected so this
+  // pane can show the current user's avatar and display name without owning
+  // preference storage. Absent in headless tests, which then fall through to
+  // normalizeMessageProfileIdentity's defaults.
+  getProfile,
   // The main transcript's markdown renderer. It lives inside the chat rendering
   // controller because it shares that closure's code-block helpers, so it is
   // handed in rather than imported. Without it the pane falls back to the
@@ -323,6 +330,10 @@ export function createBackgroundTasksController({
   maxOutputChars = defaultOutputLimit,
 } = {}) {
   if (typeof request !== "function") throw new Error("createBackgroundTasksController requires request");
+
+  const currentUserMessageIdentity = () => normalizeMessageProfileIdentity(
+    typeof getProfile === "function" ? getProfile() : null,
+  );
 
   const tasksById = new Map();
   const tasksByParentTool = new Map();
@@ -1141,8 +1152,8 @@ export function createBackgroundTasksController({
       // called a tool: that is the part of a subagent's work you cannot otherwise
       // see, and dropping the whole bubble is what hid it.
       if (!body && !reasoning && !calls.length) return "";
-      return `<article class="background-task-bubble role-${role}">
-        <header><span>${escapeHtml(role === "user" ? t("backgroundTasks.roleUser") : t("backgroundTasks.roleAgent"))}</span><time>${escapeHtml(message?.createdAt ? formatTimestamp(message.createdAt) : "")}</time></header>
+      return `<article class="background-task-bubble role-${role}"${role === "user" ? ` data-message-role="user"` : ""}>
+        ${renderChildMessageHeadHTML(role, message)}
         ${renderChildActivityHTML(childAgentId, `msg:${text(message?.id)}`, calls, persistedReasoningSteps(message, calls), runId)}
         ${body ? renderChildBodyHTML(body) : ""}
       </article>`;
@@ -1153,6 +1164,25 @@ export function createBackgroundTasksController({
     const { unowned } = groupToolActivityByMessage(childToolCallsFlat(childAgentId), knownMessageIds);
     const trailing = renderChildActivityHTML(childAgentId, "run", unowned, [], runId);
     return `<div class="background-task-conversation">${bubbles}${trailing}</div>`;
+  }
+
+  // User turns reuse the main transcript's avatar + display-name header
+  // (message-head / message-avatar / message-role / message-time). Assistant
+  // turns keep the compact "代理" metadata line so tool cards in the same
+  // bubble are untouched.
+  function renderChildMessageHeadHTML(role, message) {
+    const timestampValue = text(message?.createdAt);
+    if (role !== "user") {
+      return `<header><span>${escapeHtml(t("backgroundTasks.roleAgent"))}</span><time>${escapeHtml(timestampValue ? formatTimestamp(timestampValue) : "")}</time></header>`;
+    }
+    const profileIdentity = currentUserMessageIdentity();
+    const timeHTML = timestampValue
+      ? `<time class="message-time" datetime="${escapeAttr(timestampValue)}" title="${escapeAttr(formatTimestamp(timestampValue))}">${escapeHtml(formatTimestamp(timestampValue, { timeOnly: true }))}</time>`
+      : "";
+    return `<div class="message-head">
+      <div class="message-meta"><span class="message-avatar" aria-hidden="true" data-user-profile-avatar>${profileAvatarHTML(profileIdentity)}</span><div class="message-role"><span data-user-profile-name>${escapeHtml(profileIdentity.displayName)}</span></div></div>
+      ${timeHTML}
+    </div>`;
   }
 
   // Same activity stack as the main transcript: one "活動" disclosure per turn,
