@@ -67,7 +67,7 @@ func (s *Server) usageSummary(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusServiceUnavailable, "database store is not initialized")
 		return
 	}
-	summary, err := buildUsageSummary(r.Context(), s.store.DB())
+	summary, err := buildUsageSummary(r.Context(), s.store.ReadDB())
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return

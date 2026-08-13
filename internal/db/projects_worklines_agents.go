@@ -34,7 +34,7 @@ func (s *Store) ListProjects(ctx context.Context) ([]Project, error) {
 }
 
 func (s *Store) ListProjectsWithOptions(ctx context.Context, includeArchived bool) ([]Project, error) {
-	rows, err := s.db.QueryContext(ctx, `
+	rows, err := s.reader().QueryContext(ctx, `
 SELECT id, name, COALESCE(description,''), status, flow_mode,
        COALESCE(git_path,''), COALESCE(remote_url,''), COALESCE(default_branch,''),
        COALESCE(pinned, 0), COALESCE(archived_at, ''), created_at, updated_at
@@ -62,7 +62,7 @@ func (s *Store) ListProjectsForUser(ctx context.Context, userID string) ([]Proje
 }
 
 func (s *Store) ListProjectsForUserWithOptions(ctx context.Context, userID string, includeArchived bool) ([]Project, error) {
-	rows, err := s.db.QueryContext(ctx, `
+	rows, err := s.reader().QueryContext(ctx, `
 SELECT p.id, p.name, COALESCE(p.description,''), p.status, p.flow_mode,
        COALESCE(p.git_path,''), COALESCE(p.remote_url,''), COALESCE(p.default_branch,''),
        COALESCE(p.pinned, 0), COALESCE(p.archived_at, ''), p.created_at, p.updated_at
@@ -91,7 +91,7 @@ func (s *Store) ListNavigationConversations(ctx context.Context) ([]NavigationCo
 }
 
 func (s *Store) ListNavigationConversationsWithOptions(ctx context.Context, includeArchived bool) ([]NavigationConversation, error) {
-	rows, err := s.db.QueryContext(ctx, `
+	rows, err := s.reader().QueryContext(ctx, `
 SELECT
   p.id,
   p.name,
@@ -383,7 +383,7 @@ func (s *Store) createProject(ctx context.Context, ownerID, name, description, g
 
 func (s *Store) GetProject(ctx context.Context, id string) (Project, error) {
 	return scanProject(func(dest ...any) error {
-		return s.db.QueryRowContext(ctx, `SELECT id, name, COALESCE(description,''), status, flow_mode, COALESCE(git_path,''), COALESCE(remote_url,''), COALESCE(default_branch,''), COALESCE(pinned, 0), COALESCE(archived_at, ''), created_at, updated_at FROM projects WHERE id = ?`, id).Scan(dest...)
+		return s.reader().QueryRowContext(ctx, `SELECT id, name, COALESCE(description,''), status, flow_mode, COALESCE(git_path,''), COALESCE(remote_url,''), COALESCE(default_branch,''), COALESCE(pinned, 0), COALESCE(archived_at, ''), created_at, updated_at FROM projects WHERE id = ?`, id).Scan(dest...)
 	})
 }
 
@@ -442,7 +442,7 @@ func (s *Store) UpdateAgentNavigationState(ctx context.Context, id string, pinne
 }
 
 func (s *Store) ListWorklinesByProject(ctx context.Context, projectID string) ([]Workline, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id, project_id, title, COALESCE(description,''), status, role, COALESCE(branch,''), COALESCE(worktree_path,''), COALESCE(base_branch,''), COALESCE(parent_workline_id,''), COALESCE(fork_point,''), COALESCE(merged_into_workline_id,''), COALESCE(merge_commit_sha,''), COALESCE(merge_strategy,''), COALESCE(pre_merge_target_sha,''), COALESCE(head_commit_sha,''), COALESCE(start_commit_sha,''), is_root, created_at, updated_at FROM worklines WHERE project_id = ? ORDER BY is_root DESC, created_at ASC`, projectID)
+	rows, err := s.reader().QueryContext(ctx, `SELECT id, project_id, title, COALESCE(description,''), status, role, COALESCE(branch,''), COALESCE(worktree_path,''), COALESCE(base_branch,''), COALESCE(parent_workline_id,''), COALESCE(fork_point,''), COALESCE(merged_into_workline_id,''), COALESCE(merge_commit_sha,''), COALESCE(merge_strategy,''), COALESCE(pre_merge_target_sha,''), COALESCE(head_commit_sha,''), COALESCE(start_commit_sha,''), is_root, created_at, updated_at FROM worklines WHERE project_id = ? ORDER BY is_root DESC, created_at ASC`, projectID)
 	if err != nil {
 		return nil, err
 	}
@@ -463,7 +463,7 @@ func (s *Store) ListWorklinesByProject(ctx context.Context, projectID string) ([
 func (s *Store) GetWorkline(ctx context.Context, id string) (Workline, error) {
 	var c Workline
 	var isRoot int
-	err := s.db.QueryRowContext(ctx, `SELECT id, project_id, title, COALESCE(description,''), status, role, COALESCE(branch,''), COALESCE(worktree_path,''), COALESCE(base_branch,''), COALESCE(parent_workline_id,''), COALESCE(fork_point,''), COALESCE(merged_into_workline_id,''), COALESCE(merge_commit_sha,''), COALESCE(merge_strategy,''), COALESCE(pre_merge_target_sha,''), COALESCE(head_commit_sha,''), COALESCE(start_commit_sha,''), is_root, created_at, updated_at FROM worklines WHERE id = ?`, id).Scan(&c.ID, &c.ProjectID, &c.Title, &c.Description, &c.Status, &c.Role, &c.Branch, &c.WorktreePath, &c.BaseBranch, &c.ParentWorklineID, &c.ForkPoint, &c.MergedIntoWorklineID, &c.MergeCommitSHA, &c.MergeStrategy, &c.PreMergeTargetSHA, &c.HeadCommitSHA, &c.StartCommitSHA, &isRoot, &c.CreatedAt, &c.UpdatedAt)
+	err := s.reader().QueryRowContext(ctx, `SELECT id, project_id, title, COALESCE(description,''), status, role, COALESCE(branch,''), COALESCE(worktree_path,''), COALESCE(base_branch,''), COALESCE(parent_workline_id,''), COALESCE(fork_point,''), COALESCE(merged_into_workline_id,''), COALESCE(merge_commit_sha,''), COALESCE(merge_strategy,''), COALESCE(pre_merge_target_sha,''), COALESCE(head_commit_sha,''), COALESCE(start_commit_sha,''), is_root, created_at, updated_at FROM worklines WHERE id = ?`, id).Scan(&c.ID, &c.ProjectID, &c.Title, &c.Description, &c.Status, &c.Role, &c.Branch, &c.WorktreePath, &c.BaseBranch, &c.ParentWorklineID, &c.ForkPoint, &c.MergedIntoWorklineID, &c.MergeCommitSHA, &c.MergeStrategy, &c.PreMergeTargetSHA, &c.HeadCommitSHA, &c.StartCommitSHA, &isRoot, &c.CreatedAt, &c.UpdatedAt)
 	c.IsRoot = isRoot != 0
 	return c, err
 }
@@ -634,13 +634,13 @@ func scanAgent(scan agentScanner) (Agent, error) {
 
 func (s *Store) GetAgent(ctx context.Context, id string) (Agent, error) {
 	return scanAgent(func(dest ...any) error {
-		return s.db.QueryRowContext(ctx, agentSelectSQL+` WHERE id = ?`, id).Scan(dest...)
+		return s.reader().QueryRowContext(ctx, agentSelectSQL+` WHERE id = ?`, id).Scan(dest...)
 	})
 }
 
 func (s *Store) GetAgentProjectFlowMode(ctx context.Context, agentID string) (string, error) {
 	var flowMode string
-	err := s.db.QueryRowContext(ctx, `SELECT p.flow_mode FROM agents a JOIN worklines w ON w.id = a.workline_id JOIN projects p ON p.id = w.project_id WHERE a.id = ?`, strings.TrimSpace(agentID)).Scan(&flowMode)
+	err := s.reader().QueryRowContext(ctx, `SELECT p.flow_mode FROM agents a JOIN worklines w ON w.id = a.workline_id JOIN projects p ON p.id = w.project_id WHERE a.id = ?`, strings.TrimSpace(agentID)).Scan(&flowMode)
 	return flowMode, err
 }
 
@@ -911,7 +911,7 @@ func (s *Store) UpdateAgentPermissionMode(ctx context.Context, id, mode string) 
 }
 
 func (s *Store) ListAgentsByWorkline(ctx context.Context, worklineID string) ([]Agent, error) {
-	rows, err := s.db.QueryContext(ctx, agentSelectSQL+` WHERE workline_id = ? ORDER BY type ASC, created_at ASC`, worklineID)
+	rows, err := s.reader().QueryContext(ctx, agentSelectSQL+` WHERE workline_id = ? ORDER BY type ASC, created_at ASC`, worklineID)
 	if err != nil {
 		return nil, err
 	}

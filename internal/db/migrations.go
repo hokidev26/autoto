@@ -519,7 +519,17 @@ func migrateV13AgentWorklineNaming(ctx context.Context, tx *sql.Tx) error {
 			return err
 		}
 	}
-	columns := [][3]string{{"projects", "chapter_settings", "workline_settings"}, {"worklines", "parent_chapter_id", "parent_workline_id"}, {"worklines", "merged_into_chapter_id", "merged_into_workline_id"}, {"worklines", "review_source_chapter_id", "review_source_workline_id"}, {"agents", "chapter_id", "workline_id"}, {"agents", "parent_narrator_id", "parent_agent_id"}, {"runs", "narrator_id", "agent_id"}, {"agent_messages", "narrator_id", "agent_id"}, {"agent_message_attachments", "narrator_id", "agent_id"}, {"agent_tool_calls", "narrator_id", "agent_id"}, {"api_requests", "narrator_id", "agent_id"}, {"automation_audit_events", "narrator_id", "agent_id"}, {"memory_injections", "narrator_id", "agent_id"}}
+	// The tail of this list names tables that postdate this migration
+	// (memories arrives in v18, message_drafts in v33, the queue tables in
+	// v63/v64). They are here for the same reason automation_audit_events and
+	// memory_injections are: migrateLegacyZeroVersion bootstraps every table in
+	// legacyNamingSchemaSQL, which spells agent_id as narrator_id, and this is
+	// the only migration that renames it back. Without these entries a
+	// version-0 database keeps narrator_id forever, because the tables' own
+	// migrations are CREATE TABLE IF NOT EXISTS no-ops against the bootstrapped
+	// table. renameColumn no-ops when the table or column is absent, so real
+	// v1+ databases are untouched.
+	columns := [][3]string{{"projects", "chapter_settings", "workline_settings"}, {"worklines", "parent_chapter_id", "parent_workline_id"}, {"worklines", "merged_into_chapter_id", "merged_into_workline_id"}, {"worklines", "review_source_chapter_id", "review_source_workline_id"}, {"agents", "chapter_id", "workline_id"}, {"agents", "parent_narrator_id", "parent_agent_id"}, {"runs", "narrator_id", "agent_id"}, {"agent_messages", "narrator_id", "agent_id"}, {"agent_message_attachments", "narrator_id", "agent_id"}, {"agent_tool_calls", "narrator_id", "agent_id"}, {"api_requests", "narrator_id", "agent_id"}, {"automation_audit_events", "narrator_id", "agent_id"}, {"memory_injections", "narrator_id", "agent_id"}, {"memories", "narrator_id", "agent_id"}, {"message_drafts", "narrator_id", "agent_id"}, {"agent_message_queue", "narrator_id", "agent_id"}, {"agent_queued_message_attachments", "narrator_id", "agent_id"}}
 	for _, column := range columns {
 		if err := renameColumn(ctx, tx, column[0], column[1], column[2]); err != nil {
 			return err
@@ -2091,6 +2101,13 @@ func ensureLegacyColumns(ctx context.Context, tx *sql.Tx) error {
 		{"narrator_messages", "commit_sha", "TEXT"},
 		{"narrator_messages", "command_text", "TEXT"},
 		{"narrator_messages", "created_by", "TEXT"},
+		// correction_of_message_id and superseded_at belong to v34 and v55, but
+		// the legacy index pass below runs before either migration and creates
+		// idx_..._correction and idx_..._superseded from today's schemaSQL, so a
+		// pre-versioning database whose narrator_messages already exists needs
+		// the columns now or index creation fails with "no such column".
+		{"narrator_messages", "correction_of_message_id", "TEXT"},
+		{"narrator_messages", "superseded_at", "TEXT"},
 		{"narrator_tool_calls", "run_id", "TEXT"},
 		{"narrator_tool_calls", "message_id", "TEXT"},
 		{"narrator_tool_calls", "input_json", "TEXT"},
@@ -2126,6 +2143,13 @@ func ensureLegacyColumns(ctx context.Context, tx *sql.Tx) error {
 		{"api_requests", "meter_unit", "TEXT"},
 		{"api_requests", "error_message", "TEXT"},
 		{"api_requests", "raw_dump_json", "TEXT"},
+		// Same as the narrator_messages pair above: idx_api_requests_message and
+		// idx_api_requests_gateway_key_created are part of the legacy index pass
+		// but their columns otherwise arrive with v41 (or, for message_id, only
+		// with the baseline schema), so a pre-existing api_requests table needs
+		// them before the indexes are created.
+		{"api_requests", "message_id", "TEXT"},
+		{"api_requests", "gateway_key_id", "TEXT"},
 		{"agent_backends", "kind", "TEXT NOT NULL DEFAULT 'local'"},
 		{"agent_backends", "api_key", "TEXT"},
 		{"agent_backends", "active", "INTEGER NOT NULL DEFAULT 0"},

@@ -17,7 +17,14 @@ import (
 )
 
 type Store struct {
+	// db is the writer pool, pinned to a single connection. Every write, every
+	// transaction that writes, and every read that must observe uncommitted
+	// state of an open transaction goes through it. See the comment in Open.
 	db *sql.DB
+	// readDB is a small read-only pool (each connection runs
+	// PRAGMA query_only=1). Confirmed pure-read hot paths route through it via
+	// reader()/ReadDB() so UI reads no longer queue behind streaming writes.
+	readDB *sql.DB
 }
 
 var (
@@ -25,15 +32,19 @@ var (
 	ErrInvalidCursor = errors.New("invalid cursor")
 )
 
-func sqliteDSN(path string) string {
-	// modernc.org/sqlite expects a file URI. On Windows, Path must be
-	// "/C:/..." so String() becomes "file:///C:/..." rather than "file:C:/..."
-	// (which is mis-parsed and breaks pragma/bootstrap on empty DBs).
+// sqliteFileURL builds the file URI both DSNs share. On Windows, Path must be
+// "/C:/..." so String() becomes "file:///C:/..." rather than "file:C:/..."
+// (which is mis-parsed and breaks pragma/bootstrap on empty DBs).
+func sqliteFileURL(path string) *url.URL {
 	cleaned := filepath.ToSlash(filepath.Clean(path))
 	if filepath.IsAbs(path) && !strings.HasPrefix(cleaned, "/") {
 		cleaned = "/" + cleaned
 	}
-	fileURL := &url.URL{Scheme: "file", Opaque: "", Path: cleaned}
+	return &url.URL{Scheme: "file", Opaque: "", Path: cleaned}
+}
+
+func sqliteDSN(path string) string {
+	fileURL := sqliteFileURL(path)
 	query := fileURL.Query()
 	query.Add("_pragma", "foreign_keys(1)")
 	query.Add("_pragma", "busy_timeout(5000)")
@@ -46,6 +57,22 @@ func sqliteDSN(path string) string {
 	// workspace database can rebuild from its next run.
 	query.Add("_pragma", "journal_mode(WAL)")
 	query.Add("_pragma", "synchronous(NORMAL)")
+	fileURL.RawQuery = query.Encode()
+	return fileURL.String()
+}
+
+// sqliteReadDSN is the DSN for the read-only pool. modernc.org/sqlite executes
+// every _pragma parameter as a PRAGMA statement on each new connection, so
+// query_only(1) is applied per connection: any write attempted through this
+// pool fails with SQLITE_READONLY instead of silently succeeding. That is the
+// safety net for the read/write split — a mis-routed write is a loud error.
+// journal_mode/synchronous are omitted: the writer pool has already put the
+// database in WAL mode by the time this pool opens, and readers do not fsync.
+func sqliteReadDSN(path string) string {
+	fileURL := sqliteFileURL(path)
+	query := fileURL.Query()
+	query.Add("_pragma", "busy_timeout(5000)")
+	query.Add("_pragma", "query_only(1)")
 	fileURL.RawQuery = query.Encode()
 	return fileURL.String()
 }
@@ -67,19 +94,33 @@ func Open(ctx context.Context, path string) (*Store, error) {
 	if err != nil {
 		return nil, err
 	}
-	// One connection serializes every statement, readers included, which gives up
-	// the multiple-readers half of what WAL above buys. That is a deliberate
-	// trade, and the reason is correctness rather than performance: the write paths
-	// here are compare-and-set sequences (read a revision, decide, write it back)
-	// spread across many methods, and a single connection makes them mutually
-	// exclusive without every one of them having to hold an explicit transaction
-	// and handle SQLITE_BUSY retries.
+	// The store splits reads from writes across two pools.
 	//
-	// The cost is real: an SSE stream, UI polling, and several concurrent agents all
-	// queue behind each other's writes. Lifting it means a split handle -- one
-	// writer connection plus a read-only pool -- and auditing those read-modify-write
-	// sequences first, which is why it has not been done rather than that it was
-	// never considered.
+	// Writer pool (this one, MaxOpenConns(1)): a single connection serializes
+	// every write. The write paths here are compare-and-set sequences (read a
+	// revision, decide, write it back) spread across many methods, and one
+	// connection keeps them mutually exclusive without every one of them
+	// holding an explicit transaction and handling SQLITE_BUSY retries. That
+	// correctness assumption is unchanged: all writes, all transactions, and
+	// any path that might read-modify-write stay on this pool.
+	//
+	// Read pool (readDB below): confirmed pure-read paths — the live snapshot,
+	// message listing/paging, navigation and project/workline/agent Get/List
+	// queries, task workspace, and the server's overview/usage statistics —
+	// route through reader()/ReadDB(). Its connections run PRAGMA query_only=1,
+	// so a mis-routed write fails with SQLITE_READONLY instead of corrupting
+	// state. This restores the multiple-readers half of WAL: UI reads no
+	// longer queue behind streaming writes.
+	//
+	// Routing rules for new code:
+	//   - Reads that must see uncommitted state of an open write transaction
+	//     must stay inside that transaction on the writer pool. Never split a
+	//     write-then-read sequence that lives in one uncommitted transaction.
+	//   - Read-after-commit is safe on the read pool: writes commit before
+	//     their methods return, and WAL readers always see the latest
+	//     committed data.
+	//   - When unsure, use the writer pool; routing a read there is only a
+	//     performance cost, never a correctness one.
 	database.SetMaxOpenConns(1)
 	store := &Store{db: database}
 	if err := store.migrate(ctx); err != nil {
@@ -98,6 +139,23 @@ func Open(ctx context.Context, path string) (*Store, error) {
 		database.Close()
 		return nil, err
 	}
+	// The read pool opens after migrations so its first connection meets a
+	// database that already exists and is already in WAL mode. Four readers is
+	// enough for the UI surfaces that poll concurrently without inviting a
+	// thundering herd on this local workload.
+	readDatabase, err := sql.Open("sqlite", sqliteReadDSN(path))
+	if err != nil {
+		database.Close()
+		return nil, err
+	}
+	readDatabase.SetMaxOpenConns(4)
+	readDatabase.SetMaxIdleConns(4)
+	if err := readDatabase.PingContext(ctx); err != nil {
+		readDatabase.Close()
+		database.Close()
+		return nil, fmt.Errorf("open read-only SQLite pool: %w", err)
+	}
+	store.readDB = readDatabase
 	return store, nil
 }
 
@@ -178,9 +236,35 @@ func validateSQLiteFileInfo(path string, info os.FileInfo) error {
 	return nil
 }
 
-func (s *Store) Close() error { return s.db.Close() }
+func (s *Store) Close() error {
+	var firstErr error
+	if s.readDB != nil {
+		firstErr = s.readDB.Close()
+	}
+	if err := s.db.Close(); err != nil && firstErr == nil {
+		firstErr = err
+	}
+	return firstErr
+}
 
+// DB returns the writer pool. Existing callers depend on it accepting writes,
+// so its semantics are unchanged by the read/write split.
 func (s *Store) DB() *sql.DB { return s.db }
+
+// ReadDB returns the read-only pool for callers that issue their own pure-read
+// SQL (the server's overview/usage statistics). Its connections are
+// query_only, so any write through it fails with SQLITE_READONLY.
+func (s *Store) ReadDB() *sql.DB { return s.reader() }
+
+// reader is the routing point for the store's own read-only methods. The
+// fallback keeps Stores constructed without Open (some tests build
+// &Store{db: ...} directly) working on their single pool.
+func (s *Store) reader() *sql.DB {
+	if s.readDB != nil {
+		return s.readDB
+	}
+	return s.db
+}
 
 func (s *Store) migrate(ctx context.Context) error {
 	return runMigrations(ctx, s.db)

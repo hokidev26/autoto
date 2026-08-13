@@ -178,7 +178,7 @@ func (s *Store) populateMessageGeneratedImages(ctx context.Context, messages []M
 	// message_id leads the ordering so each message's images keep the
 	// output_index order the per-message query returned.
 	query := generatedImageSelect + ` WHERE message_id IN (` + string(placeholders) + `) ORDER BY message_id ASC, output_index ASC, created_at ASC, id ASC`
-	rows, err := s.db.QueryContext(ctx, query, args...)
+	rows, err := s.reader().QueryContext(ctx, query, args...)
 	if err != nil {
 		return err
 	}

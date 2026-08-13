@@ -106,7 +106,7 @@ type workspaceAgentIndex struct {
 // It intentionally excludes Agent prompts, context summaries, errors, provider
 // state, and other runtime internals.
 func (s *Store) ListTaskWorkspace(ctx context.Context) (TaskWorkspace, error) {
-	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	tx, err := s.reader().BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
 	if err != nil {
 		return TaskWorkspace{}, err
 	}

@@ -401,7 +401,7 @@ func (s *Store) ListMessagesPage(ctx context.Context, agentID, before string, li
 	}
 	query += ` ORDER BY created_at DESC, id DESC LIMIT ?`
 	args = append(args, limit+1)
-	rows, err := s.db.QueryContext(ctx, query, args...)
+	rows, err := s.reader().QueryContext(ctx, query, args...)
 	if err != nil {
 		return MessagePage{}, err
 	}
@@ -475,7 +475,7 @@ func decodeMessageCursor(value string) (messageCursor, error) {
 }
 
 func (s *Store) listMessages(ctx context.Context, agentID string) ([]Message, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id, agent_id, COALESCE(run_id,''), role, COALESCE(content_json,''), COALESCE(provider_state_json,''), COALESCE(content_text,''), COALESCE(reasoning_text,''), COALESCE(turn_usage_json,''), COALESCE(parent_tool_use_id,''), COALESCE(command_text,''), COALESCE(correction_of_message_id,''), COALESCE(superseded_at,''), COALESCE(created_by,''), COALESCE(completion_state,''), COALESCE(stop_reason,''), created_at FROM agent_messages WHERE agent_id = ? ORDER BY created_at ASC, id ASC`, agentID)
+	rows, err := s.reader().QueryContext(ctx, `SELECT id, agent_id, COALESCE(run_id,''), role, COALESCE(content_json,''), COALESCE(provider_state_json,''), COALESCE(content_text,''), COALESCE(reasoning_text,''), COALESCE(turn_usage_json,''), COALESCE(parent_tool_use_id,''), COALESCE(command_text,''), COALESCE(correction_of_message_id,''), COALESCE(superseded_at,''), COALESCE(created_by,''), COALESCE(completion_state,''), COALESCE(stop_reason,''), created_at FROM agent_messages WHERE agent_id = ? ORDER BY created_at ASC, id ASC`, agentID)
 	if err != nil {
 		return nil, err
 	}
@@ -547,7 +547,7 @@ func (s *Store) populateMessageAttachments(ctx context.Context, messages []Messa
 	// creation order, exactly as the per-message query returned them.
 	query := `SELECT ` + fmt.Sprintf(attachmentSelectColumns, selectData, selectModelData, selectText) +
 		` FROM agent_message_attachments WHERE message_id IN (` + string(placeholders) + `) ORDER BY message_id ASC, created_at ASC`
-	rows, err := s.db.QueryContext(ctx, query, args...)
+	rows, err := s.reader().QueryContext(ctx, query, args...)
 	if err != nil {
 		return err
 	}

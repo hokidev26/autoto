@@ -259,13 +259,13 @@ func (s *Server) overviewActiveRuns(ctx context.Context, agents map[string]overv
 		placeholders := overviewSQLPlaceholders(len(chunk))
 		args := overviewSQLArgs(chunk)
 		var count int
-		if err := s.store.DB().QueryRowContext(ctx, `SELECT COUNT(DISTINCT agent_id) FROM runs WHERE status IN ('pending','running','continuation_pending') AND agent_id IN (`+placeholders+`)`, args...).Scan(&count); err != nil {
+		if err := s.store.ReadDB().QueryRowContext(ctx, `SELECT COUNT(DISTINCT agent_id) FROM runs WHERE status IN ('pending','running','continuation_pending') AND agent_id IN (`+placeholders+`)`, args...).Scan(&count); err != nil {
 			return nil, 0, err
 		}
 		candidateCount += count
 
 		args = append(args, overviewActiveRunLimit)
-		rows, err := s.store.DB().QueryContext(ctx, `
+		rows, err := s.store.ReadDB().QueryContext(ctx, `
 WITH ranked AS (
   SELECT id, agent_id, status, COALESCE(started_at,'') AS started_at, created_at,
          COALESCE(NULLIF(started_at,''), created_at) AS sort_at,
@@ -334,7 +334,7 @@ func (s *Server) overviewPendingApprovals(ctx context.Context, agents map[string
 	for _, chunk := range overviewAgentIDChunks(agentIDs) {
 		query := `SELECT COUNT(*) FROM agent_tool_calls WHERE status = 'pending_approval' AND agent_id IN (` + overviewSQLPlaceholders(len(chunk)) + `)`
 		var count int64
-		if err := s.store.DB().QueryRowContext(ctx, query, overviewSQLArgs(chunk)...).Scan(&count); err != nil {
+		if err := s.store.ReadDB().QueryRowContext(ctx, query, overviewSQLArgs(chunk)...).Scan(&count); err != nil {
 			return 0, err
 		}
 		total += count
@@ -352,7 +352,7 @@ func (s *Server) overviewSchedules(ctx context.Context, capturedAt string, agent
 		statsArgs := []any{capturedAt, capturedAt}
 		statsArgs = append(statsArgs, args...)
 		var item overviewScheduleSummary
-		if err := s.store.DB().QueryRowContext(ctx, `
+		if err := s.store.ReadDB().QueryRowContext(ctx, `
 SELECT COUNT(*),
        COALESCE(SUM(CASE WHEN enabled = 1 THEN 1 ELSE 0 END),0),
        COALESCE(SUM(CASE WHEN enabled = 1 AND next_run_at IS NOT NULL AND next_run_at <= ? AND (lease_until IS NULL OR lease_until <= ?) THEN 1 ELSE 0 END),0),
@@ -367,7 +367,7 @@ WHERE agent_id IN (`+placeholders+`)`, statsArgs...).Scan(&item.Total, &item.Ena
 		summary.Failed += item.Failed
 
 		listArgs := append(append([]any(nil), args...), capturedAt, overviewUpcomingScheduleLimit)
-		rows, err := s.store.DB().QueryContext(ctx, `
+		rows, err := s.store.ReadDB().QueryContext(ctx, `
 SELECT id, name, agent_id, next_run_at, timezone, COALESCE(last_outcome,'')
 FROM schedules
 WHERE agent_id IN (`+placeholders+`)

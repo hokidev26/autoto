@@ -119,7 +119,7 @@ func (s *Server) usageHistory(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	response, err := buildUsageHistory(r.Context(), s.store.DB(), filters)
+	response, err := buildUsageHistory(r.Context(), s.store.ReadDB(), filters)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
