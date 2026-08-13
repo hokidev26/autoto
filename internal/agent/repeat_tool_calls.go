@@ -22,8 +22,14 @@ type repeatToolChain struct {
 	reminder *providers.Message
 }
 
-func (r *Runner) repeatToolCallChainsLocked() map[string]*repeatToolChain {
-	state := r.ensureRuntimeState()
+// repeatToolCallDetector owns the consecutive-repeat ladder. Live streaks stay
+// on runtimeSnapshotState.repeats so closeRunRuntimeSnapshot can drop a run's
+// snapshot and its chain under the same mutex.
+type repeatToolCallDetector struct {
+	thresholds []int
+}
+
+func repeatToolCallChainsLocked(state *runtimeSnapshotState) map[string]*repeatToolChain {
 	if state == nil {
 		return nil
 	}
@@ -33,20 +39,31 @@ func (r *Runner) repeatToolCallChainsLocked() map[string]*repeatToolChain {
 	return state.repeats
 }
 
+func (r *Runner) repeatToolCallChainsLocked() map[string]*repeatToolChain {
+	return repeatToolCallChainsLocked(r.ensureRuntimeState())
+}
+
 // observeRepeatedToolCall advances the Run's streak by one attempt and parks a
 // reminder when the streak lands on a configured threshold. It observes only: a
 // call that has already run cannot be vetoed, and the point is to shape the next
 // request rather than this one's result.
 func (r *Runner) observeRepeatedToolCall(agentID, runID string, call tools.Call) {
-	if r == nil || len(r.repeatThresholds) == 0 {
+	if r == nil || len(r.repeatCalls.thresholds) == 0 {
 		return
 	}
 	runID = strings.TrimSpace(runID)
 	if runID == "" {
 		return
 	}
-	state := r.ensureRuntimeState()
-	if state == nil {
+	r.repeatCalls.observe(r.ensureRuntimeState(), agentID, runID, call)
+}
+
+func (d *repeatToolCallDetector) observe(state *runtimeSnapshotState, agentID, runID string, call tools.Call) {
+	if d == nil || len(d.thresholds) == 0 || state == nil {
+		return
+	}
+	runID = strings.TrimSpace(runID)
+	if runID == "" {
 		return
 	}
 	arguments := canonicalToolArguments(call.Input)
@@ -54,17 +71,17 @@ func (r *Runner) observeRepeatedToolCall(agentID, runID string, call tools.Call)
 
 	state.mu.Lock()
 	defer state.mu.Unlock()
-	chains := r.repeatToolCallChainsLocked()
+	chains := repeatToolCallChainsLocked(state)
 	chain := chains[runID]
 	if chain == nil || chain.key != key {
 		chain = &repeatToolChain{agentID: strings.TrimSpace(agentID), key: key}
 		chains[runID] = chain
 	}
 	chain.count++
-	if !containsThreshold(r.repeatThresholds, chain.count) {
+	if !containsThreshold(d.thresholds, chain.count) {
 		return
 	}
-	message := repeatToolCallControlMessage(call.Name, chain.count, arguments, chain.count == r.repeatThresholds[0])
+	message := repeatToolCallControlMessage(call.Name, chain.count, arguments, chain.count == d.thresholds[0])
 	chain.reminder = &message
 }
 
@@ -74,13 +91,16 @@ func (r *Runner) repeatToolCallControl(runID string) *providers.Message {
 	if r == nil {
 		return nil
 	}
-	state := r.ensureRuntimeState()
+	return r.repeatCalls.control(r.ensureRuntimeState(), runID)
+}
+
+func (d *repeatToolCallDetector) control(state *runtimeSnapshotState, runID string) *providers.Message {
 	if state == nil {
 		return nil
 	}
 	state.mu.Lock()
 	defer state.mu.Unlock()
-	chain := r.repeatToolCallChainsLocked()[strings.TrimSpace(runID)]
+	chain := repeatToolCallChainsLocked(state)[strings.TrimSpace(runID)]
 	if chain == nil || chain.reminder == nil {
 		return nil
 	}
@@ -100,13 +120,17 @@ func (r *Runner) resetRepeatToolCallChains(agentID string) {
 	if agentID == "" {
 		return
 	}
-	state := r.ensureRuntimeState()
-	if state == nil {
+	r.repeatCalls.resetAgent(r.ensureRuntimeState(), agentID)
+}
+
+func (d *repeatToolCallDetector) resetAgent(state *runtimeSnapshotState, agentID string) {
+	agentID = strings.TrimSpace(agentID)
+	if agentID == "" || state == nil {
 		return
 	}
 	state.mu.Lock()
 	defer state.mu.Unlock()
-	chains := r.repeatToolCallChainsLocked()
+	chains := repeatToolCallChainsLocked(state)
 	for runID, chain := range chains {
 		if chain.agentID == agentID {
 			delete(chains, runID)

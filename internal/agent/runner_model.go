@@ -693,7 +693,7 @@ func (r *Runner) recordAPIRequest(agentID, runID, messageID, providerName, model
 		ReasoningTokens:   usage.ReasoningTokens,
 		TTFTMS:            ttftMS,
 		DurationMS:        durationMS,
-		CostUSD:           estimateUsageCostUSD(providerName, model, usage),
+		CostUSD:           r.usage.estimateCostUSD(providerName, model, usage),
 		ErrorMessage:      errorMessage,
 	}
 	_, err := r.store.AddAPIRequest(context.Background(), request)

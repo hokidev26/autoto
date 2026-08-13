@@ -3,6 +3,7 @@ package agent
 import (
 	"encoding/json"
 	"strings"
+	"sync"
 	"time"
 
 	"autoto/internal/db"
@@ -36,6 +37,56 @@ type contextCalibrationSample struct {
 	At              time.Time
 }
 
+// contextCalibrator stores the latest estimate-vs-actual input-token pair per
+// conversation. Its mutex is private and is never nested with Runner locks.
+type contextCalibrator struct {
+	mu      sync.RWMutex
+	samples map[string]contextCalibrationSample
+}
+
+func (c *contextCalibrator) record(agentID, model string, estimatedTokens int, usage providers.Usage) {
+	agentID = strings.TrimSpace(agentID)
+	model = strings.TrimSpace(model)
+	actual := usage.InputTokens
+	if agentID == "" || model == "" || estimatedTokens < contextCalibrationMinSampleTokens || actual <= 0 {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.samples == nil {
+		c.samples = make(map[string]contextCalibrationSample)
+	}
+	if _, exists := c.samples[agentID]; !exists && len(c.samples) >= contextCalibrationMaxEntries {
+		evictOldestContextCalibration(c.samples)
+	}
+	c.samples[agentID] = contextCalibrationSample{
+		Model:           model,
+		EstimatedTokens: estimatedTokens,
+		ActualTokens:    actual,
+		At:              time.Now(),
+	}
+}
+
+func (c *contextCalibrator) ratio(agentID, model string) (float64, contextCalibrationSample, bool) {
+	c.mu.RLock()
+	sample, ok := c.samples[strings.TrimSpace(agentID)]
+	c.mu.RUnlock()
+	if !ok || sample.EstimatedTokens <= 0 || sample.ActualTokens <= 0 {
+		return 0, contextCalibrationSample{}, false
+	}
+	if !strings.EqualFold(strings.TrimSpace(model), sample.Model) {
+		return 0, contextCalibrationSample{}, false
+	}
+	measured := float64(sample.ActualTokens) / float64(sample.EstimatedTokens)
+	if measured < contextCalibrationMinRatio {
+		measured = contextCalibrationMinRatio
+	}
+	if measured > contextCalibrationMaxRatio {
+		measured = contextCalibrationMaxRatio
+	}
+	return measured, sample, true
+}
+
 // recordContextCalibration stores the estimate/actual pair for one completed
 // turn. Adapters report InputTokens as the whole prompt with CachedInputTokens
 // as the subset served from cache, so InputTokens alone is the request size;
@@ -45,26 +96,7 @@ func (r *Runner) recordContextCalibration(agentID, model string, estimatedTokens
 	if r == nil {
 		return
 	}
-	agentID = strings.TrimSpace(agentID)
-	model = strings.TrimSpace(model)
-	actual := usage.InputTokens
-	if agentID == "" || model == "" || estimatedTokens < contextCalibrationMinSampleTokens || actual <= 0 {
-		return
-	}
-	r.contextCalibrationMu.Lock()
-	defer r.contextCalibrationMu.Unlock()
-	if r.contextCalibration == nil {
-		r.contextCalibration = make(map[string]contextCalibrationSample)
-	}
-	if _, exists := r.contextCalibration[agentID]; !exists && len(r.contextCalibration) >= contextCalibrationMaxEntries {
-		evictOldestContextCalibration(r.contextCalibration)
-	}
-	r.contextCalibration[agentID] = contextCalibrationSample{
-		Model:           model,
-		EstimatedTokens: estimatedTokens,
-		ActualTokens:    actual,
-		At:              time.Now(),
-	}
+	r.usage.calibrator.record(agentID, model, estimatedTokens, usage)
 }
 
 func evictOldestContextCalibration(samples map[string]contextCalibrationSample) {
@@ -89,23 +121,7 @@ func (r *Runner) contextCalibrationRatio(agentID, model string) (float64, contex
 	if r == nil {
 		return 0, contextCalibrationSample{}, false
 	}
-	r.contextCalibrationMu.RLock()
-	sample, ok := r.contextCalibration[strings.TrimSpace(agentID)]
-	r.contextCalibrationMu.RUnlock()
-	if !ok || sample.EstimatedTokens <= 0 || sample.ActualTokens <= 0 {
-		return 0, contextCalibrationSample{}, false
-	}
-	if !strings.EqualFold(strings.TrimSpace(model), sample.Model) {
-		return 0, contextCalibrationSample{}, false
-	}
-	ratio := float64(sample.ActualTokens) / float64(sample.EstimatedTokens)
-	if ratio < contextCalibrationMinRatio {
-		ratio = contextCalibrationMinRatio
-	}
-	if ratio > contextCalibrationMaxRatio {
-		ratio = contextCalibrationMaxRatio
-	}
-	return ratio, sample, true
+	return r.usage.calibrator.ratio(agentID, model)
 }
 
 func calibrateContextTokens(estimated int, ratio float64) int {

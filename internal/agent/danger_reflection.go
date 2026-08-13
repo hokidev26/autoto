@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"runtime"
 	"strings"
+	"sync"
 	"time"
 
 	"autoto/internal/db"
@@ -278,6 +279,78 @@ type reflectionCacheEntry struct {
 	policyGeneration     int64
 }
 
+// dangerReflectionCache holds Run-scoped verdicts and their insertion order.
+// The mutex is private to this cache: lookups release it before generation
+// checks so a store round-trip never holds it, matching the previous Runner
+// field locking.
+type dangerReflectionCache struct {
+	mu    sync.Mutex
+	cache map[string]map[string]reflectionCacheEntry
+	order map[string][]string
+}
+
+func (c *dangerReflectionCache) lookup(scope, fingerprint string) (reflectionCacheEntry, bool) {
+	c.mu.Lock()
+	entry, ok := c.cache[scope][fingerprint]
+	c.mu.Unlock()
+	return entry, ok
+}
+
+func (c *dangerReflectionCache) remember(scope, fingerprint string, entry reflectionCacheEntry) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.cache == nil {
+		c.cache = make(map[string]map[string]reflectionCacheEntry)
+		c.order = make(map[string][]string)
+	}
+	if c.cache[scope] == nil {
+		c.cache[scope] = make(map[string]reflectionCacheEntry)
+	}
+	if _, exists := c.cache[scope][fingerprint]; !exists {
+		order := append(c.order[scope], fingerprint)
+		for len(order) > dangerReflectionCacheSize {
+			delete(c.cache[scope], order[0])
+			order = order[1:]
+		}
+		c.order[scope] = order
+	}
+	c.cache[scope][fingerprint] = entry
+}
+
+func (c *dangerReflectionCache) forget(scope, fingerprint string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	delete(c.cache[scope], fingerprint)
+	if len(c.cache[scope]) == 0 {
+		delete(c.cache, scope)
+		delete(c.order, scope)
+	}
+}
+
+func (c *dangerReflectionCache) closeRun(scope string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	delete(c.cache, scope)
+	delete(c.order, scope)
+}
+
+func (c *dangerReflectionCache) clear(agentID string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if strings.TrimSpace(agentID) == "" {
+		c.cache = make(map[string]map[string]reflectionCacheEntry)
+		c.order = make(map[string][]string)
+		return
+	}
+	prefix := strings.TrimSpace(agentID) + "\x00"
+	for scope := range c.cache {
+		if strings.HasPrefix(scope, prefix) {
+			delete(c.cache, scope)
+			delete(c.order, scope)
+		}
+	}
+}
+
 // reflectionScopeKey bounds a remembered verdict to one Run.
 //
 // A cached "proceed" is a security decision, so its lifetime has to be
@@ -302,9 +375,7 @@ func (r *Runner) cachedReflection(ctx context.Context, agentID, scope, fingerpri
 	if fingerprint == "" {
 		return dangerReflection{}, false
 	}
-	r.reflectionMu.Lock()
-	entry, ok := r.reflectionCache[scope][fingerprint]
-	r.reflectionMu.Unlock()
+	entry, ok := r.reflections.lookup(scope, fingerprint)
 	if !ok {
 		return dangerReflection{}, false
 	}
@@ -326,38 +397,15 @@ func (r *Runner) rememberReflection(ctx context.Context, agentID, scope, fingerp
 	if err != nil {
 		return
 	}
-	r.reflectionMu.Lock()
-	defer r.reflectionMu.Unlock()
-	if r.reflectionCache == nil {
-		r.reflectionCache = make(map[string]map[string]reflectionCacheEntry)
-		r.reflectionOrder = make(map[string][]string)
-	}
-	if r.reflectionCache[scope] == nil {
-		r.reflectionCache[scope] = make(map[string]reflectionCacheEntry)
-	}
-	if _, exists := r.reflectionCache[scope][fingerprint]; !exists {
-		order := append(r.reflectionOrder[scope], fingerprint)
-		for len(order) > dangerReflectionCacheSize {
-			delete(r.reflectionCache[scope], order[0])
-			order = order[1:]
-		}
-		r.reflectionOrder[scope] = order
-	}
-	r.reflectionCache[scope][fingerprint] = reflectionCacheEntry{
+	r.reflections.remember(scope, fingerprint, reflectionCacheEntry{
 		reflection:           reflection,
 		permissionGeneration: generations.Permission,
 		policyGeneration:     generations.Policy,
-	}
+	})
 }
 
 func (r *Runner) forgetReflection(scope, fingerprint string) {
-	r.reflectionMu.Lock()
-	defer r.reflectionMu.Unlock()
-	delete(r.reflectionCache[scope], fingerprint)
-	if len(r.reflectionCache[scope]) == 0 {
-		delete(r.reflectionCache, scope)
-		delete(r.reflectionOrder, scope)
-	}
+	r.reflections.forget(scope, fingerprint)
 }
 
 // closeReflectionCacheRun drops the verdicts remembered for one Run. It runs
@@ -367,31 +415,14 @@ func (r *Runner) closeReflectionCacheRun(agentID, runID string) {
 	if r == nil {
 		return
 	}
-	scope := reflectionScopeKey(agentID, runID)
-	r.reflectionMu.Lock()
-	defer r.reflectionMu.Unlock()
-	delete(r.reflectionCache, scope)
-	delete(r.reflectionOrder, scope)
+	r.reflections.closeRun(reflectionScopeKey(agentID, runID))
 }
 
 // clearReflectionCache drops remembered verdicts for an agent, or for every
 // agent when agentID is empty. It is called wherever approvals are invalidated
 // so the two caches never disagree about policy.
 func (r *Runner) clearReflectionCache(agentID string) {
-	r.reflectionMu.Lock()
-	defer r.reflectionMu.Unlock()
-	if strings.TrimSpace(agentID) == "" {
-		r.reflectionCache = make(map[string]map[string]reflectionCacheEntry)
-		r.reflectionOrder = make(map[string][]string)
-		return
-	}
-	prefix := strings.TrimSpace(agentID) + "\x00"
-	for scope := range r.reflectionCache {
-		if strings.HasPrefix(scope, prefix) {
-			delete(r.reflectionCache, scope)
-			delete(r.reflectionOrder, scope)
-		}
-	}
+	r.reflections.clear(agentID)
 }
 
 // confinedWriteTools are the built-in mutating tools that resolve every path

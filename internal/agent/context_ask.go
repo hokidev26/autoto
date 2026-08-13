@@ -506,7 +506,7 @@ func (r *Runner) recordContextAskAPIRequest(agentID, runID, providerName, model 
 		ReasoningTokens:   result.Usage.ReasoningTokens,
 		TTFTMS:            ttftMS,
 		DurationMS:        durationMS,
-		CostUSD:           estimateUsageCostUSD(providerName, model, result.Usage),
+		CostUSD:           r.usage.estimateCostUSD(providerName, model, result.Usage),
 		ErrorMessage:      contextAskStoredError(callErr),
 		StopReason:        result.StopReason,
 	}
