@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 
 // Test helper. The production stylesheet was split into cascade-ordered
@@ -10,5 +11,40 @@ export async function readStylesSource(stylesUrl) {
   const imports = [...entry.matchAll(/@import\s+url\("([^"]+)"\)/g)].map((m) => m[1]);
   if (imports.length === 0) return entry;
   const parts = await Promise.all(imports.map((rel) => readFile(new URL(rel, stylesUrl), "utf8")));
+  return parts.join("");
+}
+
+// Former single-file sheets, now consecutive @imports in styles.css. Tests that
+// used to read workbench.css / settings.css / providers.css concatenate these
+// pieces so selector pins keep working after the split.
+export const splitStylesheetGroups = Object.freeze({
+  "workbench.css": [
+    "workbench-shell.css",
+    "workbench-desktop.css",
+    "workbench-conversation.css",
+    "workbench-composer.css",
+  ],
+  "settings.css": [
+    "settings-system.css",
+    "settings-skills.css",
+    "settings-themes.css",
+  ],
+  "providers.css": [
+    "providers-console.css",
+    "providers-create.css",
+    "providers-reference.css",
+  ],
+});
+
+export function readStylesGroupSync(name, metaUrl) {
+  const files = splitStylesheetGroups[name] || [name];
+  return files.map((file) => readFileSync(new URL(`../styles/${file}`, metaUrl), "utf8")).join("");
+}
+
+export async function readStylesGroup(name, metaUrl) {
+  const files = splitStylesheetGroups[name] || [name];
+  const parts = await Promise.all(
+    files.map((file) => readFile(new URL(`../styles/${file}`, metaUrl), "utf8")),
+  );
   return parts.join("");
 }

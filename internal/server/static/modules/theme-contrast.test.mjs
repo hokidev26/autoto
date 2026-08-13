@@ -380,7 +380,7 @@ test("every hard-coded light-shell color is restated for the dark themes", () =>
     0,
     `${uncovered.length} rule(s) hard-code a color the dark themes cannot reach.\n`
       + `Prefer changing the rule to use var(--ws-text) / var(--ws-muted) / var(--ws-card).\n`
-      + `Otherwise add the selector to the generated dark override block in styles/settings.css.\n${report}`,
+      + `Otherwise add the selector to the generated dark override block in styles/settings-themes.css.\n${report}`,
   );
 });
 
@@ -441,9 +441,9 @@ test("dark overrides actually win over the light rules they restate", () => {
 });
 
 test("the dark override block resolves through theme variables, not new literals", () => {
-  const settings = readFileSync(join(stylesDir, "settings.css"), "utf8");
+  const settings = readFileSync(join(stylesDir, "settings-themes.css"), "utf8");
   const start = settings.indexOf("Dark schemes: surfaces and copy the light shell hard-codes");
-  assert.ok(start > 0, "the generated dark override block is missing from settings.css");
+  assert.ok(start > 0, "the generated dark override block is missing from settings-themes.css");
   // Slice to the block's own end marker. Guessing at "the next preset rule"
   // swept in the theme presets that follow, so a preset painting dark text on
   // its own light button read as a violation of a block it is not part of.
@@ -552,7 +552,7 @@ test("no rule paints with a custom property the shell never declares", () => {
 // rules -- the mobile overrides that re-point one or two --ws-* values -- are
 // not palettes and owe no bridges.
 function presetPalettes() {
-  const css = readFileSync(join(stylesDir, "settings.css"), "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
+  const css = readFileSync(join(stylesDir, "settings-themes.css"), "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
   const palettes = [];
   for (const match of css.matchAll(/body\.white-shell\.theme-light\[data-theme-preset="([a-z]+)"\]\s*\{([^}]*)\}/g)) {
     const [, preset, body] = match;
@@ -589,12 +589,12 @@ test("every preset's muted tone is readable on its own card", () => {
     const card = flatten(declarations.get("--ws-card") ?? "", canvas || "#ffffff");
     const muted = flatten(declarations.get("--ws-muted") ?? "", card || "#ffffff");
     if (!card || !muted) {
-      failures.push(`  ${preset} (settings.css:${line}) has an unreadable --ws-card/--ws-muted pair to measure`);
+      failures.push(`  ${preset} (settings-themes.css:${line}) has an unreadable --ws-card/--ws-muted pair to measure`);
       continue;
     }
     const ratio = contrast(muted, card);
     if (ratio < AA_CONTRAST) {
-      failures.push(`  ${preset} (settings.css:${line}) muted ${muted} on card ${card} is ${ratio.toFixed(2)}, needs ${AA_CONTRAST}`);
+      failures.push(`  ${preset} (settings-themes.css:${line}) muted ${muted} on card ${card} is ${ratio.toFixed(2)}, needs ${AA_CONTRAST}`);
     }
   }
   assert.deepEqual(failures, [], `secondary copy must clear AA against the surface it sits on.\n${failures.join("\n")}`);
@@ -619,13 +619,16 @@ const LIGHT_SURFACE_CEILING = Object.freeze({
   // so a var() there always resolves to its fallback. It is paired with a
   // matching html:has(...theme-dark) rule instead.
   "white-shell.css": 46,
-  "workbench.css": 37,
+  "workbench-shell.css": 26,
+  "workbench-desktop.css": 3,
+  "workbench-composer.css": 8,
   "workspace-tasks.css": 29,
   "workspace.css": 18,
   "extras.css": 11,
-  "settings.css": 7,
+  "settings-themes.css": 7,
   "base.css": 9,
-  "providers.css": 3,
+  "providers-console.css": 1,
+  "providers-reference.css": 2,
 });
 
 function eachStyleRule(css, visit, atRules = []) {

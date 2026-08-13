@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { readFileSync } from "node:fs";
+import { readStylesGroupSync } from "./styles-source-helper.mjs";
 
 // These notices used to sit at the bottom edge, where the composer is also fixed on a
 // phone, at a higher z-index: a finished background task landed on the message box and
@@ -9,7 +10,11 @@ import { readFileSync } from "node:fs";
 //
 // They now hang under the header tool row instead, so the conflict is gone rather than
 // negotiated: nothing is pinned there, on either a phone or a desktop.
-const read = (name) => readFileSync(new URL(`../styles/${name}`, import.meta.url), "utf8");
+const read = (name) => (
+  name === "settings.css"
+    ? readStylesGroupSync(name, import.meta.url)
+    : readFileSync(new URL(`../styles/${name}`, import.meta.url), "utf8")
+);
 const stripComments = (css) => css.replace(/\/\*[\s\S]*?\*\//g, "");
 
 function ruleBody(css, selector) {

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { readFileSync } from "node:fs";
+import { readStylesGroupSync } from "./styles-source-helper.mjs";
 
 // The settings body element carries an id and a legacy class at the same time:
 // <div id="settingsContentBody" class="settings-content-body legacy-settings-content-body">
@@ -19,8 +19,8 @@ import { readFileSync } from "node:fs";
 //
 // These assertions pin the containment, not the exact spacing values. The failure
 // mode worth guarding is a grid whose gap is decided by the other sheet.
-const settingsCSS = readFileSync(new URL("../styles/settings.css", import.meta.url), "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
-const workbenchCSS = readFileSync(new URL("../styles/workbench.css", import.meta.url), "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
+const settingsCSS = readStylesGroupSync("settings.css", import.meta.url).replace(/\/\*[\s\S]*?\*\//g, "");
+const workbenchCSS = readStylesGroupSync("workbench.css", import.meta.url).replace(/\/\*[\s\S]*?\*\//g, "");
 
 function ruleBody(css, selector) {
   const index = css.indexOf(selector);

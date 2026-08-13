@@ -1,0 +1,1336 @@
+/* ============================================================
+   Unified compact skills-page layout — settings.css authority
+   All #settingsContentBody .skills-page scoped rules below
+   override legacy (settings-legacy.css) and workbench.css.
+   ============================================================ */
+
+/* Root page: remove legacy min-height, trim padding that
+   settings-card/page-section adds on top of skills-page itself. */
+#settingsContentBody .skills-page.settings-page-section {
+  padding: 0;
+  border: none;
+  background: transparent;
+  box-shadow: none;
+}
+
+/* Tab panel top spacing */
+#settingsContentBody .skills-tab-panel {
+  padding-top: 16px;
+}
+
+/* Top-level skill provider sections: compact padding */
+#settingsContentBody .skills-page :is(.settings-provider-section, .settings-page-section, .settings-card).highlighted,
+#settingsContentBody .skills-page :is(.settings-provider-section, .settings-page-section, .settings-card) {
+  padding: 14px;
+}
+
+/* Lists: explicit grid gap, no bottom margin bleed */
+#settingsContentBody .skills-page :is(.skill-command-list, .workflow-rule-list, .settings-data-list) {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 0;
+}
+
+/* Empty placeholders on this page sit between a header and a preview card, so a
+   100px void made the surrounding cards look crammed against each other. */
+#settingsContentBody .skills-page :is(.settings-empty-state, .settings-empty-card.compact) {
+  min-height: 64px;
+  padding: 14px 12px;
+  font-size: 13px;
+}
+
+/* Shared compact card for config-center items (role, prompt, hook) */
+#settingsContentBody .skill-config-card {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 10px;
+  border: 1px solid var(--settings-border);
+  border-radius: var(--settings-radius);
+  background: color-mix(in srgb, var(--settings-surface) 96%, var(--settings-muted));
+  padding: 10px 12px;
+}
+
+#settingsContentBody .skill-card-main {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+#settingsContentBody .skill-card-main strong {
+  overflow: hidden;
+  color: var(--settings-foreground);
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#settingsContentBody .skill-card-meta {
+  color: var(--settings-muted-foreground);
+  font-size: 11px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+#settingsContentBody .skill-card-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+#settingsContentBody .skill-card-revisions {
+  margin-top: 4px;
+}
+
+/* Compact security note inside card header */
+#settingsContentBody .skill-config-note {
+  margin: 3px 0 0;
+  color: var(--settings-muted-foreground);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+/* Prompt trust badge row */
+#settingsContentBody .skill-trust-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 5px;
+}
+
+/* History rows (hooks) — compact status line, no nested card */
+#settingsContentBody .skill-history-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 5px 0;
+  border-top: 1px solid var(--settings-border);
+  font-size: 12px;
+  color: var(--settings-muted-foreground);
+}
+
+#settingsContentBody .skill-history-row em {
+  color: var(--settings-destructive);
+  font-style: normal;
+  font-size: 11px;
+}
+
+#settingsContentBody .skill-history-row .settings-inline-actions {
+  margin-left: auto;
+}
+
+/* Security note — one canonical visible line */
+#settingsContentBody .skill-security-note {
+  padding: 7px 10px;
+  border-radius: var(--settings-radius);
+  border: 1px solid color-mix(in srgb, var(--settings-warning) 28%, var(--settings-border));
+  background: var(--settings-warning-soft);
+  color: var(--settings-foreground);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+/* Existing skill-command-card: tighten padding to match compact cards */
+#settingsContentBody .skills-page .skill-command-card {
+  padding: 10px 12px;
+}
+
+/* Automation tool catalog details (native <details>) */
+#settingsContentBody .skill-card-details {
+  margin-top: 6px;
+}
+
+#settingsContentBody .skill-card-details summary {
+  cursor: pointer;
+  color: var(--settings-muted-foreground);
+  font-size: 12px;
+  user-select: none;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+#settingsContentBody .skill-card-details summary::before {
+  content: "▶";
+  font-size: 9px;
+  transition: transform .15s;
+}
+
+#settingsContentBody .skill-card-details[open] summary::before {
+  transform: rotate(90deg);
+}
+
+#settingsContentBody .skill-card-details .skill-card-meta {
+  margin-top: 6px;
+  padding: 8px 10px;
+  border: 1px solid var(--settings-border);
+  border-radius: var(--settings-radius);
+  background: var(--settings-muted);
+}
+
+/* Optional tools search — remove double-border from label+input */
+#settingsContentBody .optional-tools-search-label {
+  display: grid;
+  gap: 6px;
+}
+
+#settingsContentBody .optional-tools-search-label input {
+  width: 100%;
+}
+
+/* Config-center panel header — the heading block and its control cluster are
+   separate columns so a wrapping note never squeezes the scope select and
+   buttons into a crooked stack. */
+#settingsContentBody .skill-config-panel-head {
+  align-items: start;
+  gap: var(--settings-space-3) var(--settings-space-4);
+}
+
+#settingsContentBody .skill-config-panel-heading {
+  min-width: 0;
+  flex: 1 1 260px;
+}
+
+#settingsContentBody .skill-config-panel-heading h2 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1.3;
+}
+
+#settingsContentBody .skill-config-panel-tools {
+  flex: 0 1 auto;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--settings-space-2);
+}
+
+/* Inline scope field: label and select on one line so the control matches the
+   button height it sits next to. */
+#settingsContentBody .skill-config-scope-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+#settingsContentBody .skill-config-scope-field > span {
+  color: var(--settings-muted-foreground);
+}
+
+#settingsContentBody .skills-page .skill-config-scope-field > select {
+  width: auto;
+  min-width: 116px;
+  padding: 6px 8px;
+}
+
+/* Available subagent_type disclosure — collapsed by default so the definitions
+   list stays the focus. Summary and refresh share the first row; the body spans
+   both columns underneath. */
+#settingsContentBody .skill-role-preview {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--settings-space-2) var(--settings-space-3);
+}
+
+#settingsContentBody .skill-role-preview > summary {
+  cursor: pointer;
+  user-select: none;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  color: var(--settings-foreground);
+  font-size: 13px;
+}
+
+#settingsContentBody .skill-role-preview > summary::-webkit-details-marker {
+  display: none;
+}
+
+#settingsContentBody .skill-role-preview > summary::before {
+  content: "▶";
+  flex: 0 0 auto;
+  font-size: 9px;
+  color: var(--settings-muted-foreground);
+  transition: transform .15s;
+}
+
+#settingsContentBody .skill-role-preview[open] > summary::before {
+  transform: rotate(90deg);
+}
+
+#settingsContentBody .skill-role-preview-actions {
+  grid-column: 2;
+  justify-content: flex-end;
+}
+
+#settingsContentBody .skill-role-preview-body {
+  grid-column: 1 / -1;
+  min-width: 0;
+  display: grid;
+  gap: var(--settings-space-2);
+}
+
+#settingsContentBody .skill-role-preview:not([open]) > .skill-role-preview-body {
+  display: none;
+}
+
+/* scoped skills left-accent */
+#settingsContentBody .skills-page .skills-v2-card {
+  border-left: 3px solid var(--settings-primary);
+}
+
+/* Mobile: skill card actions wrap below content */
+@media (max-width: 767px) {
+  #settingsContentBody .skill-config-card {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  #settingsContentBody .skill-card-actions {
+    justify-content: flex-end;
+  }
+  #settingsContentBody .skills-page .skill-command-card {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  /* Narrow widths: the control cluster owns a full row and the scope field
+     stretches instead of colliding with the buttons. */
+  #settingsContentBody .skill-config-panel-tools {
+    flex: 1 1 100%;
+    justify-content: flex-start;
+  }
+  #settingsContentBody .skill-config-scope-field {
+    flex: 1 1 100%;
+  }
+  #settingsContentBody .skills-page .skill-config-scope-field > select {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+  #settingsContentBody .skill-role-preview {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  #settingsContentBody .skill-role-preview-actions {
+    grid-column: 1;
+    justify-content: flex-start;
+  }
+}
+
+#settingsContentBody :is(.skill-command-card, .memory-card, .memory-item, .automation-card, .automation-row-card, .automation-history-head, .automation-run-row) {
+  border-color: var(--settings-border);
+  border-radius: var(--settings-radius);
+  background: var(--settings-surface);
+  color: var(--settings-foreground);
+  box-shadow: none;
+}
+
+#settingsContentBody :is(.automation-section.danger-section, .automation-card.danger-zone) {
+  border-color: color-mix(in srgb, var(--settings-destructive) 35%, var(--settings-border));
+}
+
+#settingsContentBody :is(.automation-secret-note, .automation-migration, .automation-pairing-code) {
+  border-color: color-mix(in srgb, var(--settings-warning) 28%, var(--settings-border));
+  background: var(--settings-warning-soft);
+  color: var(--settings-foreground);
+}
+
+#settingsContentBody :is(.settings-backend-card, .storage-entry-card, .license-group-card, .profile-info-card, .terminal-shortcut-card) {
+  border-color: var(--settings-border);
+  border-radius: var(--settings-radius);
+  background: var(--settings-surface);
+  box-shadow: none;
+}
+
+#settingsContentBody .settings-backend-card.active {
+  border-color: color-mix(in srgb, var(--settings-primary) 45%, var(--settings-border));
+  background: var(--settings-primary-soft);
+}
+
+#settingsContentBody .settings-backend-card.confirm-delete {
+  border-color: color-mix(in srgb, var(--settings-destructive) 40%, var(--settings-border));
+  background: var(--settings-destructive-soft);
+}
+
+/* Usage History adopts the same tokens while keeping its SVG and table behavior. */
+#settingsContentBody .usage-history-page {
+  --uh-surface: var(--settings-surface);
+  --uh-surface-muted: var(--settings-muted);
+  --uh-text: var(--settings-foreground);
+  --uh-muted: var(--settings-muted-foreground);
+  --uh-border: var(--settings-border);
+  --uh-primary: var(--settings-primary);
+  --uh-primary-soft: var(--settings-primary-soft);
+  --uh-danger: var(--settings-destructive);
+  --uh-danger-soft: var(--settings-destructive-soft);
+  --uh-success: var(--settings-success);
+  --uh-success-soft: var(--settings-success-soft);
+  max-width: 1120px;
+  gap: var(--settings-space-4);
+  padding: 0 0 32px;
+}
+
+#settingsContentBody .usage-history-page :is(.uh-hero, .uh-panel, .uh-summary-card) {
+  border-color: var(--settings-border);
+  border-radius: var(--settings-radius-lg);
+  background: var(--settings-surface);
+  box-shadow: var(--settings-shadow);
+}
+
+#settingsContentBody .usage-history-page .uh-hero { padding: 20px; }
+#settingsContentBody .usage-history-page .uh-hero h2 { font-size: 22px; }
+#settingsContentBody .usage-history-page .uh-summary-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--settings-space-2); }
+#settingsContentBody .usage-history-page .uh-summary-card { min-height: 104px; padding: 14px; }
+#settingsContentBody .usage-history-page .uh-summary-card strong { margin-top: 5px; font-size: clamp(20px, 2vw, 26px); }
+#settingsContentBody .usage-history-page .uh-panel { padding: 18px; }
+#settingsContentBody .usage-history-page .uh-chart-host { min-height: 250px; border-radius: var(--settings-radius); }
+#settingsContentBody .usage-history-page .uh-trend-svg { height: 250px; }
+#settingsContentBody .usage-history-page .uh-filter-form { grid-template-columns: repeat(5, minmax(120px, 1fr)); }
+#settingsContentBody .usage-history-page .uh-history-table tbody tr:focus-within,
+#settingsContentBody .usage-history-page .uh-history-table tbody tr:hover { background: var(--settings-muted); }
+#settingsContentBody .usage-history-page .uh-inline-error { border-color: color-mix(in srgb, var(--settings-destructive) 30%, var(--settings-border)); }
+
+/* Providers remain deliberately narrow: page density changes, not modal/drawer internals. */
+#settingsContentBody .mp-provider-page.settings-page-section {
+  border: 0;
+  background: transparent;
+  padding: 0;
+  box-shadow: none;
+}
+
+#settingsContentBody :is(.mp-modal-panel.settings-card, .mp-provider-drawer.settings-card) {
+  padding: 0;
+}
+
+#settingsContentBody .mp-provider-page {
+  --mp-canvas: var(--settings-background);
+  --mp-surface: var(--settings-surface);
+  --mp-surface-muted: var(--settings-muted);
+  --mp-text: var(--settings-foreground);
+  --mp-muted: var(--settings-muted-foreground);
+  --mp-border: var(--settings-border);
+  --mp-accent: var(--settings-primary);
+  --mp-accent-strong: var(--settings-primary);
+  --mp-accent-soft: var(--settings-primary-soft);
+  --mp-good: var(--settings-success);
+  --mp-good-soft: var(--settings-success-soft);
+  --mp-warn: var(--settings-warning);
+  --mp-warn-soft: var(--settings-warning-soft);
+  --mp-danger: var(--settings-destructive);
+  --mp-danger-soft: var(--settings-destructive-soft);
+  max-width: 1120px;
+  padding: 0 0 32px;
+}
+
+#settingsContentBody .mp-provider-page :is(.mp-page-heading, .mp-provider-page-header) { gap: 12px; margin-bottom: 16px; }
+#settingsContentBody .mp-provider-page :is(.mp-page-title, .mp-provider-page-title) { font-size: 22px; }
+#settingsContentBody .mp-provider-page :is(.mp-page-description, .mp-provider-page-subtitle) { display: block; -webkit-line-clamp: unset; }
+#settingsContentBody .mp-provider-page :is(.mp-stat-grid, .mp-provider-grid) { gap: 10px; }
+#settingsContentBody .mp-provider-page :is(.mp-stat-card, .mp-stat) { min-height: 94px; padding: 14px; border-radius: var(--settings-radius); box-shadow: none; }
+#settingsContentBody .mp-provider-page .mp-provider-toolbar { margin-bottom: 14px; padding: 10px; border-radius: var(--settings-radius); }
+#settingsContentBody .mp-provider-page .mp-provider-card { border-radius: var(--settings-radius); padding: 14px; box-shadow: none; }
+
+/* Account consoles use the stable settings shell and expand only their content frame. */
+#settingsModal .settings-page-frame:has(.codex-account-console) {
+  width: 100%;
+  max-width: none;
+  padding: clamp(12px, 1.5vw, 20px);
+}
+
+#settingsContentBody .codex-account-console {
+  width: 100%;
+  max-width: none;
+  min-width: 0;
+  display: grid;
+  gap: var(--settings-space-4);
+  padding: 0 0 32px;
+}
+
+#settingsContentBody .codex-console-back {
+  width: fit-content;
+  min-height: 34px;
+  border: 0;
+  border-radius: var(--settings-radius-sm);
+  background: transparent;
+  color: var(--settings-muted-foreground);
+  padding: 0 9px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+#settingsContentBody .codex-console-back:hover {
+  background: var(--settings-muted);
+  color: var(--settings-foreground);
+}
+
+#settingsContentBody .codex-console-hero {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 18px;
+  padding: 20px;
+}
+
+#settingsContentBody .codex-console-heading {
+  min-width: 0;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+#settingsContentBody .codex-console-heading > div { min-width: 0; }
+#settingsContentBody .codex-console-heading .settings-card-title { margin-top: 3px; font-size: 23px; }
+#settingsContentBody .codex-console-heading .settings-card-description { max-width: 760px; margin-top: 7px; line-height: 1.55; }
+#settingsContentBody .codex-console-actions { justify-content: flex-end; }
+#settingsContentBody .codex-console-actions .settings-action-btn { white-space: nowrap; }
+
+#settingsContentBody .codex-console-stats {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+#settingsContentBody .codex-console-stats .settings-stat-card {
+  min-height: 88px;
+  padding: 14px;
+  box-shadow: none;
+}
+
+#settingsContentBody .codex-console-stats .settings-stat-card strong { font-size: 24px; }
+#settingsContentBody .codex-console-result { margin: 0; }
+#settingsContentBody .codex-console-result.success {
+  border-color: color-mix(in srgb, var(--settings-success) 30%, var(--settings-border));
+  background: var(--settings-success-soft);
+  color: var(--settings-success);
+}
+#settingsContentBody .codex-console-result.info {
+  border-color: color-mix(in srgb, var(--settings-primary) 28%, var(--settings-border));
+  background: var(--settings-primary-soft);
+  color: var(--settings-primary);
+}
+
+#settingsContentBody .codex-browser-login-panel,
+#settingsContentBody .codex-import-panel,
+#settingsContentBody .codex-accounts-panel {
+  min-width: 0;
+  overflow: hidden;
+  padding: 0;
+}
+
+#settingsContentBody .codex-console-section-head {
+  min-width: 0;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 18px;
+  border-bottom: 1px solid var(--settings-border);
+}
+
+#settingsContentBody .codex-console-section-head > div { min-width: 0; }
+#settingsContentBody .codex-console-section-head .settings-card-description { margin-top: 4px; }
+
+#settingsContentBody .codex-browser-login-recommended {
+  flex: 0 0 auto;
+  border-color: color-mix(in srgb, var(--settings-success) 28%, var(--settings-border));
+  background: var(--settings-success-soft);
+  color: var(--settings-success);
+}
+
+#settingsContentBody .codex-browser-login-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 16px;
+  min-width: 0;
+  padding: 16px 18px 18px;
+}
+
+#settingsContentBody .codex-browser-login-copy {
+  min-width: 0;
+}
+
+#settingsContentBody .codex-browser-login-copy strong {
+  display: block;
+  color: var(--settings-foreground);
+  font-size: 13px;
+  font-weight: 750;
+}
+
+#settingsContentBody .codex-browser-login-copy p {
+  max-width: 760px;
+  margin: 5px 0 0;
+  color: var(--settings-muted-foreground);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+#settingsContentBody .codex-browser-login-actions {
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
+
+#settingsContentBody .codex-browser-login-actions .settings-status-pill {
+  min-height: var(--settings-control-height);
+  padding-inline: 10px;
+}
+
+#settingsContentBody .codex-browser-login-alert {
+  grid-column: 1 / -1;
+  margin: 0;
+}
+
+#settingsContentBody .codex-import-body {
+  display: grid;
+  gap: 12px;
+  padding: 16px 18px 18px;
+}
+
+#settingsContentBody .codex-import-textarea {
+  width: 100%;
+  min-height: 180px;
+  resize: vertical;
+  padding: 12px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+#settingsContentBody .codex-import-dropzone {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  min-height: 96px;
+  border: 1px dashed var(--settings-border-strong);
+  border-radius: var(--settings-radius-md);
+  background: color-mix(in srgb, var(--settings-muted) 62%, var(--settings-surface));
+  padding: 14px;
+  transition: border-color .16s ease, background .16s ease;
+}
+
+#settingsContentBody .codex-import-dropzone.is-dragging {
+  border-color: var(--settings-primary);
+  background: var(--settings-primary-soft);
+}
+
+#settingsContentBody .codex-import-dropzone > div:first-of-type { min-width: 0; }
+#settingsContentBody .codex-import-dropzone > div:first-of-type strong { display: block; color: var(--settings-foreground); font-size: 12px; }
+#settingsContentBody .codex-import-dropzone > div:first-of-type p { margin: 4px 0 0; color: var(--settings-muted-foreground); font-size: 11px; line-height: 1.45; }
+#settingsContentBody .codex-import-dropzone > .settings-inline-actions { justify-content: flex-end; }
+
+#settingsContentBody .codex-import-dropzone-icon {
+  width: 38px;
+  height: 38px;
+  display: grid;
+  place-items: center;
+  border-radius: 10px;
+  background: var(--settings-surface);
+  color: var(--settings-primary);
+  box-shadow: 0 0 0 1px var(--settings-border);
+  font-size: 20px;
+  font-weight: 750;
+}
+
+#settingsContentBody .codex-import-dropzone-copy { min-width: 0; }
+#settingsContentBody .codex-import-dropzone-copy strong { display: block; color: var(--settings-foreground); font-size: 12px; }
+#settingsContentBody .codex-import-dropzone-copy p { margin: 4px 0 0; color: var(--settings-muted-foreground); font-size: 11px; line-height: 1.45; }
+#settingsContentBody .codex-import-file-input { display: none; }
+#settingsContentBody .codex-import-file-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; }
+#settingsContentBody .codex-import-file-list { display: grid; gap: 7px; margin: 0; padding: 0; list-style: none; }
+#settingsContentBody .codex-import-file-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  border: 1px solid var(--settings-border);
+  border-radius: var(--settings-radius-sm);
+  background: var(--settings-surface);
+  padding: 8px 10px;
+}
+#settingsContentBody .codex-import-file-row > span:first-child { min-width: 0; overflow: hidden; color: var(--settings-foreground); font-size: 11px; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
+#settingsContentBody .codex-import-file-row small { color: var(--settings-muted-foreground); font-size: 10px; }
+#settingsContentBody .codex-import-file-status { border-radius: 999px; padding: 2px 7px; background: var(--settings-muted); color: var(--settings-muted-foreground); font-size: 10px; font-weight: 750; white-space: nowrap; }
+#settingsContentBody .codex-import-file-status.success { background: var(--settings-success-soft); color: var(--settings-success); }
+#settingsContentBody .codex-import-file-status.warning { background: var(--settings-warning-soft); color: var(--settings-warning); }
+#settingsContentBody .codex-import-file-status.danger { background: var(--settings-destructive-soft); color: var(--settings-destructive); }
+#settingsContentBody .codex-import-file-detail { grid-column: 1 / -1; color: var(--settings-muted-foreground); font-size: 10px; line-height: 1.45; overflow-wrap: anywhere; }
+#settingsContentBody .codex-import-divider { display: flex; align-items: center; gap: 10px; color: var(--settings-muted-foreground); font-size: 10px; text-transform: uppercase; }
+#settingsContentBody .codex-import-divider::before,
+#settingsContentBody .codex-import-divider::after { content: ""; height: 1px; flex: 1 1 auto; background: var(--settings-border); }
+#settingsContentBody .codex-import-result { display: grid; gap: 8px; border: 1px solid var(--settings-border); border-radius: var(--settings-radius-md); background: var(--settings-muted); padding: 10px; }
+#settingsContentBody .codex-import-result > strong { color: var(--settings-foreground); font-size: 11px; }
+#settingsContentBody .codex-import-result.is-success { border-color: color-mix(in srgb, var(--settings-success) 30%, var(--settings-border)); background: var(--settings-success-soft); }
+#settingsContentBody .codex-import-result.has-errors { border-color: color-mix(in srgb, var(--settings-warning) 32%, var(--settings-border)); background: var(--settings-warning-soft); }
+
+#settingsContentBody .codex-import-footer {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+#settingsContentBody .codex-import-footer p {
+  min-width: 0;
+  margin: 0;
+  color: var(--settings-muted-foreground);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+#settingsContentBody .codex-accounts-panel > .settings-alert { margin: 14px 18px 0; }
+#settingsContentBody .codex-console-loading { min-height: 180px; }
+#settingsContentBody .codex-batch-toolbar { border-color: var(--settings-border); background: var(--settings-muted); }
+#settingsContentBody .codex-batch-selection,
+#settingsContentBody .codex-batch-priority { color: var(--settings-muted-foreground); }
+#settingsContentBody .codex-batch-selection strong { color: var(--settings-foreground); }
+#settingsContentBody .codex-batch-link { color: var(--settings-primary); }
+#settingsContentBody .codex-batch-link:disabled { color: var(--settings-muted-foreground); }
+#settingsContentBody .codex-account-select-heading input,
+#settingsContentBody .codex-account-select-cell input { accent-color: var(--settings-primary); }
+
+#settingsContentBody .codex-accounts-panel .codex-account-table-wrap {
+  width: 100%;
+  max-width: 100%;
+  overflow-x: auto;
+  border: 0;
+  border-radius: 0;
+  background: var(--settings-surface);
+}
+
+#settingsContentBody .codex-accounts-panel .codex-account-table {
+  width: 100%;
+  min-width: 1120px;
+  table-layout: fixed;
+  background: var(--settings-surface);
+}
+
+#settingsContentBody .codex-accounts-panel .codex-oauth-account-table { min-width: 1240px; }
+
+#settingsContentBody .codex-account-table th,
+#settingsContentBody .codex-account-table td {
+  border-color: var(--settings-border);
+  color: var(--settings-foreground);
+  padding: 13px 8px;
+}
+
+#settingsContentBody .codex-account-table th {
+  background: var(--settings-muted);
+  color: var(--settings-muted-foreground);
+}
+
+#settingsContentBody .codex-account-table tbody tr:hover,
+#settingsContentBody .codex-account-table tbody tr.is-editing,
+#settingsContentBody .codex-account-table tbody tr.is-selected { background: color-mix(in srgb, var(--settings-primary-soft) 58%, var(--settings-surface)); }
+#settingsContentBody .codex-oauth-account-table th:nth-child(1) { width: 4%; }
+#settingsContentBody .codex-oauth-account-table th:nth-child(2) { width: 14%; }
+#settingsContentBody .codex-oauth-account-table th:nth-child(3) { width: 11%; }
+#settingsContentBody .codex-oauth-account-table th:nth-child(4) { width: 6%; }
+#settingsContentBody .codex-oauth-account-table th:nth-child(5) { width: 8%; }
+#settingsContentBody .codex-oauth-account-table th:nth-child(6) { width: 7%; }
+#settingsContentBody .codex-oauth-account-table th:nth-child(7) { width: 22%; }
+#settingsContentBody .codex-oauth-account-table th:nth-child(8) { width: 9%; }
+#settingsContentBody .codex-oauth-account-table th:nth-child(9) { width: 19%; }
+#settingsContentBody .anthropic-account-table th:nth-child(1) { width: 16%; }
+#settingsContentBody .anthropic-account-table th:nth-child(2) { width: 12%; }
+#settingsContentBody .anthropic-account-table th:nth-child(3) { width: 6%; }
+#settingsContentBody .anthropic-account-table th:nth-child(4) { width: 9%; }
+#settingsContentBody .anthropic-account-table th:nth-child(5) { width: 8%; }
+#settingsContentBody .anthropic-account-table th:nth-child(6) { width: 18%; }
+#settingsContentBody .anthropic-account-table th:nth-child(7) { width: 9%; }
+#settingsContentBody .anthropic-account-table th:nth-child(8) { width: 22%; }
+
+#settingsContentBody .codex-account-name {
+  display: block;
+  overflow: hidden;
+  color: var(--settings-foreground);
+  font-size: 12px;
+  font-weight: 750;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#settingsContentBody .codex-account-name-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+#settingsContentBody .codex-account-name-row .codex-account-name { min-width: 0; }
+#settingsContentBody .codex-account-name-row .codex-plan-badge { flex: 0 0 auto; margin-left: 0; }
+#settingsContentBody .codex-account-secondary { color: var(--settings-muted-foreground); }
+#settingsContentBody .codex-account-secondary .codex-plan-badge:first-child { margin-left: 0; }
+#settingsContentBody .codex-account-id { color: var(--settings-muted-foreground); }
+#settingsContentBody .codex-priority-value { font-weight: 700; }
+#settingsContentBody .codex-inline-edit-field { display: block; min-width: 0; }
+#settingsContentBody .codex-inline-edit-field input { margin: 0; }
+#settingsContentBody .codex-account-alias { min-width: 150px; }
+#settingsContentBody .codex-priority-input { width: 64px; }
+#settingsContentBody .settings-status-pill.danger {
+  border-color: color-mix(in srgb, var(--settings-destructive) 30%, var(--settings-border));
+  background: var(--settings-destructive-soft);
+  color: var(--settings-destructive);
+}
+
+#settingsContentBody .codex-quota-progress { background: var(--settings-muted); }
+#settingsContentBody .codex-quota-progress > span { background: var(--settings-success); }
+#settingsContentBody .codex-quota-progress.warning > span { background: var(--settings-warning); }
+#settingsContentBody .codex-quota-progress.danger > span { background: var(--settings-destructive); }
+#settingsContentBody .codex-usage-window-badge.is-5h { background: color-mix(in srgb, var(--settings-primary) 14%, var(--settings-surface)); color: var(--settings-primary); }
+#settingsContentBody .codex-usage-window-badge.is-7d { background: var(--settings-success-soft); color: var(--settings-success); }
+#settingsContentBody .codex-usage-window-stats span { background: var(--settings-muted); color: var(--settings-muted-foreground); }
+#settingsContentBody .codex-usage-window-percent { color: var(--settings-muted-foreground); }
+#settingsContentBody .codex-usage-window-percent.warning { color: var(--settings-warning); }
+#settingsContentBody .codex-usage-window-percent.danger { color: var(--settings-destructive); }
+#settingsContentBody .codex-local-usage-label,
+#settingsContentBody .codex-local-usage-label span,
+#settingsContentBody .codex-local-usage-cost { color: var(--settings-muted-foreground); }
+#settingsContentBody .codex-local-usage-label strong { color: var(--settings-foreground); }
+
+#settingsContentBody .codex-account-actions {
+  display: flex;
+  width: max-content;
+  max-width: 100%;
+  flex-wrap: nowrap;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 2px;
+  margin-left: 0;
+}
+
+#settingsContentBody .codex-icon-action {
+  width: 30px;
+  height: 30px;
+  flex: 0 0 30px;
+  display: inline-grid;
+  place-items: center;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--settings-muted-foreground);
+  padding: 0;
+  transition: color 0.12s ease, background 0.12s ease;
+}
+
+#settingsContentBody .codex-icon-action:hover { background: var(--settings-surface); color: var(--settings-primary); }
+#settingsContentBody .codex-icon-action:focus-visible { outline: 2px solid var(--settings-primary); outline-offset: 1px; }
+#settingsContentBody .codex-icon-action.delete:hover { color: var(--settings-destructive); }
+#settingsContentBody .codex-icon-action.save { color: var(--settings-success); }
+#settingsContentBody .codex-icon-action:disabled { cursor: wait; opacity: .55; }
+#settingsContentBody .codex-icon-action svg { width: 15px; height: 15px; }
+#settingsContentBody .codex-icon-action > span { display: none; }
+#settingsContentBody .codex-account-action-divider {
+  width: 1px;
+  height: 20px;
+  flex: 0 0 1px;
+  margin: 0 2px;
+  background: var(--settings-border);
+}
+
+/* Anthropic keeps account credentials separate from provider model configuration. */
+#settingsContentBody .anthropic-account-console {
+  --anthropic-accent: #d97706;
+  --anthropic-accent-soft: color-mix(in srgb, #f59e0b 12%, var(--settings-surface));
+}
+
+#settingsContentBody .anthropic-console-hero {
+  border-color: color-mix(in srgb, var(--anthropic-accent) 28%, var(--settings-border));
+  background: linear-gradient(135deg, var(--settings-surface), var(--anthropic-accent-soft));
+}
+
+#settingsContentBody .anthropic-add-panel,
+#settingsContentBody .anthropic-config-panel {
+  min-width: 0;
+  overflow: hidden;
+  padding: 0;
+}
+
+#settingsContentBody .anthropic-add-body,
+#settingsContentBody .anthropic-config-form {
+  display: grid;
+  min-width: 0;
+  gap: 14px;
+  padding: 16px 18px 18px;
+}
+
+#settingsContentBody .anthropic-account-form {
+  display: grid;
+  min-width: 0;
+  gap: 14px;
+}
+
+#settingsContentBody .anthropic-auth-tabs {
+  justify-content: flex-start;
+}
+
+#settingsContentBody .anthropic-add-grid,
+#settingsContentBody .anthropic-config-grid {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+#settingsContentBody .anthropic-profile-command {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 12px;
+  border: 1px solid color-mix(in srgb, var(--anthropic-accent) 24%, var(--settings-border));
+  border-radius: var(--settings-radius);
+  background: var(--anthropic-accent-soft);
+}
+
+#settingsContentBody .anthropic-profile-command > div {
+  display: grid;
+  min-width: 0;
+  gap: 6px;
+}
+
+#settingsContentBody .anthropic-profile-command span,
+#settingsContentBody .anthropic-secret-note {
+  color: var(--settings-muted-foreground);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+#settingsContentBody .anthropic-profile-command code {
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
+  color: var(--settings-foreground);
+  font: 650 12px/1.5 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  white-space: nowrap;
+}
+
+#settingsContentBody .anthropic-secret-note { margin: 0; }
+#settingsContentBody .anthropic-config-actions { justify-content: flex-end; }
+#settingsContentBody .anthropic-readonly-badge { white-space: nowrap; }
+
+/* Remaining-quota cell in the subscription account table. Populated only from
+   upstream rate-limit headers, so it is often the pending placeholder. */
+#settingsContentBody .subscription-quota { display: grid; gap: 3px; min-width: 0; }
+#settingsContentBody .subscription-quota-line {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+}
+#settingsContentBody .subscription-quota-label {
+  flex: 0 0 auto;
+  color: var(--settings-muted-foreground);
+  font-size: 11px;
+}
+#settingsContentBody .subscription-quota-value {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--settings-foreground);
+  font: 650 12px/1.5 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+#settingsContentBody .subscription-quota-empty {
+  color: var(--settings-muted-foreground);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+/* Subscription (Antigravity/Grok/Kimi) login panels. The markup mirrors the
+   Anthropic OAuth panel, so it takes the same vertical rhythm; without these
+   the intro copy, the action row, and the status line collapse together. */
+#settingsContentBody .subscription-login-idle,
+#settingsContentBody .subscription-login-device,
+#settingsContentBody .subscription-login-browser,
+#settingsContentBody .subscription-login-token { display: grid; gap: 14px; min-width: 0; }
+
+#settingsContentBody .subscription-token-fields { display: grid; gap: 10px; min-width: 0; }
+
+#settingsContentBody .subscription-device-code {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  border: 1px solid var(--settings-border);
+  border-radius: 10px;
+  padding: 11px 13px;
+  background: var(--settings-muted);
+}
+#settingsContentBody .subscription-device-code > span {
+  color: var(--settings-muted-foreground);
+  font-size: 11px;
+  line-height: 1.5;
+}
+#settingsContentBody .subscription-device-code code {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-x: auto;
+  color: var(--settings-foreground);
+  font: 700 15px/1.4 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  letter-spacing: .09em;
+  white-space: nowrap;
+}
+#settingsContentBody .subscription-login-status {
+  margin: 0;
+  color: var(--settings-muted-foreground);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+#settingsContentBody .anthropic-oauth-login { display: grid; gap: 14px; min-width: 0; }
+#settingsContentBody .anthropic-oauth-flow { display: grid; gap: 10px; margin: 0; padding: 0; list-style: none; }
+#settingsContentBody .anthropic-oauth-step {
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
+  min-width: 0;
+  padding: 12px 14px;
+  border: 1px solid color-mix(in srgb, var(--anthropic-accent) 22%, var(--settings-border));
+  border-radius: var(--settings-radius);
+  background: color-mix(in srgb, var(--anthropic-accent-soft) 55%, var(--settings-surface));
+}
+#settingsContentBody .anthropic-oauth-step-num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--anthropic-accent);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+}
+#settingsContentBody .anthropic-oauth-step-main { display: grid; gap: 6px; min-width: 0; }
+#settingsContentBody .anthropic-oauth-step-title { margin: 0; color: var(--settings-foreground); font-size: 13px; font-weight: 650; }
+#settingsContentBody .anthropic-oauth-step-hint { margin: 0; color: var(--settings-muted-foreground); font-size: 11px; line-height: 1.5; }
+#settingsContentBody .anthropic-oauth-reopen {
+  justify-self: start;
+  margin-top: 2px;
+  color: var(--anthropic-accent);
+  font-size: 11px;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+#settingsContentBody .anthropic-oauth-paste { justify-self: start; margin-top: 4px; }
+#settingsContentBody .anthropic-oauth-manual { margin-top: 6px; }
+#settingsContentBody .anthropic-oauth-manual > summary { color: var(--settings-muted-foreground); font-size: 11px; cursor: pointer; user-select: none; }
+#settingsContentBody .anthropic-oauth-manual[open] > summary { margin-bottom: 8px; }
+#settingsContentBody .anthropic-oauth-manual .settings-form-field { margin-top: 8px; }
+#settingsContentBody .anthropic-oauth-foot { display: flex; justify-content: flex-end; }
+#settingsContentBody .anthropic-quota-bucket { display: grid; gap: 2px; padding-bottom: 5px; border-bottom: 1px dashed var(--settings-border); }
+#settingsContentBody .anthropic-quota-bucket:last-of-type { padding-bottom: 0; border-bottom: 0; }
+#settingsContentBody .anthropic-quota-bucket strong { color: var(--settings-foreground); font-size: 10px; }
+#settingsContentBody .anthropic-account-table th:nth-child(1) { width: 17%; }
+#settingsContentBody .anthropic-account-table th:nth-child(2) { width: 10%; }
+#settingsContentBody .anthropic-account-table th:nth-child(3) { width: 6%; }
+#settingsContentBody .anthropic-account-table th:nth-child(4) { width: 10%; }
+#settingsContentBody .anthropic-account-table th:nth-child(5) { width: 8%; }
+#settingsContentBody .anthropic-account-table th:nth-child(6) { width: 19%; }
+#settingsContentBody .anthropic-account-table th:nth-child(7) { width: 11%; }
+#settingsContentBody .anthropic-account-table th:nth-child(8) { width: 19%; }
+
+@media (max-width: 1023px) {
+  #settingsModal .settings-dialog-shell { width: 100%; height: 100%; }
+  #settingsContentBody .usage-history-page .uh-summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  #settingsContentBody .usage-history-page .uh-filter-form { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  #settingsContentBody .mp-provider-page .mp-stat-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  #settingsContentBody .codex-console-hero { grid-template-columns: minmax(0, 1fr); align-items: start; }
+  #settingsContentBody .codex-console-actions { justify-content: flex-start; }
+  #settingsContentBody .codex-console-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  #settingsContentBody .anthropic-add-grid,
+  #settingsContentBody .anthropic-config-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (min-width: 768px) and (max-width: 1023px) {
+  #settingsModal .settings-dialog-shell {
+    grid-template-columns: var(--session-sidebar-width, 296px) minmax(0, 1fr);
+  }
+
+  #settingsModal .settings-sidebar {
+    gap: 10px;
+    padding: 10px;
+  }
+
+  #settingsModal .settings-nav-groups {
+    gap: 12px;
+  }
+
+  #settingsModal .settings-nav-group + .settings-nav-group {
+    padding-top: 10px;
+  }
+}
+
+@media (max-width: 767px) {
+  #settingsModal {
+    inset: 0;
+    align-items: stretch;
+    justify-content: stretch;
+    padding: 0;
+  }
+
+  #settingsModal .settings-dialog-shell {
+    width: 100vw;
+    height: 100dvh;
+    display: flex;
+    flex-direction: column;
+    border: 0;
+    border-radius: 0;
+  }
+
+  #settingsModal .settings-sidebar {
+    min-height: 0;
+    flex: 0 0 auto;
+    display: grid;
+    gap: 0;
+    overflow: visible;
+    border-right: 0;
+    border-bottom: 1px solid var(--settings-border);
+    background: var(--settings-surface);
+    padding: 0;
+  }
+
+  #settingsModal .settings-sidebar-header {
+    min-height: 52px;
+    order: 0;
+    padding: 4px 8px 4px 12px;
+  }
+
+  #settingsModal .settings-close-btn {
+    width: 44px;
+    height: 44px;
+    font-size: 20px;
+  }
+
+  /* The settings sidebar collapses into a sticky header on narrow screens, so
+     this button rode along above every settings page and subpage, spending the
+     scarcest space on the least frequent action. The wizard still opens by
+     itself on first run and whenever the preferred model has gone missing, so
+     the manual entry only earns its place on desktop. */
+  #settingsModal .settings-wizard-btn {
+    display: none;
+  }
+
+  /* Same reasoning as the wizard button above. On a phone the sidebar is a
+     sticky header, and a search field there costs a row of the little vertical
+     space there is while duplicating the category list sitting directly under
+     it -- eighteen sections, all reachable by thumb without typing. It stays on
+     desktop, where the sidebar is a column and the row is free. */
+  #settingsModal .settings-sidebar-search {
+    display: none;
+  }
+
+  #settingsModal .settings-mobile-category-nav,
+  #settingsModal .settings-nav-groups {
+    display: flex;
+    flex: 0 0 auto;
+    align-items: center;
+    gap: 6px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    overscroll-behavior-inline: contain;
+    scroll-snap-type: x proximity;
+    background: var(--settings-surface);
+    padding: 7px 12px;
+    scrollbar-width: none;
+  }
+
+  #settingsModal .settings-mobile-category-nav::-webkit-scrollbar,
+  #settingsModal .settings-nav-groups::-webkit-scrollbar {
+    display: none;
+  }
+
+  #settingsModal .settings-mobile-category-nav {
+    order: 2;
+    border-top: 1px solid var(--settings-border);
+    border-bottom: 1px solid var(--settings-border);
+  }
+
+  #settingsModal .settings-nav-groups {
+    order: 3;
+    padding-top: 6px;
+    padding-bottom: 6px;
+  }
+
+  #settingsModal .settings-nav-group {
+    display: contents;
+  }
+
+  #settingsModal .settings-nav-group-label {
+    display: none;
+  }
+
+  #settingsModal .settings-mobile-category-nav :is(button, a),
+  #settingsModal .settings-nav-groups .settings-nav-item {
+    width: auto;
+    min-height: var(--settings-control-height-touch);
+    flex: 0 0 auto;
+    scroll-snap-align: start;
+    border: 1px solid var(--settings-border);
+    border-radius: var(--settings-radius);
+    background: var(--settings-surface);
+    color: var(--settings-muted-foreground);
+    padding: 0 12px;
+    white-space: nowrap;
+  }
+
+  #settingsModal .settings-mobile-category-nav :is(button, a):hover,
+  #settingsModal .settings-mobile-category-nav :is(button, a):focus-visible,
+  #settingsModal .settings-mobile-category-nav :is(button, a).active,
+  #settingsModal .settings-mobile-category-nav :is(button, a)[aria-pressed="true"] {
+    border-color: color-mix(in srgb, var(--settings-primary) 38%, var(--settings-border));
+    background: var(--settings-primary-soft);
+    color: var(--settings-primary);
+  }
+
+  #settingsModal .settings-mobile-category-nav :is(button, a):focus-visible {
+    outline: 0;
+    box-shadow: 0 0 0 3px var(--settings-ring);
+  }
+
+  #settingsModal .settings-nav-groups .settings-nav-item {
+    display: flex;
+  }
+
+  #settingsModal .settings-nav-groups .settings-nav-item::before,
+  #settingsModal .settings-nav-groups .settings-nav-label small,
+  #settingsModal .settings-nav-groups .settings-nav-icon {
+    display: none;
+  }
+
+  #settingsModal .settings-main {
+    min-height: 0;
+    flex: 1 1 auto;
+  }
+
+  #settingsModal .settings-main-header {
+    min-height: 56px;
+    padding: 10px 14px;
+  }
+
+  #settingsModal .settings-help-trigger,
+  #settingsModal .settings-help-close { width: 40px; height: 40px; min-width: 40px; }
+  #settingsModal .settings-help-panel { width: 100%; border-left: 0; }
+  #settingsModal .settings-help-panel-header { min-height: 56px; padding: 10px 14px; }
+  #settingsModal .settings-help-body { padding: 16px 14px 24px; }
+
+  #settingsModal .settings-page-frame { padding: 14px 12px 28px; }
+  #settingsModal .legacy-settings-content-body { padding: 0; }
+  #settingsContentBody :is(.settings-card, .settings-page-section, .settings-provider-section, .settings-panel-card, .settings-info-card, .automation-section, .settings-hero-card) { padding: 14px; }
+  #settingsContentBody :is(.settings-form-grid, .settings-provider-form-grid, .automation-form, .settings-choice-grid, .appearance-choice-grid, .terminal-retention-grid) { grid-template-columns: minmax(0, 1fr); }
+  /* Line-count choices are short numbers; a full-width column per choice wastes
+     most of a phone screen, so keep them two abreast. */
+  #settingsContentBody .terminal-retention-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  #settingsContentBody .automation-metrics.settings-stat-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  #settingsContentBody .settings-form-span-2,
+  #settingsContentBody .automation-form .span-2 { grid-column: span 1; }
+  #settingsContentBody :is(.settings-action-btn, .automation-btn, .settings-button) { min-height: var(--settings-control-height-touch); }
+  #settingsContentBody .usage-history-page { gap: 12px; padding-bottom: 20px; }
+  #settingsContentBody .usage-history-page .uh-hero { padding: 16px; }
+  #settingsContentBody .usage-history-page .uh-hero .uh-button { width: 100%; min-height: var(--settings-control-height-touch); }
+  #settingsContentBody .usage-history-page :is(.uh-summary-grid, .uh-filter-form) { grid-template-columns: minmax(0, 1fr); }
+  #settingsContentBody .usage-history-page .uh-panel { padding: 14px; }
+  #settingsContentBody .usage-history-page .uh-trend-controls { align-items: stretch; }
+  #settingsContentBody .usage-history-page .uh-bucket-switch button { min-height: 36px; }
+  #settingsContentBody .usage-history-page .uh-chart-host { min-height: 220px; padding: 4px; overflow-x: auto; }
+  #settingsContentBody .usage-history-page .uh-trend-svg { min-width: 420px; height: 220px; }
+  #settingsContentBody .usage-history-page .uh-filter-actions { grid-column: 1; }
+  #settingsContentBody .codex-account-console { gap: 12px; padding-bottom: 20px; }
+  #settingsContentBody .codex-console-hero { padding: 16px; }
+  #settingsContentBody .codex-console-heading,
+  #settingsContentBody .codex-console-section-head,
+  #settingsContentBody .codex-import-footer { align-items: stretch; flex-direction: column; }
+  #settingsContentBody .codex-console-actions { display: grid; grid-template-columns: minmax(0, 1fr); width: 100%; }
+  #settingsContentBody .codex-console-actions .settings-action-btn { width: 100%; }
+  #settingsContentBody .codex-browser-login-panel,
+  #settingsContentBody .codex-import-panel,
+  #settingsContentBody .codex-accounts-panel { padding: 0; }
+  #settingsContentBody .codex-console-section-head { padding: 14px; }
+  #settingsContentBody .codex-browser-login-body { grid-template-columns: minmax(0, 1fr); padding: 14px; }
+  #settingsContentBody .codex-browser-login-actions { display: grid; grid-template-columns: minmax(0, 1fr); justify-content: stretch; width: 100%; }
+  #settingsContentBody .codex-browser-login-actions .settings-action-btn,
+  #settingsContentBody .codex-browser-login-actions .settings-status-pill { width: 100%; }
+  #settingsContentBody .codex-import-body { padding: 14px; }
+  #settingsContentBody .codex-import-dropzone { grid-template-columns: minmax(0, 1fr); align-items: stretch; }
+  #settingsContentBody .codex-import-dropzone-icon { display: none; }
+  #settingsContentBody .codex-import-dropzone > .settings-inline-actions { display: grid; grid-template-columns: minmax(0, 1fr); justify-content: stretch; }
+  #settingsContentBody .codex-import-dropzone > .settings-inline-actions .settings-action-btn { width: 100%; }
+  #settingsContentBody .codex-import-file-actions { display: grid; grid-template-columns: minmax(0, 1fr); }
+  #settingsContentBody .codex-import-file-actions .settings-action-btn { width: 100%; }
+  #settingsContentBody .codex-import-file-row { grid-template-columns: minmax(0, 1fr) auto; }
+  #settingsContentBody .codex-import-file-row small { display: none; }
+  #settingsContentBody .codex-accounts-panel > .settings-alert { margin: 12px 12px 0; }
+  #settingsContentBody .codex-batch-toolbar { margin: 12px; border: 1px solid var(--settings-border); border-radius: var(--settings-radius-md); }
+  #settingsContentBody .codex-accounts-panel .codex-account-table-wrap { overflow: visible; border: 0; }
+  #settingsContentBody .codex-accounts-panel .codex-account-table { min-width: 0; background: transparent; }
+  #settingsContentBody .codex-account-table thead { display: none; }
+  #settingsContentBody .codex-account-table,
+  #settingsContentBody .codex-account-table tbody,
+  #settingsContentBody .codex-account-table tr,
+  #settingsContentBody .codex-account-table td { display: block; width: 100%; }
+  #settingsContentBody .codex-account-table tr { margin: 0; padding: 14px; border-bottom: 1px solid var(--settings-border); background: var(--settings-surface); }
+  #settingsContentBody .codex-account-table tr:last-child { border-bottom: 0; }
+  #settingsContentBody .codex-account-table td { display: grid; grid-template-columns: minmax(92px, 30%) minmax(0, 1fr); gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--settings-border); }
+  #settingsContentBody .codex-account-table td::before { content: attr(data-label); color: var(--settings-muted-foreground); font-size: 11px; font-weight: 750; }
+  #settingsContentBody .codex-account-table td:last-child { border-bottom: 0; }
+  #settingsContentBody .codex-account-actions {
+    width: 100%;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 6px;
+    margin-left: 0;
+    padding: 0;
+    border: 0;
+    background: transparent;
+  }
+  #settingsContentBody .codex-account-action-divider { display: none; }
+  #settingsContentBody .codex-icon-action { width: 100%; min-width: 0; height: 38px; flex: none; display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 0 10px; border: 1px solid var(--settings-border); background: var(--settings-surface); }
+  #settingsContentBody .codex-icon-action > span { display: inline; font-size: 11px; font-weight: 700; }
+  #settingsContentBody .anthropic-add-body,
+  #settingsContentBody .anthropic-config-form { padding: 14px; }
+  #settingsContentBody .anthropic-add-grid,
+  #settingsContentBody .anthropic-config-grid { grid-template-columns: minmax(0, 1fr); }
+  #settingsContentBody .anthropic-auth-tabs,
+  #settingsContentBody .anthropic-config-actions { display: grid; grid-template-columns: minmax(0, 1fr); width: 100%; }
+  #settingsContentBody .anthropic-auth-tabs .settings-action-btn,
+  #settingsContentBody .anthropic-config-actions .settings-action-btn { width: 100%; }
+  #settingsContentBody .anthropic-profile-command { align-items: stretch; flex-direction: column; }
+  #settingsContentBody .anthropic-profile-command .settings-action-btn { width: 100%; }
+}
+
+@media (max-width: 399px) {
+  #settingsModal .settings-main-heading,
+  #settingsModal .settings-content-title { font-size: 16px; }
+  #settingsContentBody .usage-history-page .uh-summary-card { min-height: 96px; }
+}
+
+body.ui-density-compact #settingsModal,
+body.ui-density-compact #settingsContentBody {
+  --settings-control-height: 34px;
+  --settings-space-3: 10px;
+  --settings-space-4: 12px;
+  --settings-space-5: 16px;
+}
+
+body.ui-density-compact #settingsContentBody :is(.settings-card, .settings-page-section, .settings-provider-section, .settings-panel-card, .settings-info-card, .automation-section, .settings-hero-card) { padding: 14px; }
+body.ui-density-compact #settingsContentBody :is(.codex-browser-login-panel, .codex-import-panel, .codex-accounts-panel) { padding: 0; }
+body.ui-density-compact #settingsContentBody .usage-history-page .uh-summary-card { min-height: 92px; padding: 12px; }
+
+@media (prefers-reduced-motion: reduce) {
+  #settingsModal *,
+  #settingsContentBody * { scroll-behavior: auto; transition-duration: .01ms; animation-duration: .01ms; animation-iteration-count: 1; }
+}
+

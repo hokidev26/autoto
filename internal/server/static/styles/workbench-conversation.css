@@ -1,0 +1,1420 @@
+/* Legacy chat transcript alignment. Intentionally excludes every composer/input selector. */
+@media (min-width: 768px) {
+  body.white-shell.theme-light .session-sidebar-header {
+    flex: 0 0 64px;
+    height: 64px;
+    min-height: 64px;
+  }
+
+  body.white-shell.theme-light .chat-header {
+    flex: 0 0 64px;
+    height: 64px;
+    min-height: 64px;
+    gap: 0;
+    padding: 0 18px;
+    border-bottom-color: var(--ws-border);
+    background: var(--ws-card);
+  }
+
+  body.white-shell.theme-light .header-left {
+    gap: 12px;
+  }
+
+  body.white-shell.theme-light .chat-heading {
+    display: grid;
+    gap: 2px;
+  }
+
+  body.white-shell.theme-light .chat-title-row {
+    gap: 6px;
+  }
+
+  body.white-shell.theme-light .chat-title {
+    max-width: min(42vw, 520px);
+    color: var(--ws-text);
+    font-size: 16px;
+    font-weight: 700;
+    letter-spacing: 0;
+  }
+
+  body.white-shell.theme-light .chat-subtitle {
+    display: block !important;
+    max-width: 60vw;
+    color: var(--ws-muted);
+    font-size: 12px;
+  }
+
+  body.white-shell.theme-light .workspace-meta-pills {
+    gap: 6px;
+    margin-top: 5px;
+    max-width: min(68vw, 820px);
+  }
+
+  body.white-shell.theme-light .header-actions {
+    gap: 8px;
+  }
+
+  body.white-shell.theme-light .header-state-source {
+    display: inline-flex;
+  }
+
+  body.white-shell.theme-light .header-tool-group {
+    gap: 2px;
+    padding: 3px;
+    border: 1px solid var(--ws-border);
+    border-radius: 12px;
+    background: var(--ws-input);
+  }
+
+  body.white-shell.theme-light .header-tool-btn {
+    width: 28px;
+    min-width: 28px;
+    height: 28px;
+    min-height: 28px;
+    border-radius: 9px;
+    padding: 6px;
+  }
+
+  body.white-shell.theme-light .chat-title-action {
+    width: 24px;
+    min-width: 24px;
+    height: 24px;
+    flex-basis: 24px;
+    border-radius: 7px;
+    padding: 4px;
+  }
+}
+
+body.white-shell.theme-light .messages {
+  padding: 16px 22px 8px;
+  background: transparent;
+  color: var(--ws-text);
+}
+
+body.white-shell.theme-light .messages.empty {
+  align-items: center;
+  justify-content: center;
+  padding: 16px 22px 8px;
+  color: var(--ws-muted);
+}
+
+body.white-shell.theme-light .empty-conversation-state {
+  width: auto;
+  max-width: min(560px, 92%);
+  color: var(--ws-muted);
+  font-size: 14px;
+  line-height: 1.55;
+  text-align: center;
+}
+
+body.white-shell.theme-light .empty-workspace-card {
+  width: min(420px, 92%);
+  border: 1px solid var(--ws-border);
+  border-radius: 18px;
+  background: var(--ws-card);
+  color: var(--ws-text);
+  padding: 26px;
+  text-align: center;
+  box-shadow: var(--ws-shadow);
+}
+
+body.white-shell.theme-light .empty-workspace-icon {
+  width: 46px;
+  height: 46px;
+  margin: 0 auto 12px;
+  border-radius: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--ws-primary-soft);
+  color: var(--ws-primary);
+  font-size: 22px;
+}
+
+body.white-shell.theme-light .empty-workspace-title {
+  margin: 0 0 8px;
+  color: var(--ws-text);
+  font-size: 18px;
+  font-weight: 850;
+}
+
+body.white-shell.theme-light .empty-workspace-text {
+  margin-top: 0;
+  color: var(--ws-muted);
+  font-size: 13px;
+  line-height: 1.65;
+}
+
+body.white-shell.theme-light .empty-workspace-action {
+  min-height: 38px;
+  margin-top: 16px;
+  border: 1px solid var(--ws-primary);
+  border-radius: 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--ws-primary);
+  color: #ffffff;
+  padding: 0 16px;
+  font-weight: 800;
+}
+
+body.white-shell.theme-light .empty-workspace-hint {
+  display: block;
+  margin-top: 10px;
+  color: var(--ws-muted);
+  font-size: 12px;
+}
+
+body.white-shell.theme-light .message,
+body.white-shell.theme-light .message.user,
+body.white-shell.theme-light .message.assistant {
+  max-width: min(740px, 84%);
+  margin: 0 0 14px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--ws-text);
+  padding: 4px 0;
+  box-shadow: none;
+  white-space: pre-wrap;
+}
+
+body.white-shell.theme-light .message.user {
+  margin-left: auto;
+}
+
+body.white-shell.theme-light .message.assistant {
+  margin-right: auto;
+}
+
+body.white-shell.theme-light .message-head {
+  gap: 10px;
+  margin-bottom: 5px;
+}
+
+body.white-shell.theme-light .message-role {
+  display: block;
+  color: var(--ws-muted);
+  font-size: 11px;
+  text-transform: uppercase;
+}
+
+body.white-shell.theme-light .message-copy-btn,
+body.white-shell.theme-light .message.user .message-copy-btn,
+body.white-shell.theme-light .message.assistant .message-copy-btn {
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--ws-muted);
+  padding: 2px 8px;
+  font-size: 11px;
+  font-weight: 750;
+  opacity: .72;
+}
+
+body.white-shell.theme-light .message-copy-btn:hover,
+body.white-shell.theme-light .message.user .message-copy-btn:hover,
+body.white-shell.theme-light .message.assistant .message-copy-btn:hover {
+  border-color: var(--ws-border);
+  background: var(--ws-input);
+  color: var(--ws-text);
+  opacity: 1;
+}
+
+body.white-shell.theme-light .message.user .message-role,
+body.white-shell.theme-light .message.user .attachment-subtitle {
+  color: var(--ws-muted);
+}
+
+body.white-shell.theme-light .message.user a {
+  color: var(--ws-primary);
+  text-decoration-color: color-mix(in srgb, var(--ws-primary) 55%, transparent);
+}
+
+body.white-shell.theme-light .message.user .inline-code,
+body.white-shell.theme-light .inline-code {
+  border-color: var(--ws-border);
+  border-radius: 5px;
+  background: var(--ws-input);
+  color: var(--ws-text);
+}
+
+body.white-shell.theme-light .message-content p {
+  margin: 0 0 10px;
+}
+
+body.white-shell.theme-light .message-content p:last-child {
+  margin-bottom: 0;
+}
+
+body.white-shell.theme-light .message-content ul {
+  margin: 0 0 10px 20px;
+  padding: 0;
+}
+
+@media (max-width: 767px) {
+  body.white-shell.theme-light .chat-header {
+    flex-basis: 54px;
+    height: 54px;
+    min-height: 54px;
+    padding: 0 14px;
+  }
+
+  body.white-shell.theme-light .chat-title {
+    max-width: 42vw;
+    font-size: 16px;
+    font-weight: 500;
+  }
+
+  body.white-shell.theme-light .chat-subtitle,
+  body.white-shell.theme-light .workspace-meta-pills,
+  body.white-shell.theme-light .header-state-source {
+    display: none !important;
+  }
+
+  body.white-shell.theme-light .header-tool-group {
+    gap: 4px;
+    padding: 0;
+    border: 0;
+    background: transparent;
+  }
+
+  body.white-shell.theme-light .icon-btn,
+  body.white-shell.theme-light .header-tool-btn {
+    width: 30px;
+    min-width: 30px;
+    height: 34px;
+    min-height: 34px;
+    border-radius: 7px;
+    padding: 5px;
+  }
+
+  body.white-shell.theme-light .messages {
+    padding: 16px 14px 190px;
+  }
+
+  body.white-shell.theme-light .messages.empty {
+    padding: 20px 20px 190px;
+  }
+
+  body.white-shell.theme-light .message,
+  body.white-shell.theme-light .message.user,
+  body.white-shell.theme-light .message.assistant {
+    max-width: 100%;
+    margin: 0;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    color: var(--ws-text);
+    padding: 8px 0;
+    font-size: 17px;
+    line-height: 1.55;
+  }
+
+  body.white-shell.theme-light .message-role {
+    display: none;
+  }
+}
+
+/* Codex account management remains readable in the stable dark palette. */
+body.white-shell.theme-light.theme-dark .codex-account-table-wrap,
+body.white-shell.theme-light.theme-dark .codex-account-table th,
+body.white-shell.theme-light.theme-dark .codex-account-table td {
+  border-color: var(--ws-border);
+}
+body.white-shell.theme-light.theme-dark .codex-account-table,
+body.white-shell.theme-light.theme-dark .codex-account-table tr {
+  background: var(--ws-card);
+}
+body.white-shell.theme-light.theme-dark .codex-account-table th {
+  background: var(--ws-input);
+  color: var(--ws-muted);
+}
+body.white-shell.theme-light.theme-dark .codex-account-table td,
+body.white-shell.theme-light.theme-dark .codex-account-id,
+body.white-shell.theme-light.theme-dark .codex-quota-label strong {
+  color: var(--ws-text);
+}
+body.white-shell.theme-light.theme-dark .codex-account-secondary,
+body.white-shell.theme-light.theme-dark .codex-quota-label,
+body.white-shell.theme-light.theme-dark .codex-quota-meta,
+body.white-shell.theme-light.theme-dark .codex-no-quota {
+  color: var(--ws-muted);
+}
+body.white-shell.theme-light.theme-dark .codex-quota-progress {
+  background: var(--ws-border);
+}
+
+@media (max-width: 480px) {
+  .codex-account-table td {
+    grid-template-columns: minmax(76px, 28%) minmax(0, 1fr);
+  }
+  .codex-account-actions .settings-action-btn {
+    flex: 1 1 calc(50% - 6px);
+  }
+}
+
+/* Final conversation visual integration: this block deliberately follows Figure 2,
+   legacy transcript, and responsive rules so the active conversation shell shares one geometry. */
+body.white-shell.theme-light .recent-conversations-sidebar:has(.recent-conversations-deduplicated) {
+  display: none;
+}
+
+body.white-shell.theme-light .sidebar-search-wrap {
+  margin-bottom: 9px;
+}
+
+body.white-shell.theme-light .sidebar-search {
+  min-height: 38px;
+  font-size: 13px;
+  line-height: 1.25;
+}
+
+body.white-shell.theme-light .project-list {
+  gap: 2px;
+  padding-right: 4px;
+}
+
+body.white-shell.theme-light .navigation-project-group {
+  position: relative;
+  gap: 1px;
+}
+
+body.white-shell.theme-light .navigation-project-group + .navigation-project-group {
+  margin-top: 2px;
+}
+
+body.white-shell.theme-light .navigation-project-conversations {
+  position: relative;
+  display: grid;
+  gap: 0;
+  margin: 0 0 2px 6px;
+  padding: 0 0 1px 12px;
+}
+
+/* The collapse markup carries the hidden attribute, which is only a UA-level
+   display: none and therefore loses to the explicit display above. These make it
+   authoritative for the two containers a disclosure triangle controls, so a
+   collapsed node actually collapses rather than just reporting that it has. */
+body.white-shell.theme-light .navigation-project-conversations[hidden],
+body.white-shell.theme-light .navigation-workline-forks[hidden] {
+  display: none;
+}
+
+body.white-shell.theme-light .navigation-project-conversations::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 5px;
+  left: 4px;
+  width: 1px;
+  background: var(--ws-border);
+}
+
+body.white-shell.theme-light .navigation-project-row .navigation-project-title {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+body.white-shell.theme-light .navigation-project-row .project-kind-badge {
+  min-height: 15px;
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  border-radius: 4px;
+  background: var(--ws-primary-soft);
+  color: var(--ws-primary);
+  padding: 1px 5px;
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: .08em;
+  line-height: 1;
+}
+
+body.white-shell.theme-light .navigation-project-row .project-name {
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  color: inherit;
+  font-size: inherit;
+  font-weight: inherit;
+  line-height: inherit;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+body.white-shell.theme-light .navigation-project-row .project-path {
+  font-size: 10px;
+  line-height: 1.2;
+}
+
+body.white-shell.theme-light .navigation-project-row.active .project-kind-badge {
+  background: var(--ws-card);
+}
+
+body.white-shell.theme-light .navigation-project-row.active .project-name {
+  color: var(--ws-primary);
+}
+
+body.white-shell.theme-light .navigation-conversation-row {
+  min-height: 42px;
+  grid-template-columns: 14px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 7px;
+  border-radius: 8px;
+  padding: 5px 8px;
+}
+
+/* A row carrying a disclosure needs a column for it. Keyed off :has rather than
+   a class threaded through the renderer, so the grid cannot drift out of step
+   with the markup: the column exists exactly when the control does.
+   .nested is listed too, and deliberately: that rule restates the three-column
+   template further down this file and is more specific, so without matching its
+   specificity the nested rows -- which are precisely the ones carrying fork
+   triangles -- kept a three-column grid and pushed their own content out of
+   place. */
+body.white-shell.theme-light .navigation-conversation-row:has(> .navigation-disclosure),
+body.white-shell.theme-light .navigation-conversation-row.nested:has(> .navigation-disclosure) {
+  grid-template-columns: 16px 14px minmax(0, 1fr) auto;
+  gap: 5px;
+}
+
+body.white-shell.theme-light .navigation-disclosure {
+  /* 16px of column, but the hit area reaches the full row height so the target
+     is 16x42 rather than a 16px square that has to be aimed at. */
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  align-self: stretch;
+  min-height: 32px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--ws-muted);
+  padding: 0;
+  cursor: pointer;
+}
+
+body.white-shell.theme-light .navigation-disclosure svg {
+  width: 13px;
+  height: 13px;
+  fill: none;
+  stroke: currentColor;
+  /* Morphicons-style hairline. The heavier 2.2 read as a filled arrow at 12px and
+     fought the 1.7 strokes on the row icons beside it. */
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  /* The glyph is a right-pointing chevron; expanded rotates it down. Rotating one
+     shape keeps collapsed and expanded visually related, which two separate
+     glyphs would not.
+     The curve overshoots slightly past the target angle and settles back, which is
+     what reads as a spring rather than a slide. Kept short enough that repeated
+     toggling never feels like it is waiting on the animation. */
+  transition: transform .26s cubic-bezier(.34, 1.56, .64, 1);
+}
+
+body.white-shell.theme-light .navigation-disclosure.expanded svg {
+  transform: rotate(90deg);
+}
+
+body.white-shell.theme-light .navigation-disclosure:is(:hover, :focus-visible) {
+  background: var(--ws-input, #f2f3f5);
+  color: var(--ws-text, #20263a);
+}
+
+body.white-shell.theme-light .navigation-conversation-row .navigation-agent-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  color: var(--ws-muted);
+  line-height: 1;
+}
+
+body.white-shell.theme-light .navigation-conversation-row .navigation-agent-icon svg {
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+body.white-shell.theme-light .navigation-conversation-row .navigation-conversation-main {
+  gap: 1px;
+}
+
+body.white-shell.theme-light .navigation-conversation-row .navigation-conversation-title {
+  font-size: 13px;
+  line-height: 1.2;
+}
+
+body.white-shell.theme-light .navigation-conversation-row .navigation-conversation-meta {
+  display: block;
+  max-width: 100%;
+  font-size: 10px;
+  line-height: 1.2;
+}
+
+body.white-shell.theme-light .navigation-conversation-row.nested {
+  position: relative;
+  width: 100%;
+  min-height: 42px;
+  margin-left: 0;
+  grid-template-columns: 14px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 7px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  padding: 5px 7px;
+}
+
+body.white-shell.theme-light .navigation-conversation-row.nested::before {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: -8px;
+  width: 8px;
+  height: 1px;
+  background: var(--ws-border);
+}
+
+body.white-shell.theme-light .navigation-conversation-row.nested::after {
+  content: "";
+  position: absolute;
+  top: calc(50% - 2px);
+  left: -10px;
+  width: 5px;
+  height: 5px;
+  border: 1px solid var(--ws-card);
+  border-radius: 999px;
+  background: var(--ws-muted);
+}
+
+body.white-shell.theme-light .navigation-conversation-row.nested .navigation-agent-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  color: var(--ws-muted);
+  font-size: 10px;
+  line-height: 1;
+}
+
+body.white-shell.theme-light .navigation-conversation-row.nested .navigation-conversation-main {
+  gap: 1px;
+}
+
+body.white-shell.theme-light .navigation-conversation-row.nested .navigation-conversation-title {
+  font-size: 13px;
+  line-height: 1.2;
+}
+
+body.white-shell.theme-light .navigation-conversation-row.nested .navigation-conversation-meta {
+  display: block;
+  max-width: 100%;
+  font-size: 10px;
+  line-height: 1.2;
+}
+
+body.white-shell.theme-light .project-card.navigation-project-row:hover,
+body.white-shell.theme-light .navigation-conversation-row.nested:hover {
+  border-color: color-mix(in srgb, var(--ws-primary) 24%, var(--ws-border));
+  background: color-mix(in srgb, var(--ws-primary-soft) 72%, var(--ws-card));
+}
+
+body.white-shell.theme-light .project-card.navigation-project-row.active,
+body.white-shell.theme-light .navigation-conversation-row.nested.active {
+  border-color: color-mix(in srgb, var(--ws-primary) 42%, var(--ws-border));
+  background: var(--ws-primary-soft);
+  color: var(--ws-primary);
+  box-shadow: inset 2px 0 0 var(--ws-primary);
+}
+
+body.white-shell.theme-light .navigation-conversation-row.nested.active::after {
+  border-color: var(--ws-primary-soft);
+  background: var(--ws-primary);
+}
+
+body.white-shell.theme-light .project-card.navigation-project-row.active .project-name,
+body.white-shell.theme-light .navigation-conversation-row.nested.active .navigation-conversation-title {
+  color: var(--ws-primary);
+}
+
+/* Sidebar bubble, five states:
+     running                  -> blue, pulsing
+     waiting on a subagent    -> amber, slow pulse
+     replied, not yet read    -> green   (.unread, browser-local)
+     read, nothing running    -> grey
+     error                    -> red
+   Grey is the resting state, so idle/completed carry no colour of their own and
+   only the unread mark lifts them to green. Making idle green unconditionally is
+   what previously left every finished conversation looking permanently new. */
+body.white-shell.theme-light .navigation-conversation-row.status-running .navigation-agent-icon,
+body.white-shell.theme-light .navigation-conversation-row.status-pending .navigation-agent-icon,
+body.white-shell.theme-light .navigation-conversation-row.status-queued .navigation-agent-icon {
+  color: #3b82f6;
+}
+
+body.white-shell.theme-light .navigation-conversation-row.status-idle .navigation-agent-icon,
+body.white-shell.theme-light .navigation-conversation-row.status-completed .navigation-agent-icon {
+  color: var(--ws-muted, #747e90);
+}
+
+body.white-shell.theme-light .navigation-conversation-row.status-waiting .navigation-agent-icon {
+  color: #d97706;
+}
+
+body.white-shell.theme-light .navigation-conversation-row.unread:not(.status-running):not(.status-pending):not(.status-queued):not(.status-waiting):not(.status-error):not(.status-failed) .navigation-agent-icon {
+  color: #22c55e;
+}
+
+body.white-shell.theme-light .navigation-conversation-row.status-running::after,
+body.white-shell.theme-light .navigation-conversation-row.status-pending::after,
+body.white-shell.theme-light .navigation-conversation-row.status-queued::after {
+  background: #3b82f6;
+}
+
+body.white-shell.theme-light .navigation-conversation-row.status-idle::after,
+body.white-shell.theme-light .navigation-conversation-row.status-completed::after {
+  background: var(--ws-muted, #747e90);
+}
+
+body.white-shell.theme-light .navigation-conversation-row.status-waiting::after {
+  background: #d97706;
+}
+
+body.white-shell.theme-light .navigation-conversation-row.unread:not(.status-running):not(.status-pending):not(.status-queued):not(.status-waiting):not(.status-error):not(.status-failed)::after {
+  background: #22c55e;
+}
+
+/* An unread reply is worth noticing without being loud: the title goes from
+   regular to semibold, which reads as "new" even for a colour-blind reader. */
+body.white-shell.theme-light .navigation-conversation-row.unread .navigation-conversation-title {
+  font-weight: 700;
+}
+
+body.white-shell.theme-light .navigation-conversation-row.status-error .navigation-agent-icon,
+body.white-shell.theme-light .navigation-conversation-row.status-failed .navigation-agent-icon {
+  color: #dc4c64;
+}
+
+body.white-shell.theme-light .navigation-conversation-row.status-error::after,
+body.white-shell.theme-light .navigation-conversation-row.status-failed::after {
+  background: #dc4c64;
+}
+
+body.white-shell.theme-light .navigation-conversation-row.status-running .navigation-agent-icon svg,
+body.white-shell.theme-light .navigation-conversation-row.status-pending .navigation-agent-icon svg,
+body.white-shell.theme-light .navigation-conversation-row.status-queued .navigation-agent-icon svg {
+  animation: navigation-agent-pulse 1.2s ease-in-out infinite;
+}
+
+/* The wait breathes slower than a live run: something is happening, elsewhere. */
+body.white-shell.theme-light .navigation-conversation-row.status-waiting .navigation-agent-icon svg {
+  animation: navigation-agent-pulse 2.4s ease-in-out infinite;
+}
+
+@keyframes navigation-agent-pulse {
+  0%, 100% { opacity: .62; transform: scale(.92); }
+  50% { opacity: 1; transform: scale(1.06); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  body.white-shell.theme-light .navigation-conversation-row .navigation-agent-icon svg { animation: none; }
+  /* The spring is decoration: the rotation still lands, it just stops overshooting
+     and stops taking time. */
+  body.white-shell.theme-light .navigation-disclosure svg { transition: none; }
+}
+
+body.white-shell.theme-light .messages:not(.empty) {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-auto-rows: max-content;
+  justify-content: start;
+  align-content: start;
+  /* Exposed as a variable so rows that belong to the same turn can close the gap
+     without each density guessing at the number. */
+  --transcript-row-gap: 14px;
+  row-gap: var(--transcript-row-gap);
+  padding: 14px 16px 14px;
+}
+
+/* A turn's activity strip is part of that turn, not a separate message, so the
+   message-to-message rhythm reads as a hole above and below it. Pull it back to a
+   fixed 4px on both sides so the strip sits against the turn it belongs to;
+   max() keeps it from ever going negative in densities whose gap is already
+   tighter than that. */
+body.white-shell.theme-light .messages:not(.empty) > [class~="message-tool-activity"] {
+  margin-block: calc(-1 * max(0px, var(--transcript-row-gap, 14px) - 4px));
+}
+
+body.white-shell.theme-light .messages:not(.empty) > [class~="message"],
+body.white-shell.theme-light .messages:not(.empty) > [class~="live-tool-output-stack"],
+body.white-shell.theme-light .messages:not(.empty) > [class~="approval-stack"],
+body.white-shell.theme-light .messages:not(.empty) > [class~="run-summary-card"] {
+  min-width: 0;
+  margin: 0;
+}
+
+body.white-shell.theme-light .messages:not(.empty) > [class~="plan-card"] {
+  min-width: 0;
+  margin: 0;
+}
+
+body.white-shell.theme-light .messages:not(.empty) > [class~="message"] {
+  justify-self: stretch;
+  width: 100%;
+  max-width: 100%;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--ws-text);
+  padding: 4px 0 10px;
+  box-shadow: none;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
+body.white-shell.theme-light .messages:not(.empty) > [class~="message"][class~="user"] {
+  justify-self: end;
+  width: fit-content;
+  min-width: 0;
+  max-width: min(760px, 82%);
+  margin-left: auto;
+  border: 1px solid color-mix(in srgb, var(--ws-primary) 12%, var(--ws-border));
+  border-radius: 8px;
+  background: var(--ws-primary-soft);
+  color: var(--ws-text);
+  padding: 8px 10px 9px;
+}
+
+body.white-shell.theme-light .messages:not(.empty) > [class~="message"][class~="user"][class~="message-editing"] {
+  width: 100%;
+  max-width: 100%;
+  border-color: var(--ws-border);
+  background: var(--ws-card);
+}
+
+body.white-shell.theme-light .messages:not(.empty) > [class~="message"][class~="assistant"] {
+  width: 100%;
+  max-width: 100%;
+  margin-right: 0;
+  background: transparent;
+}
+
+body.white-shell.theme-light .messages:not(.empty) > [class~="message"]:not([class~="live-assistant-message"]) .message-head {
+  width: 100%;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto max-content;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 7px;
+}
+
+body.white-shell.theme-light .messages:not(.empty) > [class~="message"]:not([class~="live-assistant-message"]) .message-meta {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+body.white-shell.theme-light .messages:not(.empty) > [class~="message"] .message-avatar {
+  width: 18px;
+  height: 18px;
+  display: inline-grid;
+  flex: 0 0 18px;
+  place-items: center;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--ws-primary-soft);
+  color: var(--ws-primary);
+  font-size: 9px;
+  font-weight: 850;
+  line-height: 1;
+}
+
+/* Keep the Autoto logo SVG inside the 18px avatar chip — without an explicit
+   size the bare viewBox expands to hundreds of pixels and shoves the transcript. */
+body.white-shell.theme-light .messages:not(.empty) > [class~="message"] .message-avatar svg {
+  width: 14px;
+  height: 14px;
+  display: block;
+}
+
+body.white-shell.theme-light .messages:not(.empty) > [class~="message"][class~="user"] .message-avatar {
+  background: #f59e0b;
+  color: #ffffff;
+}
+
+body.white-shell.theme-light .messages:not(.empty) > [class~="message"] .message-role {
+  min-width: 0;
+  display: block;
+  overflow: hidden;
+  color: var(--ws-muted);
+  font-size: 11px;
+  font-weight: 750;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  text-transform: none;
+  white-space: nowrap;
+}
+
+body.white-shell.theme-light .messages:not(.empty) > [class~="message"]:not([class~="live-assistant-message"]) .message-head-actions {
+  grid-column: 2;
+  justify-self: end;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .14s ease;
+}
+
+body.white-shell.theme-light .messages:not(.empty) > [class~="message"]:not([class~="live-assistant-message"]):hover .message-head-actions,
+body.white-shell.theme-light .messages:not(.empty) > [class~="message"]:not([class~="live-assistant-message"]):focus-within .message-head-actions,
+body.white-shell.theme-light .messages:not(.empty) > [class~="message"][class~="message-editing"] .message-head-actions {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+body.white-shell.theme-light .messages:not(.empty) > [class~="message"]:not([class~="live-assistant-message"]) .message-time {
+  grid-column: 3;
+  justify-self: end;
+  color: var(--ws-muted);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+body.white-shell.theme-light .message-editing .message-correction-attachments,
+body.white-shell.theme-light .message-editing .message-correction-file-label {
+  color: var(--ws-muted);
+}
+
+body.white-shell.theme-light .message-editing .message-correction-text {
+  border-color: var(--ws-border);
+  border-radius: 7px;
+  background: var(--ws-input);
+  color: var(--ws-text);
+}
+
+@media (hover: none) {
+  body.white-shell.theme-light .messages:not(.empty) > [class~="message"]:not([class~="live-assistant-message"]) .message-head-actions {
+    opacity: 1;
+    pointer-events: auto;
+  }
+}
+
+body.white-shell.theme-light .messages:not(.empty) > [class~="message"] .message-content {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+body.white-shell.theme-light .messages:not(.empty) > [class~="message"] .message-content table {
+  display: block;
+  width: max-content;
+  max-width: 100%;
+  overflow-x: auto;
+  border-collapse: collapse;
+}
+
+body.white-shell.theme-light .messages:not(.empty) > [class~="message"] .message-content pre,
+body.white-shell.theme-light .messages:not(.empty) > [class~="message"] .code-block,
+body.white-shell.theme-light .messages:not(.empty) > [class~="message"] .code-block pre {
+  max-width: 100%;
+  overflow: auto;
+}
+
+body.white-shell.theme-light .messages:not(.empty) > [class~="live-tool-output-stack"],
+body.white-shell.theme-light .messages:not(.empty) > [class~="approval-stack"],
+body.white-shell.theme-light .messages:not(.empty) > [class~="run-summary-card"] {
+  justify-self: stretch;
+  width: 100%;
+  max-width: 100%;
+}
+
+body.white-shell.theme-light .messages:not(.empty) > [class~="plan-card"] {
+  justify-self: stretch;
+  width: 100%;
+  max-width: 100%;
+}
+
+body.white-shell.theme-light .messages:not(.empty) > [class~="live-tool-output-stack"],
+body.white-shell.theme-light .messages:not(.empty) > [class~="approval-stack"] {
+  display: grid;
+  gap: 10px;
+}
+
+body.white-shell.theme-light .messages [class~="live-tool-output-card"],
+body.white-shell.theme-light .messages [class~="approval-card"],
+body.white-shell.theme-light .messages [class~="run-summary-card"] {
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+body.white-shell.theme-light .messages [class~="plan-card"] {
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+body.white-shell.theme-light .messages [class~="live-tool-output-body"],
+body.white-shell.theme-light .messages [class~="approval-command"],
+body.white-shell.theme-light .messages [class~="code-block"] pre {
+  max-width: 100%;
+  overflow: auto;
+}
+
+body.white-shell.theme-light .messages [class~="run-summary-actions"],
+body.white-shell.theme-light .messages [class~="approval-actions"] {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+body.white-shell.theme-light .messages [class~="plan-card-actions"] {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+body.white-shell.theme-light .messages [class~="run-summary-actions"] > button,
+body.white-shell.theme-light .messages [class~="approval-actions"] > button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+body.white-shell.theme-light .messages [class~="plan-card-actions"] > button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+@media (min-width: 768px) {
+  body.white-shell.theme-light [class~="composer-wrap"] {
+    flex: 0 0 auto;
+    padding: 12px clamp(16px, 3vw, 38px) 16px;
+  }
+
+  body.white-shell.theme-light [class~="composer-card"] {
+    width: min(100%, 910px);
+    max-width: 910px;
+    margin: 0 auto;
+    gap: 8px;
+    border-color: var(--ws-border);
+    border-radius: 16px;
+    background: var(--ws-card);
+    padding: 10px 12px;
+  }
+
+  body.white-shell.theme-light [class~="composer-toolbar"] {
+    min-height: 34px;
+    height: auto;
+    flex: 0 0 auto;
+    align-items: flex-start;
+    gap: 8px;
+    padding: 0;
+  }
+
+  body.white-shell.theme-light [class~="composer-status"] {
+    display: none;
+  }
+
+  body.white-shell.theme-light [class~="composer-controls"] {
+    width: 100%;
+    flex: 1 1 auto;
+    flex-wrap: wrap;
+    column-gap: 10px;
+    row-gap: 6px;
+  }
+
+  body.white-shell.theme-light [class~="composer-field"] {
+    min-width: 0;
+    gap: 5px;
+  }
+
+  body.white-shell.theme-light [class~="composer-field-label"] {
+    color: var(--ws-muted);
+    font-size: 11px;
+    font-weight: 650;
+  }
+
+  body.white-shell.theme-light [class~="composer-model-field"] {
+    flex: 1 1 260px;
+    min-width: 210px;
+  }
+
+  body.white-shell.theme-light [class~="composer-effort-field"] {
+    flex: 0 1 auto;
+  }
+
+  body.white-shell.theme-light [class~="composer-permission-field"] {
+    flex: 0 1 auto;
+  }
+
+  body.white-shell.theme-light [class~="toolbar-model-pill"] {
+    height: 34px;
+    min-height: 34px;
+    min-width: 0;
+    max-width: none;
+    flex: 1 1 auto;
+  }
+
+  body.white-shell.theme-light [class~="model-pill"] [class~="compact-select"] {
+    min-width: 0;
+    max-width: none;
+    height: 32px;
+    padding: 3px 28px 3px 9px;
+    font-size: 12px;
+  }
+
+  body.white-shell.theme-light [class~="effort-pill"],
+  body.white-shell.theme-light [class~="permission-toolbar-pill"] {
+    min-height: 34px;
+    height: 34px;
+    border-radius: 9px;
+    font-size: 12px;
+  }
+
+  body.white-shell.theme-light [class~="effort-pill"] {
+    min-width: 104px;
+    width: 104px;
+  }
+
+  body.white-shell.theme-light [class~="permission-toolbar-pill"] {
+    min-width: 112px;
+    width: 112px;
+    padding-right: 26px;
+  }
+
+  body.white-shell.theme-light [class~="permission-safety-indicator"] {
+    width: 30px;
+    height: 30px;
+    flex: 0 0 30px;
+    border-radius: 9px;
+  }
+
+  body.white-shell.theme-light [class~="permission-risk-badge"] {
+    min-height: 28px;
+    padding: 3px 8px;
+    font-size: 10px;
+  }
+
+  body.white-shell.theme-light #composerInputShell {
+    min-height: 46px;
+    align-items: flex-end;
+    gap: 8px;
+  }
+
+  body.white-shell.theme-light [class~="message-input-frame"] {
+    display: flex;
+    align-items: flex-end;
+    min-height: 46px;
+  }
+
+  body.white-shell.theme-light textarea#messageText {
+    --composer-input-min-height: 46px;
+    --composer-input-max-height: 156px;
+    min-height: var(--composer-input-min-height);
+    max-height: var(--composer-input-max-height);
+    border-color: var(--ws-border);
+    border-radius: 12px;
+    background: var(--ws-input);
+    color: var(--ws-text);
+    padding: 11px 12px;
+    font-size: 15px;
+    line-height: 1.45;
+  }
+
+  /* The rule above wins on id specificity over every .message-input:focus rule,
+     which left the desktop composer with no focus indication at all. Keyed on
+     the frame's :focus-within rather than the textarea's own :focus so it stays
+     equivalent (the textarea is the frame's only focusable child) while also
+     being observable when the document itself is not focused.
+
+     box-shadow is cleared deliberately: white-shell.css adds a 3px translucent
+     ring on focus, which reads as a second frame outside the border. The solid
+     border alone is the focus indication. */
+  body.white-shell.theme-light [class~="message-input-frame"]:focus-within textarea#messageText {
+    border-color: var(--ws-primary, #4f6ef7);
+    box-shadow: none;
+  }
+
+  body.white-shell.theme-light #sendMessageBtn {
+    position: static;
+    width: 60px;
+    min-width: 60px;
+    height: 46px;
+    min-height: 46px;
+    flex: 0 0 60px;
+    transform: none;
+    border-radius: 12px;
+    padding: 0 11px;
+    font-size: 14px;
+    line-height: 1;
+  }
+}
+
+@media (max-width: 767px) {
+  body.white-shell.theme-light .chat-panel {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+  }
+
+  body.white-shell.theme-light .messages,
+  body.white-shell.theme-light .messages.empty {
+    flex: 1 1 auto;
+    min-height: 0;
+    padding: 14px 12px 12px;
+  }
+
+  body.white-shell.theme-light .messages:not(.empty) {
+    grid-template-columns: minmax(0, 100%);
+    --transcript-row-gap: 10px;
+    row-gap: var(--transcript-row-gap);
+  }
+
+  body.white-shell.theme-light .messages:not(.empty) > [class~="message"] {
+    max-width: 100%;
+    padding: 10px 11px;
+    font-size: 15px;
+    line-height: 1.5;
+  }
+
+  body.white-shell.theme-light .messages:not(.empty) > [class~="message"][class~="user"] {
+    max-width: 100%;
+  }
+
+  body.white-shell.theme-light .messages:not(.empty) > [class~="live-tool-output-stack"],
+  body.white-shell.theme-light .messages:not(.empty) > [class~="approval-stack"] {
+    width: 94%;
+  }
+
+  body.white-shell.theme-light .messages [class~="run-summary-card"] {
+    display: none;
+  }
+
+  body.white-shell.theme-light .messages:not(.empty) > [class~="plan-card"] {
+    width: 94%;
+  }
+
+  body.white-shell.theme-light [class~="composer-wrap"] {
+    position: static;
+    left: auto;
+    right: auto;
+    bottom: auto;
+    z-index: auto;
+    flex: 0 0 auto;
+    margin-top: auto;
+    padding: 8px 10px max(10px, env(safe-area-inset-bottom));
+    background: var(--ws-card);
+    box-shadow: none;
+  }
+
+  body.white-shell.theme-light [class~="composer-card"] {
+    width: 100%;
+    max-width: none;
+    gap: 7px;
+    border-color: var(--ws-border);
+    border-radius: 14px;
+    background: var(--ws-card);
+    padding: 8px;
+  }
+
+  body.white-shell.theme-light [class~="composer-toolbar"] {
+    min-height: 34px;
+    height: auto;
+    align-items: flex-start;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scrollbar-width: none;
+  }
+
+  body.white-shell.theme-light [class~="composer-toolbar"]::-webkit-scrollbar {
+    display: none;
+  }
+
+  body.white-shell.theme-light [class~="composer-status"],
+  body.white-shell.theme-light [class~="composer-actions"],
+  body.white-shell.theme-light [class~="toolbar-lightning-btn"] {
+    display: none;
+  }
+
+  body.white-shell.theme-light [class~="composer-controls"] {
+    width: max-content;
+    flex: 0 0 auto;
+    flex-wrap: nowrap;
+    gap: 8px;
+  }
+
+  body.white-shell.theme-light [class~="composer-field"] {
+    flex: 0 0 auto;
+    gap: 4px;
+  }
+
+  body.white-shell.theme-light [class~="composer-field-label"] {
+    color: var(--ws-muted);
+    font-size: 10px;
+    font-weight: 650;
+  }
+
+  body.white-shell.theme-light [class~="composer-model-field"] {
+    width: 210px;
+  }
+
+  body.white-shell.theme-light [class~="toolbar-model-pill"] {
+    width: 170px;
+    min-width: 170px;
+    max-width: 170px;
+    min-height: 34px;
+    height: 34px;
+  }
+
+  body.white-shell.theme-light [class~="model-pill"] [class~="compact-select"] {
+    min-width: 0;
+    max-width: 100%;
+    height: 32px;
+    font-size: 12px;
+  }
+
+  body.white-shell.theme-light [class~="effort-pill"] {
+    width: 92px;
+    min-width: 92px;
+    min-height: 34px;
+    height: 34px;
+    font-size: 11px;
+  }
+
+  body.white-shell.theme-light [class~="permission-toolbar-pill"] {
+    width: 102px;
+    min-width: 102px;
+    min-height: 34px;
+    height: 34px;
+    padding-right: 24px;
+    font-size: 11px;
+  }
+
+  body.white-shell.theme-light [class~="permission-safety-indicator"] {
+    width: 30px;
+    height: 30px;
+    flex: 0 0 30px;
+    border-radius: 9px;
+  }
+
+  body.white-shell.theme-light [class~="permission-risk-badge"] {
+    min-height: 28px;
+    padding: 3px 8px;
+    font-size: 10px;
+  }
+
+  body.white-shell.theme-light #composerInputShell {
+    min-height: 46px;
+    align-items: flex-end;
+    gap: 7px;
+  }
+
+  body.white-shell.theme-light [class~="composer-attach-wrap"] {
+    flex: 0 0 38px;
+    width: 38px;
+    height: 46px;
+  }
+
+  body.white-shell.theme-light #attachFileBtn {
+    left: 2px;
+    width: 34px;
+    height: 34px;
+    min-width: 34px;
+  }
+
+  body.white-shell.theme-light [class~="message-input-frame"] {
+    display: flex;
+    align-items: flex-end;
+    min-height: 46px;
+  }
+
+  body.white-shell.theme-light textarea#messageText {
+    --composer-input-min-height: 46px;
+    --composer-input-max-height: 156px;
+    min-height: var(--composer-input-min-height);
+    max-height: var(--composer-input-max-height);
+    border-color: var(--ws-border);
+    border-radius: 12px;
+    background: var(--ws-input);
+    color: var(--ws-text);
+    padding: 11px 12px;
+    font-size: 16px;
+    line-height: 1.45;
+  }
+
+  body.white-shell.theme-light #sendMessageBtn {
+    position: static;
+    width: 52px;
+    min-width: 52px;
+    height: 46px;
+    min-height: 46px;
+    flex: 0 0 52px;
+    transform: none;
+    border-radius: 12px;
+    padding: 0 8px;
+    font-size: 13px;
+    line-height: 1;
+  }
+
+  body.white-shell.theme-light [class~="pending-attachments"] {
+    margin: 0 0 2px;
+    padding-left: 0;
+  }
+
+  body.white-shell.theme-light .navigation-project-conversations {
+    margin-left: 6px;
+    padding-left: 15px;
+  }
+
+  body.white-shell.theme-light .navigation-conversation-row.nested {
+    min-height: 42px;
+    padding-top: 6px;
+    padding-bottom: 6px;
+  }
+}
+
+@media (min-width: 768px) {
+  body.white-shell.theme-light.ui-density-compact .messages:not(.empty) {
+    --transcript-row-gap: 9px;
+    row-gap: var(--transcript-row-gap);
+    padding-top: 14px;
+    padding-bottom: 10px;
+  }
+
+  body.white-shell.theme-light.ui-density-compact [class~="composer-wrap"] {
+    padding-top: 9px;
+    padding-bottom: 11px;
+  }
+
+  body.white-shell.theme-light.ui-density-compact [class~="composer-card"] {
+    gap: 6px;
+    padding: 8px 10px;
+  }
+
+  body.white-shell.theme-light.ui-density-compact .project-card.navigation-project-row {
+    min-height: 40px;
+    padding-top: 4px;
+    padding-bottom: 4px;
+  }
+
+  body.white-shell.theme-light.ui-density-compact .navigation-conversation-row.nested {
+    min-height: 32px;
+    padding-top: 3px;
+    padding-bottom: 3px;
+  }
+}
+

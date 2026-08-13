@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { readFileSync } from "node:fs";
+import { readStylesGroupSync } from "./styles-source-helper.mjs";
 
 // CSS gap only does something on a grid or flex container. The skills page declared
 // a gap while remaining a plain block, so the value was inert: the tab strip sat
@@ -14,7 +14,7 @@ import { readFileSync } from "node:fs";
 // Comments are stripped first. A declaration is often preceded by the explanation
 // for it, and "*/" is neither a semicolon nor the start of the body, so matching
 // against the raw text reported a missing display that was in fact right there.
-const css = readFileSync(new URL("../styles/settings.css", import.meta.url), "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
+const css = readStylesGroupSync("settings.css", import.meta.url).replace(/\/\*[\s\S]*?\*\//g, "");
 
 function ruleBody(selector) {
   const index = css.indexOf(selector);

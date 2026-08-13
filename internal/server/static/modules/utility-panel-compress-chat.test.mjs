@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { readFile } from "node:fs/promises";
+import { readStylesGroup } from "./styles-source-helper.mjs";
 
 import {
   maxUtilityPanelWidth,
@@ -9,8 +9,6 @@ import {
   utilityPanelChatMinWidth,
   utilityPanelMaxAvailable,
 } from "./ui-shell.mjs";
-
-const stylesURL = new URL("../styles/workbench.css", import.meta.url);
 
 // The composer's narrowest tier is a 480px container, and that tier is what makes
 // the middle column look like the phone layout. Dragging the sidebar wider could
@@ -93,7 +91,7 @@ test("窄螢幕上讓路給對話，面板不會溢出視窗", () => {
 // The JS clamp and the CSS grid have to agree on the floor, or whichever is higher
 // silently becomes the real limit and the drag stops somewhere unexplained.
 test("CSS 格線的底線與 JS 的底線一致", async () => {
-  const styles = await readFile(stylesURL, "utf8");
+  const styles = await readStylesGroup("workbench.css", import.meta.url);
   // Only the app-shell columns describe the chat column. Toolbars and card grids
   // use minmax() for their own reasons and must not be swept in.
   const floors = [...styles.matchAll(/grid-template-columns:\s*76px var\(--session-sidebar-width\) minmax\((\d+)px, 1fr\)/g)]
@@ -105,7 +103,7 @@ test("CSS 格線的底線與 JS 的底線一致", async () => {
 });
 
 test("面板寬度的 CSS 上限與 JS 上限一致", async () => {
-  const styles = await readFile(stylesURL, "utf8");
+  const styles = await readStylesGroup("workbench.css", import.meta.url);
   const ceilings = [...styles.matchAll(/clamp\(\d+px, calc\(50vw - 186px\), (\d+)px\)/g)].map((match) => Number(match[1]));
   assert.ok(ceilings.length > 0, "找不到面板寬度的 CSS 上限");
   for (const ceiling of new Set(ceilings)) {

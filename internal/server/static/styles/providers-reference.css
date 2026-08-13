@@ -1,0 +1,959 @@
+/* Reference-style provider editor: full-width, dense, flat and row-oriented. */
+#settingsContentBody:has(.mp-provider-reference-layout) {
+  width: calc(100% - 24px);
+  max-width: none;
+  margin: 0 12px;
+  padding: 0 0 36px;
+  background: var(--mp-surface);
+}
+
+#settingsContentBody .mp-provider-reference-layout {
+  width: 100%;
+  max-width: none;
+  gap: 0;
+  padding: 0;
+  color: var(--mp-text);
+  background: var(--mp-surface);
+}
+
+body.white-shell.theme-light #settingsContentBody:has(.mp-provider-reference-layout),
+body.white-shell.theme-light #settingsContentBody .mp-provider-reference-layout {
+  background: #fff;
+}
+
+/* The rule above hard-codes the white shell on the provider reference layout,
+   and its :has() outranks the generated dark override block, so the dark
+   presets kept a white page under copy that had already been remapped to the
+   themed foreground: every field label rendered near-white on white. Restated
+   here at matching specificity so the dark palettes reach it. */
+body.white-shell.theme-light.theme-dark #settingsContentBody:has(.mp-provider-reference-layout),
+body.white-shell.theme-light.theme-dark #settingsContentBody .mp-provider-reference-layout {
+  background: var(--ws-card);
+}
+
+#settingsContentBody .mp-provider-reference-header {
+  padding: 4px 0 13px;
+  border-bottom: 1px solid var(--mp-border);
+}
+
+#settingsContentBody .mp-provider-reference-header .mp-provider-kicker {
+  margin: 0 0 8px;
+  color: var(--mp-accent-strong);
+  font-size: 11px;
+  font-weight: 750;
+  letter-spacing: .01em;
+}
+
+#settingsContentBody .mp-provider-reference-title-row {
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 7px;
+  min-width: 0;
+}
+
+#settingsContentBody .mp-provider-reference-back,
+#settingsContentBody .mp-provider-reference-delete,
+#settingsContentBody .mp-provider-secret-toggle {
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  outline: none;
+  background: transparent;
+  cursor: pointer;
+}
+
+#settingsContentBody .mp-provider-reference-back {
+  width: 24px;
+  height: 26px;
+  color: var(--mp-accent-strong);
+}
+
+#settingsContentBody .mp-provider-reference-back svg,
+#settingsContentBody .mp-provider-reference-delete svg {
+  width: 15px;
+  height: 15px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.9;
+}
+
+#settingsContentBody .mp-provider-reference-back:hover {
+  color: var(--mp-accent);
+}
+
+#settingsContentBody .mp-provider-reference-title-copy,
+#settingsContentBody .mp-provider-reference-title-line {
+  min-width: 0;
+}
+
+#settingsContentBody .mp-provider-reference-title-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 7px;
+}
+
+#settingsContentBody .mp-provider-reference-title-line h1 {
+  margin: 0;
+  overflow: hidden;
+  color: var(--mp-text);
+  font-size: 16px;
+  font-weight: 760;
+  letter-spacing: -.015em;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#settingsContentBody .mp-provider-reference-type {
+  display: inline-flex;
+  min-height: 18px;
+  align-items: center;
+  padding: 1px 6px;
+  border-radius: 3px;
+  background: var(--mp-accent-soft);
+  color: var(--mp-accent-strong);
+  font-size: 9px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+#settingsContentBody .mp-provider-reference-title-copy > p {
+  max-width: none;
+  margin: 5px 0 0;
+  color: var(--mp-muted);
+  font-size: 10px;
+  line-height: 1.45;
+}
+
+#settingsContentBody .mp-provider-reference-delete {
+  width: 25px;
+  height: 25px;
+  color: var(--danger);
+}
+
+#settingsContentBody .mp-provider-reference-delete:disabled {
+  cursor: wait;
+  opacity: .45;
+}
+
+#settingsContentBody .mp-provider-reference-body {
+  display: grid;
+  min-width: 0;
+}
+
+#settingsContentBody .mp-provider-reference-section {
+  display: grid;
+  gap: 9px;
+  min-width: 0;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--mp-border);
+}
+
+#settingsContentBody .mp-provider-reference-section-heading {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+#settingsContentBody .mp-provider-reference-section-heading h2 {
+  margin: 0;
+  color: var(--mp-text);
+  font-size: 11px;
+  font-weight: 760;
+  line-height: 1.35;
+}
+
+#settingsContentBody .mp-provider-reference-section-heading p {
+  margin: 0;
+  color: var(--mp-muted);
+  font-size: 9px;
+  line-height: 1.45;
+}
+
+#settingsContentBody .mp-provider-reference-field {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  color: var(--mp-text);
+  font-size: 10px;
+  font-weight: 650;
+}
+
+#settingsContentBody .mp-provider-reference-label {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+#settingsContentBody .mp-provider-reference-label > label,
+#settingsContentBody .mp-provider-reference-label > span {
+  color: var(--mp-text);
+  font-size: 10px;
+  font-weight: 720;
+  line-height: 1.3;
+}
+
+#settingsContentBody .mp-provider-reference-label small,
+#settingsContentBody .mp-provider-reference-field > small,
+#settingsContentBody .mp-provider-reference-layout [data-settings-help-copy] {
+  color: var(--mp-muted);
+  font-size: 9px;
+  font-weight: 500;
+  line-height: 1.4;
+}
+
+#settingsContentBody .mp-provider-reference-field input,
+#settingsContentBody .mp-provider-reference-field select {
+  width: 100%;
+  min-width: 0;
+  min-height: 32px;
+  padding: 5px 8px;
+  border: 1px solid var(--mp-border);
+  border-radius: 2px;
+  outline: none;
+  background: var(--mp-surface);
+  color: var(--mp-text);
+  font-size: 10px;
+  line-height: 1.35;
+  box-shadow: none;
+}
+
+#settingsContentBody .mp-provider-reference-field input[readonly] {
+  background: var(--mp-surface-muted);
+  color: var(--mp-muted);
+}
+
+#settingsContentBody .mp-provider-reference-field input:focus,
+#settingsContentBody .mp-provider-reference-field select:focus {
+  border-color: var(--mp-accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--mp-accent) 13%, transparent);
+}
+
+#settingsContentBody .mp-provider-reference-field input[aria-invalid="true"] {
+  border-color: var(--danger);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--danger) 12%, transparent);
+}
+
+#settingsContentBody .mp-provider-reference-field .mp-provider-field-error {
+  color: var(--danger);
+  font-size: 9px;
+}
+
+#settingsContentBody .mp-provider-secret-control {
+  position: relative;
+  min-width: 0;
+}
+
+#settingsContentBody .mp-provider-secret-control input {
+  padding-right: 32px;
+}
+
+#settingsContentBody .mp-provider-secret-toggle {
+  position: absolute;
+  top: 50%;
+  right: 3px;
+  width: 27px;
+  height: 27px;
+  transform: translateY(-50%);
+  color: var(--mp-muted);
+}
+
+#settingsContentBody .mp-provider-secret-toggle:hover,
+#settingsContentBody .mp-provider-secret-toggle:focus-visible {
+  color: var(--mp-accent-strong);
+}
+
+#settingsContentBody .mp-provider-secret-icon {
+  width: 15px;
+  height: 15px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.8;
+}
+
+#settingsContentBody .mp-provider-secret-icon-hide,
+#settingsContentBody .mp-provider-secret-toggle[aria-pressed="true"] .mp-provider-secret-icon-show {
+  display: none;
+}
+
+#settingsContentBody .mp-provider-secret-toggle[aria-pressed="true"] .mp-provider-secret-icon-hide {
+  display: block;
+}
+
+#settingsContentBody .mp-provider-create-clear-key {
+  gap: 5px;
+  color: var(--mp-muted);
+  font-size: 9px;
+}
+
+#settingsContentBody .mp-provider-create-clear-key input {
+  width: 14px;
+  min-width: 14px;
+  min-height: 14px;
+}
+
+#settingsContentBody .mp-provider-reference-switch-list {
+  display: grid;
+  gap: 7px;
+  min-width: 0;
+}
+
+#settingsContentBody .mp-provider-flat-switch {
+  position: relative;
+  display: grid;
+  grid-template-columns: 31px minmax(0, 1fr);
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  padding: 2px 0;
+  cursor: pointer;
+}
+
+#settingsContentBody .mp-provider-flat-switch > input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  opacity: 0;
+  pointer-events: none;
+}
+
+#settingsContentBody .mp-provider-flat-switch-track {
+  position: relative;
+  display: block;
+  width: 30px;
+  height: 16px;
+  border: 1px solid var(--mp-border);
+  border-radius: 999px;
+  background: var(--mp-surface-muted);
+  transition: border-color .16s ease, background .16s ease;
+}
+
+#settingsContentBody .mp-provider-flat-switch-track::after {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--mp-muted);
+  content: "";
+  transition: transform .16s ease, background .16s ease;
+}
+
+#settingsContentBody .mp-provider-flat-switch > input:checked + .mp-provider-flat-switch-track {
+  border-color: var(--mp-accent);
+  background: var(--mp-accent);
+}
+
+#settingsContentBody .mp-provider-flat-switch > input:checked + .mp-provider-flat-switch-track::after {
+  background: #fff;
+  transform: translateX(14px);
+}
+
+#settingsContentBody .mp-provider-flat-switch > input:focus-visible + .mp-provider-flat-switch-track {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--mp-accent) 18%, transparent);
+}
+
+#settingsContentBody .mp-provider-flat-switch-copy {
+  display: grid;
+  gap: 1px;
+  min-width: 0;
+}
+
+#settingsContentBody .mp-provider-flat-switch-copy strong {
+  color: var(--mp-text);
+  font-size: 10px;
+  font-weight: 700;
+}
+
+#settingsContentBody .mp-provider-flat-switch-copy small {
+  color: var(--mp-muted);
+  font-size: 9px;
+  font-weight: 500;
+  line-height: 1.35;
+}
+
+#settingsContentBody .mp-provider-reference-layout .mp-provider-security-warning,
+#settingsContentBody .mp-provider-reference-layout .mp-provider-result {
+  margin: 0;
+  padding: 7px 9px;
+  border-radius: 2px;
+  font-size: 9px;
+}
+
+#settingsContentBody .mp-provider-reference-headers {
+  margin-top: 1px;
+}
+
+#settingsContentBody .mp-provider-reference-headers .mp-provider-header-list {
+  display: grid;
+  gap: 5px;
+}
+
+#settingsContentBody .mp-provider-reference-headers .mp-provider-header-row {
+  grid-template-columns: minmax(0, .7fr) minmax(0, 1.3fr) 28px;
+  gap: 5px;
+  align-items: end;
+}
+
+#settingsContentBody .mp-provider-reference-headers .mp-provider-header-row label {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  color: var(--mp-muted);
+  font-size: 8px;
+}
+
+#settingsContentBody .mp-provider-reference-headers .mp-provider-header-row input {
+  min-height: 30px;
+  padding: 4px 7px;
+}
+
+#settingsContentBody .mp-provider-reference-headers .mp-provider-header-remove {
+  width: 28px;
+  height: 30px;
+  padding: 0;
+  border: 1px solid var(--mp-border);
+  border-radius: 2px;
+  background: var(--mp-surface);
+  color: var(--danger);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+#settingsContentBody .mp-provider-header-empty {
+  padding: 5px 0;
+  color: var(--mp-muted);
+  font-size: 9px;
+}
+
+#settingsContentBody .mp-provider-header-add-bar {
+  display: flex;
+  width: 100%;
+  min-height: 28px;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  margin-top: 1px;
+  padding: 4px 8px;
+  border: 0;
+  border-radius: 2px;
+  background: var(--mp-accent-soft);
+  color: var(--mp-accent-strong);
+  cursor: pointer;
+  font-size: 9px;
+  font-weight: 700;
+}
+
+#settingsContentBody .mp-provider-header-add-bar:hover {
+  background: color-mix(in srgb, var(--mp-accent) 16%, var(--mp-surface));
+}
+
+#settingsContentBody .mp-provider-reference-protocol .mp-provider-create-protocol {
+  grid-column: auto;
+  margin: 0;
+  padding: 0;
+}
+
+#settingsContentBody .mp-provider-reference-protocol .mp-provider-create-protocol-options {
+  display: flex;
+  width: fit-content;
+  max-width: 100%;
+  gap: 0;
+  overflow: hidden;
+  border: 1px solid var(--mp-border);
+  border-radius: 3px;
+  background: var(--mp-surface-muted);
+}
+
+#settingsContentBody .mp-provider-reference-protocol .mp-provider-create-protocol-options label {
+  position: relative;
+  min-height: 28px;
+  padding: 5px 12px;
+  border: 0;
+  border-right: 1px solid var(--mp-border);
+  border-radius: 0;
+  background: transparent;
+  color: var(--mp-muted);
+  font-size: 9px;
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+#settingsContentBody .mp-provider-reference-protocol .mp-provider-create-protocol-options label:last-child {
+  border-right: 0;
+}
+
+#settingsContentBody .mp-provider-reference-protocol .mp-provider-create-protocol-options input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+#settingsContentBody .mp-provider-reference-protocol .mp-provider-create-protocol-options label:has(input:checked) {
+  background: var(--mp-surface);
+  color: var(--mp-accent-strong);
+  box-shadow: inset 0 -2px 0 var(--mp-accent);
+}
+
+#settingsContentBody .mp-provider-reference-layout .mp-provider-model-workspace {
+  display: grid;
+  grid-column: auto;
+  gap: 7px;
+}
+
+#settingsContentBody .mp-provider-reference-layout .mp-provider-model-toolbar,
+#settingsContentBody .mp-provider-reference-layout .mp-provider-manual-model {
+  gap: 6px;
+}
+
+#settingsContentBody .mp-provider-reference-layout .mp-provider-model-status,
+#settingsContentBody .mp-provider-reference-layout .mp-provider-model-empty {
+  min-height: 28px;
+  padding: 6px 8px;
+  border-radius: 2px;
+  font-size: 9px;
+}
+
+#settingsContentBody .mp-provider-reference-layout .mp-provider-model-status.success {
+  border-color: color-mix(in srgb, var(--settings-success) 30%, var(--mp-border));
+  background: var(--settings-success-soft);
+  color: var(--settings-success);
+}
+
+#settingsContentBody .mp-provider-reference-layout .mp-provider-model-status.info,
+#settingsContentBody .mp-provider-reference-layout .mp-provider-model-empty {
+  border-color: color-mix(in srgb, var(--mp-accent) 24%, var(--mp-border));
+  background: var(--mp-accent-soft);
+  color: var(--mp-accent-strong);
+}
+
+#settingsContentBody .mp-provider-reference-layout .mp-provider-model-toolbar .mp-action,
+#settingsContentBody .mp-provider-reference-layout .mp-provider-manual-model .mp-action,
+#settingsContentBody .mp-provider-model-test-actions .mp-action,
+#settingsContentBody .mp-provider-reference-footer .mp-action {
+  min-height: 30px;
+  padding: 5px 10px;
+  border-radius: 3px;
+  font-size: 9px;
+}
+
+#settingsContentBody .mp-provider-reference-layout .mp-provider-model-config-list {
+  border-radius: 2px;
+}
+
+#settingsContentBody .mp-provider-reference-layout .mp-provider-model-config-row {
+  grid-template-columns: minmax(130px, 1fr) 140px minmax(118px, .28fr) 30px 30px;
+  gap: 6px;
+  padding: 5px 7px;
+}
+
+#settingsContentBody .mp-provider-reference-layout .mp-provider-model-default,
+#settingsContentBody .mp-provider-reference-layout .mp-provider-model-name strong {
+  font-size: 9px;
+}
+
+#settingsContentBody .mp-provider-reference-layout .mp-provider-model-limit {
+  font-size: 8px;
+}
+
+#settingsContentBody .mp-provider-reference-layout .mp-provider-model-limit input,
+#settingsContentBody .mp-provider-reference-layout .mp-provider-manual-model input {
+  min-height: 28px;
+  padding: 4px 7px;
+  border-radius: 2px;
+  font-size: 9px;
+}
+
+#settingsContentBody .mp-provider-reference-layout .mp-provider-model-visibility,
+#settingsContentBody .mp-provider-reference-layout .mp-provider-model-remove {
+  width: 28px;
+  height: 28px;
+  border-radius: 2px;
+}
+
+#settingsContentBody .mp-provider-model-test-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+#settingsContentBody .mp-provider-reference-footer {
+  position: sticky;
+  z-index: 3;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  min-width: 0;
+  padding: 9px 0;
+  border-top: 1px solid var(--mp-border);
+  background: color-mix(in srgb, var(--mp-surface) 96%, transparent);
+  backdrop-filter: blur(10px);
+}
+
+#settingsContentBody .mp-provider-reference-footer > span {
+  min-width: 0;
+  color: var(--mp-muted);
+  font-size: 9px;
+  line-height: 1.4;
+}
+
+#settingsContentBody .mp-provider-reference-footer .mp-provider-create-footer-actions {
+  display: flex;
+  gap: 6px;
+  flex: 0 0 auto;
+}
+
+@media (max-width: 900px) {
+  #settingsContentBody:has(.mp-provider-reference-layout) {
+    width: calc(100% - 20px);
+    margin: 0 10px;
+  }
+
+  #settingsContentBody .mp-provider-reference-layout .mp-provider-model-config-row {
+    grid-template-columns: minmax(110px, 1fr) 130px minmax(108px, .34fr) 28px 28px;
+  }
+}
+
+@media (max-width: 767px) {
+  #settingsContentBody:has(.mp-provider-reference-layout) {
+    width: 100%;
+    margin: 0;
+    padding: 0 14px 28px;
+  }
+
+  #settingsContentBody .mp-provider-reference-header {
+    padding-top: 0;
+  }
+
+  #settingsContentBody .mp-provider-reference-title-row {
+    grid-template-columns: 24px minmax(0, 1fr) auto;
+  }
+
+  #settingsContentBody .mp-provider-reference-title-line h1 {
+    font-size: 15px;
+  }
+
+  #settingsContentBody .mp-provider-reference-section {
+    padding: 11px 0;
+  }
+
+  #settingsContentBody .mp-provider-reference-protocol .mp-provider-create-protocol-options {
+    display: grid;
+    width: 100%;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  #settingsContentBody .mp-provider-reference-protocol .mp-provider-create-protocol-options label {
+    justify-content: center;
+    border-right: 1px solid var(--mp-border);
+    border-bottom: 1px solid var(--mp-border);
+    white-space: normal;
+    text-align: center;
+  }
+
+  #settingsContentBody .mp-provider-reference-protocol .mp-provider-create-protocol-options label:nth-child(2n) {
+    border-right: 0;
+  }
+
+  #settingsContentBody .mp-provider-reference-protocol .mp-provider-create-protocol-options label:nth-last-child(-n + 2) {
+    border-bottom: 0;
+  }
+
+  #settingsContentBody .mp-provider-reference-headers .mp-provider-header-row {
+    grid-template-columns: minmax(0, 1fr) 28px;
+  }
+
+  #settingsContentBody .mp-provider-reference-headers .mp-provider-header-row label {
+    grid-column: 1;
+  }
+
+  #settingsContentBody .mp-provider-reference-headers .mp-provider-header-remove {
+    grid-column: 2;
+    grid-row: 1 / span 2;
+    align-self: end;
+  }
+
+  #settingsContentBody .mp-provider-reference-footer {
+    position: static;
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  #settingsContentBody .mp-provider-reference-footer .mp-provider-create-footer-actions,
+  #settingsContentBody .mp-provider-reference-footer .mp-action {
+    width: 100%;
+  }
+
+  #settingsContentBody .mp-provider-reference-footer .mp-provider-create-footer-actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  #settingsContentBody .mp-provider-head,
+  #settingsContentBody .mp-provider-head-actions,
+  #settingsContentBody .mp-provider-toolbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  #settingsContentBody .mp-provider-head {
+    gap: 12px;
+    margin-bottom: 18px;
+  }
+
+  #settingsContentBody .mp-provider-head-actions,
+  #settingsContentBody .mp-provider-head-actions .mp-action,
+  #settingsContentBody .mp-category-tabs {
+    width: 100%;
+  }
+
+  #settingsContentBody .mp-category-tabs {
+    justify-content: flex-start;
+  }
+
+  .mp-provider-type-modal {
+    display: block;
+    padding: 48px 0 0;
+    background: rgba(15, 23, 42, .42);
+  }
+
+  .mp-modal-panel {
+    width: 100%;
+    min-height: calc(100dvh - 48px);
+    max-height: calc(100dvh - 48px);
+    border-right: 0;
+    border-bottom: 0;
+    border-left: 0;
+    border-radius: 14px 14px 0 0;
+  }
+
+  .mp-modal-head,
+  .mp-drawer-head {
+    padding: 16px 16px 12px;
+  }
+
+  .mp-provider-drawer .mp-drawer-body {
+    padding: 16px 16px 24px;
+  }
+
+  .mp-provider-drawer .mp-drawer-foot {
+    padding: 12px 16px max(12px, env(safe-area-inset-bottom));
+  }
+
+  .mp-provider-drawer .mp-drawer-foot,
+  .mp-provider-drawer .mp-drawer-foot > div {
+    width: 100%;
+  }
+
+  .mp-provider-drawer .mp-drawer-foot > div {
+    justify-content: stretch;
+  }
+
+  .mp-provider-drawer .mp-drawer-foot .mp-action {
+    flex: 1 1 auto;
+  }
+
+  #settingsContentBody .mp-provider-create-head,
+  #settingsContentBody .mp-provider-create-heading,
+  #settingsContentBody .mp-provider-create-section,
+  #settingsContentBody .mp-provider-create-fields,
+  #settingsContentBody .mp-provider-create-grid,
+  #settingsContentBody .mp-provider-create-model-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  #settingsContentBody .mp-provider-create-head,
+  #settingsContentBody .mp-provider-create-heading {
+    gap: 12px;
+  }
+
+  #settingsContentBody .mp-provider-create-back {
+    width: fit-content;
+  }
+
+  #settingsContentBody .mp-provider-create-card,
+  #settingsContentBody .mp-provider-create-section {
+    padding: 17px 15px;
+  }
+
+  #settingsContentBody .mp-provider-create-section-heading,
+  #settingsContentBody .mp-provider-create-fields,
+  #settingsContentBody .mp-provider-create-inline-actions,
+  #settingsContentBody .mp-provider-create-protocol,
+  #settingsContentBody .mp-provider-create-switch {
+    grid-row: auto;
+    grid-column: 1;
+  }
+
+  #settingsContentBody .mp-provider-create-fields,
+  #settingsContentBody .mp-provider-create-grid {
+    gap: 16px;
+  }
+
+  #settingsContentBody .mp-provider-create-section[aria-labelledby="mp-provider-create-connection-title"] .mp-provider-create-field:nth-child(3),
+  #settingsContentBody .mp-provider-create-section[aria-labelledby="mp-provider-create-model-title"] .mp-provider-create-field:first-child {
+    grid-column: auto;
+  }
+
+  #settingsContentBody .mp-provider-create-protocol-options,
+  #settingsContentBody .mp-provider-create-input-action {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  #settingsContentBody .mp-provider-create-inline-actions .mp-action,
+  #settingsContentBody .mp-provider-create-input-action .mp-action {
+    width: 100%;
+  }
+
+  #settingsContentBody .mp-provider-create-field.mp-provider-create-field-wide {
+    grid-column: auto;
+  }
+
+  #settingsContentBody .mp-provider-create-password,
+  #settingsContentBody .mp-provider-create-model-field,
+  #settingsContentBody .mp-provider-create-reference {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  #settingsContentBody .mp-provider-create-password .mp-action,
+  #settingsContentBody .mp-provider-create-model-actions .mp-action {
+    width: 100%;
+  }
+
+  #settingsContentBody .mp-provider-create-reference code {
+    width: 100%;
+  }
+
+  #settingsContentBody .mp-provider-steps {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  #settingsContentBody .mp-provider-network-grid,
+  #settingsContentBody .mp-provider-model-workspace {
+    grid-column: 1;
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  #settingsContentBody .mp-provider-network-details > summary,
+  #settingsContentBody .mp-provider-manual-model {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  #settingsContentBody .mp-provider-manual-model .mp-action {
+    width: 100%;
+  }
+
+  /* The toolbar stays a row on narrow screens. As a stretched column the
+     show/hide-all eye button became a full-width icon floating on its own line
+     above the list, reading as a stray control rather than a toggle. */
+  #settingsContentBody .mp-provider-model-toolbar {
+    align-items: center;
+    flex-direction: row;
+    gap: 8px;
+  }
+
+  #settingsContentBody .mp-provider-model-toolbar .mp-action {
+    flex: 1 1 auto;
+    width: auto;
+  }
+
+  #settingsContentBody .mp-provider-model-toolbar .mp-provider-model-visibility-all {
+    flex: 0 0 auto;
+  }
+
+  #settingsContentBody .mp-provider-model-config-list {
+    gap: 10px;
+    overflow: visible;
+    border: 0;
+    background: transparent;
+  }
+
+  #settingsContentBody .mp-provider-model-config-row {
+    grid-template-columns: minmax(0, 1fr) auto auto;
+    gap: 9px;
+    padding: 12px;
+    border: 1px solid var(--mp-border);
+    border-radius: 8px;
+    background: var(--mp-surface);
+  }
+
+  #settingsContentBody .mp-provider-model-default {
+    grid-column: 1;
+  }
+
+  #settingsContentBody .mp-provider-model-name {
+    grid-column: 1 / -1;
+    grid-row: 1;
+    padding-right: 82px;
+  }
+
+  /* Label beside the field rather than stacked above it. Nine models stacked
+     three rows deep each turned this panel into a long scroll on a phone. */
+  #settingsContentBody .mp-provider-model-limit {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    grid-column: 1 / -1;
+    gap: 10px;
+    font-size: 11px;
+  }
+
+  #settingsContentBody .mp-provider-model-limit input {
+    flex: 0 0 auto;
+    width: 132px;
+    max-width: 132px;
+  }
+
+  #settingsContentBody .mp-provider-model-image-generation {
+    grid-column: 1 / -1;
+    width: fit-content;
+  }
+
+  /* An unsupported toggle is disabled and says only "protocol unsupported", so
+     on a phone it costs a row per model to repeat what the provider's protocol
+     already implies. Desktop still shows it. */
+  #settingsContentBody .mp-provider-model-image-generation.is-unsupported {
+    display: none;
+  }
+
+  #settingsContentBody .mp-provider-model-visibility {
+    grid-column: 2;
+    grid-row: 1;
+  }
+
+  #settingsContentBody .mp-provider-model-remove,
+  #settingsContentBody .mp-provider-model-remove-placeholder {
+    grid-column: 3;
+    grid-row: 1;
+  }
+
+  #settingsContentBody .mp-provider-create-footer {
+    align-items: stretch;
+    flex-direction: column;
+    padding: 16px 15px;
+  }
+
+  #settingsContentBody .mp-provider-create-footer-actions,
+  #settingsContentBody .mp-provider-create-footer-actions .mp-action {
+    width: 100%;
+  }
+
+  #settingsContentBody .mp-provider-create-footer-actions {
+    align-items: stretch;
+    flex-direction: column-reverse;
+  }
+}
+

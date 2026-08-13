@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
+import { readStylesGroup } from "./styles-source-helper.mjs";
 
 import setupWizardMessages from "./messages-setup-wizard.mjs";
 import {
@@ -180,7 +181,7 @@ test("static shell mounts the first-run flow and keeps a manual settings entry",
     readFile(new URL("../index.html", import.meta.url), "utf8"),
     readFile(new URL("./app-main.mjs", import.meta.url), "utf8"),
     readFile(new URL("../styles/settings-legacy.css", import.meta.url), "utf8"),
-    readFile(new URL("../styles/settings.css", import.meta.url), "utf8"),
+    readStylesGroup("settings.css", import.meta.url),
   ]);
   const settingsEntry = html.match(/<button id="settingsWizardBtn"[^>]*>/)?.[0] || "";
   assert.ok(settingsEntry);

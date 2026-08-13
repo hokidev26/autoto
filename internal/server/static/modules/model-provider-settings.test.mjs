@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { readStylesGroup } from "./styles-source-helper.mjs";
 
 import messagesEN from "./messages-en.mjs";
 import messagesZhCN from "./messages-zh-CN.mjs";
@@ -2575,7 +2575,7 @@ function splitCSSByBreakpoint(css, query) {
 }
 
 test("窄屏下模型列表压缩为两行且工具栏保持一行", async () => {
-  const css = await readFile(new URL("../styles/providers.css", import.meta.url), "utf8");
+  const css = await readStylesGroup("providers.css", import.meta.url);
   const { inside: mobile, outside: desktop } = splitCSSByBreakpoint(css, "@media (max-width: 767px)");
   assert.ok(mobile.length > 0, "the 767px breakpoint must exist");
   assert.ok(desktop.includes(".mp-provider-model-limit"), "the desktop rules must be outside the breakpoint");

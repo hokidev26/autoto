@@ -1,0 +1,1349 @@
+/* --------------------------------------------------------------------------
+   Settings shadcn system — scoped integration.
+   This block follows legacy and Usage History rules, then yields to the final
+   provider-specific isolation block. It never styles app UI outside settings.
+   -------------------------------------------------------------------------- */
+#settingsModal,
+#settingsContentBody {
+  --settings-background: var(--ws-canvas, #f8fafc);
+  --settings-surface: var(--ws-card, #ffffff);
+  --settings-muted: var(--ws-input, #f0f2f5);
+  --settings-foreground: var(--ws-text, #1a1a2e);
+  --settings-muted-foreground: var(--ws-muted, #6b7280);
+  --settings-border: var(--ws-border);
+  --settings-input: var(--ws-input, #f0f2f5);
+  --settings-primary: var(--ws-primary, #4f6ef7);
+  --settings-primary-foreground: #ffffff;
+  --settings-primary-soft: var(--ws-primary-soft, #eef1fe);
+  --settings-ring: color-mix(in srgb, var(--settings-primary) 45%, transparent);
+  --settings-destructive: #b42336;
+  --settings-destructive-soft: color-mix(in srgb, var(--settings-destructive) 10%, var(--settings-surface));
+  --settings-success: #18794e;
+  --settings-success-soft: color-mix(in srgb, var(--settings-success) 10%, var(--settings-surface));
+  --settings-warning: #a15c07;
+  --settings-warning-soft: color-mix(in srgb, var(--settings-warning) 11%, var(--settings-surface));
+  --settings-radius-sm: 6px;
+  --settings-radius: 8px;
+  --settings-radius-lg: 12px;
+  --settings-shadow: var(--ws-shadow, 0 1px 3px rgba(0, 0, 0, .06));
+  --settings-control-height: 38px;
+  --settings-control-height-touch: 44px;
+  --settings-space-1: 4px;
+  --settings-space-2: 8px;
+  --settings-space-3: 12px;
+  --settings-space-4: 16px;
+  --settings-space-5: 20px;
+  --settings-space-6: 24px;
+}
+
+body.theme-dark #settingsModal,
+body.theme-dark #settingsContentBody,
+body.white-shell.theme-light.theme-dark #settingsModal,
+body.white-shell.theme-light.theme-dark #settingsContentBody {
+  --settings-primary-foreground: #10111b;
+  --settings-destructive: #ff9aaa;
+  --settings-success: #75d5a5;
+  --settings-warning: #ffd28a;
+}
+
+#settingsModal {
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: rgba(15, 23, 42, .28);
+  backdrop-filter: blur(6px);
+}
+
+body.theme-dark #settingsModal,
+body.white-shell.theme-light.theme-dark #settingsModal {
+  background: rgba(3, 5, 12, .58);
+}
+
+#settingsContentBody {
+  min-width: 0;
+  color: var(--settings-foreground);
+  background: var(--settings-background);
+}
+
+#settingsModal :is(button, input, select, textarea),
+#settingsContentBody :is(button, input, select, textarea) {
+  font: inherit;
+}
+
+#settingsModal :focus-visible,
+#settingsContentBody :focus-visible {
+  outline: 2px solid var(--settings-ring);
+  outline-offset: 2px;
+}
+
+/* Shell, sidebar, and the one desktop scroll region. */
+#settingsModal .settings-dialog-shell {
+  width: min(1520px, calc(100vw - 24px));
+  height: min(780px, calc(100dvh - 32px));
+  min-width: 0;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 240px minmax(0, 1fr);
+  overflow: hidden;
+  border: 1px solid var(--settings-border);
+  border-radius: var(--settings-radius-lg);
+  background: var(--settings-surface);
+  box-shadow: 0 24px 70px rgba(15, 23, 42, .18);
+  color: var(--settings-foreground);
+}
+
+/* Settings mode occupies the workbench beside the persistent global rail. */
+@media (min-width: 768px) {
+  #settingsModal {
+    align-items: stretch;
+    justify-content: stretch;
+    padding: 0;
+    background: var(--settings-background);
+    backdrop-filter: none;
+  }
+
+  #settingsModal .settings-dialog-shell {
+    width: 100%;
+    height: 100%;
+    grid-template-columns: var(--session-sidebar-width, 296px) minmax(0, 1fr);
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+  }
+}
+
+#settingsModal .settings-sidebar {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--settings-space-3);
+  overflow: hidden;
+  border-right: 1px solid var(--settings-border);
+  background: color-mix(in srgb, var(--settings-muted) 50%, var(--settings-surface));
+  padding: var(--settings-space-3);
+}
+
+#settingsModal .settings-sidebar > * {
+  min-width: 0;
+}
+
+#settingsModal .settings-sidebar-header {
+  flex: 0 0 auto;
+  min-height: 40px;
+  padding: 0 2px;
+}
+
+#settingsModal .settings-sidebar-header,
+#settingsModal .settings-sidebar-head {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--settings-space-2);
+}
+
+#settingsModal .settings-title {
+  color: var(--settings-foreground);
+  font-size: 18px;
+  font-weight: 700;
+}
+
+#settingsModal .settings-close-btn {
+  border: 0;
+  background: transparent;
+  color: var(--settings-muted-foreground);
+}
+
+#settingsModal .settings-close-btn:hover {
+  background: var(--settings-muted);
+  color: var(--settings-foreground);
+}
+
+#settingsModal .settings-sidebar-search,
+#settingsModal .sidebar-search {
+  width: 100%;
+  min-height: var(--settings-control-height);
+  border: 1px solid var(--settings-border);
+  border-radius: var(--settings-radius);
+  outline: 0;
+  background: var(--settings-input);
+  color: var(--settings-foreground);
+  padding: 0 10px;
+}
+
+/* The box holds a glyph, the field, and a clear button, so it has to lay them
+   out in a row. Only the container gets this: .sidebar-search above is itself
+   an input, and a grid input is not a thing. Sizing and colour stay with the
+   shared rule; this adds nothing but the track layout. */
+#settingsModal .settings-sidebar-search {
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr) 28px;
+  align-items: center;
+  gap: 6px;
+}
+
+#settingsModal .settings-sidebar-search input,
+#settingsModal input.sidebar-search {
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--settings-foreground);
+}
+
+#settingsModal .settings-sidebar-search input::placeholder,
+#settingsModal input.sidebar-search::placeholder { color: var(--settings-muted-foreground); }
+#settingsModal .settings-sidebar-search:focus-within,
+#settingsModal input.sidebar-search:focus {
+  border-color: var(--settings-primary);
+  background: var(--settings-surface);
+  box-shadow: 0 0 0 3px var(--settings-ring);
+}
+
+#settingsModal .settings-sidebar-search button {
+  color: var(--settings-muted-foreground);
+}
+
+#settingsModal .settings-sidebar-search button:hover {
+  background: var(--settings-muted);
+  color: var(--settings-foreground);
+}
+
+#settingsModal .settings-nav-groups {
+  min-height: 0;
+  display: grid;
+  align-content: start;
+  gap: var(--settings-space-4);
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding: 2px 4px 12px 2px;
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+}
+
+#settingsModal .settings-nav-group {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+#settingsModal .settings-nav-group + .settings-nav-group {
+  padding-top: var(--settings-space-3);
+  border-top: 1px solid color-mix(in srgb, var(--settings-border) 72%, transparent);
+}
+
+#settingsModal .settings-nav-group-label,
+#settingsModal .settings-nav-heading {
+  color: var(--settings-muted-foreground);
+  padding: 0 9px 3px;
+  font-size: 10px;
+  font-weight: 750;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
+#settingsModal :is(.settings-nav-item, .settings-nav-group button) {
+  position: relative;
+  width: 100%;
+  min-height: 42px;
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  border: 1px solid transparent;
+  border-radius: var(--settings-radius);
+  background: transparent;
+  color: var(--settings-muted-foreground);
+  padding: 8px 10px;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color .14s ease, background .14s ease, color .14s ease, box-shadow .14s ease;
+}
+
+#settingsModal .legacy-settings-subnav .settings-nav-icon {
+  width: 28px;
+  height: 28px;
+  flex: 0 0 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  background: transparent;
+  color: color-mix(in srgb, var(--settings-muted-foreground) 86%, var(--settings-foreground));
+  line-height: 1;
+  transition: background .14s ease, color .14s ease, box-shadow .14s ease;
+}
+
+#settingsModal .legacy-settings-subnav .settings-nav-icon .settings-icon-svg {
+  width: 18px;
+  height: 18px;
+  display: block;
+  overflow: visible;
+}
+
+#settingsModal :is(.settings-nav-item, .settings-nav-group button):hover .settings-nav-icon {
+  background: color-mix(in srgb, var(--settings-primary-soft) 48%, transparent);
+  color: color-mix(in srgb, var(--settings-primary) 78%, var(--settings-foreground));
+}
+
+#settingsModal :is(.settings-nav-item, .settings-nav-group button).active .settings-nav-icon,
+#settingsModal :is(.settings-nav-item, .settings-nav-group button)[aria-current="page"] .settings-nav-icon {
+  background: transparent;
+  color: var(--settings-primary);
+  box-shadow: none;
+}
+
+#settingsModal .legacy-settings-subnav .settings-nav-label {
+  min-width: 0;
+  display: block;
+}
+
+#settingsModal .legacy-settings-subnav .settings-nav-label strong {
+  display: block;
+  overflow: hidden;
+  color: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#settingsModal :is(.settings-nav-item, .settings-nav-group button):hover {
+  border-color: color-mix(in srgb, var(--settings-border) 82%, transparent);
+  background: color-mix(in srgb, var(--settings-muted) 78%, var(--settings-surface));
+  color: var(--settings-foreground);
+}
+
+#settingsModal :is(.settings-nav-item, .settings-nav-group button):focus-visible {
+  outline: 0;
+  border-color: color-mix(in srgb, var(--settings-primary) 48%, var(--settings-border));
+  box-shadow: 0 0 0 3px var(--settings-ring);
+}
+
+#settingsModal :is(.settings-nav-item, .settings-nav-group button).active,
+#settingsModal :is(.settings-nav-item, .settings-nav-group button)[aria-current="page"] {
+  border-color: transparent;
+  background: var(--settings-primary-soft);
+  color: var(--settings-primary);
+  font-weight: 700;
+}
+
+#settingsModal :is(.settings-nav-item, .settings-nav-group button).active::before,
+#settingsModal :is(.settings-nav-item, .settings-nav-group button)[aria-current="page"]::before {
+  position: absolute;
+  top: 8px;
+  bottom: 8px;
+  left: -3px;
+  width: 3px;
+  border-radius: 999px;
+  background: var(--settings-primary);
+  content: "";
+}
+
+#settingsModal .settings-main {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  overflow: hidden;
+  background: var(--settings-background);
+}
+
+#settingsModal .settings-main > * {
+  min-width: 0;
+}
+
+#settingsModal .settings-main-header {
+  width: 100%;
+  min-width: 0;
+  margin: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--settings-space-3);
+  border-bottom: 1px solid var(--settings-border);
+  background: color-mix(in srgb, var(--settings-surface) 94%, transparent);
+  padding: 16px clamp(16px, 3vw, 28px);
+}
+
+#settingsModal .settings-main-heading,
+#settingsModal .settings-content-title {
+  min-width: 0;
+  margin: 0;
+  color: var(--settings-foreground);
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: -.015em;
+}
+
+#settingsModal .settings-help-trigger,
+#settingsModal .settings-help-close {
+  width: 34px;
+  height: 34px;
+  min-width: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--settings-border);
+  border-radius: 999px;
+  outline: 0;
+  background: var(--settings-surface);
+  color: var(--settings-muted-foreground);
+  font-size: 16px;
+  font-weight: 750;
+  line-height: 1;
+  cursor: pointer;
+  box-shadow: var(--settings-shadow);
+}
+
+#settingsModal .settings-help-trigger:hover,
+#settingsModal .settings-help-trigger[aria-expanded="true"],
+#settingsModal .settings-help-close:hover {
+  border-color: color-mix(in srgb, var(--settings-primary) 38%, var(--settings-border));
+  background: var(--settings-primary-soft);
+  color: var(--settings-primary);
+}
+
+#settingsModal :is(.settings-help-trigger, .settings-help-close):focus-visible {
+  border-color: var(--settings-primary);
+  box-shadow: 0 0 0 3px var(--settings-ring);
+}
+
+#settingsModal .settings-help-backdrop {
+  position: absolute;
+  z-index: 20;
+  inset: 0;
+  background: color-mix(in srgb, #0f172a 24%, transparent);
+  backdrop-filter: blur(1px);
+}
+
+#settingsModal .settings-help-panel {
+  position: absolute;
+  z-index: 21;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: min(440px, 88%);
+  min-width: 0;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  outline: 0;
+  border-left: 1px solid var(--settings-border);
+  background: var(--settings-surface);
+  color: var(--settings-foreground);
+  box-shadow: -18px 0 44px color-mix(in srgb, #0f172a 16%, transparent);
+}
+
+#settingsModal .settings-help-panel:focus-visible { box-shadow: -18px 0 44px color-mix(in srgb, #0f172a 16%, transparent), inset 0 0 0 2px var(--settings-ring); }
+
+#settingsModal .settings-help-panel-header {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--settings-space-3);
+  border-bottom: 1px solid var(--settings-border);
+  padding: 18px 20px;
+}
+
+#settingsModal .settings-help-panel-header > div { min-width: 0; display: grid; gap: 4px; }
+#settingsModal .settings-help-eyebrow {
+  color: var(--settings-primary);
+  font-size: 10px;
+  font-weight: 750;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+#settingsModal .settings-help-panel h2 {
+  overflow: hidden;
+  margin: 0;
+  color: var(--settings-foreground);
+  font-size: 18px;
+  font-weight: 750;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#settingsModal .settings-help-body {
+  min-width: 0;
+  min-height: 0;
+  display: grid;
+  align-content: start;
+  gap: var(--settings-space-4);
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding: 20px;
+}
+
+#settingsModal :is(.settings-help-overview, .settings-help-entry) {
+  min-width: 0;
+  display: grid;
+  gap: 6px;
+  border-bottom: 1px solid var(--settings-border);
+  padding: 0 0 16px;
+}
+#settingsModal .settings-help-overview {
+  border: 1px solid color-mix(in srgb, var(--settings-primary) 22%, var(--settings-border));
+  border-radius: var(--settings-radius);
+  background: var(--settings-primary-soft);
+  padding: 14px;
+}
+#settingsModal .settings-help-list { min-width: 0; display: grid; gap: 16px; }
+#settingsModal :is(.settings-help-overview, .settings-help-entry) h3 {
+  margin: 0;
+  color: var(--settings-foreground);
+  font-size: 13px;
+  font-weight: 700;
+}
+#settingsModal :is(.settings-help-overview, .settings-help-entry) p {
+  margin: 0;
+  color: var(--settings-muted-foreground);
+  font-size: 13px;
+  line-height: 1.65;
+  overflow-wrap: anywhere;
+}
+#settingsModal .settings-help-empty {
+  border: 1px dashed var(--settings-border);
+  border-radius: var(--settings-radius);
+  color: var(--settings-muted-foreground);
+  padding: 18px;
+  font-size: 13px;
+  line-height: 1.55;
+  text-align: center;
+}
+
+#settingsContentBody [data-settings-help-copy] { display: none !important; }
+
+#settingsModal .settings-main.legacy-settings-content {
+  overflow: hidden !important;
+}
+
+#settingsModal .settings-page-scroll {
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+
+#settingsModal .settings-page-scroll > .settings-content-body {
+  min-height: 100%;
+}
+
+#settingsModal .legacy-settings-content-body {
+  width: 100%;
+  max-width: none;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  overflow: visible !important;
+}
+
+#settingsModal .settings-page-frame {
+  width: min(1120px, 100%);
+  min-width: 0;
+  margin: 0;
+  padding: clamp(16px, 3vw, 28px);
+}
+
+#settingsModal .legacy-settings-content-head,
+#settingsModal .legacy-settings-subbar,
+#settingsModal .legacy-settings-category-nav { background: var(--settings-surface); }
+
+#settingsModal .settings-mobile-category-nav {
+  display: none;
+}
+
+/* Shared Cards, fields, buttons, status, and lists. */
+#settingsContentBody :is(.settings-page, .settings-live-page, .skills-page, .automation-control-page) {
+  min-width: 0;
+  display: grid;
+  gap: var(--settings-space-4);
+  color: var(--settings-foreground);
+}
+
+#settingsContentBody :is(.settings-card, .settings-page-section, .settings-hero-card, .settings-provider-section, .settings-panel-card, .settings-info-card, .settings-empty-card, .automation-section) {
+  min-width: 0;
+  border: 1px solid var(--settings-border);
+  border-radius: var(--settings-radius-lg);
+  background: var(--settings-surface);
+  color: var(--settings-foreground);
+  box-shadow: var(--settings-shadow);
+}
+
+#settingsContentBody :is(.settings-card, .settings-page-section, .settings-provider-section, .settings-panel-card, .settings-info-card, .automation-section) {
+  padding: var(--settings-space-5);
+}
+
+#settingsContentBody .settings-hero-card {
+  padding: var(--settings-space-5);
+  background: linear-gradient(135deg, var(--settings-surface), color-mix(in srgb, var(--settings-primary-soft) 55%, var(--settings-surface)));
+}
+
+/* The terminal hero holds a header plus an action-row footer. The generic hero
+   card lays its children out as one flex row, which squeezed the two blocks
+   side by side and made the buttons overlap the header copy on phones. */
+#settingsContentBody .terminal-hero-card {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+#settingsContentBody .terminal-hero-card .settings-card-footer {
+  justify-content: flex-start;
+}
+
+#settingsContentBody :is(.settings-card-content, .settings-card-footer) {
+  min-width: 0;
+  display: grid;
+  gap: var(--settings-space-3);
+}
+
+#settingsContentBody .settings-card-footer {
+  border-top: 1px solid var(--settings-border);
+  margin-top: var(--settings-space-4);
+  padding-top: var(--settings-space-3);
+}
+
+#settingsContentBody :is(.settings-card-header, .settings-provider-section-head, .settings-toolbar, .settings-action-row, .settings-inline-actions) {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--settings-space-2);
+  flex-wrap: wrap;
+}
+
+#settingsContentBody :is(.settings-card-title, .settings-provider-title, .settings-hero-title) {
+  margin: 0;
+  color: var(--settings-foreground);
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: -.01em;
+}
+
+#settingsContentBody :is(.settings-card-description, .settings-provider-meta, .settings-hero-card p, .skills-description) {
+  display: block;
+  margin: 4px 0 0;
+  color: var(--settings-muted-foreground);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+#settingsContentBody :is(.settings-action-btn, .automation-btn, .settings-button) {
+  min-height: var(--settings-control-height);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: 1px solid var(--settings-border);
+  border-radius: var(--settings-radius);
+  background: var(--settings-surface);
+  color: var(--settings-foreground);
+  padding: 0 12px;
+  font-size: 13px;
+  font-weight: 650;
+  cursor: pointer;
+  transition: border-color .15s ease, background .15s ease, color .15s ease;
+}
+
+#settingsContentBody :is(.settings-action-btn, .automation-btn, .settings-button):hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--settings-primary) 42%, var(--settings-border));
+  background: var(--settings-primary-soft);
+  color: var(--settings-primary);
+}
+
+#settingsContentBody :is(.settings-action-btn, .automation-btn, .settings-button).primary,
+#settingsContentBody :is(.settings-action-btn, .automation-btn, .settings-button)[data-variant="default"] {
+  border-color: var(--settings-primary);
+  background: var(--settings-primary);
+  color: var(--settings-primary-foreground);
+}
+
+#settingsContentBody :is(.settings-action-btn, .automation-btn, .settings-button).primary:hover:not(:disabled) {
+  border-color: var(--settings-primary);
+  background: color-mix(in srgb, var(--settings-primary) 88%, #000);
+  color: var(--settings-primary-foreground);
+}
+
+#settingsContentBody :is(.settings-action-btn, .automation-btn, .settings-button).danger,
+#settingsContentBody :is(.settings-action-btn, .automation-btn, .settings-button)[data-variant="destructive"] {
+  border-color: color-mix(in srgb, var(--settings-destructive) 35%, var(--settings-border));
+  background: var(--settings-destructive-soft);
+  color: var(--settings-destructive);
+}
+
+#settingsContentBody :is(.settings-action-btn, .automation-btn, .settings-button):disabled {
+  cursor: not-allowed;
+  opacity: .55;
+}
+
+#settingsContentBody :is(.settings-form-grid, .settings-provider-form-grid, .automation-form) {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--settings-space-3);
+}
+
+#settingsContentBody :is(.settings-form-field, .settings-form-grid > label, .settings-provider-form-grid > label, .automation-form > label) {
+  min-width: 0;
+  display: grid;
+  gap: 6px;
+  color: var(--settings-foreground);
+  font-size: 13px;
+  font-weight: 650;
+}
+
+#settingsContentBody :is(.settings-page, .settings-live-page, .skills-page, .automation-control-page) :is(.settings-field, input:not([type="checkbox"]):not([type="radio"]), select, textarea) {
+  width: 100%;
+  min-height: var(--settings-control-height);
+  border: 1px solid var(--settings-border);
+  border-radius: var(--settings-radius);
+  outline: 0;
+  background: var(--settings-input);
+  color: var(--settings-foreground);
+  padding: 8px 10px;
+  box-shadow: none;
+}
+
+#settingsContentBody :is(.settings-page, .settings-live-page, .skills-page, .automation-control-page) textarea {
+  min-height: 88px;
+  resize: vertical;
+}
+
+#settingsContentBody :is(.settings-page, .settings-live-page, .skills-page, .automation-control-page) :is(.settings-field, input, select, textarea):focus {
+  border-color: var(--settings-primary);
+  background: var(--settings-surface);
+  box-shadow: 0 0 0 3px var(--settings-ring);
+}
+
+#settingsContentBody :is(.settings-badge, .settings-status-pill, .automation-status, .uh-status) {
+  width: fit-content;
+  display: inline-flex;
+  align-items: center;
+  min-height: 22px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: var(--settings-muted);
+  color: var(--settings-muted-foreground);
+  padding: 2px 8px;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.25;
+}
+
+#settingsContentBody :is(.settings-status-pill, .automation-status).ok,
+#settingsContentBody .settings-badge.success {
+  border-color: color-mix(in srgb, var(--settings-success) 30%, var(--settings-border));
+  background: var(--settings-success-soft);
+  color: var(--settings-success);
+}
+
+#settingsContentBody :is(.settings-status-pill, .automation-status).warn,
+#settingsContentBody .settings-badge.warning {
+  border-color: color-mix(in srgb, var(--settings-warning) 32%, var(--settings-border));
+  background: var(--settings-warning-soft);
+  color: var(--settings-warning);
+}
+
+/* Neutral emphasis for classification, not status: used by the memory scope
+   badge, where "conversation-owned" is a fact rather than a success or warning. */
+#settingsContentBody :is(.settings-status-pill, .settings-badge).accent {
+  border-color: color-mix(in srgb, var(--settings-primary) 30%, var(--settings-border));
+  background: var(--settings-primary-soft);
+  color: var(--settings-primary);
+}
+
+#settingsContentBody :is(.settings-alert, .settings-inline-alert, .automation-inline-error, .settings-empty-card.danger) {
+  border: 1px solid color-mix(in srgb, var(--settings-destructive) 30%, var(--settings-border));
+  border-radius: var(--settings-radius);
+  background: var(--settings-destructive-soft);
+  color: var(--settings-destructive);
+  padding: 10px 12px;
+  line-height: 1.5;
+}
+
+#settingsContentBody .settings-empty-state,
+#settingsContentBody .settings-empty-card.compact {
+  min-height: 100px;
+  display: grid;
+  place-items: center;
+  color: var(--settings-muted-foreground);
+  text-align: center;
+}
+
+#settingsContentBody :is(.settings-stat-grid, .settings-status-strip) {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
+  gap: var(--settings-space-2);
+}
+
+#settingsContentBody :is(.settings-stat-card, .settings-status-strip > div) {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+  border: 1px solid var(--settings-border);
+  border-radius: var(--settings-radius);
+  background: color-mix(in srgb, var(--settings-surface) 88%, var(--settings-muted));
+  padding: 12px;
+}
+
+#settingsContentBody :is(.settings-stat-card, .settings-status-strip > div) strong { color: var(--settings-foreground); font-size: 18px; }
+#settingsContentBody :is(.settings-stat-card, .settings-status-strip > div) :is(span, small) { color: var(--settings-muted-foreground); font-size: 12px; }
+#settingsContentBody .automation-metrics.settings-stat-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+
+/* The settings body is both #settingsContentBody and .legacy-settings-content-body, so
+   the automation page is styled by two sheets at once and they disagree about what a
+   section is. The legacy sheet flattens sections into borderless full-bleed rows, each
+   carrying its own vertical padding and a bottom divider, and for that shape gap: 0 is
+   correct -- the divider is the separation. The rules above restyle those same elements
+   back into bordered, rounded, shadowed cards, and they win on ID specificity while the
+   legacy gap: 0 keeps applying because no ID-scoped rule ever claimed these grids. Cards
+   with no gap and no divider between them read as one slab, which is the crowding on the
+   channels, schedules, and appliance page. Restore the spacing the card shape needs.
+
+   Columns are driven by container queries rather than media queries because this page
+   renders inside a settings panel that sits beside a category sidebar: the viewport is
+   wide long before the panel is, so a viewport breakpoint would commit to two columns
+   while the panel is still narrow. Single column is the unconditional base and widening
+   is the override, so nothing has to out-specify the legacy sheet's narrow breakpoints. */
+#settingsContentBody .automation-control-page {
+  container: automation-page / inline-size;
+}
+
+#settingsContentBody .automation-section-grid {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--settings-space-4);
+}
+
+/* Each section is its own query container so the card grid inside it can react to the
+   width that section actually got, which differs between a full-bleed span-2 section and
+   one sharing a row. */
+#settingsContentBody .automation-section {
+  container: automation-section / inline-size;
+}
+
+#settingsContentBody .automation-card-grid,
+#settingsContentBody .automation-card-grid.single {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--settings-space-3);
+}
+
+@container automation-page (min-width: 720px) {
+  #settingsContentBody .automation-section-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  /* The legacy sheet pins every section, span-2 included, to grid-column 1 for its
+     single-column layout. Two columns only mean anything once the wide sections are
+     allowed to span again, so the pin is lifted in the same breakpoint that adds the
+     second column -- never separately. */
+  #settingsContentBody .automation-section.span-2 {
+    grid-column: span 2;
+  }
+}
+
+/* The Telegram trio (connections, pairing, deliveries) shares one full-width
+   row. Three-up only once the page is wide enough for ~280px columns; below
+   that it stacks -- a two-column step would strand the third section next to
+   an empty cell, which is exactly the layout this wrapper exists to avoid. */
+#settingsContentBody .automation-trio {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--settings-space-4);
+  align-items: stretch;
+}
+
+#settingsContentBody .automation-trio > .automation-section {
+  min-width: 0;
+}
+
+@container automation-page (min-width: 720px) {
+  #settingsContentBody .automation-trio {
+    grid-column: span 2;
+  }
+}
+
+@container automation-page (min-width: 860px) {
+  #settingsContentBody .automation-trio {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  /* The legacy sheet pins every .automation-section to grid-column 1 for its
+     flattened single-column layout; inside the trio that would stack all three
+     into the first column, so the pin is lifted exactly where the columns
+     appear. */
+  #settingsContentBody .automation-trio > .automation-section {
+    grid-column: auto;
+  }
+}
+
+/* Short sections side by side must not be stretched by one long neighbour:
+   past this cap the lists scroll instead. */
+#settingsContentBody .automation-trio .automation-list {
+  max-height: 300px;
+  overflow: auto;
+}
+
+/* Blocks inside the trio cards. The shared automation form/empty styles are
+   shaped for a half-page section; at a third of the page they need their own
+   geometry. */
+
+/* The legacy sheet forces two form columns even on .compact, and ~300px cannot
+   fit two: the token input truncated and the submit button wrapped. Inside the
+   trio every field takes the full row and the button spans it. */
+#settingsContentBody .automation-trio .automation-form,
+#settingsContentBody .automation-trio .automation-form.compact {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+#settingsContentBody .automation-trio .automation-form .span-2 {
+  grid-column: span 1;
+}
+
+#settingsContentBody .automation-trio .automation-form-actions {
+  display: grid;
+}
+
+#settingsContentBody .automation-trio .automation-form-actions .automation-btn {
+  width: 100%;
+}
+
+/* The three cards sit shoulder to shoulder, so each body flexes: the list (or
+   its empty placeholder) absorbs the leftover height. Rows stay top-aligned;
+   only a lone placeholder stretches, so the dashed boxes line up across the
+   row instead of floating at arbitrary heights. */
+#settingsContentBody .automation-trio > .automation-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--settings-space-3);
+}
+
+#settingsContentBody .automation-trio > .automation-section > :is(.automation-list, .automation-card-grid) {
+  flex: 1;
+  align-content: start;
+}
+
+#settingsContentBody .automation-trio > .automation-section > :is(.automation-list, .automation-card-grid):has(> .automation-empty) {
+  align-content: stretch;
+}
+
+/* Empty and loading placeholders across the automation page: one calm, centered
+   dashed block instead of a cramped strip of left-aligned text. */
+#settingsContentBody .automation-control-page .automation-empty {
+  display: grid;
+  place-content: center;
+  min-height: 120px;
+  padding: 16px;
+  text-align: center;
+  color: var(--settings-muted-foreground);
+  font-size: 12.5px;
+  line-height: 1.7;
+  border: 1px dashed var(--settings-border);
+  border-radius: var(--settings-radius);
+  background: color-mix(in srgb, var(--settings-surface) 94%, var(--settings-muted));
+}
+
+/* Deliberately narrower than the section-grid threshold: a section sharing a row is
+   roughly half the page, and pairing cards up inside it would rebuild the crowding this
+   block just removed. In practice only full-bleed sections get wide enough to qualify. */
+@container automation-section (min-width: 560px) {
+  #settingsContentBody .automation-card-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  /* .single is the render-side opt-out for cards that hold a form or a wide row, so it
+     stays one-up at every width. */
+  #settingsContentBody .automation-card-grid.single {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+#settingsContentBody .automation-list {
+  min-width: 0;
+  display: grid;
+  gap: var(--settings-space-2);
+}
+
+/* Feature entry cards: the three pillars of the page, one column until the
+   panel is wide enough for all three side by side. */
+#settingsContentBody .automation-pillars {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--settings-space-3);
+}
+
+@container automation-page (min-width: 720px) {
+  #settingsContentBody .automation-pillars {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+#settingsContentBody .automation-pillar {
+  min-width: 0;
+  display: grid;
+  gap: var(--settings-space-2);
+  align-content: start;
+}
+
+#settingsContentBody .automation-pillar-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--settings-space-2);
+}
+
+#settingsContentBody .automation-pillar h3 {
+  margin: 0;
+  font-size: 15px;
+}
+
+#settingsContentBody .automation-pillar p {
+  margin: 0;
+  color: var(--settings-muted-foreground);
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
+#settingsContentBody .automation-pillar .automation-btn {
+  justify-self: start;
+}
+
+/* Pending device-action approvals pinned above everything else. */
+#settingsContentBody .automation-pending {
+  border-color: color-mix(in srgb, var(--settings-destructive, #dc2626) 45%, var(--settings-border));
+  background: color-mix(in srgb, var(--settings-destructive, #dc2626) 6%, var(--settings-surface));
+}
+
+/* Metric cards double as section links; undo button chrome the stat-card class
+   does not set, and give them affordance. */
+#settingsContentBody button.automation-metric {
+  appearance: none;
+  font: inherit;
+  text-align: inherit;
+  cursor: pointer;
+  color: inherit;
+}
+
+#settingsContentBody button.automation-metric:hover,
+#settingsContentBody button.automation-metric:focus-visible {
+  border-color: var(--settings-primary);
+}
+
+#settingsContentBody .automation-form-toggle {
+  align-self: start;
+  white-space: nowrap;
+}
+
+#settingsContentBody .automation-cron-preview {
+  display: block;
+  margin-top: 4px;
+  color: var(--settings-muted-foreground);
+  font-size: 12px;
+}
+
+#settingsContentBody .automation-device-group {
+  min-width: 0;
+  display: grid;
+  gap: var(--settings-space-2);
+}
+
+#settingsContentBody .automation-device-group-head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--settings-space-2);
+  padding-top: var(--settings-space-2);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  color: var(--settings-muted-foreground);
+}
+
+#settingsContentBody .automation-device-group-head strong {
+  color: var(--settings-foreground);
+}
+
+#settingsContentBody .automation-device-search {
+  min-width: 160px;
+  flex: 1;
+}
+
+/* Rows that carry the per-entity action shortcut need a fourth column so the
+   button does not wrap under the entity name. */
+#settingsContentBody .automation-device-row.has-action {
+  grid-template-columns: minmax(0, 1fr) minmax(80px, auto) 44px auto;
+}
+
+#settingsContentBody .archive-summary-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+#settingsContentBody .archive-item-list { display: grid; gap: var(--settings-space-2); }
+#settingsContentBody .archive-item {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--settings-space-3);
+  border: 1px solid var(--settings-border);
+  border-radius: var(--settings-radius);
+  background: color-mix(in srgb, var(--settings-surface) 94%, var(--settings-muted));
+  padding: 10px 12px;
+}
+#settingsContentBody .archive-item-icon {
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  border-radius: 9px;
+  background: var(--settings-primary-soft);
+  color: var(--settings-primary);
+  font-size: 12px;
+  font-weight: 800;
+}
+#settingsContentBody .archive-item-main { min-width: 0; display: grid; gap: 3px; }
+#settingsContentBody .archive-item-main strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--settings-foreground); font-size: 13px; }
+#settingsContentBody .archive-item-main small { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--settings-muted-foreground); font-size: 12px; }
+#settingsContentBody .archive-item-state { color: var(--settings-muted-foreground); font-size: 11px; }
+#settingsContentBody .archive-item-actions { display: flex; align-items: center; gap: var(--settings-space-2); flex-wrap: wrap; justify-content: flex-end; }
+#settingsContentBody :is(.archive-restore-btn, .archive-delete-btn) { min-height: 30px; padding: 0 10px; }
+#settingsContentBody .archive-empty-state { min-height: 100px; display: grid; place-items: center; color: var(--settings-muted-foreground); text-align: center; }
+
+#settingsContentBody :is(.settings-data-list, .storage-entry-list, .license-group-card, .settings-auth-list) {
+  min-width: 0;
+  border-color: var(--settings-border);
+  color: var(--settings-foreground);
+}
+
+#settingsContentBody :is(.settings-data-row, .storage-entry-card, .license-module-row, .settings-auth-item, .settings-backend-card, .automation-row-card, .automation-device-row, .automation-audit-row) {
+  min-width: 0;
+  border-color: var(--settings-border);
+  background: color-mix(in srgb, var(--settings-surface) 94%, var(--settings-muted));
+  color: var(--settings-foreground);
+}
+
+/* Choice cards and full-row switches retain a clear selectable affordance. */
+#settingsContentBody :is(.settings-choice-grid, .appearance-choice-grid, .terminal-retention-grid) {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--settings-space-2);
+}
+
+#settingsContentBody :is(.settings-choice-card, .appearance-choice, .terminal-control-card, .terminal-shortcut-card) {
+  min-width: 0;
+  min-height: 88px;
+  display: grid;
+  align-content: start;
+  gap: 5px;
+  border: 1px solid var(--settings-border);
+  border-radius: var(--settings-radius);
+  background: var(--settings-surface);
+  color: var(--settings-foreground);
+  padding: 12px;
+  text-align: left;
+}
+
+#settingsContentBody .terminal-control-card {
+  min-height: 52px;
+  align-content: center;
+  gap: 0;
+}
+
+/* Retention choices are just line counts, so the generic 88px choice card reads
+   as a large empty box whenever the help copy is hidden. */
+#settingsContentBody .terminal-retention-grid .appearance-choice {
+  min-height: 52px;
+  align-content: center;
+}
+
+/* Notification durations are short choices, so keep them compact and on one row. */
+#settingsContentBody .notification-page .settings-choice-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--settings-space-2);
+}
+
+#settingsContentBody .notification-page .settings-choice-card {
+  min-height: 52px;
+  align-content: center;
+  gap: 3px;
+  padding: 10px 12px;
+}
+
+#settingsContentBody .notification-page .settings-choice-card span {
+  font-size: 13px;
+  line-height: 1.3;
+}
+
+#settingsContentBody .notification-page .settings-choice-card small {
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+#settingsContentBody :is(.settings-choice-card, .appearance-choice, .terminal-control-card):hover,
+#settingsContentBody :is(.settings-choice-card, .appearance-choice, .terminal-control-card).active,
+#settingsContentBody :is(.settings-choice-card, .appearance-choice, .terminal-control-card)[aria-checked="true"] {
+  border-color: color-mix(in srgb, var(--settings-primary) 55%, var(--settings-border));
+  background: var(--settings-primary-soft);
+}
+
+#settingsContentBody :is(.appearance-toggle-row, .settings-switch-row) {
+  min-height: var(--settings-control-height-touch);
+  display: flex;
+  align-items: center;
+  gap: var(--settings-space-3);
+  border: 1px solid transparent;
+  border-radius: var(--settings-radius);
+  padding: 9px 10px;
+  transition: background .15s ease, border-color .15s ease;
+}
+
+#settingsContentBody :is(.appearance-toggle-row, .settings-switch-row):hover,
+#settingsContentBody :is(.appearance-toggle-row, .settings-switch-row):focus-within {
+  border-color: var(--settings-border);
+  background: var(--settings-muted);
+}
+
+#settingsContentBody :is(.appearance-toggle-row, .settings-switch-row) input[type="checkbox"] {
+  width: 36px;
+  height: 20px;
+  flex: 0 0 auto;
+  accent-color: var(--settings-primary);
+}
+
+/* Existing pages: restore visual hierarchy without hiding explanatory content. */
+#settingsContentBody :is(.skills-description, .automation-hero p, .automation-section-head p, .settings-hero-card p, .settings-provider-section-description) {
+  display: block;
+  -webkit-line-clamp: unset;
+  overflow: visible;
+}
+
+#settingsContentBody .skills-tabs {
+  display: flex;
+  gap: 4px;
+  overflow-x: auto;
+  border-bottom: 1px solid var(--settings-border);
+  padding: 0 2px;
+}
+
+#settingsContentBody .skills-tab {
+  min-height: 38px;
+  flex: 0 0 auto;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: var(--settings-muted-foreground);
+  padding: 0 10px;
+}
+
+#settingsContentBody .skills-tab:hover,
+#settingsContentBody .skills-tab.active {
+  color: var(--settings-primary);
+}
+
+#settingsContentBody .skills-tab.active { border-bottom-color: var(--settings-primary); }
+
+/* Optional tools use distinct compact cards instead of dense text rows. */
+#settingsContentBody [data-optional-tools-panel] > .settings-card-header h2 {
+  margin: 0;
+}
+
+#settingsContentBody .optional-tools-settings {
+  display: grid;
+  gap: var(--settings-space-3);
+  margin-top: var(--settings-space-4);
+}
+
+#settingsContentBody .optional-tools-settings > .settings-field {
+  display: grid;
+  gap: 6px;
+}
+
+#settingsContentBody .optional-tools-settings .optional-tools-domain {
+  padding: 0;
+  overflow: hidden;
+  box-shadow: none;
+}
+
+#settingsContentBody .optional-tools-domain > .settings-card-header {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--settings-border);
+  background: color-mix(in srgb, var(--settings-surface) 94%, var(--settings-muted));
+}
+
+#settingsContentBody .optional-tools-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  padding: 10px;
+}
+
+#settingsContentBody .optional-tool-row {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 14px;
+  border: 1px solid var(--settings-border);
+  border-radius: var(--settings-radius);
+  background: color-mix(in srgb, var(--settings-surface) 96%, var(--settings-muted));
+  padding: 12px;
+}
+
+#settingsContentBody .optional-tool-main,
+#settingsContentBody .optional-tool-title {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+#settingsContentBody .optional-tool-title strong {
+  overflow: hidden;
+  color: var(--settings-foreground);
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#settingsContentBody .optional-tool-title code {
+  width: fit-content;
+  max-width: 100%;
+  overflow: hidden;
+  color: var(--settings-muted-foreground);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#settingsContentBody .optional-tool-main small {
+  color: var(--settings-warning);
+  font-size: 11px;
+}
+
+#settingsContentBody .optional-tool-actions {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+#settingsContentBody .optional-tool-actions select {
+  min-width: 116px;
+  min-height: 34px;
+}
+
+@media (max-width: 900px) {
+  #settingsContentBody .optional-tools-list { grid-template-columns: minmax(0, 1fr); }
+}
+
+@media (max-width: 560px) {
+  #settingsContentBody .optional-tool-row { grid-template-columns: minmax(0, 1fr); }
+  #settingsContentBody .optional-tool-actions { flex-direction: row; flex-wrap: wrap; justify-content: flex-start; }
+}
+

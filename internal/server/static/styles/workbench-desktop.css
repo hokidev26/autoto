@@ -1,0 +1,1292 @@
+/* Figure 2 desktop conversation layout. */
+@media (min-width: 1280px) {
+  body.white-shell.theme-light .global-rail-nav .global-rail-button:last-child { margin-top: 0; }
+  body.white-shell.theme-light .global-rail-footer {
+    flex: 0 0 auto;
+    display: grid;
+    justify-items: center;
+    gap: 9px;
+    padding: 4px 0 2px;
+  }
+  body.white-shell.theme-light .global-rail .global-rail-theme-toggle {
+    width: 38px;
+    min-height: 38px;
+    height: 38px;
+    align-self: center;
+    border-radius: 10px;
+    padding: 0;
+    color: #687184;
+    font-size: 21px;
+    font-weight: 400;
+  }
+  body.white-shell.theme-light .global-rail-health {
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    color: #687184;
+    font-size: 10px;
+    line-height: 1;
+    white-space: nowrap;
+  }
+  body.white-shell.theme-light .global-rail-health-dot {
+    width: 7px;
+    height: 7px;
+    flex: 0 0 7px;
+    border-radius: 999px;
+    background: #ef4444;
+  }
+  body.white-shell.theme-light .global-rail-health-dot.ok { background: #22c55e; }
+  body.white-shell.theme-light .global-rail-health-dot.err { background: #ef4444; }
+
+  body.white-shell.theme-light .session-sidebar-header {
+    height: 62px;
+    min-height: 62px;
+    padding: 0 14px;
+  }
+  body.white-shell.theme-light .session-sidebar-title {
+    font-size: 16px;
+    font-weight: 650;
+    letter-spacing: -.015em;
+  }
+  body.white-shell.theme-light #projectSearchToggleBtn,
+  body.white-shell.theme-light #refreshBtn { display: none; }
+  body.white-shell.theme-light .session-sidebar-actions { gap: 0; }
+  body.white-shell.theme-light #newProjectBtn {
+    width: 32px;
+    height: 32px;
+    min-width: 32px;
+    min-height: 32px;
+    padding: 7px;
+  }
+  body.white-shell.theme-light .agent-list-section {
+    padding: 14px 0 12px;
+  }
+  body.white-shell.theme-light .navigation-filters {
+    min-height: 28px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 0 12px 10px;
+    padding: 0;
+    overflow-x: auto;
+    scrollbar-width: none;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+  }
+  body.white-shell.theme-light .navigation-filters::-webkit-scrollbar { display: none; }
+  body.white-shell.theme-light .navigation-filter {
+    flex: 0 0 auto;
+    min-width: 48px;
+    min-height: 28px;
+    border: 1px solid #dfe3e9;
+    border-radius: 999px;
+    background: var(--ws-input, #eef1f5);
+    color: #687184;
+    padding: 4px 12px;
+    font-size: 12px;
+    font-weight: 500;
+    line-height: 1;
+  }
+  body.white-shell.theme-light .navigation-filter:hover {
+    border-color: #b8c3ff;
+    background: var(--ws-primary-soft, #f5f7ff);
+    color: #4f6ef7;
+  }
+  body.white-shell.theme-light .navigation-filter.active {
+    border-color: #4f6ef7;
+    background: var(--ws-card);
+    color: #4f6ef7;
+    box-shadow: none;
+  }
+  body.white-shell.theme-light .sidebar-search-wrap,
+  body.white-shell.theme-light .sidebar-search-wrap.hidden {
+    display: block !important;
+    margin: 0 12px 10px;
+  }
+  body.white-shell.theme-light .sidebar-search {
+    height: 40px;
+    min-height: 40px;
+    border-color: #dfe3e9;
+    border-radius: 10px;
+    background: var(--ws-input, #eef1f5);
+    padding: 0 34px 0 12px;
+    font-size: 12px;
+  }
+  body.white-shell.theme-light .sidebar-search:placeholder-shown + .sidebar-search-clear {
+    opacity: 0;
+    pointer-events: none;
+  }
+  body.white-shell.theme-light .project-list {
+    flex: 1 1 auto;
+    min-height: 0;
+    align-content: start;
+    grid-auto-rows: max-content;
+    gap: 4px;
+    padding: 0 10px;
+  }
+  body.white-shell.theme-light .navigation-project-group {
+    gap: 2px;
+  }
+  body.white-shell.theme-light .navigation-project-group + .navigation-project-group {
+    margin-top: 4px;
+  }
+  body.white-shell.theme-light .project-card {
+    min-height: 68px;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0;
+    border-radius: 10px;
+    padding: 10px 12px;
+  }
+  body.white-shell.theme-light .project-card.active {
+    background: var(--ws-primary-soft, #eef1ff);
+    color: #344fcf;
+    box-shadow: none;
+  }
+  body.white-shell.theme-light .project-active-dot { display: none; }
+  body.white-shell.theme-light .project-card-main { gap: 2px; }
+  body.white-shell.theme-light .project-card-top { min-height: 17px; }
+  body.white-shell.theme-light .project-kind-badge {
+    display: inline-flex;
+    align-items: center;
+    width: fit-content;
+    min-height: 17px;
+    border-radius: 5px;
+    background: var(--ws-primary-soft, #eef1ff);
+    color: #4f6ef7;
+    padding: 1px 7px;
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: .08em;
+    line-height: 1;
+  }
+  body.white-shell.theme-light .project-card.active .project-kind-badge {
+    background: var(--ws-card);
+  }
+  body.white-shell.theme-light .project-name {
+    color: #20263a;
+    font-size: 14px;
+    font-weight: 600;
+  }
+  body.white-shell.theme-light .project-card.active .project-name { color: #4f6ef7; }
+  body.white-shell.theme-light .project-path {
+    font-size: 11px;
+    line-height: 1.35;
+  }
+  body.white-shell.theme-light .navigation-conversation-row,
+  body.white-shell.theme-light .navigation-conversation-row.nested {
+    width: 100%;
+    min-height: 40px;
+    margin-left: 0;
+    grid-template-columns: minmax(0, 1fr);
+    align-items: center;
+    border: 0;
+    border-radius: 8px;
+    padding: 9px 12px;
+  }
+  body.white-shell.theme-light .navigation-agent-icon,
+  body.white-shell.theme-light .navigation-breadcrumb,
+  body.white-shell.theme-light .navigation-conversation-meta { display: none; }
+  body.white-shell.theme-light .navigation-conversation-main { gap: 0; }
+  body.white-shell.theme-light .navigation-conversation-title {
+    color: #20263a;
+    font-size: 13px;
+    font-weight: 500;
+  }
+  body.white-shell.theme-light .navigation-conversation-row.active {
+    background: var(--ws-primary-soft, #eef1ff);
+  }
+  body.white-shell.theme-light .navigation-conversation-row.active .navigation-conversation-title { color: #4f6ef7; }
+  body.white-shell.theme-light .recent-sidebar { display: none; }
+
+  body.white-shell.theme-light .chat-header {
+    height: 62px;
+    min-height: 62px;
+    flex-basis: 62px;
+    padding: 0 14px 0 18px;
+  }
+  body.white-shell.theme-light .chat-heading {
+    display: flex;
+    align-items: center;
+  }
+  body.white-shell.theme-light .chat-title {
+    max-width: min(48vw, 620px);
+    font-size: 18px;
+    font-weight: 700;
+    letter-spacing: -.02em;
+  }
+  body.white-shell.theme-light .chat-subtitle,
+  body.white-shell.theme-light .workspace-meta-pills { display: none !important; }
+  body.white-shell.theme-light .chat-title-action {
+    width: 25px;
+    height: 25px;
+    flex-basis: 25px;
+    padding: 5px;
+  }
+  body.white-shell.theme-light .header-tool-group { gap: 4px; }
+  body.white-shell.theme-light .header-tool-btn {
+    width: 32px;
+    height: 32px;
+    min-width: 32px;
+    min-height: 32px;
+    padding: 7px;
+    border-radius: 8px;
+  }
+
+  body.white-shell.theme-light .messages.empty {
+    align-items: flex-start;
+    justify-content: center;
+    padding: 62px 24px 18px;
+  }
+  body.white-shell.theme-light .empty-conversation-state,
+  body.white-shell.theme-light .empty-workspace-card {
+    width: min(720px, 92%);
+    border: 0;
+    background: transparent;
+    padding: 0;
+    text-align: center;
+    box-shadow: none;
+  }
+  body.white-shell.theme-light .empty-conversation-title,
+  body.white-shell.theme-light .empty-workspace-title {
+    margin: 0;
+    color: #202338;
+    font-size: 19px;
+    font-weight: 700;
+    line-height: 1.35;
+  }
+  body.white-shell.theme-light .empty-conversation-description,
+  body.white-shell.theme-light .empty-workspace-text {
+    margin-top: 6px;
+    color: #687184;
+    font-size: 14px;
+    font-weight: 400;
+    line-height: 1.55;
+  }
+  body.white-shell.theme-light .empty-workspace-icon,
+  body.white-shell.theme-light .empty-workspace-action,
+  body.white-shell.theme-light .empty-workspace-hint { display: none; }
+
+  body.white-shell.theme-light .composer-wrap {
+    min-height: 148px;
+    flex: 0 0 auto;
+    padding: 20px 15px 16px;
+    background: var(--ws-card);
+  }
+  body.white-shell.theme-light .composer-card {
+    width: 100%;
+    max-width: none;
+    min-height: 112px;
+    margin: 0;
+    gap: 16px;
+    border: 0;
+    border-radius: 0;
+    padding: 0;
+    box-shadow: none;
+  }
+  body.white-shell.theme-light .composer-toolbar {
+    min-height: 46px;
+    height: 46px;
+    flex: 0 0 46px;
+    gap: 0;
+    padding: 0;
+  }
+  body.white-shell.theme-light .composer-status,
+  body.white-shell.theme-light .toolbar-lightning-btn,
+  body.white-shell.theme-light .composer-actions { display: none; }
+  body.white-shell.theme-light .composer-controls {
+    width: 100%;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 13px;
+  }
+  body.white-shell.theme-light .composer-field {
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  body.white-shell.theme-light .composer-field-label {
+    flex: 0 0 auto;
+    color: #596273;
+    font-size: 12px;
+    font-weight: 500;
+    white-space: nowrap;
+  }
+  body.white-shell.theme-light .composer-model-field {
+    flex: 1 1 430px;
+    min-width: 270px;
+  }
+  body.white-shell.theme-light .composer-effort-field,
+  body.white-shell.theme-light .composer-permission-field { flex: 0 0 auto; }
+  body.white-shell.theme-light .toolbar-model-pill {
+    flex: 1 1 auto;
+    width: auto;
+    min-width: 0;
+    max-width: none;
+    height: 46px;
+    border-radius: 10px;
+  }
+  body.white-shell.theme-light .model-pill .compact-select {
+    height: 44px;
+    padding: 4px 34px 4px 12px;
+    font-size: 13px;
+  }
+  body.white-shell.theme-light .effort-pill {
+    width: 150px;
+    min-width: 150px;
+    height: 46px;
+    border-radius: 10px;
+    padding: 0 14px;
+    font-size: 13px;
+    font-weight: 600;
+  }
+  body.white-shell.theme-light .permission-toolbar-pill {
+    min-width: 98px;
+    width: 98px;
+    height: 40px;
+    border-radius: 9px;
+    padding: 0 28px 0 12px;
+    font-size: 12px;
+    font-weight: 600;
+  }
+  body.white-shell.theme-light .permission-toolbar-pill::after { right: 10px; }
+  body.white-shell.theme-light .permission-safety-indicator {
+  width: 24px;
+  height: 24px;
+  flex: 0 0 24px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid #dfe3e9;
+    border-radius: 10px;
+    background: var(--ws-card);
+    color: #687184;
+  }
+  body.white-shell.theme-light .permission-safety-indicator svg {
+    width: 19px;
+    height: 19px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.7;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+  body.white-shell.theme-light .permission-risk-badge {
+    min-height: 30px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 auto;
+    border: 1px solid #dfe3e9;
+    border-radius: 999px;
+    background: var(--ws-card);
+    color: #687184;
+    padding: 4px 11px;
+    font-size: 11px;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+  body.white-shell.theme-light .permission-risk-badge.danger {
+    border-color: #fca5a5;
+    background: #fff1f2;
+    color: #ef4444;
+  }
+  body.white-shell.theme-light .pending-attachments {
+    margin: -6px 0 0;
+    padding-left: 0;
+  }
+  body.white-shell.theme-light .composer-input-shell {
+    min-height: 48px;
+    gap: 10px;
+  }
+  body.white-shell.theme-light .composer-attach-wrap { display: none; }
+  body.white-shell.theme-light .message-input-frame { min-height: 48px; }
+  body.white-shell.theme-light .message-input {
+    height: 48px;
+    min-height: 48px;
+    max-height: 96px;
+    border: 1px solid #dfe3e9;
+    border-radius: 12px;
+    background: var(--ws-input, #eef1f5);
+    padding: 12px 14px 10px;
+    font-size: 14px;
+    line-height: 1.45;
+    box-shadow: none;
+  }
+  body.white-shell.theme-light .composer-send-btn,
+  body.white-shell.theme-light .send-btn.round.composer-send-btn {
+    position: static;
+    width: 68px;
+    min-width: 68px;
+    height: 48px;
+    min-height: 48px;
+    flex: 0 0 68px;
+    transform: none;
+    border-radius: 12px;
+    padding: 0 14px;
+    background: #5472f7;
+    color: #ffffff;
+    font-size: 15px;
+    font-weight: 600;
+    line-height: 1;
+    box-shadow: none;
+  }
+}
+
+@media (min-width: 1440px) {
+  body.white-shell.theme-light .composer-model-field {
+    flex: 0 0 425px;
+    width: 425px;
+  }
+}
+
+/* Flat settings layout: form sections and dividers instead of stacked rounded cards. */
+@media (min-width: 768px) {
+  body.white-shell.theme-light .legacy-settings-content-head { display: none; }
+  body.white-shell.theme-light .legacy-settings-content-body {
+    width: min(1020px, calc(100% - 104px));
+    margin: 0 52px;
+    padding: 24px 0 56px;
+  }
+  body.white-shell.theme-light .legacy-settings-content.about-panel-active .legacy-settings-content-body { padding-top: 32px; }
+  body.white-shell.theme-light .legacy-settings-content-body .settings-live-page,
+  body.white-shell.theme-light .legacy-settings-content-body .settings-page {
+    gap: 0;
+  }
+
+  body.white-shell.theme-light .legacy-settings-content-body .settings-hero-card {
+    border: 0;
+    border-bottom: 1px solid #d9dee6;
+    border-radius: 0;
+    background: transparent;
+    padding: 0 0 22px;
+    box-shadow: none;
+  }
+  body.white-shell.theme-light .legacy-settings-content-body .settings-hero-title {
+    margin-top: 4px;
+    font-size: 21px;
+  }
+  body.white-shell.theme-light .legacy-settings-content-body .settings-hero-card p {
+    margin-top: 6px;
+  }
+
+  body.white-shell.theme-light .legacy-settings-content-body .settings-status-strip {
+    gap: 0;
+    border-bottom: 1px solid #d9dee6;
+    padding: 18px 0 20px;
+  }
+  body.white-shell.theme-light .legacy-settings-content-body .settings-status-strip > div {
+    min-height: 52px;
+    border: 0;
+    border-left: 1px solid #d9dee6;
+    border-radius: 0;
+    background: transparent;
+    padding: 6px 18px;
+  }
+  body.white-shell.theme-light .legacy-settings-content-body .settings-status-strip > div:first-child {
+    border-left: 0;
+    padding-left: 0;
+  }
+
+  body.white-shell.theme-light .legacy-settings-content-body .settings-provider-section,
+  body.white-shell.theme-light .legacy-settings-content-body .settings-provider-card,
+  body.white-shell.theme-light .legacy-settings-content-body .settings-panel-card,
+  body.white-shell.theme-light .legacy-settings-content-body .settings-info-card,
+  body.white-shell.theme-light .legacy-settings-content-body .settings-backend-card,
+  body.white-shell.theme-light .legacy-settings-content-body .profile-info-card,
+  body.white-shell.theme-light .legacy-settings-content-body .search-policy-card,
+  body.white-shell.theme-light .legacy-settings-content-body .im-policy-card,
+  body.white-shell.theme-light .legacy-settings-content-body .user-policy-card,
+  body.white-shell.theme-light .legacy-settings-content-body .storage-entry-card,
+  body.white-shell.theme-light .legacy-settings-content-body .license-group-card,
+  body.white-shell.theme-light .legacy-settings-content-body .terminal-control-card,
+  body.white-shell.theme-light .legacy-settings-content-body .appearance-choice,
+  body.white-shell.theme-light .legacy-settings-content-body .appearance-toggle-row,
+  body.white-shell.theme-light .legacy-settings-content-body .skill-command-card,
+  body.white-shell.theme-light .legacy-settings-content-body .settings-auth-item {
+    border: 0;
+    border-bottom: 1px solid #d9dee6;
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+    padding: 16px 0;
+  }
+  body.white-shell.theme-light .legacy-settings-content-body .settings-provider-section,
+  body.white-shell.theme-light .legacy-settings-content-body .settings-provider-card {
+    padding: 22px 0;
+  }
+  body.white-shell.theme-light .legacy-settings-content-body .settings-provider-section.highlighted,
+  body.white-shell.theme-light .legacy-settings-content-body .settings-provider-section.collapsed,
+  body.white-shell.theme-light .legacy-settings-content-body .settings-provider-card.collapsed,
+  body.white-shell.theme-light .legacy-settings-content-body .settings-backend-card.active,
+  body.white-shell.theme-light .legacy-settings-content-body .appearance-choice.active {
+    border-color: #d9dee6;
+    background: transparent;
+    box-shadow: none;
+  }
+  body.white-shell.theme-light .legacy-settings-content-body .settings-provider-cards,
+  body.white-shell.theme-light .legacy-settings-content-body .settings-model-list,
+  body.white-shell.theme-light .legacy-settings-content-body .settings-auth-list,
+  body.white-shell.theme-light .legacy-settings-content-body .settings-backend-list,
+  body.white-shell.theme-light .legacy-settings-content-body .skill-command-list {
+    gap: 0;
+  }
+  body.white-shell.theme-light .legacy-settings-content-body .storage-entry-list {
+    gap: 12px;
+  }
+
+  body.white-shell.theme-light .legacy-settings-content-body .usage-summary-grid {
+    gap: 0;
+    border-top: 1px solid #d9dee6;
+    border-bottom: 1px solid #d9dee6;
+  }
+  body.white-shell.theme-light .legacy-settings-content-body .usage-metric-card {
+    border: 0;
+    border-left: 1px solid #d9dee6;
+    border-radius: 0;
+    background: transparent;
+    padding: 16px 18px;
+    box-shadow: none;
+  }
+  body.white-shell.theme-light .legacy-settings-content-body .usage-metric-card:first-child {
+    border-left: 0;
+    padding-left: 0;
+  }
+
+  body.white-shell.theme-light .legacy-settings-content-body .settings-empty-card {
+    border: 0;
+    border-bottom: 1px solid #d9dee6;
+    border-radius: 0;
+    background: transparent;
+    padding: 14px 0;
+    box-shadow: none;
+  }
+  body.white-shell.theme-light .legacy-settings-content-body .settings-model-grid { gap: 0; }
+  body.white-shell.theme-light .legacy-settings-content-body .settings-model-row {
+    border-bottom: 1px solid #d9dee6;
+    padding: 4px 0;
+  }
+  body.white-shell.theme-light .legacy-settings-content-body .settings-model-choice {
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    padding: 11px 0;
+    box-shadow: none;
+  }
+  body.white-shell.theme-light .legacy-settings-content-body .settings-model-choice:hover,
+  body.white-shell.theme-light .legacy-settings-content-body .settings-model-choice.active {
+    background: transparent;
+    box-shadow: none;
+  }
+
+  body.white-shell.theme-light .legacy-settings-content-body input:not([type="checkbox"]):not([type="radio"]),
+  body.white-shell.theme-light .legacy-settings-content-body select,
+  body.white-shell.theme-light .legacy-settings-content-body textarea,
+  body.white-shell.theme-light .legacy-settings-content-body .settings-field,
+  body.white-shell.theme-light .legacy-settings-content-body .settings-text-input,
+  body.white-shell.theme-light .legacy-settings-content-body .settings-token-input {
+    border: 1px solid #d7dce4;
+    border-radius: 7px;
+    background: var(--ws-input, #eef1f5);
+    box-shadow: none;
+  }
+  body.white-shell.theme-light .legacy-settings-content-body .settings-checkbox-field {
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    padding: 7px 0;
+  }
+  body.white-shell.theme-light .legacy-settings-content-body .settings-action-btn {
+    min-height: 38px;
+    border-radius: 7px;
+    padding: 0 15px;
+  }
+  body.white-shell.theme-light .legacy-settings-content-body .settings-status-pill,
+  body.white-shell.theme-light .legacy-settings-content-body .skill-scope-badge,
+  body.white-shell.theme-light .legacy-settings-content-body .mini-tag {
+    border-radius: 5px;
+  }
+  body.white-shell.theme-light .legacy-settings-content-body .settings-inline-alert,
+  body.white-shell.theme-light .legacy-settings-content-body .settings-inline-success {
+    border-radius: 5px;
+  }
+  body.white-shell.theme-light .legacy-settings-subnav .settings-nav-item {
+    border-radius: 5px;
+  }
+}
+
+/* Keep one right-edge settings scroller and let each page use the available width. */
+@media (min-width: 768px) {
+  body.white-shell.theme-light .legacy-settings-content {
+    position: relative;
+    overflow-x: hidden !important;
+    overflow-y: auto !important;
+    scrollbar-gutter: stable;
+    scrollbar-width: thin;
+    scrollbar-color: #8d8d8f transparent;
+  }
+  body.white-shell.theme-light .legacy-settings-content::-webkit-scrollbar { width: 12px; }
+  body.white-shell.theme-light .legacy-settings-content::-webkit-scrollbar-track { background: transparent; }
+  body.white-shell.theme-light .legacy-settings-content::-webkit-scrollbar-thumb {
+    border: 3px solid transparent;
+    border-radius: 999px;
+    background: #8d8d8f;
+    background-clip: content-box;
+  }
+  body.white-shell.theme-light .legacy-settings-content-body {
+    width: auto;
+    max-width: none;
+    min-height: auto;
+    margin: 0;
+    padding: 24px 24px 56px 36px;
+    overflow: visible !important;
+  }
+  body.white-shell.theme-light .legacy-settings-content-body > .settings-live-page,
+  body.white-shell.theme-light .legacy-settings-content-body > .settings-page,
+  body.white-shell.theme-light .legacy-settings-content-body > .skills-page {
+    width: 100%;
+    max-width: none;
+    overflow: visible;
+  }
+
+  body.white-shell.theme-light .legacy-settings-content-body .skills-page {
+    min-height: 0;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    overflow: visible;
+  }
+  body.white-shell.theme-light .legacy-settings-content-body .skills-tabs {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 7px;
+    overflow: visible;
+    border: 0;
+    border-bottom: 1px solid #d9dee6;
+    padding: 0 0 18px;
+  }
+  body.white-shell.theme-light .legacy-settings-content-body .skills-tab {
+    flex: 0 0 auto;
+    min-height: 34px;
+    border: 1px solid transparent;
+    border-radius: 5px;
+    background: transparent;
+    color: #687184;
+    padding: 7px 12px;
+    font-size: 12px;
+    font-weight: 600;
+    text-align: left;
+  }
+  body.white-shell.theme-light .legacy-settings-content-body .skills-tab:hover {
+    border-color: transparent;
+    background: var(--ws-primary-soft, #f2f4f8);
+    color: #303746;
+  }
+  body.white-shell.theme-light .legacy-settings-content-body .skills-tab.active {
+    border-color: #cbd5ff;
+    background: var(--ws-primary-soft, #eef1ff);
+    color: #4f6ef7;
+  }
+  body.white-shell.theme-light .legacy-settings-content-body .skills-tab.active::after { display: none; }
+  body.white-shell.theme-light .legacy-settings-content-body .skills-tab-panel {
+    padding: 22px 0 0;
+    overflow: visible;
+  }
+  body.white-shell.theme-light .legacy-settings-content-body .skills-description {
+    margin: 0 0 16px;
+    color: #687184;
+    font-size: 14px;
+    line-height: 1.65;
+  }
+  body.white-shell.theme-light .legacy-settings-content-body .skills-primary-actions {
+    justify-content: flex-start;
+    margin: 0 0 18px;
+  }
+  body.white-shell.theme-light .legacy-settings-content-body .settings-provider-section-head .skill-workbench-actions {
+    margin: 0;
+    justify-content: flex-end;
+  }
+  body.white-shell.theme-light .legacy-settings-content-body .skills-scope-select {
+    min-width: 180px;
+    height: 38px;
+  }
+  body.white-shell.theme-light .legacy-settings-content-body .skill-command-list {
+    margin-bottom: 0;
+  }
+  body.white-shell.theme-light .legacy-settings-content-body .skill-command-card {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 16px;
+  }
+  body.white-shell.theme-light .legacy-settings-content-body .skill-roadmap-grid {
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 12px;
+  }
+  body.white-shell.theme-light .legacy-settings-content-body .skill-roadmap-card {
+    border: 1px solid #d9dee6;
+    border-radius: 6px;
+    background: var(--ws-card);
+    padding: 16px;
+  }
+  body.white-shell.theme-light .legacy-settings-content-body .skill-revision-drawer {
+    border-radius: 6px;
+    box-shadow: none;
+  }
+}
+
+/* Keep settings copy concise and use the same flat form language for automation. */
+body.white-shell.theme-light .legacy-settings-content-body .settings-hero-kicker,
+body.white-shell.theme-light .legacy-settings-content-body .settings-hero-card p,
+body.white-shell.theme-light .legacy-settings-content-body .appearance-choice small,
+body.white-shell.theme-light .legacy-settings-content-body .appearance-toggle-row small,
+body.white-shell.theme-light .automation-hero p,
+body.white-shell.theme-light .automation-section-head p {
+  display: none;
+}
+
+body.white-shell.theme-light .legacy-settings-content-body .settings-provider-meta:not(.path),
+body.white-shell.theme-light .legacy-settings-content-body .skills-description {
+  display: -webkit-box;
+  max-width: 760px;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 1;
+}
+
+body.white-shell.theme-light .legacy-settings-content-body .automation-control-page {
+  gap: 0;
+}
+
+body.white-shell.theme-light .legacy-settings-content-body .automation-hero {
+  padding: 0 0 20px;
+  border: 0;
+  border-bottom: 1px solid #d9dee6;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+body.white-shell.theme-light .legacy-settings-content-body .automation-hero h2 {
+  margin: 4px 0 0;
+  font-size: 21px;
+  line-height: 1.25;
+  letter-spacing: -.02em;
+}
+
+body.white-shell.theme-light .legacy-settings-content-body .automation-safety,
+body.white-shell.theme-light .legacy-settings-content-body .automation-migration {
+  gap: 12px;
+  border: 0;
+  border-bottom: 1px solid #d9dee6;
+  border-radius: 0;
+  background: transparent;
+  padding: 14px 0;
+}
+
+body.white-shell.theme-light .legacy-settings-content-body .automation-metrics {
+  gap: 0;
+  border-bottom: 1px solid #d9dee6;
+  padding: 16px 0;
+}
+
+body.white-shell.theme-light .legacy-settings-content-body .automation-metric,
+body.white-shell.theme-light .legacy-settings-content-body .automation-metric.active,
+body.white-shell.theme-light .legacy-settings-content-body .automation-metric.warn {
+  gap: 4px;
+  border: 0;
+  border-left: 1px solid #d9dee6;
+  border-radius: 0;
+  background: transparent;
+  padding: 6px 16px;
+  box-shadow: none;
+}
+
+body.white-shell.theme-light .legacy-settings-content-body .automation-metric:first-child {
+  border-left: 0;
+  padding-left: 0;
+}
+
+body.white-shell.theme-light .legacy-settings-content-body .automation-metric strong {
+  font-size: 21px;
+}
+
+body.white-shell.theme-light .legacy-settings-content-body .automation-section-grid {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0;
+}
+
+body.white-shell.theme-light .legacy-settings-content-body .automation-section,
+body.white-shell.theme-light .legacy-settings-content-body .automation-section.span-2,
+body.white-shell.theme-light .legacy-settings-content-body .automation-section.danger-section {
+  grid-column: 1;
+  gap: 14px;
+  border: 0;
+  border-bottom: 1px solid #d9dee6;
+  border-radius: 0;
+  background: transparent;
+  padding: 22px 0;
+  box-shadow: none;
+}
+
+body.white-shell.theme-light .legacy-settings-content-body .automation-section-head h3 {
+  margin-bottom: 0;
+  font-size: 16px;
+}
+
+body.white-shell.theme-light .legacy-settings-content-body .automation-form,
+body.white-shell.theme-light .legacy-settings-content-body .automation-form.compact {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  padding: 0;
+}
+
+body.white-shell.theme-light .legacy-settings-content-body .automation-form input,
+body.white-shell.theme-light .legacy-settings-content-body .automation-form select,
+body.white-shell.theme-light .legacy-settings-content-body .automation-form textarea,
+body.white-shell.theme-light .legacy-settings-content-body .automation-device-toolbar select {
+  border-color: #d7dce4;
+  border-radius: 7px;
+  background: #eef1f5;
+  box-shadow: none;
+}
+
+body.white-shell.theme-light .legacy-settings-content-body .automation-btn {
+  min-height: 38px;
+  border-radius: 7px;
+  padding: 0 15px;
+}
+
+body.white-shell.theme-light .legacy-settings-content-body .automation-card-grid,
+body.white-shell.theme-light .legacy-settings-content-body .automation-card-grid.single {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0;
+}
+
+body.white-shell.theme-light .legacy-settings-content-body .automation-card,
+body.white-shell.theme-light .legacy-settings-content-body .automation-row-card {
+  border: 0;
+  border-bottom: 1px solid #d9dee6;
+  border-radius: 0;
+  background: transparent;
+  padding: 13px 0;
+}
+
+body.white-shell.theme-light .legacy-settings-content-body .automation-list {
+  gap: 0;
+  max-height: none;
+  overflow: visible;
+}
+
+body.white-shell.theme-light .legacy-settings-content-body .automation-device-list,
+body.white-shell.theme-light .legacy-settings-content-body .automation-audit-list {
+  max-height: none;
+  overflow: visible;
+  border: 0;
+  border-radius: 0;
+}
+
+body.white-shell.theme-light .legacy-settings-content-body .automation-device-row,
+body.white-shell.theme-light .legacy-settings-content-body .automation-audit-row {
+  border-bottom-color: #d9dee6;
+  padding-right: 0;
+  padding-left: 0;
+}
+
+body.white-shell.theme-light .legacy-settings-content-body .automation-kv > div,
+body.white-shell.theme-light .legacy-settings-content-body .automation-secret-note {
+  border-radius: 5px;
+  background: #f1f3f6;
+}
+
+body.white-shell.theme-light .legacy-settings-content-body .automation-empty,
+body.white-shell.theme-light .legacy-settings-content-body .automation-inline-error,
+body.white-shell.theme-light .legacy-settings-content-body .automation-pairing-code {
+  border-radius: 6px;
+  box-shadow: none;
+}
+
+@media (max-width: 767px) {
+  body.white-shell.theme-light .legacy-settings-content-body .automation-form,
+  body.white-shell.theme-light .legacy-settings-content-body .automation-form.compact {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  body.white-shell.theme-light .legacy-settings-content-body .automation-form label.span-2,
+  body.white-shell.theme-light .legacy-settings-content-body .automation-form .span-2 {
+    grid-column: 1;
+  }
+}
+
+/* The moon button changes only the palette. The white-shell structural class stays
+   mounted so grid geometry, panel positions, sizing, and responsive behavior do not move. */
+body.white-shell.theme-light.theme-dark {
+  --ws-primary: #7f96ff;
+  --ws-primary-soft: #222a46;
+  --ws-canvas: #10111b;
+  --ws-card: #171827;
+  --ws-input: #22243a;
+  --ws-text: #e6e7ee;
+  --ws-muted: #959aae;
+  --ws-border: #2b2e42;
+  --ws-shadow: 0 1px 3px rgba(0, 0, 0, .30);
+  --bg: var(--ws-canvas);
+  --bg-soft: var(--ws-card);
+  --bg-panel: var(--ws-card);
+  --bg-elevated: var(--ws-primary-soft);
+  --terminal: #0c0d14;
+  --text: var(--ws-text);
+  --text-soft: #c1c4d0;
+  --muted: var(--ws-muted);
+  --line: var(--ws-border);
+  --line-soft: #242638;
+  --accent: var(--ws-primary);
+  --accent-strong: var(--ws-primary);
+  background: var(--ws-canvas);
+  color: var(--ws-text);
+  color-scheme: dark;
+}
+
+body.white-shell.theme-light.theme-dark .global-rail button:hover,
+body.white-shell.theme-light.theme-dark .global-rail a:hover,
+body.white-shell.theme-light.theme-dark .global-rail-item:hover,
+body.white-shell.theme-light.theme-dark .nav-item:hover,
+body.white-shell.theme-light.theme-dark .nav-item-shell:hover,
+body.white-shell.theme-light.theme-dark .project-card:hover,
+body.white-shell.theme-light.theme-dark .navigation-conversation-row:hover,
+body.white-shell.theme-light.theme-dark .recent-item:hover,
+body.white-shell.theme-light.theme-dark .sidebar-account-btn:hover,
+body.white-shell.theme-light.theme-dark .sidebar-account-btn.open,
+body.white-shell.theme-light.theme-dark .sidebar-menu-item:hover {
+  background: #202236;
+  color: var(--ws-text);
+}
+
+body.white-shell.theme-light.theme-dark .nav-item,
+body.white-shell.theme-light.theme-dark .project-card,
+body.white-shell.theme-light.theme-dark .navigation-conversation-row,
+body.white-shell.theme-light.theme-dark .recent-item,
+body.white-shell.theme-light.theme-dark .sidebar-account-btn,
+body.white-shell.theme-light.theme-dark .slash-command-item {
+  color: #c1c4d0;
+}
+
+body.white-shell.theme-light.theme-dark .navigation-filter:hover {
+  background: #292c40;
+  color: var(--ws-text);
+}
+
+body.white-shell.theme-light.theme-dark .toolbar-model-pill,
+body.white-shell.theme-light.theme-dark .effort-pill,
+body.white-shell.theme-light.theme-dark .permission-toolbar-pill,
+body.white-shell.theme-light.theme-dark .select-pill,
+body.white-shell.theme-light.theme-dark .model-tool-btn,
+body.white-shell.theme-light.theme-dark .pending-file-chip,
+body.white-shell.theme-light.theme-dark .attachment-card,
+body.white-shell.theme-light.theme-dark .ghost-btn:hover {
+  border-color: var(--ws-border);
+  background: var(--ws-input);
+  color: var(--ws-text);
+}
+
+body.white-shell.theme-light.theme-dark .model-pill .compact-select,
+body.white-shell.theme-light.theme-dark .select-pill .select,
+body.white-shell.theme-light.theme-dark .inline-code {
+  color: var(--ws-text);
+}
+
+body.white-shell.theme-light.theme-dark .sidebar-search::placeholder,
+body.white-shell.theme-light.theme-dark .message-input::placeholder {
+  color: #777d91;
+}
+
+body.white-shell.theme-light.theme-dark .terminal-panel,
+body.white-shell.theme-light.theme-dark .terminal-header,
+body.white-shell.theme-light.theme-dark .terminal-command-panel,
+body.white-shell.theme-light.theme-dark .terminal-output {
+  border-color: var(--ws-border);
+  background: var(--ws-card);
+  color: var(--ws-text);
+}
+
+body.white-shell.theme-light.theme-dark .terminal-status-row {
+  border-color: var(--ws-border);
+  background: var(--ws-input);
+  color: var(--ws-muted);
+}
+
+body.white-shell.theme-light.theme-dark .terminal-tab,
+body.white-shell.theme-light.theme-dark .terminal-tab.active,
+body.white-shell.theme-light.theme-dark .terminal-command-help,
+body.white-shell.theme-light.theme-dark .terminal-close-btn {
+  color: var(--ws-muted);
+}
+
+body.white-shell.theme-light.theme-dark .terminal-command-input,
+body.white-shell.theme-light.theme-dark .terminal-command-run {
+  border-color: var(--ws-border);
+  background: var(--ws-input);
+  color: var(--ws-text);
+}
+
+body.white-shell.theme-light.theme-dark .terminal-command-input:focus,
+body.white-shell.theme-light.theme-dark .terminal-output:focus {
+  background: #1d2030;
+}
+
+body.white-shell.theme-light.theme-dark .legacy-settings-modal,
+body.white-shell.theme-light.theme-dark .legacy-settings-modal-card,
+body.white-shell.theme-light.theme-dark .legacy-settings-content {
+  background: var(--ws-canvas);
+  color: var(--ws-text);
+}
+
+body.white-shell.theme-light.theme-dark .legacy-settings-topbar,
+body.white-shell.theme-light.theme-dark .legacy-settings-subbar,
+body.white-shell.theme-light.theme-dark .utility-panel,
+body.white-shell.theme-light.theme-dark .legacy-settings-wizard {
+  border-color: var(--ws-border);
+  background: var(--ws-card);
+  color: var(--ws-text);
+}
+
+body.white-shell.theme-light.theme-dark .legacy-settings-search,
+body.white-shell.theme-light.theme-dark .legacy-settings-content-body input:not([type="checkbox"]):not([type="radio"]),
+body.white-shell.theme-light.theme-dark .legacy-settings-content-body select,
+body.white-shell.theme-light.theme-dark .legacy-settings-content-body textarea,
+body.white-shell.theme-light.theme-dark .legacy-settings-content-body .settings-field,
+body.white-shell.theme-light.theme-dark .legacy-settings-content-body .settings-text-input,
+body.white-shell.theme-light.theme-dark .legacy-settings-content-body .settings-token-input,
+body.white-shell.theme-light.theme-dark .legacy-settings-content-body .automation-form input,
+body.white-shell.theme-light.theme-dark .legacy-settings-content-body .automation-form select,
+body.white-shell.theme-light.theme-dark .legacy-settings-content-body .automation-form textarea,
+body.white-shell.theme-light.theme-dark .legacy-settings-content-body .automation-device-toolbar select {
+  border-color: var(--ws-border);
+  background: var(--ws-input);
+  color: var(--ws-text);
+}
+
+body.white-shell.theme-light.theme-dark .legacy-settings-search::placeholder,
+body.white-shell.theme-light.theme-dark .legacy-settings-content-body input::placeholder,
+body.white-shell.theme-light.theme-dark .legacy-settings-content-body textarea::placeholder {
+  color: #777d91;
+}
+
+body.white-shell.theme-light.theme-dark .legacy-settings-category,
+body.white-shell.theme-light.theme-dark .legacy-settings-subnav .settings-nav-item {
+  color: var(--ws-muted);
+}
+
+body.white-shell.theme-light.theme-dark .legacy-settings-category:hover,
+body.white-shell.theme-light.theme-dark .legacy-settings-subnav .settings-nav-item:hover {
+  background: #202236;
+  color: var(--ws-text);
+}
+
+body.white-shell.theme-light.theme-dark .legacy-settings-category.active,
+body.white-shell.theme-light.theme-dark .legacy-settings-subnav .settings-nav-item.active {
+  border-color: #3b456d;
+  background: var(--ws-primary-soft);
+  color: var(--ws-primary);
+}
+
+body.white-shell.theme-light.theme-dark .legacy-settings-content-body {
+  color: var(--ws-text);
+  scrollbar-color: #62687c transparent;
+}
+
+body.white-shell.theme-light.theme-dark .legacy-settings-content-body .settings-hero-card,
+body.white-shell.theme-light.theme-dark .legacy-settings-content-body .settings-provider-section,
+body.white-shell.theme-light.theme-dark .legacy-settings-content-body .settings-provider-card,
+body.white-shell.theme-light.theme-dark .legacy-settings-content-body .settings-panel-card,
+body.white-shell.theme-light.theme-dark .legacy-settings-content-body .settings-info-card,
+body.white-shell.theme-light.theme-dark .legacy-settings-content-body .settings-backend-card,
+body.white-shell.theme-light.theme-dark .legacy-settings-content-body .profile-info-card,
+body.white-shell.theme-light.theme-dark .legacy-settings-content-body .search-policy-card,
+body.white-shell.theme-light.theme-dark .legacy-settings-content-body .im-policy-card,
+body.white-shell.theme-light.theme-dark .legacy-settings-content-body .user-policy-card,
+body.white-shell.theme-light.theme-dark .legacy-settings-content-body .storage-entry-card,
+body.white-shell.theme-light.theme-dark .legacy-settings-content-body .license-group-card,
+body.white-shell.theme-light.theme-dark .legacy-settings-content-body .terminal-control-card,
+body.white-shell.theme-light.theme-dark .legacy-settings-content-body .appearance-choice,
+body.white-shell.theme-light.theme-dark .legacy-settings-content-body .appearance-toggle-row,
+body.white-shell.theme-light.theme-dark .legacy-settings-content-body .skill-command-card,
+body.white-shell.theme-light.theme-dark .legacy-settings-content-body .settings-auth-item,
+body.white-shell.theme-light.theme-dark .legacy-settings-content-body .settings-model-choice,
+body.white-shell.theme-light.theme-dark .legacy-settings-content-body .settings-empty-card {
+  border-color: var(--ws-border);
+  background: transparent;
+  color: var(--ws-text);
+  box-shadow: none;
+}
+
+body.white-shell.theme-light.theme-dark .legacy-settings-content-body .settings-hero-card,
+body.white-shell.theme-light.theme-dark .legacy-settings-content-body .settings-status-strip,
+body.white-shell.theme-light.theme-dark .legacy-settings-content-body .settings-status-strip > div,
+body.white-shell.theme-light.theme-dark .legacy-settings-content-body .usage-summary-grid,
+body.white-shell.theme-light.theme-dark .legacy-settings-content-body .usage-metric-card,
+body.white-shell.theme-light.theme-dark .legacy-settings-content-body .settings-model-row,
+body.white-shell.theme-light.theme-dark .legacy-settings-content-body .automation-hero,
+body.white-shell.theme-light.theme-dark .legacy-settings-content-body .automation-safety,
+body.white-shell.theme-light.theme-dark .legacy-settings-content-body .automation-migration,
+body.white-shell.theme-light.theme-dark .legacy-settings-content-body .automation-metrics,
+body.white-shell.theme-light.theme-dark .legacy-settings-content-body .automation-metric,
+body.white-shell.theme-light.theme-dark .legacy-settings-content-body .automation-section,
+body.white-shell.theme-light.theme-dark .legacy-settings-content-body .automation-card,
+body.white-shell.theme-light.theme-dark .legacy-settings-content-body .automation-row-card,
+body.white-shell.theme-light.theme-dark .legacy-settings-content-body .automation-device-row,
+body.white-shell.theme-light.theme-dark .legacy-settings-content-body .automation-audit-row {
+  border-color: var(--ws-border);
+}
+
+body.white-shell.theme-light.theme-dark .legacy-settings-content-body .settings-hero-title,
+body.white-shell.theme-light.theme-dark .legacy-settings-content-body .settings-provider-title,
+body.white-shell.theme-light.theme-dark .legacy-settings-content-body .settings-panel-card h3,
+body.white-shell.theme-light.theme-dark .legacy-settings-content-body .appearance-language-field > span,
+body.white-shell.theme-light.theme-dark .legacy-settings-content-body .appearance-choice,
+body.white-shell.theme-light.theme-dark .legacy-settings-content-body .appearance-toggle-row strong,
+body.white-shell.theme-light.theme-dark .legacy-settings-content-body .settings-model-choice,
+body.white-shell.theme-light.theme-dark .legacy-settings-content-body .skill-command-title,
+body.white-shell.theme-light.theme-dark .legacy-settings-content-body .automation-hero h2,
+body.white-shell.theme-light.theme-dark .legacy-settings-content-body .automation-section-head h3,
+body.white-shell.theme-light.theme-dark .legacy-settings-content-body .automation-metric strong,
+body.white-shell.theme-light.theme-dark .legacy-settings-content-body .automation-card-head strong,
+body.white-shell.theme-light.theme-dark .legacy-settings-content-body .automation-row-card strong,
+body.white-shell.theme-light.theme-dark .legacy-settings-content-body .automation-device-row strong,
+body.white-shell.theme-light.theme-dark .legacy-settings-content-body .automation-audit-row strong {
+  color: var(--ws-text);
+}
+
+body.white-shell.theme-light.theme-dark .legacy-settings-content-body .settings-provider-meta,
+body.white-shell.theme-light.theme-dark .legacy-settings-content-body .skills-description,
+body.white-shell.theme-light.theme-dark .legacy-settings-content-body .automation-form label,
+body.white-shell.theme-light.theme-dark .legacy-settings-content-body .automation-device-toolbar label,
+body.white-shell.theme-light.theme-dark .legacy-settings-content-body .automation-card-copy,
+body.white-shell.theme-light.theme-dark .legacy-settings-content-body .automation-card-head small,
+body.white-shell.theme-light.theme-dark .legacy-settings-content-body .automation-row-card small,
+body.white-shell.theme-light.theme-dark .legacy-settings-content-body .automation-device-row small,
+body.white-shell.theme-light.theme-dark .legacy-settings-content-body .automation-audit-row small,
+body.white-shell.theme-light.theme-dark .legacy-settings-content-body .automation-device-row > span {
+  color: var(--ws-muted);
+}
+
+body.white-shell.theme-light.theme-dark .legacy-settings-content-body .automation-form,
+body.white-shell.theme-light.theme-dark .legacy-settings-content-body .automation-section,
+body.white-shell.theme-light.theme-dark .legacy-settings-content-body .automation-metric,
+body.white-shell.theme-light.theme-dark .legacy-settings-content-body .automation-metric.active,
+body.white-shell.theme-light.theme-dark .legacy-settings-content-body .automation-metric.warn,
+body.white-shell.theme-light.theme-dark .legacy-settings-content-body .automation-card,
+body.white-shell.theme-light.theme-dark .legacy-settings-content-body .automation-row-card {
+  background: transparent;
+  box-shadow: none;
+}
+
+body.white-shell.theme-light.theme-dark .legacy-settings-content-body .automation-kv > div,
+body.white-shell.theme-light.theme-dark .legacy-settings-content-body .automation-secret-note,
+body.white-shell.theme-light.theme-dark .legacy-settings-content-body .automation-empty {
+  border-color: var(--ws-border);
+  background: var(--ws-input);
+  color: var(--ws-muted);
+}
+
+body.white-shell.theme-light.theme-dark .legacy-settings-content-body .automation-kv dd {
+  color: var(--ws-text);
+}
+
+body.white-shell.theme-light.theme-dark .legacy-settings-content-body .automation-btn:not(.primary):not(.danger),
+body.white-shell.theme-light.theme-dark .legacy-settings-content-body .settings-action-btn:not(.primary):not(.danger) {
+  border-color: var(--ws-border);
+  background: var(--ws-card);
+  color: var(--ws-text);
+}
+
+/* Dark-palette corrections for late legacy desktop rules with fixed light colors. */
+body.white-shell.theme-light.theme-dark .global-rail button.active,
+body.white-shell.theme-light.theme-dark .global-rail button.selected,
+body.white-shell.theme-light.theme-dark .global-rail [aria-current="page"] {
+  background: var(--ws-primary-soft);
+  color: var(--ws-primary);
+}
+
+body.white-shell.theme-light.theme-dark .navigation-filter {
+  border-color: var(--ws-border);
+  background: var(--ws-input);
+  color: var(--ws-muted);
+}
+
+body.white-shell.theme-light.theme-dark .navigation-filter:hover,
+body.white-shell.theme-light.theme-dark .navigation-filter.active {
+  border-color: var(--ws-primary);
+  background: var(--ws-primary-soft);
+  color: var(--ws-primary);
+}
+
+body.white-shell.theme-light.theme-dark .sidebar-search,
+body.white-shell.theme-light.theme-dark .sidebar-search:focus {
+  border-color: var(--ws-border);
+  background: var(--ws-input);
+  color: var(--ws-text);
+}
+
+body.white-shell.theme-light.theme-dark .project-name,
+body.white-shell.theme-light.theme-dark .navigation-conversation-title,
+body.white-shell.theme-light.theme-dark .chat-title,
+body.white-shell.theme-light.theme-dark .empty-conversation-title,
+body.white-shell.theme-light.theme-dark .empty-workspace-title {
+  color: var(--ws-text);
+}
+
+body.white-shell.theme-light.theme-dark .empty-conversation-description,
+body.white-shell.theme-light.theme-dark .empty-workspace-text,
+body.white-shell.theme-light.theme-dark .composer-field-label {
+  color: var(--ws-muted);
+}
+
+body.white-shell.theme-light.theme-dark .project-kind-badge,
+body.white-shell.theme-light.theme-dark .project-card.active,
+body.white-shell.theme-light.theme-dark .navigation-conversation-row.active {
+  background: var(--ws-primary-soft);
+  color: var(--ws-primary);
+}
+
+body.white-shell.theme-light.theme-dark .project-card.active .project-kind-badge {
+  background: var(--ws-card);
+}
+
+body.white-shell.theme-light.theme-dark .project-card.active .project-name,
+body.white-shell.theme-light.theme-dark .navigation-conversation-row.active .navigation-conversation-title {
+  color: var(--ws-primary);
+}
+
+body.white-shell.theme-light.theme-dark .composer-wrap,
+body.white-shell.theme-light.theme-dark .composer-card {
+  border-color: var(--ws-border);
+  background: var(--ws-card);
+  color: var(--ws-text);
+}
+
+body.white-shell.theme-light.theme-dark .message-input,
+body.white-shell.theme-light.theme-dark .message-input:focus,
+body.white-shell.theme-light.theme-dark .permission-safety-indicator,
+body.white-shell.theme-light.theme-dark .permission-risk-badge {
+  border-color: var(--ws-border);
+  background: var(--ws-input);
+  color: var(--ws-text);
+}
+
+body.white-shell.theme-light.theme-dark .toast {
+  border-color: var(--ws-border);
+  background: rgba(23, 24, 39, .97);
+  color: var(--ws-text);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, .34);
+}
+
+body.white-shell.theme-light.theme-dark .toast button {
+  color: var(--ws-muted);
+}
+

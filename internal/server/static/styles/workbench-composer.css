@@ -1,0 +1,1755 @@
+/* Custom upward-opening composer select menus. */
+body.white-shell.theme-light .select-pill {
+  position: relative;
+}
+
+body.white-shell.theme-light .composer-native-select {
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  margin: -1px !important;
+  padding: 0 !important;
+  border: 0 !important;
+  overflow: hidden !important;
+  clip: rect(0 0 0 0) !important;
+  clip-path: inset(50%) !important;
+  white-space: nowrap !important;
+  pointer-events: none !important;
+}
+
+body.white-shell.theme-light .effort-pill::after,
+body.white-shell.theme-light .permission-toolbar-pill::after {
+  content: none;
+}
+
+body.white-shell.theme-light .composer-select-trigger {
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  border: 0;
+  border-radius: inherit;
+  background: transparent;
+  color: inherit;
+  padding: 0 9px;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+body.white-shell.theme-light .composer-select-trigger:focus-visible {
+  outline: 2px solid rgba(79, 110, 247, .48);
+  outline-offset: 1px;
+}
+
+body.white-shell.theme-light .composer-select-value {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+body.white-shell.theme-light .composer-select-chevron {
+  flex: 0 0 auto;
+  color: #8992a3;
+  font-size: 12px;
+  line-height: 1;
+}
+
+.composer-select-popover {
+  position: fixed;
+  z-index: 120;
+  max-height: min(420px, calc(100dvh - 24px));
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  border: 1px solid #dfe3e9;
+  border-radius: 10px;
+  background: var(--ws-card);
+  color: #20263a;
+  padding: 7px;
+  box-shadow: 0 14px 42px rgba(15, 23, 42, .18);
+}
+
+.composer-select-popover.hidden {
+  display: none;
+}
+
+.composer-select-popover-title {
+  padding: 7px 10px 8px;
+  color: #687184;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.composer-select-option {
+  width: 100%;
+  min-height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 14px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: #20263a;
+  padding: 7px 10px;
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.composer-select-option:hover,
+.composer-select-option:focus-visible {
+  outline: 0;
+  background: #f1f4ff;
+  color: #4057d6;
+}
+
+.composer-select-option[aria-selected="true"] {
+  font-weight: 700;
+}
+
+.composer-model-option-copy {
+  min-width: 0;
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.composer-model-option-name {
+  overflow: hidden;
+  color: inherit;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.composer-model-group-heading {
+  margin: 3px 8px 4px;
+  padding: 6px 2px 3px;
+  color: #747e90;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.composer-model-group-heading.composer-model-group-start {
+  margin-top: 8px;
+  border-top: 1px solid #e7eaf0;
+  padding-top: 12px;
+}
+
+.composer-model-option {
+  padding-left: 18px;
+}
+
+.composer-select-option-check {
+  /* Fixed slot so the checkmark column lines up the same whether or not an
+     option is selected, and margin-left:auto (rather than the option's own
+     justify-content) is what pins it to the row's right edge — see
+     .composer-select-option above. */
+  flex: 0 0 16px;
+  width: 16px;
+  margin-left: auto;
+  color: #20263a;
+  font-size: 15px;
+  text-align: center;
+}
+
+.composer-select-popover.composer-model-popover {
+  min-width: 290px;
+}
+
+.composer-model-menu-divider {
+  height: 1px;
+  margin: 7px 4px;
+  background: #e7eaf0;
+}
+
+.composer-model-menu-action {
+  width: 100%;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: #20263a;
+  padding: 7px 10px;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.composer-model-menu-action:is(:hover, :focus-visible) {
+  outline: 0;
+  background: #f1f4ff;
+  color: #4057d6;
+}
+
+.composer-model-menu-action:disabled,
+.mobile-model-sheet-action:disabled {
+  color: #9aa2b1;
+  cursor: not-allowed;
+}
+
+.composer-model-menu-action:disabled:hover,
+.mobile-model-sheet-action:disabled:hover {
+  background: transparent;
+}
+
+.composer-model-menu-action-copy {
+  min-width: 0;
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.composer-model-menu-action-title {
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.composer-model-menu-action-detail {
+  overflow: hidden;
+  color: #747e90;
+  font-size: 11px;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.composer-model-menu-action-chevron {
+  flex: 0 0 auto;
+  color: #8a93a3;
+  font-size: 18px;
+}
+
+.composer-select-popover.composer-permission-popover {
+  min-width: 230px;
+  padding: 8px;
+  border-color: #d9dee7;
+  border-radius: 8px;
+  box-shadow: 0 18px 48px rgba(15, 23, 42, .20);
+}
+
+.composer-permission-popover .composer-select-popover-title {
+  padding: 7px 10px 6px;
+  color: #70798b;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.composer-permission-option {
+  min-height: 38px;
+  padding: 7px 10px;
+  border-radius: 6px;
+}
+
+.composer-permission-option-main {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.composer-permission-option-icon {
+  width: 17px;
+  height: 17px;
+  display: inline-flex;
+  flex: 0 0 17px;
+  align-items: center;
+  justify-content: center;
+  color: #20263a;
+}
+
+.composer-permission-option-icon svg {
+  width: 17px;
+  height: 17px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.composer-permission-option:disabled {
+  color: #9aa2b1;
+  cursor: not-allowed;
+}
+
+.composer-permission-option:disabled .composer-permission-option-icon {
+  color: #aeb5c1;
+}
+
+.composer-permission-divider {
+  height: 1px;
+  margin: 6px 0;
+  background: #e2e6ec;
+}
+
+.composer-permission-safety-status {
+  min-height: 36px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 10px;
+  border-radius: 6px;
+  background: #f4f6f9;
+  color: #454d5d;
+  font-size: 13px;
+}
+
+.composer-permission-safety-icon {
+  color: #64748b;
+}
+
+.composer-permission-safety-label {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+
+.composer-permission-danger-reflection {
+  align-items: stretch;
+  flex-direction: column;
+  gap: 7px;
+  background: transparent;
+}
+
+.composer-permission-danger-reflection-heading {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: #20263a;
+  font-weight: 650;
+}
+
+.composer-permission-danger-reflection-levels {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 2px;
+  padding: 3px;
+  border-radius: 7px;
+  background: #eef0f3;
+}
+
+.composer-permission-danger-reflection-level {
+  min-width: 0;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: #505869;
+  padding: 6px 7px;
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.15;
+  text-align: center;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.composer-permission-danger-reflection-level:is(:hover, :focus-visible) {
+  outline: 0;
+  color: #20263a;
+}
+
+.composer-permission-danger-reflection-level.is-selected {
+  background: var(--ws-card);
+  color: #20263a;
+  font-weight: 700;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, .16);
+}
+
+.composer-permission-danger-reflection-level:disabled {
+  cursor: wait;
+  opacity: .65;
+}
+
+.composer-message-mode-section-title {
+  padding-top: 2px;
+}
+
+.mobile-permission-sheet .mobile-select-sheet-options {
+  gap: 2px;
+}
+
+.mobile-permission-sheet .composer-permission-option {
+  min-height: 44px;
+  width: 100%;
+  justify-content: space-between;
+  padding: 10px 12px;
+  border-radius: 10px;
+}
+
+.mobile-permission-sheet .composer-permission-option-main {
+  gap: 12px;
+}
+
+.mobile-permission-sheet .composer-permission-option-icon {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 18px;
+}
+
+.mobile-permission-sheet .composer-permission-option-icon svg {
+  width: 18px;
+  height: 18px;
+}
+
+.mobile-permission-sheet .composer-permission-divider {
+  margin: 8px 2px;
+  background: rgba(60, 60, 67, .12);
+}
+
+.mobile-permission-sheet .composer-permission-safety-status {
+  min-height: 40px;
+  margin: 2px 0;
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: rgba(118, 118, 128, .12);
+  color: #3a4150;
+}
+
+.mobile-permission-sheet .composer-permission-danger-reflection {
+  align-items: stretch;
+  gap: 9px;
+  background: transparent;
+}
+
+.mobile-permission-sheet .composer-permission-danger-reflection-heading {
+  gap: 12px;
+}
+
+.mobile-permission-sheet .composer-permission-danger-reflection-level {
+  min-height: 34px;
+  padding: 7px 5px;
+  font-size: 13px;
+}
+
+.mobile-permission-sheet .composer-message-mode-section-title {
+  padding: 4px 12px 6px;
+  color: #6b7280;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.mobile-permission-sheet .composer-select-option-check {
+  color: #007aff;
+  font-weight: 700;
+}
+
+body.white-shell.theme-light .composer-status.is-busy {
+  width: auto;
+  min-width: 0;
+  max-width: min(46vw, 220px);
+  flex: 0 1 auto;
+  justify-content: flex-start;
+  gap: 7px;
+  padding-right: 4px;
+}
+
+body.white-shell.theme-light .composer-status-dot.busy,
+body.white-shell.theme-light .composer-status.is-busy .composer-status-dot {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 14px;
+  border: 2px solid color-mix(in srgb, var(--ws-primary, #2563eb) 22%, transparent);
+  border-top-color: var(--ws-primary, #2563eb);
+  border-radius: 50%;
+  background: transparent;
+  box-shadow: none;
+  animation: composer-task-indicator-spin .8s linear infinite;
+}
+
+body.white-shell.theme-light .composer-status.is-busy .composer-status-text {
+  display: inline;
+  overflow: hidden;
+  color: var(--ws-primary, #2563eb);
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+body.white-shell.theme-light .composer-status.is-busy .composer-status-bars {
+  display: none;
+}
+
+@media (max-width: 767px) {
+  body.white-shell.theme-light .composer-status.is-busy {
+    max-width: min(42vw, 168px);
+    margin-right: auto;
+  }
+
+  body.white-shell.theme-light .composer-status.is-busy .composer-status-text {
+    font-size: 11px;
+  }
+
+  body.white-shell.theme-light .composer-toolbar:has(.composer-task-summary.has-task) .composer-status.is-busy {
+    display: inline-flex;
+  }
+}
+
+body.white-shell.theme-light .toolbar-lightning-btn svg,
+body.white-shell.theme-light .composer-toolbar-icon svg {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.75;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+body.white-shell.theme-light .toolbar-lightning-btn:not(.hidden) {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: #687184;
+  box-shadow: none;
+}
+
+body.white-shell.theme-light .toolbar-lightning-btn:not(.hidden):hover,
+body.white-shell.theme-light .toolbar-lightning-btn:not(.hidden):focus-visible,
+body.white-shell.theme-light .toolbar-lightning-btn.fast-mode-active {
+  border: 0;
+  background: transparent;
+  color: #4f63df;
+  box-shadow: none;
+}
+
+body.white-shell.theme-light .toolbar-lightning-btn.fast-mode-active svg {
+  fill: currentColor;
+  stroke: currentColor;
+}
+
+body.white-shell.theme-light .toolbar-lightning-btn[aria-busy="true"] {
+  opacity: .62;
+  cursor: wait;
+}
+
+/* Final desktop full-width composer override. */
+@media (min-width: 768px) {
+  body.white-shell.theme-light [class~="composer-wrap"] {
+    min-height: 0;
+    padding: 6px 10px 8px;
+  }
+
+  body.white-shell.theme-light [class~="composer-card"] {
+    width: 100%;
+    max-width: none;
+    min-height: 0;
+    margin: 0;
+    gap: 4px;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    padding: 0;
+    box-shadow: none;
+  }
+
+  body.white-shell.theme-light [class~="composer-toolbar"] {
+    min-height: 30px;
+    height: 30px;
+    flex: 0 0 30px;
+    justify-content: flex-start;
+    gap: 6px;
+    overflow: hidden;
+  }
+
+  body.white-shell.theme-light [class~="composer-task-summary"] {
+    width: min(270px, 30vw);
+    max-width: 270px;
+    min-height: 30px;
+    height: 30px;
+    flex: 0 1 270px;
+    grid-template-columns: 8px minmax(72px, 1fr) auto;
+    gap: 6px;
+    padding: 3px 7px;
+    border-radius: 6px;
+  }
+
+  body.white-shell.theme-light [class~="composer-task-summary"] [class~="header-task-summary-copy"] {
+    display: block;
+  }
+
+  body.white-shell.theme-light [class~="composer-task-summary"] [class~="header-task-summary-copy"] > span {
+    display: none;
+  }
+
+  body.white-shell.theme-light [class~="composer-task-summary"] [class~="header-task-summary-copy"] > strong {
+    font-size: 11px;
+    line-height: 1.2;
+  }
+
+  body.white-shell.theme-light [class~="composer-task-summary"] [class~="header-task-queue-badge"] {
+    padding: 2px 5px;
+    font-size: 9px;
+  }
+
+  body.white-shell.theme-light [class~="composer-controls"] {
+    width: auto;
+    max-width: 100%;
+    flex: 0 1 auto;
+    flex-wrap: nowrap;
+    gap: 7px;
+  }
+
+  body.white-shell.theme-light [class~="toolbar-lightning-btn"],
+  body.white-shell.theme-light [class~="composer-actions"] {
+    display: flex;
+  }
+
+  body.white-shell.theme-light [class~="composer-actions"] {
+    flex: 0 0 auto;
+    gap: 2px;
+  }
+
+  body.white-shell.theme-light [class~="composer-field-label"] {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
+  body.white-shell.theme-light [class~="composer-model-field"] {
+    flex: 0 1 300px;
+    width: clamp(220px, 24vw, 300px);
+    min-width: 180px;
+    max-width: 300px;
+  }
+
+  body.white-shell.theme-light [class~="toolbar-model-pill"] {
+    width: 100%;
+    min-width: 0;
+    max-width: 300px;
+    height: 30px;
+    min-height: 30px;
+  }
+
+  body.white-shell.theme-light [class~="model-pill"] [class~="compact-select"] {
+    height: 28px;
+  }
+
+  body.white-shell.theme-light [class~="effort-pill"],
+  body.white-shell.theme-light [class~="permission-toolbar-pill"] {
+    height: 30px;
+    min-height: 30px;
+  }
+
+  body.white-shell.theme-light [class~="effort-pill"] {
+    width: 96px;
+    min-width: 96px;
+  }
+
+  body.white-shell.theme-light [class~="permission-toolbar-pill"] {
+    width: 104px;
+    min-width: 104px;
+  }
+
+  body.white-shell.theme-light [class~="permission-safety-indicator"] {
+    width: 28px;
+    height: 28px;
+    flex: 0 0 28px;
+  }
+
+  body.white-shell.theme-light [class~="toolbar-model-pill"],
+  body.white-shell.theme-light [class~="effort-pill"],
+  body.white-shell.theme-light [class~="permission-toolbar-pill"],
+  body.white-shell.theme-light [class~="permission-safety-indicator"],
+  body.white-shell.theme-light [class~="toolbar-lightning-btn"],
+  body.white-shell.theme-light [class~="composer-toolbar-icon"],
+  body.white-shell.theme-light [class~="model-tool-btn"][class~="icon-only"] {
+    border-radius: 6px;
+  }
+
+  body.white-shell.theme-light [class~="permission-risk-badge"] {
+    display: none;
+  }
+
+  body.white-shell.theme-light #composerInputShell {
+    min-height: 36px;
+    align-items: center;
+    gap: 6px;
+  }
+
+  body.white-shell.theme-light [class~="composer-attach-wrap"] {
+    display: block;
+    flex: 0 0 32px;
+    width: 32px;
+    height: 36px;
+  }
+
+  body.white-shell.theme-light #attachFileBtn {
+    left: 1px;
+    width: 30px;
+    min-width: 30px;
+    height: 30px;
+  }
+
+  /* Composer row height follows the 36px reference: the input and the send
+     button match, which keeps the transcript area as tall as possible. */
+  body.white-shell.theme-light [class~="message-input-frame"] {
+    min-height: 36px;
+    align-items: center;
+  }
+
+  body.white-shell.theme-light textarea#messageText {
+    --composer-input-min-height: 36px;
+    --composer-input-max-height: 132px;
+    height: auto;
+    min-height: var(--composer-input-min-height);
+    max-height: var(--composer-input-max-height);
+    border-radius: 7px;
+    padding: 5.5px 12px;
+    line-height: 1.4;
+  }
+
+  body.white-shell.theme-light #sendMessageBtn {
+    width: 56px;
+    min-width: 56px;
+    height: 36px;
+    min-height: 36px;
+    flex: 0 0 56px;
+    border-radius: 7px;
+    padding: 0 8px;
+    font-size: 13px;
+  }
+
+  body.white-shell.theme-light [class~="composer-hints"] {
+    display: none;
+  }
+}
+
+@media (min-width: 768px) and (max-width: 1180px) {
+  body.white-shell.theme-light [class~="composer-task-summary"] {
+    width: 30px;
+    min-width: 30px;
+    max-width: 30px;
+    flex: 0 0 30px;
+    grid-template-columns: 1fr;
+    place-items: center;
+    padding: 0;
+  }
+
+  body.white-shell.theme-light [class~="composer-task-summary"] [class~="header-task-summary-copy"],
+  body.white-shell.theme-light [class~="composer-task-summary"] [class~="header-task-queue-badge"] {
+    display: none;
+  }
+}
+
+/* Compact mobile composer: one utility row plus one message row. */
+@media (max-width: 767px) {
+  body.white-shell.theme-light [class~="app-shell"],
+  body.white-shell.theme-light [class~="app-shell"][class~="terminal-collapsed"] {
+    grid-template-rows: 56px minmax(0, 1fr);
+  }
+
+  body.white-shell.theme-light [class~="mobile-topbar"] {
+    position: relative;
+    min-height: 56px;
+    height: 56px;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 0 10px;
+  }
+
+  body.white-shell.theme-light [class~="mobile-update-pill"] {
+    display: none !important;
+  }
+
+  body.white-shell.theme-light [class~="mobile-brand"] {
+    position: absolute;
+    left: 50%;
+    max-width: calc(100% - 184px);
+    transform: translateX(-50%);
+    overflow: hidden;
+    color: #1f2530;
+    font-size: 24px;
+    font-weight: 820;
+    letter-spacing: -.045em;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    pointer-events: none;
+  }
+
+  body.white-shell.theme-light [class~="mobile-icon-btn"] {
+    width: 38px;
+    min-width: 38px;
+    height: 38px;
+    min-height: 38px;
+    border: 1px solid transparent;
+    border-radius: 11px;
+    background: transparent;
+    color: #343b48;
+  }
+
+  body.white-shell.theme-light [class~="mobile-icon-btn"] svg {
+    width: 22px;
+    height: 22px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.85;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+
+  body.white-shell.theme-light #mobileTerminalBtn {
+    margin-left: auto;
+  }
+
+  body.white-shell.theme-light #mobileWorkbenchBtn,
+  body.white-shell.theme-light #mobileTerminalBtn,
+  body.white-shell.theme-light #mobileSearchBtn {
+    border-color: #e3e6ec;
+    background: var(--ws-input, #f6f7f9);
+  }
+
+  body.white-shell.theme-light #mobileWorkbenchBtn.active {
+    border-color: #f0b889;
+    background: #fff1e6;
+    color: #d85f12;
+  }
+
+  body.white-shell.theme-light [class~="mobile-icon-btn"]:hover,
+  body.white-shell.theme-light [class~="mobile-icon-btn"]:focus-visible {
+    border-color: #ccd4ff;
+    background: var(--ws-primary-soft, #eef1ff);
+    color: var(--ws-primary);
+  }
+
+  body.white-shell.theme-light [class~="composer-wrap"] {
+    padding: 6px 8px max(8px, env(safe-area-inset-bottom));
+    border-top: 1px solid #e5e8ee;
+    background: color-mix(in srgb, var(--ws-card, #fff) 98%, transparent);
+  }
+
+  body.white-shell.theme-light [class~="composer-card"] {
+    gap: 6px;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    padding: 0;
+    box-shadow: none;
+  }
+
+  /* 44px is the minimum comfortable touch target. It costs only height, which
+     this row has to spare -- the controls are already 54-96px wide, so raising
+     it takes nothing from the horizontal budget. */
+  body.white-shell.theme-light [class~="composer-toolbar"] {
+    width: 100%;
+    min-height: 44px;
+    height: 44px;
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 6px;
+    overflow: hidden;
+    padding: 0;
+  }
+
+  body.white-shell.theme-light [class~="composer-status"] {
+    display: none;
+  }
+
+  /* A phone keeps the four controls that change what the next message does:
+     context headroom, model, reasoning effort, permission mode. The running-task
+     summary and the connection status are readouts rather than controls and are
+     reachable elsewhere -- carrying all of them here is what left six unlabelled
+     glyphs competing for one short row. Attachments are not part of this row;
+     they stay beside the input.
+     The directory switcher is handled further down, next to the rule that used to
+     re-show it. */
+  body.white-shell.theme-light [class~="composer-task-summary"] {
+    display: none;
+  }
+
+  body.white-shell.theme-light [class~="composer-status-dot"] {
+    width: 8px;
+    height: 8px;
+    flex: 0 0 8px;
+    border: 0;
+  }
+
+  body.white-shell.theme-light [class~="composer-status-bars"],
+  body.white-shell.theme-light [class~="composer-status-text"] {
+    display: none;
+  }
+
+  body.white-shell.theme-light [class~="composer-controls"] {
+    width: auto;
+    min-width: 0;
+    display: flex;
+    flex: 0 1 auto;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 4px;
+    margin-left: auto;
+    overflow: hidden;
+  }
+
+  body.white-shell.theme-light [class~="composer-field"] {
+    width: auto;
+    min-width: 0;
+    gap: 0;
+  }
+
+  body.white-shell.theme-light [class~="composer-field-label"] {
+    display: none;
+  }
+
+  body.white-shell.theme-light [class~="composer-model-field"] {
+    width: 96px;
+    min-width: 64px;
+    max-width: 96px;
+    flex: 0 1 96px;
+  }
+
+  body.white-shell.theme-light [class~="composer-effort-field"] {
+    width: 54px;
+    flex: 0 0 54px;
+  }
+
+  body.white-shell.theme-light [class~="composer-message-mode-field"] {
+    width: 54px;
+    flex: 0 0 54px;
+  }
+
+  body.white-shell.theme-light [class~="composer-permission-field"] {
+    width: 54px;
+    flex: 0 0 54px;
+  }
+
+  body.white-shell.theme-light [class~="toolbar-model-pill"],
+  body.white-shell.theme-light [class~="effort-pill"],
+  body.white-shell.theme-light [class~="permission-toolbar-pill"] {
+    width: 100%;
+    min-width: 0;
+    max-width: none;
+    min-height: 44px;
+    height: 44px;
+    border: 1px solid #e1e4ea;
+    /* Concentric with the 44px box: a 10px radius on a taller control reads as
+       squarer than the 32px one it replaces. */
+    border-radius: 13px;
+    background: var(--ws-input, #f6f7f9);
+    color: #394150;
+    padding: 0;
+  }
+
+  /* The context ring is the fourth control in this row, so it takes the same
+     touch target as the three pills beside it rather than staying 30px. */
+  body.white-shell.theme-light [class~="context-usage-btn"] {
+    min-height: 44px;
+    height: 44px;
+    padding: 0 6px;
+  }
+
+  /* The trigger is what a finger actually hits; the pill around it is only a
+     frame. Growing the pill to 44px while leaving this at 30px moved the border
+     without moving the target, so it has to fill its host. */
+  body.white-shell.theme-light [class~="composer-select-trigger"] {
+    justify-content: flex-start;
+    gap: 4px;
+    padding: 0 6px;
+    overflow: hidden;
+    font-size: 11px;
+    height: 100%;
+    min-height: 44px;
+  }
+
+  body.white-shell.theme-light [class~="composer-select-icon"] {
+    display: inline-flex;
+    flex: 0 0 14px;
+  }
+
+  body.white-shell.theme-light [class~="composer-select-icon"] svg {
+    width: 14px;
+    height: 14px;
+  }
+
+  body.white-shell.theme-light [class~="composer-select-chevron"] {
+    flex: 0 0 auto;
+    font-size: 9px;
+  }
+
+  body.white-shell.theme-light [class~="composer-model-field"] [class~="composer-select-value"] {
+    font-size: 0;
+    line-height: 0;
+  }
+
+  /* 12px at 600 rather than 10px at 760. A short label is the right call here --
+     the reference build abbreviates the same way -- but pushing weight that far
+     to compensate for the small size is what made these read as cramped stamps
+     instead of labels. Size carries the legibility; weight only differentiates. */
+  body.white-shell.theme-light [class~="composer-model-field"] [class~="composer-select-value"]::after {
+    content: attr(data-mobile-label);
+    font-size: 12px;
+    font-weight: 600;
+    line-height: 1;
+  }
+
+  body.white-shell.theme-light [class~="composer-effort-field"] [class~="composer-select-trigger"],
+  body.white-shell.theme-light [class~="composer-permission-field"] [class~="composer-select-trigger"] {
+    justify-content: center;
+    padding: 0 4px;
+  }
+
+  /* The letter already names the level, so the three-bar meter beside it is the
+     same fact twice in a control this narrow. Dropping it gives the label the
+     whole pill and removes an icon that never read as a level at 14px. */
+  body.white-shell.theme-light [class~="composer-effort-field"] [class~="reasoning-effort-icon"] {
+    display: none;
+  }
+
+  body.white-shell.theme-light [class~="composer-effort-field"] [class~="composer-select-value"],
+  body.white-shell.theme-light [class~="composer-permission-field"] [class~="composer-select-value"] {
+    font-size: 0;
+    line-height: 0;
+  }
+
+  body.white-shell.theme-light [class~="composer-effort-field"] [class~="composer-select-value"]::before,
+  body.white-shell.theme-light [class~="composer-permission-field"] [class~="composer-select-value"]::before {
+    content: attr(data-mobile-label);
+    font-size: 12px;
+    font-weight: 600;
+    line-height: 1;
+  }
+
+  body.white-shell.theme-light [class~="composer-effort-field"] [class~="composer-select-chevron"],
+  body.white-shell.theme-light [class~="composer-permission-field"] [class~="composer-select-chevron"] {
+    display: none;
+  }
+
+  body.white-shell.theme-light [class~="message-mode-toggle"] {
+    width: 54px;
+    height: 32px;
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    border-radius: 9px;
+    padding: 2px;
+  }
+
+  body.white-shell.theme-light [class~="message-mode-option"] {
+    min-width: 0;
+    min-height: 26px;
+    flex: 1 1 0;
+    padding: 0;
+    font-size: 0;
+  }
+
+  body.white-shell.theme-light [class~="message-mode-option"]::after {
+    content: attr(data-mobile-label);
+    font-size: 11px;
+    font-weight: 800;
+    line-height: 1;
+  }
+
+  body.white-shell.theme-light [class~="model-pill"] [class~="compact-select"] {
+    height: 30px;
+    padding-left: 7px;
+    padding-right: 18px;
+    font-size: 11px;
+  }
+
+  body.white-shell.theme-light [class~="toolbar-lightning-btn"] {
+    width: 28px;
+    min-width: 28px;
+    height: 30px;
+    min-height: 30px;
+    display: inline-flex;
+    flex: 0 0 28px;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    color: #687184;
+    box-shadow: none;
+  }
+
+  body.white-shell.theme-light [class~="toolbar-lightning-btn"] svg,
+  body.white-shell.theme-light [class~="composer-toolbar-icon"] svg {
+    width: 17px;
+    height: 17px;
+  }
+
+  body.white-shell.theme-light [class~="permission-safety-indicator"],
+  body.white-shell.theme-light [class~="permission-risk-badge"] {
+    display: none !important;
+  }
+
+  /* The directory switcher is the only thing in here, and it is a rare action
+     rather than something that changes what the next message does, so a phone
+     leaves it out of the composer row.
+     This has to sit at this point in the file: an earlier rule in the same media
+     block already tried to hide it, and this one re-showed it at equal
+     specificity, so the later declaration won and the button stayed on screen.
+     It looked hidden while testing only because the element also carries
+     aria-hidden until a project is open. */
+  body.white-shell.theme-light [class~="composer-actions"] {
+    display: none;
+  }
+
+  body.white-shell.theme-light [class~="composer-toolbar-icon"] {
+    width: 28px;
+    min-width: 28px;
+    height: 30px;
+    min-height: 30px;
+    flex: 0 0 28px;
+    border: 1px solid #e1e4ea;
+    border-radius: 9px;
+    background: var(--ws-input, #f6f7f9);
+    color: #596273;
+  }
+
+  /* The input rail shares the phone toolbar's 44px touch target. The id
+     selector outranks the class rules in extras.css, so this is the value that
+     must agree with the later sheet rather than quietly shrinking the rail. */
+  body.white-shell.theme-light #composerInputShell {
+    min-height: 44px;
+    align-items: center;
+    gap: 6px;
+  }
+
+  body.white-shell.theme-light [class~="composer-attach-wrap"] {
+    flex: 0 0 44px;
+    width: 44px;
+    height: 44px;
+  }
+
+  /* The attach button is a bare icon: message-input-frame is the only surface
+     that draws a border here, so the button must not stack a second card behind
+     it. Values are explicit rather than removed because earlier blocks in this
+     same media query set them. */
+  body.white-shell.theme-light #attachFileBtn {
+    left: 0;
+    width: 44px;
+    min-width: 44px;
+    height: 44px;
+    min-height: 44px;
+    border: 0;
+    border-radius: 12px;
+    background: transparent;
+    color: #667085;
+    font-size: 22px;
+  }
+
+  body.white-shell.theme-light [class~="message-input-frame"] {
+    min-height: 44px;
+    align-items: center;
+  }
+
+  /* The frame is the only surface with a border at this width, so it also owns
+     the focus indication: grey at rest, accent while typing. Without this the
+     composer has no visible focus state at all. */
+  body.white-shell.theme-light [class~="message-input-frame"]:focus-within {
+    border-color: var(--ws-primary, #4f6ef7);
+  }
+
+  /* Transparent so the surrounding frame is the single visible input outline.
+     Horizontal padding stays 0 because the frame already insets by 11px. */
+  body.white-shell.theme-light textarea#messageText {
+    --composer-input-min-height: 36px;
+    --composer-input-max-height: 120px;
+    min-height: var(--composer-input-min-height);
+    max-height: var(--composer-input-max-height);
+    border: 0;
+    border-radius: 12px;
+    background: transparent;
+    padding: 5.5px 12px;
+    font-size: 14px;
+    line-height: 1.45;
+  }
+
+  body.white-shell.theme-light #sendMessageBtn {
+    width: 44px;
+    min-width: 44px;
+    height: 44px;
+    min-height: 44px;
+    flex: 0 0 44px;
+    border-radius: 12px;
+    padding: 0;
+    font-size: 0;
+  }
+
+  body.white-shell.theme-light #sendMessageBtn::before {
+    content: attr(data-mobile-label);
+    font-size: 21px;
+    font-weight: 750;
+    line-height: 1;
+  }
+
+  body.white-shell.theme-light #sendMessageBtn[aria-busy="true"]::before {
+    content: "…";
+  }
+
+  body.white-shell.theme-light [class~="composer-hints"] {
+    display: none;
+  }
+}
+
+@media (max-width: 360px) {
+  body.white-shell.theme-light [class~="composer-status"] {
+    display: none;
+  }
+
+  body.white-shell.theme-light [class~="composer-model-field"] {
+    width: 70px;
+    min-width: 58px;
+    max-width: 70px;
+    flex-basis: 70px;
+  }
+
+  body.white-shell.theme-light [class~="composer-effort-field"] {
+    width: 48px;
+    flex-basis: 48px;
+  }
+
+  body.white-shell.theme-light [class~="composer-message-mode-field"] {
+    width: 50px;
+    flex-basis: 50px;
+  }
+
+  body.white-shell.theme-light [class~="message-mode-toggle"] {
+    width: 50px;
+  }
+
+  body.white-shell.theme-light [class~="composer-permission-field"] {
+    width: 48px;
+    flex-basis: 48px;
+  }
+
+  body.white-shell.theme-light [class~="composer-model-field"] [class~="composer-select-chevron"] {
+    display: none;
+  }
+
+  body.white-shell.theme-light [class~="toolbar-lightning-btn"] {
+    display: none;
+  }
+
+  body.white-shell.theme-light [class~="composer-toolbar-icon"] {
+    width: 26px;
+    min-width: 26px;
+    flex-basis: 26px;
+  }
+
+  body.white-shell.theme-light [class~="mobile-brand"] {
+    font-size: 22px;
+  }
+
+  body.white-shell.theme-light #sendMessageBtn {
+    width: 42px;
+    min-width: 42px;
+    flex-basis: 42px;
+  }
+}
+
+/* Usage history request analytics. Strictly scoped before provider final block. */
+#settingsContentBody .usage-history-page {
+  --uh-surface: var(--ws-card, #ffffff);
+  --uh-surface-muted: var(--ws-input, #f7f8fb);
+  --uh-text: var(--ws-text, #202536);
+  --uh-muted: var(--ws-muted, #667085);
+  --uh-border: var(--ws-border, #dfe3e9);
+  --uh-primary: #4f63df;
+  --uh-primary-soft: #eef1ff;
+  --uh-danger: #b42336;
+  --uh-danger-soft: #fff1f3;
+  --uh-success: #18794e;
+  --uh-success-soft: #ecfdf3;
+  min-width: 0;
+  max-width: 1440px;
+  margin: 0 auto;
+  padding: 4px 0 48px;
+  display: grid;
+  gap: 16px;
+  color: var(--uh-text);
+}
+
+#settingsContentBody .usage-history-page *,
+#settingsContentBody .usage-history-page *::before,
+#settingsContentBody .usage-history-page *::after {
+  box-sizing: border-box;
+}
+
+#settingsContentBody .usage-history-page .uh-hero,
+#settingsContentBody .usage-history-page .uh-panel {
+  border: 1px solid var(--uh-border);
+  border-radius: 16px;
+  background: var(--uh-surface);
+  box-shadow: 0 10px 28px rgba(15, 23, 42, .045);
+}
+
+#settingsContentBody .usage-history-page .uh-hero {
+  min-width: 0;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 22px 24px;
+}
+
+#settingsContentBody .usage-history-page .uh-hero > div { min-width: 0; }
+#settingsContentBody .usage-history-page .uh-kicker {
+  margin-bottom: 6px;
+  color: var(--uh-primary);
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+#settingsContentBody .usage-history-page .uh-hero h2,
+#settingsContentBody .usage-history-page .uh-section-head h3 {
+  margin: 0;
+  color: var(--uh-text);
+  letter-spacing: -.025em;
+}
+#settingsContentBody .usage-history-page .uh-hero h2 { font-size: 26px; }
+#settingsContentBody .usage-history-page .uh-hero p,
+#settingsContentBody .usage-history-page .uh-section-head p {
+  margin: 7px 0 0;
+  color: var(--uh-muted);
+  line-height: 1.55;
+}
+#settingsContentBody .usage-history-page .uh-hero small {
+  display: block;
+  margin-top: 10px;
+  color: var(--uh-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+#settingsContentBody .usage-history-page .uh-button {
+  min-height: 38px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--uh-border);
+  border-radius: 9px;
+  background: var(--uh-surface);
+  color: var(--uh-text);
+  padding: 0 14px;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 750;
+  cursor: pointer;
+  transition: border-color .16s ease, background .16s ease, color .16s ease, transform .16s ease;
+}
+#settingsContentBody .usage-history-page .uh-button.primary {
+  border-color: var(--uh-primary);
+  background: var(--uh-primary);
+  color: #ffffff;
+}
+#settingsContentBody .usage-history-page .uh-button:hover:not(:disabled) { transform: translateY(-1px); border-color: var(--uh-primary); }
+#settingsContentBody .usage-history-page .uh-button.primary:hover:not(:disabled) { background: #4054cf; }
+#settingsContentBody .usage-history-page .uh-button:disabled { opacity: .58; cursor: wait; }
+
+#settingsContentBody .usage-history-page .uh-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+#settingsContentBody .usage-history-page .uh-summary-card {
+  min-width: 0;
+  min-height: 126px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  border: 1px solid var(--uh-border);
+  border-radius: 14px;
+  background: var(--uh-surface);
+  padding: 17px 18px;
+  box-shadow: 0 8px 22px rgba(15, 23, 42, .035);
+}
+#settingsContentBody .usage-history-page .uh-summary-label {
+  color: var(--uh-muted);
+  font-size: 12px;
+  font-weight: 750;
+}
+#settingsContentBody .usage-history-page .uh-summary-card strong {
+  min-width: 0;
+  margin-top: 8px;
+  overflow: hidden;
+  color: var(--uh-text);
+  font-size: clamp(22px, 2vw, 30px);
+  font-weight: 850;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -.04em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+#settingsContentBody .usage-history-page .uh-summary-card small {
+  min-height: 18px;
+  margin-top: 6px;
+  color: var(--uh-muted);
+  line-height: 1.45;
+}
+
+#settingsContentBody .usage-history-page .uh-panel { min-width: 0; padding: 20px; }
+#settingsContentBody .usage-history-page .uh-section-head {
+  min-width: 0;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+  margin-bottom: 16px;
+}
+#settingsContentBody .usage-history-page .uh-section-head h3 { font-size: 17px; }
+#settingsContentBody .usage-history-page .uh-section-head p { max-width: 680px; font-size: 13px; }
+#settingsContentBody .usage-history-page .uh-trend-controls {
+  display: flex;
+  align-items: flex-end;
+  justify-content: flex-end;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+#settingsContentBody .usage-history-page .uh-bucket-switch {
+  min-height: 38px;
+  display: inline-flex;
+  border: 1px solid var(--uh-border);
+  border-radius: 9px;
+  background: var(--uh-surface-muted);
+  padding: 3px;
+}
+#settingsContentBody .usage-history-page .uh-bucket-switch button {
+  min-width: 52px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--uh-muted);
+  padding: 0 11px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 750;
+  cursor: pointer;
+}
+#settingsContentBody .usage-history-page .uh-bucket-switch button.active {
+  background: var(--uh-surface);
+  color: var(--uh-primary);
+  box-shadow: 0 2px 8px rgba(15, 23, 42, .08);
+}
+#settingsContentBody .usage-history-page .uh-metric-field,
+#settingsContentBody .usage-history-page .uh-filter-form label {
+  min-width: 0;
+  display: grid;
+  gap: 6px;
+  color: var(--uh-muted);
+  font-size: 12px;
+  font-weight: 750;
+}
+#settingsContentBody .usage-history-page .uh-metric-field select,
+#settingsContentBody .usage-history-page .uh-filter-form select,
+#settingsContentBody .usage-history-page .uh-filter-form input {
+  width: 100%;
+  min-height: 38px;
+  border: 1px solid var(--uh-border);
+  border-radius: 9px;
+  background: var(--uh-surface);
+  color: var(--uh-text);
+  padding: 0 10px;
+  font: inherit;
+  font-size: 13px;
+}
+#settingsContentBody .usage-history-page .uh-metric-field select { min-width: 190px; }
+#settingsContentBody .usage-history-page .uh-chart-host {
+  min-width: 0;
+  min-height: 280px;
+  overflow: hidden;
+  border: 1px solid var(--uh-border);
+  border-radius: 12px;
+  background: var(--uh-surface-muted);
+  padding: 8px;
+}
+#settingsContentBody .usage-history-page .uh-trend-svg {
+  width: 100%;
+  height: 280px;
+  display: block;
+  overflow: visible;
+}
+#settingsContentBody .usage-history-page .uh-chart-grid line { stroke: var(--uh-border); stroke-width: 1; stroke-dasharray: 3 4; }
+#settingsContentBody .usage-history-page .uh-chart-grid text,
+#settingsContentBody .usage-history-page .uh-chart-x-label { fill: var(--uh-muted); font-size: 11px; }
+#settingsContentBody .usage-history-page .uh-chart-axis { stroke: var(--uh-muted); stroke-width: 1; opacity: .7; }
+#settingsContentBody .usage-history-page .uh-chart-line {
+  fill: none;
+  stroke: var(--uh-primary);
+  stroke-width: 2.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+}
+#settingsContentBody .usage-history-page .uh-chart-point {
+  fill: var(--uh-surface);
+  stroke: var(--uh-primary);
+  stroke-width: 2.5;
+  vector-effect: non-scaling-stroke;
+}
+#settingsContentBody .usage-history-page .uh-chart-point:hover,
+#settingsContentBody .usage-history-page .uh-chart-point:focus { fill: var(--uh-primary); outline: none; }
+/* Points are clickable now, so say so before the click. */
+#settingsContentBody .usage-history-page .uh-chart-point { cursor: pointer; }
+/* A pinned point stays filled after the pointer leaves, which is the entire
+   difference from the old hover-only tooltip. */
+#settingsContentBody .usage-history-page .uh-chart-point.is-selected {
+  fill: var(--uh-primary);
+  stroke-width: 3;
+}
+#settingsContentBody .usage-history-page .uh-trend-readout { margin-top: 12px; min-height: 34px; }
+#settingsContentBody .usage-history-page .uh-trend-readout-hint {
+  margin: 0;
+  color: var(--uh-muted);
+  font-size: 13px;
+}
+#settingsContentBody .usage-history-page .uh-trend-readout-value {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  border: 1px solid var(--uh-border, rgba(255, 255, 255, 0.12));
+  border-radius: 10px;
+  background: var(--uh-surface);
+}
+#settingsContentBody .usage-history-page .uh-trend-readout-value span { color: var(--uh-muted); font-size: 13px; }
+#settingsContentBody .usage-history-page .uh-trend-readout-clear { margin-left: auto; }
+#settingsContentBody .usage-history-page .uh-chart-empty,
+#settingsContentBody .usage-history-page .uh-state-card {
+  min-height: 150px;
+  display: grid;
+  place-items: center;
+  color: var(--uh-muted);
+  padding: 24px;
+  text-align: center;
+}
+#settingsContentBody .usage-history-page .uh-truncated {
+  width: fit-content;
+  margin: -4px 0 10px;
+  border-radius: 999px;
+  background: #fff7e8;
+  color: #9a5b08;
+  padding: 4px 9px;
+  font-size: 11px;
+  font-weight: 750;
+}
+
+#settingsContentBody .usage-history-page .uh-filter-form {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(130px, 1fr));
+  gap: 12px;
+  align-items: end;
+}
+#settingsContentBody .usage-history-page .uh-filter-actions {
+  grid-column: 1 / -1;
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding-top: 2px;
+}
+
+#settingsContentBody .usage-history-page .uh-table-scroll {
+  min-width: 0;
+  overflow-x: auto;
+  border: 1px solid var(--uh-border);
+  border-radius: 12px;
+  scrollbar-width: thin;
+}
+#settingsContentBody .usage-history-page .uh-history-table {
+  width: 100%;
+  min-width: 1120px;
+  border-collapse: collapse;
+  color: var(--uh-text);
+  font-size: 12px;
+}
+#settingsContentBody .usage-history-page .uh-history-table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--uh-surface-muted);
+  color: var(--uh-muted);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: .02em;
+  text-align: left;
+  white-space: nowrap;
+}
+#settingsContentBody .usage-history-page .uh-history-table th,
+#settingsContentBody .usage-history-page .uh-history-table td {
+  border-bottom: 1px solid var(--uh-border);
+  padding: 11px 12px;
+  vertical-align: top;
+}
+#settingsContentBody .usage-history-page .uh-history-table tbody tr:last-child td { border-bottom: 0; }
+#settingsContentBody .usage-history-page .uh-history-table tbody tr:hover { background: var(--uh-surface-muted); }
+#settingsContentBody .usage-history-page .uh-history-table td:nth-child(1),
+#settingsContentBody .usage-history-page .uh-history-table td:nth-child(7),
+#settingsContentBody .usage-history-page .uh-history-table td:nth-child(8),
+#settingsContentBody .usage-history-page .uh-history-table td:nth-child(9) { white-space: nowrap; font-variant-numeric: tabular-nums; }
+#settingsContentBody .usage-history-page .uh-history-table td:nth-child(5) { max-width: 220px; overflow-wrap: anywhere; }
+#settingsContentBody .usage-history-page .uh-token-cell strong,
+#settingsContentBody .usage-history-page .uh-token-cell small { display: block; }
+#settingsContentBody .usage-history-page .uh-token-cell small { margin-top: 4px; color: var(--uh-muted); line-height: 1.5; white-space: nowrap; }
+#settingsContentBody .usage-history-page .uh-status {
+  width: fit-content;
+  display: inline-flex;
+  border-radius: 999px;
+  background: var(--uh-surface-muted);
+  color: var(--uh-muted);
+  padding: 3px 8px;
+  font-size: 11px;
+  font-weight: 800;
+}
+#settingsContentBody .usage-history-page .uh-status.success { background: var(--uh-success-soft); color: var(--uh-success); }
+#settingsContentBody .usage-history-page .uh-status.error { background: var(--uh-danger-soft); color: var(--uh-danger); }
+#settingsContentBody .usage-history-page .uh-status.pending { background: var(--uh-primary-soft); color: var(--uh-primary); }
+#settingsContentBody .usage-history-page .uh-status-error {
+  max-width: 220px;
+  display: block;
+  margin-top: 5px;
+  overflow-wrap: anywhere;
+  color: var(--uh-danger);
+  line-height: 1.4;
+}
+#settingsContentBody .usage-history-page .uh-load-more {
+  display: flex;
+  justify-content: center;
+  padding-top: 14px;
+}
+#settingsContentBody .usage-history-page .uh-inline-error,
+#settingsContentBody .usage-history-page .uh-state-card.error {
+  border: 1px solid #fecdd3;
+  border-radius: 10px;
+  background: var(--uh-danger-soft);
+  color: var(--uh-danger);
+  padding: 12px 14px;
+}
+#settingsContentBody .usage-history-page .uh-state-card.loading { color: var(--uh-primary); }
+
+#settingsContentBody .usage-history-page :is(button, select, input, circle):focus-visible {
+  outline: 2px solid rgba(79, 99, 223, .48);
+  outline-offset: 2px;
+}
+
+body.white-shell.theme-light.theme-dark #settingsContentBody .usage-history-page,
+body.theme-dark #settingsContentBody .usage-history-page {
+  --uh-surface: #171a22;
+  --uh-surface-muted: #10131a;
+  --uh-text: #f1f4f8;
+  --uh-muted: #a5adbd;
+  --uh-border: #323744;
+  --uh-primary: #8ea0ff;
+  --uh-primary-soft: #252d56;
+  --uh-danger: #ff9aaa;
+  --uh-danger-soft: #3b1c25;
+  --uh-success: #75d5a5;
+  --uh-success-soft: #163629;
+}
+body.white-shell.theme-light.theme-dark #settingsContentBody .usage-history-page .uh-hero,
+body.white-shell.theme-light.theme-dark #settingsContentBody .usage-history-page .uh-panel,
+body.white-shell.theme-light.theme-dark #settingsContentBody .usage-history-page .uh-summary-card,
+body.theme-dark #settingsContentBody .usage-history-page .uh-hero,
+body.theme-dark #settingsContentBody .usage-history-page .uh-panel,
+body.theme-dark #settingsContentBody .usage-history-page .uh-summary-card { box-shadow: none; }
+body.white-shell.theme-light.theme-dark #settingsContentBody .usage-history-page .uh-truncated,
+body.theme-dark #settingsContentBody .usage-history-page .uh-truncated { background: #3a2a13; color: #ffd28a; }
+
+@media (max-width: 1080px) {
+  #settingsContentBody .usage-history-page .uh-summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  #settingsContentBody .usage-history-page .uh-filter-form { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  #settingsContentBody .usage-history-page .uh-filter-actions { grid-column: 1 / -1; }
+}
+
+@media (max-width: 700px) {
+  #settingsContentBody .usage-history-page { gap: 12px; padding-bottom: 28px; }
+  #settingsContentBody .usage-history-page .uh-hero { flex-direction: column; gap: 16px; padding: 18px; }
+  #settingsContentBody .usage-history-page .uh-hero .uh-button { width: 100%; }
+  #settingsContentBody .usage-history-page .uh-summary-grid,
+  #settingsContentBody .usage-history-page .uh-filter-form { grid-template-columns: minmax(0, 1fr); }
+  #settingsContentBody .usage-history-page .uh-summary-card { min-height: 108px; }
+  #settingsContentBody .usage-history-page .uh-panel { padding: 16px; }
+  #settingsContentBody .usage-history-page .uh-section-head { flex-direction: column; }
+  #settingsContentBody .usage-history-page .uh-trend-controls { width: 100%; align-items: stretch; justify-content: stretch; }
+  #settingsContentBody .usage-history-page .uh-bucket-switch { flex: 1 1 auto; }
+  #settingsContentBody .usage-history-page .uh-bucket-switch button { flex: 1 1 0; }
+  #settingsContentBody .usage-history-page .uh-metric-field { width: 100%; }
+  #settingsContentBody .usage-history-page .uh-metric-field select { min-width: 0; }
+  #settingsContentBody .usage-history-page .uh-chart-host { min-height: 240px; padding: 3px; }
+  #settingsContentBody .usage-history-page .uh-trend-svg { height: 240px; }
+  #settingsContentBody .usage-history-page .uh-filter-actions { grid-column: 1; }
+  #settingsContentBody .usage-history-page .uh-filter-actions .uh-button { flex: 1 1 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #settingsContentBody .usage-history-page .uh-button { transition: none; }
+  #settingsContentBody .usage-history-page .uh-button:hover:not(:disabled) { transform: none; }
+}
+
+
+/* A retired message stays legible — the transcript still has to make sense — but
+   must not read as part of what the model is currently working from. */
+body.white-shell.theme-light .messages .message.message-superseded {
+  opacity: .55;
+}
+body.white-shell.theme-light .messages .message.message-superseded .message-content {
+  text-decoration-line: line-through;
+  text-decoration-color: color-mix(in srgb, var(--ws-muted, #747e90) 45%, transparent);
+  text-decoration-thickness: 1px;
+}
+body.white-shell.theme-light .messages .message.message-superseded:hover {
+  opacity: .85;
+}
+body.white-shell.theme-light .message-correction-note {
+  margin: 6px 0 0;
+  color: var(--ws-muted, #747e90);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+/* The chevrons on the model, reasoning-effort and permission selectors are
+   dropped: each trigger already opens on tap and carries aria-haspopup, so the
+   caret only repeated what the control's shape and label say, and on a narrow
+   composer it competed for width with the value it decorates.
+
+   Hidden rather than deleted from the markup. The class is referenced by nine
+   breakpoint rules across three stylesheets and pinned by the narrow icon-rail
+   design test, so removing the spans would strand all of them; the nodes are
+   already aria-hidden, so nothing is announced either way, and restoring the
+   carets is a one-line revert. */
+body.white-shell.theme-light .composer-select-chevron { display: none; }
+
+/* The scheme toggle is drawn now rather than typeset, so both entries to it need
+   the stroke treatment the rail's other glyphs get. The rail button previously
+   held a text character, which is why it was never covered by those rules. */
+body.white-shell.theme-light .theme-toggle-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+body.white-shell.theme-light .global-rail-theme-toggle .theme-toggle-icon {
+  width: 18px;
+  height: 18px;
+}
+
+body.white-shell.theme-light .theme-toggle-icon svg {
+  width: 100%;
+  height: 100%;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
