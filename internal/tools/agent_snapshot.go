@@ -21,9 +21,10 @@ const (
 
 // AgentSnapshotTool is the local, single-instance sibling of PeerSnapshot: it
 // lists the other conversations on this Autoto instance and reads one
-// conversation's recent transcript. It is strictly read-only and deliberately
-// limited to primary conversations; subagent transcripts are reachable through
-// the Task/ContextAsk tools that own them.
+// conversation's recent transcript. It is strictly read-only. The listing stays
+// limited to primary conversations, and a read reaches either a primary
+// conversation or a subagent the caller dispatched itself - someone else's
+// subagent belongs to the run that owns it.
 type AgentSnapshotTool struct{}
 
 type agentSnapshotInput struct {
@@ -71,7 +72,7 @@ type agentSnapshotDetail struct {
 func (AgentSnapshotTool) Name() string { return "AgentSnapshot" }
 
 func (AgentSnapshotTool) Description() string {
-	return "Inspect the other conversations on this local Autoto instance. Called without agent_id it lists the primary conversations with their ids, titles, and status. With agent_id it returns that conversation's recent user/assistant messages, newest last, with a cursor for older pages. Strictly read-only; use the returned agent ids with AgentSendMessage to ask another conversation to do something."
+	return "Inspect the other conversations on this local Autoto instance. Called without agent_id it lists the primary conversations with their ids, titles, and status. With agent_id it returns that conversation's recent user/assistant messages, newest last, with a cursor for older pages. You may also pass the agent id of a subagent you dispatched yourself to read its full transcript when the task result you got back is not enough; subagents dispatched by other conversations are not readable. Strictly read-only; use the returned agent ids with AgentSendMessage to ask another conversation to do something."
 }
 
 func (AgentSnapshotTool) Schema() any               { return agentSnapshotInput{} }
@@ -147,8 +148,12 @@ func snapshotConversationDetail(ctx context.Context, env Env, input agentSnapsho
 		}
 		return Result{Output: "conversation was not found", IsError: true}, nil
 	}
-	if !isPrimaryAgentType(agent.Type) {
-		return Result{Output: "agent_id names a subagent; inspect it through the Task tool that dispatched it", IsError: true}, nil
+	// A subagent belongs to the conversation that dispatched it, so reading
+	// someone else's stays out of bounds. Reading your own does not: the caller
+	// already owns that work, and the task result it gets back is a bounded
+	// summary of a transcript it sometimes needs in full.
+	if !isPrimaryAgentType(agent.Type) && strings.TrimSpace(agent.ParentAgentID) != strings.TrimSpace(env.AgentID) {
+		return Result{Output: "agent_id names a subagent dispatched by another conversation; you can only inspect subagents you dispatched yourself", IsError: true}, nil
 	}
 	limit := input.MessageLimit
 	if limit <= 0 {

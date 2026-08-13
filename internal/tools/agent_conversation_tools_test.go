@@ -144,7 +144,38 @@ func TestAgentSnapshotRejectsSelfAndSubagentTargets(t *testing.T) {
 	childInput, _ := json.Marshal(map[string]any{"agent_id": child.ID})
 	childResult, err := (AgentSnapshotTool{}).Execute(ctx, Call{ID: "snap-child", Name: "AgentSnapshot", Input: childInput}, Env{Store: store, AgentID: places.ID})
 	if err != nil || !childResult.IsError || !strings.Contains(childResult.Output, "subagent") {
-		t.Fatalf("subagent read was not rejected: result=%+v err=%v", childResult, err)
+		t.Fatalf("another conversation's subagent read was not rejected: result=%+v err=%v", childResult, err)
+	}
+}
+
+// The conversation that dispatched a subagent owns that work, and the task
+// result it gets back is a bounded summary of a transcript it sometimes needs
+// in full. Reading its own child is therefore allowed, while the case above
+// keeps someone else's child out of reach.
+func TestAgentSnapshotReadsItsOwnSubagent(t *testing.T) {
+	ctx := context.Background()
+	store, weather, _ := newConversationTestStore(t)
+	child, err := store.CreateAgent(ctx, db.Agent{
+		WorklineID: weather.WorklineID, ParentAgentID: weather.ID, Type: "subagent", SubagentType: "general",
+		Title: "child", Model: weather.Model, PermissionMode: "readOnly", Status: "idle", CWD: weather.CWD,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.AddMessage(ctx, db.Message{AgentID: child.ID, Role: "assistant", ContentText: "高雄下週有三場活動"}); err != nil {
+		t.Fatal(err)
+	}
+
+	input, _ := json.Marshal(map[string]any{"agent_id": child.ID})
+	result, err := (AgentSnapshotTool{}).Execute(ctx, Call{ID: "snap-own-child", Name: "AgentSnapshot", Input: input}, Env{Store: store, AgentID: weather.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.IsError {
+		t.Fatalf("the dispatching conversation must be able to read its own subagent: %s", result.Output)
+	}
+	if !strings.Contains(result.Output, "高雄下週有三場活動") {
+		t.Fatalf("the subagent transcript was not returned: %s", result.Output)
 	}
 }
 
