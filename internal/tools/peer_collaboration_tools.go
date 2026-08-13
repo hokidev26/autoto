@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"fmt"
+	"errors"
 	"strings"
 )
 
@@ -26,7 +26,7 @@ func decodePeerToolInput(raw json.RawMessage, dst any) error {
 		return err
 	}
 	if dec.More() {
-		return fmt.Errorf("trailing data after tool input object")
+		return errors.New("trailing data after tool input object")
 	}
 	return nil
 }

@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"html"
 	"io"
@@ -99,18 +100,18 @@ func validatePublicFetchURL(ctx context.Context, raw string) (*url.URL, error) {
 func validatePublicFetchURLWithResolver(ctx context.Context, raw string, resolver webFetchResolver) (*url.URL, error) {
 	trimmed := strings.TrimSpace(raw)
 	if trimmed == "" {
-		return nil, fmt.Errorf("url is required")
+		return nil, errors.New("url is required")
 	}
 	parsed, err := url.Parse(trimmed)
 	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
-		return nil, fmt.Errorf("invalid url")
+		return nil, errors.New("invalid url")
 	}
 	if parsed.Scheme != "http" && parsed.Scheme != "https" {
-		return nil, fmt.Errorf("only http and https urls are supported")
+		return nil, errors.New("only http and https urls are supported")
 	}
 	host := parsed.Hostname()
 	if host == "" {
-		return nil, fmt.Errorf("url host is required")
+		return nil, errors.New("url host is required")
 	}
 	if _, err := resolvePublicFetchHost(ctx, resolver, host); err != nil {
 		return nil, err
@@ -185,14 +186,14 @@ func newPublicFetchDialContext(resolver webFetchResolver, dial webFetchDialConte
 func resolvePublicFetchHost(ctx context.Context, resolver webFetchResolver, host string) ([]net.IP, error) {
 	host = strings.TrimSpace(host)
 	if host == "" {
-		return nil, fmt.Errorf("url host is required")
+		return nil, errors.New("url host is required")
 	}
 	if isLocalHostname(host) || strings.Contains(host, "%") {
-		return nil, fmt.Errorf("local/private hosts are not allowed")
+		return nil, errors.New("local/private hosts are not allowed")
 	}
 	if ip := net.ParseIP(host); ip != nil {
 		if isPrivateOrLocalIP(ip) {
-			return nil, fmt.Errorf("local/private hosts are not allowed")
+			return nil, errors.New("local/private hosts are not allowed")
 		}
 		return []net.IP{ip}, nil
 	}
@@ -206,12 +207,12 @@ func resolvePublicFetchHost(ctx context.Context, resolver webFetchResolver, host
 		return nil, fmt.Errorf("resolve host: %w", err)
 	}
 	if len(addrs) == 0 {
-		return nil, fmt.Errorf("resolve host: no IP addresses")
+		return nil, errors.New("resolve host: no IP addresses")
 	}
 	ips := make([]net.IP, 0, len(addrs))
 	for _, addr := range addrs {
 		if isPrivateOrLocalIP(addr.IP) {
-			return nil, fmt.Errorf("local/private hosts are not allowed")
+			return nil, errors.New("local/private hosts are not allowed")
 		}
 		ips = append(ips, addr.IP)
 	}

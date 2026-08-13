@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"unicode/utf8"
@@ -130,16 +131,16 @@ func normalizeUserQuestions(items []askUserQuestionItemInput) ([]UserQuestionIte
 		question := strings.TrimSpace(item.Question)
 		header := strings.TrimSpace(item.Header)
 		if question == "" {
-			return nil, fmt.Errorf("each question requires a non-empty question key")
+			return nil, errors.New("each question requires a non-empty question key")
 		}
 		if header == "" {
-			return nil, fmt.Errorf("each question requires a non-empty header")
+			return nil, errors.New("each question requires a non-empty header")
 		}
 		if utf8.RuneCountInString(question) > maxUserQuestionKeyChars {
-			return nil, fmt.Errorf("question key exceeds maximum length")
+			return nil, errors.New("question key exceeds maximum length")
 		}
 		if utf8.RuneCountInString(header) > maxUserQuestionTextChars {
-			return nil, fmt.Errorf("question header exceeds maximum length")
+			return nil, errors.New("question header exceeds maximum length")
 		}
 		key := strings.ToLower(question)
 		if _, dup := seen[key]; dup {
@@ -155,13 +156,13 @@ func normalizeUserQuestions(items []askUserQuestionItemInput) ([]UserQuestionIte
 			label := strings.TrimSpace(option.Label)
 			description := strings.TrimSpace(option.Description)
 			if label == "" {
-				return nil, fmt.Errorf("option labels must not be empty")
+				return nil, errors.New("option labels must not be empty")
 			}
 			if utf8.RuneCountInString(label) > maxUserOptionLabelChars {
-				return nil, fmt.Errorf("option label exceeds maximum length")
+				return nil, errors.New("option label exceeds maximum length")
 			}
 			if utf8.RuneCountInString(description) > maxUserOptionDescChars {
-				return nil, fmt.Errorf("option description exceeds maximum length")
+				return nil, errors.New("option description exceeds maximum length")
 			}
 			ol := strings.ToLower(label)
 			if _, dup := optionSeen[ol]; dup {

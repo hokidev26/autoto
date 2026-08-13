@@ -3,6 +3,7 @@ package gitsnapshot
 import (
 	"context"
 	"crypto/sha256"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -27,7 +28,7 @@ type FingerprintBudget struct {
 
 func (b *FingerprintBudget) consume(bytes int64) error {
 	if bytes < 0 {
-		return fmt.Errorf("invalid fingerprint byte count")
+		return errors.New("invalid fingerprint byte count")
 	}
 	if b != nil && b.MaxTotalBytes > 0 && b.totalBytes+bytes > b.MaxTotalBytes {
 		return fmt.Errorf("checkpoint fingerprint total byte budget exceeds %d", b.MaxTotalBytes)
@@ -53,7 +54,7 @@ func ParsePorcelainV1NoRenames(out string) ([]StatusEntry, error) {
 			continue
 		}
 		if len(record) < 4 {
-			return nil, fmt.Errorf("invalid git status record")
+			return nil, errors.New("invalid git status record")
 		}
 		entry := StatusEntry{
 			Path:           filepath.ToSlash(record[3:]),
@@ -61,7 +62,7 @@ func ParsePorcelainV1NoRenames(out string) ([]StatusEntry, error) {
 			WorktreeStatus: record[1:2],
 		}
 		if entry.Path == "" {
-			return nil, fmt.Errorf("git status reported an empty path")
+			return nil, errors.New("git status reported an empty path")
 		}
 		entry.Untracked = entry.IndexStatus == "?" && entry.WorktreeStatus == "?"
 		entries = append(entries, entry)

@@ -3,6 +3,7 @@
 package desktop
 
 import (
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -63,7 +64,7 @@ func (h *lifecycleHost) AutostartDisable() error {
 func (h *lifecycleHost) NotifyDeepLink(raw string) error {
 	link, ok := ParseDeepLink(raw)
 	if !ok {
-		return fmt.Errorf("unsupported deep link")
+		return errors.New("unsupported deep link")
 	}
 	h.mu.Lock()
 	h.lastLink = link.Raw
@@ -120,7 +121,7 @@ func newUpdateHost(homeDir string, logger *slog.Logger) *updateHost {
 
 func (h *updateHost) StageLocalUpdate(sourcePath, version, sha256 string) (updatepkg.PendingReplace, error) {
 	if h == nil || h.homeDir == "" {
-		return updatepkg.PendingReplace{}, fmt.Errorf("update home directory unavailable")
+		return updatepkg.PendingReplace{}, errors.New("update home directory unavailable")
 	}
 	pending, err := updatepkg.StageLocalBinary(h.homeDir, sourcePath, version, sha256)
 	if err != nil {

@@ -3,7 +3,7 @@
 package desktop
 
 import (
-	"fmt"
+	"errors"
 	"io"
 	"log/slog"
 	"os"
@@ -157,7 +157,7 @@ func copyLevelDBFiles(sourceDir, targetDir string) error {
 		copied++
 	}
 	if copied == 0 {
-		return fmt.Errorf("legacy seen database contained no LevelDB files")
+		return errors.New("legacy seen database contained no LevelDB files")
 	}
 	return nil
 }

@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -33,15 +34,15 @@ type AnswerUserQuestionRequest struct {
 
 func (r *Runner) AskUser(ctx context.Context, req tools.UserQuestionRequest) (tools.UserQuestionResponse, error) {
 	if r == nil {
-		return tools.UserQuestionResponse{}, fmt.Errorf("agent runner is not initialized")
+		return tools.UserQuestionResponse{}, errors.New("agent runner is not initialized")
 	}
 	agentID := strings.TrimSpace(req.AgentID)
 	toolUseID := strings.TrimSpace(req.ToolUseID)
 	if agentID == "" || toolUseID == "" {
-		return tools.UserQuestionResponse{}, fmt.Errorf("agentId and toolUseId are required")
+		return tools.UserQuestionResponse{}, errors.New("agentId and toolUseId are required")
 	}
 	if len(req.Questions) == 0 {
-		return tools.UserQuestionResponse{}, fmt.Errorf("questions are required")
+		return tools.UserQuestionResponse{}, errors.New("questions are required")
 	}
 	pending := &pendingUserQuestion{
 		AgentID:   agentID,
@@ -89,7 +90,7 @@ func (r *Runner) AnswerUserQuestion(ctx context.Context, agentID, toolUseID stri
 	agentID = strings.TrimSpace(agentID)
 	toolUseID = strings.TrimSpace(toolUseID)
 	if agentID == "" || toolUseID == "" {
-		return false, fmt.Errorf("agentId and toolUseId are required")
+		return false, errors.New("agentId and toolUseId are required")
 	}
 	r.userQuestionMu.Lock()
 	pending := r.userQuestions[approvalKey(agentID, toolUseID)]
@@ -190,7 +191,7 @@ func normalizeUserQuestionAnswer(questions []tools.UserQuestionItem, req AnswerU
 	for _, answer := range req.Answers {
 		key := strings.TrimSpace(answer.Question)
 		if key == "" {
-			return tools.UserQuestionResponse{}, fmt.Errorf("each answer requires a question key")
+			return tools.UserQuestionResponse{}, errors.New("each answer requires a question key")
 		}
 		lk := strings.ToLower(key)
 		question, ok := byKey[lk]
@@ -218,7 +219,7 @@ func normalizeUserQuestionAnswer(questions []tools.UserQuestionItem, req AnswerU
 		}
 		other := strings.TrimSpace(answer.OtherText)
 		if utf8.RuneCountInString(other) > maxUserOtherAnswerRunes {
-			return tools.UserQuestionResponse{}, fmt.Errorf("otherText exceeds maximum length")
+			return tools.UserQuestionResponse{}, errors.New("otherText exceeds maximum length")
 		}
 		if len(labels) == 0 && other == "" {
 			return tools.UserQuestionResponse{}, fmt.Errorf("answer for question %q requires a selection or otherText", key)
@@ -233,7 +234,7 @@ func normalizeUserQuestionAnswer(questions []tools.UserQuestionItem, req AnswerU
 		})
 	}
 	if len(seen) != len(questions) {
-		return tools.UserQuestionResponse{}, fmt.Errorf("answers must cover every question")
+		return tools.UserQuestionResponse{}, errors.New("answers must cover every question")
 	}
 	return tools.UserQuestionResponse{Answers: out}, nil
 }

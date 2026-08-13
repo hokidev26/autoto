@@ -1,6 +1,7 @@
 package themes
 
 import (
+	"errors"
 	"fmt"
 	"math"
 	"net/url"
@@ -15,7 +16,7 @@ func GenerateCSS(theme Theme) (string, error) {
 		return "", err
 	}
 	if !validRevision(theme.Revision) {
-		return "", fmt.Errorf("theme revision is invalid")
+		return "", errors.New("theme revision is invalid")
 	}
 	manifest := theme.Manifest
 	var builder strings.Builder

@@ -709,7 +709,7 @@ func parseLSPLocations(raw json.RawMessage) ([]lspLocation, error) {
 	if location, ok := parseLSPLocationValue(json.RawMessage(trimmed)); ok {
 		return []lspLocation{location}, nil
 	}
-	return nil, fmt.Errorf("unrecognized location payload")
+	return nil, errors.New("unrecognized location payload")
 }
 
 func parseLSPLocationValue(raw json.RawMessage) (lspLocation, bool) {

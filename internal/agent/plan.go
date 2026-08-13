@@ -258,10 +258,10 @@ func (r *Runner) persistAndReviewPlan(ctx context.Context, policy PolicyContext,
 		return assistantText, review.Result{}, nil
 	}
 	if r == nil || r.store == nil {
-		return "", review.Result{}, fmt.Errorf("plan persistence store is not configured")
+		return "", review.Result{}, errors.New("plan persistence store is not configured")
 	}
 	if strings.TrimSpace(policy.AgentID) == "" || strings.TrimSpace(policy.RunID) == "" {
-		return "", review.Result{}, fmt.Errorf("plan execution mode requires durable agent and run ids")
+		return "", review.Result{}, errors.New("plan execution mode requires durable agent and run ids")
 	}
 	draft, err := review.ParsePlanDraft(assistantText)
 	if err != nil {

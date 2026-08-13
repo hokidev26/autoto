@@ -3,6 +3,7 @@ package agent
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"reflect"
 	"strconv"
@@ -95,7 +96,7 @@ func decodeNativeToolInputSchema(input any) (map[string]any, bool, error) {
 		raw = encoded
 	case *json.RawMessage:
 		if schema == nil {
-			return nil, true, fmt.Errorf("native tool schema is nil")
+			return nil, true, errors.New("native tool schema is nil")
 		}
 		raw = *schema
 	default:
@@ -112,7 +113,7 @@ func decodeNativeToolInputSchema(input any) (map[string]any, bool, error) {
 	}
 	schema, ok := decoded.(map[string]any)
 	if !ok || schema == nil {
-		return nil, true, fmt.Errorf("native tool schema must be a single JSON object")
+		return nil, true, errors.New("native tool schema must be a single JSON object")
 	}
 	return schema, true, nil
 }

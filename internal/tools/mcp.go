@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -188,7 +189,7 @@ func ManagedAutomationMCPCallRequiresApproval(input json.RawMessage) bool {
 func mcpConfigFromInput(ctx context.Context, input mcpServerInput, env Env) (mcp.StdioConfig, error) {
 	serverID := strings.TrimSpace(input.ServerID)
 	if serverID == "" {
-		return mcp.StdioConfig{}, fmt.Errorf("serverId is required; freeform MCP command/cwd/env from the model are not allowed")
+		return mcp.StdioConfig{}, errors.New("serverId is required; freeform MCP command/cwd/env from the model are not allowed")
 	}
 	if env.Store == nil {
 		return mcp.StdioConfig{}, fmt.Errorf("store is required for registered MCP server %q", serverID)

@@ -4,7 +4,7 @@ package preview
 
 import (
 	"context"
-	"fmt"
+	"errors"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -36,7 +36,7 @@ func validateLoopbackListener(ctx context.Context, port int) error {
 		}
 		listener := strings.ToLower(strings.TrimPrefix(line, "n"))
 		if strings.HasPrefix(listener, "*:") || strings.HasPrefix(listener, "0.0.0.0:") || strings.HasPrefix(listener, "[::]:") || strings.HasPrefix(listener, ":::") {
-			return fmt.Errorf("preview server exposed a wildcard listener")
+			return errors.New("preview server exposed a wildcard listener")
 		}
 	}
 	return nil

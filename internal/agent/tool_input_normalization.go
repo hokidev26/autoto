@@ -3,6 +3,7 @@ package agent
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"math"
@@ -31,7 +32,7 @@ func NormalizeToolInput(raw json.RawMessage, schema map[string]any) (json.RawMes
 	}
 	object, ok := decoded.(map[string]any)
 	if !ok || object == nil {
-		return nil, fmt.Errorf("tool input must be a single JSON object")
+		return nil, errors.New("tool input must be a single JSON object")
 	}
 	if err := rejectForbiddenToolInputFields(object); err != nil {
 		return nil, err
@@ -40,7 +41,7 @@ func NormalizeToolInput(raw json.RawMessage, schema map[string]any) (json.RawMes
 		return nil, fmt.Errorf("invalid tool input schema: %w", err)
 	}
 	if schemaType(schema) != "object" {
-		return nil, fmt.Errorf("invalid tool input schema: root type must be object")
+		return nil, errors.New("invalid tool input schema: root type must be object")
 	}
 	normalized, err := normalizeSchemaObject(object, schema, "$")
 	if err != nil {
@@ -57,7 +58,7 @@ func requireJSONEOF(decoder *json.Decoder) error {
 	var trailing any
 	if err := decoder.Decode(&trailing); err != io.EOF {
 		if err == nil {
-			return fmt.Errorf("tool input must contain exactly one JSON object")
+			return errors.New("tool input must contain exactly one JSON object")
 		}
 		return fmt.Errorf("decode trailing tool input: %w", err)
 	}
@@ -587,16 +588,16 @@ func parseToolNumber(value any) (parsedToolNumber, error) {
 		literal = strconv.FormatUint(typed, 10)
 	case float32:
 		if math.IsNaN(float64(typed)) || math.IsInf(float64(typed), 0) {
-			return parsedToolNumber{}, fmt.Errorf("number must be finite")
+			return parsedToolNumber{}, errors.New("number must be finite")
 		}
 		literal = strconv.FormatFloat(float64(typed), 'g', -1, 32)
 	case float64:
 		if math.IsNaN(typed) || math.IsInf(typed, 0) {
-			return parsedToolNumber{}, fmt.Errorf("number must be finite")
+			return parsedToolNumber{}, errors.New("number must be finite")
 		}
 		literal = strconv.FormatFloat(typed, 'g', -1, 64)
 	default:
-		return parsedToolNumber{}, fmt.Errorf("expected a JSON number or strict numeric string")
+		return parsedToolNumber{}, errors.New("expected a JSON number or strict numeric string")
 	}
 	if !strictToolNumberPattern.MatchString(literal) {
 		return parsedToolNumber{}, fmt.Errorf("%q is not a strict numeric string", literal)

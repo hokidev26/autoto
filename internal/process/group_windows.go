@@ -3,6 +3,7 @@
 package process
 
 import (
+	"errors"
 	"fmt"
 	"os/exec"
 	"sync"
@@ -161,7 +162,7 @@ func setJobInformation(job windows.Handle, class uint32, info unsafe.Pointer, le
 		if err != nil {
 			return fmt.Errorf("SetInformationJobObject: %w", err)
 		}
-		return fmt.Errorf("SetInformationJobObject failed")
+		return errors.New("SetInformationJobObject failed")
 	}
 	return nil
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"regexp"
@@ -420,7 +421,7 @@ func (p *AnthropicProvider) applyThinkingConfig(params *anthropic.MessageNewPara
 			return "", fmt.Errorf("%w by %s provider (model %q does not support enabled thinking)", ErrReasoningEffortUnsupported, p.cfg.Name, model)
 		}
 		if exactBudget < 1024 || exactBudget >= params.MaxTokens {
-			return "", fmt.Errorf("Anthropic thinking budget_tokens must be at least 1024 and less than max_tokens")
+			return "", errors.New("Anthropic thinking budget_tokens must be at least 1024 and less than max_tokens")
 		}
 		params.Thinking = anthropic.ThinkingConfigParamOfEnabled(exactBudget)
 		return "enabled", nil
@@ -443,7 +444,7 @@ func (p *AnthropicProvider) applyThinkingConfig(params *anthropic.MessageNewPara
 
 func anthropicThinkingBudget(maxTokens int64, effort string) (int64, error) {
 	if maxTokens < 2048 {
-		return 0, fmt.Errorf("Anthropic thinking requires max_tokens of at least 2048")
+		return 0, errors.New("Anthropic thinking requires max_tokens of at least 2048")
 	}
 	var budget int64
 	switch effort {
@@ -471,7 +472,7 @@ func anthropicThinkingBudget(maxTokens int64, effort string) (int64, error) {
 		budget = maximum
 	}
 	if budget < 1024 {
-		return 0, fmt.Errorf("Anthropic thinking requires at least 1024 budget tokens")
+		return 0, errors.New("Anthropic thinking requires at least 1024 budget tokens")
 	}
 	return budget, nil
 }

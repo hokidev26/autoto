@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/binary"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"hash/crc32"
 	"io"
@@ -82,24 +83,24 @@ func parseKiroHeaders(data []byte, event *kiroEvent) error {
 		nameLen := int(data[i])
 		i++
 		if i+nameLen > len(data) {
-			return fmt.Errorf("kiro eventstream: header name truncated")
+			return errors.New("kiro eventstream: header name truncated")
 		}
 		name := string(data[i : i+nameLen])
 		i += nameLen
 
 		if i >= len(data) {
-			return fmt.Errorf("kiro eventstream: header type missing")
+			return errors.New("kiro eventstream: header type missing")
 		}
 		// type byte; 7 = string
 		i++ // skip type byte
 
 		if i+2 > len(data) {
-			return fmt.Errorf("kiro eventstream: header value_len truncated")
+			return errors.New("kiro eventstream: header value_len truncated")
 		}
 		valLen := int(binary.BigEndian.Uint16(data[i : i+2]))
 		i += 2
 		if i+valLen > len(data) {
-			return fmt.Errorf("kiro eventstream: header value truncated")
+			return errors.New("kiro eventstream: header value truncated")
 		}
 		value := string(data[i : i+valLen])
 		i += valLen

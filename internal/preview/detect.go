@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -131,7 +132,7 @@ scanContainersLoop:
 
 func canonicalWorkspace(root string) (string, error) {
 	if strings.TrimSpace(root) == "" {
-		return "", fmt.Errorf("preview workspace is required")
+		return "", errors.New("preview workspace is required")
 	}
 	abs, err := filepath.Abs(root)
 	if err != nil {
@@ -146,7 +147,7 @@ func canonicalWorkspace(root string) (string, error) {
 		return "", fmt.Errorf("stat preview workspace: %w", err)
 	}
 	if !info.IsDir() {
-		return "", fmt.Errorf("preview workspace must be a directory")
+		return "", errors.New("preview workspace must be a directory")
 	}
 	return filepath.Clean(real), nil
 }
@@ -333,14 +334,14 @@ func fingerprintProfile(workspace, relDir, kind string, argv, files []string) (s
 	for _, file := range ordered {
 		rel, err := filepath.Rel(workspace, file)
 		if err != nil || !withinPath(workspace, file) {
-			return "", fmt.Errorf("preview fingerprint file is outside workspace")
+			return "", errors.New("preview fingerprint file is outside workspace")
 		}
 		info, err := os.Lstat(file)
 		if err != nil {
 			return "", err
 		}
 		if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() || info.Size() > maxFingerprintFileSize || totalBytes+info.Size() > maxFingerprintTotalBytes {
-			return "", fmt.Errorf("preview fingerprint input is too large or invalid")
+			return "", errors.New("preview fingerprint input is too large or invalid")
 		}
 		writeFingerprintPart(hash, filepath.ToSlash(rel))
 		input, err := os.Open(file)
@@ -353,7 +354,7 @@ func fingerprintProfile(workspace, relDir, kind string, argv, files []string) (s
 			return "", copyErr
 		}
 		if copied > maxFingerprintFileSize || totalBytes+copied > maxFingerprintTotalBytes {
-			return "", fmt.Errorf("preview fingerprint input is too large")
+			return "", errors.New("preview fingerprint input is too large")
 		}
 		totalBytes += copied
 		if closeErr != nil {

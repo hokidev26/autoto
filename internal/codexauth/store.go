@@ -548,7 +548,7 @@ func (s *Store) loadLocked() ([]StoredCredential, error) {
 	}
 	entries, err := os.ReadDir(s.dir)
 	if err != nil {
-		return nil, fmt.Errorf("读取 Codex 本地凭据库失败")
+		return nil, errors.New("读取 Codex 本地凭据库失败")
 	}
 	items := make([]StoredCredential, 0, len(entries))
 	usedIDs := make(map[string]struct{}, len(entries))

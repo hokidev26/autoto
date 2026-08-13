@@ -3,6 +3,7 @@ package tools
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 )
@@ -36,7 +37,7 @@ func StrictDecode(raw json.RawMessage, dst any) error {
 		return err
 	}
 	if dec.More() {
-		return fmt.Errorf("trailing data after tool input object")
+		return errors.New("trailing data after tool input object")
 	}
 	return nil
 }

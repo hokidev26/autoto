@@ -312,7 +312,7 @@ func (r *Runner) recoverTrackingRunGitCheckpoint(ctx context.Context, run db.Run
 		return "", err
 	}
 	if !ready {
-		return "", fmt.Errorf("tracking checkpoint was not available for finalization")
+		return "", errors.New("tracking checkpoint was not available for finalization")
 	}
 	return "finalized_ready", nil
 }

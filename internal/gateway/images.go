@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"mime/multipart"
@@ -240,7 +241,7 @@ func (s *Service) generateOneImage(ctx context.Context, resolved resolvedModel, 
 	}
 	if events == nil {
 		execution.ErrorMessage = gatewayFailureProviderNoEventFeed
-		return nil, execution, fmt.Errorf("the upstream model request failed")
+		return nil, execution, errors.New("the upstream model request failed")
 	}
 	items := make([]imageDataItem, 0, 1)
 	for {
@@ -254,7 +255,7 @@ func (s *Service) generateOneImage(ctx context.Context, resolved resolvedModel, 
 					return items, execution, nil
 				}
 				execution.ErrorMessage = gatewayFailureUpstreamEnded
-				return nil, execution, fmt.Errorf("the upstream model request failed")
+				return nil, execution, errors.New("the upstream model request failed")
 			}
 			captureExecutionEvent(&execution, event)
 			switch event.Type {
@@ -272,7 +273,7 @@ func (s *Service) generateOneImage(ctx context.Context, resolved resolvedModel, 
 			case "done":
 				if len(items) == 0 {
 					execution.ErrorMessage = gatewayFailureUpstreamEnded
-					return nil, execution, fmt.Errorf("the upstream returned no image")
+					return nil, execution, errors.New("the upstream returned no image")
 				}
 				return items, execution, nil
 			}
