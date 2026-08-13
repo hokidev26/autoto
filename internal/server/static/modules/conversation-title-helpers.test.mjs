@@ -27,7 +27,7 @@ function helpersFor(state) {
 test("an untitled conversation is titled from the first user message, not the project path", () => {
   const { conversationHeaderTitle } = helpersFor({
     agent: {},
-    project: { name: "C:\\Users\\Ray\\Desktop\\ai測試" },
+    project: { name: "C:\\Users\\dev\\Desktop\\ai測試" },
     currentMessages: [
       { role: "assistant", content: "先招呼一下" },
       { role: "user", content: "幫我看一下這個專案的架構" },
@@ -47,7 +47,7 @@ test("an explicit agent title always wins over the derived one", () => {
 });
 
 test("a conversation with nothing to derive from reads as new, never as the path", () => {
-  const base = { agent: {}, project: { name: "C:\\Users\\Ray\\Desktop\\ai測試" } };
+  const base = { agent: {}, project: { name: "C:\\Users\\dev\\Desktop\\ai測試" } };
   const empty = helpersFor({ ...base, currentMessages: [] }).conversationHeaderTitle();
   assert.doesNotMatch(empty, /Desktop/);
   // Assistant-only and blank user messages are not usable titles either.

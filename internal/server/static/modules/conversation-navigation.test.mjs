@@ -26,8 +26,8 @@ import { localPreferenceBackupKeys, recentConversationsKey } from "./preferences
 // their working directory in the title column, so the sidebar row showed a path
 // on both lines. The stored value is left alone; only the display changes.
 test("標題被存成路徑時，側欄顯示資料夾名稱而不是整條路徑", () => {
-  assert.equal(conversationDisplayTitle({ agentTitle: "C:\\Users\\Ray\\Desktop\\autoto" }), "autoto");
-  assert.equal(conversationDisplayTitle({ agentTitle: "C:\\Users\\Ray\\Desktop\\火影忍者 蠍" }), "火影忍者 蠍");
+  assert.equal(conversationDisplayTitle({ agentTitle: "C:\\Users\\dev\\Desktop\\autoto" }), "autoto");
+  assert.equal(conversationDisplayTitle({ agentTitle: "C:\\Users\\dev\\Desktop\\火影忍者 蠍" }), "火影忍者 蠍");
   // A drive root has no folder name to fall back to, so the original stands.
   assert.equal(conversationDisplayTitle({ agentTitle: "C:\\" }), "C:\\");
   // POSIX and UNC forms too.

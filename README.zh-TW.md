@@ -76,6 +76,31 @@ go run ./cmd/autoto
 go run ./cmd/autoto --config /path/to/config.json
 ```
 
+### 建置執行檔
+
+CLI 版（可以交叉編譯到任何支援的平台）：
+
+```bash
+go build -o autoto ./cmd/autoto
+```
+
+桌面版必須加 `desktop` 建置標籤——不加會直接編譯失敗（"build constraints exclude all Go files"）——而且需要該平台的原生 WebView 工具鏈，所以沒辦法交叉編譯。Release 沒有發布 Windows 桌面版，但從原始碼建置沒問題：
+
+```bash
+go build -tags desktop -o autoto-desktop ./cmd/autoto-desktop
+```
+
+Windows 上再加 `-ldflags "-H windowsgui"`，桌面外殼啟動時才不會多開一個主控台視窗。
+
+想要接近 release 的瘦身版，可以去掉除錯資訊與本機路徑（大約小 25%；panic 堆疊仍保留函式名稱但沒有檔案路徑，`pprof` 之類的工具會少掉符號細節）：
+
+```bash
+go build -trimpath -ldflags "-s -w" -o autoto ./cmd/autoto
+go build -tags "desktop,production" -trimpath -ldflags "-s -w -H windowsgui" -o autoto-desktop ./cmd/autoto-desktop
+```
+
+`production` 標籤會另外關掉 Wails 的 devtools。完整建置參考見 `docs/BUILD.md` 和 `Makefile`。
+
 ## 系統需求
 
 - Go 1.26 或更新版本，以 `go.mod` 的宣告為準

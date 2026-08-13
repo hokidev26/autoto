@@ -158,6 +158,31 @@ You can pass a custom config path:
 go run ./cmd/autoto --config /path/to/config.json
 ```
 
+### Building binaries
+
+CLI (cross-compiles to any supported platform):
+
+```bash
+go build -o autoto ./cmd/autoto
+```
+
+Desktop requires the `desktop` build tag — without it the build fails with "build constraints exclude all Go files" — plus the platform's native WebView toolchain, so it cannot be cross-compiled. Windows desktop is not published in releases, but it builds from source fine:
+
+```bash
+go build -tags desktop -o autoto-desktop ./cmd/autoto-desktop
+```
+
+On Windows, add `-ldflags "-H windowsgui"` so the desktop shell opens without a console window.
+
+For smaller release-style binaries, strip debug info and local paths (roughly 25% smaller; panic stack traces keep function names but lose file paths, and tools like `pprof` lose symbol detail):
+
+```bash
+go build -trimpath -ldflags "-s -w" -o autoto ./cmd/autoto
+go build -tags "desktop,production" -trimpath -ldflags "-s -w -H windowsgui" -o autoto-desktop ./cmd/autoto-desktop
+```
+
+The `production` tag additionally disables the Wails devtools. See `docs/BUILD.md` and the `Makefile` for the full build reference.
+
 ## Dogfood demo (historical evidence)
 
 The following tracked-file smoke was run before the rename, against temporary **Autoto** servers and temporary Git repositories. It is retained as a historical record; the same current workflow uses the canonical Agent APIs shown below.

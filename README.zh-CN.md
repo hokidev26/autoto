@@ -76,6 +76,31 @@ go run ./cmd/autoto
 go run ./cmd/autoto --config /path/to/config.json
 ```
 
+### 构建可执行文件
+
+CLI 版（可以交叉编译到任何支持的平台）：
+
+```bash
+go build -o autoto ./cmd/autoto
+```
+
+桌面版必须加 `desktop` 构建标签——不加会直接编译失败（"build constraints exclude all Go files"）——而且需要该平台的原生 WebView 工具链，所以没法交叉编译。Release 没有发布 Windows 桌面版，但从源码构建没问题：
+
+```bash
+go build -tags desktop -o autoto-desktop ./cmd/autoto-desktop
+```
+
+Windows 上再加 `-ldflags "-H windowsgui"`，桌面外壳启动时才不会多开一个控制台窗口。
+
+想要接近 release 的瘦身版，可以去掉调试信息与本机路径（大约小 25%；panic 堆栈仍保留函数名称但没有文件路径，`pprof` 之类的工具会少掉符号细节）：
+
+```bash
+go build -trimpath -ldflags "-s -w" -o autoto ./cmd/autoto
+go build -tags "desktop,production" -trimpath -ldflags "-s -w -H windowsgui" -o autoto-desktop ./cmd/autoto-desktop
+```
+
+`production` 标签会另外关掉 Wails 的 devtools。完整构建参考见 `docs/BUILD.md` 和 `Makefile`。
+
 ## 系统要求
 
 - Go 1.26 或更新版本，以 `go.mod` 的声明为准

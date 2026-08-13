@@ -620,8 +620,8 @@ test("internal tool protocol messages stay out of the transcript while activity 
     id: "tool-result",
     role: "user",
     parentToolUseId: "call-1",
-    contentText: "Tool Bash (call-1) completed:\n/c/Users/Ray/Desktop/autoto\ntotal 44",
-    contentJson: [{ type: "tool_result", toolUseId: "call-1", toolName: "Bash", output: "/c/Users/Ray/Desktop/autoto\ntotal 44" }],
+    contentText: "Tool Bash (call-1) completed:\n/c/Users/dev/Desktop/autoto\ntotal 44",
+    contentJson: [{ type: "tool_result", toolUseId: "call-1", toolName: "Bash", output: "/c/Users/dev/Desktop/autoto\ntotal 44" }],
   };
   const mixedAssistant = {
     id: "mixed-assistant",
@@ -658,7 +658,7 @@ test("internal tool protocol messages stay out of the transcript while activity 
         toolName: "Bash",
         status: "completed",
         inputJson: { command: "ls -la" },
-        output: "/c/Users/Ray/Desktop/autoto\ntotal 44",
+        output: "/c/Users/dev/Desktop/autoto\ntotal 44",
       },
     },
   });

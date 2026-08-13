@@ -22,17 +22,12 @@
 
 ## Go 工具鏈位置
 
-這臺機器上 Go **不在 PATH 裡**：
-
-```text
-C:\Users\Ray\go-sdk\go\bin\go.exe
-```
-
-Git Bash 裡每個會話先加進 PATH：
+如果 Go **不在 PATH 裡**（例如手動解壓安裝到自訂目錄），Git Bash 裡
+每個會話先加進 PATH（把路徑換成你的安裝位置）：
 
 ```bash
-export PATH="$PATH:/c/Users/Ray/go-sdk/go/bin"
-go version   # 應輸出 go1.26.5 windows/amd64
+export PATH="$PATH:/c/path/to/go/bin"
+go version   # 應輸出 go1.26.x windows/amd64
 ```
 
 直接敲 `go build` 而沒設 PATH 會得到
@@ -46,7 +41,6 @@ go 失敗了後面的 `echo "BUILD OK"` 照樣會列印，得到假的成功資�
 ### 伺服器 / CLI 版（平時用這個）
 
 ```bash
-export PATH="$PATH:/c/Users/Ray/go-sdk/go/bin"
 go build -o autoto.exe ./cmd/autoto
 ```
 
@@ -116,7 +110,6 @@ ls -la autoto.exe
 ## 跑測試
 
 ```bash
-export PATH="$PATH:/c/Users/Ray/go-sdk/go/bin"
 go build ./...                          # 全量編譯
 go test ./internal/providers/...        # 單個包
 go test ./internal/...                  # 全部（internal/db 較慢，約 3 分鐘）
@@ -148,7 +141,7 @@ grep -c '<關鍵程式碼>' <路徑>                  # 工作區的行為
 
 ```powershell
 $env:AUTOTO_LOG_LEVEL = "debug"
-& "C:\Users\Ray\Desktop\autoto\codeharbor\autoto.exe"
+& ".\autoto.exe"
 ```
 
 PowerShell 裡兩條命令要分行，寫在同一行會報
