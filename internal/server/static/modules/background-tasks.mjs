@@ -1,4 +1,5 @@
 import { escapeAttr, escapeHtml, setHTMLIfChanged, setTextIfChanged } from "./dom.mjs";
+import { groupModelSelectOptions, modelOptionPresentation } from "./ui-shell.mjs";
 import { formatDuration, formatTimestamp } from "./formatters.mjs";
 import { t } from "./i18n.mjs";
 // The child transcript is a conversation, so it is rendered with the same
@@ -13,7 +14,7 @@ import {
   renderToolActivityCardHTML,
   renderToolActivityStackHTML,
   transcriptMessageText,
-} from "./chat-rendering.mjs?v=protected-images-1-message-thread-1-plan-mode-2-user-message-left-1-switch-fix-3-hide-run-loading-1-i18n-shared-1-conversation-boundary-1-subagent-cards-1-message-lifecycle-1-subagent-incremental-1-profile-message-identity-1-profile-avatar-1-provider-errors-1-compact-run-error-1-first-token-task-status-1-tool-activity-lazy-1-tool-protocol-filter-1-live-assistant-last-1-tool-activity-svg-icons-1-reasoning-steps-1-reasoning-history-1-markdown-2-tool-inline-detail-1-md-table-1-tool-position-1-project-run-history-1-dup-activity-fix-1-reasoning-count-1-avatar-logo-fix-1-markdown-stream-1-reasoning-handover-1";
+} from "./chat-rendering.mjs";
 
 const terminalStatuses = new Set(["completed", "complete", "succeeded", "success", "failed", "error", "cancelled", "canceled", "interrupted"]);
 const runningStatuses = new Set(["running", "started", "cancel_requested"]);
@@ -1272,18 +1273,24 @@ export function createBackgroundTasksController({
     return key ? t(key) : effort;
   }
 
-  // One pill = the visible value, a folded short form, and an invisible native
-  // select stretched over the whole pill. The row reads like the main composer
-  // (wide: value pills; squeezed: icons and a letter) while the interaction
-  // stays the platform's own dropdown, so no menu wiring is duplicated here.
+  // One pill = the visible value, a folded short form, a hidden native select
+  // that stores the options and current value, and a trigger button that opens
+  // the same popover menu the main composer uses. The row reads like the main
+  // composer (wide: value pills; squeezed: icons and a letter) and now the
+  // click-through does too: choosing an option writes the hidden select and
+  // dispatches a bubbling change event, so the existing tray delegation is the
+  // one place that PATCHes the child agent.
   function childControlPillHTML({ title, iconHTML, shortText, valueLabel, selectHTML }) {
     const short = shortText
       ? `<span class="background-task-pill-short" aria-hidden="true">${escapeHtml(shortText)}</span>`
       : `<span class="background-task-pill-short" aria-hidden="true">${iconHTML || ""}</span>`;
-    return `<span class="background-task-child-pill" title="${escapeAttr(title)}">
-      <span class="background-task-pill-value">${escapeHtml(valueLabel)}</span>
-      ${short}
+    const label = `${title}：${valueLabel}`;
+    return `<span class="background-task-child-pill">
       ${selectHTML}
+      <button type="button" class="background-task-pill-trigger" data-background-child-pill data-pill-title="${escapeAttr(title)}" aria-haspopup="listbox" aria-expanded="false" title="${escapeAttr(label)}" aria-label="${escapeAttr(label)}">
+        <span class="background-task-pill-value">${escapeHtml(valueLabel)}</span>
+        ${short}
+      </button>
     </span>`;
   }
 
@@ -1347,6 +1354,180 @@ export function createBackgroundTasksController({
       <input type="text" name="message" placeholder="${escapeAttr(t("chat.messagePlaceholder"))}" autocomplete="off" />
       <button type="submit" class="ghost-btn mini">${escapeHtml(t("chat.send"))}</button>
     </form>`;
+  }
+
+  // ----- pill popover ---------------------------------------------------
+  // The same look as the main composer's select menus, using its CSS classes
+  // (.composer-select-popover / .composer-select-option), so the two surfaces
+  // stay visually identical without duplicating any styling. The composer's
+  // own menu module binds fixed element ids at startup, which cannot serve
+  // these per-child controls -- they are re-rendered with every poll tick.
+  let pillMenu = null; // { element, trigger, select, selectAttr, cleanup }
+
+  function closeChildPillMenu({ focus = false } = {}) {
+    if (!pillMenu) return;
+    const { element, trigger, cleanup } = pillMenu;
+    pillMenu = null;
+    cleanup?.();
+    element?.remove?.();
+    if (trigger?.isConnected !== false) {
+      trigger?.setAttribute?.("aria-expanded", "false");
+      if (focus) trigger?.focus?.();
+    }
+  }
+
+  function positionChildPillMenu(element, trigger) {
+    if (!element?.style || typeof trigger?.getBoundingClientRect !== "function") return;
+    const rect = trigger.getBoundingClientRect();
+    const viewportWidth = globalThis.innerWidth || documentRef?.documentElement?.clientWidth || 0;
+    const viewportHeight = globalThis.innerHeight || documentRef?.documentElement?.clientHeight || 0;
+    // The model menu carries provider group headings, so it gets the same
+    // wider floor the composer gives its own model menu.
+    const minimumWidth = element.classList?.contains?.("composer-model-popover") ? 290 : 190;
+    const width = Math.min(Math.max(rect.width, minimumWidth), Math.max(160, viewportWidth - 16));
+    element.style.left = `${Math.min(Math.max(8, rect.left), Math.max(8, viewportWidth - width - 8))}px`;
+    element.style.width = `${width}px`;
+    // Above the trigger, the way the composer opens its menus: the pill row
+    // sits at the bottom of the panel, so opening downward would clip.
+    element.style.bottom = `${Math.max(8, viewportHeight - rect.top + 6)}px`;
+  }
+
+  // Which data attribute identifies the hidden select, so a menu left open
+  // across a re-render can find the replacement node.
+  const pillSelectAttrs = ["data-background-child-model", "data-background-child-effort", "data-background-child-permission"];
+
+  function pillSelectIdentity(select) {
+    for (const attr of pillSelectAttrs) {
+      const value = select?.getAttribute?.(attr);
+      if (value) return { attr, value };
+    }
+    return null;
+  }
+
+  function openChildPillMenu(trigger) {
+    const pill = trigger?.closest?.(".background-task-child-pill");
+    const select = pill?.querySelector?.("select");
+    if (!select || typeof documentRef?.createElement !== "function" || !documentRef.body?.appendChild) return;
+    if (pillMenu?.select === select) {
+      closeChildPillMenu();
+      return;
+    }
+    closeChildPillMenu();
+    const isModelMenu = pillSelectIdentity(select)?.attr === "data-background-child-model";
+    const menu = documentRef.createElement("div");
+    menu.className = `composer-select-popover background-task-select-popover${isModelMenu ? " composer-model-popover" : ""}`;
+    menu.setAttribute("role", "listbox");
+    const heading = documentRef.createElement("div");
+    heading.className = "composer-select-popover-title";
+    heading.textContent = trigger.dataset?.pillTitle || "";
+    menu.appendChild(heading);
+    const appendOption = (option, { model = false } = {}) => {
+      const isSelected = option.value === select.value;
+      const button = documentRef.createElement("button");
+      button.type = "button";
+      button.className = model ? "composer-select-option composer-model-option" : "composer-select-option";
+      button.setAttribute("role", "option");
+      button.setAttribute("aria-selected", isSelected ? "true" : "false");
+      if (model) {
+        // Same presentation as the main composer's model menu: the provider is
+        // the group heading above, so the row shows only the model's name.
+        const copy = documentRef.createElement("span");
+        copy.className = "composer-model-option-copy";
+        const name = documentRef.createElement("span");
+        name.className = "composer-model-option-name";
+        name.textContent = modelOptionPresentation(option.value, option.textContent).name;
+        copy.appendChild(name);
+        button.appendChild(copy);
+      } else {
+        const label = documentRef.createElement("span");
+        label.textContent = (option.textContent || option.value || "").trim();
+        button.appendChild(label);
+      }
+      const check = documentRef.createElement("span");
+      check.className = "composer-select-option-check";
+      check.setAttribute("aria-hidden", "true");
+      check.textContent = isSelected ? "✓" : "";
+      button.appendChild(check);
+      button.addEventListener("click", () => {
+        const current = pillMenu?.select || select;
+        current.value = option.value;
+        const EventCtor = current.ownerDocument?.defaultView?.Event || globalThis.Event;
+        if (EventCtor) current.dispatchEvent(new EventCtor("change", { bubbles: true }));
+        closeChildPillMenu({ focus: true });
+      });
+      menu.appendChild(button);
+    };
+    const visibleOptions = [...(select.options || [])].filter((option) => !option.hidden);
+    if (isModelMenu) {
+      // Provider heading above its models, exactly the way the main chat's
+      // model menu groups them.
+      groupModelSelectOptions(visibleOptions).forEach((group, index) => {
+        const groupHeading = documentRef.createElement("div");
+        groupHeading.className = [
+          "composer-model-group-heading",
+          index > 0 ? "composer-model-group-start" : "",
+        ].filter(Boolean).join(" ");
+        groupHeading.setAttribute("role", "presentation");
+        groupHeading.textContent = group.provider || t("chat.modelProviderFallback");
+        menu.appendChild(groupHeading);
+        group.options.forEach((option) => appendOption(option, { model: true }));
+      });
+    } else {
+      visibleOptions.forEach((option) => appendOption(option));
+    }
+    const onPointerDown = (event) => {
+      if (menu.contains?.(event.target)) return;
+      if (pillMenu?.trigger?.contains?.(event.target)) return;
+      closeChildPillMenu();
+    };
+    const onKeyDown = (event) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      closeChildPillMenu({ focus: true });
+    };
+    const onViewportChange = () => closeChildPillMenu();
+    documentRef.addEventListener?.("pointerdown", onPointerDown);
+    documentRef.addEventListener?.("keydown", onKeyDown);
+    globalThis.addEventListener?.("resize", onViewportChange);
+    pillMenu = {
+      element: menu,
+      trigger,
+      select,
+      identity: pillSelectIdentity(select),
+      cleanup: () => {
+        documentRef.removeEventListener?.("pointerdown", onPointerDown);
+        documentRef.removeEventListener?.("keydown", onKeyDown);
+        globalThis.removeEventListener?.("resize", onViewportChange);
+      },
+    };
+    documentRef.body.appendChild(menu);
+    positionChildPillMenu(menu, trigger);
+    trigger.setAttribute?.("aria-expanded", "true");
+    menu.querySelector?.('[aria-selected="true"]')?.focus?.();
+  }
+
+  // A poll tick re-renders the pane and replaces the pill nodes while a menu
+  // may be open over them. Re-anchor onto the replacement control instead of
+  // snapping the menu shut under the user's pointer; close only when the
+  // control genuinely went away (task closed, view switched).
+  function syncChildPillMenu() {
+    if (!pillMenu) return;
+    if (pillMenu.trigger?.isConnected !== false) {
+      positionChildPillMenu(pillMenu.element, pillMenu.trigger);
+      return;
+    }
+    const { attr, value } = pillMenu.identity || {};
+    const tray = host("backgroundTaskTray");
+    const select = attr ? tray?.querySelector?.(`select[${attr}="${value}"]`) : null;
+    const trigger = select?.closest?.(".background-task-child-pill")?.querySelector?.(".background-task-pill-trigger");
+    if (!select || !trigger) {
+      closeChildPillMenu();
+      return;
+    }
+    pillMenu.select = select;
+    pillMenu.trigger = trigger;
+    trigger.setAttribute?.("aria-expanded", "true");
+    positionChildPillMenu(pillMenu.element, trigger);
   }
 
   // The <section class="background-task-detail"> wrapper is NOT part of this
@@ -1437,7 +1618,10 @@ export function createBackgroundTasksController({
     }
     if (!tray) return;
     tray.classList.toggle("hidden", !trayOpen || !agentId);
-    if (!trayOpen || !agentId) return;
+    if (!trayOpen || !agentId) {
+      closeChildPillMenu();
+      return;
+    }
     const tasks = orderedTasks().slice(0, 12);
     const detailTask = selected ? tasksById.get(selected) : null;
     // The detail pane's <section> goes into the tray markup as an EMPTY shell
@@ -1449,9 +1633,23 @@ export function createBackgroundTasksController({
     // A tray-level rewrite (tab strip, counts, errors) still replaces the
     // section, so its position is captured here and carried across by hand.
     const prevDetail = tray.querySelector?.(".background-task-detail");
-    const prevScrollTop = prevDetail ? prevDetail.scrollTop : 0;
-    const prevAtBottom = Boolean(prevDetail)
-      && prevDetail.scrollHeight - prevDetail.scrollTop - prevDetail.clientHeight < 48;
+    // The reading position does not live on the <section> alone: the
+    // conversation transcript and the output log are the children with
+    // overflow, and the section itself usually fits its content and never
+    // scrolls. Restoring only the section left each rewritten transcript at
+    // scrollTop 0, so every content update -- a poll tick while the child
+    // streamed, or the refresh after sending it a message -- yanked the
+    // conversation back to its oldest message. Capture every scroller before
+    // the rewrite can destroy it.
+    const captureScroll = (node) => (node ? {
+      top: Number(node.scrollTop) || 0,
+      atBottom: node.scrollHeight - node.scrollTop - node.clientHeight < 48,
+    } : null);
+    const prevScroll = {
+      detail: captureScroll(prevDetail),
+      conversation: captureScroll(prevDetail?.querySelector?.(".background-task-conversation")),
+      output: captureScroll(prevDetail?.querySelector?.(".background-task-output")),
+    };
     const sameDetail = Boolean(prevDetail) && renderedDetailTaskId === selected;
     // The composer draft and its focus survive the swap too: a rewrite mid-poll
     // must not eat the message being typed to the child.
@@ -1481,11 +1679,12 @@ export function createBackgroundTasksController({
       </div>`);
     renderedDetailTaskId = detailTask ? selected : "";
     const detail = tray.querySelector?.(".background-task-detail");
-    if (!detail || !detailTask) return;
-    // When the section survived, read its live position (the pre-write capture
-    // and the live value are the same element, but this keeps the logic honest).
-    const atBottom = trayRewrote ? prevAtBottom : detail.scrollHeight - detail.scrollTop - detail.clientHeight < 48;
+    if (!detail || !detailTask) {
+      closeChildPillMenu();
+      return;
+    }
     const contentRewrote = setHTMLIfChanged(detail, renderSelectedTaskContentHTML(detailTask));
+    syncChildPillMenu();
     if (contentRewrote && (composerDraft || composerHadFocus)) {
       const input = detail.querySelector?.(".background-task-child-composer input");
       if (input) {
@@ -1493,9 +1692,20 @@ export function createBackgroundTasksController({
         if (composerHadFocus) input.focus?.({ preventScroll: true });
       }
     }
-    if (!sameDetail) detail.scrollTop = detail.scrollHeight;
-    else if (trayRewrote) detail.scrollTop = prevAtBottom ? detail.scrollHeight : prevScrollTop;
-    else if (contentRewrote && atBottom) detail.scrollTop = detail.scrollHeight;
+    // Neither layer rewrote: the nodes the reader is scrolled in are untouched,
+    // so their positions are already right.
+    if (sameDetail && !trayRewrote && !contentRewrote) return;
+    // A newly opened task lands at its latest content. A scroller that was
+    // pinned to the end stays pinned as the content grows; one the reader
+    // scrolled back keeps its offset instead of the rebuilt node's zero.
+    const restoreScroll = (node, saved) => {
+      if (!node) return;
+      if (!sameDetail || !saved || saved.atBottom) node.scrollTop = node.scrollHeight;
+      else node.scrollTop = saved.top;
+    };
+    restoreScroll(detail, prevScroll.detail);
+    restoreScroll(detail.querySelector?.(".background-task-conversation"), prevScroll.conversation);
+    restoreScroll(detail.querySelector?.(".background-task-output"), prevScroll.output);
   }
 
   function closeTray(reason = "tray-close") {
@@ -1521,6 +1731,11 @@ export function createBackgroundTasksController({
     host("headerTaskSummaryBtn")?.addEventListener("click", toggleTray);
     host("backgroundTaskTray")?.addEventListener("click", (event) => {
       if (handleChildActivityClick(event)) return;
+      const pillTrigger = event.target?.closest?.("[data-background-child-pill]");
+      if (pillTrigger) {
+        openChildPillMenu(pillTrigger);
+        return;
+      }
       const target = event.target?.closest?.("[data-background-task],[data-background-close],[data-background-output-more],[data-background-cancel],[data-background-agent],[data-background-run],[data-background-overview],[data-background-tab-close]");
       if (!target) return;
       if (target.hasAttribute("data-background-close")) {

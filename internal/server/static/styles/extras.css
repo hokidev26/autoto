@@ -3887,3 +3887,85 @@ body.white-shell.theme-light .reasoning-effort-icon[data-effort-level="2"] svg :
 body.white-shell.theme-light .reasoning-effort-icon[data-effort-level="3"] svg [data-effort-bar] {
   opacity: 1;
 }
+
+/* ==========================================================================
+   Composer selector row — one line of borderless icons when squeezed
+   Only inside the composer's own fold (the same 480px container threshold
+   where the fields already collapse to icons): the model / reasoning-effort
+   / permission triggers become one row of quiet 32px icon buttons, the way
+   the background-task panel draws its pill row. Before this, the folded
+   variants kept their own heights (28-38px boxes), so the three icons sat
+   at visibly different heights. The wide layout is deliberately untouched:
+   the model keeps its labelled pill there. The phone stylesheet (max-width
+   767px media) keeps its own, more specific toolbar rules, which win over
+   these where both apply. The selected value stays reachable as the
+   trigger's tooltip and aria-label (sync() maintains both), and the popover
+   shows it on open.
+   ========================================================================== */
+@container composer-shell (max-width: 480px) {
+  body.white-shell.theme-light .composer-toolbar .composer-controls {
+    display: flex;
+    flex-wrap: nowrap;
+    align-items: center;
+    gap: 4px;
+  }
+  body.white-shell.theme-light .composer-toolbar .composer-controls .composer-field-label {
+    display: none;
+  }
+  body.white-shell.theme-light .composer-toolbar .composer-controls :is(.composer-model-field, .composer-effort-field, .composer-permission-field) {
+    width: 32px;
+    min-width: 32px;
+    max-width: 32px;
+    height: 32px;
+    flex: 0 0 32px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+  body.white-shell.theme-light .composer-toolbar .composer-controls :is(.toolbar-model-pill, .effort-pill, .permission-toolbar-pill) {
+    width: 100%;
+    min-width: 0;
+    max-width: none;
+    height: 100%;
+    min-height: 0;
+    flex: 1 1 auto;
+    border: 0;
+    border-radius: 8px;
+    background: transparent;
+    /* .mode-pill paints an amber tint + text colour of its own; the row's
+       icons take the toolbar's neutral colour instead. */
+    color: inherit;
+    padding: 0;
+  }
+  body.white-shell.theme-light .composer-toolbar .composer-controls .composer-select-trigger {
+    width: 100%;
+    min-width: 0;
+    max-width: none;
+    height: 100%;
+    min-height: 32px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0;
+    border: 0;
+    border-radius: 8px;
+    background: transparent;
+    padding: 0;
+  }
+  body.white-shell.theme-light .composer-toolbar .composer-controls .composer-select-trigger:is(:hover, [aria-expanded="true"]) {
+    background: color-mix(in srgb, var(--ws-text, #20263a) 8%, transparent);
+    color: var(--ws-text, #20263a);
+  }
+  body.white-shell.theme-light .composer-toolbar .composer-controls :is(.composer-select-value, .composer-select-chevron) {
+    display: none;
+  }
+  body.white-shell.theme-light .composer-toolbar .composer-controls .composer-select-icon {
+    display: inline-flex;
+    flex: 0 0 18px;
+    width: 18px;
+    height: 18px;
+    align-items: center;
+    justify-content: center;
+    margin: 0;
+  }
+}

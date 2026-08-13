@@ -898,6 +898,48 @@ test("subagent model options come from the injected provider list", () => {
   assert.ok(!html.includes("blank is dropped"));
 });
 
+// The pill row used to be framed chips over an invisible native select. It is
+// now borderless triggers that open the same popover menu the main composer
+// uses, while the hidden select keeps holding the options and the value so the
+// tray's change delegation stays the single PATCH path.
+test("subagent pills are borderless triggers that open the composer-style menu", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const controller = createBackgroundTasksController({
+    request: async () => ({}),
+    getModelOptions: () => [{ value: "codex:gpt-5.6", label: "gpt-5.6" }],
+  });
+  const html = controller.renderChildControlsHTMLForTest({ childAgentId: "child-1" }, { model: "codex:gpt-5.6" });
+
+  // The select survives as the value store the change delegation listens to.
+  assert.match(html, /<select data-background-child-model="child-1"/);
+  // Each pill exposes a real button trigger for the popover.
+  assert.match(html, /<button type="button" class="background-task-pill-trigger" data-background-child-pill[^>]*aria-haspopup="listbox"/);
+  // The trigger names its control and current value for tooltip and reader.
+  assert.match(html, /data-pill-title="[^"]+"/);
+
+  // The menu itself is the composer's: same classes, so same look in both
+  // themes, and choosing writes the select then fires a bubbling change.
+  const source = await readFile(new URL("./background-tasks.mjs", import.meta.url), "utf8");
+  assert.match(source, /composer-select-popover background-task-select-popover/, "the popover must reuse the composer menu classes");
+  assert.match(source, /composer-select-option/, "options must reuse the composer option class");
+  assert.match(source, /new EventCtor\("change", \{ bubbles: true \}\)/, "choosing must dispatch a bubbling change for the tray delegation");
+  // The model menu groups by provider like the main chat's: a provider heading
+  // above its models, rendered with the composer's own grouping helpers.
+  assert.match(source, /groupModelSelectOptions\(visibleOptions\)/, "the model menu must group options by provider");
+  assert.match(source, /composer-model-group-heading/, "provider headings must reuse the composer heading class");
+  assert.match(source, /modelOptionPresentation\(option\.value, option\.textContent\)\.name/, "model rows show the model name; the provider lives in the heading");
+  assert.match(source, /group\.provider \|\| t\("chat\.modelProviderFallback"\)/, "a provider-less model still gets a labelled group");
+
+  // The frame is gone: the select is hidden (not stretched over the pill) and
+  // the trigger is a quiet borderless button.
+  const css = await readFile(new URL("../styles/workspace-tasks.css", import.meta.url), "utf8");
+  assert.match(css, /\.background-task-child-pill > select \{ display: none; \}/);
+  const trigger = css.match(/\.background-task-pill-trigger \{[^}]*\}/);
+  assert.ok(trigger, ".background-task-pill-trigger rule must exist");
+  assert.match(trigger[0], /border: 0/);
+  assert.match(trigger[0], /background: transparent/);
+});
+
 // Every other control in this panel is translated; a raw "bypassPermissions"
 // leaking into the select was the one exception.
 test("subagent permission modes render translated labels, not raw enum values", () => {
@@ -1184,6 +1226,74 @@ test("the subagent pane hides tool protocol chatter and the acceptance-criteria 
   assert.doesNotMatch(html, /BACKGROUND_ACCEPTANCE_CRITERIA|completion checks only/, "the acceptance-criteria block addresses the model, not the reader");
   assert.doesNotMatch(html, /Tool requested:/, "legacy tool-request lines are protocol, not conversation");
   assert.doesNotMatch(html, /completed: Search results/, "tool results belong to the activity stack, not a bubble");
+});
+
+// The conversation transcript, not the detail <section>, is the element with
+// overflow (.background-task-conversation has its own overflow: auto). Every
+// content rewrite recreates that node at scrollTop 0, so restoring only the
+// section's position yanked a reading user back to the oldest message whenever
+// the child was polled or answered a follow-up message.
+test("a content rewrite keeps the subagent transcript's scroll position", async () => {
+  // Mimics the browser: an innerHTML write tears the subtree out and rebuilds
+  // it, so the scrolling nodes come back fresh with scrollTop 0.
+  function fakeDetail() {
+    const detail = { scrollTop: 0, scrollHeight: 400, clientHeight: 400, conversation: null };
+    detail.querySelector = (selector) => (selector === ".background-task-conversation" ? detail.conversation : null);
+    Object.defineProperty(detail, "innerHTML", {
+      set(markup) {
+        detail.conversation = markup.includes("background-task-conversation")
+          ? { scrollTop: 0, scrollHeight: 600, clientHeight: 200 }
+          : null;
+      },
+    });
+    return detail;
+  }
+  const tray = { classList: { toggle() {} }, detail: null };
+  tray.querySelector = (selector) => (selector === ".background-task-detail" ? tray.detail : null);
+  Object.defineProperty(tray, "innerHTML", {
+    set(markup) {
+      tray.detail = markup.includes("background-task-detail") ? fakeDetail() : null;
+    },
+  });
+
+  const messages = [
+    { id: "m1", role: "user", contentText: "briefing", createdAt: "2026-08-13T04:00:00Z" },
+    { id: "m2", role: "assistant", contentText: "first answer", createdAt: "2026-08-13T04:01:00Z" },
+  ];
+  const controller = createBackgroundTasksController({
+    request: async (path) => {
+      if (path.endsWith("/output?afterSequence=0")) return { chunks: [] };
+      if (path.includes("/runs/active")) return null;
+      if (path.includes("/messages")) return { messages: [...messages] };
+      if (path.includes("/tool-calls")) return { toolCalls: [] };
+      return { id: "task-sub", agentId: "agent-1", kind: "agent", status: "running", childAgentId: "child-9", childRunId: "run-9", revision: 1 };
+    },
+    documentRef: { getElementById: (id) => (id === "backgroundTaskTray" ? tray : null) },
+  });
+  controller.setAgent("agent-1");
+  await controller.selectTask("task-sub");
+
+  const opened = tray.detail?.conversation;
+  assert.ok(opened, "the conversation must render");
+  // A newly opened task lands at its latest content.
+  assert.equal(opened.scrollTop, opened.scrollHeight, "opening a task must show the newest turn");
+
+  // The reader scrolls back to an earlier turn, then the child answers, which
+  // forces a content rewrite that replaces the transcript node.
+  opened.scrollTop = 120;
+  messages.push({ id: "m3", role: "assistant", contentText: "second answer", createdAt: "2026-08-13T04:02:00Z" });
+  await controller.loadChildConversation("child-9", { force: true, runId: "run-9" });
+  const rewritten = tray.detail?.conversation;
+  assert.ok(rewritten && rewritten !== opened, "the rewrite must have replaced the transcript node");
+  assert.equal(rewritten.scrollTop, 120, "a reader scrolled back must keep their place");
+
+  // Pinned to the end instead: the next rewrite follows the new content.
+  rewritten.scrollTop = rewritten.scrollHeight - rewritten.clientHeight;
+  messages.push({ id: "m4", role: "assistant", contentText: "third answer", createdAt: "2026-08-13T04:03:00Z" });
+  await controller.loadChildConversation("child-9", { force: true, runId: "run-9" });
+  const pinned = tray.detail?.conversation;
+  assert.ok(pinned, "the conversation must still render");
+  assert.equal(pinned.scrollTop, pinned.scrollHeight, "a reader at the end keeps following the tail");
 });
 
 // A shell task has no child agent, so there is no run to ask about and asking

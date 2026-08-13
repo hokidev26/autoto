@@ -2490,25 +2490,43 @@ body.white-shell.theme-light .messages:not(.empty) > [class~="message"][class~="
   gap: 6px;
   min-width: 0;
 }
+/* Borderless, like the main composer's toolbar triggers: a quiet control that
+   only paints a hover tint. The frame and card background made three chips
+   compete with the composer below them. */
 .background-task-child-pill {
   position: relative;
+  display: inline-flex;
+  min-width: 0;
+}
+/* The native select only stores the options and the current value now; the
+   visible control is the trigger button, which opens the composer-style
+   popover. Choosing an option writes this select and dispatches a bubbling
+   change event for the tray's delegation. */
+.background-task-child-pill > select { display: none; }
+.background-task-pill-trigger {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 5px;
   min-width: 0;
   min-height: 26px;
-  padding: 3px 10px;
-  border: 1px solid var(--line, var(--ws-border, #e5e7eb));
+  padding: 3px 8px;
+  border: 0;
   border-radius: 8px;
-  background: var(--bg-panel, var(--ws-card, #fff));
+  background: transparent;
   color: var(--text, #111827);
+  font: inherit;
   font-size: 10.5px;
   line-height: 1.2;
   cursor: pointer;
 }
-.background-task-child-pill:focus-within {
-  border-color: color-mix(in srgb, var(--accent, #5369f3) 55%, var(--line, #e5e7eb));
+.background-task-pill-trigger:hover,
+.background-task-pill-trigger[aria-expanded="true"] {
+  background: color-mix(in srgb, var(--text, #20263a) 8%, transparent);
+}
+.background-task-pill-trigger:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent, #5369f3) 48%, transparent);
+  outline-offset: 1px;
 }
 .background-task-pill-value {
   overflow: hidden;
@@ -2525,18 +2543,12 @@ body.white-shell.theme-light .messages:not(.empty) > [class~="message"][class~="
   font-weight: 700;
 }
 .background-task-pill-short svg { width: 14px; height: 14px; }
-.background-task-child-pill > select {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  margin: 0;
-  padding: 0;
-  border: 0;
-  opacity: 0;
-  cursor: pointer;
-  appearance: none;
-}
+/* Stacks above the tray panel; inherits the composer popover's own look. */
+.background-task-select-popover { z-index: 240; }
+/* The panel positions this menu itself and clamps it to the viewport; the
+   composer model menu's 290px floor would overrule that clamp on a window
+   narrower than the floor. */
+.background-task-select-popover.composer-model-popover { min-width: 0; }
 /* Fallback when no provider models are known: a plain labelled input. */
 .background-task-child-field {
   min-width: 0;
@@ -2616,7 +2628,7 @@ body.white-shell.theme-light .messages:not(.empty) > [class~="message"][class~="
    phone rendering -- the model and permission become their icons and the
    effort a letter, exactly like the main composer on a phone. */
 @container background-task-panel (max-width: 420px) {
-  .background-task-child-pill { min-width: 30px; padding: 3px 6px; }
+  .background-task-pill-trigger { min-width: 30px; padding: 3px 6px; }
   .background-task-pill-value { display: none; }
   .background-task-pill-short { display: inline-flex; }
   .background-task-child-field > span { font-size: 8.5px; }
