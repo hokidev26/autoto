@@ -12,7 +12,6 @@ import (
 	"autoto/internal/db"
 	"autoto/internal/imageassets"
 	"autoto/internal/providers"
-	"autoto/internal/review"
 	"autoto/internal/spill"
 	"autoto/internal/toolpipeline"
 	"autoto/internal/tools"
@@ -39,19 +38,11 @@ type Runner struct {
 	continuationConfig    config.AgentConfig
 	continuationRunLimits map[string]continuationLimits
 
-	// User-maintained permanent-error patterns, read on every provider failure
-	// and replaced wholesale when the setting changes.
-	retryPolicyMu             sync.RWMutex
-	nonRetryableErrorPatterns []string
-	// maxTransientRetriesSet distinguishes "set to 0" from "never set". Zero is a
-	// real choice here (no retry at all), so it cannot double as the empty value
-	// or saving it would silently fall back to the config default instead.
-	maxTransientRetries    int
-	maxTransientRetriesSet bool
+	// User-maintained retry ceiling and permanent-error patterns. Own mutex;
+	// read on every provider failure and replaced wholesale when settings change.
+	retry retryPolicy
 
-	dynamicToolsMu sync.RWMutex
-	toolSource     tools.ToolSource
-	toolResolver   tools.Resolver
+	dynamic dynamicToolSource
 
 	backgroundMu sync.RWMutex
 	background   tools.BackgroundTaskService
@@ -103,10 +94,9 @@ type Runner struct {
 	notifierMu sync.RWMutex
 	notifier   Notifier
 
-	planMu                     sync.RWMutex
-	reviewer                   *review.Service
-	planSnapshotProvider       func(context.Context, string) (db.PlanSnapshot, error)
-	backgroundSnapshotProvider func(context.Context, string) (db.PlanSnapshot, error)
+	// Isolated reviewer plus snapshot callbacks used to bind plan and
+	// background-task runs to control-plane state. Own mutex; not the run loop.
+	plans planProviders
 
 	runtimeStateOnce sync.Once
 	runtimeState     *runtimeSnapshotState
@@ -161,7 +151,7 @@ const (
 )
 
 func NewRunner(store *db.Store, providers *providers.Registry, toolRegistry *tools.Registry, hub *Hub, cfg config.AgentConfig) *Runner {
-	runner := &Runner{store: store, providers: providers, tools: toolRegistry, toolOutputPipeline: toolpipeline.NewManager(), hub: hub, cfg: cfg, contextManagement: (config.ContextManagementConfig{}).Normalized(), continuationConfig: cfg, nonRetryableErrorPatterns: config.NormalizeNonRetryableErrorPatterns(cfg.NonRetryableErrorPatterns), repeatCalls: repeatToolCallDetector{thresholds: config.NormalizeRepeatToolCallThresholds(cfg.RepeatToolCallThresholds)}, continuationRunLimits: make(map[string]continuationLimits), defaultReasoningEffort: "auto", running: make(map[string]*activeRun), compacting: make(map[string]struct{}), titling: make(map[string]struct{}), approvals: make(map[string]*pendingApproval), sessionGrants: make(map[string]map[string]sessionGrant), userQuestions: make(map[string]*pendingUserQuestion)}
+	runner := &Runner{store: store, providers: providers, tools: toolRegistry, toolOutputPipeline: toolpipeline.NewManager(), hub: hub, cfg: cfg, contextManagement: (config.ContextManagementConfig{}).Normalized(), continuationConfig: cfg, retry: retryPolicy{nonRetryableErrorPatterns: config.NormalizeNonRetryableErrorPatterns(cfg.NonRetryableErrorPatterns)}, repeatCalls: repeatToolCallDetector{thresholds: config.NormalizeRepeatToolCallThresholds(cfg.RepeatToolCallThresholds)}, continuationRunLimits: make(map[string]continuationLimits), defaultReasoningEffort: "auto", running: make(map[string]*activeRun), compacting: make(map[string]struct{}), titling: make(map[string]struct{}), approvals: make(map[string]*pendingApproval), sessionGrants: make(map[string]map[string]sessionGrant), userQuestions: make(map[string]*pendingUserQuestion)}
 	runner.SetAgentModelSettings(cfg)
 	if store != nil {
 		if settings, err := store.GetRuntimeSettings(context.Background()); err == nil {
@@ -171,16 +161,35 @@ func NewRunner(store *db.Store, providers *providers.Registry, toolRegistry *too
 	return runner
 }
 
+// dynamicToolSource holds the optional dynamic listing and resolution
+// surfaces. Its mutex is private so listing and resolution never share a
+// lock with the run loop.
+type dynamicToolSource struct {
+	mu       sync.RWMutex
+	source   tools.ToolSource
+	resolver tools.Resolver
+}
+
+func (d *dynamicToolSource) set(source tools.ToolSource, resolver tools.Resolver) {
+	d.mu.Lock()
+	d.source = source
+	d.resolver = resolver
+	d.mu.Unlock()
+}
+
+func (d *dynamicToolSource) get() (tools.ToolSource, tools.Resolver) {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	return d.source, d.resolver
+}
+
 // SetDynamicTools configures the optional dynamic listing and resolution
 // surfaces without changing the constructor used by existing callers.
 func (r *Runner) SetDynamicTools(source tools.ToolSource, resolver tools.Resolver) {
 	if r == nil {
 		return
 	}
-	r.dynamicToolsMu.Lock()
-	r.toolSource = source
-	r.toolResolver = resolver
-	r.dynamicToolsMu.Unlock()
+	r.dynamic.set(source, resolver)
 }
 
 // SetDynamicToolSource is a convenience for services implementing both
@@ -199,9 +208,7 @@ func (r *Runner) dynamicTools() (tools.ToolSource, tools.Resolver) {
 	if r == nil {
 		return nil, nil
 	}
-	r.dynamicToolsMu.RLock()
-	defer r.dynamicToolsMu.RUnlock()
-	return r.toolSource, r.toolResolver
+	return r.dynamic.get()
 }
 
 // SetBackgroundTaskService installs the execution service used by background

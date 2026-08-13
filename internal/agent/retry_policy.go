@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 
 	"autoto/internal/config"
 )
@@ -78,6 +79,64 @@ func isTransientProviderError(err error) bool {
 // the way while they exercise the continuation loop above it.
 const unlimitedTransientRetries = -1
 
+// retryPolicy owns the live retry ceiling and the user-maintained permanent-error
+// list. The two share one mutex because they are read together on every provider
+// failure: a run must not see a new ceiling with the old patterns.
+type retryPolicy struct {
+	mu                        sync.RWMutex
+	nonRetryableErrorPatterns []string
+	// maxTransientRetriesSet distinguishes "set to 0" from "never set". Zero is a
+	// real choice here (no retry at all), so it cannot double as the empty value
+	// or saving it would silently fall back to the config default instead.
+	maxTransientRetries    int
+	maxTransientRetriesSet bool
+}
+
+func (p *retryPolicy) setMax(normalized int) {
+	p.mu.Lock()
+	p.maxTransientRetries = normalized
+	p.maxTransientRetriesSet = true
+	p.mu.Unlock()
+}
+
+func (p *retryPolicy) getMax() (int, bool) {
+	p.mu.RLock()
+	value, ok := p.maxTransientRetries, p.maxTransientRetriesSet
+	p.mu.RUnlock()
+	return value, ok
+}
+
+func (p *retryPolicy) setPatterns(patterns []string) {
+	p.mu.Lock()
+	p.nonRetryableErrorPatterns = patterns
+	p.mu.Unlock()
+}
+
+func (p *retryPolicy) patterns() []string {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	if len(p.nonRetryableErrorPatterns) == 0 {
+		return nil
+	}
+	return append([]string(nil), p.nonRetryableErrorPatterns...)
+}
+
+func (p *retryPolicy) matches(err error) bool {
+	p.mu.RLock()
+	patterns := p.nonRetryableErrorPatterns
+	p.mu.RUnlock()
+	if len(patterns) == 0 {
+		return false
+	}
+	message := strings.ToLower(err.Error())
+	for _, pattern := range patterns {
+		if strings.Contains(message, pattern) {
+			return true
+		}
+	}
+	return false
+}
+
 // SetMaxTransientRetries replaces the live ceiling on retries of a transient
 // provider failure. Returns the value actually stored, so the caller reports what
 // took effect rather than what it sent.
@@ -90,10 +149,7 @@ func (r *Runner) SetMaxTransientRetries(value int) int {
 	if r == nil {
 		return normalized
 	}
-	r.retryPolicyMu.Lock()
-	r.maxTransientRetries = normalized
-	r.maxTransientRetriesSet = true
-	r.retryPolicyMu.Unlock()
+	r.retry.setMax(normalized)
 	return normalized
 }
 
@@ -103,9 +159,7 @@ func (r *Runner) MaxTransientRetries() int {
 	if r == nil {
 		return 0
 	}
-	r.retryPolicyMu.RLock()
-	value, ok := r.maxTransientRetries, r.maxTransientRetriesSet
-	r.retryPolicyMu.RUnlock()
+	value, ok := r.retry.getMax()
 	if ok {
 		return value
 	}
@@ -130,9 +184,7 @@ func (r *Runner) SetNonRetryableErrorPatterns(patterns []string) []string {
 	if r == nil {
 		return normalized
 	}
-	r.retryPolicyMu.Lock()
-	r.nonRetryableErrorPatterns = normalized
-	r.retryPolicyMu.Unlock()
+	r.retry.setPatterns(normalized)
 	return normalized
 }
 
@@ -142,12 +194,7 @@ func (r *Runner) NonRetryableErrorPatterns() []string {
 	if r == nil {
 		return nil
 	}
-	r.retryPolicyMu.RLock()
-	defer r.retryPolicyMu.RUnlock()
-	if len(r.nonRetryableErrorPatterns) == 0 {
-		return nil
-	}
-	return append([]string(nil), r.nonRetryableErrorPatterns...)
+	return r.retry.patterns()
 }
 
 // matchesNonRetryablePattern reports whether a configured pattern appears in the
@@ -157,19 +204,7 @@ func (r *Runner) matchesNonRetryablePattern(err error) bool {
 	if r == nil || err == nil {
 		return false
 	}
-	r.retryPolicyMu.RLock()
-	patterns := r.nonRetryableErrorPatterns
-	r.retryPolicyMu.RUnlock()
-	if len(patterns) == 0 {
-		return false
-	}
-	message := strings.ToLower(err.Error())
-	for _, pattern := range patterns {
-		if strings.Contains(message, pattern) {
-			return true
-		}
-	}
-	return false
+	return r.retry.matches(err)
 }
 
 // permanentProviderError combines the built-in status rule with the user's list.

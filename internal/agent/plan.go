@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 
 	"autoto/internal/db"
 	"autoto/internal/review"
@@ -24,24 +25,68 @@ Every listed field is required. State uncertainties as assumptions or risks; do 
 
 var _ review.PlanStore = (*db.Store)(nil)
 
+// planProviders holds the isolated reviewer and the snapshot callbacks used to
+// bind plan and background-task runs to control-plane state. The mutex is
+// private to this holder so snapshot lookup never shares a lock with the run loop.
+type planProviders struct {
+	mu                         sync.RWMutex
+	reviewer                   *review.Service
+	planSnapshotProvider       func(context.Context, string) (db.PlanSnapshot, error)
+	backgroundSnapshotProvider func(context.Context, string) (db.PlanSnapshot, error)
+}
+
+func (p *planProviders) setReviewer(service *review.Service) {
+	p.mu.Lock()
+	p.reviewer = service
+	p.mu.Unlock()
+}
+
+func (p *planProviders) getReviewer() *review.Service {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return p.reviewer
+}
+
+func (p *planProviders) setPlanSnapshot(provider func(context.Context, string) (db.PlanSnapshot, error)) {
+	p.mu.Lock()
+	p.planSnapshotProvider = provider
+	p.mu.Unlock()
+}
+
+func (p *planProviders) planSnapshot() func(context.Context, string) (db.PlanSnapshot, error) {
+	p.mu.RLock()
+	provider := p.planSnapshotProvider
+	p.mu.RUnlock()
+	return provider
+}
+
+func (p *planProviders) setBackgroundSnapshot(provider func(context.Context, string) (db.PlanSnapshot, error)) {
+	p.mu.Lock()
+	p.backgroundSnapshotProvider = provider
+	p.mu.Unlock()
+}
+
+func (p *planProviders) backgroundSnapshot() func(context.Context, string) (db.PlanSnapshot, error) {
+	p.mu.RLock()
+	provider := p.backgroundSnapshotProvider
+	p.mu.RUnlock()
+	return provider
+}
+
 // SetReviewService installs the isolated reviewer. It is intentionally not a
 // normal Agent and receives no tools or execution capabilities.
 func (r *Runner) SetReviewService(service *review.Service) {
 	if r == nil {
 		return
 	}
-	r.planMu.Lock()
-	r.reviewer = service
-	r.planMu.Unlock()
+	r.plans.setReviewer(service)
 }
 
 func (r *Runner) reviewerService() *review.Service {
 	if r == nil {
 		return nil
 	}
-	r.planMu.RLock()
-	defer r.planMu.RUnlock()
-	return r.reviewer
+	return r.plans.getReviewer()
 }
 
 // SetPlanSnapshotProvider installs the control-plane snapshot boundary used to
@@ -50,18 +95,14 @@ func (r *Runner) SetPlanSnapshotProvider(provider func(context.Context, string) 
 	if r == nil {
 		return
 	}
-	r.planMu.Lock()
-	r.planSnapshotProvider = provider
-	r.planMu.Unlock()
+	r.plans.setPlanSnapshot(provider)
 }
 
 func (r *Runner) currentPlanSnapshot(ctx context.Context, agentID string) (db.PlanSnapshot, bool, error) {
 	if r == nil {
 		return db.PlanSnapshot{}, false, nil
 	}
-	r.planMu.RLock()
-	provider := r.planSnapshotProvider
-	r.planMu.RUnlock()
+	provider := r.plans.planSnapshot()
 	if provider == nil {
 		return db.PlanSnapshot{}, false, nil
 	}
@@ -76,18 +117,14 @@ func (r *Runner) SetBackgroundTaskSnapshotProvider(provider func(context.Context
 	if r == nil {
 		return
 	}
-	r.planMu.Lock()
-	r.backgroundSnapshotProvider = provider
-	r.planMu.Unlock()
+	r.plans.setBackgroundSnapshot(provider)
 }
 
 func (r *Runner) currentBackgroundTaskSnapshot(ctx context.Context, agentID string) (db.PlanSnapshot, bool, error) {
 	if r == nil {
 		return db.PlanSnapshot{}, false, nil
 	}
-	r.planMu.RLock()
-	provider := r.backgroundSnapshotProvider
-	r.planMu.RUnlock()
+	provider := r.plans.backgroundSnapshot()
 	if provider == nil {
 		return db.PlanSnapshot{}, false, nil
 	}
