@@ -2465,6 +2465,11 @@ body.white-shell.theme-light .background-task-bubble .message-time {
    user's solid fill and primary name made Autoto read as a second participant
    rather than the agent answering. */
 .background-task-bubble.role-assistant .message-avatar {
+  /* 18px, matching the main transcript's assistant chip. The user's chip is
+     24px there too, so the two roles are deliberately different sizes. */
+  width: 18px;
+  height: 18px;
+  flex: 0 0 18px;
   border-color: transparent;
   background: var(--ws-primary-soft, color-mix(in srgb, var(--accent, #5369f3) 14%, transparent));
   color: var(--ws-primary, var(--accent, #5369f3));
