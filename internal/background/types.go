@@ -80,7 +80,16 @@ func (options Options) withDefaults() Options {
 		options.OutputChunkBytes = db.BackgroundTaskOutputChunkBytes
 	}
 	if options.PollInterval <= 0 {
-		options.PollInterval = 100 * time.Millisecond
+		// This is only the fallback timer for a lost wakeup, not the primary
+		// scheduling mechanism: every path that can make a claim succeed
+		// (Submit, a task finishing and freeing capacity, runtime settings
+		// raising limits) fires signalWake, and queued tasks have no
+		// time-based readiness that could come due silently. The old 100ms
+		// default had 8 idle workers issuing ~80 queries/s against the single
+		// SQLite connection; 10s keeps an idle desktop app quiet while still
+		// bounding recovery if a wakeup is ever missed. Tests that need fast
+		// turnaround inject their own interval here.
+		options.PollInterval = 10 * time.Second
 	}
 	return options
 }

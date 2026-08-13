@@ -27,6 +27,15 @@ const (
 	// Bounded well under maxAgentResultBytes so attaching the child's failure
 	// reason cannot push an otherwise valid result over its budget.
 	maxAgentChildErrorBytes = 512
+	// childWaitMaxInterval caps waitChild's poll backoff. Nothing in this
+	// package can subscribe to a child Run's completion (the manager's
+	// terminal hook fires for background tasks, not runs), so the wait has to
+	// poll -- but a flat 50ms interval kept one DB query every 50ms on the
+	// single SQLite connection for the entire life of a long child. Doubling
+	// from PollInterval up to this cap keeps the first checks responsive for
+	// short-lived children while a long-running one costs one query every 2s,
+	// which is negligible next to typical child run durations.
+	childWaitMaxInterval = 2 * time.Second
 	// defaultChildIdleTimeout bounds how long waitChild will keep polling a
 	// child Run that shows no observable progress. A child whose goroutine died
 	// without writing a terminal status leaves its row at "running" forever, and
@@ -37,9 +46,12 @@ const (
 )
 
 type AgentExecutor struct {
-	Store        *db.Store
-	Runner       *agent.Runner
-	Runtime      tools.BackgroundRuntimeController
+	Store   *db.Store
+	Runner  *agent.Runner
+	Runtime tools.BackgroundRuntimeController
+	// PollInterval is the initial delay between child Run status checks; each
+	// check that finds the run still going doubles the delay up to
+	// childWaitMaxInterval.
 	PollInterval time.Duration
 	// ChildIdleTimeout gives up on a child Run that has not changed in this
 	// long. It measures progress rather than total duration, so a subagent that
@@ -293,6 +305,16 @@ func (e *AgentExecutor) waitChild(ctx context.Context, task db.BackgroundTask, c
 			}
 			return Result{JSON: result, ErrorCode: "canceled"}, ctx.Err()
 		case <-timer.C:
+		}
+		// Exponential backoff (see childWaitMaxInterval): stay responsive
+		// while the child is likely to finish soon, back off once it is
+		// clearly a longer run. Never resets, so the poll cost of a
+		// long-lived child stays bounded even while it streams progress.
+		if interval < childWaitMaxInterval {
+			interval *= 2
+			if interval > childWaitMaxInterval {
+				interval = childWaitMaxInterval
+			}
 		}
 	}
 }

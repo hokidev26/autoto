@@ -224,6 +224,75 @@ func TestAgentWebSocketClosesOnlyRevokedUserSession(t *testing.T) {
 	}
 }
 
+func TestAgentWSReleasesRegistrationWhenClientDisconnects(t *testing.T) {
+	// websocket.Accept hijacks the connection, so r.Context() no longer
+	// cancels when the client goes away. The handler only writes; without
+	// conn.CloseRead nothing consumed the client's close frame, and on a quiet
+	// agent the goroutine, its hub subscription, and the authorized connection
+	// registration all leaked until the next write happened to fail.
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	defer cancel()
+	store, err := db.Open(ctx, filepath.Join(t.TempDir(), "ws-disconnect-test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	user, err := store.CreateUser(ctx, "disconnect-user", "test-password-hash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _, agent, err := store.CreateProjectForUser(ctx, user.ID, "Disconnect WebSocket", "", t.TempDir(), "fake:test", "acceptEdits")
+	if err != nil {
+		t.Fatal(err)
+	}
+	token := "disconnect-session-token"
+	if _, err := store.CreateAuthSession(ctx, db.AuthSession{
+		UserID:    user.ID,
+		TokenHash: db.HashSessionToken(token),
+		ExpiresAt: time.Now().UTC().Add(time.Hour).Format(time.RFC3339Nano),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	app := New(config.Config{}, store, nil, agentpkg.NewHub())
+	server := httptest.NewServer(app.Routes())
+	defer server.Close()
+
+	conn := dialWSTestWithCookies(t, ctx, server.URL, app.localToken, url.Values{
+		"id":       {agent.ID},
+		"protocol": {"2"},
+	}, &http.Cookie{Name: authSessionCookieName, Value: token})
+	defer conn.CloseNow()
+	if frame := readWSTestFrame(t, ctx, conn); frame.Type != "connected" {
+		t.Fatalf("unexpected connected frame: %+v", frame)
+	}
+
+	registeredConnections := func() int {
+		app.authSessionMu.Lock()
+		defer app.authSessionMu.Unlock()
+		total := 0
+		for _, connections := range app.authSessionConnections {
+			total += len(connections)
+		}
+		return total
+	}
+	if got := registeredConnections(); got != 1 {
+		t.Fatalf("expected one registered websocket connection, got %d", got)
+	}
+
+	// No agent events are flowing; only the client's close frame can tell the
+	// handler the connection is gone.
+	if err := conn.Close(websocket.StatusNormalClosure, "done"); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for registeredConnections() != 0 {
+		if time.Now().After(deadline) {
+			t.Fatal("agent websocket handler did not release its registration after the client disconnected")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
 func TestAgentLiveSnapshotV2RouteReturnsAuthoritativeWatermark(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 15*time.Second)
 	defer cancel()

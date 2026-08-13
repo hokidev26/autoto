@@ -15,6 +15,16 @@ import (
 
 const maxImageGenerationEventPromptRunes = 1024
 
+// streamingUsagePublishInterval throttles the per-text-delta model.streaming
+// events. At 50-100 deltas per second an unconditional publish doubled the hub
+// traffic -- every event is JSON-marshalled under the hub-wide lock, serialized
+// again per WebSocket connection, and pushed into the replay ring where it
+// crowds out events worth replaying. 250ms keeps the throughput readout feeling
+// live (4 updates/s is well above what a human can read off a counter) while
+// cutting the model.streaming volume by ~95% at those rates; 500ms would only
+// halve the remaining trickle but double how stale the readout can get.
+const streamingUsagePublishInterval = 250 * time.Millisecond
+
 // Reasoning holds the model's own running commentary for the turn, when the
 // provider exposes a readable one. It is never fed back into the next request:
 // it exists so the activity list can say why a step happened.
@@ -188,7 +198,14 @@ func (r *Runner) runModelTurnAttempt(ctx context.Context, agentID, runID string,
 			stopFirstEventTimer()
 		}
 	}
+	// Throttle state is local to this attempt on purpose: each stream starts
+	// with a fresh window, so the first delta always publishes immediately and
+	// nothing leaks across runs.
+	var streamingUsagePublishedAt time.Time
+	streamingUsagePending := false
 	publishStreamingUsage := func() {
+		streamingUsagePublishedAt = time.Now()
+		streamingUsagePending = false
 		pending := modelTurnUsage(providers.Usage{}, outputRunes, started, firstOutputAt, time.Since(started))
 		r.publish(Event{Type: "model.streaming", AgentID: agentID, Data: mergeEventData(map[string]any{
 			"requestId":         requestID,
@@ -198,7 +215,21 @@ func (r *Runner) runModelTurnAttempt(ctx context.Context, agentID, runID string,
 			"pendingThroughput": pending,
 		}, runID)})
 	}
+	// Only the per-text-delta path goes through this throttle; the tool_call
+	// path keeps publishing directly because tool calls arrive at human scale,
+	// not token scale. A suppressed update is remembered so finalize can flush
+	// the accurate final numbers instead of leaving the UI on a stale snapshot.
+	throttledPublishStreamingUsage := func() {
+		if !streamingUsagePublishedAt.IsZero() && time.Since(streamingUsagePublishedAt) < streamingUsagePublishInterval {
+			streamingUsagePending = true
+			return
+		}
+		publishStreamingUsage()
+	}
 	finalize := func(record bool) modelTurnResult {
+		if streamingUsagePending {
+			publishStreamingUsage()
+		}
 		completedAt := time.Now()
 		duration := completedAt.Sub(started)
 		result.Text = builder.String()
@@ -272,7 +303,7 @@ func (r *Runner) runModelTurnAttempt(ctx context.Context, agentID, runID string,
 				outputRunes += int64(utf8.RuneCountInString(event.Text))
 				builder.WriteString(event.Text)
 				r.publish(Event{Type: "agent.text", AgentID: agentID, Text: event.Text, Data: mergeEventData(map[string]any{"requestId": requestID}, runID)})
-				publishStreamingUsage()
+				throttledPublishStreamingUsage()
 			case "reasoning":
 				// Advisory only. It is not appended to the answer, does not count
 				// toward outputRunes, and does not set modelOutputStarted -- a turn

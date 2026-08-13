@@ -115,6 +115,63 @@ collected:
 	}
 }
 
+func TestRunModelTurnAttemptThrottlesStreamingUsageEvents(t *testing.T) {
+	hub := NewHub()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	subscription := hub.Subscribe(ctx, "agent-1")
+	// 40 deltas well inside one 250ms throttle window: without the throttle
+	// this stream produced 40 model.streaming events, one per delta.
+	const deltas = 40
+	turn := make([]providers.Event, 0, deltas+1)
+	for i := 0; i < deltas; i++ {
+		turn = append(turn, providers.Event{Type: "text", Text: "abcd"})
+	}
+	turn = append(turn, providers.Event{Type: "done", Done: true})
+	provider := &scriptedProvider{turns: [][]providers.Event{turn}}
+	runner := &Runner{hub: hub}
+
+	if _, err, _ := runner.runModelTurnAttempt(ctx, "agent-1", "run-1", provider, "test", "", nil, nil, "auto", false); err != nil {
+		t.Fatal(err)
+	}
+
+	var streaming []Event
+	deadline := time.After(time.Second)
+	for {
+		select {
+		case event := <-subscription:
+			if event.Type == "model.streaming" {
+				streaming = append(streaming, event)
+			}
+			if event.Type == "model.completed" {
+				goto collected
+			}
+		case <-deadline:
+			t.Fatal("timed out waiting for model lifecycle events")
+		}
+	}
+
+collected:
+	// The first delta publishes immediately and finalize flushes the final
+	// value; in-between deltas land inside the throttle window. The generous
+	// ceiling only guards against a slow machine stretching the stream across
+	// extra windows -- the point is that 40 deltas must not mean 40 events.
+	if len(streaming) < 2 || len(streaming) > 8 {
+		t.Fatalf("expected throttled streaming events (roughly first + final), got %d", len(streaming))
+	}
+	first, ok := streaming[0].Data["pendingThroughput"].(*db.MessageTurnUsage)
+	if !ok || first.OutputTokens != 1 || !first.Estimated {
+		t.Fatalf("unexpected first streaming throughput: %#v", streaming[0].Data["pendingThroughput"])
+	}
+	// 40 deltas x 4 runes = 160 runes, estimated at 4 runes per token. The
+	// final event must carry the totals for the whole stream, not the value
+	// frozen at the last unthrottled publish.
+	last, ok := streaming[len(streaming)-1].Data["pendingThroughput"].(*db.MessageTurnUsage)
+	if !ok || last.OutputTokens != 40 || !last.Estimated {
+		t.Fatalf("unexpected final streaming throughput: %#v", streaming[len(streaming)-1].Data["pendingThroughput"])
+	}
+}
+
 func TestRunModelTurnCapturesConcreteDispatch(t *testing.T) {
 	provider := &scriptedProvider{turns: [][]providers.Event{{
 		{Type: "dispatch", Dispatch: &providers.DispatchInfo{Provider: "actual", Model: "actual-model", CredentialID: "credential-1"}},

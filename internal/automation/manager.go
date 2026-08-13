@@ -24,12 +24,31 @@ import (
 )
 
 const (
-	defaultPollInterval  = 500 * time.Millisecond
-	defaultLeaseDuration = 30 * time.Second
-	webhookTimeout       = 5 * time.Second
-	maxWebhookResponse   = 64 << 10
-	maxPayloadBytes      = db.P2P3PayloadMaxBytes
-	maxErrorRunes        = 1024
+	// defaultPollInterval is no longer a fixed loop period: both worker loops
+	// sleep until their next known piece of work. It survives as the floor
+	// between two consecutive DB checks, which only matters when work is
+	// already due (for example a claim racing an unexpired lease), so it can
+	// stay short without producing idle polling.
+	defaultPollInterval = 500 * time.Millisecond
+	// deliveryFallbackInterval bounds the delivery loop's sleep when nothing
+	// is queued. Every producer of delivery work lives on this Manager
+	// (Notify, EnqueueTest, RetryDelivery) and signals deliveryWake, and
+	// retry backoff is handled by sleeping until the earliest
+	// next_attempt_at, so this timer is only a missed-wakeup safety net.
+	deliveryFallbackInterval = 30 * time.Second
+	// scheduleRecheckInterval caps the scheduler's sleep-until-due. Schedules
+	// are created and edited by the HTTP layer directly against the store, so
+	// there is no in-process hook that could wake this loop when the earliest
+	// next_run_at changes; the cap bounds how stale the computed wakeup can
+	// get. Cron expressions here are minute-granular, so a 30s recheck delays
+	// a brand-new schedule's first run by at most half a tick, and
+	// steady-state runs are recomputed in-loop and fire on time.
+	scheduleRecheckInterval = 30 * time.Second
+	defaultLeaseDuration    = 30 * time.Second
+	webhookTimeout          = 5 * time.Second
+	maxWebhookResponse      = 64 << 10
+	maxPayloadBytes         = db.P2P3PayloadMaxBytes
+	maxErrorRunes           = 1024
 )
 
 var ErrManagerClosed = errors.New("automation manager is closed")
@@ -81,6 +100,12 @@ type Manager struct {
 	senderMu sync.RWMutex
 	sender   TelegramSender
 
+	// deliveryWake nudges deliveryLoop when new delivery work is enqueued so
+	// the loop can otherwise sleep for deliveryFallbackInterval. Buffered at
+	// one: a collapsed burst still wakes the loop once, and it claims in
+	// batches until the queue is drained.
+	deliveryWake chan struct{}
+
 	mu      sync.RWMutex
 	started bool
 	closed  bool
@@ -121,6 +146,7 @@ func NewManager(config Config) (*Manager, error) {
 		store: config.Store, runner: config.Runner, audit: config.Audit, httpClient: &cloned,
 		pollInterval: config.PollInterval, leaseDuration: config.LeaseDuration, clock: config.Clock,
 		onError: config.OnError, sender: config.TelegramSender, done: make(chan struct{}),
+		deliveryWake: make(chan struct{}, 1),
 	}, nil
 }
 
@@ -242,6 +268,7 @@ func (m *Manager) Notify(ctx context.Context, event agent.NotificationEvent) {
 		m.report(errors.New("notification settings unavailable"))
 		return
 	}
+	enqueued := false
 	if shouldEnqueueWebhook(settings, event.Event) {
 		_, _, err = m.store.EnqueueNotificationDelivery(ctx, db.NotificationDelivery{
 			DedupeKey: deliveryDedupe("webhook", settings.WebhookURL, event), SinkType: "webhook", SinkID: strings.TrimSpace(settings.WebhookURL),
@@ -249,10 +276,15 @@ func (m *Manager) Notify(ctx context.Context, event agent.NotificationEvent) {
 		})
 		if err != nil {
 			m.report(errors.New("webhook notification enqueue failed"))
+		} else {
+			enqueued = true
 		}
 	}
 	pairings, err := m.store.ListChannelPairings(ctx, db.ChannelPairingListOptions{Status: "active", Limit: db.P2P3MaxListLimit})
 	if err != nil {
+		if enqueued {
+			m.signalDeliveryWake()
+		}
 		m.report(errors.New("telegram notification pairing lookup failed"))
 		return
 	}
@@ -266,7 +298,21 @@ func (m *Manager) Notify(ctx context.Context, event agent.NotificationEvent) {
 		})
 		if enqueueErr != nil {
 			m.report(errors.New("telegram notification enqueue failed"))
+		} else {
+			enqueued = true
 		}
+	}
+	if enqueued {
+		m.signalDeliveryWake()
+	}
+}
+
+// signalDeliveryWake wakes deliveryLoop after new delivery work appears, so
+// the loop never has to poll for it.
+func (m *Manager) signalDeliveryWake() {
+	select {
+	case m.deliveryWake <- struct{}{}:
+	default:
 	}
 }
 
@@ -293,6 +339,9 @@ func (m *Manager) EnqueueTest(ctx context.Context) (db.NotificationDelivery, err
 		DedupeKey: "test:" + db.NewID(), SinkType: "webhook", SinkID: strings.TrimSpace(settings.WebhookURL),
 		EventType: "test", PayloadJSON: payload,
 	})
+	if err == nil {
+		m.signalDeliveryWake()
+	}
 	return delivery, err
 }
 
@@ -316,6 +365,7 @@ func (m *Manager) RetryDelivery(ctx context.Context, id string) (db.Notification
 		}
 		return db.NotificationDelivery{}, fmt.Errorf("%w: delivery is not retryable", db.ErrConflict)
 	}
+	m.signalDeliveryWake()
 	delivery, err := m.store.GetNotificationDelivery(ctx, id)
 	if err == nil {
 		m.recordAudit(context.WithoutCancel(ctx), audit.Event{Category: "notification", Action: "delivery.retry", Actor: "local-api", SubjectType: "notification_delivery", SubjectID: id, Outcome: "success", Risk: "low", Details: map[string]any{"sinkType": delivery.SinkType, "eventType": delivery.EventType}})
@@ -337,20 +387,49 @@ func (m *Manager) ProcessDeliveriesOnce(ctx context.Context) error {
 
 func (m *Manager) deliveryLoop(ctx context.Context) {
 	defer m.wg.Done()
-	ticker := time.NewTicker(m.pollInterval)
-	defer ticker.Stop()
 	for {
 		m.setDeliveryPoll("")
 		if err := m.ProcessDeliveriesOnce(ctx); err != nil && ctx.Err() == nil {
 			m.setDeliveryPoll("delivery worker failed")
 			m.report(errors.New("notification delivery worker failed"))
 		}
+		timer := time.NewTimer(m.nextDeliveryWait(ctx))
 		select {
 		case <-ctx.Done():
+			timer.Stop()
 			return
-		case <-ticker.C:
+		case <-m.deliveryWake:
+		case <-timer.C:
 		}
+		timer.Stop()
 	}
+}
+
+// nextDeliveryWait computes how long deliveryLoop may sleep: until the
+// earliest pending attempt (retry backoff can park a delivery minutes out),
+// capped at deliveryFallbackInterval so a missed wake never strands work for
+// long, and floored at pollInterval so a due-but-unclaimable row (for example
+// one whose lease has not expired yet) cannot spin the loop hot.
+func (m *Manager) nextDeliveryWait(ctx context.Context) time.Duration {
+	var next string
+	err := m.store.DB().QueryRowContext(ctx, `SELECT next_attempt_at FROM notification_deliveries WHERE status IN ('queued','retry_wait') AND attempt_count < max_attempts ORDER BY next_attempt_at ASC LIMIT 1`).Scan(&next)
+	if err != nil {
+		// Covers "no rows": nothing is pending and new work signals
+		// deliveryWake, so the fallback timer is pure insurance.
+		return deliveryFallbackInterval
+	}
+	due, parseErr := time.Parse(time.RFC3339Nano, next)
+	if parseErr != nil {
+		return deliveryFallbackInterval
+	}
+	wait := due.Sub(m.now())
+	if wait < m.pollInterval {
+		return m.pollInterval
+	}
+	if wait > deliveryFallbackInterval {
+		return deliveryFallbackInterval
+	}
+	return wait
 }
 
 func (m *Manager) processDelivery(ctx context.Context, delivery db.NotificationDelivery) {
@@ -470,20 +549,47 @@ func (m *Manager) initializeSchedules(ctx context.Context) error {
 
 func (m *Manager) scheduleLoop(ctx context.Context) {
 	defer m.wg.Done()
-	ticker := time.NewTicker(m.pollInterval)
-	defer ticker.Stop()
 	for {
 		m.setSchedulePoll("")
 		if err := m.ProcessSchedulesOnce(ctx); err != nil && ctx.Err() == nil {
 			m.setSchedulePoll("schedule worker failed")
 			m.report(errors.New("schedule worker failed"))
 		}
+		timer := time.NewTimer(m.nextScheduleWait(ctx))
 		select {
 		case <-ctx.Done():
+			timer.Stop()
 			return
-		case <-ticker.C:
+		case <-timer.C:
 		}
 	}
+}
+
+// nextScheduleWait computes how long scheduleLoop may sleep: until the
+// earliest enabled next_run_at, capped at scheduleRecheckInterval because
+// schedule create/edit happens in the HTTP layer with no hook to wake this
+// loop (see the constant), and floored at pollInterval so a schedule that is
+// due but still leased by an in-flight run cannot spin the loop hot.
+func (m *Manager) nextScheduleWait(ctx context.Context) time.Duration {
+	var next string
+	err := m.store.DB().QueryRowContext(ctx, `SELECT next_run_at FROM schedules WHERE enabled = 1 AND next_run_at IS NOT NULL ORDER BY next_run_at ASC LIMIT 1`).Scan(&next)
+	if err != nil {
+		// Covers "no rows": with no enabled schedule the recheck interval only
+		// bounds how late a brand-new schedule can be noticed.
+		return scheduleRecheckInterval
+	}
+	due, parseErr := time.Parse(time.RFC3339Nano, next)
+	if parseErr != nil {
+		return scheduleRecheckInterval
+	}
+	wait := due.Sub(m.now())
+	if wait < m.pollInterval {
+		return m.pollInterval
+	}
+	if wait > scheduleRecheckInterval {
+		return scheduleRecheckInterval
+	}
+	return wait
 }
 
 func (m *Manager) ProcessSchedulesOnce(ctx context.Context) error {

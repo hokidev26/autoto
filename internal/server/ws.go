@@ -83,8 +83,13 @@ func (s *Server) agentWS(w http.ResponseWriter, r *http.Request) {
 	}
 	defer conn.Close(websocket.StatusNormalClosure, "bye")
 
-	ctx, cancel := context.WithCancel(wsCtx)
-	defer cancel()
+	// Accept hijacks the connection, so wsCtx (derived from r.Context()) no
+	// longer cancels when the client goes away. This handler only writes;
+	// CloseRead pumps the read side so close frames and pings keep being
+	// handled, and cancels the returned context as soon as the connection
+	// closes. That is what releases the hub subscription and the authorized
+	// connection registration instead of waiting for the next failed write.
+	ctx := conn.CloseRead(wsCtx)
 	subscription := s.hub.SubscribeProtocol(ctx, agentpkg.SubscribeOptions{
 		AgentID:       agentID,
 		StreamSession: r.URL.Query().Get("streamSession"),

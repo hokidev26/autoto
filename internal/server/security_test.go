@@ -243,15 +243,22 @@ func TestIndexInjectsLocalToken(t *testing.T) {
 		t.Fatalf("expected canonical local token cookie, got %+v", cookies)
 	}
 	for header, want := range map[string]string{
-		"Content-Security-Policy": uiDocumentCSP,
-		"X-Frame-Options":         "DENY",
-		"X-Content-Type-Options":  "nosniff",
-		"Referrer-Policy":         "no-referrer",
-		"Permissions-Policy":      "camera=(), geolocation=(), microphone=()",
+		"X-Frame-Options":        "DENY",
+		"X-Content-Type-Options": "nosniff",
+		"Referrer-Policy":        "no-referrer",
+		"Permissions-Policy":     "camera=(), geolocation=(), microphone=()",
 	} {
 		if got := recorder.Header().Get(header); got != want {
 			t.Fatalf("expected index security header %s=%q, got %q", header, want, got)
 		}
+	}
+	csp := recorder.Header().Get("Content-Security-Policy")
+	nonce := uiDocumentCSPNonceForTest(t, csp)
+	if want := fmt.Sprintf(uiDocumentCSPTemplate, nonce); csp != want {
+		t.Fatalf("expected index CSP %q, got %q", want, csp)
+	}
+	if !strings.Contains(body, `<script nonce="`+nonce+`">window.AUTOTO_LOCAL_TOKEN=`) {
+		t.Fatal("expected the injected local-token script to carry the CSP nonce")
 	}
 }
 

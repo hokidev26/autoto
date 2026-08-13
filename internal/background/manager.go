@@ -290,14 +290,24 @@ func (manager *Manager) ListOutput(ctx context.Context, taskID string, afterSequ
 
 func (manager *Manager) Wait(ctx context.Context, taskID string) (db.BackgroundTask, error) {
 	for {
+		// Register the waiter before reading the status. A task that reaches
+		// a terminal state between a read and a later registration has
+		// already fired its one notify, so a waiter registered afterwards
+		// would only wake when the fallback timer elapses -- tolerable at
+		// 100ms, but the fallback is now deliberately long.
+		signal := manager.waitSignal(taskID)
 		task, err := manager.store.GetBackgroundTask(ctx, taskID)
 		if err != nil {
+			manager.notify(taskID)
 			return db.BackgroundTask{}, err
 		}
 		if task.Terminal() {
+			// A terminal task receives no further notifies, so drop the
+			// waiter entry registered above instead of leaking it. Concurrent
+			// waiters woken by this re-check the status and return too.
+			manager.notify(taskID)
 			return task, nil
 		}
-		signal := manager.waitSignal(taskID)
 		timer := time.NewTimer(manager.options.PollInterval)
 		select {
 		case <-ctx.Done():
@@ -356,6 +366,11 @@ func (manager *Manager) worker(ctx context.Context) {
 			}
 			continue
 		}
+		// The wake channel holds at most one pending signal, so a burst of
+		// submissions can collapse into a single wakeup. Re-arm it after a
+		// successful claim so sibling workers keep draining the queue instead
+		// of sitting out the long fallback timer in waitForWork.
+		manager.signalWake()
 		manager.notifyEvent("status", task)
 		manager.execute(ctx, task)
 	}
@@ -494,6 +509,9 @@ func (manager *Manager) finish(taskID string, result Result, executeErr error, s
 	manager.notifyTerminal(updated)
 }
 
+// waitForWork parks an idle worker until signalWake fires. The timer is only a
+// safety net for a lost wakeup (see the PollInterval default in types.go), so
+// its length costs latency only when the event path has already failed.
 func (manager *Manager) waitForWork(ctx context.Context) bool {
 	timer := time.NewTimer(manager.options.PollInterval)
 	defer timer.Stop()
