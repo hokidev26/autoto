@@ -3,7 +3,7 @@ import { groupModelSelectOptions, modelOptionPresentation } from "./ui-shell.mjs
 import { formatDuration, formatTimestamp } from "./formatters.mjs";
 import { t } from "./i18n.mjs";
 import { normalizeMessageProfileIdentity } from "./chat-rendering-messages.mjs";
-import { profileAvatarHTML } from "./profile-avatar.mjs";
+import { assistantAvatarSVG, profileAvatarHTML } from "./profile-avatar.mjs";
 // The child transcript is a conversation, so it is rendered with the same
 // components the main thread uses rather than a second, thinner imitation of
 // them. The version string matches app-main's import so the browser resolves
@@ -1169,19 +1169,22 @@ export function createBackgroundTasksController({
     return `<div class="background-task-conversation">${earlier}${bubbles}</div>`;
   }
 
-  // User turns reuse the main transcript's avatar + display-name header
-  // (message-head / message-avatar / message-role / message-time). Assistant
-  // turns keep the compact "代理" metadata line so tool cards in the same
-  // bubble are untouched.
+  // Both roles reuse the main transcript's head (message-head / message-avatar
+  // / message-role / message-time): the user turn carries the profile avatar
+  // and display name, the assistant turn the Autoto mark and name, so this pane
+  // reads like the conversation it mirrors instead of a log with bare labels.
   function renderChildMessageHeadHTML(role, message) {
     const timestampValue = text(message?.createdAt);
-    if (role !== "user") {
-      return `<header><span>${escapeHtml(t("backgroundTasks.roleAgent"))}</span><time>${escapeHtml(timestampValue ? formatTimestamp(timestampValue) : "")}</time></header>`;
-    }
-    const profileIdentity = currentUserMessageIdentity();
     const timeHTML = timestampValue
       ? `<time class="message-time" datetime="${escapeAttr(timestampValue)}" title="${escapeAttr(formatTimestamp(timestampValue))}">${escapeHtml(formatTimestamp(timestampValue, { timeOnly: true }))}</time>`
       : "";
+    if (role !== "user") {
+      return `<div class="message-head">
+        <div class="message-meta"><span class="message-avatar message-avatar-logo" aria-hidden="true">${assistantAvatarSVG}</span><div class="message-role">Autoto</div></div>
+        ${timeHTML}
+      </div>`;
+    }
+    const profileIdentity = currentUserMessageIdentity();
     return `<div class="message-head">
       <div class="message-meta"><span class="message-avatar" aria-hidden="true" data-user-profile-avatar>${profileAvatarHTML(profileIdentity)}</span><div class="message-role"><span data-user-profile-name>${escapeHtml(profileIdentity.displayName)}</span></div></div>
       ${timeHTML}

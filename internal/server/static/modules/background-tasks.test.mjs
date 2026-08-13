@@ -1230,7 +1230,11 @@ test("subagent user messages render the current profile avatar and display name"
   assert.doesNotMatch(html, />你<\/span>/);
   assert.doesNotMatch(html, />You<\/span>/);
   assert.match(html, /<article class="background-task-bubble role-assistant">/);
-  assert.match(html, /<header><span>代理<\/span>|<header><span>Agent<\/span>/);
+  // The assistant turn mirrors the main transcript head as well: the Autoto
+  // mark and name in place of the old bare "代理" label line.
+  assert.match(html, /<span class="message-avatar message-avatar-logo" aria-hidden="true"><svg/);
+  assert.match(html, /<div class="message-role">Autoto<\/div>/);
+  assert.doesNotMatch(html, /<header><span>/);
 
   const identityOnly = createBackgroundTasksController({
     request: async (path) => {
