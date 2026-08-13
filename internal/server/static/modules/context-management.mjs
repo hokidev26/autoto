@@ -74,11 +74,13 @@ export function contextUsagePercentage(value = {}) {
   const explicit = finiteNumber(value.percentage, value.usagePercent, value.usedPercent, value.percent);
   // Values in (0,1) are fractions (0.99 -> 99%); a whole 1 is one percent, not
   // 100% — the backend sends integer percentages, so usagePercent:1 means 1%.
-  if (explicit !== null) return boundedNumber(explicit > 0 && explicit < 1 ? explicit * 100 : explicit, 0, 100, 0);
+  // Overflow past 100% is real signal (estimates can outgrow the window), so
+  // the number survives up to 999%; only the ring visual clamps at 100%.
+  if (explicit !== null) return boundedNumber(explicit > 0 && explicit < 1 ? explicit * 100 : explicit, 0, 999, 0);
   const estimatedTokens = finiteNumber(value.estimatedTokens, value.usedTokens, value.tokens, value.tokenCount);
   const limit = finiteNumber(value.limit, value.limitTokens, value.tokenLimit, value.contextLimit, value.contextWindow);
   if (estimatedTokens === null || limit === null || limit <= 0) return null;
-  return boundedNumber((estimatedTokens / limit) * 100, 0, 100, 0);
+  return boundedNumber((estimatedTokens / limit) * 100, 0, 999, 0);
 }
 
 export function normalizeContextStatus(value = {}, options = {}) {
@@ -129,9 +131,20 @@ export function normalizeContextStatus(value = {}, options = {}) {
     canCompact: booleanValue(source.canCompact) ?? (known && estimatedTokens > 0),
     canClear: booleanValue(source.canClear) ?? (messageCount > 0 || (estimatedTokens || 0) > 0),
     summaryModelConfigured: booleanValue(source.summaryModelConfigured) ?? true,
+    summaryText: String(firstDefined(source.summaryText, "") || ""),
+    estimateBasis: String(firstDefined(source.estimateBasis, "") || "").trim().toLowerCase() === "calibrated" ? "calibrated" : "heuristic",
+    lastActualInputTokens: Math.max(0, Math.round(finiteNumber(source.lastActualInputTokens) || 0)),
     latestMessageId: String(firstDefined(source.latestMessageId, source.latestMessageID, "") || ""),
     updatedAt: String(firstDefined(source.updatedAt, source.measuredAt, "") || ""),
   };
+}
+
+// Pure gate for the "no summary model" notice so the render decision is
+// testable: only an explicit false from the server shows the warning; a
+// missing field keeps it hidden because compaction then uses a model summary.
+export function summaryModelWarningVisible(value = {}) {
+  const status = value?.settings ? value : normalizeContextStatus(value);
+  return status.summaryModelConfigured === false;
 }
 
 export function contextUsageTone(value = {}) {
@@ -255,6 +268,11 @@ export function createContextManagementController({
   let open = false;
   let thresholdOpen = false;
   let clearConfirmation = false;
+  let summaryOpen = false;
+  let summaryLoading = false;
+  // The backend never timestamps context payloads, so the panel records the
+  // client-side moment a status was applied and shows that as "updated at".
+  let statusAppliedAt = null;
   let focusReturn = null;
   let thresholdFocusReturn = null;
   let bodyOverflow = "";
@@ -276,6 +294,10 @@ export function createContextManagementController({
   function formatTokens(value) {
     if (value === null || value === undefined || !Number.isFinite(Number(value))) return translate("context.unknown");
     return new Intl.NumberFormat(documentImpl?.documentElement?.lang || undefined, { maximumFractionDigits: 0 }).format(Number(value));
+  }
+
+  function formatUpdatedTime(timestamp) {
+    return new Intl.DateTimeFormat(documentImpl?.documentElement?.lang || undefined, { timeStyle: "medium" }).format(timestamp);
   }
 
   function thresholdSummary(next = status) {
@@ -347,7 +369,16 @@ export function createContextManagementController({
     setText("contextUsagePercentage", percentageLabel);
     setText("contextWindowKind", translate(status.windowKind === "large" ? "context.largeWindow" : "context.standardWindow"));
     setText("contextThresholdSummary", thresholdSummary());
-    setText("contextUpdatedAt", status.updatedAt ? translate("context.updatedAt", { time: status.updatedAt }) : "");
+    setText("contextUpdatedAt", statusAppliedAt ? translate("context.updatedAt", { time: formatUpdatedTime(statusAppliedAt) }) : "");
+
+    const estimateBasisNode = element("contextEstimateBasis");
+    if (estimateBasisNode) {
+      const calibrated = status.estimateBasis === "calibrated" && status.lastActualInputTokens > 0;
+      estimateBasisNode.classList.toggle("hidden", !calibrated);
+      setTextIfChanged(estimateBasisNode, calibrated ? translate("context.estimateCalibrated", { tokens: formatTokens(status.lastActualInputTokens) }) : "");
+    }
+    const summaryModelWarning = element("contextSummaryModelWarning");
+    if (summaryModelWarning) summaryModelWarning.classList.toggle("hidden", !hasAgent || !summaryModelWarningVisible(status));
 
     const autoPrune = element("contextAutoPrune");
     if (autoPrune) {
@@ -368,6 +399,21 @@ export function createContextManagementController({
     }
     const retainHint = element("contextRetainHint");
     if (retainHint) retainHint.classList.toggle("hidden", !hasAgent || !manageAllowed);
+    // Viewing the summary is read-only, so unlike the actions above it stays
+    // available in view-only sessions; it only needs an existing summary.
+    const summaryVisible = summaryOpen && hasAgent && Boolean(status.hasSummary);
+    const summaryViewButton = element("contextSummaryViewBtn");
+    if (summaryViewButton) {
+      summaryViewButton.disabled = !hasAgent || actionBusy || !status.hasSummary;
+      summaryViewButton.setAttribute("aria-expanded", summaryVisible ? "true" : "false");
+      setTextIfChanged(summaryViewButton, translate(summaryVisible ? "context.hideSummary" : "context.viewSummary"));
+    }
+    const summaryView = element("contextSummaryView");
+    if (summaryView) {
+      summaryView.classList.toggle("hidden", !summaryVisible);
+      summaryView.setAttribute("aria-hidden", summaryVisible ? "false" : "true");
+    }
+    setText("contextSummaryText", summaryLoading ? translate("context.loading") : (status.summaryText || translate("context.summaryUnavailable")));
     const clearButton = element("contextClearBtn");
     if (clearButton) {
       clearButton.disabled = !hasAgent || !manageAllowed || actionBusy || !status.canClear;
@@ -415,6 +461,9 @@ export function createContextManagementController({
     busy = "";
     error = "";
     clearConfirmation = false;
+    summaryOpen = false;
+    summaryLoading = false;
+    statusAppliedAt = null;
     closePanel({ restoreFocus: false });
     closeThresholds({ restoreFocus: false });
     status = normalizeContextStatus({}, { agentId, loading: Boolean(agentId && load) });
@@ -435,6 +484,7 @@ export function createContextManagementController({
       const response = await request(`/api/agents/${encodeURIComponent(expectedAgentId)}/context`, { method: "GET" });
       if (!currentRequest(expectedEpoch, expectedAgentId) || statusRevision !== acceptedRevision) return status;
       error = "";
+      statusAppliedAt = Date.now();
       return emit(response?.context || response || {});
     } catch (cause) {
       if (!currentRequest(expectedEpoch, expectedAgentId)) return status;
@@ -448,6 +498,7 @@ export function createContextManagementController({
     const expectedAgentId = String(options.agentId || nextStatus?.agentId || agentId || "").trim();
     if (!agentId || (expectedAgentId && expectedAgentId !== agentId)) return false;
     error = "";
+    statusAppliedAt = Date.now();
     const next = options.partial ? {
       ...status,
       ...(nextStatus || {}),
@@ -476,6 +527,7 @@ export function createContextManagementController({
     open = true;
     error = "";
     clearConfirmation = false;
+    summaryOpen = false;
     if (mobileViewport()) {
       bodyOverflow = documentImpl?.body?.style?.overflow || "";
       if (documentImpl?.body?.style) documentImpl.body.style.overflow = "hidden";
@@ -605,6 +657,28 @@ export function createContextManagementController({
     if (!response) return null;
     showToast(translate("context.retainSuccess"), "success");
     return response;
+  }
+
+  // Opening the viewer re-fetches status because context.updated events stay
+  // lightweight and never carry summaryText; only a fresh GET has the full
+  // text. loadStatus already guards against stale epochs and races.
+  async function toggleSummaryView() {
+    if (summaryOpen) {
+      summaryOpen = false;
+      render();
+      return false;
+    }
+    if (!agentId || !status.hasSummary) return false;
+    summaryOpen = true;
+    summaryLoading = true;
+    render();
+    try {
+      await loadStatus();
+    } finally {
+      summaryLoading = false;
+      render();
+    }
+    return true;
   }
 
   function requestClearConfirmation() {
@@ -773,6 +847,7 @@ export function createContextManagementController({
     applyShowPercentPreference(readShowPercentPreference());
     listen(element("contextCompactBtn"), "click", () => compact());
     listen(element("contextRetainBtn"), "click", () => retainSummary());
+    listen(element("contextSummaryViewBtn"), "click", () => toggleSummaryView());
     listen(element("contextClearBtn"), "click", requestClearConfirmation);
     listen(element("contextClearCancelBtn"), "click", () => {
       clearConfirmation = false;
@@ -822,5 +897,6 @@ export function createContextManagementController({
       return reset(nextAgent, { load: options.load !== false });
     },
     setAutoPrune,
+    toggleSummary: toggleSummaryView,
   };
 }

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	agentpkg "autoto/internal/agent"
@@ -88,6 +89,71 @@ func TestContextAPIStatusPreferencesClearAndAccess(t *testing.T) {
 	cleared, err := store.GetAgent(ctx, ownedAgent.ID)
 	if err != nil || cleared.ContextSummary != "" || cleared.PruneBoundaryMessageID != latest.ID {
 		t.Fatalf("context was not logically cleared: %+v %v", cleared, err)
+	}
+}
+
+// The summary body is served only by the dedicated context endpoint; the live
+// snapshot treats it as private execution state and must keep omitting it.
+func TestContextAPISummaryTextOnlyOnContextEndpoint(t *testing.T) {
+	ctx := context.Background()
+	store, err := db.Open(ctx, filepath.Join(t.TempDir(), "context-summary.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	cfg, err := config.Default()
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.Auth.RegistrationOpen = true
+	hub := agentpkg.NewHub()
+	runner := agentpkg.NewRunner(store, providers.NewRegistry(), tools.NewRegistry(), hub, cfg.Agent)
+	app := New(cfg, store, runner, hub, providers.NewRegistry())
+
+	ownerCookie := registerCollaborationTestUser(t, app, "summary-owner")
+	owner, _, err := store.GetUserByHandle(ctx, "summary-owner")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _, agent, err := store.CreateProjectForUser(ctx, owner.ID, "Owned", "", t.TempDir(), "fake:test", "acceptEdits")
+	if err != nil {
+		t.Fatal(err)
+	}
+	boundary, err := store.AddMessage(ctx, db.Message{AgentID: agent.ID, Role: "user", ContentText: "compacted turn"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.AddMessage(ctx, db.Message{AgentID: agent.ID, Role: "user", ContentText: "live turn"}); err != nil {
+		t.Fatal(err)
+	}
+	const summaryBody = "summary body for panel preview"
+	if err := store.UpdateAgentContextSummary(ctx, agent.ID, summaryBody, boundary.ID, 50); err != nil {
+		t.Fatal(err)
+	}
+
+	response := agentAPIRequest(app.Routes(), http.MethodGet, "/api/agents/"+agent.ID+"/context", nil, ownerCookie)
+	if response.Code != http.StatusOK {
+		t.Fatalf("GET context returned %d: %s", response.Code, response.Body.String())
+	}
+	var body struct {
+		Context struct {
+			HasSummary  bool   `json:"hasSummary"`
+			SummaryText string `json:"summaryText"`
+		} `json:"context"`
+	}
+	if err := json.NewDecoder(response.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	if !body.Context.HasSummary || body.Context.SummaryText != summaryBody {
+		t.Fatalf("context endpoint must return the summary body: %+v", body.Context)
+	}
+
+	snapshot := agentAPIRequest(app.Routes(), http.MethodGet, "/api/v2/agents/"+agent.ID+"/live-snapshot", nil, ownerCookie)
+	if snapshot.Code != http.StatusOK {
+		t.Fatalf("GET live snapshot returned %d: %s", snapshot.Code, snapshot.Body.String())
+	}
+	if strings.Contains(snapshot.Body.String(), summaryBody) {
+		t.Fatalf("live snapshot must omit the summary body: %s", snapshot.Body.String())
 	}
 }
 

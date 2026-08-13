@@ -454,6 +454,64 @@ func TestWakeControlMessageCarriesSubagentReport(t *testing.T) {
 	}
 }
 
+// A message task's "child" is an existing conversation, so its transcript can
+// keep moving after the dispatched run finished. The wake-up report must carry
+// the answer from the run the task actually triggered, not whatever the
+// conversation happened to say last -- while tasks that never recorded a child
+// run id keep the old newest-text behavior.
+func TestWakeReportPrefersTheDispatchedRunAnswer(t *testing.T) {
+	ctx := context.Background()
+	store, parent := newAgentTestStore(t, t.TempDir(), "acceptEdits")
+	defer store.Close()
+	runner := newAgentTestRunner(store, &scriptedProvider{}, config.AgentConfig{})
+	target, err := store.CreateAgent(ctx, db.Agent{WorklineID: parent.WorklineID, Type: "primary", Title: "Weather", Model: "fake:test", PermissionMode: "acceptEdits", Status: "idle", CWD: parent.CWD})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, runID := range []string{"target-run", "later-run"} {
+		if _, err := store.DB().ExecContext(ctx, `INSERT INTO runs (id, agent_id, status, created_at, updated_at) VALUES (?, ?, 'completed', ?, ?)`, runID, target.ID, db.Now(), db.Now()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := store.AddMessage(ctx, db.Message{AgentID: target.ID, RunID: "", Role: "assistant", ContentText: "更早的閒聊回覆。"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.AddMessage(ctx, db.Message{AgentID: target.ID, RunID: "target-run", Role: "assistant", ContentText: "台北明天降雨機率 20%。"}); err != nil {
+		t.Fatal(err)
+	}
+	// A newer exchange lands in the conversation after the dispatched run.
+	if _, err := store.AddMessage(ctx, db.Message{AgentID: target.ID, RunID: "later-run", Role: "assistant", ContentText: "這是使用者稍後問的別的事。"}); err != nil {
+		t.Fatal(err)
+	}
+	runner.SetBackgroundTaskService(&staticBackgroundTaskService{task: tools.BackgroundTask{
+		ID: "task-message", OwnerAgentID: parent.ID, ParentRunID: "run-1", Kind: tools.BackgroundTaskKindAgent,
+		Status: "succeeded", ResumeParent: true, ChildAgentID: target.ID, ChildRunID: "target-run",
+	}})
+	run := db.Run{ID: "run-1", AgentID: parent.ID, WaitingBackgroundTaskID: "task-message", ContinuationReason: continuationReasonBackgroundTask, ResumeAfterMessageID: "message-1"}
+	report := runner.waitingBackgroundTaskReport(ctx, run)
+	if !strings.Contains(report, "降雨機率") || strings.Contains(report, "別的事") {
+		t.Fatalf("report must carry the dispatched run's answer, got %q", report)
+	}
+	// Without a recorded child run id the newest visible text stays the answer.
+	runner.SetBackgroundTaskService(&staticBackgroundTaskService{task: tools.BackgroundTask{
+		ID: "task-message", OwnerAgentID: parent.ID, ParentRunID: "run-1", Kind: tools.BackgroundTaskKindAgent,
+		Status: "succeeded", ResumeParent: true, ChildAgentID: target.ID,
+	}})
+	if report := runner.waitingBackgroundTaskReport(ctx, run); !strings.Contains(report, "別的事") {
+		t.Fatalf("legacy fallback must keep the newest text, got %q", report)
+	}
+	// A dispatched run that produced no visible text reports nothing at all --
+	// borrowing the conversation's newer unrelated exchange would misattribute
+	// it as the dispatched answer.
+	runner.SetBackgroundTaskService(&staticBackgroundTaskService{task: tools.BackgroundTask{
+		ID: "task-message", OwnerAgentID: parent.ID, ParentRunID: "run-1", Kind: tools.BackgroundTaskKindAgent,
+		Status: "succeeded", ResumeParent: true, ChildAgentID: target.ID, ChildRunID: "silent-run",
+	}})
+	if report := runner.waitingBackgroundTaskReport(ctx, run); report != "" {
+		t.Fatalf("a silent dispatched run must not borrow another run's answer, got %q", report)
+	}
+}
+
 // A chat in a plain folder parks on a subagent boundary with no workspace
 // snapshot: the Git-anchored plan snapshot provider fails there by design and
 // prepareContinuationRun tolerates it for non-plan runs. Waking that boundary

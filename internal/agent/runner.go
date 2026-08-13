@@ -13,6 +13,7 @@ import (
 	"autoto/internal/imageassets"
 	"autoto/internal/providers"
 	"autoto/internal/review"
+	"autoto/internal/spill"
 	"autoto/internal/toolpipeline"
 	"autoto/internal/tools"
 )
@@ -61,12 +62,28 @@ type Runner struct {
 	generatedImagesMu sync.RWMutex
 	generatedImages   *imageassets.Store
 
+	spillMu    sync.RWMutex
+	spillStore *spill.Store
+
+	// Consecutive-repeat ladder, normalized once so the escalation rule can read
+	// the first entry as the gentle tier. Empty disables repeat detection.
+	repeatThresholds []int
+
 	reasoningMu            sync.RWMutex
 	defaultReasoningEffort string
 
 	runMu      sync.Mutex
 	running    map[string]*activeRun
 	compacting map[string]struct{}
+	// Cancellation handles for compactions started between runs, guarded by
+	// runMu like the compacting set. Manual compactions never register here,
+	// which is what preserves their ErrAgentBusy semantics under preemption.
+	backgroundCompactions map[string]*backgroundCompactionHandle
+
+	// Latest measured estimate-vs-actual input-token pair per conversation,
+	// used to calibrate the char-based context estimate. In-memory only.
+	contextCalibrationMu sync.RWMutex
+	contextCalibration   map[string]contextCalibrationSample
 
 	titlingMu sync.Mutex
 	titling   map[string]struct{}
@@ -145,7 +162,7 @@ const (
 )
 
 func NewRunner(store *db.Store, providers *providers.Registry, toolRegistry *tools.Registry, hub *Hub, cfg config.AgentConfig) *Runner {
-	runner := &Runner{store: store, providers: providers, tools: toolRegistry, toolOutputPipeline: toolpipeline.NewManager(), hub: hub, cfg: cfg, contextManagement: (config.ContextManagementConfig{}).Normalized(), continuationConfig: cfg, nonRetryableErrorPatterns: config.NormalizeNonRetryableErrorPatterns(cfg.NonRetryableErrorPatterns), continuationRunLimits: make(map[string]continuationLimits), defaultReasoningEffort: "auto", running: make(map[string]*activeRun), compacting: make(map[string]struct{}), titling: make(map[string]struct{}), approvals: make(map[string]*pendingApproval), sessionGrants: make(map[string]map[string]sessionGrant), userQuestions: make(map[string]*pendingUserQuestion)}
+	runner := &Runner{store: store, providers: providers, tools: toolRegistry, toolOutputPipeline: toolpipeline.NewManager(), hub: hub, cfg: cfg, contextManagement: (config.ContextManagementConfig{}).Normalized(), continuationConfig: cfg, nonRetryableErrorPatterns: config.NormalizeNonRetryableErrorPatterns(cfg.NonRetryableErrorPatterns), repeatThresholds: config.NormalizeRepeatToolCallThresholds(cfg.RepeatToolCallThresholds), continuationRunLimits: make(map[string]continuationLimits), defaultReasoningEffort: "auto", running: make(map[string]*activeRun), compacting: make(map[string]struct{}), titling: make(map[string]struct{}), approvals: make(map[string]*pendingApproval), sessionGrants: make(map[string]map[string]sessionGrant), userQuestions: make(map[string]*pendingUserQuestion)}
 	runner.SetAgentModelSettings(cfg)
 	if store != nil {
 		if settings, err := store.GetRuntimeSettings(context.Background()); err == nil {

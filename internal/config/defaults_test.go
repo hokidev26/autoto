@@ -247,6 +247,78 @@ func TestSaveDoesNotChangeExistingCustomParentPermissions(t *testing.T) {
 	}
 }
 
+func TestToolOutputSpillAndRepeatDefaultsNormalizeAndPersist(t *testing.T) {
+	cfg, err := Default()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Agent.ToolOutputSpillBytes != DefaultToolOutputSpillBytes {
+		t.Fatalf("unexpected spill default: %d", cfg.Agent.ToolOutputSpillBytes)
+	}
+	if got := cfg.Agent.RepeatToolCallThresholds; len(got) != 3 || got[0] != 3 || got[1] != 5 || got[2] != 8 {
+		t.Fatalf("unexpected repeat ladder default: %v", got)
+	}
+
+	// An existing config that predates both settings keeps the shipped defaults,
+	// because Load unmarshals over Default rather than over a zero value.
+	path := filepath.Join(t.TempDir(), "config.json")
+	if err := os.WriteFile(path, []byte(`{"version":4,"agent":{"maxTurns":3}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.Agent.ToolOutputSpillBytes != DefaultToolOutputSpillBytes || len(loaded.Agent.RepeatToolCallThresholds) != 3 {
+		t.Fatalf("an older config lost the shipped defaults: %+v", loaded.Agent)
+	}
+}
+
+func TestNormalizeAgentConfigBoundsToolOutputSpillBytes(t *testing.T) {
+	for _, test := range []struct {
+		name  string
+		value int
+		want  int
+	}{
+		{name: "zero disables", value: 0, want: 0},
+		{name: "negative disables", value: -1, want: 0},
+		{name: "below floor", value: 10, want: MinToolOutputSpillBytes},
+		{name: "kept", value: DefaultToolOutputSpillBytes, want: DefaultToolOutputSpillBytes},
+		{name: "above ceiling", value: MaxToolOutputSpillBytes * 2, want: MaxToolOutputSpillBytes},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if got := normalizeAgentConfig(AgentConfig{ToolOutputSpillBytes: test.value}).ToolOutputSpillBytes; got != test.want {
+				t.Fatalf("normalized %d to %d, want %d", test.value, got, test.want)
+			}
+		})
+	}
+}
+
+func TestNormalizeRepeatToolCallThresholds(t *testing.T) {
+	for _, test := range []struct {
+		name  string
+		value []int
+		want  []int
+	}{
+		{name: "empty disables", value: nil, want: nil},
+		{name: "sorted and deduplicated", value: []int{8, 3, 5, 3}, want: []int{3, 5, 8}},
+		{name: "values below two dropped", value: []int{1, 0, -4, 4}, want: []int{4}},
+		{name: "all rejected disables", value: []int{1, 0}, want: nil},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			got := NormalizeRepeatToolCallThresholds(test.value)
+			if len(got) != len(test.want) {
+				t.Fatalf("normalized %v to %v, want %v", test.value, got, test.want)
+			}
+			for index := range got {
+				if got[index] != test.want[index] {
+					t.Fatalf("normalized %v to %v, want %v", test.value, got, test.want)
+				}
+			}
+		})
+	}
+}
+
 func TestContextTokenLimitFromEnv(t *testing.T) {
 	t.Setenv("AUTOTO_CONTEXT_TOKEN_LIMIT", "12345")
 	cfg, err := Default()

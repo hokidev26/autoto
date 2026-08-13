@@ -116,6 +116,7 @@ type runtimeSnapshotState struct {
 	mu       sync.RWMutex
 	runs     map[string]*runRuntimeSnapshot
 	children map[string]childRuntimeProfile
+	repeats  map[string]*repeatToolChain
 }
 
 func (r *Runner) ensureRuntimeState() *runtimeSnapshotState {
@@ -123,7 +124,7 @@ func (r *Runner) ensureRuntimeState() *runtimeSnapshotState {
 		return nil
 	}
 	r.runtimeStateOnce.Do(func() {
-		r.runtimeState = &runtimeSnapshotState{runs: make(map[string]*runRuntimeSnapshot), children: make(map[string]childRuntimeProfile)}
+		r.runtimeState = &runtimeSnapshotState{runs: make(map[string]*runRuntimeSnapshot), children: make(map[string]childRuntimeProfile), repeats: make(map[string]*repeatToolChain)}
 	})
 	return r.runtimeState
 }
@@ -692,14 +693,14 @@ func toolNamesIncludeExecCapability(names []string) bool {
 
 func conservativeToolRisk(name string) tools.Risk {
 	switch name {
-	case "Read", "Glob", "Grep", "LS", "TodoWrite", "WebFetch", "WebSearch", "ContextAsk", "AskUserQuestion", "StartPipeline", "EndPipeline", "MCPListTools":
+	case "Read", "Glob", "Grep", "LS", "TodoWrite", "WebFetch", "WebSearch", "ContextAsk", "AskUserQuestion", "StartPipeline", "EndPipeline", "MCPListTools", "AgentSnapshot":
 		return tools.RiskRead
 	case "Write", "Edit", "MultiEdit":
 		return tools.RiskWrite
 	// Symbols spawns a language server process, so it belongs with the exec
 	// tools even though callers think of it as a lookup. OpenURL is here for the
 	// same reason: it starts a program on the user's desktop.
-	case "Bash", "Agent", "Task", "Symbols", "MCPCallTool", "OpenURL":
+	case "Bash", "Agent", "AgentSendMessage", "Task", "Symbols", "MCPCallTool", "OpenURL":
 		return tools.RiskExec
 	default:
 		// Unknown/dynamic tools are conservatively classified as executable for
@@ -846,6 +847,7 @@ func (r *Runner) closeRunRuntimeSnapshot(runID, agentID string) {
 	if state != nil {
 		state.mu.Lock()
 		delete(state.runs, strings.TrimSpace(runID))
+		delete(state.repeats, strings.TrimSpace(runID))
 		state.mu.Unlock()
 	}
 	if strings.TrimSpace(agentID) != "" {

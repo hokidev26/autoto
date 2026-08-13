@@ -480,6 +480,15 @@ type agentContextStatus struct {
 	LatestMessageID        string                      `json:"latestMessageId,omitempty"`
 	PruneEnabled           bool                        `json:"pruneEnabled"`
 	Estimated              bool                        `json:"estimated"`
+	EstimateBasis          string                      `json:"estimateBasis,omitempty"`
+	LastActualInputTokens  int64                       `json:"lastActualInputTokens"`
+	// SummaryText carries the current compaction summary so the panel can show
+	// what a later model turn will actually see. Populated only by the
+	// dedicated GET context endpoint: the live snapshot and work-state
+	// projections deliberately omit the summary as private execution state
+	// (see TestWorkStateSecuritySnapshotOmitsPrivateExecutionState), and the
+	// context.updated event stays light.
+	SummaryText string `json:"summaryText,omitempty"`
 }
 
 type compactAgentContextRequest struct {
@@ -520,6 +529,7 @@ func (s *Server) agentContextStatusForRequest(ctx context.Context, agent db.Agen
 		EstimatedTokens: status.EstimatedTokens, LimitTokens: status.LimitTokens, UsagePercent: status.UsagePercent,
 		WindowClass: status.WindowClass, Thresholds: status.Thresholds, LatestMessageID: status.LatestMessageID,
 		PruneEnabled: status.PruneEnabled, Estimated: status.Estimated,
+		EstimateBasis: status.EstimateBasis, LastActualInputTokens: status.LastActualInputTokens,
 	}
 }
 
@@ -537,7 +547,10 @@ func (s *Server) getAgentContext(w http.ResponseWriter, r *http.Request) {
 		writeError(w, statusFromError(err), err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"context": s.agentContextStatusForRequest(r.Context(), agent), "entityGeneration": agent.EntityGeneration})
+	status := s.agentContextStatusForRequest(r.Context(), agent)
+	// Only this endpoint returns the summary body; snapshots and events omit it.
+	status.SummaryText = strings.TrimSpace(agent.ContextSummary)
+	writeJSON(w, http.StatusOK, map[string]any{"context": status, "entityGeneration": agent.EntityGeneration})
 }
 
 func (s *Server) patchAgentContextPreferences(w http.ResponseWriter, r *http.Request) {

@@ -284,6 +284,10 @@ func (p *AnthropicProvider) Generate(ctx context.Context, req GenerateRequest) (
 			}
 			stream := candidate.client.Messages.NewStreaming(ctx, requestParams, requestOptions...)
 			var acc anthropic.Message
+			// Usage accumulates in Anthropic's raw accounting and is projected
+			// through anthropicUsageFromUsage after every fold, because deltas
+			// overwrite raw fields and cannot be applied to normalized totals.
+			var rawUsage anthropic.Usage
 			var usage Usage
 			var stopReason string
 			emittedContent := false
@@ -295,7 +299,8 @@ func (p *AnthropicProvider) Generate(ctx context.Context, req GenerateRequest) (
 				}
 				switch typed := event.AsAny().(type) {
 				case anthropic.MessageStartEvent:
-					usage = anthropicUsageFromUsage(typed.Message.Usage)
+					rawUsage = typed.Message.Usage
+					usage = anthropicUsageFromUsage(rawUsage)
 				case anthropic.ContentBlockDeltaEvent:
 					switch delta := typed.Delta.AsAny().(type) {
 					case anthropic.TextDelta:
@@ -350,7 +355,8 @@ func (p *AnthropicProvider) Generate(ctx context.Context, req GenerateRequest) (
 						emittedContent = true
 					}
 				case anthropic.MessageDeltaEvent:
-					applyAnthropicDeltaUsage(&usage, typed.Usage)
+					applyAnthropicDeltaUsage(&rawUsage, typed.Usage)
+					usage = anthropicUsageFromUsage(rawUsage)
 					if typed.Delta.StopReason != "" {
 						stopReason = string(typed.Delta.StopReason)
 					}
@@ -566,16 +572,27 @@ func (p *AnthropicProvider) rememberAnthropicThinkingSupport(models []anthropic.
 	}
 }
 
+// anthropicUsageFromUsage projects Anthropic's disjoint accounting — where
+// input_tokens excludes everything read from or written to the prompt cache —
+// onto the convention every other adapter reports: InputTokens is the whole
+// prompt and CachedInputTokens the subset served from cache. Consumers
+// (pricing, context calibration) subtract the cached share, so passing the
+// disjoint figures through unchanged double-counted warm-cache turns.
 func anthropicUsageFromUsage(usage anthropic.Usage) Usage {
 	return Usage{
-		InputTokens:       usage.InputTokens,
+		InputTokens:       usage.InputTokens + usage.CacheReadInputTokens + usage.CacheCreationInputTokens,
 		OutputTokens:      usage.OutputTokens,
 		CachedInputTokens: usage.CacheReadInputTokens,
 		ReasoningTokens:   usage.OutputTokensDetails.ThinkingTokens,
 	}
 }
 
-func applyAnthropicDeltaUsage(usage *Usage, delta anthropic.MessageDeltaUsage) {
+// applyAnthropicDeltaUsage folds a message_delta usage report into the raw
+// Anthropic accounting. Deltas carry cumulative totals for whichever fields
+// they include, so a present field overwrites; the fold stays in raw terms
+// because a delta that updates input_tokens without the cache fields cannot
+// be applied to an already-normalized total.
+func applyAnthropicDeltaUsage(usage *anthropic.Usage, delta anthropic.MessageDeltaUsage) {
 	if delta.JSON.InputTokens.Valid() {
 		usage.InputTokens = delta.InputTokens
 	}
@@ -583,10 +600,13 @@ func applyAnthropicDeltaUsage(usage *Usage, delta anthropic.MessageDeltaUsage) {
 		usage.OutputTokens = delta.OutputTokens
 	}
 	if delta.JSON.CacheReadInputTokens.Valid() {
-		usage.CachedInputTokens = delta.CacheReadInputTokens
+		usage.CacheReadInputTokens = delta.CacheReadInputTokens
+	}
+	if delta.JSON.CacheCreationInputTokens.Valid() {
+		usage.CacheCreationInputTokens = delta.CacheCreationInputTokens
 	}
 	if delta.JSON.OutputTokensDetails.Valid() {
-		usage.ReasoningTokens = delta.OutputTokensDetails.ThinkingTokens
+		usage.OutputTokensDetails.ThinkingTokens = delta.OutputTokensDetails.ThinkingTokens
 	}
 }
 

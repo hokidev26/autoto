@@ -131,7 +131,12 @@ func (r *Runner) executeRegisteredRun(runCtx context.Context, agentID string, ac
 	}
 	if completion.pending {
 		go r.runWithRun(context.Background(), agentID, completion.runID, completion.triggerMessageID)
+		return
 	}
+	// Pre-compaction may only start here, after unregisterRun released the
+	// running slot. Firing inside the run (completeContinuousRun) found the
+	// finishing run still registered and bailed out busy on every completion.
+	r.maybeCompactContextInBackground(agentID)
 }
 
 func (r *Runner) Interrupt(ctx context.Context, agentID string) (bool, error) {
@@ -265,7 +270,11 @@ func (r *Runner) registerRun(ctx context.Context, agentID, runID, triggerMessage
 	if r.running == nil {
 		r.running = make(map[string]*activeRun)
 	}
-	if _, compacting := r.compacting[agentID]; compacting {
+	// A background compaction yields to the user's run: cancel it and wait for
+	// the slot. Only a manual compaction still reports busy here. The helper
+	// may drop and reacquire runMu, so the running-slot inspection below stays
+	// after it on purpose.
+	if !r.waitForBackgroundCompactionLocked(agentID) {
 		r.runMu.Unlock()
 		return nil, nil, false, runID, ErrAgentBusy
 	}

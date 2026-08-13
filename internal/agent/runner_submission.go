@@ -102,6 +102,7 @@ func (r *Runner) submitUserMessageWithModeAndPermissionCap(ctx context.Context, 
 	if err != nil {
 		return db.Message{}, err
 	}
+	r.resetRepeatToolCallChains(agentID)
 	runRequest, err := r.bindPlanRunSnapshot(ctx, db.Run{AgentID: agentID, TriggerMessageID: msg.ID, Status: "pending", Source: runSource, ExecutionMode: mode, PermissionModeCap: permissionModeCap})
 	if err != nil {
 		return db.Message{}, err
@@ -159,6 +160,7 @@ func (r *Runner) SubmitCorrectionWithSource(ctx context.Context, agentID, source
 	if err != nil {
 		return db.Message{}, err
 	}
+	r.resetRepeatToolCallChains(agentID)
 	run, err = r.store.BindPendingCorrectionRun(ctx, run.ID, runSource)
 	if err != nil {
 		return db.Message{}, err
@@ -327,11 +329,13 @@ func (r *Runner) SubmitSource(ctx context.Context, submission SourceSubmission) 
 	if r.running == nil {
 		r.running = make(map[string]*activeRun)
 	}
-	if r.running[submission.AgentID] != nil {
+	// Resolve any background compaction first: it may drop and reacquire the
+	// lock, so the running/durable checks below must happen after it returns.
+	if !r.waitForBackgroundCompactionLocked(submission.AgentID) {
 		r.runMu.Unlock()
 		return db.Run{}, ErrAgentBusy
 	}
-	if _, compacting := r.compacting[submission.AgentID]; compacting {
+	if r.running[submission.AgentID] != nil {
 		r.runMu.Unlock()
 		return db.Run{}, ErrAgentBusy
 	}
@@ -349,6 +353,7 @@ func (r *Runner) SubmitSource(ctx context.Context, submission SourceSubmission) 
 		r.runMu.Unlock()
 		return db.Run{}, err
 	}
+	r.resetRepeatToolCallChains(submission.AgentID)
 	runRequest.TriggerMessageID = msg.ID
 	run, err := r.store.CreateRun(ctx, runRequest)
 	if err != nil {

@@ -962,8 +962,19 @@ func anthropicStopReason(stopReason string, hasTools bool) string {
 	}
 }
 
+// anthropicUsageValue projects the adapter-wide convention (CachedInputTokens
+// is a subset of InputTokens) back onto the Anthropic wire contract, where
+// input_tokens excludes cache reads. The clamp mirrors pricing's: a backend
+// reporting cached above input would otherwise emit a negative input count.
 func anthropicUsageValue(usage providers.Usage) anthropicUsage {
-	return anthropicUsage{InputTokens: usage.InputTokens, OutputTokens: usage.OutputTokens, CacheReadInputTokens: usage.CachedInputTokens}
+	cached := usage.CachedInputTokens
+	if cached > usage.InputTokens {
+		cached = usage.InputTokens
+	}
+	if cached < 0 {
+		cached = 0
+	}
+	return anthropicUsage{InputTokens: usage.InputTokens - cached, OutputTokens: usage.OutputTokens, CacheReadInputTokens: cached}
 }
 
 func estimateGatewayInputTokens(request providers.GenerateRequest) int64 {

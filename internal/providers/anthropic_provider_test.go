@@ -835,7 +835,10 @@ func TestAnthropicProviderStreamsTextUsageAndToolCalls(t *testing.T) {
 	if text != "hello" {
 		t.Fatalf("expected streamed text hello, got %q", text)
 	}
-	if usage.InputTokens != 10 || usage.OutputTokens != 7 || usage.CachedInputTokens != 2 || usage.ReasoningTokens != 1 {
+	// The wire reported input_tokens 10 (Anthropic's cache-exclusive count)
+	// plus 2 cache reads; the adapter normalizes to the whole-prompt
+	// convention where the cached share is a subset of InputTokens.
+	if usage.InputTokens != 12 || usage.OutputTokens != 7 || usage.CachedInputTokens != 2 || usage.ReasoningTokens != 1 {
 		t.Fatalf("unexpected usage: %+v", usage)
 	}
 	if len(toolCalls) != 1 || toolCalls[0].ID != "toolu_1" || toolCalls[0].Name != "Read" || string(toolCalls[0].Input) != `{"file_path":"README.md"}` {

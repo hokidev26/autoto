@@ -8,12 +8,13 @@ import (
 
 	"autoto/internal/db"
 	"autoto/internal/imageassets"
+	"autoto/internal/spill"
 )
 
-// generatedImagesCleanupService runs the startup image sweep once under the
-// runtime supervisor. Its worker is tracked so Close can cancel and wait for it
-// before Runtime releases the store and asset directories when the shutdown
-// context permits.
+// generatedImagesCleanupService runs the startup sweep of the on-disk asset
+// trees once under the runtime supervisor. Its worker is tracked so Close can
+// cancel and wait for it before Runtime releases the store and asset
+// directories when the shutdown context permits.
 type generatedImagesCleanupService struct {
 	cleanup func(context.Context)
 
@@ -23,10 +24,11 @@ type generatedImagesCleanupService struct {
 	done    chan struct{}
 }
 
-func newGeneratedImagesCleanupService(logger *slog.Logger, store *db.Store, assets *imageassets.Store) *generatedImagesCleanupService {
+func newGeneratedImagesCleanupService(logger *slog.Logger, store *db.Store, assets *imageassets.Store, spills *spill.Store) *generatedImagesCleanupService {
 	return &generatedImagesCleanupService{
 		cleanup: func(ctx context.Context) {
 			cleanupGeneratedImages(ctx, logger, store, assets)
+			cleanupToolOutputSpills(logger, spills)
 		},
 	}
 }

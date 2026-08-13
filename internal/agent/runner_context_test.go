@@ -536,7 +536,7 @@ func TestRunnerSummarizesOldContextWithLocalFallback(t *testing.T) {
 	}
 	provider := &scriptedProvider{}
 	runner := newAgentTestRunner(store, provider, config.AgentConfig{ContextTokenLimit: 1000, SummaryModel: "missing:test"})
-	providerMessages, _, err := runner.managedContextForTurn(ctx, agent, firstMessages, nil, turnSystemControls{})
+	providerMessages, _, _, err := runner.managedContextForTurn(ctx, agent, firstMessages, nil, turnSystemControls{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -574,7 +574,7 @@ func TestContextCompactionPublishesStartAndFinish(t *testing.T) {
 	runner := newAgentTestRunner(store, &scriptedProvider{}, config.AgentConfig{ContextTokenLimit: 1000, SummaryModel: "missing:test"})
 	events := runner.hub.Subscribe(ctx, agent.ID)
 
-	if _, _, err := runner.managedContextForTurn(ctx, agent, messages, nil, turnSystemControls{}); err != nil {
+	if _, _, _, err := runner.managedContextForTurn(ctx, agent, messages, nil, turnSystemControls{}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -625,7 +625,7 @@ func TestManagedContextBudgetsAllServerControls(t *testing.T) {
 	}
 	limit := estimateRequestTokens("", appendProviderMessages(conversation, []providers.Message{countOnly, progress, continuation}), nil)
 	runner := &Runner{cfg: config.AgentConfig{ContextTokenLimit: limit}}
-	managed, _, err := runner.managedContextForTurn(context.Background(), agent, durableMessages, nil, controls)
+	managed, _, _, err := runner.managedContextForTurn(context.Background(), agent, durableMessages, nil, controls)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -642,7 +642,7 @@ func TestManagedContextBudgetsAllServerControls(t *testing.T) {
 
 	requiredLimit := estimateRequestTokens("", appendProviderMessages(conversation, []providers.Message{continuation}), nil)
 	runner.cfg.ContextTokenLimit = requiredLimit - 1
-	if _, _, err := runner.managedContextForTurn(context.Background(), agent, durableMessages, nil, turnSystemControls{continuation: &continuation}); err == nil || !strings.Contains(err.Error(), "context token budget exceeded") {
+	if _, _, _, err := runner.managedContextForTurn(context.Background(), agent, durableMessages, nil, turnSystemControls{continuation: &continuation}); err == nil || !strings.Contains(err.Error(), "context token budget exceeded") {
 		t.Fatalf("expected required control budget failure, got %v", err)
 	}
 }
@@ -697,7 +697,7 @@ func TestCompactConversationForBudgetBoundsSummaryAndToolPayloads(t *testing.T) 
 		{Role: "user", Blocks: []providers.ContentBlock{{Type: "tool_result", ToolUseID: "large-input", ToolName: "Write", Output: strings.Repeat("output ", 10000)}}},
 	}
 	const limit = 300
-	compacted := compactConversationForBudget("", messages, nil, limit, nil)
+	compacted := compactConversationForBudget("", messages, 0, limit, nil)
 	if estimated := estimateRequestTokens("", compacted, nil); estimated > limit {
 		t.Fatalf("compacted conversation exceeded limit: estimated=%d limit=%d", estimated, limit)
 	}

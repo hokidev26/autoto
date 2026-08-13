@@ -4037,6 +4037,10 @@ async function handleAgentStreamEvent(event) {
   }
   if (event.type === "context.compaction_finished") {
     state.contextCompacting = false;
+    // modelSummary === false means the summary model call failed and this
+    // compaction shipped the low-fidelity local fallback; true or a missing
+    // field is the normal path and stays silent.
+    if (event.data?.modelSummary === false) showToast(t("context.compactionDegraded"), "warn");
     refreshComposerActivityStatus();
   }
   if (event.type === "agent.started") {

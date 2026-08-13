@@ -116,7 +116,10 @@ go build -tags "desktop,production" -trimpath -ldflags "-s -w -H windowsgui" -o 
 - 本机 HTTP 服务器，内嵌 HTML/CSS/JS 界面，前端用免构建的 ES module 架构
 - SQLite 持久化：项目、workline、agent、消息、工具调用、backend 注册、stdio MCP 注册
 - Provider 抽象层，以最小的 `Tools` / `Streaming` / `ImageInput` 能力契约接上 OpenAI Responses API、Anthropic Messages API、OpenAI 兼容 Chat Completions、Gemini Interactions API、Kiro（Amazon Q）原生订阅，以及本机 CLIProxyAPI 预设组
-- 核心工具：Read、Write、Edit、Bash、Glob、Grep、WebFetch、WebSearch、MCPListTools、MCPCallTool
+- 核心工具：Read、Write、Edit、Bash、Glob、Grep、WebFetch、WebSearch、MCPListTools、MCPCallTool、AgentSnapshot、AgentSendMessage
+- 跨对话协作：`AgentSnapshot` 可列出同一实例上的其他主对话并读取近期内容；`AgentSendMessage`（exec 风险、走审批）可把消息送进另一个既有对话，让它以自己的权限跑完一轮后，把回复自动汇报给发问的对话（与子代理相同的唤醒机制）。直接的 A↔B 循环会被拒绝，子代理不能发送也不能被指定为目标。从别的对话读到的内容——以及经 `PeerSnapshot` 从配对实例读到的内容——都会被标记为不可信的只读背景资料，因此藏在别人转录里的伪造指令不会因为经由工具结果送达就取得权限
+- 工具输出落盘：结果超过 `agent.toolOutputSpillBytes`（默认 50000 字节）时，完整内容写入 Autoto 主目录下的文件，回给模型的换成首尾预览加上该文件路径，由模型用 `Read` 分页或用 `Grep` 搜索，而不是把整份塞进上下文。`Read` 与 `Grep` 本身豁免，避免用「再去读一次」来回答一次读取；写入失败一律保留原本的内联结果，绝不把成功的工具调用变成错误；落盘文件保留七天后清理
+- 重复工具调用检测：同一个工具带同样参数的连续调用会按 run 计数，达到 `agent.repeatToolCallThresholds`（默认 `3、5、8`）之一时，在下一次请求中加入逐级加强的提醒。参数先规范化再比较，被拒绝的调用同样计入，而且该检测只观察、永不否决调用
 - 续跑预算设置：可按工作区限制续跑次数、总回合、总 token 与实际执行时间，默认无上限
 
 **安全边界**

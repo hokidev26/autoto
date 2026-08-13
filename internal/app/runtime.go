@@ -29,6 +29,7 @@ import (
 	"autoto/internal/runtime"
 	"autoto/internal/secrets"
 	"autoto/internal/server"
+	"autoto/internal/spill"
 	"autoto/internal/tools"
 )
 
@@ -42,6 +43,7 @@ type Runtime struct {
 
 	store             *db.Store
 	generatedImages   *imageassets.Store
+	toolOutputSpills  *spill.Store
 	runner            *agent.Runner
 	pluginService     *plugins.Service
 	application       *server.Server
@@ -117,6 +119,11 @@ func NewRuntime(options Options) (*Runtime, error) {
 		cleanup(store)
 		return nil, fmt.Errorf("open generated image store: %w", err)
 	}
+	toolOutputSpills, err := spill.New(cfg.Paths.HomeDir)
+	if err != nil {
+		cleanup(store)
+		return nil, fmt.Errorf("open tool output spill store: %w", err)
+	}
 	providerVault := secrets.NewProviderVault(store, cfg.Paths.HomeDir)
 	cfg, providerSecretWarnings := hydrateProviderSecrets(context.Background(), cfg, providerVault, providerAPIKeyInputs, resolvedConfigPath)
 	for _, warning := range providerSecretWarnings {
@@ -180,6 +187,7 @@ func NewRuntime(options Options) (*Runtime, error) {
 	hub := agent.NewHub()
 	runner := agent.NewRunner(store, providerRegistry, toolRegistry, hub, cfg.Agent)
 	runner.SetGeneratedImageStore(generatedImages)
+	runner.SetToolOutputSpillStore(toolOutputSpills)
 	runner.SetDynamicToolSource(pluginService)
 	runner.SetDefaultReasoningEffort(runtimeSettings.DefaultReasoningEffort)
 	if err := runner.RecoverInterruptedRuns(context.Background()); err != nil {
@@ -303,6 +311,7 @@ func NewRuntime(options Options) (*Runtime, error) {
 		configPath:        resolvedConfigPath,
 		store:             store,
 		generatedImages:   generatedImages,
+		toolOutputSpills:  toolOutputSpills,
 		runner:            runner,
 		pluginService:     pluginService,
 		application:       application,
@@ -357,7 +366,7 @@ func (r *Runtime) Start(ctx context.Context) error {
 	services = append(services, runtime.NewHTTPServiceWithListener(r.httpServer, r.httpListener, onServeError("http")))
 	// Register cleanup after HTTP so the server is started before the one-shot
 	// sweep begins. Supervisor owns the worker until Runtime.Close.
-	services = append(services, newGeneratedImagesCleanupService(r.logger, r.store, r.generatedImages))
+	services = append(services, newGeneratedImagesCleanupService(r.logger, r.store, r.generatedImages, r.toolOutputSpills))
 	// Registered after the background manager so its own reconciliation has
 	// already run: the first sweep must not compete with startup recovery.
 	services = append(services, newStuckWorkReaperService(r.logger, r.runner, r.backgroundManager))
@@ -771,6 +780,23 @@ func cleanupGeneratedImages(ctx context.Context, logger *slog.Logger, store *db.
 	logGeneratedImageCleanupFailures(logger, "objects", objects)
 	if len(staging.Removed) > 0 || len(objects.Removed) > 0 {
 		logger.Info("cleaned generated image assets", "stagingRemoved", len(staging.Removed), "objectsRemoved", len(objects.Removed))
+	}
+}
+
+// cleanupToolOutputSpills retires spilled tool output past its retention
+// window. Autoto has no conversation deletion to hang this off, so age is the
+// only owner signal available; the window is long enough that a file is only
+// collected once the tool result naming it has aged out of every live context.
+func cleanupToolOutputSpills(logger *slog.Logger, spills *spill.Store) {
+	if spills == nil {
+		return
+	}
+	removed, err := spills.Prune(spill.Retention)
+	if err != nil {
+		logger.Warn("prune tool output spill files", "error", err)
+	}
+	if removed > 0 {
+		logger.Info("cleaned tool output spill files", "removed", removed)
 	}
 }
 

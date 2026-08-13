@@ -61,6 +61,10 @@ type AgentExecutor struct {
 	// disables it: idle detection is the primary guard, and a wall-clock cap
 	// that fires on a healthy long task is worse than no cap at all.
 	ChildMaxDuration time.Duration
+	// TargetBusyWait bounds how long a send-message task retries a busy target
+	// conversation before failing with target_agent_busy. Zero uses the
+	// package default.
+	TargetBusyWait time.Duration
 }
 
 type agentPayload struct {
@@ -71,6 +75,9 @@ type agentPayload struct {
 	Workdir            string   `json:"workdir,omitempty"`
 	ReasoningEffort    string   `json:"reasoningEffort,omitempty"`
 	AcceptanceCriteria []string `json:"acceptanceCriteria,omitempty"`
+	// TargetAgentID switches the task from spawning a child agent to sending
+	// the prompt to an existing primary conversation (AgentSendMessage tool).
+	TargetAgentID string `json:"targetAgentId,omitempty"`
 }
 
 type agentRole struct {
@@ -127,6 +134,9 @@ func (e *AgentExecutor) Execute(ctx context.Context, task db.BackgroundTask, out
 	parent, err := e.Store.GetAgent(ctx, task.OwnerAgentID)
 	if err != nil {
 		return Result{ErrorCode: "parent_agent_unavailable"}, fmt.Errorf("load parent agent: %w", err)
+	}
+	if payload.TargetAgentID != "" {
+		return e.executeSendMessage(ctx, task, parent, payload, output)
 	}
 	workdir, err := tools.ResolveWorkdirWithin(parent.CWD, payload.Workdir)
 	if err != nil {
@@ -327,7 +337,7 @@ func parseAgentPayload(raw json.RawMessage) (agentPayload, error) {
 	decoder := json.NewDecoder(strings.NewReader(string(raw)))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&payload); err != nil {
-		return agentPayload{}, errors.New("agent payload must contain only prompt, description, subagentType, model, workdir, reasoningEffort, and acceptanceCriteria")
+		return agentPayload{}, errors.New("agent payload must contain only prompt, description, subagentType, model, workdir, reasoningEffort, acceptanceCriteria, and targetAgentId")
 	}
 	payload.Prompt = strings.TrimSpace(payload.Prompt)
 	payload.Description = strings.TrimSpace(payload.Description)
@@ -348,6 +358,19 @@ func parseAgentPayload(raw json.RawMessage) (agentPayload, error) {
 	}
 	if len(payload.Workdir) > 1024 || !utf8.ValidString(payload.Workdir) || strings.ContainsRune(payload.Workdir, 0) {
 		return agentPayload{}, errors.New("agent task workdir is invalid")
+	}
+	payload.TargetAgentID = strings.TrimSpace(payload.TargetAgentID)
+	if len(payload.TargetAgentID) > 128 || !utf8.ValidString(payload.TargetAgentID) || strings.ContainsRune(payload.TargetAgentID, 0) {
+		return agentPayload{}, errors.New("agent task targetAgentId is invalid")
+	}
+	if payload.TargetAgentID != "" {
+		// A message task borrows the target conversation as it is; the
+		// spawn-only knobs have no meaning there and silently ignoring them
+		// would misreport what actually ran.
+		if payload.SubagentType != "" || payload.Model != "" || payload.Workdir != "" || payload.ReasoningEffort != "" || len(payload.AcceptanceCriteria) > 0 {
+			return agentPayload{}, errors.New("agent task with targetAgentId must not set subagentType, model, workdir, reasoningEffort, or acceptanceCriteria")
+		}
+		return payload, nil
 	}
 	if canonicalRole, err := agentrole.Normalize(payload.SubagentType); err == nil {
 		payload.SubagentType = string(canonicalRole)

@@ -500,7 +500,8 @@ func (r *Runner) runContinuationSegment(ctx context.Context, state continuationR
 		}
 		controls := r.buildTurnSystemControls(ctx, agent, run, messages, continuationIndex)
 		controls.pipeline = r.toolOutputPipelineControl(agentID, runID)
-		providerMessages, updatedAgent, err := r.managedContextForTurn(ctx, agent, messages, toolSpecs, controls, promptMessages)
+		controls.repeat = r.repeatToolCallControl(runID)
+		providerMessages, updatedAgent, requestEstimate, err := r.managedContextForTurn(ctx, agent, messages, toolSpecs, controls, promptMessages)
 		if err != nil {
 			return segmentOutcome{}, err
 		}
@@ -509,6 +510,9 @@ func (r *Runner) runContinuationSegment(ctx context.Context, state continuationR
 		outcome.turns++
 		outcome.inputTokens += maxInt64(result.Usage.InputTokens, 0)
 		outcome.outputTokens += maxInt64(result.Usage.OutputTokens, 0)
+		// Pair the request's heuristic estimate with the provider-reported input
+		// size; recordContextCalibration ignores turns without a real report.
+		r.recordContextCalibration(agentID, agent.Model, requestEstimate, result.Usage)
 		if turnErr != nil {
 			// Mark the fault as a provider error so the retry path in
 			// runContinuous can recognise it. Without this the reason stays empty,
@@ -1053,7 +1057,10 @@ func (r *Runner) completeContinuousRun(ctx context.Context, agentID, runID strin
 	}
 	r.publish(Event{Type: "agent.done", AgentID: agentID, Data: mergeEventData(data, runID)})
 	r.notify(NotificationEvent{Event: "completed", RunID: runID, AgentID: agentID, Status: "completed"})
-	return r.store.SetAgentStatus(ctx, agentID, "idle", "")
+	if err := r.store.SetAgentStatus(ctx, agentID, "idle", ""); err != nil {
+		return err
+	}
+	return nil
 }
 
 // Stores output that a completed model turn produced just before the run was
@@ -1157,7 +1164,7 @@ func (r *Runner) waitingBackgroundTaskReport(ctx context.Context, run db.Run) st
 	}
 	answer := ""
 	if child := strings.TrimSpace(task.ChildAgentID); child != "" && r.store != nil {
-		answer = r.latestVisibleAssistantText(ctx, child)
+		answer = r.latestVisibleAssistantText(ctx, child, task.ChildRunID)
 	}
 	failure := strings.TrimSpace(task.ErrorMessage)
 	if answer == "" && failure == "" {
@@ -1176,18 +1183,31 @@ func (r *Runner) waitingBackgroundTaskReport(ctx context.Context, run db.Run) st
 }
 
 // latestVisibleAssistantText is the child's answer as the task panel shows it:
-// the newest assistant message with non-empty text.
-func (r *Runner) latestVisibleAssistantText(ctx context.Context, agentID string) string {
+// the newest assistant message with non-empty text. When the task recorded the
+// run it dispatched, only that run's messages qualify: the child can be an
+// existing conversation reached through a message task, and a dispatched run
+// that produced no visible text must report nothing rather than quote some
+// concurrent exchange in the same conversation as the answer. Older tasks
+// without a child run id keep the agent-wide newest text.
+func (r *Runner) latestVisibleAssistantText(ctx context.Context, agentID string, runIDs ...string) string {
 	messages, err := r.store.ListMessages(ctx, agentID)
 	if err != nil {
 		return ""
+	}
+	runID := ""
+	if len(runIDs) > 0 {
+		runID = strings.TrimSpace(runIDs[0])
 	}
 	for index := len(messages) - 1; index >= 0; index-- {
 		message := messages[index]
 		if message.Role != "assistant" {
 			continue
 		}
-		if text := strings.TrimSpace(message.ContentText); text != "" {
+		text := strings.TrimSpace(message.ContentText)
+		if text == "" {
+			continue
+		}
+		if runID == "" || message.RunID == runID {
 			return text
 		}
 	}

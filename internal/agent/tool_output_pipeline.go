@@ -11,11 +11,28 @@ func toolOutputPipelineScope(agentID, runID string) tools.ToolOutputPipelineScop
 	return tools.ToolOutputPipelineScope{AgentID: strings.TrimSpace(agentID), RunID: strings.TrimSpace(runID)}
 }
 
+// processToolResultForModel is the single point every tool result passes on its
+// way to the model, whatever produced it: a real execution, a policy denial, or
+// a Go error the loop wrapped. Repeat detection counts here for exactly that
+// reason -- a model hammering a call that keeps being refused is the loop most
+// worth breaking, and a denial never reaches an executor.
+//
+// The pipeline runs before the spill policy and the two never both act. An
+// active pipeline has already replaced the output with a short preview, so it
+// is far below the spill threshold, and spilling a preview would send the model
+// to Read a file instead of to EndPipeline. With no pipeline active -- the
+// default -- ProcessResult returns the result untouched and spill is the only
+// thing shaping it.
 func (r *Runner) processToolResultForModel(agentID, runID string, call tools.Call, raw tools.Result) tools.Result {
-	if r == nil || r.toolOutputPipeline == nil {
+	if r == nil {
 		return raw
 	}
-	return r.toolOutputPipeline.ProcessResult(toolOutputPipelineScope(agentID, runID), call, raw)
+	r.observeRepeatedToolCall(agentID, runID, call)
+	result := raw
+	if r.toolOutputPipeline != nil {
+		result = r.toolOutputPipeline.ProcessResult(toolOutputPipelineScope(agentID, runID), call, result)
+	}
+	return r.spillToolResultForModel(agentID, call, result)
 }
 
 func (r *Runner) toolOutputPipelineActive(agentID, runID string) bool {

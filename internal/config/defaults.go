@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strconv"
 	"strings"
 	"unicode"
@@ -141,6 +142,15 @@ type AgentConfig struct {
 	// status rule already covers plain 4xx; this is for upstreams that return 200
 	// or 500 with the real reason only in the body.
 	NonRetryableErrorPatterns []string `json:"nonRetryableErrorPatterns,omitempty"`
+	// ToolOutputSpillBytes caps how much of a tool result reaches the model in
+	// UTF-8 bytes. A larger result is written to disk under the Autoto home and
+	// replaced with a head/tail preview plus the file path, which the model reads
+	// back with Read or Grep. Zero disables spilling.
+	ToolOutputSpillBytes int `json:"toolOutputSpillBytes"`
+	// RepeatToolCallThresholds are the consecutive-identical-call counts that
+	// earn an escalating reminder. The first entry is the gentle tier and the
+	// rest quote the arguments. An empty list disables the detector.
+	RepeatToolCallThresholds []int `json:"repeatToolCallThresholds"`
 }
 
 type AuthConfig struct {
@@ -384,6 +394,8 @@ func Default() (Config, error) {
 			// guessing at body text would make runs stop for faults that would have
 			// cleared on their own.
 			NonRetryableErrorPatterns: nil,
+			ToolOutputSpillBytes:      DefaultToolOutputSpillBytes,
+			RepeatToolCallThresholds:  DefaultRepeatToolCallThresholds(),
 		},
 		Auth: AuthConfig{
 			RegistrationOpen: true,
@@ -771,6 +783,59 @@ func NormalizeNonRetryableErrorPatterns(patterns []string) []string {
 	return normalized
 }
 
+// Bounds on the model-facing tool output cap. The floor keeps a mistyped value
+// from spilling results so small that the preview carries nothing useful, and
+// the ceiling keeps the setting from being a way to disable spilling by
+// pretending to enable it.
+const (
+	DefaultToolOutputSpillBytes = 50000
+	MinToolOutputSpillBytes     = 1024
+	MaxToolOutputSpillBytes     = 4 << 20
+)
+
+// Bounds on the repeat-call escalation ladder. A threshold below 2 is not a
+// repeat, and a ladder longer than this would keep nudging a model that has
+// already been told twice.
+const (
+	MinRepeatToolCallThreshold   = 2
+	MaxRepeatToolCallThreshold   = 1000
+	MaxRepeatToolCallThresholds  = 8
+	RepeatToolCallArgumentsBytes = 500
+)
+
+func DefaultRepeatToolCallThresholds() []int { return []int{3, 5, 8} }
+
+// NormalizeRepeatToolCallThresholds drops values that cannot describe a repeat,
+// de-duplicates, and sorts ascending because the escalation rule reads the first
+// entry as the gentle tier. A list that normalizes to nothing disables the
+// detector rather than falling back to the shipped ladder: a user who narrowed
+// the setting to values this rejects asked for less nudging, not the default.
+func NormalizeRepeatToolCallThresholds(thresholds []int) []int {
+	if len(thresholds) == 0 {
+		return nil
+	}
+	seen := make(map[int]struct{}, len(thresholds))
+	normalized := make([]int, 0, len(thresholds))
+	for _, threshold := range thresholds {
+		if threshold < MinRepeatToolCallThreshold || threshold > MaxRepeatToolCallThreshold {
+			continue
+		}
+		if _, exists := seen[threshold]; exists {
+			continue
+		}
+		seen[threshold] = struct{}{}
+		normalized = append(normalized, threshold)
+		if len(normalized) == MaxRepeatToolCallThresholds {
+			break
+		}
+	}
+	if len(normalized) == 0 {
+		return nil
+	}
+	sort.Ints(normalized)
+	return normalized
+}
+
 func normalizeAgentConfig(agent AgentConfig) AgentConfig {
 	agent.DefaultModel = strings.TrimSpace(agent.DefaultModel)
 	agent.SummaryModel = strings.TrimSpace(agent.SummaryModel)
@@ -848,6 +913,17 @@ func normalizeAgentConfig(agent AgentConfig) AgentConfig {
 	} else if agent.StreamIdleTimeoutMs > 3600000 {
 		agent.StreamIdleTimeoutMs = 3600000
 	}
+	// Zero is off, matching StreamIdleTimeoutMs. A negative cap cannot describe
+	// a byte budget, so it means off too rather than an error at every oversized
+	// tool result.
+	if agent.ToolOutputSpillBytes < 0 {
+		agent.ToolOutputSpillBytes = 0
+	} else if agent.ToolOutputSpillBytes > 0 && agent.ToolOutputSpillBytes < MinToolOutputSpillBytes {
+		agent.ToolOutputSpillBytes = MinToolOutputSpillBytes
+	} else if agent.ToolOutputSpillBytes > MaxToolOutputSpillBytes {
+		agent.ToolOutputSpillBytes = MaxToolOutputSpillBytes
+	}
+	agent.RepeatToolCallThresholds = NormalizeRepeatToolCallThresholds(agent.RepeatToolCallThresholds)
 	return agent
 }
 

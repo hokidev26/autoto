@@ -43,7 +43,16 @@ type ContextTokenStatus struct {
 	PruneEnabled    bool               `json:"pruneEnabled"`
 	HasSummary      bool               `json:"hasSummary"`
 	Estimated       bool               `json:"estimated"`
+	// EstimateBasis is "calibrated" once a real provider-reported input-token
+	// count has been folded into the estimate, otherwise "heuristic".
+	EstimateBasis         string `json:"estimateBasis"`
+	LastActualInputTokens int64  `json:"lastActualInputTokens"`
 }
+
+const (
+	contextEstimateBasisHeuristic  = "heuristic"
+	contextEstimateBasisCalibrated = "calibrated"
+)
 
 func (r *Runner) SetContextManagementConfig(value config.ContextManagementConfig) {
 	if r == nil {
@@ -89,6 +98,16 @@ func (r *Runner) contextStatusForAgent(agent db.Agent, messages []db.Message, to
 	limit := r.contextTokenLimit(agent.Model)
 	request := providerMessagesForContextWithKeep(agent, messages, r.ContextManagementConfig().CompactKeepTurns)
 	estimated := estimateRequestTokens(agent.SystemPrompt, request, toolSpecs)
+	// The status path loads messages without binary data, so image costs are
+	// supplemented from stored metadata to match what a turn would send.
+	estimated += estimateContextImageMetadataTokens(messages, agent.PruneBoundaryMessageID)
+	basis := contextEstimateBasisHeuristic
+	var lastActual int64
+	if ratio, sample, ok := r.contextCalibrationRatio(agent.ID, agent.Model); ok {
+		estimated = calibrateContextTokens(estimated, ratio)
+		basis = contextEstimateBasisCalibrated
+		lastActual = sample.ActualTokens
+	}
 	usage := 0
 	if limit > 0 {
 		usage = estimated * 100 / limit
@@ -106,18 +125,20 @@ func (r *Runner) contextStatusForAgent(agent db.Agent, messages []db.Message, to
 		latest = messages[len(messages)-1].ID
 	}
 	return ContextTokenStatus{
-		EstimatedTokens: estimated,
-		LimitTokens:     limit,
-		UsagePercent:    usage,
-		WindowClass:     class,
-		Thresholds:      ContextThresholds{PruneStartPercent: window.PruneStart, CompactStartPercent: window.CompactStart, MinPrunePercent: cfg.MinPrunePercent, MaxPrunePercent: cfg.MaxPrunePercent, KeepTurns: cfg.CompactKeepTurns},
-		CanCompact:      canCompact,
-		CanClear:        len(messages) > 0 && (compacted < len(messages) || strings.TrimSpace(agent.ContextSummary) != ""),
-		LatestMessageID: latest,
-		MessageCount:    len(messages),
-		PruneEnabled:    agent.PruneEnabled,
-		HasSummary:      strings.TrimSpace(agent.ContextSummary) != "",
-		Estimated:       true,
+		EstimatedTokens:       estimated,
+		LimitTokens:           limit,
+		UsagePercent:          usage,
+		WindowClass:           class,
+		Thresholds:            ContextThresholds{PruneStartPercent: window.PruneStart, CompactStartPercent: window.CompactStart, MinPrunePercent: cfg.MinPrunePercent, MaxPrunePercent: cfg.MaxPrunePercent, KeepTurns: cfg.CompactKeepTurns},
+		CanCompact:            canCompact,
+		CanClear:              len(messages) > 0 && (compacted < len(messages) || strings.TrimSpace(agent.ContextSummary) != ""),
+		LatestMessageID:       latest,
+		MessageCount:          len(messages),
+		PruneEnabled:          agent.PruneEnabled,
+		HasSummary:            strings.TrimSpace(agent.ContextSummary) != "",
+		Estimated:             true,
+		EstimateBasis:         basis,
+		LastActualInputTokens: lastActual,
 	}
 }
 
@@ -343,20 +364,22 @@ func (r *Runner) ContextStatusForEvent(agent db.Agent, messages []db.Message) ma
 func (r *Runner) contextUpdatedData(agent db.Agent, messages []db.Message, toolSpecs []providers.ToolSpec) map[string]any {
 	status := r.contextStatusForAgent(agent, messages, toolSpecs)
 	return map[string]any{
-		"entityGeneration": agent.EntityGeneration,
-		"messageCount":     status.MessageCount,
-		"prunedPercent":    agent.PrunedPercent,
-		"pruneEnabled":     agent.PruneEnabled,
-		"estimatedTokens":  status.EstimatedTokens,
-		"limitTokens":      status.LimitTokens,
-		"usagePercent":     status.UsagePercent,
-		"windowClass":      status.WindowClass,
-		"thresholds":       status.Thresholds,
-		"canCompact":       status.CanCompact,
-		"canClear":         status.CanClear,
-		"latestMessageId":  status.LatestMessageID,
-		"hasSummary":       status.HasSummary,
-		"estimated":        true,
+		"entityGeneration":      agent.EntityGeneration,
+		"messageCount":          status.MessageCount,
+		"prunedPercent":         agent.PrunedPercent,
+		"pruneEnabled":          agent.PruneEnabled,
+		"estimatedTokens":       status.EstimatedTokens,
+		"limitTokens":           status.LimitTokens,
+		"usagePercent":          status.UsagePercent,
+		"windowClass":           status.WindowClass,
+		"thresholds":            status.Thresholds,
+		"canCompact":            status.CanCompact,
+		"canClear":              status.CanClear,
+		"latestMessageId":       status.LatestMessageID,
+		"hasSummary":            status.HasSummary,
+		"estimated":             true,
+		"estimateBasis":         status.EstimateBasis,
+		"lastActualInputTokens": status.LastActualInputTokens,
 	}
 }
 

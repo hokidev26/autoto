@@ -243,7 +243,10 @@ func TestGatewayAnthropicNonStreamingSupportsAPIKeyImagesToolsAndHistory(t *test
 	if err := json.Unmarshal(response.Body.Bytes(), &result); err != nil {
 		t.Fatal(err)
 	}
-	if result.Type != "message" || result.Role != "assistant" || result.Model != "shared" || result.StopReason == nil || *result.StopReason != "tool_use" || result.Usage.InputTokens != 25 || len(result.Content) != 2 {
+	// The backend reported 25 input tokens with 2 of them cached; on the
+	// Anthropic wire input_tokens excludes cache reads, so the response must
+	// carry 23 + 2 rather than repeat the subset inside the total.
+	if result.Type != "message" || result.Role != "assistant" || result.Model != "shared" || result.StopReason == nil || *result.StopReason != "tool_use" || result.Usage.InputTokens != 23 || result.Usage.CacheReadInputTokens != 2 || len(result.Content) != 2 {
 		t.Fatalf("unexpected Anthropic response: %+v", result)
 	}
 	if result.Content[0].Type != "text" || result.Content[0].Text != "answer" || result.Content[1].Type != "tool_use" || result.Content[1].ID != "toolu-new" || string(result.Content[1].Input) != `{"query":"new"}` {

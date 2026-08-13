@@ -12,6 +12,7 @@ import {
   defaultContextSettings,
   normalizeContextSettings,
   normalizeContextStatus,
+  summaryModelWarningVisible,
   validateContextSettings,
 } from "./context-management.mjs";
 
@@ -100,6 +101,55 @@ test("context status normalizes token usage, preferences, and standard/large thr
     thresholds: { pruneStartPercent: 99, compactStartPercent: 95 },
   });
   assert.equal(contextUsageTone(directCompact), "warning");
+});
+
+test("context status parses summary text, calibration fields, and the summary-model warning gate", () => {
+  const defaults = normalizeContextStatus({});
+  assert.equal(defaults.summaryText, "");
+  assert.equal(defaults.estimateBasis, "heuristic");
+  assert.equal(defaults.lastActualInputTokens, 0);
+  assert.equal(defaults.summaryModelConfigured, true);
+
+  const parsed = normalizeContextStatus({
+    estimatedTokens: 80,
+    limitTokens: 100,
+    estimated: true,
+    hasSummary: true,
+    summaryText: "compressed transcript",
+    estimateBasis: "calibrated",
+    lastActualInputTokens: 90210,
+    summaryModelConfigured: false,
+  });
+  assert.equal(parsed.summaryText, "compressed transcript");
+  assert.equal(parsed.estimateBasis, "calibrated");
+  assert.equal(parsed.lastActualInputTokens, 90210);
+  assert.equal(parsed.summaryModelConfigured, false);
+
+  // Unknown bases collapse to the heuristic default; token counts never go negative.
+  assert.equal(normalizeContextStatus({ estimateBasis: "Calibrated" }).estimateBasis, "calibrated");
+  assert.equal(normalizeContextStatus({ estimateBasis: "something-else" }).estimateBasis, "heuristic");
+  assert.equal(normalizeContextStatus({ lastActualInputTokens: -5 }).lastActualInputTokens, 0);
+  assert.equal(normalizeContextStatus({ summaryText: null }).summaryText, "");
+
+  assert.equal(summaryModelWarningVisible({}), false);
+  assert.equal(summaryModelWarningVisible({ summaryModelConfigured: false }), true);
+  assert.equal(summaryModelWarningVisible(normalizeContextStatus({ summaryModelConfigured: false })), true);
+  assert.equal(summaryModelWarningVisible(normalizeContextStatus({ summaryModelConfigured: true })), false);
+});
+
+test("context usage above 100% keeps the real number while the ring clamps at full", () => {
+  assert.equal(contextUsagePercentage({ usagePercent: 250 }), 250);
+  assert.equal(contextUsagePercentage({ usagePercent: 5000 }), 999);
+  assert.equal(contextUsagePercentage({ estimatedTokens: 200, limit: 100 }), 200);
+
+  const overflow = normalizeContextStatus({ estimatedTokens: 200, limit: 100 });
+  assert.equal(overflow.known, true);
+  assert.equal(overflow.percentage, 200);
+  assert.equal(contextUsageTone(overflow), "danger");
+  const ring = contextRingGeometry(overflow);
+  assert.equal(ring.tone, "danger");
+  assert.equal(ring.percentage, 100);
+  assert.equal(ring.offset, 0);
 });
 
 test("context ring returns SVG geometry, theme track, and threshold tones", () => {
@@ -260,6 +310,52 @@ test("controller uses one API path for preferences, compact, and logical clear c
   await controller.reset(null);
 });
 
+test("summary viewer refetches status on open, shows the text, and falls back when it is missing", async () => {
+  const stubs = browserStubs();
+  const summaryTextNode = { textContent: "" };
+  const updatedAtNode = { textContent: "" };
+  stubs.document.getElementById = (id) => {
+    if (id === "contextSummaryText") return summaryTextNode;
+    if (id === "contextUpdatedAt") return updatedAtNode;
+    return null;
+  };
+  const agent = { id: "agent-summary", entityGeneration: 1 };
+  const requests = [];
+  let summaryText = "full compaction summary";
+  const controller = createContextManagementController({
+    async request(path, options = {}) {
+      requests.push([path, options.method]);
+      return { context: { estimatedTokens: 10, limitTokens: 100, estimated: true, hasSummary: true, summaryText } };
+    },
+    getAgent: () => agent,
+    translate: (key, params = {}) => (params.time ? `${key}|${params.time}` : key),
+    document: stubs.document,
+    window: stubs.window,
+  });
+
+  await controller.setAgent(agent);
+  assert.equal(controller.getStatus().hasSummary, true);
+  assert.equal(controller.getStatus().summaryText, "full compaction summary");
+  // The panel records the client-side apply time; the backend sends no updatedAt.
+  assert.match(updatedAtNode.textContent, /^context\.updatedAt\|./);
+
+  // Opening the viewer issues a fresh GET because context.updated events never
+  // carry summaryText.
+  assert.equal(await controller.toggleSummary(), true);
+  assert.deepEqual(requests, [
+    ["/api/agents/agent-summary/context", "GET"],
+    ["/api/agents/agent-summary/context", "GET"],
+  ]);
+  assert.equal(summaryTextNode.textContent, "full compaction summary");
+
+  assert.equal(await controller.toggleSummary(), false, "second toggle collapses without a request");
+  assert.equal(requests.length, 2);
+
+  summaryText = "";
+  assert.equal(await controller.toggleSummary(), true);
+  assert.equal(summaryTextNode.textContent, "context.summaryUnavailable");
+});
+
 test("static shell mounts one shared context ring, accessible overlays, APIs, and cache stamps", async () => {
   const [html, styles, app, appMain, uiShell, i18n, contextModule, selectMenus] = await Promise.all([
     readFile(indexURL, "utf8"),
@@ -280,7 +376,15 @@ test("static shell mounts one shared context ring, accessible overlays, APIs, an
     "contextClearBtn", "contextClearConfirmation", "contextThresholdBtn", "contextThresholdModal", "contextThresholdForm",
     "contextRetainTurns", "contextMaxPrunePercent", "contextMinPrunePercent", "contextStandardPruneStart",
     "contextStandardCompactStart", "contextLargePruneStart", "contextLargeCompactStart",
+    "contextSummaryModelWarning", "contextEstimateBasis", "contextSummaryViewBtn", "contextSummaryView", "contextSummaryText",
   ]) assert.match(html, new RegExp(`id="${id}"`), id);
+  assert.match(html, /id="contextSummaryViewBtn"[^>]*aria-expanded="false"[^>]*aria-controls="contextSummaryView"/);
+  assert.match(html, /id="contextSummaryText"[^>]*role="region"[^>]*tabindex="0"/);
+  assert.match(html, /data-i18n="context\.thresholdGlobalNote"/);
+  assert.match(styles, /\.context-management-warning/);
+  assert.match(styles, /\.context-summary-text[\s\S]*?overflow:\s*auto/);
+  assert.match(appMain, /event\.data\?\.modelSummary === false/);
+  assert.match(appMain, /context\.compactionDegraded/);
   assert.match(html, /只会清空提供给后续模型的逻辑上下文，不会删除聊天记录/);
   assert.doesNotMatch(html, /id="contextLargeWindowTokens"/);
   assert.match(html, /id="contextUsagePanel"[^>]*role="dialog"[^>]*aria-labelledby="contextUsageTitle"/);

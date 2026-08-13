@@ -702,8 +702,9 @@
         </header>
         <div id="contextManagementError" class="context-management-error hidden" role="alert"></div>
         <p id="contextManagementReadOnly" class="context-management-readonly hidden" data-i18n="context.readOnly">当前远端会话只能查看上下文状态。</p>
+        <p id="contextSummaryModelWarning" class="context-management-warning hidden" data-i18n="context.summaryModelWarning">未设置摘要模型：压缩仍会执行，但会退回质量较低的本地摘要。建议在系统设置中指定摘要模型。</p>
         <dl class="context-metrics">
-          <div><dt data-i18n="context.estimatedTokens">预估 Token</dt><dd id="contextEstimatedTokens">—</dd></div>
+          <div><dt data-i18n="context.estimatedTokens">预估 Token</dt><dd><span id="contextEstimatedTokens">—</span><small id="contextEstimateBasis" class="context-estimate-basis hidden"></small></dd></div>
           <div><dt data-i18n="context.limit">窗口上限</dt><dd id="contextTokenLimit">—</dd></div>
           <div><dt data-i18n="context.percentage">已使用</dt><dd id="contextUsagePercentage">—</dd></div>
           <div><dt data-i18n="context.windowType">窗口类型</dt><dd id="contextWindowKind">标准窗口</dd></div>
@@ -724,8 +725,12 @@
         <div class="context-management-actions">
           <button id="contextCompactBtn" class="context-action primary" type="button" data-i18n="context.compactNow">立即压缩</button>
           <button id="contextRetainBtn" class="context-action" type="button" data-i18n="context.retainSummary">留存摘要</button>
+          <button id="contextSummaryViewBtn" class="context-action" type="button" aria-expanded="false" aria-controls="contextSummaryView" data-i18n="context.viewSummary">查看摘要</button>
           <button id="contextClearBtn" class="context-action danger" type="button" data-i18n="context.clear">清空上下文</button>
           <button id="contextThresholdBtn" class="context-action" type="button" data-i18n="context.thresholdSettings">阈值设置</button>
+        </div>
+        <div id="contextSummaryView" class="context-summary-view hidden" aria-hidden="true">
+          <div id="contextSummaryText" class="context-summary-text" role="region" tabindex="0" aria-label="压缩摘要" data-i18n-aria-label="context.summaryViewLabel"></div>
         </div>
         <p id="contextRetainHint" class="context-management-readonly hidden" data-i18n="context.retainHint">压缩后的摘要会被后续压缩覆盖。留存会复制一份成为这个对话专属的记忆，之后不再被覆盖，清空上下文也不会删除。</p>
         <div id="contextClearConfirmation" class="context-clear-confirmation hidden" role="alertdialog" aria-labelledby="contextClearConfirmTitle" aria-describedby="contextClearConfirmDescription">
@@ -750,6 +755,7 @@
           <button id="closeContextThresholdBtn" class="context-management-close" type="button" data-i18n-aria-label="context.closeThresholds" aria-label="关闭阈值设置">×</button>
         </header>
         <div id="contextThresholdError" class="context-management-error" role="alert"></div>
+        <p class="context-threshold-help context-threshold-scope" data-i18n="context.thresholdGlobalNote">此设置为全局设置：会应用于所有对话，而不仅是当前对话。</p>
         <div class="context-threshold-fields">
           <label><span data-i18n="context.fields.retainTurns">保留轮数</span><input id="contextRetainTurns" type="number" min="1" max="100" step="1" value="2" /></label>
           <label><span data-i18n="context.fields.maxPrunePercent">最大裁剪</span><span class="context-suffix-input"><input id="contextMaxPrunePercent" type="number" min="1" max="100" step="1" value="80" /><em>%</em></span></label>

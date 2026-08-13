@@ -26,6 +26,7 @@ var specSidecarTaskTextBudgets = []int{specSidecarTaskTextMaxBytes, 384, 256, 12
 type turnSystemControls struct {
 	spec         *specSidecarCandidate
 	progress     *providers.Message
+	repeat       *providers.Message
 	continuation *providers.Message
 	pipeline     *providers.Message
 }
@@ -119,16 +120,27 @@ func (controls turnSystemControls) requiredMessages() []providers.Message {
 	return out
 }
 
+// advisoryMessages are the controls that nudge without carrying an obligation.
+// They are grouped because the budget fitter admits them together or not at all.
+func (controls turnSystemControls) advisoryMessages() []providers.Message {
+	out := make([]providers.Message, 0, 2)
+	if controls.progress != nil {
+		out = append(out, *controls.progress)
+	}
+	if controls.repeat != nil {
+		out = append(out, *controls.repeat)
+	}
+	return out
+}
+
 func (controls turnSystemControls) preferredMessages() []providers.Message {
-	out := make([]providers.Message, 0, 4)
+	out := make([]providers.Message, 0, 5)
 	if controls.spec != nil {
 		if message, ok := controls.spec.messageWithinTokenBudget(specSidecarMaxBytes); ok {
 			out = append(out, message)
 		}
 	}
-	if controls.progress != nil {
-		out = append(out, *controls.progress)
-	}
+	out = append(out, controls.advisoryMessages()...)
 	if controls.continuation != nil {
 		out = append(out, *controls.continuation)
 	}
@@ -155,17 +167,15 @@ func fitTurnSystemControls(systemPrompt string, conversation []providers.Message
 		}
 	}
 
-	var progress []providers.Message
-	if controls.progress != nil {
-		candidate := []providers.Message{*controls.progress}
-		candidate = append(candidate, required...)
-		if estimateRequestTokens(systemPrompt, appendProviderMessages(conversation, candidate), toolSpecs) <= limit {
-			progress = []providers.Message{*controls.progress}
+	var advisory []providers.Message
+	if candidates := controls.advisoryMessages(); len(candidates) > 0 {
+		if estimateRequestTokens(systemPrompt, appendProviderMessages(conversation, appendProviderMessages(candidates, required)), toolSpecs) <= limit {
+			advisory = candidates
 		}
 	}
 
-	withoutSpec := make([]providers.Message, 0, len(progress)+len(required))
-	withoutSpec = append(withoutSpec, progress...)
+	withoutSpec := make([]providers.Message, 0, len(advisory)+len(required))
+	withoutSpec = append(withoutSpec, advisory...)
 	withoutSpec = append(withoutSpec, required...)
 	usedTokens := estimateRequestTokens(systemPrompt, appendProviderMessages(conversation, withoutSpec), toolSpecs)
 
@@ -176,9 +186,9 @@ func fitTurnSystemControls(systemPrompt string, conversation []providers.Message
 		}
 	}
 
-	fitted := make([]providers.Message, 0, len(spec)+len(progress)+len(required))
+	fitted := make([]providers.Message, 0, len(spec)+len(advisory)+len(required))
 	fitted = append(fitted, spec...)
-	fitted = append(fitted, progress...)
+	fitted = append(fitted, advisory...)
 	fitted = append(fitted, required...)
 	finalTokens := estimateRequestTokens(systemPrompt, appendProviderMessages(conversation, fitted), toolSpecs)
 	if finalTokens > limit {
@@ -340,6 +350,23 @@ func truncateUTF8Bytes(text string, maxBytes int) (string, bool) {
 		end--
 	}
 	return strings.TrimSpace(string(encoded[:end])), true
+}
+
+// tailUTF8Bytes is the closing counterpart of truncateUTF8Bytes: the last
+// maxBytes bytes, moved forward to a rune boundary.
+func tailUTF8Bytes(text string, maxBytes int) string {
+	if maxBytes <= 0 {
+		return ""
+	}
+	encoded := []byte(text)
+	if len(encoded) <= maxBytes {
+		return text
+	}
+	start := len(encoded) - maxBytes
+	for start < len(encoded) && !utf8.Valid(encoded[start:]) {
+		start++
+	}
+	return strings.TrimSpace(string(encoded[start:]))
 }
 
 func silentProgressControlMessage(toolCalls int) providers.Message {

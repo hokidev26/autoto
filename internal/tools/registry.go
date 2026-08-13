@@ -64,6 +64,8 @@ func RegisterCore(registry *Registry) {
 	registry.Register(MultiEditTool{})
 	registry.Register(BashTool{})
 	registry.Register(AgentTool{})
+	registry.Register(AgentSnapshotTool{})
+	registry.Register(AgentSendMessageTool{})
 	registry.Register(TaskTool{})
 	registry.Register(ContextAskTool{})
 	registry.Register(AskUserQuestionTool{})
