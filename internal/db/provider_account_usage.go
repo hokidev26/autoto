@@ -33,7 +33,7 @@ type ProviderAccountUsage struct {
 // ListProviderAccountUsage returns usage grouped by credential_id in one query.
 // Requests without a credential_id are intentionally excluded because they
 // cannot be safely attributed to a specific account.
-func (s *Store) ListProviderAccountUsage(ctx context.Context, provider string, accountIDs []string, now time.Time) (map[string]ProviderAccountUsage, error) {
+func (s *providerAccountStore) ListProviderAccountUsage(ctx context.Context, provider string, accountIDs []string, now time.Time) (map[string]ProviderAccountUsage, error) {
 	if s == nil || s.db == nil {
 		return nil, errors.New("database store is unavailable")
 	}

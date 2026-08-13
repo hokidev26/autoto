@@ -12,7 +12,7 @@ import (
 
 var generatedImageStorageKeyRE = regexp.MustCompile(`^objects/([0-9a-f]{2})/([0-9a-f]{64})\.png$`)
 
-func (s *Store) InsertGeneratedImage(ctx context.Context, image GeneratedImage) (GeneratedImage, error) {
+func (s *generatedImageStore) InsertGeneratedImage(ctx context.Context, image GeneratedImage) (GeneratedImage, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return GeneratedImage{}, err
@@ -28,13 +28,13 @@ func (s *Store) InsertGeneratedImage(ctx context.Context, image GeneratedImage) 
 	return stored, nil
 }
 
-func (s *Store) GetGeneratedImage(ctx context.Context, agentID, messageID, assetID string) (GeneratedImage, error) {
+func (s *generatedImageStore) GetGeneratedImage(ctx context.Context, agentID, messageID, assetID string) (GeneratedImage, error) {
 	var image GeneratedImage
 	err := scanGeneratedImage(s.db.QueryRowContext(ctx, generatedImageSelect+` WHERE agent_id = ? AND message_id = ? AND id = ?`, agentID, messageID, assetID), &image)
 	return image, err
 }
 
-func (s *Store) ListGeneratedImagesByMessage(ctx context.Context, agentID, messageID string) ([]GeneratedImage, error) {
+func (s *generatedImageStore) ListGeneratedImagesByMessage(ctx context.Context, agentID, messageID string) ([]GeneratedImage, error) {
 	rows, err := s.db.QueryContext(ctx, generatedImageSelect+` WHERE agent_id = ? AND message_id = ? ORDER BY output_index ASC, created_at ASC, id ASC`, agentID, messageID)
 	if err != nil {
 		return nil, err
@@ -51,7 +51,7 @@ func (s *Store) ListGeneratedImagesByMessage(ctx context.Context, agentID, messa
 	return images, rows.Err()
 }
 
-func (s *Store) ListReferencedGeneratedImageStorageKeys(ctx context.Context) (map[string]struct{}, error) {
+func (s *generatedImageStore) ListReferencedGeneratedImageStorageKeys(ctx context.Context) (map[string]struct{}, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT DISTINCT storage_key FROM agent_message_generated_images`)
 	if err != nil {
 		return nil, err
@@ -68,7 +68,7 @@ func (s *Store) ListReferencedGeneratedImageStorageKeys(ctx context.Context) (ma
 	return keys, rows.Err()
 }
 
-func (s *Store) SetGeneratedImageStatus(ctx context.Context, agentID, messageID, assetID, status string) error {
+func (s *generatedImageStore) SetGeneratedImageStatus(ctx context.Context, agentID, messageID, assetID, status string) error {
 	if status != "ready" && status != "unavailable" {
 		return errors.New("invalid generated image status")
 	}
@@ -86,7 +86,7 @@ func (s *Store) SetGeneratedImageStatus(ctx context.Context, agentID, messageID,
 	return nil
 }
 
-func (s *Store) DeleteGeneratedImage(ctx context.Context, agentID, messageID, assetID string) error {
+func (s *generatedImageStore) DeleteGeneratedImage(ctx context.Context, agentID, messageID, assetID string) error {
 	result, err := s.db.ExecContext(ctx, `DELETE FROM agent_message_generated_images WHERE agent_id = ? AND message_id = ? AND id = ?`, agentID, messageID, assetID)
 	if err != nil {
 		return err
@@ -103,7 +103,7 @@ func (s *Store) DeleteGeneratedImage(ctx context.Context, agentID, messageID, as
 
 // AddMessageWithGeneratedImages atomically stores an assistant message and its
 // lightweight disk-asset metadata. The caller must publish all files first.
-func (s *Store) AddMessageWithGeneratedImages(ctx context.Context, msg Message, images []GeneratedImage) (Message, error) {
+func (s *generatedImageStore) AddMessageWithGeneratedImages(ctx context.Context, msg Message, images []GeneratedImage) (Message, error) {
 	if msg.Role != "assistant" {
 		return Message{}, errors.New("generated images require an assistant message")
 	}
@@ -152,7 +152,7 @@ func (s *Store) AddMessageWithGeneratedImages(ctx context.Context, msg Message, 
 //
 // idx_generated_images_message is (message_id, output_index, id), so both the
 // lookup and the ordering below are index-served.
-func (s *Store) populateMessageGeneratedImages(ctx context.Context, messages []Message) error {
+func (s *generatedImageStore) populateMessageGeneratedImages(ctx context.Context, messages []Message) error {
 	if len(messages) == 0 {
 		return nil
 	}

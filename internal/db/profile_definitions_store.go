@@ -108,7 +108,7 @@ func definitionStoreSchemaSQL(spec definitionStoreSpec) string {
 	return spec.schemaSQL
 }
 
-func (s *Store) ensureDefinitionTables(ctx context.Context, spec definitionStoreSpec) error {
+func (s *storedDefStore) ensureDefinitionTables(ctx context.Context, spec definitionStoreSpec) error {
 	_, err := s.db.ExecContext(ctx, definitionStoreSchemaSQL(spec))
 	return err
 }
@@ -133,7 +133,7 @@ func insertStoredDefinitionRevision(ctx context.Context, tx *sql.Tx, spec defini
 	return err
 }
 
-func (s *Store) createStoredDefinition(ctx context.Context, spec definitionStoreSpec, target DefinitionScopeTarget, key, displayName, summary, body string) (storedDefinition, error) {
+func (s *storedDefStore) createStoredDefinition(ctx context.Context, spec definitionStoreSpec, target DefinitionScopeTarget, key, displayName, summary, body string) (storedDefinition, error) {
 	if err := s.ensureDefinitionTables(ctx, spec); err != nil {
 		return storedDefinition{}, err
 	}
@@ -165,7 +165,7 @@ func (s *Store) createStoredDefinition(ctx context.Context, spec definitionStore
 	return value, nil
 }
 
-func (s *Store) getStoredDefinition(ctx context.Context, spec definitionStoreSpec, id string, includeDeleted bool) (storedDefinition, error) {
+func (s *storedDefStore) getStoredDefinition(ctx context.Context, spec definitionStoreSpec, id string, includeDeleted bool) (storedDefinition, error) {
 	if err := s.ensureDefinitionTables(ctx, spec); err != nil {
 		return storedDefinition{}, err
 	}
@@ -176,7 +176,7 @@ func (s *Store) getStoredDefinition(ctx context.Context, spec definitionStoreSpe
 	return scanStoredDefinition(s.db.QueryRowContext(ctx, query, id))
 }
 
-func (s *Store) listStoredDefinitions(ctx context.Context, spec definitionStoreSpec, target DefinitionScopeTarget) ([]storedDefinition, error) {
+func (s *storedDefStore) listStoredDefinitions(ctx context.Context, spec definitionStoreSpec, target DefinitionScopeTarget) ([]storedDefinition, error) {
 	if err := s.ensureDefinitionTables(ctx, spec); err != nil {
 		return nil, err
 	}
@@ -200,7 +200,7 @@ func (s *Store) listStoredDefinitions(ctx context.Context, spec definitionStoreS
 	return result, rows.Err()
 }
 
-func (s *Store) updateStoredDefinitionCAS(ctx context.Context, spec definitionStoreSpec, id string, expectedRevision int64, key, displayName, summary, body string) (storedDefinition, error) {
+func (s *storedDefStore) updateStoredDefinitionCAS(ctx context.Context, spec definitionStoreSpec, id string, expectedRevision int64, key, displayName, summary, body string) (storedDefinition, error) {
 	if expectedRevision < 1 {
 		return storedDefinition{}, errors.New("expected revision must be positive")
 	}
@@ -245,7 +245,7 @@ func (s *Store) updateStoredDefinitionCAS(ctx context.Context, spec definitionSt
 	return current, nil
 }
 
-func (s *Store) deleteStoredDefinitionCAS(ctx context.Context, spec definitionStoreSpec, id string, expectedRevision int64) (storedDefinition, error) {
+func (s *storedDefStore) deleteStoredDefinitionCAS(ctx context.Context, spec definitionStoreSpec, id string, expectedRevision int64) (storedDefinition, error) {
 	if expectedRevision < 1 {
 		return storedDefinition{}, errors.New("expected revision must be positive")
 	}
@@ -286,7 +286,7 @@ func (s *Store) deleteStoredDefinitionCAS(ctx context.Context, spec definitionSt
 	return current, nil
 }
 
-func (s *Store) listStoredDefinitionRevisions(ctx context.Context, spec definitionStoreSpec, id string) ([]storedDefinitionRevision, error) {
+func (s *storedDefStore) listStoredDefinitionRevisions(ctx context.Context, spec definitionStoreSpec, id string) ([]storedDefinitionRevision, error) {
 	if err := s.ensureDefinitionTables(ctx, spec); err != nil {
 		return nil, err
 	}
@@ -306,7 +306,7 @@ func (s *Store) listStoredDefinitionRevisions(ctx context.Context, spec definiti
 	return result, rows.Err()
 }
 
-func (s *Store) restoreStoredDefinitionCAS(ctx context.Context, spec definitionStoreSpec, id string, sourceRevision, expectedRevision int64) (storedDefinition, error) {
+func (s *storedDefStore) restoreStoredDefinitionCAS(ctx context.Context, spec definitionStoreSpec, id string, sourceRevision, expectedRevision int64) (storedDefinition, error) {
 	if sourceRevision < 1 || expectedRevision < 1 {
 		return storedDefinition{}, errors.New("source and expected revisions must be positive")
 	}

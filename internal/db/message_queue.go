@@ -182,7 +182,7 @@ func scanQueuedMessages(rows *sql.Rows) ([]QueuedMessage, error) {
 }
 
 // ListQueuedMessages returns the backlog in send order.
-func (s *Store) ListQueuedMessages(ctx context.Context, agentID string) ([]QueuedMessage, error) {
+func (s *messageStore) ListQueuedMessages(ctx context.Context, agentID string) ([]QueuedMessage, error) {
 	if strings.TrimSpace(agentID) == "" {
 		return nil, ErrQueuedMessageInvalid
 	}
@@ -211,7 +211,7 @@ func (s *Store) ListQueuedMessages(ctx context.Context, agentID string) ([]Queue
 }
 
 // EnqueueMessage appends to the end of an agent's backlog.
-func (s *Store) EnqueueMessage(ctx context.Context, item QueuedMessage) (QueuedMessage, error) {
+func (s *messageStore) EnqueueMessage(ctx context.Context, item QueuedMessage) (QueuedMessage, error) {
 	if strings.TrimSpace(item.AgentID) == "" || !validQueuedContent(item.Text, item.Attachments) {
 		return QueuedMessage{}, ErrQueuedMessageInvalid
 	}
@@ -263,7 +263,7 @@ func (s *Store) EnqueueMessage(ctx context.Context, item QueuedMessage) (QueuedM
 
 // UpdateQueuedMessageText rewrites a parked message in place, keeping its spot
 // in the queue so editing does not send it to the back.
-func (s *Store) UpdateQueuedMessageText(ctx context.Context, agentID, id, text string) (QueuedMessage, error) {
+func (s *messageStore) UpdateQueuedMessageText(ctx context.Context, agentID, id, text string) (QueuedMessage, error) {
 	if strings.TrimSpace(agentID) == "" || strings.TrimSpace(id) == "" || !validQueuedText(text) {
 		return QueuedMessage{}, ErrQueuedMessageInvalid
 	}
@@ -281,7 +281,7 @@ func (s *Store) UpdateQueuedMessageText(ctx context.Context, agentID, id, text s
 	return s.getQueuedMessage(ctx, agentID, id)
 }
 
-func (s *Store) getQueuedMessage(ctx context.Context, agentID, id string) (QueuedMessage, error) {
+func (s *messageStore) getQueuedMessage(ctx context.Context, agentID, id string) (QueuedMessage, error) {
 	var item QueuedMessage
 	err := s.db.QueryRowContext(ctx, `SELECT `+queuedMessageColumns+` FROM agent_message_queue WHERE id = ? AND agent_id = ?`, id, agentID).
 		Scan(&item.ID, &item.AgentID, &item.CreatedBy, &item.Text, &item.RunMode, &item.RunContext, &item.Position, &item.CreatedAt, &item.UpdatedAt)
@@ -300,7 +300,7 @@ func (s *Store) getQueuedMessage(ctx context.Context, agentID, id string) (Queue
 }
 
 // DeleteQueuedMessage drops one parked message.
-func (s *Store) DeleteQueuedMessage(ctx context.Context, agentID, id string) error {
+func (s *messageStore) DeleteQueuedMessage(ctx context.Context, agentID, id string) error {
 	if strings.TrimSpace(agentID) == "" || strings.TrimSpace(id) == "" {
 		return ErrQueuedMessageInvalid
 	}
@@ -321,7 +321,7 @@ func (s *Store) DeleteQueuedMessage(ctx context.Context, agentID, id string) err
 // ClaimNextQueuedMessage removes and returns the head of the queue in one
 // statement. Deleting as part of the claim is what stops two drain attempts
 // from sending the same message twice.
-func (s *Store) ClaimNextQueuedMessage(ctx context.Context, agentID string) (QueuedMessage, bool, error) {
+func (s *messageStore) ClaimNextQueuedMessage(ctx context.Context, agentID string) (QueuedMessage, bool, error) {
 	if strings.TrimSpace(agentID) == "" {
 		return QueuedMessage{}, false, ErrQueuedMessageInvalid
 	}
@@ -360,7 +360,7 @@ func (s *Store) ClaimNextQueuedMessage(ctx context.Context, agentID string) (Que
 
 // RestoreQueuedMessage puts a claimed message back at its original spot after a
 // failed send, so a transient provider error does not cost the user their text.
-func (s *Store) RestoreQueuedMessage(ctx context.Context, item QueuedMessage) error {
+func (s *messageStore) RestoreQueuedMessage(ctx context.Context, item QueuedMessage) error {
 	if strings.TrimSpace(item.AgentID) == "" || strings.TrimSpace(item.ID) == "" || !validQueuedContent(item.Text, item.Attachments) {
 		return ErrQueuedMessageInvalid
 	}

@@ -25,6 +25,47 @@ type Store struct {
 	// PRAGMA query_only=1). Confirmed pure-read hot paths route through it via
 	// reader()/ReadDB() so UI reads no longer queue behind streaming writes.
 	readDB *sql.DB
+
+	// Domain substores. Their methods are promoted, so the exported *Store API
+	// stays store.X(...) with the same names and signatures.
+	*accountPreferenceStore
+	*agentRoleStore
+	*agentRuntimeSnapshotStore
+	*apiRequestStore
+	*backendStore
+	*backgroundTaskStore
+	*channelStore
+	*contextAskStore
+	*deviceActionStore
+	*executionStore
+	*gatewayStore
+	*generatedImageStore
+	*integrationStore
+	*lifecycleHookStore
+	*liveSnapshotStore
+	*mcpStore
+	*memoryStore
+	*messageStore
+	*modelAggregateStore
+	*notificationStore
+	*oauthAppStore
+	*planStore
+	*pluginStore
+	*projectStore
+	*promptStore
+	*providerAccountStore
+	*providerSecretStore
+	*remoteCollaborationStore
+	*runStore
+	*runtimeSettingsStore
+	*scheduleStore
+	*skillStore
+	*specStore
+	*storedDefStore
+	*toolAvailabilityStore
+	*toolCallStore
+	*toolExecutionGroupStore
+	*userStore
 }
 
 var (
@@ -123,6 +164,7 @@ func Open(ctx context.Context, path string) (*Store, error) {
 	//     performance cost, never a correctness one.
 	database.SetMaxOpenConns(1)
 	store := &Store{db: database}
+	wireSubstores(store)
 	if err := store.migrate(ctx); err != nil {
 		database.Close()
 		return nil, err

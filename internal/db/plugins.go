@@ -52,7 +52,7 @@ type PluginWithTools struct {
 
 const pluginColumns = `id, slug, name, version, description, manifest_version, root_path, command, args_json, env_json, secret_refs_json, enabled, status, revision, manifest_hash, COALESCE(last_checked_at,''), COALESCE(last_error,''), created_at, updated_at`
 
-func (s *Store) CreatePlugin(ctx context.Context, plugin Plugin) (Plugin, error) {
+func (s *pluginStore) CreatePlugin(ctx context.Context, plugin Plugin) (Plugin, error) {
 	canonical, argsJSON, envJSON, refsJSON, err := canonicalPlugin(plugin)
 	if err != nil {
 		return Plugin{}, err
@@ -75,7 +75,7 @@ func (s *Store) CreatePlugin(ctx context.Context, plugin Plugin) (Plugin, error)
 	return canonical, nil
 }
 
-func (s *Store) ListPlugins(ctx context.Context) ([]Plugin, error) {
+func (s *pluginStore) ListPlugins(ctx context.Context) ([]Plugin, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT `+pluginColumns+` FROM plugins ORDER BY slug COLLATE NOCASE, id`)
 	if err != nil {
 		return nil, err
@@ -92,7 +92,7 @@ func (s *Store) ListPlugins(ctx context.Context) ([]Plugin, error) {
 	return plugins, rows.Err()
 }
 
-func (s *Store) GetPlugin(ctx context.Context, id string) (Plugin, error) {
+func (s *pluginStore) GetPlugin(ctx context.Context, id string) (Plugin, error) {
 	id = strings.TrimSpace(id)
 	if id == "" {
 		return Plugin{}, sql.ErrNoRows
@@ -102,7 +102,7 @@ func (s *Store) GetPlugin(ctx context.Context, id string) (Plugin, error) {
 	})
 }
 
-func (s *Store) GetPluginBySlug(ctx context.Context, slug string) (Plugin, error) {
+func (s *pluginStore) GetPluginBySlug(ctx context.Context, slug string) (Plugin, error) {
 	slug = strings.TrimSpace(slug)
 	if slug == "" {
 		return Plugin{}, sql.ErrNoRows
@@ -112,7 +112,7 @@ func (s *Store) GetPluginBySlug(ctx context.Context, slug string) (Plugin, error
 	})
 }
 
-func (s *Store) UpdatePlugin(ctx context.Context, plugin Plugin) (Plugin, error) {
+func (s *pluginStore) UpdatePlugin(ctx context.Context, plugin Plugin) (Plugin, error) {
 	current, err := s.GetPlugin(ctx, plugin.ID)
 	if err != nil {
 		return Plugin{}, err
@@ -144,7 +144,7 @@ func (s *Store) UpdatePlugin(ctx context.Context, plugin Plugin) (Plugin, error)
 // deletes the plugin's tool snapshot. The row update (with a revision bump
 // applied in SQL and RowsAffected checked) and the snapshot delete commit or
 // roll back together, so a slug conflict never leaves a partial update.
-func (s *Store) ReplacePluginManifest(ctx context.Context, plugin Plugin) (Plugin, error) {
+func (s *pluginStore) ReplacePluginManifest(ctx context.Context, plugin Plugin) (Plugin, error) {
 	canonical, argsJSON, envJSON, refsJSON, err := canonicalPlugin(plugin)
 	if err != nil {
 		return Plugin{}, err
@@ -178,7 +178,7 @@ func (s *Store) ReplacePluginManifest(ctx context.Context, plugin Plugin) (Plugi
 	return s.GetPlugin(ctx, canonical.ID)
 }
 
-func (s *Store) UpdatePluginStatus(ctx context.Context, id, status string, enabled bool, lastCheckedAt, lastError string) (Plugin, error) {
+func (s *pluginStore) UpdatePluginStatus(ctx context.Context, id, status string, enabled bool, lastCheckedAt, lastError string) (Plugin, error) {
 	id = strings.TrimSpace(id)
 	status = strings.TrimSpace(status)
 	lastCheckedAt = strings.TrimSpace(lastCheckedAt)
@@ -201,7 +201,7 @@ func (s *Store) UpdatePluginStatus(ctx context.Context, id, status string, enabl
 	return s.GetPlugin(ctx, id)
 }
 
-func (s *Store) DeletePlugin(ctx context.Context, id string) error {
+func (s *pluginStore) DeletePlugin(ctx context.Context, id string) error {
 	id = strings.TrimSpace(id)
 	if id == "" {
 		return sql.ErrNoRows
@@ -218,7 +218,7 @@ func (s *Store) DeletePlugin(ctx context.Context, id string) error {
 	return nil
 }
 
-func (s *Store) ReplacePluginTools(ctx context.Context, pluginID string, tools []PluginTool) ([]PluginTool, error) {
+func (s *pluginStore) ReplacePluginTools(ctx context.Context, pluginID string, tools []PluginTool) ([]PluginTool, error) {
 	pluginID = strings.TrimSpace(pluginID)
 	if pluginID == "" {
 		return nil, sql.ErrNoRows
@@ -258,7 +258,7 @@ func (s *Store) ReplacePluginTools(ctx context.Context, pluginID string, tools [
 // EnablePluginWithTools atomically installs a discovered tool snapshot and marks
 // the plugin healthy/enabled. A tool conflict or state update failure rolls back
 // both the deleted old snapshot and every inserted replacement row.
-func (s *Store) EnablePluginWithTools(ctx context.Context, pluginID string, tools []PluginTool, checkedAt string) (PluginWithTools, error) {
+func (s *pluginStore) EnablePluginWithTools(ctx context.Context, pluginID string, tools []PluginTool, checkedAt string) (PluginWithTools, error) {
 	pluginID = strings.TrimSpace(pluginID)
 	checkedAt = strings.TrimSpace(checkedAt)
 	if pluginID == "" {
@@ -319,7 +319,7 @@ func (s *Store) EnablePluginWithTools(ctx context.Context, pluginID string, tool
 	return PluginWithTools{Plugin: plugin, Tools: storedTools}, nil
 }
 
-func (s *Store) ListPluginTools(ctx context.Context, pluginID string) ([]PluginTool, error) {
+func (s *pluginStore) ListPluginTools(ctx context.Context, pluginID string) ([]PluginTool, error) {
 	pluginID = strings.TrimSpace(pluginID)
 	if pluginID == "" {
 		return nil, sql.ErrNoRows
@@ -344,7 +344,7 @@ func (s *Store) ListPluginTools(ctx context.Context, pluginID string) ([]PluginT
 	return tools, rows.Err()
 }
 
-func (s *Store) ListEnabledPluginsWithTools(ctx context.Context) ([]PluginWithTools, error) {
+func (s *pluginStore) ListEnabledPluginsWithTools(ctx context.Context) ([]PluginWithTools, error) {
 	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
 	if err != nil {
 		return nil, err

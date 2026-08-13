@@ -38,7 +38,7 @@ type AgentRunRuntimeSnapshot struct {
 	UpdatedAt        string                      `json:"updatedAt"`
 }
 
-func (s *Store) EnsureAgentRunRuntimeSnapshots(ctx context.Context) error {
+func (s *agentRuntimeSnapshotStore) EnsureAgentRunRuntimeSnapshots(ctx context.Context) error {
 	if s == nil || s.db == nil {
 		return errors.New("agent runtime snapshot store is not configured")
 	}
@@ -46,7 +46,7 @@ func (s *Store) EnsureAgentRunRuntimeSnapshots(ctx context.Context) error {
 	return err
 }
 
-func (s *Store) CreateAgentRunRuntimeSnapshot(ctx context.Context, snapshot AgentRunRuntimeSnapshot) (AgentRunRuntimeSnapshot, error) {
+func (s *agentRuntimeSnapshotStore) CreateAgentRunRuntimeSnapshot(ctx context.Context, snapshot AgentRunRuntimeSnapshot) (AgentRunRuntimeSnapshot, error) {
 	if err := s.EnsureAgentRunRuntimeSnapshots(ctx); err != nil {
 		return AgentRunRuntimeSnapshot{}, err
 	}
@@ -79,7 +79,7 @@ func (s *Store) CreateAgentRunRuntimeSnapshot(ctx context.Context, snapshot Agen
 	return snapshot, nil
 }
 
-func (s *Store) GetAgentRunRuntimeSnapshot(ctx context.Context, runID string) (AgentRunRuntimeSnapshot, error) {
+func (s *agentRuntimeSnapshotStore) GetAgentRunRuntimeSnapshot(ctx context.Context, runID string) (AgentRunRuntimeSnapshot, error) {
 	if err := s.EnsureAgentRunRuntimeSnapshots(ctx); err != nil {
 		return AgentRunRuntimeSnapshot{}, err
 	}
@@ -100,7 +100,7 @@ func (s *Store) GetAgentRunRuntimeSnapshot(ctx context.Context, runID string) (A
 // recorded, closed ones included. A finished run's snapshot is the only durable
 // record of the capability set that run was granted, so it is what a later
 // caller can replay to rebuild the same contract instead of guessing one.
-func (s *Store) LatestAgentRunRuntimeSnapshot(ctx context.Context, agentID string) (AgentRunRuntimeSnapshot, error) {
+func (s *agentRuntimeSnapshotStore) LatestAgentRunRuntimeSnapshot(ctx context.Context, agentID string) (AgentRunRuntimeSnapshot, error) {
 	if err := s.EnsureAgentRunRuntimeSnapshots(ctx); err != nil {
 		return AgentRunRuntimeSnapshot{}, err
 	}
@@ -121,7 +121,7 @@ func (s *Store) LatestAgentRunRuntimeSnapshot(ctx context.Context, agentID strin
 	return snapshot, nil
 }
 
-func (s *Store) CloseAgentRunRuntimeSnapshot(ctx context.Context, runID string) (AgentRunRuntimeSnapshot, error) {
+func (s *agentRuntimeSnapshotStore) CloseAgentRunRuntimeSnapshot(ctx context.Context, runID string) (AgentRunRuntimeSnapshot, error) {
 	if err := s.EnsureAgentRunRuntimeSnapshots(ctx); err != nil {
 		return AgentRunRuntimeSnapshot{}, err
 	}

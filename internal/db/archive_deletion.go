@@ -118,7 +118,7 @@ func deleteAgentsTx(ctx context.Context, tx *sql.Tx, agentIDs []string) error {
 //
 // It never touches the filesystem: git worktrees and checked-out code under
 // git_path stay exactly where they are. Only database rows go away.
-func (s *Store) DeleteArchivedProject(ctx context.Context, id string) error {
+func (s *projectStore) DeleteArchivedProject(ctx context.Context, id string) error {
 	id = strings.TrimSpace(id)
 	if id == "" {
 		return errors.New("project id is required")
@@ -167,7 +167,7 @@ func (s *Store) DeleteArchivedProject(ctx context.Context, id string) error {
 // cascaded history. When the agent was the last one inside an auto-created
 // standalone-conversation project, that hollow project is removed too so the
 // sidebar does not keep an empty shell around.
-func (s *Store) DeleteArchivedAgent(ctx context.Context, id string) error {
+func (s *projectStore) DeleteArchivedAgent(ctx context.Context, id string) error {
 	id = strings.TrimSpace(id)
 	if id == "" {
 		return errors.New("agent id is required")

@@ -105,7 +105,7 @@ type workspaceAgentIndex struct {
 // ListTaskWorkspace returns an explicit safe projection for task-oriented UIs.
 // It intentionally excludes Agent prompts, context summaries, errors, provider
 // state, and other runtime internals.
-func (s *Store) ListTaskWorkspace(ctx context.Context) (TaskWorkspace, error) {
+func (s *specStore) ListTaskWorkspace(ctx context.Context) (TaskWorkspace, error) {
 	tx, err := s.reader().BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
 	if err != nil {
 		return TaskWorkspace{}, err
@@ -263,7 +263,7 @@ func incrementSpecTaskStatus(counts *SpecTaskStatusCounts, status string) {
 
 // AssignSpecTask moves a task between Agents in the same project and appends it
 // to the target board. Both board revisions change in the same transaction.
-func (s *Store) AssignSpecTask(ctx context.Context, sourceAgentID, taskID, targetAgentID string, expectedRevision int64, acknowledgeProtected bool, actor string) (SpecTaskAssignmentResult, error) {
+func (s *specStore) AssignSpecTask(ctx context.Context, sourceAgentID, taskID, targetAgentID string, expectedRevision int64, acknowledgeProtected bool, actor string) (SpecTaskAssignmentResult, error) {
 	sourceAgentID = strings.TrimSpace(sourceAgentID)
 	taskID = strings.TrimSpace(taskID)
 	targetAgentID = strings.TrimSpace(targetAgentID)

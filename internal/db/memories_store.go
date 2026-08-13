@@ -11,7 +11,7 @@ import (
 	"unicode/utf8"
 )
 
-func (s *Store) CreateMemory(ctx context.Context, memory Memory) (Memory, error) {
+func (s *memoryStore) CreateMemory(ctx context.Context, memory Memory) (Memory, error) {
 	canonical, keywordsJSON, err := canonicalMemory(memory, false)
 	if err != nil {
 		return Memory{}, err
@@ -38,7 +38,7 @@ func (s *Store) CreateMemory(ctx context.Context, memory Memory) (Memory, error)
 	return canonical, nil
 }
 
-func (s *Store) GetMemory(ctx context.Context, id string) (Memory, error) {
+func (s *memoryStore) GetMemory(ctx context.Context, id string) (Memory, error) {
 	id = strings.TrimSpace(id)
 	if id == "" {
 		return Memory{}, sql.ErrNoRows
@@ -51,7 +51,7 @@ func (s *Store) GetMemory(ctx context.Context, id string) (Memory, error) {
 // ListMemories accepts no options, a MemoryListOptions value, a query string,
 // or a query string followed by includeArchived. Results are pinned first and
 // then newest-updated first.
-func (s *Store) ListMemories(ctx context.Context, args ...any) ([]Memory, error) {
+func (s *memoryStore) ListMemories(ctx context.Context, args ...any) ([]Memory, error) {
 	options, err := parseMemoryListOptions(args)
 	if err != nil {
 		return nil, err
@@ -91,7 +91,7 @@ func (s *Store) ListMemories(ctx context.Context, args ...any) ([]Memory, error)
 	return memories, rows.Err()
 }
 
-func (s *Store) UpdateMemory(ctx context.Context, memory Memory) (Memory, error) {
+func (s *memoryStore) UpdateMemory(ctx context.Context, memory Memory) (Memory, error) {
 	canonical, keywordsJSON, err := canonicalMemory(memory, true)
 	if err != nil {
 		return Memory{}, err
@@ -117,7 +117,7 @@ func (s *Store) UpdateMemory(ctx context.Context, memory Memory) (Memory, error)
 	return canonical, nil
 }
 
-func (s *Store) DeleteMemory(ctx context.Context, id string) error {
+func (s *memoryStore) DeleteMemory(ctx context.Context, id string) error {
 	id = strings.TrimSpace(id)
 	if id == "" {
 		return sql.ErrNoRows
@@ -134,7 +134,7 @@ func (s *Store) DeleteMemory(ctx context.Context, id string) error {
 	return nil
 }
 
-func (s *Store) SetMemoryPinned(ctx context.Context, id string, pinned bool) (Memory, error) {
+func (s *memoryStore) SetMemoryPinned(ctx context.Context, id string, pinned bool) (Memory, error) {
 	memory, err := s.GetMemory(ctx, id)
 	if err != nil {
 		return Memory{}, err
@@ -143,7 +143,7 @@ func (s *Store) SetMemoryPinned(ctx context.Context, id string, pinned bool) (Me
 	return s.UpdateMemory(ctx, memory)
 }
 
-func (s *Store) PinMemory(ctx context.Context, id string, pinned ...bool) (Memory, error) {
+func (s *memoryStore) PinMemory(ctx context.Context, id string, pinned ...bool) (Memory, error) {
 	value := true
 	if len(pinned) > 1 {
 		return Memory{}, errors.New("pin memory accepts at most one pinned value")
@@ -154,11 +154,11 @@ func (s *Store) PinMemory(ctx context.Context, id string, pinned ...bool) (Memor
 	return s.SetMemoryPinned(ctx, id, value)
 }
 
-func (s *Store) UnpinMemory(ctx context.Context, id string) (Memory, error) {
+func (s *memoryStore) UnpinMemory(ctx context.Context, id string) (Memory, error) {
 	return s.SetMemoryPinned(ctx, id, false)
 }
 
-func (s *Store) SetMemoryArchived(ctx context.Context, id string, archived bool) (Memory, error) {
+func (s *memoryStore) SetMemoryArchived(ctx context.Context, id string, archived bool) (Memory, error) {
 	memory, err := s.GetMemory(ctx, id)
 	if err != nil {
 		return Memory{}, err
@@ -171,15 +171,15 @@ func (s *Store) SetMemoryArchived(ctx context.Context, id string, archived bool)
 	return s.UpdateMemory(ctx, memory)
 }
 
-func (s *Store) ArchiveMemory(ctx context.Context, id string) (Memory, error) {
+func (s *memoryStore) ArchiveMemory(ctx context.Context, id string) (Memory, error) {
 	return s.SetMemoryArchived(ctx, id, true)
 }
 
-func (s *Store) UnarchiveMemory(ctx context.Context, id string) (Memory, error) {
+func (s *memoryStore) UnarchiveMemory(ctx context.Context, id string) (Memory, error) {
 	return s.SetMemoryArchived(ctx, id, false)
 }
 
-func (s *Store) ListMatchingUninjectedMemories(ctx context.Context, agentID, text string, limit int) ([]Memory, error) {
+func (s *memoryStore) ListMatchingUninjectedMemories(ctx context.Context, agentID, text string, limit int) ([]Memory, error) {
 	agentID = strings.TrimSpace(agentID)
 	if agentID == "" {
 		return nil, errors.New("memory injection agent id is required")
@@ -243,7 +243,7 @@ func canonicalMemoryScope(scope, agentID string) (string, string, error) {
 	}
 }
 
-func (s *Store) MarkMemoriesInjected(ctx context.Context, agentID string, memoryIDs []string) error {
+func (s *memoryStore) MarkMemoriesInjected(ctx context.Context, agentID string, memoryIDs []string) error {
 	agentID = strings.TrimSpace(agentID)
 	if agentID == "" {
 		return errors.New("memory injection agent id is required")

@@ -57,7 +57,7 @@ type accountPreferenceRowQueryer interface {
 	QueryRowContext(context.Context, string, ...any) *sql.Row
 }
 
-func (s *Store) GetAccountPreferences(ctx context.Context, scopeKind, scopeID string) (AccountPreferences, error) {
+func (s *accountPreferenceStore) GetAccountPreferences(ctx context.Context, scopeKind, scopeID string) (AccountPreferences, error) {
 	scopeKind, scopeID, err := normalizeAccountPreferenceScope(scopeKind, scopeID)
 	if err != nil {
 		return AccountPreferences{}, err
@@ -72,7 +72,7 @@ func (s *Store) GetAccountPreferences(ctx context.Context, scopeKind, scopeID st
 	return preferences, nil
 }
 
-func (s *Store) PatchAccountPreferences(ctx context.Context, scopeKind, scopeID string, patch AccountPreferencesPatch) (AccountPreferences, error) {
+func (s *accountPreferenceStore) PatchAccountPreferences(ctx context.Context, scopeKind, scopeID string, patch AccountPreferencesPatch) (AccountPreferences, error) {
 	scopeKind, scopeID, err := normalizeAccountPreferenceScope(scopeKind, scopeID)
 	if err != nil {
 		return AccountPreferences{}, err
@@ -140,7 +140,7 @@ func (s *Store) PatchAccountPreferences(ctx context.Context, scopeKind, scopeID 
 	return candidate, nil
 }
 
-func (s *Store) ImportAccountPreferences(ctx context.Context, scopeKind, scopeID string, input AccountPreferencesImport) (AccountPreferences, bool, error) {
+func (s *accountPreferenceStore) ImportAccountPreferences(ctx context.Context, scopeKind, scopeID string, input AccountPreferencesImport) (AccountPreferences, bool, error) {
 	scopeKind, scopeID, err := normalizeAccountPreferenceScope(scopeKind, scopeID)
 	if err != nil {
 		return AccountPreferences{}, false, err
@@ -214,7 +214,7 @@ func (s *Store) ImportAccountPreferences(ctx context.Context, scopeKind, scopeID
 	return current, false, nil
 }
 
-func (s *Store) ClaimInstanceAccountPreferencesForFirstUser(ctx context.Context, userID string) (AccountPreferences, bool, error) {
+func (s *accountPreferenceStore) ClaimInstanceAccountPreferencesForFirstUser(ctx context.Context, userID string) (AccountPreferences, bool, error) {
 	userID = strings.TrimSpace(userID)
 	if len(userID) == 0 || len(userID) > accountPreferenceMaxScopeIDBytes || !utf8.ValidString(userID) || strings.ContainsRune(userID, 0) {
 		return AccountPreferences{}, false, errors.New("invalid account preference user id")

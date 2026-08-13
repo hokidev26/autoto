@@ -17,7 +17,7 @@ import (
 // only pass selects stale or internally inconsistent rows, then only those full
 // templates are normalized and scanned. A changed risky result loses its enabled
 // state and acknowledgement, requiring an explicit new confirmation.
-func (s *Store) revalidateSkills(ctx context.Context) error {
+func (s *skillStore) revalidateSkills(ctx context.Context) error {
 	stored, err := s.listSkillsForRevalidation(ctx)
 	if err != nil {
 		return fmt.Errorf("list skills for revalidation: %w", err)
@@ -102,7 +102,7 @@ func (s *Store) revalidateSkills(ctx context.Context) error {
 
 // listSkillsForRevalidation deliberately permits invalid historical findings so
 // one corrupt row can be disabled instead of preventing the service from opening.
-func (s *Store) listSkillsForRevalidation(ctx context.Context) ([]Skill, error) {
+func (s *skillStore) listSkillsForRevalidation(ctx context.Context) ([]Skill, error) {
 	// The first pass deliberately excludes prompt and other full content. Store
 	// writes keep content, hash, findings, and scanner_version atomic, so current,
 	// internally consistent metadata can be trusted without rereading large prompts.
@@ -236,7 +236,7 @@ func storedSkillFindingsVerdict(raw json.RawMessage) (string, bool) {
 	return verdict, true
 }
 
-func (s *Store) ListSkills(ctx context.Context) ([]Skill, error) {
+func (s *skillStore) ListSkills(ctx context.Context) ([]Skill, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT id, name, command, description, prompt, source, scope, COALESCE(project_id,''), COALESCE(workline_id,''), COALESCE(deleted_at,''), COALESCE(revision_no,1), content_hash, enabled, scan_verdict, scan_findings_json, COALESCE(scanner_version, 0), COALESCE(risk_acknowledged_at,''), COALESCE(risk_acknowledged_by,''), COALESCE(risk_acknowledged_hash,''), created_at, updated_at FROM skills WHERE deleted_at IS NULL AND scope = 'global' ORDER BY enabled DESC, command COLLATE NOCASE ASC`)
 	if err != nil {
 		return nil, err
@@ -253,7 +253,7 @@ func (s *Store) ListSkills(ctx context.Context) ([]Skill, error) {
 	return items, rows.Err()
 }
 
-func (s *Store) ListSkillSummaries(ctx context.Context) ([]SkillSummary, error) {
+func (s *skillStore) ListSkillSummaries(ctx context.Context) ([]SkillSummary, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT id, name, command, description, source, scope, COALESCE(project_id,''), COALESCE(workline_id,''), COALESCE(revision_no,1), content_hash, enabled, scan_verdict, scan_findings_json, COALESCE(scanner_version, 0), COALESCE(risk_acknowledged_at,''), COALESCE(risk_acknowledged_by,''), COALESCE(risk_acknowledged_hash,''), created_at, updated_at FROM skills WHERE deleted_at IS NULL AND scope = 'global' ORDER BY enabled DESC, command COLLATE NOCASE ASC`)
 	if err != nil {
 		return nil, err
@@ -278,7 +278,7 @@ func (s *Store) ListSkillSummaries(ctx context.Context) ([]SkillSummary, error) 
 	return items, rows.Err()
 }
 
-func (s *Store) GetSkill(ctx context.Context, id string) (Skill, error) {
+func (s *skillStore) GetSkill(ctx context.Context, id string) (Skill, error) {
 	return scanSkill(func(dest ...any) error {
 		return s.db.QueryRowContext(ctx, `SELECT id, name, command, description, prompt, source, scope, COALESCE(project_id,''), COALESCE(workline_id,''), COALESCE(deleted_at,''), COALESCE(revision_no,1), content_hash, enabled, scan_verdict, scan_findings_json, COALESCE(scanner_version, 0), COALESCE(risk_acknowledged_at,''), COALESCE(risk_acknowledged_by,''), COALESCE(risk_acknowledged_hash,''), created_at, updated_at FROM skills WHERE id = ? AND deleted_at IS NULL`, id).Scan(dest...)
 	})
@@ -286,17 +286,17 @@ func (s *Store) GetSkill(ctx context.Context, id string) (Skill, error) {
 
 // GetSkillByCommand returns the complete server skill for a slash command.
 // Command matching follows the database's case-insensitive uniqueness rule.
-func (s *Store) GetSkillByCommand(ctx context.Context, command string) (Skill, error) {
+func (s *skillStore) GetSkillByCommand(ctx context.Context, command string) (Skill, error) {
 	return scanSkill(func(dest ...any) error {
 		return s.db.QueryRowContext(ctx, `SELECT id, name, command, description, prompt, source, scope, COALESCE(project_id,''), COALESCE(workline_id,''), COALESCE(deleted_at,''), COALESCE(revision_no,1), content_hash, enabled, scan_verdict, scan_findings_json, COALESCE(scanner_version, 0), COALESCE(risk_acknowledged_at,''), COALESCE(risk_acknowledged_by,''), COALESCE(risk_acknowledged_hash,''), created_at, updated_at FROM skills WHERE command = ? COLLATE NOCASE AND deleted_at IS NULL AND scope = 'global'`, command).Scan(dest...)
 	})
 }
 
-func (s *Store) CreateSkill(ctx context.Context, skill Skill) (Skill, error) {
+func (s *skillStore) CreateSkill(ctx context.Context, skill Skill) (Skill, error) {
 	return s.CreateSkillAs(ctx, skill, "system")
 }
 
-func (s *Store) CreateSkillAs(ctx context.Context, skill Skill, actor string) (Skill, error) {
+func (s *skillStore) CreateSkillAs(ctx context.Context, skill Skill, actor string) (Skill, error) {
 	canonical, err := canonicalSkillRecord(skill)
 	if err != nil {
 		return Skill{}, err
@@ -333,11 +333,11 @@ func (s *Store) CreateSkillAs(ctx context.Context, skill Skill, actor string) (S
 	return canonical, nil
 }
 
-func (s *Store) UpdateSkill(ctx context.Context, skill Skill) (Skill, error) {
+func (s *skillStore) UpdateSkill(ctx context.Context, skill Skill) (Skill, error) {
 	return s.UpdateSkillAs(ctx, skill, "system")
 }
 
-func (s *Store) UpdateSkillAs(ctx context.Context, skill Skill, actor string) (Skill, error) {
+func (s *skillStore) UpdateSkillAs(ctx context.Context, skill Skill, actor string) (Skill, error) {
 	if strings.TrimSpace(skill.UpdatedAt) == "" {
 		return Skill{}, errors.New("expected skill updated_at is required")
 	}
@@ -394,11 +394,11 @@ func (s *Store) UpdateSkillAs(ctx context.Context, skill Skill, actor string) (S
 	return canonical, nil
 }
 
-func (s *Store) DeleteSkill(ctx context.Context, id string) error {
+func (s *skillStore) DeleteSkill(ctx context.Context, id string) error {
 	return s.DeleteSkillAs(ctx, id, "system")
 }
 
-func (s *Store) DeleteSkillAs(ctx context.Context, id, actor string) error {
+func (s *skillStore) DeleteSkillAs(ctx context.Context, id, actor string) error {
 	skill, err := s.GetSkill(ctx, id)
 	if err != nil {
 		return err
@@ -407,7 +407,7 @@ func (s *Store) DeleteSkillAs(ctx context.Context, id, actor string) error {
 	return err
 }
 
-func (s *Store) ListSkillAuditEvents(ctx context.Context, skillID string, limit int) ([]SkillAuditEvent, error) {
+func (s *skillStore) ListSkillAuditEvents(ctx context.Context, skillID string, limit int) ([]SkillAuditEvent, error) {
 	if limit <= 0 || limit > 100 {
 		limit = 50
 	}

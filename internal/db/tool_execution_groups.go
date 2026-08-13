@@ -66,7 +66,7 @@ func ToolExecutionGroupSchemaSQL() string {
 	return toolExecutionGroupSchemaSQL
 }
 
-func (s *Store) CreateToolExecutionGroup(ctx context.Context, input ToolExecutionGroupCreateInput) (ToolExecutionGroup, error) {
+func (s *toolExecutionGroupStore) CreateToolExecutionGroup(ctx context.Context, input ToolExecutionGroupCreateInput) (ToolExecutionGroup, error) {
 	input.ID = strings.TrimSpace(input.ID)
 	input.RunID = strings.TrimSpace(input.RunID)
 	input.AssistantMessageID = strings.TrimSpace(input.AssistantMessageID)
@@ -148,7 +148,7 @@ func (s *Store) CreateToolExecutionGroup(ctx context.Context, input ToolExecutio
 	return group, nil
 }
 
-func (s *Store) GetToolExecutionGroup(ctx context.Context, groupID string) (ToolExecutionGroup, error) {
+func (s *toolExecutionGroupStore) GetToolExecutionGroup(ctx context.Context, groupID string) (ToolExecutionGroup, error) {
 	groupID = strings.TrimSpace(groupID)
 	group, err := scanToolExecutionGroup(func(dest ...any) error {
 		return s.db.QueryRowContext(ctx, toolExecutionGroupSelectSQL+` WHERE id = ?`, groupID).Scan(dest...)
@@ -160,7 +160,7 @@ func (s *Store) GetToolExecutionGroup(ctx context.Context, groupID string) (Tool
 	return group, err
 }
 
-func (s *Store) GetToolExecutionGroupByAssistantMessage(ctx context.Context, runID, assistantMessageID string) (ToolExecutionGroup, error) {
+func (s *toolExecutionGroupStore) GetToolExecutionGroupByAssistantMessage(ctx context.Context, runID, assistantMessageID string) (ToolExecutionGroup, error) {
 	group, err := scanToolExecutionGroup(func(dest ...any) error {
 		return s.db.QueryRowContext(ctx, toolExecutionGroupSelectSQL+` WHERE run_id = ? AND assistant_message_id = ?`, strings.TrimSpace(runID), strings.TrimSpace(assistantMessageID)).Scan(dest...)
 	})
@@ -178,7 +178,7 @@ func (s *Store) GetToolExecutionGroupByAssistantMessage(ctx context.Context, run
 // role and the tool-call content, and nothing else. Attachment blobs and
 // provider state are excluded so a startup integrity check cannot pull image
 // payloads or opaque adapter state into memory.
-func (s *Store) GetToolExecutionGroupAssistantMessage(ctx context.Context, messageID string) (Message, error) {
+func (s *toolExecutionGroupStore) GetToolExecutionGroupAssistantMessage(ctx context.Context, messageID string) (Message, error) {
 	messageID = strings.TrimSpace(messageID)
 	if messageID == "" {
 		return Message{}, errors.New("assistant message id is required")
@@ -198,7 +198,7 @@ func (s *Store) GetToolExecutionGroupAssistantMessage(ctx context.Context, messa
 	return message, nil
 }
 
-func (s *Store) RecordToolExecutionItemTerminal(ctx context.Context, groupID string, input ToolExecutionItemTerminalInput) (ToolExecutionItem, error) {
+func (s *toolExecutionGroupStore) RecordToolExecutionItemTerminal(ctx context.Context, groupID string, input ToolExecutionItemTerminalInput) (ToolExecutionItem, error) {
 	groupID = strings.TrimSpace(groupID)
 	input.ToolUseID = strings.TrimSpace(input.ToolUseID)
 	input.Status = strings.TrimSpace(input.Status)
@@ -280,7 +280,7 @@ func (s *Store) RecordToolExecutionItemTerminal(ctx context.Context, groupID str
 	return item, nil
 }
 
-func (s *Store) SettleToolExecutionGroup(ctx context.Context, groupID string) (ToolExecutionGroup, error) {
+func (s *toolExecutionGroupStore) SettleToolExecutionGroup(ctx context.Context, groupID string) (ToolExecutionGroup, error) {
 	groupID = strings.TrimSpace(groupID)
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -331,7 +331,7 @@ func (s *Store) SettleToolExecutionGroup(ctx context.Context, groupID string) (T
 	return group, nil
 }
 
-func (s *Store) AbortToolExecutionGroup(ctx context.Context, groupID, reason string) (ToolExecutionGroup, error) {
+func (s *toolExecutionGroupStore) AbortToolExecutionGroup(ctx context.Context, groupID, reason string) (ToolExecutionGroup, error) {
 	groupID = strings.TrimSpace(groupID)
 	reason = boundedText(strings.TrimSpace(reason), 4096)
 	if reason == "" {
@@ -382,7 +382,7 @@ func (s *Store) AbortToolExecutionGroup(ctx context.Context, groupID, reason str
 	return group, nil
 }
 
-func (s *Store) ListUnsettledToolExecutionGroups(ctx context.Context, limit int) ([]ToolExecutionGroup, error) {
+func (s *toolExecutionGroupStore) ListUnsettledToolExecutionGroups(ctx context.Context, limit int) ([]ToolExecutionGroup, error) {
 	if limit <= 0 || limit > 10000 {
 		limit = 1000
 	}
@@ -417,7 +417,7 @@ func (s *Store) ListUnsettledToolExecutionGroups(ctx context.Context, limit int)
 
 // RequireRunToolExecutionGroupsSettled is the durable settlement barrier used
 // before a continuation, background wait, or subsequent model turn.
-func (s *Store) RequireRunToolExecutionGroupsSettled(ctx context.Context, runID string) error {
+func (s *toolExecutionGroupStore) RequireRunToolExecutionGroupsSettled(ctx context.Context, runID string) error {
 	runID = strings.TrimSpace(runID)
 	if runID == "" {
 		return nil

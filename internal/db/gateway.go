@@ -84,7 +84,7 @@ type GatewayRequestSummary struct {
 
 const gatewayKeyColumns = `id, name, key_prefix, token_hash, enabled, allowed_models_json, requests_per_minute, monthly_token_limit, max_concurrency, COALESCE(expires_at,''), COALESCE(last_used_at,''), COALESCE(revoked_at,''), created_at, updated_at`
 
-func (s *Store) CreateGatewayKey(ctx context.Context, key GatewayKey) (GatewayKey, error) {
+func (s *gatewayStore) CreateGatewayKey(ctx context.Context, key GatewayKey) (GatewayKey, error) {
 	canonical, allowedJSON, err := canonicalGatewayKeyForCreate(key)
 	if err != nil {
 		return GatewayKey{}, err
@@ -109,7 +109,7 @@ func (s *Store) CreateGatewayKey(ctx context.Context, key GatewayKey) (GatewayKe
 	return canonical, nil
 }
 
-func (s *Store) GetGatewayKey(ctx context.Context, id string) (GatewayKey, error) {
+func (s *gatewayStore) GetGatewayKey(ctx context.Context, id string) (GatewayKey, error) {
 	id = strings.TrimSpace(id)
 	if id == "" {
 		return GatewayKey{}, sql.ErrNoRows
@@ -119,7 +119,7 @@ func (s *Store) GetGatewayKey(ctx context.Context, id string) (GatewayKey, error
 	})
 }
 
-func (s *Store) GetGatewayKeyByTokenHash(ctx context.Context, tokenHash string) (GatewayKey, error) {
+func (s *gatewayStore) GetGatewayKeyByTokenHash(ctx context.Context, tokenHash string) (GatewayKey, error) {
 	if !validGatewayTokenHash(tokenHash) {
 		return GatewayKey{}, errors.New("invalid gateway token hash")
 	}
@@ -128,7 +128,7 @@ func (s *Store) GetGatewayKeyByTokenHash(ctx context.Context, tokenHash string) 
 	})
 }
 
-func (s *Store) ListGatewayKeys(ctx context.Context) ([]GatewayKey, error) {
+func (s *gatewayStore) ListGatewayKeys(ctx context.Context) ([]GatewayKey, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT `+gatewayKeyColumns+` FROM gateway_keys ORDER BY created_at ASC, id ASC`)
 	if err != nil {
 		return nil, err
@@ -145,7 +145,7 @@ func (s *Store) ListGatewayKeys(ctx context.Context) ([]GatewayKey, error) {
 	return keys, rows.Err()
 }
 
-func (s *Store) UpdateGatewayKeyPolicy(ctx context.Context, id string, policy GatewayKeyPolicy) (GatewayKey, error) {
+func (s *gatewayStore) UpdateGatewayKeyPolicy(ctx context.Context, id string, policy GatewayKeyPolicy) (GatewayKey, error) {
 	current, err := s.GetGatewayKey(ctx, id)
 	if err != nil {
 		return GatewayKey{}, err
@@ -156,7 +156,7 @@ func (s *Store) UpdateGatewayKeyPolicy(ctx context.Context, id string, policy Ga
 // UpdateGatewayKeyPolicyCAS changes a key policy only when the caller's view of
 // updated_at is current. This prevents a stale admin PATCH from overwriting a
 // more recent policy change.
-func (s *Store) UpdateGatewayKeyPolicyCAS(ctx context.Context, id string, policy GatewayKeyPolicy, expectedUpdatedAt string) (GatewayKey, error) {
+func (s *gatewayStore) UpdateGatewayKeyPolicyCAS(ctx context.Context, id string, policy GatewayKeyPolicy, expectedUpdatedAt string) (GatewayKey, error) {
 	id = strings.TrimSpace(id)
 	expectedUpdatedAt = strings.TrimSpace(expectedUpdatedAt)
 	if id == "" {
@@ -193,7 +193,7 @@ func (s *Store) UpdateGatewayKeyPolicyCAS(ctx context.Context, id string, policy
 	return s.GetGatewayKey(ctx, id)
 }
 
-func (s *Store) RotateGatewayKey(ctx context.Context, id, keyPrefix, tokenHash string) (GatewayKey, error) {
+func (s *gatewayStore) RotateGatewayKey(ctx context.Context, id, keyPrefix, tokenHash string) (GatewayKey, error) {
 	id = strings.TrimSpace(id)
 	if id == "" {
 		return GatewayKey{}, sql.ErrNoRows
@@ -226,7 +226,7 @@ func (s *Store) RotateGatewayKey(ctx context.Context, id, keyPrefix, tokenHash s
 	return s.GetGatewayKey(ctx, id)
 }
 
-func (s *Store) RevokeGatewayKey(ctx context.Context, id string) (GatewayKey, error) {
+func (s *gatewayStore) RevokeGatewayKey(ctx context.Context, id string) (GatewayKey, error) {
 	id = strings.TrimSpace(id)
 	if id == "" {
 		return GatewayKey{}, sql.ErrNoRows
@@ -244,7 +244,7 @@ func (s *Store) RevokeGatewayKey(ctx context.Context, id string) (GatewayKey, er
 	return s.GetGatewayKey(ctx, id)
 }
 
-func (s *Store) DeleteGatewayKey(ctx context.Context, id string) error {
+func (s *gatewayStore) DeleteGatewayKey(ctx context.Context, id string) error {
 	id = strings.TrimSpace(id)
 	if id == "" {
 		return sql.ErrNoRows
@@ -261,7 +261,7 @@ func (s *Store) DeleteGatewayKey(ctx context.Context, id string) error {
 	return nil
 }
 
-func (s *Store) TouchGatewayKeyLastUsed(ctx context.Context, id, usedAt string) (GatewayKey, error) {
+func (s *gatewayStore) TouchGatewayKeyLastUsed(ctx context.Context, id, usedAt string) (GatewayKey, error) {
 	id = strings.TrimSpace(id)
 	if id == "" {
 		return GatewayKey{}, sql.ErrNoRows
@@ -294,7 +294,7 @@ func (s *Store) TouchGatewayKeyLastUsed(ctx context.Context, id, usedAt string) 
 	return s.GetGatewayKey(ctx, id)
 }
 
-func (s *Store) ListGatewayModels(ctx context.Context) ([]GatewayModel, error) {
+func (s *gatewayStore) ListGatewayModels(ctx context.Context) ([]GatewayModel, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT alias, target_model, enabled, created_at, updated_at FROM gateway_models ORDER BY alias ASC`)
 	if err != nil {
 		return nil, err
@@ -311,7 +311,7 @@ func (s *Store) ListGatewayModels(ctx context.Context) ([]GatewayModel, error) {
 	return models, rows.Err()
 }
 
-func (s *Store) GetGatewayModel(ctx context.Context, alias string) (GatewayModel, error) {
+func (s *gatewayStore) GetGatewayModel(ctx context.Context, alias string) (GatewayModel, error) {
 	alias = strings.TrimSpace(alias)
 	if alias == "" {
 		return GatewayModel{}, sql.ErrNoRows
@@ -324,7 +324,7 @@ func (s *Store) GetGatewayModel(ctx context.Context, alias string) (GatewayModel
 // CreateGatewayModel creates a new alias only when no explicit key policy
 // already names it. Such a reference can be left by legacy data; recreating the
 // alias would silently restore that key's authorization.
-func (s *Store) CreateGatewayModel(ctx context.Context, model GatewayModel) (GatewayModel, error) {
+func (s *gatewayStore) CreateGatewayModel(ctx context.Context, model GatewayModel) (GatewayModel, error) {
 	canonical, err := canonicalGatewayModel(model)
 	if err != nil {
 		return GatewayModel{}, err
@@ -357,7 +357,7 @@ func (s *Store) CreateGatewayModel(ctx context.Context, model GatewayModel) (Gat
 // UpsertGatewayModel is retained for internal setup callers. Admin mutations
 // use CreateGatewayModel and UpdateGatewayModelCAS so they cannot resurrect a
 // previously authorized alias or overwrite a concurrent edit.
-func (s *Store) UpsertGatewayModel(ctx context.Context, model GatewayModel) (GatewayModel, error) {
+func (s *gatewayStore) UpsertGatewayModel(ctx context.Context, model GatewayModel) (GatewayModel, error) {
 	canonical, err := canonicalGatewayModel(model)
 	if err != nil {
 		return GatewayModel{}, err
@@ -373,7 +373,7 @@ func (s *Store) UpsertGatewayModel(ctx context.Context, model GatewayModel) (Gat
 // UpdateGatewayModelCAS updates or renames a model alias only if its
 // updated_at matches expectedUpdatedAt. Rename and whitelist rewrites commit as
 // one transaction so a key can never be left with an accidentally open policy.
-func (s *Store) UpdateGatewayModelCAS(ctx context.Context, oldAlias string, model GatewayModel, expectedUpdatedAt string) (GatewayModel, error) {
+func (s *gatewayStore) UpdateGatewayModelCAS(ctx context.Context, oldAlias string, model GatewayModel, expectedUpdatedAt string) (GatewayModel, error) {
 	oldAlias = strings.TrimSpace(oldAlias)
 	expectedUpdatedAt = strings.TrimSpace(expectedUpdatedAt)
 	if oldAlias == "" {
@@ -440,7 +440,7 @@ func (s *Store) UpdateGatewayModelCAS(ctx context.Context, oldAlias string, mode
 	return s.GetGatewayModel(ctx, canonical.Alias)
 }
 
-func (s *Store) DeleteGatewayModel(ctx context.Context, alias string) error {
+func (s *gatewayStore) DeleteGatewayModel(ctx context.Context, alias string) error {
 	alias = strings.TrimSpace(alias)
 	if alias == "" {
 		return sql.ErrNoRows
@@ -542,7 +542,7 @@ func renameGatewayAllowedModels(ctx context.Context, tx *sql.Tx, oldAlias, newAl
 	return nil
 }
 
-func (s *Store) ListRecentGatewayRequests(ctx context.Context, limit int) ([]GatewayRequestSummary, error) {
+func (s *gatewayStore) ListRecentGatewayRequests(ctx context.Context, limit int) ([]GatewayRequestSummary, error) {
 	if limit <= 0 {
 		return nil, errors.New("gateway request limit must be positive")
 	}
@@ -608,7 +608,7 @@ func (s *Store) ListRecentGatewayRequests(ctx context.Context, limit int) ([]Gat
 	return requests, nil
 }
 
-func (s *Store) GetGatewayKeyMonthlyUsage(ctx context.Context, gatewayKeyID string, month time.Time) (GatewayMonthlyUsage, error) {
+func (s *gatewayStore) GetGatewayKeyMonthlyUsage(ctx context.Context, gatewayKeyID string, month time.Time) (GatewayMonthlyUsage, error) {
 	gatewayKeyID = strings.TrimSpace(gatewayKeyID)
 	if gatewayKeyID == "" {
 		return GatewayMonthlyUsage{}, errors.New("gateway key id is required")

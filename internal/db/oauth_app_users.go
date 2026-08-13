@@ -26,7 +26,7 @@ type OAuthAppUserProvision struct {
 // allowCreate is false, preventing concurrent closed-registration callbacks
 // from both observing an empty user table. Email is mutable metadata and is
 // never used to select or link an account.
-func (s *Store) FindOrCreateOAuthAppUser(ctx context.Context, provision OAuthAppUserProvision, allowCreate bool) (User, bool, error) {
+func (s *oauthAppStore) FindOrCreateOAuthAppUser(ctx context.Context, provision OAuthAppUserProvision, allowCreate bool) (User, bool, error) {
 	identity, err := canonicalOAuthAppIdentity(OAuthAppIdentity{
 		Issuer:      provision.Issuer,
 		Subject:     provision.Subject,
@@ -96,7 +96,7 @@ func (s *Store) FindOrCreateOAuthAppUser(ctx context.Context, provision OAuthApp
 	return user, true, nil
 }
 
-func (s *Store) GetUser(ctx context.Context, userID string) (User, error) {
+func (s *userStore) GetUser(ctx context.Context, userID string) (User, error) {
 	userID = strings.TrimSpace(userID)
 	if userID == "" {
 		return User{}, errors.New("user id is required")

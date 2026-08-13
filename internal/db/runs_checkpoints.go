@@ -8,7 +8,7 @@ import (
 	"strings"
 )
 
-func (s *Store) CreateRun(ctx context.Context, run Run) (Run, error) {
+func (s *runStore) CreateRun(ctx context.Context, run Run) (Run, error) {
 	run.ID = strings.TrimSpace(run.ID)
 	run.AgentID = strings.TrimSpace(run.AgentID)
 	run.TriggerMessageID = strings.TrimSpace(run.TriggerMessageID)
@@ -294,7 +294,7 @@ func validRunPermissionModeCap(cap, triggerType string) bool {
 	}
 }
 
-func (s *Store) UpdateRunStatus(ctx context.Context, runID, status, errorMessage string) error {
+func (s *runStore) UpdateRunStatus(ctx context.Context, runID, status, errorMessage string) error {
 	if status != "running" {
 		return fmt.Errorf("invalid non-terminal run status transition to %q", status)
 	}
@@ -306,7 +306,7 @@ func (s *Store) UpdateRunStatus(ctx context.Context, runID, status, errorMessage
 	return s.requireRunTransition(ctx, result, runID, "start")
 }
 
-func (s *Store) requireRunTransition(ctx context.Context, result sql.Result, runID, action string) error {
+func (s *runStore) requireRunTransition(ctx context.Context, result sql.Result, runID, action string) error {
 	return requireRunTransitionWithQuerier(ctx, s.db, result, runID, action)
 }
 
@@ -353,7 +353,7 @@ func requireCheckpointTransition(result sql.Result, runID, action string) error 
 	return nil
 }
 
-func (s *Store) BeginRunGitCheckpoint(ctx context.Context, runID, baseHead, repoRoot string) error {
+func (s *runStore) BeginRunGitCheckpoint(ctx context.Context, runID, baseHead, repoRoot string) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
@@ -372,7 +372,7 @@ func (s *Store) BeginRunGitCheckpoint(ctx context.Context, runID, baseHead, repo
 	return tx.Commit()
 }
 
-func (s *Store) MarkRunGitCheckpointCapturing(ctx context.Context, runID string) error {
+func (s *runStore) MarkRunGitCheckpointCapturing(ctx context.Context, runID string) error {
 	result, err := s.db.ExecContext(ctx, `UPDATE runs SET checkpoint_state = ?, checkpoint_error = NULL, updated_at = ? WHERE id = ? AND checkpoint_state = ?`, RunCheckpointCapturing, Now(), runID, RunCheckpointTracking)
 	if err != nil {
 		return err
@@ -383,7 +383,7 @@ func (s *Store) MarkRunGitCheckpointCapturing(ctx context.Context, runID string)
 	return nil
 }
 
-func (s *Store) ReplaceRunGitCheckpointChanges(ctx context.Context, runID string, changes []RunGitChange) error {
+func (s *runStore) ReplaceRunGitCheckpointChanges(ctx context.Context, runID string, changes []RunGitChange) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
@@ -408,7 +408,7 @@ func (s *Store) ReplaceRunGitCheckpointChanges(ctx context.Context, runID string
 	return tx.Commit()
 }
 
-func (s *Store) InvalidateRunGitCheckpoint(ctx context.Context, runID, reason string) error {
+func (s *runStore) InvalidateRunGitCheckpoint(ctx context.Context, runID, reason string) error {
 	reason = strings.TrimSpace(reason)
 	if reason == "" {
 		reason = "run checkpoint capture failed"
@@ -441,7 +441,7 @@ func (s *Store) InvalidateRunGitCheckpoint(ctx context.Context, runID, reason st
 	return tx.Commit()
 }
 
-func (s *Store) FinalizeRunGitCheckpoint(ctx context.Context, runID, endHead string) (bool, error) {
+func (s *runStore) FinalizeRunGitCheckpoint(ctx context.Context, runID, endHead string) (bool, error) {
 	now := Now()
 	result, err := s.db.ExecContext(ctx, `UPDATE runs SET end_head = NULLIF(?, ''), git_snapshot_at = ?, checkpoint_state = ?, checkpoint_error = NULL, updated_at = ? WHERE id = ? AND checkpoint_state = ?`, strings.TrimSpace(endHead), now, RunCheckpointReady, now, runID, RunCheckpointTracking)
 	if err != nil {
@@ -454,7 +454,7 @@ func (s *Store) FinalizeRunGitCheckpoint(ctx context.Context, runID, endHead str
 	return affected == 1, nil
 }
 
-func (s *Store) ClaimRunGitRollback(ctx context.Context, runID string) error {
+func (s *runStore) ClaimRunGitRollback(ctx context.Context, runID string) error {
 	result, err := s.db.ExecContext(ctx, `UPDATE runs SET checkpoint_state = ?, checkpoint_error = NULL, updated_at = ? WHERE id = ? AND checkpoint_state = ?`, RunCheckpointRollingBack, Now(), runID, RunCheckpointReady)
 	if err != nil {
 		return err
@@ -462,7 +462,7 @@ func (s *Store) ClaimRunGitRollback(ctx context.Context, runID string) error {
 	return requireCheckpointTransition(result, runID, "start rollback")
 }
 
-func (s *Store) MarkRunGitCheckpointRolledBack(ctx context.Context, runID string) error {
+func (s *runStore) MarkRunGitCheckpointRolledBack(ctx context.Context, runID string) error {
 	now := Now()
 	result, err := s.db.ExecContext(ctx, `UPDATE runs SET checkpoint_state = ?, rolled_back_at = ?, checkpoint_error = NULL, updated_at = ? WHERE id = ? AND checkpoint_state = ?`, RunCheckpointRolledBack, now, now, runID, RunCheckpointRollingBack)
 	if err != nil {
@@ -471,7 +471,7 @@ func (s *Store) MarkRunGitCheckpointRolledBack(ctx context.Context, runID string
 	return requireCheckpointTransition(result, runID, "finish rollback")
 }
 
-func (s *Store) FailRunGitRollback(ctx context.Context, runID, reason string) error {
+func (s *runStore) FailRunGitRollback(ctx context.Context, runID, reason string) error {
 	reason = strings.TrimSpace(reason)
 	if reason == "" {
 		reason = "rollback failed"
@@ -483,7 +483,7 @@ func (s *Store) FailRunGitRollback(ctx context.Context, runID, reason string) er
 	return requireCheckpointTransition(result, runID, "mark rollback failure")
 }
 
-func (s *Store) ListRunGitChanges(ctx context.Context, runID string) ([]RunGitChange, error) {
+func (s *runStore) ListRunGitChanges(ctx context.Context, runID string) ([]RunGitChange, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT run_id, path, COALESCE(orig_path,''), index_status, worktree_status, untracked, COALESCE(index_fingerprint,''), worktree_fingerprint FROM run_git_changes WHERE run_id = ? ORDER BY path ASC`, runID)
 	if err != nil {
 		return nil, err
@@ -502,7 +502,7 @@ func (s *Store) ListRunGitChanges(ctx context.Context, runID string) ([]RunGitCh
 	return changes, rows.Err()
 }
 
-func (s *Store) CompleteRun(ctx context.Context, runID, status, errorMessage string) error {
+func (s *runStore) CompleteRun(ctx context.Context, runID, status, errorMessage string) error {
 	// Direct runner tests and legacy callers may run without durable tracking.
 	// There is no row to transition in that mode, so preserve the prior no-op.
 	if strings.TrimSpace(runID) == "" {
@@ -545,7 +545,7 @@ func (s *Store) CompleteRun(ctx context.Context, runID, status, errorMessage str
 	return tx.Commit()
 }
 
-func (s *Store) RecoverInterruptedRun(ctx context.Context, runID string) error {
+func (s *runStore) RecoverInterruptedRun(ctx context.Context, runID string) error {
 	const restartReason = "process restarted"
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -588,7 +588,7 @@ func (s *Store) RecoverInterruptedRun(ctx context.Context, runID string) error {
 // can tell a run reaped mid-session from one lost to a restart. The cleanup is
 // otherwise identical: without denying the stranded tool calls the run keeps a
 // live-looking call in the transcript and the UI never leaves its busy state.
-func (s *Store) AbandonStrandedRun(ctx context.Context, runID, reason string) error {
+func (s *runStore) AbandonStrandedRun(ctx context.Context, runID, reason string) error {
 	reason = strings.TrimSpace(reason)
 	if reason == "" {
 		return errors.New("abandoning a stranded run requires a reason")
@@ -634,19 +634,19 @@ func scanRun(scan runScanner) (Run, error) {
 	return run, err
 }
 
-func (s *Store) GetRun(ctx context.Context, agentID, runID string) (Run, error) {
+func (s *runStore) GetRun(ctx context.Context, agentID, runID string) (Run, error) {
 	return scanRun(func(dest ...any) error {
 		return s.db.QueryRowContext(ctx, runSelectSQL+` WHERE agent_id = ? AND id = ?`, agentID, runID).Scan(dest...)
 	})
 }
 
-func (s *Store) GetRunByID(ctx context.Context, runID string) (Run, error) {
+func (s *runStore) GetRunByID(ctx context.Context, runID string) (Run, error) {
 	return scanRun(func(dest ...any) error {
 		return s.db.QueryRowContext(ctx, runSelectSQL+` WHERE id = ?`, runID).Scan(dest...)
 	})
 }
 
-func (s *Store) ListRuns(ctx context.Context, agentID string, limit int) ([]Run, error) {
+func (s *runStore) ListRuns(ctx context.Context, agentID string, limit int) ([]Run, error) {
 	if limit <= 0 || limit > 100 {
 		limit = 20
 	}
@@ -666,7 +666,7 @@ func (s *Store) ListRuns(ctx context.Context, agentID string, limit int) ([]Run,
 	return runs, rows.Err()
 }
 
-func (s *Store) ListRecoverableRuns(ctx context.Context) ([]Run, error) {
+func (s *runStore) ListRecoverableRuns(ctx context.Context) ([]Run, error) {
 	rows, err := s.db.QueryContext(ctx, runSelectSQL+` WHERE status IN ('pending', 'running') ORDER BY execution_generation ASC, id ASC`)
 	if err != nil {
 		return nil, err
@@ -683,7 +683,7 @@ func (s *Store) ListRecoverableRuns(ctx context.Context) ([]Run, error) {
 	return runs, rows.Err()
 }
 
-func (s *Store) ListRollingBackRuns(ctx context.Context) ([]Run, error) {
+func (s *runStore) ListRollingBackRuns(ctx context.Context) ([]Run, error) {
 	rows, err := s.db.QueryContext(ctx, runSelectSQL+` WHERE checkpoint_state = ? ORDER BY execution_generation ASC, id ASC`, RunCheckpointRollingBack)
 	if err != nil {
 		return nil, err
@@ -703,7 +703,7 @@ func (s *Store) ListRollingBackRuns(ctx context.Context) ([]Run, error) {
 // BindPendingCorrectionRun upgrades the legacy correction transaction with the
 // same execution-generation and capability snapshots used by ordinary runs. It
 // must complete before the correction loop is scheduled.
-func (s *Store) BindPendingCorrectionRun(ctx context.Context, runID, source string) (Run, error) {
+func (s *runStore) BindPendingCorrectionRun(ctx context.Context, runID, source string) (Run, error) {
 	runID = strings.TrimSpace(runID)
 	source = strings.TrimSpace(source)
 	if runID == "" {

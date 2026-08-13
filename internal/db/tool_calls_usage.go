@@ -8,7 +8,7 @@ import (
 	"strings"
 )
 
-func (s *Store) AddToolCall(ctx context.Context, call ToolCall) (ToolCall, error) {
+func (s *toolCallStore) AddToolCall(ctx context.Context, call ToolCall) (ToolCall, error) {
 	if call.ID == "" {
 		call.ID = NewID()
 	}
@@ -69,7 +69,7 @@ func (s *Store) AddToolCall(ctx context.Context, call ToolCall) (ToolCall, error
 	return call, nil
 }
 
-func (s *Store) GetToolCallByUseID(ctx context.Context, agentID, toolUseID string) (ToolCall, error) {
+func (s *toolCallStore) GetToolCallByUseID(ctx context.Context, agentID, toolUseID string) (ToolCall, error) {
 	var c ToolCall
 	var input, output string
 	err := s.db.QueryRowContext(ctx, `SELECT id, agent_id, COALESCE(run_id,''), COALESCE(message_id,''), tool_use_id, tool_name, COALESCE(input_json,''), COALESCE(output_json,''), status, COALESCE(duration_ms,0), COALESCE(error_message,''), COALESCE(permission_decided_by,''), COALESCE(permission_decided_at,''), COALESCE(permission_deny_message,''), COALESCE(permission_decision_reason,''), COALESCE(permission_suggestions,''), COALESCE(permission_generation,1), COALESCE(policy_generation,1), COALESCE(execution_device_id,'local'), COALESCE(started_at,''), COALESCE(completed_at,''), created_at, COALESCE(updated_at, created_at) FROM agent_tool_calls WHERE agent_id = ? AND tool_use_id = ?`, agentID, toolUseID).Scan(&c.ID, &c.AgentID, &c.RunID, &c.MessageID, &c.ToolUseID, &c.ToolName, &input, &output, &c.Status, &c.DurationMS, &c.ErrorMessage, &c.PermissionDecidedBy, &c.PermissionDecidedAt, &c.PermissionDenyMessage, &c.PermissionDecisionReason, &c.PermissionSuggestions, &c.PermissionGeneration, &c.PolicyGeneration, &c.ExecutionDeviceID, &c.StartedAt, &c.CompletedAt, &c.CreatedAt, &c.UpdatedAt)
@@ -82,7 +82,7 @@ func (s *Store) GetToolCallByUseID(ctx context.Context, agentID, toolUseID strin
 	return c, err
 }
 
-func (s *Store) UpdateToolCallApproval(ctx context.Context, agentID, toolUseID, status, decidedBy, denyMessage, reason, suggestions string) error {
+func (s *toolCallStore) UpdateToolCallApproval(ctx context.Context, agentID, toolUseID, status, decidedBy, denyMessage, reason, suggestions string) error {
 	if status != "approved" && status != "denied" {
 		return fmt.Errorf("invalid tool approval status %q", status)
 	}
@@ -96,7 +96,7 @@ func (s *Store) UpdateToolCallApproval(ctx context.Context, agentID, toolUseID, 
 }
 
 // MarkToolCallRunning claims an approved pending call immediately before execution.
-func (s *Store) MarkToolCallRunning(ctx context.Context, agentID, toolUseID string) error {
+func (s *toolCallStore) MarkToolCallRunning(ctx context.Context, agentID, toolUseID string) error {
 	now := Now()
 	result, err := s.db.ExecContext(ctx, `UPDATE agent_tool_calls SET status = 'running', started_at = COALESCE(NULLIF(started_at, ''), ?), completed_at = NULL, updated_at = ? WHERE agent_id = ? AND tool_use_id = ? AND status = 'approved'`, now, now, agentID, toolUseID)
 	if err != nil {
@@ -112,7 +112,7 @@ func (s *Store) MarkToolCallRunning(ctx context.Context, agentID, toolUseID stri
 	return fmt.Errorf("%w: tool call cannot start: %s", ErrConflict, toolUseID)
 }
 
-func (s *Store) UpdateToolCallResult(ctx context.Context, agentID, toolUseID string, outputJSON json.RawMessage, status string, durationMS int64, errorMessage string) error {
+func (s *toolCallStore) UpdateToolCallResult(ctx context.Context, agentID, toolUseID string, outputJSON json.RawMessage, status string, durationMS int64, errorMessage string) error {
 	if status != "completed" && status != "error" && status != "denied" {
 		return fmt.Errorf("invalid terminal tool call status %q", status)
 	}
@@ -121,15 +121,15 @@ func (s *Store) UpdateToolCallResult(ctx context.Context, agentID, toolUseID str
 	return err
 }
 
-func (s *Store) ListPendingToolCalls(ctx context.Context, agentID string) ([]ToolCall, error) {
+func (s *toolCallStore) ListPendingToolCalls(ctx context.Context, agentID string) ([]ToolCall, error) {
 	return s.listToolCalls(ctx, `WHERE agent_id = ? AND status = 'pending_approval' ORDER BY created_at ASC`, agentID)
 }
 
-func (s *Store) ListToolCallsByRun(ctx context.Context, agentID, runID string) ([]ToolCall, error) {
+func (s *toolCallStore) ListToolCallsByRun(ctx context.Context, agentID, runID string) ([]ToolCall, error) {
 	return s.listToolCalls(ctx, `WHERE agent_id = ? AND run_id = ? ORDER BY created_at ASC, id ASC`, agentID, runID)
 }
 
-func (s *Store) ListToolCallsByRunWindow(ctx context.Context, agentID, runID string, limit, offset int) ([]ToolCall, error) {
+func (s *toolCallStore) ListToolCallsByRunWindow(ctx context.Context, agentID, runID string, limit, offset int) ([]ToolCall, error) {
 	if limit <= 0 || offset < 0 {
 		return nil, fmt.Errorf("invalid tool call window limit=%d offset=%d", limit, offset)
 	}
@@ -162,7 +162,7 @@ func (s *Store) ListToolCallsByRunWindow(ctx context.Context, agentID, runID str
 	return calls, nil
 }
 
-func (s *Store) listToolCalls(ctx context.Context, where string, args ...any) ([]ToolCall, error) {
+func (s *toolCallStore) listToolCalls(ctx context.Context, where string, args ...any) ([]ToolCall, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT id, agent_id, COALESCE(run_id,''), COALESCE(message_id,''), tool_use_id, tool_name, COALESCE(input_json,''), COALESCE(output_json,''), status, COALESCE(duration_ms,0), COALESCE(error_message,''), COALESCE(permission_decided_by,''), COALESCE(permission_decided_at,''), COALESCE(permission_deny_message,''), COALESCE(permission_decision_reason,''), COALESCE(permission_suggestions,''), COALESCE(permission_generation,1), COALESCE(policy_generation,1), COALESCE(execution_device_id,'local'), COALESCE(started_at,''), COALESCE(completed_at,''), created_at, COALESCE(updated_at, created_at) FROM agent_tool_calls `+where, args...)
 	if err != nil {
 		return nil, err
@@ -186,7 +186,7 @@ func (s *Store) listToolCalls(ctx context.Context, where string, args ...any) ([
 	return calls, rows.Err()
 }
 
-func (s *Store) RunSummary(ctx context.Context, agentID, runID string) (RunSummary, error) {
+func (s *toolCallStore) RunSummary(ctx context.Context, agentID, runID string) (RunSummary, error) {
 	run, err := s.GetRun(ctx, agentID, runID)
 	if err != nil {
 		return RunSummary{}, err
@@ -212,7 +212,7 @@ func (s *Store) RunSummary(ctx context.Context, agentID, runID string) (RunSumma
 	return summary, nil
 }
 
-func (s *Store) ActiveRunSummary(ctx context.Context, agentID string) (ActiveRunSummary, error) {
+func (s *toolCallStore) ActiveRunSummary(ctx context.Context, agentID string) (ActiveRunSummary, error) {
 	var summary ActiveRunSummary
 	run, err := scanRun(func(dest ...any) error {
 		return s.db.QueryRowContext(ctx, runSelectSQL+` WHERE agent_id = ? AND status IN ('pending', 'running', 'continuation_pending') ORDER BY CASE status WHEN 'running' THEN 0 WHEN 'continuation_pending' THEN 1 ELSE 2 END, COALESCE(started_at, created_at) DESC, id DESC LIMIT 1`, agentID).Scan(dest...)
@@ -234,7 +234,7 @@ func (s *Store) ActiveRunSummary(ctx context.Context, agentID string) (ActiveRun
 	return summary, nil
 }
 
-func (s *Store) listToolCallPreviewsByRun(ctx context.Context, agentID, runID string, limit int) ([]ToolCallPreview, error) {
+func (s *toolCallStore) listToolCallPreviewsByRun(ctx context.Context, agentID, runID string, limit int) ([]ToolCallPreview, error) {
 	if limit <= 0 || limit > 50 {
 		limit = 12
 	}
@@ -260,7 +260,7 @@ func (s *Store) listToolCallPreviewsByRun(ctx context.Context, agentID, runID st
 	return calls, nil
 }
 
-func (s *Store) listRunMessagePreviews(ctx context.Context, agentID, runID string, limit int) ([]RunMessagePreview, error) {
+func (s *toolCallStore) listRunMessagePreviews(ctx context.Context, agentID, runID string, limit int) ([]RunMessagePreview, error) {
 	if limit <= 0 || limit > 20 {
 		limit = 6
 	}
@@ -299,7 +299,7 @@ func truncateRunes(value string, limit int) string {
 	return string(runes[:limit]) + "…"
 }
 
-func (s *Store) AddAPIRequest(ctx context.Context, request APIRequest) (APIRequest, error) {
+func (s *apiRequestStore) AddAPIRequest(ctx context.Context, request APIRequest) (APIRequest, error) {
 	if request.ID == "" {
 		request.ID = NewID()
 	}

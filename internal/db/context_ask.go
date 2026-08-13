@@ -98,7 +98,7 @@ type ChildContextSnapshot struct {
 // single read-only transaction. All authorization failures intentionally
 // collapse to sql.ErrNoRows to avoid exposing the existence of other agents,
 // tasks, or runs.
-func (s *Store) ReadOwnedChildContextSnapshot(ctx context.Context, ownerAgentID, taskID string, opts ChildContextSnapshotOptions) (ChildContextSnapshot, error) {
+func (s *contextAskStore) ReadOwnedChildContextSnapshot(ctx context.Context, ownerAgentID, taskID string, opts ChildContextSnapshotOptions) (ChildContextSnapshot, error) {
 	options, err := normalizeChildContextSnapshotOptions(opts)
 	if err != nil {
 		return ChildContextSnapshot{}, err

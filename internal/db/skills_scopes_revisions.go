@@ -183,23 +183,23 @@ func scanSkillRevision(scan skillScanner) (SkillRevision, error) {
 
 const skillRevisionColumns = `sequence, id, skill_id, revision_no, operation, actor, COALESCE(restored_from_revision_no,0), name, command, description, prompt, source, scope, COALESCE(project_id,''), COALESCE(workline_id,''), COALESCE(deleted_at,''), content_hash, enabled, scan_verdict, scan_findings_json, scanner_version, COALESCE(risk_acknowledged_at,''), COALESCE(risk_acknowledged_by,''), COALESCE(risk_acknowledged_hash,''), head_created_at, head_updated_at, created_at`
 
-func (s *Store) GetSkillRevision(ctx context.Context, skillID string, revisionNo int64) (SkillRevision, error) {
+func (s *skillStore) GetSkillRevision(ctx context.Context, skillID string, revisionNo int64) (SkillRevision, error) {
 	return scanSkillRevision(func(dest ...any) error {
 		return s.db.QueryRowContext(ctx, `SELECT `+skillRevisionColumns+` FROM skill_revisions WHERE skill_id = ? AND revision_no = ?`, skillID, revisionNo).Scan(dest...)
 	})
 }
 
-func (s *Store) getSkillIncludingDeleted(ctx context.Context, id string) (Skill, error) {
+func (s *skillStore) getSkillIncludingDeleted(ctx context.Context, id string) (Skill, error) {
 	return scanSkill(func(dest ...any) error {
 		return s.db.QueryRowContext(ctx, `SELECT id, name, command, description, prompt, source, scope, COALESCE(project_id,''), COALESCE(workline_id,''), COALESCE(deleted_at,''), COALESCE(revision_no,1), content_hash, enabled, scan_verdict, scan_findings_json, COALESCE(scanner_version,0), COALESCE(risk_acknowledged_at,''), COALESCE(risk_acknowledged_by,''), COALESCE(risk_acknowledged_hash,''), created_at, updated_at FROM skills WHERE id = ?`, id).Scan(dest...)
 	})
 }
 
-func (s *Store) GetSkillIncludingDeleted(ctx context.Context, id string) (Skill, error) {
+func (s *skillStore) GetSkillIncludingDeleted(ctx context.Context, id string) (Skill, error) {
 	return s.getSkillIncludingDeleted(ctx, id)
 }
 
-func (s *Store) latestSkillRevisionSequence(ctx context.Context) (int64, error) {
+func (s *skillStore) latestSkillRevisionSequence(ctx context.Context) (int64, error) {
 	var sequence int64
 	if err := s.db.QueryRowContext(ctx, `SELECT COALESCE(MAX(sequence),0) FROM skill_revisions`).Scan(&sequence); err != nil {
 		return 0, err
@@ -207,7 +207,7 @@ func (s *Store) latestSkillRevisionSequence(ctx context.Context) (int64, error) 
 	return sequence, nil
 }
 
-func (s *Store) latestSkillRevisionSequenceForSkill(ctx context.Context, skillID string) (int64, error) {
+func (s *skillStore) latestSkillRevisionSequenceForSkill(ctx context.Context, skillID string) (int64, error) {
 	var sequence int64
 	if err := s.db.QueryRowContext(ctx, `SELECT COALESCE(MAX(sequence),0) FROM skill_revisions WHERE skill_id = ?`, skillID).Scan(&sequence); err != nil {
 		return 0, err
@@ -227,13 +227,13 @@ type skillAgentContext struct {
 	WorklineID string
 }
 
-func (s *Store) skillAgentContext(ctx context.Context, agentID string) (skillAgentContext, error) {
+func (s *skillStore) skillAgentContext(ctx context.Context, agentID string) (skillAgentContext, error) {
 	var current skillAgentContext
 	err := s.db.QueryRowContext(ctx, `SELECT COALESCE(w.project_id,''), COALESCE(a.workline_id,'') FROM agents a LEFT JOIN worklines w ON w.id = a.workline_id WHERE a.id = ?`, agentID).Scan(&current.ProjectID, &current.WorklineID)
 	return current, err
 }
 
-func (s *Store) ValidateEffectiveSkillContext(ctx context.Context, agentID string, target SkillScopeTarget) error {
+func (s *skillStore) ValidateEffectiveSkillContext(ctx context.Context, agentID string, target SkillScopeTarget) error {
 	target, err := normalizeSkillScopeTarget(target)
 	if err != nil {
 		return err
@@ -264,7 +264,7 @@ func validateScopeCursor(cursor skillCursor, kind string, target SkillScopeTarge
 	return nil
 }
 
-func (s *Store) ListSkillsPage(ctx context.Context, target SkillScopeTarget, limit int, cursorValue string) (SkillPage, error) {
+func (s *skillStore) ListSkillsPage(ctx context.Context, target SkillScopeTarget, limit int, cursorValue string) (SkillPage, error) {
 	target, err := normalizeSkillScopeTarget(target)
 	if err != nil {
 		return SkillPage{}, err
@@ -345,7 +345,7 @@ func (s *Store) ListSkillsPage(ctx context.Context, target SkillScopeTarget, lim
 	return page, nil
 }
 
-func (s *Store) ListSkillRevisionsPage(ctx context.Context, skillID string, limit int, cursorValue string) (SkillRevisionPage, error) {
+func (s *skillStore) ListSkillRevisionsPage(ctx context.Context, skillID string, limit int, cursorValue string) (SkillRevisionPage, error) {
 	limit = normalizeSkillPageLimit(limit)
 	cursor, err := decodeSkillCursor(cursorValue)
 	if err != nil {
@@ -404,7 +404,7 @@ func (s *Store) ListSkillRevisionsPage(ctx context.Context, skillID string, limi
 	return page, nil
 }
 
-func (s *Store) ResolveSkillByAgentAndCommand(ctx context.Context, agentID, command string) (Skill, error) {
+func (s *skillStore) ResolveSkillByAgentAndCommand(ctx context.Context, agentID, command string) (Skill, error) {
 	return scanSkill(func(dest ...any) error {
 		return s.db.QueryRowContext(ctx, `SELECT s.id, s.name, s.command, s.description, s.prompt, s.source, s.scope, COALESCE(s.project_id,''), COALESCE(s.workline_id,''), COALESCE(s.deleted_at,''), COALESCE(s.revision_no,1), s.content_hash, s.enabled, s.scan_verdict, s.scan_findings_json, COALESCE(s.scanner_version,0), COALESCE(s.risk_acknowledged_at,''), COALESCE(s.risk_acknowledged_by,''), COALESCE(s.risk_acknowledged_hash,''), s.created_at, s.updated_at
 			FROM agents a
@@ -420,7 +420,7 @@ func (s *Store) ResolveSkillByAgentAndCommand(ctx context.Context, agentID, comm
 	})
 }
 
-func (s *Store) ListEffectiveSkillsPage(ctx context.Context, agentID string, limit int, cursorValue string) (SkillPage, error) {
+func (s *skillStore) ListEffectiveSkillsPage(ctx context.Context, agentID string, limit int, cursorValue string) (SkillPage, error) {
 	limit = normalizeSkillPageLimit(limit)
 	cursor, err := decodeSkillCursor(cursorValue)
 	if err != nil {
@@ -504,7 +504,7 @@ func (s *Store) ListEffectiveSkillsPage(ctx context.Context, agentID string, lim
 	return page, nil
 }
 
-func (s *Store) DeleteSkillCAS(ctx context.Context, id, expectedUpdatedAt, actor string) (Skill, error) {
+func (s *skillStore) DeleteSkillCAS(ctx context.Context, id, expectedUpdatedAt, actor string) (Skill, error) {
 	expectedUpdatedAt = strings.TrimSpace(expectedUpdatedAt)
 	if expectedUpdatedAt == "" {
 		return Skill{}, errors.New("expected skill updated_at is required")
@@ -550,7 +550,7 @@ func (s *Store) DeleteSkillCAS(ctx context.Context, id, expectedUpdatedAt, actor
 	return deleted, nil
 }
 
-func (s *Store) RestoreSkillAs(ctx context.Context, id string, revisionNo int64, expectedUpdatedAt string, acknowledgeRisk bool, acknowledgedContentHash, actor string) (Skill, error) {
+func (s *skillStore) RestoreSkillAs(ctx context.Context, id string, revisionNo int64, expectedUpdatedAt string, acknowledgeRisk bool, acknowledgedContentHash, actor string) (Skill, error) {
 	expectedUpdatedAt = strings.TrimSpace(expectedUpdatedAt)
 	if expectedUpdatedAt == "" {
 		return Skill{}, errors.New("expected skill updated_at is required")

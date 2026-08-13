@@ -145,7 +145,7 @@ type RemoteExecutionTask struct {
 	CompletedAt       string          `json:"completedAt,omitempty"`
 }
 
-func (s *Store) ensureRuntimeSettings(ctx context.Context) error {
+func (s *runtimeSettingsStore) ensureRuntimeSettings(ctx context.Context) error {
 	var count int
 	if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM runtime_settings WHERE id = 'default'`).Scan(&count); err != nil {
 		return err
@@ -157,7 +157,7 @@ func (s *Store) ensureRuntimeSettings(ctx context.Context) error {
 	return err
 }
 
-func (s *Store) GetRuntimeSettings(ctx context.Context) (RuntimeSettings, error) {
+func (s *runtimeSettingsStore) GetRuntimeSettings(ctx context.Context) (RuntimeSettings, error) {
 	if err := s.ensureRuntimeSettings(ctx); err != nil {
 		return RuntimeSettings{}, err
 	}
@@ -168,7 +168,7 @@ func (s *Store) GetRuntimeSettings(ctx context.Context) (RuntimeSettings, error)
 	return settings, err
 }
 
-func (s *Store) UpdateRuntimeSettings(ctx context.Context, patch RuntimeSettingsPatch) (RuntimeSettings, error) {
+func (s *runtimeSettingsStore) UpdateRuntimeSettings(ctx context.Context, patch RuntimeSettingsPatch) (RuntimeSettings, error) {
 	if patch.ExpectedRevision < 1 {
 		return RuntimeSettings{}, errors.New("runtime settings expected revision is required")
 	}
@@ -220,7 +220,7 @@ func validDefaultReasoningEffort(value string) bool {
 	}
 }
 
-func (s *Store) RotateInstallationID(ctx context.Context, expectedRevision int64) (RuntimeSettings, error) {
+func (s *runtimeSettingsStore) RotateInstallationID(ctx context.Context, expectedRevision int64) (RuntimeSettings, error) {
 	if expectedRevision < 1 {
 		return RuntimeSettings{}, errors.New("runtime settings expected revision is required")
 	}
@@ -259,7 +259,7 @@ func validateAccountEmail(value string) error {
 	return nil
 }
 
-func (s *Store) ListScheduleRuns(ctx context.Context, scheduleID string, limit int) ([]Run, error) {
+func (s *scheduleStore) ListScheduleRuns(ctx context.Context, scheduleID string, limit int) ([]Run, error) {
 	scheduleID = strings.TrimSpace(scheduleID)
 	if err := validateP2P3Text("schedule id", scheduleID, 128, true, false); err != nil {
 		return nil, err
@@ -283,7 +283,7 @@ func (s *Store) ListScheduleRuns(ctx context.Context, scheduleID string, limit i
 	return out, rows.Err()
 }
 
-func (s *Store) ListRunsAfterExecutionGeneration(ctx context.Context, agentID string, after int64, limit int) ([]Run, bool, error) {
+func (s *runStore) ListRunsAfterExecutionGeneration(ctx context.Context, agentID string, after int64, limit int) ([]Run, bool, error) {
 	if after < 0 {
 		return nil, false, errors.New("execution generation must not be negative")
 	}
@@ -311,13 +311,13 @@ func (s *Store) ListRunsAfterExecutionGeneration(ctx context.Context, agentID st
 	return out, truncated, rows.Err()
 }
 
-func (s *Store) MaxExecutionGeneration(ctx context.Context, agentID string) (int64, error) {
+func (s *runStore) MaxExecutionGeneration(ctx context.Context, agentID string) (int64, error) {
 	var generation int64
 	err := s.db.QueryRowContext(ctx, `SELECT COALESCE(execution_generation,0) FROM agents WHERE id = ?`, strings.TrimSpace(agentID)).Scan(&generation)
 	return generation, err
 }
 
-func (s *Store) ListAgents(ctx context.Context, limit int) ([]Agent, error) {
+func (s *projectStore) ListAgents(ctx context.Context, limit int) ([]Agent, error) {
 	if limit <= 0 || limit > 500 {
 		limit = 200
 	}
@@ -337,7 +337,7 @@ func (s *Store) ListAgents(ctx context.Context, limit int) ([]Agent, error) {
 	return out, rows.Err()
 }
 
-func (s *Store) ListChildAgents(ctx context.Context, parentAgentID string) ([]Agent, error) {
+func (s *projectStore) ListChildAgents(ctx context.Context, parentAgentID string) ([]Agent, error) {
 	rows, err := s.db.QueryContext(ctx, agentSelectSQL+` WHERE parent_agent_id = ? ORDER BY created_at ASC, id ASC`, strings.TrimSpace(parentAgentID))
 	if err != nil {
 		return nil, err
@@ -354,7 +354,7 @@ func (s *Store) ListChildAgents(ctx context.Context, parentAgentID string) ([]Ag
 	return out, rows.Err()
 }
 
-func (s *Store) CreateAgent(ctx context.Context, agent Agent) (Agent, error) {
+func (s *projectStore) CreateAgent(ctx context.Context, agent Agent) (Agent, error) {
 	agent.ID = strings.TrimSpace(agent.ID)
 	agent.WorklineID = strings.TrimSpace(agent.WorklineID)
 	agent.ParentAgentID = strings.TrimSpace(agent.ParentAgentID)
@@ -406,7 +406,7 @@ func validPermissionModeForDB(value string) bool {
 	}
 }
 
-func (s *Store) GetSpecBoard(ctx context.Context, agentID string) (SpecBoard, error) {
+func (s *specStore) GetSpecBoard(ctx context.Context, agentID string) (SpecBoard, error) {
 	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
 	if err != nil {
 		return SpecBoard{}, err
@@ -425,7 +425,7 @@ func (s *Store) GetSpecBoard(ctx context.Context, agentID string) (SpecBoard, er
 // ReadSpecReminderSnapshot returns active tasks only and never mutates the Spec
 // board. The caller controls the bounded task count; Omitted reports how many
 // additional active tasks were not returned.
-func (s *Store) ReadSpecReminderSnapshot(ctx context.Context, agentID string, limit int) (SpecReminderSnapshot, error) {
+func (s *specStore) ReadSpecReminderSnapshot(ctx context.Context, agentID string, limit int) (SpecReminderSnapshot, error) {
 	agentID = strings.TrimSpace(agentID)
 	if limit < 0 {
 		limit = 0
@@ -556,7 +556,7 @@ func validateSpecTask(task SpecTask) error {
 	return nil
 }
 
-func (s *Store) CreateSpecTask(ctx context.Context, task SpecTask) (SpecBoard, error) {
+func (s *specStore) CreateSpecTask(ctx context.Context, task SpecTask) (SpecBoard, error) {
 	task.AgentID = strings.TrimSpace(task.AgentID)
 	task.Text = strings.TrimSpace(task.Text)
 	if task.ID == "" {
@@ -604,7 +604,7 @@ func (s *Store) CreateSpecTask(ctx context.Context, task SpecTask) (SpecBoard, e
 	return board, nil
 }
 
-func (s *Store) UpdateSpecTask(ctx context.Context, agentID, taskID string, mutation SpecTaskMutation) (SpecBoard, error) {
+func (s *specStore) UpdateSpecTask(ctx context.Context, agentID, taskID string, mutation SpecTaskMutation) (SpecBoard, error) {
 	if mutation.ExpectedRevision < 1 {
 		return SpecBoard{}, errors.New("spec task expected revision is required")
 	}
@@ -678,7 +678,7 @@ func (s *Store) UpdateSpecTask(ctx context.Context, agentID, taskID string, muta
 	return board, nil
 }
 
-func (s *Store) DeleteSpecTask(ctx context.Context, agentID, taskID string, expectedRevision int64, acknowledgeProtected bool, actor string) (SpecBoard, error) {
+func (s *specStore) DeleteSpecTask(ctx context.Context, agentID, taskID string, expectedRevision int64, acknowledgeProtected bool, actor string) (SpecBoard, error) {
 	if expectedRevision < 1 {
 		return SpecBoard{}, errors.New("spec task expected revision is required")
 	}
@@ -745,7 +745,7 @@ func (s *Store) DeleteSpecTask(ctx context.Context, agentID, taskID string, expe
 	return board, nil
 }
 
-func (s *Store) ReorderSpecTasks(ctx context.Context, agentID string, taskIDs []string, expectedBoardRevision int64) (SpecBoard, error) {
+func (s *specStore) ReorderSpecTasks(ctx context.Context, agentID string, taskIDs []string, expectedBoardRevision int64) (SpecBoard, error) {
 	if expectedBoardRevision < 0 || len(taskIDs) > SpecTaskMaxCount {
 		return SpecBoard{}, errors.New("invalid spec board revision or task order")
 	}
@@ -822,7 +822,7 @@ func (s *Store) ReorderSpecTasks(ctx context.Context, agentID string, taskIDs []
 	return board, nil
 }
 
-func (s *Store) CreateGoal(ctx context.Context, agentID, text string) (SpecBoard, GoalConfirmation, error) {
+func (s *specStore) CreateGoal(ctx context.Context, agentID, text string) (SpecBoard, GoalConfirmation, error) {
 	agentID = strings.TrimSpace(agentID)
 	text = strings.TrimSpace(text)
 	task := SpecTask{ID: NewID(), AgentID: agentID, Text: text, Status: "todo", Protected: true, SourceType: "goal", SourceID: NewID()}
@@ -922,7 +922,7 @@ func validateAggregate(name, mode string, members []string) ([]string, error) {
 	return out, nil
 }
 
-func (s *Store) ListModelAggregates(ctx context.Context) ([]ModelAggregate, error) {
+func (s *modelAggregateStore) ListModelAggregates(ctx context.Context) ([]ModelAggregate, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT id, name, mode, revision, updated_at FROM model_aggregates ORDER BY name COLLATE NOCASE ASC`)
 	if err != nil {
 		return nil, err
@@ -953,7 +953,7 @@ func (s *Store) ListModelAggregates(ctx context.Context) ([]ModelAggregate, erro
 	return out, nil
 }
 
-func (s *Store) GetModelAggregate(ctx context.Context, name string) (ModelAggregate, error) {
+func (s *modelAggregateStore) GetModelAggregate(ctx context.Context, name string) (ModelAggregate, error) {
 	var aggregate ModelAggregate
 	err := s.db.QueryRowContext(ctx, `SELECT id, name, mode, revision, updated_at FROM model_aggregates WHERE name = ?`, strings.TrimSpace(name)).Scan(&aggregate.ID, &aggregate.Name, &aggregate.Mode, &aggregate.Revision, &aggregate.UpdatedAt)
 	if err != nil {
@@ -963,7 +963,7 @@ func (s *Store) GetModelAggregate(ctx context.Context, name string) (ModelAggreg
 	return aggregate, err
 }
 
-func (s *Store) modelAggregateMembers(ctx context.Context, aggregateID string) ([]string, error) {
+func (s *modelAggregateStore) modelAggregateMembers(ctx context.Context, aggregateID string) ([]string, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT model_ref FROM model_aggregate_members WHERE aggregate_id = ? ORDER BY position ASC`, aggregateID)
 	if err != nil {
 		return nil, err
@@ -980,7 +980,7 @@ func (s *Store) modelAggregateMembers(ctx context.Context, aggregateID string) (
 	return members, rows.Err()
 }
 
-func (s *Store) UpsertModelAggregate(ctx context.Context, aggregate ModelAggregate, expectedRevision int64) (ModelAggregate, error) {
+func (s *modelAggregateStore) UpsertModelAggregate(ctx context.Context, aggregate ModelAggregate, expectedRevision int64) (ModelAggregate, error) {
 	aggregate.Name = strings.TrimSpace(aggregate.Name)
 	if aggregate.Mode == "" {
 		aggregate.Mode = "priority"
@@ -1043,7 +1043,7 @@ func (s *Store) UpsertModelAggregate(ctx context.Context, aggregate ModelAggrega
 	return s.GetModelAggregate(ctx, aggregate.Name)
 }
 
-func (s *Store) DeleteModelAggregate(ctx context.Context, name string, expectedRevision int64) error {
+func (s *modelAggregateStore) DeleteModelAggregate(ctx context.Context, name string, expectedRevision int64) error {
 	if expectedRevision < 1 {
 		return errors.New("model aggregate expected revision is required")
 	}
@@ -1115,7 +1115,7 @@ func scanExecutionDevice(scan func(...any) error) (ExecutionDevice, error) {
 	return device, err
 }
 
-func (s *Store) ListExecutionDevices(ctx context.Context) ([]ExecutionDevice, error) {
+func (s *executionStore) ListExecutionDevices(ctx context.Context) ([]ExecutionDevice, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT id, kind, name, enabled, status, capabilities_json, created_at, updated_at FROM execution_devices ORDER BY kind ASC, name COLLATE NOCASE ASC`)
 	if err != nil {
 		return nil, err
@@ -1132,13 +1132,13 @@ func (s *Store) ListExecutionDevices(ctx context.Context) ([]ExecutionDevice, er
 	return out, rows.Err()
 }
 
-func (s *Store) GetExecutionDevice(ctx context.Context, id string) (ExecutionDevice, error) {
+func (s *executionStore) GetExecutionDevice(ctx context.Context, id string) (ExecutionDevice, error) {
 	return scanExecutionDevice(func(dest ...any) error {
 		return s.db.QueryRowContext(ctx, `SELECT id, kind, name, enabled, status, capabilities_json, created_at, updated_at FROM execution_devices WHERE id = ?`, strings.TrimSpace(id)).Scan(dest...)
 	})
 }
 
-func (s *Store) RegisterRemoteExecutionDevice(ctx context.Context, registration ExecutionDeviceRegistration) (ExecutionDevice, error) {
+func (s *executionStore) RegisterRemoteExecutionDevice(ctx context.Context, registration ExecutionDeviceRegistration) (ExecutionDevice, error) {
 	registration.ID = strings.TrimSpace(registration.ID)
 	registration.Name = strings.TrimSpace(registration.Name)
 	registration.IdentityFingerprint = strings.TrimSpace(registration.IdentityFingerprint)
@@ -1160,7 +1160,7 @@ func (s *Store) RegisterRemoteExecutionDevice(ctx context.Context, registration 
 	return s.GetExecutionDevice(ctx, registration.ID)
 }
 
-func (s *Store) SetExecutionDeviceEnabled(ctx context.Context, id string, enabled bool) (ExecutionDevice, error) {
+func (s *executionStore) SetExecutionDeviceEnabled(ctx context.Context, id string, enabled bool) (ExecutionDevice, error) {
 	if strings.TrimSpace(id) == "local" && !enabled {
 		return ExecutionDevice{}, errors.New("local execution device cannot be disabled")
 	}
@@ -1180,7 +1180,7 @@ func (s *Store) SetExecutionDeviceEnabled(ctx context.Context, id string, enable
 	return s.GetExecutionDevice(ctx, id)
 }
 
-func (s *Store) SetProjectDeviceGrant(ctx context.Context, grant ProjectDeviceGrant) (ProjectDeviceGrant, error) {
+func (s *executionStore) SetProjectDeviceGrant(ctx context.Context, grant ProjectDeviceGrant) (ProjectDeviceGrant, error) {
 	grant.ProjectID = strings.TrimSpace(grant.ProjectID)
 	grant.DeviceID = strings.TrimSpace(grant.DeviceID)
 	capabilities, err := normalizeSafeJSONObject(grant.Capabilities)
@@ -1196,7 +1196,7 @@ func (s *Store) SetProjectDeviceGrant(ctx context.Context, grant ProjectDeviceGr
 	return grant, err
 }
 
-func (s *Store) SetAgentExecutionDevice(ctx context.Context, agentID, deviceID string) (Agent, error) {
+func (s *executionStore) SetAgentExecutionDevice(ctx context.Context, agentID, deviceID string) (Agent, error) {
 	agentID = strings.TrimSpace(agentID)
 	deviceID = strings.TrimSpace(deviceID)
 	if deviceID == "" {
@@ -1230,7 +1230,7 @@ func (s *Store) SetAgentExecutionDevice(ctx context.Context, agentID, deviceID s
 	return s.GetAgent(ctx, agentID)
 }
 
-func (s *Store) CreateRemoteExecutionTask(ctx context.Context, task RemoteExecutionTask) (RemoteExecutionTask, error) {
+func (s *executionStore) CreateRemoteExecutionTask(ctx context.Context, task RemoteExecutionTask) (RemoteExecutionTask, error) {
 	task.IdempotencyKey = strings.TrimSpace(task.IdempotencyKey)
 	task.ProjectID = strings.TrimSpace(task.ProjectID)
 	task.AgentID = strings.TrimSpace(task.AgentID)
@@ -1276,11 +1276,11 @@ func (s *Store) CreateRemoteExecutionTask(ctx context.Context, task RemoteExecut
 	return task, nil
 }
 
-func (s *Store) GetRemoteExecutionTaskByIdempotencyKey(ctx context.Context, key string) (RemoteExecutionTask, error) {
+func (s *executionStore) GetRemoteExecutionTaskByIdempotencyKey(ctx context.Context, key string) (RemoteExecutionTask, error) {
 	return scanRemoteExecutionTask(s.db.QueryRowContext(ctx, `SELECT id, idempotency_key, project_id, agent_id, COALESCE(run_id,''), execution_device_id, status, payload_json, result_json, no_fallback, COALESCE(lease_owner,''), COALESCE(lease_until,''), attempt_count, COALESCE(last_error,''), revision, created_at, updated_at, COALESCE(completed_at,'') FROM remote_execution_tasks WHERE idempotency_key = ?`, strings.TrimSpace(key)).Scan)
 }
 
-func (s *Store) GetRemoteExecutionTask(ctx context.Context, id string) (RemoteExecutionTask, error) {
+func (s *executionStore) GetRemoteExecutionTask(ctx context.Context, id string) (RemoteExecutionTask, error) {
 	return scanRemoteExecutionTask(s.db.QueryRowContext(ctx, `SELECT id, idempotency_key, project_id, agent_id, COALESCE(run_id,''), execution_device_id, status, payload_json, result_json, no_fallback, COALESCE(lease_owner,''), COALESCE(lease_until,''), attempt_count, COALESCE(last_error,''), revision, created_at, updated_at, COALESCE(completed_at,'') FROM remote_execution_tasks WHERE id = ?`, strings.TrimSpace(id)).Scan)
 }
 
@@ -1295,7 +1295,7 @@ func scanRemoteExecutionTask(scan func(...any) error) (RemoteExecutionTask, erro
 	return task, err
 }
 
-func (s *Store) TransitionRemoteExecutionTask(ctx context.Context, id string, expectedRevision int64, status string, resultJSON json.RawMessage, lastError string) (RemoteExecutionTask, error) {
+func (s *executionStore) TransitionRemoteExecutionTask(ctx context.Context, id string, expectedRevision int64, status string, resultJSON json.RawMessage, lastError string) (RemoteExecutionTask, error) {
 	current, err := s.GetRemoteExecutionTask(ctx, id)
 	if err != nil {
 		return RemoteExecutionTask{}, err

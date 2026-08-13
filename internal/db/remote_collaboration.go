@@ -239,7 +239,7 @@ type remoteCollaborationQueryer interface {
 	QueryRowContext(context.Context, string, ...any) *sql.Row
 }
 
-func (s *Store) CreateRemotePairingInvitation(ctx context.Context, invitation RemotePairingInvitation) (RemotePairingInvitation, error) {
+func (s *remoteCollaborationStore) CreateRemotePairingInvitation(ctx context.Context, invitation RemotePairingInvitation) (RemotePairingInvitation, error) {
 	canonical, err := canonicalRemotePairingInvitationForCreate(invitation)
 	if err != nil {
 		return RemotePairingInvitation{}, err
@@ -254,7 +254,7 @@ func (s *Store) CreateRemotePairingInvitation(ctx context.Context, invitation Re
 	return canonical, nil
 }
 
-func (s *Store) GetRemotePairingInvitation(ctx context.Context, id string) (RemotePairingInvitation, error) {
+func (s *remoteCollaborationStore) GetRemotePairingInvitation(ctx context.Context, id string) (RemotePairingInvitation, error) {
 	id, err := normalizeRemoteID("invitation id", id)
 	if err != nil {
 		return RemotePairingInvitation{}, err
@@ -262,7 +262,7 @@ func (s *Store) GetRemotePairingInvitation(ctx context.Context, id string) (Remo
 	return getRemotePairingInvitation(ctx, s.db, id)
 }
 
-func (s *Store) ListRemotePairingInvitations(ctx context.Context, optionArgs ...RemotePairingInvitationListOptions) ([]RemotePairingInvitation, error) {
+func (s *remoteCollaborationStore) ListRemotePairingInvitations(ctx context.Context, optionArgs ...RemotePairingInvitationListOptions) ([]RemotePairingInvitation, error) {
 	options, err := normalizeRemoteInvitationListOptions(optionArgs)
 	if err != nil {
 		return nil, err
@@ -295,7 +295,7 @@ func (s *Store) ListRemotePairingInvitations(ctx context.Context, optionArgs ...
 	return items, rows.Err()
 }
 
-func (s *Store) ClaimRemotePairingInvitation(ctx context.Context, id, codeHash string, expectedRevision int64, requester RemotePairingRequester) (RemotePairingInvitation, error) {
+func (s *remoteCollaborationStore) ClaimRemotePairingInvitation(ctx context.Context, id, codeHash string, expectedRevision int64, requester RemotePairingRequester) (RemotePairingInvitation, error) {
 	id, err := normalizeRemoteID("invitation id", id)
 	if err != nil {
 		return RemotePairingInvitation{}, err
@@ -322,7 +322,7 @@ func (s *Store) ClaimRemotePairingInvitation(ctx context.Context, id, codeHash s
 	return getRemotePairingInvitation(ctx, s.db, id)
 }
 
-func (s *Store) RecordRemotePairingInvitationFailure(ctx context.Context, id string, expectedRevision int64, maxAttempts int, lockedUntil string) (RemotePairingInvitation, error) {
+func (s *remoteCollaborationStore) RecordRemotePairingInvitationFailure(ctx context.Context, id string, expectedRevision int64, maxAttempts int, lockedUntil string) (RemotePairingInvitation, error) {
 	id, err := normalizeRemoteID("invitation id", id)
 	if err != nil {
 		return RemotePairingInvitation{}, err
@@ -348,7 +348,7 @@ func (s *Store) RecordRemotePairingInvitationFailure(ctx context.Context, id str
 	return getRemotePairingInvitation(ctx, s.db, id)
 }
 
-func (s *Store) ApproveRemotePairingInvitation(ctx context.Context, id string, expectedRevision int64, pairing RemotePeerPairing, grants []RemotePeerGrant) (RemotePeerPairing, []RemotePeerGrant, error) {
+func (s *remoteCollaborationStore) ApproveRemotePairingInvitation(ctx context.Context, id string, expectedRevision int64, pairing RemotePeerPairing, grants []RemotePeerGrant) (RemotePeerPairing, []RemotePeerGrant, error) {
 	id, err := normalizeRemoteID("invitation id", id)
 	if err != nil {
 		return RemotePeerPairing{}, nil, err
@@ -406,19 +406,19 @@ func (s *Store) ApproveRemotePairingInvitation(ctx context.Context, id string, e
 	return pairing, canonicalGrants, nil
 }
 
-func (s *Store) RejectRemotePairingInvitation(ctx context.Context, id, expectedStatus string, expectedRevision int64) (RemotePairingInvitation, error) {
+func (s *remoteCollaborationStore) RejectRemotePairingInvitation(ctx context.Context, id, expectedStatus string, expectedRevision int64) (RemotePairingInvitation, error) {
 	return s.transitionRemotePairingInvitation(ctx, id, expectedStatus, RemotePairingInvitationStatusRejected, expectedRevision, false)
 }
 
-func (s *Store) RevokeRemotePairingInvitation(ctx context.Context, id, expectedStatus string, expectedRevision int64) (RemotePairingInvitation, error) {
+func (s *remoteCollaborationStore) RevokeRemotePairingInvitation(ctx context.Context, id, expectedStatus string, expectedRevision int64) (RemotePairingInvitation, error) {
 	return s.transitionRemotePairingInvitation(ctx, id, expectedStatus, RemotePairingInvitationStatusRevoked, expectedRevision, false)
 }
 
-func (s *Store) ExpireRemotePairingInvitation(ctx context.Context, id, expectedStatus string, expectedRevision int64) (RemotePairingInvitation, error) {
+func (s *remoteCollaborationStore) ExpireRemotePairingInvitation(ctx context.Context, id, expectedStatus string, expectedRevision int64) (RemotePairingInvitation, error) {
 	return s.transitionRemotePairingInvitation(ctx, id, expectedStatus, RemotePairingInvitationStatusExpired, expectedRevision, true)
 }
 
-func (s *Store) transitionRemotePairingInvitation(ctx context.Context, id, expectedStatus, targetStatus string, expectedRevision int64, requireExpired bool) (RemotePairingInvitation, error) {
+func (s *remoteCollaborationStore) transitionRemotePairingInvitation(ctx context.Context, id, expectedStatus, targetStatus string, expectedRevision int64, requireExpired bool) (RemotePairingInvitation, error) {
 	id, err := normalizeRemoteID("invitation id", id)
 	if err != nil {
 		return RemotePairingInvitation{}, err
@@ -450,7 +450,7 @@ func (s *Store) transitionRemotePairingInvitation(ctx context.Context, id, expec
 // CreateRemotePeerPairing creates the controller-side record for a pairing
 // established by the remote host. Host-side records are created only by
 // ApproveRemotePairingInvitation so their identity stays bound to the claim.
-func (s *Store) CreateRemotePeerPairing(ctx context.Context, pairing RemotePeerPairing) (RemotePeerPairing, error) {
+func (s *remoteCollaborationStore) CreateRemotePeerPairing(ctx context.Context, pairing RemotePeerPairing) (RemotePeerPairing, error) {
 	now := Now()
 	canonical, scopesJSON, err := canonicalRemotePeerPairingForCreate(pairing, RemotePeerLocalRoleController, now)
 	if err != nil {
@@ -462,7 +462,7 @@ func (s *Store) CreateRemotePeerPairing(ctx context.Context, pairing RemotePeerP
 	return canonical, nil
 }
 
-func (s *Store) GetRemotePeerPairing(ctx context.Context, id string) (RemotePeerPairing, error) {
+func (s *remoteCollaborationStore) GetRemotePeerPairing(ctx context.Context, id string) (RemotePeerPairing, error) {
 	id, err := normalizeRemoteID("pairing id", id)
 	if err != nil {
 		return RemotePeerPairing{}, err
@@ -470,7 +470,7 @@ func (s *Store) GetRemotePeerPairing(ctx context.Context, id string) (RemotePeer
 	return getRemotePeerPairing(ctx, s.db, id)
 }
 
-func (s *Store) ListRemotePeerPairings(ctx context.Context, optionArgs ...RemotePeerPairingListOptions) ([]RemotePeerPairing, error) {
+func (s *remoteCollaborationStore) ListRemotePeerPairings(ctx context.Context, optionArgs ...RemotePeerPairingListOptions) ([]RemotePeerPairing, error) {
 	options, err := normalizeRemotePeerPairingListOptions(optionArgs)
 	if err != nil {
 		return nil, err
@@ -503,7 +503,7 @@ func (s *Store) ListRemotePeerPairings(ctx context.Context, optionArgs ...Remote
 	return items, rows.Err()
 }
 
-func (s *Store) ReplaceRemotePeerGrants(ctx context.Context, pairingID string, expectedGrantRevision int64, grants []RemotePeerGrant) (RemotePeerPairing, []RemotePeerGrant, error) {
+func (s *remoteCollaborationStore) ReplaceRemotePeerGrants(ctx context.Context, pairingID string, expectedGrantRevision int64, grants []RemotePeerGrant) (RemotePeerPairing, []RemotePeerGrant, error) {
 	pairingID, err := normalizeRemoteID("pairing id", pairingID)
 	if err != nil {
 		return RemotePeerPairing{}, nil, err
@@ -557,7 +557,7 @@ func (s *Store) ReplaceRemotePeerGrants(ctx context.Context, pairingID string, e
 
 // ReplaceRemotePeerAuthorization atomically updates host-wide scopes, optional
 // expiration, and the complete per-agent grant set under one grant revision.
-func (s *Store) ReplaceRemotePeerAuthorization(ctx context.Context, pairingID string, expectedGrantRevision int64, scopes []string, expiresAt string, grants []RemotePeerGrant) (RemotePeerPairing, []RemotePeerGrant, error) {
+func (s *remoteCollaborationStore) ReplaceRemotePeerAuthorization(ctx context.Context, pairingID string, expectedGrantRevision int64, scopes []string, expiresAt string, grants []RemotePeerGrant) (RemotePeerPairing, []RemotePeerGrant, error) {
 	pairingID, err := normalizeRemoteID("pairing id", pairingID)
 	if err != nil {
 		return RemotePeerPairing{}, nil, err
@@ -620,7 +620,7 @@ func (s *Store) ReplaceRemotePeerAuthorization(ctx context.Context, pairingID st
 	return pairing, canonicalGrants, nil
 }
 
-func (s *Store) GetRemotePeerGrant(ctx context.Context, pairingID, agentID string) (RemotePeerGrant, error) {
+func (s *remoteCollaborationStore) GetRemotePeerGrant(ctx context.Context, pairingID, agentID string) (RemotePeerGrant, error) {
 	pairingID, err := normalizeRemoteID("pairing id", pairingID)
 	if err != nil {
 		return RemotePeerGrant{}, err
@@ -634,7 +634,7 @@ func (s *Store) GetRemotePeerGrant(ctx context.Context, pairingID, agentID strin
 	})
 }
 
-func (s *Store) ListRemotePeerGrants(ctx context.Context, pairingID string) ([]RemotePeerGrant, error) {
+func (s *remoteCollaborationStore) ListRemotePeerGrants(ctx context.Context, pairingID string) ([]RemotePeerGrant, error) {
 	pairingID, err := normalizeRemoteID("pairing id", pairingID)
 	if err != nil {
 		return nil, err
@@ -655,15 +655,15 @@ func (s *Store) ListRemotePeerGrants(ctx context.Context, pairingID string) ([]R
 	return items, rows.Err()
 }
 
-func (s *Store) RevokeRemotePeerPairing(ctx context.Context, id, expectedStatus string, expectedCredentialRevision int64) (RemotePeerPairing, error) {
+func (s *remoteCollaborationStore) RevokeRemotePeerPairing(ctx context.Context, id, expectedStatus string, expectedCredentialRevision int64) (RemotePeerPairing, error) {
 	return s.transitionRemotePeerPairing(ctx, id, expectedStatus, RemotePeerPairingStatusRevoked, expectedCredentialRevision, false)
 }
 
-func (s *Store) ExpireRemotePeerPairing(ctx context.Context, id, expectedStatus string, expectedCredentialRevision int64) (RemotePeerPairing, error) {
+func (s *remoteCollaborationStore) ExpireRemotePeerPairing(ctx context.Context, id, expectedStatus string, expectedCredentialRevision int64) (RemotePeerPairing, error) {
 	return s.transitionRemotePeerPairing(ctx, id, expectedStatus, RemotePeerPairingStatusExpired, expectedCredentialRevision, true)
 }
 
-func (s *Store) transitionRemotePeerPairing(ctx context.Context, id, expectedStatus, targetStatus string, expectedCredentialRevision int64, requireExpired bool) (RemotePeerPairing, error) {
+func (s *remoteCollaborationStore) transitionRemotePeerPairing(ctx context.Context, id, expectedStatus, targetStatus string, expectedCredentialRevision int64, requireExpired bool) (RemotePeerPairing, error) {
 	id, err := normalizeRemoteID("pairing id", id)
 	if err != nil {
 		return RemotePeerPairing{}, err
@@ -696,7 +696,7 @@ func (s *Store) transitionRemotePeerPairing(ctx context.Context, id, expectedSta
 	return getRemotePeerPairing(ctx, s.db, id)
 }
 
-func (s *Store) TouchRemotePeerPairingLastSeen(ctx context.Context, id, seenAt string) (RemotePeerPairing, error) {
+func (s *remoteCollaborationStore) TouchRemotePeerPairingLastSeen(ctx context.Context, id, seenAt string) (RemotePeerPairing, error) {
 	id, err := normalizeRemoteID("pairing id", id)
 	if err != nil {
 		return RemotePeerPairing{}, err

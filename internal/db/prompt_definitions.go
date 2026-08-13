@@ -138,11 +138,11 @@ func promptDefinitionFromStored(value storedDefinition) PromptDefinition {
 	}, Content: content}
 }
 
-func (s *Store) EnsurePromptDefinitionsSchema(ctx context.Context) error {
+func (s *promptStore) EnsurePromptDefinitionsSchema(ctx context.Context) error {
 	return s.ensureDefinitionTables(ctx, promptDefinitionStore)
 }
 
-func (s *Store) CreatePromptDefinition(ctx context.Context, input PromptDefinitionInput) (PromptDefinition, error) {
+func (s *promptStore) CreatePromptDefinition(ctx context.Context, input PromptDefinitionInput) (PromptDefinition, error) {
 	input, err := normalizePromptDefinitionInput(input)
 	if err != nil {
 		return PromptDefinition{}, err
@@ -151,17 +151,17 @@ func (s *Store) CreatePromptDefinition(ctx context.Context, input PromptDefiniti
 	return promptDefinitionFromStored(value), err
 }
 
-func (s *Store) GetPromptDefinition(ctx context.Context, id string) (PromptDefinition, error) {
+func (s *promptStore) GetPromptDefinition(ctx context.Context, id string) (PromptDefinition, error) {
 	value, err := s.getStoredDefinition(ctx, promptDefinitionStore, strings.TrimSpace(id), false)
 	return promptDefinitionFromStored(value), err
 }
 
-func (s *Store) GetPromptDefinitionIncludingDeleted(ctx context.Context, id string) (PromptDefinition, error) {
+func (s *promptStore) GetPromptDefinitionIncludingDeleted(ctx context.Context, id string) (PromptDefinition, error) {
 	value, err := s.getStoredDefinition(ctx, promptDefinitionStore, strings.TrimSpace(id), true)
 	return promptDefinitionFromStored(value), err
 }
 
-func (s *Store) ListPromptDefinitions(ctx context.Context, target DefinitionScopeTarget) ([]PromptDefinitionSummary, error) {
+func (s *promptStore) ListPromptDefinitions(ctx context.Context, target DefinitionScopeTarget) ([]PromptDefinitionSummary, error) {
 	values, err := s.listStoredDefinitions(ctx, promptDefinitionStore, target)
 	if err != nil {
 		return nil, err
@@ -173,7 +173,7 @@ func (s *Store) ListPromptDefinitions(ctx context.Context, target DefinitionScop
 	return result, nil
 }
 
-func (s *Store) UpdatePromptDefinitionCAS(ctx context.Context, id string, expectedRevision int64, input PromptDefinitionInput) (PromptDefinition, error) {
+func (s *promptStore) UpdatePromptDefinitionCAS(ctx context.Context, id string, expectedRevision int64, input PromptDefinitionInput) (PromptDefinition, error) {
 	input, err := normalizePromptDefinitionInput(input)
 	if err != nil {
 		return PromptDefinition{}, err
@@ -195,12 +195,12 @@ func (s *Store) UpdatePromptDefinitionCAS(ctx context.Context, id string, expect
 	return promptDefinitionFromStored(value), err
 }
 
-func (s *Store) DeletePromptDefinitionCAS(ctx context.Context, id string, expectedRevision int64) (PromptDefinition, error) {
+func (s *promptStore) DeletePromptDefinitionCAS(ctx context.Context, id string, expectedRevision int64) (PromptDefinition, error) {
 	value, err := s.deleteStoredDefinitionCAS(ctx, promptDefinitionStore, id, expectedRevision)
 	return promptDefinitionFromStored(value), err
 }
 
-func (s *Store) ListPromptDefinitionRevisions(ctx context.Context, id string) ([]PromptDefinitionRevision, error) {
+func (s *promptStore) ListPromptDefinitionRevisions(ctx context.Context, id string) ([]PromptDefinitionRevision, error) {
 	values, err := s.listStoredDefinitionRevisions(ctx, promptDefinitionStore, id)
 	if err != nil {
 		return nil, err
@@ -212,7 +212,7 @@ func (s *Store) ListPromptDefinitionRevisions(ctx context.Context, id string) ([
 	return result, nil
 }
 
-func (s *Store) RestorePromptDefinitionCAS(ctx context.Context, id string, sourceRevision, expectedRevision int64) (PromptDefinition, error) {
+func (s *promptStore) RestorePromptDefinitionCAS(ctx context.Context, id string, sourceRevision, expectedRevision int64) (PromptDefinition, error) {
 	value, err := s.restoreStoredDefinitionCAS(ctx, promptDefinitionStore, id, sourceRevision, expectedRevision)
 	return promptDefinitionFromStored(value), err
 }

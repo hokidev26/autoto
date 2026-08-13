@@ -222,7 +222,7 @@ func fillPlanSnapshotsTx(ctx context.Context, tx *sql.Tx, plan *Plan) error {
 	return nil
 }
 
-func (s *Store) CreatePlan(ctx context.Context, plan Plan) (Plan, error) {
+func (s *planStore) CreatePlan(ctx context.Context, plan Plan) (Plan, error) {
 	canonical, err := canonicalPlan(plan, true)
 	if err != nil {
 		return Plan{}, err
@@ -281,7 +281,7 @@ func (s *Store) CreatePlan(ctx context.Context, plan Plan) (Plan, error) {
 	return canonical, nil
 }
 
-func (s *Store) GetPlan(ctx context.Context, agentID, planID string) (Plan, error) {
+func (s *planStore) GetPlan(ctx context.Context, agentID, planID string) (Plan, error) {
 	agentID = strings.TrimSpace(agentID)
 	planID = strings.TrimSpace(planID)
 	if agentID == "" || planID == "" {
@@ -292,7 +292,7 @@ func (s *Store) GetPlan(ctx context.Context, agentID, planID string) (Plan, erro
 	})
 }
 
-func (s *Store) GetPlanByID(ctx context.Context, planID string) (Plan, error) {
+func (s *planStore) GetPlanByID(ctx context.Context, planID string) (Plan, error) {
 	planID = strings.TrimSpace(planID)
 	if planID == "" {
 		return Plan{}, sql.ErrNoRows
@@ -302,7 +302,7 @@ func (s *Store) GetPlanByID(ctx context.Context, planID string) (Plan, error) {
 	})
 }
 
-func (s *Store) GetPlanBySourceRun(ctx context.Context, runID string) (Plan, error) {
+func (s *planStore) GetPlanBySourceRun(ctx context.Context, runID string) (Plan, error) {
 	runID = strings.TrimSpace(runID)
 	if runID == "" {
 		return Plan{}, sql.ErrNoRows
@@ -312,13 +312,13 @@ func (s *Store) GetPlanBySourceRun(ctx context.Context, runID string) (Plan, err
 	})
 }
 
-func (s *Store) GetLatestPlan(ctx context.Context, agentID string) (Plan, error) {
+func (s *planStore) GetLatestPlan(ctx context.Context, agentID string) (Plan, error) {
 	return scanPlan(func(dest ...any) error {
 		return s.db.QueryRowContext(ctx, `SELECT `+planColumns+` FROM plans WHERE agent_id = ? ORDER BY updated_at DESC, id DESC LIMIT 1`, strings.TrimSpace(agentID)).Scan(dest...)
 	})
 }
 
-func (s *Store) ListPlans(ctx context.Context, agentID string, limit int) ([]Plan, error) {
+func (s *planStore) ListPlans(ctx context.Context, agentID string, limit int) ([]Plan, error) {
 	if limit <= 0 || limit > 100 {
 		limit = 20
 	}
@@ -338,7 +338,7 @@ func (s *Store) ListPlans(ctx context.Context, agentID string, limit int) ([]Pla
 	return plans, rows.Err()
 }
 
-func (s *Store) UpdatePlan(ctx context.Context, plan Plan, expectedRevision int64) (Plan, error) {
+func (s *planStore) UpdatePlan(ctx context.Context, plan Plan, expectedRevision int64) (Plan, error) {
 	if expectedRevision < 1 {
 		return Plan{}, errors.New("plan expected revision must be positive")
 	}
@@ -396,14 +396,14 @@ func (s *Store) UpdatePlan(ctx context.Context, plan Plan, expectedRevision int6
 }
 
 // UpdatePlanCAS is an explicit alias for callers that prefer CAS terminology.
-func (s *Store) UpdatePlanCAS(ctx context.Context, plan Plan, expectedRevision int64) (Plan, error) {
+func (s *planStore) UpdatePlanCAS(ctx context.Context, plan Plan, expectedRevision int64) (Plan, error) {
 	return s.UpdatePlan(ctx, plan, expectedRevision)
 }
 
 // PersistPlanDraft implements review.PlanStore. It binds a structured plan-mode
 // result to exactly one originating Run, so a later execute Run can reference a
 // reviewed and approved durable plan rather than model text alone.
-func (s *Store) PersistPlanDraft(ctx context.Context, runID string, draft review.PlanDraft) error {
+func (s *planStore) PersistPlanDraft(ctx context.Context, runID string, draft review.PlanDraft) error {
 	runID = strings.TrimSpace(runID)
 	if err := validateP2P3Text("plan source run id", runID, 128, true, false); err != nil {
 		return err
@@ -484,7 +484,7 @@ func (s *Store) PersistPlanDraft(ctx context.Context, runID string, draft review
 
 // TriggerPlanReview advances a persisted draft into the review-only state.
 // Repeated calls are idempotent while the plan remains in review.
-func (s *Store) TriggerPlanReview(ctx context.Context, runID string) error {
+func (s *planStore) TriggerPlanReview(ctx context.Context, runID string) error {
 	runID = strings.TrimSpace(runID)
 	if err := validateP2P3Text("plan source run id", runID, 128, true, false); err != nil {
 		return err
@@ -521,7 +521,7 @@ func (s *Store) TriggerPlanReview(ctx context.Context, runID string) error {
 // PersistPlanReview records an isolated reviewer verdict with the durable
 // reviewer identity, but deliberately does not approve execution. A distinct
 // PlanApproval remains required.
-func (s *Store) PersistPlanReview(ctx context.Context, runID, reviewerID string, result review.Result) error {
+func (s *planStore) PersistPlanReview(ctx context.Context, runID, reviewerID string, result review.Result) error {
 	plan, err := s.GetPlanBySourceRun(ctx, runID)
 	if err != nil {
 		return err
@@ -562,7 +562,7 @@ func canTransitionPlanStatus(from, to string) bool {
 	}
 }
 
-func (s *Store) TransitionPlanStatus(ctx context.Context, agentID, planID string, expectedRevision int64, status string) (Plan, error) {
+func (s *planStore) TransitionPlanStatus(ctx context.Context, agentID, planID string, expectedRevision int64, status string) (Plan, error) {
 	if expectedRevision < 1 {
 		return Plan{}, errors.New("plan expected revision must be positive")
 	}
@@ -603,7 +603,7 @@ func (s *Store) TransitionPlanStatus(ctx context.Context, agentID, planID string
 	return current, nil
 }
 
-func (s *Store) CreatePlanReview(ctx context.Context, review PlanReview) (PlanReview, error) {
+func (s *planStore) CreatePlanReview(ctx context.Context, review PlanReview) (PlanReview, error) {
 	review.ID = strings.TrimSpace(review.ID)
 	review.PlanID = strings.TrimSpace(review.PlanID)
 	review.ReviewerID = strings.TrimSpace(review.ReviewerID)
@@ -666,7 +666,7 @@ func (s *Store) CreatePlanReview(ctx context.Context, review PlanReview) (PlanRe
 	return review, nil
 }
 
-func (s *Store) ListPlanReviews(ctx context.Context, agentID, planID string) ([]PlanReview, error) {
+func (s *planStore) ListPlanReviews(ctx context.Context, agentID, planID string) ([]PlanReview, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT r.id, r.plan_id, r.plan_revision, r.reviewer_id, r.decision, r.comment, r.created_at FROM plan_reviews r JOIN plans p ON p.id = r.plan_id WHERE p.agent_id = ? AND r.plan_id = ? ORDER BY r.created_at ASC, r.id ASC`, strings.TrimSpace(agentID), strings.TrimSpace(planID))
 	if err != nil {
 		return nil, err
@@ -683,7 +683,7 @@ func (s *Store) ListPlanReviews(ctx context.Context, agentID, planID string) ([]
 	return reviews, rows.Err()
 }
 
-func (s *Store) CreatePlanApproval(ctx context.Context, approval PlanApproval) (PlanApproval, error) {
+func (s *planStore) CreatePlanApproval(ctx context.Context, approval PlanApproval) (PlanApproval, error) {
 	approval.ID = strings.TrimSpace(approval.ID)
 	approval.PlanID = strings.TrimSpace(approval.PlanID)
 	approval.ApproverID = strings.TrimSpace(approval.ApproverID)
@@ -756,7 +756,7 @@ func (s *Store) CreatePlanApproval(ctx context.Context, approval PlanApproval) (
 	return approval, nil
 }
 
-func (s *Store) ListPlanApprovals(ctx context.Context, agentID, planID string) ([]PlanApproval, error) {
+func (s *planStore) ListPlanApprovals(ctx context.Context, agentID, planID string) ([]PlanApproval, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT a.id, a.plan_id, a.plan_revision, a.approver_id, a.decision, a.comment, a.created_at FROM plan_approvals a JOIN plans p ON p.id = a.plan_id WHERE p.agent_id = ? AND a.plan_id = ? ORDER BY a.created_at ASC, a.id ASC`, strings.TrimSpace(agentID), strings.TrimSpace(planID))
 	if err != nil {
 		return nil, err
@@ -773,7 +773,7 @@ func (s *Store) ListPlanApprovals(ctx context.Context, agentID, planID string) (
 	return approvals, rows.Err()
 }
 
-func (s *Store) MarkPlanStale(ctx context.Context, agentID, planID string, expectedRevision int64, reason string) (Plan, error) {
+func (s *planStore) MarkPlanStale(ctx context.Context, agentID, planID string, expectedRevision int64, reason string) (Plan, error) {
 	if expectedRevision < 1 {
 		return Plan{}, errors.New("plan expected revision must be positive")
 	}
@@ -816,7 +816,7 @@ func (s *Store) MarkPlanStale(ctx context.Context, agentID, planID string, expec
 	return current, nil
 }
 
-func (s *Store) MarkPlansStale(ctx context.Context, agentID string, snapshot PlanSnapshot, reason string) (int64, error) {
+func (s *planStore) MarkPlansStale(ctx context.Context, agentID string, snapshot PlanSnapshot, reason string) (int64, error) {
 	agentID = strings.TrimSpace(agentID)
 	if err := validateP2P3Text("plan agent id", agentID, 128, true, false); err != nil {
 		return 0, err
@@ -849,7 +849,7 @@ func (s *Store) MarkPlansStale(ctx context.Context, agentID string, snapshot Pla
 	return result.RowsAffected()
 }
 
-func (s *Store) CreateRunForPlan(ctx context.Context, planID string, run Run) (Run, error) {
+func (s *planStore) CreateRunForPlan(ctx context.Context, planID string, run Run) (Run, error) {
 	plan, err := s.GetPlanByID(ctx, planID)
 	if err != nil {
 		return Run{}, err
@@ -875,7 +875,7 @@ func (s *Store) CreateRunForPlan(ctx context.Context, planID string, run Run) (R
 	return s.CreateRun(ctx, run)
 }
 
-func (s *Store) ListPlanRuns(ctx context.Context, agentID, planID string, limit int) ([]Run, error) {
+func (s *planStore) ListPlanRuns(ctx context.Context, agentID, planID string, limit int) ([]Run, error) {
 	if limit <= 0 || limit > 100 {
 		limit = 20
 	}
@@ -895,17 +895,17 @@ func (s *Store) ListPlanRuns(ctx context.Context, agentID, planID string, limit 
 	return runs, rows.Err()
 }
 
-func (s *Store) ListRunsByPlan(ctx context.Context, agentID, planID string, limit int) ([]Run, error) {
+func (s *planStore) ListRunsByPlan(ctx context.Context, agentID, planID string, limit int) ([]Run, error) {
 	return s.ListPlanRuns(ctx, agentID, planID, limit)
 }
 
-func (s *Store) GetPlanForRun(ctx context.Context, agentID, runID string) (Plan, error) {
+func (s *planStore) GetPlanForRun(ctx context.Context, agentID, runID string) (Plan, error) {
 	return scanPlan(func(dest ...any) error {
 		return s.db.QueryRowContext(ctx, `SELECT `+planColumns+` FROM plans WHERE id = (SELECT plan_id FROM runs WHERE agent_id = ? AND id = ?)`, strings.TrimSpace(agentID), strings.TrimSpace(runID)).Scan(dest...)
 	})
 }
 
-func (s *Store) GetPlanDetail(ctx context.Context, agentID, planID string) (PlanDetail, error) {
+func (s *planStore) GetPlanDetail(ctx context.Context, agentID, planID string) (PlanDetail, error) {
 	plan, err := s.GetPlan(ctx, agentID, planID)
 	if err != nil {
 		return PlanDetail{}, err

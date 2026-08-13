@@ -25,7 +25,7 @@ type AgentLiveSnapshot struct {
 	Generations          PermissionGenerations `json:"generations"`
 }
 
-func (s *Store) GetPermissionGenerations(ctx context.Context, agentID string) (PermissionGenerations, error) {
+func (s *liveSnapshotStore) GetPermissionGenerations(ctx context.Context, agentID string) (PermissionGenerations, error) {
 	tx, err := s.reader().BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
 	if err != nil {
 		return PermissionGenerations{}, err
@@ -46,7 +46,7 @@ func (s *Store) GetPermissionGenerations(ctx context.Context, agentID string) (P
 
 // ReadAgentLiveSnapshot only SELECTs, so its transaction runs on the read
 // pool: the UI polls this constantly and must not queue behind run writes.
-func (s *Store) ReadAgentLiveSnapshot(ctx context.Context, agentID string) (AgentLiveSnapshot, error) {
+func (s *liveSnapshotStore) ReadAgentLiveSnapshot(ctx context.Context, agentID string) (AgentLiveSnapshot, error) {
 	tx, err := s.reader().BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
 	if err != nil {
 		return AgentLiveSnapshot{}, err

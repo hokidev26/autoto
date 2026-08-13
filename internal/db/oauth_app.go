@@ -54,7 +54,7 @@ const oauthAppSessionColumns = `id, token_hash, user_id, scopes_json, expires_at
 
 // GetOAuthAppIdentity resolves an identity only by the exact issuer and subject
 // pair. Email is intentionally not accepted as a lookup key.
-func (s *Store) GetOAuthAppIdentity(ctx context.Context, issuer, subject string) (OAuthAppIdentity, error) {
+func (s *oauthAppStore) GetOAuthAppIdentity(ctx context.Context, issuer, subject string) (OAuthAppIdentity, error) {
 	if err := validateOAuthAppIdentityKey("issuer", issuer, oauthAppIssuerMaxBytes); err != nil {
 		return OAuthAppIdentity{}, err
 	}
@@ -69,7 +69,7 @@ func (s *Store) GetOAuthAppIdentity(ctx context.Context, issuer, subject string)
 // UpsertOAuthAppIdentity creates a binding or refreshes its mutable profile
 // metadata. The atomic conflict clause updates only when user_id already
 // matches, so an issuer/subject pair can never be rebound by an upsert race.
-func (s *Store) UpsertOAuthAppIdentity(ctx context.Context, identity OAuthAppIdentity) (OAuthAppIdentity, error) {
+func (s *oauthAppStore) UpsertOAuthAppIdentity(ctx context.Context, identity OAuthAppIdentity) (OAuthAppIdentity, error) {
 	canonical, err := canonicalOAuthAppIdentity(identity)
 	if err != nil {
 		return OAuthAppIdentity{}, err
@@ -103,7 +103,7 @@ WHERE oauth_app_identities.user_id = excluded.user_id`,
 
 // CreateOAuthAppSession persists only a validated token hash. CreatedAt,
 // LastSeenAt, and RevokedAt are controlled by the Store rather than callers.
-func (s *Store) CreateOAuthAppSession(ctx context.Context, session OAuthAppSession) (OAuthAppSession, error) {
+func (s *oauthAppStore) CreateOAuthAppSession(ctx context.Context, session OAuthAppSession) (OAuthAppSession, error) {
 	canonical, scopesJSON, err := canonicalOAuthAppSessionForCreate(session)
 	if err != nil {
 		return OAuthAppSession{}, err
@@ -131,7 +131,7 @@ func (s *Store) CreateOAuthAppSession(ctx context.Context, session OAuthAppSessi
 
 // GetOAuthAppSessionByTokenHash returns only a currently effective session.
 // Revoked, expired, missing, and malformed-expiry rows all fail closed.
-func (s *Store) GetOAuthAppSessionByTokenHash(ctx context.Context, tokenHash string) (OAuthAppSession, error) {
+func (s *oauthAppStore) GetOAuthAppSessionByTokenHash(ctx context.Context, tokenHash string) (OAuthAppSession, error) {
 	if !validOAuthAppTokenHash(tokenHash) {
 		return OAuthAppSession{}, errors.New("invalid OAuth app token hash")
 	}
@@ -151,7 +151,7 @@ func (s *Store) GetOAuthAppSessionByTokenHash(ctx context.Context, tokenHash str
 
 // TouchOAuthAppSession advances last_seen_at monotonically for an effective
 // session. It cannot revive or mutate an expired/revoked session.
-func (s *Store) TouchOAuthAppSession(ctx context.Context, id, seenAt string) (OAuthAppSession, error) {
+func (s *oauthAppStore) TouchOAuthAppSession(ctx context.Context, id, seenAt string) (OAuthAppSession, error) {
 	id = strings.TrimSpace(id)
 	if err := validateOAuthAppText("session id", id, oauthAppUserIDMaxBytes, true); err != nil {
 		return OAuthAppSession{}, err
@@ -178,7 +178,7 @@ func (s *Store) TouchOAuthAppSession(ctx context.Context, id, seenAt string) (OA
 }
 
 // RevokeOAuthAppSession atomically and idempotently revokes one session.
-func (s *Store) RevokeOAuthAppSession(ctx context.Context, id string) (OAuthAppSession, error) {
+func (s *oauthAppStore) RevokeOAuthAppSession(ctx context.Context, id string) (OAuthAppSession, error) {
 	id = strings.TrimSpace(id)
 	if err := validateOAuthAppText("session id", id, oauthAppUserIDMaxBytes, true); err != nil {
 		return OAuthAppSession{}, err
@@ -200,7 +200,7 @@ func (s *Store) RevokeOAuthAppSession(ctx context.Context, id string) (OAuthAppS
 
 // RevokeOAuthAppSessionsForUser revokes every active OAuth app session for one
 // local user in a single atomic statement and returns the number newly revoked.
-func (s *Store) RevokeOAuthAppSessionsForUser(ctx context.Context, userID string) (int64, error) {
+func (s *oauthAppStore) RevokeOAuthAppSessionsForUser(ctx context.Context, userID string) (int64, error) {
 	userID = strings.TrimSpace(userID)
 	if err := validateOAuthAppText("user id", userID, oauthAppUserIDMaxBytes, true); err != nil {
 		return 0, err
@@ -215,7 +215,7 @@ func (s *Store) RevokeOAuthAppSessionsForUser(ctx context.Context, userID string
 // CleanupExpiredOAuthAppSessions removes sessions expired at or before before.
 // An empty cutoff means now. Rows with malformed/null expiration values are
 // invalid sessions and are also removed.
-func (s *Store) CleanupExpiredOAuthAppSessions(ctx context.Context, before string) (int64, error) {
+func (s *oauthAppStore) CleanupExpiredOAuthAppSessions(ctx context.Context, before string) (int64, error) {
 	var err error
 	if before == "" {
 		before = Now()
@@ -229,7 +229,7 @@ func (s *Store) CleanupExpiredOAuthAppSessions(ctx context.Context, before strin
 	return result.RowsAffected()
 }
 
-func (s *Store) getOAuthAppSessionByID(ctx context.Context, id string) (OAuthAppSession, error) {
+func (s *oauthAppStore) getOAuthAppSessionByID(ctx context.Context, id string) (OAuthAppSession, error) {
 	return scanOAuthAppSession(func(dest ...any) error {
 		return s.db.QueryRowContext(ctx, `SELECT `+oauthAppSessionColumns+` FROM oauth_app_sessions WHERE id = ?`, id).Scan(dest...)
 	})

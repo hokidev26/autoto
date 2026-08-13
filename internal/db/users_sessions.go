@@ -16,7 +16,7 @@ import (
 	"golang.org/x/text/unicode/norm"
 )
 
-func (s *Store) HasUsers(ctx context.Context) (bool, error) {
+func (s *userStore) HasUsers(ctx context.Context) (bool, error) {
 	var count int
 	if err := s.db.QueryRowContext(ctx, `SELECT count(*) FROM users`).Scan(&count); err != nil {
 		return false, err
@@ -40,7 +40,7 @@ func CanonicalHandle(handle string) (string, string, error) {
 	return handle, norm.NFKC.String(cases.Fold().String(handle)), nil
 }
 
-func (s *Store) CreateUser(ctx context.Context, handle, passwordHash string) (User, error) {
+func (s *userStore) CreateUser(ctx context.Context, handle, passwordHash string) (User, error) {
 	handle, handleKey, err := CanonicalHandle(handle)
 	if err != nil {
 		return User{}, err
@@ -78,7 +78,7 @@ func (s *Store) CreateUser(ctx context.Context, handle, passwordHash string) (Us
 
 // CreateProjectMember records a member role. Repeated assignments preserve the
 // existing role so concurrent setup or migration retries are harmless.
-func (s *Store) CreateProjectMember(ctx context.Context, member ProjectMember) (ProjectMember, error) {
+func (s *userStore) CreateProjectMember(ctx context.Context, member ProjectMember) (ProjectMember, error) {
 	member.ProjectID = strings.TrimSpace(member.ProjectID)
 	member.UserID = strings.TrimSpace(member.UserID)
 	member.Role = strings.TrimSpace(member.Role)
@@ -101,12 +101,12 @@ func (s *Store) CreateProjectMember(ctx context.Context, member ProjectMember) (
 	return member, nil
 }
 
-func (s *Store) DeleteProjectMember(ctx context.Context, projectID, userID string) error {
+func (s *userStore) DeleteProjectMember(ctx context.Context, projectID, userID string) error {
 	_, err := s.db.ExecContext(ctx, `DELETE FROM project_members WHERE project_id = ? AND user_id = ?`, strings.TrimSpace(projectID), strings.TrimSpace(userID))
 	return err
 }
 
-func (s *Store) ListProjectMembers(ctx context.Context, projectID string) ([]ProjectMember, error) {
+func (s *userStore) ListProjectMembers(ctx context.Context, projectID string) ([]ProjectMember, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT project_id, user_id, role, created_at FROM project_members WHERE project_id = ? ORDER BY created_at ASC, user_id ASC`, strings.TrimSpace(projectID))
 	if err != nil {
 		return nil, err
@@ -123,7 +123,7 @@ func (s *Store) ListProjectMembers(ctx context.Context, projectID string) ([]Pro
 	return members, rows.Err()
 }
 
-func (s *Store) IsProjectMember(ctx context.Context, userID, projectID string) (bool, error) {
+func (s *userStore) IsProjectMember(ctx context.Context, userID, projectID string) (bool, error) {
 	var count int
 	if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM project_members WHERE user_id = ? AND project_id = ?`, strings.TrimSpace(userID), strings.TrimSpace(projectID)).Scan(&count); err != nil {
 		return false, err
@@ -133,7 +133,7 @@ func (s *Store) IsProjectMember(ctx context.Context, userID, projectID string) (
 
 // AssignUnownedProjectsToUser gives a user ownership only of projects that have
 // no members. It is used for first-user bootstrap and is safe to retry.
-func (s *Store) AssignUnownedProjectsToUser(ctx context.Context, userID string) error {
+func (s *userStore) AssignUnownedProjectsToUser(ctx context.Context, userID string) error {
 	userID = strings.TrimSpace(userID)
 	if userID == "" {
 		return errors.New("user is required")
@@ -161,23 +161,23 @@ WHERE EXISTS (SELECT 1 FROM users WHERE id = ?)
 
 // CanAccessProject, CanAccessWorkline, and CanAccessAgent are the canonical
 // membership checks for all project-scoped server resources.
-func (s *Store) CanAccessProject(ctx context.Context, userID, projectID string) (bool, error) {
+func (s *userStore) CanAccessProject(ctx context.Context, userID, projectID string) (bool, error) {
 	return s.IsProjectMember(ctx, userID, projectID)
 }
 
-func (s *Store) CanAccessWorkline(ctx context.Context, userID, worklineID string) (bool, error) {
+func (s *userStore) CanAccessWorkline(ctx context.Context, userID, worklineID string) (bool, error) {
 	var count int
 	err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM worklines w JOIN project_members pm ON pm.project_id = w.project_id WHERE w.id = ? AND pm.user_id = ?`, strings.TrimSpace(worklineID), strings.TrimSpace(userID)).Scan(&count)
 	return count > 0, err
 }
 
-func (s *Store) CanAccessAgent(ctx context.Context, userID, agentID string) (bool, error) {
+func (s *userStore) CanAccessAgent(ctx context.Context, userID, agentID string) (bool, error) {
 	var count int
 	err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM agents a JOIN worklines w ON w.id = a.workline_id JOIN project_members pm ON pm.project_id = w.project_id WHERE a.id = ? AND pm.user_id = ?`, strings.TrimSpace(agentID), strings.TrimSpace(userID)).Scan(&count)
 	return count > 0, err
 }
 
-func (s *Store) GetUserByHandle(ctx context.Context, handle string) (User, string, error) {
+func (s *userStore) GetUserByHandle(ctx context.Context, handle string) (User, string, error) {
 	_, handleKey, err := CanonicalHandle(handle)
 	if err != nil {
 		return User{}, "", err
@@ -188,7 +188,7 @@ func (s *Store) GetUserByHandle(ctx context.Context, handle string) (User, strin
 	return user, passwordHash, err
 }
 
-func (s *Store) ListUsersByHandlePrefix(ctx context.Context, prefix string, limit int) ([]User, error) {
+func (s *userStore) ListUsersByHandlePrefix(ctx context.Context, prefix string, limit int) ([]User, error) {
 	if limit <= 0 || limit > 50 {
 		limit = 20
 	}
@@ -227,7 +227,7 @@ func HashSessionToken(token string) string {
 	return hex.EncodeToString(sum[:])
 }
 
-func (s *Store) CreateAuthSession(ctx context.Context, session AuthSession) (AuthSession, error) {
+func (s *userStore) CreateAuthSession(ctx context.Context, session AuthSession) (AuthSession, error) {
 	if session.ID == "" {
 		session.ID = NewID()
 	}
@@ -247,14 +247,14 @@ func (s *Store) CreateAuthSession(ctx context.Context, session AuthSession) (Aut
 	return session, nil
 }
 
-func (s *Store) GetUserBySessionToken(ctx context.Context, token string, now time.Time) (User, AuthSession, error) {
+func (s *userStore) GetUserBySessionToken(ctx context.Context, token string, now time.Time) (User, AuthSession, error) {
 	var user User
 	var session AuthSession
 	err := s.db.QueryRowContext(ctx, `SELECT u.id, u.username, u.handle, u.role, u.created_at, s.id, s.user_id, s.token_hash, s.created_at, s.expires_at, COALESCE(s.revoked_at, '') FROM auth_sessions s JOIN users u ON u.id = s.user_id WHERE s.token_hash = ? AND s.revoked_at IS NULL AND s.expires_at > ?`, HashSessionToken(token), now.UTC().Format(time.RFC3339Nano)).Scan(&user.ID, &user.Username, &user.Handle, &user.Role, &user.CreatedAt, &session.ID, &session.UserID, &session.TokenHash, &session.CreatedAt, &session.ExpiresAt, &session.RevokedAt)
 	return user, session, err
 }
 
-func (s *Store) RevokeAuthSessionToken(ctx context.Context, token string) error {
+func (s *userStore) RevokeAuthSessionToken(ctx context.Context, token string) error {
 	_, err := s.db.ExecContext(ctx, `UPDATE auth_sessions SET revoked_at = ? WHERE token_hash = ? AND revoked_at IS NULL`, Now(), HashSessionToken(token))
 	return err
 }

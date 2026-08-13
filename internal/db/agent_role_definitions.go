@@ -127,11 +127,11 @@ func agentRoleDefinitionFromStored(value storedDefinition) AgentRoleDefinition {
 	}, DefinitionJSON: json.RawMessage(value.Body)}
 }
 
-func (s *Store) EnsureAgentRoleDefinitionsSchema(ctx context.Context) error {
+func (s *agentRoleStore) EnsureAgentRoleDefinitionsSchema(ctx context.Context) error {
 	return s.ensureDefinitionTables(ctx, agentRoleDefinitionStore)
 }
 
-func (s *Store) CreateAgentRoleDefinition(ctx context.Context, input AgentRoleDefinitionInput) (AgentRoleDefinition, error) {
+func (s *agentRoleStore) CreateAgentRoleDefinition(ctx context.Context, input AgentRoleDefinitionInput) (AgentRoleDefinition, error) {
 	input, err := normalizeAgentRoleDefinitionInput(input)
 	if err != nil {
 		return AgentRoleDefinition{}, err
@@ -140,17 +140,17 @@ func (s *Store) CreateAgentRoleDefinition(ctx context.Context, input AgentRoleDe
 	return agentRoleDefinitionFromStored(value), err
 }
 
-func (s *Store) GetAgentRoleDefinition(ctx context.Context, id string) (AgentRoleDefinition, error) {
+func (s *agentRoleStore) GetAgentRoleDefinition(ctx context.Context, id string) (AgentRoleDefinition, error) {
 	value, err := s.getStoredDefinition(ctx, agentRoleDefinitionStore, strings.TrimSpace(id), false)
 	return agentRoleDefinitionFromStored(value), err
 }
 
-func (s *Store) GetAgentRoleDefinitionIncludingDeleted(ctx context.Context, id string) (AgentRoleDefinition, error) {
+func (s *agentRoleStore) GetAgentRoleDefinitionIncludingDeleted(ctx context.Context, id string) (AgentRoleDefinition, error) {
 	value, err := s.getStoredDefinition(ctx, agentRoleDefinitionStore, strings.TrimSpace(id), true)
 	return agentRoleDefinitionFromStored(value), err
 }
 
-func (s *Store) ListAgentRoleDefinitions(ctx context.Context, target DefinitionScopeTarget) ([]AgentRoleDefinitionSummary, error) {
+func (s *agentRoleStore) ListAgentRoleDefinitions(ctx context.Context, target DefinitionScopeTarget) ([]AgentRoleDefinitionSummary, error) {
 	values, err := s.listStoredDefinitions(ctx, agentRoleDefinitionStore, target)
 	if err != nil {
 		return nil, err
@@ -162,7 +162,7 @@ func (s *Store) ListAgentRoleDefinitions(ctx context.Context, target DefinitionS
 	return result, nil
 }
 
-func (s *Store) UpdateAgentRoleDefinitionCAS(ctx context.Context, id string, expectedRevision int64, input AgentRoleDefinitionInput) (AgentRoleDefinition, error) {
+func (s *agentRoleStore) UpdateAgentRoleDefinitionCAS(ctx context.Context, id string, expectedRevision int64, input AgentRoleDefinitionInput) (AgentRoleDefinition, error) {
 	input, err := normalizeAgentRoleDefinitionInput(input)
 	if err != nil {
 		return AgentRoleDefinition{}, err
@@ -184,12 +184,12 @@ func (s *Store) UpdateAgentRoleDefinitionCAS(ctx context.Context, id string, exp
 	return agentRoleDefinitionFromStored(value), err
 }
 
-func (s *Store) DeleteAgentRoleDefinitionCAS(ctx context.Context, id string, expectedRevision int64) (AgentRoleDefinition, error) {
+func (s *agentRoleStore) DeleteAgentRoleDefinitionCAS(ctx context.Context, id string, expectedRevision int64) (AgentRoleDefinition, error) {
 	value, err := s.deleteStoredDefinitionCAS(ctx, agentRoleDefinitionStore, id, expectedRevision)
 	return agentRoleDefinitionFromStored(value), err
 }
 
-func (s *Store) ListAgentRoleDefinitionRevisions(ctx context.Context, id string) ([]AgentRoleDefinitionRevision, error) {
+func (s *agentRoleStore) ListAgentRoleDefinitionRevisions(ctx context.Context, id string) ([]AgentRoleDefinitionRevision, error) {
 	values, err := s.listStoredDefinitionRevisions(ctx, agentRoleDefinitionStore, id)
 	if err != nil {
 		return nil, err
@@ -201,7 +201,7 @@ func (s *Store) ListAgentRoleDefinitionRevisions(ctx context.Context, id string)
 	return result, nil
 }
 
-func (s *Store) RestoreAgentRoleDefinitionCAS(ctx context.Context, id string, sourceRevision, expectedRevision int64) (AgentRoleDefinition, error) {
+func (s *agentRoleStore) RestoreAgentRoleDefinitionCAS(ctx context.Context, id string, sourceRevision, expectedRevision int64) (AgentRoleDefinition, error) {
 	value, err := s.restoreStoredDefinitionCAS(ctx, agentRoleDefinitionStore, id, sourceRevision, expectedRevision)
 	return agentRoleDefinitionFromStored(value), err
 }

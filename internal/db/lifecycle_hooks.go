@@ -137,12 +137,12 @@ type LifecycleHookAttempt struct {
 	CompletedAt   string              `json:"completedAt,omitempty"`
 }
 
-func (s *Store) EnsureLifecycleHookSchema(ctx context.Context) error {
+func (s *lifecycleHookStore) EnsureLifecycleHookSchema(ctx context.Context) error {
 	_, err := s.db.ExecContext(ctx, lifecycleHookSchemaSQL)
 	return err
 }
 
-func (s *Store) CreateLifecycleHook(ctx context.Context, input hooks.Hook) (hooks.Hook, error) {
+func (s *lifecycleHookStore) CreateLifecycleHook(ctx context.Context, input hooks.Hook) (hooks.Hook, error) {
 	if err := s.EnsureLifecycleHookSchema(ctx); err != nil {
 		return hooks.Hook{}, err
 	}
@@ -170,7 +170,7 @@ func (s *Store) CreateLifecycleHook(ctx context.Context, input hooks.Hook) (hook
 	return canonical, nil
 }
 
-func (s *Store) GetLifecycleHook(ctx context.Context, id string) (hooks.Hook, error) {
+func (s *lifecycleHookStore) GetLifecycleHook(ctx context.Context, id string) (hooks.Hook, error) {
 	if err := s.EnsureLifecycleHookSchema(ctx); err != nil {
 		return hooks.Hook{}, err
 	}
@@ -181,7 +181,7 @@ func (s *Store) GetLifecycleHook(ctx context.Context, id string) (hooks.Hook, er
 	return scanLifecycleHook(s.db.QueryRowContext(ctx, `SELECT document_json,revision,created_at,updated_at FROM lifecycle_hooks WHERE id=?`, id).Scan)
 }
 
-func (s *Store) ListLifecycleHooks(ctx context.Context) ([]hooks.Hook, error) {
+func (s *lifecycleHookStore) ListLifecycleHooks(ctx context.Context) ([]hooks.Hook, error) {
 	if err := s.EnsureLifecycleHookSchema(ctx); err != nil {
 		return nil, err
 	}
@@ -201,7 +201,7 @@ func (s *Store) ListLifecycleHooks(ctx context.Context) ([]hooks.Hook, error) {
 	return result, rows.Err()
 }
 
-func (s *Store) UpdateLifecycleHookCAS(ctx context.Context, id string, expectedRevision int64, input hooks.Hook) (hooks.Hook, error) {
+func (s *lifecycleHookStore) UpdateLifecycleHookCAS(ctx context.Context, id string, expectedRevision int64, input hooks.Hook) (hooks.Hook, error) {
 	if err := s.EnsureLifecycleHookSchema(ctx); err != nil {
 		return hooks.Hook{}, err
 	}
@@ -239,7 +239,7 @@ func (s *Store) UpdateLifecycleHookCAS(ctx context.Context, id string, expectedR
 	return canonical, nil
 }
 
-func (s *Store) DeleteLifecycleHookCAS(ctx context.Context, id string, expectedRevision int64) error {
+func (s *lifecycleHookStore) DeleteLifecycleHookCAS(ctx context.Context, id string, expectedRevision int64) error {
 	if err := s.EnsureLifecycleHookSchema(ctx); err != nil {
 		return err
 	}
@@ -263,7 +263,7 @@ func (s *Store) DeleteLifecycleHookCAS(ctx context.Context, id string, expectedR
 	return fmt.Errorf("%w: lifecycle hook changed", ErrConflict)
 }
 
-func (s *Store) CreateLifecycleHookRunBinding(ctx context.Context, runID string, snapshot hooks.Snapshot) (LifecycleHookRunBinding, error) {
+func (s *lifecycleHookStore) CreateLifecycleHookRunBinding(ctx context.Context, runID string, snapshot hooks.Snapshot) (LifecycleHookRunBinding, error) {
 	if err := s.EnsureLifecycleHookSchema(ctx); err != nil {
 		return LifecycleHookRunBinding{}, err
 	}
@@ -287,7 +287,7 @@ func (s *Store) CreateLifecycleHookRunBinding(ctx context.Context, runID string,
 	return binding, nil
 }
 
-func (s *Store) GetLifecycleHookRunBinding(ctx context.Context, runID string) (LifecycleHookRunBinding, error) {
+func (s *lifecycleHookStore) GetLifecycleHookRunBinding(ctx context.Context, runID string) (LifecycleHookRunBinding, error) {
 	if err := s.EnsureLifecycleHookSchema(ctx); err != nil {
 		return LifecycleHookRunBinding{}, err
 	}
@@ -303,7 +303,7 @@ func (s *Store) GetLifecycleHookRunBinding(ctx context.Context, runID string) (L
 	return binding, nil
 }
 
-func (s *Store) CloseLifecycleHookRunBinding(ctx context.Context, runID string) (LifecycleHookRunBinding, error) {
+func (s *lifecycleHookStore) CloseLifecycleHookRunBinding(ctx context.Context, runID string) (LifecycleHookRunBinding, error) {
 	if err := s.EnsureLifecycleHookSchema(ctx); err != nil {
 		return LifecycleHookRunBinding{}, err
 	}
@@ -322,7 +322,7 @@ func (s *Store) CloseLifecycleHookRunBinding(ctx context.Context, runID string) 
 	return s.GetLifecycleHookRunBinding(ctx, runID)
 }
 
-func (s *Store) CreateLifecycleHookEvent(ctx context.Context, event LifecycleHookEvent) (LifecycleHookEvent, error) {
+func (s *lifecycleHookStore) CreateLifecycleHookEvent(ctx context.Context, event LifecycleHookEvent) (LifecycleHookEvent, error) {
 	if err := s.EnsureLifecycleHookSchema(ctx); err != nil {
 		return LifecycleHookEvent{}, err
 	}
@@ -353,7 +353,7 @@ func (s *Store) CreateLifecycleHookEvent(ctx context.Context, event LifecycleHoo
 	return event, nil
 }
 
-func (s *Store) UpdateLifecycleHookEventStatus(ctx context.Context, id string, status hooks.EventStatus, errorText string) (LifecycleHookEvent, error) {
+func (s *lifecycleHookStore) UpdateLifecycleHookEventStatus(ctx context.Context, id string, status hooks.EventStatus, errorText string) (LifecycleHookEvent, error) {
 	if err := s.EnsureLifecycleHookSchema(ctx); err != nil {
 		return LifecycleHookEvent{}, err
 	}
@@ -374,7 +374,7 @@ func (s *Store) UpdateLifecycleHookEventStatus(ctx context.Context, id string, s
 	return s.GetLifecycleHookEvent(ctx, id)
 }
 
-func (s *Store) GetLifecycleHookEvent(ctx context.Context, id string) (LifecycleHookEvent, error) {
+func (s *lifecycleHookStore) GetLifecycleHookEvent(ctx context.Context, id string) (LifecycleHookEvent, error) {
 	if err := s.EnsureLifecycleHookSchema(ctx); err != nil {
 		return LifecycleHookEvent{}, err
 	}
@@ -388,7 +388,7 @@ func (s *Store) GetLifecycleHookEvent(ctx context.Context, id string) (Lifecycle
 	return event, nil
 }
 
-func (s *Store) CreateLifecycleHookExecution(ctx context.Context, execution LifecycleHookExecution) (LifecycleHookExecution, error) {
+func (s *lifecycleHookStore) CreateLifecycleHookExecution(ctx context.Context, execution LifecycleHookExecution) (LifecycleHookExecution, error) {
 	if err := s.EnsureLifecycleHookSchema(ctx); err != nil {
 		return LifecycleHookExecution{}, err
 	}
@@ -423,14 +423,14 @@ func (s *Store) CreateLifecycleHookExecution(ctx context.Context, execution Life
 	return execution, nil
 }
 
-func (s *Store) GetLifecycleHookExecution(ctx context.Context, id string) (LifecycleHookExecution, error) {
+func (s *lifecycleHookStore) GetLifecycleHookExecution(ctx context.Context, id string) (LifecycleHookExecution, error) {
 	if err := s.EnsureLifecycleHookSchema(ctx); err != nil {
 		return LifecycleHookExecution{}, err
 	}
 	return scanLifecycleExecution(s.db.QueryRowContext(ctx, `SELECT id,event_id,hook_id,hook_revision,mode,failure_policy,status,retry_of_execution_id,cancel_requested,result_json,error_text,created_at,started_at,completed_at,updated_at FROM lifecycle_hook_executions WHERE id=?`, strings.TrimSpace(id)).Scan)
 }
 
-func (s *Store) ListLifecycleHookExecutions(ctx context.Context, hookID string, limit int) ([]LifecycleHookExecution, error) {
+func (s *lifecycleHookStore) ListLifecycleHookExecutions(ctx context.Context, hookID string, limit int) ([]LifecycleHookExecution, error) {
 	if err := s.EnsureLifecycleHookSchema(ctx); err != nil {
 		return nil, err
 	}
@@ -456,7 +456,7 @@ func (s *Store) ListLifecycleHookExecutions(ctx context.Context, hookID string, 
 	return result, rows.Err()
 }
 
-func (s *Store) TransitionLifecycleHookExecution(ctx context.Context, id string, to hooks.ExecutionStatus, resultJSON json.RawMessage, errorText string) (LifecycleHookExecution, error) {
+func (s *lifecycleHookStore) TransitionLifecycleHookExecution(ctx context.Context, id string, to hooks.ExecutionStatus, resultJSON json.RawMessage, errorText string) (LifecycleHookExecution, error) {
 	if err := s.EnsureLifecycleHookSchema(ctx); err != nil {
 		return LifecycleHookExecution{}, err
 	}
@@ -494,7 +494,7 @@ func (s *Store) TransitionLifecycleHookExecution(ctx context.Context, id string,
 	return s.GetLifecycleHookExecution(ctx, id)
 }
 
-func (s *Store) CancelLifecycleHookExecution(ctx context.Context, id string) (LifecycleHookExecution, error) {
+func (s *lifecycleHookStore) CancelLifecycleHookExecution(ctx context.Context, id string) (LifecycleHookExecution, error) {
 	if err := s.EnsureLifecycleHookSchema(ctx); err != nil {
 		return LifecycleHookExecution{}, err
 	}
@@ -526,7 +526,7 @@ func (s *Store) CancelLifecycleHookExecution(ctx context.Context, id string) (Li
 	return s.GetLifecycleHookExecution(ctx, id)
 }
 
-func (s *Store) RetryLifecycleHookExecution(ctx context.Context, id string) (LifecycleHookExecution, error) {
+func (s *lifecycleHookStore) RetryLifecycleHookExecution(ctx context.Context, id string) (LifecycleHookExecution, error) {
 	if err := s.EnsureLifecycleHookSchema(ctx); err != nil {
 		return LifecycleHookExecution{}, err
 	}
@@ -540,7 +540,7 @@ func (s *Store) RetryLifecycleHookExecution(ctx context.Context, id string) (Lif
 	return s.CreateLifecycleHookExecution(ctx, LifecycleHookExecution{EventID: current.EventID, HookID: current.HookID, HookRevision: current.HookRevision, Mode: current.Mode, FailurePolicy: current.FailurePolicy, Status: hooks.ExecutionPending, RetryOfExecutionID: current.ID, Result: json.RawMessage(`{}`)})
 }
 
-func (s *Store) CreateLifecycleHookAttempt(ctx context.Context, attempt LifecycleHookAttempt) (LifecycleHookAttempt, error) {
+func (s *lifecycleHookStore) CreateLifecycleHookAttempt(ctx context.Context, attempt LifecycleHookAttempt) (LifecycleHookAttempt, error) {
 	if err := s.EnsureLifecycleHookSchema(ctx); err != nil {
 		return LifecycleHookAttempt{}, err
 	}
@@ -575,7 +575,7 @@ func (s *Store) CreateLifecycleHookAttempt(ctx context.Context, attempt Lifecycl
 	return attempt, nil
 }
 
-func (s *Store) CompleteLifecycleHookAttempt(ctx context.Context, id string, status hooks.AttemptStatus, response json.RawMessage, errorText string) (LifecycleHookAttempt, error) {
+func (s *lifecycleHookStore) CompleteLifecycleHookAttempt(ctx context.Context, id string, status hooks.AttemptStatus, response json.RawMessage, errorText string) (LifecycleHookAttempt, error) {
 	if err := s.EnsureLifecycleHookSchema(ctx); err != nil {
 		return LifecycleHookAttempt{}, err
 	}
@@ -600,7 +600,7 @@ func (s *Store) CompleteLifecycleHookAttempt(ctx context.Context, id string, sta
 	return s.GetLifecycleHookAttempt(ctx, id)
 }
 
-func (s *Store) GetLifecycleHookAttempt(ctx context.Context, id string) (LifecycleHookAttempt, error) {
+func (s *lifecycleHookStore) GetLifecycleHookAttempt(ctx context.Context, id string) (LifecycleHookAttempt, error) {
 	if err := s.EnsureLifecycleHookSchema(ctx); err != nil {
 		return LifecycleHookAttempt{}, err
 	}
@@ -615,7 +615,7 @@ func (s *Store) GetLifecycleHookAttempt(ctx context.Context, id string) (Lifecyc
 	return attempt, nil
 }
 
-func (s *Store) ListLifecycleHookAttempts(ctx context.Context, executionID string) ([]LifecycleHookAttempt, error) {
+func (s *lifecycleHookStore) ListLifecycleHookAttempts(ctx context.Context, executionID string) ([]LifecycleHookAttempt, error) {
 	if err := s.EnsureLifecycleHookSchema(ctx); err != nil {
 		return nil, err
 	}

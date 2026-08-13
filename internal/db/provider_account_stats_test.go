@@ -144,6 +144,7 @@ PRAGMA user_version = 27;
 		t.Fatal(err)
 	}
 	store := &Store{db: raw}
+	wireSubstores(store)
 	if err := store.RecordProviderAccountAttempt(ctx, providers.ProviderAccountAttempt{
 		Provider: "codex", AccountID: "legacy-account", Success: true, HTTPStatus: 200, StatusCode: "ok", AttemptedAt: time.Unix(7000, 500_000_000),
 	}); err != nil {

@@ -27,7 +27,7 @@ var (
 type ProviderSecretRecord = secrets.ProviderSecretRecord
 type ProviderSecretPending = secrets.ProviderSecretPending
 
-func (s *Store) GetProviderSecret(ctx context.Context, name, kind string) (ProviderSecretRecord, error) {
+func (s *providerSecretStore) GetProviderSecret(ctx context.Context, name, kind string) (ProviderSecretRecord, error) {
 	if err := ensureProviderSecretStore(s); err != nil {
 		return ProviderSecretRecord{}, err
 	}
@@ -40,7 +40,7 @@ func (s *Store) GetProviderSecret(ctx context.Context, name, kind string) (Provi
 	})
 }
 
-func (s *Store) ListProviderSecrets(ctx context.Context) ([]ProviderSecretRecord, error) {
+func (s *providerSecretStore) ListProviderSecrets(ctx context.Context) ([]ProviderSecretRecord, error) {
 	if err := ensureProviderSecretStore(s); err != nil {
 		return nil, err
 	}
@@ -67,7 +67,7 @@ func (s *Store) ListProviderSecrets(ctx context.Context) ([]ProviderSecretRecord
 // counting them made the guard refuse to create the very first key when a
 // clear was prepared before the first set in the same request (e.g. saving
 // request headers on a fresh install before any API key ever existed).
-func (s *Store) CountProviderSecrets(ctx context.Context) (int, error) {
+func (s *providerSecretStore) CountProviderSecrets(ctx context.Context) (int, error) {
 	if err := ensureProviderSecretStore(s); err != nil {
 		return 0, err
 	}
@@ -78,7 +78,7 @@ func (s *Store) CountProviderSecrets(ctx context.Context) (int, error) {
 	return count, nil
 }
 
-func (s *Store) PutProviderSecretPending(ctx context.Context, pending ProviderSecretPending) error {
+func (s *providerSecretStore) PutProviderSecretPending(ctx context.Context, pending ProviderSecretPending) error {
 	if err := ensureProviderSecretStore(s); err != nil {
 		return err
 	}
@@ -144,7 +144,7 @@ ON CONFLICT(provider_name, secret_kind) DO UPDATE SET
 	return err
 }
 
-func (s *Store) CommitProviderSecretPending(ctx context.Context, name, kind string) error {
+func (s *providerSecretStore) CommitProviderSecretPending(ctx context.Context, name, kind string) error {
 	if err := ensureProviderSecretStore(s); err != nil {
 		return err
 	}
@@ -197,7 +197,7 @@ WHERE provider_name = ? AND secret_kind = ?
 	return nil
 }
 
-func (s *Store) RollbackProviderSecretPending(ctx context.Context, name, kind string) error {
+func (s *providerSecretStore) RollbackProviderSecretPending(ctx context.Context, name, kind string) error {
 	if err := ensureProviderSecretStore(s); err != nil {
 		return err
 	}
@@ -240,7 +240,7 @@ WHERE provider_name = ? AND secret_kind = ?
 	return nil
 }
 
-func (s *Store) DeleteProviderSecret(ctx context.Context, name, kind string) error {
+func (s *providerSecretStore) DeleteProviderSecret(ctx context.Context, name, kind string) error {
 	if err := ensureProviderSecretStore(s); err != nil {
 		return err
 	}
@@ -274,8 +274,8 @@ func scanProviderSecret(scan providerSecretScanner) (ProviderSecretRecord, error
 	return record, nil
 }
 
-func ensureProviderSecretStore(s *Store) error {
-	if s == nil || s.db == nil {
+func ensureProviderSecretStore(s *providerSecretStore) error {
+	if s == nil || s.Store == nil || s.db == nil {
 		return errors.New("database store is unavailable")
 	}
 	return nil

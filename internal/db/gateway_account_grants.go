@@ -17,7 +17,7 @@ type GatewayAccountGrant struct {
 	UpdatedAt string `json:"updatedAt"`
 }
 
-func (s *Store) ListGatewayAccountGrants(ctx context.Context, provider string) ([]GatewayAccountGrant, error) {
+func (s *gatewayStore) ListGatewayAccountGrants(ctx context.Context, provider string) ([]GatewayAccountGrant, error) {
 	if s == nil || s.db == nil {
 		return nil, errors.New("database store is unavailable")
 	}
@@ -50,7 +50,7 @@ func (s *Store) ListGatewayAccountGrants(ctx context.Context, provider string) (
 	return grants, rows.Err()
 }
 
-func (s *Store) ListSharedGatewayAccountIDs(ctx context.Context, provider string) ([]string, error) {
+func (s *gatewayStore) ListSharedGatewayAccountIDs(ctx context.Context, provider string) ([]string, error) {
 	grants, err := s.ListGatewayAccountGrants(ctx, provider)
 	if err != nil {
 		return nil, err
@@ -62,7 +62,7 @@ func (s *Store) ListSharedGatewayAccountIDs(ctx context.Context, provider string
 	return accountIDs, nil
 }
 
-func (s *Store) SetGatewayAccountGrant(ctx context.Context, provider, accountID string, shared bool) error {
+func (s *gatewayStore) SetGatewayAccountGrant(ctx context.Context, provider, accountID string, shared bool) error {
 	if !shared {
 		return s.DeleteGatewayAccountGrant(ctx, provider, accountID)
 	}
@@ -82,7 +82,7 @@ ON CONFLICT(provider, account_id) DO UPDATE SET updated_at = excluded.updated_at
 	return err
 }
 
-func (s *Store) DeleteGatewayAccountGrant(ctx context.Context, provider, accountID string) error {
+func (s *gatewayStore) DeleteGatewayAccountGrant(ctx context.Context, provider, accountID string) error {
 	if s == nil || s.db == nil {
 		return errors.New("database store is unavailable")
 	}

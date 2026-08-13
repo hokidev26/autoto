@@ -78,13 +78,13 @@ func scanMessageAttachment(scan attachmentScanner) (Attachment, error) {
 	return attachment, nil
 }
 
-func (s *Store) GetMessageDraft(ctx context.Context, userID, agentID string) (MessageDraft, error) {
+func (s *messageStore) GetMessageDraft(ctx context.Context, userID, agentID string) (MessageDraft, error) {
 	var draft MessageDraft
 	err := s.db.QueryRowContext(ctx, `SELECT user_id, agent_id, content_text, version, updated_at FROM message_drafts WHERE user_id = ? AND agent_id = ?`, userID, agentID).Scan(&draft.UserID, &draft.AgentID, &draft.ContentText, &draft.Version, &draft.UpdatedAt)
 	return draft, err
 }
 
-func (s *Store) PutMessageDraft(ctx context.Context, draft MessageDraft, expectedVersion int64) (MessageDraft, error) {
+func (s *messageStore) PutMessageDraft(ctx context.Context, draft MessageDraft, expectedVersion int64) (MessageDraft, error) {
 	if draft.UserID == "" || draft.AgentID == "" || expectedVersion < 0 || !utf8.ValidString(draft.ContentText) {
 		return MessageDraft{}, errors.New("invalid message draft")
 	}
@@ -127,12 +127,12 @@ func (s *Store) PutMessageDraft(ctx context.Context, draft MessageDraft, expecte
 	return draft, nil
 }
 
-func (s *Store) DeleteMessageDraft(ctx context.Context, userID, agentID string) error {
+func (s *messageStore) DeleteMessageDraft(ctx context.Context, userID, agentID string) error {
 	_, err := s.db.ExecContext(ctx, `DELETE FROM message_drafts WHERE user_id = ? AND agent_id = ?`, userID, agentID)
 	return err
 }
 
-func (s *Store) AddMessage(ctx context.Context, msg Message) (Message, error) {
+func (s *messageStore) AddMessage(ctx context.Context, msg Message) (Message, error) {
 	return s.AddMessageWithAttachments(ctx, msg, msg.Attachments)
 }
 
@@ -145,7 +145,7 @@ func (s *Store) AddMessage(ctx context.Context, msg Message) (Message, error) {
 // binding it, which means a miss is a real inconsistency rather than an expected
 // outcome, and staying quiet about it hid the failure from the caller that could
 // still do something about it.
-func (s *Store) AssignMessageRun(ctx context.Context, agentID, messageID, runID string) error {
+func (s *messageStore) AssignMessageRun(ctx context.Context, agentID, messageID, runID string) error {
 	result, err := s.db.ExecContext(ctx, `UPDATE agent_messages SET run_id = NULLIF(?, '') WHERE agent_id = ? AND id = ?`, runID, agentID, messageID)
 	if err != nil {
 		return err
@@ -172,7 +172,7 @@ func messageCreatedByColumn(createdBy string) string {
 	return createdBy
 }
 
-func (s *Store) AddMessageWithAttachments(ctx context.Context, msg Message, attachments []Attachment) (Message, error) {
+func (s *messageStore) AddMessageWithAttachments(ctx context.Context, msg Message, attachments []Attachment) (Message, error) {
 	if msg.ID == "" {
 		msg.ID = NewID()
 	}
@@ -228,7 +228,7 @@ func (s *Store) AddMessageWithAttachments(ctx context.Context, msg Message, atta
 // CreateCorrectionWithRun creates a new user message instead of modifying its
 // source. Retained attachments are copied into new rows so the original message
 // remains immutable even if the correction is later deleted.
-func (s *Store) CreateCorrectionWithRun(ctx context.Context, agentID, sourceMessageID, contentText, commandText, createdBy string, keepAttachmentIDs []string, attachments []Attachment) (Message, Run, error) {
+func (s *messageStore) CreateCorrectionWithRun(ctx context.Context, agentID, sourceMessageID, contentText, commandText, createdBy string, keepAttachmentIDs []string, attachments []Attachment) (Message, Run, error) {
 	if strings.TrimSpace(contentText) == "" && len(keepAttachmentIDs) == 0 && len(attachments) == 0 {
 		return Message{}, Run{}, errors.New("text, files, or keepAttachmentIds is required")
 	}
@@ -335,7 +335,7 @@ func (s *Store) CreateCorrectionWithRun(ctx context.Context, agentID, sourceMess
 // rerun leaves the message exactly where it is and only retires what the failed
 // attempt produced after it, so the model is asked against the same history it
 // saw the first time.
-func (s *Store) CreateRerunForMessage(ctx context.Context, agentID, messageID string) (Run, error) {
+func (s *messageStore) CreateRerunForMessage(ctx context.Context, agentID, messageID string) (Run, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return Run{}, err
@@ -375,7 +375,7 @@ func (s *Store) CreateRerunForMessage(ctx context.Context, agentID, messageID st
 	return run, nil
 }
 
-func (s *Store) ListMessages(ctx context.Context, agentID string) ([]Message, error) {
+func (s *messageStore) ListMessages(ctx context.Context, agentID string) ([]Message, error) {
 	messages, err := s.listMessages(ctx, agentID)
 	if err != nil {
 		return nil, err
@@ -389,7 +389,7 @@ func (s *Store) ListMessages(ctx context.Context, agentID string) ([]Message, er
 	return messages, nil
 }
 
-func (s *Store) ListMessagesPage(ctx context.Context, agentID, before string, limit int) (MessagePage, error) {
+func (s *messageStore) ListMessagesPage(ctx context.Context, agentID, before string, limit int) (MessagePage, error) {
 	if limit <= 0 {
 		limit = DefaultMessagePageLimit
 	}
@@ -439,7 +439,7 @@ func (s *Store) ListMessagesPage(ctx context.Context, agentID, before string, li
 	return page, nil
 }
 
-func (s *Store) ListMessagesWithAttachmentData(ctx context.Context, agentID string) ([]Message, error) {
+func (s *messageStore) ListMessagesWithAttachmentData(ctx context.Context, agentID string) ([]Message, error) {
 	messages, err := s.listMessages(ctx, agentID)
 	if err != nil {
 		return nil, err
@@ -481,7 +481,7 @@ func decodeMessageCursor(value string) (messageCursor, error) {
 	return cursor, nil
 }
 
-func (s *Store) listMessages(ctx context.Context, agentID string) ([]Message, error) {
+func (s *messageStore) listMessages(ctx context.Context, agentID string) ([]Message, error) {
 	rows, err := s.reader().QueryContext(ctx, `SELECT id, agent_id, COALESCE(run_id,''), role, COALESCE(content_json,''), COALESCE(provider_state_json,''), COALESCE(content_text,''), COALESCE(reasoning_text,''), COALESCE(turn_usage_json,''), COALESCE(parent_tool_use_id,''), COALESCE(command_text,''), COALESCE(correction_of_message_id,''), COALESCE(superseded_at,''), COALESCE(created_by,''), COALESCE(completion_state,''), COALESCE(stop_reason,''), created_at FROM agent_messages WHERE agent_id = ? ORDER BY created_at ASC, id ASC`, agentID)
 	if err != nil {
 		return nil, err
@@ -520,7 +520,7 @@ func scanMessages(rows *sql.Rows) ([]Message, error) {
 // (DefaultMessagePageLimit, 100) issued 100 queries against a pool of a single
 // connection. Attachments is tagged omitempty, so leaving a message without rows
 // as nil rather than an empty slice is not observable in the API.
-func (s *Store) populateMessageAttachments(ctx context.Context, messages []Message, includeData bool) error {
+func (s *messageStore) populateMessageAttachments(ctx context.Context, messages []Message, includeData bool) error {
 	if len(messages) == 0 {
 		return nil
 	}
@@ -571,7 +571,7 @@ func (s *Store) populateMessageAttachments(ctx context.Context, messages []Messa
 	return rows.Err()
 }
 
-func (s *Store) ListMessageAttachments(ctx context.Context, messageID string, includeData bool) ([]Attachment, error) {
+func (s *messageStore) ListMessageAttachments(ctx context.Context, messageID string, includeData bool) ([]Attachment, error) {
 	selectData := `X''`
 	selectModelData := `X''`
 	selectText := `''`
@@ -596,7 +596,7 @@ func (s *Store) ListMessageAttachments(ctx context.Context, messageID string, in
 	return attachments, rows.Err()
 }
 
-func (s *Store) GetAttachment(ctx context.Context, agentID, messageID, attachmentID string) (Attachment, error) {
+func (s *messageStore) GetAttachment(ctx context.Context, agentID, messageID, attachmentID string) (Attachment, error) {
 	return scanMessageAttachment(s.db.QueryRowContext(ctx, `SELECT `+fmt.Sprintf(attachmentSelectColumns, "data_blob", "COALESCE(model_data_blob,X'')", "COALESCE(extracted_text,'')")+` FROM agent_message_attachments WHERE agent_id = ? AND message_id = ? AND id = ?`, agentID, messageID, attachmentID).Scan)
 }
 

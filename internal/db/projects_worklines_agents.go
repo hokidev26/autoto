@@ -29,11 +29,11 @@ func scanProject(scan func(...any) error) (Project, error) {
 	return project, err
 }
 
-func (s *Store) ListProjects(ctx context.Context) ([]Project, error) {
+func (s *projectStore) ListProjects(ctx context.Context) ([]Project, error) {
 	return s.ListProjectsWithOptions(ctx, false)
 }
 
-func (s *Store) ListProjectsWithOptions(ctx context.Context, includeArchived bool) ([]Project, error) {
+func (s *projectStore) ListProjectsWithOptions(ctx context.Context, includeArchived bool) ([]Project, error) {
 	rows, err := s.reader().QueryContext(ctx, `
 SELECT id, name, COALESCE(description,''), status, flow_mode,
        COALESCE(git_path,''), COALESCE(remote_url,''), COALESCE(default_branch,''),
@@ -57,11 +57,11 @@ ORDER BY CASE WHEN archived_at IS NULL THEN 0 ELSE 1 END ASC,
 	return projects, rows.Err()
 }
 
-func (s *Store) ListProjectsForUser(ctx context.Context, userID string) ([]Project, error) {
+func (s *projectStore) ListProjectsForUser(ctx context.Context, userID string) ([]Project, error) {
 	return s.ListProjectsForUserWithOptions(ctx, userID, false)
 }
 
-func (s *Store) ListProjectsForUserWithOptions(ctx context.Context, userID string, includeArchived bool) ([]Project, error) {
+func (s *projectStore) ListProjectsForUserWithOptions(ctx context.Context, userID string, includeArchived bool) ([]Project, error) {
 	rows, err := s.reader().QueryContext(ctx, `
 SELECT p.id, p.name, COALESCE(p.description,''), p.status, p.flow_mode,
        COALESCE(p.git_path,''), COALESCE(p.remote_url,''), COALESCE(p.default_branch,''),
@@ -86,11 +86,11 @@ ORDER BY CASE WHEN p.archived_at IS NULL THEN 0 ELSE 1 END ASC,
 	return projects, rows.Err()
 }
 
-func (s *Store) ListNavigationConversations(ctx context.Context) ([]NavigationConversation, error) {
+func (s *projectStore) ListNavigationConversations(ctx context.Context) ([]NavigationConversation, error) {
 	return s.ListNavigationConversationsWithOptions(ctx, false)
 }
 
-func (s *Store) ListNavigationConversationsWithOptions(ctx context.Context, includeArchived bool) ([]NavigationConversation, error) {
+func (s *projectStore) ListNavigationConversationsWithOptions(ctx context.Context, includeArchived bool) ([]NavigationConversation, error) {
 	rows, err := s.reader().QueryContext(ctx, `
 SELECT
   p.id,
@@ -177,13 +177,13 @@ ORDER BY CASE WHEN p.archived_at IS NULL THEN 0 ELSE 1 END ASC,
 	return conversations, rows.Err()
 }
 
-func (s *Store) CreateProject(ctx context.Context, name, description, gitPath string, defaultModel, permissionMode string) (Project, Workline, Agent, error) {
+func (s *projectStore) CreateProject(ctx context.Context, name, description, gitPath string, defaultModel, permissionMode string) (Project, Workline, Agent, error) {
 	return s.createProject(ctx, "", name, description, gitPath, defaultModel, permissionMode)
 }
 
 // CreateProjectConversation adds another project-scoped root conversation to
 // an existing filesystem project without creating a duplicate project row.
-func (s *Store) CreateProjectConversation(ctx context.Context, projectID, title, model, permissionMode string) (Project, Workline, Agent, error) {
+func (s *projectStore) CreateProjectConversation(ctx context.Context, projectID, title, model, permissionMode string) (Project, Workline, Agent, error) {
 	projectID = strings.TrimSpace(projectID)
 	if projectID == "" {
 		return Project{}, Workline{}, Agent{}, errors.New("project id is required")
@@ -266,7 +266,7 @@ func (s *Store) CreateProjectConversation(ctx context.Context, projectID, title,
 
 // CreateProjectForUser atomically creates the project hierarchy and makes the
 // creating user its owner.
-func (s *Store) CreateProjectForUser(ctx context.Context, userID, name, description, gitPath string, defaultModel, permissionMode string) (Project, Workline, Agent, error) {
+func (s *projectStore) CreateProjectForUser(ctx context.Context, userID, name, description, gitPath string, defaultModel, permissionMode string) (Project, Workline, Agent, error) {
 	userID = strings.TrimSpace(userID)
 	if userID == "" {
 		return Project{}, Workline{}, Agent{}, errors.New("user is required")
@@ -276,13 +276,13 @@ func (s *Store) CreateProjectForUser(ctx context.Context, userID, name, descript
 
 // CreateStandaloneConversation atomically creates the hidden project container,
 // root workline, and read-only primary Agent used by a filesystem-free chat.
-func (s *Store) CreateStandaloneConversation(ctx context.Context, title, model string) (Project, Workline, Agent, error) {
+func (s *projectStore) CreateStandaloneConversation(ctx context.Context, title, model string) (Project, Workline, Agent, error) {
 	return s.createStandaloneConversation(ctx, "", title, model)
 }
 
 // CreateStandaloneConversationForUser additionally makes the creating user the
 // owner in the same transaction as the conversation hierarchy.
-func (s *Store) CreateStandaloneConversationForUser(ctx context.Context, userID, title, model string) (Project, Workline, Agent, error) {
+func (s *projectStore) CreateStandaloneConversationForUser(ctx context.Context, userID, title, model string) (Project, Workline, Agent, error) {
 	userID = strings.TrimSpace(userID)
 	if userID == "" {
 		return Project{}, Workline{}, Agent{}, errors.New("user is required")
@@ -290,7 +290,7 @@ func (s *Store) CreateStandaloneConversationForUser(ctx context.Context, userID,
 	return s.createStandaloneConversation(ctx, userID, title, model)
 }
 
-func (s *Store) createStandaloneConversation(ctx context.Context, ownerID, title, model string) (Project, Workline, Agent, error) {
+func (s *projectStore) createStandaloneConversation(ctx context.Context, ownerID, title, model string) (Project, Workline, Agent, error) {
 	title = strings.TrimSpace(title)
 	if title == "" {
 		title = "New conversation"
@@ -338,7 +338,7 @@ func (s *Store) createStandaloneConversation(ctx context.Context, ownerID, title
 	return project, workline, agent, nil
 }
 
-func (s *Store) createProject(ctx context.Context, ownerID, name, description, gitPath string, defaultModel, permissionMode string) (Project, Workline, Agent, error) {
+func (s *projectStore) createProject(ctx context.Context, ownerID, name, description, gitPath string, defaultModel, permissionMode string) (Project, Workline, Agent, error) {
 	if name == "" {
 		return Project{}, Workline{}, Agent{}, errors.New("name is required")
 	}
@@ -381,7 +381,7 @@ func (s *Store) createProject(ctx context.Context, ownerID, name, description, g
 	return project, workline, agent, nil
 }
 
-func (s *Store) GetProject(ctx context.Context, id string) (Project, error) {
+func (s *projectStore) GetProject(ctx context.Context, id string) (Project, error) {
 	return scanProject(func(dest ...any) error {
 		return s.reader().QueryRowContext(ctx, `SELECT id, name, COALESCE(description,''), status, flow_mode, COALESCE(git_path,''), COALESCE(remote_url,''), COALESCE(default_branch,''), COALESCE(pinned, 0), COALESCE(archived_at, ''), created_at, updated_at FROM projects WHERE id = ?`, id).Scan(dest...)
 	})
@@ -427,21 +427,21 @@ func updateNavigationState(ctx context.Context, db *sql.DB, table, id string, pi
 	return nil
 }
 
-func (s *Store) UpdateProjectNavigationState(ctx context.Context, id string, pinned, archived *bool) (Project, error) {
+func (s *projectStore) UpdateProjectNavigationState(ctx context.Context, id string, pinned, archived *bool) (Project, error) {
 	if err := updateNavigationState(ctx, s.db, "projects", id, pinned, archived); err != nil {
 		return Project{}, err
 	}
 	return s.GetProject(ctx, id)
 }
 
-func (s *Store) UpdateAgentNavigationState(ctx context.Context, id string, pinned, archived *bool) (Agent, error) {
+func (s *projectStore) UpdateAgentNavigationState(ctx context.Context, id string, pinned, archived *bool) (Agent, error) {
 	if err := updateNavigationState(ctx, s.db, "agents", id, pinned, archived); err != nil {
 		return Agent{}, err
 	}
 	return s.GetAgent(ctx, id)
 }
 
-func (s *Store) ListWorklinesByProject(ctx context.Context, projectID string) ([]Workline, error) {
+func (s *projectStore) ListWorklinesByProject(ctx context.Context, projectID string) ([]Workline, error) {
 	rows, err := s.reader().QueryContext(ctx, `SELECT id, project_id, title, COALESCE(description,''), status, role, COALESCE(branch,''), COALESCE(worktree_path,''), COALESCE(base_branch,''), COALESCE(parent_workline_id,''), COALESCE(fork_point,''), COALESCE(merged_into_workline_id,''), COALESCE(merge_commit_sha,''), COALESCE(merge_strategy,''), COALESCE(pre_merge_target_sha,''), COALESCE(head_commit_sha,''), COALESCE(start_commit_sha,''), is_root, created_at, updated_at FROM worklines WHERE project_id = ? ORDER BY is_root DESC, created_at ASC`, projectID)
 	if err != nil {
 		return nil, err
@@ -460,7 +460,7 @@ func (s *Store) ListWorklinesByProject(ctx context.Context, projectID string) ([
 	return worklines, rows.Err()
 }
 
-func (s *Store) GetWorkline(ctx context.Context, id string) (Workline, error) {
+func (s *projectStore) GetWorkline(ctx context.Context, id string) (Workline, error) {
 	var c Workline
 	var isRoot int
 	err := s.reader().QueryRowContext(ctx, `SELECT id, project_id, title, COALESCE(description,''), status, role, COALESCE(branch,''), COALESCE(worktree_path,''), COALESCE(base_branch,''), COALESCE(parent_workline_id,''), COALESCE(fork_point,''), COALESCE(merged_into_workline_id,''), COALESCE(merge_commit_sha,''), COALESCE(merge_strategy,''), COALESCE(pre_merge_target_sha,''), COALESCE(head_commit_sha,''), COALESCE(start_commit_sha,''), is_root, created_at, updated_at FROM worklines WHERE id = ?`, id).Scan(&c.ID, &c.ProjectID, &c.Title, &c.Description, &c.Status, &c.Role, &c.Branch, &c.WorktreePath, &c.BaseBranch, &c.ParentWorklineID, &c.ForkPoint, &c.MergedIntoWorklineID, &c.MergeCommitSHA, &c.MergeStrategy, &c.PreMergeTargetSHA, &c.HeadCommitSHA, &c.StartCommitSHA, &isRoot, &c.CreatedAt, &c.UpdatedAt)
@@ -468,7 +468,7 @@ func (s *Store) GetWorkline(ctx context.Context, id string) (Workline, error) {
 	return c, err
 }
 
-func (s *Store) CreateWorklineFork(ctx context.Context, parent Workline, title, branch, worktreePath, baseBranch, forkPoint, model, permissionMode string) (Workline, Agent, error) {
+func (s *projectStore) CreateWorklineFork(ctx context.Context, parent Workline, title, branch, worktreePath, baseBranch, forkPoint, model, permissionMode string) (Workline, Agent, error) {
 	if parent.ID == "" || parent.ProjectID == "" {
 		return Workline{}, Agent{}, errors.New("parent workline is required")
 	}
@@ -507,7 +507,7 @@ func (s *Store) CreateWorklineFork(ctx context.Context, parent Workline, title, 
 // WorklineHasActiveRuns reports whether any agent in the workline still has a
 // durable run in flight. Cleanup paths use it to refuse deleting a worktree an
 // agent loop may still be writing into.
-func (s *Store) WorklineHasActiveRuns(ctx context.Context, worklineID string) (bool, error) {
+func (s *projectStore) WorklineHasActiveRuns(ctx context.Context, worklineID string) (bool, error) {
 	var busy int
 	err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM runs r JOIN agents a ON a.id = r.agent_id WHERE a.workline_id = ? AND r.status IN `+activeRunStatusList, strings.TrimSpace(worklineID)).Scan(&busy)
 	if err != nil {
@@ -520,7 +520,7 @@ func (s *Store) WorklineHasActiveRuns(ctx context.Context, worklineID string) (b
 // from disk: the path is cleared on the workline and on every agent whose cwd
 // pointed into it, so nothing keeps resolving git operations against a
 // directory that no longer exists.
-func (s *Store) ClearWorklineWorktree(ctx context.Context, worklineID string) (Workline, error) {
+func (s *projectStore) ClearWorklineWorktree(ctx context.Context, worklineID string) (Workline, error) {
 	worklineID = strings.TrimSpace(worklineID)
 	if worklineID == "" {
 		return Workline{}, errors.New("workline id is required")
@@ -552,7 +552,7 @@ func (s *Store) ClearWorklineWorktree(ctx context.Context, worklineID string) (W
 // DeleteWorklineIfEmpty removes a non-root workline row once its last agent is
 // gone. Worklines only cascade with their project, so deleting a fork
 // conversation used to leave the workline row behind forever.
-func (s *Store) DeleteWorklineIfEmpty(ctx context.Context, worklineID string) (bool, error) {
+func (s *projectStore) DeleteWorklineIfEmpty(ctx context.Context, worklineID string) (bool, error) {
 	worklineID = strings.TrimSpace(worklineID)
 	if worklineID == "" {
 		return false, errors.New("workline id is required")
@@ -568,7 +568,7 @@ func (s *Store) DeleteWorklineIfEmpty(ctx context.Context, worklineID string) (b
 	return affected == 1, nil
 }
 
-func (s *Store) MarkWorklineMerged(ctx context.Context, sourceWorklineID, targetWorklineID, preMergeTargetSHA, mergeCommitSHA, strategy string) (Workline, error) {
+func (s *projectStore) MarkWorklineMerged(ctx context.Context, sourceWorklineID, targetWorklineID, preMergeTargetSHA, mergeCommitSHA, strategy string) (Workline, error) {
 	if sourceWorklineID == "" || targetWorklineID == "" || mergeCommitSHA == "" {
 		return Workline{}, errors.New("source workline, target workline, and merge commit are required")
 	}
@@ -595,7 +595,7 @@ func (s *Store) MarkWorklineMerged(ctx context.Context, sourceWorklineID, target
 // returns to active and its merge bookkeeping is cleared. Both heads are
 // re-recorded because the unmerge moved the target and the source's head no
 // longer equals the merge commit.
-func (s *Store) MarkWorklineUnmerged(ctx context.Context, sourceWorklineID, sourceHeadSHA, targetWorklineID, targetHeadSHA string) (Workline, error) {
+func (s *projectStore) MarkWorklineUnmerged(ctx context.Context, sourceWorklineID, sourceHeadSHA, targetWorklineID, targetHeadSHA string) (Workline, error) {
 	if sourceWorklineID == "" || targetWorklineID == "" {
 		return Workline{}, errors.New("source and target worklines are required")
 	}
@@ -632,19 +632,19 @@ func scanAgent(scan agentScanner) (Agent, error) {
 	return agent, err
 }
 
-func (s *Store) GetAgent(ctx context.Context, id string) (Agent, error) {
+func (s *projectStore) GetAgent(ctx context.Context, id string) (Agent, error) {
 	return scanAgent(func(dest ...any) error {
 		return s.reader().QueryRowContext(ctx, agentSelectSQL+` WHERE id = ?`, id).Scan(dest...)
 	})
 }
 
-func (s *Store) GetAgentProjectFlowMode(ctx context.Context, agentID string) (string, error) {
+func (s *projectStore) GetAgentProjectFlowMode(ctx context.Context, agentID string) (string, error) {
 	var flowMode string
 	err := s.reader().QueryRowContext(ctx, `SELECT p.flow_mode FROM agents a JOIN worklines w ON w.id = a.workline_id JOIN projects p ON p.id = w.project_id WHERE a.id = ?`, strings.TrimSpace(agentID)).Scan(&flowMode)
 	return flowMode, err
 }
 
-func (s *Store) UpdateAgentTitle(ctx context.Context, id, title string) (Agent, error) {
+func (s *projectStore) UpdateAgentTitle(ctx context.Context, id, title string) (Agent, error) {
 	id = strings.TrimSpace(id)
 	title = strings.TrimSpace(title)
 	if err := validateP2P3Text("agent id", id, 128, true, false); err != nil {
@@ -668,7 +668,7 @@ func (s *Store) UpdateAgentTitle(ctx context.Context, id, title string) (Agent, 
 // UpdateAgentTitleCosmeticCAS updates a derived display title without changing
 // the execution entity generation. The expected generation prevents an
 // asynchronous auto-title from overwriting a concurrent user edit.
-func (s *Store) UpdateAgentTitleCosmeticCAS(ctx context.Context, id, title string, expectedEntityGeneration int64) (Agent, error) {
+func (s *projectStore) UpdateAgentTitleCosmeticCAS(ctx context.Context, id, title string, expectedEntityGeneration int64) (Agent, error) {
 	id = strings.TrimSpace(id)
 	title = strings.TrimSpace(title)
 	if err := validateP2P3Text("agent id", id, 128, true, false); err != nil {
@@ -698,7 +698,7 @@ func (s *Store) UpdateAgentTitleCosmeticCAS(ctx context.Context, id, title strin
 	return s.GetAgent(ctx, id)
 }
 
-func (s *Store) UpdateAgentCWD(ctx context.Context, id, cwd string) (Agent, error) {
+func (s *projectStore) UpdateAgentCWD(ctx context.Context, id, cwd string) (Agent, error) {
 	now := Now()
 	result, err := s.db.ExecContext(ctx, `UPDATE agents SET cwd = ?, entity_generation = entity_generation + 1, permission_generation = permission_generation + 1, updated_at = ? WHERE id = ?`, cwd, now, id)
 	if err != nil {
@@ -712,7 +712,7 @@ func (s *Store) UpdateAgentCWD(ctx context.Context, id, cwd string) (Agent, erro
 	return s.GetAgent(ctx, id)
 }
 
-func (s *Store) UpdateAgentModel(ctx context.Context, id, model string, reasoningEffort ...string) (Agent, error) {
+func (s *projectStore) UpdateAgentModel(ctx context.Context, id, model string, reasoningEffort ...string) (Agent, error) {
 	id = strings.TrimSpace(id)
 	model = strings.TrimSpace(model)
 	if err := validateP2P3Text("agent id", id, 128, true, false); err != nil {
@@ -747,7 +747,7 @@ func (s *Store) UpdateAgentModel(ctx context.Context, id, model string, reasonin
 	return s.GetAgent(ctx, id)
 }
 
-func (s *Store) UpdateAgentModelRuntime(ctx context.Context, id, model, reasoningEffort string, fastMode bool) (Agent, error) {
+func (s *projectStore) UpdateAgentModelRuntime(ctx context.Context, id, model, reasoningEffort string, fastMode bool) (Agent, error) {
 	id = strings.TrimSpace(id)
 	model = strings.TrimSpace(model)
 	reasoningEffort = strings.TrimSpace(reasoningEffort)
@@ -772,7 +772,7 @@ func (s *Store) UpdateAgentModelRuntime(ctx context.Context, id, model, reasonin
 	return s.GetAgent(ctx, id)
 }
 
-func (s *Store) UpdateAgentReasoningEffort(ctx context.Context, id, reasoningEffort string) (Agent, error) {
+func (s *projectStore) UpdateAgentReasoningEffort(ctx context.Context, id, reasoningEffort string) (Agent, error) {
 	reasoningEffort = strings.TrimSpace(reasoningEffort)
 	if !validAgentReasoningEffort(reasoningEffort, true) {
 		return Agent{}, errors.New("invalid agent reasoning effort")
@@ -789,7 +789,7 @@ func (s *Store) UpdateAgentReasoningEffort(ctx context.Context, id, reasoningEff
 	return s.GetAgent(ctx, id)
 }
 
-func (s *Store) UpdateAgentFastMode(ctx context.Context, id string, fastMode bool) (Agent, error) {
+func (s *projectStore) UpdateAgentFastMode(ctx context.Context, id string, fastMode bool) (Agent, error) {
 	result, err := s.db.ExecContext(ctx, `UPDATE agents SET fast_mode = ?, entity_generation = entity_generation + 1, updated_at = ? WHERE id = ?`, boolInt(fastMode), Now(), strings.TrimSpace(id))
 	if err != nil {
 		return Agent{}, err
@@ -814,7 +814,7 @@ func validAgentReasoningEffort(value string, allowEmpty bool) bool {
 	}
 }
 
-func (s *Store) UpdateAgentContextSummary(ctx context.Context, id, summary, boundaryMessageID string, prunedPercent int) error {
+func (s *projectStore) UpdateAgentContextSummary(ctx context.Context, id, summary, boundaryMessageID string, prunedPercent int) error {
 	now := Now()
 	result, err := s.db.ExecContext(ctx, `UPDATE agents SET context_summary = NULLIF(?, ''), prune_boundary_message_id = NULLIF(?, ''), pruned_percent = ?, updated_at = ? WHERE id = ?`, summary, boundaryMessageID, prunedPercent, now, id)
 	if err != nil {
@@ -828,7 +828,7 @@ func (s *Store) UpdateAgentContextSummary(ctx context.Context, id, summary, boun
 	return nil
 }
 
-func (s *Store) UpdateAgentPruneEnabled(ctx context.Context, id string, enabled bool, expectedEntityGeneration ...int64) (Agent, error) {
+func (s *projectStore) UpdateAgentPruneEnabled(ctx context.Context, id string, enabled bool, expectedEntityGeneration ...int64) (Agent, error) {
 	id = strings.TrimSpace(id)
 	if len(expectedEntityGeneration) > 1 {
 		return Agent{}, errors.New("expected entity generation accepts at most one value")
@@ -860,7 +860,7 @@ func (s *Store) UpdateAgentPruneEnabled(ctx context.Context, id string, enabled 
 	return s.GetAgent(ctx, id)
 }
 
-func (s *Store) ClearAgentContext(ctx context.Context, id string, expectedEntityGeneration int64, expectedLatestMessageID string) (Agent, error) {
+func (s *projectStore) ClearAgentContext(ctx context.Context, id string, expectedEntityGeneration int64, expectedLatestMessageID string) (Agent, error) {
 	id = strings.TrimSpace(id)
 	expectedLatestMessageID = strings.TrimSpace(expectedLatestMessageID)
 	if id == "" || expectedEntityGeneration <= 0 || expectedLatestMessageID == "" {
@@ -896,7 +896,7 @@ func (s *Store) ClearAgentContext(ctx context.Context, id string, expectedEntity
 	return s.GetAgent(ctx, id)
 }
 
-func (s *Store) UpdateAgentPermissionMode(ctx context.Context, id, mode string) (Agent, error) {
+func (s *projectStore) UpdateAgentPermissionMode(ctx context.Context, id, mode string) (Agent, error) {
 	now := Now()
 	result, err := s.db.ExecContext(ctx, `UPDATE agents SET permission_mode = ?, entity_generation = entity_generation + 1, permission_generation = permission_generation + 1, updated_at = ? WHERE id = ?`, mode, now, id)
 	if err != nil {
@@ -910,7 +910,7 @@ func (s *Store) UpdateAgentPermissionMode(ctx context.Context, id, mode string) 
 	return s.GetAgent(ctx, id)
 }
 
-func (s *Store) ListAgentsByWorkline(ctx context.Context, worklineID string) ([]Agent, error) {
+func (s *projectStore) ListAgentsByWorkline(ctx context.Context, worklineID string) ([]Agent, error) {
 	rows, err := s.reader().QueryContext(ctx, agentSelectSQL+` WHERE workline_id = ? ORDER BY type ASC, created_at ASC`, worklineID)
 	if err != nil {
 		return nil, err
@@ -927,7 +927,7 @@ func (s *Store) ListAgentsByWorkline(ctx context.Context, worklineID string) ([]
 	return agents, rows.Err()
 }
 
-func (s *Store) SetAgentStatus(ctx context.Context, agentID, status, errorMessage string) error {
+func (s *projectStore) SetAgentStatus(ctx context.Context, agentID, status, errorMessage string) error {
 	_, err := s.db.ExecContext(ctx, `UPDATE agents SET status = ?, error_message = NULLIF(?, ''), updated_at = ? WHERE id = ?`, status, errorMessage, Now(), agentID)
 	return err
 }

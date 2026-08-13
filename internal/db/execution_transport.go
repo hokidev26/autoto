@@ -48,7 +48,7 @@ func NormalizeExecutionDeviceHeartbeatStatus(status string) (string, error) {
 // The stored fingerprint never leaves the store: callers pass the peer identity
 // they have already authenticated and compare inside the query, so no handler
 // needs to read a device's fingerprint in order to check it.
-func (s *Store) GetRemoteExecutionDeviceForFingerprint(ctx context.Context, id, identityFingerprint string) (ExecutionDevice, error) {
+func (s *executionStore) GetRemoteExecutionDeviceForFingerprint(ctx context.Context, id, identityFingerprint string) (ExecutionDevice, error) {
 	id = strings.TrimSpace(id)
 	identityFingerprint = strings.TrimSpace(identityFingerprint)
 	if id == "" || id == "local" || len(identityFingerprint) < 16 || len(identityFingerprint) > 512 {
@@ -63,7 +63,7 @@ func (s *Store) GetRemoteExecutionDeviceForFingerprint(ctx context.Context, id, 
 // proved it owns identityFingerprint. A disabled device stays disabled: liveness
 // is not authorization, so a device cannot heartbeat its way back into service
 // after the owner switched it off.
-func (s *Store) RecordExecutionDeviceHeartbeat(ctx context.Context, id, identityFingerprint, status string) (ExecutionDevice, error) {
+func (s *executionStore) RecordExecutionDeviceHeartbeat(ctx context.Context, id, identityFingerprint, status string) (ExecutionDevice, error) {
 	normalized, err := NormalizeExecutionDeviceHeartbeatStatus(status)
 	if err != nil {
 		return ExecutionDevice{}, err
@@ -94,7 +94,7 @@ func (s *Store) RecordExecutionDeviceHeartbeat(ctx context.Context, id, identity
 //
 // updated_at is left untouched: rewriting it here would restart the heartbeat
 // clock for a device that is not talking to us.
-func (s *Store) MarkStaleExecutionDevicesOffline(ctx context.Context, maxAge time.Duration) (int64, error) {
+func (s *executionStore) MarkStaleExecutionDevicesOffline(ctx context.Context, maxAge time.Duration) (int64, error) {
 	if maxAge <= 0 {
 		maxAge = ExecutionDeviceHeartbeatTTL
 	}
@@ -109,7 +109,7 @@ func (s *Store) MarkStaleExecutionDevicesOffline(ctx context.Context, maxAge tim
 // CountQueuedRemoteExecutionTasks reports how much work is waiting for a device,
 // restricted to the agents the caller is allowed to see. It exists so a polling
 // device can back off instead of claiming in a tight loop.
-func (s *Store) CountQueuedRemoteExecutionTasks(ctx context.Context, deviceID string, agentIDs []string) (int, error) {
+func (s *executionStore) CountQueuedRemoteExecutionTasks(ctx context.Context, deviceID string, agentIDs []string) (int, error) {
 	deviceID = strings.TrimSpace(deviceID)
 	if deviceID == "" || deviceID == "local" {
 		return 0, errors.New("invalid remote execution device")
@@ -132,7 +132,7 @@ func (s *Store) CountQueuedRemoteExecutionTasks(ctx context.Context, deviceID st
 // agent was not granted, and the ledger has no leased-to-queued transition to
 // undo it with. For the same reason there is no unrestricted claim: every caller
 // has to say which agents the claimer is authorized for.
-func (s *Store) ClaimRemoteExecutionTaskForAgents(ctx context.Context, deviceID, leaseOwner string, leaseUntil time.Time, agentIDs []string) (RemoteExecutionTask, error) {
+func (s *executionStore) ClaimRemoteExecutionTaskForAgents(ctx context.Context, deviceID, leaseOwner string, leaseUntil time.Time, agentIDs []string) (RemoteExecutionTask, error) {
 	deviceID = strings.TrimSpace(deviceID)
 	leaseOwner = strings.TrimSpace(leaseOwner)
 	if deviceID == "" || deviceID == "local" || leaseOwner == "" || len(leaseOwner) > 128 {
@@ -175,7 +175,7 @@ func (s *Store) ClaimRemoteExecutionTaskForAgents(ctx context.Context, deviceID,
 // ExpireRemoteExecutionLeases fails leases whose deadline passed, so a device
 // that dies mid-task releases the ledger row instead of pinning it forever.
 // no_fallback stays set, so an expired task is never retried locally.
-func (s *Store) ExpireRemoteExecutionLeases(ctx context.Context) (int64, error) {
+func (s *executionStore) ExpireRemoteExecutionLeases(ctx context.Context) (int64, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT id, revision, lease_until FROM remote_execution_tasks WHERE status IN ('leased', 'running')`)
 	if err != nil {
 		return 0, err

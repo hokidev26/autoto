@@ -13,7 +13,7 @@ import (
 // correction, the rows stay readable in the transcript but are withheld from
 // the model. Unlike a correction, no new message and no run are created -- the
 // conversation simply resumes from the chosen point.
-func (s *Store) RollbackConversationToMessage(ctx context.Context, agentID, messageID string) (int64, error) {
+func (s *messageStore) RollbackConversationToMessage(ctx context.Context, agentID, messageID string) (int64, error) {
 	agentID, messageID = strings.TrimSpace(agentID), strings.TrimSpace(messageID)
 	if agentID == "" || messageID == "" {
 		return 0, errors.New("agent id and message id are required")
@@ -57,7 +57,7 @@ func (s *Store) RollbackConversationToMessage(ctx context.Context, agentID, mess
 // are removed in the same transaction: leaving either half of a tool exchange
 // behind would poison every later provider replay with an unmatched pair.
 // Attachments and generated images go with their message via FK cascade.
-func (s *Store) DeleteConversationMessage(ctx context.Context, agentID, messageID string) ([]string, error) {
+func (s *messageStore) DeleteConversationMessage(ctx context.Context, agentID, messageID string) ([]string, error) {
 	agentID, messageID = strings.TrimSpace(agentID), strings.TrimSpace(messageID)
 	if agentID == "" || messageID == "" {
 		return nil, errors.New("agent id and message id are required")
@@ -127,7 +127,7 @@ func (s *Store) DeleteConversationMessage(ctx context.Context, agentID, messageI
 // conversation, so no new workline (and no git work) is needed. Superseded
 // rows are not copied: the fork starts from what the model would actually see.
 // Runs are not copied either -- run history belongs to the original.
-func (s *Store) ForkConversationFromMessage(ctx context.Context, agentID, messageID, title string) (Agent, error) {
+func (s *messageStore) ForkConversationFromMessage(ctx context.Context, agentID, messageID, title string) (Agent, error) {
 	agentID, messageID = strings.TrimSpace(agentID), strings.TrimSpace(messageID)
 	if agentID == "" || messageID == "" {
 		return Agent{}, errors.New("agent id and message id are required")

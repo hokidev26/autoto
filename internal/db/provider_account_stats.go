@@ -27,7 +27,7 @@ type ProviderAccountStats struct {
 	QuotaFetchedAt    string          `json:"quota_fetched_at,omitempty"`
 }
 
-func (s *Store) RecordProviderAccountAttempt(ctx context.Context, attempt providers.ProviderAccountAttempt) error {
+func (s *providerAccountStore) RecordProviderAccountAttempt(ctx context.Context, attempt providers.ProviderAccountAttempt) error {
 	if s == nil || s.db == nil {
 		return errors.New("database store is unavailable")
 	}
@@ -74,7 +74,7 @@ ON CONFLICT(provider, account_id) DO UPDATE SET
 	return err
 }
 
-func (s *Store) UpdateProviderAccountQuota(ctx context.Context, provider, accountID string, quota any, fetchedAt time.Time) error {
+func (s *providerAccountStore) UpdateProviderAccountQuota(ctx context.Context, provider, accountID string, quota any, fetchedAt time.Time) error {
 	if s == nil || s.db == nil {
 		return errors.New("database store is unavailable")
 	}
@@ -107,7 +107,7 @@ ON CONFLICT(provider, account_id) DO UPDATE SET
 	return err
 }
 
-func (s *Store) ListProviderAccountStats(ctx context.Context, provider string) (map[string]ProviderAccountStats, error) {
+func (s *providerAccountStore) ListProviderAccountStats(ctx context.Context, provider string) (map[string]ProviderAccountStats, error) {
 	if s == nil || s.db == nil {
 		return nil, errors.New("database store is unavailable")
 	}
@@ -137,7 +137,7 @@ FROM provider_account_stats WHERE provider = ?
 	return result, rows.Err()
 }
 
-func (s *Store) GetProviderAccountStats(ctx context.Context, provider, accountID string) (ProviderAccountStats, error) {
+func (s *providerAccountStore) GetProviderAccountStats(ctx context.Context, provider, accountID string) (ProviderAccountStats, error) {
 	if s == nil || s.db == nil {
 		return ProviderAccountStats{}, errors.New("database store is unavailable")
 	}
@@ -156,7 +156,7 @@ FROM provider_account_stats WHERE provider = ? AND account_id = ?
 	})
 }
 
-func (s *Store) DeleteProviderAccountStats(ctx context.Context, provider, accountID string) error {
+func (s *providerAccountStore) DeleteProviderAccountStats(ctx context.Context, provider, accountID string) error {
 	if s == nil || s.db == nil {
 		return errors.New("database store is unavailable")
 	}

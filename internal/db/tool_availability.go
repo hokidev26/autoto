@@ -97,7 +97,7 @@ CREATE TABLE IF NOT EXISTS tool_availability_revisions (
 CREATE INDEX IF NOT EXISTS idx_tool_availability_revisions_rule ON tool_availability_revisions(rule_id, revision DESC);
 `
 
-func (s *Store) EnsureToolAvailability(ctx context.Context) error {
+func (s *toolAvailabilityStore) EnsureToolAvailability(ctx context.Context) error {
 	if s == nil || s.db == nil {
 		return errors.New("tool availability store is not configured")
 	}
@@ -206,7 +206,7 @@ func insertToolAvailabilityRevision(ctx context.Context, tx *sql.Tx, rule ToolAv
 	return err
 }
 
-func (s *Store) SetToolAvailabilityRuleCAS(ctx context.Context, target ToolAvailabilityTarget, toolName, state string, expectedRevision int64, actor string) (ToolAvailabilityRule, error) {
+func (s *toolAvailabilityStore) SetToolAvailabilityRuleCAS(ctx context.Context, target ToolAvailabilityTarget, toolName, state string, expectedRevision int64, actor string) (ToolAvailabilityRule, error) {
 	if err := s.EnsureToolAvailability(ctx); err != nil {
 		return ToolAvailabilityRule{}, err
 	}
@@ -282,7 +282,7 @@ func (s *Store) SetToolAvailabilityRuleCAS(ctx context.Context, target ToolAvail
 	return next, nil
 }
 
-func (s *Store) DeleteToolAvailabilityRuleCAS(ctx context.Context, ruleID string, expectedRevision int64, actor string) (ToolAvailabilityRule, error) {
+func (s *toolAvailabilityStore) DeleteToolAvailabilityRuleCAS(ctx context.Context, ruleID string, expectedRevision int64, actor string) (ToolAvailabilityRule, error) {
 	if err := s.EnsureToolAvailability(ctx); err != nil {
 		return ToolAvailabilityRule{}, err
 	}
@@ -328,7 +328,7 @@ func (s *Store) DeleteToolAvailabilityRuleCAS(ctx context.Context, ruleID string
 	return current, nil
 }
 
-func (s *Store) GetToolAvailabilityRule(ctx context.Context, ruleID string) (ToolAvailabilityRule, error) {
+func (s *toolAvailabilityStore) GetToolAvailabilityRule(ctx context.Context, ruleID string) (ToolAvailabilityRule, error) {
 	if err := s.EnsureToolAvailability(ctx); err != nil {
 		return ToolAvailabilityRule{}, err
 	}
@@ -337,7 +337,7 @@ func (s *Store) GetToolAvailabilityRule(ctx context.Context, ruleID string) (Too
 	})
 }
 
-func (s *Store) ListToolAvailabilityRules(ctx context.Context, target ToolAvailabilityTarget, includeDeleted bool) ([]ToolAvailabilityRule, error) {
+func (s *toolAvailabilityStore) ListToolAvailabilityRules(ctx context.Context, target ToolAvailabilityTarget, includeDeleted bool) ([]ToolAvailabilityRule, error) {
 	if err := s.EnsureToolAvailability(ctx); err != nil {
 		return nil, err
 	}
@@ -366,7 +366,7 @@ func (s *Store) ListToolAvailabilityRules(ctx context.Context, target ToolAvaila
 	return items, rows.Err()
 }
 
-func (s *Store) ListToolAvailabilityRevisions(ctx context.Context, ruleID string) ([]ToolAvailabilityRevision, error) {
+func (s *toolAvailabilityStore) ListToolAvailabilityRevisions(ctx context.Context, ruleID string) ([]ToolAvailabilityRevision, error) {
 	if err := s.EnsureToolAvailability(ctx); err != nil {
 		return nil, err
 	}
@@ -400,7 +400,7 @@ func (s *Store) ListToolAvailabilityRevisions(ctx context.Context, ruleID string
 	return items, nil
 }
 
-func (s *Store) ResolveToolAvailability(ctx context.Context, target ToolAvailabilityTarget, toolName string) (ToolAvailabilityDecision, error) {
+func (s *toolAvailabilityStore) ResolveToolAvailability(ctx context.Context, target ToolAvailabilityTarget, toolName string) (ToolAvailabilityDecision, error) {
 	normalized, err := normalizeToolAvailabilityName(toolName)
 	if err != nil {
 		return ToolAvailabilityDecision{}, err
@@ -412,7 +412,7 @@ func (s *Store) ResolveToolAvailability(ctx context.Context, target ToolAvailabi
 	return decisions[normalized], nil
 }
 
-func (s *Store) ResolveToolAvailabilities(ctx context.Context, target ToolAvailabilityTarget, toolNames []string) (map[string]ToolAvailabilityDecision, error) {
+func (s *toolAvailabilityStore) ResolveToolAvailabilities(ctx context.Context, target ToolAvailabilityTarget, toolNames []string) (map[string]ToolAvailabilityDecision, error) {
 	if err := s.EnsureToolAvailability(ctx); err != nil {
 		return nil, err
 	}

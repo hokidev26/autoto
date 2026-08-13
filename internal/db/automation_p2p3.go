@@ -218,7 +218,7 @@ const channelPairingSelectSQL = `SELECT id, connection_id, agent_id, status, COA
 const channelEventSelectSQL = `SELECT id, connection_id, external_event_id, event_type, COALESCE(agent_id,''), COALESCE(run_id,''), COALESCE(tool_use_id,''), COALESCE(chat_id,''), COALESCE(user_id,''), payload_json, COALESCE(occurred_at,''), COALESCE(processed_at,''), created_at FROM channel_events`
 const deviceActionRequestSelectSQL = `SELECT id, connection_id, entity_id, domain, service, payload_json, risk, status, requested_by, COALESCE(approved_by,''), expires_at, COALESCE(last_error,''), created_at, updated_at, COALESCE(completed_at,'') FROM device_action_requests`
 
-func (s *Store) CreateSchedule(ctx context.Context, schedule Schedule) (Schedule, error) {
+func (s *scheduleStore) CreateSchedule(ctx context.Context, schedule Schedule) (Schedule, error) {
 	canonical, err := canonicalSchedule(schedule, true)
 	if err != nil {
 		return Schedule{}, err
@@ -230,7 +230,7 @@ func (s *Store) CreateSchedule(ctx context.Context, schedule Schedule) (Schedule
 	return canonical, nil
 }
 
-func (s *Store) GetSchedule(ctx context.Context, id string) (Schedule, error) {
+func (s *scheduleStore) GetSchedule(ctx context.Context, id string) (Schedule, error) {
 	id = strings.TrimSpace(id)
 	if id == "" {
 		return Schedule{}, sql.ErrNoRows
@@ -240,7 +240,7 @@ func (s *Store) GetSchedule(ctx context.Context, id string) (Schedule, error) {
 	})
 }
 
-func (s *Store) ListSchedules(ctx context.Context, args ...any) ([]Schedule, error) {
+func (s *scheduleStore) ListSchedules(ctx context.Context, args ...any) ([]Schedule, error) {
 	options, err := parseScheduleListOptions(args)
 	if err != nil {
 		return nil, err
@@ -273,7 +273,7 @@ func (s *Store) ListSchedules(ctx context.Context, args ...any) ([]Schedule, err
 	return items, rows.Err()
 }
 
-func (s *Store) UpdateSchedule(ctx context.Context, schedule Schedule) (Schedule, error) {
+func (s *scheduleStore) UpdateSchedule(ctx context.Context, schedule Schedule) (Schedule, error) {
 	expectedUpdatedAt := p2p3TimeCAS(schedule.UpdatedAt)
 	if expectedUpdatedAt == "" {
 		return Schedule{}, errors.New("schedule updated_at is required for CAS update")
@@ -293,7 +293,7 @@ func (s *Store) UpdateSchedule(ctx context.Context, schedule Schedule) (Schedule
 	return s.GetSchedule(ctx, canonical.ID)
 }
 
-func (s *Store) DeleteSchedule(ctx context.Context, id string, expectedUpdatedAt ...string) error {
+func (s *scheduleStore) DeleteSchedule(ctx context.Context, id string, expectedUpdatedAt ...string) error {
 	id = strings.TrimSpace(id)
 	if err := validateP2P3Text("schedule id", id, 128, true, false); err != nil {
 		return err
@@ -311,7 +311,7 @@ func (s *Store) DeleteSchedule(ctx context.Context, id string, expectedUpdatedAt
 	return requireP2P3Transition(ctx, s.db, result, "schedules", id, "delete schedule")
 }
 
-func (s *Store) ClaimDueSchedules(ctx context.Context, now, leaseUntil string, limit int) ([]Schedule, error) {
+func (s *scheduleStore) ClaimDueSchedules(ctx context.Context, now, leaseUntil string, limit int) ([]Schedule, error) {
 	now, err := canonicalP2P3Time("schedule claim time", now, true)
 	if err != nil {
 		return nil, err
@@ -373,7 +373,7 @@ func (s *Store) ClaimDueSchedules(ctx context.Context, now, leaseUntil string, l
 	return claimed, nil
 }
 
-func (s *Store) ReleaseScheduleLease(ctx context.Context, id, leaseUntil string) error {
+func (s *scheduleStore) ReleaseScheduleLease(ctx context.Context, id, leaseUntil string) error {
 	id = strings.TrimSpace(id)
 	// The lease predicate must use the same canonical layout the claim wrote,
 	// otherwise an equivalent instant with trailing zeros never matches.
@@ -397,7 +397,7 @@ func (s *Store) ReleaseScheduleLease(ctx context.Context, id, leaseUntil string)
 //
 // Returns sql.ErrNoRows when the schedule is gone and ErrConflict when another
 // run already holds the lease.
-func (s *Store) ClaimScheduleNow(ctx context.Context, id, now, leaseUntil string) (Schedule, error) {
+func (s *scheduleStore) ClaimScheduleNow(ctx context.Context, id, now, leaseUntil string) (Schedule, error) {
 	id = strings.TrimSpace(id)
 	now, err := canonicalP2P3Time("schedule claim time", now, true)
 	if err != nil {
@@ -420,7 +420,7 @@ func (s *Store) ClaimScheduleNow(ctx context.Context, id, now, leaseUntil string
 	return s.GetSchedule(ctx, id)
 }
 
-func (s *Store) RecordScheduleRun(ctx context.Context, id, leaseUntil, runID, outcome, lastError, nextRunAt string) (Schedule, error) {
+func (s *scheduleStore) RecordScheduleRun(ctx context.Context, id, leaseUntil, runID, outcome, lastError, nextRunAt string) (Schedule, error) {
 	id = strings.TrimSpace(id)
 	runID = strings.TrimSpace(runID)
 	outcome = strings.TrimSpace(outcome)
@@ -455,11 +455,11 @@ func (s *Store) RecordScheduleRun(ctx context.Context, id, leaseUntil, runID, ou
 	return s.GetSchedule(ctx, id)
 }
 
-func (s *Store) CompleteScheduleRun(ctx context.Context, id, leaseUntil, runID, outcome, lastError, nextRunAt string) (Schedule, error) {
+func (s *scheduleStore) CompleteScheduleRun(ctx context.Context, id, leaseUntil, runID, outcome, lastError, nextRunAt string) (Schedule, error) {
 	return s.RecordScheduleRun(ctx, id, leaseUntil, runID, outcome, lastError, nextRunAt)
 }
 
-func (s *Store) ScheduleStats(ctx context.Context, at string) (ScheduleStats, error) {
+func (s *scheduleStore) ScheduleStats(ctx context.Context, at string) (ScheduleStats, error) {
 	if strings.TrimSpace(at) == "" {
 		at = Now()
 	}
@@ -623,7 +623,7 @@ func parseScheduleListOptions(args []any) (ScheduleListOptions, error) {
 	return options, nil
 }
 
-func (s *Store) CreateNotificationDelivery(ctx context.Context, delivery NotificationDelivery) (NotificationDelivery, error) {
+func (s *notificationStore) CreateNotificationDelivery(ctx context.Context, delivery NotificationDelivery) (NotificationDelivery, error) {
 	canonical, err := canonicalNotificationDelivery(delivery, true)
 	if err != nil {
 		return NotificationDelivery{}, err
@@ -643,7 +643,7 @@ func (s *Store) CreateNotificationDelivery(ctx context.Context, delivery Notific
 	return canonical, nil
 }
 
-func (s *Store) EnqueueNotificationDelivery(ctx context.Context, delivery NotificationDelivery) (NotificationDelivery, bool, error) {
+func (s *notificationStore) EnqueueNotificationDelivery(ctx context.Context, delivery NotificationDelivery) (NotificationDelivery, bool, error) {
 	created, err := s.CreateNotificationDelivery(ctx, delivery)
 	if err == nil {
 		return created, true, nil
@@ -655,7 +655,7 @@ func (s *Store) EnqueueNotificationDelivery(ctx context.Context, delivery Notifi
 	return existing, false, getErr
 }
 
-func (s *Store) GetNotificationDelivery(ctx context.Context, id string) (NotificationDelivery, error) {
+func (s *notificationStore) GetNotificationDelivery(ctx context.Context, id string) (NotificationDelivery, error) {
 	id = strings.TrimSpace(id)
 	if id == "" {
 		return NotificationDelivery{}, sql.ErrNoRows
@@ -665,7 +665,7 @@ func (s *Store) GetNotificationDelivery(ctx context.Context, id string) (Notific
 	})
 }
 
-func (s *Store) GetNotificationDeliveryByDedupeKey(ctx context.Context, dedupeKey string) (NotificationDelivery, error) {
+func (s *notificationStore) GetNotificationDeliveryByDedupeKey(ctx context.Context, dedupeKey string) (NotificationDelivery, error) {
 	dedupeKey = strings.TrimSpace(dedupeKey)
 	if dedupeKey == "" {
 		return NotificationDelivery{}, sql.ErrNoRows
@@ -675,7 +675,7 @@ func (s *Store) GetNotificationDeliveryByDedupeKey(ctx context.Context, dedupeKe
 	})
 }
 
-func (s *Store) ListNotificationDeliveries(ctx context.Context, args ...any) ([]NotificationDelivery, error) {
+func (s *notificationStore) ListNotificationDeliveries(ctx context.Context, args ...any) ([]NotificationDelivery, error) {
 	options, err := parseNotificationDeliveryListOptions(args)
 	if err != nil {
 		return nil, err
@@ -709,7 +709,7 @@ func (s *Store) ListNotificationDeliveries(ctx context.Context, args ...any) ([]
 	return items, rows.Err()
 }
 
-func (s *Store) DeleteNotificationDelivery(ctx context.Context, id string) error {
+func (s *notificationStore) DeleteNotificationDelivery(ctx context.Context, id string) error {
 	id = strings.TrimSpace(id)
 	result, err := s.db.ExecContext(ctx, `DELETE FROM notification_deliveries WHERE id = ? AND status IN ('delivered','dead')`, id)
 	if err != nil {
@@ -718,7 +718,7 @@ func (s *Store) DeleteNotificationDelivery(ctx context.Context, id string) error
 	return requireP2P3Transition(ctx, s.db, result, "notification_deliveries", id, "delete notification delivery")
 }
 
-func (s *Store) ClaimNotificationDeliveries(ctx context.Context, now, leaseUntil string, limit int) ([]NotificationDelivery, error) {
+func (s *notificationStore) ClaimNotificationDeliveries(ctx context.Context, now, leaseUntil string, limit int) ([]NotificationDelivery, error) {
 	var err error
 	if now, err = canonicalP2P3Time("notification claim time", now, true); err != nil {
 		return nil, err
@@ -781,7 +781,7 @@ func (s *Store) ClaimNotificationDeliveries(ctx context.Context, now, leaseUntil
 	return items, nil
 }
 
-func (s *Store) MarkNotificationDeliveryDelivered(ctx context.Context, id string, httpStatus int) error {
+func (s *notificationStore) MarkNotificationDeliveryDelivered(ctx context.Context, id string, httpStatus int) error {
 	if err := validateHTTPStatus(httpStatus, true); err != nil {
 		return err
 	}
@@ -793,11 +793,11 @@ func (s *Store) MarkNotificationDeliveryDelivered(ctx context.Context, id string
 	return requireP2P3Transition(ctx, s.db, result, "notification_deliveries", strings.TrimSpace(id), "mark notification delivered")
 }
 
-func (s *Store) MarkNotificationDeliverySucceeded(ctx context.Context, id string, httpStatus int) error {
+func (s *notificationStore) MarkNotificationDeliverySucceeded(ctx context.Context, id string, httpStatus int) error {
 	return s.MarkNotificationDeliveryDelivered(ctx, id, httpStatus)
 }
 
-func (s *Store) MarkNotificationDeliveryRetry(ctx context.Context, id string, httpStatus int, lastError, nextAttemptAt string) error {
+func (s *notificationStore) MarkNotificationDeliveryRetry(ctx context.Context, id string, httpStatus int, lastError, nextAttemptAt string) error {
 	if err := validateHTTPStatus(httpStatus, false); err != nil {
 		return err
 	}
@@ -816,7 +816,7 @@ func (s *Store) MarkNotificationDeliveryRetry(ctx context.Context, id string, ht
 	return requireP2P3Transition(ctx, s.db, result, "notification_deliveries", strings.TrimSpace(id), "schedule notification retry")
 }
 
-func (s *Store) MarkNotificationDeliveryDead(ctx context.Context, id string, httpStatus int, lastError string) error {
+func (s *notificationStore) MarkNotificationDeliveryDead(ctx context.Context, id string, httpStatus int, lastError string) error {
 	if err := validateHTTPStatus(httpStatus, false); err != nil {
 		return err
 	}
@@ -831,7 +831,7 @@ func (s *Store) MarkNotificationDeliveryDead(ctx context.Context, id string, htt
 	return requireP2P3Transition(ctx, s.db, result, "notification_deliveries", strings.TrimSpace(id), "mark notification dead")
 }
 
-func (s *Store) NotificationDeliveryStats(ctx context.Context) (NotificationDeliveryStats, error) {
+func (s *notificationStore) NotificationDeliveryStats(ctx context.Context) (NotificationDeliveryStats, error) {
 	var stats NotificationDeliveryStats
 	err := s.db.QueryRowContext(ctx, `SELECT COUNT(*), COALESCE(SUM(CASE WHEN status = 'queued' THEN 1 ELSE 0 END),0), COALESCE(SUM(CASE WHEN status = 'inflight' THEN 1 ELSE 0 END),0), COALESCE(SUM(CASE WHEN status = 'retry_wait' THEN 1 ELSE 0 END),0), COALESCE(SUM(CASE WHEN status = 'delivered' THEN 1 ELSE 0 END),0), COALESCE(SUM(CASE WHEN status = 'dead' THEN 1 ELSE 0 END),0), COALESCE(SUM(attempt_count),0), COALESCE(SUM(CASE WHEN last_http_status >= 400 THEN 1 ELSE 0 END),0), COALESCE(SUM(CASE WHEN attempt_count >= max_attempts AND status <> 'delivered' THEN 1 ELSE 0 END),0) FROM notification_deliveries`).Scan(&stats.Total, &stats.Queued, &stats.Inflight, &stats.RetryWait, &stats.Delivered, &stats.Dead, &stats.Attempts, &stats.HTTPError, &stats.Exhausted)
 	return stats, err
@@ -1006,7 +1006,7 @@ func parseNotificationDeliveryListOptions(args []any) (NotificationDeliveryListO
 	return options, nil
 }
 
-func (s *Store) CreateChannelPairing(ctx context.Context, pairing ChannelPairing) (ChannelPairing, error) {
+func (s *channelStore) CreateChannelPairing(ctx context.Context, pairing ChannelPairing) (ChannelPairing, error) {
 	canonical, err := canonicalChannelPairing(pairing, true)
 	if err != nil {
 		return ChannelPairing{}, err
@@ -1021,7 +1021,7 @@ func (s *Store) CreateChannelPairing(ctx context.Context, pairing ChannelPairing
 	return canonical, nil
 }
 
-func (s *Store) GetChannelPairing(ctx context.Context, id string) (ChannelPairing, error) {
+func (s *channelStore) GetChannelPairing(ctx context.Context, id string) (ChannelPairing, error) {
 	id = strings.TrimSpace(id)
 	if id == "" {
 		return ChannelPairing{}, sql.ErrNoRows
@@ -1031,7 +1031,7 @@ func (s *Store) GetChannelPairing(ctx context.Context, id string) (ChannelPairin
 	})
 }
 
-func (s *Store) ListChannelPairings(ctx context.Context, args ...any) ([]ChannelPairing, error) {
+func (s *channelStore) ListChannelPairings(ctx context.Context, args ...any) ([]ChannelPairing, error) {
 	options, err := parseChannelPairingListOptions(args)
 	if err != nil {
 		return nil, err
@@ -1062,7 +1062,7 @@ func (s *Store) ListChannelPairings(ctx context.Context, args ...any) ([]Channel
 	return items, rows.Err()
 }
 
-func (s *Store) ActivateChannelPairing(ctx context.Context, id, codeHash, chatID, userID string, credentialRevision int64) (ChannelPairing, error) {
+func (s *channelStore) ActivateChannelPairing(ctx context.Context, id, codeHash, chatID, userID string, credentialRevision int64) (ChannelPairing, error) {
 	id = strings.TrimSpace(id)
 	codeHash = strings.TrimSpace(codeHash)
 	chatID = strings.TrimSpace(chatID)
@@ -1125,7 +1125,7 @@ func (s *Store) ActivateChannelPairing(ctx context.Context, id, codeHash, chatID
 	return activated, nil
 }
 
-func (s *Store) RecordChannelPairingFailure(ctx context.Context, id string, maxAttempts int, lockedUntil string) (ChannelPairing, error) {
+func (s *channelStore) RecordChannelPairingFailure(ctx context.Context, id string, maxAttempts int, lockedUntil string) (ChannelPairing, error) {
 	if maxAttempts <= 0 || maxAttempts > 100 {
 		return ChannelPairing{}, errors.New("invalid channel pairing maximum attempts")
 	}
@@ -1175,7 +1175,7 @@ func recordChannelPairingFailureTx(ctx context.Context, tx *sql.Tx, current Chan
 	})
 }
 
-func (s *Store) RevokeChannelPairing(ctx context.Context, id string) (ChannelPairing, error) {
+func (s *channelStore) RevokeChannelPairing(ctx context.Context, id string) (ChannelPairing, error) {
 	id = strings.TrimSpace(id)
 	now := Now()
 	result, err := s.db.ExecContext(ctx, `UPDATE channel_pairings SET status = 'revoked', code_hash = NULL, locked_until = NULL, revoked_at = ?, updated_at = ? WHERE id = ? AND status IN ('pending','active')`, now, now, id)
@@ -1188,7 +1188,7 @@ func (s *Store) RevokeChannelPairing(ctx context.Context, id string) (ChannelPai
 	return s.GetChannelPairing(ctx, id)
 }
 
-func (s *Store) DeleteChannelPairing(ctx context.Context, id string) error {
+func (s *channelStore) DeleteChannelPairing(ctx context.Context, id string) error {
 	id = strings.TrimSpace(id)
 	result, err := s.db.ExecContext(ctx, `DELETE FROM channel_pairings WHERE id = ? AND status = 'revoked'`, id)
 	if err != nil {
@@ -1197,7 +1197,7 @@ func (s *Store) DeleteChannelPairing(ctx context.Context, id string) error {
 	return requireP2P3Transition(ctx, s.db, result, "channel_pairings", id, "delete channel pairing")
 }
 
-func (s *Store) ChannelPairingStats(ctx context.Context, at string) (ChannelPairingStats, error) {
+func (s *channelStore) ChannelPairingStats(ctx context.Context, at string) (ChannelPairingStats, error) {
 	if strings.TrimSpace(at) == "" {
 		at = Now()
 	}
@@ -1338,12 +1338,12 @@ func parseChannelPairingListOptions(args []any) (ChannelPairingListOptions, erro
 	return options, nil
 }
 
-func (s *Store) CreateChannelEvent(ctx context.Context, event ChannelEvent) (ChannelEvent, error) {
+func (s *channelStore) CreateChannelEvent(ctx context.Context, event ChannelEvent) (ChannelEvent, error) {
 	stored, _, err := s.InsertChannelEvent(ctx, event)
 	return stored, err
 }
 
-func (s *Store) InsertChannelEvent(ctx context.Context, event ChannelEvent) (ChannelEvent, bool, error) {
+func (s *channelStore) InsertChannelEvent(ctx context.Context, event ChannelEvent) (ChannelEvent, bool, error) {
 	canonical, err := canonicalChannelEvent(event, true)
 	if err != nil {
 		return ChannelEvent{}, false, err
@@ -1363,7 +1363,7 @@ func (s *Store) InsertChannelEvent(ctx context.Context, event ChannelEvent) (Cha
 	return existing, false, err
 }
 
-func (s *Store) GetChannelEvent(ctx context.Context, id string) (ChannelEvent, error) {
+func (s *channelStore) GetChannelEvent(ctx context.Context, id string) (ChannelEvent, error) {
 	id = strings.TrimSpace(id)
 	if id == "" {
 		return ChannelEvent{}, sql.ErrNoRows
@@ -1373,7 +1373,7 @@ func (s *Store) GetChannelEvent(ctx context.Context, id string) (ChannelEvent, e
 	})
 }
 
-func (s *Store) GetChannelEventByExternalID(ctx context.Context, connectionID, externalEventID string) (ChannelEvent, error) {
+func (s *channelStore) GetChannelEventByExternalID(ctx context.Context, connectionID, externalEventID string) (ChannelEvent, error) {
 	connectionID = strings.TrimSpace(connectionID)
 	externalEventID = strings.TrimSpace(externalEventID)
 	if connectionID == "" || externalEventID == "" {
@@ -1384,7 +1384,7 @@ func (s *Store) GetChannelEventByExternalID(ctx context.Context, connectionID, e
 	})
 }
 
-func (s *Store) ListChannelEvents(ctx context.Context, args ...any) ([]ChannelEvent, error) {
+func (s *channelStore) ListChannelEvents(ctx context.Context, args ...any) ([]ChannelEvent, error) {
 	options, err := parseChannelEventListOptions(args)
 	if err != nil {
 		return nil, err
@@ -1418,7 +1418,7 @@ func (s *Store) ListChannelEvents(ctx context.Context, args ...any) ([]ChannelEv
 	return items, rows.Err()
 }
 
-func (s *Store) MarkChannelEventProcessed(ctx context.Context, id, processedAt string) (ChannelEvent, error) {
+func (s *channelStore) MarkChannelEventProcessed(ctx context.Context, id, processedAt string) (ChannelEvent, error) {
 	if strings.TrimSpace(processedAt) == "" {
 		processedAt = Now()
 	}
@@ -1437,7 +1437,7 @@ func (s *Store) MarkChannelEventProcessed(ctx context.Context, id, processedAt s
 	return s.GetChannelEvent(ctx, id)
 }
 
-func (s *Store) DeleteChannelEvent(ctx context.Context, id string) error {
+func (s *channelStore) DeleteChannelEvent(ctx context.Context, id string) error {
 	id = strings.TrimSpace(id)
 	result, err := s.db.ExecContext(ctx, `DELETE FROM channel_events WHERE id = ? AND processed_at IS NOT NULL`, id)
 	if err != nil {
@@ -1546,7 +1546,7 @@ func parseChannelEventListOptions(args []any) (ChannelEventListOptions, error) {
 	return options, nil
 }
 
-func (s *Store) GetChannelCursor(ctx context.Context, connectionID string) (ChannelCursor, error) {
+func (s *channelStore) GetChannelCursor(ctx context.Context, connectionID string) (ChannelCursor, error) {
 	connectionID = strings.TrimSpace(connectionID)
 	if err := validateP2P3Text("channel cursor connection id", connectionID, 128, true, false); err != nil {
 		return ChannelCursor{}, err
@@ -1562,7 +1562,7 @@ func (s *Store) GetChannelCursor(ctx context.Context, connectionID string) (Chan
 	return canonicalChannelCursor(cursor)
 }
 
-func (s *Store) UpsertChannelCursor(ctx context.Context, cursor ChannelCursor) (ChannelCursor, error) {
+func (s *channelStore) UpsertChannelCursor(ctx context.Context, cursor ChannelCursor) (ChannelCursor, error) {
 	canonical, err := canonicalChannelCursor(cursor)
 	if err != nil {
 		return ChannelCursor{}, err
@@ -1584,7 +1584,7 @@ func (s *Store) UpsertChannelCursor(ctx context.Context, cursor ChannelCursor) (
 	return s.GetChannelCursor(ctx, canonical.ConnectionID)
 }
 
-func (s *Store) AdvanceChannelCursor(ctx context.Context, connectionID string, expectedOffset, nextOffset int64) (ChannelCursor, error) {
+func (s *channelStore) AdvanceChannelCursor(ctx context.Context, connectionID string, expectedOffset, nextOffset int64) (ChannelCursor, error) {
 	connectionID = strings.TrimSpace(connectionID)
 	if expectedOffset < 0 || nextOffset < expectedOffset {
 		return ChannelCursor{}, errors.New("invalid channel cursor transition")
@@ -1621,7 +1621,7 @@ func (s *Store) AdvanceChannelCursor(ctx context.Context, connectionID string, e
 	return cursor, nil
 }
 
-func (s *Store) RecordChannelEventAndAdvanceCursor(ctx context.Context, event ChannelEvent, expectedOffset, nextOffset int64) (ChannelEvent, bool, ChannelCursor, error) {
+func (s *channelStore) RecordChannelEventAndAdvanceCursor(ctx context.Context, event ChannelEvent, expectedOffset, nextOffset int64) (ChannelEvent, bool, ChannelCursor, error) {
 	canonical, err := canonicalChannelEvent(event, true)
 	if err != nil {
 		return ChannelEvent{}, false, ChannelCursor{}, err
@@ -1686,7 +1686,7 @@ func canonicalChannelCursor(cursor ChannelCursor) (ChannelCursor, error) {
 	return cursor, nil
 }
 
-func (s *Store) ChannelStats(ctx context.Context, connectionID string) (ChannelStats, error) {
+func (s *channelStore) ChannelStats(ctx context.Context, connectionID string) (ChannelStats, error) {
 	connectionID = strings.TrimSpace(connectionID)
 	where := ""
 	params := []any{}
@@ -1706,7 +1706,7 @@ func (s *Store) ChannelStats(ctx context.Context, connectionID string) (ChannelS
 	return stats, nil
 }
 
-func (s *Store) CreateDeviceActionRequest(ctx context.Context, request DeviceActionRequest) (DeviceActionRequest, error) {
+func (s *deviceActionStore) CreateDeviceActionRequest(ctx context.Context, request DeviceActionRequest) (DeviceActionRequest, error) {
 	canonical, err := canonicalDeviceActionRequest(request, true)
 	if err != nil {
 		return DeviceActionRequest{}, err
@@ -1718,7 +1718,7 @@ func (s *Store) CreateDeviceActionRequest(ctx context.Context, request DeviceAct
 	return canonical, nil
 }
 
-func (s *Store) GetDeviceActionRequest(ctx context.Context, id string) (DeviceActionRequest, error) {
+func (s *deviceActionStore) GetDeviceActionRequest(ctx context.Context, id string) (DeviceActionRequest, error) {
 	id = strings.TrimSpace(id)
 	if id == "" {
 		return DeviceActionRequest{}, sql.ErrNoRows
@@ -1728,7 +1728,7 @@ func (s *Store) GetDeviceActionRequest(ctx context.Context, id string) (DeviceAc
 	})
 }
 
-func (s *Store) ListDeviceActionRequests(ctx context.Context, args ...any) ([]DeviceActionRequest, error) {
+func (s *deviceActionStore) ListDeviceActionRequests(ctx context.Context, args ...any) ([]DeviceActionRequest, error) {
 	options, err := parseDeviceActionRequestListOptions(args)
 	if err != nil {
 		return nil, err
@@ -1759,7 +1759,7 @@ func (s *Store) ListDeviceActionRequests(ctx context.Context, args ...any) ([]De
 	return items, rows.Err()
 }
 
-func (s *Store) ApproveDeviceActionRequest(ctx context.Context, id, approvedBy string) (DeviceActionRequest, error) {
+func (s *deviceActionStore) ApproveDeviceActionRequest(ctx context.Context, id, approvedBy string) (DeviceActionRequest, error) {
 	id = strings.TrimSpace(id)
 	approvedBy = strings.TrimSpace(approvedBy)
 	if err := validateP2P3Text("device action approved_by", approvedBy, 200, true, false); err != nil {
@@ -1776,7 +1776,7 @@ func (s *Store) ApproveDeviceActionRequest(ctx context.Context, id, approvedBy s
 	return s.GetDeviceActionRequest(ctx, id)
 }
 
-func (s *Store) DenyDeviceActionRequest(ctx context.Context, id, deniedBy, reason string) (DeviceActionRequest, error) {
+func (s *deviceActionStore) DenyDeviceActionRequest(ctx context.Context, id, deniedBy, reason string) (DeviceActionRequest, error) {
 	id = strings.TrimSpace(id)
 	deniedBy = strings.TrimSpace(deniedBy)
 	reason = strings.TrimSpace(reason)
@@ -1797,7 +1797,7 @@ func (s *Store) DenyDeviceActionRequest(ctx context.Context, id, deniedBy, reaso
 	return s.GetDeviceActionRequest(ctx, id)
 }
 
-func (s *Store) StartDeviceActionRequest(ctx context.Context, id string) (DeviceActionRequest, error) {
+func (s *deviceActionStore) StartDeviceActionRequest(ctx context.Context, id string) (DeviceActionRequest, error) {
 	id = strings.TrimSpace(id)
 	now := Now()
 	result, err := s.db.ExecContext(ctx, `UPDATE device_action_requests SET status = 'executing', last_error = NULL, updated_at = ? WHERE id = ? AND status = 'approved' AND expires_at > ?`, now, id, now)
@@ -1810,11 +1810,11 @@ func (s *Store) StartDeviceActionRequest(ctx context.Context, id string) (Device
 	return s.GetDeviceActionRequest(ctx, id)
 }
 
-func (s *Store) ClaimDeviceActionRequest(ctx context.Context, id string) (DeviceActionRequest, error) {
+func (s *deviceActionStore) ClaimDeviceActionRequest(ctx context.Context, id string) (DeviceActionRequest, error) {
 	return s.StartDeviceActionRequest(ctx, id)
 }
 
-func (s *Store) CompleteDeviceActionRequest(ctx context.Context, id, status, lastError string) (DeviceActionRequest, error) {
+func (s *deviceActionStore) CompleteDeviceActionRequest(ctx context.Context, id, status, lastError string) (DeviceActionRequest, error) {
 	id = strings.TrimSpace(id)
 	status = strings.TrimSpace(status)
 	lastError = strings.TrimSpace(lastError)
@@ -1839,7 +1839,7 @@ func (s *Store) CompleteDeviceActionRequest(ctx context.Context, id, status, las
 	return s.GetDeviceActionRequest(ctx, id)
 }
 
-func (s *Store) ExpireDeviceActionRequests(ctx context.Context, at string, limit int) ([]DeviceActionRequest, error) {
+func (s *deviceActionStore) ExpireDeviceActionRequests(ctx context.Context, at string, limit int) ([]DeviceActionRequest, error) {
 	var err error
 	if at, err = canonicalP2P3Time("device action expiry time", at, true); err != nil {
 		return nil, err
@@ -1893,7 +1893,7 @@ func (s *Store) ExpireDeviceActionRequests(ctx context.Context, at string, limit
 	return items, nil
 }
 
-func (s *Store) DeleteDeviceActionRequest(ctx context.Context, id string) error {
+func (s *deviceActionStore) DeleteDeviceActionRequest(ctx context.Context, id string) error {
 	id = strings.TrimSpace(id)
 	result, err := s.db.ExecContext(ctx, `DELETE FROM device_action_requests WHERE id = ? AND status IN ('denied','succeeded','failed','expired')`, id)
 	if err != nil {
@@ -1902,7 +1902,7 @@ func (s *Store) DeleteDeviceActionRequest(ctx context.Context, id string) error 
 	return requireP2P3Transition(ctx, s.db, result, "device_action_requests", id, "delete device action request")
 }
 
-func (s *Store) DeviceActionRequestStats(ctx context.Context) (DeviceActionRequestStats, error) {
+func (s *deviceActionStore) DeviceActionRequestStats(ctx context.Context) (DeviceActionRequestStats, error) {
 	var stats DeviceActionRequestStats
 	err := s.db.QueryRowContext(ctx, `SELECT COUNT(*), COALESCE(SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END),0), COALESCE(SUM(CASE WHEN status = 'approved' THEN 1 ELSE 0 END),0), COALESCE(SUM(CASE WHEN status = 'executing' THEN 1 ELSE 0 END),0), COALESCE(SUM(CASE WHEN status = 'succeeded' THEN 1 ELSE 0 END),0), COALESCE(SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END),0), COALESCE(SUM(CASE WHEN status = 'denied' THEN 1 ELSE 0 END),0), COALESCE(SUM(CASE WHEN status = 'expired' THEN 1 ELSE 0 END),0), COALESCE(SUM(CASE WHEN risk IN ('high','critical') THEN 1 ELSE 0 END),0) FROM device_action_requests`).Scan(&stats.Total, &stats.Pending, &stats.Approved, &stats.Executing, &stats.Succeeded, &stats.Failed, &stats.Denied, &stats.Expired, &stats.HighRisk)
 	return stats, err

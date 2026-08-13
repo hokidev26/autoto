@@ -129,7 +129,7 @@ func (task BackgroundTask) Terminal() bool {
 	return backgroundTaskTerminal(task.Status)
 }
 
-func (s *Store) CreateBackgroundTask(ctx context.Context, task BackgroundTask) (BackgroundTask, error) {
+func (s *backgroundTaskStore) CreateBackgroundTask(ctx context.Context, task BackgroundTask) (BackgroundTask, error) {
 	canonical, err := canonicalBackgroundTask(task)
 	if err != nil {
 		return BackgroundTask{}, err
@@ -159,15 +159,15 @@ func (s *Store) CreateBackgroundTask(ctx context.Context, task BackgroundTask) (
 	return canonical, nil
 }
 
-func (s *Store) GetBackgroundTask(ctx context.Context, id string) (BackgroundTask, error) {
+func (s *backgroundTaskStore) GetBackgroundTask(ctx context.Context, id string) (BackgroundTask, error) {
 	return s.getBackgroundTask(ctx, id, false)
 }
 
-func (s *Store) GetBackgroundTaskForExecution(ctx context.Context, id string) (BackgroundTask, error) {
+func (s *backgroundTaskStore) GetBackgroundTaskForExecution(ctx context.Context, id string) (BackgroundTask, error) {
 	return s.getBackgroundTask(ctx, id, true)
 }
 
-func (s *Store) getBackgroundTask(ctx context.Context, id string, includePayload bool) (BackgroundTask, error) {
+func (s *backgroundTaskStore) getBackgroundTask(ctx context.Context, id string, includePayload bool) (BackgroundTask, error) {
 	payloadExpr := `'{}'`
 	if includePayload {
 		payloadExpr = "payload_json"
@@ -177,7 +177,7 @@ func (s *Store) getBackgroundTask(ctx context.Context, id string, includePayload
 	})
 }
 
-func (s *Store) ListBackgroundTasks(ctx context.Context, options BackgroundTaskListOptions) ([]BackgroundTask, error) {
+func (s *backgroundTaskStore) ListBackgroundTasks(ctx context.Context, options BackgroundTaskListOptions) ([]BackgroundTask, error) {
 	limit := options.Limit
 	if limit == 0 {
 		limit = BackgroundTaskDefaultListLimit
@@ -226,7 +226,7 @@ func (s *Store) ListBackgroundTasks(ctx context.Context, options BackgroundTaskL
 	return tasks, rows.Err()
 }
 
-func (s *Store) ClaimQueuedBackgroundTask(ctx context.Context, options BackgroundTaskClaimOptions) (BackgroundTask, error) {
+func (s *backgroundTaskStore) ClaimQueuedBackgroundTask(ctx context.Context, options BackgroundTaskClaimOptions) (BackgroundTask, error) {
 	workerID := strings.TrimSpace(options.WorkerInstanceID)
 	if err := validateBackgroundTaskText("worker instance id", workerID, 256, true); err != nil {
 		return BackgroundTask{}, err
@@ -271,7 +271,7 @@ func (s *Store) ClaimQueuedBackgroundTask(ctx context.Context, options Backgroun
 	return claimed, nil
 }
 
-func (s *Store) TransitionBackgroundTask(ctx context.Context, taskID string, transition BackgroundTaskTransition) (BackgroundTask, error) {
+func (s *backgroundTaskStore) TransitionBackgroundTask(ctx context.Context, taskID string, transition BackgroundTaskTransition) (BackgroundTask, error) {
 	transition.Status = strings.TrimSpace(transition.Status)
 	transition.WorkerInstanceID = strings.TrimSpace(transition.WorkerInstanceID)
 	transition.ErrorCode = strings.TrimSpace(transition.ErrorCode)
@@ -361,7 +361,7 @@ func (s *Store) TransitionBackgroundTask(ctx context.Context, taskID string, tra
 	return updated, nil
 }
 
-func (s *Store) RequestBackgroundTaskCancel(ctx context.Context, taskID string) (BackgroundTask, error) {
+func (s *backgroundTaskStore) RequestBackgroundTaskCancel(ctx context.Context, taskID string) (BackgroundTask, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return BackgroundTask{}, err
@@ -411,7 +411,7 @@ func (s *Store) RequestBackgroundTaskCancel(ctx context.Context, taskID string) 
 	return updated, nil
 }
 
-func (s *Store) AttachBackgroundTaskChild(ctx context.Context, taskID string, expectedRevision int64, childAgentID, childRunID string) (BackgroundTask, error) {
+func (s *backgroundTaskStore) AttachBackgroundTaskChild(ctx context.Context, taskID string, expectedRevision int64, childAgentID, childRunID string) (BackgroundTask, error) {
 	if expectedRevision < 1 {
 		return BackgroundTask{}, errors.New("background task expected revision must be positive")
 	}
@@ -442,7 +442,7 @@ func (s *Store) AttachBackgroundTaskChild(ctx context.Context, taskID string, ex
 	return s.GetBackgroundTaskForExecution(ctx, taskID)
 }
 
-func (s *Store) AppendBackgroundTaskOutput(ctx context.Context, taskID, stream string, chunk []byte, maxBytes int64) (BackgroundTaskOutputAppendResult, error) {
+func (s *backgroundTaskStore) AppendBackgroundTaskOutput(ctx context.Context, taskID, stream string, chunk []byte, maxBytes int64) (BackgroundTaskOutputAppendResult, error) {
 	stream = strings.TrimSpace(stream)
 	if !validBackgroundTaskOutputStream(stream) || stream == "truncated" {
 		return BackgroundTaskOutputAppendResult{}, fmt.Errorf("invalid background task output stream %q", stream)
@@ -522,7 +522,7 @@ func (s *Store) AppendBackgroundTaskOutput(ctx context.Context, taskID, stream s
 	return BackgroundTaskOutputAppendResult{LastSequence: sequence, OutputBytes: outputBytes, Truncated: truncated != 0}, nil
 }
 
-func (s *Store) ListBackgroundTaskOutput(ctx context.Context, taskID string, afterSequence int64, byteLimit int) (BackgroundTaskOutputPage, error) {
+func (s *backgroundTaskStore) ListBackgroundTaskOutput(ctx context.Context, taskID string, afterSequence int64, byteLimit int) (BackgroundTaskOutputPage, error) {
 	if afterSequence < 0 {
 		return BackgroundTaskOutputPage{}, errors.New("background task output sequence must not be negative")
 	}
@@ -576,7 +576,7 @@ func (s *Store) ListBackgroundTaskOutput(ctx context.Context, taskID string, aft
 	return page, nil
 }
 
-func (s *Store) ReconcileBackgroundTasksAfterRestart(ctx context.Context, workerInstanceID string) (int64, error) {
+func (s *backgroundTaskStore) ReconcileBackgroundTasksAfterRestart(ctx context.Context, workerInstanceID string) (int64, error) {
 	workerInstanceID = strings.TrimSpace(workerInstanceID)
 	now := Now()
 	result, err := s.db.ExecContext(ctx, `UPDATE background_tasks SET status = 'interrupted', revision = revision + 1, worker_instance_id = NULL, completed_at = ?, error_code = 'process_restarted', error_message = 'background task interrupted by process restart', updated_at = ? WHERE status IN ('running','cancel_requested') AND COALESCE(worker_instance_id,'') <> ?`, now, now, workerInstanceID)
@@ -586,7 +586,7 @@ func (s *Store) ReconcileBackgroundTasksAfterRestart(ctx context.Context, worker
 	return result.RowsAffected()
 }
 
-func (s *Store) BackgroundTaskStats(ctx context.Context) (BackgroundTaskStats, error) {
+func (s *backgroundTaskStore) BackgroundTaskStats(ctx context.Context) (BackgroundTaskStats, error) {
 	stats := BackgroundTaskStats{ByStatus: make(map[string]int64), RunningByAgent: make(map[string]int64)}
 	rows, err := s.db.QueryContext(ctx, `SELECT status, COUNT(*), COALESCE(SUM(output_bytes),0), COALESCE(SUM(output_truncated),0) FROM background_tasks GROUP BY status`)
 	if err != nil {
@@ -623,7 +623,7 @@ func (s *Store) BackgroundTaskStats(ctx context.Context) (BackgroundTaskStats, e
 	return stats, rows.Err()
 }
 
-func (s *Store) RecordRunSegmentUsage(ctx context.Context, runID string, expectedContinuationCount, expectedTurnCount, turnDelta, inputDelta, outputDelta int64) (Run, error) {
+func (s *backgroundTaskStore) RecordRunSegmentUsage(ctx context.Context, runID string, expectedContinuationCount, expectedTurnCount, turnDelta, inputDelta, outputDelta int64) (Run, error) {
 	if expectedContinuationCount < 0 || expectedTurnCount < 0 || turnDelta < 0 || inputDelta < 0 || outputDelta < 0 {
 		return Run{}, errors.New("run segment usage counters must not be negative")
 	}
@@ -648,7 +648,7 @@ type RunContinuationPendingInput struct {
 	WaitingBackgroundTaskID   string
 }
 
-func (s *Store) MarkRunContinuationPending(ctx context.Context, runID string, input RunContinuationPendingInput) (Run, error) {
+func (s *backgroundTaskStore) MarkRunContinuationPending(ctx context.Context, runID string, input RunContinuationPendingInput) (Run, error) {
 	if input.ExpectedContinuationCount < 0 || input.TurnCount < 0 || input.ConsumedInputTokens < 0 || input.ConsumedOutputTokens < 0 {
 		return Run{}, errors.New("run continuation counters must not be negative")
 	}
@@ -670,7 +670,7 @@ func (s *Store) MarkRunContinuationPending(ctx context.Context, runID string, in
 	return s.GetRunByID(ctx, runID)
 }
 
-func (s *Store) ResumeContinuationRun(ctx context.Context, runID string, expectedContinuationCount int64) (Run, error) {
+func (s *backgroundTaskStore) ResumeContinuationRun(ctx context.Context, runID string, expectedContinuationCount int64) (Run, error) {
 	if expectedContinuationCount < 0 {
 		return Run{}, errors.New("run continuation count must not be negative")
 	}
@@ -685,7 +685,7 @@ func (s *Store) ResumeContinuationRun(ctx context.Context, runID string, expecte
 	return s.GetRunByID(ctx, runID)
 }
 
-func (s *Store) ListContinuationPendingRuns(ctx context.Context, limit int) ([]Run, error) {
+func (s *backgroundTaskStore) ListContinuationPendingRuns(ctx context.Context, limit int) ([]Run, error) {
 	if limit == 0 {
 		limit = 100
 	}
@@ -708,7 +708,7 @@ func (s *Store) ListContinuationPendingRuns(ctx context.Context, limit int) ([]R
 	return runs, rows.Err()
 }
 
-func (s *Store) CancelContinuationRun(ctx context.Context, runID string, expectedContinuationCount int64, reason string) (Run, error) {
+func (s *backgroundTaskStore) CancelContinuationRun(ctx context.Context, runID string, expectedContinuationCount int64, reason string) (Run, error) {
 	if expectedContinuationCount < 0 {
 		return Run{}, errors.New("run continuation count must not be negative")
 	}
@@ -730,7 +730,7 @@ func (s *Store) CancelContinuationRun(ctx context.Context, runID string, expecte
 	return s.GetRunByID(ctx, runID)
 }
 
-func (s *Store) requireRunContinuationCAS(ctx context.Context, result sql.Result, runID, action string) error {
+func (s *backgroundTaskStore) requireRunContinuationCAS(ctx context.Context, result sql.Result, runID, action string) error {
 	affected, err := result.RowsAffected()
 	if err != nil {
 		return err

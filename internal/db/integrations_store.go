@@ -18,7 +18,7 @@ func DefaultNotificationSettings() NotificationSettings {
 	return NotificationSettings{ID: "default", NotifyOnApproval: true, NotifyOnDone: true, NotifyOnError: true, CreatedAt: now, UpdatedAt: now}
 }
 
-func (s *Store) GetNotificationSettings(ctx context.Context) (NotificationSettings, error) {
+func (s *integrationStore) GetNotificationSettings(ctx context.Context) (NotificationSettings, error) {
 	settings, err := scanNotificationSettings(func(dest ...any) error {
 		return s.db.QueryRowContext(ctx, `SELECT id, enabled, COALESCE(webhook_url,''), notify_on_approval, notify_on_done, notify_on_error, created_at, updated_at FROM notification_settings WHERE id = 'default'`).Scan(dest...)
 	})
@@ -33,7 +33,7 @@ func (s *Store) GetNotificationSettings(ctx context.Context) (NotificationSettin
 	return settings, err
 }
 
-func (s *Store) UpdateNotificationSettings(ctx context.Context, settings NotificationSettings) (NotificationSettings, error) {
+func (s *integrationStore) UpdateNotificationSettings(ctx context.Context, settings NotificationSettings) (NotificationSettings, error) {
 	if settings.ID == "" {
 		settings.ID = "default"
 	}
@@ -54,7 +54,7 @@ func DefaultWorkflowPreferences() WorkflowPreferences {
 	return WorkflowPreferences{ID: "default", RequireConfirmationForExec: true, RequireConfirmationForWrites: false, AllowReadOnlyByDefault: true, DangerReflectionLevel: "medium", PolicyGeneration: 1, CreatedAt: now, UpdatedAt: now}
 }
 
-func (s *Store) GetWorkflowPreferences(ctx context.Context) (WorkflowPreferences, error) {
+func (s *integrationStore) GetWorkflowPreferences(ctx context.Context) (WorkflowPreferences, error) {
 	prefs, err := scanWorkflowPreferences(func(dest ...any) error {
 		return s.db.QueryRowContext(ctx, `SELECT id, require_confirmation_for_exec, require_confirmation_for_writes, allow_read_only_by_default, COALESCE(danger_reflection_level,'medium'), COALESCE(policy_generation,1), created_at, updated_at FROM workflow_preferences WHERE id = 'default'`).Scan(dest...)
 	})
@@ -68,7 +68,7 @@ func (s *Store) GetWorkflowPreferences(ctx context.Context) (WorkflowPreferences
 	return s.UpdateWorkflowPreferences(ctx, prefs)
 }
 
-func (s *Store) UpdateWorkflowPreferences(ctx context.Context, prefs WorkflowPreferences) (WorkflowPreferences, error) {
+func (s *integrationStore) UpdateWorkflowPreferences(ctx context.Context, prefs WorkflowPreferences) (WorkflowPreferences, error) {
 	if prefs.ID == "" {
 		prefs.ID = "default"
 	}
@@ -175,7 +175,7 @@ func validStoredToolPermissionRisk(risk string) bool {
 	}
 }
 
-func (s *Store) ListToolPermissionRules(ctx context.Context) ([]ToolPermissionRule, error) {
+func (s *integrationStore) ListToolPermissionRules(ctx context.Context) ([]ToolPermissionRule, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT id, mode, tool_name, risk, decision, priority, enabled, COALESCE(description,''), created_at, updated_at FROM tool_permission_rules ORDER BY priority DESC, (CASE WHEN mode <> '*' THEN 1 ELSE 0 END + CASE WHEN tool_name <> '*' THEN 1 ELSE 0 END + CASE WHEN risk <> '*' THEN 1 ELSE 0 END) DESC, CASE decision WHEN 'deny' THEN 2 WHEN 'ask' THEN 1 ELSE 0 END DESC, id ASC`)
 	if err != nil {
 		return nil, err
@@ -192,7 +192,7 @@ func (s *Store) ListToolPermissionRules(ctx context.Context) ([]ToolPermissionRu
 	return rules, rows.Err()
 }
 
-func (s *Store) CreateToolPermissionRule(ctx context.Context, rule ToolPermissionRule) (ToolPermissionRule, error) {
+func (s *integrationStore) CreateToolPermissionRule(ctx context.Context, rule ToolPermissionRule) (ToolPermissionRule, error) {
 	if rule.ID == "" {
 		rule.ID = NewID()
 	}
@@ -225,13 +225,13 @@ func (s *Store) CreateToolPermissionRule(ctx context.Context, rule ToolPermissio
 	return s.GetToolPermissionRule(ctx, rule.ID)
 }
 
-func (s *Store) GetToolPermissionRule(ctx context.Context, id string) (ToolPermissionRule, error) {
+func (s *integrationStore) GetToolPermissionRule(ctx context.Context, id string) (ToolPermissionRule, error) {
 	return scanToolPermissionRule(func(dest ...any) error {
 		return s.db.QueryRowContext(ctx, `SELECT id, mode, tool_name, risk, decision, priority, enabled, COALESCE(description,''), created_at, updated_at FROM tool_permission_rules WHERE id = ?`, id).Scan(dest...)
 	})
 }
 
-func (s *Store) UpdateToolPermissionRule(ctx context.Context, rule ToolPermissionRule) (ToolPermissionRule, error) {
+func (s *integrationStore) UpdateToolPermissionRule(ctx context.Context, rule ToolPermissionRule) (ToolPermissionRule, error) {
 	if strings.TrimSpace(rule.ID) == "" {
 		return ToolPermissionRule{}, errors.New("tool permission rule id is required")
 	}
@@ -268,7 +268,7 @@ func (s *Store) UpdateToolPermissionRule(ctx context.Context, rule ToolPermissio
 	return s.GetToolPermissionRule(ctx, rule.ID)
 }
 
-func (s *Store) DeleteToolPermissionRule(ctx context.Context, id string) error {
+func (s *integrationStore) DeleteToolPermissionRule(ctx context.Context, id string) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
@@ -289,7 +289,7 @@ func (s *Store) DeleteToolPermissionRule(ctx context.Context, id string) error {
 	return tx.Commit()
 }
 
-func (s *Store) ListMCPServers(ctx context.Context) ([]MCPServer, error) {
+func (s *mcpStore) ListMCPServers(ctx context.Context) ([]MCPServer, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT id, name, transport, command, COALESCE(args_json,''), COALESCE(cwd,''), COALESCE(env_json,''), enabled, created_at, updated_at FROM mcp_servers ORDER BY enabled DESC, created_at ASC`)
 	if err != nil {
 		return nil, err
@@ -306,13 +306,13 @@ func (s *Store) ListMCPServers(ctx context.Context) ([]MCPServer, error) {
 	return servers, rows.Err()
 }
 
-func (s *Store) GetMCPServer(ctx context.Context, id string) (MCPServer, error) {
+func (s *mcpStore) GetMCPServer(ctx context.Context, id string) (MCPServer, error) {
 	return scanMCPServer(func(dest ...any) error {
 		return s.db.QueryRowContext(ctx, `SELECT id, name, transport, command, COALESCE(args_json,''), COALESCE(cwd,''), COALESCE(env_json,''), enabled, created_at, updated_at FROM mcp_servers WHERE id = ?`, id).Scan(dest...)
 	})
 }
 
-func (s *Store) CreateMCPServer(ctx context.Context, server MCPServer) (MCPServer, error) {
+func (s *mcpStore) CreateMCPServer(ctx context.Context, server MCPServer) (MCPServer, error) {
 	if server.ID == "" {
 		server.ID = NewID()
 	}
@@ -334,7 +334,7 @@ func (s *Store) CreateMCPServer(ctx context.Context, server MCPServer) (MCPServe
 	return server, nil
 }
 
-func (s *Store) UpdateMCPServer(ctx context.Context, server MCPServer) (MCPServer, error) {
+func (s *mcpStore) UpdateMCPServer(ctx context.Context, server MCPServer) (MCPServer, error) {
 	if server.Env == nil {
 		server.Env = map[string]string{}
 	}
@@ -351,7 +351,7 @@ func (s *Store) UpdateMCPServer(ctx context.Context, server MCPServer) (MCPServe
 	return s.GetMCPServer(ctx, server.ID)
 }
 
-func (s *Store) DeleteMCPServer(ctx context.Context, id string) error {
+func (s *mcpStore) DeleteMCPServer(ctx context.Context, id string) error {
 	result, err := s.db.ExecContext(ctx, `DELETE FROM mcp_servers WHERE id = ?`, id)
 	if err != nil {
 		return err
@@ -362,7 +362,7 @@ func (s *Store) DeleteMCPServer(ctx context.Context, id string) error {
 	return nil
 }
 
-func (s *Store) ListIntegrationConnections(ctx context.Context) ([]IntegrationConnection, error) {
+func (s *integrationStore) ListIntegrationConnections(ctx context.Context) ([]IntegrationConnection, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT id, kind, name, enabled, endpoint, settings_json, secret_refs_json, created_at, updated_at FROM integration_connections ORDER BY kind ASC, name ASC, id ASC`)
 	if err != nil {
 		return nil, err
@@ -379,7 +379,7 @@ func (s *Store) ListIntegrationConnections(ctx context.Context) ([]IntegrationCo
 	return connections, rows.Err()
 }
 
-func (s *Store) GetIntegrationConnection(ctx context.Context, id string) (IntegrationConnection, error) {
+func (s *integrationStore) GetIntegrationConnection(ctx context.Context, id string) (IntegrationConnection, error) {
 	id = strings.TrimSpace(id)
 	if id == "" {
 		return IntegrationConnection{}, sql.ErrNoRows
@@ -389,7 +389,7 @@ func (s *Store) GetIntegrationConnection(ctx context.Context, id string) (Integr
 	})
 }
 
-func (s *Store) CreateIntegrationConnection(ctx context.Context, connection IntegrationConnection) (IntegrationConnection, error) {
+func (s *integrationStore) CreateIntegrationConnection(ctx context.Context, connection IntegrationConnection) (IntegrationConnection, error) {
 	canonical, settings, refs, err := canonicalIntegrationConnection(connection)
 	if err != nil {
 		return IntegrationConnection{}, err
@@ -412,7 +412,7 @@ func (s *Store) CreateIntegrationConnection(ctx context.Context, connection Inte
 	return canonical, nil
 }
 
-func (s *Store) UpdateIntegrationConnection(ctx context.Context, connection IntegrationConnection) (IntegrationConnection, error) {
+func (s *integrationStore) UpdateIntegrationConnection(ctx context.Context, connection IntegrationConnection) (IntegrationConnection, error) {
 	canonical, settings, refs, err := canonicalIntegrationConnection(connection)
 	if err != nil {
 		return IntegrationConnection{}, err
@@ -438,7 +438,7 @@ func (s *Store) UpdateIntegrationConnection(ctx context.Context, connection Inte
 	return s.GetIntegrationConnection(ctx, canonical.ID)
 }
 
-func (s *Store) DeleteIntegrationConnection(ctx context.Context, id string) error {
+func (s *integrationStore) DeleteIntegrationConnection(ctx context.Context, id string) error {
 	id = strings.TrimSpace(id)
 	if id == "" {
 		return sql.ErrNoRows
@@ -651,7 +651,7 @@ func scanIntegrationConnection(scan integrationConnectionScanner) (IntegrationCo
 	return connection, nil
 }
 
-func (s *Store) AddAutomationAuditEvent(ctx context.Context, event AutomationAuditEvent) (AutomationAuditEvent, error) {
+func (s *integrationStore) AddAutomationAuditEvent(ctx context.Context, event AutomationAuditEvent) (AutomationAuditEvent, error) {
 	canonical, err := canonicalAutomationAuditEvent(event)
 	if err != nil {
 		return AutomationAuditEvent{}, err
@@ -665,18 +665,18 @@ func (s *Store) AddAutomationAuditEvent(ctx context.Context, event AutomationAud
 
 // RecordAutomationAuditEvent is an explicit audit-oriented alias for callers
 // that do not otherwise use Store's Add naming convention.
-func (s *Store) RecordAutomationAuditEvent(ctx context.Context, event AutomationAuditEvent) (AutomationAuditEvent, error) {
+func (s *integrationStore) RecordAutomationAuditEvent(ctx context.Context, event AutomationAuditEvent) (AutomationAuditEvent, error) {
 	return s.AddAutomationAuditEvent(ctx, event)
 }
 
-func (s *Store) CreateAutomationAuditEvent(ctx context.Context, event AutomationAuditEvent) (AutomationAuditEvent, error) {
+func (s *integrationStore) CreateAutomationAuditEvent(ctx context.Context, event AutomationAuditEvent) (AutomationAuditEvent, error) {
 	return s.AddAutomationAuditEvent(ctx, event)
 }
 
 // ListAutomationAuditEvents returns newest events first. A zero limit uses 50;
 // callers may request at most AutomationAuditMaxListLimit rows and paginate with
 // a non-negative offset.
-func (s *Store) ListAutomationAuditEvents(ctx context.Context, limit, offset int) ([]AutomationAuditEvent, error) {
+func (s *integrationStore) ListAutomationAuditEvents(ctx context.Context, limit, offset int) ([]AutomationAuditEvent, error) {
 	if limit == 0 {
 		limit = 50
 	}
@@ -889,7 +889,7 @@ func forbiddenAutomationAuditKey(key string) bool {
 	return false
 }
 
-func (s *Store) SeedBackends(ctx context.Context, backends []Backend) error {
+func (s *backendStore) SeedBackends(ctx context.Context, backends []Backend) error {
 	var count int
 	if err := s.db.QueryRowContext(ctx, `SELECT count(*) FROM agent_backends`).Scan(&count); err != nil {
 		return err
@@ -930,7 +930,7 @@ func (s *Store) SeedBackends(ctx context.Context, backends []Backend) error {
 	return tx.Commit()
 }
 
-func (s *Store) ListBackends(ctx context.Context) ([]Backend, error) {
+func (s *backendStore) ListBackends(ctx context.Context) ([]Backend, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT id, name, kind, base_url, COALESCE(api_key,''), active, created_at, updated_at FROM agent_backends ORDER BY active DESC, created_at ASC`)
 	if err != nil {
 		return nil, err
@@ -948,13 +948,13 @@ func (s *Store) ListBackends(ctx context.Context) ([]Backend, error) {
 	return backends, rows.Err()
 }
 
-func (s *Store) GetBackend(ctx context.Context, id string) (Backend, error) {
+func (s *backendStore) GetBackend(ctx context.Context, id string) (Backend, error) {
 	return scanBackend(func(dest ...any) error {
 		return s.db.QueryRowContext(ctx, `SELECT id, name, kind, base_url, COALESCE(api_key,''), active, created_at, updated_at FROM agent_backends WHERE id = ?`, id).Scan(dest...)
 	})
 }
 
-func (s *Store) CreateBackend(ctx context.Context, backend Backend) (Backend, error) {
+func (s *backendStore) CreateBackend(ctx context.Context, backend Backend) (Backend, error) {
 	if backend.ID == "" {
 		backend.ID = NewID()
 	}
@@ -990,7 +990,7 @@ func (s *Store) CreateBackend(ctx context.Context, backend Backend) (Backend, er
 	return backend, nil
 }
 
-func (s *Store) UpdateBackend(ctx context.Context, backend Backend) (Backend, error) {
+func (s *backendStore) UpdateBackend(ctx context.Context, backend Backend) (Backend, error) {
 	now := Now()
 	if backend.Active {
 		if _, err := s.db.ExecContext(ctx, `UPDATE agent_backends SET active = 0, updated_at = ? WHERE id != ? AND active = 1`, now, backend.ID); err != nil {
@@ -1007,7 +1007,7 @@ func (s *Store) UpdateBackend(ctx context.Context, backend Backend) (Backend, er
 	return s.GetBackend(ctx, backend.ID)
 }
 
-func (s *Store) ActivateBackend(ctx context.Context, id string) (Backend, error) {
+func (s *backendStore) ActivateBackend(ctx context.Context, id string) (Backend, error) {
 	now := Now()
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -1030,7 +1030,7 @@ func (s *Store) ActivateBackend(ctx context.Context, id string) (Backend, error)
 	return s.GetBackend(ctx, id)
 }
 
-func (s *Store) DeleteBackend(ctx context.Context, id string) error {
+func (s *backendStore) DeleteBackend(ctx context.Context, id string) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
