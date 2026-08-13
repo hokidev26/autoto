@@ -732,7 +732,7 @@ func TestProviderMessagesProgressivelyPruneOnlyOldToolResults(t *testing.T) {
 	if strings.Contains(toolResultOutput(providerMessages, "old-tool"), "very long") == false {
 		t.Fatalf("raw context should preserve old tool output before pruning")
 	}
-	pruned := progressivelyPruneContextToolPayloads(providerMessages, eligible, config.ContextManagementConfig{CompactKeepTurns: 1, MinPrunePercent: 30, MaxPrunePercent: 80}, 0)
+	pruned := progressivelyPruneContextToolPayloads(providerMessages, eligible, config.ContextManagementConfig{CompactKeepTurns: 1, MinPrunePercent: 30, MaxPrunePercent: 80}, 0, 0)
 	if got := toolResultOutput(pruned, "old-tool"); got != "[Tool Read executed; output omitted]" {
 		t.Fatalf("expected old tool output to be compacted, got %q", got)
 	}

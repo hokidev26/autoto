@@ -104,6 +104,13 @@ type GenerateRequest struct {
 	// ImageOptions frames a dedicated image-generation request. It is ignored by
 	// providers and models that do not generate images.
 	ImageOptions ImageOptions
+	// SessionKey is a stable opaque key for the conversation this request
+	// belongs to (the agent ID for run requests). Providers with session
+	// affinity derive a stable per-conversation identifier from it — Gemini
+	// Cloud Code scopes its sessionId to it — so per-request randomness does
+	// not defeat upstream session caching. One-shot internal calls leave it
+	// empty and get a fresh session.
+	SessionKey string
 	// Scenario identifies the caller boundary. The zero value is treated as an
 	// internal call for backwards compatibility.
 	Scenario CallScenario

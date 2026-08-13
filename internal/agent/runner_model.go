@@ -139,7 +139,7 @@ func (r *Runner) runModelTurnAttempt(ctx context.Context, agentID, runID string,
 			return modelTurnResult{}, annotateContextBudgetError(errorsContextBudget(limit, estimated), qualifiedModel, origin), false
 		}
 	}
-	request := providers.GenerateRequest{Model: model, SystemPrompt: systemPrompt, Messages: requestMessages, Tools: requestTools, ReasoningEffort: reasoningEffort, FastMode: fastModeAllowed, EnableImageGeneration: capabilities.ImageGeneration && modelCapabilities.ImageGeneration, Scenario: providers.CallScenarioInternal}
+	request := providers.GenerateRequest{Model: model, SystemPrompt: systemPrompt, Messages: requestMessages, Tools: requestTools, ReasoningEffort: reasoningEffort, FastMode: fastModeAllowed, EnableImageGeneration: capabilities.ImageGeneration && modelCapabilities.ImageGeneration, Scenario: providers.CallScenarioInternal, SessionKey: agentID}
 	requestID := db.NewID()
 	r.publish(Event{Type: "model.started", AgentID: agentID, Data: mergeEventData(map[string]any{
 		"requestId": requestID,

@@ -552,7 +552,7 @@ func buildGeminiCloudCodePayload(req GenerateRequest, model, projectID, reasonin
 	isClaude := strings.HasPrefix(strings.ToLower(strings.TrimSpace(model)), "claude-")
 	request := map[string]any{
 		"contents":  contents,
-		"sessionId": uuid.NewString(),
+		"sessionId": geminiSessionID(req.SessionKey),
 	}
 	// systemInstruction is not accepted by the image-generation endpoint.
 	if !isImageGen && system != "" {
@@ -660,19 +660,42 @@ func geminiClaudeThinkingBudget(effort string, maxOutputTokens int64) int64 {
 	return budget
 }
 
+// geminiSessionID returns the Cloud Code sessionId for a request. A stable
+// SessionKey (the conversation) maps to a stable UUID so consecutive turns
+// stay in one upstream session; Cloud Code scopes caching and affinity to it,
+// and a fresh UUID per request would discard that every turn.
+func geminiSessionID(sessionKey string) string {
+	key := strings.TrimSpace(sessionKey)
+	if key == "" {
+		return uuid.NewString()
+	}
+	return uuid.NewSHA1(uuid.NameSpaceOID, []byte("autoto-gemini-session:"+key)).String()
+}
+
 func geminiCloudCodeContents(messages []Message, systemPrompt string) ([]map[string]any, string) {
 	systemParts := make([]string, 0, 2)
 	if text := strings.TrimSpace(systemPrompt); text != "" {
 		systemParts = append(systemParts, text)
 	}
 	contents := make([]map[string]any, 0, len(messages))
+	controls := make([]map[string]any, 0, 2)
 	for _, message := range messages {
 		role := strings.ToLower(strings.TrimSpace(message.Role))
 		blocks := normalizeContentBlocks(message)
 		if role == "system" || role == "developer" {
-			if text := strings.TrimSpace(contentBlocksText(blocks)); text != "" {
-				systemParts = append(systemParts, text)
+			text := strings.TrimSpace(contentBlocksText(blocks))
+			if text == "" {
+				continue
 			}
+			// Turn controls change every turn. systemInstruction sits at the
+			// front of Gemini's implicitly cached prefix, so hoisting them
+			// there would invalidate the cached conversation each turn; they
+			// ride as trailing user contents instead.
+			if message.TurnControl {
+				controls = append(controls, map[string]any{"role": "user", "parts": []map[string]any{{"text": text}}})
+				continue
+			}
+			systemParts = append(systemParts, text)
 			continue
 		}
 		parts := make([]map[string]any, 0, len(blocks))
@@ -727,6 +750,7 @@ func geminiCloudCodeContents(messages []Message, systemPrompt string) ([]map[str
 		}
 		contents = append(contents, map[string]any{"role": upstreamRole, "parts": parts})
 	}
+	contents = append(contents, controls...)
 	if len(contents) == 0 {
 		contents = append(contents, map[string]any{"role": "user", "parts": []map[string]any{{"text": "Continue."}}})
 	}

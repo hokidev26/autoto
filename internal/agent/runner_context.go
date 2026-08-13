@@ -291,7 +291,7 @@ func (r *Runner) managedContextForTurn(ctx context.Context, agent db.Agent, mess
 	// action, even when the reversible prune switch is off.
 	if agent.PruneEnabled && window.PruneStart < window.CompactStart && initialEstimate*100 >= limit*window.PruneStart {
 		desiredReduction := initialEstimate - (limit*window.PruneStart)/100
-		providerMessages = progressivelyPruneContextToolPayloads(providerMessages, eligible, cfg, desiredReduction)
+		providerMessages = progressivelyPruneContextToolPayloads(providerMessages, eligible, cfg, desiredReduction, contextPruneQuantum(limit))
 		preferredRequest = appendProviderMessages(withPrefix(providerMessages), preferredControls)
 	}
 
@@ -360,6 +360,13 @@ func (r *Runner) managedContextForTurn(ctx context.Context, agent db.Agent, mess
 func (r *Runner) contextTokenLimit(model string) int {
 	limit, _ := r.contextTokenLimitWithOrigin(model)
 	return limit
+}
+
+// contextPruneQuantum is the step size that stabilizes progressive-pruning
+// targets: 5% of the context limit, so the pruned prefix changes at most once
+// per 5%-of-window of conversation growth instead of on every turn.
+func contextPruneQuantum(limit int) int {
+	return limit / 20
 }
 
 // modelWithProvider re-attaches the provider a model was already resolved

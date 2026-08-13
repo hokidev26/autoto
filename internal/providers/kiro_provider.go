@@ -257,23 +257,50 @@ func buildKiroRequest(req GenerateRequest, model, profileArn string) ([]byte, er
 	systemPrepend := strings.TrimSpace(req.SystemPrompt)
 	firstUser := true
 
+	// The Kiro wire format only has user/assistant turns. System-role
+	// messages (context summary, per-turn server controls such as the
+	// continuation and pipeline controls) must not be dropped: they carry
+	// run-critical instructions, so their text rides inside the adjacent
+	// user turn instead — pending ones prepend to the next user message,
+	// trailing ones append to the final open user turn below.
+	var pendingSystem []string
+
 	for _, msg := range req.Messages {
 		role := strings.ToLower(strings.TrimSpace(msg.Role))
 		text := messageText(msg)
 		switch role {
 		case "user":
 			userText := text
+			if len(pendingSystem) > 0 {
+				userText = strings.TrimSpace(strings.Join(pendingSystem, "\n\n") + "\n\n" + userText)
+				pendingSystem = pendingSystem[:0]
+			}
 			if firstUser && systemPrepend != "" {
 				userText = systemPrepend + "\n\n" + userText
-				firstUser = false
-			} else {
-				firstUser = false
 			}
+			firstUser = false
 			pairs = append(pairs, pair{user: userText})
 		case "assistant":
 			if len(pairs) > 0 && pairs[len(pairs)-1].assistant == "" {
 				pairs[len(pairs)-1].assistant = text
 			}
+		case "system", "developer":
+			if text = strings.TrimSpace(text); text != "" {
+				pendingSystem = append(pendingSystem, text)
+			}
+		}
+	}
+	if len(pendingSystem) > 0 {
+		trailing := strings.Join(pendingSystem, "\n\n")
+		if len(pairs) > 0 && pairs[len(pairs)-1].assistant == "" {
+			pairs[len(pairs)-1].user = strings.TrimSpace(pairs[len(pairs)-1].user + "\n\n" + trailing)
+		} else {
+			userText := trailing
+			if firstUser && systemPrepend != "" {
+				userText = systemPrepend + "\n\n" + userText
+				firstUser = false
+			}
+			pairs = append(pairs, pair{user: userText})
 		}
 	}
 

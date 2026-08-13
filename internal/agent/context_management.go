@@ -245,7 +245,7 @@ type contextPayloadPruneCandidate struct {
 	savings      int
 }
 
-func progressivelyPruneContextToolPayloads(messages []providers.Message, eligible []bool, cfg config.ContextManagementConfig, desiredReduction int) []providers.Message {
+func progressivelyPruneContextToolPayloads(messages []providers.Message, eligible []bool, cfg config.ContextManagementConfig, desiredReduction, quantum int) []providers.Message {
 	cfg = cfg.Normalized()
 	candidates := make([]contextPayloadPruneCandidate, 0)
 	totalSavings := 0
@@ -288,6 +288,16 @@ func progressivelyPruneContextToolPayloads(messages []providers.Message, eligibl
 	target := desiredReduction
 	if target < minTarget {
 		target = minTarget
+	}
+	// Quantize upward so the pruned set stays identical across consecutive
+	// turns. desiredReduction grows a little every turn; without quantization
+	// each turn prunes slightly more, the rendered history diverges mid-prefix,
+	// and provider prompt caches are invalidated on every request. Rounding up
+	// prunes somewhat more than strictly needed but keeps the request prefix
+	// byte-stable until the target crosses the next quantum step. MaxPrunePercent
+	// still caps the result.
+	if quantum > 0 && target > 0 {
+		target = (target + quantum - 1) / quantum * quantum
 	}
 	if target > maxTarget {
 		target = maxTarget

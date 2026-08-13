@@ -2,6 +2,8 @@ package agent
 
 import (
 	"context"
+	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -9,6 +11,47 @@ import (
 	"autoto/internal/db"
 	"autoto/internal/providers"
 )
+
+// Progressive pruning renders inside the cached request prefix, so its output
+// must stay byte-identical while the desired reduction drifts within one
+// quantum step: without that, every turn prunes slightly more, the rendered
+// history diverges mid-prefix, and provider prompt caches never get read.
+func TestProgressivePruneTargetsAreQuantized(t *testing.T) {
+	messages := make([]providers.Message, 0, 14)
+	eligible := make([]bool, 0, 14)
+	for index := 0; index < 14; index++ {
+		output := strings.Repeat(fmt.Sprintf("tool output %02d ", index), 25)
+		messages = append(messages, providers.Message{Role: "user", Blocks: []providers.ContentBlock{{Type: "tool_result", ToolUseID: fmt.Sprintf("call-%d", index), ToolName: "Read", Output: output}}})
+		eligible = append(eligible, true)
+	}
+	cfg := config.ContextManagementConfig{CompactKeepTurns: 1, MinPrunePercent: 1, MaxPrunePercent: 100}
+	quantum := 500
+
+	countPruned := func(pruned []providers.Message) int {
+		count := 0
+		for _, message := range pruned {
+			for _, block := range message.Blocks {
+				if block.Type == "tool_result" && block.Output == compactToolResultOutput("Read") {
+					count++
+				}
+			}
+		}
+		return count
+	}
+
+	withinStep := progressivelyPruneContextToolPayloads(messages, eligible, cfg, 50, quantum)
+	laterInStep := progressivelyPruneContextToolPayloads(messages, eligible, cfg, 450, quantum)
+	if !reflect.DeepEqual(withinStep, laterInStep) {
+		t.Fatalf("targets inside one quantum step must prune identically: %d vs %d blocks", countPruned(withinStep), countPruned(laterInStep))
+	}
+	if countPruned(withinStep) == 0 {
+		t.Fatal("expected the quantized target to prune at least one payload")
+	}
+	nextStep := progressivelyPruneContextToolPayloads(messages, eligible, cfg, 600, quantum)
+	if countPruned(nextStep) <= countPruned(withinStep) {
+		t.Fatalf("crossing a quantum step must prune more: %d then %d", countPruned(withinStep), countPruned(nextStep))
+	}
+}
 
 func TestSelectContextTurnCandidatesKeepsCompleteRecentTurns(t *testing.T) {
 	messages := []db.Message{

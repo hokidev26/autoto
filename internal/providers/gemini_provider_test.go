@@ -89,6 +89,62 @@ func TestBuildGeminiCloudCodePayload(t *testing.T) {
 	}
 }
 
+// Turn controls change every turn, and systemInstruction sits at the front of
+// Gemini's implicitly cached prefix: hoisting them there would invalidate the
+// cached conversation history on every turn. They must ride as trailing user
+// contents while stable system messages keep hoisting.
+func TestGeminiCloudCodeTurnControlsStayOutOfSystemInstruction(t *testing.T) {
+	control := Message{Role: "system", TurnControl: true, Blocks: []ContentBlock{{Type: "text", Text: "<side_car>spec state rev 7</side_car>", Kind: "server_spec_tasks"}}}
+	contents, system := geminiCloudCodeContents([]Message{
+		{Role: "system", Content: "stable summary note"},
+		{Role: "user", Content: "start the task"},
+		{Role: "assistant", Content: "working"},
+		control,
+	}, "stable agent instructions")
+	if strings.Contains(system, "spec state rev 7") {
+		t.Fatalf("turn control leaked into systemInstruction: %s", system)
+	}
+	if !strings.Contains(system, "stable agent instructions") || !strings.Contains(system, "stable summary note") {
+		t.Fatalf("stable system content missing from systemInstruction: %s", system)
+	}
+	if len(contents) != 3 {
+		t.Fatalf("expected user + model + trailing control contents, got %d: %+v", len(contents), contents)
+	}
+	last, err := json.Marshal(contents[len(contents)-1])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(last), `"role":"user"`) || !strings.Contains(string(last), "spec state rev 7") {
+		t.Fatalf("turn control must become a trailing user content entry: %s", string(last))
+	}
+}
+
+// A stable conversation must keep one upstream Cloud Code session: sessionId
+// is scoped to caching and affinity upstream, so a fresh UUID per request
+// would discard both every turn. One-shot calls without a key stay random.
+func TestGeminiSessionIDStableForSessionKey(t *testing.T) {
+	first := geminiSessionID("agent-1")
+	second := geminiSessionID("agent-1")
+	if first == "" || first != second {
+		t.Fatalf("sessionId must be stable for one conversation: %q vs %q", first, second)
+	}
+	if other := geminiSessionID("agent-2"); other == first {
+		t.Fatalf("different conversations must not share a sessionId: %q", other)
+	}
+	if anonymousA, anonymousB := geminiSessionID(""), geminiSessionID(""); anonymousA == "" || anonymousA == anonymousB {
+		t.Fatalf("keyless requests must get fresh random sessions: %q vs %q", anonymousA, anonymousB)
+	}
+
+	payload := buildGeminiCloudCodePayload(GenerateRequest{SessionKey: "agent-1", Messages: []Message{{Role: "user", Content: "hello"}}}, "gemini-3-flash", "project-1", "")
+	request, ok := payload["request"].(map[string]any)
+	if !ok {
+		t.Fatalf("payload missing request object: %+v", payload)
+	}
+	if request["sessionId"] != first {
+		t.Fatalf("payload sessionId %v does not match the stable session %q", request["sessionId"], first)
+	}
+}
+
 // Claude reasoning on Cloud Code goes through generationConfig.thinkingConfig,
 // same container as Gemini, but keyed by thinkingBudget rather than thinkingLevel.
 // Every assertion here was taken from live endpoint responses:
