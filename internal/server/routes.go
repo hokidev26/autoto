@@ -26,7 +26,7 @@ func (s *Server) health(w http.ResponseWriter, r *http.Request) {
 func (s *Server) authStatus(w http.ResponseWriter, r *http.Request) {
 	hasUsers, err := s.store.HasUsers(r.Context())
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeRequestError(w, r, http.StatusInternalServerError, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"hasUsers": hasUsers, "registrationOpen": s.configSnapshot().Auth.RegistrationOpen})
@@ -104,7 +104,7 @@ func (s *Server) settings(w http.ResponseWriter, r *http.Request) {
 	}
 	runtimeSettings, err := s.runtimeSettingsForResponse(r.Context())
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeRequestError(w, r, http.StatusInternalServerError, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
@@ -129,7 +129,7 @@ func (s *Server) settings(w http.ResponseWriter, r *http.Request) {
 func (s *Server) listProjects(w http.ResponseWriter, r *http.Request) {
 	hasUsers, err := s.store.HasUsers(r.Context())
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeRequestError(w, r, http.StatusInternalServerError, err)
 		return
 	}
 	var projects []db.Project
@@ -143,7 +143,7 @@ func (s *Server) listProjects(w http.ResponseWriter, r *http.Request) {
 		projects, err = s.store.ListProjects(r.Context())
 	}
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeRequestError(w, r, http.StatusInternalServerError, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, s.filterProjectsForRequest(r, projects))
@@ -183,7 +183,7 @@ func validNavigationStatePatch(req navigationStatePatchRequest) bool {
 func (s *Server) createProject(w http.ResponseWriter, r *http.Request) {
 	var req createProjectRequest
 	if err := decodeJSON(r, &req); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	cfg := s.configSnapshot()
@@ -193,12 +193,12 @@ func (s *Server) createProject(w http.ResponseWriter, r *http.Request) {
 	}
 	resolvedGitPath, err := s.resolveCWDForRequest(r, gitPath)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	gitPath = resolvedGitPath
 	if err := os.MkdirAll(gitPath, 0o755); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeRequestError(w, r, http.StatusInternalServerError, err)
 		return
 	}
 	model := strings.TrimSpace(req.Model)
@@ -208,7 +208,7 @@ func (s *Server) createProject(w http.ResponseWriter, r *http.Request) {
 	permissionMode := s.safeDefaultPermissionModeForRequest(r, cfg.Agent.DefaultPermissionMode)
 	hasUsers, err := s.store.HasUsers(r.Context())
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeRequestError(w, r, http.StatusInternalServerError, err)
 		return
 	}
 	userID := ""
@@ -281,7 +281,7 @@ func (s *Server) createProject(w http.ResponseWriter, r *http.Request) {
 		result, err = create()
 	}
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	if cfg.Agent.DefaultStartInPlanMode {
@@ -365,7 +365,7 @@ func (s *Server) createProjectConversation(w http.ResponseWriter, r *http.Reques
 	projectID := strings.TrimSpace(chi.URLParam(r, "id"))
 	var req createProjectConversationRequest
 	if err := decodeJSON(r, &req); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	if strings.TrimSpace(req.Title) == "" {
@@ -379,7 +379,7 @@ func (s *Server) createProjectConversation(w http.ResponseWriter, r *http.Reques
 	permissionMode := s.safeDefaultPermissionModeForRequest(r, cfg.Agent.DefaultPermissionMode)
 	hasUsers, err := s.store.HasUsers(r.Context())
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeRequestError(w, r, http.StatusInternalServerError, err)
 		return
 	}
 	userID := ""
@@ -440,7 +440,7 @@ func (s *Server) createProjectConversation(w http.ResponseWriter, r *http.Reques
 			writeError(w, http.StatusNotFound, "project not found")
 			return
 		}
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	writeJSON(w, http.StatusCreated, map[string]any{"project": result.Project, "workline": result.Workline, "agent": result.Agent})
@@ -460,7 +460,7 @@ func (s *Server) createConversation(w http.ResponseWriter, r *http.Request) {
 func (s *Server) patchProjectNavigationState(w http.ResponseWriter, r *http.Request) {
 	var req navigationStatePatchRequest
 	if err := decodeJSON(r, &req); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	if !validNavigationStatePatch(req) {
@@ -473,7 +473,7 @@ func (s *Server) patchProjectNavigationState(w http.ResponseWriter, r *http.Requ
 			writeError(w, http.StatusNotFound, "project not found")
 			return
 		}
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeRequestError(w, r, http.StatusInternalServerError, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, project)
@@ -482,7 +482,7 @@ func (s *Server) patchProjectNavigationState(w http.ResponseWriter, r *http.Requ
 func (s *Server) patchAgentNavigationState(w http.ResponseWriter, r *http.Request) {
 	var req navigationStatePatchRequest
 	if err := decodeJSON(r, &req); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	if !validNavigationStatePatch(req) {
@@ -495,7 +495,7 @@ func (s *Server) patchAgentNavigationState(w http.ResponseWriter, r *http.Reques
 			writeError(w, http.StatusNotFound, "agent not found")
 			return
 		}
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeRequestError(w, r, http.StatusInternalServerError, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, agent)
@@ -503,16 +503,16 @@ func (s *Server) patchAgentNavigationState(w http.ResponseWriter, r *http.Reques
 
 // writeArchiveDeleteError maps the archive-deletion guards onto HTTP codes so
 // the UI can tell "you must archive first" apart from "it is still running".
-func writeArchiveDeleteError(w http.ResponseWriter, kind string, err error) {
+func (s *Server) writeArchiveDeleteError(w http.ResponseWriter, r *http.Request, kind string, err error) {
 	switch {
 	case db.IsNotFound(err):
 		writeError(w, http.StatusNotFound, kind+" not found")
 	case db.IsNotArchived(err):
-		writeError(w, http.StatusConflict, err.Error())
+		s.writeRequestError(w, r, http.StatusConflict, err)
 	case db.HasActiveRun(err):
-		writeError(w, http.StatusConflict, err.Error())
+		s.writeRequestError(w, r, http.StatusConflict, err)
 	default:
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeRequestError(w, r, http.StatusInternalServerError, err)
 	}
 }
 
@@ -523,7 +523,7 @@ func (s *Server) deleteArchivedProject(w http.ResponseWriter, r *http.Request) {
 	// created, and they would leak on disk forever.
 	targets := s.collectProjectWorktreeCleanupTargets(r.Context(), id)
 	if err := s.store.DeleteArchivedProject(r.Context(), id); err != nil {
-		writeArchiveDeleteError(w, "project", err)
+		s.writeArchiveDeleteError(w, r, "project", err)
 		return
 	}
 	for _, target := range targets {
@@ -593,7 +593,7 @@ func (s *Server) deleteArchivedAgent(w http.ResponseWriter, r *http.Request) {
 		worklineID = strings.TrimSpace(agent.WorklineID)
 	}
 	if err := s.store.DeleteArchivedAgent(r.Context(), id); err != nil {
-		writeArchiveDeleteError(w, "conversation", err)
+		s.writeArchiveDeleteError(w, r, "conversation", err)
 		return
 	}
 	s.cleanupWorklineAfterAgentDeletion(worklineID)
@@ -649,7 +649,7 @@ func (s *Server) getProject(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusNotFound, "project not found")
 			return
 		}
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeRequestError(w, r, http.StatusInternalServerError, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, project)
@@ -677,7 +677,7 @@ func slugify(name string) string {
 func (s *Server) listProjectWorklines(w http.ResponseWriter, r *http.Request) {
 	worklines, err := s.store.ListWorklinesByProject(r.Context(), chi.URLParam(r, "id"))
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeRequestError(w, r, http.StatusInternalServerError, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, s.filterWorklinesForRequest(r, worklines))
@@ -690,7 +690,7 @@ func (s *Server) getWorkline(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusNotFound, "workline not found")
 			return
 		}
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeRequestError(w, r, http.StatusInternalServerError, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, workline)
@@ -699,7 +699,7 @@ func (s *Server) getWorkline(w http.ResponseWriter, r *http.Request) {
 func (s *Server) listWorklineAgents(w http.ResponseWriter, r *http.Request) {
 	agents, err := s.store.ListAgentsByWorkline(r.Context(), chi.URLParam(r, "id"))
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeRequestError(w, r, http.StatusInternalServerError, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, s.filterAgentsForRequest(r, agents))

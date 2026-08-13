@@ -87,7 +87,7 @@ func (s *Server) updateNamedTunnel(
 ) {
 	var req namedTunnelRequest
 	if err := decodeJSON(r, &req); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	s.configMutationMu.Lock()
@@ -99,7 +99,7 @@ func (s *Server) updateNamedTunnel(
 
 	tunnel, err := validateNamedTunnelRequest(req)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	// A tunnel that starts with Autoto keeps a stable hostname, so it makes this

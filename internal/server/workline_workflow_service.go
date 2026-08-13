@@ -454,7 +454,7 @@ func (w worklineWorkflowService) cleanup(ctx context.Context, worklineID string,
 	}, nil
 }
 
-func writeWorklineServiceError(w http.ResponseWriter, err error) {
+func (s *Server) writeWorklineServiceError(w http.ResponseWriter, r *http.Request, err error) {
 	if err == nil {
 		return
 	}
@@ -468,7 +468,7 @@ func writeWorklineServiceError(w http.ResponseWriter, err error) {
 		case "multiple_git_repos":
 			writeMultipleGitReposError(w, repoErr.Path, repoErr.Candidates)
 		default:
-			writeError(w, http.StatusBadRequest, repoErr.Error())
+			s.writeRequestError(w, r, http.StatusBadRequest, repoErr)
 		}
 		return
 	}
@@ -477,5 +477,5 @@ func writeWorklineServiceError(w http.ResponseWriter, err error) {
 		writeError(w, api.status, api.msg)
 		return
 	}
-	writeWorklineWorkflowError(w, err)
+	s.writeWorklineWorkflowError(w, r, err)
 }

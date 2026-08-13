@@ -18,10 +18,10 @@ func requireLocalExecutionAgent(agent db.Agent) error {
 	return fmt.Errorf("%w: agent targets a remote execution device", agentpkg.ErrRemoteExecutionUnavailable)
 }
 
-func writeExecutionGuardError(w http.ResponseWriter, err error) {
+func (s *Server) writeExecutionGuardError(w http.ResponseWriter, r *http.Request, err error) {
 	if errors.Is(err, agentpkg.ErrRemoteExecutionUnavailable) {
 		writeError(w, http.StatusConflict, "remote execution transport is disabled; local fallback is forbidden")
 		return
 	}
-	writeStoreError(w, err)
+	s.writeStoreError(w, r, err)
 }

@@ -550,7 +550,7 @@ func (s *Server) getRemoteAccessSettings(w http.ResponseWriter, r *http.Request)
 func (s *Server) updateRemoteAccessPolicy(w http.ResponseWriter, r *http.Request) {
 	var req remoteAccessPolicyRequest
 	if err := decodeJSON(r, &req); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	if req.AllowFullAccess == nil || req.AllowRemoteNativePicker == nil {
@@ -639,7 +639,7 @@ func generateRemoteAccessPassword() (string, error) {
 func (s *Server) updateRemoteAccessPassword(w http.ResponseWriter, r *http.Request) {
 	var req remoteAccessPasswordRequest
 	if err := decodeJSON(r, &req); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	s.configMutationMu.Lock()
@@ -663,7 +663,7 @@ func (s *Server) updateRemoteAccessPassword(w http.ResponseWriter, r *http.Reque
 	case "custom":
 		password = req.Password
 		if err := validateCustomRemoteAccessPassword(password); err != nil {
-			writeError(w, http.StatusBadRequest, err.Error())
+			s.writeRequestError(w, r, http.StatusBadRequest, err)
 			return
 		}
 	default:

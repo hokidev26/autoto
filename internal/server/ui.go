@@ -98,7 +98,7 @@ func (s *Server) index(w http.ResponseWriter, r *http.Request) {
 	}
 	data, err := staticFiles.ReadFile("static/index.html")
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeRequestError(w, r, http.StatusInternalServerError, err)
 		return
 	}
 	setNoStore(w)

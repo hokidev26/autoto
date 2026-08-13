@@ -126,19 +126,19 @@ func (s *Server) remoteCollaborationStatus(w http.ResponseWriter, r *http.Reques
 	response.Identity = s.peerControl.manager.Identity()
 	invitations, err := s.store.ListRemotePairingInvitations(r.Context(), db.RemotePairingInvitationListOptions{Limit: 200})
 	if err != nil {
-		writeStoreError(w, err)
+		s.writeStoreError(w, r, err)
 		return
 	}
 	pairings, err := s.store.ListRemotePeerPairings(r.Context(), db.RemotePeerPairingListOptions{Limit: 200})
 	if err != nil {
-		writeStoreError(w, err)
+		s.writeStoreError(w, r, err)
 		return
 	}
 	views := make([]remotePeerPairingView, 0, len(pairings))
 	for _, pairing := range pairings {
 		grants, grantErr := s.store.ListRemotePeerGrants(r.Context(), pairing.ID)
 		if grantErr != nil {
-			writeStoreError(w, grantErr)
+			s.writeStoreError(w, r, grantErr)
 			return
 		}
 		views = append(views, remotePeerPairingView{Pairing: pairing, Grants: grants})
@@ -159,7 +159,7 @@ func (s *Server) updateRemoteCollaborationSharing(w http.ResponseWriter, r *http
 	}
 	var request updateRemoteCollaborationSharingRequest
 	if err := decodePeerJSON(w, r, &request); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	if err := s.recordRequiredPeerAudit(r.Context(), audit.Event{
@@ -192,12 +192,12 @@ func (s *Server) createRemoteCollaborationInvitation(w http.ResponseWriter, r *h
 	}
 	var request createRemoteCollaborationInvitationRequest
 	if err := decodePeerJSON(w, r, &request); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	origin, err := s.remoteCollaborationInvitationOrigin(strings.TrimSpace(request.Origin))
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	ttl := remoteInvitationDefaultTTL
@@ -217,7 +217,7 @@ func (s *Server) createRemoteCollaborationInvitation(w http.ResponseWriter, r *h
 	invitationID := db.NewID()
 	envelope, err := peercontrol.NewInvitationEnvelope(origin, invitationID, secret, runtime.manager.Identity(), expiresAt)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	encoded, err := envelope.Encode()
@@ -236,7 +236,7 @@ func (s *Server) createRemoteCollaborationInvitation(w http.ResponseWriter, r *h
 		ID: invitationID, CodeHash: peercontrol.HashInvitationSecretHex(secret), ProtocolVersion: peercontrol.ProtocolVersion, ExpiresAt: expiresAt.Format(time.RFC3339Nano),
 	})
 	if err != nil {
-		writeStoreError(w, err)
+		s.writeStoreError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusCreated, map[string]any{"invitation": invitation, "encodedInvitation": encoded, "hostFingerprint": envelope.HostFingerprint})
@@ -261,7 +261,7 @@ func (s *Server) approveRemoteCollaborationInvitation(w http.ResponseWriter, r *
 	}
 	var request approveRemoteCollaborationInvitationRequest
 	if err := decodePeerJSON(w, r, &request); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	invitationID := chi.URLParam(r, "id")
@@ -276,7 +276,7 @@ func (s *Server) approveRemoteCollaborationInvitation(w http.ResponseWriter, r *
 		ID: invitationID, Scopes: request.Scopes, ExpiresAt: request.ExpiresAt,
 	}, request.Grants)
 	if err != nil {
-		writeStoreError(w, err)
+		s.writeStoreError(w, r, err)
 		return
 	}
 	_ = runtime.manager.InvalidatePairing(pairing.ID)
@@ -297,7 +297,7 @@ func (s *Server) transitionRemoteCollaborationInvitation(w http.ResponseWriter, 
 	}
 	var request remoteInvitationTransitionRequest
 	if err := decodePeerJSON(w, r, &request); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	invitationID := chi.URLParam(r, "id")
@@ -316,7 +316,7 @@ func (s *Server) transitionRemoteCollaborationInvitation(w http.ResponseWriter, 
 		invitation, err = s.store.RevokeRemotePairingInvitation(r.Context(), invitationID, request.Status, request.Revision)
 	}
 	if err != nil {
-		writeStoreError(w, err)
+		s.writeStoreError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, invitation)
@@ -336,7 +336,7 @@ func (s *Server) replaceRemoteCollaborationAuthorization(w http.ResponseWriter, 
 	}
 	var request replaceRemoteCollaborationAuthorizationRequest
 	if err := decodePeerJSON(w, r, &request); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	pairingID := chi.URLParam(r, "id")
@@ -349,7 +349,7 @@ func (s *Server) replaceRemoteCollaborationAuthorization(w http.ResponseWriter, 
 	}
 	pairing, grants, err := s.store.ReplaceRemotePeerAuthorization(r.Context(), pairingID, request.GrantRevision, request.Scopes, request.ExpiresAt, request.Grants)
 	if err != nil {
-		writeStoreError(w, err)
+		s.writeStoreError(w, r, err)
 		return
 	}
 	_ = runtime.manager.InvalidatePairing(pairingID)
@@ -368,7 +368,7 @@ func (s *Server) revokeRemoteCollaborationPairing(w http.ResponseWriter, r *http
 	}
 	var request revokeRemoteCollaborationPairingRequest
 	if err := decodePeerJSON(w, r, &request); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	pairingID := chi.URLParam(r, "id")
@@ -381,7 +381,7 @@ func (s *Server) revokeRemoteCollaborationPairing(w http.ResponseWriter, r *http
 	}
 	pairing, err := s.store.RevokeRemotePeerPairing(r.Context(), pairingID, request.Status, request.CredentialRevision)
 	if err != nil {
-		writeStoreError(w, err)
+		s.writeStoreError(w, r, err)
 		return
 	}
 	_ = runtime.manager.InvalidatePairing(pairingID)
@@ -401,17 +401,17 @@ func (s *Server) connectRemoteCollaborationPeer(w http.ResponseWriter, r *http.R
 	}
 	var request connectRemoteCollaborationPeerRequest
 	if err := decodePeerJSON(w, r, &request); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	invitation, err := peercontrol.DecodeInvitation(strings.TrimSpace(request.Invitation), s.now().UTC())
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	settings, err := s.store.GetRuntimeSettings(r.Context())
 	if err != nil {
-		writeStoreError(w, err)
+		s.writeStoreError(w, r, err)
 		return
 	}
 	displayName := strings.TrimSpace(request.DisplayName)
@@ -492,7 +492,7 @@ func (s *Server) pollRemoteCollaborationClaim(w http.ResponseWriter, r *http.Req
 			}
 		}
 		if createErr != nil {
-			writeStoreError(w, createErr)
+			s.writeStoreError(w, r, createErr)
 			return
 		}
 		runtime.promoteClaim(invitationID, pairing.ID)
@@ -511,12 +511,12 @@ func (s *Server) proxyRemoteCollaborationSnapshot(w http.ResponseWriter, r *http
 	_ = runtime
 	messageLimit, err := queryInt(r, "messageLimit", 30, 1, 100)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	runLimit, err := queryInt(r, "runLimit", 20, 1, 100)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	response, err := client.GetSnapshot(r.Context(), peercontrol.GetSnapshotRequest{
@@ -541,7 +541,7 @@ func (s *Server) proxyRemoteCollaborationTask(w http.ResponseWriter, r *http.Req
 	}
 	var request proxyRemoteCollaborationTaskRequest
 	if err := decodePeerJSON(w, r, &request); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	request.Message = strings.TrimSpace(request.Message)
@@ -583,7 +583,7 @@ func (s *Server) proxyRemoteCollaborationApproval(w http.ResponseWriter, r *http
 	}
 	var request proxyRemoteCollaborationApprovalRequest
 	if err := decodePeerJSON(w, r, &request); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	request.Decision = strings.TrimSpace(request.Decision)
@@ -632,7 +632,7 @@ func (s *Server) remoteControllerClient(w http.ResponseWriter, r *http.Request, 
 		case errors.Is(err, errRemoteCollaborationUnavailable):
 			writeError(w, http.StatusServiceUnavailable, "remote collaboration is unavailable")
 		case errors.As(err, &storeErr):
-			writeStoreError(w, storeErr.Unwrap())
+			s.writeStoreError(w, r, storeErr.Unwrap())
 		case errors.Is(err, errRemotePeerPairingInactive):
 			writeError(w, http.StatusGone, "remote peer pairing is inactive")
 		default:

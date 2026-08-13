@@ -25,17 +25,17 @@ type createAgentRequest struct {
 
 func (s *Server) listAgents(w http.ResponseWriter, r *http.Request) {
 	if err := rejectUnknownQuery(r, "limit"); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	limit, err := queryInt(r, "limit", 200, 1, 500)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	agents, err := s.store.ListAgents(r.Context(), limit)
 	if err != nil {
-		writeStoreError(w, err)
+		s.writeStoreError(w, r, err)
 		return
 	}
 	agents, ok := s.filterAgentsByMembership(w, r, agents)
@@ -48,7 +48,7 @@ func (s *Server) listAgents(w http.ResponseWriter, r *http.Request) {
 func (s *Server) createAgent(w http.ResponseWriter, r *http.Request) {
 	var req createAgentRequest
 	if err := decodeLimitedJSON(w, r, &req, maxAgentJSONBody); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	worklineID := ""
@@ -70,7 +70,7 @@ func (s *Server) createAgent(w http.ResponseWriter, r *http.Request) {
 		{"title", title, 120, true}, {"model", model, 256, true}, {"cwd", cwd, 4096, true},
 	} {
 		if err := validateAPIText(field.name, field.value, field.max, field.required, false); err != nil {
-			writeError(w, http.StatusBadRequest, err.Error())
+			s.writeRequestError(w, r, http.StatusBadRequest, err)
 			return
 		}
 	}
@@ -91,12 +91,12 @@ func (s *Server) createAgent(w http.ResponseWriter, r *http.Request) {
 	}
 	cwd, err := s.resolveCWDForRequest(r, cwd)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	info, err := os.Stat(cwd)
 	if err != nil {
-		writeError(w, statusFromFSError(err), err.Error())
+		s.writeRequestError(w, r, statusFromFSError(err), err)
 		return
 	}
 	if !info.IsDir() {
@@ -109,7 +109,7 @@ func (s *Server) createAgent(w http.ResponseWriter, r *http.Request) {
 		PlanMode: s.configSnapshot().Agent.DefaultStartInPlanMode,
 	})
 	if err != nil {
-		writeStoreError(w, err)
+		s.writeStoreError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusCreated, created)
@@ -122,7 +122,7 @@ type updatePlanModeRequest struct {
 func (s *Server) updateAgentPlanMode(w http.ResponseWriter, r *http.Request) {
 	var req updatePlanModeRequest
 	if err := decodeJSON(r, &req); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	if req.PlanMode == nil {
@@ -132,7 +132,7 @@ func (s *Server) updateAgentPlanMode(w http.ResponseWriter, r *http.Request) {
 	agentID := strings.TrimSpace(chi.URLParam(r, "id"))
 	agent, err := s.updatePersistedAgentPlanMode(r.Context(), agentID, *req.PlanMode)
 	if err != nil {
-		writeError(w, statusFromError(err), err.Error())
+		s.writeRequestError(w, r, statusFromError(err), err)
 		return
 	}
 	if s.runner != nil {
@@ -140,7 +140,7 @@ func (s *Server) updateAgentPlanMode(w http.ResponseWriter, r *http.Request) {
 	}
 	actor, actorErr := s.reviewActor(r)
 	if actorErr != nil {
-		writeError(w, http.StatusInternalServerError, actorErr.Error())
+		s.writeRequestError(w, r, http.StatusInternalServerError, actorErr)
 		return
 	}
 	if err := s.recordAudit(r.Context(), audit.Event{
@@ -188,21 +188,21 @@ func boolToInt(value bool) int {
 
 func (s *Server) listAgentChildren(w http.ResponseWriter, r *http.Request) {
 	if err := rejectUnknownQuery(r); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	parentAgentID := strings.TrimSpace(chi.URLParam(r, "id"))
 	if err := validateAPIIdentifier("agent id", parentAgentID); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	if _, err := s.store.GetAgent(r.Context(), parentAgentID); err != nil {
-		writeStoreError(w, err)
+		s.writeStoreError(w, r, err)
 		return
 	}
 	children, err := s.store.ListChildAgents(r.Context(), parentAgentID)
 	if err != nil {
-		writeStoreError(w, err)
+		s.writeStoreError(w, r, err)
 		return
 	}
 	children, ok := s.filterAgentsByMembership(w, r, children)

@@ -18,7 +18,7 @@ type assignSpecTaskRequest struct {
 func (s *Server) taskWorkspace(w http.ResponseWriter, r *http.Request) {
 	hasUsers, err := s.store.HasUsers(r.Context())
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeRequestError(w, r, http.StatusInternalServerError, err)
 		return
 	}
 
@@ -33,14 +33,14 @@ func (s *Server) taskWorkspace(w http.ResponseWriter, r *http.Request) {
 		projects, err = s.store.ListProjects(r.Context())
 	}
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeRequestError(w, r, http.StatusInternalServerError, err)
 		return
 	}
 	projects = s.filterProjectsForRequest(r, projects)
 
 	workspace, err := s.store.ListTaskWorkspace(r.Context())
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeRequestError(w, r, http.StatusInternalServerError, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, s.filterTaskWorkspaceForRequest(r, workspace, projects))
@@ -111,7 +111,7 @@ func addSpecTaskCounts(target *db.SpecTaskStatusCounts, source db.SpecTaskStatus
 func (s *Server) assignSpecTask(w http.ResponseWriter, r *http.Request) {
 	var req assignSpecTaskRequest
 	if err := decodeLimitedJSON(w, r, &req, 8<<10); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 
@@ -119,15 +119,15 @@ func (s *Server) assignSpecTask(w http.ResponseWriter, r *http.Request) {
 	taskID := strings.TrimSpace(chi.URLParam(r, "taskId"))
 	targetAgentID := strings.TrimSpace(req.TargetAgentID)
 	if err := validateAPIIdentifier("agent id", sourceAgentID); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	if err := validateAPIIdentifier("task id", taskID); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	if err := validateAPIIdentifier("target agent id", targetAgentID); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	if req.ExpectedRevision < 1 {
@@ -140,7 +140,7 @@ func (s *Server) assignSpecTask(w http.ResponseWriter, r *http.Request) {
 
 	result, err := s.store.AssignSpecTask(r.Context(), sourceAgentID, taskID, targetAgentID, req.ExpectedRevision, req.AcknowledgeProtected, "local-api")
 	if err != nil {
-		writeSpecStoreError(w, err)
+		s.writeSpecStoreError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, result)

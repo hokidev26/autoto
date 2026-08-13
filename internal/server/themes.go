@@ -101,7 +101,7 @@ func (s *Server) importTheme(w http.ResponseWriter, r *http.Request) {
 	}
 	result, err := store.Import(archive, themes.ImportOptions{Replace: replace})
 	if err != nil {
-		writeThemeStoreError(w, err)
+		s.writeThemeStoreError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusCreated, themeMutationResponse{
@@ -130,12 +130,12 @@ func (s *Server) createTheme(w http.ResponseWriter, r *http.Request) {
 	}
 	manifest, err := themes.ParseManifest(request.Manifest)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	result, err := store.InstallManifest(manifest, themes.ImportOptions{Replace: request.Replace})
 	if err != nil {
-		writeThemeStoreError(w, err)
+		s.writeThemeStoreError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusCreated, themeMutationResponse{
@@ -156,7 +156,7 @@ func (s *Server) themeManifest(w http.ResponseWriter, r *http.Request) {
 	}
 	theme, err := store.Get(chi.URLParam(r, "themeID"))
 	if err != nil {
-		writeThemeStoreError(w, err)
+		s.writeThemeStoreError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, themeManifestResponse{Manifest: theme.Manifest})
@@ -169,7 +169,7 @@ func (s *Server) exportTheme(w http.ResponseWriter, r *http.Request) {
 	}
 	archive, filename, err := store.ExportArchive(chi.URLParam(r, "themeID"))
 	if err != nil {
-		writeThemeStoreError(w, err)
+		s.writeThemeStoreError(w, r, err)
 		return
 	}
 	w.Header().Set("Content-Type", "application/zip")
@@ -187,7 +187,7 @@ func (s *Server) deleteTheme(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := store.Delete(chi.URLParam(r, "themeID")); err != nil {
-		writeThemeStoreError(w, err)
+		s.writeThemeStoreError(w, r, err)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -271,16 +271,16 @@ func setThemeResourceHeaders(header http.Header) {
 	header.Set("X-Content-Type-Options", "nosniff")
 }
 
-func writeThemeStoreError(w http.ResponseWriter, err error) {
+func (s *Server) writeThemeStoreError(w http.ResponseWriter, r *http.Request, err error) {
 	switch {
 	case errors.Is(err, themes.ErrNotFound):
-		writeError(w, http.StatusNotFound, err.Error())
+		s.writeRequestError(w, r, http.StatusNotFound, err)
 	case errors.Is(err, themes.ErrConflict), errors.Is(err, themes.ErrBundledProtected), errors.Is(err, themes.ErrRevisionMismatch):
-		writeError(w, http.StatusConflict, err.Error())
+		s.writeRequestError(w, r, http.StatusConflict, err)
 	case errors.Is(err, themes.ErrInvalidArchive):
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 	default:
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeRequestError(w, r, http.StatusInternalServerError, err)
 	}
 }
 

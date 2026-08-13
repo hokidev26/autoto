@@ -150,7 +150,7 @@ func (e gitCommandError) Error() string { return e.Msg }
 func (s *Server) gitStatus(w http.ResponseWriter, r *http.Request) {
 	status, err := s.git().status(r.Context(), chi.URLParam(r, "id"))
 	if err != nil {
-		writeGitError(w, err)
+		s.writeGitError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, status)
@@ -159,7 +159,7 @@ func (s *Server) gitStatus(w http.ResponseWriter, r *http.Request) {
 func (s *Server) gitDiff(w http.ResponseWriter, r *http.Request) {
 	diff, err := s.git().diff(r.Context(), chi.URLParam(r, "id"), r.URL.Query().Get("scope"), r.URL.Query().Get("path"), r.URL.Query().Get("context"))
 	if err != nil {
-		writeGitError(w, err)
+		s.writeGitError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, diff)
@@ -168,7 +168,7 @@ func (s *Server) gitDiff(w http.ResponseWriter, r *http.Request) {
 func (s *Server) gitLog(w http.ResponseWriter, r *http.Request) {
 	log, err := s.git().log(r.Context(), chi.URLParam(r, "id"), r.URL.Query().Get("limit"))
 	if err != nil {
-		writeGitError(w, err)
+		s.writeGitError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, log)
@@ -177,7 +177,7 @@ func (s *Server) gitLog(w http.ResponseWriter, r *http.Request) {
 func (s *Server) rollbackRunPreview(w http.ResponseWriter, r *http.Request) {
 	preview, err := s.git().rollbackPreview(r.Context(), chi.URLParam(r, "id"), chi.URLParam(r, "runId"))
 	if err != nil {
-		writeGitError(w, err)
+		s.writeGitError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, preview)
@@ -186,12 +186,12 @@ func (s *Server) rollbackRunPreview(w http.ResponseWriter, r *http.Request) {
 func (s *Server) rollbackRun(w http.ResponseWriter, r *http.Request) {
 	var req gitRollbackRequest
 	if err := decodeJSON(r, &req); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	response, err := s.git().rollback(r.Context(), chi.URLParam(r, "id"), chi.URLParam(r, "runId"), req.Confirm)
 	if err != nil {
-		writeGitError(w, err)
+		s.writeGitError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, response)
@@ -388,12 +388,12 @@ func removeScopedRunFile(repoRoot, path string) error {
 func (s *Server) gitCommit(w http.ResponseWriter, r *http.Request) {
 	var req gitCommitRequest
 	if err := decodeJSON(r, &req); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	result, err := s.git().commit(r.Context(), chi.URLParam(r, "id"), req)
 	if err != nil {
-		writeGitError(w, err)
+		s.writeGitError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusCreated, result)
@@ -422,12 +422,12 @@ type gitDiscardResponse struct {
 func (s *Server) gitDiscard(w http.ResponseWriter, r *http.Request) {
 	var req gitDiscardRequest
 	if err := decodeJSON(r, &req); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	response, err := s.git().discard(r.Context(), chi.URLParam(r, "id"), req)
 	if err != nil {
-		writeGitError(w, err)
+		s.writeGitError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, response)
@@ -921,11 +921,11 @@ func safeUTF8(text string) string {
 	return strings.ToValidUTF8(text, "�")
 }
 
-func writeGitError(w http.ResponseWriter, err error) {
+func (s *Server) writeGitError(w http.ResponseWriter, r *http.Request, err error) {
 	var gitErr gitCommandError
 	if errors.As(err, &gitErr) {
 		writeError(w, gitErr.Status, gitErr.Msg)
 		return
 	}
-	writeError(w, statusFromError(err), err.Error())
+	s.writeRequestError(w, r, statusFromError(err), err)
 }

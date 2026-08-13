@@ -18,7 +18,7 @@ func (s *Server) mountAutomationToolCatalogRoutes(router chi.Router) {
 func (s *Server) listAutomationToolCatalog(w http.ResponseWriter, r *http.Request) {
 	items, err := s.automationTools().list(r.Context())
 	if err != nil {
-		writeAPIError(w, err)
+		s.writeAPIError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, items)
@@ -31,7 +31,7 @@ func (s *Server) installAutomationToolCatalogItem(w http.ResponseWriter, r *http
 	}
 	item, err := s.automationTools().install(r.Context(), chi.URLParam(r, "id"))
 	if err != nil {
-		writeAPIError(w, err)
+		s.writeAPIError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, item)
@@ -40,7 +40,7 @@ func (s *Server) installAutomationToolCatalogItem(w http.ResponseWriter, r *http
 func (s *Server) configureAutomationToolCatalogItem(w http.ResponseWriter, r *http.Request) {
 	item, err := s.automationTools().configure(r.Context(), chi.URLParam(r, "id"))
 	if err != nil {
-		writeAPIError(w, err)
+		s.writeAPIError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, item)

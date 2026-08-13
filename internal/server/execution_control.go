@@ -403,14 +403,14 @@ func (s *Server) requireExecutionTaskAccess(w http.ResponseWriter, r *http.Reque
 func (s *Server) filterRemoteExecutionTasksForRequest(w http.ResponseWriter, r *http.Request, tasks []remoteExecutionTaskLedgerResponse) ([]remoteExecutionTaskLedgerResponse, bool) {
 	hasUsers, err := s.store.HasUsers(r.Context())
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeRequestError(w, r, http.StatusInternalServerError, err)
 		return nil, false
 	}
 	var userID string
 	if hasUsers {
 		user, ok, err := s.currentUser(r)
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, err.Error())
+			s.writeRequestError(w, r, http.StatusInternalServerError, err)
 			return nil, false
 		}
 		if !ok {

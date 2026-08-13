@@ -27,12 +27,12 @@ type fsEntry struct {
 func (s *Server) fsBrowse(w http.ResponseWriter, r *http.Request) {
 	path, err := s.resolveFSPathForRequest(r, r.URL.Query().Get("path"))
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	entries, err := os.ReadDir(path)
 	if err != nil {
-		writeError(w, statusFromFSError(err), err.Error())
+		s.writeRequestError(w, r, statusFromFSError(err), err)
 		return
 	}
 	items := make([]fsEntry, 0, len(entries))
@@ -71,12 +71,12 @@ func (s *Server) fsDirectories(w http.ResponseWriter, r *http.Request) {
 		abs, err = s.resolveFSPathForRequest(r, path)
 	}
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	info, err := os.Stat(abs)
 	if err != nil {
-		writeError(w, statusFromFSError(err), err.Error())
+		s.writeRequestError(w, r, statusFromFSError(err), err)
 		return
 	}
 	if !info.IsDir() {
@@ -85,7 +85,7 @@ func (s *Server) fsDirectories(w http.ResponseWriter, r *http.Request) {
 	}
 	entries, err := os.ReadDir(abs)
 	if err != nil {
-		writeError(w, statusFromFSError(err), err.Error())
+		s.writeRequestError(w, r, statusFromFSError(err), err)
 		return
 	}
 	items := make([]fsEntry, 0, len(entries))
@@ -164,7 +164,7 @@ func (s *Server) fsNativeDirectory(w http.ResponseWriter, r *http.Request) {
 		path = filepath.Clean(strings.TrimSpace(path))
 		info, err := os.Stat(path)
 		if err != nil {
-			writeError(w, statusFromFSError(err), err.Error())
+			s.writeRequestError(w, r, statusFromFSError(err), err)
 			return
 		}
 		if !info.IsDir() {
@@ -225,7 +225,7 @@ set chosenFolder to choose folder with prompt "选择 Autoto 工作资料夹" de
 	}
 	info, err := os.Stat(path)
 	if err != nil {
-		writeError(w, statusFromFSError(err), err.Error())
+		s.writeRequestError(w, r, statusFromFSError(err), err)
 		return
 	}
 	if !info.IsDir() {
@@ -369,12 +369,12 @@ func directoryShortcuts(defaultProjectDir string, hostScope bool) []fsDirectoryS
 func (s *Server) fsPreview(w http.ResponseWriter, r *http.Request) {
 	path, err := s.resolveFSPathForRequest(r, r.URL.Query().Get("path"))
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	info, err := os.Stat(path)
 	if err != nil {
-		writeError(w, statusFromFSError(err), err.Error())
+		s.writeRequestError(w, r, statusFromFSError(err), err)
 		return
 	}
 	if info.IsDir() {
@@ -384,13 +384,13 @@ func (s *Server) fsPreview(w http.ResponseWriter, r *http.Request) {
 	const maxPreviewBytes = 256 * 1024
 	file, err := os.Open(path)
 	if err != nil {
-		writeError(w, statusFromFSError(err), err.Error())
+		s.writeRequestError(w, r, statusFromFSError(err), err)
 		return
 	}
 	defer file.Close()
 	data, err := io.ReadAll(io.LimitReader(file, maxPreviewBytes+1))
 	if err != nil {
-		writeError(w, statusFromFSError(err), err.Error())
+		s.writeRequestError(w, r, statusFromFSError(err), err)
 		return
 	}
 	truncated := len(data) > maxPreviewBytes
@@ -407,16 +407,16 @@ type mkdirRequest struct {
 func (s *Server) fsMkdir(w http.ResponseWriter, r *http.Request) {
 	var req mkdirRequest
 	if err := decodeJSON(r, &req); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	path, err := s.resolveFSPathForRequest(r, req.Path)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	if err := os.MkdirAll(path, 0o755); err != nil {
-		writeError(w, statusFromFSError(err), err.Error())
+		s.writeRequestError(w, r, statusFromFSError(err), err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"path": path})

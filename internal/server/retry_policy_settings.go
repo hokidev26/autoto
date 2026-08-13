@@ -24,12 +24,12 @@ func (s *Server) retryPolicySettingsEndpoint(w http.ResponseWriter, r *http.Requ
 	}
 	var req retryPolicySettingsRequest
 	if err := decodeJSON(r, &req); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	patterns, err := strictNonRetryableErrorPatterns(req.NonRetryableErrorPatterns)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 

@@ -273,7 +273,7 @@ func TestSubscriptionEnsureNativeProviderUsesFallbackForOccupiedName(t *testing.
 }
 
 func subscriptionRequest(method, provider, id string, body io.Reader) *http.Request {
-	request := httptest.NewRequest(method, "/", body)
+	request := newTestRequest(method, "/", body)
 	routeContext := chi.NewRouteContext()
 	routeContext.URLParams.Add("provider", provider)
 	if id != "" {

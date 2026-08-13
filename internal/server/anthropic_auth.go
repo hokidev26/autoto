@@ -44,12 +44,12 @@ type anthropicAccountsResponse struct {
 func (s *Server) listAnthropicAccounts(w http.ResponseWriter, r *http.Request) {
 	store, err := s.nativeAnthropicCredentialStore()
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeRequestError(w, r, http.StatusInternalServerError, err)
 		return
 	}
 	items, err := store.Load()
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeRequestError(w, r, http.StatusInternalServerError, err)
 		return
 	}
 	statsByID := map[string]db.ProviderAccountStats{}
@@ -92,7 +92,7 @@ func (s *Server) createAnthropicAccount(w http.ResponseWriter, r *http.Request) 
 	defer r.Body.Close()
 	var request anthropicAccountCreateRequest
 	if err := decodeAnthropicAccountJSON(r.Body, &request); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	priority := anthropicauth.DefaultPriority
@@ -101,7 +101,7 @@ func (s *Server) createAnthropicAccount(w http.ResponseWriter, r *http.Request) 
 	}
 	store, err := s.nativeAnthropicCredentialStore()
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeRequestError(w, r, http.StatusInternalServerError, err)
 		return
 	}
 	item, err := store.Create(anthropicauth.CreateRequest{
@@ -112,11 +112,11 @@ func (s *Server) createAnthropicAccount(w http.ResponseWriter, r *http.Request) 
 		Priority: priority,
 	})
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	if err := s.ensureNativeAnthropicProvider(); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeRequestError(w, r, http.StatusInternalServerError, err)
 		return
 	}
 	payload := anthropicAccountPayload(anthropicauth.Summary(item), item.Credential.ID, !item.Credential.Disabled, true, nil, nil, nil)
@@ -132,7 +132,7 @@ func (s *Server) patchAnthropicAccount(w http.ResponseWriter, r *http.Request) {
 	}
 	var request anthropicAccountPatchRequest
 	if err := decodeAnthropicAccountJSON(r.Body, &request); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	if request.Alias == nil && request.Priority == nil && request.Disabled == nil {
@@ -141,7 +141,7 @@ func (s *Server) patchAnthropicAccount(w http.ResponseWriter, r *http.Request) {
 	}
 	store, err := s.nativeAnthropicCredentialStore()
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeRequestError(w, r, http.StatusInternalServerError, err)
 		return
 	}
 	item, err := store.UpdateMetadata(id, anthropicauth.MetadataUpdate{Alias: request.Alias, Priority: request.Priority, Disabled: request.Disabled})
@@ -149,7 +149,7 @@ func (s *Server) patchAnthropicAccount(w http.ResponseWriter, r *http.Request) {
 		if errors.Is(err, os.ErrNotExist) {
 			writeError(w, http.StatusNotFound, "Anthropic 账号不存在")
 		} else {
-			writeError(w, http.StatusBadRequest, err.Error())
+			s.writeRequestError(w, r, http.StatusBadRequest, err)
 		}
 		return
 	}
@@ -164,7 +164,7 @@ func (s *Server) syncAnthropicAccount(w http.ResponseWriter, r *http.Request) {
 	}
 	provider, err := s.nativeAnthropicProvider()
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeRequestError(w, r, http.StatusInternalServerError, err)
 		return
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
@@ -174,7 +174,7 @@ func (s *Server) syncAnthropicAccount(w http.ResponseWriter, r *http.Request) {
 		if errors.Is(err, os.ErrNotExist) {
 			writeError(w, http.StatusNotFound, "Anthropic 账号不存在")
 		} else {
-			writeError(w, http.StatusBadGateway, err.Error())
+			s.writeRequestError(w, r, http.StatusBadGateway, err)
 		}
 		return
 	}
@@ -205,7 +205,7 @@ func (s *Server) deleteAnthropicAccount(w http.ResponseWriter, r *http.Request) 
 	}
 	store, err := s.nativeAnthropicCredentialStore()
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeRequestError(w, r, http.StatusInternalServerError, err)
 		return
 	}
 	credentialDeleted := true
@@ -213,7 +213,7 @@ func (s *Server) deleteAnthropicAccount(w http.ResponseWriter, r *http.Request) 
 		if errors.Is(err, os.ErrNotExist) {
 			credentialDeleted = false
 		} else {
-			writeError(w, http.StatusInternalServerError, err.Error())
+			s.writeRequestError(w, r, http.StatusInternalServerError, err)
 			return
 		}
 	}

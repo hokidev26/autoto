@@ -67,7 +67,7 @@ type backendHealthCheck struct {
 func (s *Server) listBackends(w http.ResponseWriter, r *http.Request) {
 	backends, err := s.store.ListBackends(r.Context())
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeRequestError(w, r, http.StatusInternalServerError, err)
 		return
 	}
 	responses := make([]backendResponse, 0, len(backends))
@@ -80,7 +80,7 @@ func (s *Server) listBackends(w http.ResponseWriter, r *http.Request) {
 func (s *Server) getBackend(w http.ResponseWriter, r *http.Request) {
 	backend, err := s.store.GetBackend(r.Context(), chi.URLParam(r, "id"))
 	if err != nil {
-		writeError(w, statusFromError(err), err.Error())
+		s.writeRequestError(w, r, statusFromError(err), err)
 		return
 	}
 	writeJSON(w, http.StatusOK, makeBackendResponse(backend))
@@ -89,17 +89,17 @@ func (s *Server) getBackend(w http.ResponseWriter, r *http.Request) {
 func (s *Server) createBackend(w http.ResponseWriter, r *http.Request) {
 	var req backendPayload
 	if err := decodeJSON(r, &req); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	backend, err := backendFromPayload(req)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	created, err := s.store.CreateBackend(r.Context(), backend)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeRequestError(w, r, http.StatusInternalServerError, err)
 		return
 	}
 	writeJSON(w, http.StatusCreated, makeBackendResponse(created))
@@ -109,13 +109,13 @@ func (s *Server) updateBackend(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	existing, err := s.store.GetBackend(r.Context(), id)
 	if err != nil {
-		writeError(w, statusFromError(err), err.Error())
+		s.writeRequestError(w, r, statusFromError(err), err)
 		return
 	}
 
 	var req updateBackendPayload
 	if err := decodeJSON(r, &req); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	if req.Name != nil {
@@ -134,12 +134,12 @@ func (s *Server) updateBackend(w http.ResponseWriter, r *http.Request) {
 		existing.Active = *req.Active
 	}
 	if err := validateBackend(existing); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	updated, err := s.store.UpdateBackend(r.Context(), existing)
 	if err != nil {
-		writeError(w, statusFromError(err), err.Error())
+		s.writeRequestError(w, r, statusFromError(err), err)
 		return
 	}
 	writeJSON(w, http.StatusOK, makeBackendResponse(updated))
@@ -148,7 +148,7 @@ func (s *Server) updateBackend(w http.ResponseWriter, r *http.Request) {
 func (s *Server) activateBackend(w http.ResponseWriter, r *http.Request) {
 	backend, err := s.store.ActivateBackend(r.Context(), chi.URLParam(r, "id"))
 	if err != nil {
-		writeError(w, statusFromError(err), err.Error())
+		s.writeRequestError(w, r, statusFromError(err), err)
 		return
 	}
 	writeJSON(w, http.StatusOK, makeBackendResponse(backend))
@@ -156,7 +156,7 @@ func (s *Server) activateBackend(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) deleteBackend(w http.ResponseWriter, r *http.Request) {
 	if err := s.store.DeleteBackend(r.Context(), chi.URLParam(r, "id")); err != nil {
-		writeError(w, statusFromError(err), err.Error())
+		s.writeRequestError(w, r, statusFromError(err), err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
@@ -165,7 +165,7 @@ func (s *Server) deleteBackend(w http.ResponseWriter, r *http.Request) {
 func (s *Server) backendHealth(w http.ResponseWriter, r *http.Request) {
 	backend, err := s.store.GetBackend(r.Context(), chi.URLParam(r, "id"))
 	if err != nil {
-		writeError(w, statusFromError(err), err.Error())
+		s.writeRequestError(w, r, statusFromError(err), err)
 		return
 	}
 	writeJSON(w, http.StatusOK, checkBackendHealth(r.Context(), backend))

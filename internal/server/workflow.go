@@ -45,7 +45,7 @@ type toolPermissionRuleRequest struct {
 func (s *Server) getWorkflowPreferences(w http.ResponseWriter, r *http.Request) {
 	prefs, err := s.store.GetWorkflowPreferences(r.Context())
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeRequestError(w, r, http.StatusInternalServerError, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, prefs)
@@ -54,7 +54,7 @@ func (s *Server) getWorkflowPreferences(w http.ResponseWriter, r *http.Request) 
 func (s *Server) updateWorkflowPreferences(w http.ResponseWriter, r *http.Request) {
 	var req workflowPreferencesRequest
 	if err := decodeJSON(r, &req); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	if req.RequireConfirmationForExec == nil || req.RequireConfirmationForWrites == nil || req.AllowReadOnlyByDefault == nil {
@@ -92,7 +92,7 @@ func (s *Server) updateWorkflowPreferences(w http.ResponseWriter, r *http.Reques
 	}
 	prefs, err := s.store.UpdateWorkflowPreferences(r.Context(), db.WorkflowPreferences{RequireConfirmationForExec: *req.RequireConfirmationForExec, RequireConfirmationForWrites: *req.RequireConfirmationForWrites, AllowReadOnlyByDefault: *req.AllowReadOnlyByDefault, DangerReflectionLevel: dangerLevel})
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeRequestError(w, r, http.StatusInternalServerError, err)
 		return
 	}
 	if s.runner != nil {
@@ -104,7 +104,7 @@ func (s *Server) updateWorkflowPreferences(w http.ResponseWriter, r *http.Reques
 func (s *Server) listToolPermissionRules(w http.ResponseWriter, r *http.Request) {
 	rules, err := s.store.ListToolPermissionRules(r.Context())
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeRequestError(w, r, http.StatusInternalServerError, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, rules)
@@ -113,17 +113,17 @@ func (s *Server) listToolPermissionRules(w http.ResponseWriter, r *http.Request)
 func (s *Server) createToolPermissionRule(w http.ResponseWriter, r *http.Request) {
 	var req toolPermissionRuleRequest
 	if err := decodeJSON(r, &req); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	rule, err := s.ruleFromRequest(r.Context(), req, db.ToolPermissionRule{Mode: "*", ToolName: "*", Risk: "*", Enabled: true})
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	created, err := s.store.CreateToolPermissionRule(r.Context(), rule)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeRequestError(w, r, http.StatusInternalServerError, err)
 		return
 	}
 	if s.runner != nil {
@@ -137,22 +137,22 @@ func (s *Server) updateToolPermissionRule(w http.ResponseWriter, r *http.Request
 	id := chi.URLParam(r, "id")
 	existing, err := s.store.GetToolPermissionRule(r.Context(), id)
 	if err != nil {
-		writeError(w, statusFromError(err), err.Error())
+		s.writeRequestError(w, r, statusFromError(err), err)
 		return
 	}
 	var req toolPermissionRuleRequest
 	if err := decodeJSON(r, &req); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	rule, err := s.ruleFromRequest(r.Context(), req, existing)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	updated, err := s.store.UpdateToolPermissionRule(r.Context(), rule)
 	if err != nil {
-		writeError(w, statusFromError(err), err.Error())
+		s.writeRequestError(w, r, statusFromError(err), err)
 		return
 	}
 	if s.runner != nil {
@@ -165,7 +165,7 @@ func (s *Server) updateToolPermissionRule(w http.ResponseWriter, r *http.Request
 func (s *Server) deleteToolPermissionRule(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	if err := s.store.DeleteToolPermissionRule(r.Context(), id); err != nil {
-		writeError(w, statusFromError(err), err.Error())
+		s.writeRequestError(w, r, statusFromError(err), err)
 		return
 	}
 	if s.runner != nil {

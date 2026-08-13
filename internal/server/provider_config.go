@@ -173,12 +173,12 @@ func (s *Server) updateProviderConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := validateProviderName(providerName); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	var req providerConfigUpdateRequest
 	if err := decodeProviderConfigUpdateRequest(r, &req); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	// Keep the full config read-modify-save-publish transaction serialized with
@@ -190,7 +190,7 @@ func (s *Server) updateProviderConfig(w http.ResponseWriter, r *http.Request) {
 	defer s.providerMutationMu.Unlock()
 	resp, err := s.providerConfigs().update(r.Context(), providerName, req)
 	if err != nil {
-		writeAPIError(w, err)
+		s.writeAPIError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, resp)
@@ -199,12 +199,12 @@ func (s *Server) updateProviderConfig(w http.ResponseWriter, r *http.Request) {
 func (s *Server) patchProviderConfig(w http.ResponseWriter, r *http.Request) {
 	providerName := strings.TrimSpace(chi.URLParam(r, "name"))
 	if err := validateProviderName(providerName); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	var req providerConfigPatchRequest
 	if err := decodeJSON(r, &req); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	if req.Enabled == nil && req.Model == nil && req.GatewayEnabled == nil {
@@ -217,7 +217,7 @@ func (s *Server) patchProviderConfig(w http.ResponseWriter, r *http.Request) {
 	defer s.providerMutationMu.Unlock()
 	resp, err := s.providerConfigs().patch(r.Context(), providerName, req)
 	if err != nil {
-		writeAPIError(w, err)
+		s.writeAPIError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, resp)
@@ -226,7 +226,7 @@ func (s *Server) patchProviderConfig(w http.ResponseWriter, r *http.Request) {
 func (s *Server) deleteProviderConfig(w http.ResponseWriter, r *http.Request) {
 	providerName := strings.TrimSpace(chi.URLParam(r, "name"))
 	if err := validateProviderName(providerName); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	s.configMutationMu.Lock()
@@ -235,7 +235,7 @@ func (s *Server) deleteProviderConfig(w http.ResponseWriter, r *http.Request) {
 	defer s.providerMutationMu.Unlock()
 	resp, err := s.providerConfigs().delete(r.Context(), providerName)
 	if err != nil {
-		writeAPIError(w, err)
+		s.writeAPIError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, resp)
@@ -243,12 +243,12 @@ func (s *Server) deleteProviderConfig(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) testProviderConfig(w http.ResponseWriter, r *http.Request) {
 	if err := rejectProviderTestBody(r); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	providerName := strings.TrimSpace(chi.URLParam(r, "name"))
 	if err := validateProviderName(providerName); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	provider, ok := s.providerConfig(providerName)
@@ -271,7 +271,7 @@ func (s *Server) providerConfigForDraftTest(ctx context.Context, providerName st
 func (s *Server) testProviderConfigDraft(w http.ResponseWriter, r *http.Request) {
 	var req providerConfigUpdateRequest
 	if err := decodeProviderConfigUpdateRequest(r, &req); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	if req.ClearAPIKey {
@@ -280,7 +280,7 @@ func (s *Server) testProviderConfigDraft(w http.ResponseWriter, r *http.Request)
 	}
 	providerName := strings.TrimSpace(req.Name)
 	if err := validateProviderName(providerName); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	s.providerMutationMu.Lock()
@@ -291,7 +291,7 @@ func (s *Server) testProviderConfigDraft(w http.ResponseWriter, r *http.Request)
 		if errors.Is(err, errProviderDraftNameConflict) {
 			status = http.StatusConflict
 		}
-		writeError(w, status, err.Error())
+		s.writeRequestError(w, r, status, err)
 		return
 	}
 	if _, err := s.newRuntimeProvider(provider); err != nil {
@@ -306,11 +306,11 @@ func (s *Server) testProviderConfigDraft(w http.ResponseWriter, r *http.Request)
 func (s *Server) testProviderMessageDraft(w http.ResponseWriter, r *http.Request) {
 	var req providerMessageTestRequest
 	if err := decodeProviderJSONRequest(r, &req); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	if err := validateProviderConfigRequest(req.configUpdateRequest()); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	if req.ClearAPIKey {
@@ -319,12 +319,12 @@ func (s *Server) testProviderMessageDraft(w http.ResponseWriter, r *http.Request
 	}
 	prompt := strings.TrimSpace(req.Prompt)
 	if err := validateAPIText("prompt", prompt, providerMessageTestMaxPromptBytes, true, true); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	providerName := strings.TrimSpace(req.Name)
 	if err := validateProviderName(providerName); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	if strings.TrimSpace(req.Model) == "" {
@@ -340,7 +340,7 @@ func (s *Server) testProviderMessageDraft(w http.ResponseWriter, r *http.Request
 		if errors.Is(err, errProviderDraftNameConflict) {
 			status = http.StatusConflict
 		}
-		writeError(w, status, err.Error())
+		s.writeRequestError(w, r, status, err)
 		return
 	}
 	adapter, early, done := s.providerConfigs().messageTestAdapter(provider)

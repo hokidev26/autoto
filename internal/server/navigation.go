@@ -15,7 +15,7 @@ type navigationResponse struct {
 func (s *Server) navigation(w http.ResponseWriter, r *http.Request) {
 	hasUsers, err := s.store.HasUsers(r.Context())
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeRequestError(w, r, http.StatusInternalServerError, err)
 		return
 	}
 	includeArchived := strings.EqualFold(strings.TrimSpace(r.URL.Query().Get("includeArchived")), "true") || strings.TrimSpace(r.URL.Query().Get("includeArchived")) == "1"
@@ -30,12 +30,12 @@ func (s *Server) navigation(w http.ResponseWriter, r *http.Request) {
 		projects, err = s.store.ListProjectsWithOptions(r.Context(), includeArchived)
 	}
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeRequestError(w, r, http.StatusInternalServerError, err)
 		return
 	}
 	conversations, err := s.store.ListNavigationConversationsWithOptions(r.Context(), includeArchived)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeRequestError(w, r, http.StatusInternalServerError, err)
 		return
 	}
 	visibleProjects := make([]db.Project, 0, len(projects))

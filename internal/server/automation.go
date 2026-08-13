@@ -48,29 +48,29 @@ type schedulePatchRequest struct {
 
 func (s *Server) listSchedules(w http.ResponseWriter, r *http.Request) {
 	if err := rejectUnknownQuery(r, "agentId", "enabled", "limit"); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	agentID := strings.TrimSpace(r.URL.Query().Get("agentId"))
 	if agentID != "" {
 		if err := validateAPIIdentifier("agentId", agentID); err != nil {
-			writeError(w, http.StatusBadRequest, err.Error())
+			s.writeRequestError(w, r, http.StatusBadRequest, err)
 			return
 		}
 	}
 	enabled, err := optionalBoolQuery(r, "enabled")
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	limit, err := queryInt(r, "limit", 50, 1, db.P2P3MaxListLimit)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	items, err := s.store.ListSchedules(r.Context(), db.ScheduleListOptions{AgentID: agentID, Enabled: enabled, Limit: limit})
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, items)
@@ -79,7 +79,7 @@ func (s *Server) listSchedules(w http.ResponseWriter, r *http.Request) {
 func (s *Server) createSchedule(w http.ResponseWriter, r *http.Request) {
 	var req scheduleRequest
 	if err := decodeLimitedJSON(w, r, &req, 160<<10); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	enabled := true
@@ -105,27 +105,27 @@ func (s *Server) createSchedule(w http.ResponseWriter, r *http.Request) {
 		schedule.PermissionMode = "readOnly"
 	}
 	if err := validateScheduleRequest(schedule); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	if _, err := s.store.GetAgent(r.Context(), schedule.AgentID); err != nil {
-		writeStoreError(w, err)
+		s.writeStoreError(w, r, err)
 		return
 	}
 	if enabled {
 		next, err := nextScheduleTime(schedule, s.now())
 		if err != nil {
-			writeError(w, http.StatusBadRequest, err.Error())
+			s.writeRequestError(w, r, http.StatusBadRequest, err)
 			return
 		}
 		schedule.NextRunAt = next
 	} else if _, err := schedules.Parse(schedule.Expression, defaultTimezone(schedule.Timezone)); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	created, err := s.store.CreateSchedule(r.Context(), schedule)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	if err := s.recordAudit(r.Context(), audit.Event{Category: "schedule", Action: "schedule.create", Actor: "local-api", AgentID: created.AgentID, SubjectType: "schedule", SubjectID: created.ID, Outcome: "success", Risk: "low", Details: map[string]any{"enabled": created.Enabled, "permissionModeCap": created.PermissionMode}}); err != nil {
@@ -139,12 +139,12 @@ func (s *Server) updateSchedule(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	current, err := s.store.GetSchedule(r.Context(), id)
 	if err != nil {
-		writeStoreError(w, err)
+		s.writeStoreError(w, r, err)
 		return
 	}
 	var req schedulePatchRequest
 	if err := decodeLimitedJSON(w, r, &req, 160<<10); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	if req.Name == nil && req.AgentID == nil && req.Expression == nil && req.Timezone == nil && req.Prompt == nil && req.PermissionMode == nil && req.EnvironmentMode == nil && req.NarratorMode == nil && req.Enabled == nil {
@@ -187,23 +187,23 @@ func (s *Server) updateSchedule(w http.ResponseWriter, r *http.Request) {
 	current.EnvironmentMode = strings.TrimSpace(current.EnvironmentMode)
 	current.NarratorMode = strings.TrimSpace(current.NarratorMode)
 	if err := validateScheduleRequest(current); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	if _, err := s.store.GetAgent(r.Context(), current.AgentID); err != nil {
-		writeStoreError(w, err)
+		s.writeStoreError(w, r, err)
 		return
 	}
 	if current.Enabled {
 		next, err := nextScheduleTime(current, s.now())
 		if err != nil {
-			writeError(w, http.StatusBadRequest, err.Error())
+			s.writeRequestError(w, r, http.StatusBadRequest, err)
 			return
 		}
 		current.NextRunAt = next
 	} else {
 		if _, err := schedules.Parse(current.Expression, defaultTimezone(current.Timezone)); err != nil {
-			writeError(w, http.StatusBadRequest, err.Error())
+			s.writeRequestError(w, r, http.StatusBadRequest, err)
 			return
 		}
 		current.NextRunAt = ""
@@ -211,7 +211,7 @@ func (s *Server) updateSchedule(w http.ResponseWriter, r *http.Request) {
 	}
 	updated, err := s.store.UpdateSchedule(r.Context(), current)
 	if err != nil {
-		writeStoreError(w, err)
+		s.writeStoreError(w, r, err)
 		return
 	}
 	if err := s.recordAudit(r.Context(), audit.Event{Category: "schedule", Action: "schedule.update", Actor: "local-api", AgentID: updated.AgentID, SubjectType: "schedule", SubjectID: updated.ID, Outcome: "success", Risk: "low", Details: map[string]any{"enabled": updated.Enabled, "permissionModeCap": updated.PermissionMode}}); err != nil {
@@ -225,11 +225,11 @@ func (s *Server) deleteSchedule(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	current, err := s.store.GetSchedule(r.Context(), id)
 	if err != nil {
-		writeStoreError(w, err)
+		s.writeStoreError(w, r, err)
 		return
 	}
 	if err := s.store.DeleteSchedule(r.Context(), id, current.UpdatedAt); err != nil {
-		writeStoreError(w, err)
+		s.writeStoreError(w, r, err)
 		return
 	}
 	if err := s.recordAudit(r.Context(), audit.Event{Category: "schedule", Action: "schedule.delete", Actor: "local-api", AgentID: current.AgentID, SubjectType: "schedule", SubjectID: current.ID, Outcome: "success", Risk: "low", Details: map[string]any{"enabled": current.Enabled}}); err != nil {
@@ -250,7 +250,7 @@ func (s *Server) runSchedule(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		writeStoreError(w, err)
+		s.writeStoreError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusAccepted, result)
@@ -258,26 +258,26 @@ func (s *Server) runSchedule(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) listScheduleRuns(w http.ResponseWriter, r *http.Request) {
 	if err := rejectUnknownQuery(r, "limit"); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	scheduleID := strings.TrimSpace(chi.URLParam(r, "id"))
 	if err := validateAPIIdentifier("schedule id", scheduleID); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	limit, err := queryInt(r, "limit", 50, 1, 200)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	if _, err := s.store.GetSchedule(r.Context(), scheduleID); err != nil {
-		writeStoreError(w, err)
+		s.writeStoreError(w, r, err)
 		return
 	}
 	runs, err := s.store.ListScheduleRuns(r.Context(), scheduleID, limit)
 	if err != nil {
-		writeStoreError(w, err)
+		s.writeStoreError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, runs)
@@ -375,12 +375,12 @@ func publicDelivery(item db.NotificationDelivery) deliveryView {
 func (s *Server) listNotificationDeliveries(w http.ResponseWriter, r *http.Request) {
 	limit, err := queryInt(r, "limit", 50, 1, db.P2P3MaxListLimit)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	offset, err := queryInt(r, "offset", 0, 0, 1_000_000)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	items, err := s.store.ListNotificationDeliveries(r.Context(), db.NotificationDeliveryListOptions{
@@ -388,7 +388,7 @@ func (s *Server) listNotificationDeliveries(w http.ResponseWriter, r *http.Reque
 		RunID: r.URL.Query().Get("runId"), EventType: r.URL.Query().Get("eventType"), Limit: limit, Offset: offset,
 	})
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	views := make([]deliveryView, 0, len(items))
@@ -405,7 +405,7 @@ func (s *Server) retryNotificationDelivery(w http.ResponseWriter, r *http.Reques
 	}
 	item, err := s.automation.RetryDelivery(r.Context(), chi.URLParam(r, "id"))
 	if err != nil {
-		writeStoreError(w, err)
+		s.writeStoreError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusAccepted, publicDelivery(item))
@@ -419,12 +419,12 @@ type pairingCodeRequest struct {
 func (s *Server) createChannelPairingCode(w http.ResponseWriter, r *http.Request) {
 	var req pairingCodeRequest
 	if err := decodeJSON(r, &req); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	connection, err := s.store.GetIntegrationConnection(r.Context(), strings.TrimSpace(req.ConnectionID))
 	if err != nil {
-		writeStoreError(w, err)
+		s.writeStoreError(w, r, err)
 		return
 	}
 	if connection.Kind != "telegram" || !connection.Enabled {
@@ -432,7 +432,7 @@ func (s *Server) createChannelPairingCode(w http.ResponseWriter, r *http.Request
 		return
 	}
 	if _, err := s.store.GetAgent(r.Context(), strings.TrimSpace(req.AgentID)); err != nil {
-		writeStoreError(w, err)
+		s.writeStoreError(w, r, err)
 		return
 	}
 	codeBytes := make([]byte, 18)
@@ -447,7 +447,7 @@ func (s *Server) createChannelPairingCode(w http.ResponseWriter, r *http.Request
 		ExpiresAt: s.now().UTC().Add(10 * time.Minute).Format(time.RFC3339Nano),
 	})
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	if err := s.recordAudit(r.Context(), audit.Event{Category: "channel", Action: "pairing.create", Actor: "local-api", AgentID: pairing.AgentID, SubjectType: "channel_pairing", SubjectID: pairing.ID, Outcome: "success", Risk: "medium", Details: map[string]any{"connectionId": pairing.ConnectionID, "expiresAt": pairing.ExpiresAt}}); err != nil {
@@ -462,7 +462,7 @@ func (s *Server) listChannelPairings(w http.ResponseWriter, r *http.Request) {
 		ConnectionID: r.URL.Query().Get("connectionId"), AgentID: r.URL.Query().Get("agentId"), Status: r.URL.Query().Get("status"), Limit: 200,
 	})
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, items)
@@ -471,7 +471,7 @@ func (s *Server) listChannelPairings(w http.ResponseWriter, r *http.Request) {
 func (s *Server) revokeChannelPairing(w http.ResponseWriter, r *http.Request) {
 	pairing, err := s.store.RevokeChannelPairing(r.Context(), chi.URLParam(r, "id"))
 	if err != nil {
-		writeStoreError(w, err)
+		s.writeStoreError(w, r, err)
 		return
 	}
 	if err := s.recordAudit(r.Context(), audit.Event{Category: "channel", Action: "pairing.revoke", Actor: "local-api", AgentID: pairing.AgentID, SubjectType: "channel_pairing", SubjectID: pairing.ID, Outcome: "success", Risk: "medium", Details: map[string]any{"connectionId": pairing.ConnectionID}}); err != nil {
@@ -484,17 +484,17 @@ func (s *Server) revokeChannelPairing(w http.ResponseWriter, r *http.Request) {
 func (s *Server) listAuditEvents(w http.ResponseWriter, r *http.Request) {
 	limit, err := queryInt(r, "limit", 50, 1, db.AutomationAuditMaxListLimit)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	offset, err := queryInt(r, "offset", 0, 0, 1_000_000)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	items, err := s.store.ListAutomationAuditEvents(r.Context(), limit, offset)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, items)
@@ -507,12 +507,12 @@ func (s *Server) recordAudit(ctx context.Context, event audit.Event) error {
 	return s.audit.Record(ctx, event)
 }
 
-func writeStoreError(w http.ResponseWriter, err error) {
+func (s *Server) writeStoreError(w http.ResponseWriter, r *http.Request, err error) {
 	switch {
 	case errors.Is(err, sql.ErrNoRows), db.IsNotFound(err):
 		writeError(w, http.StatusNotFound, "resource not found")
 	case db.IsConflict(err):
-		writeError(w, http.StatusConflict, err.Error())
+		s.writeRequestError(w, r, http.StatusConflict, err)
 	default:
 		writeError(w, http.StatusInternalServerError, "internal error")
 	}

@@ -61,12 +61,12 @@ func (s *Server) listSubscriptionAccounts(w http.ResponseWriter, r *http.Request
 	setNoStore(w)
 	provider, err := subscriptionAccountProvider(chi.URLParam(r, "provider"))
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	store, err := s.nativeSubscriptionCredentialStore(provider)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeRequestError(w, r, http.StatusInternalServerError, err)
 		return
 	}
 	items, err := store.Load()
@@ -105,7 +105,7 @@ func (s *Server) patchSubscriptionAccount(w http.ResponseWriter, r *http.Request
 	setNoStore(w)
 	provider, err := subscriptionAccountProvider(chi.URLParam(r, "provider"))
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	id := strings.TrimSpace(chi.URLParam(r, "id"))
@@ -115,7 +115,7 @@ func (s *Server) patchSubscriptionAccount(w http.ResponseWriter, r *http.Request
 	}
 	var request subscriptionAccountPatchRequest
 	if err := decodeSubscriptionAccountJSON(r, &request); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	if request.Alias == nil && request.Priority == nil && request.Disabled == nil {
@@ -124,7 +124,7 @@ func (s *Server) patchSubscriptionAccount(w http.ResponseWriter, r *http.Request
 	}
 	store, err := s.nativeSubscriptionCredentialStore(provider)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeRequestError(w, r, http.StatusInternalServerError, err)
 		return
 	}
 	current, err := store.GetByID(id)
@@ -143,7 +143,7 @@ func (s *Server) patchSubscriptionAccount(w http.ResponseWriter, r *http.Request
 		if errors.Is(err, os.ErrNotExist) {
 			writeError(w, http.StatusNotFound, subscriptionProviderLabel(provider)+" 账号不存在")
 		} else {
-			writeError(w, http.StatusBadRequest, err.Error())
+			s.writeRequestError(w, r, http.StatusBadRequest, err)
 		}
 		return
 	}
@@ -154,7 +154,7 @@ func (s *Server) syncSubscriptionAccount(w http.ResponseWriter, r *http.Request)
 	setNoStore(w)
 	provider, err := subscriptionAccountProvider(chi.URLParam(r, "provider"))
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	id := strings.TrimSpace(chi.URLParam(r, "id"))
@@ -164,7 +164,7 @@ func (s *Server) syncSubscriptionAccount(w http.ResponseWriter, r *http.Request)
 	}
 	store, err := s.nativeSubscriptionCredentialStore(provider)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeRequestError(w, r, http.StatusInternalServerError, err)
 		return
 	}
 	item, err := store.GetByID(id)
@@ -344,7 +344,7 @@ func (s *Server) deleteSubscriptionAccount(w http.ResponseWriter, r *http.Reques
 	setNoStore(w)
 	provider, err := subscriptionAccountProvider(chi.URLParam(r, "provider"))
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	id := strings.TrimSpace(chi.URLParam(r, "id"))
@@ -354,7 +354,7 @@ func (s *Server) deleteSubscriptionAccount(w http.ResponseWriter, r *http.Reques
 	}
 	store, err := s.nativeSubscriptionCredentialStore(provider)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeRequestError(w, r, http.StatusInternalServerError, err)
 		return
 	}
 	credentialDeleted := false

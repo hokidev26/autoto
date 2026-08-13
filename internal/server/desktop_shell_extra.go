@@ -107,7 +107,7 @@ func (s *Server) desktopAutostartGet(w http.ResponseWriter, r *http.Request) {
 	}
 	enabled, strategy, path, err := host.AutostartStatus()
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeRequestError(w, r, http.StatusInternalServerError, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
@@ -128,7 +128,7 @@ func (s *Server) desktopAutostartPost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := host.AutostartEnable(); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeRequestError(w, r, http.StatusInternalServerError, err)
 		return
 	}
 	enabled, strategy, path, _ := host.AutostartStatus()
@@ -145,7 +145,7 @@ func (s *Server) desktopAutostartDelete(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	if err := host.AutostartDisable(); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeRequestError(w, r, http.StatusInternalServerError, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "enabled": false})
@@ -174,7 +174,7 @@ func (s *Server) desktopDeepLinkPost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := host.NotifyDeepLink(raw); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
@@ -197,7 +197,7 @@ func (s *Server) desktopUpdatePendingGet(w http.ResponseWriter, r *http.Request)
 	}
 	pending, ok, err := host.PendingUpdate()
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeRequestError(w, r, http.StatusInternalServerError, err)
 		return
 	}
 	if !ok {
@@ -244,7 +244,7 @@ func (s *Server) desktopUpdateStagePost(w http.ResponseWriter, r *http.Request) 
 			"Stage local desktop update "+version+" from:\n"+sourcePath+"\n\nThis only copies the file; it does not replace the running process.",
 			"Stage desktop update")
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, err.Error())
+			s.writeRequestError(w, r, http.StatusInternalServerError, err)
 			return
 		}
 		if !accepted {
@@ -254,7 +254,7 @@ func (s *Server) desktopUpdateStagePost(w http.ResponseWriter, r *http.Request) 
 	}
 	pending, err := host.StageLocalUpdate(sourcePath, version, sha256)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
@@ -279,7 +279,7 @@ func (s *Server) desktopUpdatePendingDelete(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	if err := host.ClearPendingUpdate(); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeRequestError(w, r, http.StatusInternalServerError, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "pending": false})

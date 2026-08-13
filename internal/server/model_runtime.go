@@ -149,7 +149,7 @@ type clientIdentityResponse struct {
 func (s *Server) listModelAggregates(w http.ResponseWriter, r *http.Request) {
 	aggregates, err := s.modelRuntime().listAggregates(r.Context())
 	if err != nil {
-		writeModelRuntimeError(w, err)
+		s.writeModelRuntimeError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, aggregates)
@@ -158,12 +158,12 @@ func (s *Server) listModelAggregates(w http.ResponseWriter, r *http.Request) {
 func (s *Server) getModelAggregate(w http.ResponseWriter, r *http.Request) {
 	name, err := modelAggregateName(r)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	aggregate, err := s.modelRuntime().getAggregate(r.Context(), name)
 	if err != nil {
-		writeModelRuntimeError(w, err)
+		s.writeModelRuntimeError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, aggregate)
@@ -172,17 +172,17 @@ func (s *Server) getModelAggregate(w http.ResponseWriter, r *http.Request) {
 func (s *Server) putModelAggregate(w http.ResponseWriter, r *http.Request) {
 	name, err := modelAggregateName(r)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	var request modelAggregatePutRequest
 	if err := decodeJSON(r, &request); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	aggregate, err := s.modelRuntime().putAggregate(r.Context(), name, request)
 	if err != nil {
-		writeModelRuntimeError(w, err)
+		s.writeModelRuntimeError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, aggregate)
@@ -191,17 +191,17 @@ func (s *Server) putModelAggregate(w http.ResponseWriter, r *http.Request) {
 func (s *Server) deleteModelAggregate(w http.ResponseWriter, r *http.Request) {
 	name, err := modelAggregateName(r)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	var request revisionCASRequest
 	if err := decodeJSON(r, &request); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	revision, err := s.modelRuntime().deleteAggregate(r.Context(), name, request)
 	if err != nil {
-		writeModelRuntimeError(w, err)
+		s.writeModelRuntimeError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"deleted": true, "name": name, "revision": revision})
@@ -210,12 +210,12 @@ func (s *Server) deleteModelAggregate(w http.ResponseWriter, r *http.Request) {
 func (s *Server) updateAgentModelSettings(w http.ResponseWriter, r *http.Request) {
 	var request agentModelSettingsRequest
 	if err := decodeJSON(r, &request); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	prepared, err := s.modelRuntime().prepareAgentModelSettings(request)
 	if err != nil {
-		writeModelRuntimeError(w, err)
+		s.writeModelRuntimeError(w, r, err)
 		return
 	}
 	s.configMutationMu.Lock()
@@ -224,7 +224,7 @@ func (s *Server) updateAgentModelSettings(w http.ResponseWriter, r *http.Request
 	defer s.providerMutationMu.Unlock()
 	result, err := s.modelRuntime().persistAgentModelSettings(prepared)
 	if err != nil {
-		writeModelRuntimeError(w, err)
+		s.writeModelRuntimeError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"agent": result.Agent, "persisted": result.Persisted})
@@ -233,12 +233,12 @@ func (s *Server) updateAgentModelSettings(w http.ResponseWriter, r *http.Request
 func (s *Server) updateRuntimeModelSettings(w http.ResponseWriter, r *http.Request) {
 	var request runtimeModelSettingsRequest
 	if err := decodeJSON(r, &request); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	settings, err := s.modelRuntime().updateRuntimeSettings(r.Context(), request)
 	if err != nil {
-		writeModelRuntimeError(w, err)
+		s.writeModelRuntimeError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, settings)
@@ -247,7 +247,7 @@ func (s *Server) updateRuntimeModelSettings(w http.ResponseWriter, r *http.Reque
 func (s *Server) updateAgentReasoningEffort(w http.ResponseWriter, r *http.Request) {
 	var request agentReasoningRequest
 	if err := decodeJSON(r, &request); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	agentID := strings.TrimSpace(chi.URLParam(r, "id"))
@@ -256,7 +256,7 @@ func (s *Server) updateAgentReasoningEffort(w http.ResponseWriter, r *http.Reque
 	}
 	agent, err := s.modelRuntime().updateReasoningEffort(r.Context(), agentID, request)
 	if err != nil {
-		writeModelRuntimeError(w, err)
+		s.writeModelRuntimeError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, agent)
@@ -265,7 +265,7 @@ func (s *Server) updateAgentReasoningEffort(w http.ResponseWriter, r *http.Reque
 func (s *Server) updateAgentFastMode(w http.ResponseWriter, r *http.Request) {
 	var request agentFastModeRequest
 	if err := decodeJSON(r, &request); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	agentID := strings.TrimSpace(chi.URLParam(r, "id"))
@@ -274,7 +274,7 @@ func (s *Server) updateAgentFastMode(w http.ResponseWriter, r *http.Request) {
 	}
 	agent, err := s.modelRuntime().updateFastMode(r.Context(), agentID, request)
 	if err != nil {
-		writeModelRuntimeError(w, err)
+		s.writeModelRuntimeError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, agent)
@@ -283,7 +283,7 @@ func (s *Server) updateAgentFastMode(w http.ResponseWriter, r *http.Request) {
 func (s *Server) clientIdentity(w http.ResponseWriter, r *http.Request) {
 	settings, err := s.modelRuntime().clientIdentity(r.Context())
 	if err != nil {
-		writeModelRuntimeError(w, err)
+		s.writeModelRuntimeError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, identityResponse(settings))
@@ -292,12 +292,12 @@ func (s *Server) clientIdentity(w http.ResponseWriter, r *http.Request) {
 func (s *Server) rotateClientIdentity(w http.ResponseWriter, r *http.Request) {
 	var request revisionCASRequest
 	if err := decodeJSON(r, &request); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	settings, err := s.modelRuntime().rotateClientIdentity(r.Context(), request)
 	if err != nil {
-		writeModelRuntimeError(w, err)
+		s.writeModelRuntimeError(w, r, err)
 		return
 	}
 	s.refreshProviderRuntimeIdentity(settings.InstallationID)
@@ -539,7 +539,7 @@ func validateRuntimeAccountEmail(value string) error {
 	return nil
 }
 
-func writeModelRuntimeError(w http.ResponseWriter, err error) {
+func (s *Server) writeModelRuntimeError(w http.ResponseWriter, r *http.Request, err error) {
 	var api apiError
 	if errors.As(err, &api) {
 		writeError(w, api.status, api.msg)
@@ -547,10 +547,10 @@ func writeModelRuntimeError(w http.ResponseWriter, err error) {
 	}
 	switch {
 	case errors.Is(err, sql.ErrNoRows):
-		writeError(w, http.StatusNotFound, err.Error())
+		s.writeRequestError(w, r, http.StatusNotFound, err)
 	case db.IsConflict(err):
-		writeError(w, http.StatusConflict, err.Error())
+		s.writeRequestError(w, r, http.StatusConflict, err)
 	default:
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeRequestError(w, r, http.StatusInternalServerError, err)
 	}
 }

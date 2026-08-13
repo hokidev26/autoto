@@ -106,7 +106,7 @@ func (s *Server) createGatewayKey(w http.ResponseWriter, r *http.Request) {
 	}
 	policy := gatewayKeyPolicyFromCreate(req)
 	if err := validateGatewayKeyPolicy(policy); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	generated, err := gatewaypkg.GenerateKey()
@@ -153,7 +153,7 @@ func (s *Server) updateGatewayKey(w http.ResponseWriter, r *http.Request) {
 	}
 	policy := gatewayKeyPolicyFromPatch(current, req)
 	if err := validateGatewayKeyPolicy(policy); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	key, err := s.store.UpdateGatewayKeyPolicyCAS(r.Context(), id, policy, *req.ExpectedUpdatedAt)
@@ -233,7 +233,7 @@ func (s *Server) createGatewayModel(w http.ResponseWriter, r *http.Request) {
 	}
 	model := gatewayModelFromCreate(req)
 	if err := validateGatewayModel(model); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	created, err := s.store.CreateGatewayModel(r.Context(), model)
@@ -269,7 +269,7 @@ func (s *Server) updateGatewayModel(w http.ResponseWriter, r *http.Request) {
 	}
 	updated := gatewayModelFromPatch(current, req)
 	if err := validateGatewayModel(updated); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	model, err := s.store.UpdateGatewayModelCAS(r.Context(), oldAlias, updated, *req.ExpectedUpdatedAt)

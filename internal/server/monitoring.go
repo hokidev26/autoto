@@ -63,7 +63,7 @@ func (s *Server) listDevices(w http.ResponseWriter, r *http.Request) {
 func (s *Server) createDeviceAction(w http.ResponseWriter, r *http.Request) {
 	var req createDeviceActionRequest
 	if err := decodeJSON(r, &req); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	adapter, err := s.deviceAdapter(r.Context(), req.ConnectionID)
@@ -94,7 +94,7 @@ func (s *Server) createDeviceAction(w http.ResponseWriter, r *http.Request) {
 		ExpiresAt: s.now().UTC().Add(5 * time.Minute).Format(time.RFC3339Nano),
 	})
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	if err := s.recordAudit(r.Context(), audit.Event{Category: "device", Action: "action.create", Actor: "local-api", SubjectType: "device_action", SubjectID: created.ID, Outcome: "success", Risk: created.Risk, Details: map[string]any{"connectionId": created.ConnectionID, "entityId": created.EntityID, "domain": created.Domain, "service": created.Service}}); err != nil {
@@ -112,7 +112,7 @@ func (s *Server) approveDeviceAction(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	request, err := s.store.GetDeviceActionRequest(r.Context(), id)
 	if err != nil {
-		writeStoreError(w, err)
+		s.writeStoreError(w, r, err)
 		return
 	}
 	adapter, err := s.deviceAdapter(r.Context(), request.ConnectionID)
@@ -139,12 +139,12 @@ func (s *Server) approveDeviceAction(w http.ResponseWriter, r *http.Request) {
 	}
 	approved, err := s.store.ApproveDeviceActionRequest(r.Context(), id, "local-loopback")
 	if err != nil {
-		writeStoreError(w, err)
+		s.writeStoreError(w, r, err)
 		return
 	}
 	executing, err := s.store.StartDeviceActionRequest(r.Context(), approved.ID)
 	if err != nil {
-		writeStoreError(w, err)
+		s.writeStoreError(w, r, err)
 		return
 	}
 	executeErr := adapter.Execute(r.Context(), canonical)
@@ -172,12 +172,12 @@ func (s *Server) approveDeviceAction(w http.ResponseWriter, r *http.Request) {
 func (s *Server) denyDeviceAction(w http.ResponseWriter, r *http.Request) {
 	var req denyDeviceActionRequest
 	if err := decodeJSON(r, &req); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	denied, err := s.store.DenyDeviceActionRequest(r.Context(), chi.URLParam(r, "id"), "local-api", req.Reason)
 	if err != nil {
-		writeStoreError(w, err)
+		s.writeStoreError(w, r, err)
 		return
 	}
 	if err := s.recordAudit(r.Context(), audit.Event{Category: "device", Action: "action.deny", Actor: "local-api", SubjectType: "device_action", SubjectID: denied.ID, Outcome: "denied", Risk: denied.Risk, Details: map[string]any{"connectionId": denied.ConnectionID, "entityId": denied.EntityID, "domain": denied.Domain, "service": denied.Service}}); err != nil {

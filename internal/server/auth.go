@@ -206,7 +206,7 @@ func authLoginFailureKey(r *http.Request, handle string) string {
 func (s *Server) register(w http.ResponseWriter, r *http.Request) {
 	var req authCredentialsRequest
 	if err := decodeJSON(r, &req); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	if !validUserPasswordLength(req.Password) {
@@ -215,7 +215,7 @@ func (s *Server) register(w http.ResponseWriter, r *http.Request) {
 	}
 	hasUsers, err := s.store.HasUsers(r.Context())
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeRequestError(w, r, http.StatusInternalServerError, err)
 		return
 	}
 	if hasUsers && !s.configSnapshot().Auth.RegistrationOpen {
@@ -229,11 +229,11 @@ func (s *Server) register(w http.ResponseWriter, r *http.Request) {
 	}
 	user, err := s.store.CreateUser(r.Context(), req.Handle, string(hash))
 	if err != nil {
-		writeError(w, statusFromError(err), err.Error())
+		s.writeRequestError(w, r, statusFromError(err), err)
 		return
 	}
 	if err := s.startSession(w, r, user); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeRequestError(w, r, http.StatusInternalServerError, err)
 		return
 	}
 	writeJSON(w, http.StatusCreated, user)
@@ -242,7 +242,7 @@ func (s *Server) register(w http.ResponseWriter, r *http.Request) {
 func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 	var req authCredentialsRequest
 	if err := decodeJSON(r, &req); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	if !validUserPasswordLength(req.Password) {
@@ -284,7 +284,7 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 	}
 	s.clearAuthLoginFailures(failureKey)
 	if err := s.startSession(w, r, user); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeRequestError(w, r, http.StatusInternalServerError, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, user)
@@ -293,7 +293,7 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 func (s *Server) logout(w http.ResponseWriter, r *http.Request) {
 	if cookie, err := r.Cookie(authSessionCookieName); err == nil && cookie.Value != "" {
 		if err := s.revokeAuthSessionToken(r.Context(), cookie.Value); err != nil {
-			writeError(w, http.StatusInternalServerError, err.Error())
+			s.writeRequestError(w, r, http.StatusInternalServerError, err)
 			return
 		}
 	}
@@ -304,7 +304,7 @@ func (s *Server) logout(w http.ResponseWriter, r *http.Request) {
 func (s *Server) me(w http.ResponseWriter, r *http.Request) {
 	user, ok, err := s.currentUser(r)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeRequestError(w, r, http.StatusInternalServerError, err)
 		return
 	}
 	if !ok {
@@ -316,7 +316,7 @@ func (s *Server) me(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) listUsers(w http.ResponseWriter, r *http.Request) {
 	if _, ok, err := s.currentUser(r); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeRequestError(w, r, http.StatusInternalServerError, err)
 		return
 	} else if !ok {
 		writeError(w, http.StatusUnauthorized, "login required")
@@ -325,7 +325,7 @@ func (s *Server) listUsers(w http.ResponseWriter, r *http.Request) {
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
 	users, err := s.store.ListUsersByHandlePrefix(r.Context(), r.URL.Query().Get("handlePrefix"), limit)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, users)
@@ -352,7 +352,7 @@ func (s *Server) currentUser(r *http.Request) (db.User, bool, error) {
 func (s *Server) requireUser(w http.ResponseWriter, r *http.Request) (db.User, bool) {
 	user, ok, err := s.currentUser(r)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeRequestError(w, r, http.StatusInternalServerError, err)
 		return db.User{}, false
 	}
 	if !ok {

@@ -98,7 +98,7 @@ func (s *Server) desktopDialogConfirm(w http.ResponseWriter, r *http.Request) {
 	}
 	accepted, err := host.Confirm(r.Context(), req.Message, req.Title)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeRequestError(w, r, http.StatusInternalServerError, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "accepted": accepted})
@@ -114,7 +114,7 @@ func (s *Server) desktopDialogAlert(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := host.Alert(r.Context(), req.Message, req.Title); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeRequestError(w, r, http.StatusInternalServerError, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
@@ -137,7 +137,7 @@ func (s *Server) desktopDialogOpenDirectory(w http.ResponseWriter, r *http.Reque
 	}
 	path, canceled, err := host.PickDirectory(r.Context(), title, req.DefaultPath)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeRequestError(w, r, http.StatusInternalServerError, err)
 		return
 	}
 	if canceled || strings.TrimSpace(path) == "" {
@@ -163,7 +163,7 @@ func (s *Server) desktopDialogOpenFile(w http.ResponseWriter, r *http.Request) {
 	}
 	path, canceled, err := host.PickFile(r.Context(), title, req.DefaultPath, req.Filters)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeRequestError(w, r, http.StatusInternalServerError, err)
 		return
 	}
 	if canceled || strings.TrimSpace(path) == "" {

@@ -96,7 +96,7 @@ func (s *Server) installGatewayTunnel(w http.ResponseWriter, r *http.Request) {
 		case errors.Is(err, errCloudflaredInstallUnsupported), errors.Is(err, errCloudflaredInstallInProgress), snapshot.Status == temporaryTunnelRunning, snapshot.Status == temporaryTunnelStarting, snapshot.Status == temporaryTunnelStopping:
 			status = http.StatusConflict
 		}
-		writeError(w, status, err.Error())
+		s.writeRequestError(w, r, status, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, s.decorateGatewayTunnel(r, snapshot))
@@ -119,7 +119,7 @@ func (s *Server) startGatewayTunnel(w http.ResponseWriter, r *http.Request) {
 	}
 	snapshot, err := s.apiTunnel.StartTunnel(r.Context())
 	if err != nil {
-		writeError(w, http.StatusServiceUnavailable, err.Error())
+		s.writeRequestError(w, r, http.StatusServiceUnavailable, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, s.decorateGatewayTunnel(r, snapshot))
@@ -137,7 +137,7 @@ func (s *Server) stopGatewayTunnel(w http.ResponseWriter, r *http.Request) {
 	}
 	snapshot, err := s.apiTunnel.StopTunnel(r.Context())
 	if err != nil {
-		writeError(w, http.StatusServiceUnavailable, err.Error())
+		s.writeRequestError(w, r, http.StatusServiceUnavailable, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, s.decorateGatewayTunnel(r, snapshot))

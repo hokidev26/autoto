@@ -76,23 +76,23 @@ func (s *Server) postAppearanceBackground(w http.ResponseWriter, r *http.Request
 	background, err := store.Import(file, filename)
 	if err != nil {
 		if errors.Is(err, appearanceassets.ErrInvalid) {
-			writeError(w, http.StatusBadRequest, err.Error())
+			s.writeRequestError(w, r, http.StatusBadRequest, err)
 			return
 		}
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeRequestError(w, r, http.StatusInternalServerError, err)
 		return
 	}
 	writeJSON(w, http.StatusCreated, appearanceBackgroundResponse{Background: &background})
 }
 
-func (s *Server) deleteAppearanceBackground(w http.ResponseWriter, _ *http.Request) {
+func (s *Server) deleteAppearanceBackground(w http.ResponseWriter, r *http.Request) {
 	store, ok := s.requireAppearanceAssetStore(w)
 	if !ok {
 		return
 	}
 	if err := store.Delete(); err != nil {
 		if errors.Is(err, appearanceassets.ErrNotFound) {
-			writeError(w, http.StatusNotFound, err.Error())
+			s.writeRequestError(w, r, http.StatusNotFound, err)
 			return
 		}
 		writeError(w, http.StatusInternalServerError, fmt.Sprintf("delete appearance background: %v", err))

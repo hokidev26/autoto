@@ -24,7 +24,7 @@ func (s *Server) getAgentStreamState(w http.ResponseWriter, r *http.Request) {
 	agentID := strings.TrimSpace(chiURLParam(r, "id"))
 	generation, err := s.store.MaxExecutionGeneration(r.Context(), agentID)
 	if err != nil {
-		writeError(w, statusFromError(err), err.Error())
+		s.writeRequestError(w, r, statusFromError(err), err)
 		return
 	}
 	watermark := s.hub.Watermark(agentID)

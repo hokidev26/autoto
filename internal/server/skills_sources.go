@@ -69,7 +69,7 @@ func (s *Server) localSkillSourceGuard(next http.Handler) http.Handler {
 
 func (s *Server) listSkillSources(w http.ResponseWriter, r *http.Request) {
 	if err := rejectUnknownQuery(r, "sourceScope", "projectId"); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	sourceScope := strings.TrimSpace(r.URL.Query().Get("sourceScope"))
@@ -91,7 +91,7 @@ func (s *Server) listSkillSources(w http.ResponseWriter, r *http.Request) {
 func (s *Server) importSkillSource(w http.ResponseWriter, r *http.Request) {
 	var req skillSourceImportRequest
 	if err := decodeSkillJSON(w, r, &req); err != nil {
-		writeError(w, statusFromSkillDecodeError(err), err.Error())
+		s.writeRequestError(w, r, statusFromSkillDecodeError(err), err)
 		return
 	}
 	req.SourceScope = strings.TrimSpace(req.SourceScope)
@@ -111,7 +111,7 @@ func (s *Server) importSkillSource(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := validateSkillSourceImportIdentity(req); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	result, err := s.discoverSkillSource(r, req.SourceScope, sourceProjectID)
@@ -134,7 +134,7 @@ func (s *Server) importSkillSource(w http.ResponseWriter, r *http.Request) {
 	}
 	record, err := scannedSkillRecord(candidate.Skill, skillSourceImportSource, req.Enabled, req.AcknowledgeRisk)
 	if err != nil {
-		writeError(w, statusFromSkillError(err), err.Error())
+		s.writeRequestError(w, r, statusFromSkillError(err), err)
 		return
 	}
 	if record.ContentHash != candidate.Hash || record.ScanVerdict != candidate.Scan.Verdict {
@@ -144,7 +144,7 @@ func (s *Server) importSkillSource(w http.ResponseWriter, r *http.Request) {
 	record.Scope, record.ProjectID, record.WorklineID = target.Scope, target.ProjectID, target.WorklineID
 	created, err := s.store.CreateSkillAs(r.Context(), record, "file_skill_source")
 	if err != nil {
-		writeError(w, statusFromSkillError(err), err.Error())
+		s.writeRequestError(w, r, statusFromSkillError(err), err)
 		return
 	}
 	logSkillChange("imported from file source", created)

@@ -59,7 +59,7 @@ func (e skillContentTypeError) Error() string { return e.message }
 func (s *Server) listSkills(w http.ResponseWriter, r *http.Request) {
 	items, err := s.store.ListSkillSummaries(r.Context())
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeRequestError(w, r, http.StatusInternalServerError, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, items)
@@ -68,7 +68,7 @@ func (s *Server) listSkills(w http.ResponseWriter, r *http.Request) {
 func (s *Server) getSkill(w http.ResponseWriter, r *http.Request) {
 	skill, err := s.store.GetSkill(r.Context(), chi.URLParam(r, "id"))
 	if err != nil {
-		writeError(w, statusFromSkillError(err), err.Error())
+		s.writeRequestError(w, r, statusFromSkillError(err), err)
 		return
 	}
 	writeJSON(w, http.StatusOK, skill)
@@ -77,7 +77,7 @@ func (s *Server) getSkill(w http.ResponseWriter, r *http.Request) {
 func (s *Server) createSkill(w http.ResponseWriter, r *http.Request) {
 	var req skillRequest
 	if err := decodeSkillJSON(w, r, &req); err != nil {
-		writeError(w, statusFromSkillDecodeError(err), err.Error())
+		s.writeRequestError(w, r, statusFromSkillDecodeError(err), err)
 		return
 	}
 	if req.Prompt == nil {
@@ -103,17 +103,17 @@ func (s *Server) createSkill(w http.ResponseWriter, r *http.Request) {
 		Prompt:      *req.Prompt,
 	})
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	record, err := scannedSkillRecord(parsed, source, enabled, req.AcknowledgeRisk)
 	if err != nil {
-		writeError(w, statusFromSkillError(err), err.Error())
+		s.writeRequestError(w, r, statusFromSkillError(err), err)
 		return
 	}
 	created, err := s.store.CreateSkillAs(r.Context(), record, "api_request")
 	if err != nil {
-		writeError(w, statusFromSkillError(err), err.Error())
+		s.writeRequestError(w, r, statusFromSkillError(err), err)
 		return
 	}
 	logSkillChange("created", created)
@@ -124,12 +124,12 @@ func (s *Server) updateSkill(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	existing, err := s.store.GetSkill(r.Context(), id)
 	if err != nil {
-		writeError(w, statusFromSkillError(err), err.Error())
+		s.writeRequestError(w, r, statusFromSkillError(err), err)
 		return
 	}
 	var req skillRequest
 	if err := decodeSkillJSON(w, r, &req); err != nil {
-		writeError(w, statusFromSkillDecodeError(err), err.Error())
+		s.writeRequestError(w, r, statusFromSkillDecodeError(err), err)
 		return
 	}
 	if req.Source != nil {
@@ -155,7 +155,7 @@ func (s *Server) updateSkill(w http.ResponseWriter, r *http.Request) {
 	}
 	candidate, err = skills.Normalize(candidate)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	enabled := existing.Enabled
@@ -164,7 +164,7 @@ func (s *Server) updateSkill(w http.ResponseWriter, r *http.Request) {
 	}
 	record, err := scannedSkillRecord(candidate, existing.Source, enabled, req.AcknowledgeRisk)
 	if err != nil {
-		writeError(w, statusFromSkillError(err), err.Error())
+		s.writeRequestError(w, r, statusFromSkillError(err), err)
 		return
 	}
 	record.ID = existing.ID
@@ -174,7 +174,7 @@ func (s *Server) updateSkill(w http.ResponseWriter, r *http.Request) {
 	record.UpdatedAt = strings.TrimSpace(*req.ExpectedUpdatedAt)
 	updated, err := s.store.UpdateSkillAs(r.Context(), record, "api_request")
 	if err != nil {
-		writeError(w, statusFromSkillError(err), err.Error())
+		s.writeRequestError(w, r, statusFromSkillError(err), err)
 		return
 	}
 	logSkillChange("updated", updated)
@@ -185,11 +185,11 @@ func (s *Server) deleteSkill(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	existing, err := s.store.GetSkill(r.Context(), id)
 	if err != nil {
-		writeError(w, statusFromSkillError(err), err.Error())
+		s.writeRequestError(w, r, statusFromSkillError(err), err)
 		return
 	}
 	if err := s.store.DeleteSkillAs(r.Context(), id, "api_request"); err != nil {
-		writeError(w, statusFromSkillError(err), err.Error())
+		s.writeRequestError(w, r, statusFromSkillError(err), err)
 		return
 	}
 	logSkillChange("deleted", existing)
@@ -199,12 +199,12 @@ func (s *Server) deleteSkill(w http.ResponseWriter, r *http.Request) {
 func (s *Server) previewSkillImport(w http.ResponseWriter, r *http.Request) {
 	var req skillImportRequest
 	if err := decodeSkillJSON(w, r, &req); err != nil {
-		writeError(w, statusFromSkillDecodeError(err), err.Error())
+		s.writeRequestError(w, r, statusFromSkillDecodeError(err), err)
 		return
 	}
 	parsed, err := skills.ParseMarkdown(req.Content)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	result := skills.Scan(parsed)
@@ -214,12 +214,12 @@ func (s *Server) previewSkillImport(w http.ResponseWriter, r *http.Request) {
 func (s *Server) importSkill(w http.ResponseWriter, r *http.Request) {
 	var req skillImportRequest
 	if err := decodeSkillJSON(w, r, &req); err != nil {
-		writeError(w, statusFromSkillDecodeError(err), err.Error())
+		s.writeRequestError(w, r, statusFromSkillDecodeError(err), err)
 		return
 	}
 	parsed, err := skills.ParseMarkdown(req.Content)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	enabled := false
@@ -228,12 +228,12 @@ func (s *Server) importSkill(w http.ResponseWriter, r *http.Request) {
 	}
 	record, err := scannedSkillRecord(parsed, "skill_md", enabled, req.AcknowledgeRisk)
 	if err != nil {
-		writeError(w, statusFromSkillError(err), err.Error())
+		s.writeRequestError(w, r, statusFromSkillError(err), err)
 		return
 	}
 	created, err := s.store.CreateSkillAs(r.Context(), record, "api_request")
 	if err != nil {
-		writeError(w, statusFromSkillError(err), err.Error())
+		s.writeRequestError(w, r, statusFromSkillError(err), err)
 		return
 	}
 	logSkillChange("imported", created)

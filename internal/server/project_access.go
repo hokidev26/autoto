@@ -48,7 +48,7 @@ func (s *Server) requireProjectResourceAccess(w http.ResponseWriter, r *http.Req
 	}
 	hasUsers, err := s.store.HasUsers(r.Context())
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeRequestError(w, r, http.StatusInternalServerError, err)
 		return false
 	}
 	if !hasUsers || target.kind == projectAccessCollection {
@@ -56,7 +56,7 @@ func (s *Server) requireProjectResourceAccess(w http.ResponseWriter, r *http.Req
 	}
 	user, ok, err := s.currentUser(r)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeRequestError(w, r, http.StatusInternalServerError, err)
 		return false
 	}
 	if !ok {
@@ -73,7 +73,7 @@ func (s *Server) requireProjectResourceAccess(w http.ResponseWriter, r *http.Req
 		allowed, err = s.store.CanAccessAgent(r.Context(), user.ID, target.id)
 	}
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeRequestError(w, r, http.StatusInternalServerError, err)
 		return false
 	}
 	if !allowed {
@@ -92,21 +92,21 @@ func (s *Server) requireRemoteResourceScope(w http.ResponseWriter, r *http.Reque
 	case projectAccessProject:
 		project, err := s.store.GetProject(r.Context(), target.id)
 		if err != nil {
-			writeStoreError(w, err)
+			s.writeStoreError(w, r, err)
 			return false
 		}
 		path = project.GitPath
 	case projectAccessWorkline:
 		workline, err := s.store.GetWorkline(r.Context(), target.id)
 		if err != nil {
-			writeStoreError(w, err)
+			s.writeStoreError(w, r, err)
 			return false
 		}
 		path = workline.WorktreePath
 		if strings.TrimSpace(path) == "" {
 			project, projectErr := s.store.GetProject(r.Context(), workline.ProjectID)
 			if projectErr != nil {
-				writeStoreError(w, projectErr)
+				s.writeStoreError(w, r, projectErr)
 				return false
 			}
 			path = project.GitPath
@@ -114,7 +114,7 @@ func (s *Server) requireRemoteResourceScope(w http.ResponseWriter, r *http.Reque
 	case projectAccessAgent:
 		agent, err := s.store.GetAgent(r.Context(), target.id)
 		if err != nil {
-			writeStoreError(w, err)
+			s.writeStoreError(w, r, err)
 			return false
 		}
 		path = agent.CWD
@@ -173,7 +173,7 @@ func (s *Server) filterAgentsByMembership(w http.ResponseWriter, r *http.Request
 	}
 	hasUsers, err := s.store.HasUsers(r.Context())
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeRequestError(w, r, http.StatusInternalServerError, err)
 		return nil, false
 	}
 	if !hasUsers {
@@ -181,7 +181,7 @@ func (s *Server) filterAgentsByMembership(w http.ResponseWriter, r *http.Request
 	}
 	user, ok, err := s.currentUser(r)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeRequestError(w, r, http.StatusInternalServerError, err)
 		return nil, false
 	}
 	if !ok {
@@ -192,7 +192,7 @@ func (s *Server) filterAgentsByMembership(w http.ResponseWriter, r *http.Request
 	for _, agent := range agents {
 		allowed, accessErr := s.store.CanAccessAgent(r.Context(), user.ID, agent.ID)
 		if accessErr != nil {
-			writeError(w, http.StatusInternalServerError, accessErr.Error())
+			s.writeRequestError(w, r, http.StatusInternalServerError, accessErr)
 			return nil, false
 		}
 		if allowed {
@@ -208,7 +208,7 @@ func (s *Server) requireAgentAccess(w http.ResponseWriter, r *http.Request, agen
 	}
 	hasUsers, err := s.store.HasUsers(r.Context())
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeRequestError(w, r, http.StatusInternalServerError, err)
 		return false
 	}
 	if !hasUsers {
@@ -216,7 +216,7 @@ func (s *Server) requireAgentAccess(w http.ResponseWriter, r *http.Request, agen
 	}
 	user, ok, err := s.currentUser(r)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeRequestError(w, r, http.StatusInternalServerError, err)
 		return false
 	}
 	if !ok {
@@ -225,7 +225,7 @@ func (s *Server) requireAgentAccess(w http.ResponseWriter, r *http.Request, agen
 	}
 	allowed, err := s.store.CanAccessAgent(r.Context(), user.ID, agentID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeRequestError(w, r, http.StatusInternalServerError, err)
 		return false
 	}
 	if !allowed {

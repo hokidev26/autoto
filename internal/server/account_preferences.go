@@ -86,12 +86,12 @@ func (s *Server) getAccountPreferences(w http.ResponseWriter, r *http.Request) {
 	}
 	preferences, err := s.store.GetAccountPreferences(r.Context(), scopeKind, scopeID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeRequestError(w, r, http.StatusInternalServerError, err)
 		return
 	}
 	response, err := accountPreferencesResponseFromDB(preferences)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeRequestError(w, r, http.StatusInternalServerError, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, response)
@@ -104,7 +104,7 @@ func (s *Server) patchAccountPreferences(w http.ResponseWriter, r *http.Request)
 	}
 	var request patchAccountPreferencesRequest
 	if err := decodeAccountPreferencesJSON(w, r, &request); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	if request.ExpectedRevision < 0 {
@@ -124,12 +124,12 @@ func (s *Server) patchAccountPreferences(w http.ResponseWriter, r *http.Request)
 	if request.Profile != nil {
 		profile, err := normalizeAccountPreferencesProfile(*request.Profile)
 		if err != nil {
-			writeError(w, http.StatusBadRequest, err.Error())
+			s.writeRequestError(w, r, http.StatusBadRequest, err)
 			return
 		}
 		raw, err := json.Marshal(profile)
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, err.Error())
+			s.writeRequestError(w, r, http.StatusInternalServerError, err)
 			return
 		}
 		value := json.RawMessage(raw)
@@ -138,7 +138,7 @@ func (s *Server) patchAccountPreferences(w http.ResponseWriter, r *http.Request)
 	if request.PreferredModel != nil {
 		preferredModel, err := normalizePreferredModel(*request.PreferredModel)
 		if err != nil {
-			writeError(w, http.StatusBadRequest, err.Error())
+			s.writeRequestError(w, r, http.StatusBadRequest, err)
 			return
 		}
 		patch.PreferredModel = &preferredModel
@@ -146,12 +146,12 @@ func (s *Server) patchAccountPreferences(w http.ResponseWriter, r *http.Request)
 	if request.ModelVisibility != nil {
 		modelVisibility, err := normalizeAccountPreferencesModelVisibility(*request.ModelVisibility)
 		if err != nil {
-			writeError(w, http.StatusBadRequest, err.Error())
+			s.writeRequestError(w, r, http.StatusBadRequest, err)
 			return
 		}
 		raw, err := json.Marshal(modelVisibility)
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, err.Error())
+			s.writeRequestError(w, r, http.StatusInternalServerError, err)
 			return
 		}
 		value := json.RawMessage(raw)
@@ -168,7 +168,7 @@ func (s *Server) patchAccountPreferences(w http.ResponseWriter, r *http.Request)
 	}
 	response, err := accountPreferencesResponseFromDB(preferences)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeRequestError(w, r, http.StatusInternalServerError, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, response)
@@ -181,7 +181,7 @@ func (s *Server) importLocalAccountPreferences(w http.ResponseWriter, r *http.Re
 	}
 	var request importAccountPreferencesRequest
 	if err := decodeAccountPreferencesJSON(w, r, &request); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	if request.Version != 1 {
@@ -190,27 +190,27 @@ func (s *Server) importLocalAccountPreferences(w http.ResponseWriter, r *http.Re
 	}
 	profile, err := normalizeAccountPreferencesProfile(request.Profile)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	preferredModel, err := normalizePreferredModel(request.PreferredModel)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	modelVisibility, err := normalizeAccountPreferencesModelVisibility(request.ModelVisibility)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	profileJSON, err := json.Marshal(profile)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeRequestError(w, r, http.StatusInternalServerError, err)
 		return
 	}
 	modelVisibilityJSON, err := json.Marshal(modelVisibility)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeRequestError(w, r, http.StatusInternalServerError, err)
 		return
 	}
 	preferences, _, err := s.store.ImportAccountPreferences(r.Context(), scopeKind, scopeID, db.AccountPreferencesImport{
@@ -225,7 +225,7 @@ func (s *Server) importLocalAccountPreferences(w http.ResponseWriter, r *http.Re
 	}
 	response, err := accountPreferencesResponseFromDB(preferences)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeRequestError(w, r, http.StatusInternalServerError, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, response)
@@ -238,7 +238,7 @@ func (s *Server) accountPreferencesScope(w http.ResponseWriter, r *http.Request,
 	}
 	hasUsers, err := s.store.HasUsers(r.Context())
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeRequestError(w, r, http.StatusInternalServerError, err)
 		return "", "", false
 	}
 	if !hasUsers {
@@ -278,7 +278,7 @@ func (s *Server) accountPreferencesScope(w http.ResponseWriter, r *http.Request,
 		return "", "", false
 	}
 	if _, _, err := s.store.ClaimInstanceAccountPreferencesForFirstUser(r.Context(), user.ID); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeRequestError(w, r, http.StatusInternalServerError, err)
 		return "", "", false
 	}
 	return db.AccountPreferenceScopeUser, user.ID, true
@@ -286,17 +286,17 @@ func (s *Server) accountPreferencesScope(w http.ResponseWriter, r *http.Request,
 
 func (s *Server) writeAccountPreferencesStoreError(w http.ResponseWriter, r *http.Request, scopeKind, scopeID string, err error) {
 	if !errors.Is(err, db.ErrConflict) {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeRequestError(w, r, http.StatusInternalServerError, err)
 		return
 	}
 	current, currentErr := s.store.GetAccountPreferences(r.Context(), scopeKind, scopeID)
 	if currentErr != nil {
-		writeError(w, http.StatusInternalServerError, currentErr.Error())
+		s.writeRequestError(w, r, http.StatusInternalServerError, currentErr)
 		return
 	}
 	response, responseErr := accountPreferencesResponseFromDB(current)
 	if responseErr != nil {
-		writeError(w, http.StatusInternalServerError, responseErr.Error())
+		s.writeRequestError(w, r, http.StatusInternalServerError, responseErr)
 		return
 	}
 	writeJSON(w, http.StatusConflict, map[string]any{"error": err.Error(), "current": response})

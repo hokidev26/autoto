@@ -91,7 +91,7 @@ type codexOAuthDeleteOutcome struct {
 func (s *Server) batchImportCodexOAuthCredentials(w http.ResponseWriter, r *http.Request) {
 	request, err := decodeCodexOAuthImportBatchRequest(r)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 
@@ -231,12 +231,12 @@ func writeCodexOAuthImportBatchResponse(w http.ResponseWriter, results []codexOA
 func (s *Server) batchCodexOAuthAccounts(w http.ResponseWriter, r *http.Request) {
 	request, err := decodeCodexOAuthAccountsBatchRequest(r)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	ids, err := validateCodexOAuthAccountsBatchRequest(request)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 

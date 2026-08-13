@@ -192,7 +192,7 @@ func notificationEventKind(event string) string {
 func (s *Server) getNotificationSettings(w http.ResponseWriter, r *http.Request) {
 	settings, err := s.store.GetNotificationSettings(r.Context())
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeRequestError(w, r, http.StatusInternalServerError, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, settings)
@@ -201,18 +201,18 @@ func (s *Server) getNotificationSettings(w http.ResponseWriter, r *http.Request)
 func (s *Server) updateNotificationSettings(w http.ResponseWriter, r *http.Request) {
 	var req notificationSettingsPayload
 	if err := decodeJSON(r, &req); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	if err := validateWebhookURL(req.WebhookURL, false); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	updated, err := s.store.UpdateNotificationSettings(r.Context(), db.NotificationSettings{
 		Enabled: req.Enabled, WebhookURL: strings.TrimSpace(req.WebhookURL), NotifyOnApproval: req.NotifyOnApproval, NotifyOnDone: req.NotifyOnDone, NotifyOnError: req.NotifyOnError,
 	})
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeRequestError(w, r, http.StatusInternalServerError, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, updated)
@@ -225,7 +225,7 @@ func (s *Server) testNotification(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if err := s.notifier.SendTest(r.Context()); err != nil {
-			writeError(w, http.StatusBadGateway, err.Error())
+			s.writeRequestError(w, r, http.StatusBadGateway, err)
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "sentAt": db.Now()})
@@ -233,7 +233,7 @@ func (s *Server) testNotification(w http.ResponseWriter, r *http.Request) {
 	}
 	delivery, err := s.automation.EnqueueTest(r.Context())
 	if err != nil {
-		writeError(w, http.StatusBadGateway, err.Error())
+		s.writeRequestError(w, r, http.StatusBadGateway, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "sentAt": db.Now(), "deliveryId": delivery.ID})

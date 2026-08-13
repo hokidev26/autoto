@@ -166,7 +166,7 @@ func writeGitInitializationSuccess(w http.ResponseWriter, repository gitReposito
 func (s *Server) initProjectGit(w http.ResponseWriter, r *http.Request) {
 	project, err := s.store.GetProject(r.Context(), chi.URLParam(r, "id"))
 	if err != nil {
-		writeWorklineWorkflowError(w, err)
+		s.writeWorklineWorkflowError(w, r, err)
 		return
 	}
 	targetPath := strings.TrimSpace(project.GitPath)
@@ -175,13 +175,13 @@ func (s *Server) initProjectGit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := validateDir(targetPath); err != nil {
-		writeWorklineWorkflowError(w, err)
+		s.writeWorklineWorkflowError(w, r, err)
 		return
 	}
 
 	repository, candidates, err := resolveGitRepository(r.Context(), targetPath)
 	if err != nil {
-		writeGitError(w, err)
+		s.writeGitError(w, r, err)
 		return
 	}
 	if len(candidates) > 1 {
@@ -190,7 +190,7 @@ func (s *Server) initProjectGit(w http.ResponseWriter, r *http.Request) {
 	}
 	if repository.Root != "" {
 		if !s.projectAllowsRepoRoot(project, repository.Root) {
-			writeGitError(w, gitCommandError{Status: http.StatusForbidden, Msg: "git repository is outside the configured project boundary"})
+			s.writeGitError(w, r, gitCommandError{Status: http.StatusForbidden, Msg: "git repository is outside the configured project boundary"})
 			return
 		}
 		targetPath = repository.Root
@@ -200,7 +200,7 @@ func (s *Server) initProjectGit(w http.ResponseWriter, r *http.Request) {
 		}
 	} else {
 		if _, _, err := runGitCommand(r.Context(), targetPath, 4096, 15*time.Second, nil, "init"); err != nil {
-			writeGitError(w, err)
+			s.writeGitError(w, r, err)
 			return
 		}
 		repository, err = inspectGitRepository(r.Context(), targetPath)
@@ -208,14 +208,14 @@ func (s *Server) initProjectGit(w http.ResponseWriter, r *http.Request) {
 			if err == nil {
 				err = gitCommandError{Status: http.StatusInternalServerError, Msg: "git init completed but the repository root could not be resolved"}
 			}
-			writeGitError(w, err)
+			s.writeGitError(w, r, err)
 			return
 		}
 		targetPath = repository.Root
 	}
 
 	if _, _, err := runGitCommand(r.Context(), targetPath, 4096, gitInitializationTimeout, nil, "add", "."); err != nil {
-		writeGitError(w, err)
+		s.writeGitError(w, r, err)
 		return
 	}
 	// -c is a git-global option and must precede the commit subcommand. Keeping
@@ -225,17 +225,17 @@ func (s *Server) initProjectGit(w http.ResponseWriter, r *http.Request) {
 		"-c", "user.email=autoto@localhost",
 		"commit", "--allow-empty", "-m", "initial",
 	); err != nil {
-		writeGitError(w, err)
+		s.writeGitError(w, r, err)
 		return
 	}
 
 	repository, err = inspectGitRepository(r.Context(), targetPath)
 	if err != nil {
-		writeGitError(w, err)
+		s.writeGitError(w, r, err)
 		return
 	}
 	if repository.Root == "" || !repository.HasHead {
-		writeGitError(w, gitCommandError{Status: http.StatusInternalServerError, Msg: "git repository was initialized but HEAD is still unavailable"})
+		s.writeGitError(w, r, gitCommandError{Status: http.StatusInternalServerError, Msg: "git repository was initialized but HEAD is still unavailable"})
 		return
 	}
 	writeGitInitializationSuccess(w, repository, true)

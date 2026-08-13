@@ -582,8 +582,11 @@ func TestRestrictedAndFullRemoteFilesystemScopes(t *testing.T) {
 	}
 	restricted := httptest.NewRecorder()
 	app.Routes().ServeHTTP(restricted, restrictedRequest)
-	if restricted.Code != http.StatusBadRequest || !strings.Contains(restricted.Body.String(), "path escapes default project directory") {
+	if restricted.Code != http.StatusBadRequest || !strings.Contains(restricted.Body.String(), `"error":"invalid request"`) {
 		t.Fatalf("restricted filesystem scope escaped the project root: %d %s", restricted.Code, restricted.Body.String())
+	}
+	if strings.Contains(restricted.Body.String(), "path escapes default project directory") || strings.Contains(restricted.Body.String(), outside) {
+		t.Fatalf("restricted remote session leaked filesystem detail: %s", restricted.Body.String())
 	}
 
 	fullRequest := newTestRequest(http.MethodGet, target, nil)

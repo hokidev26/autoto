@@ -38,11 +38,11 @@ func (s *Server) terminalWS(w http.ResponseWriter, r *http.Request) {
 	}
 	agent, err := s.store.GetAgent(r.Context(), agentID)
 	if err != nil {
-		writeError(w, statusFromError(err), err.Error())
+		s.writeRequestError(w, r, statusFromError(err), err)
 		return
 	}
 	if err := requireLocalExecutionAgent(agent); err != nil {
-		writeExecutionGuardError(w, err)
+		s.writeExecutionGuardError(w, r, err)
 		return
 	}
 	if !s.validateWebSocketRequest(w, r) {

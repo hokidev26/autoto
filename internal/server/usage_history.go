@@ -116,12 +116,12 @@ func (s *Server) usageHistory(w http.ResponseWriter, r *http.Request) {
 	}
 	filters, err := parseUsageHistoryFilters(r)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	response, err := buildUsageHistory(r.Context(), s.store.ReadDB(), filters)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeRequestError(w, r, http.StatusInternalServerError, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, response)

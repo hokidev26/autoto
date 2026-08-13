@@ -189,7 +189,7 @@ func (s *Server) submitAnthropicOAuthLogin(w http.ResponseWriter, r *http.Reques
 	store, err := s.nativeAnthropicCredentialStore()
 	if err != nil {
 		s.failAnthropicOAuthLogin(loginID, err.Error())
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeRequestError(w, r, http.StatusInternalServerError, err)
 		return
 	}
 	expiresAt := ""
@@ -209,7 +209,7 @@ func (s *Server) submitAnthropicOAuthLogin(w http.ResponseWriter, r *http.Reques
 	}
 	if err := s.ensureNativeAnthropicProvider(); err != nil {
 		s.failAnthropicOAuthLogin(loginID, err.Error())
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeRequestError(w, r, http.StatusInternalServerError, err)
 		return
 	}
 	summary := anthropicauth.Summary(item)

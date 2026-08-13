@@ -41,7 +41,7 @@ func (s *Server) startPreview(w http.ResponseWriter, r *http.Request) {
 	}
 	var request startPreviewRequest
 	if err := decodeJSON(r, &request); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	request.ProfileID = strings.TrimSpace(request.ProfileID)
@@ -118,7 +118,7 @@ func (s *Server) previewRequestContext(w http.ResponseWriter, r *http.Request, r
 		return nil, "", false
 	}
 	if err := requireLocalExecutionAgent(agent); err != nil {
-		writeExecutionGuardError(w, err)
+		s.writeExecutionGuardError(w, r, err)
 		return nil, "", false
 	}
 	if requireWorkspace && strings.TrimSpace(agent.CWD) == "" {

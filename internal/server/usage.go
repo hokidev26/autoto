@@ -69,7 +69,7 @@ func (s *Server) usageSummary(w http.ResponseWriter, r *http.Request) {
 	}
 	summary, err := buildUsageSummary(r.Context(), s.store.ReadDB())
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeRequestError(w, r, http.StatusInternalServerError, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, summary)

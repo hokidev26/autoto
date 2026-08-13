@@ -137,17 +137,17 @@ type agentReviewState struct {
 
 func (s *Server) listReviewPlans(w http.ResponseWriter, r *http.Request) {
 	if err := rejectUnknownQuery(r, "limit"); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	limit, err := queryInt(r, "limit", 50, 1, 100)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	plans, err := s.reviews().list(r.Context(), chi.URLParam(r, "id"), limit)
 	if err != nil {
-		writeReviewHandlerError(w, err)
+		s.writeReviewHandlerError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, plans)
@@ -158,11 +158,11 @@ func (s *Server) listReviewPlans(w http.ResponseWriter, r *http.Request) {
 func (s *Server) createReviewPlan(w http.ResponseWriter, r *http.Request) {
 	var req createReviewPlanRequest
 	if err := decodeLimitedJSON(w, r, &req, maxReviewPlanContentBytes+4096); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	if err := validateAPIText("summary", req.Summary, maxReviewPlanSummaryBytes, false, true); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	if len(req.Content) == 0 || len(req.Content) > maxReviewPlanContentBytes {
@@ -175,12 +175,12 @@ func (s *Server) createReviewPlan(w http.ResponseWriter, r *http.Request) {
 	}
 	actor, err := s.reviewActor(r)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeRequestError(w, r, http.StatusInternalServerError, err)
 		return
 	}
 	summary, err := s.reviews().create(r.Context(), chi.URLParam(r, "id"), req, actor)
 	if err != nil {
-		writeReviewHandlerError(w, err)
+		s.writeReviewHandlerError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusCreated, summary)
@@ -189,7 +189,7 @@ func (s *Server) createReviewPlan(w http.ResponseWriter, r *http.Request) {
 func (s *Server) getReviewPlan(w http.ResponseWriter, r *http.Request) {
 	detail, err := s.reviews().get(r.Context(), chi.URLParam(r, "id"), chi.URLParam(r, "planId"))
 	if err != nil {
-		writeReviewHandlerError(w, err)
+		s.writeReviewHandlerError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, detail)
@@ -198,7 +198,7 @@ func (s *Server) getReviewPlan(w http.ResponseWriter, r *http.Request) {
 func (s *Server) approveReviewPlan(w http.ResponseWriter, r *http.Request) {
 	var req reviewPlanMutationRequest
 	if err := decodeJSON(r, &req); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	if req.Revision < 1 {
@@ -206,14 +206,14 @@ func (s *Server) approveReviewPlan(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := validateAPIText("comment", req.Comment, 16<<10, false, true); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	result, err := s.reviews().approve(r.Context(), chi.URLParam(r, "id"), chi.URLParam(r, "planId"), req, func() (string, error) {
 		return s.reviewActor(r)
 	})
 	if err != nil {
-		writeReviewHandlerError(w, err)
+		s.writeReviewHandlerError(w, r, err)
 		return
 	}
 	writeJSON(w, result.Status, result.Body)
@@ -222,7 +222,7 @@ func (s *Server) approveReviewPlan(w http.ResponseWriter, r *http.Request) {
 func (s *Server) executeReviewPlan(w http.ResponseWriter, r *http.Request) {
 	var req reviewPlanMutationRequest
 	if err := decodeJSON(r, &req); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	if req.Revision < 1 {
@@ -231,14 +231,14 @@ func (s *Server) executeReviewPlan(w http.ResponseWriter, r *http.Request) {
 	}
 	agentID, planID := chi.URLParam(r, "id"), chi.URLParam(r, "planId")
 	if err := s.enforceRemotePermissionCap(r, agentID); err != nil {
-		writeError(w, statusFromError(err), err.Error())
+		s.writeRequestError(w, r, statusFromError(err), err)
 		return
 	}
 	result, err := s.reviews().execute(r.Context(), agentID, planID, req, func() (string, error) {
 		return s.reviewActor(r)
 	})
 	if err != nil {
-		writeReviewHandlerError(w, err)
+		s.writeReviewHandlerError(w, r, err)
 		return
 	}
 	writeJSON(w, result.Status, result.Body)
@@ -247,7 +247,7 @@ func (s *Server) executeReviewPlan(w http.ResponseWriter, r *http.Request) {
 func (s *Server) cancelReviewPlan(w http.ResponseWriter, r *http.Request) {
 	var req reviewPlanMutationRequest
 	if err := decodeJSON(r, &req); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	if req.Revision < 1 {
@@ -256,12 +256,12 @@ func (s *Server) cancelReviewPlan(w http.ResponseWriter, r *http.Request) {
 	}
 	actor, err := s.reviewActor(r)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeRequestError(w, r, http.StatusInternalServerError, err)
 		return
 	}
 	summary, err := s.reviews().cancel(r.Context(), chi.URLParam(r, "id"), chi.URLParam(r, "planId"), req, actor)
 	if err != nil {
-		writeReviewHandlerError(w, err)
+		s.writeReviewHandlerError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, summary)
@@ -270,7 +270,7 @@ func (s *Server) cancelReviewPlan(w http.ResponseWriter, r *http.Request) {
 func (s *Server) replanReviewPlan(w http.ResponseWriter, r *http.Request) {
 	var req reviewPlanMutationRequest
 	if err := decodeJSON(r, &req); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	if req.Revision < 1 {
@@ -278,17 +278,17 @@ func (s *Server) replanReviewPlan(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := validateAPIText("comment", req.Comment, 16<<10, false, true); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	actor, err := s.reviewActor(r)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeRequestError(w, r, http.StatusInternalServerError, err)
 		return
 	}
 	result, err := s.reviews().replan(r.Context(), chi.URLParam(r, "id"), chi.URLParam(r, "planId"), req, actor, s.remotePermissionModeCapForRequest(r))
 	if err != nil {
-		writeReviewHandlerError(w, err)
+		s.writeReviewHandlerError(w, r, err)
 		return
 	}
 	writeJSON(w, result.Status, result.Body)
@@ -322,27 +322,27 @@ func (s *Server) publishReviewPlanEvent(eventType string, detail db.PlanDetail) 
 	s.hub.Publish(agent.Event{Type: eventType, AgentID: detail.Plan.AgentID, Data: map[string]any{"plan": summarizeReviewPlanDetail(detail)}})
 }
 
-func writeReviewHandlerError(w http.ResponseWriter, err error) {
+func (s *Server) writeReviewHandlerError(w http.ResponseWriter, r *http.Request, err error) {
 	var api apiError
 	if errors.As(err, &api) {
 		writeError(w, api.status, api.msg)
 		return
 	}
-	writeReviewServiceError(w, err)
+	s.writeReviewServiceError(w, r, err)
 }
 
-func writeReviewServiceError(w http.ResponseWriter, err error) {
+func (s *Server) writeReviewServiceError(w http.ResponseWriter, r *http.Request, err error) {
 	switch {
 	case errors.Is(err, sql.ErrNoRows), db.IsNotFound(err):
 		writeError(w, http.StatusNotFound, "review plan not found")
 	case errors.Is(err, errPlanStale), db.IsConflict(err):
-		writeError(w, http.StatusConflict, err.Error())
+		s.writeRequestError(w, r, http.StatusConflict, err)
 	case errors.Is(err, errPlanRunnerIntegrationMissing):
-		writeError(w, http.StatusServiceUnavailable, err.Error())
+		s.writeRequestError(w, r, http.StatusServiceUnavailable, err)
 	case strings.Contains(strings.ToLower(err.Error()), "git") || strings.Contains(strings.ToLower(err.Error()), "workspace"):
-		writeError(w, http.StatusConflict, err.Error())
+		s.writeRequestError(w, r, http.StatusConflict, err)
 	default:
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 	}
 }
 

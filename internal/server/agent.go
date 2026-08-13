@@ -187,14 +187,14 @@ func (s *Server) buildWorkState(ctx context.Context, agent db.Agent, spec *db.Sp
 
 func (s *Server) getAgentLiveSnapshot(w http.ResponseWriter, r *http.Request) {
 	if err := rejectUnknownQuery(r, "afterExecutionGeneration"); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	snapshot, err := s.agents().liveSnapshot(r.Context(), chi.URLParam(r, "id"), r.URL.Query().Get("afterExecutionGeneration"), func(children []db.Agent) ([]db.Agent, error) {
 		return s.liveSnapshotChildrenForRequest(r, children)
 	})
 	if err != nil {
-		writeAPIError(w, err)
+		s.writeAPIError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, snapshot)
@@ -253,7 +253,7 @@ func continuationSnapshot(run *db.Run) map[string]any {
 func (s *Server) getAgent(w http.ResponseWriter, r *http.Request) {
 	agent, err := s.agents().get(r.Context(), chi.URLParam(r, "id"))
 	if err != nil {
-		writeAPIError(w, err)
+		s.writeAPIError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, agent)
@@ -320,7 +320,7 @@ func (s *Server) getAgentContext(w http.ResponseWriter, r *http.Request) {
 	}
 	view, err := s.agents().getContext(r.Context(), agentID)
 	if err != nil {
-		writeAPIError(w, err)
+		s.writeAPIError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"context": view.Context, "entityGeneration": view.EntityGeneration})
@@ -329,7 +329,7 @@ func (s *Server) getAgentContext(w http.ResponseWriter, r *http.Request) {
 func (s *Server) patchAgentContextPreferences(w http.ResponseWriter, r *http.Request) {
 	var req agentContextPreferencesRequest
 	if err := decodeJSON(r, &req); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	agentID := strings.TrimSpace(chi.URLParam(r, "id"))
@@ -338,7 +338,7 @@ func (s *Server) patchAgentContextPreferences(w http.ResponseWriter, r *http.Req
 	}
 	result, err := s.agents().patchContextPreferences(r.Context(), agentID, req)
 	if err != nil {
-		writeAPIError(w, err)
+		s.writeAPIError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"context": result.Context, "agent": result.Agent})
@@ -347,7 +347,7 @@ func (s *Server) patchAgentContextPreferences(w http.ResponseWriter, r *http.Req
 func (s *Server) clearAgentContext(w http.ResponseWriter, r *http.Request) {
 	var req clearAgentContextRequest
 	if err := decodeJSON(r, &req); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	agentID := strings.TrimSpace(chi.URLParam(r, "id"))
@@ -356,7 +356,7 @@ func (s *Server) clearAgentContext(w http.ResponseWriter, r *http.Request) {
 	}
 	result, err := s.agents().clearContext(r.Context(), agentID, req)
 	if err != nil {
-		writeAPIError(w, err)
+		s.writeAPIError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"context": result.Context, "cleared": result.Cleared})
@@ -369,7 +369,7 @@ func (s *Server) publishContextUpdated(ctx context.Context, agentID string, agen
 func (s *Server) compactAgentContext(w http.ResponseWriter, r *http.Request) {
 	var req compactAgentContextRequest
 	if err := decodeJSON(r, &req); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	agentID := strings.TrimSpace(chi.URLParam(r, "id"))
@@ -378,7 +378,7 @@ func (s *Server) compactAgentContext(w http.ResponseWriter, r *http.Request) {
 	}
 	result, err := s.agents().compactContext(r.Context(), agentID, req)
 	if err != nil {
-		writeAPIError(w, err)
+		s.writeAPIError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, result)
@@ -400,7 +400,7 @@ type retainAgentContextResponse struct {
 func (s *Server) retainAgentContextSummary(w http.ResponseWriter, r *http.Request) {
 	var req retainAgentContextRequest
 	if err := decodeJSON(r, &req); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	agentID := strings.TrimSpace(chi.URLParam(r, "id"))
@@ -409,7 +409,7 @@ func (s *Server) retainAgentContextSummary(w http.ResponseWriter, r *http.Reques
 	}
 	result, err := s.agents().retainContextSummary(r.Context(), agentID, req)
 	if err != nil {
-		writeAPIError(w, err)
+		s.writeAPIError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusCreated, result)
@@ -435,12 +435,12 @@ type updateAgentTitleRequest struct {
 func (s *Server) updateAgentTitle(w http.ResponseWriter, r *http.Request) {
 	var req updateAgentTitleRequest
 	if err := decodeJSON(r, &req); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	agent, err := s.agents().updateTitle(r.Context(), strings.TrimSpace(chi.URLParam(r, "id")), req)
 	if err != nil {
-		writeAPIError(w, err)
+		s.writeAPIError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, agent)
@@ -453,7 +453,7 @@ type updateCWDRequest struct {
 func (s *Server) updateAgentCWD(w http.ResponseWriter, r *http.Request) {
 	var req updateCWDRequest
 	if err := decodeJSON(r, &req); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	if req.CWD == "" {
@@ -462,12 +462,12 @@ func (s *Server) updateAgentCWD(w http.ResponseWriter, r *http.Request) {
 	}
 	cwd, err := s.resolveCWDForRequest(r, req.CWD)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	agent, err := s.agents().updateCWD(r.Context(), chi.URLParam(r, "id"), cwd)
 	if err != nil {
-		writeAPIError(w, err)
+		s.writeAPIError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, agent)
@@ -480,7 +480,7 @@ type updateModelRequest struct {
 func (s *Server) updateAgentModel(w http.ResponseWriter, r *http.Request) {
 	var req updateModelRequest
 	if err := decodeJSON(r, &req); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	model := strings.TrimSpace(req.Model)
@@ -489,12 +489,12 @@ func (s *Server) updateAgentModel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if _, _, err := s.resolveExecutableModel(model); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	agent, err := s.agents().updateModel(r.Context(), strings.TrimSpace(chi.URLParam(r, "id")), model)
 	if err != nil {
-		writeAPIError(w, err)
+		s.writeAPIError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, agent)
@@ -519,7 +519,7 @@ type updatePermissionModeRequest struct {
 func (s *Server) updateAgentPermissionMode(w http.ResponseWriter, r *http.Request) {
 	var req updatePermissionModeRequest
 	if err := decodeJSON(r, &req); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	permissionMode, ok, message := s.permissionModeAllowedForRequest(r, req.PermissionMode)
@@ -529,7 +529,7 @@ func (s *Server) updateAgentPermissionMode(w http.ResponseWriter, r *http.Reques
 	}
 	agent, err := s.agents().updatePermissionMode(r.Context(), chi.URLParam(r, "id"), permissionMode)
 	if err != nil {
-		writeAPIError(w, err)
+		s.writeAPIError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, agent)
@@ -551,7 +551,7 @@ func (s *Server) interruptAgent(w http.ResponseWriter, r *http.Request) {
 	}
 	interrupted, err := s.runner.Interrupt(r.Context(), chi.URLParam(r, "id"))
 	if err != nil {
-		writeError(w, statusFromError(err), err.Error())
+		s.writeRequestError(w, r, statusFromError(err), err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"interrupted": interrupted})
@@ -570,10 +570,10 @@ func (s *Server) listMessages(w http.ResponseWriter, r *http.Request) {
 	page, err := s.store.ListMessagesPage(r.Context(), chi.URLParam(r, "id"), r.URL.Query().Get("before"), limit)
 	if err != nil {
 		if errors.Is(err, db.ErrInvalidCursor) {
-			writeError(w, http.StatusBadRequest, err.Error())
+			s.writeRequestError(w, r, http.StatusBadRequest, err)
 			return
 		}
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeRequestError(w, r, http.StatusInternalServerError, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, page)
@@ -583,7 +583,7 @@ func (s *Server) listRuns(w http.ResponseWriter, r *http.Request) {
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
 	runs, err := s.store.ListRuns(r.Context(), chi.URLParam(r, "id"), limit)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeRequestError(w, r, http.StatusInternalServerError, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, runs)
@@ -596,7 +596,7 @@ func (s *Server) getActiveRunSummary(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusNotFound, "active run not found")
 			return
 		}
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeRequestError(w, r, http.StatusInternalServerError, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, publicActiveRunSummary(summary))
@@ -609,7 +609,7 @@ func (s *Server) getRunSummary(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusNotFound, "run not found")
 			return
 		}
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeRequestError(w, r, http.StatusInternalServerError, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, publicRunSummary(summary))
@@ -681,7 +681,7 @@ func (s *Server) listRunToolCalls(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Query().Get("view") != "activity" {
 		calls, err := s.store.ListToolCallsByRun(r.Context(), agentID, runID)
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, err.Error())
+			s.writeRequestError(w, r, http.StatusInternalServerError, err)
 			return
 		}
 		writeJSON(w, http.StatusOK, calls)
@@ -708,7 +708,7 @@ func (s *Server) listRunToolCalls(w http.ResponseWriter, r *http.Request) {
 	}
 	page, err := s.agents().activityToolCalls(r.Context(), agentID, runID, limit, offset)
 	if err != nil {
-		writeAPIError(w, err)
+		s.writeAPIError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, page)
@@ -1102,7 +1102,7 @@ func truncateActivityString(value string, maximum int) (string, bool) {
 func (s *Server) listPendingToolCalls(w http.ResponseWriter, r *http.Request) {
 	calls, err := s.agents().listPendingToolCalls(r.Context(), chi.URLParam(r, "id"))
 	if err != nil {
-		writeAPIError(w, err)
+		s.writeAPIError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, calls)
@@ -1167,21 +1167,21 @@ func (s *Server) postMessage(w http.ResponseWriter, r *http.Request) {
 	}
 	var req postMessageRequest
 	if err := decodeLimitedJSON(w, r, &req, 1<<20); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	if err := validateAPIText("text", req.Text, 512<<10, true, true); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	if err := validateAPIText("createdBy", req.CreatedBy, 200, false, false); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	agentID := chi.URLParam(r, "id")
 	contextCap, runSource, err := s.messageRunBoundary(r.Context(), agentID, req.Context)
 	if err != nil {
-		writeError(w, statusFromMessageBoundaryError(err), err.Error())
+		s.writeRequestError(w, r, statusFromMessageBoundaryError(err), err)
 		return
 	}
 	if goal, ok := parseGoalCommand(req.Text); ok {
@@ -1197,7 +1197,7 @@ func (s *Server) postMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if user, ok, err := s.currentUser(r); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeRequestError(w, r, http.StatusInternalServerError, err)
 		return
 	} else if ok {
 		req.CreatedBy = user.ID
@@ -1208,14 +1208,14 @@ func (s *Server) postMessage(w http.ResponseWriter, r *http.Request) {
 	if runSource != db.RunSourceConversation {
 		mode, err = s.reviewModeForMessage(r.Context(), agentID, req.Mode)
 		if err != nil {
-			writeReviewServiceError(w, err)
+			s.writeReviewServiceError(w, r, err)
 			return
 		}
 	}
 	permissionModeCap := narrowPermissionModeCaps(contextCap, s.remotePermissionModeCapForRequest(r))
 	msg, err := s.submitReviewRunWithSource(r.Context(), agentID, req.Text, req.CreatedBy, mode, permissionModeCap, runSource, nil)
 	if err != nil {
-		writeReviewServiceError(w, err)
+		s.writeReviewServiceError(w, r, err)
 		return
 	}
 	w.Header().Set("X-Autoto-Run-Mode", mode)
@@ -1234,17 +1234,17 @@ func (s *Server) postMultipartMessage(w http.ResponseWriter, r *http.Request) {
 			writeError(w, uploadErr.Status, uploadErr.Message)
 			return
 		}
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	agentID := chi.URLParam(r, "id")
 	contextCap, runSource, err := s.messageRunBoundary(r.Context(), agentID, r.FormValue("context"))
 	if err != nil {
-		writeError(w, statusFromMessageBoundaryError(err), err.Error())
+		s.writeRequestError(w, r, statusFromMessageBoundaryError(err), err)
 		return
 	}
 	if user, ok, err := s.currentUser(r); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeRequestError(w, r, http.StatusInternalServerError, err)
 		return
 	} else if ok {
 		createdBy = user.ID
@@ -1255,14 +1255,14 @@ func (s *Server) postMultipartMessage(w http.ResponseWriter, r *http.Request) {
 	if runSource != db.RunSourceConversation {
 		mode, err = s.reviewModeForMessage(r.Context(), agentID, r.FormValue("mode"))
 		if err != nil {
-			writeReviewServiceError(w, err)
+			s.writeReviewServiceError(w, r, err)
 			return
 		}
 	}
 	permissionModeCap := narrowPermissionModeCaps(contextCap, s.remotePermissionModeCapForRequest(r))
 	msg, err := s.submitReviewRunWithSource(r.Context(), agentID, text, createdBy, mode, permissionModeCap, runSource, attachments)
 	if err != nil {
-		writeReviewServiceError(w, err)
+		s.writeReviewServiceError(w, r, err)
 		return
 	}
 	w.Header().Set("X-Autoto-Run-Mode", mode)
@@ -1272,7 +1272,7 @@ func (s *Server) postMultipartMessage(w http.ResponseWriter, r *http.Request) {
 func (s *Server) getMessageAttachment(w http.ResponseWriter, r *http.Request) {
 	attachment, err := s.agents().messageAttachment(r.Context(), chi.URLParam(r, "id"), chi.URLParam(r, "messageId"), chi.URLParam(r, "attachmentId"))
 	if err != nil {
-		writeAPIError(w, err)
+		s.writeAPIError(w, r, err)
 		return
 	}
 	contentType := attachment.MIMEType
@@ -1294,7 +1294,7 @@ func (s *Server) getMessageAttachment(w http.ResponseWriter, r *http.Request) {
 func (s *Server) listTools(w http.ResponseWriter, r *http.Request) {
 	items, err := s.agents().listTools(r.Context(), chi.URLParam(r, "id"))
 	if err != nil {
-		writeAPIError(w, err)
+		s.writeAPIError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, items)
@@ -1309,7 +1309,7 @@ type executeToolRequest struct {
 func (s *Server) executeTool(w http.ResponseWriter, r *http.Request) {
 	var req executeToolRequest
 	if err := decodeJSON(r, &req); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	agentID := chi.URLParam(r, "id")
@@ -1320,7 +1320,7 @@ func (s *Server) executeTool(w http.ResponseWriter, r *http.Request) {
 		return nil
 	})
 	if err != nil {
-		writeAPIError(w, err)
+		s.writeAPIError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, result)
@@ -1340,12 +1340,12 @@ func (s *Server) approveToolCall(w http.ResponseWriter, r *http.Request) {
 	}
 	var req approveToolCallRequest
 	if err := decodeJSON(r, &req); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	result, err := s.agents().approveToolCall(r.Context(), chi.URLParam(r, "id"), chi.URLParam(r, "toolUseId"), req)
 	if err != nil {
-		writeAPIError(w, err)
+		s.writeAPIError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, result)
@@ -1358,12 +1358,12 @@ func (s *Server) answerUserQuestion(w http.ResponseWriter, r *http.Request) {
 	}
 	var req agentpkg.AnswerUserQuestionRequest
 	if err := decodeJSON(r, &req); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	result, err := s.agents().answerUserQuestion(r.Context(), chi.URLParam(r, "id"), chi.URLParam(r, "toolUseId"), req)
 	if err != nil {
-		writeAPIError(w, err)
+		s.writeAPIError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, result)
@@ -1372,7 +1372,7 @@ func (s *Server) answerUserQuestion(w http.ResponseWriter, r *http.Request) {
 func (s *Server) getToolCall(w http.ResponseWriter, r *http.Request) {
 	call, err := s.agents().getToolCall(r.Context(), chi.URLParam(r, "id"), chi.URLParam(r, "toolUseId"))
 	if err != nil {
-		writeAPIError(w, err)
+		s.writeAPIError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, call)

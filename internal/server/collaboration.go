@@ -27,7 +27,7 @@ func (s *Server) getMessageDraft(w http.ResponseWriter, r *http.Request) {
 	}
 	draft, err := s.store.GetMessageDraft(r.Context(), user.ID, chi.URLParam(r, "id"))
 	if errors.Is(err, db.ErrConflict) {
-		writeError(w, http.StatusConflict, err.Error())
+		s.writeRequestError(w, r, http.StatusConflict, err)
 		return
 	}
 	if errors.Is(err, sql.ErrNoRows) {
@@ -35,7 +35,7 @@ func (s *Server) getMessageDraft(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeRequestError(w, r, http.StatusInternalServerError, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, draft)
@@ -48,7 +48,7 @@ func (s *Server) putMessageDraft(w http.ResponseWriter, r *http.Request) {
 	}
 	var req putMessageDraftRequest
 	if err := decodeJSON(r, &req); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	if req.Version == nil {
@@ -65,7 +65,7 @@ func (s *Server) putMessageDraft(w http.ResponseWriter, r *http.Request) {
 	}
 	draft, err := s.store.PutMessageDraft(r.Context(), db.MessageDraft{UserID: user.ID, AgentID: chi.URLParam(r, "id"), ContentText: *content}, *req.Version)
 	if err != nil {
-		writeError(w, statusFromError(err), err.Error())
+		s.writeRequestError(w, r, statusFromError(err), err)
 		return
 	}
 	writeJSON(w, http.StatusOK, draft)
@@ -77,7 +77,7 @@ func (s *Server) deleteMessageDraft(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := s.store.DeleteMessageDraft(r.Context(), user.ID, chi.URLParam(r, "id")); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeRequestError(w, r, http.StatusInternalServerError, err)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -111,29 +111,29 @@ func (s *Server) createCorrection(w http.ResponseWriter, r *http.Request) {
 			writeError(w, uploadErr.Status, uploadErr.Message)
 			return
 		}
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	agentID := chi.URLParam(r, "id")
 	_, runSource, err := s.messageRunBoundary(r.Context(), agentID, messageContext)
 	if err != nil {
-		writeError(w, statusFromMessageBoundaryError(err), err.Error())
+		s.writeRequestError(w, r, statusFromMessageBoundaryError(err), err)
 		return
 	}
 	createdBy := ""
 	if user, ok, err := s.currentUser(r); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeRequestError(w, r, http.StatusInternalServerError, err)
 		return
 	} else if ok {
 		createdBy = user.ID
 	}
 	if err := s.enforceRemotePermissionCap(r, agentID); err != nil {
-		writeError(w, statusFromError(err), err.Error())
+		s.writeRequestError(w, r, statusFromError(err), err)
 		return
 	}
 	message, err := s.runner.SubmitCorrectionWithSource(r.Context(), agentID, chi.URLParam(r, "messageId"), text, createdBy, keepAttachmentIDs, runSource, attachments...)
 	if err != nil {
-		writeError(w, statusFromError(err), err.Error())
+		s.writeRequestError(w, r, statusFromError(err), err)
 		return
 	}
 	writeJSON(w, http.StatusAccepted, message)
@@ -152,23 +152,23 @@ func (s *Server) rerunMessage(w http.ResponseWriter, r *http.Request) {
 	}
 	if r.ContentLength > 0 {
 		if err := decodeJSON(r, &req); err != nil {
-			writeError(w, http.StatusBadRequest, err.Error())
+			s.writeRequestError(w, r, http.StatusBadRequest, err)
 			return
 		}
 	}
 	agentID := chi.URLParam(r, "id")
 	_, runSource, err := s.messageRunBoundary(r.Context(), agentID, req.Context)
 	if err != nil {
-		writeError(w, statusFromMessageBoundaryError(err), err.Error())
+		s.writeRequestError(w, r, statusFromMessageBoundaryError(err), err)
 		return
 	}
 	if err := s.enforceRemotePermissionCap(r, agentID); err != nil {
-		writeError(w, statusFromError(err), err.Error())
+		s.writeRequestError(w, r, statusFromError(err), err)
 		return
 	}
 	run, err := s.runner.SubmitRerun(r.Context(), agentID, chi.URLParam(r, "messageId"), runSource)
 	if err != nil {
-		writeError(w, statusFromError(err), err.Error())
+		s.writeRequestError(w, r, statusFromError(err), err)
 		return
 	}
 	writeJSON(w, http.StatusAccepted, run)
@@ -188,7 +188,7 @@ func (s *Server) rollbackConversationToMessage(w http.ResponseWriter, r *http.Re
 	}
 	superseded, err := s.runner.RollbackConversationToMessage(r.Context(), agentID, chi.URLParam(r, "messageId"))
 	if err != nil {
-		writeError(w, statusFromMessageOperationError(err), err.Error())
+		s.writeRequestError(w, r, statusFromMessageOperationError(err), err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"rolledBack": true, "supersededCount": superseded})
@@ -208,7 +208,7 @@ func (s *Server) forkConversationFromMessage(w http.ResponseWriter, r *http.Requ
 	var req forkConversationRequest
 	if r.ContentLength > 0 {
 		if err := decodeJSON(r, &req); err != nil {
-			writeError(w, http.StatusBadRequest, err.Error())
+			s.writeRequestError(w, r, http.StatusBadRequest, err)
 			return
 		}
 	}
@@ -218,7 +218,7 @@ func (s *Server) forkConversationFromMessage(w http.ResponseWriter, r *http.Requ
 	}
 	fork, err := s.runner.ForkConversationFromMessage(r.Context(), agentID, chi.URLParam(r, "messageId"), req.Title)
 	if err != nil {
-		writeError(w, statusFromMessageOperationError(err), err.Error())
+		s.writeRequestError(w, r, statusFromMessageOperationError(err), err)
 		return
 	}
 	writeJSON(w, http.StatusCreated, map[string]any{"agent": fork})
@@ -237,7 +237,7 @@ func (s *Server) deleteConversationMessage(w http.ResponseWriter, r *http.Reques
 	}
 	deleted, err := s.runner.DeleteConversationMessage(r.Context(), agentID, chi.URLParam(r, "messageId"))
 	if err != nil {
-		writeError(w, statusFromMessageOperationError(err), err.Error())
+		s.writeRequestError(w, r, statusFromMessageOperationError(err), err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"deleted": true, "deletedMessageIds": deleted})

@@ -18,7 +18,7 @@ type contextSettingsRequest struct {
 func (s *Server) updateRuntimeContextSettings(w http.ResponseWriter, r *http.Request) {
 	var request contextSettingsRequest
 	if err := decodeJSON(r, &request); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	if request.CompactKeepTurns == nil && request.MaxPrunePercent == nil && request.MinPrunePercent == nil && request.Standard == nil && request.Large == nil {
@@ -48,7 +48,7 @@ func (s *Server) updateRuntimeContextSettings(w http.ResponseWriter, r *http.Req
 		settings.Large = *request.Large
 	}
 	if err := settings.Validate(); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	updated.ContextManagement = settings

@@ -48,7 +48,7 @@ func (s *Server) agentWS(w http.ResponseWriter, r *http.Request) {
 
 	protocol, protocol2, err := websocketProtocol(r)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	if s.store == nil {
@@ -60,7 +60,7 @@ func (s *Server) agentWS(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusNotFound, "agent not found")
 			return
 		}
-		writeError(w, statusFromError(err), err.Error())
+		s.writeRequestError(w, r, statusFromError(err), err)
 		return
 	}
 	if s.hub == nil {
@@ -70,7 +70,7 @@ func (s *Server) agentWS(w http.ResponseWriter, r *http.Request) {
 
 	after, hasAfter, err := websocketAfter(r, protocol2)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 

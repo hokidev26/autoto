@@ -49,7 +49,7 @@ func (s *Server) listMemories(w http.ResponseWriter, r *http.Request) {
 		AgentID:         agentID,
 	})
 	if err != nil {
-		writeError(w, statusFromMemoryError(err), err.Error())
+		s.writeRequestError(w, r, statusFromMemoryError(err), err)
 		return
 	}
 	writeJSON(w, http.StatusOK, memories)
@@ -58,7 +58,7 @@ func (s *Server) listMemories(w http.ResponseWriter, r *http.Request) {
 func (s *Server) createMemory(w http.ResponseWriter, r *http.Request) {
 	var req createMemoryRequest
 	if err := decodeJSON(r, &req); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	agentID := strings.TrimSpace(req.AgentID)
@@ -72,7 +72,7 @@ func (s *Server) createMemory(w http.ResponseWriter, r *http.Request) {
 		Pinned:   req.Pinned,
 	})
 	if err != nil {
-		writeError(w, statusFromMemoryError(err), err.Error())
+		s.writeRequestError(w, r, statusFromMemoryError(err), err)
 		return
 	}
 	writeJSON(w, http.StatusCreated, created)
@@ -81,7 +81,7 @@ func (s *Server) createMemory(w http.ResponseWriter, r *http.Request) {
 func (s *Server) getMemory(w http.ResponseWriter, r *http.Request) {
 	memory, err := s.store.GetMemory(r.Context(), chi.URLParam(r, "id"))
 	if err != nil {
-		writeError(w, statusFromMemoryError(err), err.Error())
+		s.writeRequestError(w, r, statusFromMemoryError(err), err)
 		return
 	}
 	writeJSON(w, http.StatusOK, memory)
@@ -90,12 +90,12 @@ func (s *Server) getMemory(w http.ResponseWriter, r *http.Request) {
 func (s *Server) updateMemory(w http.ResponseWriter, r *http.Request) {
 	memory, err := s.store.GetMemory(r.Context(), chi.URLParam(r, "id"))
 	if err != nil {
-		writeError(w, statusFromMemoryError(err), err.Error())
+		s.writeRequestError(w, r, statusFromMemoryError(err), err)
 		return
 	}
 	var req updateMemoryRequest
 	if err := decodeJSON(r, &req); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	if req.Content != nil {
@@ -116,7 +116,7 @@ func (s *Server) updateMemory(w http.ResponseWriter, r *http.Request) {
 	}
 	updated, err := s.store.UpdateMemory(r.Context(), memory)
 	if err != nil {
-		writeError(w, statusFromMemoryError(err), err.Error())
+		s.writeRequestError(w, r, statusFromMemoryError(err), err)
 		return
 	}
 	writeJSON(w, http.StatusOK, updated)
@@ -124,7 +124,7 @@ func (s *Server) updateMemory(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) deleteMemory(w http.ResponseWriter, r *http.Request) {
 	if err := s.store.DeleteMemory(r.Context(), chi.URLParam(r, "id")); err != nil {
-		writeError(w, statusFromMemoryError(err), err.Error())
+		s.writeRequestError(w, r, statusFromMemoryError(err), err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"deleted": true})

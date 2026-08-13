@@ -51,12 +51,12 @@ type createGoalRequest struct {
 func (s *Server) getSpecBoard(w http.ResponseWriter, r *http.Request) {
 	agentID := chi.URLParam(r, "id")
 	if err := validateAPIIdentifier("agent id", agentID); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	board, err := s.store.GetSpecBoard(r.Context(), agentID)
 	if err != nil {
-		writeStoreError(w, err)
+		s.writeStoreError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, board)
@@ -65,17 +65,17 @@ func (s *Server) getSpecBoard(w http.ResponseWriter, r *http.Request) {
 func (s *Server) createSpecTask(w http.ResponseWriter, r *http.Request) {
 	var req createSpecTaskRequest
 	if err := decodeLimitedJSON(w, r, &req, maxSpecJSONBody); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	agentID := chi.URLParam(r, "id")
 	if err := validateAPIIdentifier("agent id", agentID); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	text := strings.TrimSpace(req.Text)
 	if err := validateAPIText("text", text, db.SpecTaskMaxBytes, true, true); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	status := "todo"
@@ -94,7 +94,7 @@ func (s *Server) createSpecTask(w http.ResponseWriter, r *http.Request) {
 		AgentID: agentID, Text: text, Status: status, Protected: protected, SourceType: "manual",
 	})
 	if err != nil {
-		writeSpecStoreError(w, err)
+		s.writeSpecStoreError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusCreated, board)
@@ -103,16 +103,16 @@ func (s *Server) createSpecTask(w http.ResponseWriter, r *http.Request) {
 func (s *Server) updateSpecTask(w http.ResponseWriter, r *http.Request) {
 	var req updateSpecTaskRequest
 	if err := decodeLimitedJSON(w, r, &req, maxSpecJSONBody); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	agentID, taskID := chi.URLParam(r, "id"), chi.URLParam(r, "taskId")
 	if err := validateAPIIdentifier("agent id", agentID); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	if err := validateAPIIdentifier("task id", taskID); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	if req.ExpectedRevision < 1 {
@@ -126,7 +126,7 @@ func (s *Server) updateSpecTask(w http.ResponseWriter, r *http.Request) {
 	if req.Text != nil {
 		trimmed := strings.TrimSpace(*req.Text)
 		if err := validateAPIText("text", trimmed, db.SpecTaskMaxBytes, true, true); err != nil {
-			writeError(w, http.StatusBadRequest, err.Error())
+			s.writeRequestError(w, r, http.StatusBadRequest, err)
 			return
 		}
 		req.Text = &trimmed
@@ -144,7 +144,7 @@ func (s *Server) updateSpecTask(w http.ResponseWriter, r *http.Request) {
 		AcknowledgeProtected: req.AcknowledgeProtected, Actor: "local-api",
 	})
 	if err != nil {
-		writeSpecStoreError(w, err)
+		s.writeSpecStoreError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, board)
@@ -153,16 +153,16 @@ func (s *Server) updateSpecTask(w http.ResponseWriter, r *http.Request) {
 func (s *Server) deleteSpecTask(w http.ResponseWriter, r *http.Request) {
 	var req deleteSpecTaskRequest
 	if err := decodeLimitedJSON(w, r, &req, 8<<10); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	agentID, taskID := chi.URLParam(r, "id"), chi.URLParam(r, "taskId")
 	if err := validateAPIIdentifier("agent id", agentID); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	if err := validateAPIIdentifier("task id", taskID); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	if req.ExpectedRevision < 1 {
@@ -171,7 +171,7 @@ func (s *Server) deleteSpecTask(w http.ResponseWriter, r *http.Request) {
 	}
 	board, err := s.store.DeleteSpecTask(r.Context(), agentID, taskID, req.ExpectedRevision, req.AcknowledgeProtected, "local-api")
 	if err != nil {
-		writeSpecStoreError(w, err)
+		s.writeSpecStoreError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, board)
@@ -180,12 +180,12 @@ func (s *Server) deleteSpecTask(w http.ResponseWriter, r *http.Request) {
 func (s *Server) reorderSpecTasks(w http.ResponseWriter, r *http.Request) {
 	var req reorderSpecTasksRequest
 	if err := decodeLimitedJSON(w, r, &req, maxSpecJSONBody); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	agentID := chi.URLParam(r, "id")
 	if err := validateAPIIdentifier("agent id", agentID); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	if req.ExpectedBoardRevision == nil || *req.ExpectedBoardRevision < 0 {
@@ -200,7 +200,7 @@ func (s *Server) reorderSpecTasks(w http.ResponseWriter, r *http.Request) {
 	for index, id := range req.TaskIDs {
 		id = strings.TrimSpace(id)
 		if err := validateAPIIdentifier("task id", id); err != nil {
-			writeError(w, http.StatusBadRequest, err.Error())
+			s.writeRequestError(w, r, http.StatusBadRequest, err)
 			return
 		}
 		if _, exists := seen[id]; exists {
@@ -212,7 +212,7 @@ func (s *Server) reorderSpecTasks(w http.ResponseWriter, r *http.Request) {
 	}
 	board, err := s.store.ReorderSpecTasks(r.Context(), agentID, req.TaskIDs, *req.ExpectedBoardRevision)
 	if err != nil {
-		writeSpecStoreError(w, err)
+		s.writeSpecStoreError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, board)
@@ -221,7 +221,7 @@ func (s *Server) reorderSpecTasks(w http.ResponseWriter, r *http.Request) {
 func (s *Server) createSpecGoal(w http.ResponseWriter, r *http.Request) {
 	var req createGoalRequest
 	if err := decodeLimitedJSON(w, r, &req, maxGoalJSONBody); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	s.createGoalResponse(w, r, chi.URLParam(r, "id"), req.Text)
@@ -231,16 +231,16 @@ func (s *Server) createGoalResponse(w http.ResponseWriter, r *http.Request, agen
 	agentID = strings.TrimSpace(agentID)
 	text = strings.TrimSpace(text)
 	if err := validateAPIIdentifier("agent id", agentID); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	if err := validateAPIText("text", text, db.SpecTaskMaxBytes, true, true); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	board, confirmation, err := s.store.CreateGoal(r.Context(), agentID, text)
 	if err != nil {
-		writeSpecStoreError(w, err)
+		s.writeSpecStoreError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusAccepted, map[string]any{
@@ -333,15 +333,15 @@ func rejectUnknownQuery(r *http.Request, allowed ...string) error {
 	return nil
 }
 
-func writeSpecStoreError(w http.ResponseWriter, err error) {
+func (s *Server) writeSpecStoreError(w http.ResponseWriter, r *http.Request, err error) {
 	if db.IsConflict(err) || db.IsNotFound(err) {
-		writeStoreError(w, err)
+		s.writeStoreError(w, r, err)
 		return
 	}
 	message := err.Error()
 	for _, marker := range []string{"invalid spec", "spec task limit", "task order", "expected revision", "expected board"} {
 		if strings.Contains(message, marker) {
-			writeError(w, http.StatusBadRequest, message)
+			s.writeRequestError(w, r, http.StatusBadRequest, err)
 			return
 		}
 	}

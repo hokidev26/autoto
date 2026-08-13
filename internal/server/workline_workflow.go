@@ -92,7 +92,7 @@ func (s *Server) forkWorkline(w http.ResponseWriter, r *http.Request) {
 		return s.permissionModeAllowedForRequest(r, requested)
 	})
 	if err != nil {
-		writeWorklineServiceError(w, err)
+		s.writeWorklineServiceError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusCreated, resp)
@@ -133,7 +133,7 @@ func (s *Server) parentWorklineModel(ctx context.Context, worklineID string) str
 func (s *Server) worklineMergeCheck(w http.ResponseWriter, r *http.Request) {
 	resp, err := s.worklineWorkflow().mergeCheck(r.Context(), chi.URLParam(r, "id"), r.URL.Query().Get("targetWorklineId"))
 	if err != nil {
-		writeWorklineServiceError(w, err)
+		s.writeWorklineServiceError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, resp)
@@ -173,12 +173,12 @@ func mergeCheckAheadBehind(ctx context.Context, dir, targetHead, sourceHead stri
 func (s *Server) worklineMerge(w http.ResponseWriter, r *http.Request) {
 	var req worklineMergeRequest
 	if err := decodeJSON(r, &req); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	result, err := s.worklineWorkflow().merge(r.Context(), chi.URLParam(r, "id"), req)
 	if err != nil {
-		writeWorklineServiceError(w, err)
+		s.writeWorklineServiceError(w, r, err)
 		return
 	}
 	writeJSON(w, result.Status, result.Body)
@@ -212,12 +212,12 @@ type worklineUnmergeResponse struct {
 func (s *Server) worklineUnmerge(w http.ResponseWriter, r *http.Request) {
 	var req worklineUnmergeRequest
 	if err := decodeJSON(r, &req); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	result, err := s.worklineWorkflow().unmerge(r.Context(), chi.URLParam(r, "id"), req)
 	if err != nil {
-		writeWorklineServiceError(w, err)
+		s.writeWorklineServiceError(w, r, err)
 		return
 	}
 	writeJSON(w, result.Status, result.Body)
@@ -245,12 +245,12 @@ type worklineCleanupResponse struct {
 func (s *Server) worklineCleanup(w http.ResponseWriter, r *http.Request) {
 	var req worklineCleanupRequest
 	if err := decodeJSON(r, &req); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	resp, err := s.worklineWorkflow().cleanup(r.Context(), chi.URLParam(r, "id"), req)
 	if err != nil {
-		writeWorklineServiceError(w, err)
+		s.writeWorklineServiceError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, resp)
@@ -526,7 +526,7 @@ func isUnmergedStatus(index, worktree string) bool {
 	}
 }
 
-func writeWorklineWorkflowError(w http.ResponseWriter, err error) {
+func (s *Server) writeWorklineWorkflowError(w http.ResponseWriter, r *http.Request, err error) {
 	if err == nil {
 		return
 	}
@@ -534,5 +534,5 @@ func writeWorklineWorkflowError(w http.ResponseWriter, err error) {
 		writeError(w, http.StatusNotFound, "workline not found")
 		return
 	}
-	writeGitError(w, err)
+	s.writeGitError(w, r, err)
 }

@@ -77,7 +77,7 @@ func (s *Server) listPlugins(w http.ResponseWriter, r *http.Request) {
 	}
 	items, err := service.List(r.Context())
 	if err != nil {
-		writeError(w, pluginStatusFromError(err, http.StatusBadGateway), err.Error())
+		s.writeRequestError(w, r, pluginStatusFromError(err, http.StatusBadGateway), err)
 		return
 	}
 	responses := make([]pluginResponse, 0, len(items))
@@ -99,7 +99,7 @@ func (s *Server) installPlugin(w http.ResponseWriter, r *http.Request) {
 	}
 	var payload pluginInstallPayload
 	if err := decodeJSON(r, &payload); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	payload.RootPath = strings.TrimSpace(payload.RootPath)
@@ -109,7 +109,7 @@ func (s *Server) installPlugin(w http.ResponseWriter, r *http.Request) {
 	}
 	plugin, err := service.Install(r.Context(), payload.RootPath)
 	if err != nil {
-		writeError(w, pluginStatusFromError(err, http.StatusBadRequest), err.Error())
+		s.writeRequestError(w, r, pluginStatusFromError(err, http.StatusBadRequest), err)
 		return
 	}
 	response, err := makePluginResponse(r.Context(), service, plugin)
@@ -132,7 +132,7 @@ func (s *Server) getPlugin(w http.ResponseWriter, r *http.Request) {
 	}
 	plugin, err := service.Get(r.Context(), chi.URLParam(r, "id"))
 	if err != nil {
-		writeError(w, pluginStatusFromError(err, http.StatusBadGateway), err.Error())
+		s.writeRequestError(w, r, pluginStatusFromError(err, http.StatusBadGateway), err)
 		return
 	}
 	response, err := makePluginResponse(r.Context(), service, plugin)
@@ -159,7 +159,7 @@ func (s *Server) changePluginEnabled(w http.ResponseWriter, r *http.Request, ena
 	if enabled {
 		var payload pluginEnablePayload
 		if err := decodeJSON(r, &payload); err != nil {
-			writeError(w, http.StatusBadRequest, err.Error())
+			s.writeRequestError(w, r, http.StatusBadRequest, err)
 			return
 		}
 		if !payload.ConfirmExecuteLocalCode {
@@ -177,7 +177,7 @@ func (s *Server) changePluginEnabled(w http.ResponseWriter, r *http.Request, ena
 		plugin, err = service.Disable(r.Context(), chi.URLParam(r, "id"))
 	}
 	if err != nil {
-		writeError(w, pluginStatusFromError(err, http.StatusBadGateway), err.Error())
+		s.writeRequestError(w, r, pluginStatusFromError(err, http.StatusBadGateway), err)
 		return
 	}
 	response, err := makePluginResponse(r.Context(), service, plugin)
@@ -213,12 +213,12 @@ func (s *Server) discoverPlugin(w http.ResponseWriter, r *http.Request) {
 		if status == http.StatusInternalServerError || status == http.StatusBadRequest {
 			status = http.StatusBadGateway
 		}
-		writeError(w, status, err.Error())
+		s.writeRequestError(w, r, status, err)
 		return
 	}
 	plugin, err := service.Get(r.Context(), id)
 	if err != nil {
-		writeError(w, pluginStatusFromError(err, http.StatusInternalServerError), err.Error())
+		s.writeRequestError(w, r, pluginStatusFromError(err, http.StatusInternalServerError), err)
 		return
 	}
 	s.invalidatePluginApprovals("plugin tools discovered")
@@ -241,7 +241,7 @@ func (s *Server) updatePlugin(w http.ResponseWriter, r *http.Request) {
 	}
 	plugin, err := service.Update(r.Context(), chi.URLParam(r, "id"))
 	if err != nil {
-		writeError(w, pluginStatusFromError(err, http.StatusBadRequest), err.Error())
+		s.writeRequestError(w, r, pluginStatusFromError(err, http.StatusBadRequest), err)
 		return
 	}
 	response, err := makePluginResponse(r.Context(), service, plugin)
@@ -269,7 +269,7 @@ func (s *Server) pluginHealth(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	plugin, err := service.Get(r.Context(), id)
 	if err != nil {
-		writeError(w, pluginStatusFromError(err, http.StatusBadGateway), err.Error())
+		s.writeRequestError(w, r, pluginStatusFromError(err, http.StatusBadGateway), err)
 		return
 	}
 	health := service.Health(r.Context(), id)
@@ -296,11 +296,11 @@ func (s *Server) uninstallPlugin(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	plugin, err := service.Get(r.Context(), id)
 	if err != nil {
-		writeError(w, pluginStatusFromError(err, http.StatusConflict), err.Error())
+		s.writeRequestError(w, r, pluginStatusFromError(err, http.StatusConflict), err)
 		return
 	}
 	if err := service.Uninstall(r.Context(), id); err != nil {
-		writeError(w, pluginStatusFromError(err, http.StatusConflict), err.Error())
+		s.writeRequestError(w, r, pluginStatusFromError(err, http.StatusConflict), err)
 		return
 	}
 	s.invalidatePluginApprovals("plugin uninstalled")

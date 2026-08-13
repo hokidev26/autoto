@@ -60,7 +60,7 @@ type mcpToolsResponse struct {
 func (s *Server) listMCPServers(w http.ResponseWriter, r *http.Request) {
 	servers, err := s.store.ListMCPServers(r.Context())
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeRequestError(w, r, http.StatusInternalServerError, err)
 		return
 	}
 	responses := make([]mcpServerResponse, 0, len(servers))
@@ -73,7 +73,7 @@ func (s *Server) listMCPServers(w http.ResponseWriter, r *http.Request) {
 func (s *Server) getMCPServer(w http.ResponseWriter, r *http.Request) {
 	server, err := s.store.GetMCPServer(r.Context(), chi.URLParam(r, "id"))
 	if err != nil {
-		writeError(w, statusFromError(err), err.Error())
+		s.writeRequestError(w, r, statusFromError(err), err)
 		return
 	}
 	writeJSON(w, http.StatusOK, makeMCPServerResponse(server))
@@ -82,17 +82,17 @@ func (s *Server) getMCPServer(w http.ResponseWriter, r *http.Request) {
 func (s *Server) createMCPServer(w http.ResponseWriter, r *http.Request) {
 	var req mcpServerPayload
 	if err := decodeJSON(r, &req); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	server, err := mcpServerFromPayload(req)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	created, err := s.store.CreateMCPServer(r.Context(), server)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeRequestError(w, r, http.StatusInternalServerError, err)
 		return
 	}
 	writeJSON(w, http.StatusCreated, makeMCPServerResponse(created))
@@ -102,12 +102,12 @@ func (s *Server) updateMCPServer(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	existing, err := s.store.GetMCPServer(r.Context(), id)
 	if err != nil {
-		writeError(w, statusFromError(err), err.Error())
+		s.writeRequestError(w, r, statusFromError(err), err)
 		return
 	}
 	var req updateMCPServerPayload
 	if err := decodeJSON(r, &req); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	if req.Name != nil {
@@ -132,12 +132,12 @@ func (s *Server) updateMCPServer(w http.ResponseWriter, r *http.Request) {
 		existing.Enabled = *req.Enabled
 	}
 	if err := validateMCPServer(existing); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	updated, err := s.store.UpdateMCPServer(r.Context(), existing)
 	if err != nil {
-		writeError(w, statusFromError(err), err.Error())
+		s.writeRequestError(w, r, statusFromError(err), err)
 		return
 	}
 	writeJSON(w, http.StatusOK, makeMCPServerResponse(updated))
@@ -145,7 +145,7 @@ func (s *Server) updateMCPServer(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) deleteMCPServer(w http.ResponseWriter, r *http.Request) {
 	if err := s.store.DeleteMCPServer(r.Context(), chi.URLParam(r, "id")); err != nil {
-		writeError(w, statusFromError(err), err.Error())
+		s.writeRequestError(w, r, statusFromError(err), err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
@@ -162,7 +162,7 @@ func (s *Server) listMCPServerTools(w http.ResponseWriter, r *http.Request) {
 	}
 	server, err := s.store.GetMCPServer(r.Context(), chi.URLParam(r, "id"))
 	if err != nil {
-		writeError(w, statusFromError(err), err.Error())
+		s.writeRequestError(w, r, statusFromError(err), err)
 		return
 	}
 	if !server.Enabled {
@@ -171,7 +171,7 @@ func (s *Server) listMCPServerTools(w http.ResponseWriter, r *http.Request) {
 	}
 	tools, err := discoverMCPTools(r.Context(), server)
 	if err != nil {
-		writeError(w, http.StatusBadGateway, err.Error())
+		s.writeRequestError(w, r, http.StatusBadGateway, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, mcpToolsResponse{ServerID: server.ID, Tools: tools, Count: len(tools), CheckedAt: db.Now()})

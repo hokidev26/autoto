@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -210,10 +211,10 @@ func (s *Server) providerConfigured(provider config.ProviderSummary) bool {
 func (s *Server) resolveExecutableModel(model string) (providers.Provider, string, error) {
 	model = strings.TrimSpace(model)
 	if model == "" {
-		return nil, "", fmt.Errorf("model is required")
+		return nil, "", errors.New("model is required")
 	}
 	if s == nil || s.providers == nil {
-		return nil, "", fmt.Errorf("model runtime registry is unavailable")
+		return nil, "", errors.New("model runtime registry is unavailable")
 	}
 	provider, resolvedModel, err := s.providers.Resolve(model)
 	if err != nil {

@@ -49,7 +49,7 @@ func (s *Server) connectionService() *integrations.ConnectionService {
 func (s *Server) listIntegrationConnections(w http.ResponseWriter, r *http.Request) {
 	items, err := s.connectionService().ListPublic(r.Context())
 	if err != nil {
-		writeStoreError(w, err)
+		s.writeStoreError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, items)
@@ -58,7 +58,7 @@ func (s *Server) listIntegrationConnections(w http.ResponseWriter, r *http.Reque
 func (s *Server) createIntegrationConnection(w http.ResponseWriter, r *http.Request) {
 	var req integrationConnectionRequest
 	if err := decodeJSON(r, &req); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	enabled := true
@@ -67,21 +67,21 @@ func (s *Server) createIntegrationConnection(w http.ResponseWriter, r *http.Requ
 	}
 	connection := db.IntegrationConnection{Kind: req.Kind, Name: req.Name, Enabled: enabled, Endpoint: req.Endpoint, SettingsJSON: req.Settings, SecretRefs: req.SecretRefs}
 	if err := validateIntegrationConnection(&connection); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	created, err := s.store.CreateIntegrationConnection(r.Context(), connection)
 	if err != nil {
 		if db.IsConflict(err) {
-			writeError(w, http.StatusConflict, err.Error())
+			s.writeRequestError(w, r, http.StatusConflict, err)
 		} else {
-			writeError(w, http.StatusBadRequest, err.Error())
+			s.writeRequestError(w, r, http.StatusBadRequest, err)
 		}
 		return
 	}
 	view, err := s.connectionService().GetPublic(r.Context(), created.ID)
 	if err != nil {
-		writeStoreError(w, err)
+		s.writeStoreError(w, r, err)
 		return
 	}
 	if err := s.recordAudit(r.Context(), audit.Event{Category: "integration", Action: "connection.create", Actor: "local-api", SubjectType: "integration_connection", SubjectID: created.ID, Outcome: "success", Risk: "medium", Details: map[string]any{"kind": created.Kind, "enabled": created.Enabled}}); err != nil {
@@ -95,12 +95,12 @@ func (s *Server) updateIntegrationConnection(w http.ResponseWriter, r *http.Requ
 	id := chi.URLParam(r, "id")
 	current, err := s.store.GetIntegrationConnection(r.Context(), id)
 	if err != nil {
-		writeStoreError(w, err)
+		s.writeStoreError(w, r, err)
 		return
 	}
 	var req integrationConnectionPatch
 	if err := decodeJSON(r, &req); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	if req.Name != nil {
@@ -119,21 +119,21 @@ func (s *Server) updateIntegrationConnection(w http.ResponseWriter, r *http.Requ
 		current.SecretRefs = cloneStringMap(*req.SecretRefs)
 	}
 	if err := validateIntegrationConnection(&current); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	updated, err := s.store.UpdateIntegrationConnection(r.Context(), current)
 	if err != nil {
 		if db.IsConflict(err) {
-			writeError(w, http.StatusConflict, err.Error())
+			s.writeRequestError(w, r, http.StatusConflict, err)
 		} else {
-			writeStoreError(w, err)
+			s.writeStoreError(w, r, err)
 		}
 		return
 	}
 	view, err := s.connectionService().GetPublic(r.Context(), updated.ID)
 	if err != nil {
-		writeStoreError(w, err)
+		s.writeStoreError(w, r, err)
 		return
 	}
 	if err := s.recordAudit(r.Context(), audit.Event{Category: "integration", Action: "connection.update", Actor: "local-api", SubjectType: "integration_connection", SubjectID: updated.ID, Outcome: "success", Risk: "medium", Details: map[string]any{"kind": updated.Kind, "enabled": updated.Enabled}}); err != nil {
@@ -147,11 +147,11 @@ func (s *Server) deleteIntegrationConnection(w http.ResponseWriter, r *http.Requ
 	id := chi.URLParam(r, "id")
 	current, err := s.store.GetIntegrationConnection(r.Context(), id)
 	if err != nil {
-		writeStoreError(w, err)
+		s.writeStoreError(w, r, err)
 		return
 	}
 	if err := s.store.DeleteIntegrationConnection(r.Context(), id); err != nil {
-		writeStoreError(w, err)
+		s.writeStoreError(w, r, err)
 		return
 	}
 	if err := s.recordAudit(r.Context(), audit.Event{Category: "integration", Action: "connection.delete", Actor: "local-api", SubjectType: "integration_connection", SubjectID: current.ID, Outcome: "success", Risk: "medium", Details: map[string]any{"kind": current.Kind}}); err != nil {

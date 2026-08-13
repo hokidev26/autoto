@@ -21,7 +21,7 @@ type promptDefinitionRequest struct {
 func (s *Server) listPromptDefinitions(w http.ResponseWriter, r *http.Request) {
 	target, err := definitionScopeFromRequest(r)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	if !s.requireDefinitionScopeAccess(w, r, target) {
@@ -29,7 +29,7 @@ func (s *Server) listPromptDefinitions(w http.ResponseWriter, r *http.Request) {
 	}
 	items, err := s.store.ListPromptDefinitions(r.Context(), target)
 	if err != nil {
-		writeDefinitionStoreError(w, err)
+		s.writeDefinitionStoreError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"items": items})
@@ -38,7 +38,7 @@ func (s *Server) listPromptDefinitions(w http.ResponseWriter, r *http.Request) {
 func (s *Server) createPromptDefinition(w http.ResponseWriter, r *http.Request) {
 	var request promptDefinitionRequest
 	if err := decodeProfileDefinitionJSON(w, r, &request); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	if request.ExpectedRevision != nil {
@@ -56,7 +56,7 @@ func (s *Server) createPromptDefinition(w http.ResponseWriter, r *http.Request) 
 		Scope: *request.Scope, Key: request.Key, DisplayName: request.DisplayName, Summary: request.Summary, Layer: request.Layer, Content: request.Content,
 	})
 	if err != nil {
-		writeDefinitionStoreError(w, err)
+		s.writeDefinitionStoreError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusCreated, created)
@@ -65,7 +65,7 @@ func (s *Server) createPromptDefinition(w http.ResponseWriter, r *http.Request) 
 func (s *Server) getPromptDefinition(w http.ResponseWriter, r *http.Request) {
 	value, err := s.store.GetPromptDefinition(r.Context(), chi.URLParam(r, "id"))
 	if err != nil {
-		writeDefinitionStoreError(w, err)
+		s.writeDefinitionStoreError(w, r, err)
 		return
 	}
 	if !s.requireDefinitionScopeAccess(w, r, definitionTargetForPrompt(value)) {
@@ -77,7 +77,7 @@ func (s *Server) getPromptDefinition(w http.ResponseWriter, r *http.Request) {
 func (s *Server) updatePromptDefinition(w http.ResponseWriter, r *http.Request) {
 	var request promptDefinitionRequest
 	if err := decodeProfileDefinitionJSON(w, r, &request); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	if request.ExpectedRevision == nil || *request.ExpectedRevision < 1 {
@@ -86,7 +86,7 @@ func (s *Server) updatePromptDefinition(w http.ResponseWriter, r *http.Request) 
 	}
 	current, err := s.store.GetPromptDefinition(r.Context(), chi.URLParam(r, "id"))
 	if err != nil {
-		writeDefinitionStoreError(w, err)
+		s.writeDefinitionStoreError(w, r, err)
 		return
 	}
 	if !s.requireDefinitionScopeAccess(w, r, definitionTargetForPrompt(current)) {
@@ -101,7 +101,7 @@ func (s *Server) updatePromptDefinition(w http.ResponseWriter, r *http.Request) 
 	}
 	updated, err := s.store.UpdatePromptDefinitionCAS(r.Context(), chi.URLParam(r, "id"), *request.ExpectedRevision, input)
 	if err != nil {
-		writeDefinitionStoreError(w, err)
+		s.writeDefinitionStoreError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, updated)
@@ -110,7 +110,7 @@ func (s *Server) updatePromptDefinition(w http.ResponseWriter, r *http.Request) 
 func (s *Server) deletePromptDefinition(w http.ResponseWriter, r *http.Request) {
 	var request definitionDeleteRequest
 	if err := decodeProfileDefinitionJSON(w, r, &request); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	if request.ExpectedRevision < 1 {
@@ -119,7 +119,7 @@ func (s *Server) deletePromptDefinition(w http.ResponseWriter, r *http.Request) 
 	}
 	current, err := s.store.GetPromptDefinition(r.Context(), chi.URLParam(r, "id"))
 	if err != nil {
-		writeDefinitionStoreError(w, err)
+		s.writeDefinitionStoreError(w, r, err)
 		return
 	}
 	if !s.requireDefinitionScopeAccess(w, r, definitionTargetForPrompt(current)) {
@@ -127,7 +127,7 @@ func (s *Server) deletePromptDefinition(w http.ResponseWriter, r *http.Request) 
 	}
 	deleted, err := s.store.DeletePromptDefinitionCAS(r.Context(), chi.URLParam(r, "id"), request.ExpectedRevision)
 	if err != nil {
-		writeDefinitionStoreError(w, err)
+		s.writeDefinitionStoreError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, deleted.PromptDefinitionSummary)
@@ -136,7 +136,7 @@ func (s *Server) deletePromptDefinition(w http.ResponseWriter, r *http.Request) 
 func (s *Server) listPromptDefinitionRevisions(w http.ResponseWriter, r *http.Request) {
 	current, err := s.store.GetPromptDefinitionIncludingDeleted(r.Context(), chi.URLParam(r, "id"))
 	if err != nil {
-		writeDefinitionStoreError(w, err)
+		s.writeDefinitionStoreError(w, r, err)
 		return
 	}
 	if !s.requireDefinitionScopeAccess(w, r, definitionTargetForPrompt(current)) {
@@ -144,7 +144,7 @@ func (s *Server) listPromptDefinitionRevisions(w http.ResponseWriter, r *http.Re
 	}
 	items, err := s.store.ListPromptDefinitionRevisions(r.Context(), chi.URLParam(r, "id"))
 	if err != nil {
-		writeDefinitionStoreError(w, err)
+		s.writeDefinitionStoreError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"items": items})
@@ -157,7 +157,7 @@ func definitionTargetForPrompt(value db.PromptDefinition) db.DefinitionScopeTarg
 func (s *Server) restorePromptDefinition(w http.ResponseWriter, r *http.Request) {
 	var request definitionRestoreRequest
 	if err := decodeProfileDefinitionJSON(w, r, &request); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	if request.ExpectedRevision < 1 || request.SourceRevision < 1 {
@@ -167,7 +167,7 @@ func (s *Server) restorePromptDefinition(w http.ResponseWriter, r *http.Request)
 	id := chi.URLParam(r, "id")
 	current, err := s.store.GetPromptDefinitionIncludingDeleted(r.Context(), id)
 	if err != nil {
-		writeDefinitionStoreError(w, err)
+		s.writeDefinitionStoreError(w, r, err)
 		return
 	}
 	if !s.requireDefinitionScopeAccess(w, r, definitionTargetForPrompt(current)) {
@@ -175,7 +175,7 @@ func (s *Server) restorePromptDefinition(w http.ResponseWriter, r *http.Request)
 	}
 	revisions, err := s.store.ListPromptDefinitionRevisions(r.Context(), id)
 	if err != nil {
-		writeDefinitionStoreError(w, err)
+		s.writeDefinitionStoreError(w, r, err)
 		return
 	}
 	sourceFound := false
@@ -194,7 +194,7 @@ func (s *Server) restorePromptDefinition(w http.ResponseWriter, r *http.Request)
 	}
 	restored, err := s.store.RestorePromptDefinitionCAS(r.Context(), chi.URLParam(r, "id"), request.SourceRevision, request.ExpectedRevision)
 	if err != nil {
-		writeDefinitionStoreError(w, err)
+		s.writeDefinitionStoreError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, restored)

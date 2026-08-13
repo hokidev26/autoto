@@ -790,7 +790,7 @@ func (s *Server) submitKiroOAuthLogin(w http.ResponseWriter, r *http.Request) {
 		Region       string `json:"region"`
 	}
 	if err := decodeJSON(r, &req); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	refreshToken := strings.TrimSpace(req.RefreshToken)
@@ -864,7 +864,7 @@ func (s *Server) submitKiroAPIKeyLogin(w http.ResponseWriter, r *http.Request) {
 		KiroAPIKey string `json:"kiroApiKey"`
 	}
 	if err := decodeJSON(r, &req); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	apiKey := strings.TrimSpace(req.KiroAPIKey)

@@ -93,21 +93,21 @@ func (s *Server) listBackgroundTasks(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := rejectUnknownQuery(r, "status", "kind", "limit"); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	agentID := strings.TrimSpace(chi.URLParam(r, "id"))
 	if err := validateAPIIdentifier("agent id", agentID); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	if _, err := s.store.GetAgent(r.Context(), agentID); err != nil {
-		writeStoreError(w, err)
+		s.writeStoreError(w, r, err)
 		return
 	}
 	limit, err := queryInt(r, "limit", 20, 1, maxBackgroundTaskList)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	tasks, err := service.List(r.Context(), tools.BackgroundTaskListOptions{
@@ -133,16 +133,16 @@ func (s *Server) createBackgroundTask(w http.ResponseWriter, r *http.Request) {
 	}
 	agentID := strings.TrimSpace(chi.URLParam(r, "id"))
 	if err := validateAPIIdentifier("agent id", agentID); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	if _, err := s.store.GetAgent(r.Context(), agentID); err != nil {
-		writeStoreError(w, err)
+		s.writeStoreError(w, r, err)
 		return
 	}
 	var req createBackgroundTaskRequest
 	if err := decodeLimitedJSON(w, r, &req, maxBackgroundTaskJSONBody); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	if req.ResumeParent {
@@ -201,7 +201,7 @@ func (s *Server) backgroundTaskForRequest(w http.ResponseWriter, r *http.Request
 	}
 	taskID := strings.TrimSpace(chi.URLParam(r, "taskId"))
 	if err := validateAPIIdentifier("background task id", taskID); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return nil, tools.BackgroundTask{}, false
 	}
 	task, err := service.Get(r.Context(), "", taskID)
@@ -229,17 +229,17 @@ func (s *Server) backgroundTaskOutput(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := rejectUnknownQuery(r, "afterSequence", "limitBytes"); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	after, err := backgroundQueryInt64(r, "afterSequence", 0, 0, 1<<62)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	limitBytes, err := queryInt(r, "limitBytes", maxBackgroundOutputBytes, 1, maxBackgroundOutputBytes)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	page, err := service.Output(r.Context(), task.OwnerAgentID, task.ID, after, limitBytes)
@@ -257,7 +257,7 @@ func (s *Server) waitBackgroundTask(w http.ResponseWriter, r *http.Request) {
 	}
 	var req waitBackgroundTaskRequest
 	if err := decodeLimitedJSON(w, r, &req, 4*1024); err != nil && !errors.Is(err, io.EOF) {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	if req.AfterRevision < 0 {

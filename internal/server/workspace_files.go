@@ -54,7 +54,7 @@ func (s *Server) updateWorkspaceFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := requireLocalExecutionAgent(agent); err != nil {
-		writeExecutionGuardError(w, err)
+		s.writeExecutionGuardError(w, r, err)
 		return
 	}
 	if agent.PermissionMode == "readOnly" {
@@ -96,7 +96,7 @@ func (s *Server) agentWorkspace(w http.ResponseWriter, r *http.Request) (*worksp
 		return nil, false
 	}
 	if err := requireLocalExecutionAgent(agent); err != nil {
-		writeExecutionGuardError(w, err)
+		s.writeExecutionGuardError(w, r, err)
 		return nil, false
 	}
 	fs, err := workspacefs.New(agent.CWD)

@@ -115,12 +115,12 @@ type codexOAuthAccountPatchRequest struct {
 func (s *Server) listCodexOAuthAccounts(w http.ResponseWriter, r *http.Request) {
 	store, err := s.nativeCodexCredentialStore()
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeRequestError(w, r, http.StatusInternalServerError, err)
 		return
 	}
 	accounts, err := store.ListAccounts()
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeRequestError(w, r, http.StatusInternalServerError, err)
 		return
 	}
 	statsByID := map[string]db.ProviderAccountStats{}
@@ -173,7 +173,7 @@ func (s *Server) exportCodexOAuthAccount(w http.ResponseWriter, r *http.Request)
 	}
 	store, err := s.nativeCodexCredentialStore()
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeRequestError(w, r, http.StatusInternalServerError, err)
 		return
 	}
 	document, err := store.ExportByID(chi.URLParam(r, "id"))
@@ -181,7 +181,7 @@ func (s *Server) exportCodexOAuthAccount(w http.ResponseWriter, r *http.Request)
 		if errors.Is(err, os.ErrNotExist) {
 			writeError(w, http.StatusNotFound, "Codex 账号不存在")
 		} else {
-			writeError(w, http.StatusInternalServerError, err.Error())
+			s.writeRequestError(w, r, http.StatusInternalServerError, err)
 		}
 		return
 	}
@@ -208,7 +208,7 @@ func (s *Server) patchCodexOAuthAccount(w http.ResponseWriter, r *http.Request) 
 	defer r.Body.Close()
 	store, err := s.nativeCodexCredentialStore()
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeRequestError(w, r, http.StatusInternalServerError, err)
 		return
 	}
 	var request codexOAuthAccountPatchRequest
@@ -232,7 +232,7 @@ func (s *Server) patchCodexOAuthAccount(w http.ResponseWriter, r *http.Request) 
 		if errors.Is(err, os.ErrNotExist) {
 			writeError(w, http.StatusNotFound, "Codex 账号不存在")
 		} else {
-			writeError(w, http.StatusBadRequest, err.Error())
+			s.writeRequestError(w, r, http.StatusBadRequest, err)
 		}
 		return
 	}
@@ -242,14 +242,14 @@ func (s *Server) patchCodexOAuthAccount(w http.ResponseWriter, r *http.Request) 
 func (s *Server) refreshCodexOAuthAccount(w http.ResponseWriter, r *http.Request) {
 	provider, err := s.nativeCodexProvider()
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeRequestError(w, r, http.StatusInternalServerError, err)
 		return
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), codexOAuthSyncTimeout)
 	defer cancel()
 	response, status, err := s.syncCodexOAuthAccount(ctx, provider, chi.URLParam(r, "id"))
 	if err != nil {
-		writeError(w, status, err.Error())
+		s.writeRequestError(w, r, status, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, response)
@@ -258,12 +258,12 @@ func (s *Server) refreshCodexOAuthAccount(w http.ResponseWriter, r *http.Request
 func (s *Server) deleteCodexOAuthAccount(w http.ResponseWriter, r *http.Request) {
 	store, err := s.nativeCodexCredentialStore()
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeRequestError(w, r, http.StatusInternalServerError, err)
 		return
 	}
 	outcome, err := s.deleteCodexOAuthAccountCore(r.Context(), store, chi.URLParam(r, "id"))
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeRequestError(w, r, http.StatusInternalServerError, err)
 		return
 	}
 	response := map[string]any{
@@ -336,7 +336,7 @@ func (s *Server) codexProviderConfig() (config.ProviderConfig, bool) {
 func (s *Server) importCodexOAuthCredentials(w http.ResponseWriter, r *http.Request) {
 	var req importAuthFileRequest
 	if err := decodeImportAuthFileRequest(r, &req); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	content := strings.TrimSpace(req.Content)
@@ -346,12 +346,12 @@ func (s *Server) importCodexOAuthCredentials(w http.ResponseWriter, r *http.Requ
 	}
 	plan, err := buildProviderAuthImportPlan(req.Filename, content, s.now())
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	store, err := s.nativeCodexCredentialStore()
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeRequestError(w, r, http.StatusInternalServerError, err)
 		return
 	}
 	documents := make([]codexauth.ImportDocument, 0, len(plan.Files))
@@ -360,11 +360,11 @@ func (s *Server) importCodexOAuthCredentials(w http.ResponseWriter, r *http.Requ
 	}
 	stored, err := store.Import(documents)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeRequestError(w, r, http.StatusInternalServerError, err)
 		return
 	}
 	if err := s.ensureNativeCodexProvider(); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeRequestError(w, r, http.StatusInternalServerError, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, providerAuthImportResponse{
@@ -382,7 +382,7 @@ func (s *Server) nativeCodexCredentialStore() (*codexauth.Store, error) {
 	defer s.codexCredentialsMu.Unlock()
 	if s.codexCredentials == nil || strings.TrimSpace(s.codexCredentials.Dir()) == "" {
 		if path == "" {
-			return nil, fmt.Errorf("Autoto HomeDir 未配置，无法保存 Codex 凭据")
+			return nil, errors.New("Autoto HomeDir 未配置，无法保存 Codex 凭据")
 		}
 		s.codexCredentials = codexauth.NewStore(path)
 	}
@@ -470,7 +470,7 @@ func (s *Server) listProviderAuthFilesForName(w http.ResponseWriter, r *http.Req
 	}
 	provider, err := s.authFileProvider(name)
 	if err != nil {
-		writeError(w, http.StatusNotFound, err.Error())
+		s.writeRequestError(w, r, http.StatusNotFound, err)
 		return
 	}
 	body, err := s.providerManagementRequest(r.Context(), provider, http.MethodGet, "/auth-files", nil, "")
@@ -502,12 +502,12 @@ func (s *Server) importProviderAuthFileForName(w http.ResponseWriter, r *http.Re
 	}
 	provider, err := s.authFileProvider(name)
 	if err != nil {
-		writeError(w, http.StatusNotFound, err.Error())
+		s.writeRequestError(w, r, http.StatusNotFound, err)
 		return
 	}
 	var req importAuthFileRequest
 	if err := decodeImportAuthFileRequest(r, &req); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	content := strings.TrimSpace(req.Content)
@@ -517,7 +517,7 @@ func (s *Server) importProviderAuthFileForName(w http.ResponseWriter, r *http.Re
 	}
 	plan, err := buildProviderAuthImportPlan(req.Filename, content, time.Now())
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	result := providerAuthImportResponse{
@@ -563,7 +563,7 @@ func decodeImportAuthFileRequest(r *http.Request, dst *importAuthFileRequest) er
 	var trailing any
 	if err := decoder.Decode(&trailing); err != io.EOF {
 		if err == nil {
-			return fmt.Errorf("request body must contain exactly one JSON value")
+			return errors.New("request body must contain exactly one JSON value")
 		}
 		return err
 	}
@@ -606,7 +606,7 @@ func buildProviderAuthJSONImportPlan(filename string, value any, now time.Time) 
 		if rawAccounts, ok := typed["accounts"]; ok {
 			items, ok := rawAccounts.([]any)
 			if !ok {
-				return providerAuthImportPlan{}, fmt.Errorf("accounts 必须是数组")
+				return providerAuthImportPlan{}, errors.New("accounts 必须是数组")
 			}
 			accounts = append(accounts, items...)
 			if source := authImportString(typed, "format"); source != "" {
@@ -621,7 +621,7 @@ func buildProviderAuthJSONImportPlan(filename string, value any, now time.Time) 
 		format = "array"
 		accounts = append(accounts, typed...)
 	default:
-		return providerAuthImportPlan{}, fmt.Errorf("JSON 顶层必须是对象或账号数组")
+		return providerAuthImportPlan{}, errors.New("JSON 顶层必须是对象或账号数组")
 	}
 	return buildProviderAuthAccountPlan(filename, format, root, accounts, now)
 }
@@ -656,14 +656,14 @@ func buildProviderAuthTokenImportPlan(filename, content string, now time.Time) (
 		}
 	}
 	if len(accounts) == 0 {
-		return providerAuthImportPlan{}, fmt.Errorf("未识别到可导入的 Codex JSON、access_token 或 refresh_token")
+		return providerAuthImportPlan{}, errors.New("未识别到可导入的 Codex JSON、access_token 或 refresh_token")
 	}
 	return buildProviderAuthAccountPlan(filename, "token-list", map[string]any{}, accounts, now)
 }
 
 func buildProviderAuthAccountPlan(filename, format string, root map[string]any, accounts []any, now time.Time) (providerAuthImportPlan, error) {
 	if len(accounts) == 0 {
-		return providerAuthImportPlan{}, fmt.Errorf("导入内容中没有账号")
+		return providerAuthImportPlan{}, errors.New("导入内容中没有账号")
 	}
 	if len(accounts) > maxProviderAuthImportAccounts {
 		return providerAuthImportPlan{}, fmt.Errorf("单次最多导入 %d 个账号", maxProviderAuthImportAccounts)
@@ -694,7 +694,7 @@ func buildProviderAuthAccountPlan(filename, format string, root map[string]any, 
 		})
 	}
 	if len(plan.Files) == 0 {
-		return providerAuthImportPlan{}, fmt.Errorf("没有新的可导入账号")
+		return providerAuthImportPlan{}, errors.New("没有新的可导入账号")
 	}
 	return plan, nil
 }
@@ -711,7 +711,7 @@ func normalizeCodexAuthAccount(account, root map[string]any, now time.Time) (map
 	refreshToken := authImportStringFromMaps(maps, "refresh_token", "refreshToken")
 	idToken := authImportStringFromMaps(maps, "id_token", "idToken")
 	if accessToken == "" && refreshToken == "" {
-		return nil, "", "", fmt.Errorf("缺少 access_token 或 refresh_token")
+		return nil, "", "", errors.New("缺少 access_token 或 refresh_token")
 	}
 	platform := strings.ToLower(authImportString(account, "platform", "provider"))
 	if platform != "" && platform != "openai" && platform != "codex" {
@@ -1219,7 +1219,7 @@ func providerManagementBaseURL(provider config.ProviderSummary) (string, error) 
 func (s *Server) authFileProvider(name string) (config.ProviderSummary, error) {
 	name = strings.TrimSpace(name)
 	if name == "" {
-		return config.ProviderSummary{}, fmt.Errorf("provider name is required")
+		return config.ProviderSummary{}, errors.New("provider name is required")
 	}
 	for _, provider := range s.configSnapshot().Providers.Summaries() {
 		if provider.Name != name {

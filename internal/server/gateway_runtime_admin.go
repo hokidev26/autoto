@@ -115,7 +115,7 @@ func (s *Server) patchGatewayRuntimeConfig(w http.ResponseWriter, r *http.Reques
 	next := current
 	applyGatewayConfigPatch(&next.Gateway, request)
 	if err := validateGatewayRuntimeConfig(&next.Gateway); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	if gatewayPatchIncreasesRemoteRisk(current.Gateway, next.Gateway, request) && !request.ConfirmRemoteRisk {

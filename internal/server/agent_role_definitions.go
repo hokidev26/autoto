@@ -39,7 +39,7 @@ type definitionRestoreRequest struct {
 func (s *Server) listAgentRoleDefinitions(w http.ResponseWriter, r *http.Request) {
 	target, err := definitionScopeFromRequest(r)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	if !s.requireDefinitionScopeAccess(w, r, target) {
@@ -47,7 +47,7 @@ func (s *Server) listAgentRoleDefinitions(w http.ResponseWriter, r *http.Request
 	}
 	items, err := s.store.ListAgentRoleDefinitions(r.Context(), target)
 	if err != nil {
-		writeDefinitionStoreError(w, err)
+		s.writeDefinitionStoreError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"items": items})
@@ -56,7 +56,7 @@ func (s *Server) listAgentRoleDefinitions(w http.ResponseWriter, r *http.Request
 func (s *Server) createAgentRoleDefinition(w http.ResponseWriter, r *http.Request) {
 	var request agentRoleDefinitionRequest
 	if err := decodeProfileDefinitionJSON(w, r, &request); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	if request.ExpectedRevision != nil {
@@ -74,7 +74,7 @@ func (s *Server) createAgentRoleDefinition(w http.ResponseWriter, r *http.Reques
 		Scope: *request.Scope, Key: request.Key, DisplayName: request.DisplayName, Summary: request.Summary, DefinitionJSON: request.Definition,
 	})
 	if err != nil {
-		writeDefinitionStoreError(w, err)
+		s.writeDefinitionStoreError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusCreated, created)
@@ -83,7 +83,7 @@ func (s *Server) createAgentRoleDefinition(w http.ResponseWriter, r *http.Reques
 func (s *Server) getAgentRoleDefinition(w http.ResponseWriter, r *http.Request) {
 	value, err := s.store.GetAgentRoleDefinition(r.Context(), chi.URLParam(r, "id"))
 	if err != nil {
-		writeDefinitionStoreError(w, err)
+		s.writeDefinitionStoreError(w, r, err)
 		return
 	}
 	if !s.requireDefinitionScopeAccess(w, r, definitionTargetForAgentRole(value)) {
@@ -95,7 +95,7 @@ func (s *Server) getAgentRoleDefinition(w http.ResponseWriter, r *http.Request) 
 func (s *Server) updateAgentRoleDefinition(w http.ResponseWriter, r *http.Request) {
 	var request agentRoleDefinitionRequest
 	if err := decodeProfileDefinitionJSON(w, r, &request); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	if request.ExpectedRevision == nil || *request.ExpectedRevision < 1 {
@@ -104,7 +104,7 @@ func (s *Server) updateAgentRoleDefinition(w http.ResponseWriter, r *http.Reques
 	}
 	current, err := s.store.GetAgentRoleDefinition(r.Context(), chi.URLParam(r, "id"))
 	if err != nil {
-		writeDefinitionStoreError(w, err)
+		s.writeDefinitionStoreError(w, r, err)
 		return
 	}
 	if !s.requireDefinitionScopeAccess(w, r, definitionTargetForAgentRole(current)) {
@@ -119,7 +119,7 @@ func (s *Server) updateAgentRoleDefinition(w http.ResponseWriter, r *http.Reques
 	}
 	updated, err := s.store.UpdateAgentRoleDefinitionCAS(r.Context(), chi.URLParam(r, "id"), *request.ExpectedRevision, input)
 	if err != nil {
-		writeDefinitionStoreError(w, err)
+		s.writeDefinitionStoreError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, updated)
@@ -128,7 +128,7 @@ func (s *Server) updateAgentRoleDefinition(w http.ResponseWriter, r *http.Reques
 func (s *Server) deleteAgentRoleDefinition(w http.ResponseWriter, r *http.Request) {
 	var request definitionDeleteRequest
 	if err := decodeProfileDefinitionJSON(w, r, &request); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	if request.ExpectedRevision < 1 {
@@ -137,7 +137,7 @@ func (s *Server) deleteAgentRoleDefinition(w http.ResponseWriter, r *http.Reques
 	}
 	current, err := s.store.GetAgentRoleDefinition(r.Context(), chi.URLParam(r, "id"))
 	if err != nil {
-		writeDefinitionStoreError(w, err)
+		s.writeDefinitionStoreError(w, r, err)
 		return
 	}
 	if !s.requireDefinitionScopeAccess(w, r, definitionTargetForAgentRole(current)) {
@@ -145,7 +145,7 @@ func (s *Server) deleteAgentRoleDefinition(w http.ResponseWriter, r *http.Reques
 	}
 	deleted, err := s.store.DeleteAgentRoleDefinitionCAS(r.Context(), chi.URLParam(r, "id"), request.ExpectedRevision)
 	if err != nil {
-		writeDefinitionStoreError(w, err)
+		s.writeDefinitionStoreError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, deleted.AgentRoleDefinitionSummary)
@@ -154,7 +154,7 @@ func (s *Server) deleteAgentRoleDefinition(w http.ResponseWriter, r *http.Reques
 func (s *Server) listAgentRoleDefinitionRevisions(w http.ResponseWriter, r *http.Request) {
 	current, err := s.store.GetAgentRoleDefinitionIncludingDeleted(r.Context(), chi.URLParam(r, "id"))
 	if err != nil {
-		writeDefinitionStoreError(w, err)
+		s.writeDefinitionStoreError(w, r, err)
 		return
 	}
 	if !s.requireDefinitionScopeAccess(w, r, definitionTargetForAgentRole(current)) {
@@ -162,7 +162,7 @@ func (s *Server) listAgentRoleDefinitionRevisions(w http.ResponseWriter, r *http
 	}
 	items, err := s.store.ListAgentRoleDefinitionRevisions(r.Context(), chi.URLParam(r, "id"))
 	if err != nil {
-		writeDefinitionStoreError(w, err)
+		s.writeDefinitionStoreError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"items": items})
@@ -171,7 +171,7 @@ func (s *Server) listAgentRoleDefinitionRevisions(w http.ResponseWriter, r *http
 func (s *Server) restoreAgentRoleDefinition(w http.ResponseWriter, r *http.Request) {
 	var request definitionRestoreRequest
 	if err := decodeProfileDefinitionJSON(w, r, &request); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	if request.ExpectedRevision < 1 || request.SourceRevision < 1 {
@@ -181,7 +181,7 @@ func (s *Server) restoreAgentRoleDefinition(w http.ResponseWriter, r *http.Reque
 	id := chi.URLParam(r, "id")
 	current, err := s.store.GetAgentRoleDefinitionIncludingDeleted(r.Context(), id)
 	if err != nil {
-		writeDefinitionStoreError(w, err)
+		s.writeDefinitionStoreError(w, r, err)
 		return
 	}
 	if !s.requireDefinitionScopeAccess(w, r, definitionTargetForAgentRole(current)) {
@@ -189,7 +189,7 @@ func (s *Server) restoreAgentRoleDefinition(w http.ResponseWriter, r *http.Reque
 	}
 	revisions, err := s.store.ListAgentRoleDefinitionRevisions(r.Context(), id)
 	if err != nil {
-		writeDefinitionStoreError(w, err)
+		s.writeDefinitionStoreError(w, r, err)
 		return
 	}
 	sourceFound := false
@@ -208,7 +208,7 @@ func (s *Server) restoreAgentRoleDefinition(w http.ResponseWriter, r *http.Reque
 	}
 	restored, err := s.store.RestoreAgentRoleDefinitionCAS(r.Context(), chi.URLParam(r, "id"), request.SourceRevision, request.ExpectedRevision)
 	if err != nil {
-		writeDefinitionStoreError(w, err)
+		s.writeDefinitionStoreError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, restored)
@@ -348,14 +348,14 @@ func decodeProfileDefinitionJSON(w http.ResponseWriter, r *http.Request, destina
 	return nil
 }
 
-func writeDefinitionStoreError(w http.ResponseWriter, err error) {
+func (s *Server) writeDefinitionStoreError(w http.ResponseWriter, r *http.Request, err error) {
 	switch {
 	case errors.Is(err, sql.ErrNoRows):
 		writeError(w, http.StatusNotFound, "definition not found")
 	case db.IsConflict(err):
 		writeError(w, http.StatusConflict, "definition revision conflict")
 	case isDefinitionValidationError(err):
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 	default:
 		writeError(w, http.StatusInternalServerError, "definition operation failed")
 	}

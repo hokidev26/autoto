@@ -26,7 +26,7 @@ func (s *Server) getGeneratedImage(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusNotFound, "generated image not found")
 			return
 		}
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeRequestError(w, r, http.StatusInternalServerError, err)
 		return
 	}
 	if asset.Status != "ready" || asset.MIMEType != "image/png" {

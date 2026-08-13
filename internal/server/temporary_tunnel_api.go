@@ -21,7 +21,7 @@ func (s *Server) installTemporaryTunnel(w http.ResponseWriter, r *http.Request) 
 	}
 	snapshot, err := s.temporaryTunnels().install(r.Context())
 	if err != nil {
-		writeAPIError(w, err)
+		s.writeAPIError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, snapshot)
@@ -39,7 +39,7 @@ func (s *Server) startTemporaryTunnel(w http.ResponseWriter, r *http.Request) {
 	}
 	snapshot, err := s.temporaryTunnels().start(r.Context())
 	if err != nil {
-		writeAPIError(w, err)
+		s.writeAPIError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, snapshot)
@@ -52,7 +52,7 @@ func (s *Server) stopTemporaryTunnel(w http.ResponseWriter, r *http.Request) {
 	}
 	snapshot, err := s.temporaryTunnels().stop(r.Context())
 	if err != nil {
-		writeAPIError(w, err)
+		s.writeAPIError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, snapshot)

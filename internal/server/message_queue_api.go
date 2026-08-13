@@ -20,23 +20,23 @@ type queuedMessageRequest struct {
 	Context string `json:"context"`
 }
 
-func writeQueuedMessageError(w http.ResponseWriter, err error) {
+func (s *Server) writeQueuedMessageError(w http.ResponseWriter, r *http.Request, err error) {
 	switch {
 	case errors.Is(err, db.ErrQueuedMessageNotFound):
 		writeError(w, http.StatusNotFound, "queued message was not found")
 	case errors.Is(err, db.ErrQueuedMessageLimit):
-		writeError(w, http.StatusConflict, err.Error())
+		s.writeRequestError(w, r, http.StatusConflict, err)
 	case errors.Is(err, db.ErrQueuedMessageInvalid):
 		writeError(w, http.StatusBadRequest, "queued message is invalid")
 	default:
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeRequestError(w, r, http.StatusInternalServerError, err)
 	}
 }
 
 func (s *Server) listQueuedMessages(w http.ResponseWriter, r *http.Request) {
 	items, err := s.store.ListQueuedMessages(r.Context(), chi.URLParam(r, "id"))
 	if err != nil {
-		writeQueuedMessageError(w, err)
+		s.writeQueuedMessageError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"queue": items})
@@ -49,23 +49,23 @@ func (s *Server) enqueueMessage(w http.ResponseWriter, r *http.Request) {
 	}
 	var req queuedMessageRequest
 	if err := decodeLimitedJSON(w, r, &req, 1<<20); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	if err := validateAPIText("text", req.Text, 512<<10, true, true); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	agentID := chi.URLParam(r, "id")
 	// Queueing must not become a way around the checks a direct send passes, so
 	// the same boundary resolves here before anything is stored.
 	if _, _, err := s.messageRunBoundary(r.Context(), agentID, req.Context); err != nil {
-		writeError(w, statusFromMessageBoundaryError(err), err.Error())
+		s.writeRequestError(w, r, statusFromMessageBoundaryError(err), err)
 		return
 	}
 	createdBy := ""
 	if user, ok, err := s.currentUser(r); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeRequestError(w, r, http.StatusInternalServerError, err)
 		return
 	} else if ok {
 		createdBy = user.ID
@@ -78,7 +78,7 @@ func (s *Server) enqueueMessage(w http.ResponseWriter, r *http.Request) {
 		RunContext: req.Context,
 	})
 	if err != nil {
-		writeQueuedMessageError(w, err)
+		s.writeQueuedMessageError(w, r, err)
 		return
 	}
 	// An agent that is already idle should not sit on a fresh follow-up waiting
@@ -98,17 +98,17 @@ func (s *Server) enqueueMultipartMessage(w http.ResponseWriter, r *http.Request)
 			writeError(w, uploadErr.Status, uploadErr.Message)
 			return
 		}
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	agentID := chi.URLParam(r, "id")
 	if _, _, err := s.messageRunBoundary(r.Context(), agentID, r.FormValue("context")); err != nil {
-		writeError(w, statusFromMessageBoundaryError(err), err.Error())
+		s.writeRequestError(w, r, statusFromMessageBoundaryError(err), err)
 		return
 	}
 	createdBy := ""
 	if user, ok, err := s.currentUser(r); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		s.writeRequestError(w, r, http.StatusInternalServerError, err)
 		return
 	} else if ok {
 		createdBy = user.ID
@@ -122,7 +122,7 @@ func (s *Server) enqueueMultipartMessage(w http.ResponseWriter, r *http.Request)
 		Attachments: attachments,
 	})
 	if err != nil {
-		writeQueuedMessageError(w, err)
+		s.writeQueuedMessageError(w, r, err)
 		return
 	}
 	s.ScheduleMessageQueueDrain(agentID)
@@ -132,16 +132,16 @@ func (s *Server) enqueueMultipartMessage(w http.ResponseWriter, r *http.Request)
 func (s *Server) updateQueuedMessage(w http.ResponseWriter, r *http.Request) {
 	var req queuedMessageRequest
 	if err := decodeLimitedJSON(w, r, &req, 1<<20); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	if err := validateAPIText("text", req.Text, 512<<10, true, true); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	item, err := s.store.UpdateQueuedMessageText(r.Context(), chi.URLParam(r, "id"), chi.URLParam(r, "queueId"), req.Text)
 	if err != nil {
-		writeQueuedMessageError(w, err)
+		s.writeQueuedMessageError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, item)
@@ -149,7 +149,7 @@ func (s *Server) updateQueuedMessage(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) deleteQueuedMessage(w http.ResponseWriter, r *http.Request) {
 	if err := s.store.DeleteQueuedMessage(r.Context(), chi.URLParam(r, "id"), chi.URLParam(r, "queueId")); err != nil {
-		writeQueuedMessageError(w, err)
+		s.writeQueuedMessageError(w, r, err)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)

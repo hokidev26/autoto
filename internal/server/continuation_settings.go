@@ -28,17 +28,17 @@ func (s *Server) continuationSettingsEndpoint(w http.ResponseWriter, r *http.Req
 	}
 	var req continuationSettingsRequest
 	if err := decodeJSON(r, &req); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	settings, err := strictContinuationSettings(req)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	retries, retriesProvided, err := strictMaxTransientRetries(req.MaxTransientRetries)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 
@@ -101,12 +101,12 @@ func (s *Server) backgroundRuntimeSettingsEndpoint(w http.ResponseWriter, r *htt
 	}
 	var req backgroundRuntimeSettingsRequest
 	if err := decodeJSON(r, &req); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 	settings, err := strictBackgroundRuntimeSettings(req)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
 
