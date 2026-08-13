@@ -96,7 +96,13 @@ type Server struct {
 	setupStatusMu        sync.Mutex
 	setupStatusCache     setupStatusResponse
 	setupStatusCacheAt   time.Time
-	localToken           string
+	setupInstallMu       sync.Mutex
+	setupInstallJobs     map[string]*setupInstallJob
+	// setupProbeFactory and setupInstallRunner exist for tests; nil means the
+	// real probe and a real package-manager subprocess.
+	setupProbeFactory  func() setupProbe
+	setupInstallRunner func(context.Context, string, ...string) (string, error)
+	localToken         string
 	// remoteAccessToken remains only for source compatibility with older
 	// in-package callers; it is never accepted as remote authentication.
 	remoteAccessToken           string
@@ -504,6 +510,8 @@ func (s *Server) Routes() http.Handler {
 	r.Get("/api/task-workspace", s.taskWorkspace)
 	r.Group(func(r chi.Router) {
 		r.Use(s.sensitiveLocalTokenGuard)
+		r.Post("/api/setup/install", s.setupInstall)
+		r.Get("/api/setup/install/status", s.setupInstallStatus)
 		r.Post("/api/providers/test", s.testProviderConfigDraft)
 		r.Post("/api/providers/test-message", s.testProviderMessageDraft)
 		r.Put("/api/providers/{name}/config", s.updateProviderConfig)

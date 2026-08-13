@@ -14,7 +14,10 @@ import (
 )
 
 const (
-	setupVersionProbeTimeout  = 500 * time.Millisecond
+	// Generous enough for a cold start behind antivirus scanning on Windows:
+	// a false "missing" verdict on the required shell locks the user into the
+	// wizard, so this probe must not time out on a merely slow machine.
+	setupVersionProbeTimeout  = 2 * time.Second
 	setupDatabaseProbeTimeout = 250 * time.Millisecond
 	setupStatusCacheTTL       = 5 * time.Second
 	setupVersionOutputLimit   = 4096

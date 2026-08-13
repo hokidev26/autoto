@@ -1176,12 +1176,16 @@ body.white-shell.theme-light .message-performance-live { border-color: #cbd4ff; 
   width: 26px;
   height: 5px;
   display: block;
+  padding: 0;
+  border: 0;
   border-radius: 999px;
   background: color-mix(in srgb, var(--muted) 26%, transparent);
   transition: width .2s ease, background .2s ease;
 }
+.setup-wizard-progress-dot:not(:disabled) { cursor: pointer; }
 .setup-wizard-progress-dot.active { width: 42px; background: var(--setup-accent); }
 .setup-wizard-progress-dot.complete { background: color-mix(in srgb, var(--setup-accent) 62%, transparent); }
+.setup-wizard-progress-dot.complete:not(:disabled):hover { background: var(--setup-accent); }
 .setup-wizard-step-label { color: var(--muted); font-size: 11px; font-weight: 700; letter-spacing: .02em; }
 .setup-wizard-body {
   flex: 1;
@@ -1261,6 +1265,106 @@ body.white-shell.theme-light .message-performance-live { border-color: #cbd4ff; 
 .setup-wizard-inline-action { border: 0; background: transparent; color: var(--setup-accent); padding: 0; cursor: pointer; font-size: 10px; font-weight: 750; }
 .setup-wizard-state-card { margin-top: 6px; border: 1px solid rgba(59, 130, 246, .28); border-radius: 11px; background: rgba(59, 130, 246, .07); color: var(--text-soft); padding: 10px 12px; font-size: 12px; line-height: 1.5; }
 .setup-wizard-state-card.error { border-color: rgba(239, 68, 68, .28); background: rgba(239, 68, 68, .07); color: color-mix(in srgb, #dc2626 76%, var(--text)); }
+.setup-wizard-state-card.ok { border-color: rgba(34, 197, 94, .28); background: rgba(34, 197, 94, .07); color: color-mix(in srgb, #16a34a 72%, var(--text)); }
+.setup-wizard-state-card .setup-wizard-inline-action { margin-left: 8px; font-size: 11px; }
+.setup-wizard-tool-install {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 7px;
+  margin-top: 2px;
+  padding-top: 9px;
+  border-top: 1px dashed color-mix(in srgb, var(--muted) 26%, transparent);
+}
+.setup-wizard-command {
+  display: block;
+  padding: 7px 10px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--bg-elevated) 72%, transparent);
+  color: var(--text-soft);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11px;
+  line-height: 1.5;
+  word-break: break-all;
+  user-select: all;
+}
+.setup-wizard-command.error { border-color: rgba(239, 68, 68, .28); background: rgba(239, 68, 68, .05); user-select: text; }
+.setup-wizard-install-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.setup-wizard-mini-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 11px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--bg-panel);
+  color: var(--text-soft);
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 700;
+  transition: border-color .16s ease, background .16s ease;
+}
+.setup-wizard-mini-btn:hover:not(:disabled) { border-color: color-mix(in srgb, var(--setup-accent) 62%, var(--line)); }
+.setup-wizard-mini-btn.primary { border-color: var(--setup-accent); background: var(--setup-accent); color: #fff; }
+.setup-wizard-mini-btn.primary:hover:not(:disabled) { background: color-mix(in srgb, var(--setup-accent) 88%, #000); }
+.setup-wizard-mini-btn:disabled { opacity: .55; cursor: default; }
+.setup-wizard-install-note { font-size: 11px; line-height: 1.5; color: var(--text-soft); }
+.setup-wizard-install-note.running { color: var(--setup-accent); }
+.setup-wizard-install-note.ok { color: #16a34a; }
+.setup-wizard-install-note.error { color: color-mix(in srgb, #dc2626 76%, var(--text)); }
+.setup-wizard-model-filter {
+  width: 100%;
+  margin-top: 4px;
+  padding: 9px 12px;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  background: var(--bg-soft);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+}
+.setup-wizard-model-filter:focus { outline: none; border-color: var(--setup-accent); }
+.setup-wizard-model-group-label {
+  margin-top: 8px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
+.setup-wizard-model-group-label:first-child { margin-top: 0; }
+.setup-wizard-quick-form {
+  display: grid;
+  gap: 12px;
+  margin-top: 12px;
+  padding: 16px;
+  border: 1px solid color-mix(in srgb, var(--setup-accent) 24%, var(--line));
+  border-radius: 15px;
+  background: color-mix(in srgb, var(--setup-accent) 4%, var(--bg-panel));
+}
+.setup-wizard-quick-form-heading { display: grid; gap: 3px; }
+.setup-wizard-quick-form-heading strong { color: var(--text); font-size: 14px; }
+.setup-wizard-quick-form-heading small { color: var(--muted); font-size: 12px; line-height: 1.5; }
+.setup-wizard-quick-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.setup-wizard-quick-grid label { display: grid; gap: 5px; min-width: 0; }
+.setup-wizard-quick-grid label > span { color: var(--text-soft); font-size: 11px; font-weight: 700; }
+.setup-wizard-quick-grid input,
+.setup-wizard-quick-grid select {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--bg-soft);
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+}
+.setup-wizard-quick-grid input:focus,
+.setup-wizard-quick-grid select:focus { outline: none; border-color: var(--setup-accent); }
+.setup-wizard-quick-wide { grid-column: 1 / -1; }
+.setup-wizard-quick-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 2px; }
+.setup-wizard-empty-with-form { min-height: 0; padding: 18px; }
+.setup-wizard-inline-refresh { margin-top: 6px; }
 .setup-wizard-models { display: grid; gap: 9px; margin-top: 8px; }
 .setup-wizard-model {
   width: 100%;
@@ -1347,6 +1451,7 @@ body.white-shell.theme-light .message-performance-live { border-color: #cbd4ff; 
   .setup-wizard-body { padding: 22px 16px; }
   .setup-wizard-feature-grid { grid-template-columns: 1fr; }
   .setup-wizard-feature-card { min-height: 0; grid-template-columns: 34px minmax(0, 1fr); }
+  .setup-wizard-quick-grid { grid-template-columns: 1fr; }
   .setup-wizard-tool { grid-template-columns: 28px minmax(0, 1fr); }
   .setup-wizard-tool-meta { grid-column: 2; justify-items: start; text-align: left; }
   .setup-wizard-actions { padding: 10px 14px max(10px, env(safe-area-inset-bottom)); }

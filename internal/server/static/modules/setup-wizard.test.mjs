@@ -5,9 +5,13 @@ import { readFile } from "node:fs/promises";
 import setupWizardMessages from "./messages-setup-wizard.mjs";
 import {
   discoverSetupModels,
+  filterSetupModels,
+  groupSetupModels,
   normalizeSetupStatus,
   setupCanFinish,
   setupEnvironmentReady,
+  setupQuickProviderIssues,
+  setupQuickProviderTypes,
   setupWizardStartupDecision,
   setupWizardVersion,
 } from "./setup-wizard.mjs";
@@ -116,6 +120,37 @@ test("setup completion requires a ready environment and selected catalog model",
   assert.equal(setupCanFinish({ status, catalog, selectedModel: "relay:missing" }), false);
 });
 
+test("setup wizard filters and groups models for the picker", () => {
+  const models = discoverSetupModels({
+    providers: [
+      { name: "relay", type: "openai-compatible", configured: true, models: ["gpt-fast", "gpt-max"] },
+      { name: "claude", type: "anthropic", configured: true, models: ["claude-fable"] },
+    ],
+  });
+  assert.deepEqual(filterSetupModels(models, "").length, 3);
+  assert.deepEqual(filterSetupModels(models, "GPT").map((item) => item.value), ["relay:gpt-fast", "relay:gpt-max"]);
+  assert.deepEqual(filterSetupModels(models, "anthropic").map((item) => item.value), ["claude:claude-fable"]);
+  assert.deepEqual(filterSetupModels(models, "nothing-matches"), []);
+
+  const groups = groupSetupModels(models);
+  assert.deepEqual(groups.map((group) => group.provider), ["relay", "claude"]);
+  assert.deepEqual(groups[0].models.map((item) => item.model), ["gpt-fast", "gpt-max"]);
+  assert.equal(groups[1].type, "anthropic");
+});
+
+test("quick provider drafts are validated before any request is sent", () => {
+  assert.deepEqual(setupQuickProviderIssues({ name: "relay", type: "openai", baseUrl: "", apiKey: "sk-x" }), []);
+  assert.deepEqual(
+    setupQuickProviderIssues({ name: "relay", type: "openai-compatible", baseUrl: "https://api.example.com/v1" }),
+    [],
+  );
+  assert.ok(setupQuickProviderIssues({ name: "", type: "openai" }).includes("invalidName"));
+  assert.ok(setupQuickProviderIssues({ name: "-bad", type: "openai" }).includes("invalidName"));
+  assert.ok(setupQuickProviderIssues({ name: "relay", type: "unknown" }).includes("invalidType"));
+  assert.ok(setupQuickProviderIssues({ name: "relay", type: "openai-compatible", baseUrl: "" }).includes("baseUrlRequired"));
+  assert.ok(setupQuickProviderIssues({ name: "relay", type: "openai", baseUrl: "ftp://x" }).includes("baseUrlInvalid"));
+});
+
 test("setup wizard copy covers simplified Chinese, traditional Chinese, and English", () => {
   for (const locale of ["zh-CN", "zh-TW", "en"]) {
     const messages = setupWizardMessages[locale]?.setupWizard;
@@ -125,6 +160,18 @@ test("setup wizard copy covers simplified Chinese, traditional Chinese, and Engl
     assert.ok(messages?.model?.required);
     assert.ok(messages?.complete?.title);
     assert.ok(messages?.tools?.database?.title);
+    assert.ok(messages?.actions?.installNow);
+    assert.ok(messages?.actions?.later);
+    assert.ok(messages?.environment?.installRunning);
+    assert.ok(messages?.environment?.autoRefreshHint);
+    assert.ok(messages?.model?.searchPlaceholder);
+    assert.ok(messages?.quickProvider?.title);
+    assert.ok(messages?.quickProvider?.issues?.invalidName);
+    for (const type of setupQuickProviderTypes) {
+      assert.ok(messages?.quickProvider?.types?.[type], `${locale} misses quickProvider type label ${type}`);
+    }
+    assert.ok(messages?.complete?.verifyOk);
+    assert.ok(messages?.complete?.verifyFail);
   }
 });
 
@@ -138,9 +185,12 @@ test("static shell mounts the first-run flow and keeps a manual settings entry",
   const settingsEntry = html.match(/<button id="settingsWizardBtn"[^>]*>/)?.[0] || "";
   assert.ok(settingsEntry);
   assert.doesNotMatch(settingsEntry, /\bhidden\b|tabindex="-1"/);
-  for (const id of ["setupWizardProgress", "setupWizardBody", "setupWizardBackBtn", "setupWizardRefreshBtn", "setupWizardNextBtn"]) {
+  for (const id of ["setupWizardProgress", "setupWizardBody", "setupWizardBackBtn", "setupWizardSkipBtn", "setupWizardRefreshBtn", "setupWizardNextBtn"]) {
     assert.match(html, new RegExp(`id="${id}"`));
   }
+  assert.match(styles, /\.setup-wizard-quick-form/);
+  assert.match(styles, /\.setup-wizard-command/);
+  assert.match(styles, /\.setup-wizard-model-filter/);
   assert.match(appMain, /loadSetupStatus:\s*\(\{ force = false \} = \{\}\) => api\(force \? "\/api\/setup\/status\?refresh=1" : "\/api\/setup\/status"\)/);
   assert.match(appMain, /const setupStartup = maybeOpenSetupWizard\(\)/);
   assert.match(styles, /\.setup-wizard-tool-list/);

@@ -4,6 +4,11 @@ import { t } from "./i18n.mjs";
 
 export const setupWizardVersion = accountPreferencesCurrentSetupVersion;
 export const setupWizardStepIds = Object.freeze(["welcome", "environment", "model", "complete"]);
+export const setupQuickProviderTypes = Object.freeze(["openai", "openai-compatible", "anthropic", "gemini-interactions"]);
+
+const setupProviderNamePattern = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
+const setupInstallPollInterval = 2000;
+const setupEnvironmentPollInterval = 5000;
 
 function hasOwn(value, key) {
   return Object.prototype.hasOwnProperty.call(value || {}, key);
@@ -40,6 +45,40 @@ export function discoverSetupModels(catalog = {}) {
         error: String(provider?.error || ""),
       }));
   });
+}
+
+export function filterSetupModels(models, filter = "") {
+  const list = Array.isArray(models) ? models : [];
+  const needle = String(filter || "").trim().toLowerCase();
+  if (!needle) return list;
+  return list.filter((item) => `${item?.model || ""} ${item?.provider || ""} ${item?.type || ""}`.toLowerCase().includes(needle));
+}
+
+export function groupSetupModels(models) {
+  const groups = [];
+  const byProvider = new Map();
+  for (const item of Array.isArray(models) ? models : []) {
+    const key = String(item?.provider || "");
+    if (!byProvider.has(key)) {
+      const group = { provider: key, type: String(item?.type || ""), models: [] };
+      byProvider.set(key, group);
+      groups.push(group);
+    }
+    byProvider.get(key).models.push(item);
+  }
+  return groups;
+}
+
+export function setupQuickProviderIssues(draft = {}) {
+  const issues = [];
+  const name = String(draft.name || "").trim();
+  const type = String(draft.type || "").trim();
+  const baseUrl = String(draft.baseUrl || "").trim();
+  if (!setupProviderNamePattern.test(name)) issues.push("invalidName");
+  if (!setupQuickProviderTypes.includes(type)) issues.push("invalidType");
+  if (type === "openai-compatible" && !baseUrl) issues.push("baseUrlRequired");
+  if (baseUrl && !/^https?:\/\//i.test(baseUrl)) issues.push("baseUrlInvalid");
+  return issues;
 }
 
 export function normalizeSetupTool(value = {}) {
@@ -137,6 +176,7 @@ function setupToolDescription(id) {
 
 export function createSetupWizardController({
   state,
+  request,
   loadModelCatalog,
   loadSettings,
   loadSetupStatus,
@@ -153,10 +193,29 @@ export function createSetupWizardController({
   let selectedModel = "";
   let setupStatus = normalizeSetupStatus();
   let automaticFlow = false;
+  let openReason = "manual";
   let suspendedForProviderSettings = false;
   let previousFocus = null;
   let refreshInFlight = null;
   let finishing = false;
+  let wizardOpen = false;
+  let modelFilter = "";
+  let installJobs = {};
+  let installPollTimer = null;
+  let environmentPollTimer = null;
+  let pendingFocusSelector = "";
+  const quickProvider = {
+    open: false,
+    type: "openai-compatible",
+    name: "",
+    baseUrl: "",
+    apiKey: "",
+    model: "",
+    busy: "",
+    notice: null,
+    discoveredModels: [],
+  };
+  let verify = { status: "idle", model: "", message: "" };
 
   function models() {
     return discoverSetupModels(state?.modelCatalog);
@@ -168,6 +227,10 @@ export function createSetupWizardController({
 
   function preferredModel() {
     return String(getPreferredModel?.() || "").trim();
+  }
+
+  function wizardDismissible() {
+    return !automaticFlow || openReason !== "first-run";
   }
 
   function setWizardOwnedInert(node, active) {
@@ -217,6 +280,11 @@ export function createSetupWizardController({
       closeSetupWizard();
       return;
     }
+    if (["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key) && event.target?.closest?.("[data-setup-model]")) {
+      event.preventDefault();
+      moveModelSelection(event.key);
+      return;
+    }
     if (event.key !== "Tab") return;
     const focusable = setupWizardFocusableElements();
     if (!focusable.length) {
@@ -236,12 +304,29 @@ export function createSetupWizardController({
     }
   }
 
+  function moveModelSelection(key) {
+    const visible = filterSetupModels(models(), modelFilter);
+    if (!visible.length) return;
+    const values = visible.map((item) => item.value);
+    let index = values.indexOf(selectedModel);
+    if (key === "Home") index = 0;
+    else if (key === "End") index = values.length - 1;
+    else if (key === "ArrowDown") index = index < 0 ? 0 : Math.min(values.length - 1, index + 1);
+    else if (key === "ArrowUp") index = index < 0 ? 0 : Math.max(0, index - 1);
+    if (values[index] === selectedModel) return;
+    selectedModel = values[index];
+    pendingFocusSelector = "@model-selected";
+    renderSetupWizard();
+  }
+
   function closeSetupWizard({ force = false } = {}) {
-    if (automaticFlow && !force) return false;
+    if (automaticFlow && !wizardDismissible() && !force) return false;
     $("setupWizardModal")?.classList.add("hidden");
     setWizardIsolation(false);
     automaticFlow = false;
     suspendedForProviderSettings = false;
+    wizardOpen = false;
+    syncBackgroundPolling();
     return true;
   }
 
@@ -249,7 +334,9 @@ export function createSetupWizardController({
     const progress = $("setupWizardProgress");
     if (progress) {
       progress.innerHTML = setupWizardStepIds.map((step, index) => `
-        <span class="setup-wizard-progress-dot ${index < activeStep ? "complete" : ""} ${index === activeStep ? "active" : ""}" aria-hidden="true"></span>
+        <button class="setup-wizard-progress-dot ${index < activeStep ? "complete" : ""} ${index === activeStep ? "active" : ""}"
+          type="button" data-setup-step-jump="${index}" ${index < activeStep && !finishing ? "" : "disabled"}
+          aria-label="${escapeAttr(t(`setupWizard.steps.${setupWizardStepIds[index]}`))}"></button>
       `).join("");
     }
     const label = $("setupWizardStepLabel");
@@ -287,6 +374,51 @@ export function createSetupWizardController({
     return { className: "optional", label: t("setupWizard.environment.optional") };
   }
 
+  function installJobFor(toolID) {
+    const job = installJobs[toolID];
+    return job && typeof job === "object" ? job : null;
+  }
+
+  function anyInstallRunning() {
+    return Object.values(installJobs).some((job) => job?.status === "running");
+  }
+
+  function renderToolInstall(tool) {
+    if (tool.available || !tool.installCommand) return "";
+    const job = installJobFor(tool.id);
+    const running = job?.status === "running";
+    const failed = job?.status === "failed";
+    const succeeded = job?.status === "succeeded";
+    const installDisabled = running || anyInstallRunning();
+    const installLabel = running
+      ? t("setupWizard.actions.installing")
+      : failed
+        ? t("setupWizard.actions.retryInstall")
+        : t("setupWizard.actions.installNow");
+    let stateNote = "";
+    if (running) {
+      stateNote = `<span class="setup-wizard-install-note running">${escapeHtml(t("setupWizard.environment.installRunning"))}</span>`;
+    } else if (succeeded) {
+      stateNote = `<span class="setup-wizard-install-note ok">${escapeHtml(t("setupWizard.environment.installSucceeded", { tool: setupToolLabel(tool.id) }))}</span>`;
+    } else if (failed) {
+      const detail = String(job?.output || job?.error || "").trim().slice(-400);
+      stateNote = `
+        <span class="setup-wizard-install-note error">${escapeHtml(t("setupWizard.environment.installFailed", { tool: setupToolLabel(tool.id) }))}</span>
+        ${detail ? `<code class="setup-wizard-command error">${escapeHtml(detail)}</code>` : ""}
+      `;
+    }
+    return `
+      <span class="setup-wizard-tool-install">
+        <code class="setup-wizard-command">${escapeHtml(tool.installCommand)}</code>
+        <span class="setup-wizard-install-actions">
+          <button class="setup-wizard-mini-btn primary" type="button" data-setup-install="${escapeAttr(tool.id)}" ${installDisabled ? "disabled" : ""}>${escapeHtml(installLabel)}</button>
+          <button class="setup-wizard-mini-btn" type="button" data-setup-copy-install="${escapeAttr(tool.id)}">${escapeHtml(t("setupWizard.actions.copyInstall"))}</button>
+        </span>
+        ${stateNote}
+      </span>
+    `;
+  }
+
   function renderTool(tool) {
     const importance = toolImportance(tool);
     const statusLabel = tool.available
@@ -294,9 +426,6 @@ export function createSetupWizardController({
       : tool.recommended && !tool.required
         ? t("setupWizard.environment.limited")
         : t("setupWizard.environment.missing");
-    const action = !tool.available && tool.installCommand
-      ? `<button class="setup-wizard-inline-action" type="button" data-setup-copy-install="${escapeAttr(tool.id)}">${escapeHtml(t("setupWizard.actions.copyInstall"))}</button>`
-      : "";
     return `
       <article class="setup-wizard-tool ${tool.available ? "available" : "missing"}">
         <span class="setup-wizard-tool-state" aria-hidden="true">${tool.available ? "✓" : "!"}</span>
@@ -309,10 +438,16 @@ export function createSetupWizardController({
         </span>
         <span class="setup-wizard-tool-meta">
           <span>${escapeHtml(statusLabel)}</span>
-          ${action}
         </span>
+        ${renderToolInstall(tool)}
       </article>
     `;
+  }
+
+  function environmentHasGaps() {
+    const normalized = normalizeSetupStatus(setupStatus);
+    if (!normalized.loaded || normalized.error || !normalized.database.available) return true;
+    return normalized.tools.some((tool) => !tool.available);
   }
 
   function renderEnvironment() {
@@ -329,9 +464,12 @@ export function createSetupWizardController({
     }
     const manager = normalized.packageManager.available && normalized.packageManager.name
       ? t("setupWizard.environment.packageManager", { manager: normalized.packageManager.name })
-      : t("setupWizard.environment.packageManagerMissing");
+      : `${t("setupWizard.environment.packageManagerMissing")} · ${t("setupWizard.environment.installUnavailable")}`;
     const blocked = !setupEnvironmentReady(normalized)
       ? `<div class="setup-wizard-state-card error" role="alert">${escapeHtml(t("setupWizard.environment.blocked"))}</div>`
+      : "";
+    const autoRefreshHint = environmentHasGaps()
+      ? `<div class="setup-wizard-state-card">${escapeHtml(t("setupWizard.environment.autoRefreshHint"))}</div>`
       : "";
     const environmentTools = [
       normalizeSetupTool({
@@ -351,8 +489,75 @@ export function createSetupWizardController({
         <div class="setup-wizard-package-manager">${escapeHtml(manager)}</div>
         <div class="setup-wizard-tool-list">${environmentTools.map(renderTool).join("")}</div>
         ${blocked}
+        ${autoRefreshHint}
       </section>
     `;
+  }
+
+  function quickProviderNoticeCard() {
+    if (!quickProvider.notice) return "";
+    const kind = quickProvider.notice.kind === "ok" ? "ok" : "error";
+    return `<div class="setup-wizard-state-card ${kind}" role="status">${escapeHtml(String(quickProvider.notice.text || ""))}</div>`;
+  }
+
+  function renderQuickProviderForm() {
+    const busy = quickProvider.busy;
+    const typeOptions = setupQuickProviderTypes.map((type) => `
+      <option value="${escapeAttr(type)}" ${quickProvider.type === type ? "selected" : ""}>${escapeHtml(t(`setupWizard.quickProvider.types.${type}`))}</option>
+    `).join("");
+    const baseUrlRequired = quickProvider.type === "openai-compatible";
+    return `
+      <form class="setup-wizard-quick-form" data-setup-qp-form novalidate>
+        <span class="setup-wizard-quick-form-heading">
+          <strong>${escapeHtml(t("setupWizard.quickProvider.title"))}</strong>
+          <small>${escapeHtml(t("setupWizard.quickProvider.description"))}</small>
+        </span>
+        <div class="setup-wizard-quick-grid">
+          <label>
+            <span>${escapeHtml(t("setupWizard.quickProvider.typeLabel"))}</span>
+            <select data-setup-qp-field="type" ${busy ? "disabled" : ""}>${typeOptions}</select>
+          </label>
+          <label>
+            <span>${escapeHtml(t("setupWizard.quickProvider.nameLabel"))}</span>
+            <input type="text" data-setup-qp-field="name" value="${escapeAttr(quickProvider.name)}" placeholder="my-provider" autocomplete="off" spellcheck="false" ${busy ? "disabled" : ""}>
+          </label>
+          <label class="setup-wizard-quick-wide">
+            <span>${escapeHtml(t("setupWizard.quickProvider.baseUrlLabel"))}${baseUrlRequired ? " *" : ""}</span>
+            <input type="text" data-setup-qp-field="baseUrl" value="${escapeAttr(quickProvider.baseUrl)}" placeholder="https://api.example.com/v1" autocomplete="off" spellcheck="false" ${busy ? "disabled" : ""}>
+          </label>
+          <label class="setup-wizard-quick-wide">
+            <span>${escapeHtml(t("setupWizard.quickProvider.apiKeyLabel"))}</span>
+            <input type="password" data-setup-qp-field="apiKey" value="${escapeAttr(quickProvider.apiKey)}" autocomplete="new-password" ${busy ? "disabled" : ""}>
+          </label>
+          <label class="setup-wizard-quick-wide">
+            <span>${escapeHtml(t("setupWizard.quickProvider.modelLabel"))}</span>
+            <input type="text" data-setup-qp-field="model" value="${escapeAttr(quickProvider.model)}" placeholder="${escapeAttr(t("setupWizard.quickProvider.modelPlaceholder"))}" autocomplete="off" spellcheck="false" ${busy ? "disabled" : ""}>
+          </label>
+        </div>
+        ${quickProviderNoticeCard()}
+        <span class="setup-wizard-quick-actions">
+          <button class="settings-action-btn primary" type="submit" data-setup-qp-save ${busy ? "disabled" : ""}>${escapeHtml(busy === "save" ? t("setupWizard.quickProvider.saving") : t("setupWizard.quickProvider.save"))}</button>
+          <button class="ghost-btn" type="button" data-setup-qp-test ${busy ? "disabled" : ""}>${escapeHtml(busy === "test" ? t("setupWizard.quickProvider.testing") : t("setupWizard.quickProvider.test"))}</button>
+          <button class="ghost-btn" type="button" data-setup-open-providers>${escapeHtml(t("setupWizard.quickProvider.openFull"))}</button>
+        </span>
+      </form>
+    `;
+  }
+
+  function renderModelGroups(visibleModels) {
+    return groupSetupModels(visibleModels).map((group) => `
+      <div class="setup-wizard-model-group-label">${escapeHtml(group.provider)}${group.type ? ` · ${escapeHtml(group.type)}` : ""} · ${escapeHtml(t("setupWizard.model.groupModels", { count: group.models.length }))}</div>
+      ${group.models.map((item) => {
+        const checked = item.value === selectedModel;
+        return `
+          <button class="setup-wizard-model ${checked ? "selected" : ""}" type="button" role="radio" aria-checked="${checked ? "true" : "false"}" tabindex="${checked ? "0" : "-1"}" data-setup-model="${escapeAttr(item.value)}">
+            <span class="setup-wizard-model-indicator" aria-hidden="true">${checked ? "✓" : ""}</span>
+            <span class="setup-wizard-model-copy"><strong>${escapeHtml(item.model)}</strong><small>${escapeHtml(item.provider)}${item.type ? ` · ${escapeHtml(item.type)}` : ""}</small></span>
+            <span class="settings-status-pill ok">${escapeHtml(checked ? t("setupWizard.model.selected") : t("setupWizard.model.usable"))}</span>
+          </button>
+        `;
+      }).join("")}
+    `).join("");
   }
 
   function renderModel() {
@@ -363,38 +568,62 @@ export function createSetupWizardController({
           <span class="setup-wizard-eyebrow">${escapeHtml(t("setupWizard.model.eyebrow"))}</span>
           <h2>${escapeHtml(t("setupWizard.model.title"))}</h2>
           <p>${escapeHtml(t("setupWizard.model.description"))}</p>
-          <div class="setup-wizard-empty">
+          <div class="setup-wizard-empty setup-wizard-empty-with-form">
             <span class="setup-wizard-empty-icon" aria-hidden="true">◇</span>
             <strong>${escapeHtml(t("setupWizard.model.noModels"))}</strong>
             <span>${escapeHtml(t("setupWizard.model.noModelsDescription"))}</span>
-            <div class="setup-wizard-empty-actions">
-              <button class="settings-action-btn primary" type="button" data-setup-open-providers>${escapeHtml(t("setupWizard.model.openProviders"))}</button>
-              <button class="ghost-btn" type="button" data-setup-refresh>${escapeHtml(t("setupWizard.model.refreshModels"))}</button>
-            </div>
+            <button class="ghost-btn setup-wizard-inline-refresh" type="button" data-setup-refresh>${escapeHtml(t("setupWizard.model.refreshModels"))}</button>
           </div>
+          ${renderQuickProviderForm()}
         </section>
       `;
     }
+    const visibleModels = filterSetupModels(availableModels, modelFilter);
+    // Roving tabindex needs at least one stop even when the selection is
+    // filtered out of view.
+    const selectionVisible = visibleModels.some((item) => item.value === selectedModel);
+    const list = visibleModels.length
+      ? renderModelGroups(visibleModels)
+      : `<div class="setup-wizard-state-card">${escapeHtml(t("setupWizard.model.filterEmpty", { filter: modelFilter }))}</div>`;
     return `
       <section class="setup-wizard-step">
         <span class="setup-wizard-eyebrow">${escapeHtml(t("setupWizard.model.eyebrow"))}</span>
         <h2>${escapeHtml(t("setupWizard.model.title"))}</h2>
         <p>${escapeHtml(t("setupWizard.model.description"))}</p>
-        <div class="setup-wizard-models" role="radiogroup" aria-label="${escapeAttr(t("setupWizard.model.title"))}">
-          ${availableModels.map((item) => {
-            const checked = item.value === selectedModel;
-            return `
-              <button class="setup-wizard-model ${checked ? "selected" : ""}" type="button" role="radio" aria-checked="${checked ? "true" : "false"}" data-setup-model="${escapeAttr(item.value)}">
-                <span class="setup-wizard-model-indicator" aria-hidden="true">${checked ? "✓" : ""}</span>
-                <span class="setup-wizard-model-copy"><strong>${escapeHtml(item.model)}</strong><small>${escapeHtml(item.provider)}${item.type ? ` · ${escapeHtml(item.type)}` : ""}</small></span>
-                <span class="settings-status-pill ok">${escapeHtml(checked ? t("setupWizard.model.selected") : t("setupWizard.model.usable"))}</span>
-              </button>
-            `;
-          }).join("")}
+        ${availableModels.length > 6 ? `
+          <input class="setup-wizard-model-filter" type="search" data-setup-model-filter value="${escapeAttr(modelFilter)}"
+            placeholder="${escapeAttr(t("setupWizard.model.searchPlaceholder"))}" aria-label="${escapeAttr(t("setupWizard.model.searchPlaceholder"))}"
+            autocomplete="off" spellcheck="false">
+        ` : ""}
+        <div class="setup-wizard-models" role="radiogroup" aria-label="${escapeAttr(t("setupWizard.model.title"))}" ${selectionVisible ? "" : 'data-setup-selection-hidden="true"'}>
+          ${list}
         </div>
         ${selectedModel ? "" : `<div class="setup-wizard-state-card error" role="alert">${escapeHtml(t("setupWizard.model.required"))}</div>`}
+        ${quickProvider.open ? renderQuickProviderForm() : `
+          <span class="setup-wizard-quick-actions">
+            <button class="ghost-btn" type="button" data-setup-qp-toggle>${escapeHtml(t("setupWizard.model.quickAddToggle"))}</button>
+          </span>
+        `}
       </section>
     `;
+  }
+
+  function renderVerifyCard() {
+    if (verify.status === "running") {
+      return `<div class="setup-wizard-state-card" role="status">${escapeHtml(t("setupWizard.complete.verifying"))}</div>`;
+    }
+    if (verify.status === "ok") {
+      return `<div class="setup-wizard-state-card ok" role="status">${escapeHtml(t("setupWizard.complete.verifyOk"))}</div>`;
+    }
+    if (verify.status === "fail") {
+      return `
+        <div class="setup-wizard-state-card error" role="alert">
+          ${escapeHtml(t("setupWizard.complete.verifyFail", { message: verify.message || "—" }))}
+          <button class="setup-wizard-inline-action" type="button" data-setup-verify>${escapeHtml(t("setupWizard.actions.verify"))}</button>
+        </div>
+      `;
+    }
+    return "";
   }
 
   function renderComplete() {
@@ -410,6 +639,7 @@ export function createSetupWizardController({
           <div class="${gitReady ? "" : "warn"}"><span aria-hidden="true">${gitReady ? "✓" : "!"}</span><strong>${escapeHtml(t(gitReady ? "setupWizard.complete.gitReady" : "setupWizard.complete.gitLimited"))}</strong></div>
           <div><span aria-hidden="true">✓</span><strong>${escapeHtml(t("setupWizard.complete.modelReady", { model: selectedModel }))}</strong></div>
         </div>
+        ${renderVerifyCard()}
       </section>
     `;
   }
@@ -427,6 +657,7 @@ export function createSetupWizardController({
     const next = $("setupWizardNextBtn");
     const refresh = $("setupWizardRefreshBtn");
     const close = $("setupWizardCloseBtn");
+    const skip = $("setupWizardSkipBtn");
     if (back) {
       back.classList.toggle("hidden", activeStep === 0);
       back.disabled = finishing;
@@ -443,9 +674,38 @@ export function createSetupWizardController({
       if (!refresh.hasAttribute("aria-busy")) refresh.textContent = t("setupWizard.actions.refresh");
     }
     if (close) {
-      close.classList.toggle("hidden", automaticFlow);
+      close.classList.toggle("hidden", automaticFlow && !wizardDismissible());
       close.setAttribute("aria-label", t("setupWizard.close"));
     }
+    if (skip) {
+      skip.classList.toggle("hidden", !(automaticFlow && wizardDismissible()));
+      skip.disabled = finishing;
+      skip.textContent = t("setupWizard.actions.later");
+    }
+  }
+
+  function restorePendingFocus() {
+    if (!pendingFocusSelector) return;
+    const selector = pendingFocusSelector;
+    pendingFocusSelector = "";
+    globalThis.queueMicrotask?.(() => {
+      const modal = $("setupWizardModal");
+      if (!modal || modal.classList.contains("hidden")) return;
+      if (selector === "@model-selected") {
+        [...modal.querySelectorAll("[data-setup-model]")]
+          .find((node) => node.dataset.setupModel === selectedModel)
+          ?.focus?.();
+        return;
+      }
+      const node = modal.querySelector(selector);
+      if (!node) return;
+      node.focus?.();
+      if (typeof node.setSelectionRange === "function" && typeof node.value === "string") {
+        try {
+          node.setSelectionRange(node.value.length, node.value.length);
+        } catch {}
+      }
+    });
   }
 
   function renderSetupWizard() {
@@ -459,13 +719,17 @@ export function createSetupWizardController({
     if (subtitle) subtitle.textContent = t("setupWizard.subtitle");
     renderProgress();
     updateActions();
+    restorePendingFocus();
+    if (currentStepID() === "complete") maybeVerifySelectedModel();
+    syncBackgroundPolling();
   }
 
-  async function refreshSetupWizard({ reloadStatus = true, reloadModels = true, forceStatus = false } = {}) {
+  async function refreshSetupWizard({ reloadStatus = true, reloadModels = true, forceStatus = false, skipRenderIfUnchanged = false } = {}) {
     if (refreshInFlight) return refreshInFlight;
     const button = $("setupWizardRefreshBtn");
     setButtonBusy(button, true, t("setupWizard.actions.refreshing"));
     refreshInFlight = (async () => {
+      const before = skipRenderIfUnchanged ? JSON.stringify([setupStatus, models(), selectedModel]) : "";
       const environmentPromise = reloadStatus
         ? Promise.resolve(loadSetupStatus?.({ force: forceStatus }))
           .then((value) => ({ ok: true, value }))
@@ -482,14 +746,211 @@ export function createSetupWizardController({
         ? normalizeSetupStatus({ ...environmentResult.value, loaded: true })
         : normalizeSetupStatus({ loaded: true, error: environmentResult.error?.message || t("setupWizard.errors.loadStatus") });
       selectedModel = setupSelectedModel(models(), selectedModel || preferredModel());
+      if (skipRenderIfUnchanged && before === JSON.stringify([setupStatus, models(), selectedModel])) return setupStatus;
       renderSetupWizard();
       return setupStatus;
     })().finally(() => {
       refreshInFlight = null;
       setButtonBusy(button, false, t("setupWizard.actions.refreshing"));
       updateActions();
+      syncBackgroundPolling();
     });
     return refreshInFlight;
+  }
+
+  function syncBackgroundPolling() {
+    const pollInstalls = wizardOpen && anyInstallRunning();
+    if (pollInstalls && installPollTimer == null) {
+      installPollTimer = globalThis.setTimeout?.(() => {
+        installPollTimer = null;
+        pollInstallJobs().catch(() => {});
+      }, setupInstallPollInterval) ?? null;
+    } else if (!pollInstalls && installPollTimer != null) {
+      globalThis.clearTimeout?.(installPollTimer);
+      installPollTimer = null;
+    }
+
+    const pollEnvironment = wizardOpen && currentStepID() === "environment" && environmentHasGaps() && !anyInstallRunning();
+    if (pollEnvironment && environmentPollTimer == null) {
+      environmentPollTimer = globalThis.setTimeout?.(() => {
+        environmentPollTimer = null;
+        refreshSetupWizard({ reloadModels: false, forceStatus: true, skipRenderIfUnchanged: true }).catch(() => {}).finally(() => syncBackgroundPolling());
+      }, setupEnvironmentPollInterval) ?? null;
+    } else if (!pollEnvironment && environmentPollTimer != null) {
+      globalThis.clearTimeout?.(environmentPollTimer);
+      environmentPollTimer = null;
+    }
+  }
+
+  async function pollInstallJobs() {
+    if (!wizardOpen) return;
+    try {
+      const response = await request?.("/api/setup/install/status");
+      const jobs = Array.isArray(response?.jobs) ? response.jobs : [];
+      const previous = installJobs;
+      installJobs = Object.fromEntries(jobs.map((job) => [String(job?.tool || ""), job]));
+      let refreshNeeded = false;
+      for (const job of jobs) {
+        const before = previous[job.tool];
+        if (before?.status !== "running" || job.status === "running") continue;
+        if (job.status === "succeeded") {
+          showToast?.(t("setupWizard.environment.installSucceeded", { tool: setupToolLabel(job.tool) }), "success", { force: true });
+          refreshNeeded = true;
+        } else {
+          showToast?.(t("setupWizard.environment.installFailed", { tool: setupToolLabel(job.tool) }), "error", { force: true });
+        }
+      }
+      if (refreshNeeded) {
+        await refreshSetupWizard({ reloadModels: false, forceStatus: true });
+      } else if (currentStepID() === "environment") {
+        renderSetupWizard();
+      }
+    } finally {
+      syncBackgroundPolling();
+    }
+  }
+
+  async function startToolInstall(toolID) {
+    if (anyInstallRunning()) return;
+    try {
+      const response = await request?.("/api/setup/install", {
+        method: "POST",
+        body: JSON.stringify({ tool: toolID }),
+      });
+      if (response?.job?.tool) installJobs = { ...installJobs, [response.job.tool]: response.job };
+    } catch (error) {
+      showToast?.(error?.message || String(error), "error", { force: true });
+    }
+    if (currentStepID() === "environment") renderSetupWizard();
+    else syncBackgroundPolling();
+  }
+
+  function maybeVerifySelectedModel() {
+    if (!selectedModel) return;
+    if (verify.model === selectedModel && verify.status !== "idle") return;
+    verifySelectedModel().catch(() => {});
+  }
+
+  async function verifySelectedModel() {
+    const model = selectedModel;
+    const providerName = model.split(":")[0] || "";
+    if (!model || !providerName || !request) return;
+    verify = { status: "running", model, message: "" };
+    if (currentStepID() === "complete") renderSetupWizard();
+    let next;
+    try {
+      const response = await request(`/api/providers/${encodeURIComponent(providerName)}/test`, { method: "POST" });
+      const ok = Boolean(response?.reachable) && response?.configured !== false;
+      next = { status: ok ? "ok" : "fail", model, message: String(response?.message || "") };
+    } catch (error) {
+      next = { status: "fail", model, message: error?.message || String(error) };
+    }
+    if (verify.model !== model || verify.status !== "running") return;
+    verify = next;
+    if (currentStepID() === "complete") renderSetupWizard();
+  }
+
+  function quickProviderIssueText(issues) {
+    const key = issues[0];
+    return t(`setupWizard.quickProvider.issues.${key}`);
+  }
+
+  function quickProviderDraft() {
+    return {
+      name: quickProvider.name.trim(),
+      type: quickProvider.type,
+      baseUrl: quickProvider.baseUrl.trim(),
+      apiKey: quickProvider.apiKey,
+      model: quickProvider.model.trim(),
+    };
+  }
+
+  async function testQuickProvider() {
+    const draft = quickProviderDraft();
+    const issues = setupQuickProviderIssues(draft);
+    if (issues.length) {
+      quickProvider.notice = { kind: "error", text: quickProviderIssueText(issues) };
+      renderSetupWizard();
+      return;
+    }
+    quickProvider.busy = "test";
+    quickProvider.notice = null;
+    renderSetupWizard();
+    try {
+      const response = await request?.("/api/providers/test", {
+        method: "POST",
+        body: JSON.stringify({
+          name: draft.name,
+          type: draft.type,
+          baseUrl: draft.baseUrl,
+          apiKey: draft.apiKey,
+          model: draft.model,
+          createOnly: true,
+        }),
+      });
+      quickProvider.discoveredModels = Array.isArray(response?.models) ? response.models.map(String) : [];
+      if (response?.reachable && response?.configured !== false && !response?.errorCode) {
+        quickProvider.notice = {
+          kind: "ok",
+          text: t("setupWizard.quickProvider.testOk", { count: quickProvider.discoveredModels.length || Number(response?.modelCount) || 0 }),
+        };
+      } else {
+        quickProvider.notice = { kind: "error", text: String(response?.message || t("setupWizard.quickProvider.testFail")) };
+      }
+    } catch (error) {
+      quickProvider.notice = { kind: "error", text: error?.message || String(error) };
+    } finally {
+      quickProvider.busy = "";
+      renderSetupWizard();
+    }
+  }
+
+  async function saveQuickProvider() {
+    const draft = quickProviderDraft();
+    const issues = setupQuickProviderIssues(draft);
+    if (issues.length) {
+      quickProvider.notice = { kind: "error", text: quickProviderIssueText(issues) };
+      renderSetupWizard();
+      return;
+    }
+    quickProvider.busy = "save";
+    quickProvider.notice = null;
+    renderSetupWizard();
+    try {
+      const model = draft.model || quickProvider.discoveredModels[0] || "";
+      await request?.(`/api/providers/${encodeURIComponent(draft.name)}/config`, {
+        method: "PUT",
+        body: JSON.stringify({
+          name: draft.name,
+          type: draft.type,
+          baseUrl: draft.baseUrl,
+          apiKey: draft.apiKey,
+          model,
+          createOnly: true,
+        }),
+      });
+      await request?.(`/api/providers/${encodeURIComponent(draft.name)}`, {
+        method: "PATCH",
+        body: JSON.stringify({ enabled: true }),
+      });
+      quickProvider.apiKey = "";
+      quickProvider.busy = "";
+      await refreshSetupWizard({ reloadStatus: false });
+      const created = models().find((item) => item.provider === draft.name);
+      if (created) {
+        selectedModel = created.value;
+        quickProvider.open = false;
+        quickProvider.notice = null;
+        showToast?.(t("setupWizard.quickProvider.created", { name: draft.name }), "success", { force: true });
+      } else {
+        quickProvider.notice = { kind: "error", text: t("setupWizard.quickProvider.createdNoModels", { name: draft.name }) };
+      }
+      renderSetupWizard();
+    } catch (error) {
+      quickProvider.busy = "";
+      quickProvider.notice = { kind: "error", text: error?.message || String(error) };
+      renderSetupWizard();
+    }
   }
 
   async function finishSetupWizard() {
@@ -516,11 +977,14 @@ export function createSetupWizardController({
     }
   }
 
-  async function openSetupWizard({ automatic = false, startStep = "welcome", reloadStatus = true, reloadModels = true } = {}) {
+  async function openSetupWizard({ automatic = false, reason = "", startStep = "welcome", reloadStatus = true, reloadModels = true } = {}) {
     automaticFlow = Boolean(automatic);
+    openReason = reason || (automatic ? "automatic" : "manual");
     suspendedForProviderSettings = false;
     activeStep = setupStepIndex(startStep);
     selectedModel = setupSelectedModel(models(), preferredModel());
+    verify = { status: "idle", model: "", message: "" };
+    wizardOpen = true;
     $("setupWizardModal")?.classList.remove("hidden");
     setWizardIsolation(true);
     renderSetupWizard();
@@ -532,7 +996,7 @@ export function createSetupWizardController({
   async function resumeAfterProviderSettings() {
     if (!suspendedForProviderSettings) return false;
     suspendedForProviderSettings = false;
-    await openSetupWizard({ automatic: true, startStep: "model" });
+    await openSetupWizard({ automatic: true, reason: openReason, startStep: "model" });
     return true;
   }
 
@@ -549,10 +1013,10 @@ export function createSetupWizardController({
       } catch (error) {
         setupStatus = normalizeSetupStatus({ loaded: true, error: error?.message || t("setupWizard.errors.loadStatus") });
       }
-      await openSetupWizard({ automatic: true, startStep: "environment", reloadStatus: false, reloadModels: false });
+      await openSetupWizard({ automatic: true, reason: "environment", startStep: "environment", reloadStatus: false, reloadModels: false });
       return true;
     }
-    await openSetupWizard({ automatic: true, startStep: decision.step, reloadModels: false });
+    await openSetupWizard({ automatic: true, reason: decision.reason, startStep: decision.step, reloadModels: false });
     return true;
   }
 
@@ -575,6 +1039,7 @@ export function createSetupWizardController({
 
   function bindSetupWizardActions() {
     $("setupWizardCloseBtn")?.addEventListener("click", () => closeSetupWizard());
+    $("setupWizardSkipBtn")?.addEventListener("click", () => closeSetupWizard());
     $("setupWizardBackBtn")?.addEventListener("click", () => {
       if (activeStep <= 0 || finishing) return;
       activeStep--;
@@ -590,16 +1055,27 @@ export function createSetupWizardController({
       renderSetupWizard();
     });
     $("setupWizardRefreshBtn")?.addEventListener("click", () => refreshSetupWizard({ forceStatus: true }).catch((error) => showToast?.(error?.message || String(error), "error", { force: true })));
+    $("setupWizardProgress")?.addEventListener("click", (event) => {
+      const dot = event.target?.closest?.("[data-setup-step-jump]");
+      if (!dot || finishing) return;
+      const index = Number(dot.dataset.setupStepJump);
+      if (!Number.isInteger(index) || index >= activeStep) return;
+      activeStep = index;
+      renderSetupWizard();
+    });
     $("setupWizardBody")?.addEventListener("click", (event) => {
       const modelButton = event.target?.closest?.("[data-setup-model]");
       if (modelButton) {
         selectedModel = String(modelButton.dataset.setupModel || "").trim();
+        pendingFocusSelector = "@model-selected";
         renderSetupWizard();
         return;
       }
       if (event.target?.closest?.("[data-setup-open-providers]")) {
         suspendedForProviderSettings = automaticFlow;
         $("setupWizardModal")?.classList.add("hidden");
+        wizardOpen = false;
+        syncBackgroundPolling();
         if (suspendedForProviderSettings) setWizardIsolation(true, { allowSettings: true });
         else {
           automaticFlow = false;
@@ -612,8 +1088,49 @@ export function createSetupWizardController({
         refreshSetupWizard({ forceStatus: true }).catch((error) => showToast?.(error?.message || String(error), "error", { force: true }));
         return;
       }
-      const installButton = event.target?.closest?.("[data-setup-copy-install]");
-      if (installButton) copyInstallCommand(installButton.dataset.setupCopyInstall).catch(() => {});
+      if (event.target?.closest?.("[data-setup-qp-toggle]")) {
+        quickProvider.open = true;
+        renderSetupWizard();
+        return;
+      }
+      if (event.target?.closest?.("[data-setup-qp-test]")) {
+        testQuickProvider().catch(() => {});
+        return;
+      }
+      if (event.target?.closest?.("[data-setup-verify]")) {
+        verifySelectedModel().catch(() => {});
+        return;
+      }
+      const installButton = event.target?.closest?.("[data-setup-install]");
+      if (installButton) {
+        startToolInstall(installButton.dataset.setupInstall).catch(() => {});
+        return;
+      }
+      const copyButton = event.target?.closest?.("[data-setup-copy-install]");
+      if (copyButton) copyInstallCommand(copyButton.dataset.setupCopyInstall).catch(() => {});
+    });
+    $("setupWizardBody")?.addEventListener("input", (event) => {
+      const filterInput = event.target?.closest?.("[data-setup-model-filter]");
+      if (filterInput) {
+        modelFilter = String(filterInput.value || "");
+        pendingFocusSelector = "[data-setup-model-filter]";
+        renderSetupWizard();
+        return;
+      }
+      const field = event.target?.closest?.("[data-setup-qp-field]");
+      if (field) {
+        const key = String(field.dataset.setupQpField || "");
+        if (key in quickProvider) quickProvider[key] = String(field.value || "");
+        if (key === "type") {
+          pendingFocusSelector = '[data-setup-qp-field="type"]';
+          renderSetupWizard();
+        }
+      }
+    });
+    $("setupWizardBody")?.addEventListener("submit", (event) => {
+      if (!event.target?.closest?.("[data-setup-qp-form]")) return;
+      event.preventDefault();
+      saveQuickProvider().catch(() => {});
     });
     $("setupWizardModal")?.addEventListener("click", (event) => {
       if (event.target?.id === "setupWizardModal") closeSetupWizard();
