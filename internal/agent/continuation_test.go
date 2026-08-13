@@ -353,13 +353,46 @@ func TestBackgroundTaskContinuationBoundaryRequiresResumeParent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	taskID, waits, err := backgroundTaskContinuationBoundary(tools.Result{Output: string(encoded), Meta: map[string]any{"backgroundTaskId": "task-1", "background": true}})
+	taskID, waits, err := backgroundTaskContinuationBoundary(tools.Result{Output: string(encoded), Meta: map[string]any{"backgroundTaskId": "task-1", "background": true}}, "run-1")
 	if err != nil || !waits || taskID != "task-1" {
 		t.Fatalf("expected resumeParent boundary, task=%q waits=%v err=%v", taskID, waits, err)
 	}
 	encoded, _ = json.Marshal(tools.BackgroundTask{ID: "task-2", ResumeParent: false})
-	if taskID, waits, err = backgroundTaskContinuationBoundary(tools.Result{Output: string(encoded), Meta: map[string]any{"backgroundTaskId": "task-2", "background": true}}); err != nil || waits || taskID != "" {
+	if taskID, waits, err = backgroundTaskContinuationBoundary(tools.Result{Output: string(encoded), Meta: map[string]any{"backgroundTaskId": "task-2", "background": true}}, "run-1"); err != nil || waits || taskID != "" {
 		t.Fatalf("non-resuming task must not pause parent, task=%q waits=%v err=%v", taskID, waits, err)
+	}
+}
+
+// Asking an agent to look at an earlier subagent returns that task's JSON, and
+// the task still carries the resumeParent flag its dispatch set. Parking on it
+// hung the run for good: the wake fires as a task reaches a terminal state, and
+// this one reached it long ago, under another run. Neither an already-finished
+// task nor one owned by a different run may take the boundary.
+func TestBackgroundTaskContinuationBoundaryIgnoresInspectedTasks(t *testing.T) {
+	finished, err := json.Marshal(tools.BackgroundTask{ID: "old-task", ParentRunID: "run-1", ResumeParent: true, Status: "succeeded"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if taskID, waits, err := backgroundTaskContinuationBoundary(tools.Result{Output: string(finished)}, "run-1"); err != nil || waits || taskID != "" {
+		t.Fatalf("a task that already finished must not park the run, task=%q waits=%v err=%v", taskID, waits, err)
+	}
+
+	foreign, err := json.Marshal(tools.BackgroundTask{ID: "other-task", ParentRunID: "run-other", ResumeParent: true, Status: "running"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if taskID, waits, err := backgroundTaskContinuationBoundary(tools.Result{Output: string(foreign)}, "run-1"); err != nil || waits || taskID != "" {
+		t.Fatalf("another run's task must not park this run, task=%q waits=%v err=%v", taskID, waits, err)
+	}
+
+	// A dispatch that has not recorded its parent yet still parks: the boundary
+	// is what records it, so requiring the link here would break every dispatch.
+	fresh, err := json.Marshal(tools.BackgroundTask{ID: "new-task", ResumeParent: true, Status: "queued"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if taskID, waits, err := backgroundTaskContinuationBoundary(tools.Result{Output: string(fresh)}, "run-1"); err != nil || !waits || taskID != "new-task" {
+		t.Fatalf("a fresh dispatch must still park the run, task=%q waits=%v err=%v", taskID, waits, err)
 	}
 }
 

@@ -713,7 +713,7 @@ func (r *Runner) runContinuationSegment(ctx context.Context, state continuationR
 			r.publish(Event{Type: "message.created", AgentID: agentID, MessageID: toolMsg.ID, Text: toolResultText, Data: mergeEventData(map[string]any{"parentToolUseId": toolCall.ID, "toolName": toolCall.Name, "isError": modelToolResult.IsError, "toolExecutionGroupId": toolGroup.ID}, runID)})
 			messages = append(messages, toolMsg)
 			outcome.resumeAfterID = toolMsg.ID
-			if taskID, waits, boundaryErr := backgroundTaskContinuationBoundary(rawToolResult); boundaryErr != nil {
+			if taskID, waits, boundaryErr := backgroundTaskContinuationBoundary(rawToolResult, runID); boundaryErr != nil {
 				return outcome, boundaryErr
 			} else if waits {
 				// A turn that dispatches several reporting children still parks on
@@ -1332,7 +1332,29 @@ func (r *Runner) toolExecutionTerminalStatus(ctx context.Context, agentID, runID
 	}
 }
 
-func backgroundTaskContinuationBoundary(result tools.Result) (string, bool, error) {
+// backgroundTaskIsTerminal reports whether a background task has already
+// reached a state it will never leave.
+func backgroundTaskIsTerminal(status string) bool {
+	switch strings.ToLower(strings.TrimSpace(status)) {
+	case "succeeded", "completed", "failed", "error", "cancelled", "canceled", "interrupted":
+		return true
+	default:
+		return false
+	}
+}
+
+// backgroundTaskContinuationBoundary decides whether a tool result parks this
+// run until a background task finishes.
+//
+// Reading an existing task returns the same JSON shape as dispatching one, and
+// an inspected task still carries the resumeParent flag its original dispatch
+// set. Treating that as a fresh boundary stranded the run permanently: the wake
+// fires as a task *reaches* a terminal state, and an inspected task had reached
+// one long before -- often under a different run entirely -- so nothing would
+// ever wake the parent. The ownership and liveness checks therefore run here,
+// at the moment the boundary is taken, not only on the wake path where the run
+// is already parked.
+func backgroundTaskContinuationBoundary(result tools.Result, runID string) (string, bool, error) {
 	if result.IsError {
 		return "", false, nil
 	}
@@ -1340,6 +1362,12 @@ func backgroundTaskContinuationBoundary(result tools.Result) (string, bool, erro
 	if strings.TrimSpace(result.Output) != "" && json.Unmarshal([]byte(result.Output), &task) == nil && task.ResumeParent {
 		if strings.TrimSpace(task.ID) == "" {
 			return "", false, errors.New("resumeParent tool result is missing a background task id")
+		}
+		if parent := strings.TrimSpace(task.ParentRunID); parent != "" && parent != strings.TrimSpace(runID) {
+			return "", false, nil
+		}
+		if backgroundTaskIsTerminal(task.Status) {
+			return "", false, nil
 		}
 		return strings.TrimSpace(task.ID), true, nil
 	}
@@ -1617,12 +1645,7 @@ func (r *Runner) backgroundContinuationReady(ctx context.Context, run db.Run) (b
 	if task.ParentRunID != run.ID || !task.ResumeParent {
 		return false, errors.New("background task no longer owns this resumeParent boundary")
 	}
-	switch strings.ToLower(strings.TrimSpace(task.Status)) {
-	case "succeeded", "completed", "failed", "error", "cancelled", "canceled", "interrupted":
-		return true, nil
-	default:
-		return false, nil
-	}
+	return backgroundTaskIsTerminal(task.Status), nil
 }
 
 func (r *Runner) schedulePendingContinuation(ctx context.Context, run db.Run) (bool, error) {
