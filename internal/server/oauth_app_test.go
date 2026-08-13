@@ -42,7 +42,7 @@ func TestOAuthAppPageDoesNotExposeLocalTokenAndDisabledSessionFailsClosed(t *tes
 		t.Fatalf("GET /app status=%d body=%s", pageResponse.Code, pageResponse.Body.String())
 	}
 	body := pageResponse.Body.String()
-	if !strings.Contains(body, "NarraFork OAuth App") {
+	if !strings.Contains(body, "Autoto OAuth App") {
 		t.Fatalf("OAuth app page was not served: %s", body)
 	}
 	if strings.Contains(body, app.localToken) || strings.Contains(body, "AUTOTO_LOCAL_TOKEN=") {

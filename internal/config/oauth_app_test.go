@@ -11,7 +11,7 @@ func TestOAuthAppConfigValidationAndScopes(t *testing.T) {
 	cfg := OAuthAppConfig{
 		Enabled:             true,
 		IssuerURL:           "https://id.example.test/tenant/",
-		ClientID:            "narrafork-app",
+		ClientID:            "autoto-app",
 		RedirectURL:         "https://app.example.test/app/auth/callback",
 		AllowedEmailDomains: []string{"EXAMPLE.COM", "example.com"},
 		SessionTTLHours:     12,

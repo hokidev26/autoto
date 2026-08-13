@@ -27,7 +27,6 @@ config.local.json
 tmp/
 .autoto-run-*.json
 .DS_Store
-.narrafork/
 .worktrees/
 .smoke/
 

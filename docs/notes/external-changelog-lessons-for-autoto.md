@@ -3,7 +3,7 @@
 > 狀態：對照分析（尚未逐項落地）  
 > 撰寫目的：給審閱者快速理解「別人修了什麼、我們能學什麼、優先做哪幾件」  
 > 輸入：某相似產品近期 changelog（含 v0.5.21 前後的新功能 / 修復 / 重構 / 安全 / 性能條目）  
-> 方法：對照 Autoto 當前代碼與模組邊界（`codeharbor/` 工作樹），標註 already-good / gap / 可學原則  
+> 方法：對照 Autoto 當前代碼與模組邊界（autoto 工作樹），標註 already-good / gap / 可學原則  
 > 相關文件：`docs/notes/feedback-changelog-lessons-0712.md`、`docs/ARCHITECTURE.md`、`CONTRIBUTING.md`
 
 ---

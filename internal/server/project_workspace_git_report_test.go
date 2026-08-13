@@ -33,7 +33,7 @@ func initTestGitRepo(t *testing.T, dir string) {
 // chosen. The report is what lets the UI say so at creation time.
 func TestProjectWorkspaceGitReportNamesTheRepositoryInsideTheChosenPath(t *testing.T) {
 	parent := t.TempDir()
-	repo := filepath.Join(parent, "codeharbor")
+	repo := filepath.Join(parent, "autoto")
 	initTestGitRepo(t, repo)
 
 	report := (&Server{}).projectWorkspaceGitReport(context.Background(), parent)

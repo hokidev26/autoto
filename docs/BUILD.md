@@ -5,9 +5,9 @@
 
 ## 只保留一個執行檔
 
-**規則：構建產物永遠只留一個 `codeharbor/autoto.exe`，舊的直接覆蓋。**
+**規則：構建產物永遠只留一個位於專案根目錄的 `autoto.exe`，舊的直接覆蓋。**
 
-這條規則是有代價換來的。此前根目錄和 `codeharbor/` 累積過 11 個 exe
+這條規則是有代價換來的。此前專案目錄裡累積過 11 個 exe
 （約 590 MB），檔名分別是 `autoto-next`、`autoto-reasoning`、
 `autoto-web.next`、`autoto.preview`、`autoto.minimal-preview`、
 `autoto.new` 等等。問題不在磁碟佔用，而在於**沒人能確定哪個是最新的**：
@@ -36,7 +36,7 @@ go 失敗了後面的 `echo "BUILD OK"` 照樣會列印，得到假的成功資�
 
 ## 構建
 
-在 `codeharbor/` 目錄下執行。
+在專案根目錄下執行。
 
 ### 伺服器 / CLI 版（平時用這個）
 
@@ -185,7 +185,7 @@ Go 會忽略以 `_` 或 `.` 開頭的檔案。臨時腳本不要命名成
 `_tmp_check.go`，用 `cmd/<name>/main.go` 或不帶下劃線字首的名字。
 
 **`go.mod file not found`**
-在 `codeharbor/` 目錄外執行了 go 命令。
+在專案根目錄外執行了 go 命令。
 
 **測試失敗但程式碼沒問題**
 見上面「跑測試」裡的只讀對比方法。

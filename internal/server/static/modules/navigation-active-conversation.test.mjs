@@ -7,15 +7,15 @@ import { buildNavigationView, renderNavigationHTML } from "./conversation-naviga
 // Two conversations in one project, the second on a fork: the case the sidebar
 // makes hardest to read, because the rows differ only in their meta line.
 const payload = {
-  projects: [{ id: "p1", name: "codeharbor", gitPath: "C:/work/codeharbor" }],
+  projects: [{ id: "p1", name: "autoto", gitPath: "C:/work/autoto" }],
   conversations: [
     {
-      projectId: "p1", projectName: "codeharbor", projectPath: "C:/work/codeharbor",
+      projectId: "p1", projectName: "autoto", projectPath: "C:/work/autoto",
       worklineId: "w1", worklineTitle: "main", worklineBranch: "main", worklineRole: "primary",
       agentId: "a1", agentTitle: "檢查設定與上下文超限", agentType: "primary", agentStatus: "idle", model: "codex:gpt-5.6-luna",
     },
     {
-      projectId: "p1", projectName: "codeharbor", projectPath: "C:/work/codeharbor",
+      projectId: "p1", projectName: "autoto", projectPath: "C:/work/autoto",
       worklineId: "w2", worklineTitle: "fork", worklineBranch: "autoto/fork-of-main-dee16d25",
       agentId: "a2", agentTitle: "優化卡片並整合 Telegram", agentStatus: "idle", model: "ttapy:claude-opus-5",
     },
