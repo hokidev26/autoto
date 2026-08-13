@@ -12,7 +12,6 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"time"
 
@@ -68,6 +67,11 @@ func resolveLocalToken(homeDir string) string {
 	path := localAPITokenPath(homeDir)
 	if path != "" {
 		if token, err := loadLocalTokenFile(path); err == nil && token != "" {
+			// Re-assert owner-only access on every load so token files written by
+			// older builds (which skipped ACL hardening on Windows) get tightened
+			// on the next startup instead of keeping their inherited permissions.
+			hardenTokenPath(filepath.Dir(path))
+			hardenTokenPath(path)
 			return token
 		}
 	}
@@ -101,21 +105,28 @@ func writeLocalTokenFile(path, token string) error {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
 	}
-	if runtime.GOOS != "windows" {
-		_ = os.Chmod(dir, 0o700)
-	}
+	hardenTokenPath(dir)
 	tmp := path + ".tmp"
 	if err := os.WriteFile(tmp, []byte(token+"\n"), 0o600); err != nil {
 		return err
 	}
-	if runtime.GOOS != "windows" {
-		_ = os.Chmod(tmp, 0o600)
-	}
+	// Harden the temp file before the rename so the token is never visible at
+	// its final path with the broad inherited permissions.
+	hardenTokenPath(tmp)
 	if err := os.Rename(tmp, path); err != nil {
 		_ = os.Remove(tmp)
 		return err
 	}
 	return nil
+}
+
+// hardenTokenPath tightens permissions best-effort: the token keeps working
+// without the tightened ACL, so a hardening failure must warn, not block
+// server startup or token persistence.
+func hardenTokenPath(path string) {
+	if err := hardenTokenPermissions(path); err != nil {
+		slog.Warn("harden local API token permissions", "path", path, "error", err)
+	}
 }
 
 func (s *Server) now() time.Time {

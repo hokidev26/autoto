@@ -513,18 +513,18 @@ function toolActivityIconKind(toolName) {
 // as fallback so unknown tools still surface their actual name.
 function friendlyToolName(toolName) {
   const name = String(toolName || "").toLowerCase().trim();
-  if (name === "ls" || name === "listdirectory" || name === "list_directory") return "列出目录";
-  if (name === "pwd") return "当前目录";
-  if (name === "cat") return "读取文件";
-  if (name === "mkdir") return "创建目录";
-  if (name === "cp") return "复制文件";
-  if (name === "mv") return "移动文件";
-  if (name === "rm") return "删除文件";
-  if (name === "touch") return "新建文件";
-  if (name === "find") return "查找文件";
-  if (name === "which") return "查找命令";
-  if (name === "echo") return "输出文本";
-  if (name === "curl" || name === "wget") return "网络请求";
+  if (name === "ls" || name === "listdirectory" || name === "list_directory") return cr("toolNames.listDirectory");
+  if (name === "pwd") return cr("toolNames.currentDirectory");
+  if (name === "cat") return cr("toolNames.readFile");
+  if (name === "mkdir") return cr("toolNames.createDirectory");
+  if (name === "cp") return cr("toolNames.copyFile");
+  if (name === "mv") return cr("toolNames.moveFile");
+  if (name === "rm") return cr("toolNames.deleteFile");
+  if (name === "touch") return cr("toolNames.createFile");
+  if (name === "find") return cr("toolNames.findFiles");
+  if (name === "which") return cr("toolNames.findCommand");
+  if (name === "echo") return cr("toolNames.echoText");
+  if (name === "curl" || name === "wget") return cr("toolNames.networkRequest");
   return toolName;
 }
 
@@ -2173,9 +2173,9 @@ export function createChatRenderingController({
     // every scroll would hammer a failing endpoint).
     const olderMessagesControl = state.messageHasMoreBefore ? `
       <div class="message-history-control" data-history-sentinel>
-        <span class="message-history-status" role="status"${state.messageOlderLoading ? "" : " hidden"}>正在加载更早消息…</span>
+        <span class="message-history-status" role="status"${state.messageOlderLoading ? "" : " hidden"}>${escapeHtml(cr("history.loadingOlder"))}</span>
         <button class="ghost-btn mini" type="button" data-load-older-messages${historyAutoLoadAvailable() ? " hidden" : ""}>
-          加载更早消息
+          ${escapeHtml(cr("history.loadOlder"))}
         </button>
       </div>
     ` : "";
@@ -2423,7 +2423,7 @@ export function createChatRenderingController({
     const avatarHTML = usesProfileIdentity ? profileAvatarHTML(profileIdentity) : (isAssistant ? logoSVG : escapeHtml(avatarLabel));
     const roleLabel = isAssistant ? "Autoto" : (profileIdentity?.displayName || presentation.role);
     const profileAvatarAttr = usesProfileIdentity ? " data-user-profile-avatar" : "";
-    const correctionLabel = message.correctionOfMessageId ? " · 更正" : "";
+    const correctionLabel = message.correctionOfMessageId ? ` · ${cr("message.correctionBadge")}` : "";
     // A correction retires the turns that followed it. They stay readable so the
     // history still makes sense, but are marked so nobody mistakes them for part
     // of what the model is currently working from.
@@ -2617,10 +2617,10 @@ export function createChatRenderingController({
       <form class="message-correction-editor" data-correction-form="${escapeAttr(message.id || "")}">
         <textarea class="message-correction-text" data-correction-text rows="4">${escapeHtml(state.correctionText ?? visibleMessageText(message))}</textarea>
         ${attachments.length ? `<div class="message-correction-attachments">${attachments.map((attachment) => `
-          <label><input type="checkbox" data-keep-correction-attachment value="${escapeAttr(attachment.id || "")}" checked /> ${escapeHtml(attachment.filename || "附件")}</label>
+          <label><input type="checkbox" data-keep-correction-attachment value="${escapeAttr(attachment.id || "")}" checked /> ${escapeHtml(attachment.filename || cr("attachment.attachment"))}</label>
         `).join("")}</div>` : ""}
-        ${files.length ? `<div class="message-correction-new-files">${files.map((file) => `<span>${escapeHtml(file.name || "附件")}</span>`).join("")}</div>` : ""}
-        <label class="message-correction-file-label">添加图片或文本文件<input type="file" data-correction-files multiple /></label>
+        ${files.length ? `<div class="message-correction-new-files">${files.map((file) => `<span>${escapeHtml(file.name || cr("attachment.attachment"))}</span>`).join("")}</div>` : ""}
+        <label class="message-correction-file-label">${escapeHtml(cr("message.correctionAddFiles"))}<input type="file" data-correction-files multiple /></label>
         <p class="message-correction-note">${escapeHtml(cr("message.correctionNote"))}</p>
         <div class="message-correction-actions">
           <button class="ghost-btn mini" type="button" data-correction-cancel>${escapeHtml(cr("message.correctionCancel"))}</button>
@@ -2670,7 +2670,7 @@ export function createChatRenderingController({
     state.correctionText = "";
     state.correctionFiles = [];
     await loadMessages(agentId);
-    showToast("已创建更正消息并重新运行。", "success");
+    showToast(cr("message.correctionCreated"), "success");
   }
 
   function clearRunSummary({ preserveView = false } = {}) {

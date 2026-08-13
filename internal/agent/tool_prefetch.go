@@ -3,6 +3,9 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"log/slog"
+	"runtime/debug"
 	"strings"
 	"sync"
 
@@ -93,6 +96,19 @@ func (r *Runner) prefetchToolCallResults(ctx context.Context, agentID, runID str
 		go func(i int, call providers.ToolCall) {
 			defer wg.Done()
 			defer func() { <-sem }()
+			// A panic anywhere in the worker body — including inside the tool's
+			// own Execute — must become this slot's error result, not a crashed
+			// process: nothing above this goroutine can recover it. ran is set
+			// so the caller reports the error instead of re-running a call whose
+			// side effects may already have happened.
+			defer func() {
+				if value := recover(); value != nil {
+					slog.Error("tool prefetch worker panicked",
+						"toolName", call.Name, "agentId", agentID, "runId", runID,
+						"panic", value, "stack", string(debug.Stack()))
+					results[i] = prefetchedToolResult{ran: true, executeErr: fmt.Errorf("tool %s panicked: %v", call.Name, value)}
+				}
+			}()
 			if ctx.Err() != nil {
 				return
 			}

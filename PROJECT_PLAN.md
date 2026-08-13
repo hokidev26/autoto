@@ -48,7 +48,7 @@ autoto/
   go.sum
   .gitignore
   cmd/autoto/main.go              # canonical application entrypoint
-  cmd/autoto/main.go          # legacy compatibility shim
+  cmd/autoto-desktop/main.go      # desktop (Wails) entrypoint, `desktop` build tag
   internal/config
   internal/db
   internal/server
@@ -343,7 +343,10 @@ GET  /ws/terminal?agentId={agentId}
 文件：
 
 ```txt
-internal/agent/loop.go
+internal/agent/continuation.go
+internal/agent/runner_context.go
+internal/agent/runner_model.go
+internal/agent/runner_tools.go
 internal/agent/hub.go
 ```
 
@@ -874,7 +877,7 @@ make check
 - [x] Anthropic 官方 SDK provider（非流式 MVP）
 - [x] OpenAI 官方 Responses API provider（非流式 MVP）
 - [x] provider 字首路由與基礎 model list
-- [x] usage/cost 統計（usage 寫入 `api_requests`，cost 使用內建 per-model USD/MTok 價格表估算；價格來源在 `internal/agent/loop.go` 註釋和 README 中記錄，未知模型估算為 0）
+- [x] usage/cost 統計（usage 寫入 `api_requests`，cost 使用內建 per-model USD/MTok 價格表估算；價格表位於 `internal/pricing/pricing.go`，價格來源在 README 中記錄，未知模型估算為 0）
 - [x] Anthropic prompt caching（足夠大的 system/tool/message 請求自動新增 5m cache_control breakpoint，小請求跳過以避免額外 cache write 成本）
 - [x] retry/backoff
 - [x] first token timeout

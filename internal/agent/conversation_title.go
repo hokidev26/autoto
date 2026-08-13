@@ -124,6 +124,7 @@ func (r *Runner) scheduleConversationTitle(agentID, prompt string) {
 		return
 	}
 	go func() {
+		defer recoverGoroutine("conversation auto-title", "agentId", agentID)
 		defer r.endConversationTitling(agentID)
 		ctx, cancel := context.WithTimeout(context.Background(), conversationTitleTimeout)
 		defer cancel()

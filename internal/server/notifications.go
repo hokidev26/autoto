@@ -15,6 +15,7 @@ import (
 
 	agentpkg "autoto/internal/agent"
 	"autoto/internal/db"
+	"autoto/internal/network"
 )
 
 const webhookNotifyTimeout = 5 * time.Second
@@ -63,7 +64,20 @@ type webhookToolSummary struct {
 }
 
 func NewWebhookNotifier(store *db.Store) *WebhookNotifier {
-	return &WebhookNotifier{store: store, client: &http.Client{Timeout: webhookNotifyTimeout}}
+	return newWebhookNotifier(store)
+}
+
+// newWebhookNotifier builds the notifier on the hardened public-egress path:
+// every resolved address is validated against the public policy, the dialer
+// receives the validated literal IP (closing the DNS-rebinding window), and
+// each redirect hop is revalidated. The options seam exists so tests can
+// inject a resolver and dialer without weakening the production constructor.
+func newWebhookNotifier(store *db.Store, opts ...network.Option) *WebhookNotifier {
+	return &WebhookNotifier{store: store, client: &http.Client{
+		Transport:     network.NewPublicDirectTransport(opts...),
+		Timeout:       webhookNotifyTimeout,
+		CheckRedirect: network.RedirectPolicy(network.PolicyPublicDirect, opts...),
+	}}
 }
 
 func (n *WebhookNotifier) Notify(ctx context.Context, event agentpkg.NotificationEvent) {
@@ -247,8 +261,16 @@ func validateWebhookURL(raw string, required bool) error {
 	if host == "metadata.google.internal" || strings.HasSuffix(host, ".metadata.google.internal") {
 		return errors.New("webhookUrl targets a forbidden metadata host")
 	}
-	if ip := net.ParseIP(host); ip != nil && (ip.IsUnspecified() || ip.IsMulticast() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast()) {
+	if isLoopbackHost(host) {
 		return errors.New("webhookUrl targets a forbidden network address")
+	}
+	if net.ParseIP(host) != nil {
+		// Literal addresses validate without DNS, so the settings API can refuse
+		// loopback/private/metadata targets immediately. Hostname targets are
+		// resolved and enforced by the hardened transport when a webhook is sent.
+		if network.ValidateURL(context.Background(), network.PolicyPublicDirect, parsed) != nil {
+			return errors.New("webhookUrl targets a forbidden network address")
+		}
 	}
 	return nil
 }

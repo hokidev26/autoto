@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -108,6 +109,45 @@ func TestNotificationDeliveryRetriesThenDeliversAndRecordsHistory(t *testing.T) 
 	}
 	if len(items) != 2 || items[0].Status != "dead" || items[0].LastHTTPStatus != http.StatusBadRequest || items[0].AttemptCount != 1 {
 		t.Fatalf("expected non-retryable 400 to dead-letter and preserve history, got %+v", items)
+	}
+}
+
+func TestWebhookDefaultClientRefusesLoopbackTarget(t *testing.T) {
+	ctx := context.Background()
+	store := newAutomationStore(t)
+	defer store.Close()
+
+	var hits int32
+	webhook := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&hits, 1)
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer webhook.Close()
+	if _, err := store.UpdateNotificationSettings(ctx, db.NotificationSettings{Enabled: true, WebhookURL: webhook.URL, NotifyOnDone: true}); err != nil {
+		t.Fatal(err)
+	}
+	runner := &fakeScheduleRunner{store: store}
+	// No HTTPClient injected: the manager builds its own hardened public-egress
+	// client, which must refuse to dial the loopback httptest server instead of
+	// bouncing the run-event payload to an internal address.
+	manager, err := NewManager(Config{Store: store, Runner: runner})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	manager.Notify(ctx, agent.NotificationEvent{Event: "completed", Status: "completed"})
+	if err := manager.ProcessDeliveriesOnce(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if got := atomic.LoadInt32(&hits); got != 0 {
+		t.Fatalf("hardened webhook client dialed a loopback target %d time(s); SSRF guard bypassed", got)
+	}
+	items, err := store.ListNotificationDeliveries(ctx, db.NotificationDeliveryListOptions{Limit: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 1 || items[0].Status == "delivered" {
+		t.Fatalf("expected the blocked delivery to never be delivered, got %+v", items)
 	}
 }
 

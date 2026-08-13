@@ -541,6 +541,15 @@ func (c *windowsFactsCollector) classify(program string, args []winToken, statem
 		c.visitPowerShell(args)
 	case "cmd":
 		c.visitNestedCmd(args)
+	case "sh", "bash", "zsh", "ksh", "dash":
+		// POSIX shells are reachable on Windows through Git for Windows, MSYS2,
+		// and WSL interop. They run whatever follows -c, so classify that inner
+		// command instead of waving the launcher through as ordinary exec.
+		c.visitNestedPOSIXShell(args)
+	case "wsl":
+		c.visitWSLCommand(args)
+	case "forfiles":
+		c.visitForfilesCommand(args)
 	case "mshta", "rundll32", "regsvr32", "wscript", "cscript", "installutil", "msbuild":
 		// Script/DLL host binaries commonly used to run untrusted payloads.
 		c.effect("shell-execution")
@@ -673,31 +682,142 @@ func (c *windowsFactsCollector) visitNestedCmd(args []winToken) {
 	}
 }
 
+// recurseNested analyzes a nested command line and folds its facts into this
+// collector, failing closed once the nesting limit is reached so a payload that
+// can no longer be inspected is never treated as safe.
+func (c *windowsFactsCollector) recurseNested(script string) {
+	if c.depth >= maxWindowsNestedAnalysisDepth {
+		c.facts.ParseKnown = false
+		return
+	}
+	if strings.TrimSpace(script) == "" {
+		return
+	}
+	c.effect("nested-shell")
+	c.facts.Compound = true
+	c.mergeNested(analyzeWindowsCommandDepth(script, c.depth+1))
+}
+
+// visitNestedPOSIXShell classifies the command a POSIX-style shell runs. These
+// shells take their command string after -c (including bundled short flags such
+// as -lc), so `bash -c "rm -rf ~"` must be analyzed as that inner command; an
+// absent or opaque payload fails closed rather than downgrading to plain exec.
+func (c *windowsFactsCollector) visitNestedPOSIXShell(args []winToken) {
+	c.effect("shell-execution")
+	for index, arg := range args {
+		if arg.dynamic {
+			c.facts.ParseKnown = false
+			return
+		}
+		if !strings.HasPrefix(arg.text, "-") || strings.HasPrefix(arg.text, "--") {
+			continue
+		}
+		if !strings.ContainsRune(strings.ToLower(arg.text[1:]), 'c') {
+			continue
+		}
+		if index+1 >= len(args) {
+			c.facts.ParseKnown = false
+			return
+		}
+		c.recurseNested(joinWinTokens(args[index+1:]))
+		return
+	}
+}
+
+// visitWSLCommand classifies the Linux command WSL runs. `wsl rm -rf /mnt/c`
+// executes a real destructive command through interop, so the wrapped command
+// is analyzed instead of the wsl launcher.
+func (c *windowsFactsCollector) visitWSLCommand(args []winToken) {
+	c.effect("shell-execution")
+	rest := wslWrappedArgs(args)
+	if len(rest) == 0 {
+		return
+	}
+	c.recurseNested(joinWinTokens(rest))
+}
+
+// wslWrappedArgs strips wsl's own options and returns the tokens that make up
+// the Linux command line, or nil when the invocation carries no command.
+func wslWrappedArgs(args []winToken) []winToken {
+	valueFlags := map[string]struct{}{
+		"-d": {}, "--distribution": {}, "--distribution-id": {},
+		"-u": {}, "--user": {}, "--cd": {}, "--shell-type": {},
+	}
+	for index := 0; index < len(args); index++ {
+		if args[index].dynamic {
+			return args[index:]
+		}
+		lower := strings.ToLower(args[index].text)
+		if lower == "--" || lower == "-e" || lower == "--exec" {
+			return args[index+1:]
+		}
+		if _, needsValue := valueFlags[lower]; needsValue {
+			index++
+			continue
+		}
+		if strings.HasPrefix(args[index].text, "-") {
+			continue
+		}
+		return args[index:]
+	}
+	return nil
+}
+
+// visitForfilesCommand classifies the command forfiles runs for each matched
+// file. With /s it walks a whole tree, so `forfiles /p C:\ /s /c "cmd /c del
+// @path"` is a bulk delete and must not pass as the unknown `forfiles`.
+func (c *windowsFactsCollector) visitForfilesCommand(args []winToken) {
+	c.effect("shell-execution")
+	for index, arg := range args {
+		if strings.ToLower(strings.TrimLeft(arg.text, "-/")) != "c" {
+			continue
+		}
+		if index+1 >= len(args) {
+			c.facts.ParseKnown = false
+			return
+		}
+		c.recurseNested(joinWinTokens(args[index+1:]))
+		return
+	}
+}
+
 func (c *windowsFactsCollector) visitPowerShell(args []winToken) {
 	c.effect("shell-execution")
 	for index, arg := range args {
 		flag := strings.ToLower(strings.TrimLeft(arg.text, "-/"))
-		switch flag {
-		case "encodedcommand", "enc", "ec", "e":
+		switch {
+		case isPowerShellEncodedFlag(flag):
 			// A base64 payload cannot be classified; fail closed.
 			c.facts.ParseKnown = false
 			c.effect("obfuscation")
 			c.danger("encoded-command")
 			return
-		case "command", "c":
+		case flag == "command" || flag == "c":
 			if index+1 >= len(args) {
 				c.facts.ParseKnown = false
 				return
 			}
 			c.analyzePowerShellScript(joinWinTokens(args[index+1:]))
 			return
-		case "file", "f":
+		case flag == "file" || flag == "f":
 			c.sensitiveLabel("script-file-execution")
 			return
 		}
 	}
 	// `powershell` with no recognizable script flag still runs a shell.
 	c.analyzePowerShellScript(joinWinTokens(args))
+}
+
+// isPowerShellEncodedFlag reports whether a switch selects -EncodedCommand.
+// powershell.exe resolves parameters by unambiguous prefix, so -e, -en, -enc,
+// ... up to -encodedcommand all deliver a base64 payload; the -ec spelling is
+// also accepted. Any of these must fail closed rather than run unseen. -command
+// and -c stay distinct because neither is a prefix of "encodedcommand".
+func isPowerShellEncodedFlag(flag string) bool {
+	if flag == "" {
+		return false
+	}
+	return flag == "ec" || strings.HasPrefix("encodedcommand", flag)
 }
 
 func joinWinTokens(tokens []winToken) string {
@@ -789,6 +909,64 @@ func (c *windowsFactsCollector) analyzePowerShellScript(script string) {
 		c.effect("shell-execution")
 		c.danger("network-pipe-shell")
 	}
+	// Remove-Item and its aliases (rm/del/erase/rd/rmdir/ri) delete files. The
+	// substring rules above only see the canonical `remove-item` spelling with a
+	// full `-recurse`/`-force` needle, so the aliases and PowerShell's
+	// prefix-abbreviated switches are matched here token by token.
+	if verb, forced := powerShellDeleteVerb(lowered); verb {
+		c.effect("filesystem-delete")
+		if forced {
+			c.danger("file-delete")
+		} else {
+			c.sensitiveLabel("file-delete-scoped")
+		}
+	}
+}
+
+// powerShellDeleteVerb reports whether a script invokes a file deletion and, if
+// so, whether it is forced or recursive. Matching is token based so path text
+// such as "model" or "board" cannot masquerade as the rm/rd aliases, and the
+// -Recurse/-Force switches are matched by prefix because PowerShell resolves
+// parameter names by unambiguous prefix (-recurs, -recur, -rec, -force, ...).
+func powerShellDeleteVerb(loweredScript string) (verb bool, forced bool) {
+	for _, token := range tokenizePowerShell(loweredScript) {
+		switch token {
+		case "remove-item", "rm", "del", "erase", "rd", "rmdir", "ri":
+			verb = true
+			continue
+		}
+		if !strings.HasPrefix(token, "-") {
+			continue
+		}
+		name := strings.TrimLeft(token, "-")
+		if pos := strings.IndexAny(name, ":="); pos >= 0 {
+			name = name[:pos]
+		}
+		if name == "" {
+			continue
+		}
+		// -Recurse is the only Remove-Item parameter starting with r, and -Force
+		// is matched by any prefix as well; in a delete context an ambiguous -f
+		// is read as force.
+		if strings.HasPrefix("recurse", name) || strings.HasPrefix("force", name) {
+			forced = true
+		}
+	}
+	return verb, forced
+}
+
+// tokenizePowerShell splits a lower-cased script into words on the shell
+// separators that bound a command or a switch, so verbs and flags can be
+// matched as whole tokens rather than substrings.
+func tokenizePowerShell(script string) []string {
+	return strings.FieldsFunc(script, func(r rune) bool {
+		switch r {
+		case ' ', '\t', '\r', '\n', ';', '|', '(', ')', '{', '}', '[', ']', ',', '&', '\'', '"', '`':
+			return true
+		default:
+			return false
+		}
+	})
 }
 
 func (c *windowsFactsCollector) mergeNested(nested CommandFacts) {

@@ -35,7 +35,7 @@ Autoto 已經具備完整的 Subagent 核心鏈路，包括 `Agent` 工具、持
 - `internal/agentrole/role.go`
   - 支持 `general`、`executor`、`explorer`、`reviewer`、`tester`、`plan` 和 `search` 等角色。
   - 對只讀角色強制使用只讀權限。
-- `internal/agent/loop.go`
+- `internal/agent/runner.go`（`ResolveSubagentModel` / `SetAgentModelSettings`）
   - 支援 Subagent 專用模型和模型池。
   - 未單獨配置時可回退到父 Agent 模型或預設模型。
 - `internal/tools/context_ask.go`

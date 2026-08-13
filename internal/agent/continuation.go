@@ -431,6 +431,7 @@ func (r *Runner) startSegmentStallWatchdog(ctx context.Context, run db.Run, cont
 	}
 	done := make(chan struct{})
 	go func() {
+		defer recoverGoroutine("segment stall watchdog", "agentId", run.AgentID, "runId", run.ID)
 		ticker := time.NewTicker(stallWarningInterval)
 		defer ticker.Stop()
 		started := time.Now()

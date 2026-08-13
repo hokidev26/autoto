@@ -171,9 +171,10 @@ func (r *Runner) dangerReflectionPreferred(ctx context.Context) bool {
 // Read-risk tools are skipped: they cannot mutate anything, and paying a model
 // call per file read would make the agent unusable.
 //
-// mode is the effective permission mode for this call (after any run cap), which
-// the gate needs to tell "the user asked to be asked" apart from "the user chose
-// bypassPermissions".
+// mode is the effective permission mode for this call (after any run cap). The
+// gate resolves every mode the same way — an unusable reflection fails closed
+// even under bypassPermissions — and uses mode only to warn loudly when that
+// overrides the user's chosen mode.
 func (r *Runner) reflectBeforeExecution(ctx context.Context, agent db.Agent, mode, runID string, call tools.Call, risk tools.Risk, permission toolPermissionResolution) toolPermissionResolution {
 	if permission.Decision != toolPermissionAllow {
 		return permission
@@ -220,14 +221,17 @@ func (r *Runner) reflectBeforeExecution(ctx context.Context, agent db.Agent, mod
 		}
 	case reflection.asks():
 		// "The model could not answer" is a different state from "the model said
-		// confirm". Fail-closed is the right default for it, but bypassPermissions
-		// is the user explicitly saying they do not want to be asked, so blocking
-		// on a missing capability there contradicts their own choice. An explicit
-		// confirm or block verdict still stands in every mode.
-		if reflection.Unavailable && reflection.Verdict != reflectionConfirm && strings.TrimSpace(mode) == "bypassPermissions" {
-			slog.Warn("danger reflection unavailable; allowed by bypassPermissions mode",
+		// confirm", but both fail closed, in every mode. Reaching this point
+		// means a model IS configured for the conversation (with none, the
+		// dangerReflectionEnabled check above keeps the gate inert), so an
+		// unavailable reflection is a configured reviewer whose call failed or
+		// timed out. bypassPermissions must not convert that failure into an
+		// allow: anyone able to starve the provider (timeouts, quota) could
+		// otherwise knock out the last safety gate exactly when it matters. The
+		// warning stays loud so a degraded install is diagnosable.
+		if reflection.Unavailable && strings.TrimSpace(mode) == "bypassPermissions" {
+			slog.Warn("danger reflection unavailable; failing closed to human approval despite bypassPermissions mode",
 				"agentId", agent.ID, "toolName", call.Name, "risk", risk, "model", agent.Model)
-			return permission
 		}
 		slog.Info("danger reflection escalated tool call to approval", "agentId", agent.ID, "toolName", call.Name, "risk", risk, "unavailable", reflection.Unavailable)
 		return toolPermissionResolution{

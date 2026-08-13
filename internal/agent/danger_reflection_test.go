@@ -134,9 +134,9 @@ func TestDangerReflectionNeverUpgrades(t *testing.T) {
 }
 
 // TestDangerReflectionFailsClosed covers every way the reflector can fail to
-// produce a usable verdict. None of them may result in silent execution, except
-// under bypassPermissions where the user explicitly opted out of being asked
-// (covered separately by TestDangerReflectionUnavailableAllowsUnderBypass).
+// produce a usable verdict. None of them may result in silent execution, in any
+// mode (the bypassPermissions case is pinned separately by
+// TestDangerReflectionUnavailableFailsClosedUnderBypass).
 func TestDangerReflectionFailsClosed(t *testing.T) {
 	cases := []struct {
 		name   string
@@ -170,11 +170,15 @@ func TestDangerReflectionFailsClosed(t *testing.T) {
 	}
 }
 
-// TestDangerReflectionUnavailableAllowsUnderBypass covers the one exception to
-// fail-closed: bypassPermissions is the user saying they do not want approval
-// prompts, so "the reflector could not answer" must not become one. An explicit
-// confirm or block verdict is a real judgment and still applies.
-func TestDangerReflectionUnavailableAllowsUnderBypass(t *testing.T) {
+// TestDangerReflectionUnavailableFailsClosedUnderBypass pins fail-closed in
+// the mode that used to be exempt. Reaching reflection at all means a model is
+// configured for the conversation, so "the reflector could not answer" is a
+// configured safety call that failed or timed out — exactly the condition an
+// attacker able to induce provider timeouts or quota errors would create. It
+// must escalate to approval even though bypassPermissions asked not to be
+// prompted; a conversation with no model at all never reaches this point (see
+// TestDangerReflectionSkipsCheapAndSafePaths).
+func TestDangerReflectionUnavailableFailsClosedUnderBypass(t *testing.T) {
 	store, agent := newAgentTestStore(t, t.TempDir(), "bypassPermissions")
 	defer store.Close()
 	provider := &scriptedProvider{turns: [][]providers.Event{
@@ -185,11 +189,11 @@ func TestDangerReflectionUnavailableAllowsUnderBypass(t *testing.T) {
 	ctx := context.Background()
 
 	unavailable := runner.reflectBeforeExecution(ctx, agent, agent.PermissionMode, "run-1", bashCall("somecmd --unknown"), tools.RiskExec, allowResolution())
-	if unavailable.Decision != toolPermissionAllow {
-		t.Fatalf("an unavailable reflection must not block bypassPermissions, got %+v", unavailable)
+	if unavailable.Decision != toolPermissionAsk {
+		t.Fatalf("an unavailable reflection must fail closed to approval even under bypassPermissions, got %+v", unavailable)
 	}
-	if unavailable.Source != decisionSourceDefaultPolicy {
-		t.Fatalf("the original static resolution must be returned unchanged, got %+v", unavailable)
+	if unavailable.Source != decisionSourceDangerReflection {
+		t.Fatalf("the escalation must be attributed to danger reflection, got %+v", unavailable)
 	}
 
 	confirmed := runner.reflectBeforeExecution(ctx, agent, agent.PermissionMode, "run-2", bashCall("somecmd --overwrite"), tools.RiskExec, allowResolution())
@@ -496,8 +500,6 @@ func TestDangerReflectionCacheIsDroppedOnPolicyChange(t *testing.T) {
 // TestDangerReflectionCacheSkipsUnavailableVerdicts prevents one provider
 // hiccup from being remembered as a run-long approval storm.
 func TestDangerReflectionCacheSkipsUnavailableVerdicts(t *testing.T) {
-	// acceptEdits rather than bypassPermissions: this test needs the unavailable
-	// verdict to be observable as "ask", which bypassPermissions now allows.
 	store, agent := newAgentTestStore(t, t.TempDir(), "acceptEdits")
 	defer store.Close()
 	provider := &scriptedProvider{turns: [][]providers.Event{

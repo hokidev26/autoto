@@ -81,8 +81,8 @@ func legacyDangerLabel(command string) string {
 		return ""
 	}
 	fields := strings.Fields(cmd)
-	if len(fields) > 0 {
-		switch strings.TrimLeft(fields[0], `\`) {
+	if head := legacyEffectiveCommand(fields); head != "" {
+		switch head {
 		case "rm", "rmdir", "unlink":
 			return "file-delete"
 		case "sudo", "doas":
@@ -94,7 +94,7 @@ func legacyDangerLabel(command string) string {
 		case "wipefs", "blkdiscard", "sgdisk":
 			return "disk-partition"
 		}
-		if strings.HasPrefix(fields[0], "mkfs") {
+		if strings.HasPrefix(head, "mkfs") {
 			return "disk-format"
 		}
 	}
@@ -123,6 +123,60 @@ func legacyDangerLabel(command string) string {
 		return "file-truncate"
 	}
 	return ""
+}
+
+// legacyEffectiveCommand peels a leading chain of shell and exec wrappers so the
+// string fallback inspects the command that actually runs rather than the
+// launcher. Without it `env rm -rf /`, `timeout 5 rm -rf /`, and `wsl rm -rf /`
+// slip past a fields[0]-only check. Privileged wrappers (sudo/doas) are left in
+// place because they carry their own danger label and must not be skipped. The
+// returned token is stripped of any directory prefix and the `\`-alias bypass.
+func legacyEffectiveCommand(fields []string) string {
+	wrappers := map[string]struct{}{
+		"env": {}, "timeout": {}, "gtimeout": {}, "setsid": {}, "stdbuf": {},
+		"nice": {}, "ionice": {}, "chrt": {}, "taskset": {}, "nohup": {},
+		"wsl": {}, "sh": {}, "bash": {}, "zsh": {}, "ksh": {}, "dash": {},
+	}
+	for index := 0; index < len(fields) && index < 16; index++ {
+		token := legacyBareCommand(fields[index])
+		if token == "" {
+			continue
+		}
+		if _, isWrapper := wrappers[token]; isWrapper {
+			continue
+		}
+		// A leading option or operand belongs to the preceding wrapper -- an
+		// option flag, an `env` VAR=value assignment, or a bare duration such as
+		// the `5` in `timeout 5 rm` -- so it is not the command itself.
+		if strings.HasPrefix(fields[index], "-") || strings.Contains(token, "=") || legacyNumericOperand(token) {
+			continue
+		}
+		return token
+	}
+	return ""
+}
+
+func legacyBareCommand(field string) string {
+	field = strings.TrimLeft(field, `\`)
+	if sep := strings.LastIndexAny(field, `/\`); sep >= 0 {
+		field = field[sep+1:]
+	}
+	return field
+}
+
+// legacyNumericOperand reports whether a token is a bare number or duration
+// operand (`5`, `10s`, `1.5`), which some wrappers take before the command.
+func legacyNumericOperand(token string) bool {
+	trimmed := strings.TrimRight(token, "smhd")
+	if trimmed == "" {
+		return false
+	}
+	for _, r := range trimmed {
+		if (r < '0' || r > '9') && r != '.' {
+			return false
+		}
+	}
+	return true
 }
 
 // hasTruncatingRedirect reports whether the raw command text contains a `>`

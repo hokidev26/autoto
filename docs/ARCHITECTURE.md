@@ -1,6 +1,6 @@
 # Autoto Architecture Guide
 
-This guide is a contributor-facing map of how a request flows through the local Autoto MVP. The Go module is `autoto`; `cmd/autoto` is the canonical application entrypoint, while `cmd/autoto` is a legacy compatibility shim. For roadmap detail, see `PROJECT_PLAN.md`; for operational security boundaries, see `SECURITY.md`.
+This guide is a contributor-facing map of how a request flows through the local Autoto MVP. The Go module is `autoto`. There are two entrypoints: `cmd/autoto` is the canonical CLI/server entrypoint (it starts the local service and opens the browser UI via `app.Run`), and `cmd/autoto-desktop` is the optional desktop entrypoint (a Wails WebView shell behind the `desktop` build tag). There is no separate legacy shim binary. For roadmap detail, see `PROJECT_PLAN.md`; for operational security boundaries, see `SECURITY.md`.
 
 ## High-level shape
 
@@ -30,8 +30,8 @@ internal/db SQLite store
 ### 1. Browser boot
 
 1. `internal/server/ui.go` serves `/` and the embedded static assets.
-2. The page receives a per-process local token as a JS bootstrap value and as a local cookie.
-3. `internal/server/static/app.js` attaches the canonical `X-Autoto-Token` header to API calls and includes the same token on WebSocket URLs. `X-Autoto-Token` remains accepted only for legacy-client compatibility.
+2. The page receives the local API token as a JS bootstrap value and as a local cookie. The token is not per-process: it is persisted to `secrets/local-api.token` under the Autoto home directory (or supplied via `AUTOTO_LOCAL_TOKEN`) and reused across restarts, so open tabs survive a server restart.
+3. `internal/server/static/app.js` attaches the canonical `X-Autoto-Token` header to API calls and includes the same token on WebSocket URLs. `X-Autoto-Token` is the only accepted token header; WebSocket upgrades additionally accept the `autoto_local_token` cookie or the `?token=` query parameter, the latter kept for compatibility and logged with a deprecation warning when it is the credential actually used.
 
 ### 2. Local request guard
 
@@ -49,10 +49,12 @@ The guard is intended to prevent a random web page from driving the local agent 
 
 ### 4. Agent loop
 
-1. `internal/agent/loop.go` loads agent, project, workline, and message history from `internal/db`.
-2. It compacts older context when needed and builds a `providers.GenerateRequest` containing system prompt, messages, and tool schemas.
-3. The selected provider streams `providers.Event` values back to the runner.
-4. Assistant text and tool requests are persisted as messages/tool calls, then published through the event hub.
+The loop logic that used to live in a single `internal/agent/loop.go` is now split across `internal/agent/continuation.go`, `runner_context.go`, `runner_model.go`, and `runner_tools.go` (plus focused helpers such as `context_management.go` and `tool_output_pipeline.go`).
+
+1. `continuation.go` (`Runner.run` / `runContinuous`) drives the run in segments and loads the agent and message history from `internal/db`.
+2. `runner_context.go` compacts older context when needed and assembles the provider message set; `runner_model.go` builds the `providers.GenerateRequest` containing system prompt, messages, and tool schemas.
+3. The selected provider streams `providers.Event` values back to the runner (`runner_model.go`).
+4. Assistant text and tool requests are persisted as messages/tool calls — tool execution and approval routing live in `runner_tools.go` — then published through the event hub.
 
 ### 5. Provider adapters
 

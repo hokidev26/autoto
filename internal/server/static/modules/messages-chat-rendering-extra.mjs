@@ -19,6 +19,27 @@ const messages = Object.freeze({
         copyFailed: "复制失败",
         copiedToast: "消息原文已复制。",
         copyFailedToast: "复制消息失败，请手动选择文本复制。",
+        correctionBadge: "更正",
+        correctionAddFiles: "添加图片或文本文件",
+        correctionCreated: "已创建更正消息并重新运行。",
+      }),
+      history: Object.freeze({
+        loadingOlder: "正在加载更早消息…",
+        loadOlder: "加载更早消息",
+      }),
+      toolNames: Object.freeze({
+        listDirectory: "列出目录",
+        currentDirectory: "当前目录",
+        readFile: "读取文件",
+        createDirectory: "创建目录",
+        copyFile: "复制文件",
+        moveFile: "移动文件",
+        deleteFile: "删除文件",
+        createFile: "新建文件",
+        findFiles: "查找文件",
+        findCommand: "查找命令",
+        echoText: "输出文本",
+        networkRequest: "网络请求",
       }),
       menu: Object.freeze({
         copy: "复制",
@@ -246,7 +267,9 @@ const messages = Object.freeze({
   }),
   "zh-TW": Object.freeze({
     chatRenderingExtra: Object.freeze({
-      message: Object.freeze({ empty: "還沒有訊息。輸入你的需求開始對話。", emptyTitle: "開始理解這個專案", emptyDescription: "你可以問：「幫我看一下架構」、「入口在哪裡」、「搜尋登入相關程式碼」。預設是唯讀模式。", copy: "複製", copyTitle: "複製訊息原文", correct: "更正", correctTitle: "更正並重新發送（此後的對話不再送給模型）", superseded: "已作廢", correctionNote: "此後的對話會作廢（仍保留可讀），但已經改動的檔案不會還原 —— 需要回退請用 Git。", correctionCancel: "取消", correctionSubmit: "更正並重發", copied: "已複製", copyFailed: "複製失敗", copiedToast: "訊息原文已複製。", copyFailedToast: "複製訊息失敗，請手動選取文字複製。" }),
+      message: Object.freeze({ empty: "還沒有訊息。輸入你的需求開始對話。", emptyTitle: "開始理解這個專案", emptyDescription: "你可以問：「幫我看一下架構」、「入口在哪裡」、「搜尋登入相關程式碼」。預設是唯讀模式。", copy: "複製", copyTitle: "複製訊息原文", correct: "更正", correctTitle: "更正並重新發送（此後的對話不再送給模型）", superseded: "已作廢", correctionNote: "此後的對話會作廢（仍保留可讀），但已經改動的檔案不會還原 —— 需要回退請用 Git。", correctionCancel: "取消", correctionSubmit: "更正並重發", copied: "已複製", copyFailed: "複製失敗", copiedToast: "訊息原文已複製。", copyFailedToast: "複製訊息失敗，請手動選取文字複製。", correctionBadge: "更正", correctionAddFiles: "新增圖片或文字檔案", correctionCreated: "已建立更正訊息並重新執行。" }),
+      history: Object.freeze({ loadingOlder: "正在載入更早訊息…", loadOlder: "載入更早訊息" }),
+      toolNames: Object.freeze({ listDirectory: "列出目錄", currentDirectory: "目前目錄", readFile: "讀取檔案", createDirectory: "建立目錄", copyFile: "複製檔案", moveFile: "移動檔案", deleteFile: "刪除檔案", createFile: "新增檔案", findFiles: "尋找檔案", findCommand: "尋找命令", echoText: "輸出文字", networkRequest: "網路請求" }),
       menu: Object.freeze({
         copy: "複製",
         edit: "編輯訊息",
@@ -310,7 +333,9 @@ const messages = Object.freeze({
   }),
   en: Object.freeze({
     chatRenderingExtra: Object.freeze({
-      message: Object.freeze({ empty: "No messages yet. Enter a request to start the conversation.", emptyTitle: "Start understanding this project", emptyDescription: "Try asking: “Show me the architecture,” “Where is the entry point?” or “Find the login-related code.” Read-only mode is the default.", copy: "Copy", copyTitle: "Copy message text", correct: "Edit", correctTitle: "Edit and resend; everything after it stops being sent to the model", superseded: "Retired", correctionNote: "Everything after this is retired (still readable), but files already changed on disk are not reverted — use Git to roll those back.", correctionCancel: "Cancel", correctionSubmit: "Resend", copied: "Copied", copyFailed: "Copy failed", copiedToast: "Message text copied.", copyFailedToast: "Could not copy the message. Select the text manually instead." }),
+      message: Object.freeze({ empty: "No messages yet. Enter a request to start the conversation.", emptyTitle: "Start understanding this project", emptyDescription: "Try asking: “Show me the architecture,” “Where is the entry point?” or “Find the login-related code.” Read-only mode is the default.", copy: "Copy", copyTitle: "Copy message text", correct: "Edit", correctTitle: "Edit and resend; everything after it stops being sent to the model", superseded: "Retired", correctionNote: "Everything after this is retired (still readable), but files already changed on disk are not reverted — use Git to roll those back.", correctionCancel: "Cancel", correctionSubmit: "Resend", copied: "Copied", copyFailed: "Copy failed", copiedToast: "Message text copied.", copyFailedToast: "Could not copy the message. Select the text manually instead.", correctionBadge: "Correction", correctionAddFiles: "Add images or text files", correctionCreated: "Correction message created; rerunning." }),
+      history: Object.freeze({ loadingOlder: "Loading earlier messages…", loadOlder: "Load earlier messages" }),
+      toolNames: Object.freeze({ listDirectory: "List directory", currentDirectory: "Current directory", readFile: "Read file", createDirectory: "Create directory", copyFile: "Copy file", moveFile: "Move file", deleteFile: "Delete file", createFile: "Create file", findFiles: "Find files", findCommand: "Locate command", echoText: "Print text", networkRequest: "Network request" }),
       menu: Object.freeze({
         copy: "Copy",
         edit: "Edit message",

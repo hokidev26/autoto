@@ -19,6 +19,7 @@ import (
 	"autoto/internal/agent"
 	"autoto/internal/audit"
 	"autoto/internal/db"
+	"autoto/internal/network"
 	"autoto/internal/runtime"
 	"autoto/internal/schedules"
 )
@@ -137,7 +138,14 @@ func NewManager(config Config) (*Manager, error) {
 	}
 	client := config.HTTPClient
 	if client == nil {
-		client = &http.Client{}
+		// Production path: build the webhook client on the hardened
+		// public-egress transport so every resolved address is validated
+		// against the public policy and the dialer receives the validated
+		// literal IP, closing the DNS-rebinding window. Redirects are still
+		// not followed (below), so a run-event payload can never be bounced to
+		// a loopback/private/metadata target. Tests inject config.HTTPClient to
+		// reach a local server and opt out of this policy deliberately.
+		client = &http.Client{Transport: network.NewPublicDirectTransport()}
 	}
 	cloned := *client
 	cloned.Timeout = webhookTimeout

@@ -35,7 +35,7 @@ Autoto 當前擁有 `Read`、`Grep`、`Glob`、`Bash`、`WebFetch`、後台任�
 - `Grep` 預設最多返回 100 條匹配，但單行長度和多次搜尋仍可能形成較大上下文。
 - Web、MCP 和動態工具也可能返回大量結構化或文本內容。
 
-工具結果目前在 `internal/agent/loop.go` 的模型迴圈中被完整寫入工具結果訊息。專案已經實現上下文預算、舊訊息摘要和工具結果省略，但這些機制主要在上下文接近限制或訊息變舊後生效。
+工具結果目前在 `internal/agent` 的模型迴圈（原 `loop.go`，現拆分為 `continuation.go`、`runner_tools.go` 等）中被完整寫入工具結果訊息。專案已經實現上下文預算、舊訊息摘要和工具結果省略，但這些機制主要在上下文接近限制或訊息變舊後生效。
 
 這會產生幾個問題：
 
@@ -270,7 +270,7 @@ pipeline_test.go
 
 只註冊兩個普通工具還不夠，因為普通工具無法自動攔截其他工具的結果。
 
-建議在 `internal/agent/loop.go` 中，普通工具執行完成、完整結果已經記錄，但尚未生成模型可見 `tool_result` 訊息時進行轉換。
+建議在 `internal/agent` 的模型迴圈中，普通工具執行完成、完整結果已經記錄，但尚未生成模型可見 `tool_result` 訊息時進行轉換。（此匯聚點現已實作為 `internal/agent/tool_output_pipeline.go` 的 `Runner.processToolResultForModel`，由 `continuation.go` 的模型迴圈呼叫。）
 
 當前相關流程位於模型迴圈執行工具並建立工具結果訊息的位置。建議邏輯為：
 

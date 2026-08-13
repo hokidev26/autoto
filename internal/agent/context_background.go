@@ -60,6 +60,7 @@ func (r *Runner) maybeCompactContextInBackground(agentID string) {
 		return
 	}
 	go func() {
+		defer recoverGoroutine("background context compaction", "agentId", agentID)
 		defer cancel()
 		defer r.finishBackgroundContextCompaction(agentID, handle)
 		r.backgroundCompactContext(ctx, agentID)

@@ -99,9 +99,29 @@ func sensitiveToolPath(base, target string) bool {
 	if workspacefs.IsSensitivePath(rel) {
 		return true
 	}
-	for _, component := range strings.Split(strings.ToLower(rel), "/") {
-		if component == ".git" {
+	return sensitiveCredentialPath(rel)
+}
+
+// sensitiveCredentialPath blocks credential stores that hold secrets beyond the
+// individual key files workspacefs.IsSensitivePath already covers: the whole of
+// an SSH or AWS credential directory, a Kubernetes config, a Docker config, the
+// git credential store, and any repository metadata directory. Matching stays
+// component based to mirror the existing denylist, so both an exact filename and
+// a nested path (`project/.ssh/id_rsa`) are caught.
+func sensitiveCredentialPath(rel string) bool {
+	components := strings.Split(strings.ToLower(rel), "/")
+	for index, component := range components {
+		switch component {
+		case ".git", ".ssh", ".aws", ".git-credentials":
 			return true
+		case ".kube":
+			if index+1 < len(components) && components[index+1] == "config" {
+				return true
+			}
+		case ".docker":
+			if index+1 < len(components) && components[index+1] == "config.json" {
+				return true
+			}
 		}
 	}
 	return false

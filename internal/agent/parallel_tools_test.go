@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"runtime"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -403,6 +404,78 @@ func TestPrefetchToolCallsSingleEligibleCallStaysOnSerialPath(t *testing.T) {
 	got := runner.prefetchToolCallResults(ctx, agent.ID, run.ID, twoReads, "assistant-1", toolset)
 	if got == nil || !got[0].ran || !got[1].ran {
 		t.Fatalf("expected both eligible reads to be prefetched, got %+v", got)
+	}
+}
+
+// panicProbeTool is a read-risk tools.Tool whose Execute always panics,
+// modeling a tool implementation bug surfacing inside a prefetch worker.
+type panicProbeTool struct{ name string }
+
+func (t panicProbeTool) Name() string        { return t.name }
+func (t panicProbeTool) Description() string { return "prefetch panic probe tool" }
+func (t panicProbeTool) Schema() any {
+	return map[string]any{"type": "object", "additionalProperties": true}
+}
+func (t panicProbeTool) Risk(json.RawMessage) tools.Risk { return tools.RiskRead }
+func (t panicProbeTool) Execute(context.Context, tools.Call, tools.Env) (tools.Result, error) {
+	panic("panic probe tool exploded")
+}
+
+// TestPrefetchPanickingToolYieldsErrorResult pins panic containment for the
+// parallel workers: a tool body that panics inside a prefetch worker must come
+// back as that slot's error result — marked ran so the caller does not execute
+// it a second time — with a terminal audit row, while sibling workers are
+// unaffected. Without the recovers this test crashes the whole test binary
+// rather than failing.
+func TestPrefetchPanickingToolYieldsErrorResult(t *testing.T) {
+	registry := tools.NewRegistry()
+	registry.Register(panicProbeTool{name: "PanicRead"})
+	registry.Register(orderedProbeTool{name: "CalmRead", risk: tools.RiskRead})
+	store, agent, run := newPrefetchTestFixture(t, &scriptedProvider{}, registry)
+	defer store.Close()
+	runner := newPrefetchTestRunner(store, &scriptedProvider{}, registry)
+	ctx := context.Background()
+	// The audit row for each executed call references the assistant message
+	// that requested it, so the message must actually exist.
+	assistant, err := store.AddMessage(ctx, db.Message{AgentID: agent.ID, RunID: run.ID, Role: "assistant", ContentText: "requesting two reads"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	toolset := map[string]tools.Tool{
+		"PanicRead": panicProbeTool{name: "PanicRead"},
+		"CalmRead":  orderedProbeTool{name: "CalmRead", risk: tools.RiskRead},
+	}
+	calls := []providers.ToolCall{
+		{ID: "boom", Name: "PanicRead", Input: json.RawMessage(`{}`)},
+		{ID: "calm", Name: "CalmRead", Input: json.RawMessage(`{}`)},
+	}
+
+	results := runner.prefetchToolCallResults(ctx, agent.ID, run.ID, calls, assistant.ID, toolset)
+
+	if results == nil {
+		t.Fatal("expected both reads to be eligible for prefetch")
+	}
+	if !results[0].ran {
+		t.Fatal("the panicking slot must be marked ran so the caller does not execute it a second time")
+	}
+	message := results[0].result.Output
+	if results[0].executeErr != nil {
+		message = results[0].executeErr.Error()
+	}
+	if (results[0].executeErr == nil && !results[0].result.IsError) || !strings.Contains(message, "panicked") {
+		t.Fatalf("a panicking tool body must surface as an error result naming the panic, got message=%q result=%+v", message, results[0])
+	}
+	if !results[1].ran || results[1].executeErr != nil || results[1].result.Output != "CalmRead-output" {
+		t.Fatalf("the sibling worker must be unaffected by the panic, got %+v", results[1])
+	}
+	// The audit row must reach a terminal status: a row stuck in "running"
+	// would poison every later continuation boundary of the run.
+	recorded, err := store.GetToolCallByUseID(ctx, agent.ID, "boom")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if recorded.Status != "error" {
+		t.Fatalf("panicked tool call must land in a terminal audit status, got %q", recorded.Status)
 	}
 }
 

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"runtime/debug"
 	"sort"
 	"strings"
 	"time"
@@ -633,7 +634,7 @@ func (r *Runner) executeApprovedTool(ctx context.Context, agent db.Agent, runID 
 		return r.finishToolSetupFailure(ctx, agent.ID, runID, call, risk, normalizedExecutionDeviceID(agent.ExecutionDeviceID), permission, err)
 	}
 	started := time.Now()
-	result, err := tool.Execute(ctx, call, env)
+	result, err := safeExecuteTool(ctx, tool, call, env)
 	r.captureRunToolGitAfter(context.Background(), runID, gitBefore)
 	duration := time.Since(started).Milliseconds()
 	status := "completed"
@@ -655,6 +656,24 @@ func (r *Runner) executeApprovedTool(ctx context.Context, agent db.Agent, runID 
 		err = hookErr
 	}
 	return result, err
+}
+
+// safeExecuteTool isolates Tool.Execute the way safeToolRisk isolates
+// Tool.Risk: a panicking tool implementation becomes an ordinary error result
+// that flows through the standard bookkeeping (terminal audit row, events,
+// hooks) instead of unwinding through the loop — or, on a prefetch worker
+// goroutine, crashing the whole process.
+func safeExecuteTool(ctx context.Context, tool tools.Tool, call tools.Call, env tools.Env) (result tools.Result, err error) {
+	defer func() {
+		if value := recover(); value != nil {
+			slog.Error("tool execution panicked",
+				"toolName", call.Name, "agentId", env.AgentID, "runId", env.RunID,
+				"panic", value, "stack", string(debug.Stack()))
+			result = tools.Result{Output: fmt.Sprintf("tool %s panicked: %v", call.Name, value), IsError: true}
+			err = nil
+		}
+	}()
+	return tool.Execute(ctx, call, env)
 }
 
 func (r *Runner) waitForToolApproval(ctx context.Context, agent db.Agent, runID string, call tools.Call, risk tools.Risk, messageID string, resolution toolPermissionResolution, allowSession bool) (ToolApprovalDecision, error) {
