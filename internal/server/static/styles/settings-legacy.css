@@ -1098,7 +1098,13 @@ body.white-shell.theme-light .message-performance-live { border-color: #cbd4ff; 
 .message-history-control button[hidden] { display: none; }
 .message-history-status { color: var(--ws-muted, #747e90); font-size: 11px; }
 .message-history-status[hidden] { display: none; }
-.message-correction-editor { display: grid; gap: 10px; }
+.message-correction-editor { display: grid; gap: 8px; }
+/* One wrapping row: file picker, the retire note, and the actions. On narrow
+   widths the note wraps first while the actions keep their row, which is what
+   keeps the editor from growing back into a stacked card. */
+.message-correction-footer { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; }
+.message-correction-footer .message-correction-note { flex: 1 1 220px; margin: 0; }
+.message-correction-footer .message-correction-actions { margin-left: auto; flex: 0 0 auto; }
 .message-correction-text { width: 100%; resize: vertical; border: 1px solid var(--line); border-radius: 10px; background: var(--bg-soft); color: var(--text); padding: 10px; font: inherit; }
 .message-correction-attachments { display: flex; flex-wrap: wrap; gap: 8px; color: var(--text-soft); font-size: 12px; }
 .message-correction-attachments label, .message-correction-file-label { display: inline-flex; align-items: center; gap: 6px; }

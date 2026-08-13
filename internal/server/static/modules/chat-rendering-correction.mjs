@@ -12,18 +12,23 @@ export function createChatRenderingCorrection({
   function renderCorrectionEditor(message) {
     const attachments = Array.isArray(message.attachments) ? message.attachments : [];
     const files = Array.isArray(state.correctionFiles) ? state.correctionFiles : [];
+    // The file picker, the retire note, and the actions share one wrapping
+    // footer row instead of stacking, so the editor stays roughly the height
+    // of the message it replaces rather than growing into a tall card.
     return `
       <form class="message-correction-editor" data-correction-form="${escapeAttr(message.id || "")}">
-        <textarea class="message-correction-text" data-correction-text rows="4">${escapeHtml(state.correctionText ?? visibleMessageText(message))}</textarea>
+        <textarea class="message-correction-text" data-correction-text rows="3">${escapeHtml(state.correctionText ?? visibleMessageText(message))}</textarea>
         ${attachments.length ? `<div class="message-correction-attachments">${attachments.map((attachment) => `
           <label><input type="checkbox" data-keep-correction-attachment value="${escapeAttr(attachment.id || "")}" checked /> ${escapeHtml(attachment.filename || cr("attachment.attachment"))}</label>
         `).join("")}</div>` : ""}
         ${files.length ? `<div class="message-correction-new-files">${files.map((file) => `<span>${escapeHtml(file.name || cr("attachment.attachment"))}</span>`).join("")}</div>` : ""}
-        <label class="message-correction-file-label">${escapeHtml(cr("message.correctionAddFiles"))}<input type="file" data-correction-files multiple /></label>
-        <p class="message-correction-note">${escapeHtml(cr("message.correctionNote"))}</p>
-        <div class="message-correction-actions">
-          <button class="ghost-btn mini" type="button" data-correction-cancel>${escapeHtml(cr("message.correctionCancel"))}</button>
-          <button class="ghost-btn mini" type="submit" title="${escapeAttr(cr("message.correctTitle"))}">${escapeHtml(cr("message.correctionSubmit"))}</button>
+        <div class="message-correction-footer">
+          <label class="message-correction-file-label">${escapeHtml(cr("message.correctionAddFiles"))}<input type="file" data-correction-files multiple /></label>
+          <p class="message-correction-note">${escapeHtml(cr("message.correctionNote"))}</p>
+          <div class="message-correction-actions">
+            <button class="ghost-btn mini" type="button" data-correction-cancel>${escapeHtml(cr("message.correctionCancel"))}</button>
+            <button class="ghost-btn mini" type="submit" title="${escapeAttr(cr("message.correctTitle"))}">${escapeHtml(cr("message.correctionSubmit"))}</button>
+          </div>
         </div>
       </form>
     `;

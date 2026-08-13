@@ -874,7 +874,10 @@ export function createChatRenderingController({
     const timeHTML = presentation.timestampValue
       ? `<time class="message-time" datetime="${escapeAttr(presentation.timestampValue)}" title="${escapeAttr(formatTimestamp(presentation.timestampValue))}">${escapeHtml(formatTimestamp(presentation.timestampValue, { timeOnly: true }))}</time>`
       : "";
-    const actions = `${message.role === "user" && !superseded ? `<button class="message-copy-btn" type="button" data-correct-message="${escapeAttr(message.id || "")}" title="${escapeAttr(cr("message.correctTitle"))}">${escapeHtml(cr("message.correct"))}</button>` : ""}<button class="message-copy-btn" type="button" data-copy-message="${escapeAttr(String(index))}" title="${escapeAttr(cr("message.copyTitle"))}">${escapeHtml(cr("message.copy"))}</button>`;
+    // While this message is being corrected the head keeps only the copy
+    // action: offering "correct" for a message whose correction editor is
+    // already open re-renders the same editor and reads as a second control.
+    const actions = `${message.role === "user" && !superseded && !editing ? `<button class="message-copy-btn" type="button" data-correct-message="${escapeAttr(message.id || "")}" title="${escapeAttr(cr("message.correctTitle"))}">${escapeHtml(cr("message.correct"))}</button>` : ""}<button class="message-copy-btn" type="button" data-copy-message="${escapeAttr(String(index))}" title="${escapeAttr(cr("message.copyTitle"))}">${escapeHtml(cr("message.copy"))}</button>`;
     return `
       <div class="message ${presentation.roleClass}${editing ? " message-editing" : ""}${superseded ? " message-superseded" : ""} chat-message chat-flow-item chat-flow-${presentation.alignment}" data-chat-alignment="${presentation.alignment}" data-message-role="${escapeAttr(presentation.normalizedRole)}" data-message-id="${escapeAttr(message.id || "")}">
         <div class="message-head">
