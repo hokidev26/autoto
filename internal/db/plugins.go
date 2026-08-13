@@ -140,6 +140,44 @@ func (s *Store) UpdatePlugin(ctx context.Context, plugin Plugin) (Plugin, error)
 	return canonical, nil
 }
 
+// ReplacePluginManifest atomically adopts freshly loaded manifest fields and
+// deletes the plugin's tool snapshot. The row update (with a revision bump
+// applied in SQL and RowsAffected checked) and the snapshot delete commit or
+// roll back together, so a slug conflict never leaves a partial update.
+func (s *Store) ReplacePluginManifest(ctx context.Context, plugin Plugin) (Plugin, error) {
+	canonical, argsJSON, envJSON, refsJSON, err := canonicalPlugin(plugin)
+	if err != nil {
+		return Plugin{}, err
+	}
+	if canonical.ID == "" {
+		return Plugin{}, sql.ErrNoRows
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return Plugin{}, err
+	}
+	defer tx.Rollback()
+	result, err := tx.ExecContext(ctx, `UPDATE plugins SET slug = ?, name = ?, version = ?, description = ?, manifest_version = ?, root_path = ?, command = ?, args_json = ?, env_json = ?, secret_refs_json = ?, enabled = ?, status = ?, revision = revision + 1, manifest_hash = ?, last_checked_at = NULLIF(?, ''), last_error = NULLIF(?, ''), updated_at = ? WHERE id = ?`,
+		canonical.Slug, canonical.Name, canonical.Version, canonical.Description, canonical.ManifestVersion, canonical.RootPath, canonical.Command,
+		argsJSON, envJSON, refsJSON, boolInt(canonical.Enabled), canonical.Status, canonical.ManifestHash,
+		canonical.LastCheckedAt, canonical.LastError, Now(), canonical.ID)
+	if err != nil {
+		return Plugin{}, pluginConstraintError(err)
+	}
+	if affected, err := result.RowsAffected(); err != nil {
+		return Plugin{}, err
+	} else if affected != 1 {
+		return Plugin{}, sql.ErrNoRows
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM plugin_tools WHERE plugin_id = ?`, canonical.ID); err != nil {
+		return Plugin{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return Plugin{}, err
+	}
+	return s.GetPlugin(ctx, canonical.ID)
+}
+
 func (s *Store) UpdatePluginStatus(ctx context.Context, id, status string, enabled bool, lastCheckedAt, lastError string) (Plugin, error) {
 	id = strings.TrimSpace(id)
 	status = strings.TrimSpace(status)

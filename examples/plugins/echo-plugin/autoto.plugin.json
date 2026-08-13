@@ -1,0 +1,11 @@
+{
+  "apiVersion": "autoto.dev/v1alpha1",
+  "transport": "stdio",
+  "slug": "echo-plugin",
+  "name": "Echo Plugin",
+  "version": "0.1.0",
+  "description": "Minimal example plugin that echoes text back.",
+  "command": "echo-plugin.exe",
+  "args": [],
+  "timeoutSeconds": 30
+}

@@ -170,6 +170,82 @@ func TestPluginToolSnapshotAtomicUniqueAndCascade(t *testing.T) {
 	}
 }
 
+func TestReplacePluginManifestAtomicallyUpdatesRowAndClearsTools(t *testing.T) {
+	ctx := context.Background()
+	store, err := Open(ctx, filepath.Join(t.TempDir(), "replace-manifest.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	first, err := store.CreatePlugin(ctx, testPlugin(t, "first", true))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.CreatePlugin(ctx, testPlugin(t, "second", false)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.ReplacePluginTools(ctx, first.ID, []PluginTool{{RemoteName: "old", ExposedName: "first.old", InputSchemaJSON: []byte(`{}`)}}); err != nil {
+		t.Fatal(err)
+	}
+
+	conflicting := first
+	conflicting.Slug = "second"
+	if _, err := store.ReplacePluginManifest(ctx, conflicting); !IsConflict(err) {
+		t.Fatalf("expected slug conflict, got %v", err)
+	}
+	unchanged, err := store.GetPlugin(ctx, first.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if unchanged.Slug != "first" || unchanged.Revision != first.Revision {
+		t.Fatalf("failed replacement mutated plugin row: %+v", unchanged)
+	}
+	kept, err := store.ListPluginTools(ctx, first.ID)
+	if err != nil || len(kept) != 1 {
+		t.Fatalf("failed replacement dropped tool snapshot: %+v err=%v", kept, err)
+	}
+
+	replacement := first
+	replacement.Slug = "renamed"
+	replacement.Name = "Renamed"
+	replacement.Version = "2.0.0"
+	replacement.Description = "updated"
+	replacement.Args = []string{"--fast"}
+	replacement.Env = map[string]string{"MODE": "two"}
+	replacement.SecretRefs = map[string]string{}
+	replacement.Enabled = false
+	replacement.Status = "disabled"
+	replacement.ManifestHash = strings.Repeat("b", 64)
+	replacement.LastCheckedAt = ""
+	replacement.LastError = ""
+	updated, err := store.ReplacePluginManifest(ctx, replacement)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.Slug != "renamed" || updated.Name != "Renamed" || updated.Version != "2.0.0" || updated.Description != "updated" {
+		t.Fatalf("replacement fields were not adopted: %+v", updated)
+	}
+	if updated.Enabled || updated.Status != "disabled" || updated.ManifestHash != strings.Repeat("b", 64) {
+		t.Fatalf("replacement state was not adopted: %+v", updated)
+	}
+	if updated.Revision != first.Revision+1 {
+		t.Fatalf("replacement did not bump revision: %+v", updated)
+	}
+	if updated.LastCheckedAt != "" || updated.LastError != "" {
+		t.Fatalf("replacement kept stale check state: %+v", updated)
+	}
+	cleared, err := store.ListPluginTools(ctx, first.ID)
+	if err != nil || len(cleared) != 0 {
+		t.Fatalf("replacement did not clear tool snapshot: %+v err=%v", cleared, err)
+	}
+
+	ghost := testPlugin(t, "ghost", false)
+	ghost.ID = "missing"
+	if _, err := store.ReplacePluginManifest(ctx, ghost); !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("expected unknown plugin not found, got %v", err)
+	}
+}
+
 func TestPluginToolDescriptionAllowsTwoKiB(t *testing.T) {
 	ctx := context.Background()
 	store, err := Open(ctx, filepath.Join(t.TempDir(), "description-limit.db"))

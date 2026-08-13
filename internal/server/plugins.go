@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"errors"
+	"io/fs"
 	"net/http"
 	"sort"
 	"strings"
@@ -11,6 +12,7 @@ import (
 
 	"autoto/internal/audit"
 	"autoto/internal/db"
+	"autoto/internal/plugins"
 )
 
 // PluginService is the server-facing plugin management surface. Keeping it as
@@ -22,6 +24,8 @@ type PluginService interface {
 	Enable(context.Context, string) (db.Plugin, error)
 	Disable(context.Context, string) (db.Plugin, error)
 	Discover(context.Context, string) ([]db.PluginTool, error)
+	Update(context.Context, string) (db.Plugin, error)
+	Health(context.Context, string) plugins.Health
 	HasTool(context.Context, string) (bool, error)
 	Uninstall(context.Context, string) error
 }
@@ -225,6 +229,65 @@ func (s *Server) discoverPlugin(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, pluginToolsResponse{PluginID: id, Tools: tools, Count: len(tools)})
 }
 
+// updatePlugin re-reads the manifest from the plugin's stored root path and
+// adopts it. The plugin is always left disabled — updating an enabled plugin
+// is allowed but disables it, and even an unchanged manifest stays disabled —
+// because the manifest may change the code being executed, so the user must
+// re-confirm by re-enabling.
+func (s *Server) updatePlugin(w http.ResponseWriter, r *http.Request) {
+	service, ok := s.pluginService(w)
+	if !ok {
+		return
+	}
+	plugin, err := service.Update(r.Context(), chi.URLParam(r, "id"))
+	if err != nil {
+		writeError(w, pluginStatusFromError(err, http.StatusBadRequest), err.Error())
+		return
+	}
+	response, err := makePluginResponse(r.Context(), service, plugin)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, "read plugin environment configuration: "+err.Error())
+		return
+	}
+	s.invalidatePluginApprovals("plugin updated")
+	if err := s.recordPluginAudit(r.Context(), "plugin.update", plugin, "success", "medium", -1); err != nil {
+		writeError(w, http.StatusInternalServerError, "plugin was updated but audit persistence failed")
+		return
+	}
+	writeJSON(w, http.StatusOK, response)
+}
+
+// pluginHealth reports plugin health. Health is a report, so an unhealthy
+// plugin still responds 200; only an unknown plugin id is an HTTP error. A
+// launch is only attempted (and therefore only audited) for enabled plugins;
+// disabled plugins never execute.
+func (s *Server) pluginHealth(w http.ResponseWriter, r *http.Request) {
+	service, ok := s.pluginService(w)
+	if !ok {
+		return
+	}
+	id := chi.URLParam(r, "id")
+	plugin, err := service.Get(r.Context(), id)
+	if err != nil {
+		writeError(w, pluginStatusFromError(err, http.StatusBadGateway), err.Error())
+		return
+	}
+	health := service.Health(r.Context(), id)
+	if plugin.Enabled {
+		outcome := "failure"
+		toolCount := -1
+		if health.Healthy {
+			outcome = "success"
+			toolCount = health.ToolCount
+		}
+		if err := s.recordPluginAudit(r.Context(), "plugin.health", plugin, outcome, "medium", toolCount); err != nil {
+			writeError(w, http.StatusInternalServerError, "plugin health was checked but audit persistence failed")
+			return
+		}
+	}
+	writeJSON(w, http.StatusOK, health)
+}
+
 func (s *Server) uninstallPlugin(w http.ResponseWriter, r *http.Request) {
 	service, ok := s.pluginService(w)
 	if !ok {
@@ -297,7 +360,9 @@ func pluginStatusFromError(err error, fallback int) int {
 	if err == nil {
 		return http.StatusOK
 	}
-	if db.IsNotFound(err) || errors.Is(err, http.ErrMissingFile) {
+	// fs.ErrNotExist covers a missing plugin manifest or root directory on all
+	// platforms; the Windows error text does not match the substrings below.
+	if db.IsNotFound(err) || errors.Is(err, http.ErrMissingFile) || errors.Is(err, fs.ErrNotExist) {
 		return http.StatusNotFound
 	}
 	if db.IsConflict(err) {

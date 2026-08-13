@@ -580,6 +580,8 @@ func (s *Server) Routes() http.Handler {
 		r.Post("/api/plugins/{id}/enable", s.enablePlugin)
 		r.Post("/api/plugins/{id}/disable", s.disablePlugin)
 		r.Post("/api/plugins/{id}/discover", s.discoverPlugin)
+		r.Post("/api/plugins/{id}/update", s.updatePlugin)
+		r.Post("/api/plugins/{id}/health", s.pluginHealth)
 		r.Delete("/api/plugins/{id}", s.uninstallPlugin)
 		r.Patch("/api/runtime/continuation-settings", s.continuationSettingsEndpoint)
 		r.Patch("/api/runtime/background-task-settings", s.backgroundRuntimeSettingsEndpoint)

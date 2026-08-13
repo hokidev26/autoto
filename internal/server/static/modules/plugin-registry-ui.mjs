@@ -1,4 +1,5 @@
 import { $, escapeAttr, escapeHtml } from "./dom.mjs";
+import { formatTimestamp } from "./formatters.mjs";
 import { t } from "./messages-skills.mjs";
 import { api as runtimeAPI } from "./runtime.mjs";
 import { buildPluginInstallPayload, pluginEnvironmentStatuses, pluginTools } from "./plugin-registry.mjs";
@@ -14,6 +15,7 @@ export function createPluginRegistryUIController({
     items: [],
     details: {},
     discoveries: {},
+    health: {},
     loaded: false,
     loading: false,
     error: "",
@@ -131,6 +133,43 @@ export function createPluginRegistryUIController({
     }
   }
 
+  async function updatePlugin(id, { confirm = globalThis.window?.confirm } = {}) {
+    const plugin = registry.items.find((item) => item.id === id) || registry.details[id] || {};
+    if (confirm && !confirm(t("pluginRegistry.updateConfirm", { name: plugin.name || id }))) return false;
+    setPluginActionBusy(id, "update", true);
+    try {
+      const result = await api(`/api/plugins/${encodeURIComponent(id)}/update`, { method: "POST" });
+      registry.details = { ...registry.details, [id]: result };
+      // The server clears the discovered tool list and disables the plugin on
+      // update, so cached discovery and health reports no longer describe it.
+      const discoveries = { ...registry.discoveries };
+      const health = { ...registry.health };
+      delete discoveries[id];
+      delete health[id];
+      registry.discoveries = discoveries;
+      registry.health = health;
+      await loadPlugins({ force: true });
+      showToast?.(t("pluginRegistry.updated", { name: result?.name || plugin.name || id }), "success");
+      return result;
+    } finally {
+      setPluginActionBusy(id, "update", false);
+    }
+  }
+
+  async function checkPluginHealth(id) {
+    setPluginActionBusy(id, "health", true);
+    try {
+      const report = await api(`/api/plugins/${encodeURIComponent(id)}/health`, { method: "POST" });
+      registry.health = { ...registry.health, [id]: report };
+      refresh();
+      if (report?.healthy) showToast?.(t("pluginRegistry.healthHealthy", { count: Number(report?.toolCount) || 0 }), "success");
+      else showToast?.(t("pluginRegistry.healthUnhealthy", { message: report?.error || "" }), "warn");
+      return report;
+    } finally {
+      setPluginActionBusy(id, "health", false);
+    }
+  }
+
   async function uninstallPlugin(id, { confirm = globalThis.window?.confirm } = {}) {
     const plugin = registry.items.find((item) => item.id === id) || registry.details[id];
     if (!plugin) throw new Error(t("pluginRegistry.notFound"));
@@ -140,10 +179,13 @@ export function createPluginRegistryUIController({
       await api(`/api/plugins/${encodeURIComponent(id)}`, { method: "DELETE" });
       const details = { ...registry.details };
       const discoveries = { ...registry.discoveries };
+      const health = { ...registry.health };
       delete details[id];
       delete discoveries[id];
+      delete health[id];
       registry.details = details;
       registry.discoveries = discoveries;
+      registry.health = health;
       await loadPlugins({ force: true });
       showToast?.(t("pluginRegistry.uninstalled"), "success");
       return true;
@@ -165,6 +207,16 @@ export function createPluginRegistryUIController({
     return `<div class="settings-provider-meta settings-card-description skill-card-meta skill-card-discovery" aria-live="polite"><strong>${escapeHtml(t("pluginRegistry.toolsCount", { count: tools.length }))}</strong> · ${tools.map((tool) => escapeHtml(tool?.exposedName || tool?.remoteName || t("pluginRegistry.unnamedTool"))).join(" · ")}</div>`;
   }
 
+  function renderPluginHealth(report) {
+    if (!report) return "";
+    const healthy = Boolean(report.healthy);
+    const summary = healthy
+      ? t("pluginRegistry.healthHealthy", { count: Number(report.toolCount) || 0 })
+      : t("pluginRegistry.healthUnhealthy", { message: report.error || "" });
+    const checked = report.checkedAt ? t("pluginRegistry.healthCheckedAt", { time: formatTimestamp(report.checkedAt, { fallback: String(report.checkedAt) }) }) : "";
+    return `<div class="settings-provider-meta settings-card-description skill-card-meta" aria-live="polite"><span class="settings-status-pill settings-badge ${healthy ? "ok" : "warn"}">${escapeHtml([summary, checked].filter(Boolean).join(" · "))}</span></div>`;
+  }
+
   function renderPluginCard(plugin) {
     const id = String(plugin?.id || "");
     const detail = registry.details[id];
@@ -174,7 +226,9 @@ export function createPluginRegistryUIController({
     const discovering = isPluginActionBusy(id, "discover");
     const uninstalling = isPluginActionBusy(id, "uninstall");
     const loadingDetail = isPluginActionBusy(id, "detail");
-    const anyBusy = enabling || disabling || discovering || uninstalling || loadingDetail;
+    const updating = isPluginActionBusy(id, "update");
+    const checkingHealth = isPluginActionBusy(id, "health");
+    const anyBusy = enabling || disabling || discovering || uninstalling || loadingDetail || updating || checkingHealth;
     const metaParts = [
       `${escapeHtml(t("pluginRegistry.id"))}: <code>${escapeHtml(id)}</code>`,
       view.version ? escapeHtml(view.version) : "",
@@ -186,11 +240,14 @@ export function createPluginRegistryUIController({
         <div class="settings-provider-meta settings-card-description skill-card-meta">${metaParts}</div>
         ${renderEnvironment(view)}
         ${renderDiscovery(registry.discoveries[id])}
+        ${renderPluginHealth(registry.health[id])}
       </div>
       <div class="settings-action-row settings-inline-actions">
         <button class="settings-action-btn subtle" type="button" data-plugin-detail="${escapeAttr(id)}" ${anyBusy ? "disabled" : ""}>${escapeHtml(t(loadingDetail ? "pluginRegistry.loadingDetail" : "pluginRegistry.detail"))}</button>
         <button class="settings-action-btn subtle" type="button" data-plugin-discover="${escapeAttr(id)}" ${anyBusy || !view.enabled ? "disabled" : ""}>${escapeHtml(t(discovering ? "pluginRegistry.discovering" : "pluginRegistry.discover"))}</button>
+        <button class="settings-action-btn subtle" type="button" data-plugin-health="${escapeAttr(id)}" ${anyBusy || !view.enabled ? "disabled" : ""}>${escapeHtml(t(checkingHealth ? "pluginRegistry.checking" : "pluginRegistry.healthCheck"))}</button>
         <button class="settings-action-btn subtle" type="button" data-plugin-toggle="${escapeAttr(id)}" data-plugin-enable="${view.enabled ? "false" : "true"}" ${anyBusy ? "disabled" : ""}>${escapeHtml(t(enabling || disabling ? "pluginRegistry.changing" : view.enabled ? "pluginRegistry.disable" : "pluginRegistry.enable"))}</button>
+        <button class="settings-action-btn subtle" type="button" data-plugin-update="${escapeAttr(id)}" ${anyBusy ? "disabled" : ""}>${escapeHtml(t(updating ? "pluginRegistry.updating" : "pluginRegistry.update"))}</button>
         <button class="settings-action-btn danger destructive" type="button" data-plugin-uninstall="${escapeAttr(id)}" ${anyBusy ? "disabled" : ""}>${escapeHtml(t(uninstalling ? "pluginRegistry.uninstalling" : "pluginRegistry.uninstall"))}</button>
       </div>
     </div>`;
@@ -231,12 +288,15 @@ export function createPluginRegistryUIController({
     });
     body?.querySelectorAll("[data-plugin-detail]").forEach((node) => node.addEventListener("click", () => loadPluginDetail(node.dataset.pluginDetail, { force: true }).catch(showError)));
     body?.querySelectorAll("[data-plugin-discover]").forEach((node) => node.addEventListener("click", () => discoverPluginTools(node.dataset.pluginDiscover).catch(showError)));
+    body?.querySelectorAll("[data-plugin-health]").forEach((node) => node.addEventListener("click", () => checkPluginHealth(node.dataset.pluginHealth).catch(showError)));
     body?.querySelectorAll("[data-plugin-toggle]").forEach((node) => node.addEventListener("click", () => setPluginEnabled(node.dataset.pluginToggle, node.dataset.pluginEnable === "true").catch(showError)));
+    body?.querySelectorAll("[data-plugin-update]").forEach((node) => node.addEventListener("click", () => updatePlugin(node.dataset.pluginUpdate).catch(showError)));
     body?.querySelectorAll("[data-plugin-uninstall]").forEach((node) => node.addEventListener("click", () => uninstallPlugin(node.dataset.pluginUninstall).catch(showError)));
   }
 
   return {
     bindPluginRegistryActions,
+    checkPluginHealth,
     discoverPluginTools,
     installPlugin,
     isPluginActionBusy,
@@ -246,5 +306,6 @@ export function createPluginRegistryUIController({
     renderPluginRegistryPanel,
     setPluginEnabled,
     uninstallPlugin,
+    updatePlugin,
   };
 }

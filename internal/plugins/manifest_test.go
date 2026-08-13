@@ -1,6 +1,8 @@
 package plugins
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -103,6 +105,82 @@ func TestManifestLimitsAndEnvironmentValidation(t *testing.T) {
 				t.Fatal("expected invalid manifest to fail")
 			}
 		})
+	}
+}
+
+func TestManifestTimeoutSecondsValidation(t *testing.T) {
+	for _, valid := range []int{1, 600} {
+		root := t.TempDir()
+		writePluginCommand(t, root, "plugin")
+		manifest := validManifest("plugin")
+		manifest["timeoutSeconds"] = valid
+		writeManifest(t, root, manifest)
+		loaded, err := LoadManifest(root)
+		if err != nil {
+			t.Fatalf("timeoutSeconds=%d rejected: %v", valid, err)
+		}
+		if loaded.TimeoutSeconds != valid {
+			t.Fatalf("timeoutSeconds=%d not adopted: %+v", valid, loaded)
+		}
+	}
+	for name, value := range map[string]any{"negative": -1, "above maximum": 601, "fractional": 1.5} {
+		t.Run(name, func(t *testing.T) {
+			root := t.TempDir()
+			writePluginCommand(t, root, "plugin")
+			manifest := validManifest("plugin")
+			manifest["timeoutSeconds"] = value
+			writeManifest(t, root, manifest)
+			if _, err := LoadManifest(root); err == nil {
+				t.Fatalf("expected timeoutSeconds=%v to fail validation", value)
+			}
+		})
+	}
+}
+
+// TestManifestHashStableWithoutTimeoutSeconds proves a manifest that omits
+// timeoutSeconds keeps the exact hash produced before the field existed, so
+// already-installed plugins are not forced to reinstall.
+func TestManifestHashStableWithoutTimeoutSeconds(t *testing.T) {
+	root := t.TempDir()
+	writePluginCommand(t, root, "plugin")
+	writeManifest(t, root, validManifest("plugin"))
+	manifest, err := LoadManifest(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if manifest.TimeoutSeconds != 0 {
+		t.Fatalf("absent timeoutSeconds must normalize to 0: %+v", manifest)
+	}
+	// Canonical form predating the timeoutSeconds field.
+	legacy := struct {
+		APIVersion  string            `json:"apiVersion"`
+		Transport   string            `json:"transport"`
+		Slug        string            `json:"slug"`
+		Name        string            `json:"name"`
+		Version     string            `json:"version"`
+		Description string            `json:"description"`
+		Command     string            `json:"command"`
+		Args        []string          `json:"args"`
+		Env         map[string]string `json:"env"`
+		SecretRefs  map[string]string `json:"secretRefs"`
+	}{manifest.APIVersion, manifest.Transport, manifest.Slug, manifest.Name, manifest.Version, manifest.Description, manifest.Command, manifest.Args, manifest.Env, manifest.SecretRefs}
+	encoded, err := json.Marshal(legacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sum := sha256.Sum256(encoded)
+	if want := hex.EncodeToString(sum[:]); manifest.Hash != want {
+		t.Fatalf("manifest without timeoutSeconds changed hash: got %s want %s", manifest.Hash, want)
+	}
+	withTimeout := validManifest("plugin")
+	withTimeout["timeoutSeconds"] = 30
+	writeManifest(t, root, withTimeout)
+	loaded, err := LoadManifest(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.Hash == manifest.Hash {
+		t.Fatal("a set timeoutSeconds must be covered by the canonical hash")
 	}
 }
 

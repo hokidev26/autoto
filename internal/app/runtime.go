@@ -43,6 +43,7 @@ type Runtime struct {
 	store             *db.Store
 	generatedImages   *imageassets.Store
 	runner            *agent.Runner
+	pluginService     *plugins.Service
 	application       *server.Server
 	httpServer        *http.Server
 	httpListener      net.Listener
@@ -303,6 +304,7 @@ func NewRuntime(options Options) (*Runtime, error) {
 		store:             store,
 		generatedImages:   generatedImages,
 		runner:            runner,
+		pluginService:     pluginService,
 		application:       application,
 		httpServer:        httpServer,
 		httpListener:      httpListener,
@@ -538,8 +540,10 @@ func (r *Runtime) Close(ctx context.Context) error {
 	supervisor := r.supervisor
 	store := r.store
 	httpListener := r.httpListener
+	pluginService := r.pluginService
 	r.supervisor = nil
 	r.store = nil
+	r.pluginService = nil
 	r.state = runtimeClosed
 	r.requestCloseLocked()
 	r.mu.Unlock()
@@ -549,6 +553,11 @@ func (r *Runtime) Close(ctx context.Context) error {
 		if err := supervisor.Close(ctx); err != nil {
 			errs = append(errs, err)
 		}
+	}
+	// After HTTP and workers stop, no new tool calls can start; kill any warm
+	// plugin processes so they never outlive the runtime.
+	if pluginService != nil {
+		pluginService.Close()
 	}
 	if store != nil {
 		if err := store.Close(); err != nil {

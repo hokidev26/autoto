@@ -17,42 +17,49 @@ import (
 )
 
 const (
-	ManifestFilename    = "autoto.plugin.json"
-	APIVersionV1Alpha1  = "autoto.dev/v1alpha1"
-	TransportStdio      = "stdio"
-	MaxManifestBytes    = 64 << 10
-	MaxManifestArgs     = 64
-	MaxManifestArgBytes = 4096
+	ManifestFilename          = "autoto.plugin.json"
+	APIVersionV1Alpha1        = "autoto.dev/v1alpha1"
+	TransportStdio            = "stdio"
+	MaxManifestBytes          = 64 << 10
+	MaxManifestArgs           = 64
+	MaxManifestArgBytes       = 4096
+	MaxManifestTimeoutSeconds = 600
 )
 
 // Manifest is the normalized, service-ready representation of autoto.plugin.json.
 // SecretRefs contains only logical env:VARIABLE_NAME references, never resolved values.
+// TimeoutSeconds of 0 means the manifest did not set a timeout and the service
+// default applies.
 type Manifest struct {
-	APIVersion  string            `json:"apiVersion"`
-	Transport   string            `json:"transport"`
-	Slug        string            `json:"slug"`
-	Name        string            `json:"name"`
-	Version     string            `json:"version"`
-	Description string            `json:"description,omitempty"`
-	RootPath    string            `json:"rootPath"`
-	Command     string            `json:"command"`
-	Args        []string          `json:"args"`
-	Env         map[string]string `json:"env"`
-	SecretRefs  map[string]string `json:"secretRefs"`
-	Hash        string            `json:"manifestHash"`
+	APIVersion     string            `json:"apiVersion"`
+	Transport      string            `json:"transport"`
+	Slug           string            `json:"slug"`
+	Name           string            `json:"name"`
+	Version        string            `json:"version"`
+	Description    string            `json:"description,omitempty"`
+	RootPath       string            `json:"rootPath"`
+	Command        string            `json:"command"`
+	Args           []string          `json:"args"`
+	Env            map[string]string `json:"env"`
+	SecretRefs     map[string]string `json:"secretRefs"`
+	TimeoutSeconds int               `json:"timeoutSeconds,omitempty"`
+	Hash           string            `json:"manifestHash"`
 }
 
+// manifestFile is also the canonical hashing form. timeoutSeconds must keep
+// omitempty so manifests without the field retain their pre-existing hash.
 type manifestFile struct {
-	APIVersion  string            `json:"apiVersion"`
-	Transport   string            `json:"transport"`
-	Slug        string            `json:"slug"`
-	Name        string            `json:"name"`
-	Version     string            `json:"version"`
-	Description string            `json:"description"`
-	Command     string            `json:"command"`
-	Args        []string          `json:"args"`
-	Env         map[string]string `json:"env"`
-	SecretRefs  map[string]string `json:"secretRefs"`
+	APIVersion     string            `json:"apiVersion"`
+	Transport      string            `json:"transport"`
+	Slug           string            `json:"slug"`
+	Name           string            `json:"name"`
+	Version        string            `json:"version"`
+	Description    string            `json:"description"`
+	Command        string            `json:"command"`
+	Args           []string          `json:"args"`
+	Env            map[string]string `json:"env"`
+	SecretRefs     map[string]string `json:"secretRefs"`
+	TimeoutSeconds int               `json:"timeoutSeconds,omitempty"`
 }
 
 // LoadManifest reads and validates autoto.plugin.json from rootPath.
@@ -200,7 +207,10 @@ func normalizeManifest(root string, raw manifestFile) (Manifest, error) {
 	if err != nil {
 		return Manifest{}, err
 	}
-	return Manifest{APIVersion: APIVersionV1Alpha1, Transport: TransportStdio, Slug: slug, Name: name, Version: version, Description: description, RootPath: root, Command: command, Args: args, Env: env, SecretRefs: refs}, nil
+	if raw.TimeoutSeconds < 0 || raw.TimeoutSeconds > MaxManifestTimeoutSeconds {
+		return Manifest{}, fmt.Errorf("plugin timeoutSeconds must be between 1 and %d, or omitted", MaxManifestTimeoutSeconds)
+	}
+	return Manifest{APIVersion: APIVersionV1Alpha1, Transport: TransportStdio, Slug: slug, Name: name, Version: version, Description: description, RootPath: root, Command: command, Args: args, Env: env, SecretRefs: refs, TimeoutSeconds: raw.TimeoutSeconds}, nil
 }
 
 func normalizeCommand(root, value string) (string, error) {
@@ -291,7 +301,7 @@ func normalizeEnvironment(env, refs map[string]string) (map[string]string, map[s
 }
 
 func hashManifest(manifest Manifest) (string, error) {
-	canonical := manifestFile{APIVersion: manifest.APIVersion, Transport: manifest.Transport, Slug: manifest.Slug, Name: manifest.Name, Version: manifest.Version, Description: manifest.Description, Command: manifest.Command, Args: manifest.Args, Env: manifest.Env, SecretRefs: manifest.SecretRefs}
+	canonical := manifestFile{APIVersion: manifest.APIVersion, Transport: manifest.Transport, Slug: manifest.Slug, Name: manifest.Name, Version: manifest.Version, Description: manifest.Description, Command: manifest.Command, Args: manifest.Args, Env: manifest.Env, SecretRefs: manifest.SecretRefs, TimeoutSeconds: manifest.TimeoutSeconds}
 	encoded, err := json.Marshal(canonical)
 	if err != nil {
 		return "", fmt.Errorf("encode normalized plugin manifest: %w", err)

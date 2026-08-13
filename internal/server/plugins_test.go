@@ -6,6 +6,8 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"io/fs"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -13,14 +15,17 @@ import (
 	"strings"
 	"testing"
 
+	"autoto/internal/audit"
 	"autoto/internal/config"
 	"autoto/internal/db"
+	"autoto/internal/plugins"
 )
 
 type fakePluginService struct {
 	plugins       map[string]db.Plugin
 	configured    map[string]map[string]bool
 	discoverErr   error
+	updateErr     error
 	uninstallPath string
 }
 
@@ -98,6 +103,36 @@ func (f *fakePluginService) Discover(ctx context.Context, id string) ([]db.Plugi
 	return []db.PluginTool{{PluginID: id, RemoteName: "echo", ExposedName: "plugin__safe-plugin__echo", InputSchemaJSON: json.RawMessage(`{"type":"object"}`)}}, nil
 }
 
+func (f *fakePluginService) Update(ctx context.Context, id string) (db.Plugin, error) {
+	plugin, err := f.Get(ctx, id)
+	if err != nil {
+		return db.Plugin{}, err
+	}
+	if f.updateErr != nil {
+		return db.Plugin{}, f.updateErr
+	}
+	plugin.Version = "2.0.0"
+	plugin.Enabled, plugin.Status, plugin.LastError = false, "disabled", ""
+	plugin.Revision++
+	f.plugins[id] = plugin
+	return plugin, nil
+}
+
+func (f *fakePluginService) Health(ctx context.Context, id string) plugins.Health {
+	health := plugins.Health{PluginID: id, CheckedAt: "2025-01-01T00:00:00Z"}
+	plugin, err := f.Get(ctx, id)
+	if err != nil {
+		health.Error = err.Error()
+		return health
+	}
+	if !plugin.Enabled {
+		health.Error = "plugin is disabled"
+		return health
+	}
+	health.Healthy, health.ToolCount = true, 1
+	return health
+}
+
 func (f *fakePluginService) HasTool(_ context.Context, name string) (bool, error) {
 	plugin, ok := f.plugins["plugin-1"]
 	return ok && plugin.Enabled && name == "plugin__safe-plugin__echo", nil
@@ -117,6 +152,29 @@ func (f *fakePluginService) ConfiguredEnvironment(_ context.Context, plugin db.P
 	return f.configured[plugin.ID], nil
 }
 
+type recordingAuditRecorder struct {
+	failWith error
+	events   []audit.Event
+}
+
+func (r *recordingAuditRecorder) Record(_ context.Context, event audit.Event) error {
+	if r.failWith != nil {
+		return r.failWith
+	}
+	r.events = append(r.events, event)
+	return nil
+}
+
+func (r *recordingAuditRecorder) byAction(action string) []audit.Event {
+	out := make([]audit.Event, 0)
+	for _, event := range r.events {
+		if event.Action == action {
+			out = append(out, event)
+		}
+	}
+	return out
+}
+
 func TestPluginRoutesRequireSensitiveLocalToken(t *testing.T) {
 	app := New(config.Config{}, nil, nil, nil)
 	app.SetPluginService(&fakePluginService{plugins: map[string]db.Plugin{}, configured: map[string]map[string]bool{}})
@@ -127,6 +185,8 @@ func TestPluginRoutesRequireSensitiveLocalToken(t *testing.T) {
 		{http.MethodPost, "/api/plugins/missing/enable"},
 		{http.MethodPost, "/api/plugins/missing/disable"},
 		{http.MethodPost, "/api/plugins/missing/discover"},
+		{http.MethodPost, "/api/plugins/missing/update"},
+		{http.MethodPost, "/api/plugins/missing/health"},
 		{http.MethodDelete, "/api/plugins/missing"},
 	} {
 		t.Run(route.method+" "+route.path, func(t *testing.T) {
@@ -252,6 +312,111 @@ func TestPluginInstallValidationAndConflictStatuses(t *testing.T) {
 	conflict := pluginRequest(t, app, http.MethodPost, "/api/plugins/install", body)
 	if conflict.Code != http.StatusConflict {
 		t.Fatalf("expected duplicate install 409, got %d: %s", conflict.Code, conflict.Body.String())
+	}
+}
+
+func TestPluginUpdateEndpointLeavesPluginDisabledAndRecordsAudit(t *testing.T) {
+	service := &fakePluginService{plugins: map[string]db.Plugin{}, configured: map[string]map[string]bool{}}
+	app := New(config.Config{}, nil, nil, nil)
+	app.SetPluginService(service)
+	recorder := &recordingAuditRecorder{}
+	app.SetAuditRecorder(recorder)
+	body, _ := json.Marshal(pluginInstallPayload{RootPath: t.TempDir()})
+	if installed := pluginRequest(t, app, http.MethodPost, "/api/plugins/install", body); installed.Code != http.StatusCreated {
+		t.Fatalf("install failed: %d %s", installed.Code, installed.Body.String())
+	}
+	if enabled := pluginRequest(t, app, http.MethodPost, "/api/plugins/plugin-1/enable", []byte(`{"confirmExecuteLocalCode":true}`)); enabled.Code != http.StatusOK {
+		t.Fatalf("enable failed: %d %s", enabled.Code, enabled.Body.String())
+	}
+
+	updated := pluginRequest(t, app, http.MethodPost, "/api/plugins/plugin-1/update", nil)
+	if updated.Code != http.StatusOK {
+		t.Fatalf("expected update 200, got %d: %s", updated.Code, updated.Body.String())
+	}
+	var response pluginResponse
+	if err := json.Unmarshal(updated.Body.Bytes(), &response); err != nil {
+		t.Fatal(err)
+	}
+	if response.ID != "plugin-1" || response.Enabled || response.Status != "disabled" {
+		t.Fatalf("updating an enabled plugin must leave it disabled: %+v", response)
+	}
+	if response.Version != "2.0.0" || response.Revision != 2 || len(response.Environment) != 2 {
+		t.Fatalf("update response did not adopt manifest fields: %+v", response)
+	}
+	events := recorder.byAction("plugin.update")
+	if len(events) != 1 || events[0].Outcome != "success" || events[0].Risk != "medium" || events[0].SubjectID != "plugin-1" {
+		t.Fatalf("unexpected plugin.update audit events: %+v", events)
+	}
+
+	if missing := pluginRequest(t, app, http.MethodPost, "/api/plugins/missing/update", nil); missing.Code != http.StatusNotFound {
+		t.Fatalf("expected unknown plugin 404, got %d: %s", missing.Code, missing.Body.String())
+	}
+	service.updateErr = fmt.Errorf("resolve plugin manifest: %w", &fs.PathError{Op: "open", Path: "autoto.plugin.json", Err: fs.ErrNotExist})
+	if gone := pluginRequest(t, app, http.MethodPost, "/api/plugins/plugin-1/update", nil); gone.Code != http.StatusNotFound {
+		t.Fatalf("expected missing manifest 404, got %d: %s", gone.Code, gone.Body.String())
+	}
+	service.updateErr = errors.New("decode plugin manifest: invalid character")
+	if invalid := pluginRequest(t, app, http.MethodPost, "/api/plugins/plugin-1/update", nil); invalid.Code != http.StatusBadRequest {
+		t.Fatalf("expected invalid manifest 400, got %d: %s", invalid.Code, invalid.Body.String())
+	}
+	service.updateErr = db.ErrConflict
+	if conflict := pluginRequest(t, app, http.MethodPost, "/api/plugins/plugin-1/update", nil); conflict.Code != http.StatusConflict {
+		t.Fatalf("expected slug conflict 409, got %d: %s", conflict.Code, conflict.Body.String())
+	}
+	service.updateErr = nil
+	recorder.failWith = errors.New("audit store unavailable")
+	if failed := pluginRequest(t, app, http.MethodPost, "/api/plugins/plugin-1/update", nil); failed.Code != http.StatusInternalServerError || !strings.Contains(failed.Body.String(), "audit persistence failed") {
+		t.Fatalf("expected fail-closed audit 500, got %d: %s", failed.Code, failed.Body.String())
+	}
+}
+
+func TestPluginHealthEndpointReportsWithoutLaunchingDisabledPlugins(t *testing.T) {
+	service := &fakePluginService{plugins: map[string]db.Plugin{}, configured: map[string]map[string]bool{}}
+	app := New(config.Config{}, nil, nil, nil)
+	app.SetPluginService(service)
+	recorder := &recordingAuditRecorder{}
+	app.SetAuditRecorder(recorder)
+	body, _ := json.Marshal(pluginInstallPayload{RootPath: t.TempDir()})
+	if installed := pluginRequest(t, app, http.MethodPost, "/api/plugins/install", body); installed.Code != http.StatusCreated {
+		t.Fatalf("install failed: %d %s", installed.Code, installed.Body.String())
+	}
+
+	disabled := pluginRequest(t, app, http.MethodPost, "/api/plugins/plugin-1/health", nil)
+	if disabled.Code != http.StatusOK {
+		t.Fatalf("expected disabled health report 200, got %d: %s", disabled.Code, disabled.Body.String())
+	}
+	var disabledHealth plugins.Health
+	if err := json.Unmarshal(disabled.Body.Bytes(), &disabledHealth); err != nil {
+		t.Fatal(err)
+	}
+	if disabledHealth.Healthy || disabledHealth.Error != "plugin is disabled" || disabledHealth.PluginID != "plugin-1" {
+		t.Fatalf("unexpected disabled health report: %+v", disabledHealth)
+	}
+	if events := recorder.byAction("plugin.health"); len(events) != 0 {
+		t.Fatalf("disabled plugin health must not be audited as a launch: %+v", events)
+	}
+
+	if enabled := pluginRequest(t, app, http.MethodPost, "/api/plugins/plugin-1/enable", []byte(`{"confirmExecuteLocalCode":true}`)); enabled.Code != http.StatusOK {
+		t.Fatalf("enable failed: %d %s", enabled.Code, enabled.Body.String())
+	}
+	healthy := pluginRequest(t, app, http.MethodPost, "/api/plugins/plugin-1/health", nil)
+	if healthy.Code != http.StatusOK {
+		t.Fatalf("expected health report 200, got %d: %s", healthy.Code, healthy.Body.String())
+	}
+	var enabledHealth plugins.Health
+	if err := json.Unmarshal(healthy.Body.Bytes(), &enabledHealth); err != nil {
+		t.Fatal(err)
+	}
+	if !enabledHealth.Healthy || enabledHealth.ToolCount != 1 || enabledHealth.Error != "" {
+		t.Fatalf("unexpected enabled health report: %+v", enabledHealth)
+	}
+	events := recorder.byAction("plugin.health")
+	if len(events) != 1 || events[0].Outcome != "success" || events[0].Risk != "medium" || events[0].SubjectID != "plugin-1" {
+		t.Fatalf("unexpected plugin.health audit events: %+v", events)
+	}
+
+	if missing := pluginRequest(t, app, http.MethodPost, "/api/plugins/missing/health", nil); missing.Code != http.StatusNotFound {
+		t.Fatalf("expected unknown plugin 404, got %d: %s", missing.Code, missing.Body.String())
 	}
 }
 

@@ -54,11 +54,22 @@ func WithTimeout(timeout time.Duration) Option {
 	}
 }
 
+// WithPoolIdleTTL overrides how long an idle pooled plugin process stays warm
+// before it is closed. Intended for tests.
+func WithPoolIdleTTL(ttl time.Duration) Option {
+	return func(service *Service) {
+		if ttl > 0 {
+			service.pool = newProcessPool(ttl)
+		}
+	}
+}
+
 type Service struct {
 	lifecycleMu sync.Mutex
 	store       *db.Store
 	resolver    secrets.Resolver
 	startMCP    MCPStarter
+	pool        *processPool
 	timeout     time.Duration
 	outputMax   int
 	stderrMax   int
@@ -69,6 +80,7 @@ func NewService(store *db.Store, resolver secrets.Resolver, options ...Option) *
 	service := &Service{
 		store: store, resolver: resolver,
 		startMCP: func(ctx context.Context, cfg mcp.StdioConfig) (MCPClient, error) { return mcp.StartStdio(ctx, cfg) },
+		pool:     newProcessPool(defaultPoolIdleTTL),
 		timeout:  DefaultPluginTimeout, outputMax: DefaultPluginOutputMaxBytes,
 		stderrMax: DefaultPluginStderrLimit, responseMax: DefaultPluginResponseLimit,
 	}
@@ -76,6 +88,15 @@ func NewService(store *db.Store, resolver secrets.Resolver, options ...Option) *
 		option(service)
 	}
 	return service
+}
+
+// Close terminates every pooled plugin process. The service remains usable;
+// later tool calls simply fall back to fresh per-call processes.
+func (s *Service) Close() {
+	if s == nil {
+		return
+	}
+	s.pool.close()
 }
 
 type Health struct {
@@ -122,11 +143,13 @@ func (s *Service) Enable(ctx context.Context, id string) (db.Plugin, error) {
 	}
 	s.lifecycleMu.Lock()
 	defer s.lifecycleMu.Unlock()
-	// Invalidate retained adapters before resolving secrets or launching code.
+	// Invalidate retained adapters and any warm process before resolving
+	// secrets or launching code.
 	plugin, err := s.store.UpdatePluginStatus(ctx, id, "enabling", false, db.Now(), "")
 	if err != nil {
 		return db.Plugin{}, err
 	}
+	s.pool.invalidate(id)
 	pluginTools, checkedAt, values, err := s.discover(ctx, plugin)
 	if err != nil {
 		err = redactPluginError(err, values)
@@ -148,7 +171,12 @@ func (s *Service) Disable(ctx context.Context, id string) (db.Plugin, error) {
 	}
 	s.lifecycleMu.Lock()
 	defer s.lifecycleMu.Unlock()
-	return s.store.UpdatePluginStatus(ctx, id, "disabled", false, db.Now(), "")
+	plugin, err := s.store.UpdatePluginStatus(ctx, id, "disabled", false, db.Now(), "")
+	if err != nil {
+		return db.Plugin{}, err
+	}
+	s.pool.invalidate(id)
+	return plugin, nil
 }
 
 // Discover refreshes the stored snapshot while preserving the plugin's current
@@ -183,7 +211,40 @@ func (s *Service) Discover(ctx context.Context, id string) ([]db.PluginTool, err
 	if _, err := s.store.UpdatePluginStatus(ctx, id, status, plugin.Enabled, checkedAt, ""); err != nil {
 		return nil, err
 	}
+	s.pool.invalidate(id)
 	return stored, nil
+}
+
+// Update re-reads the manifest from the plugin's stored root path and adopts
+// it, clearing the tool snapshot. The result is always disabled — even when
+// the plugin was enabled or the manifest is unchanged — because a manifest
+// change may alter the code being executed, so the user must re-confirm by
+// re-enabling.
+func (s *Service) Update(ctx context.Context, id string) (db.Plugin, error) {
+	if s == nil || s.store == nil {
+		return db.Plugin{}, errors.New("plugin store is unavailable")
+	}
+	s.lifecycleMu.Lock()
+	defer s.lifecycleMu.Unlock()
+	current, err := s.store.GetPlugin(ctx, id)
+	if err != nil {
+		return db.Plugin{}, err
+	}
+	manifest, err := LoadManifest(current.RootPath)
+	if err != nil {
+		return db.Plugin{}, err
+	}
+	updated, err := s.store.ReplacePluginManifest(ctx, db.Plugin{
+		ID: current.ID, Slug: manifest.Slug, Name: manifest.Name, Version: manifest.Version, Description: manifest.Description,
+		ManifestVersion: manifest.APIVersion, RootPath: manifest.RootPath, Command: manifest.Command,
+		Args: cloneStrings(manifest.Args), Env: cloneStringMap(manifest.Env), SecretRefs: cloneStringMap(manifest.SecretRefs),
+		Enabled: false, Status: "disabled", ManifestHash: manifest.Hash,
+	})
+	if err != nil {
+		return db.Plugin{}, err
+	}
+	s.pool.invalidate(id)
+	return updated, nil
 }
 
 func (s *Service) Uninstall(ctx context.Context, id string) error {
@@ -193,6 +254,9 @@ func (s *Service) Uninstall(ctx context.Context, id string) error {
 	if _, err := s.Disable(ctx, id); err != nil && !db.IsNotFound(err) {
 		return err
 	}
+	// Disable already invalidated the pooled process; repeat defensively for
+	// the tolerated not-found path so no warm process can outlive the row.
+	s.pool.invalidate(id)
 	return s.store.DeletePlugin(ctx, id)
 }
 
@@ -201,6 +265,11 @@ func (s *Service) Health(ctx context.Context, id string) Health {
 	plugin, err := s.Get(ctx, id)
 	if err != nil {
 		health.Error = err.Error()
+		return health
+	}
+	// A disabled plugin must never execute: report without launching anything.
+	if !plugin.Enabled {
+		health.Error = "plugin is disabled"
 		return health
 	}
 	remote, _, values, err := s.discoverRemote(ctx, plugin)
@@ -306,16 +375,18 @@ func (s *Service) discover(ctx context.Context, plugin db.Plugin) ([]db.PluginTo
 }
 
 func (s *Service) discoverRemote(ctx context.Context, plugin db.Plugin) ([]mcp.Tool, string, []string, error) {
-	if _, err := validatePersistedManifest(plugin); err != nil {
+	manifest, err := validatePersistedManifest(plugin)
+	if err != nil {
 		return nil, "", nil, err
 	}
 	environment, values, err := s.resolveEnvironment(ctx, plugin)
 	if err != nil {
 		return nil, "", values, err
 	}
-	opCtx, cancel := context.WithTimeout(ctx, s.timeout)
+	timeout := s.effectiveTimeout(manifest)
+	opCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	client, err := s.startMCP(opCtx, s.stdioConfig(plugin, environment, values))
+	client, err := s.startMCP(opCtx, s.stdioConfig(plugin, environment, values, timeout))
 	if err != nil {
 		return nil, "", values, redactPluginError(err, values)
 	}
@@ -358,12 +429,34 @@ func (s *Service) resolveEnvironment(ctx context.Context, plugin db.Plugin) (map
 	return environment, values, nil
 }
 
-func (s *Service) stdioConfig(plugin db.Plugin, environment map[string]string, values []string) mcp.StdioConfig {
+// effectiveTimeout returns the per-plugin timeout from the freshly loaded,
+// hash-validated manifest, falling back to the service default when the
+// manifest does not set one. The timeout is never read from the database.
+func (s *Service) effectiveTimeout(manifest Manifest) time.Duration {
+	if manifest.TimeoutSeconds > 0 {
+		return time.Duration(manifest.TimeoutSeconds) * time.Second
+	}
+	return s.timeout
+}
+
+func (s *Service) stdioConfig(plugin db.Plugin, environment map[string]string, values []string, timeout time.Duration) mcp.StdioConfig {
 	return mcp.StdioConfig{
 		Command: filepath.Join(plugin.RootPath, filepath.FromSlash(plugin.Command)), Args: cloneStrings(plugin.Args), CWD: plugin.RootPath,
-		Env: environment, CleanEnv: true, Timeout: s.timeout, StderrLimit: s.stderrMax,
+		Env: environment, CleanEnv: true, Timeout: timeout, StderrLimit: s.stderrMax,
 		ResponseLimit: s.responseMax, RedactValues: cloneStrings(values),
 	}
+}
+
+// pooledStdioConfig configures a reusable plugin process: no process-lifetime
+// timeout (per-call context deadlines govern each request and the pool owns
+// shutdown) and a stdout budget sized for many calls. maxPooledCalls recycles
+// the process long before that budget can starve a call.
+func (s *Service) pooledStdioConfig(plugin db.Plugin, environment map[string]string, values []string) mcp.StdioConfig {
+	cfg := s.stdioConfig(plugin, environment, values, 0)
+	if cfg.ResponseLimit > 0 {
+		cfg.ResponseLimit *= pooledResponseBudgetFactor
+	}
+	return cfg
 }
 
 func validateDiscoveredTools(plugin db.Plugin, remote []mcp.Tool, secretValues []string) ([]db.PluginTool, error) {

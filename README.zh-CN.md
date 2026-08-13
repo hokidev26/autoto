@@ -133,6 +133,7 @@ go build -tags "desktop,production" -trimpath -ldflags "-s -w -H windowsgui" -o 
 - 调度 worker，支持 cron 与 `@every` 表达式和 IANA 时区。调度权限上限为 `readOnly` 或 `acceptEdits`，不会中断或取代正在跑的手动 run，且无人值守的 run 不会沿用交互时给过的 session 批准
 - 具持久性的 Webhook／Telegram 通知投递记录，含去重、租约、指数退避、次数上限与显式重试
 - 服务器端 Skills 与生命周期 hooks，含版本历史、还原、快照稳定的分派，以及沿用既有批准与审计闸道的 Shell／HTTP 动作
+- 本地插件注册表：从本地目录安装 stdio MCP 插件，工具以 `plugin__<slug>__<tool>` 动态发现供 agent 调用。安装后一律停用，启用需明确确认执行本机代码；插件进程以干净环境与 `env:` 密钥引用运行，manifest 支持每插件超时设置，并提供更新与健康检查端点
 - 设置页涵盖 Providers、自动化、通知、外观、存储、用量、用户与授权信息
 
 ## 配置

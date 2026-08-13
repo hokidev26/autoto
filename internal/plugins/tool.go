@@ -55,26 +55,36 @@ func (t *pluginTool) Execute(ctx context.Context, call tools.Call, _ tools.Env) 
 	if err != nil {
 		return tools.Result{}, err
 	}
-	if _, err := validatePersistedManifest(plugin); err != nil {
+	manifest, err := validatePersistedManifest(plugin)
+	if err != nil {
 		return tools.Result{}, err
 	}
 	environment, values, err := t.service.resolveEnvironment(ctx, plugin)
 	if err != nil {
 		return tools.Result{}, redactPluginError(err, values)
 	}
-	opCtx, cancel := context.WithTimeout(ctx, t.service.timeout)
+	timeout := t.service.effectiveTimeout(manifest)
+	opCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	client, err := t.service.startMCP(opCtx, t.service.stdioConfig(plugin, environment, values))
-	if err != nil {
-		return tools.Result{}, redactPluginError(err, values)
-	}
-	defer client.Close()
-	if err := client.Initialize(opCtx); err != nil {
-		return tools.Result{}, redactPluginError(err, values)
+	key := poolKey{revision: plugin.Revision, manifestHash: plugin.ManifestHash, envHash: environmentFingerprint(environment)}
+	client, pooled := t.service.pool.acquire(t.pluginID, key)
+	if !pooled {
+		// A pooled process has no process-lifetime bound: per-call deadlines
+		// govern each request and the pool owns shutdown, so the spawn context
+		// must survive this request while keeping its values.
+		client, err = t.service.startMCP(context.WithoutCancel(ctx), t.service.pooledStdioConfig(plugin, environment, values))
+		if err != nil {
+			return tools.Result{}, redactPluginError(err, values)
+		}
+		if err := client.Initialize(opCtx); err != nil {
+			_ = client.Close()
+			return tools.Result{}, redactPluginError(err, values)
+		}
 	}
 	// Revalidate immediately before delegation so adapters retained by a run
 	// fail closed after disable, uninstall, or revision changes.
 	if _, err := t.current(opCtx); err != nil {
+		t.finish(key, client, pooled, err)
 		return tools.Result{}, err
 	}
 	input := call.Input
@@ -82,6 +92,7 @@ func (t *pluginTool) Execute(ctx context.Context, call tools.Call, _ tools.Env) 
 		input = json.RawMessage(`{}`)
 	}
 	result, err := client.CallTool(opCtx, t.remoteName, input)
+	t.finish(key, client, pooled, err)
 	if err != nil {
 		return tools.Result{}, redactPluginError(err, values)
 	}
@@ -92,6 +103,21 @@ func (t *pluginTool) Execute(ctx context.Context, call tools.Call, _ tools.Env) 
 		meta["truncated"] = true
 	}
 	return tools.Result{Output: output, IsError: result.IsError, Meta: meta}, nil
+}
+
+// finish returns the client to the pool. Acquired clients are released (and
+// dropped on error); fresh clients are offered on success and closed on
+// failure so a client that has ever errored is never reused.
+func (t *pluginTool) finish(key poolKey, client MCPClient, pooled bool, callErr error) {
+	if pooled {
+		t.service.pool.release(t.pluginID, client, callErr)
+		return
+	}
+	if callErr != nil {
+		_ = client.Close()
+		return
+	}
+	t.service.pool.offer(t.pluginID, key, client)
 }
 
 func (t *pluginTool) current(ctx context.Context) (db.Plugin, error) {
