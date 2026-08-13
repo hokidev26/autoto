@@ -271,3 +271,91 @@ func TestStoreRejectsTraversalAndSymlinkStore(t *testing.T) {
 		t.Fatalf("symlink parent should be rejected, got %v", err)
 	}
 }
+
+func TestStoreWritesEncryptedCredentialFilesAtRest(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "credentials", "grok")
+	store := NewStore(dir)
+	created, err := store.CreateOAuth(oauthRequest(ProviderGrok, "at-secret-value", "rest-subject", 10))
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(filepath.Join(dir, created.Filename))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, secret := range []string{"at-secret-value", "refresh-at-secret-value", "id-at-secret-value"} {
+		if strings.Contains(string(raw), secret) {
+			t.Fatalf("credential file stored token %q in plaintext: %s", secret, raw)
+		}
+	}
+	if !strings.Contains(string(raw), "autoto_credential_envelope") {
+		t.Fatalf("credential file is missing the encrypted envelope marker: %s", raw)
+	}
+	if _, err := os.Stat(dir + ".key"); err != nil {
+		t.Fatalf("credential key file was not created: %v", err)
+	}
+	reloaded, err := NewStore(dir).GetByID(created.ID)
+	if err != nil || reloaded.AccessToken != "at-secret-value" || reloaded.RefreshToken != "refresh-at-secret-value" || reloaded.IDToken != "id-at-secret-value" {
+		t.Fatalf("encrypted credential did not round-trip: %+v err=%v", reloaded.Credential, err)
+	}
+}
+
+func TestStoreMigratesPlaintextCredentialFileToEncrypted(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "grok")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	legacyID := "subauth_MDEyMzQ1Njc4OWFiY2RlZmdo"
+	path := filepath.Join(dir, legacyID+credentialFileSuffix)
+	legacy := `{"id":"` + legacyID + `","provider":"grok","priority":100,"access_token":"legacy-at-secret","refresh_token":"legacy-rt-secret","created_at":"2024-01-01T00:00:00Z","updated_at":"2024-01-01T00:00:00Z"}`
+	if err := os.WriteFile(path, []byte(legacy), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	items, err := NewStore(dir).Load()
+	if err != nil || len(items) != 1 || items[0].ID != legacyID || items[0].AccessToken != "legacy-at-secret" || items[0].RefreshToken != "legacy-rt-secret" {
+		t.Fatalf("plaintext credential failed to load: items=%+v err=%v", items, err)
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, secret := range []string{"legacy-at-secret", "legacy-rt-secret"} {
+		if strings.Contains(string(raw), secret) {
+			t.Fatalf("plaintext token %q survived migration: %s", secret, raw)
+		}
+	}
+	if !strings.Contains(string(raw), "autoto_credential_envelope") {
+		t.Fatalf("migrated file is not an encrypted envelope: %s", raw)
+	}
+	again, err := NewStore(dir).Load()
+	if err != nil || len(again) != 1 || again[0].ID != legacyID || again[0].AccessToken != "legacy-at-secret" {
+		t.Fatalf("migrated credential did not round-trip: items=%+v err=%v", again, err)
+	}
+}
+
+func TestStoreMissingKeyFileTreatsEncryptedCredentialsAsAbsent(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "grok")
+	store := NewStore(dir)
+	if _, err := store.CreateOAuth(oauthRequest(ProviderGrok, "orphan-secret", "orphan-subject", 10)); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(dir + ".key"); err != nil {
+		t.Fatal(err)
+	}
+	fresh := NewStore(dir)
+	items, err := fresh.Load()
+	if err != nil || len(items) != 0 {
+		t.Fatalf("missing key must yield no credentials without failing: items=%+v err=%v", items, err)
+	}
+	if fresh.Configured() {
+		t.Fatal("store must report not configured when the key file is missing")
+	}
+	relogin, err := fresh.CreateOAuth(oauthRequest(ProviderGrok, "relogin-secret", "relogin-subject", 10))
+	if err != nil {
+		t.Fatal(err)
+	}
+	items, err = fresh.Load()
+	if err != nil || len(items) != 1 || items[0].ID != relogin.ID || items[0].AccessToken != "relogin-secret" {
+		t.Fatalf("re-login credential unavailable: items=%+v err=%v", items, err)
+	}
+}

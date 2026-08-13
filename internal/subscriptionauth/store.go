@@ -19,6 +19,8 @@ import (
 	"sync"
 	"time"
 	"unicode/utf8"
+
+	"autoto/internal/secrets"
 )
 
 const (
@@ -164,6 +166,7 @@ type Store struct {
 	dir        string
 	unsafePath bool
 	lock       *sync.RWMutex
+	cipher     *secrets.CredentialCipher
 }
 
 var storeLocks sync.Map
@@ -198,7 +201,17 @@ func NewStore(dir string) *Store {
 		key = ""
 	}
 	lockValue, _ := storeLocks.LoadOrStore(key, &sync.RWMutex{})
-	return &Store{dir: dir, unsafePath: unsafePath, lock: lockValue.(*sync.RWMutex)}
+	var cipher *secrets.CredentialCipher
+	if dir != "" {
+		cipher = secrets.NewCredentialCipher("subscription", credentialKeyPath(dir))
+	}
+	return &Store{dir: dir, unsafePath: unsafePath, lock: lockValue.(*sync.RWMutex), cipher: cipher}
+}
+
+// credentialKeyPath places the encryption key next to (not inside) the
+// credential directory so copying the directory alone cannot recover tokens.
+func credentialKeyPath(dir string) string {
+	return filepath.Clean(dir) + ".key"
 }
 
 func (s *Store) Dir() string {
@@ -498,6 +511,22 @@ func (s *Store) loadLocked() ([]StoredCredential, error) {
 		if readErr != nil || closeErr != nil || len(data) > maxCredentialBytes {
 			return nil, errors.New("读取订阅凭据失败")
 		}
+		migrated := false
+		if secrets.IsEncryptedCredential(data) {
+			plaintext, err := s.cipher.Decrypt(data)
+			if err != nil {
+				// The key file is gone or no longer matches (e.g. it was deleted
+				// and re-login created a fresh key), so this credential can never
+				// be decrypted again. Treat it as absent so the store reports
+				// "not configured" and the user can sign in again instead of
+				// every load failing.
+				continue
+			}
+			data = plaintext
+		} else {
+			// Legacy plaintext credential file: re-persist encrypted below.
+			migrated = true
+		}
 		credential, err := decodeCredential(data)
 		if err != nil || !validCredentialID(credential.ID) {
 			return nil, errors.New("订阅凭据已损坏")
@@ -506,7 +535,11 @@ func (s *Store) loadLocked() ([]StoredCredential, error) {
 			return nil, errors.New("订阅凭据包含重复 ID")
 		}
 		usedIDs[credential.ID] = struct{}{}
-		if err := os.Chmod(path, credentialFileMode); err != nil {
+		if migrated {
+			if err := s.writeCredentialLocked(filename, credential); err != nil {
+				return nil, errors.New("迁移订阅凭据失败")
+			}
+		} else if err := os.Chmod(path, credentialFileMode); err != nil {
 			return nil, errors.New("设置订阅凭据权限失败")
 		}
 		items = append(items, StoredCredential{Filename: filename, Credential: credential})
@@ -567,6 +600,10 @@ func (s *Store) writeCredentialLocked(filename string, credential Credential) er
 		return errors.New("序列化订阅凭据失败")
 	}
 	data = append(data, '\n')
+	data, err = s.cipher.Encrypt(data)
+	if err != nil || len(data) > maxCredentialBytes {
+		return errors.New("加密订阅凭据失败")
+	}
 	temp, err := os.CreateTemp(s.dir, ".subscription-credential-*")
 	if err != nil {
 		return errors.New("创建订阅凭据临时文件失败")

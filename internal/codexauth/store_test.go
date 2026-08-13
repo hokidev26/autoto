@@ -463,3 +463,92 @@ func TestStoreBatchMetadataAndDeleteReturnPerIDResults(t *testing.T) {
 		t.Fatalf("batch delete retained credentials: %+v err=%v", remaining, err)
 	}
 }
+
+func TestStoreWritesEncryptedCredentialFilesAtRest(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "credentials", "codex")
+	store := NewStore(dir)
+	result, err := store.Import([]ImportDocument{{
+		Filename: "account.json",
+		Content:  []byte(`{"type":"codex","access_token":"at-secret-value","refresh_token":"rt-secret-value","id_token":"idt-secret-value","account_id":"account-1"}`),
+	}})
+	if err != nil || result.Imported != 1 || len(result.Files) != 1 {
+		t.Fatalf("import failed: result=%+v err=%v", result, err)
+	}
+	raw, err := os.ReadFile(filepath.Join(dir, result.Files[0]))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, secret := range []string{"at-secret-value", "rt-secret-value", "idt-secret-value"} {
+		if strings.Contains(string(raw), secret) {
+			t.Fatalf("credential file stored token %q in plaintext: %s", secret, raw)
+		}
+	}
+	if !strings.Contains(string(raw), "autoto_credential_envelope") {
+		t.Fatalf("credential file is missing the encrypted envelope marker: %s", raw)
+	}
+	if _, err := os.Stat(dir + ".key"); err != nil {
+		t.Fatalf("credential key file was not created: %v", err)
+	}
+	items, err := NewStore(dir).Load()
+	if err != nil || len(items) != 1 || items[0].Credential.AccessToken != "at-secret-value" || items[0].Credential.RefreshToken != "rt-secret-value" || items[0].Credential.IDToken != "idt-secret-value" {
+		t.Fatalf("encrypted credential did not round-trip: items=%+v err=%v", items, err)
+	}
+}
+
+func TestStoreMigratesPlaintextCredentialFileToEncrypted(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "codex")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "legacy.json")
+	if err := os.WriteFile(path, []byte(`{"type":"codex","access_token":"legacy-at-secret","refresh_token":"legacy-rt-secret","account_id":"legacy-account"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	items, err := NewStore(dir).Load()
+	if err != nil || len(items) != 1 || items[0].Credential.AccessToken != "legacy-at-secret" || items[0].Credential.RefreshToken != "legacy-rt-secret" {
+		t.Fatalf("plaintext credential failed to load: items=%+v err=%v", items, err)
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, secret := range []string{"legacy-at-secret", "legacy-rt-secret"} {
+		if strings.Contains(string(raw), secret) {
+			t.Fatalf("plaintext token %q survived migration: %s", secret, raw)
+		}
+	}
+	if !strings.Contains(string(raw), "autoto_credential_envelope") {
+		t.Fatalf("migrated file is not an encrypted envelope: %s", raw)
+	}
+	again, err := NewStore(dir).Load()
+	if err != nil || len(again) != 1 || again[0].Credential.ID != items[0].Credential.ID || again[0].Credential.AccessToken != "legacy-at-secret" {
+		t.Fatalf("migrated credential did not round-trip: items=%+v err=%v", again, err)
+	}
+}
+
+func TestStoreMissingKeyFileTreatsEncryptedCredentialsAsAbsent(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "codex")
+	store := NewStore(dir)
+	if _, err := store.Import([]ImportDocument{{Filename: "account.json", Content: []byte(`{"type":"codex","access_token":"orphan-secret","account_id":"orphan-account"}`)}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(dir + ".key"); err != nil {
+		t.Fatal(err)
+	}
+	fresh := NewStore(dir)
+	items, err := fresh.Load()
+	if err != nil || len(items) != 0 {
+		t.Fatalf("missing key must yield no credentials without failing: items=%+v err=%v", items, err)
+	}
+	if fresh.Configured() {
+		t.Fatal("store must report not configured when the key file is missing")
+	}
+	relogin, err := fresh.Import([]ImportDocument{{Filename: "account.json", Content: []byte(`{"type":"codex","access_token":"relogin-secret","account_id":"relogin-account"}`)}})
+	if err != nil || relogin.Imported != 1 {
+		t.Fatalf("re-login after key loss failed: result=%+v err=%v", relogin, err)
+	}
+	items, err = fresh.Load()
+	if err != nil || len(items) != 1 || items[0].Credential.AccessToken != "relogin-secret" {
+		t.Fatalf("re-login credential unavailable: items=%+v err=%v", items, err)
+	}
+}

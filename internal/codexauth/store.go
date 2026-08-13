@@ -16,6 +16,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"autoto/internal/secrets"
 )
 
 const (
@@ -126,8 +128,9 @@ type CreditBalance struct {
 }
 
 type Store struct {
-	dir  string
-	lock *sync.RWMutex
+	dir    string
+	lock   *sync.RWMutex
+	cipher *secrets.CredentialCipher
 }
 
 var credentialStoreLocks sync.Map
@@ -152,7 +155,17 @@ func NewStore(dir string) *Store {
 		key = ""
 	}
 	lockValue, _ := credentialStoreLocks.LoadOrStore(key, &sync.RWMutex{})
-	return &Store{dir: dir, lock: lockValue.(*sync.RWMutex)}
+	var cipher *secrets.CredentialCipher
+	if dir != "" {
+		cipher = secrets.NewCredentialCipher(DefaultProviderName, credentialKeyPath(dir))
+	}
+	return &Store{dir: dir, lock: lockValue.(*sync.RWMutex), cipher: cipher}
+}
+
+// credentialKeyPath places the encryption key next to (not inside) the
+// credential directory so copying the directory alone cannot recover tokens.
+func credentialKeyPath(dir string) string {
+	return filepath.Clean(dir) + ".key"
 }
 
 func (s *Store) Dir() string {
@@ -561,11 +574,26 @@ func (s *Store) loadLocked() ([]StoredCredential, error) {
 		if readErr != nil || closeErr != nil || len(data) > maxCredentialBytes {
 			return nil, fmt.Errorf("读取 Codex 凭据 %s 失败", filename)
 		}
+		migrated := false
+		if secrets.IsEncryptedCredential(data) {
+			plaintext, err := s.cipher.Decrypt(data)
+			if err != nil {
+				// The key file is gone or no longer matches (e.g. it was deleted
+				// and re-login created a fresh key), so this credential can never
+				// be decrypted again. Treat it as absent so the store reports
+				// "not configured" and the user can sign in again instead of
+				// every load failing.
+				continue
+			}
+			data = plaintext
+		} else {
+			// Legacy plaintext credential file: re-persist encrypted below.
+			migrated = true
+		}
 		credential, err := decodeCredential(data)
 		if err != nil {
 			return nil, fmt.Errorf("Codex 凭据 %s 已损坏", filename)
 		}
-		migrated := false
 		if !validCredentialID(credential.ID) {
 			credential.ID, err = newCredentialID()
 			if err != nil {
@@ -639,6 +667,10 @@ func (s *Store) writeCredentialLocked(filename string, credential Credential) er
 		return errors.New("序列化 Codex 凭据失败")
 	}
 	data = append(data, '\n')
+	data, err = s.cipher.Encrypt(data)
+	if err != nil || len(data) > maxCredentialBytes {
+		return errors.New("加密 Codex 凭据失败")
+	}
 
 	temp, err := os.CreateTemp(s.dir, ".codex-credential-*")
 	if err != nil {

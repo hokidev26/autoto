@@ -402,3 +402,93 @@ func TestLoadRepairsPermissionsAndMigratesMetadata(t *testing.T) {
 		}
 	}
 }
+
+func TestStoreWritesEncryptedCredentialFilesAtRest(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "credentials", "anthropic")
+	store := NewStore(dir)
+	item, err := store.Create(CreateRequest{
+		AuthType:     AuthTypeOAuth,
+		OAuthAccess:  "oauth-at-secret-value",
+		OAuthRefresh: "oauth-rt-secret-value",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(filepath.Join(dir, item.Filename))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, secret := range []string{"oauth-at-secret-value", "oauth-rt-secret-value"} {
+		if strings.Contains(string(raw), secret) {
+			t.Fatalf("credential file stored token %q in plaintext: %s", secret, raw)
+		}
+	}
+	if !strings.Contains(string(raw), "autoto_credential_envelope") {
+		t.Fatalf("credential file is missing the encrypted envelope marker: %s", raw)
+	}
+	if _, err := os.Stat(dir + ".key"); err != nil {
+		t.Fatalf("credential key file was not created: %v", err)
+	}
+	items, err := NewStore(dir).Load()
+	if err != nil || len(items) != 1 || items[0].Credential.OAuthAccess != "oauth-at-secret-value" || items[0].Credential.OAuthRefresh != "oauth-rt-secret-value" {
+		t.Fatalf("encrypted credential did not round-trip: items=%+v err=%v", items, err)
+	}
+}
+
+func TestStoreMigratesPlaintextCredentialFileToEncrypted(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "anthropic")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "legacy.json")
+	if err := os.WriteFile(path, []byte(`{"auth_type":"oauth","oauth_access":"legacy-at-secret","oauth_refresh":"legacy-rt-secret"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	items, err := NewStore(dir).Load()
+	if err != nil || len(items) != 1 || items[0].Credential.OAuthAccess != "legacy-at-secret" || items[0].Credential.OAuthRefresh != "legacy-rt-secret" {
+		t.Fatalf("plaintext credential failed to load: items=%+v err=%v", items, err)
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, secret := range []string{"legacy-at-secret", "legacy-rt-secret"} {
+		if strings.Contains(string(raw), secret) {
+			t.Fatalf("plaintext token %q survived migration: %s", secret, raw)
+		}
+	}
+	if !strings.Contains(string(raw), "autoto_credential_envelope") {
+		t.Fatalf("migrated file is not an encrypted envelope: %s", raw)
+	}
+	again, err := NewStore(dir).Load()
+	if err != nil || len(again) != 1 || again[0].Credential.ID != items[0].Credential.ID || again[0].Credential.OAuthAccess != "legacy-at-secret" {
+		t.Fatalf("migrated credential did not round-trip: items=%+v err=%v", again, err)
+	}
+}
+
+func TestStoreMissingKeyFileTreatsEncryptedCredentialsAsAbsent(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "anthropic")
+	store := NewStore(dir)
+	if _, err := store.Create(CreateRequest{AuthType: AuthTypeOAuth, OAuthAccess: "orphan-secret"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(dir + ".key"); err != nil {
+		t.Fatal(err)
+	}
+	fresh := NewStore(dir)
+	items, err := fresh.Load()
+	if err != nil || len(items) != 0 {
+		t.Fatalf("missing key must yield no credentials without failing: items=%+v err=%v", items, err)
+	}
+	if fresh.Configured() {
+		t.Fatal("store must report not configured when the key file is missing")
+	}
+	relogin, err := fresh.Create(CreateRequest{AuthType: AuthTypeOAuth, OAuthAccess: "relogin-secret"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	items, err = fresh.Load()
+	if err != nil || len(items) != 1 || items[0].Credential.ID != relogin.Credential.ID || items[0].Credential.OAuthAccess != "relogin-secret" {
+		t.Fatalf("re-login credential unavailable: items=%+v err=%v", items, err)
+	}
+}
