@@ -188,220 +188,12 @@ func (s *Server) updateProviderConfig(w http.ResponseWriter, r *http.Request) {
 	defer s.configMutationMu.Unlock()
 	s.providerMutationMu.Lock()
 	defer s.providerMutationMu.Unlock()
-	existing, existed := s.providerConfig(providerName)
-	if existed {
-		existing.Models = s.providerModels(providerName)
-	}
-	if req.CreateOnly && existed {
-		writeError(w, http.StatusConflict, "Provider 名称已存在")
-		return
-	}
-	updated, err := providerConfigFromUpdateRequest(providerName, existing, req)
+	resp, err := s.providerConfigs().update(r.Context(), providerName, req)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		writeAPIError(w, err)
 		return
 	}
-	renamed := existed && existing.Name != updated.Name
-	if renamed {
-		if config.IsBuiltinProviderName(existing.Name) {
-			writeError(w, http.StatusBadRequest, "内置 Provider 不支持重命名")
-			return
-		}
-		if config.IsBuiltinProviderName(updated.Name) {
-			writeError(w, http.StatusBadRequest, "新的 Provider 名称不能使用内置名称")
-			return
-		}
-		if _, occupied := s.providerConfig(updated.Name); occupied {
-			writeError(w, http.StatusConflict, "Provider 名称已存在")
-			return
-		}
-		if existing.ProxyAuthSource == secrets.ProviderSecretSourceStoredUnavailable || existing.RequestHeadersSource == secrets.ProviderSecretSourceStoredUnavailable {
-			writeError(w, http.StatusBadRequest, "无法读取原 Provider 网络凭据；请恢复凭据仓库或重新输入网络凭据后再重命名")
-			return
-		}
-	}
-
-	incomingAPIKey := strings.TrimSpace(req.APIKey)
-	// A stored key is scoped to the endpoint it was entered for, not to the
-	// protocol spoken there. Switching protocol keeps the same host and
-	// transport, so re-encrypt the stored key under the new binding instead of
-	// making the user paste it again. Anything that moves the endpoint — base
-	// URL, proxy, TLS posture — still falls through to the clearing branch.
-	if storedProviderSecretMigratable(existed, existing, updated) && incomingAPIKey == "" && !req.ClearAPIKey {
-		if s.providerVault == nil {
-			if renamed {
-				writeError(w, http.StatusBadRequest, "重命名已保存凭据的 Provider 前请重新输入 API Key")
-				return
-			}
-		} else if resolved, _, resolveErr := s.providerVault.Resolve(r.Context(), serverProviderSecretBinding(existing)); resolveErr != nil || strings.TrimSpace(resolved) == "" {
-			// A rename with an unreadable key leaves nothing to migrate, so fail
-			// loudly. A protocol switch degrades to "re-enter the key", which is
-			// the behaviour that shipped before migration existed.
-			if renamed {
-				writeError(w, http.StatusBadRequest, "无法读取原 Provider 凭据；请重新输入 API Key 后再重命名")
-				return
-			}
-		} else {
-			incomingAPIKey = strings.TrimSpace(resolved)
-		}
-	}
-	secretMutation := ""
-	switch {
-	case incomingAPIKey != "":
-		updated.SecretRevision = nextProviderSecretRevision(existing.SecretRevision)
-		updated.APIKey = incomingAPIKey
-		if s.providerVault != nil {
-			updated.APIKeySource = secrets.ProviderSecretSourceStored
-		} else {
-			updated.APIKeySource = secrets.ProviderSecretSourceRuntime
-		}
-		secretMutation = "set"
-	case req.ClearAPIKey:
-		updated.SecretRevision = nextProviderSecretRevision(existing.SecretRevision)
-		updated.APIKey = ""
-		updated.APIKeySource = secrets.ProviderSecretSourceNone
-		secretMutation = "clear"
-	case existed && providerSecretBindingChanged(existing, updated):
-		// Any inherited key is scoped to the endpoint and transport where it was
-		// entered. Never silently forward stored, runtime, or environment values
-		// across a changed security boundary.
-		updated.SecretRevision = nextProviderSecretRevision(existing.SecretRevision)
-		updated.APIKey = ""
-		updated.APIKeySource = secrets.ProviderSecretSourceNone
-		secretMutation = "clear"
-	}
-
-	transportSecretMutation := providerTransportSecretMutationRequired(existing, updated)
-	if transportSecretMutation {
-		updated.TransportSecretRevision = nextProviderSecretRevision(existing.TransportSecretRevision)
-		if providerProxyAuthConfigured(updated) {
-			if s.providerVault != nil {
-				updated.ProxyAuthSource = secrets.ProviderSecretSourceStored
-			} else {
-				updated.ProxyAuthSource = secrets.ProviderSecretSourceRuntime
-			}
-		} else {
-			updated.ProxyAuthSource = secrets.ProviderSecretSourceNone
-		}
-		if providerHeadersConfigured(updated) {
-			if s.providerVault != nil {
-				updated.RequestHeadersSource = secrets.ProviderSecretSourceStored
-			} else {
-				updated.RequestHeadersSource = secrets.ProviderSecretSourceRuntime
-			}
-		} else {
-			updated.RequestHeadersSource = secrets.ProviderSecretSourceNone
-		}
-	}
-
-	adapter, err := s.newRuntimeProvider(updated)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
-		return
-	}
-
-	s.cfgMu.RLock()
-	cfg := s.cfg
-	if renamed {
-		cfg.Providers.Instances = renameServerProvider(cfg.Providers.Instances, existing.Name, updated)
-		renameProviderModelReferences(&cfg, existing.Name, updated.Name, existing.Model, updated.Model)
-	} else {
-		cfg.Providers.Instances = upsertServerProvider(cfg.Providers.Instances, updated)
-	}
-	configPath := s.configPath
-	s.cfgMu.RUnlock()
-	if err := s.ensureProviderDefaultAfterMutation(cfg, updated.Name); err != nil {
-		writeError(w, http.StatusConflict, err.Error())
-		return
-	}
-	publishTargetConfig := func() {
-		if renamed {
-			s.unregisterProvider(existing.Name)
-		}
-		if updated.Disabled {
-			s.unregisterProvider(updated.Name)
-		} else {
-			s.registerProviderAdapter(adapter)
-		}
-		s.refreshProviderDefault(cfg)
-		s.cfgMu.Lock()
-		s.cfg = cfg
-		s.cfgMu.Unlock()
-	}
-
-	preparedSecretKinds := make([]string, 0, 3)
-	if s.providerVault != nil && secretMutation != "" {
-		switch secretMutation {
-		case "set":
-			_, err = s.providerVault.PrepareSet(r.Context(), serverProviderSecretBinding(updated), incomingAPIKey)
-		case "clear":
-			err = s.providerVault.PrepareClear(r.Context(), serverProviderSecretBinding(updated))
-		}
-		if err != nil {
-			slog.Error("prepare provider api-key secret", "provider", updated.Name, "mutation", secretMutation, "error", err)
-			writeError(w, http.StatusInternalServerError, "无法安全保存 Provider 凭据。")
-			return
-		}
-		preparedSecretKinds = append(preparedSecretKinds, secrets.ProviderAPIKeyKind)
-	}
-	if s.providerVault != nil && transportSecretMutation {
-		transportKinds, prepareErr := s.prepareProviderTransportSecrets(r.Context(), updated)
-		preparedSecretKinds = append(preparedSecretKinds, transportKinds...)
-		if prepareErr != nil {
-			slog.Error("prepare provider transport secrets", "provider", updated.Name, "error", prepareErr)
-			s.rollbackProviderSecretKinds(r.Context(), updated.Name, preparedSecretKinds)
-			writeError(w, http.StatusInternalServerError, "无法安全保存 Provider 网络凭据。")
-			return
-		}
-	}
-
-	s.runProviderMutationHook()
-	persisted, err := s.persistProviderConfig(configPath, cfg)
-	if err != nil {
-		s.rollbackProviderSecretKinds(r.Context(), updated.Name, preparedSecretKinds)
-		writeError(w, http.StatusInternalServerError, fmt.Sprintf("保存配置失败：%v", err))
-		return
-	}
-	if len(preparedSecretKinds) > 0 && !persisted {
-		s.rollbackProviderSecretKinds(r.Context(), updated.Name, preparedSecretKinds)
-		writeError(w, http.StatusInternalServerError, "配置路径不可用，Provider 凭据未保存。")
-		return
-	}
-	if err := s.commitProviderSecretKinds(r.Context(), updated.Name, preparedSecretKinds); err != nil {
-		// config.json already contains the target revisions. Publish that same
-		// target in memory so a later unrelated save cannot overwrite the durable
-		// transaction while startup recovery finishes pending secret commits.
-		publishTargetConfig()
-		writeError(w, http.StatusInternalServerError, "Provider 凭据提交未完成；重启后将自动恢复。")
-		return
-	}
-	oldSecretCleanupFailed := false
-	if renamed && s.providerVault != nil {
-		for _, kind := range []string{secrets.ProviderAPIKeyKind, secrets.ProviderProxyAuthKind, secrets.ProviderRequestHeadersKind} {
-			if s.providerVault.DeleteKind(r.Context(), existing.Name, kind) != nil {
-				oldSecretCleanupFailed = true
-			}
-		}
-	}
-	publishTargetConfig()
-
-	status := s.providerAPIKeyStatus(r.Context(), updated)
-	message := "Provider 配置已持久化并在当前运行时生效。"
-	if renamed {
-		message = "Provider 配置已保存，名称已更新并在当前运行时生效。"
-	}
-	if s.providerVault == nil && (incomingAPIKey != "" || providerProxyAuthConfigured(updated) || providerHeadersConfigured(updated)) {
-		message = "Provider 配置已在当前运行时生效；当前实例未启用持久凭据仓库，敏感网络设置不会跨重启保存。"
-	}
-	if oldSecretCleanupFailed {
-		message += "旧凭据记录未能立即清理，将在后续恢复流程中处理。"
-	}
-	writeJSON(w, http.StatusOK, providerConfigUpdateResponse{
-		Provider:        s.settingsProviderResponse(r.Context(), updated),
-		Persisted:       persisted,
-		APIKeyPersisted: status.Persisted,
-		Message:         message,
-	})
+	writeJSON(w, http.StatusOK, resp)
 }
 
 func (s *Server) patchProviderConfig(w http.ResponseWriter, r *http.Request) {
@@ -423,76 +215,12 @@ func (s *Server) patchProviderConfig(w http.ResponseWriter, r *http.Request) {
 	defer s.configMutationMu.Unlock()
 	s.providerMutationMu.Lock()
 	defer s.providerMutationMu.Unlock()
-	existing, ok := s.providerConfig(providerName)
-	if !ok {
-		writeError(w, http.StatusNotFound, "provider not found")
-		return
-	}
-	existing.Models = s.providerModels(providerName)
-
-	updated := existing
-	if req.Enabled != nil {
-		updated.Disabled = !*req.Enabled
-	}
-	if req.GatewayEnabled != nil {
-		if *req.GatewayEnabled && providerGatewaySharingForbidden(updated.Type, updated.Profile) {
-			writeError(w, http.StatusBadRequest, "OAuth-backed providers cannot be enabled for the shared API gateway")
-			return
-		}
-		updated.GatewayEnabled = *req.GatewayEnabled
-	}
-	if req.Model != nil {
-		updated.Model = strings.TrimSpace(*req.Model)
-		if updated.Model == "" {
-			writeError(w, http.StatusBadRequest, "model must not be empty")
-			return
-		}
-		if len(updated.Model) > maxProviderModelBytes || strings.ContainsAny(updated.Model, "\x00\r\n") {
-			writeError(w, http.StatusBadRequest, "model is invalid")
-			return
-		}
-		updated.Models = config.NormalizeProviderModels(updated.Models, updated.Model)
-	}
-
-	adapter, err := s.newRuntimeProvider(updated)
+	resp, err := s.providerConfigs().patch(r.Context(), providerName, req)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		writeAPIError(w, err)
 		return
 	}
-
-	s.cfgMu.RLock()
-	cfg := s.cfg
-	cfg.Providers.Instances = upsertServerProvider(cfg.Providers.Instances, updated)
-	configPath := s.configPath
-	s.cfgMu.RUnlock()
-	if err := s.ensureProviderDefaultAfterMutation(cfg, providerName); err != nil {
-		writeError(w, http.StatusConflict, err.Error())
-		return
-	}
-
-	s.runProviderMutationHook()
-	persisted, err := s.persistProviderConfig(configPath, cfg)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, fmt.Sprintf("保存配置失败：%v", err))
-		return
-	}
-	if updated.Disabled {
-		s.unregisterProvider(updated.Name)
-	} else {
-		s.registerProviderAdapter(adapter)
-	}
-	s.refreshProviderDefault(cfg)
-	s.cfgMu.Lock()
-	s.cfg = cfg
-	s.cfgMu.Unlock()
-
-	status := s.providerAPIKeyStatus(r.Context(), updated)
-	writeJSON(w, http.StatusOK, providerConfigUpdateResponse{
-		Provider:        s.settingsProviderResponse(r.Context(), updated),
-		Persisted:       persisted,
-		APIKeyPersisted: status.Persisted,
-		Message:         "Provider 生命周期更新已在当前运行时生效。",
-	})
+	writeJSON(w, http.StatusOK, resp)
 }
 
 func (s *Server) deleteProviderConfig(w http.ResponseWriter, r *http.Request) {
@@ -505,71 +233,12 @@ func (s *Server) deleteProviderConfig(w http.ResponseWriter, r *http.Request) {
 	defer s.configMutationMu.Unlock()
 	s.providerMutationMu.Lock()
 	defer s.providerMutationMu.Unlock()
-	existing, ok := s.providerConfig(providerName)
-	if !ok {
-		writeError(w, http.StatusNotFound, "provider not found")
-		return
-	}
-	if config.IsBuiltinProviderName(existing.Name) {
-		writeError(w, http.StatusConflict, "built-in providers cannot be deleted")
-		return
-	}
-
-	s.cfgMu.RLock()
-	cfg := s.cfg
-	var removed bool
-	cfg.Providers.Instances, removed = removeServerProvider(cfg.Providers.Instances, providerName)
-	configPath := s.configPath
-	s.cfgMu.RUnlock()
-	if !removed {
-		writeError(w, http.StatusNotFound, "provider not found")
-		return
-	}
-	if err := s.ensureProviderDefaultAfterMutation(cfg, providerName); err != nil {
-		writeError(w, http.StatusConflict, err.Error())
-		return
-	}
-
-	preparedSecretKinds := make([]string, 0, 3)
-	if s.providerVault != nil {
-		for _, kind := range []string{secrets.ProviderAPIKeyKind, secrets.ProviderProxyAuthKind, secrets.ProviderRequestHeadersKind} {
-			if err := s.providerVault.PrepareDeleteKind(r.Context(), providerName, kind); err != nil {
-				s.rollbackProviderSecretKinds(r.Context(), providerName, preparedSecretKinds)
-				writeError(w, http.StatusInternalServerError, "无法安全删除 Provider 凭据。")
-				return
-			}
-			preparedSecretKinds = append(preparedSecretKinds, kind)
-		}
-	}
-	s.runProviderMutationHook()
-	persisted, err := s.persistProviderConfig(configPath, cfg)
+	resp, err := s.providerConfigs().delete(r.Context(), providerName)
 	if err != nil {
-		s.rollbackProviderSecretKinds(r.Context(), providerName, preparedSecretKinds)
-		writeError(w, http.StatusInternalServerError, fmt.Sprintf("保存配置失败：%v", err))
+		writeAPIError(w, err)
 		return
 	}
-	if len(preparedSecretKinds) > 0 && !persisted {
-		s.rollbackProviderSecretKinds(r.Context(), providerName, preparedSecretKinds)
-		writeError(w, http.StatusInternalServerError, "配置路径不可用，Provider 未删除。")
-		return
-	}
-	if err := s.commitProviderSecretKinds(r.Context(), providerName, preparedSecretKinds); err != nil {
-		// The config no longer references this Provider. Remove it from the
-		// current registry as well; startup recovery will finish DB cleanup.
-		s.unregisterProvider(providerName)
-		s.refreshProviderDefault(cfg)
-		s.cfgMu.Lock()
-		s.cfg = cfg
-		s.cfgMu.Unlock()
-		writeError(w, http.StatusInternalServerError, "Provider 已移除，凭据清理将在重启后自动完成。")
-		return
-	}
-	s.unregisterProvider(providerName)
-	s.refreshProviderDefault(cfg)
-	s.cfgMu.Lock()
-	s.cfg = cfg
-	s.cfgMu.Unlock()
-	writeJSON(w, http.StatusOK, providerDeleteResponse{Deleted: true, Name: providerName, Persisted: persisted})
+	writeJSON(w, http.StatusOK, resp)
 }
 
 func (s *Server) testProviderConfig(w http.ResponseWriter, r *http.Request) {
@@ -587,7 +256,7 @@ func (s *Server) testProviderConfig(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "provider not found")
 		return
 	}
-	s.testProviderAdapter(w, r, provider)
+	writeJSON(w, http.StatusOK, s.providerConfigs().testAdapter(r.Context(), provider))
 }
 
 // testProviderConfigDraft validates and tests a full configuration draft without
@@ -596,51 +265,7 @@ func (s *Server) testProviderConfig(w http.ResponseWriter, r *http.Request) {
 var errProviderDraftNameConflict = errors.New("Provider 名称已存在")
 
 func (s *Server) providerConfigForDraftTest(ctx context.Context, providerName string, req providerConfigUpdateRequest) (config.ProviderConfig, error) {
-	providerName = strings.TrimSpace(providerName)
-	if req.CreateOnly {
-		if _, occupied := s.providerConfig(providerName); occupied {
-			return config.ProviderConfig{}, errProviderDraftNameConflict
-		}
-		provider, err := providerConfigFromUpdateRequest(providerName, config.ProviderConfig{}, req)
-		return provider, err
-	}
-	originalName := strings.TrimSpace(req.OriginalName)
-	if originalName == "" {
-		originalName = providerName
-	}
-	if err := validateProviderName(originalName); err != nil {
-		return config.ProviderConfig{}, err
-	}
-	if originalName != providerName {
-		if _, occupied := s.providerConfig(providerName); occupied {
-			return config.ProviderConfig{}, errProviderDraftNameConflict
-		}
-	}
-	existing, _ := s.providerConfig(originalName)
-	existing.Models = s.providerModels(originalName)
-	provider, err := providerConfigFromUpdateRequest(providerName, existing, req)
-	if err != nil {
-		return config.ProviderConfig{}, err
-	}
-	if strings.TrimSpace(req.APIKey) == "" && strings.TrimSpace(existing.Name) != "" && providerSecretBindingChanged(existing, provider) {
-		// Mirror the save path: a stored key survives a protocol switch that
-		// keeps the same endpoint, so the draft test can reach upstream and the
-		// model list refreshes without retyping the key.
-		migrated := ""
-		if s.providerVault != nil && storedProviderSecretMigratable(true, existing, provider) {
-			if resolved, _, resolveErr := s.providerVault.Resolve(ctx, serverProviderSecretBinding(existing)); resolveErr == nil {
-				migrated = strings.TrimSpace(resolved)
-			}
-		}
-		if migrated != "" {
-			provider.APIKey = migrated
-			provider.APIKeySource = secrets.ProviderSecretSourceStored
-		} else {
-			provider.APIKey = ""
-			provider.APIKeySource = secrets.ProviderSecretSourceNone
-		}
-	}
-	return provider, nil
+	return s.providerConfigs().configForDraftTest(ctx, providerName, req)
 }
 
 func (s *Server) testProviderConfigDraft(w http.ResponseWriter, r *http.Request) {
@@ -673,7 +298,7 @@ func (s *Server) testProviderConfigDraft(w http.ResponseWriter, r *http.Request)
 		writeError(w, http.StatusBadRequest, describeProviderConfigError(provider, err))
 		return
 	}
-	s.testProviderAdapter(w, r, provider)
+	writeJSON(w, http.StatusOK, s.providerConfigs().testAdapter(r.Context(), provider))
 }
 
 // testProviderMessageDraft sends one tool-free prompt through a temporary
@@ -718,14 +343,9 @@ func (s *Server) testProviderMessageDraft(w http.ResponseWriter, r *http.Request
 		writeError(w, status, err.Error())
 		return
 	}
-	adapter, err := s.newRuntimeProvider(provider)
-	if err != nil {
-		writeJSON(w, http.StatusOK, providerMessageTestResponse{ErrorCode: "invalid_configuration", Message: describeProviderConfigError(provider, err)})
-		return
-	}
-	configured := providers.ConfiguredForScenario(adapter, provider.IsConfigured(), providers.CallScenarioInternal)
-	if !configured {
-		writeJSON(w, http.StatusOK, providerMessageTestResponse{Model: provider.Model, ErrorCode: "not_configured", Message: "需要 API Key，尚未发送测试。"})
+	adapter, early, done := s.providerConfigs().messageTestAdapter(provider)
+	if done {
+		writeJSON(w, http.StatusOK, early)
 		return
 	}
 
@@ -781,36 +401,7 @@ func (s *Server) testProviderMessageDraft(w http.ResponseWriter, r *http.Request
 }
 
 func (s *Server) testProviderAdapter(w http.ResponseWriter, r *http.Request, provider config.ProviderConfig) {
-	adapter, err := s.newRuntimeProvider(provider)
-	if err != nil {
-		writeJSON(w, http.StatusOK, providerTestResponse{
-			Configured: provider.IsConfigured(), ErrorCode: "invalid_configuration", Message: describeProviderConfigError(provider, err),
-		})
-		return
-	}
-	configured := providers.ConfiguredFor(adapter, provider.IsConfigured())
-	if !configured {
-		writeJSON(w, http.StatusOK, providerTestResponse{
-			Configured: false,
-			ErrorCode:  "not_configured",
-			Message:    "需要 API Key，尚未执行连接预检。",
-		})
-		return
-	}
-	ctx, cancel := context.WithTimeout(r.Context(), providerTestTimeout)
-	defer cancel()
-	models, err := adapter.ListModels(ctx)
-	if err != nil {
-		errorCode, message, reachable := classifyProviderTestError(err)
-		writeJSON(w, http.StatusOK, providerTestResponse{
-			Reachable: reachable, Configured: configured, ErrorCode: errorCode, Message: message,
-		})
-		return
-	}
-	models = normalizeModelNames(models, provider.Model)
-	writeJSON(w, http.StatusOK, providerTestResponse{
-		Reachable: true, Configured: configured, ModelCount: len(models), Models: models, Message: "Provider 可访问。",
-	})
+	writeJSON(w, http.StatusOK, s.providerConfigs().testAdapter(r.Context(), provider))
 }
 
 func rejectProviderTestBody(r *http.Request) error {

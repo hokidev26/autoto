@@ -16,14 +16,9 @@ func (s *Server) mountAutomationToolCatalogRoutes(router chi.Router) {
 }
 
 func (s *Server) listAutomationToolCatalog(w http.ResponseWriter, r *http.Request) {
-	catalog := s.automationToolCatalogSnapshot()
-	if catalog == nil {
-		writeError(w, http.StatusServiceUnavailable, "optional automation tool catalog is unavailable")
-		return
-	}
-	items, err := catalog.List(r.Context())
+	items, err := s.automationTools().list(r.Context())
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		writeAPIError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, items)
@@ -34,28 +29,18 @@ func (s *Server) installAutomationToolCatalogItem(w http.ResponseWriter, r *http
 		writeError(w, http.StatusForbidden, message)
 		return
 	}
-	catalog := s.automationToolCatalogSnapshot()
-	if catalog == nil {
-		writeError(w, http.StatusServiceUnavailable, "optional automation tool catalog is unavailable")
-		return
-	}
-	item, err := catalog.Install(r.Context(), chi.URLParam(r, "id"))
+	item, err := s.automationTools().install(r.Context(), chi.URLParam(r, "id"))
 	if err != nil {
-		writeError(w, automationToolCatalogErrorStatus(err), err.Error())
+		writeAPIError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, item)
 }
 
 func (s *Server) configureAutomationToolCatalogItem(w http.ResponseWriter, r *http.Request) {
-	catalog := s.automationToolCatalogSnapshot()
-	if catalog == nil {
-		writeError(w, http.StatusServiceUnavailable, "optional automation tool catalog is unavailable")
-		return
-	}
-	item, err := catalog.Configure(r.Context(), chi.URLParam(r, "id"))
+	item, err := s.automationTools().configure(r.Context(), chi.URLParam(r, "id"))
 	if err != nil {
-		writeError(w, automationToolCatalogErrorStatus(err), err.Error())
+		writeAPIError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, item)

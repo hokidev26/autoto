@@ -7,16 +7,21 @@ import (
 	"strings"
 
 	agentpkg "autoto/internal/agent"
+	"autoto/internal/config"
 	"autoto/internal/db"
 	"autoto/internal/providers"
 )
 
 type modelRuntimeService struct {
-	store        *db.Store
-	runner       *agentpkg.Runner
-	lockMutation func(string) func()
-	capabilities func(string) providers.Capabilities
-	fastMode     func(string) bool
+	store          *db.Store
+	runner         *agentpkg.Runner
+	lockMutation   func(string) func()
+	capabilities   func(string) providers.Capabilities
+	fastMode       func(string) bool
+	snapshotConfig func() (config.Config, string)
+	safetyModel    func() string
+	refreshDefault func(config.Config)
+	applyConfig    func(config.Config)
 }
 
 func (s *Server) modelRuntime() modelRuntimeService {
@@ -25,14 +30,37 @@ func (s *Server) modelRuntime() modelRuntimeService {
 	var lockMutation func(string) func()
 	var capabilities func(string) providers.Capabilities
 	var fastMode func(string) bool
+	var snapshotConfig func() (config.Config, string)
+	var safetyModel func() string
+	var refreshDefault func(config.Config)
+	var applyConfig func(config.Config)
 	if s != nil {
 		store = s.store
 		runner = s.runner
 		lockMutation = s.lockAgentMutation
 		capabilities = s.capabilitiesForAgentModel
 		fastMode = func(model string) bool { return s.modelCapabilitiesForAgentModel(model).FastMode }
+		snapshotConfig = func() (config.Config, string) {
+			s.cfgMu.RLock()
+			defer s.cfgMu.RUnlock()
+			return s.cfg, s.configPath
+		}
+		safetyModel = func() string {
+			s.cfgMu.RLock()
+			defer s.cfgMu.RUnlock()
+			return s.cfg.Agent.SafetyModel
+		}
+		refreshDefault = s.refreshProviderDefault
+		applyConfig = func(cfg config.Config) {
+			s.cfgMu.Lock()
+			s.cfg = cfg
+			s.cfgMu.Unlock()
+		}
 	}
-	return modelRuntimeService{store: store, runner: runner, lockMutation: lockMutation, capabilities: capabilities, fastMode: fastMode}
+	return modelRuntimeService{
+		store: store, runner: runner, lockMutation: lockMutation, capabilities: capabilities, fastMode: fastMode,
+		snapshotConfig: snapshotConfig, safetyModel: safetyModel, refreshDefault: refreshDefault, applyConfig: applyConfig,
+	}
 }
 
 func (m modelRuntimeService) listAggregates(ctx context.Context) ([]db.ModelAggregate, error) {
@@ -206,6 +234,81 @@ func (m modelRuntimeService) updateFastMode(ctx context.Context, agentID string,
 		return db.Agent{}, apiErr(http.StatusBadRequest, "fastMode is not supported by the current model")
 	}
 	return m.store.UpdateAgentFastMode(ctx, agentID, request.FastMode.value)
+}
+
+type agentModelSettingsResult struct {
+	Agent     config.AgentConfig
+	Persisted bool
+}
+
+type preparedAgentModelSettings struct {
+	defaultModel   string
+	summaryModel   string
+	safetyModel    string
+	subagentModels map[string]string
+	subagentPools  map[string][]string
+}
+
+func (m modelRuntimeService) prepareAgentModelSettings(request agentModelSettingsRequest) (preparedAgentModelSettings, error) {
+	if !request.DefaultModel.set || !request.SummaryModel.set {
+		return preparedAgentModelSettings{}, apiErr(http.StatusBadRequest, "defaultModel and summaryModel are required")
+	}
+	defaultModel, err := validateAgentModelReference("defaultModel", request.DefaultModel.value, true)
+	if err != nil {
+		return preparedAgentModelSettings{}, apiErr(http.StatusBadRequest, err.Error())
+	}
+	summaryModel, err := validateAgentModelReference("summaryModel", request.SummaryModel.value, true)
+	if err != nil {
+		return preparedAgentModelSettings{}, apiErr(http.StatusBadRequest, err.Error())
+	}
+	// Optional, and blank is meaningful: it clears the override so the safety
+	// gate follows the summary model again.
+	safetyModel := ""
+	if request.SafetyModel.set {
+		safetyModel, err = validateAgentModelReference("safetyModel", request.SafetyModel.value, false)
+		if err != nil {
+			return preparedAgentModelSettings{}, apiErr(http.StatusBadRequest, err.Error())
+		}
+	} else if m.safetyModel != nil {
+		safetyModel = m.safetyModel()
+	}
+	subagentModels, subagentPools, err := normalizeAgentRoleModelSettings(request.SubagentModels, request.SubagentModelPools)
+	if err != nil {
+		return preparedAgentModelSettings{}, apiErr(http.StatusBadRequest, err.Error())
+	}
+	return preparedAgentModelSettings{
+		defaultModel: defaultModel, summaryModel: summaryModel, safetyModel: safetyModel,
+		subagentModels: subagentModels, subagentPools: subagentPools,
+	}, nil
+}
+
+func (m modelRuntimeService) persistAgentModelSettings(prepared preparedAgentModelSettings) (agentModelSettingsResult, error) {
+	if m.snapshotConfig == nil {
+		return agentModelSettingsResult{}, apiErr(http.StatusInternalServerError, "agent model settings could not be persisted")
+	}
+	updated, configPath := m.snapshotConfig()
+	updated.Agent.DefaultModel = prepared.defaultModel
+	updated.Agent.SummaryModel = prepared.summaryModel
+	updated.Agent.SafetyModel = prepared.safetyModel
+	updated.Agent.SubagentModels = prepared.subagentModels
+	updated.Agent.SubagentModelPools = prepared.subagentPools
+	path := effectiveConfigPath(updated, configPath)
+	if strings.TrimSpace(path) == "" {
+		return agentModelSettingsResult{}, apiErr(http.StatusInternalServerError, "agent model settings could not be persisted")
+	}
+	if err := config.Save(path, updated); err != nil {
+		return agentModelSettingsResult{}, apiErr(http.StatusInternalServerError, "agent model settings could not be persisted")
+	}
+	if m.refreshDefault != nil {
+		m.refreshDefault(updated)
+	}
+	if m.applyConfig != nil {
+		m.applyConfig(updated)
+	}
+	if m.runner != nil {
+		m.runner.SetAgentModelSettings(updated.Agent)
+	}
+	return agentModelSettingsResult{Agent: updated.Agent, Persisted: true}, nil
 }
 
 func (m modelRuntimeService) clientIdentity(ctx context.Context) (db.RuntimeSettings, error) {

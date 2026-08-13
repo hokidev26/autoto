@@ -145,16 +145,12 @@ func (s *Server) listReviewPlans(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	plans, err := s.store.ListPlans(r.Context(), chi.URLParam(r, "id"), limit)
+	plans, err := s.reviews().list(r.Context(), chi.URLParam(r, "id"), limit)
 	if err != nil {
-		writeReviewServiceError(w, err)
+		writeReviewHandlerError(w, err)
 		return
 	}
-	out := make([]reviewPlanSummary, 0, len(plans))
-	for _, plan := range plans {
-		out = append(out, summarizeReviewPlan(plan))
-	}
-	writeJSON(w, http.StatusOK, out)
+	writeJSON(w, http.StatusOK, plans)
 }
 
 // createReviewPlan is an administrative/manual entry point. Normal plan-mode
@@ -173,85 +169,27 @@ func (s *Server) createReviewPlan(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "content must be a bounded structured plan")
 		return
 	}
-	draft, err := reviewpkg.ParsePlanDraft(string(req.Content))
-	if err != nil {
+	if _, err := reviewpkg.ParsePlanDraft(string(req.Content)); err != nil {
 		writeError(w, http.StatusBadRequest, "content must match the strict plan schema: "+err.Error())
 		return
-	}
-	canonicalContent, err := json.Marshal(draft)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "content could not be normalized")
-		return
-	}
-	if strings.TrimSpace(req.Summary) == "" {
-		req.Summary = draft.Goal
 	}
 	actor, err := s.reviewActor(r)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	snapshot, err := s.currentPlanSnapshot(r.Context(), chi.URLParam(r, "id"))
+	summary, err := s.reviews().create(r.Context(), chi.URLParam(r, "id"), req, actor)
 	if err != nil {
-		writeReviewServiceError(w, err)
+		writeReviewHandlerError(w, err)
 		return
 	}
-	plan, err := s.store.CreatePlan(r.Context(), db.Plan{
-		AgentID:                  chi.URLParam(r, "id"),
-		Status:                   db.PlanStatusDraft,
-		ContentJSON:              canonicalContent,
-		Summary:                  req.Summary,
-		PolicyGenerationSnapshot: snapshot.PolicyGenerationSnapshot,
-		AgentGenerationSnapshot:  snapshot.AgentGenerationSnapshot,
-		ToolCatalogDigest:        snapshot.ToolCatalogDigest,
-		WorkspaceFingerprint:     snapshot.WorkspaceFingerprint,
-	})
-	if err != nil {
-		writeReviewServiceError(w, err)
-		return
-	}
-	plan, err = s.store.TransitionPlanStatus(r.Context(), plan.AgentID, plan.ID, plan.Revision, db.PlanStatusInReview)
-	if err != nil {
-		writeReviewServiceError(w, err)
-		return
-	}
-	reviewResult := reviewpkg.Result{Verdict: reviewpkg.VerdictUnavailable, Reason: "review service is not configured"}
-	reviewerID := "system:reviewer-unavailable"
-	if s.reviewer != nil {
-		reviewerID = s.reviewer.ReviewerID()
-		reviewResult, _ = s.reviewer.Review(r.Context(), reviewpkg.Request{Subject: "Review manually submitted plan " + plan.ID, Draft: draft})
-	}
-	decision := db.PlanReviewDecisionComment
-	switch reviewResult.Verdict {
-	case reviewpkg.VerdictPass:
-		decision = db.PlanReviewDecisionApproved
-	case reviewpkg.VerdictNeedsHuman, reviewpkg.VerdictBlockRecommended:
-		decision = db.PlanReviewDecisionChangesRequested
-	}
-	if _, err := s.store.CreatePlanReview(r.Context(), db.PlanReview{
-		PlanID: plan.ID, PlanRevision: plan.Revision, ReviewerID: reviewerID,
-		Decision: decision, Comment: reviewResult.Reason,
-	}); err != nil {
-		writeReviewServiceError(w, err)
-		return
-	}
-	if err := s.recordReviewAudit(r.Context(), "plan.create", actor, plan, "success", "medium"); err != nil {
-		writeError(w, http.StatusInternalServerError, "plan was created but audit persistence failed")
-		return
-	}
-	detail, err := s.store.GetPlanDetail(r.Context(), plan.AgentID, plan.ID)
-	if err != nil {
-		writeReviewServiceError(w, err)
-		return
-	}
-	s.publishReviewPlanEvent("plan.approval_required", detail)
-	writeJSON(w, http.StatusCreated, summarizeReviewPlanDetail(detail))
+	writeJSON(w, http.StatusCreated, summary)
 }
 
 func (s *Server) getReviewPlan(w http.ResponseWriter, r *http.Request) {
-	detail, err := s.store.GetPlanDetail(r.Context(), chi.URLParam(r, "id"), chi.URLParam(r, "planId"))
+	detail, err := s.reviews().get(r.Context(), chi.URLParam(r, "id"), chi.URLParam(r, "planId"))
 	if err != nil {
-		writeReviewServiceError(w, err)
+		writeReviewHandlerError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, detail)
@@ -271,42 +209,14 @@ func (s *Server) approveReviewPlan(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	agentID, planID := chi.URLParam(r, "id"), chi.URLParam(r, "planId")
-	plan, stale, err := s.requireCurrentPlan(r.Context(), agentID, planID, req.Revision)
-	if stale {
-		actor, _ := s.reviewActor(r)
-		_ = s.recordReviewAudit(context.WithoutCancel(r.Context()), "plan.approve", actor, plan, "stale", "medium")
-		writeJSON(w, http.StatusConflict, plan)
-		return
-	}
-	if err != nil {
-		writeReviewServiceError(w, err)
-		return
-	}
-	actor, err := s.reviewActor(r)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	approval, err := s.store.CreatePlanApproval(r.Context(), db.PlanApproval{
-		PlanID: plan.ID, PlanRevision: plan.Revision, ApproverID: actor,
-		Decision: db.PlanApprovalDecisionApproved, Comment: req.Comment,
+	result, err := s.reviews().approve(r.Context(), chi.URLParam(r, "id"), chi.URLParam(r, "planId"), req, func() (string, error) {
+		return s.reviewActor(r)
 	})
 	if err != nil {
-		writeReviewServiceError(w, err)
+		writeReviewHandlerError(w, err)
 		return
 	}
-	detail, err := s.store.GetPlanDetail(r.Context(), agentID, planID)
-	if err != nil {
-		writeReviewServiceError(w, err)
-		return
-	}
-	if err := s.recordReviewAudit(r.Context(), "plan.approve", actor, detail.Plan, "success", "high"); err != nil {
-		writeError(w, http.StatusInternalServerError, "plan was approved but audit persistence failed")
-		return
-	}
-	s.publishReviewPlanEvent("plan.approved", detail)
-	writeJSON(w, http.StatusOK, map[string]any{"plan": summarizeReviewPlanDetail(detail), "approval": approval, "reviews": detail.Reviews, "runs": detail.Runs})
+	writeJSON(w, result.Status, result.Body)
 }
 
 func (s *Server) executeReviewPlan(w http.ResponseWriter, r *http.Request) {
@@ -324,46 +234,14 @@ func (s *Server) executeReviewPlan(w http.ResponseWriter, r *http.Request) {
 		writeError(w, statusFromError(err), err.Error())
 		return
 	}
-	plan, stale, err := s.requireCurrentPlan(r.Context(), agentID, planID, req.Revision)
-	if stale {
-		actor, _ := s.reviewActor(r)
-		_ = s.recordReviewAudit(context.WithoutCancel(r.Context()), "plan.execute", actor, plan, "stale", "high")
-		writeJSON(w, http.StatusConflict, plan)
-		return
-	}
+	result, err := s.reviews().execute(r.Context(), agentID, planID, req, func() (string, error) {
+		return s.reviewActor(r)
+	})
 	if err != nil {
-		writeReviewServiceError(w, err)
+		writeReviewHandlerError(w, err)
 		return
 	}
-	if plan.Status != db.PlanStatusApproved {
-		writeError(w, http.StatusConflict, "plan is not approved")
-		return
-	}
-	actor, err := s.reviewActor(r)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	message, err := s.submitApprovedPlan(r.Context(), plan, actor)
-	if errors.Is(err, errPlanRunnerIntegrationMissing) {
-		writeError(w, http.StatusServiceUnavailable, err.Error())
-		return
-	}
-	if err != nil {
-		writeReviewServiceError(w, err)
-		return
-	}
-	detail, err := s.store.GetPlanDetail(r.Context(), agentID, planID)
-	if err != nil {
-		writeReviewServiceError(w, err)
-		return
-	}
-	if err := s.recordReviewAudit(r.Context(), "plan.execute", actor, detail.Plan, "success", "high"); err != nil {
-		writeError(w, http.StatusInternalServerError, "plan execution was accepted but audit persistence failed")
-		return
-	}
-	s.publishReviewPlanEvent("plan.executing", detail)
-	writeJSON(w, http.StatusAccepted, map[string]any{"plan": summarizeReviewPlanDetail(detail), "message": message, "runId": message.RunID, "mode": db.RunExecutionModeExecute})
+	writeJSON(w, result.Status, result.Body)
 }
 
 func (s *Server) cancelReviewPlan(w http.ResponseWriter, r *http.Request) {
@@ -376,28 +254,17 @@ func (s *Server) cancelReviewPlan(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "revision is required")
 		return
 	}
-	agentID, planID := chi.URLParam(r, "id"), chi.URLParam(r, "planId")
 	actor, err := s.reviewActor(r)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	plan, err := s.store.TransitionPlanStatus(r.Context(), agentID, planID, req.Revision, db.PlanStatusCancelled)
+	summary, err := s.reviews().cancel(r.Context(), chi.URLParam(r, "id"), chi.URLParam(r, "planId"), req, actor)
 	if err != nil {
-		writeReviewServiceError(w, err)
+		writeReviewHandlerError(w, err)
 		return
 	}
-	if err := s.recordReviewAudit(r.Context(), "plan.cancel", actor, plan, "success", "medium"); err != nil {
-		writeError(w, http.StatusInternalServerError, "plan was cancelled but audit persistence failed")
-		return
-	}
-	detail, detailErr := s.store.GetPlanDetail(r.Context(), agentID, planID)
-	if detailErr != nil {
-		writeReviewServiceError(w, detailErr)
-		return
-	}
-	s.publishReviewPlanEvent("plan.cancelled", detail)
-	writeJSON(w, http.StatusOK, summarizeReviewPlanDetail(detail))
+	writeJSON(w, http.StatusOK, summary)
 }
 
 func (s *Server) replanReviewPlan(w http.ResponseWriter, r *http.Request) {
@@ -414,49 +281,17 @@ func (s *Server) replanReviewPlan(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	agentID, planID := chi.URLParam(r, "id"), chi.URLParam(r, "planId")
-	plan, err := s.store.GetPlan(r.Context(), agentID, planID)
-	if err != nil {
-		writeReviewServiceError(w, err)
-		return
-	}
-	if plan.Revision != req.Revision {
-		writeReviewServiceError(w, fmt.Errorf("%w: plan revision changed", db.ErrConflict))
-		return
-	}
-	if plan.Status == db.PlanStatusExecuting || plan.Status == db.PlanStatusExecuted || plan.Status == db.PlanStatusCancelled {
-		writeError(w, http.StatusConflict, "plan cannot be replanned from "+plan.Status)
-		return
-	}
 	actor, err := s.reviewActor(r)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	cancelled, err := s.store.TransitionPlanStatus(r.Context(), agentID, planID, req.Revision, db.PlanStatusCancelled)
+	result, err := s.reviews().replan(r.Context(), chi.URLParam(r, "id"), chi.URLParam(r, "planId"), req, actor, s.remotePermissionModeCapForRequest(r))
 	if err != nil {
-		writeReviewServiceError(w, err)
+		writeReviewHandlerError(w, err)
 		return
 	}
-	prompt := "Create a revised plan for the previously reviewed goal. Address prior risks and review findings."
-	if feedback := strings.TrimSpace(req.Comment); feedback != "" {
-		prompt += "\n\nThe reviewer rejected the previous plan with this feedback, and the revised plan must address it:\n" + feedback
-	}
-	prompt += "\n\nPrevious plan JSON:\n" + string(plan.ContentJSON)
-	message, err := s.submitReviewRun(r.Context(), agentID, prompt, actor, db.RunExecutionModePlan, s.remotePermissionModeCapForRequest(r), nil)
-	if err != nil {
-		writeReviewServiceError(w, err)
-		return
-	}
-	if err := s.recordReviewAudit(r.Context(), "plan.replan", actor, cancelled, "success", "medium"); err != nil {
-		writeError(w, http.StatusInternalServerError, "replan run was accepted but audit persistence failed")
-		return
-	}
-	detail, detailErr := s.store.GetPlanDetail(r.Context(), agentID, planID)
-	if detailErr == nil {
-		s.publishReviewPlanEvent("plan.cancelled", detail)
-	}
-	writeJSON(w, http.StatusAccepted, map[string]any{"plan": summarizeReviewPlan(cancelled), "message": message, "runId": message.RunID, "mode": db.RunExecutionModePlan})
+	writeJSON(w, result.Status, result.Body)
 }
 
 func (s *Server) reviewActor(r *http.Request) (string, error) {
@@ -485,6 +320,15 @@ func (s *Server) publishReviewPlanEvent(eventType string, detail db.PlanDetail) 
 		return
 	}
 	s.hub.Publish(agent.Event{Type: eventType, AgentID: detail.Plan.AgentID, Data: map[string]any{"plan": summarizeReviewPlanDetail(detail)}})
+}
+
+func writeReviewHandlerError(w http.ResponseWriter, err error) {
+	var api apiError
+	if errors.As(err, &api) {
+		writeError(w, api.status, api.msg)
+		return
+	}
+	writeReviewServiceError(w, err)
 }
 
 func writeReviewServiceError(w http.ResponseWriter, err error) {

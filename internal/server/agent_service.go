@@ -613,3 +613,112 @@ func (a agentService) activityToolCalls(ctx context.Context, agentID, runID stri
 	}
 	return page, nil
 }
+
+func (a agentService) messageRunBoundary(ctx context.Context, agentID, clientContext string) (string, string, error) {
+	if a.store == nil {
+		return "", "", errors.New("agent store is unavailable")
+	}
+	flowMode, err := a.store.GetAgentProjectFlowMode(ctx, agentID)
+	if err != nil {
+		return "", "", err
+	}
+	if flowMode == db.ProjectFlowModeConversation {
+		return "readOnly", db.RunSourceConversation, nil
+	}
+	contextCap, err := messageContextPermissionModeCap(clientContext)
+	if err != nil {
+		return "", "", err
+	}
+	return contextCap, messageContextRunSource(clientContext), nil
+}
+
+func (a agentService) listPendingToolCalls(ctx context.Context, agentID string) ([]db.ToolCall, error) {
+	calls, err := a.store.ListPendingToolCalls(ctx, agentID)
+	if err != nil {
+		return nil, apiErr(http.StatusInternalServerError, err.Error())
+	}
+	return calls, nil
+}
+
+func (a agentService) listTools(ctx context.Context, agentID string) ([]agentpkg.ToolInfo, error) {
+	if a.runner == nil {
+		return nil, apiErr(http.StatusServiceUnavailable, "agent runner is not initialized")
+	}
+	items, err := a.runner.ListToolsForAgent(ctx, agentID)
+	if err != nil {
+		return nil, apiErr(statusFromError(err), err.Error())
+	}
+	return items, nil
+}
+
+func (a agentService) executeTool(ctx context.Context, agentID string, req executeToolRequest, enforce func() error) (map[string]any, error) {
+	if req.ToolName == "" {
+		return nil, apiErr(http.StatusBadRequest, "toolName is required")
+	}
+	if req.ToolUseID == "" {
+		req.ToolUseID = db.NewID()
+	}
+	if len(req.Input) == 0 {
+		req.Input = json.RawMessage(`{}`)
+	}
+	if enforce != nil {
+		if err := enforce(); err != nil {
+			return nil, err
+		}
+	}
+	result, err := a.runner.ExecuteTool(ctx, agentID, tools.Call{ID: req.ToolUseID, Name: req.ToolName, Input: req.Input})
+	if err != nil {
+		return nil, apiErr(http.StatusInternalServerError, err.Error())
+	}
+	return map[string]any{"toolUseId": req.ToolUseID, "result": result}, nil
+}
+
+func (a agentService) approveToolCall(ctx context.Context, agentID, toolUseID string, req approveToolCallRequest) (map[string]any, error) {
+	if a.runner == nil {
+		return nil, apiErr(http.StatusServiceUnavailable, "agent runner is not initialized")
+	}
+	accepted, err := a.runner.ApproveToolCall(ctx, agentID, toolUseID, agentpkg.ToolApprovalDecision{Decision: req.Decision, Reason: req.Reason, DecidedBy: "user", PermissionGeneration: req.PermissionGeneration, PolicyGeneration: req.PolicyGeneration})
+	if err != nil {
+		return nil, apiErr(statusFromError(err), err.Error())
+	}
+	if !accepted {
+		return nil, apiErr(http.StatusNotFound, "pending tool approval not found")
+	}
+	return map[string]any{"toolUseId": toolUseID, "decision": req.Decision, "accepted": true}, nil
+}
+
+func (a agentService) answerUserQuestion(ctx context.Context, agentID, toolUseID string, req agentpkg.AnswerUserQuestionRequest) (map[string]any, error) {
+	if a.runner == nil {
+		return nil, apiErr(http.StatusServiceUnavailable, "agent runner is not initialized")
+	}
+	accepted, err := a.runner.AnswerUserQuestion(ctx, agentID, toolUseID, req)
+	if err != nil {
+		return nil, apiErr(statusFromError(err), err.Error())
+	}
+	if !accepted {
+		return nil, apiErr(http.StatusNotFound, "pending user question not found")
+	}
+	return map[string]any{"toolUseId": toolUseID, "accepted": true, "skipped": req.Skipped}, nil
+}
+
+func (a agentService) getToolCall(ctx context.Context, agentID, toolUseID string) (db.ToolCall, error) {
+	call, err := a.store.GetToolCallByUseID(ctx, agentID, toolUseID)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return db.ToolCall{}, apiErr(http.StatusNotFound, "tool call not found")
+		}
+		return db.ToolCall{}, apiErr(http.StatusInternalServerError, err.Error())
+	}
+	return call, nil
+}
+
+func (a agentService) messageAttachment(ctx context.Context, agentID, messageID, attachmentID string) (db.Attachment, error) {
+	attachment, err := a.store.GetAttachment(ctx, agentID, messageID, attachmentID)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return db.Attachment{}, apiErr(http.StatusNotFound, "attachment not found")
+		}
+		return db.Attachment{}, apiErr(http.StatusInternalServerError, err.Error())
+	}
+	return attachment, nil
+}

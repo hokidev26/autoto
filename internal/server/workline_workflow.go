@@ -79,133 +79,23 @@ type worklineMergeResponse struct {
 }
 
 func (s *Server) forkWorkline(w http.ResponseWriter, r *http.Request) {
-	parent, project, err := s.worklineAndProject(r.Context(), chi.URLParam(r, "id"))
-	if err != nil {
-		writeWorklineWorkflowError(w, err)
-		return
-	}
-	sourcePath := strings.TrimSpace(parent.WorktreePath)
-	if sourcePath == "" {
-		sourcePath = strings.TrimSpace(project.GitPath)
-	}
-	if sourcePath == "" {
-		writeGitError(w, gitCommandError{Status: http.StatusBadRequest, Msg: "source workline worktree is not configured"})
-		return
-	}
-	if err := validateDir(sourcePath); err != nil {
-		writeWorklineWorkflowError(w, err)
-		return
-	}
-	repository, candidates, err := resolveGitRepository(r.Context(), sourcePath)
-	if err != nil {
-		writeGitError(w, err)
-		return
-	}
-	if len(candidates) > 1 {
-		writeMultipleGitReposError(w, sourcePath, candidates)
-		return
-	}
-	if repository.Root == "" {
-		writeNoGitRepoError(w, sourcePath)
-		return
-	}
-	if !repository.HasHead {
-		writeNoGitCommitsError(w, repository.Root)
-		return
-	}
-	repoRoot := repository.Root
-	if !s.projectAllowsRepoRoot(project, repoRoot) {
-		writeGitError(w, gitCommandError{Status: http.StatusForbidden, Msg: "git repository is outside the configured project boundary"})
-		return
-	}
-	baseRef, err := currentGitRef(r.Context(), repoRoot, parent)
-	if err != nil {
-		writeGitError(w, err)
-		return
-	}
-	forkPoint, _, err := runGitCommand(r.Context(), repoRoot, 256, 3*time.Second, nil, "rev-parse", "HEAD")
-	if err != nil {
-		writeGitError(w, err)
-		return
-	}
-	forkPoint = strings.TrimSpace(forkPoint)
-	var req forkWorklineRequest
-	if err := decodeJSON(r, &req); err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	title := strings.TrimSpace(req.Title)
-	if title == "" {
-		title = "Fork of " + parent.Title
-	}
-	branch := strings.TrimSpace(req.Branch)
-	if branch == "" {
-		branch = defaultWorklineBranch(title)
-	}
-	branch, err = validateGitBranchName(r.Context(), repoRoot, branch)
-	if err != nil {
-		writeGitError(w, err)
-		return
-	}
-	worktreePath, err := s.resolveForkWorktreePath(project, repoRoot, branch, req.WorktreePath)
-	if err != nil {
-		writeGitError(w, err)
-		return
-	}
-	if err := os.MkdirAll(filepath.Dir(worktreePath), 0o755); err != nil {
-		writeGitError(w, err)
-		return
-	}
-	// Serialized against agent tool writes and commits on the same repository:
-	// `worktree add` mutates refs and the worktree list, and racing a concurrent
-	// git mutation can corrupt either side.
-	unlockGitMutation := gitlock.Default.Lock(repoRoot)
-	if _, _, err := runGitCommand(r.Context(), repoRoot, worklineGitOutputMaxBytes, 15*time.Second, nil, "worktree", "add", "-b", branch, worktreePath, baseRef); err != nil {
-		unlockGitMutation()
-		writeGitError(w, err)
-		return
-	}
-	unlockGitMutation()
-	cfg := s.configSnapshot()
-	model := strings.TrimSpace(req.Model)
-	if model == "" {
-		// A fork continues the conversation it branched from, so it inherits that
-		// conversation's model. Falling straight through to the global default
-		// silently moved the fork onto a different model than the parent, and if
-		// that default has no reasoning-effort support the composer reports the
-		// level as unsupported on a fork of a conversation where it worked.
-		model = s.parentWorklineModel(r.Context(), parent.ID)
-	}
-	if model == "" {
-		model = cfg.Agent.DefaultModel
-	}
-	permissionMode := strings.TrimSpace(req.PermissionMode)
-	if permissionMode == "" {
-		permissionMode = s.safeDefaultPermissionModeForRequest(r, cfg.Agent.DefaultPermissionMode)
-	} else {
-		var ok bool
-		var message string
-		permissionMode, ok, message = s.permissionModeAllowedForRequest(r, permissionMode)
-		if !ok {
-			_ = removeGitWorktree(context.Background(), repoRoot, worktreePath)
-			writeError(w, http.StatusBadRequest, message)
-			return
+	resp, err := s.worklineWorkflow().fork(r.Context(), chi.URLParam(r, "id"), func() (forkWorklineRequest, error) {
+		var req forkWorklineRequest
+		if err := decodeJSON(r, &req); err != nil {
+			return req, apiErr(http.StatusBadRequest, err.Error())
 		}
-	}
-	workline, agent, err := s.store.CreateWorklineFork(r.Context(), parent, title, branch, worktreePath, baseRef, forkPoint, model, permissionMode)
+		return req, nil
+	}, func(defaultMode, requested string) (string, bool, string) {
+		if requested == "" {
+			return s.safeDefaultPermissionModeForRequest(r, defaultMode), true, ""
+		}
+		return s.permissionModeAllowedForRequest(r, requested)
+	})
 	if err != nil {
-		_ = removeGitWorktree(context.Background(), repoRoot, worktreePath)
-		writeError(w, http.StatusInternalServerError, err.Error())
+		writeWorklineServiceError(w, err)
 		return
 	}
-	if cfg.Agent.DefaultStartInPlanMode {
-		agent, err = s.updatePersistedAgentPlanMode(r.Context(), agent.ID, true)
-		if err != nil {
-			writeError(w, http.StatusInternalServerError, "workline fork was created but its default plan mode could not be applied")
-			return
-		}
-	}
-	writeJSON(w, http.StatusCreated, forkWorklineResponse{Workline: workline, Agent: agent, ForkPoint: forkPoint})
+	writeJSON(w, http.StatusCreated, resp)
 }
 
 // parentWorklineModel reports the model the forked conversation was running, so
@@ -241,74 +131,12 @@ func (s *Server) parentWorklineModel(ctx context.Context, worklineID string) str
 }
 
 func (s *Server) worklineMergeCheck(w http.ResponseWriter, r *http.Request) {
-	source, project, err := s.worklineAndProject(r.Context(), chi.URLParam(r, "id"))
+	resp, err := s.worklineWorkflow().mergeCheck(r.Context(), chi.URLParam(r, "id"), r.URL.Query().Get("targetWorklineId"))
 	if err != nil {
-		writeWorklineWorkflowError(w, err)
+		writeWorklineServiceError(w, err)
 		return
 	}
-	target, err := s.mergeTargetWorkline(r.Context(), project.ID, r.URL.Query().Get("targetWorklineId"))
-	if err != nil {
-		writeWorklineWorkflowError(w, err)
-		return
-	}
-	if source.ID == target.ID {
-		writeError(w, http.StatusBadRequest, "source and target worklines must differ")
-		return
-	}
-	sourceRepo, sourceHead, err := s.worklineRepoAndHead(r.Context(), project, source)
-	if err != nil {
-		writeGitError(w, err)
-		return
-	}
-	targetRepo, targetHead, err := s.worklineRepoAndHead(r.Context(), project, target)
-	if err != nil {
-		writeGitError(w, err)
-		return
-	}
-	tempDir, err := os.MkdirTemp("", "autoto-merge-check-*")
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	defer os.RemoveAll(tempDir)
-	if _, _, err := runGitCommand(r.Context(), targetRepo, worklineGitOutputMaxBytes, 15*time.Second, nil, "worktree", "add", "--detach", tempDir, targetHead); err != nil {
-		writeGitError(w, err)
-		return
-	}
-	defer removeGitWorktree(context.Background(), targetRepo, tempDir)
-	// Gathered before the trial merge: afterwards the temporary worktree holds a
-	// merged tree, and diffing against it would report nothing.
-	changed, changedCount, filesLimited := mergeCheckChangedFiles(r.Context(), tempDir, targetHead, sourceHead)
-	ahead, behind := mergeCheckAheadBehind(r.Context(), tempDir, targetHead, sourceHead)
-	sourceDirty, _ := gitRepoDirty(r.Context(), sourceRepo)
-	targetDirty, _ := gitRepoDirty(r.Context(), targetRepo)
-	mergeOut, _, mergeErr := runGitCommand(r.Context(), tempDir, worklineGitOutputMaxBytes, 20*time.Second, nil, "merge", "--no-commit", "--no-ff", sourceHead)
-	conflicts := mergeCheckConflicts(r.Context(), tempDir)
-	if mergeErr != nil && len(conflicts) == 0 {
-		writeGitError(w, mergeErr)
-		return
-	}
-	writeJSON(w, http.StatusOK, worklineMergeCheckResponse{
-		GeneratedAt:      time.Now().UTC().Format(time.RFC3339Nano),
-		SourceWorklineID: source.ID,
-		TargetWorklineID: target.ID,
-		SourceBranch:     source.Branch,
-		TargetBranch:     target.Branch,
-		SourceHead:       sourceHead,
-		TargetHead:       targetHead,
-		CanMerge:         mergeErr == nil && len(conflicts) == 0,
-		Conflicts:        conflicts,
-		Output:           strings.TrimSpace(mergeOut),
-		ChangedFiles:     changed,
-		ChangedCount:     changedCount,
-		Ahead:            ahead,
-		Behind:           behind,
-		SourceDirty:      sourceDirty,
-		TargetDirty:      targetDirty,
-		FilesLimited:     filesLimited,
-		// Nothing to bring over: the source is already contained in the target.
-		AlreadyMerged: ahead == 0 && changedCount == 0,
-	})
+	writeJSON(w, http.StatusOK, resp)
 }
 
 // mergeCheckChangedFiles lists what the source would bring into the target,
@@ -343,82 +171,17 @@ func mergeCheckAheadBehind(ctx context.Context, dir, targetHead, sourceHead stri
 }
 
 func (s *Server) worklineMerge(w http.ResponseWriter, r *http.Request) {
-	source, project, err := s.worklineAndProject(r.Context(), chi.URLParam(r, "id"))
-	if err != nil {
-		writeWorklineWorkflowError(w, err)
-		return
-	}
 	var req worklineMergeRequest
 	if err := decodeJSON(r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	target, err := s.mergeTargetWorkline(r.Context(), project.ID, req.TargetWorklineID)
+	result, err := s.worklineWorkflow().merge(r.Context(), chi.URLParam(r, "id"), req)
 	if err != nil {
-		writeWorklineWorkflowError(w, err)
+		writeWorklineServiceError(w, err)
 		return
 	}
-	if source.ID == target.ID {
-		writeError(w, http.StatusBadRequest, "source and target worklines must differ")
-		return
-	}
-	sourceRepo, sourceHead, err := s.worklineRepoAndHead(r.Context(), project, source)
-	if err != nil {
-		writeGitError(w, err)
-		return
-	}
-	targetRepo, targetHead, err := s.worklineRepoAndHead(r.Context(), project, target)
-	if err != nil {
-		writeGitError(w, err)
-		return
-	}
-	// The merge writes into the target worktree, which an agent may be mutating
-	// at the same time. Holding the target's git lock from the dirty check
-	// through the merge keeps the check and the write atomic with respect to
-	// every other locked git mutation on that repository.
-	unlockGitMutation := gitlock.Default.Lock(targetRepo)
-	defer unlockGitMutation()
-	if dirty, err := gitRepoDirty(r.Context(), sourceRepo); err != nil {
-		writeGitError(w, err)
-		return
-	} else if dirty {
-		writeGitError(w, gitCommandError{Status: http.StatusConflict, Msg: "source workline worktree has uncommitted changes"})
-		return
-	}
-	if dirty, err := gitRepoDirty(r.Context(), targetRepo); err != nil {
-		writeGitError(w, err)
-		return
-	} else if dirty {
-		writeGitError(w, gitCommandError{Status: http.StatusConflict, Msg: "target workline worktree has uncommitted changes"})
-		return
-	}
-	message := strings.TrimSpace(req.Message)
-	if message == "" {
-		message = "Merge workline " + source.Title
-	}
-	mergeOut, _, mergeErr := runGitCommand(r.Context(), targetRepo, worklineGitOutputMaxBytes, 30*time.Second, nil, "merge", "--no-ff", sourceHead, "-m", message)
-	if mergeErr != nil {
-		conflicts := mergeCheckConflicts(r.Context(), targetRepo)
-		_ = abortGitMerge(context.Background(), targetRepo)
-		if len(conflicts) > 0 {
-			writeJSON(w, http.StatusConflict, worklineMergeResponse{GeneratedAt: time.Now().UTC().Format(time.RFC3339Nano), SourceWorklineID: source.ID, TargetWorklineID: target.ID, SourceHead: sourceHead, PreMergeTarget: targetHead, Merged: false, Conflicts: conflicts, Output: strings.TrimSpace(mergeOut)})
-			return
-		}
-		writeGitError(w, mergeErr)
-		return
-	}
-	mergeCommit, _, err := runGitCommand(r.Context(), targetRepo, 256, 3*time.Second, nil, "rev-parse", "HEAD")
-	if err != nil {
-		writeGitError(w, err)
-		return
-	}
-	mergeCommit = strings.TrimSpace(mergeCommit)
-	updated, err := s.store.MarkWorklineMerged(r.Context(), source.ID, target.ID, targetHead, mergeCommit, "no-ff")
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	writeJSON(w, http.StatusOK, worklineMergeResponse{GeneratedAt: time.Now().UTC().Format(time.RFC3339Nano), SourceWorklineID: source.ID, TargetWorklineID: target.ID, SourceHead: sourceHead, PreMergeTarget: targetHead, MergeCommit: mergeCommit, Merged: true, Output: strings.TrimSpace(mergeOut), Workline: updated})
+	writeJSON(w, result.Status, result.Body)
 }
 
 type worklineUnmergeRequest struct {
@@ -447,129 +210,17 @@ type worklineUnmergeResponse struct {
 // commit so later target work survives. Either way the source workline returns
 // to active so it can be fixed up and merged again.
 func (s *Server) worklineUnmerge(w http.ResponseWriter, r *http.Request) {
-	source, project, err := s.worklineAndProject(r.Context(), chi.URLParam(r, "id"))
-	if err != nil {
-		writeWorklineWorkflowError(w, err)
-		return
-	}
 	var req worklineUnmergeRequest
 	if err := decodeJSON(r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	if !req.Confirm {
-		writeError(w, http.StatusBadRequest, "confirm must be true")
-		return
-	}
-	if source.Status != "merged" || strings.TrimSpace(source.MergeCommitSHA) == "" || strings.TrimSpace(source.MergedIntoWorklineID) == "" {
-		writeError(w, http.StatusConflict, "workline has no recorded merge to undo")
-		return
-	}
-	// After cleanup the fork's branch and worktree are gone, so the workline
-	// cannot return to active; on the reset path the merged commits would also
-	// lose their last named ref. Undoing then is a manual git operation.
-	if strings.TrimSpace(source.WorktreePath) == "" {
-		writeError(w, http.StatusConflict, "workline branch was already cleaned up; undo the merge manually with git revert")
-		return
-	}
-	target, err := s.store.GetWorkline(r.Context(), source.MergedIntoWorklineID)
+	result, err := s.worklineWorkflow().unmerge(r.Context(), chi.URLParam(r, "id"), req)
 	if err != nil {
-		writeWorklineWorkflowError(w, err)
+		writeWorklineServiceError(w, err)
 		return
 	}
-	if target.ProjectID != project.ID {
-		writeError(w, http.StatusConflict, "merge target belongs to a different project")
-		return
-	}
-	_, sourceHead, err := s.worklineRepoAndHead(r.Context(), project, source)
-	if err != nil {
-		writeGitError(w, err)
-		return
-	}
-	targetRepo, _, err := s.worklineRepoAndHead(r.Context(), project, target)
-	if err != nil {
-		writeGitError(w, err)
-		return
-	}
-	mergeCommit := strings.TrimSpace(source.MergeCommitSHA)
-	// The unmerge rewrites the target worktree; holding its git lock keeps the
-	// head/dirty inspection and the reset-or-revert decision atomic against
-	// agent commits landing on the same repository.
-	unlockGitMutation := gitlock.Default.Lock(targetRepo)
-	defer unlockGitMutation()
-	if dirty, err := gitRepoDirty(r.Context(), targetRepo); err != nil {
-		writeGitError(w, err)
-		return
-	} else if dirty {
-		writeGitError(w, gitCommandError{Status: http.StatusConflict, Msg: "target workline worktree has uncommitted changes"})
-		return
-	}
-	targetHead, _, err := runGitCommand(r.Context(), targetRepo, 256, 3*time.Second, nil, "rev-parse", "HEAD")
-	if err != nil {
-		writeGitError(w, err)
-		return
-	}
-	targetHead = strings.TrimSpace(targetHead)
-	// The merge commit must still be part of the target history: if someone
-	// already rewound or reverted it by hand there is nothing left to undo.
-	if _, _, err := runGitCommand(r.Context(), targetRepo, 256, 3*time.Second, nil, "merge-base", "--is-ancestor", mergeCommit, targetHead); err != nil {
-		writeGitError(w, gitCommandError{Status: http.StatusConflict, Msg: "merge commit is no longer part of the target branch history"})
-		return
-	}
-	strategy := "revert"
-	output := ""
-	if targetHead == mergeCommit && strings.TrimSpace(source.PreMergeTargetSHA) != "" {
-		strategy = "reset"
-		out, _, err := runGitCommand(r.Context(), targetRepo, worklineGitOutputMaxBytes, 30*time.Second, nil, "reset", "--hard", strings.TrimSpace(source.PreMergeTargetSHA))
-		if err != nil {
-			writeGitError(w, err)
-			return
-		}
-		output = strings.TrimSpace(out)
-	} else {
-		out, _, revertErr := runGitCommand(r.Context(), targetRepo, worklineGitOutputMaxBytes, 30*time.Second, nil, "revert", "-m", "1", "--no-edit", mergeCommit)
-		if revertErr != nil {
-			conflicts := mergeCheckConflicts(r.Context(), targetRepo)
-			_ = abortGitRevert(context.Background(), targetRepo)
-			if len(conflicts) > 0 {
-				writeJSON(w, http.StatusConflict, worklineUnmergeResponse{
-					GeneratedAt:      time.Now().UTC().Format(time.RFC3339Nano),
-					SourceWorklineID: source.ID,
-					TargetWorklineID: target.ID,
-					Strategy:         strategy,
-					MergeCommit:      mergeCommit,
-					Conflicts:        conflicts,
-					Output:           strings.TrimSpace(out),
-					Workline:         source,
-				})
-				return
-			}
-			writeGitError(w, revertErr)
-			return
-		}
-		output = strings.TrimSpace(out)
-	}
-	newTargetHead, _, err := runGitCommand(r.Context(), targetRepo, 256, 3*time.Second, nil, "rev-parse", "HEAD")
-	if err != nil {
-		writeGitError(w, err)
-		return
-	}
-	newTargetHead = strings.TrimSpace(newTargetHead)
-	updated, err := s.store.MarkWorklineUnmerged(r.Context(), source.ID, sourceHead, target.ID, newTargetHead)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "merge was undone in git but the workline record could not be updated: "+err.Error())
-		return
-	}
-	writeJSON(w, http.StatusOK, worklineUnmergeResponse{
-		GeneratedAt:      time.Now().UTC().Format(time.RFC3339Nano),
-		SourceWorklineID: source.ID,
-		TargetWorklineID: target.ID,
-		Strategy:         strategy,
-		MergeCommit:      mergeCommit,
-		NewTargetHead:    newTargetHead,
-		Output:           output,
-		Workline:         updated,
-	})
+	writeJSON(w, result.Status, result.Body)
 }
 
 type worklineCleanupRequest struct {
@@ -592,83 +243,17 @@ type worklineCleanupResponse struct {
 // worktree directory and the autoto/* branch outlive every conversation that
 // referenced them.
 func (s *Server) worklineCleanup(w http.ResponseWriter, r *http.Request) {
-	workline, project, err := s.worklineAndProject(r.Context(), chi.URLParam(r, "id"))
-	if err != nil {
-		writeWorklineWorkflowError(w, err)
-		return
-	}
 	var req worklineCleanupRequest
 	if err := decodeJSON(r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	if !req.Confirm {
-		writeError(w, http.StatusBadRequest, "confirm must be true")
-		return
-	}
-	if workline.IsRoot {
-		writeError(w, http.StatusBadRequest, "mainline workline has no fork worktree to clean up")
-		return
-	}
-	if workline.Status != "merged" {
-		writeError(w, http.StatusConflict, "only merged worklines can be cleaned up")
-		return
-	}
-	worktreePath := strings.TrimSpace(workline.WorktreePath)
-	branch := strings.TrimSpace(workline.Branch)
-	// The branch name is kept on the row as history; a cleared worktree path is
-	// what marks the cleanup as already done.
-	if worktreePath == "" {
-		writeError(w, http.StatusConflict, "workline was already cleaned up")
-		return
-	}
-	if busy, err := s.store.WorklineHasActiveRuns(r.Context(), workline.ID); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
-	} else if busy {
-		writeError(w, http.StatusConflict, "workline conversation is still running: interrupt it before cleaning up")
-		return
-	}
-	if s.runner != nil {
-		agents, err := s.store.ListAgentsByWorkline(r.Context(), workline.ID)
-		if err != nil {
-			writeError(w, http.StatusInternalServerError, err.Error())
-			return
-		}
-		for _, agent := range agents {
-			if s.runner.IsAgentRunning(agent.ID) {
-				writeError(w, http.StatusConflict, "workline conversation is still running: interrupt it before cleaning up")
-				return
-			}
-		}
-	}
-	// Only paths autoto created for this project may be force-removed; anything
-	// else recorded in the row is treated as user territory.
-	if worktreePath != "" && !pathWithin(s.worklineWorktreeBaseDir(project), worktreePath) {
-		writeError(w, http.StatusBadRequest, "workline worktree is outside the managed worktree directory")
-		return
-	}
-	repoRoot, err := s.projectMainRepoRoot(r.Context(), project)
+	resp, err := s.worklineWorkflow().cleanup(r.Context(), chi.URLParam(r, "id"), req)
 	if err != nil {
-		writeGitError(w, err)
+		writeWorklineServiceError(w, err)
 		return
 	}
-	result := cleanupWorklineGitArtifacts(r.Context(), repoRoot, worktreePath, branch)
-	updated, err := s.store.ClearWorklineWorktree(r.Context(), workline.ID)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "git cleanup finished but the workline record could not be updated: "+err.Error())
-		return
-	}
-	writeJSON(w, http.StatusOK, worklineCleanupResponse{
-		GeneratedAt:     time.Now().UTC().Format(time.RFC3339Nano),
-		WorklineID:      workline.ID,
-		Branch:          branch,
-		WorktreePath:    worktreePath,
-		RemovedWorktree: result.removedWorktree,
-		DeletedBranch:   result.deletedBranch,
-		Warnings:        result.warnings,
-		Workline:        updated,
-	})
+	writeJSON(w, http.StatusOK, resp)
 }
 
 // projectMainRepoRoot resolves the primary repository a project's fork

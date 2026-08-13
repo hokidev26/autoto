@@ -213,70 +213,21 @@ func (s *Server) updateAgentModelSettings(w http.ResponseWriter, r *http.Request
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	if !request.DefaultModel.set || !request.SummaryModel.set {
-		writeError(w, http.StatusBadRequest, "defaultModel and summaryModel are required")
-		return
-	}
-	defaultModel, err := validateAgentModelReference("defaultModel", request.DefaultModel.value, true)
+	prepared, err := s.modelRuntime().prepareAgentModelSettings(request)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		writeModelRuntimeError(w, err)
 		return
 	}
-	summaryModel, err := validateAgentModelReference("summaryModel", request.SummaryModel.value, true)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	// Optional, and blank is meaningful: it clears the override so the safety
-	// gate follows the summary model again.
-	safetyModel := ""
-	if request.SafetyModel.set {
-		safetyModel, err = validateAgentModelReference("safetyModel", request.SafetyModel.value, false)
-		if err != nil {
-			writeError(w, http.StatusBadRequest, err.Error())
-			return
-		}
-	} else {
-		s.cfgMu.RLock()
-		safetyModel = s.cfg.Agent.SafetyModel
-		s.cfgMu.RUnlock()
-	}
-	subagentModels, subagentPools, err := normalizeAgentRoleModelSettings(request.SubagentModels, request.SubagentModelPools)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
-		return
-	}
-
 	s.configMutationMu.Lock()
 	defer s.configMutationMu.Unlock()
 	s.providerMutationMu.Lock()
 	defer s.providerMutationMu.Unlock()
-	s.cfgMu.RLock()
-	updated := s.cfg
-	configPath := s.configPath
-	s.cfgMu.RUnlock()
-	updated.Agent.DefaultModel = defaultModel
-	updated.Agent.SummaryModel = summaryModel
-	updated.Agent.SafetyModel = safetyModel
-	updated.Agent.SubagentModels = subagentModels
-	updated.Agent.SubagentModelPools = subagentPools
-	path := effectiveConfigPath(updated, configPath)
-	if strings.TrimSpace(path) == "" {
-		writeError(w, http.StatusInternalServerError, "agent model settings could not be persisted")
+	result, err := s.modelRuntime().persistAgentModelSettings(prepared)
+	if err != nil {
+		writeModelRuntimeError(w, err)
 		return
 	}
-	if err := config.Save(path, updated); err != nil {
-		writeError(w, http.StatusInternalServerError, "agent model settings could not be persisted")
-		return
-	}
-	s.refreshProviderDefault(updated)
-	s.cfgMu.Lock()
-	s.cfg = updated
-	s.cfgMu.Unlock()
-	if s.runner != nil {
-		s.runner.SetAgentModelSettings(updated.Agent)
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"agent": updated.Agent, "persisted": true})
+	writeJSON(w, http.StatusOK, map[string]any{"agent": result.Agent, "persisted": result.Persisted})
 }
 
 func (s *Server) updateRuntimeModelSettings(w http.ResponseWriter, r *http.Request) {

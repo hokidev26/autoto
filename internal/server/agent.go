@@ -1100,9 +1100,9 @@ func truncateActivityString(value string, maximum int) (string, bool) {
 }
 
 func (s *Server) listPendingToolCalls(w http.ResponseWriter, r *http.Request) {
-	calls, err := s.store.ListPendingToolCalls(r.Context(), chi.URLParam(r, "id"))
+	calls, err := s.agents().listPendingToolCalls(r.Context(), chi.URLParam(r, "id"))
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		writeAPIError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, calls)
@@ -1134,21 +1134,7 @@ func messageContextRunSource(value string) string {
 }
 
 func (s *Server) messageRunBoundary(ctx context.Context, agentID, clientContext string) (string, string, error) {
-	if s == nil || s.store == nil {
-		return "", "", errors.New("agent store is unavailable")
-	}
-	flowMode, err := s.store.GetAgentProjectFlowMode(ctx, agentID)
-	if err != nil {
-		return "", "", err
-	}
-	if flowMode == db.ProjectFlowModeConversation {
-		return "readOnly", db.RunSourceConversation, nil
-	}
-	contextCap, err := messageContextPermissionModeCap(clientContext)
-	if err != nil {
-		return "", "", err
-	}
-	return contextCap, messageContextRunSource(clientContext), nil
+	return s.agents().messageRunBoundary(ctx, agentID, clientContext)
 }
 
 func statusFromMessageBoundaryError(err error) int {
@@ -1284,13 +1270,9 @@ func (s *Server) postMultipartMessage(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) getMessageAttachment(w http.ResponseWriter, r *http.Request) {
-	attachment, err := s.store.GetAttachment(r.Context(), chi.URLParam(r, "id"), chi.URLParam(r, "messageId"), chi.URLParam(r, "attachmentId"))
+	attachment, err := s.agents().messageAttachment(r.Context(), chi.URLParam(r, "id"), chi.URLParam(r, "messageId"), chi.URLParam(r, "attachmentId"))
 	if err != nil {
-		if err == sql.ErrNoRows {
-			writeError(w, http.StatusNotFound, "attachment not found")
-			return
-		}
-		writeError(w, http.StatusInternalServerError, err.Error())
+		writeAPIError(w, err)
 		return
 	}
 	contentType := attachment.MIMEType
@@ -1310,13 +1292,9 @@ func (s *Server) getMessageAttachment(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) listTools(w http.ResponseWriter, r *http.Request) {
-	if s.runner == nil {
-		writeError(w, http.StatusServiceUnavailable, "agent runner is not initialized")
-		return
-	}
-	items, err := s.runner.ListToolsForAgent(r.Context(), chi.URLParam(r, "id"))
+	items, err := s.agents().listTools(r.Context(), chi.URLParam(r, "id"))
 	if err != nil {
-		writeError(w, statusFromError(err), err.Error())
+		writeAPIError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, items)
@@ -1334,26 +1312,18 @@ func (s *Server) executeTool(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	if req.ToolName == "" {
-		writeError(w, http.StatusBadRequest, "toolName is required")
-		return
-	}
-	if req.ToolUseID == "" {
-		req.ToolUseID = db.NewID()
-	}
-	if len(req.Input) == 0 {
-		req.Input = json.RawMessage(`{}`)
-	}
-	if err := s.enforceRemotePermissionCap(r, chi.URLParam(r, "id")); err != nil {
-		writeError(w, statusFromError(err), err.Error())
-		return
-	}
-	result, err := s.runner.ExecuteTool(r.Context(), chi.URLParam(r, "id"), tools.Call{ID: req.ToolUseID, Name: req.ToolName, Input: req.Input})
+	agentID := chi.URLParam(r, "id")
+	result, err := s.agents().executeTool(r.Context(), agentID, req, func() error {
+		if err := s.enforceRemotePermissionCap(r, agentID); err != nil {
+			return apiErr(statusFromError(err), err.Error())
+		}
+		return nil
+	})
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		writeAPIError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"toolUseId": req.ToolUseID, "result": result})
+	writeJSON(w, http.StatusOK, result)
 }
 
 type approveToolCallRequest struct {
@@ -1373,16 +1343,12 @@ func (s *Server) approveToolCall(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	accepted, err := s.runner.ApproveToolCall(r.Context(), chi.URLParam(r, "id"), chi.URLParam(r, "toolUseId"), agentpkg.ToolApprovalDecision{Decision: req.Decision, Reason: req.Reason, DecidedBy: "user", PermissionGeneration: req.PermissionGeneration, PolicyGeneration: req.PolicyGeneration})
+	result, err := s.agents().approveToolCall(r.Context(), chi.URLParam(r, "id"), chi.URLParam(r, "toolUseId"), req)
 	if err != nil {
-		writeError(w, statusFromError(err), err.Error())
+		writeAPIError(w, err)
 		return
 	}
-	if !accepted {
-		writeError(w, http.StatusNotFound, "pending tool approval not found")
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"toolUseId": chi.URLParam(r, "toolUseId"), "decision": req.Decision, "accepted": true})
+	writeJSON(w, http.StatusOK, result)
 }
 
 func (s *Server) answerUserQuestion(w http.ResponseWriter, r *http.Request) {
@@ -1395,26 +1361,18 @@ func (s *Server) answerUserQuestion(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	accepted, err := s.runner.AnswerUserQuestion(r.Context(), chi.URLParam(r, "id"), chi.URLParam(r, "toolUseId"), req)
+	result, err := s.agents().answerUserQuestion(r.Context(), chi.URLParam(r, "id"), chi.URLParam(r, "toolUseId"), req)
 	if err != nil {
-		writeError(w, statusFromError(err), err.Error())
+		writeAPIError(w, err)
 		return
 	}
-	if !accepted {
-		writeError(w, http.StatusNotFound, "pending user question not found")
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"toolUseId": chi.URLParam(r, "toolUseId"), "accepted": true, "skipped": req.Skipped})
+	writeJSON(w, http.StatusOK, result)
 }
 
 func (s *Server) getToolCall(w http.ResponseWriter, r *http.Request) {
-	call, err := s.store.GetToolCallByUseID(r.Context(), chi.URLParam(r, "id"), chi.URLParam(r, "toolUseId"))
+	call, err := s.agents().getToolCall(r.Context(), chi.URLParam(r, "id"), chi.URLParam(r, "toolUseId"))
 	if err != nil {
-		if err == sql.ErrNoRows {
-			writeError(w, http.StatusNotFound, "tool call not found")
-			return
-		}
-		writeError(w, http.StatusInternalServerError, err.Error())
+		writeAPIError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, call)
