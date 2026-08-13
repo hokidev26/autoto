@@ -955,6 +955,23 @@ export function createModelProviderSettingsController({
     return { ...draft, model: visibleDefault, models: modelConfigs.map((item) => item.name), modelConfigs };
   }
 
+  // Model visibility is a shared preference, not provider configuration, so an
+  // eye toggled on an already-saved provider's edit page applies immediately —
+  // exactly like the account pages — instead of silently dying with a closed,
+  // unsaved draft. The preference stays keyed by the saved provider name; a
+  // rename in the open draft is migrated by the save path. A provider still
+  // being created has no saved name, so its flags keep persisting on save and
+  // the draft stays marked dirty.
+  function persistDraftModelVisibilityForSavedProvider(consoleState, modelConfigs) {
+    const savedName = consoleState.mode === "edit" ? String(consoleState.providerName || "").trim() : "";
+    if (!savedName) {
+      consoleState.dirty = true;
+      return;
+    }
+    saveModelVisibilityPreferences(providerVisibilityPreferencesForDraft(loadModelVisibilityPreferences(), savedName, savedName, modelConfigs));
+    renderModelOptions();
+  }
+
   function openProviderConsoleDrawer(provider) {
     const normalized = normalizeConsoleProvider(provider || {});
     if (normalized.type === "codex" || normalized.name === "codex") {
@@ -1867,7 +1884,7 @@ export function createModelProviderSettingsController({
         return;
       }
       consoleState.draft = { ...draft, model: result.defaultModel, modelConfigs: result.modelConfigs, models: result.modelConfigs.map((item) => item.name) };
-      consoleState.dirty = true;
+      persistDraftModelVisibilityForSavedProvider(consoleState, result.modelConfigs);
       refreshProviderConsole();
       return;
     }
@@ -1886,7 +1903,7 @@ export function createModelProviderSettingsController({
         return;
       }
       consoleState.draft = { ...draft, model: result.defaultModel, modelConfigs: result.modelConfigs, models: result.modelConfigs.map((item) => item.name) };
-      consoleState.dirty = true;
+      persistDraftModelVisibilityForSavedProvider(consoleState, result.modelConfigs);
       refreshProviderConsole();
       return;
     }

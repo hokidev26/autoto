@@ -2351,6 +2351,86 @@ test("Codex 模型面板的眼睛直接更新模型选择器可见性", () => {
   }
 });
 
+test("已保存供应商编辑页的眼睛立即持久化到共享可见性偏好", () => {
+  let prefs = { hiddenModels: { "relay:stale": true }, showUnconfiguredProviders: false };
+  const draft = {
+    name: "relay",
+    type: "openai-compatible",
+    baseUrl: "https://relay.example/v1",
+    model: "a",
+    models: ["a", "b"],
+    modelConfigs: [
+      { name: "a", contextTokenLimit: 0, imageGeneration: false, hidden: false, manual: false },
+      { name: "b", contextTokenLimit: 0, imageGeneration: false, hidden: false, manual: false },
+    ],
+    modelsReady: true,
+    modelsStale: false,
+  };
+  const state = {
+    settings: { providers: [{ name: "relay", type: "openai-compatible", enabled: true, configured: true, model: "a" }] },
+    modelCatalog: { providers: [{ name: "relay", type: "openai-compatible", configured: true, models: ["a", "b"] }] },
+    providerConsole: { view: "providers", drawer: "provider", mode: "edit", type: "openai-compatible", providerName: "relay", draft, dirty: false },
+  };
+  let prefWrites = 0;
+  const controller = createModelProviderSettingsController({
+    state,
+    getModelVisibilityPreference: () => prefs,
+    setModelVisibilityPreference: (next) => { prefs = next; prefWrites += 1; },
+    refreshActiveSettingsPanel: () => {},
+  });
+  const listeners = {};
+  const root = { addEventListener: (type, handler) => { listeners[type] = handler; }, removeEventListener: () => {} };
+  const makeTarget = (dataset) => {
+    const target = {
+      dataset,
+      closest: (selector) => {
+        if (selector === "[data-subscription-provider-config]") return null;
+        if (selector === "[data-codex-provider-config]") return null;
+        if (selector.includes("button")) return target;
+        return null;
+      },
+    };
+    return target;
+  };
+  const previousDocument = globalThis.document;
+  globalThis.document = { getElementById: (id) => (id === "settingsContentBody" ? root : null) };
+  try {
+    controller.bindProviderSettingsActions();
+    assert.ok(listeners.click, "the console must bind a click handler");
+
+    // Hiding a model on an already-saved provider must survive closing the
+    // drawer without saving: the shared preference is rewritten immediately
+    // and stale keys under the provider prefix are cleaned like a save would.
+    listeners.click({ target: makeTarget({ mpModelVisibility: "b", hidden: "false" }), preventDefault() {}, stopPropagation() {} });
+    assert.equal(prefs.hiddenModels["relay:b"], true);
+    assert.equal(prefs.hiddenModels["relay:stale"], undefined);
+    assert.equal(state.providerConsole.dirty, false, "an instantly-applied eye must not force a save");
+    assert.equal(state.providerConsole.draft.modelConfigs.find((item) => item.name === "b")?.hidden, true);
+    assert.ok(prefWrites > 0, "the shared preference setter must be called");
+
+    // The hide-all control persists the same way.
+    listeners.click({ target: makeTarget({ mpModelVisibilityAll: "", allVisible: "true" }), preventDefault() {}, stopPropagation() {} });
+    assert.equal(prefs.hiddenModels["relay:a"], true);
+    assert.equal(prefs.hiddenModels["relay:b"], true);
+    assert.equal(state.providerConsole.dirty, false);
+
+    // A provider still being created has no saved name yet: the eye stays a
+    // draft change (dirty, persisted on save) and the preference is untouched.
+    const before = JSON.stringify(prefs);
+    state.providerConsole = {
+      view: "providers", drawer: "provider", mode: "create", type: "openai-compatible", providerName: "",
+      draft: { ...draft, name: "brand-new", modelConfigs: draft.modelConfigs.map((item) => ({ ...item, hidden: false })) },
+      dirty: false,
+    };
+    listeners.click({ target: makeTarget({ mpModelVisibility: "a", hidden: "false" }), preventDefault() {}, stopPropagation() {} });
+    assert.equal(JSON.stringify(prefs), before, "creating a provider must not write shared preferences");
+    assert.equal(state.providerConsole.dirty, true);
+    assert.equal(state.providerConsole.draft.modelConfigs.find((item) => item.name === "a")?.hidden, true);
+  } finally {
+    globalThis.document = previousDocument;
+  }
+});
+
 test("Anthropic 内置卡片使用独立账号页并保留模型配置", () => {
   assert.equal(isAnthropicAccountProvider({ name: "anthropic", type: "anthropic", origin: "builtin" }), true);
   assert.equal(isAnthropicAccountProvider({ name: "custom-anthropic", type: "anthropic", origin: "custom" }), false);
