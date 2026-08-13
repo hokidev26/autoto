@@ -490,8 +490,11 @@ function renderActivityHeatmap(model, t, status) {
     ? `<p class="overview-heatmap-recent">${escapeHtml(t("activityRecent", { week: model.recentWeek, month: model.recentMonth }))}</p>`
     : "";
 
+  // No visible title: the caption already says what the grid counts, and the
+  // grid speaks for itself. Assistive tech keeps the name through the
+  // aria-label on the cells group below.
   return `<section class="overview-section overview-activity settings-card" data-overview-section="activity">
-    <header class="overview-section-header"><div><h2>${escapeHtml(t("activity"))}</h2><p>${escapeHtml(caption)}</p>${recent}</div></header>
+    <header class="overview-section-header"><div><p>${escapeHtml(caption)}</p>${recent}</div></header>
     <div class="overview-heatmap" style="--overview-heatmap-weeks:${model.weeks.length}">
       <div class="overview-heatmap-months" aria-hidden="true">${months}</div>
       <div class="overview-heatmap-weekdays" aria-hidden="true">${weekdays}</div>

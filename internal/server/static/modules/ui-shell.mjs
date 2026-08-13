@@ -65,15 +65,15 @@ export function navigationLayoutModeFromDragWidth(total, current = "columns") {
 }
 export const defaultSidebarWidth = 296;
 export const minSidebarWidth = 184;
-export const compactSidebarWidth = 184;
+// The column's own compact stage is retired -- the rail's three-way cycle is
+// the collapse control now -- but stored widths from that era sit in this band
+// and are migrated back to the default width on load.
 export const compactSidebarEnterWidth = 196;
-export const compactSidebarExitWidth = 216;
 export const narrowSidebarMinWidth = 197;
 export const narrowSidebarMaxWidth = 219;
 export const maxSidebarWidth = 420;
 export const globalRailExpandedWidth = 68;
 export const globalRailCollapsedWidth = 48;
-export const collapsedSidebarWidth = compactSidebarWidth;
 // readOnly joined the primary group (least- to most-permissive order); the
 // redundant dontAsk mode is gone, so the secondary section renders nothing.
 export const permissionMenuPrimaryValues = Object.freeze(["readOnly", "default", "acceptEdits", "bypassPermissions"]);
@@ -140,12 +140,11 @@ export function groupModelSelectOptions(options = []) {
   return groups;
 }
 
-export function normalizeSidebarWidth(value, fallback = defaultSidebarWidth, { compact = false } = {}) {
+export function normalizeSidebarWidth(value, fallback = defaultSidebarWidth) {
   const parsed = Number.parseFloat(value);
   const normalizedFallback = Number.isFinite(Number(fallback)) ? Number(fallback) : defaultSidebarWidth;
   if (!Number.isFinite(parsed)) return Math.min(maxSidebarWidth, Math.max(minSidebarWidth, Math.round(normalizedFallback)));
   const rounded = Math.round(parsed);
-  if (compact && rounded <= compactSidebarEnterWidth) return compactSidebarWidth;
   return Math.min(maxSidebarWidth, Math.max(minSidebarWidth, rounded));
 }
 
@@ -478,7 +477,6 @@ export function createUIShellController({
     const globalRail = document.querySelector?.(".global-rail");
     const separator = $("sidebarResizeHandle");
     const globalCollapseButton = $("globalRailCollapseBtn");
-    const sessionCollapseButton = $("sessionSidebarCollapseBtn");
     const conversationDock = $("railConversationDock");
     const conversationRailRow = document.querySelector?.("[data-rail-conversation-row]");
     const sidebarActions = $("sessionSidebarActions");
@@ -486,7 +484,6 @@ export function createUIShellController({
 
     let width = defaultSidebarWidth;
     let navigationMode = "columns";
-    let sessionSidebarCollapsed = false;
     let dragging = false;
     const originalSeparatorTabIndex = separator.getAttribute?.("tabindex");
     // Where the sidebar lives outside docked mode. Captured once, before any move,
@@ -512,22 +509,16 @@ export function createUIShellController({
     // the one state where the next press expands. columns and docked both still
     // have somewhere tighter to go, so both read as "collapse". This is why the
     // three-way cycle needs no third i18n key.
-    const collapseKey = (global) => global
-      ? (navigationMode === "icons" ? "shell.expandGlobalNavigation" : "shell.collapseGlobalNavigation")
-      : (sessionSidebarCollapsed ? "shell.expandSessionSidebar" : "shell.collapseSessionSidebar");
-    const syncCollapseControl = (button, global) => {
-      if (!button) return;
-      const key = collapseKey(global);
-      const label = translate(key);
-      button.setAttribute("aria-expanded", (global ? navigationMode !== "icons" : !sessionSidebarCollapsed) ? "true" : "false");
-      button.setAttribute("title", label);
-      button.setAttribute("aria-label", label);
-      button.setAttribute(`data-i18n-title`, key);
-      button.setAttribute(`data-i18n-aria-label`, key);
-    };
+    const collapseKey = () => navigationMode === "icons" ? "shell.expandGlobalNavigation" : "shell.collapseGlobalNavigation";
     const syncCollapseControls = () => {
-      syncCollapseControl(globalCollapseButton, true);
-      syncCollapseControl(sessionCollapseButton, false);
+      if (!globalCollapseButton) return;
+      const key = collapseKey();
+      const label = translate(key);
+      globalCollapseButton.setAttribute("aria-expanded", navigationMode !== "icons" ? "true" : "false");
+      globalCollapseButton.setAttribute("title", label);
+      globalCollapseButton.setAttribute("aria-label", label);
+      globalCollapseButton.setAttribute(`data-i18n-title`, key);
+      globalCollapseButton.setAttribute(`data-i18n-aria-label`, key);
     };
     const persistWidth = () => {
       try {
@@ -540,10 +531,12 @@ export function createUIShellController({
       try {
         storage?.setItem(navigationLayoutModePreferenceKey, navigationMode);
         // The legacy booleans are still written so anything reading them keeps
-        // seeing a coherent view of the layout: only the icon rail is "collapsed",
-        // and docked has no separate column to be compact about.
+        // seeing a coherent view of the layout: only the icon rail is "collapsed".
+        // The session column's own compact stage is gone -- the rail's three-way
+        // cycle covers shrinking navigation -- so its flag is pinned false and
+        // an old stored "true" can never narrow the column again.
         storage?.setItem(globalRailCollapsedPreferenceKey, navigationMode === "icons" ? "true" : "false");
-        storage?.setItem(sessionSidebarCollapsedPreferenceKey, navigationMode === "columns" && sessionSidebarCollapsed ? "true" : "false");
+        storage?.setItem(sessionSidebarCollapsedPreferenceKey, "false");
       } catch {
         // Browser storage is optional; collapse state still works in memory.
       }
@@ -552,7 +545,7 @@ export function createUIShellController({
       if (typeof globalThis.requestAnimationFrame === "function") globalThis.requestAnimationFrame(() => resizeTerminal?.());
       else resizeTerminal?.();
     };
-    const sidebarMode = () => sessionSidebarCollapsed ? "compact" : width <= narrowSidebarMaxWidth ? "narrow" : "expanded";
+    const sidebarMode = () => width <= narrowSidebarMaxWidth ? "narrow" : "expanded";
     // Docking is a real DOM move rather than a CSS reorder: the list has to render
     // *inside* the rail's scroll box, between the conversation entry and the
     // entries below it, and grid reordering cannot nest one column inside another.
@@ -577,10 +570,10 @@ export function createUIShellController({
     const applyLayoutState = ({ saveWidth = false, saveCollapse = false } = {}) => {
       const desktop = desktopLayout();
       const layout = desktop ? navigationMode : "columns";
-      // compact/narrow describe the standalone column, so they only apply there.
+      // narrow describes the standalone column, so it only applies there.
       // Docked always renders the full-width list; icons renders none of it.
       const mode = layout === "columns" && desktop ? sidebarMode() : "expanded";
-      const effectiveWidth = mode === "compact" ? compactSidebarWidth : width;
+      const effectiveWidth = width;
       applySidebarDocking(layout === "docked");
       shell.style?.setProperty?.("--session-sidebar-width", `${effectiveWidth}px`);
       separator.setAttribute?.("aria-valuenow", String(effectiveWidth));
@@ -591,16 +584,14 @@ export function createUIShellController({
       // Kept in sync with the new classes so the existing icon-rail rules, the
       // arrow-flip rule, and anything else keyed on them keep working unchanged.
       toggleClass(shell, "global-rail-collapsed", desktop && layout === "icons");
-      toggleClass(shell, "session-sidebar-collapsed", desktop && mode === "compact");
       toggleClass(shell, "session-sidebar-narrow", desktop && mode === "narrow");
       toggleClass(globalRail, "global-rail-collapsed", desktop && layout === "icons");
-      toggleClass(sidebar, "session-sidebar-collapsed", desktop && mode === "compact");
       toggleClass(sidebar, "session-sidebar-narrow", desktop && mode === "narrow");
       separator.removeAttribute?.("aria-hidden");
       if (originalSeparatorTabIndex == null) separator.removeAttribute?.("tabindex");
       else separator.setAttribute?.("tabindex", originalSeparatorTabIndex);
       syncCollapseControls();
-      if (saveWidth && mode !== "compact") persistWidth();
+      if (saveWidth) persistWidth();
       if (saveCollapse) persistCollapseState();
       requestTerminalResize();
       onLayoutChange?.({
@@ -611,16 +602,8 @@ export function createUIShellController({
       });
       return effectiveWidth;
     };
-    const applyWidth = (nextWidth, { save = false, dragging = false } = {}) => {
-      const candidate = normalizeSidebarWidth(nextWidth);
-      // Dragging past the compact threshold only means anything for the standalone
-      // column. Docked mode shares the same stored width but has no compact form,
-      // so it just tracks the pointer between the usual bounds.
-      if (dragging && navigationMode === "columns") {
-        if (sessionSidebarCollapsed && candidate > compactSidebarExitWidth) sessionSidebarCollapsed = false;
-        else if (!sessionSidebarCollapsed && candidate <= compactSidebarEnterWidth) sessionSidebarCollapsed = true;
-      }
-      if (!sessionSidebarCollapsed || navigationMode !== "columns") width = candidate;
+    const applyWidth = (nextWidth, { save = false } = {}) => {
+      width = normalizeSidebarWidth(nextWidth);
       return applyLayoutState({ saveWidth: save, saveCollapse: save });
     };
     // The divider drives the layout as well as the width. Total is the divider
@@ -631,13 +614,12 @@ export function createUIShellController({
       if (resolved !== navigationMode) {
         if (navigationMode !== "icons") lastVisibleNavigationMode = navigationMode;
         navigationMode = resolved;
-        if (resolved !== "columns") sessionSidebarCollapsed = false;
       }
       // The icon rail is a fixed 48px, so there is no width to track while the
       // pointer is inside its band; only the layout switch matters.
       if (navigationMode === "icons") return applyLayoutState({ saveCollapse: false });
       const listWidth = navigationMode === "columns" ? total - globalRailExpandedWidth : total;
-      return applyWidth(listWidth, { dragging: true });
+      return applyWidth(listWidth);
     };
     const applyCollapseState = ({ save = false } = {}) => applyLayoutState({ saveCollapse: save });
     const setNavigationMode = (mode, { save = true } = {}) => {
@@ -646,9 +628,6 @@ export function createUIShellController({
       finishDrag();
       if (navigationMode !== "icons") lastVisibleNavigationMode = navigationMode;
       navigationMode = next;
-      // Compact is a columns-only refinement; carrying it through docked/icons and
-      // back would silently narrow the column on the way home.
-      if (next !== "columns") sessionSidebarCollapsed = false;
       applyCollapseState({ save });
       return navigationMode;
     };
@@ -656,25 +635,11 @@ export function createUIShellController({
       if (!desktopLayout()) return navigationMode;
       return setNavigationMode(nextNavigationLayoutMode(navigationMode));
     };
-    const toggleSessionSidebar = () => {
-      if (!desktopLayout()) return false;
-      // Only the standalone column has a compact form to toggle. In docked mode
-      // this control is hidden, and in icons mode the sidebar is not rendered.
-      if (navigationMode !== "columns") return sessionSidebarCollapsed;
-      if (sessionSidebarCollapsed) {
-        sessionSidebarCollapsed = false;
-        applyCollapseState({ save: true });
-        return false;
-      }
-      finishDrag();
-      sessionSidebarCollapsed = true;
-      applyCollapseState({ save: true });
-      return true;
-    };
     try {
       const storedWidth = normalizeSidebarWidth(storage?.getItem(sidebarWidthPreferenceKey));
-      const compactFromWidth = storedWidth <= compactSidebarEnterWidth;
-      width = compactFromWidth ? defaultSidebarWidth : storedWidth;
+      // A width in the retired compact band means the install last saw the old
+      // collapsed column; it comes back at the default width instead.
+      width = storedWidth <= compactSidebarEnterWidth ? defaultSidebarWidth : storedWidth;
       const storedMode = storage?.getItem(navigationLayoutModePreferenceKey);
       // Migration: an existing install has no mode, only the old booleans. A
       // collapsed rail meant icon-only, so that maps to "icons"; everything else
@@ -682,17 +647,9 @@ export function createUIShellController({
       navigationMode = storedMode == null
         ? (normalizeCollapsedPreference(storage?.getItem(globalRailCollapsedPreferenceKey)) ? "icons" : "columns")
         : normalizeNavigationLayoutMode(storedMode);
-      const legacyCollapsed = normalizeCollapsedPreference(storage?.getItem(legacySidebarCollapsedPreferenceKey), false);
-      const storedSessionCollapsed = storage?.getItem(sessionSidebarCollapsedPreferenceKey);
-      sessionSidebarCollapsed = navigationMode !== "columns"
-        ? false
-        : storedSessionCollapsed == null
-          ? legacyCollapsed || compactFromWidth
-          : normalizeCollapsedPreference(storedSessionCollapsed) || compactFromWidth;
     } catch {
       width = defaultSidebarWidth;
       navigationMode = "columns";
-      sessionSidebarCollapsed = false;
     }
     // Written on the first paint rather than only on the first toggle. Migration
     // and the non-columns layouts both derive a compact flag that differs from
@@ -707,7 +664,7 @@ export function createUIShellController({
       separator.classList?.remove?.("is-dragging");
       document.body?.classList?.remove?.("sidebar-resizing");
       separator.releasePointerCapture?.(event?.pointerId);
-      if (!sessionSidebarCollapsed) persistWidth();
+      persistWidth();
       persistCollapseState();
       applyLayoutState();
     };
@@ -746,23 +703,14 @@ export function createUIShellController({
     const handleKeyDown = (event) => {
       if (!desktopLayout()) return;
       const step = event.shiftKey ? 24 : 8;
-      const compactAvailable = navigationMode === "columns";
       if (event.key === "Home") {
-        if (compactAvailable) sessionSidebarCollapsed = true;
-        else width = minSidebarWidth;
-        applyLayoutState({ saveWidth: !compactAvailable, saveCollapse: true });
+        width = minSidebarWidth;
+        applyLayoutState({ saveWidth: true, saveCollapse: true });
       } else if (event.key === "End") {
-        sessionSidebarCollapsed = false;
         width = maxSidebarWidth;
         applyLayoutState({ saveWidth: true, saveCollapse: true });
-      } else if (sessionSidebarCollapsed && event.key === "ArrowRight") {
-        sessionSidebarCollapsed = false;
-        width = 220;
-        applyLayoutState({ saveWidth: true, saveCollapse: true });
-      } else if (sessionSidebarCollapsed && event.key === "ArrowLeft") {
-        applyLayoutState();
       } else if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
-        applyWidth(width + (event.key === "ArrowLeft" ? -step : step), { save: true, dragging: true });
+        applyWidth(width + (event.key === "ArrowLeft" ? -step : step), { save: true });
       } else {
         return;
       }
@@ -800,7 +748,6 @@ export function createUIShellController({
     };
     const resetWidth = () => {
       if (!desktopLayout()) return;
-      sessionSidebarCollapsed = false;
       width = defaultSidebarWidth;
       applyLayoutState({ saveWidth: true, saveCollapse: true });
     };
@@ -816,11 +763,6 @@ export function createUIShellController({
       event.stopPropagation();
       cycleNavigationMode();
     };
-    const handleSessionCollapseClick = (event) => {
-      event.preventDefault();
-      event.stopPropagation();
-      toggleSessionSidebar();
-    };
     const handleViewportChange = () => {
       if (!desktopLayout()) finishDrag();
       applyCollapseState();
@@ -832,7 +774,6 @@ export function createUIShellController({
     separator.addEventListener("wheel", handleWheel, { passive: false });
     separator.addEventListener("dblclick", resetWidth);
     globalCollapseButton?.addEventListener?.("click", handleGlobalCollapseClick);
-    sessionCollapseButton?.addEventListener?.("click", handleSessionCollapseClick);
     conversationRailButton?.addEventListener?.("click", handleConversationRailClick);
     window.addEventListener("pointermove", handlePointerMove);
     window.addEventListener("pointerup", finishDrag);
@@ -847,7 +788,6 @@ export function createUIShellController({
       separator.removeEventListener("wheel", handleWheel);
       separator.removeEventListener("dblclick", resetWidth);
       globalCollapseButton?.removeEventListener?.("click", handleGlobalCollapseClick);
-      sessionCollapseButton?.removeEventListener?.("click", handleSessionCollapseClick);
       conversationRailButton?.removeEventListener?.("click", handleConversationRailClick);
       window.removeEventListener("pointermove", handlePointerMove);
       window.removeEventListener("pointerup", finishDrag);

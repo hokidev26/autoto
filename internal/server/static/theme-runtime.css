@@ -138,7 +138,6 @@ body:is([data-background-mode="custom"][data-background-ready="true"], [data-bac
 .theme-icon-slot[data-theme-icon-slot="sidebar-refresh"] { --theme-icon-url: var(--autoto-icon-sidebar-refresh, none); --theme-icon-fallback-opacity: var(--autoto-icon-sidebar-refresh-fallback-opacity, 1); }
 .theme-icon-slot[data-theme-icon-slot="sidebar-project"] { --theme-icon-url: var(--autoto-icon-sidebar-project, none); --theme-icon-fallback-opacity: var(--autoto-icon-sidebar-project-fallback-opacity, 1); }
 .theme-icon-slot[data-theme-icon-slot="sidebar-conversation"] { --theme-icon-url: var(--autoto-icon-sidebar-conversation, none); --theme-icon-fallback-opacity: var(--autoto-icon-sidebar-conversation-fallback-opacity, 1); }
-.theme-icon-slot[data-theme-icon-slot="sidebar-collapse"] { --theme-icon-url: var(--autoto-icon-sidebar-collapse, none); --theme-icon-fallback-opacity: var(--autoto-icon-sidebar-collapse-fallback-opacity, 1); }
 
 .appearance-background-controls { min-width: 0; display: grid; gap: 12px; }
 .appearance-background-toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
@@ -159,27 +158,6 @@ body:is([data-background-mode="custom"][data-background-ready="true"], [data-bac
   font-size: 12px;
   line-height: 1.5;
 }
-.session-sidebar-compact-icon,
-.session-sidebar-compact-title { display: none; }
-/* Outline glyph: it must stroke rather than fill, or it renders as a black blob. */
-.session-sidebar-compact-icon svg {
-  width: 100%;
-  height: 100%;
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 1.6;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-}
-.session-sidebar-compact-title { min-width: 0; overflow: hidden; color: var(--ws-text, #20263a); font-size: 12px; font-weight: 780; text-overflow: ellipsis; white-space: nowrap; }
-@media (min-width: 768px) {
-  .app-shell.session-sidebar-collapsed .session-sidebar-heading { display: flex; align-items: center; gap: 7px; }
-  .app-shell.session-sidebar-collapsed .session-sidebar-compact-icon { width: 20px; height: 20px; flex: 0 0 20px; display: inline-flex; color: var(--ws-primary, #5369f3); }
-  .app-shell.session-sidebar-collapsed .session-sidebar-compact-title { display: block; }
-  .app-shell.session-sidebar-collapsed .session-sidebar-title,
-  .app-shell.session-sidebar-collapsed #healthBadge { display: none; }
-}
-
 @media (max-width: 760px) { .appearance-background-options { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (prefers-reduced-transparency: reduce) {
   body:is([data-background-mode="custom"][data-background-ready="true"], [data-background-mode="theme"][data-autoto-theme][data-theme-global-background="true"]) :is(.global-rail, .sidebar, .session-sidebar, .session-sidebar-header, .chat-header, .workbench-header, .composer-wrap, .mobile-topbar, .legacy-settings-topbar, .legacy-settings-subbar, .legacy-settings-wizard) {

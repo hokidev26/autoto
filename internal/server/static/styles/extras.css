@@ -2019,7 +2019,9 @@ body.white-shell.theme-light:not(.workbench-mode):not(.schedule-mode):not(.overv
 .overview-launcher-input {
   width: 100%;
   min-width: 0;
-  min-height: 44px;
+  /* Two comfortable lines rather than one: the taller well gives the card
+     visible substance at rest and room to think before it starts growing. */
+  min-height: 64px;
   max-height: 200px;
   border: 0;
   border-radius: 0;
@@ -2027,29 +2029,42 @@ body.white-shell.theme-light:not(.workbench-mode):not(.schedule-mode):not(.overv
   resize: none;
   background: transparent;
   color: var(--ws-text, #20263a);
-  padding: 2px 4px;
+  padding: 4px 6px 2px;
   font: inherit;
   font-size: 15px;
   line-height: 1.45;
 }
 .overview-launcher-input::placeholder { color: color-mix(in srgb, var(--ws-muted, #747e90) 78%, transparent); }
 .overview-launcher-input:disabled { cursor: wait; opacity: .68; }
-.overview-launcher-toolbar { min-width: 0; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 6px; }
-.overview-launcher-toolbar-group { min-width: 0; display: inline-flex; align-items: center; flex-wrap: wrap; gap: 6px; }
-/* Quiet pills inside the card: no frame of their own until hovered, so the
-   toolbar reads as labels rather than as a row of form fields. */
+/* A hairline seats the toolbar against the card's bottom edge, so the row
+   reads as the card's control strip rather than text floating in blank space. */
+.overview-launcher-toolbar {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  border-top: 1px solid color-mix(in srgb, var(--ws-border, #e6e9ee) 62%, transparent);
+  padding-top: 9px;
+  margin-top: 2px;
+}
+.overview-launcher-toolbar-group { min-width: 0; display: inline-flex; align-items: center; flex-wrap: wrap; gap: 7px; }
+/* Chip-styled pills: a soft fill and hairline make the workspace, model, and
+   effort controls read as controls at rest, not as stray labels adrift in the
+   card. Hover deepens the fill and picks up the accent. */
 .overview-launcher-field {
   min-width: 0;
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  border: 1px solid transparent;
+  border: 1px solid color-mix(in srgb, var(--ws-border, #e6e9ee) 82%, transparent);
   border-radius: 9px;
-  background: transparent;
-  padding: 3px 4px;
+  background: color-mix(in srgb, var(--ws-canvas, #f8fafc) 58%, var(--ws-card, #fff));
+  padding: 3px 6px;
   transition: background-color .16s ease, border-color .16s ease;
 }
-.overview-launcher-field:hover { background: color-mix(in srgb, var(--ws-canvas, #f8fafc) 78%, var(--ws-card, #fff)); border-color: var(--ws-border, #e6e9ee); }
+.overview-launcher-field:hover { background: color-mix(in srgb, var(--ws-canvas, #f8fafc) 92%, var(--ws-card, #fff)); border-color: var(--ws-border, #e6e9ee); }
 .overview-launcher-label { flex: 0 0 auto; color: var(--ws-muted, #747e90); font-size: 10px; font-weight: 690; white-space: nowrap; }
 .overview-launcher-select {
   min-width: 0;
@@ -2105,7 +2120,7 @@ body.white-shell.theme-light .overview-launcher-select-trigger .composer-select-
    sets is too narrow to read; the trigger still ellipsises, the menu does not
    have to. */
 .overview-launcher-select-popover[data-overview-launcher-popover="projectId"] { width: min(340px, calc(100vw - 32px)); }
-/* Icon-only folder button beside the project pill. */
+/* Icon-only folder button beside the project pill, dressed as the same chip. */
 .overview-launcher-directory {
   width: 30px;
   height: 30px;
@@ -2113,15 +2128,15 @@ body.white-shell.theme-light .overview-launcher-select-trigger .composer-select-
   align-items: center;
   justify-content: center;
   flex: none;
-  border: 1px solid transparent;
+  border: 1px solid color-mix(in srgb, var(--ws-border, #e6e9ee) 82%, transparent);
   border-radius: 9px;
-  background: transparent;
+  background: color-mix(in srgb, var(--ws-canvas, #f8fafc) 58%, var(--ws-card, #fff));
   color: var(--ws-muted, #747e90);
   padding: 0;
   cursor: pointer;
   transition: background-color .16s ease, color .16s ease, border-color .16s ease;
 }
-.overview-launcher-directory:hover { background: color-mix(in srgb, var(--ws-canvas, #f8fafc) 78%, var(--ws-card, #fff)); border-color: var(--ws-border, #e6e9ee); color: #4057c8; }
+.overview-launcher-directory:hover { background: color-mix(in srgb, var(--ws-canvas, #f8fafc) 92%, var(--ws-card, #fff)); border-color: var(--ws-border, #e6e9ee); color: #4057c8; }
 .overview-launcher-directory svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; }
 /* Round send button in the toolbar's right corner, icon only. */
 .overview-launcher-send {
@@ -2162,6 +2177,9 @@ body.white-shell.theme-light .overview-launcher-select-trigger .composer-select-
 .overview-section-header > div { min-width: 0; display: grid; gap: 2px; }
 .overview-section-header h2 { margin: 0; color: var(--ws-text, #20263a); font-size: 13px; }
 .overview-section-header p { margin: 0; color: var(--ws-muted, #747e90); font-size: 10px; }
+/* The heatmap card renders no visible title, so its caption is the header
+   line and reads in text colour at title weight. */
+.overview-activity .overview-section-header p:first-child { color: var(--ws-text, #20263a); font-size: 12px; font-weight: 620; }
 .overview-inline-error { border: 1px solid color-mix(in srgb, #d14343 35%, var(--ws-border, #dfe3e9)); border-radius: 11px; background: #fff4f4; color: #9f2929; padding: 11px 13px; font-size: 11px; }
 
 /* Host resources: CPU, memory, and network throughput on a single slim line at
@@ -2732,16 +2750,8 @@ body.white-shell.theme-light.theme-dark .context-clear-confirmation :is(strong, 
     --global-rail-layout-width: 48px;
   }
 
-  body.white-shell.theme-light .app-shell.session-sidebar-collapsed {
-    --session-sidebar-layout-width: 184px;
-  }
-
   body.white-shell.theme-light .sidebar-resize-handle {
     left: calc(var(--global-rail-layout-width) + var(--session-sidebar-layout-width) - 3px);
-  }
-
-  body.white-shell.theme-light .app-shell.session-sidebar-collapsed .sidebar-resize-handle {
-    display: block;
   }
 
   body.white-shell.theme-light .global-rail-footer {
@@ -2825,8 +2835,7 @@ body.white-shell.theme-light.theme-dark .context-clear-confirmation :is(strong, 
     object-fit: cover;
   }
 
-  body.white-shell.theme-light .global-rail-collapse-btn svg,
-  body.white-shell.theme-light .session-sidebar-collapse-btn svg {
+  body.white-shell.theme-light .global-rail-collapse-btn svg {
     width: 18px;
     height: 18px;
     fill: none;
@@ -2837,8 +2846,7 @@ body.white-shell.theme-light.theme-dark .context-clear-confirmation :is(strong, 
     transition: transform .16s ease;
   }
 
-  body.white-shell.theme-light .global-rail-collapse-btn[aria-expanded="false"] svg,
-  body.white-shell.theme-light .app-shell.session-sidebar-collapsed .session-sidebar-collapse-btn svg {
+  body.white-shell.theme-light .global-rail-collapse-btn[aria-expanded="false"] svg {
     transform: rotate(180deg);
   }
 
@@ -2900,175 +2908,6 @@ body.white-shell.theme-light.theme-dark .context-clear-confirmation :is(strong, 
     width: 7px;
     height: 7px;
     flex-basis: 7px;
-  }
-
-  body.white-shell.theme-light .session-sidebar-collapse-btn {
-    display: inline-flex;
-  }
-
-  body.white-shell.theme-light .app-shell.session-sidebar-collapsed .sidebar {
-    overflow: hidden;
-  }
-
-  body.white-shell.theme-light .app-shell.session-sidebar-collapsed .session-sidebar-header {
-    min-height: 64px;
-    height: auto;
-    justify-content: space-between;
-    gap: 8px;
-    padding: 10px 8px 9px 12px;
-  }
-
-  body.white-shell.theme-light .app-shell.session-sidebar-collapsed :is(
-    #projectSearchToggleBtn,
-    #refreshBtn,
-    #newTaskBtn,
-    .navigation-filters,
-    .sidebar-search-wrap,
-    .recent-sidebar
-  ) {
-    display: none !important;
-  }
-
-  body.white-shell.theme-light .app-shell.session-sidebar-collapsed .session-sidebar-heading {
-    min-width: 0;
-    flex: 1 1 auto;
-  }
-
-  body.white-shell.theme-light .app-shell.session-sidebar-collapsed .session-sidebar-actions {
-    width: auto;
-    flex: 0 0 auto;
-    justify-content: flex-end;
-    gap: 2px;
-  }
-
-  body.white-shell.theme-light .app-shell.session-sidebar-collapsed :is(.session-sidebar-collapse-btn, #newProjectBtn) {
-    width: 30px;
-    min-width: 30px;
-    height: 30px;
-    min-height: 30px;
-    padding: 6px;
-  }
-
-  body.white-shell.theme-light .app-shell.session-sidebar-collapsed .agent-list-section {
-    padding: 6px 8px 12px;
-    overflow-x: hidden;
-    overflow-y: auto;
-  }
-
-  body.white-shell.theme-light .app-shell.session-sidebar-collapsed .project-list {
-    gap: 5px;
-    padding: 0;
-    overflow-x: hidden;
-  }
-
-  body.white-shell.theme-light .app-shell.session-sidebar-collapsed .navigation-project-group {
-    gap: 3px;
-  }
-
-  body.white-shell.theme-light .app-shell.session-sidebar-collapsed .navigation-conversation-row,
-  body.white-shell.theme-light .app-shell.session-sidebar-collapsed .navigation-conversation-row.nested {
-    width: 100%;
-    min-height: 48px;
-    margin: 0;
-    display: flex;
-    align-items: center;
-    justify-content: flex-start;
-    gap: 8px;
-    border-radius: 9px;
-    padding: 7px 8px;
-  }
-
-  body.white-shell.theme-light .app-shell.session-sidebar-collapsed .navigation-conversation-row.nested {
-    padding-left: 18px;
-  }
-
-  body.white-shell.theme-light .app-shell.session-sidebar-collapsed .navigation-conversation-main {
-    min-width: 0;
-    display: grid;
-    gap: 2px;
-  }
-
-  body.white-shell.theme-light .app-shell.session-sidebar-collapsed .navigation-row-actions {
-    width: 24px;
-    min-width: 24px;
-    height: 24px;
-    margin-left: auto;
-    opacity: 0;
-    pointer-events: none;
-  }
-
-  body.white-shell.theme-light .app-shell.session-sidebar-collapsed .navigation-conversation-row:is(:hover, :focus-within) .navigation-row-actions {
-    opacity: 1;
-    pointer-events: auto;
-  }
-
-  body.white-shell.theme-light .app-shell.session-sidebar-collapsed .navigation-agent-icon {
-    width: 22px;
-    height: 22px;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    color: var(--ws-primary);
-    font-size: 18px;
-    line-height: 1;
-  }
-
-  body.white-shell.theme-light .app-shell.session-sidebar-collapsed .navigation-agent-icon svg {
-    width: 20px;
-    height: 20px;
-    fill: none;
-    stroke: currentColor;
-    stroke-width: 1.7;
-    stroke-linecap: round;
-    stroke-linejoin: round;
-  }
-
-  body.white-shell.theme-light .app-shell.session-sidebar-collapsed .navigation-conversation-row.active,
-  body.white-shell.theme-light .app-shell.session-sidebar-collapsed .project-card.active {
-    background: var(--ws-primary-soft);
-    box-shadow: inset 3px 0 0 var(--ws-primary);
-  }
-
-  body.white-shell.theme-light .app-shell.session-sidebar-collapsed .navigation-project-row {
-    min-height: 54px;
-  }
-
-  body.white-shell.theme-light .app-shell.session-sidebar-collapsed .navigation-project-row::before {
-    content: none;
-  }
-
-  body.white-shell.theme-light .app-shell.session-sidebar-collapsed .project-kind-badge {
-    flex: 0 0 auto;
-    font-size: 7px;
-    letter-spacing: .08em;
-    padding: 2px 4px;
-  }
-
-  body.white-shell.theme-light .app-shell.session-sidebar-collapsed :is(.navigation-conversation-title, .navigation-project-title) {
-    min-width: 0;
-    display: flex;
-    align-items: center;
-    gap: 5px;
-    overflow: hidden;
-    font-size: 11px;
-    line-height: 1.25;
-    white-space: nowrap;
-  }
-
-  body.white-shell.theme-light .app-shell.session-sidebar-collapsed :is(.navigation-title-text, .project-name) {
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  body.white-shell.theme-light .app-shell.session-sidebar-collapsed .navigation-conversation-meta {
-    min-width: 0;
-    overflow: hidden;
-    font-size: 9px;
-    line-height: 1.25;
-    text-overflow: ellipsis;
-    white-space: nowrap;
   }
 
   body.white-shell.theme-light .app-shell.session-sidebar-narrow :is(.recent-sidebar, .navigation-conversation-meta, .navigation-row-actions) {
@@ -3202,11 +3041,9 @@ body.white-shell.theme-light.theme-dark .context-clear-confirmation :is(strong, 
   }
 
   /* The nav entry directly above is already the heading, so the sidebar's own
-     title, status badge and collapse arrow all go: the arrow in particular would
-     duplicate the rail's three-way control. */
+     title and status badge go. */
   body.white-shell.theme-light .app-shell.nav-mode-docked :is(
     .session-sidebar-heading,
-    #sessionSidebarCollapseBtn,
     #refreshBtn,
     .recent-sidebar
   ) {
@@ -3423,8 +3260,7 @@ body.white-shell.theme-light.theme-dark .context-clear-confirmation :is(strong, 
 
 @media (max-width: 767px) {
   body.white-shell.theme-light .sidebar-resize-handle,
-  body.white-shell.theme-light .global-rail-collapse-btn,
-  body.white-shell.theme-light .session-sidebar-collapse-btn {
+  body.white-shell.theme-light .global-rail-collapse-btn {
     display: none !important;
   }
 }

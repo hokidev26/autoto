@@ -83,7 +83,6 @@ export function createWorkbenchSidebarRender({
     const scheduleMode = state.activeWorkbench === "schedules";
     const sidebar = $("sessionSidebar");
     const title = $("sessionSidebarTitle");
-    const compactTitle = $("sessionSidebarCompactTitle");
     const actions = $("sessionSidebarActions");
     const resizeHandle = $("sidebarResizeHandle");
     const searchToggle = $("projectSearchToggleBtn");
@@ -103,16 +102,6 @@ export function createWorkbenchSidebarRender({
 
     setTranslatedAttribute(sidebar, "aria-label", sidebarLabelKey);
     setTranslatedText(title, sidebarTitleKey);
-    if (compactTitle) {
-      compactTitle.removeAttribute("data-i18n");
-      setTextIfChanged(compactTitle, scheduleMode
-        ? t("shell.nav.schedules")
-        : taskMode
-          ? t("workbench.sidebarTitle")
-          : state.navigationSelectionKind === "project"
-            ? String(state.project?.name || t("shell.sessionTitle"))
-            : String(state.agent?.title || state.project?.name || t("shell.sessionTitle")));
-    }
     setTranslatedAttribute(actions, "aria-label", sidebarActionsKey);
     setTranslatedAttribute(resizeHandle, "aria-label", scheduleMode ? "shell.resizeScheduleSidebar" : taskMode ? "workbench.resizeSidebar" : "shell.resizeSidebar");
     [searchToggle].forEach((button) => {

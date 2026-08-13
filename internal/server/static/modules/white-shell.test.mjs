@@ -14,7 +14,6 @@ import { nativeDirectoryPickerAllowed } from "./directory-browser.mjs";
 import { createSettingsPreferencesController } from "./settings-preferences.mjs";
 import { createSystemSettingsController } from "./system-settings.mjs";
 import {
-  collapsedSidebarWidth,
   compactComposerModelLabel,
   createUIShellController,
   defaultSidebarWidth,
@@ -31,6 +30,7 @@ import {
   navigationLayoutModePreferenceKey,
   navigationLayoutModes,
   nextNavigationLayoutMode,
+  narrowSidebarMinWidth,
   sessionSidebarCollapsedPreferenceKey,
   minSidebarWidth,
   normalizeCollapsedPreference,
@@ -211,7 +211,9 @@ test("white shell adds the global rail before the conversation sidebar with the 
   assert.match(html, /id="globalRailCollapseBtn"[^>]*aria-expanded="true"[^>]*data-i18n-title="shell\.collapseGlobalNavigation"/);
   assert.doesNotMatch(html, /id="globalRailAvatar"/);
   assert.match(html, /class="global-rail-button global-rail-settings-button"[^>]*data-global-rail-target="profile"/);
-  assert.match(html, /id="sessionSidebarCollapseBtn"[^>]*aria-expanded="true"[^>]*data-i18n-title="shell\.collapseSessionSidebar"/);
+  // The session column's own collapse arrow is retired: the rail's three-way
+  // cycle is the only navigation collapse control.
+  assert.doesNotMatch(html, /id="sessionSidebarCollapseBtn"/);
 
   const ids = [...html.matchAll(/\sid="([^"]+)"/g)].map((match) => match[1]);
   assert.equal(new Set(ids).size, ids.length, "white shell must not introduce duplicate IDs");
@@ -795,11 +797,12 @@ test("desktop conversation layout follows the compact resizable geometry", async
   assert.match(finalDesktopComposer, /#sendMessageBtn\s*\{[\s\S]*?border-radius:\s*7px/);
   assert.match(styles, /\.sidebar-resize-handle\s*\{[\s\S]*?cursor:\s*col-resize/);
   assert.match(html, /id="sidebarResizeHandle"[^>]*role="separator"[^>]*aria-valuemin="184"[^>]*aria-valuemax="420"/);
-  assert.match(html, /id="sessionSidebarCompactTitle" class="session-sidebar-compact-title"/);
+  // The session column's compact stage is retired: no compact header title and
+  // no collapsed-column grid variable are left in the shell.
+  assert.doesNotMatch(html, /session-sidebar-compact-title/);
+  assert.doesNotMatch(styles, /\.app-shell\.session-sidebar-collapsed/);
   assert.match(styles, /--global-rail-layout-width:\s*68px/);
   assert.match(styles, /\.app-shell\.global-rail-collapsed\s*\{[\s\S]*?--global-rail-layout-width:\s*48px/);
-  assert.match(styles, /\.app-shell\.session-sidebar-collapsed\s*\{[\s\S]*?--session-sidebar-layout-width:\s*184px/);
-  assert.match(styles, /\.app-shell\.session-sidebar-collapsed \.navigation-conversation-row[\s\S]*?min-height:\s*48px/);
   // Icon rail: the conversation column is removed from the grid, not narrowed.
   assert.match(styles, /\.app-shell\.nav-mode-icons\s*\{[\s\S]*?--global-rail-layout-width:\s*48px[\s\S]*?--session-sidebar-layout-width:\s*0px/);
   assert.match(styles, /\.app-shell\.nav-mode-icons \.sidebar\s*\{[\s\S]*?display:\s*none/);
@@ -887,8 +890,8 @@ test("desktop conversation layout follows the compact resizable geometry", async
     /\.app-shell\.nav-mode-docked \.global-rail-brand\s*\{[^}]*flex-direction:\s*row/,
     "docked keeps its horizontal brand when the rail really is wide",
   );
-  // Search and create survive docking; the duplicate collapse arrow does not.
-  assert.match(styles, /\.app-shell\.nav-mode-docked :is\([\s\S]*?#sessionSidebarCollapseBtn[\s\S]*?\)\s*\{[\s\S]*?display:\s*none/);
+  // Search and create survive docking; the sidebar's own heading does not.
+  assert.match(styles, /\.app-shell\.nav-mode-docked :is\([\s\S]*?\.session-sidebar-heading[\s\S]*?\)\s*\{[\s\S]*?display:\s*none/);
   // The dock sits between the conversation entry and the entries below it, which
   // is what makes the list read as belonging to that entry.
   const conversationRailEntry = html.indexOf('data-global-rail-target="conversation"');
@@ -1482,7 +1485,6 @@ test("sidebar resizer restores, drags, keys, persists, and cleans up", () => {
 test("navigation collapses through columns, docked and icons, and stays desktop-only", () => {
   assert.equal(globalRailExpandedWidth, 68);
   assert.equal(globalRailCollapsedWidth, 48);
-  assert.equal(collapsedSidebarWidth, 184);
   assert.equal(normalizeCollapsedPreference("true"), true);
   assert.equal(normalizeCollapsedPreference("false"), false);
   assert.equal(normalizeCollapsedPreference("unexpected", true), true);
@@ -1513,16 +1515,16 @@ test("navigation collapses through columns, docked and icons, and stays desktop-
   assert.equal(drag(navigationDragColumnsEnterWidth, "icons"), "columns");
   assert.ok(navigationDragIconsExitWidth > navigationDragIconsEnterWidth, "the icon band is stickier than its entry point");
   assert.ok(navigationDragColumnsEnterWidth > navigationDragColumnsExitWidth, "the column band is stickier than its entry point");
-  // The compact column rests its divider at rail + compact width (252), and the
-  // narrow band a little above that. Both sat below the old 300px exit, so
-  // grabbing either flipped the layout to docked on the first pixel of travel.
-  // The exit must leave deliberate travel below the compact resting point.
-  const compactRestingTotal = globalRailExpandedWidth + collapsedSidebarWidth;
-  assert.equal(drag(compactRestingTotal, "columns"), "columns");
-  assert.equal(drag(compactRestingTotal - 1, "columns"), "columns");
+  // The narrow column rests its divider at rail + narrow width, which sat below
+  // the old 300px exit, so grabbing it flipped the layout to docked on the
+  // first pixel of travel. The exit must leave deliberate travel below the
+  // narrowest resting point.
+  const narrowRestingTotal = globalRailExpandedWidth + narrowSidebarMinWidth;
+  assert.equal(drag(narrowRestingTotal, "columns"), "columns");
+  assert.equal(drag(narrowRestingTotal - 1, "columns"), "columns");
   assert.ok(
-    navigationDragColumnsExitWidth <= compactRestingTotal - 20,
-    "a compact column can be grabbed and moved without instantly docking",
+    navigationDragColumnsExitWidth <= narrowRestingTotal - 20,
+    "a narrow column can be grabbed and moved without instantly docking",
   );
   // A garbage measurement must not move the layout.
   assert.equal(drag(Number.NaN, "docked"), "docked");
@@ -1566,7 +1568,6 @@ test("navigation collapses through columns, docked and icons, and stays desktop-
   const shell = makeNode();
   const globalRail = makeNode();
   const globalCollapseButton = makeNode();
-  const sessionCollapseButton = makeNode();
   const conversationRailButton = makeNode();
   const conversationRailRow = makeNode();
   conversationRailRow.appendChild = (node) => { node.parent = conversationRailRow; return node; };
@@ -1606,7 +1607,6 @@ test("navigation collapses through columns, docked and icons, and stays desktop-
     projects,
     railConversationDock: conversationDock,
     sessionSidebarActions: sidebarActions,
-    sessionSidebarCollapseBtn: sessionCollapseButton,
     sidebarResizeHandle: separator,
   };
   const fakeDocument = {
@@ -1658,12 +1658,9 @@ test("navigation collapses through columns, docked and icons, and stays desktop-
     assert.equal(storage.getItem(navigationLayoutModePreferenceKey), "columns");
     assert.equal(sidebar.parent, sidebarShellParent);
 
-    // The column layout keeps its own compact toggle.
-    sessionCollapseButton.dispatch("click", click);
-    assert.equal(shell.classList.contains("session-sidebar-collapsed"), true);
-    assert.equal(shell.styleValues.get("style:--session-sidebar-width"), "184px");
-    assert.equal(storage.getItem(sessionSidebarCollapsedPreferenceKey), "true");
-    sessionCollapseButton.dispatch("click", click);
+    // The column's own compact stage is retired: the stale stored "true" above
+    // was rewritten to "false" on first paint, and the column keeps its full
+    // stored width -- the rail's three-way cycle is the only collapse control.
     assert.equal(shell.classList.contains("session-sidebar-collapsed"), false);
     assert.equal(shell.styleValues.get("style:--session-sidebar-width"), "342px");
 
@@ -1679,10 +1676,6 @@ test("navigation collapses through columns, docked and icons, and stays desktop-
     // Search and create ride along onto the conversation row: the sidebar's own
     // header is hidden here, so leaving them behind would lose both controls.
     assert.equal(sidebarActions.parent, conversationRailRow, "docked mode moves search and create onto the conversation row");
-    // The compact control belongs to the column layout, so it is inert here.
-    sessionCollapseButton.dispatch("click", click);
-    assert.equal(shell.classList.contains("session-sidebar-collapsed"), false);
-    assert.equal(shell.classList.contains("nav-mode-docked"), true);
 
     // Dragging still resizes the list when docked, and it tracks the pointer
     // exactly: measuring the nested sidebar instead of the rail would subtract
@@ -1751,7 +1744,6 @@ test("navigation collapses through columns, docked and icons, and stays desktop-
     assert.equal(shell.classList.contains("global-rail-collapsed"), false);
     assert.equal(sidebar.parent, sidebarShellParent, "a phone viewport always undocks");
     globalCollapseButton.dispatch("click", click);
-    sessionCollapseButton.dispatch("click", click);
     assert.equal(storage.getItem(navigationLayoutModePreferenceKey), "docked");
     assert.equal(storage.getItem(globalRailCollapsedPreferenceKey), "false");
 

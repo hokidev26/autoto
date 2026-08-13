@@ -272,6 +272,9 @@ test("render orders greeting, heatmap, resources, then the composer at the botto
   assert.ok(html.indexOf('data-overview-section="activity"') < html.indexOf("data-fake-metrics"));
   assert.ok(html.indexOf("data-fake-metrics") < html.indexOf("data-overview-launcher>"));
   assert.doesNotMatch(html, /overview-launcher-suggestions|data-overview-launcher-action="suggestion"/);
+  // The heatmap card carries no visible title; the caption line and the
+  // cells-group aria-label carry the meaning instead.
+  assert.doesNotMatch(html, /<h2>/);
   // The toolbar keeps the folder picker and the icon send button inside the card.
   assert.match(html, /data-overview-launcher-action="choose-directory"/);
   assert.match(html, /data-overview-launcher-action="submit"/);
@@ -298,7 +301,9 @@ test("render supports optional translation keys", () => {
       return key === "home.activity" ? "Custom activity" : key;
     },
   });
-  assert.match(html, /<h2>Custom activity<\/h2>/);
+  // The activity name survives as the cells-group aria-label now that the
+  // card renders no visible title.
+  assert.match(html, /aria-label="Custom activity"/);
   assert.ok(keys.some(([key]) => key === "home.promptPlaceholder"));
 });
 
