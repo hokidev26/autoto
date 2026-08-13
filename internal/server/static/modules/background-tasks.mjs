@@ -1158,12 +1158,15 @@ export function createBackgroundTasksController({
         ${body ? renderChildBodyHTML(body) : ""}
       </article>`;
     }).join("");
-    // Calls whose owning turn is not in the loaded window close the transcript on
-    // their own, the way the main thread's run outcome card does, so a run whose
-    // first turns have scrolled out of the window still accounts for its work.
+    // Calls whose owning turn is not in the loaded window still have to be
+    // accounted for, but the window holds the newest messages, so every turn
+    // that owns them is older than everything on screen. Emitting them after
+    // the bubbles parked a previous task's whole tool history directly beneath
+    // the newest reply, which reads as work that reply caused; they lead the
+    // transcript instead, where their age is what the position says.
     const { unowned } = groupToolActivityByMessage(childToolCallsFlat(childAgentId), knownMessageIds);
-    const trailing = renderChildActivityHTML(childAgentId, "run", unowned, [], runId);
-    return `<div class="background-task-conversation">${bubbles}${trailing}</div>`;
+    const earlier = renderChildActivityHTML(childAgentId, "run", unowned, [], runId);
+    return `<div class="background-task-conversation">${earlier}${bubbles}</div>`;
   }
 
   // User turns reuse the main transcript's avatar + display-name header
