@@ -2,8 +2,10 @@ package gateway
 
 import (
 	"context"
+	"crypto/sha256"
 	"crypto/subtle"
 	"database/sql"
+	"encoding/hex"
 	"errors"
 	"net/http"
 	"strings"
@@ -385,11 +387,41 @@ func (s *Service) resolveAndValidateProviderRequest(ctx context.Context, key db.
 	return resolved, nil
 }
 
+// gatewaySessionKey derives a stable conversation key for external API calls.
+// The gateway is stateless — nothing labels which requests belong to one
+// conversation — but a conversation replays its own opening turn verbatim on
+// every request, so hashing the caller's key with the system prompt and the
+// first message keeps consecutive turns of one conversation on one session.
+// Providers use it for upstream affinity (Gemini Cloud Code sessionId, OpenAI
+// prompt_cache_key); collisions between conversations that share an opening
+// are harmless because the key never grants access to anything.
+func gatewaySessionKey(keyID string, request providers.GenerateRequest) string {
+	if len(request.Messages) == 0 {
+		return ""
+	}
+	hash := sha256.New()
+	writeField := func(field string) {
+		hash.Write([]byte(field))
+		hash.Write([]byte{0})
+	}
+	writeField(keyID)
+	writeField(request.SystemPrompt)
+	first := request.Messages[0]
+	writeField(first.Role)
+	writeField(first.Content)
+	for _, block := range first.Blocks {
+		writeField(block.Type)
+		writeField(block.Text)
+	}
+	return "gateway-" + hex.EncodeToString(hash.Sum(nil))
+}
+
 func (s *Service) prepareProviderRequest(ctx context.Context, key db.GatewayKey, alias string, request *providers.GenerateRequest, hasImages bool, lease *ingressLease, parameters generationParameterNames) (resolvedModel, *apiProblem) {
 	resolved, problem := s.resolveAndValidateProviderRequest(ctx, key, alias, request, hasImages, parameters)
 	if problem != nil {
 		return resolvedModel{}, problem
 	}
+	request.SessionKey = gatewaySessionKey(key.ID, *request)
 	monthlyTokens := int64(0)
 	reservation := int64(0)
 	if key.MonthlyTokenLimit > 0 {

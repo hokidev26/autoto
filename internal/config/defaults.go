@@ -230,14 +230,21 @@ type ProviderModelConfig struct {
 }
 
 type ProviderConfig struct {
-	Name                  string                  `json:"name"`
-	Type                  string                  `json:"type"`
-	Profile               string                  `json:"profile,omitempty"`
-	BaseURL               string                  `json:"baseUrl,omitempty"`
-	APIKey                string                  `json:"apiKey,omitempty"`
-	Model                 string                  `json:"model"`
-	Models                []ProviderModelConfig   `json:"models,omitempty"`
-	MaxTokens             int64                   `json:"maxTokens,omitempty"`
+	Name      string                `json:"name"`
+	Type      string                `json:"type"`
+	Profile   string                `json:"profile,omitempty"`
+	BaseURL   string                `json:"baseUrl,omitempty"`
+	APIKey    string                `json:"apiKey,omitempty"`
+	Model     string                `json:"model"`
+	Models    []ProviderModelConfig `json:"models,omitempty"`
+	MaxTokens int64                 `json:"maxTokens,omitempty"`
+	// CacheTTL selects the provider prompt-cache lifetime where the API offers
+	// a choice (Anthropic: "5m" default at 1.25x write cost, "1h" at 2x write
+	// cost). "1h" pays off for runs whose turns can sit idle beyond five
+	// minutes — typically approval-gated background tasks — because an expired
+	// cache re-writes the whole conversation prefix at full price. Unknown
+	// values fall back to "5m".
+	CacheTTL              string                  `json:"cacheTTL,omitempty"`
 	APIKeyOptional        bool                    `json:"apiKeyOptional,omitempty"`
 	ImageInput            bool                    `json:"imageInput,omitempty"`
 	GatewayEnabled        bool                    `json:"gatewayEnabled,omitempty"`

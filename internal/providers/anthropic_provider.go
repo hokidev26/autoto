@@ -251,7 +251,7 @@ func (p *AnthropicProvider) Generate(ctx context.Context, req GenerateRequest) (
 	if err != nil {
 		return nil, err
 	}
-	applyAnthropicPromptCaching(&params, durableMessages)
+	applyAnthropicPromptCaching(&params, durableMessages, anthropicCacheTTL(p.cfg.CacheTTL))
 
 	out := make(chan Event, 8)
 	go func() {
@@ -881,16 +881,29 @@ func anthropicTools(specs []ToolSpec) []anthropic.ToolUnionParam {
 
 const anthropicPromptCacheMinBytes = 4096
 
+// anthropicCacheTTL maps the provider CacheTTL setting to the SDK constant.
+// Only "1h" opts into the long-lived cache (2x write cost instead of 1.25x);
+// everything else stays on the 5m default. The 1h option exists for runs that
+// can sit idle beyond five minutes between turns — approval waits being the
+// common case — where an expired cache re-writes the whole prefix at full
+// price on the next turn.
+func anthropicCacheTTL(configured string) anthropic.CacheControlEphemeralTTL {
+	if strings.TrimSpace(strings.ToLower(configured)) == "1h" {
+		return anthropic.CacheControlEphemeralTTLTTL1h
+	}
+	return anthropic.CacheControlEphemeralTTLTTL5m
+}
+
 // applyAnthropicPromptCaching marks the cache breakpoints: last system block,
 // last tool, and the last durable message. Trailing turn-control messages
 // change every turn, so a breakpoint on them would be written but never read;
 // durableMessages bounds the search to content the next turn replays verbatim.
-func applyAnthropicPromptCaching(params *anthropic.MessageNewParams, durableMessages int) {
+func applyAnthropicPromptCaching(params *anthropic.MessageNewParams, durableMessages int, ttl anthropic.CacheControlEphemeralTTL) {
 	if params == nil || anthropicPromptCacheFootprint(*params) < anthropicPromptCacheMinBytes {
 		return
 	}
 	cacheControl := anthropic.NewCacheControlEphemeralParam()
-	cacheControl.TTL = anthropic.CacheControlEphemeralTTLTTL5m
+	cacheControl.TTL = ttl
 	if len(params.System) > 0 {
 		params.System[len(params.System)-1].CacheControl = cacheControl
 	}

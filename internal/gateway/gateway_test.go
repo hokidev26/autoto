@@ -214,6 +214,46 @@ func validCompletionBody(extra string) string {
 	return body + "}"
 }
 
+// The gateway is stateless, so the session key is derived from what a
+// conversation replays verbatim on every turn: the caller's key, the system
+// prompt, and the opening message. Later turns append messages but keep that
+// opening, so the key must stay identical as the conversation grows and must
+// differ across callers and across conversations.
+func TestGatewaySessionKeyStablePerConversation(t *testing.T) {
+	turn1 := providers.GenerateRequest{
+		SystemPrompt: "You are a helpful assistant.",
+		Messages:     []providers.Message{{Role: "user", Content: "plan my trip"}},
+	}
+	turn2 := providers.GenerateRequest{
+		SystemPrompt: "You are a helpful assistant.",
+		Messages: []providers.Message{
+			{Role: "user", Content: "plan my trip"},
+			{Role: "assistant", Content: "sure, where to?"},
+			{Role: "user", Content: "tokyo"},
+		},
+	}
+	first := gatewaySessionKey("key-1", turn1)
+	if first == "" {
+		t.Fatal("expected a session key for a conversation with messages")
+	}
+	if second := gatewaySessionKey("key-1", turn2); second != first {
+		t.Fatalf("session key must survive conversation growth: %q vs %q", first, second)
+	}
+	if other := gatewaySessionKey("key-2", turn1); other == first {
+		t.Fatal("different callers must not share a session key")
+	}
+	differentConversation := providers.GenerateRequest{
+		SystemPrompt: "You are a helpful assistant.",
+		Messages:     []providers.Message{{Role: "user", Content: "write a poem"}},
+	}
+	if other := gatewaySessionKey("key-1", differentConversation); other == first {
+		t.Fatal("different conversations must not share a session key")
+	}
+	if empty := gatewaySessionKey("key-1", providers.GenerateRequest{}); empty != "" {
+		t.Fatalf("a request without messages must not get a session key: %q", empty)
+	}
+}
+
 func TestGenerateKeyProducesHashOnlyPersistenceMaterial(t *testing.T) {
 	first, err := GenerateKey()
 	if err != nil {

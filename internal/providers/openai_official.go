@@ -132,6 +132,11 @@ func (p *OpenAIOfficial) Generate(ctx context.Context, req GenerateRequest) (<-c
 		if req.SystemPrompt != "" {
 			params.Instructions = param.NewOpt(req.SystemPrompt)
 		}
+		// Routes consecutive turns of one conversation to the same cache
+		// shard; OpenAI documents this as improving prefix-cache hit rates.
+		if sessionKey := strings.TrimSpace(req.SessionKey); sessionKey != "" {
+			params.PromptCacheKey = param.NewOpt(sessionKey)
+		}
 		enableImageGeneration := req.EnableImageGeneration && p.Capabilities().ImageGeneration && p.ModelCapabilities(model).ImageGeneration
 		if len(req.Tools) > 0 || enableImageGeneration || openAIMessagesRequireStructuredInput(req.Messages) {
 			params.Input = responses.ResponseNewParamsInputUnion{OfInputItemList: openAIResponseInput(req.Messages)}

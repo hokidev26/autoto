@@ -94,6 +94,49 @@ func TestOpenAIOfficialStreamsTextAndUsage(t *testing.T) {
 	}
 }
 
+// prompt_cache_key routes consecutive turns of one conversation to the same
+// OpenAI cache shard. Run requests carry the agent ID as SessionKey; one-shot
+// internal calls without a key must not send the field at all.
+func TestOpenAIOfficialForwardsPromptCacheKey(t *testing.T) {
+	var requestBodies []map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatal(err)
+		}
+		requestBodies = append(requestBodies, body)
+		writeOpenAICompletedStream(w)
+	}))
+	defer server.Close()
+
+	provider := NewOpenAIOfficial(config.ProviderConfig{BaseURL: server.URL, APIKey: "test-key", Model: "gpt-4.1-mini"})
+	generate := func(sessionKey string) {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		events, err := provider.Generate(ctx, GenerateRequest{Messages: []Message{{Role: "user", Content: "hello"}}, SessionKey: sessionKey})
+		if err != nil {
+			t.Fatal(err)
+		}
+		for event := range events {
+			if event.Type == "error" {
+				t.Fatalf("unexpected error event: %s", event.Text)
+			}
+		}
+	}
+	generate("agent-1")
+	generate("")
+
+	if len(requestBodies) != 2 {
+		t.Fatalf("expected two captured requests, got %d", len(requestBodies))
+	}
+	if requestBodies[0]["prompt_cache_key"] != "agent-1" {
+		t.Fatalf("expected prompt_cache_key agent-1, got %+v", requestBodies[0])
+	}
+	if _, present := requestBodies[1]["prompt_cache_key"]; present {
+		t.Fatalf("keyless request must not send prompt_cache_key: %+v", requestBodies[1])
+	}
+}
+
 func TestOpenAIOfficialStreamsDoneTextWhenNoDelta(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")

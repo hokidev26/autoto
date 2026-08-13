@@ -879,7 +879,7 @@ func TestAnthropicPromptCachingMarksLargeRequests(t *testing.T) {
 	if anthropicPromptCacheFootprint(params) < anthropicPromptCacheMinBytes {
 		t.Fatalf("test request should be large enough for prompt caching")
 	}
-	applyAnthropicPromptCaching(&params, durable)
+	applyAnthropicPromptCaching(&params, durable, anthropic.CacheControlEphemeralTTLTTL5m)
 	data, err := json.Marshal(params)
 	if err != nil {
 		t.Fatal(err)
@@ -898,13 +898,42 @@ func TestAnthropicPromptCachingMarksLargeRequests(t *testing.T) {
 func TestAnthropicPromptCachingSkipsSmallRequests(t *testing.T) {
 	messages, system, durable := anthropicMessages([]Message{{Role: "user", Content: "hello"}}, "short system", "claude-sonnet-4-5")
 	params := anthropic.MessageNewParams{MaxTokens: 128, Model: anthropic.Model("claude-sonnet-4-5"), Messages: messages, System: system}
-	applyAnthropicPromptCaching(&params, durable)
+	applyAnthropicPromptCaching(&params, durable, anthropic.CacheControlEphemeralTTLTTL5m)
 	data, err := json.Marshal(params)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if strings.Contains(string(data), `"cache_control"`) {
 		t.Fatalf("small request should not include cache_control: %s", string(data))
+	}
+}
+
+// The 1h cache TTL is an explicit opt-in for runs that can sit idle beyond
+// five minutes between turns (approval waits); anything unrecognized must
+// stay on the cheaper 5m default.
+func TestAnthropicCacheTTLSelection(t *testing.T) {
+	cases := map[string]anthropic.CacheControlEphemeralTTL{
+		"":     anthropic.CacheControlEphemeralTTLTTL5m,
+		"5m":   anthropic.CacheControlEphemeralTTLTTL5m,
+		"1h":   anthropic.CacheControlEphemeralTTLTTL1h,
+		" 1H ": anthropic.CacheControlEphemeralTTLTTL1h,
+		"2h":   anthropic.CacheControlEphemeralTTLTTL5m,
+	}
+	for configured, want := range cases {
+		if got := anthropicCacheTTL(configured); got != want {
+			t.Errorf("anthropicCacheTTL(%q) = %q, want %q", configured, got, want)
+		}
+	}
+
+	messages, system, durable := anthropicMessages([]Message{{Role: "user", Content: strings.Repeat("please inspect the repository context. ", 120)}}, strings.Repeat("stable coding agent instructions. ", 120), "claude-sonnet-4-5")
+	params := anthropic.MessageNewParams{MaxTokens: 128, Model: anthropic.Model("claude-sonnet-4-5"), Messages: messages, System: system}
+	applyAnthropicPromptCaching(&params, durable, anthropicCacheTTL("1h"))
+	data, err := json.Marshal(params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), `"ttl":"1h"`) {
+		t.Fatalf("expected 1h cache TTL in request: %s", string(data))
 	}
 }
 
@@ -950,7 +979,7 @@ func TestAnthropicPromptCachingSkipsTrailingTurnControls(t *testing.T) {
 		control,
 	}, strings.Repeat("stable coding agent instructions. ", 120), "claude-sonnet-4-5")
 	params := anthropic.MessageNewParams{MaxTokens: 128, Model: anthropic.Model("claude-sonnet-4-5"), Messages: messages, System: system}
-	applyAnthropicPromptCaching(&params, durable)
+	applyAnthropicPromptCaching(&params, durable, anthropic.CacheControlEphemeralTTLTTL5m)
 
 	lastJSON, err := json.Marshal(params.Messages[len(params.Messages)-1])
 	if err != nil {
