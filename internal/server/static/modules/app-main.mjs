@@ -135,7 +135,7 @@ function saveSettingsNavOrder(sectionId, keys) {
   } catch {}
 }
 
-function applySettingsNavOrder(items, order) {
+export function applySettingsNavOrder(items, order) {
   if (!Array.isArray(order) || !order.length) return items;
   const orderMap = new Map(order.map((k, i) => [String(k), i]));
   const copy = [...items];
@@ -171,7 +171,7 @@ let skillsPhaseB = null;
 let messageViewportBusyTimer = null;
 const messageViewportBusyDelayMs = 140;
 
-const state = {
+export const state = {
   projects: [],
   navigationConversations: [],
   navigationLoadSeq: 0,
@@ -913,7 +913,7 @@ const {
 // the task belongs to is the answer to "which one finished?", so it comes first, and
 // the generic word for a task is the last resort. The id stays out of the toast; the
 // task tray is where an id is actually useful.
-function backgroundTaskNoticeLabel(notice, raw, data) {
+export function backgroundTaskNoticeLabel(notice, raw, data) {
   const explicit = String(raw.title || data.title || "").trim();
   if (explicit) return explicit;
   const conversation = conversationTitleForNotice(notice);
@@ -926,14 +926,14 @@ function backgroundTaskNoticeLabel(notice, raw, data) {
 // "you sent another message" — the most common one by far, and not a problem at
 // all — read like a fault report. The server now classifies the reason, so each
 // case gets its own wording and only the genuine failures still quote a reason.
-function continuationBlockedNoticeMessage(notice, data) {
+export function continuationBlockedNoticeMessage(notice, data) {
   const reasonCode = String(notice?.reasonCode || data.reasonCode || "").trim();
   if (reasonCode === "preempted") return t("backgroundTasks.continuation.preempted");
   if (reasonCode === "interrupted") return t("backgroundTasks.continuation.stopped");
   return t("backgroundTasks.continuation.blocked", { reason: notice?.reason || data.reason || "—" });
 }
 
-function executionNoticeMessage(notice) {
+export function executionNoticeMessage(notice) {
   const raw = notice?.raw || {};
   const data = raw.data && typeof raw.data === "object" ? raw.data : {};
   if (notice?.family === "task_terminal") return t("backgroundTasks.notifications.taskCompleted", { task: backgroundTaskNoticeLabel(notice, raw, data) });
@@ -948,7 +948,7 @@ function executionNoticeMessage(notice) {
 
 // An OS notification arrives with no surrounding page, so it has to say which
 // conversation it is about on its own.
-function conversationTitleForNotice(notice) {
+export function conversationTitleForNotice(notice) {
   const agentId = String(notice?.agentId || "").trim();
   if (!agentId) return "";
   if (agentId === state.agent?.id && String(state.agent?.title || "").trim()) return String(state.agent.title).trim();
@@ -1923,7 +1923,7 @@ const settingsHelp = createSettingsHelpController({
 });
 settingsHelp.bind();
 
-function conversationDetailMetrics() {
+export function conversationDetailMetrics() {
   const messages = Array.isArray(state.currentMessages) ? state.currentMessages : [];
   const summary = state.activeRunSummary || {};
   const terminal = terminalOutputStats();
@@ -2587,7 +2587,7 @@ function settingsPanelDetails(key) {
   ];
 }
 
-function renderEmptyWorkspaceCard({ title = t("chat.emptyTitle"), text = t("chat.emptyDescription"), action = t("chat.chooseFolderAction"), hint = t("chat.emptyHint"), icon = "☻" } = {}) {
+export function renderEmptyWorkspaceCard({ title = t("chat.emptyTitle"), text = t("chat.emptyDescription"), action = t("chat.chooseFolderAction"), hint = t("chat.emptyHint"), icon = "☻" } = {}) {
   return `
     <div class="empty-workspace-card">
       <div class="empty-workspace-icon">${escapeHtml(icon)}</div>
@@ -2658,12 +2658,12 @@ function syncProjectOperationContext() {
 
 // The dontAsk mode was removed from the UI because the backend treats it
 // exactly like default; agents saved before the removal still carry it.
-function normalizeStoredPermissionMode(mode) {
+export function normalizeStoredPermissionMode(mode) {
   const value = String(mode || "").trim();
   return value === "dontAsk" ? "default" : value;
 }
 
-function permissionLabel(value) {
+export function permissionLabel(value) {
   const labels = {
     readOnly: t("chat.permission.readOnly"),
     acceptEdits: t("chat.permission.editable"),
@@ -2674,7 +2674,7 @@ function permissionLabel(value) {
   return labels[value] || value || t("chat.permission.automatic");
 }
 
-function permissionMobileLabel(value) {
+export function permissionMobileLabel(value) {
   return {
     readOnly: "RO",
     acceptEdits: "RW",
@@ -2699,7 +2699,7 @@ function updatePermissionModeDisplay() {
   }
 }
 
-function connectionMobileLabel(connection) {
+export function connectionMobileLabel(connection) {
   if (!connection?.remote) return "LAN";
   return connection.restricted ? "T−" : "T+";
 }
