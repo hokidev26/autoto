@@ -110,6 +110,11 @@ type ProviderSecretMetadata struct {
 type providerSecretStore interface {
 	GetProviderSecret(context.Context, string, string) (ProviderSecretRecord, error)
 	ListProviderSecrets(context.Context) ([]ProviderSecretRecord, error)
+	// CountProviderSecrets counts only records holding key-dependent ciphertext
+	// (active material or a pending set). Pending clear/delete rows carry no
+	// ciphertext and must not be counted, or the key-regeneration guard in
+	// loadOrCreateKey would refuse to create the first key when a clear is
+	// prepared before the first set.
 	CountProviderSecrets(context.Context) (int, error)
 	PutProviderSecretPending(context.Context, ProviderSecretPending) error
 	CommitProviderSecretPending(context.Context, string, string) error
@@ -440,6 +445,11 @@ func (v *ProviderVault) loadOrCreateKey(ctx context.Context) ([]byte, error) {
 	if !errors.Is(err, os.ErrNotExist) {
 		return nil, err
 	}
+	// Creating a key is only safe while no ciphertext depends on the old one:
+	// a positive count means key material went missing and regenerating it
+	// would strand those secrets. The count deliberately ignores pending
+	// clear/delete rows (no ciphertext), so a clear prepared earlier in the
+	// same request cannot block the very first key creation.
 	count, countErr := v.store.CountProviderSecrets(ctx)
 	if countErr != nil {
 		return nil, fmt.Errorf("inspect provider secret store: %w", countErr)

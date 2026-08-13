@@ -60,12 +60,19 @@ func (s *Store) ListProviderSecrets(ctx context.Context) ([]ProviderSecretRecord
 	return result, rows.Err()
 }
 
+// CountProviderSecrets reports how many records hold encrypted material that
+// depends on the vault key (an active ciphertext or a pending set). The vault
+// uses this as its key-regeneration guard, so rows that only carry a pending
+// clear/delete action must not be counted: they contain no ciphertext, and
+// counting them made the guard refuse to create the very first key when a
+// clear was prepared before the first set in the same request (e.g. saving
+// request headers on a fresh install before any API key ever existed).
 func (s *Store) CountProviderSecrets(ctx context.Context) (int, error) {
 	if err := ensureProviderSecretStore(s); err != nil {
 		return 0, err
 	}
 	var count int
-	if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM provider_secrets`).Scan(&count); err != nil {
+	if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM provider_secrets WHERE active_ciphertext IS NOT NULL OR pending_ciphertext IS NOT NULL`).Scan(&count); err != nil {
 		return 0, err
 	}
 	return count, nil

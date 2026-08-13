@@ -131,6 +131,40 @@ func TestProviderSecretsCRUDAndPendingLifecycle(t *testing.T) {
 	}
 }
 
+// The count backs the vault's key-regeneration guard, so only rows holding
+// key-dependent ciphertext may be counted. A pending clear carries none: on a
+// fresh install the transport-secret flow prepares a proxy-auth clear before
+// the first set, and counting that row blocked the first key creation forever.
+func TestCountProviderSecretsIgnoresCiphertextFreePendingRows(t *testing.T) {
+	ctx := context.Background()
+	store, err := Open(ctx, filepath.Join(t.TempDir(), "provider-secrets-count.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+
+	if err := store.PutProviderSecretPending(ctx, ProviderSecretPending{
+		ProviderName: "relay", SecretKind: "proxy_auth", Action: ProviderSecretPendingClear,
+		BindingFingerprint: []byte{0x01}, SecretRevision: 1,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if count, err := store.CountProviderSecrets(ctx); err != nil || count != 0 {
+		t.Fatalf("pending clear must not count as stored ciphertext: count = %d, err = %v", count, err)
+	}
+
+	if err := store.PutProviderSecretPending(ctx, ProviderSecretPending{
+		ProviderName: "relay", SecretKind: "request_headers", Action: ProviderSecretPendingSet,
+		Ciphertext: []byte{0x02}, Nonce: []byte{0x03}, BindingFingerprint: []byte{0x01},
+		KeyVersion: 1, SecretRevision: 1,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if count, err := store.CountProviderSecrets(ctx); err != nil || count != 1 {
+		t.Fatalf("pending set holds ciphertext and must count: count = %d, err = %v", count, err)
+	}
+}
+
 func TestProviderSecretsRollbackAndNoPlaintextSQLiteContent(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "provider-secrets.db")

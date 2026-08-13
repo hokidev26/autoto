@@ -34,7 +34,15 @@ func (s *fakeProviderSecretStore) ListProviderSecrets(_ context.Context) ([]Prov
 	return out, nil
 }
 func (s *fakeProviderSecretStore) CountProviderSecrets(_ context.Context) (int, error) {
-	return len(s.records), nil
+	// Mirrors db.Store.CountProviderSecrets: only key-dependent ciphertext
+	// counts; pending clear/delete rows carry none.
+	count := 0
+	for _, record := range s.records {
+		if len(record.ActiveCiphertext) > 0 || len(record.PendingCiphertext) > 0 {
+			count++
+		}
+	}
+	return count, nil
 }
 func (s *fakeProviderSecretStore) PutProviderSecretPending(_ context.Context, pending ProviderSecretPending) error {
 	key := s.key(pending.ProviderName, pending.SecretKind)
@@ -190,6 +198,36 @@ func TestProviderVaultDoesNotRegenerateMissingKeyMaterial(t *testing.T) {
 	}
 	if _, err := os.Stat(fresh.KeyPath()); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("missing key was unexpectedly regenerated: %v", err)
+	}
+}
+
+// Reproduces the fresh-install failure where saving request headers before any
+// API key ever existed returned HTTP 500: the transport-secret flow prepares a
+// proxy-auth clear first, and that ciphertext-free pending row used to trip
+// the key-regeneration guard, so the subsequent PrepareSetKind could never
+// create the very first vault key (and retries failed forever).
+func TestProviderVaultFirstSetSucceedsAfterPreparedClear(t *testing.T) {
+	store := newFakeProviderSecretStore()
+	vault := NewProviderVault(store, t.TempDir())
+	binding := ProviderBinding{Name: "relay", Type: "openai-compatible", BaseURL: "https://relay.example/v1", SecretRevision: 1, TransportSecretRevision: 1}
+	ctx := context.Background()
+	if err := vault.PrepareClearKind(ctx, binding, ProviderProxyAuthKind); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := vault.PrepareSetKind(ctx, binding, ProviderRequestHeadersKind, `{"X-Tenant":"value"}`, ""); err != nil {
+		t.Fatalf("the first header set after a prepared clear must create the vault key, got %v", err)
+	}
+	if _, err := os.Stat(vault.KeyPath()); err != nil {
+		t.Fatalf("vault key file was not created: %v", err)
+	}
+	if err := vault.CommitPendingKind(ctx, binding.Name, ProviderProxyAuthKind); err != nil {
+		t.Fatal(err)
+	}
+	if err := vault.CommitPendingKind(ctx, binding.Name, ProviderRequestHeadersKind); err != nil {
+		t.Fatal(err)
+	}
+	if secret, _, err := vault.ResolveKind(ctx, binding, ProviderRequestHeadersKind); err != nil || secret != `{"X-Tenant":"value"}` {
+		t.Fatalf("committed header secret unavailable: secret=%q err=%v", secret, err)
 	}
 }
 

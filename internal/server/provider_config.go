@@ -338,6 +338,7 @@ func (s *Server) updateProviderConfig(w http.ResponseWriter, r *http.Request) {
 			err = s.providerVault.PrepareClear(r.Context(), serverProviderSecretBinding(updated))
 		}
 		if err != nil {
+			slog.Error("prepare provider api-key secret", "provider", updated.Name, "mutation", secretMutation, "error", err)
 			writeError(w, http.StatusInternalServerError, "无法安全保存 Provider 凭据。")
 			return
 		}
@@ -347,6 +348,7 @@ func (s *Server) updateProviderConfig(w http.ResponseWriter, r *http.Request) {
 		transportKinds, prepareErr := s.prepareProviderTransportSecrets(r.Context(), updated)
 		preparedSecretKinds = append(preparedSecretKinds, transportKinds...)
 		if prepareErr != nil {
+			slog.Error("prepare provider transport secrets", "provider", updated.Name, "error", prepareErr)
 			s.rollbackProviderSecretKinds(r.Context(), updated.Name, preparedSecretKinds)
 			writeError(w, http.StatusInternalServerError, "无法安全保存 Provider 网络凭据。")
 			return
