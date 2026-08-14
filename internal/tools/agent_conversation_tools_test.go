@@ -90,7 +90,7 @@ func TestAgentSnapshotReadsAnotherConversationTranscript(t *testing.T) {
 		}
 	}
 
-	input, _ := json.Marshal(map[string]any{"agent_id": weather.ID})
+	input, _ := json.Marshal(map[string]any{"target_agent_id": weather.ID})
 	result, err := (AgentSnapshotTool{}).Execute(ctx, Call{ID: "snap-read", Name: "AgentSnapshot", Input: input}, Env{Store: store, AgentID: places.ID})
 	if err != nil || result.IsError {
 		t.Fatalf("snapshot read failed: result=%+v err=%v", result, err)
@@ -135,13 +135,13 @@ func TestAgentSnapshotRejectsSelfAndSubagentTargets(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	selfInput, _ := json.Marshal(map[string]any{"agent_id": places.ID})
+	selfInput, _ := json.Marshal(map[string]any{"target_agent_id": places.ID})
 	selfResult, err := (AgentSnapshotTool{}).Execute(ctx, Call{ID: "snap-self", Name: "AgentSnapshot", Input: selfInput}, Env{Store: store, AgentID: places.ID})
 	if err != nil || !selfResult.IsError || !strings.Contains(selfResult.Output, "current conversation") {
 		t.Fatalf("self read was not rejected: result=%+v err=%v", selfResult, err)
 	}
 
-	childInput, _ := json.Marshal(map[string]any{"agent_id": child.ID})
+	childInput, _ := json.Marshal(map[string]any{"target_agent_id": child.ID})
 	childResult, err := (AgentSnapshotTool{}).Execute(ctx, Call{ID: "snap-child", Name: "AgentSnapshot", Input: childInput}, Env{Store: store, AgentID: places.ID})
 	if err != nil || !childResult.IsError || !strings.Contains(childResult.Output, "subagent") {
 		t.Fatalf("another conversation's subagent read was not rejected: result=%+v err=%v", childResult, err)
@@ -166,7 +166,7 @@ func TestAgentSnapshotReadsItsOwnSubagent(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	input, _ := json.Marshal(map[string]any{"agent_id": child.ID})
+	input, _ := json.Marshal(map[string]any{"target_agent_id": child.ID})
 	result, err := (AgentSnapshotTool{}).Execute(ctx, Call{ID: "snap-own-child", Name: "AgentSnapshot", Input: input}, Env{Store: store, AgentID: weather.ID})
 	if err != nil {
 		t.Fatal(err)
@@ -184,9 +184,9 @@ func TestAgentSendMessageSubmitsTargetedAgentTask(t *testing.T) {
 	store, weather, places := newConversationTestStore(t)
 	service := &fakeBackgroundTaskService{}
 	input, _ := json.Marshal(map[string]any{
-		"agent_id":    weather.ID,
-		"message":     "SECRET_QUESTION: 請總結台北天氣結論",
-		"description": "ask weather",
+		"target_agent_id": weather.ID,
+		"message":         "SECRET_QUESTION: 請總結台北天氣結論",
+		"description":     "ask weather",
 	})
 
 	result, err := (AgentSendMessageTool{}).Execute(ctx, Call{ID: "send-1", Name: "AgentSendMessage", Input: input}, Env{
@@ -243,7 +243,7 @@ func TestAgentSendMessageRejectsSelfSubagentAndMissingTargets(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			input, _ := json.Marshal(map[string]any{"agent_id": test.agentID, "message": "hello"})
+			input, _ := json.Marshal(map[string]any{"target_agent_id": test.agentID, "message": "hello"})
 			result, err := (AgentSendMessageTool{}).Execute(ctx, Call{ID: "send-" + test.name, Name: "AgentSendMessage", Input: input}, env)
 			if err != nil || !result.IsError || !strings.Contains(result.Output, test.want) {
 				t.Fatalf("expected rejection containing %q, got result=%+v err=%v", test.want, result, err)

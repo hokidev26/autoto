@@ -58,14 +58,22 @@ func (e *AgentExecutor) executeSendMessage(ctx context.Context, task db.Backgrou
 	if strings.TrimSpace(target.ArchivedAt) != "" {
 		return Result{ErrorCode: "message_target_rejected"}, errors.New("target conversation is archived")
 	}
+	targetTitle := truncateUTF8(target.Title, maxAgentTaskMetaBytes)
 	if err := e.rejectMessageCycle(ctx, parent.ID, target.ID); err != nil {
-		return Result{ErrorCode: "message_cycle_rejected"}, err
+		// The original cross-conversation task is still active and its reply will
+		// be delivered automatically. Treat a duplicate reverse send as an
+		// informational completion rather than a failed task, so the UI does not
+		// report a successful exchange as a red failure notification.
+		result, marshalErr := marshalMessagePublicResult(target.ID, targetTitle, "", "already_in_progress", "", err.Error())
+		if marshalErr != nil {
+			return Result{ErrorCode: "invalid_result"}, marshalErr
+		}
+		return Result{JSON: result}, nil
 	}
 	permissionCap, err := narrowestPermissionCap(target.PermissionMode, task.PermissionModeCap)
 	if err != nil {
 		return Result{ErrorCode: "permission_rejected"}, err
 	}
-	targetTitle := truncateUTF8(target.Title, maxAgentTaskMetaBytes)
 	run, err := e.submitTargetRun(ctx, task, target.ID, payload.Prompt, permissionCap)
 	if err != nil {
 		if errors.Is(err, agent.ErrAgentBusy) {
@@ -130,7 +138,7 @@ func (e *AgentExecutor) rejectMessageCycle(ctx context.Context, ownerID, targetI
 			continue
 		}
 		if strings.TrimSpace(candidatePayload.TargetAgentID) == ownerID {
-			return errors.New("target conversation already has an active message task addressed to this conversation")
+			return errors.New("target conversation already has an active message task addressed to this conversation; the original message is already in progress and its reply will return automatically")
 		}
 	}
 	return nil

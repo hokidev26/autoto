@@ -238,6 +238,20 @@ func initCommittedGitRepoAt(t *testing.T, repo, name, content string) string {
 	return strings.TrimSpace(runGitTestOutput(t, repo, "rev-parse", "HEAD"))
 }
 
+func TestIsUserHomeOrAncestorOnlyRejectsTheHomeDirectoryAndItsAncestors(t *testing.T) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Skipf("user home unavailable: %v", err)
+	}
+	if !isUserHomeOrAncestor(home) {
+		t.Fatalf("expected home directory %q to be recognized", home)
+	}
+	child := filepath.Join(home, "autoto-branch-test")
+	if isUserHomeOrAncestor(child) {
+		t.Fatalf("repository below home must not be treated as the home repository: %q", child)
+	}
+}
+
 func TestDefaultWorklineBranchUsesAutotoPrefix(t *testing.T) {
 	if branch := defaultWorklineBranch("Feature Branch"); !strings.HasPrefix(branch, "autoto/") {
 		t.Fatalf("expected Autoto branch prefix, got %q", branch)

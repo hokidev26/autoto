@@ -1,6 +1,6 @@
 # Autoto Architecture Guide
 
-This guide is a contributor-facing map of how a request flows through the local Autoto MVP. The Go module is `autoto`. There are two entrypoints: `cmd/autoto` is the canonical CLI/server entrypoint (it starts the local service and opens the browser UI via `app.Run`), and `cmd/autoto-desktop` is the optional desktop entrypoint (a Wails WebView shell behind the `desktop` build tag). There is no separate legacy shim binary. For roadmap detail, see `PROJECT_PLAN.md`; for operational security boundaries, see `SECURITY.md`.
+This guide is a contributor-facing map of how a request flows through the local Autoto MVP. The Go module is `autoto`. There are two entrypoints: `cmd/autoto` is the canonical CLI/server entrypoint (it starts the local service and opens the browser UI via `app.Run`), and `cmd/autoto-desktop` is the optional desktop entrypoint (a Wails WebView shell behind the `desktop` build tag). There is no separate legacy shim binary. For operational security boundaries, see `SECURITY.md`.
 
 ## High-level shape
 

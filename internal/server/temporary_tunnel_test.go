@@ -73,6 +73,12 @@ func TestParseCloudflareQuickTunnelURL(t *testing.T) {
 	if got := parseCloudflareQuickTunnelURL(`2026-07-18T10:00:00Z https://bright-sun-123.trycloudflare.com.`); got != "https://bright-sun-123.trycloudflare.com" {
 		t.Fatalf("unexpected URL: %q", got)
 	}
+	if got := parseCloudflareQuickTunnelURL(`INF Requesting new quick Tunnel on https://api.trycloudflare.com/tunnel`); got != "" {
+		t.Fatalf("must not treat API endpoint as public URL: %q", got)
+	}
+	if got := parseCloudflareQuickTunnelURL(`https://api.trycloudflare.com/tunnel then https://bright-sun-123.trycloudflare.com`); got != "https://bright-sun-123.trycloudflare.com" {
+		t.Fatalf("expected public URL after API endpoint, got %q", got)
+	}
 	if got := parseCloudflareQuickTunnelURL("no public URL"); got != "" {
 		t.Fatalf("expected no URL, got %q", got)
 	}
@@ -82,11 +88,13 @@ func TestTemporaryTunnelManagerStartsAndStopsWithFakeProcess(t *testing.T) {
 	process := newFakeTemporaryTunnelProcess()
 	var commandName string
 	var commandArgs []string
+	var commandEnv []string
 	manager := newTemporaryTunnelManager("127.0.0.1:7788", temporaryTunnelOptions{
 		lookPath: func(string) (string, error) { return "/fake/cloudflared", nil },
 		command: func(_ context.Context, name string, spec temporaryTunnelSpec) temporaryTunnelProcess {
 			commandName = name
 			commandArgs = append([]string(nil), spec.Args...)
+			commandEnv = append([]string(nil), spec.Env...)
 			return process
 		},
 		startTimeout: time.Second,
@@ -99,9 +107,16 @@ func TestTemporaryTunnelManagerStartsAndStopsWithFakeProcess(t *testing.T) {
 	if commandName != "/fake/cloudflared" {
 		t.Fatalf("unexpected cloudflared binary: %q", commandName)
 	}
-	if got, want := strings.Join(commandArgs, "\x00"), strings.Join([]string{"--config", os.DevNull, "tunnel", "--no-autoupdate", "--url", "http://127.0.0.1:7788"}, "\x00"); got != want {
+	if len(commandArgs) != 8 || commandArgs[0] != "--config" || commandArgs[1] == "" || commandArgs[2] != "tunnel" || commandArgs[3] != "--no-autoupdate" || commandArgs[4] != "--edge-ip-version" || commandArgs[5] != "4" || commandArgs[6] != "--url" || commandArgs[7] != "http://127.0.0.1:7788" {
 		t.Fatalf("unexpected cloudflared arguments: %q", commandArgs)
 	}
+	if commandArgs[1] == os.DevNull {
+		t.Fatalf("cloudflared config must not use the null device: %q", commandArgs)
+	}
+	if len(commandEnv) != 0 {
+		t.Fatalf("unexpected quick tunnel environment: %q", commandEnv)
+	}
+
 	if snapshot.Status != temporaryTunnelRunning || snapshot.PublicURL != "https://example.trycloudflare.com" {
 		t.Fatalf("unexpected running snapshot: %+v", snapshot)
 	}

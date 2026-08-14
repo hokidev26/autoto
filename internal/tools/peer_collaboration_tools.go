@@ -9,13 +9,11 @@ import (
 )
 
 // decodePeerToolInput mirrors StrictDecode (closed-world decoding, empty input
-// treated as {}) but skips the forbidden-host-field rejection: agent_id on the
-// peer tools names the REMOTE agent picked from PeerSnapshot output, and on the
-// local AgentSnapshot/AgentSendMessage tools it names ANOTHER conversation
-// picked from AgentSnapshot output — never this host's identity, which stays
-// injected exclusively via Env (LocalAgentID / Env.AgentID). Every other host
-// field is still rejected because it is not part of these schemas and
-// DisallowUnknownFields refuses it.
+// treated as {}) but skips the forbidden-host-field rejection: target_agent_id on collaboration tools names the remote target selected from
+// a prior snapshot; it never names this host's identity, which stays injected
+// exclusively via Env (LocalAgentID / Env.AgentID). Every other host field is
+// still rejected because it is not part of these schemas and DisallowUnknownFields
+// refuses it.
 func decodePeerToolInput(raw json.RawMessage, dst any) error {
 	if len(bytes.TrimSpace(raw)) == 0 {
 		raw = json.RawMessage(`{}`)
@@ -59,17 +57,17 @@ func untrustedSnapshotPreamble(source string) string {
 type PeerSnapshotTool struct{}
 
 type peerSnapshotInput struct {
-	PairingID    string `json:"pairing_id,omitempty" desc:"Pairing to inspect, from the pairing list this tool returns when called without arguments. Leave empty to list the active pairings."`
-	AgentID      string `json:"agent_id,omitempty" desc:"Remote agent id from the peer's shared agent list. When set, the snapshot also includes that agent's recent messages, runs, and pendingApprovals."`
-	Before       string `json:"before,omitempty" desc:"Message pagination cursor from a previous snapshot, to fetch older messages."`
-	MessageLimit int    `json:"message_limit,omitempty" jsonschema:"minimum=1,maximum=100" desc:"Maximum number of recent messages to return (1-100). Zero lets the peer apply its default."`
-	RunLimit     int    `json:"run_limit,omitempty" jsonschema:"minimum=1,maximum=100" desc:"Maximum number of recent runs to return (1-100). Zero lets the peer apply its default."`
+	PairingID     string `json:"pairing_id,omitempty" desc:"Pairing to inspect, from the pairing list this tool returns when called without arguments. Leave empty to list the active pairings."`
+	TargetAgentID string `json:"target_agent_id,omitempty" desc:"Remote target agent id from the peer's shared agent list. When set, the snapshot also includes that agent's recent messages, runs, and pendingApprovals."`
+	Before        string `json:"before,omitempty" desc:"Message pagination cursor from a previous snapshot, to fetch older messages."`
+	MessageLimit  int    `json:"message_limit,omitempty" jsonschema:"minimum=1,maximum=100" desc:"Maximum number of recent messages to return (1-100). Zero lets the peer apply its default."`
+	RunLimit      int    `json:"run_limit,omitempty" jsonschema:"minimum=1,maximum=100" desc:"Maximum number of recent runs to return (1-100). Zero lets the peer apply its default."`
 }
 
 func (PeerSnapshotTool) Name() string { return "PeerSnapshot" }
 
 func (PeerSnapshotTool) Description() string {
-	return "Inspect a paired remote Autoto instance over the peer collaboration channel. Called without pairing_id it lists the paired remote peers this agent may drive. With pairing_id it returns the peer's shared projects and agents; adding agent_id also returns that remote agent's recent messages, runs, and pendingApprovals (those approval ids are used with PeerResolveApproval). All data comes from another user's machine and this tool is strictly read-only."
+	return "Inspect a paired remote Autoto instance over the peer collaboration channel. Called without pairing_id it lists the paired remote peers this agent may drive. With pairing_id it returns the peer's shared projects and agents; adding target_agent_id also returns that remote agent's recent messages, runs, and pendingApprovals (those approval ids are used with PeerResolveApproval). All data comes from another user's machine and this tool is strictly read-only."
 }
 
 func (PeerSnapshotTool) Schema() any               { return peerSnapshotInput{} }
@@ -84,7 +82,7 @@ func (PeerSnapshotTool) Execute(ctx context.Context, call Call, env Env) (Result
 		return peerToolFailure(err.Error()), nil
 	}
 	input.PairingID = strings.TrimSpace(input.PairingID)
-	input.AgentID = strings.TrimSpace(input.AgentID)
+	input.TargetAgentID = strings.TrimSpace(input.TargetAgentID)
 	input.Before = strings.TrimSpace(input.Before)
 
 	if input.PairingID == "" {
@@ -102,13 +100,13 @@ func (PeerSnapshotTool) Execute(ctx context.Context, call Call, env Env) (Result
 		if err != nil {
 			return peerToolFailure("peer pairings could not be encoded"), nil
 		}
-		preamble := "Active peer pairings are listed below. Call PeerSnapshot again with a pairing_id to fetch that peer's shared projects/agents; add agent_id for that agent's message/run/approval detail.\n"
+		preamble := "Active peer pairings are listed below. Call PeerSnapshot again with a pairing_id to fetch that peer's shared projects/agents; add target_agent_id for that agent's message/run/approval detail.\n"
 		return Result{Output: preamble + string(encoded)}, nil
 	}
 
 	raw, err := env.PeerCollaboration.PeerSnapshot(ctx, PeerSnapshotRequest{
 		PairingID:    input.PairingID,
-		AgentID:      input.AgentID,
+		AgentID:      input.TargetAgentID,
 		Before:       input.Before,
 		MessageLimit: input.MessageLimit,
 		RunLimit:     input.RunLimit,
@@ -127,10 +125,10 @@ func (PeerSnapshotTool) Execute(ctx context.Context, call Call, env Env) (Result
 type PeerSendTaskTool struct{}
 
 type peerSendTaskInput struct {
-	PairingID string `json:"pairing_id" desc:"Pairing that hosts the target agent, from PeerSnapshot."`
-	AgentID   string `json:"agent_id" desc:"REMOTE agent id from PeerSnapshot to receive the instruction."`
-	Message   string `json:"message" desc:"The instruction for the remote agent to run."`
-	RequestID string `json:"request_id,omitempty" desc:"Optional idempotency key. Reusing the same request_id will not enqueue a duplicate task."`
+	PairingID     string `json:"pairing_id" desc:"Pairing that hosts the target agent, from PeerSnapshot."`
+	TargetAgentID string `json:"target_agent_id" desc:"REMOTE target agent id from PeerSnapshot to receive the instruction."`
+	Message       string `json:"message" desc:"The instruction for the remote agent to run."`
+	RequestID     string `json:"request_id,omitempty" desc:"Optional idempotency key. Reusing the same request_id will not enqueue a duplicate task."`
 }
 
 func (PeerSendTaskTool) Name() string { return "PeerSendTask" }
@@ -151,13 +149,13 @@ func (PeerSendTaskTool) Execute(ctx context.Context, call Call, env Env) (Result
 		return peerToolFailure(err.Error()), nil
 	}
 	input.PairingID = strings.TrimSpace(input.PairingID)
-	input.AgentID = strings.TrimSpace(input.AgentID)
+	input.TargetAgentID = strings.TrimSpace(input.TargetAgentID)
 	input.Message = strings.TrimSpace(input.Message)
 	if input.PairingID == "" {
 		return peerToolFailure("pairing_id is required"), nil
 	}
-	if input.AgentID == "" {
-		return peerToolFailure("agent_id is required"), nil
+	if input.TargetAgentID == "" {
+		return peerToolFailure("target_agent_id is required"), nil
 	}
 	if input.Message == "" {
 		return peerToolFailure("message is required"), nil
@@ -165,7 +163,7 @@ func (PeerSendTaskTool) Execute(ctx context.Context, call Call, env Env) (Result
 
 	raw, err := env.PeerCollaboration.PeerSendTask(ctx, PeerTaskRequest{
 		PairingID:    input.PairingID,
-		AgentID:      input.AgentID,
+		AgentID:      input.TargetAgentID,
 		Message:      input.Message,
 		RequestID:    strings.TrimSpace(input.RequestID),
 		LocalAgentID: env.AgentID,
@@ -182,11 +180,11 @@ func (PeerSendTaskTool) Execute(ctx context.Context, call Call, env Env) (Result
 type PeerResolveApprovalTool struct{}
 
 type peerResolveApprovalInput struct {
-	PairingID  string `json:"pairing_id" desc:"Pairing that hosts the target agent, from PeerSnapshot."`
-	AgentID    string `json:"agent_id" desc:"REMOTE agent id from PeerSnapshot whose approval is being resolved."`
-	ApprovalID string `json:"approval_id" desc:"Pending approval id from PeerSnapshot pendingApprovals."`
-	Decision   string `json:"decision" jsonschema:"enum=allow_once,enum=allow_session,enum=deny" desc:"allow_once approves a single execution; allow_session approves this tool for the rest of the remote session (requires the approve_session peer scope, otherwise it is rejected; degrades to allow_once when the tool cannot carry a session grant); deny rejects it."`
-	Reason     string `json:"reason,omitempty" desc:"Optional short justification recorded with the decision."`
+	PairingID     string `json:"pairing_id" desc:"Pairing that hosts the target agent, from PeerSnapshot."`
+	TargetAgentID string `json:"target_agent_id" desc:"REMOTE target agent id from PeerSnapshot whose approval is being resolved."`
+	ApprovalID    string `json:"approval_id" desc:"Pending approval id from PeerSnapshot pendingApprovals."`
+	Decision      string `json:"decision" jsonschema:"enum=allow_once,enum=allow_session,enum=deny" desc:"allow_once approves a single execution; allow_session approves this tool for the rest of the remote session (requires the approve_session peer scope, otherwise it is rejected; degrades to allow_once when the tool cannot carry a session grant); deny rejects it."`
+	Reason        string `json:"reason,omitempty" desc:"Optional short justification recorded with the decision."`
 }
 
 func (PeerResolveApprovalTool) Name() string { return "PeerResolveApproval" }
@@ -207,14 +205,14 @@ func (PeerResolveApprovalTool) Execute(ctx context.Context, call Call, env Env) 
 		return peerToolFailure(err.Error()), nil
 	}
 	input.PairingID = strings.TrimSpace(input.PairingID)
-	input.AgentID = strings.TrimSpace(input.AgentID)
+	input.TargetAgentID = strings.TrimSpace(input.TargetAgentID)
 	input.ApprovalID = strings.TrimSpace(input.ApprovalID)
 	input.Decision = strings.TrimSpace(input.Decision)
 	if input.PairingID == "" {
 		return peerToolFailure("pairing_id is required"), nil
 	}
-	if input.AgentID == "" {
-		return peerToolFailure("agent_id is required"), nil
+	if input.TargetAgentID == "" {
+		return peerToolFailure("target_agent_id is required"), nil
 	}
 	if input.ApprovalID == "" {
 		return peerToolFailure("approval_id is required"), nil
@@ -225,7 +223,7 @@ func (PeerResolveApprovalTool) Execute(ctx context.Context, call Call, env Env) 
 
 	raw, err := env.PeerCollaboration.PeerResolveApproval(ctx, PeerApprovalRequest{
 		PairingID:    input.PairingID,
-		AgentID:      input.AgentID,
+		AgentID:      input.TargetAgentID,
 		ApprovalID:   input.ApprovalID,
 		Decision:     input.Decision,
 		Reason:       strings.TrimSpace(input.Reason),

@@ -30,9 +30,16 @@ const (
 	temporaryTunnelStopping    = "stopping"
 	temporaryTunnelUnavailable = "unavailable"
 	temporaryTunnelError       = "error"
+
+	// cloudflared's quick-tunnel API may take up to 15 seconds before the
+	// process can print a URL. Leave time for that request and the subsequent
+	// edge connection instead of expiring at the same moment.
+	temporaryTunnelDefaultStartTimeout = 30 * time.Second
 )
 
-var cloudflareQuickTunnelURL = regexp.MustCompile(`https://[a-z0-9][a-z0-9-]*\.trycloudflare\.com(?:/[^\s"'<>]*)?`)
+var cloudflareQuickTunnelURL = regexp.MustCompile(`https://[a-z0-9][a-z0-9-]*\.trycloudflare\.com\b`)
+
+const cloudflareQuickTunnelAPIHost = "api.trycloudflare.com"
 
 // cloudflareNamedTunnelReady matches the line cloudflared logs once an edge
 // connection is live. A named tunnel never prints a public URL, because its
@@ -243,17 +250,20 @@ func namedPublicURL(named namedTunnelSettings) string {
 //
 // Two decisions are load-bearing:
 //
-//   - --config os.DevNull is kept for both modes. It isolates the child from any
+//   - --config points at an empty temporary file. It isolates the child from any
 //     cloudflared configuration already on the machine, so a stray local config
-//     cannot redirect Autoto's tunnel somewhere else.
+//     cannot redirect Autoto's tunnel somewhere else. A real file is used instead
+//     of os.DevNull because Windows treats NUL as a config path.
+//   - --edge-ip-version 4 avoids an unreachable IPv6 edge route without requiring
+//     users to disable IPv6 for the whole operating system.
 //   - --url is always passed. Without it a token-run tunnel takes its ingress
 //     from the dashboard, and if no ingress rule exists cloudflared answers every
 //     request with 503 while still reporting a healthy connection.
 //
 // The token goes in the environment via TUNNEL_TOKEN, never argv, because argv is
 // world-readable through process listings.
-func temporaryTunnelProcessSpec(port int, named namedTunnelSettings) temporaryTunnelSpec {
-	args := []string{"--config", os.DevNull, "tunnel", "--no-autoupdate"}
+func temporaryTunnelProcessSpec(port int, named namedTunnelSettings, configPath string) temporaryTunnelSpec {
+	args := []string{"--config", configPath, "tunnel", "--no-autoupdate", "--edge-ip-version", "4"}
 	if named.Hostname != "" {
 		// "run" with no tunnel argument uses the token from the environment.
 		args = append(args, "run", "--url", "http://127.0.0.1:"+strconv.Itoa(port))
@@ -273,6 +283,7 @@ func defaultTemporaryTunnelCommand(ctx context.Context, name string, spec tempor
 type temporaryTunnelProcessState struct {
 	process       temporaryTunnelProcess
 	cancel        context.CancelFunc
+	configPath    string
 	done          chan error
 	url           chan string
 	stopRequested bool
@@ -351,7 +362,7 @@ func newTemporaryTunnelManager(bindAddress string, options temporaryTunnelOption
 	}
 	timeout := options.startTimeout
 	if timeout <= 0 {
-		timeout = 15 * time.Second
+		timeout = temporaryTunnelDefaultStartTimeout
 	}
 
 	manager := &TemporaryTunnelManager{
@@ -633,24 +644,31 @@ func (m *TemporaryTunnelManager) StartTunnel(ctx context.Context) (TemporaryTunn
 	timeout := m.startTimeout
 	m.mu.Unlock()
 
+	configPath, err := temporaryTunnelConfigPath()
+	if err != nil {
+		return m.failStart(fmt.Errorf("create cloudflared config: %w", err))
+	}
 	processContext, cancel := context.WithCancel(context.Background())
-	process := command(processContext, binaryPath, temporaryTunnelProcessSpec(port, named))
+	process := command(processContext, binaryPath, temporaryTunnelProcessSpec(port, named, configPath))
 	stdout, err := process.StdoutPipe()
 	if err != nil {
+		_ = os.Remove(configPath)
 		cancel()
 		return m.failStart(err)
 	}
 	stderr, err := process.StderrPipe()
 	if err != nil {
 		_ = stdout.Close()
+		_ = os.Remove(configPath)
 		cancel()
 		return m.failStart(err)
 	}
 	running := &temporaryTunnelProcessState{
-		process: process,
-		cancel:  cancel,
-		done:    make(chan error, 1),
-		url:     make(chan string, 1),
+		process:    process,
+		cancel:     cancel,
+		configPath: configPath,
+		done:       make(chan error, 1),
+		url:        make(chan string, 1),
 	}
 	m.mu.Lock()
 	m.process = running
@@ -658,6 +676,7 @@ func (m *TemporaryTunnelManager) StartTunnel(ctx context.Context) (TemporaryTunn
 	if err := process.Start(); err != nil {
 		_ = stdout.Close()
 		_ = stderr.Close()
+		_ = os.Remove(configPath)
 		cancel()
 		m.mu.Lock()
 		if m.process == running {
@@ -688,6 +707,9 @@ func (m *TemporaryTunnelManager) StartTunnel(ctx context.Context) (TemporaryTunn
 		if err == nil {
 			err = errors.New("cloudflared exited before exposing a temporary tunnel")
 		}
+		if named.Hostname == "" {
+			err = quickTunnelNetworkError(err)
+		}
 		return m.Snapshot(), err
 	case <-timer.C:
 		// The two modes fail for different reasons, and the distinction is what
@@ -697,6 +719,8 @@ func (m *TemporaryTunnelManager) StartTunnel(ctx context.Context) (TemporaryTunn
 		err := errors.New("cloudflared did not expose a temporary URL before the startup timeout")
 		if named.Hostname != "" {
 			err = errors.New("cloudflared did not register a named tunnel connection before the startup timeout")
+		} else {
+			err = quickTunnelNetworkError(err)
 		}
 		_ = m.stopProcess(ctx, running)
 		return m.failStart(err)
@@ -763,6 +787,9 @@ func (m *TemporaryTunnelManager) stopProcess(ctx context.Context, running *tempo
 
 func (m *TemporaryTunnelManager) waitTemporaryTunnel(running *temporaryTunnelProcessState) {
 	err := running.process.Wait()
+	if running.configPath != "" {
+		_ = os.Remove(running.configPath)
+	}
 	running.cancel()
 	m.mu.Lock()
 	if m.process == running {
@@ -819,6 +846,27 @@ func (m *TemporaryTunnelManager) setErrorLocked(err error) {
 // Output lines are never forwarded anywhere else. cloudflared logs request URLs
 // and headers at debug level, so treating its output as a data source to scan
 // rather than a stream to surface keeps that out of Autoto's logs and API.
+func temporaryTunnelConfigPath() (string, error) {
+	file, err := os.CreateTemp("", "autoto-cloudflared-*.yml")
+	if err != nil {
+		return "", err
+	}
+	path := file.Name()
+	if err := file.Close(); err != nil {
+		_ = os.Remove(path)
+		return "", err
+	}
+	return path, nil
+}
+
+func quickTunnelNetworkError(err error) error {
+	cause := "cloudflared did not obtain a public URL"
+	if err != nil {
+		cause = err.Error()
+	}
+	return fmt.Errorf("Cloudflare Quick Tunnel 無法連線（%s）。Autoto 已自動將 cloudflared Edge 設為 IPv4，不需要先手動關閉整台 Windows 的 IPv6。這不是要求你每次手動切換；請先確認目前網路允許 cloudflared 對外 TCP 443。可用 PowerShell 測試 `Test-NetConnection api.trycloudflare.com -Port 443 -AddressFamily IPv4`；若要檢查 IPv6，再執行 `ping -6 api.trycloudflare.com`。若 IPv4 也失敗，請檢查 VPN、Proxy、防火牆或防毒軟體，或改用手機熱點後重試", cause)
+}
+
 func scanTemporaryTunnelOutput(reader io.ReadCloser, urls chan<- string, namedURL string) {
 	defer reader.Close()
 	scanner := bufio.NewScanner(reader)
@@ -843,8 +891,14 @@ func scanTemporaryTunnelOutput(reader io.ReadCloser, urls chan<- string, namedUR
 }
 
 func parseCloudflareQuickTunnelURL(output string) string {
-	match := cloudflareQuickTunnelURL.FindString(output)
-	return strings.TrimRight(match, ".,;:)")
+	for _, match := range cloudflareQuickTunnelURL.FindAllString(output, -1) {
+		host := strings.TrimPrefix(strings.ToLower(match), "https://")
+		if host == cloudflareQuickTunnelAPIHost {
+			continue
+		}
+		return strings.TrimRight(match, ".,;:)")
+	}
+	return ""
 }
 
 func tunnelPort(address string) (int, error) {

@@ -166,6 +166,11 @@ export function transcriptMessageText(message = {}) {
 export function isTranscriptMessageVisible(message = {}) {
   const blocks = messageContentBlocks(message);
   if (messageIsToolResult(message, blocks)) return false;
+  // A rerun/correction retires later turns from the model context. Keep those
+  // rows in the database for audit and rollback, but do not show them as live
+  // conversation content; otherwise a retry looks like it created a duplicate
+  // history and the user sees an unnecessary "retired" marker.
+  if (message.supersededAt) return false;
   if (transcriptMessageText(message).trim()) return true;
   if (chatMessagePresentation(message).normalizedRole === "assistant" && normalizeGeneratedImageBlocks(message).length) return true;
   return Array.isArray(message.attachments) && message.attachments.length > 0;

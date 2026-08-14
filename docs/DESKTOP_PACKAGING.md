@@ -1,6 +1,5 @@
 # Autoto 桌面打包與簽名（邊界說明）
 
-> 配套：`docs/DESKTOP_FRAMEWORK_WAILS_TAURI_ASSESSMENT.md` §12.2  
 > 原則：**CLI 瀏覽器遠端路徑永遠可用**；桌面殼是可選客戶端。
 
 ## 1. 開發入口（日常）

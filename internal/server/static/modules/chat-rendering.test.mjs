@@ -349,6 +349,64 @@ test("explicit transcript scrolling follows the newest message across mobile lay
   }
 });
 
+test("full snapshots preserve a manually collapsed per-message activity group", () => {
+  const details = { open: false };
+  const stack = {
+    dataset: { toolActivityStackKey: "msg:a1" },
+    querySelector: (selector) => selector === "details.tool-activity-group" ? details : null,
+  };
+  const messagesElement = {
+    classList: { add() {}, remove() {}, contains: () => false },
+    dataset: {},
+    scrollHeight: 100,
+    clientHeight: 0,
+    scrollTop: 0,
+    removeAttribute() {},
+    querySelector(selector) {
+      if (selector === "[data-tool-activity-stack]") return stack;
+      return null;
+    },
+    querySelectorAll(selector) {
+      if (selector === "[data-tool-activity-stack]") return [stack];
+      if (selector === "[data-message-activity]") return [];
+      return [];
+    },
+    set innerHTML(_value) {
+      // A newly generated stack starts from its template default. The renderer
+      // must apply the user's saved state after this replacement.
+      details.open = true;
+    },
+    get innerHTML() { return ""; },
+    addEventListener() {},
+  };
+  const previousDocument = globalThis.document;
+  globalThis.document = { getElementById: (id) => id === "messages" ? messagesElement : null };
+  try {
+    const state = createRenderingState({
+      currentMessages: [{ id: "a1", role: "assistant", contentText: "working" }],
+      liveToolOutputs: {
+        "tool-1": { agentId: "agent-1", runId: "run-1", messageId: "a1", toolUseId: "tool-1", toolName: "Read", status: "completed" },
+      },
+    });
+    const controller = createChatRenderingController({
+      state,
+      attachmentIcon: () => "file",
+      attachmentKind: () => "file",
+      copyToClipboard: async () => true,
+      notifyTerminal: () => {},
+      selectedModelValue: () => "",
+      shortPath: (value) => value,
+      showError: () => {},
+      showToast: () => {},
+    });
+
+    controller.applyMessageSnapshot(state.currentMessages, "agent-1");
+    assert.equal(details.open, false, "a snapshot must not reopen a collapsed per-message group");
+  } finally {
+    globalThis.document = previousDocument;
+  }
+});
+
 test("full transcript snapshots preserve manual offsets and invalidate stale tail settles", () => {
   const harness = createAsyncChatRenderingHarness(async () => ({}));
   const previousRAF = globalThis.requestAnimationFrame;
@@ -3628,22 +3686,18 @@ test("per-message render cache invalidates when a message's index changes (older
 // deleting them would make the history unreadable — but must be visibly marked,
 // and must not offer a correct button of their own, since correcting an already
 // retired message would supersede nothing.
-test("superseded messages stay visible, are marked, and lose their correct button", () => {
+test("superseded messages are hidden from the transcript and do not show a retired label", () => {
   const rendered = renderSnapshot([
     { id: "m1", role: "user", contentText: "live question" },
     { id: "m2", role: "user", contentText: "withdrawn question", supersededAt: "2026-07-27T00:00:00Z" },
     { id: "m3", role: "assistant", contentText: "withdrawn answer", supersededAt: "2026-07-27T00:00:00Z" },
   ]);
 
-  // Nothing is dropped from the transcript.
+  // Retired rows remain in storage for audit, but are not part of the visible
+  // conversation after a retry/correction.
   assert.match(rendered.html, /live question/);
-  assert.match(rendered.html, /withdrawn question/);
-  assert.match(rendered.html, /withdrawn answer/);
+  assert.doesNotMatch(rendered.html, /withdrawn question|withdrawn answer|已作廢|Retired|message-superseded/);
 
-  const supersededMarkers = rendered.html.match(/message-superseded/g) || [];
-  assert.equal(supersededMarkers.length, 2, "both retired messages should carry the marker class");
-
-  // Only the live user message keeps an edit affordance.
   const correctButtons = rendered.html.match(/data-correct-message="m\d"/g) || [];
   assert.deepEqual(correctButtons, ['data-correct-message="m1"']);
 });

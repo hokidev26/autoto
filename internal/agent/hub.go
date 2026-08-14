@@ -73,7 +73,10 @@ type HubConfig struct {
 	MaxStreams       int
 	IdleTimeout      time.Duration
 	Clock            func() time.Time
-	NewSession       func() string
+	// NewSession allocates a stream-session id. An empty result is failure:
+	// the hub does not create or wrap the stream, and the operation is dropped
+	// rather than panicking. The default uses crypto/rand with no fallback.
+	NewSession func() string
 }
 
 type SubscribeOptions struct {
@@ -100,6 +103,15 @@ type Subscription struct {
 type hubSubscriber struct {
 	events Subscriber
 	resync chan ResyncReason
+	mu     sync.Mutex
+	closed bool
+}
+
+// deliverItem is one publish's fan-out work, queued under the hub lock so
+// sequence order is fixed before any subscriber send runs outside it.
+type deliverItem struct {
+	event Event
+	subs  []*hubSubscriber
 }
 
 // ringEntry carries the encoded size alongside the event. Publish is the hottest
@@ -117,12 +129,19 @@ type stream struct {
 	ringBytes    int
 	subscribers  map[*hubSubscriber]struct{}
 	lastActivity time.Time
+	pending      []deliverItem
+	fanoutMu     sync.Mutex
 }
 
 type Hub struct {
 	mu      sync.Mutex
 	config  HubConfig
 	streams map[string]*stream
+
+	// testFanoutStall, if set, runs after Publish has released the hub lock
+	// and taken the per-stream fan-out lock. Tests use it to prove other hub
+	// operations are not blocked by subscriber delivery.
+	testFanoutStall func()
 }
 
 type StreamWatermark struct {
@@ -240,12 +259,28 @@ func NewHubWithConfig(config HubConfig) *Hub {
 	return &Hub{config: config, streams: make(map[string]*stream)}
 }
 
+// randRead is crypto/rand.Read in production. Tests replace it to simulate
+// generator failure without panicking the process.
+var randRead = rand.Read
+
 func randomStreamSession() string {
-	var bytes [16]byte
-	if _, err := rand.Read(bytes[:]); err != nil {
-		panic("generate stream session: " + err.Error())
+	id, err := generateStreamSession()
+	if err != nil {
+		return ""
 	}
-	return hex.EncodeToString(bytes[:])
+	return id
+}
+
+func generateStreamSession() (string, error) {
+	var bytes [16]byte
+	if _, err := randRead(bytes[:]); err != nil {
+		// Stream-session ids are identity/replay tokens, not secrets, but a
+		// non-crypto fallback could collide with a live session after wrap and
+		// make a client treat a reset ring as the same stream. Fail closed:
+		// an empty id means the caller must drop the operation.
+		return "", err
+	}
+	return hex.EncodeToString(bytes[:]), nil
 }
 
 // Subscribe retains the old realtime-only API. It intentionally does not
@@ -342,6 +377,13 @@ func replayAfter(entries []ringEntry, after uint64) []Event {
 
 // Publish assigns the protocol/session/sequence envelope before retaining and
 // delivering the event. Slow subscribers are explicitly marked for resync.
+//
+// Sequence assignment, ring admission, and the subscriber snapshot happen
+// under the hub lock. Fan-out runs after the lock is released. Per-subscriber
+// order is the sequence order: each publish appends to the stream's pending
+// queue under the lock, and one drain (serialized by fanoutMu) delivers that
+// queue FIFO. Two Publish calls therefore cannot interleave sends to the same
+// subscriber even though they no longer hold the hub lock during the send.
 func (h *Hub) Publish(event Event) {
 	now := h.now()
 	// Bounded outside the lock, and the size it computed is carried forward so the
@@ -355,8 +397,13 @@ func (h *Hub) Publish(event Event) {
 		return
 	}
 	if current.sequence == math.MaxUint64 {
+		nextSession := h.config.NewSession()
+		if nextSession == "" {
+			h.mu.Unlock()
+			return
+		}
 		h.resyncAllLocked(current, ResyncSessionMismatch)
-		current.session = h.config.NewSession()
+		current.session = nextSession
 		current.sequence = 0
 		current.ring = nil
 		current.ringBytes = 0
@@ -402,14 +449,95 @@ func (h *Hub) Publish(event Event) {
 		current.ringBytes = 0
 	}
 	current.lastActivity = now
-	for sub := range current.subscribers {
-		select {
-		case sub.events <- event:
-		default:
-			h.resyncSubscriberLocked(current, sub, ResyncSubscriberOverrun)
+	var enqueued bool
+	if n := len(current.subscribers); n > 0 {
+		subs := make([]*hubSubscriber, 0, n)
+		for sub := range current.subscribers {
+			subs = append(subs, sub)
 		}
+		current.pending = append(current.pending, deliverItem{event: event, subs: subs})
+		enqueued = true
 	}
 	h.mu.Unlock()
+	if enqueued {
+		h.fanoutPending(current)
+	}
+}
+
+// fanoutPending delivers queued events in the order they were enqueued under
+// the hub lock. It must not be called while holding h.mu: it takes fanoutMu
+// first and then re-acquires h.mu only to dequeue the next item.
+func (h *Hub) fanoutPending(current *stream) {
+	current.fanoutMu.Lock()
+	defer current.fanoutMu.Unlock()
+	if h.testFanoutStall != nil {
+		h.testFanoutStall()
+	}
+	for {
+		h.mu.Lock()
+		if len(current.pending) == 0 {
+			h.mu.Unlock()
+			return
+		}
+		item := current.pending[0]
+		copy(current.pending, current.pending[1:])
+		current.pending[len(current.pending)-1] = deliverItem{}
+		current.pending = current.pending[:len(current.pending)-1]
+		h.mu.Unlock()
+
+		var overruns []*hubSubscriber
+		for _, sub := range item.subs {
+			if sub.trySend(item.event) {
+				overruns = append(overruns, sub)
+			}
+		}
+		if len(overruns) == 0 {
+			continue
+		}
+		h.mu.Lock()
+		for _, sub := range overruns {
+			if _, ok := current.subscribers[sub]; ok {
+				h.resyncSubscriberLocked(current, sub, ResyncSubscriberOverrun)
+			}
+		}
+		h.mu.Unlock()
+	}
+}
+
+// trySend delivers one event without blocking. It reports overrun only when
+// the subscriber is still open and the buffer is full. A subscriber closed
+// after this snapshot was taken is a no-op so the send cannot panic.
+func (s *hubSubscriber) trySend(event Event) (overrun bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.closed {
+		return false
+	}
+	select {
+	case s.events <- event:
+		return false
+	default:
+		return true
+	}
+}
+
+// closeIfOpen closes subscriber channels at most once. Send and close both
+// take s.mu so a snapshot still in flight cannot send on a closed channel.
+func (s *hubSubscriber) closeIfOpen(reason ResyncReason) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.closed {
+		return
+	}
+	s.closed = true
+	if reason != "" {
+		select {
+		case s.resync <- reason:
+		default:
+		}
+	}
+	close(s.events)
+	close(s.resync)
 }
 
 func boundedHubEvent(event Event, maximum int) Event {
@@ -686,8 +814,7 @@ func (h *Hub) removeSubscriber(agentID string, sub *hubSubscriber) {
 	if current != nil {
 		if _, ok := current.subscribers[sub]; ok {
 			delete(current.subscribers, sub)
-			close(sub.events)
-			close(sub.resync)
+			sub.closeIfOpen("")
 			current.lastActivity = now
 		}
 	}
@@ -700,6 +827,10 @@ func (h *Hub) ensureStreamLocked(agentID string, now time.Time) *stream {
 	if current := h.streams[agentID]; current != nil {
 		return current
 	}
+	session := h.config.NewSession()
+	if session == "" {
+		return nil
+	}
 	for len(h.streams) >= h.config.MaxStreams {
 		victimID, victim := h.oldestStreamLocked()
 		if victim == nil {
@@ -709,7 +840,7 @@ func (h *Hub) ensureStreamLocked(agentID string, now time.Time) *stream {
 		delete(h.streams, victimID)
 	}
 	current := &stream{
-		session:      h.config.NewSession(),
+		session:      session,
 		subscribers:  make(map[*hubSubscriber]struct{}),
 		lastActivity: now,
 	}
@@ -744,10 +875,5 @@ func (h *Hub) resyncAllLocked(current *stream, reason ResyncReason) {
 
 func (h *Hub) resyncSubscriberLocked(current *stream, sub *hubSubscriber, reason ResyncReason) {
 	delete(current.subscribers, sub)
-	select {
-	case sub.resync <- reason:
-	default:
-	}
-	close(sub.events)
-	close(sub.resync)
+	sub.closeIfOpen(reason)
 }

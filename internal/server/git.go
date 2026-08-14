@@ -777,7 +777,14 @@ func (w *limitedBuffer) Write(p []byte) (int, error) {
 func runGitCommand(parent context.Context, dir string, maxBytes int, timeout time.Duration, allowedExitCodes []int, args ...string) (string, bool, error) {
 	ctx, cancel := context.WithTimeout(parent, timeout)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, "git", args...)
+	// -c flags must precede the git subcommand (they are global options),
+	// so prepend safe.directory=* so any path the user points at this
+	// desktop binary at counts as trusted even when the OS reports it as
+	// owned by a different user, which otherwise surfaces as a misleading
+	// "not a git repository" error.
+	argsWithSafeDir := []string{"-c", "safe.directory=*"}
+	argsWithSafeDir = append(argsWithSafeDir, args...)
+	cmd := exec.CommandContext(ctx, "git", argsWithSafeDir...)
 	// Git status and diff refresh often while a task runs; each one would flash a
 	// console window on Windows without this.
 	process.HideWindow(cmd)
@@ -809,6 +816,20 @@ func runGitCommand(parent context.Context, dir string, maxBytes int, timeout tim
 		if msg == "" {
 			msg = err.Error()
 		}
+		// Surface the working dir and full argv on failure so a
+		// misconfigured path or misleading "not a git repository" error
+		// has enough context to debug without re-running the binary.
+		argsQuoted := make([]string, len(args))
+		for i, a := range args {
+			if a == "" {
+				argsQuoted[i] = `""`
+			} else if strings.ContainsAny(a, " \t\"") {
+				argsQuoted[i] = strconv.Quote(a)
+			} else {
+				argsQuoted[i] = a
+			}
+		}
+		msg = fmt.Sprintf(`"git" %s failed in %s (exit %d): %s`, strings.Join(argsQuoted, " "), strconv.Quote(dir), exitCode, msg)
 		status := http.StatusInternalServerError
 		lower := strings.ToLower(msg)
 		if strings.Contains(lower, "not a git repository") || strings.Contains(lower, "not a git repo") {

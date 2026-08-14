@@ -36,3 +36,8 @@ tmp/
 # Scratch scripts kept beside the source while debugging. They are working
 # notes, not part of the build, and they accumulate fast.
 _tmp_*
+
+# Internal working documents that stay on the maintainer's machine only.
+# These are local planning notes, code-review audits, and proposals; they
+# are not part of the public product and must never be pushed to GitHub.
+internal-docs/

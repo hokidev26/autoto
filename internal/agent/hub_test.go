@@ -2,7 +2,10 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"math"
+	"sync"
 	"testing"
 	"time"
 )
@@ -163,5 +166,229 @@ func TestSubscribeCompatibilityIsRealtimeOnly(t *testing.T) {
 		}
 	case <-time.After(time.Second):
 		t.Fatal("timed out waiting for compatibility event")
+	}
+}
+
+func TestHubFanoutDoesNotHoldHubLock(t *testing.T) {
+	hub := NewHubWithConfig(HubConfig{NewSession: sequenceSessions()})
+	sub := hub.SubscribeProtocol(t.Context(), SubscribeOptions{AgentID: "agent-1"})
+	if sub.Reason != "" {
+		t.Fatalf("subscribe failed: %q", sub.Reason)
+	}
+
+	started := make(chan struct{})
+	release := make(chan struct{})
+	var releaseOnce sync.Once
+	hub.testFanoutStall = func() {
+		close(started)
+		<-release
+	}
+	t.Cleanup(func() {
+		hub.testFanoutStall = nil
+		releaseOnce.Do(func() { close(release) })
+	})
+
+	published := make(chan struct{})
+	go func() {
+		hub.Publish(Event{Type: "one", AgentID: "agent-1"})
+		close(published)
+	}()
+
+	select {
+	case <-started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for fan-out stall")
+	}
+
+	finished := make(chan StreamWatermark, 1)
+	go func() {
+		finished <- hub.Watermark("agent-1")
+	}()
+	select {
+	case watermark := <-finished:
+		if watermark.LatestSequence != 1 {
+			t.Fatalf("watermark during fan-out = %+v", watermark)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Watermark blocked by subscriber fan-out; hub lock still held")
+	}
+
+	releaseOnce.Do(func() { close(release) })
+	select {
+	case <-published:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Publish did not finish after stall was released")
+	}
+	select {
+	case event := <-sub.Events:
+		if event.Sequence != 1 || event.Type != "one" {
+			t.Fatalf("unexpected live event: %+v", event)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for live event after stall")
+	}
+}
+
+func TestHubConcurrentPublishPreservesPerSubscriberOrder(t *testing.T) {
+	const publishers = 4
+	const perPublisher = 100
+	const subscribers = 3
+	total := publishers * perPublisher
+	hub := NewHubWithConfig(HubConfig{
+		SubscriberBuffer: total,
+		NewSession:       sequenceSessions(),
+	})
+	subs := make([]*Subscription, subscribers)
+	for i := 0; i < subscribers; i++ {
+		subs[i] = hub.SubscribeProtocol(t.Context(), SubscribeOptions{AgentID: "agent-1"})
+		if subs[i].Reason != "" {
+			t.Fatalf("subscribe %d failed: %q", i, subs[i].Reason)
+		}
+	}
+
+	var wg sync.WaitGroup
+	for p := 0; p < publishers; p++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for i := 0; i < perPublisher; i++ {
+				hub.Publish(Event{Type: "n", AgentID: "agent-1"})
+			}
+		}()
+	}
+	wg.Wait()
+
+	for si, sub := range subs {
+		var last uint64
+		for n := 0; n < total; n++ {
+			select {
+			case event := <-sub.Events:
+				if event.Sequence != last+1 {
+					t.Fatalf("subscriber %d: got sequence %d after %d", si, event.Sequence, last)
+				}
+				last = event.Sequence
+			case reason := <-sub.Resync:
+				t.Fatalf("subscriber %d resynced at %d: %q", si, last, reason)
+			case <-time.After(2 * time.Second):
+				t.Fatalf("subscriber %d timed out after sequence %d", si, last)
+			}
+		}
+	}
+}
+
+func TestHubOverrunOfOneSubscriberDoesNotStarveAnother(t *testing.T) {
+	hub := NewHubWithConfig(HubConfig{
+		SubscriberBuffer: 1,
+		NewSession:       sequenceSessions(),
+	})
+	slow := hub.SubscribeProtocol(t.Context(), SubscribeOptions{AgentID: "agent-1"})
+	fast := hub.SubscribeProtocol(t.Context(), SubscribeOptions{AgentID: "agent-1"})
+	if slow.Reason != "" || fast.Reason != "" {
+		t.Fatalf("subscribe failed: slow=%q fast=%q", slow.Reason, fast.Reason)
+	}
+
+	hub.Publish(Event{Type: "one", AgentID: "agent-1"})
+	select {
+	case event := <-fast.Events:
+		if event.Type != "one" {
+			t.Fatalf("fast subscriber first event = %+v", event)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("fast subscriber missed the first event")
+	}
+	hub.Publish(Event{Type: "two", AgentID: "agent-1"})
+
+	select {
+	case reason := <-slow.Resync:
+		if reason != ResyncSubscriberOverrun {
+			t.Fatalf("slow subscriber reason = %q", reason)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("slow subscriber was not marked overrun")
+	}
+
+	select {
+	case event := <-fast.Events:
+		if event.Type != "two" || event.Sequence != 2 {
+			t.Fatalf("fast subscriber second event = %+v", event)
+		}
+	case reason := <-fast.Resync:
+		t.Fatalf("fast subscriber resynced: %q", reason)
+	case <-time.After(2 * time.Second):
+		t.Fatal("fast subscriber starved after the slow subscriber overran")
+	}
+}
+
+func TestGenerateStreamSessionRandFailureReturnsError(t *testing.T) {
+	orig := randRead
+	t.Cleanup(func() { randRead = orig })
+	randRead = func([]byte) (int, error) { return 0, errors.New("rand unavailable") }
+
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			t.Fatalf("generateStreamSession panicked: %v", recovered)
+		}
+	}()
+	id, err := generateStreamSession()
+	if err == nil || id != "" {
+		t.Fatalf("generateStreamSession() = %q, %v", id, err)
+	}
+	if randomStreamSession() != "" {
+		t.Fatal("randomStreamSession must fail closed with an empty id")
+	}
+}
+
+func TestHubSessionAllocationFailureDoesNotPanic(t *testing.T) {
+	hub := NewHubWithConfig(HubConfig{NewSession: func() string { return "" }})
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			t.Fatalf("Publish panicked: %v", recovered)
+		}
+	}()
+	hub.Publish(Event{Type: "one", AgentID: "agent-1"})
+	hub.mu.Lock()
+	streams := len(hub.streams)
+	hub.mu.Unlock()
+	if streams != 0 {
+		t.Fatalf("failed session allocation created %d streams", streams)
+	}
+	sub := hub.SubscribeProtocol(t.Context(), SubscribeOptions{AgentID: "agent-1"})
+	if sub.Reason != ResyncStreamEvicted {
+		t.Fatalf("subscribe reason = %q, want %q", sub.Reason, ResyncStreamEvicted)
+	}
+}
+
+func TestHubSequenceWrapSessionFailureLeavesStreamIntact(t *testing.T) {
+	var calls int
+	hub := NewHubWithConfig(HubConfig{NewSession: func() string {
+		calls++
+		if calls == 1 {
+			return "session-1"
+		}
+		return ""
+	}})
+	hub.Publish(Event{Type: "one", AgentID: "agent-1"})
+	hub.mu.Lock()
+	current := hub.streams["agent-1"]
+	current.sequence = math.MaxUint64
+	session := current.session
+	ringLen := len(current.ring)
+	hub.mu.Unlock()
+
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			t.Fatalf("Publish panicked on wrap: %v", recovered)
+		}
+	}()
+	hub.Publish(Event{Type: "wrap", AgentID: "agent-1"})
+
+	hub.mu.Lock()
+	defer hub.mu.Unlock()
+	current = hub.streams["agent-1"]
+	if current.session != session || current.sequence != math.MaxUint64 {
+		t.Fatalf("wrap failure mutated stream session=%q seq=%d", current.session, current.sequence)
+	}
+	if len(current.ring) != ringLen {
+		t.Fatalf("wrap failure dropped the ring: %d -> %d", ringLen, len(current.ring))
 	}
 }

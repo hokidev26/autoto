@@ -51,7 +51,7 @@ CI runs the same check script and also runs `golangci-lint`; keep warnings fixed
 - Keep commits focused.
 - Do not commit local build outputs such as `/autoto`.
 - Do not commit `.env`, local databases, config files with credentials, or API keys.
-- Update `PROJECT_PLAN.md` or `README.md` when behavior changes.
+- Update `README.md` and `CHANGELOG.md` when behavior changes.
 
 ## Engineering invariants
 

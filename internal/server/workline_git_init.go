@@ -102,19 +102,51 @@ func discoverGitSubdirectories(ctx context.Context, root string) ([]gitRepositor
 	return result, nil
 }
 
+// resolveGitRepository returns the single git repository that should own
+// worklines for the project. The root itself takes priority; only when it has
+// no usable repository do we fall back to a single nested subdirectory.
+//
+// A repository rooted at the user's HOME (or an ancestor of it) is treated
+// as an accidental parent repository. Falling through lets discovery find the
+// real repository one level down instead of routing a project through HOME.
 func resolveGitRepository(ctx context.Context, sourcePath string) (gitRepositoryState, []gitRepositoryState, error) {
 	repository, err := inspectGitRepository(ctx, sourcePath)
-	if err != nil || repository.Root != "" {
+	if err != nil || repository.Root == "" {
 		return repository, nil, err
 	}
-	candidates, err := discoverGitSubdirectories(ctx, sourcePath)
-	if err != nil {
-		return gitRepositoryState{}, nil, err
+	if isUserHomeOrAncestor(repository.Root) {
+		candidates, err := discoverGitSubdirectories(ctx, sourcePath)
+		if err != nil {
+			return gitRepositoryState{}, nil, err
+		}
+		if len(candidates) == 1 {
+			return candidates[0], candidates, nil
+		}
+		return gitRepositoryState{}, candidates, nil
 	}
-	if len(candidates) == 1 {
-		return candidates[0], candidates, nil
+	return repository, nil, nil
+}
+
+// isUserHomeOrAncestor reports whether the given path equals the user's HOME
+// directory or is one of its ancestors. Git treats every directory between a
+// repository's root and the working tree as part of the working tree, so a
+// stray `~/.git` makes every nested directory look like it lives inside that
+// repository. If the toplevel we got back is HOME (or above HOME, which only
+// happens on path-resolution oddities), the candidate is clearly not the
+// project the user meant to point at.
+func isUserHomeOrAncestor(repoRoot string) bool {
+	repoRoot = strings.TrimSpace(repoRoot)
+	if repoRoot == "" {
+		return false
 	}
-	return gitRepositoryState{}, candidates, nil
+	home, err := os.UserHomeDir()
+	if err != nil || strings.TrimSpace(home) == "" {
+		return false
+	}
+	if pathWithin(repoRoot, home) {
+		return true
+	}
+	return false
 }
 
 func gitCandidatePaths(candidates []gitRepositoryState) []string {

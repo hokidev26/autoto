@@ -43,7 +43,7 @@ Canonical Autoto inputs always take precedence when canonical and legacy forms a
 
 Deprecation warnings may record that a successfully used legacy command, fallback, credential alias class, or its canonical replacement was selected, but they must never record token, password, cookie, Authorization header, API key, MCP environment value, or other secret values. Warnings are deduplicated once per process or compatibility key so repeated requests do not amplify sensitive operational metadata; invalid credentials and canonical-preferred paths do not emit legacy-use warnings.
 
-The removal schedule and gates are defined only in `PROJECT_PLAN.md`: no runtime legacy surface is removed before v0.4.0 or before at least two tagged releases of migration runway.
+The removal schedule and gates are internal: no runtime legacy surface is removed before v1.0.0 or before at least two tagged releases of migration runway.
 
 ## Current security boundaries
 

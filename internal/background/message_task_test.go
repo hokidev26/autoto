@@ -214,8 +214,15 @@ func TestExecuteSendMessageRejectsArchivedTargetAndDirectCycle(t *testing.T) {
 		t.Fatal(err)
 	}
 	result, err = executor.executeSendMessage(ctx, task, sender, agentPayload{Prompt: "hi", TargetAgentID: target.ID}, discardOutputWriter{})
-	if err == nil || result.ErrorCode != "message_cycle_rejected" {
-		t.Fatalf("direct cycle: errorCode = %q err = %v", result.ErrorCode, err)
+	if err != nil || result.ErrorCode != "" {
+		t.Fatalf("direct cycle should be informational: errorCode = %q err = %v", result.ErrorCode, err)
+	}
+	var projected messagePublicResult
+	if err := json.Unmarshal(result.JSON, &projected); err != nil {
+		t.Fatal(err)
+	}
+	if projected.Status != "already_in_progress" || !strings.Contains(projected.TargetError, "reply will return automatically") {
+		t.Fatalf("unexpected informational cycle result: %+v", projected)
 	}
 }
 

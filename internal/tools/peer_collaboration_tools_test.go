@@ -72,7 +72,7 @@ func TestPeerSnapshotReportsEmptyPairingList(t *testing.T) {
 
 func TestPeerSnapshotPassesRequestThroughAndReturnsServiceJSON(t *testing.T) {
 	service := &fakePeerCollaborationService{snapshotJSON: json.RawMessage(`{"projects":[],"agents":[{"id":"remote-agent"}]}`)}
-	input := json.RawMessage(`{"pairing_id":"pair-1","agent_id":"remote-agent","before":"cursor-9","message_limit":25,"run_limit":10}`)
+	input := json.RawMessage(`{"pairing_id":"pair-1","target_agent_id":"remote-agent","before":"cursor-9","message_limit":25,"run_limit":10}`)
 	result, err := (PeerSnapshotTool{}).Execute(context.Background(), Call{ID: "snap-2", Name: "PeerSnapshot", Input: input}, Env{AgentID: "agent-local", PeerCollaboration: service})
 	if err != nil || result.IsError {
 		t.Fatalf("unexpected result=%+v err=%v", result, err)
@@ -108,8 +108,8 @@ func TestPeerSnapshotEmptyServiceJSONYieldsSaneResult(t *testing.T) {
 func TestPeerToolsWithNilServiceReturnHelpfulError(t *testing.T) {
 	calls := map[Tool]json.RawMessage{
 		PeerSnapshotTool{}:        json.RawMessage(`{}`),
-		PeerSendTaskTool{}:        json.RawMessage(`{"pairing_id":"p","agent_id":"a","message":"m"}`),
-		PeerResolveApprovalTool{}: json.RawMessage(`{"pairing_id":"p","agent_id":"a","approval_id":"ap","decision":"deny"}`),
+		PeerSendTaskTool{}:        json.RawMessage(`{"pairing_id":"p","target_agent_id":"a","message":"m"}`),
+		PeerResolveApprovalTool{}: json.RawMessage(`{"pairing_id":"p","target_agent_id":"a","approval_id":"ap","decision":"deny"}`),
 	}
 	for tool, input := range calls {
 		result, err := tool.Execute(context.Background(), Call{ID: "nil-service", Name: tool.Name(), Input: input}, Env{})
@@ -122,10 +122,10 @@ func TestPeerToolsWithNilServiceReturnHelpfulError(t *testing.T) {
 func TestPeerSendTaskValidatesRequiredFieldsBeforeCallingService(t *testing.T) {
 	service := &fakePeerCollaborationService{}
 	for name, input := range map[string]string{
-		"missing pairing": `{"agent_id":"a","message":"do it"}`,
+		"missing pairing": `{"target_agent_id":"a","message":"do it"}`,
 		"missing agent":   `{"pairing_id":"p","message":"do it"}`,
-		"missing message": `{"pairing_id":"p","agent_id":"a"}`,
-		"blank message":   `{"pairing_id":"p","agent_id":"a","message":"   "}`,
+		"missing message": `{"pairing_id":"p","target_agent_id":"a"}`,
+		"blank message":   `{"pairing_id":"p","target_agent_id":"a","message":"   "}`,
 	} {
 		result, err := (PeerSendTaskTool{}).Execute(context.Background(), Call{ID: "send-invalid", Name: "PeerSendTask", Input: json.RawMessage(input)}, Env{AgentID: "agent-local", PeerCollaboration: service})
 		if err != nil || !result.IsError {
@@ -139,7 +139,7 @@ func TestPeerSendTaskValidatesRequiredFieldsBeforeCallingService(t *testing.T) {
 
 func TestPeerSendTaskHappyPathPassesLocalAgentID(t *testing.T) {
 	service := &fakePeerCollaborationService{taskJSON: json.RawMessage(`{"status":"queued","messageId":"msg-1"}`)}
-	input := json.RawMessage(`{"pairing_id":"pair-1","agent_id":"remote-agent","message":"run the tests","request_id":"req-7"}`)
+	input := json.RawMessage(`{"pairing_id":"pair-1","target_agent_id":"remote-agent","message":"run the tests","request_id":"req-7"}`)
 	result, err := (PeerSendTaskTool{}).Execute(context.Background(), Call{ID: "send-1", Name: "PeerSendTask", Input: input}, Env{AgentID: "agent-local", PeerCollaboration: service})
 	if err != nil || result.IsError {
 		t.Fatalf("unexpected result=%+v err=%v", result, err)
@@ -161,7 +161,7 @@ func TestPeerSendTaskHappyPathPassesLocalAgentID(t *testing.T) {
 
 func TestPeerSendTaskSurfacesServiceError(t *testing.T) {
 	service := &fakePeerCollaborationService{taskErr: errors.New("remote peer pairing is inactive")}
-	input := json.RawMessage(`{"pairing_id":"pair-1","agent_id":"remote-agent","message":"run"}`)
+	input := json.RawMessage(`{"pairing_id":"pair-1","target_agent_id":"remote-agent","message":"run"}`)
 	result, err := (PeerSendTaskTool{}).Execute(context.Background(), Call{ID: "send-err", Name: "PeerSendTask", Input: input}, Env{AgentID: "agent-local", PeerCollaboration: service})
 	if err != nil || !result.IsError || !strings.Contains(result.Output, "remote peer pairing is inactive") {
 		t.Fatalf("expected the service error message to surface, got result=%+v err=%v", result, err)
@@ -170,7 +170,7 @@ func TestPeerSendTaskSurfacesServiceError(t *testing.T) {
 
 func TestPeerResolveApprovalRejectsInvalidDecisionBeforeCallingService(t *testing.T) {
 	service := &fakePeerCollaborationService{}
-	input := json.RawMessage(`{"pairing_id":"p","agent_id":"a","approval_id":"ap","decision":"allow_always"}`)
+	input := json.RawMessage(`{"pairing_id":"p","target_agent_id":"a","approval_id":"ap","decision":"allow_always"}`)
 	result, err := (PeerResolveApprovalTool{}).Execute(context.Background(), Call{ID: "approve-invalid", Name: "PeerResolveApproval", Input: input}, Env{AgentID: "agent-local", PeerCollaboration: service})
 	if err != nil || !result.IsError || !strings.Contains(result.Output, "allow_once, allow_session or deny") {
 		t.Fatalf("expected decision validation error, got result=%+v err=%v", result, err)
@@ -182,7 +182,7 @@ func TestPeerResolveApprovalRejectsInvalidDecisionBeforeCallingService(t *testin
 
 func TestPeerResolveApprovalHappyPath(t *testing.T) {
 	service := &fakePeerCollaborationService{approvalJSON: json.RawMessage(`{"status":"resolved"}`)}
-	input := json.RawMessage(`{"pairing_id":"pair-1","agent_id":"remote-agent","approval_id":"appr-3","decision":"allow_once","reason":"reviewed the command"}`)
+	input := json.RawMessage(`{"pairing_id":"pair-1","target_agent_id":"remote-agent","approval_id":"appr-3","decision":"allow_once","reason":"reviewed the command"}`)
 	result, err := (PeerResolveApprovalTool{}).Execute(context.Background(), Call{ID: "approve-1", Name: "PeerResolveApproval", Input: input}, Env{AgentID: "agent-local", PeerCollaboration: service})
 	if err != nil || result.IsError {
 		t.Fatalf("unexpected result=%+v err=%v", result, err)

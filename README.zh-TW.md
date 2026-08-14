@@ -2,169 +2,158 @@
 
 [English](README.md) | 繁體中文 | [簡體中文](README.zh-CN.md)
 
-Autoto 是一個跑在你自己機器上的 coding agent。你給它一個任務，它在背景做，遇到你會想被問一聲的事情，它會先問。
+[![Release](https://img.shields.io/github/v/release/hokidev26/autoto)](https://github.com/hokidev26/autoto/releases)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Go 1.26+](https://img.shields.io/badge/Go-1.26%2B-00ADD8?logo=go)](go.mod)
+[![Platforms](https://img.shields.io/badge/Platforms-macOS%20%7C%20Linux%20%7C%20Windows-lightgrey)](#安裝)
 
-**任務 → 背景 run → 核准 → run 摘要 → diff → 指定路徑 commit**
+> **Autoto** 是一個跑在你自己機器上的 coding agent。
+> 你給它一個任務，它在背景做，遇到你會想被問一聲的事情，它會先問。
+> **任務 → 背景 run → 核准 → run 摘要 → diff → 指定路徑 commit**
 
-![Autoto local agent workflow demo](docs/demo.svg)
+---
 
-## 你可以用它做什麼
+## 為什麼用 Autoto
 
-**丟給它然後去做別的事。** 任務在背景跑，可以同時排幾個。每個 run 結束會給你摘要、可檢視的 diff，以及只暫存你勾選路徑的 commit。它不會替你 push、amend、reset，也不會用 `git add -A`。
+| 痛點 | Autoto 的做法 |
+|---|---|
+| AI 跑太久，坐電腦前等 | 任務在背景跑，送出後可以去做別的事 |
+| AI 亂改一堆檔案 | 結束後只給你看 diff，commit 只能送你點名的路徑 |
+| 出門後看不到進度 | 手機 UI 為小螢幕設計，可裝到主畫面當 PWA |
+| 出門後不能核准危險操作 | 手機 UI 或 Telegram 私聊遠端核准（一次性） |
+| 想從外面連回自家電腦 | 從設定頁開臨時 Cloudflare tunnel，密碼保護、會過期 |
+| 一次想跑幾個任務 | 任務可以排隊，背景 agent 自動接著做 |
+| 想試新功能又怕髒掉主分支 | Fork 到獨立的 Git worktree，預檢通過再合併 |
+| AI 一直重複同一個指令 | 連續重複會插進漸進式提醒，但不會否決呼叫 |
+| 工具輸出太大塞爆上下文 | 超過門檻的輸出自動落盤，模型用 Read/Grep 分頁 |
+| 想把模型分享給其他工具 | 把 provider 包成 OpenAI 兼容的 `/v1` 端點，每個 API key 獨立配額 |
 
-**用手機看它做到哪。** 介面是為小螢幕設計的，不是把桌面版縮小塞進去：下拉刷新、通知左滑關閉、輸入框不會被擠掉。可以安裝到手機主畫面獨立開啟，沒有瀏覽器外框，用起來像一般 App。
+**Autoto 不會**做的事：自動 push、amend、reset、force、clean、`git add -A`。任何模式、allow rule、核准都不能執行「遞迴刪除」「直接寫入 `/dev/sda`」「把 curl 灌進 shell」這類不可逆操作。`.env*`、credential、私鑰、`.git` 內部：Read/Write/Edit 直接拒絕，Glob/Grep 跳過。
 
-**從外面連回你的機器。** 在設定頁開一條臨時 Cloudflare 通道，會給你網址和 QR code 直接掃。遠端連線要密碼，分兩種模式：受限模式只能跟進度與核准，完整控制要你明確開啟。連線會過期，而且把政策改嚴會連已經開著的連線一起撤銷。
+---
 
-**在手機上核准，或用 Telegram。** run 需要危險操作的權限時，你可以遠端放行或拒絕。Telegram 配對只限私聊，範圍刻意做窄：查狀態、一次性核准、拒絕。它不是聊天助理，也沒有 `/task`。
+## 快速開始（命令列版）
 
-**把你的模型當 API 分享出去。** Autoto 可以把你設定好的 provider 以 OpenAI 相容的 `/v1` 端點提供給你其他工具和裝置用。每支金鑰有自己的模型白名單和用量歸戶，所以你可以只分享一部分，而不是把全部交出去。
+從 [GitHub Releases](https://github.com/hokidev26/autoto/releases) 下載 `autoto_<版本>_<OS>_<arch>`：
 
-**在隔離的副本裡動工。** 把 workline fork 成獨立的 Git worktree，讓 agent 在那裡做，做完先檢查合併是否乾淨再併回來。
+| OS | 檔案 | 架構 |
+|---|---|---|
+| **Windows** | `autoto_<版本>_windows_amd64.zip` | x64 |
+| **Windows** | `autoto_<版本>_windows_arm64.zip` | ARM |
+| **macOS** | `autoto_<版本>_darwin_arm64.tar.gz` | Apple Silicon |
+| **macOS** | `autoto_<版本>_darwin_amd64.tar.gz` | Intel |
+| **Linux** | `autoto_<版本>_linux_amd64.tar.gz` | x64 |
+| **Linux** | `autoto_<版本>_linux_arm64.tar.gz` | ARM |
 
-## 它不會做的事
-
-Autoto 是實驗性質的本機開發 MVP，不是經過加固的多人或生產環境服務。
-
-有些操作是直接拒絕，不只是需要核准。遞迴刪除、對裸裝置寫入、放寬權限、把下載內容直接餵給 shell 執行，這些被歸類為不可逆，任何權限模式、允許規則或人工核准都不能執行它們。這個閘門刻意做成不能為了方便而關掉。
-
-通常存放機密的檔案對檔案工具是硬阻擋：`.env*`、憑證與密鑰材料、`.git` 內容。`Read`、`Write`、`Edit` 直接拒絕，`Glob` 與 `Grep` 則完全不把它們列進結果。
-
-## 快速開始
-
-需要 Go 1.26 或更新版本：
+解壓縮後直接執行：
 
 ```bash
+# macOS / Linux
+./autoto
+
+# Windows
+autoto.exe
+```
+
+打開 http://localhost:16888
+
+> **預設狀態路徑**
+> ```
+> Config:   ~/.autoto/config.json
+> Database: ~/.autoto/autoto.db
+> Projects: ~/projects
+> ```
+
+> **第一次跑缺 Provider？** 進到 `Settings → Providers` 設定 OpenAI / Anthropic / Gemini / 兼容中轉站 之一的 API key，或直接用內建的 `cliproxyapi` 預設組。
+
+### 原生桌面版（選用）
+
+想要原生視窗、不用開瀏覽器，下載 `autoto-desktop_<版本>_<OS>_<arch>.tar.gz`：
+
+> 桌面版需要該平台原生 WebView 工具鏈，**無法交叉編譯**。GitHub Release 只發布 **macOS（arm64 / amd64）** 與 **Linux amd64**。
+> Windows 桌面版要從原始碼自編，參考下面「從原始碼構建」。
+
+---
+
+## 從原始碼構建
+
+需求：**Go 1.26+**（`go.mod` 宣告）。
+
+### CLI 版本（跨平台）
+
+```bash
+git clone https://github.com/hokidev26/autoto
+cd autoto
 go run ./cmd/autoto
 ```
 
-然後開啟：
-
-```text
-http://localhost:16888
-```
-
-預設的本機狀態位置：
-
-```text
-設定檔：  ~/.autoto/config.json
-資料庫：  ~/.autoto/autoto.db
-專案目錄：~/projects
-```
-
-## 下載安裝
-
-每個 tag 的 release 會發布兩種執行檔。它們是同一個產品，差別只在你怎麼開啟介面。
-
-**CLI** — `autoto_<版本>_<系統>_<架構>`，支援 macOS、Linux、Windows，amd64 與 arm64 都有。跑起來是一個本機伺服器，你用瀏覽器開介面。這個是交叉編譯的，所有平台由同一個 job 產出。
-
-**桌面版** — `autoto-desktop_<版本>_<系統>_<架構>.tar.gz`，支援 macOS（arm64 與 amd64）和 Linux amd64。同一個伺服器，但用原生視窗取代瀏覽器分頁。每個平台都在自己的 runner 上編譯，因為桌面外殼要連結該系統的原生 WebView，那個沒辦法交叉編譯。
-
-從 GitHub Releases 下載對應的檔案，解壓縮後執行即可。校驗碼一起發布：CLI 壓縮檔看 `checksums.txt`，桌面版每個壓縮檔旁邊有各自的 `.sha256`。
-
-下載桌面版之前有兩件事要知道。它沒有做程式碼簽章與公證，所以 macOS 的 Gatekeeper 第一次開啟會拒絕，你要到「系統設定 → 隱私權與安全性」明確允許；Windows 也可能出現類似警告。另外 Linux 桌面版只有 amd64，arm64 的 Linux 請用 CLI 版。
-
-從原始碼執行：
+### 桌面版（需原生 WebView）
 
 ```bash
-go run ./cmd/autoto
-```
-
-也可以指定自訂設定檔路徑：
-
-```bash
-go run ./cmd/autoto --config /path/to/config.json
-```
-
-### 建置執行檔
-
-CLI 版（可以交叉編譯到任何支援的平台）：
-
-```bash
-go build -o autoto ./cmd/autoto
-```
-
-桌面版必須加 `desktop` 建置標籤——不加會直接編譯失敗（"build constraints exclude all Go files"）——而且需要該平台的原生 WebView 工具鏈，所以沒辦法交叉編譯。Release 沒有發布 Windows 桌面版，但從原始碼建置沒問題：
-
-```bash
+# macOS / Linux
 go build -tags desktop -o autoto-desktop ./cmd/autoto-desktop
+
+# Windows（額外避免 console 視窗）
+go build -tags desktop -ldflags "-H windowsgui" -o autoto-desktop.exe ./cmd/autoto-desktop
 ```
 
-Windows 上再加 `-ldflags "-H windowsgui"`，桌面外殼啟動時才不會多開一個主控台視窗。
+### 接近 release 的精簡版
 
-想要接近 release 的瘦身版，可以去掉除錯資訊與本機路徑（大約小 25%；panic 堆疊仍保留函式名稱但沒有檔案路徑，`pprof` 之類的工具會少掉符號細節）：
+加上 `-trimpath -ldflags "-s -w"`（小約 25%；panic 堆疊仍保留函式名但沒有檔案路徑）：
 
 ```bash
 go build -trimpath -ldflags "-s -w" -o autoto ./cmd/autoto
 go build -tags "desktop,production" -trimpath -ldflags "-s -w -H windowsgui" -o autoto-desktop ./cmd/autoto-desktop
 ```
 
-`production` 標籤會另外關掉 Wails 的 devtools。完整建置參考見 `docs/BUILD.md` 和 `Makefile`。
+`production` 標籤會關掉 Wails devtools。完整構建說明見 `docs/BUILD.md` 與 `Makefile`。
 
-## 系統需求
-
-- Go 1.26 或更新版本，以 `go.mod` 的宣告為準
-- SQLite 透過純 Go 的 `modernc.org/sqlite` 驅動提供，不需要另外裝
-- Node.js 是選用的，只在驗證階段用來對內嵌前端腳本跑 `node --check` 與 `node --test`
-
-## 主要功能
-
-英文版 README 有逐項的完整清單。這裡按類別整理，方便先掌握輪廓。
-
-**Agent 與模型**
-
-- 本機 HTTP 伺服器，內嵌 HTML/CSS/JS 介面，前端用免建置的 ES module 架構
-- SQLite 持久化：專案、workline、agent、訊息、工具呼叫、backend 註冊、stdio MCP 註冊
-- Provider 抽象層，以最小的 `Tools` / `Streaming` / `ImageInput` 能力契約接上 OpenAI Responses API、Anthropic Messages API、OpenAI 相容 Chat Completions、Gemini Interactions API、Kiro（Amazon Q）原生訂閱，以及本機 CLIProxyAPI 預設組
-- 核心工具：Read、Write、Edit、Bash、Glob、Grep、WebFetch、WebSearch、MCPListTools、MCPCallTool、AgentSnapshot、AgentSendMessage
-- 跨對話協作：`AgentSnapshot` 可列出同一實例上的其他主對話並讀取近期內容；`AgentSendMessage`（exec 風險、走審批）可把訊息送進另一個既有對話，讓它以自己的權限跑完一輪後，把回覆自動回報給發問的對話（與子代理相同的喚醒機制）。直接的 A↔B 循環會被拒絕，子代理不能發送也不能被指定為目標。從別的對話讀到的內容——以及經 `PeerSnapshot` 從配對實例讀到的內容——都會被標記為不可信的唯讀背景資料，因此藏在別人轉錄裡的偽造指令不會因為經由工具結果送達就取得權限
-- 工具輸出落檔：結果超過 `agent.toolOutputSpillBytes`（預設 50000 位元組）時，完整內容寫入 Autoto 主目錄下的檔案，回給模型的換成首尾預覽加上該檔案路徑，由模型用 `Read` 分頁或用 `Grep` 搜尋，而不是把整份塞進上下文。`Read` 與 `Grep` 本身豁免，避免用「再去讀一次」來回答一次讀取；寫入失敗一律保留原本的內聯結果，絕不把成功的工具呼叫變成錯誤；落檔檔案保留七天後清理
-- 重複工具呼叫偵測：同一個工具帶同樣參數的連續呼叫會按 run 計數，達到 `agent.repeatToolCallThresholds`（預設 `3、5、8`）之一時，在下一次請求中加入逐級加強的提醒。參數先正規化再比較，被拒絕的呼叫同樣計入，而且該偵測只觀察、永不否決呼叫
-- 續跑預算設定：可依工作區限制續跑次數、總回合、總 token 與實際執行時間，預設無上限
-
-**安全邊界**
-
-- 敏感路徑硬阻擋：`Read`、`Write`、`Edit` 直接拒絕受保護檔案，`Glob` 與 `Grep` 則略過不列出。範圍包含 `.env*`、憑證與密鑰檔、常見私鑰材料，以及 `.git` 內容
-- Bash 危險反思：可設定強度（關閉／寬鬆／中等／嚴格）的 LLM 安全閘，在執行前用當前對話模型審查高風險指令，依結構化判定放行或阻擋
-- 遞迴刪除、磁碟寫入、權限放寬等災難性且不可逆的操作屬於硬阻擋層級，任何權限模式都不能執行，也不能用核准繞過
-- Git 操作限定在 status、diff、log 與指定路徑 commit，不會自動 push、amend、reset、clean、force，也不會用 `git add -A`
-
-**工作流程與介面**
-
-- Workline 與容器設定，支援建立 Git worktree 的 workline fork、合併前檢查，以及乾淨 worktree 的合併 API
-- 互動式 PTY 終端機 WebSocket，含終端機管理與瀏覽器端的保留／聚焦偏好
-- 排程 worker，支援 cron 與 `@every` 表示式和 IANA 時區。排程權限上限為 `readOnly` 或 `acceptEdits`，不會中斷或取代正在跑的手動 run，且無人值守的 run 不會沿用互動時給過的 session 核准
-- 具持久性的 Webhook／Telegram 通知投遞紀錄，含去重、租約、指數退避、次數上限與明確重試
-- 伺服器端 Skills 與生命週期 hooks，含版本歷史、還原、快照穩定的分派，以及沿用既有核準與稽核閘道的 Shell／HTTP 動作
-- 本機外掛登錄檔：從本機目錄安裝 stdio MCP 外掛，工具以 `plugin__<slug>__<tool>` 動態發現供 agent 呼叫。安裝後一律停用，啟用需明確確認執行本機程式碼；外掛程序以乾淨環境與 `env:` 機密參照執行，manifest 支援每外掛逾時設定，並提供更新與健康檢查端點
-- 設定頁涵蓋 Providers、自動化、通知、外觀、儲存、用量、使用者與授權資訊
+---
 
 ## 設定
 
-首次啟動時，Autoto 會在設定檔不存在時建立一份。執行期的機密可以用環境變數提供。`config.json` 有 schema `version` 欄位；沒有這個欄位的舊設定會被當成版本 `1` 載入並在記憶體中正規化。
+首次啟動會自動建立 `~/.autoto/config.json`（schema 內含 `version` 欄位；沒有這欄的舊設定會被當成版本 `1` 載入並在記憶體中正規化）。
 
-Agent 模型相關環境變數：
+### Agent 模型
 
 ```text
-AUTOTO_DEFAULT_MODEL
-AUTOTO_SUMMARY_MODEL
-AUTOTO_CONTEXT_TOKEN_LIMIT
+AUTOTO_DEFAULT_MODEL        # 預設 agent 模型
+AUTOTO_SUMMARY_MODEL        # 摘要用的較小模型
+AUTOTO_CONTEXT_TOKEN_LIMIT  # 上下文 token 上限
 ```
 
-Provider 環境變數的完整清單請看 [英文版 README](README.md#configuration)，包含 OpenAI、Anthropic、Gemini、OpenAI 相容端點與 CLIProxyAPI 各自的變數名稱。
+### Provider（環境變數）
 
-### 自動化整合與機密參照
+```text
+OPENAI_API_KEY
+OPENAI_MODEL
+ANTHROPIC_API_KEY
+ANTHROPIC_MODEL
+GEMINI_API_KEY
+GEMINI_MODEL
+GEMINI_BASE_URL
+OPENAI_BASE_URL
+OPENAI_COMPATIBLE_BASE_URL
+OPENAI_COMPATIBLE_API_KEY
+OPENAI_COMPATIBLE_MODEL
+CLIPROXYAPI_BASE_URL
+CLIPROXYAPI_API_KEY
+CLIPROXYAPI_MODEL
+CLIPROXYAPI_MANAGEMENT_KEY
+CLIPROXYAPI_BIN
+CLIPROXYAPI_CONFIG
+```
 
-Telegram 與 Home Assistant 的連線設定分成兩部分儲存：非機密的中介資料，加上機密的邏輯參照。目前只接受 `env:變數名稱` 這種參照格式；連線 API 與介面會直接拒絕明文 token，而公開的回應只會顯示每個必要機密「是否已設定」，不會回傳值。
+### 自動化整合（環境變數優於硬編碼金鑰）
 
-先在 Autoto 的行程環境設定實際值：
+Telegram 與 Home Assistant 的連線分兩部分儲存：非機密的中繼資料 + 邏輯上的金鑰引用。目前只接受 `env:VAR_NAME` 格式；UI 與 API 會直接拒絕明文 token，公開回應只顯示「金鑰是否已配置」。
 
 ```sh
 export AUTOTO_TELEGRAM_BOT_TOKEN='replace-with-current-bot-token'
 export AUTOTO_HOME_ASSISTANT_TOKEN='replace-with-current-ha-token'
 ```
 
-然後在連線設定裡用參照指向它：
+然後在設定中引用：
 
 ```json
 {
@@ -174,13 +163,219 @@ export AUTOTO_HOME_ASSISTANT_TOKEN='replace-with-current-ha-token'
 }
 ```
 
-Telegram 固定連官方 API 端點，只透過 long polling 收更新。在本機介面產生短效配對碼，再從私聊送 `/pair <碼>`。可用指令只有 `/status`、`/approve <toolCallId>`（一律是一次性核准）與 `/deny <toolCallId> [原因]`。沒有 `/task`，也沒有自由對話。token 若可能外洩就輪替它，token 版號會改變、舊配對會被撤銷，之後需要重新配對。
+```json
+{
+  "kind": "home-assistant",
+  "name": "Home Assistant",
+  "endpoint": "http://homeassistant.local:8123",
+  "secretRefs": { "accessToken": "env:AUTOTO_HOME_ASSISTANT_TOKEN" }
+}
+```
 
-Home Assistant 的端點必須是 loopback、`.local`、link-local 或私有網段。門鎖解鎖、攝影機截圖這類未知或關鍵動作是硬阻擋，IM 也不能控制裝置。
+Telegram 命令集（限定私聊）：`/pair`, `/status`, `/approve <toolCallId>`（一次性）, `/deny <toolCallId> [reason]`。**沒有** `/task` 或自由對話。token 換新會自動撤銷所有已配對的會話。
 
-## 授權與安全性
+Home Assistant 端點必須是 loopback、`.local`、link-local 或私網 IP。
 
-- 安全性問題回報方式見 [SECURITY.md](SECURITY.md)
-- 開發規範見 [CONTRIBUTING.md](CONTRIBUTING.md)
-- 架構說明見 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
-- 第三方授權見 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)
+### CLIProxyAPI 預設組
+
+內建 `cliproxyapi` provider profile 對接本機 [CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI)：
+
+```text
+Provider: cliproxyapi
+Type:     openai-compatible
+Base URL: http://127.0.0.1:8317/v1
+Model:    gpt-5.5
+```
+
+啟動 CLIProxyAPI 之後，進到 `Settings → Providers → Codex 凭證 + 中轉站` 設定。Codex 採「匯入凭證」：貼 Codex auth JSON 或 refresh token / token / account 列表後直接匯入到 CLIProxyAPI，Autoto 會在之後刷新 CLIProxyAPI 的 auth 檔與 `/v1/models`。
+
+讓新專案預設就用這個 profile：
+
+```sh
+AUTOTO_DEFAULT_MODEL=cliproxyapi:gpt-5.5 ./autoto
+```
+
+### Agent Server 後端
+
+```text
+AUTOTO_AGENT_BACKEND_URL
+AUTOTO_AGENT_BACKEND_NAME
+AUTOTO_AGENT_BACKEND_KIND
+AUTOTO_AGENT_BACKEND_API_KEY
+OPENHANDS_AGENT_SERVER_URL
+OPENHANDS_SESSION_API_KEY
+AGENT_SERVER_URL
+AGENT_SERVER_API_KEY
+```
+
+本地後端用 `X-Session-API-Key` 標頭；雲端後端用 `Authorization: Bearer ...`。
+
+---
+
+## 功能
+
+底下逐項功能清單，會比上面幾段更具體。
+
+### Agent 與模型
+
+- 本機 HTTP 伺服器，內嵌 HTML/CSS/JS 介面，前端用免建置的 ES module 架構，並抽出 Settings 本機偏好面板
+- SQLite 持久化：專案、workline、agent、訊息、工具呼叫、backend registry、stdio MCP registry
+- Provider 抽象層，以最小 `Tools` / `Streaming` / `ImageInput` 能力契約串接：
+  - OpenAI 官方 Responses API（SDK 串流 text delta + usage 收集）
+  - Anthropic 官方 Messages API（串流 text delta、tool-use delta、usage 收集、大請求自動 5m prompt-cache breakpoint）
+  - OpenAI 兼容 Chat Completions
+  - Gemini Interactions API（SSE 串流、圖片、原生 function call、reasoning effort、內部 thought-signature replay）
+  - Kiro（Amazon Q）原生訂閱 provider（Event Stream、OAuth token refresh、`ksk_*` API key 認證）
+  - CLIProxyAPI 內建本機 OpenAI 兼容預設組
+- 核心工具：Read、Write、Edit、Bash、Glob、Grep、WebFetch、WebSearch、MCPListTools、MCPCallTool、AgentSnapshot、AgentSendMessage
+- 跨對話協作：`AgentSnapshot` 列出同實例上其他主對話並讀近期內容；`AgentSendMessage`（exec 風險、走審批）把訊息送進另一個對話，讓它以自己的權限跑一輪後，把回報自動送回發問的對話（與子代理相同的喚醒機制）。直接的 A↔B 循環會被拒絕，子代理不能發送也不能被指定為目標。從別的對話讀到的內容——包括經 `PeerSnapshot` 從配對實例讀到的——會被標記為不可信的唯讀背景資料，以免別人轉錄裡的偽造指令靠「從工具結果送來」就取得權限
+- 工具輸出落盤：結果超過 `agent.toolOutputSpillBytes`（預設 50000 bytes）時，完整內容寫到 Autoto 主目錄，回給模型的換成首尾預覽加上檔案路徑，由模型用 `Read` 分頁或 `Grep` 搜尋。`Read` 與 `Grep` 本身豁免，避免用「再去讀一次」回答一次讀取；寫檔失敗一律保留原本的內聯結果，絕不把成功的工具呼叫變成錯誤；落盤檔案 7 天後清理
+- 重複工具呼叫偵測：同一工具帶同樣參數的連續呼叫按 run 計數，達到 `agent.repeatToolCallThresholds`（預設 `3, 5, 8`）之一時，下次請求中插入漸進式提醒。參數先正規化再比較，被拒絕的呼叫同樣計入；該偵測只觀察、永不否决呼叫
+- 續跑預算：可按工作區限制續跑次數、總回合、總 token、實際執行時間，預設無上限（負值明確選擇不設限）
+- Project sidebar 拖曳排序，伺服器持久化
+
+### 安全邊界
+
+- 敏感路徑硬阻擋：`Read`、`Write`、`Edit` 直接拒絕受保護檔案，`Glob` 與 `Grep` 跳過不列出。範圍含 `.env*`、憑證／密鑰檔、通用私鑰材料、`.git` 內部
+- Bash 危險反思：可設強度（off / loose / medium / strict）的 LLM 安全閘，執行前用當前對話模型審查高風險命令，按結構化判定放行或阻擋
+- 遞迴刪除、磁碟寫入、權限放寬、下載直接灌進 shell 等不可逆操作屬硬阻擋層級，任何權限模式、allow rule、核准都不能執行
+- Git 工作區限定在 status、diff、log、指定路徑 commit，不會自動 push、amend、reset、clean、force、`git add -A`
+
+### 排程與自動化
+
+- 排程 worker：cron / `@every` 表達式 + IANA 時區。排程權限上限 `readOnly` 或 `acceptEdits`，不會中斷或取代正在跑的手動 run；無人值守的 run 不沿用互動時的 session 核准；含停止／重啟 Autoto 本身的命令會在建立與更新時被拒絕
+- 持久化 Webhook / Telegram 通知投遞紀錄：去重、租約、指數退避、嘗試次數上限、delivered / dead 狀態、彙總指標、顯式重試
+- Telegram Bot API long polling：私聊 `/pair`、`/status`、`/approve <toolCallId>`（一次性 `allow_once`）、`/deny <toolCallId> [reason]`；未授權命令與失敗配對靜默；已處理 update 用持久化 event ID 與 cursor 保護
+- Home Assistant 整合：限本地／私網端點、唯讀狀態、固定的 action allowlist、短時效 action request、雙重 UI 確認、loopback 核准。Door unlock / camera snapshot 等未知／高風險動作硬阻擋；IM 無法控制裝置
+- 持久化 SQLite migrations V19–V22 與 API：排程、通知投遞、整合連線、channel 配對／事件／cursor、device-action request
+- 本地監控彙總：活躍 run、待核准、排程、投遞狀態、channel、device action、自動化 worker 健康
+
+### 後端與工作區
+
+- Agent Server 後端 registry：sidebar 與 Agent Admin 管理 UI，支援 OpenHands Agent Server 兼容端點
+- Workline 與容器設定：建立 Git worktree 的 workline fork、合併前預檢、乾淨 worktree 合併 API
+- 互動式 PTY 終端 WebSocket（`/ws/terminal`），含終端管理與瀏覽器端保留／聚焦偏好
+- 檔案系統瀏覽／預覽／mkdir API
+- 持久化 Server 端 Skills：global / project / workspace CRUD、有效 skill 解析、修訂歷史／還原、快照穩定的 cursor 分頁；MCP registry 操作仍需顯式 exec-risk 核准
+- Server 端 lifecycle hooks：global / project / agent 三層 run / tool 邊界，快照穩定分派、CAS 更新、執行歷史、隔離測試執行（不建立普通 Agent run）
+- 本機 plugin registry：從本地目錄安裝 stdio MCP 插件，工具以 `plugin__<slug>__<tool>` 動態發現供 agent 呼叫。安裝後一律停用，啟用需明確確認執行本機程式碼；插件進程以乾淨環境與 `env:` 金鑰引用運行，manifest 支援每插件逾時，並有更新與健康檢查端點（見 [docs/PLUGINS.md](docs/PLUGINS.md)）
+
+### 介面與體驗
+
+- 為小螢幕設計的 UI（不是縮放桌面版）：下拉刷新、通知左滑關閉、輸入框不被擠掉；可裝到主畫面當 PWA，沒有瀏覽器外框
+- 設定 modal 即時搜尋／過濾 + 鍵盤焦點快捷鍵
+- 聊天訊息複製動作：匯出單則訊息與整個對話為 Markdown
+- 按登入使用者與 Agent 區分的版本化私訊草稿；瀏覽器本機草稿僅作為未登入相容後備
+- Unicode／大小寫不敏感的本地帳號 handle、`@handle` 建議、不可變的使用者訊息更正（保留新舊附件）
+- 剪貼簿圖片／檔案附件、Unicode 安全的多語系草稿上限、瀏覽器原生 text undo／redo
+- 瀏覽器本機 prompt history：空輸入時 ↑/↓ 召回；舊設定可由 preference 備份遷移
+- 聊天輸入框 slash command palette：來自已啟用的本地 Skills command template
+- 瀏覽器本機 Settings → Profile：顯示名稱、頭像字首、工作區標籤、Git identity 助手
+- 瀏覽器本機 Settings → Network Search：provider 預設、結果數上限、是否確認、網域規則；`WebSearch` 與 `WebFetch` 工具提供公開網頁／文件查詢
+- 瀏覽器本機 Settings → Notifications：toast 類別、顯示時長、UI 終端提示；伺服器端持久化 Webhook / Telegram 投遞歷史與重試
+- 瀏覽器本機 Settings → Appearance：主題、密度、預設終端可見性、Agent event 顯示
+- 設定 → Servers/System + Runtime 面板：runtime 摘要、Go runtime、路徑、Agent 限制
+- 設定 → Users 唯讀認證狀態面板（`/api/auth/status`）
+- 設定 → Storage 面板：config、database、home、projects 體積
+- 設定 → Usage 面板：projects、messages、tool calls、model requests、估計 token 成本、backends
+- 設定 → About 依賴授權面板（開發期的 `/api/licenses` 端點）
+- 設定 → About 瀏覽器本機偏好備份／匯入：profile、skills、chat drafts、prompt history、search、IM、notification、appearance、terminal、recent directory、model、relay-protocol
+- 設定 → IM 閘道 自動化控制：排程、通知歷史／重試、Telegram 與 Home Assistant、pairing／revocation、監控、device state、本地 device-action 確認、稽核事件
+
+### Agent WebSocket 協定
+
+- `ws/agent` 上跑協定 v2，每處理程序單調遞增序號、有限記憶體 replay、權威 live-snapshot 重同步；**不是** 持久化或跨處理程序事件 log
+
+---
+
+## 平台支援
+
+| 元件 | Windows | macOS | Linux |
+|---|---|---|---|
+| CLI | ✅ amd64 / arm64 | ✅ arm64 / amd64 | ✅ amd64 / arm64 |
+| 桌面原生視窗 | ⚠️ 從源碼自編（Release 不發） | ✅ arm64 / amd64 | ✅ amd64 |
+
+桌面版需該平台原生 WebView 工具鏈，無法交叉編譯。
+
+---
+
+## 疑難排解
+
+### Windows：「Windows 已保護你的電腦」
+
+因為 Autoto 沒有 Authenticode 簽章。執行步驟：
+1. 對 `autoto.exe` 按右鍵 → 內容
+2. 勾「解除封鎖」→ 套用
+3. 或在 SmartScreen 視窗點「更多資訊」→「仍要執行」
+
+未來可加程式碼簽章，但需要購買與維護憑證。
+
+### macOS：「無法開啟，因為它來自未識別的開發者」
+
+對 `autoto` 在 Finder 第一次執行會被 Gatekeeper 拒絕：
+1. 打開 **系統設定 → 隱私與安全性**
+2. 捲到最下面，會看到「已阻擋 `autoto` 的使用」
+3. 點「仍要打開」
+
+未來可加公證（notarization），但需要 Apple Developer 帳號（年費 USD 99）。
+
+### 連接埠被佔用
+
+預設 16888 被佔用的話，編輯 `~/.autoto/config.json`：
+
+```json
+{
+  "server": { "host": "localhost", "port": 17888 }
+}
+```
+
+或透過 Web UI `Settings → Servers/System` 改。
+
+### SQLite 鎖住
+
+如果程序被強制 kill，database 可能留下 stale lock。刪掉 `~/.autoto/autoto.db-shm` 與 `~/.autoto/autoto.db-wal` 後重啟。
+
+### 出門在外連不到
+
+從外面連回自家網路，**不要**直接把 Autoto 對外公開。打開 `Settings → Remote Access` 開一條臨時 Cloudflare tunnel，會拿到網址 + QR code，密碼保護、過期自動失效。
+
+---
+
+## 費用估算
+
+Autoto 把 provider 用量記在 `api_requests` 表，並在 `Settings → Usage` 顯示彙總成本。估算來自 `internal/pricing/pricing.go` 中的 USD／百萬 token 表，最近一次對齊公開定價頁面是 2026-07-07（OpenAI API pricing、GPT-4.1 pricing announcement、Anthropic Claude pricing）。未知名稱刻意估算為 `0`；OpenAI 兼容中轉／本地模型的費率可能與公開名稱對應的官方費率不同。
+
+---
+
+## 系統需求
+
+- Go 1.26+（`go.mod` 宣告）
+- SQLite 走純 Go `modernc.org/sqlite` driver，**不需要**本機 sqlite3
+- Node.js **非必要**，只在驗證階段對內嵌前端腳本跑 `node --check` 與 `node --test`
+
+---
+
+## 命名相容性
+
+設定路徑與 route 別名保留向後相容閘。Canonical 名稱總是優先。相容性生命週期與移除閘內部定義：任何相容表面都要在 v1.0.0 以後、且至少經過兩個 tagged release 的遷移窗口才能移除。
+
+---
+
+## 相關文件
+
+- `docs/BUILD.md` — 從源碼構建
+- `docs/WINDOWS_RUN.md` — 在 Windows 上跑
+- `docs/ARCHITECTURE.md` — 架構總覽
+- `docs/PLUGINS.md` — 本地 MCP 插件
+- `docs/DESKTOP_PACKAGING.md` — 桌面打包邊界
+- `CHANGELOG.md` — 變更紀錄
+- `SECURITY.md` — 漏洞回報
+- `CONTRIBUTING.md` — 貢獻指南
+- `AGENTS.md` — Agent 行為準則
+- `THIRD_PARTY_NOTICES.md` — 第三方依賴授權
+
+---
+
+## 授權
+
+[MIT](LICENSE) — Copyright (c) 2026 Autoto contributors

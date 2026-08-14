@@ -16,9 +16,9 @@ import (
 type AgentSendMessageTool struct{}
 
 type agentSendMessageInput struct {
-	AgentID     string `json:"agent_id" desc:"Target conversation id from AgentSnapshot. Must be another primary conversation on this instance, never this conversation or a subagent."`
-	Message     string `json:"message" desc:"The instruction or question for the target conversation. It does not see this conversation, so include every detail it needs."`
-	Description string `json:"description,omitempty" desc:"Short label for this exchange, shown in the task list."`
+	TargetAgentID string `json:"target_agent_id" desc:"Target conversation id from AgentSnapshot. Must be another primary conversation on this instance, never this conversation or a subagent."`
+	Message       string `json:"message" desc:"The instruction or question for the target conversation. It does not see this conversation, so include every detail it needs."`
+	Description   string `json:"description,omitempty" desc:"Short label for this exchange, shown in the task list."`
 }
 
 // agentMessagePayload is the durable payload for a send-message task. It rides
@@ -50,11 +50,11 @@ func (AgentSendMessageTool) Execute(ctx context.Context, call Call, env Env) (Re
 	if err := decodePeerToolInput(call.Input, &input); err != nil {
 		return Result{Output: err.Error(), IsError: true}, nil
 	}
-	input.AgentID = strings.TrimSpace(input.AgentID)
+	input.TargetAgentID = strings.TrimSpace(input.TargetAgentID)
 	input.Message = strings.TrimSpace(input.Message)
 	input.Description = strings.TrimSpace(input.Description)
-	if input.AgentID == "" {
-		return Result{Output: "agent_id is required; call AgentSnapshot to list conversations", IsError: true}, nil
+	if input.TargetAgentID == "" {
+		return Result{Output: "target_agent_id is required; call AgentSnapshot to list conversations", IsError: true}, nil
 	}
 	if input.Message == "" {
 		return Result{Output: "message is required", IsError: true}, nil
@@ -62,10 +62,10 @@ func (AgentSendMessageTool) Execute(ctx context.Context, call Call, env Env) (Re
 	if len([]byte(input.Message)) > 64*1024 {
 		return Result{Output: "message exceeds size limit", IsError: true}, nil
 	}
-	if len([]byte(input.Description)) > 200 || len([]byte(input.AgentID)) > 128 {
+	if len([]byte(input.Description)) > 200 || len([]byte(input.TargetAgentID)) > 128 {
 		return agentToolError("message_payload_rejected", "message task metadata exceeds size limit"), nil
 	}
-	if input.AgentID == env.AgentID {
+	if input.TargetAgentID == env.AgentID {
 		return agentToolError("message_target_rejected", "a conversation cannot send a message to itself"), nil
 	}
 	if env.Background == nil {
@@ -76,7 +76,7 @@ func (AgentSendMessageTool) Execute(ctx context.Context, call Call, env Env) (Re
 	// the target under the durable task, because the conversation can change
 	// between this call and the worker picking the task up.
 	if env.Store != nil {
-		target, err := env.Store.GetAgent(ctx, input.AgentID)
+		target, err := env.Store.GetAgent(ctx, input.TargetAgentID)
 		if err != nil {
 			if ctx.Err() != nil {
 				return Result{}, ctx.Err()
@@ -95,7 +95,7 @@ func (AgentSendMessageTool) Execute(ctx context.Context, call Call, env Env) (Re
 	if resumeParent && strings.TrimSpace(env.RunID) == "" {
 		resumeParent = false
 	}
-	payload, err := json.Marshal(agentMessagePayload{Prompt: input.Message, Description: input.Description, TargetAgentID: input.AgentID})
+	payload, err := json.Marshal(agentMessagePayload{Prompt: input.Message, Description: input.Description, TargetAgentID: input.TargetAgentID})
 	if err != nil {
 		return Result{}, err
 	}
@@ -111,7 +111,7 @@ func (AgentSendMessageTool) Execute(ctx context.Context, call Call, env Env) (Re
 			}
 		}
 	}
-	publicSummary, _ := json.Marshal(agentMessagePublicSummary{Description: summaryDescription, TargetAgentID: input.AgentID, TargetTitle: targetTitle})
+	publicSummary, _ := json.Marshal(agentMessagePublicSummary{Description: summaryDescription, TargetAgentID: input.TargetAgentID, TargetTitle: targetTitle})
 	task, err := env.Background.Submit(ctx, BackgroundTaskRequest{
 		Kind:                         BackgroundTaskKindAgent,
 		OwnerAgentID:                 env.AgentID,

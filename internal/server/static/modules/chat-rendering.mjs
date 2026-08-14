@@ -569,6 +569,26 @@ export function createChatRenderingController({
     if (!preserveView) renderLiveImageGenerationCards();
   }
 
+  function captureToolActivityOpenState(root) {
+    const states = new Map();
+    root?.querySelectorAll?.("[data-tool-activity-stack]")?.forEach((stack) => {
+      const key = String(stack.dataset?.toolActivityStackKey || "");
+      const details = stack.querySelector?.("details.tool-activity-group");
+      if (key && details) states.set(key, Boolean(details.open));
+    });
+    return states;
+  }
+
+  function restoreToolActivityOpenState(root, states) {
+    if (!(states instanceof Map) || !states.size) return;
+    root?.querySelectorAll?.("[data-tool-activity-stack]")?.forEach((stack) => {
+      const key = String(stack.dataset?.toolActivityStackKey || "");
+      if (!states.has(key)) return;
+      const details = stack.querySelector?.("details.tool-activity-group");
+      if (details && details.open !== states.get(key)) details.open = states.get(key);
+    });
+  }
+
   function applyMessageSnapshot(messages, agentId = state.agent?.id, options = {}) {
     if (!agentId || state.agent?.id !== agentId) return false;
     const normalized = Array.isArray(messages) ? messages : [];
@@ -703,17 +723,14 @@ export function createChatRenderingController({
       ? ""
       : runSummaryCard;
     const tailLiveToolCards = liveToolsInserted ? "" : liveToolCards;
-    // Preserve the user's manual open/collapsed state for the live tool
-    // activity group across the full innerHTML replacement. renderLiveToolOutputCards
-    // already does this on incremental updates; applyMessageSnapshot must too,
-    // otherwise a subagent refresh that calls applyMessageSnapshot collapses a
-    // panel the user explicitly expanded.
-    const savedLiveStackOpen = el.querySelector("[data-live-tool-output-stack] details.tool-activity-group")?.open ?? null;
+    // Preserve the user's manual open/collapsed state for every activity group
+    // across the full innerHTML replacement. A snapshot can be triggered by a
+    // new background-task event after the activity moved under its assistant
+    // turn, so preserving only the live tail stack lets that group revert to its
+    // template default (and re-open after the user collapsed it).
+    const savedToolActivityOpenStates = captureToolActivityOpenState(el);
     el.innerHTML = `${olderMessagesControl}${messagesHTML}${liveImageGenerationCards}${planCards}${tailLiveToolCards}${tailRunSummaryCard}${liveAssistantCard}${approvalCards}`;
-    if (savedLiveStackOpen !== null) {
-      const restoredDetails = el.querySelector("[data-live-tool-output-stack] details.tool-activity-group");
-      if (restoredDetails && restoredDetails.open !== savedLiveStackOpen) restoredDetails.open = savedLiveStackOpen;
-    }
+    restoreToolActivityOpenState(el, savedToolActivityOpenStates);
     const liveMessageIds = new Set(visibleMessages.map((message) => message.id).filter(Boolean));
     for (const cachedId of messageHtmlCache.keys()) {
       if (!liveMessageIds.has(cachedId)) messageHtmlCache.delete(cachedId);
@@ -862,24 +879,18 @@ export function createChatRenderingController({
     const avatarHTML = usesProfileIdentity ? profileAvatarHTML(profileIdentity) : (isAssistant ? logoSVG : escapeHtml(avatarLabel));
     const roleLabel = isAssistant ? "Autoto" : (profileIdentity?.displayName || presentation.role);
     const profileAvatarAttr = usesProfileIdentity ? " data-user-profile-avatar" : "";
-    const correctionLabel = message.correctionOfMessageId ? ` · ${cr("message.correctionBadge")}` : "";
-    // A correction retires the turns that followed it. They stay readable so the
-    // history still makes sense, but are marked so nobody mistakes them for part
-    // of what the model is currently working from.
-    const superseded = Boolean(message.supersededAt);
-    const supersededLabel = superseded ? ` · ${cr("message.superseded")}` : "";
     const roleHTML = usesProfileIdentity
-      ? `<span data-user-profile-name>${escapeHtml(roleLabel)}</span>${correctionLabel}${supersededLabel}`
-      : `${escapeHtml(roleLabel)}${correctionLabel}${supersededLabel}`;
+      ? `<span data-user-profile-name>${escapeHtml(roleLabel)}</span>`
+      : escapeHtml(roleLabel);
     const timeHTML = presentation.timestampValue
       ? `<time class="message-time" datetime="${escapeAttr(presentation.timestampValue)}" title="${escapeAttr(formatTimestamp(presentation.timestampValue))}">${escapeHtml(formatTimestamp(presentation.timestampValue, { timeOnly: true }))}</time>`
       : "";
     // While this message is being corrected the head keeps only the copy
     // action: offering "correct" for a message whose correction editor is
     // already open re-renders the same editor and reads as a second control.
-    const actions = `${message.role === "user" && !superseded && !editing ? `<button class="message-copy-btn" type="button" data-correct-message="${escapeAttr(message.id || "")}" title="${escapeAttr(cr("message.correctTitle"))}">${escapeHtml(cr("message.correct"))}</button>` : ""}<button class="message-copy-btn" type="button" data-copy-message="${escapeAttr(String(index))}" title="${escapeAttr(cr("message.copyTitle"))}">${escapeHtml(cr("message.copy"))}</button>`;
+    const actions = `${message.role === "user" && !editing ? `<button class="message-copy-btn" type="button" data-correct-message="${escapeAttr(message.id || "")}" title="${escapeAttr(cr("message.correctTitle"))}">${escapeHtml(cr("message.correct"))}</button>` : ""}<button class="message-copy-btn" type="button" data-copy-message="${escapeAttr(String(index))}" title="${escapeAttr(cr("message.copyTitle"))}">${escapeHtml(cr("message.copy"))}</button>`;
     return `
-      <div class="message ${presentation.roleClass}${editing ? " message-editing" : ""}${superseded ? " message-superseded" : ""} chat-message chat-flow-item chat-flow-${presentation.alignment}" data-chat-alignment="${presentation.alignment}" data-message-role="${escapeAttr(presentation.normalizedRole)}" data-message-id="${escapeAttr(message.id || "")}">
+      <div class="message ${presentation.roleClass}${editing ? " message-editing" : ""} chat-message chat-flow-item chat-flow-${presentation.alignment}" data-chat-alignment="${presentation.alignment}" data-message-role="${escapeAttr(presentation.normalizedRole)}" data-message-id="${escapeAttr(message.id || "")}">
         <div class="message-head">
           <div class="message-meta"><span class="message-avatar" aria-hidden="true"${profileAvatarAttr}>${avatarHTML}</span><div class="message-role">${roleHTML}</div></div>
           <div class="message-head-actions">${actions}</div>
@@ -1310,6 +1321,7 @@ export function createChatRenderingController({
     // the transient loading status here makes context switches visibly flash.
     if (state.runSummaryLoading) return;
     const view = captureTranscriptView(el);
+    const savedToolActivityOpenStates = captureToolActivityOpenState(el);
     const owned = syncMessageToolActivityStacks(el);
     const existing = el.querySelector("[data-run-summary-card], [data-run-outcome-card]");
     const html = renderRunSummaryCardHTML(owned);
@@ -1324,6 +1336,7 @@ export function createChatRenderingController({
         insertRunOutcomeCard(el, html);
       }
     }
+    restoreToolActivityOpenState(el, savedToolActivityOpenStates);
     restoreTranscriptView(view, el);
     bindToolActivityControls(el);
     if (!html) return;
@@ -2664,6 +2677,7 @@ export function createChatRenderingController({
     const el = $("messages");
     if (!el) return;
     const view = captureTranscriptView(el);
+    const savedToolActivityOpenStates = captureToolActivityOpenState(el);
     // Ownership can change on any tool event: the call's assistant turn may have
     // just been persisted, which moves it out of the tail stack and under that
     // turn. Sync first so the tail markup below is computed against the result.
@@ -2674,18 +2688,10 @@ export function createChatRenderingController({
     const html = renderLiveToolOutputCardsHTML(ownedToolUseIds);
     if (existing) {
       if (html) {
-        // Preserve the <details> open/collapsed state across the outerHTML
-        // replacement. Without this, every tool-count increment resets the card
-        // to its template default (expanded), undoing a user collapse and causing
-        // a height change that jumps the scroll position and flashes the layout.
-        const detailsOpen = existing.querySelector("details.tool-activity-group")?.open ?? null;
+        // outerHTML replaces the node and rebuilds the stack from its template
+        // default. The keyed state captured above restores a user's manual
+        // choice even when the activity moved to another stack during sync.
         existing.outerHTML = html;
-        // outerHTML replaces the node reference; re-query to restore state.
-        const updated = el.querySelector("[data-live-tool-output-stack]");
-        if (updated && detailsOpen !== null) {
-          const details = updated.querySelector("details.tool-activity-group");
-          if (details && details.open !== detailsOpen) details.open = detailsOpen;
-        }
       } else {
         existing.remove();
       }
@@ -2699,6 +2705,7 @@ export function createChatRenderingController({
         else el.insertAdjacentHTML("beforeend", html);
       }
     }
+    restoreToolActivityOpenState(el, savedToolActivityOpenStates);
     restoreTranscriptView(view, el);
     bindToolActivityControls(el);
     // Streamed input blocks follow their tail like a terminal: each repaint
