@@ -25,7 +25,7 @@ const (
 	codexOAuthCallbackMaxWait   = 5 * time.Second
 	codexOAuthEphemeralAttempts = 8
 	codexOAuthLoginIDPrefix     = "codex_login_"
-	codexOAuthLoginErrorMessage = "Codex OAuth 登录失败，请重新开始登录"
+	codexOAuthLoginErrorMessage = "Codex OAuth 登入失敗，請重新開始登入"
 )
 
 type codexOAuthLoginStatus string
@@ -97,38 +97,38 @@ func (s *Server) startCodexOAuthLogin(w http.ResponseWriter, r *http.Request) {
 
 	runtimeConfig, err := s.codexOAuthRuntimeConfig()
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "Codex OAuth 登录配置无效")
+		writeError(w, http.StatusInternalServerError, "Codex OAuth 登入設定無效")
 		return
 	}
 	listeners, port, err := listenCodexOAuthCallback(runtimeConfig.listenAddresses)
 	if err != nil {
-		writeError(w, http.StatusConflict, "无法监听 Codex OAuth 本地回调端口")
+		writeError(w, http.StatusConflict, "無法監聽 Codex OAuth 本機回呼連接埠")
 		return
 	}
 
 	loginRandom, err := codexauth.NewOAuthState()
 	if err != nil {
 		closeCodexOAuthCallbackListeners(listeners)
-		writeError(w, http.StatusInternalServerError, "无法安全启动 Codex OAuth 登录")
+		writeError(w, http.StatusInternalServerError, "無法安全啟動 Codex OAuth 登入")
 		return
 	}
 	state, err := codexauth.NewOAuthState()
 	if err != nil {
 		closeCodexOAuthCallbackListeners(listeners)
-		writeError(w, http.StatusInternalServerError, "无法安全启动 Codex OAuth 登录")
+		writeError(w, http.StatusInternalServerError, "無法安全啟動 Codex OAuth 登入")
 		return
 	}
 	pkce, err := codexauth.NewPKCE()
 	if err != nil {
 		closeCodexOAuthCallbackListeners(listeners)
-		writeError(w, http.StatusInternalServerError, "无法安全启动 Codex OAuth 登录")
+		writeError(w, http.StatusInternalServerError, "無法安全啟動 Codex OAuth 登入")
 		return
 	}
 	redirectURI := fmt.Sprintf("http://%s:%d%s", codexOAuthCallbackHost, port, codexOAuthCallbackPath)
 	authURL, err := codexauth.BuildAuthorizeURL(runtimeConfig.oauth, redirectURI, state, pkce.Challenge)
 	if err != nil {
 		closeCodexOAuthCallbackListeners(listeners)
-		writeError(w, http.StatusInternalServerError, "无法构造 Codex OAuth 授权地址")
+		writeError(w, http.StatusInternalServerError, "無法構造 Codex OAuth 授權地址")
 		return
 	}
 
@@ -177,7 +177,7 @@ func (s *Server) getCodexOAuthLogin(w http.ResponseWriter, r *http.Request) {
 	s.expireCodexOAuthLoginLocked(s.now())
 	session := s.codexOAuthLogin
 	if session == nil || session.loginID != strings.TrimSpace(chi.URLParam(r, "loginId")) {
-		writeError(w, http.StatusNotFound, "Codex OAuth 登录会话不存在")
+		writeError(w, http.StatusNotFound, "Codex OAuth 登入工作階段不存在")
 		return
 	}
 	setNoStore(w)
@@ -194,7 +194,7 @@ func (s *Server) cancelCodexOAuthLogin(w http.ResponseWriter, r *http.Request) {
 	s.expireCodexOAuthLoginLocked(s.now())
 	session := s.codexOAuthLogin
 	if session == nil || session.loginID != strings.TrimSpace(chi.URLParam(r, "loginId")) {
-		writeError(w, http.StatusNotFound, "Codex OAuth 登录会话不存在")
+		writeError(w, http.StatusNotFound, "Codex OAuth 登入工作階段不存在")
 		return
 	}
 	if session.status == codexOAuthLoginPending || session.status == codexOAuthLoginExchanging {
@@ -206,7 +206,7 @@ func (s *Server) cancelCodexOAuthLogin(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) rejectRemoteCodexOAuthLogin(w http.ResponseWriter, r *http.Request) bool {
 	if s.remoteAccessAuthentication(r).Remote {
-		writeError(w, http.StatusForbidden, "Codex OAuth 登录只能在本机发起和管理")
+		writeError(w, http.StatusForbidden, "Codex OAuth 登入只能在本機發起和管理")
 		return true
 	}
 	return false
@@ -215,11 +215,11 @@ func (s *Server) rejectRemoteCodexOAuthLogin(w http.ResponseWriter, r *http.Requ
 func (s *Server) handleCodexOAuthCallback(session *codexOAuthLoginSession, w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		w.Header().Set("Allow", http.MethodGet)
-		writeCodexOAuthCallbackHTML(w, http.StatusMethodNotAllowed, "请求方法无效", "Codex OAuth 回调只接受 GET 请求。")
+		writeCodexOAuthCallbackHTML(w, http.StatusMethodNotAllowed, "請求方法無效", "Codex OAuth 回呼只接受 GET 請求。")
 		return
 	}
 	if !validCodexOAuthCallbackHost(r.Host, session.callbackPort) {
-		writeCodexOAuthCallbackHTML(w, http.StatusBadRequest, "回调地址无效", "本地 OAuth 回调 Host 校验失败。")
+		writeCodexOAuthCallbackHTML(w, http.StatusBadRequest, "回呼位址無效", "本機 OAuth 回呼 Host 驗證失敗。")
 		return
 	}
 
@@ -228,7 +228,7 @@ func (s *Server) handleCodexOAuthCallback(session *codexOAuthLoginSession, w htt
 	s.expireCodexOAuthLoginLocked(s.now())
 	if s.codexOAuthLogin != session {
 		s.codexOAuthMu.Unlock()
-		writeCodexOAuthCallbackHTML(w, http.StatusGone, "登录会话已结束", "此 OAuth 登录会话已不再有效。")
+		writeCodexOAuthCallbackHTML(w, http.StatusGone, "登入工作階段已结束", "此 OAuth 登入工作階段已不再有效。")
 		return
 	}
 	if session.status != codexOAuthLoginPending {
@@ -239,24 +239,24 @@ func (s *Server) handleCodexOAuthCallback(session *codexOAuthLoginSession, w htt
 	}
 	if !constantTimeEqualToken(state, session.state) {
 		s.codexOAuthMu.Unlock()
-		writeCodexOAuthCallbackHTML(w, http.StatusBadRequest, "登录校验失败", "OAuth state 校验失败，请返回 Autoto 重新开始登录。")
+		writeCodexOAuthCallbackHTML(w, http.StatusBadRequest, "登入驗證失敗", "OAuth state 驗證失敗，請返回 Autoto 重新開始登入。")
 		return
 	}
 	if oauthError := safeCodexOAuthErrorCode(r.URL.Query().Get("error")); oauthError != "" {
-		message := "Codex 授权被拒绝"
+		message := "Codex 授權被拒絕"
 		if oauthError != "oauth_error" {
 			message += "（" + oauthError + "）"
 		}
 		s.finishCodexOAuthLoginLocked(session, codexOAuthLoginFailed, message, nil)
 		s.codexOAuthMu.Unlock()
-		writeCodexOAuthCallbackHTML(w, http.StatusBadRequest, "Codex 登录失败", message+"。")
+		writeCodexOAuthCallbackHTML(w, http.StatusBadRequest, "Codex 登入失敗", message+"。")
 		return
 	}
 	code := strings.TrimSpace(r.URL.Query().Get("code"))
 	if code == "" || len(code) > 8192 {
 		s.finishCodexOAuthLoginLocked(session, codexOAuthLoginFailed, codexOAuthLoginErrorMessage, nil)
 		s.codexOAuthMu.Unlock()
-		writeCodexOAuthCallbackHTML(w, http.StatusBadRequest, "Codex 登录失败", "授权回调缺少 authorization code，请重新开始登录。")
+		writeCodexOAuthCallbackHTML(w, http.StatusBadRequest, "Codex 登入失敗", "授權回呼缺少 authorization code，請重新開始登入。")
 		return
 	}
 	session.status = codexOAuthLoginExchanging
@@ -292,12 +292,12 @@ func (s *Server) handleCodexOAuthCallback(session *codexOAuthLoginSession, w htt
 	if importErr != nil {
 		s.finishCodexOAuthLoginLocked(session, codexOAuthLoginFailed, codexOAuthLoginErrorMessage, nil)
 		s.codexOAuthMu.Unlock()
-		writeCodexOAuthCallbackHTML(w, http.StatusInternalServerError, "Codex 登录失败", "凭据无法安全保存，请返回 Autoto 重试。")
+		writeCodexOAuthCallbackHTML(w, http.StatusInternalServerError, "Codex 登入失敗", "憑證無法安全儲存，請返回 Autoto 重試。")
 		return
 	}
 	s.finishCodexOAuthLoginLocked(session, codexOAuthLoginCompleted, "", account)
 	s.codexOAuthMu.Unlock()
-	writeCodexOAuthCallbackHTML(w, http.StatusOK, "Codex 登录成功", "凭据已安全保存，可以关闭此页面并返回 Autoto。")
+	writeCodexOAuthCallbackHTML(w, http.StatusOK, "Codex 登入成功", "憑證已安全儲存，可以關閉此頁面並返回 Autoto。")
 }
 
 func (s *Server) importCodexOAuthTokensLocked(tokens codexauth.OAuthTokenResponse) (*codexauth.AccountSummary, error) {
@@ -320,11 +320,11 @@ func (s *Server) importCodexOAuthTokensLocked(tokens codexauth.OAuthTokenRespons
 	}
 	content, err := json.Marshal(standard)
 	if err != nil {
-		return nil, errors.New("无法构造 Codex OAuth 凭据")
+		return nil, errors.New("無法構造 Codex OAuth 憑證")
 	}
 	plan, err := buildProviderAuthImportPlan("autoto-codex-oauth.json", string(content), now)
 	if err != nil {
-		return nil, errors.New("Codex OAuth 凭据无效")
+		return nil, errors.New("Codex OAuth 憑證無效")
 	}
 	store, err := s.nativeCodexCredentialStore()
 	if err != nil {
@@ -393,7 +393,7 @@ func (s *Server) codexOAuthRuntimeConfig() (codexOAuthRuntimeConfig, error) {
 	}
 	testConfig := s.codexOAuthTestConfig
 	if strings.TrimSpace(testConfig.Issuer) == "" || strings.TrimSpace(testConfig.ClientID) == "" || strings.TrimSpace(testConfig.ListenAddress) == "" {
-		return codexOAuthRuntimeConfig{}, errors.New("Codex OAuth 测试配置必须显式提供 issuer、client ID 和 listen address")
+		return codexOAuthRuntimeConfig{}, errors.New("Codex OAuth 測試設定必須顯式提供 issuer、client ID 和 listen address")
 	}
 	oauthConfig, err := codexauth.LoopbackOAuthConfig(testConfig.Issuer, testConfig.ClientID, testConfig.HTTPClient)
 	if err != nil {
@@ -412,11 +412,11 @@ func (s *Server) codexOAuthRuntimeConfig() (codexOAuthRuntimeConfig, error) {
 func validateCodexOAuthListenAddress(address string) error {
 	host, port, err := net.SplitHostPort(strings.TrimSpace(address))
 	if err != nil || net.ParseIP(host) == nil || !net.ParseIP(host).IsLoopback() {
-		return errors.New("Codex OAuth 测试 listen address 必须是 loopback IP:port")
+		return errors.New("Codex OAuth 測試 listen address 必須是 loopback IP:port")
 	}
 	value, err := strconv.Atoi(port)
 	if err != nil || value < 0 || value > 65535 {
-		return errors.New("Codex OAuth 测试 listen port 无效")
+		return errors.New("Codex OAuth 測試 listen port 無效")
 	}
 	return nil
 }
@@ -435,7 +435,7 @@ func listenCodexOAuthCallback(addresses []string) ([]net.Listener, int, error) {
 		lastErr = err
 	}
 	if lastErr == nil {
-		lastErr = errors.New("没有可用的 Codex OAuth 回调地址")
+		lastErr = errors.New("沒有可用的 Codex OAuth 回呼位址")
 	}
 	return nil, 0, lastErr
 }
@@ -450,7 +450,7 @@ func listenCodexOAuthCallbackAddress(address string, ipv6Available bool) ([]net.
 	}
 	portNumber, err := strconv.Atoi(port)
 	if err != nil || portNumber <= 0 || portNumber > 65535 {
-		return nil, 0, errors.New("Codex OAuth callback listener port 无效")
+		return nil, 0, errors.New("Codex OAuth callback listener port 無效")
 	}
 
 	var ipv6Listener net.Listener
@@ -527,7 +527,7 @@ func closeCodexOAuthCallbackListeners(listeners []net.Listener) {
 func listenerPort(listener net.Listener) (int, error) {
 	address, ok := listener.Addr().(*net.TCPAddr)
 	if !ok || address.Port <= 0 {
-		return 0, errors.New("Codex OAuth callback listener address 无效")
+		return 0, errors.New("Codex OAuth callback listener address 無效")
 	}
 	return address.Port, nil
 }
@@ -646,13 +646,13 @@ func safeCodexOAuthErrorCode(value string) string {
 func writeCodexOAuthCallbackStatusHTML(w http.ResponseWriter, status codexOAuthLoginStatus) {
 	switch status {
 	case codexOAuthLoginCompleted:
-		writeCodexOAuthCallbackHTML(w, http.StatusOK, "Codex 登录成功", "凭据已安全保存，可以关闭此页面并返回 Autoto。")
+		writeCodexOAuthCallbackHTML(w, http.StatusOK, "Codex 登入成功", "憑證已安全儲存，可以關閉此頁面並返回 Autoto。")
 	case codexOAuthLoginCancelled:
-		writeCodexOAuthCallbackHTML(w, http.StatusGone, "登录已取消", "此 Codex OAuth 登录会话已取消。")
+		writeCodexOAuthCallbackHTML(w, http.StatusGone, "登入已取消", "此 Codex OAuth 登入工作階段已取消。")
 	case codexOAuthLoginExpired:
-		writeCodexOAuthCallbackHTML(w, http.StatusGone, "登录已过期", "此 Codex OAuth 登录会话已过期，请返回 Autoto 重新开始。")
+		writeCodexOAuthCallbackHTML(w, http.StatusGone, "登入已過期", "此 Codex OAuth 登入工作階段已過期，請返回 Autoto 重新開始。")
 	default:
-		writeCodexOAuthCallbackHTML(w, http.StatusBadRequest, "Codex 登录失败", "登录未能完成，请返回 Autoto 重新开始。")
+		writeCodexOAuthCallbackHTML(w, http.StatusBadRequest, "Codex 登入失敗", "登入未能完成，請返回 Autoto 重新開始。")
 	}
 }
 

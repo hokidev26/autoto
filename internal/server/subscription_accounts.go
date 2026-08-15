@@ -52,7 +52,7 @@ type subscriptionAccountHandlerError struct {
 
 func (e *subscriptionAccountHandlerError) Error() string {
 	if e == nil {
-		return "订阅账号操作失败"
+		return "訂閱帳號操作失敗"
 	}
 	return e.message
 }
@@ -71,7 +71,7 @@ func (s *Server) listSubscriptionAccounts(w http.ResponseWriter, r *http.Request
 	}
 	items, err := store.Load()
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "读取订阅账号失败")
+		writeError(w, http.StatusInternalServerError, "讀取訂閱帳號失敗")
 		return
 	}
 	statsByID := map[string]db.ProviderAccountStats{}
@@ -110,7 +110,7 @@ func (s *Server) patchSubscriptionAccount(w http.ResponseWriter, r *http.Request
 	}
 	id := strings.TrimSpace(chi.URLParam(r, "id"))
 	if id == "" {
-		writeError(w, http.StatusBadRequest, "订阅账号 ID 不能为空")
+		writeError(w, http.StatusBadRequest, "訂閱帳號 ID 不能為空")
 		return
 	}
 	var request subscriptionAccountPatchRequest
@@ -130,9 +130,9 @@ func (s *Server) patchSubscriptionAccount(w http.ResponseWriter, r *http.Request
 	current, err := store.GetByID(id)
 	if err != nil || !strings.EqualFold(strings.TrimSpace(current.Provider), provider) {
 		if errors.Is(err, os.ErrNotExist) || err == nil {
-			writeError(w, http.StatusNotFound, subscriptionProviderLabel(provider)+" 账号不存在")
+			writeError(w, http.StatusNotFound, subscriptionProviderLabel(provider)+" 帳號不存在")
 		} else {
-			writeError(w, http.StatusInternalServerError, "读取订阅账号失败")
+			writeError(w, http.StatusInternalServerError, "讀取訂閱帳號失敗")
 		}
 		return
 	}
@@ -141,7 +141,7 @@ func (s *Server) patchSubscriptionAccount(w http.ResponseWriter, r *http.Request
 	})
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			writeError(w, http.StatusNotFound, subscriptionProviderLabel(provider)+" 账号不存在")
+			writeError(w, http.StatusNotFound, subscriptionProviderLabel(provider)+" 帳號不存在")
 		} else {
 			s.writeRequestError(w, r, http.StatusBadRequest, err)
 		}
@@ -159,7 +159,7 @@ func (s *Server) syncSubscriptionAccount(w http.ResponseWriter, r *http.Request)
 	}
 	id := strings.TrimSpace(chi.URLParam(r, "id"))
 	if id == "" {
-		writeError(w, http.StatusBadRequest, "订阅账号 ID 不能为空")
+		writeError(w, http.StatusBadRequest, "訂閱帳號 ID 不能為空")
 		return
 	}
 	store, err := s.nativeSubscriptionCredentialStore(provider)
@@ -170,9 +170,9 @@ func (s *Server) syncSubscriptionAccount(w http.ResponseWriter, r *http.Request)
 	item, err := store.GetByID(id)
 	if err != nil || !strings.EqualFold(strings.TrimSpace(item.Provider), provider) {
 		if errors.Is(err, os.ErrNotExist) || err == nil {
-			writeError(w, http.StatusNotFound, subscriptionProviderLabel(provider)+" 账号不存在")
+			writeError(w, http.StatusNotFound, subscriptionProviderLabel(provider)+" 帳號不存在")
 		} else {
-			writeError(w, http.StatusInternalServerError, "读取订阅账号失败")
+			writeError(w, http.StatusInternalServerError, "讀取訂閱帳號失敗")
 		}
 		return
 	}
@@ -187,10 +187,10 @@ func (s *Server) syncSubscriptionAccount(w http.ResponseWriter, r *http.Request)
 			return
 		}
 		if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) && ctx.Err() != nil {
-			writeError(w, http.StatusGatewayTimeout, "订阅账号同步超时")
+			writeError(w, http.StatusGatewayTimeout, "訂閱帳號同步逾時")
 			return
 		}
-		writeError(w, http.StatusBadGateway, subscriptionProviderLabel(provider)+" 账号同步失败")
+		writeError(w, http.StatusBadGateway, subscriptionProviderLabel(provider)+" 帳號同步失敗")
 		return
 	}
 	writeJSON(w, http.StatusOK, subscriptionAccountPayload{AccountSummary: subscriptionauth.Summary(updated)})
@@ -198,18 +198,18 @@ func (s *Server) syncSubscriptionAccount(w http.ResponseWriter, r *http.Request)
 
 func (s *Server) syncSubscriptionCredential(ctx context.Context, store *subscriptionauth.Store, item subscriptionauth.StoredCredential) (subscriptionauth.StoredCredential, error) {
 	if ctx == nil || store == nil {
-		return subscriptionauth.StoredCredential{}, errors.New("订阅账号同步上下文无效")
+		return subscriptionauth.StoredCredential{}, errors.New("訂閱帳號同步上下文無效")
 	}
 	update := subscriptionTokenUpdateFromCredential(item.Credential)
 	switch strings.ToLower(strings.TrimSpace(item.Provider)) {
 	case subscriptionauth.ProviderGemini:
 		needsRefresh, err := subscriptionCredentialNeedsRefresh(item.Credential, geminiauth.RefreshLead())
 		if err != nil {
-			return subscriptionauth.StoredCredential{}, &subscriptionAccountHandlerError{status: http.StatusBadRequest, message: "Gemini access token 到期时间无效"}
+			return subscriptionauth.StoredCredential{}, &subscriptionAccountHandlerError{status: http.StatusBadRequest, message: "Gemini access token 到期時間無效"}
 		}
 		if needsRefresh {
 			if strings.TrimSpace(item.RefreshToken) == "" {
-				return subscriptionauth.StoredCredential{}, &subscriptionAccountHandlerError{status: http.StatusBadRequest, message: "Gemini 账号缺少 refresh token，无法刷新"}
+				return subscriptionauth.StoredCredential{}, &subscriptionAccountHandlerError{status: http.StatusBadRequest, message: "Gemini 帳號缺少 refresh token，無法重新整理"}
 			}
 			tokens, err := runSubscriptionSyncCall(ctx, func() (*geminiauth.TokenData, error) {
 				return geminiauth.New(nil).RefreshTokens(ctx, item.RefreshToken)
@@ -230,7 +230,7 @@ func (s *Server) syncSubscriptionCredential(ctx context.Context, store *subscrip
 			update.ExpiresAt = strings.TrimSpace(tokens.ExpiresAt)
 		}
 		if strings.TrimSpace(update.AccessToken) == "" {
-			return subscriptionauth.StoredCredential{}, &subscriptionAccountHandlerError{status: http.StatusBadRequest, message: "Gemini 账号缺少可用的 access token"}
+			return subscriptionauth.StoredCredential{}, &subscriptionAccountHandlerError{status: http.StatusBadRequest, message: "Gemini 帳號缺少可用的 access token"}
 		}
 		client := geminiauth.New(nil)
 		userinfo, err := client.FetchUserInfo(ctx, update.AccessToken)
@@ -249,7 +249,7 @@ func (s *Server) syncSubscriptionCredential(ctx context.Context, store *subscrip
 
 	case subscriptionauth.ProviderGrok:
 		if strings.TrimSpace(item.RefreshToken) == "" {
-			return subscriptionauth.StoredCredential{}, &subscriptionAccountHandlerError{status: http.StatusBadRequest, message: "Grok 账号缺少 refresh token，无法刷新"}
+			return subscriptionauth.StoredCredential{}, &subscriptionAccountHandlerError{status: http.StatusBadRequest, message: "Grok 帳號缺少 refresh token，無法重新整理"}
 		}
 		tokens, err := runSubscriptionSyncCall(ctx, func() (*grokauth.TokenData, error) {
 			return grokauth.New(nil).RefreshTokens(ctx, item.RefreshToken, item.TokenEndpoint)
@@ -277,7 +277,7 @@ func (s *Server) syncSubscriptionCredential(ctx context.Context, store *subscrip
 
 	case subscriptionauth.ProviderKimi:
 		if strings.TrimSpace(item.RefreshToken) == "" {
-			return subscriptionauth.StoredCredential{}, &subscriptionAccountHandlerError{status: http.StatusBadRequest, message: "Kimi 账号缺少 refresh token，无法刷新"}
+			return subscriptionauth.StoredCredential{}, &subscriptionAccountHandlerError{status: http.StatusBadRequest, message: "Kimi 帳號缺少 refresh token，無法重新整理"}
 		}
 		client := kimiauth.New(nil, config.Version, item.DeviceID)
 		tokens, err := runSubscriptionSyncCall(ctx, func() (*kimiauth.TokenData, error) {
@@ -305,7 +305,7 @@ func (s *Server) syncSubscriptionCredential(ctx context.Context, store *subscrip
 
 	case subscriptionauth.ProviderKiro:
 		if strings.TrimSpace(item.RefreshToken) == "" {
-			return subscriptionauth.StoredCredential{}, &subscriptionAccountHandlerError{status: http.StatusBadRequest, message: "Kiro 账号缺少 refresh token，无法刷新"}
+			return subscriptionauth.StoredCredential{}, &subscriptionAccountHandlerError{status: http.StatusBadRequest, message: "Kiro 帳號缺少 refresh token，無法重新整理"}
 		}
 		profileArn := strings.TrimSpace(item.Subject) // ProfileArn was stored in Subject
 		region := kiroauth.RegionFromProfileArn(profileArn)
@@ -325,17 +325,17 @@ func (s *Server) syncSubscriptionCredential(ctx context.Context, store *subscrip
 		}
 
 	default:
-		return subscriptionauth.StoredCredential{}, &subscriptionAccountHandlerError{status: http.StatusBadRequest, message: "不支持的订阅账号 Provider"}
+		return subscriptionauth.StoredCredential{}, &subscriptionAccountHandlerError{status: http.StatusBadRequest, message: "不支援的訂閱帳號 Provider"}
 	}
 	if strings.TrimSpace(update.AccessToken) == "" {
-		return subscriptionauth.StoredCredential{}, &subscriptionAccountHandlerError{status: http.StatusBadRequest, message: subscriptionProviderLabel(item.Provider) + " 账号缺少可用的 access token"}
+		return subscriptionauth.StoredCredential{}, &subscriptionAccountHandlerError{status: http.StatusBadRequest, message: subscriptionProviderLabel(item.Provider) + " 帳號缺少可用的 access token"}
 	}
 	updated, err := store.UpdateTokens(item.ID, update)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return subscriptionauth.StoredCredential{}, &subscriptionAccountHandlerError{status: http.StatusNotFound, message: subscriptionProviderLabel(item.Provider) + " 账号不存在"}
+			return subscriptionauth.StoredCredential{}, &subscriptionAccountHandlerError{status: http.StatusNotFound, message: subscriptionProviderLabel(item.Provider) + " 帳號不存在"}
 		}
-		return subscriptionauth.StoredCredential{}, &subscriptionAccountHandlerError{status: http.StatusInternalServerError, message: "保存订阅账号刷新结果失败"}
+		return subscriptionauth.StoredCredential{}, &subscriptionAccountHandlerError{status: http.StatusInternalServerError, message: "儲存訂閱帳號重新整理結果失敗"}
 	}
 	return updated, nil
 }
@@ -349,7 +349,7 @@ func (s *Server) deleteSubscriptionAccount(w http.ResponseWriter, r *http.Reques
 	}
 	id := strings.TrimSpace(chi.URLParam(r, "id"))
 	if id == "" {
-		writeError(w, http.StatusBadRequest, "订阅账号 ID 不能为空")
+		writeError(w, http.StatusBadRequest, "訂閱帳號 ID 不能為空")
 		return
 	}
 	store, err := s.nativeSubscriptionCredentialStore(provider)
@@ -364,12 +364,12 @@ func (s *Server) deleteSubscriptionAccount(w http.ResponseWriter, r *http.Reques
 		if err := store.Delete(id); err == nil {
 			credentialDeleted = true
 		} else if !errors.Is(err, os.ErrNotExist) {
-			writeError(w, http.StatusInternalServerError, "删除订阅凭据失败")
+			writeError(w, http.StatusInternalServerError, "刪除訂閱憑證失敗")
 			return
 		}
 	case errors.Is(getErr, os.ErrNotExist), getErr == nil:
 	case getErr != nil:
-		writeError(w, http.StatusInternalServerError, "读取订阅账号失败")
+		writeError(w, http.StatusInternalServerError, "讀取訂閱帳號失敗")
 		return
 	}
 
@@ -396,7 +396,7 @@ func (s *Server) deleteSubscriptionAccount(w http.ResponseWriter, r *http.Reques
 	}
 	if cleanupPending {
 		response["status"] = "partial"
-		response["warning"] = "订阅凭据已删除，但账号统计或 Gateway 授权清理失败；可安全重试 DELETE 完成清理"
+		response["warning"] = "訂閱憑證已刪除，但帳號統計或 Gateway 授權清理失敗；可安全重試 DELETE 完成清理"
 		writeJSON(w, http.StatusMultiStatus, response)
 		return
 	}
@@ -410,7 +410,7 @@ func (s *Server) nativeSubscriptionCredentialStore(provider string) (*subscripti
 	}
 	path := subscriptionauth.DefaultStoreDir(s.configSnapshot().Paths.HomeDir, provider)
 	if strings.TrimSpace(path) == "" {
-		return nil, errors.New("Autoto HomeDir 未配置，无法保存订阅凭据")
+		return nil, errors.New("Autoto HomeDir 未設定，無法儲存訂閱憑證")
 	}
 	return subscriptionauth.NewStore(path), nil
 }
@@ -476,11 +476,11 @@ func (s *Server) ensureNativeSubscriptionProviderLocked(provider string) error {
 	if !found {
 		cfg.Providers.Instances = upsertServerProvider(cfg.Providers.Instances, native)
 		if _, err := s.persistProviderConfig(s.configPathSnapshot(), cfg); err != nil {
-			return fmt.Errorf("保存 %s Provider 配置失败", subscriptionProviderLabel(provider))
+			return fmt.Errorf("儲存 %s Provider 設定失敗", subscriptionProviderLabel(provider))
 		}
 	}
 	if err := s.registerProvider(native); err != nil {
-		return fmt.Errorf("注册 %s Provider 失败", subscriptionProviderLabel(provider))
+		return fmt.Errorf("註冊 %s Provider 失敗", subscriptionProviderLabel(provider))
 	}
 	if s.providers != nil {
 		s.providers.SetDefaultFromConfig(cfg.Agent.DefaultModel, cfg.Providers.Instances)
@@ -493,21 +493,21 @@ func (s *Server) ensureNativeSubscriptionProviderLocked(provider string) error {
 
 func decodeSubscriptionAccountJSON(r *http.Request, target any) error {
 	if r == nil || r.Body == nil {
-		return errors.New("订阅账号内容无效")
+		return errors.New("訂閱帳號內容無效")
 	}
 	defer r.Body.Close()
 	data, err := io.ReadAll(io.LimitReader(r.Body, subscriptionAccountRequestMaxBytes+1))
 	if err != nil || len(data) == 0 || len(data) > subscriptionAccountRequestMaxBytes {
-		return errors.New("订阅账号内容无效或超过大小限制")
+		return errors.New("訂閱帳號內容無效或超過大小限制")
 	}
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(target); err != nil {
-		return errors.New("订阅账号内容无效")
+		return errors.New("訂閱帳號內容無效")
 	}
 	var trailing any
 	if err := decoder.Decode(&trailing); err != io.EOF {
-		return errors.New("订阅账号内容必须是单个 JSON 对象")
+		return errors.New("訂閱帳號內容必須是單一 JSON 物件")
 	}
 	return nil
 }
@@ -518,7 +518,7 @@ func subscriptionAccountProvider(value string) (string, error) {
 	case config.ProviderTypeGemini, config.ProviderTypeGrok, config.ProviderTypeKimi, config.ProviderTypeKiro:
 		return provider, nil
 	default:
-		return "", errors.New("订阅账号 Provider 仅支持 gemini、grok、kimi 或 kiro")
+		return "", errors.New("訂閱帳號 Provider 僅支援 gemini、grok、kimi 或 kiro")
 	}
 }
 
@@ -534,7 +534,7 @@ func subscriptionProviderLabel(provider string) string {
 	case subscriptionauth.ProviderKiro:
 		return "Kiro"
 	default:
-		return "订阅"
+		return "訂閱"
 	}
 }
 
@@ -573,7 +573,7 @@ func subscriptionSyncUpstreamError(ctx context.Context, provider string) error {
 	if ctx != nil && ctx.Err() != nil {
 		return ctx.Err()
 	}
-	return &subscriptionAccountHandlerError{status: http.StatusBadGateway, message: subscriptionProviderLabel(provider) + " 账号刷新或验证失败"}
+	return &subscriptionAccountHandlerError{status: http.StatusBadGateway, message: subscriptionProviderLabel(provider) + " 帳號重新整理或驗證失敗"}
 }
 
 type subscriptionSyncCallResult[T any] struct {
@@ -584,7 +584,7 @@ type subscriptionSyncCallResult[T any] struct {
 func runSubscriptionSyncCall[T any](ctx context.Context, call func() (T, error)) (T, error) {
 	var zero T
 	if ctx == nil || call == nil {
-		return zero, errors.New("订阅账号同步调用无效")
+		return zero, errors.New("訂閱帳號同步呼叫無效")
 	}
 	result := make(chan subscriptionSyncCallResult[T], 1)
 	go func() {

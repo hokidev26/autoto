@@ -104,25 +104,25 @@ func (s *Server) batchImportCodexOAuthCredentials(w http.ResponseWriter, r *http
 		switch {
 		case filename == "" || filename == ".":
 			results[index].Status = "failed"
-			results[index].Error = "JSON 文件名不能为空"
+			results[index].Error = "JSON 檔名不能為空"
 			continue
 		case !strings.HasSuffix(strings.ToLower(filename), ".json"):
 			results[index].Status = "failed"
-			results[index].Error = "仅支持 .json 文件"
+			results[index].Error = "僅支援 .json 檔案"
 			continue
 		case strings.TrimSpace(file.Content) == "":
 			results[index].Status = "failed"
-			results[index].Error = "JSON 文件为空"
+			results[index].Error = "JSON 檔案為空"
 			continue
 		case len([]byte(file.Content)) > maxCodexOAuthImportFileBytes:
 			results[index].Status = "failed"
-			results[index].Error = "单个 JSON 文件超过 2 MiB 限制"
+			results[index].Error = "單一 JSON 檔案超過 2 MiB 限制"
 			continue
 		}
 		var value any
 		if err := json.Unmarshal([]byte(file.Content), &value); err != nil {
 			results[index].Status = "failed"
-			results[index].Error = "JSON 格式无效"
+			results[index].Error = "JSON 格式無效"
 			continue
 		}
 		plan, err := buildProviderAuthJSONImportPlan(filename, value, now)
@@ -176,29 +176,29 @@ func decodeCodexOAuthImportBatchRequest(r *http.Request) (codexOAuthImportBatchR
 	defer r.Body.Close()
 	data, err := io.ReadAll(io.LimitReader(r.Body, maxCodexOAuthImportRequestBytes+1))
 	if err != nil || len(data) > maxCodexOAuthImportRequestBytes {
-		return codexOAuthImportBatchRequest{}, errors.New("批量 JSON 导入请求过大")
+		return codexOAuthImportBatchRequest{}, errors.New("批次 JSON 匯入請求過大")
 	}
 	var request codexOAuthImportBatchRequest
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&request); err != nil {
-		return codexOAuthImportBatchRequest{}, errors.New("批量 JSON 导入请求无效")
+		return codexOAuthImportBatchRequest{}, errors.New("批次 JSON 匯入請求無效")
 	}
 	var trailing any
 	if err := decoder.Decode(&trailing); err != io.EOF {
-		return codexOAuthImportBatchRequest{}, errors.New("批量 JSON 导入请求必须是单个 JSON 对象")
+		return codexOAuthImportBatchRequest{}, errors.New("批次 JSON 匯入請求必須是單一 JSON 物件")
 	}
 	if len(request.Files) == 0 {
-		return codexOAuthImportBatchRequest{}, errors.New("files 至少包含一个 JSON 文件")
+		return codexOAuthImportBatchRequest{}, errors.New("files 至少包含一个 JSON 檔案")
 	}
 	if len(request.Files) > maxCodexOAuthImportFiles {
-		return codexOAuthImportBatchRequest{}, errors.New("单次最多导入 50 个 JSON 文件")
+		return codexOAuthImportBatchRequest{}, errors.New("单次最多匯入 50 个 JSON 檔案")
 	}
 	totalContentBytes := 0
 	for _, file := range request.Files {
 		totalContentBytes += len([]byte(file.Content))
 		if totalContentBytes > maxCodexOAuthImportBatchBytes {
-			return codexOAuthImportBatchRequest{}, errors.New("批量 JSON 文件内容超过 8 MiB 限制")
+			return codexOAuthImportBatchRequest{}, errors.New("批次 JSON 檔案內容超過 8 MiB 限制")
 		}
 	}
 	return request, nil
@@ -256,39 +256,39 @@ func decodeCodexOAuthAccountsBatchRequest(r *http.Request) (codexOAuthAccountsBa
 	defer r.Body.Close()
 	data, err := io.ReadAll(io.LimitReader(r.Body, maxCodexOAuthBatchBytes+1))
 	if err != nil || len(data) > maxCodexOAuthBatchBytes {
-		return codexOAuthAccountsBatchRequest{}, errors.New("批量账号操作请求过大")
+		return codexOAuthAccountsBatchRequest{}, errors.New("批次帳號操作請求過大")
 	}
 	var request codexOAuthAccountsBatchRequest
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&request); err != nil {
-		return codexOAuthAccountsBatchRequest{}, errors.New("批量账号操作请求无效")
+		return codexOAuthAccountsBatchRequest{}, errors.New("批次帳號操作請求無效")
 	}
 	var trailing any
 	if err := decoder.Decode(&trailing); err != io.EOF {
-		return codexOAuthAccountsBatchRequest{}, errors.New("批量账号操作请求必须是单个 JSON 对象")
+		return codexOAuthAccountsBatchRequest{}, errors.New("批次帳號操作請求必須是單一 JSON 物件")
 	}
 	return request, nil
 }
 
 func validateCodexOAuthAccountsBatchRequest(request codexOAuthAccountsBatchRequest) ([]string, error) {
 	if len(request.IDs) == 0 {
-		return nil, errors.New("ids 至少包含一个 Codex 账号 ID")
+		return nil, errors.New("ids 至少包含一个 Codex 帳號 ID")
 	}
 	if len(request.IDs) > maxCodexOAuthBatchAccounts {
-		return nil, errors.New("单次最多操作 100 个 Codex 账号")
+		return nil, errors.New("单次最多操作 100 个 Codex 帳號")
 	}
 	switch request.Operation {
 	case "sync", "enable", "disable", "delete":
 		if request.Priority != nil {
-			return nil, errors.New("仅 set_priority 操作可以提供 priority")
+			return nil, errors.New("僅 set_priority 操作可以提供 priority")
 		}
 	case "set_priority":
 		if request.Priority == nil || *request.Priority < 1 || *request.Priority > maxCodexOAuthPriority {
-			return nil, errors.New("set_priority 必须提供 1 到 1000000 之间的 priority")
+			return nil, errors.New("set_priority 必須提供 1 到 1000000 之間的 priority")
 		}
 	default:
-		return nil, errors.New("operation 必须是 sync、enable、disable、set_priority 或 delete")
+		return nil, errors.New("operation 必須是 sync、enable、disable、set_priority 或 delete")
 	}
 
 	ids := make([]string, 0, len(request.IDs))
@@ -296,7 +296,7 @@ func validateCodexOAuthAccountsBatchRequest(request codexOAuthAccountsBatchReque
 	for _, rawID := range request.IDs {
 		id := strings.TrimSpace(rawID)
 		if !codexauth.ValidCredentialID(id) {
-			return nil, errors.New("ids 包含无效的 Codex 账号 ID")
+			return nil, errors.New("ids 包含無效的 Codex 帳號 ID")
 		}
 		if _, duplicate := seen[id]; duplicate {
 			continue
@@ -333,7 +333,7 @@ func (s *Server) batchUpdateCodexOAuthAccounts(ids []string, operation string, p
 		if mutation.Err == nil {
 			result.Success = true
 		} else if errors.Is(mutation.Err, os.ErrNotExist) {
-			result.Error = "Codex 账号不存在"
+			result.Error = "Codex 帳號不存在"
 		} else {
 			result.Error = mutation.Err.Error()
 			result.Retryable = true
@@ -387,7 +387,7 @@ func (s *Server) batchDeleteCodexOAuthAccounts(ctx context.Context, ids []string
 		}
 		outcome := s.finishCodexOAuthAccountDelete(ctx, mutation.ID, mutation.Deleted)
 		if mutation.Err != nil && mutation.Deleted {
-			outcome.Warning = appendCodexOAuthWarning(outcome.Warning, "凭据已删除，但本地凭据目录同步失败；可安全重试删除操作")
+			outcome.Warning = appendCodexOAuthWarning(outcome.Warning, "憑證已刪除，但本機憑證目錄同步失敗；可安全重試刪除操作")
 			outcome.Retryable = true
 		}
 		result.Success = outcome.Warning == ""
@@ -402,7 +402,7 @@ func (s *Server) syncCodexOAuthAccount(ctx context.Context, provider *providers.
 	account, quota, err := provider.SyncAccount(ctx, id)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return codexOAuthAccountResponse{}, http.StatusNotFound, errors.New("Codex 账号不存在")
+			return codexOAuthAccountResponse{}, http.StatusNotFound, errors.New("Codex 帳號不存在")
 		}
 		return codexOAuthAccountResponse{}, http.StatusBadGateway, err
 	}
@@ -412,7 +412,7 @@ func (s *Server) syncCodexOAuthAccount(ctx context.Context, provider *providers.
 			fetchedAt = parsed
 		}
 		if err := s.store.UpdateProviderAccountQuota(ctx, codexauth.DefaultProviderName, account.ID, quota, fetchedAt); err != nil {
-			return codexOAuthAccountResponse{}, http.StatusInternalServerError, errors.New("Codex 额度快照保存失败")
+			return codexOAuthAccountResponse{}, http.StatusInternalServerError, errors.New("Codex 額度快照儲存失敗")
 		}
 	}
 	response := codexOAuthAccountResponse{AccountSummary: account, Quota: &quota}
@@ -422,7 +422,7 @@ func (s *Server) syncCodexOAuthAccount(ctx context.Context, provider *providers.
 		}
 		usageByID, usageErr := s.store.ListProviderAccountUsage(ctx, codexauth.DefaultProviderName, []string{account.ID}, s.now())
 		if usageErr != nil {
-			return codexOAuthAccountResponse{}, http.StatusInternalServerError, errors.New("Codex 账号用量统计失败")
+			return codexOAuthAccountResponse{}, http.StatusInternalServerError, errors.New("Codex 帳號用量統計失敗")
 		}
 		response.Usage = normalizeCodexAccountUsage(usageByID[account.ID])
 	}
@@ -467,9 +467,9 @@ func (s *Server) finishCodexOAuthAccountDelete(ctx context.Context, id string, c
 	}
 	if cleanupPending {
 		if credentialDeleted {
-			outcome.Warning = "凭据已删除，但账号统计或 Gateway 授权清理失败；可安全重试 DELETE 完成清理"
+			outcome.Warning = "憑證已刪除，但帳號統計或 Gateway 授權清理失敗；可安全重試 DELETE 完成清理"
 		} else {
-			outcome.Warning = "凭据已不存在，但账号统计或 Gateway 授权清理仍失败；可安全重试 DELETE 完成清理"
+			outcome.Warning = "憑證已不存在，但帳號統計或 Gateway 授權清理仍失敗；可安全重試 DELETE 完成清理"
 		}
 	}
 	return outcome
@@ -502,7 +502,7 @@ func safeCodexOAuthBatchSyncError(status int, err error) string {
 	if status == http.StatusNotFound || status == http.StatusInternalServerError {
 		return err.Error()
 	}
-	return "Codex 账号同步失败"
+	return "Codex 帳號同步失敗"
 }
 
 func failedCodexOAuthBatchResults(ids []string, message string, retryable bool) []codexOAuthAccountsBatchResult {
@@ -516,7 +516,7 @@ func failedCodexOAuthBatchResults(ids []string, message string, retryable bool) 
 func safeCodexOAuthImportPlanError(err error) string {
 	message := strings.TrimSpace(err.Error())
 	if strings.Contains(message, "platform ") {
-		return "账号 platform 不是 OpenAI/Codex"
+		return "帳號 platform 不是 OpenAI/Codex"
 	}
 	return message
 }

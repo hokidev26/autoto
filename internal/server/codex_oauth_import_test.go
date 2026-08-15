@@ -409,10 +409,10 @@ func TestNativeCodexBatchImportReturnsPerFileResults(t *testing.T) {
 	if broken := response.Results[2]; broken.Status != "failed" || broken.Error == "" {
 		t.Fatalf("unexpected malformed file result: %+v", broken)
 	}
-	if wrong := response.Results[3]; wrong.Status != "failed" || wrong.Error != "仅支持 .json 文件" {
+	if wrong := response.Results[3]; wrong.Status != "failed" || wrong.Error != "僅支援 .json 檔案" {
 		t.Fatalf("unexpected wrong-type result: %+v", wrong)
 	}
-	if platform := response.Results[4]; platform.Status != "failed" || platform.Error != "账号 platform 不是 OpenAI/Codex" {
+	if platform := response.Results[4]; platform.Status != "failed" || platform.Error != "帳號 platform 不是 OpenAI/Codex" {
 		t.Fatalf("unexpected platform result: %+v", platform)
 	}
 	accounts, err := codexauth.NewStore(codexauth.DefaultStoreDir(home)).ListAccounts()

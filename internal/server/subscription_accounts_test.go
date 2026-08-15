@@ -209,7 +209,7 @@ func TestSubscriptionAccountRejectsInvalidProvider(t *testing.T) {
 	app := New(config.Config{Paths: config.PathsConfig{HomeDir: t.TempDir()}}, nil, nil, nil, providers.NewRegistry())
 	response := httptest.NewRecorder()
 	app.listSubscriptionAccounts(response, subscriptionRequest(http.MethodGet, "codex", "", nil))
-	if response.Code != http.StatusBadRequest || !strings.Contains(response.Body.String(), "仅支持") {
+	if response.Code != http.StatusBadRequest || !strings.Contains(response.Body.String(), "僅支援") {
 		t.Fatalf("非法 Provider 未返回中文 400：%d %s", response.Code, response.Body.String())
 	}
 	if _, err := app.nativeSubscriptionCredentialStore("anthropic"); err == nil {

@@ -397,7 +397,41 @@ func gitRepoRoot(ctx context.Context, cwd string) (string, bool) {
 		return "", false
 	}
 	repoRoot := strings.TrimSpace(out)
-	return repoRoot, repoRoot != ""
+	if repoRoot == "" || !gitCheckpointRepoAllowed(repoRoot) {
+		return "", false
+	}
+	return repoRoot, true
+}
+
+// gitCheckpointRepoAllowed rejects the user's home directory and a volume
+// root. `git rev-parse --show-toplevel` walks up from CWD, so a workspace
+// inside a home-directory git repo would otherwise run `git status
+// --untracked-files=all` across the whole tree.
+func gitCheckpointRepoAllowed(repoRoot string) bool {
+	cleaned, err := filepath.Abs(repoRoot)
+	if err != nil {
+		return false
+	}
+	cleaned = filepath.Clean(cleaned)
+	if filepath.Dir(cleaned) == cleaned {
+		return false
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return true
+	}
+	homeAbs, err := filepath.Abs(home)
+	if err != nil {
+		return true
+	}
+	return !sameCheckpointPath(cleaned, filepath.Clean(homeAbs))
+}
+
+func sameCheckpointPath(left, right string) bool {
+	if filepath.Clean(left) == filepath.Clean(right) {
+		return true
+	}
+	return strings.EqualFold(filepath.Clean(left), filepath.Clean(right))
 }
 
 func gitHead(ctx context.Context, repoRoot string) (string, bool) {

@@ -599,7 +599,7 @@ test("runtime reads the Autoto token and never sends it as a WebSocket query", a
   const restoreWindow = replaceGlobal("window", { AUTOTO_LOCAL_TOKEN: "autoto-token" });
   try {
     const runtime = await import(new URL("./runtime.mjs?compat=canonical", import.meta.url).href);
-    assert.equal(new URL(runtime.withLocalToken("/api/status"), "https://local.example.test").searchParams.get("token"), "autoto-token");
+    assert.equal(new URL(runtime.withLocalToken("/api/status"), "https://local.example.test").searchParams.get("token"), null);
     const socketURL = new URL(runtime.webSocketURL("/ws/agent?id=agent-1"));
     assert.equal(socketURL.protocol, "wss:");
     assert.equal(socketURL.searchParams.get("token"), null);

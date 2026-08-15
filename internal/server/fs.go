@@ -152,9 +152,9 @@ func (s *Server) fsNativeDirectory(w http.ResponseWriter, r *http.Request) {
 
 	// Prefer the desktop shell host when registered (cross-platform Wails dialogs).
 	if host := s.shellDialog(); host != nil {
-		path, canceled, err := host.PickDirectory(r.Context(), "选择 Autoto 工作资料夹", defaultPath)
+		path, canceled, err := host.PickDirectory(r.Context(), "選擇 Autoto 工作資料夾", defaultPath)
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, "原生资料夹选择器打开失败："+err.Error())
+			writeError(w, http.StatusInternalServerError, "原生資料夾選擇器打開失敗："+err.Error())
 			return
 		}
 		if canceled || strings.TrimSpace(path) == "" {
@@ -184,7 +184,7 @@ func (s *Server) fsNativeDirectory(w http.ResponseWriter, r *http.Request) {
 	case "windows":
 		picked, canceled, err := pickDirectoryPowerShell(r.Context(), defaultPath)
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, "原生资料夹选择器打开失败："+err.Error())
+			writeError(w, http.StatusInternalServerError, "原生資料夾選擇器打開失敗："+err.Error())
 			return
 		}
 		if canceled {
@@ -193,10 +193,10 @@ func (s *Server) fsNativeDirectory(w http.ResponseWriter, r *http.Request) {
 		}
 		path = picked
 	case "darwin":
-		script := `set chosenFolder to choose folder with prompt "选择 Autoto 工作资料夹"`
+		script := `set chosenFolder to choose folder with prompt "選擇 Autoto 工作資料夾"`
 		if defaultPath != "" {
 			script = `set defaultFolder to POSIX file ` + appleScriptString(defaultPath) + ` as alias
-set chosenFolder to choose folder with prompt "选择 Autoto 工作资料夹" default location defaultFolder`
+set chosenFolder to choose folder with prompt "選擇 Autoto 工作資料夾" default location defaultFolder`
 		}
 		script += "\nPOSIX path of chosenFolder"
 
@@ -210,17 +210,17 @@ set chosenFolder to choose folder with prompt "选择 Autoto 工作资料夹" de
 			if message == "" {
 				message = err.Error()
 			}
-			writeError(w, http.StatusInternalServerError, "原生资料夹选择器打开失败："+message)
+			writeError(w, http.StatusInternalServerError, "原生資料夾選擇器打開失敗："+message)
 			return
 		}
 		path = filepath.Clean(strings.TrimSpace(string(output)))
 	default:
-		writeError(w, http.StatusNotImplemented, "当前系统暂不支持原生资料夹选择器，请使用内置目录浏览器")
+		writeError(w, http.StatusNotImplemented, "目前系統暫不支援原生資料夾選擇器，請使用內建目錄瀏覽器")
 		return
 	}
 
 	if path == "." || path == "" {
-		writeError(w, http.StatusInternalServerError, "原生资料夹选择器没有返回路径")
+		writeError(w, http.StatusInternalServerError, "原生資料夾選擇器沒有返回路徑")
 		return
 	}
 	info, err := os.Stat(path)
@@ -248,7 +248,7 @@ func appleScriptString(value string) string {
 func pickDirectoryPowerShell(ctx context.Context, defaultPath string) (string, bool, error) {
 	script := `Add-Type -AssemblyName System.Windows.Forms | Out-Null
 $dialog = New-Object System.Windows.Forms.FolderBrowserDialog
-$dialog.Description = '选择 Autoto 工作资料夹'
+$dialog.Description = '選擇 Autoto 工作資料夾'
 $dialog.ShowNewFolderButton = $true`
 	if strings.TrimSpace(defaultPath) != "" {
 		script += "\n$dialog.SelectedPath = " + powerShellSingleQuote(defaultPath)

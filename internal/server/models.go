@@ -125,7 +125,7 @@ func (s *Server) modelProviderResponse(ctx context.Context, provider config.Prov
 	if s.providers == nil {
 		if provider.Enabled {
 			response.ModelsSource = "fallback"
-			response.Error = "模型注册表尚未初始化。"
+			response.Error = "模型註冊表尚未初始化。"
 		}
 		attachModelCapabilities(&response, nil, providerConfig)
 		return response
@@ -138,15 +138,15 @@ func (s *Server) modelProviderResponse(ctx context.Context, provider config.Prov
 	}
 	if !ok {
 		response.ModelsSource = "fallback"
-		response.Error = fmt.Sprintf("provider %s 尚未注册。", provider.Name)
+		response.Error = fmt.Sprintf("provider %s 尚未註冊。", provider.Name)
 		attachModelCapabilities(&response, nil, providerConfig)
 		return response
 	}
 	response.Capabilities = providers.CapabilitiesFor(registered)
 	response.Configured = providers.ConfiguredFor(registered, provider.Configured)
 	response.RuntimeAvailable = response.Configured
-	// Unconfigured providers stay visible with a quiet "待设定" state. Calling
-	// ListModels here would turn a missing API key into a red "无法获取模型列表"
+	// Unconfigured providers stay visible with a quiet "待設定" state. Calling
+	// ListModels here would turn a missing API key into a red "無法取得模型清單"
 	// alert, which reads as a failure rather than incomplete setup.
 	if !response.Configured {
 		response.ModelsSource = "configured-default"
@@ -321,29 +321,29 @@ func friendlyModelListError(provider config.ProviderSummary, err error) string {
 	lower := strings.ToLower(message)
 	if provider.Type == config.ProviderTypeCodex {
 		switch {
-		case strings.Contains(lower, "尚未导入"), strings.Contains(lower, "没有可用"), strings.Contains(lower, "凭据库"):
-			return "尚未导入可用的 Codex OAuth 凭据。"
+		case strings.Contains(lower, "尚未匯入"), strings.Contains(lower, "尚未导入"), strings.Contains(lower, "沒有可用"), strings.Contains(lower, "没有可用"), strings.Contains(lower, "憑證庫"), strings.Contains(lower, "凭据库"):
+			return "尚未匯入可用的 Codex OAuth 憑證。"
 		case strings.Contains(lower, "401"), strings.Contains(lower, "unauthorized"), strings.Contains(lower, "refresh_token"):
-			return "Codex OAuth 凭据已失效，请重新导入最新凭据。"
+			return "Codex OAuth 憑證已失效，請重新匯入最新憑證。"
 		case strings.Contains(lower, "context deadline exceeded"):
-			return "连接 OpenAI Codex 超时，请稍后重试。"
+			return "連線 OpenAI Codex 逾時，請稍後重試。"
 		}
-		return "无法直接从 OpenAI Codex 获取模型列表：" + message
+		return "無法直接從 OpenAI Codex 取得模型清單：" + message
 	}
 	if provider.Profile == config.ProviderProfileCLIProxyAPI {
 		switch {
 		case strings.Contains(lower, "connection refused"), strings.Contains(lower, "no such host"), strings.Contains(lower, "connect:"):
-			return "无法连接本地 CLIProxyAPI。请先启动 CLIProxyAPI，然后点击刷新模型。"
+			return "無法連線本機 CLIProxyAPI。請先啟動 CLIProxyAPI，然後點擊重新整理模型。"
 		case strings.Contains(lower, "401") || strings.Contains(lower, "unauthorized"):
-			return "CLIProxyAPI 返回 401。请确认 CLIProxyAPI 的 api-keys 配置；如启用了客户端鉴权，请设置 CLIPROXYAPI_API_KEY 后重启 Autoto。"
+			return "CLIProxyAPI 返回 401。請確認 CLIProxyAPI 的 api-keys 設定；如啟用了用戶端鑑權，請設定 CLIPROXYAPI_API_KEY 後重啟 Autoto。"
 		case strings.Contains(lower, "403"):
-			return "CLIProxyAPI 拒绝了模型列表请求。请检查账号登录状态、权限或 API key 配置。"
+			return "CLIProxyAPI 拒絕了模型清單請求。請檢查帳號登入狀態、權限或 API key 設定。"
 		case strings.Contains(lower, "context deadline exceeded"):
-			return "连接 CLIProxyAPI 超时。请确认它正在运行并可访问。"
+			return "連線 CLIProxyAPI 逾時。請確認它正在執行並可存取。"
 		}
-		return "无法从 CLIProxyAPI 获取模型列表：" + message
+		return "無法從 CLIProxyAPI 取得模型清單：" + message
 	}
-	return "无法获取模型列表：" + message
+	return "無法取得模型清單：" + message
 }
 
 func providerManagementURL(provider config.ProviderSummary) string {

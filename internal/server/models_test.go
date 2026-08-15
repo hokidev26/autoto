@@ -606,7 +606,7 @@ func TestModelsRouteFallsBackWhenProviderModelListFails(t *testing.T) {
 
 func TestFriendlyModelListErrorUsesAutotoBranding(t *testing.T) {
 	message := friendlyModelListError(config.ProviderSummary{Profile: config.ProviderProfileCLIProxyAPI}, errors.New("401 unauthorized"))
-	if !strings.Contains(message, "后重启 Autoto。") {
+	if !strings.Contains(message, "後重啟 Autoto。") {
 		t.Fatalf("expected Autoto-branded error message, got %q", message)
 	}
 }

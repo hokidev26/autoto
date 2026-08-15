@@ -17,10 +17,9 @@ function notifyAPIAuthorizationFailure(detail) {
 }
 
 export function withLocalToken(path) {
-  if (!localAPIToken) return path;
-  const url = new URL(path, location.origin);
-  url.searchParams.set("token", localAPIToken);
-  return `${url.pathname}${url.search}${url.hash}`;
+  // The server no longer accepts query tokens. api() already sends
+  // X-Autoto-Token; this helper must not put the secret in the URL.
+  return path;
 }
 
 export function webSocketURL(path) {

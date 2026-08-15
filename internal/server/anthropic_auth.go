@@ -127,7 +127,7 @@ func (s *Server) patchAnthropicAccount(w http.ResponseWriter, r *http.Request) {
 	defer r.Body.Close()
 	id := strings.TrimSpace(chi.URLParam(r, "id"))
 	if id == anthropicConfiguredAccountID {
-		writeError(w, http.StatusBadRequest, "现有配置账号请通过 Anthropic 模型配置修改")
+		writeError(w, http.StatusBadRequest, "既有設定帳號請透過 Anthropic 模型設定修改")
 		return
 	}
 	var request anthropicAccountPatchRequest
@@ -147,7 +147,7 @@ func (s *Server) patchAnthropicAccount(w http.ResponseWriter, r *http.Request) {
 	item, err := store.UpdateMetadata(id, anthropicauth.MetadataUpdate{Alias: request.Alias, Priority: request.Priority, Disabled: request.Disabled})
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			writeError(w, http.StatusNotFound, "Anthropic 账号不存在")
+			writeError(w, http.StatusNotFound, "Anthropic 帳號不存在")
 		} else {
 			s.writeRequestError(w, r, http.StatusBadRequest, err)
 		}
@@ -159,7 +159,7 @@ func (s *Server) patchAnthropicAccount(w http.ResponseWriter, r *http.Request) {
 func (s *Server) syncAnthropicAccount(w http.ResponseWriter, r *http.Request) {
 	id := strings.TrimSpace(chi.URLParam(r, "id"))
 	if id == anthropicConfiguredAccountID {
-		writeError(w, http.StatusBadRequest, "现有配置账号通过模型刷新进行检测")
+		writeError(w, http.StatusBadRequest, "既有設定帳號透過模型重新整理進行檢測")
 		return
 	}
 	provider, err := s.nativeAnthropicProvider()
@@ -172,7 +172,7 @@ func (s *Server) syncAnthropicAccount(w http.ResponseWriter, r *http.Request) {
 	account, models, rateLimit, err := provider.SyncAccount(ctx, id)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			writeError(w, http.StatusNotFound, "Anthropic 账号不存在")
+			writeError(w, http.StatusNotFound, "Anthropic 帳號不存在")
 		} else {
 			s.writeRequestError(w, r, http.StatusBadGateway, err)
 		}
@@ -184,7 +184,7 @@ func (s *Server) syncAnthropicAccount(w http.ResponseWriter, r *http.Request) {
 			fetchedAt = s.now()
 		}
 		if err := s.store.UpdateProviderAccountQuota(r.Context(), anthropicauth.DefaultProviderName, id, rateLimit, fetchedAt); err != nil {
-			writeError(w, http.StatusInternalServerError, "Anthropic 速率限制快照保存失败")
+			writeError(w, http.StatusInternalServerError, "Anthropic 速率限制快照儲存失敗")
 			return
 		}
 	}
@@ -200,7 +200,7 @@ func (s *Server) syncAnthropicAccount(w http.ResponseWriter, r *http.Request) {
 func (s *Server) deleteAnthropicAccount(w http.ResponseWriter, r *http.Request) {
 	id := strings.TrimSpace(chi.URLParam(r, "id"))
 	if id == anthropicConfiguredAccountID {
-		writeError(w, http.StatusBadRequest, "现有配置账号不能从账号列表删除")
+		writeError(w, http.StatusBadRequest, "既有設定帳號不能從帳號清單刪除")
 		return
 	}
 	store, err := s.nativeAnthropicCredentialStore()
@@ -240,7 +240,7 @@ func (s *Server) deleteAnthropicAccount(w http.ResponseWriter, r *http.Request) 
 	}
 	if cleanupPending {
 		response["status"] = "partial"
-		response["warning"] = "Anthropic 凭据已删除，但账号统计或 Gateway 授权清理失败；可安全重试 DELETE 完成清理"
+		response["warning"] = "Anthropic 憑證已刪除，但帳號統計或 Gateway 授權清理失敗；可安全重試 DELETE 完成清理"
 		writeJSON(w, http.StatusMultiStatus, response)
 		return
 	}
@@ -251,11 +251,11 @@ func decodeAnthropicAccountJSON(reader io.Reader, target any) error {
 	decoder := json.NewDecoder(io.LimitReader(reader, 64<<10))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(target); err != nil {
-		return errors.New("Anthropic 账号内容无效")
+		return errors.New("Anthropic 帳號內容無效")
 	}
 	var trailing any
 	if err := decoder.Decode(&trailing); err != io.EOF {
-		return errors.New("Anthropic 账号内容必须是单个 JSON 对象")
+		return errors.New("Anthropic 帳號內容必須是單一 JSON 物件")
 	}
 	return nil
 }
@@ -340,7 +340,7 @@ func (s *Server) nativeAnthropicCredentialStore() (*anthropicauth.Store, error) 
 	defer s.anthropicCredentialsMu.Unlock()
 	if s.anthropicCredentials == nil || strings.TrimSpace(s.anthropicCredentials.Dir()) == "" {
 		if path == "" {
-			return nil, errors.New("Autoto HomeDir 未配置，无法保存 Anthropic 凭据")
+			return nil, errors.New("Autoto HomeDir 未設定，無法儲存 Anthropic 憑證")
 		}
 		s.anthropicCredentials = anthropicauth.NewStore(path)
 	}
@@ -354,7 +354,7 @@ func (s *Server) nativeAnthropicProvider() (*providers.AnthropicProvider, error)
 	defer s.providerMutationMu.Unlock()
 	if provider, ok := s.anthropicProviderConfig(); ok && provider.Disabled {
 		s.unregisterProvider(anthropicauth.DefaultProviderName)
-		return nil, errors.New("Anthropic Provider 已禁用")
+		return nil, errors.New("Anthropic Provider 已停用")
 	}
 	if s.providers != nil {
 		if provider, ok := s.providers.Get(anthropicauth.DefaultProviderName); ok {
@@ -405,7 +405,7 @@ func (s *Server) ensureNativeAnthropicProviderLocked() error {
 			continue
 		}
 		if existing.Type != "anthropic" {
-			return fmt.Errorf("provider %s 已被其他协议占用", anthropicauth.DefaultProviderName)
+			return fmt.Errorf("provider %s 已被其他協定佔用", anthropicauth.DefaultProviderName)
 		}
 		provider = config.NormalizeProviderConfig(existing)
 		found = true
@@ -421,7 +421,7 @@ func (s *Server) ensureNativeAnthropicProviderLocked() error {
 	if !found {
 		cfg.Providers.Instances = upsertServerProvider(cfg.Providers.Instances, provider)
 		if _, err := s.persistProviderConfig(s.configPathSnapshot(), cfg); err != nil {
-			return fmt.Errorf("保存 Anthropic Provider 配置失败：%w", err)
+			return fmt.Errorf("儲存 Anthropic Provider 設定失敗：%w", err)
 		}
 	}
 	if err := s.registerProvider(provider); err != nil {

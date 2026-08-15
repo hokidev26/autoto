@@ -119,7 +119,7 @@ func (s *Server) startSubscriptionOAuthLogin(w http.ResponseWriter, r *http.Requ
 	setNoStore(w)
 	provider, ok := subscriptionOAuthProvider(chi.URLParam(r, "provider"))
 	if !ok {
-		writeError(w, http.StatusNotFound, "订阅 Provider 不支持 OAuth 登录")
+		writeError(w, http.StatusNotFound, "訂閱 Provider 不支援 OAuth 登入")
 		return
 	}
 	if s.rejectRemoteSubscriptionOAuthLogin(w, r) {
@@ -184,7 +184,7 @@ func (s *Server) getSubscriptionOAuthLogin(w http.ResponseWriter, r *http.Reques
 	setNoStore(w)
 	provider, ok := subscriptionOAuthProvider(chi.URLParam(r, "provider"))
 	if !ok {
-		writeError(w, http.StatusNotFound, "订阅 Provider 不支持 OAuth 登录")
+		writeError(w, http.StatusNotFound, "訂閱 Provider 不支援 OAuth 登入")
 		return
 	}
 	if s.rejectRemoteSubscriptionOAuthLogin(w, r) {
@@ -197,7 +197,7 @@ func (s *Server) getSubscriptionOAuthLogin(w http.ResponseWriter, r *http.Reques
 	s.expireSubscriptionOAuthLoginsLocked(s.now())
 	session := s.subscriptionOAuthLogins[loginID]
 	if session == nil || session.provider != provider {
-		writeError(w, http.StatusNotFound, "订阅 OAuth 登录会话不存在或已过期")
+		writeError(w, http.StatusNotFound, "訂閱 OAuth 登入工作階段不存在或已過期")
 		return
 	}
 	writeJSON(w, http.StatusOK, subscriptionOAuthLoginPublicResponse(session, session.status == subscriptionOAuthLoginPending))
@@ -207,7 +207,7 @@ func (s *Server) cancelSubscriptionOAuthLogin(w http.ResponseWriter, r *http.Req
 	setNoStore(w)
 	provider, ok := subscriptionOAuthProvider(chi.URLParam(r, "provider"))
 	if !ok {
-		writeError(w, http.StatusNotFound, "订阅 Provider 不支持 OAuth 登录")
+		writeError(w, http.StatusNotFound, "訂閱 Provider 不支援 OAuth 登入")
 		return
 	}
 	if s.rejectRemoteSubscriptionOAuthLogin(w, r) {
@@ -220,7 +220,7 @@ func (s *Server) cancelSubscriptionOAuthLogin(w http.ResponseWriter, r *http.Req
 	s.expireSubscriptionOAuthLoginsLocked(s.now())
 	session := s.subscriptionOAuthLogins[loginID]
 	if session == nil || session.provider != provider {
-		writeError(w, http.StatusNotFound, "订阅 OAuth 登录会话不存在或已过期")
+		writeError(w, http.StatusNotFound, "訂閱 OAuth 登入工作階段不存在或已過期")
 		return
 	}
 	if subscriptionOAuthLoginActive(session.status) {
@@ -231,7 +231,7 @@ func (s *Server) cancelSubscriptionOAuthLogin(w http.ResponseWriter, r *http.Req
 
 func (s *Server) rejectRemoteSubscriptionOAuthLogin(w http.ResponseWriter, r *http.Request) bool {
 	if s.remoteAccessAuthentication(r).Remote {
-		writeError(w, http.StatusForbidden, "订阅 OAuth 登录只能在本机发起和管理")
+		writeError(w, http.StatusForbidden, "訂閱 OAuth 登入只能在本機發起和管理")
 		return true
 	}
 	return false
@@ -404,7 +404,7 @@ func (s *Server) handleGeminiOAuthCallback(session *subscriptionOAuthLoginSessio
 		return
 	}
 	if oauthError := safeCodexOAuthErrorCode(r.URL.Query().Get("error")); oauthError != "" {
-		message := "Gemini 授权被拒绝"
+		message := "Gemini 授權被拒絕"
 		s.finishSubscriptionOAuthLoginLocked(session, subscriptionOAuthLoginFailed, message, nil)
 		s.subscriptionOAuthMu.Unlock()
 		writeSubscriptionOAuthCallbackHTML(w, http.StatusBadRequest, locale, subscriptionCallbackProviderDenied, providerLabel, message+"。")
@@ -412,7 +412,7 @@ func (s *Server) handleGeminiOAuthCallback(session *subscriptionOAuthLoginSessio
 	}
 	code := strings.TrimSpace(r.URL.Query().Get("code"))
 	if code == "" || len(code) > 16<<10 {
-		s.finishSubscriptionOAuthLoginLocked(session, subscriptionOAuthLoginFailed, "Gemini OAuth 登录失败，请重新开始", nil)
+		s.finishSubscriptionOAuthLoginLocked(session, subscriptionOAuthLoginFailed, "Gemini OAuth 登入失敗，請重新開始", nil)
 		s.subscriptionOAuthMu.Unlock()
 		writeSubscriptionOAuthCallbackHTML(w, http.StatusBadRequest, locale, subscriptionCallbackMissingCode, providerLabel, "")
 		return
@@ -423,19 +423,19 @@ func (s *Server) handleGeminiOAuthCallback(session *subscriptionOAuthLoginSessio
 
 	tokens, err := client.ExchangeCode(session.ctx, code, redirectURI)
 	if err != nil {
-		s.failSubscriptionOAuthLogin(session, "Gemini OAuth token 交换失败，请重新开始")
+		s.failSubscriptionOAuthLogin(session, "Gemini OAuth token 交換失敗，請重新開始")
 		writeSubscriptionOAuthCallbackStatusHTML(w, locale, subscriptionauth.ProviderGemini, subscriptionOAuthLoginFailed)
 		return
 	}
 	info, err := client.FetchUserInfo(session.ctx, tokens.AccessToken)
 	if err != nil {
-		s.failSubscriptionOAuthLogin(session, "Gemini 账号信息读取失败，请重新开始")
+		s.failSubscriptionOAuthLogin(session, "Gemini 帳號資訊讀取失敗，請重新開始")
 		writeSubscriptionOAuthCallbackStatusHTML(w, locale, subscriptionauth.ProviderGemini, subscriptionOAuthLoginFailed)
 		return
 	}
 	projectID, err := client.FetchProjectID(session.ctx, tokens.AccessToken)
 	if err != nil || strings.TrimSpace(projectID) == "" {
-		s.failSubscriptionOAuthLogin(session, "Gemini Cloud Code 项目初始化失败，请重新开始")
+		s.failSubscriptionOAuthLogin(session, "Gemini Cloud Code 專案初始化失敗，請重新開始")
 		writeSubscriptionOAuthCallbackStatusHTML(w, locale, subscriptionauth.ProviderGemini, subscriptionOAuthLoginFailed)
 		return
 	}
@@ -445,7 +445,7 @@ func (s *Server) handleGeminiOAuthCallback(session *subscriptionOAuthLoginSessio
 		Subject: info.Subject, ProjectID: projectID,
 	})
 	if err != nil {
-		s.failSubscriptionOAuthLogin(session, "Gemini 凭据无法安全保存，请重试")
+		s.failSubscriptionOAuthLogin(session, "Gemini 憑證無法安全儲存，請重試")
 		writeSubscriptionOAuthCallbackHTML(w, http.StatusInternalServerError, locale, subscriptionCallbackStoreFailed, providerLabel, "")
 		return
 	}
@@ -462,7 +462,7 @@ func (s *Server) handleGeminiOAuthCallback(session *subscriptionOAuthLoginSessio
 func (s *Server) completeGrokOAuthLogin(session *subscriptionOAuthLoginSession, client grokOAuthLoginClient, device *grokauth.DeviceCodeResponse) {
 	tokens, err := client.Wait(session.ctx, device)
 	if err != nil {
-		s.failSubscriptionOAuthLogin(session, "Grok 设备授权失败，请重新开始")
+		s.failSubscriptionOAuthLogin(session, "Grok 裝置授權失敗，請重新開始")
 		return
 	}
 	if !s.beginSubscriptionOAuthExchange(session) {
@@ -474,7 +474,7 @@ func (s *Server) completeGrokOAuthLogin(session *subscriptionOAuthLoginSession, 
 		Subject: tokens.Subject, TokenEndpoint: device.TokenEndpoint,
 	})
 	if err != nil {
-		s.failSubscriptionOAuthLogin(session, "Grok 凭据无法安全保存，请重试")
+		s.failSubscriptionOAuthLogin(session, "Grok 憑證無法安全儲存，請重試")
 		return
 	}
 	s.completeSubscriptionOAuthLogin(session, account)
@@ -483,7 +483,7 @@ func (s *Server) completeGrokOAuthLogin(session *subscriptionOAuthLoginSession, 
 func (s *Server) completeKimiOAuthLogin(session *subscriptionOAuthLoginSession, client kimiOAuthLoginClient, device *kimiauth.DeviceCodeResponse) {
 	bundle, err := client.Wait(session.ctx, device)
 	if err != nil {
-		s.failSubscriptionOAuthLogin(session, "Kimi 设备授权失败，请重新开始")
+		s.failSubscriptionOAuthLogin(session, "Kimi 裝置授權失敗，請重新開始")
 		return
 	}
 	if !s.beginSubscriptionOAuthExchange(session) {
@@ -502,7 +502,7 @@ func (s *Server) completeKimiOAuthLogin(session *subscriptionOAuthLoginSession, 
 		ExpiresAt: tokens.ExpiresAt, Scope: tokens.Scope, DeviceID: deviceID,
 	})
 	if err != nil {
-		s.failSubscriptionOAuthLogin(session, "Kimi 凭据无法安全保存，请重试")
+		s.failSubscriptionOAuthLogin(session, "Kimi 憑證無法安全儲存，請重試")
 		return
 	}
 	s.completeSubscriptionOAuthLogin(session, account)
@@ -664,7 +664,7 @@ func (s *Server) serveSubscriptionOAuthCallback(session *subscriptionOAuthLoginS
 	if err == nil || errors.Is(err, http.ErrServerClosed) || errors.Is(err, net.ErrClosed) {
 		return
 	}
-	s.failSubscriptionOAuthLogin(session, "Gemini 本地 OAuth 回调服务异常，请重新开始")
+	s.failSubscriptionOAuthLogin(session, "Gemini 本機 OAuth 回呼服務異常，請重新開始")
 }
 
 func (s *Server) subscriptionOAuthTTL(provider string, expiresIn int) time.Duration {
@@ -774,7 +774,7 @@ func (s *Server) submitKiroOAuthLogin(w http.ResponseWriter, r *http.Request) {
 	session := s.subscriptionOAuthLogins[loginID]
 	if session == nil || session.provider != subscriptionauth.ProviderKiro {
 		s.subscriptionOAuthMu.Unlock()
-		writeError(w, http.StatusNotFound, "Kiro 登录会话不存在或已过期")
+		writeError(w, http.StatusNotFound, "Kiro 登入工作階段不存在或已過期")
 		return
 	}
 	if session.status != subscriptionOAuthLoginPending {
@@ -795,7 +795,7 @@ func (s *Server) submitKiroOAuthLogin(w http.ResponseWriter, r *http.Request) {
 	}
 	refreshToken := strings.TrimSpace(req.RefreshToken)
 	if refreshToken == "" {
-		writeError(w, http.StatusBadRequest, "refreshToken 不能为空")
+		writeError(w, http.StatusBadRequest, "refreshToken 不能為空")
 		return
 	}
 	region := strings.TrimSpace(req.Region)
@@ -803,20 +803,20 @@ func (s *Server) submitKiroOAuthLogin(w http.ResponseWriter, r *http.Request) {
 		region = kiroauth.DefaultRegion
 	}
 	if err := kiroauth.ValidateRegion(region); err != nil {
-		writeError(w, http.StatusBadRequest, "region 无效："+err.Error())
+		writeError(w, http.StatusBadRequest, "region 無效："+err.Error())
 		return
 	}
 
 	if !s.beginSubscriptionOAuthExchange(session) {
-		writeError(w, http.StatusConflict, "Kiro 登录会话已过期或已完成")
+		writeError(w, http.StatusConflict, "Kiro 登入工作階段已過期或已完成")
 		return
 	}
 
 	client := s.newKiroOAuthLoginClient()
 	tokens, err := client.RefreshToken(session.ctx, refreshToken, region)
 	if err != nil {
-		s.failSubscriptionOAuthLogin(session, "Kiro refresh token 验证失败，请检查 token 是否有效")
-		writeError(w, http.StatusBadGateway, "Kiro refresh token 验证失败")
+		s.failSubscriptionOAuthLogin(session, "Kiro refresh token 驗證失敗，請檢查 token 是否有效")
+		writeError(w, http.StatusBadGateway, "Kiro refresh token 驗證失敗")
 		return
 	}
 	account, err := s.saveSubscriptionOAuthCredential(subscriptionauth.ProviderKiro, subscriptionOAuthTokens{
@@ -826,8 +826,8 @@ func (s *Server) submitKiroOAuthLogin(w http.ResponseWriter, r *http.Request) {
 		Subject:      tokens.ProfileArn, // store ProfileArn in Subject for region derivation
 	})
 	if err != nil {
-		s.failSubscriptionOAuthLogin(session, "Kiro 凭据无法安全保存，请重试")
-		writeError(w, http.StatusInternalServerError, "Kiro 凭据保存失败")
+		s.failSubscriptionOAuthLogin(session, "Kiro 憑證無法安全儲存，請重試")
+		writeError(w, http.StatusInternalServerError, "Kiro 憑證儲存失敗")
 		return
 	}
 	s.completeSubscriptionOAuthLogin(session, account)
@@ -849,7 +849,7 @@ func (s *Server) submitKiroAPIKeyLogin(w http.ResponseWriter, r *http.Request) {
 	session := s.subscriptionOAuthLogins[loginID]
 	if session == nil || session.provider != subscriptionauth.ProviderKiro {
 		s.subscriptionOAuthMu.Unlock()
-		writeError(w, http.StatusNotFound, "Kiro 登录会话不存在或已过期")
+		writeError(w, http.StatusNotFound, "Kiro 登入工作階段不存在或已過期")
 		return
 	}
 	if session.status != subscriptionOAuthLoginPending {
@@ -869,12 +869,12 @@ func (s *Server) submitKiroAPIKeyLogin(w http.ResponseWriter, r *http.Request) {
 	}
 	apiKey := strings.TrimSpace(req.KiroAPIKey)
 	if !strings.HasPrefix(apiKey, "ksk_") || len(apiKey) < 8 {
-		writeError(w, http.StatusBadRequest, "kiroApiKey 格式无效，应以 ksk_ 开头")
+		writeError(w, http.StatusBadRequest, "kiroApiKey 格式無效，应以 ksk_ 開頭")
 		return
 	}
 
 	if !s.beginSubscriptionOAuthExchange(session) {
-		writeError(w, http.StatusConflict, "Kiro 登录会话已过期或已完成")
+		writeError(w, http.StatusConflict, "Kiro 登入工作階段已過期或已完成")
 		return
 	}
 
@@ -883,8 +883,8 @@ func (s *Server) submitKiroAPIKeyLogin(w http.ResponseWriter, r *http.Request) {
 		AccessToken: apiKey,
 	})
 	if err != nil {
-		s.failSubscriptionOAuthLogin(session, "Kiro API key 无法安全保存，请重试")
-		writeError(w, http.StatusInternalServerError, "Kiro API key 保存失败")
+		s.failSubscriptionOAuthLogin(session, "Kiro API key 無法安全儲存，請重試")
+		writeError(w, http.StatusInternalServerError, "Kiro API key 儲存失敗")
 		return
 	}
 	s.completeSubscriptionOAuthLogin(session, account)
@@ -909,15 +909,15 @@ func subscriptionOAuthProvider(value string) (string, bool) {
 func subscriptionOAuthStartError(provider string) string {
 	switch provider {
 	case subscriptionauth.ProviderGemini:
-		return "无法启动 Gemini OAuth 登录"
+		return "無法啟動 Gemini OAuth 登入"
 	case subscriptionauth.ProviderGrok:
-		return "无法启动 Grok 设备授权"
+		return "無法啟動 Grok 裝置授權"
 	case subscriptionauth.ProviderKimi:
-		return "无法启动 Kimi 设备授权"
+		return "無法啟動 Kimi 裝置授權"
 	case subscriptionauth.ProviderKiro:
-		return "无法启动 Kiro 登录会话"
+		return "無法啟動 Kiro 登入工作階段"
 	default:
-		return "无法启动订阅 OAuth 登录"
+		return "無法啟動訂閱 OAuth 登入"
 	}
 }
 
