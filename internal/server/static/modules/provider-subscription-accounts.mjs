@@ -188,7 +188,7 @@ export function createSubscriptionAccountsController(ctx) {
     return runSubscriptionAccountAction(provider, id, button, st("syncing"), async () => {
       const request = subscriptionAccountActionRequest("sync", provider, id);
       await requestAPI(request.path, request.options);
-      setProviderConsoleResult(st("accountSynced"), "success");
+      notifyTerminal?.(`[info] ${st("accountSynced")}\n`);
     });
   }
 

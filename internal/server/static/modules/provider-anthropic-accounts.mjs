@@ -140,7 +140,7 @@ export function createAnthropicAccountsController(ctx) {
     return runAnthropicAccountAction(id, button, mt("syncing"), async () => {
       const request = anthropicAccountActionRequest("sync", id);
       await requestAPI(request.path, request.options);
-      setProviderConsoleResult(mt("anthropic.accountSynced"), "success");
+      notifyTerminal?.(`[info] ${mt("anthropic.accountSynced")}\n`);
     });
   }
 

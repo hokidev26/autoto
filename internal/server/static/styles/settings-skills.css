@@ -494,16 +494,27 @@
 
 #settingsContentBody .codex-console-stats {
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 10px;
+  gap: 8px;
+}
+#settingsContentBody .codex-console-stats:has(> .settings-stat-card:nth-child(5)) {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
 }
 
 #settingsContentBody .codex-console-stats .settings-stat-card {
-  min-height: 88px;
-  padding: 14px;
+  min-height: 0;
+  padding: 8px 10px;
   box-shadow: none;
+  align-content: center;
 }
 
-#settingsContentBody .codex-console-stats .settings-stat-card strong { font-size: 24px; }
+#settingsContentBody .codex-console-stats .settings-stat-card strong {
+  font-size: 18px;
+  line-height: 1.15;
+}
+#settingsContentBody .codex-console-stats .settings-stat-card span {
+  font-size: 11px;
+  line-height: 1.25;
+}
 #settingsContentBody .codex-console-result { margin: 0; }
 #settingsContentBody .codex-console-result.success {
   border-color: color-mix(in srgb, var(--settings-success) 30%, var(--settings-border));
@@ -706,6 +717,11 @@
   border-radius: 0;
   background: var(--settings-surface);
 }
+#settingsContentBody .settings-h-scroll:focus { outline: none; }
+#settingsContentBody .settings-h-scroll:focus-visible {
+  outline: 2px solid var(--settings-primary);
+  outline-offset: -2px;
+}
 
 #settingsContentBody .codex-accounts-panel .codex-account-table {
   width: 100%;
@@ -728,9 +744,34 @@
   color: var(--settings-muted-foreground);
 }
 
-#settingsContentBody .codex-account-table tbody tr:hover,
+#settingsContentBody .codex-account-table tbody tr:not(.codex-account-group-head):hover,
 #settingsContentBody .codex-account-table tbody tr.is-editing,
 #settingsContentBody .codex-account-table tbody tr.is-selected { background: color-mix(in srgb, var(--settings-primary-soft) 58%, var(--settings-surface)); }
+#settingsContentBody .codex-account-table tr.codex-account-group-head th {
+  width: auto;
+  padding: 8px 10px;
+  border-color: var(--settings-border);
+  background: var(--settings-muted);
+  color: var(--settings-muted-foreground);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-align: left;
+  text-transform: uppercase;
+}
+#settingsContentBody .codex-account-table tbody.is-disabled tr:not(.codex-account-group-head) {
+  background: color-mix(in srgb, var(--settings-muted) 72%, var(--settings-surface));
+}
+#settingsContentBody .codex-account-table tbody.is-disabled tr:not(.codex-account-group-head) .codex-account-name,
+#settingsContentBody .codex-account-table tbody.is-disabled tr:not(.codex-account-group-head) .codex-account-id,
+#settingsContentBody .codex-account-table tbody.is-disabled tr:not(.codex-account-group-head) .codex-priority-value {
+  color: var(--settings-muted-foreground);
+}
+#settingsContentBody .codex-account-table tbody.is-disabled tr:not(.codex-account-group-head):hover,
+#settingsContentBody .codex-account-table tbody.is-disabled tr.is-editing,
+#settingsContentBody .codex-account-table tbody.is-disabled tr.is-selected {
+  background: color-mix(in srgb, var(--settings-muted) 88%, var(--settings-surface));
+}
 #settingsContentBody .codex-oauth-account-table th:nth-child(1) { width: 4%; }
 #settingsContentBody .codex-oauth-account-table th:nth-child(2) { width: 14%; }
 #settingsContentBody .codex-oauth-account-table th:nth-child(3) { width: 11%; }
@@ -767,6 +808,48 @@
 }
 #settingsContentBody .codex-account-name-row .codex-account-name { min-width: 0; }
 #settingsContentBody .codex-account-name-row .codex-plan-badge { flex: 0 0 auto; margin-left: 0; }
+#settingsContentBody .codex-plan-badge {
+  border: 1px solid transparent;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+#settingsContentBody .codex-plan-badge.is-free {
+  border-color: color-mix(in srgb, var(--settings-muted-foreground) 22%, var(--settings-border));
+  background: color-mix(in srgb, var(--settings-muted-foreground) 12%, var(--settings-surface));
+  color: var(--settings-muted-foreground);
+}
+#settingsContentBody .codex-plan-badge.is-plus {
+  border-color: color-mix(in srgb, var(--settings-success) 32%, var(--settings-border));
+  background: var(--settings-success-soft);
+  color: var(--settings-success);
+}
+#settingsContentBody .codex-plan-badge.is-pro {
+  border-color: color-mix(in srgb, var(--settings-warning) 34%, var(--settings-border));
+  background: var(--settings-warning-soft);
+  color: var(--settings-warning);
+}
+#settingsContentBody .codex-plan-badge.is-k12 {
+  border-color: color-mix(in srgb, var(--settings-primary) 34%, var(--settings-border));
+  background: var(--settings-primary-soft);
+  color: var(--settings-primary);
+}
+#settingsContentBody .codex-plan-badge.is-team {
+  border-color: color-mix(in srgb, var(--settings-primary) 42%, var(--settings-border));
+  background: color-mix(in srgb, var(--settings-primary) 18%, var(--settings-surface));
+  color: var(--settings-primary);
+}
+#settingsContentBody .codex-plan-badge.is-enterprise {
+  border-color: color-mix(in srgb, var(--settings-destructive) 28%, var(--settings-primary));
+  background: color-mix(in srgb, var(--settings-destructive) 12%, var(--settings-primary-soft));
+  color: color-mix(in srgb, var(--settings-destructive) 42%, var(--settings-primary));
+}
+#settingsContentBody .codex-plan-badge.is-other {
+  border-color: color-mix(in srgb, var(--settings-primary) 28%, var(--settings-border));
+  background: color-mix(in srgb, var(--settings-primary) 10%, var(--settings-surface));
+  color: var(--settings-primary);
+}
 #settingsContentBody .codex-account-secondary { color: var(--settings-muted-foreground); }
 #settingsContentBody .codex-account-secondary .codex-plan-badge:first-child { margin-left: 0; }
 #settingsContentBody .codex-account-id { color: var(--settings-muted-foreground); }
@@ -1050,7 +1133,6 @@
   #settingsContentBody .mp-provider-page .mp-stat-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   #settingsContentBody .codex-console-hero { grid-template-columns: minmax(0, 1fr); align-items: start; }
   #settingsContentBody .codex-console-actions { justify-content: flex-start; }
-  #settingsContentBody .codex-console-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   #settingsContentBody .anthropic-add-grid,
   #settingsContentBody .anthropic-config-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
@@ -1250,6 +1332,10 @@
   #settingsContentBody .usage-history-page .uh-filter-actions { grid-column: 1; }
   #settingsContentBody .codex-account-console { gap: 12px; padding-bottom: 20px; }
   #settingsContentBody .codex-console-hero { padding: 16px; }
+  #settingsContentBody .codex-console-stats,
+  #settingsContentBody .codex-console-stats:has(> .settings-stat-card:nth-child(5)) {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
   #settingsContentBody .codex-console-heading,
   #settingsContentBody .codex-console-section-head,
   #settingsContentBody .codex-import-footer { align-items: stretch; flex-direction: column; }
@@ -1282,10 +1368,26 @@
   #settingsContentBody .codex-account-table tr,
   #settingsContentBody .codex-account-table td { display: block; width: 100%; }
   #settingsContentBody .codex-account-table tr { margin: 0; padding: 14px; border-bottom: 1px solid var(--settings-border); background: var(--settings-surface); }
-  #settingsContentBody .codex-account-table tr:last-child { border-bottom: 0; }
+  #settingsContentBody .codex-account-table tbody:last-child tr:last-child { border-bottom: 0; }
   #settingsContentBody .codex-account-table td { display: grid; grid-template-columns: minmax(92px, 30%) minmax(0, 1fr); gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--settings-border); }
   #settingsContentBody .codex-account-table td::before { content: attr(data-label); color: var(--settings-muted-foreground); font-size: 11px; font-weight: 750; }
   #settingsContentBody .codex-account-table td:last-child { border-bottom: 0; }
+  #settingsContentBody .codex-account-table tr.codex-account-group-head {
+    padding: 10px 14px;
+    background: var(--settings-muted);
+  }
+  #settingsContentBody .codex-account-table tr.codex-account-group-head th {
+    display: block;
+    width: 100%;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--settings-muted-foreground);
+  }
   #settingsContentBody .codex-account-actions {
     width: 100%;
     display: grid;

@@ -2004,17 +2004,17 @@ export function createModelProviderSettingsController({
       const form = target.closest?.("[data-mp-provider-form]");
       if (form) discoverConsoleProviderModels(form).catch(showError);
       else {
+        setProviderConsoleResult("");
         runProviderConsoleBusy("refresh", async () => {
           await refreshModelCatalog();
-          setProviderConsoleResult(ct("messages.modelsRefreshed"), "success");
         }).catch(showError);
       }
       return;
     }
     if (target.dataset.mpRefreshModels !== undefined) {
+      setProviderConsoleResult("");
       runProviderConsoleBusy("refresh", async () => {
         await refreshModelCatalog();
-        setProviderConsoleResult(ct("messages.modelsRefreshed"), "success");
       }).catch(showError);
       return;
     }

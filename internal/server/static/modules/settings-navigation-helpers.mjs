@@ -117,6 +117,19 @@ export function createSettingsNavigationHelpers({
     if (select) input.select();
   }
 
+  function settingsPageScroller() {
+    return $("settingsContentBody")?.closest?.(".settings-page-scroll") || null;
+  }
+
+  function captureSettingsPageScroll() {
+    return Number(settingsPageScroller()?.scrollTop) || 0;
+  }
+
+  function restoreSettingsPageScroll(top) {
+    const scroller = settingsPageScroller();
+    if (scroller) scroller.scrollTop = Number(top) || 0;
+  }
+
   function refreshActiveSettingsPanel() {
     const modal = $("settingsModal");
     if (!modal || modal.classList.contains("hidden")) return;
@@ -124,7 +137,9 @@ export function createSettingsNavigationHelpers({
       renderMobileSettingsIndex();
       return;
     }
+    const scrollTop = captureSettingsPageScroll();
     selectSettingsPanel(state.activeSettingsPanel || "profile");
+    restoreSettingsPageScroll(scrollTop);
   }
 
   async function copyToClipboard(text) {
@@ -186,6 +201,8 @@ export function createSettingsNavigationHelpers({
     selectSettingsCategory,
     clearSettingsSearchQuery,
     focusSettingsSearchInput,
+    captureSettingsPageScroll,
+    restoreSettingsPageScroll,
     refreshActiveSettingsPanel,
     copyToClipboard,
     copyText,

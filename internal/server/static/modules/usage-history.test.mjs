@@ -93,6 +93,8 @@ test("usage history exposes shared settings classes and accessible regions", () 
   assert.match(html, /class="uh-summary-grid settings-stat-grid"/);
   assert.match(html, /class="uh-panel uh-filter-panel settings-card" aria-labelledby="usageHistoryFiltersTitle"/);
   assert.match(html, /class="uh-history-table settings-data-list" aria-label=/);
+  assert.match(html, /uh-table-scroll settings-h-scroll[^>]*tabindex="0"/);
+  assert.match(html, /uh-chart-host settings-h-scroll[^>]*tabindex="0"/);
   assert.match(html, /aria-live="polite"/);
 });
 

@@ -175,6 +175,90 @@ test("opening Settings on an account page snaps the console back to the provider
   assert.doesNotMatch(html, /gemini-account-console/);
 });
 
+async function waitUntil(predicate, tries = 40) {
+  for (let i = 0; i < tries; i++) {
+    if (predicate()) return;
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  }
+  throw new Error("timed out");
+}
+
+function clickable(dataset) {
+  return {
+    dataset,
+    textContent: "",
+    disabled: false,
+    closest(selector) {
+      if (selector === "button, [data-mp-provider-card], [data-mp-backdrop]") return this;
+      return null;
+    },
+    setAttribute() {},
+    removeAttribute() {},
+  };
+}
+
+test("refreshing models, Codex quota, and account enablement does not insert a success banner", async () => {
+  const listeners = {};
+  const root = {
+    addEventListener: (type, handler) => { listeners[type] = handler; },
+    removeEventListener: () => {},
+  };
+  let refreshes = 0;
+  const { state, controller } = harness({
+    providerAuthFiles: [{ id: "account-1" }],
+    providerAuthLoaded: true,
+    providerConsole: { view: "providers", result: { message: "stale", tone: "success" }, busy: {} },
+  }, {
+    controller: {
+      loadModelCatalog: async () => {},
+      requestAPI: async () => [{ id: "account-1" }],
+      refreshActiveSettingsPanel: () => { refreshes += 1; },
+    },
+  });
+  const previous = globalThis.document;
+  globalThis.document = {
+    getElementById: (id) => (id === "settingsContentBody" ? root : null),
+    querySelectorAll: () => [],
+    querySelector: () => null,
+  };
+  try {
+    controller.bindProviderSettingsActions();
+    listeners.click({
+      target: clickable({ mpRefreshModels: "" }),
+      preventDefault() {},
+      stopPropagation() {},
+    });
+    await waitUntil(() => refreshes >= 2 && !state.providerConsole.busy?.refresh);
+    assert.equal(state.providerConsole.result, null);
+    assert.doesNotMatch(controller.renderProviderSettingsContent(), /mp-provider-result|codex-console-result/);
+
+    state.providerConsole.view = "codex";
+    state.providerConsole.result = { message: "stale", tone: "success" };
+    refreshes = 0;
+    listeners.click({
+      target: clickable({ codexSync: "account-1" }),
+      preventDefault() {},
+      stopPropagation() {},
+    });
+    await waitUntil(() => refreshes >= 2 && !state.codexAccountBusy?.["account-1"]);
+    assert.equal(state.providerConsole.result, null);
+    assert.doesNotMatch(controller.renderProviderSettingsContent(), /mp-provider-result|codex-console-result/);
+
+    state.providerConsole.result = { message: "stale", tone: "success" };
+    refreshes = 0;
+    listeners.click({
+      target: clickable({ codexToggle: "account-1", disabled: "false" }),
+      preventDefault() {},
+      stopPropagation() {},
+    });
+    await waitUntil(() => refreshes >= 2 && !state.codexAccountBusy?.["account-1"]);
+    assert.equal(state.providerConsole.result, null);
+    assert.doesNotMatch(controller.renderProviderSettingsContent(), /mp-provider-result|codex-console-result/);
+  } finally {
+    globalThis.document = previous;
+  }
+});
+
 test("creating an OpenAI-compatible provider opens the create drawer with an empty model list", () => {
   // Seeding the template's example model made "Save and enable" look ready before
   // the user had fetched or typed a real model, and the server then stored junk.

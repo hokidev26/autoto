@@ -1,6 +1,7 @@
 import { escapeAttr, escapeHtml } from "./dom.mjs";
 import { formatMoney, formatNumber, formatTimestamp } from "./formatters.mjs";
 import { t } from "./i18n.mjs";
+import { focusHorizontalRegionFromPointer, scrollHorizontalRegionFromKeyboard } from "./horizontal-scroll.mjs";
 import { normalizeCodexSelectedIds } from "./provider-settings-normalization.mjs";
 
 function codexQuotaUnauthorizedIsCurrent(account) {
@@ -56,6 +57,71 @@ export function codexAccountStableID(account) {
   return String(account?.id || account?.auth_index || account?.authIndex || account?.name || "").trim();
 }
 
+export function codexPlanKind(plan) {
+  const compact = String(plan || "").trim().toLowerCase().replace(/[\s-]+/g, "_");
+  if (!compact) return "other";
+  if (compact.includes("k12") || compact.includes("education")) return "k12";
+  if (compact.includes("plus")) return "plus";
+  if (compact === "free" || compact.startsWith("free")) return "free";
+  if (compact === "pro" || compact.startsWith("pro")) return "pro";
+  if (compact.includes("team")) return "team";
+  if (compact.includes("enterprise")) return "enterprise";
+  return "other";
+}
+
+function partitionCodexAccountsByEnabled(accounts) {
+  const enabled = [];
+  const disabled = [];
+  for (const account of accounts) {
+    if (account?.disabled) disabled.push(account);
+    else enabled.push(account);
+  }
+  return { enabled, disabled };
+}
+
+function renderCodexPlanBadge(plan) {
+  const label = String(plan || "").trim();
+  if (!label) return "";
+  return `<span class="codex-plan-badge settings-badge is-${escapeAttr(codexPlanKind(label))}">${escapeHtml(label)}</span>`;
+}
+
+function renderCodexAccountGroupHead(label) {
+  return `<tr class="codex-account-group-head"><th colspan="9" scope="colgroup">${escapeHtml(label)}</th></tr>`;
+}
+
+function renderCodexAccountGroup(accounts, {
+  className,
+  heading,
+  showHeading,
+  mt,
+  now,
+  editing,
+  busy,
+  selectedSet,
+  batchBusy,
+}) {
+  if (!accounts.length) return "";
+  const head = showHeading ? renderCodexAccountGroupHead(heading) : "";
+  const rows = accounts.map((account) => renderCodexAccountRow(account, mt, now, editing, busy, {
+    selected: selectedSet.has(codexAccountStableID(account)),
+    batchBusy,
+  })).join("");
+  return `<tbody class="codex-account-group ${escapeAttr(className)}">${head}${rows}</tbody>`;
+}
+
+export function scrollCodexAccountTableFromKeyboard(event) {
+  return scrollHorizontalRegionFromKeyboard(event);
+}
+
+export function focusCodexAccountTableWrapFromPointer(event) {
+  return focusHorizontalRegionFromPointer(event);
+}
+
+function renderCodexAccountTableWrapOpen(extraClass = "") {
+  const className = ["codex-account-table-wrap", "settings-h-scroll", extraClass, "settings-card-content"].filter(Boolean).join(" ");
+  return `<div class="${className}" tabindex="0" role="region" aria-label="${escapeAttr(t("modelProvider.accountTableScrollRegion"))}">`;
+}
+
 function renderCodexBatchToolbar(items, selectedIds, mt, { batchBusy = false, batchPriority = 100 } = {}) {
   const selected = normalizeCodexSelectedIds(selectedIds, items);
   const selectedCount = selected.length;
@@ -94,16 +160,37 @@ export function renderCodexAccountManagementTable(accounts, {
   const selected = normalizeCodexSelectedIds(selectedIds, items);
   const selectedSet = new Set(selected);
   const allSelected = items.every((account) => selectedSet.has(codexAccountStableID(account)));
+  const groups = partitionCodexAccountsByEnabled(items);
   return `<div class="codex-account-management">
     ${renderCodexBatchToolbar(items, selected, mt, { batchBusy, batchPriority })}
-    <div class="codex-account-table-wrap settings-card-content">
+    ${renderCodexAccountTableWrapOpen()}
       <table class="codex-account-table codex-oauth-account-table" aria-label="${escapeAttr(mt("importedCredentials"))}">
         <thead><tr>
           <th scope="col" class="codex-account-select-heading"><input type="checkbox" data-codex-select-all aria-label="${escapeAttr(mt("selectAllAccounts"))}" ${allSelected ? "checked" : ""}${batchBusy ? " disabled" : ""}></th>
           <th scope="col">${escapeHtml(mt("accountName"))}</th><th scope="col">${escapeHtml(mt("accountId"))}</th><th scope="col">${escapeHtml(mt("priority"))}</th><th scope="col">${escapeHtml(mt("status"))}</th>
           <th scope="col">${escapeHtml(mt("successFailure"))}</th><th scope="col">${escapeHtml(mt("usage"))}</th><th scope="col">${escapeHtml(mt("lastUsed"))}</th><th scope="col">${escapeHtml(mt("actions"))}</th>
         </tr></thead>
-        <tbody>${items.map((account) => renderCodexAccountRow(account, mt, now, editing, busy, { selected: selectedSet.has(codexAccountStableID(account)), batchBusy })).join("")}</tbody>
+        ${renderCodexAccountGroup(groups.enabled, {
+          className: "is-enabled",
+          heading: mt("enabledAccountGroup"),
+          showHeading: groups.disabled.length > 0,
+          mt,
+          now,
+          editing,
+          busy,
+          selectedSet,
+          batchBusy,
+        })}${renderCodexAccountGroup(groups.disabled, {
+          className: "is-disabled",
+          heading: mt("disabledAccounts"),
+          showHeading: true,
+          mt,
+          now,
+          editing,
+          busy,
+          selectedSet,
+          batchBusy,
+        })}
       </table>
     </div>
   </div>`;
@@ -117,7 +204,7 @@ export function renderAnthropicAccountManagementTable(accounts, {
   const mt = translate;
   const items = Array.isArray(accounts) ? accounts : [];
   if (!items.length) return `<div class="mp-console-empty" role="status">${escapeHtml(mt("anthropic.noAccounts"))}</div>`;
-  return `<div class="codex-account-table-wrap anthropic-account-table-wrap settings-card-content">
+  return `${renderCodexAccountTableWrapOpen("anthropic-account-table-wrap")}
     <table class="codex-account-table anthropic-account-table" aria-label="${escapeAttr(mt("anthropic.accountsTitle"))}">
       <thead><tr>
         <th scope="col">${escapeHtml(mt("accountName"))}</th><th scope="col">${escapeHtml(mt("anthropic.authType"))}</th><th scope="col">${escapeHtml(mt("priority"))}</th><th scope="col">${escapeHtml(mt("status"))}</th>
@@ -190,12 +277,13 @@ function renderCodexAccountRow(account, mt, now, editing, busy, { selected = fal
   const secondaryName = alias && fallbackName !== alias ? fallbackName : "";
   const editAlias = String(isEditing ? editing.alias ?? alias : alias);
   const editPriority = finiteNumber(isEditing ? editing.priority : priority, priority);
-  return `<tr data-codex-account-row="${escapeAttr(id)}" class="${[isEditing ? "is-editing" : "", selected ? "is-selected" : ""].filter(Boolean).join(" ")}" aria-busy="${isBusy ? "true" : "false"}">
+  const rowClass = [disabled ? "is-disabled" : "", isEditing ? "is-editing" : "", selected ? "is-selected" : ""].filter(Boolean).join(" ");
+  return `<tr data-codex-account-row="${escapeAttr(id)}" class="${rowClass}" aria-busy="${isBusy ? "true" : "false"}">
     <td class="codex-account-select-cell" data-label="${escapeAttr(mt("selectAccount"))}"><input type="checkbox" data-codex-select="${escapeAttr(id)}" aria-label="${escapeAttr(mt("selectAccountNamed", { account: displayName }))}" ${selected ? "checked" : ""}${isBusy ? " disabled" : ""}></td>
     <td data-label="${escapeAttr(mt("accountName"))}">
       ${isEditing
         ? `<label class="codex-inline-edit-field"><span class="mp-visually-hidden">${escapeHtml(mt("accountName"))}</span><input class="codex-account-alias settings-text-input settings-form-field" value="${escapeAttr(editAlias)}" placeholder="${escapeAttr(fallbackName)}" maxlength="200" data-codex-edit-alias="${escapeAttr(id)}" data-select-on-focus="true"${disabledAttributes}></label>`
-        : `<div class="codex-account-name-row"><strong class="codex-account-name">${escapeHtml(displayName)}</strong>${plan ? `<span class="codex-plan-badge settings-badge">${escapeHtml(plan)}</span>` : ""}</div>`}
+        : `<div class="codex-account-name-row"><strong class="codex-account-name">${escapeHtml(displayName)}</strong>${renderCodexPlanBadge(plan)}</div>`}
       ${secondaryName ? `<div class="codex-account-secondary">${escapeHtml(secondaryName)}</div>` : ""}
     </td>
     <td data-label="${escapeAttr(mt("accountId"))}"><code class="codex-account-id">${escapeHtml(accountLabel)}</code></td>
@@ -747,7 +835,7 @@ export function renderSubscriptionAccountManagementTable(provider, accounts, {
   const st = translate;
   const items = Array.isArray(accounts) ? accounts : [];
   if (!items.length) return `<div class="mp-console-empty" role="status">${escapeHtml(emptyText || st("empty"))}</div>`;
-  return `<div class="codex-account-table-wrap subscription-account-table-wrap settings-card-content">
+  return `${renderCodexAccountTableWrapOpen("subscription-account-table-wrap")}
     <table class="codex-account-table subscription-account-table" data-subscription-provider="${escapeAttr(provider)}" aria-label="${escapeAttr(st("accountsTitle"))}">
       <thead><tr>
         <th scope="col">${escapeHtml(st("accountName"))}</th><th scope="col">${escapeHtml(st("accountId"))}</th><th scope="col">${escapeHtml(st("priority"))}</th><th scope="col">${escapeHtml(st("status"))}</th>

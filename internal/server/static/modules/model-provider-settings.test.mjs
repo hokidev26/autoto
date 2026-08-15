@@ -55,6 +55,7 @@ import {
   validateProviderNameValue,
   renderAnthropicAccountManagementTable,
   renderCodexAccountManagementTable,
+  codexPlanKind,
   runtimeReasoningSettingsRequest,
   subscriptionProviderKind,
 } from "./model-provider-settings.mjs";
@@ -157,6 +158,8 @@ const labels = {
   accountExported: "The Codex account JSON was downloaded.",
   accountExportFailed: "Unable to create the account JSON download.",
   unknown: "unknown",
+  disabledAccounts: "Disabled accounts",
+  enabledAccountGroup: "Enabled accounts",
   accountMutationRefreshFailed: "Mutation succeeded; refresh failed: {message}",
   accountDeletePartial: "Credential deleted; statistics cleanup incomplete.",
   unconfigured: "Not configured",
@@ -208,6 +211,7 @@ test("Codex account table renders complete account data and escapes HTML", (t) =
     quota: { plan_type: "team", primary_window: { used_percent: 25, limit_window_seconds: 18000, reset_after_seconds: 3600 } },
   }]);
   assert.match(html, /codex-account-table/);
+  assert.match(html, /codex-account-table-wrap settings-h-scroll[^>]*tabindex="0"/);
   assert.match(html, /settings-card-content/);
   assert.match(html, /scope="col"/);
   assert.match(html, /settings-inline-actions/);
@@ -239,6 +243,7 @@ test("Codex account table renders complete account data and escapes HTML", (t) =
   assert.doesNotMatch(html, /Credits|Balance |Quota synced/);
   assert.doesNotMatch(html, /<script>/);
   assert.match(html, /&lt;script&gt;/);
+  assert.match(html, /codex-plan-badge settings-badge is-team">team/);
 
   const editHtml = render([{ id: "codex_fixture", alias: "Primary", priority: 7 }], undefined, {
     editing: { id: "codex_fixture", alias: "Edited", priority: 9 },
@@ -249,6 +254,67 @@ test("Codex account table renders complete account data and escapes HTML", (t) =
   assert.match(editHtml, /value="9"/);
   assert.match(editHtml, /data-codex-save="codex_fixture"/);
   assert.match(editHtml, /data-codex-edit-cancel="codex_fixture"/);
+});
+
+test("Codex plan badges map free, plus, pro, and k12 to distinct kinds", () => {
+  assert.equal(codexPlanKind("free"), "free");
+  assert.equal(codexPlanKind("plus"), "plus");
+  assert.equal(codexPlanKind("pro"), "pro");
+  assert.equal(codexPlanKind("education_k12"), "k12");
+  assert.equal(codexPlanKind("k12"), "k12");
+  assert.equal(codexPlanKind("team"), "team");
+  assert.equal(codexPlanKind("enterprise"), "enterprise");
+  assert.equal(codexPlanKind("plus"), "plus");
+  assert.notEqual(codexPlanKind("plus"), "pro");
+  assert.equal(codexPlanKind("pro<&>"), "pro");
+});
+
+test("Codex account table keeps enabled accounts above disabled accounts", () => {
+  const html = render([
+    { id: "off-1", alias: "Off first", disabled: true, plan_type: "plus" },
+    { id: "on-1", alias: "On first", disabled: false, quota: { plan_type: "pro" } },
+    { id: "off-2", alias: "Off second", disabled: true, quota: { planType: "free" } },
+    { id: "on-2", alias: "On second", disabled: false, quota: { plan_type: "education_k12" } },
+  ]);
+  assert.match(html, /tbody class="codex-account-group is-enabled"/);
+  assert.match(html, /tbody class="codex-account-group is-disabled"/);
+  assert.match(html, /codex-account-group-head/);
+  assert.match(html, /Enabled accounts/);
+  assert.match(html, /Disabled accounts/);
+  const onFirst = html.indexOf("On first");
+  const onSecond = html.indexOf("On second");
+  const disabledHead = html.indexOf("Disabled accounts");
+  const offFirst = html.indexOf("Off first");
+  const offSecond = html.indexOf("Off second");
+  assert.ok(onFirst > -1 && onSecond > onFirst);
+  assert.ok(disabledHead > onSecond);
+  assert.ok(offFirst > disabledHead && offSecond > offFirst);
+  assert.match(html, /data-codex-account-row="off-1" class="is-disabled"/);
+  assert.match(html, /codex-plan-badge settings-badge is-plus">plus/);
+  assert.match(html, /codex-plan-badge settings-badge is-pro">pro/);
+  assert.match(html, /codex-plan-badge settings-badge is-free">free/);
+  assert.match(html, /codex-plan-badge settings-badge is-k12">education_k12/);
+
+  const enabledOnly = render([{ id: "only-on", alias: "Only on", disabled: false }]);
+  assert.doesNotMatch(enabledOnly, /codex-account-group-head/);
+  assert.doesNotMatch(enabledOnly, /tbody class="codex-account-group is-disabled"/);
+
+  const disabledOnly = render([{ id: "only-off", alias: "Only off", disabled: true }]);
+  assert.match(disabledOnly, /Disabled accounts/);
+  assert.doesNotMatch(disabledOnly, /Enabled accounts/);
+  assert.doesNotMatch(disabledOnly, /tbody class="codex-account-group is-enabled"/);
+});
+
+test("Codex account console styles keep plan colors and compact five-up stats", async () => {
+  const css = await readStylesGroup("settings.css", import.meta.url);
+  assert.match(css, /#settingsContentBody \.codex-plan-badge\.is-free\s*\{[\s\S]*?var\(--settings-muted-foreground\)/);
+  assert.match(css, /#settingsContentBody \.codex-plan-badge\.is-plus\s*\{[\s\S]*?var\(--settings-success\)/);
+  assert.match(css, /#settingsContentBody \.codex-plan-badge\.is-pro\s*\{[\s\S]*?var\(--settings-warning\)/);
+  assert.match(css, /#settingsContentBody \.codex-plan-badge\.is-k12\s*\{[\s\S]*?var\(--settings-primary\)/);
+  assert.match(css, /#settingsContentBody \.codex-account-table tbody\.is-disabled tr:not\(\.codex-account-group-head\)/);
+  assert.match(css, /#settingsContentBody \.codex-console-stats:has\(> \.settings-stat-card:nth-child\(5\)\)\s*\{\s*grid-template-columns:\s*repeat\(5, minmax\(0, 1fr\)\)/);
+  assert.match(css, /#settingsContentBody \.codex-console-stats \.settings-stat-card\s*\{[\s\S]*?min-height:\s*0;/);
+  assert.match(css, /#settingsContentBody \.settings-h-scroll:focus-visible\s*\{[\s\S]*?outline:\s*2px solid var\(--settings-primary\)/);
 });
 
 test("Codex account export filenames stay safe and end in JSON", () => {
@@ -313,6 +379,7 @@ test("Codex quota rendering supports camelCase windows and invalid numeric value
   assert.doesNotMatch(html, /<script>/);
   assert.match(html, /workspace&lt;&amp;&gt;/);
   assert.match(html, /pro&lt;&amp;&gt;/);
+  assert.match(html, /codex-plan-badge settings-badge is-pro">pro&lt;&amp;&gt;/);
 });
 
 test("Codex quota hides cumulative usage and upstream credit explanations", () => {

@@ -473,7 +473,6 @@ export function createCodexAuthController(ctx) {
     return runCodexAccountAction(id, button, mt("syncing"), async () => {
       const request = codexAccountActionRequest("sync", id);
       await requestAPI(request.path, request.options);
-      setProviderConsoleResult(mt("accountSynced"), "success");
       notifyTerminal?.(`[info] ${mt("accountSynced")}\n`);
     });
   }
@@ -482,9 +481,7 @@ export function createCodexAuthController(ctx) {
     return runCodexAccountAction(id, button, mt("saving"), async () => {
       const request = codexAccountActionRequest("toggle", id, { disabled });
       await requestAPI(request.path, request.options);
-      const message = mt(disabled ? "accountEnabled" : "accountDisabled");
-      setProviderConsoleResult(message, "success");
-      notifyTerminal?.(`[info] ${message}\n`);
+      notifyTerminal?.(`[info] ${mt(disabled ? "accountEnabled" : "accountDisabled")}\n`);
     });
   }
 
@@ -568,7 +565,7 @@ export function createCodexAuthController(ctx) {
       const message = result.failed
         ? mt("batchPartial", { success: result.success, failed: result.failed })
         : mt("batchSuccess", { count: result.success });
-      setProviderConsoleResult(message, result.failed ? "attention" : "success");
+      if (result.failed) setProviderConsoleResult(message, "attention");
       notifyTerminal?.(`[${result.failed ? "warn" : "info"}] ${message}\n`);
       state.providerAuthMutationWarning = [...new Set(result.warnings)].join(" ");
       await loadProviderAuthFiles({ silent: true });

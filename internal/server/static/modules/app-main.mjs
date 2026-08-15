@@ -37,6 +37,7 @@ import {
   shortPath,
 } from "./directory-browser.mjs";
 import { $, coalescePerFrame, escapeAttr, escapeHtml, setButtonBusy, setHTMLIfChanged, setTextIfChanged } from "./dom.mjs";
+import { focusHorizontalRegionFromPointer, scrollHorizontalRegionFromKeyboard } from "./horizontal-scroll.mjs";
 import { navigationCreateLabelKey, navigationCreateTarget } from "./navigation-create.mjs";
 import { createSubagentCardCoordinator } from "./subagent-cards.mjs";
 import { createNavigationStartupGuard } from "./navigation-startup-guard.mjs";
@@ -4224,8 +4225,12 @@ $("settingsSearchInput")?.addEventListener("keydown", (event) => {
 $("clearSettingsSearchBtn")?.addEventListener("click", () => clearSettingsSearchQuery({ focus: true }));
 $("closeSettingsModalBtn").addEventListener("click", () => requestCloseSettingsModal());
 $("settingsModal").addEventListener("keydown", (event) => {
+  if (scrollHorizontalRegionFromKeyboard(event, { root: event.currentTarget })) return;
   settingsHelp.handleKeydown(event);
   if (!state.settingsShellOpen) handleSettingsDialogKeydown(event);
+});
+$("settingsModal").addEventListener("pointerdown", (event) => {
+  focusHorizontalRegionFromPointer(event, { root: event.currentTarget });
 });
 $("settingsModal").addEventListener("click", (event) => { if (event.target.id === "settingsModal") closeSettingsModal(); });
 $("closeConversationDetailsBtn")?.addEventListener("click", closeConversationDetails);
