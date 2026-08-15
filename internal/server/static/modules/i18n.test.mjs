@@ -115,6 +115,8 @@ test("chat activity timeline has concise, safe copy in every locale", () => {
     "processTitle", "input", "output", "noOutput", "localService",
     "details", "diff", "running", "completed", "failed", "searching", "reading",
     "editing", "writing", "runningCommand", "genericStep", "truncated",
+    "verbRead", "verbEdit", "verbWrite", "verbSearch", "verbGlob", "verbCommand",
+    "verbWeb", "verbTask", "verbTodo",
   ];
 
   for (const locale of uiLocales) {

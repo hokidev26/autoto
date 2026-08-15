@@ -623,28 +623,74 @@ function toolActivityStackKey(records, options = {}) {
   return `${options.live ? "live" : "run"}:${runId}`;
 }
 
+function toolActivityVerb(kind, toolName, running) {
+  if (running) {
+    const live = {
+      search: "searching",
+      files: "searching",
+      web: "searching",
+      read: "reading",
+      edit: "editing",
+      write: "writing",
+      command: "runningCommand",
+    };
+    return cr(`activity.${live[kind] || "genericStep"}`);
+  }
+  const verbs = {
+    search: "verbSearch",
+    read: "verbRead",
+    edit: "verbEdit",
+    write: "verbWrite",
+    command: "verbCommand",
+    files: "verbGlob",
+    web: "verbWeb",
+    task: "verbTask",
+    todo: "verbTodo",
+  };
+  return verbs[kind] ? cr(`activity.${verbs[kind]}`) : friendlyToolName(toolName);
+}
+
+function shortActivityTarget(target, kind) {
+  const value = String(target || "").trim();
+  if (!value) return "";
+  if (kind === "command") return compactToolText(value, 100);
+  const normalized = value.replace(/\\/g, "/");
+  const pathPart = normalized.split(" · ")[0] || normalized;
+  if (!pathPart.includes("/")) return compactToolText(value, 88);
+  const parts = pathPart.split("/").filter(Boolean);
+  const shortPath = parts.length <= 2 ? parts.join("/") : parts.slice(-2).join("/");
+  const rest = normalized.slice(pathPart.length).trim();
+  return compactToolText(rest ? `${shortPath} ${rest}` : shortPath, 88);
+}
+
 function toolActivityRowPresentation(item, tool, options = {}) {
+  const running = toolStatusValue(tool.status) === "running";
   if (isAgentToolActivity(tool)) {
     const resolved = resolveAgentBackgroundTask(item, tool, options);
     if (resolved.ok) {
       const activity = normalizeAgentTaskActivity(item, resolved.task);
       if (activity) {
+        const verb = toolActivityVerb("task", tool.toolName, running);
+        const target = shortActivityTarget(activity.description, "task");
         return {
           iconKind: "task",
-          title: cr("subagent.title"),
-          target: activity.description,
+          verb,
+          target,
           statusClass: agentTaskStatusClass(activity.status),
           statusLabel: agentTaskStatusLabel(activity),
         };
       }
     }
   }
+  const iconKind = toolActivityIconKind(tool.toolName);
+  const verb = toolActivityVerb(iconKind, tool.toolName, running);
+  const target = shortActivityTarget(toolActivityTarget(tool), iconKind);
   return {
-    iconKind: toolActivityIconKind(tool.toolName),
-    title: friendlyToolName(tool.toolName),
-    target: toolActivityTarget(tool),
+    iconKind,
+    verb,
+    target,
     statusClass: toolActivityStatusClass(tool.status),
-    statusLabel: toolActivityStatusLabel(tool.status),
+    statusLabel: running ? "" : toolActivityStatusLabel(tool.status),
   };
 }
 
@@ -652,7 +698,7 @@ function renderToolActivityRowHTML(record, options = {}) {
   const { item, tool } = record;
   const presentation = toolActivityRowPresentation(item, tool, options);
   const selected = String(options.selectedToolUseId || "") === tool.toolUseId;
-  const label = [presentation.title, presentation.target, presentation.statusLabel].filter(Boolean).join(" · ");
+  const label = [presentation.verb, presentation.target, presentation.statusLabel].filter(Boolean).join(" · ");
   const subagentAttrs = isAgentToolActivity(tool)
     ? ` data-subagent-activity-row data-run-id="${escapeAttr(tool.runId)}" data-tool-use-id="${escapeAttr(tool.toolUseId)}"`
     : "";
@@ -662,13 +708,14 @@ function renderToolActivityRowHTML(record, options = {}) {
   const inlineDetail = selected
     ? renderToolActivityCardHTML(item, { ...options, detailsExpanded: true, inlineDetail: true })
     : "";
+  const targetClass = presentation.iconKind === "command" ? "tool-activity-step-target is-command" : "tool-activity-step-target";
   return `
     <li class="tool-activity-step ${escapeAttr(presentation.statusClass)}${selected ? " selected" : ""}"${subagentAttrs}>
-      <button class="tool-activity-step-button" type="button" data-tool-activity-select="${escapeAttr(tool.toolUseId)}" data-tool-activity-label="${escapeAttr(label)}" aria-expanded="${selected ? "true" : "false"}" aria-label="${escapeAttr(cr(selected ? "activity.closeDetails" : "activity.openDetails", { tool: label }))}">
+      <button class="tool-activity-step-button" type="button" data-tool-activity-select="${escapeAttr(tool.toolUseId)}" data-tool-name="${escapeAttr(tool.toolName)}" data-tool-activity-label="${escapeAttr(label)}" aria-expanded="${selected ? "true" : "false"}" aria-label="${escapeAttr(cr(selected ? "activity.closeDetails" : "activity.openDetails", { tool: label }))}">
         <span class="tool-activity-step-icon tool-activity-icon-${escapeAttr(presentation.iconKind)}" aria-hidden="true">${toolActivityGlyph(presentation.iconKind)}</span>
         <span class="tool-activity-step-copy">
-          <strong>${escapeHtml(presentation.title)}</strong>
-          ${presentation.target ? `<span>${escapeHtml(compactToolText(presentation.target, 220))}</span>` : ""}
+          <span class="tool-activity-step-verb">${escapeHtml(presentation.verb)}</span>
+          ${presentation.target ? `<strong class="${targetClass}">${escapeHtml(presentation.target)}</strong>` : ""}
         </span>
         <span class="tool-activity-step-status">${escapeHtml(presentation.statusLabel)}</span>
       </button>
@@ -724,15 +771,19 @@ export function renderToolActivityStackHTML(toolCalls = [], options = {}) {
   // the tail update then rewrote or removed an assistant turn's own stack.
   const tail = options.tail === undefined ? Boolean(options.live) && !options.compact : Boolean(options.tail);
   const reasoningCount = reasoningSteps.length;
-  // Prefer the combined title when reasoning steps are present so the summary
-  // reflects both the thinking trail and the tool calls under it. A turn that
-  // only thought needs its own wording: the combined title would read
-  // "3 steps of reasoning · 0 tool calls".
-  const summaryTitle = reasoningCount > 0
-    ? (totalCount > 0
+  const runningRecords = records.filter(({ tool }) => toolStatusValue(tool.status) === "running");
+  const running = runningRecords.length ? runningRecords[runningRecords.length - 1] : null;
+  let summaryTitle;
+  if (running) {
+    const presentation = toolActivityRowPresentation(running.item, running.tool, options);
+    summaryTitle = [presentation.verb, presentation.target].filter(Boolean).join(" ");
+  } else if (reasoningCount > 0) {
+    summaryTitle = totalCount > 0
       ? cr("activity.processTitleWithReasoning", { reasoning: reasoningCount, count: totalCount })
-      : cr("activity.processTitleOnlyReasoning", { reasoning: reasoningCount }))
-    : cr("activity.processTitle", { count: totalCount });
+      : cr("activity.processTitleOnlyReasoning", { reasoning: reasoningCount });
+  } else {
+    summaryTitle = cr("activity.processTitle", { count: totalCount });
+  }
   return `
     <section class="${options.live ? "live-tool-output-stack " : ""}${modeClass}tool-activity-stack chat-flow-stack chat-flow-left" data-chat-alignment="left" data-tool-activity-stack data-tool-activity-stack-key="${escapeAttr(stackKey)}" data-tool-activity-source="${escapeAttr(source)}" data-tool-activity-count="${escapeAttr(String(totalCount))}" data-tool-activity-visible-count="${escapeAttr(String(records.length))}" data-tool-activity-default="${expanded ? "expanded" : "collapsed"}"${runId ? ` data-run-id="${escapeAttr(runId)}"` : ""}${tail ? " data-live-tool-output-stack" : ""}${options.compact ? " data-conversation-run-tool-activity" : ""}>
       <details class="tool-activity-group"${expanded ? " open" : ""}>

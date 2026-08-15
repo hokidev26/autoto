@@ -974,13 +974,12 @@ body.white-shell.theme-light.theme-dark .navigation-boundary-empty button {
   line-height: 1.4;
 }
 
-/* Rows sit directly on each other. The 8px gap made sense when each child was a
-   bordered card; with borderless rows it just spread the list out. The old
-   left-rail line is gone: it read as decoration, not structure. */
+/* Rows sit on a shared timeline: a 1px rail through the icon column, like
+   Cursor's agent activity. Gap stays at 0 so the eye runs down the verbs. */
 .tool-activity-group {
   position: relative;
   display: grid;
-  gap: 1px;
+  gap: 0;
   min-width: 0;
   padding-left: 0;
 }
@@ -1008,17 +1007,30 @@ body.white-shell.theme-light.theme-dark .navigation-boundary-empty button {
 
 
 .tool-activity-steps {
+  position: relative;
   display: grid;
   min-width: 0;
-  gap: 2px;
+  gap: 0;
   margin: 0;
   padding: 0;
   color: var(--tool-activity-muted);
-  font-size: 11.5px;
+  font-size: 12px;
   list-style: none;
 }
 
+.tool-activity-steps::before {
+  position: absolute;
+  top: 14px;
+  bottom: 14px;
+  left: 12px;
+  width: 1px;
+  background: var(--tool-activity-border);
+  content: "";
+  pointer-events: none;
+}
+
 .tool-activity-step {
+  position: relative;
   min-width: 0;
   list-style: none;
 }
@@ -1027,12 +1039,13 @@ body.white-shell.theme-light.theme-dark .navigation-boundary-empty button {
   display: grid;
   width: 100%;
   min-width: 0;
-  grid-template-columns: 24px minmax(0, 1fr) auto;
+  min-height: 22px;
+  grid-template-columns: 16px minmax(0, 1fr) auto;
   align-items: center;
   gap: 8px;
-  padding: 5px 7px;
+  padding: 3px 4px;
   border: 0;
-  border-radius: 7px;
+  border-radius: 6px;
   background: transparent;
   color: var(--tool-activity-muted);
   font: inherit;
@@ -1052,11 +1065,12 @@ body.white-shell.theme-light.theme-dark .navigation-boundary-empty button {
 
 .tool-activity-step-icon {
   display: grid;
-  width: 22px;
-  height: 22px;
+  z-index: 1;
+  width: 16px;
+  height: 16px;
   place-items: center;
-  border-radius: 6px;
-  background: var(--tool-activity-surface-subtle);
+  border-radius: 0;
+  background: transparent;
   color: var(--tool-activity-accent);
   font: 11px/1 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 }
@@ -1075,8 +1089,9 @@ body.white-shell.theme-light.theme-dark .navigation-boundary-empty button {
   align-items: center;
   gap: 8px;
   width: 100%;
-  padding: 5px 7px;
-  border-radius: 7px;
+  min-height: 22px;
+  padding: 3px 4px;
+  border-radius: 6px;
   cursor: pointer;
   list-style: none;
 }
@@ -1092,11 +1107,11 @@ body.white-shell.theme-light.theme-dark .navigation-boundary-empty button {
 
 .tool-activity-reasoning-step .tool-activity-icon-thinking {
   color: #b6a6e8;
-  background: rgba(129, 106, 199, .13);
+  background: transparent;
 }
 
 .tool-activity-reasoning-body {
-  margin: 2px 0 6px 37px;
+  margin: 2px 0 6px 28px;
   padding-left: 9px;
   border-left: 2px solid var(--tool-activity-border, #3a3b45);
   color: var(--tool-activity-muted, #9aa2b8);
@@ -1115,24 +1130,31 @@ body.white-shell.theme-light.theme-dark .navigation-boundary-empty button {
   display: flex;
   min-width: 0;
   align-items: baseline;
-  gap: 5px;
+  gap: 6px;
 }
 
-.tool-activity-step-copy > strong {
+.tool-activity-step-verb {
   flex: 0 0 auto;
-  color: var(--tool-activity-text);
-  font-size: 11.5px;
-  font-weight: 680;
+  color: var(--tool-activity-muted);
+  font-size: 12px;
+  font-weight: 500;
 }
 
-.tool-activity-step-copy > span {
+.tool-activity-step-copy > strong,
+.tool-activity-step-target {
   min-width: 0;
   overflow: hidden;
-  color: var(--tool-activity-muted);
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 10.5px;
+  color: var(--tool-activity-text);
+  font-size: 12px;
+  font-weight: 650;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.tool-activity-step-target.is-command {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 11.5px;
+  font-weight: 560;
 }
 
 .tool-activity-step-status {
@@ -1165,8 +1187,9 @@ body.white-shell.theme-light.theme-dark .navigation-boundary-empty button {
 .tool-activity-inline-detail:empty { display: none; }
 
 .tool-activity-inline-detail:not(:empty) {
-  margin-top: 4px;
-  margin-bottom: 4px;
+  margin: 2px 0 8px 28px;
+  padding-left: 10px;
+  border-left: 1px solid var(--tool-activity-border);
 }
 
 /* A row in a list, not a card in a stack. The border and shadow separated each
@@ -1278,6 +1301,21 @@ body.white-shell.theme-light.theme-dark .navigation-boundary-empty button {
 .tool-activity-step-icon.tool-activity-icon-task { color: #e79ad0; background: rgba(199, 89, 164, .13); }
 .tool-activity-icon.tool-activity-icon-todo,
 .tool-activity-step-icon.tool-activity-icon-todo { color: #9db4ff; background: rgba(93, 122, 232, .14); }
+
+/* Timeline steps keep the tint on the glyph, not a filled chip. Expanded
+   detail cards still use the chip background on .tool-activity-icon. */
+.tool-activity-steps .tool-activity-step-icon {
+  background: transparent;
+  border-radius: 0;
+}
+
+.tool-activity-step.status-running .tool-activity-step-icon {
+  animation: tool-activity-running-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes tool-activity-running-pulse {
+  50% { opacity: .42; }
+}
 
 .tool-activity-card.status-error .tool-activity-icon { color: var(--tool-activity-error); background: var(--tool-activity-error-soft); }
 .tool-activity-card.status-warn .tool-activity-icon { color: var(--tool-activity-warn); background: var(--tool-activity-warn-soft); }
@@ -1622,13 +1660,14 @@ body.white-shell.theme-light.theme-dark .tool-activity-stack {
     .tool-activity-stack { width: 100%; gap: 8px; margin: 8px 0 14px; }
     .tool-activity-group { padding-left: 0; }
     /* Larger tap target: 44px min-height, bigger padding, readable font */
-    .tool-activity-step-button { grid-template-columns: 26px minmax(0, 1fr); gap: 8px; padding: 10px 8px; min-height: 44px; }
+    .tool-activity-step-button { grid-template-columns: 18px minmax(0, 1fr); gap: 8px; padding: 10px 8px; min-height: 44px; }
     .tool-activity-step-copy { display: grid; gap: 3px; }
-    .tool-activity-step-copy > span { white-space: normal; overflow-wrap: anywhere; font-size: 12px; }
-    .tool-activity-step-copy > strong { font-size: 12.5px; }
+    .tool-activity-step-verb { font-size: 12px; }
+    .tool-activity-step-copy > strong, .tool-activity-step-target { white-space: normal; overflow-wrap: anywhere; font-size: 13px; }
     .tool-activity-step-status { grid-column: 2; justify-self: start; font-size: 11px; }
-    .tool-activity-step-icon { width: 26px; height: 26px; border-radius: 7px; }
+    .tool-activity-step-icon { width: 18px; height: 18px; }
     .tool-activity-step-icon > svg { width: 15px; height: 15px; }
+    .tool-activity-steps::before { left: 16px; }
     .tool-activity-head { grid-template-columns: 30px minmax(0, 1fr); gap: 8px; min-height: 62px; padding: 10px; }
     .tool-activity-meta { grid-column: 2; justify-content: flex-start; flex-wrap: wrap; padding-top: 1px; white-space: normal; }
     .tool-activity-title { white-space: normal; overflow-wrap: anywhere; }
@@ -2578,10 +2617,11 @@ body.white-shell.theme-light .background-task-bubble.role-assistant .message-rol
   min-height: 0;
   padding: 4px 6px;
 }
-.background-task-bubble .tool-activity-step-icon { width: 18px; height: 18px; border-radius: 5px; }
-.background-task-bubble .tool-activity-step-icon > svg { width: 11px; height: 11px; }
-.background-task-bubble .tool-activity-step-copy > span { font-size: 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.background-task-bubble .tool-activity-step-copy > strong { font-size: 10.5px; }
+.background-task-bubble .tool-activity-step-icon { width: 14px; height: 14px; background: transparent; }
+.background-task-bubble .tool-activity-step-icon > svg { width: 12px; height: 12px; }
+.background-task-bubble .tool-activity-step-verb { font-size: 10px; }
+.background-task-bubble .tool-activity-step-copy > strong,
+.background-task-bubble .tool-activity-step-target { font-size: 10.5px; }
 .background-task-bubble .tool-activity-command,
 .background-task-bubble .tool-activity-output { max-height: 140px; font-size: 10px; }
 

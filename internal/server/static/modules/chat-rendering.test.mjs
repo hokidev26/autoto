@@ -1788,8 +1788,8 @@ test("a run's tool calls file under the assistant turn that emitted them, not in
   // a1 reasoned and called one tool; a2 only called one.
   const a1Title = html.slice(a1Stack, a1).match(/tool-activity-summary">([^<]+)</)?.[1] || "";
   const a2Title = html.slice(a2Stack, a2).match(/tool-activity-summary">([^<]+)</)?.[1] || "";
-  assert.equal(a1Title, "活动 · 1 步推理 · 1 次工具");
-  assert.equal(a2Title, "活动 · 1 次工具");
+  assert.equal(a1Title, "思考 1 · 1 个步骤");
+  assert.equal(a2Title, "1 个步骤");
 
   // Every call found a home, so the run-level card keeps no duplicate of them.
   const outcome = html.indexOf("data-run-outcome-card");
@@ -1887,7 +1887,7 @@ test("the incremental path repaints per-message stacks in place instead of rebui
     assert.deepEqual([...activity.keys()], ["a1"]);
     assert.match(activity.get("a1"), /data-message-activity="a1"/);
     assert.match(activity.get("a1"), /data-tool-activity-select="t1"/);
-    assert.match(activity.get("a1"), /活动 · 1 步推理 · 1 次工具/);
+    assert.match(activity.get("a1"), /思考 1 · 1 个步骤/);
     // t2 has no persisted owner yet, so it belongs to the tail, not to a1.
     assert.doesNotMatch(activity.get("a1"), /data-tool-activity-select="t2"/);
     assert.match(tail.join(""), /data-tool-activity-select="t2"/);
@@ -2096,7 +2096,7 @@ test("reasoning and ownerless same-run tools share one assistant activity stack"
 
   assert.equal((html.match(/data-message-activity="a1"/g) || []).length, 1);
   assert.equal((html.match(/tool-activity-summary/g) || []).length, 1);
-  assert.match(html, /活动 · 1 步推理 · 2 次工具/);
+  assert.match(html, /思考 1 · 2 个步骤/);
   assert.match(html, /data-tool-activity-select="t1"/);
   assert.match(html, /data-tool-activity-select="t2"/);
   assert.equal((html.match(/data-live-tool-output-stack/g) || []).length, 0);
@@ -2135,7 +2135,7 @@ test("live tool calls group under their assistant turn once that turn is on scre
 // messageId. The turn adopted those calls by run while the tail still counted
 // them as homeless, and the persisted reasoningText was rendered next to the
 // live copy of the same thinking. Both halves duplicated, so the run showed two
-// byte-identical "活动 · 1 步推理 · 2 次工具" rows.
+// byte-identical "思考 1 · 2 个步骤" rows.
 test("live tools and reasoning stay in one stack when the turn is persisted without a live owner id", () => {
   const { html } = renderSnapshot([{
     id: "u1",
@@ -2159,7 +2159,7 @@ test("live tools and reasoning stay in one stack when the turn is persisted with
   assert.equal((html.match(/tool-activity-summary/g) || []).length, 1);
   assert.equal((html.match(/data-message-activity="a1"/g) || []).length, 1);
   assert.equal((html.match(/data-live-tool-output-stack/g) || []).length, 0);
-  assert.match(html, /活动 · 1 步推理 · 2 次工具/);
+  assert.match(html, /思考 1 · 2 个步骤/);
   // One row per call, and the reasoning is not counted on both surfaces.
   assert.equal((html.match(/data-tool-activity-select="t1"/g) || []).length, 1);
   assert.equal((html.match(/data-tool-activity-select="t2"/g) || []).length, 1);
@@ -2218,7 +2218,7 @@ test("ownerless live tools alone do not open a second activity stack", () => {
 
   assert.equal((html.match(/tool-activity-summary/g) || []).length, 1);
   assert.equal((html.match(/data-live-tool-output-stack/g) || []).length, 0);
-  assert.match(html, /活动 · 1 步推理 · 2 次工具/);
+  assert.match(html, /思考 1 · 2 个步骤/);
 });
 
 test("live reasoning already saved on its turn is not repeated by the tail stack", () => {
@@ -2239,7 +2239,7 @@ test("live reasoning already saved on its turn is not repeated by the tail stack
 
   assert.equal((html.match(/tool-activity-summary/g) || []).length, 1);
   assert.equal((html.match(/data-live-tool-output-stack/g) || []).length, 0);
-  assert.match(html, /活动 · 1 步推理/);
+  assert.match(html, /思考 1</);
 });
 
 // The handover is per step, not per run: a run that has already saved one turn
@@ -2602,7 +2602,15 @@ test("tool activity renders a lightweight directory before hydrating one auditab
   ];
   const html = renderToolActivityStackHTML(calls);
 
-  for (const tool of ["Grep", "Read", "Edit", "Write", "Glob", "Bash"]) assert.match(html, new RegExp(`>${tool}<`));
+  for (const tool of ["Grep", "Read", "Edit", "Write", "Glob", "Bash"]) {
+    assert.match(html, new RegExp(`data-tool-name="${tool}"`));
+  }
+  assert.match(html, /tool-activity-step-verb">搜索</);
+  assert.match(html, /tool-activity-step-verb">读取</);
+  assert.match(html, /tool-activity-step-verb">编辑</);
+  assert.match(html, /tool-activity-step-verb">写入</);
+  assert.match(html, /tool-activity-step-verb">查找</);
+  assert.match(html, /tool-activity-step-verb">正在运行命令</);
   for (const className of ["tool-activity-stack", "tool-activity-group", "tool-activity-summary", "tool-activity-steps", "tool-activity-step", "tool-activity-step-button", "status-running", "status-completed"]) {
     assert.match(html, new RegExp(className));
   }
@@ -3752,7 +3760,7 @@ test("a persisted assistant turn keeps its reasoning on the activity surface, no
   assert.match(html, /<strong>Checking the current styles first<\/strong>/);
   assert.match(html, /tool-activity-reasoning-body">Checking the current styles first\.\nThen widening the gap\./);
   // A turn that only thought must not be titled "... · 0 tool calls".
-  assert.match(html, /活动 · 1 步推理</);
+  assert.match(html, /思考 1</);
   assert.ok(
     html.indexOf('data-message-activity="m1"') < html.indexOf('data-message-id="m1"'),
     "the activity leads the assistant answer on every responsive layout",
@@ -3997,7 +4005,7 @@ test("a live turn keeps its reasoning and its tools in one activity row", () => 
   assert.equal((html.match(/tool-activity-summary/g) || []).length, 1);
   assert.equal((html.match(/data-live-tool-output-stack/g) || []).length, 0);
   // That row owns both, so it counts both.
-  assert.match(html, /活动 · 2 步推理 · 2 次工具/);
+  assert.match(html, /思考 2 · 2 个步骤/);
   // Each step is rendered once, not on both surfaces.
   assert.equal((html.match(/First find the caller\./g) || []).length, 1);
   assert.equal((html.match(/Now read what it does\./g) || []).length, 1);
@@ -4289,7 +4297,7 @@ test("a finished run keeps every round's reasoning interleaved with its tools", 
   assert.ok(round < firstTool, "the round's reasoning leads its own tool calls");
   assert.ok(firstTool < final, "the turn's own reasoning trails the work it followed");
   // The summary counts both steps.
-  assert.match(html, /2 步推理 · 2 次工具|2 reasoning · 2 tool calls/);
+  assert.match(html, /思考 2 · 2 个步骤|Thought 2 · 2 steps/);
 });
 
 // Two turns can think the same thing verbatim. Each saved row owns one

@@ -156,7 +156,7 @@ test("every reasoning step of a many-turn run is rendered exactly once", () => {
 
 test("a many-turn run does not scatter its thinking across extra bare rows", () => {
   const rows = stacks(render(manyTurnRun, manyTurnState));
-  const bare = rows.filter((s) => /步推理|reasoning/.test(s.title) && !/次工具|tool/.test(s.title));
+  const bare = rows.filter((s) => /思考|Thought|reasoning/.test(s.title) && !/步骤|步驟|steps|tool/.test(s.title));
   assert.deepEqual(
     bare.map((s) => `${s.key} :: ${s.title}`),
     [],
@@ -187,5 +187,5 @@ test("each turn's row carries its own thinking, not the other's", () => {
   assert.ok(a1.body.includes(savedThinking), "a1 saved this thinking, so a1 shows it");
   assert.equal(a2.body.includes(savedThinking), false, "a2 never produced it");
   assert.ok(a2.body.includes("Now the model settings."), "a2's stamped step stays with a2");
-  assert.match(a1.title, /2 次工具|2 tool/, "a1 owns the tools");
+  assert.match(a1.title, /2 个步骤|2 個步驟|2 steps/, "a1 owns the tools");
 });

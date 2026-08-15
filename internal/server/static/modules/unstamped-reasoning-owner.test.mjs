@@ -138,7 +138,7 @@ test("the turn that did the work keeps its own reasoning and tools in one row", 
   });
   const a1 = stacks(html).find((stack) => stack.key === "msg:a1");
   assert.ok(a1, "the turn holding the tools must have a row");
-  assert.match(a1.title, /1 步推理 · 2 次工具|1 step.*2 tool/);
+  assert.match(a1.title, /思考 1 · 2 个步骤|Thought 1 · 2 steps/);
   // Its row must not also contain the ownerless backlog.
   for (const step of unstampedSteps) {
     assert.equal(a1.body.includes(step.text), false, `${step.text} does not belong to a1`);
