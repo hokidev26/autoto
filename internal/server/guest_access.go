@@ -17,6 +17,10 @@ func userIsAdmin(user db.User) bool {
 	return strings.EqualFold(strings.TrimSpace(user.Role), "admin")
 }
 
+func userIsCollaborator(user db.User) bool {
+	return strings.EqualFold(strings.TrimSpace(user.Role), "user")
+}
+
 func (s *Server) guestObserveGuard(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		user, ok, err := s.currentUser(r)

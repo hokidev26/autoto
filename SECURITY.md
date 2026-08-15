@@ -110,7 +110,7 @@ Cloudflare's current dashboard flow is documented in their official Zero Trust d
 
 Completed in this area:
 
-- Local accounts now have an administrator / collaborator / guest split. Guests can watch authorized conversations and edit their profile; the server rejects every other API. Administrators can create guests, issue hashed access keys, and assign project membership. Remote access still requires the access password first; once local accounts exist, a local session is also required.
+- Local accounts now have an administrator / collaborator / guest split. Guests can watch authorized conversations and edit their profile; the server rejects every other API. Administrators create collaborators (password required, working project membership) and guests (optional password, hashed access keys, watch-only project membership). Remote access still requires the access password first; once local accounts exist, a local session is also required.
 
 Planned security improvements include:
 

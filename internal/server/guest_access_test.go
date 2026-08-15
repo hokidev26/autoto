@@ -48,6 +48,7 @@ func TestGuestObserveAllowlist(t *testing.T) {
 		{http.MethodGet, "/api/providers"},
 		{http.MethodPost, "/api/conversations"},
 		{http.MethodPost, "/api/projects"},
+		{http.MethodPost, "/api/worklines/w1/conversations"},
 		{http.MethodGet, "/api/agents/a1/git/status"},
 		{http.MethodGet, "/api/agents/a1/workspace/tree"},
 		{http.MethodGet, "/api/agents/a1/context"},
@@ -55,6 +56,8 @@ func TestGuestObserveAllowlist(t *testing.T) {
 		{http.MethodPost, "/api/preferences/import-local"},
 		{http.MethodGet, "/api/users/accounts"},
 		{http.MethodPatch, "/api/agents/a1/model"},
+		{http.MethodPost, "/api/users/collaborators"},
+		{http.MethodPost, "/api/users/guests"},
 	}
 	for _, item := range allowed {
 		req := httptest.NewRequest(item.method, item.path, nil)
@@ -250,8 +253,9 @@ func TestGuestAccessIsServerEnforced(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	assertStatus(adminCookie, http.MethodPut, "/api/users/"+teammate.ID+"/memberships", `{"projectIds":[]}`, http.StatusBadRequest, "only managed for guest accounts")
+	assertStatus(adminCookie, http.MethodPut, "/api/users/"+teammate.ID+"/memberships", `{"projectIds":[]}`, http.StatusOK, `"handle":"teammate"`)
 	assertStatus(adminCookie, http.MethodPost, "/api/users/"+teammate.ID+"/access-keys", `{"label":"desk"}`, http.StatusBadRequest, "only managed for guest accounts")
+	assertStatus(adminCookie, http.MethodPut, "/api/users/"+adminUser.ID+"/memberships", `{"projectIds":[]}`, http.StatusBadRequest, "only managed for collaborators and guests")
 	assertStatus(adminCookie, http.MethodPost, "/api/agents/"+agent.ID+"/messages", `{"text":"hello"}`, http.StatusServiceUnavailable, "agent runner is not initialized")
 
 	deleteSelf := httptest.NewRecorder()
@@ -261,4 +265,116 @@ func TestGuestAccessIsServerEnforced(t *testing.T) {
 	if deleteSelf.Code != http.StatusBadRequest {
 		t.Fatalf("delete self: %d %s", deleteSelf.Code, deleteSelf.Body.String())
 	}
+}
+
+func TestAdminCreatesCollaboratorWithProjectMembership(t *testing.T) {
+	ctx := context.Background()
+	store, err := db.Open(ctx, filepath.Join(t.TempDir(), "collaborator-admin.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	project, _, agent, err := store.CreateProject(ctx, "Shared", "", t.TempDir(), "fake:test", "acceptEdits")
+	if err != nil {
+		t.Fatal(err)
+	}
+	secret, _, secretAgent, err := store.CreateProject(ctx, "Secret", "", t.TempDir(), "fake:test", "acceptEdits")
+	if err != nil {
+		t.Fatal(err)
+	}
+	app := New(config.Config{Auth: config.AuthConfig{RegistrationOpen: true}}, store, nil, nil)
+	routes := app.Routes()
+	adminCookie := registerCollaborationTestUser(t, app, "host")
+	adminUser, _, err := store.GetUserByHandle(ctx, "host")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.CreateProjectMember(ctx, db.ProjectMember{ProjectID: secret.ID, UserID: adminUser.ID, Role: "owner"}); err != nil {
+		t.Fatal(err)
+	}
+
+	missingPassword := httptest.NewRecorder()
+	missingReq := newTestRequest(http.MethodPost, "/api/users/collaborators", strings.NewReader(`{"handle":"empty-pass"}`))
+	missingReq.Header.Set("Content-Type", "application/json")
+	missingReq.AddCookie(adminCookie)
+	routes.ServeHTTP(missingPassword, missingReq)
+	if missingPassword.Code != http.StatusBadRequest {
+		t.Fatalf("missing password: %d %s", missingPassword.Code, missingPassword.Body.String())
+	}
+
+	createBody, _ := json.Marshal(createCollaboratorRequest{
+		Handle:     "teammate",
+		Password:   "correct horse battery staple",
+		ProjectIDs: []string{project.ID},
+	})
+	created := httptest.NewRecorder()
+	req := newTestRequest(http.MethodPost, "/api/users/collaborators", strings.NewReader(string(createBody)))
+	req.Header.Set("Content-Type", "application/json")
+	req.AddCookie(adminCookie)
+	routes.ServeHTTP(created, req)
+	if created.Code != http.StatusCreated {
+		t.Fatalf("create collaborator: %d %s", created.Code, created.Body.String())
+	}
+	var account userAccountResponse
+	if err := json.Unmarshal(created.Body.Bytes(), &account); err != nil {
+		t.Fatal(err)
+	}
+	if account.Role != "user" || !account.PasswordSet {
+		t.Fatalf("unexpected collaborator payload: %+v", account)
+	}
+	if len(account.ProjectIDs) != 1 || account.ProjectIDs[0] != project.ID {
+		t.Fatalf("collaborator projects = %v, want [%s]", account.ProjectIDs, project.ID)
+	}
+	if strings.Contains(created.Body.String(), `"accessKey"`) || strings.Contains(created.Body.String(), "atk_") {
+		t.Fatalf("collaborator create leaked an access key: %s", created.Body.String())
+	}
+
+	login := httptest.NewRecorder()
+	loginReq := newTestRequest(http.MethodPost, "/api/auth/login", strings.NewReader(`{"handle":"teammate","password":"correct horse battery staple"}`))
+	loginReq.Header.Set("Content-Type", "application/json")
+	routes.ServeHTTP(login, loginReq)
+	if login.Code != http.StatusOK {
+		t.Fatalf("collaborator login: %d %s", login.Code, login.Body.String())
+	}
+	cookie := login.Result().Cookies()[0]
+
+	assertStatus := func(session *http.Cookie, method, path, body string, want int, wantBody string) {
+		t.Helper()
+		reader := strings.NewReader(body)
+		recorder := httptest.NewRecorder()
+		request := newTestRequest(method, path, reader)
+		if body != "" {
+			request.Header.Set("Content-Type", "application/json")
+		}
+		if session != nil {
+			request.AddCookie(session)
+		}
+		routes.ServeHTTP(recorder, request)
+		if recorder.Code != want {
+			t.Fatalf("%s %s: status=%d want=%d body=%s", method, path, recorder.Code, want, recorder.Body.String())
+		}
+		if wantBody != "" && !strings.Contains(recorder.Body.String(), wantBody) {
+			t.Fatalf("%s %s: body %q does not contain %q", method, path, recorder.Body.String(), wantBody)
+		}
+	}
+
+	assertStatus(cookie, http.MethodGet, "/api/agents/"+agent.ID+"/messages", "", http.StatusOK, "")
+	assertStatus(cookie, http.MethodPost, "/api/agents/"+agent.ID+"/messages", `{"text":"hello"}`, http.StatusServiceUnavailable, "agent runner is not initialized")
+	assertStatus(cookie, http.MethodGet, "/api/settings", "", http.StatusOK, "")
+	assertStatus(cookie, http.MethodGet, "/api/users/accounts", "", http.StatusForbidden, "administrator access required")
+	assertStatus(cookie, http.MethodPost, "/api/users/collaborators", `{"handle":"other","password":"correct horse battery staple"}`, http.StatusForbidden, "administrator access required")
+	assertStatus(cookie, http.MethodGet, "/api/agents/"+secretAgent.ID+"/messages", "", http.StatusNotFound, "resource not found")
+	assertStatus(cookie, http.MethodGet, "/api/projects", "", http.StatusOK, `"name":"Shared"`)
+	projectsList := httptest.NewRecorder()
+	projectsReq := newTestRequest(http.MethodGet, "/api/projects", nil)
+	projectsReq.AddCookie(cookie)
+	routes.ServeHTTP(projectsList, projectsReq)
+	if strings.Contains(projectsList.Body.String(), secret.ID) || strings.Contains(projectsList.Body.String(), `"name":"Secret"`) {
+		t.Fatalf("collaborator project list leaked ungranted project: %s", projectsList.Body.String())
+	}
+
+	grantBody, _ := json.Marshal(replaceMembershipsRequest{ProjectIDs: []string{project.ID, secret.ID}})
+	assertStatus(adminCookie, http.MethodPut, "/api/users/"+account.ID+"/memberships", string(grantBody), http.StatusOK, secret.ID)
+	assertStatus(cookie, http.MethodGet, "/api/agents/"+secretAgent.ID+"/messages", "", http.StatusOK, "")
+	assertStatus(adminCookie, http.MethodPost, "/api/users/"+account.ID+"/access-keys", `{"label":"desk"}`, http.StatusBadRequest, "only managed for guest accounts")
 }

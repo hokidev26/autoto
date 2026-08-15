@@ -14,6 +14,7 @@ func (s *Server) mountAuthRoutes(r chi.Router) {
 	r.Get("/api/users", s.listUsers)
 	r.Get("/api/users/accounts", s.listUserAccounts)
 	r.Post("/api/users/guests", s.createGuestAccount)
+	r.Post("/api/users/collaborators", s.createCollaboratorAccount)
 	r.Post("/api/users/{id}/access-keys", s.issueGuestAccessKey)
 	r.Delete("/api/users/{id}/access-keys/{keyId}", s.revokeGuestAccessKey)
 	r.Put("/api/users/{id}/memberships", s.replaceGuestMemberships)

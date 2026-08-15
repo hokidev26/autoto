@@ -35,6 +35,12 @@ type createGuestResponse struct {
 	AccessKey string `json:"accessKey,omitempty"`
 }
 
+type createCollaboratorRequest struct {
+	Handle     string   `json:"handle"`
+	Password   string   `json:"password"`
+	ProjectIDs []string `json:"projectIds"`
+}
+
 type issueAccessKeyRequest struct {
 	Label string `json:"label"`
 }
@@ -159,6 +165,55 @@ func (s *Server) createGuestAccount(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, response)
 }
 
+func (s *Server) createCollaboratorAccount(w http.ResponseWriter, r *http.Request) {
+	admin, ok := s.requireAdminUser(w, r)
+	if !ok {
+		return
+	}
+	hasUsers, err := s.store.HasUsers(r.Context())
+	if err != nil {
+		s.writeRequestError(w, r, http.StatusInternalServerError, err)
+		return
+	}
+	if !hasUsers {
+		writeError(w, http.StatusConflict, "create an administrator account before adding collaborators")
+		return
+	}
+	var request createCollaboratorRequest
+	if err := decodeJSON(r, &request); err != nil {
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
+		return
+	}
+	password := strings.TrimSpace(request.Password)
+	if !validUserPasswordLength(password) {
+		writeError(w, http.StatusBadRequest, "password must be between 8 and 1024 bytes")
+		return
+	}
+	hash, err := hashUserPassword(password)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "hash password: "+err.Error())
+		return
+	}
+	if err := s.requireAdminProjectAccess(w, r, admin, request.ProjectIDs); err != nil {
+		return
+	}
+	user, err := s.store.CreateCollaboratorUser(r.Context(), request.Handle, hash)
+	if err != nil {
+		s.writeRequestError(w, r, statusFromError(err), err)
+		return
+	}
+	if err := s.store.ReplaceUserProjectMemberships(r.Context(), user.ID, request.ProjectIDs); err != nil {
+		s.writeRequestError(w, r, statusFromError(err), err)
+		return
+	}
+	account, err := s.userAccountResponse(r, user, true)
+	if err != nil {
+		s.writeRequestError(w, r, http.StatusInternalServerError, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, account)
+}
+
 func (s *Server) issueGuestAccessKey(w http.ResponseWriter, r *http.Request) {
 	if _, ok := s.requireAdminUser(w, r); !ok {
 		return
@@ -200,7 +255,7 @@ func (s *Server) replaceGuestMemberships(w http.ResponseWriter, r *http.Request)
 	if !ok {
 		return
 	}
-	user, ok := s.loadManagedGuest(w, r)
+	user, ok := s.loadManagedMembershipUser(w, r)
 	if !ok {
 		return
 	}
@@ -270,7 +325,19 @@ func (s *Server) loadManagedGuest(w http.ResponseWriter, r *http.Request) (db.Us
 		return db.User{}, false
 	}
 	if !userIsGuest(user) {
-		writeError(w, http.StatusBadRequest, "access keys and project memberships are only managed for guest accounts")
+		writeError(w, http.StatusBadRequest, "access keys are only managed for guest accounts")
+		return db.User{}, false
+	}
+	return user, true
+}
+
+func (s *Server) loadManagedMembershipUser(w http.ResponseWriter, r *http.Request) (db.User, bool) {
+	user, ok := s.loadManagedUser(w, r)
+	if !ok {
+		return db.User{}, false
+	}
+	if !userIsGuest(user) && !userIsCollaborator(user) {
+		writeError(w, http.StatusBadRequest, "project memberships are only managed for collaborators and guests")
 		return db.User{}, false
 	}
 	return user, true

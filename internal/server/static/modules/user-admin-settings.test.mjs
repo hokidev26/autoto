@@ -5,7 +5,7 @@ import { readFileSync } from "node:fs";
 import { setUILocale } from "./i18n.mjs";
 import { createUserAdminSettingsController } from "./user-admin-settings.mjs";
 
-test("user admin page renders guest memberships and hides them for collaborators", () => {
+test("user admin page creates collaborators and guests with project grants", () => {
   setUILocale("en");
   const state = {
     account: { id: "admin-1", role: "admin", handle: "host" },
@@ -47,7 +47,23 @@ test("user admin page renders guest memberships and hides them for collaborators
   assert.match(html, />1<\/strong><span>Administrators<\/span>/);
   assert.match(html, />1<\/strong><span>Collaborators<\/span>/);
   assert.match(html, />1<\/strong><span>Guests<\/span>/);
+  assert.match(html, /id="createCollaboratorForm"/);
+  assert.match(html, /id="collaboratorHandleInput"/);
+  assert.match(html, /id="collaboratorPasswordInput"/);
   assert.match(html, /id="createGuestForm"/);
+  ["collaborator", "guest", "accounts"].forEach((id) => {
+    const tag = html.match(new RegExp(`<details[^>]*data-user-admin-fold="${id}"[^>]*>`))?.[0] || "";
+    assert.match(tag, new RegExp(`data-user-admin-fold="${id}"`));
+    assert.doesNotMatch(tag, /\sopen(?:\s|>|$)/);
+  });
+  assert.match(html, /data-settings-help-copy/);
+  assert.match(html, /data-settings-help-copy>Administrators can create collaborators and guests/);
+  assert.match(html, /data-settings-help-copy>Collaborators sign in with a handle and password/);
+  assert.match(html, /data-settings-help-copy>Guests can only watch conversations/);
+  assert.match(html, /data-settings-help-copy>Collaborators can have working project membership/);
+  assert.match(html, /data-user-admin-fold="accounts"/);
+  const accountsHead = html.slice(html.indexOf('data-user-admin-fold="accounts"'), html.indexOf("user-admin-account-list"));
+  assert.doesNotMatch(accountsHead, /settings-badge/);
   assert.match(html, /id="guestHandleInput"/);
   assert.match(html, /id="guestPasswordInput"/);
   assert.match(html, /id="guestKeyLabelInput"/);
@@ -72,8 +88,10 @@ test("user admin page renders guest memberships and hides them for collaborators
   assert.doesNotMatch(selfCard, /data-issue-key/);
   const teammateCard = html.slice(html.indexOf('data-user-id="user-1"'));
   assert.doesNotMatch(teammateCard, /data-issue-key/);
-  assert.doesNotMatch(teammateCard, /data-save-memberships/);
-  assert.doesNotMatch(teammateCard, /data-guest-project-id/);
+  assert.match(teammateCard, /data-save-memberships/);
+  assert.match(teammateCard, /data-guest-project-id="p1"/);
+  assert.match(teammateCard, /Projects they can work in/);
+  assert.doesNotMatch(teammateCard, /data-revoke-key/);
 });
 
 test("bootstrap page offers administrator creation when no local users exist", () => {
@@ -83,7 +101,9 @@ test("bootstrap page offers administrator creation when no local users exist", (
   }).render();
   assert.match(html, /class="settings-live-page user-admin-page"/);
   assert.match(html, /id="createAdministratorBtn"/);
+  assert.match(html, /data-settings-help-copy>No local accounts yet/);
   assert.doesNotMatch(html, /id="createGuestForm"/);
+  assert.doesNotMatch(html, /id="createCollaboratorForm"/);
 });
 
 test("user admin styles stack the hero card like other settings pages", () => {
@@ -91,9 +111,14 @@ test("user admin styles stack the hero card like other settings pages", () => {
   const source = readFileSync(new URL("./user-admin-settings.mjs", import.meta.url), "utf8");
   assert.match(css, /#settingsContentBody \.user-admin-page \.settings-hero-card \{[\s\S]*?flex-direction:\s*column/);
   assert.match(css, /\.user-admin-project-menu\.composer-select-popover \{[\s\S]*?z-index:\s*130/);
+  assert.match(css, /#settingsContentBody \.user-admin-fold > summary::-webkit-details-marker/);
+  assert.match(css, /#settingsContentBody \.user-admin-fold\[open\] > summary::after/);
+  assert.match(css, /#settingsContentBody \.user-admin-fold > summary\s*\{[\s\S]*?padding:\s*16px 22px/);
+  assert.match(css, /#settingsContentBody \.user-admin-fold > \.settings-card-content\s*\{[\s\S]*?padding:\s*20px 22px 22px/);
   assert.match(source, /composer-select-popover user-admin-project-menu/);
   assert.match(source, /composer-select-option/);
   assert.match(source, /spaceBelow >= spaceAbove/);
+  assert.doesNotMatch(source, /data-settings-help-copy">\$\{escapeHtml\(t\("users\.createdKey"\)\)\}/);
 });
 
 test("non-administrators do not fetch the account directory", async () => {

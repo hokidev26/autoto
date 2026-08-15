@@ -48,6 +48,10 @@ func (s *userStore) CreateGuestUser(ctx context.Context, handle, passwordHash st
 	return s.createUser(ctx, handle, passwordHash, "guest", false)
 }
 
+func (s *userStore) CreateCollaboratorUser(ctx context.Context, handle, passwordHash string) (User, error) {
+	return s.createUser(ctx, handle, passwordHash, "user", false)
+}
+
 func (s *userStore) createUser(ctx context.Context, handle, passwordHash, role string, assignUnowned bool) (User, error) {
 	handle, handleKey, err := CanonicalHandle(handle)
 	if err != nil {
@@ -75,8 +79,8 @@ func (s *userStore) createUser(ctx context.Context, handle, passwordHash, role s
 			user.Role = "user"
 		}
 	}
-	if user.Role == "guest" && existingUsers == 0 {
-		return User{}, errors.New("cannot create a guest as the first user")
+	if existingUsers == 0 && user.Role != "admin" {
+		return User{}, errors.New("the first user must be an administrator")
 	}
 	if _, err := tx.ExecContext(ctx, `INSERT INTO users (id, username, handle, handle_key, password_hash, role, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)`, user.ID, user.Username, user.Handle, handleKey, passwordHash, user.Role, user.CreatedAt); err != nil {
 		if isUniqueConstraint(err) {

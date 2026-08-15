@@ -4389,6 +4389,56 @@ body.white-shell.theme-light.theme-dark .account-session-error {
   gap: 8px;
 }
 
+#settingsContentBody .user-admin-fold {
+  overflow: hidden;
+  padding: 0;
+}
+
+#settingsContentBody .user-admin-fold > summary {
+  margin-bottom: 0;
+  align-items: center;
+  gap: 12px;
+  padding: 16px 22px;
+  cursor: pointer;
+  list-style: none;
+}
+
+#settingsContentBody .user-admin-fold > summary::-webkit-details-marker {
+  display: none;
+}
+
+#settingsContentBody .user-admin-fold > summary::after {
+  content: "";
+  flex: 0 0 auto;
+  width: 6px;
+  height: 6px;
+  margin-top: 2px;
+  border-right: 1.5px solid var(--settings-muted-foreground);
+  border-bottom: 1.5px solid var(--settings-muted-foreground);
+  transform: rotate(45deg);
+  transition: transform .15s ease;
+}
+
+#settingsContentBody .user-admin-fold[open] > summary::after {
+  transform: rotate(225deg);
+}
+
+#settingsContentBody .user-admin-fold[open] > summary {
+  border-bottom: 1px solid var(--settings-border);
+}
+
+#settingsContentBody .user-admin-fold > .settings-card-content {
+  padding: 20px 22px 22px;
+}
+
+#settingsContentBody .user-admin-create-form {
+  gap: 16px;
+}
+
+#settingsContentBody .user-admin-create-form .settings-form-grid {
+  gap: 16px 20px;
+}
+
 #settingsContentBody .user-admin-issued-key {
   display: flex;
   align-items: flex-start;
@@ -4417,10 +4467,6 @@ body.white-shell.theme-light.theme-dark .account-session-error {
   color: var(--settings-foreground);
   font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   user-select: all;
-}
-
-#settingsContentBody .user-admin-create-form {
-  gap: 14px;
 }
 
 #settingsContentBody .user-admin-section-label {

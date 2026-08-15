@@ -289,7 +289,7 @@ The per-item list below is deliberately exhaustive and reads as a specification 
 - Browser-local Settings → Notifications preferences for toast categories, display duration, and UI terminal notices; server-backed durable Webhook / Telegram delivery history and retry
 - Browser-local Settings → Appearance preferences for theme, density, terminal default visibility, and Agent event-log display
 - Settings → Servers/System + Runtime panels for process, Go runtime, paths, and Agent limits
-- Settings → Users: administrators can create conversation-only guests, issue access keys, and grant project membership. Guests are limited by the server to watching authorized conversations and editing their profile
+- Settings → Users: administrators can create collaborators (password sign-in, working project membership) and conversation-only guests (access keys, watch-only membership). Guest limits are enforced by the server.
 - Settings → Storage panel for config, database, home, and project-directory footprint
 - Settings → Usage panel for projects, messages, tool calls, model requests, estimated token cost, and backends
 - Settings → About dependency-license panel backed by the development-time `/api/licenses` endpoint

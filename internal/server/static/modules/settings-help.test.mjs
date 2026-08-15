@@ -188,6 +188,7 @@ test("registered settings renderers expose help-copy markers without hiding crit
     "system-settings.mjs",
     "terminal.mjs",
     "usage-history.mjs",
+    "user-admin-settings.mjs",
   ];
   const sources = Object.fromEntries(await Promise.all(rendererFiles.map(async (file) => [file, await readFile(new URL(file, import.meta.url), "utf8")])));
 

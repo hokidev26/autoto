@@ -103,6 +103,9 @@ func TestCreateUserRolesAndGuestAccessKeys(t *testing.T) {
 	}
 	defer store.Close()
 
+	if _, err := store.CreateCollaboratorUser(ctx, "too-soon", "hash"); err == nil {
+		t.Fatal("the first account must not be a collaborator")
+	}
 	admin, err := store.CreateUser(ctx, "host", "hash")
 	if err != nil {
 		t.Fatal(err)
@@ -116,6 +119,13 @@ func TestCreateUserRolesAndGuestAccessKeys(t *testing.T) {
 	}
 	if collaborator.Role != "user" {
 		t.Fatalf("second public user role = %q, want user", collaborator.Role)
+	}
+	named, err := store.CreateCollaboratorUser(ctx, "named-teammate", "hash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if named.Role != "user" {
+		t.Fatalf("admin-created collaborator role = %q, want user", named.Role)
 	}
 	if _, err := store.CreateGuestUser(ctx, "viewer", ""); err != nil {
 		t.Fatal(err)
