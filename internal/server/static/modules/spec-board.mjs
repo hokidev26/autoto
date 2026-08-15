@@ -68,6 +68,12 @@ function statusOptions(selected) {
   return specTaskStatuses.map((status) => `<option value="${status}" ${status === selected ? "selected" : ""}>${escapeHtml(specMessage(`statuses.${status}`))}</option>`).join("");
 }
 
+function specMoveButton(direction, disabled) {
+  const label = specMessage(direction === "up" ? "moveUp" : "moveDown");
+  const path = direction === "up" ? "m6 14 6-6 6 6" : "m6 10 6 6 6-6";
+  return `<button class="ghost-btn mini spec-move-btn" type="button" data-spec-move="${escapeAttr(direction)}" aria-label="${escapeAttr(label)}" title="${escapeAttr(label)}"${disabled ? " disabled" : ""}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="${path}"></path></svg></button>`;
+}
+
 function renderConfirmationCards(board, latestConfirmation) {
   const confirmations = [...(latestConfirmation ? [normalizeGoalConfirmation(latestConfirmation)] : []), ...board.goalConfirmations];
   const seen = new Set();
@@ -95,6 +101,7 @@ export function renderSpecBoard(value = {}) {
       <label>${escapeHtml(specMessage("agent"))}<select id="specAgentSelect">${agents.map((agent) => `<option value="${escapeAttr(agent.id)}" ${agent.id === selectedAgentId ? "selected" : ""}>${escapeHtml(agent.title || agent.id)}</option>`).join("")}</select></label>
       <button id="refreshSpecBoardBtn" class="ghost-btn mini" type="button">${escapeHtml(t("workspace.spec.refresh"))}</button>
     </div>
+    <p class="spec-board-hint">${escapeHtml(t("workspace.spec.hint"))}</p>
     ${source.error ? `<div class="spec-error" role="alert">${escapeHtml(source.error)}</div>` : ""}
     <form id="createSpecTaskForm" class="spec-create-form">
       <textarea id="newSpecTaskText" rows="3" maxlength="16000" placeholder="${escapeAttr(t("workspace.spec.newTask"))}" required></textarea>
@@ -109,8 +116,8 @@ export function renderSpecBoard(value = {}) {
         <div class="spec-task-controls">
           <select data-spec-task-status>${statusOptions(task.status)}</select>
           <label class="spec-protected-toggle"><input data-spec-task-protected type="checkbox" ${task.protected ? "checked" : ""} /> ${escapeHtml(specMessage("protected"))}</label>
-          <button class="ghost-btn mini" type="button" data-spec-move="up" ${index === 0 ? "disabled" : ""}>↑</button>
-          <button class="ghost-btn mini" type="button" data-spec-move="down" ${index === board.tasks.length - 1 ? "disabled" : ""}>↓</button>
+          ${specMoveButton("up", index === 0)}
+          ${specMoveButton("down", index === board.tasks.length - 1)}
           <button class="ghost-btn mini" type="button" data-spec-save>${escapeHtml(specMessage("save"))}</button>
           <button class="ghost-btn mini danger" type="button" data-spec-delete>${escapeHtml(specMessage("delete"))}</button>
         </div>

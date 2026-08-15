@@ -3,7 +3,7 @@ import test from "node:test";
 
 import { createSpecBoardController } from "./spec-board.mjs";
 
-// The Dynamic Spec board reports aria-expanded and lights its header button while
+// The task-list board reports aria-expanded and lights its header button while
 // it is up, but the button was wired straight to open(), so pressing a lit,
 // expanded button did nothing and the × was the only way out. It was also the one
 // dialog in the app with no Escape handler.

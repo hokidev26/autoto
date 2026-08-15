@@ -80,7 +80,7 @@ const messages = Object.freeze({
         status: Object.freeze({ disconnected: "已断开", connected: "已连接", connecting: "连接中", closing: "正在关闭", closed: "已关闭", error: "错误", remoteLocked: "远程策略已锁定" }),
       }),
       workspace: Object.freeze({ saveFailed: "保存失败：{message}" }),
-      spec: Object.freeze({ agent: "代理", protected: "受保护", revision: "修订 {revision}", save: "保存", delete: "删除", noTasks: "暂无任务。", goalConfirmation: "目标确认", noConfirmations: "暂无目标确认。", statuses: Object.freeze({ todo: "待办", doing: "进行中", done: "已完成", blocked: "已阻塞" }) }),
+      spec: Object.freeze({ agent: "代理", protected: "受保护", revision: "修订 {revision}", save: "保存", delete: "删除", noTasks: "暂无任务。", goalConfirmation: "目标确认", noConfirmations: "暂无目标确认。", moveUp: "上移", moveDown: "下移", statuses: Object.freeze({ todo: "待办", doing: "进行中", done: "已完成", blocked: "已阻塞" }) }),
     }),
   }),
   "zh-TW": Object.freeze({
@@ -90,7 +90,7 @@ const messages = Object.freeze({
       terminal: Object.freeze({ description: "管理目前 AI 代理的互動式 PTY 終端機，支援重新連線、清空、複製輸出和控制本機輸出保留策略。", localPrefsDescription: "只儲存在目前瀏覽器，不影響後端 PTY 對話和專案設定。", clearOnReconnect: "重新連線時清空輸出", clearOnReconnectDescription: "維持目前預設行為；關閉後重新連線會追加狀態提示並保留舊輸出。", focusOnConnect: "連線後自動聚焦", focusOnConnectDescription: "終端機連線成功後自動聚焦輸出區，方便直接輸入命令。", outputRetention: "輸出保留行數", maxOutputLines: "最多保留 {count} 行終端機輸出。" }),
       terminalExtras: Object.freeze({ clearedOutput: "終端機輸出已清空。", copiedOutputNotice: "已複製終端機輸出。", copyFailedOutputNotice: "複製終端機輸出失敗。", connectingOutput: "正在連線終端機…", reconnectingOutput: "正在重新連線終端機…", unknownError: "未知錯誤", statusText: "終端機 {status}", status: Object.freeze({ disconnected: "已中斷連線", connected: "已連線", connecting: "連線中", closing: "正在關閉", closed: "已關閉", error: "錯誤", remoteLocked: "遠端策略已鎖定" }) }),
       workspace: Object.freeze({ saveFailed: "儲存失敗：{message}" }),
-      spec: Object.freeze({ agent: "代理", protected: "受保護", revision: "修訂 {revision}", save: "儲存", delete: "刪除", noTasks: "暫無任務。", goalConfirmation: "目標確認", noConfirmations: "暫無目標確認。", statuses: Object.freeze({ todo: "待辦", doing: "進行中", done: "已完成", blocked: "已阻塞" }) }),
+      spec: Object.freeze({ agent: "代理", protected: "受保護", revision: "修訂 {revision}", save: "儲存", delete: "刪除", noTasks: "暫無任務。", goalConfirmation: "目標確認", noConfirmations: "暫無目標確認。", moveUp: "上移", moveDown: "下移", statuses: Object.freeze({ todo: "待辦", doing: "進行中", done: "已完成", blocked: "已阻塞" }) }),
     }),
   }),
   en: Object.freeze({
@@ -100,7 +100,7 @@ const messages = Object.freeze({
       terminal: Object.freeze({ description: "Manage the current AI agent's interactive PTY terminal. Reconnect, clear or copy output, and control local retention preferences.", localPrefsDescription: "Stored only in this browser; this does not affect the backend PTY session or project configuration.", clearOnReconnect: "Clear output on reconnect", clearOnReconnectDescription: "Keep the default behavior. When off, reconnecting appends a status notice and preserves prior output.", focusOnConnect: "Focus on connect", focusOnConnectDescription: "Focus the output area after the terminal connects so you can type commands immediately.", outputRetention: "Output retention", maxOutputLines: "Keep up to {count} terminal output lines." }),
       terminalExtras: Object.freeze({ clearedOutput: "Terminal output cleared.", copiedOutputNotice: "Terminal output copied.", copyFailedOutputNotice: "Failed to copy terminal output.", connectingOutput: "Connecting terminal…", reconnectingOutput: "Reconnecting terminal…", unknownError: "unknown error", statusText: "Terminal {status}", status: Object.freeze({ disconnected: "disconnected", connected: "connected", connecting: "connecting", closing: "closing", closed: "closed", error: "error", remoteLocked: "locked by remote policy" }) }),
       workspace: Object.freeze({ saveFailed: "Save failed: {message}" }),
-      spec: Object.freeze({ agent: "Agent", protected: "protected", revision: "rev {revision}", save: "Save", delete: "Delete", noTasks: "No tasks yet.", goalConfirmation: "Goal confirmation", noConfirmations: "No goal confirmations yet.", statuses: Object.freeze({ todo: "To do", doing: "In progress", done: "Done", blocked: "Blocked" }) }),
+      spec: Object.freeze({ agent: "Agent", protected: "protected", revision: "rev {revision}", save: "Save", delete: "Delete", noTasks: "No tasks yet.", goalConfirmation: "Goal confirmation", noConfirmations: "No goal confirmations yet.", moveUp: "Move up", moveDown: "Move down", statuses: Object.freeze({ todo: "To do", doing: "In progress", done: "Done", blocked: "Blocked" }) }),
     }),
   }),
 });

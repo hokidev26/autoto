@@ -1259,12 +1259,16 @@ test("subagent user messages render the current profile avatar and display name"
   assert.match(html, /data-agent-id="child-1"/);
   assert.match(html, /data-copy-child-message="m1"/);
   assert.match(html, /data-copy-child-message="m1"[^>]*>[\s\S]*?<svg viewBox="0 0 24 24"/);
+  assert.match(html, /data-correct-child-message="m1"[^>]*aria-label="/);
+  assert.doesNotMatch(html, /data-correct-child-message="[^"]*"[^>]*>[^<]+</);
   assert.equal(controller.ownsChildAgent("child-1"), true);
   assert.equal(controller.childMessageText("child-1", "m1"), "brief the child");
   controller.openChildCorrectionEditor("child-1", "m1");
   const editingHTML = controller.renderChildConversationHTMLForTest({ childAgentId: "child-1", childRunId: "run-1" });
+  assert.match(editingHTML, /background-task-bubble role-user chat-message message-editing/);
   assert.match(editingHTML, /data-child-correction-form="m1"/);
   assert.match(editingHTML, /<textarea class="message-correction-text"[^>]*>brief the child<\/textarea>/);
+  assert.doesNotMatch(editingHTML, /data-correct-child-message/);
   // The assistant turn mirrors the main transcript head as well: the Autoto
   // mark and name in place of the old bare "代理" label line.
   assert.match(html, /<span class="message-avatar message-avatar-logo" aria-hidden="true"><svg/);

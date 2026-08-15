@@ -1949,7 +1949,15 @@ body.white-shell.theme-light .workspace-tool-btn {
 }
 
 body.white-shell.theme-light .workspace-close-btn { font-size: 28px; }
-body.white-shell.theme-light .workspace-tool-btn { font-size: 19px; }
+body.white-shell.theme-light .workspace-tool-btn svg {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
 body.white-shell.theme-light .workspace-close-btn:hover,
 body.white-shell.theme-light .workspace-tool-btn:hover:not(:disabled) {
   background: var(--ws-primary-soft);
@@ -1987,6 +1995,9 @@ body.white-shell.theme-light .workspace-files-panel {
   .workspace-files-panel:not(.workspace-file-open) .workspace-editor-panel { display: none; }
   .workspace-files-panel.workspace-file-open .workspace-tree-panel { display: none; }
   .workspace-files-panel.workspace-file-open .workspace-editor-back { display: inline-flex; }
+  .workspace-files-panel.workspace-file-open .workspace-editor-head {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+  }
 }
 
 body.white-shell.theme-light .workspace-tree-panel {
@@ -2108,21 +2119,21 @@ body.white-shell.theme-light .workspace-editor-panel {
   display: flex;
   flex-direction: column;
   background: var(--ws-card);
+  /* Size the toolbar against this column, not the whole card: the tree is
+     often 310px beside a ~200px editor, and a 68px locked header then let
+     「儲存」wrap onto the first line of the file. */
+  container-name: workspace-editor;
+  container-type: inline-size;
 }
 
 body.white-shell.theme-light .workspace-editor-head {
-  flex: 0 0 68px;
-  min-height: 68px;
-  display: flex;
+  flex: 0 0 auto;
+  min-height: 48px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  /* Wrap the actions row to a second line once there is no room beside the
-     path/status text; without this flex shrinks the label buttons past
-     their glyph width and stacks the text vertically. */
-  flex-wrap: wrap;
-  row-gap: 10px;
-  padding: 9px 16px 9px 20px;
+  gap: 8px 10px;
+  padding: 8px 12px 8px 14px;
   border-bottom: 1px solid var(--ws-border);
   background: var(--ws-card);
 }
@@ -2147,11 +2158,45 @@ body.white-shell.theme-light .workspace-editor-back:hover {
   background: var(--ws-primary-soft);
   color: var(--ws-primary);
 }
-body.white-shell.theme-light .workspace-editor-heading { min-width: 0; display: grid; gap: 5px; }
-body.white-shell.theme-light .workspace-editor-heading > * { min-width: 0; overflow-wrap: anywhere; }
-body.white-shell.theme-light .workspace-editor-path { color: var(--ws-text); font-size: 13px; font-weight: 750; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-body.white-shell.theme-light .workspace-editor-status { color: var(--ws-muted); font-size: 12px; }
-body.white-shell.theme-light .workspace-editor-status.error { color: #b42318; }
+body.white-shell.theme-light .workspace-editor-heading {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+body.white-shell.theme-light .workspace-editor-heading > * { min-width: 0; }
+body.white-shell.theme-light .workspace-editor-path {
+  flex: 1 1 auto;
+  color: var(--ws-text);
+  font-size: 13px;
+  font-weight: 750;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+body.white-shell.theme-light .workspace-editor-status {
+  flex: 0 0 auto;
+  max-width: 42%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ws-muted);
+  font-size: 11px;
+  font-weight: 750;
+  line-height: 1.2;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: var(--ws-input);
+}
+body.white-shell.theme-light .workspace-editor-status.is-saved {
+  background: var(--ws-input);
+  color: var(--ws-primary);
+}
+body.white-shell.theme-light .workspace-editor-status.is-dirty {
+  background: var(--ws-input);
+  color: var(--ws-muted);
+}
+body.white-shell.theme-light .workspace-editor-status.error { color: #b42318; background: var(--ws-input); }
 body.white-shell.theme-light .workspace-editor-actions,
 body.white-shell.theme-light .workspace-preview-actions {
   display: flex;
@@ -2165,6 +2210,19 @@ body.white-shell.theme-light .workspace-preview-actions {
 }
 body.white-shell.theme-light .workspace-editor-actions button,
 body.white-shell.theme-light .workspace-preview-actions button { white-space: nowrap; flex: 0 1 auto; min-width: 0; }
+body.white-shell.theme-light .workspace-editor-head .workspace-primary-btn,
+body.white-shell.theme-light .workspace-editor-head .workspace-secondary-btn {
+  min-height: 32px;
+  padding: 0 10px;
+  font-size: 12px;
+  border-radius: 8px;
+}
+@container workspace-editor (max-width: 320px) {
+  .workspace-editor-actions {
+    grid-column: 1 / -1;
+    justify-content: flex-end;
+  }
+}
 
 body.white-shell.theme-light .workspace-primary-btn,
 body.white-shell.theme-light .workspace-secondary-btn {
@@ -2321,8 +2379,12 @@ body.white-shell.theme-light .workspace-preview-logs {
   body.white-shell.theme-light .workspace-files-panel.workspace-file-open .workspace-tree-panel { display: none; }
   body.white-shell.theme-light .workspace-files-panel.workspace-file-open .workspace-editor-back { display: inline-flex; }
   body.white-shell.theme-light .workspace-tree-panel { border-right: 0; }
-  body.white-shell.theme-light .workspace-editor-head { min-height: 112px; align-items: flex-start; flex-direction: column; padding: 10px 12px; }
-  body.white-shell.theme-light .workspace-editor-actions { width: 100%; }
+  body.white-shell.theme-light .workspace-editor-head {
+    min-height: 0;
+    padding: 10px 12px;
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+  body.white-shell.theme-light .workspace-editor-actions { width: 100%; grid-column: 1 / -1; }
   body.white-shell.theme-light .workspace-editor-actions button { flex: 1; }
   body.white-shell.theme-light .workspace-preview-toolbar { align-items: stretch; flex-direction: column; max-height: 300px; overflow: auto; }
   body.white-shell.theme-light .workspace-preview-field,
@@ -2811,7 +2873,7 @@ body.white-shell.theme-light .automation-activity time { margin-right: 8px; colo
   body.white-shell.theme-light .automation-audit-row time { grid-column: 1 / -1; }
 }
 
-/* Dynamic Spec board */
+/* Spec / task-list board */
 .spec-board-modal-card {
   width: min(1180px, 96vw);
   height: min(860px, 92vh);
@@ -2976,6 +3038,29 @@ body.white-shell.theme-light.theme-dark .spec-create-form {
 .spec-task-card .spec-task-controls select { width: auto; min-width: 110px; }
 .spec-task-card .spec-task-controls button,
 .spec-task-card .spec-task-controls .spec-protected-toggle { white-space: nowrap; }
+.spec-task-controls .spec-move-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  min-width: 32px;
+  padding: 0;
+}
+.spec-task-controls .spec-move-btn svg {
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.9;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.spec-board-hint {
+  margin: 0;
+  color: var(--ws-muted);
+  font-size: 12px;
+  line-height: 1.55;
+}
 .spec-confirmations { display: grid; gap: 9px; }
 .spec-confirmations h3 { margin: 0; color: #0f172a; font-size: 14px; }
 .spec-confirmation-card { border: 1px solid #c7d2fe; border-radius: 12px; background: #eef2ff; padding: 11px 12px; display: grid; gap: 4px; color: #0f172a; box-shadow: 0 1px 2px rgba(15, 23, 42, .05); }

@@ -101,3 +101,22 @@ test("the clamp is the fallback, not a branch nobody reaches", () => {
   assert.equal(renderChildBodyHTML("short"), "<p>short</p>");
   assert.equal(renderChildBodyHTML("short", (value) => `<md>${value}</md>`), `<div class="message-content background-task-bubble-body"><md>short</md></div>`);
 });
+
+test("child correction is an icon in the header, not vertical text on the bubble edge", () => {
+  const stripped = css.replace(/\/\*[\s\S]*?\*\//g, "");
+  assert.match(
+    stripped,
+    /body\.white-shell\.theme-light \.background-task-bubble \.message-copy-btn\[data-correct-child-message\]\s*\{[^}]*font-size:\s*0/,
+    "must beat the shared .message-copy-btn font-size or 更正 wraps in the 20px hit target",
+  );
+  assert.match(stripped, /\.background-task-bubble \[data-correct-child-message\]::before\s*\{[^}]*content:\s*"↶"/);
+  const userActionsAt = stripped.indexOf(".background-task-bubble.role-user .message-head-actions");
+  assert.notEqual(userActionsAt, -1);
+  const userActionsBody = stripped.slice(stripped.indexOf("{", userActionsAt) + 1, stripped.indexOf("}", userActionsAt));
+  assert.match(userActionsBody, /position:\s*static/, "icons stay in the header instead of hanging off the bubble");
+  assert.doesNotMatch(userActionsBody, /position:\s*absolute/);
+  assert.match(
+    stripped,
+    /\.background-task-bubble\.role-user\.message-editing\s*\{[^}]*width:\s*100%[^}]*max-width:\s*100%/,
+  );
+});

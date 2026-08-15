@@ -940,7 +940,7 @@ body.white-shell.theme-light.theme-dark [class~="toolbar-lightning-btn"]
 /* Semantic accents keep their meaning instead of collapsing into body text.
    Placed after the copy groups so they win the cascade, and inside this block
    so theme-contrast.test.mjs audits their literals. */
-/* error / warning — 28 selectors */
+/* error / warning — 30 selectors */
 body.white-shell.theme-light.theme-dark .automation-row-card em,
 body.white-shell.theme-light.theme-dark .automation-section-head small.error,
 body.white-shell.theme-light.theme-dark .chat-title-action.title-cancel,
@@ -959,6 +959,8 @@ body.white-shell.theme-light.theme-dark .header-tool-btn.tool-error,
 body.white-shell.theme-light.theme-dark .legacy-about-update-state.error,
 body.white-shell.theme-light.theme-dark .navigation-conversation-row.status-error .navigation-agent-icon,
 body.white-shell.theme-light.theme-dark .navigation-conversation-row.status-failed .navigation-agent-icon,
+body.white-shell.theme-light.theme-dark .navigation-conversation-row.nested.status-error .navigation-conversation-title,
+body.white-shell.theme-light.theme-dark .navigation-conversation-row.nested.status-failed .navigation-conversation-title,
 body.white-shell.theme-light.theme-dark .project-kanban-card-actions button:last-child,
 body.white-shell.theme-light.theme-dark .remote-security-banner span,
 body.white-shell.theme-light.theme-dark .remote-security-banner strong,

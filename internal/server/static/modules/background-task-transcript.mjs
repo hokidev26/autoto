@@ -83,8 +83,9 @@ export function renderChildConversationHTML({
     const calls = callsByMessage.get(messageId) || [];
     if (!body && !reasoning && !calls.length) return "";
     const isEditing = Boolean(editing && editing.agentId === agentId && editing.messageId === messageId && role === "user");
-    return `<article class="background-task-bubble role-${role} chat-message"${messageId ? ` data-message-id="${escapeAttr(messageId)}"` : ""} data-message-role="${escapeAttr(role)}" data-agent-id="${escapeAttr(agentId)}"${Number.isInteger(generation) ? ` data-entity-generation="${escapeAttr(String(generation))}"` : ""}>
-        ${renderChildMessageHeadHTML(role, message, agentId, userIdentity)}
+    const bubbleClass = `background-task-bubble role-${role} chat-message${isEditing ? " message-editing" : ""}`;
+    return `<article class="${bubbleClass}"${messageId ? ` data-message-id="${escapeAttr(messageId)}"` : ""} data-message-role="${escapeAttr(role)}" data-agent-id="${escapeAttr(agentId)}"${Number.isInteger(generation) ? ` data-entity-generation="${escapeAttr(String(generation))}"` : ""}>
+        ${renderChildMessageHeadHTML(role, message, agentId, userIdentity, { editing: isEditing })}
         ${renderChildActivityHTML(agentId, `msg:${messageId}`, calls, persistedReasoningSteps(message, calls), runId, toolSelection)}
         ${isEditing ? renderChildCorrectionHTML(message, agentId) : (body ? renderChildBodyHTML(body, renderMarkdown) : "")}
       </article>`;
@@ -94,7 +95,7 @@ export function renderChildConversationHTML({
   return `<div class="background-task-conversation">${earlier}${bubbles}</div>`;
 }
 
-function renderChildMessageHeadHTML(role, message, childAgentId, userIdentity) {
+function renderChildMessageHeadHTML(role, message, childAgentId, userIdentity, { editing = false } = {}) {
   const timestampValue = text(message?.createdAt);
   const timeHTML = timestampValue
     ? `<time class="message-time" datetime="${escapeAttr(timestampValue)}" title="${escapeAttr(formatTimestamp(timestampValue))}">${escapeHtml(formatTimestamp(timestampValue, { timeOnly: true }))}</time>`
@@ -104,8 +105,12 @@ function renderChildMessageHeadHTML(role, message, childAgentId, userIdentity) {
   const copyBtn = messageId
     ? `<button class="message-copy-btn" type="button" data-copy-child-message="${escapeAttr(messageId)}" data-agent-id="${escapeAttr(childAgentId)}" title="${escapeAttr(copyTitle)}" aria-label="${escapeAttr(copyTitle)}">${messageCopyGlyph()}</button>`
     : "";
-  const correctBtn = role === "user" && messageId
-    ? `<button class="message-copy-btn" type="button" data-correct-child-message="${escapeAttr(messageId)}" data-agent-id="${escapeAttr(childAgentId)}" title="${escapeAttr(cr("message.correctTitle"))}">${escapeHtml(cr("message.correct"))}</button>`
+  const correctTitle = cr("message.correctTitle");
+  // Icon-only: the visible "更正" label is hidden by CSS on the main transcript,
+  // but those rules do not match this panel, so the two characters wrapped
+  // vertically in the 20px hit target. Keep the label in aria/title only.
+  const correctBtn = role === "user" && messageId && !editing
+    ? `<button class="message-copy-btn" type="button" data-correct-child-message="${escapeAttr(messageId)}" data-agent-id="${escapeAttr(childAgentId)}" title="${escapeAttr(correctTitle)}" aria-label="${escapeAttr(correctTitle)}"></button>`
     : "";
   const actions = (correctBtn || copyBtn) ? `<div class="message-head-actions">${correctBtn}${copyBtn}</div>` : "";
   if (role !== "user") {

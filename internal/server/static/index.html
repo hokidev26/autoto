@@ -241,7 +241,9 @@
                 <span class="header-tool-badge hidden" data-git-tool-badge></span>
               </button>
               <button id="specBoardBtn" class="icon-btn header-tool-btn" type="button" data-project-context-only aria-hidden="true" title="打开任务清单" aria-label="打开任务清单" data-i18n-aria-label="chat.taskList" aria-expanded="false" aria-controls="specBoardModal" disabled>
-                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6h11M9 12h11M9 18h11"></path><path d="m3.5 6 1.2 1.2L7 4.8M3.5 12l1.2 1.2L7 10.8M3.5 18l1.2 1.2L7 16.8"></path></svg>
+                <!-- A clipboard with lines, not a ticked checklist: ticks read as
+                     history or restore, which is Git's job. This control is a task list. -->
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 7.2h8a1.8 1.8 0 0 1 1.8 1.8v10.2A1.8 1.8 0 0 1 16 21H8a1.8 1.8 0 0 1-1.8-1.8V9A1.8 1.8 0 0 1 8 7.2z"></path><rect x="9.6" y="3.4" width="4.8" height="3.4" rx="1"></rect><path d="M10 12.2h4.8M10 15.4h3.4"></path></svg>
                 <span class="header-tool-badge hidden" data-spec-tool-badge></span>
               </button>
               <button id="backgroundTasksBtn" class="icon-btn header-tool-btn" type="button" data-project-context-only aria-hidden="true" title="后台任务" aria-label="后台任务" data-i18n-title="backgroundTasks.title" data-i18n-aria-label="backgroundTasks.title" aria-expanded="false" aria-controls="backgroundTaskTray" disabled>
@@ -616,9 +618,9 @@
         <section id="workspaceFilesPanel" class="workspace-files-panel" role="tabpanel" aria-labelledby="workspaceFilesTab">
           <aside class="workspace-tree-panel">
             <div class="workspace-tree-toolbar">
-              <button id="workspaceParentBtn" class="workspace-tool-btn" type="button" title="返回上级目录" aria-label="返回上级目录" data-i18n-title="staticExtra.workspace.explorer.parentDirectory" data-i18n-aria-label="staticExtra.workspace.explorer.parentDirectory">↑</button>
+              <button id="workspaceParentBtn" class="workspace-tool-btn" type="button" title="返回上级目录" aria-label="返回上级目录" data-i18n-title="staticExtra.workspace.explorer.parentDirectory" data-i18n-aria-label="staticExtra.workspace.explorer.parentDirectory"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 7.2A1.7 1.7 0 0 1 5.2 5.5h3.4l1.9 2.2h8.3a1.7 1.7 0 0 1 1.7 1.7v7.9a1.7 1.7 0 0 1-1.7 1.7H5.2a1.7 1.7 0 0 1-1.7-1.7z"></path><path d="M12 16.8v-5.6"></path><path d="m9.4 13.4 2.6-2.6 2.6 2.6"></path></svg></button>
               <div id="workspaceTreePath" class="workspace-tree-path" title="当前相对路径" data-i18n-title="staticExtra.workspace.explorer.currentRelativePath">/</div>
-              <button id="workspaceRefreshTreeBtn" class="workspace-tool-btn" type="button" title="刷新目录" aria-label="刷新目录" data-i18n-title="staticExtra.workspace.explorer.refreshDirectory" data-i18n-aria-label="staticExtra.workspace.explorer.refreshDirectory">↻</button>
+              <button id="workspaceRefreshTreeBtn" class="workspace-tool-btn" type="button" title="刷新目录" aria-label="刷新目录" data-i18n-title="staticExtra.workspace.explorer.refreshDirectory" data-i18n-aria-label="staticExtra.workspace.explorer.refreshDirectory"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M17.8 13.7a6 6 0 1 1-.8-6.2"></path><path d="M17.6 4.4v3.6H14"></path></svg></button>
             </div>
             <div id="workspaceTree" class="workspace-tree" aria-live="polite">
               <div class="workspace-empty-state">打开工作区后加载文件。</div>
@@ -786,7 +788,7 @@
     <div id="goalConfirmationStack" class="goal-confirmation-stack hidden" aria-live="polite"></div>
     <div id="specBoardModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="specBoardTitle">
       <div class="modal-card settings-modal-card spec-board-modal-card">
-        <div class="settings-sidebar-head"><div id="specBoardTitle" class="settings-title" data-i18n="staticExtra.workspace.spec.title">Dynamic Spec</div><button id="closeSpecBoardBtn" class="settings-close-btn" type="button" aria-label="关闭 Spec" data-i18n-aria-label="staticExtra.workspace.spec.close">×</button></div>
+        <div class="settings-sidebar-head"><div id="specBoardTitle" class="settings-title" data-i18n="staticExtra.workspace.spec.title">工作清单</div><button id="closeSpecBoardBtn" class="settings-close-btn" type="button" aria-label="关闭工作清单" data-i18n-aria-label="staticExtra.workspace.spec.close">×</button></div>
         <div id="specBoardBody" class="spec-board-body"></div>
       </div>
     </div>

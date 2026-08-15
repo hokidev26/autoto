@@ -70,8 +70,8 @@ const messagesStaticExtra = Object.freeze({
           closeConversationDetails: "关闭会话详情",
         },
         spec: {
-          title: "Dynamic Spec",
-          close: "关闭 Spec",
+          title: "任务清单",
+          close: "关闭任务清单",
         },
         git: {
           modalTitle: "Git 变更",
@@ -151,8 +151,8 @@ const messagesStaticExtra = Object.freeze({
           closeConversationDetails: "關閉對話詳細資料",
         },
         spec: {
-          title: "Dynamic Spec",
-          close: "關閉 Spec",
+          title: "工作清單",
+          close: "關閉工作清單",
         },
         git: {
           modalTitle: "Git 變更",
@@ -232,8 +232,8 @@ const messagesStaticExtra = Object.freeze({
           closeConversationDetails: "Close conversation details",
         },
         spec: {
-          title: "Dynamic Spec",
-          close: "Close Spec",
+          title: "Task list",
+          close: "Close task list",
         },
         git: {
           modalTitle: "Git changes",

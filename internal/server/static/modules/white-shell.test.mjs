@@ -760,6 +760,17 @@ test("chat header exposes the legacy six-tool order with real SVG icons", async 
   assert.match(html, /id="terminalCommandInput"/);
 });
 
+test("the spec board header control is a clipboard, not a ticked checklist", async () => {
+  const html = await readFile(indexURL, "utf8");
+  const at = html.indexOf('id="specBoardBtn"');
+  assert.notEqual(at, -1);
+  const button = html.slice(at, html.indexOf("</button>", at));
+  assert.doesNotMatch(button, /M9 6h11|m3\.5 6 1\.2/, "ticks read as history or restore");
+  assert.match(button, /<rect x="9\.6" y="3\.4"/, "the clip tab says clipboard");
+  assert.match(html, /id="specBoardTitle"[^>]*>工作清单</);
+  assert.doesNotMatch(html, />Dynamic Spec</);
+});
+
 test("background tasks share the right utility column instead of overlaying chat", async () => {
   const [html, styles, appMain] = await Promise.all([
     readFile(indexURL, "utf8"),
@@ -2194,6 +2205,7 @@ test("static shell controls localize without marking runtime-owned content", asy
     ["workspaceExplorerBtn", 'data-i18n-aria-label="chat.openWorkspace"'],
     ["gitWorkflowBtn", 'data-i18n-aria-label="chat.gitChanges"'],
     ["specBoardBtn", 'data-i18n-aria-label="chat.taskList"'],
+    ["specBoardTitle", 'data-i18n="staticExtra.workspace.spec.title"'],
     ["runtimeStatusBtn", 'data-i18n-aria-label="chat.conversationDetails"'],
     ["reconnectTerminalBtn", 'data-i18n="common.reconnect"'],
     ["conversationDetailsPanel", 'data-i18n-aria-label="staticExtra.workspace.main.conversationDetails"'],
@@ -2515,6 +2527,10 @@ test("workspace files panel queries the card width rather than itself", async ()
   assert.match(styles, /@container workspace-panel \(max-width: 640px\)[\s\S]*?\.workspace-files-panel\.workspace-file-open \.workspace-tree-panel \{ display:\s*none/);
   assert.doesNotMatch(styles, /\.workspace-files-panel \{[\s\S]*?container-name:\s*workspace-panel/);
   assert.match(styles, /@container conversation-details-panel \(max-width: 480px\)/);
+  assert.match(styles, /\.workspace-editor-panel\s*\{[\s\S]*?container-name:\s*workspace-editor/);
+  assert.match(styles, /body\.white-shell\.theme-light \.workspace-editor-head\s*\{[\s\S]*?flex:\s*0 0 auto/);
+  assert.doesNotMatch(styles, /body\.white-shell\.theme-light \.workspace-editor-head\s*\{[^}]*flex:\s*0 0 68px/);
+  assert.match(styles, /@container workspace-editor \(max-width: 320px\)/);
 });
 
 test("phone overlays cover the conversation instead of docking beside it", async () => {

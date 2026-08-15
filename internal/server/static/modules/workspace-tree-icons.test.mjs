@@ -63,3 +63,27 @@ test("the icon colour comes from the theme so it survives a theme switch", () =>
   const cell = css.slice(css.indexOf("{", cellAt) + 1, css.indexOf("}", cellAt));
   assert.match(cell, /color:\s*var\(--ws-primary\)/, "not a hard-coded blue");
 });
+
+test("the toolbar parent control is a folder with an up arrow, not a text ↑", () => {
+  const html = readFileSync(new URL("../index.html", import.meta.url), "utf8");
+  const parentAt = html.indexOf('id="workspaceParentBtn"');
+  assert.notEqual(parentAt, -1);
+  const parent = html.slice(parentAt, html.indexOf("</button>", parentAt));
+  assert.doesNotMatch(parent, /↑|↻|[\u25B1\u25C7]/, "a text arrow reads as jump-to-top, not parent folder");
+  assert.match(parent, /<svg viewBox="0 0 24 24"/);
+  assert.match(parent, /<path d="M3\.5 7\.2/, "the folder matches the tree's directory mark");
+  assert.match(parent, /m9\.4 13\.4 2\.6-2\.6 2\.6 2\.6/, "and the arrow says 'up a level'");
+
+  const refreshAt = html.indexOf('id="workspaceRefreshTreeBtn"');
+  const refresh = html.slice(refreshAt, html.indexOf("</button>", refreshAt));
+  assert.doesNotMatch(refresh, /↻/);
+  assert.match(refresh, /<svg viewBox="0 0 24 24"/);
+
+  const css = stripComments(shell);
+  const at = css.indexOf(".workspace-tool-btn svg");
+  assert.notEqual(at, -1);
+  const body = css.slice(css.indexOf("{", at) + 1, css.indexOf("}", at));
+  assert.match(body, /width:\s*18px/);
+  assert.match(body, /stroke:\s*currentColor/);
+  assert.doesNotMatch(css, /\.workspace-tool-btn \{[^}]*font-size:\s*19px/);
+});

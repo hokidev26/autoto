@@ -61,6 +61,8 @@ test("spec board rendering escapes task, agent, and confirmation content", () =>
   assert.doesNotMatch(html, /<img src=x/);
   assert.match(html, /&lt;img src=x/);
   assert.match(html, /data-spec-task="task-1"/);
+  assert.match(html, /data-spec-move="up"/);
+  assert.match(html, /<svg viewBox="0 0 24 24"/);
 });
 
 test("spec board controls follow the active UI locale", () => {
@@ -76,6 +78,9 @@ test("spec board controls follow the active UI locale", () => {
     assert.match(html, />Save<\/button>/);
     assert.match(html, />Delete<\/button>/);
     assert.match(html, />To do<\/option>/);
+    assert.match(html, /data-spec-move="up"[^>]*aria-label="Move up"/);
+    assert.match(html, /class="spec-board-hint">This is a reminder of goals for the agent/);
+    assert.doesNotMatch(html, />↑<\/button>|>↓<\/button>/);
   } finally {
     setUILocale("zh-CN");
   }

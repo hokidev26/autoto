@@ -2416,9 +2416,9 @@ body.white-shell.theme-light .messages:not(.empty) > [class~="message"][class~="
    art drawn with `currentColor`, so it inherits the same circular avatar
    treatment as the user's initials. */
 .background-task-bubble > .message-head {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto max-content;
   align-items: center;
-  justify-content: space-between;
   gap: 8px;
   min-height: 24px;
   margin-bottom: 6px;
@@ -2493,36 +2493,83 @@ body.white-shell.theme-light .background-task-bubble .message-time {
   align-items: center;
   gap: 2px;
 }
+/* Stay in the header row. Overlaying at the bubble's right edge clipped the
+   20px icons against the tray scroller, and the shared `.message-copy-btn`
+   font-size then stacked the "更正" label as vertical text. */
 .background-task-bubble.role-user .message-head-actions {
-  position: absolute;
-  z-index: 1;
-  top: -2px;
-  right: -2px;
-  padding: 2px;
-  border-radius: 7px;
-  background: color-mix(in srgb, var(--accent, #5369f3) 12%, var(--bg-panel, #fff));
+  position: static;
+  padding: 0;
+  background: transparent;
 }
-.background-task-bubble [data-copy-child-message] {
+.background-task-bubble [data-copy-child-message],
+.background-task-bubble [data-correct-child-message] {
   width: 20px;
   min-width: 20px;
+  max-width: 20px;
   height: 20px;
   padding: 0;
+  overflow: hidden;
   display: inline-grid;
   place-items: center;
   font-size: 0;
   line-height: 1;
   border-radius: 6px;
 }
-.background-task-bubble [data-correct-child-message] {
+.background-task-bubble [data-correct-child-message]::before {
+  content: "↶";
+  font-size: 12px;
+  line-height: 1;
+}
+.background-task-bubble.role-user.message-editing {
+  width: 100%;
+  max-width: 100%;
+}
+.background-task-bubble .message-correction-editor {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+.background-task-bubble .message-correction-text {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  resize: vertical;
+}
+.background-task-bubble .message-correction-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.background-task-bubble .message-correction-actions .ghost-btn.mini {
+  white-space: nowrap;
+}
+body.white-shell.theme-light .background-task-bubble.role-user.message-editing {
+  border-color: var(--ws-border);
+  background: var(--ws-card);
+}
+body.white-shell.theme-light .background-task-bubble .message-correction-text {
+  border-color: var(--ws-border);
+  border-radius: 7px;
+  background: var(--ws-input);
+  color: var(--ws-text);
+}
+body.white-shell.theme-light .background-task-bubble .message-copy-btn[data-copy-child-message],
+body.white-shell.theme-light .background-task-bubble .message-copy-btn[data-correct-child-message] {
   width: 20px;
   min-width: 20px;
+  max-width: 20px;
   height: 20px;
   padding: 0;
+  overflow: hidden;
+  display: inline-grid;
+  place-items: center;
   font-size: 0;
   line-height: 1;
   border-radius: 6px;
+  color: var(--ws-muted);
 }
-.background-task-bubble [data-correct-child-message]::before {
+body.white-shell.theme-light .background-task-bubble .message-copy-btn[data-correct-child-message]::before {
   content: "↶";
   font-size: 12px;
   line-height: 1;

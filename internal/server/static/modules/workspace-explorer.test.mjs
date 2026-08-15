@@ -9,6 +9,7 @@ import {
   normalizePreviewNavigationURL,
   renderPreviewFrameHTML,
   renderWorkspaceEntriesHTML,
+  workspaceFileDisplayName,
   workspaceParentPath,
 } from "./workspace-explorer.mjs";
 
@@ -28,6 +29,13 @@ test("workspace parent path handles root and nested relative paths", () => {
   assert.equal(workspaceParentPath("src/modules"), "src");
   assert.equal(workspaceParentPath("/src/modules/"), "src");
   assert.equal(workspaceParentPath("src\\modules\\ui"), "src/modules");
+});
+
+test("workspace file display name is the basename", () => {
+  assert.equal(workspaceFileDisplayName(""), "");
+  assert.equal(workspaceFileDisplayName("index.css"), "index.css");
+  assert.equal(workspaceFileDisplayName("網站後台/business-admin-platform/admin-ui/public/styles/theme-chalk/index.css"), "index.css");
+  assert.equal(workspaceFileDisplayName("src\\modules\\ui.ts"), "ui.ts");
 });
 
 test("workspace save payload includes optimistic mod time", () => {
@@ -310,4 +318,63 @@ test("Agent switch closes workspace, clears file and preview state, and invalida
   assert.ok(state.workspaceFileSeq > before.file);
   assert.ok(state.workspaceSaveSeq > before.save);
   assert.ok(state.workspacePreviewSeq > before.preview);
+});
+
+test("editor heading shows the file name and hides Save until the buffer is dirty", async () => {
+  const classes = new Set();
+  const pathNode = { textContent: "", title: "" };
+  const statusNode = {
+    textContent: "",
+    classList: {
+      toggle(name, force) {
+        if (force) classes.add(name);
+        else classes.delete(name);
+      },
+    },
+  };
+  const saveBtn = { disabled: false, hidden: false };
+  const reloadBtn = { disabled: false };
+  const editor = { value: "", readOnly: false, disabled: false, placeholder: "" };
+  const filesPanel = { classList: { toggle() {} } };
+  const nodes = {
+    workspaceEditorPath: pathNode,
+    workspaceEditorStatus: statusNode,
+    workspaceSaveFileBtn: saveBtn,
+    workspaceReloadFileBtn: reloadBtn,
+    workspaceEditor: editor,
+    workspaceFilesPanel: filesPanel,
+  };
+  const state = { agent: { id: "agent-editor" } };
+  const controller = createWorkspaceExplorerController({
+    state,
+    request: async (path) => {
+      if (String(path).includes("/workspace/file")) {
+        return {
+          path: "網站後台/business-admin-platform/admin-ui/public/styles/theme-chalk/index.css",
+          content: "@charset \"UTF-8\";",
+          readOnly: false,
+          truncated: false,
+          modTime: "m1",
+        };
+      }
+      return { path: "", entries: [] };
+    },
+    getElementById: (id) => nodes[id] || null,
+  });
+  controller.setAgent(state.agent);
+  await controller.loadFile("網站後台/business-admin-platform/admin-ui/public/styles/theme-chalk/index.css");
+
+  assert.equal(pathNode.textContent, "index.css");
+  assert.equal(pathNode.title, "網站後台/business-admin-platform/admin-ui/public/styles/theme-chalk/index.css");
+  assert.equal(saveBtn.hidden, true);
+  assert.equal(saveBtn.disabled, true);
+  assert.equal(classes.has("is-saved"), true);
+  assert.equal(classes.has("is-dirty"), false);
+
+  state.workspaceFileContent = "@charset \"UTF-8\";\nhtml{}";
+  controller.renderWorkspace();
+  assert.equal(saveBtn.hidden, false);
+  assert.equal(saveBtn.disabled, false);
+  assert.equal(classes.has("is-dirty"), true);
+  assert.equal(classes.has("is-saved"), false);
 });

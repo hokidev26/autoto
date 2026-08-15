@@ -15,6 +15,13 @@ export function workspaceParentPath(path) {
   return parts.join("/");
 }
 
+export function workspaceFileDisplayName(path) {
+  const normalized = String(path || "").replace(/\\/g, "/").replace(/^\/+|\/+$/g, "");
+  if (!normalized || normalized === ".") return "";
+  const parts = normalized.split("/").filter(Boolean);
+  return parts[parts.length - 1] || normalized;
+}
+
 export function buildWorkspaceSavePayload(path, content, expectedModTime) {
   return {
     path: String(path || ""),
@@ -671,16 +678,31 @@ export function createWorkspaceExplorerController({
       editor.placeholder = state.workspaceFileLoading ? t("workspace.explorer.editorLoading") : t("workspace.explorer.editorHint");
     }
     const path = element("workspaceEditorPath");
-    if (path) path.textContent = state.workspaceFilePath || t("workspace.explorer.noFile");
+    if (path) {
+      const fullPath = state.workspaceFilePath || "";
+      const displayName = workspaceFileDisplayName(fullPath) || t("workspace.explorer.noFile");
+      path.textContent = displayName;
+      path.title = fullPath || displayName;
+    }
+    const dirty = Boolean(file?.path) && !readOnly && state.workspaceFileContent !== state.workspaceOriginalContent;
     const status = element("workspaceEditorStatus");
     if (status) {
-      status.textContent = state.workspaceFileStatus || "";
+      const liveStatus = !state.workspaceFileStatusError && file?.path && !state.workspaceFileLoading && !state.workspaceSaving
+        ? (dirty ? t("workspace.explorer.unsaved") : workspaceFileStatusText(file))
+        : (state.workspaceFileStatus || "");
+      status.textContent = liveStatus;
       status.classList.toggle("error", Boolean(state.workspaceFileStatusError));
+      status.classList.toggle("is-dirty", dirty && !state.workspaceFileStatusError);
+      status.classList.toggle("is-saved", Boolean(file?.path) && !dirty && !readOnly && !state.workspaceFileStatusError && !state.workspaceFileLoading);
     }
     const reload = element("workspaceReloadFileBtn");
     if (reload) reload.disabled = !file?.path || state.workspaceFileLoading || state.workspaceSaving;
     const save = element("workspaceSaveFileBtn");
-    if (save) save.disabled = !file?.path || readOnly || state.workspaceSaving || state.workspaceFileContent === state.workspaceOriginalContent;
+    if (save) {
+      const canSave = dirty && !state.workspaceSaving;
+      save.disabled = !canSave;
+      save.hidden = !file?.path || readOnly || (!dirty && !state.workspaceSaving);
+    }
   }
 
   function renderPreview() {
