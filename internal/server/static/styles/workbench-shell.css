@@ -724,11 +724,11 @@ body.white-shell.theme-light .conversation-runtime-link { width: 100%; margin-to
    value / copy columns and let the value wrap normally instead of
    breaking on any character boundary. */
 @container conversation-details-panel (max-width: 480px) {
-  body.white-shell.theme-light .conversation-detail-hero { flex-wrap: wrap; align-items: flex-start; gap: 10px; padding: 14px; }
+  body.white-shell.theme-light .conversation-detail-hero { flex-wrap: wrap; align-items: flex-start; gap: 10px; padding: 12px; }
   body.white-shell.theme-light .conversation-detail-hero h2 { font-size: 16px; overflow-wrap: anywhere; }
-  body.white-shell.theme-light .conversation-metric-grid { grid-template-columns: 1fr; }
-  body.white-shell.theme-light .conversation-metric-card { min-height: 72px; }
-  body.white-shell.theme-light .conversation-metric-card strong { font-size: 18px; overflow-wrap: anywhere; }
+  body.white-shell.theme-light .conversation-metric-grid { gap: 8px; margin-top: 10px; }
+  body.white-shell.theme-light .conversation-metric-card { min-height: 0; padding: 10px 12px; align-content: start; gap: 4px; }
+  body.white-shell.theme-light .conversation-metric-card strong { font-size: 16px; overflow-wrap: anywhere; }
 }
 @container conversation-details-panel (max-width: 420px) {
   body.white-shell.theme-light .conversation-detail-row { grid-template-columns: 1fr; row-gap: 4px; align-items: flex-start; min-height: 0; padding: 10px 0; }
@@ -921,14 +921,10 @@ body.white-shell.theme-light .workspace-preview-dock-mode .workspace-preview-emp
   body.white-shell.theme-light .legacy-about-version-row { min-height: 54px; padding: 0 16px; font-size: 14px; }
   body.white-shell.theme-light .legacy-about-version-row strong { font-size: 14px; }
   body.white-shell.theme-light .legacy-about-update-button { width: 100%; }
-  /* Utility panels (background tasks / conversation details / preview) used to take
-     the screen from the topbar down, so opening one on a phone hid the whole
-     conversation and the composer with it -- and a task that had already finished
-     kept holding all of it until the × was found. Capping the height leaves the
-     tail of the transcript and the composer reachable underneath, so reading a
-     task's output no longer means leaving the conversation.
-
-     The panel scrolls internally, so nothing inside it is lost to the cap. */
+  /* Background-task tray stays a sheet so a finished run does not bury the
+     composer. Conversation details is a read of the current thread: a 62dvh
+     cap left the transcript and composer showing through the sheet, which
+     reads as the panel leaking. Cover the chat from the topbar down. */
   body.white-shell.theme-light .utility-panel {
     position: fixed;
     inset: 64px 0 auto;
@@ -940,10 +936,34 @@ body.white-shell.theme-light .workspace-preview-dock-mode .workspace-preview-emp
     border-bottom: 1px solid var(--line, #38383c);
     box-shadow: 0 18px 40px rgba(0, 0, 0, .34);
   }
+  body.white-shell.theme-light .conversation-details-panel {
+    inset: 64px 0 0;
+    height: calc(100dvh - 64px);
+    max-height: none;
+    border-bottom: 0;
+    box-shadow: none;
+    background: var(--ws-card);
+  }
+  body.white-shell.theme-light .conversation-details-body { padding: 12px; }
   /* The body is the part that scrolls; the head stays put so × is always in reach. */
   body.white-shell.theme-light .utility-panel > :not(.utility-panel-head) { min-height: 0; overflow-y: auto; }
   body.white-shell.theme-light .conversation-metric-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  body.white-shell.theme-light .workspace-preview-dock-mode .workspace-modal-card { width: 100%; height: calc(100dvh - 64px); margin-top: 64px; }
+  /* Files, spec, and preview all dock with a 420px minimum. On a phone that
+     minimum is wider than the viewport, so the conversation peeks around a
+     squeezed card. Fill the column under the topbar instead. */
+  body.white-shell.theme-light .shell-dock-mode {
+    padding: 64px 0 0;
+    background: transparent;
+  }
+  body.white-shell.theme-light .shell-dock-mode > .modal-card,
+  body.white-shell.theme-light .workspace-preview-dock-mode .workspace-modal-card {
+    width: 100%;
+    min-width: 0;
+    height: 100%;
+    max-height: none;
+    margin: 0;
+    box-shadow: none;
+  }
   body.white-shell.theme-light .workspace-browser-toolbar { grid-template-columns: repeat(4, 32px) minmax(72px, 1fr) auto; padding: 6px 8px; }
   body.white-shell.theme-light .workspace-browser-viewports { grid-column: 1 / -1; overflow-x: auto; }
 }

@@ -540,28 +540,41 @@ export function createPeerCollaborationSettingsController({
     const controllerPairings = value.pairings.filter((item) => item.localRole === "controller");
     return `
       <div class="settings-live-page peer-collaboration-page" id="peerCollaborationPage">
-        <section class="settings-hero-card settings-page-section settings-card">
-          <div class="settings-card-header">
+        <section class="settings-hero-card settings-page-section settings-card peer-collaboration-hero">
+          <div class="settings-card-header peer-collaboration-hero-head">
             <div>
-              <div class="settings-hero-kicker">${escapeHtml(rt("kicker"))}</div>
               <div class="settings-hero-title settings-card-title">${escapeHtml(rt("title"))}</div>
               <p class="settings-card-description" data-settings-help-copy>${escapeHtml(rt("description"))}</p>
             </div>
-            <span class="settings-status-pill settings-badge ${value.sharingEnabled ? "ok" : "warn"}">${escapeHtml(rt(value.sharingEnabled ? "sharingOn" : "sharingOff"))}</span>
+            <div class="peer-collaboration-hero-tools">
+              <span class="settings-status-pill settings-badge ${value.sharingEnabled ? "ok" : "warn"}">${escapeHtml(rt(value.sharingEnabled ? "sharingOn" : "sharingOff"))}</span>
+              <button class="settings-action-btn subtle" type="button" data-peer-action="refresh">${escapeHtml(rt("refresh"))}</button>
+            </div>
           </div>
-          <div class="settings-form-grid">
-            <label class="settings-check-row">
-              <input id="peerCollaborationSharing" type="checkbox" ${value.sharingEnabled ? "checked" : ""} ${value.available ? "" : "disabled"} />
-              <span><strong>${escapeHtml(rt("enableSharing"))}</strong><small data-settings-help-copy>${escapeHtml(rt("enableSharingHint"))}</small></span>
-            </label>
-          </div>
-          <div class="settings-stat-grid">
-            <div class="settings-stat-card"><strong>${escapeHtml(value.identity.fingerprint ? value.identity.fingerprint.slice(0, 16) : "—")}</strong><span>${escapeHtml(rt("identityFingerprint"))}</span></div>
-            <div class="settings-stat-card"><strong>${escapeHtml(tunnelReady ? value.tunnel.publicUrl : rt("tunnelMissing"))}</strong><span>${escapeHtml(rt("invitationOrigin"))}</span></div>
-          </div>
-          <div class="settings-action-row settings-card-footer">
-            <button class="settings-action-btn subtle" type="button" data-peer-action="copy-fingerprint">${escapeHtml(rt("copyFingerprint"))}</button>
-            <button class="settings-action-btn subtle" type="button" data-peer-action="refresh">${escapeHtml(rt("refresh"))}</button>
+          <div class="peer-collaboration-stack">
+            <div class="peer-collaboration-sharing-row${value.sharingEnabled ? " is-on" : ""}" data-peer-sharing-card>
+              <div class="peer-collaboration-sharing-copy">
+                <strong>${escapeHtml(rt("enableSharing"))}</strong>
+                <small data-settings-help-copy>${escapeHtml(rt("enableSharingHint"))}</small>
+              </div>
+              <label class="remote-access-switch" title="${escapeAttr(rt("enableSharing"))}">
+                <input id="peerCollaborationSharing" type="checkbox" role="switch" aria-checked="${value.sharingEnabled ? "true" : "false"}" ${value.sharingEnabled ? "checked" : ""} ${value.available ? "" : "disabled"} />
+                <span class="remote-access-switch-track" aria-hidden="true"></span>
+              </label>
+            </div>
+            <dl class="peer-collaboration-meta">
+              <div class="peer-collaboration-meta-row">
+                <dt>${escapeHtml(rt("identityFingerprint"))}</dt>
+                <dd>
+                  <code class="peer-collaboration-fingerprint">${escapeHtml(value.identity.fingerprint || "—")}</code>
+                  <button class="settings-action-btn subtle" type="button" data-peer-action="copy-fingerprint"${value.identity.fingerprint ? "" : " disabled"}>${escapeHtml(rt("copyFingerprint"))}</button>
+                </dd>
+              </div>
+              <div class="peer-collaboration-meta-row">
+                <dt>${escapeHtml(rt("invitationOrigin"))}</dt>
+                <dd class="${tunnelReady ? "" : "is-missing"}">${tunnelReady ? `<code>${escapeHtml(value.tunnel.publicUrl)}</code>` : escapeHtml(rt("tunnelMissing"))}</dd>
+              </div>
+            </dl>
           </div>
         </section>
         ${state?.peerCollaborationError ? `<div class="settings-inline-alert settings-alert" role="alert">${escapeHtml(state.peerCollaborationError)}</div>` : ""}
@@ -574,7 +587,7 @@ export function createPeerCollaborationSettingsController({
             </div>
           </div>
           ${tunnelReady ? "" : `<div class="settings-inline-alert settings-alert" role="status">${escapeHtml(rt("tunnelRequired"))}</div>`}
-          <form id="peerCollaborationInviteForm" class="settings-card-content settings-form-grid">
+          <form id="peerCollaborationInviteForm" class="settings-card-content peer-collaboration-invite-form">
             <label class="settings-form-field">${escapeHtml(rt("invitationLifetime"))}
               <select id="peerCollaborationInviteTTL" class="settings-field">
                 ${invitationTTLChoices.map((seconds) => `<option value="${seconds}">${escapeHtml(rt(`ttl.${seconds}`))}</option>`).join("")}
@@ -609,14 +622,16 @@ export function createPeerCollaborationSettingsController({
               <div class="settings-provider-meta settings-card-description" data-settings-help-copy>${escapeHtml(rt("connectDescription"))}</div>
             </div>
           </div>
-          <form id="peerCollaborationConnectForm" class="settings-card-content settings-form-grid">
-            <label class="settings-form-field">${escapeHtml(rt("invitationCode"))}
+          <form id="peerCollaborationConnectForm" class="settings-card-content peer-collaboration-connect-form">
+            <label class="settings-form-field peer-collaboration-connect-code">${escapeHtml(rt("invitationCode"))}
               <input id="peerCollaborationConnectCode" class="settings-field" type="text" autocomplete="off" spellcheck="false" placeholder="${escapeAttr(rt("invitationCodePlaceholder"))}" />
             </label>
-            <label class="settings-form-field">${escapeHtml(rt("controllerDisplayName"))}
-              <input id="peerCollaborationConnectName" class="settings-field" type="text" autocomplete="off" placeholder="${escapeAttr(rt("controllerDisplayNamePlaceholder"))}" />
-            </label>
-            <button class="settings-action-btn primary" type="submit" data-peer-connect-submit ${value.available ? "" : "disabled"}>${escapeHtml(rt("connect"))}</button>
+            <div class="peer-collaboration-connect-actions">
+              <label class="settings-form-field">${escapeHtml(rt("controllerDisplayName"))}
+                <input id="peerCollaborationConnectName" class="settings-field" type="text" autocomplete="off" placeholder="${escapeAttr(rt("controllerDisplayNamePlaceholder"))}" />
+              </label>
+              <button class="settings-action-btn primary" type="submit" data-peer-connect-submit ${value.available ? "" : "disabled"}>${escapeHtml(rt("connect"))}</button>
+            </div>
           </form>
           ${renderPendingClaims()}
           ${controllerPairings.length ? controllerPairings.map(renderPairing).join("") : `<p class="settings-card-description">${escapeHtml(rt("controllerPairingsEmpty"))}</p>`}
@@ -788,11 +803,16 @@ export function createPeerCollaborationSettingsController({
     document.getElementById("peerCollaborationSharing")?.addEventListener("change", async (event) => {
       const input = event.currentTarget;
       const enabled = Boolean(input.checked);
+      const card = input.closest("[data-peer-sharing-card]");
+      input.setAttribute("aria-checked", enabled ? "true" : "false");
+      card?.classList.toggle("is-on", enabled);
       input.disabled = true;
       try {
         await setSharing(enabled);
       } catch (err) {
         input.checked = !enabled;
+        input.setAttribute("aria-checked", !enabled ? "true" : "false");
+        card?.classList.toggle("is-on", !enabled);
         showError?.(err);
       } finally {
         input.disabled = false;

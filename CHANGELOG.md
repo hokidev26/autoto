@@ -9,11 +9,16 @@ All notable changes to Autoto are tracked here. The project is still an experime
 - Opening Settings now closes the spec board and the workspace explorer so they no longer stack on the same right-hand column Settings claims.
 - Git command failures still include the working directory and argv for a local operator; remote sessions receive the existing generic error text.
 - About licenses lists reviewed direct and indirect modules from `go.mod` instead of leaving most of them unknown.
+- Connecting to another Autoto puts the invitation code on its own row, with the display name and submit control beside each other instead of a stretched three-cell form grid.
 
 ### Fixed
 
 - Workspace, spec board, Settings network/remote-collaboration cards, and conversation-detail rows collapse against their own panel width instead of the viewport.
 - The conversation header's workspace-feature tool card shrinks when a docked panel squeezes the chat column.
+- On a phone, conversation details, the spec board, and the workspace explorer fill the column under the topbar so the chat no longer shows through a 62dvh / 420px dock.
+- A narrow workspace files card drills from the file list into the editor instead of squeezing both columns, and Dynamic Spec no longer inherits the Settings 40vh header grid.
+- Remote collaboration's pairing card is a vertical intro with a sharing switch and labeled fingerprint/URL rows, instead of a hero flex row of nested stat cards.
+- A failed temporary-tunnel start keeps the server error on the tunnel card instead of returning the card to an idle “not started” state.
 
 ## v1.0.0 - 2026-08-14
 

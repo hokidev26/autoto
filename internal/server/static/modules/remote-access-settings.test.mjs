@@ -254,6 +254,30 @@ test("temporary tunnel start button keeps its label and width hook while startin
   }
 });
 
+test("a failed temporary tunnel start keeps the error on the card", async () => {
+  const state = {
+    remoteAccess: {
+      ...localAccess,
+      tunnel: { available: true, status: "idle", publicUrl: "", error: "", startedAt: "" },
+    },
+  };
+  const controller = createRemoteAccessSettingsController({
+    state,
+    request: async () => {
+      const error = new Error("Cloudflare Quick Tunnel 无法连线");
+      error.status = 503;
+      throw error;
+    },
+  });
+  await assert.rejects(() => controller.startTunnel(), /无法连线/);
+  assert.equal(state.remoteAccess.tunnel.status, "error");
+  assert.match(state.remoteAccess.tunnel.error, /无法连线/);
+  const html = controller.render();
+  assert.match(html, /settings-inline-alert/);
+  assert.match(html, /无法连线/);
+  assert.doesNotMatch(html, /尚未启动临时隧道/);
+});
+
 test("saves host-local policy with revision", async () => {
   const requests = [];
   const state = { remoteAccess: localAccess };

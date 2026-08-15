@@ -179,6 +179,7 @@ export function createWorkspaceExplorerController({
     state.workspaceSaving = false;
     state.workspaceFileStatus = t("workspace.explorer.selectFile");
     state.workspaceFileStatusError = false;
+    state.workspaceEditorOpen = false;
     state.workspaceProfiles = [];
     state.workspaceSelectedProfileId = "";
     state.workspacePreviewStatus = null;
@@ -277,6 +278,8 @@ export function createWorkspaceExplorerController({
     state.workspaceSaving = false;
     state.workspacePreviewLoading = false;
     state.workspacePreviewBusy = false;
+    state.workspaceEditorOpen = false;
+    renderFilesPaneMode();
     const modal = element("workspaceModal");
     modal?.classList.add("hidden");
     modal?.classList.remove("workspace-preview-dock-mode", "shell-dock-mode");
@@ -320,6 +323,7 @@ export function createWorkspaceExplorerController({
     const requestedPath = normalizeRelativePath(path);
     if (!agentId || !requestedPath) return null;
     const seq = ++state.workspaceFileSeq;
+    state.workspaceEditorOpen = true;
     state.workspaceFileLoading = true;
     state.workspaceFileStatus = t("workspace.explorer.loadingFile");
     state.workspaceFileStatusError = false;
@@ -623,6 +627,7 @@ export function createWorkspaceExplorerController({
     if (subtitle) subtitle.textContent = state.agent?.cwd || state.project?.gitPath || t("workspace.explorer.agentDirectory");
     renderTree();
     renderEditor();
+    renderFilesPaneMode();
     renderPreview();
   }
 
@@ -644,6 +649,16 @@ export function createWorkspaceExplorerController({
     const editor = element("workspaceEditor");
     if (editor && editor.value !== state.workspaceFileContent) editor.value = state.workspaceFileContent;
     renderEditorControls();
+    renderFilesPaneMode();
+  }
+
+  function renderFilesPaneMode() {
+    element("workspaceFilesPanel")?.classList.toggle("workspace-file-open", Boolean(state.workspaceEditorOpen));
+  }
+
+  function closeEditorPane() {
+    state.workspaceEditorOpen = false;
+    renderFilesPaneMode();
   }
 
   function renderEditorControls() {
@@ -778,8 +793,12 @@ export function createWorkspaceExplorerController({
       if (!target) return;
       const path = target.dataset.workspacePath || "";
       if (target.dataset.workspaceDir === "true") loadTree(path).catch(showError);
-      else loadFile(path).catch(showError);
+      else if (path && path === state.workspaceFilePath && state.workspaceFile) {
+        state.workspaceEditorOpen = true;
+        renderFilesPaneMode();
+      } else loadFile(path).catch(showError);
     });
+    element("workspaceEditorBackBtn")?.addEventListener("click", closeEditorPane);
     element("workspaceEditor")?.addEventListener("input", (event) => {
       state.workspaceFileContent = String(event.target?.value ?? "");
       state.workspaceFileStatus = state.workspaceFileContent === state.workspaceOriginalContent ? workspaceFileStatusText(state.workspaceFile) : t("workspace.explorer.unsaved");
@@ -863,6 +882,7 @@ function initializeWorkspaceState(state) {
     workspaceSaving: false,
     workspaceFileStatus: t("workspace.explorer.selectFile"),
     workspaceFileStatusError: false,
+    workspaceEditorOpen: false,
     workspaceProfiles: [],
     workspaceSelectedProfileId: "",
     workspacePreviewStatus: null,

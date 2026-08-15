@@ -1987,15 +1987,17 @@ body.white-shell.theme-light .workspace-files-panel {
      tree so the editor keeps a readable width. */
   .workspace-files-panel { grid-template-columns: 220px minmax(0, 1fr); }
 }
-@container workspace-panel (max-width: 540px) {
-  .workspace-files-panel { grid-template-columns: 180px minmax(0, 1fr); }
-}
-@container workspace-panel (max-width: 420px) {
-  /* Below this width the editor stops having room for anything other than
-     line-broken text; drop the tree column entirely so the editor claims
-     the panel. */
-  .workspace-files-panel { grid-template-columns: minmax(0, 1fr); }
-  .workspace-tree-panel { display: none; }
+@container workspace-panel (max-width: 640px) {
+  /* Side-by-side at this width squeezed the editor into a ribbon and
+     hid the tree once the card crossed 420px, so neither pane was
+     usable. Drill in: the list fills the card until a file is opened. */
+  .workspace-files-panel {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr);
+  }
+  .workspace-files-panel:not(.workspace-file-open) .workspace-editor-panel { display: none; }
+  .workspace-files-panel.workspace-file-open .workspace-tree-panel { display: none; }
+  .workspace-files-panel.workspace-file-open .workspace-editor-back { display: inline-flex; }
 }
 
 body.white-shell.theme-light .workspace-tree-panel {
@@ -2134,6 +2136,27 @@ body.white-shell.theme-light .workspace-editor-head {
   padding: 9px 16px 9px 20px;
   border-bottom: 1px solid var(--ws-border);
   background: var(--ws-card);
+}
+body.white-shell.theme-light .workspace-editor-back {
+  display: none;
+  flex: 0 0 auto;
+  min-width: 36px;
+  width: 36px;
+  min-height: 36px;
+  height: 36px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--ws-muted);
+  cursor: pointer;
+  align-items: center;
+  justify-content: center;
+  font-size: 22px;
+  line-height: 1;
+}
+body.white-shell.theme-light .workspace-editor-back:hover {
+  background: var(--ws-primary-soft);
+  color: var(--ws-primary);
 }
 body.white-shell.theme-light .workspace-editor-heading { min-width: 0; display: grid; gap: 5px; }
 body.white-shell.theme-light .workspace-editor-heading > * { min-width: 0; overflow-wrap: anywhere; }
@@ -2293,21 +2316,22 @@ body.white-shell.theme-light .workspace-preview-logs {
   }
   body.white-shell.theme-light .workspace-modal-head {
     flex-basis: auto;
-    min-height: 116px;
+    min-height: 56px;
     grid-template-columns: minmax(0, 1fr) 44px;
-    grid-template-rows: 54px 50px;
+    grid-template-rows: auto;
     gap: 0 8px;
-    padding: 4px 10px 8px 16px;
+    padding: 4px 10px 4px 16px;
   }
   body.white-shell.theme-light .workspace-modal-heading { grid-column: 1; grid-row: 1; }
   body.white-shell.theme-light .workspace-close-btn { grid-column: 2; grid-row: 1; }
-  body.white-shell.theme-light .workspace-tabs { grid-column: 1 / -1; grid-row: 2; width: 100%; }
-  body.white-shell.theme-light .workspace-tab { flex: 1; min-height: 44px; }
   body.white-shell.theme-light .workspace-files-panel {
-    grid-template-columns: 1fr;
-    grid-template-rows: minmax(180px, 32vh) minmax(0, 1fr);
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr);
   }
-  body.white-shell.theme-light .workspace-tree-panel { border-right: 0; border-bottom: 1px solid var(--ws-border); }
+  body.white-shell.theme-light .workspace-files-panel:not(.workspace-file-open) .workspace-editor-panel { display: none; }
+  body.white-shell.theme-light .workspace-files-panel.workspace-file-open .workspace-tree-panel { display: none; }
+  body.white-shell.theme-light .workspace-files-panel.workspace-file-open .workspace-editor-back { display: inline-flex; }
+  body.white-shell.theme-light .workspace-tree-panel { border-right: 0; }
   body.white-shell.theme-light .workspace-editor-head { min-height: 112px; align-items: flex-start; flex-direction: column; padding: 10px 12px; }
   body.white-shell.theme-light .workspace-editor-actions { width: 100%; }
   body.white-shell.theme-light .workspace-editor-actions button { flex: 1; }
@@ -2846,6 +2870,15 @@ body.white-shell.theme-light .automation-activity time { margin-right: 8px; colo
 
 body.white-shell.theme-light .spec-board-body { background: var(--ws-canvas); }
 body.white-shell.theme-light .spec-board-modal-card { border-color: var(--ws-border); background: var(--ws-card); color: var(--ws-text); }
+/* Settings uses this card class for a sidebar + page grid. Spec only has a
+   title row and a body, so those template tracks left a 40vh hole above the
+   form (and stretched the Agent label into it). */
+body.white-shell.theme-light .spec-board-modal-card.settings-modal-card {
+  display: flex;
+  flex-direction: column;
+  grid-template-columns: none;
+  grid-template-rows: none;
+}
 body.white-shell.theme-light .spec-tab-list { border-color: var(--ws-border); background: var(--ws-input); }
 body.white-shell.theme-light .spec-tab.active { color: var(--ws-primary); background: var(--ws-card); }
 
@@ -2860,7 +2893,7 @@ body.white-shell.theme-light .spec-tab.active { color: var(--ws-primary); backgr
   .goal-confirmation-stack { right: 12px; bottom: 12px; width: calc(100vw - 24px); }
 }
 
-.spec-board-shell { display: grid; gap: 14px; color: #0f172a; }
+.spec-board-shell { display: grid; align-content: start; gap: 14px; color: #0f172a; }
 .spec-board-toolbar {
   display: flex;
   align-items: end;
@@ -2868,7 +2901,16 @@ body.white-shell.theme-light .spec-tab.active { color: var(--ws-primary); backgr
   gap: 12px;
   flex-wrap: wrap;
 }
-.spec-board-toolbar label { flex: 1 1 200px; min-width: 0; display: grid; gap: 5px; color: #475569; font-size: 11px; font-weight: 850; }
+.spec-board-toolbar label {
+  flex: 1 1 200px;
+  min-width: 0;
+  display: grid;
+  align-content: start;
+  gap: 5px;
+  color: #475569;
+  font-size: 11px;
+  font-weight: 850;
+}
 .spec-board-toolbar select,
 .spec-create-form textarea,
 .spec-create-form select,
@@ -2895,9 +2937,14 @@ body.white-shell.theme-light .spec-tab.active { color: var(--ws-primary); backgr
    to fit and the status / protected / submit row keeps its own intrinsic
    width. Below ~360px collapse the whole form to a single column. */
 @container spec-board-panel (max-width: 520px) {
-  .spec-create-form { grid-template-columns: minmax(0, 1fr) auto; }
-  .spec-create-form textarea { grid-column: 1 / -1; grid-row: auto; }
+  .spec-board-shell { gap: 10px; }
+  .spec-board-toolbar { align-items: stretch; flex-direction: column; justify-content: flex-start; gap: 8px; }
+  .spec-board-toolbar label { flex: 0 0 auto; }
+  .spec-board-toolbar .ghost-btn { align-self: flex-end; }
+  .spec-create-form { grid-template-columns: minmax(0, 1fr) auto; padding: 10px; gap: 8px; }
+  .spec-create-form textarea { grid-column: 1 / -1; grid-row: auto; min-height: 56px; }
   .spec-create-form .send-btn { grid-column: 1 / -1; }
+  .spec-empty { min-height: 64px; padding: 12px; }
 }
 @container spec-board-panel (max-width: 360px) {
   .spec-create-form { grid-template-columns: 1fr; }
@@ -2952,7 +2999,8 @@ body.white-shell.theme-light.theme-dark .spec-create-form {
 .spec-error { border: 1px solid #fecaca; border-radius: 12px; background: #fff1f2; color: #be123c; padding: 10px 12px; font-size: 12px; line-height: 1.5; }
 
 @media (max-width: 767px) {
-  .spec-board-toolbar { align-items: stretch; flex-direction: column; }
+  .spec-board-toolbar { align-items: stretch; flex-direction: column; justify-content: flex-start; }
+  .spec-board-toolbar label { flex: 0 0 auto; }
   .spec-board-toolbar .ghost-btn { align-self: flex-end; }
   .spec-create-form { grid-template-columns: 1fr; }
   .spec-create-form textarea { grid-row: auto; }

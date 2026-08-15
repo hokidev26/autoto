@@ -2792,11 +2792,14 @@ body.white-shell.theme-light .background-task-bubble.role-assistant .message-rol
 .conversation-continuation-grid span { color: var(--muted, #64748b); font-size: 10px; }
 .conversation-continuation-grid strong { overflow-wrap: anywhere; color: var(--text, #111827); font-size: 11px; }
 /* The details panel this card lives in is user-resizable, so its width has
-   nothing to do with the window's. Sized against the panel, a narrow panel on a
-   wide screen folds to one column instead of squashing both values. */
+   nothing to do with the window's. Keep two columns on a phone: folding to
+   one column made eight short tiles into a long stack with even more gap. */
 .conversation-details-body { container-name: conversation-details-panel; container-type: inline-size; }
 @container conversation-details-panel (max-width: 420px) {
-  .conversation-continuation-grid { grid-template-columns: 1fr; }
+  .conversation-continuation-card { margin-bottom: 10px; padding: 10px; }
+  .conversation-continuation-card > header { margin-bottom: 8px; }
+  .conversation-continuation-grid { gap: 6px; }
+  .conversation-continuation-grid > div { padding: 6px 8px; }
 }
 
 /* Remote access policy and one-time password controls. */
@@ -2910,12 +2913,133 @@ body.white-shell.theme-light .background-task-bubble.role-assistant .message-rol
 
 /* Network settings (search / remote access / peer collaboration) sit in the
    settings content column beside the category sidebar, so viewport breakpoints
-   fire too late. Size the cards against the page itself. */
+   fire too late. Size the cards against the page itself.
+
+   Generic .settings-hero-card is a horizontal flex row. That is fine for a
+   title-plus-one-action hero; the pairing card is an intro, a sharing switch,
+   and two identity rows, so column layout is the card, not a narrow-width
+   exception. */
 #settingsContentBody .remote-access-page,
 #settingsContentBody .peer-collaboration-page,
 #settingsContentBody .network-search-page {
   container: settings-network-page / inline-size;
 }
+#settingsContentBody .remote-access-page .settings-hero-card,
+#settingsContentBody .peer-collaboration-page .settings-hero-card {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: flex-start;
+  gap: 14px;
+}
+#settingsContentBody .peer-collaboration-page {
+  gap: 10px;
+}
+#settingsContentBody .peer-collaboration-hero-head { align-items: flex-start; }
+#settingsContentBody .peer-collaboration-hero-tools {
+  display: flex;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+#settingsContentBody .peer-collaboration-stack {
+  min-width: 0;
+  display: grid;
+  overflow: hidden;
+  border: 1px solid var(--settings-border, #dfe3ea);
+  border-radius: 12px;
+  background: var(--settings-surface, #fff);
+}
+#settingsContentBody .peer-collaboration-sharing-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 14px;
+  transition: background-color .16s ease;
+}
+#settingsContentBody .peer-collaboration-sharing-row.is-on {
+  background: color-mix(in srgb, var(--settings-primary, #5369f3) 8%, var(--settings-surface, #fff));
+}
+#settingsContentBody .peer-collaboration-sharing-copy {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+#settingsContentBody .peer-collaboration-sharing-copy strong {
+  color: var(--settings-foreground, #1f2937);
+  font-size: 14px;
+  font-weight: 750;
+}
+#settingsContentBody .peer-collaboration-sharing-copy small {
+  color: var(--settings-muted-foreground, #64748b);
+  font-size: 11px;
+  line-height: 1.45;
+}
+#settingsContentBody .peer-collaboration-meta {
+  margin: 0;
+  display: grid;
+  border-top: 1px solid var(--settings-border, #dfe3ea);
+}
+#settingsContentBody .peer-collaboration-meta-row {
+  display: grid;
+  gap: 6px;
+  padding: 12px 14px;
+}
+#settingsContentBody .peer-collaboration-meta-row + .peer-collaboration-meta-row {
+  border-top: 1px solid var(--settings-border, #dfe3ea);
+}
+#settingsContentBody .peer-collaboration-meta-row dt {
+  color: var(--settings-muted-foreground, #64748b);
+  font-size: 11px;
+  font-weight: 650;
+}
+#settingsContentBody .peer-collaboration-meta-row dd {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 0;
+  color: var(--settings-foreground, #1f2937);
+  font-size: 13px;
+  line-height: 1.45;
+}
+#settingsContentBody .peer-collaboration-meta-row dd.is-missing {
+  color: var(--settings-muted-foreground, #64748b);
+}
+#settingsContentBody .peer-collaboration-meta-row code,
+#settingsContentBody .peer-collaboration-fingerprint {
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow-wrap: anywhere;
+  color: var(--settings-foreground, #1f2937);
+  font: 12px/1.45 var(--mono, ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace);
+}
+#settingsContentBody .peer-collaboration-meta-row .settings-action-btn { flex: 0 0 auto; }
+#settingsContentBody .peer-collaboration-invite-form {
+  display: grid;
+  grid-template-columns: minmax(0, 200px) auto;
+  gap: 10px;
+  align-items: end;
+}
+#settingsContentBody .peer-collaboration-invite-form .settings-action-btn { justify-self: start; }
+#settingsContentBody .peer-collaboration-connect-form {
+  display: grid;
+  gap: 10px;
+}
+#settingsContentBody .peer-collaboration-connect-code .settings-field {
+  font-family: var(--mono, ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace);
+}
+#settingsContentBody .peer-collaboration-connect-actions {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: end;
+}
+#settingsContentBody .peer-collaboration-connect-actions .settings-action-btn { justify-self: start; }
 #settingsContentBody .remote-access-page .settings-stat-card strong,
 #settingsContentBody .peer-collaboration-page .settings-stat-card strong {
   font-size: 13px;
@@ -2937,6 +3061,11 @@ body.white-shell.theme-light .background-task-bubble.role-assistant .message-rol
   .peer-collaboration-qr { width: 100%; height: auto; aspect-ratio: 1; }
   .peer-collaboration-grant-scopes { grid-template-columns: 1fr; }
   .peer-collaboration-created { justify-items: stretch; }
+  #settingsContentBody .peer-collaboration-invite-form { grid-template-columns: 1fr; }
+  #settingsContentBody .peer-collaboration-invite-form .settings-action-btn { width: 100%; justify-self: stretch; }
+  #settingsContentBody .peer-collaboration-connect-actions { grid-template-columns: 1fr; }
+  #settingsContentBody .peer-collaboration-connect-actions .settings-action-btn { width: 100%; justify-self: stretch; }
+  #settingsContentBody .peer-collaboration-sharing-row { align-items: flex-start; flex-wrap: wrap; }
 }
 
 @container settings-network-page (max-width: 520px) {
@@ -2947,6 +3076,9 @@ body.white-shell.theme-light .background-task-bubble.role-assistant .message-rol
   .remote-access-tunnel-action,
   .peer-collaboration-invitation .settings-action-btn,
   .peer-collaboration-pairing .settings-action-btn { width: 100%; }
+  #settingsContentBody .peer-collaboration-hero-head { flex-direction: column; align-items: stretch; }
+  #settingsContentBody .peer-collaboration-hero-tools { justify-content: flex-start; }
+  #settingsContentBody .peer-collaboration-meta-row dd { flex-wrap: wrap; }
   #settingsContentBody .network-search-page .compact-settings-header { align-items: stretch; flex-direction: column; }
   #settingsContentBody .network-search-page .compact-settings-header-actions { justify-content: flex-start; }
   #settingsContentBody .network-search-page .compact-settings-grid.two-column { grid-template-columns: minmax(0, 1fr); }
@@ -3015,6 +3147,28 @@ body.white-shell.theme-light.theme-dark .peer-collaboration-grant-head > strong 
 body.white-shell.theme-light.theme-dark .peer-collaboration-grant-list { color: var(--settings-foreground); }
 body.white-shell.theme-light.theme-dark .peer-collaboration-scope small { color: var(--settings-muted-foreground); }
 body.white-shell.theme-light.theme-dark .peer-collaboration-qr { border-color: var(--settings-border); }
+body.white-shell.theme-light.theme-dark .peer-collaboration-stack,
+body.white-shell.theme-light.theme-dark .peer-collaboration-meta {
+  border-color: var(--settings-border);
+  background: var(--settings-surface);
+}
+body.white-shell.theme-light.theme-dark .peer-collaboration-sharing-row.is-on {
+  background: color-mix(in srgb, var(--settings-primary, #5369f3) 14%, var(--settings-surface));
+}
+body.white-shell.theme-light.theme-dark .peer-collaboration-sharing-copy strong,
+body.white-shell.theme-light.theme-dark .peer-collaboration-meta-row dd,
+body.white-shell.theme-light.theme-dark .peer-collaboration-fingerprint {
+  color: var(--settings-foreground);
+}
+body.white-shell.theme-light.theme-dark .peer-collaboration-sharing-copy small,
+body.white-shell.theme-light.theme-dark .peer-collaboration-meta-row dt,
+body.white-shell.theme-light.theme-dark .peer-collaboration-meta-row dd.is-missing {
+  color: var(--settings-muted-foreground);
+}
+body.white-shell.theme-light.theme-dark .peer-collaboration-meta,
+body.white-shell.theme-light.theme-dark .peer-collaboration-meta-row + .peer-collaboration-meta-row {
+  border-top-color: var(--settings-border);
+}
 
 /* Remote access — dark mode */
 body.white-shell.theme-light.theme-dark .remote-access-full-access-card {

@@ -352,4 +352,46 @@ test("peer collaboration cards share the settings-network panel container", asyn
   assert.match(css, /#settingsContentBody \.peer-collaboration-page/);
   assert.match(css, /container:\s*settings-network-page\s*\/\s*inline-size/);
   assert.match(css, /@container settings-network-page \(max-width: 759px\)[\s\S]*?\.peer-collaboration-qr/);
+  assert.match(css, /#settingsContentBody \.peer-collaboration-page \.settings-hero-card \{[\s\S]*?flex-direction:\s*column/);
+  assert.match(css, /#settingsContentBody \.peer-collaboration-stack \{/);
+  assert.match(css, /#settingsContentBody \.peer-collaboration-invite-form \{[\s\S]*?grid-template-columns:\s*minmax\(0, 200px\) auto/);
+  assert.match(css, /#settingsContentBody \.peer-collaboration-connect-form \{/);
+  assert.match(css, /#settingsContentBody \.peer-collaboration-connect-actions \{[\s\S]*?grid-template-columns:\s*minmax\(0, 1fr\) auto/);
+});
+
+test("the pairing hero is a switch plus labeled identity rows, not nested stat cards", async () => {
+  const harness = createHarness();
+  await harness.controller.load();
+  const html = harness.controller.render();
+  assert.match(html, /peer-collaboration-hero/);
+  assert.match(html, /peer-collaboration-stack/);
+  assert.match(html, /peer-collaboration-sharing-row is-on/);
+  assert.match(html, /id="peerCollaborationSharing"[^>]*role="switch"/);
+  assert.match(html, /peer-collaboration-meta/);
+  assert.match(html, /peer-collaboration-invite-form/);
+  assert.doesNotMatch(html, /peer-collaboration-facts/);
+  const hero = html.slice(html.indexOf("peer-collaboration-hero"), html.indexOf("peerCollaborationInviteForm"));
+  assert.doesNotMatch(hero, /settings-check-row/);
+  assert.doesNotMatch(hero, /settings-stat-card/);
+  const refreshAt = hero.indexOf("data-peer-action=\"refresh\"");
+  const sharingAt = hero.indexOf("peerCollaborationSharing");
+  const copyAt = hero.indexOf("data-peer-action=\"copy-fingerprint\"");
+  assert.ok(refreshAt > -1 && refreshAt < sharingAt, "refresh belongs in the header, not the fingerprint row");
+  assert.ok(sharingAt > -1 && sharingAt < copyAt, "the sharing switch sits above the fingerprint");
+});
+
+test("the connect card stacks the invitation code above the name and submit row", async () => {
+  const harness = createHarness();
+  await harness.controller.load();
+  const html = harness.controller.render();
+  assert.match(html, /peer-collaboration-connect-form/);
+  assert.match(html, /peer-collaboration-connect-code/);
+  assert.match(html, /peer-collaboration-connect-actions/);
+  const connect = html.slice(html.indexOf("peerCollaborationConnectForm"), html.indexOf("peerCollaborationConnectForm") + 1200);
+  assert.doesNotMatch(connect, /settings-form-grid/);
+  const codeAt = connect.indexOf("peerCollaborationConnectCode");
+  const nameAt = connect.indexOf("peerCollaborationConnectName");
+  const submitAt = connect.indexOf("data-peer-connect-submit");
+  assert.ok(codeAt > -1 && nameAt > codeAt, "the invitation code sits above the display name");
+  assert.ok(submitAt > nameAt, "submit stays beside the display name, not in a third grid hole");
 });

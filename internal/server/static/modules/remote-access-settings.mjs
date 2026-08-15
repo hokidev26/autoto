@@ -224,11 +224,26 @@ export function createRemoteAccessSettingsController({
 
   async function updateTunnel(method, action = "") {
     const suffix = textValue(action);
-    const result = await request(`${endpoint}/tunnel${suffix ? `/${suffix}` : ""}`, { method });
-    const current = access();
-    state.remoteAccess = normalizeRemoteAccess({ ...current, tunnel: result });
-    onChange?.(state.remoteAccess);
-    return state.remoteAccess.tunnel;
+    try {
+      const result = await request(`${endpoint}/tunnel${suffix ? `/${suffix}` : ""}`, { method });
+      const current = access();
+      state.remoteAccess = normalizeRemoteAccess({ ...current, tunnel: result });
+      onChange?.(state.remoteAccess);
+      return state.remoteAccess.tunnel;
+    } catch (err) {
+      const current = access();
+      const running = current.tunnel.status === "running";
+      state.remoteAccess = normalizeRemoteAccess({
+        ...current,
+        tunnel: {
+          ...current.tunnel,
+          status: running ? current.tunnel.status : "error",
+          error: textValue(err?.message, rt("tunnelError")),
+        },
+      });
+      onChange?.(state.remoteAccess);
+      throw err;
+    }
   }
 
   async function installTunnel() {
@@ -348,7 +363,7 @@ export function createRemoteAccessSettingsController({
         <section class="settings-provider-section settings-page-section settings-card remote-access-tunnel-card">
           <div class="settings-provider-section-head settings-card-header"><div><div class="settings-provider-title settings-card-title">${escapeHtml(title)}</div><div class="settings-provider-meta settings-card-description" data-settings-help-copy>${escapeHtml(description)}</div></div><span class="settings-status-pill settings-badge ${active ? "ok" : tunnel.status === "error" ? "warn" : ""}">${escapeHtml(tunnelStatusLabel(tunnel.status))}</span></div>
           ${tunnel.error && tunnel.status === "error" ? `<div class="settings-inline-alert settings-alert" role="status">${escapeHtml(tunnel.error)}</div>` : ""}
-          ${tunnel.publicUrl ? `<div class="remote-access-tunnel-url"><a href="${escapeAttr(tunnel.publicUrl)}" target="_blank" rel="noopener noreferrer">${escapeHtml(tunnel.publicUrl)}</a><button id="copyRemoteTunnelUrlBtn" class="settings-action-btn subtle" type="button">${escapeHtml(rt("copyTunnelUrl"))}</button></div>${renderTunnelQr(tunnel.publicUrl)}` : `<p class="settings-card-description">${escapeHtml(tunnel.available ? rt("tunnelStopped") : rt("tunnelUnavailableHint"))}</p>`}
+          ${tunnel.publicUrl ? `<div class="remote-access-tunnel-url"><a href="${escapeAttr(tunnel.publicUrl)}" target="_blank" rel="noopener noreferrer">${escapeHtml(tunnel.publicUrl)}</a><button id="copyRemoteTunnelUrlBtn" class="settings-action-btn subtle" type="button">${escapeHtml(rt("copyTunnelUrl"))}</button></div>${renderTunnelQr(tunnel.publicUrl)}` : tunnel.status === "error" ? "" : `<p class="settings-card-description">${escapeHtml(tunnel.available ? rt("tunnelStopped") : rt("tunnelUnavailableHint"))}</p>`}
           <div class="settings-action-row settings-card-footer"><span class="settings-provider-meta">${escapeHtml(footerHint)}</span>${actionButton}</div>
         </section>`;
   }

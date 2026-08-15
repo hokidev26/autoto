@@ -144,6 +144,36 @@ test("read-only and truncated files are blocked before save request", async () =
   assert.equal(calls, 0);
 });
 
+test("opening a workspace file drills into the editor pane", async () => {
+  const paneClasses = new Set();
+  const filesPanel = {
+    classList: {
+      toggle(name, force) {
+        if (force) paneClasses.add(name);
+        else paneClasses.delete(name);
+      },
+    },
+  };
+  const state = { agent: { id: "agent-a" } };
+  const controller = createWorkspaceExplorerController({
+    state,
+    request: async (path) => {
+      if (String(path).includes("/workspace/file")) {
+        return { path: "readme.md", content: "hi", readOnly: false, truncated: false, modTime: "m1" };
+      }
+      return { path: "", entries: [] };
+    },
+    getElementById: (id) => id === "workspaceFilesPanel" ? filesPanel : null,
+  });
+  controller.setAgent(state.agent);
+  await controller.loadFile("readme.md");
+  assert.equal(state.workspaceEditorOpen, true);
+  assert.equal(paneClasses.has("workspace-file-open"), true);
+  controller.closeWorkspace();
+  assert.equal(state.workspaceEditorOpen, false);
+  assert.equal(paneClasses.has("workspace-file-open"), false);
+});
+
 test("opening the browser tool goes straight to Preview without loading the file tree", async () => {
   const calls = [];
   let opened = 0;

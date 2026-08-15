@@ -2164,6 +2164,7 @@ test("static shell controls localize without marking runtime-owned content", asy
     ["backendsModalTitle", 'data-i18n="staticExtra.backend.modalTitle"'],
     ["closeGitModalBtn", 'data-i18n-aria-label="staticExtra.workspace.git.closeModal"'],
     ["workspaceModalTitle", 'data-i18n="staticExtra.workspace.explorer.modalTitle"'],
+    ["workspaceEditorBackBtn", 'data-i18n-aria-label="staticExtra.workspace.explorer.backToFiles"'],
     ["workspacePreviewAddress", 'data-i18n-placeholder="staticExtra.workspace.explorer.addressPlaceholder"'],
     ["closeSpecBoardBtn", 'data-i18n-aria-label="staticExtra.workspace.spec.close"'],
   ]) assert.match(tag(id), new RegExp(marker));
@@ -2466,7 +2467,16 @@ test("workspace files panel queries the card width rather than itself", async ()
   const styles = await readStylesSource(stylesURL);
   assert.match(styles, /\.workspace-modal-card\s*\{[\s\S]*?container-name:\s*workspace-panel/);
   assert.match(styles, /@container workspace-panel \(max-width: 700px\)/);
-  assert.match(styles, /@container workspace-panel \(max-width: 420px\)[\s\S]*?\.workspace-tree-panel \{ display:\s*none/);
+  assert.match(styles, /@container workspace-panel \(max-width: 640px\)[\s\S]*?\.workspace-files-panel:not\(\.workspace-file-open\) \.workspace-editor-panel \{ display:\s*none/);
+  assert.match(styles, /@container workspace-panel \(max-width: 640px\)[\s\S]*?\.workspace-files-panel\.workspace-file-open \.workspace-tree-panel \{ display:\s*none/);
   assert.doesNotMatch(styles, /\.workspace-files-panel \{[\s\S]*?container-name:\s*workspace-panel/);
   assert.match(styles, /@container conversation-details-panel \(max-width: 480px\)/);
+});
+
+test("phone overlays cover the conversation instead of docking beside it", async () => {
+  const styles = await readStylesSource(stylesURL);
+  assert.match(styles, /\.conversation-details-panel \{[\s\S]*?height:\s*calc\(100dvh - 64px\)[\s\S]*?max-height:\s*none/);
+  assert.match(styles, /\.shell-dock-mode > \.modal-card,[\s\S]*?\.workspace-preview-dock-mode \.workspace-modal-card \{[\s\S]*?width:\s*100%/);
+  assert.match(styles, /\.spec-board-modal-card\.settings-modal-card \{[\s\S]*?grid-template-rows:\s*none/);
+  assert.match(styles, /\.spec-board-toolbar label \{[\s\S]*?align-content:\s*start/);
 });
