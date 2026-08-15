@@ -2,6 +2,8 @@ package db
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"path/filepath"
 	"testing"
 )
@@ -20,6 +22,9 @@ func TestUserHandleUnicodeCaseConflictAndValidation(t *testing.T) {
 	}
 	if user.Handle != "Alice" {
 		t.Fatalf("expected NFKC handle, got %q", user.Handle)
+	}
+	if user.Role != "admin" {
+		t.Fatalf("expected first user to be admin, got %q", user.Role)
 	}
 	if _, err := store.CreateUser(ctx, "alice", "hash"); !IsConflict(err) {
 		t.Fatalf("expected Unicode/case handle conflict, got %v", err)
@@ -87,5 +92,99 @@ PRAGMA foreign_keys = ON;
 	}
 	if !testColumnExists(t, ctx, store.DB(), "agent_messages", "correction_of_message_id") {
 		t.Fatal("expected v20 correction column")
+	}
+}
+
+func TestCreateUserRolesAndGuestAccessKeys(t *testing.T) {
+	ctx := context.Background()
+	store, err := Open(ctx, filepath.Join(t.TempDir(), "guest-roles.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+
+	admin, err := store.CreateUser(ctx, "host", "hash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if admin.Role != "admin" {
+		t.Fatalf("first user role = %q, want admin", admin.Role)
+	}
+	collaborator, err := store.CreateUser(ctx, "teammate", "hash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if collaborator.Role != "user" {
+		t.Fatalf("second public user role = %q, want user", collaborator.Role)
+	}
+	if _, err := store.CreateGuestUser(ctx, "viewer", ""); err != nil {
+		t.Fatal(err)
+	}
+	guest, err := store.CreateGuestUser(ctx, "key-only", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if guest.Role != "guest" {
+		t.Fatalf("guest role = %q", guest.Role)
+	}
+	set, err := store.UserPasswordSet(ctx, guest.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if set {
+		t.Fatal("key-only guest must store an empty password hash")
+	}
+
+	project, _, _, err := store.CreateProject(ctx, "Shared", "", t.TempDir(), "fake:test", "acceptEdits")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.ReplaceUserProjectMemberships(ctx, guest.ID, []string{project.ID}); err != nil {
+		t.Fatal(err)
+	}
+	ids, err := store.ListProjectIDsForUser(ctx, guest.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ids) != 1 || ids[0] != project.ID {
+		t.Fatalf("guest memberships = %v, want [%s]", ids, project.ID)
+	}
+	if err := store.ReplaceUserProjectMemberships(ctx, guest.ID, []string{"missing-project"}); !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("expected missing project to be not found, got %v", err)
+	}
+
+	key, err := store.CreateUserAccessKey(ctx, UserAccessKey{UserID: guest.ID, TokenHash: HashSessionToken("atk_testtoken"), Label: "phone"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	found, stored, err := store.GetUserByAccessKeyToken(ctx, "atk_testtoken")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if found.ID != guest.ID || stored.ID != key.ID {
+		t.Fatalf("access key lookup mismatch: user=%s key=%s", found.ID, stored.ID)
+	}
+	if err := store.TouchUserAccessKey(ctx, key.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.RevokeUserAccessKey(ctx, guest.ID, key.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := store.GetUserByAccessKeyToken(ctx, "atk_testtoken"); !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("revoked key must not authenticate, got %v", err)
+	}
+
+	count, err := store.CountUsersByRole(ctx, "admin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if count != 1 {
+		t.Fatalf("admin count = %d, want 1", count)
+	}
+	if err := store.DeleteUser(ctx, guest.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.GetUser(ctx, guest.ID); !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("deleted guest still present: %v", err)
 	}
 }

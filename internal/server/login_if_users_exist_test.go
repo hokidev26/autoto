@@ -86,6 +86,7 @@ func TestLoginIfUsersExistGuard(t *testing.T) {
 	}
 
 	cookies := loginRemoteAccess(t, app, remoteAccessModeRestricted)
+	sessionCookie := register.Result().Cookies()[0]
 	for _, path := range surfaces {
 		req := newTestRequest(http.MethodGet, path, nil)
 		req.Host = "remote.example.test"
@@ -95,8 +96,22 @@ func TestLoginIfUsersExistGuard(t *testing.T) {
 		}
 		recorder := httptest.NewRecorder()
 		routes.ServeHTTP(recorder, req)
+		if recorder.Code != http.StatusUnauthorized || !strings.Contains(recorder.Body.String(), "login required") {
+			t.Fatalf("remote session with local users must still require a local account for GET %s, got %d: %s", path, recorder.Code, recorder.Body.String())
+		}
+	}
+	for _, path := range surfaces {
+		req := newTestRequest(http.MethodGet, path, nil)
+		req.Host = "remote.example.test"
+		markRemoteHTTPS(req)
+		for _, cookie := range cookies {
+			req.AddCookie(cookie)
+		}
+		req.AddCookie(sessionCookie)
+		recorder := httptest.NewRecorder()
+		routes.ServeHTTP(recorder, req)
 		if recorder.Code == http.StatusUnauthorized && strings.Contains(recorder.Body.String(), "login required") {
-			t.Fatalf("remote session must not be forced through local login for GET %s, got %d: %s", path, recorder.Code, recorder.Body.String())
+			t.Fatalf("remote session plus local login must not be rejected as login required for GET %s, got %d: %s", path, recorder.Code, recorder.Body.String())
 		}
 	}
 }

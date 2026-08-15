@@ -41,14 +41,23 @@ func CanonicalHandle(handle string) (string, string, error) {
 }
 
 func (s *userStore) CreateUser(ctx context.Context, handle, passwordHash string) (User, error) {
+	return s.createUser(ctx, handle, passwordHash, "", true)
+}
+
+func (s *userStore) CreateGuestUser(ctx context.Context, handle, passwordHash string) (User, error) {
+	return s.createUser(ctx, handle, passwordHash, "guest", false)
+}
+
+func (s *userStore) createUser(ctx context.Context, handle, passwordHash, role string, assignUnowned bool) (User, error) {
 	handle, handleKey, err := CanonicalHandle(handle)
 	if err != nil {
 		return User{}, err
 	}
-	if strings.TrimSpace(passwordHash) == "" {
+	role = strings.TrimSpace(role)
+	if passwordHash == "" && role != "guest" {
 		return User{}, errors.New("password hash is required")
 	}
-	user := User{ID: NewID(), Username: handle, Handle: handle, Role: "user", CreatedAt: Now()}
+	user := User{ID: NewID(), Username: handle, Handle: handle, Role: role, CreatedAt: Now()}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return User{}, err
@@ -59,13 +68,23 @@ func (s *userStore) CreateUser(ctx context.Context, handle, passwordHash string)
 	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM users`).Scan(&existingUsers); err != nil {
 		return User{}, err
 	}
+	if user.Role == "" {
+		if existingUsers == 0 {
+			user.Role = "admin"
+		} else {
+			user.Role = "user"
+		}
+	}
+	if user.Role == "guest" && existingUsers == 0 {
+		return User{}, errors.New("cannot create a guest as the first user")
+	}
 	if _, err := tx.ExecContext(ctx, `INSERT INTO users (id, username, handle, handle_key, password_hash, role, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)`, user.ID, user.Username, user.Handle, handleKey, passwordHash, user.Role, user.CreatedAt); err != nil {
 		if isUniqueConstraint(err) {
 			return User{}, fmt.Errorf("%w: handle already exists", ErrConflict)
 		}
 		return User{}, err
 	}
-	if existingUsers == 0 {
+	if assignUnowned && existingUsers == 0 {
 		if err := assignUnownedProjectsTx(ctx, tx, user.ID, user.CreatedAt); err != nil {
 			return User{}, err
 		}
@@ -186,6 +205,116 @@ func (s *userStore) GetUserByHandle(ctx context.Context, handle string) (User, s
 	var passwordHash string
 	err = s.db.QueryRowContext(ctx, `SELECT id, username, handle, role, created_at, COALESCE(password_hash, '') FROM users WHERE handle_key = ?`, handleKey).Scan(&user.ID, &user.Username, &user.Handle, &user.Role, &user.CreatedAt, &passwordHash)
 	return user, passwordHash, err
+}
+
+func (s *userStore) ListUsers(ctx context.Context) ([]User, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT id, username, handle, role, created_at FROM users ORDER BY created_at ASC, handle_key ASC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	users := make([]User, 0)
+	for rows.Next() {
+		var user User
+		if err := rows.Scan(&user.ID, &user.Username, &user.Handle, &user.Role, &user.CreatedAt); err != nil {
+			return nil, err
+		}
+		users = append(users, user)
+	}
+	return users, rows.Err()
+}
+
+func (s *userStore) CountUsersByRole(ctx context.Context, role string) (int, error) {
+	var count int
+	err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM users WHERE role = ?`, strings.TrimSpace(role)).Scan(&count)
+	return count, err
+}
+
+func (s *userStore) DeleteUser(ctx context.Context, userID string) error {
+	userID = strings.TrimSpace(userID)
+	if userID == "" {
+		return errors.New("user is required")
+	}
+	result, err := s.db.ExecContext(ctx, `DELETE FROM users WHERE id = ?`, userID)
+	if err != nil {
+		return err
+	}
+	n, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
+func (s *userStore) UserPasswordSet(ctx context.Context, userID string) (bool, error) {
+	var hash string
+	err := s.db.QueryRowContext(ctx, `SELECT COALESCE(password_hash, '') FROM users WHERE id = ?`, strings.TrimSpace(userID)).Scan(&hash)
+	if err != nil {
+		return false, err
+	}
+	return strings.TrimSpace(hash) != "", nil
+}
+
+func (s *userStore) ListProjectIDsForUser(ctx context.Context, userID string) ([]string, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT project_id FROM project_members WHERE user_id = ? ORDER BY created_at ASC, project_id ASC`, strings.TrimSpace(userID))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	ids := make([]string, 0)
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
+}
+
+func (s *userStore) ReplaceUserProjectMemberships(ctx context.Context, userID string, projectIDs []string) error {
+	userID = strings.TrimSpace(userID)
+	if userID == "" {
+		return errors.New("user is required")
+	}
+	seen := make(map[string]struct{}, len(projectIDs))
+	ids := make([]string, 0, len(projectIDs))
+	for _, projectID := range projectIDs {
+		projectID = strings.TrimSpace(projectID)
+		if projectID == "" {
+			continue
+		}
+		if _, exists := seen[projectID]; exists {
+			continue
+		}
+		seen[projectID] = struct{}{}
+		ids = append(ids, projectID)
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, `DELETE FROM project_members WHERE user_id = ?`, userID); err != nil {
+		return err
+	}
+	now := Now()
+	for _, projectID := range ids {
+		var exists int
+		if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM projects WHERE id = ?`, projectID).Scan(&exists); err != nil {
+			return err
+		}
+		if exists == 0 {
+			return fmt.Errorf("%w: project not found", sql.ErrNoRows)
+		}
+		if _, err := tx.ExecContext(ctx, `INSERT INTO project_members (project_id, user_id, role, created_at) VALUES (?, ?, 'member', ?)`, projectID, userID, now); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
 }
 
 func (s *userStore) ListUsersByHandlePrefix(ctx context.Context, prefix string, limit int) ([]User, error) {

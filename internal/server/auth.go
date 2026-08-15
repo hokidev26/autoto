@@ -40,8 +40,9 @@ type authLoginFailure struct {
 }
 
 type authCredentialsRequest struct {
-	Handle   string `json:"handle"`
-	Password string `json:"password"`
+	Handle    string `json:"handle"`
+	Password  string `json:"password"`
+	AccessKey string `json:"accessKey"`
 }
 
 func cancelAuthSessionConnections(cancels []context.CancelFunc) {
@@ -245,6 +246,10 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
+	if accessKey := strings.TrimSpace(req.AccessKey); accessKey != "" {
+		s.loginWithAccessKey(w, r, accessKey)
+		return
+	}
 	if !validUserPasswordLength(req.Password) {
 		writeError(w, http.StatusBadRequest, "password must be between 8 and 1024 bytes")
 		return
@@ -288,6 +293,33 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, user)
+}
+
+func (s *Server) loginWithAccessKey(w http.ResponseWriter, r *http.Request, accessKey string) {
+	failureKey := authLoginFailureKey(r, "atk:"+db.HashSessionToken(accessKey))
+	if locked, until := s.authLoginLocked(failureKey); locked {
+		s.writeAuthLoginLocked(w, until)
+		return
+	}
+	user, key, err := s.store.GetUserByAccessKeyToken(r.Context(), accessKey)
+	switch {
+	case err == nil:
+		s.clearAuthLoginFailures(failureKey)
+		_ = s.store.TouchUserAccessKey(r.Context(), key.ID)
+		if err := s.startSession(w, r, user); err != nil {
+			s.writeRequestError(w, r, http.StatusInternalServerError, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, user)
+	case errors.Is(err, sql.ErrNoRows):
+		if until := s.recordAuthLoginFailure(failureKey); !until.IsZero() {
+			s.writeAuthLoginLocked(w, until)
+			return
+		}
+		writeError(w, http.StatusUnauthorized, "invalid access key")
+	default:
+		writeError(w, http.StatusInternalServerError, "login is temporarily unavailable")
+	}
 }
 
 func (s *Server) logout(w http.ResponseWriter, r *http.Request) {
@@ -363,20 +395,16 @@ func (s *Server) requireUser(w http.ResponseWriter, r *http.Request) (db.User, b
 }
 
 // requireLoginIfUsersExist leaves a fresh local-first install unchanged. Once
-// at least one local account exists, local requests need a logged-in user
-// session. Authenticated remote access keeps using remoteAccessAuthentication
-// rather than the local account cookie, so a valid remote session is not forced
-// through requireUser (which would 401 as "login required"). Unauthenticated
-// remote requests are rejected here as well, in case this guard is reached
-// without the global remote gate.
+// at least one local account exists, local and remote requests both need a
+// logged-in user session. Remote access still has to pass the access-password
+// gate first; that password is not a substitute for a local account or guest
+// key. Unauthenticated remote requests are rejected here as well, in case this
+// guard is reached without the global remote gate.
 func (s *Server) requireLoginIfUsersExist(w http.ResponseWriter, r *http.Request) bool {
 	auth := s.remoteAccessAuthentication(r)
-	if auth.Remote {
-		if !auth.Authenticated {
-			writeError(w, http.StatusUnauthorized, "missing or invalid remote session")
-			return false
-		}
-		return true
+	if auth.Remote && !auth.Authenticated {
+		writeError(w, http.StatusUnauthorized, "missing or invalid remote session")
+		return false
 	}
 	if s.store == nil {
 		return true

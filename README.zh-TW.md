@@ -275,7 +275,7 @@ AGENT_SERVER_API_KEY
 - 瀏覽器本機 Settings → Notifications：toast 類別、顯示時長、UI 終端提示；伺服器端持久化 Webhook / Telegram 投遞歷史與重試
 - 瀏覽器本機 Settings → Appearance：主題、密度、預設終端可見性、Agent event 顯示
 - 設定 → Servers/System + Runtime 面板：runtime 摘要、Go runtime、路徑、Agent 限制
-- 設定 → Users 唯讀認證狀態面板（`/api/auth/status`）
+- 設定 → Users：管理員可建立只能觀看對話的訪客、核發存取金鑰，並授權專案。訪客限制由伺服器執行，只能看已授權對話並編輯個人資料
 - 設定 → Storage 面板：config、database、home、projects 體積
 - 設定 → Usage 面板：projects、messages、tool calls、model requests、估計 token 成本、backends
 - 設定 → About 依賴授權面板（開發期的 `/api/licenses` 端點）

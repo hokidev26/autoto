@@ -624,7 +624,7 @@ const LIGHT_SURFACE_CEILING = Object.freeze({
   "workbench-composer.css": 8,
   "workspace-tasks.css": 29,
   "workspace.css": 18,
-  "extras.css": 11,
+  "extras.css": 13,
   "settings-themes.css": 7,
   "base.css": 9,
   "providers-console.css": 1,

@@ -72,7 +72,11 @@ func (s *oauthAppStore) FindOrCreateOAuthAppUser(ctx context.Context, provision 
 		return User{}, false, err
 	}
 	now := Now()
-	user := User{ID: NewID(), Username: handle, Handle: handle, Role: "user", CreatedAt: now}
+	role := "user"
+	if existingUsers == 0 {
+		role = "admin"
+	}
+	user := User{ID: NewID(), Username: handle, Handle: handle, Role: role, CreatedAt: now}
 	if _, err := tx.ExecContext(ctx, `INSERT INTO users (id, username, handle, handle_key, password_hash, role, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)`, user.ID, user.Username, user.Handle, handleKey, provision.PasswordHash, user.Role, user.CreatedAt); err != nil {
 		if isUniqueConstraint(err) {
 			return User{}, false, fmt.Errorf("%w: OAuth app user handle already exists", ErrConflict)

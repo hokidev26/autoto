@@ -462,6 +462,7 @@ func (s *Server) Routes() http.Handler {
 	r.Use(middleware.Recoverer)
 	r.Use(s.localRequestGuard)
 	r.Use(s.projectAccessGuard)
+	r.Use(s.guestObserveGuard)
 	s.mountUI(r)
 	s.mountOAuthApp(r)
 	s.mountThemeRoutes(r)

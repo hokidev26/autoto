@@ -91,6 +91,8 @@ import { createSkillsWorkbenchController } from "./skills-workbench.mjs";
 import { createTerminalController } from "./terminal.mjs";
 import { createUIShellController, elementVisible, isComposingInput } from "./ui-shell.mjs";
 import { createUsageHistoryController } from "./usage-history.mjs";
+import { accountIsGuest, createAccountSessionController, defaultSettingsPanelKey, visibleSettingsItems } from "./account-session.mjs";
+import { createUserAdminSettingsController } from "./user-admin-settings.mjs";
 import { createAgentWorkspaceHelpers } from "./agent-workspace-helpers.mjs";
 import { createNavigationContextMenu } from "./navigation-context-menu.mjs";
 import { createBrandConfirm } from "./brand-confirm.mjs";
@@ -169,6 +171,8 @@ function updateSidebarAccountSummary() {
 }
 
 let skillsPhaseB = null;
+let accountSession = null;
+let userAdminSettings = null;
 let messageViewportBusyTimer = null;
 const messageViewportBusyDelayMs = 140;
 
@@ -194,6 +198,9 @@ export const state = {
   agentStreamStatus: "idle",
   settings: null,
   settingsLoadSeq: 0,
+  account: null,
+  authStatus: null,
+  userAccounts: [],
   modelCatalog: null,
   modelCatalogSeq: 0,
   providerAuthFiles: null,
@@ -617,6 +624,7 @@ const settingsNavigationHelpers = createSettingsNavigationHelpers({
   renderMobileSettingsIndex,
   renderSettingsNav,
   selectSettingsPanel,
+  visibleSettingsItems: () => visibleSettingsItems(state.account, Boolean(state.authStatus?.hasUsers)),
 });
 
 const {
@@ -791,6 +799,11 @@ const {
 } = terminal;
 
 onAPIAuthorizationFailure(({ status, path, error }) => {
+  if (status === 401 && state.authStatus?.hasUsers) {
+    state.account = null;
+    accountSession?.applyGuestShell?.();
+    accountSession?.showOverlay?.({ createAdministrator: false });
+  }
   if (!remoteAccessContext(state)) return;
   remoteAccessSettings.invalidatePendingLoads({ status });
   applyRemoteAccessFailClosed(state, { status });
@@ -1393,6 +1406,7 @@ const chatComposer = createChatComposerController({
   scrollMessagesToBottom,
   showModelSetupNotice,
   showToast,
+  isGuestAccount: () => accountIsGuest(state.account),
   onMessageAccepted: async (result, agentId) => {
     // The POST is acknowledged before the runner necessarily publishes its
     // first WebSocket event. Mark the run as active now so the activity affordance
@@ -1619,6 +1633,12 @@ const localPreferencesSettings = createLocalPreferencesSettingsController({
   },
   showError,
   showToast,
+  profileSessionHTML: () => accountSession?.profileSessionHTML?.() || "",
+  bindProfileSession: () => {
+    $("profileSignOutBtn")?.addEventListener("click", () => {
+      accountSession?.signOut?.().catch((error) => showToast(error?.message || t("accountSession.error"), "error", { force: true }));
+    });
+  },
 });
 
 const {
@@ -1631,6 +1651,27 @@ const {
   renderNotificationSettingsContent,
   renderProfileSettingsContent,
 } = localPreferencesSettings;
+
+accountSession = createAccountSessionController({
+  state,
+  showToast,
+  onSignedIn: () => init(),
+  onSignedOut: () => {
+    accountSession.showOverlay({ createAdministrator: false });
+    init();
+  },
+});
+accountSession.bind();
+
+userAdminSettings = createUserAdminSettingsController({
+  state,
+  copyText,
+  showToast,
+  showError,
+  confirmAction: (message) => platformConfirm(message),
+  onChange: () => refreshActiveSettingsPanel(),
+  onCreateAdministrator: () => accountSession.showOverlay({ createAdministrator: true }),
+});
 
 const systemSettings = createSystemSettingsController({
   state,
@@ -1879,6 +1920,7 @@ const settingsPanelRegistry = createSettingsPanelRegistry();
   ["peer-collaboration", { render: peerCollaborationSettings.render, bind: peerCollaborationSettings.bind }],
   ["terminals", { render: renderTerminalSettingsContent, bind: bindTerminalSettingsActions }],
   ["about", { render: renderAboutSettingsContent, bind: bindAboutSettingsActions, layout: "about" }],
+  ["users", { render: () => userAdminSettings.render(), bind: () => userAdminSettings.bind() }],
 ].forEach(([key, panel]) => settingsPanelRegistry.register(key, panel));
 
 const taskWorkspace = createTaskWorkspaceController({
@@ -2246,12 +2288,16 @@ function syncSettingsCloseControl() {
 function renderMobileSettingsIndex() {
   const nav = $("settingsNav");
   if (!nav) return;
+  const allowed = new Set(visibleSettingsItems(state.account, Boolean(state.authStatus?.hasUsers)).map((item) => item.key));
   nav.setAttribute("aria-label", t("settings.mobile.indexTitle"));
-  nav.innerHTML = resolvedMobileSettingsSections().map((section) => `
+  nav.innerHTML = resolvedMobileSettingsSections().map((section) => {
+    const items = section.items.filter((item) => allowed.has(item.key));
+    if (!items.length) return "";
+    return `
     <section class="settings-mobile-index-group" data-mobile-settings-section="${escapeAttr(section.key)}" aria-labelledby="mobile-settings-section-${escapeAttr(section.key)}">
       <div id="mobile-settings-section-${escapeAttr(section.key)}" class="settings-mobile-index-heading">${escapeHtml(section.label)}</div>
       <div class="settings-mobile-index-list">
-        ${section.items.map((item) => `
+        ${items.map((item) => `
           <button class="settings-nav-item settings-mobile-index-row" type="button" data-settings-key="${escapeAttr(item.key)}" aria-label="${escapeAttr(item.label)}">
             <span class="settings-nav-icon" aria-hidden="true">${settingsIconSVG(item.icon)}</span>
             <span class="settings-nav-label settings-mobile-index-copy"><strong>${escapeHtml(item.label)}</strong><small>${escapeHtml(item.subtitle)}</small></span>
@@ -2260,7 +2306,8 @@ function renderMobileSettingsIndex() {
         `).join("")}
       </div>
     </section>
-  `).join("");
+  `;
+  }).join("");
   nav.querySelectorAll("[data-settings-key]").forEach((node) => {
     node.addEventListener("click", () => selectSettingsPanel(node.dataset.settingsKey));
   });
@@ -2286,7 +2333,11 @@ function requestCloseSettingsModal(options) {
   closeSettingsModal(options);
 }
 
-function openSettingsModal(key = "providers", { trigger = document.activeElement, showMobileIndex = false } = {}) {
+function currentDefaultSettingsPanelKey() {
+  return defaultSettingsPanelKey(state.account, Boolean(state.authStatus?.hasUsers));
+}
+
+function openSettingsModal(key = currentDefaultSettingsPanelKey(), { trigger = document.activeElement, showMobileIndex = false } = {}) {
   backgroundTasks.closeTray("settings-open");
   closeConversationDetails();
   // Settings replaces the chat stage. The spec board and the workspace explorer
@@ -2295,7 +2346,8 @@ function openSettingsModal(key = "providers", { trigger = document.activeElement
   // column with no contract for who wins the column's claim.
   specBoard.close();
   if (state.workspaceOpen) closeWorkspace();
-  const itemKey = settingsItemByKey(key)?.key || "providers";
+  const requestedKey = settingsItemByKey(key)?.key || currentDefaultSettingsPanelKey();
+  const itemKey = filteredSettingsIncludesKey(requestedKey) ? requestedKey : (firstFilteredSettingsItem()?.key || currentDefaultSettingsPanelKey());
   // Opening Settings lands on the category itself. The provider account
   // pages are drill-downs reached from the provider list, so resuming one
   // made "Settings" appear to open on some account screen instead of the
@@ -2496,7 +2548,7 @@ function activateGlobalRailTarget(target) {
     switchPrimaryWorkbench("schedules");
     return;
   }
-  if (globalRailSettingsTargets.has(key)) openSettingsModal(key === "profile" ? "providers" : key);
+  if (globalRailSettingsTargets.has(key)) openSettingsModal(key === "profile" ? currentDefaultSettingsPanelKey() : key);
 }
 
 function renderSettingsNav(activeKey = "providers") {
@@ -2549,7 +2601,8 @@ function updateSettingsSearchQuery(value) {
 }
 
 function selectSettingsPanel(key) {
-  const item = settingsItemByKey(key) || settingsItems[0];
+  const requested = settingsItemByKey(key) || settingsItems[0];
+  const item = filteredSettingsIncludesKey(requested.key) ? requested : (firstFilteredSettingsItem() || requested);
   if (state.activeSettingsPanel === "providers" && item.key !== "providers") discardProviderConsoleDraft();
   if ($("settingsModalTitle")) $("settingsModalTitle").textContent = isMobileSettingsViewport() ? item.label : t("settings.dialogTitle");
   if (isMobileSettingsViewport() && settingsModalOpen()) {
@@ -4207,7 +4260,7 @@ $("sidebarAccountBtn")?.addEventListener("click", (event) => {
   event.stopPropagation();
   toggleSidebarSettingsMenu();
 });
-$("settingsBtn").addEventListener("click", () => { closeSidebarSettingsMenu(); openSettingsModal("providers"); });
+$("settingsBtn").addEventListener("click", () => { closeSidebarSettingsMenu(); openSettingsModal(currentDefaultSettingsPanelKey()); });
 $("providerSettingsBtn")?.addEventListener("click", () => { closeSidebarSettingsMenu(); openSettingsModal("providers"); });
 $("modelSettingsBtn")?.addEventListener("click", () => { closeSidebarSettingsMenu(); openSettingsModal("models"); });
 $("runtimeSettingsBtn")?.addEventListener("click", () => { closeSidebarSettingsMenu(); openSettingsModal("servers-system"); });
@@ -4580,6 +4633,14 @@ async function init() {
       .catch(() => {});
     applyPrimaryWorkbench(currentPrimaryModePreference());
     updateGlobalThemeToggle();
+    const session = await accountSession.ensureSession();
+    if (seq !== state.initSeq) return;
+    accountSession.applyGuestShell();
+    if (!session.ready) {
+      signalAppReady();
+      return;
+    }
+    const guest = accountIsGuest(state.account);
     const accountPreferencesHydration = accountPreferences.hydrate();
     if (!state.agent) {
       $("currentTitle").textContent = t("chat.noAgent");
@@ -4601,8 +4662,17 @@ async function init() {
     // completed. The navigation and current transcript continue to hydrate
     // below without blocking the first paint.
     signalAppReady();
-    await Promise.all([accountPreferencesHydration, loadSettings(), loadRuntimeSummary(), remoteAccessSettings.load().catch(() => {}), loadModelCatalog(), loadProjects(), loadBackends(), loadServerSkills(), healthPromise]);
+    if (guest) {
+      await Promise.all([accountPreferencesHydration, loadProjects(), healthPromise]);
+    } else {
+      await Promise.all([accountPreferencesHydration, loadSettings(), loadRuntimeSummary(), remoteAccessSettings.load().catch(() => {}), loadModelCatalog(), loadProjects(), loadBackends(), loadServerSkills(), healthPromise]);
+      userAdminSettings?.load?.().catch(() => {});
+    }
     if (seq !== state.initSeq) return;
+    if (guest) {
+      state.overviewActive = false;
+      applyPrimaryWorkbench("conversation");
+    }
     state.profile = loadProfilePreferences();
     applyProfilePreferences();
     renderModelOptions();
@@ -4622,8 +4692,8 @@ async function init() {
         mobile: isMobileAppViewport(),
       });
       if (startupTokenCurrent(startupToken)) {
-        state.overviewActive = startup.overviewActive;
-        applyPrimaryWorkbench(startup.workbench);
+        state.overviewActive = guest ? false : startup.overviewActive;
+        applyPrimaryWorkbench(guest ? "conversation" : startup.workbench);
       }
       if (startup.restoreConversation && initialTarget && startupTokenCurrent(startupToken)) {
         await selectNavigationConversation(initialTarget, {
@@ -4641,7 +4711,7 @@ async function init() {
       } else if (startupTokenCurrent(startupToken)) {
         state.chatHydrating = false;
       }
-      if (startup.overviewActive && startupTokenCurrent(startupToken)) {
+      if (startup.overviewActive && !guest && startupTokenCurrent(startupToken)) {
         // Same ordering as openOverviewDashboard: the resource poll runs on its
         // own cadence and does not wait for the snapshot.
         overviewDashboard.start();
@@ -4654,7 +4724,7 @@ async function init() {
     if (seq === state.initSeq) {
       installDesktopDeepLinkRouter({
         openSettings: (panel) => {
-          openSettingsModal(panel || "providers");
+          openSettingsModal(panel || currentDefaultSettingsPanelKey());
         },
         openAgent: (id) => {
           const agentId = String(id || "").trim();
@@ -4683,7 +4753,7 @@ async function init() {
           const name = String(view || "").trim().toLowerCase();
           if (!name) return;
           if (name === "settings") {
-            openSettingsModal("providers");
+            openSettingsModal(currentDefaultSettingsPanelKey());
             return;
           }
           if (name === "details") {

@@ -275,6 +275,7 @@
           </div>
         </div>
 
+        <div id="guestObserveBanner" class="guest-observe-banner hidden" role="status"></div>
         <footer class="composer-wrap">
           <button id="jumpToLatestBtn" class="jump-to-latest-btn hidden" type="button" title="跳到最新消息" aria-label="跳到最新消息" data-i18n-title="chat.jumpToLatest" data-i18n-aria-label="chat.jumpToLatest">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v13"></path><path d="m6.5 12.5 5.5 5.5 5.5-5.5"></path></svg>
@@ -808,6 +809,33 @@
           <button id="brandConfirmCancel" type="button" class="brand-confirm-btn" data-i18n="common.cancel">取消</button>
           <button id="brandConfirmOk" type="button" class="brand-confirm-btn brand-confirm-primary" data-i18n="common.confirm">确定</button>
         </div>
+      </div>
+    </div>
+    <div id="accountSessionOverlay" class="account-session-overlay hidden" aria-hidden="true">
+      <div class="account-session-card" role="dialog" aria-modal="true" aria-labelledby="accountSessionTitle" aria-describedby="accountSessionSubtitle">
+        <h1 id="accountSessionTitle" class="account-session-title" data-i18n="accountSession.title">Sign in</h1>
+        <p id="accountSessionSubtitle" class="account-session-subtitle" data-i18n="accountSession.subtitle"></p>
+        <div id="accountSessionError" class="account-session-error" hidden></div>
+        <div id="accountSessionKeyToggle" class="account-session-toggle">
+          <button id="accountSessionUsePasswordBtn" class="account-session-toggle-btn active" type="button" data-i18n="accountSession.usePassword">Password</button>
+          <button id="accountSessionUseKeyBtn" class="account-session-toggle-btn" type="button" data-i18n="accountSession.useAccessKey">Access key</button>
+        </div>
+        <form id="accountSessionForm" class="account-session-form">
+          <div id="accountSessionPasswordFields">
+            <label class="account-session-field"><span data-i18n="accountSession.handle">Handle</span>
+              <input id="accountSessionHandle" class="settings-field" name="handle" autocomplete="username" data-i18n-placeholder="accountSession.handlePlaceholder" />
+            </label>
+            <label class="account-session-field"><span data-i18n="accountSession.password">Password</span>
+              <input id="accountSessionPassword" class="settings-field" name="password" type="password" autocomplete="current-password" />
+            </label>
+          </div>
+          <div id="accountSessionKeyFields" class="hidden">
+            <label class="account-session-field"><span data-i18n="accountSession.accessKey">Access key</span>
+              <input id="accountSessionAccessKey" class="settings-field" name="accessKey" autocomplete="off" data-i18n-placeholder="accountSession.accessKeyPlaceholder" />
+            </label>
+          </div>
+          <button id="accountSessionSubmitBtn" class="settings-action-btn primary" type="submit" data-i18n="accountSession.submit">Sign in</button>
+        </form>
       </div>
     </div>
     <div id="toastStack" class="toast-stack" aria-live="polite" aria-atomic="true"></div>

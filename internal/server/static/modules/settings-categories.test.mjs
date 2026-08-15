@@ -40,15 +40,15 @@ test("every existing settings page remains reachable from a legacy category", ()
   assert.equal(settingsItemByKey("worklines-containers"), null);
   assert.deepEqual(legacySettingsCategories.find((category) => category.key === "network")?.items, ["network-search", "remote-access", "peer-collaboration"]);
   assert.equal(legacySettingsCategories.some((category) => category.key === "permissions"), false);
-  assert.equal(settingsItemByKey("users"), null);
-  assert.equal(legacySettingsCategories.some((category) => category.items.includes("users")), false);
+  assert.equal(settingsItemByKey("users")?.key, "users");
+  assert.equal(legacySettingsCategories.some((category) => category.items.includes("users")), true);
   assert.equal(settingsItemByKey("missing"), null);
 });
 
 test("legacy category grouping preserves page order and filters empty groups", () => {
   const groups = groupSettingsItemsByLegacyCategory(settingsItems);
   assert.deepEqual(groups.map((group) => group.key), legacySettingsCategories.map((group) => group.key));
-  assert.deepEqual(groups.find((group) => group.key === "api").items.map((item) => item.key), ["providers", "shared-api", "models", "profile", "appearance"]);
+  assert.deepEqual(groups.find((group) => group.key === "api").items.map((item) => item.key), ["providers", "shared-api", "models", "profile", "users", "appearance"]);
 
   const modelsOnly = groupSettingsItemsByLegacyCategory(settingsItems, (item) => item.key === "models");
   assert.deepEqual(modelsOnly.map((group) => ({ key: group.key, items: group.items.map((item) => item.key) })), [

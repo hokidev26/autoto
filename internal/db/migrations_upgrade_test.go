@@ -724,8 +724,8 @@ INSERT INTO api_requests (id, narrator_id, created_at) VALUES ('request-legacy',
 	if got := queryInt(t, ctx, database, `SELECT COUNT(*) FROM agent_messages`); got != 2 {
 		t.Errorf("ancient messages = %d rows, want 2", got)
 	}
-	if got := queryString(t, ctx, database, `SELECT role FROM users WHERE id = 'user-legacy'`); got != "user" {
-		t.Errorf("ancient user role = %q, want backfilled default", got)
+	if got := queryString(t, ctx, database, `SELECT role FROM users WHERE id = 'user-legacy'`); got != "admin" {
+		t.Errorf("ancient user role = %q, want admin; v66 promotes the earliest account when none is administrator", got)
 	}
 	if got := queryString(t, ctx, database, `SELECT handle FROM users WHERE id = 'user-legacy'`); got != "oldtimer" {
 		t.Errorf("ancient user handle = %q, want backfilled from username", got)

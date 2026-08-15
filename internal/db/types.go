@@ -26,6 +26,16 @@ type AuthSession struct {
 	RevokedAt string `json:"revokedAt,omitempty"`
 }
 
+type UserAccessKey struct {
+	ID         string `json:"id"`
+	UserID     string `json:"userId"`
+	TokenHash  string `json:"-"`
+	Label      string `json:"label"`
+	CreatedAt  string `json:"createdAt"`
+	LastUsedAt string `json:"lastUsedAt,omitempty"`
+	RevokedAt  string `json:"revokedAt,omitempty"`
+}
+
 type MessageDraft struct {
 	UserID      string `json:"userId"`
 	AgentID     string `json:"agentId"`

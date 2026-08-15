@@ -6,6 +6,7 @@ import appMainExtraMessages from "./messages-app-main-extra.mjs";
 import chatRenderingExtraMessages, { t as chatRenderingExtraT } from "./messages-chat-rendering-extra.mjs";
 import shellExtraMessages from "./messages-shell-extra.mjs";
 import skillsMessages from "./messages-skills.mjs";
+import userAccountsMessages from "./messages-user-accounts.mjs";
 import {
   applyDocumentLocale,
   applyStaticTranslations,
@@ -27,7 +28,7 @@ test("all supported UI locales expose the same message keys", () => {
 });
 
 test("domain message packs expose matching keys for all locales", () => {
-  for (const [name, pack] of Object.entries({ appMainExtra: appMainExtraMessages, automation: automationMessages, chatRenderingExtra: chatRenderingExtraMessages, shellExtra: shellExtraMessages, skills: skillsMessages })) {
+  for (const [name, pack] of Object.entries({ appMainExtra: appMainExtraMessages, automation: automationMessages, chatRenderingExtra: chatRenderingExtraMessages, shellExtra: shellExtraMessages, skills: skillsMessages, userAccounts: userAccountsMessages })) {
     const expected = flattenMessageKeys(pack["zh-CN"]);
     for (const locale of uiLocales) assert.deepEqual(flattenMessageKeys(pack[locale]), expected, `${name}:${locale}`);
   }

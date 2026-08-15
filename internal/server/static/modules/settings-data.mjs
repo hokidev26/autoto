@@ -20,6 +20,7 @@ const settingsIconPaths = Object.freeze({
   "peer-collaboration": `<rect x="2.5" y="6" width="8" height="12" rx="1.5"/><rect x="13.5" y="8.5" width="8" height="7" rx="1.5"/><path d="M10.5 12h3"/><circle cx="6.5" cy="15" r=".9" fill="currentColor" stroke="none"/>`,
   usage: `<path d="M3 20h18M5 17v-6M10 17V5M15 17v-9M20 17v-3"/>`,
   about: `<circle cx="12" cy="12" r="9"/><path d="M12 10v6M12 7h.01"/>`,
+  users: `<circle cx="9" cy="8" r="3"/><path d="M3.5 19c.6-3.2 2.6-5 5.5-5s4.9 1.8 5.5 5"/><circle cx="17" cy="9" r="2.4"/><path d="M21.5 19c-.5-2.6-2-4.1-4.5-4.1-.6 0-1.2.1-1.7.3"/>`,
 });
 
 const fallbackSettingsIcon = `<path d="M4 7h10M18 7h2M4 17h2M10 17h10"/><circle cx="16" cy="7" r="2"/><circle cx="8" cy="17" r="2"/>`;
@@ -64,6 +65,7 @@ export const settingsSections = [
       settingItem("runtime", "runtime"),
       settingItem("remote-access", "remoteAccess"),
       settingItem("peer-collaboration", "peerCollaboration"),
+      settingItem("users", "users"),
       settingItem("usage", "usage"),
       settingItem("about", "about"),
     ],

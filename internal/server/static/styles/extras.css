@@ -2692,6 +2692,7 @@ body.white-shell.theme-light.theme-dark .overview-launcher-input:focus {
 }
 body.white-shell.theme-light.theme-dark :is(.overview-hero-title, .overview-launcher-input, .overview-launcher-select) { color: var(--ws-text); }
 body.white-shell.theme-light.theme-dark :is(.overview-refresh:not(:disabled):hover, .overview-link:not(:disabled):hover) { border-color: #8fa4ff; background: color-mix(in srgb, #5369f3 18%, var(--ws-card)); color: #b7c3ff; }
+body.white-shell.theme-light.theme-dark .overview-section-header .overview-link:not(:disabled):hover { background: transparent; color: #b7c3ff; }
 body.white-shell.theme-light.theme-dark .overview-refresh.primary,
 body.white-shell.theme-light.theme-dark .overview-launcher-send { border-color: #7589ff; background: #6175e8; color: #fff; }
 body.white-shell.theme-light.theme-dark .overview-section-header { border-color: var(--ws-border); }
@@ -4256,3 +4257,127 @@ body.white-shell.theme-light .reasoning-effort-icon[data-effort-level="3"] svg [
 
 body.white-shell.theme-light.ui-font-small :is(.message-input, textarea#messageText) { font-size: 14px; }
 body.white-shell.theme-light.ui-font-large :is(.message-input, textarea#messageText) { font-size: 17px; }
+
+body.guest-observe [data-global-rail-target="home"],
+body.guest-observe [data-global-rail-target="schedules"],
+body.guest-observe #newProjectBtn,
+body.guest-observe #newTaskBtn,
+body.guest-observe #mobileChooseDirectoryBtn,
+body.guest-observe #mobileNewScheduleBtn,
+body.guest-observe [data-create-navigation-item],
+body.guest-observe [data-open-directory-shortcut],
+body.guest-observe .composer-wrap,
+body.guest-observe .terminal-panel,
+body.guest-observe #terminalToggleBtn {
+  display: none !important;
+}
+
+.guest-observe-banner.hidden,
+body:not(.guest-observe) .guest-observe-banner {
+  display: none;
+}
+
+body.guest-observe .guest-observe-banner:not(.hidden) {
+  display: block;
+  margin: 0 16px 16px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: var(--ws-card, #fff);
+  color: var(--ws-text, #20263a);
+  border: 1px solid var(--ws-border, #e5e7eb);
+}
+
+.account-session-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: color-mix(in srgb, #0f172a 46%, transparent);
+}
+
+.account-session-overlay.hidden {
+  display: none;
+}
+
+.account-session-card {
+  width: min(420px, 100%);
+  padding: 24px;
+  border-radius: 16px;
+  background: var(--ws-card, #fff);
+  color: var(--ws-text, #20263a);
+  box-shadow: 0 16px 48px color-mix(in srgb, #0f172a 18%, transparent);
+}
+
+.account-session-title {
+  margin: 0 0 8px;
+  font-size: 1.25rem;
+}
+
+.account-session-subtitle,
+.account-session-field,
+.account-session-error {
+  margin: 0 0 12px;
+  font-size: 0.95rem;
+}
+
+.account-session-error {
+  color: #b42318;
+}
+
+body.white-shell.theme-light.theme-dark .account-session-error {
+  color: #ff8a80;
+}
+
+.account-session-toggle {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.account-session-toggle-btn {
+  flex: 1;
+  border: 1px solid var(--ws-border, #e5e7eb);
+  background: transparent;
+  border-radius: 8px;
+  padding: 8px 10px;
+}
+
+.account-session-toggle-btn.active {
+  background: var(--settings-primary-soft, #e8eefc);
+  border-color: transparent;
+}
+
+.account-session-form {
+  display: grid;
+  gap: 12px;
+}
+
+.account-session-field {
+  display: grid;
+  gap: 6px;
+}
+
+.user-admin-projects,
+.user-admin-keys {
+  display: grid;
+  gap: 8px;
+  margin: 8px 0 12px;
+  padding: 0;
+  list-style: none;
+}
+
+.user-admin-project {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.user-admin-key-value {
+  display: block;
+  margin: 8px 0 12px;
+  padding: 8px;
+  overflow-wrap: anywhere;
+}

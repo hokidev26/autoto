@@ -47,6 +47,8 @@ export function createLocalPreferencesSettingsController({
   playNotificationSoundSample,
   showError,
   showToast,
+  profileSessionHTML = () => "",
+  bindProfileSession = () => {},
 } = {}) {
   let avatarDraftDirty = false;
   let avatarDraftDataUrl = "";
@@ -137,6 +139,7 @@ export function createLocalPreferencesSettingsController({
         ${renderProfileInfoCard(t("profile.infoGitTitle"), gitConfigured ? t("profile.infoGitDescReady") : t("profile.infoGitDescEmpty"))}
         ${renderProfileInfoCard(t("profile.infoAccountTitle"), t("profile.infoAccountDesc"))}
       </div>
+      ${profileSessionHTML?.() || ""}
     </div>
   `;
   }
@@ -157,6 +160,7 @@ export function createLocalPreferencesSettingsController({
     $("removeProfileAvatarBtn")?.addEventListener("click", removeProfileAvatar);
     $("profileAvatarFile")?.addEventListener("change", (event) => handleProfileAvatarFile(event).catch(showError));
     $("copyProfileGitEnvBtn")?.addEventListener("click", () => copyText(profileGitEnvExample()));
+    bindProfileSession?.();
   }
 
   async function saveProfileSettingsFromPanel(event) {

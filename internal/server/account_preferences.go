@@ -115,6 +115,13 @@ func (s *Server) patchAccountPreferences(w http.ResponseWriter, r *http.Request)
 		writeError(w, http.StatusBadRequest, "preferences patch must include at least one field")
 		return
 	}
+	if user, ok, err := s.currentUser(r); err != nil {
+		s.writeRequestError(w, r, http.StatusInternalServerError, err)
+		return
+	} else if ok && userIsGuest(user) && (request.PreferredModel != nil || request.ModelVisibility != nil || request.SetupVersion != nil) {
+		writeError(w, http.StatusForbidden, guestAccessDenied)
+		return
+	}
 	if request.SetupVersion != nil && (*request.SetupVersion < 0 || *request.SetupVersion > db.AccountPreferencesCurrentSetupVersion) {
 		writeError(w, http.StatusBadRequest, fmt.Sprintf("setupVersion must be between 0 and %d", db.AccountPreferencesCurrentSetupVersion))
 		return

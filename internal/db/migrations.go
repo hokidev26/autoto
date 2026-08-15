@@ -10,7 +10,7 @@ import (
 	"github.com/google/uuid"
 )
 
-const CurrentDBVersion = 65
+const CurrentDBVersion = 66
 
 type migration struct {
 	version int
@@ -84,6 +84,7 @@ var migrations = []migration{
 	{version: 63, name: "agent message queue", up: migrateV63AgentMessageQueue},
 	{version: 64, name: "queued message attachments", up: migrateV64QueuedMessageAttachments},
 	{version: 65, name: "tool execution replay class", up: migrateV65ToolExecutionReplayClass},
+	{version: 66, name: "guest access keys", up: migrateV66GuestAccessKeys},
 }
 
 // migrateV62SubagentBypassCap admits bypassPermissions as a run/task ceiling.
@@ -1749,6 +1750,36 @@ func migrateV50ToolExecutionGroups(ctx context.Context, tx *sql.Tx) error {
 // either schema shape.
 func migrateV65ToolExecutionReplayClass(ctx context.Context, tx *sql.Tx) error {
 	return ensureColumn(ctx, tx, "tool_execution_group_items", "replay_class", "TEXT NOT NULL DEFAULT 'never'")
+}
+
+func migrateV66GuestAccessKeys(ctx context.Context, tx *sql.Tx) error {
+	usersExist, err := tableExists(ctx, tx, "users")
+	if err != nil || !usersExist {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `
+CREATE TABLE IF NOT EXISTS user_access_keys (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  token_hash TEXT NOT NULL UNIQUE,
+  label TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL,
+  last_used_at TEXT,
+  revoked_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_user_access_keys_user ON user_access_keys(user_id);
+`); err != nil {
+		return err
+	}
+	_, err = tx.ExecContext(ctx, `
+UPDATE users SET role = 'admin'
+WHERE id = (
+  SELECT id FROM users
+  WHERE NOT EXISTS (SELECT 1 FROM users WHERE role = 'admin')
+  ORDER BY created_at ASC, id ASC
+  LIMIT 1
+)`)
+	return err
 }
 
 func migrateV51ProfileConfiguration(ctx context.Context, tx *sql.Tx) error {

@@ -24,6 +24,7 @@ export function createSettingsNavigationHelpers({
   renderMobileSettingsIndex,
   renderSettingsNav,
   selectSettingsPanel,
+  visibleSettingsItems = () => settingsItems,
 }) {
   function normalizedSettingsSearchQuery() {
     return String(state.settingsSearchQuery || "").trim().toLowerCase();
@@ -38,7 +39,7 @@ export function createSettingsNavigationHelpers({
 
   function filteredSettingsSections() {
     const query = normalizedSettingsSearchQuery();
-    return groupSettingsItemsByLegacyCategory(settingsItems, (item, category) => !query || settingsSearchText(category, item).includes(query));
+    return groupSettingsItemsByLegacyCategory(visibleSettingsItems(), (item, category) => !query || settingsSearchText(category, item).includes(query));
   }
 
   function firstFilteredSettingsItem(sections = filteredSettingsSections()) {

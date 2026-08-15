@@ -1,7 +1,7 @@
 import { t } from "./i18n.mjs";
 
 export const legacySettingsCategories = Object.freeze([
-  { key: "api", label: t("settings.category.api"), items: ["providers", "shared-api", "models", "profile", "appearance"] },
+  { key: "api", label: t("settings.category.api"), items: ["providers", "shared-api", "models", "profile", "users", "appearance"] },
   { key: "chat", label: t("settings.category.chat"), items: ["im-gateway"] },
   { key: "memory", label: t("settings.category.memory"), items: ["memory"] },
   { key: "diagnostics", label: t("settings.category.diagnostics"), items: ["runtime", "servers-system", "storage", "terminals"] },

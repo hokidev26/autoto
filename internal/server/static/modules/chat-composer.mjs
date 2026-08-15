@@ -37,6 +37,7 @@ export function createChatComposerController({
   onMessageAccepted,
   prepareVideoAttachment = processVideoAttachment,
   createAbortController = () => new AbortController(),
+  isGuestAccount = () => false,
 } = {}) {
   const pendingReasoningEfforts = new Map();
   const savingReasoningEfforts = new Set();
@@ -1165,6 +1166,10 @@ export function createChatComposerController({
 
   async function sendMessage(event) {
     event.preventDefault();
+    if (isGuestAccount?.()) {
+      showToast?.(t("accountSession.guestBanner"), "warn", { force: true });
+      return;
+    }
     if (!state.agent) {
       await openDirectoryChooser();
       return;

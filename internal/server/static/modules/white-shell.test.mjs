@@ -1,7 +1,7 @@
 ﻿import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
-import { readStylesSource } from "./styles-source-helper.mjs";
+import { readStylesGroup, readStylesSource } from "./styles-source-helper.mjs";
 
 import {
   appearancePrefsKey,
@@ -256,6 +256,8 @@ test("desktop home overview stays available while mobile starts in conversation"
     readFile(new URL("./messages-en.mjs", import.meta.url), "utf8"),
   ]);
   assert.match(html, /<main id="appShell"[^>]*>[\s\S]*?<section id="overviewDashboard" class="overview-dashboard-page"/);
+  assert.match(html, /id="accountSessionOverlay"/);
+  assert.match(html, /id="guestObserveBanner"/);
   assert.doesNotMatch(html, /<main id="overviewDashboard"/);
   assert.doesNotMatch(overviewDashboard, /<main\b/);
   assert.match(overviewDashboard, /role="status" aria-live="polite" aria-atomic="true"/);
@@ -266,7 +268,9 @@ test("desktop home overview stays available while mobile starts in conversation"
   const initStart = appMain.indexOf("async function init()");
   const initEnd = appMain.indexOf("function openRequestedInitialView", initStart);
   const initBody = appMain.slice(initStart, initEnd);
-  assert.match(initBody, /await Promise\.all\([\s\S]*?\);\s*if \(seq !== state\.initSeq\) return;[\s\S]*?state\.profile = loadProfilePreferences\(\);[\s\S]*?renderModelOptions\(\);[\s\S]*?navigationRefresh\.start\(\);[\s\S]*?if \(!state\.agent && startupTokenCurrent\(startupToken\)/);
+  assert.match(initBody, /if \(seq !== state\.initSeq\) return;[\s\S]*?state\.profile = loadProfilePreferences\(\);[\s\S]*?renderModelOptions\(\);[\s\S]*?navigationRefresh\.start\(\);[\s\S]*?startupTokenCurrent\(startupToken\)/);
+  assert.match(initBody, /if \(guest\) \{\s*state\.overviewActive = false;\s*applyPrimaryWorkbench\("conversation"\);/);
+  assert.match(initBody, /else if \(!state\.agent && startupTokenCurrent\(startupToken\)\)/);
   assert.doesNotMatch(initBody, /if \(!startupTokenCurrent\(startupToken\)\) return;/);
   assert.match(initBody, /if \(seq === state\.initSeq\) \{\s*installDesktopDeepLinkRouter\(/);
   assert.match(appMain, /autoto:auth-changed[\s\S]*?if \(state\.initializing\) state\.initRestartRequested = true[\s\S]*?init\(\)\.catch\(showError\)/);
@@ -1904,7 +1908,8 @@ test("settings dialog mounts the shadcn shell without dropping legacy entry poin
   assert.match(appMain, /settingsCategoryForItem/);
   assert.match(appMain, /classList\.toggle\("about-panel-active", isAboutPanel\)/);
   assert.match(appMain, /bindSkillTabs\(state\.activeSkillTab \|\| "commands"\)/);
-  assert.doesNotMatch(appMain, /\["users",\s*\{\s*render:/);
+  assert.match(appMain, /\["users",\s*\{\s*render:/);
+  assert.match(appMain, /function currentDefaultSettingsPanelKey\(\)/);
 });
 
 test("settings navigation uses a filled selection rail without a full outline", async () => {
@@ -2335,11 +2340,12 @@ test("agent model pools stay compact after redundant lower model sections are re
 
 test("model provider settings styles remain scoped, responsive, and independent from legacy cards", async () => {
   const styles = await readStylesSource(stylesURL);
+  const providerStyles = await readStylesGroup("providers.css", import.meta.url);
   const marker = "/* Model provider settings. Scoped after legacy settings overrides by design. */";
   const blockIndex = styles.lastIndexOf(marker);
-  const providerStyles = styles.slice(blockIndex);
 
   assert.ok(blockIndex > styles.lastIndexOf(".legacy-settings-content-body .settings-provider-card"));
+  assert.equal(styles.slice(blockIndex, blockIndex + providerStyles.length), providerStyles);
   assert.match(providerStyles, /#settingsContentBody \.mp-provider-page\s*\{/);
   assert.match(providerStyles, /#settingsContentBody \.mp-stat-grid\s*\{[\s\S]*?grid-template-columns:\s*repeat\(4, minmax\(0, 1fr\)\)/);
   assert.match(providerStyles, /#settingsContentBody \.mp-provider-toolbar,/);
@@ -2382,7 +2388,10 @@ test("model provider settings styles remain scoped, responsive, and independent 
   assert.match(providerStyles, /@media \(prefers-reduced-motion: reduce\)/);
   assert.doesNotMatch(providerStyles, /\.settings-provider-card|\.settings-status-strip|\.settings-hero-card/);
   assert.doesNotMatch(providerStyles, /settingsCategoryNav|specBoardBtn|taskList|legacy-settings-category/);
-  assert.ok(styles.trimEnd().endsWith(providerStyles.trimEnd()), "provider CSS must remain the final stylesheet block");
+  assert.match(
+    await readFile(stylesURL, "utf8"),
+    /providers-console\.css[\s\S]*providers-create\.css[\s\S]*providers-reference\.css[\s\S]*workspace-tasks\.css[\s\S]*extras\.css/,
+  );
 });
 
 test("opening a utility panel does not collapse the app shell's 4th grid column to zero width", async () => {

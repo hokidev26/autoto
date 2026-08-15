@@ -108,9 +108,14 @@ Cloudflare's current dashboard flow is documented in their official Zero Trust d
 
 ## Known hardening work
 
+Completed in this area:
+
+- Local accounts now have an administrator / collaborator / guest split. Guests can watch authorized conversations and edit their profile; the server rejects every other API. Administrators can create guests, issue hashed access keys, and assign project membership. Remote access still requires the access password first; once local accounts exist, a local session is also required.
+
 Planned security improvements include:
 
-- Complete project membership enforcement, real login sessions, per-route/per-user authorization scopes, and broader audit trails before exposing Autoto to other users or networks
+- Broader audit trails before exposing Autoto to other users or networks
+- Optional encryption for locally stored backend API keys and MCP environment values
 - Optional encryption for locally stored backend API keys and MCP environment values
 - Broader audit/search/retention controls for automation, channel, and notification history
 - More granular tool approval and stronger shell/MCP containment; sensitive-path filtering alone does not sandbox executable tools
