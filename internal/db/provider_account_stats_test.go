@@ -118,7 +118,7 @@ func TestProviderAccountStatsPersistsQuotaUnauthorizedCode(t *testing.T) {
 func TestProviderAccountStatsMigrationCompletesLegacyTable(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "legacy-stats.db")
-	raw, err := sql.Open("sqlite", path)
+	raw, err := sql.Open("sqlite", sqliteDSN(path))
 	if err != nil {
 		t.Fatal(err)
 	}

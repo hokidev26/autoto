@@ -125,10 +125,17 @@ func readUserVersion(t *testing.T, ctx context.Context, db *sql.DB) int {
 
 func openRawDB(t *testing.T, path string) *sql.DB {
 	t.Helper()
-	db, err := sql.Open("sqlite", path)
+	// Use the production writer DSN, not a bare path. A path-only open keeps
+	// SQLite's default DELETE journal and synchronous=FULL, so applying
+	// schemaSQL (one large multi-statement Exec) fsyncs the whole file on every
+	// commit. On Windows that FlushFileBuffers call can stall the test suite
+	// for minutes; WAL + NORMAL is the same durability Autoto already chose
+	// for the live store.
+	db, err := sql.Open("sqlite", sqliteDSN(path))
 	if err != nil {
 		t.Fatal(err)
 	}
+	db.SetMaxOpenConns(1)
 	return db
 }
 
