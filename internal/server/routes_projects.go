@@ -12,6 +12,6 @@ func (s *Server) mountProjectRoutes(r chi.Router) {
 		r.Post("/{id}/conversations", s.createProjectConversation)
 		r.Get("/{id}/worklines", s.listProjectWorklines)
 		r.Get("/{id}/chapters", s.listProjectWorklines)
-		r.Post("/{id}/init-git", s.initProjectGit)
+		r.With(s.fullRemoteAccessGuard).Post("/{id}/init-git", s.initProjectGit)
 	})
 }

@@ -139,7 +139,7 @@ func (r *Runner) policyContext(ctx context.Context, agentID, runID string) (db.A
 		conversation = isConversationRun(run)
 		unattended = isUnattendedRun(run)
 	}
-	childAgent := strings.TrimSpace(agent.ParentAgentID) != ""
+	childAgent := strings.TrimSpace(agent.ParentAgentID) != "" || strings.EqualFold(strings.TrimSpace(agent.Type), "subagent")
 	execCapabilityDenied := false
 	if child, ok := r.ensureChildRuntimeProfile(ctx, agent); ok {
 		execCapabilityDenied = child.resolution.ReadOnly || !toolNamesIncludeExecCapability(child.resolution.AllowedTools)

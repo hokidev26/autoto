@@ -542,7 +542,7 @@ func validateRuntimeAccountEmail(value string) error {
 func (s *Server) writeModelRuntimeError(w http.ResponseWriter, r *http.Request, err error) {
 	var api apiError
 	if errors.As(err, &api) {
-		writeError(w, api.status, api.msg)
+		s.writeRequestError(w, r, api.status, api)
 		return
 	}
 	switch {

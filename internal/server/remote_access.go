@@ -221,39 +221,40 @@ func configuredRemoteAccessMode(cfg config.Config) string {
 // mode. Only the canonical cookie, canonical header, and bearer token are
 // accepted.
 func (s *Server) remoteAccessAuthentication(r *http.Request) remoteAccessAuth {
-	auth := remoteAccessAuth{Remote: s.remoteAccessGateRequired(r) || requestHasRemoteAccessCredential(r)}
+	auth := remoteAccessAuth{Remote: s.remoteAccessGateRequired(r)}
 	if cookie, err := r.Cookie(remoteAccessCookieName); err == nil {
 		if session, ok := s.remoteSessionForToken(cookie.Value); ok {
+			auth.Remote = true
 			auth.Authenticated, auth.Mode, auth.ExpiresAt, auth.Session = true, session.Mode, session.ExpiresAt, true
 			return auth
 		}
-		return auth // The canonical cookie deliberately takes precedence.
+		// A host-scoped cookie can be injected by any other localhost process.
+		// On a remote transport the stale cookie still forces the remote gate so
+		// it cannot fall through to local-admin authority. On trusted loopback
+		// it is ignored so garbage cannot downgrade the operator to restricted.
+		if s.remoteAccessGateRequired(r) {
+			return auth
+		}
 	}
 	if value := strings.TrimSpace(r.Header.Get(remoteAccessHeader)); value != "" {
+		auth.Remote = true
 		if s.verifyRemoteAccessPassword(value) {
 			auth.Authenticated, auth.Mode = true, remoteAccessModeRestricted
 		}
 		return auth
 	}
 	bearer := strings.TrimSpace(r.Header.Get("Authorization"))
-	if strings.HasPrefix(strings.ToLower(bearer), "bearer ") && s.verifyRemoteAccessPassword(strings.TrimSpace(bearer[len("bearer "):])) {
-		auth.Authenticated, auth.Mode = true, remoteAccessModeRestricted
+	if strings.HasPrefix(strings.ToLower(bearer), "bearer ") {
+		auth.Remote = true
+		if s.verifyRemoteAccessPassword(strings.TrimSpace(bearer[len("bearer "):])) {
+			auth.Authenticated, auth.Mode = true, remoteAccessModeRestricted
+		}
 		return auth
 	}
-	// Local requests do not need a remote credential. If a credential was
-	// explicitly supplied, however, preserve its success/failure result instead
-	// of treating a bad credential as local auth.
-	if !auth.Remote && !requestHasRemoteAccessCredential(r) {
+	if !auth.Remote {
 		auth.Authenticated, auth.Mode = true, remoteAccessModeFull
 	}
 	return auth
-}
-
-func requestHasRemoteAccessCredential(r *http.Request) bool {
-	if _, err := r.Cookie(remoteAccessCookieName); err == nil {
-		return true
-	}
-	return requestHasRemotePasswordCredential(r)
 }
 
 func requestHasRemotePasswordCredential(r *http.Request) bool {

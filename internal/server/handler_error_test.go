@@ -94,6 +94,61 @@ func TestWriteAPIErrorGatesRemoteGitDetail(t *testing.T) {
 	}
 }
 
+func TestWriteAPIErrorGatesRemoteAPIDetail(t *testing.T) {
+	app := New(config.Config{}, nil, nil, nil)
+	cause := apiErr(http.StatusInternalServerError, `merge was undone in git but the workline record could not be updated: open C:\Users\Ray\secret-project`)
+
+	localRec := httptest.NewRecorder()
+	localReq := newTestRequest(http.MethodPost, "/api/worklines/demo/unmerge", nil)
+	app.writeAPIError(localRec, localReq, cause)
+	if got := decodeErrorMessage(t, localRec); !strings.Contains(got, "secret-project") {
+		t.Fatalf("loopback apiError want raw detail, got %q", got)
+	}
+
+	remoteRec := httptest.NewRecorder()
+	remoteReq := newTestRequest(http.MethodPost, "/api/worklines/demo/unmerge", nil)
+	remoteReq.Host = "demo.trycloudflare.com"
+	markRemoteHTTPS(remoteReq)
+	app.writeAPIError(remoteRec, remoteReq, cause)
+	if decodeErrorMessage(t, remoteRec) != "internal error" {
+		t.Fatalf("remote apiError want generic message, got %q", decodeErrorMessage(t, remoteRec))
+	}
+	if strings.Contains(remoteRec.Body.String(), "secret-project") {
+		t.Fatalf("remote session leaked apiError detail: %s", remoteRec.Body.String())
+	}
+}
+
+func TestWriteNoGitRepoErrorOmitsPathForRemote(t *testing.T) {
+	app := New(config.Config{}, nil, nil, nil)
+	path := `C:\Users\Ray\secret-project`
+
+	localRec := httptest.NewRecorder()
+	localReq := newTestRequest(http.MethodPost, "/api/worklines/demo/fork", nil)
+	app.writeNoGitRepoError(localRec, localReq, path)
+	if got := decodeErrorMessage(t, localRec); !strings.Contains(got, path) {
+		t.Fatalf("loopback git-repo error want path, got %q", got)
+	}
+
+	remoteRec := httptest.NewRecorder()
+	remoteReq := newTestRequest(http.MethodPost, "/api/worklines/demo/fork", nil)
+	remoteReq.Host = "demo.trycloudflare.com"
+	markRemoteHTTPS(remoteReq)
+	app.writeNoGitRepoError(remoteRec, remoteReq, path)
+	if decodeErrorMessage(t, remoteRec) != "invalid request" {
+		t.Fatalf("remote git-repo error want generic message, got %q", decodeErrorMessage(t, remoteRec))
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(remoteRec.Body.Bytes(), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload["code"] != "no_git_repo" {
+		t.Fatalf("remote git-repo error should keep stable code, got %#v", payload)
+	}
+	if payload["path"] != nil || strings.Contains(remoteRec.Body.String(), "secret-project") {
+		t.Fatalf("remote session leaked git path: %s", remoteRec.Body.String())
+	}
+}
+
 func decodeErrorMessage(t *testing.T, rec *httptest.ResponseRecorder) string {
 	t.Helper()
 	var payload map[string]any

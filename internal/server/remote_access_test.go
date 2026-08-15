@@ -80,6 +80,43 @@ func loginRemoteAccess(t *testing.T, app *Server, mode string) []*http.Cookie {
 	return recorder.Result().Cookies()
 }
 
+func TestInvalidRemoteAccessCookieOnLoopbackKeepsLocalAdmin(t *testing.T) {
+	app := remoteAccessTestServer(t)
+	request := newTestRequest(http.MethodGet, "/api/plugins", nil)
+	request.AddCookie(&http.Cookie{Name: remoteAccessCookieName, Value: "garbage-from-another-localhost-app"})
+	request.Header.Set(localTokenHeader, app.localToken)
+	auth := app.remoteAccessAuthentication(request)
+	if auth.Remote {
+		t.Fatal("an invalid remote cookie on loopback must not flip the request to remote")
+	}
+	if !auth.Authenticated || auth.Mode != remoteAccessModeFull {
+		t.Fatalf("loopback should keep local-admin authority, got %+v", auth)
+	}
+	caps := app.capabilitiesForRequest(request)
+	if caps.FilesystemScope != "host" || caps.MaxPermissionMode != "bypassPermissions" {
+		t.Fatalf("loopback capabilities must stay host-scoped, got %+v", caps)
+	}
+	recorder := httptest.NewRecorder()
+	app.Routes().ServeHTTP(recorder, request)
+	if recorder.Code == http.StatusUnauthorized || recorder.Code == http.StatusForbidden {
+		t.Fatalf("invalid remote cookie must not block loopback admin, got %d: %s", recorder.Code, recorder.Body.String())
+	}
+
+	remote := newTestRequest(http.MethodGet, "/api/plugins", nil)
+	remote.Host = "remote.example.test"
+	markRemoteHTTPS(remote)
+	remote.AddCookie(&http.Cookie{Name: remoteAccessCookieName, Value: "garbage-from-another-localhost-app"})
+	remote.Header.Set(localTokenHeader, app.localToken)
+	if !app.remoteAccessAuthentication(remote).Remote {
+		t.Fatal("an invalid remote cookie on a remote transport must stay remote")
+	}
+	remoteRecorder := httptest.NewRecorder()
+	app.Routes().ServeHTTP(remoteRecorder, remote)
+	if remoteRecorder.Code != http.StatusUnauthorized && remoteRecorder.Code != http.StatusForbidden {
+		t.Fatalf("stale remote cookie must not authenticate, got %d: %s", remoteRecorder.Code, remoteRecorder.Body.String())
+	}
+}
+
 func TestRemoteAccessCookieCarriesOnlySessionTokens(t *testing.T) {
 	app := remoteAccessTestServer(t)
 	sessionToken, _, err := app.newRemoteAccessSession(remoteAccessModeRestricted)

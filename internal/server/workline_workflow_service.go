@@ -462,11 +462,11 @@ func (s *Server) writeWorklineServiceError(w http.ResponseWriter, r *http.Reques
 	if errors.As(err, &repoErr) {
 		switch repoErr.Code {
 		case "no_git_repo":
-			writeNoGitRepoError(w, repoErr.Path)
+			s.writeNoGitRepoError(w, r, repoErr.Path)
 		case "git_no_commits":
-			writeNoGitCommitsError(w, repoErr.Path)
+			s.writeNoGitCommitsError(w, r, repoErr.Path)
 		case "multiple_git_repos":
-			writeMultipleGitReposError(w, repoErr.Path, repoErr.Candidates)
+			s.writeMultipleGitReposError(w, r, repoErr.Path, repoErr.Candidates)
 		default:
 			s.writeRequestError(w, r, http.StatusBadRequest, repoErr)
 		}
@@ -474,7 +474,7 @@ func (s *Server) writeWorklineServiceError(w http.ResponseWriter, r *http.Reques
 	}
 	var api apiError
 	if errors.As(err, &api) {
-		writeError(w, api.status, api.msg)
+		s.writeRequestError(w, r, api.status, api)
 		return
 	}
 	s.writeWorklineWorkflowError(w, r, err)

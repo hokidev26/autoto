@@ -19,7 +19,7 @@ func TestListTaskWorkspaceIncludesEmptyAgentsAndStatusCounts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	emptyAgent, err := store.CreateAgent(ctx, Agent{WorklineID: workline.ID, Type: "subagent", Title: "Empty", Model: "fake:empty", PermissionMode: "readOnly", CWD: project.GitPath})
+	emptyAgent, err := store.CreateAgent(ctx, Agent{WorklineID: workline.ID, Type: "primary", Title: "Empty", Model: "fake:empty", PermissionMode: "readOnly", CWD: project.GitPath})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -116,7 +116,7 @@ func TestAssignSpecTaskMovesWithinProjectAndUpdatesRevisions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	target, err := store.CreateAgent(ctx, Agent{WorklineID: workline.ID, Type: "subagent", Title: "Target", Model: "fake:target", CWD: project.GitPath})
+	target, err := store.CreateAgent(ctx, Agent{WorklineID: workline.ID, Type: "primary", Title: "Target", Model: "fake:target", CWD: project.GitPath})
 	if err != nil {
 		t.Fatal(err)
 	}

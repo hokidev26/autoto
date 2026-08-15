@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -238,4 +239,72 @@ func decodeMemoryListResponse(t *testing.T, recorder *httptest.ResponseRecorder)
 		t.Fatal(err)
 	}
 	return memories
+}
+
+func TestMemoryIDORAndRestrictedRemoteMutations(t *testing.T) {
+	ctx := context.Background()
+	store, err := db.Open(ctx, filepath.Join(t.TempDir(), "memories-acl.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	hash, err := config.HashAccessPassword("Correct-Horse-1!")
+	if err != nil {
+		t.Fatal(err)
+	}
+	app := New(config.Config{
+		Auth: config.AuthConfig{RegistrationOpen: true},
+		Security: config.SecurityConfig{
+			AccessPasswordHash:      hash,
+			AllowRemoteFullAccess:   true,
+			DefaultRemoteAccessMode: remoteAccessModeRestricted,
+			CredentialRevision:      1,
+		},
+	}, store, nil, nil)
+
+	ownerCookie := registerCollaborationTestUser(t, app, "mem-owner")
+	outsiderCookie := registerCollaborationTestUser(t, app, "mem-outsider")
+	owner, _, err := store.GetUserByHandle(ctx, "mem-owner")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _, agent, err := store.CreateProjectForUser(ctx, owner.ID, "Owned", "", t.TempDir(), "fake:test", "acceptEdits")
+	if err != nil {
+		t.Fatal(err)
+	}
+	memory, err := store.CreateMemory(ctx, db.Memory{AgentID: agent.ID, Content: "private note", Keywords: []string{"private"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	outsiderGet := httptest.NewRecorder()
+	req := newTestRequest(http.MethodGet, "/api/memories/"+memory.ID, nil)
+	req.AddCookie(outsiderCookie)
+	app.Routes().ServeHTTP(outsiderGet, req)
+	if outsiderGet.Code != http.StatusNotFound {
+		t.Fatalf("outsider must not read another conversation's memory, got %d: %s", outsiderGet.Code, outsiderGet.Body.String())
+	}
+
+	ownerGet := httptest.NewRecorder()
+	req = newTestRequest(http.MethodGet, "/api/memories/"+memory.ID, nil)
+	req.AddCookie(ownerCookie)
+	app.Routes().ServeHTTP(ownerGet, req)
+	if ownerGet.Code != http.StatusOK {
+		t.Fatalf("owner should read their memory, got %d: %s", ownerGet.Code, ownerGet.Body.String())
+	}
+
+	sessionToken, _, err := app.newRemoteAccessSession(remoteAccessModeRestricted)
+	if err != nil {
+		t.Fatal(err)
+	}
+	remotePatch := httptest.NewRecorder()
+	req = newTestRequest(http.MethodPatch, "/api/memories/"+memory.ID, strings.NewReader(`{"content":"pwned"}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Host = "remote.example.test"
+	markRemoteHTTPS(req)
+	req.AddCookie(&http.Cookie{Name: remoteAccessCookieName, Value: sessionToken})
+	app.Routes().ServeHTTP(remotePatch, req)
+	if remotePatch.Code != http.StatusForbidden {
+		t.Fatalf("restricted remote must not mutate memories, got %d: %s", remotePatch.Code, remotePatch.Body.String())
+	}
 }

@@ -429,6 +429,26 @@ func isMetadataHostname(host string) bool {
 	return false
 }
 
+// PublicDirectHostDenied reports whether PolicyPublicDirect would refuse this
+// hostname before DNS, including cloud metadata names and localhost/.local.
+func PublicDirectHostDenied(host string) bool {
+	lookupHost := strings.TrimRight(strings.TrimSpace(host), ".")
+	if lookupHost == "" {
+		return true
+	}
+	lowerHost := strings.ToLower(lookupHost)
+	if isMetadataHostname(lowerHost) {
+		return true
+	}
+	return isLocalHostname(lowerHost) || lowerHost == "local" || strings.HasSuffix(lowerHost, ".local")
+}
+
+// PublicDirectAddressAllowed reports whether an IP may be dialed under
+// PolicyPublicDirect (global unicast, not private/loopback/link-local/metadata).
+func PublicDirectAddressAllowed(addr netip.Addr) bool {
+	return addressAllowed(PolicyPublicDirect, addr)
+}
+
 func isMetadataAddress(addr netip.Addr) bool {
 	addr = addr.Unmap()
 	for _, blocked := range metadataAddresses {

@@ -55,7 +55,7 @@ type skillSourceImportRequest struct {
 
 func (s *Server) localSkillSourceGuard(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !trustedLoopbackPeer(r) || !isLoopbackHost(r.Host) || requestHasRemoteForwardingHeaders(r) || requestHasRemoteAccessCredential(r) {
+		if s.remoteAccessAuthentication(r).Remote || !trustedLoopbackPeer(r) || !isLoopbackHost(r.Host) {
 			writeError(w, http.StatusForbidden, "file skill sources are available only to direct loopback requests")
 			return
 		}

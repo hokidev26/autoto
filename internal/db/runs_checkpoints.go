@@ -377,7 +377,11 @@ func (s *runStore) MarkRunGitCheckpointCapturing(ctx context.Context, runID stri
 	if err != nil {
 		return err
 	}
-	if affected, err := result.RowsAffected(); err == nil && affected != 1 {
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected != 1 {
 		return errors.New("run checkpoint is not tracking")
 	}
 	return nil
@@ -402,7 +406,11 @@ func (s *runStore) ReplaceRunGitCheckpointChanges(ctx context.Context, runID str
 	if err != nil {
 		return err
 	}
-	if affected, err := result.RowsAffected(); err == nil && affected != 1 {
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected != 1 {
 		return errors.New("run checkpoint is not capturing")
 	}
 	return tx.Commit()

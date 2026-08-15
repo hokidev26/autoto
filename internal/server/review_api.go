@@ -169,10 +169,6 @@ func (s *Server) createReviewPlan(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "content must be a bounded structured plan")
 		return
 	}
-	if _, err := reviewpkg.ParsePlanDraft(string(req.Content)); err != nil {
-		writeError(w, http.StatusBadRequest, "content must match the strict plan schema: "+err.Error())
-		return
-	}
 	actor, err := s.reviewActor(r)
 	if err != nil {
 		s.writeRequestError(w, r, http.StatusInternalServerError, err)
@@ -325,7 +321,7 @@ func (s *Server) publishReviewPlanEvent(eventType string, detail db.PlanDetail) 
 func (s *Server) writeReviewHandlerError(w http.ResponseWriter, r *http.Request, err error) {
 	var api apiError
 	if errors.As(err, &api) {
-		writeError(w, api.status, api.msg)
+		s.writeRequestError(w, r, api.status, api)
 		return
 	}
 	s.writeReviewServiceError(w, r, err)

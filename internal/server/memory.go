@@ -52,6 +52,10 @@ func (s *Server) listMemories(w http.ResponseWriter, r *http.Request) {
 		s.writeRequestError(w, r, statusFromMemoryError(err), err)
 		return
 	}
+	memories, ok := s.filterMemoriesForRequest(w, r, memories)
+	if !ok {
+		return
+	}
 	writeJSON(w, http.StatusOK, memories)
 }
 
@@ -63,6 +67,9 @@ func (s *Server) createMemory(w http.ResponseWriter, r *http.Request) {
 	}
 	agentID := strings.TrimSpace(req.AgentID)
 	if agentID != "" && !s.requireAgentAccess(w, r, agentID) {
+		return
+	}
+	if agentID == "" && !s.requireGlobalMemoryAccess(w, r) {
 		return
 	}
 	created, err := s.store.CreateMemory(r.Context(), db.Memory{
@@ -84,6 +91,9 @@ func (s *Server) getMemory(w http.ResponseWriter, r *http.Request) {
 		s.writeRequestError(w, r, statusFromMemoryError(err), err)
 		return
 	}
+	if !s.requireMemoryAccess(w, r, memory) {
+		return
+	}
 	writeJSON(w, http.StatusOK, memory)
 }
 
@@ -91,6 +101,9 @@ func (s *Server) updateMemory(w http.ResponseWriter, r *http.Request) {
 	memory, err := s.store.GetMemory(r.Context(), chi.URLParam(r, "id"))
 	if err != nil {
 		s.writeRequestError(w, r, statusFromMemoryError(err), err)
+		return
+	}
+	if !s.requireMemoryAccess(w, r, memory) {
 		return
 	}
 	var req updateMemoryRequest
@@ -123,11 +136,76 @@ func (s *Server) updateMemory(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) deleteMemory(w http.ResponseWriter, r *http.Request) {
-	if err := s.store.DeleteMemory(r.Context(), chi.URLParam(r, "id")); err != nil {
+	memory, err := s.store.GetMemory(r.Context(), chi.URLParam(r, "id"))
+	if err != nil {
+		s.writeRequestError(w, r, statusFromMemoryError(err), err)
+		return
+	}
+	if !s.requireMemoryAccess(w, r, memory) {
+		return
+	}
+	if err := s.store.DeleteMemory(r.Context(), memory.ID); err != nil {
 		s.writeRequestError(w, r, statusFromMemoryError(err), err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"deleted": true})
+}
+
+func (s *Server) requireMemoryAccess(w http.ResponseWriter, r *http.Request, memory db.Memory) bool {
+	if agentID := strings.TrimSpace(memory.AgentID); agentID != "" {
+		return s.requireAgentAccess(w, r, agentID)
+	}
+	return s.requireGlobalMemoryAccess(w, r)
+}
+
+func (s *Server) requireGlobalMemoryAccess(w http.ResponseWriter, r *http.Request) bool {
+	if s.store == nil {
+		return true
+	}
+	hasUsers, err := s.store.HasUsers(r.Context())
+	if err != nil {
+		s.writeRequestError(w, r, http.StatusInternalServerError, err)
+		return false
+	}
+	if !hasUsers {
+		return true
+	}
+	_, ok := s.requireUser(w, r)
+	return ok
+}
+
+func (s *Server) filterMemoriesForRequest(w http.ResponseWriter, r *http.Request, memories []db.Memory) ([]db.Memory, bool) {
+	if s.store == nil {
+		return memories, true
+	}
+	hasUsers, err := s.store.HasUsers(r.Context())
+	if err != nil {
+		s.writeRequestError(w, r, http.StatusInternalServerError, err)
+		return nil, false
+	}
+	if !hasUsers {
+		return memories, true
+	}
+	user, ok := s.requireUser(w, r)
+	if !ok {
+		return nil, false
+	}
+	filtered := make([]db.Memory, 0, len(memories))
+	for _, memory := range memories {
+		if strings.TrimSpace(memory.AgentID) == "" {
+			filtered = append(filtered, memory)
+			continue
+		}
+		allowed, accessErr := s.store.CanAccessAgent(r.Context(), user.ID, memory.AgentID)
+		if accessErr != nil {
+			s.writeRequestError(w, r, http.StatusInternalServerError, accessErr)
+			return nil, false
+		}
+		if allowed {
+			filtered = append(filtered, memory)
+		}
+	}
+	return filtered, true
 }
 
 func statusFromMemoryError(err error) int {

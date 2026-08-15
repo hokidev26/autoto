@@ -128,7 +128,7 @@ func TestReadOwnedChildContextSnapshotRejectsEveryRelationshipMismatch(t *testin
 	child := createContextAskTestAgent(t, store, workline.ID, "child", owner.ID, "subagent", "idle", "Child", "")
 	sibling := createContextAskTestAgent(t, store, workline.ID, "sibling", owner.ID, "subagent", "idle", "Sibling", "")
 	grandchild := createContextAskTestAgent(t, store, workline.ID, "grandchild", child.ID, "subagent", "idle", "Grandchild", "")
-	primaryTarget := createContextAskTestAgent(t, store, workline.ID, "primary-target", owner.ID, "primary", "idle", "Primary target", "")
+	primaryTarget := createContextAskTestAgent(t, store, workline.ID, "primary-target", "", "primary", "idle", "Primary target", "")
 	wrongParent := createContextAskTestAgent(t, store, workline.ID, "wrong-parent", otherOwner.ID, "subagent", "idle", "Wrong parent", "")
 	otherChild := createContextAskTestAgent(t, store, workline.ID, "other-child", otherOwner.ID, "subagent", "idle", "Other child", "")
 

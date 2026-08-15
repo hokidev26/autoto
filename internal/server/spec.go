@@ -360,6 +360,7 @@ func (s *Server) mountLearnedFeatureRoutes(r chi.Router) {
 		r.Post(prefix+"/{id}/spec/tasks", s.createSpecTask)
 		r.Patch(prefix+"/{id}/spec/tasks/{taskId}", s.updateSpecTask)
 		r.Delete(prefix+"/{id}/spec/tasks/{taskId}", s.deleteSpecTask)
+		r.Post(prefix+"/{id}/spec/tasks/{taskId}/assign", s.assignSpecTask)
 		r.Put(prefix+"/{id}/spec/tasks/order", s.reorderSpecTasks)
 		r.Put(prefix+"/{id}/spec/order", s.reorderSpecTasks)
 		r.Post(prefix+"/{id}/spec/goal", s.createSpecGoal)

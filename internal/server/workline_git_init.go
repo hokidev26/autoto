@@ -159,29 +159,41 @@ func gitCandidatePaths(candidates []gitRepositoryState) []string {
 	return paths
 }
 
-func writeNoGitRepoError(w http.ResponseWriter, path string) {
-	writeJSON(w, http.StatusBadRequest, map[string]any{
-		"error": "\"" + path + "\" is not a git repository",
-		"code":  "no_git_repo",
-		"path":  path,
-	})
+func (s *Server) writeNoGitRepoError(w http.ResponseWriter, r *http.Request, path string) {
+	payload := map[string]any{"code": "no_git_repo"}
+	if s.remoteAccessAuthentication(r).Remote {
+		payload["error"] = genericRequestErrorMessage(http.StatusBadRequest)
+		writeJSON(w, http.StatusBadRequest, payload)
+		return
+	}
+	payload["error"] = "\"" + path + "\" is not a git repository"
+	payload["path"] = path
+	writeJSON(w, http.StatusBadRequest, payload)
 }
 
-func writeNoGitCommitsError(w http.ResponseWriter, path string) {
-	writeJSON(w, http.StatusConflict, map[string]any{
-		"error": "\"" + path + "\" is a git repository but has no commits yet",
-		"code":  "git_no_commits",
-		"path":  path,
-	})
+func (s *Server) writeNoGitCommitsError(w http.ResponseWriter, r *http.Request, path string) {
+	payload := map[string]any{"code": "git_no_commits"}
+	if s.remoteAccessAuthentication(r).Remote {
+		payload["error"] = genericRequestErrorMessage(http.StatusConflict)
+		writeJSON(w, http.StatusConflict, payload)
+		return
+	}
+	payload["error"] = "\"" + path + "\" is a git repository but has no commits yet"
+	payload["path"] = path
+	writeJSON(w, http.StatusConflict, payload)
 }
 
-func writeMultipleGitReposError(w http.ResponseWriter, path string, candidates []gitRepositoryState) {
-	writeJSON(w, http.StatusConflict, map[string]any{
-		"error":      "multiple git repositories were found under \"" + path + "\"; configure the project to point to the intended repository",
-		"code":       "multiple_git_repos",
-		"path":       path,
-		"candidates": gitCandidatePaths(candidates),
-	})
+func (s *Server) writeMultipleGitReposError(w http.ResponseWriter, r *http.Request, path string, candidates []gitRepositoryState) {
+	payload := map[string]any{"code": "multiple_git_repos"}
+	if s.remoteAccessAuthentication(r).Remote {
+		payload["error"] = genericRequestErrorMessage(http.StatusConflict)
+		writeJSON(w, http.StatusConflict, payload)
+		return
+	}
+	payload["error"] = "multiple git repositories were found under \"" + path + "\"; configure the project to point to the intended repository"
+	payload["path"] = path
+	payload["candidates"] = gitCandidatePaths(candidates)
+	writeJSON(w, http.StatusConflict, payload)
 }
 
 func writeGitInitializationSuccess(w http.ResponseWriter, repository gitRepositoryState, initialized bool) {
@@ -217,7 +229,7 @@ func (s *Server) initProjectGit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if len(candidates) > 1 {
-		writeMultipleGitReposError(w, targetPath, candidates)
+		s.writeMultipleGitReposError(w, r, targetPath, candidates)
 		return
 	}
 	if repository.Root != "" {

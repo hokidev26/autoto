@@ -911,6 +911,8 @@ func TestRemoteAccessGateDoesNotFallBackToOtherCredentialNames(t *testing.T) {
 		t.Fatal(err)
 	}
 	cookieRequest := newTestRequest(http.MethodGet, "/api/health", nil)
+	cookieRequest.Host = "demo.trycloudflare.com"
+	markRemoteHTTPS(cookieRequest)
 	cookieRequest.AddCookie(&http.Cookie{Name: remoteAccessCookieName, Value: "invalid-secret"})
 	cookieRequest.AddCookie(&http.Cookie{Name: nonCanonicalRemoteAccessCookieName, Value: sessionToken})
 	if app.validRemoteAccess(cookieRequest) {

@@ -18,13 +18,14 @@ import (
 )
 
 type agentService struct {
-	store           *db.Store
-	runner          *agentpkg.Runner
-	hub             *agentpkg.Hub
-	providers       *providers.Registry
-	backgroundTasks tools.BackgroundTaskService
-	lockMutation    func(string) func()
-	reviewState     func(context.Context, string, *db.Run) (agentReviewState, error)
+	store             *db.Store
+	runner            *agentpkg.Runner
+	hub               *agentpkg.Hub
+	providers         *providers.Registry
+	backgroundTasks   tools.BackgroundTaskService
+	lockMutation      func(string) func()
+	reviewState       func(context.Context, string, *db.Run) (agentReviewState, error)
+	resolveExecutable func(string) (providers.Provider, string, error)
 }
 
 func (s *Server) agents() agentService {
@@ -35,6 +36,7 @@ func (s *Server) agents() agentService {
 	var backgroundTasks tools.BackgroundTaskService
 	var lockMutation func(string) func()
 	var reviewState func(context.Context, string, *db.Run) (agentReviewState, error)
+	var resolveExecutable func(string) (providers.Provider, string, error)
 	if s != nil {
 		store = s.store
 		runner = s.runner
@@ -43,15 +45,17 @@ func (s *Server) agents() agentService {
 		backgroundTasks = s.backgroundTasks
 		lockMutation = s.lockAgentMutation
 		reviewState = s.agentReviewState
+		resolveExecutable = s.resolveExecutableModel
 	}
 	return agentService{
-		store:           store,
-		runner:          runner,
-		hub:             hub,
-		providers:       registry,
-		backgroundTasks: backgroundTasks,
-		lockMutation:    lockMutation,
-		reviewState:     reviewState,
+		store:             store,
+		runner:            runner,
+		hub:               hub,
+		providers:         registry,
+		backgroundTasks:   backgroundTasks,
+		lockMutation:      lockMutation,
+		reviewState:       reviewState,
+		resolveExecutable: resolveExecutable,
 	}
 }
 
@@ -496,6 +500,11 @@ func (a agentService) updateModel(ctx context.Context, agentID, model string) (d
 	model = strings.TrimSpace(model)
 	if model == "" {
 		return db.Agent{}, apiErr(http.StatusBadRequest, "model is required")
+	}
+	if a.resolveExecutable != nil {
+		if _, _, err := a.resolveExecutable(model); err != nil {
+			return db.Agent{}, apiErr(http.StatusBadRequest, err.Error())
+		}
 	}
 	if a.store == nil {
 		return db.Agent{}, apiErr(http.StatusInternalServerError, "agent store is unavailable")

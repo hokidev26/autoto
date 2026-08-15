@@ -49,9 +49,9 @@ The guard is intended to prevent a random web page from driving the local agent 
 
 ### 4. Agent loop
 
-The loop logic that used to live in a single `internal/agent/loop.go` is now split across `internal/agent/continuation.go`, `runner_context.go`, `runner_model.go`, and `runner_tools.go` (plus focused helpers such as `context_management.go` and `tool_output_pipeline.go`).
+The loop logic that used to live in a single `internal/agent/loop.go` is now split across `internal/agent/continuation.go`, `continuation_background.go`, `continuation_limits.go`, `runner_context.go`, `runner_model.go`, and `runner_tools.go` (plus focused helpers such as `context_management.go` and `tool_output_pipeline.go`).
 
-1. `continuation.go` (`Runner.run` / `runContinuous`) drives the run in segments and loads the agent and message history from `internal/db`.
+1. `continuation.go` (`Runner.run` / `runContinuous`) drives the run in segments and loads the agent and message history from `internal/db`. Background-task park/wake and startup recovery live in `continuation_background.go`; per-run budgets live in `continuation_limits.go`.
 2. `runner_context.go` compacts older context when needed and assembles the provider message set; `runner_model.go` builds the `providers.GenerateRequest` containing system prompt, messages, and tool schemas.
 3. The selected provider streams `providers.Event` values back to the runner (`runner_model.go`).
 4. Assistant text and tool requests are persisted as messages/tool calls — tool execution and approval routing live in `runner_tools.go` — then published through the event hub.

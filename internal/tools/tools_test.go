@@ -706,6 +706,15 @@ func TestWebFetchDialContextRejectsPrivateExplicitIP(t *testing.T) {
 	}
 }
 
+func TestWebFetchRejectsMetadataHostnameAndSpecialPrefixes(t *testing.T) {
+	if _, err := validatePublicFetchURL(context.Background(), "http://metadata.google.internal/"); err == nil || !strings.Contains(err.Error(), "local/private") {
+		t.Fatalf("expected metadata hostname rejection, got %v", err)
+	}
+	if _, err := validatePublicFetchURL(context.Background(), "http://192.88.99.1/"); err == nil || !strings.Contains(err.Error(), "local/private") {
+		t.Fatalf("expected 6to4 relay prefix rejection, got %v", err)
+	}
+}
+
 func TestWebFetchRejectsTooManyRedirects(t *testing.T) {
 	resolver := webFetchResolverFunc(func(_ context.Context, _ string) ([]net.IPAddr, error) {
 		return []net.IPAddr{{IP: net.ParseIP("8.8.8.8")}}, nil

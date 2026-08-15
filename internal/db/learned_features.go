@@ -368,7 +368,11 @@ func (s *projectStore) CreateAgent(ctx context.Context, agent Agent) (Agent, err
 		agent.ID = NewID()
 	}
 	if agent.Type == "" {
-		agent.Type = "primary"
+		if agent.ParentAgentID != "" {
+			agent.Type = "subagent"
+		} else {
+			agent.Type = "primary"
+		}
 	}
 	if agent.Status == "" {
 		agent.Status = "idle"
@@ -384,6 +388,12 @@ func (s *projectStore) CreateAgent(ctx context.Context, agent Agent) (Agent, err
 	}
 	if agent.Type != "primary" && agent.Type != "subagent" {
 		return Agent{}, errors.New("invalid agent type")
+	}
+	if agent.Type == "subagent" && agent.ParentAgentID == "" {
+		return Agent{}, errors.New("subagent requires a parent agent")
+	}
+	if agent.Type == "primary" && agent.ParentAgentID != "" {
+		return Agent{}, errors.New("primary agent cannot have a parent agent")
 	}
 	if !validPermissionModeForDB(agent.PermissionMode) || !validAgentReasoningEffort(agent.ReasoningEffort, true) {
 		return Agent{}, errors.New("invalid agent settings")

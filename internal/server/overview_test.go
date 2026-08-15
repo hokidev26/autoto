@@ -49,7 +49,7 @@ func TestOverviewReturnsSafeBoundedOrderedLocalSummary(t *testing.T) {
 	agents := []db.Agent{primary}
 	for index := 1; index < 10; index++ {
 		agent, createErr := store.CreateAgent(ctx, db.Agent{
-			WorklineID: workline.ID, Type: "subagent", Title: fmt.Sprintf("Agent %02d", index),
+			WorklineID: workline.ID, Type: "primary", Title: fmt.Sprintf("Agent %02d", index),
 			Model: "fake:model", SystemPrompt: "SYSTEM_PROMPT_SECRET", PermissionMode: "acceptEdits", CWD: "/secret/workspace/path",
 		})
 		if createErr != nil {
@@ -263,7 +263,7 @@ func TestOverviewExcludesArchivedAgentsAndLegacyConversationFlow(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	archivedAgent, err := store.CreateAgent(ctx, db.Agent{WorklineID: workline.ID, Type: "subagent", Title: "Archived secret", Model: "fake:test", PermissionMode: "acceptEdits", CWD: t.TempDir()})
+	archivedAgent, err := store.CreateAgent(ctx, db.Agent{WorklineID: workline.ID, Type: "primary", Title: "Archived secret", Model: "fake:test", PermissionMode: "acceptEdits", CWD: t.TempDir()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -424,7 +424,7 @@ func TestOverviewUsesRunnerRealtimeStateForActiveRuns(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	staleAgent, err := store.CreateAgent(ctx, db.Agent{WorklineID: workline.ID, Type: "subagent", Title: "Stale", Model: "fake:test", PermissionMode: "acceptEdits", CWD: t.TempDir()})
+	staleAgent, err := store.CreateAgent(ctx, db.Agent{WorklineID: workline.ID, Type: "primary", Title: "Stale", Model: "fake:test", PermissionMode: "acceptEdits", CWD: t.TempDir()})
 	if err != nil {
 		t.Fatal(err)
 	}

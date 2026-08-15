@@ -391,8 +391,21 @@ func TestBackgroundTaskContinuationBoundaryIgnoresInspectedTasks(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if taskID, waits, err := backgroundTaskContinuationBoundary(tools.Result{Output: string(fresh)}, "run-1"); err != nil || !waits || taskID != "new-task" {
+	if taskID, waits, err := backgroundTaskContinuationBoundary(tools.Result{Output: string(fresh), Meta: map[string]any{"backgroundTaskId": "new-task", "background": true}}, "run-1"); err != nil || !waits || taskID != "new-task" {
 		t.Fatalf("a fresh dispatch must still park the run, task=%q waits=%v err=%v", taskID, waits, err)
+	}
+}
+
+func TestBackgroundTaskContinuationBoundaryIgnoresSameRunInspect(t *testing.T) {
+	running, err := json.Marshal(tools.BackgroundTask{ID: "sibling", ParentRunID: "run-1", ResumeParent: true, Status: "running"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if taskID, waits, err := backgroundTaskContinuationBoundary(tools.Result{Output: string(running)}, "run-1"); err != nil || waits || taskID != "" {
+		t.Fatalf("inspecting a still-running sibling must not park, task=%q waits=%v err=%v", taskID, waits, err)
+	}
+	if taskID, waits, err := backgroundTaskContinuationBoundary(tools.Result{Meta: map[string]any{"resumeParent": true, "backgroundTaskId": "meta-only"}}, "run-1"); err != nil || waits || taskID != "" {
+		t.Fatalf("meta-only resumeParent without dispatch flag must not park, task=%q waits=%v err=%v", taskID, waits, err)
 	}
 }
 
@@ -1459,5 +1472,59 @@ func TestSegmentOutcomeDropsProviderReasonOnPersistFailure(t *testing.T) {
 	storeFault := segmentOutcome{continuationReason: "", resumeAfterID: ""}
 	if runner.retryableProviderError(safe, storeFault, errors.New("disk full")) {
 		t.Fatal("an outcome with no provider reason must not be retried")
+	}
+}
+
+func TestSchedulePendingContinuationYieldsToManualCompaction(t *testing.T) {
+	ctx := context.Background()
+	store, createdAgent := newAgentTestStore(t, t.TempDir(), "acceptEdits")
+	defer store.Close()
+	runner := newAgentTestRunner(store, &scriptedProvider{}, config.AgentConfig{AutoContinuationMode: "safe", ContinuationSegmentTurns: 2, MaxContinuations: 2, MaxTotalTurns: 4, MaxRunDurationMs: 60000, MaxRunTokens: 10000})
+	runner.SetPlanSnapshotProvider(func(ctx context.Context, agentID string) (db.PlanSnapshot, error) {
+		generations, err := store.GetPermissionGenerations(ctx, agentID)
+		return db.PlanSnapshot{PolicyGenerationSnapshot: generations.Policy, AgentGenerationSnapshot: generations.Entity, ToolCatalogDigest: "tools", WorkspaceFingerprint: "workspace"}, err
+	})
+	trigger, err := store.AddMessage(ctx, db.Message{AgentID: createdAgent.ID, Role: "user", ContentText: "continue"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	runRequest, err := runner.prepareContinuationRun(ctx, db.Run{AgentID: createdAgent.ID, TriggerMessageID: trigger.ID, Status: "running", ExecutionMode: db.RunExecutionModeExecute, Source: db.RunSourceManual})
+	if err != nil {
+		t.Fatal(err)
+	}
+	run, err := store.CreateRun(ctx, runRequest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.AssignMessageRun(ctx, createdAgent.ID, trigger.ID, run.ID); err != nil {
+		t.Fatal(err)
+	}
+	partial, err := store.AddMessage(ctx, db.Message{AgentID: createdAgent.ID, RunID: run.ID, Role: "assistant", ContentText: "partial"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	pending, err := store.MarkRunContinuationPending(ctx, run.ID, db.RunContinuationPendingInput{
+		ExpectedContinuationCount: 0, TurnCount: 1, ResumeAfterMessageID: partial.ID,
+		LastStopReason: "max_output_tokens", ContinuationReason: continuationReasonMaxOutputTokens,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	runner.runMu.Lock()
+	if runner.compacting == nil {
+		runner.compacting = make(map[string]struct{})
+	}
+	runner.compacting[createdAgent.ID] = struct{}{}
+	runner.runMu.Unlock()
+	scheduled, err := runner.schedulePendingContinuation(ctx, pending)
+	if scheduled || !errors.Is(err, ErrAgentBusy) {
+		t.Fatalf("manual compaction must keep the slot, scheduled=%v err=%v", scheduled, err)
+	}
+	stillPending, err := store.GetRunByID(ctx, run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stillPending.Status != "continuation_pending" {
+		t.Fatalf("busy wake must leave the run parked, got %+v", stillPending)
 	}
 }

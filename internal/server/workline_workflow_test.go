@@ -444,6 +444,52 @@ func forkWorklineForTest(t *testing.T, app *Server, worklineID, branch string) f
 	return response
 }
 
+func TestRestrictedRemoteCannotMutateWorklines(t *testing.T) {
+	ctx := context.Background()
+	repo := newGitTestRepo(t)
+	writeGitTestFile(t, repo, "README.md", "initial\n")
+	runGitTestCommand(t, repo, "add", "README.md")
+	runGitTestCommand(t, repo, "commit", "-m", "initial")
+
+	store, err := db.Open(ctx, filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	_, root, _, err := store.CreateProject(ctx, "Demo", "", repo, "openai:test", "acceptEdits")
+	if err != nil {
+		t.Fatal(err)
+	}
+	hash, err := config.HashAccessPassword("Correct-Horse-1!")
+	if err != nil {
+		t.Fatal(err)
+	}
+	app := New(config.Config{
+		Security: config.SecurityConfig{
+			AccessPasswordHash:      hash,
+			AllowRemoteFullAccess:   true,
+			DefaultRemoteAccessMode: remoteAccessModeRestricted,
+			CredentialRevision:      1,
+		},
+		Agent: config.AgentConfig{DefaultModel: "openai:test", DefaultPermissionMode: "acceptEdits"},
+	}, store, nil, nil)
+	sessionToken, _, err := app.newRemoteAccessSession(remoteAccessModeRestricted)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := strings.NewReader(`{"title":"Feature","branch":"feature/restricted"}`)
+	request := newTestRequest(http.MethodPost, "/api/worklines/"+root.ID+"/fork", body)
+	request.Header.Set("Content-Type", "application/json")
+	request.Host = "remote.example.test"
+	markRemoteHTTPS(request)
+	request.AddCookie(&http.Cookie{Name: remoteAccessCookieName, Value: sessionToken})
+	recorder := httptest.NewRecorder()
+	app.Routes().ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusForbidden {
+		t.Fatalf("restricted remote must not fork worklines, got %d: %s", recorder.Code, recorder.Body.String())
+	}
+}
+
 func containsString(values []string, want string) bool {
 	for _, value := range values {
 		if value == want {

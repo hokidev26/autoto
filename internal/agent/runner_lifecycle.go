@@ -349,6 +349,17 @@ func (r *Runner) registerRun(ctx context.Context, agentID, runID, triggerMessage
 	return runCtx, active, true, active.runID, nil
 }
 
+func (r *Runner) clearReservedRun(agentID string, placeholder *activeRun) {
+	if r == nil || placeholder == nil {
+		return
+	}
+	r.runMu.Lock()
+	if r.running[agentID] == placeholder {
+		delete(r.running, agentID)
+	}
+	r.runMu.Unlock()
+}
+
 func (r *Runner) unregisterRun(agentID string, active *activeRun) runCompletion {
 	completion := runCompletion{}
 	r.runMu.Lock()

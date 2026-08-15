@@ -31,6 +31,32 @@ func TestCreateProjectCreatesCoreRecords(t *testing.T) {
 	}
 }
 
+func TestCreateAgentRejectsOrphanSubagentAndParentedPrimary(t *testing.T) {
+	ctx := context.Background()
+	store, err := Open(ctx, filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	_, workline, parent, err := store.CreateProject(ctx, "Demo", "", t.TempDir(), "fake:test", "acceptEdits")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.CreateAgent(ctx, Agent{WorklineID: workline.ID, Type: "subagent", Title: "orphan", Model: "fake:test", CWD: parent.CWD}); err == nil {
+		t.Fatal("expected Type=subagent without a parent to be rejected")
+	}
+	if _, err := store.CreateAgent(ctx, Agent{WorklineID: workline.ID, Type: "primary", ParentAgentID: parent.ID, Title: "parented primary", Model: "fake:test", CWD: parent.CWD}); err == nil {
+		t.Fatal("expected Type=primary with a parent to be rejected")
+	}
+	child, err := store.CreateAgent(ctx, Agent{WorklineID: workline.ID, ParentAgentID: parent.ID, Title: "inferred child", Model: "fake:test", CWD: parent.CWD})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if child.Type != "subagent" || child.ParentAgentID != parent.ID {
+		t.Fatalf("parent without type should persist as subagent, got %+v", child)
+	}
+}
+
 func TestUpdateAgentContextSummaryRoundTrips(t *testing.T) {
 	ctx := context.Background()
 	store, err := Open(ctx, filepath.Join(t.TempDir(), "test.db"))

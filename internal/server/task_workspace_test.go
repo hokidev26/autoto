@@ -41,7 +41,7 @@ func TestTaskWorkspaceRequiresMembershipAndOmitsSensitiveAgentFields(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	emptyAgent, err := store.CreateAgent(ctx, db.Agent{WorklineID: firstWorkline.ID, Type: "subagent", Title: "No tasks", Model: "fake:empty", CWD: firstProject.GitPath})
+	emptyAgent, err := store.CreateAgent(ctx, db.Agent{WorklineID: firstWorkline.ID, Type: "primary", Title: "No tasks", Model: "fake:empty", CWD: firstProject.GitPath})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -122,7 +122,7 @@ func TestAssignSpecTaskAPIHandlesSameProjectAndConflicts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	target, err := store.CreateAgent(ctx, db.Agent{WorklineID: workline.ID, Type: "subagent", Title: "Target", Model: "fake:target", CWD: project.GitPath})
+	target, err := store.CreateAgent(ctx, db.Agent{WorklineID: workline.ID, Type: "primary", Title: "Target", Model: "fake:target", CWD: project.GitPath})
 	if err != nil {
 		t.Fatal(err)
 	}
