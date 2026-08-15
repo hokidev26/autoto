@@ -29,6 +29,16 @@ export function toggleCollapsedNavNode(key) {
   saveCollapsedNavNodes(nodes);
 }
 
+export function expandCollapsedNavNodes(keys) {
+  const nodes = getCollapsedNavNodes();
+  let changed = false;
+  (Array.isArray(keys) ? keys : [keys]).forEach((key) => {
+    const id = String(key || "").trim();
+    if (id && nodes.delete(id)) changed = true;
+  });
+  if (changed) saveCollapsedNavNodes(nodes);
+}
+
 export function getProjectOrder() {
   try {
     const val = localStorage.getItem(PROJ_ORDER_KEY);

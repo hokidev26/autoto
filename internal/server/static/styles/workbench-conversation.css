@@ -402,15 +402,18 @@ body.white-shell.theme-light .navigation-project-group {
 }
 
 body.white-shell.theme-light .navigation-project-group + .navigation-project-group {
-  margin-top: 2px;
+  /* Space between project blocks, not extra padding on a single folder row. */
+  margin-top: 16px;
 }
 
 body.white-shell.theme-light .navigation-project-conversations {
   position: relative;
   display: grid;
   gap: 0;
-  margin: 0 0 2px 2px;
-  padding: 0 0 1px 8px;
+  margin: 0 0 2px 0;
+  /* First-level chats and git branches sit under the folder glyph, not past
+     the folder name. Extra chats on a branch indent separately. */
+  padding: 0 0 1px 0;
 }
 
 /* The collapse markup carries the hidden attribute, which is only a UA-level
@@ -420,16 +423,6 @@ body.white-shell.theme-light .navigation-project-conversations {
 body.white-shell.theme-light .navigation-project-conversations[hidden],
 body.white-shell.theme-light .navigation-workline-forks[hidden] {
   display: none;
-}
-
-body.white-shell.theme-light .navigation-project-conversations::before {
-  content: "";
-  position: absolute;
-  top: 0;
-  bottom: 5px;
-  left: 4px;
-  width: 1px;
-  background: var(--ws-border);
 }
 
 body.white-shell.theme-light .navigation-project-row .navigation-project-title {
@@ -456,7 +449,7 @@ body.white-shell.theme-light .navigation-project-row .project-kind-badge {
 
 body.white-shell.theme-light .navigation-project-row .project-name {
   min-width: 0;
-  flex: 1 1 auto;
+  flex: 0 1 auto;
   overflow: hidden;
   color: inherit;
   font-size: inherit;
@@ -464,6 +457,104 @@ body.white-shell.theme-light .navigation-project-row .project-name {
   line-height: inherit;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* Expanded groups read as a file tree: folder glyph + directory name on one
+   quiet row, then conversation titles indented under that name. The folder is
+   not the selected chat, so it does not pick up the conversation capsule. */
+body.white-shell.theme-light .navigation-project-group > .navigation-project-row {
+  min-height: 28px;
+  grid-template-columns: 16px minmax(0, 1fr);
+  padding: 2px 6px 2px 4px;
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+  color: color-mix(in srgb, var(--ws-text, #20263a) 72%, var(--ws-muted, #6b7280));
+}
+
+body.white-shell.theme-light .navigation-project-group > .navigation-project-row:has(> .project-task-counts) {
+  grid-template-columns: 16px minmax(0, 1fr) auto;
+}
+
+body.white-shell.theme-light .navigation-project-twist {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  align-self: stretch;
+  min-height: 28px;
+}
+
+body.white-shell.theme-light .navigation-project-twist .navigation-folder-icon {
+  width: 14px;
+  height: 14px;
+  pointer-events: none;
+  color: color-mix(in srgb, var(--ws-text, #20263a) 58%, var(--ws-muted, #6b7280));
+}
+
+body.white-shell.theme-light .navigation-project-twist .navigation-folder-icon.navigation-folder-open {
+  display: none;
+}
+
+body.white-shell.theme-light .navigation-project-twist:has(> .navigation-disclosure.expanded) .navigation-folder-icon.navigation-folder-closed {
+  display: none;
+}
+
+body.white-shell.theme-light .navigation-project-twist:has(> .navigation-disclosure.expanded) .navigation-folder-icon.navigation-folder-open {
+  display: inline-flex;
+}
+
+body.white-shell.theme-light .navigation-project-twist .navigation-disclosure {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  width: 16px;
+  min-height: 0;
+  align-self: stretch;
+  opacity: 0;
+  color: color-mix(in srgb, var(--ws-text, #20263a) 55%, var(--ws-muted, #6b7280));
+}
+
+body.white-shell.theme-light .navigation-project-twist:is(:hover, :focus-within) .navigation-disclosure {
+  opacity: 1;
+}
+
+body.white-shell.theme-light .navigation-project-twist:is(:hover, :focus-within) .navigation-folder-icon {
+  opacity: 0;
+}
+
+body.white-shell.theme-light .navigation-project-twist .navigation-disclosure:is(:hover, :focus-visible) {
+  background: transparent;
+}
+
+body.white-shell.theme-light .navigation-project-group > .navigation-project-row .navigation-folder-icon svg {
+  stroke-width: 1.5;
+}
+
+body.white-shell.theme-light .navigation-project-group > .navigation-project-row .navigation-conversation-title,
+body.white-shell.theme-light .navigation-project-group > .navigation-project-row .project-name {
+  color: color-mix(in srgb, var(--ws-text, #20263a) 72%, var(--ws-muted, #6b7280));
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: 0;
+}
+
+body.white-shell.theme-light .navigation-project-group > .navigation-project-row:hover,
+body.white-shell.theme-light .navigation-project-group > .navigation-project-row:focus-visible,
+body.white-shell.theme-light .navigation-project-group > .navigation-project-row.active,
+body.white-shell.theme-light .navigation-project-group > .navigation-project-row.active .project-name {
+  border-color: transparent;
+  background: transparent;
+  color: color-mix(in srgb, var(--ws-text, #20263a) 72%, var(--ws-muted, #6b7280));
+  box-shadow: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+body.white-shell.theme-light .navigation-project-group > .navigation-project-row:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--ws-primary, #4f6ef7) 45%, transparent);
+  outline-offset: -2px;
 }
 
 body.white-shell.theme-light .navigation-project-row .project-path {
@@ -481,25 +572,37 @@ body.white-shell.theme-light .navigation-project-row.active .project-name {
 
 body.white-shell.theme-light .navigation-conversation-row {
   min-height: 34px;
-  grid-template-columns: 14px minmax(0, 1fr) max-content auto;
+  grid-template-columns: 14px minmax(0, 1fr) max-content;
   align-items: center;
   gap: 7px;
   border-radius: 8px;
   padding: 4px 8px;
 }
 
-/* A row carrying a disclosure needs a column for it. Keyed off :has rather than
-   a class threaded through the renderer, so the grid cannot drift out of step
-   with the markup: the column exists exactly when the control does.
-   .nested is listed too, and deliberately: that rule restates the four-column
-   template further down this file and is more specific, so without matching its
-   specificity the nested rows -- which are precisely the ones carrying fork
-   triangles -- kept a four-column grid and pushed their own content out of
-   place. */
-body.white-shell.theme-light .navigation-conversation-row:has(> .navigation-disclosure),
-body.white-shell.theme-light .navigation-conversation-row.nested:has(> .navigation-disclosure) {
-  grid-template-columns: 16px 14px minmax(0, 1fr) max-content auto;
+/* Nested git-branch rows still carry a disclosure as a direct child. Project
+   rows wrap theirs inside .navigation-project-twist, so they do not match. */
+body.white-shell.theme-light .navigation-conversation-row:has(> .navigation-disclosure) {
+  grid-template-columns: 16px 14px minmax(0, 1fr) max-content;
+  padding-left: 4px;
   gap: 5px;
+}
+
+body.white-shell.theme-light .navigation-conversation-row.nested:has(> .navigation-disclosure) {
+  grid-template-columns: 16px minmax(0, 1fr) max-content;
+  padding-left: 4px;
+  gap: 5px;
+}
+
+body.white-shell.theme-light .navigation-conversation-row[draggable],
+body.white-shell.theme-light .navigation-project-group[draggable] {
+  cursor: pointer;
+}
+
+body.white-shell.theme-light .navigation-conversation-row[draggable]:active,
+body.white-shell.theme-light .navigation-conversation-row.conv-dragging,
+body.white-shell.theme-light .navigation-project-group[draggable]:active,
+body.white-shell.theme-light .proj-dragging {
+  cursor: grabbing;
 }
 
 body.white-shell.theme-light .navigation-disclosure {
@@ -572,8 +675,41 @@ body.white-shell.theme-light .navigation-conversation-row .navigation-conversati
 }
 
 body.white-shell.theme-light .navigation-conversation-row .navigation-conversation-title {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
   font-size: 13px;
   line-height: 1.2;
+}
+
+body.white-shell.theme-light .navigation-title-text {
+  flex: 0 1 auto;
+}
+
+body.white-shell.theme-light .navigation-conversation-title .navigation-row-fork {
+  flex: 0 0 auto;
+  min-width: 0;
+  width: 0;
+  max-width: 0;
+  margin: 0 0 0 -4px;
+  padding: 0;
+  overflow: hidden;
+  opacity: 0;
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+body.white-shell.theme-light .navigation-conversation-row:is(:hover, :focus-within) .navigation-conversation-title .navigation-row-fork,
+body.white-shell.theme-light .navigation-conversation-title .navigation-row-fork:focus-visible,
+body.white-shell.theme-light .navigation-conversation-title .navigation-row-fork[aria-busy="true"] {
+  min-width: 20px;
+  width: auto;
+  max-width: 22px;
+  margin-left: 0;
+  padding: 2px 3px;
+  opacity: 1;
+  pointer-events: auto;
 }
 
 body.white-shell.theme-light .navigation-conversation-row .navigation-conversation-meta {
@@ -604,7 +740,7 @@ body.white-shell.theme-light .navigation-conversation-row.active .navigation-con
 }
 
 body.white-shell.theme-light .navigation-empty-conversations {
-  padding: 2px 8px 8px 30px;
+  padding: 2px 8px 8px 8px;
   color: var(--ws-muted);
   font-size: 12px;
   line-height: 1.35;
@@ -615,45 +751,22 @@ body.white-shell.theme-light .navigation-conversation-row.nested {
   width: 100%;
   min-height: 32px;
   margin-left: 0;
-  grid-template-columns: 14px minmax(0, 1fr) max-content auto;
+  grid-template-columns: minmax(0, 1fr) max-content;
   align-items: center;
   gap: 7px;
   border: 1px solid transparent;
   border-radius: 8px;
-  padding: 4px 7px;
+  /* Sit under the project name. The folder glyph is gone, so this lines up
+     with 4px row pad + 16px caret + 5px gap. */
+  padding: 4px 7px 4px 28px;
 }
 
-body.white-shell.theme-light .navigation-conversation-row.nested::before {
-  content: "";
-  position: absolute;
-  top: 50%;
-  left: -8px;
-  width: 8px;
-  height: 1px;
-  background: var(--ws-border);
-}
-
-body.white-shell.theme-light .navigation-conversation-row.nested::after {
-  content: "";
-  position: absolute;
-  top: calc(50% - 2px);
-  left: -10px;
-  width: 5px;
-  height: 5px;
-  border: 1px solid var(--ws-card);
-  border-radius: 999px;
-  background: var(--ws-muted);
+body.white-shell.theme-light .navigation-workline-forks .navigation-conversation-row.nested {
+  padding-left: 12px;
 }
 
 body.white-shell.theme-light .navigation-conversation-row.nested .navigation-agent-icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 14px;
-  height: 14px;
-  color: var(--ws-muted);
-  font-size: 10px;
-  line-height: 1;
+  display: none;
 }
 
 body.white-shell.theme-light .navigation-conversation-row.nested .navigation-conversation-main {
@@ -675,20 +788,29 @@ body.white-shell.theme-light .navigation-conversation-row.nested:hover {
   background: color-mix(in srgb, var(--ws-primary-soft) 72%, var(--ws-card));
 }
 
-body.white-shell.theme-light .project-card.navigation-project-row.active,
+body.white-shell.theme-light .navigation-project-group > .project-card.navigation-project-row:hover,
+body.white-shell.theme-light .navigation-project-group > .project-card.navigation-project-row:focus-visible,
+body.white-shell.theme-light .navigation-project-group > .project-card.navigation-project-row.active {
+  border-color: transparent;
+  background: transparent;
+  color: color-mix(in srgb, var(--ws-text, #20263a) 72%, var(--ws-muted, #6b7280));
+  box-shadow: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
 body.white-shell.theme-light .navigation-conversation-row.nested.active {
   border-color: color-mix(in srgb, var(--ws-primary) 42%, var(--ws-border));
-  background: var(--ws-primary-soft);
+  background: var(--ws-primary-soft, #eef1ff);
   color: var(--ws-primary);
   box-shadow: inset 2px 0 0 var(--ws-primary);
 }
 
-body.white-shell.theme-light .navigation-conversation-row.nested.active::after {
-  border-color: var(--ws-primary-soft);
-  background: var(--ws-primary);
+/* A collapsed folder is the only on-screen stand-in for the open chat inside it. */
+body.white-shell.theme-light .navigation-project-group:has(.navigation-project-conversations[hidden] .navigation-conversation-row.active) > .navigation-project-row {
+  background: color-mix(in srgb, var(--ws-primary-soft, #eef1ff) 80%, transparent);
 }
 
-body.white-shell.theme-light .project-card.navigation-project-row.active .project-name,
 body.white-shell.theme-light .navigation-conversation-row.nested.active .navigation-conversation-title {
   color: var(--ws-primary);
 }
@@ -744,6 +866,21 @@ body.white-shell.theme-light .navigation-conversation-row.unread:not(.status-run
    regular to semibold, which reads as "new" even for a colour-blind reader. */
 body.white-shell.theme-light .navigation-conversation-row.unread .navigation-conversation-title {
   font-weight: 700;
+}
+
+body.white-shell.theme-light .navigation-conversation-row.nested.status-running .navigation-conversation-title,
+body.white-shell.theme-light .navigation-conversation-row.nested.status-pending .navigation-conversation-title,
+body.white-shell.theme-light .navigation-conversation-row.nested.status-queued .navigation-conversation-title {
+  color: #3b82f6;
+}
+
+body.white-shell.theme-light .navigation-conversation-row.nested.status-waiting .navigation-conversation-title {
+  color: #d97706;
+}
+
+body.white-shell.theme-light .navigation-conversation-row.nested.status-error .navigation-conversation-title,
+body.white-shell.theme-light .navigation-conversation-row.nested.status-failed .navigation-conversation-title {
+  color: #dc4c64;
 }
 
 body.white-shell.theme-light .navigation-conversation-row.status-error .navigation-agent-icon,
@@ -1432,8 +1569,8 @@ body.white-shell.theme-light .messages [class~="plan-card-actions"] > button {
   }
 
   body.white-shell.theme-light .navigation-project-conversations {
-    margin-left: 6px;
-    padding-left: 15px;
+    margin-left: 0;
+    padding-left: 0;
   }
 
   body.white-shell.theme-light .navigation-conversation-row.nested {

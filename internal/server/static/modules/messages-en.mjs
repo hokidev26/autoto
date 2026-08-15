@@ -31,6 +31,8 @@ export default Object.freeze({
   shell: {
     newProject: "New project",
     newConversation: "New conversation",
+    newConversationCreating: "Creating a conversation…",
+    newConversationFailed: "Could not create the conversation",
     newSchedule: "New schedule",
     openSidebar: "Open sidebar",
     closeSidebar: "Close sidebar",

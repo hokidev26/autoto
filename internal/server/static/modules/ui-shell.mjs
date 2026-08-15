@@ -71,7 +71,10 @@ export const minSidebarWidth = 184;
 export const compactSidebarEnterWidth = 196;
 export const narrowSidebarMinWidth = 197;
 export const narrowSidebarMaxWidth = 219;
-export const maxSidebarWidth = 420;
+// Folder names plus a hover + do not need a half-width chat column. 420 left a
+// wide empty gutter on the right of every row; 340 is still past the default
+// 296 without turning the list into a second editor pane.
+export const maxSidebarWidth = 340;
 export const globalRailExpandedWidth = 68;
 export const globalRailCollapsedWidth = 48;
 // readOnly joined the primary group (least- to most-permissive order); the

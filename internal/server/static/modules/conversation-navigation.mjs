@@ -153,10 +153,21 @@ function compactDisplayPath(value) {
 // renderProject already avoids that for project rows; this is the conversation
 // equivalent. Presentational only -- the stored title is left untouched, and the
 // folder name is what a reader would call the directory anyway.
+function displayFolderName(value) {
+  const candidate = text(value);
+  if (!looksLikeFilesystemPath(candidate)) return candidate;
+  return pathBasename(candidate) || candidate;
+}
+
 export function conversationDisplayTitle(conversation) {
-  const title = text(conversation?.agentTitle);
-  if (!looksLikeFilesystemPath(title)) return title;
-  return pathBasename(title) || title;
+  return displayFolderName(conversation?.agentTitle);
+}
+
+// Folder rows keep the filesystem path on hover. Conversation rows show the
+// git branch when the workline has one (forks look like autoto/fork-of-main-c39bc123),
+// and fall back to the stored title when they are still on an unnamed root.
+export function conversationHoverTitle(conversation) {
+  return text(conversation?.worklineBranch) || text(conversation?.agentTitle);
 }
 
 function looksLikeFilesystemPath(value) {
@@ -471,8 +482,9 @@ export function buildNavigationView(payload = {}, options = {}) {
   // Subagents belong to the background-task panel, not the sidebar. A parent
   // turn can dispatch several at once, and they reuse the parent's workline, so
   // the tree cannot express them as anything but plain sibling rows -- which is
-  // what made the sidebar look like it was opening branches. Nesting here stays
-  // reserved for git worklines, one row per conversation.
+  // what made the sidebar look like it was opening branches. Git worklines are
+  // first-level rows under the project; extra conversations on the same
+  // workline nest underneath that row.
   //
   // Filtered at view-build time rather than in /api/navigation on purpose:
   // navigateToAgent resolves a child's targetId out of the unfiltered
@@ -669,14 +681,61 @@ function navigationStateMarkup({ pinned = false, archivedAt = "" } = {}) {
   return marks.join("");
 }
 
-function navigationMoreTrigger(kind, id) {
-  const label = t("shell.navigationActions");
-  return `<button class="navigation-row-actions" type="button" data-navigation-menu-trigger data-navigation-kind="${escapeNavigationHtml(kind)}" data-navigation-id="${escapeNavigationHtml(id)}" aria-haspopup="menu" aria-label="${escapeNavigationHtml(label)}" title="${escapeNavigationHtml(label)}">…</button>`;
+function isGitWorklineFork(conversation) {
+  return conversation.worklineRole !== "root" && Boolean(conversation.worklineBranch) && Boolean(conversation.worklineParentId);
 }
 
-// Deliberately distinct from the sidebar-header "+", which opens the project
-// directory flow. This one only ever forks the project it sits on into a new
-// git branch + worktree, so its label says so rather than saying "new".
+function pickWorklineHead(members) {
+  if (members.length === 1) return members[0];
+  const named = members.find((item) => text(item.agentTitle) === text(item.worklineTitle));
+  if (named) return named;
+  let head = members[0];
+  let best = Number(head.messageCount) || 0;
+  members.forEach((item) => {
+    const count = Number(item.messageCount) || 0;
+    if (count > best) {
+      head = item;
+      best = count;
+    }
+  });
+  if (best > 0) return head;
+  return members[members.length - 1];
+}
+
+// One first-level row per workline. Extra primary agents on the same workline
+// nest underneath, which is how a git branch can hold more than one conversation.
+function clusterConversationsByWorkline(conversations) {
+  const membersByWorkline = new Map();
+  (Array.isArray(conversations) ? conversations : []).forEach((conversation) => {
+    const id = text(conversation?.worklineId);
+    if (!id) return;
+    const list = membersByWorkline.get(id) || [];
+    list.push(conversation);
+    membersByWorkline.set(id, list);
+  });
+  const seen = new Set();
+  const clusters = [];
+  (Array.isArray(conversations) ? conversations : []).forEach((conversation) => {
+    const id = text(conversation?.worklineId);
+    if (!id || seen.has(id)) return;
+    seen.add(id);
+    const members = membersByWorkline.get(id) || [conversation];
+    const head = pickWorklineHead(members);
+    clusters.push({
+      head,
+      children: members.filter((item) => item.agentId !== head.agentId),
+    });
+  });
+  return clusters;
+}
+
+function navigationWorklineConversationTrigger(worklineId) {
+  const label = t("shell.newConversation");
+  return `<button class="navigation-row-fork" type="button" data-workline-conversation-trigger data-workline-id-conversation="${escapeNavigationHtml(worklineId)}" aria-label="${escapeNavigationHtml(label)}" title="${escapeNavigationHtml(label)}">+</button>`;
+}
+
+// Distinct from the sidebar-header "+", which opens the directory flow, and from
+// the conversation-row "+" which adds another chat on the same workline.
 function navigationForkTrigger(projectId) {
   const label = t("shell.newWorkline");
   return `<button class="navigation-row-fork" type="button" data-project-fork-trigger data-project-id-fork="${escapeNavigationHtml(projectId)}" aria-label="${escapeNavigationHtml(label)}" title="${escapeNavigationHtml(label)}">+</button>`;
@@ -688,7 +747,7 @@ function navigationForkTrigger(projectId) {
 // navigation change, which would spring every group open again.
 export function navigationDisclosure(scope, id, expanded, label) {
   const key = `${scope}:${id}`;
-  return `<button class="navigation-disclosure${expanded ? " expanded" : ""}" type="button" data-navigation-disclosure="${escapeNavigationHtml(key)}" aria-expanded="${expanded ? "true" : "false"}" aria-label="${escapeNavigationHtml(label)}" title="${escapeNavigationHtml(label)}"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m9 6 6 6-6 6"></path></svg></button>`;
+  return `<button class="navigation-disclosure${expanded ? " expanded" : ""}" type="button" draggable="false" data-navigation-disclosure="${escapeNavigationHtml(key)}" aria-expanded="${expanded ? "true" : "false"}" aria-label="${escapeNavigationHtml(label)}" title="${escapeNavigationHtml(label)}"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m9 6 6 6-6 6"></path></svg></button>`;
 }
 
 // Which conversation gives a project row its name. The open one wins so the row
@@ -706,11 +765,12 @@ function renderProject(project, activeProjectId, options = {}) {
   const active = options.activeSelectionKind !== "conversation" && project.id === activeProjectId;
   const path = project.gitPath || project.id;
   const displayPath = compactDisplayPath(path);
-  // A project's name is normally its directory, so the row used to read as the
-  // same path twice: once as the title and once as the meta line underneath.
-  // Prefer the conversation the row actually represents, which is what the
-  // header shows and what the reader recognises the row by.
-  const headline = text(options.headline) || project.name;
+  // Visible label is the folder name. A stored name that is actually the working
+  // directory is shortened the same way conversation titles are. The full path
+  // stays on the native tooltip, so it appears only while the pointer rests on
+  // the row rather than as a second line under the name.
+  const headline = displayFolderName(text(options.headline) || project.name);
+  const hoverPath = displayPath || headline;
   const counts = options.taskCounts?.[project.id] || {};
   const activeTasks = Number(counts.todo || 0) + Number(counts.doing || 0) + Number(counts.blocked || 0);
   const taskMeta = options.taskContext
@@ -720,17 +780,22 @@ function renderProject(project, activeProjectId, options = {}) {
   const unread = options.unread === true;
   const stateClass = `${project.pinned ? "pinned " : ""}${project.archivedAt ? "archived " : ""}`;
   const stateMeta = navigationStateMarkup({ pinned: project.pinned, archivedAt: project.archivedAt });
-  const icon = `<svg viewBox="0 0 20 20"><path d="M3.5 6.2h4.2l1.4 1.6H16.5v7.2H3.5z"></path></svg>`;
+  const folderClosed = `<span class="navigation-agent-icon navigation-folder-icon navigation-folder-closed theme-icon-slot" data-theme-icon-slot="sidebar-project" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"></path></svg></span>`;
+  const folderOpen = `<span class="navigation-agent-icon navigation-folder-icon navigation-folder-open" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="m6 14 1.45-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.54 6a2 2 0 0 1-1.95 1.5H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H18a2 2 0 0 1 2 2v2"></path></svg></span>`;
+  // The caret lives in the folder slot and only paints while the pointer is on
+  // that slot, so the resting row stays "folder + name" like Cursor's tree.
+  // Expanded groups swap the closed glyph for an open folder.
+  // The row "+" follows the folder name inside the title so a wide column
+  // cannot park it on the far right. Hover lets the name ellipsize to make room.
+  const twist = `<span class="navigation-project-twist">${options.disclosure || ""}${folderClosed}${folderOpen}</span>`;
   return `
-    <div class="navigation-conversation-row navigation-project-row ${options.taskContext ? "task-context " : ""}${active ? "active " : ""}${statusClass ? `status-${statusClass} ` : ""}${unread ? "unread " : ""}project-card ${stateClass}" role="button" tabindex="0" draggable="true"       title="${escapeNavigationHtml(headline)}" data-project-id="${escapeNavigationHtml(project.id)}" data-navigation-kind="project" data-navigation-id="${escapeNavigationHtml(project.id)}"${statusClass ? ` data-agent-status="${escapeNavigationHtml(statusClass)}"` : ""}${unread ? " data-agent-unread=\"true\"" : ""} data-navigation-context="${options.taskContext ? "tasks" : "project"}">
-      ${options.disclosure || ""}
-      <span class="navigation-agent-icon theme-icon-slot" data-theme-icon-slot="sidebar-project" aria-hidden="true">${icon}</span>
+    <div class="navigation-conversation-row navigation-project-row ${options.taskContext ? "task-context " : ""}${active ? "active " : ""}${statusClass ? `status-${statusClass} ` : ""}${unread ? "unread " : ""}project-card ${stateClass}" role="button" tabindex="0" draggable="true"       title="${escapeNavigationHtml(hoverPath)}" data-project-id="${escapeNavigationHtml(project.id)}" data-navigation-kind="project" data-navigation-id="${escapeNavigationHtml(project.id)}"${statusClass ? ` data-agent-status="${escapeNavigationHtml(statusClass)}"` : ""}${unread ? " data-agent-unread=\"true\"" : ""} data-navigation-context="${options.taskContext ? "tasks" : "project"}">
+      ${twist}
       <span class="navigation-conversation-main">
-        <span class="navigation-conversation-title navigation-project-title"><span class="project-name">${escapeNavigationHtml(headline)}</span>${stateMeta}</span>
+        <span class="navigation-conversation-title navigation-project-title"><span class="project-name">${escapeNavigationHtml(headline)}</span>${stateMeta}${options.taskContext ? "" : navigationForkTrigger(project.id)}</span>
         <span class="navigation-conversation-meta project-path" title="${escapeNavigationHtml(path)}">${escapeNavigationHtml(displayPath)}</span>
       </span>
       ${taskMeta}
-      ${options.taskContext ? "" : navigationForkTrigger(project.id)}
     </div>`;
 }
 
@@ -770,15 +835,14 @@ function renderConversation(conversation, activeAgentId, nested = false, options
       ? `<svg viewBox="0 0 20 20"><circle cx="7" cy="5" r="1.8"></circle><circle cx="7" cy="15" r="1.8"></circle><circle cx="14" cy="8" r="1.8"></circle><path d="M7 6.8v6.4M7 6.8c2 0 7 .5 7 1.2" stroke-linecap="round"></path></svg>`
       : `<svg viewBox="0 0 20 20"><path d="M5 4.5h10a2 2 0 0 1 2 2V12a2 2 0 0 1-2 2H9l-4 2.5V14a2 2 0 0 1-2-2V6.5a2 2 0 0 1 2-2Z"></path></svg>`;
   return `
-    <div class="navigation-conversation-row ${nested ? "nested " : ""}${nestedFork ? "fork-conversation " : ""}${taskContext ? "task-context " : ""}${active ? "active " : ""}status-${statusClass} ${unread ? "unread " : ""}${stateClass}" role="button" tabindex="0" draggable="true"${active ? ` aria-current="true"` : ""} title="${escapeNavigationHtml(conversation.agentTitle)}" data-navigation-target="${escapeNavigationHtml(conversation.targetId)}" data-navigation-kind="conversation" data-navigation-id="${escapeNavigationHtml(conversation.agentId)}" data-agent-status="${escapeNavigationHtml(conversation.agentStatus || "idle")}"${unread ? " data-agent-unread=\"true\"" : ""} data-navigation-context="${taskContext ? "tasks" : "project"}"${orderScope ? ` data-conversation-order-scope="${escapeNavigationHtml(orderScope)}"` : ""}>
+    <div class="navigation-conversation-row ${nested ? "nested " : ""}${nestedFork ? "fork-conversation " : ""}${taskContext ? "task-context " : ""}${active ? "active " : ""}status-${statusClass} ${unread ? "unread " : ""}${stateClass}" role="button" tabindex="0" draggable="true"${active ? ` aria-current="true"` : ""} title="${escapeNavigationHtml(conversationHoverTitle(conversation))}" data-navigation-target="${escapeNavigationHtml(conversation.targetId)}" data-navigation-kind="conversation" data-navigation-id="${escapeNavigationHtml(conversation.agentId)}" data-agent-status="${escapeNavigationHtml(conversation.agentStatus || "idle")}"${unread ? " data-agent-unread=\"true\"" : ""} data-navigation-context="${taskContext ? "tasks" : "project"}"${orderScope ? ` data-conversation-order-scope="${escapeNavigationHtml(orderScope)}"` : ""}>
       ${options.disclosure || ""}
       <span class="navigation-agent-icon theme-icon-slot" data-theme-icon-slot="${nestedFork ? "sidebar-fork" : "sidebar-conversation"}" aria-hidden="true">${icon}</span>
       <span class="navigation-conversation-main">
-        <span class="navigation-conversation-title"><span class="navigation-title-text">${escapeNavigationHtml(displayTitle)}</span>${stateMeta}</span>
+        <span class="navigation-conversation-title"><span class="navigation-title-text">${escapeNavigationHtml(displayTitle)}</span>${stateMeta}${options.worklineCreate && conversation.worklineId ? navigationWorklineConversationTrigger(conversation.worklineId) : ""}</span>
         <span class="navigation-conversation-meta" title="${escapeNavigationHtml(meta)}">${escapeNavigationHtml(meta)}</span>
       </span>
       ${relativeTime ? `<span class="navigation-conversation-time">${escapeNavigationHtml(relativeTime)}</span>` : ""}
-      ${navigationMoreTrigger("conversation", conversation.agentId)}
     </div>`;
 }
 
@@ -809,10 +873,8 @@ export function renderNavigationHTML(view = {}, options = {}) {
     : options.activeSelectionKind === "project" || options.activeSelectionKind === "conversation"
       ? options.activeSelectionKind
       : activeAgentId ? "conversation" : "project";
-  // Nodes are addressed as "scope:id". For "project" the entry means collapsed,
-  // so an untouched group shows its children. The "fork-open" scope reads the
-  // other way -- presence means expanded -- because branches start closed; see
-  // the forksOpen call below for why that scope is separate.
+  // Nodes are addressed as "scope:id". For "project" and "workline" the entry
+  // means collapsed, so an untouched group shows its children.
   const collapsed = options.collapsedNodes instanceof Set
     ? options.collapsedNodes
     : new Set(Array.isArray(options.collapsedNodes) ? options.collapsedNodes.map(text).filter(Boolean) : []);
@@ -837,82 +899,30 @@ export function renderNavigationHTML(view = {}, options = {}) {
         ? applyConversationOrder(group.conversations, options.conversationOrders[group.project.id], seenMap)
         : group.conversations;
 
-      // Split into root workline conversations and fork conversations. Root
-      // conversations keep their existing position; fork conversations are
-      // rendered as nested children immediately below their root sibling.
-      // When a project only has one workline (no forks), this is a no-op.
-      //
-      // "Fork child" is the narrow case: it must point at a parent workline.
-      // Everything else is a root row, so a conversation with an unexpected
-      // worklineRole can never silently vanish from the sidebar.
-      const isForkChild = (c) => c.worklineRole !== "root" && Boolean(c.worklineBranch) && Boolean(c.worklineParentId);
-      const rootConvs = orderedConvs.filter((c) => !isForkChild(c));
-      const forksByWorklineId = new Map();
-      orderedConvs.forEach((c) => {
-        if (!isForkChild(c)) return;
-        const list = forksByWorklineId.get(c.worklineParentId) || [];
-        list.push(c);
-        forksByWorklineId.set(c.worklineParentId, list);
-      });
-      const hasForks = forksByWorklineId.size > 0;
-      // A fork whose parent is missing from this project would otherwise be
-      // dropped; render it as a plain row so nothing is lost.
-      const rootWorklineIds = new Set(rootConvs.map((c) => c.worklineId).filter(Boolean));
-      const orphanForks = [...forksByWorklineId.entries()]
-        .filter(([parentId]) => !rootWorklineIds.has(parentId))
-        .flatMap(([, list]) => list);
-
-      const convsHTML = [
-        ...rootConvs.map((conversation) => {
-          const forks = hasForks ? (forksByWorklineId.get(conversation.worklineId) || []) : [];
-          if (!forks.length) {
-            return renderConversation(conversation, activeAgentId, true, { activeSelectionKind, orderScope: group.project.id, seenMap, now: options.now });
-          }
-          // Only a conversation that actually has forks gets a triangle; giving
-          // every row one would put a control next to nothing to disclose.
-          //
-          // Forks are the one node type that starts closed, so the scope is
-          // "fork-open" and presence means expanded -- the opposite of every
-          // other entry in this set. Inverting the "conversation" scope in place
-          // would have been smaller, but it would also have redefined records
-          // already in localStorage: a reader who had collapsed a fork would find
-          // it forced open. Under a new scope the old entries simply stop
-          // applying, and what they used to describe is now the default anyway.
-          // Only the reader's own record decides this. Being inside one of the
-          // forks used to force the group open, which defeated both halves of the
-          // contract: branches no longer rested closed, and the triangle became a
-          // dead control, because collapsing removed a record the override
-          // immediately outvoted, so the group sprang back open on the next render.
-          // The conversation itself is what shows where the reader is; the sidebar
-          // does not have to hold a group open to say so.
-          const forksOpen = collapsed.has(`fork-open:${conversation.agentId}`);
-          const rootHTML = renderConversation(conversation, activeAgentId, true, {
-            activeSelectionKind,
-            orderScope: group.project.id,
-            seenMap,
-            now: options.now,
-            // Same rule as the project row one tier up, which was missing here: while
-            // the forks are folded away this row is the only thing standing for them,
-            // so it carries their unread mark.
-            //
-            // Without it the mark vanished on the way down. A collapsed project row
-            // aggregates over every conversation in the group, forks included, so an
-            // unread fork turned it green; expanding the project stopped that
-            // aggregation, and the fork was still hidden inside its own collapsed
-            // group, so nothing on screen was green any more. Expanding a group to
-            // look for the new reply was what hid it.
-            hiddenUnread: !forksOpen && aggregateNavigationUnread(forks, seenMap, activeAgentId),
-            disclosure: navigationDisclosure("fork-open", conversation.agentId, forksOpen, t("workspace.navigation.toggleForks")),
-          });
-          const forksHTML = forks.map((fork) =>
-            renderConversation(fork, activeAgentId, true, { activeSelectionKind, orderScope: group.project.id, nestedFork: true, seenMap, now: options.now }),
-          ).join("");
-          return `${rootHTML}<div class="navigation-workline-forks"${forksOpen ? "" : " hidden"}>${forksHTML}</div>`;
-        }),
-        ...orphanForks.map((fork) =>
-          renderConversation(fork, activeAgentId, true, { activeSelectionKind, orderScope: group.project.id, nestedFork: true, seenMap, now: options.now }),
-        ),
-      ].join("");
+      const convsHTML = clusterConversationsByWorkline(orderedConvs).map(({ head, children }) => {
+        const gitFork = isGitWorklineFork(head);
+        const childrenOpen = !collapsed.has(`workline:${head.worklineId}`);
+        const headHTML = renderConversation(head, activeAgentId, true, {
+          activeSelectionKind,
+          orderScope: group.project.id,
+          seenMap,
+          now: options.now,
+          nestedFork: gitFork,
+          worklineCreate: true,
+          hiddenUnread: Boolean(children.length) && !childrenOpen && aggregateNavigationUnread(children, seenMap, activeAgentId),
+          disclosure: children.length
+            ? navigationDisclosure("workline", head.worklineId, childrenOpen, t("workspace.navigation.toggleConversations"))
+            : "",
+        });
+        if (!children.length) return headHTML;
+        const childrenHTML = children.map((child) => renderConversation(child, activeAgentId, true, {
+          activeSelectionKind,
+          orderScope: group.project.id,
+          seenMap,
+          now: options.now,
+        })).join("");
+        return `${headHTML}<div class="navigation-workline-forks"${childrenOpen ? "" : " hidden"}>${childrenHTML}</div>`;
+      }).join("");
 
       const projectStatus = aggregateNavigationAgentStatus(group.conversations);
       const groupOpen = !collapsed.has(`project:${group.project.id}`);

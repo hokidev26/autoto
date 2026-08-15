@@ -108,6 +108,7 @@ import {
   getCollapsedNavNodes,
   getConversationOrders,
   getProjectOrder,
+  expandCollapsedNavNodes,
   saveConversationOrder,
   saveProjectOrder,
   toggleCollapsedNavNode,
@@ -351,6 +352,7 @@ export const state = {
   agentModelSettings: null,
   projectCreating: false,
   worklineForking: false,
+  worklineConversationCreating: false,
   projectCreateSeq: 0,
   projectSelectSeq: 0,
   initializing: false,
@@ -3083,6 +3085,54 @@ async function createProjectWorkline(projectId, trigger = null, options = {}) {
   }
 }
 
+async function createWorklineConversation(worklineId, trigger = null, options = {}) {
+  const id = String(worklineId || "").trim();
+  if (!id || state.worklineConversationCreating) return null;
+  const requestBody = {};
+  const title = String(options?.title || t("shell.newConversation")).trim();
+  const model = String(options?.model || currentModelValue() || "").trim();
+  const permissionMode = String(options?.permissionMode || "").trim();
+  if (title) requestBody.title = title;
+  if (model) requestBody.model = model;
+  if (permissionMode) requestBody.permissionMode = permissionMode;
+  state.worklineConversationCreating = true;
+  if (trigger) {
+    trigger.disabled = true;
+    trigger.setAttribute("aria-busy", "true");
+  }
+  showToast(t("shell.newConversationCreating"), "info");
+  try {
+    const created = await api(`/api/worklines/${encodeURIComponent(id)}/conversations`, {
+      method: "POST",
+      body: JSON.stringify(requestBody),
+    });
+    const agentId = String(created?.agent?.id || "").trim();
+    const projectId = String(created?.project?.id || created?.workline?.projectId || "").trim();
+    expandCollapsedNavNodes([`workline:${id}`, projectId ? `project:${projectId}` : ""]);
+    await loadProjects();
+    if (agentId) {
+      const conversation = state.navigationConversations.find((item) => item.agentId === agentId) || {
+        agentId,
+        agentTitle: created?.agent?.title || title || agentId,
+        projectId,
+        worklineId: created?.workline?.id || id,
+        context: "project",
+      };
+      await selectNavigationConversation(conversation);
+    }
+    return created;
+  } catch (error) {
+    showToast(error?.message || t("shell.newConversationFailed"), "error", { force: true });
+    return null;
+  } finally {
+    state.worklineConversationCreating = false;
+    if (trigger) {
+      trigger.disabled = false;
+      trigger.removeAttribute("aria-busy");
+    }
+  }
+}
+
 async function launchOverviewPrompt({ text, projectId = "", model = "", reasoningEffort = "auto" } = {}) {
   const prompt = String(text || "").trim();
   if (!prompt) throw new Error(t("overview.promptRequired"));
@@ -3176,6 +3226,10 @@ function bindProjectDrag(el) {
   }
 
   el.addEventListener("dragstart", (event) => {
+    if (event.target?.closest?.("[data-navigation-disclosure], [data-project-fork-trigger], [data-workline-conversation-trigger]")) {
+      event.preventDefault();
+      return;
+    }
     // A conversation row inside a group owns its own drag; ignore those here.
     if (event.target?.closest?.("[data-navigation-target]")) return;
     const { id, element } = projectDragTarget(event.target);
@@ -3259,6 +3313,10 @@ function bindConversationDrag(el) {
   }
 
   el.addEventListener("dragstart", (event) => {
+    if (event.target?.closest?.("[data-navigation-disclosure], [data-workline-conversation-trigger]")) {
+      event.preventDefault();
+      return;
+    }
     const row = event.target?.closest?.("[data-navigation-target][draggable]");
     if (!row) return;
     const orderScope = conversationOrderScope(row);
@@ -3436,6 +3494,11 @@ function renderProjects() {
   });
   bindNavigationMenuTriggers();
   el.querySelectorAll("[data-navigation-disclosure]").forEach((node) => {
+    node.addEventListener("mousedown", (event) => {
+      // The row and group are draggable. Without this, WebView starts a drag
+      // on mousedown and the click that should toggle never fires.
+      event.stopPropagation();
+    });
     node.addEventListener("click", (event) => {
       // The row behind the triangle is itself a button, so without this the
       // toggle would also navigate to whatever it sits on.
@@ -3452,6 +3515,13 @@ function renderProjects() {
       event.preventDefault();
       event.stopPropagation();
       createProjectWorkline(node.dataset.projectIdFork, node);
+    });
+  });
+  el.querySelectorAll("[data-workline-conversation-trigger]").forEach((node) => {
+    node.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      createWorklineConversation(node.dataset.worklineIdConversation, node);
     });
   });
   el.querySelectorAll("[data-primary-workbench-target]").forEach((node) => {

@@ -66,11 +66,6 @@ test("active 列的視覺標記取自主題變數", () => {
     styles,
     /body\.white-shell\.theme-light \.navigation-conversation-row\.active \.navigation-title-text \{[\s\S]*?font-weight:\s*600/,
   );
-  // The fork rows carry their own left border, so the accent belongs there.
-  assert.match(
-    styles,
-    /\.navigation-conversation-row\.fork-conversation\.active \{[\s\S]*?border-left-width:\s*3px[\s\S]*?box-shadow:\s*none/,
-  );
 });
 
 // Re-entering an already-open conversation ran the whole load pipeline again,

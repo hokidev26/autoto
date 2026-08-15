@@ -276,7 +276,7 @@ test("desktop home overview stays available while mobile starts in conversation"
   assert.match(appMain, /autoto:auth-changed[\s\S]*?if \(state\.initializing\) state\.initRestartRequested = true[\s\S]*?init\(\)\.catch\(showError\)/);
   assert.match(initBody, /const restartRequested = seq === state\.initSeq && state\.initRestartRequested[\s\S]*?queueMicrotask\(restart\)/);
   assert.match(appMain, /async function launchOverviewPrompt\([\s\S]*?resolveTopNavigationProjectId\([\s\S]*?selectProject\(selectedProjectId, \{ preserveMessageState: true \}\)[\s\S]*?saveReasoningEffort\([\s\S]*?setMessageInputValue\(prompt, \{ saveDraft: false \}\)[\s\S]*?sendMessage\(\{ preventDefault\(\) \{\} \}\)/);
-  assert.doesNotMatch(appMain, /createStandaloneConversation|\/api\/conversations/);
+  assert.doesNotMatch(appMain, /createStandaloneConversation|["'`]\/api\/conversations/);
   assert.match(appMain, /key === "home"[\s\S]*?openOverviewDashboard\(\)\.catch\(showError\)/);
   assert.match(appMain, /overviewDashboard\.load\(\)/);
   assert.match(appMain, /createNavigationStartupGuard/);
@@ -564,7 +564,7 @@ test("conversation sidebar exposes one project navigation without a standalone f
   assert.doesNotMatch(html, /navigationFilters|data-navigation-mode="conversations"|data-create-conversation|mobileNewConversationBtn/);
   assert.doesNotMatch(html, /navigationListHeading|navigation-list-heading/);
   assert.doesNotMatch(styles, /\.navigation-list-heading/);
-  assert.doesNotMatch(appMain, /navigationListHeading|createStandaloneConversation|\/api\/conversations/);
+  assert.doesNotMatch(appMain, /navigationListHeading|createStandaloneConversation|["'`]\/api\/conversations/);
   assert.match(appMain, /navigationMode:\s*"projects"/);
   assert.match(html, /id="recentSidebarConversations"/);
   // The recent-directories sidebar block is gone from the shell. It used to be
@@ -589,7 +589,7 @@ test("all interactive creation routes use project selection and never call the r
   assert.match(appMain, /async function createNavigationItem\(trigger = null\)/);
   assert.match(appMain, /const target = currentNavigationCreateTarget\(\)[\s\S]*?if \(target === "schedule"\) return startScheduleCreation\(\)[\s\S]*?openDirectoryChooser\(state\.project\?\.gitPath \|\| state\.agent\?\.cwd \|\| "", \{ trigger \}\)/);
   assert.match(appMain, /\[data-create-navigation-item\][\s\S]*?createNavigationItem\(button\)/);
-  assert.doesNotMatch(`${app}${appMain}`, /createStandaloneConversation|\/api\/conversations|standaloneConversationCreating/);
+  assert.doesNotMatch(`${app}${appMain}`, /createStandaloneConversation|["'`]\/api\/conversations|standaloneConversationCreating/);
 });
 
 test("conversation navigation exposes archive, pin, and accessible context-menu controls", async () => {
@@ -602,9 +602,13 @@ test("conversation navigation exposes archive, pin, and accessible context-menu 
 
   assert.doesNotMatch(html, /id="navigationArchiveToggleBtn"/);
   assert.match(html, /id="navigationContextMenu"[^>]*role="menu"/);
+  assert.match(appMain, /createProjectWorkline\(/);
+  assert.match(appMain, /createWorklineConversation\(/);
+  assert.match(appMain, /data-workline-conversation-trigger/);
+  assert.match(appMain, /\/api\/worklines\/\$\{encodeURIComponent\(id\)\}\/conversations/);
   assert.match(html, /data-navigation-menu-action="pin"/);
   assert.match(html, /data-navigation-menu-action="archive"/);
-  assert.match(navigation, /data-navigation-menu-trigger/);
+  assert.doesNotMatch(navigation, /data-navigation-menu-trigger|class="navigation-row-actions"/);
   assert.match(navigation, /navigation-state-badge pinned/);
   assert.match(navigation, /navigation-state-badge archived/);
   assert.match(appMain, /createArchiveSettingsController/);
@@ -819,8 +823,21 @@ test("desktop conversation layout follows the compact resizable geometry", async
   // The PROJECT badge is no longer rendered: it existed to tell project rows
   // apart from standalone conversation rows, and those are one thing now. Its
   // rules are left in place as inert styling rather than asserted here.
-  assert.match(styles, /body\.white-shell\.theme-light \.navigation-conversation-row\s*\{[\s\S]*?min-height:\s*34px[\s\S]*?grid-template-columns:\s*14px minmax\(0, 1fr\) max-content auto/);
-  assert.match(styles, /body\.white-shell\.theme-light \.navigation-project-group \+ \.navigation-project-group\s*\{[\s\S]*?margin-top:\s*2px/);
+  assert.match(styles, /body\.white-shell\.theme-light \.navigation-conversation-row\s*\{[\s\S]*?min-height:\s*34px[\s\S]*?grid-template-columns:\s*14px minmax\(0, 1fr\) max-content;/);
+  assert.match(styles, /body\.white-shell\.theme-light \.navigation-project-group \+ \.navigation-project-group\s*\{[\s\S]*?margin-top:\s*16px/);
+  assert.match(styles, /body\.white-shell\.theme-light \.navigation-project-row \.project-name\s*\{[\s\S]*?flex:\s*0 1 auto/);
+  assert.match(styles, /body\.white-shell\.theme-light \.navigation-conversation-title \.navigation-row-fork\s*\{[\s\S]*?max-width:\s*0/);
+  assert.match(styles, /body\.white-shell\.theme-light \.navigation-project-group > \.navigation-project-row:has\(> \.project-task-counts\)\s*\{[\s\S]*?grid-template-columns:\s*16px minmax\(0, 1fr\) auto/);
+  assert.match(styles, /body\.white-shell\.theme-light \.navigation-conversation-row\[draggable\]\s*,[\s\S]*?cursor:\s*pointer/);
+  assert.doesNotMatch(styles, /body\.white-shell\.theme-light \.navigation-conversation-row\[draggable\]\s*\{[^}]*cursor:\s*grab;/);
+  assert.match(styles, /body\.white-shell\.theme-light \.navigation-project-twist:has\(> \.navigation-disclosure\.expanded\) \.navigation-folder-icon\.navigation-folder-open\s*\{[\s\S]*?display:\s*inline-flex/);
+  assert.match(styles, /body\.white-shell\.theme-light \.navigation-project-twist \.navigation-folder-icon\s*\{[\s\S]*?pointer-events:\s*none/);
+  assert.match(appMain, /closest\?\.\("\[data-navigation-disclosure]/);
+  assert.match(styles, /body\.white-shell\.theme-light \.navigation-project-twist \.navigation-disclosure\s*\{[\s\S]*?opacity:\s*0/);
+  assert.match(styles, /body\.white-shell\.theme-light \.navigation-project-twist:is\(:hover, :focus-within\) \.navigation-disclosure\s*\{[\s\S]*?opacity:\s*1/);
+  assert.match(styles, /body\.white-shell\.theme-light \.navigation-project-twist:is\(:hover, :focus-within\) \.navigation-folder-icon\s*\{[\s\S]*?opacity:\s*0/);
+  assert.match(styles, /body\.white-shell\.theme-light \.navigation-conversation-row\.nested \.navigation-agent-icon\s*\{[\s\S]*?display:\s*none/);
+  assert.match(styles, /body\.white-shell\.theme-light \.navigation-conversation-row\.nested\s*\{[\s\S]*?padding:\s*4px 7px 4px 28px/);
   assert.match(styles, /body\.white-shell\.theme-light \.messages:not\(\.empty\)\s*\{[\s\S]*?grid-template-columns:\s*minmax\(0, 1fr\)[\s\S]*?grid-auto-rows:\s*max-content[\s\S]*?justify-content:\s*start[\s\S]*?row-gap:\s*14px[\s\S]*?padding:\s*12px 8px 12px/);
   assert.match(styles, /body\.white-shell\.theme-light \.project-list::-webkit-scrollbar\s*\{[\s\S]*?width:\s*6px/);
   assert.match(styles, /body\.white-shell\.theme-light \.messages::-webkit-scrollbar\s*\{[\s\S]*?width:\s*6px/);
@@ -843,7 +860,7 @@ test("desktop conversation layout follows the compact resizable geometry", async
   assert.match(finalDesktopComposer, /textarea#messageText\s*\{[\s\S]*?border-radius:\s*7px/);
   assert.match(finalDesktopComposer, /#sendMessageBtn\s*\{[\s\S]*?border-radius:\s*7px/);
   assert.match(styles, /\.sidebar-resize-handle\s*\{[\s\S]*?cursor:\s*col-resize/);
-  assert.match(html, /id="sidebarResizeHandle"[^>]*role="separator"[^>]*aria-valuemin="184"[^>]*aria-valuemax="420"/);
+  assert.match(html, /id="sidebarResizeHandle"[^>]*role="separator"[^>]*aria-valuemin="184"[^>]*aria-valuemax="340"/);
   // The session column's compact stage is retired: no compact header title and
   // no collapsed-column grid variable are left in the shell.
   assert.doesNotMatch(html, /session-sidebar-compact-title/);
@@ -1404,6 +1421,7 @@ test("sidebar resize width clamps pointer values and keeps a stable preference k
   assert.equal(sidebarWidthPreferenceKey, "autoto.ui.sessionSidebarWidth");
   assert.equal(normalizeSidebarWidth(undefined), defaultSidebarWidth);
   assert.equal(normalizeSidebarWidth(100), minSidebarWidth);
+  assert.equal(maxSidebarWidth, 340);
   assert.equal(normalizeSidebarWidth(900), maxSidebarWidth);
   assert.equal(normalizeSidebarWidth("333.6"), 334);
   assert.equal(sidebarWidthFromPointer(510, 180), 330);
@@ -1417,7 +1435,7 @@ test("sidebar resizer restores, drags, keys, persists, and cleans up", () => {
   const bodyClasses = new Set();
   const styleValues = new Map();
   const attributes = new Map();
-  const storage = new MemoryStorage([[sidebarWidthPreferenceKey, "340"]]);
+  const storage = new MemoryStorage([[sidebarWidthPreferenceKey, "300"]]);
   const scrollNode = ({ hidden = false } = {}) => ({
     classList: { contains(name) { return hidden && name === "hidden"; } },
     clientHeight: 200,
@@ -1476,14 +1494,14 @@ test("sidebar resizer restores, drags, keys, persists, and cleans up", () => {
   try {
     const controller = createUIShellController({ state: {}, resizeTerminal() {} });
     const cleanup = controller.bindSidebarResizer({ storage });
-    assert.equal(styleValues.get("--session-sidebar-width"), "340px");
-    assert.equal(attributes.get("aria-valuenow"), "340");
+    assert.equal(styleValues.get("--session-sidebar-width"), "300px");
+    assert.equal(attributes.get("aria-valuenow"), "300");
 
     let prevented = false;
     elementListeners.get("keydown")({ key: "ArrowRight", shiftKey: false, preventDefault() { prevented = true; } });
     assert.equal(prevented, true);
-    assert.equal(styleValues.get("--session-sidebar-width"), "348px");
-    assert.equal(storage.getItem(sidebarWidthPreferenceKey), "348");
+    assert.equal(styleValues.get("--session-sidebar-width"), "308px");
+    assert.equal(storage.getItem(sidebarWidthPreferenceKey), "308");
 
     bodyClasses.add("workbench-mode");
     let mainWheelPrevented = false;
@@ -1513,8 +1531,8 @@ test("sidebar resizer restores, drags, keys, persists, and cleans up", () => {
     assert.equal(bodyClasses.has("sidebar-resizing"), true);
     windowListeners.get("pointermove")({ clientX: 500, preventDefault() {} });
     windowListeners.get("pointerup")({ pointerId: 1 });
-    assert.equal(styleValues.get("--session-sidebar-width"), "400px");
-    assert.equal(storage.getItem(sidebarWidthPreferenceKey), "400");
+    assert.equal(styleValues.get("--session-sidebar-width"), `${maxSidebarWidth}px`);
+    assert.equal(storage.getItem(sidebarWidthPreferenceKey), String(maxSidebarWidth));
     assert.equal(classes.has("is-dragging"), false);
 
     elementListeners.get("dblclick")();
@@ -1701,7 +1719,7 @@ test("navigation collapses through columns, docked and icons, and stays desktop-
     assert.equal(shell.classList.contains("nav-mode-icons"), false);
     assert.equal(shell.classList.contains("global-rail-collapsed"), false);
     assert.equal(globalCollapseButton.getAttribute("aria-expanded"), "true");
-    assert.equal(shell.styleValues.get("style:--session-sidebar-width"), "342px");
+    assert.equal(shell.styleValues.get("style:--session-sidebar-width"), `${maxSidebarWidth}px`);
     assert.equal(storage.getItem(navigationLayoutModePreferenceKey), "columns");
     assert.equal(sidebar.parent, sidebarShellParent);
 
@@ -1709,14 +1727,14 @@ test("navigation collapses through columns, docked and icons, and stays desktop-
     // was rewritten to "false" on first paint, and the column keeps its full
     // stored width -- the rail's three-way cycle is the only collapse control.
     assert.equal(shell.classList.contains("session-sidebar-collapsed"), false);
-    assert.equal(shell.styleValues.get("style:--session-sidebar-width"), "342px");
+    assert.equal(shell.styleValues.get("style:--session-sidebar-width"), `${maxSidebarWidth}px`);
 
     // columns -> docked: the list moves inside the rail and the width carries over.
     globalCollapseButton.dispatch("click", click);
     assert.equal(shell.classList.contains("nav-mode-docked"), true);
     assert.equal(shell.classList.contains("global-rail-collapsed"), false);
     assert.equal(globalCollapseButton.getAttribute("aria-expanded"), "true");
-    assert.equal(shell.styleValues.get("style:--session-sidebar-width"), "342px");
+    assert.equal(shell.styleValues.get("style:--session-sidebar-width"), `${maxSidebarWidth}px`);
     assert.equal(storage.getItem(navigationLayoutModePreferenceKey), "docked");
     assert.equal(sidebar.parent, conversationDock, "docked mode parents the sidebar to the rail dock");
     assert.equal(conversationDock.getAttribute("hidden"), null);
@@ -1730,11 +1748,11 @@ test("navigation collapses through columns, docked and icons, and stays desktop-
     // Pressing alone must not resize or switch layout: the divider does not always
     // rest at the stored boundary, so a press that applied its own position would
     // change the layout the moment it was touched.
-    separator.dispatch("pointerdown", { button: 0, clientX: 360, pointerId: 1, preventDefault() {} });
-    assert.equal(shell.styleValues.get("style:--session-sidebar-width"), "342px", "a press with no movement leaves the width alone");
+    separator.dispatch("pointerdown", { button: 0, clientX: 320, pointerId: 1, preventDefault() {} });
+    assert.equal(shell.styleValues.get("style:--session-sidebar-width"), `${maxSidebarWidth}px`, "a press with no movement leaves the width alone");
     assert.equal(shell.classList.contains("nav-mode-docked"), true, "a press with no movement leaves the layout alone");
-    windowListeners.get("pointermove")?.({ clientX: 360, preventDefault() {} });
-    assert.equal(shell.styleValues.get("style:--session-sidebar-width"), "360px");
+    windowListeners.get("pointermove")?.({ clientX: 320, preventDefault() {} });
+    assert.equal(shell.styleValues.get("style:--session-sidebar-width"), "320px");
     assert.equal(shell.classList.contains("session-sidebar-collapsed"), false, "docked mode has no compact form to fall into");
 
     // Dragging is the second route through the cycle. Widening past the column
@@ -1744,8 +1762,9 @@ test("navigation collapses through columns, docked and icons, and stays desktop-
     assert.equal(sidebar.parent, sidebarShellParent);
     assert.equal(sidebarActions.parent, sidebarHeaderParent);
     // The divider is what the user holds, so the width behind it is the total
-    // minus the icon rail the column layout still shows.
-    assert.equal(shell.styleValues.get("style:--session-sidebar-width"), `${navigationDragColumnsEnterWidth - globalRailExpandedWidth}px`);
+    // minus the icon rail the column layout still shows. Past the list cap the
+    // stored width stays at max rather than tracking the overshoot.
+    assert.equal(shell.styleValues.get("style:--session-sidebar-width"), `${maxSidebarWidth}px`);
 
     // Shrinking back past the exit threshold docks it again without letting go.
     windowListeners.get("pointermove")?.({ clientX: navigationDragColumnsExitWidth - 1, preventDefault() {} });
@@ -1760,11 +1779,11 @@ test("navigation collapses through columns, docked and icons, and stays desktop-
     windowListeners.get("pointermove")?.({ clientX: navigationDragIconsExitWidth + 1, preventDefault() {} });
     assert.equal(shell.classList.contains("nav-mode-docked"), true, "dragging out of the icon rail is possible");
 
-    windowListeners.get("pointermove")?.({ clientX: 360, preventDefault() {} });
+    windowListeners.get("pointermove")?.({ clientX: 320, preventDefault() {} });
     windowListeners.get("pointerup")?.({ pointerId: 1 });
     // One stored width across layouts, so whichever column holds the list next
     // inherits the size just dragged.
-    assert.equal(storage.getItem(sidebarWidthPreferenceKey), "360");
+    assert.equal(storage.getItem(sidebarWidthPreferenceKey), "320");
     assert.equal(storage.getItem(navigationLayoutModePreferenceKey), "docked");
 
     // docked -> icons: the sidebar returns to the shell so the hidden rail never

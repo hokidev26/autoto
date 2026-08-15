@@ -131,7 +131,7 @@
     gap: 2px;
   }
   body.white-shell.theme-light .navigation-project-group + .navigation-project-group {
-    margin-top: 4px;
+    margin-top: 16px;
   }
   body.white-shell.theme-light .project-card {
     min-height: 68px;

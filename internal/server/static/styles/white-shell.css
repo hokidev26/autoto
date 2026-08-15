@@ -462,23 +462,19 @@ body.white-shell.theme-light .navigation-conversation-row {
 }
 
 body.white-shell.theme-light .navigation-conversation-row.nested {
-  margin-left: 10px;
-  width: calc(100% - 10px);
+  margin-left: 0;
+  width: 100%;
 }
 
-/* Fork conversations are nested below their root workline sibling */
+/* Extra conversations on the same workline sit one indent under that branch. */
 body.white-shell.theme-light .navigation-workline-forks {
-  margin-left: 10px;
+  margin: 0 0 2px 16px;
+  padding-left: 6px;
+  border-left: 2px solid var(--ws-border, #e4e7ec);
 }
 
 body.white-shell.theme-light .navigation-conversation-row.fork-conversation {
   position: relative;
-  padding-left: 8px;
-  border-left: 2px solid var(--ws-border, #e4e7ec);
-}
-
-body.white-shell.theme-light .navigation-conversation-row.fork-conversation.active {
-  border-left-color: var(--ws-primary, #5369f3);
 }
 
 /* Which conversation you are in has to survive a sidebar full of near-identical
@@ -494,13 +490,6 @@ body.white-shell.theme-light .navigation-conversation-row.active {
 body.white-shell.theme-light .navigation-conversation-row.active .navigation-conversation-title,
 body.white-shell.theme-light .navigation-conversation-row.active .navigation-title-text {
   font-weight: 600;
-}
-
-/* The fork rows own their left border, so the accent goes there rather than in a
-   shadow that would sit on top of it. */
-body.white-shell.theme-light .navigation-conversation-row.fork-conversation.active {
-  border-left-width: 3px;
-  box-shadow: none;
 }
 
 body.white-shell.theme-light .navigation-conversation-row.fork-conversation .navigation-agent-icon {

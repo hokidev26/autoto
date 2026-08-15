@@ -11,6 +11,7 @@ import {
   createRecentConversationSyncController,
   aggregateNavigationAgentStatus,
   conversationDisplayTitle,
+  conversationHoverTitle,
   formatCompactRelativeTime,
   navigationAgentStatusClass,
   navigationRefreshDefaults,
@@ -63,6 +64,33 @@ test("真正的標題不會被誤判成路徑", () => {
   assert.equal(conversationDisplayTitle({}), "");
   assert.equal(conversationDisplayTitle({ agentTitle: "   " }), "");
   assert.equal(conversationDisplayTitle(null), "");
+});
+
+test("專案列顯示資料夾名稱，路徑只出現在滑鼠提示", () => {
+  const gitPath = "C:\\Users\\Ray\\Desktop\\autoto專案\\autoto";
+  const view = buildNavigationView({
+    projects: [{ id: "p1", name: gitPath, gitPath }],
+    conversations: [],
+  }, { mode: "all" });
+  const html = renderNavigationHTML(view);
+  assert.match(html, /<span class="project-name">autoto<\/span>/);
+  assert.ok(html.includes(`title="${gitPath}"`));
+  assert.doesNotMatch(html, /<span class="project-name">C:\\Users/);
+});
+
+test("對話列滑鼠提示顯示 Git 分支，沒有分支時才顯示標題", () => {
+  assert.equal(conversationHoverTitle({ worklineBranch: "autoto/fork-of-main-c39bc123", agentTitle: "讀取對話" }), "autoto/fork-of-main-c39bc123");
+  assert.equal(conversationHoverTitle({ agentTitle: "主線" }), "主線");
+  const html = renderNavigationHTML(buildNavigationView({
+    projects: [{ id: "p1", name: "Alpha", gitPath: "/work/alpha" }],
+    conversations: [
+      { projectId: "p1", worklineId: "w1", worklineBranch: "autoto/fork-of-main-c39bc123", agentId: "a1", agentTitle: "讀取對話" },
+      { projectId: "p1", worklineId: "w2", agentId: "a2", agentTitle: "主線" },
+    ],
+  }, { mode: "all" }));
+  assert.match(html, /navigation-project-row[^>]*title="\/work\/alpha"/);
+  assert.match(html, /navigation-conversation-row nested[^>]*title="autoto\/fork-of-main-c39bc123"/);
+  assert.match(html, /navigation-conversation-row nested[^>]*title="主線"/);
 });
 
 class FakeTimers {
@@ -219,7 +247,7 @@ test("navigation preserves pin and archive state and exposes action triggers", (
   const html = renderNavigationHTML(buildNavigationView(statePayload, { mode: "all" }));
   assert.match(html, /data-navigation-kind="project" data-navigation-id="p1"/);
   assert.match(html, /data-navigation-kind="conversation" data-navigation-id="a2"/);
-  assert.match(html, /data-navigation-menu-trigger/);
+  assert.doesNotMatch(html, /data-navigation-menu-trigger/);
   assert.match(html, /navigation-state-badge pinned/);
   assert.match(html, /navigation-state-badge archived/);
 });
@@ -294,11 +322,14 @@ test("project groups contain every conversation once and preserve recent orderin
   assert.match(projectContextHTML, /data-navigation-context="project"/);
   // Folder name stays on the group row. Conversation titles live on the nested
   // rows, matching the Cursor-style tree the sidebar is aiming for.
-  assert.match(html, /navigation-project-title"><span class="project-name">Alpha<\/span><\/span>/);
-  assert.match(html, /navigation-project-row[^>]*title="Alpha"/);
+  assert.match(html, /navigation-project-title"><span class="project-name">Alpha<\/span><button class="navigation-row-fork"/);
+  assert.match(html, /navigation-project-row[^>]*title="\/work\/alpha"/);
+  assert.match(html, /navigation-project-twist/);
+  assert.match(html, /navigation-folder-icon navigation-folder-closed[^>]*>[\s\S]*?M20 20a2 2 0 0 0 2-2V8/);
+  assert.match(html, /navigation-folder-open[^>]*>[\s\S]*?m6 14 1\.45-2\.9/);
   // The directory is still available, just not as the headline.
   assert.match(html, /navigation-conversation-meta project-path" title="\/work\/alpha"/);
-  assert.match(html, /navigation-conversation-row nested[^>]*title="Writer"/);
+  assert.match(html, /navigation-conversation-row nested[^>]*title="docs"/);
   assert.match(html, /navigation-conversation-time">31m<\/span>/);
   assert.match(html, /navigation-empty-conversations/);
   assert.doesNotMatch(html, /project-agent-count|AGENT 2/);
@@ -587,13 +618,17 @@ test("each project row carries its own fork trigger, distinct from the header cr
   // mistaken for the header's create-project action.
   assert.match(html, /data-project-fork-trigger data-project-id-fork="p1"/);
   assert.equal(html.match(/data-project-fork-trigger/g).length, 1);
-  // Project rows removed the "…" button; right-click already provides the same actions.
-  assert.doesNotMatch(html, /data-navigation-menu-trigger data-navigation-kind="project"/);
-  // Conversation rows still have the "…" button.
-  assert.match(html, /data-navigation-menu-trigger data-navigation-kind="conversation"/);
-  // Conversation rows are not forkable: a fork is per project.
+  // The "+" sits after the folder name, not as a trailing grid cell, so a wide
+  // sidebar cannot park it on the far right of the row.
+  assert.match(html, /class="project-name">autoto<\/span><button class="navigation-row-fork"/);
+  assert.match(html, /class="navigation-title-text">main<\/span><button class="navigation-row-fork"/);
+  // Pin and archive live on the right-click menu, so neither row carries "…".
+  assert.doesNotMatch(html, /data-navigation-menu-trigger/);
+  // Conversation rows are not git-forkable: a git branch is per project.
   const conversationRow = html.slice(html.indexOf("data-navigation-target"));
   assert.doesNotMatch(conversationRow, /data-project-fork-trigger/);
+  // They can add another conversation on the same workline.
+  assert.match(html, /data-workline-conversation-trigger data-workline-id-conversation="w1"/);
 });
 
 test("the task sidebar hides the fork trigger so its rows stay selection-only", () => {
@@ -737,14 +772,13 @@ test("renderNavigationHTML applies conversationOrders when provided", () => {
   const payload = {
     projects: [{ id: "p1", name: "autoto", gitPath: "/work" }],
     conversations: [
-      { projectId: "p1", worklineId: "w1", worklineTitle: "main", agentId: "b1", agentTitle: "B" },
-      { projectId: "p1", worklineId: "w1", worklineTitle: "main", agentId: "a1", agentTitle: "A" },
+      { projectId: "p1", worklineId: "w-b", worklineTitle: "B", agentId: "b1", agentTitle: "B" },
+      { projectId: "p1", worklineId: "w-a", worklineTitle: "A", agentId: "a1", agentTitle: "A" },
     ],
   };
   const html = renderNavigationHTML(buildNavigationView(payload, { mode: "all" }), {
     conversationOrders: { p1: ["b1", "a1"] },
   });
-  // b1 must appear before a1 in the HTML
   assert.ok(html.indexOf("a1") > html.indexOf("b1"), "b1 should come before a1 with the given order");
 });
 
@@ -782,25 +816,46 @@ const forkPayload = {
   ],
 };
 
-test("a forked conversation renders nested under the conversation it branched from", () => {
+test("a forked workline renders as a first-level sibling under the project", () => {
   const html = renderNavigationHTML(buildNavigationView(forkPayload, { mode: "all" }), { activeProjectId: "p1" });
-  assert.match(html, /navigation-workline-forks/);
   assert.match(html, /fork-conversation/);
+  const convs = html.indexOf('data-project-conversations="p1"');
   const parent = html.indexOf('data-navigation-id="a-root"');
-  const forkGroup = html.indexOf("navigation-workline-forks");
   const fork = html.indexOf('data-navigation-id="a-fork"');
-  assert.ok(parent >= 0 && parent < forkGroup && forkGroup < fork, "the fork sits in a group after its parent row");
+  assert.ok(convs >= 0 && parent > convs && fork > convs, "both rows sit directly under the project");
+  assert.doesNotMatch(html, /navigation-workline-forks/);
 });
 
 test("disclosure triangles appear only where there is something to disclose", () => {
   const html = renderNavigationHTML(buildNavigationView(forkPayload, { mode: "all" }), { activeProjectId: "p1" });
-  // The project has conversations and the mainline has a fork, so both get one.
+  // The project has conversations, so it gets a triangle. Git branches are
+  // first-level rows and do not hide under the parent conversation.
   assert.match(html, /data-navigation-disclosure="project:p1"/);
-  // Forks are addressed under the "fork-open" scope because they start closed and
-  // the stored entry therefore means expanded, not collapsed.
-  assert.match(html, /data-navigation-disclosure="fork-open:a-root"/);
-  // The fork itself has no children, so it must not carry a control over nothing.
-  assert.doesNotMatch(html, /data-navigation-disclosure="fork-open:a-fork"/);
+  assert.match(html, /navigation-disclosure[^>]*draggable="false"/);
+  assert.match(html, /navigation-project-twist[\s\S]*?data-navigation-disclosure="project:p1"[\s\S]*?navigation-folder-icon/);
+  assert.doesNotMatch(html, /data-navigation-disclosure="fork-open:/);
+  assert.doesNotMatch(html, /data-navigation-disclosure="workline:/);
+
+  // Extra conversations on the same workline do get a triangle on that branch.
+  const clustered = {
+    projects: forkPayload.projects,
+    conversations: [
+      ...forkPayload.conversations,
+      {
+        projectId: "p1", projectPath: "/work/alpha",
+        worklineId: "w-fork", worklineParentId: "w-root", worklineBranch: "feat/x", worklineTitle: "Fork of main",
+        agentId: "a-fork-chat", agentTitle: "Follow-up", messageCount: 0,
+      },
+    ],
+  };
+  const clusteredHTML = renderNavigationHTML(buildNavigationView(clustered, { mode: "all" }), { activeProjectId: "p1" });
+  assert.match(clusteredHTML, /data-navigation-disclosure="workline:w-fork"/);
+  assert.match(clusteredHTML, /navigation-workline-forks/);
+  const followUpAt = clusteredHTML.indexOf('data-navigation-id="a-fork-chat"');
+  assert.ok(followUpAt > clusteredHTML.indexOf("navigation-workline-forks"));
+  const followUpRow = clusteredHTML.slice(clusteredHTML.lastIndexOf('<div class="', followUpAt), followUpAt);
+  assert.doesNotMatch(followUpRow, /fork-conversation/);
+  assert.match(clusteredHTML, /data-workline-conversation-trigger data-workline-id-conversation="w-fork"/);
 
   // A project with no conversations has nothing to disclose either.
   const bare = renderNavigationHTML(
@@ -808,6 +863,7 @@ test("disclosure triangles appear only where there is something to disclose", ()
     { activeProjectId: "p1" },
   );
   assert.doesNotMatch(bare, /data-navigation-disclosure/);
+  assert.match(bare, /navigation-folder-icon/);
   assert.match(bare, /navigation-empty-conversations/);
 });
 
@@ -823,44 +879,37 @@ test("collapsed nodes hide their children and report it to assistive tech", () =
   assert.match(collapsedProject, /data-navigation-disclosure="project:p1"[^>]*aria-expanded="false"/);
   assert.match(collapsedProject, /data-project-conversations="p1" hidden/);
 
-  // Forks rest closed, so the untouched tree hides them and says so.
-  assert.match(open, /data-navigation-disclosure="fork-open:a-root"[^>]*aria-expanded="false"/);
-  assert.match(open, /navigation-workline-forks" hidden/);
+  const clustered = {
+    projects: forkPayload.projects,
+    conversations: [
+      ...forkPayload.conversations,
+      {
+        projectId: "p1", projectPath: "/work/alpha",
+        worklineId: "w-fork", worklineParentId: "w-root", worklineBranch: "feat/x", worklineTitle: "Fork of main",
+        agentId: "a-fork-chat", agentTitle: "Follow-up", messageCount: 0,
+      },
+    ],
+  };
+  const worklineOpen = renderNavigationHTML(buildNavigationView(clustered, { mode: "all" }), { activeProjectId: "p1" });
+  assert.match(worklineOpen, /data-navigation-disclosure="workline:w-fork"[^>]*aria-expanded="true"/);
+  assert.doesNotMatch(worklineOpen, /navigation-workline-forks" hidden/);
 
-  // Expanding is the explicit act, and it must not disturb the project group.
-  const expandedForks = renderNavigationHTML(buildNavigationView(forkPayload, { mode: "all" }), {
+  const worklineCollapsed = renderNavigationHTML(buildNavigationView(clustered, { mode: "all" }), {
     activeProjectId: "p1",
-    collapsedNodes: ["fork-open:a-root"],
+    collapsedNodes: ["workline:w-fork"],
   });
-  assert.match(expandedForks, /data-navigation-disclosure="fork-open:a-root"[^>]*aria-expanded="true"/);
-  assert.doesNotMatch(expandedForks, /navigation-workline-forks" hidden/);
-  assert.doesNotMatch(expandedForks, /data-project-conversations="p1" hidden/);
+  assert.match(worklineCollapsed, /data-navigation-disclosure="workline:w-fork"[^>]*aria-expanded="false"/);
+  assert.match(worklineCollapsed, /navigation-workline-forks" hidden/);
+  assert.doesNotMatch(worklineCollapsed, /data-project-conversations="p1" hidden/);
 });
 
-test("only the reader's own record opens a branch, even the one they are inside", () => {
-  // Being inside a fork used to force its group open. That defeated both halves of
-  // the contract: branches no longer rested closed, and the triangle became a dead
-  // control, because collapsing removed a record the override immediately outvoted
-  // and the group sprang back open on the next render.
-  //
-  // The tradeoff accepted here is that the sidebar no longer reveals which fork is
-  // active while the group is closed. The conversation itself carries that.
+test("a git branch stays visible at the first level even while its own chats are closed", () => {
   const html = renderNavigationHTML(buildNavigationView(forkPayload, { mode: "all" }), {
     activeProjectId: "p1",
     activeAgentId: "a-fork",
   });
-  assert.match(html, /data-navigation-disclosure="fork-open:a-root"[^>]*aria-expanded="false"/);
-  assert.match(html, /navigation-workline-forks" hidden/);
-
-  // And the record still opens it while the reader is inside that same fork, which
-  // is what the override used to make indistinguishable from its own default.
-  const opened = renderNavigationHTML(buildNavigationView(forkPayload, { mode: "all" }), {
-    activeProjectId: "p1",
-    activeAgentId: "a-fork",
-    collapsedNodes: ["fork-open:a-root"],
-  });
-  assert.match(opened, /data-navigation-disclosure="fork-open:a-root"[^>]*aria-expanded="true"/);
-  assert.doesNotMatch(opened, /navigation-workline-forks" hidden/);
+  assert.match(html, /data-navigation-id="a-fork"/);
+  assert.doesNotMatch(html, /navigation-workline-forks" hidden/);
 });
 
 test("the tree renders at every sidebar width, not only when collapsed", () => {

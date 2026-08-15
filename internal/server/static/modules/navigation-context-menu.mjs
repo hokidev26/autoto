@@ -2,9 +2,10 @@ import { $ } from "./dom.mjs";
 import { t } from "./i18n.mjs";
 import { api } from "./runtime.mjs";
 
-// Right-click / trigger-button context menu for navigation rows (projects
-// and conversations): open/close/position it, and apply the pin/archive
-// action it exposes.
+// Right-click context menu for navigation rows (projects and conversations):
+// open/close/position it, and apply the pin/archive action it exposes.
+// Rows do not render a "…" button; the same menu still opens from a leftover
+// trigger if one is present.
 export function createNavigationContextMenu({
   state,
   showToast,

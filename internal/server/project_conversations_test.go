@@ -159,3 +159,82 @@ func TestCreateProjectConversationReusesProjectAndHonorsIdempotency(t *testing.T
 		t.Fatalf("shared project disappeared after archiving one agent: %s", navigation.Body.String())
 	}
 }
+
+func TestCreateWorklineConversationReusesWorklineAndHonorsIdempotency(t *testing.T) {
+	ctx := context.Background()
+	store, err := db.Open(ctx, filepath.Join(t.TempDir(), "workline-conversations.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	workspace := t.TempDir()
+	app := New(config.Config{
+		Paths: config.PathsConfig{DefaultProjectDir: t.TempDir()},
+		Agent: config.AgentConfig{DefaultModel: "fake:default", DefaultPermissionMode: "acceptEdits", DefaultStartInPlanMode: true},
+	}, store, nil, nil)
+
+	create := func(target, body string, headers map[string]string) *httptest.ResponseRecorder {
+		recorder := httptest.NewRecorder()
+		request := newTestRequest(http.MethodPost, target, strings.NewReader(body))
+		request.Header.Set("Content-Type", "application/json")
+		for key, value := range headers {
+			request.Header.Set(key, value)
+		}
+		app.Routes().ServeHTTP(recorder, request)
+		return recorder
+	}
+	firstPayload, err := json.Marshal(map[string]string{"name": "Demo", "gitPath": workspace, "model": "fake:first"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	first := create("/api/projects", string(firstPayload), nil)
+	if first.Code != http.StatusCreated {
+		t.Fatalf("create project status=%d body=%s", first.Code, first.Body.String())
+	}
+	var initial struct {
+		Project  db.Project  `json:"project"`
+		Workline db.Workline `json:"workline"`
+		Agent    db.Agent    `json:"agent"`
+	}
+	if err := json.Unmarshal(first.Body.Bytes(), &initial); err != nil {
+		t.Fatal(err)
+	}
+
+	path := "/api/worklines/" + initial.Workline.ID + "/conversations"
+	second := create(path, `{"title":"Follow-up","model":"fake:second"}`, map[string]string{"Idempotency-Key": "workline-1"})
+	if second.Code != http.StatusCreated {
+		t.Fatalf("workline conversation status=%d body=%s", second.Code, second.Body.String())
+	}
+	var secondBody struct {
+		Project  db.Project  `json:"project"`
+		Workline db.Workline `json:"workline"`
+		Agent    db.Agent    `json:"agent"`
+	}
+	if err := json.Unmarshal(second.Body.Bytes(), &secondBody); err != nil {
+		t.Fatal(err)
+	}
+	if secondBody.Project.ID != initial.Project.ID || secondBody.Workline.ID != initial.Workline.ID || secondBody.Agent.ID == initial.Agent.ID {
+		t.Fatalf("expected another agent on the same workline: %+v", secondBody)
+	}
+	if secondBody.Agent.WorklineID != initial.Workline.ID || secondBody.Agent.Type != "primary" || secondBody.Agent.CWD != initial.Project.GitPath || !secondBody.Agent.PlanMode {
+		t.Fatalf("unexpected workline conversation agent: %+v", secondBody.Agent)
+	}
+	duplicate := create(path, `{"title":"should-not-create","model":"fake:other"}`, map[string]string{"Idempotency-Key": "workline-1"})
+	if duplicate.Code != http.StatusOK {
+		t.Fatalf("idempotent retry status=%d body=%s", duplicate.Code, duplicate.Body.String())
+	}
+	var duplicateBody struct {
+		Agent db.Agent `json:"agent"`
+	}
+	if err := json.Unmarshal(duplicate.Body.Bytes(), &duplicateBody); err != nil {
+		t.Fatal(err)
+	}
+	if duplicateBody.Agent.ID != secondBody.Agent.ID {
+		t.Fatalf("idempotent retry returned a different agent: first=%s retry=%s", secondBody.Agent.ID, duplicateBody.Agent.ID)
+	}
+
+	missing := create("/api/worklines/missing/conversations", `{"title":"Nope","model":"fake:x"}`, nil)
+	if missing.Code != http.StatusNotFound && missing.Code != http.StatusBadRequest {
+		t.Fatalf("missing workline status=%d body=%s", missing.Code, missing.Body.String())
+	}
+}

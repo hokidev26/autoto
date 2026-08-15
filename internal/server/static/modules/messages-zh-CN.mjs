@@ -31,6 +31,8 @@ export default Object.freeze({
   shell: {
     newProject: "新建项目",
     newConversation: "新建对话",
+    newConversationCreating: "正在创建对话…",
+    newConversationFailed: "创建对话失败",
     newSchedule: "新建排程",
     openSidebar: "打开侧栏",
     closeSidebar: "关闭侧栏",

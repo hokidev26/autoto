@@ -464,3 +464,40 @@ func TestCreateProjectConversationReusesProjectAndCreatesDistinctRootHierarchy(t
 		t.Fatalf("expected two navigable conversations, got %d: %+v", len(conversations), conversations)
 	}
 }
+
+func TestCreateWorklineConversationAddsPrimaryOnExistingWorkline(t *testing.T) {
+	ctx := context.Background()
+	store, err := Open(ctx, filepath.Join(t.TempDir(), "workline-conversations.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	project, workline, first, err := store.CreateProject(ctx, "Demo", "", t.TempDir(), "fake:first", "acceptEdits")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, sameWorkline, second, err := store.CreateWorklineConversation(ctx, workline.ID, "Follow-up", "fake:second", "acceptEdits")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sameWorkline.ID != workline.ID || second.WorklineID != workline.ID || second.Type != "primary" || second.ParentAgentID != "" {
+		t.Fatalf("expected another primary on the same workline: workline=%+v agent=%+v", sameWorkline, second)
+	}
+	if second.ID == first.ID || second.Title != "Follow-up" || second.CWD != project.GitPath {
+		t.Fatalf("unexpected second conversation: %+v", second)
+	}
+	_, _, duplicateTitle, err := store.CreateWorklineConversation(ctx, workline.ID, "Follow-up", "fake:third", "acceptEdits")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if duplicateTitle.Title != "Follow-up (2)" {
+		t.Fatalf("expected uniquified title, got %q", duplicateTitle.Title)
+	}
+	conversations, err := store.ListNavigationConversations(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(conversations) != 3 {
+		t.Fatalf("expected three navigable conversations, got %d: %+v", len(conversations), conversations)
+	}
+}

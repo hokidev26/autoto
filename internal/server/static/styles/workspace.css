@@ -1721,8 +1721,11 @@ body.theme-light .message-mode-option.active { background: #dce5ff; color: #1e3a
     margin-left: 0;
     padding-left: 40px;
   }
-  .navigation-conversation-row[draggable] { cursor: grab; }
-  .navigation-conversation-row[draggable]:active { cursor: grabbing; }
+  /* Hover stays a normal pointer. The open-hand drag cursor only appears
+     after the row is pressed, which is when a drag can actually start. */
+  .navigation-conversation-row[draggable] { cursor: pointer; }
+  .navigation-conversation-row[draggable]:active,
+  .navigation-conversation-row.conv-dragging { cursor: grabbing; }
   .navigation-conversation-row.conv-dragging { opacity: 0.4; }
   /* Conversation and project drops use the same full outline so the target is
      unmistakable before release instead of changing only the row background. */
@@ -1737,7 +1740,9 @@ body.theme-light .message-mode-option.active { background: #dce5ff; color: #1e3a
      at all, which read as "the feature does not exist". Both the grouped
      section and a bare project row can be the drag subject, depending on
      sidebar mode, so the state classes are not scoped to either. */
-  .navigation-project-group[draggable] { cursor: grab; }
+  .navigation-project-group[draggable] { cursor: auto; }
+  .navigation-project-group[draggable]:active,
+  .proj-dragging { cursor: grabbing; }
   .proj-dragging { opacity: 0.4; }
   .recent-sidebar {
     margin-left: 12px;

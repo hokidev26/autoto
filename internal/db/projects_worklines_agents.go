@@ -264,6 +264,94 @@ func (s *projectStore) CreateProjectConversation(ctx context.Context, projectID,
 	return project, workline, agent, nil
 }
 
+// CreateWorklineConversation adds another primary conversation on an existing
+// workline. Git branches stay where they are; this only opens a second chat in
+// the same working directory.
+func (s *projectStore) CreateWorklineConversation(ctx context.Context, worklineID, title, model, permissionMode string) (Project, Workline, Agent, error) {
+	worklineID = strings.TrimSpace(worklineID)
+	if worklineID == "" {
+		return Project{}, Workline{}, Agent{}, errors.New("workline id is required")
+	}
+	workline, err := s.GetWorkline(ctx, worklineID)
+	if err != nil {
+		return Project{}, Workline{}, Agent{}, err
+	}
+	if workline.Status != "active" {
+		return Project{}, Workline{}, Agent{}, errors.New("workline is not available for a conversation")
+	}
+	project, err := s.GetProject(ctx, workline.ProjectID)
+	if err != nil {
+		return Project{}, Workline{}, Agent{}, err
+	}
+	if project.Status != "active" || project.FlowMode == ProjectFlowModeConversation {
+		return Project{}, Workline{}, Agent{}, errors.New("project is not available for a workline conversation")
+	}
+	model = strings.TrimSpace(model)
+	if model == "" {
+		return Project{}, Workline{}, Agent{}, errors.New("model is required")
+	}
+	permissionMode = strings.TrimSpace(permissionMode)
+	if permissionMode == "" {
+		permissionMode = "acceptEdits"
+	}
+	cwd := strings.TrimSpace(workline.WorktreePath)
+	if cwd == "" {
+		if workline.IsRoot {
+			cwd = strings.TrimSpace(project.GitPath)
+		}
+	}
+	if cwd == "" {
+		return Project{}, Workline{}, Agent{}, errors.New("workline has no working directory")
+	}
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return Project{}, Workline{}, Agent{}, err
+	}
+	defer tx.Rollback()
+	title = strings.TrimSpace(title)
+	if title == "" {
+		title = strings.TrimSpace(workline.Title)
+	}
+	if title == "" {
+		title = "New conversation"
+	}
+	candidate := title
+	var titleCount int
+	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM agents WHERE workline_id = ? AND type = 'primary' AND title = ? COLLATE NOCASE`, worklineID, candidate).Scan(&titleCount); err != nil {
+		return Project{}, Workline{}, Agent{}, err
+	}
+	if titleCount > 0 {
+		for suffix := 2; ; suffix++ {
+			candidate = fmt.Sprintf("%s (%d)", title, suffix)
+			if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM agents WHERE workline_id = ? AND type = 'primary' AND title = ? COLLATE NOCASE`, worklineID, candidate).Scan(&titleCount); err != nil {
+				return Project{}, Workline{}, Agent{}, err
+			}
+			if titleCount == 0 {
+				break
+			}
+		}
+	}
+	title = candidate
+	now := Now()
+	agent := Agent{ID: NewID(), WorklineID: workline.ID, Type: "primary", Title: title, Model: model, PermissionMode: permissionMode, ExecutionDeviceID: "local", Status: "idle", CWD: cwd, CreatedAt: now, UpdatedAt: now}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO agents (id, workline_id, type, title, model, permission_mode, reasoning_effort, execution_device_id, status, cwd, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, NULLIF(?,''), ?, ?, ?, ?, ?)`, agent.ID, agent.WorklineID, agent.Type, agent.Title, agent.Model, agent.PermissionMode, agent.ReasoningEffort, agent.ExecutionDeviceID, agent.Status, agent.CWD, agent.CreatedAt, agent.UpdatedAt); err != nil {
+		return Project{}, Workline{}, Agent{}, err
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE worklines SET updated_at = ? WHERE id = ?`, now, workline.ID); err != nil {
+		return Project{}, Workline{}, Agent{}, err
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE projects SET updated_at = ? WHERE id = ?`, now, project.ID); err != nil {
+		return Project{}, Workline{}, Agent{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return Project{}, Workline{}, Agent{}, err
+	}
+	workline.UpdatedAt = now
+	project.UpdatedAt = now
+	return project, workline, agent, nil
+}
+
 // CreateProjectForUser atomically creates the project hierarchy and makes the
 // creating user its owner.
 func (s *projectStore) CreateProjectForUser(ctx context.Context, userID, name, description, gitPath string, defaultModel, permissionMode string) (Project, Workline, Agent, error) {

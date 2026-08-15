@@ -2,16 +2,12 @@
 import test from "node:test";
 import { buildNavigationView, renderNavigationHTML } from "./conversation-navigation.mjs";
 
-// The unread mark used to disappear while looking for it. A collapsed project row
-// aggregates over every conversation in the group, forks included, so an unread fork
-// turned that row green. Expanding the project stopped the aggregation -- correctly,
-// since the rows are visible now -- but the unread fork was still hidden inside its
-// own separately collapsed fork group, and that row never aggregated. So the mark
-// existed only while the group was shut, and expanding it to find the new reply was
-// the action that hid it.
-//
-// Forks rest closed, so this is the ordinary state of a forked conversation, not an
-// unusual arrangement the reader has to set up first.
+// The unread mark used to disappear while looking for it. A collapsed project
+// row aggregates over every conversation in the group, git branches included,
+// so an unread branch turned that row green. Expanding the project used to
+// hide the branch inside a separately collapsed fork group that never
+// aggregated. Git branches now sit at the first level, so expanding the
+// project reveals the unread row itself.
 const payload = {
   projects: [{ id: "p1", name: "Bid site", path: "/work/bid", updatedAt: "2026-03-16T09:00:00Z" }],
   conversations: [
@@ -29,23 +25,16 @@ const payload = {
       projectId: "p1",
       worklineId: "w2",
       worklineParentId: "w1",
-      // A fork is recognised by branch plus parent, not by parent alone.
       worklineBranch: "registration-fix",
       agentId: "fork-1",
       agentTitle: "Registration follow-up",
       agentStatus: "idle",
-      // Newer than the seen mark below, so this fork is the unread one.
       lastActivityAt: "2026-03-16T12:00:00Z",
     },
   ],
 };
 
-// root-1 has been read; fork-1 has not.
 const seenMap = { "root-1": Date.parse("2026-03-16T11:00:00Z") };
-
-// "all" is the grouped mode, the one that nests conversation rows under a project row
-// and so the only one where this handoff exists. "projects" renders flat rows with no
-// children to hide anything.
 const view = () => buildNavigationView(payload, { mode: "all" });
 
 function rowClasses(html, agentId) {
@@ -63,9 +52,7 @@ function projectRow(html) {
 }
 
 test("the fork really is the unread one in this fixture", () => {
-  // Guards the premise: if the fixture stopped producing an unread fork the rest of
-  // these assertions would pass by saying nothing.
-  const html = renderNavigationHTML(view(), { collapsedNodes: new Set(["fork-open:root-1"]), seenMap });
+  const html = renderNavigationHTML(view(), { seenMap });
   assert.match(rowClasses(html, "fork-1"), /unread/);
   assert.doesNotMatch(rowClasses(html, "root-1"), /unread/, "the root itself has been read");
 });
@@ -75,13 +62,13 @@ test("a collapsed project row carries the hidden fork's mark", () => {
   assert.match(projectRow(html), /unread/, "the group is shut, so its row speaks for everything inside");
 });
 
-test("expanding the project hands the mark to the row that still hides the fork", () => {
-  // Project open, forks closed. This is the case that used to lose the mark.
+test("expanding the project shows the unread branch itself", () => {
   const html = renderNavigationHTML(view(), { collapsedNodes: new Set(), seenMap });
-  assert.match(
+  assert.match(rowClasses(html, "fork-1"), /unread/);
+  assert.doesNotMatch(
     rowClasses(html, "root-1"),
     /unread/,
-    "the workline root stands in for the fork folded underneath it",
+    "a sibling branch does not mark the mainline conversation",
   );
   assert.doesNotMatch(
     projectRow(html),
@@ -90,14 +77,39 @@ test("expanding the project hands the mark to the row that still hides the fork"
   );
 });
 
-test("opening the forks moves the mark onto the fork itself", () => {
-  const html = renderNavigationHTML(view(), { collapsedNodes: new Set(["fork-open:root-1"]), seenMap });
-  assert.match(rowClasses(html, "fork-1"), /unread/);
-  assert.doesNotMatch(
-    rowClasses(html, "root-1"),
-    /unread/,
-    "the stand-in steps back so the mark is not shown twice",
-  );
+test("a collapsed workline carries unread from extra conversations underneath it", () => {
+  const clustered = {
+    projects: payload.projects,
+    conversations: [
+      ...payload.conversations,
+      {
+        projectId: "p1",
+        worklineId: "w2",
+        worklineParentId: "w1",
+        worklineBranch: "registration-fix",
+        worklineTitle: "Registration follow-up",
+        agentId: "fork-chat",
+        agentTitle: "Follow-up chat",
+        agentStatus: "idle",
+        messageCount: 0,
+        lastActivityAt: "2026-03-16T13:00:00Z",
+      },
+    ],
+  };
+  const clusteredView = buildNavigationView(clustered, { mode: "all" });
+  const closed = renderNavigationHTML(clusteredView, {
+    collapsedNodes: new Set(["workline:w2"]),
+    seenMap: { "root-1": Date.parse("2026-03-16T11:00:00Z"), "fork-1": Date.parse("2026-03-16T13:00:00Z") },
+  });
+  assert.match(rowClasses(closed, "fork-1"), /unread/, "the branch stands in while its extra chat is folded");
+  assert.match(closed, /navigation-workline-forks" hidden/);
+
+  const opened = renderNavigationHTML(clusteredView, {
+    collapsedNodes: new Set(),
+    seenMap: { "root-1": Date.parse("2026-03-16T11:00:00Z"), "fork-1": Date.parse("2026-03-16T13:00:00Z") },
+  });
+  assert.match(rowClasses(opened, "fork-chat"), /unread/);
+  assert.doesNotMatch(rowClasses(opened, "fork-1"), /unread/);
 });
 
 test("a read fork leaves its parent alone", () => {
@@ -114,7 +126,6 @@ test("the row being read is never unread on its own behalf", () => {
     activeAgentId: "root-1",
     activeSelectionKind: "conversation",
   });
-  // Its own activity is unseen here, but it is the conversation on screen.
   assert.doesNotMatch(rowClasses(html, "root-1"), /unread/);
 });
 

@@ -337,6 +337,94 @@ func (s *Server) createProjectConversation(w http.ResponseWriter, r *http.Reques
 	writeJSON(w, http.StatusCreated, map[string]any{"project": result.Project, "workline": result.Workline, "agent": result.Agent})
 }
 
+func (s *Server) createWorklineConversation(w http.ResponseWriter, r *http.Request) {
+	worklineID := strings.TrimSpace(chi.URLParam(r, "id"))
+	var req createProjectConversationRequest
+	if err := decodeJSON(r, &req); err != nil {
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
+		return
+	}
+	if strings.TrimSpace(req.Title) == "" {
+		req.Title = strings.TrimSpace(req.Name)
+	}
+	cfg := s.configSnapshot()
+	model := strings.TrimSpace(req.Model)
+	if model == "" {
+		model = s.parentWorklineModel(r.Context(), worklineID)
+	}
+	if model == "" {
+		model = cfg.Agent.DefaultModel
+	}
+	permissionMode := s.safeDefaultPermissionModeForRequest(r, cfg.Agent.DefaultPermissionMode)
+	hasUsers, err := s.store.HasUsers(r.Context())
+	if err != nil {
+		s.writeRequestError(w, r, http.StatusInternalServerError, err)
+		return
+	}
+	userID := ""
+	if hasUsers {
+		user, ok := s.requireUser(w, r)
+		if !ok {
+			return
+		}
+		userID = user.ID
+	}
+	key := strings.TrimSpace(r.Header.Get("Idempotency-Key"))
+	if key == "" {
+		key = strings.TrimSpace(req.IdempotencyKey)
+	}
+	if len(key) > 200 {
+		writeError(w, http.StatusBadRequest, "idempotency key is too long")
+		return
+	}
+	cacheKey := ""
+	if key != "" {
+		cacheKey = userID + "\x00workline\x00" + worklineID + "\x00" + key
+	}
+
+	create := func() (projectConversationResult, error) {
+		project, workline, agent, createErr := s.store.CreateWorklineConversation(r.Context(), worklineID, req.Title, model, permissionMode)
+		if createErr != nil {
+			return projectConversationResult{}, createErr
+		}
+		if cfg.Agent.DefaultStartInPlanMode {
+			agent, createErr = s.updatePersistedAgentPlanMode(r.Context(), agent.ID, true)
+			if createErr != nil {
+				return projectConversationResult{}, createErr
+			}
+		}
+		return projectConversationResult{Project: project, Workline: workline, Agent: agent}, nil
+	}
+
+	var result projectConversationResult
+	if cacheKey != "" {
+		s.projectConversationMu.Lock()
+		defer s.projectConversationMu.Unlock()
+		if s.projectConversationKeys == nil {
+			s.projectConversationKeys = make(map[string]projectConversationResult)
+		}
+		if cached, ok := s.projectConversationKeys[cacheKey]; ok {
+			writeJSON(w, http.StatusOK, map[string]any{"project": cached.Project, "workline": cached.Workline, "agent": cached.Agent})
+			return
+		}
+		result, err = create()
+		if err == nil {
+			s.projectConversationKeys[cacheKey] = result
+		}
+	} else {
+		result, err = create()
+	}
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			writeError(w, http.StatusNotFound, "workline not found")
+			return
+		}
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, map[string]any{"project": result.Project, "workline": result.Workline, "agent": result.Agent})
+}
+
 func (s *Server) createConversation(w http.ResponseWriter, r *http.Request) {
 	// Keep the old route during the compatibility window, but make the removed
 	// product boundary explicit. In particular, do not decode, validate, or
