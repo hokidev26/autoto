@@ -58,7 +58,7 @@ func (s *Server) writeAPIError(w http.ResponseWriter, r *http.Request, err error
 	}
 	var gitErr gitCommandError
 	if errors.As(err, &gitErr) {
-		writeError(w, gitErr.Status, gitErr.Msg)
+		s.writeRequestError(w, r, gitErr.Status, gitErr)
 		return
 	}
 	s.writeRequestError(w, r, statusFromError(err), err)

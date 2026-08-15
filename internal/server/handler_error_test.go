@@ -43,6 +43,57 @@ func TestWriteRequestErrorGatesRemoteDetail(t *testing.T) {
 	}
 }
 
+func TestWriteGitErrorGatesRemotePathDetail(t *testing.T) {
+	app := New(config.Config{}, nil, nil, nil)
+	cause := gitCommandError{
+		Status: http.StatusConflict,
+		Msg:    `"git" status --porcelain failed in "C:\\Users\\Ray\\secret-project" (exit 128): not a git repository`,
+	}
+
+	localRec := httptest.NewRecorder()
+	localReq := newTestRequest(http.MethodGet, "/api/git/status", nil)
+	app.writeGitError(localRec, localReq, cause)
+	if got := decodeErrorMessage(t, localRec); got != cause.Msg {
+		t.Fatalf("loopback git error want raw detail, got %q", got)
+	}
+
+	remoteRec := httptest.NewRecorder()
+	remoteReq := newTestRequest(http.MethodGet, "/api/git/status", nil)
+	remoteReq.Host = "demo.trycloudflare.com"
+	markRemoteHTTPS(remoteReq)
+	app.writeGitError(remoteRec, remoteReq, cause)
+	if remoteRec.Code != http.StatusConflict {
+		t.Fatalf("remote status=%d want %d", remoteRec.Code, http.StatusConflict)
+	}
+	got := decodeErrorMessage(t, remoteRec)
+	if got != "conflict" {
+		t.Fatalf("remote git error want generic conflict, got %q", got)
+	}
+	if strings.Contains(remoteRec.Body.String(), "secret-project") || strings.Contains(remoteRec.Body.String(), "porcelain") {
+		t.Fatalf("remote session leaked git path or argv: %s", remoteRec.Body.String())
+	}
+}
+
+func TestWriteAPIErrorGatesRemoteGitDetail(t *testing.T) {
+	app := New(config.Config{}, nil, nil, nil)
+	cause := gitCommandError{
+		Status: http.StatusInternalServerError,
+		Msg:    `"git" diff failed in "/var/lib/autoto/work" (exit 1): fatal`,
+	}
+
+	remoteRec := httptest.NewRecorder()
+	remoteReq := newTestRequest(http.MethodGet, "/api/agents/demo", nil)
+	remoteReq.Host = "demo.trycloudflare.com"
+	markRemoteHTTPS(remoteReq)
+	app.writeAPIError(remoteRec, remoteReq, cause)
+	if decodeErrorMessage(t, remoteRec) != "internal error" {
+		t.Fatalf("remote API git error want generic message, got %q", decodeErrorMessage(t, remoteRec))
+	}
+	if strings.Contains(remoteRec.Body.String(), "/var/lib/autoto") {
+		t.Fatalf("remote session leaked git path: %s", remoteRec.Body.String())
+	}
+}
+
 func decodeErrorMessage(t *testing.T, rec *httptest.ResponseRecorder) string {
 	t.Helper()
 	var payload map[string]any

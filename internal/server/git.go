@@ -945,7 +945,10 @@ func safeUTF8(text string) string {
 func (s *Server) writeGitError(w http.ResponseWriter, r *http.Request, err error) {
 	var gitErr gitCommandError
 	if errors.As(err, &gitErr) {
-		writeError(w, gitErr.Status, gitErr.Msg)
+		// runGitCommand embeds the working directory and argv so a local
+		// operator can tell a path misconfiguration from a missing repo.
+		// Remote sessions still get the generic gated text.
+		s.writeRequestError(w, r, gitErr.Status, gitErr)
 		return
 	}
 	s.writeRequestError(w, r, statusFromError(err), err)
