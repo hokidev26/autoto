@@ -182,6 +182,8 @@ test("disabled Gateway still loads every preconfiguration resource and renders e
   assert.match(html, /Gateway 已停止/);
   assert.match(html, /127\.0\.0\.1:7788/);
   assert.match(html, /data-gateway-config-form/);
+  assert.match(html, /<details class="shared-api-gateway-details">/);
+  assert.doesNotMatch(html, /<details class="shared-api-gateway-details" open/);
   assert.match(html, /data-gateway-toggle="true"/);
   assert.match(html, /data-gateway-key-add/);
   assert.doesNotMatch(html, /data-gateway-key-add disabled/);

@@ -392,6 +392,7 @@ export function createSharedAPISettingsController({
   let oneTimeTokenContext = "";
   let editingKeyID = "";
   let keyEditorOpen = false;
+  let gatewayOpen = false;
   let editingModelAlias = "";
   let modelEditorOpen = false;
   let loadSequence = 0;
@@ -793,8 +794,12 @@ export function createSharedAPISettingsController({
     const actualAddress = status.address || gatewayAddress(value);
     return `
       <section class="compact-settings-section shared-api-gateway-section">
-        <div class="compact-settings-section-copy"><h2>${escapeHtml(t("sharedAPI.gatewayTitle"))}</h2><p data-settings-help-copy>${escapeHtml(t("sharedAPI.gatewayDescription"))}</p></div>
-        <div class="compact-settings-section-controls shared-api-gateway-controls">
+        <details class="shared-api-gateway-details"${gatewayOpen ? " open" : ""}>
+          <summary class="compact-settings-section-summary">
+            <div class="compact-settings-section-copy"><h2>${escapeHtml(t("sharedAPI.gatewayTitle"))}</h2><p data-settings-help-copy>${escapeHtml(t("sharedAPI.gatewayDescription"))}</p></div>
+            <span class="settings-badge ${status.running ? "ok" : "warn"}">${escapeHtml(t(status.running ? "sharedAPI.runtimeRunning" : "sharedAPI.runtimeStopped"))}</span>
+          </summary>
+          <div class="compact-settings-section-controls shared-api-gateway-controls">
           <div class="shared-api-status-row"><span class="settings-badge ${status.running ? "ok" : "warn"}">${escapeHtml(t(status.running ? "sharedAPI.runtimeRunning" : "sharedAPI.runtimeStopped"))}</span><code>${escapeHtml(actualAddress)}</code></div>
           <dl class="shared-api-gateway-meta">
             <div><dt>${escapeHtml(t("sharedAPI.actualStatus"))}</dt><dd>${escapeHtml(t(status.running ? "sharedAPI.running" : "sharedAPI.stopped"))}</dd></div>
@@ -815,7 +820,8 @@ export function createSharedAPISettingsController({
             <label class="compact-settings-switch-row"><span><strong>${escapeHtml(t("sharedAPI.allowRemote"))}</strong><small data-settings-help-copy>${escapeHtml(t("sharedAPI.allowRemoteHint"))}</small></span><input name="allowRemote" type="checkbox" ${value.allowRemote ? "checked" : ""} /></label>
             <div class="settings-inline-actions compact-settings-editor-actions shared-api-gateway-actions"><button class="settings-action-btn ${desiredEnabled ? "danger" : "primary"}" type="button" data-gateway-toggle="${desiredEnabled ? "false" : "true"}">${escapeHtml(t(desiredEnabled ? "sharedAPI.stopGateway" : "sharedAPI.startGateway"))}</button><button class="settings-action-btn subtle" type="submit">${escapeHtml(t("sharedAPI.saveGatewayConfig"))}</button></div>
           </form>
-        </div>
+          </div>
+        </details>
       </section>`;
   }
 
@@ -1079,6 +1085,9 @@ export function createSharedAPISettingsController({
     root?.querySelector?.("[data-gateway-refresh]")?.addEventListener("click", (event) => runButton(event.currentTarget, () => load({ refreshSettings: true })));
     root?.querySelector?.("[data-gateway-config-form]")?.addEventListener("submit", (event) => { event.preventDefault(); const form = event.currentTarget; runButton(form.querySelector("[type=submit]"), () => updateGatewayConfig(gatewayDraftFromForm(form))); });
     root?.querySelector?.("[data-gateway-toggle]")?.addEventListener("click", (event) => runButton(event.currentTarget, () => setGatewayEnabled(event.currentTarget.dataset.gatewayToggle === "true")));
+    root?.querySelector?.(".shared-api-gateway-details")?.addEventListener("toggle", (event) => {
+      gatewayOpen = Boolean(event.currentTarget.open);
+    });
     root?.querySelectorAll?.("[data-gateway-provider]").forEach((input) => input.addEventListener("change", (event) => runButton(event.currentTarget, () => toggleProvider(event.currentTarget.dataset.gatewayProvider, event.currentTarget.checked))));
     root?.querySelectorAll?.("[data-gateway-account-provider]").forEach((input) => input.addEventListener("change", (event) => runButton(event.currentTarget, () => toggleAccount(event.currentTarget.dataset.gatewayAccountProvider, event.currentTarget.dataset.gatewayAccountId, event.currentTarget.checked))));
     root?.querySelector?.("[data-gateway-key-add]")?.addEventListener("click", () => { keyEditorOpen = true; editingKeyID = ""; changed(); });

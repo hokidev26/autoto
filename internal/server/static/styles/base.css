@@ -149,6 +149,10 @@ body.ui-density-compact .composer-wrap { padding: 10px 14px 12px; }
 body.ui-density-compact .composer-card { padding: 10px 12px; }
 body.ui-density-compact .terminal-header { height: 38px; }
 
+body.ui-font-small { font-size: 13px; }
+body.ui-font-medium { font-size: 14px; }
+body.ui-font-large { font-size: 16px; }
+
 .app-shell {
   height: 100vh;
   display: grid;
@@ -411,8 +415,7 @@ body.ui-density-compact .terminal-header { height: 38px; }
 .navigation-context-menu button.context-menu-danger { color: #ef6b6b; }
 .navigation-context-menu button.context-menu-danger:hover,
 .navigation-context-menu button.context-menu-danger:focus-visible { background: rgba(239, 107, 107, .12); color: #ff8484; }
-/* Branded in-app confirmation dialog: the native desktop dialog cannot carry
-   the Autoto mark, so destructive message actions confirm through this one. */
+/* Branded in-app confirmation dialog used for every platform.confirm/alert. */
 .brand-confirm-backdrop {
   position: fixed;
   inset: 0;
@@ -424,6 +427,7 @@ body.ui-density-compact .terminal-header { height: 38px; }
   background: rgba(8, 10, 18, .45);
 }
 .brand-confirm-backdrop.hidden { display: none; }
+.brand-confirm-backdrop.brand-confirm-alert #brandConfirmCancel { display: none; }
 .brand-confirm {
   width: min(420px, 100%);
   border: 1px solid var(--line);
@@ -433,6 +437,13 @@ body.ui-density-compact .terminal-header { height: 38px; }
   padding: 16px 18px;
   display: grid;
   gap: 12px;
+}
+body.white-shell.theme-light .brand-confirm-backdrop {
+  background: rgba(15, 23, 42, .28);
+}
+body.white-shell.theme-light .brand-confirm {
+  background: var(--ws-card, #fff);
+  box-shadow: 0 18px 50px rgba(15, 23, 42, .16);
 }
 .brand-confirm-header { display: flex; align-items: center; gap: 9px; }
 .brand-confirm-mark {

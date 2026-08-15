@@ -9,6 +9,7 @@ import {
   appearanceThemeForRef,
   appearanceThemeToggleTarget,
   normalizeAppearanceBackground,
+  normalizeAppearanceFontSize,
   normalizeAppearanceThemePreset,
   normalizeAppearanceThemeRef,
   normalizeAppearanceThemeSchemeRefs,
@@ -612,6 +613,7 @@ export function createSettingsPreferencesController({
       ? themeRef.id
       : (requestedPreset || themeRef.colorScheme || defaultAppearancePrefs.themePreset);
     const density = ["comfortable", "compact"].includes(value.density) ? value.density : defaultAppearancePrefs.density;
+    const fontSize = normalizeAppearanceFontSize(value.fontSize);
     const background = normalizeAppearanceBackground({ ...defaultAppearancePrefs, ...value });
     return {
       styleVersion: appearanceStyleVersion,
@@ -620,6 +622,7 @@ export function createSettingsPreferencesController({
       themePreset,
       theme: appearanceThemeForRef(themeRef, themePreset),
       density,
+      fontSize,
       backgroundMode: background.mode,
       backgroundUrl: background.url,
       backgroundDim: background.dim,
@@ -657,6 +660,11 @@ export function createSettingsPreferencesController({
     if (document.body.dataset) document.body.dataset.themePreset = prefs.themePreset;
     document.body.classList.toggle("ui-density-compact", prefs.density === "compact");
     document.body.classList.toggle("ui-density-comfortable", prefs.density !== "compact");
+    const fontSize = normalizeAppearanceFontSize(prefs.fontSize);
+    document.body.classList.toggle("ui-font-small", fontSize === "small");
+    document.body.classList.toggle("ui-font-medium", fontSize === "medium");
+    document.body.classList.toggle("ui-font-large", fontSize === "large");
+    if (document.documentElement?.dataset) document.documentElement.dataset.uiFontSize = fontSize;
     // A class rather than a render flag: the pill is markup the transcript
     // already produced, so toggling this must not depend on re-rendering every
     // message that is currently on screen.

@@ -197,7 +197,12 @@ export const defaultNotificationPrefs = {
 
 export const appearanceStyleVersion = 5;
 export const appearanceThemePresets = Object.freeze(["light", "dark", "cyber", "cream"]);
+export const appearanceFontSizes = Object.freeze(["small", "medium", "large"]);
 export const appearanceBackgroundModes = Object.freeze(["theme", "custom", "none"]);
+
+export function normalizeAppearanceFontSize(value) {
+  return appearanceFontSizes.includes(value) ? value : "medium";
+}
 
 export function normalizeAppearanceBackgroundMode(value) {
   const mode = String(value || "").trim().toLowerCase();
@@ -303,6 +308,7 @@ export const defaultAppearancePrefs = {
   themePreset: "light",
   theme: "light",
   density: "comfortable",
+  fontSize: "medium",
   backgroundMode: "theme",
   backgroundUrl: "",
   backgroundDim: 18,

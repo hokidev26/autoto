@@ -7,6 +7,7 @@ import {
   appearancePrefsKey,
   appearanceStyleVersion,
   appearanceThemePresets,
+  appearanceFontSizes,
   defaultAppearancePrefs,
   defaultPrimaryModePreference,
   defaultRegionalPrefs,
@@ -336,6 +337,7 @@ test("regional preferences default to auto and import legacy field names", () =>
 test("appearance presets default to light and migrate version 2 and unversioned preferences", () => {
   assert.equal(appearanceStyleVersion, 5);
   assert.deepEqual(appearanceThemePresets, ["light", "dark", "cyber", "cream"]);
+  assert.deepEqual(appearanceFontSizes, ["small", "medium", "large"]);
   assert.deepEqual(defaultAppearancePrefs, {
     styleVersion: 5,
     themeRef: { kind: "preset", id: "light" },
@@ -343,6 +345,7 @@ test("appearance presets default to light and migrate version 2 and unversioned 
     themePreset: "light",
     theme: "light",
     density: "comfortable",
+    fontSize: "medium",
     backgroundMode: "theme",
     backgroundUrl: "",
     backgroundDim: 18,
@@ -457,6 +460,7 @@ test("appearance backup retains the normalized theme preset", () => {
       themePreset: "cream",
       theme: "light",
       density: "compact",
+      fontSize: "medium",
       backgroundMode: "theme",
       backgroundUrl: "",
       backgroundDim: 18,
@@ -496,12 +500,21 @@ test("appearance settings render a flat compact form with four accessible preset
   assert.match(markup, /compact-settings-page appearance-page/);
   assert.match(markup, /compact-settings-section/);
   assert.match(markup, /compact-settings-choice-grid four-column/);
+  assert.match(markup, /appearance-current-chips/);
+  assert.match(markup, /appearance-reading-section/);
+  assert.match(markup, /appearance-type-sample-medium/);
+  assert.match(markup, /id="appearanceLanguageSelect"/);
+  assert.doesNotMatch(markup, /<h1>[^<]*·[^<]*·/);
   assert.doesNotMatch(markup, /settings-stat-grid|settings-stat-card|settings-hero-card/);
   assert.match(markup, /role="radiogroup" aria-label=/);
   for (const preset of ["light", "dark", "cyber", "cream"]) {
     assert.match(markup, new RegExp(`data-appearance-field="themePreset" data-appearance-value="${preset}"`));
     assert.match(markup, new RegExp(`theme-preset-preview-${preset}`));
   }
+  assert.match(markup, /data-appearance-field="density" data-appearance-value="comfortable"/);
+  assert.match(markup, /data-appearance-field="fontSize" data-appearance-value="small"/);
+  assert.match(markup, /data-appearance-field="fontSize" data-appearance-value="medium"/);
+  assert.match(markup, /data-appearance-field="fontSize" data-appearance-value="large"/);
   assert.match(markup, /id="appearanceBackgroundFile"[^>]*accept="image\/jpeg,image\/png,image\/webp"/);
   assert.match(markup, /id="appearanceBackgroundMode"/);
   assert.match(markup, /id="appearanceBackgroundDim"[^>]*type="range"/);
@@ -511,6 +524,9 @@ test("appearance settings render a flat compact form with four accessible preset
   assert.match(styles, /data-theme-preset="cream"[\s\S]*?--ws-canvas: #fff9ee/);
   assert.match(styles, /\.theme-preset-preview-cyber/);
   assert.match(styles, /\.theme-preset-preview-cream/);
+  assert.match(styles, /#settingsContentBody \.compact-settings-choice-grid\.three-column/);
+  assert.match(styles, /#settingsContentBody \.appearance-page \.theme-preset-preview/);
+  assert.match(styles, /body\.ui-font-large \{ font-size: 16px; \}/);
   assert.match(styles, /@media \(max-width: 760px\) \{[\s\S]*?#settingsContentBody \.appearance-theme-grid \{ grid-template-columns: 1fr; \}/);
 });
 
@@ -525,6 +541,8 @@ test("appearance settings keeps the original Unicode background filename visible
   const markup = settings.renderAppearanceSettingsContent();
   assert.ok(markup.includes(originalFilename));
   assert.match(markup, /class="appearance-background-status" role="status" aria-live="polite"/);
+  assert.match(markup, /appearance-background-swatch has-image/);
+  assert.doesNotMatch(markup, /appearance-background-layout/);
 });
 
 test("global theme toggle switches scheme and is wired to the shared helper", async () => {
@@ -630,5 +648,28 @@ test("throughput badges stay off until the appearance setting turns them on", ()
   // not as "field missing therefore truthy".
   withBrowserStorage(new MemoryStorage([[appearancePrefsKey, JSON.stringify({ styleVersion: 4, themePreset: "light", theme: "light" })]]), () => {
     assert.equal(createController().loadAppearancePreferences().showThroughput, false);
+  });
+});
+
+test("appearance font size defaults to medium and updates body markers", () => {
+  withBrowserStorage(new MemoryStorage(), (body) => {
+    const controller = createController();
+    assert.equal(controller.currentAppearancePreferences().fontSize, "medium");
+    controller.applyAppearancePreferences();
+    assert.equal(body.classList.contains("ui-font-medium"), true);
+    assert.equal(body.classList.contains("ui-font-large"), false);
+
+    controller.setAppearancePreference("fontSize", "large");
+    assert.equal(body.classList.contains("ui-font-large"), true);
+    assert.equal(body.classList.contains("ui-font-medium"), false);
+    assert.equal(JSON.parse(localStorage.getItem(appearancePrefsKey)).fontSize, "large");
+
+    controller.setAppearancePreference("fontSize", "tiny");
+    assert.equal(JSON.parse(localStorage.getItem(appearancePrefsKey)).fontSize, "medium");
+    assert.equal(body.classList.contains("ui-font-medium"), true);
+  });
+
+  withBrowserStorage(new MemoryStorage([[appearancePrefsKey, JSON.stringify({ styleVersion: 5, themePreset: "light", theme: "light" })]]), () => {
+    assert.equal(createController().loadAppearancePreferences().fontSize, "medium");
   });
 });

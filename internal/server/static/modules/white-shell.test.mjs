@@ -2193,9 +2193,10 @@ test("static shell controls localize without marking runtime-owned content", asy
 test("initial shell and default appearance use the versioned light theme", async () => {
   const html = await readFile(indexURL, "utf8");
 
-  assert.match(html, /<body class="theme-light white-shell ui-density-comfortable">/);
+  assert.match(html, /<body class="theme-light white-shell ui-density-comfortable ui-font-medium">/);
   assert.equal(defaultAppearancePrefs.themePreset, "light");
   assert.equal(defaultAppearancePrefs.theme, "light");
+  assert.equal(defaultAppearancePrefs.fontSize, "medium");
   assert.equal(defaultAppearancePrefs.styleVersion, appearanceStyleVersion);
   assert.equal(appearanceStyleVersion, 5);
   assert.deepEqual(appearanceThemePresets, ["light", "dark", "cyber", "cream"]);
@@ -2240,6 +2241,7 @@ test("unversioned dark appearance migrates once to light and explicit versioned 
       themePreset: "light",
       theme: "light",
       density: "compact",
+      fontSize: "medium",
       backgroundMode: "theme",
       backgroundUrl: "",
       backgroundDim: 18,
@@ -2279,6 +2281,7 @@ test("appearance backup import and export normalize the new schema without rejec
       themePreset: "light",
       theme: "light",
       density: "comfortable",
+      fontSize: "medium",
       backgroundMode: "theme",
       backgroundUrl: "",
       backgroundDim: 18,
@@ -2295,6 +2298,7 @@ test("appearance backup import and export normalize the new schema without rejec
       themePreset: "light",
       theme: "light",
       density: "comfortable",
+      fontSize: "medium",
       backgroundMode: "theme",
       backgroundUrl: "",
       backgroundDim: 18,

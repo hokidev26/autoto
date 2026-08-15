@@ -2,10 +2,11 @@
  * Host-platform adapters for browser vs desktop shells.
  *
  * Business modules should call these helpers instead of window.confirm /
- * window.alert so a desktop shell can swap in native dialogs without
- * rewriting product code. Defaults remain browser-native and testable.
+ * window.alert. Confirm and alert use the in-app Autoto dialog when the
+ * shell wires it; directory and file pickers stay native in the desktop
+ * shell. Defaults remain browser-native and testable.
  *
- * Desktop shell path: POST /api/desktop/dialog/* on the same Autoto HTTP
+ * Desktop picker path: POST /api/desktop/dialog/* on the same Autoto HTTP
  * origin (loopback only). This avoids relying on Wails Service bindings,
  * which require the Wails asset origin rather than Runtime.URL().
  */
@@ -66,29 +67,6 @@ async function desktopDialogPOST(path, payload = {}) {
   return response.json();
 }
 
-async function desktopConfirm(message, options = {}) {
-  try {
-    const data = await desktopDialogPOST("/api/desktop/dialog/confirm", {
-      message: String(message ?? ""),
-      title: options.title ? String(options.title) : undefined,
-    });
-    return Boolean(data?.accepted);
-  } catch {
-    return defaultConfirm(message);
-  }
-}
-
-async function desktopAlert(message, options = {}) {
-  try {
-    await desktopDialogPOST("/api/desktop/dialog/alert", {
-      message: String(message ?? ""),
-      title: options.title ? String(options.title) : undefined,
-    });
-  } catch {
-    return defaultAlert(message);
-  }
-}
-
 async function desktopPickDirectory(options = {}) {
   const data = await desktopDialogPOST("/api/desktop/dialog/open-directory", {
     title: options.title ? String(options.title) : undefined,
@@ -108,12 +86,10 @@ async function desktopPickFile(options = {}) {
   return { canceled: false, path: String(data?.path || "") };
 }
 
-/** Wire native dialogs when running inside the Autoto desktop shell. */
+/** Wire native file pickers when running inside the Autoto desktop shell. */
 export function installDesktopShellDialogs() {
   if (desktopBridgeInstalled || !isDesktopShell()) return false;
   setPlatformDialogs({
-    confirm: desktopConfirm,
-    alert: desktopAlert,
     pickDirectory: desktopPickDirectory,
     pickFile: desktopPickFile,
   });
@@ -137,16 +113,10 @@ export function resetPlatformDialogs() {
 }
 
 export async function confirm(message, options = {}) {
-  if (!desktopBridgeInstalled && isDesktopShell()) {
-    installDesktopShellDialogs();
-  }
   return confirmImpl(message, options);
 }
 
 export async function alert(message, options = {}) {
-  if (!desktopBridgeInstalled && isDesktopShell()) {
-    installDesktopShellDialogs();
-  }
   return alertImpl(message, options);
 }
 

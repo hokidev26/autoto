@@ -1096,7 +1096,22 @@ body.white-shell.theme-light.theme-dark #settingsModal {
   font-size: 13px;
 }
 #settingsContentBody .archive-item-list { display: grid; gap: var(--settings-space-2); }
-#settingsContentBody .archive-nested-list { display: grid; gap: 6px; margin: 6px 0 4px 18px; }
+#settingsContentBody .archive-nested { margin: 0 0 4px 18px; }
+#settingsContentBody .archive-nested-summary {
+  min-height: 28px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--settings-muted-foreground);
+  cursor: pointer;
+  list-style: none;
+  font-size: 12px;
+  font-weight: 650;
+}
+#settingsContentBody .archive-nested-summary::-webkit-details-marker { display: none; }
+#settingsContentBody .archive-nested-summary::before { content: "▸"; flex: 0 0 auto; }
+#settingsContentBody .archive-nested[open] > .archive-nested-summary::before { content: "▾"; }
+#settingsContentBody .archive-nested-list { display: grid; gap: 6px; margin: 6px 0 4px; }
 #settingsContentBody .archive-item {
   min-width: 0;
   display: grid;

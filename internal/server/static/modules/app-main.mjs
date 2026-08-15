@@ -58,7 +58,7 @@ import {
   resolveOverviewStartup,
 } from "./overview-dashboard.mjs";
 import { createPageLifecycleController } from "./page-lifecycle.mjs";
-import { confirm as platformConfirm } from "./platform.mjs";
+import { confirm as platformConfirm, setPlatformDialogs } from "./platform.mjs";
 import { createProjectKanbanController } from "./project-kanban.mjs";
 import { createScheduleWorkspaceController } from "./schedule-workspace.mjs";
 import { createTaskWorkspaceController } from "./task-workspace.mjs";
@@ -871,9 +871,12 @@ const {
   updateLiveAssistantPerformance,
 } = chatRendering;
 
-// Message-menu confirmations use the branded in-app dialog (Autoto mark in
-// the corner) instead of the bare native dialog; native stays as fallback.
-const brandConfirm = createBrandConfirm({ fallback: (message) => platformConfirm(message) });
+// Confirm/alert stay in the Autoto dialog. Directory/file pickers remain native.
+const brandConfirm = createBrandConfirm();
+setPlatformDialogs({
+  confirm: (message) => brandConfirm.confirm(message),
+  alert: (message) => brandConfirm.alert(message),
+});
 const messageContextMenu = createMessageContextMenu({
   state,
   request: api,

@@ -142,6 +142,7 @@ export function createArchiveSettingsController({
   let searchHits = { query: "", results: [] };
   let restoreSearchFocus = false;
   let searchCaret = 0;
+  let nestedOpen = Object.create(null);
 
   const archiveText = (key, params) => t(`archive.${key}`, params);
 
@@ -272,7 +273,7 @@ export function createArchiveSettingsController({
     const projectCards = groups.projects.map((project) => {
       const nested = groups.nested.get(project.id) || [];
       const nestedMarkup = nested.length
-        ? `<div class="archive-nested-list">${nested.map((item) => nestedConversation(item, archiveText("conversationArchived"))).join("")}</div>`
+        ? `<details class="archive-nested" data-archive-nested="${escapeAttr(project.id)}"${nestedOpen[project.id] ? " open" : ""}><summary class="archive-nested-summary">${escapeHtml(archiveText("conversationsInside", { count: nested.length }))}</summary><div class="archive-nested-list">${nested.map((item) => nestedConversation(item, archiveText("conversationArchived"))).join("")}</div></details>`
         : "";
       return `${archiveItem("project", project, { restoreLabel: archiveText("restore"), deleteLabel: archiveText("delete"), projectLabel: archiveText("projectArchived"), conversationLabel: "" })}${nestedMarkup}`;
     }).join("");
@@ -364,6 +365,12 @@ export function createArchiveSettingsController({
         agentArchived: button.dataset.archiveAgentArchived === "true",
         projectArchived: button.dataset.archiveProjectArchived === "true",
       }, button).catch(showError));
+    });
+    document.querySelectorAll("[data-archive-nested]").forEach((panel) => {
+      panel.addEventListener("toggle", () => {
+        const id = panel.dataset.archiveNested;
+        if (id) nestedOpen[id] = Boolean(panel.open);
+      });
     });
   }
 

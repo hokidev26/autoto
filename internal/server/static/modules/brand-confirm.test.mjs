@@ -10,9 +10,17 @@ function fakeElement() {
   return {
     textContent: "",
     focused: false,
+    hidden: false,
     classList: {
       add: (name) => classes.add(name),
       remove: (name) => classes.delete(name),
+      toggle: (name, force) => {
+        if (force === true) classes.add(name);
+        else if (force === false) classes.delete(name);
+        else if (classes.has(name)) classes.delete(name);
+        else classes.add(name);
+        return classes.has(name);
+      },
       contains: (name) => classes.has(name),
     },
     setAttribute: (name, value) => attributes.set(name, value),
@@ -107,7 +115,7 @@ test("Escape closes the dialog as a refusal", async () => {
   });
 });
 
-test("missing markup falls back to the platform dialog", async () => {
+test("missing markup falls back to the injected confirm helper", async () => {
   const previousDocument = globalThis.document;
   globalThis.document = { getElementById: () => null, addEventListener: () => {} };
   try {
@@ -121,6 +129,47 @@ test("missing markup falls back to the platform dialog", async () => {
   } finally {
     globalThis.document = previousDocument;
   }
+});
+
+test("alert hides cancel and resolves when OK is pressed", async () => {
+  await withDialogEnvironment(async ({ backdrop, cancel, ok }) => {
+    const dialog = createBrandConfirm();
+    const pending = dialog.alert("noted");
+    assert.equal(cancel.hidden, true);
+    assert.equal(backdrop.classList.contains("brand-confirm-alert"), true);
+    assert.equal(ok.focused, true);
+    ok.fire("click");
+    await pending;
+    assert.equal(backdrop.classList.contains("hidden"), true);
+    assert.equal(backdrop.classList.contains("brand-confirm-alert"), false);
+  });
+});
+
+test("Escape acknowledges an alert instead of refusing it", async () => {
+  await withDialogEnvironment(async ({ documentListeners }) => {
+    const dialog = createBrandConfirm();
+    const pending = dialog.alert("press escape");
+    documentListeners.get("keydown")({
+      key: "Escape",
+      preventDefault: () => {},
+      stopPropagation: () => {},
+    });
+    await pending;
+  });
+});
+
+test("a later confirm restores the cancel button after an alert", async () => {
+  await withDialogEnvironment(async ({ cancel, ok }) => {
+    const dialog = createBrandConfirm();
+    const alerted = dialog.alert("noted");
+    ok.fire("click");
+    await alerted;
+    const pending = dialog.confirm("again?");
+    assert.equal(cancel.hidden, false);
+    assert.equal(cancel.focused, true);
+    ok.fire("click");
+    assert.equal(await pending, true);
+  });
 });
 
 test("a second confirm while one is open refuses the first", async () => {

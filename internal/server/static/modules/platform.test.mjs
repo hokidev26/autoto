@@ -78,28 +78,26 @@ test("isDesktopShell reads host markers", () => {
   }
 });
 
-test("installDesktopShellDialogs posts to shell endpoints", async () => {
+test("installDesktopShellDialogs posts file pickers and leaves confirm in-app", async () => {
   resetPlatformDialogs();
   const previousWindow = globalThis.window;
   const previousFetch = globalThis.fetch;
   const posts = [];
+  let seenConfirm = "";
+  let seenAlert = "";
   globalThis.window = {
     AUTOTO_DESKTOP_SHELL: true,
     AUTOTO_LOCAL_TOKEN: "tok-test",
-    confirm() {
-      throw new Error("browser confirm should not run");
+    confirm(message) {
+      seenConfirm = message;
+      return true;
+    },
+    alert(message) {
+      seenAlert = message;
     },
   };
   globalThis.fetch = async (path, init) => {
     posts.push({ path, init });
-    if (String(path).includes("/confirm")) {
-      return {
-        ok: true,
-        async json() {
-          return { ok: true, accepted: true };
-        },
-      };
-    }
     if (String(path).includes("/open-directory")) {
       return {
         ok: true,
@@ -116,29 +114,45 @@ test("installDesktopShellDialogs posts to shell endpoints", async () => {
         },
       };
     }
-    return {
-      ok: true,
-      async json() {
-        return { ok: true };
-      },
-    };
+    throw new Error(`unexpected desktop dialog POST ${path}`);
   };
   try {
     assert.equal(installDesktopShellDialogs(), true);
     assert.equal(await confirm("wipe?"), true);
+    assert.equal(seenConfirm, "wipe?");
     await alert("done");
+    assert.equal(seenAlert, "done");
     const dir = await pickDirectory({ title: "Folder", defaultPath: "/tmp" });
     assert.equal(dir.path, "/tmp/proj");
     const file = await pickFile({ title: "File", filters: [{ name: "JSON", pattern: "*.json" }] });
     assert.equal(file.path, "/tmp/a.json");
-    assert.equal(posts.length, 4);
-    assert.equal(posts[0].path, "/api/desktop/dialog/confirm");
+    assert.equal(posts.length, 2);
+    assert.equal(posts[0].path, "/api/desktop/dialog/open-directory");
     assert.equal(posts[0].init.headers["X-Autoto-Token"], "tok-test");
-    assert.equal(posts[1].path, "/api/desktop/dialog/alert");
-    assert.equal(posts[2].path, "/api/desktop/dialog/open-directory");
-    assert.equal(posts[3].path, "/api/desktop/dialog/open-file");
-    const body = JSON.parse(posts[0].init.body);
-    assert.equal(body.message, "wipe?");
+    assert.equal(posts[1].path, "/api/desktop/dialog/open-file");
+  } finally {
+    globalThis.window = previousWindow;
+    globalThis.fetch = previousFetch;
+    resetPlatformDialogs();
+  }
+});
+
+test("desktop file pickers do not replace an in-app confirm", async () => {
+  resetPlatformDialogs();
+  const previousWindow = globalThis.window;
+  const previousFetch = globalThis.fetch;
+  globalThis.window = { AUTOTO_DESKTOP_SHELL: true, AUTOTO_LOCAL_TOKEN: "tok-test" };
+  globalThis.fetch = async () => ({
+    ok: true,
+    async json() {
+      return { ok: true, canceled: true, path: "" };
+    },
+  });
+  try {
+    setPlatformDialogs({ confirm: async () => "branded" });
+    assert.equal(installDesktopShellDialogs(), true);
+    assert.equal(await confirm("keep me"), "branded");
+    await pickDirectory();
   } finally {
     globalThis.window = previousWindow;
     globalThis.fetch = previousFetch;

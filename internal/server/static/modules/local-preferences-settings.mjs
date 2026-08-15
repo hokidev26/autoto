@@ -718,10 +718,12 @@ export function createLocalPreferencesSettingsController({
     const status = activeUrl
       ? (backgroundFilename ? t("appearance.backgroundReadyNamed", { name: backgroundFilename }) : t("appearance.backgroundReady"))
       : t("appearance.backgroundNone");
+    const swatchStyle = activeUrl ? ` style="--appearance-bg-preview:url('${escapeAttr(activeUrl)}')"` : "";
     return `<section class="compact-settings-section appearance-background-section">
       <div class="compact-settings-section-copy"><h2>${escapeHtml(t("appearance.backgroundTitle"))}</h2><p data-settings-help-copy>${escapeHtml(t("appearance.backgroundMeta"))}</p></div>
       <div class="compact-settings-section-controls appearance-background-controls">
         <div class="appearance-background-toolbar">
+          <div class="appearance-background-swatch${activeUrl ? " has-image" : ""}" aria-hidden="true"${swatchStyle}></div>
           <input id="appearanceBackgroundFile" class="hidden" type="file" accept="image/jpeg,image/png,image/webp" />
           <button id="appearanceBackgroundUploadBtn" class="settings-action-btn primary" type="button">${escapeHtml(activeUrl ? t("appearance.backgroundReplace") : t("appearance.backgroundUpload"))}</button>
           <button id="appearanceBackgroundRemoveBtn" class="settings-action-btn subtle" type="button" ${activeUrl ? "" : "disabled"}>${escapeHtml(t("appearance.backgroundRemove"))}</button>
@@ -744,26 +746,44 @@ export function createLocalPreferencesSettingsController({
     const uiLocale = resolveUILocale(regional.locale);
     return `
     <div class="settings-live-page compact-settings-page appearance-page">
-      <header class="compact-settings-header">
+      <header class="compact-settings-header appearance-page-header">
         <div class="compact-settings-heading">
           <div class="settings-hero-kicker">${escapeHtml(t("appearance.heroKicker"))}</div>
-          <h1>${escapeHtml(appearanceThemeLabel(prefs.themePreset))} · ${escapeHtml(appearanceDensityLabel(prefs.density))}</h1>
+          <h1>${escapeHtml(t("appearance.heroTitle"))}</h1>
           <p data-settings-help-copy>${escapeHtml(t("appearance.heroDescription"))}</p>
+          <div class="appearance-current-chips" aria-label="${escapeAttr(t("appearance.currentSummary"))}">
+            <span class="appearance-chip">${escapeHtml(appearanceThemeLabel(prefs.themePreset))}</span>
+            <span class="appearance-chip">${escapeHtml(appearanceDensityLabel(prefs.density))}</span>
+            <span class="appearance-chip">${escapeHtml(appearanceFontSizeLabel(prefs.fontSize))}</span>
+          </div>
         </div>
+        <label class="appearance-language-field compact-settings-field" for="appearanceLanguageSelect">
+          <span>${escapeHtml(t("language.label"))}</span>
+          <select id="appearanceLanguageSelect" class="settings-field" aria-label="${escapeAttr(t("language.label"))}">
+            <option value="zh-TW" ${uiLocale === "zh-TW" ? "selected" : ""}>${escapeHtml(t("language.traditionalChinese"))}</option>
+            <option value="zh-CN" ${uiLocale === "zh-CN" ? "selected" : ""}>${escapeHtml(t("language.simplifiedChinese"))}</option>
+            <option value="en-US" ${uiLocale === "en" ? "selected" : ""}>${escapeHtml(t("language.english"))}</option>
+          </select>
+        </label>
       </header>
-      <section class="compact-settings-section appearance-language-section">
-        <div class="compact-settings-section-copy"><h2>${escapeHtml(t("appearance.languageTitle"))}</h2><p data-settings-help-copy>${escapeHtml(t("appearance.languageMeta"))}</p></div>
-        <div class="compact-settings-section-controls"><label class="settings-form-field compact-settings-field" for="appearanceLanguageSelect"><span>${escapeHtml(t("language.label"))}</span><select id="appearanceLanguageSelect" class="settings-field"><option value="zh-TW" ${uiLocale === "zh-TW" ? "selected" : ""}>${escapeHtml(t("language.traditionalChinese"))}</option><option value="zh-CN" ${uiLocale === "zh-CN" ? "selected" : ""}>${escapeHtml(t("language.simplifiedChinese"))}</option><option value="en-US" ${uiLocale === "en" ? "selected" : ""}>${escapeHtml(t("language.english"))}</option></select><small data-settings-help-copy>${escapeHtml(t("language.description"))}</small></label></div>
-      </section>
-      <section class="compact-settings-section">
+      <section class="compact-settings-section appearance-theme-section appearance-visual-section">
         <div class="compact-settings-section-copy"><h2>${escapeHtml(t("appearance.themeSectionTitle"))}</h2><p data-settings-help-copy>${escapeHtml(t("appearance.themeSectionMeta"))}</p></div>
         <div class="compact-settings-section-controls"><div class="appearance-theme-grid compact-settings-choice-grid four-column" role="radiogroup" aria-label="${escapeAttr(t("appearance.themeSectionTitle"))}">${renderThemePresetChoice("light", t("appearance.themeLight"), t("appearance.themeLightDesc"), prefs.themeRef?.kind !== "package" && prefs.themePreset === "light")}${renderThemePresetChoice("dark", t("appearance.themeDark"), t("appearance.themeDarkDesc"), prefs.themeRef?.kind !== "package" && prefs.themePreset === "dark")}${renderThemePresetChoice("cyber", t("appearance.themeCyber"), t("appearance.themeCyberDesc"), prefs.themeRef?.kind !== "package" && prefs.themePreset === "cyber")}${renderThemePresetChoice("cream", t("appearance.themeCream"), t("appearance.themeCreamDesc"), prefs.themeRef?.kind !== "package" && prefs.themePreset === "cream")}</div></div>
       </section>
       ${renderThemeLibrarySection?.() || ""}
       ${renderAppearanceBackgroundSection()}
-      <section class="compact-settings-section">
-        <div class="compact-settings-section-copy"><h2>${escapeHtml(t("appearance.densitySectionTitle"))}</h2><p data-settings-help-copy>${escapeHtml(t("appearance.densitySectionMeta"))}</p></div>
-        <div class="compact-settings-section-controls"><div class="appearance-choice-grid compact-settings-choice-grid two-column" role="radiogroup">${renderAppearanceChoice("density", "comfortable", t("appearance.densityComfortable"), t("appearance.densityComfortableDesc"), prefs.density === "comfortable")}${renderAppearanceChoice("density", "compact", t("appearance.densityCompact"), t("appearance.densityCompactDesc"), prefs.density === "compact")}</div></div>
+      <section class="compact-settings-section appearance-reading-section">
+        <div class="compact-settings-section-copy"><h2>${escapeHtml(t("appearance.readingSectionTitle"))}</h2><p data-settings-help-copy>${escapeHtml(t("appearance.readingSectionMeta"))}</p></div>
+        <div class="compact-settings-section-controls appearance-reading-controls">
+          <div class="appearance-reading-block">
+            <h3>${escapeHtml(t("appearance.fontSizeSectionTitle"))}</h3>
+            <div class="appearance-choice-grid compact-settings-choice-grid three-column" role="radiogroup" aria-label="${escapeAttr(t("appearance.fontSizeSectionTitle"))}">${renderAppearanceChoice("fontSize", "small", t("appearance.fontSizeSmall"), t("appearance.fontSizeSmallDesc"), prefs.fontSize === "small", fontSizeSample("small"))}${renderAppearanceChoice("fontSize", "medium", t("appearance.fontSizeMedium"), t("appearance.fontSizeMediumDesc"), prefs.fontSize !== "small" && prefs.fontSize !== "large", fontSizeSample("medium"))}${renderAppearanceChoice("fontSize", "large", t("appearance.fontSizeLarge"), t("appearance.fontSizeLargeDesc"), prefs.fontSize === "large", fontSizeSample("large"))}</div>
+          </div>
+          <div class="appearance-reading-block">
+            <h3>${escapeHtml(t("appearance.densitySectionTitle"))}</h3>
+            <div class="appearance-choice-grid compact-settings-choice-grid two-column" role="radiogroup" aria-label="${escapeAttr(t("appearance.densitySectionTitle"))}">${renderAppearanceChoice("density", "comfortable", t("appearance.densityComfortable"), t("appearance.densityComfortableDesc"), prefs.density === "comfortable", densitySample("comfortable"))}${renderAppearanceChoice("density", "compact", t("appearance.densityCompact"), t("appearance.densityCompactDesc"), prefs.density === "compact", densitySample("compact"))}</div>
+          </div>
+        </div>
       </section>
       <section class="compact-settings-section">
         <div class="compact-settings-section-copy"><h2>${escapeHtml(t("appearance.behaviorTitle"))}</h2><p data-settings-help-copy>${escapeHtml(t("appearance.behaviorMeta"))}</p></div>
@@ -773,9 +793,18 @@ export function createLocalPreferencesSettingsController({
   `;
   }
 
-  function renderAppearanceChoice(field, value, title, description, active) {
+  function fontSizeSample(value) {
+    return `<span class="appearance-type-sample appearance-type-sample-${escapeAttr(value)}" aria-hidden="true">Aa</span>`;
+  }
+
+  function densitySample(value) {
+    return `<span class="appearance-density-sample appearance-density-sample-${escapeAttr(value)}" aria-hidden="true"><i></i><i></i><i></i><i></i></span>`;
+  }
+
+  function renderAppearanceChoice(field, value, title, description, active, sample = "") {
     return `
-    <button class="appearance-choice settings-choice-card ${active ? "active" : ""}" type="button" role="radio" aria-checked="${active}" data-appearance-field="${escapeAttr(field)}" data-appearance-value="${escapeAttr(value)}">
+    <button class="appearance-choice settings-choice-card appearance-${escapeAttr(field)}-choice ${active ? "active" : ""}" type="button" role="radio" aria-checked="${active}" data-appearance-field="${escapeAttr(field)}" data-appearance-value="${escapeAttr(value)}">
+      ${sample}
       <span>${escapeHtml(title)}</span>
       <small data-settings-help-copy>${escapeHtml(description)}</small>
     </button>
@@ -814,6 +843,14 @@ export function createLocalPreferencesSettingsController({
 
   function appearanceDensityLabel(value) {
     return value === "compact" ? t("appearance.densityCompactLabel") : t("appearance.densityComfortableLabel");
+  }
+
+  function appearanceFontSizeLabel(value) {
+    return value === "small"
+      ? t("appearance.fontSizeSmallLabel")
+      : value === "large"
+        ? t("appearance.fontSizeLargeLabel")
+        : t("appearance.fontSizeMediumLabel");
   }
 
   function bindAppearanceBackgroundActions() {

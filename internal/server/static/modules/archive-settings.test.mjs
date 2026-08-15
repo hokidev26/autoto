@@ -214,6 +214,30 @@ test("archived project conversations nest under the project instead of duplicati
   assert.equal(grouped.nested.get("p-1")[0].agentId, "a-1");
 });
 
+test("archived project conversations stay collapsed until the project is expanded", async () => {
+  const controller = createArchiveSettingsController({
+    request: async () => ({
+      projects: [{ id: "p-1", name: "Project", gitPath: "/tmp/project", archivedAt: "2026-07-18T00:00:00Z" }],
+      conversations: [
+        { projectId: "p-1", projectName: "Project", agentId: "a-nested", agentTitle: "Chat", agentArchivedAt: "2026-07-18T00:00:00Z" },
+      ],
+    }),
+  });
+  await controller.load();
+  setUILocale("en");
+  try {
+    const html = controller.render();
+    assert.match(html, /data-archive-nested="p-1"/);
+    assert.match(html, /<details class="archive-nested" data-archive-nested="p-1">/);
+    assert.doesNotMatch(html, /<details class="archive-nested"[^>]*\sopen/);
+    assert.match(html, /1 conversations/);
+    assert.match(html, /archive-item-nested/);
+    assert.match(html, /Chat/);
+  } finally {
+    setUILocale("zh-CN");
+  }
+});
+
 test("archive search renders snippets and an open action", async () => {
   const calls = [];
   const opened = [];
