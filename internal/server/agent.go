@@ -1308,7 +1308,8 @@ type executeToolRequest struct {
 
 func (s *Server) executeTool(w http.ResponseWriter, r *http.Request) {
 	var req executeToolRequest
-	if err := decodeJSON(r, &req); err != nil {
+	// Tool input can include Write/MultiEdit file content; keep the 1 MiB message budget.
+	if err := decodeLimitedJSON(w, r, &req, 1<<20); err != nil {
 		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}

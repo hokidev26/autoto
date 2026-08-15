@@ -43,6 +43,25 @@ func TestWriteRequestErrorGatesRemoteDetail(t *testing.T) {
 	}
 }
 
+func TestDecodeJSONRejectsOversizedBody(t *testing.T) {
+	small := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(`{"ok":true}`))
+	var smallDst struct {
+		OK bool `json:"ok"`
+	}
+	if err := decodeJSON(small, &smallDst); err != nil || !smallDst.OK {
+		t.Fatalf("small JSON body should decode, err=%v dst=%+v", err, smallDst)
+	}
+
+	payload := `{"x":"` + strings.Repeat("a", 257<<10) + `"}`
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(payload))
+	var dst struct {
+		X string `json:"x"`
+	}
+	if err := decodeJSON(req, &dst); err == nil {
+		t.Fatal("expected decodeJSON to reject a 257 KiB JSON body")
+	}
+}
+
 func TestWriteGitErrorGatesRemotePathDetail(t *testing.T) {
 	app := New(config.Config{}, nil, nil, nil)
 	cause := gitCommandError{

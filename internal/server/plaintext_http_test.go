@@ -125,7 +125,7 @@ func TestDescribeProviderConfigErrorOmitsPlaintextHintWhenNotApplicable(t *testi
 		t.Fatalf("an already opted-in provider must not be told to enable the toggle: %q", message)
 	}
 
-	if message := describeProviderConfigError(httpsProvider, errors.New("boom")); message != "Provider 配置无效。" {
+	if message := describeProviderConfigError(httpsProvider, errors.New("boom")); message != "Provider 設定無效。" {
 		t.Fatalf("unknown causes should keep the generic message, got %q", message)
 	}
 }
@@ -140,7 +140,7 @@ func TestProviderDraftTestSurfacesPlaintextGuidance(t *testing.T) {
 	app.Routes().ServeHTTP(recorder, request)
 
 	body := recorder.Body.String()
-	if strings.Contains(body, "Provider 配置无效") {
+	if strings.Contains(body, "Provider 設定無效") {
 		t.Fatalf("draft preflight still returns the opaque message: %s", body)
 	}
 	if !strings.Contains(body, "明文 HTTP") {

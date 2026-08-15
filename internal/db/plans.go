@@ -683,6 +683,23 @@ func (s *planStore) ListPlanReviews(ctx context.Context, agentID, planID string)
 	return reviews, rows.Err()
 }
 
+func (s *planStore) ListPlanReviewsForAgent(ctx context.Context, agentID string) ([]PlanReview, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT r.id, r.plan_id, r.plan_revision, r.reviewer_id, r.decision, r.comment, r.created_at FROM plan_reviews r JOIN plans p ON p.id = r.plan_id WHERE p.agent_id = ? ORDER BY r.created_at ASC, r.id ASC`, strings.TrimSpace(agentID))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	reviews := make([]PlanReview, 0)
+	for rows.Next() {
+		review, err := scanPlanReview(rows.Scan)
+		if err != nil {
+			return nil, err
+		}
+		reviews = append(reviews, review)
+	}
+	return reviews, rows.Err()
+}
+
 func (s *planStore) CreatePlanApproval(ctx context.Context, approval PlanApproval) (PlanApproval, error) {
 	approval.ID = strings.TrimSpace(approval.ID)
 	approval.PlanID = strings.TrimSpace(approval.PlanID)

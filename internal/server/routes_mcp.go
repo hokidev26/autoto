@@ -4,6 +4,7 @@ import "github.com/go-chi/chi/v5"
 
 func (s *Server) mountMCPServerRoutes(r chi.Router) {
 	r.Route("/api/mcp/servers", func(r chi.Router) {
+		r.Use(s.loginIfUsersExistGuard)
 		r.Get("/", s.listMCPServers)
 		r.With(s.fullRemoteAccessGuard).Post("/", s.createMCPServer)
 		r.Get("/{id}", s.getMCPServer)

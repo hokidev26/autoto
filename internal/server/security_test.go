@@ -185,28 +185,24 @@ func TestLocalRequestGuardRequiresTokenForBrowserAPI(t *testing.T) {
 	}
 }
 
-func TestWebSocketTokenUsesCookieAndWarnsOnceForQueryFallback(t *testing.T) {
+func TestWebSocketTokenUsesCookieAndRejectsQueryToken(t *testing.T) {
 	app := New(config.Config{}, nil, nil, nil)
-	capture := captureLegacyWarnings(app)
 
 	cookieRequest := newTestRequest(http.MethodGet, "/ws/agent?id=agent-1", nil)
 	cookieRequest.AddCookie(&http.Cookie{Name: localTokenCookieName, Value: app.localToken})
 	if !app.validWebSocketToken(cookieRequest) {
 		t.Fatal("expected local-token cookie to authorize websocket")
 	}
-	if usages := capture.snapshot(); len(usages) != 0 {
-		t.Fatalf("cookie authentication must not emit legacy warnings: %+v", usages)
+
+	headerRequest := newTestRequest(http.MethodGet, "/ws/agent?id=agent-1", nil)
+	headerRequest.Header.Set(localTokenHeader, app.localToken)
+	if !app.validWebSocketToken(headerRequest) {
+		t.Fatal("expected local-token header to authorize websocket")
 	}
 
-	for i := 0; i < 2; i++ {
-		queryRequest := newTestRequest(http.MethodGet, "/ws/agent?id=agent-1&token="+app.localToken, nil)
-		if !app.validWebSocketToken(queryRequest) {
-			t.Fatal("expected legacy websocket query token to remain compatible")
-		}
-	}
-	usages := capture.snapshot()
-	if len(usages) != 1 || usages[0].Kind != "query-parameter" || strings.Contains(fmt.Sprint(usages), app.localToken) {
-		t.Fatalf("expected one non-secret query-token warning, got %+v", usages)
+	queryRequest := newTestRequest(http.MethodGet, "/ws/agent?id=agent-1&token="+app.localToken, nil)
+	if app.validWebSocketToken(queryRequest) {
+		t.Fatal("websocket query token must not authorize")
 	}
 }
 
@@ -480,7 +476,7 @@ func TestWebSocketRejectsBadOriginAndMissingToken(t *testing.T) {
 	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/ws/agent?id=n1"
 
 	ctx := t.Context()
-	_, _, err := websocket.Dial(ctx, wsURL+"&token="+app.localToken, &websocket.DialOptions{HTTPHeader: http.Header{"Origin": []string{"http://evil.test"}}})
+	_, _, err := websocket.Dial(ctx, wsURL, &websocket.DialOptions{HTTPHeader: http.Header{"Origin": []string{"http://evil.test"}, localTokenHeader: []string{app.localToken}}})
 	if err == nil {
 		t.Fatal("expected bad origin websocket dial to fail")
 	}
@@ -1332,10 +1328,11 @@ func TestRemoteHardeningRejectsTerminalWebSocketByDefault(t *testing.T) {
 	}
 	app := New(config.Config{Security: config.SecurityConfig{Exposed: true, AccessPassword: "secret"}}, store, nil, nil)
 	recorder := httptest.NewRecorder()
-	request := newTestRequest(http.MethodGet, "/ws/terminal?agentId="+agent.ID+"&token="+app.localToken, nil)
+	request := newTestRequest(http.MethodGet, "/ws/terminal?agentId="+agent.ID, nil)
 	request.Host = "remote.example.test"
 	markRemoteHTTPS(request)
 	request.Header.Set("Authorization", "Bearer secret")
+	request.Header.Set(localTokenHeader, app.localToken)
 	app.Routes().ServeHTTP(recorder, request)
 	if recorder.Code != http.StatusForbidden {
 		t.Fatalf("expected restricted remote terminal websocket to be rejected, got %d: %s", recorder.Code, recorder.Body.String())

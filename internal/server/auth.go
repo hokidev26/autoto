@@ -362,6 +362,46 @@ func (s *Server) requireUser(w http.ResponseWriter, r *http.Request) (db.User, b
 	return user, true
 }
 
+// requireLoginIfUsersExist leaves a fresh local-first install unchanged. Once
+// at least one local account exists, local requests need a logged-in user
+// session. Authenticated remote access keeps using remoteAccessAuthentication
+// rather than the local account cookie, so a valid remote session is not forced
+// through requireUser (which would 401 as "login required"). Unauthenticated
+// remote requests are rejected here as well, in case this guard is reached
+// without the global remote gate.
+func (s *Server) requireLoginIfUsersExist(w http.ResponseWriter, r *http.Request) bool {
+	auth := s.remoteAccessAuthentication(r)
+	if auth.Remote {
+		if !auth.Authenticated {
+			writeError(w, http.StatusUnauthorized, "missing or invalid remote session")
+			return false
+		}
+		return true
+	}
+	if s.store == nil {
+		return true
+	}
+	hasUsers, err := s.store.HasUsers(r.Context())
+	if err != nil {
+		s.writeRequestError(w, r, http.StatusInternalServerError, err)
+		return false
+	}
+	if !hasUsers {
+		return true
+	}
+	_, ok := s.requireUser(w, r)
+	return ok
+}
+
+func (s *Server) loginIfUsersExistGuard(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !s.requireLoginIfUsersExist(w, r) {
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
 func (s *Server) startSession(w http.ResponseWriter, r *http.Request, user db.User) error {
 	token, err := newSessionToken()
 	if err != nil {

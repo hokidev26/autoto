@@ -262,7 +262,7 @@ func (s *Server) testProviderConfig(w http.ResponseWriter, r *http.Request) {
 // testProviderConfigDraft validates and tests a full configuration draft without
 // writing it to disk or changing the runtime registry. Blank keys may reuse only
 // the explicitly identified original provider and never cross endpoint bindings.
-var errProviderDraftNameConflict = errors.New("Provider 名称已存在")
+var errProviderDraftNameConflict = errors.New("Provider 名稱已存在")
 
 func (s *Server) providerConfigForDraftTest(ctx context.Context, providerName string, req providerConfigUpdateRequest) (config.ProviderConfig, error) {
 	return s.providerConfigs().configForDraftTest(ctx, providerName, req)
@@ -376,10 +376,10 @@ func (s *Server) testProviderMessageDraft(w http.ResponseWriter, r *http.Request
 			if !ok {
 				text := strings.TrimSpace(output.String())
 				if text == "" {
-					writeJSON(w, http.StatusOK, providerMessageTestResponse{Model: provider.Model, Usage: usage, ErrorCode: "empty_response", Message: "模型没有返回文本。"})
+					writeJSON(w, http.StatusOK, providerMessageTestResponse{Model: provider.Model, Usage: usage, ErrorCode: "empty_response", Message: "模型沒有返回文字。"})
 					return
 				}
-				writeJSON(w, http.StatusOK, providerMessageTestResponse{Success: true, Model: provider.Model, Output: text, Usage: usage, Truncated: truncated, Message: "测试消息发送成功。"})
+				writeJSON(w, http.StatusOK, providerMessageTestResponse{Success: true, Model: provider.Model, Output: text, Usage: usage, Truncated: truncated, Message: "測試訊息傳送成功。"})
 				return
 			}
 			if event.Usage != nil {
@@ -643,15 +643,15 @@ func providerProxySettings(existing config.ProviderConfig, req providerConfigUpd
 		}
 		parsed, err := url.Parse(raw)
 		if err != nil || !parsed.IsAbs() || parsed.Opaque != "" || parsed.Host == "" || parsed.Hostname() == "" {
-			return "", "", "", "", false, errors.New("代理地址无效")
+			return "", "", "", "", false, errors.New("代理位址無效")
 		}
 		if parsed.Fragment != "" || parsed.RawFragment != "" || parsed.RawQuery != "" || parsed.ForceQuery || (parsed.Path != "" && parsed.Path != "/") {
-			return "", "", "", "", false, errors.New("代理地址不能包含路径、查询参数或片段")
+			return "", "", "", "", false, errors.New("代理位址不能包含路徑、查詢參數或片段")
 		}
 		switch strings.ToLower(parsed.Scheme) {
 		case "http", "https", "socks5", "socks5h":
 		default:
-			return "", "", "", "", false, errors.New("代理协议仅支持 http、https、socks5 或 socks5h")
+			return "", "", "", "", false, errors.New("代理協定僅支援 http、https、socks5 或 socks5h")
 		}
 		if parsed.User != nil {
 			username = parsed.User.Username()
@@ -695,11 +695,11 @@ func providerHeadersFromRequest(existing config.ProviderConfig, inputs *[]provid
 		value := input.Value
 		if value == "" && input.KeepExisting {
 			if !allowKeepExisting {
-				return nil, "", fmt.Errorf("安全边界已变化，请重新输入请求头 %q 的值", name)
+				return nil, "", fmt.Errorf("安全邊界已變化，請重新輸入請求頭 %q 的值", name)
 			}
 			value = existingValues[strings.ToLower(name)]
 			if value == "" {
-				return nil, "", fmt.Errorf("无法保留请求头 %q，请重新输入值", name)
+				return nil, "", fmt.Errorf("無法保留請求頭 %q，請重新輸入值", name)
 			}
 		} else if value != "" {
 			usedNewValue = true
@@ -733,11 +733,11 @@ func providerConfigFromUpdateRequest(providerName string, existing config.Provid
 	switch providerType {
 	case "openai-compatible", "anthropic", "openai", config.ProviderTypeGeminiInteractions, config.ProviderTypeGemini, config.ProviderTypeGrok, config.ProviderTypeKimi, config.ProviderTypeCodex:
 	default:
-		return config.ProviderConfig{}, errors.New("API 协议当前仅支持 codex、openai-compatible、anthropic、openai、gemini-interactions、gemini、grok 或 kimi")
+		return config.ProviderConfig{}, errors.New("API 協定目前僅支援 codex、openai-compatible、anthropic、openai、gemini-interactions、gemini、grok 或 kimi")
 	}
 	baseURL := strings.TrimSpace(req.BaseURL)
 	if providerType == "openai-compatible" && baseURL == "" {
-		return config.ProviderConfig{}, errors.New("中转站 Base URL 不能为空")
+		return config.ProviderConfig{}, errors.New("中轉站 Base URL 不能為空")
 	}
 	switch providerType {
 	case config.ProviderTypeGeminiInteractions:
@@ -1025,14 +1025,14 @@ func validateProviderName(name string) error {
 		return errors.New("provider name is required")
 	}
 	if len(name) > 64 {
-		return errors.New("Provider 名称最多 64 个字符")
+		return errors.New("Provider 名稱最多 64 個字元")
 	}
 	for i, r := range name {
 		if i == 0 && !isProviderNameAlphaNumeric(r) {
-			return errors.New("Provider 名称必须以英文字母或数字开头，且只能包含英文字母、数字、点、下划线和中横线")
+			return errors.New("Provider 名稱必須以英文字母或數字開頭，且只能包含英文字母、數字、點、底線和連字號")
 		}
 		if !isProviderNameChar(r) {
-			return errors.New("Provider 名称只能包含英文字母、数字、点、下划线和中横线")
+			return errors.New("Provider 名稱只能包含英文字母、數字、點、底線和連字號")
 		}
 	}
 	return nil
@@ -1156,7 +1156,7 @@ func (s *Server) ensureProviderDefaultAfterMutation(next config.Config, affected
 			return nil
 		}
 	}
-	return errors.New("不能禁用或删除当前默认 Provider：没有可用且已配置的回退 Provider")
+	return errors.New("不能停用或刪除目前預設 Provider：沒有可用且已設定的回退 Provider")
 }
 
 func (s *Server) persistProviderConfig(configPath string, cfg config.Config) (bool, error) {
@@ -1181,7 +1181,7 @@ func distinctModelCount(models []string) int {
 }
 
 // describeProviderConfigError explains why building a runtime adapter failed.
-// The three call sites used to collapse every cause into "Provider 配置无效。",
+// The three call sites used to collapse every cause into "Provider 設定無效。",
 // which gave no way to tell a denied base URL apart from a malformed header, so
 // a plain-HTTP relay looked like an unexplained rejection.
 //
@@ -1190,25 +1190,25 @@ func distinctModelCount(models []string) int {
 // property must survive being surfaced in the UI.
 func describeProviderConfigError(provider config.ProviderConfig, err error) string {
 	if err == nil {
-		return "Provider 配置无效。"
+		return "Provider 設定無效。"
 	}
 	slog.Debug("provider runtime configuration rejected", "provider", provider.Name, "error", err.Error())
 	if errors.Is(err, network.ErrDestinationDenied) && isPlaintextHTTPBaseURL(provider.BaseURL) && !provider.AllowPlaintextHTTP {
-		return "明文 HTTP 只允许连接本机。请改用 https://，或为该 Provider 单独开启「允许明文 HTTP」（开启后 API Key 与请求内容会明文传输）。"
+		return "明文 HTTP 只允許連線本機。請改用 https://，或為該 Provider 單獨開啟「允許明文 HTTP」（開啟後 API Key 與請求內容會明文傳輸）。"
 	}
 	if errors.Is(err, network.ErrDestinationDenied) {
-		return "该地址被网络策略拒绝。"
+		return "該位址被網路策略拒絕。"
 	}
 	if errors.Is(err, network.ErrInvalidURL) {
-		return "Base URL 格式无效。"
+		return "Base URL 格式無效。"
 	}
 	if errors.Is(err, network.ErrNameResolution) {
-		return "无法解析该地址的主机名。"
+		return "無法解析該位址的主機名稱。"
 	}
 	if errors.Is(err, network.ErrProxyConfiguration) {
-		return "代理配置无效。"
+		return "代理設定無效。"
 	}
-	return "Provider 配置无效。"
+	return "Provider 設定無效。"
 }
 
 // isPlaintextHTTPBaseURL reports whether a base URL uses the http scheme, so the
@@ -1223,16 +1223,16 @@ func isPlaintextHTTPBaseURL(raw string) bool {
 
 func classifyProviderTestError(err error) (errorCode, message string, reachable bool) {
 	if errors.Is(err, context.DeadlineExceeded) || strings.Contains(strings.ToLower(err.Error()), "deadline exceeded") {
-		return "timeout", "连接 Provider 超时。", false
+		return "timeout", "連線 Provider 逾時。", false
 	}
 	messageText := strings.ToLower(err.Error())
 	switch {
 	case strings.Contains(messageText, "401"), strings.Contains(messageText, "403"), strings.Contains(messageText, "unauthorized"), strings.Contains(messageText, "forbidden"):
-		return "authentication_failed", "Provider 拒绝了凭据。", true
+		return "authentication_failed", "Provider 拒絕了憑證。", true
 	case strings.Contains(messageText, "not configured"), strings.Contains(messageText, "没有可用"), strings.Contains(messageText, "credential"), strings.Contains(messageText, "api key is required"):
-		return "not_configured", "Provider 凭据尚未配置。", false
+		return "not_configured", "Provider 憑證尚未設定。", false
 	case strings.Contains(messageText, "connection refused"), strings.Contains(messageText, "no such host"), strings.Contains(messageText, "network is unreachable"), strings.Contains(messageText, "connect:"):
-		return "unreachable", "无法连接 Provider。", false
+		return "unreachable", "無法連線 Provider。", false
 	// A models catalog is optional. The Messages API does not require one, and
 	// third-party Anthropic-compatible endpoints commonly serve /v1/messages
 	// without /v1/models -- DeepSeek returns 404 there while generating
@@ -1241,16 +1241,16 @@ func classifyProviderTestError(err error) (errorCode, message string, reachable 
 	// could not be saved even though the manual model entry below it exists for
 	// exactly this case.
 	case strings.Contains(messageText, "404"), strings.Contains(messageText, "not found"):
-		return "catalog_unavailable", "Provider 可访问，但没有模型目录，请手动填写模型名称。", true
+		return "catalog_unavailable", "Provider 可連線，但沒有模型目錄，請手動填寫模型名稱。", true
 	default:
-		return "request_failed", "Provider 测试失败。", false
+		return "request_failed", "Provider 測試失敗。", false
 	}
 }
 
 // classifyProviderMessageTestError maps an upstream failure onto a stable code
 // and a user-facing sentence. Both deliberately drop the underlying error so a
 // provider cannot leak endpoint or credential detail into the UI, which left
-// "模型测试失败。" with no way to find out why; the original text is logged at
+// "模型測試失敗。" with no way to find out why; the original text is logged at
 // debug level instead so operators can diagnose it locally.
 func classifyProviderMessageTestError(err error) (errorCode, message string) {
 	errorCode, _, _ = classifyProviderTestError(err)
@@ -1259,15 +1259,15 @@ func classifyProviderMessageTestError(err error) (errorCode, message string) {
 	}
 	switch errorCode {
 	case "timeout":
-		return errorCode, "模型响应超时。"
+		return errorCode, "模型回應逾時。"
 	case "authentication_failed":
-		return errorCode, "Provider 拒绝了凭据，测试消息未发送。"
+		return errorCode, "Provider 拒絕了憑證，測試訊息未傳送。"
 	case "not_configured":
-		return errorCode, "Provider 凭据尚未配置，测试消息未发送。"
+		return errorCode, "Provider 憑證尚未設定，測試訊息未傳送。"
 	case "unreachable":
-		return errorCode, "无法连接 Provider，测试消息未发送。"
+		return errorCode, "無法連線 Provider，測試訊息未傳送。"
 	default:
-		return "request_failed", "模型测试失败。"
+		return "request_failed", "模型測試失敗。"
 	}
 }
 

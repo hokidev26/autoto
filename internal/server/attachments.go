@@ -50,7 +50,7 @@ func parseMultipartAttachments(w http.ResponseWriter, r *http.Request) (string, 
 		}
 	}()
 	if err := r.ParseMultipartForm(multipartMemoryBytes); err != nil {
-		return "", "", nil, attachmentUploadError{Status: http.StatusBadRequest, Message: fmt.Sprintf("附件上传解析失败：%v", err)}
+		return "", "", nil, attachmentUploadError{Status: http.StatusBadRequest, Message: fmt.Sprintf("附件上傳解析失敗：%v", err)}
 	}
 	text := strings.TrimSpace(r.FormValue("text"))
 	createdBy := strings.TrimSpace(r.FormValue("createdBy"))
@@ -59,7 +59,7 @@ func parseMultipartAttachments(w http.ResponseWriter, r *http.Request) (string, 
 		return "", "", nil, attachmentUploadError{Status: http.StatusBadRequest, Message: "text or files is required"}
 	}
 	if len(files) > maxAttachmentsPerMessage {
-		return "", "", nil, attachmentUploadError{Status: http.StatusRequestEntityTooLarge, Message: "单条消息附件数量超过 16 个限制"}
+		return "", "", nil, attachmentUploadError{Status: http.StatusRequestEntityTooLarge, Message: "單則訊息附件數量超過 16 個限制"}
 	}
 	attachments := make([]db.Attachment, 0, len(files))
 	var total int64
@@ -70,11 +70,11 @@ func parseMultipartAttachments(w http.ResponseWriter, r *http.Request) (string, 
 			continue
 		}
 		if header.Size > maxAttachmentBytes {
-			return "", "", nil, attachmentUploadError{Status: http.StatusRequestEntityTooLarge, Message: fmt.Sprintf("%s 超过 10 MB 限制", sanitizeAttachmentFilename(header.Filename))}
+			return "", "", nil, attachmentUploadError{Status: http.StatusRequestEntityTooLarge, Message: fmt.Sprintf("%s 超過 10 MB 限制", sanitizeAttachmentFilename(header.Filename))}
 		}
 		total += header.Size
 		if total > maxMessageUploadBytes {
-			return "", "", nil, attachmentUploadError{Status: http.StatusRequestEntityTooLarge, Message: "单条消息附件总大小超过 25 MB"}
+			return "", "", nil, attachmentUploadError{Status: http.StatusRequestEntityTooLarge, Message: "單則訊息附件總大小超過 25 MB"}
 		}
 		attachment, err := buildAttachmentFromPart(header)
 		if err != nil {
@@ -83,11 +83,11 @@ func parseMultipartAttachments(w http.ResponseWriter, r *http.Request) (string, 
 		if attachment.Kind == "image" {
 			imageCount++
 			if imageCount > maxImagesPerMessage {
-				return "", "", nil, attachmentUploadError{Status: http.StatusRequestEntityTooLarge, Message: "单条消息图片数量超过 8 张限制"}
+				return "", "", nil, attachmentUploadError{Status: http.StatusRequestEntityTooLarge, Message: "單則訊息圖片數量超過 8 張限制"}
 			}
 			modelImageTotal += int64(len(attachment.ModelData))
 			if modelImageTotal > maxMessageModelImageBytes {
-				return "", "", nil, attachmentUploadError{Status: http.StatusRequestEntityTooLarge, Message: "单条消息规范化图片总大小超过 8 MiB 限制"}
+				return "", "", nil, attachmentUploadError{Status: http.StatusRequestEntityTooLarge, Message: "單則訊息規範化圖片總大小超過 8 MiB 限制"}
 			}
 		}
 		attachments = append(attachments, attachment)
@@ -108,15 +108,15 @@ func multipartFiles(form *multipart.Form) []*multipart.FileHeader {
 func buildAttachmentFromPart(header *multipart.FileHeader) (db.Attachment, error) {
 	file, err := header.Open()
 	if err != nil {
-		return db.Attachment{}, attachmentUploadError{Status: http.StatusBadRequest, Message: fmt.Sprintf("无法打开附件 %s", sanitizeAttachmentFilename(header.Filename))}
+		return db.Attachment{}, attachmentUploadError{Status: http.StatusBadRequest, Message: fmt.Sprintf("無法開啟附件 %s", sanitizeAttachmentFilename(header.Filename))}
 	}
 	defer file.Close()
 	data, err := io.ReadAll(io.LimitReader(file, maxAttachmentBytes+1))
 	if err != nil {
-		return db.Attachment{}, attachmentUploadError{Status: http.StatusBadRequest, Message: fmt.Sprintf("无法读取附件 %s", sanitizeAttachmentFilename(header.Filename))}
+		return db.Attachment{}, attachmentUploadError{Status: http.StatusBadRequest, Message: fmt.Sprintf("無法讀取附件 %s", sanitizeAttachmentFilename(header.Filename))}
 	}
 	if int64(len(data)) > maxAttachmentBytes {
-		return db.Attachment{}, attachmentUploadError{Status: http.StatusRequestEntityTooLarge, Message: fmt.Sprintf("%s 超过 10 MB 限制", sanitizeAttachmentFilename(header.Filename))}
+		return db.Attachment{}, attachmentUploadError{Status: http.StatusRequestEntityTooLarge, Message: fmt.Sprintf("%s 超過 10 MB 限制", sanitizeAttachmentFilename(header.Filename))}
 	}
 	filename := sanitizeAttachmentFilename(header.Filename)
 	mimeType := normalizeAttachmentMIME(filename, header.Header.Get("Content-Type"), data)
@@ -256,7 +256,7 @@ func truncateAttachmentText(text string) string {
 	if len(runes) <= maxAttachmentTextRunes {
 		return text
 	}
-	return string(runes[:maxAttachmentTextRunes]) + "\n\n[内容过长，已截断。]"
+	return string(runes[:maxAttachmentTextRunes]) + "\n\n[內容過長，已截斷。]"
 }
 
 func extractDOCXText(data []byte) (string, error) {

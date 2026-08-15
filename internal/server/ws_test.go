@@ -79,9 +79,9 @@ func TestAgentWSProtocol2ResyncAndAgentValidation(t *testing.T) {
 		t.Fatalf("unexpected resync frame: %+v", frame)
 	}
 
-	query := url.Values{"id": {"missing-agent"}, "protocol": {"2"}, "token": {app.localToken}}
+	query := url.Values{"id": {"missing-agent"}, "protocol": {"2"}}
 	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/ws/agent?" + query.Encode()
-	_, response, err := websocket.Dial(ctx, wsURL, &websocket.DialOptions{HTTPHeader: http.Header{"Origin": []string{server.URL}}})
+	_, response, err := websocket.Dial(ctx, wsURL, &websocket.DialOptions{HTTPHeader: http.Header{"Origin": []string{server.URL}, localTokenHeader: []string{app.localToken}}})
 	if err == nil {
 		t.Fatal("expected unknown agent websocket dial to fail")
 	}
@@ -378,9 +378,9 @@ func dialWSTest(t *testing.T, ctx context.Context, baseURL, token string, query 
 
 func dialWSTestWithCookies(t *testing.T, ctx context.Context, baseURL, token string, query url.Values, cookies ...*http.Cookie) *websocket.Conn {
 	t.Helper()
-	query.Set("token", token)
 	wsURL := "ws" + strings.TrimPrefix(baseURL, "http") + "/ws/agent?" + query.Encode()
 	headers := http.Header{"Origin": []string{baseURL}}
+	headers.Set(localTokenHeader, token)
 	for _, cookie := range cookies {
 		if cookie != nil {
 			headers.Add("Cookie", cookie.String())

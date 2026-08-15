@@ -351,7 +351,7 @@ func (s *Server) writeSpecStoreError(w http.ResponseWriter, r *http.Request, err
 // mountLearnedFeatureRoutes keeps the new endpoints in one place so the main
 // router can opt in without coupling their handlers to server construction.
 func (s *Server) mountLearnedFeatureRoutes(r chi.Router) {
-	r.Get("/api/schedules/{id}/runs", s.listScheduleRuns)
+	r.With(s.loginIfUsersExistGuard).Get("/api/schedules/{id}/runs", s.listScheduleRuns)
 	for _, prefix := range []string{"/api/agents", "/api/narrators"} {
 		r.Get(prefix, s.listAgents)
 		r.Post(prefix, s.createAgent)

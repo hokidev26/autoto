@@ -23,6 +23,14 @@ var ForbiddenHostInputFields = []string{
 	"cwd", "workingDirectory", "working_directory",
 }
 
+var forbiddenHostInputFieldSet = func() map[string]struct{} {
+	set := make(map[string]struct{}, len(ForbiddenHostInputFields))
+	for _, key := range ForbiddenHostInputFields {
+		set[strings.ToLower(key)] = struct{}{}
+	}
+	return set
+}()
+
 // StrictDecode unmarshals tool input with unknown fields rejected (closed-world).
 func StrictDecode(raw json.RawMessage, dst any) error {
 	if len(bytes.TrimSpace(raw)) == 0 {
@@ -43,18 +51,31 @@ func StrictDecode(raw json.RawMessage, dst any) error {
 }
 
 func rejectForbiddenHostFields(raw json.RawMessage) error {
-	var object map[string]json.RawMessage
-	if err := json.Unmarshal(raw, &object); err != nil {
-		// Non-object inputs are handled by the target decoder.
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	token, err := dec.Token()
+	if err != nil {
+		// Non-object and malformed inputs are handled by the target decoder.
 		return nil
 	}
-	forbidden := make(map[string]struct{}, len(ForbiddenHostInputFields))
-	for _, key := range ForbiddenHostInputFields {
-		forbidden[strings.ToLower(key)] = struct{}{}
+	delim, ok := token.(json.Delim)
+	if !ok || delim != '{' {
+		return nil
 	}
-	for present := range object {
-		if _, ok := forbidden[strings.ToLower(present)]; ok {
-			return fmt.Errorf("host field %q is not allowed in tool input; it is injected by the runtime", present)
+	for dec.More() {
+		keyToken, err := dec.Token()
+		if err != nil {
+			return nil
+		}
+		key, ok := keyToken.(string)
+		if !ok {
+			return nil
+		}
+		if _, found := forbiddenHostInputFieldSet[strings.ToLower(key)]; found {
+			return fmt.Errorf("host field %q is not allowed in tool input; it is injected by the runtime", key)
+		}
+		var skip json.RawMessage
+		if err := dec.Decode(&skip); err != nil {
+			return nil
 		}
 	}
 	return nil

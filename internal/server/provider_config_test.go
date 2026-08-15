@@ -824,7 +824,7 @@ func TestProviderTestsSkipMissingRequiredAPIKey(t *testing.T) {
 		if result.Configured || result.Reachable || result.ModelCount != 0 || result.ErrorCode != "not_configured" {
 			t.Fatalf("%s returned an invalid missing-key result: %+v", label, result)
 		}
-		if result.Message != "需要 API Key，尚未执行连接预检。" || strings.Contains(result.Message, "http") {
+		if result.Message != "需要 API Key，尚未執行連線預檢。" || strings.Contains(result.Message, "http") {
 			t.Fatalf("%s returned an unsafe missing-key message: %q", label, result.Message)
 		}
 	}

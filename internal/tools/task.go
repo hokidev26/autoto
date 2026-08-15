@@ -33,10 +33,15 @@ func (TaskTool) Description() string {
 	return "List, inspect, read output from, wait for, or cancel durable background tasks."
 }
 func (TaskTool) Schema() any { return taskInput{} }
-func (TaskTool) Risk(raw json.RawMessage) Risk {
+
+func taskInputFrom(raw json.RawMessage) taskInput {
 	var input taskInput
 	_ = json.Unmarshal(raw, &input)
-	if strings.EqualFold(strings.TrimSpace(input.Action), "cancel") {
+	return input
+}
+
+func (TaskTool) Risk(raw json.RawMessage) Risk {
+	if strings.EqualFold(strings.TrimSpace(taskInputFrom(raw).Action), "cancel") {
 		return RiskExec
 	}
 	return RiskRead

@@ -208,17 +208,7 @@ func assertE2ENotifications(t *testing.T, notifications <-chan agentpkg.Notifica
 
 func dialAgentWebSocket(t *testing.T, ctx context.Context, baseURL, token, agentID string) *websocket.Conn {
 	t.Helper()
-	wsURL := "ws" + strings.TrimPrefix(baseURL, "http") + "/ws/agent?id=" + url.QueryEscape(agentID) + "&token=" + url.QueryEscape(token)
-	header := http.Header{}
-	header.Set("Origin", baseURL)
-	conn, response, err := websocket.Dial(ctx, wsURL, &websocket.DialOptions{HTTPHeader: header})
-	if err != nil {
-		if response != nil {
-			t.Fatalf("websocket dial failed with status %d: %v", response.StatusCode, err)
-		}
-		t.Fatalf("websocket dial failed: %v", err)
-	}
-	return conn
+	return dialWSTest(t, ctx, baseURL, token, url.Values{"id": {agentID}})
 }
 
 func readConnectedWebSocketEvent(t *testing.T, ctx context.Context, conn *websocket.Conn) {

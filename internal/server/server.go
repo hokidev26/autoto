@@ -533,7 +533,7 @@ func writeError(w http.ResponseWriter, status int, message string) {
 
 func decodeJSON(r *http.Request, dst any) error {
 	defer r.Body.Close()
-	decoder := json.NewDecoder(io.LimitReader(r.Body, 1<<20))
+	decoder := json.NewDecoder(io.LimitReader(r.Body, 256<<10))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(dst); err != nil {
 		return err

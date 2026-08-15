@@ -244,14 +244,7 @@ func (s *Server) validWebSocketToken(r *http.Request) bool {
 	if cookie, err := r.Cookie(localTokenCookieName); err == nil && constantTimeEqualToken(cookie.Value, s.localToken) {
 		return true
 	}
-	if s.validHeaderToken(r) {
-		return true
-	}
-	if constantTimeEqualToken(r.URL.Query().Get(localTokenQuery), s.localToken) {
-		s.warnLegacy("credential:websocket-query-token", "WebSocket ?token= query parameter", localTokenCookieName+" cookie or "+localTokenHeader+" header", "query-parameter")
-		return true
-	}
-	return false
+	return s.validHeaderToken(r)
 }
 
 func constantTimeEqualToken(got, want string) bool {

@@ -398,3 +398,73 @@ func TestMessagePageGroupsAttachmentsOntoTheirOwnMessage(t *testing.T) {
 		t.Fatalf("snapshot lost the third message's attachment: %+v", got)
 	}
 }
+
+func TestHasPreemptingMessage(t *testing.T) {
+	ctx := context.Background()
+	store, err := Open(ctx, filepath.Join(t.TempDir(), "preempt.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	_, _, agent, err := store.CreateProject(ctx, "Demo", "", t.TempDir(), "openai:test", "acceptEdits")
+	if err != nil {
+		t.Fatal(err)
+	}
+	current, err := store.CreateRun(ctx, Run{AgentID: agent.ID, Status: "running"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	other, err := store.CreateRun(ctx, Run{AgentID: agent.ID, Status: "running"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	add := func(id, runID, createdAt string) Message {
+		t.Helper()
+		message, err := store.AddMessage(ctx, Message{
+			ID:          id,
+			AgentID:     agent.ID,
+			RunID:       runID,
+			Role:        "user",
+			ContentText: id,
+			CreatedAt:   createdAt,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return message
+	}
+
+	olderOther := add("msg-older-other", other.ID, "2026-01-01T00:00:01Z")
+	start := add("msg-start", current.ID, "2026-01-01T00:00:02Z")
+	add("msg-later-same", current.ID, "2026-01-01T00:00:03Z")
+
+	if err := store.HasPreemptingMessage(ctx, agent.ID, current.ID, start.ID); err != nil {
+		t.Fatalf("same-run messages after start must not preempt: %v", err)
+	}
+	if err := store.HasPreemptingMessage(ctx, agent.ID, current.ID, olderOther.ID); err != nil {
+		t.Fatalf("the start row itself must not count as preemption: %v", err)
+	}
+	if err := store.HasPreemptingMessage(ctx, agent.ID, current.ID, ""); !errors.Is(err, ErrPreemptingMessage) {
+		t.Fatalf("empty start id must treat an older other-run message as preemption, got %v", err)
+	}
+	if err := store.HasPreemptingMessage(ctx, agent.ID, current.ID, "missing-start"); !errors.Is(err, ErrSegmentStartMessageNotFound) {
+		t.Fatalf("missing start id must be a distinct not-found error, got %v", err)
+	}
+
+	add("msg-later-other", other.ID, "2026-01-01T00:00:04Z")
+	if err := store.HasPreemptingMessage(ctx, agent.ID, current.ID, start.ID); !errors.Is(err, ErrPreemptingMessage) {
+		t.Fatalf("a later other-run message must preempt, got %v", err)
+	}
+
+	tieStart := add("msg-tie-a", current.ID, "2026-01-01T00:01:00Z")
+	add("msg-tie-z", other.ID, "2026-01-01T00:01:00Z")
+	if err := store.HasPreemptingMessage(ctx, agent.ID, current.ID, tieStart.ID); !errors.Is(err, ErrPreemptingMessage) {
+		t.Fatalf("same created_at and a later id must follow list order, got %v", err)
+	}
+	tieLater := add("msg-tie-z2", current.ID, "2026-01-01T00:02:00Z")
+	add("msg-tie-a2", other.ID, "2026-01-01T00:02:00Z")
+	if err := store.HasPreemptingMessage(ctx, agent.ID, current.ID, tieLater.ID); err != nil {
+		t.Fatalf("same created_at and an earlier id must stay before the start row, got %v", err)
+	}
+}

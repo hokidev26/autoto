@@ -395,6 +395,102 @@ func (v *ProviderVault) MetadataKind(ctx context.Context, binding ProviderBindin
 	return metadata
 }
 
+// providerSecretStatusRecord holds the non-secret fields needed to derive
+// display metadata without decrypting ciphertext.
+type providerSecretStatusRecord struct {
+	lastFive           string
+	bindingFingerprint []byte
+	secretRevision     int64
+	hasMaterial        bool
+}
+
+// ProviderSecretMetadataSnapshot is a point-in-time view of stored provider
+// secrets for status display. It never decrypts ciphertext.
+type ProviderSecretMetadataSnapshot struct {
+	records      map[string]providerSecretStatusRecord
+	keyAvailable bool
+	failed       bool
+}
+
+func ProviderSecretMetadataKey(name, kind string) string {
+	return strings.TrimSpace(name) + "\x00" + strings.TrimSpace(kind)
+}
+
+func UnavailableProviderSecretMetadataSnapshot() *ProviderSecretMetadataSnapshot {
+	return &ProviderSecretMetadataSnapshot{failed: true}
+}
+
+// MetadataSnapshot lists every stored secret once and records whether the
+// vault key file is present. Callers compare binding fingerprints against the
+// current provider config without Resolve/decrypt.
+func (v *ProviderVault) MetadataSnapshot(ctx context.Context) (*ProviderSecretMetadataSnapshot, error) {
+	if v == nil || v.store == nil {
+		return UnavailableProviderSecretMetadataSnapshot(), nil
+	}
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	records, err := v.store.ListProviderSecrets(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list provider secrets: %w", err)
+	}
+	_, keyErr := v.loadExistingKey()
+	snapshot := &ProviderSecretMetadataSnapshot{
+		records:      make(map[string]providerSecretStatusRecord, len(records)),
+		keyAvailable: keyErr == nil,
+	}
+	for _, record := range records {
+		snapshot.records[ProviderSecretMetadataKey(record.ProviderName, record.SecretKind)] = providerSecretStatusRecord{
+			lastFive:           record.ActiveLastFive,
+			bindingFingerprint: append([]byte(nil), record.ActiveBindingFingerprint...),
+			secretRevision:     record.ActiveSecretRevision,
+			hasMaterial:        len(record.ActiveCiphertext) > 0 && len(record.ActiveNonce) > 0,
+		}
+	}
+	return snapshot, nil
+}
+
+func (s *ProviderSecretMetadataSnapshot) Metadata(binding ProviderBinding, kind string) ProviderSecretMetadata {
+	if s == nil {
+		return ProviderSecretMetadata{Source: ProviderSecretSourceNone}
+	}
+	if s.failed {
+		return ProviderSecretMetadata{Source: ProviderSecretSourceStoredUnavailable}
+	}
+	kind = strings.TrimSpace(kind)
+	binding = canonicalProviderBinding(binding)
+	if err := validateProviderBinding(binding, kind); err != nil {
+		return ProviderSecretMetadata{Source: ProviderSecretSourceStoredUnavailable}
+	}
+	record, ok := s.records[ProviderSecretMetadataKey(binding.Name, kind)]
+	if !ok {
+		return ProviderSecretMetadata{Source: ProviderSecretSourceNone}
+	}
+	return displayMetadataFromStatusRecord(record, binding, kind, s.keyAvailable)
+}
+
+func displayMetadataFromStatusRecord(record providerSecretStatusRecord, binding ProviderBinding, kind string, keyAvailable bool) ProviderSecretMetadata {
+	metadata := ProviderSecretMetadata{
+		Configured: record.hasMaterial,
+		Persisted:  record.hasMaterial,
+		LastFive:   record.lastFive,
+		Source:     ProviderSecretSourceStored,
+	}
+	if !record.hasMaterial {
+		return ProviderSecretMetadata{Source: ProviderSecretSourceNone}
+	}
+	if !bytes.Equal(record.bindingFingerprint, ProviderBindingFingerprint(binding)) || record.secretRevision != providerSecretRevision(binding, kind) {
+		metadata.Configured = false
+		metadata.Source = ProviderSecretSourceStoredUnavailable
+		return metadata
+	}
+	if !keyAvailable {
+		metadata.Configured = false
+		metadata.Source = ProviderSecretSourceStoredUnavailable
+		return metadata
+	}
+	return metadata
+}
+
 // ReconcilePending resolves interrupted two-phase updates before any Provider is
 // registered. Matching target config commits; old config rolls back; deleted
 // Providers commit pending deletes and otherwise have orphan records removed.

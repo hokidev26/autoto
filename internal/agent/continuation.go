@@ -890,30 +890,14 @@ func (r *Runner) resumeContinuationCAS(ctx context.Context, run db.Run) (db.Run,
 }
 
 func (r *Runner) validateNoMessagePreemption(ctx context.Context, run db.Run, segmentStartMessageID string) error {
-	messages, err := r.store.ListMessages(ctx, run.AgentID)
-	if err != nil {
-		return err
-	}
-	start := -1
-	if strings.TrimSpace(segmentStartMessageID) == "" {
-		start = 0
-	} else {
-		for index, message := range messages {
-			if message.ID == segmentStartMessageID {
-				start = index + 1
-				break
-			}
-		}
-	}
-	if start < 0 {
+	err := r.store.HasPreemptingMessage(ctx, run.AgentID, run.ID, strings.TrimSpace(segmentStartMessageID))
+	if errors.Is(err, db.ErrSegmentStartMessageNotFound) {
 		return errors.New("segment start message disappeared")
 	}
-	for _, message := range messages[start:] {
-		if message.RunID != run.ID {
-			return errors.New("a new message preempted the continuation segment")
-		}
+	if errors.Is(err, db.ErrPreemptingMessage) {
+		return errors.New("a new message preempted the continuation segment")
 	}
-	return nil
+	return err
 }
 
 // backgroundWaitParkedWithoutSnapshot reports whether the run parked on a

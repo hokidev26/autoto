@@ -610,13 +610,19 @@ func (s *Server) agentReviewState(ctx context.Context, agentID string, latestRun
 	if err != nil {
 		return agentReviewState{}, err
 	}
+	reviews, err := s.store.ListPlanReviewsForAgent(ctx, agentID)
+	if err != nil {
+		return agentReviewState{}, err
+	}
+	reviewsByPlan := make(map[string][]db.PlanReview, len(reviews))
+	for _, review := range reviews {
+		reviewsByPlan[review.PlanID] = append(reviewsByPlan[review.PlanID], review)
+	}
 	state.Review.PlanCount = len(plans)
 	for _, plan := range plans {
 		summary := summarizeReviewPlan(plan)
 		if plan.Status == db.PlanStatusExecuting || plan.Status == db.PlanStatusInReview || plan.Status == db.PlanStatusApproved || plan.Status == db.PlanStatusStale {
-			if detail, detailErr := s.store.GetPlanDetail(ctx, plan.AgentID, plan.ID); detailErr == nil {
-				summary = summarizeReviewPlanDetail(detail)
-			}
+			summary = summarizeReviewPlanDetail(db.PlanDetail{Plan: plan, Reviews: reviewsByPlan[plan.ID]})
 		}
 		switch plan.Status {
 		case db.PlanStatusExecuting, db.PlanStatusApproved, db.PlanStatusStale:

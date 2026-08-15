@@ -27,7 +27,7 @@ func (p providerConfigService) update(ctx context.Context, providerName string, 
 		existing.Models = s.providerModels(providerName)
 	}
 	if req.CreateOnly && existed {
-		return providerConfigUpdateResponse{}, apiErr(http.StatusConflict, "Provider 名称已存在")
+		return providerConfigUpdateResponse{}, apiErr(http.StatusConflict, "Provider 名稱已存在")
 	}
 	updated, err := providerConfigFromUpdateRequest(providerName, existing, req)
 	if err != nil {
@@ -36,16 +36,16 @@ func (p providerConfigService) update(ctx context.Context, providerName string, 
 	renamed := existed && existing.Name != updated.Name
 	if renamed {
 		if config.IsBuiltinProviderName(existing.Name) {
-			return providerConfigUpdateResponse{}, apiErr(http.StatusBadRequest, "内置 Provider 不支持重命名")
+			return providerConfigUpdateResponse{}, apiErr(http.StatusBadRequest, "內建 Provider 不支援重新命名")
 		}
 		if config.IsBuiltinProviderName(updated.Name) {
-			return providerConfigUpdateResponse{}, apiErr(http.StatusBadRequest, "新的 Provider 名称不能使用内置名称")
+			return providerConfigUpdateResponse{}, apiErr(http.StatusBadRequest, "新的 Provider 名稱不能使用內建名稱")
 		}
 		if _, occupied := s.providerConfig(updated.Name); occupied {
-			return providerConfigUpdateResponse{}, apiErr(http.StatusConflict, "Provider 名称已存在")
+			return providerConfigUpdateResponse{}, apiErr(http.StatusConflict, "Provider 名稱已存在")
 		}
 		if existing.ProxyAuthSource == secrets.ProviderSecretSourceStoredUnavailable || existing.RequestHeadersSource == secrets.ProviderSecretSourceStoredUnavailable {
-			return providerConfigUpdateResponse{}, apiErr(http.StatusBadRequest, "无法读取原 Provider 网络凭据；请恢复凭据仓库或重新输入网络凭据后再重命名")
+			return providerConfigUpdateResponse{}, apiErr(http.StatusBadRequest, "無法讀取原 Provider 網路憑證；請恢復憑證倉庫或重新輸入網路憑證後再重新命名")
 		}
 	}
 
@@ -58,14 +58,14 @@ func (p providerConfigService) update(ctx context.Context, providerName string, 
 	if storedProviderSecretMigratable(existed, existing, updated) && incomingAPIKey == "" && !req.ClearAPIKey {
 		if s.providerVault == nil {
 			if renamed {
-				return providerConfigUpdateResponse{}, apiErr(http.StatusBadRequest, "重命名已保存凭据的 Provider 前请重新输入 API Key")
+				return providerConfigUpdateResponse{}, apiErr(http.StatusBadRequest, "重新命名已儲存憑證的 Provider 前請重新輸入 API Key")
 			}
 		} else if resolved, _, resolveErr := s.providerVault.Resolve(ctx, serverProviderSecretBinding(existing)); resolveErr != nil || strings.TrimSpace(resolved) == "" {
 			// A rename with an unreadable key leaves nothing to migrate, so fail
 			// loudly. A protocol switch degrades to "re-enter the key", which is
 			// the behaviour that shipped before migration existed.
 			if renamed {
-				return providerConfigUpdateResponse{}, apiErr(http.StatusBadRequest, "无法读取原 Provider 凭据；请重新输入 API Key 后再重命名")
+				return providerConfigUpdateResponse{}, apiErr(http.StatusBadRequest, "無法讀取原 Provider 憑證；請重新輸入 API Key 後再重新命名")
 			}
 		} else {
 			incomingAPIKey = strings.TrimSpace(resolved)
@@ -163,7 +163,7 @@ func (p providerConfigService) update(ctx context.Context, providerName string, 
 		}
 		if err != nil {
 			slog.Error("prepare provider api-key secret", "provider", updated.Name, "mutation", secretMutation, "error", err)
-			return providerConfigUpdateResponse{}, apiErr(http.StatusInternalServerError, "无法安全保存 Provider 凭据。")
+			return providerConfigUpdateResponse{}, apiErr(http.StatusInternalServerError, "無法安全儲存 Provider 憑證。")
 		}
 		preparedSecretKinds = append(preparedSecretKinds, secrets.ProviderAPIKeyKind)
 	}
@@ -173,7 +173,7 @@ func (p providerConfigService) update(ctx context.Context, providerName string, 
 		if prepareErr != nil {
 			slog.Error("prepare provider transport secrets", "provider", updated.Name, "error", prepareErr)
 			s.rollbackProviderSecretKinds(ctx, updated.Name, preparedSecretKinds)
-			return providerConfigUpdateResponse{}, apiErr(http.StatusInternalServerError, "无法安全保存 Provider 网络凭据。")
+			return providerConfigUpdateResponse{}, apiErr(http.StatusInternalServerError, "無法安全儲存 Provider 網路憑證。")
 		}
 	}
 
@@ -181,18 +181,18 @@ func (p providerConfigService) update(ctx context.Context, providerName string, 
 	persisted, err := s.persistProviderConfig(configPath, cfg)
 	if err != nil {
 		s.rollbackProviderSecretKinds(ctx, updated.Name, preparedSecretKinds)
-		return providerConfigUpdateResponse{}, apiErr(http.StatusInternalServerError, fmt.Sprintf("保存配置失败：%v", err))
+		return providerConfigUpdateResponse{}, apiErr(http.StatusInternalServerError, fmt.Sprintf("儲存設定失敗：%v", err))
 	}
 	if len(preparedSecretKinds) > 0 && !persisted {
 		s.rollbackProviderSecretKinds(ctx, updated.Name, preparedSecretKinds)
-		return providerConfigUpdateResponse{}, apiErr(http.StatusInternalServerError, "配置路径不可用，Provider 凭据未保存。")
+		return providerConfigUpdateResponse{}, apiErr(http.StatusInternalServerError, "設定路徑不可用，Provider 憑證未儲存。")
 	}
 	if err := s.commitProviderSecretKinds(ctx, updated.Name, preparedSecretKinds); err != nil {
 		// config.json already contains the target revisions. Publish that same
 		// target in memory so a later unrelated save cannot overwrite the durable
 		// transaction while startup recovery finishes pending secret commits.
 		publishTargetConfig()
-		return providerConfigUpdateResponse{}, apiErr(http.StatusInternalServerError, "Provider 凭据提交未完成；重启后将自动恢复。")
+		return providerConfigUpdateResponse{}, apiErr(http.StatusInternalServerError, "Provider 憑證提交未完成；重啟後將自動恢復。")
 	}
 	oldSecretCleanupFailed := false
 	if renamed && s.providerVault != nil {
@@ -205,15 +205,15 @@ func (p providerConfigService) update(ctx context.Context, providerName string, 
 	publishTargetConfig()
 
 	status := s.providerAPIKeyStatus(ctx, updated)
-	message := "Provider 配置已持久化并在当前运行时生效。"
+	message := "Provider 設定已持久化並在目前執行階段生效。"
 	if renamed {
-		message = "Provider 配置已保存，名称已更新并在当前运行时生效。"
+		message = "Provider 設定已儲存，名稱已更新並在目前執行階段生效。"
 	}
 	if s.providerVault == nil && (incomingAPIKey != "" || providerProxyAuthConfigured(updated) || providerHeadersConfigured(updated)) {
-		message = "Provider 配置已在当前运行时生效；当前实例未启用持久凭据仓库，敏感网络设置不会跨重启保存。"
+		message = "Provider 設定已在目前執行階段生效；目前執行個體未啟用持久憑證倉庫，敏感網路設定不會跨重啟儲存。"
 	}
 	if oldSecretCleanupFailed {
-		message += "旧凭据记录未能立即清理，将在后续恢复流程中处理。"
+		message += "舊憑證記錄未能立即清理，將在後續恢復流程中處理。"
 	}
 	return providerConfigUpdateResponse{
 		Provider:        s.settingsProviderResponse(ctx, updated),
@@ -269,7 +269,7 @@ func (p providerConfigService) patch(ctx context.Context, providerName string, r
 	s.runProviderMutationHook()
 	persisted, err := s.persistProviderConfig(configPath, cfg)
 	if err != nil {
-		return providerConfigUpdateResponse{}, apiErr(http.StatusInternalServerError, fmt.Sprintf("保存配置失败：%v", err))
+		return providerConfigUpdateResponse{}, apiErr(http.StatusInternalServerError, fmt.Sprintf("儲存設定失敗：%v", err))
 	}
 	if updated.Disabled {
 		s.unregisterProvider(updated.Name)
@@ -286,7 +286,7 @@ func (p providerConfigService) patch(ctx context.Context, providerName string, r
 		Provider:        s.settingsProviderResponse(ctx, updated),
 		Persisted:       persisted,
 		APIKeyPersisted: status.Persisted,
-		Message:         "Provider 生命周期更新已在当前运行时生效。",
+		Message:         "Provider 生命週期更新已在目前執行階段生效。",
 	}, nil
 }
 
@@ -318,7 +318,7 @@ func (p providerConfigService) delete(ctx context.Context, providerName string) 
 		for _, kind := range []string{secrets.ProviderAPIKeyKind, secrets.ProviderProxyAuthKind, secrets.ProviderRequestHeadersKind} {
 			if err := s.providerVault.PrepareDeleteKind(ctx, providerName, kind); err != nil {
 				s.rollbackProviderSecretKinds(ctx, providerName, preparedSecretKinds)
-				return providerDeleteResponse{}, apiErr(http.StatusInternalServerError, "无法安全删除 Provider 凭据。")
+				return providerDeleteResponse{}, apiErr(http.StatusInternalServerError, "無法安全刪除 Provider 憑證。")
 			}
 			preparedSecretKinds = append(preparedSecretKinds, kind)
 		}
@@ -327,11 +327,11 @@ func (p providerConfigService) delete(ctx context.Context, providerName string) 
 	persisted, err := s.persistProviderConfig(configPath, cfg)
 	if err != nil {
 		s.rollbackProviderSecretKinds(ctx, providerName, preparedSecretKinds)
-		return providerDeleteResponse{}, apiErr(http.StatusInternalServerError, fmt.Sprintf("保存配置失败：%v", err))
+		return providerDeleteResponse{}, apiErr(http.StatusInternalServerError, fmt.Sprintf("儲存設定失敗：%v", err))
 	}
 	if len(preparedSecretKinds) > 0 && !persisted {
 		s.rollbackProviderSecretKinds(ctx, providerName, preparedSecretKinds)
-		return providerDeleteResponse{}, apiErr(http.StatusInternalServerError, "配置路径不可用，Provider 未删除。")
+		return providerDeleteResponse{}, apiErr(http.StatusInternalServerError, "設定路徑不可用，Provider 未刪除。")
 	}
 	if err := s.commitProviderSecretKinds(ctx, providerName, preparedSecretKinds); err != nil {
 		// The config no longer references this Provider. Remove it from the
@@ -341,7 +341,7 @@ func (p providerConfigService) delete(ctx context.Context, providerName string) 
 		s.cfgMu.Lock()
 		s.cfg = cfg
 		s.cfgMu.Unlock()
-		return providerDeleteResponse{}, apiErr(http.StatusInternalServerError, "Provider 已移除，凭据清理将在重启后自动完成。")
+		return providerDeleteResponse{}, apiErr(http.StatusInternalServerError, "Provider 已移除，憑證清理將在重啟後自動完成。")
 	}
 	s.unregisterProvider(providerName)
 	s.refreshProviderDefault(cfg)
@@ -413,7 +413,7 @@ func (p providerConfigService) testAdapter(ctx context.Context, provider config.
 		return providerTestResponse{
 			Configured: false,
 			ErrorCode:  "not_configured",
-			Message:    "需要 API Key，尚未执行连接预检。",
+			Message:    "需要 API Key，尚未執行連線預檢。",
 		}
 	}
 	ctx, cancel := context.WithTimeout(ctx, providerTestTimeout)
@@ -427,7 +427,7 @@ func (p providerConfigService) testAdapter(ctx context.Context, provider config.
 	}
 	models = normalizeModelNames(models, provider.Model)
 	return providerTestResponse{
-		Reachable: true, Configured: configured, ModelCount: len(models), Models: models, Message: "Provider 可访问。",
+		Reachable: true, Configured: configured, ModelCount: len(models), Models: models, Message: "Provider 可連線。",
 	}
 }
 
@@ -439,7 +439,7 @@ func (p providerConfigService) messageTestAdapter(provider config.ProviderConfig
 	}
 	configured := providers.ConfiguredForScenario(adapter, provider.IsConfigured(), providers.CallScenarioInternal)
 	if !configured {
-		return nil, providerMessageTestResponse{Model: provider.Model, ErrorCode: "not_configured", Message: "需要 API Key，尚未发送测试。"}, true
+		return nil, providerMessageTestResponse{Model: provider.Model, ErrorCode: "not_configured", Message: "需要 API Key，尚未傳送測試。"}, true
 	}
 	return adapter, providerMessageTestResponse{}, false
 }

@@ -13,6 +13,11 @@ import (
 
 const maxPersistedModelImageBytes = 4 << 20
 
+var (
+	ErrSegmentStartMessageNotFound = errors.New("segment start message not found")
+	ErrPreemptingMessage           = errors.New("preempting message")
+)
+
 const attachmentSelectColumns = `id, message_id, agent_id, filename, COALESCE(mime_type,''), kind, size_bytes, %s, %s, COALESCE(model_mime_type,''), COALESCE(image_width,0), COALESCE(image_height,0), COALESCE(sha256,''), COALESCE(processing_status,''), COALESCE(processing_code,''), COALESCE(processing_error,''), %s, created_at`
 
 type attachmentScanner func(...any) error
@@ -487,6 +492,39 @@ func (s *messageStore) listMessages(ctx context.Context, agentID string) ([]Mess
 		return nil, err
 	}
 	return scanMessages(rows)
+}
+
+// HasPreemptingMessage reports whether any message in the conversation belongs
+// to a different run than runID, using the same (created_at ASC, id ASC) order
+// as listMessages. An empty afterMessageID scans the whole conversation. A
+// non-empty afterMessageID requires that row to exist and only considers
+// messages strictly after it.
+func (s *messageStore) HasPreemptingMessage(ctx context.Context, agentID, runID, afterMessageID string) error {
+	afterMessageID = strings.TrimSpace(afterMessageID)
+	if afterMessageID != "" {
+		var createdAt string
+		err := s.reader().QueryRowContext(ctx, `SELECT created_at FROM agent_messages WHERE agent_id = ? AND id = ?`, agentID, afterMessageID).Scan(&createdAt)
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrSegmentStartMessageNotFound
+		}
+		if err != nil {
+			return err
+		}
+		return s.hasPreemptingRow(ctx, `SELECT 1 FROM agent_messages WHERE agent_id = ? AND (created_at > ? OR (created_at = ? AND id > ?)) AND COALESCE(run_id,'') <> ? LIMIT 1`, agentID, createdAt, createdAt, afterMessageID, runID)
+	}
+	return s.hasPreemptingRow(ctx, `SELECT 1 FROM agent_messages WHERE agent_id = ? AND COALESCE(run_id,'') <> ? LIMIT 1`, agentID, runID)
+}
+
+func (s *messageStore) hasPreemptingRow(ctx context.Context, query string, args ...any) error {
+	var exists int
+	err := s.reader().QueryRowContext(ctx, query, args...).Scan(&exists)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	return ErrPreemptingMessage
 }
 
 func scanMessages(rows *sql.Rows) ([]Message, error) {

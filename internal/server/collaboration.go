@@ -47,7 +47,8 @@ func (s *Server) putMessageDraft(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req putMessageDraftRequest
-	if err := decodeJSON(r, &req); err != nil {
+	// Drafts can be as large as agent messages, which keep a 1 MiB JSON budget.
+	if err := decodeLimitedJSON(w, r, &req, 1<<20); err != nil {
 		s.writeRequestError(w, r, http.StatusBadRequest, err)
 		return
 	}
@@ -102,7 +103,8 @@ func (s *Server) createCorrection(w http.ResponseWriter, r *http.Request) {
 		text, keepAttachmentIDs, attachments, messageContext, err = parseMultipartCorrection(w, r)
 	} else {
 		var req correctionRequest
-		err = decodeJSON(r, &req)
+		// JSON corrections carry the same text budget as agent messages (1 MiB).
+		err = decodeLimitedJSON(w, r, &req, 1<<20)
 		text, keepAttachmentIDs, messageContext = req.Text, req.KeepAttachmentIDs, req.Context
 	}
 	if err != nil {

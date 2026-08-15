@@ -450,3 +450,69 @@ func testNamedIndexExists(t *testing.T, ctx context.Context, database interface 
 	}
 	return count == 1
 }
+
+func TestListPlanReviewsForAgentReturnsReviewsAcrossPlans(t *testing.T) {
+	ctx := context.Background()
+	store, err := Open(ctx, filepath.Join(t.TempDir(), "plan-reviews-agent.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	_, _, agent, err := store.CreateProject(ctx, "Reviews Agent", "", t.TempDir(), "fake:model", "acceptEdits")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _, other, err := store.CreateProject(ctx, "Other Agent", "", t.TempDir(), "fake:model", "acceptEdits")
+	if err != nil {
+		t.Fatal(err)
+	}
+	planA, err := store.CreatePlan(ctx, Plan{AgentID: agent.ID, ContentJSON: []byte(`{"goal":"a"}`)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	planB, err := store.CreatePlan(ctx, Plan{AgentID: agent.ID, ContentJSON: []byte(`{"goal":"b"}`)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	otherPlan, err := store.CreatePlan(ctx, Plan{AgentID: other.ID, ContentJSON: []byte(`{"goal":"other"}`)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	planA, err = store.TransitionPlanStatus(ctx, agent.ID, planA.ID, planA.Revision, PlanStatusInReview)
+	if err != nil {
+		t.Fatal(err)
+	}
+	planB, err = store.TransitionPlanStatus(ctx, agent.ID, planB.ID, planB.Revision, PlanStatusInReview)
+	if err != nil {
+		t.Fatal(err)
+	}
+	otherPlan, err = store.TransitionPlanStatus(ctx, other.ID, otherPlan.ID, otherPlan.Revision, PlanStatusInReview)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.CreatePlanReview(ctx, PlanReview{PlanID: planA.ID, PlanRevision: planA.Revision, ReviewerID: "reviewer-a", Decision: PlanReviewDecisionApproved, Comment: "review-a"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.CreatePlanReview(ctx, PlanReview{PlanID: planB.ID, PlanRevision: planB.Revision, ReviewerID: "reviewer-b", Decision: PlanReviewDecisionChangesRequested, Comment: "review-b"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.CreatePlanReview(ctx, PlanReview{PlanID: otherPlan.ID, PlanRevision: otherPlan.Revision, ReviewerID: "reviewer-other", Decision: PlanReviewDecisionComment, Comment: "review-other"}); err != nil {
+		t.Fatal(err)
+	}
+
+	reviews, err := store.ListPlanReviewsForAgent(ctx, agent.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(reviews) != 2 {
+		t.Fatalf("expected reviews for both plans in one list, got %+v", reviews)
+	}
+	if reviews[0].PlanID != planA.ID || reviews[0].Comment != "review-a" || reviews[1].PlanID != planB.ID || reviews[1].Comment != "review-b" {
+		t.Fatalf("expected agent reviews in created_at order, got %+v", reviews)
+	}
+	for _, review := range reviews {
+		if review.PlanID == otherPlan.ID {
+			t.Fatalf("other agent's review leaked into the list: %+v", reviews)
+		}
+	}
+}

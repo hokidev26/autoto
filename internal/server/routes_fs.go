@@ -4,6 +4,7 @@ import "github.com/go-chi/chi/v5"
 
 func (s *Server) mountFSRoutes(r chi.Router) {
 	r.Route("/api/fs", func(r chi.Router) {
+		r.Use(s.loginIfUsersExistGuard)
 		r.Get("/browse", s.fsBrowse)
 		r.Get("/directories", s.fsDirectories)
 		r.Post("/native-directory", s.fsNativeDirectory)

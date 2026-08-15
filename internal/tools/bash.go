@@ -45,13 +45,19 @@ type bashInput struct {
 func (BashTool) Name() string        { return "Bash" }
 func (BashTool) Description() string { return "Run a shell command in the agent working directory." }
 func (BashTool) Schema() any         { return bashInput{} }
+
+func bashInputFrom(raw json.RawMessage) bashInput {
+	var parsed bashInput
+	_ = json.Unmarshal(raw, &parsed)
+	return parsed
+}
+
 func (BashTool) Risk(input json.RawMessage) Risk {
-	command := BashCommand(input)
+	parsed := bashInputFrom(input)
+	command := strings.TrimSpace(parsed.Command)
 	if analyzeBashCommand(command).warning != "" {
 		return RiskDanger
 	}
-	var parsed bashInput
-	_ = json.Unmarshal(input, &parsed)
 	if parsed.RunInBackground && bashBackgroundEscapeWarning(command) != "" {
 		return RiskDanger
 	}
@@ -59,9 +65,7 @@ func (BashTool) Risk(input json.RawMessage) Risk {
 }
 
 func BashCommand(input json.RawMessage) string {
-	var parsed bashInput
-	_ = json.Unmarshal(input, &parsed)
-	return strings.TrimSpace(parsed.Command)
+	return strings.TrimSpace(bashInputFrom(input).Command)
 }
 
 func BashDangerWarning(command string) string {

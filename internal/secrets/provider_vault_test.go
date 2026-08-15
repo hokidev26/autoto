@@ -149,6 +149,80 @@ func TestProviderVaultEncryptsAndRestoresSecret(t *testing.T) {
 	}
 }
 
+type countingProviderSecretStore struct {
+	*fakeProviderSecretStore
+	lists int
+}
+
+func (s *countingProviderSecretStore) ListProviderSecrets(ctx context.Context) ([]ProviderSecretRecord, error) {
+	s.lists++
+	return s.fakeProviderSecretStore.ListProviderSecrets(ctx)
+}
+
+func TestProviderVaultMetadataSnapshotReportsStatusWithoutDecrypt(t *testing.T) {
+	store := &countingProviderSecretStore{fakeProviderSecretStore: newFakeProviderSecretStore()}
+	vault := NewProviderVault(store, t.TempDir())
+	binding := ProviderBinding{Name: "relay", Type: "openai-compatible", BaseURL: "https://relay.example/v1", SecretRevision: 1}
+	other := ProviderBinding{Name: "other", Type: "openai-compatible", BaseURL: "https://other.example/v1", SecretRevision: 1}
+	ctx := context.Background()
+	if _, err := vault.PrepareSet(ctx, binding, "relay-secret-value"); err != nil {
+		t.Fatal(err)
+	}
+	if err := vault.CommitPending(ctx, binding.Name); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := vault.PrepareSet(ctx, other, "other-secret-value"); err != nil {
+		t.Fatal(err)
+	}
+	if err := vault.CommitPending(ctx, other.Name); err != nil {
+		t.Fatal(err)
+	}
+
+	snapshot, err := vault.MetadataSnapshot(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if store.lists != 1 {
+		t.Fatalf("MetadataSnapshot listed secrets %d times, want 1", store.lists)
+	}
+	matched := snapshot.Metadata(binding, ProviderAPIKeyKind)
+	if !matched.Configured || !matched.Persisted || matched.LastFive != "value" || matched.Source != ProviderSecretSourceStored {
+		t.Fatalf("matching snapshot metadata = %+v", matched)
+	}
+	mismatched := snapshot.Metadata(ProviderBinding{Name: "relay", Type: "openai-compatible", BaseURL: "https://changed.example/v1", SecretRevision: 1}, ProviderAPIKeyKind)
+	if mismatched.Configured || !mismatched.Persisted || mismatched.Source != ProviderSecretSourceStoredUnavailable {
+		t.Fatalf("binding mismatch must be stored_unavailable, got %+v", mismatched)
+	}
+	if snapshot.Metadata(ProviderBinding{Name: "missing", Type: "openai-compatible", SecretRevision: 1}, ProviderAPIKeyKind).Source != ProviderSecretSourceNone {
+		t.Fatal("missing secret must report not configured")
+	}
+
+	record, err := store.GetProviderSecret(ctx, binding.Name, ProviderAPIKeyKind)
+	if err != nil {
+		t.Fatal(err)
+	}
+	record.ActiveCiphertext[0] ^= 0xff
+	store.records[store.key(binding.Name, ProviderAPIKeyKind)] = record
+	if _, _, err := vault.Resolve(ctx, binding); !errors.Is(err, ErrProviderSecretTampered) {
+		t.Fatalf("tampering error = %v", err)
+	}
+	if got := snapshot.Metadata(binding, ProviderAPIKeyKind); !got.Configured || got.Source != ProviderSecretSourceStored {
+		t.Fatalf("display snapshot must not decrypt, got %+v", got)
+	}
+
+	if err := os.Remove(filepath.Clean(vault.KeyPath())); err != nil {
+		t.Fatal(err)
+	}
+	missingKey, err := vault.MetadataSnapshot(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	unavailable := missingKey.Metadata(other, ProviderAPIKeyKind)
+	if unavailable.Configured || unavailable.Source != ProviderSecretSourceStoredUnavailable {
+		t.Fatalf("missing key material must be stored_unavailable, got %+v", unavailable)
+	}
+}
+
 func TestProviderVaultRejectsBindingMismatchAndTampering(t *testing.T) {
 	store := newFakeProviderSecretStore()
 	vault := NewProviderVault(store, t.TempDir())

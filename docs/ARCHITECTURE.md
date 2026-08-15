@@ -31,7 +31,7 @@ internal/db SQLite store
 
 1. `internal/server/ui.go` serves `/` and the embedded static assets.
 2. The page receives the local API token as a JS bootstrap value and as a local cookie. The token is not per-process: it is persisted to `secrets/local-api.token` under the Autoto home directory (or supplied via `AUTOTO_LOCAL_TOKEN`) and reused across restarts, so open tabs survive a server restart.
-3. `internal/server/static/app.js` attaches the canonical `X-Autoto-Token` header to API calls and includes the same token on WebSocket URLs. `X-Autoto-Token` is the only accepted token header; WebSocket upgrades additionally accept the `autoto_local_token` cookie or the `?token=` query parameter, the latter kept for compatibility and logged with a deprecation warning when it is the credential actually used.
+3. `internal/server/static/app.js` attaches the canonical `X-Autoto-Token` header to API calls. `X-Autoto-Token` is the only accepted token header; WebSocket upgrades additionally accept the `autoto_local_token` cookie. The server does not accept `?token=` query credentials.
 
 ### 2. Local request guard
 

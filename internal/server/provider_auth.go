@@ -136,7 +136,7 @@ func (s *Server) listCodexOAuthAccounts(w http.ResponseWriter, r *http.Request) 
 		var usageErr error
 		usageByID, usageErr = s.store.ListProviderAccountUsage(r.Context(), codexauth.DefaultProviderName, accountIDs, s.now())
 		if usageErr != nil {
-			writeError(w, http.StatusInternalServerError, "Codex 账号用量统计失败")
+			writeError(w, http.StatusInternalServerError, "Codex 帳號用量統計失敗")
 			return
 		}
 	}
@@ -164,11 +164,11 @@ func (s *Server) listCodexOAuthAccounts(w http.ResponseWriter, r *http.Request) 
 // included in an API envelope.
 func (s *Server) exportCodexOAuthAccount(w http.ResponseWriter, r *http.Request) {
 	if auth := s.remoteAccessAuthentication(r); auth.Remote {
-		writeError(w, http.StatusForbidden, "Codex 凭据只能在本机导出")
+		writeError(w, http.StatusForbidden, "Codex 憑證只能在本機匯出")
 		return
 	}
 	if r.Header.Get("X-Autoto-Confirm") != "export-codex-account" {
-		writeError(w, http.StatusBadRequest, "导出 Codex 凭据需要明确确认")
+		writeError(w, http.StatusBadRequest, "匯出 Codex 憑證需要明確確認")
 		return
 	}
 	store, err := s.nativeCodexCredentialStore()
@@ -179,7 +179,7 @@ func (s *Server) exportCodexOAuthAccount(w http.ResponseWriter, r *http.Request)
 	document, err := store.ExportByID(chi.URLParam(r, "id"))
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			writeError(w, http.StatusNotFound, "Codex 账号不存在")
+			writeError(w, http.StatusNotFound, "Codex 帳號不存在")
 		} else {
 			s.writeRequestError(w, r, http.StatusInternalServerError, err)
 		}
@@ -215,12 +215,12 @@ func (s *Server) patchCodexOAuthAccount(w http.ResponseWriter, r *http.Request) 
 	decoder := json.NewDecoder(io.LimitReader(r.Body, 16<<10))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&request); err != nil {
-		writeError(w, http.StatusBadRequest, "账号更新内容无效")
+		writeError(w, http.StatusBadRequest, "帳號更新內容無效")
 		return
 	}
 	var trailing any
 	if err := decoder.Decode(&trailing); err != io.EOF {
-		writeError(w, http.StatusBadRequest, "账号更新内容必须是单个 JSON 对象")
+		writeError(w, http.StatusBadRequest, "帳號更新內容必須是單個 JSON 物件")
 		return
 	}
 	if request.Alias == nil && request.Priority == nil && request.Disabled == nil {
@@ -230,7 +230,7 @@ func (s *Server) patchCodexOAuthAccount(w http.ResponseWriter, r *http.Request) 
 	item, err := store.UpdateMetadata(chi.URLParam(r, "id"), codexauth.MetadataUpdate{Alias: request.Alias, Priority: request.Priority, Disabled: request.Disabled})
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			writeError(w, http.StatusNotFound, "Codex 账号不存在")
+			writeError(w, http.StatusNotFound, "Codex 帳號不存在")
 		} else {
 			s.writeRequestError(w, r, http.StatusBadRequest, err)
 		}
@@ -295,7 +295,7 @@ func (s *Server) nativeCodexProvider() (*providers.CodexProvider, error) {
 	defer s.providerMutationMu.Unlock()
 	if provider, ok := s.codexProviderConfig(); ok && provider.Disabled {
 		s.unregisterProvider(codexauth.DefaultProviderName)
-		return nil, errors.New("Codex Provider 已禁用")
+		return nil, errors.New("Codex Provider 已停用")
 	}
 	if s.providers != nil {
 		if provider, ok := s.providers.Get(codexauth.DefaultProviderName); ok {
@@ -341,7 +341,7 @@ func (s *Server) importCodexOAuthCredentials(w http.ResponseWriter, r *http.Requ
 	}
 	content := strings.TrimSpace(req.Content)
 	if content == "" {
-		writeError(w, http.StatusBadRequest, "请粘贴 JSON 或 token 内容")
+		writeError(w, http.StatusBadRequest, "請貼上 JSON 或 token 內容")
 		return
 	}
 	plan, err := buildProviderAuthImportPlan(req.Filename, content, s.now())
@@ -382,7 +382,7 @@ func (s *Server) nativeCodexCredentialStore() (*codexauth.Store, error) {
 	defer s.codexCredentialsMu.Unlock()
 	if s.codexCredentials == nil || strings.TrimSpace(s.codexCredentials.Dir()) == "" {
 		if path == "" {
-			return nil, errors.New("Autoto HomeDir 未配置，无法保存 Codex 凭据")
+			return nil, errors.New("Autoto HomeDir 未設定，無法儲存 Codex 憑證")
 		}
 		s.codexCredentials = codexauth.NewStore(path)
 	}
@@ -414,7 +414,7 @@ func (s *Server) ensureNativeCodexProviderLocked() error {
 			continue
 		}
 		if existing.Type != config.ProviderTypeCodex {
-			return fmt.Errorf("provider %s 已被其他协议占用", codexauth.DefaultProviderName)
+			return fmt.Errorf("provider %s 已被其他協定佔用", codexauth.DefaultProviderName)
 		}
 		provider = config.NormalizeProviderConfig(existing)
 		found = true
@@ -430,7 +430,7 @@ func (s *Server) ensureNativeCodexProviderLocked() error {
 	if !found {
 		cfg.Providers.Instances = upsertServerProvider(cfg.Providers.Instances, provider)
 		if persisted, err := s.persistProviderConfig(s.configPathSnapshot(), cfg); err != nil {
-			return fmt.Errorf("保存 Codex Provider 配置失败：%w", err)
+			return fmt.Errorf("儲存 Codex Provider 設定失敗：%w", err)
 		} else if !persisted {
 			// No config path is a supported in-memory mode; runtime registration
 			// still proceeds without claiming a disk write happened.
@@ -512,7 +512,7 @@ func (s *Server) importProviderAuthFileForName(w http.ResponseWriter, r *http.Re
 	}
 	content := strings.TrimSpace(req.Content)
 	if content == "" {
-		writeError(w, http.StatusBadRequest, "请粘贴 JSON 或 token 内容")
+		writeError(w, http.StatusBadRequest, "請貼上 JSON 或 token 內容")
 		return
 	}
 	plan, err := buildProviderAuthImportPlan(req.Filename, content, time.Now())
@@ -553,7 +553,7 @@ func decodeImportAuthFileRequest(r *http.Request, dst *importAuthFileRequest) er
 		return err
 	}
 	if len(data) > maxProviderAuthImportBytes {
-		return fmt.Errorf("导入内容超过 %d MiB 限制", maxProviderAuthImportBytes>>20)
+		return fmt.Errorf("匯入內容超過 %d MiB 限制", maxProviderAuthImportBytes>>20)
 	}
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.DisallowUnknownFields()
@@ -591,7 +591,7 @@ func buildProviderAuthImportPlan(filename, content string, now time.Time) (provi
 	if err := json.Unmarshal([]byte(content), &value); err == nil {
 		return buildProviderAuthJSONImportPlan(filename, value, now)
 	} else if trimmed := strings.TrimSpace(content); strings.HasPrefix(trimmed, "{") || strings.HasPrefix(trimmed, "[") {
-		return providerAuthImportPlan{}, fmt.Errorf("JSON 格式无效：%w", err)
+		return providerAuthImportPlan{}, fmt.Errorf("JSON 格式無效：%w", err)
 	}
 	return buildProviderAuthTokenImportPlan(filename, content, now)
 }
@@ -606,7 +606,7 @@ func buildProviderAuthJSONImportPlan(filename string, value any, now time.Time) 
 		if rawAccounts, ok := typed["accounts"]; ok {
 			items, ok := rawAccounts.([]any)
 			if !ok {
-				return providerAuthImportPlan{}, errors.New("accounts 必须是数组")
+				return providerAuthImportPlan{}, errors.New("accounts 必須是陣列")
 			}
 			accounts = append(accounts, items...)
 			if source := authImportString(typed, "format"); source != "" {
@@ -621,7 +621,7 @@ func buildProviderAuthJSONImportPlan(filename string, value any, now time.Time) 
 		format = "array"
 		accounts = append(accounts, typed...)
 	default:
-		return providerAuthImportPlan{}, errors.New("JSON 顶层必须是对象或账号数组")
+		return providerAuthImportPlan{}, errors.New("JSON 頂層必須是物件或帳號陣列")
 	}
 	return buildProviderAuthAccountPlan(filename, format, root, accounts, now)
 }
@@ -656,28 +656,28 @@ func buildProviderAuthTokenImportPlan(filename, content string, now time.Time) (
 		}
 	}
 	if len(accounts) == 0 {
-		return providerAuthImportPlan{}, errors.New("未识别到可导入的 Codex JSON、access_token 或 refresh_token")
+		return providerAuthImportPlan{}, errors.New("未識別到可匯入的 Codex JSON、access_token 或 refresh_token")
 	}
 	return buildProviderAuthAccountPlan(filename, "token-list", map[string]any{}, accounts, now)
 }
 
 func buildProviderAuthAccountPlan(filename, format string, root map[string]any, accounts []any, now time.Time) (providerAuthImportPlan, error) {
 	if len(accounts) == 0 {
-		return providerAuthImportPlan{}, errors.New("导入内容中没有账号")
+		return providerAuthImportPlan{}, errors.New("匯入內容中沒有帳號")
 	}
 	if len(accounts) > maxProviderAuthImportAccounts {
-		return providerAuthImportPlan{}, fmt.Errorf("单次最多导入 %d 个账号", maxProviderAuthImportAccounts)
+		return providerAuthImportPlan{}, fmt.Errorf("單次最多匯入 %d 個帳號", maxProviderAuthImportAccounts)
 	}
 	plan := providerAuthImportPlan{Format: format, Files: make([]providerAuthImportFile, 0, len(accounts))}
 	seen := map[string]struct{}{}
 	for index, raw := range accounts {
 		account, ok := raw.(map[string]any)
 		if !ok {
-			return providerAuthImportPlan{}, fmt.Errorf("第 %d 个账号必须是 JSON 对象", index+1)
+			return providerAuthImportPlan{}, fmt.Errorf("第 %d 個帳號必須是 JSON 物件", index+1)
 		}
 		normalized, identity, slug, err := normalizeCodexAuthAccount(account, root, now)
 		if err != nil {
-			return providerAuthImportPlan{}, fmt.Errorf("第 %d 个账号无效：%w", index+1, err)
+			return providerAuthImportPlan{}, fmt.Errorf("第 %d 個帳號無效：%w", index+1, err)
 		}
 		if _, exists := seen[identity]; exists {
 			plan.Skipped++
@@ -686,7 +686,7 @@ func buildProviderAuthAccountPlan(filename, format string, root map[string]any, 
 		seen[identity] = struct{}{}
 		data, err := json.MarshalIndent(normalized, "", "  ")
 		if err != nil {
-			return providerAuthImportPlan{}, fmt.Errorf("第 %d 个账号无法序列化", index+1)
+			return providerAuthImportPlan{}, fmt.Errorf("第 %d 個帳號無法序列化", index+1)
 		}
 		plan.Files = append(plan.Files, providerAuthImportFile{
 			Filename: authImportFilename(filename, slug, index, now),
@@ -694,7 +694,7 @@ func buildProviderAuthAccountPlan(filename, format string, root map[string]any, 
 		})
 	}
 	if len(plan.Files) == 0 {
-		return providerAuthImportPlan{}, errors.New("没有新的可导入账号")
+		return providerAuthImportPlan{}, errors.New("沒有新的可匯入帳號")
 	}
 	return plan, nil
 }
@@ -1094,7 +1094,7 @@ func cliProxyAPIManagementRequestWithKey(ctx context.Context, method, endpoint s
 	}
 	req, err := http.NewRequestWithContext(ctx, method, endpoint, bytes.NewReader(payload))
 	if err != nil {
-		return nil, 0, errors.New("无法构造 CLIProxyAPI 管理请求")
+		return nil, 0, errors.New("無法構造 CLIProxyAPI 管理請求")
 	}
 	if contentType != "" {
 		req.Header.Set("Content-Type", contentType)
@@ -1106,7 +1106,7 @@ func cliProxyAPIManagementRequestWithKey(ctx context.Context, method, endpoint s
 	client := newCLIProxyAPIManagementHTTPClient()
 	res, err := client.Do(req)
 	if err != nil {
-		return nil, 0, errors.New("CLIProxyAPI 管理请求失败")
+		return nil, 0, errors.New("CLIProxyAPI 管理請求失敗")
 	}
 	defer res.Body.Close()
 	// Bounded like every other read of an outside body. This one is reachable
@@ -1118,10 +1118,10 @@ func cliProxyAPIManagementRequestWithKey(ctx context.Context, method, endpoint s
 		return nil, res.StatusCode, fmt.Errorf("CLIProxyAPI management response exceeded %d MiB", maxProviderManagementResponseBytes>>20)
 	}
 	if err != nil {
-		return nil, res.StatusCode, errors.New("无法读取 CLIProxyAPI 管理响应")
+		return nil, res.StatusCode, errors.New("無法讀取 CLIProxyAPI 管理回應")
 	}
 	if res.StatusCode >= http.StatusMultipleChoices && res.StatusCode < http.StatusBadRequest {
-		return nil, res.StatusCode, fmt.Errorf("CLIProxyAPI 管理请求拒绝重定向：HTTP %d", res.StatusCode)
+		return nil, res.StatusCode, fmt.Errorf("CLIProxyAPI 管理請求拒絕重新導向：HTTP %d", res.StatusCode)
 	}
 	if res.StatusCode >= http.StatusMultipleChoices {
 		return nil, res.StatusCode, fmt.Errorf("CLIProxyAPI management request failed: %s", res.Status)
@@ -1143,7 +1143,7 @@ func newCLIProxyAPIManagementHTTPClient() *http.Client {
 func dialCLIProxyAPIManagement(ctx context.Context, network, address string) (net.Conn, error) {
 	host, port, err := net.SplitHostPort(address)
 	if err != nil {
-		return nil, errors.New("CLIProxyAPI 管理地址无效")
+		return nil, errors.New("CLIProxyAPI 管理位址無效")
 	}
 	ips, err := cliProxyAPIManagementLoopbackIPs(ctx, host)
 	if err != nil {
@@ -1156,27 +1156,27 @@ func dialCLIProxyAPIManagement(ctx context.Context, network, address string) (ne
 			return conn, nil
 		}
 	}
-	return nil, errors.New("无法连接 CLIProxyAPI 管理接口")
+	return nil, errors.New("無法連線 CLIProxyAPI 管理介面")
 }
 
 func cliProxyAPIManagementLoopbackIPs(ctx context.Context, host string) ([]net.IP, error) {
 	host = strings.TrimSuffix(strings.ToLower(strings.TrimSpace(host)), ".")
 	if ip := net.ParseIP(host); ip != nil {
 		if !ip.IsLoopback() {
-			return nil, errors.New("CLIProxyAPI 管理地址必须是 loopback 主机")
+			return nil, errors.New("CLIProxyAPI 管理位址必須是 loopback 主機")
 		}
 		return []net.IP{ip}, nil
 	}
 	if host != "localhost" {
-		return nil, errors.New("CLIProxyAPI 管理地址必须是 loopback 主机")
+		return nil, errors.New("CLIProxyAPI 管理位址必須是 loopback 主機")
 	}
 	ips, err := net.DefaultResolver.LookupIP(ctx, "ip", host)
 	if err != nil || len(ips) == 0 {
-		return nil, errors.New("无法安全解析 CLIProxyAPI loopback 主机")
+		return nil, errors.New("無法安全解析 CLIProxyAPI loopback 主機")
 	}
 	for _, ip := range ips {
 		if !ip.IsLoopback() {
-			return nil, errors.New("CLIProxyAPI 管理地址必须解析为 loopback 主机")
+			return nil, errors.New("CLIProxyAPI 管理位址必須解析為 loopback 主機")
 		}
 	}
 	return ips, nil
@@ -1186,10 +1186,10 @@ func parseCLIProxyAPIManagementURL(raw string) (*url.URL, error) {
 	raw = strings.TrimSpace(raw)
 	parsed, err := url.Parse(raw)
 	if err != nil || parsed.Scheme == "" || parsed.Host == "" || parsed.Opaque != "" || parsed.User != nil || parsed.RawQuery != "" || parsed.ForceQuery || parsed.Fragment != "" || parsed.RawFragment != "" || strings.Contains(raw, "#") {
-		return nil, errors.New("CLIProxyAPI Base URL 无效")
+		return nil, errors.New("CLIProxyAPI Base URL 無效")
 	}
 	if parsed.Scheme != "http" && parsed.Scheme != "https" {
-		return nil, errors.New("CLIProxyAPI Base URL 仅允许 loopback HTTP(S)")
+		return nil, errors.New("CLIProxyAPI Base URL 僅允許 loopback HTTP(S)")
 	}
 	lookupCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
@@ -1258,7 +1258,7 @@ func cliProxyAPIManagementKeyWithSource() (string, bool) {
 
 func friendlyProviderManagementError(provider config.ProviderSummary, err error) string {
 	if provider.Profile != config.ProviderProfileCLIProxyAPI {
-		return "Provider 管理请求失败：" + err.Error()
+		return "Provider 管理請求失敗：" + err.Error()
 	}
 	return friendlyCLIProxyAPIManagementError(err)
 }
@@ -1268,13 +1268,13 @@ func friendlyCLIProxyAPIManagementError(err error) string {
 	lower := strings.ToLower(message)
 	switch {
 	case strings.Contains(lower, "connection refused"), strings.Contains(lower, "connect:"):
-		return "无法连接 CLIProxyAPI 管理接口。请确认 CLIProxyAPI 已启动并监听 127.0.0.1:8317。"
+		return "無法連線 CLIProxyAPI 管理介面。請確認 CLIProxyAPI 已啟動並監聽 127.0.0.1:8317。"
 	case strings.Contains(lower, "401") || strings.Contains(lower, "unauthorized"):
-		return "CLIProxyAPI 管理接口认证失败。请确认 CLIPROXYAPI_MANAGEMENT_KEY 或本地管理密码。"
+		return "CLIProxyAPI 管理介面認證失敗。請確認 CLIPROXYAPI_MANAGEMENT_KEY 或本機管理密碼。"
 	case strings.Contains(lower, "404"):
-		return "CLIProxyAPI 管理接口未启用。请确认 config.yaml 中 remote-management.secret-key 已设置。"
+		return "CLIProxyAPI 管理介面未啟用。請確認 config.yaml 中 remote-management.secret-key 已設定。"
 	default:
-		return "CLIProxyAPI 管理请求失败：" + message
+		return "CLIProxyAPI 管理請求失敗：" + message
 	}
 }
 

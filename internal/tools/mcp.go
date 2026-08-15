@@ -57,9 +57,18 @@ func (MCPListToolsTool) Description() string {
 	return "List tools exposed by a registered MCP server (serverId only). Freeform command/cwd/env from the model are rejected; the host pins the process working directory to the agent workspace."
 }
 func (MCPListToolsTool) Schema() any { return mcpListToolsInput{} }
-func (MCPListToolsTool) Risk(input json.RawMessage) Risk {
+
+func mcpListToolsInputFrom(raw json.RawMessage) (mcpListToolsInput, bool) {
 	var parsed mcpListToolsInput
-	if json.Unmarshal(input, &parsed) == nil && IsManagedAutomationMCPServerID(parsed.ServerID) {
+	if json.Unmarshal(raw, &parsed) != nil {
+		return parsed, false
+	}
+	return parsed, true
+}
+
+func (MCPListToolsTool) Risk(input json.RawMessage) Risk {
+	parsed, ok := mcpListToolsInputFrom(input)
+	if ok && IsManagedAutomationMCPServerID(parsed.ServerID) {
 		return RiskRead
 	}
 	return RiskExec
@@ -92,11 +101,16 @@ func (MCPCallToolTool) Description() string {
 	return "Call a tool on a registered MCP server (serverId + toolName). Freeform command/cwd/env from the model are rejected; the host pins the process working directory to the agent workspace."
 }
 func (MCPCallToolTool) Schema() any { return mcpCallToolInput{} }
-func (MCPCallToolTool) Risk(input json.RawMessage) Risk {
+
+func mcpCallToolInputFrom(raw json.RawMessage) (mcpCallToolInput, bool) {
 	var parsed mcpCallToolInput
-	if json.Unmarshal(input, &parsed) != nil {
-		return RiskExec
+	if json.Unmarshal(raw, &parsed) != nil {
+		return parsed, false
 	}
+	return parsed, true
+}
+
+func mcpCallToolRisk(parsed mcpCallToolInput) Risk {
 	allowed, managed := managedAutomationMCPReadTools[strings.TrimSpace(parsed.ServerID)]
 	if !managed {
 		return RiskExec
@@ -106,6 +120,14 @@ func (MCPCallToolTool) Risk(input json.RawMessage) Risk {
 		return RiskRead
 	}
 	return RiskExec
+}
+
+func (MCPCallToolTool) Risk(input json.RawMessage) Risk {
+	parsed, ok := mcpCallToolInputFrom(input)
+	if !ok {
+		return RiskExec
+	}
+	return mcpCallToolRisk(parsed)
 }
 
 func managedAutomationMCPScreenshotWritesFile(toolName string, arguments json.RawMessage) bool {
@@ -158,10 +180,14 @@ func (MCPCallToolTool) Execute(ctx context.Context, call Call, env Env) (Result,
 	return Result{Output: out, IsError: result.IsError, Meta: map[string]any{"toolName": toolName, "raw": string(result.Raw)}}, nil
 }
 
-func MCPCommand(input json.RawMessage) string {
+func mcpServerInputFrom(raw json.RawMessage) mcpServerInput {
 	var parsed mcpServerInput
-	_ = json.Unmarshal(input, &parsed)
-	if serverID := strings.TrimSpace(parsed.ServerID); serverID != "" {
+	_ = json.Unmarshal(raw, &parsed)
+	return parsed
+}
+
+func MCPCommand(input json.RawMessage) string {
+	if serverID := strings.TrimSpace(mcpServerInputFrom(input).ServerID); serverID != "" {
 		return "mcp server " + serverID
 	}
 	return "mcp server"
@@ -179,11 +205,11 @@ func IsManagedAutomationMCPServerID(serverID string) bool {
 // ManagedAutomationMCPCallRequiresApproval identifies side-effecting or unknown
 // calls on the two stable, backend-managed browser automation server IDs.
 func ManagedAutomationMCPCallRequiresApproval(input json.RawMessage) bool {
-	var parsed mcpCallToolInput
-	if json.Unmarshal(input, &parsed) != nil || !IsManagedAutomationMCPServerID(parsed.ServerID) {
+	parsed, ok := mcpCallToolInputFrom(input)
+	if !ok || !IsManagedAutomationMCPServerID(parsed.ServerID) {
 		return false
 	}
-	return (MCPCallToolTool{}).Risk(input) == RiskExec
+	return mcpCallToolRisk(parsed) == RiskExec
 }
 
 func mcpConfigFromInput(ctx context.Context, input mcpServerInput, env Env) (mcp.StdioConfig, error) {
