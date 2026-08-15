@@ -3602,6 +3602,10 @@ body.white-shell.theme-light.theme-dark .context-clear-confirmation :is(strong, 
     line-height: 1.2;
   }
 
+  body.white-shell.theme-light .app-shell.nav-mode-docked .navigation-conversation-time {
+    font-size: 10px;
+  }
+
   body.white-shell.theme-light .app-shell.nav-mode-docked .navigation-project-row {
     min-height: 0;
     padding: 2px 4px;
@@ -4360,24 +4364,264 @@ body.white-shell.theme-light.theme-dark .account-session-error {
   gap: 6px;
 }
 
-.user-admin-projects,
-.user-admin-keys {
+#settingsContentBody .user-admin-page {
+  container: user-admin-page / inline-size;
+}
+
+#settingsContentBody .user-admin-page .settings-hero-card {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: flex-start;
+  gap: 14px;
+}
+
+#settingsContentBody .user-admin-hero-head {
+  align-items: flex-start;
+}
+
+#settingsContentBody .user-admin-hero-tools {
+  display: flex;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+#settingsContentBody .user-admin-issued-key {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 16px;
+  border: 1px solid color-mix(in srgb, var(--settings-warning) 32%, var(--settings-border));
+  border-radius: var(--settings-radius-lg, 14px);
+  background: var(--settings-warning-soft);
+  color: var(--settings-foreground);
+}
+
+#settingsContentBody .user-admin-issued-copy {
+  min-width: 0;
+  display: grid;
+  gap: 6px;
+}
+
+#settingsContentBody .user-admin-key-value {
+  display: block;
+  margin: 0;
+  padding: 8px 10px;
+  overflow-wrap: anywhere;
+  border-radius: var(--settings-radius, 8px);
+  background: color-mix(in srgb, var(--settings-surface) 82%, var(--settings-warning-soft));
+  color: var(--settings-foreground);
+  font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  user-select: all;
+}
+
+#settingsContentBody .user-admin-create-form {
+  gap: 14px;
+}
+
+#settingsContentBody .user-admin-section-label {
+  margin: 4px 0 0;
+  color: var(--settings-muted-foreground);
+  font-size: 12px;
+  font-weight: 750;
+}
+
+#settingsContentBody .user-admin-project-picker {
+  position: relative;
+  min-width: 0;
+}
+
+#settingsContentBody .user-admin-project-trigger {
+  width: 100%;
+  min-height: var(--settings-control-height, 36px);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 12px;
+  border: 1px solid var(--settings-border);
+  border-radius: var(--settings-radius, 8px);
+  background: var(--settings-input, var(--settings-surface));
+  color: var(--settings-foreground);
+  cursor: pointer;
+  text-align: left;
+}
+
+#settingsContentBody .user-admin-project-picker.is-open .user-admin-project-trigger {
+  border-color: var(--settings-primary);
+  box-shadow: 0 0 0 3px var(--settings-ring);
+}
+
+#settingsContentBody .user-admin-project-trigger-copy {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+#settingsContentBody .user-admin-project-trigger-copy strong {
+  color: var(--settings-foreground);
+  font-size: 12px;
+  font-weight: 750;
+}
+
+#settingsContentBody .user-admin-project-trigger-copy small {
+  overflow: hidden;
+  color: var(--settings-muted-foreground);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#settingsContentBody .user-admin-project-trigger .composer-select-chevron {
+  flex: none;
+  color: var(--settings-muted-foreground);
+}
+
+#settingsContentBody .user-admin-project-checks {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+}
+
+.user-admin-project-menu.composer-select-popover {
+  z-index: 130;
+}
+
+#settingsContentBody .user-admin-account-list {
+  gap: 12px;
+}
+
+#settingsContentBody .user-admin-page .user-admin-account {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  box-shadow: none;
+  background: color-mix(in srgb, var(--settings-surface) 88%, var(--settings-muted));
+}
+
+#settingsContentBody .user-admin-page .user-admin-account.is-self {
+  border-color: color-mix(in srgb, var(--settings-primary) 34%, var(--settings-border));
+  background: color-mix(in srgb, var(--settings-primary-soft) 55%, var(--settings-surface));
+}
+
+#settingsContentBody .user-admin-account-head {
+  align-items: flex-start;
+  gap: 12px;
+}
+
+#settingsContentBody .user-admin-identity {
+  display: flex;
+  min-width: 0;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+#settingsContentBody .user-admin-avatar {
+  width: 40px;
+  height: 40px;
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  border-radius: 12px;
+  background: var(--settings-primary-soft);
+  color: var(--settings-primary);
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: .02em;
+}
+
+#settingsContentBody .user-admin-identity-copy {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+#settingsContentBody .user-admin-badges {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+#settingsContentBody .user-admin-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+#settingsContentBody .user-admin-chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 22px;
+  padding: 2px 8px;
+  border: 1px solid var(--settings-border);
+  border-radius: 999px;
+  background: var(--settings-surface);
+  color: var(--settings-muted-foreground);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+#settingsContentBody .user-admin-memberships {
+  gap: 10px;
+}
+
+#settingsContentBody .user-admin-keys {
   display: grid;
   gap: 8px;
-  margin: 8px 0 12px;
+  margin: 0;
   padding: 0;
   list-style: none;
 }
 
-.user-admin-project {
+#settingsContentBody .user-admin-key-row {
   display: flex;
-  gap: 8px;
   align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--settings-border);
+  border-radius: var(--settings-radius, 8px);
+  background: var(--settings-surface);
 }
 
-.user-admin-key-value {
-  display: block;
-  margin: 8px 0 12px;
-  padding: 8px;
-  overflow-wrap: anywhere;
+#settingsContentBody .user-admin-key-copy {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+#settingsContentBody .user-admin-key-copy strong {
+  color: var(--settings-foreground);
+  font-size: 13px;
+}
+
+#settingsContentBody .user-admin-key-copy small {
+  color: var(--settings-muted-foreground);
+  font-size: 11px;
+}
+
+#settingsContentBody .user-admin-page .user-admin-account .settings-card-footer {
+  margin-top: 2px;
+}
+
+@container user-admin-page (max-width: 640px) {
+  #settingsContentBody .user-admin-hero-tools,
+  #settingsContentBody .user-admin-issued-key,
+  #settingsContentBody .user-admin-key-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  #settingsContentBody .user-admin-hero-tools,
+  #settingsContentBody .user-admin-badges {
+    justify-content: flex-start;
+  }
 }

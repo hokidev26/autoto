@@ -819,7 +819,7 @@ test("desktop conversation layout follows the compact resizable geometry", async
   // The PROJECT badge is no longer rendered: it existed to tell project rows
   // apart from standalone conversation rows, and those are one thing now. Its
   // rules are left in place as inert styling rather than asserted here.
-  assert.match(styles, /body\.white-shell\.theme-light \.navigation-conversation-row\s*\{[\s\S]*?min-height:\s*42px[\s\S]*?grid-template-columns:\s*14px minmax\(0, 1fr\)/);
+  assert.match(styles, /body\.white-shell\.theme-light \.navigation-conversation-row\s*\{[\s\S]*?min-height:\s*34px[\s\S]*?grid-template-columns:\s*14px minmax\(0, 1fr\) max-content auto/);
   assert.match(styles, /body\.white-shell\.theme-light \.navigation-project-group \+ \.navigation-project-group\s*\{[\s\S]*?margin-top:\s*2px/);
   assert.match(styles, /body\.white-shell\.theme-light \.messages:not\(\.empty\)\s*\{[\s\S]*?grid-template-columns:\s*minmax\(0, 1fr\)[\s\S]*?grid-auto-rows:\s*max-content[\s\S]*?justify-content:\s*start[\s\S]*?row-gap:\s*14px[\s\S]*?padding:\s*12px 8px 12px/);
   assert.match(styles, /body\.white-shell\.theme-light \.project-list::-webkit-scrollbar\s*\{[\s\S]*?width:\s*6px/);

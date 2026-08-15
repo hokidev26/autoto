@@ -344,8 +344,9 @@ body.ui-font-large { font-size: 16px; }
 /* Forks the project it sits on into a new branch + worktree. It shares the
    more-menu's geometry so the two row affordances line up, but tints on hover
    to read as a create action rather than another menu. */
-/* The base row reserves three columns. Project rows use the same layout:
-   icon | name+path | fork button (or task counts in workbench mode). */
+/* The base row reserves four columns: icon | title | relative time | more.
+   Project rows skip the time cell, so the fork button (or task counts) lands
+   in the last auto column. */
 .navigation-project-row { grid-template-columns: 18px minmax(0, 1fr) auto; }
 .navigation-row-fork {
   align-self: center;

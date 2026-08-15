@@ -180,6 +180,26 @@ function timestamp(value) {
   return normalized && !Number.isNaN(Date.parse(normalized)) ? normalized : "";
 }
 
+// Compact age for the sidebar's right edge, the way Cursor writes 31m / 3h.
+// Units stay Latin so a narrow column stays even across locales.
+export function formatCompactRelativeTime(value, now = Date.now()) {
+  const then = Date.parse(timestamp(value));
+  if (Number.isNaN(then)) return "";
+  const delta = Math.max(0, Number(now) - then);
+  const minute = 60 * 1000;
+  const hour = 60 * minute;
+  const day = 24 * hour;
+  if (delta < minute) return "now";
+  if (delta < hour) return `${Math.floor(delta / minute)}m`;
+  if (delta < day) return `${Math.floor(delta / hour)}h`;
+  if (delta < 7 * day) return `${Math.floor(delta / day)}d`;
+  try {
+    return new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" }).format(new Date(then));
+  } catch {
+    return "";
+  }
+}
+
 export function escapeNavigationHtml(value) {
   return String(value ?? "")
     .replaceAll("&", "&amp;")
@@ -700,7 +720,7 @@ function renderProject(project, activeProjectId, options = {}) {
   const unread = options.unread === true;
   const stateClass = `${project.pinned ? "pinned " : ""}${project.archivedAt ? "archived " : ""}`;
   const stateMeta = navigationStateMarkup({ pinned: project.pinned, archivedAt: project.archivedAt });
-  const icon = `<svg viewBox="0 0 20 20"><path d="M5 4.5h10a2 2 0 0 1 2 2V12a2 2 0 0 1-2 2H9l-4 2.5V14a2 2 0 0 1-2-2V6.5a2 2 0 0 1 2-2Z"></path></svg>`;
+  const icon = `<svg viewBox="0 0 20 20"><path d="M3.5 6.2h4.2l1.4 1.6H16.5v7.2H3.5z"></path></svg>`;
   return `
     <div class="navigation-conversation-row navigation-project-row ${options.taskContext ? "task-context " : ""}${active ? "active " : ""}${statusClass ? `status-${statusClass} ` : ""}${unread ? "unread " : ""}project-card ${stateClass}" role="button" tabindex="0" draggable="true"       title="${escapeNavigationHtml(headline)}" data-project-id="${escapeNavigationHtml(project.id)}" data-navigation-kind="project" data-navigation-id="${escapeNavigationHtml(project.id)}"${statusClass ? ` data-agent-status="${escapeNavigationHtml(statusClass)}"` : ""}${unread ? " data-agent-unread=\"true\"" : ""} data-navigation-context="${options.taskContext ? "tasks" : "project"}">
       ${options.disclosure || ""}
@@ -742,6 +762,7 @@ function renderConversation(conversation, activeAgentId, nested = false, options
   // The full stored value stays in the row's tooltip, so a path-titled
   // conversation is still identifiable on hover.
   const displayTitle = conversationDisplayTitle(conversation);
+  const relativeTime = taskContext ? "" : formatCompactRelativeTime(conversation.lastActivityAt, options.now);
   // Fork conversations use a branch icon instead of the default conversation bubble.
   const icon = taskContext
     ? `<svg viewBox="0 0 20 20"><circle cx="10" cy="6.5" r="3"></circle><path d="M4.5 17c.7-3.5 2.5-5.2 5.5-5.2s4.8 1.7 5.5 5.2"></path></svg>`
@@ -756,6 +777,7 @@ function renderConversation(conversation, activeAgentId, nested = false, options
         <span class="navigation-conversation-title"><span class="navigation-title-text">${escapeNavigationHtml(displayTitle)}</span>${stateMeta}</span>
         <span class="navigation-conversation-meta" title="${escapeNavigationHtml(meta)}">${escapeNavigationHtml(meta)}</span>
       </span>
+      ${relativeTime ? `<span class="navigation-conversation-time">${escapeNavigationHtml(relativeTime)}</span>` : ""}
       ${navigationMoreTrigger("conversation", conversation.agentId)}
     </div>`;
 }
@@ -844,7 +866,7 @@ export function renderNavigationHTML(view = {}, options = {}) {
         ...rootConvs.map((conversation) => {
           const forks = hasForks ? (forksByWorklineId.get(conversation.worklineId) || []) : [];
           if (!forks.length) {
-            return renderConversation(conversation, activeAgentId, true, { activeSelectionKind, orderScope: group.project.id, seenMap });
+            return renderConversation(conversation, activeAgentId, true, { activeSelectionKind, orderScope: group.project.id, seenMap, now: options.now });
           }
           // Only a conversation that actually has forks gets a triangle; giving
           // every row one would put a control next to nothing to disclose.
@@ -868,6 +890,7 @@ export function renderNavigationHTML(view = {}, options = {}) {
             activeSelectionKind,
             orderScope: group.project.id,
             seenMap,
+            now: options.now,
             // Same rule as the project row one tier up, which was missing here: while
             // the forks are folded away this row is the only thing standing for them,
             // so it carries their unread mark.
@@ -882,12 +905,12 @@ export function renderNavigationHTML(view = {}, options = {}) {
             disclosure: navigationDisclosure("fork-open", conversation.agentId, forksOpen, t("workspace.navigation.toggleForks")),
           });
           const forksHTML = forks.map((fork) =>
-            renderConversation(fork, activeAgentId, true, { activeSelectionKind, orderScope: group.project.id, nestedFork: true, seenMap }),
+            renderConversation(fork, activeAgentId, true, { activeSelectionKind, orderScope: group.project.id, nestedFork: true, seenMap, now: options.now }),
           ).join("");
           return `${rootHTML}<div class="navigation-workline-forks"${forksOpen ? "" : " hidden"}>${forksHTML}</div>`;
         }),
         ...orphanForks.map((fork) =>
-          renderConversation(fork, activeAgentId, true, { activeSelectionKind, orderScope: group.project.id, nestedFork: true, seenMap }),
+          renderConversation(fork, activeAgentId, true, { activeSelectionKind, orderScope: group.project.id, nestedFork: true, seenMap, now: options.now }),
         ),
       ].join("");
 
@@ -903,14 +926,17 @@ export function renderNavigationHTML(view = {}, options = {}) {
           // The open conversation names the row when it belongs to this project;
           // otherwise the most recent one does. Falls back to the project name
           // inside renderProject when the group has no conversations yet.
-          headline: navigationProjectHeadline(group.conversations, activeAgentId),
+          // Folder name stays on the group row. Conversation titles live on the
+          // nested rows, with relative time on the right, so the tree reads like
+          // a file list rather than repeating the open chat twice.
+          headline: group.project.name,
           // A group with nothing under it has nothing to disclose.
           disclosure: group.conversations.length
             ? navigationDisclosure("project", group.project.id, groupOpen, t("workspace.navigation.toggleConversations"))
             : "",
         })}
         <div class="navigation-project-conversations" data-project-conversations="${escapeNavigationHtml(group.project.id)}"${groupOpen ? "" : " hidden"}>
-          ${convsHTML}
+          ${convsHTML || `<div class="navigation-empty-conversations">${escapeNavigationHtml(t("workspace.navigation.noConversations"))}</div>`}
         </div>
       </section>`;
     }).join("");

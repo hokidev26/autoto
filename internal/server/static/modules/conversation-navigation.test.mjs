@@ -11,6 +11,7 @@ import {
   createRecentConversationSyncController,
   aggregateNavigationAgentStatus,
   conversationDisplayTitle,
+  formatCompactRelativeTime,
   navigationAgentStatusClass,
   navigationRefreshDefaults,
   normalizeNavigationPayload,
@@ -35,6 +36,16 @@ test("標題被存成路徑時，側欄顯示資料夾名稱而不是整條路�
   assert.equal(conversationDisplayTitle({ agentTitle: "\\\\server\\share\\work" }), "work");
   // A trailing separator must not yield an empty title.
   assert.equal(conversationDisplayTitle({ agentTitle: "/home/ray/projects/autoto/" }), "autoto");
+});
+
+test("formatCompactRelativeTime writes Cursor-style compact ages", () => {
+  const now = Date.parse("2026-01-03T12:00:00Z");
+  assert.equal(formatCompactRelativeTime("2026-01-03T11:59:30Z", now), "now");
+  assert.equal(formatCompactRelativeTime("2026-01-03T11:29:00Z", now), "31m");
+  assert.equal(formatCompactRelativeTime("2026-01-03T09:00:00Z", now), "3h");
+  assert.equal(formatCompactRelativeTime("2026-01-01T12:00:00Z", now), "2d");
+  assert.equal(formatCompactRelativeTime("", now), "");
+  assert.equal(formatCompactRelativeTime("not-a-date", now), "");
 });
 
 test("真正的標題不會被誤判成路徑", () => {
@@ -267,7 +278,11 @@ test("project groups contain every conversation once and preserve recent orderin
 
   assert.equal(normalized.conversations.length, 3);
   assert.deepEqual(all.groups.find((group) => group.project.id === "p1").conversations.map((item) => item.agentId), ["a1", "a2"]);
-  const html = renderNavigationHTML(all, { activeProjectId: "p1", activeAgentId: "a2" });
+  const html = renderNavigationHTML(all, {
+    activeProjectId: "p1",
+    activeAgentId: "a2",
+    now: Date.parse("2026-01-03T00:31:00Z"),
+  });
   assert.match(html, /data-navigation-project-group="p1" data-conversation-count="2"/);
   assert.equal((html.match(/data-navigation-target="p1::w1::a1"/g) || []).length, 1);
   assert.equal((html.match(/data-navigation-target="p1::w2::a2"/g) || []).length, 1);
@@ -277,14 +292,15 @@ test("project groups contain every conversation once and preserve recent orderin
   assert.match(projectContextHTML, /navigation-project-row active/);
   assert.doesNotMatch(projectContextHTML, /navigation-conversation-row nested active/);
   assert.match(projectContextHTML, /data-navigation-context="project"/);
-  // A project's name is usually its directory, which the meta line below already
-  // shows. The row is named after the conversation it stands for -- the open one
-  // when it belongs here ("a2" => "Writer"), so the row matches the chat header.
-  assert.match(html, /navigation-project-title"><span class="project-name">Writer<\/span><\/span>/);
-  assert.match(html, /navigation-project-row[^>]*title="Writer"/);
+  // Folder name stays on the group row. Conversation titles live on the nested
+  // rows, matching the Cursor-style tree the sidebar is aiming for.
+  assert.match(html, /navigation-project-title"><span class="project-name">Alpha<\/span><\/span>/);
+  assert.match(html, /navigation-project-row[^>]*title="Alpha"/);
   // The directory is still available, just not as the headline.
   assert.match(html, /navigation-conversation-meta project-path" title="\/work\/alpha"/);
   assert.match(html, /navigation-conversation-row nested[^>]*title="Writer"/);
+  assert.match(html, /navigation-conversation-time">31m<\/span>/);
+  assert.match(html, /navigation-empty-conversations/);
   assert.doesNotMatch(html, /project-agent-count|AGENT 2/);
   assert.match(html, /navigation-conversation-row nested[^\"]*status-idle/);
   assert.match(html, /data-agent-status="idle"/);
@@ -792,6 +808,7 @@ test("disclosure triangles appear only where there is something to disclose", ()
     { activeProjectId: "p1" },
   );
   assert.doesNotMatch(bare, /data-navigation-disclosure/);
+  assert.match(bare, /navigation-empty-conversations/);
 });
 
 test("collapsed nodes hide their children and report it to assistive tech", () => {
