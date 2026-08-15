@@ -665,14 +665,14 @@
             <button id="workspacePreviewReloadBtn" class="workspace-browser-icon" type="button" title="刷新" aria-label="刷新" data-i18n-title="staticExtra.workspace.explorer.reload" data-i18n-aria-label="staticExtra.workspace.explorer.reload">↻</button>
             <button id="workspacePreviewHomeBtn" class="workspace-browser-icon" type="button" title="预览主页" aria-label="预览主页" data-i18n-title="staticExtra.workspace.explorer.home" data-i18n-aria-label="staticExtra.workspace.explorer.home"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 10.6 12 3.2l9 7.4"/><path d="M5.2 9.4V19.4a1 1 0 0 0 1 1h3.6v-5.4h4.4v5.4h3.6a1 1 0 0 0 1-1V9.4"/></svg></button>
             <input id="workspacePreviewAddress" class="workspace-browser-address" type="url" inputmode="url" placeholder="浏览网址" aria-label="浏览网址" data-i18n-placeholder="staticExtra.workspace.explorer.addressPlaceholder" data-i18n-aria-label="staticExtra.workspace.explorer.addressAriaLabel" />
-            <button id="workspacePreviewLoadBtn" class="workspace-secondary-btn" type="submit" data-i18n="staticExtra.workspace.explorer.load">载入</button>
-            <button id="workspaceOpenPreviewBtn" class="workspace-secondary-btn" type="button" disabled data-i18n="staticExtra.workspace.explorer.openExternal">外部打开</button>
+            <button id="workspacePreviewLoadBtn" class="sr-only" type="submit" data-i18n="staticExtra.workspace.explorer.load">载入</button>
             <details class="workspace-browser-viewports workspace-viewport-menu">
               <summary class="workspace-viewport-trigger" role="button" title="预览宽度" aria-label="预览宽度" data-i18n-title="staticExtra.workspace.explorer.viewportWidth" data-i18n-aria-label="staticExtra.workspace.explorer.viewportWidth">⋮</summary>
               <div class="workspace-viewport-list" role="group">
                 <button class="workspace-viewport-btn active" type="button" data-preview-viewport="adaptive" data-i18n="staticExtra.workspace.explorer.adaptive">自适应</button>
                 <button class="workspace-viewport-btn" type="button" data-preview-viewport="desktop" data-i18n="staticExtra.workspace.explorer.desktop">桌面</button>
                 <button class="workspace-viewport-btn" type="button" data-preview-viewport="tablet" data-i18n="staticExtra.workspace.explorer.tablet">平板 768</button>
+                <button id="workspaceOpenPreviewBtn" class="workspace-viewport-btn" type="button" disabled data-i18n="staticExtra.workspace.explorer.openExternal">外部打开</button>
               </div>
             </details>
           </form>

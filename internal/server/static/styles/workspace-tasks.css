@@ -2800,7 +2800,7 @@ body.white-shell.theme-light .background-task-bubble.role-assistant .message-rol
 }
 
 /* Remote access policy and one-time password controls. */
-.remote-access-summary-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.remote-access-summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .remote-access-policy-form { display: grid; gap: 14px; }
 .remote-access-policy-form .settings-form-grid { align-items: start; }
 .remote-access-full-access-card {
@@ -2867,9 +2867,9 @@ body.white-shell.theme-light .background-task-bubble.role-assistant .message-rol
 .remote-access-tunnel-card .settings-provider-section-head { align-items: flex-start; }
 .remote-access-tunnel-action { min-width: 122px; justify-content: center; white-space: nowrap; }
 .remote-access-tunnel-action[aria-busy="true"] { cursor: wait; }
-.remote-access-tunnel-url { display: flex; min-width: 0; align-items: center; gap: 10px; margin: 0 16px 16px; padding: 10px 12px; border: 1px solid var(--line, var(--ws-border, #dfe3ea)); border-radius: 9px; background: var(--bg, var(--ws-canvas, #f8fafc)); }
-.remote-access-tunnel-url a { min-width: 0; overflow-wrap: anywhere; color: var(--accent, #5369f3); font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
-.remote-access-tunnel-url .settings-action-btn { flex: 0 0 auto; }
+.remote-access-tunnel-url { display: flex; min-width: 0; flex-wrap: wrap; align-items: center; gap: 10px; margin: 0 16px 16px; padding: 10px 12px; border: 1px solid var(--line, var(--ws-border, #dfe3ea)); border-radius: 9px; background: var(--bg, var(--ws-canvas, #f8fafc)); }
+.remote-access-tunnel-url a { min-width: 0; flex: 1 1 180px; overflow-wrap: anywhere; color: var(--accent, #5369f3); font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
+.remote-access-tunnel-url .settings-action-btn { flex: 0 0 auto; white-space: nowrap; }
 .remote-access-tunnel-phone {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
@@ -2907,13 +2907,49 @@ body.white-shell.theme-light .background-task-bubble.role-assistant .message-rol
   line-height: 1.45;
 }
 .remote-access-phone-steps li { padding-left: 2px; }
-@media (max-width: 760px) {
-  .remote-access-summary-grid,
+
+/* Network settings (search / remote access / peer collaboration) sit in the
+   settings content column beside the category sidebar, so viewport breakpoints
+   fire too late. Size the cards against the page itself. */
+#settingsContentBody .remote-access-page,
+#settingsContentBody .peer-collaboration-page,
+#settingsContentBody .network-search-page {
+  container: settings-network-page / inline-size;
+}
+#settingsContentBody .remote-access-page .settings-stat-card strong,
+#settingsContentBody .peer-collaboration-page .settings-stat-card strong {
+  font-size: 13px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+@container settings-network-page (min-width: 760px) {
+  .remote-access-summary-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
+
+@container settings-network-page (max-width: 759px) {
   .remote-access-password-grid { grid-template-columns: 1fr; }
-  .remote-access-full-access-card { align-items: flex-start; }
+  .remote-access-full-access-card { align-items: flex-start; flex-wrap: wrap; }
   .remote-access-full-access-copy { flex: 1 1 auto; }
   .remote-access-tunnel-phone { grid-template-columns: 1fr; justify-items: center; text-align: left; }
   .remote-access-tunnel-phone-copy { width: 100%; }
+  .remote-access-tunnel-action { min-width: 0; }
+  .peer-collaboration-qr { width: 100%; height: auto; aspect-ratio: 1; }
+  .peer-collaboration-grant-scopes { grid-template-columns: 1fr; }
+  .peer-collaboration-created { justify-items: stretch; }
+}
+
+@container settings-network-page (max-width: 520px) {
+  .remote-access-summary-grid { grid-template-columns: 1fr; }
+  .remote-access-tunnel-card .settings-action-row,
+  .peer-collaboration-invitation .settings-action-row,
+  .peer-collaboration-pairing .settings-action-row { flex-direction: column; align-items: stretch; }
+  .remote-access-tunnel-action,
+  .peer-collaboration-invitation .settings-action-btn,
+  .peer-collaboration-pairing .settings-action-btn { width: 100%; }
+  #settingsContentBody .network-search-page .compact-settings-header { align-items: stretch; flex-direction: column; }
+  #settingsContentBody .network-search-page .compact-settings-header-actions { justify-content: flex-start; }
+  #settingsContentBody .network-search-page .compact-settings-grid.two-column { grid-template-columns: minmax(0, 1fr); }
 }
 
 /* Peer collaboration — pairing invitations, grants and scope editors */
@@ -2967,10 +3003,6 @@ body.white-shell.theme-light .background-task-bubble.role-assistant .message-rol
   line-height: 1.45;
 }
 .peer-collaboration-claim { display: grid; gap: 8px; }
-@media (max-width: 760px) {
-  .peer-collaboration-qr { width: 100%; height: auto; aspect-ratio: 1; }
-  .peer-collaboration-grant-scopes { grid-template-columns: 1fr; }
-}
 
 /* Peer collaboration — dark mode */
 body.white-shell.theme-light.theme-dark .peer-collaboration-code,

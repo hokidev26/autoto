@@ -81,6 +81,8 @@ body.white-shell.theme-light .chat-header {
   gap: 12px;
   padding: 0 16px 0 18px;
   border-bottom-color: #e7e9ee;
+  container-name: chat-header;
+  container-type: inline-size;
 }
 body.white-shell.theme-light .header-left { flex: 1 1 auto; min-width: 0; gap: 0; }
 body.white-shell.theme-light .chat-heading { min-width: 0; display: grid; gap: 2px; }
@@ -111,7 +113,7 @@ body.white-shell.theme-light .chat-title-action:hover { background: #eef1fe; col
 body.white-shell.theme-light .chat-title-action:disabled { display: none; }
 body.white-shell.theme-light .chat-subtitle { max-width: min(56vw, 660px); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 body.white-shell.theme-light .workspace-meta-pills { margin-top: 2px; }
-body.white-shell.theme-light .header-actions { gap: 0; min-width: 0; }
+body.white-shell.theme-light .header-actions { gap: 0; flex: 0 0 auto; min-width: 0; }
 body.white-shell.theme-light .header-state-source { display: none; }
 body.white-shell.theme-light .header-tool-group {
   display: inline-flex;
@@ -716,6 +718,25 @@ body.white-shell.theme-light .conversation-detail-row > strong { min-width: 0; c
 body.white-shell.theme-light .conversation-detail-row button { border: 1px solid #d8dde6; border-radius: 8px; background: var(--ws-card); color: #687184; padding: 5px 9px; cursor: pointer; }
 body.white-shell.theme-light .conversation-runtime-link { width: 100%; margin-top: 18px; }
 
+/* Once the dock column is narrower than the fixed 120px label + the copy
+   button can afford, the value column for monospace strings (UUID, file
+   path) collapses past one character wide. Stack each row into label /
+   value / copy columns and let the value wrap normally instead of
+   breaking on any character boundary. */
+@container conversation-details-panel (max-width: 480px) {
+  body.white-shell.theme-light .conversation-detail-hero { flex-wrap: wrap; align-items: flex-start; gap: 10px; padding: 14px; }
+  body.white-shell.theme-light .conversation-detail-hero h2 { font-size: 16px; overflow-wrap: anywhere; }
+  body.white-shell.theme-light .conversation-metric-grid { grid-template-columns: 1fr; }
+  body.white-shell.theme-light .conversation-metric-card { min-height: 72px; }
+  body.white-shell.theme-light .conversation-metric-card strong { font-size: 18px; overflow-wrap: anywhere; }
+}
+@container conversation-details-panel (max-width: 420px) {
+  body.white-shell.theme-light .conversation-detail-row { grid-template-columns: 1fr; row-gap: 4px; align-items: flex-start; min-height: 0; padding: 10px 0; }
+  body.white-shell.theme-light .conversation-detail-row > span { font-size: 11px; text-transform: uppercase; letter-spacing: .04em; }
+  body.white-shell.theme-light .conversation-detail-row > strong { overflow-wrap: break-word; word-break: break-all; font-size: 12px; }
+  body.white-shell.theme-light .conversation-detail-row button { justify-self: flex-start; }
+}
+
 /* Geometry only, shared by every panel that docks into the right-hand utility
    column: the files browser, the preview, and the Dynamic Spec board. Each of
    those keeps its own chrome rules; this block just moves a centred dialog into
@@ -831,7 +852,6 @@ body.white-shell.theme-light .workspace-browser-icon:hover:not(:disabled) { back
 body.white-shell.theme-light .workspace-browser-icon:disabled { opacity: .4; cursor: not-allowed; }
 body.white-shell.theme-light .workspace-browser-address { flex: 1 1 180px; min-width: 130px; min-height: 32px; height: 32px; border: 1px solid #e4e7ed; border-radius: 18px; background: #f2f4f7; color: #20263a; padding: 0 14px; outline: 0; font-size: 12.5px; transition: background .12s ease, border-color .12s ease, box-shadow .12s ease; }
 body.white-shell.theme-light .workspace-browser-address:focus { border-color: #9aabff; background: var(--ws-card); box-shadow: 0 0 0 3px rgba(79, 110, 247, .1); }
-body.white-shell.theme-light .workspace-browser-toolbar #workspaceOpenPreviewBtn { flex: 0 0 auto; }
 body.white-shell.theme-light .workspace-browser-viewports { margin-left: auto; display: flex; align-items: center; justify-content: flex-end; gap: 4px; flex-wrap: wrap; }
 body.white-shell.theme-light .workspace-viewport-btn { min-height: 32px; border: 1px solid #dfe3e9; border-radius: 8px; background: #f6f7f9; color: #4b5563; padding: 0 8px; white-space: nowrap; cursor: pointer; font-size: 12px; }
 body.white-shell.theme-light .workspace-viewport-btn.active { border-color: #4f6ef7; background: #eef1ff; color: #4f6ef7; }
@@ -925,7 +945,6 @@ body.white-shell.theme-light .workspace-preview-dock-mode .workspace-preview-emp
   body.white-shell.theme-light .conversation-metric-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   body.white-shell.theme-light .workspace-preview-dock-mode .workspace-modal-card { width: 100%; height: calc(100dvh - 64px); margin-top: 64px; }
   body.white-shell.theme-light .workspace-browser-toolbar { grid-template-columns: repeat(4, 32px) minmax(72px, 1fr) auto; padding: 6px 8px; }
-  body.white-shell.theme-light .workspace-browser-toolbar #workspaceOpenPreviewBtn { display: none; }
   body.white-shell.theme-light .workspace-browser-viewports { grid-column: 1 / -1; overflow-x: auto; }
 }
 

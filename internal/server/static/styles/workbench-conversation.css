@@ -1418,3 +1418,33 @@ body.white-shell.theme-light .messages [class~="plan-card-actions"] > button {
   }
 }
 
+/* The conversation column shrinks when a workspace/spec/details card docks
+   beside it, independent of the viewport. Size the header tool card against
+   that column so the seven icons stay on one row instead of overflowing
+   the title. */
+@container chat-header (max-width: 720px) {
+  body.white-shell.theme-light .security-mode-pill { display: none; }
+  body.white-shell.theme-light .header-tool-btn {
+    width: 30px;
+    min-width: 30px;
+    height: 30px;
+    min-height: 30px;
+    padding: 6px;
+  }
+}
+
+@container chat-header (max-width: 520px) {
+  body.white-shell.theme-light .header-tool-group {
+    gap: 1px;
+    padding: 2px;
+  }
+  body.white-shell.theme-light .header-tool-btn {
+    width: 26px;
+    min-width: 26px;
+    height: 26px;
+    min-height: 26px;
+    padding: 5px;
+    border-radius: 8px;
+  }
+}
+

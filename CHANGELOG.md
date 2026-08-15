@@ -2,6 +2,19 @@
 
 All notable changes to Autoto are tracked here. The project is still an experimental local-first MVP, so entries focus on user-visible behavior, security boundaries, and contributor-facing workflow changes.
 
+## Unreleased
+
+### Changed
+
+- Opening Settings now closes the spec board and the workspace explorer so they no longer stack on the same right-hand column Settings claims.
+- Git command failures still include the working directory and argv for a local operator; remote sessions receive the existing generic error text.
+- About licenses lists reviewed direct and indirect modules from `go.mod` instead of leaving most of them unknown.
+
+### Fixed
+
+- Workspace, spec board, Settings network/remote-collaboration cards, and conversation-detail rows collapse against their own panel width instead of the viewport.
+- The conversation header's workspace-feature tool card shrinks when a docked panel squeezes the chat column.
+
 ## v1.0.0 - 2026-08-14
 
 First public release of Autoto. The project is an experimental local-first MVP focused on a single-machine coding agent that runs in the background, asks before doing risky things, and only commits the files the user picks.

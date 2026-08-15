@@ -1881,13 +1881,23 @@ body.white-shell.theme-light .workspace-modal-card {
   border-radius: 18px;
   background: var(--ws-card);
   color: var(--ws-text);
+  /* Size queries against the card, not the files panel: a container cannot
+     style itself, and dock-mode width lives on this element. */
+  container-name: workspace-panel;
+  container-type: inline-size;
 }
 
 body.white-shell.theme-light .workspace-modal-head {
   flex: 0 0 72px;
   min-height: 72px;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto 44px;
+  /* The "工作区" title and the file/preview tab strip are hidden below:
+     the sidebar already has a workspace entry and a separate browser entry
+     that drive which panel is open, so the in-modal title is just chrome
+     and the tabs became a one-way toggle (preview -> had to hit × to get
+     back). The column count collapses from three to one once those two
+     children are display:none. */
+  grid-template-columns: minmax(0, 1fr) 44px;
   align-items: center;
   gap: 18px;
   padding: 0 18px 0 24px;
@@ -1896,7 +1906,9 @@ body.white-shell.theme-light .workspace-modal-head {
 }
 
 body.white-shell.theme-light .workspace-modal-heading { min-width: 0; }
-body.white-shell.theme-light .workspace-modal-heading .modal-title { font-size: 20px; font-weight: 850; }
+/* Hide the static "工作区" title; the path subtitle that follows it is
+   already the heading-equivalent content in the remaining column. */
+body.white-shell.theme-light .workspace-modal-heading .modal-title { display: none; }
 body.white-shell.theme-light .workspace-modal-heading .modal-path {
   max-width: 620px;
   overflow: hidden;
@@ -1905,15 +1917,12 @@ body.white-shell.theme-light .workspace-modal-heading .modal-path {
   color: var(--ws-muted);
 }
 
-body.white-shell.theme-light .workspace-tabs {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 4px;
-  border: 1px solid var(--ws-border);
-  border-radius: 12px;
-  background: var(--ws-input);
-}
+/* The file / Preview tab strip is now always hidden: the sidebar owns the
+   choice of which sub-panel is open, so the in-modal tabs were dead UI
+   and at narrow widths they pushed the × close button off the right edge
+   of the modal. The dock-mode rule in workbench-shell.css re-asserts
+   display:none; both rules agree. */
+body.white-shell.theme-light .workspace-tabs { display: none; }
 
 body.white-shell.theme-light .workspace-tab {
   min-width: 92px;
@@ -1970,6 +1979,23 @@ body.white-shell.theme-light .workspace-files-panel {
   grid-template-columns: 310px minmax(0, 1fr);
   overflow: hidden;
   background: var(--ws-card);
+}
+
+@container workspace-panel (max-width: 700px) {
+  /* The tree column is a fixed 310px, so once the card gets close to
+     that the editor column drops below a comfortable size. Shrink the
+     tree so the editor keeps a readable width. */
+  .workspace-files-panel { grid-template-columns: 220px minmax(0, 1fr); }
+}
+@container workspace-panel (max-width: 540px) {
+  .workspace-files-panel { grid-template-columns: 180px minmax(0, 1fr); }
+}
+@container workspace-panel (max-width: 420px) {
+  /* Below this width the editor stops having room for anything other than
+     line-broken text; drop the tree column entirely so the editor claims
+     the panel. */
+  .workspace-files-panel { grid-template-columns: minmax(0, 1fr); }
+  .workspace-tree-panel { display: none; }
 }
 
 body.white-shell.theme-light .workspace-tree-panel {
@@ -2100,16 +2126,33 @@ body.white-shell.theme-light .workspace-editor-head {
   align-items: center;
   justify-content: space-between;
   gap: 16px;
+  /* Wrap the actions row to a second line once there is no room beside the
+     path/status text; without this flex shrinks the label buttons past
+     their glyph width and stacks the text vertically. */
+  flex-wrap: wrap;
+  row-gap: 10px;
   padding: 9px 16px 9px 20px;
   border-bottom: 1px solid var(--ws-border);
   background: var(--ws-card);
 }
 body.white-shell.theme-light .workspace-editor-heading { min-width: 0; display: grid; gap: 5px; }
-body.white-shell.theme-light .workspace-editor-path { color: var(--ws-text); font-size: 13px; font-weight: 750; }
+body.white-shell.theme-light .workspace-editor-heading > * { min-width: 0; overflow-wrap: anywhere; }
+body.white-shell.theme-light .workspace-editor-path { color: var(--ws-text); font-size: 13px; font-weight: 750; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 body.white-shell.theme-light .workspace-editor-status { color: var(--ws-muted); font-size: 12px; }
 body.white-shell.theme-light .workspace-editor-status.error { color: #b42318; }
 body.white-shell.theme-light .workspace-editor-actions,
-body.white-shell.theme-light .workspace-preview-actions { display: flex; align-items: center; gap: 8px; }
+body.white-shell.theme-light .workspace-preview-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  /* Keep the button labels on a single line so the button keeps its own
+     intrinsic width instead of shrinking to one glyph and stacking the
+     text vertically. */
+  min-width: 0;
+}
+body.white-shell.theme-light .workspace-editor-actions button,
+body.white-shell.theme-light .workspace-preview-actions button { white-space: nowrap; flex: 0 1 auto; min-width: 0; }
 
 body.white-shell.theme-light .workspace-primary-btn,
 body.white-shell.theme-light .workspace-secondary-btn {
@@ -2762,6 +2805,12 @@ body.white-shell.theme-light .automation-activity time { margin-right: 8px; colo
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  /* The dock-mode width is set on this same element by shell-dock-mode, so
+     sizing the container off it lets the form collapse against the panel's
+     own width instead of the viewport. The form has 4 fixed columns that
+     squeezed the textarea past 280px. */
+  container-name: spec-board-panel;
+  container-type: inline-size;
 }
 .spec-board-body { flex: 1; min-height: 0; overflow: auto; padding: 18px; background: var(--ws-canvas); }
 .spec-board { display: grid; gap: 16px; color: #0f172a; }
@@ -2812,8 +2861,14 @@ body.white-shell.theme-light .spec-tab.active { color: var(--ws-primary); backgr
 }
 
 .spec-board-shell { display: grid; gap: 14px; color: #0f172a; }
-.spec-board-toolbar { display: flex; align-items: end; justify-content: space-between; gap: 12px; }
-.spec-board-toolbar label { flex: 1; display: grid; gap: 5px; color: #475569; font-size: 11px; font-weight: 850; }
+.spec-board-toolbar {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.spec-board-toolbar label { flex: 1 1 200px; min-width: 0; display: grid; gap: 5px; color: #475569; font-size: 11px; font-weight: 850; }
 .spec-board-toolbar select,
 .spec-create-form textarea,
 .spec-create-form select,
@@ -2835,6 +2890,38 @@ body.white-shell.theme-light .spec-tab.active { color: var(--ws-primary); backgr
 .spec-task-card select:focus { border-color: #5369f3; box-shadow: 0 0 0 3px rgba(83, 105, 243, .12); }
 .spec-create-form { display: grid; grid-template-columns: minmax(0, 1fr) 130px auto auto; gap: 9px; align-items: end; border: 1px solid #dbeafe; border-radius: 14px; background: linear-gradient(180deg, #eff6ff, #ffffff); padding: 12px; }
 
+/* When the panel is docked narrower than the four-column form wants, drop
+   the second column pair onto its own row so the textarea can still expand
+   to fit and the status / protected / submit row keeps its own intrinsic
+   width. Below ~360px collapse the whole form to a single column. */
+@container spec-board-panel (max-width: 520px) {
+  .spec-create-form { grid-template-columns: minmax(0, 1fr) auto; }
+  .spec-create-form textarea { grid-column: 1 / -1; grid-row: auto; }
+  .spec-create-form .send-btn { grid-column: 1 / -1; }
+}
+@container spec-board-panel (max-width: 360px) {
+  .spec-create-form { grid-template-columns: 1fr; }
+}
+
+/* The task card stacks its heading beside the revision meta via space-between;
+   below this width the "未保护" pill squashes the "#1" label. Wrap and let
+   the meta drop to its own line. */
+@container spec-board-panel (max-width: 480px) {
+  .spec-task-head { flex-wrap: wrap; row-gap: 4px; }
+  .spec-task-head small { flex-basis: 100%; }
+}
+
+/* Below ~420px the status select's 110px minimum plus four buttons and the
+   protected checkbox cannot share the row with the textarea. Drop the
+   status select and the protected checkbox onto their own row and stretch
+   the move/save/delete controls across the rest, so every label still
+   keeps its own intrinsic width and the row never has to shrink a button
+   to one glyph. */
+@container spec-board-panel (max-width: 480px) {
+  .spec-task-card .spec-task-controls select { flex: 1 1 110px; }
+  .spec-task-card .spec-task-controls .spec-protected-toggle { flex: 1 1 auto; justify-content: center; }
+}
+
 body.white-shell.theme-light.theme-dark .spec-create-form {
   border-color: color-mix(in srgb, var(--ws-primary) 34%, var(--ws-border));
   background: linear-gradient(180deg, color-mix(in srgb, var(--ws-primary) 10%, var(--ws-card)), var(--ws-card));
@@ -2851,6 +2938,8 @@ body.white-shell.theme-light.theme-dark .spec-create-form {
 .spec-task-card textarea { grid-column: 1 / -1; min-height: 72px; resize: vertical; }
 .spec-task-card .spec-task-controls { grid-column: 1 / -1; justify-content: flex-end; }
 .spec-task-card .spec-task-controls select { width: auto; min-width: 110px; }
+.spec-task-card .spec-task-controls button,
+.spec-task-card .spec-task-controls .spec-protected-toggle { white-space: nowrap; }
 .spec-confirmations { display: grid; gap: 9px; }
 .spec-confirmations h3 { margin: 0; color: #0f172a; font-size: 14px; }
 .spec-confirmation-card { border: 1px solid #c7d2fe; border-radius: 12px; background: #eef2ff; padding: 11px 12px; display: grid; gap: 4px; color: #0f172a; box-shadow: 0 1px 2px rgba(15, 23, 42, .05); }

@@ -108,5 +108,5 @@ Protected-task text, status, protection flag, order, replacement, or deletion ar
 
 - Run focused tests, then `make check`. Use `make fmt` only when needed and inspect unrelated formatting changes.
 - Prefer fake providers, temporary directories/SQLite, and `httptest.Server`; tests must not require real credentials, paid models, or public services.
-- Update README, SECURITY, ARCHITECTURE, or PROJECT_PLAN when relevant behavior changes; do not create unrelated docs.
+- Update README, SECURITY, or ARCHITECTURE when relevant behavior changes; do not create unrelated docs.
 - Before delivery, inspect Git diff/untracked files and report changes, commands, evidence, remaining risks, and unverified items.

@@ -781,6 +781,9 @@ test("browser preview dock compacts both control rows to preserve page space", a
   const viewportMenu = html.match(/<details\b(?=[^>]*\bclass="[^"]*\bworkspace-viewport-menu\b)[^>]*>[\s\S]*?<\/details>/)?.[0] || "";
   assert.match(viewportMenu, /<summary\b[^>]*role="button"/);
   assert.match(viewportMenu, /data-preview-viewport="adaptive"/);
+  assert.match(viewportMenu, /id="workspaceOpenPreviewBtn"/);
+  assert.match(html, /id="workspacePreviewLoadBtn" class="sr-only"/);
+  assert.doesNotMatch(html, /id="workspacePreviewLoadBtn" class="workspace-secondary-btn"/);
 });
 
 test("desktop conversation layout follows the compact resizable geometry", async () => {
@@ -2441,4 +2444,29 @@ test("model picker groups every provider once and lists all of its models undern
   );
   assert.match(styles, /\.composer-model-group-heading\.composer-model-group-start\s*\{[\s\S]*?border-top:\s*1px solid/);
   assert.match(styles, /\.mobile-model-group-heading\.composer-model-group-start/);
+});
+
+test("openSettingsModal closes spec board and workspace regardless of the workspace tab", async () => {
+  const appMain = await readAppMainSource();
+  const opener = appMain.slice(appMain.indexOf("function openSettingsModal"));
+  const body = opener.slice(0, opener.indexOf("\nfunction ", 1));
+  assert.match(body, /specBoard\.close\(\)/);
+  assert.match(body, /if \(state\.workspaceOpen\) closeWorkspace\(\)/);
+  assert.doesNotMatch(body, /state\.workspaceTab === "preview"/);
+});
+
+test("conversation header workspace tools shrink against the chat column", async () => {
+  const styles = await readStylesSource(stylesURL);
+  assert.match(styles, /container-name:\s*chat-header/);
+  assert.match(styles, /@container chat-header \(max-width: 720px\)/);
+  assert.match(styles, /@container chat-header \(max-width: 520px\)/);
+});
+
+test("workspace files panel queries the card width rather than itself", async () => {
+  const styles = await readStylesSource(stylesURL);
+  assert.match(styles, /\.workspace-modal-card\s*\{[\s\S]*?container-name:\s*workspace-panel/);
+  assert.match(styles, /@container workspace-panel \(max-width: 700px\)/);
+  assert.match(styles, /@container workspace-panel \(max-width: 420px\)[\s\S]*?\.workspace-tree-panel \{ display:\s*none/);
+  assert.doesNotMatch(styles, /\.workspace-files-panel \{[\s\S]*?container-name:\s*workspace-panel/);
+  assert.match(styles, /@container conversation-details-panel \(max-width: 480px\)/);
 });

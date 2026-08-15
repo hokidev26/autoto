@@ -613,3 +613,12 @@ test("the tunnel card names the mode it is actually running", () => {
   assert.match(html, /autoto\.example\.com/);
   assert.doesNotMatch(html, /trycloudflare/);
 });
+
+test("remote access cards collapse against the settings panel", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const css = await readFile(new URL("../styles/workspace-tasks.css", import.meta.url), "utf8");
+  assert.match(css, /container:\s*settings-network-page\s*\/\s*inline-size/);
+  assert.match(css, /@container settings-network-page \(min-width: 760px\)/);
+  assert.match(css, /@container settings-network-page \(max-width: 759px\)/);
+  assert.doesNotMatch(css, /@media \(max-width: 760px\) \{\s*\n\s*\.remote-access-summary-grid/);
+});

@@ -345,3 +345,11 @@ test("a forbidden status read explains that pairing is managed on localhost", as
   await assert.rejects(controller.load(), /403/);
   assert.match(state.peerCollaborationError, /localhost/);
 });
+
+test("peer collaboration cards share the settings-network panel container", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const css = await readFile(new URL("../styles/workspace-tasks.css", import.meta.url), "utf8");
+  assert.match(css, /#settingsContentBody \.peer-collaboration-page/);
+  assert.match(css, /container:\s*settings-network-page\s*\/\s*inline-size/);
+  assert.match(css, /@container settings-network-page \(max-width: 759px\)[\s\S]*?\.peer-collaboration-qr/);
+});
