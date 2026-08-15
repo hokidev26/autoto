@@ -881,8 +881,26 @@ const messageContextMenu = createMessageContextMenu({
   showError,
   confirmAction: (message) => brandConfirm.confirm(message),
   copyToClipboard,
-  openCorrectionEditor: (messageId) => chatRendering.openCorrectionEditor?.(messageId),
-  loadMessages: (agentId) => loadMessages(agentId),
+  openCorrectionEditor: (messageId, target) => {
+    if (target?.agentId && backgroundTasks?.ownsChildAgent?.(target.agentId)) {
+      backgroundTasks.openChildCorrectionEditor(target.agentId, messageId);
+      return;
+    }
+    return chatRendering.openCorrectionEditor?.(messageId);
+  },
+  loadMessages: async (agentId) => {
+    if (backgroundTasks?.ownsChildAgent?.(agentId)) {
+      await backgroundTasks.reloadChildConversation(agentId);
+      return;
+    }
+    return loadMessages(agentId);
+  },
+  resolveMessageText: (target) => {
+    if (target?.agentId && backgroundTasks?.ownsChildAgent?.(target.agentId)) {
+      return backgroundTasks.childMessageText(target.agentId, target.id);
+    }
+    return undefined;
+  },
   // contextManagement is constructed later in this module; the closure only
   // runs from user-triggered menu actions, long after initialization.
   refreshContextStatus: () => contextManagement.load().catch(() => {}),
@@ -1012,6 +1030,8 @@ const subagentCards = createSubagentCardCoordinator({
 
 backgroundTasks = createBackgroundTasksController({
   request: api,
+  copyToClipboard,
+  showToast,
   // Read from the composer's own select so the subagent model control always
   // offers exactly the configured provider models, with no second source to
   // drift out of sync. Hidden options stay hidden: the native select keeps
@@ -1752,6 +1772,17 @@ const archiveSettings = createArchiveSettingsController({
   // A permanent delete removes rows the sidebar and active selection may still
   // reference, so resync navigation from the server afterwards.
   onDeleted: () => loadProjects(),
+  onOpen: async (agentId, meta = {}) => {
+    if (meta.projectArchived && meta.projectId) {
+      await api(`/api/projects/${encodeURIComponent(meta.projectId)}/navigation-state`, { method: "PATCH", body: JSON.stringify({ archived: false }) });
+    } else if (meta.agentArchived && agentId) {
+      await api(`/api/agents/${encodeURIComponent(agentId)}/navigation-state`, { method: "PATCH", body: JSON.stringify({ archived: false }) });
+    }
+    await loadProjects();
+    switchPrimaryWorkbench("conversation");
+    await openOverviewConversation(agentId);
+    showToast(t("archive.opened"), "success", { force: true });
+  },
   showError,
   showToast,
 });

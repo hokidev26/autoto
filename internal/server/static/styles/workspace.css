@@ -541,6 +541,22 @@
   opacity: .72;
 }
 .message-copy-btn:hover { border-color: var(--line); color: var(--text); background: rgba(255, 255, 255, .04); opacity: 1; }
+[data-copy-message],
+[data-copy-child-message] {
+  width: 20px;
+  min-width: 20px;
+  height: 20px;
+  padding: 0;
+  display: inline-grid;
+  place-items: center;
+  font-size: 0;
+  line-height: 1;
+}
+.message-copy-btn svg {
+  width: 13px;
+  height: 13px;
+  display: block;
+}
 .message-content { white-space: normal; }
 .message-content p { margin: 0 0 10px; white-space: pre-wrap; }
 .message-content p:last-child { margin-bottom: 0; }

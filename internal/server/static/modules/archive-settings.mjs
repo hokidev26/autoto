@@ -38,6 +38,37 @@ export function normalizeArchivePayload(value = {}) {
   return { projects, conversations };
 }
 
+export function groupArchiveItems(payload = {}) {
+  const projects = (Array.isArray(payload.projects) ? payload.projects : []).filter((project) => project.archivedAt);
+  const projectIds = new Set(projects.map((project) => project.id));
+  const nested = new Map(projects.map((project) => [project.id, []]));
+  const conversations = [];
+  for (const conversation of Array.isArray(payload.conversations) ? payload.conversations : []) {
+    if (projectIds.has(conversation.projectId)) nested.get(conversation.projectId)?.push(conversation);
+    else if (conversation.agentArchivedAt) conversations.push(conversation);
+  }
+  return { projects, nested, conversations };
+}
+
+export function normalizeArchiveSearchPayload(value = {}) {
+  const results = (Array.isArray(value.results) ? value.results : []).slice(0, 20).map((item) => ({
+    agentId: text(item?.agentId),
+    agentTitle: text(item?.agentTitle),
+    projectId: text(item?.projectId),
+    projectName: text(item?.projectName),
+    projectArchived: booleanValue(item?.projectArchived),
+    agentArchived: booleanValue(item?.agentArchived),
+    titleMatch: booleanValue(item?.titleMatch),
+    matches: (Array.isArray(item?.matches) ? item.matches : []).slice(0, 3).map((match) => ({
+      messageId: text(match?.messageId),
+      role: text(match?.role),
+      createdAt: timestamp(match?.createdAt),
+      snippet: text(match?.snippet).slice(0, 240),
+    })).filter((match) => match.snippet),
+  })).filter((item) => item.agentId);
+  return { query: text(value.query).slice(0, 80), results };
+}
+
 function displayPath(path) {
   const value = text(path);
   return value.replace(/^\/Users\/[^/]+(?=\/)/, "~").replace(/^\/home\/[^/]+(?=\/)/, "~") || "—";
@@ -66,6 +97,29 @@ function archiveItem(kind, item, { restoreLabel, deleteLabel, projectLabel, conv
     </article>`;
 }
 
+function nestedConversation(item, archivedLabel) {
+  const extra = item.agentArchivedAt ? archivedLabel : (item.worklineTitle || "");
+  return `<article class="archive-item archive-item-nested"><div class="archive-item-icon" aria-hidden="true">A</div><div class="archive-item-main"><strong>${escapeHtml(item.agentTitle || item.agentId)}</strong>${extra ? `<small>${escapeHtml(extra)}</small>` : ""}</div></article>`;
+}
+
+function searchHit(item, { openLabel, userLabel, assistantLabel }) {
+  const snippets = (item.matches || []).map((match) => {
+    const role = match.role === "assistant" ? assistantLabel : userLabel;
+    return `<p class="archive-hit-snippet"><span>${escapeHtml(role)}</span>${escapeHtml(match.snippet)}</p>`;
+  }).join("");
+  return `<article class="archive-item archive-hit">
+    <div class="archive-item-icon" aria-hidden="true">A</div>
+    <div class="archive-item-main">
+      <strong>${escapeHtml(item.agentTitle || item.agentId)}</strong>
+      <small>${escapeHtml(item.projectName || item.projectId || "—")}</small>
+      ${snippets}
+    </div>
+    <div class="archive-item-actions">
+      <button class="settings-action-btn subtle" type="button" data-archive-open="${escapeAttr(item.agentId)}" data-archive-project="${escapeAttr(item.projectId)}" data-archive-agent-archived="${item.agentArchived ? "true" : "false"}" data-archive-project-archived="${item.projectArchived ? "true" : "false"}">${escapeHtml(openLabel)}</button>
+    </div>
+  </article>`;
+}
+
 export function createArchiveSettingsController({
   request,
   refresh,
@@ -73,12 +127,21 @@ export function createArchiveSettingsController({
   showToast,
   confirmDelete,
   onDeleted,
+  onOpen,
 } = {}) {
   let payload = { projects: [], conversations: [] };
   let loading = false;
   let loaded = false;
   let error = "";
   let sequence = 0;
+  let query = "";
+  let searchSequence = 0;
+  let searchTimer = 0;
+  let searching = false;
+  let searchError = "";
+  let searchHits = { query: "", results: [] };
+  let restoreSearchFocus = false;
+  let searchCaret = 0;
 
   const archiveText = (key, params) => t(`archive.${key}`, params);
 
@@ -106,6 +169,52 @@ export function createArchiveSettingsController({
     }
   }
 
+  async function search(nextQuery = query) {
+    const needle = text(nextQuery).slice(0, 80);
+    query = needle;
+    if (!needle) {
+      searchSequence += 1;
+      searching = false;
+      searchError = "";
+      searchHits = { query: "", results: [] };
+      refresh?.();
+      return;
+    }
+    const currentSequence = ++searchSequence;
+    searching = true;
+    searchError = "";
+    refresh?.();
+    try {
+      const result = await request(`/api/archive/search?q=${encodeURIComponent(needle)}`);
+      if (currentSequence !== searchSequence) return;
+      searchHits = normalizeArchiveSearchPayload(result);
+      searching = false;
+    } catch (cause) {
+      if (currentSequence !== searchSequence) return;
+      searching = false;
+      searchError = cause?.message || String(cause);
+      showError?.(cause);
+    } finally {
+      if (currentSequence === searchSequence) refresh?.();
+    }
+  }
+
+  function scheduleSearch(nextQuery) {
+    query = text(nextQuery).slice(0, 80);
+    restoreSearchFocus = true;
+    if (searchTimer) clearTimeout(searchTimer);
+    if (!query) {
+      void search("");
+      return;
+    }
+    searching = true;
+    refresh?.();
+    searchTimer = setTimeout(() => {
+      searchTimer = 0;
+      void search(query);
+    }, 280);
+  }
+
   async function restore(kind, id, button) {
     const path = kind === "project"
       ? `/api/projects/${encodeURIComponent(id)}/navigation-state`
@@ -115,6 +224,7 @@ export function createArchiveSettingsController({
       await request(path, { method: "PATCH", body: JSON.stringify({ archived: false }) });
       showToast?.(archiveText("restored"), "success", { force: true });
       await load();
+      if (query) await search(query);
     } catch (cause) {
       showError?.(cause);
     } finally {
@@ -136,6 +246,7 @@ export function createArchiveSettingsController({
       await request(path, { method: "DELETE" });
       showToast?.(archiveText("deleted"), "success", { force: true });
       await load();
+      if (query) await search(query);
       await onDeleted?.(kind, id);
       return true;
     } catch (cause) {
@@ -146,18 +257,64 @@ export function createArchiveSettingsController({
     }
   }
 
+  async function openConversation(agentId, meta, button) {
+    setButtonBusy(button, true, archiveText("opening"));
+    try {
+      await onOpen?.(agentId, meta);
+    } catch (cause) {
+      showError?.(cause);
+    } finally {
+      if (button) setButtonBusy(button, false);
+    }
+  }
+
+  function renderBrowse(groups) {
+    const projectCards = groups.projects.map((project) => {
+      const nested = groups.nested.get(project.id) || [];
+      const nestedMarkup = nested.length
+        ? `<div class="archive-nested-list">${nested.map((item) => nestedConversation(item, archiveText("conversationArchived"))).join("")}</div>`
+        : "";
+      return `${archiveItem("project", project, { restoreLabel: archiveText("restore"), deleteLabel: archiveText("delete"), projectLabel: archiveText("projectArchived"), conversationLabel: "" })}${nestedMarkup}`;
+    }).join("");
+    const conversationCards = groups.conversations.map((conversation) => archiveItem("conversation", conversation, {
+      restoreLabel: archiveText("restore"),
+      deleteLabel: archiveText("delete"),
+      projectLabel: "",
+      conversationLabel: archiveText("conversationArchived"),
+    })).join("");
+    return `
+      ${groups.projects.length ? `<section class="settings-provider-section settings-page-section settings-card"><div class="settings-provider-section-head settings-card-header"><div><div class="settings-provider-title settings-card-title">${escapeHtml(archiveText("projectsTitle"))}</div><p class="settings-card-description" data-settings-help-copy>${escapeHtml(archiveText("projectsHint"))}</p></div></div><div class="archive-item-list">${projectCards}</div></section>` : ""}
+      ${groups.conversations.length ? `<section class="settings-provider-section settings-page-section settings-card"><div class="settings-provider-section-head settings-card-header"><div><div class="settings-provider-title settings-card-title">${escapeHtml(archiveText("conversationsTitle"))}</div><p class="settings-card-description" data-settings-help-copy>${escapeHtml(archiveText("conversationsHint"))}</p></div></div><div class="archive-item-list">${conversationCards}</div></section>` : ""}`;
+  }
+
+  function renderSearch() {
+    if (searching && !searchHits.results.length) {
+      return `<section class="settings-provider-section settings-page-section settings-card"><div class="archive-empty-state">${escapeHtml(archiveText("searching"))}</div></section>`;
+    }
+    if (searchError) {
+      return `<section class="settings-provider-section settings-page-section settings-card"><div class="settings-inline-alert settings-alert" role="alert">${escapeHtml(searchError)}</div></section>`;
+    }
+    if (!searchHits.results.length) {
+      return `<section class="settings-provider-section settings-page-section settings-card"><div class="archive-empty-state">${escapeHtml(archiveText("noSearchResults"))}</div></section>`;
+    }
+    const hits = searchHits.results.map((item) => searchHit(item, {
+      openLabel: archiveText("open"),
+      userLabel: archiveText("snippetUser"),
+      assistantLabel: archiveText("snippetAssistant"),
+    })).join("");
+    return `<section class="settings-provider-section settings-page-section settings-card"><div class="settings-provider-section-head settings-card-header"><div><div class="settings-provider-title settings-card-title">${escapeHtml(archiveText("mentionsTitle"))}</div></div></div><div class="archive-item-list">${hits}</div></section>`;
+  }
+
   function render() {
-    // Only auto-load while idle with no prior failure. A failed load must not
-    // re-enter load() via refresh→render, or 401 toasts loop forever.
     if (!loaded && !loading && !error) load().catch(showError);
     if (loading && !loaded) return `<div class="settings-empty-card settings-empty-state">${escapeHtml(archiveText("loading"))}</div>`;
     if (error) {
       return `<div class="settings-live-page archive-page"><div class="settings-inline-alert settings-alert" role="alert">${escapeHtml(error)}</div><button id="archiveRefreshBtn" class="settings-action-btn subtle" type="button">${escapeHtml(archiveText("refresh"))}</button></div>`;
     }
 
-    const archivedProjects = payload.projects.filter((project) => project.archivedAt);
-    const archivedConversations = payload.conversations.filter((conversation) => conversation.agentArchivedAt);
-    const total = archivedProjects.length + archivedConversations.length;
+    const groups = groupArchiveItems(payload);
+    const total = groups.projects.length + groups.conversations.length;
+    const searchingNow = Boolean(query);
     return `
       <div class="settings-live-page archive-page">
         <section class="settings-hero-card settings-page-section settings-card">
@@ -169,28 +326,46 @@ export function createArchiveSettingsController({
             </div>
             <button id="archiveRefreshBtn" class="settings-action-btn subtle" type="button">${escapeHtml(archiveText("refresh"))}</button>
           </div>
+          <label class="archive-search-field"><span class="sr-only">${escapeHtml(archiveText("searchLabel"))}</span><input id="archiveSearchInput" type="search" maxlength="80" value="${escapeAttr(query)}" placeholder="${escapeAttr(archiveText("searchPlaceholder"))}" autocomplete="off" /></label>
         </section>
         <div class="settings-status-strip settings-stat-grid archive-summary-grid">
           <div class="settings-stat-card"><strong>${escapeHtml(String(total))}</strong><span>${escapeHtml(archiveText("total"))}</span></div>
-          <div class="settings-stat-card"><strong>${escapeHtml(String(archivedProjects.length))}</strong><span>${escapeHtml(archiveText("projects"))}</span></div>
-          <div class="settings-stat-card"><strong>${escapeHtml(String(archivedConversations.length))}</strong><span>${escapeHtml(archiveText("conversations"))}</span></div>
+          <div class="settings-stat-card"><strong>${escapeHtml(String(groups.projects.length))}</strong><span>${escapeHtml(archiveText("projects"))}</span></div>
+          <div class="settings-stat-card"><strong>${escapeHtml(String(groups.conversations.length))}</strong><span>${escapeHtml(archiveText("conversations"))}</span></div>
         </div>
-        ${total ? `
-          ${archivedProjects.length ? `<section class="settings-provider-section settings-page-section settings-card"><div class="settings-provider-section-head settings-card-header"><div><div class="settings-provider-title settings-card-title">${escapeHtml(archiveText("projectsTitle"))}</div></div></div><div class="archive-item-list">${archivedProjects.map((project) => archiveItem("project", project, { restoreLabel: archiveText("restore"), deleteLabel: archiveText("delete"), projectLabel: archiveText("projectArchived"), conversationLabel: "" })).join("")}</div></section>` : ""}
-          ${archivedConversations.length ? `<section class="settings-provider-section settings-page-section settings-card"><div class="settings-provider-section-head settings-card-header"><div><div class="settings-provider-title settings-card-title">${escapeHtml(archiveText("conversationsTitle"))}</div></div></div><div class="archive-item-list">${archivedConversations.map((conversation) => archiveItem("conversation", conversation, { restoreLabel: archiveText("restore"), deleteLabel: archiveText("delete"), projectLabel: "", conversationLabel: archiveText("conversationArchived") })).join("")}</div></section>` : ""}
-        ` : `<section class="settings-provider-section settings-page-section settings-card"><div class="archive-empty-state">${escapeHtml(archiveText("empty"))}</div></section>`}
+        ${searchingNow ? renderSearch() : (total ? renderBrowse(groups) : `<section class="settings-provider-section settings-page-section settings-card"><div class="archive-empty-state">${escapeHtml(archiveText("empty"))}</div></section>`)}
       </div>`;
   }
 
   function bind() {
-    $("archiveRefreshBtn")?.addEventListener("click", () => load().catch(showError));
+    $("archiveRefreshBtn")?.addEventListener("click", () => {
+      load().then(() => query ? search(query) : undefined).catch(showError);
+    });
+    const input = $("archiveSearchInput");
+    input?.addEventListener("input", (event) => {
+      searchCaret = Number(event.currentTarget.selectionStart ?? event.currentTarget.value.length);
+      scheduleSearch(event.currentTarget.value);
+    });
+    if (restoreSearchFocus && input) {
+      const caret = Math.min(Math.max(0, searchCaret), input.value.length);
+      input.focus();
+      try { input.setSelectionRange(caret, caret); } catch { /* not all input types expose a caret */ }
+      restoreSearchFocus = false;
+    }
     document.querySelectorAll("[data-archive-restore]").forEach((button) => {
       button.addEventListener("click", () => restore(button.dataset.archiveRestore, button.dataset.archiveId, button));
     });
     document.querySelectorAll("[data-archive-delete]").forEach((button) => {
       button.addEventListener("click", () => remove(button.dataset.archiveDelete, button.dataset.archiveId, button).catch(showError));
     });
+    document.querySelectorAll("[data-archive-open]").forEach((button) => {
+      button.addEventListener("click", () => openConversation(button.dataset.archiveOpen, {
+        projectId: button.dataset.archiveProject || "",
+        agentArchived: button.dataset.archiveAgentArchived === "true",
+        projectArchived: button.dataset.archiveProjectArchived === "true",
+      }, button).catch(showError));
+    });
   }
 
-  return { bind, load, normalize: () => payload, remove, render, restore };
+  return { bind, load, normalize: () => payload, remove, render, restore, search };
 }

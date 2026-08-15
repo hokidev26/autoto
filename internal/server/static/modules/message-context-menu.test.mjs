@@ -32,9 +32,9 @@ function fakeMenuElement() {
   };
 }
 
-function fakeMessageRow({ id = "msg-1", role = "user", superseded = false, copyIndex = 0 } = {}) {
+function fakeMessageRow({ id = "msg-1", role = "user", superseded = false, copyIndex = 0, agentId = "", entityGeneration = "" } = {}) {
   return {
-    dataset: { messageId: id, messageRole: role },
+    dataset: { messageId: id, messageRole: role, agentId, entityGeneration },
     classList: { contains: (name) => name === "message-superseded" && superseded },
     querySelector: (selector) => (selector === "[data-copy-message]" ? { dataset: { copyMessage: String(copyIndex) } } : null),
     getBoundingClientRect: () => ({ left: 40, bottom: 60 }),
@@ -103,9 +103,10 @@ function makeController(overrides = {}) {
       calls.copied.push(text);
       return true;
     },
-    openCorrectionEditor: (id) => calls.edited.push(id),
+    openCorrectionEditor: (id, target) => calls.edited.push(target ? { id, agentId: target.agentId } : id),
     loadMessages: async (agentId) => calls.loadedMessages.push(agentId),
     onForkCreated: async (agent) => calls.forked.push(agent),
+    resolveMessageText: overrides.resolveMessageText,
   });
   return { controller, calls, state };
 }
@@ -116,7 +117,7 @@ test("opening the menu on a user message shows every action and fills labels", (
     const opened = controller.openMessageContextMenu(fakeMessageRow(), { clientX: 100, clientY: 120 });
     assert.equal(opened, true);
     assert.equal(menu.classList.contains("hidden"), false);
-    assert.deepEqual(state.messageMenuTarget, { id: "msg-1", role: "user", superseded: false, copyIndex: 0 });
+    assert.deepEqual(state.messageMenuTarget, { id: "msg-1", role: "user", superseded: false, copyIndex: 0, agentId: "agent-1", entityGeneration: null });
     for (const item of menu.items.values()) {
       assert.equal(item.hidden, false);
       assert.notEqual(item.textContent, "");
@@ -155,7 +156,7 @@ test("copy prefers the indexed transcript text and edit opens the correction edi
 
     controller.openMessageContextMenu(fakeMessageRow(), {});
     await controller.applyMessageMenuAction("edit");
-    assert.deepEqual(calls.edited, ["msg-1"]);
+    assert.deepEqual(calls.edited, [{ id: "msg-1", agentId: "agent-1" }]);
     assert.deepEqual(calls.requests, []);
   });
 });
@@ -209,6 +210,7 @@ test("compress sends the entity generation and the through-message id", async ()
     await controller.applyMessageMenuAction("compress");
     assert.equal(calls.requests[0].path, "/api/agents/agent-1/context/compact");
     assert.deepEqual(JSON.parse(calls.requests[0].body), { entityGeneration: 3, throughMessageId: "msg-1" });
+    assert.deepEqual(calls.loadedMessages, ["agent-1"]);
   });
 });
 
@@ -255,5 +257,26 @@ test("the context menu handler ignores clicks outside message rows and editors",
     });
     assert.equal(prevented, false);
     assert.equal(menu.classList.contains("hidden"), true);
+  });
+});
+
+test("a subagent row posts to the child agent instead of the parent conversation", async () => {
+  await withMenuEnvironment(async () => {
+    const { controller, calls } = makeController();
+    controller.openMessageContextMenu(fakeMessageRow({ agentId: "child-9" }), {});
+    await controller.applyMessageMenuAction("rollback");
+    assert.deepEqual(calls.requests, [{ path: "/api/agents/child-9/messages/msg-1/rollback", method: "POST", body: "{}" }]);
+    assert.deepEqual(calls.loadedMessages, ["child-9"]);
+  });
+});
+
+test("copy can resolve text from a child transcript", async () => {
+  await withMenuEnvironment(async () => {
+    const { controller, calls } = makeController({
+      resolveMessageText: (target) => (target.agentId === "child-9" ? "child body" : undefined),
+    });
+    controller.openMessageContextMenu(fakeMessageRow({ agentId: "child-9" }), {});
+    await controller.applyMessageMenuAction("copy");
+    assert.deepEqual(calls.copied, ["child body"]);
   });
 });

@@ -86,8 +86,15 @@ func (AgentSendMessageTool) Execute(ctx context.Context, call Call, env Env) (Re
 		if !isPrimaryAgentType(target.Type) {
 			return agentToolError("message_target_rejected", "target is a subagent; messages can only be sent to primary conversations"), nil
 		}
-		if strings.TrimSpace(target.ArchivedAt) != "" {
+		archived, visible, visErr := inspectPeerConversation(ctx, env.Store, target)
+		if visErr != nil {
+			return Result{}, visErr
+		}
+		if archived {
 			return agentToolError("message_target_rejected", "target conversation is archived"), nil
+		}
+		if !visible {
+			return agentToolError("message_target_unavailable", "target conversation was not found; call AgentSnapshot to list conversations"), nil
 		}
 		targetTitle = target.Title
 	}

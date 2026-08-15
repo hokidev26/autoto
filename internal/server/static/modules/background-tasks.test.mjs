@@ -195,6 +195,32 @@ test("controller reconciles snapshots and live task events without duplicating o
   assert.equal(state.continuation.turnsUsed, 8);
 });
 
+test("selecting an existing overview task keeps its list position", async () => {
+  const controller = createBackgroundTasksController({
+    request: async (path) => {
+      if (path.endsWith("/output?afterSequence=0")) return { chunks: [] };
+      const id = path.split("/").pop();
+      return { id, agentId: "agent-1", kind: "shell", status: "completed" };
+    },
+  });
+  controller.setAgent("agent-1");
+  controller.applySnapshot({
+    backgroundTasks: [
+      { id: "task-a", agentId: "agent-1", status: "completed" },
+      { id: "task-b", agentId: "agent-1", status: "completed" },
+      { id: "task-c", agentId: "agent-1", status: "completed" },
+    ],
+  }, { agentId: "agent-1" });
+  assert.deepEqual(controller.state().order, ["task-c", "task-b", "task-a"]);
+
+  await controller.selectTask("task-a");
+  assert.equal(controller.state().selected, "task-a");
+  assert.deepEqual(controller.state().order, ["task-c", "task-b", "task-a"]);
+
+  controller.handleEvent({ type: "task.created", agentId: "agent-1", data: { taskId: "task-new", status: "running" } });
+  assert.deepEqual(controller.state().order, ["task-new", "task-c", "task-b", "task-a"]);
+});
+
 test("output pagination tracks cursors, deduplicates chunks, and marks truncation", async () => {
   const requests = [];
   const pages = [
@@ -1229,7 +1255,16 @@ test("subagent user messages render the current profile avatar and display name"
   assert.match(html, /<time class="message-time" datetime="2026-08-14T02:29:39Z"/);
   assert.doesNotMatch(html, />你<\/span>/);
   assert.doesNotMatch(html, />You<\/span>/);
-  assert.match(html, /<article class="background-task-bubble role-assistant">/);
+  assert.match(html, /<article class="background-task-bubble role-assistant chat-message"/);
+  assert.match(html, /data-agent-id="child-1"/);
+  assert.match(html, /data-copy-child-message="m1"/);
+  assert.match(html, /data-copy-child-message="m1"[^>]*>[\s\S]*?<svg viewBox="0 0 24 24"/);
+  assert.equal(controller.ownsChildAgent("child-1"), true);
+  assert.equal(controller.childMessageText("child-1", "m1"), "brief the child");
+  controller.openChildCorrectionEditor("child-1", "m1");
+  const editingHTML = controller.renderChildConversationHTMLForTest({ childAgentId: "child-1", childRunId: "run-1" });
+  assert.match(editingHTML, /data-child-correction-form="m1"/);
+  assert.match(editingHTML, /<textarea class="message-correction-text"[^>]*>brief the child<\/textarea>/);
   // The assistant turn mirrors the main transcript head as well: the Autoto
   // mark and name in place of the old bare "代理" label line.
   assert.match(html, /<span class="message-avatar message-avatar-logo" aria-hidden="true"><svg/);

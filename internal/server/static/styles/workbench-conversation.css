@@ -374,6 +374,26 @@ body.white-shell.theme-light .sidebar-search {
 body.white-shell.theme-light .project-list {
   gap: 2px;
   padding-right: 4px;
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--ws-muted, #9aa3b5) 70%, transparent) transparent;
+}
+body.white-shell.theme-light .project-list::-webkit-scrollbar {
+  width: 6px;
+}
+body.white-shell.theme-light .project-list::-webkit-scrollbar-track {
+  background: transparent;
+}
+body.white-shell.theme-light .project-list::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--ws-muted, #9aa3b5) 55%, transparent);
+}
+body.white-shell.theme-light.theme-dark .project-list,
+body.white-shell.theme-light.theme-dark .messages {
+  scrollbar-color: #6b7388 transparent;
+}
+body.white-shell.theme-light.theme-dark .project-list::-webkit-scrollbar-thumb,
+body.white-shell.theme-light.theme-dark .messages::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--ws-muted) 70%, transparent);
 }
 
 body.white-shell.theme-light .navigation-project-group {
@@ -389,8 +409,8 @@ body.white-shell.theme-light .navigation-project-conversations {
   position: relative;
   display: grid;
   gap: 0;
-  margin: 0 0 2px 6px;
-  padding: 0 0 1px 12px;
+  margin: 0 0 2px 2px;
+  padding: 0 0 1px 8px;
 }
 
 /* The collapse markup carries the hidden attribute, which is only a UA-level
@@ -745,7 +765,19 @@ body.white-shell.theme-light .messages:not(.empty) {
      without each density guessing at the number. */
   --transcript-row-gap: 14px;
   row-gap: var(--transcript-row-gap);
-  padding: 14px 16px 14px;
+  padding: 12px 8px 12px;
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--ws-muted, #9aa3b5) 70%, transparent) transparent;
+}
+body.white-shell.theme-light .messages::-webkit-scrollbar {
+  width: 6px;
+}
+body.white-shell.theme-light .messages::-webkit-scrollbar-track {
+  background: transparent;
+}
+body.white-shell.theme-light .messages::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--ws-muted, #9aa3b5) 55%, transparent);
 }
 
 /* A turn's activity strip is part of that turn, not a separate message, so the

@@ -487,6 +487,7 @@ func (s *Server) Routes() http.Handler {
 	r.Get("/api/usage/summary", s.usageSummary)
 	r.Get("/api/usage/history", s.usageHistory)
 	r.Get("/api/navigation", s.navigation)
+	r.Get("/api/archive/search", s.archiveSearch)
 	r.Get("/api/overview", s.overview)
 	r.Get("/api/system/metrics", s.systemMetrics)
 	r.Post("/api/conversations", s.createConversation)

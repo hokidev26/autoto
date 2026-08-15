@@ -974,8 +974,7 @@ body.white-shell.theme-light.theme-dark .navigation-boundary-empty button {
   line-height: 1.4;
 }
 
-/* Rows sit on a shared timeline: a 1px rail through the icon column, like
-   Cursor's agent activity. Gap stays at 0 so the eye runs down the verbs. */
+/* Rows sit directly on each other. Gap stays at 0 so the eye runs down the verbs. */
 .tool-activity-group {
   position: relative;
   display: grid;
@@ -1007,7 +1006,6 @@ body.white-shell.theme-light.theme-dark .navigation-boundary-empty button {
 
 
 .tool-activity-steps {
-  position: relative;
   display: grid;
   min-width: 0;
   gap: 0;
@@ -1018,19 +1016,7 @@ body.white-shell.theme-light.theme-dark .navigation-boundary-empty button {
   list-style: none;
 }
 
-.tool-activity-steps::before {
-  position: absolute;
-  top: 14px;
-  bottom: 14px;
-  left: 12px;
-  width: 1px;
-  background: var(--tool-activity-border);
-  content: "";
-  pointer-events: none;
-}
-
 .tool-activity-step {
-  position: relative;
   min-width: 0;
   list-style: none;
 }
@@ -1667,7 +1653,6 @@ body.white-shell.theme-light.theme-dark .tool-activity-stack {
     .tool-activity-step-status { grid-column: 2; justify-self: start; font-size: 11px; }
     .tool-activity-step-icon { width: 18px; height: 18px; }
     .tool-activity-step-icon > svg { width: 15px; height: 15px; }
-    .tool-activity-steps::before { left: 16px; }
     .tool-activity-head { grid-template-columns: 30px minmax(0, 1fr); gap: 8px; min-height: 62px; padding: 10px; }
     .tool-activity-meta { grid-column: 2; justify-content: flex-start; flex-wrap: wrap; padding-top: 1px; white-space: normal; }
     .tool-activity-title { white-space: normal; overflow-wrap: anywhere; }
@@ -1792,8 +1777,9 @@ body.white-shell.theme-light .messages:not(.empty) > [class~="message"][class~="
   content: "↶";
 }
 
-body.white-shell.theme-light .messages:not(.empty) > [class~="message"][class~="user"][class~="chat-flow-left"] [data-copy-message]::before {
-  content: "⧉";
+body.white-shell.theme-light .messages:not(.empty) > [class~="message"][class~="user"][class~="chat-flow-left"] [data-copy-message] svg {
+  width: 13px;
+  height: 13px;
 }
 
 body.white-shell.theme-light .messages:not(.empty) > [class~="message"][class~="user"][class~="chat-flow-left"] .message-time {
@@ -2498,6 +2484,63 @@ body.white-shell.theme-light .background-task-bubble .message-role {
 body.white-shell.theme-light .background-task-bubble .message-time {
   color: var(--ws-muted);
   font-size: 11px;
+}
+.background-task-bubble .message-head {
+  position: relative;
+}
+.background-task-bubble .message-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.background-task-bubble.role-user .message-head-actions {
+  position: absolute;
+  z-index: 1;
+  top: -2px;
+  right: -2px;
+  padding: 2px;
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--accent, #5369f3) 12%, var(--bg-panel, #fff));
+}
+.background-task-bubble [data-copy-child-message] {
+  width: 20px;
+  min-width: 20px;
+  height: 20px;
+  padding: 0;
+  display: inline-grid;
+  place-items: center;
+  font-size: 0;
+  line-height: 1;
+  border-radius: 6px;
+}
+.background-task-bubble [data-correct-child-message] {
+  width: 20px;
+  min-width: 20px;
+  height: 20px;
+  padding: 0;
+  font-size: 0;
+  line-height: 1;
+  border-radius: 6px;
+}
+.background-task-bubble [data-correct-child-message]::before {
+  content: "↶";
+  font-size: 12px;
+  line-height: 1;
+}
+.background-task-bubble.role-assistant .message-head-actions {
+  opacity: 0;
+  pointer-events: none;
+}
+.background-task-bubble.role-assistant:hover .message-head-actions,
+.background-task-bubble.role-assistant:focus-within .message-head-actions {
+  opacity: 1;
+  pointer-events: auto;
+}
+@media (hover: none) {
+  .background-task-bubble.role-assistant .message-head-actions {
+    opacity: 1;
+    pointer-events: auto;
+  }
 }
 /* The assistant chip follows the main transcript's assistant, not its user: a
    soft tint behind a primary-coloured mark and a muted name. Inheriting the

@@ -19,7 +19,7 @@ const WORKSPACE_TEXT = Object.freeze({
     title: "排程工作区", search: "搜索排程", searchPlaceholder: "名称、任务、表达式或关联对话", newSchedule: "新建排程",
     noResults: "没有匹配的排程。", selectSchedule: "请选择一个排程。", linkedConversation: "关联对话", missingConversation: "未找到关联对话",
     openConversation: "打开关联对话", editSchedule: "编辑排程", createSchedule: "创建排程", save: "保存更改", saving: "保存中…", saved: "排程已更新。", cancel: "取消",
-    recentRuns: "最近运行历史", refreshHistory: "刷新历史", loadFailed: "排程加载失败", enabled: "已启用", disabled: "已停用", lastRun: "上次运行", lastOutcome: "上次结果", notAvailable: "—", unknownValue: "未知选项（{value}）",
+    recentRuns: "最近运行历史", refreshHistory: "刷新历史", loadFailed: "排程加载失败", enabled: "已启用", disabled: "已停用", lastRun: "上次运行", lastOutcome: "上次结果", lastFailed: "上次失败", lastSkipped: "上次跳过", lastSuccess: "上次成功", notAvailable: "—", unknownValue: "未知选项（{value}）",
     formDescription: "排程会在指定时间启动关联 Agent。请先确认任务可由现有工具完成。",
     frequencyHint: "选择预设会同步表达式；@every 15m 表示每 15 分钟运行一次，也可以填写 cron。",
     timezoneHint: "新建排程默认使用此浏览器的 IANA 时区；也可填写 UTC、Asia/Shanghai 等。",
@@ -40,7 +40,7 @@ const WORKSPACE_TEXT = Object.freeze({
     title: "排程工作區", search: "搜尋排程", searchPlaceholder: "名稱、任務、表達式或關聯對話", newSchedule: "新增排程",
     noResults: "沒有符合的排程。", selectSchedule: "請選擇一個排程。", linkedConversation: "關聯對話", missingConversation: "找不到關聯對話",
     openConversation: "開啟關聯對話", editSchedule: "編輯排程", createSchedule: "建立排程", save: "儲存變更", saving: "儲存中…", saved: "排程已更新。", cancel: "取消",
-    recentRuns: "最近執行歷史", refreshHistory: "重新整理歷史", loadFailed: "排程載入失敗", enabled: "已啟用", disabled: "已停用", lastRun: "上次執行", lastOutcome: "上次結果", notAvailable: "—", unknownValue: "未知選項（{value}）",
+    recentRuns: "最近執行歷史", refreshHistory: "重新整理歷史", loadFailed: "排程載入失敗", enabled: "已啟用", disabled: "已停用", lastRun: "上次執行", lastOutcome: "上次結果", lastFailed: "上次失敗", lastSkipped: "上次略過", lastSuccess: "上次成功", notAvailable: "—", unknownValue: "未知選項（{value}）",
     formDescription: "排程會在指定時間啟動關聯 Agent。請先確認任務可由現有工具完成。",
     frequencyHint: "選擇預設會同步表達式；@every 15m 代表每 15 分鐘執行一次，也可以填寫 cron。",
     timezoneHint: "新排程預設使用此瀏覽器的 IANA 時區；也可填寫 UTC、Asia/Taipei 等。",
@@ -61,7 +61,7 @@ const WORKSPACE_TEXT = Object.freeze({
     title: "Schedule workspace", search: "Search schedules", searchPlaceholder: "Name, task, expression, or linked conversation", newSchedule: "New schedule",
     noResults: "No matching schedules.", selectSchedule: "Select a schedule.", linkedConversation: "Linked conversation", missingConversation: "Linked conversation unavailable",
     openConversation: "Open linked conversation", editSchedule: "Edit schedule", createSchedule: "Create schedule", save: "Save changes", saving: "Saving…", saved: "Schedule updated.", cancel: "Cancel",
-    recentRuns: "Recent run history", refreshHistory: "Refresh history", loadFailed: "Failed to load schedules", enabled: "Enabled", disabled: "Disabled", lastRun: "Last run", lastOutcome: "Last result", notAvailable: "—", unknownValue: "Unknown option ({value})",
+    recentRuns: "Recent run history", refreshHistory: "Refresh history", loadFailed: "Failed to load schedules", enabled: "Enabled", disabled: "Disabled", lastRun: "Last run", lastOutcome: "Last result", lastFailed: "Last run failed", lastSkipped: "Last run skipped", lastSuccess: "Last run succeeded", notAvailable: "—", unknownValue: "Unknown option ({value})",
     formDescription: "A schedule starts the linked Agent at the configured time. Confirm that the current tools can complete the task.",
     frequencyHint: "Choosing a preset updates the expression. @every 15m runs every 15 minutes; cron expressions are also supported.",
     timezoneHint: "New schedules use this browser's IANA timezone by default. You can also enter UTC, America/Los_Angeles, and similar values.",
@@ -99,6 +99,22 @@ function boundedText(value, limit = 240) {
 function text(name, params = {}) {
   const catalog = WORKSPACE_TEXT[currentUILocale()] || WORKSPACE_TEXT.en;
   return boundedText(catalog[name] || name, 1000).replace(/\{([A-Za-z0-9_]+)\}/g, (_, key) => boundedText(params[key], 300));
+}
+
+function outcomeLabel(outcome) {
+  const value = boundedText(outcome, 48).toLowerCase();
+  if (!value) return text("notAvailable");
+  if (value === "failure" || value === "error") return text("lastFailed");
+  if (value === "skipped") return text("lastSkipped");
+  if (value === "success") return text("lastSuccess");
+  return boundedText(outcome, 48);
+}
+
+function outcomeTone(outcome) {
+  const value = boundedText(outcome, 48).toLowerCase();
+  if (value === "failure" || value === "error") return "danger";
+  if (value === "skipped") return "warning";
+  return "";
 }
 
 export function defaultScheduleTimezone(resolveOptions = () => new Intl.DateTimeFormat().resolvedOptions()) {
@@ -232,10 +248,16 @@ export function renderScheduleNavigationHTML(state = {}, options = {}) {
       const linked = byAgent.get(schedule.agentId);
       const active = schedule.id && schedule.id === selectedId;
       const status = schedule.enabled ? text("enabled") : text("disabled");
-      return `<button class="schedule-navigation-item settings-data-list-row${active ? " active" : ""}${schedule.enabled ? " enabled" : " disabled"}" type="button" data-schedule-navigation="${escapeAttr(schedule.id)}" aria-pressed="${active ? "true" : "false"}">
+      const failed = schedule.lastOutcome === "failure" || schedule.lastOutcome === "error";
+      const skipped = schedule.lastOutcome === "skipped";
+      const meta = [
+        `${t("automation.schedule.nextRun")} ${safeTimestamp(schedule.nextRunAt, options)}`,
+        failed ? text("lastFailed") : skipped ? text("lastSkipped") : "",
+        conversationLabel(linked) || schedule.agentId || text("missingConversation"),
+      ].filter(Boolean).join(" · ");
+      return `<button class="schedule-navigation-item settings-data-list-row${active ? " active" : ""}${schedule.enabled ? " enabled" : " disabled"}${failed ? " is-failed" : ""}" type="button" data-schedule-navigation="${escapeAttr(schedule.id)}" aria-pressed="${active ? "true" : "false"}">
         <span class="schedule-navigation-heading"><strong>${escapeHtml(schedule.name || t("automation.defaults.unnamedSchedule"))}</strong><em>${escapeHtml(status)}</em></span>
-        <small>${escapeHtml(t("automation.schedule.nextRun"))}: ${escapeHtml(safeTimestamp(schedule.nextRunAt, options))}</small>
-        <small>${escapeHtml(text("linkedConversation"))}: ${escapeHtml(conversationLabel(linked) || schedule.agentId || text("missingConversation"))}</small>
+        <small>${escapeHtml(meta)}</small>
       </button>`;
     }).join("");
   }
@@ -359,14 +381,18 @@ export function renderScheduleWorkspace(state = {}, options = {}) {
     const linked = conversations.find((item) => item.agentId === selected.agentId);
     const itemBusy = Boolean(busy[`schedule:${selected.id}`]);
     const history = safeRead(source.history, selected.id) || {};
+    const lastTone = outcomeTone(selected.lastOutcome);
+    const historyOpen = Boolean(safeRead(source.historyOpen, selected.id));
+    const historyRuns = Array.isArray(history.runs) ? history.runs.length : 0;
+    const historyTitle = history.loaded && historyRuns ? `${text("recentRuns")} (${historyRuns})` : text("recentRuns");
     content = `<article class="schedule-workspace-detail">
-      <header class="schedule-detail-header settings-card-header"><div><span>${escapeHtml(selected.enabled ? text("enabled") : text("disabled"))}</span><h2>${escapeHtml(selected.name || t("automation.defaults.unnamedSchedule"))}</h2><p>${escapeHtml(text("linkedConversation"))}: ${escapeHtml(conversationLabel(linked) || selected.agentId || text("missingConversation"))}</p></div>
-        <div class="automation-actions settings-inline-actions"><button class="automation-btn subtle" type="button" data-schedule-toggle="${escapeAttr(selected.id)}" data-enabled="${selected.enabled ? "true" : "false"}"${itemBusy ? " disabled" : ""}>${escapeHtml(t(selected.enabled ? "automation.buttons.disable" : "automation.buttons.enable"))}</button><button class="automation-btn primary" type="button" data-schedule-run="${escapeAttr(selected.id)}"${itemBusy ? " disabled" : ""}>${escapeHtml(t("automation.buttons.runNow"))}</button><button class="automation-btn danger destructive" type="button" data-schedule-delete="${escapeAttr(selected.id)}"${itemBusy ? " disabled" : ""}>${escapeHtml(t("automation.buttons.delete"))}</button>${selected.agentId ? `<button class="automation-btn subtle" type="button" data-schedule-open-conversation="${escapeAttr(selected.agentId)}">${escapeHtml(text("openConversation"))}</button>` : ""}</div>
+      <header class="schedule-detail-header settings-card-header"><div><span>${escapeHtml(selected.enabled ? text("enabled") : text("disabled"))}</span><h2>${escapeHtml(selected.name || t("automation.defaults.unnamedSchedule"))}</h2><p>${escapeHtml(conversationLabel(linked) || selected.agentId || text("missingConversation"))}</p></div>
+        <div class="automation-actions settings-inline-actions compact"><button class="automation-btn subtle" type="button" data-schedule-toggle="${escapeAttr(selected.id)}" data-enabled="${selected.enabled ? "true" : "false"}"${itemBusy ? " disabled" : ""}>${escapeHtml(t(selected.enabled ? "automation.buttons.disable" : "automation.buttons.enable"))}</button><button class="automation-btn primary" type="button" data-schedule-run="${escapeAttr(selected.id)}"${itemBusy ? " disabled" : ""}>${escapeHtml(t("automation.buttons.runNow"))}</button><button class="automation-btn danger destructive" type="button" data-schedule-delete="${escapeAttr(selected.id)}"${itemBusy ? " disabled" : ""}>${escapeHtml(t("automation.buttons.delete"))}</button>${selected.agentId ? `<button class="automation-btn subtle" type="button" data-schedule-open-conversation="${escapeAttr(selected.agentId)}">${escapeHtml(text("openConversation"))}</button>` : ""}</div>
       </header>
       ${selected.lastError ? `<div class="settings-alert" role="alert">${escapeHtml(selected.lastError)}</div>` : ""}
-      <dl class="automation-kv"><div><dt>${escapeHtml(t("automation.schedule.nextRun"))}</dt><dd>${escapeHtml(safeTimestamp(selected.nextRunAt, options))}</dd></div><div><dt>${escapeHtml(text("lastRun"))}</dt><dd>${escapeHtml(safeTimestamp(selected.lastRunAt, options))}</dd></div><div><dt>${escapeHtml(text("lastOutcome"))}</dt><dd>${escapeHtml(selected.lastOutcome || text("notAvailable"))}</dd></div><div><dt>${escapeHtml(t("automation.schedule.expression"))}</dt><dd>${escapeHtml(selected.expression)}</dd></div><div><dt>${escapeHtml(t("automation.schedule.timezone"))}</dt><dd>${escapeHtml(selected.timezone)}</dd></div><div><dt>${escapeHtml(t("automation.schedule.permission"))}</dt><dd>${escapeHtml(formatScheduleOptionValue("permissionMode", selected.permissionMode))}</dd></div><div><dt>${escapeHtml(t("automation.schedule.environment"))}</dt><dd>${escapeHtml(formatScheduleOptionValue("environmentMode", selected.environmentMode))}</dd></div><div><dt>${escapeHtml(t("automation.schedule.narrator"))}</dt><dd>${escapeHtml(formatScheduleOptionValue("narratorMode", selected.narratorMode))}</dd></div></dl>
+      <dl class="schedule-status-strip"><div><dt>${escapeHtml(t("automation.schedule.nextRun"))}</dt><dd>${escapeHtml(safeTimestamp(selected.nextRunAt, options))}</dd></div><div><dt>${escapeHtml(text("lastRun"))}</dt><dd>${escapeHtml(safeTimestamp(selected.lastRunAt, options))}</dd></div><div${lastTone ? ` data-tone="${escapeAttr(lastTone)}"` : ""}><dt>${escapeHtml(text("lastOutcome"))}</dt><dd>${escapeHtml(outcomeLabel(selected.lastOutcome))}</dd></div></dl>
       ${renderScheduleForm(selected, conversations, { busy: Boolean(busy.save) })}
-      <section class="schedule-history settings-card"><header class="settings-card-header"><h3>${escapeHtml(text("recentRuns"))}</h3><button class="automation-btn subtle" type="button" data-schedule-history="${escapeAttr(selected.id)}"${history.loading ? " disabled" : ""}>${escapeHtml(text("refreshHistory"))}</button></header>${renderHistory(selected.id, history, options)}</section>
+      <details class="schedule-history settings-card" data-schedule-history-panel="${escapeAttr(selected.id)}"${historyOpen ? " open" : ""}><summary class="settings-card-header"><h3>${escapeHtml(historyTitle)}</h3><button class="automation-btn subtle" type="button" data-schedule-history="${escapeAttr(selected.id)}"${history.loading ? " disabled" : ""}>${escapeHtml(text("refreshHistory"))}</button></summary>${renderHistory(selected.id, history, options)}</details>
     </article>`;
   }
   const saveError = boundedText(safeRead(source.errors, "save") || safeRead(source.errors, "action"), 1200);
@@ -395,6 +421,7 @@ export function createScheduleWorkspaceController({
     busy: {},
     errors: {},
     history: {},
+    historyOpen: {},
     loadSeq: 0,
   };
   const historyRequests = new Map();
@@ -425,6 +452,7 @@ export function createScheduleWorkspaceController({
       busy: { ...state.busy },
       errors: { ...state.errors },
       history: cloneHistory(state.history),
+      historyOpen: { ...state.historyOpen },
       loadSeq: state.loadSeq,
       now: currentTime(),
     };
@@ -620,6 +648,7 @@ export function createScheduleWorkspaceController({
       await request(`/api/schedules/${encodeURIComponent(scheduleId)}`, { method: "DELETE" });
       state.schedules = state.schedules.filter((item) => item.id !== scheduleId);
       delete state.history[scheduleId];
+      delete state.historyOpen[scheduleId];
       historyRequests.delete(scheduleId);
       state.selectedScheduleId = state.schedules[0]?.id || "";
       state.mode = "view";
@@ -701,7 +730,10 @@ export function createScheduleWorkspaceController({
       else if (trigger.dataset?.scheduleToggle !== undefined) void toggle(trigger.dataset.scheduleToggle, trigger.dataset.enabled !== "true");
       else if (trigger.dataset?.scheduleRun !== undefined) void run(trigger.dataset.scheduleRun);
       else if (trigger.dataset?.scheduleDelete !== undefined) void deleteSchedule(trigger.dataset.scheduleDelete);
-      else if (trigger.dataset?.scheduleHistory !== undefined) void loadHistory(trigger.dataset.scheduleHistory, { force: true });
+      else if (trigger.dataset?.scheduleHistory !== undefined) {
+        event.stopPropagation?.();
+        void loadHistory(trigger.dataset.scheduleHistory, { force: true });
+      }
       else if (trigger.dataset?.scheduleOpenConversation !== undefined) {
         try {
           options.onOpenConversation?.(boundedText(trigger.dataset.scheduleOpenConversation, 160));
@@ -747,6 +779,14 @@ export function createScheduleWorkspaceController({
         prompt: fieldValue(form, "prompt"),
       });
     });
+    root.addEventListener("toggle", (event) => {
+      const panel = event?.target;
+      if (!panel?.matches?.("[data-schedule-history-panel]")) return;
+      const scheduleId = boundedText(panel.dataset.scheduleHistoryPanel, 160);
+      if (!scheduleId) return;
+      state.historyOpen[scheduleId] = Boolean(panel.open);
+      if (panel.open) void loadHistory(scheduleId);
+    }, true);
     boundRoots.add(root);
     return true;
   }

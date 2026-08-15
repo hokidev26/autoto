@@ -305,7 +305,7 @@ test("desktop home overview stays available while mobile starts in conversation"
   assert.match(html, /id="schedulePanel" class="schedule-workspace-panel hidden"/);
   assert.match(appMain, /function openOverviewSchedules\(id = ""\)[\s\S]*?scheduleWorkspace\.load[\s\S]*?switchPrimaryWorkbench\("schedules"\)[\s\S]*?scheduleWorkspace\.select/);
   assert.doesNotMatch(appMain, /function openOverviewSchedules\(id = ""\)[\s\S]*?openSettingsModal\("im-gateway"\)/);
-  assert.match(styles, /Desktop home: a centred greeting and composer card, then the usage heatmap/);
+  assert.match(styles, /Desktop home: heatmap and host resources first, then the work board/);
   assert.match(styles, /\.overview-dashboard-page\s*\{[\s\S]*?overflow:\s*auto/);
   assert.match(styles, /\.overview-hero-root\s*\{[\s\S]*?width:\s*min\(900px, 100%\)/);
   // The home composer is one rounded card: the frame and the focus ring belong
@@ -343,8 +343,12 @@ test("desktop home overview stays available while mobile starts in conversation"
   assert.doesNotMatch(overviewDashboard, /overview-launcher-project-row/);
   assert.doesNotMatch(styles, /\.overview-launcher-mode(?:-group)?/);
   assert.doesNotMatch(overviewDashboard, /data-overview-launcher-(?:action="mode"|mode=)/);
-  // The stat columns and resume lists left with the redesign.
-  assert.doesNotMatch(styles, /\.overview-columns|\.overview-side-column|\.overview-stats-rows/);
+  // Resume lists and attention chips are the home board; the old stat-row
+  // layout stayed gone.
+  assert.match(styles, /\.overview-columns/);
+  assert.match(styles, /\.overview-side-column/);
+  assert.match(styles, /\.overview-list-row/);
+  assert.doesNotMatch(styles, /\.overview-stats-rows/);
   assert.match(styles, /overview-mode :is\(#conversationPanel, #workbenchPanel, #schedulePanel\)[\s\S]*?display:\s*none !important/);
   assert.match(styles, /not\(\.overview-mode\) #overviewDashboard[\s\S]*?display:\s*none !important/);
   assert.match(styles, /@media \(max-width:\s*767px\)\s*\{\s*body\.white-shell\.theme-light \.overview-dashboard-page\s*\{\s*display:\s*none !important;/);
@@ -355,6 +359,10 @@ test("desktop home overview stays available while mobile starts in conversation"
     assert.match(messages, /runningAgents:/);
     assert.match(messages, /greetingFallback:/);
     assert.match(messages, /projectRequired:/);
+    assert.match(messages, /workSection:/);
+    assert.match(messages, /attention:/);
+    assert.match(messages, /scheduleOutcomeFailed:/);
+    assert.match(messages, /scheduleOutcomeSkipped:/);
     assert.doesNotMatch(messages, /continueWorking:|inProgress:|upcoming:|pendingHint:/);
   }
 });
@@ -809,11 +817,15 @@ test("desktop conversation layout follows the compact resizable geometry", async
   // rules are left in place as inert styling rather than asserted here.
   assert.match(styles, /body\.white-shell\.theme-light \.navigation-conversation-row\s*\{[\s\S]*?min-height:\s*42px[\s\S]*?grid-template-columns:\s*14px minmax\(0, 1fr\)/);
   assert.match(styles, /body\.white-shell\.theme-light \.navigation-project-group \+ \.navigation-project-group\s*\{[\s\S]*?margin-top:\s*2px/);
-  assert.match(styles, /body\.white-shell\.theme-light \.messages:not\(\.empty\)\s*\{[\s\S]*?grid-template-columns:\s*minmax\(0, 1fr\)[\s\S]*?grid-auto-rows:\s*max-content[\s\S]*?justify-content:\s*start[\s\S]*?row-gap:\s*14px[\s\S]*?padding:\s*14px 16px 14px/);
+  assert.match(styles, /body\.white-shell\.theme-light \.messages:not\(\.empty\)\s*\{[\s\S]*?grid-template-columns:\s*minmax\(0, 1fr\)[\s\S]*?grid-auto-rows:\s*max-content[\s\S]*?justify-content:\s*start[\s\S]*?row-gap:\s*14px[\s\S]*?padding:\s*12px 8px 12px/);
+  assert.match(styles, /body\.white-shell\.theme-light \.project-list::-webkit-scrollbar\s*\{[\s\S]*?width:\s*6px/);
+  assert.match(styles, /body\.white-shell\.theme-light \.messages::-webkit-scrollbar\s*\{[\s\S]*?width:\s*6px/);
   assert.match(styles, /body\.white-shell\.theme-light \.messages:not\(\.empty\) > \[class~="message"\]\s*\{[^}]*justify-self:\s*stretch[^}]*width:\s*100%[^}]*max-width:\s*100%[^}]*white-space:\s*normal/);
   assert.match(styles, /body\.white-shell\.theme-light \.messages:not\(\.empty\) > \[class~="message"\]\[class~="user"\]\[class~="chat-flow-left"\]\s*\{[^}]*justify-self:\s*start[^}]*align-self:\s*start[^}]*width:\s*100%[^}]*min-width:\s*126px[^}]*max-width:\s*100%[^}]*height:\s*fit-content[^}]*margin:\s*0;[^}]*background:\s*var\(--ws-primary-soft\)[^}]*color:\s*var\(--ws-text\)/);
   assert.match(styles, /\[class~="message"\]\[class~="user"\]\[class~="chat-flow-left"\] \.message-head-actions\s*\{[^}]*position:\s*absolute[^}]*display:\s*flex/);
   assert.match(styles, /\[class~="message"\]\[class~="user"\]\[class~="chat-flow-left"\] \.message-copy-btn\s*\{[^}]*width:\s*20px[^}]*font-size:\s*0/);
+  assert.doesNotMatch(styles, /\[data-copy-message\]::before\s*\{[^}]*content:\s*"⧉"/);
+  assert.match(styles, /\[data-copy-message\] svg\s*\{[^}]*width:\s*13px/);
   assert.match(styles, /@media \(max-width:\s*760px\)\s*\{[\s\S]*?\[class~="message"\]\[class~="user"\]\[class~="chat-flow-left"\]\s*\{[^}]*width:\s*fit-content[^}]*max-width:\s*92%[^}]*margin-left:\s*0/);
   assert.match(styles, /\[class~="message"\]\[class~="user"\]\[class~="chat-flow-left"\]\[class~="message-editing"\]\s*\{[^}]*justify-self:\s*stretch[^}]*width:\s*100%[^}]*max-width:\s*100%[^}]*background:\s*var\(--ws-card\)/);
   assert.match(styles, /\[class~="message"\]:not\(\[class~="live-assistant-message"\]\) \.message-head\s*\{[^}]*grid-template-columns:\s*minmax\(0, 1fr\) auto max-content/);
@@ -866,7 +878,7 @@ test("desktop conversation layout follows the compact resizable geometry", async
   assert.match(styles, /\.overview-mode \.app-shell\.nav-mode-docked #sessionSidebar\s*\{\s*display:\s*flex/);
   // Docked rows are tightened: the >=1280px padding plus a two-line title/path
   // stack made each card taller than the nav entries above it.
-  assert.match(styles, /\.app-shell\.nav-mode-docked \.navigation-conversation-row,[\s\S]*?\{[\s\S]*?min-height:\s*0[\s\S]*?padding:\s*2px 9px/);
+  assert.match(styles, /\.app-shell\.nav-mode-docked \.navigation-conversation-row,[\s\S]*?\{[\s\S]*?min-height:\s*0[\s\S]*?padding:\s*2px 4px/);
   // The disclosure stretches to the row and carries its own floor, so it is what
   // actually holds these cards open; padding alone could not shorten them.
   assert.match(styles, /\.app-shell\.nav-mode-docked \.navigation-disclosure\s*\{[\s\S]*?min-height:\s*26px/);

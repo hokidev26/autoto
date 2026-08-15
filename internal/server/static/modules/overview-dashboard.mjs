@@ -8,16 +8,24 @@ const LIST_LIMITS = Object.freeze({
   upcomingSchedules: 8,
 });
 
+// Parked: the homepage composer is hidden so Autoto home does not look like
+// another IDE launcher. Keep renderLauncher(), its CSS, and launchOverviewPrompt
+// so a later custom design can restore it by flipping this flag (or by replacing
+// the markup). Pass showLauncher: true to renderOverviewDashboard / the
+// controller to preview the parked card without flipping the default.
+export const OVERVIEW_LAUNCHER_VISIBLE = false;
+
 const ACTIONS = new Set([
   "refresh",
   "conversation",
   "tasks",
   "runs",
   "schedules",
-  // List rows: each carries the entity id and opens that entity directly,
-  // unlike the bare stat actions above which only switch surface.
+  "approvals",
   "open-conversation",
   "open-schedule",
+  "open-task",
+  "open-run",
 ]);
 
 const LAUNCHER_ACTIONS = new Set([
@@ -84,11 +92,21 @@ const DEFAULT_TEXT = Object.freeze({
   suggestionPlanPrompt: "帮我为这个目标制定实施计划：",
   suggestionExplainPrompt: "帮我解释这段代码的工作方式：",
   recentSection: "最近会话",
-  recentEmpty: "还没有对话。在上方输入需求，开始第一个。",
+  recentEmpty: "还没有对话。从侧边栏开始第一个。",
   untitledConversation: "未命名会话",
   upcomingSection: "即将执行的排程",
   upcomingEmpty: "目前没有排定的执行。",
   scheduleNextRun: "下次执行 {time}",
+  scheduleOutcomeFailed: "上次失败",
+  scheduleOutcomeSkipped: "上次跳过",
+  attention: "需要你处理",
+  attentionApprovals: "待批准 {count}",
+  attentionFailed: "失败排程 {count}",
+  attentionDue: "到期排程 {count}",
+  workSection: "进行中的工作",
+  workEmpty: "目前没有正在跑的对话或任务。",
+  workTaskDoing: "进行中",
+  workTaskTodo: "待办",
   activity: "使用热力图",
   activityRecent: "近 7 天 {week} 次请求 · 近 30 天 {month} 次请求",
   activityTotal: "过去一年共 {count} 次模型请求",
@@ -700,6 +718,8 @@ export function resizeLauncherInput(input, computedStyle) {
 }
 
 function renderLauncher(contextValue, stateValue, t, openSelect = "") {
+  // Parked from the default homepage via OVERVIEW_LAUNCHER_VISIBLE. Keep this
+  // markup and the matching CSS; a later custom design can show it again.
   const context = normalizeLauncherContext(contextValue);
   const state = reconcileLauncherState(stateValue, context);
   // A native <select> was unreadable here: its dropdown panel is drawn by the
@@ -716,7 +736,7 @@ function renderLauncher(contextValue, stateValue, t, openSelect = "") {
   }));
   const launcherError = state.error ? `<p class="overview-launcher-error" role="alert">${escapeHtml(state.error)}</p>` : "";
   const hero = `<section class="overview-hero-root overview-launcher-hero">
-    <div class="overview-hero-copy"><div class="overview-hero-heading"><span class="overview-hero-mark" aria-hidden="true"><svg viewBox="0 0 32 32"><circle cx="16" cy="16" r="12.5"></circle><path d="M10.5 17.5c1.6 2 3.4 3 5.5 3s3.9-1 5.5-3"></path><path d="M11.5 12.5h.01M20.5 12.5h.01"></path></svg></span><h1 class="overview-hero-title" id="overviewDashboardTitle">${escapeHtml(launcherGreeting(context, t))}</h1></div></div>
+    <div class="overview-hero-copy"><div class="overview-hero-heading"><span class="overview-hero-mark" aria-hidden="true"><svg viewBox="0 0 32 32"><circle cx="16" cy="16" r="12.5"></circle><path d="M10.5 17.5c1.6 2 3.4 3 5.5 3s3.9-1 5.5-3"></path><path d="M11.5 12.5h.01M20.5 12.5h.01"></path></svg></span><h1 class="overview-hero-title">${escapeHtml(launcherGreeting(context, t))}</h1></div></div>
   </section>`;
   // One rounded card holding the whole composer: the textarea on top and one
   // toolbar row along the card's bottom edge -- workspace controls on the left,
@@ -756,12 +776,125 @@ function hasDashboardData(payload) {
     || payload.summary.conversations
     || payload.summary.tasks.total
     || payload.summary.activeRuns
+    || payload.summary.pendingApprovals
     || payload.summary.schedules.total
     || payload.recentConversations.length
     || payload.activeTasks.length
     || payload.activeRuns.length
     || payload.upcomingSchedules.length
   );
+}
+
+function formatStamp(value, formatDateTime) {
+  const stamp = boundedText(value, 80);
+  if (!stamp) return "";
+  if (typeof formatDateTime !== "function") return stamp;
+  try {
+    return boundedText(formatDateTime(stamp), 80) || stamp;
+  } catch {
+    return stamp;
+  }
+}
+
+function joinMeta(parts) {
+  return parts.map((part) => boundedText(part, 240)).filter(Boolean).join(" · ");
+}
+
+function renderPageHeader(payload, t, formatDateTime, { loading = false } = {}) {
+  const updated = loading
+    ? t("loading")
+    : payload.capturedAt
+      ? t("capturedAt", { time: formatStamp(payload.capturedAt, formatDateTime) })
+      : "";
+  return `<header class="overview-page-header">
+    <div><h1 class="overview-page-title" id="overviewDashboardTitle">${escapeHtml(t("title"))}</h1>${updated ? `<p class="overview-page-updated">${escapeHtml(updated)}</p>` : ""}</div>
+    <button type="button" class="overview-refresh primary" data-overview-action="refresh"${loading ? " disabled" : ""}>${escapeHtml(t(loading ? "refreshing" : "refresh"))}</button>
+  </header>`;
+}
+
+function renderAttention(payload, t) {
+  const chips = [];
+  const approvals = payload.summary.pendingApprovals;
+  const failed = payload.summary.schedules.failed;
+  const due = payload.summary.schedules.due;
+  if (approvals > 0) {
+    chips.push(`<button type="button" class="overview-attention-chip" data-tone="warning" data-overview-action="approvals">${escapeHtml(t("attentionApprovals", { count: formatCount(approvals) }))}</button>`);
+  }
+  if (failed > 0) {
+    chips.push(`<button type="button" class="overview-attention-chip" data-tone="danger" data-overview-action="schedules">${escapeHtml(t("attentionFailed", { count: formatCount(failed) }))}</button>`);
+  }
+  if (due > 0) {
+    chips.push(`<button type="button" class="overview-attention-chip" data-tone="warning" data-overview-action="schedules">${escapeHtml(t("attentionDue", { count: formatCount(due) }))}</button>`);
+  }
+  if (!chips.length) return "";
+  return `<section class="overview-attention" data-overview-section="attention" aria-label="${escapeHtml(t("attention"))}">
+    <h2 class="overview-attention-title">${escapeHtml(t("attention"))}</h2>
+    <div class="overview-attention-chips">${chips.join("")}</div>
+  </section>`;
+}
+
+function renderListRow(action, id, title, meta, { tone = "" } = {}) {
+  if (!id || !title) return "";
+  const toneAttr = tone ? ` data-tone="${escapeHtml(tone)}"` : "";
+  return `<li><button type="button" class="overview-list-row" data-overview-action="${escapeHtml(action)}" data-overview-id="${escapeHtml(id)}"${toneAttr}><span class="overview-list-title">${escapeHtml(title)}</span>${meta ? `<span class="overview-list-meta">${escapeHtml(meta)}</span>` : ""}</button></li>`;
+}
+
+function renderOverviewSection(section, title, hint, empty, rows, moreAction, moreLabel) {
+  const body = rows.length
+    ? `<ul class="overview-list">${rows.join("")}</ul>`
+    : `<p class="overview-empty">${escapeHtml(empty)}</p>`;
+  const more = moreAction
+    ? `<button type="button" class="overview-link" data-overview-action="${escapeHtml(moreAction)}">${escapeHtml(moreLabel)}</button>`
+    : "";
+  return `<section class="overview-section" data-overview-section="${escapeHtml(section)}">
+    <header class="overview-section-header"><div><h2>${escapeHtml(title)}</h2>${hint ? `<p>${escapeHtml(hint)}</p>` : ""}</div>${more}</header>
+    ${body}
+  </section>`;
+}
+
+function renderHomeBoard(payload, t, formatDateTime) {
+  const recentRows = payload.recentConversations.map((item) => renderListRow(
+    "open-conversation",
+    item.id,
+    item.title || t("untitledConversation"),
+    joinMeta([item.projectName, item.status === "running" ? t("running") : "", formatStamp(item.updatedAt, formatDateTime)]),
+  )).filter(Boolean);
+  const workRows = [
+    ...payload.activeRuns.map((item) => renderListRow(
+      "open-run",
+      item.id,
+      item.agentTitle || t("running"),
+      joinMeta([t("running"), formatStamp(item.startedAt, formatDateTime)]),
+    )),
+    ...payload.activeTasks.map((item) => renderListRow(
+      "open-task",
+      item.id,
+      item.title,
+      joinMeta([item.status === "doing" ? t("workTaskDoing") : t("workTaskTodo"), item.agentTitle, item.projectName]),
+    )),
+  ].filter(Boolean);
+  const scheduleRows = payload.upcomingSchedules.map((item) => {
+    const failed = item.lastOutcome === "failure" || item.lastOutcome === "error";
+    const skipped = item.lastOutcome === "skipped";
+    return renderListRow(
+      "open-schedule",
+      item.id,
+      item.name,
+      joinMeta([
+        t("scheduleNextRun", { time: formatStamp(item.nextRunAt, formatDateTime) }),
+        failed ? t("scheduleOutcomeFailed") : skipped ? t("scheduleOutcomeSkipped") : "",
+        item.agentTitle,
+      ]),
+      { tone: failed ? "danger" : skipped ? "warning" : "" },
+    );
+  }).filter(Boolean);
+  return `${renderAttention(payload, t)}<div class="overview-columns">
+    ${renderOverviewSection("recent-conversations", t("recentSection"), "", t("recentEmpty"), recentRows, "conversation", t("conversations"))}
+    <div class="overview-side-column">
+      ${renderOverviewSection("in-progress", t("workSection"), t("taskBreakdown", payload.summary.tasks), t("workEmpty"), workRows, "tasks", t("tasks"))}
+      ${renderOverviewSection("upcoming-schedules", t("upcomingSection"), t("scheduleBreakdown", payload.summary.schedules), t("upcomingEmpty"), scheduleRows, "schedules", t("schedules"))}
+    </div>
+  </div>`;
 }
 
 export function renderOverviewDashboard(payload, options = {}) {
@@ -775,14 +908,14 @@ export function renderOverviewDashboard(payload, options = {}) {
   const launcher = renderLauncher(options.launcherContext, options.launcherState, t, options.launcherOpenSelect);
   const liveStatus = loading ? t("loading") : status === "ready" ? t("loaded") : "";
   const liveRegion = `<p class="overview-live-region sr-only" role="status" aria-live="polite" aria-atomic="true">${escapeHtml(liveStatus)}</p>`;
-  // The composer stays available in the degraded states too: typing a request
-  // is the page's primary action and must not depend on the dashboard data
-  // having loaded.
+  const header = renderPageHeader(normalized, t, options.formatDateTime, { loading: loading && !(options.hasData ?? hasDashboardData(normalized)) });
+  const hero = overviewLauncherShown(options) ? launcher.hero : "";
+  const composer = overviewLauncherShown(options) ? launcher.composer : "";
   if (loading && !(options.hasData ?? hasDashboardData(normalized))) {
-    return `<div class="overview-dashboard settings-page" data-overview-state="loading" aria-busy="true">${launcher.hero}${liveRegion}<div class="overview-dashboard-state settings-empty-state">${escapeHtml(t("loading"))}</div>${launcher.composer}</div>`;
+    return `<div class="overview-dashboard settings-page" data-overview-state="loading" aria-busy="true">${header}${hero}${liveRegion}<div class="overview-dashboard-state settings-empty-state">${escapeHtml(t("loading"))}</div>${composer}</div>`;
   }
   if (fullError) {
-    return `<div class="overview-dashboard settings-page" data-overview-state="error" aria-busy="false">${launcher.hero}${liveRegion}<div class="overview-dashboard-state settings-alert" role="alert"><strong>${escapeHtml(t("loadFailed"))}</strong><p>${escapeHtml(error || t("retryHint"))}</p></div>${launcher.composer}</div>`;
+    return `<div class="overview-dashboard settings-page" data-overview-state="error" aria-busy="false">${header}${hero}${liveRegion}<div class="overview-dashboard-state settings-alert" role="alert"><strong>${escapeHtml(t("loadFailed"))}</strong><p>${escapeHtml(error || t("retryHint"))}</p></div>${composer}</div>`;
   }
 
   const inlineError = status === "error" ? `<div class="overview-inline-error settings-alert" role="alert"><strong>${escapeHtml(t("loadFailed"))}</strong><span>${escapeHtml(error || t("retryHint"))}</span></div>` : "";
@@ -806,17 +939,24 @@ export function renderOverviewDashboard(payload, options = {}) {
     }
   }
 
-  // Greeting on top, then the data sections -- heatmap and the injected
-  // resource strip -- with the composer card resting at the bottom of the
-  // page, where the eye comes down to after the data.
+  // Compact header, then heatmap and resources, then the work board.
+  // The parked composer, when shown, still rests at the bottom.
   return `<div class="overview-dashboard settings-page" data-overview-state="${escapeHtml(status)}" aria-busy="${loading ? "true" : "false"}">
-    ${launcher.hero}
+    ${header}
+    ${hero}
     ${liveRegion}
     ${inlineError}
     ${heatmap}
     ${systemMetrics}
-    ${launcher.composer}
+    ${renderHomeBoard(normalized, t, options.formatDateTime)}
+    ${composer}
   </div>`;
+}
+
+function overviewLauncherShown(options = {}) {
+  if (options.showLauncher === true) return true;
+  if (options.showLauncher === false) return false;
+  return OVERVIEW_LAUNCHER_VISIBLE;
 }
 
 function resolveHost(host) {
@@ -867,6 +1007,7 @@ export function createOverviewDashboardController({
   onChooseDirectory,
   renderSystemMetrics,
   createSystemMetricsPoller,
+  showLauncher,
 } = {}) {
   if (typeof request !== "function") throw new TypeError("overview dashboard request must be a function");
 
@@ -1242,6 +1383,7 @@ export function createOverviewDashboardController({
       launcherOpenSelect: state.launcherOpenSelect,
       renderSystemMetrics,
       systemMetrics: state.systemMetrics,
+      showLauncher,
     });
     const target = resolveHost(host);
     if (target && "innerHTML" in target) {

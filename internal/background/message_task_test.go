@@ -226,6 +226,20 @@ func TestExecuteSendMessageRejectsArchivedTargetAndDirectCycle(t *testing.T) {
 	}
 }
 
+func TestExecuteSendMessageRejectsStandaloneTarget(t *testing.T) {
+	ctx := context.Background()
+	store, executor, sender, _ := newMessageTaskFixture(t, "ok")
+	_, _, standalone, err := store.CreateStandaloneConversation(ctx, "Old standalone chat", sender.Model)
+	if err != nil {
+		t.Fatal(err)
+	}
+	task := db.BackgroundTask{ID: "task-x", OwnerAgentID: sender.ID, Kind: db.BackgroundTaskKindAgent, Revision: 1}
+	result, err := executor.executeSendMessage(ctx, task, sender, agentPayload{Prompt: "hi", TargetAgentID: standalone.ID}, discardOutputWriter{})
+	if err == nil || result.ErrorCode != "message_target_unavailable" {
+		t.Fatalf("standalone target: errorCode = %q err = %v", result.ErrorCode, err)
+	}
+}
+
 func TestExecuteSendMessageDeliversPromptAndReportsReply(t *testing.T) {
 	ctx := context.Background()
 	store, executor, sender, target := newMessageTaskFixture(t, "台北明天多雲時晴,降雨機率 20%。")

@@ -623,6 +623,26 @@ function toolActivityStackKey(records, options = {}) {
   return `${options.live ? "live" : "run"}:${runId}`;
 }
 
+function formatToolActivityDuration(durationMs) {
+  const ms = Number(durationMs);
+  if (!Number.isFinite(ms) || ms <= 0) return "";
+  if (ms < 60_000) {
+    const tenths = Math.round(ms / 100) / 10;
+    if (Number.isInteger(tenths) || tenths >= 10) {
+      return `${formatNumber(Math.round(tenths), { maximumFractionDigits: 0 })}s`;
+    }
+    return `${formatNumber(tenths, { minimumFractionDigits: 1, maximumFractionDigits: 1 })}s`;
+  }
+  const minutes = Math.floor(ms / 60_000);
+  const seconds = Math.round((ms % 60_000) / 1000);
+  return seconds > 0 ? `${minutes}m${seconds}s` : `${minutes}m`;
+}
+
+function toolActivityRowMeta(statusLabel, durationMs, running) {
+  if (running) return "";
+  return [statusLabel, formatToolActivityDuration(durationMs)].filter(Boolean).join(" ");
+}
+
 function toolActivityVerb(kind, toolName, running) {
   if (running) {
     const live = {
@@ -677,7 +697,7 @@ function toolActivityRowPresentation(item, tool, options = {}) {
           verb,
           target,
           statusClass: agentTaskStatusClass(activity.status),
-          statusLabel: agentTaskStatusLabel(activity),
+          statusLabel: toolActivityRowMeta(agentTaskStatusLabel(activity), activity.durationMs, running),
         };
       }
     }
@@ -690,7 +710,7 @@ function toolActivityRowPresentation(item, tool, options = {}) {
     verb,
     target,
     statusClass: toolActivityStatusClass(tool.status),
-    statusLabel: running ? "" : toolActivityStatusLabel(tool.status),
+    statusLabel: toolActivityRowMeta(toolActivityStatusLabel(tool.status), tool.durationMs, running),
   };
 }
 

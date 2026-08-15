@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  OVERVIEW_LAUNCHER_VISIBLE,
   buildActivityHeatmap,
   createOverviewDashboardController,
   normalizeOverviewPayload,
@@ -214,6 +215,7 @@ test("render escapes visible launcher context and state", () => {
       selectedEffort: "high",
     },
     launcherState: { draft: "<textarea autofocus onfocus=boom>", error: attack },
+    showLauncher: true,
   });
 
   assert.doesNotMatch(html, /<script>|<img src=x|<svg onload|<textarea autofocus/);
@@ -223,7 +225,20 @@ test("render escapes visible launcher context and state", () => {
   assert.match(html, /value="&quot;&gt;&lt;img/);
 });
 
-test("normalization still caps the payload lists even though none render", () => {
+test("home board escapes conversation, task, and schedule titles", () => {
+  const html = renderOverviewDashboard(overview({
+    recentConversations: [{ id: "c1", title: "<script>x</script>", status: "idle", projectId: "p", projectName: "<b>P</b>", updatedAt: "t" }],
+    activeTasks: [{ id: "t1", title: "<img src=x>", status: "doing", priority: "normal", agentId: "a1", agentTitle: "A", projectId: "p", projectName: "P", updatedAt: "t" }],
+    upcomingSchedules: [{ id: "s1", name: "<svg onload=boom>", agentId: "a1", agentTitle: "A", nextRunAt: "t", timezone: "UTC", lastOutcome: "ok" }],
+  }));
+  assert.doesNotMatch(html, /<script>x|<img src=x|<svg onload|<b>P<\/b>/);
+  assert.match(html, /&lt;script&gt;x/);
+  assert.match(html, /&lt;img src=x&gt;/);
+  assert.match(html, /&lt;svg onload=boom&gt;/);
+  assert.match(html, /&lt;b&gt;P&lt;\/b&gt;/);
+});
+
+test("normalization still caps the payload lists the home board renders", () => {
   const make = (count, prefix, mapper) => Array.from({ length: count }, (_, index) => mapper(index, `${prefix}-${index}`));
   const normalized = normalizeOverviewPayload(overview({
     recentConversations: make(20, "conversation", (index, id) => ({ id, title: `Conversation ${index}` })),
@@ -236,14 +251,62 @@ test("normalization still caps the payload lists even though none render", () =>
   assert.equal(normalized.activeRuns.length, 6);
   assert.equal(normalized.upcomingSchedules.length, 8);
 
-  // The minimal home renders none of the payload rows: greeting, heatmap,
-  // resources, and the composer are the whole page.
+  // The home board renders the capped rows and drops the overflow.
   const html = renderOverviewDashboard(normalized);
-  assert.doesNotMatch(html, /Conversation 0|Schedule 0|Task 0|Run 0/);
-  assert.doesNotMatch(html, /data-overview-action="open-(?:conversation|schedule|task|run)"/);
+  assert.match(html, /Conversation 0/);
+  assert.match(html, /Schedule 0/);
+  assert.match(html, /Task 0/);
+  assert.match(html, /Run 0/);
+  assert.doesNotMatch(html, /Conversation 8|Schedule 8|Task 8|Run 6/);
+  assert.match(html, /data-overview-action="open-conversation"/);
+  assert.match(html, /data-overview-action="open-schedule"/);
+  assert.match(html, /data-overview-action="open-task"/);
+  assert.match(html, /data-overview-action="open-run"/);
+  assert.doesNotMatch(html, /data-overview-launcher[=\s>]|class="overview-launcher-card"/);
 });
 
-test("render orders greeting, heatmap, resources, then the composer at the bottom", () => {
+test("homepage parks the composer until a later custom design restores it", () => {
+  assert.equal(OVERVIEW_LAUNCHER_VISIBLE, false);
+  const hidden = renderOverviewDashboard(overview());
+  assert.match(hidden, /overview-page-title/);
+  assert.match(hidden, /data-overview-section="recent-conversations"/);
+  assert.doesNotMatch(hidden, /data-overview-launcher[=\s>]|class="overview-launcher-card"/);
+
+  const restored = renderOverviewDashboard(overview(), { showLauncher: true });
+  assert.match(restored, /data-overview-launcher>/);
+  assert.match(restored, /class="overview-launcher-card"/);
+});
+
+test("attention chips stay hidden when nothing needs the user", () => {
+  const html = renderOverviewDashboard(overview({
+    summary: {
+      conversations: 1,
+      runningAgents: 0,
+      tasks: { total: 0, todo: 0, doing: 0, done: 0 },
+      activeRuns: 0,
+      pendingApprovals: 0,
+      schedules: { total: 0, enabled: 0, due: 0, failed: 0 },
+    },
+  }));
+  assert.doesNotMatch(html, /data-overview-section="attention"/);
+});
+
+test("upcoming schedules mark failed and skipped last outcomes", () => {
+  const failed = renderOverviewDashboard(overview({
+    upcomingSchedules: [{ id: "s1", name: "Broken job", agentId: "a1", agentTitle: "Runner", nextRunAt: "t", timezone: "UTC", lastOutcome: "failure" }],
+  }));
+  assert.match(failed, /data-tone="danger"/);
+  assert.match(failed, /上次失败/);
+  assert.match(failed, /Broken job/);
+
+  const skipped = renderOverviewDashboard(overview({
+    upcomingSchedules: [{ id: "s2", name: "Busy skip", agentId: "a1", agentTitle: "Runner", nextRunAt: "t", timezone: "UTC", lastOutcome: "skipped" }],
+  }));
+  assert.match(skipped, /data-tone="warning"/);
+  assert.match(skipped, /上次跳过/);
+});
+
+test("render orders heatmap, resources, the work board, then the parked composer", () => {
   const html = renderOverviewDashboard(overview(), {
     formatDateTime: (value) => `date:${value}`,
     systemMetrics: { cpu: { available: true, percent: 50 } },
@@ -258,23 +321,33 @@ test("render orders greeting, heatmap, resources, then the composer at the botto
       selectedEffort: "medium",
     },
     launcherOpenSelect: "model",
+    showLauncher: true,
   });
   assert.match(html, /data-overview-launcher/);
   assert.match(html, /下午好，Ray/);
   assert.match(html, /class="overview-launcher-card"/);
-  assert.match(html, /class="overview-launcher-toolbar"/);
-  assert.match(html, /class="overview-launcher-input"/);
+  assert.match(html, /class="overview-page-header"/);
+  assert.match(html, /data-overview-section="attention"/);
+  assert.match(html, /data-overview-section="recent-conversations"/);
+  assert.match(html, /data-overview-section="in-progress"/);
+  assert.match(html, /data-overview-section="upcoming-schedules"/);
   assert.match(html, /data-overview-section="activity"/);
-  // Greeting on top, then the data sections in the requested order -- heatmap,
-  // the resource strip -- and the composer card resting at the bottom of the
-  // page. The suggestion chips were tried under the card and removed again.
-  assert.ok(html.indexOf("overview-launcher-hero") < html.indexOf('data-overview-section="activity"'));
+  assert.ok(html.indexOf("overview-page-header") < html.indexOf('data-overview-section="activity"'));
   assert.ok(html.indexOf('data-overview-section="activity"') < html.indexOf("data-fake-metrics"));
-  assert.ok(html.indexOf("data-fake-metrics") < html.indexOf("data-overview-launcher>"));
+  assert.ok(html.indexOf("data-fake-metrics") < html.indexOf('data-overview-section="attention"'));
+  assert.ok(html.indexOf('data-overview-section="attention"') < html.indexOf('data-overview-section="recent-conversations"'));
+  assert.ok(html.indexOf('data-overview-section="recent-conversations"') < html.indexOf('data-overview-section="in-progress"'));
+  assert.ok(html.indexOf('data-overview-section="in-progress"') < html.indexOf('data-overview-section="upcoming-schedules"'));
+  assert.ok(html.indexOf('data-overview-section="upcoming-schedules"') < html.indexOf("data-overview-launcher>"));
   assert.doesNotMatch(html, /overview-launcher-suggestions|data-overview-launcher-action="suggestion"/);
+  assert.match(html, /data-overview-action="open-conversation"/);
+  assert.match(html, /data-overview-action="approvals"/);
+  assert.match(html, /Release plan/);
+  assert.match(html, /Nightly tests/);
+  assert.match(html, /Finish dashboard/);
   // The heatmap card carries no visible title; the caption line and the
   // cells-group aria-label carry the meaning instead.
-  assert.doesNotMatch(html, /<h2>/);
+  assert.match(html, /<h2>/);
   // The toolbar keeps the folder picker and the icon send button inside the card.
   assert.match(html, /data-overview-launcher-action="choose-directory"/);
   assert.match(html, /data-overview-launcher-action="submit"/);
@@ -285,10 +358,7 @@ test("render orders greeting, heatmap, resources, then the composer at the botto
   assert.doesNotMatch(html, /<main\b/i);
   assert.match(html, /id="overviewDashboardTitle"/);
   assert.match(html, /class="overview-live-region sr-only" role="status" aria-live="polite" aria-atomic="true"/);
-  // The stat rows, resume lists, and their sections stayed gone.
-  assert.doesNotMatch(html, /class="overview-stat"|overview-columns|overview-side-column|overview-list/);
-  assert.doesNotMatch(html, /data-overview-section="(?:stats|recent-conversations|upcoming-schedules)"/);
-  assert.doesNotMatch(html, /data-overview-action=/);
+  assert.doesNotMatch(html, /class="overview-stat"|overview-stats-rows/);
   assert.doesNotMatch(html, /overview-(?:hero-subtitle|dashboard-header)/);
 });
 
@@ -304,7 +374,19 @@ test("render supports optional translation keys", () => {
   // The activity name survives as the cells-group aria-label now that the
   // card renders no visible title.
   assert.match(html, /aria-label="Custom activity"/);
-  assert.ok(keys.some(([key]) => key === "home.promptPlaceholder"));
+  assert.ok(keys.some(([key]) => key === "home.activity"));
+  assert.doesNotMatch(html, /home\.promptPlaceholder/);
+
+  const launcherKeys = [];
+  renderOverviewDashboard(overview(), {
+    key: (name) => `home.${name}`,
+    translate: (key) => {
+      launcherKeys.push(key);
+      return key;
+    },
+    showLauncher: true,
+  });
+  assert.ok(launcherKeys.includes("home.promptPlaceholder"));
 });
 
 test("translation fallback rejects missing keys and non-string translator output", () => {
@@ -375,6 +457,7 @@ test("launcher project, selects, and suggestions update editable state", () => {
       selectedEffort: "auto",
     }),
     translate: (key) => key === "overview.suggestionFixPrompt" ? "修复这个定制问题：" : key,
+    showLauncher: true,
   });
 
   assert.match(host.innerHTML, /data-overview-launcher-field="projectId"/);
@@ -427,6 +510,7 @@ test("launcher project renders a themed popover and selects through it", () => {
       selectedModel: "m1",
       selectedEffort: "auto",
     }),
+    showLauncher: true,
   });
 
   // Every field keeps its hidden native select for form semantics.
@@ -459,6 +543,7 @@ test("launcher project popover stays shut when there are no projects", () => {
     host,
     request: async () => overview(),
     getLauncherContext: () => ({ projects: [], models: [{ value: "m1", label: "One" }], selectedModel: "m1", selectedEffort: "auto" }),
+    showLauncher: true,
   });
 
   host.launcherClick("toggle-select", { overviewLauncherSelect: "projectId" });
@@ -485,6 +570,7 @@ test("Enter submits the launcher payload, Shift+Enter composes, and busy prevent
       payloads.push(payload);
       return launch.promise;
     },
+    showLauncher: true,
   });
 
   host.input("  build it  ");
@@ -524,6 +610,7 @@ test("launcher requires a project, preserves drafts, and reports directory error
     },
     onChooseDirectory: async () => { throw new Error("directory failed"); },
     onError: (error, action) => errors.push([error.message, action]),
+    showLauncher: true,
   });
 
   host.input("keep this draft");
@@ -548,6 +635,7 @@ test("empty launcher submissions are ignored", async () => {
     host,
     request: async () => overview(),
     onLaunch: async () => { calls += 1; },
+    showLauncher: true,
   });
   host.input(" \n ");
   host.launcherClick("submit");
@@ -564,20 +652,21 @@ test("delegated clicks dispatch the stat surfaces and the list rows, nothing els
     onNavigate: (action, id) => navigations.push([action, id]),
   });
 
-  for (const action of ["conversation", "tasks", "runs", "schedules"]) host.click(action);
+  for (const action of ["conversation", "tasks", "runs", "schedules", "approvals"]) host.click(action);
   host.click("open-conversation", "conversation-1");
   host.click("open-schedule", "schedule-1");
-  // Tasks and runs render no list rows, so their open- actions stay unrouted.
   host.click("open-task", "task-1");
   host.click("open-run", "run-1");
-
   assert.deepEqual(navigations, [
     ["conversation", ""],
     ["tasks", ""],
     ["runs", ""],
     ["schedules", ""],
+    ["approvals", ""],
     ["open-conversation", "conversation-1"],
     ["open-schedule", "schedule-1"],
+    ["open-task", "task-1"],
+    ["open-run", "run-1"],
   ]);
 });
 
@@ -641,7 +730,8 @@ test("controller renders safe failure state and retries without routing away", a
   assert.equal(controller.getState().status, "error");
   assert.match(host.innerHTML, /data-overview-state="error"/);
   assert.match(host.innerHTML, /&lt;bad failure&gt;/);
-  assert.doesNotMatch(host.innerHTML, /<bad failure>|data-overview-action="refresh"/);
+  assert.doesNotMatch(host.innerHTML, /<bad failure>/);
+  assert.match(host.innerHTML, /data-overview-action="refresh"/);
 
   host.click("tasks");
   assert.deepEqual(navigations.at(-1), ["tasks", ""]);
@@ -671,8 +761,10 @@ test("forced refresh errors retain old payload and expose a non-destructive inli
   assert.equal(state.status, "error");
   assert.equal(state.payload.capturedAt, "old-data");
   assert.equal(state.error, "refresh failed");
-  assert.doesNotMatch(host.innerHTML, /old-data/);
+  assert.match(host.innerHTML, /old-data/);
   assert.match(host.innerHTML, /refresh failed/);
+  assert.match(host.innerHTML, /overview-inline-error/);
+  assert.match(host.innerHTML, /data-overview-section="recent-conversations"/);
   assert.equal(host.listenerCounts.get("click"), 1);
 });
 
@@ -811,7 +903,7 @@ test("heatmap tooltips report tokens when present and omit them when zero", () =
 
 // The resource cards are injected rather than imported, so the dashboard has to
 // place them, tolerate their absence, and survive a renderer that throws.
-test("system metrics section is injected after the heatmap, at the bottom of the page", () => {
+test("system metrics section is injected after the heatmap, before the work board", () => {
   const html = renderOverviewDashboard(overview(), {
     today: "2026-07-26",
     systemMetrics: { cpu: { available: true, percent: 50 } },
@@ -820,6 +912,7 @@ test("system metrics section is injected after the heatmap, at the bottom of the
 
   assert.match(html, /data-fake-metrics="50"/);
   assert.equal(html.indexOf("data-fake-metrics") > html.indexOf('data-overview-section="activity"'), true);
+  assert.equal(html.indexOf("data-fake-metrics") < html.indexOf('data-overview-section="recent-conversations"'), true);
 
   // No renderer supplied: the dashboard renders exactly as before.
   assert.doesNotMatch(renderOverviewDashboard(overview(), { today: "2026-07-26" }), /data-fake-metrics/);
@@ -832,7 +925,7 @@ test("system metrics section is injected after the heatmap, at the bottom of the
     renderSystemMetrics: () => { throw new Error("metrics blew up"); },
   });
   assert.match(survived, /data-overview-section="activity"/);
-  assert.match(survived, /data-overview-launcher/);
+  assert.match(survived, /overview-page-title/);
 });
 
 test("controller drives the injected metrics poller and re-renders on updates", () => {
@@ -877,6 +970,7 @@ test("background updates defer their repaint while the draft field is focused", 
       emit = onUpdate;
       return { start: () => true, stop: () => true };
     },
+    showLauncher: true,
   });
 
   const draftNode = {
@@ -920,7 +1014,7 @@ test("controller works when no metrics poller is injected", () => {
   assert.equal(controller.start(), false);
   assert.equal(controller.stop(), false);
   assert.equal(controller.getState().systemMetrics, null);
-  assert.match(host.innerHTML, /data-overview-launcher/);
+  assert.match(host.innerHTML, /overview-page-title/);
 });
 
 // A poller factory that throws must not prevent the dashboard from existing.
@@ -936,7 +1030,7 @@ test("controller survives a failing metrics poller factory", () => {
 
   assert.deepEqual(errors, [["no poller", "system-metrics"]]);
   assert.equal(controller.start(), false);
-  assert.match(host.innerHTML, /data-overview-launcher/);
+  assert.match(host.innerHTML, /overview-page-title/);
 });
 
 test("activity heatmap renders escaped tooltips and a legend, and survives a failed load", () => {
@@ -959,7 +1053,7 @@ test("activity heatmap renders escaped tooltips and a legend, and survives a fai
   // The failed load renders no recent-usage line alongside the error caption.
   assert.doesNotMatch(failed, /overview-heatmap-recent/);
   // The heatmap failing must not take the rest of the dashboard down.
-  assert.match(failed, /data-overview-launcher/);
+  assert.match(failed, /overview-page-title/);
   assert.doesNotMatch(failed, /data-overview-state="error"/);
 
   const empty = renderOverviewDashboard(overview(), { today: "2026-07-26" });

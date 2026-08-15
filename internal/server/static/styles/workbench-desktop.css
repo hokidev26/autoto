@@ -68,7 +68,7 @@
     display: flex;
     align-items: center;
     gap: 8px;
-    margin: 0 12px 10px;
+    margin: 0 8px 10px;
     padding: 0;
     overflow-x: auto;
     scrollbar-width: none;
@@ -104,7 +104,7 @@
   body.white-shell.theme-light .sidebar-search-wrap,
   body.white-shell.theme-light .sidebar-search-wrap.hidden {
     display: block !important;
-    margin: 0 12px 10px;
+    margin: 0 8px 10px;
   }
   body.white-shell.theme-light .sidebar-search {
     height: 40px;
@@ -125,7 +125,7 @@
     align-content: start;
     grid-auto-rows: max-content;
     gap: 4px;
-    padding: 0 10px;
+    padding: 0 6px 0 4px;
   }
   body.white-shell.theme-light .navigation-project-group {
     gap: 2px;
@@ -184,7 +184,7 @@
     align-items: center;
     border: 0;
     border-radius: 8px;
-    padding: 9px 12px;
+    padding: 6px 6px;
   }
   body.white-shell.theme-light .navigation-agent-icon,
   body.white-shell.theme-light .navigation-breadcrumb,

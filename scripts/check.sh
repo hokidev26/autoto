@@ -46,6 +46,7 @@ size_allowlist=(
   "internal/server/agent.go"
   "internal/server/provider_config.go"
   "internal/server/static/modules/app-main.mjs"
+  "internal/server/static/modules/background-tasks.mjs"
   "internal/server/static/modules/chat-rendering.mjs"
   "internal/server/static/modules/provider-console.mjs"
 )

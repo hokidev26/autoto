@@ -104,6 +104,44 @@ test("navigation and detail rendering escape XSS and cap schedule and history li
   assert.match(navigation, /data-schedule-navigation="&quot;&gt;&lt;img/);
   assert.match(navigation, /active enabled/);
 
+  const failedNav = renderScheduleNavigationHTML({
+    loaded: true,
+    schedules: [schedule({ lastOutcome: "failure" })],
+    selectedScheduleId: "schedule-1",
+  }, { conversations: conversations() });
+  assert.match(failedNav, /is-failed/);
+  assert.match(failedNav, /上次失败/);
+  assert.equal((failedNav.match(/<small>/g) || []).length, 1);
+
+  const failedDetail = renderScheduleWorkspace({
+    loaded: true,
+    schedules: [schedule({ lastOutcome: "failure" })],
+    selectedScheduleId: "schedule-1",
+  }, { conversations: conversations() });
+  assert.match(failedDetail, /schedule-status-strip/);
+  assert.match(failedDetail, /data-tone="danger"/);
+  assert.match(failedDetail, /上次失败/);
+  assert.doesNotMatch(failedDetail, /class="automation-kv"/);
+
+  const historyDetail = renderScheduleWorkspace({
+    loaded: true,
+    schedules: [schedule()],
+    selectedScheduleId: "schedule-1",
+    history: { "schedule-1": { loaded: true, runs: [{ id: "run-1", status: "succeeded", triggerType: "manual", createdAt: "2026-07-20T00:00:00Z", durationMs: 12 }] } },
+  }, { conversations: conversations() });
+  assert.match(historyDetail, /<details class="schedule-history/);
+  assert.doesNotMatch(historyDetail, /<details class="schedule-history[^>]* open/);
+  assert.match(historyDetail, /data-schedule-history-panel="schedule-1"/);
+
+  const openHistory = renderScheduleWorkspace({
+    loaded: true,
+    schedules: [schedule()],
+    selectedScheduleId: "schedule-1",
+    historyOpen: { "schedule-1": true },
+    history: { "schedule-1": { loaded: true, runs: [{ id: "run-1", status: "succeeded", triggerType: "manual", createdAt: "2026-07-20T00:00:00Z", durationMs: 12 }] } },
+  }, { conversations: conversations() });
+  assert.match(openHistory, /<details class="schedule-history settings-card" data-schedule-history-panel="schedule-1" open>/);
+
   const detail = renderScheduleWorkspace({
     loaded: true,
     schedules: [schedules[0]],
@@ -330,9 +368,9 @@ test("workspace copy and schedule enum values render in Simplified Chinese, Trad
       assert.ok(create.includes(`<option value="standalone">${labels.standalone}</option>`), `${locale}:standalone`);
       assert.ok(create.includes(`<option value="reuse" selected>${labels.reuse}</option>`), `${locale}:reuse`);
       assert.ok(create.includes(`<option value="new">${labels.newNarrator}</option>`), `${locale}:new`);
-      assert.ok(detail.includes(`<dd>${labels.acceptEdits}</dd>`), `${locale}:permission summary`);
-      assert.ok(detail.includes(`<dd>${labels.standalone}</dd>`), `${locale}:environment summary`);
-      assert.ok(detail.includes(`<dd>${labels.newNarrator}</dd>`), `${locale}:narrator summary`);
+      assert.ok(detail.includes(`<option value="acceptEdits" selected>${labels.acceptEdits}</option>`), `${locale}:permission form`);
+      assert.ok(detail.includes(`<option value="standalone" selected>${labels.standalone}</option>`), `${locale}:environment form`);
+      assert.ok(detail.includes(`<option value="new" selected>${labels.newNarrator}</option>`), `${locale}:narrator form`);
       assert.doesNotMatch(create, />(?:readOnly|acceptEdits|workline|standalone|reuse|new)</, locale);
       assert.doesNotMatch(detail, /<dd>(?:readOnly|acceptEdits|workline|standalone|reuse|new)<\/dd>/, locale);
       assert.equal(formatScheduleOptionValue("permissionMode", "futureMode"), labels.unknown, `${locale}:unknown`);

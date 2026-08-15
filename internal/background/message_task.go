@@ -58,6 +58,9 @@ func (e *AgentExecutor) executeSendMessage(ctx context.Context, task db.Backgrou
 	if strings.TrimSpace(target.ArchivedAt) != "" {
 		return Result{ErrorCode: "message_target_rejected"}, errors.New("target conversation is archived")
 	}
+	if code, hideErr := hiddenPeerConversationError(ctx, e.Store, target); hideErr != nil {
+		return Result{ErrorCode: code}, hideErr
+	}
 	targetTitle := truncateUTF8(target.Title, maxAgentTaskMetaBytes)
 	if err := e.rejectMessageCycle(ctx, parent.ID, target.ID); err != nil {
 		// The original cross-conversation task is still active and its reply will
@@ -331,6 +334,33 @@ func isPrimaryConversation(agentType string) bool {
 	default:
 		return false
 	}
+}
+
+// hiddenPeerConversationError fails closed for conversations the live sidebar
+// does not show: archived parent projects and retired standalone chats.
+func hiddenPeerConversationError(ctx context.Context, store *db.Store, target db.Agent) (string, error) {
+	if store == nil {
+		return "message_target_unavailable", errors.New("target conversation was not found")
+	}
+	worklineID := strings.TrimSpace(target.WorklineID)
+	if worklineID == "" {
+		return "message_target_unavailable", errors.New("target conversation was not found")
+	}
+	workline, err := store.GetWorkline(ctx, worklineID)
+	if err != nil {
+		return "message_target_unavailable", fmt.Errorf("load target conversation: %w", err)
+	}
+	project, err := store.GetProject(ctx, workline.ProjectID)
+	if err != nil {
+		return "message_target_unavailable", fmt.Errorf("load target conversation: %w", err)
+	}
+	if strings.TrimSpace(project.ArchivedAt) != "" {
+		return "message_target_rejected", errors.New("target conversation is archived")
+	}
+	if project.Status != "active" || project.FlowMode == db.ProjectFlowModeConversation {
+		return "message_target_unavailable", errors.New("target conversation was not found")
+	}
+	return "", nil
 }
 
 // narrowestPermissionCap resolves the permission ceiling for the target's

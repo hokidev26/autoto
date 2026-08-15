@@ -72,7 +72,7 @@ type agentSnapshotDetail struct {
 func (AgentSnapshotTool) Name() string { return "AgentSnapshot" }
 
 func (AgentSnapshotTool) Description() string {
-	return "Inspect the other conversations on this local Autoto instance. Called without target_agent_id it lists the primary conversations with their ids, titles, and status. With target_agent_id it returns that conversation's recent user/assistant messages, newest last, with a cursor for older pages. You may also pass the agent id of a subagent you dispatched yourself to read its full transcript when the task result you got back is not enough; subagents dispatched by other conversations are not readable. Strictly read-only; use the returned agent ids with AgentSendMessage to ask another conversation to do something."
+	return "Inspect the other live conversations on this local Autoto instance. Called without target_agent_id it lists the primary conversations shown in the sidebar, with their ids, titles, and status; archived conversations and retired standalone chats are omitted. With target_agent_id it returns that conversation's recent user/assistant messages, newest last, with a cursor for older pages. You may also pass the agent id of a subagent you dispatched yourself to read its full transcript when the task result you got back is not enough; subagents dispatched by other conversations are not readable. Strictly read-only; use the returned agent ids with AgentSendMessage to ask another conversation to do something."
 }
 
 func (AgentSnapshotTool) Schema() any               { return agentSnapshotInput{} }
@@ -107,7 +107,7 @@ func snapshotConversationList(ctx context.Context, env Env) (Result, error) {
 	}
 	list := agentSnapshotList{Conversations: make([]agentSnapshotConversation, 0, len(conversations))}
 	for _, conversation := range conversations {
-		if !isPrimaryAgentType(conversation.AgentType) {
+		if !snapshotListsConversation(conversation) {
 			continue
 		}
 		if len(list.Conversations) >= maxAgentSnapshotConversations {
@@ -152,7 +152,15 @@ func snapshotConversationDetail(ctx context.Context, env Env, input agentSnapsho
 	// someone else's stays out of bounds. Reading your own does not: the caller
 	// already owns that work, and the task result it gets back is a bounded
 	// summary of a transcript it sometimes needs in full.
-	if !isPrimaryAgentType(agent.Type) && strings.TrimSpace(agent.ParentAgentID) != strings.TrimSpace(env.AgentID) {
+	if isPrimaryAgentType(agent.Type) {
+		archived, visible, visErr := inspectPeerConversation(ctx, env.Store, agent)
+		if visErr != nil {
+			return Result{}, visErr
+		}
+		if archived || !visible {
+			return Result{Output: "conversation was not found", IsError: true}, nil
+		}
+	} else if strings.TrimSpace(agent.ParentAgentID) != strings.TrimSpace(env.AgentID) {
 		return Result{Output: "target_agent_id names a subagent dispatched by another conversation; you can only inspect subagents you dispatched yourself", IsError: true}, nil
 	}
 	limit := input.MessageLimit
@@ -225,6 +233,62 @@ func isPrimaryAgentType(agentType string) bool {
 	default:
 		return false
 	}
+}
+
+// snapshotListsConversation matches the live sidebar: primary agents in active
+// projects, excluding archived rows and retired standalone conversation-flow
+// chats that only the archive projection still exposes.
+func snapshotListsConversation(conversation db.NavigationConversation) bool {
+	if !isPrimaryAgentType(conversation.AgentType) {
+		return false
+	}
+	if conversation.Context == db.ProjectFlowModeConversation {
+		return false
+	}
+	if strings.TrimSpace(conversation.AgentArchivedAt) != "" || strings.TrimSpace(conversation.ProjectArchivedAt) != "" {
+		return false
+	}
+	return true
+}
+
+// inspectPeerConversation reports whether another conversation may be listed or
+// addressed by AgentSnapshot / AgentSendMessage. Lookup failures fail closed
+// as hidden unless the context itself was cancelled.
+func inspectPeerConversation(ctx context.Context, store *db.Store, agent db.Agent) (archived bool, visible bool, err error) {
+	if ctx.Err() != nil {
+		return false, false, ctx.Err()
+	}
+	if store == nil {
+		return false, false, nil
+	}
+	if strings.TrimSpace(agent.ArchivedAt) != "" {
+		return true, false, nil
+	}
+	worklineID := strings.TrimSpace(agent.WorklineID)
+	if worklineID == "" {
+		return false, false, nil
+	}
+	workline, err := store.GetWorkline(ctx, worklineID)
+	if err != nil {
+		if ctx.Err() != nil {
+			return false, false, ctx.Err()
+		}
+		return false, false, nil
+	}
+	project, err := store.GetProject(ctx, workline.ProjectID)
+	if err != nil {
+		if ctx.Err() != nil {
+			return false, false, ctx.Err()
+		}
+		return false, false, nil
+	}
+	if strings.TrimSpace(project.ArchivedAt) != "" {
+		return true, false, nil
+	}
+	if project.Status != "active" || project.FlowMode == db.ProjectFlowModeConversation {
+		return false, false, nil
+	}
+	return false, true, nil
 }
 
 func truncateUTF8Chars(text string, maxChars int) (string, bool) {

@@ -2,6 +2,13 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { readFileSync } from "node:fs";
 
+import {
+  childBubbleBodyCharLimit,
+  childBubbleBodyLineLimit,
+  renderChildBodyHTML,
+  renderChildBubbleBodyHTML,
+} from "./background-task-transcript.mjs";
+
 // A briefing to a subagent, or its report back, routinely quotes file excerpts and grep
 // hits. One such message ran to hundreds of numbered lines and the panel became a wall
 // of source: the status, the duration and the error that explained why the task failed
@@ -9,33 +16,17 @@ import { readFileSync } from "node:fs";
 //
 // This clamp is the fallback the pane uses when it has no markdown renderer to hand the
 // body to, so it has to keep holding a body of any size on its own.
-const source = readFileSync(new URL("background-tasks.mjs", import.meta.url), "utf8");
 const messages = readFileSync(new URL("messages-background-tasks.mjs", import.meta.url), "utf8");
 const css = readFileSync(new URL("../styles/workspace-tasks.css", import.meta.url), "utf8");
 
-// The renderer is a closure over the panel's state, so the body helper is lifted out and
-// evaluated on its own. That keeps this a test of the clamping rule rather than of the
-// panel's wiring.
 function loadBodyRenderer() {
-  const lineLimit = /const childBubbleBodyLineLimit = (\d+);/.exec(source);
-  const charLimit = /const childBubbleBodyCharLimit = (\d+);/.exec(source);
-  assert.ok(lineLimit && charLimit, "both limits must stay named constants");
-  const startAt = source.indexOf("function renderChildBubbleBodyHTML(body) {");
-  assert.notEqual(startAt, -1);
-  const endAt = source.indexOf("\n  // A stack key is", startAt);
-  assert.notEqual(endAt, -1);
-  const factory = new Function(
-    "escapeHtml",
-    "t",
-    `const childBubbleBodyLineLimit = ${lineLimit[1]};`
-      + `const childBubbleBodyCharLimit = ${charLimit[1]};`
-      + source.slice(startAt, endAt)
-      + "return renderChildBubbleBodyHTML;",
-  );
   return {
-    render: factory((value) => String(value), (key, vars) => `${key}:${vars?.count ?? ""}`),
-    lineLimit: Number(lineLimit[1]),
-    charLimit: Number(charLimit[1]),
+    render: (body) => renderChildBubbleBodyHTML(body, {
+      escapeHtml: (value) => String(value),
+      t: (key, vars) => `${key}:${vars?.count ?? ""}`,
+    }),
+    lineLimit: childBubbleBodyLineLimit,
+    charLimit: childBubbleBodyCharLimit,
   };
 }
 
@@ -106,9 +97,7 @@ test("the folded tail scrolls instead of growing the pane", () => {
 
 test("the clamp is the fallback, not a branch nobody reaches", () => {
   // The pane renders a subagent's answer with the main transcript's markdown pipeline
-  // whenever it is handed one, so this clamp only runs for a caller without it. Asserting
-  // the branch keeps the fallback wired: dropping it silently would leave the tests above
-  // exercising code the panel never calls.
-  assert.match(source, /function renderChildBodyHTML\(body\) \{[\s\S]*?renderChildBubbleBodyHTML\(body\)/);
-  assert.match(source, /typeof renderMarkdown !== "function"/);
+  // whenever it is handed one, so this clamp only runs for a caller without it.
+  assert.equal(renderChildBodyHTML("short"), "<p>short</p>");
+  assert.equal(renderChildBodyHTML("short", (value) => `<md>${value}</md>`), `<div class="message-content background-task-bubble-body"><md>short</md></div>`);
 });

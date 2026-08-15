@@ -3,19 +3,15 @@ import { groupModelSelectOptions, modelOptionPresentation } from "./ui-shell.mjs
 import { formatDuration, formatTimestamp } from "./formatters.mjs";
 import { t } from "./i18n.mjs";
 import { normalizeMessageProfileIdentity } from "./chat-rendering-messages.mjs";
-import { assistantAvatarSVG, profileAvatarHTML } from "./profile-avatar.mjs";
-// The child transcript is a conversation, so it is rendered with the same
-// components the main thread uses rather than a second, thinner imitation of
-// them. The version string matches app-main's import so the browser resolves
-// both to one module instance.
+import { t as cr } from "./messages-chat-rendering-extra.mjs";
 import {
-  groupToolActivityByMessage,
+  childTranscriptMessageText,
+  renderChildConversationHTML as renderChildConversationMarkup,
+} from "./background-task-transcript.mjs";
+import {
   nextToolActivitySelection,
   normalizeToolActivity,
-  persistedReasoningSteps,
   renderToolActivityCardHTML,
-  renderToolActivityStackHTML,
-  transcriptMessageText,
 } from "./chat-rendering.mjs";
 
 const terminalStatuses = new Set(["completed", "complete", "succeeded", "success", "failed", "error", "cancelled", "canceled", "interrupted"]);
@@ -35,15 +31,6 @@ const activeTaskReconcileMs = 10000;
 
 function text(value) {
   return String(value ?? "").trim();
-}
-
-// The dispatcher appends a bracketed acceptance-criteria protocol block to the
-// child's briefing. It addresses the child model, so the panel showing the
-// briefing to a person renders the task itself without the contract boilerplate.
-function stripAcceptanceCriteriaBlock(value) {
-  return String(value ?? "")
-    .replace(/\n*\[BACKGROUND_ACCEPTANCE_CRITERIA\][\s\S]*?\[\/BACKGROUND_ACCEPTANCE_CRITERIA\]/g, "")
-    .trim();
 }
 
 // Only the tones the status dot has a style for; anything else falls back to
@@ -313,6 +300,8 @@ export function createBackgroundTasksController({
   onOpenChange,
   onNavigateAgent,
   onNavigateRun,
+  copyToClipboard,
+  showToast,
   // Supplies the configured provider models so the subagent model control offers
   // the same list as the main composer. Injected rather than fetched here to
   // keep one owner of the model catalogue.
@@ -385,6 +374,7 @@ export function createBackgroundTasksController({
   let continuation = normalizeContinuation();
   let bound = false;
   let loading = false;
+  let editingChild = null;
   let error = "";
   let foregroundActivity = null;
   // Reconciles tasks the store still believes are active against the server.
@@ -753,8 +743,10 @@ export function createBackgroundTasksController({
   }
 
   function rememberOrder(id, recent = false) {
-    const index = order.indexOf(id);
-    if (index >= 0) order.splice(index, 1);
+    // Keep an already-listed task where it is. Clicking the overview, hydrating
+    // details, or receiving a status update used to unshift that row to the top
+    // and reshuffle the list under the user's cursor.
+    if (order.includes(id)) return;
     if (recent) order.push(id);
     else order.unshift(id);
   }
@@ -1130,124 +1122,64 @@ export function createBackgroundTasksController({
 
   function renderChildConversationHTML(task) {
     const childAgentId = text(task.childAgentId);
-    if (!childAgentId) return `<div class="background-task-empty">${escapeHtml(t("backgroundTasks.noChildAgent"))}</div>`;
-    const messages = childMessages(childAgentId);
-    if (!messages.length) {
-      return `<div class="background-task-empty">${escapeHtml(childBusy.has(childAgentId) ? t("backgroundTasks.loading") : t("backgroundTasks.noConversation"))}</div>`;
-    }
-    const runId = text(task.childRunId);
-    const callsByMessage = childToolCallsByMessage(childAgentId);
-    const knownMessageIds = new Set(messages.map((message) => text(message?.id)).filter(Boolean));
-    const bubbles = messages.map((message) => {
-      const role = text(message?.role) === "user" ? "user" : "assistant";
-      // Same visibility rules as the main transcript: tool result messages
-      // render as rows in the activity stack, not as raw "Tool X completed"
-      // bubbles, and legacy "Tool requested" lines are stripped from assistant
-      // text. The briefing additionally drops the acceptance-criteria protocol
-      // block, which is a contract for the child model, not for the reader.
-      const body = stripAcceptanceCriteriaBlock(transcriptMessageText(message));
-      const reasoning = text(message?.reasoningText);
-      const calls = callsByMessage.get(text(message?.id)) || [];
-      // A turn with no answer text is still worth showing when it reasoned or
-      // called a tool: that is the part of a subagent's work you cannot otherwise
-      // see, and dropping the whole bubble is what hid it.
-      if (!body && !reasoning && !calls.length) return "";
-      return `<article class="background-task-bubble role-${role}"${role === "user" ? ` data-message-role="user"` : ""}>
-        ${renderChildMessageHeadHTML(role, message)}
-        ${renderChildActivityHTML(childAgentId, `msg:${text(message?.id)}`, calls, persistedReasoningSteps(message, calls), runId)}
-        ${body ? renderChildBodyHTML(body) : ""}
-      </article>`;
-    }).join("");
-    // Calls whose owning turn is not in the loaded window still have to be
-    // accounted for, but the window holds the newest messages, so every turn
-    // that owns them is older than everything on screen. Emitting them after
-    // the bubbles parked a previous task's whole tool history directly beneath
-    // the newest reply, which reads as work that reply caused; they lead the
-    // transcript instead, where their age is what the position says.
-    const { unowned } = groupToolActivityByMessage(childToolCallsFlat(childAgentId), knownMessageIds);
-    const earlier = renderChildActivityHTML(childAgentId, "run", unowned, [], runId);
-    return `<div class="background-task-conversation">${earlier}${bubbles}</div>`;
-  }
-
-  // Both roles reuse the main transcript's head (message-head / message-avatar
-  // / message-role / message-time): the user turn carries the profile avatar
-  // and display name, the assistant turn the Autoto mark and name, so this pane
-  // reads like the conversation it mirrors instead of a log with bare labels.
-  function renderChildMessageHeadHTML(role, message) {
-    const timestampValue = text(message?.createdAt);
-    const timeHTML = timestampValue
-      ? `<time class="message-time" datetime="${escapeAttr(timestampValue)}" title="${escapeAttr(formatTimestamp(timestampValue))}">${escapeHtml(formatTimestamp(timestampValue, { timeOnly: true }))}</time>`
-      : "";
-    if (role !== "user") {
-      return `<div class="message-head">
-        <div class="message-meta"><span class="message-avatar message-avatar-logo" aria-hidden="true">${assistantAvatarSVG}</span><div class="message-role">Autoto</div></div>
-        ${timeHTML}
-      </div>`;
-    }
-    const profileIdentity = currentUserMessageIdentity();
-    return `<div class="message-head">
-      <div class="message-meta"><span class="message-avatar" aria-hidden="true" data-user-profile-avatar>${profileAvatarHTML(profileIdentity)}</span><div class="message-role"><span data-user-profile-name>${escapeHtml(profileIdentity.displayName)}</span></div></div>
-      ${timeHTML}
-    </div>`;
-  }
-
-  // Same activity stack as the main transcript: one "活動" disclosure per turn,
-  // reasoning steps filed against the tool that ended them, rows that open their
-  // own detail. Compact because this pane is a column, not a page.
-  function renderChildActivityHTML(childAgentId, scope, calls, reasoningSteps, runId) {
-    const stackKey = `child:${text(childAgentId)}:${scope}`;
-    return renderToolActivityStackHTML(calls, {
-      compact: true,
-      runId,
-      stackKey,
-      reasoningSteps,
-      selectedToolUseId: childToolSelection.get(stackKey) || "",
+    return renderChildConversationMarkup({
+      childAgentId,
+      runId: text(task.childRunId),
+      messages: childMessages(childAgentId),
+      busy: childBusy.has(childAgentId),
+      callsByMessage: childToolCallsByMessage(childAgentId),
+      toolCallsFlat: childToolCallsFlat(childAgentId),
+      entityGeneration: childAgents.get(childAgentId)?.entityGeneration,
+      editing: editingChild,
+      userIdentity: currentUserMessageIdentity(),
+      toolSelection: childToolSelection,
+      renderMarkdown,
     });
   }
 
-  // Markdown when the main renderer was injected, the bounded plain-text body
-  // otherwise. A subagent writes the same lists, tables and fenced code the main
-  // agent does, and rendering it as one escaped paragraph was the largest visible
-  // difference between this pane and the conversation it mirrors.
-  function renderChildBodyHTML(body) {
-    if (typeof renderMarkdown !== "function") return renderChildBubbleBodyHTML(body);
-    return `<div class="message-content background-task-bubble-body">${renderMarkdown(body)}</div>`;
+  function ownsChildAgent(id) {
+    const childId = text(id);
+    if (!childId) return false;
+    return childAgents.has(childId) || childConversations.has(childId) || Boolean(taskForChild(childId));
   }
 
-  // How much of a message body the pane shows before folding the rest away. A briefing
-  // to a subagent, or its report back, routinely quotes file excerpts and grep hits,
-  // and one such message ran to hundreds of numbered lines: the panel became a wall of
-  // source with no indication of which file any of it came from, and the status and
-  // error above it were pushed out of view.
-  //
-  // This is the fallback path. When the main transcript's markdown renderer is
-  // injected the body goes through that instead, and the clamping there is the
-  // pane's own scrolling rather than a disclosure.
-  const childBubbleBodyLineLimit = 12;
-  const childBubbleBodyCharLimit = 900;
+  function childMessageText(agentId, messageId) {
+    const message = childMessages(agentId).find((item) => text(item?.id) === text(messageId));
+    return message ? childTranscriptMessageText(message) : "";
+  }
 
-  // Nothing is discarded: past the limit the head stays visible and the remainder goes
-  // into a disclosure, so the shape of the conversation survives while the whole text
-  // is still one click away.
-  function renderChildBubbleBodyHTML(body) {
-    const lines = body.split("\n");
-    const tooManyLines = lines.length > childBubbleBodyLineLimit;
-    const tooLong = body.length > childBubbleBodyCharLimit;
-    if (!tooManyLines && !tooLong) return `<p>${escapeHtml(body)}</p>`;
-    // Whichever limit bites first decides the cut, so a single enormous line is
-    // bounded too rather than only a tall one.
-    const headByLines = tooManyLines ? lines.slice(0, childBubbleBodyLineLimit).join("\n") : body;
-    const head = headByLines.length > childBubbleBodyCharLimit
-      ? headByLines.slice(0, childBubbleBodyCharLimit)
-      : headByLines;
-    const rest = body.slice(head.length).replace(/^\n/, "");
-    if (!rest) return `<p>${escapeHtml(body)}</p>`;
-    const hiddenLines = rest.split("\n").length;
-    return `<p>${escapeHtml(head)}</p>
-      <details class="background-task-bubble-more">
-        <summary>${escapeHtml(t("backgroundTasks.moreLines", { count: String(hiddenLines) }))}</summary>
-        <p>${escapeHtml(rest)}</p>
-      </details>`;
+  async function reloadChildConversation(childAgentId) {
+    editingChild = null;
+    await loadChildConversation(childAgentId, { force: true, runId: childRunIdFor(childAgentId) });
+  }
+
+  function openChildCorrectionEditor(agentId, messageId) {
+    const id = text(agentId);
+    const mid = text(messageId);
+    if (!id || !mid) return;
+    editingChild = { agentId: id, messageId: mid };
+    render();
+  }
+
+  async function copyChildMessage(agentId, messageId) {
+    const body = childMessageText(agentId, messageId);
+    if (typeof copyToClipboard !== "function") return;
+    if (body && await copyToClipboard(body)) showToast?.(cr("message.copiedToast"), "success");
+    else showToast?.(cr("message.copyFailedToast"), "warn", { force: true });
+  }
+
+  async function submitChildCorrection(form) {
+    const id = text(form?.dataset?.agentId);
+    const messageId = text(form?.dataset?.childCorrectionForm);
+    if (!id || !messageId) return;
+    const payload = new FormData();
+    payload.append("text", form.querySelector("[data-correction-text]")?.value ?? "");
+    payload.append("keepAttachmentIds", "[]");
+    payload.append("context", "conversation");
+    await request(`/api/agents/${encodeURIComponent(id)}/messages/${encodeURIComponent(messageId)}/corrections`, { method: "POST", body: payload });
+    editingChild = null;
+    await loadChildConversation(id, { force: true, runId: childRunIdFor(id) });
+    showToast?.(cr("message.correctionCreated"), "success");
   }
 
   // A stack key is "child:<agentId>:<scope>", and the detail lookup needs the
@@ -1767,6 +1699,24 @@ export function createBackgroundTasksController({
     host("headerTaskSummaryBtn")?.addEventListener("click", toggleTray);
     host("backgroundTaskTray")?.addEventListener("click", (event) => {
       if (handleChildActivityClick(event)) return;
+      const copyBtn = event.target?.closest?.("[data-copy-child-message]");
+      if (copyBtn) {
+        event.preventDefault();
+        copyChildMessage(copyBtn.dataset.agentId, copyBtn.dataset.copyChildMessage).catch(onError);
+        return;
+      }
+      const correctBtn = event.target?.closest?.("[data-correct-child-message]");
+      if (correctBtn) {
+        event.preventDefault();
+        openChildCorrectionEditor(correctBtn.dataset.agentId, correctBtn.dataset.correctChildMessage);
+        return;
+      }
+      if (event.target?.closest?.("[data-child-correction-cancel]")) {
+        event.preventDefault();
+        editingChild = null;
+        render();
+        return;
+      }
       const pillTrigger = event.target?.closest?.("[data-background-child-pill]");
       if (pillTrigger) {
         openChildPillMenu(pillTrigger);
@@ -1806,6 +1756,12 @@ export function createBackgroundTasksController({
       }
     });
     host("backgroundTaskTray")?.addEventListener("submit", (event) => {
+      const correction = event.target?.closest?.("[data-child-correction-form]");
+      if (correction) {
+        event.preventDefault();
+        submitChildCorrection(correction).catch(onError);
+        return;
+      }
       const form = event.target?.closest?.("[data-background-child-form]");
       if (!form) return;
       event.preventDefault();
@@ -1877,6 +1833,10 @@ export function createBackgroundTasksController({
     subscribe,
     wait,
     loadChildConversation,
+    ownsChildAgent,
+    childMessageText,
+    reloadChildConversation,
+    openChildCorrectionEditor,
     updateChildAgentSetting: updateChildAgent,
     sendChildAgentMessage: sendToChildAgent,
     // Exposed so the control markup can be asserted without a DOM: it renders

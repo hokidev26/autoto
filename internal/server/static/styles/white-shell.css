@@ -1354,8 +1354,8 @@ body.white-shell.theme-light .toast {
 
   body.white-shell.theme-light .nav-stack,
   body.white-shell.theme-light .sidebar-section {
-    padding-left: 12px;
-    padding-right: 12px;
+    padding-left: 8px;
+    padding-right: 8px;
   }
 
   body.white-shell.theme-light .navigation-filters,
@@ -1387,8 +1387,8 @@ body.white-shell.theme-light .toast {
 
   body.white-shell.theme-light .project-card,
   body.white-shell.theme-light .navigation-conversation-row {
-    padding-left: 10px;
-    padding-right: 10px;
+    padding-left: 6px;
+    padding-right: 6px;
   }
 
   body.white-shell.theme-light .project-card.active {

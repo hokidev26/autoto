@@ -663,6 +663,7 @@ test("message rendering aligns messages left and uses the current profile for us
   assert.ok(html.indexOf('class="message-meta"') < html.indexOf('class="message-head-actions"'));
   assert.ok(html.indexOf('class="message-head-actions"') < html.indexOf('class="message-time"'));
   assert.equal((html.match(/data-copy-message=/g) || []).length, 4);
+  assert.match(html, /data-copy-message="0"[^>]*>[\s\S]*?<svg viewBox="0 0 24 24"/);
   assert.deepEqual(state.messageCopyTexts, ["hello", "human alias", "reply", "streaming"]);
 });
 
@@ -1753,7 +1754,7 @@ test("turn usage normalization drops zero, negative, non-finite, extreme, and in
   // The assistant avatar is itself an inline <svg>, so the injection check has to
   // target the payload and the metrics footer rather than the tag name.
   assert.doesNotMatch(html, /onload=boom|message-performance/);
-  assert.doesNotMatch(html, /<svg(?![^>]*viewBox="0 0 64 64")/);
+  assert.doesNotMatch(html, /<svg(?![^>]*viewBox="0 0 (?:64 64|24 24)")/);
 });
 
 test("a run's tool calls file under the assistant turn that emitted them, not in one stack on top", () => {
@@ -2627,6 +2628,17 @@ test("tool activity renders a lightweight directory before hydrating one auditab
   // Detail now lives inside the selected row's inline slot, not in the shared bottom slot.
   assert.match(selected, /data-tool-activity-inline-detail="bash"[^>]*>[^<]/);
   assert.doesNotMatch(selected, /data-tool-activity-selected-detail[^>]*>[^<\s]/);
+});
+
+test("completed tool activity rows show compact durations on the right", () => {
+  const html = renderToolActivityStackHTML([
+    { toolUseId: "read", toolName: "Read", status: "completed", durationMs: 1500, inputJson: { file_path: "a.txt" } },
+    { toolUseId: "bash", toolName: "Bash", status: "completed", durationMs: 12000, inputJson: { command: "go test" } },
+    { toolUseId: "grep", toolName: "Grep", status: "completed", inputJson: { pattern: "TODO" } },
+  ]);
+  assert.match(html, /tool-activity-step-status">1\.5s</);
+  assert.match(html, /tool-activity-step-status">12s</);
+  assert.match(html, /data-tool-name="Grep"[^>]*>[\s\S]*?<span class="tool-activity-step-status"><\/span>/);
 });
 
 test("completed tool activity collapses while active or attention-needed work stays expanded", () => {

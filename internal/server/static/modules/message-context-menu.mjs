@@ -3,9 +3,23 @@ import { t as cr } from "./messages-chat-rendering-extra.mjs";
 
 const menuActions = ["copy", "edit", "rollback", "fork", "compress", "delete"];
 
+function messageHosts() {
+  return [$("messages"), $("backgroundTaskTray")].filter(Boolean);
+}
+
+function messageRowFromEvent(event) {
+  if (event.target.closest?.("textarea, input, select, [contenteditable='true']")) return null;
+  if (event.target.closest?.(".tool-activity-stack, .message-correction-editor")) return null;
+  const row = event.target.closest?.(".chat-message[data-message-id]");
+  if (!row) return null;
+  if (!messageHosts().some((host) => host.contains?.(row))) return null;
+  return row;
+}
+
 // Right-click / long-press context menu on chat messages. Copy and edit reuse
 // the handlers behind the inline message buttons; rollback, fork, compress,
-// and delete call their message-scoped APIs.
+// and delete call their message-scoped APIs. The same menu also covers the
+// background-task subagent transcript, which is a real agent conversation.
 export function createMessageContextMenu({
   state,
   request,
@@ -18,6 +32,7 @@ export function createMessageContextMenu({
   onForkCreated = null,
   refreshContextStatus = null,
   onBeforeOpen = null,
+  resolveMessageText = null,
 }) {
   function closeMessageContextMenu({ restoreFocus = false } = {}) {
     const menu = $("messageContextMenu");
@@ -27,18 +42,28 @@ export function createMessageContextMenu({
     menu?.setAttribute("aria-hidden", "true");
     if (restoreFocus && target?.id) {
       const escaped = globalThis.CSS?.escape?.(target.id) ?? target.id;
-      $("messages")?.querySelector?.(`[data-message-id="${escaped}"]`)?.focus?.();
+      for (const host of messageHosts()) {
+        const node = host.querySelector?.(`[data-message-id="${escaped}"]`);
+        if (node) {
+          node.focus?.();
+          break;
+        }
+      }
     }
   }
 
   function messageMenuTargetFromRow(row) {
     const id = String(row?.dataset?.messageId || "").trim();
     if (!id) return null;
+    const generationRaw = String(row.dataset?.entityGeneration ?? "").trim();
+    const generation = Number(generationRaw);
     return {
       id,
       role: String(row.dataset.messageRole || "").trim(),
+      agentId: String(row.dataset?.agentId || state.agent?.id || "").trim(),
       superseded: row.classList.contains("message-superseded"),
       copyIndex: Number(row.querySelector?.("[data-copy-message]")?.dataset?.copyMessage ?? -1),
+      entityGeneration: generationRaw !== "" && Number.isInteger(generation) ? generation : null,
     };
   }
 
@@ -66,7 +91,7 @@ export function createMessageContextMenu({
   function openMessageContextMenu(row, event) {
     const target = messageMenuTargetFromRow(row);
     const menu = $("messageContextMenu");
-    if (!target || !menu || !state.agent?.id) return false;
+    if (!target || !menu || !target.agentId) return false;
     onBeforeOpen?.();
     state.messageMenuTarget = target;
     const enabled = messageMenuActionsFor(target);
@@ -87,10 +112,8 @@ export function createMessageContextMenu({
   }
 
   function handleMessageContextMenu(event) {
-    // Inside an editor the native menu (paste, spellcheck) stays available.
-    if (event.target.closest?.("textarea, input, select, [contenteditable='true']")) return;
-    const row = event.target.closest?.(".chat-message[data-message-id]");
-    if (!row || !$("messages")?.contains(row)) return;
+    const row = messageRowFromEvent(event);
+    if (!row) return;
     event.preventDefault();
     event.stopPropagation();
     openMessageContextMenu(row, event);
@@ -99,8 +122,7 @@ export function createMessageContextMenu({
   // iOS Safari never fires contextmenu for touch, so a timer-based long-press
   // fills the gap. Android fires both; the contextmenu listener cancels the
   // timer so the menu opens exactly once.
-  function bindMessageLongPress() {
-    const container = $("messages");
+  function bindMessageLongPressOn(container) {
     if (!container || container.dataset.messageMenuLongPress === "bound") return;
     container.dataset.messageMenuLongPress = "bound";
     let timer = 0;
@@ -113,8 +135,8 @@ export function createMessageContextMenu({
     container.addEventListener("pointerdown", (event) => {
       if (event.pointerType !== "touch") return;
       if (event.target.closest?.("textarea, input, select, button, a, [contenteditable='true']")) return;
-      const row = event.target.closest?.(".chat-message[data-message-id]");
-      if (!row || !container.contains(row)) return;
+      const row = messageRowFromEvent(event);
+      if (!row) return;
       cancel();
       startX = event.clientX;
       startY = event.clientY;
@@ -132,6 +154,10 @@ export function createMessageContextMenu({
     container.addEventListener("contextmenu", cancel);
   }
 
+  function bindMessageLongPress() {
+    messageHosts().forEach(bindMessageLongPressOn);
+  }
+
   // The click synthesized when the finger lifts after a long-press lands
   // outside the menu and would close it in the same instant it opened.
   function suppressNextClick() {
@@ -144,6 +170,8 @@ export function createMessageContextMenu({
   }
 
   function messageTextForTarget(target) {
+    const resolved = resolveMessageText?.(target);
+    if (typeof resolved === "string") return resolved;
     const indexed = state.messageCopyTexts?.[target.copyIndex];
     if (indexed) return indexed;
     const message = (state.currentMessages || []).find((item) => item.id === target.id);
@@ -152,7 +180,7 @@ export function createMessageContextMenu({
 
   async function applyMessageMenuAction(action) {
     const target = state.messageMenuTarget;
-    const agentId = state.agent?.id || "";
+    const agentId = target?.agentId || state.agent?.id || "";
     closeMessageContextMenu();
     if (!target || !agentId || !menuActions.includes(action)) return;
     const messagePath = `/api/agents/${encodeURIComponent(agentId)}/messages/${encodeURIComponent(target.id)}`;
@@ -165,13 +193,13 @@ export function createMessageContextMenu({
           return;
         }
         case "edit": {
-          openCorrectionEditor?.(target.id);
+          openCorrectionEditor?.(target.id, target);
           return;
         }
         case "rollback": {
           if (!await confirmAction(cr("menu.rollbackConfirm"))) return;
           await request(`${messagePath}/rollback`, { method: "POST", body: JSON.stringify({}) });
-          await loadMessages(agentId);
+          await loadMessages(agentId, target);
           showToast(cr("menu.rollbackSuccess"), "success", { force: true });
           return;
         }
@@ -185,7 +213,9 @@ export function createMessageContextMenu({
         }
         case "compress": {
           if (!await confirmAction(cr("menu.compressConfirm"))) return;
-          const generation = Number(state.agent?.entityGeneration);
+          const generation = Number.isInteger(target.entityGeneration)
+            ? target.entityGeneration
+            : Number(state.agent?.entityGeneration);
           const response = await request(`/api/agents/${encodeURIComponent(agentId)}/context/compact`, {
             method: "POST",
             body: JSON.stringify({
@@ -196,12 +226,13 @@ export function createMessageContextMenu({
           const noop = response?.compacted === false;
           showToast(cr(noop ? "menu.compressNoop" : "menu.compressSuccess"), noop ? "warn" : "success", { force: true });
           await refreshContextStatus?.();
+          await loadMessages?.(agentId, target);
           return;
         }
         case "delete": {
           if (!await confirmAction(cr("menu.deleteConfirm"))) return;
           await request(messagePath, { method: "DELETE" });
-          await loadMessages(agentId);
+          await loadMessages(agentId, target);
           showToast(cr("menu.deleteSuccess"), "success", { force: true });
           return;
         }

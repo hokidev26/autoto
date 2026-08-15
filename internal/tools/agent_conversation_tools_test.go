@@ -76,6 +76,95 @@ func TestAgentSnapshotListsPrimaryConversationsAndMarksSelf(t *testing.T) {
 	}
 }
 
+func decodeAgentSnapshotList(t *testing.T, output string) agentSnapshotList {
+	t.Helper()
+	brace := strings.Index(output, "{")
+	if brace < 0 {
+		t.Fatalf("conversation list must include JSON: %q", output)
+	}
+	var list agentSnapshotList
+	if err := json.Unmarshal([]byte(output[brace:]), &list); err != nil {
+		t.Fatal(err)
+	}
+	return list
+}
+
+func TestAgentSnapshotOmitsArchivedAndStandaloneConversations(t *testing.T) {
+	ctx := context.Background()
+	store, weather, places := newConversationTestStore(t)
+	_, _, standalone, err := store.CreateStandaloneConversation(ctx, "Old standalone chat", weather.Model)
+	if err != nil {
+		t.Fatal(err)
+	}
+	archived := true
+	if _, err := store.UpdateAgentNavigationState(ctx, weather.ID, nil, &archived); err != nil {
+		t.Fatal(err)
+	}
+	_, _, buried, err := store.CreateProject(ctx, "Buried project", "", t.TempDir(), "fake:model", "acceptEdits")
+	if err != nil {
+		t.Fatal(err)
+	}
+	buriedWorkline, err := store.GetWorkline(ctx, buried.WorklineID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.UpdateProjectNavigationState(ctx, buriedWorkline.ProjectID, nil, &archived); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := (AgentSnapshotTool{}).Execute(ctx, Call{ID: "snap-hidden", Name: "AgentSnapshot"}, Env{Store: store, AgentID: places.ID})
+	if err != nil || result.IsError {
+		t.Fatalf("snapshot list failed: result=%+v err=%v", result, err)
+	}
+	list := decodeAgentSnapshotList(t, result.Output)
+	if len(list.Conversations) != 1 || list.Conversations[0].AgentID != places.ID {
+		t.Fatalf("live sidebar conversations must be the only listed rows: %+v", list.Conversations)
+	}
+	for _, forbidden := range []string{weather.ID, standalone.ID, buried.ID, "Old standalone chat", "Buried project", "Weather"} {
+		if strings.Contains(result.Output, forbidden) {
+			t.Fatalf("hidden conversation leaked %q: %s", forbidden, result.Output)
+		}
+	}
+
+	for _, targetID := range []string{weather.ID, standalone.ID, buried.ID} {
+		input, _ := json.Marshal(map[string]any{"target_agent_id": targetID})
+		detail, err := (AgentSnapshotTool{}).Execute(ctx, Call{ID: "snap-detail", Name: "AgentSnapshot", Input: input}, Env{Store: store, AgentID: places.ID})
+		if err != nil || !detail.IsError || !strings.Contains(detail.Output, "not found") {
+			t.Fatalf("hidden conversation %s was readable: result=%+v err=%v", targetID, detail, err)
+		}
+	}
+}
+
+func TestAgentSendMessageRejectsArchivedAndStandaloneTargets(t *testing.T) {
+	ctx := context.Background()
+	store, weather, places := newConversationTestStore(t)
+	_, _, standalone, err := store.CreateStandaloneConversation(ctx, "Old standalone chat", weather.Model)
+	if err != nil {
+		t.Fatal(err)
+	}
+	archived := true
+	if _, err := store.UpdateAgentNavigationState(ctx, weather.ID, nil, &archived); err != nil {
+		t.Fatal(err)
+	}
+	env := Env{Store: store, Background: &fakeBackgroundTaskService{}, AgentID: places.ID}
+
+	archivedInput, _ := json.Marshal(map[string]any{"target_agent_id": weather.ID, "message": "hello"})
+	archivedResult, err := (AgentSendMessageTool{}).Execute(ctx, Call{ID: "send-archived", Name: "AgentSendMessage", Input: archivedInput}, env)
+	if err != nil || !archivedResult.IsError || !strings.Contains(archivedResult.Output, "archived") {
+		t.Fatalf("archived send was not rejected: result=%+v err=%v", archivedResult, err)
+	}
+
+	standaloneInput, _ := json.Marshal(map[string]any{"target_agent_id": standalone.ID, "message": "hello"})
+	standaloneResult, err := (AgentSendMessageTool{}).Execute(ctx, Call{ID: "send-standalone", Name: "AgentSendMessage", Input: standaloneInput}, env)
+	if err != nil || !standaloneResult.IsError || !strings.Contains(standaloneResult.Output, "not found") {
+		t.Fatalf("standalone send was not rejected: result=%+v err=%v", standaloneResult, err)
+	}
+	service := env.Background.(*fakeBackgroundTaskService)
+	if len(service.submitted) != 0 {
+		t.Fatalf("rejected sends still submitted tasks: %+v", service.submitted)
+	}
+}
+
 func TestAgentSnapshotReadsAnotherConversationTranscript(t *testing.T) {
 	ctx := context.Background()
 	store, weather, places := newConversationTestStore(t)

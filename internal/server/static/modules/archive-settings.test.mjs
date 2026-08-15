@@ -2,7 +2,12 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { setUILocale } from "./i18n.mjs";
-import { createArchiveSettingsController, normalizeArchivePayload } from "./archive-settings.mjs";
+import {
+  createArchiveSettingsController,
+  groupArchiveItems,
+  normalizeArchivePayload,
+  normalizeArchiveSearchPayload,
+} from "./archive-settings.mjs";
 
 test("normalizeArchivePayload keeps archived project and conversation navigation fields", () => {
   assert.deepEqual(normalizeArchivePayload({
@@ -42,9 +47,12 @@ test("archive settings loads archived records and restores agents", async () => 
   const request = async (path, options = {}) => {
     calls.push({ path, options });
     if (options.method === "PATCH") return {};
-    return {
+      return {
       projects: [{ id: "p-1", name: "Project", gitPath: "/tmp/project", archivedAt: "2026-07-18T00:00:00Z" }],
-      conversations: [{ projectId: "p-1", projectName: "Project", worklineTitle: "Main", agentId: "a-1", agentTitle: "Chat", agentArchivedAt: "2026-07-18T00:00:00Z" }],
+      conversations: [
+        { projectId: "p-1", projectName: "Project", worklineTitle: "Main", agentId: "a-1", agentTitle: "Chat", agentArchivedAt: "2026-07-18T00:00:00Z" },
+        { projectId: "p-2", projectName: "Other", agentId: "a-2", agentTitle: "Solo", agentArchivedAt: "2026-07-18T00:00:00Z" },
+      ],
     };
   };
   const controller = createArchiveSettingsController({ request, refresh: () => refreshes.push(true) });
@@ -53,8 +61,9 @@ test("archive settings loads archived records and restores agents", async () => 
   setUILocale("en");
   try {
     const html = controller.render();
-    assert.match(html, /Archived projects/);
-    assert.match(html, /Archived conversations/);
+    assert.match(html, /Entire projects/);
+    assert.match(html, /Single conversations/);
+    assert.match(html, /archiveSearchInput/);
     assert.match(html, /Project/);
     assert.match(html, /Chat/);
   } finally {
@@ -78,7 +87,10 @@ test("archive settings renders delete buttons for archived records", async () =>
   const controller = createArchiveSettingsController({
     request: async () => ({
       projects: [{ id: "p-1", name: "Project", gitPath: "/tmp/project", archivedAt: "2026-07-18T00:00:00Z" }],
-      conversations: [{ projectId: "p-1", projectName: "Project", agentId: "a-1", agentTitle: "Chat", agentArchivedAt: "2026-07-18T00:00:00Z" }],
+      conversations: [
+        { projectId: "p-1", projectName: "Project", agentId: "a-nested", agentTitle: "Chat", agentArchivedAt: "2026-07-18T00:00:00Z" },
+        { projectId: "p-2", projectName: "Other", agentId: "a-1", agentTitle: "Solo", agentArchivedAt: "2026-07-18T00:00:00Z" },
+      ],
     }),
   });
   await controller.load();
@@ -187,3 +199,57 @@ test("failed archive load does not auto-retry through refresh→render", async (
   await new Promise((resolve) => setTimeout(resolve, 0));
   assert.equal(loads, 1, "failed load must not re-enter via render()");
 });
+
+test("archived project conversations nest under the project instead of duplicating the conversation list", () => {
+  const grouped = groupArchiveItems({
+    projects: [{ id: "p-1", name: "Repo", archivedAt: "2026-07-18T00:00:00Z" }],
+    conversations: [
+      { projectId: "p-1", agentId: "a-1", agentTitle: "Inside", projectArchivedAt: "2026-07-18T00:00:00Z" },
+      { projectId: "p-2", agentId: "a-2", agentTitle: "Solo", agentArchivedAt: "2026-07-18T00:00:00Z", projectName: "Other" },
+    ],
+  });
+  assert.equal(grouped.projects.length, 1);
+  assert.equal(grouped.conversations.length, 1);
+  assert.equal(grouped.conversations[0].agentId, "a-2");
+  assert.equal(grouped.nested.get("p-1")[0].agentId, "a-1");
+});
+
+test("archive search renders snippets and an open action", async () => {
+  const calls = [];
+  const opened = [];
+  const controller = createArchiveSettingsController({
+    request: async (path) => {
+      calls.push(path);
+      if (String(path).startsWith("/api/archive/search")) {
+        return {
+          query: "heatmap",
+          results: [{
+            agentId: "a-1",
+            agentTitle: "Planner",
+            projectId: "p-1",
+            projectName: "Autoto",
+            agentArchived: true,
+            projectArchived: false,
+            matches: [{ messageId: "m-1", role: "user", snippet: "the dashboard heatmap" }],
+          }],
+        };
+      }
+      return { projects: [], conversations: [{ projectId: "p-1", agentId: "a-1", agentTitle: "Planner", agentArchivedAt: "2026-07-18T00:00:00Z" }] };
+    },
+    onOpen: async (agentId, meta) => { opened.push({ agentId, meta }); },
+  });
+  await controller.load();
+  await controller.search("heatmap");
+  setUILocale("en");
+  try {
+    const html = controller.render();
+    assert.match(html, /Conversations that mentioned this/);
+    assert.match(html, /the dashboard heatmap/);
+    assert.match(html, /data-archive-open="a-1"/);
+    assert.ok(calls.some((path) => String(path).includes("/api/archive/search?q=heatmap")));
+  } finally {
+    setUILocale("zh-CN");
+  }
+  assert.deepEqual(normalizeArchiveSearchPayload({ results: [{ agentId: "a-1", matches: [{ snippet: "x" }] }] }).results[0].agentId, "a-1");
+});
+

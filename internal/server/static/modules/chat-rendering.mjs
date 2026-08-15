@@ -28,6 +28,7 @@ import {
   createChatRenderingPlanCards,
   normalizeAgentPlan,
 } from "./chat-rendering-plan.mjs";
+import { messageCopyGlyph } from "./chat-rendering-tools-glyphs.mjs";
 import { createChatRenderingCorrection } from "./chat-rendering-correction.mjs";
 import { createChatRenderingAttachments } from "./chat-rendering-attachments.mjs";
 import { createChatRenderingHistory } from "./chat-rendering-history.mjs";
@@ -888,7 +889,7 @@ export function createChatRenderingController({
     // While this message is being corrected the head keeps only the copy
     // action: offering "correct" for a message whose correction editor is
     // already open re-renders the same editor and reads as a second control.
-    const actions = `${message.role === "user" && !editing ? `<button class="message-copy-btn" type="button" data-correct-message="${escapeAttr(message.id || "")}" title="${escapeAttr(cr("message.correctTitle"))}">${escapeHtml(cr("message.correct"))}</button>` : ""}<button class="message-copy-btn" type="button" data-copy-message="${escapeAttr(String(index))}" title="${escapeAttr(cr("message.copyTitle"))}">${escapeHtml(cr("message.copy"))}</button>`;
+    const actions = `${message.role === "user" && !editing ? `<button class="message-copy-btn" type="button" data-correct-message="${escapeAttr(message.id || "")}" title="${escapeAttr(cr("message.correctTitle"))}">${escapeHtml(cr("message.correct"))}</button>` : ""}<button class="message-copy-btn" type="button" data-copy-message="${escapeAttr(String(index))}" title="${escapeAttr(cr("message.copyTitle"))}" aria-label="${escapeAttr(cr("message.copyTitle"))}">${messageCopyGlyph()}</button>`;
     return `
       <div class="message ${presentation.roleClass}${editing ? " message-editing" : ""} chat-message chat-flow-item chat-flow-${presentation.alignment}" data-chat-alignment="${presentation.alignment}" data-message-role="${escapeAttr(presentation.normalizedRole)}" data-message-id="${escapeAttr(message.id || "")}">
         <div class="message-head">
