@@ -2254,7 +2254,12 @@ function requestCloseSettingsModal(options) {
 function openSettingsModal(key = "providers", { trigger = document.activeElement, showMobileIndex = false } = {}) {
   backgroundTasks.closeTray("settings-open");
   closeConversationDetails();
-  if (state.workspaceOpen && state.workspaceTab === "preview") closeWorkspace();
+  // Settings replaces the chat stage. The spec board and the workspace explorer
+  // both dock into the right-hand utility column that Settings also claims via
+  // enterSettingsShell, so leaving them up stacks three panels on the same
+  // column with no contract for who wins the column's claim.
+  specBoard.close();
+  if (state.workspaceOpen) closeWorkspace();
   const itemKey = settingsItemByKey(key)?.key || "providers";
   // Opening Settings lands on the category itself. The provider account
   // pages are drill-downs reached from the provider list, so resuming one
