@@ -1348,6 +1348,15 @@ body.white-shell.theme-light .message-performance-live { border-color: #cbd4ff; 
   border-radius: 15px;
   background: color-mix(in srgb, var(--setup-accent) 4%, var(--bg-panel));
 }
+.setup-wizard-codex-login {
+  display: grid;
+  gap: 12px;
+  margin-top: 12px;
+  padding: 16px;
+  border: 1px solid color-mix(in srgb, var(--setup-accent) 24%, var(--line));
+  border-radius: 15px;
+  background: color-mix(in srgb, var(--setup-accent) 4%, var(--bg-panel));
+}
 .setup-wizard-quick-form-heading { display: grid; gap: 3px; }
 .setup-wizard-quick-form-heading strong { color: var(--text); font-size: 14px; }
 .setup-wizard-quick-form-heading small { color: var(--muted); font-size: 12px; line-height: 1.5; }

@@ -7,11 +7,15 @@ import setupWizardMessages from "./messages-setup-wizard.mjs";
 import {
   discoverSetupModels,
   filterSetupModels,
+  firstSetupCodexModel,
   groupSetupModels,
   normalizeSetupStatus,
   setupCanFinish,
+  setupCodexLoginActive,
   setupEnvironmentReady,
   setupQuickProviderIssues,
+  setupQuickProviderResolvedModel,
+  setupQuickProviderTestSucceeded,
   setupQuickProviderTypes,
   setupWizardStartupDecision,
   setupWizardVersion,
@@ -152,6 +156,34 @@ test("quick provider drafts are validated before any request is sent", () => {
   assert.ok(setupQuickProviderIssues({ name: "relay", type: "openai", baseUrl: "ftp://x" }).includes("baseUrlInvalid"));
 });
 
+test("quick provider save uses the first discovered model when the field is left blank", () => {
+  assert.equal(setupQuickProviderResolvedModel({ model: " typed-model " }, ["ignored"]), "typed-model");
+  assert.equal(setupQuickProviderResolvedModel({ model: "" }, ["gpt-fast", "gpt-max"]), "gpt-fast");
+  assert.equal(setupQuickProviderResolvedModel({ model: "   " }, ["", " gpt-max "]), "gpt-max");
+  assert.equal(setupQuickProviderResolvedModel({ model: "" }, []), "");
+});
+
+test("quick provider tests succeed only for reachable configured responses", () => {
+  assert.equal(setupQuickProviderTestSucceeded({ reachable: true, configured: true, models: ["gpt-fast"] }), true);
+  assert.equal(setupQuickProviderTestSucceeded({ reachable: true, configured: false }), false);
+  assert.equal(setupQuickProviderTestSucceeded({ reachable: true, errorCode: "auth" }), false);
+  assert.equal(setupQuickProviderTestSucceeded({ reachable: false }), false);
+});
+
+test("setup wizard prefers the first usable Codex catalog model after official login", () => {
+  const models = discoverSetupModels({
+    providers: [
+      { name: "relay", type: "openai-compatible", configured: true, models: ["gpt-fast"] },
+      { name: "codex", type: "codex", configured: true, models: ["gpt-5", "gpt-5.4"] },
+    ],
+  });
+  assert.equal(firstSetupCodexModel(models)?.value, "codex:gpt-5");
+  assert.equal(firstSetupCodexModel(models.filter((item) => item.type !== "codex")), null);
+  assert.equal(setupCodexLoginActive("pending"), true);
+  assert.equal(setupCodexLoginActive("exchanging"), true);
+  assert.equal(setupCodexLoginActive("completed"), false);
+});
+
 test("setup wizard copy covers simplified Chinese, traditional Chinese, and English", () => {
   for (const locale of ["zh-CN", "zh-TW", "en"]) {
     const messages = setupWizardMessages[locale]?.setupWizard;
@@ -168,6 +200,10 @@ test("setup wizard copy covers simplified Chinese, traditional Chinese, and Engl
     assert.ok(messages?.model?.searchPlaceholder);
     assert.ok(messages?.quickProvider?.title);
     assert.ok(messages?.quickProvider?.issues?.invalidName);
+    assert.ok(messages?.quickProvider?.noModels);
+    assert.ok(messages?.codexLogin?.title);
+    assert.ok(messages?.codexLogin?.action);
+    assert.ok(messages?.codexLogin?.localOnly);
     for (const type of setupQuickProviderTypes) {
       assert.ok(messages?.quickProvider?.types?.[type], `${locale} misses quickProvider type label ${type}`);
     }
@@ -190,12 +226,14 @@ test("static shell mounts the first-run flow and keeps a manual settings entry",
     assert.match(html, new RegExp(`id="${id}"`));
   }
   assert.match(styles, /\.setup-wizard-quick-form/);
+  assert.match(styles, /\.setup-wizard-codex-login/);
   assert.match(styles, /\.setup-wizard-command/);
   assert.match(styles, /\.setup-wizard-model-filter/);
   assert.match(appMain, /loadSetupStatus:\s*\(\{ force = false \} = \{\}\) => api\(force \? "\/api\/setup\/status\?refresh=1" : "\/api\/setup\/status"\)/);
   assert.match(appMain, /const setupStartup = maybeOpenSetupWizard\(\)/);
   assert.match(styles, /\.setup-wizard-tool-list/);
   assert.match(styles, /\.setup-wizard-model\.selected/);
+  assert.match(await readFile(new URL("./setup-wizard.mjs", import.meta.url), "utf8"), /data-setup-codex-login/);
   // The manual entry stays in the markup and on desktop, but narrow screens
   // collapse the sidebar into a sticky header where it would sit above every
   // settings page; the wizard still auto-opens on first run and when the

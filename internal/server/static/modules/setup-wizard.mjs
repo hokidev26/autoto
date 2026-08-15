@@ -1,10 +1,18 @@
 import { accountPreferencesCurrentSetupVersion } from "./account-preferences.mjs";
 import { $, escapeAttr, escapeHtml, setButtonBusy } from "./dom.mjs";
 import { t } from "./i18n.mjs";
+import { remoteAccessContext } from "./remote-access-capabilities.mjs";
+import {
+  codexAccountActionRequest,
+  codexBrowserLoginRequest,
+  normalizeCodexBrowserLoginStatus,
+  trustedCodexBrowserAuthURL,
+} from "./provider-settings-normalization.mjs";
 
 export const setupWizardVersion = accountPreferencesCurrentSetupVersion;
 export const setupWizardStepIds = Object.freeze(["welcome", "environment", "model", "complete"]);
 export const setupQuickProviderTypes = Object.freeze(["openai", "openai-compatible", "anthropic", "gemini-interactions"]);
+export const setupCodexLoginActiveStatuses = Object.freeze(["starting", "pending", "exchanging"]);
 
 const setupProviderNamePattern = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 const setupInstallPollInterval = 2000;
@@ -79,6 +87,30 @@ export function setupQuickProviderIssues(draft = {}) {
   if (type === "openai-compatible" && !baseUrl) issues.push("baseUrlRequired");
   if (baseUrl && !/^https?:\/\//i.test(baseUrl)) issues.push("baseUrlInvalid");
   return issues;
+}
+
+export function setupQuickProviderResolvedModel(draft = {}, discovered = []) {
+  const typed = String(draft?.model || "").trim();
+  if (typed) return typed;
+  const list = Array.isArray(discovered) ? discovered : [];
+  for (const item of list) {
+    const model = String(item || "").trim();
+    if (model) return model;
+  }
+  return "";
+}
+
+export function setupQuickProviderTestSucceeded(response) {
+  return Boolean(response?.reachable) && response?.configured !== false && !response?.errorCode;
+}
+
+export function setupCodexLoginActive(status) {
+  return setupCodexLoginActiveStatuses.includes(String(status || "").trim().toLowerCase());
+}
+
+export function firstSetupCodexModel(models = []) {
+  const list = Array.isArray(models) ? models : [];
+  return list.find((item) => String(item?.type || "").trim().toLowerCase() === "codex") || null;
 }
 
 export function normalizeSetupTool(value = {}) {
@@ -215,6 +247,15 @@ export function createSetupWizardController({
     notice: null,
     discoveredModels: [],
   };
+  const codexLogin = {
+    seq: 0,
+    loginId: "",
+    status: "idle",
+    authUrl: "",
+    message: "",
+    account: null,
+    popupBlocked: false,
+  };
   let verify = { status: "idle", model: "", message: "" };
 
   function models() {
@@ -326,6 +367,15 @@ export function createSetupWizardController({
     automaticFlow = false;
     suspendedForProviderSettings = false;
     wizardOpen = false;
+    if (setupCodexLoginActive(codexLogin.status)) {
+      const seq = Number(codexLogin.seq || 0) + 1;
+      const loginId = codexLogin.loginId;
+      Object.assign(codexLogin, { seq, loginId: "", status: "cancelled", authUrl: "", popupBlocked: false });
+      if (loginId) {
+        const requestSpec = codexBrowserLoginRequest("cancel", loginId);
+        Promise.resolve(request?.(requestSpec.path, requestSpec.options)).catch(() => {});
+      }
+    }
     syncBackgroundPolling();
     return true;
   }
@@ -500,6 +550,39 @@ export function createSetupWizardController({
     return `<div class="setup-wizard-state-card ${kind}" role="status">${escapeHtml(String(quickProvider.notice.text || ""))}</div>`;
   }
 
+  function renderCodexLoginCard() {
+    const remoteOnly = remoteAccessContext(state);
+    const active = setupCodexLoginActive(codexLogin.status);
+    const connected = Boolean(firstSetupCodexModel(models()));
+    const busy = active || finishing;
+    let notice = "";
+    if (remoteOnly) notice = t("setupWizard.codexLogin.localOnly");
+    else if (codexLogin.popupBlocked) notice = t("setupWizard.codexLogin.popupBlocked");
+    else if (codexLogin.status === "failed") notice = t("setupWizard.codexLogin.failed", { message: codexLogin.message || t("setupWizard.codexLogin.unknown") });
+    else if (codexLogin.status === "expired") notice = t("setupWizard.codexLogin.expired");
+    else if (codexLogin.status === "cancelled") notice = t("setupWizard.codexLogin.cancelled");
+    else if (codexLogin.status === "completed" && connected) notice = t("setupWizard.codexLogin.success");
+    else if (codexLogin.status === "completed") notice = t("setupWizard.codexLogin.modelsPending");
+    else if (active) notice = t(`setupWizard.codexLogin.${codexLogin.status === "exchanging" ? "exchanging" : "pending"}`);
+    const actionLabel = active
+      ? t("setupWizard.codexLogin.waiting")
+      : t(connected ? "setupWizard.codexLogin.addAnother" : "setupWizard.codexLogin.action");
+    return `
+      <section class="setup-wizard-codex-login" aria-labelledby="setup-wizard-codex-title" aria-busy="${active ? "true" : "false"}">
+        <span class="setup-wizard-quick-form-heading">
+          <strong id="setup-wizard-codex-title">${escapeHtml(t("setupWizard.codexLogin.title"))}</strong>
+          <small>${escapeHtml(t("setupWizard.codexLogin.description"))}</small>
+        </span>
+        <span class="setup-wizard-quick-actions">
+          <button class="settings-action-btn primary" type="button" data-setup-codex-login ${busy || remoteOnly ? "disabled" : ""}>${escapeHtml(actionLabel)}</button>
+          ${active ? `<button class="ghost-btn" type="button" data-setup-codex-reopen>${escapeHtml(t("setupWizard.codexLogin.reopen"))}</button>
+            <button class="ghost-btn" type="button" data-setup-codex-cancel>${escapeHtml(t("setupWizard.codexLogin.cancel"))}</button>` : ""}
+        </span>
+        ${notice ? `<div class="setup-wizard-state-card ${codexLogin.status === "failed" || remoteOnly || (codexLogin.status === "completed" && !connected) ? "error" : connected && codexLogin.status === "completed" ? "ok" : ""}" role="status">${escapeHtml(notice)}</div>` : ""}
+      </section>
+    `;
+  }
+
   function renderQuickProviderForm() {
     const busy = quickProvider.busy;
     const typeOptions = setupQuickProviderTypes.map((type) => `
@@ -574,6 +657,7 @@ export function createSetupWizardController({
             <span>${escapeHtml(t("setupWizard.model.noModelsDescription"))}</span>
             <button class="ghost-btn setup-wizard-inline-refresh" type="button" data-setup-refresh>${escapeHtml(t("setupWizard.model.refreshModels"))}</button>
           </div>
+          ${renderCodexLoginCard()}
           ${renderQuickProviderForm()}
         </section>
       `;
@@ -599,6 +683,7 @@ export function createSetupWizardController({
           ${list}
         </div>
         ${selectedModel ? "" : `<div class="setup-wizard-state-card error" role="alert">${escapeHtml(t("setupWizard.model.required"))}</div>`}
+        ${renderCodexLoginCard()}
         ${quickProvider.open ? renderQuickProviderForm() : `
           <span class="setup-wizard-quick-actions">
             <button class="ghost-btn" type="button" data-setup-qp-toggle>${escapeHtml(t("setupWizard.model.quickAddToggle"))}</button>
@@ -865,6 +950,186 @@ export function createSetupWizardController({
     };
   }
 
+  function preopenCodexLoginWindow() {
+    try {
+      const popup = globalThis.open?.("about:blank", "autoto-codex-login", "popup,width=720,height=820");
+      if (popup) popup.opener = null;
+      return popup || null;
+    } catch {
+      return null;
+    }
+  }
+
+  function openCodexLoginAuthURL(authUrl, popup = null) {
+    if (!trustedCodexBrowserAuthURL(authUrl)) throw new Error(t("setupWizard.codexLogin.invalidURL"));
+    try {
+      if (popup && !popup.closed) {
+        popup.location.replace(authUrl);
+        return true;
+      }
+      return Boolean(globalThis.open?.(authUrl, "_blank", "noopener,noreferrer"));
+    } catch {
+      return false;
+    }
+  }
+
+  async function finishCodexSetupLogin(status, seq) {
+    const terminal = normalizeCodexBrowserLoginStatus(status);
+    if (seq !== codexLogin.seq) return;
+    Object.assign(codexLogin, terminal, { seq, popupBlocked: false });
+    if (terminal.status === "completed") {
+      const accountID = String(terminal.account?.id || "").trim();
+      if (accountID) {
+        try {
+          const requestSpec = codexAccountActionRequest("sync", accountID);
+          await request?.(requestSpec.path, requestSpec.options);
+        } catch {}
+      }
+      await refreshSetupWizard({ reloadStatus: false });
+      const codexModel = firstSetupCodexModel(models());
+      if (codexModel) {
+        selectedModel = codexModel.value;
+        showToast?.(t("setupWizard.codexLogin.success"), "success", { force: true });
+      } else {
+        showToast?.(t("setupWizard.codexLogin.modelsPending"), "error", { force: true });
+      }
+    }
+    if (currentStepID() === "model") renderSetupWizard();
+    else updateActions();
+  }
+
+  async function pollCodexSetupLogin(loginId, seq) {
+    for (;;) {
+      await new Promise((resolve) => globalThis.setTimeout(resolve, 1000));
+      if (seq !== codexLogin.seq || codexLogin.loginId !== loginId) return;
+      const requestSpec = codexBrowserLoginRequest("status", loginId);
+      let status;
+      try {
+        status = normalizeCodexBrowserLoginStatus(await request?.(requestSpec.path, requestSpec.options));
+      } catch (error) {
+        if (seq !== codexLogin.seq) return;
+        await finishCodexSetupLogin({ loginId, status: "failed", message: error?.message || t("setupWizard.codexLogin.unknown") }, seq);
+        return;
+      }
+      if (status.loginId && status.loginId !== loginId) return;
+      Object.assign(codexLogin, status, { loginId, seq, authUrl: status.authUrl || codexLogin.authUrl });
+      if (currentStepID() === "model") renderSetupWizard();
+      if (setupCodexLoginActive(status.status)) continue;
+      await finishCodexSetupLogin(status, seq);
+      return;
+    }
+  }
+
+  async function startCodexSetupLogin() {
+    if (remoteAccessContext(state) || finishing) return;
+    if (setupCodexLoginActive(codexLogin.status) && codexLogin.authUrl) {
+      try {
+        if (!openCodexLoginAuthURL(codexLogin.authUrl)) {
+          codexLogin.popupBlocked = true;
+          renderSetupWizard();
+        }
+      } catch (error) {
+        Object.assign(codexLogin, { status: "failed", message: error?.message || t("setupWizard.codexLogin.invalidURL"), popupBlocked: false });
+        renderSetupWizard();
+      }
+      return;
+    }
+    const popup = preopenCodexLoginWindow();
+    const seq = Number(codexLogin.seq || 0) + 1;
+    Object.assign(codexLogin, {
+      seq,
+      loginId: "",
+      status: "starting",
+      authUrl: "",
+      message: "",
+      account: null,
+      popupBlocked: !popup,
+    });
+    renderSetupWizard();
+    try {
+      const requestSpec = codexBrowserLoginRequest("start");
+      const status = normalizeCodexBrowserLoginStatus(await request?.(requestSpec.path, requestSpec.options));
+      if (seq !== codexLogin.seq) {
+        popup?.close?.();
+        if (status.loginId) {
+          const cancelSpec = codexBrowserLoginRequest("cancel", status.loginId);
+          Promise.resolve(request?.(cancelSpec.path, cancelSpec.options)).catch(() => {});
+        }
+        return;
+      }
+      if (!status.loginId) throw new Error(t("setupWizard.codexLogin.startFailed"));
+      const active = setupCodexLoginActive(status.status);
+      if (active && !trustedCodexBrowserAuthURL(status.authUrl)) throw new Error(t("setupWizard.codexLogin.invalidURL"));
+      const opened = active ? openCodexLoginAuthURL(status.authUrl, popup) : true;
+      if (!active) popup?.close?.();
+      Object.assign(codexLogin, status, {
+        seq,
+        loginId: status.loginId,
+        status: status.status || "pending",
+        popupBlocked: active && !opened,
+      });
+      renderSetupWizard();
+      if (!setupCodexLoginActive(codexLogin.status)) {
+        await finishCodexSetupLogin(codexLogin, seq);
+        return;
+      }
+      await pollCodexSetupLogin(codexLogin.loginId, seq);
+    } catch (error) {
+      popup?.close?.();
+      if (seq !== codexLogin.seq) return;
+      Object.assign(codexLogin, {
+        status: "failed",
+        message: error?.status === 403 ? t("setupWizard.codexLogin.localOnly") : (error?.message || t("setupWizard.codexLogin.unknown")),
+        popupBlocked: false,
+      });
+      renderSetupWizard();
+    }
+  }
+
+  async function cancelCodexSetupLogin() {
+    if (!codexLogin.loginId || !setupCodexLoginActive(codexLogin.status)) return;
+    const seq = Number(codexLogin.seq || 0) + 1;
+    const loginId = codexLogin.loginId;
+    codexLogin.seq = seq;
+    try {
+      const requestSpec = codexBrowserLoginRequest("cancel", loginId);
+      const status = normalizeCodexBrowserLoginStatus(await request?.(requestSpec.path, requestSpec.options));
+      Object.assign(codexLogin, status, { seq, status: status.status || "cancelled", popupBlocked: false });
+    } catch (error) {
+      Object.assign(codexLogin, { seq, status: "failed", message: error?.message || t("setupWizard.codexLogin.unknown"), popupBlocked: false });
+    }
+    renderSetupWizard();
+  }
+
+  function reopenCodexSetupLogin() {
+    if (!codexLogin.authUrl || !setupCodexLoginActive(codexLogin.status)) return;
+    try {
+      if (!openCodexLoginAuthURL(codexLogin.authUrl)) {
+        codexLogin.popupBlocked = true;
+        renderSetupWizard();
+      }
+    } catch (error) {
+      Object.assign(codexLogin, { status: "failed", message: error?.message || t("setupWizard.codexLogin.invalidURL"), popupBlocked: false });
+      renderSetupWizard();
+    }
+  }
+
+  async function discoverQuickProviderModels(draft) {
+    const response = await request?.("/api/providers/test", {
+      method: "POST",
+      body: JSON.stringify({
+        name: draft.name,
+        type: draft.type,
+        baseUrl: draft.baseUrl,
+        apiKey: draft.apiKey,
+        model: draft.model,
+        createOnly: true,
+      }),
+    });
+    const models = Array.isArray(response?.models) ? response.models.map(String).filter(Boolean) : [];
+    return { response, models };
+  }
+
   async function testQuickProvider() {
     const draft = quickProviderDraft();
     const issues = setupQuickProviderIssues(draft);
@@ -877,22 +1142,13 @@ export function createSetupWizardController({
     quickProvider.notice = null;
     renderSetupWizard();
     try {
-      const response = await request?.("/api/providers/test", {
-        method: "POST",
-        body: JSON.stringify({
-          name: draft.name,
-          type: draft.type,
-          baseUrl: draft.baseUrl,
-          apiKey: draft.apiKey,
-          model: draft.model,
-          createOnly: true,
-        }),
-      });
-      quickProvider.discoveredModels = Array.isArray(response?.models) ? response.models.map(String) : [];
-      if (response?.reachable && response?.configured !== false && !response?.errorCode) {
+      const { response, models: discovered } = await discoverQuickProviderModels(draft);
+      quickProvider.discoveredModels = discovered;
+      if (!quickProvider.model && discovered[0]) quickProvider.model = discovered[0];
+      if (setupQuickProviderTestSucceeded(response)) {
         quickProvider.notice = {
           kind: "ok",
-          text: t("setupWizard.quickProvider.testOk", { count: quickProvider.discoveredModels.length || Number(response?.modelCount) || 0 }),
+          text: t("setupWizard.quickProvider.testOk", { count: discovered.length || Number(response?.modelCount) || 0 }),
         };
       } else {
         quickProvider.notice = { kind: "error", text: String(response?.message || t("setupWizard.quickProvider.testFail")) };
@@ -917,7 +1173,26 @@ export function createSetupWizardController({
     quickProvider.notice = null;
     renderSetupWizard();
     try {
-      const model = draft.model || quickProvider.discoveredModels[0] || "";
+      let discovered = quickProvider.discoveredModels;
+      if (!draft.model && !discovered.length) {
+        const probed = await discoverQuickProviderModels(draft);
+        discovered = probed.models;
+        quickProvider.discoveredModels = discovered;
+        if (!setupQuickProviderTestSucceeded(probed.response)) {
+          quickProvider.busy = "";
+          quickProvider.notice = { kind: "error", text: String(probed.response?.message || t("setupWizard.quickProvider.testFail")) };
+          renderSetupWizard();
+          return;
+        }
+      }
+      const model = setupQuickProviderResolvedModel(draft, discovered);
+      if (model && !quickProvider.model) quickProvider.model = model;
+      if (!model) {
+        quickProvider.busy = "";
+        quickProvider.notice = { kind: "error", text: t("setupWizard.quickProvider.noModels") };
+        renderSetupWizard();
+        return;
+      }
       await request?.(`/api/providers/${encodeURIComponent(draft.name)}/config`, {
         method: "PUT",
         body: JSON.stringify({
@@ -1097,6 +1372,18 @@ export function createSetupWizardController({
         testQuickProvider().catch(() => {});
         return;
       }
+      if (event.target?.closest?.("[data-setup-codex-login]")) {
+        startCodexSetupLogin().catch(() => {});
+        return;
+      }
+      if (event.target?.closest?.("[data-setup-codex-cancel]")) {
+        cancelCodexSetupLogin().catch(() => {});
+        return;
+      }
+      if (event.target?.closest?.("[data-setup-codex-reopen]")) {
+        reopenCodexSetupLogin();
+        return;
+      }
       if (event.target?.closest?.("[data-setup-verify]")) {
         verifySelectedModel().catch(() => {});
         return;
@@ -1121,6 +1408,7 @@ export function createSetupWizardController({
       if (field) {
         const key = String(field.dataset.setupQpField || "");
         if (key in quickProvider) quickProvider[key] = String(field.value || "");
+        if (key === "apiKey" || key === "baseUrl" || key === "type") quickProvider.discoveredModels = [];
         if (key === "type") {
           pendingFocusSelector = '[data-setup-qp-field="type"]';
           renderSetupWizard();
