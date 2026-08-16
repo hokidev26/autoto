@@ -860,6 +860,7 @@ export function createChatRenderingController({
       plan.reviewVerdict || "",
       plan.id && state.planActionBusy?.[plan.id] ? "1" : "0",
       plan.id ? String(state.planFeedbackDrafts?.[plan.id] || "") : "",
+      plan.id && state.planCardCollapsed?.[plan.id] ? "0" : "1",
     ].join("\u0001");
   }
 
@@ -910,18 +911,10 @@ export function createChatRenderingController({
     return html;
   }
 
-  function renderPlanNoticeMessageHTML(message, index, kind) {
-    const presentation = chatMessagePresentation(message);
-    const timeHTML = presentation.timestampValue
-      ? `<time class="message-time" datetime="${escapeAttr(presentation.timestampValue)}" title="${escapeAttr(formatTimestamp(presentation.timestampValue))}">${escapeHtml(formatTimestamp(presentation.timestampValue, { timeOnly: true }))}</time>`
-      : "";
+  function renderPlanNoticeMessageHTML(message, kind) {
     return `
       <div class="plan-system-notice chat-flow-item chat-flow-left" data-chat-alignment="left" data-plan-notice="${escapeAttr(kind)}" data-message-id="${escapeAttr(message.id || "")}">
         ${renderPlanSystemNoticeHTML({ kind })}
-        <div class="plan-system-notice-actions">
-          <button class="message-copy-btn" type="button" data-copy-message="${escapeAttr(String(index))}" title="${escapeAttr(cr("message.copyTitle"))}" aria-label="${escapeAttr(cr("message.copyTitle"))}">${messageCopyGlyph()}</button>
-          ${timeHTML}
-        </div>
       </div>
     `;
   }
@@ -934,10 +927,10 @@ export function createChatRenderingController({
     const isAssistant = presentation.normalizedRole === "assistant";
     const transcriptText = transcriptMessageText(message);
     if (!editing && usesProfileIdentity && isApprovedPlanExecuteMessage(transcriptText)) {
-      return renderPlanNoticeMessageHTML(message, index, "execute");
+      return renderPlanNoticeMessageHTML(message, "execute");
     }
     if (!editing && usesProfileIdentity && isPlanReflectionMessage(transcriptText)) {
-      return renderPlanNoticeMessageHTML(message, index, "reflect");
+      return renderPlanNoticeMessageHTML(message, "reflect");
     }
     const plan = isAssistant && !editing ? planForMessage(message, state) : null;
     const avatarHTML = usesProfileIdentity
@@ -963,15 +956,17 @@ export function createChatRenderingController({
     const senderHTML = isAssistant
       ? `<div class="message-role sr-only">Autoto</div>`
       : `<div class="message-meta"><span class="message-avatar" aria-hidden="true"${profileAvatarAttr}>${avatarHTML}</span><div class="message-role">${roleHTML}</div></div>`;
-    return `
-      <div class="message ${presentation.roleClass}${editing ? " message-editing" : ""}${plan ? " plan-message" : ""} chat-message chat-flow-item chat-flow-${presentation.alignment}" data-chat-alignment="${presentation.alignment}" data-message-role="${escapeAttr(presentation.normalizedRole)}" data-message-id="${escapeAttr(message.id || "")}">
+    const head = plan ? "" : `
         <div class="message-head">
           ${senderHTML}
           <div class="message-head-actions">${actions}</div>
           ${timeHTML}
-        </div>
+        </div>`;
+    return `
+      <div class="message ${presentation.roleClass}${editing ? " message-editing" : ""}${plan ? " plan-message" : ""} chat-message chat-flow-item chat-flow-${presentation.alignment}" data-chat-alignment="${presentation.alignment}" data-message-role="${escapeAttr(presentation.normalizedRole)}" data-message-id="${escapeAttr(message.id || "")}">
+        ${head}
         ${body}
-        ${isAssistant ? renderPerformanceHTML(message.turnUsage) : ""}
+        ${isAssistant && !plan ? renderPerformanceHTML(message.turnUsage) : ""}
       </div>
     `;
   }

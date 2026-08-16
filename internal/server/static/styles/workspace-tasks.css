@@ -1002,7 +1002,8 @@ body.white-shell.theme-light.theme-dark .navigation-boundary-empty button {
 
 .tool-activity-summary::-webkit-details-marker { display: none; }
 .tool-activity-summary .disclosure-chevron,
-.tool-activity-details > summary .disclosure-chevron {
+.tool-activity-details > summary .disclosure-chevron,
+.plan-card-head .disclosure-chevron {
   width: 13px;
   height: 13px;
   flex: 0 0 13px;
@@ -1014,7 +1015,8 @@ body.white-shell.theme-light.theme-dark .navigation-boundary-empty button {
   transition: transform .26s cubic-bezier(.34, 1.56, .64, 1);
 }
 .tool-activity-group[open] > .tool-activity-summary .disclosure-chevron,
-.tool-activity-details[open] > summary .disclosure-chevron {
+.tool-activity-details[open] > summary .disclosure-chevron,
+.plan-card-disclosure[open] > .plan-card-head .disclosure-chevron {
   transform: rotate(90deg);
 }
 

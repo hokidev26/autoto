@@ -798,6 +798,14 @@ body.white-shell.theme-light.theme-dark .run-summary-card.status-warn { border-c
 body.white-shell.theme-light.theme-dark .run-summary-card.status-error { border-color: color-mix(in srgb, var(--danger) 40%, var(--ws-border)); background: linear-gradient(180deg, color-mix(in srgb, var(--danger) 16%, var(--ws-card)), var(--ws-card)); }
 body.white-shell.theme-light .plan-card-review { border-color: var(--ws-border); background: var(--ws-canvas); }
 body.white-shell.theme-light .plan-card-stale { border-color: #fed7aa; background: #fff7ed; color: #9a3412; }
+body.white-shell.theme-light .plan-card-feedback textarea {
+  border-color: var(--ws-border);
+  background: var(--ws-input);
+  color: var(--ws-text);
+}
+body.white-shell.theme-light .plan-card-feedback textarea::placeholder {
+  color: var(--ws-muted);
+}
 
 body.white-shell.theme-light .run-summary-card.status-completed {
   border-color: #bbf7d0;

@@ -1355,6 +1355,11 @@ test("plan cards render pending review data safely and react to live plan events
   // reviewer can say what the next revision must change.
   assert.match(html, /class="plan-card-feedback"/);
   assert.match(html, /data-plan-feedback=/);
+  assert.match(html, /class="plan-card-disclosure"/);
+  assert.match(html, /data-plan-disclosure=/);
+  assert.match(html, /<summary class="plan-card-head">/);
+  assert.match(html, /plan-card-disclosure" open/);
+  assert.match(html, /class="disclosure-chevron"/);
 
   // Executed plans cannot be replanned (the backend rejects the transition),
   // so the card must offer neither the button nor the notes box.
@@ -1391,6 +1396,30 @@ test("plan cards render pending review data safely and react to live plan events
   } finally {
     globalThis.document = previousDocument;
   }
+});
+
+test("plan cards fold behind the title while approve actions stay on the card", () => {
+  const rawPlan = {
+    id: "plan-fold",
+    goal: "Fold me",
+    status: "pending_approval",
+    steps: ["one"],
+    risks: [],
+  };
+  const open = renderSnapshot([], { activePlan: rawPlan, pendingPlanApproval: rawPlan });
+  assert.match(open.html, /plan-card-disclosure" open/);
+  assert.match(open.html, /data-plan-action="approve"/);
+  assert.match(open.html, /class="plan-card-feedback"/);
+
+  const folded = renderSnapshot([], {
+    activePlan: rawPlan,
+    pendingPlanApproval: rawPlan,
+    planCardCollapsed: { "plan-fold": true },
+  });
+  assert.match(folded.html, /class="plan-card-disclosure"/);
+  assert.doesNotMatch(folded.html, /plan-card-disclosure" open/);
+  assert.match(folded.html, /data-plan-action="approve"/);
+  assert.match(folded.html, /class="plan-card-feedback"/);
 });
 
 test("unavailable plan review is localized and does not show the English model error", () => {
@@ -1539,6 +1568,7 @@ test("assistant plan JSON renders a durable plan card instead of raw JSON", () =
   assert.doesNotMatch(html, /"assumptions"/);
   assert.doesNotMatch(html, /workspace is git/);
   assert.equal((html.match(/data-plan-card=/g) || []).length, 1, "inline card must not also duplicate at the tail");
+  assert.doesNotMatch(html, /message-head-actions|class="message-time"/);
   assert.match(state.messageCopyTexts[0], /Inspect the repo/);
   assert.match(state.messageCopyTexts[0], /read ARCHITECTURE\.md/);
   assert.doesNotMatch(state.messageCopyTexts[0], /assumptions/);
@@ -1604,8 +1634,7 @@ test("approved-plan execute and reflection prompts compact to system notices", (
   assert.doesNotMatch(html, /Approved plan JSON/);
   assert.doesNotMatch(html, /PLAN_REFLECTION_REPLAN/);
   assert.doesNotMatch(html, /data-correct-message/);
-  assert.match(html, /data-copy-message="0"/);
-  assert.match(html, /data-copy-message="1"/);
+  assert.doesNotMatch(html, /data-copy-message|plan-system-notice-actions|class="message-time"/);
   assert.equal(state.messageCopyTexts[0], chatRenderingExtraText("plan.executeNotice"));
   assert.equal(state.messageCopyTexts[1], chatRenderingExtraText("plan.reflectNotice"));
 });

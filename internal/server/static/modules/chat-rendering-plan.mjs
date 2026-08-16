@@ -1,5 +1,6 @@
 import { escapeAttr, escapeHtml } from "./dom.mjs";
 import { t as cr } from "./messages-chat-rendering-extra.mjs";
+import { disclosureChevronMarkup } from "./chat-rendering-tools-glyphs.mjs";
 
 const PLAN_DRAFT_KEYS = Object.freeze(["goal", "assumptions", "steps", "risks", "tests", "rollback"]);
 const APPROVED_PLAN_EXECUTE_PREFIX = "Execute the approved plan exactly as reviewed.";
@@ -292,28 +293,37 @@ export function createChatRenderingPlanCards({
       </section>
     ` : "";
     const stale = plan.staleReason ? `<div class="plan-card-stale" role="status"><strong>${escapeHtml(cr("plan.staleReason"))}</strong><span>${escapeHtml(plan.staleReason)}</span></div>` : "";
+    const collapsed = Boolean(plan.id && state.planCardCollapsed?.[plan.id]);
+    const actions = [
+      pending ? `<button class="ghost-btn mini" type="button" data-plan-action="approve" data-plan-id="${escapeAttr(plan.id)}" ${busy ? "disabled" : ""}>${escapeHtml(cr("plan.approve"))}</button>` : "",
+      executable ? `<button class="ghost-btn mini primary" type="button" data-plan-action="execute" data-plan-id="${escapeAttr(plan.id)}" ${busy ? "disabled" : ""}>${escapeHtml(busy ? cr("plan.working") : cr("plan.execute"))}</button>` : "",
+      cancellable ? `<button class="ghost-btn mini danger" type="button" data-plan-action="cancel" data-plan-id="${escapeAttr(plan.id)}" ${busy ? "disabled" : ""}>${escapeHtml(cr("plan.cancel"))}</button>` : "",
+      replannable ? `<button class="ghost-btn mini" type="button" data-plan-action="replan" data-plan-id="${escapeAttr(plan.id)}" ${busy ? "disabled" : ""}>${escapeHtml(cr("plan.replan"))}</button>` : "",
+    ].filter(Boolean).join("");
     return `
       <section class="plan-card chat-flow-item chat-flow-left chat-report-card ${escapeAttr(planStatusClass(status))}" data-chat-alignment="left" data-chat-report="agent-plan" data-plan-card="${escapeAttr(plan.id)}">
-        <div class="plan-card-head">
-          <div>
-            <div class="plan-card-kicker">${escapeHtml(cr("plan.kicker"))}</div>
-            <div class="plan-card-title">${escapeHtml(title)}</div>
+        <details class="plan-card-disclosure"${collapsed ? "" : " open"} data-plan-disclosure="${escapeAttr(plan.id)}">
+          <summary class="plan-card-head">
+            <div class="plan-card-head-copy">
+              ${disclosureChevronMarkup()}
+              <div>
+                <div class="plan-card-kicker">${escapeHtml(cr("plan.kicker"))}</div>
+                <div class="plan-card-title">${escapeHtml(title)}</div>
+              </div>
+            </div>
+            <span class="plan-card-status">${escapeHtml(planStatusLabel(status))}</span>
+          </summary>
+          <div class="plan-card-body">
+            <section class="plan-card-section plan-card-goal"><h4>${escapeHtml(cr("plan.goal"))}</h4><p>${escapeHtml(title)}</p></section>
+            ${steps}${risks}${review}${stale}
+            ${replannable ? `
+            <div class="plan-card-feedback">
+              <label for="plan-feedback-${escapeAttr(plan.id)}">${escapeHtml(cr("plan.feedbackLabel"))}</label>
+              <textarea id="plan-feedback-${escapeAttr(plan.id)}" data-plan-feedback="${escapeAttr(plan.id)}" rows="2" placeholder="${escapeAttr(cr("plan.feedbackPlaceholder"))}" ${busy ? "disabled" : ""}>${escapeHtml(feedbackDraft)}</textarea>
+            </div>` : ""}
           </div>
-          <span class="plan-card-status">${escapeHtml(planStatusLabel(status))}</span>
-        </div>
-        <section class="plan-card-section plan-card-goal"><h4>${escapeHtml(cr("plan.goal"))}</h4><p>${escapeHtml(title)}</p></section>
-        ${steps}${risks}${review}${stale}
-        ${replannable ? `
-        <div class="plan-card-feedback">
-          <label for="plan-feedback-${escapeAttr(plan.id)}">${escapeHtml(cr("plan.feedbackLabel"))}</label>
-          <textarea id="plan-feedback-${escapeAttr(plan.id)}" data-plan-feedback="${escapeAttr(plan.id)}" rows="2" placeholder="${escapeAttr(cr("plan.feedbackPlaceholder"))}" ${busy ? "disabled" : ""}>${escapeHtml(feedbackDraft)}</textarea>
-        </div>` : ""}
-        <div class="plan-card-actions">
-          ${pending ? `<button class="ghost-btn mini" type="button" data-plan-action="approve" data-plan-id="${escapeAttr(plan.id)}" ${busy ? "disabled" : ""}>${escapeHtml(cr("plan.approve"))}</button>` : ""}
-          ${executable ? `<button class="ghost-btn mini primary" type="button" data-plan-action="execute" data-plan-id="${escapeAttr(plan.id)}" ${busy ? "disabled" : ""}>${escapeHtml(busy ? cr("plan.working") : cr("plan.execute"))}</button>` : ""}
-          ${cancellable ? `<button class="ghost-btn mini danger" type="button" data-plan-action="cancel" data-plan-id="${escapeAttr(plan.id)}" ${busy ? "disabled" : ""}>${escapeHtml(cr("plan.cancel"))}</button>` : ""}
-          ${replannable ? `<button class="ghost-btn mini" type="button" data-plan-action="replan" data-plan-id="${escapeAttr(plan.id)}" ${busy ? "disabled" : ""}>${escapeHtml(cr("plan.replan"))}</button>` : ""}
-        </div>
+        </details>
+        ${actions ? `<div class="plan-card-actions">${actions}</div>` : ""}
       </section>
     `;
   }
@@ -442,6 +452,15 @@ export function createChatRenderingPlanCards({
         const planId = input.dataset.planFeedback || "";
         if (!planId) return;
         state.planFeedbackDrafts = { ...(state.planFeedbackDrafts || {}), [planId]: input.value };
+      });
+    });
+    // Native <details> already shows the fold. Persist it so a later plan
+    // event does not force the card back open after the reader collapsed it.
+    root.querySelectorAll("[data-plan-disclosure]").forEach((details) => {
+      details.addEventListener("toggle", () => {
+        const planId = details.dataset.planDisclosure || "";
+        if (!planId) return;
+        state.planCardCollapsed = { ...(state.planCardCollapsed || {}), [planId]: !details.open };
       });
     });
   }

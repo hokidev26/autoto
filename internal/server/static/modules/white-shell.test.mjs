@@ -955,6 +955,9 @@ test("desktop conversation layout follows the compact resizable geometry", async
   assert.match(styles, /@media \(prefers-reduced-motion: reduce\)\s*\{[\s\S]*?\.navigation-disclosure svg\s*\{\s*transition:\s*none/);
   assert.match(styles, /\.tool-activity-summary \.disclosure-chevron,[\s\S]*?stroke-width:\s*1\.5/);
   assert.match(styles, /\.tool-activity-group\[open\] > \.tool-activity-summary \.disclosure-chevron,[\s\S]*?transform:\s*rotate\(90deg\)/);
+  assert.match(styles, /\.plan-card-head \.disclosure-chevron/);
+  assert.match(styles, /body\.white-shell\.theme-light \.plan-card-feedback textarea\s*\{[\s\S]*?background:\s*var\(--ws-input\)/);
+  assert.doesNotMatch(styles, /\.plan-card-feedback textarea \{[^}]*rgba\(17, 19, 24/);
   assert.doesNotMatch(styles, /\.tool-activity-summary::before \{ width: 6px/);
   // The >=1280px rule pins the search field open; docked mode hands it back to the
   // magnifier so it costs no row until asked for.
