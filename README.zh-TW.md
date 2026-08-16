@@ -239,7 +239,7 @@ AGENT_SERVER_API_KEY
 - 敏感路徑硬阻擋：`Read`、`Write`、`Edit` 直接拒絕受保護檔案，`Glob` 與 `Grep` 跳過不列出。範圍含 `.env*`、憑證／密鑰檔、通用私鑰材料、`.git` 內部
 - Bash 危險反思：可設強度（off / loose / medium / strict）的 LLM 安全閘，執行前用當前對話模型審查高風險命令，按結構化判定放行或阻擋
 - 遞迴刪除、磁碟寫入、權限放寬、下載直接灌進 shell 等不可逆操作屬硬阻擋層級，任何權限模式、allow rule、核准都不能執行
-- Git 工作區限定在 status、diff、log、指定路徑 commit，不會自動 push、amend、reset、clean、force、`git add -A`
+- Git 工作區限定在 status、diff、log、指定路徑 commit，不會自動 push、amend、reset、clean、force、`git add -A`。Git 面板會畫目前分支的提交時間線（泳道圖與 ref 標籤），該視圖是唯讀的。
 
 ### 排程與自動化
 

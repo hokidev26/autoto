@@ -30,6 +30,7 @@ const (
 	gitCommitMessageMaxBytes   = 10 << 10
 	gitCommitMaxPaths          = 200
 	gitRollbackPreviewMaxPaths = 20
+	gitLogPrettyFormat         = "%H%x00%h%x00%P%x00%an%x00%ae%x00%aI%x00%d%x00%s%x00%x1e"
 )
 
 type gitStatusResponse struct {
@@ -132,12 +133,19 @@ type gitCommitResponse struct {
 }
 
 type gitCommit struct {
-	Hash        string `json:"hash"`
-	ShortHash   string `json:"shortHash"`
-	AuthorName  string `json:"authorName"`
-	AuthorEmail string `json:"authorEmail"`
-	Date        string `json:"date"`
-	Subject     string `json:"subject"`
+	Hash        string         `json:"hash"`
+	ShortHash   string         `json:"shortHash"`
+	Parents     []string       `json:"parents,omitempty"`
+	Refs        []gitCommitRef `json:"refs,omitempty"`
+	AuthorName  string         `json:"authorName"`
+	AuthorEmail string         `json:"authorEmail"`
+	Date        string         `json:"date"`
+	Subject     string         `json:"subject"`
+}
+
+type gitCommitRef struct {
+	Kind string `json:"kind"`
+	Name string `json:"name"`
 }
 
 type gitCommandError struct {
@@ -908,17 +916,114 @@ func parseGitLog(out string) []gitCommit {
 	records := strings.Split(out, "\x1e")
 	commits := make([]gitCommit, 0, len(records))
 	for _, record := range records {
-		record = strings.Trim(record, "\x00\n\r ")
+		record = strings.Trim(record, "\n\r ")
 		if record == "" {
 			continue
 		}
 		fields := strings.Split(record, "\x00")
+		if len(fields) > 0 && fields[len(fields)-1] == "" {
+			fields = fields[:len(fields)-1]
+		}
+		if len(fields) >= 8 {
+			commits = append(commits, gitCommit{
+				Hash:        fields[0],
+				ShortHash:   fields[1],
+				Parents:     parseGitParents(fields[2]),
+				AuthorName:  fields[3],
+				AuthorEmail: fields[4],
+				Date:        fields[5],
+				Refs:        parseGitRefs(fields[6]),
+				Subject:     fields[7],
+			})
+			continue
+		}
 		if len(fields) < 6 {
 			continue
 		}
 		commits = append(commits, gitCommit{Hash: fields[0], ShortHash: fields[1], AuthorName: fields[2], AuthorEmail: fields[3], Date: fields[4], Subject: fields[5]})
 	}
 	return commits
+}
+
+func parseGitParents(raw string) []string {
+	fields := strings.Fields(strings.TrimSpace(raw))
+	if len(fields) == 0 {
+		return nil
+	}
+	parents := make([]string, 0, len(fields))
+	for _, field := range fields {
+		if !isGitObjectID(field) {
+			continue
+		}
+		parents = append(parents, field)
+	}
+	if len(parents) == 0 {
+		return nil
+	}
+	return parents
+}
+
+func isGitObjectID(value string) bool {
+	if len(value) < 7 || len(value) > 64 {
+		return false
+	}
+	for _, r := range value {
+		if r >= '0' && r <= '9' || r >= 'a' && r <= 'f' || r >= 'A' && r <= 'F' {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
+func parseGitRefs(raw string) []gitCommitRef {
+	raw = strings.TrimSpace(raw)
+	raw = strings.TrimPrefix(raw, "(")
+	raw = strings.TrimSuffix(raw, ")")
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil
+	}
+	refs := make([]gitCommitRef, 0, 4)
+	for _, part := range strings.Split(raw, ",") {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		if strings.HasPrefix(part, "HEAD -> ") {
+			refs = append(refs, gitCommitRef{Kind: "head", Name: "HEAD"})
+			refs = append(refs, parseGitRefName(strings.TrimSpace(strings.TrimPrefix(part, "HEAD -> ")))...)
+			continue
+		}
+		if part == "HEAD" {
+			refs = append(refs, gitCommitRef{Kind: "head", Name: "HEAD"})
+			continue
+		}
+		refs = append(refs, parseGitRefName(part)...)
+	}
+	if len(refs) == 0 {
+		return nil
+	}
+	return refs
+}
+
+func parseGitRefName(name string) []gitCommitRef {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return nil
+	}
+	switch {
+	case strings.HasPrefix(name, "refs/heads/"):
+		return []gitCommitRef{{Kind: "branch", Name: strings.TrimPrefix(name, "refs/heads/")}}
+	case strings.HasPrefix(name, "refs/remotes/"):
+		return []gitCommitRef{{Kind: "remote", Name: strings.TrimPrefix(name, "refs/remotes/")}}
+	case strings.HasPrefix(name, "refs/tags/"):
+		return []gitCommitRef{{Kind: "tag", Name: strings.TrimPrefix(name, "refs/tags/")}}
+	case strings.HasPrefix(name, "tag: "):
+		return []gitCommitRef{{Kind: "tag", Name: strings.TrimSpace(strings.TrimPrefix(name, "tag: "))}}
+	default:
+		return []gitCommitRef{{Kind: "branch", Name: name}}
+	}
 }
 
 func boundedInt(raw string, fallback, minValue, maxValue int) int {

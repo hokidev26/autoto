@@ -1163,7 +1163,8 @@ body.white-shell.theme-light .git-toolbar,
 body.white-shell.theme-light .git-file-list,
 body.white-shell.theme-light .git-diff-panel,
 body.white-shell.theme-light .git-log-panel,
-body.white-shell.theme-light .git-log-row {
+body.white-shell.theme-light .git-log-row,
+body.white-shell.theme-light .git-timeline-row {
   border-color: var(--ws-border);
   background: var(--ws-canvas);
   color: var(--ws-text);
@@ -1183,7 +1184,8 @@ body.white-shell.theme-light .backend-card.confirm-delete {
 
 body.white-shell.theme-light .backend-card-title,
 body.white-shell.theme-light .git-file-row,
-body.white-shell.theme-light .git-log-row span {
+body.white-shell.theme-light .git-log-row span,
+body.white-shell.theme-light .git-timeline-subject {
   color: var(--ws-text);
 }
 

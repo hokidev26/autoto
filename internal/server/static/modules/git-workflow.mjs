@@ -3,6 +3,7 @@ import { formatNumber, formatTimestamp } from "./formatters.mjs";
 import { confirm as platformConfirm } from "./platform.mjs";
 import { api } from "./runtime.mjs";
 import { gitExtraT as t } from "./messages-git-extra.mjs";
+import { GIT_LOG_LIMIT, renderGitTimeline } from "./git-timeline.mjs";
 // The run-checkpoint/rollback copy already lives in the run.* namespace of
 // this pack (it used to back the chat-side run review card); reuse it here
 // instead of forking a parallel set of git-extra keys.
@@ -215,6 +216,7 @@ export function createGitWorkflowController({
     state.gitStatus = null;
     state.gitDiff = null;
     state.gitLog = null;
+    state.gitTimelineOpenHash = "";
     state.gitError = "";
     state.gitSelectedPath = "";
     state.gitCommitMessage = "";
@@ -427,7 +429,7 @@ export function createGitWorkflowController({
   async function loadGitLog() {
     const agentId = state.agent?.id;
     if (!agentId) return null;
-    const log = await api(`/api/agents/${agentId}/git/log?limit=30`);
+    const log = await api(`/api/agents/${agentId}/git/log?limit=${GIT_LOG_LIMIT}`);
     if (state.agent?.id !== agentId) return null;
     state.gitLog = log;
     state.gitError = "";
@@ -719,8 +721,8 @@ export function createGitWorkflowController({
           ${renderWorklineMergePanel()}
           ${renderGitCommitPanel(files, selectedCommitPaths)}
           <div class="git-log-panel">
-            <div class="git-panel-title">${escapeHtml(t("recentCommits"))}</div>
-            ${renderGitLog(log?.commits || [])}
+            <div class="git-panel-title">${escapeHtml(t("timelineTitle"))}<span>${escapeHtml(t("timelineHint"))}</span></div>
+            ${renderGitLog(log?.commits || [], status, Boolean(log?.truncated))}
           </div>
         </aside>
       </div>
@@ -945,15 +947,15 @@ export function createGitWorkflowController({
   }
 
 
-  function renderGitLog(commits) {
-    if (!Array.isArray(commits) || !commits.length) return `<div class="settings-empty-card compact">${escapeHtml(t("noHistory"))}</div>`;
-    return `<div class="git-log-list">${commits.map((commit) => `
-      <div class="git-log-row">
-        <strong>${escapeHtml(commit.shortHash || "")}</strong>
-        <span>${escapeHtml(commit.subject || "")}</span>
-        <small>${escapeHtml(formatTimestamp(commit.date))}</small>
-      </div>
-    `).join("")}</div>`;
+  function renderGitLog(commits, status, truncated = false) {
+    return renderGitTimeline(commits, {
+      dirty: status?.clean === false,
+      head: status?.head || "",
+      truncated,
+      openHash: state.gitTimelineOpenHash || "",
+      t,
+      formatTimestamp,
+    });
   }
 
   function bindGitModalActions() {
@@ -986,6 +988,13 @@ export function createGitWorkflowController({
         state.gitSelectedPath = node.dataset.gitFile || "";
         renderGitModal();
         loadGitDiff({ path: state.gitSelectedPath }).catch(showError);
+      });
+    });
+    document.querySelectorAll("[data-git-commit]").forEach((node) => {
+      node.addEventListener("click", () => {
+        const hash = node.dataset.gitCommit || "";
+        state.gitTimelineOpenHash = state.gitTimelineOpenHash === hash ? "" : hash;
+        renderGitModal();
       });
     });
     bindGitDiffVirtualScroll();

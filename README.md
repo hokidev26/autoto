@@ -255,7 +255,7 @@ The per-item list below is deliberately exhaustive and reads as a specification 
 - Plan review is isolated and tool-free. A `needs_human` verdict can start one plan-mode retry when plan reflection is on for that conversation (the default); turning it off waits for a human instead. `pass` still cannot approve or execute. If the dedicated review model cannot be resolved or is not configured, review uses the active conversation model. Timeouts and malformed reviewer output stay unavailable and fail closed to the human.
 - Bash danger reflection: tunable LLM safety gate (off / loose / medium / strict) that uses the active conversation model to review high-risk commands before execution
 - Recursive deletes, raw disk writes, permission weakening, and piping a download straight into a shell are classified as irreversible and execute-never, regardless of permission mode, allow rule, or approval
-- Git workspace APIs are limited to status, diff, log, and explicit-path commits. Autoto does not automatically push, amend, reset, clean, force, or `git add -A`
+- Git workspace APIs are limited to status, diff, log, and explicit-path commits. Autoto does not automatically push, amend, reset, clean, force, or `git add -A`. The Git panel shows a commit timeline (lane graph plus ref pills) for the current branch; that view is read-only.
 
 ### Schedules and automation
 

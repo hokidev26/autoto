@@ -170,6 +170,104 @@ func TestGitLogRouteReturnsCommitsAndBoundsLimit(t *testing.T) {
 	if len(body.Commits) != 1 || body.Commits[0].Subject != "initial subject" || body.Commits[0].ShortHash == "" {
 		t.Fatalf("unexpected log body: %+v", body)
 	}
+	if len(body.Commits[0].Parents) != 0 {
+		t.Fatalf("root commit should have no parents, got %+v", body.Commits[0].Parents)
+	}
+	if !gitLogHasRef(body.Commits[0].Refs, "head", "HEAD") || !gitLogHasRef(body.Commits[0].Refs, "branch", "main") {
+		t.Fatalf("expected HEAD and main refs, got %+v", body.Commits[0].Refs)
+	}
+}
+
+func TestParseGitLogParentsAndDecorations(t *testing.T) {
+	legacy := "abc1234\x00abc1234\x00Ada\x00ada@example.com\x002026-08-13T00:00:00Z\x00legacy subject\x00\x1e"
+	legacyCommits := parseGitLog(legacy)
+	if len(legacyCommits) != 1 || legacyCommits[0].Subject != "legacy subject" || legacyCommits[0].Parents != nil {
+		t.Fatalf("legacy six-field records must still parse, got %+v", legacyCommits)
+	}
+
+	current := strings.Join([]string{
+		"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		"aaaaaaa",
+		"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb cccccccccccccccccccccccccccccccccccccccc",
+		"Ada",
+		"ada@example.com",
+		"2026-08-13T12:00:00Z",
+		" (HEAD -> refs/heads/main, refs/remotes/origin/main, refs/tags/v1)",
+		"",
+		"",
+	}, "\x00") + "\x1e"
+	emptySubject := parseGitLog(current)
+	if len(emptySubject) != 1 || emptySubject[0].Subject != "" || emptySubject[0].AuthorName != "Ada" {
+		t.Fatalf("empty subjects must survive the record terminator, got %+v", emptySubject)
+	}
+	current = strings.Join([]string{
+		"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		"aaaaaaa",
+		"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb cccccccccccccccccccccccccccccccccccccccc",
+		"Ada",
+		"ada@example.com",
+		"2026-08-13T12:00:00Z",
+		" (HEAD -> refs/heads/main, refs/remotes/origin/main, refs/tags/v1)",
+		"merge feature",
+		"",
+	}, "\x00") + "\x1e"
+	commits := parseGitLog(current)
+	if len(commits) != 1 {
+		t.Fatalf("expected 1 commit, got %+v", commits)
+	}
+	got := commits[0]
+	if got.Subject != "merge feature" || len(got.Parents) != 2 {
+		t.Fatalf("unexpected commit: %+v", got)
+	}
+	if got.Parents[0] != "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" || got.Parents[1] != "cccccccccccccccccccccccccccccccccccccccc" {
+		t.Fatalf("unexpected parents: %+v", got.Parents)
+	}
+	if !gitLogHasRef(got.Refs, "head", "HEAD") || !gitLogHasRef(got.Refs, "branch", "main") || !gitLogHasRef(got.Refs, "remote", "origin/main") || !gitLogHasRef(got.Refs, "tag", "v1") {
+		t.Fatalf("unexpected refs: %+v", got.Refs)
+	}
+}
+
+func TestGitLogRouteReturnsMergeParents(t *testing.T) {
+	ctx := context.Background()
+	repo := newGitTestRepo(t)
+	writeGitTestFile(t, repo, "tracked.txt", "one\n")
+	runGitTestCommand(t, repo, "add", "tracked.txt")
+	runGitTestCommand(t, repo, "commit", "-m", "initial")
+	runGitTestCommand(t, repo, "checkout", "-b", "feature")
+	writeGitTestFile(t, repo, "feature.txt", "side\n")
+	runGitTestCommand(t, repo, "add", "feature.txt")
+	runGitTestCommand(t, repo, "commit", "-m", "feature work")
+	runGitTestCommand(t, repo, "checkout", "main")
+	writeGitTestFile(t, repo, "main.txt", "mainline\n")
+	runGitTestCommand(t, repo, "add", "main.txt")
+	runGitTestCommand(t, repo, "commit", "-m", "mainline work")
+	runGitTestCommand(t, repo, "-c", "commit.gpgsign=false", "merge", "--no-ff", "--no-edit", "-m", "merge feature", "feature")
+	store, agent := newGitRouteStore(t, ctx, repo)
+	defer store.Close()
+
+	app := New(config.Config{}, store, nil, nil)
+	recorder := httptest.NewRecorder()
+	request := newTestRequest(http.MethodGet, "/api/agents/"+agent.ID+"/git/log?limit=10", nil)
+	app.Routes().ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", recorder.Code, recorder.Body.String())
+	}
+	var body gitLogResponse
+	if err := json.NewDecoder(recorder.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	if len(body.Commits) < 4 || body.Commits[0].Subject != "merge feature" || len(body.Commits[0].Parents) != 2 {
+		t.Fatalf("expected a merge commit with two parents at HEAD, got %+v", body.Commits)
+	}
+}
+
+func gitLogHasRef(refs []gitCommitRef, kind, name string) bool {
+	for _, ref := range refs {
+		if ref.Kind == kind && ref.Name == name {
+			return true
+		}
+	}
+	return false
 }
 
 func TestGitCommitRouteCommitsSelectedPaths(t *testing.T) {

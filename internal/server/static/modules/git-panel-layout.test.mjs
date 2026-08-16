@@ -37,7 +37,7 @@ test("the action cards live in the side column", () => {
     "renderRunCheckpointSection()",
     "renderWorklineMergePanel()",
     "renderGitCommitPanel(files, selectedCommitPaths)",
-    "renderGitLog(log?.commits || [])",
+    "renderGitLog(log?.commits || [], status, Boolean(log?.truncated))",
   ]) {
     assert.ok(side.includes(call), `${call} belongs in the side column`);
   }

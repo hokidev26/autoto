@@ -3160,6 +3160,106 @@ body.white-shell.theme-light.theme-dark .git-merge-panel {
 .git-log-row strong { color: #4f46e5; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
 .git-log-row span { color: #0f172a; font-weight: 750; line-height: 1.35; }
 .git-log-row small { color: #64748b; }
+.git-timeline { display: grid; gap: 0; }
+.git-timeline-truncated {
+  color: var(--ws-muted);
+  font-size: 11px;
+  font-weight: 700;
+  margin: 0 0 8px;
+}
+.git-timeline-row {
+  width: 100%;
+  border: 0;
+  border-bottom: 1px solid var(--ws-border);
+  background: transparent;
+  color: inherit;
+  border-radius: 0;
+  padding: 2px 4px;
+  display: grid;
+  grid-template-columns: minmax(28px, auto) minmax(0, 1fr);
+  gap: 8px;
+  align-items: center;
+  text-align: left;
+  cursor: pointer;
+}
+.git-timeline-row:hover,
+.git-timeline-row.is-open {
+  background: var(--ws-primary-soft);
+}
+.git-timeline-row.is-head {
+  background: color-mix(in srgb, var(--ws-primary) 12%, transparent);
+}
+.git-timeline-row.is-uncommitted .git-timeline-subject {
+  color: var(--ws-muted);
+  font-weight: 700;
+  font-style: italic;
+}
+.git-timeline-lanes {
+  display: block;
+  overflow: visible;
+}
+.git-timeline-lanes line,
+.git-timeline-lanes path {
+  fill: none;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.git-timeline-meta { display: grid; gap: 2px; min-width: 0; }
+.git-timeline-headline {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  min-width: 0;
+}
+.git-timeline-headline strong {
+  color: var(--ws-primary);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 12px;
+}
+.git-timeline-subject {
+  color: var(--ws-text);
+  font-weight: 750;
+  line-height: 1.35;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.git-timeline-row small,
+.git-timeline-author {
+  color: var(--ws-muted);
+  font-size: 11px;
+}
+.git-timeline-refs { display: flex; flex-wrap: wrap; gap: 4px; }
+.git-ref {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  border-radius: 999px;
+  padding: 1px 6px;
+  font-size: 10px;
+  font-weight: 800;
+}
+.git-ref.head {
+  background: color-mix(in srgb, #ef4444 18%, var(--ws-card));
+  color: color-mix(in srgb, #ef4444 72%, var(--ws-text));
+}
+.git-ref.branch {
+  background: color-mix(in srgb, #d97706 18%, var(--ws-card));
+  color: color-mix(in srgb, #d97706 72%, var(--ws-text));
+}
+.git-ref.remote {
+  background: color-mix(in srgb, #2563eb 18%, var(--ws-card));
+  color: color-mix(in srgb, #2563eb 72%, var(--ws-text));
+}
+.git-ref.tag {
+  background: color-mix(in srgb, #16a34a 18%, var(--ws-card));
+  color: color-mix(in srgb, #16a34a 72%, var(--ws-text));
+}
 .header-tool-btn.active { border-color: var(--accent); color: var(--accent); background: rgba(83, 105, 243, .12); }
 
 @media (max-width: 900px) {
@@ -3167,7 +3267,7 @@ body.white-shell.theme-light.theme-dark .git-merge-panel {
   .git-toolbar { align-items: flex-start; flex-direction: column; }
   .git-layout { grid-template-columns: 1fr; grid-template-rows: auto minmax(260px, 1fr) auto; }
   .git-file-list { max-height: 160px; }
-  .git-log-panel { max-height: 180px; }
+  .git-log-panel { max-height: 280px; }
   /* Stacked, the actions are the last row and scroll with the panel. Keeping the
      column's own scroller here would nest one scroll region inside another, which
      on a touch screen means the wrong one moves. */

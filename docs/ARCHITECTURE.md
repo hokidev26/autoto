@@ -121,7 +121,7 @@ Git handlers live in `internal/server/git.go`:
 
 - `GET /api/agents/{id}/git/status`
 - `GET /api/agents/{id}/git/diff`
-- `GET /api/agents/{id}/git/log`
+- `GET /api/agents/{id}/git/log` returns newest-first commits with parent hashes and ref decorations (`HEAD`, branch, remote, tag) so the Git panel can draw a commit timeline. The API remains read-only: it does not checkout, reset, or push.
 - `POST /api/agents/{id}/git/commit`
 
 Important invariants:

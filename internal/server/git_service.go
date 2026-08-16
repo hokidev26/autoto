@@ -86,8 +86,9 @@ func (g gitService) log(ctx context.Context, agentID, limitParam string) (gitLog
 		return gitLogResponse{}, err
 	}
 	limit := boundedInt(limitParam, 30, 1, 100)
-	format := "%H%x00%h%x00%an%x00%ae%x00%aI%x00%s%x00%x1e"
-	out, truncated, err := runGitCommand(ctx, repoRoot, gitLogMaxBytes, 3*time.Second, nil, "log", "--max-count="+strconv.Itoa(limit), "--date=iso-strict", "--pretty=format:"+format)
+	out, truncated, err := runGitCommand(ctx, repoRoot, gitLogMaxBytes, 3*time.Second, nil,
+		"log", "--topo-order", "--decorate=full", "--max-count="+strconv.Itoa(limit),
+		"--date=iso-strict", "--pretty=format:"+gitLogPrettyFormat)
 	if err != nil {
 		return gitLogResponse{}, err
 	}
@@ -228,8 +229,8 @@ func (g gitService) commit(ctx context.Context, agentID string, req gitCommitReq
 	if _, _, err := runGitCommand(ctx, repoRoot, gitCommitOutputMaxBytes, 20*time.Second, nil, commitArgs...); err != nil {
 		return gitCommitResponse{}, normalizeGitCommitError(err)
 	}
-	format := "%H%x00%h%x00%an%x00%ae%x00%aI%x00%s%x00%x1e"
-	logOut, logTruncated, err := runGitCommand(ctx, repoRoot, gitLogMaxBytes, 3*time.Second, nil, "log", "-1", "--date=iso-strict", "--pretty=format:"+format)
+	logOut, logTruncated, err := runGitCommand(ctx, repoRoot, gitLogMaxBytes, 3*time.Second, nil,
+		"log", "-1", "--decorate=full", "--date=iso-strict", "--pretty=format:"+gitLogPrettyFormat)
 	if err != nil {
 		return gitCommitResponse{}, err
 	}

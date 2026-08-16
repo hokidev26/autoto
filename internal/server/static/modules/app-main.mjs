@@ -340,6 +340,7 @@ export const state = {
   gitStatus: null,
   gitDiff: null,
   gitLog: null,
+  gitTimelineOpenHash: "",
   gitError: "",
   gitSeq: 0,
   gitScope: "all",
