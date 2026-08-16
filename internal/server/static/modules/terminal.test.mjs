@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { createTerminalController } from "./terminal.mjs";
+import { terminalPrefsKey } from "./preferences-data.mjs";
 
 function classList(initial = []) {
   const values = new Set(initial);
@@ -63,53 +64,72 @@ test("terminal toggle synchronizes the legacy header button ARIA state", () => {
   }
 });
 
-test("terminal settings page keeps only controls with no other entry point", () => {
+test("terminal panel wires clear, copy, and local preference controls", () => {
   const previousDocument = globalThis.document;
+  const previousStorage = globalThis.localStorage;
+  const store = new Map();
+  const listeners = new Map();
+  function control(initial = {}) {
+    return {
+      ...initial,
+      addEventListener(type, fn) {
+        listeners.set(`${this.id}:${type}`, fn);
+      },
+    };
+  }
+  const clearBtn = control({ id: "clearTerminalBtn" });
+  const copyBtn = control({ id: "copyTerminalBtn" });
+  const clearOnReconnect = control({ id: "terminalClearOnReconnect", checked: true });
+  const focusOnConnect = control({ id: "terminalFocusOnConnect", checked: false });
+  const maxLines = control({ id: "terminalMaxLines", value: "1000" });
   const elements = {
     appShell: { classList: classList(["terminal-collapsed"]) },
     terminalOutput: { textContent: "hello\nworld" },
+    clearTerminalBtn: clearBtn,
+    copyTerminalBtn: copyBtn,
+    terminalClearOnReconnect: clearOnReconnect,
+    terminalFocusOnConnect: focusOnConnect,
+    terminalMaxLines: maxLines,
+  };
+  globalThis.localStorage = {
+    getItem: (key) => store.get(key) ?? null,
+    setItem: (key, value) => { store.set(key, String(value)); },
   };
   globalThis.document = {
     body: { classList: classList() },
     getElementById: (id) => elements[id] || null,
   };
   try {
+    const toasts = [];
     const controller = createTerminalController({
       state: {
         agent: { cwd: "/workspace" },
         terminalPrefs: { clearOnReconnect: false, focusOnConnect: true, maxLines: 5000 },
         remoteAccess: { session: { remote: false }, capabilities: { terminalAllowed: true } },
       },
-      formatNumber: (value) => String(value),
+      showToast: (message) => { toasts.push(message); },
     });
-    const html = controller.renderTerminalSettingsContent();
+    assert.equal(typeof controller.renderTerminalSettingsContent, "undefined");
+    assert.equal(typeof controller.bindTerminalSettingsActions, "undefined");
+    controller.bindTerminalPanelActions();
 
-    // Clear and copy have no button anywhere else in the UI, so the settings
-    // page stays their only entry point.
-    assert.match(html, /data-terminal-action="clear"/);
-    assert.match(html, /data-terminal-action="copy"/);
-    assert.match(html, /id="terminalReconnectSettingsBtn"/);
-    assert.match(html, /id="terminalFocusSettingsBtn"/);
+    assert.equal(clearOnReconnect.checked, false);
+    assert.equal(focusOnConnect.checked, true);
+    assert.equal(maxLines.value, "5000");
 
-    // Reconnect and collapse duplicated the terminal panel and workbench header,
-    // and the shortcut table was static reference copy. Both are gone.
-    assert.doesNotMatch(html, /terminal-control-card/);
-    assert.doesNotMatch(html, /data-terminal-action="reconnect"/);
-    assert.doesNotMatch(html, /data-terminal-action="toggle"/);
-    assert.doesNotMatch(html, /terminal-shortcut-grid/);
-    assert.doesNotMatch(html, /settings-status-strip/);
+    listeners.get("clearTerminalBtn:click")();
+    assert.match(elements.terminalOutput.textContent, /cleared|清空|已清空/i);
+    assert.equal(toasts.length > 0, true);
 
-    // Local preferences are the page's own reason to exist.
-    assert.match(html, /data-terminal-toggle="clearOnReconnect"/);
-    assert.match(html, /data-terminal-toggle="focusOnConnect"/);
-    assert.match(html, /data-terminal-max-lines="5000"/);
-
-    // Two sections total: hero and local preferences.
-    assert.equal((html.match(/<section/g) || []).length, 2);
-    assert.doesNotMatch(html, /settings-hero-kicker/);
+    clearOnReconnect.checked = true;
+    listeners.get("terminalClearOnReconnect:change")({ currentTarget: clearOnReconnect });
+    assert.equal(controller.currentTerminalPreferences().clearOnReconnect, true);
+    assert.equal(JSON.parse(store.get(terminalPrefsKey)).clearOnReconnect, true);
   } finally {
     if (previousDocument === undefined) delete globalThis.document;
     else globalThis.document = previousDocument;
+    if (previousStorage === undefined) delete globalThis.localStorage;
+    else globalThis.localStorage = previousStorage;
   }
 });
 

@@ -695,28 +695,38 @@ body.white-shell.theme-light .navigation-title-text {
   flex: 0 1 auto;
 }
 
-body.white-shell.theme-light .navigation-conversation-title .navigation-row-fork {
-  flex: 0 0 auto;
-  min-width: 0;
-  width: 0;
-  max-width: 0;
-  margin: 0 0 0 -4px;
-  padding: 0;
-  overflow: hidden;
-  opacity: 0;
-  pointer-events: none;
-  white-space: nowrap;
+/* Workline "+" shares the trailing time cell. Resting state keeps the relative
+   time; hover/focus swaps it for the create control so the title never shifts. */
+body.white-shell.theme-light .navigation-conversation-trailing {
+  display: grid;
+  justify-items: end;
+  align-items: center;
+  min-width: 1.6em;
 }
 
-body.white-shell.theme-light .navigation-conversation-row:is(:hover, :focus-within) .navigation-conversation-title .navigation-row-fork,
-body.white-shell.theme-light .navigation-conversation-title .navigation-row-fork:focus-visible,
-body.white-shell.theme-light .navigation-conversation-title .navigation-row-fork[aria-busy="true"] {
+body.white-shell.theme-light .navigation-conversation-trailing:has(.navigation-row-fork) {
   min-width: 20px;
-  width: auto;
-  max-width: 22px;
-  margin-left: 0;
-  padding: 2px 3px;
-  opacity: 1;
+}
+
+body.white-shell.theme-light .navigation-conversation-trailing > * {
+  grid-area: 1 / 1;
+}
+
+body.white-shell.theme-light .navigation-conversation-trailing .navigation-row-fork {
+  margin: 0;
+  pointer-events: none;
+}
+
+body.white-shell.theme-light .navigation-conversation-row:is(:hover, :focus-within) .navigation-conversation-trailing:has(.navigation-row-fork) .navigation-conversation-time,
+body.white-shell.theme-light .navigation-conversation-trailing:has(.navigation-row-fork:focus-visible) .navigation-conversation-time,
+body.white-shell.theme-light .navigation-conversation-trailing:has(.navigation-row-fork[aria-busy="true"]) .navigation-conversation-time {
+  opacity: 0;
+  pointer-events: none;
+}
+
+body.white-shell.theme-light .navigation-conversation-row:is(:hover, :focus-within) .navigation-conversation-trailing .navigation-row-fork,
+body.white-shell.theme-light .navigation-conversation-trailing .navigation-row-fork:focus-visible,
+body.white-shell.theme-light .navigation-conversation-trailing .navigation-row-fork[aria-busy="true"] {
   pointer-events: auto;
 }
 

@@ -402,7 +402,11 @@
           <div class="terminal-tabs">
             <span class="terminal-tab active" data-i18n="terminal.title">终端</span>
           </div>
-          <button id="collapseTerminalBtn" class="icon-btn terminal-close-btn" type="button" title="收起终端" aria-label="收起终端" data-i18n-title="terminal.collapse" data-i18n-aria-label="terminal.collapse">×</button>
+          <div class="terminal-header-actions">
+            <button id="clearTerminalBtn" class="ghost-btn mini" type="button" data-i18n="workspace.terminal.clear">清空</button>
+            <button id="copyTerminalBtn" class="ghost-btn mini" type="button" data-i18n="workspace.terminal.copy">复制</button>
+            <button id="collapseTerminalBtn" class="icon-btn terminal-close-btn" type="button" title="收起终端" aria-label="收起终端" data-i18n-title="terminal.collapse" data-i18n-aria-label="terminal.collapse">×</button>
+          </div>
         </div>
         <div class="terminal-command-panel">
           <div class="terminal-command-help" data-i18n="terminal.help">命令会在当前工作区内执行。</div>
@@ -416,6 +420,32 @@
           <span id="terminalStatus">terminal idle</span>
           <button id="reconnectTerminalBtn" class="ghost-btn mini" type="button" data-i18n="common.reconnect">重连</button>
         </div>
+        <details class="terminal-prefs">
+          <summary data-i18n="workspace.terminal.localPreferences">本地终端偏好</summary>
+          <label class="terminal-pref">
+            <input id="terminalClearOnReconnect" type="checkbox" />
+            <span>
+              <strong data-i18n="workspace.terminal.clearOnReconnect">重连时清空输出</strong>
+              <small data-i18n="workspace.terminal.clearOnReconnectDesc">保持当前默认行为；关闭后重连会追加状态提示并保留旧输出。</small>
+            </span>
+          </label>
+          <label class="terminal-pref">
+            <input id="terminalFocusOnConnect" type="checkbox" />
+            <span>
+              <strong data-i18n="workspace.terminal.focusOnConnect">连接后自动聚焦</strong>
+              <small data-i18n="workspace.terminal.focusOnConnectDesc">终端连接成功后自动聚焦输出区，方便直接输入命令。</small>
+            </span>
+          </label>
+          <label class="terminal-pref terminal-pref-select">
+            <span data-i18n="workspace.terminal.outputRetention">输出保留行数</span>
+            <select id="terminalMaxLines" aria-label="输出保留行数" data-i18n-aria-label="workspace.terminal.outputRetention">
+              <option value="1000">1000</option>
+              <option value="3000">3000</option>
+              <option value="5000">5000</option>
+              <option value="10000">10000</option>
+            </select>
+          </label>
+        </details>
       </aside>
 
       <div id="utilityPanelResizeHandle" class="utility-panel-resize-handle" role="separator" aria-orientation="vertical" aria-label="调整面板宽度" data-i18n-aria-label="shell.resizeUtilityPanel" aria-valuemin="260" aria-valuemax="1200" aria-valuenow="480" tabindex="0"><span aria-hidden="true"></span></div>

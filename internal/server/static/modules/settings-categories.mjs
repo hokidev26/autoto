@@ -4,7 +4,7 @@ export const legacySettingsCategories = Object.freeze([
   { key: "api", label: t("settings.category.api"), items: ["providers", "shared-api", "models", "profile", "users", "appearance"] },
   { key: "chat", label: t("settings.category.chat"), items: ["im-gateway"] },
   { key: "memory", label: t("settings.category.memory"), items: ["memory"] },
-  { key: "diagnostics", label: t("settings.category.diagnostics"), items: ["runtime", "servers-system", "storage", "terminals"] },
+  { key: "diagnostics", label: t("settings.category.diagnostics"), items: ["runtime", "servers-system", "storage"] },
   { key: "network", label: t("settings.category.network"), items: ["network-search", "remote-access", "peer-collaboration"] },
   { key: "market", label: t("settings.category.market"), items: ["skills"] },
   { key: "logs", label: t("settings.category.logs"), items: ["notifications", "usage", "archive"] },

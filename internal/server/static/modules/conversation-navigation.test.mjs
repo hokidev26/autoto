@@ -610,10 +610,13 @@ test("each project row carries its own fork trigger, distinct from the header cr
     projects: [{ id: "p1", name: "autoto", gitPath: "/work/autoto" }],
     conversations: [{
       projectId: "p1", projectName: "autoto", worklineId: "w1", worklineTitle: "main",
-      agentId: "a1", agentTitle: "main", messageCount: 2,
+      agentId: "a1", agentTitle: "main", messageCount: 2, lastActivityAt: "2026-08-15T18:00:00Z",
     }],
   };
-  const html = renderNavigationHTML(buildNavigationView(payload, { mode: "all" }), { activeProjectId: "p1" });
+  const html = renderNavigationHTML(buildNavigationView(payload, { mode: "all" }), {
+    activeProjectId: "p1",
+    now: Date.parse("2026-08-16T18:00:00Z"),
+  });
 
   // The fork trigger is scoped to the project it sits on, so a click cannot be
   // mistaken for the header's create-project action.
@@ -623,7 +626,11 @@ test("each project row carries its own fork trigger, distinct from the header cr
   // wide sidebar instead of overlapping the folder name.
   assert.match(html, /class="project-name">autoto<\/span><\/span>[\s\S]*?<button class="navigation-row-fork"[^>]*data-project-fork-trigger/);
   assert.doesNotMatch(html, /class="project-name">autoto<\/span><button class="navigation-row-fork"/);
-  assert.match(html, /class="navigation-title-text">main<\/span><button class="navigation-row-fork"/);
+  assert.match(html, /class="navigation-title-text">main<\/span><\/span>/);
+  assert.doesNotMatch(html, /class="navigation-title-text">main<\/span><button class="navigation-row-fork"/);
+  assert.match(html, /class="navigation-conversation-trailing"[^>]*>[\s\S]*?data-workline-conversation-trigger/);
+  // Workline create sits in the trailing time cell, not beside the title.
+  assert.match(html, /class="navigation-conversation-trailing">[\s\S]*?class="navigation-conversation-time">[\s\S]*?data-workline-conversation-trigger/);
   // Pin and archive live on the right-click menu, so neither row carries "…".
   assert.doesNotMatch(html, /data-navigation-menu-trigger/);
   // Conversation rows are not git-forkable: a git branch is per project.

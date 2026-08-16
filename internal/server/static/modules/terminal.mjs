@@ -1,4 +1,4 @@
-import { $, escapeAttr, escapeHtml } from "./dom.mjs";
+import { $ } from "./dom.mjs";
 import { defaultTerminalPrefs, terminalPrefsKey } from "./preferences-data.mjs";
 import { webSocketURL } from "./runtime.mjs";
 import { t } from "./i18n.mjs";
@@ -42,7 +42,7 @@ export function createTerminalController({
       localStorage.setItem(terminalPrefsKey, JSON.stringify(state.terminalPrefs));
     } catch {}
     trimTerminalOutput();
-    if (state.activeSettingsPanel === "terminals") refreshActiveSettingsPanel();
+    syncTerminalPanelPrefs();
     if (notify) showToast(t("workspace.terminal.preferencesSaved"), "success", { force: true });
   }
 
@@ -70,7 +70,6 @@ export function createTerminalController({
     if (!output) return;
     output.textContent = `${sx("terminalExtras.clearedOutput")}\n`;
     if (notify) showToast(t("workspace.terminal.cleared"), "success");
-    if (state.activeSettingsPanel === "terminals") refreshActiveSettingsPanel();
   }
 
   async function copyTerminalOutput() {
@@ -145,109 +144,35 @@ export function createTerminalController({
     output.textContent = lines.slice(lines.length - maxLines).join("\n");
   }
 
-  // Two sections only. Reconnect/collapse are reachable from the terminal panel
-  // and workbench header, so repeating them here was noise. Clear and copy have
-  // no other entry point in the UI, so they stay — promoted into the hero action
-  // row rather than living in a separate card grid.
-  function renderTerminalSettingsContent() {
+  function syncTerminalPanelPrefs() {
     const prefs = currentTerminalPreferences();
-    const wsLabel = terminalConnectionLabel();
-    const cwd = state.agent?.cwd || state.project?.gitPath || t("workspace.terminal.agentNotSelected");
-    const locked = remoteTerminalLocked();
-    return `
-      <div class="settings-live-page terminal-settings-page">
-        <section class="settings-hero-card terminal-hero-card settings-page-section settings-card">
-          <div class="settings-card-header">
-            <div>
-              <div class="settings-hero-title settings-card-title">${escapeHtml(wsLabel)}</div>
-              <p class="settings-card-description path">${escapeHtml(cwd)}</p>
-              <p class="settings-card-description" data-settings-help-copy>${escapeHtml(locked ? remoteTerminalLockedMessage() : sx("terminal.description"))}</p>
-            </div>
-            <span class="settings-status-pill settings-badge ${state.agent ? "ok" : "warn"}">${escapeHtml(state.agent ? t("workspace.terminal.agentSelected") : t("workspace.terminal.agentNotSelected"))}</span>
-          </div>
-          <div class="settings-action-row settings-toolbar settings-inline-actions settings-card-footer">
-            <button id="terminalReconnectSettingsBtn" class="settings-action-btn primary" type="button" ${locked ? "disabled" : ""}>${escapeHtml(t("workspace.terminal.reconnect"))}</button>
-            <button id="terminalFocusSettingsBtn" class="settings-action-btn subtle" type="button" ${locked ? "disabled" : ""}>${escapeHtml(t("workspace.terminal.focus"))}</button>
-            <button class="settings-action-btn subtle" type="button" data-terminal-action="clear">${escapeHtml(t("workspace.terminal.clear"))}</button>
-            <button class="settings-action-btn subtle" type="button" data-terminal-action="copy">${escapeHtml(t("workspace.terminal.copy"))}</button>
-          </div>
-        </section>
-        ${locked ? `<section class="settings-provider-section settings-page-section settings-card settings-alert" role="alert"><div class="settings-provider-section-head settings-card-header"><div><div class="settings-provider-title settings-card-title">${escapeHtml(t("workspace.terminal.remoteDisabled"))}</div><div class="settings-provider-meta settings-card-description">${escapeHtml(remoteTerminalLockedMessage())}</div></div></div></section>` : ""}
-        <section class="settings-provider-section settings-page-section settings-card">
-          <div class="settings-provider-section-head settings-card-header">
-            <div>
-              <div class="settings-provider-title settings-card-title">${escapeHtml(t("workspace.terminal.localPreferences"))}</div>
-              <div class="settings-provider-meta settings-card-description" data-settings-help-copy>${escapeHtml(sx("terminal.localPrefsDescription"))}</div>
-            </div>
-          </div>
-          <div class="appearance-toggle-list settings-card-content">
-            ${renderTerminalToggle("clearOnReconnect", sx("terminal.clearOnReconnect"), sx("terminal.clearOnReconnectDescription"), prefs.clearOnReconnect)}
-            ${renderTerminalToggle("focusOnConnect", sx("terminal.focusOnConnect"), sx("terminal.focusOnConnectDescription"), prefs.focusOnConnect)}
-          </div>
-          <div class="terminal-retention-block settings-card-content">
-            <div class="settings-provider-title settings-card-title small">${escapeHtml(sx("terminal.outputRetention"))}</div>
-            <div class="appearance-choice-grid terminal-retention-grid settings-data-list">
-              ${[1000, 3000, 5000, 10000].map((value) => renderTerminalMaxLineChoice(value, prefs.maxLines)).join("")}
-            </div>
-          </div>
-        </section>
-      </div>
-    `;
+    const clearOnReconnect = $("terminalClearOnReconnect");
+    const focusOnConnect = $("terminalFocusOnConnect");
+    const maxLines = $("terminalMaxLines");
+    if (clearOnReconnect) clearOnReconnect.checked = prefs.clearOnReconnect;
+    if (focusOnConnect) focusOnConnect.checked = prefs.focusOnConnect;
+    if (maxLines) maxLines.value = String(prefs.maxLines);
   }
 
-  function terminalConnectionLabel() {
-    if (!state.terminalWS) return state.agent ? sx("terminalExtras.status.disconnected") : t("workspace.terminal.agentNotSelected");
-    if (state.terminalWS.readyState === WebSocket.OPEN) return sx("terminalExtras.status.connected");
-    if (state.terminalWS.readyState === WebSocket.CONNECTING) return sx("terminalExtras.status.connecting");
-    if (state.terminalWS.readyState === WebSocket.CLOSING) return sx("terminalExtras.status.closing");
-    return terminalStatusLabel(state.terminalStatus || "closed");
+  function bindTerminalPanelActions() {
+    $("clearTerminalBtn")?.addEventListener("click", () => clearTerminalOutput());
+    $("copyTerminalBtn")?.addEventListener("click", () => copyTerminalOutput().catch(showError));
+    $("terminalClearOnReconnect")?.addEventListener("change", (event) => {
+      setTerminalPreference("clearOnReconnect", Boolean(event.currentTarget?.checked));
+    });
+    $("terminalFocusOnConnect")?.addEventListener("change", (event) => {
+      setTerminalPreference("focusOnConnect", Boolean(event.currentTarget?.checked));
+    });
+    $("terminalMaxLines")?.addEventListener("change", (event) => {
+      setTerminalPreference("maxLines", event.currentTarget?.value);
+    });
+    syncTerminalPanelPrefs();
   }
 
   function terminalStatusLabel(status) {
     const key = String(status || "closed").replace(/-([a-z])/g, (_, letter) => letter.toUpperCase());
     const message = sx(`terminalExtras.status.${key}`);
     return message === `terminalExtras.status.${key}` ? String(status || "closed") : message;
-  }
-
-  function renderTerminalToggle(field, title, description, checked) {
-    return `
-      <label class="appearance-toggle-row terminal-toggle-row settings-switch-row">
-        <span>
-          <strong>${escapeHtml(title)}</strong>
-          <small data-settings-help-copy>${escapeHtml(description)}</small>
-        </span>
-        <input type="checkbox" data-terminal-toggle="${escapeAttr(field)}" ${checked ? "checked" : ""} />
-      </label>
-    `;
-  }
-
-  function renderTerminalMaxLineChoice(value, current) {
-    return `
-      <button class="appearance-choice settings-data-row ${current === value ? "active" : ""}" type="button" data-terminal-max-lines="${escapeAttr(value)}">
-        <span>${escapeHtml(formatNumber(value))}</span>
-        <small data-settings-help-copy>${escapeHtml(sx("terminal.maxOutputLines", { count: formatNumber(value) }))}</small>
-      </button>
-    `;
-  }
-
-  function bindTerminalSettingsActions() {
-    $("terminalReconnectSettingsBtn")?.addEventListener("click", reconnectTerminalFromSettings);
-    $("terminalFocusSettingsBtn")?.addEventListener("click", focusTerminalPanel);
-    document.querySelectorAll("[data-terminal-action]").forEach((node) => {
-      node.addEventListener("click", () => handleTerminalSettingsAction(node.dataset.terminalAction).catch(showError));
-    });
-    document.querySelectorAll("[data-terminal-toggle]").forEach((node) => {
-      node.addEventListener("change", () => setTerminalPreference(node.dataset.terminalToggle, node.checked));
-    });
-    document.querySelectorAll("[data-terminal-max-lines]").forEach((node) => {
-      node.addEventListener("click", () => setTerminalPreference("maxLines", node.dataset.terminalMaxLines));
-    });
-  }
-
-  async function handleTerminalSettingsAction(action) {
-    if (action === "clear") clearTerminalOutput();
-    if (action === "copy") await copyTerminalOutput();
-    if (state.activeSettingsPanel === "terminals") refreshActiveSettingsPanel();
   }
 
   function connectTerminal() {
@@ -304,7 +229,6 @@ export function createTerminalController({
     }
     if (commandButton) commandButton.disabled = !connected;
     renderTerminalButtonState();
-    if (state.activeSettingsPanel === "terminals") refreshActiveSettingsPanel();
   }
 
   function sendTerminalInput(data) {
@@ -364,7 +288,6 @@ export function createTerminalController({
     output.textContent += text;
     trimTerminalOutput();
     output.scrollTop = output.scrollHeight;
-    if (state.activeSettingsPanel === "terminals") refreshActiveSettingsPanel();
   }
 
   function cleanTerminalOutput(text) {
@@ -405,7 +328,7 @@ export function createTerminalController({
 
   return {
     appendTerminal,
-    bindTerminalSettingsActions,
+    bindTerminalPanelActions,
     clearTerminalOutput,
     connectTerminal,
     copyTerminalOutput,
@@ -417,13 +340,12 @@ export function createTerminalController({
     normalizeTerminalPreferences,
     reconnectTerminalFromSettings,
     renderTerminalButtonState,
-    renderTerminalSettingsContent,
     resizeTerminal,
     saveTerminalPreferences,
     sendTerminalInput,
     setTerminalPreference,
     setTerminalStatus,
-    terminalConnectionLabel,
+    syncTerminalPanelPrefs,
     terminalOutputStats,
     terminalOutputText,
     toggleTerminal,

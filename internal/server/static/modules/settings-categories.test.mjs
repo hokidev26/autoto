@@ -61,8 +61,8 @@ test("category selection exposes only the selected category and marks the active
     "runtime",
     "servers-system",
     "storage",
-    "terminals",
   ]);
+  assert.equal(settingsItemByKey("terminals"), null);
 
   const selection = resolveSettingsCategorySelection(settingsItems, {
     categoryKey: "diagnostics",
@@ -75,7 +75,6 @@ test("category selection exposes only the selected category and marks the active
     ["runtime", false],
     ["servers-system", false],
     ["storage", true],
-    ["terminals", false],
   ]);
 });
 

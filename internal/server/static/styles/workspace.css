@@ -1979,6 +1979,45 @@ body.theme-light .composer-toolbar-icon { color: #3f3f46; }
   color: var(--muted);
   font-size: 12px;
 }
+.terminal-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+}
+.terminal-prefs {
+  flex: 0 0 auto;
+  padding: 6px 10px 10px;
+  border-top: 1px solid var(--line);
+  background: #151722;
+  color: var(--muted);
+  font-size: 12px;
+}
+.terminal-prefs summary {
+  cursor: pointer;
+  color: var(--text-soft);
+  font-weight: 650;
+}
+.terminal-pref {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-top: 8px;
+}
+.terminal-pref small {
+  display: block;
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 400;
+}
+.terminal-pref-select {
+  align-items: center;
+}
+.terminal-pref-select select {
+  margin-left: auto;
+  min-width: 88px;
+}
 .prompt { color: var(--good); font: 13px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
 .terminal-rail { display: none; }
 

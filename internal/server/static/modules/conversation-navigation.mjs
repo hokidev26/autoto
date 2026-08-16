@@ -829,6 +829,12 @@ function renderConversation(conversation, activeAgentId, nested = false, options
   // conversation is still identifiable on hover.
   const displayTitle = conversationDisplayTitle(conversation);
   const relativeTime = taskContext ? "" : formatCompactRelativeTime(conversation.lastActivityAt, options.now);
+  const worklineCreate = options.worklineCreate && conversation.worklineId
+    ? navigationWorklineConversationTrigger(conversation.worklineId)
+    : "";
+  const trailing = relativeTime || worklineCreate
+    ? `<span class="navigation-conversation-trailing">${relativeTime ? `<span class="navigation-conversation-time">${escapeNavigationHtml(relativeTime)}</span>` : ""}${worklineCreate}</span>`
+    : "";
   // Fork conversations use a branch icon instead of the default conversation bubble.
   const icon = taskContext
     ? `<svg viewBox="0 0 20 20"><circle cx="10" cy="6.5" r="3"></circle><path d="M4.5 17c.7-3.5 2.5-5.2 5.5-5.2s4.8 1.7 5.5 5.2"></path></svg>`
@@ -840,10 +846,10 @@ function renderConversation(conversation, activeAgentId, nested = false, options
       ${options.disclosure || ""}
       <span class="navigation-agent-icon theme-icon-slot" data-theme-icon-slot="${nestedFork ? "sidebar-fork" : "sidebar-conversation"}" aria-hidden="true">${icon}</span>
       <span class="navigation-conversation-main">
-        <span class="navigation-conversation-title"><span class="navigation-title-text">${escapeNavigationHtml(displayTitle)}</span>${stateMeta}${options.worklineCreate && conversation.worklineId ? navigationWorklineConversationTrigger(conversation.worklineId) : ""}</span>
+        <span class="navigation-conversation-title"><span class="navigation-title-text">${escapeNavigationHtml(displayTitle)}</span>${stateMeta}</span>
         <span class="navigation-conversation-meta" title="${escapeNavigationHtml(meta)}">${escapeNavigationHtml(meta)}</span>
       </span>
-      ${relativeTime ? `<span class="navigation-conversation-time">${escapeNavigationHtml(relativeTime)}</span>` : ""}
+      ${trailing}
     </div>`;
 }
 

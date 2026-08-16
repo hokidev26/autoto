@@ -21,7 +21,7 @@ const mobileSettingsSectionSpecs = Object.freeze([
   {
     key: "system-security",
     labelKey: "settings.mobile.section.systemSecurity",
-    items: ["servers-system", "terminals", "storage", "runtime", "usage", "about"],
+    items: ["servers-system", "storage", "runtime", "usage", "about"],
   },
 ]);
 

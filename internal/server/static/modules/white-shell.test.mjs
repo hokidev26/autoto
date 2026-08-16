@@ -498,7 +498,25 @@ test("storage settings cards keep visible vertical spacing", async () => {
 
   assert.match(styles, /body\.white-shell\.theme-light \.legacy-settings-content-body \.storage-entry-list\s*\{[\s\S]*?gap:\s*12px/);
   assert.match(styles, /#settingsContentBody \.storage-page \.storage-entry-list\s*\{[\s\S]*?gap:\s*var\(--settings-space-4\)/);
-  assert.match(styles, /#settingsContentBody \.terminal-settings-page,\s*#settingsContentBody \.storage-page\s*\{[\s\S]*?gap:\s*var\(--settings-space-4\)/);
+  assert.match(styles, /#settingsContentBody \.storage-page\s*\{[\s\S]*?gap:\s*var\(--settings-space-4\)/);
+});
+
+test("terminal preferences live on the workbench panel instead of settings", async () => {
+  const [html, appMain] = await Promise.all([
+    readFile(indexURL, "utf8"),
+    readAppMainSource(),
+  ]);
+
+  assert.match(html, /id="clearTerminalBtn"/);
+  assert.match(html, /id="copyTerminalBtn"/);
+  assert.match(html, /id="terminalClearOnReconnect"/);
+  assert.match(html, /id="terminalFocusOnConnect"/);
+  assert.match(html, /id="terminalMaxLines"/);
+  assert.match(html, /class="terminal-prefs"/);
+  assert.match(html, /class="terminal-header-actions"/);
+  assert.match(appMain, /bindTerminalPanelActions\(\)/);
+  assert.doesNotMatch(appMain, /\["terminals",\s*\{\s*render:/);
+  assert.doesNotMatch(appMain, /renderTerminalSettingsContent|bindTerminalSettingsActions/);
 });
 
 test("network proxy settings remove duplicate agent management while keeping the backend modal", async () => {
@@ -839,7 +857,9 @@ test("desktop conversation layout follows the compact resizable geometry", async
   assert.match(styles, /body\.white-shell\.theme-light \.navigation-conversation-row\s*\{[\s\S]*?min-height:\s*34px[\s\S]*?grid-template-columns:\s*14px minmax\(0, 1fr\) max-content;/);
   assert.match(styles, /body\.white-shell\.theme-light \.navigation-project-group \+ \.navigation-project-group\s*\{[\s\S]*?margin-top:\s*16px/);
   assert.match(styles, /body\.white-shell\.theme-light \.navigation-project-row \.project-name\s*\{[\s\S]*?flex:\s*0 1 auto/);
-  assert.match(styles, /body\.white-shell\.theme-light \.navigation-conversation-title \.navigation-row-fork\s*\{[\s\S]*?max-width:\s*0/);
+  assert.match(styles, /body\.white-shell\.theme-light \.navigation-conversation-trailing\s*\{[\s\S]*?display:\s*grid/);
+  assert.match(styles, /body\.white-shell\.theme-light \.navigation-conversation-trailing > \*\s*\{[\s\S]*?grid-area:\s*1 \/ 1/);
+  assert.match(styles, /body\.white-shell\.theme-light \.navigation-conversation-row:is\(:hover, :focus-within\) \.navigation-conversation-trailing:has\(\.navigation-row-fork\) \.navigation-conversation-time[\s\S]*?opacity:\s*0/);
   assert.match(styles, /body\.white-shell\.theme-light \.navigation-project-group > \.navigation-project-row\s*\{[\s\S]*?grid-template-columns:\s*16px minmax\(0, 1fr\) auto/);
   assert.match(styles, /body\.white-shell\.theme-light \.navigation-project-row > \.navigation-row-fork\s*\{[\s\S]*?justify-self:\s*end/);
   assert.match(styles, /body\.white-shell\.theme-light \.navigation-project-group > \.navigation-project-row:has\(> \.project-task-counts\)\s*\{[\s\S]*?grid-template-columns:\s*16px minmax\(0, 1fr\) auto/);
@@ -2214,6 +2234,8 @@ test("static shell controls localize without marking runtime-owned content", asy
     ["specBoardTitle", 'data-i18n="staticExtra.workspace.spec.title"'],
     ["runtimeStatusBtn", 'data-i18n-aria-label="chat.conversationDetails"'],
     ["reconnectTerminalBtn", 'data-i18n="common.reconnect"'],
+    ["clearTerminalBtn", 'data-i18n="workspace.terminal.clear"'],
+    ["copyTerminalBtn", 'data-i18n="workspace.terminal.copy"'],
     ["conversationDetailsPanel", 'data-i18n-aria-label="staticExtra.workspace.main.conversationDetails"'],
     ["backendsModalTitle", 'data-i18n="staticExtra.backend.modalTitle"'],
     ["closeGitModalBtn", 'data-i18n-aria-label="staticExtra.workspace.git.closeModal"'],

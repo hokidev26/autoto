@@ -1119,6 +1119,8 @@ body.white-shell.theme-light .message-performance-live { border-color: #cbd4ff; 
    this selector is more specific than the blanket rule, so it holds at every
    width without depending on source order. */
 .message-correction-actions .ghost-btn.mini { display: inline-flex; }
+.terminal-header-actions .ghost-btn.mini,
+.terminal-status-row .ghost-btn.mini { display: inline-flex; }
 
 .settings-nav,
 .settings-content-body,

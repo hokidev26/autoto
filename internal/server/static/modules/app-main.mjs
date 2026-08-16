@@ -778,7 +778,7 @@ const chatRendering = createChatRenderingController({
 
 const {
   appendTerminal,
-  bindTerminalSettingsActions,
+  bindTerminalPanelActions,
   clearTerminalOutput,
   connectTerminal,
   copyTerminalOutput,
@@ -788,9 +788,7 @@ const {
   handleTerminalKeydown,
   loadTerminalPreferences,
   normalizeTerminalPreferences,
-  reconnectTerminalFromSettings,
   renderTerminalButtonState,
-  renderTerminalSettingsContent,
   resizeTerminal,
   saveTerminalPreferences,
   sendTerminalInput,
@@ -1956,7 +1954,6 @@ const settingsPanelRegistry = createSettingsPanelRegistry();
   ["runtime", { render: renderRuntimeSettingsContent, bind: bindRuntimeSettingsActions }],
   ["remote-access", { render: remoteAccessSettings.render, bind: remoteAccessSettings.bind }],
   ["peer-collaboration", { render: peerCollaborationSettings.render, bind: peerCollaborationSettings.bind }],
-  ["terminals", { render: renderTerminalSettingsContent, bind: bindTerminalSettingsActions }],
   ["about", { render: renderAboutSettingsContent, bind: bindAboutSettingsActions, layout: "about" }],
   ["users", { render: () => userAdminSettings.render(), bind: () => userAdminSettings.bind() }],
 ].forEach(([key, panel]) => settingsPanelRegistry.register(key, panel));
@@ -4634,6 +4631,7 @@ $("terminalOutput").addEventListener("paste", (event) => {
   sendTerminalInput(event.clipboardData?.getData("text") || "");
 });
 $("reconnectTerminalBtn").addEventListener("click", connectTerminal);
+bindTerminalPanelActions();
 // The drawer is a phone-only surface, so growing into the desktop layout has to
 // dismiss it. Closing on *every* resize went much further than that: on a phone,
 // resize fires when the URL bar collapses and when the on-screen keyboard opens or

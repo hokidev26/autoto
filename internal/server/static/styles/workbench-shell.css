@@ -316,6 +316,32 @@ body.white-shell.theme-light .terminal-status-row {
   background: var(--ws-canvas);
   color: #7b8494;
 }
+body.white-shell.theme-light .terminal-header-actions .ghost-btn.mini {
+  height: 28px;
+  padding: 0 8px;
+  border-color: #d9dee7;
+  color: #475569;
+  font-size: 12px;
+}
+body.white-shell.theme-light .terminal-prefs {
+  border-top: 1px solid #edf0f4;
+  background: var(--ws-canvas);
+  color: #64748b;
+}
+body.white-shell.theme-light .terminal-prefs summary {
+  color: #64748b;
+}
+body.white-shell.theme-light .terminal-pref strong {
+  color: #334155;
+  font-weight: 650;
+}
+body.white-shell.theme-light .terminal-pref-select select {
+  height: 28px;
+  border: 1px solid #dfe3e9;
+  border-radius: 8px;
+  background: var(--ws-card);
+  color: #334155;
+}
 
 @media (min-width: 1280px) {
   body.white-shell.theme-light .sidebar-resize-handle {

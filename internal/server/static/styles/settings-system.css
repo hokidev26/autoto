@@ -1169,10 +1169,8 @@ body.white-shell.theme-light.theme-dark #settingsModal {
 }
 
 /* Desktop flattening still zeros .settings-live-page and .usage-summary-grid
-   gaps. These two pages keep bordered cards, so they need the spacing the
-   card shape requires — same reason automation-control-page claims its own
-   gap. */
-#settingsContentBody .terminal-settings-page,
+   gaps. Storage keeps bordered cards, so it needs the spacing the card
+   shape requires — same reason automation-control-page claims its own gap. */
 #settingsContentBody .storage-page {
   gap: var(--settings-space-4);
 }
