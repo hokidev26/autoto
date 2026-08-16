@@ -1802,7 +1802,7 @@ export default Object.freeze({
   workspace: {
     chat: {
       emptyMessages: "還沒有訊息。輸入你的需求開始對話。", copy: "複製", copyMessage: "複製訊息原文", copied: "已複製", copyFailed: "複製失敗",
-      sending: "傳送中", retryRun: "重試", stopRun: "停止", stopRunTitle: "停止目前執行", stopRequested: "正在停止目前執行…", stopFoundNothing: "沒有正在執行的工作可停止；已清除畫面上殘留的執行狀態。", attachmentsAdded: "已加入 {count} 個待傳送附件。", attachmentsSkipped: "已略過 {count} 個檔案：{files}{suffix}。", more: " 等",
+      sending: "傳送中", retryRun: "重試", continueRun: "繼續", continuePrompt: "繼續。", stopRun: "停止", stopRunTitle: "停止目前執行", stopRequested: "正在停止目前執行…", stopFoundNothing: "沒有正在執行的工作可停止；已清除畫面上殘留的執行狀態。", attachmentsAdded: "已加入 {count} 個待傳送附件。", attachmentsSkipped: "已略過 {count} 個檔案：{files}{suffix}。", more: " 等",
       videoProcessing: "正在處理影片…", videoSendBlocked: "請等待影片關鍵影格處理完成後再傳送。", videoUnsupported: "僅支援 MP4 與 WebM 影片。", videoSourceTooLarge: "來源影片超過 50 MiB。", videoDurationTooLong: "影片長度超過 60 秒。", videoDerivedTooLarge: "關鍵影格超過 4 MiB 衍生圖片預算。", videoMessageTooLarge: "衍生附件超過 25 MiB 訊息總預算。", videoProcessingFailed: "瀏覽器無法讀取或處理此影片。", videoOriginalIncluded: "已將 {name} 處理為 {count} 個關鍵影格，並會同時傳送原始影片。", videoFramesOnly: "已將 {name} 處理為 {count} 個關鍵影格。原始影片因超過 10 MiB 或 25 MiB 訊息總預算而不傳送；僅分析畫面，不分析音訊。",
       removeAttachment: "移除附件", dropHint: "釋放以加入附件", unnamedFile: "未命名檔案", historyActive: "記錄 {index}/{count} · ↑ 更早，↓ 更新，Enter 傳送，Esc 返回草稿。",
       historyCommands: "輸入 / 可使用 {count} 個斜線命令；空白輸入時 ↑/↓ 可叫回記錄。", historySaved: "空白輸入時 ↑ 可查看上一則提示，↓ 返回草稿。本機已儲存 {count}/30 則。", historyEmpty: "輸入框為空時 ↑/↓ 可叫回最近提示。",

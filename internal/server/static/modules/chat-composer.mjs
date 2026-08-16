@@ -996,21 +996,38 @@ export function createChatComposerController({
     return true;
   }
 
-  function isRetryMode() {
-    // The agent status is consulted alongside the run summary because the two
-    // do not land together: agent.error sets state.agent.status synchronously
-    // and syncs the composer straight away, while the run summary is fetched
-    // afterwards. Reading only the summary left the button saying "send" -- and
-    // an empty submit doing nothing -- until some later event happened to
-    // re-sync.
-    const runStatus = String(state.activeRunSummary?.run?.status || "").trim().toLowerCase();
-    const agentStatus = String(state.agent?.status || "").trim().toLowerCase();
-    const failed = ["error", "failed"].includes(runStatus) || ["error", "failed"].includes(agentStatus);
-    if (!failed) return false;
+  function lastTurnStatuses() {
+    // Agent status and the run summary do not land together: agent.error /
+    // agent.interrupted update state.agent.status synchronously and sync the
+    // composer straight away, while the run summary is fetched afterwards.
+    // Reading only the summary left the button saying "send" -- and an empty
+    // submit doing nothing -- until some later event happened to re-sync.
+    return {
+      run: String(state.activeRunSummary?.run?.status || "").trim().toLowerCase(),
+      agent: String(state.agent?.status || "").trim().toLowerCase(),
+    };
+  }
+
+  function composerHasSendableDraft() {
     const input = $("messageText");
     const text = input ? input.value.trim() : "";
     const attachments = Array.isArray(state.pendingAttachments) ? state.pendingAttachments : [];
-    return text === "" && attachments.length === 0;
+    return text !== "" || attachments.length > 0;
+  }
+
+  function isRetryMode() {
+    const { run, agent } = lastTurnStatuses();
+    return (["error", "failed"].includes(run) || ["error", "failed"].includes(agent)) && !composerHasSendableDraft();
+  }
+
+  function isContinueMode() {
+    // Interrupted is a user stop, not a failed prompt. Empty submit starts a
+    // new turn that asks the model to pick up from the partial assistant
+    // output already in the transcript, rather than rerunning the original
+    // user message.
+    const { run, agent } = lastTurnStatuses();
+    if (["error", "failed"].includes(run) || ["error", "failed"].includes(agent)) return false;
+    return (run === "interrupted" || agent === "interrupted") && !composerHasSendableDraft();
   }
 
   function syncMessageComposerBusy({ checkAttachmentContext = true } = {}) {
@@ -1039,6 +1056,7 @@ export function createChatComposerController({
     const queueMode = !busy && agentTurnInFlight() && Boolean(input?.value?.trim?.());
     const stopMode = !busy && !queueMode && agentTurnInFlight();
     const retryMode = !busy && !stopMode && !queueMode && isRetryMode();
+    const continueMode = !busy && !stopMode && !queueMode && !retryMode && isContinueMode();
     if (sendBtn) {
       sendBtn.classList?.toggle?.("is-stop", stopMode);
       // Let setButtonBusy restore its saved label before applying the current
@@ -1049,9 +1067,10 @@ export function createChatComposerController({
         const label = stopMode
           ? t("workspace.chat.stopRun")
           : queueMode ? t("workspace.chat.queueSend")
-          : retryMode ? t("workspace.chat.retryRun") : t("chat.send");
+          : retryMode ? t("workspace.chat.retryRun")
+          : continueMode ? t("workspace.chat.continueRun") : t("chat.send");
         const title = stopMode ? t("workspace.chat.stopRunTitle") : label;
-        const ariaLabel = stopMode ? title : (queueMode || retryMode) ? label : t("chat.sendMessage");
+        const ariaLabel = stopMode ? title : (queueMode || retryMode || continueMode) ? label : t("chat.sendMessage");
         setTextIfChanged(sendBtn, label);
         sendBtn.title = title;
         sendBtn.setAttribute?.("aria-label", ariaLabel);
@@ -1182,10 +1201,11 @@ export function createChatComposerController({
     }
     const draftKey = currentChatDraftKey();
     const input = $("messageText");
-    const text = input.value.trim();
+    let text = input.value.trim();
     const context = state.navigationSelectionKind === "project" ? "project" : "conversation";
     const mode = context === "project" ? messageModeFor(agentId) : "execute";
     const attachments = [...(state.pendingAttachments || [])];
+    let emptyContinue = false;
     if (!text && !attachments.length) {
       // If the last run failed and there is nothing new to send, run the last
       // user message again. This posts a rerun rather than a correction: a
@@ -1195,8 +1215,14 @@ export function createChatComposerController({
       if (isRetryMode()) {
         await rerunLastUserMessage(agentId);
         if (state.agent?.id === agentId) input?.focus?.({ preventScroll: true });
+        return;
       }
-      return;
+      // A manual interrupt already kept the partial assistant output. Empty
+      // submit here is "keep going from that point", which is a new user turn
+      // rather than a rerun of the original prompt.
+      if (!isContinueMode()) return;
+      emptyContinue = true;
+      text = t("workspace.chat.continuePrompt");
     }
     // An edit of a parked row that carries attachments rewrites that row in place
     // and consumes the send, so the files stay with it on the server.
@@ -1329,7 +1355,7 @@ export function createChatComposerController({
       // renderer to keep the newest user message visible across those layout
       // passes instead of relying only on the pre-send near-bottom check.
       scrollMessagesToBottom?.();
-      if (text) rememberPromptHistory(text);
+      if (text && !emptyContinue) rememberPromptHistory(text);
       clearChatDraftForKey(draftKey);
       // The cards left the composer before the upload started; this is the other half
       // of that handover, freeing the preview URLs now that the turn is delivered and

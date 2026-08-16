@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { t } from "./i18n.mjs";
 
 globalThis.window = { AUTOTO_LOCAL_TOKEN: "" };
 globalThis.location = { origin: "http://localhost", protocol: "http:", host: "localhost" };
@@ -1152,6 +1153,157 @@ test("Composer makes an active run a compact, one-click stop action", async () =
     controller.syncMessageComposerBusy();
     assert.equal(sendButton.dataset.mobileLabel, "■");
     assert.equal(lastStopToggle(stopClasses).enabled, true);
+  } finally {
+    globalThis.document = previousDocument;
+    globalThis.getComputedStyle = previousGetComputedStyle;
+  }
+});
+
+test("an interrupted run turns an empty submit into Continue, not a rerun", async () => {
+  const previousDocument = globalThis.document;
+  const previousGetComputedStyle = globalThis.getComputedStyle;
+  const attributes = new Map();
+  const input = {
+    value: "",
+    disabled: false,
+    scrollHeight: 46,
+    style: {},
+    classList: { toggle() {} },
+    focus() {},
+  };
+  const sendButton = {
+    textContent: "Send",
+    title: "Send",
+    disabled: false,
+    dataset: { mobileLabel: "↑" },
+    classList: { toggle() {} },
+    setAttribute(name, value) { attributes.set(name, value); },
+    removeAttribute(name) { attributes.delete(name); },
+    addEventListener() {},
+  };
+  const elements = {
+    messageText: input,
+    sendMessageBtn: sendButton,
+    attachFileBtn: { disabled: false },
+    attachFileInput: { disabled: false },
+  };
+  const state = {
+    agent: { id: "agent-continue", model: "openai:model", status: "interrupted" },
+    navigationSelectionKind: "conversation",
+    activeRunSummary: { run: { status: "interrupted" } },
+    messageSendingByAgent: {},
+    pendingToolApprovals: {},
+    liveToolOutputs: {},
+    pendingAttachments: [],
+    currentMessages: [{ id: "user-1", role: "user", contentText: "ship the feature" }],
+    promptHistory: [],
+    chatDrafts: {},
+    serverSkills: [],
+  };
+  const requests = [];
+  globalThis.document = { getElementById(id) { return elements[id] || null; } };
+  globalThis.getComputedStyle = () => ({ minHeight: "46px", maxHeight: "128px", getPropertyValue() { return ""; } });
+  try {
+    const controller = createChatComposerController({
+      state,
+      currentSkillsPreferences: () => ({ commands: [] }),
+      isCurrentModelConfigured: () => true,
+      loadMessages: async () => {},
+      onMessageAccepted: async () => {},
+      scheduleMessageRefresh() {},
+      request: async (path, options) => {
+        requests.push({ path, options });
+        return { id: "msg-continue" };
+      },
+    });
+
+    controller.syncMessageComposerBusy();
+    assert.equal(sendButton.textContent, t("workspace.chat.continueRun"));
+    assert.equal(sendButton.dataset.mobileLabel, "↑");
+    assert.equal(attributes.get("aria-label"), t("workspace.chat.continueRun"));
+
+    await controller.sendMessage({ preventDefault() {} });
+    assert.equal(requests.length, 1);
+    assert.equal(requests[0].path, "/api/agents/agent-continue/messages");
+    assert.deepEqual(JSON.parse(requests[0].options.body), {
+      text: t("workspace.chat.continuePrompt"),
+      mode: "execute",
+      context: "conversation",
+    });
+    assert.deepEqual(state.promptHistory, []);
+    assert.equal(input.value, "");
+
+    input.value = "finish the remaining tests";
+    requests.length = 0;
+    controller.syncMessageComposerBusy();
+    assert.equal(sendButton.textContent, t("chat.send"));
+    await controller.sendMessage({ preventDefault() {} });
+    assert.equal(JSON.parse(requests[0].options.body).text, "finish the remaining tests");
+  } finally {
+    globalThis.document = previousDocument;
+    globalThis.getComputedStyle = previousGetComputedStyle;
+  }
+});
+
+test("a failed run still reruns the last user message on empty submit", async () => {
+  const previousDocument = globalThis.document;
+  const previousGetComputedStyle = globalThis.getComputedStyle;
+  const input = {
+    value: "",
+    disabled: false,
+    scrollHeight: 46,
+    style: {},
+    classList: { toggle() {} },
+    focus() {},
+  };
+  const sendButton = {
+    textContent: "Send",
+    disabled: false,
+    dataset: {},
+    classList: { toggle() {} },
+    setAttribute() {},
+    removeAttribute() {},
+    addEventListener() {},
+  };
+  const elements = {
+    messageText: input,
+    sendMessageBtn: sendButton,
+    attachFileBtn: { disabled: false },
+    attachFileInput: { disabled: false },
+  };
+  const state = {
+    agent: { id: "agent-retry", model: "openai:model", status: "error" },
+    navigationSelectionKind: "conversation",
+    activeRunSummary: { run: { status: "failed" } },
+    messageSendingByAgent: {},
+    pendingToolApprovals: {},
+    liveToolOutputs: {},
+    pendingAttachments: [],
+    currentMessages: [{ id: "user-1", role: "user", contentText: "ship the feature" }],
+    promptHistory: [],
+    serverSkills: [],
+  };
+  const requests = [];
+  globalThis.document = { getElementById(id) { return elements[id] || null; } };
+  globalThis.getComputedStyle = () => ({ minHeight: "46px", maxHeight: "128px", getPropertyValue() { return ""; } });
+  try {
+    const controller = createChatComposerController({
+      state,
+      currentSkillsPreferences: () => ({ commands: [] }),
+      isCurrentModelConfigured: () => true,
+      loadMessages: async () => {},
+      scheduleMessageRefresh() {},
+      request: async (path, options) => {
+        requests.push({ path, options });
+        return { id: "run-retry" };
+      },
+    });
+
+    controller.syncMessageComposerBusy();
+    assert.equal(sendButton.textContent, t("workspace.chat.retryRun"));
+    await controller.sendMessage({ preventDefault() {} });
+    assert.equal(requests.length, 1);
+    assert.equal(requests[0].path, "/api/agents/agent-retry/messages/user-1/rerun");
   } finally {
     globalThis.document = previousDocument;
     globalThis.getComputedStyle = previousGetComputedStyle;
