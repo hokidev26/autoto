@@ -553,8 +553,8 @@ function renderSummary(summary) {
     renderSummaryCard(t("usageHistory.summary.errors"), formatCompactCount(summary.errors), t("usageHistory.summary.successRate", { rate: formatPercent(summary.successRate) })),
   ].join("");
   return `<div class="uh-summary-groups">
-    <section class="uh-summary-group" aria-labelledby="usageHistoryUsageGroup"><h3 id="usageHistoryUsageGroup" class="uh-summary-group-title">${escapeHtml(t("usageHistory.summary.usageGroup"))}</h3><div class="uh-summary-grid settings-stat-grid uh-summary-grid-usage">${usageCards}</div></section>
-    <section class="uh-summary-group" aria-labelledby="usageHistoryPerformanceGroup"><h3 id="usageHistoryPerformanceGroup" class="uh-summary-group-title">${escapeHtml(t("usageHistory.summary.performanceGroup"))}</h3><div class="uh-summary-grid settings-stat-grid uh-summary-grid-perf">${performanceCards}</div></section>
+    <section class="uh-summary-group" aria-label="${escapeAttr(t("usageHistory.summary.usageGroup"))}"><div class="uh-summary-grid settings-stat-grid uh-summary-grid-usage">${usageCards}</div></section>
+    <section class="uh-summary-group" aria-label="${escapeAttr(t("usageHistory.summary.performanceGroup"))}"><div class="uh-summary-grid settings-stat-grid uh-summary-grid-perf">${performanceCards}</div></section>
   </div>`;
 }
 

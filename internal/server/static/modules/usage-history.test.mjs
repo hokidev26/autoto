@@ -404,7 +404,9 @@ test("stacked bars, date presets, view tabs, and CSV stay on the usage page", ()
   assert.match(html, /data-usage-preset="today"/);
   assert.match(html, /data-usage-preset="lastMonth"/);
   assert.match(html, /id="usageHistoryExport"/);
-  assert.match(html, /uh-summary-group-title/);
+  assert.match(html, /uh-summary-groups/);
+  assert.match(html, /uh-view-chart/);
+  assert.doesNotMatch(html, /uh-summary-group-title/);
   assert.match(html, /uh-kind-pill/);
   assert.match(html, /uh-token-in/);
   assert.match(html, /uh-stacked-svg/);
@@ -528,5 +530,6 @@ test("static integration uses the new usage controller and leaves metric card re
   assert.match(styles.slice(usageMarker, providerMarker), /#settingsContentBody \.usage-history-page/);
   assert.match(styles.slice(usageMarker, providerMarker), /uh-stack-bucket:focus-visible/);
   assert.match(styles.slice(usageMarker, providerMarker), /uh-stack-focus/);
+  assert.match(styles.slice(usageMarker, providerMarker), /uh-view-chart/);
   assert.ok(styles.trimEnd().endsWith(styles.slice(providerMarker).trimEnd()));
 });

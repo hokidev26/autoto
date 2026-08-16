@@ -1435,17 +1435,14 @@ body.white-shell.theme-light .toolbar-lightning-btn[aria-busy="true"] {
   color: var(--uh-muted);
   line-height: 1.45;
 }
+#settingsContentBody .usage-history-page .uh-view-chart {
+  min-width: 0;
+  display: grid;
+  gap: 20px;
+}
 #settingsContentBody .usage-history-page .uh-summary-groups {
   display: grid;
   gap: 16px;
-}
-#settingsContentBody .usage-history-page .uh-summary-group-title {
-  margin: 0 0 10px;
-  color: var(--uh-muted);
-  font-size: 12px;
-  font-weight: 800;
-  letter-spacing: .06em;
-  text-transform: uppercase;
 }
 #settingsContentBody .usage-history-page .uh-view-tabs,
 #settingsContentBody .usage-history-page .uh-date-presets {
