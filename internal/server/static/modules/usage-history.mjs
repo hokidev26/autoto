@@ -474,7 +474,13 @@ export function renderUsageStackedSVG(trendValue, stackedValue, metric = "totalT
       yOffset += sliceHeight;
       return `<rect class="uh-stack-bar" x="${svgNumber(x(index))}" y="${svgNumber(y)}" width="${svgNumber(barWidth)}" height="${svgNumber(Math.max(0, sliceHeight))}" fill="${escapeAttr(stackedColor(provider, seriesIndex))}"></rect>`;
     }).join("");
-    return `<g class="uh-stack-bucket${active ? " is-selected" : ""}" tabindex="0" role="button" aria-label="${escapeAttr(label)}" aria-pressed="${active ? "true" : "false"}" data-usage-trend-point="${escapeAttr(String(index))}" data-usage-trend-label="${escapeAttr(label)}"><rect class="uh-stack-hit" x="${svgNumber(x(index))}" y="${margin.top}" width="${svgNumber(barWidth)}" height="${svgNumber(plotHeight)}"></rect>${slices}<title>${escapeHtml(label)}</title></g>`;
+    // The hit target stays full-plot-height so the column is easy to click.
+    // Selection/focus drawing hugs the painted bar instead, because an outline
+    // on the <g> follows the tall hit rect and reads as a black frame.
+    const markerHeight = Math.max(8, yOffset);
+    const markerY = margin.top + plotHeight - markerHeight;
+    const marker = `<rect class="uh-stack-focus" x="${svgNumber(x(index) - 1.5)}" y="${svgNumber(markerY - 1.5)}" width="${svgNumber(barWidth + 3)}" height="${svgNumber((yOffset > 0 ? yOffset : markerHeight) + 3)}" rx="4"></rect>`;
+    return `<g class="uh-stack-bucket${active ? " is-selected" : ""}" tabindex="0" role="button" aria-label="${escapeAttr(label)}" aria-pressed="${active ? "true" : "false"}" data-usage-trend-point="${escapeAttr(String(index))}" data-usage-trend-label="${escapeAttr(label)}"><rect class="uh-stack-hit" x="${svgNumber(x(index))}" y="${margin.top}" width="${svgNumber(barWidth)}" height="${svgNumber(plotHeight)}"></rect>${slices}${marker}<title>${escapeHtml(label)}</title></g>`;
   }).join("");
   const ariaLabel = `${t("usageHistory.trend.title")}: ${t(`usageHistory.trend.metrics.${selectedMetric}`)}`;
   return `<svg class="uh-trend-svg uh-stacked-svg" viewBox="0 0 ${svgNumber(width)} ${svgNumber(height)}" role="img" aria-label="${escapeAttr(ariaLabel)}" preserveAspectRatio="none">${grid}<line class="uh-chart-axis" x1="${margin.left}" y1="${margin.top}" x2="${margin.left}" y2="${svgNumber(margin.top + plotHeight)}"></line><line class="uh-chart-axis" x1="${margin.left}" y1="${svgNumber(margin.top + plotHeight)}" x2="${svgNumber(width - margin.right)}" y2="${svgNumber(margin.top + plotHeight)}"></line>${bars}${xLabels}</svg>`;
@@ -608,7 +614,26 @@ function formatOptionalDuration(value) {
 }
 
 function renderTokenBreakdown(item) {
-  return `<div class="uh-token-metrics"><span class="uh-token-in" title="${escapeAttr(t("usageHistory.history.input"))}"><span aria-hidden="true">↑</span> ${escapeHtml(formatNumber(item.inputTokens))}</span><span class="uh-token-out" title="${escapeAttr(t("usageHistory.history.output"))}"><span aria-hidden="true">↓</span> ${escapeHtml(formatNumber(item.outputTokens))}</span><span class="uh-token-total" title="${escapeAttr(t("usageHistory.history.tokens"))}"><span aria-hidden="true">●</span> ${escapeHtml(formatNumber(item.totalTokens))}</span></div><small class="uh-token-extra">${escapeHtml(t("usageHistory.history.reasoning"))} ${escapeHtml(formatNumber(item.reasoningTokens))} · ${escapeHtml(t("usageHistory.history.cached"))} ${escapeHtml(formatNumber(item.cachedInputTokens))}</small>`;
+  const extras = [];
+  if (item.reasoningTokens > 0) extras.push(`${t("usageHistory.history.reasoning")} ${formatNumber(item.reasoningTokens)}`);
+  if (item.cachedInputTokens > 0) extras.push(`${t("usageHistory.history.cached")} ${formatNumber(item.cachedInputTokens)}`);
+  const extra = extras.length
+    ? `<span class="uh-token-extra">${escapeHtml(extras.join(" · "))}</span>`
+    : "";
+  const title = [
+    `${t("usageHistory.history.tokens")} ${formatNumber(item.totalTokens)}`,
+    `${t("usageHistory.history.input")} ${formatNumber(item.inputTokens)}`,
+    `${t("usageHistory.history.output")} ${formatNumber(item.outputTokens)}`,
+    `${t("usageHistory.history.reasoning")} ${formatNumber(item.reasoningTokens)}`,
+    `${t("usageHistory.history.cached")} ${formatNumber(item.cachedInputTokens)}`,
+  ].join(" · ");
+  return `<div class="uh-token-metrics" title="${escapeAttr(title)}">`
+    + `<span class="uh-token-total">${escapeHtml(formatNumber(item.totalTokens))}</span>`
+    + `<span class="uh-token-split">`
+    + `<span class="uh-token-in"><span aria-hidden="true">↑</span>${escapeHtml(formatNumber(item.inputTokens))}</span>`
+    + `<span class="uh-token-out"><span aria-hidden="true">↓</span>${escapeHtml(formatNumber(item.outputTokens))}</span>`
+    + extra
+    + `</span></div>`;
 }
 
 function renderHistoryRow(value) {

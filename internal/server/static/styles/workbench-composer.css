@@ -1558,7 +1558,23 @@ body.white-shell.theme-light .toolbar-lightning-btn[aria-busy="true"] {
   background: var(--uh-primary);
 }
 #settingsContentBody .usage-history-page .uh-stack-hit { fill: transparent; cursor: pointer; }
-#settingsContentBody .usage-history-page .uh-stack-bucket.is-selected .uh-stack-hit { fill: var(--uh-primary); fill-opacity: .08; }
+#settingsContentBody .usage-history-page .uh-stack-bucket:hover .uh-stack-hit { fill: var(--uh-primary); fill-opacity: .05; }
+#settingsContentBody .usage-history-page .uh-stack-focus {
+  fill: none;
+  stroke: transparent;
+  stroke-width: 1.75;
+  pointer-events: none;
+}
+#settingsContentBody .usage-history-page .uh-stack-bucket.is-selected .uh-stack-focus {
+  fill: color-mix(in srgb, var(--uh-primary) 10%, transparent);
+  stroke: var(--uh-primary);
+}
+#settingsContentBody .usage-history-page .uh-stack-bucket:focus-visible .uh-stack-focus { stroke: var(--uh-primary); }
+#settingsContentBody .usage-history-page .uh-stacked-svg:has(.is-selected) .uh-stack-bucket:not(.is-selected) { opacity: .45; }
+#settingsContentBody .usage-history-page :is(.uh-stack-bucket, .uh-chart-point):focus,
+#settingsContentBody .usage-history-page :is(.uh-stack-bucket, .uh-chart-point):focus-visible {
+  outline: none;
+}
 #settingsContentBody .usage-history-page .uh-kind-pill {
   display: inline-flex;
   width: fit-content;
@@ -1570,20 +1586,31 @@ body.white-shell.theme-light .toolbar-lightning-btn[aria-busy="true"] {
   font-weight: 800;
 }
 #settingsContentBody .usage-history-page .uh-token-metrics {
-  display: grid;
-  gap: 3px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 10px;
   font-variant-numeric: tabular-nums;
-  font-weight: 700;
+  line-height: 1.25;
+  white-space: nowrap;
+}
+#settingsContentBody .usage-history-page .uh-token-total {
+  color: var(--uh-text);
+  font-size: 13px;
+  font-weight: 750;
+}
+#settingsContentBody .usage-history-page .uh-token-split {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0 8px;
+  color: var(--uh-muted);
+  font-size: 11px;
+  font-weight: 650;
 }
 #settingsContentBody .usage-history-page .uh-token-in { color: #0f766e; }
 #settingsContentBody .usage-history-page .uh-token-out { color: #c2410c; }
-#settingsContentBody .usage-history-page .uh-token-total { color: var(--uh-text); }
-#settingsContentBody .usage-history-page .uh-token-extra {
-  display: block;
-  margin-top: 6px;
-  color: var(--uh-muted);
-  line-height: 1.45;
-}
+#settingsContentBody .usage-history-page .uh-token-extra { color: var(--uh-muted); font-weight: 600; }
 
 #settingsContentBody .usage-history-page .uh-panel { min-width: 0; padding: 20px; }
 #settingsContentBody .usage-history-page .uh-section-head {
@@ -1775,8 +1802,8 @@ body.white-shell.theme-light .toolbar-lightning-btn[aria-busy="true"] {
 #settingsContentBody .usage-history-page .uh-history-table th,
 #settingsContentBody .usage-history-page .uh-history-table td {
   border-bottom: 1px solid var(--uh-border);
-  padding: 11px 12px;
-  vertical-align: top;
+  padding: 9px 12px;
+  vertical-align: middle;
 }
 #settingsContentBody .usage-history-page .uh-history-table tbody tr:last-child td { border-bottom: 0; }
 #settingsContentBody .usage-history-page .uh-history-table tbody tr:hover { background: var(--uh-surface-muted); }
@@ -1785,9 +1812,7 @@ body.white-shell.theme-light .toolbar-lightning-btn[aria-busy="true"] {
 #settingsContentBody .usage-history-page .uh-history-table td:nth-child(8),
 #settingsContentBody .usage-history-page .uh-history-table td:nth-child(9) { white-space: nowrap; font-variant-numeric: tabular-nums; }
 #settingsContentBody .usage-history-page .uh-history-table td:nth-child(5) { max-width: 220px; overflow-wrap: anywhere; }
-#settingsContentBody .usage-history-page .uh-token-cell strong,
-#settingsContentBody .usage-history-page .uh-token-cell small { display: block; }
-#settingsContentBody .usage-history-page .uh-token-cell small { margin-top: 4px; color: var(--uh-muted); line-height: 1.5; white-space: nowrap; }
+#settingsContentBody .usage-history-page .uh-token-cell { white-space: nowrap; }
 #settingsContentBody .usage-history-page .uh-status {
   width: fit-content;
   display: inline-flex;

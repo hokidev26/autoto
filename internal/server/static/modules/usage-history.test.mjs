@@ -442,6 +442,47 @@ test("stacked SVG reports provider totals and empty stacked falls back to the em
   assert.match(renderUsageStackedSVG([], [], "requests"), /uh-chart-empty/);
 });
 
+test("選中的堆疊柱用柱身標記，避免全高外框", () => {
+  const svg = renderUsageStackedSVG(
+    [{ bucket: "2026-03-01", totalTokens: 30 }, { bucket: "2026-03-02", totalTokens: 70 }],
+    [
+      { bucket: "2026-03-01", provider: "openai", totalTokens: 30 },
+      { bucket: "2026-03-02", provider: "openai", totalTokens: 70 },
+    ],
+    "totalTokens",
+    { selectedIndex: 1 },
+  );
+  assert.equal((svg.match(/uh-stack-bucket is-selected/g) || []).length, 1);
+  assert.match(svg, /uh-stack-bucket is-selected[^>]*data-usage-trend-point="1"/);
+  assert.match(svg, /uh-stack-focus/);
+  assert.match(svg, /aria-pressed="true"/);
+  assert.doesNotMatch(renderUsageStackedSVG(
+    [{ bucket: "2026-03-01", totalTokens: 30 }],
+    [{ bucket: "2026-03-01", provider: "openai", totalTokens: 30 }],
+    "totalTokens",
+  ), /is-selected/);
+});
+
+test("紀錄 Tokens 欄以總量為主，零值細節不另佔一列", () => {
+  const compact = renderUsageHistory({
+    status: "ready",
+    items: [{ id: "one", inputTokens: 8546, outputTokens: 157, totalTokens: 8703, reasoningTokens: 0, cachedInputTokens: 0 }],
+  });
+  assert.match(compact, /uh-token-total[^>]*>8,703</);
+  assert.match(compact, /uh-token-in/);
+  assert.match(compact, /uh-token-out/);
+  assert.match(compact, /8,546/);
+  assert.doesNotMatch(compact, /uh-token-extra/);
+
+  const detailed = renderUsageHistory({
+    status: "ready",
+    items: [{ id: "two", inputTokens: 10, outputTokens: 5, totalTokens: 15, reasoningTokens: 43, cachedInputTokens: 2 }],
+  });
+  assert.match(detailed, /uh-token-extra/);
+  assert.match(detailed, /43/);
+  assert.match(detailed, /2/);
+});
+
 test("CSV export quotes dangerous cells and omits credentials", () => {
   const csv = buildUsageHistoryCSV([
     { createdAt: "2026-03-01T00:00:00Z", agentTitle: "Agent \"A\"", kind: "model", provider: "openai", model: "gpt-5", inputTokens: 10, outputTokens: 5, totalTokens: 15, status: "success", errorMessage: "line\nbreak" },
@@ -485,5 +526,7 @@ test("static integration uses the new usage controller and leaves metric card re
   const providerMarker = styles.lastIndexOf("/* Model provider settings. Scoped after legacy settings overrides by design. */");
   assert.ok(usageMarker >= 0 && usageMarker < providerMarker);
   assert.match(styles.slice(usageMarker, providerMarker), /#settingsContentBody \.usage-history-page/);
+  assert.match(styles.slice(usageMarker, providerMarker), /uh-stack-bucket:focus-visible/);
+  assert.match(styles.slice(usageMarker, providerMarker), /uh-stack-focus/);
   assert.ok(styles.trimEnd().endsWith(styles.slice(providerMarker).trimEnd()));
 });
