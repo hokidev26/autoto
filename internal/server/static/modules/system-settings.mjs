@@ -1105,7 +1105,6 @@ export function createSystemSettingsController({
     <div class="settings-live-page storage-page">
       <section class="settings-hero-card settings-page-section settings-card">
         <div>
-          <div class="settings-hero-kicker">${escapeHtml(t("systemSettings.storage.kicker"))}</div>
           <div class="settings-hero-title">${escapeHtml(t("systemSettings.storage.heroTitle"))}</div>
           <p data-settings-help-copy>${escapeHtml(t("systemSettings.storage.description"))}</p>
         </div>

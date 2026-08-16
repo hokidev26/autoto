@@ -126,6 +126,8 @@ test("storage page reports known usage, escapes entry paths, and loads an empty 
 
   const loading = controller({}).renderStorageSettingsContent();
   assert.match(loading, /settings-empty-card/);
+  assert.match(loading, /storage-page/);
+  assert.doesNotMatch(loading, /settings-hero-kicker/);
 });
 
 test("usage metric cards mark identifiers, coerce empty values to 0, and escape copy", () => {

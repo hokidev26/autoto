@@ -497,6 +497,8 @@ test("storage settings cards keep visible vertical spacing", async () => {
   ]);
 
   assert.match(styles, /body\.white-shell\.theme-light \.legacy-settings-content-body \.storage-entry-list\s*\{[\s\S]*?gap:\s*12px/);
+  assert.match(styles, /#settingsContentBody \.storage-page \.storage-entry-list\s*\{[\s\S]*?gap:\s*var\(--settings-space-4\)/);
+  assert.match(styles, /#settingsContentBody \.terminal-settings-page,\s*#settingsContentBody \.storage-page\s*\{[\s\S]*?gap:\s*var\(--settings-space-4\)/);
 });
 
 test("network proxy settings remove duplicate agent management while keeping the backend modal", async () => {

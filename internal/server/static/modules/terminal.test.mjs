@@ -106,6 +106,7 @@ test("terminal settings page keeps only controls with no other entry point", () 
 
     // Two sections total: hero and local preferences.
     assert.equal((html.match(/<section/g) || []).length, 2);
+    assert.doesNotMatch(html, /settings-hero-kicker/);
   } finally {
     if (previousDocument === undefined) delete globalThis.document;
     else globalThis.document = previousDocument;

@@ -1168,6 +1168,34 @@ body.white-shell.theme-light.theme-dark #settingsModal {
   color: var(--settings-foreground);
 }
 
+/* Desktop flattening still zeros .settings-live-page and .usage-summary-grid
+   gaps. These two pages keep bordered cards, so they need the spacing the
+   card shape requires — same reason automation-control-page claims its own
+   gap. */
+#settingsContentBody .terminal-settings-page,
+#settingsContentBody .storage-page {
+  gap: var(--settings-space-4);
+}
+
+#settingsContentBody .storage-page :is(.settings-status-strip, .usage-summary-grid) {
+  gap: var(--settings-space-2);
+  border: 0;
+  padding: 0;
+}
+
+#settingsContentBody .storage-page :is(.settings-status-strip > div, .usage-metric-card) {
+  border: 1px solid var(--settings-border);
+  border-left: 1px solid var(--settings-border);
+  border-radius: var(--settings-radius);
+  background: color-mix(in srgb, var(--settings-surface) 88%, var(--settings-muted));
+  padding: 12px;
+}
+
+#settingsContentBody .storage-page .storage-entry-list {
+  display: grid;
+  gap: var(--settings-space-4);
+}
+
 #settingsContentBody :is(.settings-data-row, .storage-entry-card, .license-module-row, .settings-auth-item, .settings-backend-card, .automation-row-card, .automation-device-row, .automation-audit-row) {
   min-width: 0;
   border-color: var(--settings-border);

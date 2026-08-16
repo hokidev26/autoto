@@ -159,7 +159,6 @@ export function createTerminalController({
         <section class="settings-hero-card terminal-hero-card settings-page-section settings-card">
           <div class="settings-card-header">
             <div>
-              <div class="settings-hero-kicker">${escapeHtml(t("workspace.terminal.management"))}</div>
               <div class="settings-hero-title settings-card-title">${escapeHtml(wsLabel)}</div>
               <p class="settings-card-description path">${escapeHtml(cwd)}</p>
               <p class="settings-card-description" data-settings-help-copy>${escapeHtml(locked ? remoteTerminalLockedMessage() : sx("terminal.description"))}</p>
