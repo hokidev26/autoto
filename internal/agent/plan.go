@@ -5,11 +5,21 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 	"sync"
 
 	"autoto/internal/db"
 	"autoto/internal/review"
+)
+
+const (
+	// PlanReflectionSourcePrefix tags the one automatic plan-mode retry so a
+	// second needs_human cannot start a third run.
+	PlanReflectionSourcePrefix = "plan-reflection:"
+	// PlanReflectionPromptPrefix is the UI contract for the automatic replan
+	// trigger message. The remainder of the prompt follows a newline.
+	PlanReflectionPromptPrefix = "PLAN_REFLECTION_REPLAN"
 )
 
 const planDraftSystemPrompt = `
@@ -33,6 +43,7 @@ type planProviders struct {
 	reviewer                   *review.Service
 	planSnapshotProvider       func(context.Context, string) (db.PlanSnapshot, error)
 	backgroundSnapshotProvider func(context.Context, string) (db.PlanSnapshot, error)
+	deferredReviews            map[string]review.Result
 }
 
 func (p *planProviders) setReviewer(service *review.Service) {
@@ -71,6 +82,33 @@ func (p *planProviders) backgroundSnapshot() func(context.Context, string) (db.P
 	provider := p.backgroundSnapshotProvider
 	p.mu.RUnlock()
 	return provider
+}
+
+func (p *planProviders) rememberDeferredReview(runID string, result review.Result) {
+	runID = strings.TrimSpace(runID)
+	if p == nil || runID == "" {
+		return
+	}
+	p.mu.Lock()
+	if p.deferredReviews == nil {
+		p.deferredReviews = make(map[string]review.Result)
+	}
+	p.deferredReviews[runID] = result
+	p.mu.Unlock()
+}
+
+func (p *planProviders) takeDeferredReview(runID string) (review.Result, bool) {
+	runID = strings.TrimSpace(runID)
+	if p == nil || runID == "" {
+		return review.Result{}, false
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	result, ok := p.deferredReviews[runID]
+	if ok {
+		delete(p.deferredReviews, runID)
+	}
+	return result, ok
 }
 
 // SetReviewService installs the isolated reviewer. It is intentionally not a
@@ -283,19 +321,155 @@ func (r *Runner) persistAndReviewPlan(ctx context.Context, policy PolicyContext,
 	if err := r.store.PersistPlanReview(ctx, policy.RunID, reviewerID, result); err != nil {
 		return "", review.Result{}, fmt.Errorf("persist plan review: %w", err)
 	}
-	if plan, planErr := r.store.GetPlanBySourceRun(ctx, policy.RunID); planErr == nil {
-		r.publish(Event{Type: "plan.approval_required", AgentID: policy.AgentID, Data: map[string]any{
-			"plan": map[string]any{
-				"id": plan.ID, "agentId": plan.AgentID, "status": plan.Status, "revision": plan.Revision,
-				"summary": plan.Summary, "goal": draft.Goal, "steps": draft.Steps, "risks": draft.Risks,
-				"tests": declaredPlanTests(draft.Tests), "reviewVerdict": result.Verdict, "reviewFindings": []string{result.Reason},
-				"createdAt": plan.CreatedAt, "updatedAt": plan.UpdatedAt,
-			},
-		}})
+	sourceRun, sourceErr := r.store.GetRunByID(ctx, policy.RunID)
+	if sourceErr == nil && shouldAutoReflectPlan(sourceRun, result.Verdict) {
+		// Defer plan.approval_required until after unregisterRun. Auto-replan
+		// either replaces this in_review draft or publishes the event then.
+		r.plans.rememberDeferredReview(policy.RunID, result)
+	} else if plan, planErr := r.store.GetPlanBySourceRun(ctx, policy.RunID); planErr == nil {
+		r.publishPlanApprovalRequired(plan, draft, result)
 	}
 	encoded, err := json.Marshal(draft)
 	if err != nil {
 		return "", review.Result{}, fmt.Errorf("encode persisted plan draft: %w", err)
 	}
 	return string(encoded), result, nil
+}
+
+func hasPlanReflectionSourceID(sourceID string) bool {
+	return strings.HasPrefix(strings.TrimSpace(sourceID), PlanReflectionSourcePrefix)
+}
+
+func shouldAutoReflectPlan(run db.Run, verdict review.ReviewVerdict) bool {
+	if strings.TrimSpace(run.ExecutionMode) != db.RunExecutionModePlan {
+		return false
+	}
+	if verdict != review.VerdictNeedsHuman {
+		return false
+	}
+	return !hasPlanReflectionSourceID(run.SourceID)
+}
+
+func (r *Runner) maybeStartPlanReflectionReplan(agentID, sourceRunID string, allowStart bool) bool {
+	if r == nil {
+		return false
+	}
+	result, ok := r.plans.takeDeferredReview(sourceRunID)
+	if !ok {
+		return false
+	}
+	ctx := context.Background()
+	if allowStart {
+		started, err := r.startPlanReflectionReplan(ctx, agentID, sourceRunID, result)
+		if err != nil {
+			slog.Error("plan reflection replan failed", "agentId", agentID, "runId", sourceRunID, "error", err)
+		}
+		if started {
+			return true
+		}
+	}
+	r.publishPlanApprovalRequiredFromRun(ctx, sourceRunID, result)
+	return false
+}
+
+func (r *Runner) startPlanReflectionReplan(ctx context.Context, agentID, sourceRunID string, result review.Result) (bool, error) {
+	if r == nil || r.store == nil {
+		return false, errors.New("agent runner is not initialized")
+	}
+	agentID = strings.TrimSpace(agentID)
+	sourceRunID = strings.TrimSpace(sourceRunID)
+	if agentID == "" || sourceRunID == "" {
+		return false, nil
+	}
+	sourceRun, err := r.store.GetRunByID(ctx, sourceRunID)
+	if err != nil {
+		return false, err
+	}
+	if sourceRun.AgentID != agentID || !shouldAutoReflectPlan(sourceRun, result.Verdict) {
+		return false, nil
+	}
+	plan, err := r.store.GetPlanBySourceRun(ctx, sourceRunID)
+	if err != nil {
+		return false, err
+	}
+	if plan.Status != db.PlanStatusInReview {
+		return false, nil
+	}
+	if err := r.EnsureLocalExecution(ctx, agentID); err != nil {
+		return false, err
+	}
+	cancelled, err := r.store.TransitionPlanStatus(ctx, agentID, plan.ID, plan.Revision, db.PlanStatusCancelled)
+	if err != nil {
+		return false, err
+	}
+	reason := strings.TrimSpace(result.Reason)
+	prompt := PlanReflectionPromptPrefix + "\nRevise the previous plan so it achieves the stated goal. The isolated reviewer requested this correction:\n" + reason + "\n\nPrevious plan JSON:\n" + string(plan.ContentJSON)
+	message, err := r.store.AddMessage(ctx, db.Message{AgentID: agentID, Role: "user", ContentText: prompt, CreatedBy: "api"})
+	if err != nil {
+		return false, err
+	}
+	runRequest, err := r.bindPlanRunSnapshot(ctx, db.Run{
+		AgentID:          agentID,
+		TriggerMessageID: message.ID,
+		Status:           "pending",
+		Source:           db.RunSourceManual,
+		SourceID:         PlanReflectionSourcePrefix + plan.ID,
+		TriggerType:      "internal",
+		ExecutionMode:    db.RunExecutionModePlan,
+	})
+	if err != nil {
+		return false, err
+	}
+	runRequest, err = r.prepareContinuationRun(ctx, runRequest)
+	if err != nil {
+		return false, err
+	}
+	run, err := r.store.CreateRun(ctx, runRequest)
+	if err != nil {
+		return false, err
+	}
+	if err := r.store.AssignMessageRun(ctx, agentID, message.ID, run.ID); err != nil {
+		return false, err
+	}
+	message.RunID = run.ID
+	r.publishPlanLifecycle("plan.cancelled", cancelled, result)
+	r.publish(Event{Type: "message.created", AgentID: agentID, MessageID: message.ID, Text: prompt, Data: mergeEventData(map[string]any{"executionMode": db.RunExecutionModePlan}, run.ID)})
+	go r.runWithRun(context.Background(), agentID, run.ID, message.ID)
+	return true, nil
+}
+
+func (r *Runner) publishPlanApprovalRequiredFromRun(ctx context.Context, sourceRunID string, result review.Result) {
+	if r == nil || r.store == nil {
+		return
+	}
+	plan, err := r.store.GetPlanBySourceRun(ctx, sourceRunID)
+	if err != nil {
+		return
+	}
+	var draft review.PlanDraft
+	if json.Unmarshal(plan.ContentJSON, &draft) != nil {
+		draft = review.PlanDraft{}
+	}
+	r.publishPlanApprovalRequired(plan, draft, result)
+}
+
+func (r *Runner) publishPlanApprovalRequired(plan db.Plan, draft review.PlanDraft, result review.Result) {
+	r.publish(Event{Type: "plan.approval_required", AgentID: plan.AgentID, Data: map[string]any{"plan": r.planEventPayload(plan, draft, result)}})
+}
+
+func (r *Runner) publishPlanLifecycle(eventType string, plan db.Plan, result review.Result) {
+	var draft review.PlanDraft
+	if json.Unmarshal(plan.ContentJSON, &draft) != nil {
+		draft = review.PlanDraft{}
+	}
+	r.publish(Event{Type: eventType, AgentID: plan.AgentID, Data: map[string]any{"plan": r.planEventPayload(plan, draft, result)}})
+}
+
+func (r *Runner) planEventPayload(plan db.Plan, draft review.PlanDraft, result review.Result) map[string]any {
+	return map[string]any{
+		"id": plan.ID, "agentId": plan.AgentID, "status": plan.Status, "revision": plan.Revision,
+		"summary": plan.Summary, "goal": draft.Goal, "steps": draft.Steps, "risks": draft.Risks,
+		"tests": declaredPlanTests(draft.Tests), "reviewVerdict": result.Verdict, "reviewFindings": []string{result.Reason},
+		"createdAt": plan.CreatedAt, "updatedAt": plan.UpdatedAt,
+	}
 }

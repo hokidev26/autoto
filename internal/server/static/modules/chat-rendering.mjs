@@ -25,8 +25,16 @@ import {
   userMessageRoles,
 } from "./chat-rendering-messages.mjs";
 import {
+  compactPlanStatus,
   createChatRenderingPlanCards,
+  isApprovedPlanExecuteMessage,
+  isPlanReflectionMessage,
+  looksLikePlanDraft,
   normalizeAgentPlan,
+  parsePlanDraftText,
+  planCopyMarkdown,
+  planForMessage,
+  renderPlanSystemNoticeHTML,
 } from "./chat-rendering-plan.mjs";
 import { messageCopyGlyph } from "./chat-rendering-tools-glyphs.mjs";
 import { createChatRenderingCorrection } from "./chat-rendering-correction.mjs";
@@ -72,7 +80,10 @@ export {
   maxLiveReasoningSteps,
   messageContentBlocks,
   nextToolActivitySelection,
+  looksLikePlanDraft,
   normalizeAgentPlan,
+  parsePlanDraftText,
+  planForMessage,
   normalizeAgentTaskActivity,
   normalizeGeneratedImageBlocks,
   normalizeImageGenerationStatusEvent,
@@ -124,6 +135,7 @@ export function createChatRenderingController({
     bindPlanButtons,
     clearPlanState,
     performPlanAction,
+    renderPlanCardHTML,
     renderPlanCards,
     renderPlanCardsHTML,
     replacePlanState,
@@ -603,7 +615,7 @@ export function createChatRenderingController({
     // fetch repaints the stacks in place when it lands, so it never blocks the
     // paint below.
     ensureHistoryRunActivity(agentId).catch(() => {});
-    state.messageCopyTexts = visibleMessages.map(transcriptMessageText);
+    state.messageCopyTexts = visibleMessages.map(messageCopyText);
     updateConversationCopyButton();
     if (state.chatHydrating && options.forceRender !== true) return true;
     if (!el) return true;
@@ -802,14 +814,16 @@ export function createChatRenderingController({
   function renderLiveAssistantCardHTML() {
     const text = String(state.liveAssistantText || "");
     if (!text) return "";
+    const drafting = looksLikePlanDraft(text);
+    if (drafting) streamingMarkdown.reset();
     const logoSVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false" style="width:14px;height:14px;display:block;"><circle cx="32" cy="32" r="25"/><path d="M21 35c3.2 4 6.8 6 11 6s7.8-2 11-6"/><path d="M23 25h.02M41 25h.02"/></svg>`;
     return `
-      <div class="message assistant live-assistant-message chat-message chat-flow-item chat-flow-left" data-chat-alignment="left" data-live-assistant data-run-id="${escapeAttr(state.liveAssistantRunId || "")}" data-request-id="${escapeAttr(state.liveAssistantRequestId || "")}" data-started-at="${escapeAttr(state.liveAssistantStartedAt || "")}">
+      <div class="message assistant live-assistant-message chat-message chat-flow-item chat-flow-left" data-chat-alignment="left" data-live-assistant${drafting ? " data-plan-drafting" : ""} data-run-id="${escapeAttr(state.liveAssistantRunId || "")}" data-request-id="${escapeAttr(state.liveAssistantRequestId || "")}" data-started-at="${escapeAttr(state.liveAssistantStartedAt || "")}">
         <div class="message-head">
           <div class="message-meta"><span class="message-avatar message-avatar-logo" aria-hidden="true">${logoSVG}</span><div class="message-role">Autoto</div></div>
           ${renderPerformanceHTML(state.liveAssistantPerformance, { live: true })}
         </div>
-        <div class="message-content">${liveAssistantContentHTML(text)}</div>
+        <div class="message-content">${drafting ? escapeHtml(cr("plan.drafting")) : liveAssistantContentHTML(text)}</div>
       </div>
     `;
   }
@@ -822,6 +836,31 @@ export function createChatRenderingController({
   }
 
   const messageHtmlCache = new Map();
+
+  function messageCopyText(message) {
+    const text = transcriptMessageText(message);
+    if (isApprovedPlanExecuteMessage(text)) return cr("plan.executeNotice");
+    if (isPlanReflectionMessage(text)) return cr("plan.reflectNotice");
+    const plan = planForMessage(message, state);
+    if (plan) return planCopyMarkdown(plan);
+    return text;
+  }
+
+  function planMessageRenderSignature(message) {
+    const text = transcriptMessageText(message);
+    if (isApprovedPlanExecuteMessage(text)) return "plan-notice:execute";
+    if (isPlanReflectionMessage(text)) return "plan-notice:reflect";
+    const plan = planForMessage(message, state);
+    if (!plan) return "";
+    return [
+      plan.id || "",
+      compactPlanStatus(plan.status),
+      plan.revision || 0,
+      plan.reviewVerdict || "",
+      plan.id && state.planActionBusy?.[plan.id] ? "1" : "0",
+      plan.id ? String(state.planFeedbackDrafts?.[plan.id] || "") : "",
+    ].join("\u0001");
+  }
 
   // Captures every input `renderChatMessageHTML` reads so a cached render can
   // be safely reused only when none of them have changed. `JSON.stringify(message)`
@@ -856,6 +895,7 @@ export function createChatRenderingController({
       localeProxy,
       regionProxy,
       correctionState,
+      planMessageRenderSignature(message),
     ].join(" ");
   }
 
@@ -869,12 +909,36 @@ export function createChatRenderingController({
     return html;
   }
 
+  function renderPlanNoticeMessageHTML(message, index, kind) {
+    const presentation = chatMessagePresentation(message);
+    const timeHTML = presentation.timestampValue
+      ? `<time class="message-time" datetime="${escapeAttr(presentation.timestampValue)}" title="${escapeAttr(formatTimestamp(presentation.timestampValue))}">${escapeHtml(formatTimestamp(presentation.timestampValue, { timeOnly: true }))}</time>`
+      : "";
+    return `
+      <div class="plan-system-notice chat-flow-item chat-flow-left" data-chat-alignment="left" data-plan-notice="${escapeAttr(kind)}" data-message-id="${escapeAttr(message.id || "")}">
+        ${renderPlanSystemNoticeHTML({ kind })}
+        <div class="plan-system-notice-actions">
+          <button class="message-copy-btn" type="button" data-copy-message="${escapeAttr(String(index))}" title="${escapeAttr(cr("message.copyTitle"))}" aria-label="${escapeAttr(cr("message.copyTitle"))}">${messageCopyGlyph()}</button>
+          ${timeHTML}
+        </div>
+      </div>
+    `;
+  }
+
   function renderChatMessageHTML(message, index) {
     const presentation = chatMessagePresentation(message);
     const editing = Boolean(message.id && state.editingMessageId === message.id);
     const usesProfileIdentity = userMessageRoles.has(presentation.normalizedRole);
     const profileIdentity = usesProfileIdentity ? currentUserMessageIdentity() : null;
     const isAssistant = presentation.normalizedRole === "assistant";
+    const transcriptText = transcriptMessageText(message);
+    if (!editing && usesProfileIdentity && isApprovedPlanExecuteMessage(transcriptText)) {
+      return renderPlanNoticeMessageHTML(message, index, "execute");
+    }
+    if (!editing && usesProfileIdentity && isPlanReflectionMessage(transcriptText)) {
+      return renderPlanNoticeMessageHTML(message, index, "reflect");
+    }
+    const plan = isAssistant && !editing ? planForMessage(message, state) : null;
     const logoSVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false" style="width:14px;height:14px;display:block;"><circle cx="32" cy="32" r="25"/><path d="M21 35c3.2 4 6.8 6 11 6s7.8-2 11-6"/><path d="M23 25h.02M41 25h.02"/></svg>`;
     const avatarLabel = isAssistant ? "" : (presentation.role.slice(0, 1).toUpperCase() || "•");
     const avatarHTML = usesProfileIdentity ? profileAvatarHTML(profileIdentity) : (isAssistant ? logoSVG : escapeHtml(avatarLabel));
@@ -890,15 +954,20 @@ export function createChatRenderingController({
     // action: offering "correct" for a message whose correction editor is
     // already open re-renders the same editor and reads as a second control.
     const actions = `${message.role === "user" && !editing ? `<button class="message-copy-btn" type="button" data-correct-message="${escapeAttr(message.id || "")}" title="${escapeAttr(cr("message.correctTitle"))}">${escapeHtml(cr("message.correct"))}</button>` : ""}<button class="message-copy-btn" type="button" data-copy-message="${escapeAttr(String(index))}" title="${escapeAttr(cr("message.copyTitle"))}" aria-label="${escapeAttr(cr("message.copyTitle"))}">${messageCopyGlyph()}</button>`;
+    const body = editing
+      ? renderCorrectionEditor(message)
+      : plan
+        ? renderPlanCardHTML(plan)
+        : `<div class="message-content">${renderMarkdown(friendlyMessageText(transcriptText))}</div>${isAssistant ? renderGeneratedImageBlocksHTML(message, state.agent?.id || "") : ""}${renderMessageAttachments(message)}`;
     return `
-      <div class="message ${presentation.roleClass}${editing ? " message-editing" : ""} chat-message chat-flow-item chat-flow-${presentation.alignment}" data-chat-alignment="${presentation.alignment}" data-message-role="${escapeAttr(presentation.normalizedRole)}" data-message-id="${escapeAttr(message.id || "")}">
+      <div class="message ${presentation.roleClass}${editing ? " message-editing" : ""}${plan ? " plan-message" : ""} chat-message chat-flow-item chat-flow-${presentation.alignment}" data-chat-alignment="${presentation.alignment}" data-message-role="${escapeAttr(presentation.normalizedRole)}" data-message-id="${escapeAttr(message.id || "")}">
         <div class="message-head">
           <div class="message-meta"><span class="message-avatar" aria-hidden="true"${profileAvatarAttr}>${avatarHTML}</span><div class="message-role">${roleHTML}</div></div>
           <div class="message-head-actions">${actions}</div>
           ${timeHTML}
         </div>
-        ${editing ? renderCorrectionEditor(message) : `<div class="message-content">${renderMarkdown(friendlyMessageText(transcriptMessageText(message)))}</div>${presentation.normalizedRole === "assistant" ? renderGeneratedImageBlocksHTML(message, state.agent?.id || "") : ""}${renderMessageAttachments(message)}`}
-        ${presentation.normalizedRole === "assistant" ? renderPerformanceHTML(message.turnUsage) : ""}
+        ${body}
+        ${isAssistant ? renderPerformanceHTML(message.turnUsage) : ""}
       </div>
     `;
   }
@@ -974,6 +1043,10 @@ export function createChatRenderingController({
   function updateLiveAssistantContentInPlace(card) {
     if (card.dataset.runId !== String(state.liveAssistantRunId || "")) return false;
     if (card.dataset.requestId !== String(state.liveAssistantRequestId || "")) return false;
+    if (looksLikePlanDraft(state.liveAssistantText || "")) {
+      streamingMarkdown.reset();
+      return Object.prototype.hasOwnProperty.call(card.dataset || {}, "planDrafting") || card.hasAttribute?.("data-plan-drafting") === true;
+    }
     const stable = card.querySelector("[data-md-stable]");
     const tail = card.querySelector("[data-md-tail]");
     if (!stable || !tail) return false;

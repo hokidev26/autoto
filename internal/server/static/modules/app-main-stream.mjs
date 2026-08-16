@@ -90,7 +90,7 @@ async function applyAgentLiveSnapshot(snapshot, detail = {}) {
   }
   state.liveToolOutputs = recoveredToolOutputs;
   clearRunSummary({ preserveView: true });
-  replacePlanState(snapshot.activePlan, snapshot.pendingPlanApproval ?? snapshot.pendingPlan, agentId);
+  replacePlanState(snapshot.activePlan, snapshot.pendingPlanApproval ?? snapshot.pendingPlan, agentId, snapshot.plans);
   replacePendingApprovals(snapshot.pendingApprovals, agentId);
   replacePendingUserQuestions(snapshot.pendingUserQuestions, agentId);
   applyMessageSnapshot(snapshot.messages, agentId, {

@@ -154,6 +154,7 @@ func (a agentService) liveSnapshot(ctx context.Context, agentID, afterExecutionG
 		ChildAgents:           children,
 		ActivePlan:            reviewState.ActivePlan,
 		PendingPlanApproval:   reviewState.PendingPlanApproval,
+		Plans:                 reviewState.Plans,
 		Review:                reviewState.Review,
 		BackgroundTasks:       backgroundTasks,
 		RecentBackgroundTasks: recentBackgroundTasks(backgroundTasks, 8),

@@ -95,6 +95,7 @@ func (r *Runner) executeRegisteredRun(runCtx context.Context, agentID string, ac
 	if err == nil && active != nil && strings.TrimSpace(active.runID) != "" {
 		r.resumeReadyBackgroundContinuation(active.runID)
 	}
+	startedReflect := r.maybeStartPlanReflectionReplan(agentID, activeRunID(active), err == nil && !completion.pending)
 	if err != nil {
 		if errors.Is(err, context.Canceled) {
 			if completion.interrupted || !completion.pending {
@@ -131,6 +132,9 @@ func (r *Runner) executeRegisteredRun(runCtx context.Context, agentID string, ac
 	}
 	if completion.pending {
 		go r.runWithRun(context.Background(), agentID, completion.runID, completion.triggerMessageID)
+		return
+	}
+	if startedReflect {
 		return
 	}
 	// Pre-compaction may only start here, after unregisterRun released the

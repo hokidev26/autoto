@@ -102,6 +102,7 @@ type agentLiveSnapshotResponse struct {
 	ChildAgents           []db.Agent               `json:"childAgents,omitempty"`
 	ActivePlan            *reviewPlanSummary       `json:"activePlan,omitempty"`
 	PendingPlanApproval   *reviewPlanSummary       `json:"pendingPlanApproval,omitempty"`
+	Plans                 []reviewPlanSummary      `json:"plans,omitempty"`
 	Review                reviewStateSummary       `json:"review"`
 	BackgroundTasks       []tools.BackgroundTask   `json:"backgroundTasks,omitempty"`
 	RecentBackgroundTasks []tools.BackgroundTask   `json:"recentBackgroundTasks,omitempty"`

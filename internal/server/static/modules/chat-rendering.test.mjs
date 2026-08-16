@@ -1469,6 +1469,127 @@ test("replan carries the reviewer feedback draft and clears it on success", asyn
   }
 });
 
+test("assistant plan JSON renders a durable plan card instead of raw JSON", () => {
+  const planJSON = JSON.stringify({
+    goal: "Inspect the repo",
+    assumptions: ["workspace is git"],
+    steps: ["read ARCHITECTURE.md"],
+    risks: ["missing tests"],
+    tests: ["go test"],
+    rollback: ["git checkout"],
+  });
+  const plan = {
+    id: "plan-inline",
+    agentId: "agent-1",
+    status: "in_review",
+    revision: 1,
+    sourceRunId: "run-plan",
+    goal: "Inspect the repo",
+    steps: ["read ARCHITECTURE.md"],
+    risks: ["missing tests"],
+  };
+  const { html, state } = renderSnapshot([
+    { id: "a1", role: "assistant", contentText: planJSON, runId: "run-plan" },
+  ], {
+    transcriptPlans: [plan],
+    pendingPlanApproval: plan,
+    activePlan: null,
+  });
+
+  assert.match(html, /data-chat-report="agent-plan"/);
+  assert.match(html, /data-plan-action="approve"/);
+  assert.match(html, /data-plan-action="cancel"/);
+  assert.match(html, /data-plan-action="replan"/);
+  assert.doesNotMatch(html, /"assumptions"/);
+  assert.doesNotMatch(html, /workspace is git/);
+  assert.equal((html.match(/data-plan-card=/g) || []).length, 1, "inline card must not also duplicate at the tail");
+  assert.match(state.messageCopyTexts[0], /Inspect the repo/);
+  assert.match(state.messageCopyTexts[0], /read ARCHITECTURE\.md/);
+  assert.doesNotMatch(state.messageCopyTexts[0], /assumptions/);
+});
+
+test("executed plans in transcriptPlans still render after reopen without action buttons", () => {
+  const planJSON = JSON.stringify({
+    goal: "Ship auth",
+    assumptions: ["tokens stay private"],
+    steps: ["map routes"],
+    risks: ["csrf"],
+    tests: ["go test"],
+    rollback: ["revert"],
+  });
+  const executed = {
+    id: "plan-done",
+    agentId: "agent-1",
+    status: "executed",
+    revision: 2,
+    sourceRunId: "run-plan-done",
+    goal: "Ship auth",
+    steps: ["map routes"],
+    risks: ["csrf"],
+  };
+  const { html } = renderSnapshot([
+    { id: "a1", role: "assistant", contentText: planJSON, runId: "run-plan-done" },
+  ], {
+    transcriptPlans: [executed],
+    activePlan: null,
+    pendingPlanApproval: null,
+  });
+
+  assert.match(html, /data-chat-report="agent-plan"/);
+  assert.match(html, /已執行|已执行|Executed/);
+  assert.doesNotMatch(html, /data-plan-action="approve"/);
+  assert.doesNotMatch(html, /data-plan-action="execute"/);
+  assert.doesNotMatch(html, /data-plan-action="replan"/);
+  assert.doesNotMatch(html, /plan-card-feedback/);
+  assert.doesNotMatch(html, /"assumptions"/);
+});
+
+test("approved-plan execute and reflection prompts compact to system notices", () => {
+  const planJSON = JSON.stringify({
+    goal: "Inspect the repo",
+    assumptions: ["workspace is git"],
+    steps: ["read ARCHITECTURE.md"],
+    risks: ["missing tests"],
+    tests: ["go test"],
+    rollback: ["git checkout"],
+  });
+  const executeText = `Execute the approved plan exactly as reviewed. Do not expand its scope.\n\nApproved plan ID: plan-1\nApproved plan JSON:\n${planJSON}`;
+  const reflectText = `PLAN_REFLECTION_REPLAN\nThe previous plan missed its goal.\n${planJSON}`;
+  const { html, state } = renderSnapshot([
+    { id: "u-exec", role: "user", contentText: executeText },
+    { id: "u-reflect", role: "user", contentText: reflectText },
+  ]);
+
+  assert.match(html, /class="plan-system-notice/);
+  assert.match(html, /data-plan-notice="execute"/);
+  assert.match(html, /data-plan-notice="reflect"/);
+  assert.match(html, /已按批准计划开始执行。|已依核准計畫開始執行。|Started executing the approved plan\./);
+  assert.match(html, /审查判定计划未达成目标，已自动重新规划一次。|審查判定計畫未達成目標，已自動重規劃一次。|Review found the plan does not achieve its goal, so it was replanned once\./);
+  assert.doesNotMatch(html, /Approved plan JSON/);
+  assert.doesNotMatch(html, /PLAN_REFLECTION_REPLAN/);
+  assert.doesNotMatch(html, /data-correct-message/);
+  assert.match(html, /data-copy-message="0"/);
+  assert.match(html, /data-copy-message="1"/);
+  assert.equal(state.messageCopyTexts[0], chatRenderingExtraText("plan.executeNotice"));
+  assert.equal(state.messageCopyTexts[1], chatRenderingExtraText("plan.reflectNotice"));
+});
+
+test("live assistant plan JSON shows a drafting notice instead of streaming the blob", () => {
+  const { html } = renderSnapshot([], {
+    liveAssistantText: JSON.stringify({
+      goal: "Inspect the repo",
+      assumptions: ["workspace is git"],
+      steps: ["read ARCHITECTURE.md"],
+      risks: ["missing tests"],
+      tests: ["go test"],
+      rollback: ["git checkout"],
+    }),
+  });
+  assert.match(html, /正在整理计划…|正在整理計畫…|Preparing the plan…/);
+  assert.doesNotMatch(html, /"rollback"/);
+  assert.match(html, /data-plan-drafting/);
+});
+
 test("message rendering escapes role, text, and code attributes without breaking markdown or copy", () => {
   const { html } = renderSnapshot([
     {

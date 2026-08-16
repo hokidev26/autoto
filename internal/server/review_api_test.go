@@ -662,3 +662,78 @@ func TestProjectAndAgentDefaultPlanModeAndPatch(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestLiveSnapshotIncludesExecutedPlanWithSourceRunID(t *testing.T) {
+	store, _, repo, agent := newReviewAPITestServer(t)
+	defer store.Close()
+	app := New(config.Config{
+		Paths: config.PathsConfig{DefaultProjectDir: filepath.Dir(repo)},
+		Agent: config.AgentConfig{ReviewModel: "fake:review"},
+	}, store, nil, agentpkg.NewHub())
+
+	ctx := context.Background()
+	sourceRun, err := store.CreateRun(ctx, db.Run{AgentID: agent.ID, Status: "completed", ExecutionMode: db.RunExecutionModePlan})
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan, err := store.CreatePlan(ctx, db.Plan{
+		AgentID:     agent.ID,
+		SourceRunID: sourceRun.ID,
+		Summary:     "inspect",
+		ContentJSON: json.RawMessage(`{"goal":"inspect","assumptions":[],"steps":["read"],"risks":[],"tests":["go test"],"rollback":[]}`),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan, err = store.TransitionPlanStatus(ctx, agent.ID, plan.ID, plan.Revision, db.PlanStatusInReview)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.CreatePlanReview(ctx, db.PlanReview{
+		PlanID: plan.ID, PlanRevision: plan.Revision, ReviewerID: "model:fake:review",
+		Decision: db.PlanReviewDecisionApproved, Comment: "viable",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.CreatePlanApproval(ctx, db.PlanApproval{
+		PlanID: plan.ID, PlanRevision: plan.Revision, ApproverID: "owner-1", Decision: db.PlanApprovalDecisionApproved,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	execRun, err := store.CreateRunForPlan(ctx, plan.ID, db.Run{Status: "pending"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.UpdateRunStatus(ctx, execRun.ID, "running", ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.CompleteRun(ctx, execRun.ID, "completed", ""); err != nil {
+		t.Fatal(err)
+	}
+
+	recorder := httptest.NewRecorder()
+	app.Routes().ServeHTTP(recorder, newTestRequest(http.MethodGet, "/api/agents/"+agent.ID+"/live-snapshot", nil))
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected live snapshot 200, got %d: %s", recorder.Code, recorder.Body.String())
+	}
+	var snapshot agentLiveSnapshotResponse
+	if err := json.Unmarshal(recorder.Body.Bytes(), &snapshot); err != nil {
+		t.Fatal(err)
+	}
+	if snapshot.ActivePlan != nil {
+		t.Fatalf("executed-only snapshot must omit activePlan: %+v", snapshot.ActivePlan)
+	}
+	if snapshot.PendingPlanApproval != nil {
+		t.Fatalf("executed-only snapshot must omit pendingPlanApproval: %+v", snapshot.PendingPlanApproval)
+	}
+	if len(snapshot.Plans) != 1 {
+		t.Fatalf("expected executed plan in plans, got %+v", snapshot.Plans)
+	}
+	got := snapshot.Plans[0]
+	if got.ID != plan.ID || got.Status != db.PlanStatusExecuted || got.SourceRunID != sourceRun.ID {
+		t.Fatalf("snapshot plan missing executed sourceRunId: %+v", got)
+	}
+	if got.ReviewVerdict == "" {
+		t.Fatalf("executed plan should keep review details: %+v", got)
+	}
+}

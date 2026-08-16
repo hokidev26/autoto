@@ -68,6 +68,7 @@ type reviewPlanSummary struct {
 	ReviewVerdict  string                  `json:"reviewVerdict,omitempty"`
 	ReviewFindings []string                `json:"reviewFindings"`
 	StaleReason    string                  `json:"staleReason,omitempty"`
+	SourceRunID    string                  `json:"sourceRunId,omitempty"`
 	CreatedAt      string                  `json:"createdAt"`
 	UpdatedAt      string                  `json:"updatedAt"`
 }
@@ -85,7 +86,8 @@ func declaredReviewPlanTests(tests []string) []reviewPlanTestSummary {
 func summarizeReviewPlan(plan db.Plan) reviewPlanSummary {
 	summary := reviewPlanSummary{
 		ID: plan.ID, AgentID: plan.AgentID, Status: plan.Status, Revision: plan.Revision,
-		Summary: plan.Summary, StaleReason: plan.StaleReason, CreatedAt: plan.CreatedAt, UpdatedAt: plan.UpdatedAt,
+		Summary: plan.Summary, StaleReason: plan.StaleReason, SourceRunID: plan.SourceRunID,
+		CreatedAt: plan.CreatedAt, UpdatedAt: plan.UpdatedAt,
 		Steps: []string{}, Risks: []string{}, Tests: []reviewPlanTestSummary{}, ReviewFindings: []string{},
 	}
 	var draft reviewpkg.PlanDraft
@@ -130,9 +132,10 @@ type reviewStateSummary struct {
 }
 
 type agentReviewState struct {
-	ActivePlan          *reviewPlanSummary `json:"activePlan,omitempty"`
-	PendingPlanApproval *reviewPlanSummary `json:"pendingPlanApproval,omitempty"`
-	Review              reviewStateSummary `json:"review"`
+	ActivePlan          *reviewPlanSummary  `json:"activePlan,omitempty"`
+	PendingPlanApproval *reviewPlanSummary  `json:"pendingPlanApproval,omitempty"`
+	Plans               []reviewPlanSummary `json:"plans,omitempty"`
+	Review              reviewStateSummary  `json:"review"`
 }
 
 func (s *Server) listReviewPlans(w http.ResponseWriter, r *http.Request) {
@@ -621,17 +624,21 @@ func (s *Server) agentReviewState(ctx context.Context, agentID string, latestRun
 	state.Review.PlanCount = len(plans)
 	for _, plan := range plans {
 		summary := summarizeReviewPlan(plan)
-		if plan.Status == db.PlanStatusExecuting || plan.Status == db.PlanStatusInReview || plan.Status == db.PlanStatusApproved || plan.Status == db.PlanStatusStale {
+		switch plan.Status {
+		case db.PlanStatusExecuting, db.PlanStatusInReview, db.PlanStatusApproved, db.PlanStatusStale, db.PlanStatusExecuted, db.PlanStatusCancelled:
 			summary = summarizeReviewPlanDetail(db.PlanDetail{Plan: plan, Reviews: reviewsByPlan[plan.ID]})
 		}
+		state.Plans = append(state.Plans, summary)
 		switch plan.Status {
 		case db.PlanStatusExecuting, db.PlanStatusApproved, db.PlanStatusStale:
 			if state.ActivePlan == nil {
-				state.ActivePlan = &summary
+				active := summary
+				state.ActivePlan = &active
 			}
 		case db.PlanStatusInReview:
 			if state.PendingPlanApproval == nil {
-				state.PendingPlanApproval = &summary
+				pending := summary
+				state.PendingPlanApproval = &pending
 			}
 		}
 	}

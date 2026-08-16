@@ -294,6 +294,7 @@ export const state = {
   messageRefreshTimersByAgent: {},
   activePlan: null,
   pendingPlanApproval: null,
+  transcriptPlans: [],
   planActionBusy: {},
   chatHydrating: false,
   currentMessages: [],

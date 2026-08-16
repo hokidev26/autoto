@@ -132,7 +132,11 @@ func (s *Service) Review(ctx context.Context, request Request) (Result, error) {
 	return collectVerdict(reviewCtx, events)
 }
 
-const reviewerSystemPrompt = `You are an isolated plan reviewer. You cannot use tools and you must not authorize execution. Review the supplied plan only. Reply with exactly one JSON object and no markdown: {"verdict":"pass|needs_human|block_recommended|unavailable","reason":"concise explanation"}.`
+const reviewerSystemPrompt = `You are an isolated plan reviewer. You cannot use tools and you must not authorize execution. Review the supplied plan only. Reply with exactly one JSON object and no markdown: {"verdict":"pass|needs_human|block_recommended|unavailable","reason":"concise explanation"}.
+
+You MUST return needs_human when the plan's assumptions, risks, tests, or steps admit the stated goal was not achieved, the evidence is for the wrong target, or the steps only report a failed inspection instead of a viable next action. The reason must be a concrete correction for the next plan.
+
+Ordinary residual risks of a viable plan are not automatic needs_human. pass is only for a viable path to the goal. block_recommended remains for dangerous or unbounded plans.`
 
 func reviewPrompt(request Request) (string, error) {
 	request.Subject = strings.TrimSpace(request.Subject)

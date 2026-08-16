@@ -4,7 +4,13 @@ All notable changes to Autoto are tracked here. The project is still an experime
 
 ## Unreleased
 
+### Added
+
+- Plan-mode drafts now go through an isolated reviewer that must return `needs_human` when the plan itself admits the goal was not achieved. That verdict automatically starts one more plan-mode run with the reviewer's correction; a second `needs_human`, `pass`, `unavailable`, or `block_recommended` still waits for a human. Reviewer pass is still not approval and never creates an execute run.
+
 ### Changed
+
+- Plan cards render in the transcript in place of the raw JSON blob, executed and cancelled plans stay visible after reopen, and the synthetic execute/replan prompts compact to short system notices.
 
 - Opening Settings now closes the spec board and the workspace explorer so they no longer stack on the same right-hand column Settings claims.
 - Git command failures still include the working directory and argv for a local operator; remote sessions receive the existing generic error text.

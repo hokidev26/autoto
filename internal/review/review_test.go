@@ -3,6 +3,7 @@ package review
 import (
 	"context"
 	"errors"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -95,6 +96,24 @@ func TestServiceReviewUsesNoToolsAndParsesExactVerdict(t *testing.T) {
 	}
 	if request.SystemPrompt != reviewerSystemPrompt || len(request.Messages) != 1 {
 		t.Fatalf("unexpected reviewer request: %+v", request)
+	}
+}
+
+func TestReviewerSystemPromptRequiresNeedsHumanWhenGoalWasNotAchieved(t *testing.T) {
+	if !strings.Contains(reviewerSystemPrompt, "isolated plan reviewer") {
+		t.Fatal("reviewer prompt must keep the isolated reviewer identity")
+	}
+	if !strings.Contains(reviewerSystemPrompt, `"verdict":"pass|needs_human|block_recommended|unavailable"`) {
+		t.Fatal("reviewer prompt must keep the closed verdict protocol")
+	}
+	if !strings.Contains(reviewerSystemPrompt, "needs_human") || !strings.Contains(reviewerSystemPrompt, "goal") {
+		t.Fatal("reviewer prompt must mention needs_human and the stated goal")
+	}
+	if !strings.Contains(reviewerSystemPrompt, "was not achieved") {
+		t.Fatal("reviewer prompt must require needs_human when the stated goal was not achieved")
+	}
+	if !strings.Contains(reviewerSystemPrompt, "must not authorize execution") {
+		t.Fatal("reviewer prompt must still forbid authorizing execution")
 	}
 }
 
