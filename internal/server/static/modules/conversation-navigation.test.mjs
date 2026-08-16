@@ -322,7 +322,8 @@ test("project groups contain every conversation once and preserve recent orderin
   assert.match(projectContextHTML, /data-navigation-context="project"/);
   // Folder name stays on the group row. Conversation titles live on the nested
   // rows, matching the Cursor-style tree the sidebar is aiming for.
-  assert.match(html, /navigation-project-title"><span class="project-name">Alpha<\/span><button class="navigation-row-fork"/);
+  assert.match(html, /navigation-project-title"><span class="project-name">Alpha<\/span><\/span>/);
+  assert.match(html, /<\/span>\s*<button class="navigation-row-fork"[^>]*data-project-fork-trigger/);
   assert.match(html, /navigation-project-row[^>]*title="\/work\/alpha"/);
   assert.match(html, /navigation-project-twist/);
   assert.match(html, /navigation-folder-icon navigation-folder-closed[^>]*>[\s\S]*?M20 20a2 2 0 0 0 2-2V8/);
@@ -618,9 +619,10 @@ test("each project row carries its own fork trigger, distinct from the header cr
   // mistaken for the header's create-project action.
   assert.match(html, /data-project-fork-trigger data-project-id-fork="p1"/);
   assert.equal(html.match(/data-project-fork-trigger/g).length, 1);
-  // The "+" sits after the folder name, not as a trailing grid cell, so a wide
-  // sidebar cannot park it on the far right of the row.
-  assert.match(html, /class="project-name">autoto<\/span><button class="navigation-row-fork"/);
+  // The folder "+" is a trailing grid cell, so it sits on the far right of a
+  // wide sidebar instead of overlapping the folder name.
+  assert.match(html, /class="project-name">autoto<\/span><\/span>[\s\S]*?<button class="navigation-row-fork"[^>]*data-project-fork-trigger/);
+  assert.doesNotMatch(html, /class="project-name">autoto<\/span><button class="navigation-row-fork"/);
   assert.match(html, /class="navigation-title-text">main<\/span><button class="navigation-row-fork"/);
   // Pin and archive live on the right-click menu, so neither row carries "…".
   assert.doesNotMatch(html, /data-navigation-menu-trigger/);

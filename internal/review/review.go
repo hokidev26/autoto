@@ -82,6 +82,61 @@ func NewServiceWithConfig(registry *providers.Registry, cfg Config) *Service {
 	return &Service{registry: registry, model: strings.TrimSpace(cfg.Model), timeout: cfg.Timeout}
 }
 
+// CandidateModels returns unique, trimmed model references in first-seen order.
+func CandidateModels(models ...string) []string {
+	seen := make(map[string]struct{}, len(models))
+	out := make([]string, 0, len(models))
+	for _, model := range models {
+		model = strings.TrimSpace(model)
+		if model == "" {
+			continue
+		}
+		if _, exists := seen[model]; exists {
+			continue
+		}
+		seen[model] = struct{}{}
+		out = append(out, model)
+	}
+	return out
+}
+
+// ReviewWithCandidates tries each model until one is usable. Resolve failures,
+// a missing or unconfigured provider, and ErrProviderUnavailable may fall
+// through to the next candidate. Timeouts and malformed reviewer output stay
+// fail-closed on the model that actually ran.
+func ReviewWithCandidates(ctx context.Context, registry *providers.Registry, models []string, request Request) (Result, string) {
+	if registry == nil {
+		return unavailable("review service is not configured"), "system:reviewer-unavailable"
+	}
+	last := unavailable("reviewer model is not configured")
+	lastID := "system:reviewer-unavailable"
+	for _, model := range CandidateModels(models...) {
+		service := NewService(registry, model)
+		result, err := service.Review(ctx, request)
+		last = result
+		lastID = service.ReviewerID()
+		if !shouldTryNextReviewModel(result, err) {
+			return result, lastID
+		}
+	}
+	return last, lastID
+}
+
+func shouldTryNextReviewModel(result Result, err error) bool {
+	if errors.Is(err, providers.ErrProviderUnavailable) {
+		return true
+	}
+	if result.Verdict != VerdictUnavailable {
+		return false
+	}
+	switch result.Reason {
+	case "review service is not configured", "reviewer model is not configured", "reviewer model is unavailable", "reviewer provider is not configured":
+		return true
+	default:
+		return false
+	}
+}
+
 // ReviewerID is a bounded audit identity for the configured dedicated model.
 func (s *Service) ReviewerID() string {
 	if s == nil || strings.TrimSpace(s.model) == "" {

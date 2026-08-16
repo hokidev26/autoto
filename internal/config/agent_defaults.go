@@ -41,7 +41,10 @@ var (
 type AgentConfig struct {
 	DefaultModel string `json:"defaultModel"`
 	SummaryModel string `json:"summaryModel"`
-	ReviewModel  string `json:"reviewModel"`
+	// ReviewModel is the dedicated isolated plan reviewer. Blank means inherit
+	// the active conversation's model. If the configured model cannot resolve
+	// or is not configured, review also falls back to that conversation model.
+	ReviewModel string `json:"reviewModel"`
 	// SafetyModel judges whether a risky action may proceed. It falls back to
 	// SummaryModel when unset, but is separate because the summary model is
 	// routinely pointed at a small cheap model for titles and compaction, and

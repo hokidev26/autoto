@@ -30,6 +30,7 @@ type Runner struct {
 	modelSettingsMu sync.RWMutex
 	defaultModel    string
 	summaryModel    string
+	reviewModel     string
 	safetyModel     string
 	subagentModels  map[string]string
 	subagentPools   map[string][]string
@@ -310,6 +311,7 @@ func (r *Runner) SetAgentModelSettings(cfg config.AgentConfig) {
 	r.modelSettingsMu.Lock()
 	r.defaultModel = strings.TrimSpace(cfg.DefaultModel)
 	r.summaryModel = strings.TrimSpace(cfg.SummaryModel)
+	r.reviewModel = strings.TrimSpace(cfg.ReviewModel)
 	r.safetyModel = strings.TrimSpace(cfg.SafetyModel)
 	r.subagentModels = models
 	r.subagentPools = pools
@@ -322,6 +324,18 @@ func (r *Runner) SummaryModel() string {
 	}
 	r.modelSettingsMu.RLock()
 	model := r.summaryModel
+	r.modelSettingsMu.RUnlock()
+	return model
+}
+
+// ReviewModel is the dedicated isolated plan reviewer. Blank means inherit the
+// active conversation's model at review time.
+func (r *Runner) ReviewModel() string {
+	if r == nil {
+		return ""
+	}
+	r.modelSettingsMu.RLock()
+	model := r.reviewModel
 	r.modelSettingsMu.RUnlock()
 	return model
 }

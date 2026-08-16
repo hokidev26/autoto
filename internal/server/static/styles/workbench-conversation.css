@@ -464,7 +464,7 @@ body.white-shell.theme-light .navigation-project-row .project-name {
    not the selected chat, so it does not pick up the conversation capsule. */
 body.white-shell.theme-light .navigation-project-group > .navigation-project-row {
   min-height: 28px;
-  grid-template-columns: 16px minmax(0, 1fr);
+  grid-template-columns: 16px minmax(0, 1fr) auto;
   padding: 2px 6px 2px 4px;
   border-color: transparent;
   background: transparent;
@@ -709,6 +709,19 @@ body.white-shell.theme-light .navigation-conversation-title .navigation-row-fork
   margin-left: 0;
   padding: 2px 3px;
   opacity: 1;
+  pointer-events: auto;
+}
+
+body.white-shell.theme-light .navigation-project-row > .navigation-row-fork {
+  justify-self: end;
+  align-self: center;
+  margin: 0;
+  pointer-events: none;
+}
+
+body.white-shell.theme-light .navigation-project-row:is(:hover, :focus-within) > .navigation-row-fork,
+body.white-shell.theme-light .navigation-project-row > .navigation-row-fork:focus-visible,
+body.white-shell.theme-light .navigation-project-row > .navigation-row-fork[aria-busy="true"] {
   pointer-events: auto;
 }
 

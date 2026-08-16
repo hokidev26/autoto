@@ -151,7 +151,10 @@ func TestUnavailableReviewDoesNotAutoReplan(t *testing.T) {
 	ctx := context.Background()
 	store, agent := newAgentTestStore(t, t.TempDir(), "acceptEdits")
 	defer store.Close()
-	runner := newPlanReflectionRunner(t, store, &planReflectionTestProvider{}, "")
+	provider := &planReflectionTestProvider{reviewResults: []string{
+		`{"verdict":"unavailable","reason":"reviewer timed out"}`,
+	}}
+	runner := newPlanReflectionRunner(t, store, provider, "fake:review")
 
 	message, err := runner.SubmitUserMessageWithMode(ctx, agent.ID, "produce a plan", "api", ExecutionModePlan)
 	if err != nil {
@@ -169,6 +172,56 @@ func TestUnavailableReviewDoesNotAutoReplan(t *testing.T) {
 	plans, err := store.ListPlans(ctx, agent.ID, 10)
 	if err != nil || len(plans) != 1 || plans[0].Status != db.PlanStatusInReview {
 		t.Fatalf("unavailable review must leave the plan in_review: %+v err=%v", plans, err)
+	}
+}
+
+func TestReviewFallsBackToConversationModelWhenConfiguredModelCannotResolve(t *testing.T) {
+	ctx := context.Background()
+	store, agent := newAgentTestStore(t, t.TempDir(), "acceptEdits")
+	defer store.Close()
+	runner := newPlanReflectionRunner(t, store, &planReflectionTestProvider{}, "missing:review")
+
+	message, err := runner.SubmitUserMessageWithMode(ctx, agent.ID, "produce a plan", "api", ExecutionModePlan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitForRunSettled(t, store, runner, agent.ID, message.RunID)
+
+	plan, err := store.GetPlanBySourceRun(ctx, message.RunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reviews, err := store.ListPlanReviews(ctx, agent.ID, plan.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(reviews) != 1 || reviews[0].ReviewerID != "model:fake:test" || reviews[0].Decision != db.PlanReviewDecisionApproved {
+		t.Fatalf("unresolvable review model must fall back to the conversation model: %+v", reviews)
+	}
+}
+
+func TestEmptyReviewModelUsesConversationModel(t *testing.T) {
+	ctx := context.Background()
+	store, agent := newAgentTestStore(t, t.TempDir(), "acceptEdits")
+	defer store.Close()
+	runner := newPlanReflectionRunner(t, store, &planReflectionTestProvider{}, "")
+
+	message, err := runner.SubmitUserMessageWithMode(ctx, agent.ID, "produce a plan", "api", ExecutionModePlan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitForRunSettled(t, store, runner, agent.ID, message.RunID)
+
+	plan, err := store.GetPlanBySourceRun(ctx, message.RunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reviews, err := store.ListPlanReviews(ctx, agent.ID, plan.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(reviews) != 1 || reviews[0].ReviewerID != "model:fake:test" || reviews[0].Decision != db.PlanReviewDecisionApproved {
+		t.Fatalf("blank review model must use the conversation model: %+v", reviews)
 	}
 }
 

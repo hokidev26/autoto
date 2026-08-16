@@ -20,6 +20,20 @@ func (s *Server) reviews() reviewService {
 	return reviewService{server: s}
 }
 
+func (s *Server) reviewModelCandidates(ctx context.Context, agentID string) []string {
+	configured := ""
+	conversation := ""
+	if s != nil {
+		configured = s.configSnapshot().Agent.ReviewModel
+		if s.store != nil && strings.TrimSpace(agentID) != "" {
+			if agent, err := s.store.GetAgent(ctx, agentID); err == nil {
+				conversation = agent.Model
+			}
+		}
+	}
+	return reviewpkg.CandidateModels(configured, conversation)
+}
+
 type reviewResult struct {
 	Status int
 	Body   any
@@ -82,12 +96,10 @@ func (rv reviewService) create(ctx context.Context, agentID string, req createRe
 	if err != nil {
 		return reviewPlanSummary{}, err
 	}
-	reviewResult := reviewpkg.Result{Verdict: reviewpkg.VerdictUnavailable, Reason: "review service is not configured"}
-	reviewerID := "system:reviewer-unavailable"
-	if s.reviewer != nil {
-		reviewerID = s.reviewer.ReviewerID()
-		reviewResult, _ = s.reviewer.Review(ctx, reviewpkg.Request{Subject: "Review manually submitted plan " + plan.ID, Draft: draft})
-	}
+	reviewResult, reviewerID := reviewpkg.ReviewWithCandidates(ctx, s.providers, s.reviewModelCandidates(ctx, agentID), reviewpkg.Request{
+		Subject: "Review manually submitted plan " + plan.ID,
+		Draft:   draft,
+	})
 	decision := db.PlanReviewDecisionComment
 	switch reviewResult.Verdict {
 	case reviewpkg.VerdictPass:

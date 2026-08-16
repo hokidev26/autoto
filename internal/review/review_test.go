@@ -51,6 +51,12 @@ func (p *scriptedProvider) request() providers.GenerateRequest {
 	return p.requests[0]
 }
 
+func (p *scriptedProvider) callCount() int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return len(p.requests)
+}
+
 func testDraft() PlanDraft {
 	return PlanDraft{
 		Goal:        "Implement the review boundary",
@@ -162,4 +168,81 @@ func TestParsePlanDraftRequiresExactStructuredShape(t *testing.T) {
 			t.Fatalf("invalid plan was accepted: %s", invalid)
 		}
 	}
+}
+
+func TestCandidateModelsSkipsBlankAndDuplicates(t *testing.T) {
+	got := CandidateModels(" reviewer:a ", "", "reviewer:a", "reviewer:b", "  ")
+	if len(got) != 2 || got[0] != "reviewer:a" || got[1] != "reviewer:b" {
+		t.Fatalf("unexpected candidates: %+v", got)
+	}
+}
+
+func TestReviewWithCandidatesFallsBackAfterResolveFailure(t *testing.T) {
+	provider := &scriptedProvider{events: []providers.Event{
+		{Type: "text", Text: `{"verdict":"pass","reason":"conversation model reviewed the plan."}`},
+		{Type: "done", Done: true},
+	}}
+	registry := providers.NewRegistry()
+	registry.Register(provider)
+	result, reviewerID := ReviewWithCandidates(context.Background(), registry, []string{"missing:review", "reviewer:model"}, Request{Subject: "Review generated plan", Draft: testDraft()})
+	if result.Verdict != VerdictPass || reviewerID != "model:reviewer:model" {
+		t.Fatalf("resolve failure must fall back to the next model: result=%+v id=%s", result, reviewerID)
+	}
+	if provider.callCount() != 1 {
+		t.Fatalf("expected one generate after the unresolvable candidate, got %d", provider.callCount())
+	}
+}
+
+func TestReviewWithCandidatesFallsBackWhenProviderIsUnavailable(t *testing.T) {
+	provider := &unavailableThenReadyProvider{ready: []providers.Event{
+		{Type: "text", Text: `{"verdict":"pass","reason":"conversation model reviewed the plan."}`},
+		{Type: "done", Done: true},
+	}}
+	registry := providers.NewRegistry()
+	registry.Register(provider)
+	result, reviewerID := ReviewWithCandidates(context.Background(), registry, []string{"reviewer:dedicated", "reviewer:model"}, Request{Subject: "Review generated plan", Draft: testDraft()})
+	if result.Verdict != VerdictPass || reviewerID != "model:reviewer:model" {
+		t.Fatalf("unconfigured provider must fall back to the next model: result=%+v id=%s", result, reviewerID)
+	}
+	if provider.calls != 2 {
+		t.Fatalf("expected dedicated then conversation generate, got %d", provider.calls)
+	}
+}
+
+func TestReviewWithCandidatesDoesNotFallBackOnMalformedJSON(t *testing.T) {
+	provider := &scriptedProvider{events: []providers.Event{
+		{Type: "text", Text: "not-json"},
+		{Type: "done", Done: true},
+	}}
+	registry := providers.NewRegistry()
+	registry.Register(provider)
+	result, reviewerID := ReviewWithCandidates(context.Background(), registry, []string{"reviewer:broken", "reviewer:model"}, Request{Subject: "Review generated plan", Draft: testDraft()})
+	if result.Verdict != VerdictUnavailable || result.Reason != "reviewer returned invalid JSON" || reviewerID != "model:reviewer:broken" {
+		t.Fatalf("malformed JSON must stay fail-closed on the first model: result=%+v id=%s", result, reviewerID)
+	}
+	if provider.callCount() != 1 {
+		t.Fatalf("must not try the next candidate after a protocol failure, got %d", provider.callCount())
+	}
+}
+
+type unavailableThenReadyProvider struct {
+	calls int
+	ready []providers.Event
+}
+
+func (p *unavailableThenReadyProvider) Name() string { return "reviewer" }
+func (p *unavailableThenReadyProvider) ListModels(context.Context) ([]string, error) {
+	return []string{"dedicated", "model"}, nil
+}
+func (p *unavailableThenReadyProvider) Generate(_ context.Context, _ providers.GenerateRequest) (<-chan providers.Event, error) {
+	p.calls++
+	if p.calls == 1 {
+		return nil, providers.ErrProviderUnavailable
+	}
+	out := make(chan providers.Event, len(p.ready))
+	for _, event := range p.ready {
+		out <- event
+	}
+	close(out)
+	return out, nil
 }

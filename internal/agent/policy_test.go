@@ -263,12 +263,15 @@ func TestPlanRunUsesDurableModeAndReadToolSurface(t *testing.T) {
 	}}}
 	runner := newAgentTestRunner(store, provider, config.AgentConfig{MaxTurns: 1})
 	runner.Run(ctx, agent.ID)
-	if provider.requestCount() != 1 {
-		t.Fatalf("expected one plan model request, got %d", provider.requestCount())
+	if provider.requestCount() != 2 {
+		t.Fatalf("expected plan then isolated review, got %d", provider.requestCount())
 	}
 	names := sortedToolSpecNames(provider.request(0).Tools)
 	if !reflect.DeepEqual(names, expectedPlanToolSurface) {
 		t.Fatalf("unexpected plan tool specs: got=%v want=%v", names, expectedPlanToolSurface)
+	}
+	if provider.request(1).Tools != nil {
+		t.Fatalf("isolated review must not receive tools: %+v", provider.request(1).Tools)
 	}
 	runs, err := store.ListRuns(ctx, agent.ID, 1)
 	if err != nil || len(runs) != 1 || runs[0].ExecutionMode != db.RunExecutionModePlan || runs[0].Status != "completed" {
@@ -298,7 +301,7 @@ func TestReviewerPassDoesNotApproveOrExecutePlan(t *testing.T) {
 	}}}
 	registry := providers.NewRegistry()
 	registry.Register(provider)
-	runner := NewRunner(store, registry, nil, NewHub(), config.AgentConfig{})
+	runner := NewRunner(store, registry, nil, NewHub(), config.AgentConfig{ReviewModel: "fake:reviewer"})
 	runner.SetReviewService(review.NewService(registry, "fake:reviewer"))
 	run, err := store.CreateRun(ctx, db.Run{AgentID: agent.ID, Status: "running", ExecutionMode: db.RunExecutionModePlan})
 	if err != nil {

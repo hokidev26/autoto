@@ -25,6 +25,9 @@ export function normalizeAgentModelSettings(value = {}) {
   const source = value && typeof value === "object" ? value : {};
   const defaultModel = String(source.defaultModel || "").trim();
   const summaryModel = String(source.summaryModel || defaultModel).trim();
+  // Blank is meaningful: isolated plan review then follows the active
+  // conversation model, so it must not fall back to defaultModel.
+  const reviewModel = String(source.reviewModel || "").trim();
   // Blank is meaningful: it means "follow the summary model", so it must not
   // fall back to defaultModel the way summaryModel does.
   const safetyModel = String(source.safetyModel || "").trim();
@@ -41,7 +44,7 @@ export function normalizeAgentModelSettings(value = {}) {
       .filter(Boolean))];
     if (pool.length) subagentModelPools[role] = pool;
   }
-  return { defaultModel, summaryModel, safetyModel, defaultReasoningEffort, subagentModels, subagentModelPools };
+  return { defaultModel, summaryModel, reviewModel, safetyModel, defaultReasoningEffort, subagentModels, subagentModelPools };
 }
 
 export function agentModelSettingsPayload(value = {}) {
@@ -60,6 +63,7 @@ export function agentModelSettingsPayload(value = {}) {
   return {
     defaultModel: normalized.defaultModel,
     summaryModel: normalized.summaryModel,
+    reviewModel: normalized.reviewModel,
     safetyModel: normalized.safetyModel,
     subagentModels,
     subagentModelPools,
@@ -196,6 +200,7 @@ export function createModelRoutingController(ctx) {
     const referenced = new Set([
       draft.defaultModel,
       draft.summaryModel,
+      draft.reviewModel,
       draft.safetyModel,
       ...Object.values(draft.subagentModels || {}),
       ...Object.values(draft.subagentModelPools || {}).flat(),
@@ -308,7 +313,7 @@ export function createModelRoutingController(ctx) {
       <header class="compact-settings-header"><div class="compact-settings-heading"><div class="settings-hero-kicker">${escapeHtml(mt("routing.kicker"))}</div><h1 id="settings-model-page-title">${escapeHtml(mt("routing.title"))}</h1><p data-settings-help-copy>${escapeHtml(mt("routing.description"))}</p></div><div class="compact-settings-header-actions settings-inline-actions"><button id="settingsRefreshModelsBtn" class="settings-action-btn" type="button">${escapeHtml(mt("refreshModels"))}</button><button id="settingsOpenLoginBtn" class="settings-action-btn" type="button">${escapeHtml(mt("providerSettings"))}</button></div></header>
       ${result}
       <form id="agentModelSettingsForm" class="compact-settings-form agent-model-settings-form" aria-busy="${settingsState.saving ? "true" : "false"}">
-        <section class="compact-settings-section" aria-labelledby="agent-model-defaults-title"><div class="compact-settings-section-copy"><h2 id="agent-model-defaults-title">${escapeHtml(mt("routing.globalDefaults"))}</h2><p data-settings-help-copy>${escapeHtml(mt("routing.globalDefaultsDescription"))}</p></div><div class="compact-settings-section-controls"><div class="compact-settings-grid two-column"><label class="settings-form-field compact-settings-field"><span>${escapeHtml(mt("routing.defaultModel"))}</span><select name="defaultModel" required>${renderAgentModelSelectOptions(draft.defaultModel, options)}</select><small data-settings-help-copy>${escapeHtml(mt("routing.defaultModelHelp"))}</small></label><label class="settings-form-field compact-settings-field"><span>${escapeHtml(mt("routing.summaryModel"))}</span><select name="summaryModel" required>${renderAgentModelSelectOptions(draft.summaryModel, options)}</select><small data-settings-help-copy>${escapeHtml(mt("routing.summaryModelHelp"))}</small></label><label class="settings-form-field compact-settings-field"><span>${escapeHtml(mt("routing.safetyModel"))}</span><select name="safetyModel">${renderAgentModelSelectOptions(draft.safetyModel, options, { inheritLabel: mt("routing.safetyModelInherit") })}</select><small data-settings-help-copy>${escapeHtml(mt("routing.safetyModelHelp"))}</small></label><label class="settings-form-field compact-settings-field full-width"><span>${escapeHtml(mt("defaultReasoningEffort"))}</span><select name="defaultReasoningEffort" ${runtimeRevision > 0 ? "" : "disabled"}>${renderDefaultReasoningOptions(draft.defaultReasoningEffort)}</select><small${runtimeRevision > 0 ? " data-settings-help-copy" : ""}>${escapeHtml(runtimeRevision > 0 ? mt("routing.defaultReasoningHelp") : mt("routing.runtimeSettingsUnavailable"))}</small></label></div></div></section>
+        <section class="compact-settings-section" aria-labelledby="agent-model-defaults-title"><div class="compact-settings-section-copy"><h2 id="agent-model-defaults-title">${escapeHtml(mt("routing.globalDefaults"))}</h2><p data-settings-help-copy>${escapeHtml(mt("routing.globalDefaultsDescription"))}</p></div><div class="compact-settings-section-controls"><div class="compact-settings-grid two-column"><label class="settings-form-field compact-settings-field"><span>${escapeHtml(mt("routing.defaultModel"))}</span><select name="defaultModel" required>${renderAgentModelSelectOptions(draft.defaultModel, options)}</select><small data-settings-help-copy>${escapeHtml(mt("routing.defaultModelHelp"))}</small></label><label class="settings-form-field compact-settings-field"><span>${escapeHtml(mt("routing.summaryModel"))}</span><select name="summaryModel" required>${renderAgentModelSelectOptions(draft.summaryModel, options)}</select><small data-settings-help-copy>${escapeHtml(mt("routing.summaryModelHelp"))}</small></label><label class="settings-form-field compact-settings-field"><span>${escapeHtml(mt("routing.reviewModel"))}</span><select name="reviewModel">${renderAgentModelSelectOptions(draft.reviewModel, options, { inheritLabel: mt("routing.reviewModelInherit") })}</select><small data-settings-help-copy>${escapeHtml(mt("routing.reviewModelHelp"))}</small></label><label class="settings-form-field compact-settings-field"><span>${escapeHtml(mt("routing.safetyModel"))}</span><select name="safetyModel">${renderAgentModelSelectOptions(draft.safetyModel, options, { inheritLabel: mt("routing.safetyModelInherit") })}</select><small data-settings-help-copy>${escapeHtml(mt("routing.safetyModelHelp"))}</small></label><label class="settings-form-field compact-settings-field full-width"><span>${escapeHtml(mt("defaultReasoningEffort"))}</span><select name="defaultReasoningEffort" ${runtimeRevision > 0 ? "" : "disabled"}>${renderDefaultReasoningOptions(draft.defaultReasoningEffort)}</select><small${runtimeRevision > 0 ? " data-settings-help-copy" : ""}>${escapeHtml(runtimeRevision > 0 ? mt("routing.defaultReasoningHelp") : mt("routing.runtimeSettingsUnavailable"))}</small></label></div></div></section>
         <section class="compact-settings-section" aria-labelledby="agent-model-preferences-title"><div class="compact-settings-section-copy"><h2 id="agent-model-preferences-title">${escapeHtml(mt("routing.subagentPreferences"))}</h2><p data-settings-help-copy>${escapeHtml(mt("routing.subagentPreferencesDescription"))}</p></div><div class="compact-settings-section-controls"><div class="compact-settings-grid two-column">${agentModelRoles.map((role) => renderAgentRolePreferenceField(role, draft, options)).join("")}</div></div></section>
         <section class="compact-settings-section" aria-labelledby="agent-model-pools-title"><div class="compact-settings-section-copy"><h2 id="agent-model-pools-title">${escapeHtml(mt("routing.subagentPools"))}</h2><p data-settings-help-copy>${escapeHtml(mt("routing.subagentPoolsDescription"))}</p></div><div class="compact-settings-section-controls"><div class="compact-settings-grid two-column">${agentModelRoles.map((role) => renderAgentModelPoolControl(role, draft, options)).join("")}</div></div></section>
         <footer class="compact-settings-footer agent-model-settings-footer"><div><span id="agentModelSettingsDirtyBadge" class="settings-badge ${settingsState.dirty ? "warn" : "ok"}">${escapeHtml(settingsState.dirty ? mt("routing.unsaved") : mt("routing.saved"))}</span><small data-settings-help-copy>${escapeHtml(mt("routing.persistenceDescription"))}</small></div><div class="settings-inline-actions"><button id="resetAgentModelSettingsBtn" class="settings-action-btn subtle" type="button" ${settingsState.saving ? "disabled" : ""}>${escapeHtml(mt("routing.reset"))}</button><button id="saveAgentModelSettingsBtn" class="settings-action-btn primary" type="submit" ${settingsState.saving ? "disabled aria-busy=\"true\"" : ""}>${escapeHtml(settingsState.saving ? mt("saving") : mt("routing.save"))}</button></div></footer>
@@ -334,6 +339,7 @@ export function createModelRoutingController(ctx) {
       ...current,
       defaultModel: form?.elements?.defaultModel?.value || "",
       summaryModel: form?.elements?.summaryModel?.value || "",
+      reviewModel: form?.elements?.reviewModel?.value || "",
       safetyModel: form?.elements?.safetyModel?.value || "",
       defaultReasoningEffort: form?.elements?.defaultReasoningEffort?.value || current.defaultReasoningEffort || "auto",
       subagentModels,
@@ -346,6 +352,7 @@ export function createModelRoutingController(ctx) {
       [mt("routing.defaultModel"), draft.defaultModel],
       [mt("routing.summaryModel"), draft.summaryModel],
     ];
+    if (draft.reviewModel) checks.push([mt("routing.reviewModel"), draft.reviewModel]);
     if (draft.safetyModel) checks.push([mt("routing.safetyModel"), draft.safetyModel]);
     for (const role of agentModelRoles) {
       if (draft.subagentModels?.[role]) checks.push([mt(`routing.roles.${role}.label`), draft.subagentModels[role]]);

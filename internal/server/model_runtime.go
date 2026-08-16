@@ -118,6 +118,7 @@ type runtimeModelSettingsRequest struct {
 type agentModelSettingsRequest struct {
 	DefaultModel       strictString        `json:"defaultModel"`
 	SummaryModel       strictString        `json:"summaryModel"`
+	ReviewModel        strictString        `json:"reviewModel"`
 	SafetyModel        strictString        `json:"safetyModel"`
 	SubagentModels     map[string]string   `json:"subagentModels"`
 	SubagentModelPools map[string][]string `json:"subagentModelPools"`

@@ -251,6 +251,7 @@ export function createSystemSettingsController({
         <div class="runtime-kv-list settings-data-list">
           ${renderRuntimeKeyValue(t("systemSettings.runtimeResources.defaultModel"), agent.defaultModel || t("systemSettings.runtimeResources.notConfigured"))}
           ${renderRuntimeKeyValue(t("systemSettings.runtimeResources.summaryModel"), agent.summaryModel || t("systemSettings.runtimeResources.notConfigured"))}
+          ${renderRuntimeKeyValue(t("systemSettings.runtimeResources.reviewModel"), agent.reviewModel || t("systemSettings.runtimeResources.notConfigured"))}
           ${renderRuntimeKeyValue(t("systemSettings.runtimeResources.defaultPermission"), agent.defaultPermissionMode || "acceptEdits")}
           ${renderRuntimeKeyValue(t("systemSettings.runtimeResources.currentPermissionCap"), security.maxPermissionMode || "bypassPermissions")}
           ${renderRuntimeKeyValue(t("systemSettings.runtimeResources.defaultPlanMode"), agent.defaultStartInPlanMode ? t("systemSettings.runtimeResources.enabled") : t("systemSettings.runtimeResources.disabled"))}

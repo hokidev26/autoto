@@ -2063,11 +2063,12 @@ test("Agent 模型设置规范化角色路由并生成后端 payload", () => {
     subagentModels: { explore: " openai:gpt-4.1-mini ", unknown: "ignored:model" },
     subagentModelPools: { explore: ["codex:gpt-5.5", "codex:gpt-5.5", " openai:gpt-4.1-mini "], unknown: ["ignored:model"] },
   });
-  assert.deepEqual(normalized, {
+	assert.deepEqual(normalized, {
     defaultModel: "codex:gpt-5.5",
     summaryModel: "codex:gpt-5.5",
-    // Blank means "follow the active conversation model". Unlike summaryModel it
-    // must NOT inherit defaultModel, because the reviewer is selected per agent.
+    reviewModel: "",
+    // Blank means "follow the summary model". Unlike summaryModel it must NOT
+    // inherit defaultModel.
     safetyModel: "",
     defaultReasoningEffort: "high",
     subagentModels: { explore: "openai:gpt-4.1-mini" },
@@ -2080,6 +2081,7 @@ test("Agent 模型设置规范化角色路由并生成后端 payload", () => {
   }), {
     defaultModel: "codex:gpt-5.5",
     summaryModel: "codex:gpt-5.5",
+    reviewModel: "",
     safetyModel: "",
     subagentModels: { explore: "openai:gpt-4.1-mini", plan: "anthropic:claude-sonnet" },
     subagentModelPools: {
@@ -2101,6 +2103,20 @@ test("安全审查模型可独立设定且留空时沿用摘要模型", () => {
   });
   assert.equal(overridden.safetyModel, "anthropic:claude-opus-5");
   assert.equal(agentModelSettingsPayload(overridden).safetyModel, "anthropic:claude-opus-5");
+});
+
+test("计划审查模型可独立设定且留空时沿用当前对话", () => {
+  const inherited = normalizeAgentModelSettings({ defaultModel: "codex:gpt-5.5", summaryModel: "openai:gpt-4.1-mini" });
+  assert.equal(inherited.reviewModel, "");
+  assert.equal(agentModelSettingsPayload(inherited).reviewModel, "");
+
+  const overridden = normalizeAgentModelSettings({
+    defaultModel: "codex:gpt-5.5",
+    summaryModel: "openai:gpt-4.1-mini",
+    reviewModel: " anthropic:claude-opus-5 ",
+  });
+  assert.equal(overridden.reviewModel, "anthropic:claude-opus-5");
+  assert.equal(agentModelSettingsPayload(overridden).reviewModel, "anthropic:claude-opus-5");
 });
 
 test("模型聚合与默认推理强度请求遵循后端契约", () => {
@@ -2155,6 +2171,7 @@ test("模型设置页面仅保留扁平路由表单并移除聚合管理与模�
   assert.match(html, /id="agentModelSettingsForm"/);
   assert.match(html, /name="defaultModel" required/);
   assert.match(html, /name="summaryModel" required/);
+  assert.match(html, /name="reviewModel"/);
   assert.match(html, /name="defaultReasoningEffort"[^>]*>[\s\S]*?<option value="high" selected>/);
   // The runtime supports Codex-specific levels too; they must use translated
   // labels instead of leaking the modelProvider.* key into the native select.

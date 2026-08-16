@@ -296,7 +296,7 @@ func Default() (Config, error) {
 		Agent: AgentConfig{
 			DefaultModel:           defaultModel,
 			SummaryModel:           summaryModel,
-			ReviewModel:            defaultModel,
+			ReviewModel:            "",
 			SafetyModel:            safetyModel,
 			DefaultPermissionMode:  "acceptEdits",
 			DefaultStartInPlanMode: false,
@@ -687,9 +687,6 @@ func normalizeAgentConfig(agent AgentConfig) AgentConfig {
 	agent.DefaultModel = strings.TrimSpace(agent.DefaultModel)
 	agent.SummaryModel = strings.TrimSpace(agent.SummaryModel)
 	agent.ReviewModel = strings.TrimSpace(agent.ReviewModel)
-	if agent.ReviewModel == "" {
-		agent.ReviewModel = agent.DefaultModel
-	}
 	agent.SubagentModels = normalizeSubagentModels(agent.SubagentModels)
 	agent.SubagentModelPools = normalizeSubagentModelPools(agent.SubagentModelPools)
 	agent.NonRetryableErrorPatterns = NormalizeNonRetryableErrorPatterns(agent.NonRetryableErrorPatterns)

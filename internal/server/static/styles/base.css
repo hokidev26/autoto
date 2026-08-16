@@ -344,10 +344,10 @@ body.ui-font-large { font-size: 16px; }
 /* Forks the project it sits on into a new branch + worktree. It shares the
    more-menu's geometry so the two row affordances line up, but tints on hover
    to read as a create action rather than another menu. */
-/* The base row is icon | title | relative time. The row "+" lives inside the
-   title, after the name, so a wide column cannot park it on the far right.
-   Pin and archive are on the right-click menu, not a trailing more button. */
-.navigation-project-row { grid-template-columns: 18px minmax(0, 1fr); }
+/* The base row is icon | title | relative time. The folder-row "+" is a
+   trailing grid cell so a wide column parks it on the far right, away from
+   the name. Pin and archive are on the right-click menu, not a trailing more button. */
+.navigation-project-row { grid-template-columns: 18px minmax(0, 1fr) auto; }
 .navigation-row-fork {
   align-self: center;
   min-width: 20px;

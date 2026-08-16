@@ -38,8 +38,8 @@ func TestDefaultConfig(t *testing.T) {
 	if cfg.Agent.DefaultPermissionMode == "" {
 		t.Fatal("expected default permission mode")
 	}
-	if cfg.Agent.ReviewModel != cfg.Agent.DefaultModel {
-		t.Fatalf("expected review model to default to agent model, got review=%q default=%q", cfg.Agent.ReviewModel, cfg.Agent.DefaultModel)
+	if cfg.Agent.ReviewModel != "" {
+		t.Fatalf("expected blank review model to inherit the conversation model, got review=%q", cfg.Agent.ReviewModel)
 	}
 	if cfg.Agent.ContextTokenLimit <= 0 {
 		t.Fatalf("expected positive context token limit, got %d", cfg.Agent.ContextTokenLimit)
@@ -504,10 +504,14 @@ func TestNormalizeBackgroundConfigBounds(t *testing.T) {
 	}
 }
 
-func TestNormalizeAgentConfigDefaultsReviewModelToDefaultModel(t *testing.T) {
+func TestNormalizeAgentConfigKeepsBlankReviewModel(t *testing.T) {
 	got := normalizeAgentConfig(AgentConfig{DefaultModel: " openai:review-target ", ReviewModel: "   "})
-	if got.DefaultModel != "openai:review-target" || got.ReviewModel != "openai:review-target" {
-		t.Fatalf("expected trimmed default model fallback for reviewer, got %+v", got)
+	if got.DefaultModel != "openai:review-target" || got.ReviewModel != "" {
+		t.Fatalf("expected blank review model to stay blank for conversation inherit, got %+v", got)
+	}
+	kept := normalizeAgentConfig(AgentConfig{DefaultModel: "openai:chat", ReviewModel: " openai:review "})
+	if kept.ReviewModel != "openai:review" {
+		t.Fatalf("expected explicit review model to be trimmed and kept, got %+v", kept)
 	}
 }
 

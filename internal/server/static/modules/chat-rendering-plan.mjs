@@ -82,6 +82,23 @@ export function compactPlanStatus(status) {
   return "unknown";
 }
 
+function compactReviewVerdict(verdict) {
+  const value = planStatus(verdict, "");
+  if (["pass", "needs_human", "block_recommended", "unavailable"].includes(value)) return value;
+  return "";
+}
+
+function planReviewVerdictLabel(verdict) {
+  const value = compactReviewVerdict(verdict);
+  if (!value) return planText(verdict);
+  return cr(`plan.verdict.${value}`);
+}
+
+function planReviewFindingTexts(plan) {
+  if (compactReviewVerdict(plan?.reviewVerdict) === "unavailable") return [cr("plan.reasonUnavailable")];
+  return Array.isArray(plan?.reviewFindings) ? plan.reviewFindings : [];
+}
+
 export function parsePlanDraftText(text) {
   const raw = String(text || "").trim();
   if (!raw.startsWith("{") || !raw.endsWith("}")) return null;
@@ -266,11 +283,12 @@ export function createChatRenderingPlanCards({
         <ul class="plan-card-list risk">${plan.risks.map((risk) => `<li>${escapeHtml(risk)}</li>`).join("")}</ul>
       </section>
     ` : "";
-    const review = plan.reviewVerdict || plan.reviewFindings.length ? `
+    const reviewFindings = planReviewFindingTexts(plan);
+    const review = plan.reviewVerdict || reviewFindings.length ? `
       <section class="plan-card-section plan-card-review">
         <h4>${escapeHtml(cr("plan.review"))}</h4>
-        ${plan.reviewVerdict ? `<div class="plan-review-verdict">${escapeHtml(plan.reviewVerdict)}</div>` : ""}
-        ${plan.reviewFindings.length ? `<ul class="plan-card-list">${plan.reviewFindings.map((finding) => `<li>${escapeHtml(finding)}</li>`).join("")}</ul>` : `<p>${escapeHtml(cr("plan.noFindings"))}</p>`}
+        ${plan.reviewVerdict ? `<div class="plan-review-verdict">${escapeHtml(planReviewVerdictLabel(plan.reviewVerdict))}</div>` : ""}
+        ${reviewFindings.length ? `<ul class="plan-card-list">${reviewFindings.map((finding) => `<li>${escapeHtml(finding)}</li>`).join("")}</ul>` : `<p>${escapeHtml(cr("plan.noFindings"))}</p>`}
       </section>
     ` : "";
     const stale = plan.staleReason ? `<div class="plan-card-stale" role="status"><strong>${escapeHtml(cr("plan.staleReason"))}</strong><span>${escapeHtml(plan.staleReason)}</span></div>` : "";

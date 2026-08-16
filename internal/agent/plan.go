@@ -52,12 +52,6 @@ func (p *planProviders) setReviewer(service *review.Service) {
 	p.mu.Unlock()
 }
 
-func (p *planProviders) getReviewer() *review.Service {
-	p.mu.RLock()
-	defer p.mu.RUnlock()
-	return p.reviewer
-}
-
 func (p *planProviders) setPlanSnapshot(provider func(context.Context, string) (db.PlanSnapshot, error)) {
 	p.mu.Lock()
 	p.planSnapshotProvider = provider
@@ -120,11 +114,14 @@ func (r *Runner) SetReviewService(service *review.Service) {
 	r.plans.setReviewer(service)
 }
 
-func (r *Runner) reviewerService() *review.Service {
-	if r == nil {
-		return nil
+func (r *Runner) reviewModelCandidates(ctx context.Context, agentID string) []string {
+	conversation := ""
+	if r != nil && r.store != nil && strings.TrimSpace(agentID) != "" {
+		if agent, err := r.store.GetAgent(ctx, agentID); err == nil {
+			conversation = agent.Model
+		}
 	}
-	return r.plans.getReviewer()
+	return review.CandidateModels(r.ReviewModel(), conversation)
 }
 
 // SetPlanSnapshotProvider installs the control-plane snapshot boundary used to
@@ -312,12 +309,10 @@ func (r *Runner) persistAndReviewPlan(ctx context.Context, policy PolicyContext,
 		return "", review.Result{}, fmt.Errorf("trigger plan review: %w", err)
 	}
 
-	result := review.Result{Verdict: review.VerdictUnavailable, Reason: "review service is not configured"}
-	reviewerID := "system:reviewer-unavailable"
-	if service := r.reviewerService(); service != nil {
-		reviewerID = service.ReviewerID()
-		result, _ = service.Review(ctx, review.Request{Subject: "Review plan draft for run " + policy.RunID, Draft: draft})
-	}
+	result, reviewerID := review.ReviewWithCandidates(ctx, r.providers, r.reviewModelCandidates(ctx, policy.AgentID), review.Request{
+		Subject: "Review plan draft for run " + policy.RunID,
+		Draft:   draft,
+	})
 	if err := r.store.PersistPlanReview(ctx, policy.RunID, reviewerID, result); err != nil {
 		return "", review.Result{}, fmt.Errorf("persist plan review: %w", err)
 	}

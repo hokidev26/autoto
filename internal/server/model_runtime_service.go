@@ -13,15 +13,17 @@ import (
 )
 
 type modelRuntimeService struct {
-	store          *db.Store
-	runner         *agentpkg.Runner
-	lockMutation   func(string) func()
-	capabilities   func(string) providers.Capabilities
-	fastMode       func(string) bool
-	snapshotConfig func() (config.Config, string)
-	safetyModel    func() string
-	refreshDefault func(config.Config)
-	applyConfig    func(config.Config)
+	store           *db.Store
+	runner          *agentpkg.Runner
+	lockMutation    func(string) func()
+	capabilities    func(string) providers.Capabilities
+	fastMode        func(string) bool
+	snapshotConfig  func() (config.Config, string)
+	safetyModel     func() string
+	reviewModel     func() string
+	refreshDefault  func(config.Config)
+	applyConfig     func(config.Config)
+	refreshReviewer func(string)
 }
 
 func (s *Server) modelRuntime() modelRuntimeService {
@@ -32,8 +34,10 @@ func (s *Server) modelRuntime() modelRuntimeService {
 	var fastMode func(string) bool
 	var snapshotConfig func() (config.Config, string)
 	var safetyModel func() string
+	var reviewModel func() string
 	var refreshDefault func(config.Config)
 	var applyConfig func(config.Config)
+	var refreshReviewer func(string)
 	if s != nil {
 		store = s.store
 		runner = s.runner
@@ -50,16 +54,24 @@ func (s *Server) modelRuntime() modelRuntimeService {
 			defer s.cfgMu.RUnlock()
 			return s.cfg.Agent.SafetyModel
 		}
+		reviewModel = func() string {
+			s.cfgMu.RLock()
+			defer s.cfgMu.RUnlock()
+			return s.cfg.Agent.ReviewModel
+		}
 		refreshDefault = s.refreshProviderDefault
 		applyConfig = func(cfg config.Config) {
 			s.cfgMu.Lock()
 			s.cfg = cfg
 			s.cfgMu.Unlock()
 		}
+		refreshReviewer = func(model string) {
+			s.SetReviewService(NewReviewService(s.providers, model))
+		}
 	}
 	return modelRuntimeService{
 		store: store, runner: runner, lockMutation: lockMutation, capabilities: capabilities, fastMode: fastMode,
-		snapshotConfig: snapshotConfig, safetyModel: safetyModel, refreshDefault: refreshDefault, applyConfig: applyConfig,
+		snapshotConfig: snapshotConfig, safetyModel: safetyModel, reviewModel: reviewModel, refreshDefault: refreshDefault, applyConfig: applyConfig, refreshReviewer: refreshReviewer,
 	}
 }
 
@@ -244,6 +256,7 @@ type agentModelSettingsResult struct {
 type preparedAgentModelSettings struct {
 	defaultModel   string
 	summaryModel   string
+	reviewModel    string
 	safetyModel    string
 	subagentModels map[string]string
 	subagentPools  map[string][]string
@@ -261,6 +274,17 @@ func (m modelRuntimeService) prepareAgentModelSettings(request agentModelSetting
 	if err != nil {
 		return preparedAgentModelSettings{}, apiErr(http.StatusBadRequest, err.Error())
 	}
+	// Optional, and blank is meaningful: isolated plan review then follows the
+	// active conversation model.
+	reviewModel := ""
+	if request.ReviewModel.set {
+		reviewModel, err = validateAgentModelReference("reviewModel", request.ReviewModel.value, false)
+		if err != nil {
+			return preparedAgentModelSettings{}, apiErr(http.StatusBadRequest, err.Error())
+		}
+	} else if m.reviewModel != nil {
+		reviewModel = m.reviewModel()
+	}
 	// Optional, and blank is meaningful: it clears the override so the safety
 	// gate follows the summary model again.
 	safetyModel := ""
@@ -277,7 +301,7 @@ func (m modelRuntimeService) prepareAgentModelSettings(request agentModelSetting
 		return preparedAgentModelSettings{}, apiErr(http.StatusBadRequest, err.Error())
 	}
 	return preparedAgentModelSettings{
-		defaultModel: defaultModel, summaryModel: summaryModel, safetyModel: safetyModel,
+		defaultModel: defaultModel, summaryModel: summaryModel, reviewModel: reviewModel, safetyModel: safetyModel,
 		subagentModels: subagentModels, subagentPools: subagentPools,
 	}, nil
 }
@@ -289,6 +313,7 @@ func (m modelRuntimeService) persistAgentModelSettings(prepared preparedAgentMod
 	updated, configPath := m.snapshotConfig()
 	updated.Agent.DefaultModel = prepared.defaultModel
 	updated.Agent.SummaryModel = prepared.summaryModel
+	updated.Agent.ReviewModel = prepared.reviewModel
 	updated.Agent.SafetyModel = prepared.safetyModel
 	updated.Agent.SubagentModels = prepared.subagentModels
 	updated.Agent.SubagentModelPools = prepared.subagentPools
@@ -307,6 +332,9 @@ func (m modelRuntimeService) persistAgentModelSettings(prepared preparedAgentMod
 	}
 	if m.runner != nil {
 		m.runner.SetAgentModelSettings(updated.Agent)
+	}
+	if m.refreshReviewer != nil {
+		m.refreshReviewer(updated.Agent.ReviewModel)
 	}
 	return agentModelSettingsResult{Agent: updated.Agent, Persisted: true}, nil
 }

@@ -838,6 +838,8 @@ test("desktop conversation layout follows the compact resizable geometry", async
   assert.match(styles, /body\.white-shell\.theme-light \.navigation-project-group \+ \.navigation-project-group\s*\{[\s\S]*?margin-top:\s*16px/);
   assert.match(styles, /body\.white-shell\.theme-light \.navigation-project-row \.project-name\s*\{[\s\S]*?flex:\s*0 1 auto/);
   assert.match(styles, /body\.white-shell\.theme-light \.navigation-conversation-title \.navigation-row-fork\s*\{[\s\S]*?max-width:\s*0/);
+  assert.match(styles, /body\.white-shell\.theme-light \.navigation-project-group > \.navigation-project-row\s*\{[\s\S]*?grid-template-columns:\s*16px minmax\(0, 1fr\) auto/);
+  assert.match(styles, /body\.white-shell\.theme-light \.navigation-project-row > \.navigation-row-fork\s*\{[\s\S]*?justify-self:\s*end/);
   assert.match(styles, /body\.white-shell\.theme-light \.navigation-project-group > \.navigation-project-row:has\(> \.project-task-counts\)\s*\{[\s\S]*?grid-template-columns:\s*16px minmax\(0, 1fr\) auto/);
   assert.match(styles, /body\.white-shell\.theme-light \.navigation-conversation-row\[draggable\]\s*,[\s\S]*?cursor:\s*pointer/);
   assert.doesNotMatch(styles, /body\.white-shell\.theme-light \.navigation-conversation-row\[draggable\]\s*\{[^}]*cursor:\s*grab;/);
@@ -871,7 +873,7 @@ test("desktop conversation layout follows the compact resizable geometry", async
   assert.match(finalDesktopComposer, /textarea#messageText\s*\{[\s\S]*?border-radius:\s*7px/);
   assert.match(finalDesktopComposer, /#sendMessageBtn\s*\{[\s\S]*?border-radius:\s*7px/);
   assert.match(styles, /\.sidebar-resize-handle\s*\{[\s\S]*?cursor:\s*col-resize/);
-  assert.match(html, /id="sidebarResizeHandle"[^>]*role="separator"[^>]*aria-valuemin="184"[^>]*aria-valuemax="340"/);
+  assert.match(html, /id="sidebarResizeHandle"[^>]*role="separator"[^>]*aria-valuemin="184"[^>]*aria-valuemax="260"/);
   // The session column's compact stage is retired: no compact header title and
   // no collapsed-column grid variable are left in the shell.
   assert.doesNotMatch(html, /session-sidebar-compact-title/);
@@ -1432,10 +1434,10 @@ test("sidebar resize width clamps pointer values and keeps a stable preference k
   assert.equal(sidebarWidthPreferenceKey, "autoto.ui.sessionSidebarWidth");
   assert.equal(normalizeSidebarWidth(undefined), defaultSidebarWidth);
   assert.equal(normalizeSidebarWidth(100), minSidebarWidth);
-  assert.equal(maxSidebarWidth, 340);
+  assert.equal(maxSidebarWidth, 260);
   assert.equal(normalizeSidebarWidth(900), maxSidebarWidth);
-  assert.equal(normalizeSidebarWidth("333.6"), 334);
-  assert.equal(sidebarWidthFromPointer(510, 180), 330);
+  assert.equal(normalizeSidebarWidth("333.6"), maxSidebarWidth);
+  assert.equal(sidebarWidthFromPointer(510, 180), maxSidebarWidth);
   assert.equal(sidebarWidthFromPointer(120, 180), minSidebarWidth);
 });
 
@@ -1446,7 +1448,7 @@ test("sidebar resizer restores, drags, keys, persists, and cleans up", () => {
   const bodyClasses = new Set();
   const styleValues = new Map();
   const attributes = new Map();
-  const storage = new MemoryStorage([[sidebarWidthPreferenceKey, "300"]]);
+  const storage = new MemoryStorage([[sidebarWidthPreferenceKey, "220"]]);
   const scrollNode = ({ hidden = false } = {}) => ({
     classList: { contains(name) { return hidden && name === "hidden"; } },
     clientHeight: 200,
@@ -1505,14 +1507,14 @@ test("sidebar resizer restores, drags, keys, persists, and cleans up", () => {
   try {
     const controller = createUIShellController({ state: {}, resizeTerminal() {} });
     const cleanup = controller.bindSidebarResizer({ storage });
-    assert.equal(styleValues.get("--session-sidebar-width"), "300px");
-    assert.equal(attributes.get("aria-valuenow"), "300");
+    assert.equal(styleValues.get("--session-sidebar-width"), "220px");
+    assert.equal(attributes.get("aria-valuenow"), "220");
 
     let prevented = false;
     elementListeners.get("keydown")({ key: "ArrowRight", shiftKey: false, preventDefault() { prevented = true; } });
     assert.equal(prevented, true);
-    assert.equal(styleValues.get("--session-sidebar-width"), "308px");
-    assert.equal(storage.getItem(sidebarWidthPreferenceKey), "308");
+    assert.equal(styleValues.get("--session-sidebar-width"), "228px");
+    assert.equal(storage.getItem(sidebarWidthPreferenceKey), "228");
 
     bodyClasses.add("workbench-mode");
     let mainWheelPrevented = false;
@@ -1591,6 +1593,7 @@ test("navigation collapses through columns, docked and icons, and stays desktop-
   assert.equal(drag(navigationDragColumnsEnterWidth, "icons"), "columns");
   assert.ok(navigationDragIconsExitWidth > navigationDragIconsEnterWidth, "the icon band is stickier than its entry point");
   assert.ok(navigationDragColumnsEnterWidth > navigationDragColumnsExitWidth, "the column band is stickier than its entry point");
+  assert.equal(navigationDragColumnsEnterWidth, globalRailExpandedWidth + maxSidebarWidth, "columns starts at the two-column cap, not past it");
   // The narrow column rests its divider at rail + narrow width, which sat below
   // the old 300px exit, so grabbing it flipped the layout to docked on the
   // first pixel of travel. The exit must leave deliberate travel below the
@@ -1759,11 +1762,11 @@ test("navigation collapses through columns, docked and icons, and stays desktop-
     // Pressing alone must not resize or switch layout: the divider does not always
     // rest at the stored boundary, so a press that applied its own position would
     // change the layout the moment it was touched.
-    separator.dispatch("pointerdown", { button: 0, clientX: 320, pointerId: 1, preventDefault() {} });
+    separator.dispatch("pointerdown", { button: 0, clientX: 250, pointerId: 1, preventDefault() {} });
     assert.equal(shell.styleValues.get("style:--session-sidebar-width"), `${maxSidebarWidth}px`, "a press with no movement leaves the width alone");
     assert.equal(shell.classList.contains("nav-mode-docked"), true, "a press with no movement leaves the layout alone");
-    windowListeners.get("pointermove")?.({ clientX: 320, preventDefault() {} });
-    assert.equal(shell.styleValues.get("style:--session-sidebar-width"), "320px");
+    windowListeners.get("pointermove")?.({ clientX: 250, preventDefault() {} });
+    assert.equal(shell.styleValues.get("style:--session-sidebar-width"), "250px");
     assert.equal(shell.classList.contains("session-sidebar-collapsed"), false, "docked mode has no compact form to fall into");
 
     // Dragging is the second route through the cycle. Widening past the column
@@ -1790,11 +1793,11 @@ test("navigation collapses through columns, docked and icons, and stays desktop-
     windowListeners.get("pointermove")?.({ clientX: navigationDragIconsExitWidth + 1, preventDefault() {} });
     assert.equal(shell.classList.contains("nav-mode-docked"), true, "dragging out of the icon rail is possible");
 
-    windowListeners.get("pointermove")?.({ clientX: 320, preventDefault() {} });
+    windowListeners.get("pointermove")?.({ clientX: 250, preventDefault() {} });
     windowListeners.get("pointerup")?.({ pointerId: 1 });
     // One stored width across layouts, so whichever column holds the list next
     // inherits the size just dragged.
-    assert.equal(storage.getItem(sidebarWidthPreferenceKey), "320");
+    assert.equal(storage.getItem(sidebarWidthPreferenceKey), "250");
     assert.equal(storage.getItem(navigationLayoutModePreferenceKey), "docked");
 
     // docked -> icons: the sidebar returns to the shell so the hidden rail never

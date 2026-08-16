@@ -36,7 +36,10 @@ export function nextNavigationLayoutMode(current) {
 // changes its mind, which is what makes the drag feel settled.
 export const navigationDragIconsEnterWidth = 150;
 export const navigationDragIconsExitWidth = 196;
-export const navigationDragColumnsEnterWidth = 436;
+// rail (68) + maxSidebarWidth (260). Docked grows up to just below this, then
+// the two-column layout takes over at the same total instead of stretching a
+// wider gutter first.
+export const navigationDragColumnsEnterWidth = 328;
 // The columns exit must sit below the tightest divider position the columns
 // layout can rest at: the compact column parks the divider at rail (68) +
 // compact width (184) = 252, and the narrow band a little above that. The old
@@ -63,7 +66,7 @@ export function navigationLayoutModeFromDragWidth(total, current = "columns") {
   if (mode === "columns") return width < navigationDragColumnsExitWidth ? "docked" : "columns";
   return width >= navigationDragColumnsEnterWidth ? "columns" : "docked";
 }
-export const defaultSidebarWidth = 296;
+export const defaultSidebarWidth = 240;
 export const minSidebarWidth = 184;
 // The column's own compact stage is retired -- the rail's three-way cycle is
 // the collapse control now -- but stored widths from that era sit in this band
@@ -71,10 +74,12 @@ export const minSidebarWidth = 184;
 export const compactSidebarEnterWidth = 196;
 export const narrowSidebarMinWidth = 197;
 export const narrowSidebarMaxWidth = 219;
-// Folder names plus a hover + do not need a half-width chat column. 420 left a
-// wide empty gutter on the right of every row; 340 is still past the default
-// 296 without turning the list into a second editor pane.
-export const maxSidebarWidth = 340;
+// Two-column navigation (icon rail + list) is the most expanded layout. Folder
+// names do not need a half-width chat column: 340 still left a wide empty
+// gutter, so the list clamps at 260. Dragging further cannot invent a third
+// pane, and columns-enter (328) is rail (68) plus this cap so docked does not
+// grow past the two-column total before switching.
+export const maxSidebarWidth = 260;
 export const globalRailExpandedWidth = 68;
 export const globalRailCollapsedWidth = 48;
 // readOnly joined the primary group (least- to most-permissive order); the

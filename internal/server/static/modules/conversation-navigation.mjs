@@ -785,16 +785,17 @@ function renderProject(project, activeProjectId, options = {}) {
   // The caret lives in the folder slot and only paints while the pointer is on
   // that slot, so the resting row stays "folder + name" like Cursor's tree.
   // Expanded groups swap the closed glyph for an open folder.
-  // The row "+" follows the folder name inside the title so a wide column
-  // cannot park it on the far right. Hover lets the name ellipsize to make room.
+  // The row "+" is a trailing grid cell so it sits on the far right of a wide
+  // column instead of overlapping the folder name.
   const twist = `<span class="navigation-project-twist">${options.disclosure || ""}${folderClosed}${folderOpen}</span>`;
   return `
     <div class="navigation-conversation-row navigation-project-row ${options.taskContext ? "task-context " : ""}${active ? "active " : ""}${statusClass ? `status-${statusClass} ` : ""}${unread ? "unread " : ""}project-card ${stateClass}" role="button" tabindex="0" draggable="true"       title="${escapeNavigationHtml(hoverPath)}" data-project-id="${escapeNavigationHtml(project.id)}" data-navigation-kind="project" data-navigation-id="${escapeNavigationHtml(project.id)}"${statusClass ? ` data-agent-status="${escapeNavigationHtml(statusClass)}"` : ""}${unread ? " data-agent-unread=\"true\"" : ""} data-navigation-context="${options.taskContext ? "tasks" : "project"}">
       ${twist}
       <span class="navigation-conversation-main">
-        <span class="navigation-conversation-title navigation-project-title"><span class="project-name">${escapeNavigationHtml(headline)}</span>${stateMeta}${options.taskContext ? "" : navigationForkTrigger(project.id)}</span>
+        <span class="navigation-conversation-title navigation-project-title"><span class="project-name">${escapeNavigationHtml(headline)}</span>${stateMeta}</span>
         <span class="navigation-conversation-meta project-path" title="${escapeNavigationHtml(path)}">${escapeNavigationHtml(displayPath)}</span>
       </span>
+      ${options.taskContext ? "" : navigationForkTrigger(project.id)}
       ${taskMeta}
     </div>`;
 }

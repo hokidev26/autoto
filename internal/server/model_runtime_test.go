@@ -178,13 +178,13 @@ func TestAgentModelSettingsPersistDefaultsAndRolePools(t *testing.T) {
 	}, nil, nil, nil)
 	app.SetConfigPath(configPath)
 	handler := modelRuntimeTestHandler(app)
-	body := `{"defaultModel":"codex:gpt-5.5","summaryModel":"openai:gpt-4.1-mini","subagentModels":{"explore":"codex:gpt-5.4-mini","general":"codex:gpt-5.5"},"subagentModelPools":{"explore":["codex:gpt-5.4-mini","openai:gpt-4.1-mini"],"general":["codex:gpt-5.5"]}}`
+	body := `{"defaultModel":"codex:gpt-5.5","summaryModel":"openai:gpt-4.1-mini","reviewModel":"","subagentModels":{"explore":"codex:gpt-5.4-mini","general":"codex:gpt-5.5"},"subagentModelPools":{"explore":["codex:gpt-5.4-mini","openai:gpt-4.1-mini"],"general":["codex:gpt-5.5"]}}`
 	response := modelRuntimeRequest(handler, http.MethodPatch, "/runtime/agent-model-settings", body)
 	if response.Code != http.StatusOK {
 		t.Fatalf("patch agent model settings: %d %s", response.Code, response.Body.String())
 	}
 	updated := app.configSnapshot().Agent
-	if updated.DefaultModel != "codex:gpt-5.5" || updated.SummaryModel != "openai:gpt-4.1-mini" || updated.SubagentModels["explore"] != "codex:gpt-5.4-mini" || len(updated.SubagentModelPools["explore"]) != 2 {
+	if updated.DefaultModel != "codex:gpt-5.5" || updated.SummaryModel != "openai:gpt-4.1-mini" || updated.ReviewModel != "" || updated.SubagentModels["explore"] != "codex:gpt-5.4-mini" || len(updated.SubagentModelPools["explore"]) != 2 {
 		t.Fatalf("unexpected agent model settings: %+v", updated)
 	}
 	persisted, err := config.Load(configPath)
@@ -196,6 +196,7 @@ func TestAgentModelSettingsPersistDefaultsAndRolePools(t *testing.T) {
 	}
 	for _, invalidBody := range []string{
 		`{"defaultModel":"missing-colon","summaryModel":"openai:gpt","subagentModels":{},"subagentModelPools":{}}`,
+		`{"defaultModel":"openai:gpt","summaryModel":"openai:gpt","reviewModel":"missing-colon","subagentModels":{},"subagentModelPools":{}}`,
 		`{"defaultModel":"openai:gpt","summaryModel":"openai:gpt","subagentModels":{"unknown":"openai:gpt"},"subagentModelPools":{}}`,
 		`{"defaultModel":"openai:gpt","summaryModel":"openai:gpt","subagentModels":{"plan":"openai:gpt"},"subagentModelPools":{"plan":["codex:gpt"]}}`,
 	} {

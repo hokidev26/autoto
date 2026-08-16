@@ -41,7 +41,7 @@ body.white-shell.theme-light {
 }
 
 body.white-shell.theme-light .app-shell {
-  --session-sidebar-width: 296px;
+  --session-sidebar-width: 240px;
   background: var(--ws-canvas);
   border: 0;
 }

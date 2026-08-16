@@ -1379,6 +1379,28 @@ test("plan cards render pending review data safely and react to live plan events
   }
 });
 
+test("unavailable plan review is localized and does not show the English model error", () => {
+  assert.equal(chatRenderingExtraText("plan.verdict.unavailable", {}, "zh-TW"), "無法審查");
+  assert.equal(chatRenderingExtraText("plan.reasonUnavailable", {}, "zh-TW"), "審查模型無法使用。這不阻擋人工核准或執行。");
+  assert.equal(chatRenderingExtraText("plan.verdict.unavailable", {}, "zh-CN"), "无法审查");
+  assert.equal(chatRenderingExtraText("plan.reasonUnavailable", {}, "en"), "The reviewer model is unavailable. This does not block human approval or execution.");
+
+  const { html } = renderSnapshot([], {
+    activePlan: {
+      id: "plan-unavailable",
+      goal: "Check weather",
+      status: "executed",
+      reviewVerdict: "unavailable",
+      reviewFindings: ["reviewer model is unavailable"],
+    },
+    pendingPlanApproval: null,
+    planActionBusy: {},
+  });
+  assert.match(html, /plan-card-review/);
+  assert.doesNotMatch(html, /reviewer model is unavailable/);
+  assert.match(html, /plan-review-verdict/);
+});
+
 test("plan actions use the Agent plan action contract and update local state", async () => {
   const previousDocument = globalThis.document;
   const previousWindow = globalThis.window;
