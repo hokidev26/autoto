@@ -23,6 +23,7 @@ English | [繁體中文](README.zh-TW.md) | [简体中文](README.zh-CN.md)
 | Can't approve risky operations remotely | Phone UI or Telegram private chat, one-time approvals only |
 | Can't reach your machine from outside | Open a temporary Cloudflare tunnel from Settings; password-gated, expires |
 | Want to run several tasks at once | Queue them; background agents pick them up |
+| Need to correct a run that's still going | Queue the follow-up; it joins the same run after this tool turn, not after the whole conversation |
 | Want to try new features without dirtying main | Fork into an isolated Git worktree, merge after a clean preflight |
 | AI keeps repeating the same call | Consecutive repeats trigger an escalating reminder (never a veto) |
 | Tool output blows up the context | Spills to disk past a threshold; the model pages with Read/Grep |
@@ -231,6 +232,7 @@ The per-item list below is deliberately exhaustive and reads as a specification 
   - Read
   - Write
   - Edit
+  - MultiEdit
   - Bash
   - Glob
   - Grep
@@ -243,6 +245,10 @@ The per-item list below is deliberately exhaustive and reads as a specification 
 - Local cross-conversation collaboration: `AgentSnapshot` lists the other primary conversations on the same instance and reads their recent transcripts; `AgentSendMessage` (exec risk, approval-gated) sends one conversation a message that runs as its own turn under the narrower of its own permission mode and the sender's cap, then reports the reply back into the sending run through the same resume mechanism subagents use. Direct A-to-B-to-A message cycles are rejected, and subagents can neither send nor be targeted. A transcript read out of another conversation — or off a paired instance through `PeerSnapshot` — is fenced as untrusted, read-only background information, so a forged instruction sitting in someone else's transcript gains no authority from arriving through a tool result
 - Tool-output spilling: a result larger than `agent.toolOutputSpillBytes` (default 50000 bytes) is written to disk under the Autoto home and replaced with a head/tail preview plus the file path, which the model pages through with `Read` or searches with `Grep` instead of carrying the whole thing in context. `Read` and `Grep` are exempt so a retrieval is never answered with an instruction to retrieve again, any write failure keeps the result inline rather than turning a successful call into an error, and spilled files are pruned after seven days
 - Repeated-tool-call detection: consecutive identical calls are counted per run, and hitting one of `agent.repeatToolCallThresholds` (default `3, 5, 8`) adds an escalating reminder to the next request. Arguments are compared after canonicalization, denied calls count as attempts, and the detector never vetoes a call
+- File-edit anchors: `Read` / `Write` / `Edit` / `MultiEdit` report a whole-file SHA-256 prefix (`hash=`). A truncated `Read` without paging includes line numbers and a cheap outline of declarations and headings. `Edit` / `MultiEdit` accept optional `expected_hash` and refuse to write when the live file no longer matches
+- Project instructions load `AGENTS.md`, `CLAUDE.md`, `.cursorrules`, `.cursor/rules/*.mdc`, `.github/copilot-instructions.md`, and `GEMINI.md` as untrusted project context. They never enter the system prompt. `.cursor/mcp.json`, hooks, and `.env` are not read
+- Child-agent public results include a bounded `summary` / `files` / `result` parsed from the last assistant message; parse failure falls back to truncated prose. That JSON does not grant permissions or path access
+- Same-run steering: a queued follow-up is claimed onto the current Run after a settled tool batch, and again when a parked parent wakes from a child. Pending approval, a queued plan/execute mode that does not match the live Run, and permission/policy generation changes leave it parked. Interrupt still cancels the tree; leftover queue drains into a new Run only after the agent is idle
 - Sensitive-path hard blocking for the file path tools: `Read`, `Write`, and `Edit` reject protected files, while `Glob` and `Grep` omit them. The blocked set includes `.env*`, credential/secret files, common private-key material, and `.git` contents
 - Plan mode: a plan-mode turn can only inspect read-only tools and must emit a structured plan. The UI shows a plan card instead of the raw JSON, keeps executed/cancelled cards after reopen, and compactly labels the synthetic execute/replan prompts. Isolated review uses a dedicated model when one is set; if that model cannot be resolved or is not configured, it uses the active conversation model. Isolated review may automatically replan once when the draft admits it missed the goal, unless plan reflection is turned off for that conversation (default on; on/off under plan mode in the permission menu); a human still has to approve, then separately execute. Reviewer pass is not approval.
 - Danger reflection for Bash tool calls: a configurable LLM safety gate (off / loose / medium / strict) that uses the active conversation model to review high-risk commands before execution and blocks or allows them based on a structured verdict

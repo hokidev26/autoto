@@ -23,6 +23,7 @@
 | 出門後不能核准危險操作 | 手機 UI 或 Telegram 私聊遠端核准（一次性） |
 | 想從外面連回自家電腦 | 從設定頁開臨時 Cloudflare tunnel，密碼保護、會過期 |
 | 一次想跑幾個任務 | 任務可以排隊，背景 agent 自動接著做 |
+| 它還在跑，想再補一句 | 排隊即可；等這輪工具結束會塞進同一趟，不用等整段講完 |
 | 想試新功能又怕髒掉主分支 | Fork 到獨立的 Git worktree，預檢通過再合併 |
 | AI 一直重複同一個指令 | 連續重複會插進漸進式提醒，但不會否決呼叫 |
 | 工具輸出太大塞爆上下文 | 超過門檻的輸出自動落盤，模型用 Read/Grep 分頁 |
@@ -227,10 +228,14 @@ AGENT_SERVER_API_KEY
   - Gemini Interactions API（SSE 串流、圖片、原生 function call、reasoning effort、內部 thought-signature replay）
   - Kiro（Amazon Q）原生訂閱 provider（Event Stream、OAuth token refresh、`ksk_*` API key 認證）
   - CLIProxyAPI 內建本機 OpenAI 兼容預設組
-- 核心工具：Read、Write、Edit、Bash、Glob、Grep、WebFetch、WebSearch、MCPListTools、MCPCallTool、AgentSnapshot、AgentSendMessage
+- 核心工具：Read、Write、Edit、MultiEdit、Bash、Glob、Grep、WebFetch、WebSearch、MCPListTools、MCPCallTool、AgentSnapshot、AgentSendMessage
 - 跨對話協作：`AgentSnapshot` 列出同實例上其他主對話並讀近期內容；`AgentSendMessage`（exec 風險、走審批）把訊息送進另一個對話，讓它以自己的權限跑一輪後，把回報自動送回發問的對話（與子代理相同的喚醒機制）。直接的 A↔B 循環會被拒絕，子代理不能發送也不能被指定為目標。從別的對話讀到的內容——包括經 `PeerSnapshot` 從配對實例讀到的——會被標記為不可信的唯讀背景資料，以免別人轉錄裡的偽造指令靠「從工具結果送來」就取得權限
 - 工具輸出落盤：結果超過 `agent.toolOutputSpillBytes`（預設 50000 bytes）時，完整內容寫到 Autoto 主目錄，回給模型的換成首尾預覽加上檔案路徑，由模型用 `Read` 分頁或 `Grep` 搜尋。`Read` 與 `Grep` 本身豁免，避免用「再去讀一次」回答一次讀取；寫檔失敗一律保留原本的內聯結果，絕不把成功的工具呼叫變成錯誤；落盤檔案 7 天後清理
 - 重複工具呼叫偵測：同一工具帶同樣參數的連續呼叫按 run 計數，達到 `agent.repeatToolCallThresholds`（預設 `3, 5, 8`）之一時，下次請求中插入漸進式提醒。參數先正規化再比較，被拒絕的呼叫同樣計入；該偵測只觀察、永不否决呼叫
+- 改檔錨點：`Read`／`Write`／`Edit`／`MultiEdit` 會回報整份檔的 SHA-256 前綴（`hash=`）。截斷的 `Read`（沒有翻頁）帶行號與廉價大綱；`Edit`／`MultiEdit` 可選 `expected_hash`，檔案已變就拒寫
+- 專案說明會載入 `AGENTS.md`、`CLAUDE.md`、`.cursorrules`、`.cursor/rules/*.mdc`、`.github/copilot-instructions.md`、`GEMINI.md`，一律當不受信任的專案內容，進不了 system prompt。不讀 `.cursor/mcp.json`、hooks、`.env`
+- 子 agent 公開結果含有界的 `summary`／`files`／`result`；解析失敗就退回截斷正文。這份 JSON 不能授權、不能放寬路徑
+- 同 Run 糾正：排隊訊息在本輪工具做完後（以及子任務喚醒後）塞進同一趟。審批中、plan／execute 對不上、權限世代已變，都先留在佇列。Interrupt 仍整棵停掉；剩下的佇列要等閒下來才開新的一趟
 - 續跑預算：可按工作區限制續跑次數、總回合、總 token、實際執行時間，預設無上限（負值明確選擇不設限）
 - Project sidebar 拖曳排序，伺服器持久化
 
