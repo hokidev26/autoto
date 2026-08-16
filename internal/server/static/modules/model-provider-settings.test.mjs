@@ -70,6 +70,8 @@ import {
   normalizeConsoleProvider,
   normalizeProviderModelConfigs,
   providerConfigPayload,
+  normalizeProviderClientIdentity,
+  providerClientIdentityPreset,
   providerModelDraftUsable,
   providerSupportsImageGeneration,
   providerVisibilityPreferencesForDraft,
@@ -80,6 +82,11 @@ import {
   providerConsoleStats,
   providerTestPayload,
   providerMessageTestPayload,
+  providerUserAgentClaudeCode,
+  providerUserAgentCodex,
+  providerUserAgentForPreset,
+  providerUserAgentPreset,
+  applyProviderUserAgentPresetToForm,
   renderProviderConsolePage,
   renderProviderModelEditor,
 } from "./model-provider-components.mjs";
@@ -1747,6 +1754,7 @@ test("新增普通供应商使用独立全宽扁平配置页", () => {
     'name="baseUrl"',
     'name="proxyUrl"',
     'name="userAgent"',
+    'name="clientIdentity"',
     "data-mp-add-request-header",
     "mp-provider-reference-protocol",
     "data-mp-model-workspace",
@@ -1756,6 +1764,126 @@ test("新增普通供应商使用独立全宽扁平配置页", () => {
   assert.deepEqual(referenceOrder, [...referenceOrder].sort((a, b) => a - b));
   assert.doesNotMatch(html, /data-mp-provider-card="existing"/);
   assert.doesNotMatch(html, /mp-provider-steps|mp-provider-create-section-linear|mp-provider-drawer-backdrop|mp-provider-type-modal/);
+  assert.match(html, /name="userAgentPreset"/);
+  assert.match(html, /name="clientIdentity"/);
+  assert.match(html, /value="autoto" selected/);
+  assert.match(html, /value="claude-code"/);
+  assert.match(html, /value="codex"/);
+  assert.match(html, /name="userAgent"[^>]*hidden/);
+});
+
+test("Provider User-Agent 预设映射冻结的 CLI 快照，自定义值走原字段", () => {
+  assert.equal(providerUserAgentPreset(""), "autoto");
+  assert.equal(providerUserAgentPreset("claude-cli/2.1.63 (external, cli)"), "claude-code");
+  assert.equal(providerUserAgentPreset(providerUserAgentCodex), "codex");
+  assert.equal(providerUserAgentPreset("Acme Client"), "custom");
+  assert.equal(providerUserAgentForPreset("autoto"), "");
+  assert.equal(providerUserAgentForPreset("claude-code"), providerUserAgentClaudeCode);
+  assert.equal(providerUserAgentForPreset("codex"), "codex_cli_rs/1.0.0");
+
+  const claudeHTML = renderProviderConsolePage({
+    providers: [],
+    consoleState: { drawer: "provider", mode: "create", type: "openai-compatible", draft: { type: "openai-compatible", userAgent: providerUserAgentClaudeCode } },
+  });
+  assert.match(claudeHTML, /value="claude-code" selected/);
+  assert.match(claudeHTML, /name="userAgent"[^>]*value="claude-cli\/2\.1\.63 \(external, cli\)"/);
+
+  const form = {
+    elements: {
+      userAgentPreset: { value: "claude-code" },
+      userAgent: { value: "should-be-ignored" },
+      name: { value: "relay" },
+      type: { value: "openai-compatible" },
+      baseUrl: { value: "https://example.test/v1" },
+      model: { value: "model-a" },
+    },
+    querySelectorAll() { return []; },
+  };
+  assert.equal(providerConsoleDraftFromForm({}, form).userAgent, providerUserAgentClaudeCode);
+
+  const customForm = {
+    elements: {
+      userAgentPreset: { value: "custom" },
+      userAgent: { value: " Acme Client " },
+      name: { value: "relay" },
+      type: { value: "openai-compatible" },
+      baseUrl: { value: "https://example.test/v1" },
+      model: { value: "model-a" },
+    },
+    querySelectorAll() { return []; },
+  };
+  assert.equal(providerConsoleDraftFromForm({}, customForm).userAgent, "Acme Client");
+
+  const input = { value: "old", hidden: true, readOnly: true };
+  applyProviderUserAgentPresetToForm({ elements: { userAgent: input } }, "codex");
+  assert.equal(input.value, providerUserAgentCodex);
+  assert.equal(input.hidden, true);
+  applyProviderUserAgentPresetToForm({ elements: { userAgent: input } }, "custom");
+  assert.equal(input.hidden, false);
+  assert.equal(input.readOnly, false);
+});
+
+test("供应商提示身份按供应商保存，默认 Autoto，与 User-Agent 独立", () => {
+  assert.equal(normalizeProviderClientIdentity(""), "");
+  assert.equal(normalizeProviderClientIdentity("autoto"), "");
+  assert.equal(normalizeProviderClientIdentity("codex"), "codex");
+  assert.equal(normalizeProviderClientIdentity("claude-code"), "claude-code");
+  assert.equal(normalizeProviderClientIdentity("evil"), "");
+  assert.equal(providerClientIdentityPreset(""), "autoto");
+  assert.equal(providerClientIdentityPreset("codex"), "codex");
+
+  const html = renderProviderConsolePage({
+    providers: [],
+    consoleState: { drawer: "provider", mode: "create", type: "openai-compatible", draft: { type: "openai-compatible", clientIdentity: "codex" } },
+  });
+  assert.match(html, /id="mp-provider-create-client-identity"/);
+  assert.match(html, /value="codex" selected/);
+
+  const form = {
+    elements: {
+      clientIdentity: { value: "codex" },
+      userAgentPreset: { value: "autoto" },
+      name: { value: "codex-relay" },
+      type: { value: "openai-compatible" },
+      baseUrl: { value: "https://example.test/v1" },
+      model: { value: "model-a" },
+    },
+    querySelectorAll() { return []; },
+  };
+  const draft = providerConsoleDraftFromForm({}, form);
+  assert.equal(draft.clientIdentity, "codex");
+  assert.equal(draft.userAgent, "");
+  assert.equal(providerConfigPayload(draft).clientIdentity, "codex");
+});
+
+test("官方 Codex 表单没有请求头栏时保留该供应商已存标头与开关", () => {
+  const form = {
+    elements: {
+      name: { value: "codex" },
+      type: { value: "codex" },
+      clientIdentity: { value: "codex" },
+      userAgentPreset: { value: "codex" },
+      model: { value: "gpt-5.5" },
+    },
+    querySelector() { return null; },
+    querySelectorAll() { return []; },
+  };
+  const draft = providerConsoleDraftFromForm({
+    name: "codex",
+    type: "codex",
+    apiKeyOptional: true,
+    insecureSkipTLSVerify: true,
+    allowPlaintextHTTP: true,
+    requestHeaders: [{ name: "X-Saved", value: "", keepExisting: true, configured: true }],
+    requestHeadersDraft: false,
+  }, form);
+  assert.equal(draft.clientIdentity, "codex");
+  assert.equal(draft.userAgent, providerUserAgentCodex);
+  assert.equal(draft.apiKeyOptional, true);
+  assert.equal(draft.insecureSkipTLSVerify, true);
+  assert.equal(draft.allowPlaintextHTTP, true);
+  assert.deepEqual(draft.requestHeaders, [{ name: "X-Saved", value: "", keepExisting: true, configured: true }]);
+  assert.equal(draft.requestHeadersDraft, false);
 });
 
 test("Provider API Key 元数据安全规范化、掩码渲染和草稿隔离", () => {
@@ -1831,6 +1959,7 @@ test("供应商控制台配置 payload 保留空 API Key 并规范请求与网�
     apiKeyOptional: true,
     proxyUrl: "http://proxy-user:proxy-pass@127.0.0.1:7890",
     userAgent: "Acme Client/1.0",
+    clientIdentity: "",
     requestHeaders: [
       { name: "X-Tenant", value: "tenant-secret", keepExisting: false },
       { name: "Authorization", value: "", keepExisting: true },
@@ -1924,6 +2053,7 @@ test("供应商控制台 toggle、草稿预检、delete 与 config 请求遵守�
     apiKeyOptional: true,
     proxyUrl: "http://proxy-user:proxy-pass@127.0.0.1:7890",
     userAgent: "Autoto Test Client",
+    clientIdentity: "",
     requestHeaders: [{ name: "X-Test", value: "request-secret", keepExisting: false }],
     insecureSkipTLSVerify: true,
     allowPlaintextHTTP: false,
@@ -2002,6 +2132,7 @@ test("供应商表单草稿实时同步并在后台重绘时保持 dirty 内容"
     clearProxyAuth: false,
     userAgent: "Acme Client",
     userAgentDraft: true,
+    clientIdentity: "",
     requestHeaders: [{ name: "X-Saved", value: "", keepExisting: true, configured: true }],
     requestHeadersDraft: true,
     insecureSkipTLSVerify: true,
@@ -2433,6 +2564,8 @@ test("Codex 控制台使用独立账号页并让凭证导入区常开", () => {
   assert.match(html, /codex-model-panel/);
   assert.match(html, /Codex 模型/);
   assert.match(html, /data-mp-provider-form data-codex-provider-config="codex"/);
+  assert.match(html, /name="clientIdentity"/);
+  assert.match(html, /name="userAgentPreset"/);
   assert.match(html, /data-mp-model-config="gpt-5\.5"/);
   assert.match(html, /data-mp-model-config="gpt-5\.4"/);
   assert.match(html, /data-mp-refresh-models/);
@@ -2630,6 +2763,8 @@ test("Anthropic 内置卡片使用独立账号页并保留模型配置", () => {
   assert.match(html, /data-anthropic-copy-command=/);
   assert.match(html, /anthropic-account-table/);
   assert.match(html, /data-anthropic-provider-config/);
+  assert.match(html, /name="clientIdentity"/);
+  assert.match(html, /name="userAgentPreset"/);
   assert.match(html, /name="model"/);
   // The Anthropic account page talks to the official endpoint over OAuth, so
   // it exposes no Base URL or Max tokens field; the stored values survive

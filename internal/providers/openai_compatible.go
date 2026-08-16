@@ -246,6 +246,7 @@ func contentBlocksText(blocks []ContentBlock) string {
 }
 
 func (p *OpenAICompatible) Generate(ctx context.Context, req GenerateRequest) (<-chan Event, error) {
+	req = applyConfiguredClientIdentity(p.cfg, req)
 	if req.EffectiveScenario() == CallScenarioGateway && p.cfg.Profile == config.ProviderProfileCLIProxyAPI {
 		return nil, fmt.Errorf("%w: provider profile %q", ErrGatewayOAuthUnsupported, p.cfg.Profile)
 	}

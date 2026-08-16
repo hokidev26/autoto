@@ -4,7 +4,7 @@ import { apiDownload } from "./runtime.mjs";
 import { formatNumber } from "./formatters.mjs";
 import { t } from "./i18n.mjs";
 import { remoteAccessContext } from "./remote-access-capabilities.mjs";
-import { createProviderDraft, renderProviderModelEditor } from "./model-provider-components.mjs";
+import { createProviderDraft, renderProviderModelEditor, renderProviderClientPresentationFields } from "./model-provider-components.mjs";
 import {
   codexAccountActionRequest,
   codexAccountBatchRequest,
@@ -604,13 +604,16 @@ export function createCodexAuthController(ctx) {
       }
       : baseDraft;
     const modelBusy = Boolean(providerConsoleState().busy?.refresh);
+    const saveBusy = Boolean(providerConsoleState().busy?.[`save:${providerName}`]);
     const note = hasAccounts ? "" : `<p class="anthropic-secret-note">${escapeHtml(mt("codexModelsNeedAccount"))}</p>`;
     return `<section class="codex-model-panel settings-card" aria-labelledby="codex-models-title">
       ${header}
       <form class="codex-model-form settings-card-content" data-mp-provider-form data-codex-provider-config="${escapeAttr(providerName)}">
         <input type="hidden" name="name" value="${escapeAttr(providerName)}"><input type="hidden" name="type" value="${escapeAttr(provider.type || "codex")}"><input type="hidden" name="baseUrl" value="${escapeAttr(provider.baseUrl || "")}"><input type="hidden" name="apiKey" value="">
         ${note}
+        ${renderProviderClientPresentationFields(draft)}
         <div class="codex-model-manager">${renderProviderModelEditor(draft, modelBusy, true, { allowEmpty: true, refreshModels: true })}</div>
+        <div class="anthropic-config-actions settings-inline-actions"><button class="settings-action-btn primary" type="submit" ${saveBusy ? "disabled aria-busy=\"true\"" : ""}>${escapeHtml(t("modelProvider.console.actions.saveAndEnable"))}</button></div>
       </form>
     </section>`;
   }

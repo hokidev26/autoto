@@ -284,6 +284,7 @@ func (p *CodexProvider) listModelsWithCredentials(ctx context.Context, credentia
 }
 
 func (p *CodexProvider) Generate(ctx context.Context, req GenerateRequest) (<-chan Event, error) {
+	req = applyConfiguredClientIdentity(p.cfg, req)
 	credentials, err := p.credentialsForRequest(ctx, req)
 	if err != nil {
 		return nil, err
@@ -657,6 +658,9 @@ func (p *CodexProvider) modelsURL() string {
 }
 
 func (p *CodexProvider) userAgent() string {
+	if ua := strings.TrimSpace(p.cfg.UserAgent); ua != "" {
+		return ua
+	}
 	version := strings.TrimSpace(p.cfg.ClientVersion)
 	if version == "" {
 		version = config.Version

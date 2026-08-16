@@ -207,6 +207,11 @@ body.white-shell.theme-light.theme-dark #settingsContentBody .mp-provider-refere
   line-height: 1.4;
 }
 
+#settingsContentBody .mp-provider-user-agent {
+  display: grid;
+  gap: 6px;
+}
+
 #settingsContentBody .mp-provider-reference-field input,
 #settingsContentBody .mp-provider-reference-field select {
   width: 100%;

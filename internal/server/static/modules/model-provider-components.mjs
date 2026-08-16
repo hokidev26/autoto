@@ -87,6 +87,54 @@ function stringValue(value) {
   return String(value ?? "").trim();
 }
 
+// Frozen CLI snapshots, same idea as Autoto's Anthropic OAuth path: a known
+// official User-Agent string, not a live version probe. These presets only
+// fill the existing provider userAgent field.
+export const providerUserAgentClaudeCode = "claude-cli/2.1.63 (external, cli)";
+export const providerUserAgentCodex = "codex_cli_rs/1.0.0";
+
+export function providerUserAgentForPreset(preset) {
+  switch (String(preset || "").trim()) {
+    case "claude-code":
+      return providerUserAgentClaudeCode;
+    case "codex":
+      return providerUserAgentCodex;
+    default:
+      return "";
+  }
+}
+
+export function providerUserAgentPreset(value) {
+  const userAgent = stringValue(value);
+  if (!userAgent) return "autoto";
+  if (userAgent === providerUserAgentClaudeCode) return "claude-code";
+  if (userAgent === providerUserAgentCodex) return "codex";
+  return "custom";
+}
+
+export function applyProviderUserAgentPresetToForm(form, preset) {
+  const resolved = String(preset || "").trim() || "autoto";
+  const input = form?.elements?.userAgent;
+  if (!input) return resolved;
+  if (resolved !== "custom") input.value = providerUserAgentForPreset(resolved);
+  const custom = resolved === "custom";
+  input.hidden = !custom;
+  if ("readOnly" in input) input.readOnly = !custom;
+  return resolved;
+}
+
+function renderProviderUserAgentControls(draft = {}) {
+  const userAgent = stringValue(draft.userAgent);
+  const preset = providerUserAgentPreset(userAgent);
+  const options = [
+    ["autoto", "fields.userAgentPresetAutoto"],
+    ["claude-code", "fields.userAgentPresetClaudeCode"],
+    ["codex", "fields.userAgentPresetCodex"],
+    ["custom", "fields.userAgentPresetCustom"],
+  ];
+  return `<select id="mp-provider-create-user-agent-preset" name="userAgentPreset" aria-controls="mp-provider-create-user-agent">${options.map(([value, labelKey]) => `<option value="${escapeAttr(value)}" ${value === preset ? "selected" : ""}>${escapeHtml(ct(labelKey))}</option>`).join("")}</select><input id="mp-provider-create-user-agent" name="userAgent" type="text" value="${escapeAttr(userAgent)}" maxlength="512" autocomplete="off" placeholder="${escapeAttr(ct("createPage.userAgentCustomPlaceholder"))}" spellcheck="false" ${preset === "custom" ? "" : "hidden readonly"}>`;
+}
+
 // DefaultContextTokenLimitProvider in the Go runtime provides a per-protocol
 // fallback before the global 120 000-token floor. Models with an explicit
 // ContextTokenLimit in their config always take precedence.
@@ -314,6 +362,7 @@ function safeTransportMetadata(provider = {}) {
     proxyAuthPersisted: Boolean(provider.proxyAuthPersisted),
     proxyAuthSource: apiKeySources.has(proxySource) ? proxySource : "none",
     userAgent: stringValue(provider.userAgent),
+    clientIdentity: normalizeProviderClientIdentity(provider.clientIdentity),
     requestHeaders: asArray(provider.requestHeaders).map((header) => ({
       name: stringValue(header?.name),
       configured: Boolean(header?.configured),
@@ -624,6 +673,7 @@ export function createProviderDraft(typeKey, provider = null) {
     clearProxyAuth: Boolean(provider?.clearProxyAuth),
     userAgent: provider?.userAgentDraft === true ? String(provider.userAgent || "") : (source?.userAgent || ""),
     userAgentDraft: provider?.userAgentDraft === true,
+    clientIdentity: normalizeProviderClientIdentity(Object.hasOwn(provider || {}, "clientIdentity") ? provider.clientIdentity : source?.clientIdentity),
     requestHeaders: localHeaders,
     requestHeadersDraft: provider?.requestHeadersDraft === true,
     requestHeadersPersisted: source?.requestHeadersPersisted ?? false,
@@ -672,6 +722,7 @@ export function providerConfigPayload(draft = {}) {
     proxyUrl: String(draft.proxyUrl || "").trim(),
     ...(draft.clearProxyAuth ? { clearProxyAuth: true } : {}),
     userAgent: String(draft.userAgent || "").trim(),
+    clientIdentity: normalizeProviderClientIdentity(draft.clientIdentity),
     requestHeaders: asArray(draft.requestHeaders).map((header) => ({
       name: stringValue(header?.name),
       value: String(header?.value || ""),
@@ -818,6 +869,32 @@ export function renderProviderModelEditor(draft = {}, modelBusy = false, sensiti
   </div>`;
 }
 
+export function normalizeProviderClientIdentity(value) {
+  const raw = String(value || "").trim().toLowerCase();
+  if (!raw || raw === "autoto") return "";
+  if (raw === "claude-code" || raw === "codex") return raw;
+  return "";
+}
+
+export function providerClientIdentityPreset(value) {
+  return normalizeProviderClientIdentity(value) || "autoto";
+}
+
+function renderProviderClientIdentityControls(draft = {}) {
+  const preset = providerClientIdentityPreset(draft.clientIdentity);
+  const options = [
+    ["autoto", "fields.clientIdentityAutoto"],
+    ["claude-code", "fields.clientIdentityClaudeCode"],
+    ["codex", "fields.clientIdentityCodex"],
+  ];
+  return `<select id="mp-provider-create-client-identity" name="clientIdentity">${options.map(([value, labelKey]) => `<option value="${escapeAttr(value)}" ${value === preset ? "selected" : ""}>${escapeHtml(ct(labelKey))}</option>`).join("")}</select>`;
+}
+
+export function renderProviderClientPresentationFields(draft = {}) {
+  return `<div class="mp-provider-reference-field mp-provider-create-field"><div class="mp-provider-reference-label"><label for="mp-provider-create-user-agent-preset">${escapeHtml(ct("fields.userAgent"))}</label><small data-settings-help-copy>${escapeHtml(ct("createPage.userAgentHelp"))}</small></div><div class="mp-provider-user-agent">${renderProviderUserAgentControls(draft)}</div></div>
+        <div class="mp-provider-reference-field mp-provider-create-field"><div class="mp-provider-reference-label"><label for="mp-provider-create-client-identity">${escapeHtml(ct("fields.clientIdentity"))}</label><small data-settings-help-copy>${escapeHtml(ct("createPage.clientIdentityHelp"))}</small></div>${renderProviderClientIdentityControls(draft)}</div>`;
+}
+
 function renderCreateProtocolChoices(selected) {
   const types = [
     ["openai", "typeLabels.openai"],
@@ -896,7 +973,7 @@ export function renderProviderCreatePage(consoleState = {}) {
         <div class="mp-provider-reference-field mp-provider-create-field"><div class="mp-provider-reference-label"><label for="mp-provider-create-api-key">${escapeHtml(ct("fields.apiKey"))}</label><small data-settings-help-copy>${escapeHtml(apiKeyHelp)}</small></div><div class="mp-provider-secret-control"><input id="mp-provider-create-api-key" name="apiKey" type="password" value="${escapeAttr(draft.apiKeyDraft ? draft.apiKey : "")}" autocomplete="new-password" placeholder="${escapeAttr(apiKeyPlaceholder)}" spellcheck="false">${renderProviderAPIKeyVisibilityButton()}</div>${editing && draft.apiKeyPersisted ? `<label class="mp-provider-create-clear-key"><input name="clearApiKey" type="checkbox" ${draft.clearApiKey ? "checked" : ""} data-mp-clear-api-key><span>${escapeHtml(ct("fields.clearApiKey"))}</span></label>` : ""}</div>
         <div class="mp-provider-reference-field mp-provider-create-field"><div class="mp-provider-reference-label"><label for="mp-provider-create-base-url">${escapeHtml(ct("fields.baseUrl"))}</label><small data-settings-help-copy>${escapeHtml(ct("createPage.baseUrlHelp"))}</small></div><input id="mp-provider-create-base-url" name="baseUrl" type="url" value="${escapeAttr(createDraftPlaceholder ? "" : draft.baseUrl)}" autocomplete="url" placeholder="${escapeAttr(baseURLPlaceholder)}" spellcheck="false"></div>
         <div class="mp-provider-reference-field mp-provider-create-field"><div class="mp-provider-reference-label"><label for="mp-provider-create-proxy">${escapeHtml(ct("fields.proxyUrl"))}</label><small data-settings-help-copy>${escapeHtml(proxyHelp)}</small></div><input id="mp-provider-create-proxy" name="proxyUrl" type="text" inputmode="url" value="${escapeAttr(draft.proxyUrl || "")}" autocomplete="off" placeholder="http://user:password@127.0.0.1:7890" spellcheck="false">${editing && draft.proxyAuthConfigured ? `<label class="mp-provider-create-clear-key"><input name="clearProxyAuth" type="checkbox" ${draft.clearProxyAuth ? "checked" : ""} data-mp-clear-proxy-auth><span>${escapeHtml(ct("fields.clearProxyAuth"))}</span></label>` : ""}</div>
-        <div class="mp-provider-reference-field mp-provider-create-field"><div class="mp-provider-reference-label"><label for="mp-provider-create-user-agent">${escapeHtml(ct("fields.userAgent"))}</label><small data-settings-help-copy>${escapeHtml(ct("createPage.userAgentHelp"))}</small></div><input id="mp-provider-create-user-agent" name="userAgent" type="text" value="${escapeAttr(draft.userAgent || "")}" maxlength="512" autocomplete="off" placeholder="Autoto" spellcheck="false"></div>
+        ${renderProviderClientPresentationFields(draft)}
         <div class="mp-provider-reference-switch-list">
           <label class="mp-provider-flat-switch"><input name="apiKeyOptional" type="checkbox" ${draft.apiKeyOptional ? "checked" : ""}><span class="mp-provider-flat-switch-track" aria-hidden="true"></span><span class="mp-provider-flat-switch-copy"><strong>${escapeHtml(ct("fields.apiKeyOptional"))}</strong><small data-settings-help-copy>${escapeHtml(ct("createPage.apiKeyOptionalHelp"))}</small></span></label>
           <label class="mp-provider-flat-switch"><input name="insecureSkipTLSVerify" type="checkbox" ${draft.insecureSkipTLSVerify ? "checked" : ""}><span class="mp-provider-flat-switch-track" aria-hidden="true"></span><span class="mp-provider-flat-switch-copy"><strong>${escapeHtml(ct("fields.insecureSkipTLSVerify"))}</strong><small data-settings-help-copy>${escapeHtml(ct("createPage.tlsHelp"))}</small></span></label>

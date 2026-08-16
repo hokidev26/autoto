@@ -91,7 +91,9 @@ test("model provider console exposes aligned nested keys for every locale", () =
     "createPage.networkTitle",
     "fields.proxyUrl",
     "fields.requestHeaders",
+    "fields.clientIdentity",
     "fields.insecureSkipTLSVerify",
+    "createPage.clientIdentityHelp",
   ]) assert.ok(expected.includes(required), required);
 
   for (const locale of uiLocales) {

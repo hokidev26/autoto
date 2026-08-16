@@ -1,5 +1,5 @@
 import { fullAccessAllowed, remoteAccessContext } from "./remote-access-capabilities.mjs";
-import { mergeProviderModelDiscovery } from "./model-provider-components.mjs";
+import { mergeProviderModelDiscovery, providerUserAgentForPreset, normalizeProviderClientIdentity } from "./model-provider-components.mjs";
 import { t } from "./i18n.mjs";
 
 const providerConsoleInteractiveSelector = "button, input, select, textarea, a, details, summary, [role=\"switch\"], [contenteditable=\"true\"]";
@@ -129,23 +129,54 @@ export function markProviderModelsStale(previousDraft = {}, nextDraft = {}) {
     : { ...nextDraft, modelsStale: true };
 }
 
+function userAgentFromProviderForm(fields, currentDraft = {}) {
+  const preset = String(fields.userAgentPreset?.value || "").trim();
+  if (preset && preset !== "custom") return providerUserAgentForPreset(preset);
+  if (fields.userAgent) return String(fields.userAgent.value || "").trim();
+  return String(currentDraft.userAgent || "").trim();
+}
+
+function clientIdentityFromProviderForm(fields, currentDraft = {}) {
+  if (fields.clientIdentity) return normalizeProviderClientIdentity(fields.clientIdentity.value);
+  return normalizeProviderClientIdentity(currentDraft.clientIdentity);
+}
+
+function checkboxFromProviderForm(fields, name, currentValue) {
+  return fields[name] ? Boolean(fields[name].checked) : Boolean(currentValue);
+}
+
+function requestHeadersFromProviderForm(form, currentDraft = {}) {
+  const rows = [...(form?.querySelectorAll?.("[data-mp-request-header-row]") || [])];
+  const hasHeaderList = Boolean(form?.querySelector?.("[data-mp-request-header-list]"));
+  if (!hasHeaderList && rows.length === 0) {
+    return {
+      requestHeaders: Array.isArray(currentDraft.requestHeaders) ? currentDraft.requestHeaders : [],
+      requestHeadersDraft: currentDraft.requestHeadersDraft === true,
+    };
+  }
+  return {
+    requestHeaders: rows.map((row) => {
+      const name = String(row.querySelector?.("[data-mp-request-header-name]")?.value || "");
+      const headerValue = String(row.querySelector?.("[data-mp-request-header-value]")?.value || "");
+      const originalName = String(row.dataset?.originalName || "").trim().toLowerCase();
+      const keepExisting = row.dataset?.keepExisting === "true"
+        && !headerValue
+        && String(name).trim().toLowerCase() === originalName;
+      return {
+        name,
+        value: headerValue,
+        keepExisting,
+        configured: row.dataset?.configured === "true",
+      };
+    }),
+    requestHeadersDraft: true,
+  };
+}
+
 export function providerConsoleDraftFromForm(currentDraft = {}, form, fallbackType = "openai-compatible") {
   const fields = form?.elements || {};
   const value = (name, fallback = "") => String(fields[name]?.value ?? fallback ?? "");
-  const requestHeaders = [...(form?.querySelectorAll?.("[data-mp-request-header-row]") || [])].map((row) => {
-    const name = String(row.querySelector?.("[data-mp-request-header-name]")?.value || "");
-    const headerValue = String(row.querySelector?.("[data-mp-request-header-value]")?.value || "");
-    const originalName = String(row.dataset?.originalName || "").trim().toLowerCase();
-    const keepExisting = row.dataset?.keepExisting === "true"
-      && !headerValue
-      && String(name).trim().toLowerCase() === originalName;
-    return {
-      name,
-      value: headerValue,
-      keepExisting,
-      configured: row.dataset?.configured === "true",
-    };
-  });
+  const headers = requestHeadersFromProviderForm(form, currentDraft);
   const nextDraft = {
     ...currentDraft,
     name: value("name", currentDraft.name),
@@ -160,15 +191,16 @@ export function providerConsoleDraftFromForm(currentDraft = {}, form, fallbackTy
     proxyUrl: value("proxyUrl", currentDraft.proxyUrl),
     proxyUrlDraft: true,
     clearProxyAuth: Boolean(fields.clearProxyAuth?.checked),
-    userAgent: value("userAgent", currentDraft.userAgent),
+    userAgent: userAgentFromProviderForm(fields, currentDraft),
     userAgentDraft: true,
-    requestHeaders,
-    requestHeadersDraft: true,
-    insecureSkipTLSVerify: Boolean(fields.insecureSkipTLSVerify?.checked),
-    allowPlaintextHTTP: Boolean(fields.allowPlaintextHTTP?.checked),
+    clientIdentity: clientIdentityFromProviderForm(fields, currentDraft),
+    requestHeaders: headers.requestHeaders,
+    requestHeadersDraft: headers.requestHeadersDraft,
+    insecureSkipTLSVerify: checkboxFromProviderForm(fields, "insecureSkipTLSVerify", currentDraft.insecureSkipTLSVerify),
+    allowPlaintextHTTP: checkboxFromProviderForm(fields, "allowPlaintextHTTP", currentDraft.allowPlaintextHTTP),
     model: value("model", currentDraft.model),
     maxTokens: Number(fields.maxTokens ? fields.maxTokens.value || 0 : currentDraft.maxTokens || 0),
-    apiKeyOptional: Boolean(fields.apiKeyOptional?.checked),
+    apiKeyOptional: checkboxFromProviderForm(fields, "apiKeyOptional", currentDraft.apiKeyOptional),
   };
   return markProviderModelsStale(currentDraft, nextDraft);
 }

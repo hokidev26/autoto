@@ -276,6 +276,7 @@ func (p *GeminiProvider) Generate(ctx context.Context, req GenerateRequest) (<-c
 	if p == nil {
 		return nil, providerUnavailableError(config.ProviderTypeGemini, "provider is not configured")
 	}
+	req = applyConfiguredClientIdentity(p.cfg, req)
 	if p.configErr != nil {
 		return nil, p.configErr
 	}

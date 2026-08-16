@@ -51,6 +51,7 @@ type providerConfigUpdateRequest struct {
 	ProxyURL              *string                       `json:"proxyUrl,omitempty"`
 	ClearProxyAuth        bool                          `json:"clearProxyAuth,omitempty"`
 	UserAgent             *string                       `json:"userAgent,omitempty"`
+	ClientIdentity        *string                       `json:"clientIdentity,omitempty"`
 	RequestHeaders        *[]providerRequestHeaderInput `json:"requestHeaders,omitempty"`
 	InsecureSkipTLSVerify *bool                         `json:"insecureSkipTLSVerify,omitempty"`
 	AllowPlaintextHTTP    *bool                         `json:"allowPlaintextHTTP,omitempty"`
@@ -100,6 +101,7 @@ type providerMessageTestRequest struct {
 	ProxyURL              *string                       `json:"proxyUrl,omitempty"`
 	ClearProxyAuth        bool                          `json:"clearProxyAuth,omitempty"`
 	UserAgent             *string                       `json:"userAgent,omitempty"`
+	ClientIdentity        *string                       `json:"clientIdentity,omitempty"`
 	RequestHeaders        *[]providerRequestHeaderInput `json:"requestHeaders,omitempty"`
 	InsecureSkipTLSVerify *bool                         `json:"insecureSkipTLSVerify,omitempty"`
 	AllowPlaintextHTTP    *bool                         `json:"allowPlaintextHTTP,omitempty"`
@@ -133,6 +135,7 @@ func (r providerMessageTestRequest) configUpdateRequest() providerConfigUpdateRe
 		ProxyURL:              r.ProxyURL,
 		ClearProxyAuth:        r.ClearProxyAuth,
 		UserAgent:             r.UserAgent,
+		ClientIdentity:        r.ClientIdentity,
 		RequestHeaders:        r.RequestHeaders,
 		InsecureSkipTLSVerify: r.InsecureSkipTLSVerify,
 		AllowPlaintextHTTP:    r.AllowPlaintextHTTP,
@@ -528,6 +531,11 @@ func validateProviderConfigRequest(req providerConfigUpdateRequest) error {
 			return errors.New("userAgent is invalid")
 		}
 	}
+	if req.ClientIdentity != nil {
+		if _, err := config.ParseClientIdentity(*req.ClientIdentity); err != nil {
+			return err
+		}
+	}
 	if req.RequestHeaders != nil {
 		if len(*req.RequestHeaders) > maxProviderRequestHeaders {
 			return fmt.Errorf("requestHeaders exceeds %d entries", maxProviderRequestHeaders)
@@ -836,6 +844,14 @@ func providerConfigFromUpdateRequest(providerName string, existing config.Provid
 	if req.UserAgent != nil {
 		userAgent = strings.TrimSpace(*req.UserAgent)
 	}
+	clientIdentity := existing.ClientIdentity
+	if req.ClientIdentity != nil {
+		parsed, err := config.ParseClientIdentity(*req.ClientIdentity)
+		if err != nil {
+			return config.ProviderConfig{}, err
+		}
+		clientIdentity = parsed
+	}
 	insecureSkipTLSVerify := existing.InsecureSkipTLSVerify
 	if req.InsecureSkipTLSVerify != nil {
 		insecureSkipTLSVerify = *req.InsecureSkipTLSVerify
@@ -861,6 +877,7 @@ func providerConfigFromUpdateRequest(providerName string, existing config.Provid
 		ProxyPassword:           proxyPassword,
 		ProxyAuthSource:         proxyAuthSource,
 		UserAgent:               userAgent,
+		ClientIdentity:          clientIdentity,
 		InsecureSkipTLSVerify:   insecureSkipTLSVerify,
 		AllowPlaintextHTTP:      allowPlaintextHTTP,
 		Disabled:                existing.Disabled,

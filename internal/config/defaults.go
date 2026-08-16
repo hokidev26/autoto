@@ -186,6 +186,11 @@ type ProviderConfig struct {
 	GatewayEnabled        bool                    `json:"gatewayEnabled,omitempty"`
 	ProxyURL              string                  `json:"proxyUrl,omitempty"`
 	UserAgent             string                  `json:"userAgent,omitempty"`
+	// ClientIdentity optionally prepends a short official-CLI identity sentence
+	// to this provider's system prompt. Empty (default) keeps Autoto's own
+	// identity. Allowed values: "claude-code", "codex". It is per-provider, does
+	// not grant extra permissions, and does not replace Autoto's safety boundary.
+	ClientIdentity        string                  `json:"clientIdentity,omitempty"`
 	RequestHeaders        []ProviderRequestHeader `json:"requestHeaders,omitempty"`
 	InsecureSkipTLSVerify bool                    `json:"insecureSkipTLSVerify,omitempty"`
 	// AllowPlaintextHTTP permits a plain-HTTP base URL that does not resolve to
@@ -961,6 +966,7 @@ func normalizeProviders(p ProvidersConfig) ProvidersConfig {
 		provider.Profile = strings.TrimSpace(provider.Profile)
 		provider.ProxyURL = providerProxyURLWithoutCredentials(provider.ProxyURL)
 		provider.UserAgent = strings.TrimSpace(provider.UserAgent)
+		provider.ClientIdentity = NormalizeClientIdentity(provider.ClientIdentity)
 		if len(provider.RequestHeaders) > 0 {
 			provider.RequestHeaders = append([]ProviderRequestHeader(nil), provider.RequestHeaders...)
 			for headerIndex := range provider.RequestHeaders {

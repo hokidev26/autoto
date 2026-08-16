@@ -76,6 +76,7 @@ func fallbackModels(model string) []string {
 }
 
 func (p *GeminiInteractions) Generate(ctx context.Context, req GenerateRequest) (<-chan Event, error) {
+	req = applyConfiguredClientIdentity(p.cfg, req)
 	if p.configErr != nil {
 		return nil, p.configErr
 	}

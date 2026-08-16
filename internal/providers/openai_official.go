@@ -102,6 +102,7 @@ func (p *OpenAIOfficial) ListModels(ctx context.Context) ([]string, error) {
 }
 
 func (p *OpenAIOfficial) Generate(ctx context.Context, req GenerateRequest) (<-chan Event, error) {
+	req = applyConfiguredClientIdentity(p.cfg, req)
 	if p.configErr != nil {
 		return nil, p.configErr
 	}

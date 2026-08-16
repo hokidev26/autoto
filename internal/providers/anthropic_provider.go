@@ -233,6 +233,9 @@ func (p *AnthropicProvider) Generate(ctx context.Context, req GenerateRequest) (
 		return nil, err
 	}
 	messages, system, durableMessages := anthropicMessages(req.Messages, req.SystemPrompt, model)
+	if req.EffectiveScenario() != CallScenarioGateway {
+		system = prependAnthropicClientIdentity(system, ClientIdentityText(p.cfg.ClientIdentity))
+	}
 	if len(messages) == 0 {
 		messages = append(messages, anthropic.NewUserMessage(anthropic.NewTextBlock("Continue.")))
 		durableMessages = len(messages)
@@ -736,10 +739,28 @@ func withAnthropicOAuthClaudeCodeIdentity(params anthropic.MessageNewParams) ant
 }
 
 func hasAnthropicClaudeCodeIdentity(system []anthropic.TextBlockParam) bool {
-	if len(system) == 0 {
+	return hasLeadingAnthropicSystemText(system, anthropicauth.ClaudeCodeIdentity)
+}
+
+func hasLeadingAnthropicSystemText(system []anthropic.TextBlockParam, identity string) bool {
+	identity = strings.TrimSpace(identity)
+	if identity == "" || len(system) == 0 {
 		return false
 	}
-	return strings.TrimSpace(system[0].Text) == anthropicauth.ClaudeCodeIdentity
+	return strings.TrimSpace(system[0].Text) == identity
+}
+
+// prependAnthropicClientIdentity puts a configured CLI identity in its own first
+// system text block. Subscription OAuth still uses withAnthropicOAuthClaudeCodeIdentity
+// and skips when that block is already present.
+func prependAnthropicClientIdentity(system []anthropic.TextBlockParam, identity string) []anthropic.TextBlockParam {
+	identity = strings.TrimSpace(identity)
+	if identity == "" || hasLeadingAnthropicSystemText(system, identity) {
+		return system
+	}
+	out := make([]anthropic.TextBlockParam, 0, len(system)+1)
+	out = append(out, anthropic.TextBlockParam{Text: identity})
+	return append(out, system...)
 }
 
 // anthropicMessages returns the converted conversation, the system blocks, and

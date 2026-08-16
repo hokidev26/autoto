@@ -10,6 +10,7 @@ import {
   modelProvidersForUIUnion,
   normalizeConsoleProvider,
   normalizeProviderModelConfigs,
+  applyProviderUserAgentPresetToForm,
   providerConfigPayload,
   providerConsoleRequest,
   providerModelDraftUsable,
@@ -1431,6 +1432,7 @@ export function createModelProviderSettingsController({
     const target = event.target;
     const form = target?.closest?.("[data-mp-provider-form]");
     if (!form || (!target?.name && !target?.matches?.("[data-mp-model-choice]"))) return false;
+    if (target?.name === "userAgentPreset") applyProviderUserAgentPresetToForm(form, target.value);
     const consoleState = providerConsoleState();
     const automaticNameChanged = updateAutomaticProviderName(consoleState, form, target);
     if (target?.name === "apiKey") {

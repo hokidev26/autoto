@@ -50,6 +50,7 @@ type settingsProviderResponse struct {
 	ProxyAuthPersisted      bool                                   `json:"proxyAuthPersisted"`
 	ProxyAuthSource         string                                 `json:"proxyAuthSource"`
 	UserAgent               string                                 `json:"userAgent,omitempty"`
+	ClientIdentity          string                                 `json:"clientIdentity,omitempty"`
 	RequestHeaders          []settingsProviderHeaderResponse       `json:"requestHeaders,omitempty"`
 	RequestHeadersPersisted bool                                   `json:"requestHeadersPersisted"`
 	RequestHeadersSource    string                                 `json:"requestHeadersSource"`
@@ -90,6 +91,7 @@ func (s *Server) settingsProviderResponseWithSnapshot(ctx context.Context, provi
 		APIKeyOptional: summary.APIKeyOptional, GatewayEnabled: summary.GatewayEnabled, Enabled: summary.Enabled,
 		Origin: summary.Origin, ProxyURL: safeProvider.ProxyURL, ProxyAuthConfigured: proxyStatus.Configured,
 		ProxyAuthPersisted: proxyStatus.Persisted, ProxyAuthSource: proxyStatus.Source, UserAgent: provider.UserAgent,
+		ClientIdentity: provider.ClientIdentity,
 		RequestHeaders: headers, RequestHeadersPersisted: headerStatus.Persisted, RequestHeadersSource: headerStatus.Source,
 		InsecureSkipTLSVerify: provider.InsecureSkipTLSVerify, AllowPlaintextHTTP: provider.AllowPlaintextHTTP,
 		Capabilities: metadata.Capabilities, ModelCapabilities: modelCapabilitiesForModels(registered, safeProvider, configuredModelNames(safeProvider)),

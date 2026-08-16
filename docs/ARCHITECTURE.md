@@ -79,6 +79,8 @@ Current adapters include:
 - Kiro (Amazon Q) Event Stream API with OAuth token refresh, startup token warmup, and `ksk_*` API key authentication as an alternative to the OAuth browser flow.
 - Codex ChatGPT OAuth (`internal/providers/codex.go`) against `chatgpt.com/backend-api/codex`. Account quota is reconstructed from ChatGPT's subscription windows rather than the Platform Billing API: live `x-codex-*` rate-limit headers on `/responses`, `GET /backend-api/wham/usage` on explicit sync, and optional `/wham/rate-limit-reset-credits` for official reset tokens. Local 5h/7d request stats are aligned to the current reset window when `reset_at` is known; dollar amounts stay local estimates, not an OpenAI invoice.
 
+Each provider may set its own outbound User-Agent and an optional `clientIdentity` (`""` / Autoto default, `claude-code`, or `codex`). The identity is a short first-party CLI sentence prepended to that provider's system prompt or instructions only; it does not replace Autoto's runtime prompt, permissions, or safety boundary, and it is not a global switch. Anthropic subscription OAuth still injects Claude Code identity as the first system block because the official API requires it. Gateway calls keep the caller's prompt and do not apply this overlay.
+
 Provider code is responsible for translating Autoto's normalized message/tool representation into each upstream API shape and translating upstream deltas back into normalized events.
 
 ### 6. Tool execution and approval

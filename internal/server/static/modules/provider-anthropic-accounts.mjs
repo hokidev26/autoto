@@ -7,6 +7,7 @@ import {
   normalizeConsoleProvider,
   normalizeProviderModelConfigs,
   renderProviderModelEditor,
+  renderProviderClientPresentationFields,
 } from "./model-provider-components.mjs";
 import {
   anthropicAccountActionRequest,
@@ -340,6 +341,7 @@ export function createAnthropicAccountsController(ctx) {
         <div class="codex-console-section-head settings-card-header"><div><h2 id="anthropic-config-title" class="settings-card-title">${escapeHtml(mt("anthropic.configTitle"))}</h2><p class="settings-card-description" data-settings-help-copy>${escapeHtml(mt("anthropic.configDescription"))}</p></div><span class="settings-status-pill ${escapeAttr(providerTone)}">${escapeHtml(providerState)}</span></div>
         <form class="anthropic-config-form settings-card-content" data-mp-provider-form data-anthropic-provider-config>
           <input type="hidden" name="name" value="anthropic"><input type="hidden" name="type" value="anthropic"><input type="hidden" name="apiKey" value=""><input type="checkbox" name="apiKeyOptional" hidden>
+          ${renderProviderClientPresentationFields(draft)}
           <div class="anthropic-model-manager">${renderProviderModelEditor(draft, modelBusy, true, { allowEmpty: true })}</div>
           <p class="anthropic-secret-note">${escapeHtml(mt("anthropic.configNote"))}</p>
           <div class="anthropic-config-actions settings-inline-actions"><button class="settings-action-btn" type="button" data-mp-refresh-models ${refreshBusy ? "disabled aria-busy=\"true\"" : ""}>${escapeHtml(refreshBusy ? mt("refreshing") : mt("refreshModels"))}</button><button class="settings-action-btn primary" type="submit" ${saveBusy ? "disabled aria-busy=\"true\"" : ""}>${escapeHtml(saveBusy ? mt("saving") : ct("actions.saveAndEnable"))}</button></div>
