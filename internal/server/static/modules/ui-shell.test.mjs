@@ -221,7 +221,8 @@ test("danger reflection level selector is the only row in the safety section", a
     assert.ok(buttons.every((button) => button.type === "button" && button.getAttribute("role") === "radio"));
     assert.equal(findDangerLevelButton(menu, "medium").getAttribute("aria-checked"), "true");
 
-    const safetyRows = menu.querySelectorAll(".composer-permission-safety-status");
+    const safetyRows = menu.querySelectorAll(".composer-permission-safety-status")
+      .filter((row) => !row.classList.contains("composer-permission-plan-reflection"));
     assert.equal(safetyRows.length, 1);
     assert.ok(safetyRows[0].classList.contains("composer-permission-danger-reflection"));
   });
@@ -399,5 +400,80 @@ test("selecting a level without requestAPI preserves the current value", async (
     assert.equal(findDangerLevelButton(menu, "medium").getAttribute("aria-checked"), "true");
     assert.equal(findDangerLevelButton(menu, "off").getAttribute("aria-checked"), "false");
     assert.equal(errors.length, 1);
+  });
+});
+
+function findPlanReflectionButton(menu, enabled) {
+  return menu.querySelectorAll(".composer-permission-plan-reflection-level")
+    .find((button) => button.dataset.planReflection === String(enabled));
+}
+
+test("plan reflection toggle sits in the message-mode section and defaults on", async () => {
+  const { fakeDocument, fakeWindow, trigger, body } = setupComposerSelectDOM();
+  await withGlobals(fakeDocument, fakeWindow, async () => {
+    const controller = createUIShellController({
+      state: { agent: { id: "agent-1" } },
+      getMessageMode: () => "plan",
+      resizeTerminal() {},
+      requestAPI: async () => ({}),
+    });
+    controller.bindComposerSelectMenus();
+    openPermissionMenu(trigger);
+
+    const menu = findMenu(body);
+    const row = menu.querySelector(".composer-permission-plan-reflection");
+    assert.ok(row, "expected a plan reflection toggle in the permission menu");
+    assert.equal(findPlanReflectionButton(menu, true).getAttribute("aria-checked"), "true");
+    assert.equal(findPlanReflectionButton(menu, false).getAttribute("aria-checked"), "false");
+    assert.equal(findPlanReflectionButton(menu, true).disabled, false);
+    assert.equal(findPlanReflectionButton(menu, false).disabled, false);
+  });
+});
+
+test("plan reflection toggle is disabled outside plan mode", async () => {
+  const { fakeDocument, fakeWindow, trigger, body } = setupComposerSelectDOM();
+  await withGlobals(fakeDocument, fakeWindow, async () => {
+    const controller = createUIShellController({
+      state: { agent: { id: "agent-1", planReflection: true } },
+      getMessageMode: () => "execute",
+      resizeTerminal() {},
+      requestAPI: async () => ({}),
+    });
+    controller.bindComposerSelectMenus();
+    openPermissionMenu(trigger);
+
+    const menu = findMenu(body);
+    assert.equal(findPlanReflectionButton(menu, true).disabled, true);
+    assert.equal(findPlanReflectionButton(menu, false).disabled, true);
+  });
+});
+
+test("turning plan reflection off patches the current conversation", async () => {
+  const { fakeDocument, fakeWindow, trigger, body } = setupComposerSelectDOM();
+  const calls = [];
+  await withGlobals(fakeDocument, fakeWindow, async () => {
+    const controller = createUIShellController({
+      state: { agent: { id: "agent-1", planReflection: true } },
+      getMessageMode: () => "plan",
+      resizeTerminal() {},
+      requestAPI: async (path, options = {}) => {
+        calls.push({ path, options });
+        if (options.method === "PATCH") return { id: "agent-1", planReflection: false };
+        return {};
+      },
+    });
+    controller.bindComposerSelectMenus();
+    openPermissionMenu(trigger);
+
+    const menu = findMenu(body);
+    findPlanReflectionButton(menu, false).dispatch("click");
+    await flushMicrotasks();
+
+    const patches = calls.filter((call) => call.options?.method === "PATCH");
+    assert.equal(patches.length, 1);
+    assert.equal(patches[0].path, "/api/agents/agent-1/plan-reflection");
+    assert.equal(JSON.parse(patches[0].options.body).planReflection, false);
+    assert.equal(findPlanReflectionButton(menu, false).getAttribute("aria-checked"), "true");
+    assert.equal(findPlanReflectionButton(menu, true).getAttribute("aria-checked"), "false");
   });
 });

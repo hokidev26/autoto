@@ -317,7 +317,7 @@ func (r *Runner) persistAndReviewPlan(ctx context.Context, policy PolicyContext,
 		return "", review.Result{}, fmt.Errorf("persist plan review: %w", err)
 	}
 	sourceRun, sourceErr := r.store.GetRunByID(ctx, policy.RunID)
-	if sourceErr == nil && shouldAutoReflectPlan(sourceRun, result.Verdict) {
+	if sourceErr == nil && shouldAutoReflectPlan(sourceRun, result.Verdict, r.planReflectionEnabled(ctx, policy.AgentID)) {
 		// Defer plan.approval_required until after unregisterRun. Auto-replan
 		// either replaces this in_review draft or publishes the event then.
 		r.plans.rememberDeferredReview(policy.RunID, result)
@@ -335,7 +335,21 @@ func hasPlanReflectionSourceID(sourceID string) bool {
 	return strings.HasPrefix(strings.TrimSpace(sourceID), PlanReflectionSourcePrefix)
 }
 
-func shouldAutoReflectPlan(run db.Run, verdict review.ReviewVerdict) bool {
+func (r *Runner) planReflectionEnabled(ctx context.Context, agentID string) bool {
+	if r == nil || r.store == nil {
+		return false
+	}
+	agent, err := r.store.GetAgent(ctx, strings.TrimSpace(agentID))
+	if err != nil {
+		return false
+	}
+	return agent.PlanReflection
+}
+
+func shouldAutoReflectPlan(run db.Run, verdict review.ReviewVerdict, enabled bool) bool {
+	if !enabled {
+		return false
+	}
 	if strings.TrimSpace(run.ExecutionMode) != db.RunExecutionModePlan {
 		return false
 	}
@@ -380,7 +394,7 @@ func (r *Runner) startPlanReflectionReplan(ctx context.Context, agentID, sourceR
 	if err != nil {
 		return false, err
 	}
-	if sourceRun.AgentID != agentID || !shouldAutoReflectPlan(sourceRun, result.Verdict) {
+	if sourceRun.AgentID != agentID || !shouldAutoReflectPlan(sourceRun, result.Verdict, r.planReflectionEnabled(ctx, agentID)) {
 		return false, nil
 	}
 	plan, err := r.store.GetPlanBySourceRun(ctx, sourceRunID)

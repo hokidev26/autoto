@@ -29,6 +29,19 @@ func TestCreateProjectCreatesCoreRecords(t *testing.T) {
 	if got.WorklineID != workline.ID {
 		t.Fatalf("expected agent workline %s, got %s", workline.ID, got.WorklineID)
 	}
+	if !got.PlanReflection {
+		t.Fatalf("new agents must default plan reflection on: %+v", got)
+	}
+	disabled, err := store.UpdateAgentPlanReflection(context.Background(), got.ID, false)
+	if err != nil || disabled.PlanReflection {
+		t.Fatalf("plan reflection did not turn off: %+v err=%v", disabled, err)
+	}
+	if disabled.PermissionGeneration != got.PermissionGeneration {
+		t.Fatalf("plan reflection must not bump permission generation: before=%+v after=%+v", got, disabled)
+	}
+	if disabled.EntityGeneration <= got.EntityGeneration {
+		t.Fatalf("plan reflection must bump entity generation: before=%+v after=%+v", got, disabled)
+	}
 }
 
 func TestCreateAgentRejectsOrphanSubagentAndParentedPrimary(t *testing.T) {
@@ -416,6 +429,7 @@ VALUES ('agent-1', 'chapter-1', 'primary', 'Legacy', 'openai:test', 'acceptEdits
 		{"agents", "pruned_percent"},
 		{"agents", "prune_enabled"},
 		{"agents", "parent_agent_id"},
+		{"agents", "plan_reflection"},
 		{"api_requests", "ttft_ms"},
 		{"memory_injections", "agent_id"},
 	} {
@@ -427,7 +441,7 @@ VALUES ('agent-1', 'chapter-1', 'primary', 'Legacy', 'openai:test', 'acceptEdits
 	if err != nil {
 		t.Fatal(err)
 	}
-	if agent.Title != "Legacy" || agent.PruneBoundaryMessageID != "" || agent.PrunedPercent != 0 {
+	if agent.Title != "Legacy" || agent.PruneBoundaryMessageID != "" || agent.PrunedPercent != 0 || !agent.PlanReflection {
 		t.Fatalf("unexpected migrated agent: %+v", agent)
 	}
 }

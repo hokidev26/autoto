@@ -3441,6 +3441,27 @@ function bindSettingsNavDrag(nav) {
   });
 }
 
+function activateSidebarProjectRow(node) {
+  // Grouped conversation folders expand from anywhere on the row. The triangle
+  // is still a dedicated control, but aiming at the 16px folder is no longer
+  // required. Task-sidebar project rows and folders with nothing to disclose
+  // still open the project.
+  const disclosure = node?.querySelector?.("[data-navigation-disclosure]");
+  const groupedFolder = node?.dataset?.navigationKind === "project"
+    && node.dataset.navigationContext !== "tasks"
+    && Boolean(disclosure);
+  if (groupedFolder) {
+    toggleCollapsedNavNode(disclosure.dataset.navigationDisclosure);
+    renderProjects();
+    return;
+  }
+  return selectProject(node.dataset.projectId).then(() => {
+    if (state.activeWorkbench === "workbench") {
+      taskWorkspace.setContext({ projectId: node.dataset.projectId, agentId: state.agent?.id || "", scope: "project" });
+    }
+  }).catch(showError);
+}
+
 function renderProjects() {
   const el = $("projects");
   if (!el) return;
@@ -3484,11 +3505,7 @@ function renderProjects() {
   bindConversationDrag(el);
   bindProjectDrag(el);
   el.querySelectorAll("[data-project-id]").forEach((node) => {
-    bindNavigationActivation(node, () => selectProject(node.dataset.projectId).then(() => {
-      if (state.activeWorkbench === "workbench") {
-        taskWorkspace.setContext({ projectId: node.dataset.projectId, agentId: state.agent?.id || "", scope: "project" });
-      }
-    }).catch(showError));
+    bindNavigationActivation(node, () => activateSidebarProjectRow(node));
   });
   el.querySelectorAll("[data-navigation-target]").forEach((node) => {
     bindNavigationActivation(node, () => selectNavigationConversation(node.dataset.navigationTarget).catch(showError));
@@ -3501,8 +3518,9 @@ function renderProjects() {
       event.stopPropagation();
     });
     node.addEventListener("click", (event) => {
-      // The row behind the triangle is itself a button, so without this the
-      // toggle would also navigate to whatever it sits on.
+      // The row behind the triangle is itself a button. Without this the
+      // triangle click would also fire the row handler; both toggle, so that
+      // would expand and immediately collapse.
       event.preventDefault();
       event.stopPropagation();
       toggleCollapsedNavNode(node.dataset.navigationDisclosure);

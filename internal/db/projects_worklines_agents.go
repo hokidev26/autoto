@@ -247,7 +247,7 @@ func (s *projectStore) CreateProjectConversation(ctx context.Context, projectID,
 	title = candidate
 	now := Now()
 	workline := Workline{ID: NewID(), ProjectID: projectID, Title: title, Status: "active", Role: "root", WorktreePath: project.GitPath, IsRoot: true, CreatedAt: now, UpdatedAt: now}
-	agent := Agent{ID: NewID(), WorklineID: workline.ID, Type: "primary", Title: title, Model: model, PermissionMode: permissionMode, ExecutionDeviceID: "local", Status: "idle", CWD: project.GitPath, CreatedAt: now, UpdatedAt: now}
+	agent := Agent{ID: NewID(), WorklineID: workline.ID, Type: "primary", Title: title, Model: model, PermissionMode: permissionMode, ExecutionDeviceID: "local", Status: "idle", PlanReflection: true, CWD: project.GitPath, CreatedAt: now, UpdatedAt: now}
 	if _, err := tx.ExecContext(ctx, `INSERT INTO worklines (id, project_id, title, status, role, worktree_path, is_root, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`, workline.ID, workline.ProjectID, workline.Title, workline.Status, workline.Role, workline.WorktreePath, boolInt(workline.IsRoot), workline.CreatedAt, workline.UpdatedAt); err != nil {
 		return Project{}, Workline{}, Agent{}, err
 	}
@@ -334,7 +334,7 @@ func (s *projectStore) CreateWorklineConversation(ctx context.Context, worklineI
 	}
 	title = candidate
 	now := Now()
-	agent := Agent{ID: NewID(), WorklineID: workline.ID, Type: "primary", Title: title, Model: model, PermissionMode: permissionMode, ExecutionDeviceID: "local", Status: "idle", CWD: cwd, CreatedAt: now, UpdatedAt: now}
+	agent := Agent{ID: NewID(), WorklineID: workline.ID, Type: "primary", Title: title, Model: model, PermissionMode: permissionMode, ExecutionDeviceID: "local", Status: "idle", PlanReflection: true, CWD: cwd, CreatedAt: now, UpdatedAt: now}
 	if _, err := tx.ExecContext(ctx, `INSERT INTO agents (id, workline_id, type, title, model, permission_mode, reasoning_effort, execution_device_id, status, cwd, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, NULLIF(?,''), ?, ?, ?, ?, ?)`, agent.ID, agent.WorklineID, agent.Type, agent.Title, agent.Model, agent.PermissionMode, agent.ReasoningEffort, agent.ExecutionDeviceID, agent.Status, agent.CWD, agent.CreatedAt, agent.UpdatedAt); err != nil {
 		return Project{}, Workline{}, Agent{}, err
 	}
@@ -390,7 +390,7 @@ func (s *projectStore) createStandaloneConversation(ctx context.Context, ownerID
 	now := Now()
 	project := Project{ID: NewID(), Name: title, Status: "active", FlowMode: ProjectFlowModeConversation, CreatedAt: now, UpdatedAt: now}
 	workline := Workline{ID: NewID(), ProjectID: project.ID, Title: "conversation", Status: "active", Role: "root", IsRoot: true, CreatedAt: now, UpdatedAt: now}
-	agent := Agent{ID: NewID(), WorklineID: workline.ID, Type: "primary", Title: title, Model: model, PermissionMode: "readOnly", ExecutionDeviceID: "local", Status: "idle", CreatedAt: now, UpdatedAt: now}
+	agent := Agent{ID: NewID(), WorklineID: workline.ID, Type: "primary", Title: title, Model: model, PermissionMode: "readOnly", ExecutionDeviceID: "local", Status: "idle", PlanReflection: true, CreatedAt: now, UpdatedAt: now}
 
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -433,7 +433,7 @@ func (s *projectStore) createProject(ctx context.Context, ownerID, name, descrip
 	now := Now()
 	project := Project{ID: NewID(), Name: name, Description: description, Status: "active", FlowMode: ProjectFlowModeWorkspace, GitPath: gitPath, CreatedAt: now, UpdatedAt: now}
 	workline := Workline{ID: NewID(), ProjectID: project.ID, Title: "main", Status: "active", Role: "root", WorktreePath: gitPath, IsRoot: true, CreatedAt: now, UpdatedAt: now}
-	agent := Agent{ID: NewID(), WorklineID: workline.ID, Type: "primary", Title: name, Model: defaultModel, PermissionMode: permissionMode, ExecutionDeviceID: "local", Status: "idle", CWD: gitPath, CreatedAt: now, UpdatedAt: now}
+	agent := Agent{ID: NewID(), WorklineID: workline.ID, Type: "primary", Title: name, Model: defaultModel, PermissionMode: permissionMode, ExecutionDeviceID: "local", Status: "idle", PlanReflection: true, CWD: gitPath, CreatedAt: now, UpdatedAt: now}
 
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -574,7 +574,7 @@ func (s *projectStore) CreateWorklineFork(ctx context.Context, parent Workline, 
 	}
 	now := Now()
 	workline := Workline{ID: NewID(), ProjectID: parent.ProjectID, Title: title, Status: "active", Role: "worktree", Branch: branch, WorktreePath: worktreePath, BaseBranch: baseBranch, ParentWorklineID: parent.ID, ForkPoint: forkPoint, HeadCommitSHA: forkPoint, StartCommitSHA: forkPoint, IsRoot: false, CreatedAt: now, UpdatedAt: now}
-	agent := Agent{ID: NewID(), WorklineID: workline.ID, Type: "primary", Title: title, Model: model, PermissionMode: permissionMode, ExecutionDeviceID: "local", Status: "idle", CWD: worktreePath, CreatedAt: now, UpdatedAt: now}
+	agent := Agent{ID: NewID(), WorklineID: workline.ID, Type: "primary", Title: title, Model: model, PermissionMode: permissionMode, ExecutionDeviceID: "local", Status: "idle", PlanReflection: true, CWD: worktreePath, CreatedAt: now, UpdatedAt: now}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return Workline{}, Agent{}, err
@@ -705,16 +705,17 @@ func (s *projectStore) MarkWorklineUnmerged(ctx context.Context, sourceWorklineI
 	return s.GetWorkline(ctx, sourceWorklineID)
 }
 
-const agentSelectSQL = `SELECT id, COALESCE(workline_id,''), COALESCE(parent_agent_id,''), COALESCE(fork_message_id,''), COALESCE(inherit_mode,''), type, COALESCE(subagent_type,''), title, model, COALESCE(system_prompt,''), permission_mode, COALESCE(entity_generation,1), COALESCE(permission_generation,1), COALESCE(execution_generation,0), COALESCE(reasoning_effort,''), COALESCE(fast_mode,0), COALESCE(execution_device_id,'local'), status, plan_mode, COALESCE(pinned,0), COALESCE(archived_at,''), COALESCE(cwd,''), message_count, COALESCE(context_summary,''), COALESCE(prune_boundary_message_id,''), COALESCE(pruned_percent,0), COALESCE(prune_enabled,0), created_at, updated_at FROM agents`
+const agentSelectSQL = `SELECT id, COALESCE(workline_id,''), COALESCE(parent_agent_id,''), COALESCE(fork_message_id,''), COALESCE(inherit_mode,''), type, COALESCE(subagent_type,''), title, model, COALESCE(system_prompt,''), permission_mode, COALESCE(entity_generation,1), COALESCE(permission_generation,1), COALESCE(execution_generation,0), COALESCE(reasoning_effort,''), COALESCE(fast_mode,0), COALESCE(execution_device_id,'local'), status, plan_mode, COALESCE(plan_reflection,1), COALESCE(pinned,0), COALESCE(archived_at,''), COALESCE(cwd,''), message_count, COALESCE(context_summary,''), COALESCE(prune_boundary_message_id,''), COALESCE(pruned_percent,0), COALESCE(prune_enabled,0), created_at, updated_at FROM agents`
 
 type agentScanner func(dest ...any) error
 
 func scanAgent(scan agentScanner) (Agent, error) {
 	var agent Agent
-	var fastMode, planMode, pinned, pruneEnabled int
-	err := scan(&agent.ID, &agent.WorklineID, &agent.ParentAgentID, &agent.ForkMessageID, &agent.InheritMode, &agent.Type, &agent.SubagentType, &agent.Title, &agent.Model, &agent.SystemPrompt, &agent.PermissionMode, &agent.EntityGeneration, &agent.PermissionGeneration, &agent.ExecutionGeneration, &agent.ReasoningEffort, &fastMode, &agent.ExecutionDeviceID, &agent.Status, &planMode, &pinned, &agent.ArchivedAt, &agent.CWD, &agent.MessageCount, &agent.ContextSummary, &agent.PruneBoundaryMessageID, &agent.PrunedPercent, &pruneEnabled, &agent.CreatedAt, &agent.UpdatedAt)
+	var fastMode, planMode, planReflection, pinned, pruneEnabled int
+	err := scan(&agent.ID, &agent.WorklineID, &agent.ParentAgentID, &agent.ForkMessageID, &agent.InheritMode, &agent.Type, &agent.SubagentType, &agent.Title, &agent.Model, &agent.SystemPrompt, &agent.PermissionMode, &agent.EntityGeneration, &agent.PermissionGeneration, &agent.ExecutionGeneration, &agent.ReasoningEffort, &fastMode, &agent.ExecutionDeviceID, &agent.Status, &planMode, &planReflection, &pinned, &agent.ArchivedAt, &agent.CWD, &agent.MessageCount, &agent.ContextSummary, &agent.PruneBoundaryMessageID, &agent.PrunedPercent, &pruneEnabled, &agent.CreatedAt, &agent.UpdatedAt)
 	agent.FastMode = fastMode != 0
 	agent.PlanMode = planMode != 0
+	agent.PlanReflection = planReflection != 0
 	agent.Pinned = pinned != 0
 	agent.PruneEnabled = pruneEnabled != 0
 	return agent, err
@@ -879,6 +880,19 @@ func (s *projectStore) UpdateAgentReasoningEffort(ctx context.Context, id, reaso
 
 func (s *projectStore) UpdateAgentFastMode(ctx context.Context, id string, fastMode bool) (Agent, error) {
 	result, err := s.db.ExecContext(ctx, `UPDATE agents SET fast_mode = ?, entity_generation = entity_generation + 1, updated_at = ? WHERE id = ?`, boolInt(fastMode), Now(), strings.TrimSpace(id))
+	if err != nil {
+		return Agent{}, err
+	}
+	if affected, err := result.RowsAffected(); err != nil {
+		return Agent{}, err
+	} else if affected != 1 {
+		return Agent{}, sql.ErrNoRows
+	}
+	return s.GetAgent(ctx, id)
+}
+
+func (s *projectStore) UpdateAgentPlanReflection(ctx context.Context, id string, enabled bool) (Agent, error) {
+	result, err := s.db.ExecContext(ctx, `UPDATE agents SET plan_reflection = ?, entity_generation = entity_generation + 1, updated_at = ? WHERE id = ?`, boolInt(enabled), Now(), strings.TrimSpace(id))
 	if err != nil {
 		return Agent{}, err
 	}

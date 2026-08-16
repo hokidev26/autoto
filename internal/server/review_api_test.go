@@ -663,6 +663,76 @@ func TestProjectAndAgentDefaultPlanModeAndPatch(t *testing.T) {
 	}
 }
 
+func TestAgentPlanReflectionDefaultAndPatch(t *testing.T) {
+	ctx := context.Background()
+	store, err := db.Open(ctx, filepath.Join(t.TempDir(), "plan-reflection.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	workspace := t.TempDir()
+	app := New(config.Config{
+		Paths: config.PathsConfig{DefaultProjectDir: workspace},
+		Agent: config.AgentConfig{DefaultModel: "fake:test", DefaultPermissionMode: "acceptEdits"},
+	}, store, nil, nil)
+
+	projectPayload, err := json.Marshal(map[string]string{"name": "Plan reflection", "gitPath": workspace})
+	if err != nil {
+		t.Fatal(err)
+	}
+	projectRecorder := httptest.NewRecorder()
+	projectRequest := newTestRequest(http.MethodPost, "/api/projects", strings.NewReader(string(projectPayload)))
+	projectRequest.Header.Set("Content-Type", "application/json")
+	app.Routes().ServeHTTP(projectRecorder, projectRequest)
+	if projectRecorder.Code != http.StatusCreated {
+		t.Fatalf("expected project create 201, got %d: %s", projectRecorder.Code, projectRecorder.Body.String())
+	}
+	var projectResponse struct {
+		Agent db.Agent `json:"agent"`
+	}
+	if err := json.NewDecoder(projectRecorder.Body).Decode(&projectResponse); err != nil {
+		t.Fatal(err)
+	}
+	if !projectResponse.Agent.PlanReflection {
+		t.Fatalf("project primary agent did not default plan reflection on: %+v", projectResponse.Agent)
+	}
+	created, err := store.GetAgent(ctx, projectResponse.Agent.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	patch := httptest.NewRecorder()
+	patchRequest := newTestRequest(http.MethodPatch, "/api/agents/"+created.ID+"/plan-reflection", strings.NewReader(`{"planReflection":false}`))
+	patchRequest.Header.Set("Content-Type", "application/json")
+	app.Routes().ServeHTTP(patch, patchRequest)
+	if patch.Code != http.StatusOK {
+		t.Fatalf("expected plan reflection patch 200, got %d: %s", patch.Code, patch.Body.String())
+	}
+	var updated db.Agent
+	if err := json.NewDecoder(patch.Body).Decode(&updated); err != nil {
+		t.Fatal(err)
+	}
+	if updated.PlanReflection || updated.EntityGeneration <= created.EntityGeneration {
+		t.Fatalf("plan reflection patch did not persist off: before=%+v after=%+v", created, updated)
+	}
+	if updated.PermissionGeneration != created.PermissionGeneration {
+		t.Fatalf("plan reflection must not bump permission generation: before=%+v after=%+v", created, updated)
+	}
+
+	got, err := store.GetAgent(ctx, created.ID)
+	if err != nil || got.PlanReflection {
+		t.Fatalf("store did not persist disabled plan reflection: %+v err=%v", got, err)
+	}
+
+	missing := httptest.NewRecorder()
+	missingRequest := newTestRequest(http.MethodPatch, "/api/agents/"+created.ID+"/plan-reflection", strings.NewReader(`{}`))
+	missingRequest.Header.Set("Content-Type", "application/json")
+	app.Routes().ServeHTTP(missing, missingRequest)
+	if missing.Code != http.StatusBadRequest {
+		t.Fatalf("expected missing planReflection 400, got %d: %s", missing.Code, missing.Body.String())
+	}
+}
+
 func TestLiveSnapshotIncludesExecutedPlanWithSourceRunID(t *testing.T) {
 	store, _, repo, agent := newReviewAPITestServer(t)
 	defer store.Close()

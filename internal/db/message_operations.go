@@ -155,9 +155,9 @@ func (s *messageStore) ForkConversationFromMessage(ctx context.Context, agentID,
 	}
 	now := Now()
 	forkID := NewID()
-	if _, err := tx.ExecContext(ctx, `INSERT INTO agents (id, workline_id, type, title, inherit_mode, parent_agent_id, fork_message_id, model, system_prompt, permission_mode, reasoning_effort, fast_mode, execution_device_id, status, plan_mode, cwd, prune_enabled, created_at, updated_at)
-		VALUES (?, NULLIF(?,''), 'primary', ?, NULLIF(?,''), ?, ?, ?, NULLIF(?,''), ?, NULLIF(?,''), ?, ?, 'idle', ?, NULLIF(?,''), ?, ?, ?)`,
-		forkID, source.WorklineID, title, source.InheritMode, agentID, messageID, source.Model, source.SystemPrompt, source.PermissionMode, source.ReasoningEffort, boolInt(source.FastMode), source.ExecutionDeviceID, boolInt(source.PlanMode), source.CWD, boolInt(source.PruneEnabled), now, now); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO agents (id, workline_id, type, title, inherit_mode, parent_agent_id, fork_message_id, model, system_prompt, permission_mode, reasoning_effort, fast_mode, execution_device_id, status, plan_mode, plan_reflection, cwd, prune_enabled, created_at, updated_at)
+		VALUES (?, NULLIF(?,''), 'primary', ?, NULLIF(?,''), ?, ?, ?, NULLIF(?,''), ?, NULLIF(?,''), ?, ?, 'idle', ?, ?, NULLIF(?,''), ?, ?, ?)`,
+		forkID, source.WorklineID, title, source.InheritMode, agentID, messageID, source.Model, source.SystemPrompt, source.PermissionMode, source.ReasoningEffort, boolInt(source.FastMode), source.ExecutionDeviceID, boolInt(source.PlanMode), boolInt(source.PlanReflection), source.CWD, boolInt(source.PruneEnabled), now, now); err != nil {
 		return Agent{}, err
 	}
 

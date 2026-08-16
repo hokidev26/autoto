@@ -196,6 +196,7 @@ CREATE TABLE IF NOT EXISTS agents (
   last_message_at TEXT,
   status TEXT NOT NULL DEFAULT 'idle',
   plan_mode INTEGER NOT NULL DEFAULT 0,
+  plan_reflection INTEGER NOT NULL DEFAULT 1,
   cwd TEXT,
   error_message TEXT,
   todos_json TEXT,
@@ -213,6 +214,7 @@ CREATE TABLE IF NOT EXISTS agents (
   updated_at TEXT NOT NULL,
   CHECK (execution_generation >= 0),
   CHECK (pinned IN (0, 1)),
+  CHECK (plan_reflection IN (0, 1)),
   CHECK (reasoning_effort IS NULL OR reasoning_effort IN ('auto', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra')),
   CHECK (length(CAST(execution_device_id AS BLOB)) BETWEEN 1 AND 128)
 );

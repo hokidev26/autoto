@@ -35,6 +35,9 @@ export function createComposerSelectMenus({
   setSummaryModel = null,
   setMessageMode = () => {},
   resolveMessageMode = () => "execute",
+  getPlanReflection = () => true,
+  setPlanReflection = () => {},
+  getAgentId = () => "",
   mobileViewport = () => false,
 } = {}) {
   function bindComposerSelectMenus() {
@@ -386,6 +389,96 @@ export function createComposerSelectMenus({
       close({ focus: true });
     };
 
+    const planReflectionEnabled = () => getPlanReflection?.() !== false;
+    const planReflectionNodes = new Set();
+
+    const syncPlanReflectionNodes = () => {
+      const enabled = planReflectionEnabled();
+      const inPlanMode = resolveMessageMode() === "plan";
+      const agentId = String(getAgentId?.() || "").trim();
+      for (const selector of [...planReflectionNodes]) {
+        if (selector.isConnected === false) {
+          planReflectionNodes.delete(selector);
+          continue;
+        }
+        selector.querySelectorAll(".composer-permission-plan-reflection-level").forEach((button) => {
+          const selected = (button.dataset.planReflection === "true") === enabled;
+          button.classList.toggle("is-selected", selected);
+          button.setAttribute("aria-checked", selected ? "true" : "false");
+          button.disabled = !inPlanMode || !agentId;
+        });
+      }
+    };
+
+    const setPlanReflectionEnabled = async (selector, enabled) => {
+      const agentId = String(getAgentId?.() || "").trim();
+      if (!agentId || resolveMessageMode() !== "plan") return;
+      const previous = planReflectionEnabled();
+      if (previous === enabled) return;
+      setPlanReflection?.(enabled);
+      syncPlanReflectionNodes();
+      if (typeof requestAPI !== "function") return;
+      selector.setAttribute("aria-busy", "true");
+      selector.querySelectorAll(".composer-permission-plan-reflection-level").forEach((button) => { button.disabled = true; });
+      try {
+        const response = await requestAPI(`/api/agents/${encodeURIComponent(agentId)}/plan-reflection`, {
+          method: "PATCH",
+          body: JSON.stringify({ planReflection: enabled }),
+        });
+        const saved = response && typeof response === "object" && "planReflection" in response
+          ? response.planReflection !== false
+          : enabled;
+        setPlanReflection?.(saved);
+      } catch (error) {
+        setPlanReflection?.(previous);
+        showError?.(error);
+      } finally {
+        selector.removeAttribute("aria-busy");
+        syncPlanReflectionNodes();
+      }
+    };
+
+    const createPlanReflectionRow = () => {
+      const row = document.createElement("div");
+      row.className = "composer-permission-safety-status composer-permission-danger-reflection composer-permission-plan-reflection";
+      row.title = translate("chat.planReflectionDescription");
+
+      const heading = document.createElement("div");
+      heading.className = "composer-permission-danger-reflection-heading";
+      const icon = document.createElement("span");
+      icon.className = "composer-permission-option-icon composer-permission-safety-icon";
+      icon.innerHTML = permissionMenuIconMarkup.plan;
+      const label = document.createElement("span");
+      label.className = "composer-permission-safety-label";
+      label.textContent = translate("chat.planReflection");
+      heading.append(icon, label);
+
+      const selector = document.createElement("div");
+      selector.className = "composer-permission-danger-reflection-levels composer-permission-plan-reflection-levels";
+      selector.setAttribute("role", "radiogroup");
+      selector.setAttribute("aria-label", `${translate("chat.planReflection")} — ${translate("chat.planReflectionDescription")}`);
+      const enabled = planReflectionEnabled();
+      const inPlanMode = resolveMessageMode() === "plan";
+      const agentId = String(getAgentId?.() || "").trim();
+      [["true", "chat.planReflectionOn"], ["false", "chat.planReflectionOff"]].forEach(([value, key]) => {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "composer-permission-plan-reflection-level";
+        button.dataset.planReflection = value;
+        button.setAttribute("role", "radio");
+        const selected = (value === "true") === enabled;
+        button.classList.toggle("is-selected", selected);
+        button.setAttribute("aria-checked", selected ? "true" : "false");
+        button.disabled = !inPlanMode || !agentId;
+        button.textContent = translate(key);
+        button.addEventListener("click", () => setPlanReflectionEnabled(selector, value === "true"));
+        selector.appendChild(button);
+      });
+      planReflectionNodes.add(selector);
+      row.append(heading, selector);
+      return row;
+    };
+
     const createMessageModeOption = (mode, { mobile = false } = {}) => {
       const selected = resolveMessageMode() === mode;
       const button = document.createElement("button");
@@ -430,6 +523,7 @@ export function createComposerSelectMenus({
       target.appendChild(heading);
       target.appendChild(createMessageModeOption("execute", { mobile }));
       target.appendChild(createMessageModeOption("plan", { mobile }));
+      target.appendChild(createPlanReflectionRow());
     };
 
     const appendPermissionOptions = (binding, target = menu, { mobile = false } = {}) => {

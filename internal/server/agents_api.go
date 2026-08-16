@@ -154,6 +154,46 @@ func (s *Server) updateAgentPlanMode(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, agent)
 }
 
+type updatePlanReflectionRequest struct {
+	PlanReflection *bool `json:"planReflection"`
+}
+
+func (s *Server) updateAgentPlanReflection(w http.ResponseWriter, r *http.Request) {
+	var req updatePlanReflectionRequest
+	if err := decodeJSON(r, &req); err != nil {
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
+		return
+	}
+	if req.PlanReflection == nil {
+		writeError(w, http.StatusBadRequest, "planReflection is required")
+		return
+	}
+	agentID := strings.TrimSpace(chi.URLParam(r, "id"))
+	if err := validateAPIIdentifier("agent id", agentID); err != nil {
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
+		return
+	}
+	agent, err := s.store.UpdateAgentPlanReflection(r.Context(), agentID, *req.PlanReflection)
+	if err != nil {
+		s.writeStoreError(w, r, err)
+		return
+	}
+	actor, actorErr := s.reviewActor(r)
+	if actorErr != nil {
+		s.writeRequestError(w, r, http.StatusInternalServerError, actorErr)
+		return
+	}
+	if err := s.recordAudit(r.Context(), audit.Event{
+		Category: "review", Action: "agent.plan_reflection.update", Actor: actor, AgentID: agent.ID,
+		SubjectType: "agent", SubjectID: agent.ID, Outcome: "success", Risk: "low",
+		Details: map[string]any{"planReflection": agent.PlanReflection, "entityGeneration": agent.EntityGeneration},
+	}); err != nil {
+		writeError(w, http.StatusInternalServerError, "plan reflection was updated but audit persistence failed")
+		return
+	}
+	writeJSON(w, http.StatusOK, agent)
+}
+
 // updatePersistedAgentPlanMode is a compatibility bridge for the existing
 // agents.plan_mode column. It keeps entity and permission generations in sync
 // until the Agent workflow owns a first-class mode mutation API.

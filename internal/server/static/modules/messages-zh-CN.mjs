@@ -280,6 +280,10 @@ export default Object.freeze({
       medium: "中等",
       strict: "严格",
     },
+    planReflection: "计划反思",
+    planReflectionDescription: "审查认为计划未达成目标时，自动再规划一次",
+    planReflectionOn: "开启",
+    planReflectionOff: "关闭",
 
     saveAgentSettings: "保存当前模型、权限和目录",
     credentials: "凭证和中转站",

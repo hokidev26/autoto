@@ -63,19 +63,22 @@ func newPlanReflectionRunner(t *testing.T, store *db.Store, provider providers.P
 
 func TestShouldAutoReflectPlanOneRetryGate(t *testing.T) {
 	original := db.Run{ExecutionMode: db.RunExecutionModePlan}
-	if !shouldAutoReflectPlan(original, review.VerdictNeedsHuman) {
+	if !shouldAutoReflectPlan(original, review.VerdictNeedsHuman, true) {
 		t.Fatal("untagged plan-mode needs_human should auto-reflect")
 	}
+	if shouldAutoReflectPlan(original, review.VerdictNeedsHuman, false) {
+		t.Fatal("disabled plan reflection must not auto-reflect")
+	}
 	for _, verdict := range []review.ReviewVerdict{review.VerdictPass, review.VerdictUnavailable, review.VerdictBlockRecommended} {
-		if shouldAutoReflectPlan(original, verdict) {
+		if shouldAutoReflectPlan(original, verdict, true) {
 			t.Fatalf("verdict %s must not auto-reflect", verdict)
 		}
 	}
 	tagged := db.Run{ExecutionMode: db.RunExecutionModePlan, SourceID: PlanReflectionSourcePrefix + "plan-1"}
-	if shouldAutoReflectPlan(tagged, review.VerdictNeedsHuman) {
+	if shouldAutoReflectPlan(tagged, review.VerdictNeedsHuman, true) {
 		t.Fatal("plan-reflection source id must not start a second retry")
 	}
-	if shouldAutoReflectPlan(db.Run{ExecutionMode: db.RunExecutionModeExecute}, review.VerdictNeedsHuman) {
+	if shouldAutoReflectPlan(db.Run{ExecutionMode: db.RunExecutionModeExecute}, review.VerdictNeedsHuman, true) {
 		t.Fatal("execute-mode runs must not auto-reflect")
 	}
 }
@@ -144,6 +147,37 @@ func TestNeedsHumanStartsOnePlanModeReflectionReplan(t *testing.T) {
 	}
 	if !foundPrompt {
 		t.Fatal("expected a PLAN_REFLECTION_REPLAN trigger message")
+	}
+}
+
+func TestDisabledPlanReflectionDoesNotAutoReplan(t *testing.T) {
+	ctx := context.Background()
+	store, agent := newAgentTestStore(t, t.TempDir(), "acceptEdits")
+	defer store.Close()
+	if _, err := store.UpdateAgentPlanReflection(ctx, agent.ID, false); err != nil {
+		t.Fatal(err)
+	}
+	provider := &planReflectionTestProvider{reviewResults: []string{
+		`{"verdict":"needs_human","reason":"evidence is for the wrong city; fetch the requested location"}`,
+	}}
+	runner := newPlanReflectionRunner(t, store, provider, "fake:review")
+
+	message, err := runner.SubmitUserMessageWithMode(ctx, agent.ID, "produce a plan", "api", ExecutionModePlan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitForRunSettled(t, store, runner, agent.ID, message.RunID)
+
+	runs, err := store.ListRuns(ctx, agent.ID, 10)
+	if err != nil || len(runs) != 1 {
+		t.Fatalf("disabled plan reflection must not start a reflection run: runs=%+v err=%v", runs, err)
+	}
+	if strings.HasPrefix(runs[0].SourceID, PlanReflectionSourcePrefix) {
+		t.Fatalf("disabled plan reflection created a reflection source id: %+v", runs[0])
+	}
+	plans, err := store.ListPlans(ctx, agent.ID, 10)
+	if err != nil || len(plans) != 1 || plans[0].Status != db.PlanStatusInReview {
+		t.Fatalf("disabled plan reflection must leave the plan in_review: %+v err=%v", plans, err)
 	}
 }
 

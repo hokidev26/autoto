@@ -114,6 +114,7 @@ type Agent struct {
 	ExecutionDeviceID      string `json:"executionDeviceId"`
 	Status                 string `json:"status"`
 	PlanMode               bool   `json:"planMode"`
+	PlanReflection         bool   `json:"planReflection"`
 	Pinned                 bool   `json:"pinned"`
 	ArchivedAt             string `json:"archivedAt,omitempty"`
 	CWD                    string `json:"cwd,omitempty"`

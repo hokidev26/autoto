@@ -846,9 +846,10 @@ test("desktop conversation layout follows the compact resizable geometry", async
   assert.match(styles, /body\.white-shell\.theme-light \.navigation-project-twist:has\(> \.navigation-disclosure\.expanded\) \.navigation-folder-icon\.navigation-folder-open\s*\{[\s\S]*?display:\s*inline-flex/);
   assert.match(styles, /body\.white-shell\.theme-light \.navigation-project-twist \.navigation-folder-icon\s*\{[\s\S]*?pointer-events:\s*none/);
   assert.match(appMain, /closest\?\.\("\[data-navigation-disclosure]/);
+  assert.match(appMain, /toggleCollapsedNavNode\(disclosure\.dataset\.navigationDisclosure\)/);
   assert.match(styles, /body\.white-shell\.theme-light \.navigation-project-twist \.navigation-disclosure\s*\{[\s\S]*?opacity:\s*0/);
-  assert.match(styles, /body\.white-shell\.theme-light \.navigation-project-twist:is\(:hover, :focus-within\) \.navigation-disclosure\s*\{[\s\S]*?opacity:\s*1/);
-  assert.match(styles, /body\.white-shell\.theme-light \.navigation-project-twist:is\(:hover, :focus-within\) \.navigation-folder-icon\s*\{[\s\S]*?opacity:\s*0/);
+  assert.match(styles, /body\.white-shell\.theme-light \.navigation-project-row:is\(:hover, :focus-within\) \.navigation-disclosure\s*\{[\s\S]*?opacity:\s*1/);
+  assert.match(styles, /body\.white-shell\.theme-light \.navigation-project-row:is\(:hover, :focus-within\) \.navigation-folder-icon\s*\{[\s\S]*?opacity:\s*0/);
   assert.match(styles, /body\.white-shell\.theme-light \.navigation-conversation-row\.nested \.navigation-agent-icon\s*\{[\s\S]*?display:\s*none/);
   assert.match(styles, /body\.white-shell\.theme-light \.navigation-conversation-row\.nested\s*\{[\s\S]*?padding:\s*4px 7px 4px 28px/);
   assert.match(styles, /body\.white-shell\.theme-light \.messages:not\(\.empty\)\s*\{[\s\S]*?grid-template-columns:\s*minmax\(0, 1fr\)[\s\S]*?grid-auto-rows:\s*max-content[\s\S]*?justify-content:\s*start[\s\S]*?row-gap:\s*14px[\s\S]*?padding:\s*12px 8px 12px/);

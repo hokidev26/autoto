@@ -10,7 +10,7 @@ import (
 	"github.com/google/uuid"
 )
 
-const CurrentDBVersion = 66
+const CurrentDBVersion = 67
 
 type migration struct {
 	version int
@@ -85,6 +85,7 @@ var migrations = []migration{
 	{version: 64, name: "queued message attachments", up: migrateV64QueuedMessageAttachments},
 	{version: 65, name: "tool execution replay class", up: migrateV65ToolExecutionReplayClass},
 	{version: 66, name: "guest access keys", up: migrateV66GuestAccessKeys},
+	{version: 67, name: "agent plan reflection", up: migrateV67AgentPlanReflection},
 }
 
 // migrateV62SubagentBypassCap admits bypassPermissions as a run/task ceiling.
@@ -1750,6 +1751,13 @@ func migrateV50ToolExecutionGroups(ctx context.Context, tx *sql.Tx) error {
 // either schema shape.
 func migrateV65ToolExecutionReplayClass(ctx context.Context, tx *sql.Tx) error {
 	return ensureColumn(ctx, tx, "tool_execution_group_items", "replay_class", "TEXT NOT NULL DEFAULT 'never'")
+}
+
+func migrateV67AgentPlanReflection(ctx context.Context, tx *sql.Tx) error {
+	// Per-conversation convenience retry after isolated plan review returns
+	// needs_human. Default on preserves the previous always-on behaviour.
+	// Turning it off fails closed to the human; it does not authorize execute.
+	return ensureColumn(ctx, tx, "agents", "plan_reflection", "INTEGER NOT NULL DEFAULT 1")
 }
 
 func migrateV66GuestAccessKeys(ctx context.Context, tx *sql.Tx) error {

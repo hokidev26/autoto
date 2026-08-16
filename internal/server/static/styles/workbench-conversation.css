@@ -463,9 +463,9 @@ body.white-shell.theme-light .navigation-project-row .project-name {
    quiet row, then conversation titles indented under that name. The folder is
    not the selected chat, so it does not pick up the conversation capsule. */
 body.white-shell.theme-light .navigation-project-group > .navigation-project-row {
-  min-height: 28px;
+  min-height: 32px;
   grid-template-columns: 16px minmax(0, 1fr) auto;
-  padding: 2px 6px 2px 4px;
+  padding: 4px 8px 4px 6px;
   border-color: transparent;
   background: transparent;
   box-shadow: none;
@@ -483,7 +483,7 @@ body.white-shell.theme-light .navigation-project-twist {
   justify-content: center;
   width: 16px;
   align-self: stretch;
-  min-height: 28px;
+  min-height: 32px;
 }
 
 body.white-shell.theme-light .navigation-project-twist .navigation-folder-icon {
@@ -516,11 +516,11 @@ body.white-shell.theme-light .navigation-project-twist .navigation-disclosure {
   color: color-mix(in srgb, var(--ws-text, #20263a) 55%, var(--ws-muted, #6b7280));
 }
 
-body.white-shell.theme-light .navigation-project-twist:is(:hover, :focus-within) .navigation-disclosure {
+body.white-shell.theme-light .navigation-project-row:is(:hover, :focus-within) .navigation-disclosure {
   opacity: 1;
 }
 
-body.white-shell.theme-light .navigation-project-twist:is(:hover, :focus-within) .navigation-folder-icon {
+body.white-shell.theme-light .navigation-project-row:is(:hover, :focus-within) .navigation-folder-icon {
   opacity: 0;
 }
 
@@ -541,9 +541,17 @@ body.white-shell.theme-light .navigation-project-group > .navigation-project-row
 }
 
 body.white-shell.theme-light .navigation-project-group > .navigation-project-row:hover,
-body.white-shell.theme-light .navigation-project-group > .navigation-project-row:focus-visible,
-body.white-shell.theme-light .navigation-project-group > .navigation-project-row.active,
-body.white-shell.theme-light .navigation-project-group > .navigation-project-row.active .project-name {
+body.white-shell.theme-light .navigation-project-group > .navigation-project-row:focus-visible {
+  border-color: transparent;
+  background: color-mix(in srgb, var(--ws-primary-soft, #eef1ff) 88%, var(--ws-card, #fff));
+  color: var(--ws-text, #20263a);
+  box-shadow: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+body.white-shell.theme-light .navigation-project-group > .navigation-project-row.active:not(:hover):not(:focus-visible),
+body.white-shell.theme-light .navigation-project-group > .navigation-project-row.active:not(:hover):not(:focus-visible) .project-name {
   border-color: transparent;
   background: transparent;
   color: color-mix(in srgb, var(--ws-text, #20263a) 72%, var(--ws-muted, #6b7280));
@@ -802,8 +810,16 @@ body.white-shell.theme-light .navigation-conversation-row.nested:hover {
 }
 
 body.white-shell.theme-light .navigation-project-group > .project-card.navigation-project-row:hover,
-body.white-shell.theme-light .navigation-project-group > .project-card.navigation-project-row:focus-visible,
-body.white-shell.theme-light .navigation-project-group > .project-card.navigation-project-row.active {
+body.white-shell.theme-light .navigation-project-group > .project-card.navigation-project-row:focus-visible {
+  border-color: transparent;
+  background: color-mix(in srgb, var(--ws-primary-soft, #eef1ff) 88%, var(--ws-card, #fff));
+  color: var(--ws-text, #20263a);
+  box-shadow: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+body.white-shell.theme-light .navigation-project-group > .project-card.navigation-project-row.active:not(:hover):not(:focus-visible) {
   border-color: transparent;
   background: transparent;
   color: color-mix(in srgb, var(--ws-text, #20263a) 72%, var(--ws-muted, #6b7280));
@@ -820,7 +836,7 @@ body.white-shell.theme-light .navigation-conversation-row.nested.active {
 }
 
 /* A collapsed folder is the only on-screen stand-in for the open chat inside it. */
-body.white-shell.theme-light .navigation-project-group:has(.navigation-project-conversations[hidden] .navigation-conversation-row.active) > .navigation-project-row {
+body.white-shell.theme-light .navigation-project-group:has(.navigation-project-conversations[hidden] .navigation-conversation-row.active) > .navigation-project-row:not(:hover):not(:focus-visible) {
   background: color-mix(in srgb, var(--ws-primary-soft, #eef1ff) 80%, transparent);
 }
 

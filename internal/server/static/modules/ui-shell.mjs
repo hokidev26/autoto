@@ -476,6 +476,12 @@ export function createUIShellController({
     setSummaryModel,
     setMessageMode,
     resolveMessageMode,
+    getPlanReflection: () => state?.agent?.planReflection !== false,
+    setPlanReflection: (enabled) => {
+      if (!state?.agent) return;
+      state.agent = { ...state.agent, planReflection: Boolean(enabled) };
+    },
+    getAgentId: () => String(state?.agent?.id || ""),
     mobileViewport,
   });
 

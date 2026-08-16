@@ -26,6 +26,7 @@ func (s *Server) agentRoutes(r chi.Router) {
 	r.Patch("/{id}/fast-mode", s.updateAgentFastMode)
 	r.Patch("/{id}/permission-mode", s.updateAgentPermissionMode)
 	r.Patch("/{id}/plan-mode", s.updateAgentPlanMode)
+	r.Patch("/{id}/plan-reflection", s.updateAgentPlanReflection)
 	r.Patch("/{id}/navigation-state", s.patchAgentNavigationState)
 	r.With(s.fullRemoteAccessGuard).Delete("/{id}", s.deleteArchivedAgent)
 	r.Get("/{id}/plans", s.listReviewPlans)

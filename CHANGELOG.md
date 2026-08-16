@@ -6,14 +6,14 @@ All notable changes to Autoto are tracked here. The project is still an experime
 
 ### Added
 
-- Plan-mode drafts now go through an isolated reviewer that must return `needs_human` when the plan itself admits the goal was not achieved. That verdict automatically starts one more plan-mode run with the reviewer's correction; a second `needs_human`, `pass`, `unavailable`, or `block_recommended` still waits for a human. Reviewer pass is still not approval and never creates an execute run.
+- Plan-mode drafts now go through an isolated reviewer that must return `needs_human` when the plan itself admits the goal was not achieved. That verdict automatically starts one more plan-mode run with the reviewer's correction unless plan reflection is turned off on that conversation (default on, in the permission menu under plan mode); a second `needs_human`, `pass`, `unavailable`, or `block_recommended` still waits for a human. Reviewer pass is still not approval and never creates an execute run.
 - Model settings now include a plan-review model. Leave it blank to follow the active conversation; if a dedicated reviewer cannot be resolved or is not configured, review also uses that conversation model.
 
 ### Changed
 
 - Plan cards render in the transcript in place of the raw JSON blob, executed and cancelled plans stay visible after reopen, and the synthetic execute/replan prompts compact to short system notices.
 - Two-column navigation stops at 260px for the conversation list. Dragging further clamps instead of stretching an empty gutter; the two-column layout now starts at that same total rather than after a wider docked rail.
-- Folder-row `+` sits on the far right of the row on hover, so it no longer overlaps the folder name.
+- Folder-row `+` sits on the far right of the row on hover, so it no longer overlaps the folder name. Hovering anywhere on a project folder paints a pill and shows the chevron; clicking the row expands or collapses it instead of requiring the 16px folder icon.
 - Plan cards localize an `unavailable` review instead of showing the English `reviewer model is unavailable` line. That verdict still does not block human approval or execute. Timeouts and malformed reviewer output stay unavailable instead of silently switching models.
 
 - Opening Settings now closes the spec board and the workspace explorer so they no longer stack on the same right-hand column Settings claims.
