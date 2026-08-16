@@ -38,6 +38,10 @@ export function messageCopyGlyph() {
   return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="9" y="9" width="10.5" height="12" rx="2"></rect><path d="M15 9V6.75A1.75 1.75 0 0 0 13.25 5H6.75A1.75 1.75 0 0 0 5 6.75v10.5A1.75 1.75 0 0 0 6.75 19H9"></path></svg>`;
 }
 
+export function messageCopiedGlyph() {
+  return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m5.5 12.5 4.5 4.5 8.5-9.5"></path></svg>`;
+}
+
 // Same right-pointing chevron as the sidebar folder disclosure. Rotating one
 // shape keeps collapsed and expanded visually related.
 export function disclosureChevronMarkup() {
@@ -50,13 +54,30 @@ export function toolActivityIconKind(toolName) {
   const name = String(toolName || "").toLowerCase();
   if (name.includes("grep") || name.includes("search")) return name.includes("web") ? "web" : "search";
   if (name.includes("glob")) return "files";
-  if (name.includes("fetch") || name.includes("browser") || name.includes("navigate") || name.includes("http")) return "web";
+  if (
+    name.includes("fetch")
+    || name.includes("browser")
+    || name.includes("navigate")
+    || name.includes("http")
+    || name.includes("snapshot")
+    || name.includes("screenshot")
+    || name.includes("click")
+    || name.includes("fill_form")
+    || name.includes("lighthouse")
+  ) return "web";
   if (name.includes("todo")) return "todo";
   if (name.includes("task") || name.includes("agent")) return "task";
   if (name.includes("notebook") || name.includes("edit")) return "edit";
   if (name.includes("write") || name.includes("create")) return "write";
   if (name.includes("read") || name.includes("view") || name.includes("cat")) return "read";
-  if (name.includes("bash") || name.includes("shell") || name.includes("terminal") || name.includes("powershell") || name.includes("exec")) return "command";
+  if (
+    name.includes("bash")
+    || name.includes("shell")
+    || name.includes("terminal")
+    || name.includes("powershell")
+    || name.includes("exec")
+    || name.includes("evaluate")
+  ) return "command";
   return "generic";
 }
 

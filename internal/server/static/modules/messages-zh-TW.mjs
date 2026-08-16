@@ -264,6 +264,8 @@ export default Object.freeze({
       writing: "正在寫入",
       runningCommand: "正在執行命令",
       genericStep: "正在處理",
+      callingTool: "正在呼叫 {tool}",
+      listingMCP: "正在列出工具",
       awaitingApproval: "等待核准",
       retrying: "重試中",
       compacting: "壓縮中",

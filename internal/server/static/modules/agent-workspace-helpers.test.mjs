@@ -2,8 +2,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { createAgentWorkspaceHelpers, resolveComposerActivityStatus, waitingOnBackgroundTasks, withDelegatedActivitySuffix } from "./agent-workspace-helpers.mjs";
 
-function translate(key) {
-  return {
+function translate(key, params = {}) {
+  const template = {
     "chat.activity.thinking": "思考中",
     "chat.activity.generating": "正在生成",
     "chat.activity.searching": "正在搜索",
@@ -12,10 +12,13 @@ function translate(key) {
     "chat.activity.writing": "正在写入",
     "chat.activity.runningCommand": "正在执行命令",
     "chat.activity.genericStep": "正在处理",
+    "chat.activity.callingTool": "正在调用 {tool}",
+    "chat.activity.listingMCP": "正在列出工具",
     "chat.activity.awaitingApproval": "等待批准",
     "chat.activity.retrying": "重试中",
     "chat.activity.compacting": "压缩中",
   }[key] || key;
+  return String(template).replace(/\{(\w+)\}/g, (_, name) => (params[name] == null ? `{${name}}` : String(params[name])));
 }
 
 test("a provider retry reports itself with the attempt count", () => {
@@ -126,6 +129,25 @@ test("composer activity prefers pending approval, then tools, then thinking/gene
       },
     }, translate),
     { kind: "tool", text: "正在读取 main.go" },
+  );
+
+  assert.deepEqual(
+    resolveComposerActivityStatus({
+      liveToolOutputs: {
+        "tool-1": {
+          toolUseId: "tool-1",
+          toolName: "MCPCallTool",
+          status: "running",
+          createdAt: "2026-07-21T00:00:02Z",
+          inputJson: {
+            serverId: "cb33b8f3-9e7a-49c2-9a1c-7754c4168ae8",
+            toolName: "navigate_page",
+            arguments: { type: "url", url: "https://www.youtube.com/" },
+          },
+        },
+      },
+    }, translate),
+    { kind: "tool", text: "正在调用 navigate_page www.youtube.com" },
   );
 
   assert.deepEqual(

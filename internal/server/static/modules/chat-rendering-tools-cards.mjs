@@ -10,9 +10,12 @@ import {
   maxToolActivityDiffLines,
   maxToolActivityText,
   maxToolFactLabels,
+  mcpCallArguments,
+  mcpHostToolKind,
+  mcpInnerToolName,
   normalizeToolActivity,
   safeToolText,
-  toolActivityInputText,
+  toolActivityDisplayName,
   toolActivityOutputText,
   toolActivityTarget,
   toolStatusValue,
@@ -25,11 +28,6 @@ import {
   disclosureChevronMarkup,
 } from "./chat-rendering-tools-glyphs.mjs";
 import { renderReasoningStepHTML } from "./chat-rendering-tools-reasoning.mjs";
-
-function shortToolRunId(runId) {
-  const value = String(runId || "");
-  return value.length <= 12 ? value : `${value.slice(0, 8)}…${value.slice(-4)}`;
-}
 
 function toolActivityStatusClass(status) {
   const value = toolStatusValue(status);
@@ -160,16 +158,75 @@ export function renderToolActivitySafetySummary(item) {
   const decision = toolDecisionLabel(item.decision);
   const source = toolDecisionSourceLabel(item.decisionSource);
   const scope = toolDecisionScopeLabel(item.decisionScope);
-  const parts = [
+  const chips = [
     decision ? cr("activity.decisionLabel", { decision }) : "",
     source ? cr("activity.decisionSourceLabel", { source }) : "",
     scope ? cr("activity.decisionScopeLabel", { scope }) : "",
+  ].filter(Boolean);
+  const audit = [
     item.ruleId ? cr("activity.ruleId", { ruleId: item.ruleId }) : "",
     item.permissionDecisionReason ? cr("activity.decisionReason", { reason: item.permissionDecisionReason }) : "",
   ].filter(Boolean);
-  if (!parts.length) return "";
+  if (!chips.length && !audit.length) return "";
   const hint = toolDecisionSourceHint(item.decisionSource);
-  return `<div class="tool-activity-safety"><div class="tool-activity-meta">${escapeHtml(cr("activity.safetyDecision"))}</div><div class="tool-activity-safety-summary">${escapeHtml(parts.join(" · "))}</div>${hint ? `<div class="tool-activity-safety-hint">${escapeHtml(hint)}</div>` : ""}</div>`;
+  const auditOpen = item.decision === "deny" || item.decision === "ask";
+  const chipsHTML = chips.length
+    ? `<div class="tool-activity-safety-chips">${chips.map((label) => `<span class="tool-activity-safety-chip">${escapeHtml(label)}</span>`).join("")}</div>`
+    : "";
+  const auditHTML = audit.length
+    ? `<details class="tool-activity-safety-audit"${auditOpen ? " open" : ""}><summary>${escapeHtml(cr("activity.safetyAudit"))}</summary><div class="tool-activity-safety-summary">${escapeHtml(audit.join(" · "))}</div></details>`
+    : "";
+  return `<div class="tool-activity-safety"><div class="tool-activity-meta">${escapeHtml(cr("activity.safetyDecision"))}</div>${chipsHTML}${auditHTML}${hint ? `<div class="tool-activity-safety-hint">${escapeHtml(hint)}</div>` : ""}</div>`;
+}
+
+// Allow + default policy is the common successful path. Repeating those chips
+// on every Edit/Read card drowned the diff. Unusual sources, denials, and
+// audit identifiers still earn a row.
+function toolActivitySafetyIsRoutine(item) {
+  const decision = String(item?.decision || "");
+  const source = String(item?.decisionSource || "");
+  const scope = String(item?.decisionScope || "");
+  if (decision && decision !== "allow" && decision !== "allow_once") return false;
+  if (source && source !== "default_policy") return false;
+  if (scope && scope !== "tool_call" && scope !== "once") return false;
+  if (item?.ruleId || item?.permissionDecisionReason) return false;
+  return true;
+}
+
+function toolActivityVisibleInputRecord(tool) {
+  if (mcpHostToolKind(tool?.toolName) === "call") return mcpCallArguments(tool);
+  return tool?.inputJson && typeof tool.inputJson === "object" && !Array.isArray(tool.inputJson)
+    ? tool.inputJson
+    : {};
+}
+
+const redundantDetailInputKeys = new Set([
+  "file_path",
+  "filePath",
+  "path",
+  "old_string",
+  "oldString",
+  "new_string",
+  "newString",
+  "oldStringBytes",
+  "newStringBytes",
+  "old_string_bytes",
+  "new_string_bytes",
+]);
+
+function toolActivityDetailInputText(tool, { hasDiff = false } = {}) {
+  const visible = toolActivityVisibleInputRecord(tool);
+  const remaining = Object.fromEntries(Object.entries(visible).filter(([key]) => {
+    if (redundantDetailInputKeys.has(key)) return false;
+    if (hasDiff && (key === "content" || key === "contents")) return false;
+    return true;
+  }));
+  if (!Object.keys(remaining).length) return "";
+  try {
+    return safeToolText(JSON.stringify(remaining, null, 2));
+  } catch {
+    return safeToolText(remaining);
+  }
 }
 
 function toolActivityDiffText(item) {
@@ -189,6 +246,33 @@ function fallbackToolDiff(item) {
   const after = firstToolValue(input, "new_string", "newString");
   if (before === undefined && after === undefined) return "";
   return `--- before\n+++ after\n${String(before || "").split("\n").map((line) => `-${line}`).join("\n")}\n${String(after || "").split("\n").map((line) => `+${line}`).join("\n")}`;
+}
+
+function countUnifiedDiffStat(diff) {
+  let added = 0;
+  let deleted = 0;
+  const lines = String(diff || "").split("\n");
+  const limit = Math.min(lines.length, maxToolActivityDiffLines * 4);
+  for (let index = 0; index < limit; index += 1) {
+    const line = lines[index];
+    if (!line || line.startsWith("+++") || line.startsWith("---") || line.startsWith("@@") || line.startsWith("\\")) continue;
+    if (line.startsWith("+")) added += 1;
+    else if (line.startsWith("-")) deleted += 1;
+  }
+  return added || deleted ? { added, deleted } : null;
+}
+
+function toolActivityRowDiffStat(tool) {
+  const kind = toolActivityIconKind(toolActivityDisplayName(tool));
+  if (kind !== "edit" && kind !== "write") return null;
+  if (toolStatusValue(tool.status) !== "completed") return null;
+  const fromDiff = countUnifiedDiffStat(toolActivityDiffText(tool) || fallbackToolDiff(tool));
+  if (fromDiff) return fromDiff;
+  if (kind !== "write") return null;
+  const content = firstToolValue(tool.inputJson || {}, "content", "contents");
+  if (typeof content !== "string" || !content) return null;
+  const added = content.split("\n").length;
+  return added > 0 ? { added, deleted: 0 } : null;
 }
 
 export function renderToolDiffHTML(item = {}) {
@@ -515,47 +599,63 @@ export function streamedInputBlockHTML(tool) {
         </div>`;
 }
 
+function renderToolActivityBodyBlock(kind, label, text) {
+  if (!text) return "";
+  return `<div class="tool-activity-block">
+          <div class="tool-activity-block-bar">
+            <div class="tool-activity-meta">${escapeHtml(label)}</div>
+            ${toolActivityBlockControlsHTML(text)}
+          </div>
+          <pre class="${kind}">${escapeHtml(text)}</pre>
+        </div>`;
+}
+
+function isBoilerplateFileMutationOutput(text) {
+  const value = String(text || "").trim();
+  if (!value) return false;
+  return /^Edited .+ \(\d+ replacement\(s\)\)$/.test(value)
+    || /^Edited .+ \(\d+ edit\(s\), \d+ replacement\(s\)\)$/.test(value)
+    || /^Wrote \d+ bytes to /.test(value);
+}
+
 function renderGenericToolActivityCardHTML(item = {}, options = {}) {
   const tool = normalizeToolActivity(item);
   const status = tool.status;
   const target = toolActivityTarget(tool);
-  const input = toolActivityInputText(tool);
-  const output = toolActivityOutputText(tool);
-  const device = compactToolText(toolActivityDeviceLabel(tool.executionDeviceId), 80);
-  const diff = String(tool.toolName).toLowerCase().includes("edit") ? renderToolDiffHTML(tool) : "";
+  const kind = toolActivityIconKind(toolActivityDisplayName(tool));
+  const diffHTML = kind === "edit" || kind === "write" ? renderToolDiffHTML(tool) : "";
+  const input = toolActivityDetailInputText(tool, { hasDiff: Boolean(diffHTML) });
+  const rawOutput = toolActivityOutputText(tool);
+  const output = (kind === "edit" || kind === "write") && isBoilerplateFileMutationOutput(rawOutput)
+    ? ""
+    : rawOutput;
+  const streamed = streamedInputBlockHTML(tool);
   const factTags = renderToolActivityFactTags(tool);
   const classificationWarning = renderToolActivityClassificationWarning(tool);
-  const safetySummary = renderToolActivitySafetySummary(tool);
+  const safetySummary = toolActivitySafetyIsRoutine(tool) ? "" : renderToolActivitySafetySummary(tool);
+  const device = compactToolText(toolActivityDeviceLabel(tool.executionDeviceId), 80);
   const meta = [
     compactToolText(tool.risk, 40),
-    ...toolActivitySafetyMetaParts(tool),
-    tool.durationMs > 0 ? `${formatNumber(tool.durationMs)} ms` : "",
-    device,
-    tool.runId ? shortToolRunId(tool.runId) : "",
+    !options.inlineDetail && tool.durationMs > 0 ? `${formatNumber(tool.durationMs)} ms` : "",
+    options.inlineDetail ? "" : device,
   ].filter(Boolean).join(" · ");
-  const cardLabel = [tool.toolName, target, toolActivityStatusLabel(status)].filter(Boolean).join(" · ");
-  const icon = toolActivityIconHTML(tool.toolName, "tool-activity-icon");
-  const detailsHTML = `
+  const cardLabel = [toolActivityDisplayName(tool), target, toolActivityStatusLabel(status)].filter(Boolean).join(" · ");
+  const icon = toolActivityIconHTML(toolActivityDisplayName(tool), "tool-activity-icon");
+  const inputBlock = renderToolActivityBodyBlock("tool-activity-command", cr("activity.input"), input);
+  const outputBlock = renderToolActivityBodyBlock("tool-activity-output live-tool-output-body", cr("activity.output"), output);
+  const emptyBlock = inputBlock || outputBlock || diffHTML || streamed
+    ? ""
+    : `<div class="tool-activity-empty is-compact">${escapeHtml(cr("activity.noInput"))}</div>`;
+  const detailsBody = `${safetySummary}${inputBlock}${streamed}${diffHTML}${outputBlock}${emptyBlock}${tool.truncated ? `<div class="tool-activity-truncated">${escapeHtml(cr("activity.truncated"))}</div>` : ""}`;
+  // Clicking the row already opens this card, so an extra "details" disclosure
+  // is a second click for the same information. Full cards keep the summary
+  // because they can land without a row above them.
+  const detailsHTML = options.inlineDetail
+    ? `<div class="tool-activity-details is-inline">${detailsBody}</div>`
+    : `
       <details class="tool-activity-details"${options.detailsExpanded ? " open" : ""}>
         <summary>${disclosureChevronMarkup()}${escapeHtml(cr("activity.details"))}</summary>
-        ${safetySummary}
-        <div class="tool-activity-block">
-          <div class="tool-activity-block-bar">
-            <div class="tool-activity-meta">${escapeHtml(cr("activity.input"))}</div>
-            ${input ? toolActivityBlockControlsHTML(input) : ""}
-          </div>
-          <pre class="tool-activity-command">${escapeHtml(input || cr("activity.noInput"))}</pre>
-        </div>
-        ${streamedInputBlockHTML(tool)}
-        ${diff ? `<div class="tool-activity-meta">${escapeHtml(cr("activity.diff"))}</div>${diff}` : ""}
-        <div class="tool-activity-block">
-          <div class="tool-activity-block-bar">
-            <div class="tool-activity-meta">${escapeHtml(cr("activity.output"))}</div>
-            ${output ? toolActivityBlockControlsHTML(output) : ""}
-          </div>
-          ${output ? `<pre class="tool-activity-output live-tool-output-body">${escapeHtml(output)}</pre>` : `<div class="tool-activity-empty">${escapeHtml(cr("activity.noOutput"))}</div>`}
-        </div>
-        ${tool.truncated ? `<div class="tool-activity-truncated">${escapeHtml(cr("activity.truncated"))}</div>` : ""}
+        ${detailsBody}
       </details>`;
   // Inline variant: the row button this detail expands under already names the
   // tool, its target, and its status, so repeating that head read as a
@@ -577,7 +677,7 @@ function renderGenericToolActivityCardHTML(item = {}, options = {}) {
       <div class="tool-activity-head live-tool-output-head">
         <span class="${escapeAttr(icon.classes)}" aria-hidden="true">${icon.svg}</span>
         <div class="tool-activity-main">
-          <div class="tool-activity-title live-tool-output-title">${escapeHtml(friendlyToolName(tool.toolName))}</div>
+          <div class="tool-activity-title live-tool-output-title">${escapeHtml(friendlyToolName(toolActivityDisplayName(tool)))}</div>
           ${target ? `<div class="tool-activity-target">${escapeHtml(target)}</div>` : ""}
           ${factTags}
           ${classificationWarning}
@@ -644,7 +744,18 @@ function toolActivityRowMeta(statusLabel, durationMs, running) {
   return [statusLabel, formatToolActivityDuration(durationMs)].filter(Boolean).join(" ");
 }
 
-function toolActivityVerb(kind, toolName, running) {
+function toolActivityVerb(kind, toolName, running, item) {
+  const host = mcpHostToolKind(toolName);
+  if (host === "list") {
+    return running ? cr("activity.listingMCP") : cr("activity.verbListMCP");
+  }
+  if (host === "call") {
+    const inner = mcpInnerToolName(item) || "";
+    if (running) {
+      return inner ? cr("activity.callingTool", { tool: inner }) : cr("activity.genericStep");
+    }
+    return inner || friendlyToolName(toolName);
+  }
   if (running) {
     const live = {
       search: "searching",
@@ -675,6 +786,22 @@ function shortActivityTarget(target, kind) {
   const value = String(target || "").trim();
   if (!value) return "";
   if (kind === "command") return compactToolText(value, 100);
+  if (kind === "edit" || kind === "write") {
+    const normalized = value.replace(/\\/g, "/");
+    const pathPart = normalized.split(" · ")[0] || normalized;
+    const base = pathPart.split("/").filter(Boolean).pop() || pathPart;
+    return compactToolText(base, 88);
+  }
+  if (/^https?:\/\//i.test(value)) {
+    try {
+      const url = new URL(value);
+      const path = url.pathname === "/" ? "" : url.pathname;
+      const query = url.search ? url.search.slice(0, 28) : "";
+      return compactToolText(`${url.host}${path}${query}`, 88);
+    } catch {
+      return compactToolText(value, 88);
+    }
+  }
   const normalized = value.replace(/\\/g, "/");
   const pathPart = normalized.split(" · ")[0] || normalized;
   if (!pathPart.includes("/")) return compactToolText(value, 88);
@@ -691,7 +818,7 @@ function toolActivityRowPresentation(item, tool, options = {}) {
     if (resolved.ok) {
       const activity = normalizeAgentTaskActivity(item, resolved.task);
       if (activity) {
-        const verb = toolActivityVerb("task", tool.toolName, running);
+        const verb = toolActivityVerb("task", tool.toolName, running, tool);
         const target = shortActivityTarget(activity.description, "task");
         return {
           iconKind: "task",
@@ -703,23 +830,49 @@ function toolActivityRowPresentation(item, tool, options = {}) {
       }
     }
   }
-  const iconKind = toolActivityIconKind(tool.toolName);
-  const verb = toolActivityVerb(iconKind, tool.toolName, running);
+  const displayName = toolActivityDisplayName(tool);
+  const iconKind = toolActivityIconKind(displayName);
+  const verb = toolActivityVerb(iconKind, tool.toolName, running, tool);
   const target = shortActivityTarget(toolActivityTarget(tool), iconKind);
+  const statusClass = toolActivityStatusClass(tool.status);
+  const attention = statusClass === "status-error" || statusClass === "status-warn";
   return {
     iconKind,
     verb,
     target,
-    statusClass: toolActivityStatusClass(tool.status),
+    statusClass,
     statusLabel: toolActivityRowMeta(toolActivityStatusLabel(tool.status), tool.durationMs, running),
+    diffStat: !running && !attention ? toolActivityRowDiffStat(tool) : null,
   };
 }
 
+function renderToolActivityStepStatusHTML(presentation) {
+  const stat = presentation.diffStat;
+  if (stat && (stat.added > 0 || stat.deleted > 0)) {
+    const parts = [];
+    if (stat.added > 0) {
+      parts.push(`<span class="tool-activity-step-add">+${escapeHtml(formatNumber(stat.added))}</span>`);
+    }
+    if (stat.deleted > 0) {
+      parts.push(`<span class="tool-activity-step-del">-${escapeHtml(formatNumber(stat.deleted))}</span>`);
+    }
+    return parts.join("");
+  }
+  return escapeHtml(presentation.statusLabel);
+}
+
+function toolActivityRowAriaMeta(presentation) {
+  const stat = presentation.diffStat;
+  if (stat && (stat.added > 0 || stat.deleted > 0)) {
+    return [`${stat.added > 0 ? `+${stat.added}` : ""}`, `${stat.deleted > 0 ? `-${stat.deleted}` : ""}`].filter(Boolean).join(" ");
+  }
+  return presentation.statusLabel;
+}
 function renderToolActivityRowHTML(record, options = {}) {
   const { item, tool } = record;
   const presentation = toolActivityRowPresentation(item, tool, options);
   const selected = String(options.selectedToolUseId || "") === tool.toolUseId;
-  const label = [presentation.verb, presentation.target, presentation.statusLabel].filter(Boolean).join(" · ");
+  const label = [presentation.verb, presentation.target, toolActivityRowAriaMeta(presentation)].filter(Boolean).join(" · ");
   const subagentAttrs = isAgentToolActivity(tool)
     ? ` data-subagent-activity-row data-run-id="${escapeAttr(tool.runId)}" data-tool-use-id="${escapeAttr(tool.toolUseId)}"`
     : "";
@@ -729,7 +882,9 @@ function renderToolActivityRowHTML(record, options = {}) {
   const inlineDetail = selected
     ? renderToolActivityCardHTML(item, { ...options, detailsExpanded: true, inlineDetail: true })
     : "";
-  const targetClass = presentation.iconKind === "command" ? "tool-activity-step-target is-command" : "tool-activity-step-target";
+  const targetClass = presentation.iconKind === "command"
+    ? "tool-activity-step-target is-command"
+    : (presentation.iconKind === "edit" || presentation.iconKind === "write" ? "tool-activity-step-target is-file" : "tool-activity-step-target");
   return `
     <li class="tool-activity-step ${escapeAttr(presentation.statusClass)}${selected ? " selected" : ""}"${subagentAttrs}>
       <button class="tool-activity-step-button" type="button" data-tool-activity-select="${escapeAttr(tool.toolUseId)}" data-tool-name="${escapeAttr(tool.toolName)}" data-tool-activity-label="${escapeAttr(label)}" aria-expanded="${selected ? "true" : "false"}" aria-label="${escapeAttr(cr(selected ? "activity.closeDetails" : "activity.openDetails", { tool: label }))}">
@@ -737,8 +892,8 @@ function renderToolActivityRowHTML(record, options = {}) {
         <span class="tool-activity-step-copy">
           <span class="tool-activity-step-verb">${escapeHtml(presentation.verb)}</span>
           ${presentation.target ? `<strong class="${targetClass}">${escapeHtml(presentation.target)}</strong>` : ""}
+          <span class="tool-activity-step-status">${renderToolActivityStepStatusHTML(presentation)}</span>
         </span>
-        <span class="tool-activity-step-status">${escapeHtml(presentation.statusLabel)}</span>
       </button>
       <div class="tool-activity-inline-detail" data-tool-activity-inline-detail="${escapeAttr(tool.toolUseId)}">${inlineDetail}</div>
     </li>

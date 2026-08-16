@@ -120,6 +120,7 @@ test("chat activity timeline has concise, safe copy in every locale", () => {
     "editing", "writing", "runningCommand", "genericStep", "truncated",
     "verbRead", "verbEdit", "verbWrite", "verbSearch", "verbGlob", "verbCommand",
     "verbWeb", "verbTask", "verbTodo",
+    "callingTool", "verbListMCP", "listingMCP", "safetyAudit",
   ];
 
   for (const locale of uiLocales) {

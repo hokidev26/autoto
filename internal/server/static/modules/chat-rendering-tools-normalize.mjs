@@ -220,15 +220,48 @@ export function findToolActivityByIdentity(collections, runId, toolUseId) {
   return null;
 }
 
+const mcpHostToolNames = new Set(["mcpcalltool", "mcplisttools"]);
+
+export function mcpHostToolKind(toolName) {
+  const name = String(toolName || "").trim().toLowerCase();
+  if (name === "mcpcalltool") return "call";
+  if (name === "mcplisttools") return "list";
+  return "";
+}
+
+function mcpInputRecord(item) {
+  return item?.inputJson && typeof item.inputJson === "object" ? item.inputJson : {};
+}
+
+export function mcpCallArguments(item) {
+  if (mcpHostToolKind(item?.toolName) !== "call") return {};
+  const value = firstToolValue(mcpInputRecord(item), "arguments", "args");
+  const parsed = parseToolJSON(value);
+  return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+}
+
+export function mcpInnerToolName(item) {
+  if (mcpHostToolKind(item?.toolName) !== "call") return "";
+  const inner = String(firstToolValue(mcpInputRecord(item), "toolName", "tool_name") || "").trim();
+  if (!inner || mcpHostToolNames.has(inner.toLowerCase())) return "";
+  return inner;
+}
+
+export function toolActivityDisplayName(item) {
+  return mcpInnerToolName(item) || String(item?.toolName || "");
+}
+
 export function toolActivityInputText(item) {
-  const input = item.inputJson && typeof item.inputJson === "object" ? item.inputJson : {};
+  const input = mcpInputRecord(item);
+  const visible = mcpHostToolKind(item?.toolName) === "call" ? mcpCallArguments(item) : input;
   // An empty object is no input; serialising it to "{}" made the card show two
-  // braces where the "no input" empty state should speak instead.
-  if (!Object.keys(input).length) return "";
+  // braces where the "no input" empty state should speak instead. MCPCallTool's
+  // host wrapper (serverId / toolName) is not the argument the user asked about.
+  if (!Object.keys(visible).length) return "";
   try {
-    return safeToolText(JSON.stringify(input, null, 2));
+    return safeToolText(JSON.stringify(visible, null, 2));
   } catch {
-    return safeToolText(input);
+    return safeToolText(visible);
   }
 }
 
@@ -279,14 +312,16 @@ export function mergeDuplicateToolActivity(kept, duplicate) {
 }
 
 export function toolActivityTarget(item) {
-  const input = item.inputJson && typeof item.inputJson === "object" ? item.inputJson : {};
-  const command = firstToolValue(input, "command");
-  const filePath = firstToolValue(input, "file_path", "filePath", "path", "cwd");
-  const pattern = firstToolValue(input, "pattern", "query");
-  const pages = firstToolValue(input, "pages");
-  const offset = firstToolValue(input, "offset");
-  const limit = firstToolValue(input, "limit");
-  const value = firstToolValue(input, "value", "url", "ref_id");
+  const input = mcpInputRecord(item);
+  const nested = mcpCallArguments(item);
+  const lookup = Object.keys(nested).length ? nested : input;
+  const command = firstToolValue(lookup, "command");
+  const filePath = firstToolValue(lookup, "file_path", "filePath", "path", "cwd");
+  const pattern = firstToolValue(lookup, "pattern", "query");
+  const pages = firstToolValue(lookup, "pages");
+  const offset = firstToolValue(lookup, "offset");
+  const limit = firstToolValue(lookup, "limit");
+  const value = firstToolValue(lookup, "value", "url", "ref_id", "uid", "selector", "expression", "text");
   const parts = [];
   if (command) parts.push(compactToolText(command, 180));
   else if (filePath) parts.push(compactToolText(filePath, 180));

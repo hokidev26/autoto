@@ -20,6 +20,7 @@ import {
   normalizeMessageProfileIdentity,
   normalizeTurnUsage,
   renderGeneratedImageBlocksHTML,
+  clipboardPlainText,
   transcriptMessageText,
   transcriptMessages,
   userMessageRoles,
@@ -36,7 +37,7 @@ import {
   planForMessage,
   renderPlanSystemNoticeHTML,
 } from "./chat-rendering-plan.mjs";
-import { messageCopyGlyph } from "./chat-rendering-tools-glyphs.mjs";
+import { messageCopiedGlyph, messageCopyGlyph } from "./chat-rendering-tools-glyphs.mjs";
 import { createChatRenderingCorrection } from "./chat-rendering-correction.mjs";
 import { createChatRenderingAttachments } from "./chat-rendering-attachments.mjs";
 import { createChatRenderingHistory } from "./chat-rendering-history.mjs";
@@ -70,6 +71,7 @@ import {
 
 export {
   chatMessagePresentation,
+  clipboardPlainText,
   findToolActivityByIdentity,
   formatTurnUsagePerformance,
   generatedImageURL,
@@ -816,11 +818,10 @@ export function createChatRenderingController({
     if (!text) return "";
     const drafting = looksLikePlanDraft(text);
     if (drafting) streamingMarkdown.reset();
-    const logoSVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false" style="width:14px;height:14px;display:block;"><circle cx="32" cy="32" r="25"/><path d="M21 35c3.2 4 6.8 6 11 6s7.8-2 11-6"/><path d="M23 25h.02M41 25h.02"/></svg>`;
     return `
       <div class="message assistant live-assistant-message chat-message chat-flow-item chat-flow-left" data-chat-alignment="left" data-live-assistant${drafting ? " data-plan-drafting" : ""} data-run-id="${escapeAttr(state.liveAssistantRunId || "")}" data-request-id="${escapeAttr(state.liveAssistantRequestId || "")}" data-started-at="${escapeAttr(state.liveAssistantStartedAt || "")}">
         <div class="message-head">
-          <div class="message-meta"><span class="message-avatar message-avatar-logo" aria-hidden="true">${logoSVG}</span><div class="message-role">Autoto</div></div>
+          <div class="message-role sr-only">Autoto</div>
           ${renderPerformanceHTML(state.liveAssistantPerformance, { live: true })}
         </div>
         <div class="message-content">${drafting ? escapeHtml(cr("plan.drafting")) : liveAssistantContentHTML(text)}</div>
@@ -843,7 +844,7 @@ export function createChatRenderingController({
     if (isPlanReflectionMessage(text)) return cr("plan.reflectNotice");
     const plan = planForMessage(message, state);
     if (plan) return planCopyMarkdown(plan);
-    return text;
+    return clipboardPlainText(text);
   }
 
   function planMessageRenderSignature(message) {
@@ -939,9 +940,9 @@ export function createChatRenderingController({
       return renderPlanNoticeMessageHTML(message, index, "reflect");
     }
     const plan = isAssistant && !editing ? planForMessage(message, state) : null;
-    const logoSVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false" style="width:14px;height:14px;display:block;"><circle cx="32" cy="32" r="25"/><path d="M21 35c3.2 4 6.8 6 11 6s7.8-2 11-6"/><path d="M23 25h.02M41 25h.02"/></svg>`;
-    const avatarLabel = isAssistant ? "" : (presentation.role.slice(0, 1).toUpperCase() || "•");
-    const avatarHTML = usesProfileIdentity ? profileAvatarHTML(profileIdentity) : (isAssistant ? logoSVG : escapeHtml(avatarLabel));
+    const avatarHTML = usesProfileIdentity
+      ? profileAvatarHTML(profileIdentity)
+      : escapeHtml(presentation.role.slice(0, 1).toUpperCase() || "•");
     const roleLabel = isAssistant ? "Autoto" : (profileIdentity?.displayName || presentation.role);
     const profileAvatarAttr = usesProfileIdentity ? " data-user-profile-avatar" : "";
     const roleHTML = usesProfileIdentity
@@ -959,10 +960,13 @@ export function createChatRenderingController({
       : plan
         ? renderPlanCardHTML(plan)
         : `<div class="message-content">${renderMarkdown(friendlyMessageText(transcriptText))}</div>${isAssistant ? renderGeneratedImageBlocksHTML(message, state.agent?.id || "") : ""}${renderMessageAttachments(message)}`;
+    const senderHTML = isAssistant
+      ? `<div class="message-role sr-only">Autoto</div>`
+      : `<div class="message-meta"><span class="message-avatar" aria-hidden="true"${profileAvatarAttr}>${avatarHTML}</span><div class="message-role">${roleHTML}</div></div>`;
     return `
       <div class="message ${presentation.roleClass}${editing ? " message-editing" : ""}${plan ? " plan-message" : ""} chat-message chat-flow-item chat-flow-${presentation.alignment}" data-chat-alignment="${presentation.alignment}" data-message-role="${escapeAttr(presentation.normalizedRole)}" data-message-id="${escapeAttr(message.id || "")}">
         <div class="message-head">
-          <div class="message-meta"><span class="message-avatar" aria-hidden="true"${profileAvatarAttr}>${avatarHTML}</span><div class="message-role">${roleHTML}</div></div>
+          ${senderHTML}
           <div class="message-head-actions">${actions}</div>
           ${timeHTML}
         </div>
@@ -3892,20 +3896,26 @@ export function createChatRenderingController({
       state.correctionFiles = [...(state.correctionFiles || []), ...files];
       window.setTimeout(() => applyMessageSnapshot(state.currentMessages, state.agent?.id), 0);
     });
-    root.querySelectorAll("[data-copy-message]").forEach((button) => {
+    root.querySelectorAll("[data-copy-message]:not([data-copy-bound])").forEach((button) => {
+      button.dataset.copyBound = "1";
       button.addEventListener("click", async () => {
         const index = Number(button.dataset.copyMessage || -1);
         const text = state.messageCopyTexts[index] || "";
-        const original = button.textContent;
+        const restore = () => {
+          button.classList.remove("is-copied");
+          button.innerHTML = messageCopyGlyph();
+          button.setAttribute("title", cr("message.copyTitle"));
+          button.setAttribute("aria-label", cr("message.copyTitle"));
+        };
         if (text && await copyToClipboard(text)) {
-          button.textContent = cr("message.copied");
-          showToast(cr("message.copiedToast"), "success");
-          notifyTerminal(`[info] ${cr("message.copiedToast")}\n`);
+          button.classList.add("is-copied");
+          button.innerHTML = messageCopiedGlyph();
+          button.setAttribute("title", cr("message.copied"));
+          button.setAttribute("aria-label", cr("message.copied"));
         } else {
-          button.textContent = cr("message.copyFailed");
           showToast(cr("message.copyFailedToast"), "warn");
         }
-        window.setTimeout(() => { button.textContent = original; }, 1200);
+        window.setTimeout(restore, 1200);
       });
     });
   }

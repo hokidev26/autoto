@@ -1,6 +1,12 @@
 import { $, setTextIfChanged } from "./dom.mjs";
 import { t } from "./i18n.mjs";
 import { appMainT as am } from "./messages-app-main-extra.mjs";
+import {
+  mcpHostToolKind,
+  mcpInnerToolName,
+  normalizeToolActivity,
+  toolActivityTarget,
+} from "./chat-rendering-tools-normalize.mjs";
 
 // Small, mostly independent helpers around the agent transport connection
 // badge, chat attachment classification, the terminal dock toggle, and
@@ -12,8 +18,17 @@ function compactActivityTarget(value, max = 28) {
   return `${text.slice(0, Math.max(8, max - 1))}…`;
 }
 
-function toolActivityVerbLabel(toolName, translate = t) {
-  const name = String(toolName || "").toLowerCase();
+function toolActivityVerbLabel(item, translate = t) {
+  const tool = item && typeof item === "object" ? normalizeToolActivity(item) : { toolName: item };
+  const name = String(tool.toolName || "").toLowerCase();
+  const host = mcpHostToolKind(tool.toolName);
+  if (host === "list") return translate("chat.activity.listingMCP");
+  if (host === "call") {
+    const inner = mcpInnerToolName(tool);
+    return inner
+      ? translate("chat.activity.callingTool", { tool: compactActivityTarget(inner, 24) })
+      : translate("chat.activity.genericStep");
+  }
   if (name.includes("grep") || name.includes("search") || name.includes("glob") || name.includes("web_search") || name.includes("websearch")) {
     return translate("chat.activity.searching");
   }
@@ -27,18 +42,24 @@ function toolActivityVerbLabel(toolName, translate = t) {
 }
 
 function toolActivityTargetLabel(item) {
-  const input = item?.inputJson && typeof item.inputJson === "object"
-    ? item.inputJson
-    : (item?.input && typeof item.input === "object" ? item.input : {});
-  const command = input.command || input.cmd;
-  const filePath = input.file_path || input.filePath || input.path || input.cwd;
-  const pattern = input.pattern || input.query;
-  const value = input.value || input.url || input.ref_id;
-  if (command) return compactActivityTarget(command, 36);
-  if (filePath) return compactActivityTarget(String(filePath).split(/[\\/]/).pop() || filePath, 28);
-  if (pattern) return compactActivityTarget(pattern, 28);
-  if (value) return compactActivityTarget(value, 28);
-  return "";
+  const tool = item && typeof item === "object" ? normalizeToolActivity(item) : {};
+  const target = toolActivityTarget(tool);
+  if (!target) return "";
+  if (/^https?:\/\//i.test(target)) {
+    try {
+      const url = new URL(target);
+      const path = url.pathname === "/" ? "" : url.pathname;
+      return compactActivityTarget(`${url.host}${path}`, 28);
+    } catch {
+      return compactActivityTarget(target, 28);
+    }
+  }
+  const isCommand = /(?:^|\b)(bash|shell|terminal)(?:\b|$)/i.test(String(tool.toolName || ""));
+  if (isCommand) return compactActivityTarget(target, 36);
+  if (/[\\/]/.test(target) && !target.includes(" · ")) {
+    return compactActivityTarget(String(target).split(/[\\/]/).pop() || target, 28);
+  }
+  return compactActivityTarget(target, 28);
 }
 
 // The bottom pill and the activity stack describe the same stream; a bare
@@ -163,7 +184,7 @@ export function resolveComposerActivityStatus(state, translate = t) {
 
   const [tool] = runningLiveTools(state);
   if (tool) {
-    const verb = toolActivityVerbLabel(tool.toolName, translate);
+    const verb = toolActivityVerbLabel(tool, translate);
     const target = toolActivityTargetLabel(tool);
     return {
       kind: "tool",

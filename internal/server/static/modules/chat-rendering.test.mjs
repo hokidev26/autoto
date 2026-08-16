@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import { t as chatRenderingExtraText } from "./messages-chat-rendering-extra.mjs";
 import {
   chatMessagePresentation,
+  clipboardPlainText,
   createChatRenderingController,
   findToolActivityByIdentity,
   formatTurnUsagePerformance,
@@ -656,15 +657,29 @@ test("message rendering aligns messages left and uses the current profile for us
   assert.equal((html.match(/data-user-profile-avatar>XY<\/span>/g) || []).length, 2);
   assert.equal((html.match(/data-user-profile-name>er&lt;erer<\/span>/g) || []).length, 2);
   assert.doesNotMatch(html, /er<erer/);
-  // The assistant identifies by the product mark, not by a role initial.
-  assert.match(html, /class="message-avatar" aria-hidden="true"><svg[^>]*viewBox="0 0 64 64"/);
+  // Main-transcript assistant replies have no sender chip; the role stays for assistive tech.
+  assert.doesNotMatch(html, /data-message-role="assistant"[^>]*>[\s\S]*?class="message-avatar"/);
   assert.doesNotMatch(html, /class="message-avatar" aria-hidden="true">A<\/span>/);
+  assert.match(html, /class="message-role sr-only">Autoto</);
+  assert.doesNotMatch(html, /data-user-profile-name><\/span>|class="message-role sr-only"><span data-user-profile-name/);
   assert.match(html, /<time class="message-time" datetime="2026-02-03T04:05:06Z" title="[^"]+">[^<]+<\/time>/);
   assert.ok(html.indexOf('class="message-meta"') < html.indexOf('class="message-head-actions"'));
   assert.ok(html.indexOf('class="message-head-actions"') < html.indexOf('class="message-time"'));
   assert.equal((html.match(/data-copy-message=/g) || []).length, 4);
   assert.match(html, /data-copy-message="0"[^>]*>[\s\S]*?<svg viewBox="0 0 24 24"/);
   assert.deepEqual(state.messageCopyTexts, ["hello", "human alias", "reply", "streaming"]);
+});
+
+test("clipboardPlainText drops markdown paragraph gaps but keeps fenced code", () => {
+  assert.equal(clipboardPlainText("第一行\n\n第二行"), "第一行\n第二行");
+  assert.equal(clipboardPlainText("intro\n\n```\na\n\nb\n```\n\nout"), "intro\n```\na\n\nb\n```\nout");
+});
+
+test("copying a two-paragraph assistant reply does not insert a blank line", () => {
+  const { state } = renderSnapshot([
+    { id: "a-copy", role: "assistant", contentText: "第一行\n\n第二行" },
+  ]);
+  assert.equal(state.messageCopyTexts[0], "第一行\n第二行");
 });
 
 test("internal tool protocol messages stay out of the transcript while activity remains", () => {
@@ -1767,10 +1782,12 @@ test("the inline detail repeats nothing the row above it already says", () => {
   assert.doesNotMatch(inline, /tool-activity-head/);
   assert.doesNotMatch(inline, /tool-activity-title/);
   assert.match(inline, /tool-activity-inline-card/);
-  assert.match(inline, /<details class="tool-activity-details" open>/);
+  assert.match(inline, /tool-activity-details is-inline/);
+  assert.doesNotMatch(inline, /<details class="tool-activity-details"/);
   // The full card keeps its head for surfaces without a row above it.
   const full = renderToolActivityCardHTML(call, { detailsExpanded: true });
   assert.match(full, /tool-activity-head/);
+  assert.match(full, /<details class="tool-activity-details" open>/);
 });
 
 test("input and output blocks offer copy, and long blocks an expand toggle", () => {
@@ -1834,6 +1851,8 @@ test("live estimated performance is compact and visibly approximate", () => {
 
   assert.match(html, /≈吞吐量 24\.6 tok\/s \| TTFT 0\.8s/);
   assert.match(html, /message-performance-live is-estimated/);
+  assert.match(html, /class="message-role sr-only">Autoto</);
+  assert.doesNotMatch(html, /live-assistant-message[\s\S]*?class="message-avatar"/);
   assert.ok(html.indexOf("message-performance-live") < html.indexOf("message-content"), "live metrics should render in the card header");
   assert.match(html, /request&quot; onmouseover=&quot;boom/);
   assert.match(html, /data-run-id="&lt;run-id&gt;"/);
@@ -1894,8 +1913,8 @@ test("turn usage normalization drops zero, negative, non-finite, extreme, and in
   assert.equal(formatTurnUsagePerformance({ ttftMs: 0 }, { locale: "en" }), "TTFT 0.0s");
   assert.equal(formatTurnUsagePerformance({ outputTokens: 0, durationMs: -4, tokensPerSecond: Number.NaN }, { locale: "en" }), "");
   const { html } = renderSnapshot([{ role: "assistant", contentText: "safe", turnUsage: { tokensPerSecond: `<svg onload=boom>` } }]);
-  // The assistant avatar is itself an inline <svg>, so the injection check has to
-  // target the payload and the metrics footer rather than the tag name.
+  // Copy uses an inline SVG, so the injection check has to target the payload
+  // and the metrics footer rather than the tag name.
   assert.doesNotMatch(html, /onload=boom|message-performance/);
   assert.doesNotMatch(html, /<svg(?![^>]*viewBox="0 0 (?:64 64|24 24)")/);
 });
@@ -2766,16 +2785,17 @@ test("tool activity renders a lightweight directory before hydrating one auditab
 
   const selected = renderToolActivityStackHTML(calls, { selectedToolUseId: "bash" });
   assert.match(selected, /tool-activity-card/);
-  assert.match(selected, /<details class="tool-activity-details" open>/);
+  assert.match(selected, /tool-activity-details is-inline/);
+  assert.doesNotMatch(selected, /<details class="tool-activity-details"/);
   assert.match(selected, /DETAIL_ONLY_OUTPUT/);
-  assert.match(selected, /本(?:机|地)服务/);
+  assert.doesNotMatch(selected, /本(?:机|地)服务/);
   assert.equal((selected.match(/class="tool-activity-card/g) || []).length, 1);
   // Detail now lives inside the selected row's inline slot, not in the shared bottom slot.
   assert.match(selected, /data-tool-activity-inline-detail="bash"[^>]*>[^<]/);
   assert.doesNotMatch(selected, /data-tool-activity-selected-detail[^>]*>[^<\s]/);
 });
 
-test("completed tool activity rows show compact durations on the right", () => {
+test("completed tool activity rows show compact durations after the target", () => {
   const html = renderToolActivityStackHTML([
     { toolUseId: "read", toolName: "Read", status: "completed", durationMs: 1500, inputJson: { file_path: "a.txt" } },
     { toolUseId: "bash", toolName: "Bash", status: "completed", durationMs: 12000, inputJson: { command: "go test" } },
@@ -2784,6 +2804,140 @@ test("completed tool activity rows show compact durations on the right", () => {
   assert.match(html, /tool-activity-step-status">1\.5s</);
   assert.match(html, /tool-activity-step-status">12s</);
   assert.match(html, /data-tool-name="Grep"[^>]*>[\s\S]*?<span class="tool-activity-step-status"><\/span>/);
+});
+
+test("collapsed Edit rows show the file name and green/red line counts", () => {
+  const html = renderToolActivityStackHTML([
+    {
+      toolUseId: "edit-credits",
+      toolName: "Edit",
+      status: "completed",
+      durationMs: 800,
+      inputJson: {
+        file_path: "internal/providers/gemini_cloudcode_credits.go",
+        old_string: "one\ntwo\nthree\nfour\nfive\nsix",
+        new_string: "one\ntwo\nthree\nfour\nfive\nsix\nseven",
+      },
+    },
+    {
+      toolUseId: "edit-structured",
+      toolName: "Edit",
+      status: "completed",
+      inputJson: { file_path: "internal/providers/gemini_provider.go" },
+      outputJson: { meta: { diff: "--- a/file\n+++ b/file\n@@ -1,2 +1,8 @@\n-old\n-gone\n+one\n+two\n+three\n+four\n+five\n+six\n+seven\n+eight\n" } },
+    },
+    {
+      toolUseId: "write-notes",
+      toolName: "Write",
+      status: "completed",
+      inputJson: { file_path: "notes.txt", content: "a\nb\nc" },
+    },
+  ]);
+  assert.match(html, /tool-activity-step-verb">编辑</);
+  assert.match(html, /tool-activity-step-target is-file">gemini_cloudcode_credits\.go</);
+  assert.match(html, /tool-activity-step-target is-file">gemini_provider\.go</);
+  assert.match(html, /tool-activity-step-add">\+7</);
+  assert.match(html, /tool-activity-step-del">-6</);
+  assert.match(html, /tool-activity-step-add">\+8</);
+  assert.match(html, /tool-activity-step-del">-2</);
+  assert.match(html, /tool-activity-step-add">\+3</);
+  assert.match(html, /gemini_provider\.go<\/strong>\s*<span class="tool-activity-step-status">/);
+  assert.doesNotMatch(html, /data-tool-name="Edit"[^>]*>[\s\S]*?tool-activity-step-status">0\.8s</);
+});
+
+test("expanded Edit details keep the diff and drop routine safety and path JSON", () => {
+  const html = renderToolActivityCardHTML({
+    toolUseId: "edit-1",
+    runId: "run-1",
+    toolName: "Edit",
+    status: "completed",
+    durationMs: 2,
+    executionDeviceId: "local",
+    decision: "allow",
+    decisionSource: "default_policy",
+    inputJson: {
+      file_path: "internal/server/static/modules/chat-rendering.mjs",
+      old_string: "old line",
+      new_string: "new line",
+      oldStringBytes: 675,
+      newStringBytes: 142,
+    },
+    output: "Edited C:\\Users\\Ray\\Desktop\\autoto\\internal\\server\\static\\modules\\chat-rendering.mjs (1 replacement(s))",
+  }, { detailsExpanded: true, inlineDetail: true });
+
+  assert.match(html, /tool-diff/);
+  assert.match(html, /tool-activity-details is-inline/);
+  assert.doesNotMatch(html, /<details class="tool-activity-details"/);
+  assert.doesNotMatch(html, /tool-activity-safety/);
+  assert.doesNotMatch(html, /newStringBytes|oldStringBytes|file_path/);
+  assert.doesNotMatch(html, /tool-activity-command/);
+  assert.doesNotMatch(html, /tool-activity-output/);
+  assert.doesNotMatch(html, /replacement\(s\)/);
+  assert.doesNotMatch(html, /tool-activity-empty/);
+  assert.doesNotMatch(html, /本(?:机|地)服务| 2 ms/);
+});
+
+test("MCPCallTool rows name the inner tool instead of repeating the host wrapper", () => {
+  const html = renderToolActivityStackHTML([
+    {
+      toolUseId: "mcp-nav",
+      toolName: "MCPCallTool",
+      status: "completed",
+      durationMs: 1600,
+      inputJson: {
+        serverId: "cb33b8f3-9e7a-49c2-9a1c-7754c4168ae8",
+        toolName: "navigate_page",
+        arguments: { type: "url", url: "https://www.youtube.com/" },
+      },
+    },
+    {
+      toolUseId: "mcp-snap",
+      toolName: "MCPCallTool",
+      status: "running",
+      inputJson: {
+        serverId: "cb33b8f3-9e7a-49c2-9a1c-7754c4168ae8",
+        toolName: "take_snapshot",
+        arguments: {},
+      },
+    },
+  ], { expanded: true });
+
+  assert.match(html, /data-tool-name="MCPCallTool"/);
+  assert.match(html, /tool-activity-step-verb">navigate_page</);
+  assert.match(html, /www\.youtube\.com/);
+  assert.match(html, /tool-activity-step-verb">正在调用 take_snapshot</);
+  assert.match(html, /tool-activity-icon-web/);
+  assert.doesNotMatch(html, /tool-activity-step-verb">MCPCallTool</);
+  assert.doesNotMatch(html, /tool-activity-step-verb">正在处理</);
+});
+
+test("MCPCallTool details keep the inner arguments and hide the permission wall of text", () => {
+  const selected = renderToolActivityCardHTML({
+    toolUseId: "mcp-1",
+    runId: "run-1",
+    toolName: "MCPCallTool",
+    status: "completed",
+    decision: "allow",
+    decisionSource: "rule",
+    ruleId: "7203b86a-aaaa-bbbb-cccc-dddddddddddd",
+    permissionDecisionReason: "tool permission rule matched (id=7203b86a)",
+    inputJson: {
+      serverId: "cb33b8f3-9e7a-49c2-9a1c-7754c4168ae8",
+      toolName: "take_snapshot",
+      arguments: {},
+    },
+    output: "Script ran on page",
+  }, { detailsExpanded: true, inlineDetail: true });
+
+  assert.match(selected, /tool-activity-safety-chip/);
+  assert.match(selected, /来源：权限规则/);
+  assert.match(selected, /tool-activity-safety-audit/);
+  assert.match(selected, /7203b86a-aaaa-bbbb-cccc-dddddddddddd/);
+  assert.match(selected, /tool permission rule matched/);
+  assert.doesNotMatch(selected, /tool-activity-empty is-compact/);
+  assert.doesNotMatch(selected, /<pre class="tool-activity-command">/);
+  assert.doesNotMatch(selected, /cb33b8f3-9e7a-49c2-9a1c-7754c4168ae8/);
+  assert.match(selected, /Script ran on page/);
 });
 
 test("completed tool activity collapses while active or attention-needed work stays expanded", () => {
@@ -3204,7 +3358,7 @@ test("live tool events retain all tools and preserve streamed Bash output after 
       totalCount: state.liveToolOutputTotals["agent-1:run-1"],
     });
     assert.match(selected, /first\nsecond/);
-    assert.match(selected, /<details class="tool-activity-details" open>/);
+    assert.match(selected, /tool-activity-details is-inline/);
   } finally {
     globalThis.document = previousDocument;
   }

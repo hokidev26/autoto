@@ -264,6 +264,8 @@ export default Object.freeze({
       writing: "Writing",
       runningCommand: "Running command",
       genericStep: "Working",
+      callingTool: "Calling {tool}",
+      listingMCP: "Listing tools",
       awaitingApproval: "Awaiting approval",
       retrying: "Retrying",
       compacting: "Compacting context",

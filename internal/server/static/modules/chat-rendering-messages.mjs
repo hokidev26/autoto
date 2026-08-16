@@ -148,6 +148,23 @@ function messageIsToolResult(message = {}, blocks = messageContentBlocks(message
   return blocks.some((block) => contentBlockType(block) === "tool_result");
 }
 
+// Chat renders markdown paragraphs with a small CSS gap, so two visual lines are
+// often stored as "a\\n\\nb". Pasting that elsewhere inserts a blank row. Copy
+// collapses those extra breaks while leaving fenced code blocks intact.
+export function clipboardPlainText(text) {
+  const source = String(text || "").replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+  const fences = [];
+  const protectedText = source.replace(/```[\s\S]*?```/g, (block) => {
+    fences.push(block);
+    return `\u0000FENCE${fences.length - 1}\u0000`;
+  });
+  return protectedText
+    .replace(/\n{2,}/g, "\n")
+    .replace(/\u0000FENCE(\d+)\u0000/g, (_, index) => fences[Number(index)])
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n+$/g, "");
+}
+
 export function transcriptMessageText(message = {}) {
   const blocks = messageContentBlocks(message);
   if (messageIsToolResult(message, blocks)) return "";
