@@ -379,6 +379,14 @@
   font-weight: 850;
 }
 .settings-backup-import { min-height: 132px; }
+.settings-backup-import-panel {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--ws-border, #dfe3ea);
+  border-radius: 12px;
+  background: var(--ws-canvas, #f8fafc);
+}
 .settings-live-page { display: grid; gap: 16px; }
 .settings-hero-card {
   border: 1px solid #dce3ef;

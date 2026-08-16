@@ -2166,11 +2166,12 @@ test("about settings use the legacy version layout and real update status", () =
   assert.match(initial, /class="legacy-about-overview"/);
   assert.doesNotMatch(initial, /legacy-about-overview settings-page-section settings-card/);
   assert.match(initial, /id="legacyAboutProductName">Autoto</);
+  assert.match(initial, /class="legacy-about-version-chip">0\.1\.0-dev</);
   assert.match(initial, /当前版本[\s\S]*0\.1\.0-dev/);
   assert.match(initial, /最新版本[\s\S]*—/);
   assert.match(initial, /更新状态[\s\S]*尚未检查/);
   assert.match(initial, /id="checkForUpdatesBtn"/);
-  assert.match(initial, /<details class="legacy-about-more">/);
+  assert.match(initial, /<details class="legacy-about-more"/);
 
   state.updateStatus = {
     status: "update_available",

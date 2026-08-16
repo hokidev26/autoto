@@ -2934,29 +2934,44 @@ body.white-shell.theme-light .background-task-bubble.role-assistant .message-rol
 
 /* Remote access policy and one-time password controls. */
 .remote-access-summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-.remote-access-policy-form { display: grid; gap: 14px; }
-.remote-access-policy-form .settings-form-grid { align-items: start; }
+.remote-access-option-stack {
+  display: grid;
+  overflow: hidden;
+  margin: 0;
+  border: 1px solid var(--settings-border, #dfe3ea);
+  border-radius: 12px;
+  background: var(--settings-surface, #fff);
+}
+.remote-access-option-row,
 .remote-access-full-access-card {
-  grid-column: 1 / -1;
-  min-height: 86px;
+  grid-column: auto;
+  min-height: 0;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
   padding: 14px 16px;
-  border: 1px solid var(--settings-border, #dfe3ea);
-  border-radius: 12px;
-  background: var(--bg, var(--ws-canvas, #f8fafc));
+  border: 0;
+  border-radius: 0;
+  background: transparent;
   color: var(--settings-foreground, #1f2937);
-  transition: border-color .16s ease, background-color .16s ease, box-shadow .16s ease;
+  box-shadow: none;
+  transition: background-color .16s ease;
 }
+.remote-access-option-row + .remote-access-option-row {
+  border-top: 1px solid var(--settings-border, #dfe3ea);
+}
+.remote-access-option-row.is-on,
 .remote-access-full-access-card.is-on {
-  border-color: color-mix(in srgb, var(--settings-primary, #5369f3) 42%, var(--settings-border, #dfe3ea));
-  background: color-mix(in srgb, var(--settings-primary-soft, #eef2ff) 70%, var(--settings-surface, #fff));
-  box-shadow: 0 8px 22px color-mix(in srgb, var(--settings-primary, #5369f3) 9%, transparent);
+  border-color: transparent;
+  background: color-mix(in srgb, var(--settings-primary, #5369f3) 8%, var(--settings-surface, #fff));
+  box-shadow: none;
 }
+.remote-access-option-copy,
 .remote-access-full-access-copy { min-width: 0; display: grid; gap: 4px; }
+.remote-access-option-copy strong,
 .remote-access-full-access-copy strong { color: var(--settings-foreground, #1f2937); font-size: 14px; font-weight: 750; }
+.remote-access-option-copy small,
 .remote-access-full-access-copy small { color: var(--settings-muted-foreground, #64748b); font-size: 11px; line-height: 1.45; }
 .remote-access-full-status { width: fit-content; font-size: 11px; font-weight: 700; }
 .remote-access-full-status.ok { color: var(--settings-primary, #5369f3); }
@@ -2970,31 +2985,41 @@ body.white-shell.theme-light .background-task-bubble.role-assistant .message-rol
 .remote-access-switch input:focus-visible + .remote-access-switch-track { outline: 0; box-shadow: 0 0 0 3px color-mix(in srgb, var(--settings-primary, #5369f3) 22%, transparent); }
 .remote-access-switch input:disabled + .remote-access-switch-track { cursor: not-allowed; opacity: .52; }
 .settings-check-row { display: flex; min-height: 44px; align-items: flex-start; gap: 10px; padding: 10px 11px; border: 1px solid var(--line, var(--ws-border, #dfe3ea)); border-radius: 9px; background: var(--bg, var(--ws-canvas, #f8fafc)); color: var(--text, #1f2937); cursor: pointer; }
-/* The shared settings form rule targets every grid label and otherwise stacks the checkbox above its copy. */
-#settingsContentBody .remote-access-policy-form .settings-form-grid > label.settings-check-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
 .settings-check-row input { width: 16px; height: 16px; margin: 0; accent-color: var(--accent, #5369f3); }
 .settings-check-row span { display: grid; gap: 3px; }
 .settings-check-row strong { font-size: 12px; }
 .settings-check-row small,
 .remote-access-current-password small { color: var(--muted, #64748b); font-size: 11px; font-weight: 500; line-height: 1.4; }
-.remote-access-current-password { grid-column: 1 / -1; }
-/* Capabilities read as a scannable grid rather than a key-value column: the
-   boolean ones carry a tone, so the eye finds what is blocked without reading. */
+.remote-access-current-password { padding-top: 4px; }
+.remote-access-option-stack > .remote-access-current-password {
+  padding: 12px 16px 16px;
+  border-top: 1px solid var(--settings-border, #dfe3ea);
+}
 .remote-access-capability-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 8px; }
 .remote-access-capability-cell { min-width: 0; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 10px; border: 1px solid var(--line, var(--ws-border, #dfe3ea)); border-radius: 9px; background: var(--bg, var(--ws-canvas, #f8fafc)); }
 .remote-access-capability-cell > span { color: var(--muted, #64748b); font-size: 11px; line-height: 1.4; }
 .remote-access-capability-cell > strong { color: var(--text, #1f2937); font-size: 12px; font-weight: 700; overflow-wrap: anywhere; }
 .remote-access-capability-cell > .settings-badge { flex: 0 0 auto; }
 .remote-access-policy-card .settings-provider-section-head { align-items: flex-start; }
-.remote-access-policy-card .settings-provider-section-head > .settings-action-btn { flex: 0 0 auto; }
+.remote-access-policy-card .settings-card-footer { align-items: center; }
 .remote-access-password-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
-.remote-access-password-form { display: grid; align-content: start; gap: 10px; min-width: 0; padding: 12px; border: 1px solid var(--line, var(--ws-border, #dfe3ea)); border-radius: 10px; background: var(--bg, var(--ws-canvas, #f8fafc)); }
-.remote-access-password-form > strong { color: var(--text, #1f2937); font-size: 13px; }
-.remote-access-generated { display: grid; gap: 8px; margin: 12px 16px 16px; border-color: color-mix(in srgb, var(--accent, #5369f3) 45%, var(--line, var(--ws-border, #dfe3ea))); background: color-mix(in srgb, var(--accent, #5369f3) 8%, var(--bg-panel, var(--ws-card, #fff))); }
+.remote-access-password-form {
+  display: grid;
+  align-content: start;
+  gap: 12px;
+  min-width: 0;
+  padding: 16px;
+  border: 1px solid var(--line, var(--ws-border, #dfe3ea));
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--settings-muted, #f1f5f9) 55%, var(--settings-surface, #fff));
+}
+.remote-access-password-copy { display: grid; gap: 4px; }
+.remote-access-password-copy strong,
+.remote-access-password-form > strong { color: var(--text, #1f2937); font-size: 14px; font-weight: 750; }
+.remote-access-password-copy small { color: var(--muted, #64748b); font-size: 11px; line-height: 1.45; }
+.remote-access-password-form .settings-action-btn { justify-self: start; }
+.remote-access-credential-source { margin: 0; }
+.remote-access-generated { display: grid; gap: 8px; margin: 0; border-color: color-mix(in srgb, var(--accent, #5369f3) 45%, var(--line, var(--ws-border, #dfe3ea))); background: color-mix(in srgb, var(--accent, #5369f3) 8%, var(--bg-panel, var(--ws-card, #fff))); }
 .remote-access-generated code { display: block; max-width: 100%; overflow: auto; padding: 8px 10px; border-radius: 7px; background: var(--bg-panel, var(--ws-card, #fff)); color: var(--text, #1f2937); font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; overflow-wrap: anywhere; user-select: all; }
 .remote-access-generated span { color: var(--muted, #64748b); font-size: 11px; line-height: 1.45; }
 .remote-access-tunnel-card .settings-provider-section-head { align-items: flex-start; }
@@ -3183,7 +3208,9 @@ body.white-shell.theme-light .background-task-bubble.role-assistant .message-rol
 
 @container settings-network-page (max-width: 759px) {
   .remote-access-password-grid { grid-template-columns: 1fr; }
+  .remote-access-option-row,
   .remote-access-full-access-card { align-items: flex-start; flex-wrap: wrap; }
+  .remote-access-option-copy,
   .remote-access-full-access-copy { flex: 1 1 auto; }
   .remote-access-tunnel-phone { grid-template-columns: 1fr; justify-items: center; text-align: left; }
   .remote-access-tunnel-phone-copy { width: 100%; }
@@ -3301,17 +3328,28 @@ body.white-shell.theme-light.theme-dark .peer-collaboration-meta-row + .peer-col
 }
 
 /* Remote access — dark mode */
-body.white-shell.theme-light.theme-dark .remote-access-full-access-card {
+body.white-shell.theme-light.theme-dark .remote-access-option-stack {
   border-color: var(--settings-border);
-  background: var(--settings-surface-muted);
+  background: var(--settings-surface);
+}
+body.white-shell.theme-light.theme-dark .remote-access-option-row,
+body.white-shell.theme-light.theme-dark .remote-access-full-access-card {
+  border-color: transparent;
+  background: transparent;
   color: var(--settings-foreground);
 }
+body.white-shell.theme-light.theme-dark .remote-access-option-row.is-on,
 body.white-shell.theme-light.theme-dark .remote-access-full-access-card.is-on {
-  border-color: color-mix(in srgb, var(--settings-primary, #5369f3) 42%, var(--settings-border));
+  border-color: transparent;
   background: color-mix(in srgb, var(--settings-primary, #5369f3) 14%, var(--settings-surface));
 }
+body.white-shell.theme-light.theme-dark .remote-access-option-copy strong,
 body.white-shell.theme-light.theme-dark .remote-access-full-access-copy strong { color: var(--settings-foreground); }
+body.white-shell.theme-light.theme-dark .remote-access-option-copy small,
 body.white-shell.theme-light.theme-dark .remote-access-full-access-copy small { color: var(--settings-muted-foreground); }
+body.white-shell.theme-light.theme-dark .remote-access-option-stack > .remote-access-current-password {
+  border-top-color: var(--settings-border);
+}
 body.white-shell.theme-light.theme-dark .remote-access-switch-track {
   border-color: var(--settings-border);
   background: var(--settings-muted);
@@ -3325,7 +3363,9 @@ body.white-shell.theme-light.theme-dark .remote-access-password-form {
   border-color: var(--settings-border);
   background: var(--settings-surface-muted);
 }
+body.white-shell.theme-light.theme-dark .remote-access-password-copy strong,
 body.white-shell.theme-light.theme-dark .remote-access-password-form > strong { color: var(--settings-foreground); }
+body.white-shell.theme-light.theme-dark .remote-access-password-copy small { color: var(--settings-muted-foreground); }
 body.white-shell.theme-light.theme-dark .remote-access-capability-cell {
   border-color: var(--settings-border);
   background: var(--settings-surface-muted);

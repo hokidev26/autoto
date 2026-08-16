@@ -309,7 +309,20 @@ test("saves host-local policy with revision", async () => {
   assert.doesNotMatch(controller.render(), /href="\/auth\/remote-access"/);
 });
 
-test("policy submit drives the busy state on the header button outside the form", async () => {
+test("policy and password cards stack option rows and method tiles", () => {
+  const html = createRemoteAccessSettingsController({
+    state: { remoteAccess: localAccess },
+  }).render();
+  assert.match(html, /remote-access-option-stack/);
+  assert.match(html, /data-remote-full-card/);
+  assert.match(html, /data-remote-picker-card/);
+  assert.match(html, /form="remoteAccessPolicyForm"[^>]*data-remote-policy-submit|data-remote-policy-submit[^>]*form="remoteAccessPolicyForm"/);
+  assert.match(html, /remote-access-credential-card/);
+  assert.match(html, /remote-access-password-copy/);
+  assert.doesNotMatch(html, /settings-check-row/);
+});
+
+test("policy submit drives the busy state on the footer button outside the form", async () => {
   const previousDocument = globalThis.document;
   const submitButton = {
     dataset: {},
@@ -322,7 +335,7 @@ test("policy submit drives the busy state on the header button outside the form"
   const form = {
     listeners: new Map(),
     addEventListener(name, handler) { this.listeners.set(name, handler); },
-    // The button moved into the card header, so a form-scoped lookup finds
+    // The button lives in the card footer, so a form-scoped lookup finds
     // nothing. If the handler regresses to that, the busy state goes missing.
     querySelector: () => null,
   };

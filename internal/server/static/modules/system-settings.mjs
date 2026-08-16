@@ -749,18 +749,26 @@ export function createSystemSettingsController({
     return `
     <div class="settings-live-page about-page legacy-about-page">
       <section class="legacy-about-overview" aria-labelledby="legacyAboutProductName">
-        <section class="legacy-about-brand-card settings-page-section settings-card settings-card-content">
+        <section class="legacy-about-brand-card settings-page-section settings-card">
         <div class="legacy-about-brand">
           <span class="legacy-about-logo" aria-hidden="true">
             <img src="/ui/autoto-logo.svg" alt="" />
           </span>
-          <div>
+          <div class="legacy-about-brand-copy">
             <h2 id="legacyAboutProductName">Autoto</h2>
             <p data-settings-help-copy>${escapeHtml(t("systemSettings.about.productTagline"))}</p>
           </div>
+          <strong class="legacy-about-version-chip">${escapeHtml(update.currentVersion)}</strong>
         </div>
         </section>
         <section class="legacy-about-update-card settings-page-section settings-card" aria-label="${escapeHtml(t("systemSettings.about.versionInfo"))}">
+        <div class="settings-card-header legacy-about-update-head">
+          <div>
+            <div class="settings-card-title">${escapeHtml(t("systemSettings.about.versionInfo"))}</div>
+            <p class="legacy-about-update-note settings-card-description" data-settings-help-copy>${escapeHtml(t("systemSettings.about.updateNote"))}</p>
+          </div>
+          <button id="checkForUpdatesBtn" class="settings-action-btn primary legacy-about-update-button" type="button">${escapeHtml(t("systemSettings.about.checkUpdates"))}</button>
+        </div>
         <div class="legacy-about-version-table settings-data-list" aria-label="${escapeHtml(t("systemSettings.about.versionInfo"))}">
           <div class="legacy-about-version-row">
             <span>${escapeHtml(t("systemSettings.about.currentVersion"))}</span>
@@ -775,12 +783,10 @@ export function createSystemSettingsController({
             <strong class="legacy-about-update-state settings-badge ${escapeHtml(update.tone)}">${escapeHtml(update.label)}</strong>
           </div>
         </div>
-        <button id="checkForUpdatesBtn" class="legacy-about-update-button" type="button">${escapeHtml(t("systemSettings.about.checkUpdates"))}</button>
-        <p class="legacy-about-update-note" data-settings-help-copy>${escapeHtml(t("systemSettings.about.updateNote"))}</p>
         ${state.updateError ? `<div class="settings-inline-alert settings-alert legacy-about-update-error" role="alert">${escapeHtml(state.updateError)}</div>` : ""}
         </section>
       </section>
-      <details class="legacy-about-more">
+      <details class="legacy-about-more" open>
         <summary>${escapeHtml(t("systemSettings.about.advanced"))}</summary>
         <div class="legacy-about-more-content">
           ${isDesktopShell() ? renderDesktopShellAboutExtras() : ""}
@@ -830,11 +836,13 @@ export function createSystemSettingsController({
       <div class="settings-backup-key-list settings-data-list">
         ${labels.map((label) => `<span>${escapeHtml(label)}</span>`).join("")}
       </div>
-      <div class="settings-inline-success settings-alert" role="status">${escapeHtml(t("systemSettings.localBackup.safetyNote"))}</div>
-      <textarea id="localPrefsImportText" class="settings-token-input settings-backup-import" placeholder="${escapeHtml(t("systemSettings.localBackup.importPlaceholder"))}"></textarea>
-      <div class="settings-action-row settings-form-actions">
-        <button id="clearLocalPrefsImportBtn" class="settings-action-btn subtle" type="button">${escapeHtml(t("systemSettings.localBackup.clearInput"))}</button>
-        <button id="importLocalPrefsBackupBtn" class="settings-action-btn primary" type="button">${escapeHtml(t("systemSettings.localBackup.import"))}</button>
+      <div class="settings-backup-import-panel">
+        <div class="settings-inline-success settings-alert" role="status">${escapeHtml(t("systemSettings.localBackup.safetyNote"))}</div>
+        <textarea id="localPrefsImportText" class="settings-token-input settings-backup-import" placeholder="${escapeHtml(t("systemSettings.localBackup.importPlaceholder"))}"></textarea>
+        <div class="settings-action-row settings-form-actions">
+          <button id="clearLocalPrefsImportBtn" class="settings-action-btn subtle" type="button">${escapeHtml(t("systemSettings.localBackup.clearInput"))}</button>
+          <button id="importLocalPrefsBackupBtn" class="settings-action-btn primary" type="button">${escapeHtml(t("systemSettings.localBackup.import"))}</button>
+        </div>
       </div>
     </section>
   `;
@@ -956,6 +964,7 @@ export function createSystemSettingsController({
             <div>
               <div class="settings-provider-title settings-card-title">${escapeHtml(t("systemSettings.desktop.title"))}</div>
             </div>
+            <button id="desktopRefreshShellStatusBtn" class="settings-action-btn subtle" type="button">${escapeHtml(t("systemSettings.desktop.refresh"))}</button>
           </div>
           <div class="legacy-about-version-table settings-data-list">
             <div class="legacy-about-version-row">
@@ -967,12 +976,11 @@ export function createSystemSettingsController({
               <strong>${escapeHtml(pendingLabel)}</strong>
             </div>
           </div>
-          <div class="settings-action-row" style="margin-top:10px;gap:8px;flex-wrap:wrap">
+          <div class="settings-action-row compact-actions">
             <button id="desktopAutostartEnableBtn" class="settings-action-btn subtle" type="button">${escapeHtml(t("systemSettings.desktop.enableAutostart"))}</button>
             <button id="desktopAutostartDisableBtn" class="settings-action-btn subtle" type="button">${escapeHtml(t("systemSettings.desktop.disableAutostart"))}</button>
-            <button id="desktopRefreshShellStatusBtn" class="settings-action-btn subtle" type="button">${escapeHtml(t("systemSettings.desktop.refresh"))}</button>
           </div>
-          <div class="settings-form-grid" style="margin-top:12px;gap:8px">
+          <div class="settings-form-grid legacy-about-desktop-form">
             <label class="settings-form-field">${escapeHtml(t("systemSettings.desktop.localBinaryPath"))}
               <input id="desktopStageSourcePath" class="settings-field" type="text" autocomplete="off" placeholder="/path/to/autoto-desktop" value="${escapeHtml(state.desktopStageDraft?.sourcePath || "")}" />
             </label>
@@ -983,7 +991,7 @@ export function createSystemSettingsController({
               <input id="desktopStageSha256" class="settings-field" type="text" autocomplete="off" placeholder="64-char hex" value="${escapeHtml(state.desktopStageDraft?.sha256 || "")}" />
             </label>
           </div>
-          <div class="settings-action-row" style="margin-top:10px;gap:8px;flex-wrap:wrap">
+          <div class="settings-action-row settings-card-footer">
             <button id="desktopStageUpdateBtn" class="settings-action-btn primary" type="button">${escapeHtml(t("systemSettings.desktop.stageLocal"))}</button>
             <button id="desktopClearPendingBtn" class="settings-action-btn subtle" type="button" ${pending.pending ? "" : "disabled"}>${escapeHtml(t("systemSettings.desktop.clearPending"))}</button>
           </div>

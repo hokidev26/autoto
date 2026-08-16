@@ -587,115 +587,136 @@ body.white-shell.theme-light .legacy-settings-content-body textarea:focus {
   box-shadow: 0 0 0 3px rgba(79, 110, 247, .1);
 }
 body.white-shell.theme-light .legacy-settings-content.about-panel-active .legacy-settings-content-body { padding-top: 42px; }
-body.white-shell.theme-light .legacy-about-page { display: block; }
+body.white-shell.theme-light .legacy-about-page { display: grid; gap: 16px; }
 body.white-shell.theme-light .legacy-about-overview {
-  width: min(760px, 100%);
+  width: 100%;
   display: grid;
   gap: 14px;
 }
 body.white-shell.theme-light .legacy-about-brand-card {
-  min-height: 138px;
+  min-height: 0;
   display: flex;
   align-items: center;
 }
 body.white-shell.theme-light .legacy-about-brand {
+  width: 100%;
   display: flex;
   align-items: center;
-  gap: 22px;
+  gap: 16px;
   margin: 0;
 }
 body.white-shell.theme-light .legacy-about-logo {
-  width: 78px;
-  height: 78px;
-  flex: 0 0 78px;
+  width: 56px;
+  height: 56px;
+  flex: 0 0 56px;
   display: inline-flex;
-  filter: drop-shadow(0 10px 16px rgba(79, 110, 247, .2));
+  filter: none;
 }
 body.white-shell.theme-light .legacy-about-logo svg {
   width: 100%;
   height: 100%;
   overflow: visible;
 }
+body.white-shell.theme-light .legacy-about-brand-copy { min-width: 0; flex: 1 1 auto; }
 body.white-shell.theme-light .legacy-about-brand h2 {
   margin: 0;
   color: #202338;
-  font-size: 28px;
-  font-weight: 900;
+  font-size: 20px;
+  font-weight: 800;
   letter-spacing: -.03em;
 }
 body.white-shell.theme-light .legacy-about-brand p {
   margin: 4px 0 0;
   color: #6e7789;
-  font-size: 17px;
-  font-weight: 650;
+  font-size: 13px;
+  font-weight: 600;
 }
-body.white-shell.theme-light .legacy-about-version-table {
-  overflow: hidden;
+body.white-shell.theme-light .legacy-about-version-chip {
+  flex: 0 0 auto;
+  padding: 5px 10px;
   border: 1px solid #dfe3e9;
-  border-radius: 13px;
+  border-radius: 999px;
+  background: #f4f6fb;
+  color: #334155;
+  font-size: 12px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+body.white-shell.theme-light.theme-dark .legacy-about-version-chip {
+  border-color: var(--ws-border, #334155);
+  background: var(--ws-canvas, #1e293b);
+  color: var(--ws-text, #e2e8f0);
+}
+body.white-shell.theme-light.theme-dark .legacy-about-version-row {
+  border-color: var(--ws-border, #334155);
+  background: var(--ws-canvas, #1e293b);
+}
+body.white-shell.theme-light .legacy-about-update-head { align-items: flex-start; }
+body.white-shell.theme-light .legacy-about-version-table {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 10px;
+  overflow: visible;
+  border: 0;
+  border-radius: 0;
   background: transparent;
 }
 body.white-shell.theme-light .legacy-about-version-row {
-  min-height: 58px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 24px;
-  padding: 0 24px;
+  min-height: 0;
+  display: grid;
+  gap: 6px;
+  align-content: start;
+  padding: 12px 14px;
+  border: 1px solid #dfe3e9;
+  border-radius: 12px;
+  background: #f7f8fb;
   color: #687184;
-  font-size: 16px;
-  font-weight: 750;
+  font-size: 12px;
+  font-weight: 650;
 }
-body.white-shell.theme-light .legacy-about-version-row + .legacy-about-version-row { border-top: 1px solid #dfe3e9; }
 body.white-shell.theme-light .legacy-about-version-row strong {
   color: #202338;
-  font-size: 16px;
+  font-size: 15px;
   font-weight: 700;
-  text-align: right;
+  text-align: left;
 }
 body.white-shell.theme-light .legacy-about-update-state.current { color: #15803d; }
 body.white-shell.theme-light .legacy-about-update-state.available { color: #4f6ef7; }
 body.white-shell.theme-light .legacy-about-update-state.error { color: #dc2626; }
 body.white-shell.theme-light .legacy-about-update-button {
-  min-width: 152px;
-  min-height: 52px;
-  margin-top: 26px;
-  border: 1px solid #4f6ef7;
-  border-radius: 11px;
-  background: #4f6ef7;
-  color: #ffffff;
-  padding: 0 24px;
-  font-size: 16px;
-  font-weight: 850;
-  cursor: pointer;
+  min-width: 0;
+  min-height: 0;
+  margin: 0;
+  padding: 0 14px;
+  font-size: 13px;
+  font-weight: 700;
 }
-body.white-shell.theme-light .legacy-about-update-button:hover { background: #405de2; border-color: #405de2; }
-body.white-shell.theme-light .legacy-about-update-button:disabled { cursor: wait; opacity: .7; }
 body.white-shell.theme-light .legacy-about-update-note {
-  margin: 24px 0 0;
+  margin: 4px 0 0;
   color: #687184;
-  font-size: 15px;
-  font-weight: 600;
-  line-height: 1.7;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.55;
 }
-body.white-shell.theme-light .legacy-about-update-error { margin-top: 16px; }
+body.white-shell.theme-light .legacy-about-update-error { margin-top: 12px; }
 body.white-shell.theme-light .legacy-about-more {
-  width: min(1120px, 100%);
-  margin-top: 34px;
-  border-top: 1px solid #e1e5eb;
-  padding-top: 18px;
+  width: 100%;
+  margin-top: 0;
+  border-top: 0;
+  padding-top: 0;
 }
 body.white-shell.theme-light .legacy-about-more > summary {
   width: fit-content;
   color: #687184;
   font-size: 13px;
-  font-weight: 800;
+  font-weight: 700;
   cursor: pointer;
   user-select: none;
 }
 body.white-shell.theme-light .legacy-about-more[open] > summary { color: #4f6ef7; }
-body.white-shell.theme-light .legacy-about-more-content { display: grid; gap: 14px; padding-top: 18px; }
+body.white-shell.theme-light .legacy-about-more-content { display: grid; gap: 14px; padding-top: 12px; }
 body.white-shell.theme-light .legacy-about-license-section { display: grid; gap: 14px; }
+body.white-shell.theme-light .legacy-about-desktop-form { gap: 10px; }
 
 body.white-shell.theme-light .legacy-secondary-btn {
   min-height: 36px;
@@ -939,13 +960,15 @@ body.white-shell.theme-light .workspace-preview-dock-mode .workspace-preview-emp
   }
   body.white-shell.theme-light .legacy-settings-content-head { min-height: 72px; padding-top: 18px; }
   body.white-shell.theme-light .legacy-settings-content.about-panel-active .legacy-settings-content-body { padding-top: 28px; }
-  body.white-shell.theme-light .legacy-about-brand-card { min-height: 116px; }
-  body.white-shell.theme-light .legacy-about-brand { gap: 16px; margin: 0; }
-  body.white-shell.theme-light .legacy-about-logo { width: 62px; height: 62px; flex-basis: 62px; }
-  body.white-shell.theme-light .legacy-about-brand h2 { font-size: 24px; }
-  body.white-shell.theme-light .legacy-about-brand p { font-size: 14px; }
-  body.white-shell.theme-light .legacy-about-version-row { min-height: 54px; padding: 0 16px; font-size: 14px; }
+  body.white-shell.theme-light .legacy-about-brand-card { min-height: 0; }
+  body.white-shell.theme-light .legacy-about-brand { gap: 12px; margin: 0; }
+  body.white-shell.theme-light .legacy-about-logo { width: 48px; height: 48px; flex-basis: 48px; }
+  body.white-shell.theme-light .legacy-about-brand h2 { font-size: 18px; }
+  body.white-shell.theme-light .legacy-about-brand p { font-size: 12px; }
+  body.white-shell.theme-light .legacy-about-version-table { grid-template-columns: 1fr; }
+  body.white-shell.theme-light .legacy-about-version-row { min-height: 0; padding: 12px; font-size: 12px; }
   body.white-shell.theme-light .legacy-about-version-row strong { font-size: 14px; }
+  body.white-shell.theme-light .legacy-about-update-head { flex-direction: column; align-items: stretch; }
   body.white-shell.theme-light .legacy-about-update-button { width: 100%; }
   /* Background-task tray stays a sheet so a finished run does not bury the
      composer. Conversation details is a read of the current thread: a 62dvh

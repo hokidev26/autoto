@@ -403,25 +403,37 @@ export function createRemoteAccessSettingsController({
           <div class="settings-stat-card"><strong>${escapeHtml(value.session.expiresAt || rt("never"))}</strong><span>${escapeHtml(rt("expiresAt"))}</span></div>
         </div>
         <section class="settings-provider-section settings-page-section settings-card remote-access-policy-card">
-          <div class="settings-provider-section-head settings-card-header"><div><div class="settings-provider-title settings-card-title">${escapeHtml(rt("policy"))}</div><div class="settings-provider-meta settings-card-description" data-settings-help-copy>${escapeHtml(rt("policyDescription"))}</div></div><button class="settings-action-btn primary" type="submit" form="remoteAccessPolicyForm" data-remote-policy-submit ${securityAdminAllowed ? "" : "disabled"}>${escapeHtml(rt("savePolicy"))}</button></div>
-          <form id="remoteAccessPolicyForm" class="settings-card-content remote-access-policy-form">
-            <div class="settings-provider-form-grid settings-form-grid">
-              <div class="remote-access-full-access-card${fullAccessEnabled ? " is-on" : ""}" data-remote-full-card>
-                <div class="remote-access-full-access-copy"><strong>${escapeHtml(rt("allowFullAccess"))}</strong><small data-settings-help-copy>${escapeHtml(rt("allowFullAccessHint"))}</small><span class="remote-access-full-status ${fullAccessEnabled ? "ok" : "muted"}" data-remote-full-status>${escapeHtml(fullStatus)}</span></div>
-                <label class="remote-access-switch" title="${escapeAttr(rt("allowFullAccess"))}"><input id="remoteAccessAllowFullAccess" type="checkbox" role="switch" aria-checked="${fullAccessEnabled ? "true" : "false"}" ${fullAccessEnabled ? "checked" : ""} ${canEditFullPolicy ? "" : "disabled"} /><span class="remote-access-switch-track" aria-hidden="true"></span></label>
-              </div>
-              <label class="settings-check-row"><input id="remoteAccessNativePicker" type="checkbox" ${value.policy.allowRemoteNativePicker ? "checked" : ""} ${securityAdminAllowed ? "" : "disabled"} /><span><strong>${escapeHtml(rt("nativePicker"))}</strong><small data-settings-help-copy>${escapeHtml(rt("nativePickerHint"))}</small></span></label>
-              ${currentPasswordField("remoteAccessPolicyCurrentPassword")}
+          <div class="settings-provider-section-head settings-card-header"><div><div class="settings-provider-title settings-card-title">${escapeHtml(rt("policy"))}</div><div class="settings-provider-meta settings-card-description" data-settings-help-copy>${escapeHtml(rt("policyDescription"))}</div></div></div>
+          <form id="remoteAccessPolicyForm" class="remote-access-option-stack">
+            <div class="remote-access-option-row remote-access-full-access-card${fullAccessEnabled ? " is-on" : ""}" data-remote-full-card>
+              <div class="remote-access-option-copy remote-access-full-access-copy"><strong>${escapeHtml(rt("allowFullAccess"))}</strong><small data-settings-help-copy>${escapeHtml(rt("allowFullAccessHint"))}</small><span class="remote-access-full-status ${fullAccessEnabled ? "ok" : "muted"}" data-remote-full-status>${escapeHtml(fullStatus)}</span></div>
+              <label class="remote-access-switch" title="${escapeAttr(rt("allowFullAccess"))}"><input id="remoteAccessAllowFullAccess" type="checkbox" role="switch" aria-checked="${fullAccessEnabled ? "true" : "false"}" ${fullAccessEnabled ? "checked" : ""} ${canEditFullPolicy ? "" : "disabled"} /><span class="remote-access-switch-track" aria-hidden="true"></span></label>
             </div>
+            <label class="remote-access-option-row${value.policy.allowRemoteNativePicker ? " is-on" : ""}" data-remote-picker-card>
+              <span class="remote-access-option-copy"><strong>${escapeHtml(rt("nativePicker"))}</strong><small data-settings-help-copy>${escapeHtml(rt("nativePickerHint"))}</small></span>
+              <span class="remote-access-switch" title="${escapeAttr(rt("nativePicker"))}"><input id="remoteAccessNativePicker" type="checkbox" role="switch" aria-checked="${value.policy.allowRemoteNativePicker ? "true" : "false"}" ${value.policy.allowRemoteNativePicker ? "checked" : ""} ${securityAdminAllowed ? "" : "disabled"} /><span class="remote-access-switch-track" aria-hidden="true"></span></span>
+            </label>
+            ${currentPasswordField("remoteAccessPolicyCurrentPassword")}
           </form>
+          <div class="settings-action-row settings-card-footer"><span class="settings-provider-meta">${escapeHtml(rt("policySaveHint"))}</span><button class="settings-action-btn primary" type="submit" form="remoteAccessPolicyForm" data-remote-policy-submit ${securityAdminAllowed ? "" : "disabled"}>${escapeHtml(rt("savePolicy"))}</button></div>
         </section>
-        <section class="settings-provider-section settings-page-section settings-card">
-          <div class="settings-provider-section-head settings-card-header"><div><div class="settings-provider-title settings-card-title">${escapeHtml(rt("credential"))}</div><div class="settings-provider-meta settings-card-description">${escapeHtml(`${rt("source")}: ${value.credential.source}`)}</div></div></div>
+        <section class="settings-provider-section settings-page-section settings-card remote-access-credential-card">
+          <div class="settings-provider-section-head settings-card-header"><div><div class="settings-provider-title settings-card-title">${escapeHtml(rt("credential"))}</div><div class="settings-provider-meta settings-card-description">${escapeHtml(rt("credentialDescription"))}</div></div><span class="settings-status-pill settings-badge ${value.credential.configured ? "ok" : "warn"}">${escapeHtml(value.credential.configured ? rt("configured") : rt("notConfigured"))}</span></div>
           ${environmentCredential ? `<div class="settings-inline-alert settings-alert" role="status">${escapeHtml(rt(securityAdminAllowed ? "environmentOverrideHint" : "environmentReadonly"))}</div>` : ""}
           <div class="remote-access-password-grid settings-card-content">
-            <form id="remoteAccessGeneratePasswordForm" class="remote-access-password-form"><strong>${escapeHtml(rt("generatePassword"))}</strong>${currentPasswordField("remoteAccessGenerateCurrentPassword")}<button class="settings-action-btn subtle" type="submit" data-remote-generate-submit ${securityAdminAllowed ? "" : "disabled"}>${escapeHtml(rt("generatePassword"))}</button></form>
-            <form id="remoteAccessCustomPasswordForm" class="remote-access-password-form"><label class="settings-form-field">${escapeHtml(rt("customPassword"))}<input id="remoteAccessCustomPassword" class="settings-field" type="password" autocomplete="new-password" required ${securityAdminAllowed ? "" : "disabled"} placeholder="${escapeAttr(rt("customPasswordPlaceholder"))}" /></label>${currentPasswordField("remoteAccessCustomCurrentPassword")}<button class="settings-action-btn primary" type="submit" data-remote-custom-submit ${securityAdminAllowed ? "" : "disabled"}>${escapeHtml(rt("updatePassword"))}</button></form>
+            <form id="remoteAccessGeneratePasswordForm" class="remote-access-password-form">
+              <div class="remote-access-password-copy"><strong>${escapeHtml(rt("generatePassword"))}</strong><small>${escapeHtml(rt("generatePasswordHint"))}</small></div>
+              ${currentPasswordField("remoteAccessGenerateCurrentPassword")}
+              <button class="settings-action-btn subtle" type="submit" data-remote-generate-submit ${securityAdminAllowed ? "" : "disabled"}>${escapeHtml(rt("generatePassword"))}</button>
+            </form>
+            <form id="remoteAccessCustomPasswordForm" class="remote-access-password-form">
+              <div class="remote-access-password-copy"><strong>${escapeHtml(rt("customPassword"))}</strong><small>${escapeHtml(rt("customPasswordHint"))}</small></div>
+              <label class="settings-form-field">${escapeHtml(rt("customPassword"))}<input id="remoteAccessCustomPassword" class="settings-field" type="password" autocomplete="new-password" required ${securityAdminAllowed ? "" : "disabled"} placeholder="${escapeAttr(rt("customPasswordPlaceholder"))}" /></label>
+              ${currentPasswordField("remoteAccessCustomCurrentPassword")}
+              <button class="settings-action-btn primary" type="submit" data-remote-custom-submit ${securityAdminAllowed ? "" : "disabled"}>${escapeHtml(rt("updatePassword"))}</button>
+            </form>
           </div>
+          <p class="remote-access-credential-source settings-provider-meta">${escapeHtml(`${rt("source")}: ${value.credential.source}`)}</p>
           ${generatedPassword ? `<div class="remote-access-generated settings-inline-alert" role="status"><strong>${escapeHtml(rt("generatedPassword"))}</strong><code>${escapeHtml(generatedPassword)}</code><span>${escapeHtml(rt("generatedPasswordHint"))}</span><button id="copyGeneratedRemotePasswordBtn" class="settings-action-btn subtle" type="button">${escapeHtml(rt("copyPassword"))}</button></div>` : ""}
         </section>
         <section class="settings-provider-section settings-page-section settings-card">
@@ -498,9 +510,14 @@ export function createRemoteAccessSettingsController({
         status.classList.toggle("muted", !enabled);
       }
     });
+    $("remoteAccessNativePicker")?.addEventListener?.("change", (event) => {
+      const enabled = Boolean(event.currentTarget.checked);
+      event.currentTarget.setAttribute?.("aria-checked", enabled ? "true" : "false");
+      document.querySelector?.("[data-remote-picker-card]")?.classList.toggle("is-on", enabled);
+    });
     $("remoteAccessPolicyForm")?.addEventListener("submit", async (event) => {
       event.preventDefault();
-      // The submit button lives in the card header, outside this form, and is
+      // The submit button lives in the card footer, outside this form, and is
       // wired to it with the form attribute. Scope the lookup to the document so
       // the busy state still lands on it.
       const button = document.querySelector?.("[data-remote-policy-submit]");
