@@ -2209,6 +2209,7 @@ test("模型设置页面仅保留扁平路由表单并移除聚合管理与模�
   assert.match(html, /name="defaultModel" required/);
   assert.match(html, /name="summaryModel" required/);
   assert.match(html, /name="reviewModel"/);
+  assert.doesNotMatch(html, /name="safetyModel"/);
   assert.match(html, /name="defaultReasoningEffort"[^>]*>[\s\S]*?<option value="high" selected>/);
   // The runtime supports Codex-specific levels too; they must use translated
   // labels instead of leaking the modelProvider.* key into the native select.

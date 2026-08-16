@@ -282,8 +282,6 @@ export default Object.freeze({
     },
     planReflection: "Plan reflection",
     planReflectionDescription: "Automatically replan once when review says the plan missed the goal",
-    planReflectionOn: "On",
-    planReflectionOff: "Off",
 
     saveAgentSettings: "Save the current model, permissions, and folder",
     credentials: "Credentials and relay",
@@ -1559,9 +1557,6 @@ export default Object.freeze({
       reviewModel: "Plan review model",
       reviewModelHelp: "Used for isolated plan review. Leave blank to follow the active conversation model. If the chosen reviewer cannot be resolved or is not configured, review also uses that conversation model. Timeouts and malformed reviewer output stay unavailable.",
       reviewModelInherit: "Follow the active conversation model",
-      safetyModel: "Legacy safety model setting",
-      safetyModelHelp: "Danger reflection now follows the model used by the active conversation. This legacy setting is retained for compatibility and no longer selects the reviewer.",
-      safetyModelInherit: "Follow the active conversation model",
       subagentRouting: "Subagent model routing",
       subagentRoutingDescription: "Set a preferred model and allowed pool for Explore, Plan, General, and Search. An empty pool allows every configured model.",
       preferredModel: "Preferred model",

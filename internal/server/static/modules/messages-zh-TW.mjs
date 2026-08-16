@@ -282,8 +282,6 @@ export default Object.freeze({
     },
     planReflection: "計畫反思",
     planReflectionDescription: "審查認為計畫未達成目標時，自動再規劃一次",
-    planReflectionOn: "開啟",
-    planReflectionOff: "關閉",
 
     saveAgentSettings: "儲存目前模型、權限與目錄",
     credentials: "憑證與中轉站",
@@ -1559,9 +1557,6 @@ export default Object.freeze({
       reviewModel: "計畫審查模型",
       reviewModelHelp: "計畫模式的隔離審查使用。留空則沿用目前對話模型；指定的審查模型無法解析或尚未設定時，也會改用目前對話模型。逾時或格式錯誤仍會標為無法審查。",
       reviewModelInherit: "沿用目前對話模型",
-      safetyModel: "舊版安全審查設定",
-      safetyModelHelp: "危險反思現在會沿用目前對話使用的模型。此舊設定保留作相容用途，不再決定反思模型。",
-      safetyModelInherit: "沿用目前對話模型",
       subagentRouting: "子代理模型路由",
       subagentRoutingDescription: "為 Explore、Plan、General 與 Search 分別設定偏好模型及允許模型池；空模型池表示允許所有已設定模型。",
       preferredModel: "偏好模型",

@@ -403,12 +403,11 @@ test("selecting a level without requestAPI preserves the current value", async (
   });
 });
 
-function findPlanReflectionButton(menu, enabled) {
-  return menu.querySelectorAll(".composer-permission-plan-reflection-level")
-    .find((button) => button.dataset.planReflection === String(enabled));
+function findPlanReflectionSwitch(menu) {
+  return menu.querySelector(".composer-permission-plan-reflection");
 }
 
-test("plan reflection toggle sits in the message-mode section and defaults on", async () => {
+test("plan reflection switch sits under plan mode and defaults on", async () => {
   const { fakeDocument, fakeWindow, trigger, body } = setupComposerSelectDOM();
   await withGlobals(fakeDocument, fakeWindow, async () => {
     const controller = createUIShellController({
@@ -421,16 +420,16 @@ test("plan reflection toggle sits in the message-mode section and defaults on", 
     openPermissionMenu(trigger);
 
     const menu = findMenu(body);
-    const row = menu.querySelector(".composer-permission-plan-reflection");
-    assert.ok(row, "expected a plan reflection toggle in the permission menu");
-    assert.equal(findPlanReflectionButton(menu, true).getAttribute("aria-checked"), "true");
-    assert.equal(findPlanReflectionButton(menu, false).getAttribute("aria-checked"), "false");
-    assert.equal(findPlanReflectionButton(menu, true).disabled, false);
-    assert.equal(findPlanReflectionButton(menu, false).disabled, false);
+    const row = findPlanReflectionSwitch(menu);
+    assert.ok(row, "expected a plan reflection switch in the permission menu");
+    assert.equal(row.getAttribute("role"), "switch");
+    assert.equal(row.getAttribute("aria-checked"), "true");
+    assert.equal(row.classList.contains("is-on"), true);
+    assert.equal(row.disabled, false);
   });
 });
 
-test("plan reflection toggle is disabled outside plan mode", async () => {
+test("plan reflection switch is omitted outside plan mode", async () => {
   const { fakeDocument, fakeWindow, trigger, body } = setupComposerSelectDOM();
   await withGlobals(fakeDocument, fakeWindow, async () => {
     const controller = createUIShellController({
@@ -443,8 +442,7 @@ test("plan reflection toggle is disabled outside plan mode", async () => {
     openPermissionMenu(trigger);
 
     const menu = findMenu(body);
-    assert.equal(findPlanReflectionButton(menu, true).disabled, true);
-    assert.equal(findPlanReflectionButton(menu, false).disabled, true);
+    assert.equal(findPlanReflectionSwitch(menu), null);
   });
 });
 
@@ -466,14 +464,15 @@ test("turning plan reflection off patches the current conversation", async () =>
     openPermissionMenu(trigger);
 
     const menu = findMenu(body);
-    findPlanReflectionButton(menu, false).dispatch("click");
+    findPlanReflectionSwitch(menu).dispatch("click");
     await flushMicrotasks();
 
     const patches = calls.filter((call) => call.options?.method === "PATCH");
     assert.equal(patches.length, 1);
     assert.equal(patches[0].path, "/api/agents/agent-1/plan-reflection");
     assert.equal(JSON.parse(patches[0].options.body).planReflection, false);
-    assert.equal(findPlanReflectionButton(menu, false).getAttribute("aria-checked"), "true");
-    assert.equal(findPlanReflectionButton(menu, true).getAttribute("aria-checked"), "false");
+    const row = findPlanReflectionSwitch(menu);
+    assert.equal(row.getAttribute("aria-checked"), "false");
+    assert.equal(row.classList.contains("is-on"), false);
   });
 });
