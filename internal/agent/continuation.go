@@ -499,6 +499,17 @@ func (r *Runner) runContinuationSegment(ctx context.Context, state continuationR
 			outcome.continuationReason = reason
 			return outcome, nil
 		}
+		// A follow-up queued while this run was parked on a child is claimed
+		// here, after settlement and before the wake Generate. Injecting at
+		// park time would miss messages that arrive during the wait, and the
+		// post-tool-batch path never runs because that segment already returned.
+		if turn == 0 && continuationIndex > 0 && strings.TrimSpace(run.ContinuationReason) == continuationReasonBackgroundTask {
+			injected, injectErr := r.injectQueuedSteering(ctx, agent, run, messages)
+			if injectErr != nil {
+				return outcome, injectErr
+			}
+			messages = injected
+		}
 		controls := r.buildTurnSystemControls(ctx, agent, run, messages, continuationIndex)
 		controls.pipeline = r.toolOutputPipelineControl(agentID, runID)
 		controls.repeat = r.repeatToolCallControl(runID)
@@ -741,6 +752,14 @@ func (r *Runner) runContinuationSegment(ctx context.Context, state continuationR
 			outcome.continuationReason = continuationReasonBackgroundTask
 			outcome.waitingTaskID = waitingTaskID
 			return outcome, nil
+		}
+		injected, injectErr := r.injectQueuedSteering(ctx, agent, run, messages)
+		if injectErr != nil {
+			return outcome, injectErr
+		}
+		messages = injected
+		if len(messages) > 0 {
+			outcome.resumeAfterID = messages[len(messages)-1].ID
 		}
 	}
 	outcome.disposition = segmentContinue

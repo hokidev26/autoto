@@ -43,7 +43,7 @@ type readInput struct {
 
 func (ReadTool) Name() string { return "Read" }
 func (ReadTool) Description() string {
-	return "Read a file from the agent working directory. Use offset (1-based start line) and line_limit to page through large files."
+	return "Read a file from the agent working directory. The first line reports file, hash, and line count for the whole file; pass that hash as expected_hash on Edit. Use offset (1-based start line) and line_limit to page through large files. Truncated reads without offset include line numbers and a cheap outline of declarations and headings."
 }
 func (ReadTool) Schema() any               { return readInput{} }
 func (ReadTool) Risk(json.RawMessage) Risk { return RiskRead }
@@ -95,14 +95,35 @@ func (ReadTool) Execute(ctx context.Context, call Call, env Env) (Result, error)
 	if cut {
 		data = trimIncompleteUTF8(data[:limit])
 	}
+	display := editDiffDisplayPath(env.CWD, input.FilePath, path)
 	if input.Offset > 0 || input.LineLimit > 0 {
-		return readLineWindow(path, input, limit)
+		return readLineWindow(path, display, input, limit)
+	}
+	fp, err := textFileFingerprint(path, data, cut)
+	if err != nil {
+		return Result{Output: err.Error(), IsError: true}, nil
 	}
 	text := string(data)
 	if cut {
+		text = numberTextLines(text, 1)
 		text += "\n...[truncated]"
+		outline := scanFileOutline(path, maxFileOutlineEntries+1)
+		capped := len(outline) > maxFileOutlineEntries
+		if capped {
+			outline = outline[:maxFileOutlineEntries]
+		}
+		if formatted := formatFileOutline(outline, capped); formatted != "" {
+			text += "\n" + formatted
+		}
 	}
-	return Result{Output: text, Meta: map[string]any{"path": path, "truncated": cut, "binary": false}}, nil
+	return withFileSnapshot(display, fp, text, map[string]any{"path": path, "truncated": cut, "binary": false}), nil
+}
+
+func textFileFingerprint(path string, window []byte, truncated bool) (fileFingerprint, error) {
+	if !truncated {
+		return hashBytes(window), nil
+	}
+	return hashFileOnDisk(path)
 }
 
 // sniffImageMIME reports the image type of data, limited to the formats a model
@@ -202,7 +223,11 @@ func formatByteSize(size int64) string {
 // readLineWindow returns a line range of a file so large files stay reachable
 // past the byte cap. It streams rather than loading the whole file, and still
 // bounds the returned bytes.
-func readLineWindow(path string, input readInput, byteLimit int) (Result, error) {
+func readLineWindow(path, displayPath string, input readInput, byteLimit int) (Result, error) {
+	fp, err := hashFileOnDisk(path)
+	if err != nil {
+		return Result{Output: err.Error(), IsError: true}, nil
+	}
 	file, err := os.Open(path)
 	if err != nil {
 		return Result{Output: err.Error(), IsError: true}, nil
@@ -234,14 +259,15 @@ func readLineWindow(path string, input readInput, byteLimit int) (Result, error)
 			break
 		}
 		line := scanner.Text()
-		if builder.Len()+len(line)+1 > byteLimit {
+		numbered := formatNumberedLine(lineNumber, line)
+		if builder.Len()+len(numbered)+1 > byteLimit {
 			truncated = true
 			break
 		}
 		if emitted > 0 {
 			builder.WriteByte('\n')
 		}
-		builder.WriteString(line)
+		builder.WriteString(numbered)
 		emitted++
 	}
 	if err := scanner.Err(); err != nil {
@@ -249,18 +275,21 @@ func readLineWindow(path string, input readInput, byteLimit int) (Result, error)
 	}
 	text := builder.String()
 	if emitted == 0 {
-		text = fmt.Sprintf("No content: file has %d lines, requested start line %d.", lineNumber, start)
+		text = fmt.Sprintf("No content: file has %d lines, requested start line %d.", fp.lines, start)
 	} else if truncated {
 		text += "\n...[truncated]"
 	}
-	return Result{Output: text, Meta: map[string]any{
+	meta := map[string]any{
 		"path":      path,
 		"truncated": truncated,
 		"binary":    false,
 		"startLine": start,
-		"endLine":   start + emitted - 1,
-		"lineCount": emitted,
-	}}, nil
+	}
+	if emitted > 0 {
+		meta["endLine"] = start + emitted - 1
+		meta["windowLineCount"] = emitted
+	}
+	return withFileSnapshot(displayPath, fp, text, meta), nil
 }
 
 func isProbablyBinary(data []byte, truncated bool) bool {

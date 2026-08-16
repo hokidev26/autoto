@@ -211,7 +211,8 @@ func TestReadToolKeepsTruncatedUTF8Valid(t *testing.T) {
 	if err != nil || result.IsError {
 		t.Fatalf("read failed: result=%+v err=%v", result, err)
 	}
-	if binary, _ := result.Meta["binary"].(bool); binary || !result.Meta["truncated"].(bool) || !utf8.ValidString(result.Output) || !strings.HasPrefix(result.Output, "界") {
+	body := fileReadBody(result.Output)
+	if binary, _ := result.Meta["binary"].(bool); binary || !result.Meta["truncated"].(bool) || !utf8.ValidString(result.Output) || !strings.Contains(body, "界") {
 		t.Fatalf("expected valid truncated UTF-8 text: %+v", result)
 	}
 }

@@ -232,7 +232,9 @@ func (s *Server) ScheduleMessageQueueDrain(agentID string) {
 func (s *Server) drainMessageQueue(agentID string) {
 	ctx := context.Background()
 	for {
-		// A run still in flight means the user's follow-up is meant to wait.
+		// A run still in flight means leftover follow-ups wait for idle drain,
+		// which starts a new Run. Mid-run steering is claimed by the runner
+		// after a tool batch, not here.
 		if busy, err := s.agentHasActiveRun(ctx, agentID); err != nil || busy {
 			return
 		}

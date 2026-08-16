@@ -54,7 +54,7 @@ The loop logic that used to live in a single `internal/agent/loop.go` is now spl
 1. `continuation.go` (`Runner.run` / `runContinuous`) drives the run in segments and loads the agent and message history from `internal/db`. Background-task park/wake and startup recovery live in `continuation_background.go`; per-run budgets live in `continuation_limits.go`.
 2. `runner_context.go` compacts older context when needed and assembles the provider message set; `runner_model.go` builds the `providers.GenerateRequest` containing system prompt, messages, and tool schemas.
 3. The selected provider streams `providers.Event` values back to the runner (`runner_model.go`).
-4. Assistant text and tool requests are persisted as messages/tool calls — tool execution and approval routing live in `runner_tools.go` — then published through the event hub.
+4. Assistant text and tool requests are persisted as messages/tool calls — tool execution and approval routing live in `runner_tools.go` — then published through the event hub. After a tool batch settles and before the next `Generate`, the runner may claim one queued follow-up onto the same Run (`runner_steer.go`). The same inject runs at the start of a resumed segment after a background-task wake, so a follow-up queued while the parent was parked is visible on that next `Generate`. Pending approval, danger confirmation, and permission/policy generation changes fail closed and leave the queue parked. Interrupt still cancels the tree; leftover queue drains into a new Run only after the agent is idle.
 
 Plan-mode runs freeze `execution_mode=plan` on the Run. The assistant's final text must be the six-field plan JSON; `persistAndReviewPlan` stores it, runs the isolated reviewer, and either publishes `plan.approval_required` or defers that event for one automatic plan-mode replan when the verdict is `needs_human` and the conversation's `plan_reflection` flag is on (default). The retry is started from `executeRegisteredRun` after `unregisterRun` so it cannot cancel the finishing draft run. Live snapshots include `plans[]` with `sourceRunId` (executed and cancelled included) so the UI can attach a card to the originating assistant message instead of dumping JSON. Human approval and execute remain separate HTTP actions; reviewer pass never creates `CreateRunForPlan`. A blank `reviewModel` inherits the active conversation model; resolve and not-configured failures also fall back to that conversation model, while timeout and malformed reviewer output stay unavailable.
 
@@ -103,6 +103,12 @@ The runner checks each tool risk against the agent permission mode:
 - Safe read-only tools can run in less restrictive modes.
 - Riskier tools such as `Write`, `Edit`, `Bash`, and stdio MCP tools may pause for approval.
 - Approval decisions are posted to `POST /api/agents/{id}/tool-calls/{toolUseId}/approval` and are sent back to the model as tool results.
+
+`Read`, `Write`, `Edit`, and `MultiEdit` report a whole-file SHA-256 prefix (`hash=`) in both tool output and `Meta.contentHash`. `Edit`/`MultiEdit` accept optional `expected_hash` and refuse to write when the live file no longer matches. Truncated `Read` windows use 1-based line prefixes and, when no `offset` was given, a cheap bounded outline of `func`/`class`/`def`/`type`/Markdown headings. Binary and image reads stay unchanged.
+
+Project instruction files (`AGENTS.md`, `CLAUDE.md`, `.cursorrules`, `.cursor/rules/*.mdc`, `.github/copilot-instructions.md`, `GEMINI.md`) are loaded as untrusted `project` user context and must not enter the system prompt. `.cursor/mcp.json`, hooks, and `.env` are not read.
+
+Child-agent public results may include bounded `summary` / `files` / `result` parsed from the last assistant message; parse failure falls back to truncated prose. Acceptance criteria stay off that public object.
 
 Tool path handling should stay bounded to the agent working directory or explicitly configured project boundary. Network tools must keep local/private host protections by default.
 

@@ -65,8 +65,11 @@ func TestReadToolBoundsLargeFiles(t *testing.T) {
 		t.Fatal(err)
 	}
 	result, err := (ReadTool{}).Execute(context.Background(), Call{ID: "large", Name: "Read", Input: json.RawMessage(`{"file_path":"large.txt"}`)}, Env{CWD: cwd})
-	if err != nil || result.IsError || !result.Meta["truncated"].(bool) || !strings.HasSuffix(result.Output, "\n...[truncated]") {
+	if err != nil || result.IsError || !result.Meta["truncated"].(bool) || !strings.Contains(result.Output, "\n...[truncated]") {
 		t.Fatalf("expected bounded truncated read, result=%+v err=%v", result, err)
+	}
+	if !strings.Contains(result.Output, "     1|") {
+		t.Fatalf("truncated read must include line numbers, got %q", result.Output[:min(80, len(result.Output))])
 	}
 }
 
@@ -1042,7 +1045,10 @@ func TestWriteThenRead(t *testing.T) {
 	if err != nil || readResult.IsError {
 		t.Fatalf("read failed: result=%+v err=%v", readResult, err)
 	}
-	if strings.TrimSpace(readResult.Output) != "hello" {
+	if !strings.Contains(readResult.Output, "hello") {
 		t.Fatalf("expected hello, got %q", readResult.Output)
+	}
+	if readResult.Meta["contentHash"] == nil || readResult.Meta["lineCount"] != 1 {
+		t.Fatalf("expected file snapshot metadata, got %+v", readResult.Meta)
 	}
 }

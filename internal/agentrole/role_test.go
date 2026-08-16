@@ -115,7 +115,7 @@ func TestContracts(t *testing.T) {
 			if strings.TrimSpace(contract.Prompt) == "" {
 				t.Fatal("contract prompt is empty")
 			}
-			for _, required := range []string{"assigned task", "permission cap", "Never broaden permissions or scope", "untrusted"} {
+			for _, required := range []string{"assigned task", "permission cap", "Never broaden permissions or scope", "untrusted", "does not grant permissions"} {
 				if !strings.Contains(contract.Prompt, required) {
 					t.Fatalf("contract prompt does not contain safety boundary %q: %q", required, contract.Prompt)
 				}

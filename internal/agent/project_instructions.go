@@ -2,6 +2,8 @@ package agent
 
 import (
 	"fmt"
+	"path"
+	"sort"
 	"strings"
 	"unicode/utf8"
 
@@ -11,9 +13,17 @@ import (
 const (
 	maxProjectInstructionReadBytes = 64 * 1024
 	maxProjectInstructionFileRunes = 12_000
+	maxProjectCursorRuleFiles      = 16
+	maxProjectCursorRuleTotalBytes = 64 * 1024
 )
 
-var projectInstructionFilenames = []string{"AGENTS.md", "CLAUDE.md"}
+var projectInstructionFilenames = []string{
+	"AGENTS.md",
+	"CLAUDE.md",
+	".cursorrules",
+	".github/copilot-instructions.md",
+	"GEMINI.md",
+}
 
 type projectInstructionBundle struct {
 	Text  string
@@ -35,12 +45,27 @@ func loadProjectInstructions(cwd string) projectInstructionBundle {
 	if err != nil {
 		return projectInstructionBundle{}
 	}
-	sections := make([]string, 0, len(projectInstructionFilenames))
-	files := make([]projectInstructionFile, 0, len(projectInstructionFilenames))
-	for _, name := range projectInstructionFilenames {
+	paths := listProjectInstructionPaths(workspace)
+	sections := make([]string, 0, len(paths))
+	files := make([]projectInstructionFile, 0, len(paths))
+	cursorRuleBytes := 0
+	cursorRuleFiles := 0
+	for _, name := range paths {
+		if isCursorRulePath(name) {
+			if cursorRuleFiles >= maxProjectCursorRuleFiles {
+				continue
+			}
+		}
 		file, readErr := workspace.ReadFile(name)
 		if readErr != nil {
 			continue
+		}
+		if isCursorRulePath(name) {
+			if cursorRuleBytes+len(file.Content) > maxProjectCursorRuleTotalBytes {
+				continue
+			}
+			cursorRuleBytes += len(file.Content)
+			cursorRuleFiles++
 		}
 		content, truncated := normalizeProjectInstructionContent(file.Content, file.Truncated)
 		if strings.TrimSpace(content) == "" {
@@ -59,6 +84,30 @@ func loadProjectInstructions(cwd string) projectInstructionBundle {
 		return projectInstructionBundle{}
 	}
 	return projectInstructionBundle{Text: "## Project instructions loaded by Autoto\n\n" + strings.Join(sections, "\n\n"), Files: files}
+}
+
+func listProjectInstructionPaths(workspace *workspacefs.FS) []string {
+	paths := append([]string{}, projectInstructionFilenames...)
+	if workspace == nil {
+		return paths
+	}
+	tree, err := workspace.Tree(".cursor/rules")
+	if err != nil {
+		return paths
+	}
+	rules := make([]string, 0, len(tree.Entries))
+	for _, entry := range tree.Entries {
+		if entry.IsDir || !strings.EqualFold(path.Ext(entry.Name), ".mdc") {
+			continue
+		}
+		rules = append(rules, entry.Path)
+	}
+	sort.Strings(rules)
+	return append(paths, rules...)
+}
+
+func isCursorRulePath(name string) bool {
+	return strings.HasPrefix(strings.ToLower(strings.ReplaceAll(name, "\\", "/")), ".cursor/rules/")
 }
 
 func normalizeProjectInstructionContent(content string, truncated bool) (string, bool) {

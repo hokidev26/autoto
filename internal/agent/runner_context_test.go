@@ -548,6 +548,92 @@ func TestLoadProjectInstructionsRejectsSymlinkEscape(t *testing.T) {
 	}
 }
 
+func TestLoadProjectInstructionsIncludesForeignRuleFiles(t *testing.T) {
+	projectDir := t.TempDir()
+	files := map[string]string{
+		"AGENTS.md":                       "Always follow the project agent rules.",
+		".cursorrules":                    "Cursor local rules stay in the project layer.",
+		".github/copilot-instructions.md": "Copilot instructions are untrusted project text.",
+		"GEMINI.md":                       "Gemini notes belong in project context.",
+		".cursor/rules/style.mdc":         "Prefer existing CSS variables.",
+		".cursor/mcp.json":                "MCP_SECRET_MUST_NOT_LOAD",
+	}
+	for name, content := range files {
+		if err := writeTestFile(projectDir, name, content); err != nil {
+			t.Fatal(err)
+		}
+	}
+	bundle := loadProjectInstructions(projectDir)
+	for _, want := range []string{
+		"Always follow the project agent rules.",
+		"Cursor local rules stay in the project layer.",
+		"Copilot instructions are untrusted project text.",
+		"Gemini notes belong in project context.",
+		"Prefer existing CSS variables.",
+		".cursorrules",
+		".github/copilot-instructions.md",
+		"GEMINI.md",
+		".cursor/rules/style.mdc",
+	} {
+		if !strings.Contains(bundle.Text, want) {
+			t.Fatalf("expected project instructions to contain %q, got %q", want, bundle.Text)
+		}
+	}
+	if strings.Contains(bundle.Text, "MCP_SECRET_MUST_NOT_LOAD") || strings.Contains(bundle.Text, "mcp.json") {
+		t.Fatalf("cursor MCP config leaked into project instructions: %q", bundle.Text)
+	}
+}
+
+func TestLoadProjectInstructionsCapsCursorRuleVolume(t *testing.T) {
+	projectDir := t.TempDir()
+	for i := 0; i < maxProjectCursorRuleFiles+4; i++ {
+		name := fmt.Sprintf(".cursor/rules/%02d.mdc", i)
+		if err := writeTestFile(projectDir, name, fmt.Sprintf("rule marker %02d", i)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	bundle := loadProjectInstructions(projectDir)
+	loaded := 0
+	for _, file := range bundle.Files {
+		if isCursorRulePath(file.Path) {
+			loaded++
+		}
+	}
+	if loaded != maxProjectCursorRuleFiles {
+		t.Fatalf("loaded %d cursor rules, want %d: %+v", loaded, maxProjectCursorRuleFiles, bundle.Files)
+	}
+	if strings.Contains(bundle.Text, fmt.Sprintf("rule marker %02d", maxProjectCursorRuleFiles+3)) {
+		t.Fatal("cursor rule file cap was not applied")
+	}
+}
+
+func TestRunnerForeignProjectRulesStayUntrusted(t *testing.T) {
+	ctx := context.Background()
+	projectDir := t.TempDir()
+	if err := writeTestFile(projectDir, ".cursorrules", "This cursor rule must not enter the system prompt."); err != nil {
+		t.Fatal(err)
+	}
+	store, agent := newAgentTestStore(t, projectDir, "acceptEdits")
+	defer store.Close()
+	if _, err := store.AddMessage(ctx, db.Message{AgentID: agent.ID, Role: "user", ContentText: "hello"}); err != nil {
+		t.Fatal(err)
+	}
+	provider := &scriptedProvider{turns: [][]providers.Event{{{Type: "text", Text: "done"}, {Type: "done", Done: true}}}}
+	runner := newAgentTestRunner(store, provider, config.AgentConfig{MaxTurns: 1})
+	runner.Run(ctx, agent.ID)
+	if provider.requestCount() != 1 {
+		t.Fatalf("expected one provider request, got %d", provider.requestCount())
+	}
+	request := provider.request(0)
+	const marker = "This cursor rule must not enter the system prompt."
+	if !requestHasUntrustedUserContext(request, "project", marker) {
+		t.Fatalf("expected project user context to contain the cursor rule, got %+v", request.Messages)
+	}
+	if strings.Contains(request.SystemPrompt, marker) {
+		t.Fatalf("foreign project rule was promoted into the system prompt: %q", request.SystemPrompt)
+	}
+}
+
 func TestRunnerContextTokenLimitUsesResolvedAgentModelCapability(t *testing.T) {
 	registry := providers.NewRegistry()
 	provider := &scriptedProvider{contextLimits: map[string]int{"large": 654321, "inherit": 0}}

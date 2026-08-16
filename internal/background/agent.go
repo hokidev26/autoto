@@ -88,15 +88,18 @@ type agentRole struct {
 }
 
 type agentPublicResult struct {
-	RequestedRole   string `json:"requestedRole,omitempty"`
-	Role            string `json:"role"`
-	RequestedModel  string `json:"requestedModel,omitempty"`
-	Model           string `json:"model,omitempty"`
-	Workdir         string `json:"workdir,omitempty"`
-	AcceptanceCount int    `json:"acceptanceCount"`
-	ChildAgentID    string `json:"childAgentId"`
-	ChildRunID      string `json:"childRunId"`
-	Status          string `json:"status"`
+	RequestedRole   string   `json:"requestedRole,omitempty"`
+	Role            string   `json:"role"`
+	RequestedModel  string   `json:"requestedModel,omitempty"`
+	Model           string   `json:"model,omitempty"`
+	Workdir         string   `json:"workdir,omitempty"`
+	AcceptanceCount int      `json:"acceptanceCount"`
+	ChildAgentID    string   `json:"childAgentId"`
+	ChildRunID      string   `json:"childRunId"`
+	Status          string   `json:"status"`
+	Summary         string   `json:"summary,omitempty"`
+	Files           []string `json:"files,omitempty"`
+	Result          string   `json:"result,omitempty"`
 	// ChildError carries the child Run's own failure reason. Without it the
 	// parent only ever sees "background child agent did not complete", which
 	// names the outcome but not the cause: an unconfigured provider, a rejected
@@ -287,6 +290,10 @@ func (e *AgentExecutor) waitChild(ctx context.Context, task db.BackgroundTask, c
 				return Result{ErrorCode: "invalid_result"}, marshalErr
 			}
 			if status == "completed" {
+				result, marshalErr = attachChildPublicReport(result, loadChildPublicReport(ctx, e.Store, child.ID))
+				if marshalErr != nil {
+					return Result{ErrorCode: "invalid_result"}, marshalErr
+				}
 				return Result{JSON: result}, nil
 			}
 			// Name the cause, not just the outcome. "did not complete" alone sends

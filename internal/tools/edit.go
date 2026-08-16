@@ -13,15 +13,16 @@ import (
 type EditTool struct{}
 
 type editInput struct {
-	FilePath   string `json:"file_path" desc:"Path to the existing file to modify, absolute or relative to the working directory."`
-	OldString  string `json:"old_string" desc:"Exact text to replace, including indentation. Must appear exactly once unless replace_all is set."`
-	NewString  string `json:"new_string" desc:"Replacement text. Must differ from old_string."`
-	ReplaceAll bool   `json:"replace_all,omitempty" desc:"Replace every occurrence instead of requiring old_string to be unique."`
+	FilePath     string `json:"file_path" desc:"Path to the existing file to modify, absolute or relative to the working directory."`
+	OldString    string `json:"old_string" desc:"Exact text to replace, including indentation. Must appear exactly once unless replace_all is set."`
+	NewString    string `json:"new_string" desc:"Replacement text. Must differ from old_string."`
+	ReplaceAll   bool   `json:"replace_all,omitempty" desc:"Replace every occurrence instead of requiring old_string to be unique."`
+	ExpectedHash string `json:"expected_hash,omitempty" desc:"Optional SHA-256 prefix from the last Read header (hash=...). If set and the file on disk no longer matches, the edit is refused. Omit to keep the current overwrite behaviour."`
 }
 
 func (EditTool) Name() string { return "Edit" }
 func (EditTool) Description() string {
-	return "Replace text in an existing file under the agent working directory."
+	return "Replace text in an existing file under the agent working directory. Read the file first and pass expected_hash from the Read header so a concurrent change is refused instead of applying a stale patch. Omit expected_hash to keep the current overwrite behaviour. old_string must still be unique unless replace_all is set."
 }
 func (EditTool) Schema() any               { return editInput{} }
 func (EditTool) Risk(json.RawMessage) Risk { return RiskWrite }
@@ -45,6 +46,14 @@ func (EditTool) Execute(ctx context.Context, call Call, env Env) (Result, error)
 	if err != nil {
 		return Result{Output: err.Error(), IsError: true}, nil
 	}
+	live := hashBytes(data)
+	if !expectedHashMatches(input.ExpectedHash, live.hash) {
+		return Result{
+			Output:  staleFileHashError(live),
+			IsError: true,
+			Meta:    attachFileSnapshotMeta(map[string]any{"path": path}, live),
+		}, nil
+	}
 	text := string(data)
 	count := strings.Count(text, input.OldString)
 	if count == 0 {
@@ -65,12 +74,14 @@ func (EditTool) Execute(ctx context.Context, call Call, env Env) (Result, error)
 	if input.ReplaceAll {
 		changed = count
 	}
-	diff, diffTruncated := buildEditDiff(text, updated, editDiffDisplayPath(env.CWD, input.FilePath, path))
+	display := editDiffDisplayPath(env.CWD, input.FilePath, path)
+	diff, diffTruncated := buildEditDiff(text, updated, display)
+	fp := hashBytes([]byte(updated))
 	meta := map[string]any{"path": path, "replacements": changed, "diff": diff}
 	if diffTruncated {
 		meta["diffTruncated"] = true
 	}
-	return Result{Output: fmt.Sprintf("Edited %s (%d replacement(s))", path, changed), Meta: meta}, nil
+	return withFileSnapshot(display, fp, fmt.Sprintf("Edited %s (%d replacement(s))", path, changed), meta), nil
 }
 
 const (

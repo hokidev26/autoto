@@ -27,13 +27,14 @@ type multiEditHunk struct {
 }
 
 type multiEditInput struct {
-	FilePath string          `json:"file_path" desc:"Path to the existing file to modify, absolute or relative to the working directory."`
-	Edits    []multiEditHunk `json:"edits" desc:"Replacements applied in order, each seeing the result of the previous one. All are applied together or none are."`
+	FilePath     string          `json:"file_path" desc:"Path to the existing file to modify, absolute or relative to the working directory."`
+	ExpectedHash string          `json:"expected_hash,omitempty" desc:"Optional SHA-256 prefix from the last Read header (hash=...). If set and the file on disk no longer matches, no hunk is applied."`
+	Edits        []multiEditHunk `json:"edits" desc:"Replacements applied in order, each seeing the result of the previous one. All are applied together or none are."`
 }
 
 func (MultiEditTool) Name() string { return "MultiEdit" }
 func (MultiEditTool) Description() string {
-	return "Apply several ordered text replacements to one file atomically. Either every edit applies or the file is left unchanged."
+	return "Apply several ordered text replacements to one file atomically. Either every edit applies or the file is left unchanged. Read first and pass expected_hash from the Read header to refuse a stale file; omit it to keep the current overwrite behaviour."
 }
 func (MultiEditTool) Schema() any               { return multiEditInput{} }
 func (MultiEditTool) Risk(json.RawMessage) Risk { return RiskWrite }
@@ -59,6 +60,14 @@ func (MultiEditTool) Execute(ctx context.Context, call Call, env Env) (Result, e
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return Result{Output: err.Error(), IsError: true}, nil
+	}
+	live := hashBytes(data)
+	if !expectedHashMatches(input.ExpectedHash, live.hash) {
+		return Result{
+			Output:  staleFileHashError(live),
+			IsError: true,
+			Meta:    attachFileSnapshotMeta(map[string]any{"path": path}, live),
+		}, nil
 	}
 
 	original := string(data)
@@ -98,13 +107,12 @@ func (MultiEditTool) Execute(ctx context.Context, call Call, env Env) (Result, e
 		return Result{Output: err.Error(), IsError: true}, nil
 	}
 
-	diff, diffTruncated := buildEditDiff(original, updated, editDiffDisplayPath(env.CWD, input.FilePath, path))
+	display := editDiffDisplayPath(env.CWD, input.FilePath, path)
+	diff, diffTruncated := buildEditDiff(original, updated, display)
+	fp := hashBytes([]byte(updated))
 	meta := map[string]any{"path": path, "replacements": replacements, "edits": len(input.Edits), "diff": diff}
 	if diffTruncated {
 		meta["diffTruncated"] = true
 	}
-	return Result{
-		Output: fmt.Sprintf("Edited %s (%d edit(s), %d replacement(s))", path, len(input.Edits), replacements),
-		Meta:   meta,
-	}, nil
+	return withFileSnapshot(display, fp, fmt.Sprintf("Edited %s (%d edit(s), %d replacement(s))", path, len(input.Edits), replacements), meta), nil
 }

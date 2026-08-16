@@ -172,13 +172,13 @@ func TestReadPagesLargeFilesByLine(t *testing.T) {
 		result := read(`{"file_path":"big.txt","offset":100,"line_limit":3}`)
 		// The trailing marker tells the model more lines remain, so it knows to
 		// page again rather than assuming it reached the end.
-		if !strings.HasPrefix(result.Output, "line-100\nline-101\nline-102") {
+		if !strings.Contains(result.Output, "   100|line-100") || !strings.Contains(result.Output, "   102|line-102") {
 			t.Fatalf("unexpected window: %q", result.Output)
 		}
 		if !strings.HasSuffix(result.Output, "...[truncated]") {
 			t.Fatalf("expected a more-content marker, got %q", result.Output)
 		}
-		if result.Meta["startLine"] != 100 || result.Meta["endLine"] != 102 || result.Meta["lineCount"] != 3 {
+		if result.Meta["startLine"] != 100 || result.Meta["endLine"] != 102 || result.Meta["lineCount"] != 500 {
 			t.Fatalf("unexpected line metadata: %+v", result.Meta)
 		}
 	})
@@ -200,13 +200,16 @@ func TestReadPagesLargeFilesByLine(t *testing.T) {
 		}
 	})
 
-	t.Run("default read is unchanged", func(t *testing.T) {
+	t.Run("default read is a full-file snapshot without a paging window", func(t *testing.T) {
 		result := read(`{"file_path":"big.txt"}`)
-		if !strings.HasPrefix(result.Output, "line-1\n") {
-			t.Fatalf("default read should start at the top, got %q", result.Output[:min(40, len(result.Output))])
+		if !strings.Contains(fileReadBody(result.Output), "line-1\n") {
+			t.Fatalf("default read should start at the top, got %q", result.Output[:min(80, len(result.Output))])
 		}
 		if _, ok := result.Meta["startLine"]; ok {
 			t.Fatalf("default read must not report a line window: %+v", result.Meta)
+		}
+		if result.Meta["lineCount"] != 500 {
+			t.Fatalf("default read must report the full file line count, got %+v", result.Meta)
 		}
 	})
 }
