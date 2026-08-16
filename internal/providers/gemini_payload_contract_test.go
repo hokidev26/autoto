@@ -103,9 +103,8 @@ func findGeminiCloudCodeUnknownFields(body []byte) []string {
 }
 
 // omittedTopLevel names fields this payload is expected not to carry. Image
-// generation and Claude both deliberately drop enabledCreditTypes: the image
-// endpoint rejects it outright, and for Claude it makes Google debit the Gemini
-// credit pool instead of the Claude pool.
+// generation drops enabledCreditTypes because that endpoint rejects it. Agent
+// requests include it, matching Antigravity-Manager.
 func assertGeminiCloudCodePayloadClean(t *testing.T, payload map[string]any, wantRequestKeys []string, omittedTopLevel ...string) {
 	t.Helper()
 	encoded, err := json.Marshal(payload)
@@ -163,7 +162,7 @@ func TestBuildGeminiCloudCodePayloadSendsOnlyKnownFields(t *testing.T) {
 	})
 
 	// The image endpoint takes a narrower envelope: it rejects
-	// systemInstruction, tools and enabledCreditTypes, and carries imageConfig.
+	// systemInstruction and tools, and carries imageConfig.
 	t.Run("image generation", func(t *testing.T) {
 		assertGeminiCloudCodePayloadClean(t, buildGeminiCloudCodePayload(GenerateRequest{
 			SystemPrompt: "Be concise.",
@@ -180,7 +179,7 @@ func TestBuildGeminiCloudCodePayloadSendsOnlyKnownFields(t *testing.T) {
 			Messages:     []Message{{Role: "user", Content: "hello"}},
 			Tools:        []ToolSpec{{Name: "lookup", Schema: map[string]any{"type": "object"}}},
 		}, "claude-sonnet-4-6", "project-1", "high"),
-			[]string{"contents", "generationConfig", "sessionId", "systemInstruction", "toolConfig", "tools"}, "enabledCreditTypes")
+			[]string{"contents", "generationConfig", "sessionId", "systemInstruction", "toolConfig", "tools"})
 	})
 }
 
@@ -266,6 +265,11 @@ func TestGeminiProviderStrictUpstreamAcceptsTheRealEnvelope(t *testing.T) {
 		}
 		if body["project"] != "project-only" || body["model"] != "gemini-3-flash" {
 			t.Errorf("unexpected Cloud Code body: %v", body)
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		if _, ok := body["enabledCreditTypes"]; !ok {
+			t.Errorf("agent generate must include enabledCreditTypes: %v", body)
 			w.WriteHeader(http.StatusBadRequest)
 			return
 		}

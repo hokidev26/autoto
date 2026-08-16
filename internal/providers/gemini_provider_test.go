@@ -69,8 +69,7 @@ func TestBuildGeminiCloudCodePayload(t *testing.T) {
 		MaxOutputTokens: 128,
 		// Inline image output on a normal chat model. A model whose name
 		// contains "image" would instead take the dedicated image-generation
-		// branch, which deliberately drops systemInstruction, tools and
-		// enabledCreditTypes — the opposite of what this test asserts.
+		// branch, which drops systemInstruction and tools.
 		EnableImageGeneration: true,
 	}, "gemini-3-flash", "project-1", "high")
 	encoded, err := json.Marshal(payload)
@@ -82,6 +81,9 @@ func TestBuildGeminiCloudCodePayload(t *testing.T) {
 		if !strings.Contains(text, required) {
 			t.Fatalf("payload missing %s: %s", required, text)
 		}
+	}
+	if requestID, _ := payload["requestId"].(string); !strings.HasPrefix(requestID, "agent/") {
+		t.Fatalf("requestId %q must match Antigravity agent/{ms}/{hex} form", requestID)
 	}
 	// Gemini models must NOT send additionalModelRequestFields
 	if strings.Contains(text, "additionalModelRequestFields") {
@@ -269,6 +271,9 @@ func TestGeminiProviderFailoverDispatchAndStreaming(t *testing.T) {
 		if body["project"] != "project-second" || body["model"] != "gemini-3-flash" {
 			t.Fatalf("unexpected Cloud Code body: %v", body)
 		}
+		if _, ok := body["enabledCreditTypes"]; !ok {
+			t.Fatalf("agent generate must include enabledCreditTypes: %v", body)
+		}
 		w.Header().Set("Content-Type", "text/event-stream")
 		_, _ = w.Write([]byte("data: {\"response\":{\"candidates\":[{\"content\":{\"role\":\"model\",\"parts\":[{\"text\":\"hello\"},{\"thoughtSignature\":\"sig-live\",\"functionCall\":{\"id\":\"call-live\",\"name\":\"lookup\",\"args\":{\"q\":\"x\"}}}]},\"finishReason\":\"STOP\"}],\"usageMetadata\":{\"promptTokenCount\":3,\"candidatesTokenCount\":2,\"cachedContentTokenCount\":1,\"thoughtsTokenCount\":4}}}\n\n"))
 	}))
@@ -314,6 +319,72 @@ func TestGeminiProviderFailoverDispatchAndStreaming(t *testing.T) {
 	}
 	if usage == nil || usage.InputTokens != 3 || usage.OutputTokens != 2 || usage.CachedInputTokens != 1 || usage.ReasoningTokens != 4 || !done {
 		t.Fatalf("unexpected terminal events: usage=%+v done=%v events=%+v", usage, done, got)
+	}
+}
+
+func TestGeminiProviderAgentGenerateSendsOfficialFingerprint(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "gemini")
+	store := subscriptionauth.NewStore(dir)
+	createGeminiProviderTestAccount(t, store, "token-only", "only", "project-only", 1, time.Now().Add(time.Hour))
+
+	var calls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		if !strings.Contains(r.Header.Get("User-Agent"), "Antigravity/4.3.0") {
+			t.Errorf("generate User-Agent = %q", r.Header.Get("User-Agent"))
+		}
+		if r.Header.Get("x-client-name") != "antigravity" || r.Header.Get("x-client-version") != "4.3.0" {
+			t.Errorf("missing client identity headers: %v", r.Header)
+		}
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Errorf("decoding body: %v", err)
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		credits, _ := body["enabledCreditTypes"].([]any)
+		if len(credits) != 1 || credits[0] != "GOOGLE_ONE_AI" {
+			t.Errorf("agent generate missing Google One credits fingerprint: %v", body)
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		requestID, _ := body["requestId"].(string)
+		if !strings.HasPrefix(requestID, "agent/") {
+			t.Errorf("requestId = %q", requestID)
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte("data: {\"response\":{\"candidates\":[{\"content\":{\"role\":\"model\",\"parts\":[{\"text\":\"hello\"}]},\"finishReason\":\"STOP\"}]}}\n\n"))
+	}))
+	defer server.Close()
+
+	provider := newGeminiProviderForTest(config.ProviderConfig{
+		Name: "gemini", Type: config.ProviderTypeGemini, Model: "gemini-3-flash",
+		Models:              []config.ProviderModelConfig{{Name: "gemini-3-flash", ContextTokenLimit: 1048576}},
+		CredentialStorePath: dir,
+	}, server.Client(), server.URL)
+	events, err := provider.Generate(context.Background(), GenerateRequest{Messages: []Message{{Role: "user", Content: "hi"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var text string
+	for _, event := range collectGeminiProviderEvents(t, events) {
+		if event.Type == "text" {
+			text += event.Text
+		}
+	}
+	if text != "hello" || calls.Load() != 1 {
+		t.Fatalf("text = %q, calls = %d; want \"hello\" and 1", text, calls.Load())
+	}
+}
+
+func TestGeminiCloudCodeGenerateBaseURLs(t *testing.T) {
+	official := geminiCloudCodeGenerateBaseURLs(geminiCloudCodeProductionBaseURL)
+	if len(official) != 3 || official[0] != geminiCloudCodeSandboxBaseURL || official[1] != geminiCloudCodeDailyBaseURL || official[2] != geminiCloudCodeProductionBaseURL {
+		t.Fatalf("official generate hosts = %v", official)
+	}
+	local := geminiCloudCodeGenerateBaseURLs("http://127.0.0.1:9")
+	if len(local) != 1 || local[0] != "http://127.0.0.1:9" {
+		t.Fatalf("test hosts must not leak Google fallbacks: %v", local)
 	}
 }
 
@@ -397,8 +468,11 @@ func TestGeminiProviderListModelsMergesLiveAndStatic(t *testing.T) {
 		t.Fatal(err)
 	}
 	joined := strings.Join(models, ",")
-	if !strings.Contains(joined, "gemini-live-model") || !strings.Contains(joined, "gemini-static") {
-		t.Fatalf("live/static models were not merged: %v", models)
+	if !strings.Contains(joined, "gemini-live-model") {
+		t.Fatalf("live catalog missing: %v", models)
+	}
+	if strings.Contains(joined, "gemini-static") {
+		t.Fatalf("static fallback must not be advertised when live catalog succeeded: %v", models)
 	}
 	// The project id is what makes the quota figures account-specific; without it
 	// Google answers 200 but reports full quota for an exhausted account.

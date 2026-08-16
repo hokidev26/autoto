@@ -25,6 +25,9 @@ func defaultGeminiProvider() ProviderConfig {
 		Models: []ProviderModelConfig{
 			{Name: "claude-opus-4-6-thinking", ContextTokenLimit: 200000},
 			{Name: "claude-sonnet-4-6", ContextTokenLimit: 200000},
+			{Name: "gemini-3.7-flash", ContextTokenLimit: 1048576},
+			{Name: "gemini-3.7-flash-high", ContextTokenLimit: 1048576},
+			{Name: "gemini-3.7-flash-low", ContextTokenLimit: 1048576},
 			{Name: "gemini-3-flash", ContextTokenLimit: 1048576},
 			{Name: "gemini-3-flash-agent", ContextTokenLimit: 1048576},
 			{Name: "gemini-3.1-flash-image", ImageGeneration: true},

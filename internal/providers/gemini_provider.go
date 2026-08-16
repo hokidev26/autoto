@@ -28,6 +28,8 @@ import (
 
 const (
 	geminiCloudCodeProductionBaseURL = "https://cloudcode-pa.googleapis.com"
+	geminiCloudCodeDailyBaseURL      = "https://daily-cloudcode-pa.googleapis.com"
+	geminiCloudCodeSandboxBaseURL    = "https://daily-cloudcode-pa.sandbox.googleapis.com"
 	geminiCloudCodeMaxResponseBytes  = 16 << 20
 	// geminiCloudCodeMaxContinuations caps how many times a truncated stream is
 	// automatically continued. Each continuation appends the partial assistant
@@ -224,7 +226,7 @@ func (p *GeminiProvider) ListModels(ctx context.Context) ([]string, error) {
 			lastErr = newSubscriptionNetworkError(p.cfg.Name, requestErr)
 			continue
 		}
-		p.applyHeaders(request, prepared.Credential, false)
+		p.applyHeaders(request, prepared.Credential, false, false)
 		response, requestErr := p.client.Do(request)
 		if requestErr != nil {
 			if ctx.Err() != nil {
@@ -260,8 +262,14 @@ func (p *GeminiProvider) ListModels(ctx context.Context) ([]string, error) {
 			appendUniqueModel(&models, seen, model)
 		}
 	}
-	for _, model := range staticModels {
-		appendUniqueModel(&models, seen, model)
+	// Live fetchAvailableModels is the account's actual catalog. Appending the
+	// static fallback (for example gemini-3.7-flash) advertised models Google
+	// has not enabled, and generate then 429'd while the quota card — which
+	// only lists live models — still showed 100%.
+	if len(models) == 0 {
+		for _, model := range staticModels {
+			appendUniqueModel(&models, seen, model)
+		}
 	}
 	if len(models) > 0 {
 		return models, nil
@@ -342,95 +350,103 @@ func (p *GeminiProvider) generateCloudCodeAttempts(ctx context.Context, out chan
 			continue
 		}
 		payload := buildGeminiCloudCodePayload(req, model, prepared.ProjectID, reasoningEffort)
+		isImageGen := strings.Contains(strings.ToLower(model), "image")
+		isClaude := strings.HasPrefix(strings.ToLower(model), "claude-")
+		var methodPath string
+		if isImageGen {
+			methodPath = "/v1internal:generateContent"
+		} else {
+			methodPath = "/v1internal:streamGenerateContent?alt=sse"
+		}
 		data, marshalErr := json.Marshal(payload)
 		if marshalErr != nil {
 			lastErr = newSubscriptionNetworkError(p.cfg.Name, marshalErr)
 			continue
 		}
-		isImageGen := strings.Contains(strings.ToLower(model), "image")
-		var endpoint string
-		if isImageGen {
-			endpoint = p.baseURL + "/v1internal:generateContent"
-		} else {
-			endpoint = p.baseURL + "/v1internal:streamGenerateContent?alt=sse"
-		}
-		request, requestErr := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(data))
-		if requestErr != nil {
-			lastErr = newSubscriptionNetworkError(p.cfg.Name, requestErr)
-			p.accounts.recordAttempt(ctx, prepared.ID, false, 0, "request_construction_failed", lastErr)
-			continue
-		}
-		p.applyHeaders(request, prepared.Credential, !isImageGen)
-		if strings.HasPrefix(strings.ToLower(model), "claude-") {
-			request.Header.Set("anthropic-beta", "claude-code-20250219")
-		}
-		response, requestErr := p.client.Do(request)
-		if requestErr != nil {
+		bases := geminiCloudCodeGenerateBaseURLs(p.baseURL)
+		for hostIdx, base := range bases {
+			endpoint := strings.TrimRight(base, "/") + methodPath
+			response, requestErr := p.doGeminiCloudCodeRequest(ctx, endpoint, data, prepared.Credential, !isImageGen, isClaude)
+			if requestErr != nil {
+				if ctx.Err() != nil {
+					return "", true
+				}
+				lastErr = newSubscriptionNetworkError(p.cfg.Name, requestErr)
+				if hostIdx+1 < len(bases) {
+					slog.Info("gemini cloud code trying next endpoint", "provider", p.cfg.Name, "from", base)
+					continue
+				}
+				p.accounts.recordAttempt(ctx, prepared.ID, false, 0, "network_error", lastErr)
+				if shouldTryNextSubscriptionAccount(ctx, lastErr, false) {
+					break
+				}
+				p.emitFinalError(ctx, out, model, prepared.ID, lastErr)
+				return "", true
+			}
+			if response.StatusCode >= http.StatusMultipleChoices {
+				status := response.StatusCode
+				raw, _ := io.ReadAll(io.LimitReader(response.Body, 4096))
+				response.Body.Close()
+				detail := logGeminiRejectionBytes(status, model, prepared.ProjectID, raw)
+				code := "model_request_failed"
+				if detail != "" && status == http.StatusBadRequest {
+					lastErr = fmt.Errorf("%s request failed: HTTP %d (%s)", p.cfg.Name, status, detail)
+				} else {
+					lastErr = newSubscriptionHTTPError(p.cfg.Name, status, code)
+				}
+				if hostIdx+1 < len(bases) && shouldTryNextGeminiCloudCodeHost(status) {
+					slog.Info("gemini cloud code trying next endpoint", "provider", p.cfg.Name, "status", status, "from", base)
+					continue
+				}
+				p.accounts.recordAttempt(ctx, prepared.ID, false, status, code, lastErr)
+				if shouldTryNextSubscriptionAccount(ctx, lastErr, false) {
+					break
+				}
+				p.emitFinalError(ctx, out, model, prepared.ID, lastErr)
+				return "", true
+			}
+			dispatchEmitted := false
+			emitDispatch := func() bool {
+				if dispatchEmitted {
+					return true
+				}
+				dispatchEmitted = emitProviderEvent(ctx, out, newDispatchEvent(p.cfg.Name, model, prepared.ID))
+				return dispatchEmitted
+			}
+			var outcome geminiCloudCodeAttemptOutcome
+			if isImageGen {
+				outcome = consumeGeminiCloudCodeImageResponse(ctx, out, response.Body, emitDispatch, p.cfg.Name)
+			} else {
+				outcome = consumeGeminiCloudCodeAttempt(ctx, out, response.Body, emitDispatch, p.cfg.Name)
+			}
+			response.Body.Close()
 			if ctx.Err() != nil {
 				return "", true
 			}
-			lastErr = newSubscriptionNetworkError(p.cfg.Name, requestErr)
-			p.accounts.recordAttempt(ctx, prepared.ID, false, 0, "network_error", lastErr)
-			if shouldTryNextSubscriptionAccount(ctx, lastErr, false) {
-				continue
-			}
-			p.emitFinalError(ctx, out, model, prepared.ID, lastErr)
-			return "", true
-		}
-		if response.StatusCode >= http.StatusMultipleChoices {
-			status := response.StatusCode
-			detail := logGeminiRejection(status, model, prepared.ProjectID, response.Body)
-			response.Body.Close()
-			code := "model_request_failed"
-			if detail != "" && status == http.StatusBadRequest {
-				lastErr = fmt.Errorf("%s request failed: HTTP %d (%s)", p.cfg.Name, status, detail)
-			} else {
-				lastErr = newSubscriptionHTTPError(p.cfg.Name, status, code)
-			}
-			p.accounts.recordAttempt(ctx, prepared.ID, false, status, code, lastErr)
-			if shouldTryNextSubscriptionAccount(ctx, lastErr, false) {
-				continue
-			}
-			p.emitFinalError(ctx, out, model, prepared.ID, lastErr)
-			return "", true
-		}
-		dispatchEmitted := false
-		emitDispatch := func() bool {
-			if dispatchEmitted {
-				return true
-			}
-			dispatchEmitted = emitProviderEvent(ctx, out, newDispatchEvent(p.cfg.Name, model, prepared.ID))
-			return dispatchEmitted
-		}
-		var outcome geminiCloudCodeAttemptOutcome
-		if isImageGen {
-			outcome = consumeGeminiCloudCodeImageResponse(ctx, out, response.Body, emitDispatch, p.cfg.Name)
-		} else {
-			outcome = consumeGeminiCloudCodeAttempt(ctx, out, response.Body, emitDispatch, p.cfg.Name)
-		}
-		response.Body.Close()
-		if ctx.Err() != nil {
-			return "", true
-		}
-		if outcome.err != nil {
-			// Truncated stream: return partial text so the caller can build a continuation.
-			if outcome.truncated && outcome.accumulatedText != "" && contAttempt < geminiCloudCodeMaxContinuations {
+			if outcome.err != nil {
+				if outcome.truncated && outcome.accumulatedText != "" && contAttempt < geminiCloudCodeMaxContinuations {
+					p.accounts.recordAttempt(ctx, prepared.ID, false, response.StatusCode, outcome.code, outcome.err)
+					return outcome.accumulatedText, false
+				}
+				lastErr = outcome.err
+				status := subscriptionErrorStatus(outcome.err)
+				if hostIdx+1 < len(bases) && !outcome.emittedContent && shouldTryNextGeminiCloudCodeHost(status) {
+					slog.Info("gemini cloud code trying next endpoint", "provider", p.cfg.Name, "status", status, "from", base)
+					continue
+				}
 				p.accounts.recordAttempt(ctx, prepared.ID, false, response.StatusCode, outcome.code, outcome.err)
-				return outcome.accumulatedText, false
-			}
-			lastErr = outcome.err
-			p.accounts.recordAttempt(ctx, prepared.ID, false, response.StatusCode, outcome.code, outcome.err)
-			if shouldTryNextSubscriptionAccount(ctx, outcome.err, outcome.emittedContent) {
-				continue
-			}
-			if !emitDispatch() {
+				if shouldTryNextSubscriptionAccount(ctx, outcome.err, outcome.emittedContent) {
+					break
+				}
+				if !emitDispatch() {
+					return "", true
+				}
+				_ = emitProviderEvent(ctx, out, Event{Type: "error", Text: sanitizeSubscriptionError(ctx, p.cfg.Name, outcome.err).Error()})
 				return "", true
 			}
-			_ = emitProviderEvent(ctx, out, Event{Type: "error", Text: sanitizeSubscriptionError(ctx, p.cfg.Name, outcome.err).Error()})
+			p.accounts.recordAttempt(ctx, prepared.ID, true, response.StatusCode, "", nil)
 			return "", true
 		}
-		p.accounts.recordAttempt(ctx, prepared.ID, true, response.StatusCode, "", nil)
-		return "", true
 	}
 	if lastErr == nil {
 		lastErr = providerUnavailableError(p.cfg.Name, "no usable subscription account")
@@ -481,16 +497,34 @@ func (p *GeminiProvider) emitFinalError(ctx context.Context, out chan<- Event, m
 	_ = emitProviderEvent(ctx, out, Event{Type: "error", Text: sanitizeSubscriptionError(ctx, p.cfg.Name, err).Error()})
 }
 
-func (p *GeminiProvider) applyHeaders(request *http.Request, credential subscriptionauth.Credential, streaming bool) {
+func (p *GeminiProvider) applyHeaders(request *http.Request, credential subscriptionauth.Credential, streaming, generate bool) {
 	request.Header.Set("Authorization", "Bearer "+strings.TrimSpace(credential.AccessToken))
 	request.Header.Set("Content-Type", "application/json")
-	request.Header.Set("User-Agent", geminiauth.RequestUserAgent)
+	if generate {
+		request.Header.Set("User-Agent", geminiauth.GenerateUserAgent())
+		request.Header.Set("x-client-name", "antigravity")
+		request.Header.Set("x-client-version", geminiauth.AntigravityClientVersion)
+	} else {
+		request.Header.Set("User-Agent", geminiauth.RequestUserAgent)
+	}
 	if streaming {
 		request.Header.Set("Accept", "text/event-stream")
 	} else {
 		request.Header.Set("Accept", "*/*")
 	}
 	request.Close = true
+}
+
+func (p *GeminiProvider) doGeminiCloudCodeRequest(ctx context.Context, endpoint string, data []byte, credential subscriptionauth.Credential, streaming, isClaude bool) (*http.Response, error) {
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(data))
+	if err != nil {
+		return nil, err
+	}
+	p.applyHeaders(request, credential, streaming, true)
+	if isClaude {
+		request.Header.Set("anthropic-beta", "claude-code-20250219")
+	}
+	return p.client.Do(request)
 }
 
 // logGeminiRejection records why Cloud Code refused a request and returns the
@@ -503,7 +537,14 @@ func (p *GeminiProvider) applyHeaders(request *http.Request, credential subscrip
 // bounded so a hostile response cannot flood the log.
 func logGeminiRejection(status int, model, projectID string, body io.Reader) string {
 	raw, err := io.ReadAll(io.LimitReader(body, 4096))
-	if err != nil || len(raw) == 0 {
+	if err != nil {
+		raw = nil
+	}
+	return logGeminiRejectionBytes(status, model, projectID, raw)
+}
+
+func logGeminiRejectionBytes(status int, model, projectID string, raw []byte) string {
+	if len(raw) == 0 {
 		slog.Warn("gemini cloud code rejected request", "status", status, "model", model, "project", projectID)
 		return ""
 	}
@@ -600,7 +641,7 @@ func buildGeminiCloudCodePayload(req GenerateRequest, model, projectID, reasonin
 		}
 	}
 	requestType := "agent"
-	requestID := "agent-" + uuid.NewString()
+	requestID := geminiCloudCodeAgentRequestID()
 	if isImageGen {
 		requestType = "image_gen"
 		requestID = fmt.Sprintf("image_gen/%d/%s/12", time.Now().UnixMilli(), uuid.NewString())
@@ -613,17 +654,48 @@ func buildGeminiCloudCodePayload(req GenerateRequest, model, projectID, reasonin
 		"requestType": requestType,
 		"requestId":   requestID,
 	}
-	// enabledCreditTypes is omitted for image generation and Claude requests.
-	// For image generation the endpoint rejects the field outright. For Claude
-	// models, sending GOOGLE_ONE_AI causes Google to debit the Gemini credit
-	// pool instead of the Claude/GPT pool; if Gemini quota is exhausted the
-	// call fails even when Claude quota is fully available. Omitting the field
-	// (as the reference Antigravity client does) lets Google route the billing
-	// automatically based on the model family.
-	if !isImageGen && !isClaude {
-		outer["enabledCreditTypes"] = []string{"GOOGLE_ONE_AI"}
+	// Antigravity-Manager injects enabledCreditTypes on every agent request as
+	// an official-client fingerprint, not only as a paid-credit fallback.
+	if !isImageGen {
+		injectGeminiGoogleOneCredits(outer)
 	}
 	return outer
+}
+
+func geminiCloudCodeAgentRequestID() string {
+	return fmt.Sprintf("agent/%d/%s", time.Now().UnixMilli(), strings.ReplaceAll(uuid.NewString(), "-", "")[:8])
+}
+
+// geminiCloudCodeGenerateBaseURLs returns the upstream hosts to try for generate.
+// Configured httptest / non-Google URLs stay single-host. Official Cloud Code
+// follows Antigravity-Manager Issue #1176: sandbox, then daily, then prod,
+// because production generate 429s while quota listing on prod still succeeds.
+func geminiCloudCodeGenerateBaseURLs(configured string) []string {
+	configured = strings.TrimRight(strings.TrimSpace(configured), "/")
+	if !geminiCloudCodeIsOfficialBase(configured) {
+		if configured == "" {
+			return []string{geminiCloudCodeProductionBaseURL}
+		}
+		return []string{configured}
+	}
+	return []string{geminiCloudCodeSandboxBaseURL, geminiCloudCodeDailyBaseURL, geminiCloudCodeProductionBaseURL}
+}
+
+func geminiCloudCodeIsOfficialBase(base string) bool {
+	parsed, err := url.Parse(base)
+	if err != nil || parsed.Scheme != "https" {
+		return false
+	}
+	switch strings.ToLower(parsed.Host) {
+	case "cloudcode-pa.googleapis.com", "daily-cloudcode-pa.googleapis.com", "daily-cloudcode-pa.sandbox.googleapis.com":
+		return strings.TrimRight(parsed.EscapedPath(), "/") == ""
+	default:
+		return false
+	}
+}
+
+func shouldTryNextGeminiCloudCodeHost(status int) bool {
+	return status == http.StatusNotFound || status == http.StatusRequestTimeout || status == http.StatusTooManyRequests || status >= http.StatusInternalServerError
 }
 
 // geminiClaudeThinkingBudget converts an effort level into the token budget
@@ -832,6 +904,7 @@ type geminiCloudCodeAttemptOutcome struct {
 	code            string
 	truncated       bool   // stream closed without [DONE] after emitting content
 	accumulatedText string // text collected before truncation; used to build continuation
+	errorBody       []byte // bounded upstream error JSON, used to classify 429 credits retry
 }
 
 func consumeGeminiCloudCodeAttempt(ctx context.Context, out chan<- Event, reader io.Reader, emitDispatch func() bool, provider string) geminiCloudCodeAttemptOutcome {
@@ -911,10 +984,14 @@ func consumeGeminiCloudCodeAttempt(ctx context.Context, out chan<- Event, reader
 					httpStatus = 0
 				}
 			}
-			if httpStatus >= 100 && httpStatus <= 599 {
-				return geminiCloudCodeAttemptOutcome{emittedContent: outcome.emittedContent, err: newSubscriptionHTTPError(provider, httpStatus, "stream_error"), code: "stream_error"}
+			errorBody := []byte(data)
+			if len(errorBody) > 4096 {
+				errorBody = errorBody[:4096]
 			}
-			return geminiCloudCodeAttemptOutcome{emittedContent: outcome.emittedContent, err: newSubscriptionNetworkError(provider, errors.New(detail)), code: "stream_error"}
+			if httpStatus >= 100 && httpStatus <= 599 {
+				return geminiCloudCodeAttemptOutcome{emittedContent: outcome.emittedContent, err: newSubscriptionHTTPError(provider, httpStatus, "stream_error"), code: "stream_error", errorBody: errorBody}
+			}
+			return geminiCloudCodeAttemptOutcome{emittedContent: outcome.emittedContent, err: newSubscriptionNetworkError(provider, errors.New(detail)), code: "stream_error", errorBody: errorBody}
 		}
 		candidates, _ := root["candidates"].([]any)
 		for _, rawCandidate := range candidates {

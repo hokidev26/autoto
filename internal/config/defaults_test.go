@@ -61,7 +61,7 @@ func TestDefaultConfig(t *testing.T) {
 		t.Fatalf("expected local security defaults, got %+v", cfg.Security)
 	}
 	gemini := providerByName(cfg, ProviderTypeGemini)
-	if gemini == nil || gemini.Type != ProviderTypeGemini || gemini.BaseURL != "https://cloudcode-pa.googleapis.com" || gemini.Model != "gemini-3-flash" || gemini.ModelContextTokenLimit("gemini-3-flash") != 1048576 {
+	if gemini == nil || gemini.Type != ProviderTypeGemini || gemini.BaseURL != "https://cloudcode-pa.googleapis.com" || gemini.Model != "gemini-3-flash" || gemini.ModelContextTokenLimit("gemini-3-flash") != 1048576 || gemini.ModelContextTokenLimit("gemini-3.7-flash") != 1048576 {
 		t.Fatalf("unexpected Gemini provider preset: %+v", gemini)
 	}
 	grok := providerByName(cfg, ProviderTypeGrok)

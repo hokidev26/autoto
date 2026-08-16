@@ -16,6 +16,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"runtime"
 	"strings"
 	"time"
 
@@ -32,13 +33,23 @@ const (
 	TokenEndpoint    = "https://oauth2.googleapis.com/token"
 	UserInfoEndpoint = "https://www.googleapis.com/oauth2/v2/userinfo?alt=json"
 
-	CloudCodeAPIEndpoint      = "https://cloudcode-pa.googleapis.com"
-	CloudCodeDailyAPIEndpoint = "https://daily-cloudcode-pa.googleapis.com"
-	CloudCodeAPIVersion       = "v1internal"
+	CloudCodeAPIEndpoint        = "https://cloudcode-pa.googleapis.com"
+	CloudCodeDailyAPIEndpoint   = "https://daily-cloudcode-pa.googleapis.com"
+	CloudCodeSandboxAPIEndpoint = "https://daily-cloudcode-pa.sandbox.googleapis.com"
+	CloudCodeAPIVersion         = "v1internal"
 
+	// RequestUserAgent is the control-plane identity for OAuth, project
+	// onboarding, and fetchAvailableModels. Generate uses GenerateUserAgent.
 	RequestUserAgent       = "antigravity/hub/2.2.1 darwin/arm64"
 	OnboardUserAgent       = RequestUserAgent + " google-api-nodejs-client/10.3.0"
 	OnboardGoogAPIClientUA = "gl-node/22.21.1"
+
+	// AntigravityClientVersion is the floor Antigravity-Manager uses so Google
+	// does not reject generate as an outdated client. Chrome/Electron match
+	// Antigravity 4.3.0 (Electron 39 / Chrome 132).
+	AntigravityClientVersion   = "4.3.0"
+	antigravityChromeVersion   = "132.0.6834.160"
+	antigravityElectronVersion = "39.2.3"
 
 	RefreshLeadDuration = 5 * time.Minute
 
@@ -55,6 +66,21 @@ var Scopes = []string{
 }
 
 var refreshGroup singleflight.Group
+
+// GenerateUserAgent is the HTTP User-Agent for Cloud Code generate/stream.
+// Antigravity-Manager (and Google's current worker) expect an Electron
+// Antigravity string with a current version; the hub/2.2.1 darwin fingerprint
+// still works for quota listing but generate on production answers 429.
+func GenerateUserAgent() string {
+	platform := "X11; Linux x86_64"
+	switch runtime.GOOS {
+	case "windows":
+		platform = "Windows NT 10.0; Win64; x64"
+	case "darwin":
+		platform = "Macintosh; Intel Mac OS X 10_15_7"
+	}
+	return fmt.Sprintf("Antigravity/%s (%s) Chrome/%s Electron/%s", AntigravityClientVersion, platform, antigravityChromeVersion, antigravityElectronVersion)
+}
 
 // RefreshLead returns how early callers should refresh an access token.
 func RefreshLead() time.Duration { return RefreshLeadDuration }
