@@ -1021,13 +1021,12 @@ test("ordinary error and failed runs render one escaped line carrying retry and 
   }
 });
 
-test("ordinary interrupted runs are weakly noted while superseded runs stay hidden", () => {
+test("user-stopped interrupted runs omit the transcript notice while superseded runs stay hidden", () => {
   const interrupted = renderSnapshot([], {
     activeRunSummaryRunId: "run-interrupted",
     activeRunSummary: { run: { id: "run-interrupted", source: "conversation", status: "interrupted" }, toolCalls: [], recentMessages: [] },
   });
-  assert.match(interrupted.html, /conversation-run-notice interrupted/);
-  assert.match(interrupted.html, /已有消息和工具记录仍保留/);
+  assert.doesNotMatch(interrupted.html, /conversation-run-notice|已有消息和工具记录仍保留|This response was interrupted/);
 
   const superseded = renderSnapshot([], {
     activeRunSummaryRunId: "run-superseded",
@@ -3482,7 +3481,7 @@ test("run review loading keeps the existing outcome notice stable without transi
   // loaded, a later in-flight refresh must not blank out or replace it with a
   // transient "loading" label.
   const summary = {
-    run: { id: "run-1", source: "conversation", status: "interrupted" },
+    run: { id: "run-1", source: "conversation", status: "interrupted", errorMessage: "load continuation safety snapshot: tool catalog snapshot changed or is missing" },
     toolCalls: [],
     recentMessages: [],
   };
@@ -4688,13 +4687,15 @@ test("interrupted conversation runs show the reason they stopped", () => {
   });
 
   assert.match(html, /conversation-run-notice interrupted/);
-  // The actionable translation, not the internal precondition text.
+  // The actionable translation, not the internal precondition text or the
+  // generic "history remains" divider used for a user Stop.
   assert.ok(html.includes("工作目录不是 Git 仓库"));
   assert.ok(html.includes(".git"));
   assert.doesNotMatch(html, /must be a Git repository/);
+  assert.doesNotMatch(html, /已有消息和工具记录仍保留|This response was interrupted/);
 });
 
-test("interrupted conversation runs with no reason keep the plain notice", () => {
+test("interrupted conversation runs with no reason omit the transcript notice", () => {
   const { html } = renderSnapshot([], {
     activeRunSummaryRunId: "run-interrupted-plain",
     activeRunSummary: {
@@ -4704,10 +4705,19 @@ test("interrupted conversation runs with no reason keep the plain notice", () =>
     },
   });
 
-  assert.match(html, /conversation-run-notice interrupted/);
-  // No empty detail span, and no fallback copy borrowed from the error branch.
-  assert.doesNotMatch(html, /conversation-run-notice-message/);
+  assert.doesNotMatch(html, /conversation-run-notice/);
+  assert.doesNotMatch(html, /本轮已中断|本輪已中斷|This response was interrupted/);
   assert.doesNotMatch(html, /本轮未能完成回复/);
+
+  const userStop = renderSnapshot([], {
+    activeRunSummaryRunId: "run-interrupted-user",
+    activeRunSummary: {
+      run: { id: "run-interrupted-user", source: "conversation", status: "interrupted", errorMessage: "interrupted by user" },
+      toolCalls: [],
+      recentMessages: [],
+    },
+  });
+  assert.doesNotMatch(userStop.html, /conversation-run-notice/);
 });
 
 // A continuation failure that is not the Git case must still say something
@@ -4729,6 +4739,7 @@ test("interrupted runs report other continuation snapshot failures", () => {
 
   assert.match(html, /conversation-run-notice interrupted/);
   assert.ok(html.includes("无法建立续跑安全快照"));
+  assert.doesNotMatch(html, /已有消息和工具记录仍保留|This response was interrupted/);
 });
 
 // The transcript column is user-resizable: docking a utility panel squeezes it

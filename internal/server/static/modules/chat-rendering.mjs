@@ -2019,6 +2019,11 @@ export function createChatRenderingController({
     `;
   }
 
+  function isUserInterruptedReason(value) {
+    const reason = String(value || "").trim().toLowerCase();
+    return reason === "interrupted by user" || reason === "interrupted";
+  }
+
   function renderConversationRunNoticeHTML(run, status) {
     if (status === "error" || status === "failed") {
       const message = runFailureMessage(run);
@@ -2039,17 +2044,15 @@ export function createChatRenderingController({
       `;
     }
     if (status === "interrupted") {
-      // An interrupted run can still carry a reason, and it is usually the only
-      // place that reason is visible. Dropping it left the generic sentence as
-      // the whole story, so a run blocked by something fixable looked identical
-      // to one the user stopped on purpose.
-      const reason = String(run?.errorMessage || "").trim()
-        ? runFailureMessage(run)
-        : "";
-      const detail = reason
-        ? `<span class="conversation-run-notice-message" title="${escapeAttr(reason)}">${escapeHtml(reason)}</span>`
-        : "";
-      return `<div class="conversation-run-notice interrupted" role="status"><span>${escapeHtml(cr("run.conversationInterrupted"))}</span>${detail}</div>`;
+      // Stop with no stored reason is the user ending the turn. The transcript
+      // already keeps whatever was salvaged, so the generic "this round was
+      // interrupted; history remains" divider adds nothing. A stored reason
+      // means the run stopped for something they did not click, and that
+      // sentence is usually the only place the cause is visible.
+      const raw = String(run?.errorMessage || "").trim();
+      if (!raw || isUserInterruptedReason(raw)) return "";
+      const reason = runFailureMessage(run);
+      return `<div class="conversation-run-notice interrupted" role="status"><span class="conversation-run-notice-message" title="${escapeAttr(reason)}">${escapeHtml(reason)}</span></div>`;
     }
     return "";
   }
