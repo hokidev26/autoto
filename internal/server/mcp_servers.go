@@ -3,8 +3,10 @@ package server
 import (
 	"context"
 	"errors"
+	"maps"
 	"net/http"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -105,6 +107,7 @@ func (s *Server) updateMCPServer(w http.ResponseWriter, r *http.Request) {
 		s.writeRequestError(w, r, statusFromError(err), err)
 		return
 	}
+	previous := existing
 	var req updateMCPServerPayload
 	if err := decodeJSON(r, &req); err != nil {
 		s.writeRequestError(w, r, http.StatusBadRequest, err)
@@ -140,14 +143,19 @@ func (s *Server) updateMCPServer(w http.ResponseWriter, r *http.Request) {
 		s.writeRequestError(w, r, statusFromError(err), err)
 		return
 	}
+	if mcpSessionMustInvalidate(previous, updated) {
+		mcp.InvalidateRegisteredServer(updated.ID)
+	}
 	writeJSON(w, http.StatusOK, makeMCPServerResponse(updated))
 }
 
 func (s *Server) deleteMCPServer(w http.ResponseWriter, r *http.Request) {
-	if err := s.store.DeleteMCPServer(r.Context(), chi.URLParam(r, "id")); err != nil {
+	id := chi.URLParam(r, "id")
+	if err := s.store.DeleteMCPServer(r.Context(), id); err != nil {
 		s.writeRequestError(w, r, statusFromError(err), err)
 		return
 	}
+	mcp.InvalidateRegisteredServer(id)
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
@@ -207,6 +215,13 @@ func mcpServerFromPayload(req mcpServerPayload) (db.MCPServer, error) {
 		return db.MCPServer{}, err
 	}
 	return server, nil
+}
+
+func mcpSessionMustInvalidate(before, after db.MCPServer) bool {
+	if !after.Enabled || before.Enabled != after.Enabled {
+		return true
+	}
+	return before.Command != after.Command || before.Transport != after.Transport || before.CWD != after.CWD || !slices.Equal(before.Args, after.Args) || !maps.Equal(before.Env, after.Env)
 }
 
 func validateMCPServer(server db.MCPServer) error {

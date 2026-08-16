@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"autoto/internal/db"
 	"autoto/internal/mcp"
 )
 
@@ -54,7 +55,7 @@ type mcpCallToolInput struct {
 
 func (MCPListToolsTool) Name() string { return "MCPListTools" }
 func (MCPListToolsTool) Description() string {
-	return "List tools exposed by a registered MCP server (serverId only). Freeform command/cwd/env from the model are rejected; the host pins the process working directory to the agent workspace."
+	return "List tools exposed by a registered MCP server (serverId only). Consecutive calls to the same serverId from this agent reuse the same stdio session so browser pages and other server-side state persist. Freeform command/cwd/env from the model are rejected; the host pins the process working directory to the agent workspace."
 }
 func (MCPListToolsTool) Schema() any { return mcpListToolsInput{} }
 
@@ -79,26 +80,21 @@ func (MCPListToolsTool) Execute(ctx context.Context, call Call, env Env) (Result
 	if err := StrictDecode(call.Input, &input); err != nil {
 		return Result{Output: err.Error(), IsError: true}, nil
 	}
-	cfg, err := mcpConfigFromInput(ctx, mcpServerInput{ServerID: input.ServerID, Timeout: input.Timeout}, env)
-	if err != nil {
+	var listed []mcp.Tool
+	if err := withMCPSession(ctx, env, mcpServerInput{ServerID: input.ServerID, Timeout: input.Timeout}, func(opCtx context.Context, client mcp.SessionHandle) error {
+		var listErr error
+		listed, listErr = client.ListTools(opCtx)
+		return listErr
+	}); err != nil {
 		return Result{Output: err.Error(), IsError: true}, nil
 	}
-	client, cancel, err := startMCPClient(ctx, cfg)
-	if err != nil {
-		return Result{Output: err.Error(), IsError: true}, nil
-	}
-	defer cancel()
-	tools, err := client.ListTools(ctx)
-	if err != nil {
-		return Result{Output: err.Error(), IsError: true}, nil
-	}
-	data, _ := json.MarshalIndent(tools, "", "  ")
-	return Result{Output: formatMCPTools(tools), Meta: map[string]any{"tools": len(tools), "raw": string(data)}}, nil
+	data, _ := json.MarshalIndent(listed, "", "  ")
+	return Result{Output: formatMCPTools(listed), Meta: map[string]any{"tools": len(listed), "raw": string(data)}}, nil
 }
 
 func (MCPCallToolTool) Name() string { return "MCPCallTool" }
 func (MCPCallToolTool) Description() string {
-	return "Call a tool on a registered MCP server (serverId + toolName). Freeform command/cwd/env from the model are rejected; the host pins the process working directory to the agent workspace."
+	return "Call a tool on a registered MCP server (serverId + toolName). Consecutive calls to the same serverId from this agent reuse the same stdio session so browser pages and other server-side state persist. Freeform command/cwd/env from the model are rejected; the host pins the process working directory to the agent workspace."
 }
 func (MCPCallToolTool) Schema() any { return mcpCallToolInput{} }
 
@@ -159,21 +155,16 @@ func (MCPCallToolTool) Execute(ctx context.Context, call Call, env Env) (Result,
 	if err := StrictDecode(call.Input, &input); err != nil {
 		return Result{Output: err.Error(), IsError: true}, nil
 	}
-	cfg, err := mcpConfigFromInput(ctx, mcpServerInput{ServerID: input.ServerID, Timeout: input.Timeout}, env)
-	if err != nil {
-		return Result{Output: err.Error(), IsError: true}, nil
-	}
 	toolName := strings.TrimSpace(input.ToolName)
 	if toolName == "" {
 		return Result{Output: "toolName is required", IsError: true}, nil
 	}
-	client, cancel, err := startMCPClient(ctx, cfg)
-	if err != nil {
-		return Result{Output: err.Error(), IsError: true}, nil
-	}
-	defer cancel()
-	result, err := client.CallTool(ctx, toolName, input.Arguments)
-	if err != nil {
+	var result mcp.ToolCallResult
+	if err := withMCPSession(ctx, env, mcpServerInput{ServerID: input.ServerID, Timeout: input.Timeout}, func(opCtx context.Context, client mcp.SessionHandle) error {
+		var callErr error
+		result, callErr = client.CallTool(opCtx, toolName, input.Arguments)
+		return callErr
+	}); err != nil {
 		return Result{Output: err.Error(), IsError: true}, nil
 	}
 	out := formatMCPToolResult(result)
@@ -212,25 +203,44 @@ func ManagedAutomationMCPCallRequiresApproval(input json.RawMessage) bool {
 	return mcpCallToolRisk(parsed) == RiskExec
 }
 
-func mcpConfigFromInput(ctx context.Context, input mcpServerInput, env Env) (mcp.StdioConfig, error) {
+type mcpResolvedSession struct {
+	Server      db.MCPServer
+	Config      mcp.StdioConfig
+	CallTimeout time.Duration
+	Slot        string
+	Key         string
+}
+
+func mcpSessionPool(env Env) *mcp.ProcessPool {
+	if env.MCPSessions != nil {
+		return env.MCPSessions
+	}
+	return mcp.DefaultSessionPool()
+}
+
+func resolveMCPSession(ctx context.Context, input mcpServerInput, env Env) (mcpResolvedSession, error) {
 	serverID := strings.TrimSpace(input.ServerID)
 	if serverID == "" {
-		return mcp.StdioConfig{}, errors.New("serverId is required; freeform MCP command/cwd/env from the model are not allowed")
+		return mcpResolvedSession{}, errors.New("serverId is required; freeform MCP command/cwd/env from the model are not allowed")
 	}
 	if env.Store == nil {
-		return mcp.StdioConfig{}, fmt.Errorf("store is required for registered MCP server %q", serverID)
+		return mcpResolvedSession{}, fmt.Errorf("store is required for registered MCP server %q", serverID)
 	}
 	server, err := env.Store.GetMCPServer(ctx, serverID)
 	if err != nil {
-		return mcp.StdioConfig{}, err
+		if db.IsNotFound(err) {
+			mcpSessionPool(env).InvalidateServer(serverID)
+		}
+		return mcpResolvedSession{}, err
 	}
 	if !server.Enabled {
-		return mcp.StdioConfig{}, fmt.Errorf("mcp server %q is disabled", serverID)
+		mcpSessionPool(env).InvalidateServer(serverID)
+		return mcpResolvedSession{}, fmt.Errorf("mcp server %q is disabled", serverID)
 	}
 	command := strings.TrimSpace(server.Command)
 	args := append([]string(nil), server.Args...)
 	if command == "" {
-		return mcp.StdioConfig{}, fmt.Errorf("registered mcp server %q has an empty command", serverID)
+		return mcpResolvedSession{}, fmt.Errorf("registered mcp server %q has an empty command", serverID)
 	}
 	if len(args) == 0 {
 		parts := strings.Fields(command)
@@ -242,13 +252,12 @@ func mcpConfigFromInput(ctx context.Context, input mcpServerInput, env Env) (mcp
 	// Host-pinned workspace: never honor model-supplied cwd. Prefer the agent CWD.
 	cwd := strings.TrimSpace(env.CWD)
 	if cwd == "" {
-		return mcp.StdioConfig{}, fmt.Errorf("agent working directory is required to start MCP server %q", serverID)
+		return mcpResolvedSession{}, fmt.Errorf("agent working directory is required to start MCP server %q", serverID)
 	}
-	// If the registered server configures a relative cwd, resolve it inside the agent workspace.
 	if configured := strings.TrimSpace(server.CWD); configured != "" {
 		resolved, resolveErr := resolveInCWD(cwd, configured)
 		if resolveErr != nil {
-			return mcp.StdioConfig{}, fmt.Errorf("registered mcp server %q cwd is outside the agent workspace: %w", serverID, resolveErr)
+			return mcpResolvedSession{}, fmt.Errorf("registered mcp server %q cwd is outside the agent workspace: %w", serverID, resolveErr)
 		}
 		cwd = resolved
 	}
@@ -256,13 +265,86 @@ func mcpConfigFromInput(ctx context.Context, input mcpServerInput, env Env) (mcp
 	if timeout <= 0 {
 		timeout = 20 * time.Second
 	}
-	return mcp.StdioConfig{
-		Command: command,
-		Args:    args,
-		CWD:     cwd,
-		Env:     cloneStringMap(server.Env),
-		Timeout: timeout,
+	return mcpResolvedSession{
+		Server: server,
+		Config: mcp.StdioConfig{
+			Command: command,
+			Args:    args,
+			CWD:     cwd,
+			Env:     cloneStringMap(server.Env),
+		},
+		CallTimeout: timeout,
+		Slot:        mcp.SessionSlot(server.ID, env.AgentID, cwd),
+		Key:         mcp.LaunchFingerprint(command, args, cwd, server.Env),
 	}, nil
+}
+
+func revalidateMCPSession(ctx context.Context, env Env, resolved mcpResolvedSession) error {
+	current, err := resolveMCPSession(ctx, mcpServerInput{ServerID: resolved.Server.ID}, env)
+	if err != nil {
+		return err
+	}
+	if current.Key != resolved.Key || current.Slot != resolved.Slot {
+		return fmt.Errorf("mcp server %q launch configuration changed", resolved.Server.ID)
+	}
+	return nil
+}
+
+func startPooledMCPClient(ctx context.Context, resolved mcpResolvedSession) (mcp.SessionHandle, error) {
+	client, err := mcp.StartStdio(context.WithoutCancel(ctx), resolved.Config)
+	if err != nil {
+		return nil, err
+	}
+	initCtx, cancel := context.WithTimeout(ctx, resolved.CallTimeout)
+	defer cancel()
+	if err := client.Initialize(initCtx); err != nil {
+		_ = client.Close()
+		return nil, err
+	}
+	return client, nil
+}
+
+func finishMCPSession(pool *mcp.ProcessPool, slot, key string, client mcp.SessionHandle, pooled bool, callErr error) {
+	if client == nil {
+		return
+	}
+	if pool == nil {
+		_ = client.Close()
+		return
+	}
+	if pooled {
+		pool.Release(slot, client, callErr)
+		return
+	}
+	if callErr != nil {
+		_ = client.Close()
+		return
+	}
+	pool.Offer(slot, key, client)
+}
+
+func withMCPSession(ctx context.Context, env Env, input mcpServerInput, fn func(context.Context, mcp.SessionHandle) error) error {
+	resolved, err := resolveMCPSession(ctx, input, env)
+	if err != nil {
+		return err
+	}
+	pool := mcpSessionPool(env)
+	client, pooled := pool.Acquire(resolved.Slot, resolved.Key)
+	if !pooled {
+		client, err = startPooledMCPClient(ctx, resolved)
+		if err != nil {
+			return err
+		}
+	}
+	if err := revalidateMCPSession(ctx, env, resolved); err != nil {
+		finishMCPSession(pool, resolved.Slot, resolved.Key, client, pooled, err)
+		return err
+	}
+	opCtx, cancel := context.WithTimeout(ctx, resolved.CallTimeout)
+	defer cancel()
+	callErr := fn(opCtx, client)
+	finishMCPSession(pool, resolved.Slot, resolved.Key, client, pooled, callErr)
+	return callErr
 }
 
 func cloneStringMap(in map[string]string) map[string]string {
@@ -274,24 +356,6 @@ func cloneStringMap(in map[string]string) map[string]string {
 		out[key] = value
 	}
 	return out
-}
-
-func startMCPClient(ctx context.Context, cfg mcp.StdioConfig) (*mcp.Client, func(), error) {
-	clientCtx, cancel := context.WithTimeout(ctx, cfg.Timeout)
-	client, err := mcp.StartStdio(clientCtx, cfg)
-	if err != nil {
-		cancel()
-		return nil, nil, err
-	}
-	cleanup := func() {
-		_ = client.Close()
-		cancel()
-	}
-	if err := client.Initialize(clientCtx); err != nil {
-		cleanup()
-		return nil, nil, err
-	}
-	return client, cleanup, nil
 }
 
 func formatMCPTools(tools []mcp.Tool) string {

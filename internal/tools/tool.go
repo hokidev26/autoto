@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 
 	"autoto/internal/db"
+	"autoto/internal/mcp"
 )
 
 type Risk string
@@ -139,6 +140,9 @@ type Env struct {
 	UserQuestion       UserQuestionService
 	ToolOutputPipeline ToolOutputPipelineService
 	PermissionModeCap  string
+	// MCPSessions reuses stdio MCP processes across consecutive tool calls.
+	// Nil uses the process-wide default pool.
+	MCPSessions *mcp.ProcessPool
 	// ResumeParentSupported reports whether the current run can park on a
 	// background task boundary and be woken when the task finishes. The Agent
 	// tool defaults resume_parent from this, so a dispatch never promises a

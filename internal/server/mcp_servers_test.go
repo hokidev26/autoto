@@ -169,3 +169,25 @@ func TestMCPServerFakeProcess(t *testing.T) {
 		_ = encoder.Encode(response)
 	}
 }
+
+func TestMCPSessionMustInvalidate(t *testing.T) {
+	base := db.MCPServer{Name: "kitesurf", Transport: "stdio", Command: "npx", Args: []string{"-y", "chrome-devtools-mcp"}, CWD: "", Env: map[string]string{"A": "1"}, Enabled: true}
+	if mcpSessionMustInvalidate(base, base) {
+		t.Fatal("identical launch config should keep the session")
+	}
+	renamed := base
+	renamed.Name = "other"
+	if mcpSessionMustInvalidate(base, renamed) {
+		t.Fatal("name-only change should keep the session")
+	}
+	disabled := base
+	disabled.Enabled = false
+	if !mcpSessionMustInvalidate(base, disabled) {
+		t.Fatal("disable must drop the session")
+	}
+	argsChanged := base
+	argsChanged.Args = []string{"-y", "other"}
+	if !mcpSessionMustInvalidate(base, argsChanged) {
+		t.Fatal("args change must drop the session")
+	}
+}

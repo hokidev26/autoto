@@ -103,7 +103,7 @@ The runner checks each tool risk against the agent permission mode:
 
 Tool path handling should stay bounded to the agent working directory or explicitly configured project boundary. Network tools must keep local/private host protections by default.
 
-The stdio MCP client lives in `internal/mcp`. `MCPListTools` starts a configured stdio server, performs `initialize` + `tools/list`, and returns discovered tool metadata. `MCPCallTool` starts a configured stdio server, performs `initialize` + `tools/call`, and formats text content results. Both tools accept direct stdio config or a persisted `serverId` from the MCP registry. They remain `exec` risk because they launch local processes and should stay approval-gated until a finer-grained MCP policy layer exists.
+The stdio MCP client lives in `internal/mcp`. `MCPListTools` and `MCPCallTool` accept a persisted `serverId` from the MCP registry (freeform command/cwd/env from the model are rejected). Consecutive calls from the same agent and working directory reuse one warm stdio process so browser pages and other server-side state persist. The process is pinned to the launch fingerprint (command, args, cwd, env hash); a mismatch, call error, disable/delete, idle timeout (5 minutes), or 62 served calls recycles it. Concurrent calls to the same slot do not queue: the overflow call runs on its own short-lived process. Settings → Skills → MCP `tools/list` discovery still starts a fresh process and closes it, so UI discovery does not share the agent's session. MCP tools remain `exec` risk (except the documented managed-automation read subset) and stay approval-gated.
 
 ### 7. MCP server registry
 
@@ -113,7 +113,7 @@ MCP registry handlers live in `internal/server/mcp_servers.go`:
 - `POST /api/mcp/servers`, `PATCH /api/mcp/servers/{id}`, and `DELETE /api/mcp/servers/{id}` manage local stdio server launch configuration.
 - `GET /api/mcp/servers/{id}/tools` starts the registered server long enough to run `initialize` + `tools/list`, then closes it.
 
-Registry entries are stored in SQLite `mcp_servers`. Environment variable values are local launch secrets: they are stored for process execution but are not returned by API responses. Settings → Skills → MCP can create, enable/disable, delete, and run `tools/list` discovery for registered servers. The current implementation starts a fresh stdio process per discovery or tool call; long-lived pooled MCP sessions are future work.
+Registry entries are stored in SQLite `mcp_servers`. Environment variable values are local launch secrets: they are stored for process execution but are not returned by API responses. Settings → Skills → MCP can create, enable/disable, delete, and run `tools/list` discovery for registered servers. Agent `MCPListTools` / `MCPCallTool` calls reuse a warm stdio process per server, agent, and working directory. Registry disable, launch-config edits, and delete invalidate that pool. UI discovery remains one-shot.
 
 ### 8. Git workflow
 

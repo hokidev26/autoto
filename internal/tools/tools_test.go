@@ -9,12 +9,14 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 	"unicode/utf8"
 
 	"autoto/internal/db"
+	"autoto/internal/mcp"
 )
 
 func TestResolveInCWDRejectsEscape(t *testing.T) {
@@ -826,14 +828,15 @@ func TestMCPToolsUseRegisteredServer(t *testing.T) {
 	}
 
 	cwd := t.TempDir()
+	env := mcpToolEnv(t, store, cwd, "agent-1")
 	listInput, _ := json.Marshal(map[string]any{"serverId": server.ID, "timeout": 5000})
-	listResult, err := (MCPListToolsTool{}).Execute(ctx, Call{ID: "mcp-list-registered", Name: "MCPListTools", Input: listInput}, Env{Store: store, CWD: cwd})
+	listResult, err := (MCPListToolsTool{}).Execute(ctx, Call{ID: "mcp-list-registered", Name: "MCPListTools", Input: listInput}, env)
 	if err != nil || listResult.IsError || !strings.Contains(listResult.Output, "Echo a greeting") {
 		t.Fatalf("MCPListTools registered server failed: result=%+v err=%v", listResult, err)
 	}
 
 	callInput, _ := json.Marshal(map[string]any{"serverId": server.ID, "timeout": 5000, "toolName": "echo", "arguments": map[string]any{"name": "Grace"}})
-	callResult, err := (MCPCallToolTool{}).Execute(ctx, Call{ID: "mcp-call-registered", Name: "MCPCallTool", Input: callInput}, Env{Store: store, CWD: cwd})
+	callResult, err := (MCPCallToolTool{}).Execute(ctx, Call{ID: "mcp-call-registered", Name: "MCPCallTool", Input: callInput}, env)
 	if err != nil || callResult.IsError {
 		t.Fatalf("MCPCallTool registered server failed: result=%+v err=%v", callResult, err)
 	}
@@ -842,9 +845,131 @@ func TestMCPToolsUseRegisteredServer(t *testing.T) {
 	}
 }
 
+func mcpToolEnv(t *testing.T, store *db.Store, cwd, agentID string) Env {
+	t.Helper()
+	pool := mcp.NewProcessPool(time.Minute)
+	t.Cleanup(pool.Close)
+	return Env{Store: store, CWD: cwd, AgentID: agentID, MCPSessions: pool}
+}
+
+func TestMCPCallToolReusesRegisteredServerProcess(t *testing.T) {
+	ctx := context.Background()
+	store, err := db.Open(ctx, filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	launchLog := filepath.Join(t.TempDir(), "launches.log")
+	server, err := store.CreateMCPServer(ctx, db.MCPServer{
+		Name: "Fake MCP", Transport: "stdio", Command: os.Args[0],
+		Args: []string{"-test.run=TestMCPFakeServerProcess"},
+		Env: map[string]string{
+			"AUTOTO_MCP_FAKE_SERVER":  "1",
+			"AUTOTO_MCP_ECHO_SESSION": "1",
+			"AUTOTO_MCP_LAUNCH_LOG":   launchLog,
+		},
+		Enabled: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cwd := t.TempDir()
+	env := mcpToolEnv(t, store, cwd, "agent-reuse")
+	call := func(name string) string {
+		t.Helper()
+		input, _ := json.Marshal(map[string]any{"serverId": server.ID, "timeout": 8000, "toolName": "echo", "arguments": map[string]any{"name": name}})
+		result, err := (MCPCallToolTool{}).Execute(ctx, Call{ID: "mcp-" + name, Name: "MCPCallTool", Input: input}, env)
+		if err != nil || result.IsError {
+			t.Fatalf("echo %s failed: result=%+v err=%v", name, result, err)
+		}
+		return result.Output
+	}
+	first := call("Ada")
+	second := call("Grace")
+	if !strings.Contains(first, "hello Ada") || !strings.Contains(second, "hello Grace") {
+		t.Fatalf("unexpected echo output: %q / %q", first, second)
+	}
+	session := mcpSessionID(first)
+	if session == "" || session != mcpSessionID(second) {
+		t.Fatalf("expected reused MCP session, got %q then %q", first, second)
+	}
+	otherEnv := mcpToolEnv(t, store, cwd, "agent-other")
+	third := func() string {
+		input, _ := json.Marshal(map[string]any{"serverId": server.ID, "timeout": 8000, "toolName": "echo", "arguments": map[string]any{"name": "Other"}})
+		result, err := (MCPCallToolTool{}).Execute(ctx, Call{ID: "mcp-other", Name: "MCPCallTool", Input: input}, otherEnv)
+		if err != nil || result.IsError {
+			t.Fatalf("other agent echo failed: result=%+v err=%v", result, err)
+		}
+		return result.Output
+	}()
+	if mcpSessionID(third) == session {
+		t.Fatal("different agents must not share an MCP session")
+	}
+	launches, err := os.ReadFile(launchLog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Count(string(launches), "start\n"); got != 2 {
+		t.Fatalf("expected one launch per agent, got %d:\n%s", got, launches)
+	}
+}
+
+func TestMCPCallToolFailsClosedWhenServerDisabled(t *testing.T) {
+	ctx := context.Background()
+	store, err := db.Open(ctx, filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	server, err := store.CreateMCPServer(ctx, db.MCPServer{
+		Name: "Fake MCP", Transport: "stdio", Command: os.Args[0],
+		Args: []string{"-test.run=TestMCPFakeServerProcess"},
+		Env:  map[string]string{"AUTOTO_MCP_FAKE_SERVER": "1"}, Enabled: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	env := mcpToolEnv(t, store, t.TempDir(), "agent-disable")
+	input, _ := json.Marshal(map[string]any{"serverId": server.ID, "timeout": 8000, "toolName": "echo", "arguments": map[string]any{"name": "Ada"}})
+	warm, err := (MCPCallToolTool{}).Execute(ctx, Call{ID: "mcp-warm", Name: "MCPCallTool", Input: input}, env)
+	if err != nil || warm.IsError {
+		t.Fatalf("warm call failed: result=%+v err=%v", warm, err)
+	}
+	server.Enabled = false
+	if _, err := store.UpdateMCPServer(ctx, server); err != nil {
+		t.Fatal(err)
+	}
+	disabled, err := (MCPCallToolTool{}).Execute(ctx, Call{ID: "mcp-disabled", Name: "MCPCallTool", Input: input}, env)
+	if err != nil {
+		t.Fatalf("unexpected execute error: %v", err)
+	}
+	if !disabled.IsError || !strings.Contains(disabled.Output, "disabled") {
+		t.Fatalf("expected disabled error, got %+v", disabled)
+	}
+}
+
+func mcpSessionID(output string) string {
+	_, after, ok := strings.Cut(output, "session=")
+	if !ok {
+		return ""
+	}
+	return strings.TrimSpace(after)
+}
+
 func TestMCPFakeServerProcess(t *testing.T) {
 	if os.Getenv("AUTOTO_MCP_FAKE_SERVER") != "1" {
 		return
+	}
+	if path := strings.TrimSpace(os.Getenv("AUTOTO_MCP_LAUNCH_LOG")); path != "" {
+		file, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+		if err == nil {
+			_, _ = file.WriteString("start\n")
+			_ = file.Close()
+		}
+	}
+	sessionID := ""
+	if os.Getenv("AUTOTO_MCP_ECHO_SESSION") == "1" {
+		sessionID = strconv.Itoa(os.Getpid())
 	}
 	decoder := json.NewDecoder(os.Stdin)
 	encoder := json.NewEncoder(os.Stdout)
@@ -883,7 +1008,11 @@ func TestMCPFakeServerProcess(t *testing.T) {
 			}
 			_ = json.Unmarshal(request.Params, &params)
 			name, _ := params.Arguments["name"].(string)
-			response["result"] = map[string]any{"content": []map[string]any{{"type": "text", "text": "hello " + name}}}
+			text := "hello " + name
+			if sessionID != "" {
+				text += "\nsession=" + sessionID
+			}
+			response["result"] = map[string]any{"content": []map[string]any{{"type": "text", "text": text}}}
 		default:
 			response["error"] = map[string]any{"code": -32601, "message": "method not found"}
 		}

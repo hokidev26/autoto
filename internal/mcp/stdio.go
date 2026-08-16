@@ -60,6 +60,7 @@ type Client struct {
 	stderr       *limitedBuffer
 	cancel       context.CancelFunc
 	done         chan error
+	dead         chan struct{}
 	redactValues []string
 	mu           sync.Mutex
 	nextID       int64
@@ -116,10 +117,27 @@ func StartStdio(ctx context.Context, cfg StdioConfig) (*Client, error) {
 	}
 	client := &Client{
 		ctx: runCtx, cmd: cmd, group: group, stdin: stdin, dec: json.NewDecoder(stdoutReader), stderr: stderr,
-		cancel: cancel, done: make(chan error, 1), redactValues: normalizedRedactValues(cfg.RedactValues), nextID: 1,
+		cancel: cancel, done: make(chan error, 1), dead: make(chan struct{}), redactValues: normalizedRedactValues(cfg.RedactValues), nextID: 1,
 	}
-	go func() { client.done <- cmd.Wait() }()
+	go func() {
+		client.done <- cmd.Wait()
+		close(client.dead)
+	}()
 	return client, nil
+}
+
+// Alive reports whether the stdio process is still running. The pool uses this
+// to drop idle clients that exited between calls without consuming Wait.
+func (c *Client) Alive() bool {
+	if c == nil || c.dead == nil {
+		return false
+	}
+	select {
+	case <-c.dead:
+		return false
+	default:
+		return true
+	}
 }
 
 func stdioEnvironment(cfg StdioConfig) []string {
