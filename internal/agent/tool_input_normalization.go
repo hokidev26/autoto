@@ -54,6 +54,23 @@ func NormalizeToolInput(raw json.RawMessage, schema map[string]any) (json.RawMes
 	return json.RawMessage(encoded), nil
 }
 
+func decodeJSONObjectString(raw string) (map[string]any, error) {
+	decoder := json.NewDecoder(strings.NewReader(raw))
+	decoder.UseNumber()
+	var decoded any
+	if err := decoder.Decode(&decoded); err != nil {
+		return nil, err
+	}
+	if err := requireJSONEOF(decoder); err != nil {
+		return nil, err
+	}
+	object, ok := decoded.(map[string]any)
+	if !ok || object == nil {
+		return nil, errors.New("JSON string is not an object")
+	}
+	return object, nil
+}
+
 func requireJSONEOF(decoder *json.Decoder) error {
 	var trailing any
 	if err := decoder.Decode(&trailing); err != io.EOF {
@@ -393,6 +410,13 @@ func normalizeSchemaValue(value any, schema map[string]any, path string, clamp b
 		}
 		normalized = value
 	case "object":
+		if raw, ok := value.(string); ok {
+			parsed, err := decodeJSONObjectString(raw)
+			if err != nil {
+				return nil, fmt.Errorf("%s must be an object", path)
+			}
+			value = parsed
+		}
 		object, ok := value.(map[string]any)
 		if !ok {
 			return nil, fmt.Errorf("%s must be an object", path)

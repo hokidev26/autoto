@@ -35,6 +35,23 @@ func TestCheckedToolInputSchemaClosesAdditionalPropertyObjectSchemas(t *testing.
 	}
 }
 
+func TestToolInputSchemaTreatsRawMessageAsObject(t *testing.T) {
+	type input struct {
+		Arguments json.RawMessage `json:"arguments,omitempty"`
+		Blob      []byte          `json:"blob,omitempty"`
+	}
+	schema := toolInputSchema(input{})
+	properties := schema["properties"].(map[string]any)
+	arguments := properties["arguments"].(map[string]any)
+	if arguments["type"] != "object" || arguments["additionalProperties"] != true {
+		t.Fatalf("json.RawMessage must be advertised as an open object: %+v", arguments)
+	}
+	blob := properties["blob"].(map[string]any)
+	if blob["type"] != "string" {
+		t.Fatalf("plain []byte must stay a string: %+v", blob)
+	}
+}
+
 func TestToolInputSchemaBuildsNestedObjectsAndArrays(t *testing.T) {
 	type child struct {
 		Name string `json:"name"`

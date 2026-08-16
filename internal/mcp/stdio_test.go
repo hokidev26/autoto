@@ -106,6 +106,61 @@ func TestStartStdioTimeoutAndExactSecretRedaction(t *testing.T) {
 	}
 }
 
+func TestNormalizeToolArgumentsKeepsJSONObjects(t *testing.T) {
+	object, err := normalizeToolArguments(json.RawMessage(`{"type":"url","url":"https://www.youtube.com"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(object) != `{"type":"url","url":"https://www.youtube.com"}` {
+		t.Fatalf("object arguments were rewritten: %s", object)
+	}
+	unwrapped, err := normalizeToolArguments(json.RawMessage(`"{\"type\":\"url\",\"url\":\"https://www.youtube.com\"}"`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(unwrapped) != `{"type":"url","url":"https://www.youtube.com"}` {
+		t.Fatalf("stringified arguments were not unwrapped: %s", unwrapped)
+	}
+	empty, err := normalizeToolArguments(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(empty) != `{}` {
+		t.Fatalf("empty arguments should become {}, got %s", empty)
+	}
+	if _, err := normalizeToolArguments(json.RawMessage(`["https://www.youtube.com"]`)); err == nil {
+		t.Fatal("array arguments must be rejected")
+	}
+}
+
+func TestCallToolSendsArgumentsAsJSONObject(t *testing.T) {
+	client, err := StartStdio(context.Background(), StdioConfig{
+		Command:  os.Args[0],
+		Args:     []string{"-test.run=TestStdioHelperProcess"},
+		CleanEnv: true,
+		Env:      map[string]string{"AUTOTO_MCP_STDIO_HELPER": "1"},
+		Timeout:  time.Second,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+	result, err := client.CallTool(context.Background(), "navigate_page", json.RawMessage(`{"type":"url","url":"https://www.youtube.com"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(result.Raw), `"arguments":{"type":"url","url":"https://www.youtube.com"}`) {
+		t.Fatalf("tools/call did not send an arguments object: %s", result.Raw)
+	}
+	stringified, err := client.CallTool(context.Background(), "navigate_page", json.RawMessage(`"{\"type\":\"url\",\"url\":\"https://www.youtube.com\"}"`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(stringified.Raw), `"arguments":{"type":"url","url":"https://www.youtube.com"}`) {
+		t.Fatalf("stringified arguments were forwarded as a string: %s", stringified.Raw)
+	}
+}
+
 func TestLimitedBufferHonorsConfiguredLimit(t *testing.T) {
 	buffer := &limitedBuffer{max: 5}
 	if n, err := buffer.Write([]byte("123456789")); err != nil || n != 9 {
@@ -126,6 +181,7 @@ func TestStdioHelperProcess(t *testing.T) {
 		var request struct {
 			ID     json.RawMessage `json:"id"`
 			Method string          `json:"method"`
+			Params json.RawMessage `json:"params"`
 		}
 		if decoder.Decode(&request) != nil {
 			return
@@ -134,6 +190,8 @@ func TestStdioHelperProcess(t *testing.T) {
 			continue
 		}
 		switch request.Method {
+		case "tools/call":
+			_ = encoder.Encode(map[string]any{"jsonrpc": "2.0", "id": request.ID, "result": json.RawMessage(request.Params)})
 		case "env/read":
 			_ = encoder.Encode(map[string]any{
 				"jsonrpc": "2.0",

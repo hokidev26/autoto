@@ -284,8 +284,8 @@ func (r *Runner) composeRunPromptSnapshot(ctx context.Context, agent db.Agent, r
 		}
 	}
 	layers := agentprofile.Compose(agentprofile.ComposeInput{
-		Platform: platformSystemPrompt, Run: runBoundary, Role: rolePrompt, SystemExtension: systemExtension,
-		RoleExtension: roleExtension, LegacyPersona: legacyPersona, GlobalUser: globalUser,
+		Platform: platformSystemPrompt, Run: runBoundary, Role: rolePrompt, HostRuntime: r.mcpRegistryPrompt(ctx, run),
+		SystemExtension: systemExtension, RoleExtension: roleExtension, LegacyPersona: legacyPersona, GlobalUser: globalUser,
 		ProjectContext: projectContext, MemoryContext: memoryContext, ClosingBoundary: closingSafetyBoundary,
 	})
 	sources := map[string][]PromptDefinitionSource{}

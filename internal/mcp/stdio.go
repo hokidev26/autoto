@@ -243,16 +243,46 @@ func (c *Client) ListTools(ctx context.Context) ([]Tool, error) {
 	return body.Tools, nil
 }
 
+const maxMCPArgumentUnwrap = 4
+
+func normalizeToolArguments(arguments json.RawMessage) (json.RawMessage, error) {
+	current := bytes.TrimSpace(arguments)
+	for depth := 0; depth <= maxMCPArgumentUnwrap; depth++ {
+		if len(current) == 0 || string(current) == "null" {
+			return json.RawMessage(`{}`), nil
+		}
+		if current[0] == '{' {
+			var object map[string]any
+			if err := json.Unmarshal(current, &object); err != nil {
+				return nil, fmt.Errorf("mcp arguments must be a JSON object: %w", err)
+			}
+			return append(json.RawMessage(nil), current...), nil
+		}
+		if current[0] != '"' {
+			return nil, errors.New("mcp arguments must be a JSON object")
+		}
+		var encoded string
+		if err := json.Unmarshal(current, &encoded); err != nil {
+			return nil, fmt.Errorf("mcp arguments must be a JSON object: %w", err)
+		}
+		current = bytes.TrimSpace([]byte(encoded))
+	}
+	return nil, errors.New("mcp arguments must be a JSON object")
+}
+
 func (c *Client) CallTool(ctx context.Context, name string, arguments json.RawMessage) (ToolCallResult, error) {
 	name = strings.TrimSpace(name)
 	if name == "" {
 		return ToolCallResult{}, errors.New("mcp tool name is required")
 	}
-	args := json.RawMessage(`{}`)
-	if len(arguments) > 0 && strings.TrimSpace(string(arguments)) != "" {
-		args = arguments
+	args, err := normalizeToolArguments(arguments)
+	if err != nil {
+		return ToolCallResult{}, err
 	}
-	params := map[string]any{"name": name, "arguments": args}
+	params := struct {
+		Name      string          `json:"name"`
+		Arguments json.RawMessage `json:"arguments"`
+	}{Name: name, Arguments: args}
 	data, err := c.Call(ctx, "tools/call", params)
 	if err != nil {
 		return ToolCallResult{}, err

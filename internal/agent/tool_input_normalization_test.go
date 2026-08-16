@@ -281,6 +281,38 @@ func TestNormalizeToolInputEnforcesRequiredAfterNumericDefaults(t *testing.T) {
 	}
 }
 
+func TestNormalizeToolInputUnwrapsJSONObjectStrings(t *testing.T) {
+	schema := map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"arguments": map[string]any{"type": "object", "additionalProperties": true},
+		},
+	}
+	normalized, err := NormalizeToolInput(json.RawMessage(`{"arguments":{"type":"url","url":"https://www.youtube.com"}}`), schema)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := decodeUseNumberObject(t, normalized)
+	nested, _ := got["arguments"].(map[string]any)
+	if nested["type"] != "url" || nested["url"] != "https://www.youtube.com" {
+		t.Fatalf("object arguments were not preserved: %#v", got)
+	}
+
+	unwrapped, err := NormalizeToolInput(json.RawMessage(`{"arguments":"{\"type\":\"url\",\"url\":\"https://www.youtube.com\"}"}`), schema)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got = decodeUseNumberObject(t, unwrapped)
+	nested, _ = got["arguments"].(map[string]any)
+	if nested["type"] != "url" || nested["url"] != "https://www.youtube.com" {
+		t.Fatalf("stringified object arguments were not unwrapped: %#v", got)
+	}
+
+	if _, err := NormalizeToolInput(json.RawMessage(`{"arguments":"https://www.youtube.com"}`), schema); err == nil {
+		t.Fatal("non-object argument strings must still be rejected")
+	}
+}
+
 func TestNormalizeToolInputRequiresExactlyOneJSONObject(t *testing.T) {
 	schema := map[string]any{"type": "object", "properties": map[string]any{}}
 	for _, raw := range []json.RawMessage{

@@ -122,6 +122,12 @@ func jsonSchemaForType(t reflect.Type, visiting map[reflect.Type]bool) map[strin
 	for t.Kind() == reflect.Pointer {
 		t = t.Elem()
 	}
+	// json.RawMessage is []byte, so the slice branch would advertise it as a
+	// string. MCPCallTool.arguments and similar pass-through objects must stay
+	// JSON objects or the model is told to stringify nested tool input.
+	if t == reflect.TypeOf(json.RawMessage(nil)) {
+		return map[string]any{"type": "object", "additionalProperties": true}
+	}
 	if visiting[t] {
 		return map[string]any{"type": "object", "properties": map[string]any{}}
 	}

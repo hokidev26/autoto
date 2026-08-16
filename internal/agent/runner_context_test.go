@@ -73,6 +73,67 @@ func TestRunnerLoadsProjectInstructions(t *testing.T) {
 	}
 }
 
+func TestComposeRunPromptIncludesEnabledMCPRegistry(t *testing.T) {
+	ctx := context.Background()
+	store, agent := newAgentTestStore(t, t.TempDir(), "acceptEdits")
+	defer store.Close()
+	const secret = "mcp-env-secret-value"
+	enabled, err := store.CreateMCPServer(ctx, db.MCPServer{
+		Name: "kitesurf", Transport: "stdio", Command: "npx",
+		Args: []string{"-y", "chrome-devtools-mcp@latest", "--token", secret},
+		Env:  map[string]string{"TOKEN": secret}, Enabled: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.CreateMCPServer(ctx, db.MCPServer{
+		Name: "disabled-browser", Transport: "stdio", Command: "npx", Enabled: false,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	runner := newAgentTestRunner(store, &scriptedProvider{turns: [][]providers.Event{{{Type: "text", Text: "done"}, {Type: "done", Done: true}}}}, config.AgentConfig{MaxTurns: 1})
+	scope, err := runner.agentRuntimeScope(ctx, agent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := runner.composeRunPromptSnapshot(ctx, agent, db.Run{AgentID: agent.ID, ExecutionMode: db.RunExecutionModeExecute}, scope, nil, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	prompt := snapshot.systemPrompt()
+	if !strings.Contains(prompt, "kitesurf") || !strings.Contains(prompt, enabled.ID) || !strings.Contains(prompt, "MCPCallTool") {
+		t.Fatalf("enabled MCP registry missing from system prompt: %q", prompt)
+	}
+	if strings.Contains(prompt, "disabled-browser") {
+		t.Fatalf("disabled MCP server leaked into system prompt: %q", prompt)
+	}
+	if strings.Contains(prompt, secret) || strings.Contains(prompt, "chrome-devtools-mcp") {
+		t.Fatalf("MCP launch secrets or command leaked into system prompt: %q", prompt)
+	}
+	conversation, err := runner.composeRunPromptSnapshot(ctx, agent, db.Run{AgentID: agent.ID, Source: db.RunSourceConversation, ExecutionMode: db.RunExecutionModeExecute}, scope, nil, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(conversation.systemPrompt(), enabled.ID) {
+		t.Fatal("conversation runs must not receive the MCP registry host layer")
+	}
+
+	emptyStore, emptyAgent := newAgentTestStore(t, t.TempDir(), "acceptEdits")
+	defer emptyStore.Close()
+	emptyRunner := newAgentTestRunner(emptyStore, &scriptedProvider{turns: [][]providers.Event{{{Type: "text", Text: "done"}, {Type: "done", Done: true}}}}, config.AgentConfig{MaxTurns: 1})
+	emptyScope, err := emptyRunner.agentRuntimeScope(ctx, emptyAgent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	emptySnapshot, err := emptyRunner.composeRunPromptSnapshot(ctx, emptyAgent, db.Run{AgentID: emptyAgent.ID, ExecutionMode: db.RunExecutionModeExecute}, emptyScope, nil, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(emptySnapshot.systemPrompt(), "No enabled backend MCP servers") {
+		t.Fatalf("empty MCP registry missing from system prompt: %q", emptySnapshot.systemPrompt())
+	}
+}
+
 func TestRunnerConversationRunSkipsProjectWorkspaceContext(t *testing.T) {
 	ctx := context.Background()
 	projectDir := newCheckpointTestRepo(t)

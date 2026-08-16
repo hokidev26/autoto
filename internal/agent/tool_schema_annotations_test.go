@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"encoding/json"
 	"testing"
 
 	"autoto/internal/tools"
@@ -155,5 +156,30 @@ func TestCoreToolsDocumentTheirInputs(t *testing.T) {
 				t.Errorf("tool %s parameter %q has no description", tool.Name(), name)
 			}
 		}
+	}
+}
+
+func TestMCPCallToolAdvertisesArgumentsAsObject(t *testing.T) {
+	schema, err := checkedToolInputSchema((tools.MCPCallToolTool{}).Schema())
+	if err != nil {
+		t.Fatal(err)
+	}
+	properties := schema["properties"].(map[string]any)
+	arguments := properties["arguments"].(map[string]any)
+	if arguments["type"] != "object" || arguments["additionalProperties"] != true {
+		t.Fatalf("MCPCallTool.arguments must be an open JSON object: %+v", arguments)
+	}
+	normalized, err := NormalizeToolInput(json.RawMessage(`{"serverId":"cb33b8f3-9e7a-49c2-9a1c-7754c4168ae8","toolName":"navigate_page","arguments":{"type":"url","url":"https://www.youtube.com"}}`), schema)
+	if err != nil {
+		t.Fatalf("object MCP arguments were rejected: %v", err)
+	}
+	var parsed struct {
+		Arguments map[string]string `json:"arguments"`
+	}
+	if err := json.Unmarshal(normalized, &parsed); err != nil {
+		t.Fatal(err)
+	}
+	if parsed.Arguments["type"] != "url" || parsed.Arguments["url"] != "https://www.youtube.com" {
+		t.Fatalf("navigate_page arguments were not preserved: %+v", parsed.Arguments)
 	}
 }

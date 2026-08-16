@@ -42,15 +42,15 @@ type mcpServerInput struct {
 }
 
 type mcpListToolsInput struct {
-	ServerID string `json:"serverId"`
-	Timeout  int    `json:"timeout,omitempty"`
+	ServerID string `json:"serverId" desc:"Registered MCP serverId from the host_runtime list. Freeform command/cwd/env are rejected."`
+	Timeout  int    `json:"timeout,omitempty" desc:"Call timeout in milliseconds. Omit or 0 to use the 20 second default."`
 }
 
 type mcpCallToolInput struct {
-	ServerID  string          `json:"serverId"`
-	Timeout   int             `json:"timeout,omitempty"`
-	ToolName  string          `json:"toolName"`
-	Arguments json.RawMessage `json:"arguments,omitempty"`
+	ServerID  string          `json:"serverId" desc:"Registered MCP serverId from MCPListTools or the host_runtime list."`
+	Timeout   int             `json:"timeout,omitempty" desc:"Call timeout in milliseconds. Omit or 0 to use the 20 second default."`
+	ToolName  string          `json:"toolName" desc:"MCP tool name returned by MCPListTools, for example navigate_page."`
+	Arguments json.RawMessage `json:"arguments,omitempty" desc:"JSON object matching that MCP tool's inputSchema. Nest fields such as url and type here; do not place them next to serverId. Use {} when the tool has no parameters."`
 }
 
 func (MCPListToolsTool) Name() string { return "MCPListTools" }
@@ -94,7 +94,7 @@ func (MCPListToolsTool) Execute(ctx context.Context, call Call, env Env) (Result
 
 func (MCPCallToolTool) Name() string { return "MCPCallTool" }
 func (MCPCallToolTool) Description() string {
-	return "Call a tool on a registered MCP server (serverId + toolName). Consecutive calls to the same serverId from this agent reuse the same stdio session so browser pages and other server-side state persist. Freeform command/cwd/env from the model are rejected; the host pins the process working directory to the agent workspace."
+	return "Call a tool on a registered MCP server. Pass serverId, toolName, and an arguments JSON object matching that tool's inputSchema from MCPListTools (for example {\"type\":\"url\",\"url\":\"https://example.com\"} for navigate_page). Do not stringify arguments. Consecutive calls to the same serverId from this agent reuse the same stdio session so browser pages and other server-side state persist. Freeform command/cwd/env from the model are rejected; the host pins the process working directory to the agent workspace."
 }
 func (MCPCallToolTool) Schema() any { return mcpCallToolInput{} }
 
