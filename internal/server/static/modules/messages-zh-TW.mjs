@@ -282,6 +282,8 @@ export default Object.freeze({
     },
     planReflection: "計畫反思",
     planReflectionDescription: "審查認為計畫未達成目標時，自動再規劃一次",
+    planReflectionOn: "開啟",
+    planReflectionOff: "關閉",
 
     saveAgentSettings: "儲存目前模型、權限與目錄",
     credentials: "憑證與中轉站",

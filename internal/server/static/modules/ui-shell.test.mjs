@@ -145,6 +145,7 @@ function setupComposerSelectDOM() {
     options: selectOptions,
     addEventListener() {},
     removeEventListener() {},
+    dispatchEvent() { return true; },
   };
 
   const idMap = { permissionMode: select };
@@ -403,11 +404,22 @@ test("selecting a level without requestAPI preserves the current value", async (
   });
 });
 
-function findPlanReflectionSwitch(menu) {
-  return menu.querySelector(".composer-permission-plan-reflection");
+function findPlanReflectionButton(menu, enabled) {
+  return menu.querySelectorAll(".composer-permission-plan-reflection-level")
+    .find((button) => button.dataset.planReflection === String(enabled));
 }
 
-test("plan reflection switch sits under plan mode and defaults on", async () => {
+function findPermissionOption(menu, value) {
+  return menu.querySelectorAll(".composer-permission-option")
+    .find((button) => button.dataset.permissionOption === value);
+}
+
+function findMessageModeOption(menu, mode) {
+  return menu.querySelectorAll(".composer-permission-option")
+    .find((button) => button.dataset.messageModeOption === mode);
+}
+
+test("plan reflection on/off sits under plan mode and defaults on", async () => {
   const { fakeDocument, fakeWindow, trigger, body } = setupComposerSelectDOM();
   await withGlobals(fakeDocument, fakeWindow, async () => {
     const controller = createUIShellController({
@@ -420,16 +432,16 @@ test("plan reflection switch sits under plan mode and defaults on", async () => 
     openPermissionMenu(trigger);
 
     const menu = findMenu(body);
-    const row = findPlanReflectionSwitch(menu);
-    assert.ok(row, "expected a plan reflection switch in the permission menu");
-    assert.equal(row.getAttribute("role"), "switch");
-    assert.equal(row.getAttribute("aria-checked"), "true");
-    assert.equal(row.classList.contains("is-on"), true);
-    assert.equal(row.disabled, false);
+    const row = menu.querySelector(".composer-permission-plan-reflection");
+    assert.ok(row, "expected a plan reflection toggle in the permission menu");
+    assert.equal(findPlanReflectionButton(menu, true).getAttribute("aria-checked"), "true");
+    assert.equal(findPlanReflectionButton(menu, false).getAttribute("aria-checked"), "false");
+    assert.equal(findPlanReflectionButton(menu, true).disabled, false);
+    assert.equal(findPlanReflectionButton(menu, false).disabled, false);
   });
 });
 
-test("plan reflection switch is omitted outside plan mode", async () => {
+test("plan reflection on/off is omitted outside plan mode", async () => {
   const { fakeDocument, fakeWindow, trigger, body } = setupComposerSelectDOM();
   await withGlobals(fakeDocument, fakeWindow, async () => {
     const controller = createUIShellController({
@@ -442,7 +454,7 @@ test("plan reflection switch is omitted outside plan mode", async () => {
     openPermissionMenu(trigger);
 
     const menu = findMenu(body);
-    assert.equal(findPlanReflectionSwitch(menu), null);
+    assert.equal(menu.querySelector(".composer-permission-plan-reflection"), null);
   });
 });
 
@@ -464,15 +476,62 @@ test("turning plan reflection off patches the current conversation", async () =>
     openPermissionMenu(trigger);
 
     const menu = findMenu(body);
-    findPlanReflectionSwitch(menu).dispatch("click");
+    findPlanReflectionButton(menu, false).dispatch("click");
     await flushMicrotasks();
 
     const patches = calls.filter((call) => call.options?.method === "PATCH");
     assert.equal(patches.length, 1);
     assert.equal(patches[0].path, "/api/agents/agent-1/plan-reflection");
     assert.equal(JSON.parse(patches[0].options.body).planReflection, false);
-    const row = findPlanReflectionSwitch(menu);
-    assert.equal(row.getAttribute("aria-checked"), "false");
-    assert.equal(row.classList.contains("is-on"), false);
+    assert.equal(findPlanReflectionButton(menu, false).getAttribute("aria-checked"), "true");
+    assert.equal(findPlanReflectionButton(menu, true).getAttribute("aria-checked"), "false");
+  });
+});
+
+test("choosing a permission mode keeps the menu open", async () => {
+  const { fakeDocument, fakeWindow, trigger, body, select } = setupComposerSelectDOM();
+  await withGlobals(fakeDocument, fakeWindow, async () => {
+    const controller = createUIShellController({
+      state: { agent: { id: "agent-1" } },
+      resizeTerminal() {},
+      requestAPI: async () => ({}),
+    });
+    controller.bindComposerSelectMenus();
+    openPermissionMenu(trigger);
+
+    const menu = findMenu(body);
+    findPermissionOption(menu, "bypassPermissions").dispatch("click");
+
+    assert.equal(menu.classList.contains("hidden"), false);
+    assert.equal(select.value, "bypassPermissions");
+    assert.equal(findPermissionOption(menu, "bypassPermissions").getAttribute("aria-selected"), "true");
+    assert.equal(findPermissionOption(menu, "default").getAttribute("aria-selected"), "false");
+  });
+});
+
+test("choosing plan mode keeps the menu open and reveals plan reflection", async () => {
+  const { fakeDocument, fakeWindow, trigger, body } = setupComposerSelectDOM();
+  let messageMode = "execute";
+  await withGlobals(fakeDocument, fakeWindow, async () => {
+    const controller = createUIShellController({
+      state: { agent: { id: "agent-1" } },
+      getMessageMode: () => messageMode,
+      setMessageMode: (mode) => { messageMode = mode; },
+      resizeTerminal() {},
+      requestAPI: async () => ({}),
+    });
+    controller.bindComposerSelectMenus();
+    openPermissionMenu(trigger);
+
+    const menu = findMenu(body);
+    assert.equal(menu.querySelector(".composer-permission-plan-reflection"), null);
+    findMessageModeOption(menu, "plan").dispatch("click");
+
+    assert.equal(menu.classList.contains("hidden"), false);
+    assert.equal(messageMode, "plan");
+    assert.equal(findMessageModeOption(menu, "plan").getAttribute("aria-selected"), "true");
+    assert.equal(findMessageModeOption(menu, "execute").getAttribute("aria-selected"), "false");
+    assert.ok(menu.querySelector(".composer-permission-plan-reflection"));
+    assert.equal(findPlanReflectionButton(menu, true).getAttribute("aria-checked"), "true");
   });
 });

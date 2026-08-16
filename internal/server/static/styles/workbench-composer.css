@@ -373,80 +373,40 @@ body.white-shell.theme-light .composer-select-chevron {
   opacity: .65;
 }
 
-.composer-permission-plan-reflection {
-  width: 100%;
-  min-height: 36px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  margin: 1px 0 0;
-  padding: 6px 10px 6px 37px;
+.composer-permission-plan-reflection-levels {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.composer-permission-plan-reflection-level {
+  min-width: 0;
   border: 0;
-  border-radius: 6px;
+  border-radius: 5px;
   background: transparent;
-  color: var(--ws-text, #20263a);
+  color: #505869;
+  padding: 6px 7px;
   font: inherit;
-  font-size: 13px;
-  text-align: left;
+  font-size: 12px;
+  line-height: 1.15;
+  text-align: center;
+  white-space: nowrap;
   cursor: pointer;
 }
 
-.composer-permission-plan-reflection:is(:hover, :focus-visible) {
+.composer-permission-plan-reflection-level:is(:hover, :focus-visible) {
   outline: 0;
-  background: color-mix(in srgb, var(--ws-primary, #4f6ef7) 10%, transparent);
+  color: #20263a;
 }
 
-.composer-permission-plan-reflection:disabled {
+.composer-permission-plan-reflection-level.is-selected {
+  background: var(--ws-card);
+  color: #20263a;
+  font-weight: 700;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, .16);
+}
+
+.composer-permission-plan-reflection-level:disabled {
   cursor: not-allowed;
   opacity: .65;
-}
-
-.composer-permission-plan-reflection-label {
-  min-width: 0;
-  flex: 1 1 auto;
-}
-
-.composer-permission-plan-reflection-switch {
-  position: relative;
-  width: 40px;
-  height: 24px;
-  flex: 0 0 40px;
-  border-radius: 999px;
-  background: #d5dae3;
-  transition: background-color .16s ease;
-}
-
-.composer-permission-plan-reflection.is-on .composer-permission-plan-reflection-switch {
-  background: var(--ws-primary, #4f6ef7);
-}
-
-.composer-permission-plan-reflection-switch-thumb {
-  position: absolute;
-  top: 2px;
-  left: 2px;
-  width: 20px;
-  height: 20px;
-  border-radius: 50%;
-  background: #fff;
-  box-shadow: 0 1px 3px rgba(15, 23, 42, .22);
-  transition: transform .16s ease;
-}
-
-.composer-permission-plan-reflection-switch-thumb::after {
-  position: absolute;
-  inset: 7px;
-  border-radius: 50%;
-  background: #d5dae3;
-  content: "";
-}
-
-.composer-permission-plan-reflection.is-on .composer-permission-plan-reflection-switch-thumb {
-  transform: translateX(16px);
-}
-
-.composer-permission-plan-reflection.is-on .composer-permission-plan-reflection-switch-thumb::after {
-  background: var(--ws-primary, #4f6ef7);
 }
 
 .composer-message-mode-section-title {
@@ -504,21 +464,11 @@ body.white-shell.theme-light .composer-select-chevron {
   gap: 12px;
 }
 
-.mobile-permission-sheet .composer-permission-danger-reflection-level {
+.mobile-permission-sheet .composer-permission-danger-reflection-level,
+.mobile-permission-sheet .composer-permission-plan-reflection-level {
   min-height: 34px;
   padding: 7px 5px;
   font-size: 13px;
-}
-
-.mobile-permission-sheet .composer-permission-plan-reflection {
-  min-height: 44px;
-  margin: 2px 0 0;
-  padding: 8px 12px 8px 42px;
-  border-radius: 10px;
-}
-
-.mobile-permission-sheet .composer-permission-plan-reflection:is(:hover, :focus-visible) {
-  background: rgba(118, 118, 128, .12);
 }
 
 .mobile-permission-sheet .composer-message-mode-section-title {

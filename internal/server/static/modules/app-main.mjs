@@ -4120,14 +4120,17 @@ async function persistAgentSettingsPass(snapshot) {
       state.agent = updated;
       return true;
     };
+    let reloadConversation = false;
     if (model && model !== state.agent.model) {
       modelPatchInFlight = true;
       if (!await applyAgentPatch("model", { model })) return;
       modelPatchInFlight = false;
+      reloadConversation = true;
     }
     const storedReasoningEffort = String(state.agent.reasoningEffort || "").trim().toLowerCase();
     if ((storedReasoningEffort && storedReasoningEffort !== reasoningEffort) || (!storedReasoningEffort && reasoningEffort !== "auto")) {
       if (!await applyAgentPatch("reasoning-effort", { reasoningEffort })) return;
+      reloadConversation = true;
     }
     if (permissionMode && permissionMode !== state.agent.permissionMode) {
       if (!await applyAgentPatch("permission-mode", { permissionMode })) return;
@@ -4135,7 +4138,12 @@ async function persistAgentSettingsPass(snapshot) {
     if (state.agent?.id !== id) return;
     if (selectableModel && model === selectableModel) setPreferredModel(selectableModel);
     if (state.agentSavePending) return;
-    await enterAgent();
+    // Reloading the conversation after a permission-only save closed the
+    // permission menu (transcript hydrate scrolls) and was more work than the
+    // change needs. Model or reasoning changes still re-enter so those
+    // controls can rebuild.
+    if (reloadConversation) await enterAgent();
+    else updatePermissionModeDisplay();
     if (state.agent?.id !== id) return;
     notifyTerminal(`Saved settings: ${state.agent.model}, ${state.agent.permissionMode}\n`);
   } catch (err) {

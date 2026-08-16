@@ -282,6 +282,8 @@ export default Object.freeze({
     },
     planReflection: "Plan reflection",
     planReflectionDescription: "Automatically replan once when review says the plan missed the goal",
+    planReflectionOn: "On",
+    planReflectionOff: "Off",
 
     saveAgentSettings: "Save the current model, permissions, and folder",
     credentials: "Credentials and relay",
