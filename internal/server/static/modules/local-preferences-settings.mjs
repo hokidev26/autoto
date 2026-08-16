@@ -3,6 +3,11 @@ import { formatBytes, formatNumber } from "./formatters.mjs";
 import { resolveUILocale, t } from "./i18n.mjs";
 import { defaultIMGatewayPrefs, defaultSearchPrefs } from "./preferences-data.mjs";
 import {
+  notificationCustomSoundAccept,
+  notificationCustomSoundErrorCodes,
+  notificationCustomSoundMaxBytes,
+} from "./notification-custom-sound.mjs";
+import {
   avatarDataUrlByteLength,
   compressProfileAvatar,
   normalizeAvatarDataUrl,
@@ -44,7 +49,10 @@ export function createLocalPreferencesSettingsController({
   setAppearancePreference,
   setNotificationPreference,
   requestSystemNotificationPermission,
+  systemNotificationPermission = () => "unsupported",
   playNotificationSoundSample,
+  importCustomNotificationSound,
+  clearCustomNotificationSound,
   showError,
   showToast,
   profileSessionHTML = () => "",
@@ -553,16 +561,71 @@ export function createLocalPreferencesSettingsController({
       <section class="settings-provider-section settings-page-section settings-card">
         <div class="settings-provider-section-head settings-card-header">
           <div>
+            <div class="settings-provider-title settings-card-title">${escapeHtml(t("notification.eventsTitle"))}</div>
+            <div class="settings-provider-meta settings-card-description" data-settings-help-copy>${escapeHtml(t("notification.eventsMeta"))}</div>
+          </div>
+        </div>
+        <div class="appearance-toggle-list">
+          ${renderNotificationToggle("soundOnDone", t("notification.soundOnDone"), t("notification.soundOnDoneDesc"), prefs.soundOnDone)}
+          ${renderNotificationToggle("soundOnApproval", t("notification.soundOnApproval"), t("notification.soundOnApprovalDesc"), prefs.soundOnApproval)}
+          ${renderNotificationToggle("soundOnError", t("notification.soundOnError"), t("notification.soundOnErrorDesc"), prefs.soundOnError)}
+        </div>
+      </section>
+      <section class="settings-provider-section settings-page-section settings-card">
+        <div class="settings-provider-section-head settings-card-header">
+          <div>
+            <div class="settings-provider-title settings-card-title">${escapeHtml(t("notification.pushTitle"))}</div>
+            <div class="settings-provider-meta settings-card-description" data-settings-help-copy>${escapeHtml(t("notification.pushMeta"))}</div>
+          </div>
+        </div>
+        <div class="appearance-toggle-list">
+          ${renderNotificationToggle("systemNotifications", t("notification.systemNotifications"), t("notification.systemNotificationsDesc"), prefs.systemNotifications)}
+        </div>
+        <div class="settings-action-row settings-form-actions settings-card-footer settings-inline-actions">
+          <button id="requestSystemNotificationBtn" class="settings-action-btn subtle" type="button">${escapeHtml(t("notification.pushRequest"))}</button>
+          <span class="notification-push-status">${escapeHtml(notificationPermissionLabel(systemNotificationPermission?.()))}</span>
+        </div>
+      </section>
+      <section class="settings-provider-section settings-page-section settings-card">
+        <div class="settings-provider-section-head settings-card-header">
+          <div>
             <div class="settings-provider-title settings-card-title">${escapeHtml(t("notification.soundTitle"))}</div>
             <div class="settings-provider-meta settings-card-description" data-settings-help-copy>${escapeHtml(t("notification.soundMeta"))}</div>
           </div>
         </div>
         <div class="appearance-toggle-list">
           ${renderNotificationToggle("soundEnabled", t("notification.soundEnabled"), t("notification.soundEnabledDesc"), prefs.soundEnabled)}
-          ${renderNotificationToggle("soundOnDone", t("notification.soundOnDone"), t("notification.soundOnDoneDesc"), prefs.soundOnDone)}
-          ${renderNotificationToggle("soundOnError", t("notification.soundOnError"), t("notification.soundOnErrorDesc"), prefs.soundOnError)}
-          ${renderNotificationToggle("systemNotifications", t("notification.systemNotifications"), t("notification.systemNotificationsDesc"), prefs.systemNotifications)}
-          ${renderNotificationToggle("hapticFeedback", t("notification.hapticFeedback"), t("notification.hapticFeedbackDesc"), prefs.hapticFeedback)}
+        </div>
+        <div class="appearance-choice-grid settings-choice-grid notification-sound-source" role="tablist">
+          ${renderNotificationSoundSourceChoice("preset", t("notification.soundSourcePreset"), t("notification.soundSourcePresetDesc"), prefs.soundSource === "custom" ? "custom" : "preset")}
+          ${renderNotificationSoundSourceChoice("custom", t("notification.soundSourceCustom"), t("notification.soundSourceCustomDesc"), prefs.soundSource === "custom" ? "custom" : "preset")}
+        </div>
+        <div class="notification-sound-controls settings-form-grid">
+          ${prefs.soundSource === "custom" ? `
+          <div class="settings-form-field notification-sound-custom">
+            <span>${escapeHtml(prefs.soundCustomName ? t("notification.soundCustomNamed", { name: prefs.soundCustomName }) : t("notification.soundCustomEmpty"))}</span>
+            <small data-settings-help-copy>${escapeHtml(t("notification.soundCustomMeta", { size: formatBytes(notificationCustomSoundMaxBytes) }))}</small>
+            <input id="notificationSoundFile" class="hidden" type="file" accept="${escapeAttr(notificationCustomSoundAccept)}" />
+            <div class="settings-action-row settings-inline-actions">
+              <button id="chooseNotificationSoundFileBtn" class="settings-action-btn primary" type="button">${escapeHtml(prefs.soundCustomName ? t("notification.soundCustomReplace") : t("notification.soundCustomPick"))}</button>
+              <button id="removeNotificationSoundFileBtn" class="settings-action-btn subtle" type="button" ${prefs.soundCustomName ? "" : "disabled"}>${escapeHtml(t("notification.soundCustomRemove"))}</button>
+            </div>
+          </div>
+          ` : `
+          <label class="settings-form-field">${escapeHtml(t("notification.soundPreset"))}
+            <select id="notificationSoundPreset" class="settings-field">
+              ${["soft", "clear", "low"].map((value) => `<option value="${escapeAttr(value)}"${prefs.soundPreset === value ? " selected" : ""}>${escapeHtml(t(`notification.soundPreset${value[0].toUpperCase()}${value.slice(1)}`))}</option>`).join("")}
+            </select>
+          </label>
+          `}
+          <label class="settings-form-field">${escapeHtml(t("notification.soundVolume"))}
+            <input id="notificationSoundVolume" class="settings-field" type="range" min="0" max="100" step="1" value="${escapeAttr(String(prefs.soundVolume ?? 100))}" />
+            <small data-settings-help-copy>${escapeHtml(t("notification.soundVolumeDesc", { value: String(prefs.soundVolume ?? 100) }))}</small>
+          </label>
+          <label class="settings-form-field">${escapeHtml(t("notification.soundMaxConcurrent"))}
+            <input id="notificationSoundMaxConcurrent" class="settings-field" type="number" min="1" max="4" step="1" value="${escapeAttr(String(prefs.soundMaxConcurrent ?? 2))}" />
+            <small data-settings-help-copy>${escapeHtml(t("notification.soundMaxConcurrentDesc"))}</small>
+          </label>
         </div>
         <div class="settings-action-row settings-form-actions settings-card-footer settings-inline-actions">
           <button id="testNotificationSoundBtn" class="settings-action-btn subtle" type="button">${escapeHtml(t("notification.soundTest"))}</button>
@@ -590,6 +653,7 @@ export function createLocalPreferencesSettingsController({
         </div>
         <div class="appearance-toggle-list">
           ${renderNotificationToggle("terminalNotices", t("notification.terminalNotices"), t("notification.terminalNoticesDesc"), prefs.terminalNotices)}
+          ${renderNotificationToggle("hapticFeedback", t("notification.hapticFeedback"), t("notification.hapticFeedbackDesc"), prefs.hapticFeedback)}
         </div>
       </section>
     </div>
@@ -629,10 +693,27 @@ export function createLocalPreferencesSettingsController({
   `;
   }
 
+  function renderNotificationSoundSourceChoice(value, title, description, current) {
+    return `
+    <button class="appearance-choice settings-choice-card ${current === value ? "active" : ""}" type="button" role="tab" aria-selected="${current === value}" data-notification-sound-source="${escapeAttr(value)}">
+      <span>${escapeHtml(title)}</span>
+      <small data-settings-help-copy>${escapeHtml(description)}</small>
+    </button>
+  `;
+  }
+
   function notificationDurationLabel(value) {
     if (value === "short") return t("notification.durationShort");
     if (value === "long") return t("notification.durationLong");
     return t("notification.durationNormal");
+  }
+
+  function notificationPermissionLabel(value) {
+    const permission = String(value || "default").toLowerCase();
+    if (permission === "granted") return t("notification.pushGranted");
+    if (permission === "denied") return t("notification.pushDenied");
+    if (permission === "unsupported") return t("notification.systemUnsupported");
+    return t("notification.pushDefault");
   }
 
   function bindNotificationSettingsActions() {
@@ -665,6 +746,51 @@ export function createLocalPreferencesSettingsController({
         }
         setNotificationPreference(field, node.checked);
       });
+    });
+    $("requestSystemNotificationBtn")?.addEventListener("click", () => {
+      if (!requestSystemNotificationPermission) return;
+      requestSystemNotificationPermission().then((permission) => {
+        if (permission === "granted") {
+          setNotificationPreference("systemNotifications", true);
+          return;
+        }
+        showToast?.(t(permission === "unsupported" ? "notification.systemUnsupported" : "notification.systemDenied"), "warn", { force: true });
+        refreshActiveSettingsPanel?.();
+      }).catch((error) => showError?.(error));
+    });
+    $("notificationSoundPreset")?.addEventListener("change", (event) => {
+      setNotificationPreference("soundPreset", event.target.value, { notify: false });
+    });
+    document.querySelectorAll("[data-notification-sound-source]").forEach((node) => {
+      node.addEventListener("click", () => setNotificationPreference("soundSource", node.dataset.notificationSoundSource, { notify: false }));
+    });
+    $("chooseNotificationSoundFileBtn")?.addEventListener("click", () => $("notificationSoundFile")?.click());
+    $("notificationSoundFile")?.addEventListener("change", (event) => {
+      const file = event.target?.files?.[0];
+      if (event.target) event.target.value = "";
+      if (!file || !importCustomNotificationSound) return;
+      const button = $("chooseNotificationSoundFileBtn");
+      setButtonBusy(button, true, t("notification.soundCustomReading"));
+      Promise.resolve(importCustomNotificationSound(file)).then(() => {}, (error) => {
+        const key = error?.code === notificationCustomSoundErrorCodes.tooLarge
+          ? "notification.soundCustomTooLarge"
+          : (error?.code === notificationCustomSoundErrorCodes.unsupportedType ? "notification.soundCustomUnsupported" : "notification.soundCustomUnreadable");
+        showToast?.(t(key, { size: formatBytes(notificationCustomSoundMaxBytes) }), "warn", { force: true });
+      }).finally(() => setButtonBusy(button, false));
+    });
+    $("removeNotificationSoundFileBtn")?.addEventListener("click", () => {
+      if (!clearCustomNotificationSound) return;
+      Promise.resolve(clearCustomNotificationSound()).catch((error) => showError?.(error));
+    });
+    $("notificationSoundVolume")?.addEventListener("input", (event) => {
+      const help = event.target.parentElement?.querySelector("[data-settings-help-copy]");
+      if (help) help.textContent = t("notification.soundVolumeDesc", { value: String(event.target.value) });
+    });
+    $("notificationSoundVolume")?.addEventListener("change", (event) => {
+      setNotificationPreference("soundVolume", event.target.value, { notify: false });
+    });
+    $("notificationSoundMaxConcurrent")?.addEventListener("change", (event) => {
+      setNotificationPreference("soundMaxConcurrent", event.target.value, { notify: false });
     });
     document.querySelectorAll("[data-notification-duration]").forEach((node) => {
       node.addEventListener("click", () => setNotificationPreference("duration", node.dataset.notificationDuration));

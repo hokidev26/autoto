@@ -1435,6 +1435,155 @@ body.white-shell.theme-light .toolbar-lightning-btn[aria-busy="true"] {
   color: var(--uh-muted);
   line-height: 1.45;
 }
+#settingsContentBody .usage-history-page .uh-summary-groups {
+  display: grid;
+  gap: 16px;
+}
+#settingsContentBody .usage-history-page .uh-summary-group-title {
+  margin: 0 0 10px;
+  color: var(--uh-muted);
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+#settingsContentBody .usage-history-page .uh-view-tabs,
+#settingsContentBody .usage-history-page .uh-date-presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+#settingsContentBody .usage-history-page .uh-view-tabs {
+  width: fit-content;
+  border: 1px solid var(--uh-border);
+  border-radius: 10px;
+  background: var(--uh-surface-muted);
+  padding: 4px;
+}
+#settingsContentBody .usage-history-page .uh-view-tabs button,
+#settingsContentBody .usage-history-page .uh-date-presets button {
+  min-height: 34px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--uh-muted);
+  padding: 0 12px;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 750;
+  cursor: pointer;
+}
+#settingsContentBody .usage-history-page .uh-date-presets button {
+  border-color: var(--uh-border);
+  background: var(--uh-surface);
+}
+#settingsContentBody .usage-history-page .uh-view-tabs button.active,
+#settingsContentBody .usage-history-page .uh-date-presets button.active {
+  border-color: var(--uh-primary);
+  background: var(--uh-primary-soft);
+  color: var(--uh-primary);
+}
+#settingsContentBody .usage-history-page .uh-date-presets { margin: 0 0 14px; }
+#settingsContentBody .usage-history-page .uh-chart-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(180px, 240px);
+  gap: 16px;
+  align-items: start;
+}
+#settingsContentBody .usage-history-page .uh-chart-main { min-width: 0; }
+#settingsContentBody .usage-history-page .uh-chart-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 16px;
+  margin: 12px 0 0;
+  padding: 0;
+  list-style: none;
+  color: var(--uh-muted);
+  font-size: 12px;
+}
+#settingsContentBody .usage-history-page .uh-chart-legend li,
+#settingsContentBody .usage-history-page .uh-dist-row {
+  display: grid;
+  grid-template-columns: 10px minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+}
+#settingsContentBody .usage-history-page .uh-swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+}
+#settingsContentBody .usage-history-page .uh-distribution {
+  min-width: 0;
+  border: 1px solid var(--uh-border);
+  border-radius: 12px;
+  background: var(--uh-surface);
+  padding: 14px;
+}
+#settingsContentBody .usage-history-page .uh-distribution h4 {
+  margin: 0 0 12px;
+  color: var(--uh-muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+#settingsContentBody .usage-history-page .uh-dist-row {
+  grid-template-columns: 10px minmax(0, 1fr) auto;
+  margin-bottom: 10px;
+}
+#settingsContentBody .usage-history-page .uh-dist-name {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--uh-text);
+  font-size: 12px;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+#settingsContentBody .usage-history-page .uh-dist-value {
+  color: var(--uh-muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+#settingsContentBody .usage-history-page .uh-dist-bar {
+  grid-column: 1 / -1;
+  height: 4px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--uh-surface-muted);
+}
+#settingsContentBody .usage-history-page .uh-dist-bar span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--uh-primary);
+}
+#settingsContentBody .usage-history-page .uh-stack-hit { fill: transparent; cursor: pointer; }
+#settingsContentBody .usage-history-page .uh-stack-bucket.is-selected .uh-stack-hit { fill: var(--uh-primary); fill-opacity: .08; }
+#settingsContentBody .usage-history-page .uh-kind-pill {
+  display: inline-flex;
+  width: fit-content;
+  border-radius: 999px;
+  background: var(--uh-primary-soft);
+  color: var(--uh-primary);
+  padding: 3px 8px;
+  font-size: 11px;
+  font-weight: 800;
+}
+#settingsContentBody .usage-history-page .uh-token-metrics {
+  display: grid;
+  gap: 3px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+}
+#settingsContentBody .usage-history-page .uh-token-in { color: #0f766e; }
+#settingsContentBody .usage-history-page .uh-token-out { color: #c2410c; }
+#settingsContentBody .usage-history-page .uh-token-total { color: var(--uh-text); }
+#settingsContentBody .usage-history-page .uh-token-extra {
+  display: block;
+  margin-top: 6px;
+  color: var(--uh-muted);
+  line-height: 1.45;
+}
 
 #settingsContentBody .usage-history-page .uh-panel { min-width: 0; padding: 20px; }
 #settingsContentBody .usage-history-page .uh-section-head {
@@ -1702,11 +1851,16 @@ body.theme-dark #settingsContentBody .usage-history-page .uh-panel,
 body.theme-dark #settingsContentBody .usage-history-page .uh-summary-card { box-shadow: none; }
 body.white-shell.theme-light.theme-dark #settingsContentBody .usage-history-page .uh-truncated,
 body.theme-dark #settingsContentBody .usage-history-page .uh-truncated { background: #3a2a13; color: #ffd28a; }
+body.white-shell.theme-light.theme-dark #settingsContentBody .usage-history-page .uh-token-in,
+body.theme-dark #settingsContentBody .usage-history-page .uh-token-in { color: #5eead4; }
+body.white-shell.theme-light.theme-dark #settingsContentBody .usage-history-page .uh-token-out,
+body.theme-dark #settingsContentBody .usage-history-page .uh-token-out { color: #fdba74; }
 
 @media (max-width: 1080px) {
   #settingsContentBody .usage-history-page .uh-summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   #settingsContentBody .usage-history-page .uh-filter-form { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   #settingsContentBody .usage-history-page .uh-filter-actions { grid-column: 1 / -1; }
+  #settingsContentBody .usage-history-page .uh-chart-layout { grid-template-columns: minmax(0, 1fr); }
 }
 
 @media (max-width: 700px) {

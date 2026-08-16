@@ -6,14 +6,18 @@ import { readStylesSource } from "./styles-source-helper.mjs";
 import { usageHistoryMessages, usageHistoryMessage } from "./messages-usage-history.mjs";
 import {
   appendUsageHistoryItems,
+  buildUsageHistoryCSV,
   buildUsageHistoryURL,
   createUsageHistoryController,
   createUsageHistoryState,
+  matchingUsageHistoryDatePreset,
   normalizeUsageHistoryResponse,
   normalizeTrendPointIndex,
   renderTrendReadout,
   renderUsageHistory,
+  renderUsageStackedSVG,
   renderUsageTrendSVG,
+  usageHistoryDateRangeForPreset,
   usageHistoryMetrics,
 } from "./usage-history.mjs";
 
@@ -42,6 +46,7 @@ test("usage history URL uses URLSearchParams and preserves supported filters", (
     bucket: "month",
     limit: 99,
     cursor: "next=one&two",
+    tzOffset: 0,
   });
   const parsed = new URL(url, "http://localhost");
   assert.equal(parsed.pathname, "/api/usage/history");
@@ -52,6 +57,7 @@ test("usage history URL uses URLSearchParams and preserves supported filters", (
     from: "2026-01-02",
     to: "2026-02-03",
     bucket: "month",
+    tzOffset: "0",
     limit: "50",
     cursor: "next=one&two",
   });
@@ -90,7 +96,7 @@ test("usage history defaults to total tokens", () => {
 test("usage history exposes shared settings classes and accessible regions", () => {
   const html = renderUsageHistory(response());
   assert.match(html, /<main class="usage-history-page settings-page settings-page-usage" aria-labelledby="usageHistoryTitle">/);
-  assert.match(html, /class="uh-summary-grid settings-stat-grid"/);
+  assert.match(html, /class="uh-summary-grid settings-stat-grid/);
   assert.match(html, /class="uh-panel uh-filter-panel settings-card" aria-labelledby="usageHistoryFiltersTitle"/);
   assert.match(html, /class="uh-history-table settings-data-list" aria-label=/);
   assert.match(html, /uh-table-scroll settings-h-scroll[^>]*tabindex="0"/);
@@ -205,6 +211,8 @@ test("render escapes malicious server fields in cards, SVG, filters, and table",
     summary: {},
     metric: "requests",
     trend: [{ bucket: `<script>alert(1)</script>`, requestCount: 1 }],
+    stacked: [{ bucket: `<script>alert(1)</script>`, provider: attack, totalTokens: 1 }],
+    distribution: [{ provider: attack, totalTokens: 1 }],
     options: { providers: [attack], models: [attack], kinds: [attack] },
     filters: { provider: attack, model: attack, kind: attack },
     items: [{ id: attack, createdAt: attack, agentId: attack, agentTitle: attack, kind: attack, provider: attack, model: attack, errorMessage: `<svg onload=boom>`, status: attack }],
@@ -250,10 +258,14 @@ test("all ten metrics and required three-language keys are present", () => {
     assert.ok(usageHistoryMessages[locale].usageHistory.title);
     assert.ok(usageHistoryMessages[locale].usageHistory.filters.apply);
     assert.ok(usageHistoryMessages[locale].usageHistory.history.loadMore);
+    assert.ok(usageHistoryMessages[locale].usageHistory.history.exportCsv);
+    assert.ok(usageHistoryMessages[locale].usageHistory.views.chart);
+    assert.ok(usageHistoryMessages[locale].usageHistory.presets.today);
     assert.ok(usageHistoryMessages[locale].usageHistory.history.statusSuccess);
     assert.ok(usageHistoryMessages[locale].usageHistory.history.statusError);
     assert.ok(usageHistoryMessages[locale].usageHistory.history.statusUnknown);
     assert.notEqual(usageHistoryMessage("usageHistory.trend.metrics.totalCostUsd", {}, locale), "usageHistory.trend.metrics.totalCostUsd");
+    assert.notEqual(usageHistoryMessage("usageHistory.trend.other", {}, locale), "usageHistory.trend.other");
   }
 });
 
@@ -353,6 +365,108 @@ test("load more appends and deduplicates request rows", async () => {
   assert.equal(parsed.searchParams.get("cursor"), "cursor&2");
   assert.equal(state.usageHistory.nextCursor, "");
   assert.deepEqual(appendUsageHistoryItems([{ id: "x" }], [{ id: "x" }, { id: "y" }]).map((item) => item.id), ["x", "y"]);
+});
+
+test("date presets use the local calendar and mark a matching range", () => {
+  const now = new Date(2026, 7, 16);
+  assert.deepEqual(usageHistoryDateRangeForPreset("today", now), { from: "2026-08-16", to: "2026-08-16" });
+  assert.deepEqual(usageHistoryDateRangeForPreset("last7", now), { from: "2026-08-10", to: "2026-08-16" });
+  assert.deepEqual(usageHistoryDateRangeForPreset("last30", now), { from: "2026-07-18", to: "2026-08-16" });
+  assert.deepEqual(usageHistoryDateRangeForPreset("thisMonth", now), { from: "2026-08-01", to: "2026-08-16" });
+  assert.deepEqual(usageHistoryDateRangeForPreset("lastMonth", now), { from: "2026-07-01", to: "2026-07-31" });
+  assert.equal(matchingUsageHistoryDatePreset({ from: "2026-08-16", to: "2026-08-16" }, now), "today");
+  assert.equal(matchingUsageHistoryDatePreset({ from: "2026-08-01", to: "2026-08-16" }, now), "thisMonth");
+  assert.equal(matchingUsageHistoryDatePreset({}, now), "");
+});
+
+test("stacked bars, date presets, view tabs, and CSV stay on the usage page", () => {
+  const html = renderUsageHistory({
+    status: "ready",
+    view: "chart",
+    metric: "totalTokens",
+    trend: [
+      { bucket: "2026-03-01", requestCount: 2, totalTokens: 30 },
+      { bucket: "2026-03-02", requestCount: 3, totalTokens: 70 },
+    ],
+    stacked: [
+      { bucket: "2026-03-01", provider: "openai", requestCount: 2, totalTokens: 30 },
+      { bucket: "2026-03-02", provider: "openai", requestCount: 1, totalTokens: 20 },
+      { bucket: "2026-03-02", provider: "anthropic", requestCount: 2, totalTokens: 50 },
+    ],
+    distribution: [
+      { provider: "openai", totalTokens: 50, requestCount: 3 },
+      { provider: "anthropic", totalTokens: 50, requestCount: 2 },
+    ],
+    items: [{ id: "one", provider: "openai", model: "gpt-5", status: "success" }],
+  });
+  assert.match(html, /data-usage-view="chart"/);
+  assert.match(html, /data-usage-view="records"/);
+  assert.match(html, /data-usage-preset="today"/);
+  assert.match(html, /data-usage-preset="lastMonth"/);
+  assert.match(html, /id="usageHistoryExport"/);
+  assert.match(html, /uh-summary-group-title/);
+  assert.match(html, /uh-kind-pill/);
+  assert.match(html, /uh-token-in/);
+  assert.match(html, /uh-stacked-svg/);
+  assert.match(html, /uh-stack-bar/);
+  assert.doesNotMatch(html, /<path class="uh-chart-line"/);
+  assert.match(html, />openai</);
+  assert.doesNotMatch(html, />co\.\.\.</);
+  assert.match(html, /id="usageHistoryRecordsPanel"[^>]*hidden/);
+});
+
+test("average latency keeps the line chart even when stacked data is present", () => {
+  const html = renderUsageHistory({
+    status: "ready",
+    metric: "averageTTFTMs",
+    trend: [{ bucket: "2026-03-01", averageTTFTMs: 120, requestCount: 1 }],
+    stacked: [{ bucket: "2026-03-01", provider: "openai", totalTokens: 30, requestCount: 1 }],
+  });
+  assert.match(html, /<path class="uh-chart-line"/);
+  assert.doesNotMatch(html, /uh-stacked-svg/);
+});
+
+test("stacked SVG reports provider totals and empty stacked falls back to the empty chart", () => {
+  const svg = renderUsageStackedSVG(
+    [{ bucket: "2026-03-01", totalTokens: 30 }, { bucket: "2026-03-02", totalTokens: 70 }],
+    [
+      { bucket: "2026-03-01", provider: "openai", totalTokens: 30 },
+      { bucket: "2026-03-02", provider: "openai", totalTokens: 20 },
+      { bucket: "2026-03-02", provider: "", totalTokens: 50 },
+    ],
+    "totalTokens",
+  );
+  assert.match(svg, /uh-stacked-svg/);
+  assert.match(svg, /data-usage-trend-point="1"/);
+  assert.match(svg, /其他 50/);
+  assert.match(renderUsageStackedSVG([], [], "requests"), /uh-chart-empty/);
+});
+
+test("CSV export quotes dangerous cells and omits credentials", () => {
+  const csv = buildUsageHistoryCSV([
+    { createdAt: "2026-03-01T00:00:00Z", agentTitle: "Agent \"A\"", kind: "model", provider: "openai", model: "gpt-5", inputTokens: 10, outputTokens: 5, totalTokens: 15, status: "success", errorMessage: "line\nbreak" },
+  ]);
+  assert.match(csv, /^createdAt,agentTitle,kind,provider,model,/);
+  assert.match(csv, /"Agent ""A"""/);
+  assert.match(csv, /"line\nbreak"/);
+  assert.doesNotMatch(csv, /credential|rawDump|raw_dump/i);
+});
+
+test("controller date presets and view switching do not invent a fetch for metric-only changes", async () => {
+  const urls = [];
+  const state = {};
+  const controller = createUsageHistoryController({
+    state,
+    request: async (url) => { urls.push(url); return response(); },
+  });
+  await controller.applyDatePreset("today", new Date(2026, 7, 16));
+  const parsed = new URL(urls.at(-1), "http://localhost");
+  assert.equal(parsed.searchParams.get("from"), "2026-08-16");
+  assert.equal(parsed.searchParams.get("to"), "2026-08-16");
+  const requestCount = urls.length;
+  assert.equal(controller.setView("records"), "records");
+  assert.equal(state.usageHistory.view, "records");
+  assert.equal(urls.length, requestCount);
 });
 
 test("static integration uses the new usage controller and leaves metric card reusable", async () => {

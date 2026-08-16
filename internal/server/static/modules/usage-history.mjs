@@ -4,6 +4,8 @@ import { currentUILocale } from "./i18n.mjs";
 import { usageHistoryMessage } from "./messages-usage-history.mjs";
 
 export const usageHistoryBuckets = Object.freeze(["hour", "day", "month"]);
+export const usageHistoryViews = Object.freeze(["chart", "records"]);
+export const usageHistoryDatePresets = Object.freeze(["today", "last7", "last30", "thisMonth", "lastMonth"]);
 export const usageHistoryMetrics = Object.freeze([
   "requests",
   "totalTokens",
@@ -13,6 +15,16 @@ export const usageHistoryMetrics = Object.freeze([
   "cachedInputTokens",
   "averageTTFTMs",
   "averageDurationMs",
+  "totalCostUsd",
+  "errors",
+]);
+export const usageHistoryStackableMetrics = Object.freeze([
+  "requests",
+  "totalTokens",
+  "inputTokens",
+  "outputTokens",
+  "reasoningTokens",
+  "cachedInputTokens",
   "totalCostUsd",
   "errors",
 ]);
@@ -42,6 +54,12 @@ const itemNumberFields = Object.freeze([
   "costUsd",
 ]);
 const trendNumberFields = Object.freeze(summaryFields);
+const stackedPalette = Object.freeze(["#4f63df", "#22a06b", "#d97706", "#7c3aed", "#c2410c", "#64748b"]);
+const csvFields = Object.freeze([
+  "createdAt", "agentTitle", "kind", "provider", "model",
+  "inputTokens", "outputTokens", "totalTokens", "reasoningTokens", "cachedInputTokens",
+  "ttftMs", "durationMs", "costUsd", "status", "errorMessage",
+]);
 
 function t(key, params = {}) {
   return usageHistoryMessage(key, params, currentUILocale());
@@ -104,6 +122,23 @@ export function normalizeUsageHistoryTrendItem(value = {}) {
   };
 }
 
+export function normalizeUsageHistoryStackedItem(value = {}) {
+  const source = value && typeof value === "object" ? value : {};
+  return {
+    bucket: normalizeUsageHistoryText(source.bucket, 200),
+    provider: normalizeUsageHistoryText(source.provider, 300),
+    ...normalizeMetricObject(source, trendNumberFields),
+  };
+}
+
+export function normalizeUsageHistoryDistributionItem(value = {}) {
+  const source = value && typeof value === "object" ? value : {};
+  return {
+    provider: normalizeUsageHistoryText(source.provider, 300),
+    ...normalizeMetricObject(source, trendNumberFields),
+  };
+}
+
 export function normalizeUsageHistoryItem(value = {}) {
   const source = value && typeof value === "object" ? value : {};
   const item = {
@@ -131,6 +166,8 @@ export function normalizeUsageHistoryResponse(value = {}) {
     summary: normalizeMetricObject(source.summary, summaryFields),
     trend: (Array.isArray(source.trend) ? source.trend : []).slice(0, 1000).map(normalizeUsageHistoryTrendItem),
     trendTruncated: Boolean(source.trendTruncated),
+    stacked: (Array.isArray(source.stacked) ? source.stacked : []).slice(0, 6000).map(normalizeUsageHistoryStackedItem),
+    distribution: (Array.isArray(source.distribution) ? source.distribution : []).slice(0, 20).map(normalizeUsageHistoryDistributionItem),
     options: {
       providers: normalizeTextArray(options.providers),
       models: normalizeTextArray(options.models),
@@ -144,28 +181,89 @@ export function normalizeUsageHistoryResponse(value = {}) {
 export function createUsageHistoryState(value = {}) {
   const source = value && typeof value === "object" ? value : {};
   const normalized = normalizeUsageHistoryResponse(source);
-  const hasPayload = Boolean(source.summary || source.generatedAt || source.items || source.trend);
+  const hasPayload = Boolean(source.summary || source.generatedAt || source.items || source.trend || source.stacked);
   return {
     filters: normalizeUsageHistoryFilters(source.filters),
     bucket: normalizeChoice(source.bucket, usageHistoryBuckets, "day"),
     metric: normalizeChoice(source.metric, usageHistoryMetrics, "totalTokens"),
+    view: normalizeChoice(source.view, usageHistoryViews, "chart"),
     status: normalizeChoice(source.status, ["idle", "loading", "ready", "error", "loadingMore"], hasPayload ? "ready" : "idle"),
     error: normalizeUsageHistoryText(source.error, 2000),
     seq: Math.floor(normalizeUsageHistoryNumber(source.seq)),
     ...normalized,
-    // Validated against the trend that came back, so a pinned point cannot
-    // outlive the series it belonged to.
     selectedTrendIndex: normalizeTrendPointIndex(source.selectedTrendIndex, (normalized.trend || []).length),
   };
 }
 
-export function buildUsageHistoryURL({ filters = {}, bucket = "day", limit = 50, cursor = "" } = {}) {
+export function localTimezoneOffsetMinutes(now = new Date()) {
+  const offset = -Math.round(Number(now.getTimezoneOffset?.()) || 0);
+  return Number.isFinite(offset) ? Math.max(-840, Math.min(840, offset)) : 0;
+}
+
+export function formatUsageHistoryLocalDate(date) {
+  const value = date instanceof Date ? date : new Date(date);
+  if (Number.isNaN(value.getTime())) return "";
+  const month = String(value.getMonth() + 1).padStart(2, "0");
+  const day = String(value.getDate()).padStart(2, "0");
+  return `${value.getFullYear()}-${month}-${day}`;
+}
+
+export function usageHistoryDateRangeForPreset(preset, now = new Date()) {
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const format = (date) => formatUsageHistoryLocalDate(date);
+  switch (preset) {
+    case "today":
+      return { from: format(today), to: format(today) };
+    case "last7": {
+      const from = new Date(today);
+      from.setDate(from.getDate() - 6);
+      return { from: format(from), to: format(today) };
+    }
+    case "last30": {
+      const from = new Date(today);
+      from.setDate(from.getDate() - 29);
+      return { from: format(from), to: format(today) };
+    }
+    case "thisMonth":
+      return { from: format(new Date(today.getFullYear(), today.getMonth(), 1)), to: format(today) };
+    case "lastMonth": {
+      const start = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+      const end = new Date(today.getFullYear(), today.getMonth(), 0);
+      return { from: format(start), to: format(end) };
+    }
+    default:
+      return { from: "", to: "" };
+  }
+}
+
+export function matchingUsageHistoryDatePreset(filters, now = new Date()) {
+  const normalized = normalizeUsageHistoryFilters(filters);
+  for (const preset of usageHistoryDatePresets) {
+    const range = usageHistoryDateRangeForPreset(preset, now);
+    if (range.from === normalized.from && range.to === normalized.to) return preset;
+  }
+  return "";
+}
+
+export function usageHistoryUsesStackedChart(metric) {
+  return usageHistoryStackableMetrics.includes(metric);
+}
+
+function clampTimezoneOffset(value, fallbackNow = new Date()) {
+  if (value == null || value === "") return localTimezoneOffsetMinutes(fallbackNow);
+  const number = Number(value);
+  if (!Number.isFinite(number)) return localTimezoneOffsetMinutes(fallbackNow);
+  return Math.max(-840, Math.min(840, Math.round(number)));
+}
+
+export function buildUsageHistoryURL({ filters = {}, bucket = "day", limit = 50, cursor = "", tzOffset } = {}) {
   const normalizedFilters = normalizeUsageHistoryFilters(filters);
   const params = new URLSearchParams();
   ["provider", "model", "kind", "from", "to"].forEach((key) => {
     if (normalizedFilters[key]) params.set(key, normalizedFilters[key]);
   });
   params.set("bucket", normalizeChoice(bucket, usageHistoryBuckets, "day"));
+  params.set("tzOffset", String(clampTimezoneOffset(tzOffset)));
   params.set("limit", String(Math.min(50, Math.max(1, Math.floor(normalizeUsageHistoryNumber(limit, 50))))));
   const normalizedCursor = normalizeUsageHistoryText(cursor, 2000);
   if (normalizedCursor) params.set("cursor", normalizedCursor);
@@ -189,6 +287,22 @@ export function appendUsageHistoryItems(current, incoming) {
       result.push(item);
     });
   return result;
+}
+
+function csvCell(value) {
+  const text = String(value ?? "");
+  if (/[",\r\n]/.test(text)) return `"${text.replace(/"/g, "\"\"")}"`;
+  return text;
+}
+
+export function buildUsageHistoryCSV(items) {
+  const header = csvFields.join(",");
+  const rows = (Array.isArray(items) ? items : []).map((value) => {
+    const item = normalizeUsageHistoryItem(value);
+    const agent = item.agentTitle || item.agentId;
+    return csvFields.map((field) => csvCell(field === "agentTitle" ? agent : item[field])).join(",");
+  });
+  return [header, ...rows].join("\r\n");
 }
 
 function formatPercent(value) {
@@ -219,10 +333,32 @@ function svgNumber(value) {
   return Number(value).toFixed(2).replace(/\.00$/, "");
 }
 
-// Every bucket already carries the full metric set, so a point can report its
-// request count and token split regardless of which metric the chart is drawing.
-// The selected metric leads; the token detail is appended only when it adds
-// something the leading value does not already say.
+function providerLabel(provider) {
+  const name = normalizeUsageHistoryText(provider, 300).trim();
+  return name || t("usageHistory.trend.other");
+}
+
+function stackedColor(provider, index) {
+  if (!normalizeUsageHistoryText(provider, 300).trim()) return stackedPalette[stackedPalette.length - 1];
+  return stackedPalette[index % (stackedPalette.length - 1)];
+}
+
+function stackedSeriesOrder(stacked, distribution) {
+  const names = [];
+  const seen = new Set();
+  const push = (provider) => {
+    const name = normalizeUsageHistoryText(provider, 300);
+    if (seen.has(name)) return;
+    seen.add(name);
+    names.push(name);
+  };
+  (Array.isArray(distribution) ? distribution : []).forEach((row) => push(row.provider));
+  (Array.isArray(stacked) ? stacked : []).forEach((row) => push(row.provider));
+  const named = names.filter((name) => name);
+  if (seen.has("")) named.push("");
+  return named;
+}
+
 function trendPointLabel(point, metric, value) {
   const parts = [`${point.bucket || "—"}: ${formatMetric(metric, value)}`];
   if (metric !== "requests") {
@@ -238,6 +374,24 @@ function trendPointLabel(point, metric, value) {
       output: formatNumber(metricValue(point, "outputTokens")),
     }));
   }
+  return parts.join(" · ");
+}
+
+function stackedBucketRows(stacked, bucket) {
+  return (Array.isArray(stacked) ? stacked : []).filter((row) => row.bucket === bucket);
+}
+
+function stackedPointLabel(point, stacked, metric, series) {
+  const rows = stackedBucketRows(stacked, point.bucket);
+  const total = rows.reduce((sum, row) => sum + metricValue(row, metric), 0);
+  const parts = [`${point.bucket || "—"}: ${formatMetric(metric, total || metricValue(point, metric))}`];
+  const ordered = series.length ? series : stackedSeriesOrder(rows, []);
+  ordered.forEach((provider) => {
+    const row = rows.find((entry) => entry.provider === provider);
+    const value = metricValue(row, metric);
+    if (value <= 0) return;
+    parts.push(`${providerLabel(provider)} ${formatMetric(metric, value)}`);
+  });
   return parts.join(" · ");
 }
 
@@ -270,14 +424,6 @@ export function renderUsageTrendSVG(value, metric = "totalTokens", options = {})
   const points = trend.map((point, index) => {
     const label = trendPointLabel(point, selectedMetric, values[index]);
     const active = index === selectedIndex;
-    // The native <title> only appears on hover, which is unreachable on touch
-    // and leaves nothing on screen once the pointer moves away. The click and
-    // keyboard handlers in bindTrendPointSelection pin the same text into a
-    // readout instead, so data-usage-trend-point carries what they need.
-    //
-    // aria-label as well as <title>: the circle is focusable, and a focused
-    // element with only an SVG <title> child reads as nothing in several
-    // screen readers.
     return `<circle class="uh-chart-point${active ? " is-selected" : ""}" cx="${svgNumber(x(index))}" cy="${svgNumber(y(values[index]))}" r="${active ? 6 : 4}"`
       + ` tabindex="0" role="button" aria-label="${escapeAttr(label)}" aria-pressed="${active ? "true" : "false"}"`
       + ` data-usage-trend-point="${escapeAttr(String(index))}" data-usage-trend-label="${escapeAttr(label)}"`
@@ -287,9 +433,66 @@ export function renderUsageTrendSVG(value, metric = "totalTokens", options = {})
   return `<svg class="uh-trend-svg" viewBox="0 0 ${svgNumber(width)} ${svgNumber(height)}" role="img" aria-label="${escapeAttr(ariaLabel)}" preserveAspectRatio="none">${grid}<line class="uh-chart-axis" x1="${margin.left}" y1="${margin.top}" x2="${margin.left}" y2="${svgNumber(margin.top + plotHeight)}"></line><line class="uh-chart-axis" x1="${margin.left}" y1="${svgNumber(margin.top + plotHeight)}" x2="${svgNumber(width - margin.right)}" y2="${svgNumber(margin.top + plotHeight)}"></line><path class="uh-chart-line" d="${escapeAttr(path)}"></path>${points}${xLabels}</svg>`;
 }
 
-// A pinned point survives re-renders, so the index has to be validated against
-// the trend that is actually on screen: switching bucket or metric can shrink
-// the series and leave a stale index pointing past the end.
+export function renderUsageStackedSVG(trendValue, stackedValue, metric = "totalTokens", options = {}) {
+  const trend = (Array.isArray(trendValue) ? trendValue : []).map(normalizeUsageHistoryTrendItem);
+  const stacked = (Array.isArray(stackedValue) ? stackedValue : []).map(normalizeUsageHistoryStackedItem);
+  const selectedMetric = normalizeChoice(metric, usageHistoryMetrics, "totalTokens");
+  if (!trend.length) {
+    return `<div class="uh-chart-empty">${escapeHtml(t("usageHistory.trend.empty"))}</div>`;
+  }
+  const series = stackedSeriesOrder(stacked, options.distribution);
+  const width = Math.max(420, normalizeUsageHistoryNumber(options.width, 760));
+  const height = Math.max(220, normalizeUsageHistoryNumber(options.height, 280));
+  const margin = { top: 20, right: 18, bottom: 42, left: 62 };
+  const plotWidth = width - margin.left - margin.right;
+  const plotHeight = height - margin.top - margin.bottom;
+  const totals = trend.map((point) => stackedBucketRows(stacked, point.bucket).reduce((sum, row) => sum + metricValue(row, selectedMetric), 0));
+  const maximum = Math.max(1, ...totals, ...trend.map((point) => metricValue(point, selectedMetric)));
+  const slot = plotWidth / Math.max(1, trend.length);
+  const barWidth = Math.max(8, Math.min(36, slot * 0.62));
+  const x = (index) => margin.left + slot * index + (slot - barWidth) / 2;
+  const grid = Array.from({ length: 5 }, (_, index) => {
+    const ratio = index / 4;
+    const lineY = margin.top + ratio * plotHeight;
+    const labelValue = maximum * (1 - ratio);
+    return `<g class="uh-chart-grid"><line x1="${margin.left}" y1="${svgNumber(lineY)}" x2="${svgNumber(width - margin.right)}" y2="${svgNumber(lineY)}"></line><text x="${margin.left - 9}" y="${svgNumber(lineY + 4)}" text-anchor="end">${escapeHtml(formatAxisMetric(selectedMetric, labelValue))}</text></g>`;
+  }).join("");
+  const labelIndexes = [...new Set([0, Math.floor((trend.length - 1) / 2), trend.length - 1])];
+  const xLabels = labelIndexes.map((index) => `<text class="uh-chart-x-label" x="${svgNumber(x(index) + barWidth / 2)}" y="${svgNumber(height - 12)}" text-anchor="${index === 0 ? "start" : (index === trend.length - 1 ? "end" : "middle")}">${escapeHtml(trend[index].bucket || "—")}</text>`).join("");
+  const selectedIndex = normalizeTrendPointIndex(options.selectedIndex, trend.length);
+  const bars = trend.map((point, index) => {
+    const rows = stackedBucketRows(stacked, point.bucket);
+    const label = stackedPointLabel(point, stacked, selectedMetric, series);
+    const active = index === selectedIndex;
+    let yOffset = 0;
+    const slices = series.map((provider, seriesIndex) => {
+      const row = rows.find((entry) => entry.provider === provider);
+      const value = metricValue(row, selectedMetric);
+      if (value <= 0) return "";
+      const sliceHeight = (value / maximum) * plotHeight;
+      const y = margin.top + plotHeight - yOffset - sliceHeight;
+      yOffset += sliceHeight;
+      return `<rect class="uh-stack-bar" x="${svgNumber(x(index))}" y="${svgNumber(y)}" width="${svgNumber(barWidth)}" height="${svgNumber(Math.max(0, sliceHeight))}" fill="${escapeAttr(stackedColor(provider, seriesIndex))}"></rect>`;
+    }).join("");
+    return `<g class="uh-stack-bucket${active ? " is-selected" : ""}" tabindex="0" role="button" aria-label="${escapeAttr(label)}" aria-pressed="${active ? "true" : "false"}" data-usage-trend-point="${escapeAttr(String(index))}" data-usage-trend-label="${escapeAttr(label)}"><rect class="uh-stack-hit" x="${svgNumber(x(index))}" y="${margin.top}" width="${svgNumber(barWidth)}" height="${svgNumber(plotHeight)}"></rect>${slices}<title>${escapeHtml(label)}</title></g>`;
+  }).join("");
+  const ariaLabel = `${t("usageHistory.trend.title")}: ${t(`usageHistory.trend.metrics.${selectedMetric}`)}`;
+  return `<svg class="uh-trend-svg uh-stacked-svg" viewBox="0 0 ${svgNumber(width)} ${svgNumber(height)}" role="img" aria-label="${escapeAttr(ariaLabel)}" preserveAspectRatio="none">${grid}<line class="uh-chart-axis" x1="${margin.left}" y1="${margin.top}" x2="${margin.left}" y2="${svgNumber(margin.top + plotHeight)}"></line><line class="uh-chart-axis" x1="${margin.left}" y1="${svgNumber(margin.top + plotHeight)}" x2="${svgNumber(width - margin.right)}" y2="${svgNumber(margin.top + plotHeight)}"></line>${bars}${xLabels}</svg>`;
+}
+
+export function renderUsageHistoryChart(state = {}, options = {}) {
+  const usage = createUsageHistoryState(state);
+  if (usageHistoryUsesStackedChart(usage.metric) && usage.stacked.length) {
+    return renderUsageStackedSVG(usage.trend, usage.stacked, usage.metric, {
+      selectedIndex: usage.selectedTrendIndex,
+      distribution: usage.distribution,
+      width: options.width,
+      height: options.height,
+    });
+  }
+  return renderUsageTrendSVG(usage.trend, usage.metric, { selectedIndex: usage.selectedTrendIndex, width: options.width, height: options.height });
+}
+
 export function normalizeTrendPointIndex(value, length) {
   const count = Number(length);
   if (!Number.isFinite(count) || count <= 0) return -1;
@@ -299,9 +502,15 @@ export function normalizeTrendPointIndex(value, length) {
   return rounded >= 0 && rounded < count ? rounded : -1;
 }
 
-// The readout is what makes a pinned point useful: it stays on screen after the
-// pointer leaves, which the hover-only <title> never did.
-export function renderTrendReadout(trend, metric, selectedIndex) {
+function readoutMarkup(bucket, label) {
+  return `<div class="uh-trend-readout-value" data-usage-trend-readout role="status" aria-live="polite">`
+    + `<strong>${escapeHtml(bucket || "—")}</strong>`
+    + `<span>${escapeHtml(label)}</span>`
+    + `<button type="button" class="uh-button uh-trend-readout-clear" data-usage-trend-clear>${escapeHtml(t("usageHistory.trend.readoutClear"))}</button>`
+    + `</div>`;
+}
+
+export function renderTrendReadout(trend, metric, selectedIndex, stacked = []) {
   const items = (Array.isArray(trend) ? trend : []).map(normalizeUsageHistoryTrendItem);
   const index = normalizeTrendPointIndex(selectedIndex, items.length);
   if (index < 0) {
@@ -309,12 +518,11 @@ export function renderTrendReadout(trend, metric, selectedIndex) {
   }
   const selectedMetric = normalizeChoice(metric, usageHistoryMetrics, "totalTokens");
   const point = items[index];
-  const label = trendPointLabel(point, selectedMetric, metricValue(point, selectedMetric));
-  return `<div class="uh-trend-readout-value" data-usage-trend-readout role="status" aria-live="polite">`
-    + `<strong>${escapeHtml(point.bucket || "—")}</strong>`
-    + `<span>${escapeHtml(label)}</span>`
-    + `<button type="button" class="uh-button uh-trend-readout-clear" data-usage-trend-clear>${escapeHtml(t("usageHistory.trend.readoutClear"))}</button>`
-    + `</div>`;
+  const stackedRows = (Array.isArray(stacked) ? stacked : []).map(normalizeUsageHistoryStackedItem);
+  const label = stackedRows.length && usageHistoryUsesStackedChart(selectedMetric)
+    ? stackedPointLabel(point, stackedRows, selectedMetric, stackedSeriesOrder(stackedRows, []))
+    : trendPointLabel(point, selectedMetric, metricValue(point, selectedMetric));
+  return readoutMarkup(point.bucket, label);
 }
 
 function formatCompactCount(value) {
@@ -325,16 +533,22 @@ function renderSummaryCard(title, value, subtitle = "") {
   return `<section class="uh-summary-card settings-stat-card"><div class="uh-summary-label">${escapeHtml(title)}</div><strong>${escapeHtml(value)}</strong><small>${escapeHtml(subtitle || "—")}</small></section>`;
 }
 
-function renderSummary(summary, className = "uh-summary-grid") {
-  return `<div class="${className}">
-    ${renderSummaryCard(t("usageHistory.summary.requests"), formatCompactCount(summary.requestCount), t("usageHistory.summary.exact", { value: formatNumber(summary.requestCount) }))}
-    ${renderSummaryCard(t("usageHistory.summary.totalTokens"), formatCompactCount(summary.totalTokens), t("usageHistory.summary.inputOutput", { input: formatNumber(summary.inputTokens), output: formatNumber(summary.outputTokens) }))}
-    ${renderSummaryCard(t("usageHistory.summary.averageTTFT"), formatOptionalDuration(summary.averageTTFTMs))}
-    ${renderSummaryCard(t("usageHistory.summary.averageDuration"), formatOptionalDuration(summary.averageDurationMs))}
-    ${renderSummaryCard(t("usageHistory.summary.totalCost"), formatMoney(summary.totalCostUsd))}
-    ${renderSummaryCard(t("usageHistory.summary.reasoningTokens"), formatCompactCount(summary.reasoningTokens), t("usageHistory.summary.exact", { value: formatNumber(summary.reasoningTokens) }))}
-    ${renderSummaryCard(t("usageHistory.summary.cachedInputTokens"), formatCompactCount(summary.cachedInputTokens), t("usageHistory.summary.exact", { value: formatNumber(summary.cachedInputTokens) }))}
-    ${renderSummaryCard(t("usageHistory.summary.errors"), formatCompactCount(summary.errors), t("usageHistory.summary.successRate", { rate: formatPercent(summary.successRate) }))}
+function renderSummary(summary) {
+  const usageCards = [
+    renderSummaryCard(t("usageHistory.summary.totalTokens"), formatCompactCount(summary.totalTokens), t("usageHistory.summary.inputOutput", { input: formatNumber(summary.inputTokens), output: formatNumber(summary.outputTokens) })),
+    renderSummaryCard(t("usageHistory.summary.requests"), formatCompactCount(summary.requestCount), t("usageHistory.summary.exact", { value: formatNumber(summary.requestCount) })),
+    renderSummaryCard(t("usageHistory.summary.totalCost"), formatMoney(summary.totalCostUsd)),
+    renderSummaryCard(t("usageHistory.summary.cachedInputTokens"), formatCompactCount(summary.cachedInputTokens), t("usageHistory.summary.exact", { value: formatNumber(summary.cachedInputTokens) })),
+  ].join("");
+  const performanceCards = [
+    renderSummaryCard(t("usageHistory.summary.averageDuration"), formatOptionalDuration(summary.averageDurationMs)),
+    renderSummaryCard(t("usageHistory.summary.averageTTFT"), formatOptionalDuration(summary.averageTTFTMs)),
+    renderSummaryCard(t("usageHistory.summary.reasoningTokens"), formatCompactCount(summary.reasoningTokens), t("usageHistory.summary.exact", { value: formatNumber(summary.reasoningTokens) })),
+    renderSummaryCard(t("usageHistory.summary.errors"), formatCompactCount(summary.errors), t("usageHistory.summary.successRate", { rate: formatPercent(summary.successRate) })),
+  ].join("");
+  return `<div class="uh-summary-groups">
+    <section class="uh-summary-group" aria-labelledby="usageHistoryUsageGroup"><h3 id="usageHistoryUsageGroup" class="uh-summary-group-title">${escapeHtml(t("usageHistory.summary.usageGroup"))}</h3><div class="uh-summary-grid settings-stat-grid uh-summary-grid-usage">${usageCards}</div></section>
+    <section class="uh-summary-group" aria-labelledby="usageHistoryPerformanceGroup"><h3 id="usageHistoryPerformanceGroup" class="uh-summary-group-title">${escapeHtml(t("usageHistory.summary.performanceGroup"))}</h3><div class="uh-summary-grid settings-stat-grid uh-summary-grid-perf">${performanceCards}</div></section>
   </div>`;
 }
 
@@ -346,6 +560,15 @@ function renderMetricSelect(metric) {
   return `<label class="uh-metric-field settings-form-field" for="usageHistoryMetric"><span>${escapeHtml(t("usageHistory.trend.metricLabel"))}</span><select id="usageHistoryMetric">${usageHistoryMetrics.map((value) => `<option value="${escapeAttr(value)}"${value === metric ? " selected" : ""}>${escapeHtml(t(`usageHistory.trend.metrics.${value}`))}</option>`).join("")}</select></label>`;
 }
 
+function renderViewTabs(view) {
+  return `<div class="uh-view-tabs" role="tablist" aria-label="${escapeAttr(t("usageHistory.views.label"))}">${usageHistoryViews.map((value) => `<button type="button" role="tab" id="usageHistoryView-${value}" data-usage-view="${escapeAttr(value)}" class="${value === view ? "active" : ""}" aria-selected="${value === view ? "true" : "false"}" aria-controls="${value === "chart" ? "usageHistoryChartPanel" : "usageHistoryRecordsPanel"}">${escapeHtml(t(`usageHistory.views.${value}`))}</button>`).join("")}</div>`;
+}
+
+function renderDatePresets(filters, now = new Date()) {
+  const active = matchingUsageHistoryDatePreset(filters, now);
+  return `<div class="uh-date-presets" role="group" aria-label="${escapeAttr(t("usageHistory.presets.label"))}">${usageHistoryDatePresets.map((value) => `<button type="button" data-usage-preset="${escapeAttr(value)}" class="${value === active ? "active" : ""}" aria-pressed="${value === active ? "true" : "false"}">${escapeHtml(t(`usageHistory.presets.${value}`))}</button>`).join("")}</div>`;
+}
+
 function renderOptions(values, selected, emptyLabel) {
   const choices = normalizeTextArray([...(Array.isArray(values) ? values : []), selected]);
   return `<option value="">${escapeHtml(emptyLabel)}</option>${choices.map((value) => `<option value="${escapeAttr(value)}"${value === selected ? " selected" : ""}>${escapeHtml(value)}</option>`).join("")}`;
@@ -353,7 +576,7 @@ function renderOptions(values, selected, emptyLabel) {
 
 function renderFilters(state) {
   const { filters, options } = state;
-  return `<section class="uh-panel uh-filter-panel settings-card" aria-labelledby="usageHistoryFiltersTitle"><div class="uh-section-head settings-card-header"><div><h3 id="usageHistoryFiltersTitle" class="settings-card-title">${escapeHtml(t("usageHistory.filters.title"))}</h3></div></div><form id="usageHistoryFilters" class="uh-filter-form settings-form-grid">
+  return `<section class="uh-panel uh-filter-panel settings-card" aria-labelledby="usageHistoryFiltersTitle"><div class="uh-section-head settings-card-header"><div><h3 id="usageHistoryFiltersTitle" class="settings-card-title">${escapeHtml(t("usageHistory.filters.title"))}</h3></div></div>${renderDatePresets(filters)}<form id="usageHistoryFilters" class="uh-filter-form settings-form-grid">
     <label class="settings-form-field" for="usageHistoryProvider"><span>${escapeHtml(t("usageHistory.filters.provider"))}</span><select id="usageHistoryProvider">${renderOptions(options.providers, filters.provider, t("usageHistory.filters.allProviders"))}</select></label>
     <label class="settings-form-field" for="usageHistoryModel"><span>${escapeHtml(t("usageHistory.filters.model"))}</span><select id="usageHistoryModel">${renderOptions(options.models, filters.model, t("usageHistory.filters.allModels"))}</select></label>
     <label class="settings-form-field" for="usageHistoryKind"><span>${escapeHtml(t("usageHistory.filters.kind"))}</span><select id="usageHistoryKind">${renderOptions(options.kinds, filters.kind, t("usageHistory.filters.allKinds"))}</select></label>
@@ -385,7 +608,7 @@ function formatOptionalDuration(value) {
 }
 
 function renderTokenBreakdown(item) {
-  return `<strong>${escapeHtml(formatNumber(item.totalTokens))}</strong><small>${escapeHtml(t("usageHistory.history.input"))} ${escapeHtml(formatNumber(item.inputTokens))} · ${escapeHtml(t("usageHistory.history.output"))} ${escapeHtml(formatNumber(item.outputTokens))}<br>${escapeHtml(t("usageHistory.history.reasoning"))} ${escapeHtml(formatNumber(item.reasoningTokens))} · ${escapeHtml(t("usageHistory.history.cached"))} ${escapeHtml(formatNumber(item.cachedInputTokens))}</small>`;
+  return `<div class="uh-token-metrics"><span class="uh-token-in" title="${escapeAttr(t("usageHistory.history.input"))}"><span aria-hidden="true">↑</span> ${escapeHtml(formatNumber(item.inputTokens))}</span><span class="uh-token-out" title="${escapeAttr(t("usageHistory.history.output"))}"><span aria-hidden="true">↓</span> ${escapeHtml(formatNumber(item.outputTokens))}</span><span class="uh-token-total" title="${escapeAttr(t("usageHistory.history.tokens"))}"><span aria-hidden="true">●</span> ${escapeHtml(formatNumber(item.totalTokens))}</span></div><small class="uh-token-extra">${escapeHtml(t("usageHistory.history.reasoning"))} ${escapeHtml(formatNumber(item.reasoningTokens))} · ${escapeHtml(t("usageHistory.history.cached"))} ${escapeHtml(formatNumber(item.cachedInputTokens))}</small>`;
 }
 
 function renderHistoryRow(value) {
@@ -395,7 +618,7 @@ function renderHistoryRow(value) {
   return `<tr data-usage-request="${escapeAttr(item.id)}">
     <td><time datetime="${escapeAttr(item.createdAt)}">${escapeHtml(item.createdAt ? formatTimestamp(item.createdAt) : t("usageHistory.history.unknown"))}</time></td>
     <td><strong title="${escapeAttr(item.agentId)}">${escapeHtml(agent)}</strong></td>
-    <td>${escapeHtml(item.kind || t("usageHistory.history.unknown"))}</td>
+    <td><span class="uh-kind-pill">${escapeHtml(item.kind || t("usageHistory.history.unknown"))}</span></td>
     <td>${escapeHtml(item.provider || t("usageHistory.history.unknown"))}</td>
     <td title="${escapeAttr(item.model)}">${escapeHtml(item.model || t("usageHistory.history.unknown"))}</td>
     <td class="uh-token-cell">${renderTokenBreakdown(item)}</td>
@@ -418,20 +641,71 @@ function renderHistoryTable(state) {
     body = `<div class="uh-table-scroll settings-h-scroll" tabindex="0" role="region" aria-label="${escapeAttr(t("usageHistory.history.title"))}"><table class="uh-history-table settings-data-list" aria-label="${escapeAttr(t("usageHistory.history.title"))}"><thead><tr>${["time", "agent", "kind", "provider", "model", "tokens", "ttft", "duration", "cost", "status"].map((key) => `<th scope="col">${escapeHtml(t(`usageHistory.history.${key}`))}</th>`).join("")}</tr></thead><tbody>${state.items.map(renderHistoryRow).join("")}</tbody></table></div>`;
   }
   const loadMore = state.nextCursor ? `<div class="uh-load-more settings-inline-actions"><button id="usageHistoryLoadMore" class="uh-button" type="button"${state.status === "loadingMore" ? " disabled aria-busy=\"true\"" : ""}>${escapeHtml(t(state.status === "loadingMore" ? "usageHistory.history.loadingMore" : "usageHistory.history.loadMore"))}</button></div>` : "";
-  return `<section class="uh-panel uh-history-panel settings-card" aria-labelledby="usageHistoryHistoryTitle"><div class="uh-section-head settings-card-header"><div><h3 id="usageHistoryHistoryTitle" class="settings-card-title">${escapeHtml(t("usageHistory.history.title"))}</h3><p class="settings-card-description" data-settings-help-copy>${escapeHtml(t("usageHistory.history.description"))}</p></div></div>${body}${loadMore}</section>`;
+  const exportDisabled = !state.items.length ? " disabled" : "";
+  return `<section class="uh-panel uh-history-panel settings-card" aria-labelledby="usageHistoryHistoryTitle"><div class="uh-section-head settings-card-header"><div><h3 id="usageHistoryHistoryTitle" class="settings-card-title">${escapeHtml(t("usageHistory.history.title"))}</h3><p class="settings-card-description" data-settings-help-copy>${escapeHtml(t("usageHistory.history.description"))}</p></div><button id="usageHistoryExport" class="uh-button" type="button"${exportDisabled}>${escapeHtml(t("usageHistory.history.exportCsv"))}</button></div>${body}${loadMore}</section>`;
+}
+
+function renderUsageChartLegend(state) {
+  if (!usageHistoryUsesStackedChart(state.metric) || !state.stacked.length) return "";
+  const series = stackedSeriesOrder(state.stacked, state.distribution);
+  if (!series.length) return "";
+  return `<ul class="uh-chart-legend">${series.map((provider, index) => `<li><span class="uh-swatch" style="background:${escapeAttr(stackedColor(provider, index))}"></span><span>${escapeHtml(providerLabel(provider))}</span></li>`).join("")}</ul>`;
+}
+
+function renderUsageDistribution(state) {
+  const rows = Array.isArray(state.distribution) ? state.distribution : [];
+  if (!rows.length) return "";
+  const metric = usageHistoryUsesStackedChart(state.metric) ? state.metric : "totalTokens";
+  const total = rows.reduce((sum, row) => sum + metricValue(row, metric), 0) || 1;
+  return `<aside class="uh-distribution" aria-labelledby="usageHistoryDistributionTitle"><h4 id="usageHistoryDistributionTitle">${escapeHtml(t("usageHistory.trend.distributionTitle"))}</h4>${rows.map((row, index) => {
+    const value = metricValue(row, metric);
+    const percent = Math.max(0, Math.min(100, (value / total) * 100));
+    return `<div class="uh-dist-row"><span class="uh-swatch" style="background:${escapeAttr(stackedColor(row.provider, index))}"></span><span class="uh-dist-name" title="${escapeAttr(providerLabel(row.provider))}">${escapeHtml(providerLabel(row.provider))}</span><span class="uh-dist-value">${escapeHtml(formatAxisMetric(metric, value))}</span><div class="uh-dist-bar" aria-hidden="true"><span style="width:${svgNumber(percent)}%"></span></div></div>`;
+  }).join("")}</aside>`;
+}
+
+function renderChartPanel(state) {
+  const hidden = state.view === "records" ? " hidden" : "";
+  return `<div id="usageHistoryChartPanel" class="uh-view-chart" role="tabpanel" aria-labelledby="usageHistoryView-chart"${hidden}>
+    ${renderSummary(state.summary)}
+    <section class="uh-panel uh-trend-panel settings-card" aria-labelledby="usageHistoryTrendTitle"><div class="uh-section-head settings-card-header"><div><h3 id="usageHistoryTrendTitle" class="settings-card-title">${escapeHtml(t("usageHistory.trend.title"))}</h3><p class="settings-card-description" data-settings-help-copy>${escapeHtml(t("usageHistory.trend.stackedHint"))}</p></div><div class="uh-trend-controls settings-toolbar">${renderBucketControls(state.bucket)}${renderMetricSelect(state.metric)}</div></div>${state.trendTruncated ? `<div class="uh-truncated settings-badge">${escapeHtml(t("usageHistory.trend.truncated"))}</div>` : ""}<div class="uh-chart-layout"><div class="uh-chart-main"><div id="usageHistoryTrendChart" class="uh-chart-host settings-h-scroll" tabindex="0" role="region" aria-label="${escapeAttr(t("usageHistory.trend.title"))}">${renderUsageHistoryChart(state)}</div>${renderUsageChartLegend(state)}<div id="usageHistoryTrendReadout" class="uh-trend-readout">${renderTrendReadout(state.trend, state.metric, state.selectedTrendIndex, state.stacked)}</div></div>${renderUsageDistribution(state)}</div></section>
+  </div>`;
+}
+
+function renderRecordsPanel(state) {
+  const hidden = state.view === "chart" ? " hidden" : "";
+  return `<div id="usageHistoryRecordsPanel" class="uh-view-records" role="tabpanel" aria-labelledby="usageHistoryView-records"${hidden}>${renderHistoryTable(state)}</div>`;
 }
 
 export function renderUsageHistory(value = {}) {
   const state = createUsageHistoryState(value);
   const generatedAt = state.generatedAt ? t("usageHistory.generatedAt", { timestamp: formatTimestamp(state.generatedAt) }) : t("usageHistory.notGenerated");
+  const pageError = state.status === "error" && state.error
+    ? `<div class="uh-inline-error settings-alert" role="alert">${escapeHtml(t("usageHistory.history.error", { message: state.error }))}</div>`
+    : (state.error && state.items.length ? `<div class="uh-inline-error settings-alert" role="alert">${escapeHtml(t("usageHistory.history.error", { message: state.error }))}</div>` : "");
   return `<main class="usage-history-page settings-page settings-page-usage" aria-labelledby="usageHistoryTitle">
     <header class="uh-hero settings-card"><div><div class="uh-kicker">${escapeHtml(t("usageHistory.kicker"))}</div><h2 id="usageHistoryTitle">${escapeHtml(t("usageHistory.title"))}</h2><p class="settings-card-description" data-settings-help-copy>${escapeHtml(t("usageHistory.description"))}</p><small aria-live="polite">${escapeHtml(generatedAt)}</small></div><button id="usageHistoryRefresh" class="uh-button primary" type="button"${state.status === "loading" ? " disabled aria-busy=\"true\"" : ""}>${escapeHtml(t(state.status === "loading" ? "usageHistory.refreshing" : "usageHistory.refresh"))}</button></header>
-    ${state.error && state.items.length ? `<div class="uh-inline-error settings-alert" role="alert">${escapeHtml(t("usageHistory.history.error", { message: state.error }))}</div>` : ""}
-    ${renderSummary(state.summary, "uh-summary-grid settings-stat-grid")}
-    <section class="uh-panel uh-trend-panel settings-card" aria-labelledby="usageHistoryTrendTitle"><div class="uh-section-head settings-card-header"><div><h3 id="usageHistoryTrendTitle" class="settings-card-title">${escapeHtml(t("usageHistory.trend.title"))}</h3><p class="settings-card-description" data-settings-help-copy>${escapeHtml(t("usageHistory.trend.description"))}</p></div><div class="uh-trend-controls settings-toolbar">${renderBucketControls(state.bucket)}${renderMetricSelect(state.metric)}</div></div>${state.trendTruncated ? `<div class="uh-truncated settings-badge">${escapeHtml(t("usageHistory.trend.truncated"))}</div>` : ""}<div id="usageHistoryTrendChart" class="uh-chart-host settings-h-scroll" tabindex="0" role="region" aria-label="${escapeAttr(t("usageHistory.trend.title"))}">${renderUsageTrendSVG(state.trend, state.metric, { selectedIndex: state.selectedTrendIndex })}</div><div id="usageHistoryTrendReadout" class="uh-trend-readout">${renderTrendReadout(state.trend, state.metric, state.selectedTrendIndex)}</div></section>
+    ${pageError}
     ${renderFilters(state)}
-    ${renderHistoryTable(state)}
+    ${renderViewTabs(state.view)}
+    ${renderChartPanel(state)}
+    ${renderRecordsPanel(state)}
   </main>`;
+}
+
+function downloadUsageHistoryCSV(csv) {
+  const doc = globalThis.document;
+  if (!doc?.createElement || typeof globalThis.URL?.createObjectURL !== "function") return;
+  const blob = new Blob([`\uFEFF${csv}`], { type: "text/csv;charset=utf-8" });
+  const url = globalThis.URL.createObjectURL(blob);
+  const link = doc.createElement("a");
+  link.href = url;
+  link.download = `autoto-usage-${formatUsageHistoryLocalDate(new Date())}.csv`;
+  link.rel = "noopener";
+  doc.body?.appendChild(link);
+  link.click();
+  link.remove();
+  globalThis.URL.revokeObjectURL(url);
 }
 
 export function createUsageHistoryController({ state = {}, request, onChange, onError } = {}) {
@@ -456,10 +730,8 @@ export function createUsageHistoryController({ state = {}, request, onChange, on
       usage.summary = normalized.summary;
       usage.trend = normalized.trend;
       usage.trendTruncated = normalized.trendTruncated;
-      // The series was just replaced, so a pinned point from the previous one
-      // may no longer exist. Re-validate here rather than only at redraw: the
-      // state is read by render() too, and a stale index would pin the wrong
-      // bucket.
+      usage.stacked = normalized.stacked;
+      usage.distribution = normalized.distribution;
       usage.selectedTrendIndex = normalizeTrendPointIndex(usage.selectedTrendIndex, normalized.trend.length);
       usage.options = normalized.options;
       usage.items = append ? appendUsageHistoryItems(usage.items, normalized.items) : normalized.items;
@@ -479,36 +751,27 @@ export function createUsageHistoryController({ state = {}, request, onChange, on
   }
 
   function redrawTrend() {
-    const state = current();
-    // Re-validate every redraw: a metric switch keeps the series but a bucket
-    // change or reload can shorten it, and a stale index must not survive.
-    state.selectedTrendIndex = normalizeTrendPointIndex(state.selectedTrendIndex, (state.trend || []).length);
+    const usage = current();
+    usage.selectedTrendIndex = normalizeTrendPointIndex(usage.selectedTrendIndex, (usage.trend || []).length);
     const chart = globalThis.document?.getElementById?.("usageHistoryTrendChart");
-    if (chart) chart.innerHTML = renderUsageTrendSVG(state.trend, state.metric, { selectedIndex: state.selectedTrendIndex });
+    if (chart) chart.innerHTML = renderUsageHistoryChart(usage);
     const readout = globalThis.document?.getElementById?.("usageHistoryTrendReadout");
-    if (readout) readout.innerHTML = renderTrendReadout(state.trend, state.metric, state.selectedTrendIndex);
-    // The chart markup was just replaced, so the handlers on the old circles
-    // went with it.
+    if (readout) readout.innerHTML = renderTrendReadout(usage.trend, usage.metric, usage.selectedTrendIndex, usage.stacked);
     bindTrendPointSelection();
   }
 
-  // Clicking a point pins its reading; clicking the same point again releases
-  // it. Hover alone was unusable on touch and vanished the moment the pointer
-  // moved, which is the whole reason this exists.
   function selectTrendPoint(index) {
-    const state = current();
-    const next = normalizeTrendPointIndex(index, (state.trend || []).length);
-    state.selectedTrendIndex = next === state.selectedTrendIndex ? -1 : next;
+    const usage = current();
+    const next = normalizeTrendPointIndex(index, (usage.trend || []).length);
+    usage.selectedTrendIndex = next === usage.selectedTrendIndex ? -1 : next;
     redrawTrend();
-    return state.selectedTrendIndex;
+    return usage.selectedTrendIndex;
   }
 
   function bindTrendPointSelection() {
     const chart = globalThis.document?.getElementById?.("usageHistoryTrendChart");
     chart?.querySelectorAll?.("[data-usage-trend-point]").forEach((node) => {
       node.addEventListener("click", () => { selectTrendPoint(node.dataset?.usageTrendPoint); });
-      // The circle is focusable and announces as a button, so it has to answer
-      // Enter and Space like one.
       node.addEventListener("keydown", (event) => {
         if (event?.key !== "Enter" && event?.key !== " " && event?.key !== "Spacebar") return;
         event.preventDefault?.();
@@ -536,10 +799,21 @@ export function createUsageHistoryController({ state = {}, request, onChange, on
     return load();
   }
 
+  function setView(view) {
+    current().view = normalizeChoice(view, usageHistoryViews, "chart");
+    changed();
+    return current().view;
+  }
+
   function applyFilters(filters) {
     current().filters = normalizeUsageHistoryFilters(filters);
     current().nextCursor = "";
     return load();
+  }
+
+  function applyDatePreset(preset, now = new Date()) {
+    const range = usageHistoryDateRangeForPreset(preset, now);
+    return applyFilters({ ...current().filters, ...range });
   }
 
   function resetFilters() {
@@ -555,10 +829,22 @@ export function createUsageHistoryController({ state = {}, request, onChange, on
     return load({ append: true, cursor: current().nextCursor });
   }
 
+  function exportCSV() {
+    const csv = buildUsageHistoryCSV(current().items);
+    if (current().items.length) downloadUsageHistoryCSV(csv);
+    return csv;
+  }
+
   function bind() {
     $("usageHistoryRefresh")?.addEventListener("click", () => { void refresh(); });
     globalThis.document?.querySelectorAll?.("[data-usage-bucket]").forEach((node) => {
       node.addEventListener("click", () => { void setBucket(node.dataset.usageBucket); });
+    });
+    globalThis.document?.querySelectorAll?.("[data-usage-view]").forEach((node) => {
+      node.addEventListener("click", () => { setView(node.dataset.usageView); });
+    });
+    globalThis.document?.querySelectorAll?.("[data-usage-preset]").forEach((node) => {
+      node.addEventListener("click", () => { void applyDatePreset(node.dataset.usagePreset); });
     });
     $("usageHistoryMetric")?.addEventListener("change", (event) => setMetric(event.target.value));
     bindTrendPointSelection();
@@ -574,12 +860,15 @@ export function createUsageHistoryController({ state = {}, request, onChange, on
     });
     $("usageHistoryReset")?.addEventListener("click", () => { void resetFilters(); });
     $("usageHistoryLoadMore")?.addEventListener("click", () => { void loadMore(); });
+    $("usageHistoryExport")?.addEventListener("click", () => { exportCSV(); });
     if (current().status === "idle") void load();
   }
 
   return {
+    applyDatePreset,
     applyFilters,
     bind,
+    exportCSV,
     getState: current,
     load,
     loadMore,
@@ -589,5 +878,6 @@ export function createUsageHistoryController({ state = {}, request, onChange, on
     selectTrendPoint,
     setBucket,
     setMetric,
+    setView,
   };
 }

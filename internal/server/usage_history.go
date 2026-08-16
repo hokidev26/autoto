@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -19,24 +20,28 @@ import (
 )
 
 const (
-	usageHistoryDefaultLimit = 50
-	usageHistoryMaxLimit     = 100
-	usageHistoryMaxTrend     = 1000
-	usageHistoryMaxProviders = 100
-	usageHistoryMaxKinds     = 100
-	usageHistoryMaxModels    = 500
-	usageHistoryMaxFilterLen = 256
-	usageHistoryMaxCursorLen = 4096
+	usageHistoryDefaultLimit        = 50
+	usageHistoryMaxLimit            = 100
+	usageHistoryMaxTrend            = 1000
+	usageHistoryMaxProviders        = 100
+	usageHistoryMaxKinds            = 100
+	usageHistoryMaxModels           = 500
+	usageHistoryMaxFilterLen        = 256
+	usageHistoryMaxCursorLen        = 4096
+	usageHistoryMaxStackedProviders = 5
+	usageHistoryMaxStackedSeries    = usageHistoryMaxStackedProviders + 1
 )
 
 type usageHistoryResponse struct {
-	GeneratedAt    string                   `json:"generatedAt"`
-	Summary        usageHistoryMetrics      `json:"summary"`
-	Trend          []usageHistoryTrendPoint `json:"trend"`
-	TrendTruncated bool                     `json:"trendTruncated"`
-	Options        usageHistoryOptions      `json:"options"`
-	Items          []usageHistoryItem       `json:"items"`
-	NextCursor     string                   `json:"nextCursor"`
+	GeneratedAt    string                     `json:"generatedAt"`
+	Summary        usageHistoryMetrics        `json:"summary"`
+	Trend          []usageHistoryTrendPoint   `json:"trend"`
+	TrendTruncated bool                       `json:"trendTruncated"`
+	Stacked        []usageHistoryStackedPoint `json:"stacked"`
+	Distribution   []usageHistoryNamedMetrics `json:"distribution"`
+	Options        usageHistoryOptions        `json:"options"`
+	Items          []usageHistoryItem         `json:"items"`
+	NextCursor     string                     `json:"nextCursor"`
 }
 
 type usageHistoryMetrics struct {
@@ -55,6 +60,17 @@ type usageHistoryMetrics struct {
 
 type usageHistoryTrendPoint struct {
 	Bucket string `json:"bucket"`
+	usageHistoryMetrics
+}
+
+type usageHistoryStackedPoint struct {
+	Bucket   string `json:"bucket"`
+	Provider string `json:"provider"`
+	usageHistoryMetrics
+}
+
+type usageHistoryNamedMetrics struct {
+	Provider string `json:"provider"`
 	usageHistoryMetrics
 }
 
@@ -281,8 +297,10 @@ func encodeUsageHistoryCursor(cursor usageHistoryCursor) (string, error) {
 
 func buildUsageHistory(ctx context.Context, database *sql.DB, filters usageHistoryFilters) (usageHistoryResponse, error) {
 	response := usageHistoryResponse{
-		GeneratedAt: db.Now(),
-		Trend:       []usageHistoryTrendPoint{},
+		GeneratedAt:  db.Now(),
+		Trend:        []usageHistoryTrendPoint{},
+		Stacked:      []usageHistoryStackedPoint{},
+		Distribution: []usageHistoryNamedMetrics{},
 		Options: usageHistoryOptions{
 			Providers: []string{},
 			Kinds:     []string{},
@@ -296,6 +314,19 @@ func buildUsageHistory(ctx context.Context, database *sql.DB, filters usageHisto
 		return usageHistoryResponse{}, err
 	}
 	response.Trend, response.TrendTruncated, err = queryUsageHistoryTrend(ctx, database, filters)
+	if err != nil {
+		return usageHistoryResponse{}, err
+	}
+	topProviders, err := queryUsageHistoryTopProviders(ctx, database, filters)
+	if err != nil {
+		return usageHistoryResponse{}, err
+	}
+	response.Stacked, err = queryUsageHistoryStacked(ctx, database, filters, topProviders, usageHistoryMaxTrend)
+	if err != nil {
+		return usageHistoryResponse{}, err
+	}
+	response.Stacked = filterUsageHistoryStackedToTrend(response.Stacked, response.Trend)
+	response.Distribution, err = queryUsageHistoryDistribution(ctx, database, filters, topProviders)
 	if err != nil {
 		return usageHistoryResponse{}, err
 	}
@@ -377,6 +408,205 @@ LIMIT ?`
 		points[left], points[right] = points[right], points[left]
 	}
 	return points, truncated, nil
+}
+
+func queryUsageHistoryTopProviders(ctx context.Context, database *sql.DB, filters usageHistoryFilters) ([]string, error) {
+	where, args := usageHistoryWhere("api_requests", filters)
+	query := `
+SELECT TRIM(provider)
+FROM api_requests
+WHERE ` + where + ` AND COALESCE(TRIM(provider), '') <> ''
+GROUP BY TRIM(provider)
+ORDER BY SUM(COALESCE(input_tokens, 0) + COALESCE(output_tokens, 0)) DESC, TRIM(provider) ASC
+LIMIT ?`
+	args = append(args, usageHistoryMaxStackedProviders)
+	return queryUsageHistoryOptionValues(ctx, database, query, args...)
+}
+
+func usageHistoryStackedSeriesExpression(top []string) (string, []any) {
+	named := make([]string, 0, len(top))
+	args := make([]any, 0, len(top))
+	for _, provider := range top {
+		if strings.TrimSpace(provider) == "" {
+			continue
+		}
+		named = append(named, provider)
+		args = append(args, provider)
+	}
+	if len(named) == 0 {
+		return `''`, nil
+	}
+	placeholders := strings.Repeat("?,", len(named))
+	return `CASE WHEN TRIM(provider) IN (` + placeholders[:len(placeholders)-1] + `) THEN TRIM(provider) ELSE '' END`, args
+}
+
+func queryUsageHistoryStacked(ctx context.Context, database *sql.DB, filters usageHistoryFilters, top []string, maxTrend int) ([]usageHistoryStackedPoint, error) {
+	if maxTrend <= 0 {
+		maxTrend = usageHistoryMaxTrend
+	}
+	bucketExpression, err := usageHistoryBucketExpression(filters.Bucket, filters.TZOffset)
+	if err != nil {
+		return nil, err
+	}
+	seriesExpression, seriesArgs := usageHistoryStackedSeriesExpression(top)
+	where, whereArgs := usageHistoryWhere("api_requests", filters)
+	query := `SELECT ` + bucketExpression + ` AS bucket, ` + seriesExpression + ` AS provider, ` + usageHistoryMetricsSelect + `
+FROM api_requests
+WHERE ` + where + ` AND ` + bucketExpression + ` IS NOT NULL
+GROUP BY bucket, provider
+ORDER BY bucket DESC
+LIMIT ?`
+	args := append(append(seriesArgs, whereArgs...), (maxTrend+1)*usageHistoryMaxStackedSeries)
+	rows, err := database.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	points := make([]usageHistoryStackedPoint, 0)
+	for rows.Next() {
+		var point usageHistoryStackedPoint
+		destinations := append([]any{&point.Bucket, &point.Provider}, usageHistoryMetricDestinations(&point.usageHistoryMetrics)...)
+		if err := rows.Scan(destinations...); err != nil {
+			return nil, err
+		}
+		point.TotalTokens = point.InputTokens + point.OutputTokens
+		points = append(points, point)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	sort.SliceStable(points, func(i, j int) bool {
+		if points[i].Bucket != points[j].Bucket {
+			return points[i].Bucket < points[j].Bucket
+		}
+		return usageHistoryStackedProviderLess(points[i].Provider, points[j].Provider, top)
+	})
+	return points, nil
+}
+
+func filterUsageHistoryStackedToTrend(stacked []usageHistoryStackedPoint, trend []usageHistoryTrendPoint) []usageHistoryStackedPoint {
+	if len(stacked) == 0 || len(trend) == 0 {
+		return []usageHistoryStackedPoint{}
+	}
+	allowed := make(map[string]struct{}, len(trend))
+	for _, point := range trend {
+		allowed[point.Bucket] = struct{}{}
+	}
+	filtered := make([]usageHistoryStackedPoint, 0, len(stacked))
+	for _, point := range stacked {
+		if _, ok := allowed[point.Bucket]; ok {
+			filtered = append(filtered, point)
+		}
+	}
+	return filtered
+}
+
+func queryUsageHistoryDistribution(ctx context.Context, database *sql.DB, filters usageHistoryFilters, top []string) ([]usageHistoryNamedMetrics, error) {
+	where, args := usageHistoryWhere("api_requests", filters)
+	query := `SELECT COALESCE(NULLIF(TRIM(provider), ''), ''), ` + usageHistoryMetricsSelect + `
+FROM api_requests
+WHERE ` + where + `
+GROUP BY 1`
+	rows, err := database.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	grouped := make([]usageHistoryNamedMetrics, 0)
+	for rows.Next() {
+		var row usageHistoryNamedMetrics
+		destinations := append([]any{&row.Provider}, usageHistoryMetricDestinations(&row.usageHistoryMetrics)...)
+		if err := rows.Scan(destinations...); err != nil {
+			return nil, err
+		}
+		row.TotalTokens = row.InputTokens + row.OutputTokens
+		grouped = append(grouped, row)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return foldUsageHistoryDistribution(grouped, top), nil
+}
+
+func foldUsageHistoryDistribution(rows []usageHistoryNamedMetrics, top []string) []usageHistoryNamedMetrics {
+	named := make(map[string]usageHistoryMetrics, len(top))
+	var other usageHistoryMetrics
+	hasOther := false
+	allowed := make(map[string]struct{}, len(top))
+	for _, provider := range top {
+		if provider == "" {
+			continue
+		}
+		allowed[provider] = struct{}{}
+	}
+	for _, row := range rows {
+		if _, ok := allowed[row.Provider]; ok {
+			named[row.Provider] = row.usageHistoryMetrics
+			continue
+		}
+		other = addUsageHistoryMetrics(other, row.usageHistoryMetrics)
+		hasOther = true
+	}
+	result := make([]usageHistoryNamedMetrics, 0, len(top)+1)
+	for _, provider := range top {
+		metrics, ok := named[provider]
+		if !ok {
+			continue
+		}
+		result = append(result, usageHistoryNamedMetrics{Provider: provider, usageHistoryMetrics: metrics})
+	}
+	if hasOther {
+		result = append(result, usageHistoryNamedMetrics{Provider: "", usageHistoryMetrics: other})
+	}
+	return result
+}
+
+func addUsageHistoryMetrics(left, right usageHistoryMetrics) usageHistoryMetrics {
+	sum := usageHistoryMetrics{
+		RequestCount:      left.RequestCount + right.RequestCount,
+		InputTokens:       left.InputTokens + right.InputTokens,
+		OutputTokens:      left.OutputTokens + right.OutputTokens,
+		ReasoningTokens:   left.ReasoningTokens + right.ReasoningTokens,
+		CachedInputTokens: left.CachedInputTokens + right.CachedInputTokens,
+		TotalCostUSD:      left.TotalCostUSD + right.TotalCostUSD,
+		Errors:            left.Errors + right.Errors,
+	}
+	sum.TotalTokens = sum.InputTokens + sum.OutputTokens
+	if sum.RequestCount > 0 {
+		successes := sum.RequestCount - sum.Errors
+		if successes < 0 {
+			successes = 0
+		}
+		sum.SuccessRate = float64(successes) / float64(sum.RequestCount)
+	}
+	return sum
+}
+
+func usageHistoryStackedProviderLess(left, right string, top []string) bool {
+	if left == right {
+		return false
+	}
+	if left == "" {
+		return false
+	}
+	if right == "" {
+		return true
+	}
+	leftRank, rightRank := len(top), len(top)
+	for index, name := range top {
+		if name == left {
+			leftRank = index
+		}
+		if name == right {
+			rightRank = index
+		}
+	}
+	if leftRank != rightRank {
+		return leftRank < rightRank
+	}
+	return left < right
 }
 
 // usageHistoryBucketExpression builds the SQLite expression that assigns a row

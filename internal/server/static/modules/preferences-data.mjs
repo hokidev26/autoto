@@ -182,6 +182,12 @@ export const defaultNotificationPrefs = {
   soundEnabled: true,
   soundOnDone: true,
   soundOnError: true,
+  soundOnApproval: true,
+  soundPreset: "soft",
+  soundSource: "preset",
+  soundCustomName: "",
+  soundVolume: 100,
+  soundMaxConcurrent: 2,
   // OS notifications stay off until the user opts in, because enabling them
   // requires a permission prompt that must not appear unrequested.
   systemNotifications: false,

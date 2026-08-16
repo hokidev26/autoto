@@ -272,7 +272,7 @@ AGENT_SERVER_API_KEY
 - 聊天輸入框 slash command palette：來自已啟用的本地 Skills command template
 - 瀏覽器本機 Settings → Profile：顯示名稱、頭像字首、工作區標籤、Git identity 助手
 - 瀏覽器本機 Settings → Network Search：provider 預設、結果數上限、是否確認、網域規則；`WebSearch` 與 `WebFetch` 工具提供公開網頁／文件查詢
-- 瀏覽器本機 Settings → Notifications：toast 類別、顯示時長、UI 終端提示；伺服器端持久化 Webhook / Telegram 投遞歷史與重試
+- 瀏覽器本機 Settings → Notifications：toast 類別、工作事件提示音（完成／等待核准／失敗，含內建音效或本機自訂音檔、音量與同時播放上限）、系統通知與明確的權限請求、顯示時長、UI 終端提示；伺服器端持久化 Webhook / Telegram 投遞歷史與重試
 - 瀏覽器本機 Settings → Appearance：主題、密度、預設終端可見性、Agent event 顯示
 - 設定 → Servers/System + Runtime 面板：runtime 摘要、Go runtime、路徑、Agent 限制
 - 設定 → Users：管理員可建立只能觀看對話的訪客、核發存取金鑰，並授權專案。訪客限制由伺服器執行，只能看已授權對話並編輯個人資料

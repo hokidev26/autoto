@@ -8,6 +8,7 @@ import { createConversationTitleHelpers } from "./conversation-title-helpers.mjs
 import { createBackgroundTasksController } from "./background-tasks.mjs";
 import { createExecutionNotifications } from "./execution-notifications.mjs";
 import { createNotificationSound } from "./notification-sound.mjs";
+import { createNotificationCustomSoundStore } from "./notification-custom-sound.mjs";
 import { createSystemNotifications } from "./system-notification.mjs";
 import { createBackendRegistryController } from "./backend-registry.mjs";
 import { createChatComposerController, normalizeChatDrafts, normalizePromptHistory } from "./chat-composer.mjs";
@@ -994,8 +995,16 @@ export function conversationTitleForNotice(notice) {
   return String(match?.title || "").trim();
 }
 
+const notificationCustomSound = createNotificationCustomSoundStore();
+notificationCustomSound.load().catch((error) => notifyTerminal(`[warn] ${error?.message || error}\n`));
+
 const notificationSound = createNotificationSound({
   isEnabled: (tone) => notificationSoundEnabled(tone),
+  getPreset: () => currentNotificationPreferences().soundPreset,
+  getSource: () => currentNotificationPreferences().soundSource,
+  getCustomClip: () => notificationCustomSound.current(),
+  getVolume: () => currentNotificationPreferences().soundVolume,
+  getMaxConcurrent: () => currentNotificationPreferences().soundMaxConcurrent,
   onError: (error) => notifyTerminal(`[warn] ${am("notificationSoundFailed", { message: error?.message || error })}\n`),
 });
 notificationSound.bindUnlockGesture();
@@ -1025,9 +1034,14 @@ const executionNotifications = createExecutionNotifications({
     showToast(message, variant);
     // Audible + OS-level signals ride the same deduplicated notice stream as the
     // toast, so a run announces itself exactly once regardless of how many
-    // channels are enabled.
-    notificationSound.play(variant === "error" ? "error" : variant === "success" ? "success" : "");
-    if (variant === "error" || variant === "success") {
+    // channels are enabled. Approval used to be toast-only, so a permission
+    // wait behind another window produced no sound or OS banner.
+    const tone = variant === "error" ? "error"
+      : variant === "success" ? "success"
+      : notice.family === "approval_required" ? "approval"
+      : "";
+    notificationSound.play(tone);
+    if (tone) {
       systemNotifications.show(message, {
         body: conversationTitleForNotice(notice),
         tag: `autoto-run-${notice.agentId || "unknown"}`,
@@ -1610,7 +1624,10 @@ const localPreferencesSettings = createLocalPreferencesSettingsController({
   notifyTerminal,
   profileDisplayName,
   profileGitEnvExample,
-  resetNotificationPreferences,
+  resetNotificationPreferences: () => {
+    notificationCustomSound.clear().catch(() => {});
+    resetNotificationPreferences();
+  },
   resetProfilePreferences,
   resetSearchPreferences,
   loadServerNotificationSettings,
@@ -1627,12 +1644,30 @@ const localPreferencesSettings = createLocalPreferencesSettingsController({
   setAppearancePreference,
   setNotificationPreference,
   requestSystemNotificationPermission: () => systemNotifications.request(),
+  systemNotificationPermission: () => systemNotifications.permission(),
   // Force past the preference gate: the user pressed a button labelled "play a
   // test sound", so an is-it-enabled check here would be confusing.
   playNotificationSoundSample: () => {
     notificationSound.unlock();
     if (!notificationSound.available()) return false;
     return notificationSound.play("success", { force: true });
+  },
+  importCustomNotificationSound: async (file) => {
+    const clip = await notificationCustomSound.importFile(file);
+    saveNotificationPreferences({
+      ...currentNotificationPreferences(),
+      soundSource: "custom",
+      soundCustomName: clip?.name || "",
+    }, { notify: true });
+    return clip;
+  },
+  clearCustomNotificationSound: async () => {
+    await notificationCustomSound.clear();
+    saveNotificationPreferences({
+      ...currentNotificationPreferences(),
+      soundSource: "preset",
+      soundCustomName: "",
+    }, { notify: true });
   },
   showError,
   showToast,

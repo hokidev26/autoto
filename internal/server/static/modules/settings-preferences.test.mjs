@@ -231,6 +231,34 @@ test("sound and system-notification gates stay off unless the matching preferenc
   });
 });
 
+test("approval sound is gated separately from completion", () => {
+  withBrowser(new MemoryStorage(), () => {
+    const controller = controllerFor({});
+    controller.saveNotificationPreferences({
+      ...defaultNotificationPrefs,
+      soundEnabled: true,
+      soundOnDone: true,
+      soundOnApproval: false,
+    });
+    assert.equal(controller.notificationSoundEnabled("success"), true);
+    assert.equal(controller.notificationSoundEnabled("approval"), false);
+    controller.saveNotificationPreferences({
+      ...defaultNotificationPrefs,
+      soundPreset: "nope",
+      soundSource: "file",
+      soundCustomName: `C:\\Users\\Ray\\ding<script>.wav`,
+      soundVolume: 140,
+      soundMaxConcurrent: 0,
+    });
+    const prefs = controller.currentNotificationPreferences();
+    assert.equal(prefs.soundPreset, "soft");
+    assert.equal(prefs.soundSource, "preset");
+    assert.equal(prefs.soundCustomName, "dingscript.wav");
+    assert.equal(prefs.soundVolume, 100);
+    assert.equal(prefs.soundMaxConcurrent, 1);
+  });
+});
+
 test("saving search preferences writes the normalized shape, not the raw form values", () => {
   // The panel used to persist maxResults="7" as a string and a provider the
   // enum does not know, which then rendered as a blank <select>.

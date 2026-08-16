@@ -38,7 +38,11 @@ function controller(options = {}) {
       duration: "normal",
       soundEnabled: true,
       soundOnDone: true,
+      soundOnApproval: true,
       soundOnError: true,
+      soundPreset: "soft",
+      soundVolume: 100,
+      soundMaxConcurrent: 2,
       systemNotifications: false,
       hapticFeedback: true,
       terminalNotices: true,
@@ -103,11 +107,31 @@ test("notification settings expose persist-until-dismissed and escape the webhoo
     },
   }).renderNotificationSettingsContent();
   assert.match(html, /data-notification-toggle="errorToastsPersist"/);
+  assert.match(html, /data-notification-toggle="soundOnApproval"/);
+  assert.match(html, /id="requestSystemNotificationBtn"/);
+  assert.match(html, /id="notificationSoundPreset"/);
+  assert.match(html, /data-notification-sound-source="preset"/);
+  assert.match(html, /data-notification-sound-source="custom"/);
+  assert.doesNotMatch(html, /id="notificationSoundFile"/);
+  assert.match(html, /id="notificationSoundVolume"/);
+  assert.match(html, /id="notificationSoundMaxConcurrent"/);
   assert.match(html, /data-notification-duration="long"/);
   assert.match(html, /aria-checked="true"[^>]*data-notification-duration="long"|data-notification-duration="long"[^>]*aria-checked="true"/);
   assert.match(html, /https:\/\/hooks\.example\/&quot;onfocus=alert\(1\)/);
   assert.match(html, /&lt;img src=x&gt;/);
   assert.doesNotMatch(html, /<img src=x>/);
+});
+
+test("custom sound source shows the local file picker and escapes the clip name", () => {
+  const html = controller({
+    notifications: { soundSource: "custom", soundCustomName: `ding"<img src=x>` },
+  }).renderNotificationSettingsContent();
+  assert.match(html, /data-notification-sound-source="custom"[^>]*aria-selected="true"|aria-selected="true"[^>]*data-notification-sound-source="custom"/);
+  assert.match(html, /id="notificationSoundFile"/);
+  assert.match(html, /id="chooseNotificationSoundFileBtn"/);
+  assert.match(html, /ding&quot;&lt;img src=x&gt;/);
+  assert.doesNotMatch(html, /<img src=x>/);
+  assert.doesNotMatch(html, /id="notificationSoundPreset"/);
 });
 
 test("IM gateway marks the active channel and escapes the endpoint plus origin lists", () => {

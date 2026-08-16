@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"math"
 	"net/http"
 	"net/http/httptest"
@@ -187,6 +188,95 @@ func TestUsageHistoryTrendHourDayAndMonth(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestUsageHistoryStackedTrendAndDistribution(t *testing.T) {
+	fixture := newUsageHistoryTestFixture(t)
+	status, encoded := requestUsageHistory(t, fixture, "/api/usage/history?bucket=day")
+	if status != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", status, encoded)
+	}
+	var response usageHistoryResponse
+	if err := json.Unmarshal(encoded, &response); err != nil {
+		t.Fatal(err)
+	}
+	if len(response.Distribution) != 2 {
+		t.Fatalf("expected openai then anthropic, got %+v", response.Distribution)
+	}
+	if response.Distribution[0].Provider != "openai" || response.Distribution[0].TotalTokens != 152 || response.Distribution[0].RequestCount != 5 {
+		t.Fatalf("unexpected leading distribution: %+v", response.Distribution[0])
+	}
+	if response.Distribution[1].Provider != "anthropic" || response.Distribution[1].TotalTokens != 60 || response.Distribution[1].RequestCount != 1 {
+		t.Fatalf("unexpected second distribution: %+v", response.Distribution[1])
+	}
+
+	got := map[string]map[string]int64{}
+	for _, point := range response.Stacked {
+		if _, ok := got[point.Bucket]; !ok {
+			got[point.Bucket] = map[string]int64{}
+		}
+		got[point.Bucket][point.Provider] = point.TotalTokens
+	}
+	want := map[string]map[string]int64{
+		"2024-01-31": {"openai": 15},
+		"2024-02-01": {"openai": 60},
+		"2024-02-28": {"anthropic": 60},
+		"2024-03-01": {"openai": 77},
+	}
+	if len(got) != len(want) {
+		t.Fatalf("unexpected stacked buckets: %+v", got)
+	}
+	for bucket, providers := range want {
+		for provider, tokens := range providers {
+			if got[bucket][provider] != tokens {
+				t.Fatalf("bucket %s provider %s: want %d, got %+v", bucket, provider, tokens, got[bucket])
+			}
+		}
+	}
+}
+
+func TestUsageHistoryStackedFoldsProvidersBeyondTopFive(t *testing.T) {
+	fixture := newUsageHistoryTestFixture(t)
+	for index, provider := range []string{"p1", "p2", "p3", "p4"} {
+		insertUsageHistoryTestRequest(t, fixture, usageHistoryTestRequest{
+			ID:           fmt.Sprintf("extra-%d", index),
+			CreatedAt:    "2024-03-02T12:00:00Z",
+			Kind:         "model",
+			Provider:     provider,
+			Model:        "extra",
+			InputTokens:  200 - index*10,
+			OutputTokens: 0,
+			CostUSD:      0,
+		})
+	}
+	status, encoded := requestUsageHistory(t, fixture, "/api/usage/history?bucket=day")
+	if status != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", status, encoded)
+	}
+	var response usageHistoryResponse
+	if err := json.Unmarshal(encoded, &response); err != nil {
+		t.Fatal(err)
+	}
+	got := make([]string, 0, len(response.Distribution))
+	tokens := map[string]int64{}
+	for _, row := range response.Distribution {
+		got = append(got, row.Provider)
+		tokens[row.Provider] = row.TotalTokens
+	}
+	if strings.Join(got, ",") != "p1,p2,p3,p4,openai," {
+		t.Fatalf("expected top five named providers then other, got %v", got)
+	}
+	if tokens["p1"] != 200 || tokens["p2"] != 190 || tokens["p3"] != 180 || tokens["p4"] != 170 || tokens["openai"] != 152 {
+		t.Fatalf("unexpected named totals: %+v", tokens)
+	}
+	if tokens[""] != 60 {
+		t.Fatalf("anthropic should fold into other, got %+v", tokens)
+	}
+	for _, point := range response.Stacked {
+		if point.Provider == "anthropic" {
+			t.Fatalf("anthropic should be folded into other, got %+v", point)
+		}
 	}
 }
 

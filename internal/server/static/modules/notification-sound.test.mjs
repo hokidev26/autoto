@@ -52,12 +52,12 @@ function fakeAudioScope({ state = "running" } = {}) {
   };
 }
 
-test("resolveToneName maps run outcomes onto the two tones", () => {
+test("resolveToneName maps run outcomes onto the audible tones", () => {
   assert.equal(resolveToneName("completed"), "success");
   assert.equal(resolveToneName("done"), "success");
   assert.equal(resolveToneName("failed"), "error");
   assert.equal(resolveToneName("interrupted"), "error");
-  assert.equal(resolveToneName("approval_required"), "");
+  assert.equal(resolveToneName("approval_required"), "approval");
   assert.equal(resolveToneName(""), "");
 });
 
@@ -139,4 +139,57 @@ test("an unknown family never plays a tone", () => {
   assert.equal(sound.play("truncated"), false);
   assert.equal(sound.play(null), false);
   assert.equal(started.length, 0);
+});
+
+test("volume zero is mute and overlapping plays honour the concurrent cap", () => {
+  const { scope, started } = fakeAudioScope();
+  const muted = createNotificationSound({ scope, getVolume: () => 0 });
+  assert.equal(muted.play("completed", { force: true }), false);
+  assert.equal(started.length, 0);
+  const capped = createNotificationSound({ scope, getMaxConcurrent: () => 1 });
+  assert.equal(capped.play("completed", { force: true }), true);
+  assert.equal(capped.play("error", { force: true }), false);
+  assert.equal(started.length, 2);
+});
+
+test("approval is a distinct knock, not the success rise", () => {
+  const { scope, started } = fakeAudioScope();
+  const sound = createNotificationSound({ scope });
+  assert.equal(sound.play("approval_required"), true);
+  assert.equal(started.length, 2);
+  assert.equal(started[0].frequency, started[1].frequency);
+});
+
+test("a custom clip plays through HTMLAudio and skips the synthesizer", () => {
+  const { scope, started } = fakeAudioScope();
+  const played = [];
+  scope.setTimeout = () => 0;
+  scope.URL = {
+    createObjectURL(blob) { return `blob:${blob.size || 1}`; },
+    revokeObjectURL() {},
+  };
+  scope.Audio = class {
+    constructor(src) { this.src = src; this.volume = 1; }
+    addEventListener() {}
+    play() { played.push(this.src); return Promise.resolve(); }
+  };
+  const sound = createNotificationSound({
+    scope,
+    getSource: () => "custom",
+    getCustomClip: () => ({ name: "ding.wav", blob: { size: 12 } }),
+  });
+  assert.equal(sound.play("completed", { force: true }), true);
+  assert.equal(started.length, 0);
+  assert.deepEqual(played, ["blob:12"]);
+});
+
+test("custom source without a clip falls back to the synthesized tone", () => {
+  const { scope, started } = fakeAudioScope();
+  const sound = createNotificationSound({
+    scope,
+    getSource: () => "custom",
+    getCustomClip: () => null,
+  });
+  assert.equal(sound.play("completed"), true);
+  assert.equal(started.length, 2);
 });

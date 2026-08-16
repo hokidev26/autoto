@@ -288,12 +288,12 @@ The per-item list below is deliberately exhaustive and reads as a specification 
 - Chat-composer slash command palette backed by enabled local Skills command templates
 - Browser-local Settings → Profile preferences for display identity, avatar initials, workspace label, and Git identity helpers
 - Browser-local Settings → Network Search preferences for provider presets, result limits, confirmation, and domain rules; `WebSearch` and `WebFetch` core tools provide public web/documentation lookup
-- Browser-local Settings → Notifications preferences for toast categories, display duration, and UI terminal notices; server-backed durable Webhook / Telegram delivery history and retry
+- Browser-local Settings → Notifications preferences for toast categories, run-event sounds (done / approval / error, with preset or a local custom clip, volume, and a playback cap), OS notifications with an explicit permission request, display duration, and UI terminal notices; server-backed durable Webhook / Telegram delivery history and retry
 - Browser-local Settings → Appearance preferences for theme, density, terminal default visibility, and Agent event-log display
 - Settings → Servers/System + Runtime panels for process, Go runtime, paths, and Agent limits
 - Settings → Users: administrators can create collaborators (password sign-in, working project membership) and conversation-only guests (access keys, watch-only membership). Guest limits are enforced by the server.
 - Settings → Storage panel for config, database, home, and project-directory footprint
-- Settings → Usage panel for projects, messages, tool calls, model requests, estimated token cost, and backends
+- Settings → Usage panel for request analytics (date presets, chart/records tabs, stacked provider trend, CSV of the currently loaded rows) plus projects, messages, tool calls, estimated token cost, and backends
 - Settings → About dependency-license panel backed by the development-time `/api/licenses` endpoint
 - Settings → About browser-local preferences backup/import for migrating profile, skills, chat drafts, prompt history, search, IM, notification, appearance, terminal, recent directory, model, and relay-protocol settings
 - Settings → IM gateway automation control backed by server APIs for schedules, notification history/retry, Telegram and Home Assistant connection metadata, pairing/revocation, monitoring, device state, local device-action confirmation, and audit events. A detected legacy browser-local IM draft is shown only as a disabled migration hint and never starts a channel
@@ -361,7 +361,7 @@ Do **not** expose Autoto directly to the public internet. Open **Settings → Re
 
 ## Usage cost estimates
 
-Autoto records provider usage in `api_requests` and shows aggregate estimated cost in **Settings → Usage**. Cost is calculated from a small built-in USD-per-million-token table in `internal/pricing/pricing.go`. The table was last reviewed on 2026-07-07 against public pricing pages: [OpenAI API pricing](https://developers.openai.com/api/docs/pricing), [OpenAI GPT-4.1 pricing announcement](https://openai.com/index/gpt-4-1/), and [Anthropic Claude pricing](https://docs.anthropic.com/en/docs/about-claude/pricing). Unknown models intentionally estimate to `0`, and OpenAI-compatible relay or local models may bill differently from their public model-name match.
+Autoto records provider usage in `api_requests` and shows aggregate estimated cost in **Settings → Usage**. The history page can export the currently loaded rows as CSV; it does not include credentials. Cost is calculated from a small built-in USD-per-million-token table in `internal/pricing/pricing.go`. The table was last reviewed on 2026-07-07 against public pricing pages: [OpenAI API pricing](https://developers.openai.com/api/docs/pricing), [OpenAI GPT-4.1 pricing announcement](https://openai.com/index/gpt-4-1/), and [Anthropic Claude pricing](https://docs.anthropic.com/en/docs/about-claude/pricing). Unknown models intentionally estimate to `0`, and OpenAI-compatible relay or local models may bill differently from their public model-name match.
 
 ---
 

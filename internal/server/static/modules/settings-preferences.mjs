@@ -45,6 +45,13 @@ import {
   terminalPrefsKey,
 } from "./preferences-data.mjs";
 import { preferencesMessage } from "./messages-preferences.mjs";
+import {
+  normalizeNotificationSoundCustomName,
+  normalizeNotificationSoundMaxConcurrent,
+  normalizeNotificationSoundPreset,
+  normalizeNotificationSoundSource,
+  normalizeNotificationSoundVolume,
+} from "./notification-sound.mjs";
 
 export function createSettingsPreferencesController({
   state,
@@ -495,6 +502,12 @@ export function createSettingsPreferencesController({
       soundEnabled: value.soundEnabled !== undefined ? Boolean(value.soundEnabled) : defaultNotificationPrefs.soundEnabled,
       soundOnDone: value.soundOnDone !== undefined ? Boolean(value.soundOnDone) : defaultNotificationPrefs.soundOnDone,
       soundOnError: value.soundOnError !== undefined ? Boolean(value.soundOnError) : defaultNotificationPrefs.soundOnError,
+      soundOnApproval: value.soundOnApproval !== undefined ? Boolean(value.soundOnApproval) : defaultNotificationPrefs.soundOnApproval,
+      soundPreset: normalizeNotificationSoundPreset(value.soundPreset ?? defaultNotificationPrefs.soundPreset),
+      soundSource: normalizeNotificationSoundSource(value.soundSource ?? defaultNotificationPrefs.soundSource),
+      soundCustomName: normalizeNotificationSoundCustomName(value.soundCustomName ?? defaultNotificationPrefs.soundCustomName),
+      soundVolume: normalizeNotificationSoundVolume(value.soundVolume, defaultNotificationPrefs.soundVolume),
+      soundMaxConcurrent: normalizeNotificationSoundMaxConcurrent(value.soundMaxConcurrent, defaultNotificationPrefs.soundMaxConcurrent),
       systemNotifications: value.systemNotifications !== undefined ? Boolean(value.systemNotifications) : defaultNotificationPrefs.systemNotifications,
       errorToastsPersist: value.errorToastsPersist !== undefined ? Boolean(value.errorToastsPersist) : defaultNotificationPrefs.errorToastsPersist,
       hapticFeedback: value.hapticFeedback !== undefined ? Boolean(value.hapticFeedback) : defaultNotificationPrefs.hapticFeedback,
@@ -515,14 +528,18 @@ export function createSettingsPreferencesController({
     if (notify) showToast?.(pt("settings.notificationSaved"), "success", { force: true });
   }
 
-  function setNotificationPreference(field, value) {
+  function setNotificationPreference(field, value, { notify = true } = {}) {
     const prefs = { ...currentNotificationPreferences() };
-    if (field === "duration") {
-      prefs.duration = value;
+    if (field === "duration" || field === "soundPreset" || field === "soundSource" || field === "soundCustomName") {
+      prefs[field] = value;
+    } else if (field === "soundVolume") {
+      prefs.soundVolume = value;
+    } else if (field === "soundMaxConcurrent") {
+      prefs.soundMaxConcurrent = value;
     } else {
       prefs[field] = value === true || value === "true";
     }
-    saveNotificationPreferences(prefs, { notify: true });
+    saveNotificationPreferences(prefs, { notify });
   }
 
   function resetNotificationPreferences() {
@@ -558,6 +575,7 @@ export function createSettingsPreferencesController({
     if (!prefs.soundEnabled) return false;
     if (tone === "error") return prefs.soundOnError !== false;
     if (tone === "success") return prefs.soundOnDone !== false;
+    if (tone === "approval") return prefs.soundOnApproval !== false;
     return false;
   }
 

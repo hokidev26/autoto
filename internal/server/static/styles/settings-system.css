@@ -1232,6 +1232,34 @@ body.white-shell.theme-light.theme-dark #settingsModal {
   line-height: 1.35;
 }
 
+#settingsContentBody .notification-page .notification-sound-source {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-top: 12px;
+}
+
+#settingsContentBody .notification-page .notification-sound-controls {
+  margin-top: 12px;
+  align-items: end;
+}
+
+#settingsContentBody .notification-page .notification-sound-custom {
+  grid-column: 1 / -1;
+}
+
+#settingsContentBody .notification-page .notification-sound-custom .settings-inline-actions {
+  margin-top: 8px;
+}
+
+#settingsContentBody .notification-page .notification-sound-controls input[type="range"] {
+  width: 100%;
+  accent-color: var(--settings-primary, #5369f3);
+}
+
+#settingsContentBody .notification-page .notification-push-status {
+  color: var(--settings-muted-foreground, #64748b);
+  font-size: 12px;
+}
+
 #settingsContentBody :is(.settings-choice-card, .appearance-choice, .terminal-control-card):hover,
 #settingsContentBody :is(.settings-choice-card, .appearance-choice, .terminal-control-card).active,
 #settingsContentBody :is(.settings-choice-card, .appearance-choice, .terminal-control-card)[aria-checked="true"] {

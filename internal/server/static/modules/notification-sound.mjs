@@ -1,15 +1,16 @@
-// Audible completion signals, synthesized rather than shipped as audio files.
-//
-// A run that finishes while the user is looking at another window used to be
-// silent: the only completion signal was a toast that removes itself after a few
-// seconds. Synthesis keeps this to one small module with no binary assets, no
-// build step, and no network fetch that could fail at the moment it matters.
+// Audible completion signals. Built-in tones are synthesized so Autoto ships
+// with no audio assets. A user-picked clip stays in this device's IndexedDB
+// and is never uploaded; if that clip is missing, playback falls back to the
+// synthesizer so a run still announces itself.
 //
 // Browsers refuse to start an AudioContext until the user has interacted with
 // the page, and a context created too early lands in "suspended" forever. So the
 // context is created lazily on first playback and also resumed from a one-shot
 // gesture listener, which is the only reliable way to have sound ready *before*
 // the first thing worth announcing happens.
+
+export const notificationSoundPresets = Object.freeze(["soft", "clear", "low"]);
+export const notificationSoundSources = Object.freeze(["preset", "custom"]);
 
 export const notificationToneDefaults = Object.freeze({
   // Two rising notes: unmistakably "finished", short enough not to be annoying
@@ -31,6 +32,16 @@ export const notificationToneDefaults = Object.freeze({
     gain: 0.2,
     type: "triangle",
   }),
+  // Two identical knocks: "something is waiting", not finished and not failed.
+  approval: Object.freeze({
+    steps: Object.freeze([
+      Object.freeze({ frequency: 520, duration: 0.08 }),
+      Object.freeze({ frequency: 520, duration: 0.08 }),
+    ]),
+    gain: 0.14,
+    type: "sine",
+    gap: 0.06,
+  }),
 });
 
 const toneAliases = Object.freeze({
@@ -41,7 +52,56 @@ const toneAliases = Object.freeze({
   failed: "error",
   failure: "error",
   interrupted: "error",
+  approval: "approval",
+  approval_required: "approval",
+  pending_approval: "approval",
 });
+
+export function normalizeNotificationSoundPreset(value) {
+  const token = String(value || "").trim().toLowerCase();
+  return notificationSoundPresets.includes(token) ? token : "soft";
+}
+
+export function normalizeNotificationSoundSource(value) {
+  const token = String(value || "").trim().toLowerCase();
+  return notificationSoundSources.includes(token) ? token : "preset";
+}
+
+export function normalizeNotificationSoundCustomName(value) {
+  const base = String(value || "").replace(/\\/g, "/").split("/").pop() || "";
+  const cleaned = base.replace(/[<>:"|?*\u0000-\u001f]/g, "").trim();
+  if (!cleaned || cleaned.toLowerCase().startsWith("data:")) return "";
+  return cleaned.slice(0, 80);
+}
+
+export function normalizeNotificationSoundVolume(value, fallback = 100) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return fallback;
+  return Math.max(0, Math.min(100, Math.round(number)));
+}
+
+export function normalizeNotificationSoundMaxConcurrent(value, fallback = 2) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return fallback;
+  return Math.max(1, Math.min(4, Math.round(number)));
+}
+
+function applySoundPreset(spec, preset, volume) {
+  const name = normalizeNotificationSoundPreset(preset);
+  const gainScale = name === "clear" ? 1.28 : name === "low" ? 0.72 : 1;
+  const freqScale = name === "clear" ? 1.06 : name === "low" ? 0.82 : 1;
+  const type = name === "clear" ? "triangle" : (spec.type || "sine");
+  const peak = Math.max(0.0001, (Number(spec.gain) || 0.15) * gainScale * (normalizeNotificationSoundVolume(volume) / 100));
+  return {
+    type,
+    gap: Number(spec.gap) || 0,
+    gain: peak,
+    steps: (spec.steps || []).map((step) => ({
+      frequency: Math.max(40, (Number(step.frequency) || 660) * freqScale),
+      duration: Number(step.duration) || 0.12,
+    })),
+  };
+}
 
 export function resolveToneName(value) {
   const token = String(value || "").trim().toLowerCase();
@@ -52,15 +112,29 @@ function contextConstructor(scope) {
   return scope?.AudioContext || scope?.webkitAudioContext || null;
 }
 
+function audioConstructor(scope) {
+  return scope?.Audio || globalThis.Audio || null;
+}
+
+function objectUrlAPI(scope) {
+  return scope?.URL || globalThis.URL || null;
+}
+
 export function createNotificationSound({
   scope = globalThis,
   tones = notificationToneDefaults,
   isEnabled = () => true,
+  getPreset = () => "soft",
+  getSource = () => "preset",
+  getCustomClip = () => null,
+  getVolume = () => 100,
+  getMaxConcurrent = () => 2,
   onError,
 } = {}) {
   let context = null;
   let unlockBound = false;
   let failed = false;
+  let playing = 0;
 
   function ensureContext() {
     if (failed) return null;
@@ -113,11 +187,46 @@ export function createNotificationSound({
     return true;
   }
 
-  function scheduleTone(ctx, tone) {
-    const spec = tones?.[tone];
-    if (!spec?.steps?.length) return false;
+  function playCustomClip(clip, volume) {
+    const AudioCtor = audioConstructor(scope);
+    const urls = objectUrlAPI(scope);
+    if (!AudioCtor || !urls?.createObjectURL || !clip?.blob) return false;
+    let url = "";
+    try {
+      url = urls.createObjectURL(clip.blob);
+      const audio = new AudioCtor(url);
+      audio.volume = Math.max(0, Math.min(1, volume / 100));
+      let finished = false;
+      const done = () => {
+        if (finished) return;
+        finished = true;
+        playing = Math.max(0, playing - 1);
+        try { urls.revokeObjectURL?.(url); } catch {}
+      };
+      audio.addEventListener?.("ended", done);
+      audio.addEventListener?.("error", done);
+      const started = audio.play?.();
+      if (started?.catch) started.catch((error) => { done(); onError?.(error); });
+      // A 1 MB clip should end itself; this cap only exists so a stuck play()
+      // cannot pin the concurrent slot forever.
+      const later = scope?.setTimeout || globalThis.setTimeout;
+      later?.(() => done(), 8000);
+      playing += 1;
+      return true;
+    } catch (error) {
+      if (url) {
+        try { urls.revokeObjectURL?.(url); } catch {}
+      }
+      onError?.(error);
+      return false;
+    }
+  }
+
+  function scheduleTone(ctx, spec) {
+    if (!spec?.steps?.length) return 0;
     const now = ctx.currentTime;
     let offset = 0;
+    const gap = Number(spec.gap) || 0;
     for (const step of spec.steps) {
       const oscillator = ctx.createOscillator();
       const gain = ctx.createGain();
@@ -134,9 +243,9 @@ export function createNotificationSound({
       gain.connect(ctx.destination);
       oscillator.start(start);
       oscillator.stop(start + duration + 0.02);
-      offset += duration;
+      offset += duration + gap;
     }
-    return true;
+    return offset;
   }
 
   // force bypasses the preference gate for an explicit "test this sound" action,
@@ -145,6 +254,16 @@ export function createNotificationSound({
     const tone = resolveToneName(toneOrFamily);
     if (!tone) return false;
     if (!force && !isEnabled(tone)) return false;
+    const volume = normalizeNotificationSoundVolume(getVolume?.());
+    if (volume <= 0) return false;
+    const cap = normalizeNotificationSoundMaxConcurrent(getMaxConcurrent?.());
+    if (playing >= cap) return false;
+    if (normalizeNotificationSoundSource(getSource?.()) === "custom") {
+      const clip = getCustomClip?.();
+      if (clip?.blob && playCustomClip(clip, volume)) return true;
+      // Missing or unplayable custom clip must not silence the run: fall through
+      // to the synthesized tone so the user still hears that something happened.
+    }
     const ctx = ensureContext();
     if (!ctx) return false;
     // A suspended context silently drops scheduled nodes, so try to resume and
@@ -152,7 +271,15 @@ export function createNotificationSound({
     // always interacted with the page.
     if (ctx.state === "suspended") unlock();
     try {
-      return scheduleTone(ctx, tone);
+      const source = tones?.[tone];
+      if (!source) return false;
+      const spec = applySoundPreset(source, getPreset?.(), volume);
+      const duration = scheduleTone(ctx, spec);
+      if (!duration) return false;
+      playing += 1;
+      const later = scope?.setTimeout || globalThis.setTimeout;
+      later?.(() => { playing = Math.max(0, playing - 1); }, Math.ceil(duration * 1000) + 40);
+      return true;
     } catch (error) {
       onError?.(error);
       return false;
@@ -163,7 +290,7 @@ export function createNotificationSound({
     play,
     unlock,
     bindUnlockGesture,
-    available: () => Boolean(contextConstructor(scope)) && !failed,
+    available: () => (Boolean(contextConstructor(scope)) && !failed) || Boolean(audioConstructor(scope)),
     state: () => context?.state || "uninitialized",
   };
 }
