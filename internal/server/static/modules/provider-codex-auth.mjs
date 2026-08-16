@@ -718,8 +718,9 @@ export function createCodexAuthController(ctx) {
     return `<div class="codex-account-console settings-page" tabindex="-1" aria-labelledby="codex-console-title">
       <button class="codex-console-back" type="button" data-mp-close-codex-page>← ${escapeHtml(mt("backToProviders"))}</button>
       <header class="codex-console-hero settings-card">
-        <div class="codex-console-heading"><div><p class="mp-provider-kicker">Codex OAuth</p><h1 id="codex-console-title" class="settings-card-title">${escapeHtml(mt("accountConsoleTitle"))}</h1><p class="settings-card-description" data-settings-help-copy>${escapeHtml(mt("accountConsoleDescription"))}</p></div><span class="settings-status-pill ${escapeAttr(providerTone)}">${escapeHtml(providerState)}</span></div>
+        <div class="codex-console-heading"><div><p class="mp-provider-kicker">Codex OAuth</p><h1 id="codex-console-title" class="settings-card-title">${escapeHtml(mt("accountConsoleTitle"))}</h1><p class="settings-card-description" data-settings-help-copy>${escapeHtml(mt("accountConsoleDescription"))}</p></div></div>
         <div class="codex-console-actions settings-inline-actions">
+          <span class="settings-status-pill ${escapeAttr(providerTone)}">${escapeHtml(providerState)}</span>
           <button id="codexRefreshAuthBtn" class="settings-action-btn" type="button" data-mp-codex-refresh ${state.providerAuthLoading ? "disabled aria-busy=\"true\"" : ""}>${escapeHtml(state.providerAuthLoading ? mt("refreshing") : mt("refreshAccounts"))}</button>
           <button class="settings-action-btn" type="button" data-mp-refresh-models ${modelRefreshBusy ? "disabled aria-busy=\"true\"" : ""}>${escapeHtml(modelRefreshBusy ? mt("refreshing") : mt("refreshModels"))}</button>
         </div>

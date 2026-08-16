@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { readFile } from "node:fs/promises";
 
 import { createLocalPreferencesSettingsController } from "./local-preferences-settings.mjs";
 
@@ -114,6 +115,10 @@ test("notification settings expose persist-until-dismissed and escape the webhoo
   assert.match(html, /data-notification-sound-source="custom"/);
   assert.doesNotMatch(html, /id="notificationSoundFile"/);
   assert.match(html, /id="notificationSoundVolume"/);
+  assert.match(html, /id="notificationSoundVolumeValue"/);
+  assert.match(html, /class="notification-sound-volume-slider"/);
+  assert.match(html, /id="notificationSoundVolume"[^>]*style="--notification-sound-volume:100%"/);
+  assert.doesNotMatch(html, /id="notificationSoundVolume"[^>]*settings-field/);
   assert.match(html, /id="notificationSoundMaxConcurrent"/);
   assert.match(html, /data-notification-duration="long"/);
   assert.match(html, /aria-checked="true"[^>]*data-notification-duration="long"|data-notification-duration="long"[^>]*aria-checked="true"/);
@@ -169,4 +174,12 @@ test("profile settings escape display fields and omit the remove-avatar control 
   assert.match(html, /value="&quot;quoted&quot;"/);
   assert.doesNotMatch(html, /id="removeProfileAvatarBtn"/);
   assert.match(html, /id="chooseProfileAvatarBtn"/);
+});
+
+test("notification volume slider is unboxed so the thumb can reach 0% and 100%", async () => {
+  const styles = await readFile(new URL("../styles/settings-system.css", import.meta.url), "utf8");
+  assert.match(styles, /input:not\(\[type="checkbox"\]\):not\(\[type="radio"\]\):not\(\[type="range"\]\):not\(\[type="file"\]\)/);
+  assert.match(styles, /#settingsContentBody \.notification-page \.notification-sound-volume\s*\{[\s\S]*?grid-column:\s*1 \/ -1/);
+  assert.match(styles, /#settingsContentBody \.notification-page \.notification-sound-volume-slider\s*\{[\s\S]*?appearance:\s*none[\s\S]*?padding:\s*0[\s\S]*?border:\s*0/);
+  assert.match(styles, /#settingsContentBody \.notification-page \.notification-sound-volume-slider::-webkit-slider-thumb\s*\{[\s\S]*?-webkit-appearance:\s*none/);
 });

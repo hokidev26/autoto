@@ -588,6 +588,10 @@
   height: 13px;
   display: block;
 }
+.message-copy-btn.is-copied {
+  color: var(--ws-primary, #4f6ef7);
+  opacity: 1;
+}
 .message-content { white-space: normal; }
 .message-content p { margin: 0 0 10px; white-space: pre-wrap; }
 .message-content p:last-child { margin-bottom: 0; }

@@ -618,8 +618,12 @@ export function createLocalPreferencesSettingsController({
             </select>
           </label>
           `}
-          <label class="settings-form-field">${escapeHtml(t("notification.soundVolume"))}
-            <input id="notificationSoundVolume" class="settings-field" type="range" min="0" max="100" step="1" value="${escapeAttr(String(prefs.soundVolume ?? 100))}" />
+          <label class="settings-form-field notification-sound-volume">
+            <span class="notification-sound-volume-head">
+              <span>${escapeHtml(t("notification.soundVolume"))}</span>
+              <output id="notificationSoundVolumeValue" for="notificationSoundVolume">${escapeHtml(String(prefs.soundVolume ?? 100))}%</output>
+            </span>
+            <input id="notificationSoundVolume" class="notification-sound-volume-slider" type="range" min="0" max="100" step="1" value="${escapeAttr(String(prefs.soundVolume ?? 100))}" style="--notification-sound-volume:${escapeAttr(String(prefs.soundVolume ?? 100))}%" />
             <small data-settings-help-copy>${escapeHtml(t("notification.soundVolumeDesc", { value: String(prefs.soundVolume ?? 100) }))}</small>
           </label>
           <label class="settings-form-field">${escapeHtml(t("notification.soundMaxConcurrent"))}
@@ -783,8 +787,12 @@ export function createLocalPreferencesSettingsController({
       Promise.resolve(clearCustomNotificationSound()).catch((error) => showError?.(error));
     });
     $("notificationSoundVolume")?.addEventListener("input", (event) => {
+      const value = String(event.target.value);
+      event.target.style.setProperty("--notification-sound-volume", `${value}%`);
+      const output = $("notificationSoundVolumeValue");
+      if (output) output.textContent = `${value}%`;
       const help = event.target.parentElement?.querySelector("[data-settings-help-copy]");
-      if (help) help.textContent = t("notification.soundVolumeDesc", { value: String(event.target.value) });
+      if (help) help.textContent = t("notification.soundVolumeDesc", { value });
     });
     $("notificationSoundVolume")?.addEventListener("change", (event) => {
       setNotificationPreference("soundVolume", event.target.value, { notify: false });

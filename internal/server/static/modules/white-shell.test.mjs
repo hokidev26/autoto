@@ -237,6 +237,7 @@ test("white shell adds the global rail before the conversation sidebar with the 
   assert.match(appMain, /querySelectorAll\("\[data-global-rail-target\]"\)/);
   assert.match(appMain, /activateGlobalRailTarget\(node\.dataset\.globalRailTarget\)/);
   assert.match(html, /id="globalRailCollapseBtn"[^>]*aria-expanded="true"[^>]*data-i18n-title="shell\.collapseGlobalNavigation"/);
+  assert.match(html, /id="globalRailCollapseBtn"[\s\S]*?<svg viewBox="0 0 24 24"[^>]*>[\s\S]*?<path d="M7 5v14"><\/path><path d="m16\.5 7-5 5 5 5"><\/path>/);
   assert.doesNotMatch(html, /id="globalRailAvatar"/);
   assert.match(html, /class="global-rail-button global-rail-settings-button"[^>]*data-global-rail-target="profile"/);
   // The session column's own collapse arrow is retired: the rail's three-way
@@ -854,8 +855,9 @@ test("desktop conversation layout follows the compact resizable geometry", async
   // The PROJECT badge is no longer rendered: it existed to tell project rows
   // apart from standalone conversation rows, and those are one thing now. Its
   // rules are left in place as inert styling rather than asserted here.
-  assert.match(styles, /body\.white-shell\.theme-light \.navigation-conversation-row\s*\{[\s\S]*?min-height:\s*34px[\s\S]*?grid-template-columns:\s*14px minmax\(0, 1fr\) max-content;/);
-  assert.match(styles, /body\.white-shell\.theme-light \.navigation-project-group \+ \.navigation-project-group\s*\{[\s\S]*?margin-top:\s*16px/);
+  assert.match(styles, /body\.white-shell\.theme-light \.navigation-conversation-row\s*\{[\s\S]*?min-height:\s*24px[\s\S]*?grid-template-columns:\s*14px minmax\(0, 1fr\) max-content;/);
+  assert.match(styles, /body\.white-shell\.theme-light \.navigation-project-group \+ \.navigation-project-group\s*\{[\s\S]*?margin-top:\s*0/);
+  assert.match(styles, /body\.white-shell\.theme-light \.navigation-project-group:has\(> \.navigation-project-conversations:not\(\[hidden\]\)\) \+ \.navigation-project-group\s*\{[\s\S]*?margin-top:\s*8px/);
   assert.match(styles, /body\.white-shell\.theme-light \.navigation-project-row \.project-name\s*\{[\s\S]*?flex:\s*0 1 auto/);
   assert.match(styles, /body\.white-shell\.theme-light \.navigation-conversation-trailing\s*\{[\s\S]*?display:\s*grid/);
   assert.match(styles, /body\.white-shell\.theme-light \.navigation-conversation-trailing > \*\s*\{[\s\S]*?grid-area:\s*1 \/ 1/);
@@ -872,9 +874,12 @@ test("desktop conversation layout follows the compact resizable geometry", async
   assert.match(styles, /body\.white-shell\.theme-light \.navigation-project-twist \.navigation-disclosure\s*\{[\s\S]*?opacity:\s*0/);
   assert.match(styles, /body\.white-shell\.theme-light \.navigation-project-row:is\(:hover, :focus-within\) \.navigation-disclosure\s*\{[\s\S]*?opacity:\s*1/);
   assert.match(styles, /body\.white-shell\.theme-light \.navigation-project-row:is\(:hover, :focus-within\) \.navigation-folder-icon\s*\{[\s\S]*?opacity:\s*0/);
+  assert.match(styles, /body\.white-shell\.theme-light \.navigation-project-group > \.navigation-project-row \.navigation-folder-icon svg\s*\{[\s\S]*?stroke-width:\s*1\.75/);
+  assert.match(styles, /body\.white-shell\.theme-light \.navigation-conversation-row\.unread:not\(\.navigation-project-row\)/);
+  assert.match(styles, /body\.white-shell\.theme-light \.navigation-project-row\.unread > \.navigation-project-twist::after\s*\{[\s\S]*?background:\s*#22c55e/);
   assert.match(styles, /body\.white-shell\.theme-light \.navigation-conversation-row\.nested \.navigation-agent-icon\s*\{[\s\S]*?display:\s*none/);
-  assert.match(styles, /body\.white-shell\.theme-light \.navigation-conversation-row\.nested\s*\{[\s\S]*?padding:\s*4px 7px 4px 28px/);
-  assert.match(styles, /body\.white-shell\.theme-light \.messages:not\(\.empty\)\s*\{[\s\S]*?grid-template-columns:\s*minmax\(0, 1fr\)[\s\S]*?grid-auto-rows:\s*max-content[\s\S]*?justify-content:\s*start[\s\S]*?row-gap:\s*14px[\s\S]*?padding:\s*12px 8px 12px/);
+  assert.match(styles, /body\.white-shell\.theme-light \.navigation-conversation-row\.nested\s*\{[\s\S]*?padding:\s*1px 7px 1px 28px/);
+  assert.match(styles, /body\.white-shell\.theme-light \.messages:not\(\.empty\)\s*\{[\s\S]*?grid-template-columns:\s*minmax\(0, 1fr\)[\s\S]*?grid-auto-rows:\s*max-content[\s\S]*?justify-content:\s*start[\s\S]*?row-gap:\s*8px[\s\S]*?padding:\s*12px 8px 12px/);
   assert.match(styles, /body\.white-shell\.theme-light \.project-list::-webkit-scrollbar\s*\{[\s\S]*?width:\s*6px/);
   assert.match(styles, /body\.white-shell\.theme-light \.messages::-webkit-scrollbar\s*\{[\s\S]*?width:\s*6px/);
   assert.match(styles, /body\.white-shell\.theme-light \.messages:not\(\.empty\) > \[class~="message"\]\s*\{[^}]*justify-self:\s*stretch[^}]*width:\s*100%[^}]*max-width:\s*100%[^}]*white-space:\s*normal/);
@@ -923,6 +928,10 @@ test("desktop conversation layout follows the compact resizable geometry", async
   // Docked mode un-pins the field, so the magnifier must come back or the search
   // box has nothing to open it.
   assert.match(styles, /\.app-shell\.nav-mode-docked \.global-rail-nav-row #projectSearchToggleBtn\s*\{[\s\S]*?display:\s*inline-flex/);
+  // Wide docked footer: collapse sits on the panel edge instead of floating
+  // beside the theme toggle in leftover space.
+  assert.match(styles, /\.app-shell\.nav-mode-docked \.global-rail-footer-actions\s*\{[\s\S]*?justify-content:\s*space-between/);
+  assert.match(styles, /\.app-shell\.nav-mode-docked \.global-rail \.global-rail-footer-actions button\.global-rail-collapse-btn\s*\{[\s\S]*?width:\s*32px/);
   // The docked list is a real descendant of .global-rail, so the rail's own nav
   // entry rules have to exclude it. Without this its buttons took a 58px tall
   // full-width nav entry's shape and held every card open.
@@ -986,6 +995,11 @@ test("desktop conversation layout follows the compact resizable geometry", async
     compactRule("\\.global-rail-nav-row \\.session-sidebar-actions"),
     /display:\s*none/,
     "the overlaid actions step aside",
+  );
+  assert.match(
+    compactRule("\\.global-rail-footer-actions"),
+    /flex-direction:\s*column/,
+    "settings compact stacks theme and collapse so collapse is not under the category panel",
   );
   // The docked values above must stay intact: they are still right at 296px.
   assert.match(
@@ -2065,6 +2079,7 @@ test("mobile shell skips home and keeps the drawer, settings index, and model sh
   assert.doesNotMatch(html, /id="mobilePageTitle"[^>]*data-i18n="shell\.nav\.home"/);
   assert.match(html, /class="[^"]*mobile-drawer-header/);
   assert.match(html, /class="mobile-drawer-brand-mark"[^>]*>[\s\S]*?<svg viewBox="0 0 32 32">/);
+  assert.match(html, /class="mobile-conversation-brand-mark theme-icon-slot"[^>]*data-theme-icon-slot="brand"[^>]*>[\s\S]*?<svg viewBox="0 0 32 32" fill="none">/);
   assert.match(html, /class="[^"]*mobile-drawer-footer/);
   assert.match(html, /class="settings-sidebar-header settings-modal-header"/);
   assert.doesNotMatch(html, /id="mobileSettingsIndex"/);
@@ -2087,6 +2102,8 @@ test("mobile shell skips home and keeps the drawer, settings index, and model sh
   assert.match(refreshedStyles, /body\.white-shell\.theme-light \.sidebar\s*\{[^}]*z-index:\s*80/);
   assert.match(refreshedStyles, /body\.white-shell\.theme-light \.overview-dashboard-page\s*\{\s*display:\s*none !important/);
   assert.match(refreshedStyles, /\.mobile-drawer-brand-mark svg\s*\{[^}]*fill:\s*none;[^}]*stroke:\s*currentColor;[^}]*stroke-linecap:\s*round/);
+  assert.match(refreshedStyles, /\.mobile-conversation-brand-mark svg\s*\{[^}]*fill:\s*none;[^}]*stroke:\s*currentColor;[^}]*stroke-linecap:\s*round/);
+  assert.match(refreshedStyles, /\.mobile-conversation-brand-mark\s*\{[\s\S]*?color:\s*var\(--ws-primary, #4f6ef7\)/);
   assert.match(refreshedStyles, /body\.white-shell\.theme-light\.mobile-sidebar-open \.sidebar\s*\{[^}]*transform:\s*translateX\(0\)/);
   assert.match(refreshedStyles, /\.chat-panel:has\(\.messages\.empty:not\(\[data-initial-chat-state="loading"\]\)\) \.mobile-conversation-welcome\s*\{\s*display:\s*flex/);
   assert.match(refreshedStyles, /#settingsModal\.mobile-settings-index \.settings-main\s*\{\s*display:\s*none/);

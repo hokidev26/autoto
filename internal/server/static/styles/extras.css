@@ -1296,20 +1296,42 @@ body.white-shell.theme-light.theme-dark #settingsContentBody .compact-settings-s
   font-size: 10px;
 }
 /* Runtime-resources collapsible cards — the same native <details> disclosure the
-   Shared API sections above use, with one difference: those sections are a
-   two-column row (copy | controls), while these cards already sit in the
-   .usage-detail-grid two-column grid, so each one folds downward instead.
+   Shared API sections above use. Those sections are a two-column row
+   (copy | controls). These cards used to sit in the two-column
+   .usage-detail-grid, so opening one left a short neighbour beside a tall form.
+   They now stack full-width: folded bars are one height, and an open card grows
+   downward instead of against the card next to it.
    The card's spacing lived on the section, which now has a single child, so the
    grid moves onto <details> to keep the summary clear of the body. */
+#settingsContentBody .runtime-page .usage-detail-grid.runtime-resource-stack {
+  grid-template-columns: 1fr;
+}
 #settingsContentBody .runtime-resource-details {
   display: grid;
   min-width: 0;
   gap: var(--settings-space-3);
   align-content: start;
 }
+#settingsContentBody .runtime-resource-body {
+  display: grid;
+  min-width: 0;
+  gap: var(--settings-space-3);
+  align-content: start;
+}
+#settingsContentBody .runtime-resource-body .runtime-kv-list { margin-top: 0; }
+#settingsContentBody .runtime-resource-body > .settings-form-actions,
+#settingsContentBody .runtime-resource-body > .execution-budget-actions {
+  margin-top: 0;
+}
+#settingsContentBody .runtime-resource-body > .settings-card-footer {
+  margin-top: 0;
+}
+#settingsContentBody .runtime-resource-details:not([open]) { gap: 0; }
 #settingsContentBody .runtime-resource-details > summary { list-style: none; cursor: pointer; }
 #settingsContentBody .runtime-resource-details > summary::-webkit-details-marker { display: none; }
 #settingsContentBody .runtime-resource-details > summary .compact-settings-section-copy { pointer-events: none; }
+#settingsContentBody .runtime-resource-summary { min-height: 28px; align-items: center; }
+#settingsContentBody .runtime-resource-details:not([open]) .runtime-resource-summary::after { margin-top: 0; }
 /* The shared ::after starts rotated 90deg (open). Point it back along the row
    while the card is folded, matching the Shared API sections. */
 #settingsContentBody .runtime-resource-details:not([open]) .compact-settings-section-summary::after { transform: rotate(0deg); }
@@ -3216,6 +3238,8 @@ body.white-shell.theme-light.theme-dark .context-clear-confirmation :is(strong, 
     border-radius: 8px;
     padding: 0;
     font-size: 15px;
+    background: transparent;
+    color: #5d6678;
   }
 
   body.white-shell.theme-light .global-rail .global-rail-footer-actions .theme-toggle-icon { width: 15px; height: 15px; font-size: 15px; }
@@ -3448,6 +3472,34 @@ body.white-shell.theme-light.theme-dark .context-clear-confirmation :is(strong, 
 
   body.white-shell.theme-light .app-shell.nav-mode-docked .global-rail-footer {
     justify-items: stretch;
+  }
+
+  /* The docked rail is a wide panel. Centering the two 28px glyphs left them
+     floating in leftover footer space. Theme stays under the settings icon;
+     collapse sits on the trailing edge, which is where folding a panel lives. */
+  body.white-shell.theme-light .app-shell.nav-mode-docked .global-rail-footer-actions {
+    justify-content: space-between;
+    width: 100%;
+    padding: 0 6px;
+  }
+
+  body.white-shell.theme-light .app-shell.nav-mode-docked .global-rail .global-rail-footer-actions .global-rail-theme-toggle,
+  body.white-shell.theme-light .app-shell.nav-mode-docked .global-rail .global-rail-footer-actions button.global-rail-collapse-btn {
+    width: 32px;
+    min-width: 32px;
+    height: 32px;
+    min-height: 32px;
+    flex-basis: 32px;
+    border-radius: 9px;
+  }
+
+  body.white-shell.theme-light .app-shell.nav-mode-docked:not(.settings-rail-compact) .global-rail .global-rail-footer-actions button.global-rail-collapse-btn {
+    background: color-mix(in srgb, var(--ws-text, #20263a) 5.5%, transparent);
+  }
+
+  body.white-shell.theme-light .app-shell.nav-mode-docked .global-rail-health {
+    justify-content: flex-start;
+    padding: 0 10px;
   }
 
   /* The dock is the flexible row of the rail: the nav entries above and below it
@@ -3701,6 +3753,33 @@ body.white-shell.theme-light.theme-dark .context-clear-confirmation :is(strong, 
      overlap being reported. The columns stage shows nothing here either. */
   body.white-shell.theme-light .app-shell.nav-mode-docked.settings-rail-compact .global-rail-nav-row .session-sidebar-actions {
     display: none;
+  }
+
+  /* Settings occupies the column immediately to the right of this 68px rail.
+     The wide-docked footer parks collapse on the trailing edge, which then sits
+     under the settings category panel. Stack the pair so both stay inside the
+     rail, the same way the icon stage already does at 48px. */
+  body.white-shell.theme-light .app-shell.nav-mode-docked.settings-rail-compact .global-rail-footer-actions {
+    flex-direction: column;
+    justify-content: center;
+    width: auto;
+    padding: 0;
+    gap: 4px;
+  }
+
+  body.white-shell.theme-light .app-shell.nav-mode-docked.settings-rail-compact .global-rail .global-rail-footer-actions .global-rail-theme-toggle,
+  body.white-shell.theme-light .app-shell.nav-mode-docked.settings-rail-compact .global-rail .global-rail-footer-actions button.global-rail-collapse-btn {
+    width: 28px;
+    min-width: 28px;
+    height: 28px;
+    min-height: 28px;
+    flex-basis: 28px;
+    background: transparent;
+  }
+
+  body.white-shell.theme-light .app-shell.nav-mode-docked.settings-rail-compact .global-rail-health {
+    justify-content: center;
+    padding: 0;
   }
 
   /* The dock stretches to absorb the rail's free space when it holds the list.

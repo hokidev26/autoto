@@ -178,11 +178,16 @@ export function setupWizardStartupDecision({
   preferredModel = "",
   catalog = {},
   currentVersion = setupWizardVersion,
+  remote = false,
 } = {}) {
   const models = discoverSetupModels(catalog);
   const preferred = String(preferredModel || "").trim();
   const completed = Math.max(0, Number(setupVersion) || 0) >= currentVersion;
   const preferredReady = Boolean(preferred) && models.some((item) => item.value === preferred);
+  // Official login, tool installs, and first-run checks are host work. A phone
+  // session must not be sent through that flow just because it is a new browser
+  // or the catalog has not arrived yet. The sidebar still opens the wizard.
+  if (remote) return { open: false, step: "welcome", reason: "remote-skip", models, preferredReady };
   if (!completed) return { open: true, step: "welcome", reason: "first-run", models, preferredReady };
   if (preferredReady) return { open: false, step: "welcome", reason: "complete", models, preferredReady };
   return { open: true, step: "model", reason: "model-unavailable", models, preferredReady };
@@ -652,9 +657,9 @@ export function createSetupWizardController({
           <h2>${escapeHtml(t("setupWizard.model.title"))}</h2>
           <p>${escapeHtml(t("setupWizard.model.description"))}</p>
           <div class="setup-wizard-empty setup-wizard-empty-with-form">
-            <span class="setup-wizard-empty-icon" aria-hidden="true">◇</span>
+            <span class="setup-wizard-empty-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="7" y="7" width="10" height="10" rx="2"></rect><path d="M9.5 1.5v3M14.5 1.5v3M9.5 19.5v3M14.5 19.5v3M1.5 9.5h3M1.5 14.5h3M19.5 9.5h3M19.5 14.5h3"></path><circle cx="12" cy="12" r="2.25"></circle></svg></span>
             <strong>${escapeHtml(t("setupWizard.model.noModels"))}</strong>
-            <span>${escapeHtml(t("setupWizard.model.noModelsDescription"))}</span>
+            <span>${escapeHtml(t(remoteAccessContext(state) ? "setupWizard.model.noModelsRemote" : "setupWizard.model.noModelsDescription"))}</span>
             <button class="ghost-btn setup-wizard-inline-refresh" type="button" data-setup-refresh>${escapeHtml(t("setupWizard.model.refreshModels"))}</button>
           </div>
           ${renderCodexLoginCard()}
@@ -1276,10 +1281,13 @@ export function createSetupWizardController({
   }
 
   async function maybeOpenSetupWizard() {
+    const remote = remoteAccessContext(state);
+    if (remote) return false;
     const decision = setupWizardStartupDecision({
       setupVersion: getSetupVersion?.(),
       preferredModel: preferredModel(),
       catalog: state?.modelCatalog,
+      remote,
     });
     if (!decision.open) {
       try {

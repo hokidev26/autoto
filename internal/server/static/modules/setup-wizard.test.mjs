@@ -108,6 +108,33 @@ test("setup wizard startup decision stays quiet only for a completed usable mode
       preferredReady: false,
     },
   );
+  assert.deepEqual(
+    setupWizardStartupDecision({
+      setupVersion: setupWizardVersion,
+      preferredModel: "relay:removed",
+      catalog: { providers: [] },
+      remote: true,
+    }),
+    {
+      open: false,
+      step: "welcome",
+      reason: "remote-skip",
+      models: [],
+      preferredReady: false,
+    },
+  );
+  assert.equal(setupWizardStartupDecision({
+    setupVersion: 0,
+    preferredModel: "",
+    catalog,
+    remote: true,
+  }).open, false);
+  assert.equal(setupWizardStartupDecision({
+    setupVersion: 0,
+    preferredModel: "",
+    catalog,
+    remote: true,
+  }).reason, "remote-skip");
 });
 
 test("setup completion requires a ready environment and selected catalog model", () => {
@@ -197,7 +224,8 @@ test("setup wizard copy covers simplified Chinese, traditional Chinese, and Engl
     assert.ok(messages?.actions?.later);
     assert.ok(messages?.environment?.installRunning);
     assert.ok(messages?.environment?.autoRefreshHint);
-    assert.ok(messages?.model?.searchPlaceholder);
+    assert.ok(messages?.model?.noModels);
+    assert.ok(messages?.model?.noModelsRemote);
     assert.ok(messages?.quickProvider?.title);
     assert.ok(messages?.quickProvider?.issues?.invalidName);
     assert.ok(messages?.quickProvider?.noModels);
@@ -233,10 +261,14 @@ test("static shell mounts the first-run flow and keeps a manual settings entry",
   assert.match(appMain, /const setupStartup = maybeOpenSetupWizard\(\)/);
   assert.match(styles, /\.setup-wizard-tool-list/);
   assert.match(styles, /\.setup-wizard-model\.selected/);
+  assert.match(styles, /\.setup-wizard-empty-icon svg\s*\{[\s\S]*?width:\s*26px/);
+  assert.match(styles, /#setupWizardModal \.setup-wizard-progress-dot[\s\S]*?max-height:\s*4px/);
+  assert.match(await readFile(new URL("./setup-wizard.mjs", import.meta.url), "utf8"), /setup-wizard-empty-icon[\s\S]*?<svg viewBox="0 0 24 24"/);
+  assert.doesNotMatch(await readFile(new URL("./setup-wizard.mjs", import.meta.url), "utf8"), /setup-wizard-empty-icon"[^>]*>◇/);
   assert.match(await readFile(new URL("./setup-wizard.mjs", import.meta.url), "utf8"), /data-setup-codex-login/);
   // The manual entry stays in the markup and on desktop, but narrow screens
   // collapse the sidebar into a sticky header where it would sit above every
-  // settings page; the wizard still auto-opens on first run and when the
-  // preferred model is unavailable, so nothing becomes unreachable.
+  // settings page; the wizard still auto-opens on first run. A remote session
+  // that already completed host setup is not sent through it again.
   assert.match(settingsStyles, /#settingsModal \.settings-wizard-btn\s*\{[^}]*display:\s*none/);
 });

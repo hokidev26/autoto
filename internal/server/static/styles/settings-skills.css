@@ -480,17 +480,14 @@
 
 #settingsContentBody .codex-console-heading {
   min-width: 0;
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 16px;
 }
 
 #settingsContentBody .codex-console-heading > div { min-width: 0; }
 #settingsContentBody .codex-console-heading .settings-card-title { margin-top: 3px; font-size: 23px; }
 #settingsContentBody .codex-console-heading .settings-card-description { max-width: 760px; margin-top: 7px; line-height: 1.55; }
-#settingsContentBody .codex-console-actions { justify-content: flex-end; }
+#settingsContentBody .codex-console-actions { justify-content: flex-end; align-items: center; gap: 8px; }
 #settingsContentBody .codex-console-actions .settings-action-btn { white-space: nowrap; }
+#settingsContentBody .codex-console-actions .settings-status-pill { flex-shrink: 0; }
 
 #settingsContentBody .codex-console-stats {
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -1341,6 +1338,7 @@
   #settingsContentBody .codex-import-footer { align-items: stretch; flex-direction: column; }
   #settingsContentBody .codex-console-actions { display: grid; grid-template-columns: minmax(0, 1fr); width: 100%; }
   #settingsContentBody .codex-console-actions .settings-action-btn { width: 100%; }
+  #settingsContentBody .codex-console-actions .settings-status-pill { justify-self: start; }
   #settingsContentBody .codex-browser-login-panel,
   #settingsContentBody .codex-import-panel,
   #settingsContentBody .codex-accounts-panel { padding: 0; }

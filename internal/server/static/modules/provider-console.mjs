@@ -47,6 +47,8 @@ import { createAnthropicAccountsController } from "./provider-anthropic-accounts
 import { createSubscriptionAccountsController } from "./provider-subscription-accounts.mjs";
 import { createModelRoutingController } from "./model-routing-settings.mjs";
 
+export const providerConsoleSuccessBannerMs = 3600;
+
 export function createModelProviderSettingsController({
   state,
   copyText,
@@ -344,8 +346,22 @@ export function createModelProviderSettingsController({
     return state.providerConsole;
   }
 
+  let providerResultClearTimer = 0;
+
   function setProviderConsoleResult(message, tone = "info") {
-    providerConsoleState().result = message ? { message: String(message), tone } : null;
+    if (providerResultClearTimer) {
+      globalThis.clearTimeout?.(providerResultClearTimer);
+      providerResultClearTimer = 0;
+    }
+    const text = String(message || "");
+    providerConsoleState().result = text ? { message: text, tone } : null;
+    if (!text || tone !== "success" || typeof globalThis.setTimeout !== "function") return;
+    providerResultClearTimer = globalThis.setTimeout(() => {
+      providerResultClearTimer = 0;
+      if (providerConsoleState().result?.tone !== "success") return;
+      providerConsoleState().result = null;
+      refreshProviderConsole();
+    }, providerConsoleSuccessBannerMs);
   }
 
   function requireProviderSensitiveDraftAccess() {
@@ -2621,6 +2637,7 @@ export function createModelProviderSettingsController({
     selectedModelValue,
     setPreferredModel,
     saveConsoleProvider,
+    setProviderConsoleResult,
     deleteConsoleProvider,
     discoverConsoleProviderModels,
     discardProviderConsoleDraft,

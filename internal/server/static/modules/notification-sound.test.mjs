@@ -5,6 +5,7 @@ import { createNotificationSound, resolveToneName } from "./notification-sound.m
 
 function fakeAudioScope({ state = "running" } = {}) {
   const started = [];
+  const gainPeaks = [];
   const listeners = new Map();
   let resumed = 0;
   class FakeContext {
@@ -31,8 +32,8 @@ function fakeAudioScope({ state = "running" } = {}) {
     createGain() {
       return {
         gain: {
-          setValueAtTime() {},
-          exponentialRampToValueAtTime() {},
+          setValueAtTime(value) { gainPeaks.push(Number(value)); },
+          exponentialRampToValueAtTime(value) { gainPeaks.push(Number(value)); },
         },
         connect() {},
       };
@@ -47,6 +48,7 @@ function fakeAudioScope({ state = "running" } = {}) {
       },
     },
     started,
+    gainPeaks,
     listeners,
     resumeCount: () => resumed,
   };
@@ -150,6 +152,18 @@ test("volume zero is mute and overlapping plays honour the concurrent cap", () =
   assert.equal(capped.play("completed", { force: true }), true);
   assert.equal(capped.play("error", { force: true }), false);
   assert.equal(started.length, 2);
+});
+
+test("full volume keeps a clearly audible peak and scales with the slider", () => {
+  const loud = fakeAudioScope();
+  assert.equal(createNotificationSound({ scope: loud.scope, getVolume: () => 100 }).play("completed", { force: true }), true);
+  const loudPeak = Math.max(0, ...loud.gainPeaks);
+  assert.ok(loudPeak >= 0.35, `100% peak was ${loudPeak}`);
+  assert.ok(loudPeak <= 0.55, `100% peak ${loudPeak} would clip when stacked`);
+  const half = fakeAudioScope();
+  assert.equal(createNotificationSound({ scope: half.scope, getVolume: () => 50 }).play("completed", { force: true }), true);
+  const halfPeak = Math.max(0, ...half.gainPeaks);
+  assert.ok(Math.abs(halfPeak - loudPeak / 2) < 0.02, `50% peak ${halfPeak} should be half of ${loudPeak}`);
 });
 
 test("approval is a distinct knock, not the success rise", () => {

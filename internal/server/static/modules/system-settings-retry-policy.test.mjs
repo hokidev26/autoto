@@ -30,6 +30,7 @@ test("stored permanent-error patterns each render a row with a remove control", 
   assert.match(markup, /model not found/);
   assert.equal((markup.match(/data-retry-policy-remove="/g) || []).length, 2);
   assert.match(markup, /id="addRetryPolicyPatternBtn"/);
+  assert.match(markup, /retry-policy-add-row/);
   assert.match(markup, /id="saveRetryPolicyBtn"/);
 });
 

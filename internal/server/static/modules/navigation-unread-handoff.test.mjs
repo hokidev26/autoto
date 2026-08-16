@@ -4,10 +4,11 @@ import { buildNavigationView, renderNavigationHTML } from "./conversation-naviga
 
 // The unread mark used to disappear while looking for it. A collapsed project
 // row aggregates over every conversation in the group, git branches included,
-// so an unread branch turned that row green. Expanding the project used to
-// hide the branch inside a separately collapsed fork group that never
+// so an unread branch used to paint that folder green. Expanding the project used
+// to hide the branch inside a separately collapsed fork group that never
 // aggregated. Git branches now sit at the first level, so expanding the
-// project reveals the unread row itself.
+// project reveals the unread row itself. The collapsed project still carries
+// .unread; the folder glyph stays grey and a badge on the twist carries the colour.
 const payload = {
   projects: [{ id: "p1", name: "Bid site", path: "/work/bid", updatedAt: "2026-03-16T09:00:00Z" }],
   conversations: [

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { t } from "./i18n.mjs";
-import { createModelProviderSettingsController } from "./provider-console.mjs";
+import { createModelProviderSettingsController, providerConsoleSuccessBannerMs } from "./provider-console.mjs";
 
 function fakeSelect(value = "") {
   const classes = new Set();
@@ -272,4 +272,15 @@ test("creating an OpenAI-compatible provider opens the create drawer with an emp
   const html = controller.renderProviderSettingsContent();
   assert.match(html, /data-mp-provider-form/);
   assert.match(html, /mp-provider-create-page/);
+});
+
+test("a success provider banner clears itself after a short delay", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const { state, controller } = harness();
+  controller.setProviderConsoleResult("已儲存並啟用 jyqf。", "success");
+  assert.equal(state.providerConsole.result?.tone, "success");
+  assert.match(controller.renderProviderSettingsContent(), /mp-provider-result/);
+  t.mock.timers.tick(providerConsoleSuccessBannerMs);
+  assert.equal(state.providerConsole.result, null);
+  assert.doesNotMatch(controller.renderProviderSettingsContent(), /mp-provider-result/);
 });

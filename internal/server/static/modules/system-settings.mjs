@@ -225,7 +225,7 @@ export function createSystemSettingsController({
               ${description ? `<p class="settings-card-description" data-settings-help-copy>${escapeHtml(description)}</p>` : ""}
             </div>
           </summary>
-          ${body}
+          <div class="runtime-resource-body">${body}</div>
         </details>
       </section>`;
   }
@@ -244,7 +244,7 @@ export function createSystemSettingsController({
       ${renderUsageMetricCard(t("systemSettings.runtimeResources.goroutines"), go.goroutines || 0, t("systemSettings.runtimeResources.cpusAvailable", { count: formatNumber(go.cpus || 0) }))}
       ${renderUsageMetricCard(t("systemSettings.runtimeResources.totalAlloc"), formatBytes(memory.totalAllocBytes || 0), t("systemSettings.runtimeResources.sinceStart"))}
     </div>
-    <div class="usage-detail-grid">
+    <div class="usage-detail-grid runtime-resource-stack">
       ${renderCollapsibleRuntimeCard({
         title: t("systemSettings.runtimeResources.agentDefaults"),
         body: `
@@ -520,16 +520,18 @@ export function createSystemSettingsController({
         <div class="retry-policy-add">
           <label class="settings-form-field" for="retryPolicyPatternInput">
             ${escapeHtml(t("systemSettings.runtimeResources.retryPolicy.addLabel"))}
-            <input id="retryPolicyPatternInput" class="settings-field" type="text"
-              maxlength="${escapeAttr(String(retryPolicyPatternMaxLength))}"
-              placeholder="${escapeAttr(t("systemSettings.runtimeResources.retryPolicy.placeholder"))}" />
+            <span class="retry-policy-add-row">
+              <input id="retryPolicyPatternInput" class="settings-field" type="text"
+                maxlength="${escapeAttr(String(retryPolicyPatternMaxLength))}"
+                placeholder="${escapeAttr(t("systemSettings.runtimeResources.retryPolicy.placeholder"))}" />
+              <button id="addRetryPolicyPatternBtn" class="settings-action-btn" type="button">${escapeHtml(t("systemSettings.runtimeResources.retryPolicy.add"))}</button>
+            </span>
             <small>${escapeHtml(t("systemSettings.runtimeResources.retryPolicy.range", {
               min: retryPolicyPatternMinLength,
               max: retryPolicyPatternMaxLength,
               count: retryPolicyMaxPatterns,
             }))}</small>
           </label>
-          <button id="addRetryPolicyPatternBtn" class="settings-action-btn" type="button">${escapeHtml(t("systemSettings.runtimeResources.retryPolicy.add"))}</button>
         </div>
         <div class="settings-action-row settings-form-actions settings-card-footer settings-inline-actions">
           <p data-settings-help-copy>${escapeHtml(t("systemSettings.runtimeResources.retryPolicy.help"))}</p>

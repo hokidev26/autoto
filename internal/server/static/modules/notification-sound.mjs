@@ -14,31 +14,32 @@ export const notificationSoundSources = Object.freeze(["preset", "custom"]);
 
 export const notificationToneDefaults = Object.freeze({
   // Two rising notes: unmistakably "finished", short enough not to be annoying
-  // when a burst of subagents lands at once.
+  // when a burst of subagents lands at once. Peaks stay under 0.5 so stacked
+  // plays do not clip, but 100% has to be clearly audible on laptop speakers.
   success: Object.freeze({
     steps: Object.freeze([
-      Object.freeze({ frequency: 660, duration: 0.1 }),
-      Object.freeze({ frequency: 990, duration: 0.16 }),
+      Object.freeze({ frequency: 660, duration: 0.12 }),
+      Object.freeze({ frequency: 990, duration: 0.18 }),
     ]),
-    gain: 0.16,
+    gain: 0.4,
     type: "sine",
   }),
   // One low falling note. Distinct from success without being alarming.
   error: Object.freeze({
     steps: Object.freeze([
-      Object.freeze({ frequency: 400, duration: 0.14 }),
-      Object.freeze({ frequency: 260, duration: 0.24 }),
+      Object.freeze({ frequency: 400, duration: 0.16 }),
+      Object.freeze({ frequency: 260, duration: 0.26 }),
     ]),
-    gain: 0.2,
+    gain: 0.46,
     type: "triangle",
   }),
   // Two identical knocks: "something is waiting", not finished and not failed.
   approval: Object.freeze({
     steps: Object.freeze([
-      Object.freeze({ frequency: 520, duration: 0.08 }),
-      Object.freeze({ frequency: 520, duration: 0.08 }),
+      Object.freeze({ frequency: 520, duration: 0.1 }),
+      Object.freeze({ frequency: 520, duration: 0.1 }),
     ]),
-    gain: 0.14,
+    gain: 0.36,
     type: "sine",
     gap: 0.06,
   }),
@@ -91,7 +92,7 @@ function applySoundPreset(spec, preset, volume) {
   const gainScale = name === "clear" ? 1.28 : name === "low" ? 0.72 : 1;
   const freqScale = name === "clear" ? 1.06 : name === "low" ? 0.82 : 1;
   const type = name === "clear" ? "triangle" : (spec.type || "sine");
-  const peak = Math.max(0.0001, (Number(spec.gain) || 0.15) * gainScale * (normalizeNotificationSoundVolume(volume) / 100));
+  const peak = Math.max(0.0001, (Number(spec.gain) || 0.4) * gainScale * (normalizeNotificationSoundVolume(volume) / 100));
   return {
     type,
     gap: Number(spec.gap) || 0,
@@ -234,10 +235,14 @@ export function createNotificationSound({
       oscillator.frequency.value = Number(step.frequency) || 660;
       const start = now + offset;
       const duration = Number(step.duration) || 0.12;
-      const peak = Number(spec.gain) || 0.15;
-      // Ramped envelope: a raw start/stop on a gain node clicks audibly.
+      const peak = Number(spec.gain) || 0.4;
+      // Hold the peak past a short attack so the tone is heard as loud, not as a
+      // click that immediately decays. A raw start/stop still clicks audibly.
+      const attack = Math.min(0.018, duration / 4);
+      const hold = Math.max(attack, duration * 0.55);
       gain.gain.setValueAtTime(0.0001, start);
-      gain.gain.exponentialRampToValueAtTime(peak, start + Math.min(0.02, duration / 3));
+      gain.gain.exponentialRampToValueAtTime(peak, start + attack);
+      gain.gain.setValueAtTime(peak, start + hold);
       gain.gain.exponentialRampToValueAtTime(0.0001, start + duration);
       oscillator.connect(gain);
       gain.connect(ctx.destination);

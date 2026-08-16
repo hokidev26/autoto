@@ -42,6 +42,8 @@ test("執行資源底下每張卡片都是可收縮的 details", () => {
 
   // Five cards, five disclosures: the two key-value cards plus the three forms.
   assert.equal((markup.match(/<details class="runtime-resource-details"/g) || []).length, 5);
+  assert.match(markup, /usage-detail-grid runtime-resource-stack/);
+  assert.equal((markup.match(/class="runtime-resource-body"/g) || []).length, 5);
 
   for (const card of modifierCards) {
     const section = markup.indexOf(`${card}"`);
@@ -93,10 +95,13 @@ test("收起狀態下表單仍在 DOM 裡，存檔處理器讀的 id 不會消�
 test("收縮機制沿用共享 API 那幾張卡的樣式做法", async () => {
   const styles = (await readStylesSource(stylesURL)).replace(/\r\n/g, "\n");
 
+  assert.match(styles, /#settingsContentBody \.runtime-page \.usage-detail-grid\.runtime-resource-stack\s*\{[\s\S]*?grid-template-columns:\s*1fr/);
   // The card's spacing used to live on the <section>, which now has a single
   // child. Without the grid moving onto <details>, the summary and the body would
   // sit flush against each other.
   assert.match(styles, /#settingsContentBody \.runtime-resource-details\s*\{[\s\S]*?display:\s*grid;[\s\S]*?gap:\s*var\(--settings-space-3\)/);
+  assert.match(styles, /#settingsContentBody \.runtime-resource-body\s*\{[\s\S]*?display:\s*grid;[\s\S]*?gap:\s*var\(--settings-space-3\)/);
+  assert.match(styles, /#settingsContentBody \.retry-policy-add-row\s*\{[\s\S]*?grid-template-columns:\s*minmax\(0, 1fr\) auto/);
 
   // Same three things the Shared API details do to a summary: drop the native
   // marker, make it look clickable, and let the copy pass clicks through.

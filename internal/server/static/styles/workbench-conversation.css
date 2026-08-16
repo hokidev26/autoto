@@ -372,7 +372,7 @@ body.white-shell.theme-light .sidebar-search {
 }
 
 body.white-shell.theme-light .project-list {
-  gap: 2px;
+  gap: 0;
   padding-right: 4px;
   scrollbar-width: thin;
   scrollbar-color: color-mix(in srgb, var(--ws-muted, #9aa3b5) 70%, transparent) transparent;
@@ -398,12 +398,18 @@ body.white-shell.theme-light.theme-dark .messages::-webkit-scrollbar-thumb {
 
 body.white-shell.theme-light .navigation-project-group {
   position: relative;
-  gap: 1px;
+  gap: 0;
 }
 
 body.white-shell.theme-light .navigation-project-group + .navigation-project-group {
-  /* Space between project blocks, not extra padding on a single folder row. */
-  margin-top: 16px;
+  /* Collapsed folders sit in one tight list, like a file tree. */
+  margin-top: 0;
+}
+
+body.white-shell.theme-light .navigation-project-group:has(> .navigation-project-conversations:not([hidden])) + .navigation-project-group {
+  /* An open folder already shows its chats underneath; a little air before the
+     next project keeps the two trees from running together. */
+  margin-top: 8px;
 }
 
 body.white-shell.theme-light .navigation-project-conversations {
@@ -463,9 +469,9 @@ body.white-shell.theme-light .navigation-project-row .project-name {
    quiet row, then conversation titles indented under that name. The folder is
    not the selected chat, so it does not pick up the conversation capsule. */
 body.white-shell.theme-light .navigation-project-group > .navigation-project-row {
-  min-height: 32px;
+  min-height: 24px;
   grid-template-columns: 16px minmax(0, 1fr) auto;
-  padding: 4px 8px 4px 6px;
+  padding: 2px 8px 2px 6px;
   border-color: transparent;
   background: transparent;
   box-shadow: none;
@@ -483,7 +489,7 @@ body.white-shell.theme-light .navigation-project-twist {
   justify-content: center;
   width: 16px;
   align-self: stretch;
-  min-height: 32px;
+  min-height: 24px;
 }
 
 body.white-shell.theme-light .navigation-project-twist .navigation-folder-icon {
@@ -529,7 +535,8 @@ body.white-shell.theme-light .navigation-project-twist .navigation-disclosure:is
 }
 
 body.white-shell.theme-light .navigation-project-group > .navigation-project-row .navigation-folder-icon svg {
-  stroke-width: 1.5;
+  /* Match the rail glyphs (1.75). 1.5 read as a hairline next to Home/Chat. */
+  stroke-width: 1.75;
 }
 
 body.white-shell.theme-light .navigation-project-group > .navigation-project-row .navigation-conversation-title,
@@ -579,12 +586,12 @@ body.white-shell.theme-light .navigation-project-row.active .project-name {
 }
 
 body.white-shell.theme-light .navigation-conversation-row {
-  min-height: 34px;
+  min-height: 24px;
   grid-template-columns: 14px minmax(0, 1fr) max-content;
   align-items: center;
   gap: 7px;
   border-radius: 8px;
-  padding: 4px 8px;
+  padding: 2px 8px;
 }
 
 /* Nested git-branch rows still carry a disclosure as a direct child. Project
@@ -615,13 +622,13 @@ body.white-shell.theme-light .proj-dragging {
 
 body.white-shell.theme-light .navigation-disclosure {
   /* 16px of column, but the hit area reaches the full row height so the target
-     is 16x32 rather than a 16px square that has to be aimed at. */
+     is the row rather than a 16px square that has to be aimed at. */
   display: inline-flex;
   align-items: center;
   justify-content: center;
   width: 16px;
   align-self: stretch;
-  min-height: 32px;
+  min-height: 24px;
   border: 0;
   border-radius: 5px;
   background: transparent;
@@ -780,16 +787,16 @@ body.white-shell.theme-light .navigation-empty-conversations {
 body.white-shell.theme-light .navigation-conversation-row.nested {
   position: relative;
   width: 100%;
-  min-height: 32px;
+  min-height: 22px;
   margin-left: 0;
   grid-template-columns: minmax(0, 1fr) max-content;
   align-items: center;
   gap: 7px;
   border: 1px solid transparent;
-  border-radius: 8px;
+  border-radius: 6px;
   /* Sit under the project name. The folder glyph is gone, so this lines up
-     with 4px row pad + 16px caret + 5px gap. */
-  padding: 4px 7px 4px 28px;
+     with 2px row pad + 16px caret + 5px gap. */
+  padding: 1px 7px 1px 28px;
 }
 
 body.white-shell.theme-light .navigation-workline-forks .navigation-conversation-row.nested {
@@ -805,8 +812,10 @@ body.white-shell.theme-light .navigation-conversation-row.nested .navigation-con
 }
 
 body.white-shell.theme-light .navigation-conversation-row.nested .navigation-conversation-title {
-  font-size: 13px;
-  line-height: 1.2;
+  color: var(--ws-muted, #6b7280);
+  font-size: 12.5px;
+  font-weight: 450;
+  line-height: 1.25;
 }
 
 body.white-shell.theme-light .navigation-conversation-row.nested .navigation-conversation-meta {
@@ -862,42 +871,59 @@ body.white-shell.theme-light .navigation-conversation-row.nested.active .navigat
      error                    -> red
    Grey is the resting state, so idle/completed carry no colour of their own and
    only the unread mark lifts them to green. Making idle green unconditionally is
-   what previously left every finished conversation looking permanently new. */
-body.white-shell.theme-light .navigation-conversation-row.status-running .navigation-agent-icon,
-body.white-shell.theme-light .navigation-conversation-row.status-pending .navigation-agent-icon,
-body.white-shell.theme-light .navigation-conversation-row.status-queued .navigation-agent-icon {
+   what previously left every finished conversation looking permanently new.
+   Project folders are excluded: a collapsed group still carries .unread for
+   hidden chats (and a new browser has an empty seen map), but the glyph must
+   stay a folder. Unread on that row is a badge on the twist, not a green fill. */
+body.white-shell.theme-light .navigation-conversation-row.status-running:not(.navigation-project-row) .navigation-agent-icon,
+body.white-shell.theme-light .navigation-conversation-row.status-pending:not(.navigation-project-row) .navigation-agent-icon,
+body.white-shell.theme-light .navigation-conversation-row.status-queued:not(.navigation-project-row) .navigation-agent-icon {
   color: #3b82f6;
 }
 
-body.white-shell.theme-light .navigation-conversation-row.status-idle .navigation-agent-icon,
-body.white-shell.theme-light .navigation-conversation-row.status-completed .navigation-agent-icon {
+body.white-shell.theme-light .navigation-conversation-row.status-idle:not(.navigation-project-row) .navigation-agent-icon,
+body.white-shell.theme-light .navigation-conversation-row.status-completed:not(.navigation-project-row) .navigation-agent-icon {
   color: var(--ws-muted, #747e90);
 }
 
-body.white-shell.theme-light .navigation-conversation-row.status-waiting .navigation-agent-icon {
+body.white-shell.theme-light .navigation-conversation-row.status-waiting:not(.navigation-project-row) .navigation-agent-icon {
   color: #d97706;
 }
 
-body.white-shell.theme-light .navigation-conversation-row.unread:not(.status-running):not(.status-pending):not(.status-queued):not(.status-waiting):not(.status-error):not(.status-failed) .navigation-agent-icon {
+body.white-shell.theme-light .navigation-conversation-row.unread:not(.navigation-project-row):not(.status-running):not(.status-pending):not(.status-queued):not(.status-waiting):not(.status-error):not(.status-failed) .navigation-agent-icon {
   color: #22c55e;
 }
 
-body.white-shell.theme-light .navigation-conversation-row.status-running::after,
-body.white-shell.theme-light .navigation-conversation-row.status-pending::after,
-body.white-shell.theme-light .navigation-conversation-row.status-queued::after {
+body.white-shell.theme-light .navigation-project-row.unread > .navigation-project-twist::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  right: -2px;
+  z-index: 2;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #22c55e;
+  box-shadow: 0 0 0 1.5px var(--ws-card, #fff);
+  pointer-events: none;
+}
+
+body.white-shell.theme-light .navigation-conversation-row.status-running:not(.navigation-project-row)::after,
+body.white-shell.theme-light .navigation-conversation-row.status-pending:not(.navigation-project-row)::after,
+body.white-shell.theme-light .navigation-conversation-row.status-queued:not(.navigation-project-row)::after {
   background: #3b82f6;
 }
 
-body.white-shell.theme-light .navigation-conversation-row.status-idle::after,
-body.white-shell.theme-light .navigation-conversation-row.status-completed::after {
+body.white-shell.theme-light .navigation-conversation-row.status-idle:not(.navigation-project-row)::after,
+body.white-shell.theme-light .navigation-conversation-row.status-completed:not(.navigation-project-row)::after {
   background: var(--ws-muted, #747e90);
 }
 
-body.white-shell.theme-light .navigation-conversation-row.status-waiting::after {
+body.white-shell.theme-light .navigation-conversation-row.status-waiting:not(.navigation-project-row)::after {
   background: #d97706;
 }
 
-body.white-shell.theme-light .navigation-conversation-row.unread:not(.status-running):not(.status-pending):not(.status-queued):not(.status-waiting):not(.status-error):not(.status-failed)::after {
+body.white-shell.theme-light .navigation-conversation-row.unread:not(.navigation-project-row):not(.status-running):not(.status-pending):not(.status-queued):not(.status-waiting):not(.status-error):not(.status-failed)::after {
   background: #22c55e;
 }
 
@@ -922,24 +948,24 @@ body.white-shell.theme-light .navigation-conversation-row.nested.status-failed .
   color: #dc4c64;
 }
 
-body.white-shell.theme-light .navigation-conversation-row.status-error .navigation-agent-icon,
-body.white-shell.theme-light .navigation-conversation-row.status-failed .navigation-agent-icon {
+body.white-shell.theme-light .navigation-conversation-row.status-error:not(.navigation-project-row) .navigation-agent-icon,
+body.white-shell.theme-light .navigation-conversation-row.status-failed:not(.navigation-project-row) .navigation-agent-icon {
   color: #dc4c64;
 }
 
-body.white-shell.theme-light .navigation-conversation-row.status-error::after,
-body.white-shell.theme-light .navigation-conversation-row.status-failed::after {
+body.white-shell.theme-light .navigation-conversation-row.status-error:not(.navigation-project-row)::after,
+body.white-shell.theme-light .navigation-conversation-row.status-failed:not(.navigation-project-row)::after {
   background: #dc4c64;
 }
 
-body.white-shell.theme-light .navigation-conversation-row.status-running .navigation-agent-icon svg,
-body.white-shell.theme-light .navigation-conversation-row.status-pending .navigation-agent-icon svg,
-body.white-shell.theme-light .navigation-conversation-row.status-queued .navigation-agent-icon svg {
+body.white-shell.theme-light .navigation-conversation-row.status-running:not(.navigation-project-row) .navigation-agent-icon svg,
+body.white-shell.theme-light .navigation-conversation-row.status-pending:not(.navigation-project-row) .navigation-agent-icon svg,
+body.white-shell.theme-light .navigation-conversation-row.status-queued:not(.navigation-project-row) .navigation-agent-icon svg {
   animation: navigation-agent-pulse 1.2s ease-in-out infinite;
 }
 
 /* The wait breathes slower than a live run: something is happening, elsewhere. */
-body.white-shell.theme-light .navigation-conversation-row.status-waiting .navigation-agent-icon svg {
+body.white-shell.theme-light .navigation-conversation-row.status-waiting:not(.navigation-project-row) .navigation-agent-icon svg {
   animation: navigation-agent-pulse 2.4s ease-in-out infinite;
 }
 
@@ -963,7 +989,7 @@ body.white-shell.theme-light .messages:not(.empty) {
   align-content: start;
   /* Exposed as a variable so rows that belong to the same turn can close the gap
      without each density guessing at the number. */
-  --transcript-row-gap: 14px;
+  --transcript-row-gap: 8px;
   row-gap: var(--transcript-row-gap);
   padding: 12px 8px 12px;
   scrollbar-width: thin;
@@ -986,7 +1012,7 @@ body.white-shell.theme-light .messages::-webkit-scrollbar-thumb {
    max() keeps it from ever going negative in densities whose gap is already
    tighter than that. */
 body.white-shell.theme-light .messages:not(.empty) > [class~="message-tool-activity"] {
-  margin-block: calc(-1 * max(0px, var(--transcript-row-gap, 14px) - 4px));
+  margin-block: calc(-1 * max(0px, var(--transcript-row-gap, 8px) - 4px));
 }
 
 body.white-shell.theme-light .messages:not(.empty) > [class~="message"],
@@ -1010,7 +1036,7 @@ body.white-shell.theme-light .messages:not(.empty) > [class~="message"] {
   border-radius: 0;
   background: transparent;
   color: var(--ws-text);
-  padding: 4px 0 10px;
+  padding: 2px 0 4px;
   box-shadow: none;
   overflow-wrap: anywhere;
   white-space: normal;
@@ -1037,9 +1063,11 @@ body.white-shell.theme-light .messages:not(.empty) > [class~="message"][class~="
 }
 
 body.white-shell.theme-light .messages:not(.empty) > [class~="message"][class~="assistant"] {
+  position: relative;
   width: 100%;
   max-width: 100%;
   margin-right: 0;
+  padding: 0 0 2px;
   background: transparent;
 }
 
@@ -1074,8 +1102,8 @@ body.white-shell.theme-light .messages:not(.empty) > [class~="message"] .message
   line-height: 1;
 }
 
-/* Keep the Autoto logo SVG inside the 18px avatar chip — without an explicit
-   size the bare viewBox expands to hundreds of pixels and shoves the transcript. */
+/* Keep a user photo or initials inside the 18px chip — without an explicit
+   size a bare viewBox can expand and shove the transcript. */
 body.white-shell.theme-light .messages:not(.empty) > [class~="message"] .message-avatar svg {
   width: 14px;
   height: 14px;
@@ -1098,6 +1126,45 @@ body.white-shell.theme-light .messages:not(.empty) > [class~="message"] .message
   text-overflow: ellipsis;
   text-transform: none;
   white-space: nowrap;
+}
+
+/* Assistant replies in the main transcript have no sender chip. The role
+   name stays available to assistive tech. */
+body.white-shell.theme-light .messages:not(.empty) > [class~="message"][class~="assistant"] .message-role.sr-only,
+body.white-shell.theme-light .messages:not(.empty) > [class~="live-assistant-message"] .message-role.sr-only {
+  display: block;
+}
+
+/* The sender chip is gone, so this row must not keep a blank avatar-sized
+   strip above every reply. Copy and time overlay the top-right on hover. */
+body.white-shell.theme-light .messages:not(.empty) > [class~="message"][class~="assistant"]:not([class~="live-assistant-message"]) .message-head {
+  position: absolute;
+  z-index: 1;
+  top: 0;
+  right: 0;
+  display: flex;
+  width: auto;
+  min-height: 0;
+  margin: 0;
+  grid-template-columns: none;
+  gap: 4px;
+}
+
+body.white-shell.theme-light .messages:not(.empty) > [class~="message"][class~="assistant"]:not([class~="live-assistant-message"]) .message-head-actions {
+  grid-column: auto;
+}
+
+body.white-shell.theme-light .messages:not(.empty) > [class~="message"][class~="assistant"]:not([class~="live-assistant-message"]) .message-time {
+  grid-column: auto;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .14s ease;
+}
+
+body.white-shell.theme-light .messages:not(.empty) > [class~="message"][class~="assistant"]:not([class~="live-assistant-message"]):hover .message-time,
+body.white-shell.theme-light .messages:not(.empty) > [class~="message"][class~="assistant"]:not([class~="live-assistant-message"]):focus-within .message-time {
+  opacity: 1;
+  pointer-events: auto;
 }
 
 body.white-shell.theme-light .messages:not(.empty) > [class~="message"]:not([class~="live-assistant-message"]) .message-head-actions {
@@ -1138,7 +1205,8 @@ body.white-shell.theme-light .message-editing .message-correction-text {
 }
 
 @media (hover: none) {
-  body.white-shell.theme-light .messages:not(.empty) > [class~="message"]:not([class~="live-assistant-message"]) .message-head-actions {
+  body.white-shell.theme-light .messages:not(.empty) > [class~="message"]:not([class~="live-assistant-message"]) .message-head-actions,
+  body.white-shell.theme-light .messages:not(.empty) > [class~="message"][class~="assistant"]:not([class~="live-assistant-message"]) .message-time {
     opacity: 1;
     pointer-events: auto;
   }
@@ -1412,7 +1480,7 @@ body.white-shell.theme-light .messages [class~="plan-card-actions"] > button {
 
   body.white-shell.theme-light .messages:not(.empty) {
     grid-template-columns: minmax(0, 100%);
-    --transcript-row-gap: 10px;
+    --transcript-row-gap: 8px;
     row-gap: var(--transcript-row-gap);
   }
 
@@ -1611,17 +1679,11 @@ body.white-shell.theme-light .messages [class~="plan-card-actions"] > button {
     margin-left: 0;
     padding-left: 0;
   }
-
-  body.white-shell.theme-light .navigation-conversation-row.nested {
-    min-height: 42px;
-    padding-top: 6px;
-    padding-bottom: 6px;
-  }
 }
 
 @media (min-width: 768px) {
   body.white-shell.theme-light.ui-density-compact .messages:not(.empty) {
-    --transcript-row-gap: 9px;
+    --transcript-row-gap: 6px;
     row-gap: var(--transcript-row-gap);
     padding-top: 14px;
     padding-bottom: 10px;
@@ -1638,15 +1700,15 @@ body.white-shell.theme-light .messages [class~="plan-card-actions"] > button {
   }
 
   body.white-shell.theme-light.ui-density-compact .project-card.navigation-project-row {
-    min-height: 40px;
-    padding-top: 4px;
-    padding-bottom: 4px;
+    min-height: 22px;
+    padding-top: 2px;
+    padding-bottom: 2px;
   }
 
   body.white-shell.theme-light.ui-density-compact .navigation-conversation-row.nested {
-    min-height: 32px;
-    padding-top: 3px;
-    padding-bottom: 3px;
+    min-height: 22px;
+    padding-top: 1px;
+    padding-bottom: 1px;
   }
 }
 

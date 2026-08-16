@@ -696,7 +696,7 @@ body.white-shell.theme-light.theme-dark #settingsModal {
   font-weight: 650;
 }
 
-#settingsContentBody :is(.settings-page, .settings-live-page, .skills-page, .automation-control-page) :is(.settings-field, input:not([type="checkbox"]):not([type="radio"]), select, textarea) {
+#settingsContentBody :is(.settings-page, .settings-live-page, .skills-page, .automation-control-page) :is(.settings-field, input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]), select, textarea) {
   width: 100%;
   min-height: var(--settings-control-height);
   border: 1px solid var(--settings-border);
@@ -713,7 +713,7 @@ body.white-shell.theme-light.theme-dark #settingsModal {
   resize: vertical;
 }
 
-#settingsContentBody :is(.settings-page, .settings-live-page, .skills-page, .automation-control-page) :is(.settings-field, input, select, textarea):focus {
+#settingsContentBody :is(.settings-page, .settings-live-page, .skills-page, .automation-control-page) :is(.settings-field, input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]), select, textarea):focus {
   border-color: var(--settings-primary);
   background: var(--settings-surface);
   box-shadow: 0 0 0 3px var(--settings-ring);
@@ -1276,9 +1276,97 @@ body.white-shell.theme-light.theme-dark #settingsModal {
   margin-top: 8px;
 }
 
-#settingsContentBody .notification-page .notification-sound-controls input[type="range"] {
+#settingsContentBody .notification-page .notification-sound-volume {
+  grid-column: 1 / -1;
+}
+
+#settingsContentBody .notification-page .notification-sound-volume-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+#settingsContentBody .notification-page .notification-sound-volume-head output {
+  color: var(--settings-muted-foreground, #64748b);
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+}
+
+#settingsContentBody .notification-page .notification-sound-volume-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  display: block;
   width: 100%;
-  accent-color: var(--settings-primary, #5369f3);
+  height: 28px;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  cursor: pointer;
+}
+
+#settingsContentBody .notification-page .notification-sound-volume-slider:focus {
+  outline: none;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+#settingsContentBody .notification-page .notification-sound-volume-slider:focus-visible {
+  outline: 2px solid var(--settings-primary, #5369f3);
+  outline-offset: 3px;
+  border-radius: 999px;
+}
+
+#settingsContentBody .notification-page .notification-sound-volume-slider::-webkit-slider-runnable-track {
+  height: 6px;
+  border: 0;
+  border-radius: 999px;
+  background: linear-gradient(
+    to right,
+    var(--settings-primary, #5369f3) 0,
+    var(--settings-primary, #5369f3) var(--notification-sound-volume, 100%),
+    var(--settings-muted, #f0f2f5) var(--notification-sound-volume, 100%)
+  );
+}
+
+#settingsContentBody .notification-page .notification-sound-volume-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  margin-top: -5px;
+  border: 2px solid var(--settings-surface, #fff);
+  border-radius: 50%;
+  background: var(--settings-primary, #5369f3);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--settings-primary, #5369f3) 40%, var(--settings-border));
+}
+
+#settingsContentBody .notification-page .notification-sound-volume-slider::-moz-range-track {
+  height: 6px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--settings-muted, #f0f2f5);
+}
+
+#settingsContentBody .notification-page .notification-sound-volume-slider::-moz-range-progress {
+  height: 6px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--settings-primary, #5369f3);
+}
+
+#settingsContentBody .notification-page .notification-sound-volume-slider::-moz-range-thumb {
+  width: 16px;
+  height: 16px;
+  border: 2px solid var(--settings-surface, #fff);
+  border-radius: 50%;
+  background: var(--settings-primary, #5369f3);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--settings-primary, #5369f3) 40%, var(--settings-border));
 }
 
 #settingsContentBody .notification-page .notification-push-status {
