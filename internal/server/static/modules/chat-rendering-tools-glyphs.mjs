@@ -38,6 +38,12 @@ export function messageCopyGlyph() {
   return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="9" y="9" width="10.5" height="12" rx="2"></rect><path d="M15 9V6.75A1.75 1.75 0 0 0 13.25 5H6.75A1.75 1.75 0 0 0 5 6.75v10.5A1.75 1.75 0 0 0 6.75 19H9"></path></svg>`;
 }
 
+// Same right-pointing chevron as the sidebar folder disclosure. Rotating one
+// shape keeps collapsed and expanded visually related.
+export function disclosureChevronMarkup() {
+  return `<svg class="disclosure-chevron" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m9 6 6 6-6 6"></path></svg>`;
+}
+
 // The kind doubles as a CSS hook (.tool-activity-icon-<kind>), so the palette in
 // workspace-tasks.css can tint reads, writes and commands apart at a glance.
 export function toolActivityIconKind(toolName) {

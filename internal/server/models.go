@@ -172,11 +172,13 @@ func (s *Server) modelProviderResponse(ctx context.Context, provider config.Prov
 	return response
 }
 
-func attachModelCapabilities(response *modelProviderResponse, provider providers.Provider, cfg config.ProviderConfig) {
-	if response == nil {
-		return
-	}
-	for _, model := range response.Models {
+func modelCapabilitiesForModels(provider providers.Provider, cfg config.ProviderConfig, models []string) map[string]providers.ModelCapabilities {
+	var out map[string]providers.ModelCapabilities
+	for _, model := range models {
+		model = strings.TrimSpace(model)
+		if model == "" {
+			continue
+		}
 		capabilities := providers.ModelCapabilitiesFor(provider, model)
 		if !capabilities.ImageGenerationKnown {
 			capabilities.ImageGeneration, capabilities.ImageGenerationKnown = cfg.ModelImageGeneration(model)
@@ -187,10 +189,20 @@ func attachModelCapabilities(response *modelProviderResponse, provider providers
 		if capabilities.ContextTokenLimit <= 0 && !capabilities.FastModeKnown && !capabilities.FastMode && !capabilities.ImageGenerationKnown && !capabilities.ImageGeneration && len(capabilities.ReasoningEfforts) == 0 {
 			continue
 		}
-		if response.ModelCapabilities == nil {
-			response.ModelCapabilities = make(map[string]providers.ModelCapabilities)
+		if out == nil {
+			out = make(map[string]providers.ModelCapabilities)
 		}
-		response.ModelCapabilities[model] = capabilities
+		out[model] = capabilities
+	}
+	return out
+}
+
+func attachModelCapabilities(response *modelProviderResponse, provider providers.Provider, cfg config.ProviderConfig) {
+	if response == nil {
+		return
+	}
+	if capabilities := modelCapabilitiesForModels(provider, cfg, response.Models); len(capabilities) > 0 {
+		response.ModelCapabilities = capabilities
 	}
 }
 

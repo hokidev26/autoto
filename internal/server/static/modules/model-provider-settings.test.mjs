@@ -1313,6 +1313,44 @@ test("合并供应商时空 capabilities 不覆盖已知能力，思考强度档
   assert.deepEqual(empty.find((item) => item.name === "plain").capabilities, {});
 });
 
+test("settings per-model thinking efforts are available before the catalog loads", () => {
+  const settings = [{
+    name: "anthropic",
+    type: "anthropic",
+    configured: true,
+    capabilities: { reasoningEffort: true, reasoningEfforts: ["low", "medium", "high"] },
+    modelCapabilities: {
+      "claude-sonnet-4-5": { reasoningEfforts: ["low", "medium", "high"] },
+      "claude-opus-4-7": { reasoningEfforts: ["low", "medium", "high", "xhigh", "max"] },
+    },
+  }];
+  const provider = modelProvidersForUIUnion(settings, [])[0];
+  assert.deepEqual(
+    reasoningEffortValuesForModel(provider, "anthropic:claude-sonnet-4-5"),
+    ["auto", "low", "medium", "high"],
+  );
+  assert.deepEqual(
+    reasoningEffortValuesForModel(provider, "anthropic:claude-opus-4-7"),
+    ["auto", "low", "medium", "high", "xhigh", "max"],
+  );
+
+  const cataloged = modelProvidersForUIUnion(settings, [{
+    name: "anthropic",
+    type: "anthropic",
+    modelCapabilities: {
+      "claude-opus-4-7": { reasoningEfforts: ["low", "medium", "high", "max"] },
+    },
+  }])[0];
+  assert.deepEqual(
+    reasoningEffortValuesForModel(cataloged, "anthropic:claude-opus-4-7"),
+    ["auto", "low", "medium", "high", "max"],
+  );
+  assert.deepEqual(
+    reasoningEffortValuesForModel(cataloged, "anthropic:claude-sonnet-4-5"),
+    ["auto", "low", "medium", "high"],
+  );
+});
+
 test("供应商控制台总览合并数据，并在卡片上提供启停与自建供应商删除入口", () => {
   const providers = modelProvidersForUIUnion(
     [

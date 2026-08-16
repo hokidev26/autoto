@@ -22,6 +22,7 @@ import {
   toolActivityGlyph,
   toolActivityIconHTML,
   toolActivityIconKind,
+  disclosureChevronMarkup,
 } from "./chat-rendering-tools-glyphs.mjs";
 import { renderReasoningStepHTML } from "./chat-rendering-tools-reasoning.mjs";
 
@@ -472,7 +473,7 @@ export function renderAgentTaskActivityCardHTML(item = {}, backgroundTask = null
         ${renderAgentTaskActionsHTML(activity)}
       </details>
       <details class="tool-activity-details subagent-task-audit"${options.detailsExpanded ? " open" : ""}>
-        <summary>${escapeHtml(cr("subagent.auditDetails"))}</summary>
+        <summary>${disclosureChevronMarkup()}${escapeHtml(cr("subagent.auditDetails"))}</summary>
         <div class="tool-activity-meta">${escapeHtml(cr("subagent.safeDetails"))}</div>
         <pre class="tool-activity-command">${escapeHtml(safeAudit || cr("activity.noOutput"))}</pre>
         ${streamedInputBlockHTML(tool)}
@@ -536,7 +537,7 @@ function renderGenericToolActivityCardHTML(item = {}, options = {}) {
   const icon = toolActivityIconHTML(tool.toolName, "tool-activity-icon");
   const detailsHTML = `
       <details class="tool-activity-details"${options.detailsExpanded ? " open" : ""}>
-        <summary>${escapeHtml(cr("activity.details"))}</summary>
+        <summary>${disclosureChevronMarkup()}${escapeHtml(cr("activity.details"))}</summary>
         ${safetySummary}
         <div class="tool-activity-block">
           <div class="tool-activity-block-bar">
@@ -807,7 +808,7 @@ export function renderToolActivityStackHTML(toolCalls = [], options = {}) {
   return `
     <section class="${options.live ? "live-tool-output-stack " : ""}${modeClass}tool-activity-stack chat-flow-stack chat-flow-left" data-chat-alignment="left" data-tool-activity-stack data-tool-activity-stack-key="${escapeAttr(stackKey)}" data-tool-activity-source="${escapeAttr(source)}" data-tool-activity-count="${escapeAttr(String(totalCount))}" data-tool-activity-visible-count="${escapeAttr(String(records.length))}" data-tool-activity-default="${expanded ? "expanded" : "collapsed"}"${runId ? ` data-run-id="${escapeAttr(runId)}"` : ""}${tail ? " data-live-tool-output-stack" : ""}${options.compact ? " data-conversation-run-tool-activity" : ""}>
       <details class="tool-activity-group"${expanded ? " open" : ""}>
-        <summary class="tool-activity-summary">${escapeHtml(summaryTitle)}</summary>
+        <summary class="tool-activity-summary">${disclosureChevronMarkup()}${escapeHtml(summaryTitle)}</summary>
         <ul class="tool-activity-steps">${renderToolActivityRowsHTML(records, reasoningSteps, { ...options, selectedToolUseId })}</ul>
         ${omitted > 0 ? `<div class="tool-activity-more">${escapeHtml(cr("activity.recentOnly", { visible: records.length, count: omitted }))}</div>` : ""}
         <div class="tool-activity-selected-detail" data-tool-activity-selected-detail></div>

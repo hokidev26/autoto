@@ -478,6 +478,53 @@ func TestModelsRouteExposesCanonicalReasoningEfforts(t *testing.T) {
 	}
 }
 
+func TestSettingsRouteExposesPerModelReasoningEffortsWithoutListingModels(t *testing.T) {
+	listCalls := 0
+	registry := providers.NewRegistry()
+	registry.Register(fakeModelProvider{
+		name:      "anthropic",
+		models:    []string{"claude-opus-4-7", "claude-sonnet-4-5"},
+		listCalls: &listCalls,
+		capabilities: providers.Capabilities{
+			ReasoningEffort:  true,
+			ReasoningEfforts: []string{"low", "medium", "high", "xhigh", "max"},
+		},
+		modelCapabilities: map[string]providers.ModelCapabilities{
+			"claude-opus-4-7":   {ReasoningEfforts: []string{"low", "medium", "high", "xhigh", "max"}},
+			"claude-sonnet-4-5": {ReasoningEfforts: []string{"low", "medium", "high"}},
+		},
+	})
+	app := New(config.Config{Providers: config.ProvidersConfig{Instances: []config.ProviderConfig{{
+		Name: "anthropic", Type: "anthropic", Model: "claude-opus-4-7", APIKeyOptional: true,
+		Models: []config.ProviderModelConfig{{Name: "claude-opus-4-7"}, {Name: "claude-sonnet-4-5"}},
+	}}}}, nil, nil, nil, registry)
+
+	recorder := httptest.NewRecorder()
+	app.Routes().ServeHTTP(recorder, newTestRequest(http.MethodGet, "/api/settings", nil))
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected settings 200, got %d: %s", recorder.Code, recorder.Body.String())
+	}
+	var settings struct {
+		Providers []settingsProviderResponse `json:"providers"`
+	}
+	if err := json.NewDecoder(recorder.Body).Decode(&settings); err != nil {
+		t.Fatal(err)
+	}
+	if len(settings.Providers) != 1 {
+		t.Fatalf("unexpected settings providers: %+v", settings.Providers)
+	}
+	got := settings.Providers[0].ModelCapabilities
+	if strings.Join(got["claude-opus-4-7"].ReasoningEfforts, ",") != "low,medium,high,xhigh,max" {
+		t.Fatalf("opus efforts = %+v", got["claude-opus-4-7"])
+	}
+	if strings.Join(got["claude-sonnet-4-5"].ReasoningEfforts, ",") != "low,medium,high" {
+		t.Fatalf("sonnet efforts = %+v", got["claude-sonnet-4-5"])
+	}
+	if listCalls != 0 {
+		t.Fatalf("settings must not list models, got %d calls", listCalls)
+	}
+}
+
 func TestModelsRouteExposesXHighForCodexCapability(t *testing.T) {
 	registry := providers.NewRegistry()
 	registry.Register(fakeModelProvider{

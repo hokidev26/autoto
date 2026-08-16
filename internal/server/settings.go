@@ -29,34 +29,35 @@ type settingsProviderHeaderResponse struct {
 }
 
 type settingsProviderResponse struct {
-	Name                    string                           `json:"name"`
-	Type                    string                           `json:"type"`
-	Profile                 string                           `json:"profile,omitempty"`
-	BaseURL                 string                           `json:"baseUrl,omitempty"`
-	Model                   string                           `json:"model"`
-	Models                  []config.ProviderModelConfig     `json:"models"`
-	MaxTokens               int64                            `json:"maxTokens,omitempty"`
-	Configured              bool                             `json:"configured"`
-	APIKeyConfigured        bool                             `json:"apiKeyConfigured"`
-	APIKeyPersisted         bool                             `json:"apiKeyPersisted"`
-	APIKeyLastFive          string                           `json:"apiKeyLastFive,omitempty"`
-	APIKeySource            string                           `json:"apiKeySource"`
-	APIKeyOptional          bool                             `json:"apiKeyOptional,omitempty"`
-	GatewayEnabled          bool                             `json:"gatewayEnabled"`
-	Enabled                 bool                             `json:"enabled"`
-	Origin                  string                           `json:"origin"`
-	ProxyURL                string                           `json:"proxyUrl,omitempty"`
-	ProxyAuthConfigured     bool                             `json:"proxyAuthConfigured"`
-	ProxyAuthPersisted      bool                             `json:"proxyAuthPersisted"`
-	ProxyAuthSource         string                           `json:"proxyAuthSource"`
-	UserAgent               string                           `json:"userAgent,omitempty"`
-	RequestHeaders          []settingsProviderHeaderResponse `json:"requestHeaders,omitempty"`
-	RequestHeadersPersisted bool                             `json:"requestHeadersPersisted"`
-	RequestHeadersSource    string                           `json:"requestHeadersSource"`
-	InsecureSkipTLSVerify   bool                             `json:"insecureSkipTLSVerify"`
-	AllowPlaintextHTTP      bool                             `json:"allowPlaintextHTTP"`
-	Capabilities            providers.Capabilities           `json:"capabilities"`
-	Management              *providerManagementResponse      `json:"management,omitempty"`
+	Name                    string                                 `json:"name"`
+	Type                    string                                 `json:"type"`
+	Profile                 string                                 `json:"profile,omitempty"`
+	BaseURL                 string                                 `json:"baseUrl,omitempty"`
+	Model                   string                                 `json:"model"`
+	Models                  []config.ProviderModelConfig           `json:"models"`
+	MaxTokens               int64                                  `json:"maxTokens,omitempty"`
+	Configured              bool                                   `json:"configured"`
+	APIKeyConfigured        bool                                   `json:"apiKeyConfigured"`
+	APIKeyPersisted         bool                                   `json:"apiKeyPersisted"`
+	APIKeyLastFive          string                                 `json:"apiKeyLastFive,omitempty"`
+	APIKeySource            string                                 `json:"apiKeySource"`
+	APIKeyOptional          bool                                   `json:"apiKeyOptional,omitempty"`
+	GatewayEnabled          bool                                   `json:"gatewayEnabled"`
+	Enabled                 bool                                   `json:"enabled"`
+	Origin                  string                                 `json:"origin"`
+	ProxyURL                string                                 `json:"proxyUrl,omitempty"`
+	ProxyAuthConfigured     bool                                   `json:"proxyAuthConfigured"`
+	ProxyAuthPersisted      bool                                   `json:"proxyAuthPersisted"`
+	ProxyAuthSource         string                                 `json:"proxyAuthSource"`
+	UserAgent               string                                 `json:"userAgent,omitempty"`
+	RequestHeaders          []settingsProviderHeaderResponse       `json:"requestHeaders,omitempty"`
+	RequestHeadersPersisted bool                                   `json:"requestHeadersPersisted"`
+	RequestHeadersSource    string                                 `json:"requestHeadersSource"`
+	InsecureSkipTLSVerify   bool                                   `json:"insecureSkipTLSVerify"`
+	AllowPlaintextHTTP      bool                                   `json:"allowPlaintextHTTP"`
+	Capabilities            providers.Capabilities                 `json:"capabilities"`
+	ModelCapabilities       map[string]providers.ModelCapabilities `json:"modelCapabilities,omitempty"`
+	Management              *providerManagementResponse            `json:"management,omitempty"`
 }
 
 func (s *Server) settingsProviderResponse(ctx context.Context, provider config.ProviderConfig) settingsProviderResponse {
@@ -78,6 +79,10 @@ func (s *Server) settingsProviderResponseWithSnapshot(ctx context.Context, provi
 		}
 		headers = append(headers, settingsProviderHeaderResponse{Name: name, Configured: headerStatus.Configured && header.Value != ""})
 	}
+	var registered providers.Provider
+	if s.providers != nil {
+		registered, _ = s.providers.Get(safeProvider.Name)
+	}
 	return settingsProviderResponse{
 		Name: summary.Name, Type: summary.Type, Profile: metadata.Profile, BaseURL: summary.BaseURL, Model: summary.Model,
 		Models: safeProvider.Models, MaxTokens: summary.MaxTokens, Configured: s.providerConfigured(summary), APIKeyConfigured: keyStatus.Configured,
@@ -87,7 +92,8 @@ func (s *Server) settingsProviderResponseWithSnapshot(ctx context.Context, provi
 		ProxyAuthPersisted: proxyStatus.Persisted, ProxyAuthSource: proxyStatus.Source, UserAgent: provider.UserAgent,
 		RequestHeaders: headers, RequestHeadersPersisted: headerStatus.Persisted, RequestHeadersSource: headerStatus.Source,
 		InsecureSkipTLSVerify: provider.InsecureSkipTLSVerify, AllowPlaintextHTTP: provider.AllowPlaintextHTTP,
-		Capabilities: metadata.Capabilities, Management: metadata.Management,
+		Capabilities: metadata.Capabilities, ModelCapabilities: modelCapabilitiesForModels(registered, safeProvider, configuredModelNames(safeProvider)),
+		Management: metadata.Management,
 	}
 }
 

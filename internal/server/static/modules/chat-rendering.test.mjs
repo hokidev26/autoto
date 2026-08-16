@@ -1930,8 +1930,8 @@ test("a run's tool calls file under the assistant turn that emitted them, not in
   assert.ok(a2Stack < a2, "the second turn's activity leads its answer");
 
   // a1 reasoned and called one tool; a2 only called one.
-  const a1Title = html.slice(a1Stack, a1).match(/tool-activity-summary">([^<]+)</)?.[1] || "";
-  const a2Title = html.slice(a2Stack, a2).match(/tool-activity-summary">([^<]+)</)?.[1] || "";
+  const a1Title = html.slice(a1Stack, a1).match(/tool-activity-summary">(?:<svg[\s\S]*?<\/svg>)?([^<]+)/)?.[1] || "";
+  const a2Title = html.slice(a2Stack, a2).match(/tool-activity-summary">(?:<svg[\s\S]*?<\/svg>)?([^<]+)/)?.[1] || "";
   assert.equal(a1Title, "思考 1 · 1 个步骤");
   assert.equal(a2Title, "1 个步骤");
 
@@ -2758,6 +2758,8 @@ test("tool activity renders a lightweight directory before hydrating one auditab
   for (const className of ["tool-activity-stack", "tool-activity-group", "tool-activity-summary", "tool-activity-steps", "tool-activity-step", "tool-activity-step-button", "status-running", "status-completed"]) {
     assert.match(html, new RegExp(className));
   }
+  assert.match(html, /<summary class="tool-activity-summary"><svg class="disclosure-chevron"/);
+  assert.match(html, /<svg class="disclosure-chevron"[^>]*>[\s\S]*<path d="m9 6 6 6-6 6">/);
   assert.doesNotMatch(html, /tool-activity-card|tool-activity-details|DETAIL_ONLY_OUTPUT|本(?:机|地)服务/);
   assert.doesNotMatch(html, /tool-activity-protected|可审计摘要|可稽核摘要|Auditable summary/);
   assert.doesNotMatch(html, /思维链已加密|chain of thought encrypted/i);

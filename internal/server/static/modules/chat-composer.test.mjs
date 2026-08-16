@@ -206,6 +206,38 @@ test("reasoning effort normalizes legacy and unknown values against backend capa
   assert.equal(normalizeReasoningEffort("xhigh", ["auto", "low", "high"]), "auto");
 });
 
+test("a model's own catalog levels replace the provider list immediately", () => {
+  const provider = {
+    name: "anthropic",
+    capabilities: { reasoningEffort: true, reasoningEfforts: ["low", "medium", "high"] },
+    modelCapabilities: {
+      "deepseek-chat": { reasoningEfforts: ["low", "medium", "high"] },
+      "claude-opus-4-7": { reasoningEfforts: ["low", "medium", "high", "xhigh", "max"] },
+    },
+  };
+  assert.deepEqual(
+    reasoningEffortValuesForModel(provider, "anthropic:deepseek-chat"),
+    ["auto", "low", "medium", "high"],
+  );
+  assert.deepEqual(
+    reasoningEffortValuesForModel(provider, "anthropic:claude-opus-4-7"),
+    ["auto", "low", "medium", "high", "xhigh", "max"],
+  );
+});
+
+test("a model without an effort list keeps the provider baseline, including extra levels", () => {
+  const provider = {
+    capabilities: { reasoningEffort: true, reasoningEfforts: ["low", "medium", "high", "xhigh", "max"] },
+    modelCapabilities: {
+      "claude-opus-4-7": { fastMode: false, reasoningEffort: true },
+    },
+  };
+  assert.deepEqual(
+    reasoningEffortValuesForModel(provider, "anthropic:claude-opus-4-7"),
+    ["auto", "low", "medium", "high", "xhigh", "max"],
+  );
+});
+
 test("a codex model exposes its own catalog levels in every navigation context", () => {
   // The catalog reports levels per model: gpt-5.6-luna serves "max", gpt-5.5
   // stops at "xhigh". Navigation context must not change either answer.
@@ -323,6 +355,44 @@ test("reasoning effort control crops unsupported values when the selected model 
     // fixed-width cell, rather than a word whose width changes with the language.
     assert.equal(elements.reasoningEffortDisplay.dataset.mobileLabel, "A");
     assert.equal(controller.selectedReasoningEffort("basic:model"), "auto");
+  } finally {
+    globalThis.document = previousDocument;
+  }
+});
+
+test("switching models rebuilds thinking-effort options from per-model catalog levels immediately", () => {
+  const elements = {};
+  const pill = { classList: { toggle() {} } };
+  elements.reasoningEffort = {
+    value: "auto",
+    innerHTML: "",
+    disabled: false,
+    dataset: {},
+    setAttribute(name, value) { this[name] = value; },
+    closest() { return pill; },
+  };
+  elements.reasoningEffortDisplay = { textContent: "" };
+  elements.modelSelect = { value: "relay:deepseek-chat" };
+  const previousDocument = globalThis.document;
+  globalThis.document = { getElementById(id) { return elements[id] || null; } };
+  const provider = {
+    capabilities: { reasoningEffort: true, reasoningEfforts: ["low", "medium", "high"] },
+    modelCapabilities: {
+      "deepseek-chat": { reasoningEfforts: ["low", "medium", "high"] },
+      "claude-opus-4-7": { reasoningEfforts: ["low", "medium", "high", "xhigh", "max"] },
+    },
+  };
+  try {
+    const controller = createChatComposerController({
+      state: { agent: { id: "agent-1", model: "relay:deepseek-chat", reasoningEffort: "high" } },
+      currentProviderConfig: () => provider,
+    });
+
+    controller.refreshReasoningEffortControl({ modelValue: "relay:deepseek-chat" });
+    assert.equal(elements.reasoningEffort.innerHTML.includes('value="xhigh"'), false);
+    controller.refreshReasoningEffortControl({ modelValue: "relay:claude-opus-4-7" });
+    assert.match(elements.reasoningEffort.innerHTML, /value="xhigh"/);
+    assert.match(elements.reasoningEffort.innerHTML, /value="max"/);
   } finally {
     globalThis.document = previousDocument;
   }

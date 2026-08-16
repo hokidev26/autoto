@@ -176,11 +176,11 @@ test("沒有送出時，草稿照常儲存", async () => {
 
 // A fresh session saves the model on the first send: the picker was chosen
 // before the agent record had it, so the send's model sync runs a settings
-// save, and that save ends in enterAgent, whose draft restore runs while the
-// send is still in flight. The stored draft is only cleared after delivery, so
-// the restore found the just-sent text intact and wrote it back into the box.
-// Only the first message tripped this; from the second send on the model
-// already matches and nothing re-enters the agent.
+// save. persistAgentSettingsPass used to re-enter the agent afterwards, whose
+// draft restore ran while the send was still in flight. The stored draft is
+// only cleared after delivery, so the restore found the just-sent text intact
+// and wrote it back into the box. The save no longer re-enters, and the
+// composer still has to ignore a restore that races the in-flight send.
 test("送出途中觸發的草稿還原不得把剛送出的字寫回輸入框", async () => {
   const harness = createHarness({
     modelSelectValue: "openai:other",

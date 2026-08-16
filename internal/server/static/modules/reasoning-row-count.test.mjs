@@ -70,7 +70,7 @@ function render(messages, stateOverrides = {}) {
 function stacks(html) {
   return [...html.matchAll(/<section class="[^"]*tool-activity-stack[^"]*"([^>]*)>([\s\S]*?)<\/section>/g)].map((m) => ({
     key: (m[1].match(/data-tool-activity-stack-key="([^"]*)"/) || [])[1] || "",
-    title: (m[2].match(/<summary class="tool-activity-summary">([^<]*)</) || [])[1] || "",
+    title: (m[2].match(/<summary class="tool-activity-summary">(?:<svg[\s\S]*?<\/svg>)?([^<]*)/) || [])[1] || "",
     body: m[2],
   }));
 }

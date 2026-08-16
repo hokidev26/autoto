@@ -466,6 +466,26 @@ function mergeProviderCapabilities(settingsCapabilities, catalogCapabilities) {
   return {};
 }
 
+function mergeModelCapabilities(settingsCapabilities, catalogCapabilities) {
+  const fromCatalog = hasMeaningfulCapabilities(catalogCapabilities);
+  const fromSettings = hasMeaningfulCapabilities(settingsCapabilities);
+  if (fromCatalog && fromSettings) {
+    const merged = { ...settingsCapabilities };
+    for (const [model, value] of Object.entries(catalogCapabilities)) {
+      const name = String(model || "").trim();
+      if (!name) continue;
+      merged[name] = {
+        ...(settingsCapabilities[name] && typeof settingsCapabilities[name] === "object" ? settingsCapabilities[name] : {}),
+        ...(value && typeof value === "object" ? value : {}),
+      };
+    }
+    return merged;
+  }
+  if (fromCatalog) return { ...catalogCapabilities };
+  if (fromSettings) return { ...settingsCapabilities };
+  return {};
+}
+
 export function modelProvidersForUIUnion(settingsProviders, catalogProviders) {
   const records = new Map();
   for (const setting of asArray(settingsProviders)) {
@@ -485,6 +505,7 @@ export function modelProvidersForUIUnion(settingsProviders, catalogProviders) {
       // runtime instance could not report capabilities would otherwise blank out
       // the settings copy and collapse the thinking-effort picker to "auto".
       capabilities: mergeProviderCapabilities(setting.capabilities, catalog.capabilities),
+      modelCapabilities: mergeModelCapabilities(setting.modelCapabilities, catalog.modelCapabilities),
       type: firstDefined(catalog.type, setting.type, catalogName),
       profile: firstDefined(setting.profile, catalog.profile, ""),
       baseUrl: firstDefined(setting.baseUrl, catalog.baseUrl, ""),

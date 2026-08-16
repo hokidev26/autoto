@@ -944,6 +944,9 @@ test("desktop conversation layout follows the compact resizable geometry", async
   assert.match(styles, /\.navigation-disclosure svg\s*\{[\s\S]*?stroke-width:\s*1\.5/);
   assert.match(styles, /\.navigation-disclosure svg\s*\{[\s\S]*?transition:\s*transform\s+\.26s\s+cubic-bezier\(\.34,\s*1\.56,\s*\.64,\s*1\)/);
   assert.match(styles, /@media \(prefers-reduced-motion: reduce\)\s*\{[\s\S]*?\.navigation-disclosure svg\s*\{\s*transition:\s*none/);
+  assert.match(styles, /\.tool-activity-summary \.disclosure-chevron,[\s\S]*?stroke-width:\s*1\.5/);
+  assert.match(styles, /\.tool-activity-group\[open\] > \.tool-activity-summary \.disclosure-chevron,[\s\S]*?transform:\s*rotate\(90deg\)/);
+  assert.doesNotMatch(styles, /\.tool-activity-summary::before \{ width: 6px/);
   // The >=1280px rule pins the search field open; docked mode hands it back to the
   // magnifier so it costs no row until asked for.
   assert.match(styles, /\.app-shell\.nav-mode-docked \.sidebar-search-wrap\.hidden\s*\{[\s\S]*?display:\s*none/);
@@ -1093,6 +1096,9 @@ test("composer selects hide external labels and open titled menus upward", async
   assert.match(appMain, /agentSavePromise:\s*null/);
   assert.match(appMain, /state\.agentSaveSnapshot = captureAgentSettingsSnapshot\(\);[\s\S]*?while \(state\.agentSavePending\)/);
   assert.match(appMain, /awaitAgentSettingsSaved:\s*\(agentId\) => waitForAgentSettingsSave\(agentId\)/);
+  const persist = appMain.slice(appMain.indexOf("async function persistAgentSettingsPass"), appMain.indexOf("function saveAgentSettings"));
+  assert.match(persist, /refreshReasoningEffortControl\(\{ modelValue: selectedModel \}\)/);
+  assert.doesNotMatch(persist, /await enterAgent\(\)/);
 });
 
 test("permission menu lists every mode in the primary group, least permissive first", () => {

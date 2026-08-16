@@ -100,7 +100,7 @@ const liveToolOutputs = {
 function stacks(html) {
   return [...html.matchAll(/<section class="[^"]*tool-activity-stack[^"]*"([^>]*)>([\s\S]*?)<\/section>/g)].map((match) => ({
     key: (match[1].match(/data-tool-activity-stack-key="([^"]*)"/) || [])[1] || "",
-    title: (match[2].match(/<summary class="tool-activity-summary">([^<]*)</) || [])[1] || "",
+    title: (match[2].match(/<summary class="tool-activity-summary">(?:<svg[\s\S]*?<\/svg>)?([^<]*)/) || [])[1] || "",
     body: match[2],
   }));
 }

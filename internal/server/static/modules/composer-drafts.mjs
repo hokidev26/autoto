@@ -43,19 +43,46 @@ export function reasoningEffortValuesForCapabilities(capabilities = {}) {
   return source.reasoningEffort === true ? [...defaultReasoningEffortValues] : ["auto"];
 }
 
-// Per-model levels win over the provider list: Codex serves "max" and "ultra"
-// on some models only, and the authenticated catalog reports the exact set.
-export function reasoningEffortValuesForModel(provider, modelValue) {
+function modelCapabilityRecord(provider, modelValue) {
   const value = String(modelValue || "").trim();
+  if (!value) return null;
+  const table = provider?.modelCapabilities;
+  if (!table || typeof table !== "object" || Array.isArray(table)) return null;
   const separator = value.indexOf(":");
   const model = separator >= 0 ? value.slice(separator + 1).trim() : value;
-  const modelCapabilities = provider?.modelCapabilities && typeof provider.modelCapabilities === "object"
-    ? provider.modelCapabilities[model]
-    : null;
-  const hasModelReasoningCapabilities = Boolean(modelCapabilities && [
-    "reasoningEffort", "reasoningEfforts", "reasoningEffortValues", "effortValues",
-  ].some((key) => Object.hasOwn(modelCapabilities, key)));
-  if (hasModelReasoningCapabilities) return reasoningEffortValuesForCapabilities(modelCapabilities);
+  const candidates = [model, value];
+  if (model.includes("/")) candidates.push(model.slice(model.lastIndexOf("/") + 1));
+  for (const key of candidates) {
+    if (key && Object.hasOwn(table, key)) return table[key];
+  }
+  const lowered = new Set(candidates.map((key) => String(key || "").toLowerCase()).filter(Boolean));
+  for (const [key, record] of Object.entries(table)) {
+    if (lowered.has(String(key).toLowerCase())) return record;
+  }
+  return null;
+}
+
+function modelHasExplicitReasoningEfforts(record) {
+  if (!record || typeof record !== "object") return false;
+  const list = [
+    record.reasoningEfforts,
+    record.reasoningEffortValues,
+    record.effortValues,
+    Array.isArray(record.reasoningEffort) ? record.reasoningEffort : undefined,
+    record.reasoningEffort?.values,
+    record.reasoningEffort?.supportedValues,
+  ].find(Array.isArray);
+  return Array.isArray(list) && list.length > 0;
+}
+
+// Per-model levels win over the provider list: Codex serves "max" and "ultra"
+// on some models only, and the authenticated catalog reports the exact set.
+// An empty or missing per-model list means "use the provider baseline", matching
+// the server's EffectiveReasoningEfforts. A boolean reasoningEffort flag alone
+// must not collapse a wider provider list (xhigh/max) down to low/medium/high.
+export function reasoningEffortValuesForModel(provider, modelValue) {
+  const record = modelCapabilityRecord(provider, modelValue);
+  if (modelHasExplicitReasoningEfforts(record)) return reasoningEffortValuesForCapabilities(record);
   return reasoningEffortValuesForCapabilities(provider?.capabilities || {});
 }
 
