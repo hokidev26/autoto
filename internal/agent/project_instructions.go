@@ -51,13 +51,15 @@ func loadProjectInstructions(cwd string) projectInstructionBundle {
 	cursorRuleBytes := 0
 	cursorRuleFiles := 0
 	for _, name := range paths {
-		if isCursorRulePath(name) {
-			if cursorRuleFiles >= maxProjectCursorRuleFiles {
-				continue
-			}
+		if isCursorRulePath(name) && cursorRuleFiles >= maxProjectCursorRuleFiles {
+			continue
 		}
 		file, readErr := workspace.ReadFile(name)
 		if readErr != nil {
+			continue
+		}
+		content, truncated := normalizeProjectInstructionContent(file.Content, file.Truncated)
+		if strings.TrimSpace(content) == "" {
 			continue
 		}
 		if isCursorRulePath(name) {
@@ -66,10 +68,6 @@ func loadProjectInstructions(cwd string) projectInstructionBundle {
 			}
 			cursorRuleBytes += len(file.Content)
 			cursorRuleFiles++
-		}
-		content, truncated := normalizeProjectInstructionContent(file.Content, file.Truncated)
-		if strings.TrimSpace(content) == "" {
-			continue
 		}
 		// Path is intentionally workspace-relative. Event consumers must never
 		// receive an absolute host path for project instruction sources.

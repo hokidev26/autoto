@@ -79,3 +79,35 @@ func TestAttachChildPublicReportStaysInsideBudget(t *testing.T) {
 		t.Fatalf("structured result was dropped: %+v", projected)
 	}
 }
+
+func TestParseChildPublicReportIgnoresEmbeddedExampleJSON(t *testing.T) {
+	prose := "I considered {\"result\":\"ok\"} as an example, then stopped because the tests failed."
+	report := parseChildPublicReport(prose)
+	if report.Result != "" || len(report.Files) != 0 {
+		t.Fatalf("embedded example JSON must not become the report: %+v", report)
+	}
+	if report.Summary != prose {
+		t.Fatalf("fallback should keep the prose, got %q", report.Summary)
+	}
+}
+
+func TestParseChildPublicReportAcceptsTrailingObject(t *testing.T) {
+	report := parseChildPublicReport("edited the runner.\n{\"summary\":\"edited runner\",\"files\":[\"internal/agent/runner.go\"],\"result\":\"ok\"}")
+	if report.Summary != "edited runner" || report.Result != "ok" {
+		t.Fatalf("trailing report JSON was ignored: %+v", report)
+	}
+	if len(report.Files) != 1 || report.Files[0] != "internal/agent/runner.go" {
+		t.Fatalf("unexpected files: %+v", report.Files)
+	}
+}
+
+func TestParseChildPublicReportRejectsTrailingResultOnlyObject(t *testing.T) {
+	prose := "still working\n{\"result\":\"ok\"}"
+	report := parseChildPublicReport(prose)
+	if report.Result != "" {
+		t.Fatalf("result-only trailing JSON must not count as a report: %+v", report)
+	}
+	if report.Summary != prose {
+		t.Fatalf("fallback should keep the prose, got %q", report.Summary)
+	}
+}

@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"log/slog"
 	"strings"
 
 	"autoto/internal/db"
@@ -29,21 +30,39 @@ func (r *Runner) injectQueuedSteering(ctx context.Context, agent db.Agent, run d
 	}
 	generations, err := r.store.GetPermissionGenerations(ctx, agentID)
 	if err != nil {
-		return messages, err
+		slog.Warn("same-run steering skipped: permission generations unavailable", "agentId", agentID, "runId", runID, "error", err)
+		return messages, nil
 	}
+	// Permission-mode, cwd, and device bumps also advance entity generation, so
+	// the entity snapshot already fail-closes those changes. Runs do not store a
+	// permission-generation snapshot of their own.
 	if generations.Execution != run.ExecutionGeneration ||
 		generations.Entity != run.AgentGenerationSnapshot ||
 		generations.Policy != run.PolicyGenerationSnapshot {
 		return messages, nil
 	}
 	item, ok, err := r.store.ClaimNextQueuedMessage(ctx, agentID)
-	if err != nil || !ok {
-		return messages, err
+	if err != nil {
+		slog.Warn("same-run steering skipped: queue claim failed", "agentId", agentID, "runId", runID, "error", err)
+		return messages, nil
+	}
+	if !ok {
+		return messages, nil
+	}
+	if !queuedSteeringMatchesRun(item, run) {
+		if restoreErr := r.store.RestoreQueuedMessage(ctx, item); restoreErr != nil {
+			return messages, restoreErr
+		}
+		return messages, nil
 	}
 	stored, persistErr := r.persistQueuedSteeringMessage(ctx, agentID, runID, item)
 	if persistErr != nil {
-		_ = r.store.RestoreQueuedMessage(ctx, item)
-		return messages, persistErr
+		if restoreErr := r.store.RestoreQueuedMessage(ctx, item); restoreErr != nil {
+			slog.Warn("same-run steering persist failed and queue restore failed", "agentId", agentID, "runId", runID, "error", persistErr, "restoreError", restoreErr)
+			return messages, persistErr
+		}
+		slog.Warn("same-run steering persist failed; queue restored", "agentId", agentID, "runId", runID, "error", persistErr)
+		return messages, nil
 	}
 	r.publish(Event{
 		Type:      "message.created",
@@ -53,6 +72,21 @@ func (r *Runner) injectQueuedSteering(ctx context.Context, agent db.Agent, run d
 		Data:      mergeEventData(map[string]any{"attachments": len(stored.Attachments), "queued": true}, runID),
 	})
 	return append(messages, stored), nil
+}
+
+func queuedSteeringMatchesRun(item db.QueuedMessage, run db.Run) bool {
+	if strings.EqualFold(strings.TrimSpace(run.Source), db.RunSourceConversation) {
+		return true
+	}
+	mode := strings.ToLower(strings.TrimSpace(item.RunMode))
+	if mode == "" {
+		return true
+	}
+	current := strings.ToLower(strings.TrimSpace(run.ExecutionMode))
+	if current == "" {
+		current = db.RunExecutionModeExecute
+	}
+	return mode == current
 }
 
 func (r *Runner) persistQueuedSteeringMessage(ctx context.Context, agentID, runID string, item db.QueuedMessage) (db.Message, error) {

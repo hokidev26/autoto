@@ -607,6 +607,50 @@ func TestLoadProjectInstructionsCapsCursorRuleVolume(t *testing.T) {
 	}
 }
 
+func TestLoadProjectInstructionsIgnoresEmptyCursorRulesInCaps(t *testing.T) {
+	projectDir := t.TempDir()
+	if err := writeTestFile(projectDir, ".cursor/rules/00-empty.mdc", "   \n"); err != nil {
+		t.Fatal(err)
+	}
+	for i := 1; i <= maxProjectCursorRuleFiles; i++ {
+		name := fmt.Sprintf(".cursor/rules/%02d.mdc", i)
+		if err := writeTestFile(projectDir, name, fmt.Sprintf("kept rule %02d", i)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	bundle := loadProjectInstructions(projectDir)
+	loaded := 0
+	for _, file := range bundle.Files {
+		if isCursorRulePath(file.Path) {
+			loaded++
+		}
+	}
+	if loaded != maxProjectCursorRuleFiles {
+		t.Fatalf("empty cursor rules consumed the file cap: loaded %d want %d", loaded, maxProjectCursorRuleFiles)
+	}
+	if !strings.Contains(bundle.Text, fmt.Sprintf("kept rule %02d", maxProjectCursorRuleFiles)) {
+		t.Fatal("last real cursor rule was dropped because an empty file counted")
+	}
+}
+
+func TestLoadProjectInstructionsCapsCursorRuleBytes(t *testing.T) {
+	projectDir := t.TempDir()
+	chunk := strings.Repeat("x", (maxProjectCursorRuleTotalBytes/2)+1024)
+	if err := writeTestFile(projectDir, ".cursor/rules/a.mdc", "first "+chunk); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeTestFile(projectDir, ".cursor/rules/b.mdc", "second "+chunk); err != nil {
+		t.Fatal(err)
+	}
+	bundle := loadProjectInstructions(projectDir)
+	if !strings.Contains(bundle.Text, "first ") {
+		t.Fatal("first cursor rule under the byte cap was dropped")
+	}
+	if strings.Contains(bundle.Text, "second ") {
+		t.Fatalf("cursor rule byte cap was not applied: loaded %d files", len(bundle.Files))
+	}
+}
+
 func TestRunnerForeignProjectRulesStayUntrusted(t *testing.T) {
 	ctx := context.Background()
 	projectDir := t.TempDir()

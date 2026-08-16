@@ -185,6 +185,49 @@ func TestQueuedMessageIsNotInjectedAfterPermissionGenerationChange(t *testing.T)
 	}
 }
 
+func TestQueuedMessageWithMismatchedModeStaysParked(t *testing.T) {
+	ctx := context.Background()
+	projectDir := t.TempDir()
+	if err := writeTestFile(projectDir, "note.txt", "hello"); err != nil {
+		t.Fatal(err)
+	}
+	store, agent := newAgentTestStore(t, projectDir, "acceptEdits")
+	defer store.Close()
+	if _, err := store.AddMessage(ctx, db.Message{AgentID: agent.ID, Role: "user", ContentText: "read it"}); err != nil {
+		t.Fatal(err)
+	}
+	const steered = "switch to plan mode and propose the refactor"
+	provider := &scriptedProvider{
+		turns: [][]providers.Event{
+			{{Type: "tool_call", ToolCall: &providers.ToolCall{ID: "read-mode", Name: "Read", Input: json.RawMessage(`{"file_path":"note.txt"}`)}}, {Type: "done", Done: true, StopReason: "tool_use"}},
+			{{Type: "text", Text: "done without steering"}, {Type: "done", Done: true, StopReason: "end_turn"}},
+		},
+		onGenerate: func(idx int) {
+			if idx != 0 {
+				return
+			}
+			if _, err := store.EnqueueMessage(ctx, db.QueuedMessage{AgentID: agent.ID, Text: steered, RunMode: db.RunExecutionModePlan}); err != nil {
+				t.Errorf("enqueue steered message: %v", err)
+			}
+		},
+	}
+	runner := newAgentTestRunner(store, provider, config.AgentConfig{MaxTurns: 4})
+	runner.Run(ctx, agent.ID)
+	if provider.requestCount() < 2 {
+		t.Fatalf("expected a second generate after the tool batch, got %d", provider.requestCount())
+	}
+	if providerRequestHasUserText(provider.request(1), steered) {
+		t.Fatal("plan-mode follow-up was injected into an execute run")
+	}
+	remaining, err := store.ListQueuedMessages(ctx, agent.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(remaining) != 1 || remaining[0].Text != steered {
+		t.Fatalf("mismatched mode must leave the queue parked, got %+v", remaining)
+	}
+}
+
 func TestQueuedMessageJoinsSameRunAfterBackgroundWake(t *testing.T) {
 	ctx := context.Background()
 	store, createdAgent := newAgentTestStore(t, t.TempDir(), "acceptEdits")

@@ -51,18 +51,22 @@ func parseChildPublicReport(text string) agentResultReport {
 	if report, ok := decodeChildPublicReport(text); ok {
 		return boundChildPublicReport(report)
 	}
-	if unfenced, ok := unwrapJSONFence(text); ok {
-		if report, ok := decodeChildPublicReport(unfenced); ok {
-			return boundChildPublicReport(report)
-		}
-	}
-	candidates := jsonObjectCandidates(text)
-	for i := len(candidates) - 1; i >= 0; i-- {
-		if report, ok := decodeChildPublicReport(candidates[i]); ok {
+	if candidate, ok := trailingReportJSON(text); ok {
+		if report, ok := decodeTrailingChildPublicReport(candidate); ok {
 			return boundChildPublicReport(report)
 		}
 	}
 	return boundChildPublicReport(agentResultReport{Summary: text})
+}
+
+func trailingReportJSON(text string) (string, bool) {
+	if unfenced, ok := unwrapJSONFence(text); ok {
+		return unfenced, true
+	}
+	if unfenced, ok := unwrapTrailingJSONFence(text); ok {
+		return unfenced, true
+	}
+	return trailingJSONObject(text)
 }
 
 func unwrapJSONFence(text string) (string, bool) {
@@ -81,20 +85,46 @@ func unwrapJSONFence(text string) (string, bool) {
 	return strings.TrimSpace(rest[:end]), true
 }
 
-func jsonObjectCandidates(text string) []string {
-	candidates := make([]string, 0, 4)
-	for i := 0; i < len(text); i++ {
-		if text[i] != '{' {
-			continue
-		}
+func unwrapTrailingJSONFence(text string) (string, bool) {
+	trimmed := strings.TrimSpace(text)
+	closeFence := strings.LastIndex(trimmed, "```")
+	if closeFence <= 0 {
+		return "", false
+	}
+	if strings.TrimSpace(trimmed[closeFence+3:]) != "" {
+		return "", false
+	}
+	openFence := strings.LastIndex(trimmed[:closeFence], "```")
+	if openFence < 0 {
+		return "", false
+	}
+	body := strings.TrimSpace(trimmed[openFence+3 : closeFence])
+	if after, ok := strings.CutPrefix(strings.ToLower(body), "json"); ok {
+		body = strings.TrimSpace(after)
+	}
+	if body == "" {
+		return "", false
+	}
+	return body, true
+}
+
+func trailingJSONObject(text string) (string, bool) {
+	text = strings.TrimSpace(text)
+	if !strings.HasSuffix(text, "}") {
+		return "", false
+	}
+	for i := strings.LastIndexByte(text, '{'); i >= 0; i = strings.LastIndexByte(text[:i], '{') {
 		dec := json.NewDecoder(strings.NewReader(text[i:]))
 		var value json.RawMessage
 		if err := dec.Decode(&value); err != nil || len(value) == 0 || value[0] != '{' {
 			continue
 		}
-		candidates = append(candidates, string(value))
+		if strings.TrimSpace(text[i+int(dec.InputOffset()):]) != "" {
+			continue
+		}
+		return string(value), true
 	}
-	return candidates
+	return "", false
 }
 
 func decodeChildPublicReport(text string) (agentResultReport, bool) {
@@ -135,6 +165,14 @@ func decodeChildPublicReport(text string) (agentResultReport, bool) {
 		}
 	}
 	if report.Summary == "" && report.Result == "" && len(report.Files) == 0 {
+		return agentResultReport{}, false
+	}
+	return report, true
+}
+
+func decodeTrailingChildPublicReport(text string) (agentResultReport, bool) {
+	report, ok := decodeChildPublicReport(text)
+	if !ok || report.Result == "" || report.Summary == "" {
 		return agentResultReport{}, false
 	}
 	return report, true
