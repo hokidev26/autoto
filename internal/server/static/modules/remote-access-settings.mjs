@@ -11,6 +11,18 @@ function textValue(value, fallback = "") {
   return text || fallback;
 }
 
+const remoteAccessPasswordRuleErrors = Object.freeze({
+  "password must be between 12 and 256 characters": "passwordLength",
+  "password must not contain whitespace or control characters": "passwordWhitespace",
+  "password must include at least three character classes": "passwordClasses",
+});
+
+export function localizeRemoteAccessPasswordError(message, translate = t) {
+  const raw = textValue(message);
+  const key = remoteAccessPasswordRuleErrors[raw];
+  return key ? translate(`remoteAccess.${key}`) : raw;
+}
+
 export function normalizeRemoteAccess(value = {}) {
   const source = objectValue(value);
   const credential = objectValue(source.credential);
@@ -206,10 +218,21 @@ export function createRemoteAccessSettingsController({
 
   async function updatePassword(strategy, password = "", currentPassword = "") {
     const current = access();
-    const result = await request(`${endpoint}/password`, {
-      method: "PUT",
-      body: JSON.stringify(passwordPayload(strategy, password, currentPassword)),
-    });
+    let result;
+    try {
+      result = await request(`${endpoint}/password`, {
+        method: "PUT",
+        body: JSON.stringify(passwordPayload(strategy, password, currentPassword)),
+      });
+    } catch (err) {
+      const mapped = localizeRemoteAccessPasswordError(err?.message);
+      if (mapped && mapped !== textValue(err?.message, String(err || ""))) {
+        const next = new Error(mapped);
+        next.status = err?.status;
+        throw next;
+      }
+      throw err;
+    }
     generatedPassword = strategy === "generate" ? textValue(result?.generatedPassword) : "";
     state.remoteAccess = normalizeRemoteAccess({
       ...current,
@@ -418,23 +441,28 @@ export function createRemoteAccessSettingsController({
           <div class="settings-action-row settings-card-footer"><span class="settings-provider-meta">${escapeHtml(rt("policySaveHint"))}</span><button class="settings-action-btn primary" type="submit" form="remoteAccessPolicyForm" data-remote-policy-submit ${securityAdminAllowed ? "" : "disabled"}>${escapeHtml(rt("savePolicy"))}</button></div>
         </section>
         <section class="settings-provider-section settings-page-section settings-card remote-access-credential-card">
-          <div class="settings-provider-section-head settings-card-header"><div><div class="settings-provider-title settings-card-title">${escapeHtml(rt("credential"))}</div><div class="settings-provider-meta settings-card-description">${escapeHtml(rt("credentialDescription"))}</div></div><span class="settings-status-pill settings-badge ${value.credential.configured ? "ok" : "warn"}">${escapeHtml(value.credential.configured ? rt("configured") : rt("notConfigured"))}</span></div>
+          <div class="settings-provider-section-head settings-card-header"><div><div class="settings-provider-title settings-card-title">${escapeHtml(rt("credential"))}</div><div class="settings-provider-meta settings-card-description">${escapeHtml(rt("credentialDescription"))}</div></div><div class="remote-access-credential-status"><span class="settings-status-pill settings-badge ${value.credential.configured ? "ok" : "warn"}">${escapeHtml(value.credential.configured ? rt("configured") : rt("notConfigured"))}</span><span class="settings-provider-meta">${escapeHtml(`${rt("source")}: ${value.credential.source}`)}</span></div></div>
           ${environmentCredential ? `<div class="settings-inline-alert settings-alert" role="status">${escapeHtml(rt(securityAdminAllowed ? "environmentOverrideHint" : "environmentReadonly"))}</div>` : ""}
           <div class="remote-access-password-grid settings-card-content">
-            <form id="remoteAccessGeneratePasswordForm" class="remote-access-password-form">
-              <div class="remote-access-password-copy"><strong>${escapeHtml(rt("generatePassword"))}</strong><small>${escapeHtml(rt("generatePasswordHint"))}</small></div>
+            <form id="remoteAccessGeneratePasswordForm" class="remote-access-password-form${generatedPassword ? " has-generated" : ""}">
+              ${generatedPassword ? `
+              <div class="remote-access-generated" role="status">
+                <div class="remote-access-generated-row">
+                  <code>${escapeHtml(generatedPassword)}</code>
+                  <button id="copyGeneratedRemotePasswordBtn" class="settings-action-btn primary" type="button">${escapeHtml(rt("copyPassword"))}</button>
+                </div>
+                <small>${escapeHtml(rt("generatedPasswordHint"))}</small>
+              </div>` : `<div class="remote-access-password-copy"><strong>${escapeHtml(rt("generatePassword"))}</strong><small>${escapeHtml(rt("generatePasswordHint"))}</small></div>`}
               ${currentPasswordField("remoteAccessGenerateCurrentPassword")}
-              <button class="settings-action-btn subtle" type="submit" data-remote-generate-submit ${securityAdminAllowed ? "" : "disabled"}>${escapeHtml(rt("generatePassword"))}</button>
+              <button class="settings-action-btn ${generatedPassword ? "subtle" : "primary"}" type="submit" data-remote-generate-submit ${securityAdminAllowed ? "" : "disabled"}>${escapeHtml(rt(generatedPassword ? "regeneratePassword" : "generatePassword"))}</button>
             </form>
             <form id="remoteAccessCustomPasswordForm" class="remote-access-password-form">
               <div class="remote-access-password-copy"><strong>${escapeHtml(rt("customPassword"))}</strong><small>${escapeHtml(rt("customPasswordHint"))}</small></div>
-              <label class="settings-form-field">${escapeHtml(rt("customPassword"))}<input id="remoteAccessCustomPassword" class="settings-field" type="password" autocomplete="new-password" required ${securityAdminAllowed ? "" : "disabled"} placeholder="${escapeAttr(rt("customPasswordPlaceholder"))}" /></label>
+              <label class="settings-form-field"><input id="remoteAccessCustomPassword" class="settings-field" type="password" autocomplete="new-password" required ${securityAdminAllowed ? "" : "disabled"} aria-label="${escapeAttr(rt("customPassword"))}" placeholder="${escapeAttr(rt("customPasswordPlaceholder"))}" /></label>
               ${currentPasswordField("remoteAccessCustomCurrentPassword")}
               <button class="settings-action-btn primary" type="submit" data-remote-custom-submit ${securityAdminAllowed ? "" : "disabled"}>${escapeHtml(rt("updatePassword"))}</button>
             </form>
           </div>
-          <p class="remote-access-credential-source settings-provider-meta">${escapeHtml(`${rt("source")}: ${value.credential.source}`)}</p>
-          ${generatedPassword ? `<div class="remote-access-generated settings-inline-alert" role="status"><strong>${escapeHtml(rt("generatedPassword"))}</strong><code>${escapeHtml(generatedPassword)}</code><span>${escapeHtml(rt("generatedPasswordHint"))}</span><button id="copyGeneratedRemotePasswordBtn" class="settings-action-btn subtle" type="button">${escapeHtml(rt("copyPassword"))}</button></div>` : ""}
         </section>
         <section class="settings-provider-section settings-page-section settings-card">
           <div class="settings-provider-section-head settings-card-header"><div><div class="settings-provider-title settings-card-title">${escapeHtml(rt("capabilities"))}</div></div></div>

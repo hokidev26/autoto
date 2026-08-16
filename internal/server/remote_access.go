@@ -217,9 +217,66 @@ func configuredRemoteAccessMode(cfg config.Config) string {
 	return remoteAccessModeRestricted
 }
 
+// remoteAccountSessionBootPath is the remote surface that must load before an
+// account session exists: the UI, static assets, and the account overlay's own
+// auth calls. Other APIs stay behind remote authentication.
+func remoteAccountSessionBootPath(r *http.Request) bool {
+	if r == nil {
+		return false
+	}
+	path := r.URL.Path
+	if strings.HasPrefix(path, "/ws/") {
+		return false
+	}
+	if r.Method == http.MethodGet && path != "/api" && !strings.HasPrefix(path, "/api/") {
+		return true
+	}
+	switch path {
+	case "/api/auth/status", "/api/auth/me":
+		return r.Method == http.MethodGet
+	case "/api/auth/login", "/api/auth/logout":
+		return r.Method == http.MethodPost
+	}
+	return false
+}
+
+func (s *Server) localAccountsExist(ctx context.Context) bool {
+	if s == nil || s.store == nil {
+		return false
+	}
+	hasUsers, err := s.store.HasUsers(ctx)
+	return err == nil && hasUsers
+}
+
+func (s *Server) remoteAuthFromUserSession(r *http.Request) (remoteAccessAuth, bool) {
+	if r == nil || s.store == nil || !s.remoteAccessGateRequired(r) || !s.localAccountsExist(r.Context()) {
+		return remoteAccessAuth{}, false
+	}
+	cookie, err := r.Cookie(authSessionCookieName)
+	if err != nil || strings.TrimSpace(cookie.Value) == "" {
+		return remoteAccessAuth{}, false
+	}
+	_, session, err := s.store.GetUserBySessionToken(r.Context(), cookie.Value, s.clock())
+	if err != nil {
+		return remoteAccessAuth{}, false
+	}
+	expiresAt, err := time.Parse(time.RFC3339Nano, session.ExpiresAt)
+	if err != nil || !expiresAt.After(s.now()) {
+		return remoteAccessAuth{}, false
+	}
+	return remoteAccessAuth{
+		Remote:        true,
+		Authenticated: true,
+		Session:       true,
+		Mode:          configuredRemoteAccessMode(s.configSnapshot()),
+		ExpiresAt:     expiresAt,
+	}, true
+}
+
 // remoteAccessAuthentication resolves a request credential to an authenticated
-// mode. Only the canonical cookie, canonical header, and bearer token are
-// accepted.
+// mode. The canonical cookie, canonical header, and bearer token are accepted.
+// When local accounts exist, a valid account session is also enough so the
+// access-password page is not a second lock in front of account login.
 func (s *Server) remoteAccessAuthentication(r *http.Request) remoteAccessAuth {
 	auth := remoteAccessAuth{Remote: s.remoteAccessGateRequired(r)}
 	if cookie, err := r.Cookie(remoteAccessCookieName); err == nil {
@@ -230,9 +287,9 @@ func (s *Server) remoteAccessAuthentication(r *http.Request) remoteAccessAuth {
 		}
 		// A host-scoped cookie can be injected by any other localhost process.
 		// On a remote transport the stale cookie still forces the remote gate so
-		// it cannot fall through to local-admin authority. On trusted loopback
-		// it is ignored so garbage cannot downgrade the operator to restricted.
-		if s.remoteAccessGateRequired(r) {
+		// it cannot fall through to local-admin authority — unless local accounts
+		// exist, in which case the account session is the remaining lock.
+		if s.remoteAccessGateRequired(r) && !s.localAccountsExist(r.Context()) {
 			return auth
 		}
 	}
@@ -250,6 +307,9 @@ func (s *Server) remoteAccessAuthentication(r *http.Request) remoteAccessAuth {
 			auth.Authenticated, auth.Mode = true, remoteAccessModeRestricted
 		}
 		return auth
+	}
+	if derived, ok := s.remoteAuthFromUserSession(r); ok {
+		return derived
 	}
 	if !auth.Remote {
 		auth.Authenticated, auth.Mode = true, remoteAccessModeFull
@@ -311,12 +371,13 @@ func (s *Server) remoteWebSocketContext(parent context.Context, r *http.Request)
 		hash := remoteSessionTokenHash(token)
 		session, ok := s.remoteAccessSessions[hash]
 		now := s.now()
-		if token == "" || !ok || session.CredentialRevision != credentialRevision || !session.ExpiresAt.After(now) {
+		if token != "" && ok && session.CredentialRevision == credentialRevision && session.ExpiresAt.After(now) {
+			key = remoteAccessSessionConnectionKey(hash)
+		} else if cookie, err := r.Cookie(authSessionCookieName); err != nil || strings.TrimSpace(cookie.Value) == "" {
 			s.remoteAccessMu.Unlock()
 			cancel()
 			return nil, func() {}, false
 		}
-		key = remoteAccessSessionConnectionKey(hash)
 	}
 	if s.remoteAccessConnections == nil {
 		s.remoteAccessConnections = make(map[string]map[uint64]context.CancelFunc)

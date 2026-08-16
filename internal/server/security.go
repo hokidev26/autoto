@@ -165,7 +165,7 @@ func (s *Server) localRequestGuard(next http.Handler) http.Handler {
 			}
 			if isBrowserInitiated(r) {
 				if remote {
-					if !s.remoteAccessAuthentication(r).Authenticated {
+					if !s.remoteAccessAuthentication(r).Authenticated && !remoteAccountSessionBootPath(r) {
 						writeError(w, http.StatusUnauthorized, "missing or invalid remote session")
 						return
 					}
@@ -505,8 +505,20 @@ func (s *Server) remoteHardeningActive(r *http.Request) bool {
 
 func (s *Server) handleRemoteAccessGate(w http.ResponseWriter, r *http.Request) bool {
 	if isRemoteAccessLoginPath(r.URL.Path) {
+		if r.Method == http.MethodGet && r.URL.Path == remoteAccessPath && s.localAccountsExist(r.Context()) {
+			http.Redirect(w, r, "/", http.StatusSeeOther)
+			return true
+		}
 		s.handleRemoteAccessLogin(w, r)
 		return true
+	}
+	if s.localAccountsExist(r.Context()) && !requestHasRemotePasswordCredential(r) {
+		if remoteAccountSessionBootPath(r) {
+			return false
+		}
+		if _, ok := s.remoteAuthFromUserSession(r); ok {
+			return false
+		}
 	}
 	passwordCredential := requestHasRemotePasswordCredential(r)
 	if passwordCredential {

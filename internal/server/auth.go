@@ -396,10 +396,12 @@ func (s *Server) requireUser(w http.ResponseWriter, r *http.Request) (db.User, b
 
 // requireLoginIfUsersExist leaves a fresh local-first install unchanged. Once
 // at least one local account exists, local and remote requests both need a
-// logged-in user session. Remote access still has to pass the access-password
-// gate first; that password is not a substitute for a local account or guest
-// key. Unauthenticated remote requests are rejected here as well, in case this
-// guard is reached without the global remote gate.
+// logged-in user session. The shared access-password page is skipped in that
+// case so the account overlay is the only lock; a valid account session is
+// what authenticates the remote request. The access password remains required
+// before any local account exists, and still authenticates API clients via
+// header or bearer. Unauthenticated remote requests are rejected here as well,
+// in case this guard is reached without the global remote gate.
 func (s *Server) requireLoginIfUsersExist(w http.ResponseWriter, r *http.Request) bool {
 	auth := s.remoteAccessAuthentication(r)
 	if auth.Remote && !auth.Authenticated {

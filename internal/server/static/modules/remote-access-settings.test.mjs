@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import {
   createRemoteAccessSettingsController,
   isEnvironmentCredential,
+  localizeRemoteAccessPasswordError,
   normalizeRemoteAccess,
   passwordPayload,
   policyPayload,
@@ -62,6 +63,31 @@ test("policy and password payloads carry currentPassword only when supplied", ()
     password: "new-password",
     currentPassword: "current",
   });
+});
+
+test("invalid custom password rules are shown in the UI locale", async () => {
+  assert.equal(
+    localizeRemoteAccessPasswordError("password must include at least three character classes"),
+    "密码需包含大写、小写、数字、符号其中至少三种。",
+  );
+  assert.equal(
+    localizeRemoteAccessPasswordError("password must be between 12 and 256 characters"),
+    "密码需为 12 到 256 个字符。",
+  );
+  assert.equal(
+    localizeRemoteAccessPasswordError("password must not contain whitespace or control characters"),
+    "密码不能包含空白或控制字符。",
+  );
+  const controller = createRemoteAccessSettingsController({
+    state: { remoteAccess: localAccess },
+    request: async () => {
+      throw Object.assign(new Error("password must include at least three character classes"), { status: 400 });
+    },
+  });
+  await assert.rejects(
+    () => controller.updatePassword("custom", "aaaaaaaaaaaa"),
+    { message: "密码需包含大写、小写、数字、符号其中至少三种。" },
+  );
 });
 
 test("normalizes and controls a temporary tunnel through the security endpoint", async () => {
@@ -320,6 +346,27 @@ test("policy and password cards stack option rows and method tiles", () => {
   assert.match(html, /remote-access-credential-card/);
   assert.match(html, /remote-access-password-copy/);
   assert.doesNotMatch(html, /settings-check-row/);
+});
+
+test("generated password stays inside the generate tile and custom password is labeled once", async () => {
+  const controller = createRemoteAccessSettingsController({
+    state: { remoteAccess: localAccess },
+    request: async () => ({ credential: { configured: true, source: "config" }, revision: 2, generatedPassword: "generated-once" }),
+  });
+  await controller.updatePassword("generate");
+  const html = controller.render();
+  const generateForm = html.match(/<form id="remoteAccessGeneratePasswordForm"[\s\S]*?<\/form>/)?.[0] || "";
+  const customForm = html.match(/<form id="remoteAccessCustomPasswordForm"[\s\S]*?<\/form>/)?.[0] || "";
+  assert.match(generateForm, /id="copyGeneratedRemotePasswordBtn"/);
+  assert.match(generateForm, /generated-once/);
+  assert.match(generateForm, /has-generated/);
+  assert.match(generateForm, /remote-access-generated-row/);
+  assert.match(generateForm, /再生成一组|再產生一組|Generate another/);
+  assert.doesNotMatch(html.replace(generateForm, ""), /id="copyGeneratedRemotePasswordBtn"/);
+  assert.match(html, /remote-access-credential-status/);
+  assert.doesNotMatch(html, /remote-access-credential-source/);
+  assert.match(customForm, /aria-label="自定义密码"/);
+  assert.doesNotMatch(customForm, /<label class="settings-form-field">自定义密码/);
 });
 
 test("policy submit drives the busy state on the footer button outside the form", async () => {
