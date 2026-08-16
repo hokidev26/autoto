@@ -98,13 +98,14 @@ type BatchMutationResult struct {
 }
 
 type QuotaSnapshot struct {
-	PlanType             string                `json:"plan_type,omitempty"`
-	PrimaryWindow        *RateLimitWindow      `json:"primary_window,omitempty"`
-	SecondaryWindow      *RateLimitWindow      `json:"secondary_window,omitempty"`
-	AdditionalRateLimits []AdditionalRateLimit `json:"additional_rate_limits,omitempty"`
-	Credits              *CreditBalance        `json:"credits,omitempty"`
-	RateLimitReachedType string                `json:"rate_limit_reached_type,omitempty"`
-	FetchedAt            string                `json:"fetched_at,omitempty"`
+	PlanType              string                 `json:"plan_type,omitempty"`
+	PrimaryWindow         *RateLimitWindow       `json:"primary_window,omitempty"`
+	SecondaryWindow       *RateLimitWindow       `json:"secondary_window,omitempty"`
+	AdditionalRateLimits  []AdditionalRateLimit  `json:"additional_rate_limits,omitempty"`
+	Credits               *CreditBalance         `json:"credits,omitempty"`
+	RateLimitResetCredits *RateLimitResetCredits `json:"rate_limit_reset_credits,omitempty"`
+	RateLimitReachedType  string                 `json:"rate_limit_reached_type,omitempty"`
+	FetchedAt             string                 `json:"fetched_at,omitempty"`
 }
 
 type RateLimitWindow struct {
@@ -125,6 +126,15 @@ type CreditBalance struct {
 	HasCredits bool    `json:"has_credits"`
 	Unlimited  bool    `json:"unlimited,omitempty"`
 	Balance    float64 `json:"balance,omitempty"`
+}
+
+type RateLimitResetCredits struct {
+	AvailableCount int                    `json:"available_count"`
+	Credits        []RateLimitResetCredit `json:"credits,omitempty"`
+}
+
+type RateLimitResetCredit struct {
+	ExpiresAt string `json:"expires_at,omitempty"`
 }
 
 type Store struct {

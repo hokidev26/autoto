@@ -138,6 +138,7 @@ export function createModelProviderSettingsController({
     reopenCodexBrowserLogin,
     saveCodexAccount,
     syncCodexAccount,
+    resetCodexQuota,
     toggleCodexAccount,
     exportCodexAccount,
     deleteCodexAccount,
@@ -2056,6 +2057,10 @@ export function createModelProviderSettingsController({
     }
     if (target.dataset.codexSync) {
       syncCodexAccount(target.dataset.codexSync, target).catch(showError);
+      return;
+    }
+    if (target.dataset.codexResetQuota) {
+      resetCodexQuota(target.dataset.codexResetQuota, target).catch(showError);
       return;
     }
     if (target.dataset.codexExport) {

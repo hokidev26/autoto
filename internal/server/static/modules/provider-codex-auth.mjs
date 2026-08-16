@@ -477,6 +477,16 @@ export function createCodexAuthController(ctx) {
     });
   }
 
+  async function resetCodexQuota(id, button) {
+    if (state.codexAccountBusy?.[id] || !(await platformConfirm(mt("resetQuotaConfirm")))) return;
+    return runCodexAccountAction(id, button, mt("resettingQuota"), async () => {
+      const request = codexAccountActionRequest("resetQuota", id);
+      await requestAPI(request.path, request.options);
+      setProviderConsoleResult(mt("quotaReset"), "success");
+      notifyTerminal?.(`[info] ${mt("quotaReset")}\n`);
+    });
+  }
+
   async function toggleCodexAccount(id, disabled, button) {
     return runCodexAccountAction(id, button, mt("saving"), async () => {
       const request = codexAccountActionRequest("toggle", id, { disabled });
@@ -822,6 +832,7 @@ export function createCodexAuthController(ctx) {
     reopenCodexBrowserLogin,
     saveCodexAccount,
     syncCodexAccount,
+    resetCodexQuota,
     toggleCodexAccount,
     exportCodexAccount,
     deleteCodexAccount,

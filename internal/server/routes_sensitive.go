@@ -51,6 +51,7 @@ func (s *Server) mountSensitiveTokenRoutes(r chi.Router) {
 		r.Get("/api/providers/oauth/codex/accounts/{id}/export", s.exportCodexOAuthAccount)
 		r.Patch("/api/providers/oauth/codex/accounts/{id}", s.patchCodexOAuthAccount)
 		r.Post("/api/providers/oauth/codex/accounts/{id}/refresh", s.refreshCodexOAuthAccount)
+		r.Post("/api/providers/oauth/codex/accounts/{id}/reset-quota", s.resetCodexOAuthQuota)
 		r.Delete("/api/providers/oauth/codex/accounts/{id}", s.deleteCodexOAuthAccount)
 		r.Post("/api/providers/oauth/codex/import", s.importCodexOAuthCredentials)
 		r.Post("/api/providers/oauth/codex/import/batch", s.batchImportCodexOAuthCredentials)

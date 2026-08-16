@@ -63,6 +63,8 @@ type CodexProvider struct {
 	refreshEndpoint     string
 	clock               func() time.Time
 	telemetry           AccountTelemetry
+	quotaTelemetry      AccountQuotaTelemetry
+	quotaLoader         AccountQuotaLoader
 	endpointErr         error
 	refreshGate         chan struct{}
 	gatewayPolicyMu     sync.RWMutex
@@ -345,6 +347,7 @@ func (p *CodexProvider) Generate(ctx context.Context, req GenerateRequest) (<-ch
 				emitProviderEvent(ctx, out, Event{Type: "error", Text: boundedCodexError(requestErr.Error())})
 				return
 			}
+			p.recordCodexQuotaFromHeaders(ctx, used.Credential.ID, response.Header)
 			if ctx.Err() != nil {
 				response.Body.Close()
 				return
@@ -448,6 +451,10 @@ func (p *CodexProvider) credentials() ([]codexauth.StoredCredential, error) {
 }
 
 func (p *CodexProvider) doCredentialRequest(ctx context.Context, item codexauth.StoredCredential, method, endpoint string, body []byte, contentType string) (*http.Response, codexauth.StoredCredential, error) {
+	return p.doCredentialRequestWithHeaders(ctx, item, method, endpoint, body, contentType, nil)
+}
+
+func (p *CodexProvider) doCredentialRequestWithHeaders(ctx context.Context, item codexauth.StoredCredential, method, endpoint string, body []byte, contentType string, extraHeaders map[string]string) (*http.Response, codexauth.StoredCredential, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, item, err
 	}
@@ -455,7 +462,7 @@ func (p *CodexProvider) doCredentialRequest(ctx context.Context, item codexauth.
 	if err != nil {
 		return nil, item, err
 	}
-	response, err := p.sendCredentialRequest(ctx, prepared.Credential, method, endpoint, body, contentType)
+	response, err := p.sendCredentialRequestWithHeaders(ctx, prepared.Credential, method, endpoint, body, contentType, extraHeaders)
 	if err != nil {
 		return nil, prepared, err
 	}
@@ -470,7 +477,7 @@ func (p *CodexProvider) doCredentialRequest(ctx context.Context, item codexauth.
 	if err != nil {
 		return nil, prepared, err
 	}
-	response, err = p.sendCredentialRequest(ctx, refreshed.Credential, method, endpoint, body, contentType)
+	response, err = p.sendCredentialRequestWithHeaders(ctx, refreshed.Credential, method, endpoint, body, contentType, extraHeaders)
 	return response, refreshed, err
 }
 
@@ -589,7 +596,7 @@ func (p *CodexProvider) refreshCredential(ctx context.Context, item codexauth.St
 	return item, nil
 }
 
-func (p *CodexProvider) sendCredentialRequest(ctx context.Context, credential codexauth.Credential, method, endpoint string, body []byte, contentType string) (*http.Response, error) {
+func (p *CodexProvider) sendCredentialRequestWithHeaders(ctx context.Context, credential codexauth.Credential, method, endpoint string, body []byte, contentType string, extraHeaders map[string]string) (*http.Response, error) {
 	var reader io.Reader
 	if body != nil {
 		reader = bytes.NewReader(body)
@@ -615,6 +622,13 @@ func (p *CodexProvider) sendCredentialRequest(ctx context.Context, credential co
 	// model out. Omitting the header lets the backend apply its default.
 	if p.cfg.InstallationID != "" {
 		request.Header.Set("x-codex-installation-id", p.cfg.InstallationID)
+	}
+	for key, value := range extraHeaders {
+		key = strings.TrimSpace(key)
+		if key == "" || strings.TrimSpace(value) == "" {
+			continue
+		}
+		request.Header.Set(key, value)
 	}
 	response, err := p.client.Do(request)
 	if err != nil {

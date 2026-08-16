@@ -39,6 +39,7 @@ func ModelTokenPrice(_ string, model string) (TokenPrice, bool) {
 		match string
 		price TokenPrice
 	}{
+		{match: "gpt-5.6", price: TokenPrice{InputPerMTok: 5.00, CachedInputPerMTok: 0.50, OutputPerMTok: 22.50}}, // coarse ChatGPT-catalog estimate; not an official invoice rate
 		{match: "gpt-5.5", price: TokenPrice{InputPerMTok: 5.00, CachedInputPerMTok: 0.50, OutputPerMTok: 22.50}},
 		{match: "gpt-5.4-mini", price: TokenPrice{InputPerMTok: 0.375, CachedInputPerMTok: 0.0375, OutputPerMTok: 2.25}},
 		{match: "gpt-5.4", price: TokenPrice{InputPerMTok: 2.50, CachedInputPerMTok: 0.25, OutputPerMTok: 11.25}},

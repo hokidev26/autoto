@@ -77,6 +77,7 @@ Current adapters include:
 - OpenAI-compatible Chat Completions APIs, including the CLIProxyAPI preset.
 - Gemini Interactions API in stateless mode, with provider-native steps and thought signatures persisted in the internal-only `provider_state_json` message field.
 - Kiro (Amazon Q) Event Stream API with OAuth token refresh, startup token warmup, and `ksk_*` API key authentication as an alternative to the OAuth browser flow.
+- Codex ChatGPT OAuth (`internal/providers/codex.go`) against `chatgpt.com/backend-api/codex`. Account quota is reconstructed from ChatGPT's subscription windows rather than the Platform Billing API: live `x-codex-*` rate-limit headers on `/responses`, `GET /backend-api/wham/usage` on explicit sync, and optional `/wham/rate-limit-reset-credits` for official reset tokens. Local 5h/7d request stats are aligned to the current reset window when `reset_at` is known; dollar amounts stay local estimates, not an OpenAI invoice.
 
 Provider code is responsible for translating Autoto's normalized message/tool representation into each upstream API shape and translating upstream deltas back into normalized events.
 

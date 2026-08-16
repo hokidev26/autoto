@@ -126,7 +126,9 @@ const labels = {
   usageNoLocalData: "No local records",
   usageLocalOnly: "Local records only",
   recordedCost: "Recorded local cost",
-  recordedCostHint: "Based on local request records; not a provider billing statement.",
+	recordedCostHint: "Based on local request records; not a provider billing statement.",
+  resetCreditsAvailable: "{count} quota resets",
+  resetQuota: "Reset quota",
   never: "Never",
   rateLimited: "Rate limited",
   exhausted: "Quota exhausted",
@@ -356,6 +358,39 @@ test("Codex quota rendering supports no quota and dual windows", () => {
   assert.match(html, /Resets in 1d 1h/);
 });
 
+test("Codex quota rendering classifies ChatGPT primary 7d and secondary 5h windows", () => {
+  const html = render([{
+    id: "chatgpt-layout",
+    quota: {
+      primary_window: { used_percent: 100, limit_window_seconds: 604800, reset_after_seconds: 90061 },
+      secondary_window: { used_percent: 3, limit_window_seconds: 17940, reset_after_seconds: 3600 },
+    },
+  }]);
+  assert.match(html, /aria-valuenow="3"/);
+  assert.match(html, />3%<\/strong>/);
+  assert.match(html, /is-5h">5h/);
+  assert.match(html, /Resets in 1h 0m/);
+  assert.match(html, /aria-valuenow="100"/);
+  assert.match(html, />100%<\/strong>/);
+  assert.match(html, /is-7d">7d/);
+  assert.match(html, /Resets in 1d 1h/);
+});
+
+test("Codex quota rendering shows official reset count and action", () => {
+  const html = render([{
+    id: "reset-1",
+    alias: "Resettable",
+    quota: {
+      primary_window: { used_percent: 100, limit_window_seconds: 18000 },
+      rate_limit_reset_credits: { available_count: 2 },
+    },
+  }]);
+  assert.match(html, /2 quota resets/);
+  assert.match(html, /data-codex-reset-quota="reset-1"/);
+  assert.match(html, />Reset quota<\/span>/);
+  assert.doesNotMatch(html, /Credits|Balance /);
+});
+
 test("Codex quota rendering supports camelCase windows and invalid numeric values", () => {
   const html = render([{
     id: "credits",
@@ -433,6 +468,8 @@ test("Codex account action requests cover save, sync, export, toggle, and delete
 
   const sync = codexAccountActionRequest("sync", "codex_1");
   assert.deepEqual(sync, { path: "/api/providers/oauth/codex/accounts/codex_1/refresh", options: { method: "POST" } });
+  const resetQuota = codexAccountActionRequest("resetQuota", "codex_1");
+  assert.deepEqual(resetQuota, { path: "/api/providers/oauth/codex/accounts/codex_1/reset-quota", options: { method: "POST", headers: { "X-Autoto-Confirm": "reset-codex-quota" } } });
   const exported = codexAccountActionRequest("export", "id/with space");
   assert.equal(exported.path, "/api/providers/oauth/codex/accounts/id%2Fwith%20space/export");
   assert.deepEqual(exported.options, { method: "GET", headers: { "X-Autoto-Confirm": "export-codex-account" } });

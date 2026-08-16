@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"autoto/internal/codexauth"
+	"autoto/internal/db"
 	"autoto/internal/providers"
 )
 
@@ -420,7 +421,10 @@ func (s *Server) syncCodexOAuthAccount(ctx context.Context, provider *providers.
 		if stats, statsErr := s.store.GetProviderAccountStats(ctx, codexauth.DefaultProviderName, account.ID); statsErr == nil {
 			response.Stats = &stats
 		}
-		usageByID, usageErr := s.store.ListProviderAccountUsage(ctx, codexauth.DefaultProviderName, []string{account.ID}, s.now())
+		last5, last7 := providers.CodexLocalUsageWindowStarts(&quota, s.now())
+		usageByID, usageErr := s.store.ListProviderAccountUsage(ctx, codexauth.DefaultProviderName, []string{account.ID}, s.now(), map[string]db.ProviderAccountUsageWindowStarts{
+			account.ID: {Last5Hours: last5, Last7Days: last7},
+		})
 		if usageErr != nil {
 			return codexOAuthAccountResponse{}, http.StatusInternalServerError, errors.New("Codex 帳號用量統計失敗")
 		}

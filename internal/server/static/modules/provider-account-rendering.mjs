@@ -300,6 +300,7 @@ function renderCodexAccountRow(account, mt, now, editing, busy, { selected = fal
         <button class="codex-icon-action cancel" type="button" data-codex-edit-cancel="${escapeAttr(id)}" aria-label="${escapeAttr(mt("cancelEdit"))}" title="${escapeAttr(mt("cancelEdit"))}"${disabledAttributes}>${codexActionIcon("cancel")}<span>${escapeHtml(mt("cancel"))}</span></button>` : `
         <button class="codex-icon-action edit" type="button" data-codex-edit="${escapeAttr(id)}" aria-label="${escapeAttr(mt("editAccount"))}" title="${escapeAttr(mt("editAccount"))}"${disabledAttributes}>${codexActionIcon("edit")}<span>${escapeHtml(mt("edit"))}</span></button>
         <button class="codex-icon-action sync" type="button" data-codex-sync="${escapeAttr(id)}" aria-label="${escapeAttr(mt("syncAccount"))}" title="${escapeAttr(mt("syncAccount"))}"${disabledAttributes}>${codexActionIcon("sync")}<span>${escapeHtml(mt("sync"))}</span></button>
+        ${codexResetCreditCount(account) > 0 ? `<button class="codex-icon-action reset-quota" type="button" data-codex-reset-quota="${escapeAttr(id)}" aria-label="${escapeAttr(mt("resetQuotaAccount", { account: displayName }))}" title="${escapeAttr(mt("resetQuota"))}"${disabledAttributes}>${codexActionIcon("resetQuota")}<span>${escapeHtml(mt("resetQuota"))}</span></button>` : ""}
         <button class="codex-icon-action export" type="button" data-codex-export="${escapeAttr(id)}" aria-label="${escapeAttr(mt("exportAccountJSON"))}" title="${escapeAttr(mt("exportAccountJSON"))}"${disabledAttributes}>${codexActionIcon("export")}<span>${escapeHtml(mt("exportAccount"))}</span></button>
         <span class="codex-account-action-divider" aria-hidden="true"></span>
         <button class="codex-icon-action toggle" type="button" data-codex-toggle="${escapeAttr(id)}" data-disabled="${disabled ? "true" : "false"}" aria-label="${escapeAttr(disabled ? mt("enableAccount") : mt("disableAccount"))}" title="${escapeAttr(disabled ? mt("enableAccount") : mt("disableAccount"))}"${disabledAttributes}>${codexActionIcon(disabled ? "enable" : "disable")}<span>${escapeHtml(disabled ? mt("enable") : mt("disable"))}</span></button>
@@ -384,8 +385,8 @@ function codexLocalUsageHasData(value) {
 
 function codexQuotaWindowKey(window, fallback) {
   const seconds = finiteNumber(window?.limit_window_seconds ?? window?.limitWindowSeconds ?? window?.windowSeconds, 0);
-  if (seconds === 18000) return "5h";
-  if (seconds === 604800) return "7d";
+  if (seconds > 0 && seconds <= 6 * 3600) return "5h";
+  if (seconds > 6 * 3600) return "7d";
   return fallback;
 }
 
@@ -441,8 +442,16 @@ function renderCodexUsageWindow(item, mt, now) {
 
 function renderCodexUsage(account, mt, now) {
   const windows = codexAccountUsageWindows(account);
-  if (!windows.length) return `<span class="codex-no-quota">${escapeHtml(mt("noQuota"))}</span>`;
-  return `<div class="codex-quota-stack">${windows.map((item) => renderCodexUsageWindow(item, mt, now)).join("")}</div>`;
+  const resetCount = codexResetCreditCount(account);
+  if (!windows.length && resetCount <= 0) return `<span class="codex-no-quota">${escapeHtml(mt("noQuota"))}</span>`;
+  const resetMeta = resetCount > 0 ? `<div class="codex-quota-meta">${escapeHtml(mt("resetCreditsAvailable", { count: resetCount }))}</div>` : "";
+  return `<div class="codex-quota-stack">${windows.map((item) => renderCodexUsageWindow(item, mt, now)).join("")}${resetMeta}</div>`;
+}
+
+export function codexResetCreditCount(account = {}) {
+  const credits = account?.quota?.rate_limit_reset_credits || account?.quota?.rateLimitResetCredits;
+  if (!credits || typeof credits !== "object") return 0;
+  return Math.max(0, Math.trunc(finiteNumber(credits.available_count ?? credits.availableCount, 0)));
 }
 
 function codexActionIcon(name) {
@@ -455,6 +464,7 @@ function codexActionIcon(name) {
     save: '<path d="m5 12 4 4L19 6"/>',
     cancel: '<path d="m6 6 12 12"/><path d="m18 6-12 12"/>',
     export: '<path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/>',
+    resetQuota: '<path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/>',
   };
   return `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${paths[name] || paths.edit}</svg>`;
 }

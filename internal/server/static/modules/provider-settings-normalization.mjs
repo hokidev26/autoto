@@ -311,6 +311,7 @@ export function codexAccountActionRequest(action, id, values = {}) {
     case "save": return { path, options: { method: "PATCH", body: JSON.stringify({ alias: String(values.alias || ""), priority: Number(values.priority) }) } };
     case "toggle": return { path, options: { method: "PATCH", body: JSON.stringify({ disabled: !Boolean(values.disabled) }) } };
     case "sync": return { path: `${path}/refresh`, options: { method: "POST" } };
+    case "resetQuota": return { path: `${path}/reset-quota`, options: { method: "POST", headers: { "X-Autoto-Confirm": "reset-codex-quota" } } };
     case "export": return { path: `${path}/export`, options: { method: "GET", headers: { "X-Autoto-Confirm": "export-codex-account" } } };
     case "delete": return { path, options: { method: "DELETE" } };
     default: throw new Error(`unsupported Codex account action: ${action}`);

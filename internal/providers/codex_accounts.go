@@ -170,12 +170,6 @@ func codexRefreshRedirectPolicy(*http.Request, []*http.Request) error {
 	return http.ErrUseLastResponse
 }
 
-func (p *CodexProvider) SetAccountTelemetry(telemetry AccountTelemetry) {
-	if p != nil {
-		p.telemetry = telemetry
-	}
-}
-
 func (p *CodexProvider) SyncAccount(ctx context.Context, id string) (codexauth.AccountSummary, codexauth.QuotaSnapshot, error) {
 	if p != nil && p.endpointErr != nil {
 		return codexauth.AccountSummary{}, codexauth.QuotaSnapshot{}, providerUnavailableError(codexauth.DefaultProviderName, p.endpointErr.Error())
@@ -204,6 +198,7 @@ func (p *CodexProvider) SyncAccount(ctx context.Context, id string) (codexauth.A
 	if err != nil {
 		return codexauth.Summary(prepared), codexauth.QuotaSnapshot{}, err
 	}
+	p.attachResetCredits(ctx, prepared, &quota)
 	if quota.PlanType != "" && quota.PlanType != prepared.Credential.PlanType {
 		prepared.Credential.PlanType = quota.PlanType
 		if err := p.store.Update(prepared); err != nil {
@@ -230,6 +225,8 @@ func (p *CodexProvider) fetchAccountQuota(ctx context.Context, credential codexa
 	}
 	request.Header.Set("Accept", "application/json")
 	request.Header.Set("User-Agent", p.userAgent())
+	request.Header.Set("originator", "autoto")
+	request.Header.Set("OpenAI-Beta", codexQuotaBetaHeader)
 	response, err := p.client.Do(request)
 	if err != nil {
 		if ctx.Err() != nil {
@@ -305,6 +302,7 @@ func parseCodexQuota(reader io.Reader, now time.Time) (codexauth.QuotaSnapshot, 
 	quota.PrimaryWindow = parseRateLimitWindow(flexMap(rateLimit, "primary_window", "primaryWindow", "primary"))
 	quota.SecondaryWindow = parseRateLimitWindow(flexMap(rateLimit, "secondary_window", "secondaryWindow", "secondary"))
 	quota.Credits = parseCreditBalance(flexMap(root, "credits", "credit_balance", "creditBalance"))
+	quota.RateLimitResetCredits = parseResetCreditsMap(flexMap(root, "rate_limit_reset_credits", "rateLimitResetCredits"))
 	for _, raw := range flexSlice(root, "additional_rate_limits", "additionalRateLimits") {
 		item, ok := raw.(map[string]any)
 		if !ok {
@@ -323,6 +321,12 @@ func parseCodexQuota(reader io.Reader, now time.Time) (codexauth.QuotaSnapshot, 
 		if additional.Name != "" || additional.Model != "" || additional.PrimaryWindow != nil || additional.SecondaryWindow != nil {
 			quota.AdditionalRateLimits = append(quota.AdditionalRateLimits, additional)
 		}
+	}
+	stampCodexWindowResetAt(quota.PrimaryWindow, now)
+	stampCodexWindowResetAt(quota.SecondaryWindow, now)
+	for i := range quota.AdditionalRateLimits {
+		stampCodexWindowResetAt(quota.AdditionalRateLimits[i].PrimaryWindow, now)
+		stampCodexWindowResetAt(quota.AdditionalRateLimits[i].SecondaryWindow, now)
 	}
 	return quota, nil
 }

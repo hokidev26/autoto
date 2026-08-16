@@ -982,6 +982,9 @@ func TestCodexProviderSyncAccountUsesUsageEndpointWithoutUnnecessaryRefresh(t *t
 			if r.Header.Get("Authorization") != "Bearer quota-access" || r.Header.Get("ChatGPT-Account-ID") != "quota-account" {
 				t.Fatalf("unexpected quota headers: auth=%q account=%q", r.Header.Get("Authorization"), r.Header.Get("ChatGPT-Account-ID"))
 			}
+			if r.Header.Get("originator") != "autoto" || r.Header.Get("OpenAI-Beta") != "codex-1" {
+				t.Fatalf("unexpected quota identity headers: originator=%q beta=%q", r.Header.Get("originator"), r.Header.Get("OpenAI-Beta"))
+			}
 			_, _ = w.Write([]byte(`{
 				"plan_type":"plus",
 				"rate_limit":{"primary_window":{"used_percent":25,"limit_window_seconds":18000,"reset_after_seconds":90},"secondaryWindow":{"usedPercent":"60","windowSeconds":604800}},
@@ -1519,6 +1522,9 @@ func TestCodexUsageURLPreservesPrefixOrExplicitTestEndpoint(t *testing.T) {
 	provider = NewCodexProvider(config.ProviderConfig{BaseURL: "http://127.0.0.1:1234/prefix/codex", CodexUsageURL: "http://127.0.0.1:1234/mock/usage", CodexAllowInsecureTestEndpoint: true})
 	if got := provider.usageURL(); got != "http://127.0.0.1:1234/mock/usage" {
 		t.Fatalf("explicit test usage URL was not preserved: %s", got)
+	}
+	if got := provider.resetCreditsURL(); got != "" || provider.resetCreditsConsumeURL() != "" {
+		t.Fatalf("custom usage mock must not invent reset-credit endpoints: %s %s", provider.resetCreditsURL(), provider.resetCreditsConsumeURL())
 	}
 }
 

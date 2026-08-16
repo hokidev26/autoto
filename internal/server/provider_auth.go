@@ -124,17 +124,32 @@ func (s *Server) listCodexOAuthAccounts(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	statsByID := map[string]db.ProviderAccountStats{}
+	quotasByID := map[string]*codexauth.QuotaSnapshot{}
+	usageStarts := map[string]db.ProviderAccountUsageWindowStarts{}
 	usageByID := map[string]db.ProviderAccountUsage{}
 	if s.store != nil {
 		if stats, statsErr := s.store.ListProviderAccountStats(r.Context(), codexauth.DefaultProviderName); statsErr == nil {
 			statsByID = stats
+			for id, item := range stats {
+				if len(item.QuotaSnapshotJSON) == 0 {
+					continue
+				}
+				var quota codexauth.QuotaSnapshot
+				if json.Unmarshal(item.QuotaSnapshotJSON, &quota) != nil {
+					continue
+				}
+				quotaCopy := quota
+				quotasByID[id] = &quotaCopy
+				last5, last7 := providers.CodexLocalUsageWindowStarts(&quotaCopy, s.now())
+				usageStarts[id] = db.ProviderAccountUsageWindowStarts{Last5Hours: last5, Last7Days: last7}
+			}
 		}
 		accountIDs := make([]string, 0, len(accounts))
 		for _, account := range accounts {
 			accountIDs = append(accountIDs, account.ID)
 		}
 		var usageErr error
-		usageByID, usageErr = s.store.ListProviderAccountUsage(r.Context(), codexauth.DefaultProviderName, accountIDs, s.now())
+		usageByID, usageErr = s.store.ListProviderAccountUsage(r.Context(), codexauth.DefaultProviderName, accountIDs, s.now(), usageStarts)
 		if usageErr != nil {
 			writeError(w, http.StatusInternalServerError, "Codex 帳號用量統計失敗")
 			return
@@ -142,16 +157,10 @@ func (s *Server) listCodexOAuthAccounts(w http.ResponseWriter, r *http.Request) 
 	}
 	response := make([]codexOAuthAccountResponse, 0, len(accounts))
 	for _, account := range accounts {
-		item := codexOAuthAccountResponse{AccountSummary: account, Usage: normalizeCodexAccountUsage(usageByID[account.ID])}
+		item := codexOAuthAccountResponse{AccountSummary: account, Usage: normalizeCodexAccountUsage(usageByID[account.ID]), Quota: quotasByID[account.ID]}
 		if stats, ok := statsByID[account.ID]; ok {
 			statsCopy := stats
 			item.Stats = &statsCopy
-			if len(stats.QuotaSnapshotJSON) > 0 {
-				var quota codexauth.QuotaSnapshot
-				if json.Unmarshal(stats.QuotaSnapshotJSON, &quota) == nil {
-					item.Quota = &quota
-				}
-			}
 		}
 		response = append(response, item)
 	}
@@ -248,6 +257,35 @@ func (s *Server) refreshCodexOAuthAccount(w http.ResponseWriter, r *http.Request
 	ctx, cancel := context.WithTimeout(r.Context(), codexOAuthSyncTimeout)
 	defer cancel()
 	response, status, err := s.syncCodexOAuthAccount(ctx, provider, chi.URLParam(r, "id"))
+	if err != nil {
+		s.writeRequestError(w, r, status, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, response)
+}
+
+func (s *Server) resetCodexOAuthQuota(w http.ResponseWriter, r *http.Request) {
+	if r.Header.Get("X-Autoto-Confirm") != "reset-codex-quota" {
+		writeError(w, http.StatusBadRequest, "重置 Codex 額度需要明確確認")
+		return
+	}
+	provider, err := s.nativeCodexProvider()
+	if err != nil {
+		s.writeRequestError(w, r, http.StatusInternalServerError, err)
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), codexOAuthSyncTimeout)
+	defer cancel()
+	id := chi.URLParam(r, "id")
+	if err := provider.ConsumeRateLimitResetCredit(ctx, id); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			writeError(w, http.StatusNotFound, "Codex 帳號不存在")
+			return
+		}
+		s.writeRequestError(w, r, http.StatusBadGateway, err)
+		return
+	}
+	response, status, err := s.syncCodexOAuthAccount(ctx, provider, id)
 	if err != nil {
 		s.writeRequestError(w, r, status, err)
 		return

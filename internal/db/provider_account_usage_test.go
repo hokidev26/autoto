@@ -30,7 +30,7 @@ func TestListProviderAccountUsageAggregatesTotalAndRecentWindows(t *testing.T) {
 	insert("other-provider", "openai", "account-a", "2026-07-18T10:00:00Z", 999, 999, 99)
 	insert("unattributed", "codex", "", "2026-07-18T10:00:00Z", 999, 999, 99)
 
-	usage, err := store.ListProviderAccountUsage(ctx, "codex", []string{"account-a", "account-b", "account-a", ""}, now)
+	usage, err := store.ListProviderAccountUsage(ctx, "codex", []string{"account-a", "account-b", "account-a", ""}, now, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -54,7 +54,7 @@ func TestListProviderAccountUsageAggregatesTotalAndRecentWindows(t *testing.T) {
 		t.Fatalf("unexpected account-b usage: %+v", b)
 	}
 
-	empty, err := store.ListProviderAccountUsage(ctx, "codex", nil, now)
+	empty, err := store.ListProviderAccountUsage(ctx, "codex", nil, now, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -74,11 +74,38 @@ func TestListProviderAccountUsageUsesTimezoneAwareCreatedAtComparisons(t *testin
 	if _, err := store.DB().ExecContext(ctx, `INSERT INTO api_requests (id, provider, credential_id, input_tokens, output_tokens, cost_usd, created_at) VALUES ('offset', 'codex', 'account-a', 1, 2, 0.5, '2026-07-18T06:30:00-05:00')`); err != nil {
 		t.Fatal(err)
 	}
-	usage, err := store.ListProviderAccountUsage(ctx, "codex", []string{"account-a"}, time.Date(2026, 7, 18, 12, 0, 0, 0, time.UTC))
+	usage, err := store.ListProviderAccountUsage(ctx, "codex", []string{"account-a"}, time.Date(2026, 7, 18, 12, 0, 0, 0, time.UTC), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if usage["account-a"].Last5Hours.RequestCount != 1 {
 		t.Fatalf("offset timestamp should be inside the 5h window: %+v", usage["account-a"])
+	}
+}
+
+func TestListProviderAccountUsageAlignsWindowsToCustomResetStarts(t *testing.T) {
+	ctx := context.Background()
+	store, err := Open(ctx, filepath.Join(t.TempDir(), "aligned-usage.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+
+	now := time.Date(2026, 7, 18, 12, 0, 0, 0, time.UTC)
+	if _, err := store.DB().ExecContext(ctx, `INSERT INTO api_requests (id, provider, credential_id, input_tokens, output_tokens, cost_usd, created_at) VALUES
+		('inside', 'codex', 'account-a', 10, 1, 0.5, '2026-07-18T10:00:00Z'),
+		('outside', 'codex', 'account-a', 20, 2, 1.5, '2026-07-18T07:00:00Z')`); err != nil {
+		t.Fatal(err)
+	}
+
+	usage, err := store.ListProviderAccountUsage(ctx, "codex", []string{"account-a"}, now, map[string]ProviderAccountUsageWindowStarts{
+		"account-a": {Last5Hours: now.Add(-3 * time.Hour), Last7Days: now.Add(-3 * time.Hour)},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := usage["account-a"]
+	if got.Total.RequestCount != 2 || got.Last5Hours.RequestCount != 1 || got.Last7Days.RequestCount != 1 || got.Last5Hours.InputTokens != 10 {
+		t.Fatalf("custom reset window was not applied: %+v", got)
 	}
 }

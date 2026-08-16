@@ -41,6 +41,7 @@ func TestNativeCodexCredentialRoutesRequireCanonicalToken(t *testing.T) {
 		{name: "account export", method: http.MethodGet, target: "/api/providers/oauth/codex/accounts/codex_fixture/export", validCodes: []int{http.StatusBadRequest}},
 		{name: "account patch", method: http.MethodPatch, target: "/api/providers/oauth/codex/accounts/codex_fixture", body: `{}`, validCodes: []int{http.StatusBadRequest}},
 		{name: "account refresh", method: http.MethodPost, target: "/api/providers/oauth/codex/accounts/codex_fixture/refresh", validCodes: []int{http.StatusNotFound}},
+		{name: "account reset quota", method: http.MethodPost, target: "/api/providers/oauth/codex/accounts/codex_fixture/reset-quota", validCodes: []int{http.StatusBadRequest}},
 		{name: "account delete", method: http.MethodDelete, target: "/api/providers/oauth/codex/accounts/codex_fixture", validCodes: []int{http.StatusOK}},
 		{name: "native import", method: http.MethodPost, target: "/api/providers/oauth/codex/import", body: `{}`, validCodes: []int{http.StatusBadRequest}},
 		{name: "oauth login status", method: http.MethodGet, target: "/api/providers/oauth/codex/login/codex_login_fixture", validCodes: []int{http.StatusNotFound}},

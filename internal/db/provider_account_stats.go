@@ -2,6 +2,7 @@ package db
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -137,6 +138,25 @@ FROM provider_account_stats WHERE provider = ?
 	return result, rows.Err()
 }
 
+func (s *providerAccountStore) CurrentProviderAccountQuota(ctx context.Context, provider, accountID string) (json.RawMessage, time.Time, error) {
+	stats, err := s.GetProviderAccountStats(ctx, provider, accountID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, time.Time{}, nil
+		}
+		return nil, time.Time{}, err
+	}
+	var fetchedAt time.Time
+	if stats.QuotaFetchedAt != "" {
+		if parsed, parseErr := time.Parse(time.RFC3339Nano, stats.QuotaFetchedAt); parseErr == nil {
+			fetchedAt = parsed.UTC()
+		} else if parsed, parseErr := time.Parse(time.RFC3339, stats.QuotaFetchedAt); parseErr == nil {
+			fetchedAt = parsed.UTC()
+		}
+	}
+	return stats.QuotaSnapshotJSON, fetchedAt, nil
+}
+
 func (s *providerAccountStore) GetProviderAccountStats(ctx context.Context, provider, accountID string) (ProviderAccountStats, error) {
 	if s == nil || s.db == nil {
 		return ProviderAccountStats{}, errors.New("database store is unavailable")
@@ -248,4 +268,8 @@ func providerAccountSensitiveKey(value any) (string, bool) {
 	return "", false
 }
 
-var _ providers.AccountTelemetry = (*Store)(nil)
+var (
+	_ providers.AccountTelemetry      = (*Store)(nil)
+	_ providers.AccountQuotaTelemetry = (*Store)(nil)
+	_ providers.AccountQuotaLoader    = (*Store)(nil)
+)
