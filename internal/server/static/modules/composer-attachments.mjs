@@ -1,7 +1,10 @@
 import { $, escapeAttr, escapeHtml } from "./dom.mjs";
 import { formatBytes } from "./formatters.mjs";
 import { t } from "./i18n.mjs";
+import { t as cr } from "./messages-chat-rendering-extra.mjs";
 import { isSupportedVideoFile, processVideoAttachment } from "./video-attachments.mjs";
+import { attachmentGlyph } from "./attachment-glyphs.mjs";
+import { openImageLightbox } from "./image-lightbox.mjs";
 
 // The composer's attachment pipeline: picker, paste, drag-and-drop, preview
 // cards, and video pre-processing. Split out of chat-composer.mjs to keep
@@ -16,6 +19,7 @@ export function createComposerAttachments({
   invalidateAttachmentProcessing,
   isAttachmentProcessing,
   prepareVideoAttachment,
+  previewPendingImage,
   showToast,
   state,
   syncMessageComposerBusy,
@@ -241,10 +245,48 @@ export function createComposerAttachments({
     if (!wrap) return;
     const attachments = state.pendingAttachments || [];
     wrap.classList.toggle("hidden", attachments.length === 0);
-    wrap.innerHTML = attachments.map((item) => pendingAttachmentCardHTML(item)).join("");
+    $("composerInputShell")?.classList.toggle("has-pending-attachments", attachments.length > 0);
+    const images = attachments.filter(isPendingImagePreview);
+    const files = attachments.filter((item) => !isPendingImagePreview(item));
+    const imageStrip = images.length
+      ? `<div class="pending-image-strip">${images.map((item) => pendingAttachmentCardHTML(item)).join("")}</div>`
+      : "";
+    const fileStrip = files.length
+      ? `<div class="pending-file-strip">${files.map((item) => pendingAttachmentCardHTML(item)).join("")}</div>`
+      : "";
+    wrap.innerHTML = `${imageStrip}${fileStrip}`;
     wrap.querySelectorAll("[data-remove-attachment]").forEach((button) => {
-      button.addEventListener("click", () => removePendingAttachment(button.dataset.removeAttachment));
+      button.addEventListener("click", (event) => {
+        event.stopPropagation?.();
+        removePendingAttachment(button.dataset.removeAttachment);
+      });
     });
+    wrap.querySelectorAll("[data-pending-image-preview]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const item = attachments.find((attachment) => attachment.id === button.dataset.pendingImagePreview);
+        if (item) void openPendingImagePreview(item);
+      });
+    });
+  }
+
+  function isPendingImagePreview(item) {
+    return item?.kind === "image" && Boolean(item.previewUrl);
+  }
+
+  async function openPendingImagePreview(item) {
+    const name = item?.file?.name || t("workspace.chat.unnamedFile");
+    const opener = previewPendingImage || openImageLightbox;
+    const opened = await opener({
+      url: item.previewUrl,
+      caption: name,
+      downloadName: name,
+      labels: {
+        close: cr("attachment.closeViewer"),
+        download: cr("imageGeneration.download"),
+        copy: cr("attachment.copyImage"),
+      },
+    });
+    if (!opened) showToast?.(cr("attachment.unavailable"), "warn");
   }
 
   function pendingAttachmentCardHTML(item) {
@@ -253,17 +295,20 @@ export function createComposerAttachments({
     if (item.kind === "image" && item.previewUrl) {
       return `
         <div class="pending-image-card" title="${escapeAttr(name)}">
-          <img class="pending-image-thumb" src="${escapeAttr(item.previewUrl)}" alt="${escapeAttr(name)}" />
+          <button class="pending-image-open" type="button" data-pending-image-preview="${escapeAttr(item.id)}" aria-label="${escapeAttr(t("workspace.chat.previewAttachment", { name }))}">
+            <img class="pending-image-thumb" src="${escapeAttr(item.previewUrl)}" alt="${escapeAttr(name)}" />
+          </button>
           <button class="pending-attachment-remove" type="button" title="${escapeAttr(t("workspace.chat.removeAttachment"))}" aria-label="${escapeAttr(t("workspace.chat.removeAttachment"))}" data-remove-attachment="${escapeAttr(item.id)}">×</button>
         </div>
       `;
     }
     const subtitle = formatBytes(file.size || 0);
+    const kind = item.kind || "binary";
+    const title = subtitle ? `${name} · ${subtitle}` : name;
     return `
-      <div class="pending-file-chip" title="${escapeAttr(name)}">
-        <span class="pending-file-icon">▯</span>
+      <div class="pending-file-chip" title="${escapeAttr(title)}" data-kind="${escapeAttr(kind)}">
+        <span class="pending-file-icon" data-kind="${escapeAttr(kind)}" aria-hidden="true">${attachmentGlyph(kind)}</span>
         <span class="pending-file-name">${escapeHtml(name)}</span>
-        <span class="pending-file-size">${escapeHtml(subtitle)}</span>
         <button class="pending-attachment-remove" type="button" title="${escapeAttr(t("workspace.chat.removeAttachment"))}" aria-label="${escapeAttr(t("workspace.chat.removeAttachment"))}" data-remove-attachment="${escapeAttr(item.id)}">×</button>
       </div>
     `;
@@ -373,6 +418,7 @@ export function createComposerAttachments({
     restorePendingAttachments,
     renderPendingAttachments,
     pendingAttachmentCardHTML,
+    openPendingImagePreview,
     setComposerDragging,
     eventHasFiles,
     handleAttachmentDragOver,

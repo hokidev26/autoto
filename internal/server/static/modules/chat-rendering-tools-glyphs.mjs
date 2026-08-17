@@ -42,6 +42,13 @@ export function messageCopiedGlyph() {
   return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m5.5 12.5 4.5 4.5 8.5-9.5"></path></svg>`;
 }
 
+// Edit-and-resend. The previous CSS `↶` read as regenerate/undo and sat on a
+// fallback font; a pencil matches the copy button's stroke glyph and the
+// action (correct the original turn, then rerun it).
+export function messageCorrectGlyph() {
+  return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M12 20.5h8.5"></path><path d="M16.6 4.1a2.1 2.1 0 0 1 3 3L8.4 18.3 4 19.5l1.2-4.4Z"></path></svg>`;
+}
+
 // Same right-pointing chevron as the sidebar folder disclosure. Rotating one
 // shape keeps collapsed and expanded visually related.
 export function disclosureChevronMarkup() {

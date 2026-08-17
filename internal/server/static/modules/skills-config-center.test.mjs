@@ -156,13 +156,18 @@ test("紧凑配置卡片保留安全边界、信任提示与 Hook 历史控件",
   // Preview is a role list under a collapsed disclosure, not a JSON dump.
   assert.match(roles, /class="settings-card settings-page-section skill-role-preview"/);
   assert.doesNotMatch(roles, /skill-command-prompt/);
-  // Header controls and the disclosure refresh each own one aligned row.
+  // Card-header refresh matches the MCP catalog; the disclosure is title + body only.
   assert.match(roles, /skill-config-panel-head/);
   assert.match(roles, /skill-config-panel-tools/);
   assert.match(roles, /skill-config-scope-field/);
+  assert.match(roles, /skill-config-panel-tools[\s\S]*data-role-refresh/);
+  assert.doesNotMatch(roles, /<div class="skill-workbench-actions">/);
+  assert.match(roles, /data-role-refresh/);
+  assert.match(roles, /刷新服务端策略/);
   assert.match(roles, /<summary class="skill-role-preview-summary">/);
-  assert.match(roles, /skill-role-preview-actions/);
   assert.match(roles, /skill-role-preview-body/);
+  assert.doesNotMatch(roles, /skill-role-preview-actions/);
+  assert.doesNotMatch(roles, /class="settings-form-field skill-config-scope-field"/);
 
   center.renderTab("global-prompts");
   await tick();
@@ -186,6 +191,15 @@ test("紧凑配置卡片保留安全边界、信任提示与 Hook 历史控件",
   await historyButton.handlers.get("click")();
   const hooks = center.renderTab("hooks");
   assert.match(hooks, /data-hook-form/);
+  assert.match(hooks, /skill-workbench-actions/);
+  assert.match(hooks, /data-hooks-refresh/);
+  assert.match(hooks, /刷新服务端策略/);
+  assert.match(hooks, /skill-config-panel-head/);
+  assert.match(hooks, /skill-hook-enable/);
+  assert.match(hooks, /skill-hook-form-grid/);
+  assert.match(hooks, /skill-hook-secrets/);
+  assert.match(hooks, /class="settings-form-span-2 skill-hook-timeout"/);
+  assert.match(hooks, /<div class="settings-form-span-2 skill-hook-enable"><label class="settings-switch-row">/);
   assert.match(hooks, /data-hook-test="h-1"/);
   assert.match(hooks, /data-hook-history="h-1"/);
   assert.match(hooks, /data-hook-edit="h-1"/);

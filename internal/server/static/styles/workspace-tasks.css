@@ -1923,11 +1923,12 @@ body.white-shell.theme-light .messages:not(.empty) > [class~="message"][class~="
   line-height: 1;
 }
 
-body.white-shell.theme-light .messages:not(.empty) > [class~="message"][class~="user"][class~="chat-flow-left"] [data-correct-message]::before {
-  content: "↶";
+body.white-shell.theme-light .messages:not(.empty) > [class~="message"][class~="user"][class~="chat-flow-left"] [data-copy-message] svg {
+  width: 13px;
+  height: 13px;
 }
 
-body.white-shell.theme-light .messages:not(.empty) > [class~="message"][class~="user"][class~="chat-flow-left"] [data-copy-message] svg {
+body.white-shell.theme-light .messages:not(.empty) > [class~="message"][class~="user"][class~="chat-flow-left"] [data-correct-message] svg {
   width: 13px;
   height: 13px;
 }
@@ -2665,11 +2666,6 @@ body.white-shell.theme-light .background-task-bubble .message-time {
   line-height: 1;
   border-radius: 6px;
 }
-.background-task-bubble [data-correct-child-message]::before {
-  content: "↶";
-  font-size: 12px;
-  line-height: 1;
-}
 .background-task-bubble.role-user.message-editing {
   width: 100%;
   max-width: 100%;
@@ -2718,11 +2714,6 @@ body.white-shell.theme-light .background-task-bubble .message-copy-btn[data-corr
   line-height: 1;
   border-radius: 6px;
   color: var(--ws-muted);
-}
-body.white-shell.theme-light .background-task-bubble .message-copy-btn[data-correct-child-message]::before {
-  content: "↶";
-  font-size: 12px;
-  line-height: 1;
 }
 .background-task-bubble.role-assistant .message-head-actions {
   opacity: 0;

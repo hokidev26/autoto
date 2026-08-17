@@ -41,6 +41,11 @@ export function createServerResourceLoaders({
     if (state.healthOK === false || state.runtimeError || streamStatus === "offline" || remoteWarning) tone = "error";
     else if (["syncing", "resyncing", "connecting", "reconnecting"].includes(streamStatus)) tone = "busy";
     else if (state.healthOK === true && (!state.agent || streamStatus === "connected")) tone = "ok";
+    if (state.holdRuntimeStatusTone) {
+      if (tone === "error") state.holdRuntimeStatusTone = false;
+      else if (tone === "ok" && streamStatus === "connected") state.holdRuntimeStatusTone = false;
+      else tone = "ok";
+    }
     indicator.className = `header-tool-indicator ${tone}`;
     button.classList.toggle("tool-error", tone === "error");
     const streamLabel = state.agent ? `Agent ${streamStatus}` : t("chat.noAgent");

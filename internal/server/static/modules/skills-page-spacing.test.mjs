@@ -49,6 +49,30 @@ test("skill scope managers space the blocks they stack", () => {
   assert.match(body, /gap:/);
 });
 
+test("the subagent scope field stays a single inline row", () => {
+  const body = ruleBody("#settingsContentBody .skill-config-scope-field {");
+  assert.match(body, /display:\s*flex/);
+  assert.match(body, /flex-direction:\s*row/);
+});
+
+test("the subagent preview disclosure does not use a two-column details grid", () => {
+  const body = ruleBody("#settingsContentBody .skills-page details.skill-role-preview {");
+  assert.match(body, /display:\s*flex/);
+  assert.match(body, /flex-direction:\s*column/);
+  assert.doesNotMatch(body, /grid-template-columns/);
+});
+
+test("the hook form grid actually separates its fields", () => {
+  const body = ruleBody("#settingsContentBody .skills-page [data-hook-form] .skill-hook-form-grid {");
+  assert.match(body, /gap:/);
+});
+
+test("the scoped server-skills section does not carry the item-card left accent", () => {
+  const cssSource = readStylesGroupSync("settings.css", import.meta.url);
+  assert.match(cssSource, /#settingsContentBody \.skills-page \.skills-v2-card\s*\{[\s\S]*?border-left:/);
+  assert.doesNotMatch(cssSource, /#settingsContentBody \.skills-page :is\(\.skills-v2-section, \.skills-v2-card\)/);
+});
+
 // A page-wide sweep for the same mistake was tried here and removed. Deciding
 // whether a gap can apply means resolving the display an element ends up with,
 // across stylesheets and through nested at-rules, and a flat regex mis-slices

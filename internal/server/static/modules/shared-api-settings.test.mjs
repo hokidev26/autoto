@@ -182,8 +182,8 @@ test("disabled Gateway still loads every preconfiguration resource and renders e
   assert.match(html, /Gateway 已停止/);
   assert.match(html, /127\.0\.0\.1:7788/);
   assert.match(html, /data-gateway-config-form/);
-  assert.match(html, /<details class="shared-api-gateway-details">/);
-  assert.doesNotMatch(html, /<details class="shared-api-gateway-details" open/);
+  assert.match(html, /shared-api-gateway-section[\s\S]*shared-api-section-head/);
+  assert.doesNotMatch(html, /shared-api-gateway-details/);
   assert.match(html, /data-gateway-toggle="true"/);
   assert.match(html, /data-gateway-key-add/);
   assert.doesNotMatch(html, /data-gateway-key-add disabled/);
@@ -677,4 +677,32 @@ test("alias management appears once the Gateway is running with an account to ro
   assert.match(html, /data-gateway-model-add/);
   assert.match(html, /fast/);
   assert.match(html, /codex:gpt-5/);
+});
+
+test("Gateway, public tunnel, and model aliases stack full-width instead of pinning titles in a side column", async () => {
+  const styles = (await readFile(new URL("../styles/extras.css", import.meta.url), "utf8")).replace(/\r\n/g, "\n");
+  assert.match(styles, /#settingsContentBody \.shared-api-requests-details\s*\{[\s\S]*?grid-template-columns:\s*minmax\(0,\s*1fr\)/);
+  assert.doesNotMatch(styles, /#settingsContentBody \.shared-api-gateway-details \{[^}]*minmax\(150px,\s*210px\)/);
+  assert.match(styles, /#settingsContentBody \.compact-settings-section\.shared-api-tunnel-section,[\s\S]*?\.shared-api-gateway-section,[\s\S]*?grid-template-columns:\s*minmax\(0, 1fr\)/);
+  assert.match(styles, /#settingsContentBody \.shared-api-section-head\s*\{/);
+  assert.match(styles, /#settingsContentBody \.shared-api-page \.compact-settings-section-copy h2 \{[^}]*word-break:\s*keep-all/);
+
+  const state = enabledState({
+    gatewayStatus: { running: true, desiredEnabled: true, address: "127.0.0.1:51532" },
+    gatewayAccounts: [{ provider: "codex", accountId: "acct-1", eligible: true }],
+    apiTunnel: { available: true, status: "idle", activeKeys: 1, gatewayRunning: true },
+  });
+  const html = createSharedAPISettingsController({ state }).render();
+  const gateway = html.match(/<section class="compact-settings-section shared-api-gateway-section">[\s\S]*?<\/section>/)?.[0] || "";
+  assert.match(gateway, /shared-api-section-head[\s\S]*class="settings-badge/);
+  assert.doesNotMatch(gateway, /shared-api-status-row|<details/);
+  assert.match(html, /shared-api-tunnel-section[\s\S]*shared-api-section-head[\s\S]*data-api-tunnel-start/);
+  assert.match(html, /shared-api-models-section[\s\S]*shared-api-section-head[\s\S]*data-gateway-model-add/);
+  assert.match(html, /shared-api-providers-section[\s\S]*shared-api-section-head/);
+  assert.match(html, /shared-api-accounts-section[\s\S]*shared-api-section-head/);
+  assert.match(html, /shared-api-keys-section[\s\S]*shared-api-section-head/);
+  assert.equal((html.match(/<details/g) || []).length, 1);
+  assert.match(html, /<details class="shared-api-requests-details">/);
+  assert.doesNotMatch(html, /<details class="shared-api-requests-details" open/);
+  assert.doesNotMatch(html, /shared-api-(gateway|providers|accounts|keys)-details/);
 });

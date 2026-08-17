@@ -47,23 +47,23 @@ test("user admin page creates collaborators and guests with project grants", () 
   assert.match(html, />1<\/strong><span>Administrators<\/span>/);
   assert.match(html, />1<\/strong><span>Collaborators<\/span>/);
   assert.match(html, />1<\/strong><span>Guests<\/span>/);
+  assert.match(html, /id="createCollaboratorBtn"/);
+  assert.match(html, /id="createGuestBtn"/);
   assert.match(html, /id="createCollaboratorForm"/);
   assert.match(html, /id="collaboratorHandleInput"/);
   assert.match(html, /id="collaboratorPasswordInput"/);
   assert.match(html, /id="createGuestForm"/);
-  ["collaborator", "guest", "accounts"].forEach((id) => {
-    const tag = html.match(new RegExp(`<details[^>]*data-user-admin-fold="${id}"[^>]*>`))?.[0] || "";
-    assert.match(tag, new RegExp(`data-user-admin-fold="${id}"`));
-    assert.doesNotMatch(tag, /\sopen(?:\s|>|$)/);
-  });
+  assert.match(html, /user-admin-create-panel"[^>]*\shidden/);
+  assert.doesNotMatch(html, /data-user-admin-fold|user-admin-fold/);
+  assert.match(html, /class="[^"]*user-admin-accounts/);
+  assert.match(html, /user-admin-account-list/);
   assert.match(html, /data-settings-help-copy/);
   assert.match(html, /data-settings-help-copy>Administrators can create collaborators and guests/);
   assert.match(html, /data-settings-help-copy>Collaborators sign in with a handle and password/);
   assert.match(html, /data-settings-help-copy>Guests can only watch conversations/);
   assert.match(html, /data-settings-help-copy>Collaborators can have working project membership/);
-  assert.match(html, /data-user-admin-fold="accounts"/);
-  const accountsHead = html.slice(html.indexOf('data-user-admin-fold="accounts"'), html.indexOf("user-admin-account-list"));
-  assert.doesNotMatch(accountsHead, /settings-badge/);
+  const accountsCard = html.slice(html.indexOf("user-admin-accounts"), html.indexOf("user-admin-account-list"));
+  assert.doesNotMatch(accountsCard, /<details/);
   assert.match(html, /id="guestHandleInput"/);
   assert.match(html, /id="guestPasswordInput"/);
   assert.match(html, /id="guestKeyLabelInput"/);
@@ -111,14 +111,16 @@ test("user admin styles stack the hero card like other settings pages", () => {
   const source = readFileSync(new URL("./user-admin-settings.mjs", import.meta.url), "utf8");
   assert.match(css, /#settingsContentBody \.user-admin-page \.settings-hero-card \{[\s\S]*?flex-direction:\s*column/);
   assert.match(css, /\.user-admin-project-menu\.composer-select-popover \{[\s\S]*?z-index:\s*130/);
-  assert.match(css, /#settingsContentBody \.user-admin-fold > summary::-webkit-details-marker/);
-  assert.match(css, /#settingsContentBody \.user-admin-fold\[open\] > summary::after/);
-  assert.match(css, /#settingsContentBody \.user-admin-fold > summary\s*\{[\s\S]*?padding:\s*16px 22px/);
-  assert.match(css, /#settingsContentBody \.user-admin-fold > \.settings-card-content\s*\{[\s\S]*?padding:\s*20px 22px 22px/);
+  assert.match(css, /#settingsContentBody \.user-admin-create-panel\s*\{/);
+  assert.match(css, /#settingsContentBody \.user-admin-account-row\s*\{[\s\S]*?grid-template-columns:\s*minmax\(0, 1fr\) auto/);
+  assert.match(css, /#settingsContentBody \.user-admin-account-summary::-webkit-details-marker/);
+  assert.match(css, /#settingsContentBody \.user-admin-accounts\s*\{[\s\S]*?padding:\s*0/);
+  assert.doesNotMatch(css, /#settingsContentBody \.user-admin-fold >/);
   assert.match(source, /composer-select-popover user-admin-project-menu/);
   assert.match(source, /composer-select-option/);
   assert.match(source, /spaceBelow >= spaceAbove/);
   assert.doesNotMatch(source, /data-settings-help-copy">\$\{escapeHtml\(t\("users\.createdKey"\)\)\}/);
+  assert.doesNotMatch(source, /showToast/);
 });
 
 test("non-administrators do not fetch the account directory", async () => {

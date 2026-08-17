@@ -49,6 +49,9 @@ export function cachedProtectedImageURL(url) {
 export async function loadProtectedImageURL(url, runtime = {}) {
   const path = String(url || "");
   if (!path) throw new Error("missing protected image url");
+  // Composer pending previews are already blob: URLs. Fetching them through the
+  // token-gated /api/ client would 404 and block the lightbox.
+  if (/^(blob:|data:)/i.test(path)) return path;
   const { download, createObjectURL, revokeObjectURL } = { ...defaultRuntime(), ...runtime };
   const cached = blobURLCache.get(path);
   if (cached) return cached;

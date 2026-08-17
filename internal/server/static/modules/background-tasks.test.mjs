@@ -1260,6 +1260,7 @@ test("subagent user messages render the current profile avatar and display name"
   assert.match(html, /data-copy-child-message="m1"/);
   assert.match(html, /data-copy-child-message="m1"[^>]*>[\s\S]*?<svg viewBox="0 0 24 24"/);
   assert.match(html, /data-correct-child-message="m1"[^>]*aria-label="/);
+  assert.match(html, /data-correct-child-message="m1"[^>]*>[\s\S]*?<svg viewBox="0 0 24 24"/);
   assert.doesNotMatch(html, /data-correct-child-message="[^"]*"[^>]*>[^<]+</);
   assert.equal(controller.ownsChildAgent("child-1"), true);
   assert.equal(controller.childMessageText("child-1", "m1"), "brief the child");

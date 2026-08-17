@@ -664,16 +664,16 @@ body.white-shell.theme-light .toolbar-lightning-btn[aria-busy="true"] {
   }
 
   body.white-shell.theme-light [class~="composer-model-field"] {
-    flex: 0 1 300px;
-    width: clamp(220px, 24vw, 300px);
-    min-width: 180px;
-    max-width: 300px;
+    flex: 0 1 auto;
+    width: auto;
+    min-width: 0;
+    max-width: min(42vw, 260px);
   }
 
   body.white-shell.theme-light [class~="toolbar-model-pill"] {
-    width: 100%;
+    width: auto;
     min-width: 0;
-    max-width: 300px;
+    max-width: 100%;
     height: 30px;
     min-height: 30px;
   }
@@ -742,7 +742,12 @@ body.white-shell.theme-light .toolbar-lightning-btn[aria-busy="true"] {
      button match, which keeps the transcript area as tall as possible. */
   body.white-shell.theme-light [class~="message-input-frame"] {
     min-height: 36px;
-    align-items: center;
+    flex-direction: column;
+    align-items: stretch;
+    border: 1px solid var(--ws-border, #dfe3e9);
+    border-radius: 10px;
+    background: var(--ws-input, #eef1f5);
+    padding: 2px 2px 6px;
   }
 
   body.white-shell.theme-light textarea#messageText {
@@ -751,8 +756,11 @@ body.white-shell.theme-light .toolbar-lightning-btn[aria-busy="true"] {
     height: auto;
     min-height: var(--composer-input-min-height);
     max-height: var(--composer-input-max-height);
+    border: 0;
     border-radius: 7px;
-    padding: 5.5px 12px;
+    background: transparent;
+    box-shadow: none;
+    padding: 5.5px 12px 4px;
     line-height: 1.4;
   }
 
@@ -1188,7 +1196,8 @@ body.white-shell.theme-light .toolbar-lightning-btn[aria-busy="true"] {
 
   body.white-shell.theme-light [class~="message-input-frame"] {
     min-height: 44px;
-    align-items: center;
+    flex-direction: column;
+    align-items: stretch;
   }
 
   /* The frame is the only surface with a border at this width, so it also owns
@@ -1965,4 +1974,52 @@ body.white-shell.theme-light .theme-toggle-icon svg {
   stroke-width: 1.8;
   stroke-linecap: round;
   stroke-linejoin: round;
+}
+
+/* Cursor-style pending context: one rounded field contains the typed text,
+   then wrapping file chips. The textarea itself is no longer the painted box,
+   or chips sit outside it and read as a second toolbar. */
+body.white-shell.theme-light .message-input-frame {
+  border: 1px solid var(--ws-border, #dfe3e9);
+  border-radius: 10px;
+  background: var(--ws-input, #eef1f5);
+}
+
+body.white-shell.theme-light .message-input-frame:focus-within {
+  border-color: var(--ws-primary, #4f6ef7);
+  box-shadow: none;
+}
+
+body.white-shell.theme-light .composer-input-shell.dragging .message-input-frame {
+  border-color: var(--ws-primary, #4f6ef7);
+}
+
+@media (min-width: 768px) {
+  body.white-shell.theme-light #composerInputShell {
+    align-items: flex-end;
+  }
+
+  body.white-shell.theme-light [class~="message-input-frame"] {
+    border: 1px solid var(--ws-border, #dfe3e9);
+    border-radius: 10px;
+    background: var(--ws-input, #eef1f5);
+    padding: 2px 2px 6px;
+  }
+
+  body.white-shell.theme-light [class~="message-input-frame"]:focus-within {
+    border-color: var(--ws-primary, #4f6ef7);
+    box-shadow: none;
+  }
+
+  body.white-shell.theme-light textarea#messageText,
+  body.white-shell.theme-light [class~="message-input-frame"]:focus-within textarea#messageText {
+    border: 0;
+    background: transparent;
+    box-shadow: none;
+    padding: 6px 10px 4px;
+  }
+
+  body.white-shell.theme-light [class~="pending-attachments"] {
+    padding: 8px 10px 2px;
+  }
 }

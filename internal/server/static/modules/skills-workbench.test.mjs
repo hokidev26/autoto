@@ -226,6 +226,7 @@ test("commands workbench renders one file source area with user/project selectio
     },
     currentSkillsPreferences: () => ({ commands: [], mcpServers: [], toolPolicy: {} }),
     getSkillContext: () => ({ scope: "project", projectId: "p-1" }),
+    setSkillContext: () => {},
     skillsPhaseB: {
       ensureContext: () => ({ status: "ready", items: [], revisions: {}, snapshotSequence: 1 }),
       ensureSources: () => sourceState,
@@ -241,4 +242,24 @@ test("commands workbench renders one file source area with user/project selectio
   assert.match(markup, /data-file-skill-source-import="0"/);
   assert.match(markup, /allowed-tools/);
   assert.match(markup, /绝不授予工具权限/);
+  assert.doesNotMatch(markup, /skills-primary-actions/);
+  assert.doesNotMatch(markup, /highlighted skills-v2-section/);
+  assert.match(markup, /skill-config-panel-head[\s\S]*skill-config-scope-field[\s\S]*id="skillsV2ScopeSelect"[\s\S]*id="refreshSkillsV2Btn"/);
+  assert.match(markup, /settings-provider-section-head[\s\S]*id="refreshServerSkillsBtn"[\s\S]*id="migrateLocalSkillsBtn"/);
+});
+
+test("tool permission refresh lives in the preferences card header", () => {
+  const controller = createSkillsWorkbenchController({
+    state: {
+      activeSkillTab: "tool-permissions",
+      workflowPreferences: { requireConfirmationForExec: true, requireConfirmationForWrites: false, allowReadOnlyByDefault: true },
+      toolPermissionRules: [],
+      workflowLoading: false,
+      toolPermissionRulesLoading: false,
+    },
+    currentSkillsPreferences: () => ({ commands: [], mcpServers: [], toolPolicy: {} }),
+  });
+  const markup = controller.renderSkillSettingsContent("tool-permissions");
+  assert.doesNotMatch(markup, /<div class="skill-workbench-actions">/);
+  assert.match(markup, /settings-provider-section-head[\s\S]*id="refreshWorkflowPolicyBtn"/);
 });

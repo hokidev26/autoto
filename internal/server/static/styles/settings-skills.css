@@ -205,17 +205,32 @@
 
 #settingsContentBody .skill-config-panel-tools {
   flex: 0 1 auto;
+  display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: flex-end;
-  gap: var(--settings-space-2);
+  gap: 10px 12px;
+}
+
+#settingsContentBody .skills-page .settings-provider-section-head .skill-config-panel-tools {
+  flex-wrap: nowrap;
+}
+
+#settingsContentBody .skills-page .skills-v2-section :is(.settings-empty-state, .settings-empty-card.compact) {
+  min-height: 0;
+  padding: 16px 4px;
 }
 
 /* Inline scope field: label and select on one line so the control matches the
-   button height it sits next to. */
+   button height it sits next to. Beating .settings-form-field's display:grid is
+   why this selector is more specific than a single class. */
+#settingsContentBody .skills-page .skill-config-panel-tools .skill-config-scope-field,
 #settingsContentBody .skill-config-scope-field {
   display: flex;
+  flex-direction: row;
   align-items: center;
   gap: 8px;
+  margin: 0;
   font-size: 12px;
   font-weight: 650;
   white-space: nowrap;
@@ -231,14 +246,15 @@
   padding: 6px 8px;
 }
 
-/* Available subagent_type disclosure — collapsed by default so the definitions
-   list stays the focus. Summary and refresh share the first row; the body spans
-   both columns underneath. */
-#settingsContentBody .skill-role-preview {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
-  gap: var(--settings-space-2) var(--settings-space-3);
+/* Available subagent_type disclosure. display:grid on <details> shows every
+   child even when collapsed, which stacked the idle empty-state copy against
+   the old refresh control. A column flex plus an explicit hide restores the
+   native summary/body split. */
+#settingsContentBody .skills-page details.skill-role-preview {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--settings-space-3);
 }
 
 #settingsContentBody .skill-role-preview > summary {
@@ -247,7 +263,7 @@
   list-style: none;
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   min-width: 0;
   color: var(--settings-foreground);
   font-size: 13px;
@@ -269,20 +285,42 @@
   transform: rotate(90deg);
 }
 
-#settingsContentBody .skill-role-preview-actions {
-  grid-column: 2;
-  justify-content: flex-end;
-}
-
 #settingsContentBody .skill-role-preview-body {
-  grid-column: 1 / -1;
   min-width: 0;
   display: grid;
   gap: var(--settings-space-2);
 }
 
-#settingsContentBody .skill-role-preview:not([open]) > .skill-role-preview-body {
+#settingsContentBody .skills-page details.skill-role-preview:not([open]) > .skill-role-preview-body {
   display: none;
+}
+
+/* Hook editor: give the enable switch its own row so form-grid > label cannot
+   restack the checkbox under its caption, and keep action fields from leaving
+   an empty cell beside cwd. */
+#settingsContentBody .skills-page [data-hook-form] .skill-hook-form-grid {
+  gap: var(--settings-space-4) var(--settings-space-3);
+}
+
+#settingsContentBody .skills-page [data-hook-form] .skill-hook-enable {
+  grid-column: 1 / -1;
+}
+
+#settingsContentBody .skills-page [data-hook-form] .skill-hook-enable .settings-switch-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--settings-space-3);
+  min-height: var(--settings-control-height-touch);
+  margin: 0;
+  border: 1px solid var(--settings-border);
+  border-radius: var(--settings-radius);
+  background: color-mix(in srgb, var(--settings-surface) 96%, var(--settings-muted));
+  padding: 10px 12px;
+}
+
+#settingsContentBody .skills-page [data-hook-form] .skill-hook-timeout > input {
+  max-width: 12rem;
 }
 
 /* scoped skills left-accent */
@@ -313,13 +351,6 @@
   #settingsContentBody .skills-page .skill-config-scope-field > select {
     flex: 1 1 auto;
     min-width: 0;
-  }
-  #settingsContentBody .skill-role-preview {
-    grid-template-columns: minmax(0, 1fr);
-  }
-  #settingsContentBody .skill-role-preview-actions {
-    grid-column: 1;
-    justify-content: flex-start;
   }
 }
 

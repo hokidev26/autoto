@@ -153,3 +153,11 @@ test("a download link is armed lazily and a click before hydration is not allowe
   assert.equal(anchor.getAttribute("href"), "blob:download-bytes#1");
   assert.equal(clicked, 1, "the download is retried once the blob URL is in place");
 });
+
+test("blob and data URLs are already displayable and skip the token fetch", async () => {
+  releaseProtectedImageURLs({ revokeObjectURL: () => {} });
+  const { runtime, calls } = runtimeFor({});
+  assert.equal(await loadProtectedImageURL("blob:http://localhost/preview", runtime), "blob:http://localhost/preview");
+  assert.equal(await loadProtectedImageURL("data:image/png;base64,AAAA", runtime), "data:image/png;base64,AAAA");
+  assert.deepEqual(calls, []);
+});

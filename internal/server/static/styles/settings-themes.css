@@ -1685,7 +1685,7 @@ body.white-shell.theme-light[data-theme-preset="cream"] :is(.settings-action-btn
   .composer-hints,
   .prompt-history-hint,
   .chat-draft-limit-hint { display: none; }
-  .pending-attachments { order: 1; margin: 0 4px; }
+  .pending-attachments { order: 0; margin: 0; }
 
   #settingsModal.modal {
     position: fixed !important;
@@ -2002,6 +2002,15 @@ body.white-shell.theme-light[data-theme-preset="cream"] :is(.settings-action-btn
   gap: 10px;
 }
 
+/* <details> is also a settings-page-section. The grid above would otherwise
+   win display and show summary, idle copy and actions as one glued cluster. */
+#settingsContentBody .skills-page details.skill-role-preview {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 12px;
+}
+
 #settingsContentBody .skills-page :is(.settings-provider-section, .settings-page-section) > :is(.settings-card, .settings-page-section, .skill-config-card) {
   padding: var(--skill-card-padding);
   box-shadow: none;
@@ -2064,12 +2073,14 @@ body.white-shell.theme-light[data-theme-preset="cream"] :is(.settings-action-btn
   display: flex;
   flex-wrap: wrap;
   align-items: center;
+  justify-content: flex-end;
   gap: 8px;
   margin: 0;
 }
 
 #settingsContentBody .skills-page .settings-provider-section-head .skill-workbench-actions {
   justify-content: flex-end;
+  flex-wrap: nowrap;
 }
 
 #settingsContentBody .skills-page .skill-command-title {
@@ -2083,7 +2094,7 @@ body.white-shell.theme-light[data-theme-preset="cream"] :is(.settings-action-btn
   flex: 0 0 auto;
 }
 
-#settingsContentBody .skills-page :is(.skills-v2-section, .skills-v2-card) {
+#settingsContentBody .skills-page .skills-v2-card {
   border-left: 3px solid color-mix(in srgb, var(--settings-primary) 48%, var(--settings-border));
 }
 

@@ -22,3 +22,10 @@ test("執行資源的可收縮卡片改成單欄，開合時不會左右高度�
   assert.ok(block, "找不到執行資源單欄規則");
   assert.match(block[0], /grid-template-columns:\s*1fr/);
 });
+
+test("關於頁的桌面殼與版本卡之間留得出垂直間距", async () => {
+  const styles = (await readFile(extrasURL, "utf8")).replace(/\r\n/g, "\n");
+  assert.match(styles, /#settingsContentBody \.legacy-about-page\s*\{[\s\S]*?gap:\s*var\(--settings-space-4\)/);
+  assert.match(styles, /#settingsContentBody \.legacy-about-desktop-shell\s*\{[\s\S]*?gap:\s*14px/);
+  assert.match(styles, /#settingsContentBody \.legacy-about-update-card\s*\{[\s\S]*?gap:\s*12px/);
+});

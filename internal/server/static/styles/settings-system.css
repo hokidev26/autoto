@@ -174,13 +174,32 @@ body.white-shell.theme-light.theme-dark #settingsModal {
 
 /* The box holds a glyph, the field, and a clear button, so it has to lay them
    out in a row. Only the container gets this: .sidebar-search above is itself
-   an input, and a grid input is not a thing. Sizing and colour stay with the
-   shared rule; this adds nothing but the track layout. */
+   an input, and a grid input is not a thing. Radius matches the selected nav
+   row (供應商), not a pill: the rest of this sidebar is 8px rectangles. */
 #settingsModal .settings-sidebar-search {
   display: grid;
-  grid-template-columns: 24px minmax(0, 1fr) 28px;
+  grid-template-columns: 16px minmax(0, 1fr) 22px;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
+  min-height: 32px;
+  padding: 0 10px 0 12px;
+  border-radius: var(--settings-radius);
+}
+
+#settingsModal .settings-sidebar-search-icon {
+  display: grid;
+  place-items: center;
+  color: var(--settings-muted-foreground);
+}
+
+#settingsModal .settings-sidebar-search-icon svg {
+  width: 15px;
+  height: 15px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.75;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
 #settingsModal .settings-sidebar-search input,
@@ -192,13 +211,35 @@ body.white-shell.theme-light.theme-dark #settingsModal {
   color: var(--settings-foreground);
 }
 
+#settingsModal .settings-sidebar-search input {
+  height: 32px;
+  font-size: 13px;
+}
+
+#settingsModal .settings-sidebar-search input:focus-visible {
+  outline: none;
+}
+
+#settingsModal .settings-sidebar-search input::-webkit-search-decoration,
+#settingsModal .settings-sidebar-search input::-webkit-search-cancel-button,
+#settingsModal .settings-sidebar-search input::-webkit-search-results-button,
+#settingsModal .settings-sidebar-search input::-webkit-search-results-decoration {
+  -webkit-appearance: none;
+  appearance: none;
+}
+
 #settingsModal .settings-sidebar-search input::placeholder,
 #settingsModal input.sidebar-search::placeholder { color: var(--settings-muted-foreground); }
-#settingsModal .settings-sidebar-search:focus-within,
 #settingsModal input.sidebar-search:focus {
   border-color: var(--settings-primary);
   background: var(--settings-surface);
   box-shadow: 0 0 0 3px var(--settings-ring);
+}
+
+#settingsModal .settings-sidebar-search:focus-within {
+  border-color: color-mix(in srgb, var(--settings-foreground) 18%, var(--settings-border));
+  background: var(--settings-input);
+  box-shadow: none;
 }
 
 #settingsModal .settings-sidebar-search button {
@@ -687,6 +728,10 @@ body.white-shell.theme-light.theme-dark #settingsModal {
   gap: var(--settings-space-3);
 }
 
+#settingsContentBody .settings-form-span-2 {
+  grid-column: 1 / -1;
+}
+
 #settingsContentBody :is(.settings-form-field, .settings-form-grid > label, .settings-provider-form-grid > label, .automation-form > label) {
   min-width: 0;
   display: grid;
@@ -1084,7 +1129,21 @@ body.white-shell.theme-light.theme-dark #settingsModal {
 }
 
 #settingsContentBody .archive-summary-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-#settingsContentBody .archive-search-field { display: grid; margin: 0 18px 16px; }
+#settingsContentBody .archive-page {
+  gap: var(--settings-space-4);
+}
+#settingsContentBody .archive-page .settings-hero-card {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 14px;
+}
+#settingsContentBody .archive-search-field {
+  display: grid;
+  min-width: 0;
+  width: 100%;
+  margin: 0;
+}
 #settingsContentBody .archive-search-field input {
   min-width: 0;
   min-height: 40px;

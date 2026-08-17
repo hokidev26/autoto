@@ -7,7 +7,6 @@ export function createUserAdminSettingsController({
   state,
   request = api,
   copyText,
-  showToast,
   showError,
   confirmAction,
   onChange,
@@ -16,7 +15,9 @@ export function createUserAdminSettingsController({
   let issuedKey = "";
   let pickerEvents = null;
   let floatingMenu = null;
-  const openSections = new Set();
+  let createPanel = "";
+  let shouldFocusCreate = false;
+  const openAccountIds = new Set();
 
   function roleLabel(role) {
     if (role === "admin") return t("users.roleAdmin");
@@ -118,43 +119,58 @@ export function createUserAdminSettingsController({
     const handle = account.handle || account.username || account.id;
     const self = account.id === state.account?.id;
     const guest = accountIsGuest(account);
-    const collaborator = String(account.role || "") === "user";
-    const membershipsEnabled = guest || collaborator;
+    const membershipsEnabled = guest || String(account.role || "") === "user";
+    const canDelete = accountIsAdmin(state.account) && !self;
     const keyCount = account.keyCount || keys.length || 0;
-    return `
-      <article class="settings-card user-admin-account${self ? " is-self" : ""}" data-user-id="${escapeAttr(account.id)}" data-role="${escapeAttr(account.role || "")}">
-        <div class="user-admin-account-head settings-card-header">
-          <div class="user-admin-identity">
-            <span class="user-admin-avatar" aria-hidden="true">${escapeHtml(handleInitials(handle))}</span>
-            <div class="user-admin-identity-copy">
-              <div class="settings-provider-title settings-card-title">${escapeHtml(handle)}</div>
-              <p class="settings-card-description" data-settings-help-copy>${escapeHtml(accountHint(account, self))}</p>
+    const row = `
+      <div class="user-admin-account-row">
+        <div class="user-admin-identity">
+          <span class="user-admin-avatar" aria-hidden="true">${escapeHtml(handleInitials(handle))}</span>
+          <div class="user-admin-identity-copy">
+            <div class="user-admin-account-name">${escapeHtml(handle)}</div>
+            <p class="settings-card-description" data-settings-help-copy>${escapeHtml(accountHint(account, self))}</p>
+            <div class="user-admin-meta">
+              <span class="user-admin-chip">${escapeHtml(account.passwordSet ? t("users.passwordSet") : t("users.passwordUnset"))}</span>
+              ${guest ? `<span class="user-admin-chip">${escapeHtml(t("users.keyCount", { count: keyCount }))}</span>` : ""}
+              ${membershipsEnabled ? `<span class="user-admin-chip">${escapeHtml(t("users.projectCount", { count: memberships.length }))}</span>` : ""}
             </div>
           </div>
+        </div>
+        <div class="user-admin-account-aside">
           <div class="user-admin-badges">
             <span class="settings-status-pill settings-badge ${roleBadgeClass(account.role)}">${escapeHtml(roleLabel(account.role))}</span>
             ${self ? `<span class="settings-badge accent">${escapeHtml(t("users.you"))}</span>` : ""}
           </div>
+          ${membershipsEnabled ? `<span class="user-admin-account-chevron" aria-hidden="true"></span>` : ""}
+          ${!membershipsEnabled && canDelete ? `<button class="settings-action-btn danger" type="button" data-delete-user>${escapeHtml(t("users.deleteUser"))}</button>` : ""}
         </div>
-        <div class="user-admin-meta">
-          <span class="user-admin-chip">${escapeHtml(account.passwordSet ? t("users.passwordSet") : t("users.passwordUnset"))}</span>
-          ${guest ? `<span class="user-admin-chip">${escapeHtml(t("users.keyCount", { count: keyCount }))}</span>` : ""}
-          ${membershipsEnabled ? `<span class="user-admin-chip">${escapeHtml(t("users.projectCount", { count: memberships.length }))}</span>` : ""}
+      </div>
+    `;
+    const body = membershipsEnabled ? `
+      <div class="user-admin-account-body">
+        <div class="user-admin-memberships">
+          ${projectPicker(memberships, guest ? t("users.projects") : t("users.collaboratorProjects"))}
+          ${guest ? `<div class="user-admin-section-label">${escapeHtml(t("users.keys"))}</div>${renderKeys(keys)}` : ""}
         </div>
-        ${membershipsEnabled ? `
-          <div class="user-admin-memberships settings-card-content">
-            ${projectPicker(memberships, guest ? t("users.projects") : t("users.collaboratorProjects"))}
-            ${guest ? `<div class="user-admin-section-label">${escapeHtml(t("users.keys"))}</div>${renderKeys(keys)}` : ""}
-          </div>
-        ` : ""}
-        ${membershipsEnabled || (accountIsAdmin(state.account) && !self) ? `
-          <div class="settings-action-row settings-card-footer">
-            ${membershipsEnabled ? `<button class="settings-action-btn primary" type="button" data-save-memberships>${escapeHtml(t("users.saveMemberships"))}</button>` : ""}
-            ${guest ? `<button class="settings-action-btn subtle" type="button" data-issue-key>${escapeHtml(t("users.issueAnotherKey"))}</button>` : ""}
-            ${accountIsAdmin(state.account) && !self ? `<button class="settings-action-btn danger" type="button" data-delete-user>${escapeHtml(t("users.deleteUser"))}</button>` : ""}
-          </div>
-        ` : ""}
-      </article>
+        <div class="settings-action-row settings-card-footer">
+          <button class="settings-action-btn primary" type="button" data-save-memberships>${escapeHtml(t("users.saveMemberships"))}</button>
+          ${guest ? `<button class="settings-action-btn subtle" type="button" data-issue-key>${escapeHtml(t("users.issueAnotherKey"))}</button>` : ""}
+          ${canDelete ? `<button class="settings-action-btn danger" type="button" data-delete-user>${escapeHtml(t("users.deleteUser"))}</button>` : ""}
+        </div>
+      </div>
+    ` : "";
+    if (!membershipsEnabled) {
+      return `
+        <article class="user-admin-account${self ? " is-self" : ""}" data-user-id="${escapeAttr(account.id)}" data-role="${escapeAttr(account.role || "")}">
+          ${row}
+        </article>
+      `;
+    }
+    return `
+      <details class="user-admin-account${self ? " is-self" : ""}" data-user-id="${escapeAttr(account.id)}" data-role="${escapeAttr(account.role || "")}"${openAccountIds.has(account.id) ? " open" : ""}>
+        <summary class="user-admin-account-summary">${row}</summary>
+        ${body}
+      </details>
     `;
   }
 
@@ -172,18 +188,57 @@ export function createUserAdminSettingsController({
     `;
   }
 
-  function renderFold({ id, title, hint, extra = "", body }) {
+  function renderCreatePanel() {
+    const collaboratorOpen = createPanel === "collaborator";
+    const guestOpen = createPanel === "guest";
     return `
-      <details class="settings-provider-section settings-page-section settings-card user-admin-fold" data-user-admin-fold="${escapeAttr(id)}"${openSections.has(id) ? " open" : ""}>
-        <summary class="settings-provider-section-head settings-card-header user-admin-fold-summary">
-          <div>
-            <div class="settings-provider-title settings-card-title">${escapeHtml(title)}</div>
-            <p class="settings-provider-meta settings-card-description" data-settings-help-copy>${escapeHtml(hint)}</p>
-          </div>
-          ${extra}
-        </summary>
-        ${body}
-      </details>
+      <section class="settings-provider-section settings-page-section settings-card user-admin-create-panel"${createPanel ? "" : " hidden"}>
+        <div class="settings-card-header user-admin-create-head">
+          <div class="settings-card-title" data-create-title>${escapeHtml(t(guestOpen ? "users.createGuest" : "users.createCollaborator"))}</div>
+          <button class="settings-action-btn subtle" type="button" data-close-create>${escapeHtml(t("common.cancel"))}</button>
+        </div>
+        <div data-create-form="collaborator"${collaboratorOpen ? "" : " hidden"}>
+          <p class="settings-card-description" data-settings-help-copy>${escapeHtml(t("users.createCollaboratorHint"))}</p>
+          <form id="createCollaboratorForm" class="settings-card-content user-admin-create-form">
+            <div class="settings-provider-form-grid settings-form-grid">
+              <label class="settings-form-field">${escapeHtml(t("users.collaboratorHandle"))}
+                <input id="collaboratorHandleInput" class="settings-field" required autocomplete="off" placeholder="${escapeAttr(t("users.handlePlaceholder"))}" />
+              </label>
+              <label class="settings-form-field">${escapeHtml(t("users.collaboratorPassword"))}
+                <input id="collaboratorPasswordInput" class="settings-field" type="password" required minlength="8" autocomplete="new-password" placeholder="${escapeAttr(t("users.collaboratorPasswordPlaceholder"))}" />
+              </label>
+            </div>
+            ${projectPicker([], t("users.collaboratorProjects"))}
+            <div class="settings-action-row settings-card-footer">
+              <button class="settings-action-btn primary" type="submit">${escapeHtml(t("users.createCollaborator"))}</button>
+            </div>
+          </form>
+        </div>
+        <div data-create-form="guest"${guestOpen ? "" : " hidden"}>
+          <p class="settings-card-description" data-settings-help-copy>${escapeHtml(t("users.createGuestHint"))}</p>
+          <form id="createGuestForm" class="settings-card-content user-admin-create-form">
+            <div class="settings-provider-form-grid settings-form-grid">
+              <label class="settings-form-field">${escapeHtml(t("users.guestHandle"))}
+                <input id="guestHandleInput" class="settings-field" required autocomplete="off" placeholder="${escapeAttr(t("users.handlePlaceholder"))}" />
+              </label>
+              <label class="settings-form-field">${escapeHtml(t("users.guestPassword"))}
+                <input id="guestPasswordInput" class="settings-field" type="password" autocomplete="new-password" placeholder="${escapeAttr(t("users.passwordPlaceholder"))}" />
+              </label>
+              <label class="settings-form-field settings-form-span-2">${escapeHtml(t("users.keyLabel"))}
+                <input id="guestKeyLabelInput" class="settings-field" placeholder="${escapeAttr(t("users.keyLabelPlaceholder"))}" />
+              </label>
+              <label class="settings-check-row settings-form-span-2">
+                <input id="guestIssueKeyInput" type="checkbox" checked />
+                <span><strong>${escapeHtml(t("users.issueKey"))}</strong><small data-settings-help-copy>${escapeHtml(t("users.issueKeyHint"))}</small></span>
+              </label>
+            </div>
+            ${projectPicker([])}
+            <div class="settings-action-row settings-card-footer">
+              <button class="settings-action-btn primary" type="submit">${escapeHtml(t("users.createGuest"))}</button>
+            </div>
+          </form>
+        </div>
+      </section>
     `;
   }
 
@@ -225,7 +280,11 @@ export function createUserAdminSettingsController({
         ${renderHero({
           title: t("users.hasUsersTitle"),
           description: t("users.description"),
-          action: `<button id="refreshUserAccountsBtn" class="settings-action-btn subtle" type="button">${escapeHtml(t("users.refresh"))}</button>`,
+          action: `
+            <button id="createCollaboratorBtn" class="settings-action-btn ${createPanel === "collaborator" ? "primary" : "subtle"}" type="button" aria-pressed="${createPanel === "collaborator" ? "true" : "false"}">${escapeHtml(t("users.createCollaborator"))}</button>
+            <button id="createGuestBtn" class="settings-action-btn ${createPanel === "guest" ? "primary" : "subtle"}" type="button" aria-pressed="${createPanel === "guest" ? "true" : "false"}">${escapeHtml(t("users.createGuest"))}</button>
+            <button id="refreshUserAccountsBtn" class="settings-action-btn subtle" type="button">${escapeHtml(t("users.refresh"))}</button>
+          `,
         })}
         <div class="settings-stat-grid user-admin-stats">
           <div class="settings-stat-card"><strong>${countByRole(accounts, "admin")}</strong><span>${escapeHtml(t("users.statsAdmin"))}</span></div>
@@ -233,65 +292,16 @@ export function createUserAdminSettingsController({
           <div class="settings-stat-card"><strong>${countByRole(accounts, "guest")}</strong><span>${escapeHtml(t("users.statsGuest"))}</span></div>
         </div>
         ${renderIssuedKey()}
-        ${renderFold({
-          id: "collaborator",
-          title: t("users.createCollaborator"),
-          hint: t("users.createCollaboratorHint"),
-          body: `
-            <form id="createCollaboratorForm" class="settings-card-content user-admin-create-form">
-              <div class="settings-provider-form-grid settings-form-grid">
-                <label class="settings-form-field">${escapeHtml(t("users.collaboratorHandle"))}
-                  <input id="collaboratorHandleInput" class="settings-field" required autocomplete="off" placeholder="${escapeAttr(t("users.handlePlaceholder"))}" />
-                </label>
-                <label class="settings-form-field">${escapeHtml(t("users.collaboratorPassword"))}
-                  <input id="collaboratorPasswordInput" class="settings-field" type="password" required minlength="8" autocomplete="new-password" placeholder="${escapeAttr(t("users.collaboratorPasswordPlaceholder"))}" />
-                </label>
-              </div>
-              ${projectPicker([], t("users.collaboratorProjects"))}
-              <div class="settings-action-row settings-card-footer">
-                <button class="settings-action-btn primary" type="submit">${escapeHtml(t("users.createCollaborator"))}</button>
-              </div>
-            </form>
-          `,
-        })}
-        ${renderFold({
-          id: "guest",
-          title: t("users.createGuest"),
-          hint: t("users.createGuestHint"),
-          body: `
-            <form id="createGuestForm" class="settings-card-content user-admin-create-form">
-              <div class="settings-provider-form-grid settings-form-grid">
-                <label class="settings-form-field">${escapeHtml(t("users.guestHandle"))}
-                  <input id="guestHandleInput" class="settings-field" required autocomplete="off" placeholder="${escapeAttr(t("users.handlePlaceholder"))}" />
-                </label>
-                <label class="settings-form-field">${escapeHtml(t("users.guestPassword"))}
-                  <input id="guestPasswordInput" class="settings-field" type="password" autocomplete="new-password" placeholder="${escapeAttr(t("users.passwordPlaceholder"))}" />
-                </label>
-                <label class="settings-form-field settings-form-span-2">${escapeHtml(t("users.keyLabel"))}
-                  <input id="guestKeyLabelInput" class="settings-field" placeholder="${escapeAttr(t("users.keyLabelPlaceholder"))}" />
-                </label>
-                <label class="settings-check-row settings-form-span-2">
-                  <input id="guestIssueKeyInput" type="checkbox" checked />
-                  <span><strong>${escapeHtml(t("users.issueKey"))}</strong><small data-settings-help-copy>${escapeHtml(t("users.issueKeyHint"))}</small></span>
-                </label>
-              </div>
-              ${projectPicker([])}
-              <div class="settings-action-row settings-card-footer">
-                <button class="settings-action-btn primary" type="submit">${escapeHtml(t("users.createGuest"))}</button>
-              </div>
-            </form>
-          `,
-        })}
-        ${renderFold({
-          id: "accounts",
-          title: t("users.accounts"),
-          hint: t("users.accountsHint"),
-          body: `
-            <div class="user-admin-account-list settings-card-content">
-              ${accounts.length ? accounts.map(renderAccount).join("") : `<p class="settings-card-description">${escapeHtml(t("users.empty"))}</p>`}
-            </div>
-          `,
-        })}
+        ${renderCreatePanel()}
+        <section class="settings-provider-section settings-page-section settings-card user-admin-accounts">
+          <div class="settings-card-header">
+            <div class="settings-card-title">${escapeHtml(t("users.accounts"))}</div>
+            <p class="settings-card-description" data-settings-help-copy>${escapeHtml(t("users.accountsHint"))}</p>
+          </div>
+          <div class="user-admin-account-list">
+            ${accounts.length ? accounts.map(renderAccount).join("") : `<p class="settings-card-description">${escapeHtml(t("users.empty"))}</p>`}
+          </div>
+        </section>
       </div>
     `;
   }
@@ -311,7 +321,6 @@ export function createUserAdminSettingsController({
 
   async function refresh() {
     await reload();
-    showToast?.(t("users.refresh"), "success");
   }
 
   async function createCollaborator(event) {
@@ -328,6 +337,7 @@ export function createUserAdminSettingsController({
       });
       $("collaboratorHandleInput").value = "";
       $("collaboratorPasswordInput").value = "";
+      createPanel = "";
       await reload();
     } catch (error) {
       showError?.(error);
@@ -351,6 +361,7 @@ export function createUserAdminSettingsController({
         body: JSON.stringify({ handle, password, projectIds, keyLabel, issueKey }),
       });
       issuedKey = created?.accessKey || "";
+      createPanel = "";
       await reload();
       if (issuedKey) copyText?.(issuedKey);
     } catch (error) {
@@ -476,6 +487,13 @@ export function createUserAdminSettingsController({
     if (summary) summary.textContent = projectSummary(selectedProjectIds(picker));
   }
 
+  function setCreatePanel(id) {
+    const next = createPanel === id ? "" : id;
+    shouldFocusCreate = Boolean(next);
+    createPanel = next;
+    onChange?.();
+  }
+
   function bind() {
     pickerEvents?.abort();
     floatingMenu?.remove();
@@ -484,17 +502,25 @@ export function createUserAdminSettingsController({
     const { signal } = pickerEvents;
     $("refreshUserAccountsBtn")?.addEventListener("click", () => refresh().catch(showError), { signal });
     $("createAdministratorBtn")?.addEventListener("click", () => onCreateAdministrator?.(), { signal });
+    $("createCollaboratorBtn")?.addEventListener("click", () => setCreatePanel("collaborator"), { signal });
+    $("createGuestBtn")?.addEventListener("click", () => setCreatePanel("guest"), { signal });
+    document.querySelector("[data-close-create]")?.addEventListener("click", () => setCreatePanel(""), { signal });
     $("createCollaboratorForm")?.addEventListener("submit", (event) => createCollaborator(event).catch(showError), { signal });
     $("createGuestForm")?.addEventListener("submit", (event) => createGuest(event).catch(showError), { signal });
     $("copyIssuedAccessKeyBtn")?.addEventListener("click", () => issuedKey && copyText?.(issuedKey), { signal });
-    document.querySelectorAll("[data-user-admin-fold]").forEach((node) => {
+    document.querySelectorAll("details.user-admin-account").forEach((node) => {
       node.addEventListener("toggle", () => {
-        const id = node.dataset.userAdminFold;
+        const id = node.dataset.userId;
         if (!id) return;
-        if (node.open) openSections.add(id);
-        else openSections.delete(id);
+        if (node.open) openAccountIds.add(id);
+        else openAccountIds.delete(id);
       }, { signal });
     });
+    if (shouldFocusCreate) {
+      shouldFocusCreate = false;
+      if (createPanel === "collaborator") $("collaboratorHandleInput")?.focus();
+      if (createPanel === "guest") $("guestHandleInput")?.focus();
+    }
     document.querySelectorAll(".user-admin-account").forEach((root) => {
       const userId = root.dataset.userId;
       const account = (state.userAccounts || []).find((item) => item.id === userId);

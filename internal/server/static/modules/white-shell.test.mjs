@@ -448,6 +448,17 @@ test("project switching preserves the current view until the next Agent is ready
   assert.match(selectBody, /beginNavigationSelection\(project, \{[\s\S]*?preserveConversationView,[\s\S]*?selectionKind: "project",/);
   assert.match(selectBody, /markMessageViewportBusy\(\{ contextSwitch: true, label: am\("projectLoadingTitle"\) \}\)/);
   assert.match(selectBody, /await enterAgent\(\);[\s\S]*?clearMessageViewportBusy\(\);/);
+  const beginStart = appMain.indexOf("function beginNavigationSelection");
+  const beginBody = appMain.slice(beginStart, appMain.indexOf("async function selectProject", beginStart));
+  assert.match(beginBody, /const preserveChrome = Boolean\(options\.preserveConversationView\)/);
+  assert.match(beginBody, /disconnectAgentTransports\(\{ keepWorkspaceChrome: preserveChrome \}\)/);
+  assert.match(beginBody, /if \(!preserveChrome\) releaseProjectOperationChrome\(project\)/);
+  assert.doesNotMatch(beginBody, /syncProjectOperationContext\(\)/);
+  assert.match(appMain, /function releaseProjectOperationChrome\([\s\S]*?state\.holdRuntimeStatusTone = false/);
+  assert.match(appMain, /function disconnectAgentTransports\(\{ keepWorkspaceChrome = false \} = \{\}\)[\s\S]*?state\.holdRuntimeStatusTone = Boolean\(keepWorkspaceChrome\)/);
+  const loaders = await readFile(new URL("modules/server-resource-loaders.mjs", staticRoot), "utf8");
+  assert.match(loaders, /if \(state\.holdRuntimeStatusTone\) \{[\s\S]*?tone === "error"[\s\S]*?streamStatus === "connected"[\s\S]*?tone = "ok"/);
+  assert.match(appMain, /function releaseProjectOperationChrome\([\s\S]*?syncProjectOperationContext\(\)/);
   assert.match(appMain, /function beginNavigationSelection\(project, options = \{\}\)[\s\S]*?if \(!options\.preserveConversationView\) renderConversationHeaderIdentity\(\);/);
   assert.match(appMain, /function markMessageViewportBusy\(options = \{\}\)[\s\S]*?dataset\.contextSwitching = "true"/);
   assert.match(styles, /\.messages\[data-context-switching="true"\]::before/);
@@ -727,6 +738,22 @@ test("composer operation controls are exposed only in project context", async ()
   assert.doesNotMatch(html, /id="currentMeta"/);
   assert.doesNotMatch(html, /id="wsBadge"/);
   assert.ok(composer.indexOf('id="messageText"') > toolbarIndex);
+  // Images sit at the top of the bordered input frame, then file chips, then
+  // the textarea — the same stack as Cursor rather than a strip above the box.
+  const shellIndex = composer.indexOf('id="composerInputShell"');
+  const pendingIndex = composer.indexOf('id="pendingAttachments"');
+  const frameIndex = composer.indexOf('class="message-input-frame"');
+  const textIndex = composer.indexOf('id="messageText"');
+  assert.ok(shellIndex >= 0 && frameIndex > shellIndex && pendingIndex > frameIndex && textIndex > pendingIndex);
+  const cursorComposer = styles.slice(styles.indexOf("/* Cursor-style pending context:"));
+  assert.ok(cursorComposer.startsWith("/* Cursor-style pending context:"));
+  assert.match(cursorComposer, /\[class~="message-input-frame"\]\s*\{[\s\S]*?background:\s*var\(--ws-input/);
+  assert.match(cursorComposer, /textarea#messageText[\s\S]*?background:\s*transparent/);
+  assert.match(styles, /\.pending-attachments \.pending-file-chip\s*\{[\s\S]*?background:\s*transparent/);
+  assert.match(styles, /\.pending-attachments \.pending-file-name\s*\{[\s\S]*?color:\s*var\(--ws-primary/);
+  assert.match(styles, /\.pending-attachments \.pending-file-size\s*\{[\s\S]*?display:\s*none/);
+  assert.match(styles, /\.pending-image-strip,\s*\.pending-file-strip\s*\{[\s\S]*?flex-wrap:\s*wrap/);
+  assert.match(styles, /\.pending-attachments \.pending-image-thumb\s*\{[\s\S]*?height:\s*56px/);
   assert.ok(composer.indexOf('id="sendMessageBtn"') > toolbarIndex);
   assert.match(composer, /<label class="composer-field-label" for="reasoningEffort" data-i18n="chat\.reasoningEffort">/);
   assert.match(composer, /id="reasoningEffort"[^>]*data-i18n-title="chat\.reasoningEffort"[^>]*data-i18n-aria-label="chat\.reasoningEffort"/);
@@ -888,6 +915,8 @@ test("desktop conversation layout follows the compact resizable geometry", async
   assert.match(styles, /\[class~="message"\]\[class~="user"\]\[class~="chat-flow-left"\] \.message-copy-btn\s*\{[^}]*width:\s*20px[^}]*font-size:\s*0/);
   assert.doesNotMatch(styles, /\[data-copy-message\]::before\s*\{[^}]*content:\s*"⧉"/);
   assert.match(styles, /\[data-copy-message\] svg\s*\{[^}]*width:\s*13px/);
+  assert.doesNotMatch(styles, /\[data-correct-message\]::before[\s\S]{0,80}content:\s*"↶"/);
+  assert.match(styles, /\[data-correct-message\] svg\s*\{[^}]*width:\s*13px/);
   assert.match(styles, /@media \(max-width:\s*760px\)\s*\{[\s\S]*?\[class~="message"\]\[class~="user"\]\[class~="chat-flow-left"\]\s*\{[^}]*width:\s*fit-content[^}]*max-width:\s*92%[^}]*margin-left:\s*0/);
   assert.match(styles, /\[class~="message"\]\[class~="user"\]\[class~="chat-flow-left"\]\[class~="message-editing"\]\s*\{[^}]*justify-self:\s*stretch[^}]*width:\s*100%[^}]*max-width:\s*100%[^}]*background:\s*var\(--ws-card\)/);
   assert.match(styles, /\[class~="message"\]:not\(\[class~="live-assistant-message"\]\) \.message-head\s*\{[^}]*grid-template-columns:\s*minmax\(0, 1fr\) auto max-content/);
@@ -1278,11 +1307,11 @@ test("composer responds to its actual width before the mobile breakpoint", async
   const responsiveStyles = styles.slice(styles.indexOf(marker), styles.indexOf("/* Flat, single-pass settings layout", styles.indexOf(marker)));
   assert.ok(responsiveStyles.startsWith(marker));
   assert.match(responsiveStyles, /\.composer-wrap\s*\{[^}]*container-name:\s*composer-shell[^}]*container-type:\s*inline-size/);
-  assert.match(responsiveStyles, /\.composer-controls\s*\{[^}]*align-items:\s*center/);
+  assert.match(responsiveStyles, /\.composer-controls\s*\{[^}]*align-items:\s*center[^}]*gap:\s*4px/);
   assert.match(responsiveStyles, /\.composer-select-value\s*\{[^}]*flex:\s*1 1 auto/);
   assert.match(responsiveStyles, /\.composer-effort-field\s*\{[^}]*width:\s*auto[^}]*min-width:\s*0[^}]*max-width:\s*none[^}]*flex:\s*0 0 auto/);
   assert.match(responsiveStyles, /\.effort-pill\s*\{[^}]*width:\s*auto[^}]*min-width:\s*0[^}]*max-width:\s*none[^}]*padding:\s*0/);
-  assert.match(responsiveStyles, /\.composer-effort-field \.composer-select-trigger\s*\{[^}]*width:\s*auto[^}]*justify-content:\s*center[^}]*gap:\s*4px[^}]*padding:\s*0 4px/);
+  assert.match(responsiveStyles, /\.composer-effort-field \.composer-select-trigger\s*\{[^}]*width:\s*auto[^}]*justify-content:\s*center[^}]*gap:\s*4px[^}]*padding:\s*0 8px/);
   assert.match(responsiveStyles, /\.composer-effort-field \.composer-select-value\s*\{[^}]*flex:\s*0 1 auto/);
   assert.match(responsiveStyles, /\.toolbar-lightning-btn:not\(\.hidden\)\s*\{[^}]*align-self:\s*center[^}]*align-items:\s*center[^}]*justify-content:\s*center/);
   // Hugs the pill instead of a fixed basis: the old 96px/92px bases were sized
@@ -1296,13 +1325,16 @@ test("composer responds to its actual width before the mobile breakpoint", async
   assert.match(responsiveStyles, /\.permission-toolbar-pill\s*\{[^}]*width:\s*auto[^}]*min-width:\s*max-content[^}]*padding:\s*0/);
   assert.match(responsiveStyles, /\.permission-toolbar-pill \.composer-select-trigger\s*\{[^}]*width:\s*100%/);
   assert.match(responsiveStyles, /\.permission-toolbar-pill \.composer-select-value\s*\{[^}]*text-overflow:\s*clip/);
+  assert.match(responsiveStyles, /\.composer-model-field\s*\{[^}]*width:\s*auto[^}]*min-width:\s*0[^}]*max-width:\s*min\(42vw, 260px\)[^}]*flex:\s*0 1 auto/);
+  assert.match(responsiveStyles, /\.toolbar-model-pill\s*\{[^}]*width:\s*auto[^}]*min-width:\s*0[^}]*max-width:\s*100%[^}]*flex:\s*0 1 auto/);
+  assert.match(responsiveStyles, /\.composer-model-field \.composer-select-trigger\s*\{[^}]*width:\s*auto[^}]*max-width:\s*100%/);
+  assert.match(responsiveStyles, /\.composer-model-field \.composer-select-value\s*\{[^}]*flex:\s*0 1 auto/);
   assert.match(responsiveStyles, /@container composer-shell \(max-width:\s*1320px\)[\s\S]*?\.composer-task-summary\s*\{[^}]*width:\s*180px[^}]*max-width:\s*180px[^}]*flex:\s*0 1 180px/);
   assert.match(responsiveStyles, /@container composer-shell \(max-width:\s*900px\)[\s\S]*?\.composer-task-summary\s*\{[^}]*width:\s*30px[^}]*flex:\s*0 0 30px/);
-  // Fixed rather than elastic at this tier, which is the one that governs at a
-  // normal desktop width. The context ring and these controls are pushed right
-  // as one group, so a model box that flexed with the length of the model id
-  // moved everything to its left by up to 60px whenever the id changed.
-  assert.match(responsiveStyles, /@container composer-shell \(max-width:\s*900px\)[\s\S]*?\.composer-model-field\s*\{[^}]*width:\s*200px[^}]*min-width:\s*200px[^}]*max-width:\s*200px[^}]*flex:\s*0 0 200px/);
+  // The 200px lock outlived the `provider:model` label. The trigger now shows
+  // the model name, so that box left a hole before the effort chip.
+  assert.match(responsiveStyles, /@container composer-shell \(max-width:\s*900px\)[\s\S]*?\.composer-model-field\s*\{[^}]*width:\s*auto[^}]*max-width:\s*min\(42vw, 220px\)[^}]*flex:\s*0 1 auto/);
+  assert.doesNotMatch(responsiveStyles, /@container composer-shell \(max-width:\s*900px\)[\s\S]*?\.composer-model-field\s*\{[^}]*flex:\s*0 0 200px/);
   assert.match(responsiveStyles, /@container composer-shell \(max-width:\s*900px\)[\s\S]*?\.composer-model-field \.composer-select-value\s*\{[^}]*text-overflow:\s*ellipsis/);
   assert.match(responsiveStyles, /@container composer-shell \(max-width:\s*900px\)[\s\S]*?\.composer-effort-field\s*\{[^}]*min-width:\s*34px/);
   assert.match(responsiveStyles, /@container composer-shell \(max-width:\s*900px\)[\s\S]*?\.composer-effort-field\s*\{[^}]*width:\s*auto[^}]*min-width:\s*0[^}]*max-width:\s*none[^}]*flex:\s*0 0 auto/);
@@ -1408,10 +1440,12 @@ test("narrow composer switches atomically to a fixed unframed icon rail", async 
   // No .composer-actions sizing any more: the directory button that lived
   // in it was removed from the composer toolbar.
   assert.doesNotMatch(iconRail, /\.composer-actions\s*\{/);
-  // The model trigger renders icon-only, so the composed "field：value" label is
-  // the only place the selected model is stated; it must reach both assistive
-  // tech and a sighted hover.
-  assert.match(selectMenus, /const triggerLabel = fieldLabel \? `\$\{fieldLabel\}：\$\{displayText\}` : displayText;/);
+  // Desktop shows the model name on the chip; the composed "field：provider:model"
+  // label still has to reach both assistive tech and a sighted hover, because the
+  // narrow icon rail hides the visible name.
+  assert.match(selectMenus, /const fullValue = presentation\?\.provider \? `\$\{presentation\.provider\}:\$\{presentation\.name\}` : optionText;/);
+  assert.match(selectMenus, /const displayText = presentation\?\.name \|\| optionText;/);
+  assert.match(selectMenus, /const triggerLabel = fieldLabel \? `\$\{fieldLabel\}：\$\{fullValue\}` : fullValue;/);
   assert.match(selectMenus, /trigger\.setAttribute\("aria-label", triggerLabel\);/);
   assert.match(selectMenus, /trigger\.title = triggerLabel;/);
 });
@@ -1900,6 +1934,7 @@ test("legacy chat alignment keeps the composer untouched and flattens the transc
 
   assert.ok(legacyChatStyles.startsWith(marker));
   assert.match(legacyChatStyles, /\.chat-header\s*\{[\s\S]*?height:\s*64px/);
+  assert.match(legacyChatStyles, /@media \(min-width:\s*768px\)[\s\S]*?\.workspace-meta-pills\s*\{[\s\S]*?display:\s*none !important/);
   assert.match(legacyChatStyles, /\.message\.user,[\s\S]*?background:\s*transparent/);
   assert.match(legacyChatStyles, /\.message\.assistant\s*\{[\s\S]*?margin-right:\s*auto/);
   assert.doesNotMatch(legacyChatStyles, /\.composer-/);
@@ -1989,6 +2024,23 @@ test("settings dialog mounts the shadcn shell without dropping legacy entry poin
   assert.match(appMain, /bindSkillTabs\(state\.activeSkillTab \|\| "commands"\)/);
   assert.match(appMain, /\["users",\s*\{\s*render:/);
   assert.match(appMain, /function currentDefaultSettingsPanelKey\(\)/);
+});
+
+test("settings search uses a nav-row rectangle and stroke magnifier", async () => {
+  const [html, styles] = await Promise.all([
+    readFile(indexURL, "utf8"),
+    readStylesSource(stylesURL),
+  ]);
+  assert.match(html, /class="settings-sidebar-search-icon"/);
+  assert.match(html, /settings-sidebar-search-icon"[^>]*>\s*<svg viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6"><\/circle><path d="m15 15 4.5 4.5"><\/path><\/svg>/);
+  assert.doesNotMatch(html, /settings-sidebar-search[\s\S]{0,280}⌕/);
+  const settingsMarker = "Settings shadcn system — scoped integration.";
+  const providerMarker = "/* Model provider settings. Scoped after legacy settings overrides by design. */";
+  const settingsStyles = styles.slice(styles.indexOf(settingsMarker), styles.indexOf(providerMarker));
+  assert.match(settingsStyles, /#settingsModal \.settings-sidebar-search\s*\{[\s\S]*?border-radius:\s*var\(--settings-radius\);/);
+  assert.doesNotMatch(settingsStyles, /#settingsModal \.settings-sidebar-search\s*\{[^}]*border-radius:\s*999px;/);
+  assert.match(settingsStyles, /#settingsModal \.settings-sidebar-search-icon svg\s*\{[\s\S]*?fill:\s*none;[\s\S]*?stroke:\s*currentColor;/);
+  assert.match(settingsStyles, /#settingsModal \.settings-sidebar-search:focus-within\s*\{[\s\S]*?box-shadow:\s*none;/);
 });
 
 test("settings navigation uses a filled selection rail without a full outline", async () => {

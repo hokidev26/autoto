@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 
 import { setUILocale } from "./i18n.mjs";
 import {
@@ -275,5 +276,40 @@ test("archive search renders snippets and an open action", async () => {
     setUILocale("zh-CN");
   }
   assert.deepEqual(normalizeArchiveSearchPayload({ results: [{ agentId: "a-1", matches: [{ snippet: "x" }] }] }).results[0].agentId, "a-1");
+});
+
+test("archive search keeps the field in the DOM and does not rebuild the page on each keystroke", async () => {
+  const calls = [];
+  let refreshes = 0;
+  const controller = createArchiveSettingsController({
+    request: async (path) => {
+      calls.push(String(path));
+      if (String(path).startsWith("/api/archive/search")) {
+        return { query: "heat", results: [{ agentId: "a-1", agentTitle: "Planner", matches: [{ snippet: "heatmap" }] }] };
+      }
+      return { projects: [], conversations: [{ projectId: "p-1", agentId: "a-1", agentTitle: "Planner", agentArchivedAt: "2026-07-18T00:00:00Z" }] };
+    },
+    refresh: () => { refreshes += 1; },
+  });
+  await controller.load();
+  const html = controller.render();
+  assert.match(html, /id="archiveResultsHost"/);
+  assert.match(html, /id="archiveSearchInput"/);
+
+  const before = refreshes;
+  controller.scheduleSearch("he");
+  assert.equal(refreshes, before, "debounce must not replace the settings page while typing");
+  assert.equal(calls.some((path) => path.includes("/api/archive/search")), false);
+
+  await new Promise((resolve) => setTimeout(resolve, 350));
+  assert.ok(calls.some((path) => path.includes("/api/archive/search?q=he")));
+  assert.match(controller.render(), /heatmap/);
+});
+
+test("archive search field stacks under the title instead of squeezing into the hero row", async () => {
+  const styles = (await readFile(new URL("../styles/settings-system.css", import.meta.url), "utf8")).replace(/\r\n/g, "\n");
+  assert.match(styles, /#settingsContentBody \.archive-page \.settings-hero-card\s*\{[\s\S]*?flex-direction:\s*column/);
+  assert.match(styles, /#settingsContentBody \.archive-search-field\s*\{[\s\S]*?width:\s*100%/);
+  assert.match(styles, /#settingsContentBody \.archive-page\s*\{[\s\S]*?gap:\s*var\(--settings-space-4\)/);
 });
 

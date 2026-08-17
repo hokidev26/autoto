@@ -44,7 +44,8 @@
   background: var(--ws-card);
   box-shadow: 0 0 0 3px rgba(83, 105, 243, .12);
 }
-.settings-search-box span { color: #94a3b8; font-size: 16px; text-align: center; }
+.settings-search-box span,
+.settings-search-box .settings-sidebar-search-icon { color: #94a3b8; font-size: 16px; text-align: center; }
 .settings-search-box input {
   width: 100%;
   min-width: 0;
@@ -1107,18 +1108,51 @@ body.white-shell.theme-light .message-performance-live { border-color: #cbd4ff; 
 .message-history-status { color: var(--ws-muted, #747e90); font-size: 11px; }
 .message-history-status[hidden] { display: none; }
 .message-correction-editor { display: grid; gap: 8px; }
-/* One wrapping row: file picker, the retire note, and the actions. On narrow
-   widths the note wraps first while the actions keep their row, which is what
-   keeps the editor from growing back into a stacked card. */
-.message-correction-footer { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; }
-.message-correction-footer .message-correction-note { flex: 1 1 220px; margin: 0; }
+.message-correction-footer { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
 .message-correction-footer .message-correction-actions { margin-left: auto; flex: 0 0 auto; }
 .message-correction-text { width: 100%; resize: vertical; border: 1px solid var(--line); border-radius: 10px; background: var(--bg-soft); color: var(--text); padding: 10px; font: inherit; }
 .message-correction-attachments { display: flex; flex-wrap: wrap; gap: 8px; color: var(--text-soft); font-size: 12px; }
-.message-correction-attachments label, .message-correction-file-label { display: inline-flex; align-items: center; gap: 6px; }
-.message-correction-new-files { display: flex; flex-wrap: wrap; gap: 6px; }
-.message-correction-new-files span { border: 1px solid var(--line); border-radius: 999px; padding: 3px 8px; font-size: 11px; }
+.message-correction-chip { cursor: pointer; }
+.message-correction-chip:has(input:not(:checked)) { opacity: .45; }
+.message-correction-attach {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--line);
+  background: var(--bg-soft);
+  color: var(--text);
+  border-radius: 8px;
+  padding: 6px 10px;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.message-correction-attach svg {
+  width: 14px;
+  height: 14px;
+  display: block;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.message-correction-note { margin: 0; color: var(--text-soft); font-size: 11px; line-height: 1.5; }
 .message-correction-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.message-correction-submit {
+  display: inline-flex;
+  align-items: center;
+  border: 0;
+  border-radius: 8px;
+  padding: 7px 12px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 650;
+  background: var(--ws-primary, #4f6ef7);
+  color: #fff;
+  cursor: pointer;
+}
+.message-correction-submit:hover { filter: brightness(.96); }
 /* A blanket `.ghost-btn.mini { display: none }` in the narrow-screen block below
    was written for the composer but matches globally, so it hid this editor's
    cancel and submit buttons outright — on a phone the correction editor opened
@@ -1126,7 +1160,9 @@ body.white-shell.theme-light .message-performance-live { border-color: #cbd4ff; 
    win the same fight (.backend-panel, .backend-card-actions, .plan-card-actions);
    this selector is more specific than the blanket rule, so it holds at every
    width without depending on source order. */
-.message-correction-actions .ghost-btn.mini { display: inline-flex; }
+.message-correction-actions .ghost-btn.mini,
+.message-correction-actions .message-correction-submit,
+.message-correction-attach { display: inline-flex; }
 .terminal-header-actions .ghost-btn.mini,
 .terminal-status-row .ghost-btn.mini { display: inline-flex; }
 
@@ -2512,7 +2548,7 @@ body.white-shell.theme-light:not(.project-operation-context) [data-project-conte
   }
 
   .pending-attachments {
-    padding-left: 46px;
+    padding: 6px 8px 0;
   }
 
   .pending-file-chip,

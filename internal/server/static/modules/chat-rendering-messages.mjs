@@ -1,3 +1,4 @@
+import { clipboardHTML } from "./clipboard-text.mjs";
 import { escapeAttr, escapeHtml } from "./dom.mjs";
 import { formatNumber } from "./formatters.mjs";
 import { t } from "./i18n.mjs";
@@ -163,6 +164,43 @@ export function clipboardPlainText(text) {
     .replace(/\u0000FENCE(\d+)\u0000/g, (_, index) => fences[Number(index)])
     .replace(/[ \t]+\n/g, "\n")
     .replace(/\n+$/g, "");
+}
+
+function selectionElement(selection) {
+  const node = selection?.anchorNode;
+  return node?.nodeType === 1 ? node : node?.parentElement;
+}
+
+function selectionTouchesCode(selection) {
+  const el = selectionElement(selection);
+  if (el?.closest?.("pre")) return true;
+  for (let index = 0; index < (selection?.rangeCount || 0); index += 1) {
+    const range = selection.getRangeAt(index);
+    if (range.commonAncestorContainer?.parentElement?.closest?.("pre")) return true;
+    try {
+      if (range.cloneContents?.().querySelector?.("pre")) return true;
+    } catch {}
+  }
+  return false;
+}
+
+// Ctrl/Cmd+C on rendered agent HTML copies <p> tags. Rewrite that payload to
+// collapsed plain text plus <br> HTML so Word does not insert paragraph gaps.
+export function rewriteChatCopyEvent(event, { getSelection = () => globalThis.getSelection?.() } = {}) {
+  if (event?.defaultPrevented) return false;
+  if (event?.target?.closest?.("textarea, input, [contenteditable='true'], pre, .copy-code")) return false;
+  const selection = getSelection?.();
+  const selected = String(selection?.toString?.() || "");
+  if (!selected || selection?.isCollapsed) return false;
+  const el = selectionElement(selection);
+  if (!el?.closest?.(".message-content, .chat-message")) return false;
+  if (selectionTouchesCode(selection)) return false;
+  const plain = clipboardPlainText(selected);
+  if (!plain) return false;
+  event.preventDefault?.();
+  event.clipboardData?.setData("text/plain", plain);
+  event.clipboardData?.setData("text/html", clipboardHTML(plain));
+  return true;
 }
 
 export function transcriptMessageText(message = {}) {

@@ -142,6 +142,7 @@ export function createArchiveSettingsController({
   let searchHits = { query: "", results: [] };
   let restoreSearchFocus = false;
   let searchCaret = 0;
+  let composing = false;
   let nestedOpen = Object.create(null);
 
   const archiveText = (key, params) => t(`archive.${key}`, params);
@@ -178,13 +179,13 @@ export function createArchiveSettingsController({
       searching = false;
       searchError = "";
       searchHits = { query: "", results: [] };
-      refresh?.();
+      paintResults();
       return;
     }
     const currentSequence = ++searchSequence;
     searching = true;
     searchError = "";
-    refresh?.();
+    if (!searchHits.results.length) paintResults();
     try {
       const result = await request(`/api/archive/search?q=${encodeURIComponent(needle)}`);
       if (currentSequence !== searchSequence) return;
@@ -196,23 +197,43 @@ export function createArchiveSettingsController({
       searchError = cause?.message || String(cause);
       showError?.(cause);
     } finally {
-      if (currentSequence === searchSequence) refresh?.();
+      if (currentSequence === searchSequence) paintResults();
     }
   }
 
+  // Keep the search field in the DOM. Replacing the whole settings page on
+  // every keystroke drops the caret and kills IME composition, which is why
+  // typing in this box felt broken.
+  function resultsHost() {
+    try {
+      return globalThis.document?.getElementById?.("archiveResultsHost") || null;
+    } catch {
+      return null;
+    }
+  }
+
+  function paintResults() {
+    const host = resultsHost();
+    if (!host) {
+      restoreSearchFocus = true;
+      refresh?.();
+      return;
+    }
+    host.innerHTML = renderResults();
+    bindResults(host);
+  }
+
   function scheduleSearch(nextQuery) {
-    query = text(nextQuery).slice(0, 80);
-    restoreSearchFocus = true;
+    const raw = String(nextQuery ?? "").slice(0, 80);
+    query = raw;
     if (searchTimer) clearTimeout(searchTimer);
-    if (!query) {
+    if (!text(raw)) {
       void search("");
       return;
     }
-    searching = true;
-    refresh?.();
     searchTimer = setTimeout(() => {
       searchTimer = 0;
-      void search(query);
+      void search(raw);
     }, 280);
   }
 
@@ -306,6 +327,14 @@ export function createArchiveSettingsController({
     return `<section class="settings-provider-section settings-page-section settings-card"><div class="settings-provider-section-head settings-card-header"><div><div class="settings-provider-title settings-card-title">${escapeHtml(archiveText("mentionsTitle"))}</div></div></div><div class="archive-item-list">${hits}</div></section>`;
   }
 
+  function renderResults() {
+    const groups = groupArchiveItems(payload);
+    const total = groups.projects.length + groups.conversations.length;
+    if (query) return renderSearch();
+    if (total) return renderBrowse(groups);
+    return `<section class="settings-provider-section settings-page-section settings-card"><div class="archive-empty-state">${escapeHtml(archiveText("empty"))}</div></section>`;
+  }
+
   function render() {
     if (!loaded && !loading && !error) load().catch(showError);
     if (loading && !loaded) return `<div class="settings-empty-card settings-empty-state">${escapeHtml(archiveText("loading"))}</div>`;
@@ -315,10 +344,9 @@ export function createArchiveSettingsController({
 
     const groups = groupArchiveItems(payload);
     const total = groups.projects.length + groups.conversations.length;
-    const searchingNow = Boolean(query);
     return `
       <div class="settings-live-page archive-page">
-        <section class="settings-hero-card settings-page-section settings-card">
+        <section class="settings-hero-card">
           <div class="settings-card-header">
             <div>
               <div class="settings-hero-kicker">${escapeHtml(archiveText("kicker"))}</div>
@@ -327,15 +355,38 @@ export function createArchiveSettingsController({
             </div>
             <button id="archiveRefreshBtn" class="settings-action-btn subtle" type="button">${escapeHtml(archiveText("refresh"))}</button>
           </div>
-          <label class="archive-search-field"><span class="sr-only">${escapeHtml(archiveText("searchLabel"))}</span><input id="archiveSearchInput" type="search" maxlength="80" value="${escapeAttr(query)}" placeholder="${escapeAttr(archiveText("searchPlaceholder"))}" autocomplete="off" /></label>
+          <label class="archive-search-field"><span class="sr-only">${escapeHtml(archiveText("searchLabel"))}</span><input id="archiveSearchInput" type="search" maxlength="80" value="${escapeAttr(query)}" placeholder="${escapeAttr(archiveText("searchPlaceholder"))}" autocomplete="off" spellcheck="false" /></label>
         </section>
         <div class="settings-status-strip settings-stat-grid archive-summary-grid">
           <div class="settings-stat-card"><strong>${escapeHtml(String(total))}</strong><span>${escapeHtml(archiveText("total"))}</span></div>
           <div class="settings-stat-card"><strong>${escapeHtml(String(groups.projects.length))}</strong><span>${escapeHtml(archiveText("projects"))}</span></div>
           <div class="settings-stat-card"><strong>${escapeHtml(String(groups.conversations.length))}</strong><span>${escapeHtml(archiveText("conversations"))}</span></div>
         </div>
-        ${searchingNow ? renderSearch() : (total ? renderBrowse(groups) : `<section class="settings-provider-section settings-page-section settings-card"><div class="archive-empty-state">${escapeHtml(archiveText("empty"))}</div></section>`)}
+        <div id="archiveResultsHost">${renderResults()}</div>
       </div>`;
+  }
+
+  function bindResults(root) {
+    const scope = root && typeof root.querySelectorAll === "function" ? root : document;
+    scope.querySelectorAll("[data-archive-restore]").forEach((button) => {
+      button.addEventListener("click", () => restore(button.dataset.archiveRestore, button.dataset.archiveId, button));
+    });
+    scope.querySelectorAll("[data-archive-delete]").forEach((button) => {
+      button.addEventListener("click", () => remove(button.dataset.archiveDelete, button.dataset.archiveId, button).catch(showError));
+    });
+    scope.querySelectorAll("[data-archive-open]").forEach((button) => {
+      button.addEventListener("click", () => openConversation(button.dataset.archiveOpen, {
+        projectId: button.dataset.archiveProject || "",
+        agentArchived: button.dataset.archiveAgentArchived === "true",
+        projectArchived: button.dataset.archiveProjectArchived === "true",
+      }, button).catch(showError));
+    });
+    scope.querySelectorAll("[data-archive-nested]").forEach((panel) => {
+      panel.addEventListener("toggle", () => {
+        const id = panel.dataset.archiveNested;
+        if (id) nestedOpen[id] = Boolean(panel.open);
+      });
+    });
   }
 
   function bind() {
@@ -343,7 +394,14 @@ export function createArchiveSettingsController({
       load().then(() => query ? search(query) : undefined).catch(showError);
     });
     const input = $("archiveSearchInput");
+    input?.addEventListener("compositionstart", () => { composing = true; });
+    input?.addEventListener("compositionend", (event) => {
+      composing = false;
+      searchCaret = Number(event.currentTarget.selectionStart ?? event.currentTarget.value.length);
+      scheduleSearch(event.currentTarget.value);
+    });
     input?.addEventListener("input", (event) => {
+      if (composing || event.isComposing) return;
       searchCaret = Number(event.currentTarget.selectionStart ?? event.currentTarget.value.length);
       scheduleSearch(event.currentTarget.value);
     });
@@ -353,26 +411,8 @@ export function createArchiveSettingsController({
       try { input.setSelectionRange(caret, caret); } catch { /* not all input types expose a caret */ }
       restoreSearchFocus = false;
     }
-    document.querySelectorAll("[data-archive-restore]").forEach((button) => {
-      button.addEventListener("click", () => restore(button.dataset.archiveRestore, button.dataset.archiveId, button));
-    });
-    document.querySelectorAll("[data-archive-delete]").forEach((button) => {
-      button.addEventListener("click", () => remove(button.dataset.archiveDelete, button.dataset.archiveId, button).catch(showError));
-    });
-    document.querySelectorAll("[data-archive-open]").forEach((button) => {
-      button.addEventListener("click", () => openConversation(button.dataset.archiveOpen, {
-        projectId: button.dataset.archiveProject || "",
-        agentArchived: button.dataset.archiveAgentArchived === "true",
-        projectArchived: button.dataset.archiveProjectArchived === "true",
-      }, button).catch(showError));
-    });
-    document.querySelectorAll("[data-archive-nested]").forEach((panel) => {
-      panel.addEventListener("toggle", () => {
-        const id = panel.dataset.archiveNested;
-        if (id) nestedOpen[id] = Boolean(panel.open);
-      });
-    });
+    bindResults(document);
   }
 
-  return { bind, load, normalize: () => payload, remove, render, restore, search };
+  return { bind, load, normalize: () => payload, remove, render, restore, scheduleSearch, search };
 }

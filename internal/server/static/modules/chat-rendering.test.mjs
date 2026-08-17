@@ -25,6 +25,7 @@ import {
   reasoningStepTitle,
   renderToolActivityStackHTML,
   renderToolDiffHTML,
+  rewriteChatCopyEvent,
   toolActivityDedupeKey,
   transcriptMessageText,
 } from "./chat-rendering.mjs";
@@ -675,6 +676,47 @@ test("clipboardPlainText drops markdown paragraph gaps but keeps fenced code", (
   assert.equal(clipboardPlainText("intro\n\n```\na\n\nb\n```\n\nout"), "intro\n```\na\n\nb\n```\nout");
 });
 
+test("selecting two visual lines copies a single break instead of a Word paragraph gap", () => {
+  const data = {};
+  const host = {
+    closest(selector) {
+      return String(selector).includes("message-content") ? this : null;
+    },
+  };
+  const event = {
+    defaultPrevented: false,
+    preventDefault() { this.defaultPrevented = true; },
+    clipboardData: {
+      setData(type, value) { data[type] = value; },
+    },
+    target: { closest: () => null },
+  };
+  const rewritten = rewriteChatCopyEvent(event, {
+    getSelection: () => ({
+      isCollapsed: false,
+      toString: () => "12\n\n12",
+      anchorNode: { nodeType: 3, parentElement: host },
+      rangeCount: 0,
+    }),
+  });
+  assert.equal(rewritten, true);
+  assert.equal(event.defaultPrevented, true);
+  assert.equal(data["text/plain"], "12\n12");
+  assert.match(data["text/html"], /12<br>12/);
+  assert.doesNotMatch(data["text/html"], /<p[\s>]/i);
+});
+
+test("copying from a fenced code block keeps the browser payload", () => {
+  const data = {};
+  const event = {
+    preventDefault() { throw new Error("code copies must not be rewritten"); },
+    clipboardData: { setData() {} },
+    target: { closest: (selector) => (String(selector).includes("pre") ? {} : null) },
+  };
+  assert.equal(rewriteChatCopyEvent(event), false);
+  assert.deepEqual(data, {});
+});
+
 test("copying a two-paragraph assistant reply does not insert a blank line", () => {
   const { state } = renderSnapshot([
     { id: "a-copy", role: "assistant", contentText: "第一行\n\n第二行" },
@@ -846,6 +888,29 @@ test("message correction editor exposes a neutral editing-state style hook", () 
   assert.match(html, /class="message user message-editing chat-message/);
   assert.match(html, /class="message-correction-editor"/);
   assert.match(html, />updated text<\/textarea>/);
+});
+
+test("message correction editor uses a styled picker, typed chips, and a primary resend action", () => {
+  const { html } = renderSnapshot([{
+    id: "message-1",
+    role: "user",
+    contentText: "original text",
+    attachments: [{ id: "att-2", filename: "spec.pdf", mimeType: "application/pdf", sizeBytes: 2048, kind: "pdf" }],
+  }], {
+    editingMessageId: "message-1",
+    correctionText: "updated text",
+    correctionFiles: [{ name: "note.txt", type: "text/plain", size: 12 }],
+  });
+
+  assert.match(html, /data-correction-pick-files/);
+  assert.match(html, /data-correction-files/);
+  assert.match(html, /class="sr-only"/);
+  assert.doesNotMatch(html, /message-correction-file-label/);
+  assert.match(html, /data-keep-correction-attachment[^>]*value="att-2"/);
+  assert.match(html, /data-kind="pdf"/);
+  assert.match(html, /data-kind="text"/);
+  assert.match(html, /class="message-correction-submit"/);
+  assert.match(html, /<svg viewBox="0 0 24 24"/);
 });
 
 test("task reports, tool output, approvals, and errors expose left-aligned bounded-layout hooks", () => {
@@ -4208,6 +4273,8 @@ test("non-image attachments keep the compact file card and download through the 
 
   assert.match(html, /class="attachment-card"/);
   assert.match(html, /data-attachment-download="\/api\/agents\/agent-1\/messages\/m1\/attachments\/att-2"/);
+  assert.match(html, /data-kind="pdf"/);
+  assert.match(html, /attachment-thumb"[^>]*>\s*<svg viewBox="0 0 24 24"/);
   assert.doesNotMatch(html, /attachment-image-card/);
   assert.doesNotMatch(html, /href="\/api\//);
 });

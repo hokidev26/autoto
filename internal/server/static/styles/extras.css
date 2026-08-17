@@ -15,6 +15,7 @@ body.white-shell.theme-light .composer-wrap {
 
   body.white-shell.theme-light .composer-controls {
     align-items: center;
+    gap: 4px;
   }
 
   /* Push the context ring + model controls together to the right, so the
@@ -45,7 +46,7 @@ body.white-shell.theme-light .composer-wrap {
     width: auto;
     justify-content: center;
     gap: 4px;
-    padding: 0 4px;
+    padding: 0 8px;
   }
 
   body.white-shell.theme-light .composer-effort-field .composer-select-value {
@@ -89,6 +90,32 @@ body.white-shell.theme-light .composer-wrap {
     text-overflow: clip;
   }
 
+  /* Model chip hugs the selected name. The old 220-300px grey card left a
+     hole beside short names, and `provider:model` made the label look stuffed.
+     The provider still lives in the menu heading and the tooltip. */
+  body.white-shell.theme-light .composer-model-field {
+    width: auto;
+    min-width: 0;
+    max-width: min(42vw, 260px);
+    flex: 0 1 auto;
+  }
+
+  body.white-shell.theme-light .toolbar-model-pill {
+    width: auto;
+    min-width: 0;
+    max-width: 100%;
+    flex: 0 1 auto;
+  }
+
+  body.white-shell.theme-light .composer-model-field .composer-select-trigger {
+    width: auto;
+    max-width: 100%;
+  }
+
+  body.white-shell.theme-light .composer-model-field .composer-select-value {
+    flex: 0 1 auto;
+  }
+
   @container composer-shell (max-width: 1320px) {
     body.white-shell.theme-light .composer-task-summary {
       width: 180px;
@@ -130,31 +157,29 @@ body.white-shell.theme-light .composer-wrap {
       gap: 4px;
     }
 
-    /* The context ring and these controls are one group that
-       .context-usage-btn pushes right with margin-left: auto, so the
-       group's left edge is the container edge minus its own width. Letting
-       the model box flex between 140px and 200px therefore moved everything
-       to its left by up to 60px whenever the model id changed length --
-       switching between a project on codex:gpt-5.6-luna and one on
-       gemini-oauth:claude-opus-4-6-thinking made the context readout appear
-       to jump toward the model selector and back. Model ids are long and
-       unbounded, so hugging them was never going to hold still; the box
-       keeps the 200px this tier already capped it to and ellipsises. */
+    /* The trigger now shows the model name, not `provider:model`, so a 200px
+       lock left a hole between the name and the effort chip. Hug the label;
+       the context ring is still `margin-left: auto`, so length changes eat
+       the left gutter instead of shoving neighbours. Ellipsis only if a
+       name actually overflows the cap. */
     body.white-shell.theme-light .composer-model-field {
-      width: 200px;
-      min-width: 200px;
-      max-width: 200px;
-      flex: 0 0 200px;
+      width: auto;
+      min-width: 0;
+      max-width: min(42vw, 220px);
+      flex: 0 1 auto;
     }
 
     body.white-shell.theme-light .composer-model-field .composer-select-value {
+      flex: 0 1 auto;
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
     }
 
     body.white-shell.theme-light .toolbar-model-pill {
-      max-width: 200px;
+      width: auto;
+      min-width: 0;
+      max-width: 100%;
     }
 
     /* Every effort label is one or two CJK characters, so a floor wide
@@ -1230,65 +1255,74 @@ body.white-shell.theme-light .composer-toolbar .toolbar-lightning-btn {
 #settingsContentBody .shared-api-page { overflow: visible; }
 #settingsContentBody .shared-api-error { margin: 10px 18px 0; }
 #settingsContentBody :is(.shared-api-keys-section, .shared-api-usage-section) { padding-block: 10px; }
-/* Provider credentials collapsible —
-   .compact-settings-section is a two-column grid, but <details> is its
-   only direct child so the columns never apply to copy/controls.
-   Fix: flatten the section to display:block and move the two-column
-   grid onto <details> itself so summary→col1, controls→col2. */
-#settingsContentBody .shared-api-providers-section { display: block; padding: 0; }
-#settingsContentBody .shared-api-providers-details { display: grid; grid-template-columns: minmax(150px, 210px) minmax(0, 1fr); gap: 18px; padding: 14px 18px; border: none; }
-#settingsContentBody .shared-api-providers-details:not([open]) { grid-template-columns: minmax(0, 1fr); }
-#settingsContentBody .shared-api-providers-details > summary { list-style: none; cursor: pointer; }
-#settingsContentBody .shared-api-providers-details > summary::-webkit-details-marker { display: none; }
+/* Shared API primary sections stay open and stack full-width. The old
+   150–210px title column split CJK headings, so these share the tunnel
+   layout. Only the request log stays a disclosure: it is an appendix. */
+#settingsContentBody .shared-api-requests-section { display: block; padding: 0; }
+#settingsContentBody .shared-api-requests-details {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 12px;
+  padding: 14px 18px;
+  border: none;
+}
+#settingsContentBody .shared-api-requests-details:not([open]) { gap: 0; }
+#settingsContentBody .shared-api-requests-details > summary { list-style: none; cursor: pointer; }
+#settingsContentBody .shared-api-requests-details > summary::-webkit-details-marker { display: none; }
+#settingsContentBody .shared-api-requests-details > summary .compact-settings-section-copy { pointer-events: none; }
+#settingsContentBody .shared-api-requests-details:not([open]) .compact-settings-section-summary::after { transform: rotate(0deg); }
 #settingsContentBody .compact-settings-section-summary { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
 #settingsContentBody .compact-settings-section-summary::after { content: "›"; flex: 0 0 auto; margin-top: 2px; color: var(--settings-muted-foreground); font-size: 14px; transition: transform .15s ease; transform: rotate(90deg); }
 /* Dark theme: make the collapse triangle visible against dark backgrounds. */
 body.white-shell.theme-light.theme-dark #settingsContentBody .compact-settings-section-summary::after { color: rgba(255, 255, 255, .55); }
-#settingsContentBody .shared-api-providers-details:not([open]) .compact-settings-section-summary::after { transform: rotate(0deg); }
-#settingsContentBody .shared-api-providers-details > summary .compact-settings-section-copy { pointer-events: none; }
-@media (max-width: 767px) {
-  #settingsContentBody .shared-api-providers-section { padding: 0; }
-  #settingsContentBody .shared-api-providers-details { grid-template-columns: minmax(0, 1fr); gap: 10px; padding: 13px 14px; }
+#settingsContentBody .shared-api-page .compact-settings-section-copy h2 { word-break: keep-all; }
+#settingsContentBody .compact-settings-section.shared-api-tunnel-section,
+#settingsContentBody .compact-settings-section.shared-api-models-section,
+#settingsContentBody .compact-settings-section.shared-api-gateway-section,
+#settingsContentBody .compact-settings-section.shared-api-providers-section,
+#settingsContentBody .compact-settings-section.shared-api-accounts-section,
+#settingsContentBody .compact-settings-section.shared-api-keys-section,
+#settingsContentBody .compact-settings-section.shared-api-usage-section {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 10px;
 }
-/* Accounts / Keys / Requests sections — same collapsible grid layout as providers. */
-#settingsContentBody .shared-api-accounts-section,
-#settingsContentBody .shared-api-keys-section,
-#settingsContentBody .shared-api-requests-section,
-#settingsContentBody .shared-api-gateway-section { display: block; padding: 0; }
-#settingsContentBody .shared-api-accounts-details,
-#settingsContentBody .shared-api-keys-details,
-#settingsContentBody .shared-api-requests-details,
-#settingsContentBody .shared-api-gateway-details { display: grid; grid-template-columns: minmax(150px, 210px) minmax(0, 1fr); gap: 18px; padding: 14px 18px; border: none; }
-#settingsContentBody .shared-api-accounts-details:not([open]),
-#settingsContentBody .shared-api-keys-details:not([open]),
-#settingsContentBody .shared-api-requests-details:not([open]),
-#settingsContentBody .shared-api-gateway-details:not([open]) { grid-template-columns: minmax(0, 1fr); }
-#settingsContentBody .shared-api-accounts-details > summary,
-#settingsContentBody .shared-api-keys-details > summary,
-#settingsContentBody .shared-api-requests-details > summary,
-#settingsContentBody .shared-api-gateway-details > summary { list-style: none; cursor: pointer; }
-#settingsContentBody .shared-api-accounts-details > summary::-webkit-details-marker,
-#settingsContentBody .shared-api-keys-details > summary::-webkit-details-marker,
-#settingsContentBody .shared-api-requests-details > summary::-webkit-details-marker,
-#settingsContentBody .shared-api-gateway-details > summary::-webkit-details-marker { display: none; }
-#settingsContentBody .shared-api-accounts-details > summary .compact-settings-section-copy,
-#settingsContentBody .shared-api-keys-details > summary .compact-settings-section-copy,
-#settingsContentBody .shared-api-requests-details > summary .compact-settings-section-copy,
-#settingsContentBody .shared-api-gateway-details > summary .compact-settings-section-copy { pointer-events: none; }
-#settingsContentBody .shared-api-accounts-details:not([open]) .compact-settings-section-summary::after,
-#settingsContentBody .shared-api-keys-details:not([open]) .compact-settings-section-summary::after,
-#settingsContentBody .shared-api-requests-details:not([open]) .compact-settings-section-summary::after,
-#settingsContentBody .shared-api-gateway-details:not([open]) .compact-settings-section-summary::after { transform: rotate(0deg); }
-#settingsContentBody .shared-api-gateway-details > summary .settings-badge { flex: 0 0 auto; margin-top: 2px; }
+#settingsContentBody .shared-api-section-head {
+  display: flex;
+  min-width: 0;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+#settingsContentBody .shared-api-section-head .compact-settings-section-copy { flex: 1 1 auto; min-width: 0; }
+#settingsContentBody .shared-api-section-actions {
+  display: flex;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+#settingsContentBody .shared-api-tunnel-url-row {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+}
+#settingsContentBody .shared-api-tunnel-url-row > code {
+  min-width: 0;
+  overflow: auto;
+  padding: 7px 9px;
+  border: 1px solid var(--settings-border);
+  border-radius: 7px;
+  background: var(--settings-muted);
+  color: var(--settings-foreground);
+  font: 650 10px/1.4 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  white-space: nowrap;
+}
 @media (max-width: 767px) {
-  #settingsContentBody .shared-api-accounts-section,
-  #settingsContentBody .shared-api-keys-section,
-  #settingsContentBody .shared-api-requests-section,
-  #settingsContentBody .shared-api-gateway-section { padding: 0; }
-  #settingsContentBody .shared-api-accounts-details,
-  #settingsContentBody .shared-api-keys-details,
-  #settingsContentBody .shared-api-requests-details,
-  #settingsContentBody .shared-api-gateway-details { grid-template-columns: minmax(0, 1fr); gap: 10px; padding: 13px 14px; }
+  #settingsContentBody .shared-api-requests-section { padding: 0; }
+  #settingsContentBody .shared-api-requests-details { gap: 10px; padding: 13px 14px; }
 }
 #settingsContentBody .settings-empty-state.shared-api-compact-empty {
   min-height: 42px;
@@ -1296,8 +1330,7 @@ body.white-shell.theme-light.theme-dark #settingsContentBody .compact-settings-s
   font-size: 10px;
 }
 /* Runtime-resources collapsible cards — the same native <details> disclosure the
-   Shared API sections above use. Those sections are a two-column row
-   (copy | controls). These cards used to sit in the two-column
+   Shared API sections above use. These cards used to sit in the two-column
    .usage-detail-grid, so opening one left a short neighbour beside a tall form.
    They now stack full-width: folded bars are one height, and an open card grows
    downward instead of against the card next to it.
@@ -1335,7 +1368,6 @@ body.white-shell.theme-light.theme-dark #settingsContentBody .compact-settings-s
 /* The shared ::after starts rotated 90deg (open). Point it back along the row
    while the card is folded, matching the Shared API sections. */
 #settingsContentBody .runtime-resource-details:not([open]) .compact-settings-section-summary::after { transform: rotate(0deg); }
-#settingsContentBody .shared-api-status-row,
 #settingsContentBody .shared-api-row,
 #settingsContentBody .shared-api-key-head {
   display: flex;
@@ -1344,7 +1376,6 @@ body.white-shell.theme-light.theme-dark #settingsContentBody .compact-settings-s
   justify-content: space-between;
   gap: 12px;
 }
-#settingsContentBody .shared-api-status-row > code,
 #settingsContentBody .shared-api-row code,
 #settingsContentBody .shared-api-key-head code {
   overflow: hidden;
@@ -1480,6 +1511,8 @@ body.white-shell.theme-light.theme-dark #settingsContentBody .compact-settings-s
   #settingsContentBody .shared-api-request-head { align-items: stretch; flex-direction: column; }
   #settingsContentBody .shared-api-account-actions { width: 100%; justify-content: space-between; }
   #settingsContentBody .shared-api-connection-row { grid-template-columns: minmax(0, 1fr); gap: 4px; }
+  #settingsContentBody .shared-api-section-head { align-items: stretch; flex-direction: column; }
+  #settingsContentBody .shared-api-section-actions { justify-content: flex-start; }
   #settingsContentBody .shared-api-gateway-actions,
   #settingsContentBody .shared-api-key-actions,
   #settingsContentBody .shared-api-token .settings-inline-actions { width: 100%; justify-content: flex-start; }
@@ -1488,6 +1521,32 @@ body.white-shell.theme-light.theme-dark #settingsContentBody .compact-settings-s
 }
 
 /* About branding and open-source dependency catalog. */
+#settingsContentBody .legacy-about-page {
+  gap: var(--settings-space-4);
+}
+#settingsContentBody .legacy-about-overview {
+  gap: var(--settings-space-4);
+}
+#settingsContentBody .legacy-about-update-card {
+  display: grid;
+  gap: 12px;
+}
+#settingsContentBody .legacy-about-more {
+  margin-top: 4px;
+}
+#settingsContentBody .legacy-about-desktop-shell {
+  display: grid;
+  gap: 14px;
+}
+#settingsContentBody .legacy-about-desktop-shell > .settings-provider-section-head {
+  margin: 0;
+}
+#settingsContentBody .legacy-about-desktop-shell .compact-actions {
+  justify-content: flex-start;
+}
+#settingsContentBody .legacy-about-desktop-form {
+  gap: 10px;
+}
 #settingsContentBody .legacy-about-logo {
   width: 56px;
   height: 56px;
@@ -1977,7 +2036,8 @@ body.white-shell.theme-light.theme-dark #settingsContentBody .compact-settings-s
     min-height: 44px;
     flex: 1 1 auto;
     display: flex;
-    align-items: center;
+    flex-direction: column;
+    align-items: stretch;
     background: var(--ws-card, #fff);
     border: 1px solid rgba(60, 60, 67, .18);
     border-radius: 8px;
@@ -2192,7 +2252,7 @@ body.white-shell.theme-light.theme-dark #settingsContentBody .compact-settings-s
   }
   body.white-shell.theme-light #sendMessageBtn::before { display: none; content: none; }
   body.white-shell.theme-light #sendMessageBtn:disabled { background: var(--ws-input, #e9ecf1); color: #9aa2b1; }
-  body.white-shell.theme-light .pending-attachments { order: 1; margin: 0; }
+  body.white-shell.theme-light .pending-attachments { order: 0; margin: 0; }
 }
 
 
@@ -4468,54 +4528,167 @@ body.white-shell.theme-light.theme-dark .account-session-error {
   gap: 8px;
 }
 
-#settingsContentBody .user-admin-fold {
+#settingsContentBody .user-admin-create-panel {
   overflow: hidden;
   padding: 0;
 }
 
-#settingsContentBody .user-admin-fold > summary {
-  margin-bottom: 0;
+#settingsContentBody .user-admin-create-head {
   align-items: center;
   gap: 12px;
-  padding: 16px 22px;
+  padding: 14px 18px 0;
+}
+
+#settingsContentBody .user-admin-create-panel [data-create-form] > .settings-card-description {
+  margin: 0;
+  padding: 0 18px;
+}
+
+#settingsContentBody .user-admin-create-form {
+  gap: 16px;
+  padding: 12px 18px 18px;
+}
+
+#settingsContentBody .user-admin-create-form .settings-form-grid {
+  gap: 16px 20px;
+}
+
+#settingsContentBody .user-admin-accounts {
+  overflow: hidden;
+  padding: 0;
+}
+
+#settingsContentBody .user-admin-accounts > .settings-card-header {
+  padding: 14px 18px 10px;
+}
+
+#settingsContentBody .user-admin-account-list {
+  display: grid;
+  gap: 0;
+  padding: 0 6px 6px;
+}
+
+#settingsContentBody .user-admin-page .user-admin-account {
+  display: grid;
+  gap: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: var(--settings-radius, 8px);
+  background: transparent;
+  box-shadow: none;
+}
+
+#settingsContentBody .user-admin-page .user-admin-account.is-self {
+  background: color-mix(in srgb, var(--settings-primary-soft) 55%, var(--settings-surface));
+}
+
+#settingsContentBody .user-admin-page .user-admin-account:hover,
+#settingsContentBody .user-admin-page .user-admin-account:focus-within {
+  background: color-mix(in srgb, var(--settings-muted) 42%, var(--settings-surface));
+}
+
+#settingsContentBody .user-admin-page .user-admin-account.is-self:hover,
+#settingsContentBody .user-admin-page .user-admin-account.is-self:focus-within {
+  background: color-mix(in srgb, var(--settings-primary-soft) 72%, var(--settings-surface));
+}
+
+#settingsContentBody .user-admin-account-summary {
+  display: block;
   cursor: pointer;
   list-style: none;
 }
 
-#settingsContentBody .user-admin-fold > summary::-webkit-details-marker {
+#settingsContentBody .user-admin-account-summary::-webkit-details-marker {
   display: none;
 }
 
-#settingsContentBody .user-admin-fold > summary::after {
-  content: "";
+#settingsContentBody .user-admin-account-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+}
+
+#settingsContentBody .user-admin-account-aside {
+  display: flex;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+#settingsContentBody .user-admin-account-name {
+  overflow: hidden;
+  color: var(--settings-foreground);
+  font-size: 13px;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#settingsContentBody .user-admin-account-chevron {
   flex: 0 0 auto;
   width: 6px;
   height: 6px;
-  margin-top: 2px;
+  margin-right: 4px;
   border-right: 1.5px solid var(--settings-muted-foreground);
   border-bottom: 1.5px solid var(--settings-muted-foreground);
   transform: rotate(45deg);
   transition: transform .15s ease;
 }
 
-#settingsContentBody .user-admin-fold[open] > summary::after {
+#settingsContentBody .user-admin-account[open] > .user-admin-account-summary .user-admin-account-chevron {
   transform: rotate(225deg);
 }
 
-#settingsContentBody .user-admin-fold[open] > summary {
-  border-bottom: 1px solid var(--settings-border);
+#settingsContentBody .user-admin-account-body {
+  display: grid;
+  gap: 12px;
+  padding: 0 12px 14px;
 }
 
-#settingsContentBody .user-admin-fold > .settings-card-content {
-  padding: 20px 22px 22px;
+#settingsContentBody .user-admin-identity {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 10px;
 }
 
-#settingsContentBody .user-admin-create-form {
-  gap: 16px;
+#settingsContentBody .user-admin-avatar {
+  width: 32px;
+  height: 32px;
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  background: var(--settings-primary-soft);
+  color: var(--settings-primary);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: .02em;
 }
 
-#settingsContentBody .user-admin-create-form .settings-form-grid {
-  gap: 16px 20px;
+#settingsContentBody .user-admin-identity-copy {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+#settingsContentBody .user-admin-badges {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+#settingsContentBody .user-admin-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
 }
 
 #settingsContentBody .user-admin-issued-key {
@@ -4618,69 +4791,6 @@ body.white-shell.theme-light.theme-dark .account-session-error {
   z-index: 130;
 }
 
-#settingsContentBody .user-admin-account-list {
-  gap: 12px;
-}
-
-#settingsContentBody .user-admin-page .user-admin-account {
-  display: grid;
-  gap: 12px;
-  padding: 14px;
-  box-shadow: none;
-  background: color-mix(in srgb, var(--settings-surface) 88%, var(--settings-muted));
-}
-
-#settingsContentBody .user-admin-page .user-admin-account.is-self {
-  border-color: color-mix(in srgb, var(--settings-primary) 34%, var(--settings-border));
-  background: color-mix(in srgb, var(--settings-primary-soft) 55%, var(--settings-surface));
-}
-
-#settingsContentBody .user-admin-account-head {
-  align-items: flex-start;
-  gap: 12px;
-}
-
-#settingsContentBody .user-admin-identity {
-  display: flex;
-  min-width: 0;
-  align-items: flex-start;
-  gap: 12px;
-}
-
-#settingsContentBody .user-admin-avatar {
-  width: 40px;
-  height: 40px;
-  display: inline-flex;
-  flex: none;
-  align-items: center;
-  justify-content: center;
-  border-radius: 12px;
-  background: var(--settings-primary-soft);
-  color: var(--settings-primary);
-  font-size: 13px;
-  font-weight: 800;
-  letter-spacing: .02em;
-}
-
-#settingsContentBody .user-admin-identity-copy {
-  min-width: 0;
-  display: grid;
-  gap: 2px;
-}
-
-#settingsContentBody .user-admin-badges {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  gap: 6px;
-}
-
-#settingsContentBody .user-admin-meta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-
 #settingsContentBody .user-admin-chip {
   display: inline-flex;
   align-items: center;
@@ -4695,6 +4805,7 @@ body.white-shell.theme-light.theme-dark .account-session-error {
 }
 
 #settingsContentBody .user-admin-memberships {
+  display: grid;
   gap: 10px;
 }
 
@@ -4740,13 +4851,20 @@ body.white-shell.theme-light.theme-dark .account-session-error {
 @container user-admin-page (max-width: 640px) {
   #settingsContentBody .user-admin-hero-tools,
   #settingsContentBody .user-admin-issued-key,
-  #settingsContentBody .user-admin-key-row {
+  #settingsContentBody .user-admin-key-row,
+  #settingsContentBody .user-admin-account-row,
+  #settingsContentBody .user-admin-account-aside {
     flex-direction: column;
     align-items: stretch;
   }
 
   #settingsContentBody .user-admin-hero-tools,
-  #settingsContentBody .user-admin-badges {
+  #settingsContentBody .user-admin-badges,
+  #settingsContentBody .user-admin-account-aside {
     justify-content: flex-start;
+  }
+
+  #settingsContentBody .user-admin-account-row {
+    grid-template-columns: minmax(0, 1fr);
   }
 }

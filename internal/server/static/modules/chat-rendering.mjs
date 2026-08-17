@@ -21,6 +21,7 @@ import {
   normalizeTurnUsage,
   renderGeneratedImageBlocksHTML,
   clipboardPlainText,
+  rewriteChatCopyEvent,
   transcriptMessageText,
   transcriptMessages,
   userMessageRoles,
@@ -37,7 +38,7 @@ import {
   planForMessage,
   renderPlanSystemNoticeHTML,
 } from "./chat-rendering-plan.mjs";
-import { messageCopiedGlyph, messageCopyGlyph } from "./chat-rendering-tools-glyphs.mjs";
+import { messageCopiedGlyph, messageCopyGlyph, messageCorrectGlyph } from "./chat-rendering-tools-glyphs.mjs";
 import { createChatRenderingCorrection } from "./chat-rendering-correction.mjs";
 import { createChatRenderingAttachments } from "./chat-rendering-attachments.mjs";
 import { createChatRenderingHistory } from "./chat-rendering-history.mjs";
@@ -72,6 +73,7 @@ import {
 export {
   chatMessagePresentation,
   clipboardPlainText,
+  rewriteChatCopyEvent,
   findToolActivityByIdentity,
   formatTurnUsagePerformance,
   generatedImageURL,
@@ -752,6 +754,7 @@ export function createChatRenderingController({
     }
     bindToolActivityControls(el);
     bindMessageActionButtons(el);
+    bindMessageClipboard(el);
     el.querySelector("[data-load-older-messages]")?.addEventListener("click", () => {
       resetHistoryFailures();
       loadOlderMessages(agentId).catch(showError);
@@ -947,7 +950,7 @@ export function createChatRenderingController({
     // While this message is being corrected the head keeps only the copy
     // action: offering "correct" for a message whose correction editor is
     // already open re-renders the same editor and reads as a second control.
-    const actions = `${message.role === "user" && !editing ? `<button class="message-copy-btn" type="button" data-correct-message="${escapeAttr(message.id || "")}" title="${escapeAttr(cr("message.correctTitle"))}">${escapeHtml(cr("message.correct"))}</button>` : ""}<button class="message-copy-btn" type="button" data-copy-message="${escapeAttr(String(index))}" title="${escapeAttr(cr("message.copyTitle"))}" aria-label="${escapeAttr(cr("message.copyTitle"))}">${messageCopyGlyph()}</button>`;
+    const actions = `${message.role === "user" && !editing ? `<button class="message-copy-btn" type="button" data-correct-message="${escapeAttr(message.id || "")}" title="${escapeAttr(cr("message.correctTitle"))}" aria-label="${escapeAttr(cr("message.correctTitle"))}">${messageCorrectGlyph()}</button>` : ""}<button class="message-copy-btn" type="button" data-copy-message="${escapeAttr(String(index))}" title="${escapeAttr(cr("message.copyTitle"))}" aria-label="${escapeAttr(cr("message.copyTitle"))}">${messageCopyGlyph()}</button>`;
     const body = editing
       ? renderCorrectionEditor(message)
       : plan
@@ -3860,6 +3863,14 @@ export function createChatRenderingController({
     }
   }
 
+  function bindMessageClipboard(root) {
+    if (!root?.addEventListener) return;
+    const dataset = root.dataset || (root.dataset = {});
+    if (dataset.chatCopyBound === "1") return;
+    dataset.chatCopyBound = "1";
+    root.addEventListener("copy", (event) => rewriteChatCopyEvent(event));
+  }
+
   function bindMessageActionButtons(root) {
     root.querySelectorAll("[data-generated-image] img.generated-image-preview").forEach((image) => {
       image.addEventListener("error", () => {
@@ -3883,11 +3894,31 @@ export function createChatRenderingController({
     root.querySelector("[data-correction-text]")?.addEventListener("input", (event) => {
       state.correctionText = event.target.value;
     });
+    root.querySelector("[data-correction-pick-files]")?.addEventListener("click", () => {
+      root.querySelector("[data-correction-files]")?.click();
+    });
+    root.querySelectorAll("[data-remove-correction-file]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const index = Number(button.dataset.removeCorrectionFile);
+        state.correctionText = root.querySelector("[data-correction-text]")?.value ?? state.correctionText ?? "";
+        state.correctionFiles = (Array.isArray(state.correctionFiles) ? state.correctionFiles : []).filter((_, itemIndex) => itemIndex !== index);
+        applyMessageSnapshot(state.currentMessages, state.agent?.id);
+      });
+    });
     root.querySelector("[data-correction-files]")?.addEventListener("change", (event) => {
       state.correctionText = root.querySelector("[data-correction-text]")?.value ?? state.correctionText ?? "";
-      state.correctionFiles = Array.from(event.target?.files || []).filter(Boolean);
+      const picked = Array.from(event.target?.files || []).filter(Boolean);
+      state.correctionFiles = [...(Array.isArray(state.correctionFiles) ? state.correctionFiles : []), ...picked];
+      if (event.target) event.target.value = "";
       applyMessageSnapshot(state.currentMessages, state.agent?.id);
     });
+    const correctionText = root.querySelector("[data-correction-text]");
+    if (state.correctionEditorNeedsFocus && correctionText) {
+      state.correctionEditorNeedsFocus = false;
+      correctionText.focus?.();
+      const cursor = String(correctionText.value || "").length;
+      correctionText.setSelectionRange?.(cursor, cursor);
+    }
     root.querySelector("[data-correction-text]")?.addEventListener("paste", (event) => {
       const files = correctionClipboardFiles(event);
       if (!files.length) return;

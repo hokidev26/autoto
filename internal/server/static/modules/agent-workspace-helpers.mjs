@@ -1,5 +1,6 @@
 import { $, setTextIfChanged } from "./dom.mjs";
 import { t } from "./i18n.mjs";
+import { classifyAttachmentKind } from "./attachment-glyphs.mjs";
 import { appMainT as am } from "./messages-app-main-extra.mjs";
 import {
   mcpHostToolKind,
@@ -312,14 +313,7 @@ export function createAgentWorkspaceHelpers({
   }
 
   function attachmentKind(file) {
-    const type = String(file?.type || "").toLowerCase();
-    const name = String(file?.name || "").toLowerCase();
-    if (type.startsWith("image/")) return "image";
-    if (type === "video/mp4" || type === "video/webm") return "video";
-    if (type === "application/pdf" || name.endsWith(".pdf")) return "pdf";
-    if (name.endsWith(".docx") || type.includes("wordprocessingml.document")) return "docx";
-    if (type.startsWith("text/") || /\.(txt|md|markdown|json|jsonl|csv|tsv|log|xml|ya?ml|toml|ini|env|go|js|jsx|ts|tsx|css|html?|py|rb|rs|java|c|h|cpp|hpp|cs|php|sh|zsh|bash|sql|swift|kt|kts|dart|vue|svelte)$/i.test(name)) return "text";
-    return "binary";
+    return classifyAttachmentKind(file);
   }
 
   function attachmentIcon(kind) {

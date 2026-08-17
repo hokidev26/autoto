@@ -1015,6 +1015,7 @@ body.white-shell.theme-light .message-input:focus {
   box-shadow: 0 0 0 3px rgba(79, 110, 247, .10);
 }
 
+body.white-shell.theme-light .composer-input-shell.dragging .message-input-frame,
 body.white-shell.theme-light .composer-input-shell.dragging .message-input {
   border-color: var(--ws-primary);
   box-shadow: 0 0 0 3px rgba(79, 110, 247, .12);
@@ -1079,6 +1080,16 @@ body.white-shell.theme-light .attachment-card {
   border-color: var(--ws-border);
   background: var(--ws-canvas);
   color: var(--ws-text);
+}
+
+body.white-shell.theme-light .pending-attachments .pending-file-chip {
+  border: 0;
+  background: transparent;
+  color: var(--ws-primary, #4f6ef7);
+}
+
+body.white-shell.theme-light .pending-attachments .pending-file-name {
+  color: var(--ws-primary, #4f6ef7);
 }
 
 body.white-shell.theme-light .pending-image-thumb,

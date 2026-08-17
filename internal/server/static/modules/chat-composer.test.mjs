@@ -2016,9 +2016,10 @@ test("a long queue collapses past the threshold and the toggle expands it", () =
     controller.renderMessageQueue();
     const collapsedRows = (queueHost.innerHTML.match(/message-queue-item/g) || []).length;
     assert.equal(collapsedRows, queueCollapseThreshold, "only the threshold rows render while collapsed");
+    assert.match(queueHost.innerHTML, /message-queue-head/);
     assert.match(queueHost.innerHTML, /data-queue-toggle aria-expanded="false"/);
-    // No heading row: the order and the text carry the list on their own.
-    assert.doesNotMatch(queueHost.innerHTML, /message-queue-head/);
+    assert.doesNotMatch(queueHost.innerHTML, /message-queue-index/);
+    assert.match(queueHost.innerHTML, /message-queue-drop[\s\S]*M4 7h16/);
 
     assert.equal(typeof toggleHandler, "function", "the toggle must be bound");
     toggleHandler();

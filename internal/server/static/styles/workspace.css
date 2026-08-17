@@ -575,7 +575,9 @@
 }
 .message-copy-btn:hover { border-color: var(--line); color: var(--text); background: rgba(255, 255, 255, .04); opacity: 1; }
 [data-copy-message],
-[data-copy-child-message] {
+[data-copy-child-message],
+[data-correct-message],
+[data-correct-child-message] {
   width: 20px;
   min-width: 20px;
   height: 20px;
@@ -1082,6 +1084,12 @@ body.theme-light .slash-command-desc { color: #64748b; }
   position: relative;
   flex: 1 1 auto;
   min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+}
+.message-input-frame > .message-input {
+  width: 100%;
 }
 .message-input {
   min-height: 46px;
@@ -1163,46 +1171,77 @@ body.theme-light .slash-command-desc { color: #64748b; }
 .composer-attach-wrap:hover .composer-attach-btn,
 .composer-attach-wrap:focus-within .composer-attach-btn,
 .composer-send-btn:hover { background: rgba(255, 255, 255, .06); color: #d8d8d8; }
+.composer-input-shell.has-pending-attachments {
+  align-items: flex-end;
+}
 .composer-input-shell.dragging .composer-attach-btn,
+.composer-input-shell.dragging .message-input-frame,
 .composer-input-shell.dragging .message-input {
   border-color: #7f8cff;
   box-shadow: 0 0 0 3px rgba(111, 140, 255, .16), 0 6px 18px rgba(0, 0, 0, .18);
 }
 .composer-attach-btn:disabled,
 .composer-send-btn:disabled { opacity: .45; background: transparent; }
-/* Messages parked with /queue, shown between the toolbar and the input so the
-   user can see (and drop) what will be sent once this turn finishes. */
+/* Messages parked with /queue, shown above the composer input as compact bars
+   so the user can edit or drop what will be sent once this turn finishes. */
 .message-queue {
-  margin: 0 0 6px;
-  padding: 7px 9px;
-  border: 1px dashed var(--tool-activity-border, #3a3b45);
-  border-radius: 10px;
-  background: color-mix(in srgb, var(--accent, #6f8cff) 7%, transparent);
+  display: grid;
+  gap: 6px;
+  margin: 0 0 2px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+.message-queue-head {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 2px;
+  color: var(--muted, #9aa2b8);
+  font-size: 12px;
+}
+
+.message-queue-head strong {
+  color: var(--text, #e8e8ee);
+  font-size: 12px;
+  font-weight: 720;
 }
 
 .message-queue-list {
   display: grid;
-  gap: 4px;
+  gap: 6px;
   margin: 0;
   padding: 0;
   list-style: none;
 }
 
 .message-queue-item {
-  display: grid;
-  /* Index, text, attachment chips, controls. The chip span is omitted entirely
-     for a row with no files, so the controls fall back into the third track
-     rather than being stranded past an empty column. */
-  grid-template-columns: 18px minmax(0, 1fr) auto auto;
+  display: flex;
+  min-width: 0;
   align-items: center;
   gap: 8px;
+  min-height: 38px;
+  padding: 7px 8px 7px 12px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--text, #e8e8ee) 9%, transparent);
+}
+
+.message-queue-main {
+  display: flex;
   min-width: 0;
+  flex: 1 1 auto;
+  align-items: center;
+  gap: 8px;
 }
 
 .message-queue-actions {
   display: flex;
+  flex: 0 0 auto;
   align-items: center;
-  gap: 2px;
+  gap: 0;
 }
 
 .message-queue-attachments {
@@ -1241,22 +1280,11 @@ body.theme-light .slash-command-desc { color: #64748b; }
   font-style: italic;
 }
 
-.message-queue-index {
-  display: grid;
-  width: 18px;
-  height: 18px;
-  place-items: center;
-  border-radius: 5px;
-  background: color-mix(in srgb, var(--accent, #6f8cff) 20%, transparent);
-  color: var(--text, #e8e8ee);
-  font-size: 10.5px;
-  font-weight: 700;
-}
-
 .message-queue-text {
   overflow: hidden;
   color: var(--text, #e8e8ee);
-  font-size: 12.5px;
+  font-size: 13px;
+  line-height: 1.35;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -1264,8 +1292,8 @@ body.theme-light .slash-command-desc { color: #64748b; }
 .message-queue-drop,
 .message-queue-edit {
   display: grid;
-  width: 22px;
-  height: 22px;
+  width: 28px;
+  height: 28px;
   place-items: center;
   border: 0;
   border-radius: 6px;
@@ -1276,12 +1304,11 @@ body.theme-light .slash-command-desc { color: #64748b; }
 }
 
 .message-queue-drop:hover,
-.message-queue-edit:hover { background: rgba(255, 255, 255, .07); color: var(--text, #e8e8ee); }
+.message-queue-edit:hover { background: rgba(255, 255, 255, .08); color: var(--text, #e8e8ee); }
 .message-queue-drop svg,
-.message-queue-edit svg { width: 13px; height: 13px; }
+.message-queue-edit svg { width: 14px; height: 14px; }
 
 .message-queue-toggle {
-  margin-top: 5px;
   border: 0;
   border-radius: 6px;
   background: transparent;
@@ -1289,11 +1316,47 @@ body.theme-light .slash-command-desc { color: #64748b; }
   cursor: pointer;
   padding: 2px 4px;
   font: inherit;
-  font-size: 11.5px;
+  font-size: 12px;
   font-weight: 650;
 }
 
 .message-queue-toggle:is(:hover, :focus-visible) { color: var(--text, #e8e8ee); text-decoration: underline; }
+
+body.white-shell.theme-light .message-queue-head {
+  color: #6b7384;
+}
+body.white-shell.theme-light .message-queue-head strong,
+body.white-shell.theme-light .message-queue-text {
+  color: #1f2430;
+}
+body.white-shell.theme-light .message-queue-item {
+  background: #f1f2f4;
+}
+body.white-shell.theme-light .message-queue-attachment {
+  background: #e4e6ea;
+  color: #5b6475;
+}
+body.white-shell.theme-light .message-queue-attachments-only,
+body.white-shell.theme-light .message-queue-edit,
+body.white-shell.theme-light .message-queue-drop,
+body.white-shell.theme-light .message-queue-toggle {
+  color: #8b93a4;
+}
+body.white-shell.theme-light .message-queue-edit:hover,
+body.white-shell.theme-light .message-queue-drop:hover {
+  background: rgba(15, 23, 42, .07);
+  color: #334155;
+}
+body.white-shell.theme-light .message-queue-toggle:is(:hover, :focus-visible) {
+  color: #334155;
+}
+body.white-shell.theme-light.theme-dark .message-queue-item {
+  background: color-mix(in srgb, var(--ws-text, #e2e8f0) 10%, transparent);
+}
+body.white-shell.theme-light.theme-dark .message-queue-head strong,
+body.white-shell.theme-light.theme-dark .message-queue-text {
+  color: var(--ws-text, #e2e8f0);
+}
 
 .pending-attachments,
 .message-attachments {
@@ -1302,55 +1365,139 @@ body.theme-light .slash-command-desc { color: #64748b; }
   gap: 8px;
 }
 .pending-attachments {
-  padding-left: 44px;
-  margin: 0 0 4px;
-  align-items: center;
+  order: 0;
+  display: flex;
+  flex-direction: column;
+  flex-wrap: nowrap;
+  align-items: stretch;
+  gap: 6px;
+  padding: 8px 10px 2px;
+  margin: 0;
   min-height: 0;
+}
+.pending-image-strip,
+.pending-file-strip {
+  display: flex;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+.pending-image-strip {
+  align-items: flex-end;
+  gap: 6px;
+}
+.pending-file-strip {
+  align-items: center;
+  gap: 4px 8px;
+}
+.pending-attachments .pending-file-chip {
+  height: 22px;
+  max-width: 100%;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  padding: 0 2px 0 0;
+  gap: 4px;
+}
+.pending-attachments .pending-file-name {
+  max-width: min(640px, 86vw);
+  color: var(--ws-primary, #4f6ef7);
+  font-size: 12.5px;
+  font-weight: 600;
+}
+.pending-attachments .pending-file-size {
+  display: none;
 }
 .pending-image-card {
   position: relative;
-  width: 52px;
-  height: 52px;
-  border-radius: 10px;
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+}
+.pending-attachments .pending-image-card {
+  width: auto;
+  height: 56px;
+}
+.pending-image-open {
+  display: block;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: zoom-in;
+  border-radius: 7px;
+}
+.pending-attachments .pending-image-open {
+  width: auto;
+  height: 56px;
+  border-radius: 8px;
 }
 .pending-image-thumb {
-  width: 48px;
-  height: 48px;
-  border-radius: 8px;
+  width: 32px;
+  height: 32px;
+  border-radius: 7px;
   object-fit: cover;
   background: rgba(255, 255, 255, .08);
   border: 1px solid rgba(255, 255, 255, .12);
   display: block;
 }
+.pending-attachments .pending-image-thumb {
+  width: auto;
+  height: 56px;
+  min-width: 36px;
+  max-width: 96px;
+  border-radius: 8px;
+}
 .pending-file-chip {
-  height: 34px;
-  max-width: min(440px, 72vw);
-  border-radius: 7px;
+  height: 26px;
+  max-width: min(220px, 46vw);
+  border-radius: 6px;
   background: #2d3035;
   color: #e5e7eb;
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  padding: 0 8px 0 10px;
+  gap: 6px;
+  padding: 0 6px 0 8px;
   border: 1px solid rgba(255, 255, 255, .08);
 }
 .pending-file-icon {
   color: #cbd5e1;
-  font-size: 18px;
+  width: 16px;
+  height: 16px;
+  flex: 0 0 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   line-height: 1;
 }
+.pending-file-icon svg,
+.attachment-thumb svg {
+  width: 16px;
+  height: 16px;
+  display: block;
+}
+.pending-file-icon[data-kind="pdf"],
+.attachment-thumb[data-kind="pdf"] { color: #e11d48; }
+.pending-file-icon[data-kind="docx"],
+.attachment-thumb[data-kind="docx"] { color: #2563eb; }
+.pending-file-icon[data-kind="text"],
+.attachment-thumb[data-kind="text"] { color: #0f766e; }
+.pending-file-icon[data-kind="video"],
+.attachment-thumb[data-kind="video"] { color: #7c3aed; }
+.pending-file-icon[data-kind="image"],
+.attachment-thumb[data-kind="image"] { color: #4f6ef7; }
 .pending-file-name {
   min-width: 0;
-  max-width: 260px;
+  max-width: 148px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 650;
 }
 .pending-file-size {
   color: #9ca3af;
-  font-size: 12px;
+  font-size: 11px;
   white-space: nowrap;
 }
 .pending-attachment-remove {
@@ -1598,9 +1745,23 @@ body.theme-light .pending-file-chip {
   border-color: #dbe1e8;
   color: #111827;
 }
-body.theme-light .pending-file-icon,
 body.theme-light .pending-file-size,
 body.theme-light .pending-attachment-remove { color: #6b7280; }
+body.theme-light .pending-file-icon[data-kind="pdf"],
+body.white-shell.theme-light .pending-file-icon[data-kind="pdf"],
+body.white-shell.theme-light.theme-dark .pending-file-icon[data-kind="pdf"] { color: #e11d48; }
+body.theme-light .pending-file-icon[data-kind="docx"],
+body.white-shell.theme-light .pending-file-icon[data-kind="docx"],
+body.white-shell.theme-light.theme-dark .pending-file-icon[data-kind="docx"] { color: #2563eb; }
+body.theme-light .pending-file-icon[data-kind="text"],
+body.white-shell.theme-light .pending-file-icon[data-kind="text"],
+body.white-shell.theme-light.theme-dark .pending-file-icon[data-kind="text"] { color: #0f766e; }
+body.theme-light .pending-file-icon[data-kind="video"],
+body.white-shell.theme-light .pending-file-icon[data-kind="video"],
+body.white-shell.theme-light.theme-dark .pending-file-icon[data-kind="video"] { color: #7c3aed; }
+body.theme-light .pending-file-icon[data-kind="image"],
+body.white-shell.theme-light .pending-file-icon[data-kind="image"],
+body.white-shell.theme-light.theme-dark .pending-file-icon[data-kind="image"] { color: #4f6ef7; }
 body.theme-light .pending-image-card .pending-attachment-remove {
   background: rgba(255, 255, 255, .90);
   color: #4b5563;

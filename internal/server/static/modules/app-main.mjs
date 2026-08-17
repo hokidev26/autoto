@@ -198,6 +198,7 @@ export const state = {
   healthOK: null,
   healthLabel: "checking",
   agentStreamStatus: "idle",
+  holdRuntimeStatusTone: false,
   settings: null,
   settingsLoadSeq: 0,
   account: null,
@@ -1703,7 +1704,6 @@ accountSession.bind();
 userAdminSettings = createUserAdminSettingsController({
   state,
   copyText,
-  showToast,
   showError,
   confirmAction: (message) => platformConfirm(message),
   onChange: () => refreshActiveSettingsPanel(),
@@ -3663,6 +3663,25 @@ function warnIfProjectWorkspaceIsNotGitRepository(workspace) {
   appendTerminal(`[warn] ${message}\n`);
 }
 
+// Drop the composer model row and the header workspace tools. Switching
+// conversations used to do this as soon as agent was cleared, then put the
+// same chrome back when enterAgent ran -- a visible blink of the model
+// control and the top-right workspace buttons. Keep them up while hydrating
+// the next project conversation; only call this when there is no next Agent.
+function releaseProjectOperationChrome(project = state.project) {
+  state.holdRuntimeStatusTone = false;
+  contextManagement.reset(null);
+  syncProjectOperationContext();
+  setWorkspaceExplorerAgent(null);
+  projectKanban.setAgent(null);
+  taskWorkspace.setContext({ projectId: project?.id || "", agentId: "" });
+  backgroundTasks.setAgent("");
+  renderWorkbenchShell();
+  refreshReasoningEffortControl();
+  refreshFastModeControl();
+  resetGitWorkflowState();
+}
+
 function beginNavigationSelection(project, options = {}) {
   const startupSelection = options.source === "startup";
   if (startupSelection) {
@@ -3681,12 +3700,12 @@ function beginNavigationSelection(project, options = {}) {
   const previousTitle = conversationHeaderTitle();
   state.navigationSelectionKind = "project";
   state.navigationTransitionTitle = options.preserveConversationView ? previousTitle : "";
-  disconnectAgentTransports();
+  const preserveChrome = Boolean(options.preserveConversationView);
+  disconnectAgentTransports({ keepWorkspaceChrome: preserveChrome });
   state.project = project || null;
   state.workline = null;
   state.agent = null;
-  contextManagement.reset(null);
-  syncProjectOperationContext();
+  if (!preserveChrome) releaseProjectOperationChrome(project);
   state.workState = null;
   state.titleEditing = false;
   state.titleSaving = false;
@@ -3694,19 +3713,12 @@ function beginNavigationSelection(project, options = {}) {
   if (!options.preserveConversationView) renderConversationHeaderIdentity();
   state.chatHydrating = true;
   clearLiveAssistantText({ preserveView: true });
-  setWorkspaceExplorerAgent(null);
-  projectKanban.setAgent(null);
-  taskWorkspace.setContext({ projectId: project?.id || "", agentId: "" });
-  renderWorkbenchShell();
   syncMessageComposerBusy();
-  refreshReasoningEffortControl();
-  refreshFastModeControl();
   state.currentMessages = [];
   state.messageCopyTexts = [];
   state.messageHasMoreBefore = false;
   state.messageNextBefore = "";
   state.messageOlderLoading = false;
-  resetGitWorkflowState();
   updateConversationCopyButton();
   setMessageInputValue("", { saveDraft: false });
   state.projectWorklines = [];
@@ -3760,6 +3772,7 @@ async function selectProject(id, options = {}) {
   if (seq == null) return;
   if (!state.project) {
     state.chatHydrating = false;
+    releaseProjectOperationChrome(null);
     updateWorkspaceMetaPills();
     showEmptyWorkspaceState();
     return;
@@ -3788,6 +3801,7 @@ async function selectProject(id, options = {}) {
     if (!state.workline) {
       state.chatHydrating = false;
       state.navigationTransitionTitle = "";
+      releaseProjectOperationChrome();
       $("currentTitle").textContent = state.project.name;
       updateWorkspaceMetaPills();
       clearMessageViewportBusy();
@@ -3802,6 +3816,7 @@ async function selectProject(id, options = {}) {
     if (!state.agent) {
       state.chatHydrating = false;
       state.navigationTransitionTitle = "";
+      releaseProjectOperationChrome();
       $("currentTitle").textContent = state.project.name;
       updateWorkspaceMetaPills();
       clearMessageViewportBusy();
@@ -3815,6 +3830,7 @@ async function selectProject(id, options = {}) {
     if (startupSelectionCurrent(options) && seq === state.projectSelectSeq && state.project?.id === id) {
       state.chatHydrating = false;
       clearMessageViewportBusy();
+      if (!state.agent) releaseProjectOperationChrome();
       throw err;
     }
   }
@@ -3876,12 +3892,15 @@ async function selectNavigationConversation(target, options = {}) {
   if (seq == null) return;
   if (!state.project) {
     state.chatHydrating = false;
+    releaseProjectOperationChrome(null);
     showEmptyWorkspaceState();
     throw new Error(am("projectNoLongerExists"));
   }
 
-  if (!preserveConversationView) $("currentTitle").textContent = navigationConversation?.projectName || state.project.name;
-  updateWorkspaceMetaPills();
+  if (!preserveConversationView) {
+    $("currentTitle").textContent = navigationConversation?.projectName || state.project.name;
+    updateWorkspaceMetaPills();
+  }
   // Keep the previous title and conversation in place while the next one hydrates.
   // Replacing either with an intermediate project/loading state causes a distracting flash.
   markMessageViewportBusy();
@@ -3899,6 +3918,7 @@ async function selectNavigationConversation(target, options = {}) {
     if (!state.agent || !state.workline) {
       state.chatHydrating = false;
       clearMessageViewportBusy();
+      releaseProjectOperationChrome();
       $("currentTitle").textContent = state.project.name;
       updateWorkspaceMetaPills();
       showEmptyWorkspaceState({
@@ -3920,6 +3940,7 @@ async function selectNavigationConversation(target, options = {}) {
     if (stillSelected) {
       state.chatHydrating = false;
       clearMessageViewportBusy();
+      if (!state.agent) releaseProjectOperationChrome();
       throw err;
     }
   }
@@ -4025,7 +4046,11 @@ function showModelSetupNotice() {
   $("openProviderSettingsNoticeBtn").addEventListener("click", () => openSettingsModal("providers"));
 }
 
-function disconnectAgentTransports() {
+function disconnectAgentTransports({ keepWorkspaceChrome = false } = {}) {
+  // Hold the header status dot on its last healthy colour before disconnect
+  // paints idle/connecting. Switching conversations always reconnects; flashing
+  // amber for that expected handshake reads as an error.
+  state.holdRuntimeStatusTone = Boolean(keepWorkspaceChrome);
   clearMessageRefreshTimer(state.agent?.id);
   invalidateMessageLifecycle();
   // The transcript we are leaving owns blob: URLs for its image assets. Nothing
@@ -4034,7 +4059,7 @@ function disconnectAgentTransports() {
   releaseProtectedImageURLs();
   agentStream.disconnect();
   subagentCards.resetAgentLoad();
-  backgroundTasks.setAgent("");
+  if (!keepWorkspaceChrome) backgroundTasks.setAgent("");
   state.ws = null;
   if (state.terminalWS) {
     const socket = state.terminalWS;
@@ -4047,8 +4072,10 @@ function disconnectAgentTransports() {
     badge.classList.remove("ok");
   }
   state.agentStreamStatus = "idle";
-  setComposerConnectionStatus(t("workspace.main.idle"));
-  setTerminalStatus("idle");
+  if (!keepWorkspaceChrome) {
+    setComposerConnectionStatus(t("workspace.main.idle"));
+    setTerminalStatus("idle");
+  }
   updateRuntimeStatusButton();
 }
 

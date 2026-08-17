@@ -3,7 +3,7 @@ import { formatTimestamp } from "./formatters.mjs";
 import { t } from "./i18n.mjs";
 import { t as cr } from "./messages-chat-rendering-extra.mjs";
 import { assistantAvatarSVG, profileAvatarHTML } from "./profile-avatar.mjs";
-import { messageCopyGlyph } from "./chat-rendering-tools-glyphs.mjs";
+import { messageCopyGlyph, messageCorrectGlyph } from "./chat-rendering-tools-glyphs.mjs";
 import {
   groupToolActivityByMessage,
   persistedReasoningSteps,
@@ -106,11 +106,8 @@ function renderChildMessageHeadHTML(role, message, childAgentId, userIdentity, {
     ? `<button class="message-copy-btn" type="button" data-copy-child-message="${escapeAttr(messageId)}" data-agent-id="${escapeAttr(childAgentId)}" title="${escapeAttr(copyTitle)}" aria-label="${escapeAttr(copyTitle)}">${messageCopyGlyph()}</button>`
     : "";
   const correctTitle = cr("message.correctTitle");
-  // Icon-only: the visible "更正" label is hidden by CSS on the main transcript,
-  // but those rules do not match this panel, so the two characters wrapped
-  // vertically in the 20px hit target. Keep the label in aria/title only.
   const correctBtn = role === "user" && messageId && !editing
-    ? `<button class="message-copy-btn" type="button" data-correct-child-message="${escapeAttr(messageId)}" data-agent-id="${escapeAttr(childAgentId)}" title="${escapeAttr(correctTitle)}" aria-label="${escapeAttr(correctTitle)}"></button>`
+    ? `<button class="message-copy-btn" type="button" data-correct-child-message="${escapeAttr(messageId)}" data-agent-id="${escapeAttr(childAgentId)}" title="${escapeAttr(correctTitle)}" aria-label="${escapeAttr(correctTitle)}">${messageCorrectGlyph()}</button>`
     : "";
   const actions = (correctBtn || copyBtn) ? `<div class="message-head-actions">${correctBtn}${copyBtn}</div>` : "";
   if (role !== "user") {

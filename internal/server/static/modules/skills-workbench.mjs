@@ -150,10 +150,6 @@ export function createSkillsWorkbenchController({
     const loading = state.serverSkillsStatus === "loading";
     return `
     <p class="skills-description settings-card-description" data-settings-help-copy>${escapeHtml(active.description)} ${escapeHtml(t("skillsWorkbench.commands.compatibilityDescription"))}${skillsPhaseB ? ` ${escapeHtml(t("skillsWorkbench.commands.phaseBDescription"))}` : ""}</p>
-    <div class="skill-workbench-actions skills-primary-actions">
-      <button id="refreshServerSkillsBtn" class="settings-action-btn subtle" type="button" ${loading ? "disabled" : ""}>${loading ? t("skillsWorkbench.commands.statusLoading") : t("skillsWorkbench.commands.refreshServer")}</button>
-      <button id="migrateLocalSkillsBtn" class="settings-action-btn subtle" type="button" ${state.serverSkillsSaving ? "disabled" : ""}>${t("skillsWorkbench.commands.migrateLocal", { count: localCommands.length })}</button>
-    </div>
     ${phaseBMarkup}
     ${state.serverSkillsError ? `<div class="settings-inline-alert settings-alert" role="alert" aria-live="assertive">${escapeHtml(state.serverSkillsError)}</div>` : ""}
     ${localMigrationSummary ? `<div class="settings-provider-meta settings-card-description">${escapeHtml(localMigrationSummary)}</div>` : ""}
@@ -163,7 +159,11 @@ export function createSkillsWorkbenchController({
           <div class="settings-provider-title settings-card-title">${escapeHtml(t("skillsWorkbench.commands.serverTitle"))}</div>
           <div class="settings-provider-meta settings-card-description" data-settings-help-copy>${escapeHtml(t("skillsWorkbench.commands.serverDescription"))}</div>
         </div>
-        <span class="settings-status-pill settings-badge ${loading || state.serverSkillsStatus === "stale" ? "warn" : state.serverSkillsStatus === "error" ? "muted" : "ok"}">${loading ? t("skillsWorkbench.commands.statusLoading") : state.serverSkillsStatus === "stale" ? t("skillsWorkbench.commands.statusStale") : state.serverSkillsStatus === "error" ? t("skillsWorkbench.commands.statusError") : state.serverSkillsStatus === "ready" ? t("skillsWorkbench.commands.statusReady") : t("skillsWorkbench.commands.statusIdle")}</span>
+        <div class="settings-inline-actions skill-config-panel-tools">
+          <span class="settings-status-pill settings-badge ${loading || state.serverSkillsStatus === "stale" ? "warn" : state.serverSkillsStatus === "error" ? "muted" : "ok"}">${loading ? t("skillsWorkbench.commands.statusLoading") : state.serverSkillsStatus === "stale" ? t("skillsWorkbench.commands.statusStale") : state.serverSkillsStatus === "error" ? t("skillsWorkbench.commands.statusError") : state.serverSkillsStatus === "ready" ? t("skillsWorkbench.commands.statusReady") : t("skillsWorkbench.commands.statusIdle")}</span>
+          <button id="refreshServerSkillsBtn" class="settings-action-btn subtle" type="button" ${loading ? "disabled" : ""}>${loading ? t("skillsWorkbench.commands.statusLoading") : t("skillsWorkbench.commands.refreshServer")}</button>
+          <button id="migrateLocalSkillsBtn" class="settings-action-btn subtle" type="button" ${state.serverSkillsSaving ? "disabled" : ""}>${t("skillsWorkbench.commands.migrateLocal", { count: localCommands.length })}</button>
+        </div>
       </div>
       <div class="skill-command-list settings-data-list">
         ${loading && !serverSkills.length ? `<div class="settings-empty-card settings-empty-state compact">${escapeHtml(t("skillsWorkbench.commands.loading"))}</div>` : serverSkills.length ? serverSkills.map(renderServerSkillCard).join("") : `<div class="settings-empty-card settings-empty-state compact">${escapeHtml(t("skillsWorkbench.commands.empty"))}</div>`}
@@ -205,14 +205,14 @@ export function createSkillsWorkbenchController({
     const drawer = bucket.drawer;
     const revisions = drawer ? (bucket.revisions?.[drawer.skillId] || { items: [], status: "idle" }) : null;
     return `
-      <section class="settings-provider-section settings-card settings-page-section highlighted skills-v2-section">
-        <div class="settings-provider-section-head settings-card-header">
-          <div>
+      <section class="settings-provider-section settings-card settings-page-section skills-v2-section">
+        <div class="settings-provider-section-head settings-card-header skill-config-panel-head">
+          <div class="skill-config-panel-heading">
             <div class="settings-provider-title settings-card-title">${escapeHtml(t("skillsWorkbench.commands.phaseBTitle"))}</div>
             <div class="settings-provider-meta settings-card-description">${escapeHtml(skillContextLabel(context))} · ${escapeHtml(t("skillsWorkbench.commands.snapshot", { sequence: String(bucket.snapshotSequence ?? "—") }))}</div>
           </div>
-          <div class="skill-workbench-actions">
-            ${setSkillContext ? `<select id="skillsV2ScopeSelect" class="settings-field skills-scope-select" aria-label="${escapeAttr(t("skillsWorkbench.commands.scopeAriaLabel"))}">${renderSkillScopeOptions(context.scope)}</select>` : ""}
+          <div class="settings-inline-actions skill-config-panel-tools">
+            ${setSkillContext ? `<label class="skill-config-scope-field"><span>${escapeHtml(t("skillsWorkbench.commands.scopeAriaLabel"))}</span><select id="skillsV2ScopeSelect" class="settings-field" aria-label="${escapeAttr(t("skillsWorkbench.commands.scopeAriaLabel"))}">${renderSkillScopeOptions(context.scope)}</select></label>` : ""}
             <button id="refreshSkillsV2Btn" class="settings-action-btn subtle" type="button" ${loading ? "disabled" : ""}>${loading ? t("skillsWorkbench.commands.statusLoading") : t("skillsWorkbench.commands.refresh")}</button>
           </div>
         </div>
@@ -419,9 +419,6 @@ export function createSkillsWorkbenchController({
     const loading = state.workflowLoading || state.toolPermissionRulesLoading;
     return `
     <p class="skills-description settings-card-description" data-settings-help-copy>${escapeHtml(active.description)} ${escapeHtml(t("skillsWorkbench.permissions.description"))}</p>
-    <div class="skill-workbench-actions">
-      <button id="refreshWorkflowPolicyBtn" class="settings-action-btn subtle" type="button">${escapeHtml(t(loading ? "skillsWorkbench.commands.statusLoading" : "skillsWorkbench.permissions.refreshServer"))}</button>
-    </div>
     ${state.workflowError || state.toolPermissionRulesError ? `<div class="settings-inline-alert settings-alert" role="alert" aria-live="assertive">${escapeHtml(state.workflowError || state.toolPermissionRulesError)}</div>` : ""}
     <section class="settings-provider-section settings-card settings-page-section highlighted">
       <div class="settings-provider-section-head settings-card-header">
@@ -429,7 +426,10 @@ export function createSkillsWorkbenchController({
           <div class="settings-provider-title settings-card-title">${escapeHtml(t("skillsWorkbench.permissions.preferencesTitle"))}</div>
           <div class="settings-provider-meta settings-card-description" data-settings-help-copy>${escapeHtml(t("skillsWorkbench.permissions.preferencesDescription"))}</div>
         </div>
-        <span class="settings-status-pill settings-badge ${loading ? "warn" : "ok"}">${escapeHtml(t(loading ? "skillsWorkbench.commands.statusLoading" : "skillsWorkbench.permissions.connected"))}</span>
+        <div class="settings-inline-actions skill-config-panel-tools">
+          <span class="settings-status-pill settings-badge ${loading ? "warn" : "ok"}">${escapeHtml(t(loading ? "skillsWorkbench.commands.statusLoading" : "skillsWorkbench.permissions.connected"))}</span>
+          <button id="refreshWorkflowPolicyBtn" class="settings-action-btn subtle" type="button">${escapeHtml(t(loading ? "skillsWorkbench.commands.statusLoading" : "skillsWorkbench.permissions.refreshServer"))}</button>
+        </div>
       </div>
       <div class="appearance-toggle-list">
         ${renderWorkflowPolicyToggle("requireConfirmationForExec", t("skillsWorkbench.permissions.confirmExecTitle"), t("skillsWorkbench.permissions.confirmExecDescription"), prefs.requireConfirmationForExec !== false)}

@@ -218,18 +218,19 @@ export function createComposerSelectMenus({
           const optionText = option.textContent?.trim() || option.value;
           const isModel = trigger.dataset.composerSelect === "modelSelect";
           const presentation = isModel ? modelOptionPresentation(option.value, optionText) : null;
-          const displayText = presentation?.provider ? `${presentation.provider}:${presentation.name}` : optionText;
+          const fullValue = presentation?.provider ? `${presentation.provider}:${presentation.name}` : optionText;
+          // The menu is already grouped by provider, so the trigger only needs
+          // the model name. `codex:gpt-5.6-luna` made the chip look like a
+          // stuffed grey card; the full id stays on the tooltip.
+          const displayText = presentation?.name || optionText;
           valueNode.textContent = displayText;
-          valueNode.title = displayText;
+          valueNode.title = fullValue;
           if (isModel) {
             valueNode.dataset.mobileLabel = compactComposerModelLabel(option.value || option.textContent);
           }
           const fieldLabel = label?.textContent?.trim();
-          const triggerLabel = fieldLabel ? `${fieldLabel}：${displayText}` : displayText;
+          const triggerLabel = fieldLabel ? `${fieldLabel}：${fullValue}` : fullValue;
           trigger.setAttribute("aria-label", triggerLabel);
-          // Also as a tooltip: the model trigger shows only its icon now, so
-          // aria-label alone would leave sighted users with no way to read which
-          // model is selected without opening the menu.
           trigger.title = triggerLabel;
         }
         trigger.disabled = Boolean(select?.disabled);

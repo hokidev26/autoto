@@ -2,10 +2,10 @@ import { escapeAttr, escapeHtml } from "./dom.mjs";
 import { formatBytes } from "./formatters.mjs";
 import { t as cr } from "./messages-chat-rendering-extra.mjs";
 import { protectedImageAttribute } from "./protected-images.mjs";
+import { attachmentGlyph } from "./attachment-glyphs.mjs";
 
 export function createChatRenderingAttachments({
   state,
-  attachmentIcon,
   attachmentKind,
 } = {}) {
   function renderMessageAttachments(message) {
@@ -42,7 +42,7 @@ export function createChatRenderingAttachments({
     }
     return `
       <button class="attachment-card" type="button" data-attachment-download="${escapeAttr(url)}" data-attachment-name="${escapeAttr(filename)}">
-        <span class="attachment-thumb">${escapeHtml(attachmentIcon(kind))}</span>
+        <span class="attachment-thumb" data-kind="${escapeAttr(kind)}">${attachmentGlyph(kind)}</span>
         <div class="attachment-meta">
           <div class="attachment-name" title="${escapeAttr(filename)}">${escapeHtml(filename)}</div>
           <div class="attachment-subtitle">${escapeHtml(subtitle)}</div>

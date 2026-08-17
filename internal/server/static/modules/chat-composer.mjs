@@ -159,24 +159,25 @@ export function createChatComposerController({
     const toggleLabel = queueExpanded
       ? t("workspace.chat.queueCollapse")
       : t("workspace.chat.queueExpand", { count: hiddenCount });
-    // No heading: the row order and the text are the whole point, and a count
-    // above a list the user can already see was just a line of chrome between the
-    // backlog and the run it is waiting on.
     host.innerHTML = `
+      <div class="message-queue-head">
+        <strong>${escapeHtml(t("workspace.chat.queueHead", { count: pending.length }))}</strong>
+        ${collapsible ? `<button class="message-queue-toggle" type="button" data-queue-toggle aria-expanded="${queueExpanded ? "true" : "false"}">${escapeHtml(toggleLabel)}</button>` : ""}
+      </div>
       <ol class="message-queue-list">
-        ${visible.map((item, index) => `
+        ${visible.map((item) => `
           <li class="message-queue-item">
-            <span class="message-queue-index">${index + 1}</span>
-            <span class="message-queue-text">${item.text.trim() ? escapeHtml(item.text) : `<em class="message-queue-attachments-only">${escapeHtml(t("workspace.chat.queueAttachmentsOnly"))}</em>`}</span>
-            ${renderQueuedAttachmentsHTML(item)}
+            <span class="message-queue-main">
+              <span class="message-queue-text">${item.text.trim() ? escapeHtml(item.text) : `<em class="message-queue-attachments-only">${escapeHtml(t("workspace.chat.queueAttachmentsOnly"))}</em>`}</span>
+              ${renderQueuedAttachmentsHTML(item)}
+            </span>
             <span class="message-queue-actions">
               <button class="message-queue-edit" type="button" data-queue-edit="${escapeAttr(item.id)}" title="${escapeAttr(t("workspace.chat.queueEdit"))}" aria-label="${escapeAttr(t("workspace.chat.queueEdit"))}"><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h4l10-10a2.5 2.5 0 0 0-3.5-3.5L4.5 16.5z"></path><path d="m13.5 7 3.5 3.5"></path></svg></button>
-              <button class="message-queue-drop" type="button" data-queue-drop="${escapeAttr(item.id)}" title="${escapeAttr(t("workspace.chat.queueDrop"))}" aria-label="${escapeAttr(t("workspace.chat.queueDrop"))}"><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="m6 6 12 12"></path><path d="m18 6-12 12"></path></svg></button>
+              <button class="message-queue-drop" type="button" data-queue-drop="${escapeAttr(item.id)}" title="${escapeAttr(t("workspace.chat.queueDrop"))}" aria-label="${escapeAttr(t("workspace.chat.queueDrop"))}"><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16"></path><path d="M9 7V5.5A1.5 1.5 0 0 1 10.5 4h3A1.5 1.5 0 0 1 15 5.5V7"></path><path d="M6.5 7l.8 12.2A1.5 1.5 0 0 0 8.8 20.5h6.4a1.5 1.5 0 0 0 1.5-1.3L17.5 7"></path><path d="M10 11v5"></path><path d="M14 11v5"></path></svg></button>
             </span>
           </li>
         `).join("")}
       </ol>
-      ${collapsible ? `<button class="message-queue-toggle" type="button" data-queue-toggle aria-expanded="${queueExpanded ? "true" : "false"}">${escapeHtml(toggleLabel)}</button>` : ""}
     `;
     host.querySelectorAll("[data-queue-drop]").forEach((node) => {
       node.addEventListener("click", () => dropQueuedMessage(node.dataset.queueDrop));

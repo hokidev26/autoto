@@ -37,17 +37,9 @@
     letter-spacing: 0;
   }
 
-  body.white-shell.theme-light .chat-subtitle {
-    display: block !important;
-    max-width: 60vw;
-    color: var(--ws-muted);
-    font-size: 12px;
-  }
-
+  body.white-shell.theme-light .chat-subtitle,
   body.white-shell.theme-light .workspace-meta-pills {
-    gap: 6px;
-    margin-top: 5px;
-    max-width: min(68vw, 820px);
+    display: none !important;
   }
 
   body.white-shell.theme-light .header-actions {
@@ -1193,8 +1185,19 @@ body.white-shell.theme-light .messages:not(.empty) > [class~="message"]:not([cla
 }
 
 body.white-shell.theme-light .message-editing .message-correction-attachments,
-body.white-shell.theme-light .message-editing .message-correction-file-label {
+body.white-shell.theme-light .message-editing .message-correction-attach {
   color: var(--ws-muted);
+}
+
+body.white-shell.theme-light .message-editing .message-correction-attach {
+  border-color: var(--ws-border);
+  background: var(--ws-input);
+  color: var(--ws-text);
+}
+
+body.white-shell.theme-light .message-editing .message-correction-submit {
+  background: var(--ws-primary, #4f6ef7);
+  color: #fff;
 }
 
 body.white-shell.theme-light .message-editing .message-correction-text {
@@ -1349,8 +1352,9 @@ body.white-shell.theme-light .messages [class~="plan-card-actions"] > button {
   }
 
   body.white-shell.theme-light [class~="composer-model-field"] {
-    flex: 1 1 260px;
-    min-width: 210px;
+    flex: 0 1 auto;
+    min-width: 0;
+    max-width: min(42vw, 260px);
   }
 
   body.white-shell.theme-light [class~="composer-effort-field"] {
@@ -1365,8 +1369,8 @@ body.white-shell.theme-light .messages [class~="plan-card-actions"] > button {
     height: 34px;
     min-height: 34px;
     min-width: 0;
-    max-width: none;
-    flex: 1 1 auto;
+    max-width: 100%;
+    flex: 0 1 auto;
   }
 
   body.white-shell.theme-light [class~="model-pill"] [class~="compact-select"] {
@@ -1417,8 +1421,13 @@ body.white-shell.theme-light .messages [class~="plan-card-actions"] > button {
 
   body.white-shell.theme-light [class~="message-input-frame"] {
     display: flex;
-    align-items: flex-end;
+    flex-direction: column;
+    align-items: stretch;
     min-height: 46px;
+    border: 1px solid var(--ws-border, #dfe3e9);
+    border-radius: 10px;
+    background: var(--ws-input, #eef1f5);
+    padding: 2px 2px 6px;
   }
 
   body.white-shell.theme-light textarea#messageText {
@@ -1426,25 +1435,24 @@ body.white-shell.theme-light .messages [class~="plan-card-actions"] > button {
     --composer-input-max-height: 156px;
     min-height: var(--composer-input-min-height);
     max-height: var(--composer-input-max-height);
-    border-color: var(--ws-border);
-    border-radius: 12px;
-    background: var(--ws-input);
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
     color: var(--ws-text);
-    padding: 11px 12px;
+    padding: 11px 12px 6px;
     font-size: 15px;
     line-height: 1.45;
   }
 
-  /* The rule above wins on id specificity over every .message-input:focus rule,
-     which left the desktop composer with no focus indication at all. Keyed on
-     the frame's :focus-within rather than the textarea's own :focus so it stays
-     equivalent (the textarea is the frame's only focusable child) while also
-     being observable when the document itself is not focused.
+  /* Focus lives on the frame because it is the painted input surface (text plus
+     wrapping file chips). A textarea:focus rule would only outline the text
+     row and leave the chips sitting outside the ring.
 
      box-shadow is cleared deliberately: white-shell.css adds a 3px translucent
      ring on focus, which reads as a second frame outside the border. The solid
      border alone is the focus indication. */
-  body.white-shell.theme-light [class~="message-input-frame"]:focus-within textarea#messageText {
+  body.white-shell.theme-light [class~="message-input-frame"]:focus-within {
     border-color: var(--ws-primary, #4f6ef7);
     box-shadow: none;
   }
@@ -1638,8 +1646,13 @@ body.white-shell.theme-light .messages [class~="plan-card-actions"] > button {
 
   body.white-shell.theme-light [class~="message-input-frame"] {
     display: flex;
-    align-items: flex-end;
+    flex-direction: column;
+    align-items: stretch;
     min-height: 46px;
+    border: 1px solid var(--ws-border, #dfe3e9);
+    border-radius: 10px;
+    background: var(--ws-input, #eef1f5);
+    padding: 2px 2px 6px;
   }
 
   body.white-shell.theme-light textarea#messageText {
@@ -1647,11 +1660,12 @@ body.white-shell.theme-light .messages [class~="plan-card-actions"] > button {
     --composer-input-max-height: 156px;
     min-height: var(--composer-input-min-height);
     max-height: var(--composer-input-max-height);
-    border-color: var(--ws-border);
-    border-radius: 12px;
-    background: var(--ws-input);
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
     color: var(--ws-text);
-    padding: 11px 12px;
+    padding: 11px 12px 6px;
     font-size: 16px;
     line-height: 1.45;
   }
@@ -1671,8 +1685,8 @@ body.white-shell.theme-light .messages [class~="plan-card-actions"] > button {
   }
 
   body.white-shell.theme-light [class~="pending-attachments"] {
-    margin: 0 0 2px;
-    padding-left: 0;
+    margin: 0;
+    padding: 8px 8px 2px;
   }
 
   body.white-shell.theme-light .navigation-project-conversations {

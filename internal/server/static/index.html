@@ -331,13 +331,13 @@
                 <span id="permissionRiskBadge" class="permission-risk-badge hidden" aria-hidden="true">可编辑</span>
               </div>
             </div>
-            <div id="pendingAttachments" class="pending-attachments hidden" aria-live="polite"></div>
             <div id="composerInputShell" class="composer-input-shell">
               <div class="composer-attach-wrap" title="导入文件到聊天框" data-i18n-title="chat.attachFile">
                 <button id="attachFileBtn" class="composer-attach-btn" type="button" title="导入文件到聊天框" aria-label="导入文件到聊天框" data-i18n-title="chat.attachFile" data-i18n-aria-label="chat.attachFile"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m8.5 12.5 6.8-6.8a3 3 0 0 1 4.2 4.2l-8.6 8.6a5 5 0 0 1-7.1-7.1l8-8"></path><path d="m6.7 13.2 7.6-7.6"></path></svg></button>
                 <input id="attachFileInput" class="attachment-native-input" type="file" multiple aria-label="导入文件到聊天框" data-i18n-aria-label="chat.attachFile" />
               </div>
               <div class="message-input-frame">
+                <div id="pendingAttachments" class="pending-attachments hidden" aria-live="polite"></div>
                 <textarea id="messageText" class="message-input autosize-message-input" rows="1" placeholder="发送消息…" data-i18n-placeholder="chat.messagePlaceholder" aria-describedby="promptHistoryHint chatDraftLimitHint" aria-controls="slashCommandPalette" aria-expanded="false" aria-autocomplete="list"></textarea>
               </div>
               <button id="sendMessageBtn" class="send-btn round composer-send-btn" type="submit" title="发送" aria-label="发送消息" data-mobile-label="↑" data-i18n="chat.send" data-i18n-title="chat.send" data-i18n-aria-label="chat.sendMessage">发送</button>
@@ -534,7 +534,7 @@
             <button id="closeSettingsModalBtn" class="settings-close-btn legacy-settings-close" type="button" title="返回聊天" aria-label="返回聊天" data-i18n-title="settings.backToChat" data-i18n-aria-label="settings.backToChat">×</button>
           </header>
           <div class="settings-sidebar-search settings-search-box legacy-settings-search">
-            <span aria-hidden="true">⌕</span>
+            <span class="settings-sidebar-search-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6"></circle><path d="m15 15 4.5 4.5"></path></svg></span>
             <input id="settingsSearchInput" type="search" placeholder="搜索设置..." data-i18n-placeholder="settings.searchPlaceholder" autocomplete="off" aria-label="搜索设置" data-i18n-aria-label="settings.searchLabel" />
             <button id="clearSettingsSearchBtn" type="button" aria-label="清空设置搜索" data-i18n-aria-label="settings.clearSearch">×</button>
           </div>

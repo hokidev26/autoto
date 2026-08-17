@@ -136,3 +136,70 @@ test("a stray file drop is swallowed rather than opened by the browser", () => {
   assert.equal(stray.prevented, true);
   assert.equal(elements.messages.classList.contains("dropping-files"), false);
 });
+
+test("pending file chips use a type glyph instead of a generic box", () => {
+  const { attachments } = harness();
+  const html = attachments.pendingAttachmentCardHTML({
+    id: "a1",
+    kind: "pdf",
+    file: { name: "spec.pdf", size: 1024 },
+  });
+  assert.match(html, /class="pending-file-icon" data-kind="pdf"/);
+  assert.match(html, /<svg viewBox="0 0 24 24"/);
+  assert.doesNotMatch(html, />▯</);
+  assert.doesNotMatch(html, /pending-file-size/);
+  assert.match(html, /title="spec\.pdf · [^"]*KB"/);
+  const word = attachments.pendingAttachmentCardHTML({
+    id: "a2",
+    kind: "docx",
+    file: { name: "brief.docx", size: 2048 },
+  });
+  assert.match(word, /data-kind="docx"/);
+  assert.notEqual(html, word);
+});
+
+test("pending images render in a strip above file chips", () => {
+  const wrap = {
+    innerHTML: "",
+    classList: { toggle() {} },
+    querySelectorAll() { return []; },
+  };
+  elements.pendingAttachments = wrap;
+  const attachments = createComposerAttachments({
+    state: {
+      pendingAttachments: [
+        { id: "f1", kind: "pdf", file: { name: "a.pdf", size: 10 } },
+        { id: "i1", kind: "image", previewUrl: "blob:1", file: { name: "a.png", size: 20 } },
+      ],
+    },
+    isAttachmentProcessing: () => false,
+    attachmentJobIsCurrent: () => true,
+    beginAttachmentProcessing: () => null,
+    finishAttachmentProcessing: () => {},
+    invalidateAttachmentProcessing: () => {},
+    attachmentKind: () => "file",
+    clipboardFiles: () => [],
+    prepareVideoAttachment: async () => null,
+    showToast: () => {},
+    syncMessageComposerBusy: () => {},
+  });
+  attachments.renderPendingAttachments();
+  const imageStrip = wrap.innerHTML.indexOf("pending-image-strip");
+  const fileStrip = wrap.innerHTML.indexOf("pending-file-strip");
+  assert.ok(imageStrip >= 0 && fileStrip > imageStrip);
+  assert.ok(wrap.innerHTML.indexOf("pending-image-card") < wrap.innerHTML.indexOf("pending-file-chip"));
+  elements.pendingAttachments = undefined;
+});
+
+test("pending image cards can be opened in the viewer", () => {
+  const { attachments } = harness();
+  const html = attachments.pendingAttachmentCardHTML({
+    id: "img1",
+    kind: "image",
+    previewUrl: "blob:preview",
+    file: { name: "shot.png", size: 80 },
+  });
+  assert.match(html, /data-pending-image-preview="img1"/);
+  assert.match(html, /class="pending-image-open"/);
+  assert.match(html, /src="blob:preview"/);
+});

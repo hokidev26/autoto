@@ -392,7 +392,7 @@ export function createSharedAPISettingsController({
   let oneTimeTokenContext = "";
   let editingKeyID = "";
   let keyEditorOpen = false;
-  let gatewayOpen = false;
+  let requestsOpen = false;
   let editingModelAlias = "";
   let modelEditorOpen = false;
   let loadSequence = 0;
@@ -787,20 +787,28 @@ export function createSharedAPISettingsController({
     return result;
   }
 
+  function renderOpenSection({ sectionClass, title, description, actions = "", body = "" }) {
+    return `
+      <section class="compact-settings-section ${sectionClass}">
+        <div class="shared-api-section-head">
+          <div class="compact-settings-section-copy"><h2>${escapeHtml(title)}</h2><p data-settings-help-copy>${escapeHtml(description)}</p></div>
+          ${actions ? `<div class="shared-api-section-actions">${actions}</div>` : ""}
+        </div>
+        ${body ? `<div class="compact-settings-section-controls">${body}</div>` : ""}
+      </section>`;
+  }
+
   function renderGateway() {
     const value = gateway();
     const status = runtime();
     const desiredEnabled = status.desiredEnabled;
     const actualAddress = status.address || gatewayAddress(value);
-    return `
-      <section class="compact-settings-section shared-api-gateway-section">
-        <details class="shared-api-gateway-details"${gatewayOpen ? " open" : ""}>
-          <summary class="compact-settings-section-summary">
-            <div class="compact-settings-section-copy"><h2>${escapeHtml(t("sharedAPI.gatewayTitle"))}</h2><p data-settings-help-copy>${escapeHtml(t("sharedAPI.gatewayDescription"))}</p></div>
-            <span class="settings-badge ${status.running ? "ok" : "warn"}">${escapeHtml(t(status.running ? "sharedAPI.runtimeRunning" : "sharedAPI.runtimeStopped"))}</span>
-          </summary>
-          <div class="compact-settings-section-controls shared-api-gateway-controls">
-          <div class="shared-api-status-row"><span class="settings-badge ${status.running ? "ok" : "warn"}">${escapeHtml(t(status.running ? "sharedAPI.runtimeRunning" : "sharedAPI.runtimeStopped"))}</span><code>${escapeHtml(actualAddress)}</code></div>
+    return renderOpenSection({
+      sectionClass: "shared-api-gateway-section",
+      title: t("sharedAPI.gatewayTitle"),
+      description: t("sharedAPI.gatewayDescription"),
+      actions: `<span class="settings-badge ${status.running ? "ok" : "warn"}">${escapeHtml(t(status.running ? "sharedAPI.runtimeRunning" : "sharedAPI.runtimeStopped"))}</span>`,
+      body: `
           <dl class="shared-api-gateway-meta">
             <div><dt>${escapeHtml(t("sharedAPI.actualStatus"))}</dt><dd>${escapeHtml(t(status.running ? "sharedAPI.running" : "sharedAPI.stopped"))}</dd></div>
             <div><dt>${escapeHtml(t("sharedAPI.desiredState"))}</dt><dd>${escapeHtml(t(desiredEnabled ? "sharedAPI.desiredEnabled" : "sharedAPI.desiredDisabled"))}</dd></div>
@@ -819,10 +827,8 @@ export function createSharedAPISettingsController({
             </div>
             <label class="compact-settings-switch-row"><span><strong>${escapeHtml(t("sharedAPI.allowRemote"))}</strong><small data-settings-help-copy>${escapeHtml(t("sharedAPI.allowRemoteHint"))}</small></span><input name="allowRemote" type="checkbox" ${value.allowRemote ? "checked" : ""} /></label>
             <div class="settings-inline-actions compact-settings-editor-actions shared-api-gateway-actions"><button class="settings-action-btn ${desiredEnabled ? "danger" : "primary"}" type="button" data-gateway-toggle="${desiredEnabled ? "false" : "true"}">${escapeHtml(t(desiredEnabled ? "sharedAPI.stopGateway" : "sharedAPI.startGateway"))}</button><button class="settings-action-btn subtle" type="submit">${escapeHtml(t("sharedAPI.saveGatewayConfig"))}</button></div>
-          </form>
-          </div>
-        </details>
-      </section>`;
+          </form>`,
+    });
   }
 
   function apiTunnelStatusLabel(status) {
@@ -861,34 +867,35 @@ export function createSharedAPISettingsController({
           : isRunning
             ? `<button class="settings-action-btn danger" type="button" data-api-tunnel-stop>${escapeHtml(t("sharedAPI.apiTunnelStop"))}</button>`
             : "";
+    const extras = [
+      isRunning && tunnel.publicUrl ? `<div class="shared-api-tunnel-url-row"><code>${escapeHtml(tunnel.publicUrl)}</code><button class="settings-action-btn subtle" type="button" data-api-tunnel-copy-url>${escapeHtml(t("sharedAPI.apiTunnelCopyUrl"))}</button></div>` : "",
+      noKeys ? `<div class="settings-inline-alert settings-alert" role="alert">${escapeHtml(t("sharedAPI.apiTunnelNoKeys"))}</div>` : "",
+      gatewayDown && !isRunning && !isBusy ? `<div class="settings-inline-alert settings-alert" role="alert">${escapeHtml(t("sharedAPI.apiTunnelGatewayDown"))}</div>` : "",
+      tunnel.error && tunnel.status === "error" ? `<div class="settings-inline-alert settings-alert" role="alert">${escapeHtml(tunnel.error)}</div>` : "",
+    ].filter(Boolean).join("");
     return `
       <section class="compact-settings-section shared-api-tunnel-section">
-        <div class="compact-settings-section-copy"><h2>${escapeHtml(t("sharedAPI.apiTunnelTitle"))}</h2><p data-settings-help-copy>${escapeHtml(t("sharedAPI.apiTunnelDescription"))}</p></div>
-        <div class="compact-settings-section-controls">
-          <div class="shared-api-status-row"><span class="settings-status-pill ${badgeClass}">${escapeHtml(badgeLabel)}</span></div>
-          ${isRunning && tunnel.publicUrl ? `<div class="shared-api-tunnel-url-row"><code>${escapeHtml(tunnel.publicUrl)}</code><button class="settings-action-btn subtle" type="button" data-api-tunnel-copy-url>${escapeHtml(t("sharedAPI.apiTunnelCopyUrl"))}</button></div>` : ""}
-          ${noKeys ? `<div class="settings-inline-alert settings-alert" role="alert">${escapeHtml(t("sharedAPI.apiTunnelNoKeys"))}</div>` : ""}
-          ${gatewayDown && !isRunning && !isBusy ? `<div class="settings-inline-alert settings-alert" role="alert">${escapeHtml(t("sharedAPI.apiTunnelGatewayDown"))}</div>` : ""}
-          ${tunnel.error && tunnel.status === "error" ? `<div class="settings-inline-alert settings-alert" role="alert">${escapeHtml(tunnel.error)}</div>` : ""}
-          <div class="settings-inline-actions">${actions}</div>
+        <div class="shared-api-section-head">
+          <div class="compact-settings-section-copy"><h2>${escapeHtml(t("sharedAPI.apiTunnelTitle"))}</h2><p data-settings-help-copy>${escapeHtml(t("sharedAPI.apiTunnelDescription"))}</p></div>
+          <div class="shared-api-section-actions"><span class="settings-status-pill ${badgeClass}">${escapeHtml(badgeLabel)}</span>${actions}</div>
         </div>
+        ${extras ? `<div class="compact-settings-section-controls">${extras}</div>` : ""}
       </section>`;
   }
 
   function renderProviders() {
     const providers = Array.isArray(state.settings?.providers) ? state.settings.providers : [];
-    return `
-      <section class="compact-settings-section shared-api-providers-section">
-          <details class="shared-api-providers-details">
-          <summary class="compact-settings-section-summary"><div class="compact-settings-section-copy"><h2>${escapeHtml(t("sharedAPI.providersTitle"))}</h2><p data-settings-help-copy>${escapeHtml(t("sharedAPI.providersDescription"))}</p></div></summary>
-          <div class="compact-settings-section-controls shared-api-list">
+    return renderOpenSection({
+      sectionClass: "shared-api-providers-section",
+      title: t("sharedAPI.providersTitle"),
+      description: t("sharedAPI.providersDescription"),
+      body: `<div class="shared-api-list">
             ${providers.length ? providers.map((provider) => {
               const restriction = gatewayProviderRestriction(provider);
               return `<div class="shared-api-row ${restriction ? "is-disabled" : ""}"><span><strong>${escapeHtml(providerLabel(provider))}</strong><small>${escapeHtml(restriction ? t("sharedAPI.oauthProxyUnavailable") : t(provider.gatewayEnabled ? "sharedAPI.providerEligible" : "sharedAPI.providerPrivate"))}</small></span>${restriction ? `<span class="settings-badge">${escapeHtml(t("sharedAPI.notShareable"))}</span>` : `<label class="shared-api-switch"><input type="checkbox" data-gateway-provider="${escapeAttr(provider.name)}" ${provider.gatewayEnabled ? "checked" : ""} /><span>${escapeHtml(t("sharedAPI.shareProvider"))}</span></label>`}</div>`;
             }).join("") : `<div class="settings-empty-state">${escapeHtml(t("sharedAPI.noProviders"))}</div>`}
-          </div>
-        </details>
-      </section>`;
+          </div>`,
+    });
   }
 
   function renderAccounts() {
@@ -897,22 +904,19 @@ export function createSharedAPISettingsController({
       if (!groups.has(account.provider)) groups.set(account.provider, []);
       groups.get(account.provider).push(account);
     });
-    return `
-      <section class="compact-settings-section shared-api-accounts-section">
-        <details class="shared-api-accounts-details">
-          <summary class="compact-settings-section-summary"><div class="compact-settings-section-copy"><h2>${escapeHtml(t("sharedAPI.accountsTitle"))}</h2><p data-settings-help-copy>${escapeHtml(t("sharedAPI.accountsDescription"))}</p></div></summary>
-          <div class="compact-settings-section-controls">
-          <div class="compact-settings-section-toolbar"><span class="settings-badge">${escapeHtml(t("sharedAPI.accountCount", { count: state.gatewayAccounts.length }))}</span></div>
-          <div class="shared-api-account-groups">${groups.size ? [...groups.entries()].map(([provider, accounts]) => `<div class="shared-api-account-group"><div class="shared-api-account-group-heading"><strong>${escapeHtml(provider)}</strong><span>${escapeHtml(t("sharedAPI.accountCount", { count: accounts.length }))}</span></div><div class="shared-api-list">${accounts.map((account) => {
+    return renderOpenSection({
+      sectionClass: "shared-api-accounts-section",
+      title: t("sharedAPI.accountsTitle"),
+      description: t("sharedAPI.accountsDescription"),
+      actions: `<span class="settings-badge">${escapeHtml(t("sharedAPI.accountCount", { count: state.gatewayAccounts.length }))}</span>`,
+      body: `<div class="shared-api-account-groups">${groups.size ? [...groups.entries()].map(([provider, accounts]) => `<div class="shared-api-account-group"><div class="shared-api-account-group-heading"><strong>${escapeHtml(provider)}</strong><span>${escapeHtml(t("sharedAPI.accountCount", { count: accounts.length }))}</span></div><div class="shared-api-list">${accounts.map((account) => {
             const restriction = accountRestriction(account);
             const statusKey = restriction ? "accountUnavailable" : account.effective ? "accountEffective" : account.shared ? "accountPending" : "accountPrivate";
             const auth = account.authType || t("sharedAPI.none");
             const source = account.source || t("sharedAPI.none");
             return `<div class="shared-api-row shared-api-account-row ${restriction ? "is-disabled" : ""}"><span><strong>${escapeHtml(account.label || account.accountId)} <code>${escapeHtml(account.accountId)}</code></strong><small>${escapeHtml(t("sharedAPI.accountMeta", { auth, source, priority: formatNumber(account.priority) }))}</small>${restriction ? `<small class="shared-api-account-reason">${escapeHtml(restriction)}</small>` : ""}</span><div class="shared-api-account-actions"><span class="settings-badge ${account.effective ? "ok" : restriction ? "warn" : ""}">${escapeHtml(t(`sharedAPI.${statusKey}`))}</span><label class="shared-api-switch"><input type="checkbox" data-gateway-account-provider="${escapeAttr(account.provider)}" data-gateway-account-id="${escapeAttr(account.accountId)}" ${account.shared ? "checked" : ""} ${restriction ? "disabled" : ""} /><span>${escapeHtml(t("sharedAPI.shareAccount"))}</span></label></div></div>`;
-          }).join("")}</div></div>`).join("") : `<div class="settings-empty-state shared-api-compact-empty">${escapeHtml(t("sharedAPI.noAccounts"))}</div>`}</div>
-          </div>
-        </details>
-      </section>`;
+          }).join("")}</div></div>`).join("") : `<div class="settings-empty-state shared-api-compact-empty">${escapeHtml(t("sharedAPI.noAccounts"))}</div>`}</div>`,
+    });
   }
 
   function renderKeyForm(key = {}) {
@@ -950,23 +954,16 @@ export function createSharedAPISettingsController({
   }
 
   function renderKeys() {
-    // Sections collapse by default, but a one-time token is shown exactly once
-    // and an open editor holds unsaved input. Collapsing over either would
-    // destroy state the user cannot recover, so those cases force the section
-    // open.
-    const forceOpen = Boolean(oneTimeToken) || keyEditorOpen || Boolean(editingKeyID);
-    return `
-      <section class="compact-settings-section shared-api-keys-section">
-        <details class="shared-api-keys-details" ${forceOpen ? "open" : ""}>
-          <summary class="compact-settings-section-summary"><div class="compact-settings-section-copy"><h2>${escapeHtml(t("sharedAPI.keysTitle"))}</h2><p data-settings-help-copy>${escapeHtml(t("sharedAPI.keysDescription"))}</p></div></summary>
-          <div class="compact-settings-section-controls">
-          <div class="compact-settings-section-toolbar"><span class="settings-badge">${escapeHtml(t("sharedAPI.keyCount", { count: state.gatewayKeys.length }))}</span><button class="settings-action-btn primary" type="button" data-gateway-key-add>${escapeHtml(t("sharedAPI.addKey"))}</button></div>
+    return renderOpenSection({
+      sectionClass: "shared-api-keys-section",
+      title: t("sharedAPI.keysTitle"),
+      description: t("sharedAPI.keysDescription"),
+      actions: `<span class="settings-badge">${escapeHtml(t("sharedAPI.keyCount", { count: state.gatewayKeys.length }))}</span><button class="settings-action-btn primary" type="button" data-gateway-key-add>${escapeHtml(t("sharedAPI.addKey"))}</button>`,
+      body: `
           ${renderOneTimeToken()}
           ${keyEditorOpen && !editingKeyID ? renderKeyForm() : ""}
-          <div class="shared-api-key-list">${state.gatewayKeys.length ? state.gatewayKeys.map((key) => editingKeyID === key.id ? renderKeyForm(key) : renderKey(key)).join("") : `<div class="settings-empty-state shared-api-compact-empty">${escapeHtml(t("sharedAPI.noKeys"))}</div>`}</div>
-          </div>
-        </details>
-      </section>`;
+          <div class="shared-api-key-list">${state.gatewayKeys.length ? state.gatewayKeys.map((key) => editingKeyID === key.id ? renderKeyForm(key) : renderKey(key)).join("") : `<div class="settings-empty-state shared-api-compact-empty">${escapeHtml(t("sharedAPI.noKeys"))}</div>`}</div>`,
+    });
   }
 
   function renderModelForm(model = {}) {
@@ -999,9 +996,11 @@ export function createSharedAPISettingsController({
     if (!runtime().running || !state.gatewayAccounts.length) return "";
     return `
       <section class="compact-settings-section shared-api-models-section">
-        <div class="compact-settings-section-copy"><h2>${escapeHtml(t("sharedAPI.modelsTitle"))}</h2><p data-settings-help-copy>${escapeHtml(t("sharedAPI.modelsDescription"))}</p></div>
+        <div class="shared-api-section-head">
+          <div class="compact-settings-section-copy"><h2>${escapeHtml(t("sharedAPI.modelsTitle"))}</h2><p data-settings-help-copy>${escapeHtml(t("sharedAPI.modelsDescription"))}</p></div>
+          <div class="shared-api-section-actions"><span class="settings-badge">${escapeHtml(t("sharedAPI.modelCount", { count: state.gatewayModels.length }))}</span><button class="settings-action-btn primary" type="button" data-gateway-model-add>${escapeHtml(t("sharedAPI.addModel"))}</button></div>
+        </div>
         <div class="compact-settings-section-controls">
-          <div class="compact-settings-section-toolbar"><span class="settings-badge">${escapeHtml(t("sharedAPI.modelCount", { count: state.gatewayModels.length }))}</span><button class="settings-action-btn primary" type="button" data-gateway-model-add>${escapeHtml(t("sharedAPI.addModel"))}</button></div>
           ${modelEditorOpen && !editingModelAlias ? renderModelForm() : ""}
           <div class="shared-api-list">${state.gatewayModels.length ? state.gatewayModels.map((m) => editingModelAlias === m.alias ? renderModelForm(m) : renderModel(m)).join("") : `<div class="settings-empty-state shared-api-compact-empty">${escapeHtml(t("sharedAPI.noModels"))}</div>`}</div>
         </div>
@@ -1030,7 +1029,7 @@ export function createSharedAPISettingsController({
   }
 
   function renderRequests() {
-    return `<section class="compact-settings-section shared-api-requests-section"><details class="shared-api-requests-details"><summary class="compact-settings-section-summary"><div class="compact-settings-section-copy"><h2>${escapeHtml(t("sharedAPI.requestsTitle"))}</h2><p data-settings-help-copy>${escapeHtml(t("sharedAPI.requestsDescription"))}</p></div></summary><div class="compact-settings-section-controls"><div class="compact-settings-section-toolbar"><span class="settings-badge">${escapeHtml(t("sharedAPI.requestCount", { count: state.gatewayRequests.length }))}</span></div><div class="shared-api-request-list">${state.gatewayRequests.length ? state.gatewayRequests.map(renderRequest).join("") : `<div class="settings-empty-state shared-api-compact-empty">${escapeHtml(t("sharedAPI.noRequests"))}</div>`}</div></div></details></section>`;
+    return `<section class="compact-settings-section shared-api-requests-section"><details class="shared-api-requests-details"${requestsOpen ? " open" : ""}><summary class="compact-settings-section-summary"><div class="compact-settings-section-copy"><h2>${escapeHtml(t("sharedAPI.requestsTitle"))}</h2><p data-settings-help-copy>${escapeHtml(t("sharedAPI.requestsDescription"))}</p></div><span class="settings-badge">${escapeHtml(t("sharedAPI.requestCount", { count: state.gatewayRequests.length }))}</span></summary><div class="compact-settings-section-controls"><div class="shared-api-request-list">${state.gatewayRequests.length ? state.gatewayRequests.map(renderRequest).join("") : `<div class="settings-empty-state shared-api-compact-empty">${escapeHtml(t("sharedAPI.noRequests"))}</div>`}</div></div></details></section>`;
   }
 
   function render() {
@@ -1085,8 +1084,8 @@ export function createSharedAPISettingsController({
     root?.querySelector?.("[data-gateway-refresh]")?.addEventListener("click", (event) => runButton(event.currentTarget, () => load({ refreshSettings: true })));
     root?.querySelector?.("[data-gateway-config-form]")?.addEventListener("submit", (event) => { event.preventDefault(); const form = event.currentTarget; runButton(form.querySelector("[type=submit]"), () => updateGatewayConfig(gatewayDraftFromForm(form))); });
     root?.querySelector?.("[data-gateway-toggle]")?.addEventListener("click", (event) => runButton(event.currentTarget, () => setGatewayEnabled(event.currentTarget.dataset.gatewayToggle === "true")));
-    root?.querySelector?.(".shared-api-gateway-details")?.addEventListener("toggle", (event) => {
-      gatewayOpen = Boolean(event.currentTarget.open);
+    root?.querySelector?.(".shared-api-requests-details")?.addEventListener("toggle", (event) => {
+      requestsOpen = Boolean(event.currentTarget.open);
     });
     root?.querySelectorAll?.("[data-gateway-provider]").forEach((input) => input.addEventListener("change", (event) => runButton(event.currentTarget, () => toggleProvider(event.currentTarget.dataset.gatewayProvider, event.currentTarget.checked))));
     root?.querySelectorAll?.("[data-gateway-account-provider]").forEach((input) => input.addEventListener("change", (event) => runButton(event.currentTarget, () => toggleAccount(event.currentTarget.dataset.gatewayAccountProvider, event.currentTarget.dataset.gatewayAccountId, event.currentTarget.checked))));

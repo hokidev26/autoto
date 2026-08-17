@@ -1,3 +1,4 @@
+import { copyTextAsNormalLines } from "./clipboard-text.mjs";
 import { $, escapeAttr, escapeHtml } from "./dom.mjs";
 import { t } from "./i18n.mjs";
 import { appMainT as am } from "./messages-app-main-extra.mjs";
@@ -146,12 +147,7 @@ export function createSettingsNavigationHelpers({
   async function copyToClipboard(text) {
     const value = String(text || "");
     if (!value) return false;
-    try {
-      if (navigator.clipboard?.writeText) {
-        await navigator.clipboard.writeText(value);
-        return true;
-      }
-    } catch {}
+    if (await copyTextAsNormalLines(value)) return true;
     try {
       const textarea = document.createElement("textarea");
       textarea.value = value;

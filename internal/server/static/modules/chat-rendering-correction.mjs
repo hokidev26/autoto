@@ -1,6 +1,8 @@
 import { escapeAttr, escapeHtml } from "./dom.mjs";
+import { t } from "./i18n.mjs";
 import { t as cr } from "./messages-chat-rendering-extra.mjs";
 import { visibleMessageText } from "./skills-commands.mjs";
+import { attachmentGlyph, attachmentPaperclipGlyph, classifyAttachmentKind } from "./attachment-glyphs.mjs";
 
 export function createChatRenderingCorrection({
   state,
@@ -9,27 +11,59 @@ export function createChatRenderingCorrection({
   loadMessages,
   showToast,
 } = {}) {
+  function attachmentDisplayKind(fileLike = {}) {
+    return fileLike.kind || classifyAttachmentKind({
+      name: fileLike.filename || fileLike.name || "",
+      type: fileLike.mimeType || fileLike.type || "",
+    });
+  }
+
+  function correctionChipHTML({ keepId = "", name = "", kind = "binary", removeIndex = -1 } = {}) {
+    const icon = `<span class="pending-file-icon" data-kind="${escapeAttr(kind)}" aria-hidden="true">${attachmentGlyph(kind)}</span>`;
+    const label = `<span class="pending-file-name">${escapeHtml(name || cr("attachment.attachment"))}</span>`;
+    if (keepId) {
+      return `<label class="pending-file-chip message-correction-chip" title="${escapeAttr(name)}">
+        <input class="sr-only" type="checkbox" data-keep-correction-attachment value="${escapeAttr(keepId)}" checked />
+        ${icon}${label}
+      </label>`;
+    }
+    return `<span class="pending-file-chip message-correction-chip" title="${escapeAttr(name)}">
+      ${icon}${label}
+      <button class="pending-attachment-remove" type="button" data-remove-correction-file="${escapeAttr(String(removeIndex))}" title="${escapeAttr(t("workspace.chat.removeAttachment"))}" aria-label="${escapeAttr(t("workspace.chat.removeAttachment"))}">×</button>
+    </span>`;
+  }
+
   function renderCorrectionEditor(message) {
     const attachments = Array.isArray(message.attachments) ? message.attachments : [];
     const files = Array.isArray(state.correctionFiles) ? state.correctionFiles : [];
-    // The file picker, the retire note, and the actions share one wrapping
-    // footer row instead of stacking, so the editor stays roughly the height
-    // of the message it replaces rather than growing into a tall card.
+    const chips = [
+      ...attachments.map((attachment) => correctionChipHTML({
+        keepId: attachment.id || "",
+        name: attachment.filename || cr("attachment.attachment"),
+        kind: attachmentDisplayKind(attachment),
+      })),
+      ...files.map((file, index) => correctionChipHTML({
+        name: file.name || cr("attachment.attachment"),
+        kind: classifyAttachmentKind(file),
+        removeIndex: index,
+      })),
+    ];
     return `
       <form class="message-correction-editor" data-correction-form="${escapeAttr(message.id || "")}">
         <textarea class="message-correction-text" data-correction-text rows="3">${escapeHtml(state.correctionText ?? visibleMessageText(message))}</textarea>
-        ${attachments.length ? `<div class="message-correction-attachments">${attachments.map((attachment) => `
-          <label><input type="checkbox" data-keep-correction-attachment value="${escapeAttr(attachment.id || "")}" checked /> ${escapeHtml(attachment.filename || cr("attachment.attachment"))}</label>
-        `).join("")}</div>` : ""}
-        ${files.length ? `<div class="message-correction-new-files">${files.map((file) => `<span>${escapeHtml(file.name || cr("attachment.attachment"))}</span>`).join("")}</div>` : ""}
+        ${chips.length ? `<div class="message-correction-attachments">${chips.join("")}</div>` : ""}
         <div class="message-correction-footer">
-          <label class="message-correction-file-label">${escapeHtml(cr("message.correctionAddFiles"))}<input type="file" data-correction-files multiple /></label>
-          <p class="message-correction-note">${escapeHtml(cr("message.correctionNote"))}</p>
+          <button class="message-correction-attach" type="button" data-correction-pick-files>
+            ${attachmentPaperclipGlyph()}
+            <span>${escapeHtml(cr("message.correctionAddFiles"))}</span>
+          </button>
+          <input class="sr-only" type="file" data-correction-files multiple />
           <div class="message-correction-actions">
             <button class="ghost-btn mini" type="button" data-correction-cancel>${escapeHtml(cr("message.correctionCancel"))}</button>
-            <button class="ghost-btn mini" type="submit" title="${escapeAttr(cr("message.correctTitle"))}">${escapeHtml(cr("message.correctionSubmit"))}</button>
+            <button class="message-correction-submit" type="submit" title="${escapeAttr(cr("message.correctTitle"))}">${escapeHtml(cr("message.correctionSubmit"))}</button>
           </div>
         </div>
+        <p class="message-correction-note">${escapeHtml(cr("message.correctionNote"))}</p>
       </form>
     `;
   }
@@ -47,6 +81,7 @@ export function createChatRenderingCorrection({
     state.editingMessageId = messageId;
     state.correctionText = visibleMessageText(state.currentMessages.find((message) => message.id === messageId) || {});
     state.correctionFiles = [];
+    state.correctionEditorNeedsFocus = true;
     applyMessageSnapshot(state.currentMessages, state.agent?.id);
   }
 
@@ -54,6 +89,7 @@ export function createChatRenderingCorrection({
     state.editingMessageId = "";
     state.correctionText = "";
     state.correctionFiles = [];
+    state.correctionEditorNeedsFocus = false;
     applyMessageSnapshot(state.currentMessages, state.agent?.id);
   }
 
@@ -73,6 +109,7 @@ export function createChatRenderingCorrection({
     state.editingMessageId = "";
     state.correctionText = "";
     state.correctionFiles = [];
+    state.correctionEditorNeedsFocus = false;
     await loadMessages(agentId);
     showToast(cr("message.correctionCreated"), "success");
   }

@@ -96,6 +96,13 @@ test("attachment classification recognizes only allowlisted browser video MIME t
   assert.equal(helpers.attachmentIcon("video"), "VIDEO");
 });
 
+test("attachment classification treats legacy Word .doc as a document, not a generic binary", () => {
+  const helpers = createAgentWorkspaceHelpers({ state: {} });
+  assert.equal(helpers.attachmentKind({ name: "letter.doc", type: "application/msword" }), "docx");
+  assert.equal(helpers.attachmentKind({ name: "brief.docx", type: "" }), "docx");
+  assert.equal(helpers.attachmentKind({ name: "spec.pdf", type: "" }), "pdf");
+});
+
 test("composer activity prefers pending approval, then tools, then thinking/generating", () => {
   assert.equal(resolveComposerActivityStatus({}, translate), null);
 
