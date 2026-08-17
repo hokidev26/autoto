@@ -6,6 +6,7 @@ import {
   createConfirmAction,
   installDesktopShellDialogs,
   isDesktopShell,
+  openExternal,
   pickDirectory,
   pickFile,
   resetPlatformDialogs,
@@ -157,5 +158,62 @@ test("desktop file pickers do not replace an in-app confirm", async () => {
     globalThis.window = previousWindow;
     globalThis.fetch = previousFetch;
     resetPlatformDialogs();
+  }
+});
+
+test("openExternal uses window.open in the browser", async () => {
+  const previous = globalThis.window;
+  const opened = [];
+  globalThis.window = {
+    open(url, target, features) {
+      opened.push({ url, target, features });
+      return { opener: "caller" };
+    },
+  };
+  try {
+    assert.equal(await openExternal("https://auth.openai.com/oauth/authorize"), true);
+    assert.equal(opened.length, 1);
+    assert.equal(opened[0].url, "https://auth.openai.com/oauth/authorize");
+    assert.equal(opened[0].target, "_blank");
+  } finally {
+    globalThis.window = previous;
+  }
+});
+
+test("openExternal posts desktop open-url and skips window.open", async () => {
+  const previousWindow = globalThis.window;
+  const previousFetch = globalThis.fetch;
+  const posts = [];
+  let opened = 0;
+  globalThis.window = {
+    AUTOTO_DESKTOP_SHELL: true,
+    AUTOTO_LOCAL_TOKEN: "tok-test",
+    open() {
+      opened += 1;
+      return { opener: "caller" };
+    },
+  };
+  globalThis.fetch = async (path, init) => {
+    posts.push({ path, init });
+    return {
+      ok: true,
+      async json() {
+        return { ok: true };
+      },
+    };
+  };
+  try {
+    assert.equal(await openExternal("https://auth.openai.com/oauth/authorize"), true);
+    assert.equal(opened, 0);
+    assert.equal(posts.length, 1);
+    assert.equal(posts[0].path, "/api/desktop/open-url");
+    assert.equal(posts[0].init.headers["X-Autoto-Token"], "tok-test");
+    assert.equal(JSON.parse(posts[0].init.body).url, "https://auth.openai.com/oauth/authorize");
+    assert.equal(await openExternal(""), false);
+    globalThis.fetch = async () => ({ ok: false, status: 400, async text() { return "nope"; } });
+    assert.equal(await openExternal("https://auth.openai.com/oauth/authorize"), false);
+  } finally {
+    globalThis.window = previousWindow;
+    globalThis.fetch = previousFetch;
   }
 });

@@ -159,6 +159,7 @@ export function createModelProviderSettingsController({
     toggleAnthropicAccount,
     deleteAnthropicAccount,
     startAnthropicLogin,
+    reopenAnthropicLogin,
     submitAnthropicLogin,
     pasteAnthropicLogin,
     cancelAnthropicLogin,
@@ -1788,6 +1789,10 @@ export function createModelProviderSettingsController({
       startAnthropicLogin().catch(showError);
       return;
     }
+    if (target.dataset.anthropicLoginReopen !== undefined) {
+      reopenAnthropicLogin().catch(showError);
+      return;
+    }
     if (target.dataset.anthropicLoginSubmit !== undefined) {
       const code = providerConsoleEventRoot?.querySelector?.("[data-anthropic-login-code]")?.value || "";
       submitAnthropicLogin(code).catch(showError);
@@ -2054,7 +2059,7 @@ export function createModelProviderSettingsController({
       return;
     }
     if (target.dataset.mpCodexBrowserOpen !== undefined) {
-      reopenCodexBrowserLogin();
+      reopenCodexBrowserLogin().catch(showError);
       return;
     }
     if (target.dataset.mpCodexBrowserCancel !== undefined) {
@@ -2102,7 +2107,7 @@ export function createModelProviderSettingsController({
       return;
     }
     if (target.dataset.subscriptionLoginReopen) {
-      reopenSubscriptionLogin(target.dataset.subscriptionLoginReopen);
+      reopenSubscriptionLogin(target.dataset.subscriptionLoginReopen).catch(showError);
       return;
     }
     if (target.dataset.subscriptionLoginCancel) {

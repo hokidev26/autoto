@@ -232,7 +232,7 @@ export function createAutomationToolCatalogController({
       showToast?.(t("skillsWorkbench.automationCatalog.unsafeOfficialUrl"), "warn", { force: true });
       return false;
     }
-    openExternal?.(url);
+    Promise.resolve(openExternal?.(url)).catch(() => {});
     return true;
   }
 

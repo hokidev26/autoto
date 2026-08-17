@@ -61,6 +61,13 @@ func (h *lifecycleHost) AutostartDisable() error {
 	return h.autostart.Disable()
 }
 
+func (h *lifecycleHost) OpenExternalURL(raw string) error {
+	if h == nil || h.app == nil || h.app.Browser == nil {
+		return errors.New("desktop browser host unavailable")
+	}
+	return h.app.Browser.OpenURL(raw)
+}
+
 func (h *lifecycleHost) NotifyDeepLink(raw string) error {
 	link, ok := ParseDeepLink(raw)
 	if !ok {

@@ -1,5 +1,5 @@
 import { $, escapeAttr, escapeHtml, setButtonBusy } from "./dom.mjs";
-import { confirm as platformConfirm } from "./platform.mjs";
+import { confirm as platformConfirm, isDesktopShell, openExternal } from "./platform.mjs";
 import { apiDownload } from "./runtime.mjs";
 import { formatNumber } from "./formatters.mjs";
 import { t } from "./i18n.mjs";
@@ -256,6 +256,7 @@ export function createCodexAuthController(ctx) {
   }
 
   function preopenCodexBrowserLoginWindow() {
+    if (isDesktopShell()) return null;
     try {
       const popup = globalThis.open?.("about:blank", "autoto-codex-login", "popup,width=720,height=820");
       if (popup) popup.opener = null;
@@ -265,15 +266,14 @@ export function createCodexAuthController(ctx) {
     }
   }
 
-  function openCodexBrowserAuthURL(authUrl, popup = null) {
+  async function openCodexBrowserAuthURL(authUrl, popup = null) {
     if (!trustedCodexBrowserAuthURL(authUrl)) throw new Error(mt("browserLoginInvalidURL"));
     try {
       if (popup && !popup.closed) {
         popup.location.replace(authUrl);
         return true;
       }
-      const opened = globalThis.open?.(authUrl, "_blank", "noopener,noreferrer");
-      return Boolean(opened);
+      return await openExternal(authUrl);
     } catch {
       return false;
     }
@@ -352,7 +352,18 @@ export function createCodexAuthController(ctx) {
       return;
     }
     if (codexBrowserLoginActive(login.status) && login.authUrl) {
-      openCodexBrowserAuthURL(login.authUrl);
+      try {
+        const opened = await openCodexBrowserAuthURL(login.authUrl);
+        if (!opened) {
+          login.popupBlocked = true;
+          setProviderConsoleResult(mt("browserLoginPopupBlocked"), "attention");
+          refreshProviderConsole();
+        }
+      } catch (error) {
+        Object.assign(login, { status: "failed", message: error?.message || mt("unknown"), popupBlocked: false });
+        setProviderConsoleResult(mt("browserLoginFailed", { message: login.message }), "attention");
+        refreshProviderConsole();
+      }
       return;
     }
     const popup = preopenCodexBrowserLoginWindow();
@@ -365,7 +376,7 @@ export function createCodexAuthController(ctx) {
       expiresAt: "",
       message: "",
       account: null,
-      popupBlocked: !popup,
+      popupBlocked: false,
     });
     setProviderConsoleResult("");
     refreshProviderConsole();
@@ -379,7 +390,7 @@ export function createCodexAuthController(ctx) {
       if (!status.loginId) throw new Error(mt("browserLoginStartFailed"));
       const active = codexBrowserLoginActive(status.status);
       if (active && !trustedCodexBrowserAuthURL(status.authUrl)) throw new Error(mt("browserLoginInvalidURL"));
-      const opened = active ? openCodexBrowserAuthURL(status.authUrl, popup) : true;
+      const opened = active ? await openCodexBrowserAuthURL(status.authUrl, popup) : true;
       if (!active) popup?.close?.();
       Object.assign(login, status, {
         seq,
@@ -419,12 +430,18 @@ export function createCodexAuthController(ctx) {
     refreshProviderConsole();
   }
 
-  function reopenCodexBrowserLogin() {
+  async function reopenCodexBrowserLogin() {
     const login = codexBrowserLoginState();
     if (!login.authUrl || !codexBrowserLoginActive(login.status)) return;
-    if (!openCodexBrowserAuthURL(login.authUrl)) {
-      login.popupBlocked = true;
-      setProviderConsoleResult(mt("browserLoginPopupBlocked"), "attention");
+    try {
+      if (!await openCodexBrowserAuthURL(login.authUrl)) {
+        login.popupBlocked = true;
+        setProviderConsoleResult(mt("browserLoginPopupBlocked"), "attention");
+        refreshProviderConsole();
+      }
+    } catch (error) {
+      Object.assign(login, { status: "failed", message: error?.message || mt("unknown"), popupBlocked: false });
+      setProviderConsoleResult(mt("browserLoginFailed", { message: login.message }), "attention");
       refreshProviderConsole();
     }
   }

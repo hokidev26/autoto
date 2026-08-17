@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"autoto/internal/config"
@@ -16,8 +17,9 @@ import (
 )
 
 type stubLifecycleHost struct {
-	enabled bool
-	lastURL string
+	enabled   bool
+	lastURL   string
+	openedURL string
 }
 
 func (h *stubLifecycleHost) AutostartStatus() (bool, string, string, error) {
@@ -33,6 +35,10 @@ func (h *stubLifecycleHost) AutostartDisable() error {
 }
 func (h *stubLifecycleHost) NotifyDeepLink(raw string) error {
 	h.lastURL = raw
+	return nil
+}
+func (h *stubLifecycleHost) OpenExternalURL(raw string) error {
+	h.openedURL = raw
 	return nil
 }
 
@@ -118,6 +124,76 @@ func TestDesktopDeepLinkRejectsNonAutoto(t *testing.T) {
 	}
 	if host.lastURL != "autoto://agent?id=a1" {
 		t.Fatalf("lastURL=%q", host.lastURL)
+	}
+}
+
+func TestDesktopOpenURLLocalOnly(t *testing.T) {
+	app := New(config.Config{}, nil, nil, nil)
+	host := &stubLifecycleHost{}
+	app.SetShellLifecycleHost(host)
+
+	body, _ := json.Marshal(map[string]string{"url": "https://auth.openai.com/oauth/authorize?client_id=fixture"})
+	req := httptest.NewRequest(http.MethodPost, "/api/desktop/open-url", bytes.NewReader(body))
+	withLocalShellToken(req, app)
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	app.Routes().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status %d body %s", rec.Code, rec.Body.String())
+	}
+	if !strings.HasPrefix(host.openedURL, "https://auth.openai.com/oauth/authorize") {
+		t.Fatalf("openedURL=%q", host.openedURL)
+	}
+
+	fileBody, _ := json.Marshal(map[string]string{"url": "file:///etc/passwd"})
+	fileReq := httptest.NewRequest(http.MethodPost, "/api/desktop/open-url", bytes.NewReader(fileBody))
+	withLocalShellToken(fileReq, app)
+	fileReq.Header.Set("Content-Type", "application/json")
+	fileRec := httptest.NewRecorder()
+	app.Routes().ServeHTTP(fileRec, fileReq)
+	if fileRec.Code == http.StatusOK {
+		t.Fatal("file URLs must not open")
+	}
+
+	jsBody, _ := json.Marshal(map[string]string{"url": "javascript:alert(1)"})
+	jsReq := httptest.NewRequest(http.MethodPost, "/api/desktop/open-url", bytes.NewReader(jsBody))
+	withLocalShellToken(jsReq, app)
+	jsReq.Header.Set("Content-Type", "application/json")
+	jsRec := httptest.NewRecorder()
+	app.Routes().ServeHTTP(jsRec, jsReq)
+	if jsRec.Code == http.StatusOK {
+		t.Fatal("javascript URLs must not open")
+	}
+
+	noToken := httptest.NewRequest(http.MethodPost, "/api/desktop/open-url", bytes.NewReader(body))
+	noToken.RemoteAddr = "127.0.0.1:9"
+	noToken.Host = "127.0.0.1:7788"
+	noToken.Header.Set("Content-Type", "application/json")
+	noTokenRec := httptest.NewRecorder()
+	app.Routes().ServeHTTP(noTokenRec, noToken)
+	if noTokenRec.Code == http.StatusOK {
+		t.Fatal("loopback without token must not open URLs")
+	}
+
+	remote := httptest.NewRequest(http.MethodPost, "/api/desktop/open-url", bytes.NewReader(body))
+	remote.RemoteAddr = "203.0.113.9:9"
+	remote.Host = "example.com"
+	remote.Header.Set(localTokenHeader, app.localToken)
+	remote.Header.Set("Content-Type", "application/json")
+	remoteRec := httptest.NewRecorder()
+	app.Routes().ServeHTTP(remoteRec, remote)
+	if remoteRec.Code == http.StatusOK {
+		t.Fatal("remote must not open URLs")
+	}
+
+	missing := New(config.Config{}, nil, nil, nil)
+	orphan := httptest.NewRequest(http.MethodPost, "/api/desktop/open-url", bytes.NewReader(body))
+	withLocalShellToken(orphan, missing)
+	orphan.Header.Set("Content-Type", "application/json")
+	orphanRec := httptest.NewRecorder()
+	missing.Routes().ServeHTTP(orphanRec, orphan)
+	if orphanRec.Code != http.StatusNotFound {
+		t.Fatalf("CLI/browser process must 404 open-url, got %d", orphanRec.Code)
 	}
 }
 

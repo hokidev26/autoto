@@ -44,6 +44,7 @@ Wails v3 官方打包仍為 Alpha。正式簽名流水線應在 **release CI** �
 
 - 自啟動：托盤選單 Enable/Disable Login Item；或 loopback  
   `GET|POST|DELETE /api/desktop/autostart`
+- 系統瀏覽器：`POST /api/desktop/open-url`（僅 http/https）。桌面 WebView 的 `window.open` 打不開系統瀏覽器，OAuth 登入必須走這條 loopback API。
 - 深度連結：`autoto://agent?id=…`、`autoto://project?id=…`、`autoto://settings?panel=…`  
   註冊 OS URL scheme 需要打包進 `.app` / 安裝器；開發期可用 argv：  
   `./autoto-desktop 'autoto://settings?panel=remote-access'`

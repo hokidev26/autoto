@@ -1,5 +1,5 @@
 import { escapeAttr, escapeHtml, setButtonBusy } from "./dom.mjs";
-import { confirm as platformConfirm } from "./platform.mjs";
+import { confirm as platformConfirm, openExternal } from "./platform.mjs";
 import { t } from "./i18n.mjs";
 import {
   createProviderDraft,
@@ -171,7 +171,7 @@ export function createAnthropicAccountsController(ctx) {
     try {
       const data = await requestAPI("/api/providers/oauth/anthropic/login/start", { method: "POST", body: JSON.stringify({}) });
       consoleState.anthropicLogin = { loginId: data?.loginId || "", authUrl: data?.authUrl || "", status: data?.status || "pending", error: "" };
-      if (consoleState.anthropicLogin.authUrl) globalThis.open?.(consoleState.anthropicLogin.authUrl, "_blank", "noopener,noreferrer");
+      if (consoleState.anthropicLogin.authUrl) await openExternal(consoleState.anthropicLogin.authUrl);
     } catch (error) {
       consoleState.anthropicLogin = { loginId: "", authUrl: "", status: "failed", error: error?.message || mt("unknown") };
     } finally {
@@ -233,6 +233,12 @@ export function createAnthropicAccountsController(ctx) {
     await submitAnthropicLogin(text);
   }
 
+  async function reopenAnthropicLogin() {
+    const login = providerConsoleState().anthropicLogin;
+    if (!login?.authUrl) return;
+    await openExternal(login.authUrl);
+  }
+
   async function cancelAnthropicLogin() {
     const consoleState = providerConsoleState();
     const login = consoleState.anthropicLogin;
@@ -256,7 +262,7 @@ export function createAnthropicAccountsController(ctx) {
         <div class="settings-inline-actions"><button class="settings-action-btn primary" type="button" data-anthropic-login-start ${busy ? "disabled aria-busy=\"true\"" : ""}>${escapeHtml(busy ? mt("anthropic.oauthStarting") : mt("anthropic.oauthLoginButton"))}</button></div>`;
     }
     const err = login.error ? `<div class="settings-alert attention" role="alert">${escapeHtml(login.error)}</div>` : "";
-    const reopen = login.authUrl ? `<a class="anthropic-oauth-reopen" href="${escapeAttr(login.authUrl)}" target="_blank" rel="noopener noreferrer">${escapeHtml(mt("anthropic.oauthReopen"))}</a>` : "";
+    const reopen = login.authUrl ? `<button class="anthropic-oauth-reopen" type="button" data-anthropic-login-reopen>${escapeHtml(mt("anthropic.oauthReopen"))}</button>` : "";
     return `${err}
       <ol class="anthropic-oauth-flow">
         <li class="anthropic-oauth-step">
@@ -359,6 +365,7 @@ export function createAnthropicAccountsController(ctx) {
     toggleAnthropicAccount,
     deleteAnthropicAccount,
     startAnthropicLogin,
+    reopenAnthropicLogin,
     submitAnthropicLogin,
     pasteAnthropicLogin,
     cancelAnthropicLogin,

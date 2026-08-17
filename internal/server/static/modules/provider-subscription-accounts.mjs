@@ -1,5 +1,5 @@
 import { escapeAttr, escapeHtml, setButtonBusy } from "./dom.mjs";
-import { confirm as platformConfirm } from "./platform.mjs";
+import { confirm as platformConfirm, openExternal } from "./platform.mjs";
 import { currentUILocale, t } from "./i18n.mjs";
 import { remoteAccessContext } from "./remote-access-capabilities.mjs";
 import {
@@ -221,14 +221,9 @@ export function createSubscriptionAccountsController(ctx) {
     return String(account.alias || account.email || account.id || "").trim();
   }
 
-  function openSubscriptionAuthURL(provider, authUrl) {
+  async function openSubscriptionAuthURL(provider, authUrl) {
     if (!trustedSubscriptionAuthURL(provider, authUrl)) throw new Error(st("loginInvalidURL"));
-    try {
-      const opened = globalThis.open?.(authUrl, "_blank", "noopener,noreferrer");
-      return Boolean(opened);
-    } catch {
-      return false;
-    }
+    return openExternal(authUrl);
   }
 
   async function finishSubscriptionLogin(provider, status, seq) {
@@ -299,7 +294,18 @@ export function createSubscriptionAccountsController(ctx) {
       return;
     }
     if (subscriptionLoginActive(login.status) && login.authUrl) {
-      openSubscriptionAuthURL(p, login.authUrl);
+      try {
+        const opened = await openSubscriptionAuthURL(p, login.authUrl);
+        if (!opened) {
+          login.popupBlocked = true;
+          setProviderConsoleResult(st("loginPopupBlocked"), "attention");
+          refreshProviderConsole();
+        }
+      } catch (error) {
+        Object.assign(login, { status: "failed", message: error?.message || st("unknown"), popupBlocked: false });
+        setProviderConsoleResult(st("loginFailed", { message: login.message }), "attention");
+        refreshProviderConsole();
+      }
       return;
     }
     const seq = Number(login.seq || 0) + 1;
@@ -315,7 +321,7 @@ export function createSubscriptionAccountsController(ctx) {
       const spec = subscriptionProviderSpec(p);
       let popupBlocked = false;
       if (active && spec?.loginKind === "browser" && status.authUrl) {
-        popupBlocked = !openSubscriptionAuthURL(p, status.authUrl);
+        popupBlocked = !(await openSubscriptionAuthURL(p, status.authUrl));
       }
       Object.assign(login, status, { seq, loginId: status.loginId, status: status.status || "pending", popupBlocked });
       refreshProviderConsole();
@@ -350,13 +356,19 @@ export function createSubscriptionAccountsController(ctx) {
     refreshProviderConsole();
   }
 
-  function reopenSubscriptionLogin(provider) {
+  async function reopenSubscriptionLogin(provider) {
     const p = normalizeSubscriptionProvider(provider);
     const login = subscriptionLoginState(p);
     if (!login.authUrl || !subscriptionLoginActive(login.status)) return;
-    if (!openSubscriptionAuthURL(p, login.authUrl)) {
-      login.popupBlocked = true;
-      setProviderConsoleResult(st("loginPopupBlocked"), "attention");
+    try {
+      if (!await openSubscriptionAuthURL(p, login.authUrl)) {
+        login.popupBlocked = true;
+        setProviderConsoleResult(st("loginPopupBlocked"), "attention");
+        refreshProviderConsole();
+      }
+    } catch (error) {
+      Object.assign(login, { status: "failed", message: error?.message || st("unknown"), popupBlocked: false });
+      setProviderConsoleResult(st("loginFailed", { message: login.message }), "attention");
       refreshProviderConsole();
     }
   }

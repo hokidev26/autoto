@@ -60,7 +60,7 @@ import {
   resolveOverviewStartup,
 } from "./overview-dashboard.mjs";
 import { createPageLifecycleController } from "./page-lifecycle.mjs";
-import { confirm as platformConfirm, setPlatformDialogs } from "./platform.mjs";
+import { confirm as platformConfirm, openExternal as openExternalURL, setPlatformDialogs } from "./platform.mjs";
 import { createProjectKanbanController } from "./project-kanban.mjs";
 import { createScheduleWorkspaceController } from "./schedule-workspace.mjs";
 import { createTaskWorkspaceController } from "./task-workspace.mjs";
@@ -1771,10 +1771,7 @@ const automationToolCatalog = createAutomationToolCatalogController({
   state,
   request: api,
   confirmAction: (message) => platformConfirm(message),
-  openExternal: (url) => {
-    const opened = globalThis.window?.open?.(url, "_blank", "noopener,noreferrer");
-    if (opened) opened.opener = null;
-  },
+  openExternal: (url) => openExternalURL(url),
   onRegistryChanged: async () => {
     state.mcpRegistryLoaded = false;
     await loadMCPRegistryServers({ force: true });

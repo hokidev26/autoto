@@ -1131,10 +1131,15 @@
 #settingsContentBody .anthropic-oauth-reopen {
   justify-self: start;
   margin-top: 2px;
+  padding: 0;
+  border: 0;
+  background: none;
   color: var(--anthropic-accent);
+  font: inherit;
   font-size: 11px;
   text-decoration: underline;
   text-underline-offset: 2px;
+  cursor: pointer;
 }
 #settingsContentBody .anthropic-oauth-paste { justify-self: start; margin-top: 4px; }
 #settingsContentBody .anthropic-oauth-manual { margin-top: 6px; }

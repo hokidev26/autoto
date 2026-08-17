@@ -7,8 +7,9 @@
  * shell. Defaults remain browser-native and testable.
  *
  * Desktop picker path: POST /api/desktop/dialog/* on the same Autoto HTTP
- * origin (loopback only). This avoids relying on Wails Service bindings,
- * which require the Wails asset origin rather than Runtime.URL().
+ * origin (loopback only). External http(s) URLs use POST /api/desktop/open-url
+ * for the same reason: Wails bindings require the asset origin, not Runtime.URL(),
+ * and WKWebView window.open does not launch the system browser.
  */
 
 function defaultConfirm(message) {
@@ -134,6 +135,27 @@ export async function pickFile(options = {}) {
     installDesktopShellDialogs();
   }
   return pickFileImpl(options);
+}
+
+/** Open an http(s) URL in the system browser. Desktop shells cannot rely on window.open. */
+export async function openExternal(url) {
+  const target = String(url || "").trim();
+  if (!target) return false;
+  if (isDesktopShell()) {
+    try {
+      await desktopDialogPOST("/api/desktop/open-url", { url: target });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+  try {
+    const opened = globalThis.window?.open?.(target, "_blank", "noopener,noreferrer");
+    if (opened) opened.opener = null;
+    return Boolean(opened);
+  } catch {
+    return false;
+  }
 }
 
 /** Convenience for controllers that inject confirmAction. */

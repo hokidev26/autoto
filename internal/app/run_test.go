@@ -236,6 +236,9 @@ func (stubShellLifecycleHost) AutostartDisable() error { return nil }
 func (stubShellLifecycleHost) NotifyDeepLink(string) error {
 	return nil
 }
+func (stubShellLifecycleHost) OpenExternalURL(string) error {
+	return nil
+}
 
 type stubShellUpdateHost struct{}
 

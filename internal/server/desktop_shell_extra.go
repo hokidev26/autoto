@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"strings"
 
+	"autoto/internal/tools"
 	updatepkg "autoto/internal/update"
 )
 
@@ -16,6 +17,9 @@ type ShellLifecycleHost interface {
 	// HandleDeepLink is informational for the shell (focus + navigate). HTTP
 	// callers only forward a validated autoto:// URL; they cannot run host commands.
 	NotifyDeepLink(raw string) error
+	// OpenExternalURL opens an already-validated http(s) URL in the host
+	// browser. The HTTP handler must validate the URL before calling this.
+	OpenExternalURL(raw string) error
 }
 
 // ShellUpdateHost stages a local binary after user confirmation. It must not
@@ -72,6 +76,7 @@ func (s *Server) mountDesktopShellExtraRoutes(r interface {
 	r.Post("/api/desktop/autostart", s.desktopAutostartPost)
 	r.Delete("/api/desktop/autostart", s.desktopAutostartDelete)
 	r.Post("/api/desktop/deep-link", s.desktopDeepLinkPost)
+	r.Post("/api/desktop/open-url", s.desktopOpenURLPost)
 	r.Get("/api/desktop/update/pending", s.desktopUpdatePendingGet)
 	r.Post("/api/desktop/update/stage", s.desktopUpdateStagePost)
 	r.Delete("/api/desktop/update/pending", s.desktopUpdatePendingDelete)
@@ -175,6 +180,35 @@ func (s *Server) desktopDeepLinkPost(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := host.NotifyDeepLink(raw); err != nil {
 		s.writeRequestError(w, r, http.StatusBadRequest, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+type openURLRequest struct {
+	URL string `json:"url"`
+}
+
+func (s *Server) desktopOpenURLPost(w http.ResponseWriter, r *http.Request) {
+	if !s.requireShellLoopback(w, r) {
+		return
+	}
+	host := s.shellLifecycle()
+	if host == nil {
+		writeError(w, http.StatusNotFound, "desktop browser host unavailable")
+		return
+	}
+	var req openURLRequest
+	if !decodeShellRequest(w, r, &req, "invalid open-url request") {
+		return
+	}
+	target, err := tools.ValidateOpenURL(req.URL)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if err := host.OpenExternalURL(target); err != nil {
+		s.writeRequestError(w, r, http.StatusInternalServerError, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})

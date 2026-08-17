@@ -1,6 +1,7 @@
 import { accountPreferencesCurrentSetupVersion } from "./account-preferences.mjs";
 import { $, escapeAttr, escapeHtml, setButtonBusy } from "./dom.mjs";
 import { t } from "./i18n.mjs";
+import { isDesktopShell, openExternal } from "./platform.mjs";
 import { remoteAccessContext } from "./remote-access-capabilities.mjs";
 import {
   codexAccountActionRequest,
@@ -956,6 +957,7 @@ export function createSetupWizardController({
   }
 
   function preopenCodexLoginWindow() {
+    if (isDesktopShell()) return null;
     try {
       const popup = globalThis.open?.("about:blank", "autoto-codex-login", "popup,width=720,height=820");
       if (popup) popup.opener = null;
@@ -965,14 +967,14 @@ export function createSetupWizardController({
     }
   }
 
-  function openCodexLoginAuthURL(authUrl, popup = null) {
+  async function openCodexLoginAuthURL(authUrl, popup = null) {
     if (!trustedCodexBrowserAuthURL(authUrl)) throw new Error(t("setupWizard.codexLogin.invalidURL"));
     try {
       if (popup && !popup.closed) {
         popup.location.replace(authUrl);
         return true;
       }
-      return Boolean(globalThis.open?.(authUrl, "_blank", "noopener,noreferrer"));
+      return await openExternal(authUrl);
     } catch {
       return false;
     }
@@ -1029,7 +1031,7 @@ export function createSetupWizardController({
     if (remoteAccessContext(state) || finishing) return;
     if (setupCodexLoginActive(codexLogin.status) && codexLogin.authUrl) {
       try {
-        if (!openCodexLoginAuthURL(codexLogin.authUrl)) {
+        if (!await openCodexLoginAuthURL(codexLogin.authUrl)) {
           codexLogin.popupBlocked = true;
           renderSetupWizard();
         }
@@ -1048,7 +1050,7 @@ export function createSetupWizardController({
       authUrl: "",
       message: "",
       account: null,
-      popupBlocked: !popup,
+      popupBlocked: false,
     });
     renderSetupWizard();
     try {
@@ -1065,7 +1067,7 @@ export function createSetupWizardController({
       if (!status.loginId) throw new Error(t("setupWizard.codexLogin.startFailed"));
       const active = setupCodexLoginActive(status.status);
       if (active && !trustedCodexBrowserAuthURL(status.authUrl)) throw new Error(t("setupWizard.codexLogin.invalidURL"));
-      const opened = active ? openCodexLoginAuthURL(status.authUrl, popup) : true;
+      const opened = active ? await openCodexLoginAuthURL(status.authUrl, popup) : true;
       if (!active) popup?.close?.();
       Object.assign(codexLogin, status, {
         seq,
@@ -1106,10 +1108,10 @@ export function createSetupWizardController({
     renderSetupWizard();
   }
 
-  function reopenCodexSetupLogin() {
+  async function reopenCodexSetupLogin() {
     if (!codexLogin.authUrl || !setupCodexLoginActive(codexLogin.status)) return;
     try {
-      if (!openCodexLoginAuthURL(codexLogin.authUrl)) {
+      if (!await openCodexLoginAuthURL(codexLogin.authUrl)) {
         codexLogin.popupBlocked = true;
         renderSetupWizard();
       }
@@ -1389,7 +1391,7 @@ export function createSetupWizardController({
         return;
       }
       if (event.target?.closest?.("[data-setup-codex-reopen]")) {
-        reopenCodexSetupLogin();
+        reopenCodexSetupLogin().catch(() => {});
         return;
       }
       if (event.target?.closest?.("[data-setup-verify]")) {

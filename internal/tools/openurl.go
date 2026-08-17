@@ -126,3 +126,10 @@ func validateOpenURL(raw string) (string, error) {
 	}
 	return normalized, nil
 }
+
+// ValidateOpenURL is the http(s)-only gate shared by the OpenURL tool and the
+// desktop shell's system-browser bridge. Other schemes can read local files or
+// launch installed applications.
+func ValidateOpenURL(raw string) (string, error) {
+	return validateOpenURL(raw)
+}
