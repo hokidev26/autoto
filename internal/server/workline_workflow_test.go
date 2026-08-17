@@ -163,7 +163,7 @@ func TestForkWorklineAutoDetectsSingleVisibleRepository(t *testing.T) {
 func TestForkWorklineReportsRepositoryWithoutCommits(t *testing.T) {
 	ctx := context.Background()
 	repo := t.TempDir()
-	runGitTestCommand(t, repo, "init", "-b", "main")
+	runGitTestCommand(t, repo, "init", "-b", "main", "--template=")
 
 	store, err := db.Open(ctx, filepath.Join(t.TempDir(), "test.db"))
 	if err != nil {
@@ -229,7 +229,7 @@ func initCommittedGitRepoAt(t *testing.T, repo, name, content string) string {
 	if err := os.MkdirAll(repo, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	runGitTestCommand(t, repo, "init", "-b", "main")
+	runGitTestCommand(t, repo, "init", "-b", "main", "--template=")
 	runGitTestCommand(t, repo, "config", "user.name", "Autoto Test")
 	runGitTestCommand(t, repo, "config", "user.email", "test@example.com")
 	writeGitTestFile(t, repo, name, content)

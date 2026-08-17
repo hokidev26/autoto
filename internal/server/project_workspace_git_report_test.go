@@ -14,7 +14,7 @@ func initTestGitRepo(t *testing.T, dir string) {
 		t.Fatal(err)
 	}
 	for _, args := range [][]string{
-		{"init"},
+		{"init", "--template="},
 		{"config", "user.email", "test@example.invalid"},
 		{"config", "user.name", "Test"},
 	} {
@@ -97,5 +97,16 @@ func TestProjectWorkspaceGitReportDoesNotGuessBetweenSiblingRepositories(t *test
 	roots, _ := report["discoveredRoots"].([]string)
 	if len(roots) != 2 {
 		t.Fatalf("both candidates should be listed, got %+v", report)
+	}
+}
+
+func TestSameFilesystemProjectPathFollowsMacOSTempAliases(t *testing.T) {
+	dir := t.TempDir()
+	resolved, err := filepath.EvalSymlinks(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !sameFilesystemProjectPath(dir, resolved) {
+		t.Fatalf("temp dir %q should match its physical path %q", dir, resolved)
 	}
 }

@@ -59,7 +59,32 @@ export function createAppMainStreamWiring({
 async function applyAgentLiveSnapshot(snapshot, detail = {}) {
   const agentId = snapshot?.agent?.id || "";
   if (!agentId || state.agent?.id !== agentId) return;
-  const nextAgent = snapshot.agent;
+  let nextAgent = snapshot.agent;
+  const pendingModel = (state.agentSavePending || state.agentSaving)
+    && state.agentSaveSnapshot?.agentId === agentId
+    ? String(state.agentSaveSnapshot?.model || "").trim()
+    : "";
+  const currentGeneration = Number(state.agent?.entityGeneration);
+  const nextGeneration = Number(nextAgent?.entityGeneration);
+  const snapshotIsOlder = Number.isSafeInteger(currentGeneration)
+    && Number.isSafeInteger(nextGeneration)
+    && nextGeneration < currentGeneration;
+  // A model PATCH bumps entityGeneration. An interrupt resync that left before
+  // that write must not put the previous model back onto the agent, or the
+  // next send/continue still runs on the old provider.
+  if (pendingModel) {
+    nextAgent = { ...nextAgent, model: pendingModel };
+  } else if (snapshotIsOlder) {
+    nextAgent = {
+      ...nextAgent,
+      model: state.agent.model,
+      reasoningEffort: state.agent.reasoningEffort,
+      fastMode: state.agent.fastMode,
+      permissionMode: state.agent.permissionMode,
+      planMode: state.agent.planMode,
+      entityGeneration: currentGeneration,
+    };
+  }
   const nextWorkState = normalizeWorkStateSnapshot(snapshot);
   state.agent = nextAgent;
   // A snapshot is the authoritative server state, and neither of these is part of

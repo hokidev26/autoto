@@ -82,6 +82,14 @@ test("a double send is prevented by the run being active, not by the busy flag",
     /const autoQueue = agentTurnInFlight\(\) && !isGoalCommandDraft\(goalCommand\)/,
     "the auto-queue path is what catches a second send",
   );
+  const queueAt = sendMessage.indexOf("if (queueCommand || autoQueue");
+  assert.notEqual(queueAt, -1);
+  const queueBranch = sendMessage.slice(queueAt, sendMessage.indexOf("enqueueMessage(", queueAt));
+  assert.match(
+    queueBranch,
+    /if \(!\(await syncSelectedModelToAgent\(agentId\)\)\) return;/,
+    "a model switch must reach the agent before the follow-up is parked, or the next turn still runs the old provider",
+  );
   const appMain = readFileSync(new URL("app-main.mjs", import.meta.url), "utf8");
   const acceptedStart = appMain.indexOf("onMessageAccepted: async (result, agentId) => {");
   assert.notEqual(acceptedStart, -1);

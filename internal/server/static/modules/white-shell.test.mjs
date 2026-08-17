@@ -1146,6 +1146,7 @@ test("composer selects hide external labels and open titled menus upward", async
   assert.match(styles, /\.composer-model-group-heading\s*\{/);
   assert.match(appMain, /agentSavePromise:\s*null/);
   assert.match(appMain, /state\.agentSaveSnapshot = captureAgentSettingsSnapshot\(\);[\s\S]*?while \(state\.agentSavePending\)/);
+  assert.match(appMain, /const model = rawModel \|\| selectableModel;/);
   assert.match(appMain, /awaitAgentSettingsSaved:\s*\(agentId\) => waitForAgentSettingsSave\(agentId\)/);
   const persist = appMain.slice(appMain.indexOf("async function persistAgentSettingsPass"), appMain.indexOf("function saveAgentSettings"));
   assert.match(persist, /refreshReasoningEffortControl\(\{ modelValue: selectedModel \}\)/);

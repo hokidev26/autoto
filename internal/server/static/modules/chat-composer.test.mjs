@@ -1029,9 +1029,146 @@ test("Composer does not send when the selected and persisted models remain incon
       /The selected model could not be synchronized/,
     );
 
-    assert.equal(requests.length, 0);
+    assert.equal(requests.length, 1);
+    assert.equal(requests[0][0], "/api/agents/agent-model-mismatch/model");
+    assert.equal(JSON.parse(requests[0][1].body).model, "anthropic:model-b");
     assert.equal(input.value, "Keep this draft");
     assert.equal(input.disabled, false);
+  } finally {
+    globalThis.document = previousDocument;
+    globalThis.getComputedStyle = previousGetComputedStyle;
+  }
+});
+
+test("send and continue write the picker model onto the agent before the run starts", async () => {
+  const previousDocument = globalThis.document;
+  const previousGetComputedStyle = globalThis.getComputedStyle;
+  const input = {
+    value: "use the new relay",
+    disabled: false,
+    scrollHeight: 46,
+    style: {},
+    classList: { toggle() {} },
+    focus() {},
+  };
+  const elements = {
+    messageText: input,
+    modelSelect: { value: "jyqf:gpt-5.6-luna" },
+    promptHistoryHint: { textContent: "" },
+    slashCommandPalette: { classList: { add() {}, remove() {} }, innerHTML: "" },
+  };
+  const requests = [];
+  const state = {
+    agent: { id: "agent-switch", model: "zzzz:gpt-5.6-luna", status: "idle" },
+    navigationSelectionKind: "conversation",
+    promptHistory: [],
+    pendingAttachments: [],
+    serverSkills: [],
+  };
+  globalThis.document = { getElementById(id) { return elements[id] || null; } };
+  globalThis.getComputedStyle = () => ({ minHeight: "46px", maxHeight: "128px", getPropertyValue() { return ""; } });
+  try {
+    const controller = createChatComposerController({
+      state,
+      awaitAgentSettingsSaved: async () => {},
+      saveAgentSettings: async () => {},
+      currentSkillsPreferences: () => ({ commands: [] }),
+      isCurrentModelConfigured: () => true,
+      loadMessages: async () => {},
+      onMessageAccepted: async () => {},
+      request: async (path, options) => {
+        requests.push({ path, options, agentModel: state.agent.model });
+        if (String(path).endsWith("/model")) {
+          const model = JSON.parse(options.body).model;
+          state.agent = { ...state.agent, model };
+          return { ...state.agent };
+        }
+        return { accepted: true };
+      },
+      scheduleMessageRefresh() {},
+    });
+
+    await controller.sendMessage({ preventDefault() {} });
+    assert.equal(requests.length, 2);
+    assert.equal(requests[0].path, "/api/agents/agent-switch/model");
+    assert.equal(JSON.parse(requests[0].options.body).model, "jyqf:gpt-5.6-luna");
+    assert.equal(requests[1].path, "/api/agents/agent-switch/messages");
+    assert.equal(requests[1].agentModel, "jyqf:gpt-5.6-luna");
+    assert.equal(state.agent.model, "jyqf:gpt-5.6-luna");
+    assert.equal(input.value, "");
+
+    state.agent = { ...state.agent, status: "interrupted" };
+    state.activeRunSummary = { run: { status: "interrupted" } };
+    elements.modelSelect.value = "zzzz:gpt-5.6-terra";
+    requests.length = 0;
+    await controller.sendMessage({ preventDefault() {} });
+    assert.equal(requests[0].path, "/api/agents/agent-switch/model");
+    assert.equal(JSON.parse(requests[0].options.body).model, "zzzz:gpt-5.6-terra");
+    assert.equal(requests[1].path, "/api/agents/agent-switch/messages");
+    assert.equal(JSON.parse(requests[1].options.body).text, t("workspace.chat.continuePrompt"));
+    assert.equal(requests[1].agentModel, "zzzz:gpt-5.6-terra");
+  } finally {
+    globalThis.document = previousDocument;
+    globalThis.getComputedStyle = previousGetComputedStyle;
+  }
+});
+
+test("send still uses the picker model when a pending save writes the old one back into the select", async () => {
+  const previousDocument = globalThis.document;
+  const previousGetComputedStyle = globalThis.getComputedStyle;
+  const input = {
+    value: "run on the new relay",
+    disabled: false,
+    scrollHeight: 46,
+    style: {},
+    classList: { toggle() {} },
+    focus() {},
+  };
+  const elements = {
+    messageText: input,
+    modelSelect: { value: "jyqf:gpt-5.6-luna" },
+    promptHistoryHint: { textContent: "" },
+    slashCommandPalette: { classList: { add() {}, remove() {} }, innerHTML: "" },
+  };
+  const requests = [];
+  const state = {
+    agent: { id: "agent-revert", model: "zzzz:gpt-5.6-luna", status: "idle" },
+    navigationSelectionKind: "conversation",
+    promptHistory: [],
+    pendingAttachments: [],
+    serverSkills: [],
+  };
+  globalThis.document = { getElementById(id) { return elements[id] || null; } };
+  globalThis.getComputedStyle = () => ({ minHeight: "46px", maxHeight: "128px", getPropertyValue() { return ""; } });
+  try {
+    const controller = createChatComposerController({
+      state,
+      awaitAgentSettingsSaved: async () => {
+        elements.modelSelect.value = "zzzz:gpt-5.6-luna";
+      },
+      saveAgentSettings: async () => {},
+      currentSkillsPreferences: () => ({ commands: [] }),
+      isCurrentModelConfigured: () => true,
+      loadMessages: async () => {},
+      onMessageAccepted: async () => {},
+      request: async (path, options) => {
+        requests.push({ path, options, agentModel: state.agent.model });
+        if (String(path).endsWith("/model")) {
+          const model = JSON.parse(options.body).model;
+          state.agent = { ...state.agent, model };
+          return { ...state.agent };
+        }
+        return { accepted: true };
+      },
+      scheduleMessageRefresh() {},
+    });
+
+    await controller.sendMessage({ preventDefault() {} });
+    assert.equal(requests[0].path, "/api/agents/agent-revert/model");
+    assert.equal(JSON.parse(requests[0].options.body).model, "jyqf:gpt-5.6-luna");
+    assert.equal(requests[1].path, "/api/agents/agent-revert/messages");
+    assert.equal(requests[1].agentModel, "jyqf:gpt-5.6-luna");
+    assert.equal(elements.modelSelect.value, "jyqf:gpt-5.6-luna");
   } finally {
     globalThis.document = previousDocument;
     globalThis.getComputedStyle = previousGetComputedStyle;

@@ -645,7 +645,7 @@ func TestRestrictedAndFullRemoteFilesystemScopes(t *testing.T) {
 	if err := json.NewDecoder(full.Body).Decode(&listing); err != nil {
 		t.Fatal(err)
 	}
-	if len(listing.Entries) != 1 || filepath.Clean(listing.Entries[0].Path) != filepath.Clean(filepath.Join(outside, "child")) {
+	if len(listing.Entries) != 1 || !sameFilesystemProjectPath(listing.Entries[0].Path, filepath.Join(outside, "child")) {
 		t.Fatalf("full filesystem scope returned the wrong directory listing: %+v", listing.Entries)
 	}
 }

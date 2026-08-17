@@ -3,14 +3,26 @@ package server
 import (
 	"context"
 	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	"autoto/internal/config"
 )
 
+func loopbackRelayBaseURL(t *testing.T) string {
+	t.Helper()
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":[{"id":"relay-model"}]}`))
+	}))
+	t.Cleanup(upstream.Close)
+	return upstream.URL + "/v1"
+}
+
 func TestProviderConfigPersistsClientIdentityPerProvider(t *testing.T) {
 	app := newPlaintextProviderServer(t)
-	payload := `{"name":"relay","type":"openai-compatible","baseUrl":"https://relay.example/v1","apiKey":"sk-test","model":"relay-model","clientIdentity":"codex"}`
+	baseURL := loopbackRelayBaseURL(t)
+	payload := `{"name":"relay","type":"openai-compatible","baseUrl":"` + baseURL + `","apiKey":"sk-test","model":"relay-model","clientIdentity":"codex"}`
 	if response := putProviderConfig(t, app, "relay", payload); response.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", response.Code, response.Body.String())
 	}
@@ -28,7 +40,7 @@ func TestProviderConfigPersistsClientIdentityPerProvider(t *testing.T) {
 		t.Fatalf("expected settings response to expose clientIdentity, got %+v", response)
 	}
 
-	omit := `{"name":"relay","type":"openai-compatible","baseUrl":"https://relay.example/v1","apiKey":"sk-test","model":"relay-model"}`
+	omit := `{"name":"relay","type":"openai-compatible","baseUrl":"` + baseURL + `","apiKey":"sk-test","model":"relay-model"}`
 	if response := putProviderConfig(t, app, "relay", omit); response.Code != http.StatusOK {
 		t.Fatalf("expected 200 omitting identity, got %d: %s", response.Code, response.Body.String())
 	}
@@ -38,7 +50,7 @@ func TestProviderConfigPersistsClientIdentityPerProvider(t *testing.T) {
 		}
 	}
 
-	reset := `{"name":"relay","type":"openai-compatible","baseUrl":"https://relay.example/v1","apiKey":"sk-test","model":"relay-model","clientIdentity":"autoto"}`
+	reset := `{"name":"relay","type":"openai-compatible","baseUrl":"` + baseURL + `","apiKey":"sk-test","model":"relay-model","clientIdentity":"autoto"}`
 	if response := putProviderConfig(t, app, "relay", reset); response.Code != http.StatusOK {
 		t.Fatalf("expected 200 resetting identity, got %d: %s", response.Code, response.Body.String())
 	}
@@ -59,7 +71,7 @@ func TestProviderConfigRejectsUnknownClientIdentity(t *testing.T) {
 
 func TestProviderConfigDefaultsClientIdentityToAutoto(t *testing.T) {
 	app := newPlaintextProviderServer(t)
-	payload := `{"name":"relay","type":"openai-compatible","baseUrl":"https://relay.example/v1","apiKey":"sk-test","model":"relay-model"}`
+	payload := `{"name":"relay","type":"openai-compatible","baseUrl":"` + loopbackRelayBaseURL(t) + `","apiKey":"sk-test","model":"relay-model"}`
 	if response := putProviderConfig(t, app, "relay", payload); response.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", response.Code, response.Body.String())
 	}

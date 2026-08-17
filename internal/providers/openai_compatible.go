@@ -12,16 +12,21 @@ import (
 	"net/http"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"autoto/internal/config"
 )
 
 type OpenAICompatible struct {
-	cfg       config.OpenAICompatibleConfig
-	client    *http.Client
-	configErr error
+	cfg                 config.OpenAICompatibleConfig
+	client              *http.Client
+	configErr           error
+	modelCapabilitiesMu sync.RWMutex
+	modelCapabilities   map[string]ModelCapabilities
 }
+
+var _ ModelCapabilityProvider = (*OpenAICompatible)(nil)
 
 func NewOpenAICompatible(cfg config.OpenAICompatibleConfig) *OpenAICompatible {
 	if cfg.Name == "" {
@@ -58,7 +63,16 @@ func (p *OpenAICompatible) ModelCapabilities(model string) ModelCapabilities {
 	if p == nil {
 		return ModelCapabilities{}
 	}
-	return configuredModelCapabilities(p.cfg, model)
+	model = strings.TrimSpace(model)
+	capabilities := p.catalogModelCapabilities(model)
+	configured := configuredModelCapabilities(p.cfg, model)
+	if len(capabilities.ReasoningEfforts) == 0 {
+		capabilities.ReasoningEfforts = reasoningEffortsForKnownCodexIdentity(model)
+	}
+	capabilities.ImageGeneration = configured.ImageGeneration
+	capabilities.ImageGenerationKnown = configured.ImageGenerationKnown
+	capabilities.ContextTokenLimit = configured.ContextTokenLimit
+	return capabilities
 }
 
 func (p *OpenAICompatible) applyRequestHeaders(req *http.Request) {
@@ -93,18 +107,11 @@ func (p *OpenAICompatible) ListModels(ctx context.Context) ([]string, error) {
 	if res.StatusCode >= 300 {
 		return nil, providerUnavailableError(p.cfg.Name, fmt.Sprintf("models request failed (HTTP %d)", res.StatusCode))
 	}
-	var body struct {
-		Data []struct {
-			ID string `json:"id"`
-		} `json:"data"`
-	}
-	if err := json.NewDecoder(res.Body).Decode(&body); err != nil {
+	models, capabilities, err := parseOpenAICompatibleModelCatalog(res.Body)
+	if err != nil {
 		return nil, providerUnavailableError(p.cfg.Name, "models response was invalid")
 	}
-	models := make([]string, 0, len(body.Data))
-	for _, item := range body.Data {
-		models = append(models, item.ID)
-	}
+	p.replaceModelCapabilities(capabilities)
 	if len(models) == 0 {
 		models = append(models, p.cfg.Model)
 	}
@@ -261,7 +268,14 @@ func (p *OpenAICompatible) Generate(ctx context.Context, req GenerateRequest) (<
 			}
 		}
 	}
-	reasoningEffort, err := normalizeReasoningEffortForCapabilities(req.ReasoningEffort, p.Capabilities(), p.cfg.Name)
+	model := strings.TrimSpace(req.Model)
+	if model == "" {
+		model = p.cfg.Model
+	}
+	// Effort is validated against the model: xhigh/max/ultra exist only on some
+	// Codex identities and catalog entries, so the provider-wide low/medium/high
+	// list would reject a level the chosen model genuinely serves.
+	reasoningEffort, err := normalizeReasoningEffortForCapabilities(req.ReasoningEffort, CapabilitiesForModel(p.Capabilities(), p.ModelCapabilities(model)), p.cfg.Name)
 	if err != nil {
 		return nil, err
 	}
@@ -271,10 +285,6 @@ func (p *OpenAICompatible) Generate(ctx context.Context, req GenerateRequest) (<
 	out := make(chan Event, 8)
 	go func() {
 		defer close(out)
-		model := req.Model
-		if model == "" {
-			model = p.cfg.Model
-		}
 		messages := openAICompatibleMessages(req)
 		payload := map[string]any{
 			"model":          model,

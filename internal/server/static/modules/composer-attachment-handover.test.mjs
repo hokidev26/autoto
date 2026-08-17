@@ -20,12 +20,13 @@ function sendMessageBody() {
 
 test("the composer empties before the model sync, not after it", () => {
   const body = sendMessageBody();
-  const clearAt = body.indexOf('input.value = "";');
   const detachAt = body.indexOf("staged = attachments.length ? detachPendingAttachments() : [];");
-  const syncAt = body.indexOf("await syncSelectedModelToAgent(agentId)");
+  const syncAt = body.indexOf("await syncSelectedModelToAgent(agentId)", detachAt);
+  const clearAt = body.lastIndexOf('input.value = "";', detachAt);
   assert.ok(clearAt !== -1 && detachAt !== -1 && syncAt !== -1);
   // That sync awaits any pending settings save, so leaving it between the button and
-  // the clear is what split one action into stages.
+  // the clear is what split one action into stages. The queue branch syncs earlier
+  // and returns; this pin is the immediate send path after the composer is emptied.
   assert.ok(clearAt < syncAt, "the text goes before the round trip");
   assert.ok(detachAt < syncAt, "and so do the attachment cards");
 });
@@ -76,7 +77,7 @@ test("a failed send puts the text and the files back together", () => {
   assert.match(fn, /restorePendingAttachments\(staged\)/, "the cards come back");
   assert.match(fn, /input\.value = text/, "and so does the text");
   // Both failure routes use it: the model sync refusing, and the POST throwing.
-  const refusalAt = body.indexOf("if (!(await syncSelectedModelToAgent(agentId)))");
+  const refusalAt = body.indexOf("if (!(await syncSelectedModelToAgent(agentId)))", body.indexOf("restoreComposerAfterFailedSend"));
   assert.match(
     body.slice(refusalAt, refusalAt + 400),
     /restoreComposerAfterFailedSend\(\)/,
@@ -89,7 +90,7 @@ test("moving to another conversation frees the previews instead of leaking them"
   // The cards cannot go back into a composer the reader has left, so the object URLs
   // would otherwise stay allocated for the rest of the session with nothing to show.
   const body = sendMessageBody();
-  const refusalAt = body.indexOf("if (!(await syncSelectedModelToAgent(agentId)))");
+  const refusalAt = body.indexOf("if (!(await syncSelectedModelToAgent(agentId)))", body.indexOf("restoreComposerAfterFailedSend"));
   assert.match(
     body.slice(refusalAt, refusalAt + 400),
     /else if \(staged\.length\) releasePendingAttachmentPreviews\(staged\)/,

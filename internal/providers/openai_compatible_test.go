@@ -624,3 +624,200 @@ func TestOpenAICompatibleNeverForwardsHostedImageGenerationTool(t *testing.T) {
 		t.Fatalf("hosted image generation was disguised as a function tool: %+v", tool)
 	}
 }
+
+func TestParseOpenAICompatibleModelCatalog(t *testing.T) {
+	models, capabilities, err := parseOpenAICompatibleModelCatalog(strings.NewReader(`{
+		"data": [
+			{"id": "gpt-a"},
+			{"id": "custom-thinker", "supported_reasoning_efforts": ["low", "ultra"]},
+			{"id": "gpt-5.6-luna", "supported_reasoning_levels": [{"effort": "low"}, {"effort": "xhigh"}]}
+		],
+		"models": [
+			{"slug": "gpt-b"},
+			{"slug": "gpt-a"}
+		]
+	}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(models) != 4 || models[0] != "gpt-a" || models[1] != "custom-thinker" || models[2] != "gpt-5.6-luna" || models[3] != "gpt-b" {
+		t.Fatalf("unexpected catalog order: %+v", models)
+	}
+	if efforts := strings.Join(capabilities["custom-thinker"].ReasoningEfforts, ","); efforts != "low,ultra" {
+		t.Fatalf("string effort array was not parsed: %q", efforts)
+	}
+	if efforts := strings.Join(capabilities["gpt-5.6-luna"].ReasoningEfforts, ","); efforts != "low,xhigh" {
+		t.Fatalf("Codex effort objects were not parsed: %q", efforts)
+	}
+	if _, exists := capabilities["gpt-a"]; exists {
+		t.Fatalf("models without effort lists must not invent capabilities: %+v", capabilities)
+	}
+}
+
+func TestOpenAICompatibleKnownCodexIdentityExposesExtendedEfforts(t *testing.T) {
+	provider := NewOpenAICompatible(config.ProviderConfig{Name: "relay", Type: "openai-compatible", Model: "gpt-5.6-luna", APIKeyOptional: true})
+	tests := []struct {
+		model, want string
+	}{
+		{model: "gpt-5.6-luna", want: "low,medium,high,xhigh,max"},
+		{model: "openai/gpt-5.6-terra", want: "low,medium,high,xhigh,max,ultra"},
+		{model: "gpt-5.6-sol", want: "low,medium,high,xhigh,max"},
+		{model: "gpt-5.5", want: "low,medium,high,xhigh"},
+		{model: "gpt-5", want: ""},
+		{model: "llama-3", want: ""},
+	}
+	for _, test := range tests {
+		got := strings.Join(provider.ModelCapabilities(test.model).ReasoningEfforts, ",")
+		if got != test.want {
+			t.Fatalf("ModelCapabilities(%q).ReasoningEfforts = %q, want %q", test.model, got, test.want)
+		}
+	}
+}
+
+func TestOpenAICompatibleKnownCodexIdentityAcceptsExtendedEfforts(t *testing.T) {
+	tests := []struct {
+		model, effort string
+	}{
+		{model: "gpt-5.6-luna", effort: "max"},
+		{model: "gpt-5.6-terra", effort: "ultra"},
+		{model: "gpt-5.5", effort: "xhigh"},
+	}
+	for _, test := range tests {
+		t.Run(test.model+"/"+test.effort, func(t *testing.T) {
+			var requestBody map[string]any
+			requests := 0
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				requests++
+				if r.URL.Path != "/chat/completions" {
+					t.Fatalf("unexpected path %s", r.URL.Path)
+				}
+				if err := json.NewDecoder(r.Body).Decode(&requestBody); err != nil {
+					t.Fatal(err)
+				}
+				_ = json.NewEncoder(w).Encode(map[string]any{"choices": []map[string]any{{"message": map[string]string{"content": "ok"}}}})
+			}))
+			defer server.Close()
+			provider := NewOpenAICompatible(config.ProviderConfig{
+				Name: "relay", Type: "openai-compatible", BaseURL: server.URL, Model: test.model, APIKeyOptional: true,
+			})
+			events, err := provider.Generate(context.Background(), GenerateRequest{
+				Messages:        []Message{{Role: "user", Content: "think"}},
+				ReasoningEffort: test.effort,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			for event := range events {
+				if event.Type == "error" {
+					t.Fatalf("unexpected error event: %s", event.Text)
+				}
+			}
+			if requests != 1 {
+				t.Fatalf("expected one completion request, got %d", requests)
+			}
+			if requestBody["reasoning_effort"] != test.effort {
+				t.Fatalf("unexpected reasoning payload: %+v", requestBody)
+			}
+		})
+	}
+}
+
+func TestOpenAICompatibleKnownCodexIdentityRejectsAboveCeiling(t *testing.T) {
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		http.Error(w, "must not be called", http.StatusInternalServerError)
+	}))
+	defer server.Close()
+	provider := NewOpenAICompatible(config.ProviderConfig{
+		Name: "relay", Type: "openai-compatible", BaseURL: server.URL, Model: "gpt-5.6-luna", APIKeyOptional: true,
+	})
+	events, err := provider.Generate(context.Background(), GenerateRequest{ReasoningEffort: "ultra"})
+	if err == nil || !errors.Is(err, ErrReasoningEffortUnsupported) || !strings.Contains(err.Error(), "ultra") {
+		t.Fatalf("expected luna to reject ultra, events=%v err=%v", events, err)
+	}
+	if requests != 0 {
+		t.Fatalf("unsupported ultra reached upstream %d times", requests)
+	}
+}
+
+func TestOpenAICompatibleCatalogReasoningEffortsWinOverKnownIdentity(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/models":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"data": []map[string]any{{
+					"id": "gpt-5.6-luna",
+					"supported_reasoning_levels": []map[string]string{
+						{"effort": "low"},
+						{"effort": "xhigh"},
+					},
+				}},
+			})
+		case "/chat/completions":
+			var body map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				t.Fatal(err)
+			}
+			if body["reasoning_effort"] != "xhigh" {
+				t.Fatalf("unexpected reasoning payload: %+v", body)
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"choices": []map[string]any{{"message": map[string]string{"content": "ok"}}}})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+	provider := NewOpenAICompatible(config.ProviderConfig{
+		Name: "relay", Type: "openai-compatible", BaseURL: server.URL, Model: "gpt-5.6-luna", APIKeyOptional: true,
+	})
+	if _, err := provider.ListModels(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if efforts := strings.Join(provider.ModelCapabilities("gpt-5.6-luna").ReasoningEfforts, ","); efforts != "low,xhigh" {
+		t.Fatalf("catalog levels were overwritten: %q", efforts)
+	}
+	if events, err := provider.Generate(context.Background(), GenerateRequest{ReasoningEffort: "max"}); err == nil || !errors.Is(err, ErrReasoningEffortUnsupported) {
+		t.Fatalf("explicit catalog without max must reject max, events=%v err=%v", events, err)
+	}
+	events, err := provider.Generate(context.Background(), GenerateRequest{
+		Messages:        []Message{{Role: "user", Content: "think"}},
+		ReasoningEffort: "xhigh",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for event := range events {
+		if event.Type == "error" {
+			t.Fatalf("unexpected error event: %s", event.Text)
+		}
+	}
+}
+
+func TestOpenAICompatibleCatalogAdvertisesUnknownModelUltra(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/models" {
+			t.Fatalf("unexpected path %s", r.URL.Path)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"models": []map[string]any{{
+				"slug":                       "custom-thinker",
+				"supported_reasoning_levels": []map[string]string{{"effort": "low"}, {"effort": "ultra"}},
+			}},
+		})
+	}))
+	defer server.Close()
+	provider := NewOpenAICompatible(config.ProviderConfig{
+		Name: "relay", Type: "openai-compatible", BaseURL: server.URL, Model: "fallback", APIKeyOptional: true,
+	})
+	models, err := provider.ListModels(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(models) != 1 || models[0] != "custom-thinker" {
+		t.Fatalf("unexpected models: %+v", models)
+	}
+	if efforts := strings.Join(provider.ModelCapabilities("custom-thinker").ReasoningEfforts, ","); efforts != "low,ultra" {
+		t.Fatalf("catalog ultra was not exposed: %q", efforts)
+	}
+}

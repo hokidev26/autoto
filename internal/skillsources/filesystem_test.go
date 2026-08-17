@@ -372,3 +372,48 @@ func hasDiagnostic(diagnostics []Diagnostic, code string) bool {
 	}
 	return false
 }
+
+func TestNewFileSourceAcceptsTempDirRoots(t *testing.T) {
+	root := t.TempDir()
+	source, err := NewFileSource(root)
+	if err != nil {
+		t.Fatalf("temp dir must be a valid skill source root: %v", err)
+	}
+	if source.root == "" {
+		t.Fatal("expected a rooted file source")
+	}
+}
+
+func TestNewFileSourceRejectsSymlinkedRoot(t *testing.T) {
+	parent := t.TempDir()
+	real := filepath.Join(parent, "real")
+	if err := os.Mkdir(real, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(parent, "link")
+	if err := os.Symlink(real, link); err != nil {
+		t.Skipf("symlinks unavailable on %s: %v", runtime.GOOS, err)
+	}
+	if _, err := NewFileSource(link); err == nil {
+		t.Fatal("expected a symlinked skill source root to be rejected")
+	}
+}
+
+func TestNewFileSourceRejectsUserControlledParentSymlink(t *testing.T) {
+	base := t.TempDir()
+	target := filepath.Join(base, "target")
+	if err := os.Mkdir(target, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	home := filepath.Join(target, "skills-home")
+	if err := os.Mkdir(home, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	aliasParent := filepath.Join(base, "alias")
+	if err := os.Symlink(target, aliasParent); err != nil {
+		t.Skipf("symlinks unavailable on %s: %v", runtime.GOOS, err)
+	}
+	if _, err := NewFileSource(filepath.Join(aliasParent, "skills-home")); err == nil {
+		t.Fatal("expected a user-controlled parent symlink to be rejected")
+	}
+}

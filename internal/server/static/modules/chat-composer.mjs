@@ -968,26 +968,52 @@ export function createChatComposerController({
   // been shown the model setup notice. Throws when the selection cannot be
   // reconciled at all.
   async function syncSelectedModelToAgent(agentId) {
+    const pickerAtStart = String($("modelSelect")?.value || "").trim();
+    const persistedAtStart = String(state.agent?.model || "").trim();
     await awaitAgentSettingsSaved(agentId);
     if (state.agent?.id !== agentId) {
       throw new Error("The active conversation changed before the message was sent.");
     }
-    let selectedModel = String($("modelSelect")?.value || state.agent.model || "").trim();
-    let persistedModel = String(state.agent.model || "").trim();
+    const pickerNow = String($("modelSelect")?.value || "").trim();
+    const persistedModel = String(state.agent.model || "").trim();
+    // Recapture after the in-flight save so a pick during that wait still
+    // wins. If a snapshot put the old model back into the select, keep the
+    // value from before the wait -- otherwise send/continue run the previous
+    // provider with no error.
+    let selectedModel = pickerNow || pickerAtStart || persistedModel;
+    if (
+      pickerNow === persistedModel
+      && pickerNow === persistedAtStart
+      && pickerAtStart
+      && pickerAtStart !== persistedModel
+    ) {
+      selectedModel = pickerAtStart;
+    }
     if (selectedModel && selectedModel !== persistedModel) {
-      // The picker selection never reached the agent -- e.g. it was chosen
-      // while this conversation had no agent yet, so the save only updated
-      // the model preference and never issued a model PATCH. Force one save
-      // pass now that the agent exists, then re-check before refusing.
+      const select = $("modelSelect");
+      if (select && select.value !== selectedModel) {
+        select.value = selectedModel;
+      }
       await saveAgentSettings();
       await awaitAgentSettingsSaved(agentId);
       if (state.agent?.id !== agentId) {
         throw new Error("The active conversation changed before the message was sent.");
       }
-      selectedModel = String($("modelSelect")?.value || state.agent.model || "").trim();
-      persistedModel = String(state.agent.model || "").trim();
-      if (selectedModel && selectedModel !== persistedModel) {
-        throw new Error("The selected model could not be synchronized. Please try again.");
+      if (String(state.agent.model || "").trim() !== selectedModel) {
+        const updated = await request(`/api/agents/${agentId}/model`, {
+          method: "PATCH",
+          body: JSON.stringify({ model: selectedModel }),
+        });
+        if (state.agent?.id !== agentId) {
+          throw new Error("The active conversation changed before the message was sent.");
+        }
+        if (String(updated?.model || "").trim() !== selectedModel) {
+          throw new Error("The selected model could not be synchronized. Please try again.");
+        }
+        state.agent = updated;
+      }
+      if (select && selectedModel && select.value !== selectedModel) {
+        select.value = selectedModel;
       }
     }
     if (!isCurrentModelConfigured()) {
@@ -1259,6 +1285,12 @@ export function createChatComposerController({
     // Attachments do park: they are stored with the queue row server-side.
     const autoQueue = agentTurnInFlight() && !isGoalCommandDraft(goalCommand);
     if (queueCommand || autoQueue || (queuedMessages(agentId).length && !isGoalCommandDraft(goalCommand))) {
+      try {
+        if (!(await syncSelectedModelToAgent(agentId))) return;
+      } catch (err) {
+        showToast?.(err?.message || String(err), "error");
+        return;
+      }
       const queuedText = queueCommand ? queueCommand.queuedText : text;
       // Text is only required when nothing is attached, matching the immediate
       // send path, which accepts an image on its own.

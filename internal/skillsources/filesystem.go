@@ -454,7 +454,7 @@ func secureRoot(root string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if !sameFilesystemPath(absolute, resolved) {
+	if !sameFilesystemPathAllowingDarwinSystemAlias(absolute, resolved) {
 		return "", errors.New("skillsource root resolves through a symlink or junction")
 	}
 	return filepath.Clean(absolute), nil
@@ -620,7 +620,7 @@ func verifyNoSymlinkPath(root, target string) error {
 	if err != nil {
 		return err
 	}
-	if !sameFilesystemPath(filepath.Clean(target), filepath.Clean(resolved)) {
+	if !sameFilesystemPathAllowingDarwinSystemAlias(filepath.Clean(target), filepath.Clean(resolved)) {
 		return &sourceError{code: "symlink_rejected", message: "Skill source path resolves through a symlink or junction."}
 	}
 	return nil
@@ -631,6 +631,44 @@ func sameFilesystemPath(left, right string) bool {
 		return strings.EqualFold(filepath.Clean(left), filepath.Clean(right))
 	}
 	return filepath.Clean(left) == filepath.Clean(right)
+}
+
+// sameFilesystemPathAllowingDarwinSystemAlias treats macOS /var, /tmp, and
+// /etc as the same place as /private/*. User-controlled parent symlinks still
+// fail: their physical path is not "/private" plus the logical path.
+func sameFilesystemPathAllowingDarwinSystemAlias(logical, physical string) bool {
+	if sameFilesystemPath(logical, physical) {
+		return true
+	}
+	if !darwinSystemPathAlias(logical) {
+		return false
+	}
+	resolved, err := filepath.EvalSymlinks(logical)
+	if err != nil {
+		return false
+	}
+	return sameFilesystemPath(resolved, physical)
+}
+
+// darwinSystemPathAlias is the macOS /var -> /private/var (and /tmp, /etc)
+// prefix. Walking t.TempDir() hits that alias; treating it like an
+// attacker-controlled parent symlink made every skill source on macOS look
+// unsafe while Windows temp dirs kept passing.
+func darwinSystemPathAlias(linkPath string) bool {
+	if runtime.GOOS != "darwin" {
+		return false
+	}
+	resolved, err := filepath.EvalSymlinks(linkPath)
+	if err != nil {
+		return false
+	}
+	linkPath = filepath.Clean(linkPath)
+	resolved = filepath.Clean(resolved)
+	const privatePrefix = "/private"
+	if resolved != privatePrefix && !strings.HasPrefix(resolved, privatePrefix+"/") {
+		return false
+	}
+	return strings.TrimPrefix(resolved, privatePrefix) == linkPath
 }
 
 func pathDepth(relative string) int {

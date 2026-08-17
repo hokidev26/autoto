@@ -240,6 +240,13 @@ func filesystemProjectPathKey(value string) string {
 	if absolute, err := filepath.Abs(value); err == nil {
 		value = absolute
 	}
+	// macOS exposes /var, /tmp, and /etc as aliases of /private/*. Git and
+	// os.Lstat report the physical path, so comparing the alias with Clean+Abs
+	// alone treats the same directory as two places. Windows temp dirs have no
+	// such prefix, which is why the same tests pass there.
+	if resolved, err := filepath.EvalSymlinks(value); err == nil {
+		value = resolved
+	}
 	if runtime.GOOS == "windows" {
 		return strings.ToLower(value)
 	}

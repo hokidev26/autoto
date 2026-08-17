@@ -4141,7 +4141,11 @@ const {
 function captureAgentSettingsSnapshot() {
   const selectableModel = selectedModelValue();
   const rawModel = String($("modelSelect")?.value || "").trim();
-  const model = state.agent && rawModel === state.agent.model ? rawModel : selectableModel;
+  // The picker is the user's intent. Falling back to selectedModelValue() when
+  // it differed from the persisted agent used to replace a just-chosen model
+  // with the still-saved one whenever the new value was briefly missing from
+  // the catalog list, so send/continue kept running the previous provider.
+  const model = rawModel || selectableModel;
   return {
     agentId: state.agent?.id || "",
     model,

@@ -125,3 +125,24 @@ test("即時快照重繪的路徑上，模型選單就是這一個函式", () =>
     "重繪必須先看待存的選擇",
   );
 });
+
+test("較舊的即時快照不能把剛存好的模型蓋回去", () => {
+  const appMain = readFileSync(new URL("./app-main-stream.mjs", import.meta.url), "utf8");
+  const snapshotFn = appMain.slice(appMain.indexOf("async function applyAgentLiveSnapshot"));
+  const body = snapshotFn.slice(0, snapshotFn.indexOf("\n}\n"));
+  assert.match(body, /state\.agentSaveSnapshot\?\.model/, "存檔中的選擇要壓過快照裡的舊模型");
+  assert.match(body, /nextGeneration < currentGeneration/, "較舊的 entityGeneration 不得覆寫剛 PATCH 的模型");
+});
+
+test("送出前會先記住選單上的模型，避免存檔把舊值寫回之後就照舊供應商跑", () => {
+  const composer = readFileSync(new URL("./chat-composer.mjs", import.meta.url), "utf8");
+  const at = composer.indexOf("async function syncSelectedModelToAgent");
+  assert.notEqual(at, -1);
+  const body = composer.slice(at, composer.indexOf("\n  function lastTurnStatuses(", at));
+  assert.match(body, /const pickerAtStart = String\(\$\("modelSelect"\)\?\.value/);
+  assert.match(body, /await awaitAgentSettingsSaved\(agentId\)/);
+  assert.ok(
+    body.indexOf("const pickerAtStart") < body.indexOf("await awaitAgentSettingsSaved"),
+    "必須在等待存檔之前記住選單，否則被寫回舊模型後送出會沿用舊供應商",
+  );
+});

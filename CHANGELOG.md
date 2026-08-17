@@ -29,6 +29,9 @@ All notable changes to Autoto are tracked here. The project is still an experime
 
 ### Fixed
 
+- macOS temp paths that go through `/var` (an alias of `/private/var`) no longer fail credential-store, peer-identity, skill-source, and git-workspace checks that already passed on Windows. A parent directory that is not a repository still reports a single nested child repository even when the temp path is not under HOME.
+- Hook shell `cwd` values like `C:\\workspace` are rejected on macOS and Linux, not only on Windows.
+
 - Workspace, spec board, Settings network/remote-collaboration cards, and conversation-detail rows collapse against their own panel width instead of the viewport.
 - The conversation header's workspace-feature tool card shrinks when a docked panel squeezes the chat column.
 - On a phone, conversation details, the spec board, and the workspace explorer fill the column under the topbar so the chat no longer shows through a 62dvh / 420px dock.
@@ -36,6 +39,8 @@ All notable changes to Autoto are tracked here. The project is still an experime
 - Remote collaboration's pairing card is a vertical intro with a sharing switch and labeled fingerprint/URL rows, instead of a hero flex row of nested stat cards.
 - A failed temporary-tunnel start keeps the server error on the tunnel card instead of returning the card to an idle “not started” state.
 - Custom OpenAI-compatible providers can select thinking strength (low / medium / high). The composer used to stay on Auto because that protocol did not advertise the capability.
+- Custom OpenAI-compatible relays now offer xhigh / max / ultra when the selected model reports those levels, or when it is a known Codex identity (gpt-5.6-luna and gpt-5.6-sol stop at max, gpt-5.6-terra serves ultra, gpt-5.5 stops at xhigh). Other models stay on low / medium / high. An explicit `/models` list always wins.
+- Switching the composer model now reaches send and continue: the picker value is written onto the conversation before the run starts, and a stale live snapshot cannot put the previous model back.
 - The composer model menu stays inside the window when opened from the right-side chip; checkmarks are no longer clipped.
 
 ## v1.0.0 - 2026-08-14

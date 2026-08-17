@@ -129,8 +129,15 @@ func TestNamedTunnelPinsLocalTargetAndIsolatesConfig(t *testing.T) {
 	if !strings.Contains(joined, "--url\x00http://127.0.0.1:7788") {
 		t.Fatalf("expected --url pinned to the local listener: %q", spec.Args)
 	}
-	if !strings.Contains(joined, "--config\x00"+os.DevNull) {
-		t.Fatalf("expected the local cloudflared config to stay isolated: %q", spec.Args)
+	configAt := -1
+	for index, arg := range spec.Args {
+		if arg == "--config" && index+1 < len(spec.Args) {
+			configAt = index + 1
+			break
+		}
+	}
+	if configAt < 0 || spec.Args[configAt] == "" || spec.Args[configAt] == os.DevNull {
+		t.Fatalf("expected an isolated cloudflared config file, got %q", spec.Args)
 	}
 	if !strings.Contains(joined, "run") {
 		t.Fatalf("expected the named tunnel run subcommand: %q", spec.Args)

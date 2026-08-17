@@ -19,7 +19,7 @@ import (
 func TestRunnerCapturesScopedGitCheckpointAtRunCompletion(t *testing.T) {
 	ctx := context.Background()
 	repo := t.TempDir()
-	for _, args := range [][]string{{"init", "-b", "main"}, {"config", "user.name", "Autoto Test"}, {"config", "user.email", "test@example.com"}} {
+	for _, args := range [][]string{{"init", "-b", "main", "--template="}, {"config", "user.name", "Autoto Test"}, {"config", "user.email", "test@example.com"}} {
 		if _, err := runCheckpointGit(ctx, repo, args...); err != nil {
 			t.Fatal(err)
 		}
@@ -76,7 +76,7 @@ func TestRunnerCapturesScopedGitCheckpointAtRunCompletion(t *testing.T) {
 func TestRunnerExcludesChangesOutsideToolWindowFromScopedSnapshot(t *testing.T) {
 	ctx := context.Background()
 	repo := t.TempDir()
-	for _, args := range [][]string{{"init", "-b", "main"}, {"config", "user.name", "Autoto Test"}, {"config", "user.email", "test@example.com"}} {
+	for _, args := range [][]string{{"init", "-b", "main", "--template="}, {"config", "user.name", "Autoto Test"}, {"config", "user.email", "test@example.com"}} {
 		if _, err := runCheckpointGit(ctx, repo, args...); err != nil {
 			t.Fatal(err)
 		}
@@ -643,7 +643,7 @@ func (tool largeCheckpointWriteTool) Execute(_ context.Context, _ tools.Call, en
 func TestRunnerInvalidatesLargeFileCheckpointWithoutBlockingRun(t *testing.T) {
 	ctx := context.Background()
 	repo := t.TempDir()
-	for _, args := range [][]string{{"init", "-b", "main"}, {"config", "user.name", "Autoto Test"}, {"config", "user.email", "test@example.com"}} {
+	for _, args := range [][]string{{"init", "-b", "main", "--template="}, {"config", "user.name", "Autoto Test"}, {"config", "user.email", "test@example.com"}} {
 		if _, err := runCheckpointGit(ctx, repo, args...); err != nil {
 			t.Fatal(err)
 		}

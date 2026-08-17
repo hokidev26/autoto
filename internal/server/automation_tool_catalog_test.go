@@ -95,7 +95,7 @@ func TestAutomationToolCatalogInstallUsesClosedWorldFakeRunner(t *testing.T) {
 		t.Fatal(err)
 	}
 	wantPath := filepath.Join(homeDir, "optional-tools", "automation", definition.ID)
-	if item.ManagedPath != wantPath || !item.Installed || item.InstalledVersion != definition.Version {
+	if item.ManagedPath != canonicalTestPath(t, wantPath) || !item.Installed || item.InstalledVersion != definition.Version {
 		t.Fatalf("unexpected installed snapshot: %+v", item)
 	}
 	if item.Configured || item.Enabled || !item.CanConfigure || item.CanEnable {
@@ -261,7 +261,7 @@ func TestAutomationToolCatalogRejectsSymlinkedExistingTargetBeforeRunner(t *test
 	if calls != 0 {
 		t.Fatalf("symlinked target started Node or npm: %d", calls)
 	}
-	if resolved, err := filepath.EvalSymlinks(target); err != nil || resolved != outside {
+	if resolved, err := filepath.EvalSymlinks(target); err != nil || resolved != canonicalTestPath(t, outside) {
 		t.Fatalf("existing target symlink was modified: resolved=%q err=%v", resolved, err)
 	}
 }
@@ -527,7 +527,7 @@ func TestAutomationToolCatalogConfigureCreatesDisabledStableMCPAndPreservesEdits
 	if err != nil {
 		t.Fatal(err)
 	}
-	wantArgs := append([]string{automationTestBinPath(managedPath, definition)}, definition.mcpArgs...)
+	wantArgs := append([]string{automationTestBinPath(canonicalTestPath(t, managedPath), definition)}, definition.mcpArgs...)
 	if server.ID != item.MCPServerID || server.Enabled || server.Transport != "stdio" || server.Command != nodePath || !reflect.DeepEqual(server.Args, wantArgs) || !reflect.DeepEqual(server.Env, definition.mcpEnv) {
 		t.Fatalf("unexpected managed MCP configuration: %+v wantArgs=%v", server, wantArgs)
 	}
@@ -682,6 +682,18 @@ func automationTestReadLock(t *testing.T, root string) automationPackageLock {
 		t.Fatal(err)
 	}
 	return lock
+}
+
+func canonicalTestPath(t *testing.T, path string) string {
+	t.Helper()
+	resolved, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		if abs, absErr := filepath.Abs(path); absErr == nil {
+			return abs
+		}
+		return filepath.Clean(path)
+	}
+	return resolved
 }
 
 func automationTestArgValue(args []string, name string) string {

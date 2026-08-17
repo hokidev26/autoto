@@ -99,7 +99,7 @@ func newCheckpointTestRepo(t *testing.T) string {
 	t.Helper()
 	ctx := context.Background()
 	repo := t.TempDir()
-	for _, args := range [][]string{{"init", "-b", "main"}, {"config", "user.name", "Autoto Test"}, {"config", "user.email", "test@example.com"}} {
+	for _, args := range [][]string{{"init", "-b", "main", "--template="}, {"config", "user.name", "Autoto Test"}, {"config", "user.email", "test@example.com"}} {
 		if _, err := runCheckpointGit(ctx, repo, args...); err != nil {
 			t.Fatal(err)
 		}

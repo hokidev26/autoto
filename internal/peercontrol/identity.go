@@ -403,11 +403,32 @@ func rejectSymlinkPathComponents(path string) error {
 		if err != nil {
 			return errors.New("inspect peer identity path")
 		}
-		if info.Mode()&os.ModeSymlink != 0 || (current != absolute && !info.IsDir()) {
+		if info.Mode()&os.ModeSymlink != 0 {
+			if !darwinSystemPathAlias(current) {
+				return errors.New("peer identity path contains a symlink or non-directory component")
+			}
+		} else if current != absolute && !info.IsDir() {
 			return errors.New("peer identity path contains a symlink or non-directory component")
 		}
 	}
 	return nil
+}
+
+func darwinSystemPathAlias(linkPath string) bool {
+	if runtime.GOOS != "darwin" {
+		return false
+	}
+	resolved, err := filepath.EvalSymlinks(linkPath)
+	if err != nil {
+		return false
+	}
+	linkPath = filepath.Clean(linkPath)
+	resolved = filepath.Clean(resolved)
+	const privatePrefix = "/private"
+	if resolved != privatePrefix && !strings.HasPrefix(resolved, privatePrefix+"/") {
+		return false
+	}
+	return strings.TrimPrefix(resolved, privatePrefix) == linkPath
 }
 
 func syncDirectory(directory string) error {

@@ -178,7 +178,7 @@ func validateShellAction(action ShellAction) error {
 		return errors.New("shell actions cannot run detached or in the background")
 	}
 	if action.CWD != "" {
-		if filepath.IsAbs(action.CWD) || filepath.VolumeName(action.CWD) != "" || strings.HasPrefix(action.CWD, "/") || strings.HasPrefix(action.CWD, `\`) {
+		if filepath.IsAbs(action.CWD) || filepath.VolumeName(action.CWD) != "" || strings.HasPrefix(action.CWD, "/") || strings.HasPrefix(action.CWD, `\`) || windowsVolumeCWD(action.CWD) {
 			return errors.New("shell action cwd must be workspace-relative")
 		}
 		cleaned := filepath.Clean(action.CWD)
@@ -401,6 +401,25 @@ func validText(value string, max int, empty bool, name string) error {
 	}
 	return nil
 }
+
+// windowsVolumeCWD reports a Windows drive or UNC path even when this process
+// is not running on Windows. filepath.IsAbs("C:\\workspace") is false on
+// macOS/Linux, and that used to let a hook escape the workspace after the
+// same fixture was rejected on Windows.
+func windowsVolumeCWD(cwd string) bool {
+	if strings.HasPrefix(cwd, `\\`) || strings.HasPrefix(cwd, `//`) {
+		return true
+	}
+	if len(cwd) < 3 || cwd[1] != ':' {
+		return false
+	}
+	drive := cwd[0]
+	if !((drive >= 'A' && drive <= 'Z') || (drive >= 'a' && drive <= 'z')) {
+		return false
+	}
+	return cwd[2] == '\\' || cwd[2] == '/'
+}
+
 func validPattern(value string) bool {
 	return value != "" && len(value) <= 256 && utf8.ValidString(value) && !strings.ContainsAny(value, "\x00\r\n")
 }

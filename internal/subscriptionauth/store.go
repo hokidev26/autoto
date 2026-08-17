@@ -854,11 +854,36 @@ func rejectSymlinkPathComponents(path string) error {
 		if err != nil {
 			return errors.New("检查订阅凭据库路径失败")
 		}
-		if info.Mode()&os.ModeSymlink != 0 || current != absolute && !info.IsDir() {
+		if info.Mode()&os.ModeSymlink != 0 {
+			if !darwinSystemPathAlias(current) {
+				return errors.New("订阅凭据库路径不安全")
+			}
+		} else if current != absolute && !info.IsDir() {
 			return errors.New("订阅凭据库路径不安全")
 		}
 	}
 	return nil
+}
+
+// darwinSystemPathAlias is the macOS /var -> /private/var (and /tmp, /etc)
+// prefix. Walking t.TempDir() hits that alias; treating it like an
+// attacker-controlled parent symlink made every subscription store on macOS
+// look unsafe while Windows temp dirs kept passing.
+func darwinSystemPathAlias(linkPath string) bool {
+	if runtime.GOOS != "darwin" {
+		return false
+	}
+	resolved, err := filepath.EvalSymlinks(linkPath)
+	if err != nil {
+		return false
+	}
+	linkPath = filepath.Clean(linkPath)
+	resolved = filepath.Clean(resolved)
+	const privatePrefix = "/private"
+	if resolved != privatePrefix && !strings.HasPrefix(resolved, privatePrefix+"/") {
+		return false
+	}
+	return strings.TrimPrefix(resolved, privatePrefix) == linkPath
 }
 
 func syncDirectory(dir string) error {

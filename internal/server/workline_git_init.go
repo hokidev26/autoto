@@ -109,22 +109,30 @@ func discoverGitSubdirectories(ctx context.Context, root string) ([]gitRepositor
 // A repository rooted at the user's HOME (or an ancestor of it) is treated
 // as an accidental parent repository. Falling through lets discovery find the
 // real repository one level down instead of routing a project through HOME.
+//
+// Discovery must also run when the chosen path is not a repository at all.
+// Git only walks upward, so a parent directory never inherits a child's
+// repository. On Windows, t.TempDir() usually lives under the user profile,
+// so a stray ~/.git made inspectGitRepository succeed and accidentally
+// reached discovery; macOS temp dirs live under /var/folders, which is not
+// inside HOME, so the same tests never discovered the child until this
+// empty-root path existed.
 func resolveGitRepository(ctx context.Context, sourcePath string) (gitRepositoryState, []gitRepositoryState, error) {
 	repository, err := inspectGitRepository(ctx, sourcePath)
-	if err != nil || repository.Root == "" {
+	if err != nil {
 		return repository, nil, err
 	}
-	if isUserHomeOrAncestor(repository.Root) {
-		candidates, err := discoverGitSubdirectories(ctx, sourcePath)
-		if err != nil {
-			return gitRepositoryState{}, nil, err
-		}
-		if len(candidates) == 1 {
-			return candidates[0], candidates, nil
-		}
-		return gitRepositoryState{}, candidates, nil
+	if repository.Root != "" && !isUserHomeOrAncestor(repository.Root) {
+		return repository, nil, nil
 	}
-	return repository, nil, nil
+	candidates, err := discoverGitSubdirectories(ctx, sourcePath)
+	if err != nil {
+		return gitRepositoryState{}, nil, err
+	}
+	if len(candidates) == 1 {
+		return candidates[0], candidates, nil
+	}
+	return gitRepositoryState{}, candidates, nil
 }
 
 // isUserHomeOrAncestor reports whether the given path equals the user's HOME

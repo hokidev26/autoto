@@ -67,6 +67,7 @@ func TestStrictModeAndActionValidation(t *testing.T) {
 		"before async":      func() Hook { h := validShellHook(); h.Event = EventRunBefore; h.Mode = ModeAsync; return h }(),
 		"async fail run":    func() Hook { h := validShellHook(); h.FailurePolicy = FailureFailRun; return h }(),
 		"absolute cwd":      func() Hook { h := validShellHook(); h.Action.Shell.CWD = "C:\\workspace"; return h }(),
+		"unix absolute cwd": func() Hook { h := validShellHook(); h.Action.Shell.CWD = "/workspace"; return h }(),
 		"workspace escape":  func() Hook { h := validShellHook(); h.Action.Shell.CWD = "../outside"; return h }(),
 		"background":        func() Hook { h := validShellHook(); h.Action.Shell.Detached = true; return h }(),
 		"shell interpreter": func() Hook { h := validShellHook(); h.Action.Shell.Executable = "bash"; return h }(),

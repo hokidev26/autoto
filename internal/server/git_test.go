@@ -926,7 +926,7 @@ func TestGitStatusRouteAllowsRepoUnderDefaultProjectDir(t *testing.T) {
 	if err := os.MkdirAll(repo, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	runGitTestCommand(t, repo, "init", "-b", "main")
+	runGitTestCommand(t, repo, "init", "-b", "main", "--template=")
 	runGitTestCommand(t, repo, "config", "user.name", "Autoto Test")
 	runGitTestCommand(t, repo, "config", "user.email", "test@example.com")
 	writeGitTestFile(t, repo, "tracked.txt", "one\n")
@@ -1005,7 +1005,7 @@ func newGitTestRepo(t *testing.T) string {
 	if err == nil {
 		repo = resolved
 	}
-	runGitTestCommand(t, repo, "init", "-b", "main")
+	runGitTestCommand(t, repo, "init", "-b", "main", "--template=")
 	runGitTestCommand(t, repo, "config", "user.name", "Autoto Test")
 	runGitTestCommand(t, repo, "config", "user.email", "test@example.com")
 	return repo
