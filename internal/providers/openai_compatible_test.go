@@ -521,23 +521,30 @@ func TestOpenAICompatibleAutoOmitsReasoning(t *testing.T) {
 	}
 }
 
-func TestOpenAICompatibleRejectsReasoningWithoutCLIProxyProfile(t *testing.T) {
-	requests := 0
+func TestOpenAICompatibleSendsReasoningWithoutCLIProxyProfile(t *testing.T) {
+	var requestBody map[string]any
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		requests++
-		http.Error(w, "must not be called", http.StatusInternalServerError)
+		if err := json.NewDecoder(r.Body).Decode(&requestBody); err != nil {
+			t.Fatal(err)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"choices": []map[string]any{{"message": map[string]string{"content": "ok"}}}})
 	}))
 	defer server.Close()
 	provider := NewOpenAICompatible(config.ProviderConfig{Name: "relay", Type: "openai-compatible", BaseURL: server.URL, APIKeyOptional: true})
-	if CapabilitiesFor(provider).ReasoningEffort {
-		t.Fatal("ordinary compatible provider must not declare reasoning effort support")
+	if got := CapabilitiesFor(provider); !got.ReasoningEffort || strings.Join(got.ReasoningEfforts, ",") != "low,medium,high" {
+		t.Fatalf("ordinary compatible provider should declare standard reasoning efforts, got %+v", got)
 	}
-	events, err := provider.Generate(context.Background(), GenerateRequest{ReasoningEffort: "high"})
-	if err == nil || !errors.Is(err, ErrReasoningEffortUnsupported) || !strings.Contains(err.Error(), "relay") {
-		t.Fatalf("expected explicit unsupported reasoning error, events=%v err=%v", events, err)
+	events, err := provider.Generate(context.Background(), GenerateRequest{Messages: []Message{{Role: "user", Content: "think"}}, ReasoningEffort: "high"})
+	if err != nil {
+		t.Fatal(err)
 	}
-	if requests != 0 {
-		t.Fatalf("unsupported reasoning request reached upstream %d times", requests)
+	for event := range events {
+		if event.Type == "error" {
+			t.Fatalf("unexpected error event: %s", event.Text)
+		}
+	}
+	if requestBody["reasoning_effort"] != "high" {
+		t.Fatalf("unexpected compatible reasoning payload: %+v", requestBody)
 	}
 }
 

@@ -215,8 +215,8 @@ func TestReasoningCapabilitiesAreProviderSpecific(t *testing.T) {
 	if got := CapabilitiesFor(NewAnthropicProvider(config.ProviderConfig{})); !got.Reasoning || !got.ReasoningEffort || !got.NativeReasoningBlocks || strings.Join(got.ReasoningEfforts, ",") != "low,medium,high,xhigh,max" {
 		t.Fatalf("Anthropic provider should support native reasoning replay and the full effort range, got %+v", got)
 	}
-	if CapabilitiesFor(NewOpenAICompatible(config.ProviderConfig{})).ReasoningEffort {
-		t.Fatal("ordinary compatible provider should not claim reasoning effort support")
+	if got := CapabilitiesFor(NewOpenAICompatible(config.ProviderConfig{})); !got.ReasoningEffort || strings.Join(got.ReasoningEfforts, ",") != "low,medium,high" {
+		t.Fatalf("openai-compatible provider should support the standard reasoning efforts, got %+v", got)
 	}
 	if got := CapabilitiesFor(NewOpenAICompatible(config.ProviderConfig{Profile: config.ProviderProfileCLIProxyAPI})); !got.ReasoningEffort || strings.Join(got.ReasoningEfforts, ",") != "low,medium,high" {
 		t.Fatalf("CLIProxyAPI profile should support the standard reasoning efforts, got %+v", got)

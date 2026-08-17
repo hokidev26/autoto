@@ -161,7 +161,8 @@ body.white-shell.theme-light .composer-select-chevron {
 }
 
 .composer-select-popover.composer-model-popover {
-  min-width: 290px;
+  min-width: min(290px, calc(100vw - 16px));
+  max-width: calc(100vw - 16px);
 }
 
 .composer-model-menu-divider {

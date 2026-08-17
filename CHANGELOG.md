@@ -35,6 +35,8 @@ All notable changes to Autoto are tracked here. The project is still an experime
 - A narrow workspace files card drills from the file list into the editor instead of squeezing both columns, and Dynamic Spec no longer inherits the Settings 40vh header grid.
 - Remote collaboration's pairing card is a vertical intro with a sharing switch and labeled fingerprint/URL rows, instead of a hero flex row of nested stat cards.
 - A failed temporary-tunnel start keeps the server error on the tunnel card instead of returning the card to an idle “not started” state.
+- Custom OpenAI-compatible providers can select thinking strength (low / medium / high). The composer used to stay on Auto because that protocol did not advertise the capability.
+- The composer model menu stays inside the window when opened from the right-side chip; checkmarks are no longer clipped.
 
 ## v1.0.0 - 2026-08-14
 

@@ -41,16 +41,17 @@ func (p *OpenAICompatible) Configured() bool {
 }
 
 func (p *OpenAICompatible) Capabilities() Capabilities {
-	capabilities := Capabilities{
-		Tools:      true,
-		Streaming:  true,
-		ImageInput: p.cfg.ImageInput,
+	// Custom /v1 relays are the usual way to add a GPT or Codex-compatible
+	// endpoint. Auto still omits reasoning_effort, so APIs that ignore the
+	// field keep working; an explicit level is what lets the composer drive
+	// thinking strength after the user adds a provider.
+	return Capabilities{
+		Tools:            true,
+		Streaming:        true,
+		ImageInput:       p.cfg.ImageInput,
+		ReasoningEffort:  true,
+		ReasoningEfforts: []string{"low", "medium", "high"},
 	}
-	if p.cfg.Profile == config.ProviderProfileCLIProxyAPI {
-		capabilities.ReasoningEffort = true
-		capabilities.ReasoningEfforts = []string{"low", "medium", "high"}
-	}
-	return capabilities
 }
 
 func (p *OpenAICompatible) ModelCapabilities(model string) ModelCapabilities {

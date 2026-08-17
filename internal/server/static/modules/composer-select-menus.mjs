@@ -27,6 +27,31 @@ const permissionMenuIconMarkup = Object.freeze({
   execute: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 7 9 5-9 5z"></path></svg>',
 });
 
+// Shared with the composer popover and its tests. CSS min-width on the model
+// menu is 290px; if layout used a smaller width, a right-side chip would push
+// the panel past the viewport and clip the checkmarks.
+export function composerSelectMenuLayout({
+  triggerRect = {},
+  viewportWidth = 0,
+  viewportHeight = 0,
+  selectId = "",
+  measuredWidth = 0,
+} = {}) {
+  const viewW = Math.max(0, Number(viewportWidth) || 0);
+  const viewH = Math.max(0, Number(viewportHeight) || 0);
+  const isModel = selectId === "modelSelect";
+  const minimumWidth = isModel ? 290 : selectId === "permissionMode" ? 228 : 190;
+  const maxWidth = Math.max(160, viewW - 16);
+  const triggerWidth = Math.max(0, Number(triggerRect.width) || 0);
+  const width = Math.min(Math.max(triggerWidth, minimumWidth, Number(measuredWidth) || 0), maxWidth);
+  const triggerLeft = Number(triggerRect.left) || 0;
+  const maxLeft = Math.max(8, viewW - width - 8);
+  const left = Math.min(Math.max(8, triggerLeft), maxLeft);
+  const triggerTop = Number(triggerRect.top) || 0;
+  const bottom = Math.max(8, viewH - triggerTop + 6);
+  return { width, left, bottom };
+}
+
 export function createComposerSelectMenus({
   translate = (key) => key,
   showError = () => {},
@@ -607,14 +632,23 @@ export function createComposerSelectMenus({
     const positionMenu = (trigger) => {
       const rect = trigger.getBoundingClientRect();
       const viewportWidth = globalThis.innerWidth || document.documentElement.clientWidth;
-      const selectId = trigger.dataset.composerSelect;
-      const minimumWidth = selectId === "modelSelect" ? 260 : selectId === "permissionMode" ? 228 : 190;
-      const desiredWidth = Math.max(rect.width, minimumWidth);
-      const width = Math.min(desiredWidth, viewportWidth - 16);
-      const left = Math.min(Math.max(8, rect.left), Math.max(8, viewportWidth - width - 8));
-      menu.style.left = `${left}px`;
-      menu.style.width = `${width}px`;
-      menu.style.bottom = `${Math.max(8, (globalThis.innerHeight || document.documentElement.clientHeight) - rect.top + 6)}px`;
+      const viewportHeight = globalThis.innerHeight || document.documentElement.clientHeight;
+      const apply = (measuredWidth = 0) => {
+        const layout = composerSelectMenuLayout({
+          triggerRect: rect,
+          viewportWidth,
+          viewportHeight,
+          selectId: trigger.dataset.composerSelect,
+          measuredWidth,
+        });
+        menu.style.left = `${layout.left}px`;
+        menu.style.width = `${layout.width}px`;
+        menu.style.bottom = `${layout.bottom}px`;
+      };
+      apply();
+      // CSS min-width can still widen the used box past the width we wrote.
+      const actualWidth = menu.getBoundingClientRect?.().width;
+      if (actualWidth > 0) apply(actualWidth);
     };
 
     const createMobileAction = (title, detail, handler, { disabled = false } = {}) => {

@@ -41,9 +41,10 @@ func TestCapabilitiesForConfigAdvertisesThinkingEffortWithoutInstance(t *testing
 			wantEfforts: "low,high",
 		},
 		{
-			name:       "plain openai compatible advertises no effort",
-			cfg:        config.ProviderConfig{Name: "groq", Type: "openai-compatible"},
-			wantEffort: false,
+			name:        "plain openai compatible advertises standard effort",
+			cfg:         config.ProviderConfig{Name: "groq", Type: "openai-compatible"},
+			wantEffort:  true,
+			wantEfforts: "low,medium,high",
 		},
 		{
 			name:        "cliproxyapi profile advertises effort",

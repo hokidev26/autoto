@@ -1132,7 +1132,12 @@ test("composer selects hide external labels and open titled menus upward", async
   assert.doesNotMatch(selectMenus, /messageModeToggle/);
   assert.match(selectMenus, /chat\.enterPlanMode/);
   assert.match(selectMenus, /chat\.executeMode/);
-  assert.match(selectMenus, /menu\.style\.bottom = `\$\{Math\.max\(8,[\s\S]*?- rect\.top \+ 6\)\}px`/);
+  assert.match(selectMenus, /composerSelectMenuLayout\(/);
+  assert.match(selectMenus, /menu\.style\.bottom = `\$\{layout\.bottom\}px`/);
+  assert.match(selectMenus, /const isModel = selectId === "modelSelect"/);
+  assert.match(selectMenus, /isModel \? 290/);
+  assert.match(styles, /\.composer-select-popover\.composer-model-popover\s*\{[\s\S]*?min-width:\s*min\(290px, calc\(100vw - 16px\)\)/);
+  assert.match(styles, /\.composer-select-popover\.composer-model-popover\s*\{[\s\S]*?max-width:\s*calc\(100vw - 16px\)/);
   assert.match(selectMenus, /binding\.select\.dispatchEvent\(new EventConstructor\("change"/);
   assert.match(selectMenus, /appendModelOptionGroups\(binding, menu\)/);
   assert.match(selectMenus, /presentation\?\.provider \? `\$\{presentation\.provider\}:\$\{presentation\.name\}`/);

@@ -76,9 +76,7 @@ func CapabilitiesForConfig(cfg config.ProviderConfig) Capabilities {
 		capabilities.ReasoningEfforts = legacyReasoningEfforts
 	case "openai-compatible":
 		capabilities.ImageInput = cfg.ImageInput
-		if cfg.Profile == config.ProviderProfileCLIProxyAPI {
-			capabilities.ReasoningEfforts = legacyReasoningEfforts
-		}
+		capabilities.ReasoningEfforts = legacyReasoningEfforts
 	case config.ProviderTypeGemini:
 		capabilities.ImageInput = true
 		capabilities.ImageGeneration = true
