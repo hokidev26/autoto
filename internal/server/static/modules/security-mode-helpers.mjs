@@ -81,6 +81,15 @@ export function createSecurityModeHelpers({
     updatePermissionModeDisplay();
   }
 
+  function accountLockActive() {
+    return Boolean(state.account || state.authStatus?.hasUsers);
+  }
+
+  function syncShellLogoutControl() {
+    const small = $("logoutBtn")?.querySelector("small");
+    if (small) small.hidden = accountLockActive();
+  }
+
   async function logoutRemoteAccess() {
     closeSidebarSettingsMenu();
     if (!remoteSecurityHardeningActive()) {
@@ -118,6 +127,7 @@ export function createSecurityModeHelpers({
     updateWorkspaceMetaPills();
     renderTerminalButtonState();
     updateRuntimeStatusButton();
+    syncShellLogoutControl();
   }
 
   return {
@@ -127,6 +137,8 @@ export function createSecurityModeHelpers({
     bypassDisabledBySecurity,
     effectivePermissionForDisplay,
     enforcePermissionSelectCap,
+    accountLockActive,
+    syncShellLogoutControl,
     logoutRemoteAccess,
     updateSecurityModeUI,
   };

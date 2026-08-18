@@ -122,15 +122,24 @@ type ringEntry struct {
 	size  int
 }
 
+type ProviderRetrySnapshot struct {
+	Attempt     int    `json:"attempt"`
+	MaxAttempts int    `json:"maxAttempts"`
+	BackoffMs   int64  `json:"backoffMs,omitempty"`
+	Scope       string `json:"scope,omitempty"`
+	RunID       string `json:"runId,omitempty"`
+}
+
 type stream struct {
-	session      string
-	sequence     uint64
-	ring         []ringEntry
-	ringBytes    int
-	subscribers  map[*hubSubscriber]struct{}
-	lastActivity time.Time
-	pending      []deliverItem
-	fanoutMu     sync.Mutex
+	session       string
+	sequence      uint64
+	ring          []ringEntry
+	ringBytes     int
+	subscribers   map[*hubSubscriber]struct{}
+	lastActivity  time.Time
+	pending       []deliverItem
+	fanoutMu      sync.Mutex
+	providerRetry *ProviderRetrySnapshot
 }
 
 type Hub struct {
@@ -169,6 +178,19 @@ func (h *Hub) Watermark(agentID string) StreamWatermark {
 		watermark.OldestSequence = current.ring[0].event.Sequence
 	}
 	return watermark
+}
+
+func (h *Hub) ProviderRetrySnapshot(agentID string) *ProviderRetrySnapshot {
+	now := h.now()
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.collectGarbageLocked(now)
+	current := h.streams[agentID]
+	if current == nil || current.providerRetry == nil {
+		return nil
+	}
+	copy := *current.providerRetry
+	return &copy
 }
 
 func (h *Hub) ToolOutputSnapshots(agentID string) map[string]ToolOutputSnapshot {
@@ -449,6 +471,7 @@ func (h *Hub) Publish(event Event) {
 		current.ringBytes = 0
 	}
 	current.lastActivity = now
+	applyProviderRetryLocked(current, event)
 	var enqueued bool
 	if n := len(current.subscribers); n > 0 {
 		subs := make([]*hubSubscriber, 0, n)
@@ -876,4 +899,72 @@ func (h *Hub) resyncAllLocked(current *stream, reason ResyncReason) {
 func (h *Hub) resyncSubscriberLocked(current *stream, sub *hubSubscriber, reason ResyncReason) {
 	delete(current.subscribers, sub)
 	sub.closeIfOpen(reason)
+}
+
+func applyProviderRetryLocked(current *stream, event Event) {
+	if current == nil {
+		return
+	}
+	switch event.Type {
+	case "agent.provider_error_retry":
+		current.providerRetry = providerRetrySnapshotFromEvent(event)
+	case "model.started", "agent.started", "agent.done", "agent.error", "agent.interrupted", "agent.waiting":
+		current.providerRetry = nil
+	}
+}
+
+func providerRetrySnapshotFromEvent(event Event) *ProviderRetrySnapshot {
+	snapshot := &ProviderRetrySnapshot{Attempt: 1}
+	if event.Data == nil {
+		return snapshot
+	}
+	if attempt := intFromEventData(event.Data["attempt"]); attempt > 0 {
+		snapshot.Attempt = attempt
+	}
+	if maxAttempts := intFromEventData(event.Data["maxAttempts"]); maxAttempts > 0 {
+		snapshot.MaxAttempts = maxAttempts
+	}
+	snapshot.BackoffMs = int64FromEventData(event.Data["backoffMs"])
+	snapshot.Scope, _ = event.Data["scope"].(string)
+	if runID, _ := event.Data["runId"].(string); runID != "" {
+		snapshot.RunID = runID
+	}
+	return snapshot
+}
+
+func intFromEventData(value any) int {
+	return int(int64FromEventData(value))
+}
+
+func int64FromEventData(value any) int64 {
+	switch n := value.(type) {
+	case int:
+		return int64(n)
+	case int32:
+		return int64(n)
+	case int64:
+		return n
+	case uint:
+		return int64(n)
+	case uint32:
+		return int64(n)
+	case uint64:
+		if n > uint64(math.MaxInt64) {
+			return 0
+		}
+		return int64(n)
+	case float64:
+		if n < 0 {
+			return 0
+		}
+		return int64(n)
+	case json.Number:
+		parsed, err := n.Int64()
+		if err != nil || parsed < 0 {
+			return 0
+		}
+		return parsed
+	default:
+		return 0
+	}
 }

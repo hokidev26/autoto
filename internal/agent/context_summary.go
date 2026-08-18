@@ -35,7 +35,7 @@ func (r *Runner) compactionSummary(ctx context.Context, agent db.Agent, candidat
 	// prompt. A model asked to preserve paths does so unreliably, and the
 	// deterministic fallback cannot do it at all, so the paths are derived from
 	// the tool calls themselves and carried forward across every compaction.
-	if summary, err := r.summarizeWithModel(ctx, agent.ContextSummary, candidates); err == nil && strings.TrimSpace(summary) != "" {
+	if summary, err := r.summarizeWithNamedModel(ctx, r.summaryModelFor(agent), agent.ContextSummary, candidates); err == nil && strings.TrimSpace(summary) != "" {
 		return withFileProvenance(strings.TrimSpace(summary), agent.ContextSummary, candidates), true
 	} else if err != nil {
 		slog.Warn("summary model unavailable, using local context summary", "agentId", agent.ID, "error", err)
@@ -77,7 +77,11 @@ const summarySystemPrompt = "You are Autoto's isolated long-term context summari
 // spoken for by the carried summary and the fixed prompt text, floored so an
 // unresolvable window cannot regress below the historical fixed cap.
 func (r *Runner) summaryInputBudgetTokens(existingSummary string) int {
-	limit, _ := r.contextTokenLimitWithOrigin(r.SummaryModel())
+	return r.summaryInputBudgetTokensFor(r.SummaryModel(), existingSummary)
+}
+
+func (r *Runner) summaryInputBudgetTokensFor(summaryModel, existingSummary string) int {
+	limit, _ := r.contextTokenLimitWithOrigin(strings.TrimSpace(summaryModel))
 	budget := limit * summaryInputWindowPercent / 100
 	budget -= estimateTextTokens(existingSummary) + estimateTextTokens(summaryPromptInstructions) + estimateTextTokens(summarySystemPrompt)
 	if budget < minSummaryInputTokens {
@@ -86,14 +90,19 @@ func (r *Runner) summaryInputBudgetTokens(existingSummary string) int {
 	return budget
 }
 
-// summarizeWithModel compresses the candidates with the summary model. When the
-// rendered material exceeds one call's input budget it rolls: each segment is
-// summarized with the previous segment's output carried as the existing
-// summary, and the last segment's output is the final summary. Any segment
-// failure or context cancellation fails the whole call so the caller falls
-// back to deterministicSummary.
+// summarizeWithModel compresses the candidates with the host summary model.
 func (r *Runner) summarizeWithModel(ctx context.Context, existingSummary string, candidates []db.Message) (string, error) {
-	summaryModel := r.SummaryModel()
+	return r.summarizeWithNamedModel(ctx, r.SummaryModel(), existingSummary, candidates)
+}
+
+// summarizeWithNamedModel compresses the candidates with the given summary
+// model. When the rendered material exceeds one call's input budget it rolls:
+// each segment is summarized with the previous segment's output carried as the
+// existing summary, and the last segment's output is the final summary. Any
+// segment failure or context cancellation fails the whole call so the caller
+// falls back to deterministicSummary.
+func (r *Runner) summarizeWithNamedModel(ctx context.Context, summaryModel, existingSummary string, candidates []db.Message) (string, error) {
+	summaryModel = strings.TrimSpace(summaryModel)
 	if r.providers == nil || summaryModel == "" {
 		return "", errors.New("summary model is not configured")
 	}
@@ -112,7 +121,7 @@ func (r *Runner) summarizeWithModel(ctx context.Context, existingSummary string,
 			material, remaining = renderMessagesForSummary(summary, remaining), nil
 		} else {
 			var consumed int
-			material, consumed = renderRollingSummaryInput(summary, remaining, r.summaryInputBudgetTokens(summary))
+			material, consumed = renderRollingSummaryInput(summary, remaining, r.summaryInputBudgetTokensFor(summaryModel, summary))
 			remaining = remaining[consumed:]
 		}
 		output, err := r.generateSummarySegment(ctx, provider, model, material)

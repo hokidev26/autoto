@@ -81,14 +81,21 @@ function thinkingActivityText(state, translate) {
   return title ? `${base} · ${title}` : base;
 }
 
+const terminalLiveToolStatuses = new Set([
+  "completed", "complete", "succeeded", "success", "done", "error", "failed",
+  "rejected", "denied", "cancelled", "canceled", "interrupted", "aborted", "superseded",
+]);
+
+function liveToolIsActive(item) {
+  const status = String(item?.status || item?.state || "").trim().toLowerCase().replace(/[\s-]+/g, "_");
+  return !terminalLiveToolStatuses.has(status);
+}
+
 function runningLiveTools(state) {
   const agentId = state?.agent?.id || "";
   return Object.values(state?.liveToolOutputs || {})
     .filter((item) => item && (!item.agentId || item.agentId === agentId))
-    .filter((item) => {
-      const status = String(item.status || "").toLowerCase();
-      return !status || ["running", "pending", "in_progress", "started", "active"].includes(status);
-    })
+    .filter(liveToolIsActive)
     .sort((a, b) => String(b.createdAt || "").localeCompare(String(a.createdAt || "")));
 }
 
@@ -141,6 +148,18 @@ export function contextCompactingForAgent(state) {
   if (typeof flag !== "string") return true;
   const current = String(state?.agent?.id || "");
   return current !== "" && flag === current;
+}
+
+export function providerRetryFromSnapshot(value) {
+  if (!value || typeof value !== "object") return null;
+  const attempt = Number(value.attempt) || 0;
+  const maxAttempts = Number(value.maxAttempts) || 0;
+  if (attempt <= 0 && maxAttempts <= 0) return null;
+  return {
+    attempt: attempt > 0 ? attempt : 1,
+    maxAttempts: maxAttempts > 0 ? maxAttempts : 0,
+    at: Date.now(),
+  };
 }
 
 export function resolveComposerActivityStatus(state, translate = t) {
@@ -201,11 +220,67 @@ export function resolveComposerActivityStatus(state, translate = t) {
     };
   }
 
-  if (String(state?.agent?.status || "").toLowerCase() === "running") {
+  const agentStatus = String(state?.agent?.status || "").trim().toLowerCase();
+  if (agentStatus === "waiting") {
+    return {
+      kind: "waiting",
+      tone: "waiting",
+      text: translate("chat.activity.waitingSubagent", { count: 1 }),
+    };
+  }
+  if (agentStatus === "running") {
     return { kind: "thinking", text: thinkingActivityText(state, translate) };
   }
 
   return null;
+}
+
+export function openAgentTurnIsLive(state) {
+  const status = String(state?.agent?.status || "").trim().toLowerCase();
+  return liveAgentStatuses.has(status) || Boolean(state?.liveAssistantActive);
+}
+
+const liveAgentStatuses = new Set(["running", "waiting"]);
+const terminalAgentStatuses = new Set(["idle", "interrupted", "error", "failed", "completed"]);
+
+// Navigation already polls agentStatus every couple of seconds. Live websocket
+// events can stall on a remote tunnel, so the open conversation has to take
+// that durable status or Stop/thinking stay frozen on the viewer who did not
+// click.
+export function reconcileOpenAgentFromNavigation({
+  agent,
+  conversations,
+  liveAssistantActive = false,
+  localTurnStartedAt = 0,
+  localInterruptRequestedAt = 0,
+  now = Date.now(),
+  turnGraceMs = 8000,
+  interruptToastMs = 4000,
+} = {}) {
+  const agentId = String(agent?.id || "").trim();
+  const row = (conversations || []).find((item) => String(item?.agentId || "") === agentId);
+  if (!agentId || !row) return { changed: false, agent, settle: null, catchUp: false };
+  const nextStatus = String(row.agentStatus || "").trim().toLowerCase();
+  const prevStatus = String(agent?.status || "").trim().toLowerCase();
+  const catchUp = liveAgentStatuses.has(nextStatus) || liveAgentStatuses.has(prevStatus);
+  if (!nextStatus || nextStatus === prevStatus) {
+    return { changed: false, agent, settle: null, catchUp };
+  }
+  const inLocalTurnGrace = Number(localTurnStartedAt) > 0 && (now - Number(localTurnStartedAt)) < turnGraceMs;
+  const localStopRecent = Number(localInterruptRequestedAt) > 0 && (now - Number(localInterruptRequestedAt)) < interruptToastMs;
+  const nextIsTerminal = terminalAgentStatuses.has(nextStatus);
+  const prevIsLive = liveAgentStatuses.has(prevStatus) || Boolean(liveAssistantActive);
+  if (nextIsTerminal && inLocalTurnGrace) {
+    return { changed: false, agent, settle: null, catchUp: true };
+  }
+  return {
+    changed: true,
+    agent: { ...agent, status: row.agentStatus },
+    settle: nextIsTerminal && prevIsLive
+      ? { toastOther: nextStatus === "interrupted" && !localStopRecent }
+      : null,
+    catchUp: liveAgentStatuses.has(String(row.agentStatus || "").trim().toLowerCase()) || catchUp,
+  };
 }
 
 export function createAgentWorkspaceHelpers({
@@ -245,16 +320,20 @@ export function createAgentWorkspaceHelpers({
     // The summary sits where the user looks for "what is it doing", so it takes
     // the activity whenever it is on screen. It used to require the project
     // context, which left a plain conversation reporting no running task through
-    // an entire turn.
-    const routeActivityToTaskSummary = Boolean(!isMobileAppViewport?.() && backgroundTasks?.setForegroundActivity);
-    if (routeActivityToTaskSummary) backgroundTasks.setForegroundActivity(activity);
-    else backgroundTasks?.setForegroundActivity?.(null);
-    const composerActivity = routeActivityToTaskSummary ? null : activity;
+    // an entire turn. Phones used to null it as well, so Continue left the
+    // header on "no running task" while Stop was already showing.
+    const openId = String(state?.agent?.id || "").trim();
+    if (openId && backgroundTasks?.setAgent && !backgroundTasks.state?.()?.agentId) {
+      backgroundTasks.setAgent(openId);
+    }
+    const canRouteToSummary = Boolean(backgroundTasks?.setForegroundActivity);
+    if (canRouteToSummary) backgroundTasks.setForegroundActivity(activity);
+    const composerActivity = (!canRouteToSummary || isMobileAppViewport?.()) ? activity : null;
     const text = composerActivity?.text || lastConnectionStatus.text || t("chat.idle");
     // Handing the activity to the task summary must not let this pill claim the
     // workspace is idle. Both sit on the same toolbar, so a grey "idle" dot
     // beside a task summary still animating a running step reads as a bug.
-    const busy = Boolean(composerActivity) || (routeActivityToTaskSummary && Boolean(activity));
+    const busy = Boolean(activity);
     const ok = !busy && Boolean(lastConnectionStatus.ok);
     if (label) setTextIfChanged(label, text);
     if (dot) {
@@ -264,6 +343,7 @@ export function createAgentWorkspaceHelpers({
     if (wrap) {
       wrap.classList.toggle("is-busy", busy);
       wrap.classList.toggle("is-ok", ok);
+      if (wrap.dataset) wrap.dataset.activityTone = busy ? String(activity?.tone || activity?.kind || "") : "";
       wrap.title = text;
       wrap.setAttribute("aria-label", text);
     }

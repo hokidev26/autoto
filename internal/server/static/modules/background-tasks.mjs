@@ -1027,7 +1027,10 @@ export function createBackgroundTasksController({
   }
 
   function setForegroundActivity(value) {
-    const next = agentId ? normalizeForegroundActivity(value) : null;
+    // The composer header reports the open conversation's turn. Requiring a
+    // bound task-list agent dropped every update when that bind lagged, so
+    // Stop could show while the label stayed on "no running task".
+    const next = normalizeForegroundActivity(value);
     if (next?.kind === foregroundActivity?.kind && next?.text === foregroundActivity?.text && next?.tone === foregroundActivity?.tone) return true;
     foregroundActivity = next;
     render();

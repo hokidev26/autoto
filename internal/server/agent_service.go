@@ -165,6 +165,7 @@ func (a agentService) liveSnapshot(ctx context.Context, agentID, afterExecutionG
 		Context:               a.contextStatus(ctx, snapshot.Agent),
 		WorkState:             workState,
 		Stream:                watermark,
+		ProviderRetry:         a.hub.ProviderRetrySnapshot(agentID),
 	}, nil
 }
 
@@ -279,8 +280,36 @@ func (a agentService) get(ctx context.Context, agentID string) (db.Agent, error)
 	return agent, nil
 }
 
+func (a agentService) updateSummaryModel(ctx context.Context, agentID, model string) (db.Agent, error) {
+	agentID = strings.TrimSpace(agentID)
+	model = strings.TrimSpace(model)
+	if agentID == "" || len(agentID) > 128 {
+		return db.Agent{}, apiErr(http.StatusBadRequest, "invalid agent id")
+	}
+	if model != "" && a.resolveExecutable != nil {
+		if _, _, err := a.resolveExecutable(model); err != nil {
+			return db.Agent{}, apiErr(http.StatusBadRequest, err.Error())
+		}
+	}
+	if a.store == nil {
+		return db.Agent{}, apiErr(http.StatusInternalServerError, "agent store is unavailable")
+	}
+	if a.lockMutation != nil {
+		unlock := a.lockMutation(agentID)
+		defer unlock()
+	}
+	agent, err := a.store.UpdateAgentSummaryModel(ctx, agentID, model)
+	if err != nil {
+		return db.Agent{}, err
+	}
+	return agent, nil
+}
+
 func (a agentService) contextStatus(ctx context.Context, agent db.Agent) agentContextStatus {
-	summaryModelConfigured := a.runner != nil && strings.TrimSpace(a.runner.SummaryModel()) != ""
+	summaryModelConfigured := strings.TrimSpace(agent.SummaryModel) != ""
+	if !summaryModelConfigured && a.runner != nil {
+		summaryModelConfigured = strings.TrimSpace(a.runner.SummaryModel()) != ""
+	}
 	status := agentpkg.ContextTokenStatus{MessageCount: agent.MessageCount, PruneEnabled: agent.PruneEnabled, HasSummary: strings.TrimSpace(agent.ContextSummary) != ""}
 	if a.runner != nil {
 		if estimated, _, err := a.runner.ContextStatus(ctx, agent.ID); err == nil {

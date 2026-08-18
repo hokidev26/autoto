@@ -296,6 +296,28 @@ test("navigation refresh runs immediately on demand and pauses network work whil
   assert.equal(timers.tasks.length, 0);
 });
 
+test("navigation refresh polls faster while a turn is in flight", async () => {
+  const timers = new FakeTimers();
+  let live = false;
+  const controller = createNavigationRefreshController({
+    timers,
+    intervalMs: navigationRefreshDefaults.intervalMs,
+    getIntervalMs: () => live ? navigationRefreshDefaults.liveIntervalMs : navigationRefreshDefaults.intervalMs,
+    refresh: () => {},
+  });
+
+  assert.equal(controller.start(), true);
+  assert.equal(timers.nextDelay(), 2000);
+  live = true;
+  controller.request("turn-started");
+  await timers.runNext();
+  assert.equal(timers.nextDelay(), 400);
+  live = false;
+  await timers.runNext();
+  assert.equal(timers.nextDelay(), 2000);
+  assert.equal(controller.stop(), true);
+});
+
 test("project groups contain every conversation once and preserve recent ordering", () => {
   const duplicatedPayload = {
     ...payload,

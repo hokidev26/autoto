@@ -3342,10 +3342,26 @@ body.white-shell.theme-light.theme-dark .git-merge-panel {
 
 @media (max-width: 900px) {
   .git-modal-card { width: 96vw; height: 92vh; }
+  /* The body is the one scroller. A 1fr diff row used to swallow the leftover
+     viewport and clip the commit box and timeline below it; overflow:hidden on
+     the card then made that clip permanent, which is why a phone could not
+     reach anything under the diff. */
+  .git-modal-body {
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+  }
   .git-toolbar { align-items: flex-start; flex-direction: column; }
-  .git-layout { grid-template-columns: 1fr; grid-template-rows: auto minmax(260px, 1fr) auto; }
+  .git-layout {
+    flex: none;
+    min-height: auto;
+    grid-template-columns: 1fr;
+    grid-template-rows: auto auto auto;
+  }
   .git-file-list { max-height: 160px; }
-  .git-log-panel { max-height: 280px; }
+  .git-diff-panel { max-height: min(42vh, 360px); }
+  .git-log-panel { max-height: none; overflow: visible; }
   /* Stacked, the actions are the last row and scroll with the panel. Keeping the
      column's own scroller here would nest one scroll region inside another, which
      on a touch screen means the wrong one moves. */

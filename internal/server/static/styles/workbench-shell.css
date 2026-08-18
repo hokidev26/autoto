@@ -388,7 +388,6 @@ body.white-shell.theme-light .terminal-pref-select select {
     min-height: 38px;
     padding: 8px;
   }
-  body.white-shell.theme-light #gitWorkflowBtn { display: none; }
   body.white-shell.theme-light .chat-title { max-width: 42vw; font-size: 17px; }
   body.white-shell.theme-light .chat-title-action { display: none; }
   body.white-shell.theme-light .terminal-command-panel { padding: 14px; }

@@ -23,7 +23,8 @@ const modelListTimeout = 5 * time.Second
 const modelListConcurrency = 4
 
 type modelsResponse struct {
-	Providers []modelProviderResponse `json:"providers"`
+	Providers           []modelProviderResponse `json:"providers"`
+	DefaultSummaryModel string                  `json:"defaultSummaryModel,omitempty"`
 }
 
 type providerManagementResponse struct {
@@ -88,7 +89,19 @@ func (s *Server) models(w http.ResponseWriter, r *http.Request) {
 		}(i, summary)
 	}
 	wg.Wait()
-	writeJSON(w, http.StatusOK, out)
+	writeJSON(w, http.StatusOK, modelsResponse{Providers: out.Providers, DefaultSummaryModel: s.defaultSummaryModel()})
+}
+
+func (s *Server) defaultSummaryModel() string {
+	if s == nil {
+		return ""
+	}
+	if s.runner != nil {
+		if model := strings.TrimSpace(s.runner.SummaryModel()); model != "" {
+			return model
+		}
+	}
+	return strings.TrimSpace(s.configSnapshot().Agent.SummaryModel)
 }
 
 func (s *Server) modelProviderResponse(ctx context.Context, provider config.ProviderSummary) modelProviderResponse {

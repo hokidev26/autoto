@@ -19,7 +19,7 @@ import (
 // Browsers key ES module identity on the full URL, so a ?v= query string on an
 // import forks that module into a second instance with duplicated state; the
 // i18n locale split was the visible symptom. Freshness comes from the content
-// ETag + no-cache revalidation above, so no embedded source may reference a
+// ETag plus stale-while-revalidate, so no embedded source may reference a
 // ?v= stamp.
 func TestEmbeddedStaticSourcesCarryNoVersionQueryStrings(t *testing.T) {
 	versioned := regexp.MustCompile(`\?v=[A-Za-z0-9-]`)
@@ -70,6 +70,15 @@ func TestUIAssetsRevalidateInsteadOfRedownloading(t *testing.T) {
 	if cache := first.Header().Get("Cache-Control"); strings.Contains(cache, "no-store") {
 		t.Fatalf("no-store defeats the ETag entirely, got %q", cache)
 	}
+	if cache := first.Header().Get("Cache-Control"); !strings.Contains(cache, "private") || !strings.Contains(cache, "stale-while-revalidate") {
+		t.Fatalf("shared CDNs must not store UI assets, and reload must not block on 304, got Cache-Control %q", cache)
+	}
+	if cache := first.Header().Get("Cache-Control"); strings.Contains(cache, "no-cache") {
+		t.Fatalf("no-cache forces a blocking revalidation before paint, got %q", cache)
+	}
+	if cdn := first.Header().Get("CDN-Cache-Control"); cdn != "no-store" {
+		t.Fatalf("CDN-Cache-Control = %q, want no-store", cdn)
+	}
 	if first.Body.Len() == 0 {
 		t.Fatal("expected the first response to carry the asset")
 	}
@@ -95,6 +104,47 @@ func TestUIAssetsRevalidateInsteadOfRedownloading(t *testing.T) {
 	}
 	if second.Body.Len() != 0 {
 		t.Fatalf("a 304 must carry no body, got %d bytes", second.Body.Len())
+	}
+}
+
+func TestUIStylesheetIsServedAsOneCascade(t *testing.T) {
+	// styles.css is an @import index on disk so tests can audit cascade order.
+	// Serving those imports as-is made a phone wait on sixteen stylesheet
+	// round trips before the boot overlay finished painting.
+	srv := &Server{}
+	router := chi.NewRouter()
+	srv.mountUI(router)
+
+	first := httptest.NewRecorder()
+	router.ServeHTTP(first, httptest.NewRequest(http.MethodGet, "/ui/styles.css", nil))
+	if first.Code != http.StatusOK {
+		t.Fatalf("expected the bundled stylesheet, got %d", first.Code)
+	}
+	body := first.Body.String()
+	if strings.Contains(body, `@import url("styles/`) {
+		t.Fatal("GET /ui/styles.css still lists @import urls instead of the cascade")
+	}
+	if !strings.Contains(body, ".boot-transition") {
+		t.Fatal("bundled stylesheet is missing base.css")
+	}
+	if !strings.Contains(body, ".git-modal-body") {
+		t.Fatal("bundled stylesheet is missing a later cascade file")
+	}
+	etag := first.Header().Get("ETag")
+	if etag == "" {
+		t.Fatal("bundled stylesheet carries no ETag")
+	}
+	sum := sha256.Sum256(first.Body.Bytes())
+	if want := `W/"` + hex.EncodeToString(sum[:8]) + `"`; etag != want {
+		t.Fatalf("bundled ETag is not a content hash: got %q want %q", etag, want)
+	}
+
+	second := httptest.NewRecorder()
+	revalidate := httptest.NewRequest(http.MethodGet, "/ui/styles.css", nil)
+	revalidate.Header.Set("If-None-Match", etag)
+	router.ServeHTTP(second, revalidate)
+	if second.Code != http.StatusNotModified {
+		t.Fatalf("expected 304 on bundled stylesheet revalidation, got %d", second.Code)
 	}
 }
 

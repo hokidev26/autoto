@@ -328,6 +328,16 @@ func (r *Runner) SummaryModel() string {
 	return model
 }
 
+// summaryModelFor returns a conversation override when set, otherwise the host
+// summary model. Empty on both sides means compaction falls back to the local
+// deterministic summary.
+func (r *Runner) summaryModelFor(agent db.Agent) string {
+	if model := strings.TrimSpace(agent.SummaryModel); model != "" {
+		return model
+	}
+	return strings.TrimSpace(r.SummaryModel())
+}
+
 // ReviewModel is the dedicated isolated plan reviewer. Blank means inherit the
 // active conversation's model at review time.
 func (r *Runner) ReviewModel() string {

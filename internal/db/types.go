@@ -104,6 +104,7 @@ type Agent struct {
 	SubagentType           string `json:"subagentType,omitempty"`
 	Title                  string `json:"title"`
 	Model                  string `json:"model"`
+	SummaryModel           string `json:"summaryModel"`
 	SystemPrompt           string `json:"systemPrompt,omitempty"`
 	PermissionMode         string `json:"permissionMode"`
 	EntityGeneration       int64  `json:"entityGeneration"`

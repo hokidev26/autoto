@@ -53,9 +53,12 @@ export function createAccountSessionController({
     document.body?.classList.toggle("guest-observe", guest);
     document.body?.classList.toggle("collaborator-limited", collaborator);
     const banner = $("guestObserveBanner");
-    banner?.classList.toggle("hidden", !(guest || collaborator));
-    if (banner && guest) banner.textContent = t("accountSession.guestBanner");
-    if (banner && collaborator) banner.textContent = t("accountSession.collaboratorBanner");
+    // Guests have no composer, so a chat banner is the only place the limit
+    // is visible. Collaborators still type there; the same copy in the
+    // transcript covered the last messages and the input. Their notice lives
+    // on Settings → Profile instead.
+    banner?.classList.toggle("hidden", !guest);
+    if (banner) banner.textContent = guest ? t("accountSession.guestBanner") : "";
   }
 
   function setMode(mode) {
@@ -96,19 +99,23 @@ export function createAccountSessionController({
   function showOverlay({ createAdministrator = false } = {}) {
     const root = overlay();
     if (!root) return;
-    const alreadyOpen = overlayIsOpen(root);
+    // Later 401s rewrite this dialog. Those mutations make Safari/Chrome
+    // AutoFill jump from the password field back to the account name.
+    if (overlayIsOpen(root) && !createAdministrator) return;
     setLockedShell(true);
     root.classList.remove("hidden");
     root.setAttribute("aria-hidden", "false");
     $("accountSessionTitle").textContent = createAdministrator ? t("accountSession.createTitle") : t("accountSession.title");
-    $("accountSessionSubtitle").textContent = createAdministrator ? t("accountSession.createSubtitle") : t("accountSession.subtitle");
+    const subtitle = $("accountSessionSubtitle");
+    if (subtitle) {
+      const text = createAdministrator ? t("accountSession.createSubtitle") : t("accountSession.subtitle");
+      subtitle.textContent = text;
+      subtitle.hidden = !String(text || "").trim();
+    }
     $("accountSessionSubmitBtn").textContent = createAdministrator ? t("accountSession.createSubmit") : t("accountSession.submit");
     $("accountSessionKeyToggle")?.classList.toggle("hidden", createAdministrator);
     setMode(createAdministrator ? "password" : (overlay()?.dataset.mode || "password"));
-    // Later 401s from health/navigation reuse this overlay. Focusing the
-    // handle every time yanked the caret out of the password field while the
-    // person was still typing.
-    if (!alreadyOpen) focusInitialLoginField();
+    focusInitialLoginField();
   }
 
   function hideOverlay() {
@@ -218,25 +225,58 @@ export function createAccountSessionController({
     await onSignedOut?.();
   }
 
+  function bindLoginFocusGuard() {
+    const handle = $("accountSessionHandle");
+    const password = $("accountSessionPassword");
+    if (!handle || !password) return;
+    let passwordEditedAt = 0;
+    let allowHandleFocus = false;
+    const markPasswordEdit = () => {
+      passwordEditedAt = Date.now();
+    };
+    password.addEventListener("keydown", markPasswordEdit);
+    password.addEventListener("input", markPasswordEdit);
+    handle.addEventListener("pointerdown", () => {
+      allowHandleFocus = true;
+    });
+    globalThis.document?.addEventListener("keydown", (event) => {
+      if (event?.key === "Tab") allowHandleFocus = true;
+    });
+    handle.addEventListener("focusin", () => {
+      if (allowHandleFocus) {
+        allowHandleFocus = false;
+        return;
+      }
+      if (!String(password.value || "") || Date.now() - passwordEditedAt > 4000) return;
+      password.focus();
+    });
+  }
+
   function bind() {
     $("accountSessionForm")?.addEventListener("submit", (event) => submit(event).catch((error) => showError(error?.message || t("accountSession.error"))));
     $("accountSessionUsePasswordBtn")?.addEventListener("click", () => setMode("password"));
     $("accountSessionUseKeyBtn")?.addEventListener("click", () => setMode("key"));
+    bindLoginFocusGuard();
   }
 
   function profileSessionHTML() {
     if (!state.account?.handle) return "";
+    const collaborator = accountIsCollaborator(state.account);
     const roleKey = accountIsAdmin(state.account)
       ? "accountSession.roleAdmin"
       : accountIsGuest(state.account)
         ? "accountSession.roleGuest"
-        : accountIsCollaborator(state.account)
+        : collaborator
           ? "accountSession.roleCollaborator"
           : "accountSession.roleOperator";
+    const collaboratorNotice = collaborator
+      ? `<p class="settings-card-description profile-session-notice">${escapeHtml(t("accountSession.collaboratorBanner"))}</p>`
+      : "";
     return `
       <section class="settings-card settings-card-content profile-session-card">
         <div class="settings-provider-title settings-card-title">${escapeHtml(t("accountSession.signedInAs", { handle: state.account.handle }))}</div>
         <p class="settings-card-description">${escapeHtml(t(roleKey))}</p>
+        ${collaboratorNotice}
         <div class="settings-action-row">
           <button id="profileSignOutBtn" class="settings-action-btn subtle" type="button">${escapeHtml(t("accountSession.signOut"))}</button>
         </div>
@@ -251,6 +291,7 @@ export function createAccountSessionController({
     hideOverlay,
     loadMe,
     loadStatus,
+    overlayIsOpen,
     profileSessionHTML,
     showOverlay,
     signOut,

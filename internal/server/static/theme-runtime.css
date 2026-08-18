@@ -231,14 +231,14 @@ body.white-shell[data-autoto-theme] :is(.nav-item.selected, .nav-item-shell.sele
   color: var(--ws-primary);
 }
 
-body.white-shell[data-autoto-theme] :is(.settings-action-btn.primary, .composer-send-btn, .overview-launcher-send, .new-task-btn, .empty-workspace-action) {
+body.white-shell[data-autoto-theme] :is(.settings-action-btn.primary, .composer-send-btn:not(.is-stop), .overview-launcher-send, .new-task-btn, .empty-workspace-action) {
   border-color: var(--ws-primary);
   background: var(--autoto-accent-gradient, var(--ws-primary));
   color: var(--autoto-theme-accent-text, #ffffff);
   box-shadow: 0 9px 24px color-mix(in srgb, var(--ws-primary) 24%, transparent);
 }
 
-body.white-shell[data-autoto-theme] :is(.settings-action-btn.primary, .composer-send-btn, .overview-launcher-send, .new-task-btn, .empty-workspace-action):hover {
+body.white-shell[data-autoto-theme] :is(.settings-action-btn.primary, .composer-send-btn:not(.is-stop), .overview-launcher-send, .new-task-btn, .empty-workspace-action):hover {
   filter: brightness(1.05) saturate(1.04);
 }
 

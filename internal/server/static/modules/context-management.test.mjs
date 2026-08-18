@@ -400,6 +400,7 @@ test("static shell mounts one shared context ring, accessible overlays, APIs, an
   assert.doesNotMatch(contextModule, /conic-gradient/);
   assert.match(styles, /\.context-usage-ring \.context-usage-track[\s\S]*?stroke:\s*var\(--ws-border/);
   assert.match(styles, /\.context-usage-overlay\.is-mobile \.context-management-panel[\s\S]*?border-radius:\s*20px 20px 0 0/);
+  assert.match(styles, /\.context-usage-overlay\.is-mobile \.context-management-panel \{ inset:\s*auto 10px calc\(84px \+ env\(safe-area-inset-bottom\)\) auto;/);
   assert.match(styles, /\.context-usage-btn\[data-tone="warning"\]/);
   assert.match(styles, /\.context-usage-btn\[data-tone="danger"\]/);
 

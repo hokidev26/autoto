@@ -85,31 +85,32 @@ type workStateSnapshot struct {
 }
 
 type agentLiveSnapshotResponse struct {
-	Protocol              int                      `json:"protocol"`
-	Agent                 db.Agent                 `json:"agent"`
-	Messages              []db.Message             `json:"messages"`
-	MessageHasMoreBefore  bool                     `json:"messageHasMoreBefore"`
-	MessageNextBefore     string                   `json:"messageNextBefore,omitempty"`
-	PendingApprovals      []db.ToolCall            `json:"pendingApprovals"`
-	PendingUserQuestions  []map[string]any         `json:"pendingUserQuestions,omitempty"`
-	ToolActivity          []activityToolCall       `json:"toolActivity,omitempty"`
-	LatestRun             *db.Run                  `json:"latestRun,omitempty"`
-	Generations           db.PermissionGenerations `json:"generations"`
-	ExecutionGeneration   int64                    `json:"executionGeneration"`
-	ExecutionsSince       []db.Run                 `json:"executionsSince,omitempty"`
-	ExecutionsTruncated   bool                     `json:"executionsTruncated,omitempty"`
-	Spec                  *db.SpecBoard            `json:"spec,omitempty"`
-	ChildAgents           []db.Agent               `json:"childAgents,omitempty"`
-	ActivePlan            *reviewPlanSummary       `json:"activePlan,omitempty"`
-	PendingPlanApproval   *reviewPlanSummary       `json:"pendingPlanApproval,omitempty"`
-	Plans                 []reviewPlanSummary      `json:"plans,omitempty"`
-	Review                reviewStateSummary       `json:"review"`
-	BackgroundTasks       []tools.BackgroundTask   `json:"backgroundTasks,omitempty"`
-	RecentBackgroundTasks []tools.BackgroundTask   `json:"recentBackgroundTasks,omitempty"`
-	Continuation          map[string]any           `json:"continuation,omitempty"`
-	Context               agentContextStatus       `json:"context"`
-	WorkState             *workStateSnapshot       `json:"workState,omitempty"`
-	Stream                agentpkg.StreamWatermark `json:"stream"`
+	Protocol              int                             `json:"protocol"`
+	Agent                 db.Agent                        `json:"agent"`
+	Messages              []db.Message                    `json:"messages"`
+	MessageHasMoreBefore  bool                            `json:"messageHasMoreBefore"`
+	MessageNextBefore     string                          `json:"messageNextBefore,omitempty"`
+	PendingApprovals      []db.ToolCall                   `json:"pendingApprovals"`
+	PendingUserQuestions  []map[string]any                `json:"pendingUserQuestions,omitempty"`
+	ToolActivity          []activityToolCall              `json:"toolActivity,omitempty"`
+	LatestRun             *db.Run                         `json:"latestRun,omitempty"`
+	Generations           db.PermissionGenerations        `json:"generations"`
+	ExecutionGeneration   int64                           `json:"executionGeneration"`
+	ExecutionsSince       []db.Run                        `json:"executionsSince,omitempty"`
+	ExecutionsTruncated   bool                            `json:"executionsTruncated,omitempty"`
+	Spec                  *db.SpecBoard                   `json:"spec,omitempty"`
+	ChildAgents           []db.Agent                      `json:"childAgents,omitempty"`
+	ActivePlan            *reviewPlanSummary              `json:"activePlan,omitempty"`
+	PendingPlanApproval   *reviewPlanSummary              `json:"pendingPlanApproval,omitempty"`
+	Plans                 []reviewPlanSummary             `json:"plans,omitempty"`
+	Review                reviewStateSummary              `json:"review"`
+	BackgroundTasks       []tools.BackgroundTask          `json:"backgroundTasks,omitempty"`
+	RecentBackgroundTasks []tools.BackgroundTask          `json:"recentBackgroundTasks,omitempty"`
+	Continuation          map[string]any                  `json:"continuation,omitempty"`
+	Context               agentContextStatus              `json:"context"`
+	WorkState             *workStateSnapshot              `json:"workState,omitempty"`
+	Stream                agentpkg.StreamWatermark        `json:"stream"`
+	ProviderRetry         *agentpkg.ProviderRetrySnapshot `json:"providerRetry,omitempty"`
 }
 
 func publicLiveSnapshotAgent(agent db.Agent) db.Agent {
@@ -494,6 +495,24 @@ func (s *Server) updateAgentModel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	agent, err := s.agents().updateModel(r.Context(), strings.TrimSpace(chi.URLParam(r, "id")), model)
+	if err != nil {
+		s.writeAPIError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, agent)
+}
+
+type updateSummaryModelRequest struct {
+	SummaryModel string `json:"summaryModel"`
+}
+
+func (s *Server) updateAgentSummaryModel(w http.ResponseWriter, r *http.Request) {
+	var req updateSummaryModelRequest
+	if err := decodeJSON(r, &req); err != nil {
+		s.writeRequestError(w, r, http.StatusBadRequest, err)
+		return
+	}
+	agent, err := s.agents().updateSummaryModel(r.Context(), strings.TrimSpace(chi.URLParam(r, "id")), strings.TrimSpace(req.SummaryModel))
 	if err != nil {
 		s.writeAPIError(w, r, err)
 		return

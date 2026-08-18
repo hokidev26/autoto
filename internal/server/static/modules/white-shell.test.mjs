@@ -179,6 +179,8 @@ test("browser tabs use the blue smile favicon across entry points", async () => 
     assert.match(entryHTML, /rel="icon" href="\/ui\/icons\/autoto-tab-16\.png" type="image\/png" sizes="16x16"/);
     assert.match(entryHTML, /rel="shortcut icon" href="\/ui\/favicon\.ico"/);
   }
+  assert.match(html, /<!--autoto-share-meta-->/);
+  assert.doesNotMatch(html, /property="og:description"/);
   assert.deepEqual([favicon16.readUInt32BE(16), favicon16.readUInt32BE(20)], [16, 16]);
   assert.deepEqual([favicon32.readUInt32BE(16), favicon32.readUInt32BE(20)], [32, 32]);
   assert.equal(faviconICO.readUInt16LE(0), 0);
@@ -189,8 +191,8 @@ test("browser tabs use the blue smile favicon across entry points", async () => 
 // The browser keys ES module identity on the full URL, so a ?v= query string on
 // any import forks that module into a second instance with its own state (the
 // i18n locale split was the worst case). Freshness comes from the server's
-// content ETag + Cache-Control: no-cache revalidation instead, so no source
-// file may reference a ?v= stamp again.
+// content ETag plus stale-while-revalidate, so no source file may reference a
+// ?v= stamp again.
 test("static sources carry no ?v= cache-busting query strings", async () => {
   const { readdir } = await import("node:fs/promises");
   const { fileURLToPath } = await import("node:url");
@@ -258,6 +260,11 @@ test("desktop home overview stays available while mobile starts in conversation"
   ]);
   assert.match(html, /<main id="appShell"[^>]*>[\s\S]*?<section id="overviewDashboard" class="overview-dashboard-page"/);
   assert.match(html, /id="accountSessionOverlay"/);
+  assert.match(html, /class="account-session-brand-mark"[^>]*>[\s\S]*?<svg viewBox="0 0 32 32" fill="none">[\s\S]*?M10\.5 17\.5c1\.6 2 3\.4 3 5\.5 3s3\.9-1 5\.5-3/);
+  assert.match(html, /class="account-session-connection"[^>]*data-i18n="accountSession.connectionState"/);
+  assert.match(html, /class="account-session-brand-name">AUTOTO/);
+  assert.doesNotMatch(html, /account-session-watermark/);
+  assert.match(styles, /account-session-connection-bounce/);
   assert.match(html, /id="guestObserveBanner"/);
   assert.doesNotMatch(html, /<main id="overviewDashboard"/);
   assert.doesNotMatch(overviewDashboard, /<main\b/);
@@ -343,7 +350,7 @@ test("desktop home overview stays available while mobile starts in conversation"
   assert.doesNotMatch(styles, /\.overview-launcher-suggestion/);
   // Themed installs must re-point both send buttons together, and the themed
   // input treatment lands on the card (the textarea inside stays transparent).
-  assert.match(themeRuntime, /\.composer-send-btn,\s*\.overview-launcher-send/);
+  assert.match(themeRuntime, /\.composer-send-btn:not\(\.is-stop\),\s*\.overview-launcher-send/);
   assert.match(themeRuntime, /\.message-input,\s*\.overview-launcher-card/);
   assert.doesNotMatch(overviewDashboard, /overview-launcher-project-row/);
   assert.doesNotMatch(styles, /\.overview-launcher-mode(?:-group)?/);
@@ -485,11 +492,15 @@ test("boot transition waits for app readiness and cross-fades the localized shel
   assert.equal((html.match(/class="boot-transition-dot"/g) || []).length, 3);
   assert.match(html, /id="bootTransitionLabel" class="sr-only"[^>]*data-i18n="workspace\.main\.loadingProjectTitle"/);
   assert.doesNotMatch(html, /boot-transition-(?:card|title|description|progress)|bootTransition(?:Title|Description)/);
-  assert.match(styles, /#appShell\s*\{[^}]*opacity:\s*1;[^}]*transition:\s*opacity 280ms ease/);
-  assert.match(styles, /html\[data-ui-locale-pending="true"\] #appShell\s*\{[^}]*visibility:\s*hidden;[^}]*opacity:\s*0;[^}]*transform:\s*translateY\(6px\)/);
+  assert.match(styles, /#appShell\s*\{[^}]*opacity:\s*1;[^}]*transition:\s*opacity 120ms ease/);
+  assert.match(styles, /html\[data-ui-locale-pending="true"\] #appShell\s*\{[^}]*visibility:\s*hidden;[^}]*opacity:\s*0;[^}]*pointer-events:\s*none/);
+  assert.doesNotMatch(styles, /html\[data-ui-locale-pending="true"\] #appShell\s*\{[^}]*transform:\s*translateY\(6px\)/);
   assert.match(styles, /\.boot-transition\s*\{[^}]*position:\s*fixed;[^}]*opacity:\s*0;[^}]*visibility:\s*hidden/);
   assert.match(styles, /html\[data-ui-locale-pending="true"\] \.boot-transition\s*\{[^}]*opacity:\s*1;[^}]*visibility:\s*visible/);
   assert.match(styles, /\.boot-transition\s*\{[^}]*background:\s*#f6f7fb/);
+  assert.match(styles, /\.boot-transition\s*\{[^}]*transition:\s*opacity 90ms ease/);
+  assert.match(html, /rel="modulepreload" href="\/ui\/modules\/app-main\.mjs"/);
+  assert.match(html, /html\[data-ui-locale-pending="true"\] #appShell \{ visibility: hidden/);
   assert.match(styles, /\.boot-transition-mark\s*\{[^}]*width:\s*auto;[^}]*margin:\s*0;[^}]*border:\s*0;[^}]*background:\s*transparent;[^}]*box-shadow:\s*none/);
   assert.doesNotMatch(styles, /\.boot-transition-(?:card|title|description|progress)/);
   assert.doesNotMatch(styles, /@keyframes boot-transition-(?:card-enter|mark-float|progress)/);
@@ -497,6 +508,8 @@ test("boot transition waits for app readiness and cross-fades the localized shel
   assert.match(styles, /@media \(prefers-reduced-motion:\s*reduce\)[\s\S]*?\.boot-transition-dot/);
   assert.match(app, /const appReadyEventName = "autoto:app-ready"/);
   assert.match(app, /const waitForAppReady = \(\{ timeout = 12000 \} = \{\}\) =>/);
+  assert.match(app, /Promise\.all\(\[\s*import\("\.\/modules\/error-boundary\.mjs"\),\s*import\("\.\/modules\/i18n\.mjs"\),\s*\]\)/);
+  assert.match(app, /localStorage\?\.getItem\?\.\("autoto\.scrollTrace"\) === "1"/);
   assert.match(app, /const appReady = waitForAppReady\(\);[\s\S]*?await import\("\.\/modules\/app-main\.mjs[\s\S]*?await appReady;[\s\S]*?revealLocalizedUI\(\)/);
   assert.match(appMain, /function signalAppReady\(\)[\s\S]*?new EventConstructor\("autoto:app-ready"\)/);
   assert.match(appMain, /init\(\)\.then\(\(\) => \{[\s\S]*?openRequestedInitialView\(\);[\s\S]*?const setupStartup = maybeOpenSetupWizard\(\);[\s\S]*?signalAppReady\(\);[\s\S]*?return setupStartup;[\s\S]*?\}\)\.catch\(\(error\) => \{[\s\S]*?signalAppReady\(\);[\s\S]*?showError\(error\);/);
@@ -819,6 +832,36 @@ test("the spec board header control is a clipboard, not a ticked checklist", asy
   assert.doesNotMatch(html, />Dynamic Spec</);
 });
 
+test("the git header control is a three-node branch, not overlapping curves", async () => {
+  const html = await readFile(indexURL, "utf8");
+  const at = html.indexOf('id="gitWorkflowBtn"');
+  assert.notEqual(at, -1);
+  const button = html.slice(at, html.indexOf("</button>", at));
+  assert.doesNotMatch(button, /M8 7\.5c5|M16 8c-1 4/, "the old curves stacked into a knot at rail size");
+  assert.match(button, /<circle cx="7" cy="6" r="2\.2"/);
+  assert.match(button, /<circle cx="7" cy="18" r="2\.2"/);
+  assert.match(button, /<circle cx="17" cy="9" r="2\.2"/);
+  assert.match(button, /<path d="M7 8\.3v7\.4"/);
+  const workbench = html.slice(html.indexOf('id="workbenchGitBtn"'), html.indexOf("</button>", html.indexOf('id="workbenchGitBtn"')));
+  assert.match(workbench, /<circle cx="7" cy="6" r="2\.2"/);
+  assert.doesNotMatch(workbench, /M8 7\.5c5|M16 8c-1 4/);
+});
+
+test("the workspace explorer header control is a connected file tree", async () => {
+  const html = await readFile(indexURL, "utf8");
+  const at = html.indexOf('id="workspaceExplorerBtn"');
+  assert.notEqual(at, -1);
+  const button = html.slice(at, html.indexOf("</button>", at));
+  assert.doesNotMatch(button, /M4\.5 4\.5v12\.5/, "the old trunk hooked away from the nodes");
+  assert.match(button, /<path d="M5 4v16"/, "one vertical trunk");
+  assert.match(button, /<path d="M5 7h6"/);
+  assert.match(button, /<path d="M5 12h6"/);
+  assert.match(button, /<path d="M5 17h6"/, "every node has an elbow");
+  assert.match(button, /<rect x="11" y="5"/);
+  assert.match(button, /<rect x="11" y="10"/);
+  assert.match(button, /<rect x="11" y="15"/);
+});
+
 test("background tasks share the right utility column instead of overlaying chat", async () => {
   const [html, styles, appMain] = await Promise.all([
     readFile(indexURL, "utf8"),
@@ -1060,7 +1103,7 @@ test("desktop conversation layout follows the compact resizable geometry", async
   assert.match(html, /workspace\.main\.loadingProjectTitle/);
   assert.doesNotMatch(html, /id="messages"[\s\S]{0,500}data-i18n="chat\.emptyTitle"/);
   assert.match(appMain, /resolveInitialNavigationTarget\(state\.recentConversations, state\.navigationConversations\)/);
-  assert.match(appMain, /createNavigationRefreshController\(\{[\s\S]*?refresh:\s*\(\) => loadProjects\(\)[\s\S]*?visibilityState !== "hidden"/);
+  assert.match(appMain, /createNavigationRefreshController\(\{[\s\S]*?refresh:\s*\(\) => loadProjects\(\)[\s\S]*?visibilityState !== "hidden"[\s\S]*?getIntervalMs:[\s\S]*?openAgentTurnIsLive\(state\)[\s\S]*?liveIntervalMs/);
   assert.match(appMain, /createRecentConversationSyncController\(\{[\s\S]*?key:\s*recentConversationsKey[\s\S]*?state\.recentConversations = recent[\s\S]*?renderRecentSidebarConversations\(\)/);
   assert.match(navigation, /addEventListener\("storage", handleStorage\)/);
   assert.match(appMain, /beforeunload[\s\S]*?recentConversationSync\.stop\(\)/);
@@ -1216,6 +1259,7 @@ test("composer task activity is borderless, left aligned, and spins blue while a
   assert.match(indicatorStyles, /\.header-task-status-dot\.running,[\s\S]*?\.header-task-status-dot\.queued[\s\S]*?border-top-color:\s*var\(--ws-primary[\s\S]*?animation:\s*composer-task-indicator-spin/);
   assert.match(indicatorStyles, /@keyframes composer-task-indicator-spin[\s\S]*?rotate\(360deg\)/);
   assert.match(backgroundTasks, /function setForegroundActivity[\s\S]*?foregroundActivity = next;[\s\S]*?render\(\)/);
+  assert.doesNotMatch(backgroundTasks, /const next = agentId \? normalizeForegroundActivity/);
   assert.match(backgroundTasks, /const currentText = foregroundActivity\?\.text\s*\|\|\s*summary\.current\?\.title/);
   // A lifecycle event has no title, so the label has to fall back to the counts
   // rather than to the idle string while something is still running.
@@ -1224,16 +1268,22 @@ test("composer task activity is borderless, left aligned, and spins blue while a
   assert.match(backgroundTasks, /headerQueue\.classList\.toggle\("hidden", summary\.queuedCount <= 0\)/);
   assert.match(backgroundTasks, /bypassPermissionsAllowed/);
   assert.match(appMain, /bypassPermissionsAllowed:\s*\(\) => fullAccessAllowed\(state\)/);
-  // Mobile is the only view that keeps the composer pill as the fallback. The
-  // project context used to gate this too, which left an ordinary conversation
-  // reporting no running task for a whole turn.
-  assert.match(agentWorkspaceHelpers, /routeActivityToTaskSummary[\s\S]*?!isMobileAppViewport\?\.\(\)[\s\S]*?backgroundTasks\.setForegroundActivity\(activity\)/);
+  // Phones used to null the summary, which left "no running task" through a
+  // whole turn. The summary now always receives the step; the composer pill is
+  // the mobile fallback so the words are not only in a 28px icon.
+  assert.match(agentWorkspaceHelpers, /canRouteToSummary[\s\S]*?backgroundTasks\.setForegroundActivity\(activity\)/);
+  assert.match(agentWorkspaceHelpers, /composerActivity = \(!canRouteToSummary \|\| isMobileAppViewport\?\.\(\)\) \? activity : null/);
+  assert.doesNotMatch(agentWorkspaceHelpers, /setForegroundActivity\?\.\(null\)/);
   assert.doesNotMatch(agentWorkspaceHelpers, /routeActivityToTaskSummary = Boolean\(projectOperationContextActive/);
   // Blocked on a child is a distinct state, and it has to survive as far as the dot.
   assert.match(agentWorkspaceHelpers, /waitingOnBackgroundTasks[\s\S]*?tone: "waiting"/);
   assert.match(backgroundTasks, /foregroundActivity\.tone \|\| "running"/);
   assert.match(appMain, /createAgentWorkspaceHelpers\(\{[\s\S]*?projectOperationContextActive,[\s\S]*?isMobileAppViewport,/);
   assert.match(appMain, /onMessageAccepted:\s*async[\s\S]*?state\.agent = \{ \.\.\.state\.agent, status: "running" \}[\s\S]*?refreshComposerActivityStatus\(\)/);
+  assert.match(appMain, /reconcileOpenAgentFromNavigation\(/);
+  assert.match(appMain, /localTurnStartedAt = Date\.now\(\)/);
+  assert.match(appMain, /runtime\.catchUp && \(runtime\.changed \|\| !\["connected"\]\.includes\(String\(state\.agentStreamStatus \|\| ""\)\)\)/);
+  assert.match(appMain, /agentStream\.resume\(\{ reason: "navigation-runtime" \}\)/);
   assert.match(appMain, /window\.addEventListener\("resize"[\s\S]*?refreshComposerActivityStatus\(\)/);
   assert.match(chatRendering, /function renderLiveAssistantCardHTML\(\)[\s\S]*?if \(!text\) return ""/);
   assert.doesNotMatch(chatRendering, /class="live-assistant-(?:waiting|status)"/);
@@ -1343,6 +1393,7 @@ test("composer responds to its actual width before the mobile breakpoint", async
   assert.match(responsiveStyles, /\.composer-model-field \.composer-select-value\s*\{[^}]*flex:\s*0 1 auto/);
   assert.match(responsiveStyles, /@container composer-shell \(max-width:\s*1320px\)[\s\S]*?\.composer-task-summary\s*\{[^}]*width:\s*180px[^}]*max-width:\s*180px[^}]*flex:\s*0 1 180px/);
   assert.match(responsiveStyles, /@container composer-shell \(max-width:\s*900px\)[\s\S]*?\.composer-task-summary\s*\{[^}]*width:\s*30px[^}]*flex:\s*0 0 30px/);
+  assert.match(responsiveStyles, /@container composer-shell \(max-width:\s*900px\)[\s\S]*?\.composer-task-summary\.has-foreground-activity[\s\S]*?\.header-task-summary-copy\s*\{[^}]*display:\s*block/);
   // The 200px lock outlived the `provider:model` label. The trigger now shows
   // the model name, so that box left a hole before the effort chip.
   assert.match(responsiveStyles, /@container composer-shell \(max-width:\s*900px\)[\s\S]*?\.composer-model-field\s*\{[^}]*width:\s*auto[^}]*max-width:\s*min\(42vw, 220px\)[^}]*flex:\s*0 1 auto/);
@@ -1422,10 +1473,12 @@ test("mobile header and composer use compact icon-first layouts", async () => {
   assert.match(mobileComposerStyles, /textarea#messageText[\s\S]*?--composer-input-min-height:\s*36px/);
   assert.match(mobileComposerStyles, /#sendMessageBtn[\s\S]*?width:\s*44px[\s\S]*?height:\s*36px/);
   assert.match(mobileComposerStyles, /#sendMessageBtn::before\s*\{[^}]*content:\s*attr\(data-mobile-label\)/);
-  assert.match(styles, /\.composer-task-summary:disabled,[\s\S]*?\.composer-task-summary:not\(\.has-task\)\s*\{[^}]*display:\s*none/);
+  assert.match(styles, /\.composer-task-summary:disabled\s*\{[^}]*display:\s*none/);
+  assert.doesNotMatch(styles, /@media \(max-width:\s*767px\)[\s\S]*?\.composer-task-summary:not\(\.has-task\)\s*\{[^}]*display:\s*none/);
   assert.match(styles, /\.composer-task-summary\s*\{[^}]*width:\s*28px[^}]*margin-right:\s*auto/);
   assert.match(styles, /\.security-mode-pill::before\s*\{[^}]*content:\s*attr\(data-mobile-label\)/);
   assert.match(styles, /#backgroundTasksBtn\s*\{\s*display:\s*none/);
+  assert.doesNotMatch(styles, /@media \(max-width:\s*767px\)[\s\S]*?#gitWorkflowBtn \{ display:\s*none/);
   assert.match(mobileComposerStyles, /\[class~="composer-hints"\][\s\S]*?display:\s*none/);
 });
 
@@ -2160,10 +2213,13 @@ test("mobile shell skips home and keeps the drawer, settings index, and model sh
   // mobile-only for the same reason as the rest of the drawer furniture, since the
   // desktop already shows those numbers on the home dashboard.
   assert.match(styles, /\.mobile-topbar,\s*\.mobile-backdrop,\s*\.mobile-drawer-header,\s*\.mobile-drawer-primary-actions,\s*\.mobile-drawer-schedule-btn,\s*\.mobile-sidebar-account-summary,\s*\.mobile-sidebar-quick-actions,\s*\.mobile-sidebar-metrics,\s*\.mobile-drawer-footer,\s*\.mobile-conversation-welcome,\s*\.composer-status\s*\{\s*display:\s*none;/);
-  assert.match(refreshedStyles, /:is\(\.composer-task-summary, \.permission-safety-indicator, \.permission-risk-badge, \.toolbar-lightning-btn\)/);
+  assert.match(refreshedStyles, /:is\(\.permission-safety-indicator, \.permission-risk-badge, \.toolbar-lightning-btn\)/);
   assert.match(refreshedStyles, /\.composer-status:not\(\.is-busy\)/);
   assert.match(refreshedStyles, /\.composer-status\.is-busy\s*\{[^}]*display:\s*inline-flex !important/);
-  assert.match(refreshedStyles, /\.mobile-select-sheet-backdrop\s*\{[\s\S]*?align-items:\s*flex-end/);
+  assert.match(refreshedStyles, /\.mobile-select-sheet-backdrop\s*\{[\s\S]*?align-items:\s*flex-end[\s\S]*?justify-content:\s*flex-end/);
+  assert.match(styles, /body:not\(\.guest-observe\) \.guest-observe-banner/);
+  assert.doesNotMatch(styles, /body\.collaborator-limited \.guest-observe-banner:not\(\.hidden\)/);
+  assert.match(styles, /\[data-activity-tone="retrying"\] \.composer-status-text[\s\S]*?color:\s*#d97706/);
   assert.match(refreshedStyles, /@media \(max-width:\s*767px\)[\s\S]*?\.mobile-page-title\s*\{[\s\S]*?text-align:\s*center/);
   assert.match(refreshedStyles, /body\.white-shell\.theme-light \.mobile-backdrop\s*\{[^}]*z-index:\s*78[^}]*backdrop-filter:\s*blur\(2px\)/);
   assert.match(refreshedStyles, /body\.white-shell\.theme-light \.sidebar\s*\{[^}]*z-index:\s*80/);
@@ -2188,21 +2244,54 @@ test("mobile shell skips home and keeps the drawer, settings index, and model sh
   const cascadeGuard = styles.slice(guardIndex);
   assert.match(html, /class="mobile-brand">Autoto<\/div>/);
   assert.match(html, /id="attachFileBtn"[\s\S]*?<svg viewBox="0 0 24 24"/);
-  assert.match(cascadeGuard, /\.mobile-brand\s*\{[\s\S]*?display:\s*block/);
-  assert.match(cascadeGuard, /\.chat-header\s*\{[\s\S]*?height:\s*50px;[\s\S]*?display:\s*flex/);
+  assert.match(cascadeGuard, /\.mobile-brand\s*\{[\s\S]*?display:\s*none/);
+  assert.match(cascadeGuard, /\.mobile-page-title\s*\{[\s\S]*?display:\s*block/);
+  assert.match(cascadeGuard, /\.mobile-page-title\s*\{[\s\S]*?text-align:\s*left/);
+  assert.match(cascadeGuard, /\.chat-header :is\(\.chat-title-display, #editConversationTitleBtn, #copyConversationBtn\)\s*\{\s*display:\s*none/);
+  assert.match(cascadeGuard, /\.chat-header\s*\{\s*display:\s*none !important/);
+  assert.match(cascadeGuard, /\.chat-header:has\(\.chat-title-input:not\(\.hidden\)\)\s*\{[\s\S]*?display:\s*flex/);
+  assert.match(cascadeGuard, /\.mobile-topbar-actions \.header-tool-group/);
+  assert.match(cascadeGuard, /#gitModal \.git-modal-body\s*\{[\s\S]*?overflow-y:\s*auto/);
+  assert.match(cascadeGuard, /#gitModal \.git-layout\s*\{[\s\S]*?grid-template-rows:\s*auto auto auto/);
+  assert.match(html, /id="conversationToolGroup" class="header-tool-group"/);
+  assert.match(appMain, /function syncMobileConversationTools[\s\S]*conversationToolsDockTarget/);
+  assert.match(appMain, /syncMobilePageTitle\(\);\s*syncMobileConversationTools\(\);/);
+  assert.match(appMain, /leaveOverviewForMobile\(\);\s*syncMobileConversationTools\(\);/);
+  assert.doesNotMatch(cascadeGuard, /\.chat-header\s*\{[\s\S]*?height:\s*50px;[\s\S]*?display:\s*flex/);
   assert.match(cascadeGuard, /\.composer-toolbar\s*\{[\s\S]*?order:\s*1/);
   assert.match(cascadeGuard, /\.composer-input-shell\s*\{[\s\S]*?order:\s*2/);
-  assert.match(cascadeGuard, /#sendMessageBtn\s*\{[\s\S]*?width:\s*60px[\s\S]*?height:\s*36px/);
-  assert.match(cascadeGuard, /\.composer-task-summary,[\s\S]*?display:\s*none !important/);
+  assert.match(cascadeGuard, /#sendMessageBtn\s*\{[\s\S]*?width:\s*60px[\s\S]*?height:\s*44px/);
+  assert.match(cascadeGuard, /textarea#messageText\s*\{[\s\S]*?min-height:\s*42px[\s\S]*?padding:\s*10\.5px 12px/);
+  assert.match(cascadeGuard, /body\.white-shell\.theme-light \{\s*-webkit-tap-highlight-color:\s*transparent/);
+  assert.match(cascadeGuard, /\.composer-toolbar > \.context-usage-btn:is\(:hover, :focus, :focus-visible, :active, \[aria-expanded="true"\]\),\s*[\s\S]*?\.composer-toolbar \.composer-select-trigger:is\(:hover, :focus, :focus-visible, :active, \[aria-expanded="true"\]\)[\s\S]*?background:\s*transparent/);
+  assert.match(cascadeGuard, /\.composer-toolbar > \.context-usage-btn:is\(:focus, :focus-visible\),[\s\S]*?\.composer-select-trigger:is\(:focus, :focus-visible\)[\s\S]*?outline:\s*none/);
+  assert.doesNotMatch(cascadeGuard, /\.composer-toolbar > \.context-usage-btn:focus-visible[\s\S]{0,220}outline:\s*2px solid/);
+  assert.match(cascadeGuard, /\.composer-toolbar \.composer-controls \.composer-select-trigger:is\(:hover, :focus, :focus-visible, :active, \[aria-expanded="true"\]\)\s*\{[\s\S]*?background:\s*transparent/);
+  assert.doesNotMatch(cascadeGuard, /composer-toolbar[\s\S]{0,280}color-mix\(in srgb, var\(--ws-text, #20263a\) 8%/);
+  assert.match(cascadeGuard, /:is\(\.permission-safety-indicator, \.permission-risk-badge, \.toolbar-lightning-btn\)/);
+  assert.doesNotMatch(cascadeGuard, /:is\(\.composer-task-summary, \.permission-safety-indicator/);
+  assert.match(cascadeGuard, /\.composer-task-summary\s*\{[\s\S]*?display:\s*inline-grid !important/);
+  assert.match(cascadeGuard, /\.composer-task-summary:disabled\s*\{[\s\S]*?display:\s*none !important/);
   assert.match(cascadeGuard, /\.composer-select-value,[\s\S]*?position:\s*static;[\s\S]*?clip-path:\s*none/);
   assert.match(cascadeGuard, /\.composer-model-field \.composer-select-trigger\s*\{\s*max-width:\s*min\(58vw, 246px\)/);
+  assert.match(cascadeGuard, /\.composer-toolbar \.composer-permission-field \.composer-select-icon svg\s*\{[\s\S]*?width:\s*20px/);
+  assert.match(cascadeGuard, /\.composer-toolbar \.composer-controls \.composer-effort-field \.composer-select-icon\s*\{\s*display:\s*none/);
+  assert.match(cascadeGuard, /\.composer-toolbar \.composer-effort-field :is\(\.effort-pill, \.composer-select-trigger\),[\s\S]*?\.composer-select-value::after\s*\{[\s\S]*?color:\s*var\(--ws-text, #20263a\)/);
+  assert.doesNotMatch(cascadeGuard, /\.composer-toolbar \.composer-permission-field \.composer-select-icon svg\s*\{[\s\S]*?width:\s*14px/);
 
   assert.match(appMain, /mobileSettingsView:\s*"detail"/);
   assert.match(appMain, /function showMobileSettingsIndex[\s\S]*?settings\.mobile\.indexTitle/);
   assert.match(appMain, /showMobileSettingsIndex[\s\S]*?querySelector\?\.\("\.settings-mobile-index-row"\)\?\.focus/);
   assert.match(appMain, /function requestCloseSettingsModal[\s\S]*?mobileSettingsView === "detail"/);
-  assert.match(appMain, /function syncMobilePageTitle[\s\S]*?\(!state\.project && !state\.agent\) \? t\("shell\.nav\.conversation"\)/);
-  assert.doesNotMatch(appMain, /\(!state\.project && !state\.agent\) \? t\("shell\.home"\)/);
+  assert.match(appMain, /async function signOutFromShell[\s\S]*?accountLockActive\(\)[\s\S]*?accountSession\.signOut\(\)[\s\S]*?logoutRemoteAccess\(\)/);
+  assert.match(appMain, /\$\("logoutBtn"\)[\s\S]*?signOutFromShell\(\)/);
+  assert.match(appMain, /\$\("mobileSidebarLogoutBtn"\)[\s\S]*?signOutFromShell\(\)/);
+  assert.doesNotMatch(appMain, /\$\("mobileSidebarLogoutBtn"\)[\s\S]*?logoutRemoteAccess\(\)\.catch/);
+  assert.doesNotMatch(appMain, /\$\("logoutBtn"\)[\s\S]*?logoutRemoteAccess\(\)\.catch/);
+  assert.match(appMain, /\$\("mobilePageTitle"\)[\s\S]*?beginConversationTitleEdit\("conversation"\)/);
+  assert.match(styles, /body\.collaborator-limited #toggleTerminalBtn/);
+  assert.match(styles, /body\.guest-observe #toggleTerminalBtn/);
+  assert.doesNotMatch(styles, /#terminalToggleBtn/);
   assert.match(selectMenus, /mobile-select-sheet-backdrop hidden/);
   assert.match(uiShell, /mobileSidebarBackdrop/);
   assert.match(uiShell, /mobileSidebarCloseBtn/);
@@ -2210,13 +2299,14 @@ test("mobile shell skips home and keeps the drawer, settings index, and model sh
   assert.match(selectMenus, /translate\("chat\.selectModel"\)/);
   // 管理模型 / 思考强度 / 压缩上下文 were removed from the model menu: each already has
   // its own control beside the composer.
-  // The model menu instead offers the summary model, which is applied by
-  // round-tripping the whole agent payload so the default model and subagent
-  // assignments are not dropped.
+  // The model menu instead offers the summary model, which is stored on the
+  // current conversation so collaborators can retarget compaction without
+  // writing host runtime settings.
   assert.match(selectMenus, /translate\("chat\.summaryModel"\)/);
   assert.match(selectMenus, /openSummaryModelPicker/);
-  assert.match(appMain, /agentModelSettingsPayload\(\{ \.\.\.\(state\.settings\?\.agent \|\| \{\}\), summaryModel: model \}\)/);
-  assert.match(appMain, /api\("\/api\/runtime\/agent-model-settings", \{ method: "PATCH"/);
+  assert.match(appMain, /api\(`\/api\/agents\/\$\{agentId\}\/summary-model`/);
+  assert.doesNotMatch(appMain, /api\("\/api\/runtime\/agent-model-settings", \{ method: "PATCH"/);
+  assert.doesNotMatch(appMain, /agentModelSettingsPayload\(\{ \.\.\.\(state\.settings\?\.agent \|\| \{\}\), summaryModel: model \}\)/);
   assert.doesNotMatch(uiShell, /translate\("chat\.manageModels"\)/);
   assert.doesNotMatch(selectMenus, /translate\("chat\.manageModels"\)/);
   assert.doesNotMatch(uiShell, /translate\("chat\.compactContext"\)/);

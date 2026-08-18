@@ -58,6 +58,7 @@ func TestGuestObserveAllowlist(t *testing.T) {
 		{http.MethodPost, "/api/preferences/import-local"},
 		{http.MethodGet, "/api/users/accounts"},
 		{http.MethodPatch, "/api/agents/a1/model"},
+		{http.MethodPatch, "/api/agents/a1/summary-model"},
 		{http.MethodPost, "/api/users/collaborators"},
 		{http.MethodPost, "/api/users/operators"},
 		{http.MethodPost, "/api/users/guests"},
@@ -366,6 +367,9 @@ func TestAdminCreatesCollaboratorWithProjectMembership(t *testing.T) {
 	assertStatus(cookie, http.MethodGet, "/api/workflow/preferences", "", http.StatusOK, "dangerReflectionLevel")
 	assertStatus(cookie, http.MethodPut, "/api/workflow/preferences", `{"requireConfirmationForExec":true,"requireConfirmationForWrites":false,"allowReadOnlyByDefault":true}`, http.StatusForbidden, collaboratorAccessDenied)
 	assertStatus(cookie, http.MethodGet, "/api/settings", "", http.StatusForbidden, collaboratorAccessDenied)
+	assertStatus(cookie, http.MethodPatch, "/api/runtime/agent-model-settings", `{"defaultModel":"fake:test","summaryModel":"fake:test","subagentModels":{},"subagentModelPools":{}}`, http.StatusForbidden, collaboratorAccessDenied)
+	assertStatus(cookie, http.MethodPatch, "/api/agents/"+agent.ID+"/summary-model", `{"summaryModel":"fake:test"}`, http.StatusBadRequest, "model runtime registry is unavailable")
+	assertStatus(cookie, http.MethodPatch, "/api/agents/"+secretAgent.ID+"/summary-model", `{"summaryModel":"fake:test"}`, http.StatusNotFound, "resource not found")
 	assertStatus(cookie, http.MethodPost, "/api/projects", `{"name":"Other"}`, http.StatusForbidden, collaboratorAccessDenied)
 	assertStatus(cookie, http.MethodPatch, "/api/projects/"+project.ID+"/navigation-state", `{"archived":true}`, http.StatusForbidden, collaboratorAccessDenied)
 	assertStatus(cookie, http.MethodGet, "/api/users/accounts", "", http.StatusForbidden, collaboratorAccessDenied)

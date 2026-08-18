@@ -4345,14 +4345,26 @@ body.white-shell.theme-light.theme-dark .composer-task-summary.active {
     padding: 0;
   }
 
-  body.white-shell.theme-light .composer-task-summary:disabled,
-  body.white-shell.theme-light .composer-task-summary:not(.has-task) {
+  body.white-shell.theme-light .composer-task-summary:disabled {
     display: none;
   }
 
-  body.white-shell.theme-light .composer-task-summary .header-task-summary-copy,
   body.white-shell.theme-light .composer-task-summary .header-task-queue-badge {
     display: none;
+  }
+
+  body.white-shell.theme-light .composer-task-summary.has-foreground-activity {
+    width: auto;
+    min-width: 28px;
+    max-width: min(180px, 58vw);
+    flex: 1 1 auto;
+    grid-template-columns: 14px minmax(0, 1fr);
+    gap: 8px;
+    place-items: center start;
+  }
+
+  body.white-shell.theme-light .composer-task-summary.has-foreground-activity .header-task-summary-copy {
+    display: flex;
   }
 }
 

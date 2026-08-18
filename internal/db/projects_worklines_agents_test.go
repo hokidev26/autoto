@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -41,6 +42,42 @@ func TestCreateProjectCreatesCoreRecords(t *testing.T) {
 	}
 	if disabled.EntityGeneration <= got.EntityGeneration {
 		t.Fatalf("plan reflection must bump entity generation: before=%+v after=%+v", got, disabled)
+	}
+}
+
+func TestUpdateAgentSummaryModelRoundTripsAndClears(t *testing.T) {
+	ctx := context.Background()
+	store, err := Open(ctx, filepath.Join(t.TempDir(), "summary-model.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	_, _, agent, err := store.CreateProject(ctx, "Demo", "", t.TempDir(), "openai-compatible:test", "acceptEdits")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if agent.SummaryModel != "" {
+		t.Fatalf("new agents must inherit the host summary model: %+v", agent)
+	}
+	updated, err := store.UpdateAgentSummaryModel(ctx, agent.ID, "compact:mini")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.SummaryModel != "compact:mini" {
+		t.Fatalf("summary model did not persist: %+v", updated)
+	}
+	if updated.EntityGeneration <= agent.EntityGeneration {
+		t.Fatalf("summary model must bump entity generation: before=%+v after=%+v", agent, updated)
+	}
+	cleared, err := store.UpdateAgentSummaryModel(ctx, agent.ID, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cleared.SummaryModel != "" {
+		t.Fatalf("empty summary model must clear the override: %+v", cleared)
+	}
+	if _, err := store.UpdateAgentSummaryModel(ctx, agent.ID, strings.Repeat("x", 300)); err == nil {
+		t.Fatal("expected oversized summary model to be rejected")
 	}
 }
 
@@ -430,6 +467,7 @@ VALUES ('agent-1', 'chapter-1', 'primary', 'Legacy', 'openai:test', 'acceptEdits
 		{"agents", "prune_enabled"},
 		{"agents", "parent_agent_id"},
 		{"agents", "plan_reflection"},
+		{"agents", "summary_model"},
 		{"api_requests", "ttft_ms"},
 		{"memory_injections", "agent_id"},
 	} {

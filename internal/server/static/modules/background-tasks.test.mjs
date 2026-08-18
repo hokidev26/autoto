@@ -123,6 +123,38 @@ test("foreground generation activity temporarily owns the composer task summary"
   assert.equal(elements.headerTaskSummaryBtn.classList.contains("has-foreground-activity"), false);
 });
 
+test("the composer header can show a live turn before the task list binds an agent", () => {
+  function element() {
+    const classes = new Set();
+    return {
+      attributes: {},
+      className: "",
+      classList: {
+        contains: (name) => classes.has(name),
+        toggle(name, force) {
+          if (force) classes.add(name);
+          else classes.delete(name);
+        },
+      },
+      setAttribute(name, value) { this.attributes[name] = String(value); },
+    };
+  }
+  const elements = {
+    headerTaskSummaryBtn: element(),
+    headerCurrentTaskText: element(),
+    headerTaskQueueBadge: element(),
+    headerTaskStatusDot: element(),
+  };
+  const controller = createBackgroundTasksController({
+    request: async () => ({}),
+    documentRef: { getElementById: (id) => elements[id] || null },
+  });
+  assert.equal(controller.state().agentId, "");
+  assert.equal(controller.setForegroundActivity({ kind: "thinking", text: "思考中" }), true);
+  assert.equal(elements.headerCurrentTaskText.textContent, "思考中");
+  assert.equal(elements.headerTaskSummaryBtn.classList.contains("has-foreground-activity"), true);
+});
+
 test("task panel reports open and close transitions for the shared chat utility column", async () => {
   const transitions = [];
   const controller = createBackgroundTasksController({

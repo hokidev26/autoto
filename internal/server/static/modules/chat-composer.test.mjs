@@ -1341,6 +1341,10 @@ test("Composer makes an active run a compact, one-click stop action", async () =
       options: { method: "POST" },
     }]);
     assert.equal(toasts.at(-1).tone, "info");
+    assert.equal(state.agent.status, "interrupted");
+    controller.syncMessageComposerBusy();
+    assert.equal(sendButton.textContent, t("workspace.chat.continueRun"));
+    assert.equal(lastStopToggle(stopClasses).enabled, false);
 
     state.agent.status = "idle";
     controller.syncMessageComposerBusy();
@@ -1370,6 +1374,76 @@ test("Composer makes an active run a compact, one-click stop action", async () =
     assert.equal(sendButton.dataset.mobileLabel, "↑");
     assert.equal(lastStopToggle(stopClasses).enabled, false);
     assert.equal(sendButton.textContent, t("workspace.chat.continueRun"));
+  } finally {
+    globalThis.document = previousDocument;
+    globalThis.getComputedStyle = previousGetComputedStyle;
+  }
+});
+
+test("Stop that finds nothing running still leaves the Stop label", async () => {
+  const previousDocument = globalThis.document;
+  const previousGetComputedStyle = globalThis.getComputedStyle;
+  const attributes = new Map();
+  const clickHandlers = [];
+  const activityRefreshes = [];
+  const sendButton = {
+    textContent: "Send",
+    title: "Send",
+    disabled: false,
+    dataset: { mobileLabel: "↑" },
+    classList: { toggle() {} },
+    setAttribute(name, value) { attributes.set(name, value); },
+    removeAttribute(name) { attributes.delete(name); },
+    addEventListener(type, handler, options) { clickHandlers.push({ type, handler, options }); },
+  };
+  const input = {
+    value: "",
+    disabled: false,
+    scrollHeight: 46,
+    style: {},
+    classList: { toggle() {} },
+    focus() {},
+  };
+  globalThis.document = {
+    getElementById(id) {
+      if (id === "sendMessageBtn") return sendButton;
+      if (id === "messageText") return input;
+      return { disabled: false, classList: { toggle() {} }, dataset: {} };
+    },
+  };
+  globalThis.getComputedStyle = () => ({ minHeight: "46px", maxHeight: "128px", getPropertyValue() { return ""; } });
+  const state = {
+    agent: { id: "agent-stale", model: "openai:model", status: "running" },
+    navigationSelectionKind: "conversation",
+    pendingToolApprovals: {},
+    liveToolOutputs: { t1: { status: "running", agentId: "agent-stale" } },
+    liveAssistantActive: true,
+    pendingAttachments: [],
+    promptHistory: [],
+    serverSkills: [],
+  };
+  const toasts = [];
+  try {
+    const controller = createChatComposerController({
+      state,
+      currentSkillsPreferences: () => ({ commands: [] }),
+      request: async () => ({ interrupted: false }),
+      showToast: (message, tone) => toasts.push({ message, tone }),
+      refreshComposerActivityStatus: () => activityRefreshes.push(state.agent.status),
+    });
+    controller.syncMessageComposerBusy();
+    assert.equal(sendButton.dataset.mobileLabel, "■");
+    clickHandlers[0].handler({ preventDefault() {}, stopPropagation() {} });
+    await Promise.resolve();
+    await Promise.resolve();
+    assert.equal(state.agent.status, "interrupted");
+    assert.equal(state.liveAssistantActive, false);
+    assert.equal(state.liveToolOutputs.t1.status, "interrupted");
+    assert.equal(toasts.at(-1).message, t("workspace.chat.stopFoundNothing"));
+    assert.deepEqual(activityRefreshes, ["interrupted"]);
+    controller.syncMessageComposerBusy();
+    assert.equal(sendButton.textContent, t("workspace.chat.continueRun"));
+    assert.equal(sendButton.dataset.mobileLabel, "↑");
   } finally {
     globalThis.document = previousDocument;
     globalThis.getComputedStyle = previousGetComputedStyle;

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { createAgentWorkspaceHelpers, resolveComposerActivityStatus, waitingOnBackgroundTasks, withDelegatedActivitySuffix } from "./agent-workspace-helpers.mjs";
+import { createAgentWorkspaceHelpers, openAgentTurnIsLive, providerRetryFromSnapshot, reconcileOpenAgentFromNavigation, resolveComposerActivityStatus, waitingOnBackgroundTasks, withDelegatedActivitySuffix } from "./agent-workspace-helpers.mjs";
 
 function translate(key, params = {}) {
   const template = {
@@ -17,6 +17,7 @@ function translate(key, params = {}) {
     "chat.activity.awaitingApproval": "等待批准",
     "chat.activity.retrying": "重试中",
     "chat.activity.compacting": "压缩中",
+    "chat.activity.waitingSubagent": "等待 {count} 个子代理",
   }[key] || key;
   return String(template).replace(/\{(\w+)\}/g, (_, name) => (params[name] == null ? `{${name}}` : String(params[name])));
 }
@@ -35,6 +36,61 @@ test("a provider retry reports itself with the attempt count", () => {
     resolveComposerActivityStatus({ agent: { status: "running" }, providerRetry: {} }, translate),
     { kind: "retrying", text: "重试中" },
   );
+});
+
+test("a snapshot retry payload restores the composer retry counters", () => {
+  const restored = providerRetryFromSnapshot({ attempt: 2, maxAttempts: 4, error: "should-not-matter" });
+  assert.equal(restored.attempt, 2);
+  assert.equal(restored.maxAttempts, 4);
+  assert.equal(providerRetryFromSnapshot(null), null);
+  assert.equal(providerRetryFromSnapshot({}), null);
+});
+
+test("navigation status catches a remote viewer up when live events stall", () => {
+  const agent = { id: "agent-1", status: "running" };
+  const stopped = reconcileOpenAgentFromNavigation({
+    agent,
+    conversations: [{ agentId: "agent-1", agentStatus: "interrupted" }],
+    now: 20_000,
+  });
+  assert.equal(stopped.changed, true);
+  assert.equal(stopped.agent.status, "interrupted");
+  assert.deepEqual(stopped.settle, { toastOther: true });
+  assert.equal(stopped.catchUp, true);
+
+  const hostStarted = reconcileOpenAgentFromNavigation({
+    agent: { id: "agent-1", status: "interrupted" },
+    conversations: [{ agentId: "agent-1", agentStatus: "running" }],
+  });
+  assert.equal(hostStarted.changed, true);
+  assert.equal(hostStarted.agent.status, "running");
+  assert.equal(hostStarted.settle, null);
+  assert.equal(hostStarted.catchUp, true);
+
+  const continueRace = reconcileOpenAgentFromNavigation({
+    agent,
+    conversations: [{ agentId: "agent-1", agentStatus: "interrupted" }],
+    localTurnStartedAt: 19_500,
+    now: 20_000,
+  });
+  assert.equal(continueRace.changed, false);
+  assert.equal(continueRace.agent.status, "running");
+  assert.equal(continueRace.catchUp, true);
+
+  const localStop = reconcileOpenAgentFromNavigation({
+    agent,
+    conversations: [{ agentId: "agent-1", agentStatus: "interrupted" }],
+    localInterruptRequestedAt: 19_000,
+    now: 20_000,
+  });
+  assert.equal(localStop.settle.toastOther, false);
+
+  const stillRunning = reconcileOpenAgentFromNavigation({
+    agent,
+    conversations: [{ agentId: "agent-1", agentStatus: "running" }],
+  });
+  assert.equal(stillRunning.changed, false);
+  assert.equal(stillRunning.catchUp, true);
 });
 
 test("retrying outranks the thinking state it would otherwise be mistaken for", () => {
@@ -110,6 +166,14 @@ test("composer activity prefers pending approval, then tools, then thinking/gene
     resolveComposerActivityStatus({ agent: { status: "running" } }, translate),
     { kind: "thinking", text: "思考中" },
   );
+  assert.deepEqual(
+    resolveComposerActivityStatus({ agent: { status: "waiting" } }, translate),
+    { kind: "waiting", tone: "waiting", text: "等待 1 个子代理" },
+  );
+  assert.equal(openAgentTurnIsLive({ agent: { status: "running" } }), true);
+  assert.equal(openAgentTurnIsLive({ agent: { status: "waiting" } }), true);
+  assert.equal(openAgentTurnIsLive({ agent: { status: "interrupted" } }), false);
+  assert.equal(openAgentTurnIsLive({ agent: { status: "interrupted" }, liveAssistantActive: true }), true);
 
   assert.deepEqual(
     resolveComposerActivityStatus({ liveAssistantActive: true, liveAssistantText: "" }, translate),
@@ -184,6 +248,7 @@ test("desktop conversations use the task summary and only mobile keeps the compo
   };
   const wrapper = {
     attributes: {},
+    dataset: {},
     classList: classes(),
     setAttribute(name, value) { this.attributes[name] = String(value); },
   };
@@ -200,29 +265,37 @@ test("desktop conversations use the task summary and only mobile keeps the compo
   let projectContext = true;
   let mobileViewport = false;
   const routed = [];
+  const bound = { agentId: "" };
   try {
     const helpers = createAgentWorkspaceHelpers({
       state: { agent: { id: "agent-1", status: "running" }, liveToolOutputs: {}, pendingToolApprovals: {} },
-      getBackgroundTasks: () => ({ setForegroundActivity: (activity) => routed.push(activity) }),
+      getBackgroundTasks: () => ({
+        setForegroundActivity: (activity) => routed.push(activity),
+        setAgent: (id) => { bound.agentId = String(id || ""); },
+        state: () => bound,
+      }),
       projectOperationContextActive: () => projectContext,
       isMobileAppViewport: () => mobileViewport,
     });
 
     helpers.refreshComposerActivityStatus();
+    assert.equal(bound.agentId, "agent-1");
     assert.deepEqual(routed[0], { kind: "thinking", text: "思考中" });
     // The text belongs to the task summary so it is not duplicated here, but the
     // pill must still read as busy: an idle grey dot sitting beside a task
     // summary animating a running step looked like a stalled workspace.
     assert.equal(wrapper.classList.contains("is-busy"), true);
     assert.equal(dot.classList.contains("busy"), true);
+    assert.equal(wrapper.dataset.activityTone, "thinking");
     assert.equal(dot.classList.contains("ok"), false);
     assert.notEqual(label.textContent, "思考中");
 
     mobileViewport = true;
     helpers.refreshComposerActivityStatus();
-    assert.equal(routed[1], null);
+    assert.deepEqual(routed[1], { kind: "thinking", text: "思考中" });
     assert.equal(label.textContent, "思考中");
     assert.equal(wrapper.classList.contains("is-busy"), true);
+    assert.equal(wrapper.dataset.activityTone, "thinking");
 
     // A conversation outside a project routes too. Requiring the project context
     // left an ordinary chat reporting no running task for a whole turn, which is
@@ -232,6 +305,58 @@ test("desktop conversations use the task summary and only mobile keeps the compo
     helpers.refreshComposerActivityStatus();
     assert.deepEqual(routed[2], { kind: "thinking", text: "思考中" });
     assert.notEqual(label.textContent, "思考中");
+    assert.equal(wrapper.classList.contains("is-busy"), true);
+  } finally {
+    globalThis.document = previousDocument;
+  }
+});
+
+test("mobile composer status carries retrying so the label can stay amber", () => {
+  const previousDocument = globalThis.document;
+  const classes = () => {
+    const values = new Set();
+    return {
+      contains: (name) => values.has(name),
+      toggle(name, force) {
+        if (force) values.add(name);
+        else values.delete(name);
+      },
+    };
+  };
+  const wrapper = {
+    attributes: {},
+    dataset: {},
+    classList: classes(),
+    setAttribute(name, value) { this.attributes[name] = String(value); },
+  };
+  const label = { textContent: "", closest: () => wrapper };
+  const dot = { classList: classes() };
+  globalThis.document = {
+    getElementById(id) {
+      if (id === "composerStatusText") return label;
+      if (id === "composerStatusDot") return dot;
+      return null;
+    },
+    querySelector: () => wrapper,
+  };
+  try {
+    const helpers = createAgentWorkspaceHelpers({
+      state: {
+        agent: { id: "agent-1", status: "running" },
+        providerRetry: { attempt: 9, maxAttempts: 11 },
+        liveToolOutputs: {},
+        pendingToolApprovals: {},
+      },
+      getBackgroundTasks: () => ({
+        setForegroundActivity: () => {},
+        setAgent: () => {},
+        state: () => ({ agentId: "agent-1" }),
+      }),
+      isMobileAppViewport: () => true,
+    });
+    helpers.refreshComposerActivityStatus();
+    assert.equal(label.textContent, "重试中 9/11");
+    assert.equal(wrapper.dataset.activityTone, "retrying");
     assert.equal(wrapper.classList.contains("is-busy"), true);
   } finally {
     globalThis.document = previousDocument;

@@ -44,7 +44,7 @@ func (r *Runner) autoTitleConversation(ctx context.Context, agentID, prompt stri
 	if !untitledConversation(agent.Title) && !r.projectNamedConversation(ctx, agent) {
 		return nil
 	}
-	generated, err := r.generateConversationTitle(ctx, prompt)
+	generated, err := r.generateConversationTitle(ctx, agent, prompt)
 	if err != nil {
 		return err
 	}
@@ -161,8 +161,8 @@ func untitledConversation(title string) bool {
 	return placeholder
 }
 
-func (r *Runner) generateConversationTitle(ctx context.Context, prompt string) (string, error) {
-	summaryModel := strings.TrimSpace(r.SummaryModel())
+func (r *Runner) generateConversationTitle(ctx context.Context, agent db.Agent, prompt string) (string, error) {
+	summaryModel := r.summaryModelFor(agent)
 	if r.providers == nil || summaryModel == "" {
 		return "", errors.New("summary model is not configured")
 	}

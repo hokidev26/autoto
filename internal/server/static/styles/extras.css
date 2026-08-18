@@ -151,6 +151,20 @@ body.white-shell.theme-light .composer-wrap {
       display: none;
     }
 
+    body.white-shell.theme-light .composer-task-summary.has-foreground-activity {
+      width: auto;
+      min-width: 30px;
+      max-width: min(180px, 42vw);
+      flex: 1 1 auto;
+      grid-template-columns: 14px minmax(0, 1fr);
+      gap: 8px;
+      place-items: center start;
+    }
+
+    body.white-shell.theme-light .composer-task-summary.has-foreground-activity .header-task-summary-copy {
+      display: block;
+    }
+
     body.white-shell.theme-light .composer-controls {
       min-width: 0;
       flex: 0 1 auto;
@@ -1801,6 +1815,13 @@ body.white-shell.theme-light.theme-dark #settingsContentBody .compact-settings-s
     --mobile-composer-reserve: 120px;
   }
 
+  /* Phones treat a tap as :focus-visible, so the primary-coloured outline
+     flashes once around the control. Desktop mouse clicks do not. Kill the
+     WebKit tap plate as well — the default can read as a second blue flash. */
+  body.white-shell.theme-light {
+    -webkit-tap-highlight-color: transparent;
+  }
+
   /* Full width, hanging under the phone's top bar.
      These notices used to sit at the bottom, where they shared an edge with the
      fixed composer and landed on the message box and the send button; the reader had
@@ -1818,6 +1839,8 @@ body.white-shell.theme-light.theme-dark #settingsContentBody .compact-settings-s
 
 
   body.white-shell.theme-light .mobile-topbar {
+    display: flex;
+    align-items: center;
     grid-template-columns: 46px minmax(0, 1fr) auto;
     gap: 2px;
     border-bottom: 1px solid rgba(60, 60, 67, .12);
@@ -1913,49 +1936,100 @@ body.white-shell.theme-light.theme-dark #settingsContentBody .compact-settings-s
   }
 
   body.white-shell.theme-light .mobile-topbar-center {
+    flex: 1 1 auto;
     min-width: 0;
     display: flex;
     align-items: center;
     justify-content: flex-start;
   }
 
+  /* Product name lives in the drawer. The top bar is the current page. */
   body.white-shell.theme-light .mobile-brand {
-    display: block;
-    overflow: hidden;
-    color: #111318;
-    font-size: 22px;
-    font-weight: 800;
-    letter-spacing: -.035em;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    display: none !important;
   }
 
-  body.white-shell.theme-light .mobile-page-title,
+  body.white-shell.theme-light .mobile-page-title {
+    display: block !important;
+    position: static;
+    left: auto;
+    top: auto;
+    max-width: 100%;
+    transform: none;
+    overflow: hidden;
+    margin: 0;
+    color: var(--ws-text, #1d1d1f);
+    font-size: 16px;
+    font-weight: 700;
+    letter-spacing: -.02em;
+    text-align: left;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    cursor: pointer;
+  }
+
   body.white-shell.theme-light .mobile-update-pill { display: none !important; }
-  body.white-shell.theme-light .mobile-topbar-actions { gap: 0; margin-left: 2px; }
+  body.white-shell.theme-light .mobile-topbar-left {
+    flex: none;
+  }
+  body.white-shell.theme-light .mobile-topbar-actions {
+    flex: none;
+    gap: 0;
+    margin-left: 2px;
+  }
   body.white-shell.theme-light .mobile-topbar .mobile-icon-btn { width: 42px; min-width: 42px; height: 42px; border-radius: 10px; }
 
+  body.white-shell.theme-light:is(.workbench-mode, .schedule-mode, .overview-mode) .mobile-page-title {
+    cursor: default;
+  }
+
+  /* One chrome row: hamburger, title, then the conversation tools. The
+     desktop chat-header stays out of flow except while the title field is
+     open, so toasts and the transcript keep using --mobile-topbar-height. */
   body.white-shell.theme-light .chat-header {
-    height: 50px;
-    min-height: 50px;
-    display: flex;
+    display: none !important;
+  }
+
+  body.white-shell.theme-light .chat-header:has(.chat-title-input:not(.hidden)) {
+    display: flex !important;
+    position: fixed;
+    top: 0;
+    right: 0;
+    left: calc(42px + max(10px, env(safe-area-inset-left)));
+    z-index: 36;
+    height: var(--mobile-topbar-height, 58px);
+    min-height: var(--mobile-topbar-height, 58px);
     align-items: center;
     gap: 8px;
-    padding: 0 10px;
+    padding: 0 max(10px, env(safe-area-inset-right)) 0 8px;
     overflow: hidden;
     border-bottom: 1px solid rgba(60, 60, 67, .12);
     background: var(--ws-card, #fff);
   }
 
   body.white-shell.theme-light .chat-header .header-left {
-    min-width: 88px;
+    min-width: 0;
     flex: 1 1 auto;
     overflow: hidden;
   }
 
   body.white-shell.theme-light .chat-header :is(.chat-heading, .chat-title-row, .chat-title-editor) {
+    width: auto;
     min-width: 0;
     max-width: 100%;
+  }
+
+  body.white-shell.theme-light .chat-header :is(.chat-title-display, #editConversationTitleBtn, #copyConversationBtn) {
+    display: none;
+  }
+
+  body.white-shell.theme-light .chat-header:has(.chat-title-input:not(.hidden)) .header-actions {
+    display: none;
+  }
+
+  body.white-shell.theme-light .chat-header .chat-title-input:not(.hidden) {
+    display: block;
+    min-width: 0;
+    flex: 1 1 auto;
   }
 
   body.white-shell.theme-light .chat-header .chat-title {
@@ -1976,24 +2050,64 @@ body.white-shell.theme-light.theme-dark #settingsContentBody .compact-settings-s
   body.white-shell.theme-light .chat-header .workspace-meta-pills,
   body.white-shell.theme-light .chat-header .security-mode-pill { display: none !important; }
 
-  body.white-shell.theme-light .chat-header .header-actions {
-    min-width: 0;
-    max-width: 56%;
-    flex: 0 1 auto;
-    overflow-x: auto;
-    overflow-y: hidden;
-    scrollbar-width: none;
+  body.white-shell.theme-light .mobile-topbar-actions .header-tool-group {
+    display: flex;
+    align-items: center;
+    flex: none;
+    gap: 1px;
   }
 
-  body.white-shell.theme-light .chat-header .header-actions::-webkit-scrollbar { display: none; }
-  body.white-shell.theme-light .chat-header .header-tool-group { gap: 1px; }
-  body.white-shell.theme-light .chat-header .header-tool-btn {
-    width: 34px;
-    height: 34px;
-    min-width: 34px;
-    min-height: 34px;
-    padding: 7px;
+  body.white-shell.theme-light .mobile-topbar-actions .header-tool-btn {
+    width: 32px;
+    height: 32px;
+    min-width: 32px;
+    min-height: 32px;
+    padding: 6px;
     border-radius: 8px;
+  }
+
+  /* Details stays on the merged row. The 360px hide was for the old second bar. */
+  body.white-shell.theme-light #runtimeStatusBtn {
+    display: inline-flex !important;
+  }
+
+  /* Git stacked layout: the card stays a fixed sheet, the body scrolls, and
+     the three rows size to their content so the commit box and timeline are
+     reachable under the diff. */
+  body.white-shell.theme-light #gitModal.modal {
+    padding: 0;
+    align-items: stretch;
+  }
+  body.white-shell.theme-light #gitModal .git-modal-card {
+    width: 100%;
+    height: 100%;
+    max-height: none;
+    margin: 0;
+    border-radius: 0;
+    overflow: hidden;
+  }
+  body.white-shell.theme-light #gitModal .git-modal-body {
+    min-height: 0;
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+  }
+  body.white-shell.theme-light #gitModal .git-layout {
+    flex: none;
+    min-height: auto;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto auto auto;
+  }
+  body.white-shell.theme-light #gitModal .git-diff-panel {
+    max-height: min(42dvh, 360px);
+  }
+  body.white-shell.theme-light #gitModal .git-log-panel {
+    max-height: none;
+    overflow: visible;
+  }
+  body.white-shell.theme-light #gitModal .git-side-column {
+    overflow-y: visible;
   }
 
   body.white-shell.theme-light .composer-wrap {
@@ -2028,9 +2142,10 @@ body.white-shell.theme-light.theme-dark #settingsContentBody .compact-settings-s
     border-radius: 0;
     padding: 0;
   }
-  /* The 44px input frame owns the row height. The horizontal inset lives on
-     the textarea (5.5px 12px) rather than here, so the padding is exactly the
-     referenced value instead of being split across two boxes. */
+  /* The 44px input frame owns the row height. Vertical padding on the
+     textarea centres a single line inside that frame (15px × 1.4 = 21px of
+     copy, 10.5px above and below). Splitting 5.5px across a 36px field left
+     the glyph sitting on the top edge of a taller white box. */
   body.white-shell.theme-light .message-input-frame {
     min-width: 0;
     min-height: 44px;
@@ -2038,6 +2153,7 @@ body.white-shell.theme-light.theme-dark #settingsContentBody .compact-settings-s
     display: flex;
     flex-direction: column;
     align-items: stretch;
+    justify-content: center;
     background: var(--ws-card, #fff);
     border: 1px solid rgba(60, 60, 67, .18);
     border-radius: 8px;
@@ -2060,10 +2176,56 @@ body.white-shell.theme-light.theme-dark #settingsContentBody .compact-settings-s
     padding: 0 1px;
   }
 
-  body.white-shell.theme-light :is(.composer-task-summary, .permission-safety-indicator, .permission-risk-badge, .toolbar-lightning-btn),
+  body.white-shell.theme-light :is(.permission-safety-indicator, .permission-risk-badge, .toolbar-lightning-btn),
   body.white-shell.theme-light .composer-status:not(.is-busy),
   body.white-shell.theme-light:not(.project-operation-context) .composer-actions {
     display: none !important;
+  }
+
+  /* Idle copy stays visible on the left, same as desktop. Earlier phone
+     CSS hid this chip so the toolbar could keep four icons; that also
+     swallowed "no running task". */
+  body.white-shell.theme-light .composer-task-summary {
+    display: inline-grid !important;
+    width: auto;
+    min-width: 0;
+    max-width: min(48vw, 168px);
+    flex: 1 1 auto;
+    height: 30px;
+    min-height: 30px;
+    grid-template-columns: 14px minmax(0, 1fr);
+    gap: 6px;
+    margin-right: auto;
+    place-items: center start;
+    padding: 0;
+  }
+
+  body.white-shell.theme-light .composer-task-summary:disabled {
+    display: none !important;
+  }
+
+  body.white-shell.theme-light .composer-task-summary .header-task-summary-copy {
+    display: flex !important;
+    min-width: 0;
+  }
+
+  body.white-shell.theme-light .composer-task-summary .header-task-summary-copy > span,
+  body.white-shell.theme-light .composer-task-summary .header-task-queue-badge {
+    display: none !important;
+  }
+
+  body.white-shell.theme-light .composer-task-summary .header-task-summary-copy > strong {
+    overflow: hidden;
+    color: var(--ws-muted, #737b89);
+    font-size: 12px;
+    font-weight: 650;
+    letter-spacing: -.01em;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  body.white-shell.theme-light .composer-task-summary.has-task .header-task-summary-copy > strong {
+    color: var(--ws-primary, #2563eb);
   }
 
   /* The permission control stays on mobile as a bare shield icon. Its menu also
@@ -2230,9 +2392,9 @@ body.white-shell.theme-light.theme-dark #settingsContentBody .compact-settings-s
   body.white-shell.theme-light .composer-attach-btn:is(:hover, :focus-visible) { background: var(--ws-input, #f2f3f5); color: #5369f3; }
 
   body.white-shell.theme-light textarea#messageText {
-    min-height: 36px;
+    min-height: 42px;
     max-height: 116px;
-    padding: 5.5px 12px;
+    padding: 10.5px 12px;
     font-size: 15px;
     line-height: 1.4;
   }
@@ -2252,6 +2414,18 @@ body.white-shell.theme-light.theme-dark #settingsContentBody .compact-settings-s
   }
   body.white-shell.theme-light #sendMessageBtn::before { display: none; content: none; }
   body.white-shell.theme-light #sendMessageBtn:disabled { background: var(--ws-input, #e9ecf1); color: #9aa2b1; }
+  /* ID specificity on the send rule above otherwise paints Stop as the
+     primary blue on phones. Match the expanded composer's red interrupt. */
+  body.white-shell.theme-light #sendMessageBtn.is-stop {
+    border-color: #dc7070;
+    background: #d95757;
+    color: #fff;
+  }
+  body.white-shell.theme-light #sendMessageBtn.is-stop:hover {
+    border-color: #e88585;
+    background: #c94a4a;
+    color: #fff;
+  }
   body.white-shell.theme-light .pending-attachments { order: 0; margin: 0; }
 }
 
@@ -3218,7 +3392,7 @@ body.white-shell.theme-light.theme-dark .context-clear-confirmation :is(strong, 
   body.white-shell.theme-light .context-usage-ring { width: 24px; height: 24px; flex-basis: 24px; }
   .context-usage-overlay.is-mobile { pointer-events: auto; }
   .context-usage-overlay.is-mobile .context-usage-backdrop { position: absolute; inset: 0; display: block; background: transparent; }
-  .context-usage-overlay.is-mobile .context-management-panel { inset: auto auto calc(84px + env(safe-area-inset-bottom)) 10px; width: min(340px, calc(100vw - 20px)) !important; max-width: 340px; max-height: min(66dvh, 520px); border: 1px solid var(--ws-border, #dfe3e9); border-radius: 18px; padding: 16px; box-shadow: 0 18px 48px rgba(15, 23, 42, .22); }
+  .context-usage-overlay.is-mobile .context-management-panel { inset: auto 10px calc(84px + env(safe-area-inset-bottom)) auto; width: min(340px, calc(100vw - 20px)) !important; max-width: 340px; max-height: min(66dvh, 520px); border: 1px solid var(--ws-border, #dfe3e9); border-radius: 18px; padding: 16px; box-shadow: 0 18px 48px rgba(15, 23, 42, .22); }
   .context-usage-overlay.is-mobile .context-management-panel::before { content: none; }
   .context-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .context-management-actions { grid-template-columns: minmax(0, 1fr); }
@@ -3960,12 +4134,13 @@ body.white-shell.theme-light.theme-dark .overview-heatmap-cell:hover { outline-c
     stroke-linejoin: round;
   }
 
-  /* The shield is the permission affordance, not a generic toolbar glyph; its
-     smaller reference size needs a selector after the shared phone icon rule. */
+  /* The shield sits in the same 32px chip as the 18px cube; 14px made it
+     look like a different, smaller control. 20px fills the chip without
+     crowding the stroke. */
   body.white-shell.theme-light .composer-toolbar .composer-permission-field .composer-select-icon svg {
-    width: 14px;
-    height: 14px;
-    stroke-width: 2;
+    width: 20px;
+    height: 20px;
+    stroke-width: 1.85;
   }
 
   body.white-shell.theme-light .composer-effort-field .composer-select-value {
@@ -3983,13 +4158,24 @@ body.white-shell.theme-light.theme-dark .overview-heatmap-cell:hover { outline-c
   }
 
   body.white-shell.theme-light .composer-effort-field .composer-select-value::before { content: none; }
-  /* Keep the visible initial at the same 12px/600 reference metrics as the
-     model label; the earlier workbench ::before rule is hidden on phones. */
+  /* English initial of the selected level (A / L / M / H / …), not the
+     three-bar meter and not the localized word. */
   body.white-shell.theme-light .composer-effort-field .composer-select-value::after {
     content: attr(data-mobile-label);
-    font-size: 12px;
-    font-weight: 600;
+    font-size: 13px;
+    font-weight: 650;
     line-height: 1;
+  }
+
+  body.white-shell.theme-light .composer-toolbar .composer-effort-field .reasoning-effort-icon {
+    display: none;
+  }
+
+  /* A 13px letter in the toolbar's muted grey reads as disabled. Stroke
+     icons keep that grey; the initial uses the same ink as after a tap. */
+  body.white-shell.theme-light .composer-toolbar .composer-effort-field :is(.effort-pill, .composer-select-trigger),
+  body.white-shell.theme-light .composer-toolbar .composer-effort-field .composer-select-value::after {
+    color: var(--ws-text, #20263a);
   }
 
   /* The 24px gauge needs a little more horizontal room than the 18px glyphs,
@@ -4010,20 +4196,22 @@ body.white-shell.theme-light.theme-dark .overview-heatmap-cell:hover { outline-c
   }
 
 
-  /* Earlier mobile rules use several unrelated hover surfaces. One restrained
-     treatment keeps the five controls visually part of the same toolbar. */
-  body.white-shell.theme-light .composer-toolbar > .context-usage-btn:is(:hover, [aria-expanded="true"]),
-  body.white-shell.theme-light .composer-toolbar .composer-select-trigger:is(:hover, [aria-expanded="true"]),
-  body.white-shell.theme-light .composer-toolbar .composer-toolbar-icon:hover {
-    background: color-mix(in srgb, var(--ws-text, #20263a) 8%, transparent);
+  /* These four chips are glyphs, not plates. An 8% grey fill used to stick on
+     hover and while aria-expanded was true; the shield dropped it, and the
+     context ring, model cube, and thinking-strength control now match. Colour
+     still darkens so the open chip is readable without a surface. */
+  body.white-shell.theme-light .composer-toolbar > .context-usage-btn:is(:hover, :focus, :focus-visible, :active, [aria-expanded="true"]),
+  body.white-shell.theme-light .composer-toolbar .composer-select-trigger:is(:hover, :focus, :focus-visible, :active, [aria-expanded="true"]),
+  body.white-shell.theme-light .composer-toolbar .composer-toolbar-icon:is(:hover, :focus-visible, :active) {
+    background: transparent;
+    box-shadow: none;
     color: var(--ws-text, #20263a);
   }
 
-  body.white-shell.theme-light .composer-toolbar > .context-usage-btn:focus-visible,
-  body.white-shell.theme-light .composer-toolbar .composer-select-trigger:focus-visible,
-  body.white-shell.theme-light .composer-toolbar .composer-toolbar-icon:focus-visible {
-    outline: 2px solid color-mix(in srgb, var(--ws-primary, #5369f3) 52%, transparent);
-    outline-offset: -2px;
+  body.white-shell.theme-light .composer-toolbar > .context-usage-btn:is(:focus, :focus-visible),
+  body.white-shell.theme-light .composer-toolbar .composer-select-trigger:is(:focus, :focus-visible),
+  body.white-shell.theme-light .composer-toolbar .composer-toolbar-icon:is(:focus, :focus-visible) {
+    outline: none;
   }
 
   /* Earlier in this file the same media query re-shows the caret; the carets
@@ -4104,7 +4292,8 @@ body.white-shell.theme-light.theme-dark .overview-heatmap-cell:hover { outline-c
 .composer-send-btn.is-stop,
 body.white-shell .composer-send-btn.is-stop,
 body.white-shell.theme-light .composer-send-btn.is-stop,
-body.white-shell.theme-light[data-theme-preset] .composer-send-btn.is-stop {
+body.white-shell.theme-light[data-theme-preset] .composer-send-btn.is-stop,
+body.white-shell.theme-light #sendMessageBtn.is-stop {
   border-color: #dc7070;
   background: #d95757;
   color: #fff;
@@ -4113,10 +4302,25 @@ body.white-shell.theme-light[data-theme-preset] .composer-send-btn.is-stop {
 .composer-send-btn.is-stop:hover,
 body.white-shell .composer-send-btn.is-stop:hover,
 body.white-shell.theme-light .composer-send-btn.is-stop:hover,
-body.white-shell.theme-light[data-theme-preset] .composer-send-btn.is-stop:hover {
+body.white-shell.theme-light[data-theme-preset] .composer-send-btn.is-stop:hover,
+body.white-shell.theme-light #sendMessageBtn.is-stop:hover {
   border-color: #e88585;
   background: #c94a4a;
   color: #fff;
+}
+
+/* Phones paint activity on .composer-status, not the task summary. The busy
+   rule is primary-blue for thinking; retrying and waiting-on-child stay amber
+   the way the expanded header already does. */
+body.white-shell.theme-light .composer-status.is-busy[data-activity-tone="retrying"] .composer-status-text,
+body.white-shell.theme-light .composer-status.is-busy[data-activity-tone="waiting"] .composer-status-text {
+  color: #d97706;
+}
+
+body.white-shell.theme-light .composer-status.is-busy[data-activity-tone="retrying"] .composer-status-dot,
+body.white-shell.theme-light .composer-status.is-busy[data-activity-tone="waiting"] .composer-status-dot {
+  border-color: rgba(217, 119, 6, .22);
+  border-top-color: #d97706;
 }
 
 /* Task-state indicator: one line-art glyph per activity state, replacing the
@@ -4324,11 +4528,11 @@ body.white-shell.theme-light .reasoning-effort-icon[data-effort-level="3"] svg [
    the background-task panel draws its pill row. Before this, the folded
    variants kept their own heights (28-38px boxes), so the three icons sat
    at visibly different heights. The wide layout is deliberately untouched:
-   the model keeps its labelled pill there. The phone stylesheet (max-width
-   767px media) keeps its own, more specific toolbar rules, which win over
-   these where both apply. The selected value stays reachable as the
-   trigger's tooltip and aria-label (sync() maintains both), and the popover
-   shows it on open.
+   the model keeps its labelled pill there. Thinking strength stays a letter
+   (A / L / M / H / …) rather than the three-bar meter: the bars encode a
+   level that neighbours cannot read at this size, and a later icon-only
+   rule used to hide the letter. Keyboard focus and the open menu still
+   name the full level.
    ========================================================================== */
 @container composer-shell (max-width: 480px) {
   body.white-shell.theme-light .composer-toolbar .composer-controls {
@@ -4380,8 +4584,9 @@ body.white-shell.theme-light .reasoning-effort-icon[data-effort-level="3"] svg [
     background: transparent;
     padding: 0;
   }
-  body.white-shell.theme-light .composer-toolbar .composer-controls .composer-select-trigger:is(:hover, [aria-expanded="true"]) {
-    background: color-mix(in srgb, var(--ws-text, #20263a) 8%, transparent);
+  body.white-shell.theme-light .composer-toolbar .composer-controls .composer-select-trigger:is(:hover, :focus, :focus-visible, :active, [aria-expanded="true"]) {
+    background: transparent;
+    box-shadow: none;
     color: var(--ws-text, #20263a);
   }
   body.white-shell.theme-light .composer-toolbar .composer-controls :is(.composer-select-value, .composer-select-chevron) {
@@ -4395,6 +4600,35 @@ body.white-shell.theme-light .reasoning-effort-icon[data-effort-level="3"] svg [
     align-items: center;
     justify-content: center;
     margin: 0;
+  }
+  /* The shared icon-only rule above hides every value, including the
+     thinking-strength initial. Put the letter back and drop the bars: A / M
+     / H is the compact form of the control, not a third glyph in the row. */
+  body.white-shell.theme-light .composer-toolbar .composer-controls .composer-effort-field .composer-select-icon {
+    display: none;
+  }
+  body.white-shell.theme-light .composer-toolbar .composer-controls .composer-effort-field .composer-select-value {
+    position: static;
+    display: grid;
+    place-items: center;
+    width: auto;
+    min-width: 18px;
+    height: 18px;
+    overflow: visible;
+    clip: auto;
+    clip-path: none;
+    font-size: 0;
+    line-height: 0;
+  }
+  body.white-shell.theme-light .composer-toolbar .composer-controls .composer-effort-field .composer-select-value::after {
+    content: attr(data-mobile-label);
+    font-size: 13px;
+    font-weight: 650;
+    line-height: 1;
+    color: var(--ws-text, #20263a);
+  }
+  body.white-shell.theme-light .composer-toolbar .composer-controls .composer-effort-field :is(.effort-pill, .composer-select-trigger) {
+    color: var(--ws-text, #20263a);
   }
 }
 
@@ -4411,7 +4645,7 @@ body.guest-observe [data-create-navigation-item],
 body.guest-observe [data-open-directory-shortcut],
 body.guest-observe .composer-wrap,
 body.guest-observe .terminal-panel,
-body.guest-observe #terminalToggleBtn {
+body.guest-observe #toggleTerminalBtn {
   display: none !important;
 }
 body.collaborator-limited [data-global-rail-target="schedules"],
@@ -4422,22 +4656,30 @@ body.collaborator-limited #mobileNewScheduleBtn,
 body.collaborator-limited [data-create-navigation-item],
 body.collaborator-limited [data-open-directory-shortcut],
 body.collaborator-limited .terminal-panel,
-body.collaborator-limited #terminalToggleBtn {
+body.collaborator-limited #toggleTerminalBtn {
   display: none !important;
 }
 
 .guest-observe-banner.hidden,
-body:not(.guest-observe):not(.collaborator-limited) .guest-observe-banner {
+body:not(.guest-observe) .guest-observe-banner {
   display: none;
 }
 
-body.guest-observe .guest-observe-banner:not(.hidden),
-body.collaborator-limited .guest-observe-banner:not(.hidden) {
+body.guest-observe .guest-observe-banner:not(.hidden) {
   display: block;
   margin: 0 16px 16px;
   padding: 12px 14px;
   border-radius: 12px;
   background: var(--ws-card, #fff);
+  color: var(--ws-text, #20263a);
+  border: 1px solid var(--ws-border, #e5e7eb);
+}
+
+#settingsContentBody .profile-session-notice {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--ws-input, #f4f6fa);
   color: var(--ws-text, #20263a);
   border: 1px solid var(--ws-border, #e5e7eb);
 }
@@ -4453,72 +4695,339 @@ body.account-session-locked #appearanceBackgroundLayer {
   inset: 0;
   z-index: 200;
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: 24px;
-  background: var(--ws-canvas, #f8fafc);
+  gap: 5px;
+  padding: 28px 18px;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 18% 10%, rgba(92, 108, 255, 0.13), transparent 34%),
+    radial-gradient(circle at 88% 88%, rgba(62, 190, 255, 0.07), transparent 28%),
+    #f4f6fb;
+  color: #202634;
+}
+
+.account-session-overlay::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.55;
+  background-image:
+    linear-gradient(rgba(77, 88, 116, 0.035) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(77, 88, 116, 0.035) 1px, transparent 1px);
+  background-size: 32px 32px;
+  mask-image: linear-gradient(to bottom, black, transparent 88%);
 }
 
 .account-session-overlay.hidden {
   display: none;
 }
 
+.account-session-overlay svg {
+  display: block;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
 .account-session-card {
-  width: min(420px, 100%);
-  padding: 24px;
-  border-radius: 16px;
-  background: var(--ws-card, #fff);
-  color: var(--ws-text, #20263a);
-  box-shadow: 0 16px 48px color-mix(in srgb, #0f172a 18%, transparent);
+  position: relative;
+  z-index: 1;
+  width: min(100%, 488px);
+  overflow: hidden;
+  border: 1px solid #e2e6ef;
+  border-radius: 11px;
+  background: linear-gradient(150deg, rgba(255, 255, 255, 0.99), rgba(250, 251, 254, 0.99));
+  color: #202634;
+  padding: 32px;
+  box-shadow: 0 1px 2px rgba(49, 61, 96, 0.06), 0 10px 30px rgba(49, 61, 96, 0.08);
+}
+
+.account-session-card::before {
+  content: "";
+  position: absolute;
+  width: 290px;
+  height: 290px;
+  top: -190px;
+  right: -150px;
+  border-radius: 999px;
+  background: radial-gradient(circle, rgba(109, 124, 255, 0.18), transparent 68%);
+  pointer-events: none;
+}
+
+.account-session-card-content {
+  position: relative;
+  z-index: 1;
+}
+
+.account-session-brand {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0 0 28px;
+}
+
+.account-session-brand-identity {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.account-session-brand-mark {
+  width: 36px;
+  height: 36px;
+  display: inline-flex;
+  flex: 0 0 36px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid #d2d9ff;
+  border-radius: 8px;
+  background: linear-gradient(145deg, #eef1ff, #f7f8ff);
+  color: #5369f3;
+  box-shadow: 0 1px 2px rgba(77, 93, 224, 0.10);
+}
+
+.account-session-brand-mark svg {
+  width: 24px;
+  height: 24px;
+}
+
+.account-session-brand-name {
+  color: #252b38;
+  font-size: 13px;
+  font-weight: 850;
+  letter-spacing: 0.17em;
+  line-height: 1;
+}
+
+.account-session-connection {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: #7f899a;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.account-session-connection::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  flex: 0 0 7px;
+  border-radius: 999px;
+  background: #e7a83f;
+  box-shadow: 0 0 0 4px rgba(231, 168, 63, 0.12);
+  transform-origin: center;
+  animation: account-session-connection-bounce 1.15s cubic-bezier(0.45, 0.05, 0.55, 0.95) infinite;
+}
+
+@keyframes account-session-connection-bounce {
+  0%, 100% {
+    transform: translateY(0) scale(0.94);
+    box-shadow: 0 0 0 4px rgba(231, 168, 63, 0.10);
+  }
+  48% {
+    transform: translateY(-4px) scale(1.12);
+    box-shadow: 0 5px 0 -2px rgba(231, 168, 63, 0.18), 0 0 0 7px rgba(231, 168, 63, 0.08);
+  }
 }
 
 .account-session-title {
-  margin: 0 0 8px;
-  font-size: 1.25rem;
+  margin: 18px 0 24px;
+  text-align: left;
+  color: #202634;
+  font-size: 34px;
+  font-weight: 750;
+  letter-spacing: -0.045em;
+  line-height: 1.08;
 }
 
-.account-session-subtitle,
-.account-session-field,
-.account-session-error {
-  margin: 0 0 12px;
-  font-size: 0.95rem;
+.account-session-subtitle {
+  margin: -8px 0 18px;
+  text-align: left;
+  font-size: 0.92rem;
+  line-height: 1.45;
+  color: #747e90;
 }
 
-.account-session-error {
-  color: #b42318;
-}
-
-body.white-shell.theme-light.theme-dark .account-session-error {
-  color: #ff8a80;
-}
-
-.account-session-toggle {
-  display: flex;
-  gap: 8px;
-  margin-bottom: 16px;
-}
-
-.account-session-toggle-btn {
-  flex: 1;
-  border: 1px solid var(--ws-border, #e5e7eb);
-  background: transparent;
-  border-radius: 8px;
-  padding: 8px 10px;
-}
-
-.account-session-toggle-btn.active {
-  background: var(--settings-primary-soft, #e8eefc);
-  border-color: transparent;
-}
-
-.account-session-form {
-  display: grid;
-  gap: 12px;
+.account-session-subtitle:empty,
+.account-session-subtitle[hidden] {
+  display: none;
 }
 
 .account-session-field {
   display: grid;
-  gap: 6px;
+  gap: 8px;
+  margin: 0 0 10px;
+  color: #5d6676;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.account-session-field input {
+  width: 100%;
+  min-height: 56px;
+  border: 1px solid #d4dae6;
+  border-radius: 6px;
+  background: #f7f8fb;
+  color: #202634;
+  padding: 0 16px;
+  font: inherit;
+  font-size: 16px;
+  font-weight: 500;
+  transition: border-color 0.16s ease, box-shadow 0.16s ease, background 0.16s ease;
+}
+
+.account-session-field input:focus {
+  outline: 0;
+  border-color: #9aa8ff;
+  background: #ffffff;
+  box-shadow: 0 0 0 3px rgba(83, 105, 243, 0.12);
+}
+
+.account-session-error {
+  margin: 0 0 18px;
+  border: 1px solid #fecdd3;
+  border-radius: 6px;
+  padding: 11px 13px;
+  background: #fff4f5;
+  color: #b42336;
+  font-size: 13px;
+}
+
+.account-session-toggle {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 16px;
+  padding: 4px;
+  border-radius: 8px;
+  border: 1px solid #e2e6ef;
+  background: #f7f8fb;
+}
+
+.account-session-toggle-btn {
+  flex: 1;
+  border: 0;
+  background: transparent;
+  border-radius: 6px;
+  padding: 8px 10px;
+  color: #747e90;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.account-session-toggle-btn.active {
+  background: #ffffff;
+  color: #202634;
+  box-shadow: 0 1px 2px rgba(49, 61, 96, 0.12);
+}
+
+.account-session-form {
+  display: grid;
+  gap: 0;
+}
+
+.account-session-overlay .account-session-submit {
+  width: 100%;
+  min-height: 54px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  margin-top: 8px;
+  border: 0;
+  border-radius: 8px;
+  background: linear-gradient(135deg, #6576ff, #5264ee);
+  color: #fff;
+  box-shadow: 0 1px 2px rgba(69, 87, 224, 0.24), 0 4px 12px rgba(69, 87, 224, 0.18);
+  font: inherit;
+  font-weight: 820;
+  cursor: pointer;
+  transition: transform 0.15s ease, box-shadow 0.15s ease, filter 0.15s ease;
+}
+
+.account-session-overlay .account-session-submit::after {
+  content: "";
+  width: 18px;
+  height: 18px;
+  background: currentColor;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m9 18 6-6-6-6'/%3E%3C/svg%3E") center / contain no-repeat;
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m9 18 6-6-6-6'/%3E%3C/svg%3E") center / contain no-repeat;
+  transition: transform 0.15s ease;
+}
+
+.account-session-overlay .account-session-submit:hover:not(:disabled) {
+  transform: translateY(-1px);
+  filter: brightness(1.04);
+  box-shadow: 0 2px 4px rgba(69, 87, 224, 0.22), 0 7px 18px rgba(69, 87, 224, 0.22);
+}
+
+.account-session-overlay .account-session-submit:hover:not(:disabled)::after {
+  transform: translateX(3px);
+}
+
+.account-session-overlay .account-session-submit:disabled {
+  opacity: 0.48;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .account-session-connection::before {
+    animation: none;
+  }
+}
+
+@media (max-width: 520px) {
+  .account-session-overlay {
+    justify-content: center;
+    padding: max(16px, env(safe-area-inset-top)) 14px max(18px, env(safe-area-inset-bottom));
+  }
+
+  .account-session-overlay::before {
+    opacity: 0.18;
+  }
+
+  .account-session-card {
+    width: 100%;
+    padding: 25px 20px;
+  }
+
+  .account-session-brand {
+    margin-bottom: 23px;
+  }
+
+  .account-session-brand-mark {
+    width: 34px;
+    height: 34px;
+    flex-basis: 34px;
+  }
+
+  .account-session-connection {
+    font-size: 10px;
+  }
+
+  .account-session-title {
+    font-size: 30px;
+  }
+}
+
+body.white-shell.theme-light.theme-dark .account-session-error {
+  color: #b42336;
+}
+
+body.white-shell.theme-light.theme-dark .account-session-card {
+  box-shadow: 0 1px 2px rgba(49, 61, 96, 0.06), 0 10px 30px rgba(49, 61, 96, 0.08);
+}
+
+body.white-shell.theme-light.theme-dark .account-session-toggle-btn.active {
+  background: #ffffff;
 }
 
 #settingsContentBody .user-admin-page {

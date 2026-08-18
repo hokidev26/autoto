@@ -22,6 +22,7 @@ func (s *Server) agentRoutes(r chi.Router) {
 	r.Patch("/{id}/title", s.updateAgentTitle)
 	r.Patch("/{id}/cwd", s.updateAgentCWD)
 	r.Patch("/{id}/model", s.updateAgentModel)
+	r.Patch("/{id}/summary-model", s.updateAgentSummaryModel)
 	r.Patch("/{id}/reasoning-effort", s.updateAgentReasoningEffort)
 	r.Patch("/{id}/fast-mode", s.updateAgentFastMode)
 	r.Patch("/{id}/permission-mode", s.updateAgentPermissionMode)

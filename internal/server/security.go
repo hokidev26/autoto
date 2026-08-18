@@ -512,6 +512,9 @@ func (s *Server) handleRemoteAccessGate(w http.ResponseWriter, r *http.Request) 
 		s.handleRemoteAccessLogin(w, r)
 		return true
 	}
+	if (r.Method == http.MethodGet || r.Method == http.MethodHead) && publicShareAssetPath(r.URL.Path) {
+		return false
+	}
 	if s.localAccountsExist(r.Context()) && !requestHasRemotePasswordCredential(r) {
 		if remoteAccountSessionBootPath(r) {
 			return false
@@ -940,6 +943,7 @@ func (s *Server) writeRemoteAccessLoginPage(w http.ResponseWriter, r *http.Reque
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <title>%s</title>
+  %s
   <style>
     :root { color-scheme: light; --page:#f4f6fb; --card:#ffffff; --line:#e2e6ef; --line-strong:#d4dae6; --text:#202634; --muted:#747e90; --accent:#5369f3; --accent-light:#6678f5; --radius:8px; --radius-sm:calc(var(--radius) * .6); --radius-md:calc(var(--radius) * .8); --radius-lg:var(--radius); --radius-xl:calc(var(--radius) * 1.4); }
     * { box-sizing: border-box; }
@@ -1017,7 +1021,7 @@ func (s *Server) writeRemoteAccessLoginPage(w http.ResponseWriter, r *http.Reque
     </div>
   </main>
 </body>
-</html>`, html.EscapeString(loginCopy.LanguageTag), html.EscapeString(loginCopy.PageTitle), html.EscapeString(loginCopy.ConnectionState), html.EscapeString(loginCopy.Heading), messageHTML, html.EscapeString(loginCopy.PasswordLabel), html.EscapeString(loginCopy.PasswordPlaceholder), html.EscapeString(loginCopy.PasswordLabel), disabledAttr(!passwordConfigured), formHTML)
+</html>`, html.EscapeString(loginCopy.LanguageTag), html.EscapeString(loginCopy.PageTitle), sharePreviewMetaHTML(r), html.EscapeString(loginCopy.ConnectionState), html.EscapeString(loginCopy.Heading), messageHTML, html.EscapeString(loginCopy.PasswordLabel), html.EscapeString(loginCopy.PasswordPlaceholder), html.EscapeString(loginCopy.PasswordLabel), disabledAttr(!passwordConfigured), formHTML)
 }
 
 func disabledAttr(disabled bool) string {

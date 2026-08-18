@@ -23,6 +23,7 @@ func TestCollaboratorWorkspaceAllowlist(t *testing.T) {
 		{http.MethodGet, "/api/agents/a1/messages"},
 		{http.MethodPost, "/api/agents/a1/messages"},
 		{http.MethodPatch, "/api/agents/a1/model"},
+		{http.MethodPatch, "/api/agents/a1/summary-model"},
 		{http.MethodPatch, "/api/agents/a1/navigation-state"},
 		{http.MethodGet, "/api/models"},
 		{http.MethodGet, "/api/workflow/preferences"},
@@ -35,6 +36,8 @@ func TestCollaboratorWorkspaceAllowlist(t *testing.T) {
 		{http.MethodGet, "/ws/agent"},
 		{http.MethodGet, "/api/v2/agents/a1/skills/effective"},
 		{http.MethodGet, "/api/agents/a1/git/status"},
+		{http.MethodGet, "/api/agents/a1/git/diff"},
+		{http.MethodGet, "/api/agents/a1/git/log"},
 	}
 	denied := []struct{ method, path string }{
 		{http.MethodPost, "/api/projects"},
@@ -43,6 +46,7 @@ func TestCollaboratorWorkspaceAllowlist(t *testing.T) {
 		{http.MethodPost, "/api/projects/p1/init-git"},
 		{http.MethodDelete, "/api/projects/p1"},
 		{http.MethodGet, "/api/settings"},
+		{http.MethodPatch, "/api/runtime/agent-model-settings"},
 		{http.MethodPut, "/api/workflow/preferences"},
 		{http.MethodGet, "/api/providers"},
 		{http.MethodPut, "/api/providers/openai/config"},

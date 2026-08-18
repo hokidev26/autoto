@@ -1,3 +1,5 @@
+import { providerRetryFromSnapshot } from "./agent-workspace-helpers.mjs";
+
 export function createAppMainStreamWiring({
   $,
   am,
@@ -88,12 +90,11 @@ async function applyAgentLiveSnapshot(snapshot, detail = {}) {
   }
   const nextWorkState = normalizeWorkStateSnapshot(snapshot);
   state.agent = nextAgent;
-  // A snapshot is the authoritative server state, and neither of these is part of
-  // it: both are local guesses driven purely by live events. Keeping them across a
-  // resync is what let a dropped compaction_finished or retry-cleared event pin the
-  // composer to a status the server no longer reports.
+  // Compaction is still a live-event flag with no snapshot field. Retry is
+  // server-authoritative: a reconnect used to null it and leave remote
+  // collaborators on "thinking" while the host still showed "retrying".
   state.contextCompacting = false;
-  state.providerRetry = null;
+  state.providerRetry = providerRetryFromSnapshot(snapshot.providerRetry);
   contextManagement.applyStatus(snapshot.context || {}, { agentId });
   state.workState = nextWorkState;
   backgroundTasks.applySnapshot(snapshot, { agentId });
@@ -113,6 +114,19 @@ async function applyAgentLiveSnapshot(snapshot, detail = {}) {
   for (const call of Array.isArray(snapshot.toolActivity) ? snapshot.toolActivity : []) {
     const toolUseId = String(call?.toolUseId || call?.tool_use_id || "").trim();
     if (toolUseId) recoveredToolOutputs[toolUseId] = { ...call, agentId, toolUseId };
+  }
+  const latestRun = snapshot.latestRun;
+  const latestRunStatus = String(latestRun?.status || "").toLowerCase();
+  const latestRunTerminal = ["completed", "error", "failed", "interrupted", "superseded"].includes(latestRunStatus);
+  if (latestRunTerminal) {
+    const settled = latestRunStatus === "interrupted" ? "interrupted" : "completed";
+    for (const [toolUseId, item] of Object.entries(recoveredToolOutputs)) {
+      if (item?.agentId !== agentId) continue;
+      const status = String(item.status || item.state || "").trim().toLowerCase().replace(/[\s-]+/g, "_");
+      if (!["completed", "complete", "succeeded", "success", "done", "error", "failed", "rejected", "denied", "cancelled", "canceled", "interrupted", "aborted", "superseded"].includes(status)) {
+        recoveredToolOutputs[toolUseId] = { ...item, status: settled };
+      }
+    }
   }
   state.liveToolOutputs = recoveredToolOutputs;
   clearRunSummary({ preserveView: true });
@@ -138,8 +152,7 @@ async function applyAgentLiveSnapshot(snapshot, detail = {}) {
   renderWorkbenchShell();
   syncMessageComposerBusy();
   refreshComposerActivityStatus();
-  const latestRun = snapshot.latestRun;
-  if (latestRun?.id && ["completed", "error", "failed", "interrupted", "superseded"].includes(latestRun.status)) {
+  if (latestRun?.id && latestRunTerminal) {
     loadRunSummary(latestRun.id, { agentId }).catch((error) => notifyTerminal(`[warn] ${am("runSummaryRestoreFailed", { message: error?.message || error })}\n`));
   }
 }

@@ -16,9 +16,18 @@ All notable changes to Autoto are tracked here. The project is still an experime
 
 - Local accounts now have four roles. Existing collaborators (`role=user`) keep today's powers as **operators**. A new **collaborator** role can only work in granted projects, cannot create projects, and cannot open host settings. Administrators can see every project.
 - Signing out now shows a dedicated login screen instead of a translucent overlay on top of the last conversation.
-- Background 401s no longer yank the login caret from the password field back to the account name. The overlay only auto-focuses the first time it opens.
+- The account sign-in screen matches the remote access unlock page: smile mark, letterspaced AUTOTO, yellow bouncing status, large heading, and inset fields. It no longer uses a giant watermark face.
+- Typing the login password no longer jumps the caret back to the account field. Repeat 401s leave the open dialog alone, and browser AutoFill is not invited to retarget the username control.
 - Collaborators keep profile preferences across sign-out. Login previously called a blocked local-import endpoint and then wiped the saved profile.
-- Collaborators can read host workflow preferences so the permission menu can show the danger-reflection level. They still cannot change that host-wide setting, create projects, or open host settings. They can open the running-task panel for agents they already have access to (`/api/background-tasks/{id}` detail, output, wait, and cancel); those routes previously sat outside the collaborator allowlist.
+- Collaborators (and the composer summary-model row) now set a per-conversation summary model. Conversations without an override still inherit the host default in Settings. Collaborators still cannot change that host-wide default.
+- Collaborators can open the conversation Git panel (status, diff, and commit timeline) on granted projects. The phone header no longer hides that control.
+- The phone top bar is one row: hamburger, the current page or conversation title, then the conversation tools (files, Git, tasks, details, preview; host also keeps the terminal). The Autoto wordmark stays in the drawer. Collaborator and guest CSS now hides `#toggleTerminalBtn` (the previous selector never matched).
+- The phone composer keeps the idle running-task label (`暫無執行任務` / locale equivalent) on the left of the toolbar. It previously hid that chip on small screens.
+- Drawer and account-menu Sign out use the account session when local users exist, so a collaborator returns to the login screen. Remote-access logout (access password) remains only when there is no account lock.
+- Sharing the workspace URL now has a product title, description, and icon for chat-app link previews. Messengers previously scraped the loading-shell labels instead.
+- On a phone, the Git sheet scrolls as one column so the commit box and timeline stay reachable under the diff.
+- Reload paints from the on-device UI cache immediately and revalidates in the background. The stylesheet is served as one file instead of sixteen `@import` round trips, and the boot overlay no longer waits on a long fade.
+- The conversation Git glyph is a three-node branch. The previous overlapping curves read as a knot at header size.
 - Plan cards render in the transcript in place of the raw JSON blob, executed and cancelled plans stay visible after reopen, and the synthetic execute/replan prompts compact to short system notices.
 - Two-column navigation stops at 260px for the conversation list. Dragging further clamps instead of stretching an empty gutter; the two-column layout now starts at that same total rather than after a wider docked rail.
 - Folder-row `+` sits on the far right of the row on hover, so it no longer overlaps the folder name. Hovering anywhere on a project folder paints a pill and shows the chevron; clicking the row expands or collapses it instead of requiring the 16px folder icon.
@@ -40,6 +49,8 @@ All notable changes to Autoto are tracked here. The project is still an experime
 - The composer’s running-task panel uses the same permission-mode list and remote cap as the main permission control, so **Allow all** is remote-disabled there too until the host allows full remote access.
 - Saving Remote Access policy or rotating the access password now revokes signed-in remote accounts (collaborators included), not only the in-memory access-password cookie. The localhost session that saved stays signed in.
 - Stopping a run from another session now tells collaborators: the transcript shows “this turn was stopped”, they get a toast, and the send button leaves Stop instead of staying there because live tool cards were still marked running.
+- Continue and Stop on a phone or remote collaborator now keep the header on the live step (thinking / retrying) instead of “no running task”. The conversation list’s durable status is applied to the open thread when live events stall, and that poll speeds up to about 400ms while a turn is in flight so a host stop reaches the remote viewer without waiting several seconds. Stop also leaves the Stop label as soon as the interrupt API returns, even when the host already stopped.
+- Local and remote sessions now agree when a run is retrying a provider error. Reconnecting used to drop that live flag and show “thinking” on the other screen.
 - Cloudflare Quick Tunnels now pin HTTP/2 over TCP 443 (in addition to IPv4). Windows networks that drop UDP/QUIC no longer require disabling IPv6 or a manual protocol switch.
 - macOS temp paths that go through `/var` (an alias of `/private/var`) no longer fail credential-store, peer-identity, skill-source, and git-workspace checks that already passed on Windows. A parent directory that is not a repository still reports a single nested child repository even when the temp path is not under HOME.
 - Hook shell `cwd` values like `C:\\workspace` are rejected on macOS and Linux, not only on Windows.
@@ -54,6 +65,13 @@ All notable changes to Autoto are tracked here. The project is still an experime
 - Custom OpenAI-compatible relays now offer xhigh / max / ultra when the selected model reports those levels, or when it is a known Codex identity (gpt-5.6-luna and gpt-5.6-sol stop at max, gpt-5.6-terra serves ultra, gpt-5.5 stops at xhigh). Other models stay on low / medium / high. An explicit `/models` list always wins.
 - Switching the composer model now reaches send and continue: the picker value is written onto the conversation before the run starts, and a stale live snapshot cannot put the previous model back.
 - The composer model menu stays inside the window when opened from the right-side chip; checkmarks are no longer clipped.
+- Collaborator capability copy now lives on Settings → Profile instead of a chat banner that covered the last messages and the composer.
+- On a phone, Stop stays red and “retrying” stays amber. A mobile cascade rule had painted both with the primary send blue. Remote named-tunnel clients now revalidate those files with the origin instead of keeping a Cloudflare copy of the previous CSS.
+- Model, thinking-strength, permission, and context sheets on a phone open above the right-side chips instead of sticking to the left edge of the transcript.
+- On a phone, a single line in the composer sits vertically in the input frame instead of against the top edge, the permission shield no longer paints a grey plate while its menu is open, and the workspace-files header glyph is a connected file tree.
+- The composer context, model, and thinking-strength chips match the shield: hover and an open menu no longer paint a grey plate behind the glyph.
+- A phone tap no longer flashes a blue focus ring around the composer chips. Desktop mouse clicks were already free of it; keyboard focus on a wider window is unchanged.
+- On a phone, thinking strength shows the English initial of the selected level (A, L, M, H, …) instead of the three-bar meter, in the same ink as the rest of the composer text, and the permission shield is drawn at the same optical size as its neighbours.
 
 ## v1.0.0 - 2026-08-14
 

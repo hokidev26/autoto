@@ -23,13 +23,11 @@
 html, body { height: 100%; }
 #appShell {
   opacity: 1;
-  transform: translateY(0);
-  transition: opacity 280ms ease, transform 360ms cubic-bezier(.22, 1, .36, 1);
+  transition: opacity 120ms ease;
 }
 html[data-ui-locale-pending="true"] #appShell {
   visibility: hidden;
   opacity: 0;
-  transform: translateY(6px);
   pointer-events: none;
 }
 .boot-transition {
@@ -45,7 +43,7 @@ html[data-ui-locale-pending="true"] #appShell {
   opacity: 0;
   visibility: hidden;
   pointer-events: none;
-  transition: opacity 260ms ease, visibility 0s linear 260ms;
+  transition: opacity 90ms ease, visibility 0s linear 90ms;
 }
 html[data-ui-locale-pending="true"] .boot-transition {
   opacity: 1;

@@ -73,4 +73,5 @@ test("重試狀態在下一次嘗試有產出或 run 結束時被清掉", () => 
   assert.match(started.slice(0, started.indexOf("\n  }\n")), /state\.providerRetry = null/);
   const terminal = appMain.slice(appMain.indexOf("if (terminalAgentEvents.includes(event.type))"));
   assert.match(terminal.slice(0, terminal.indexOf("\n  }\n")), /state\.providerRetry = null/);
+  assert.match(appMain, /state\.providerRetry = providerRetryFromSnapshot\(snapshot\.providerRetry\)/);
 });

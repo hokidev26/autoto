@@ -79,6 +79,35 @@ func TestSummarizeOldestMessagesRollsSegmentsAndCarriesPriorOutput(t *testing.T)
 	}
 }
 
+func TestSummaryModelForPrefersAgentOverride(t *testing.T) {
+	runner := NewRunner(nil, nil, nil, nil, config.AgentConfig{SummaryModel: "fake:host"})
+	if got := runner.summaryModelFor(db.Agent{}); got != "fake:host" {
+		t.Fatalf("empty agent must inherit host summary model, got %q", got)
+	}
+	if got := runner.summaryModelFor(db.Agent{SummaryModel: " fake:override "}); got != "fake:override" {
+		t.Fatalf("agent override must win, got %q", got)
+	}
+}
+
+func TestSummarizeOldestMessagesUsesAgentSummaryModelOverride(t *testing.T) {
+	provider := &scriptedProvider{turns: [][]providers.Event{
+		{{Type: "text", Text: "override summary"}, {Type: "done", Done: true}},
+	}}
+	runner := newAgentTestRunner(nil, provider, config.AgentConfig{SummaryModel: "fake:host"})
+	summary := runner.summarizeOldestMessages(context.Background(), db.Agent{ID: "conv-1", SummaryModel: "fake:override"}, []db.Message{
+		{Role: "user", ContentText: "alpha task"},
+	})
+	if summary != "override summary" {
+		t.Fatalf("unexpected summary: %q", summary)
+	}
+	if got := provider.requestCount(); got != 1 {
+		t.Fatalf("expected one summary call, got %d", got)
+	}
+	if provider.request(0).Model != "override" {
+		t.Fatalf("compaction must use the conversation override, got %q", provider.request(0).Model)
+	}
+}
+
 func TestSummarizeWithModelSmallMaterialUsesSingleCall(t *testing.T) {
 	provider := &scriptedProvider{turns: [][]providers.Event{
 		{{Type: "text", Text: "compact summary"}, {Type: "done", Done: true}},

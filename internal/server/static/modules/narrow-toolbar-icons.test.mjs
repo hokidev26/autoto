@@ -76,6 +76,8 @@ test("窄版的思考強度顯示成字母，跟手機瀏覽一致", async () =>
   const phoneBlock = styles.slice(styles.indexOf(phoneMarker));
   assert.ok(phoneBlock.length > 0, "找不到手機版 composer 工具列區塊");
   assert.match(phoneBlock, /\.composer-effort-field \.composer-select-value::after\s*\{[^}]*content:\s*attr\(data-mobile-label\)/);
+  assert.match(phoneBlock, /\.composer-toolbar \.composer-controls \.composer-effort-field \.composer-select-icon\s*\{\s*display:\s*none/);
+  assert.match(phoneBlock, /\.composer-toolbar \.composer-permission-field \.composer-select-icon svg\s*\{[\s\S]*?width:\s*20px/);
   assert.match(styles, /\[class~="composer-effort-field"\] \[class~="reasoning-effort-icon"\]\s*\{\s*display:\s*none;\s*\}/);
 });
 

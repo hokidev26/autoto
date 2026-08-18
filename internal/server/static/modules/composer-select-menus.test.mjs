@@ -13,7 +13,7 @@ test("model menu near the right edge stays inside the viewport", () => {
     selectId: "modelSelect",
   });
   assert.equal(layout.width, 290);
-  assert.equal(layout.left, 960 - 290 - 8);
+  assert.equal(layout.left, 916 - 290);
   assert.ok(layout.left + layout.width <= 960 - 8);
   assert.equal(layout.bottom, 800 - 700 + 6);
 });
@@ -27,7 +27,7 @@ test("a CSS min-width wider than the first guess still clamps after measure", ()
     measuredWidth: 320,
   });
   assert.equal(layout.width, 320);
-  assert.equal(layout.left, 960 - 320 - 8);
+  assert.equal(layout.left, 916 - 320);
   assert.ok(layout.left + layout.width <= 960 - 8);
 });
 
@@ -40,4 +40,15 @@ test("narrow viewports shrink the model menu instead of overflowing", () => {
   });
   assert.equal(layout.width, 184);
   assert.equal(layout.left, 8);
+});
+
+test("a right-side chip opens the menu from its right edge", () => {
+  const layout = composerSelectMenuLayout({
+    triggerRect: { left: 640, width: 96, top: 700, right: 736 },
+    viewportWidth: 960,
+    viewportHeight: 800,
+    selectId: "modelSelect",
+  });
+  assert.equal(layout.width, 290);
+  assert.equal(layout.left, 736 - 290);
 });

@@ -79,6 +79,39 @@ func TestHubToolInputPreviewSnapshots(t *testing.T) {
 	}
 }
 
+func TestHubProviderRetrySnapshotStaysAfterRingEviction(t *testing.T) {
+	hub := NewHubWithConfig(HubConfig{RingSize: 3, NewSession: sequenceSessions()})
+	hub.Publish(Event{
+		Type:    "agent.provider_error_retry",
+		AgentID: "agent-1",
+		Data: map[string]any{
+			"attempt":     2,
+			"maxAttempts": 4,
+			"backoffMs":   1500,
+			"scope":       "model_turn",
+			"runId":       "run-9",
+			"error":       "SECRET_PROVIDER_RETRY_DETAIL",
+		},
+	})
+	got := hub.ProviderRetrySnapshot("agent-1")
+	if got == nil || got.Attempt != 2 || got.MaxAttempts != 4 || got.BackoffMs != 1500 || got.Scope != "model_turn" || got.RunID != "run-9" {
+		t.Fatalf("retry snapshot = %+v", got)
+	}
+
+	for i := 0; i < 8; i++ {
+		hub.Publish(Event{Type: "agent.text", AgentID: "agent-1", Text: fmt.Sprintf("noise-%d", i)})
+	}
+	got = hub.ProviderRetrySnapshot("agent-1")
+	if got == nil || got.Attempt != 2 || got.MaxAttempts != 4 {
+		t.Fatalf("retry snapshot must survive ring eviction, got %+v", got)
+	}
+
+	hub.Publish(Event{Type: "model.started", AgentID: "agent-1", Data: map[string]any{"runId": "run-9"}})
+	if hub.ProviderRetrySnapshot("agent-1") != nil {
+		t.Fatal("model.started must clear the retry snapshot")
+	}
+}
+
 func TestHubResyncReasonsAreExplicit(t *testing.T) {
 	hub := NewHubWithConfig(HubConfig{
 		RingSize:         3,

@@ -185,6 +185,9 @@ func (r *Runner) AskContext(ctx context.Context, req tools.ContextAskRequest) (t
 	}
 
 	summaryModel := strings.TrimSpace(r.SummaryModel())
+	if agent, err := r.store.GetAgent(ctx, request.RequesterAgentID); err == nil {
+		summaryModel = r.summaryModelFor(agent)
+	}
 	if summaryModel == "" {
 		return tools.ContextAskResponse{}, errors.New("summary model is not configured for context ask")
 	}

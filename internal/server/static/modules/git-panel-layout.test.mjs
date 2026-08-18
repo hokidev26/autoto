@@ -74,3 +74,18 @@ test("stacked on a narrow screen, the column does not nest a second scroller", (
     "one scroll region inside another means the wrong one moves under a thumb",
   );
 });
+
+test("stacked on a narrow screen, the panel body is the scroller so the commit box stays reachable", () => {
+  const narrow = legacy.slice(legacy.indexOf("@media (max-width: 900px)"));
+  const modalBody = ruleBody(narrow, ".git-modal-body {");
+  assert.match(modalBody, /overflow-y:\s*auto/, "the body has to scroll or the card clips the timeline");
+  const layout = ruleBody(narrow, ".git-layout {");
+  assert.match(layout, /flex:\s*none/, "the grid must grow with its rows instead of filling 1fr");
+  assert.match(
+    layout,
+    /grid-template-rows:\s*auto auto auto/,
+    "a minmax(260px, 1fr) diff row swallows the leftover viewport and hides the actions",
+  );
+  const log = ruleBody(narrow, ".git-log-panel {");
+  assert.match(log, /overflow:\s*visible/, "the timeline must not start a third nested scroller");
+});

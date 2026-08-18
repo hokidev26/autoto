@@ -12,14 +12,17 @@ function wiring({ state: stateOverrides = {}, ...deps } = {}) {
     localInterruptRequestedAt: 0,
     ...stateOverrides,
   };
-  const { handleAgentStreamEvent } = createAppMainStreamWiring({
+  const { handleAgentStreamEvent, applyAgentLiveSnapshot } = createAppMainStreamWiring({
     t: (key) => key,
     am: (key) => key,
     state,
-    backgroundTasks: { handleEvent() {} },
-    executionNotifications: { live: async () => {} },
+    $: () => null,
+    normalizeWorkStateSnapshot: () => null,
+    backgroundTasks: { handleEvent() {}, applySnapshot() {} },
+    executionNotifications: { live: async () => {}, initial: async () => {}, snapshot: async () => {} },
     shouldLogAgentEvents: () => false,
     applyPlanEvent() {},
+    renderConversationHeaderIdentity() {},
     syncNavigationConversationFromAgent: (...args) => calls.nav.push(args),
     clearCurrentAgentApprovals: () => { state.pendingToolApprovals = {}; },
     clearBlockedToolNotices() {},
@@ -35,16 +38,29 @@ function wiring({ state: stateOverrides = {}, ...deps } = {}) {
     showToast: (message, tone) => calls.toasts.push({ message, tone }),
     clearLiveAssistantText: () => { state.liveAssistantActive = false; },
     clearLiveImageGenerations() {},
+    clearRunSummary() {},
+    replacePlanState() {},
+    replacePendingApprovals() {},
+    replacePendingUserQuestions() {},
+    applyMessageSnapshot() {},
+    normalizeStoredPermissionMode: (value) => value,
+    enforcePermissionSelectCap() {},
+    renderModelOptions() {},
+    refreshReasoningEffortControl() {},
+    refreshFastModeControl() {},
+    refreshMessageModeControl() {},
+    updateWorkspaceMetaPills() {},
+    renderWorkbenchShell() {},
     syncMessageComposerBusy: () => { calls.composer += 1; },
     refreshComposerActivityStatus() {},
     loadRunSummary: async () => null,
     loadLatestRunSummary: async () => null,
     scheduleMessageRefresh() {},
-    contextManagement: { load: async () => {} },
+    contextManagement: { load: async () => {}, applyStatus() {} },
     navigationRefresh: { request() {} },
     ...deps,
   });
-  return { state, calls, handleAgentStreamEvent };
+  return { state, calls, handleAgentStreamEvent, applyAgentLiveSnapshot };
 }
 
 test("a remote interrupt marks live tools, sets interrupted, and toasts other viewers", async () => {
@@ -81,4 +97,39 @@ test("agent.done still settles the composer to idle", async () => {
   const { state, handleAgentStreamEvent } = wiring();
   await handleAgentStreamEvent({ type: "agent.done", agentId: "agent-1", data: { runId: "run-1" } });
   assert.equal(state.agent.status, "idle");
+});
+
+test("a live snapshot restores provider retry instead of falling back to thinking", async () => {
+  const { state, applyAgentLiveSnapshot } = wiring({
+    state: { providerRetry: null, liveAssistantActive: false },
+  });
+  await applyAgentLiveSnapshot({
+    agent: { id: "agent-1", status: "running" },
+    providerRetry: { attempt: 2, maxAttempts: 4 },
+  });
+  assert.equal(state.providerRetry.attempt, 2);
+  assert.equal(state.providerRetry.maxAttempts, 4);
+});
+
+test("a live snapshot without retry clears a stale local retry flag", async () => {
+  const { state, applyAgentLiveSnapshot } = wiring({
+    state: { providerRetry: { attempt: 9, maxAttempts: 9 } },
+  });
+  await applyAgentLiveSnapshot({ agent: { id: "agent-1", status: "running" } });
+  assert.equal(state.providerRetry, null);
+});
+
+test("a terminal latest run does not restore in-flight tools as still running", async () => {
+  const { state, applyAgentLiveSnapshot } = wiring({
+    state: {
+      liveToolOutputs: { old: { status: "running", agentId: "other" } },
+    },
+  });
+  await applyAgentLiveSnapshot({
+    agent: { id: "agent-1", status: "interrupted" },
+    latestRun: { id: "run-9", status: "interrupted" },
+    toolActivity: [{ toolUseId: "t-live", status: "running" }],
+  });
+  assert.equal(state.liveToolOutputs["t-live"].status, "interrupted");
+  assert.equal(state.liveToolOutputs.old.status, "running");
 });

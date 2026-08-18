@@ -1185,7 +1185,7 @@ body.white-shell.theme-light[data-theme-preset="cream"] :is(.settings-action-btn
   z-index: 140;
   display: flex;
   align-items: flex-end;
-  justify-content: flex-start;
+  justify-content: flex-end;
   padding: 0 10px calc(84px + env(safe-area-inset-bottom)) 10px;
   background: transparent;
 }

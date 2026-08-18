@@ -45,8 +45,12 @@ export function composerSelectMenuLayout({
   const triggerWidth = Math.max(0, Number(triggerRect.width) || 0);
   const width = Math.min(Math.max(triggerWidth, minimumWidth, Number(measuredWidth) || 0), maxWidth);
   const triggerLeft = Number(triggerRect.left) || 0;
+  const triggerRight = Number(triggerRect.right) || (triggerLeft + triggerWidth);
   const maxLeft = Math.max(8, viewW - width - 8);
-  const left = Math.min(Math.max(8, triggerLeft), maxLeft);
+  // Composer chips sit on the right. Opening from the trigger's left edge
+  // pushed a 290px model menu across the transcript on a narrow window.
+  const preferredLeft = triggerRight - width;
+  const left = Math.min(Math.max(8, preferredLeft), maxLeft);
   const triggerTop = Number(triggerRect.top) || 0;
   const bottom = Math.max(8, viewH - triggerTop + 6);
   return { width, left, bottom };
@@ -683,9 +687,9 @@ export function createComposerSelectMenus({
     };
 
 
-    // Summary model picker. It is global runtime configuration rather than a
-    // per-conversation choice, but it is surfaced here so compaction can be
-    // retargeted without opening Settings.
+    // Summary model picker. Empty on the conversation inherits the host
+    // default; choosing a model writes an override on this conversation so
+    // collaborators can retarget compaction without host Settings.
     const summaryModelOptions = (binding) => [...binding.select.options]
       .filter((option) => !option.hidden && String(option.value || "").trim());
 

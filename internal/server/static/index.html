@@ -16,8 +16,19 @@
     <link rel="apple-touch-icon" href="/ui/icons/autoto-192.png" />
     <link rel="manifest" href="/ui/manifest.webmanifest" />
     <title>Autoto</title>
-    <link rel="stylesheet" href="/ui/styles.css" />
-    <link rel="stylesheet" href="/ui/theme-runtime.css" />
+    <!--autoto-share-meta-->
+    <style>
+      html[data-ui-locale-pending="true"] #appShell { visibility: hidden; opacity: 0; pointer-events: none; }
+      .boot-transition { position: fixed; inset: 0; z-index: 1000; display: grid; place-items: center; background: #f6f7fb; opacity: 0; visibility: hidden; pointer-events: none; }
+      html[data-ui-locale-pending="true"] .boot-transition { opacity: 1; visibility: visible; pointer-events: auto; }
+    </style>
+    <link rel="stylesheet" href="/ui/styles.css?c=boot-git" />
+    <link rel="stylesheet" href="/ui/theme-runtime.css?c=boot-git" />
+    <link rel="modulepreload" href="/ui/modules/error-boundary.mjs" />
+    <link rel="modulepreload" href="/ui/modules/i18n.mjs" />
+    <link rel="modulepreload" href="/ui/modules/app-main.mjs" />
+    <link rel="modulepreload" href="/ui/modules/locale-registry.mjs" />
+    <link rel="modulepreload" href="/ui/modules/dom.mjs" />
   </head>
   <body class="theme-light white-shell ui-density-comfortable ui-font-medium">
     <div id="bootTransition" class="boot-transition" role="status" aria-live="polite" aria-atomic="true" aria-labelledby="bootTransitionLabel">
@@ -227,17 +238,19 @@
           </div>
           <div class="header-actions">
             <span id="securityModeBadge" class="pill security-mode-pill" data-mobile-label="LAN">本地</span>
-            <div class="header-tool-group" aria-label="工作区功能" data-i18n-aria-label="chat.workspaceFeatures">
+            <div id="conversationToolGroup" class="header-tool-group" aria-label="工作区功能" data-i18n-aria-label="chat.workspaceFeatures">
               <button id="workspaceExplorerBtn" class="icon-btn header-tool-btn" type="button" data-project-context-only aria-hidden="true" title="请先选择 Agent" aria-label="打开工作区文件" data-i18n-aria-label="chat.openWorkspace" aria-expanded="false" aria-controls="workspaceModal" disabled>
-                <!-- A file tree, not a folder with lines in it: the old glyph was a
-                     rounded rectangle with two inner rules, which is the same shape
-                     as the background-tasks icon two buttons along, so the two read
-                     as the same control at rail size. The elbows say "files nested
-                     under a root" and nothing else in the group looks like it. -->
-                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4.5 4.5v12.5a1.5 1.5 0 0 0 1.5 1.5h3M4.5 10.5h4.5"></path><rect x="12" y="3" width="7.5" height="4" rx="1.3"></rect><rect x="12" y="8.5" width="7.5" height="4" rx="1.3"></rect><rect x="12" y="16" width="7.5" height="4" rx="1.3"></rect></svg>
+                <!-- A file tree with a trunk and three connected nodes. The
+                     previous glyph hung the top node off the line and finished
+                     the trunk in a hook, so at rail size it read as three
+                     stacked pills rather than nested files. -->
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4v16"></path><path d="M5 7h6"></path><path d="M5 12h6"></path><path d="M5 17h6"></path><rect x="11" y="5" width="9" height="4" rx="1.1"></rect><rect x="11" y="10" width="9" height="4" rx="1.1"></rect><rect x="11" y="15" width="9" height="4" rx="1.1"></rect></svg>
               </button>
               <button id="gitWorkflowBtn" class="icon-btn header-tool-btn" type="button" data-project-context-only aria-hidden="true" title="查看 Git 变更" aria-label="查看 Git 变更" data-i18n-aria-label="chat.gitChanges" aria-expanded="false" aria-controls="gitModal" disabled>
-                <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="6" cy="5" r="2"></circle><circle cx="6" cy="19" r="2"></circle><circle cx="18" cy="6" r="2"></circle><path d="M6 7v10M8 7.5c5 .5 4 7 8 8.5M16 8c-1 4-5 4-8 4"></path></svg>
+                <!-- Git branch: a trunk with two commits and one side branch.
+                     The previous glyph stacked two overlapping curves, so at
+                     rail size it read as a knot rather than a branch. -->
+                <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="7" cy="6" r="2.2"></circle><circle cx="7" cy="18" r="2.2"></circle><circle cx="17" cy="9" r="2.2"></circle><path d="M7 8.3v7.4"></path><path d="M9.2 6.7c4.2.3 5.6 1.4 5.6 2.3"></path></svg>
                 <span class="header-tool-badge hidden" data-git-tool-badge></span>
               </button>
               <button id="specBoardBtn" class="icon-btn header-tool-btn" type="button" data-project-context-only aria-hidden="true" title="打开任务清单" aria-label="打开任务清单" data-i18n-aria-label="chat.taskList" aria-expanded="false" aria-controls="specBoardModal" disabled>
@@ -372,7 +385,7 @@
             <div class="header-tool-group workbench-tool-group" aria-label="任务工作台工具" data-i18n-aria-label="workbench.tools">
               <button id="workbenchBoardBtn" class="icon-btn header-tool-btn active" type="button" title="任务看板" aria-label="任务看板" aria-pressed="true" data-i18n-title="workbench.board" data-i18n-aria-label="workbench.board"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="3.5" width="16" height="17" rx="3"></rect><path d="m7.5 8 1.4 1.4 2.6-2.6M13.5 8.2h3M7.5 14l1.4 1.4 2.6-2.6M13.5 14.2h3"></path></svg></button>
               <button id="workbenchFilesBtn" class="icon-btn header-tool-btn" type="button" title="工作区文件" aria-label="工作区文件" data-i18n-title="workbench.files" data-i18n-aria-label="workbench.files" disabled><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 6.5A2.5 2.5 0 0 1 6 4h4l2 2h6A2.5 2.5 0 0 1 20.5 8.5v8A2.5 2.5 0 0 1 18 19H6a2.5 2.5 0 0 1-2.5-2.5z"></path><path d="M8.5 11.75h7M8.5 15.25h4.25"></path></svg></button>
-              <button id="workbenchGitBtn" class="icon-btn header-tool-btn" type="button" title="Git 变更" aria-label="Git 变更" data-i18n-title="workbench.changes" data-i18n-aria-label="workbench.changes" disabled><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="6" cy="5" r="2"></circle><circle cx="6" cy="19" r="2"></circle><circle cx="18" cy="6" r="2"></circle><path d="M6 7v10M8 7.5c5 .5 4 7 8 8.5M16 8c-1 4-5 4-8 4"></path></svg><span class="header-tool-badge hidden" data-workbench-git-badge></span></button>
+              <button id="workbenchGitBtn" class="icon-btn header-tool-btn" type="button" title="Git 变更" aria-label="Git 变更" data-i18n-title="workbench.changes" data-i18n-aria-label="workbench.changes" disabled><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="7" cy="6" r="2.2"></circle><circle cx="7" cy="18" r="2.2"></circle><circle cx="17" cy="9" r="2.2"></circle><path d="M7 8.3v7.4"></path><path d="M9.2 6.7c4.2.3 5.6 1.4 5.6 2.3"></path></svg><span class="header-tool-badge hidden" data-workbench-git-badge></span></button>
               <button id="workbenchRunBtn" class="icon-btn header-tool-btn" type="button" title="运行摘要" aria-label="运行摘要" data-i18n-title="workbench.run" data-i18n-aria-label="workbench.run" disabled><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"></circle><path d="M12 10.5v5M12 7.5h.01"></path></svg></button>
               <button id="workbenchTerminalBtn" class="icon-btn header-tool-btn" type="button" title="终端" aria-label="终端" data-i18n-title="workbench.terminal" data-i18n-aria-label="workbench.terminal" disabled><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="4.5" width="17" height="15" rx="2.5"></rect><path d="m7 9 2.5 2.5L7 14M12.5 14H17"></path></svg></button>
               <button id="workbenchPreviewBtn" class="icon-btn header-tool-btn" type="button" title="浏览器预览" aria-label="浏览器预览" data-i18n-title="workbench.preview" data-i18n-aria-label="workbench.preview" disabled><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"></circle><path d="M3.8 12h16.4M12 3.5c2.2 2.3 3.3 5.1 3.3 8.5S14.2 18.2 12 20.5M12 3.5C9.8 5.8 8.7 8.6 8.7 12s1.1 6.2 3.3 8.5"></path></svg></button>
@@ -845,29 +858,38 @@
     </div>
     <div id="accountSessionOverlay" class="account-session-overlay hidden" aria-hidden="true">
       <div class="account-session-card" role="dialog" aria-modal="true" aria-labelledby="accountSessionTitle" aria-describedby="accountSessionSubtitle">
-        <h1 id="accountSessionTitle" class="account-session-title" data-i18n="accountSession.title">Sign in</h1>
-        <p id="accountSessionSubtitle" class="account-session-subtitle" data-i18n="accountSession.subtitle"></p>
-        <div id="accountSessionError" class="account-session-error" hidden></div>
-        <div id="accountSessionKeyToggle" class="account-session-toggle">
-          <button id="accountSessionUsePasswordBtn" class="account-session-toggle-btn active" type="button" data-i18n="accountSession.usePassword">Password</button>
-          <button id="accountSessionUseKeyBtn" class="account-session-toggle-btn" type="button" data-i18n="accountSession.useAccessKey">Access key</button>
+        <div class="account-session-card-content">
+          <div class="account-session-brand">
+            <span class="account-session-brand-identity">
+              <span class="account-session-brand-mark" aria-hidden="true"><svg viewBox="0 0 32 32" fill="none"><circle cx="16" cy="16" r="12.5"></circle><path d="M10.5 17.5c1.6 2 3.4 3 5.5 3s3.9-1 5.5-3"></path><path d="M11.5 12.5h.01M20.5 12.5h.01"></path></svg></span>
+              <span class="account-session-brand-name">AUTOTO</span>
+            </span>
+            <span class="account-session-connection" data-i18n="accountSession.connectionState">Awaiting verification</span>
+          </div>
+          <h1 id="accountSessionTitle" class="account-session-title" data-i18n="accountSession.title">Sign in</h1>
+          <p id="accountSessionSubtitle" class="account-session-subtitle" data-i18n="accountSession.subtitle" hidden></p>
+          <div id="accountSessionError" class="account-session-error" hidden></div>
+          <div id="accountSessionKeyToggle" class="account-session-toggle">
+            <button id="accountSessionUsePasswordBtn" class="account-session-toggle-btn active" type="button" data-i18n="accountSession.usePassword">Password</button>
+            <button id="accountSessionUseKeyBtn" class="account-session-toggle-btn" type="button" data-i18n="accountSession.useAccessKey">Access key</button>
+          </div>
+          <form id="accountSessionForm" class="account-session-form" autocomplete="off">
+            <div id="accountSessionPasswordFields">
+              <label class="account-session-field"><span data-i18n="accountSession.handle">Handle</span>
+                <input id="accountSessionHandle" class="settings-field" name="autoto-handle" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false" data-1p-ignore="true" data-lpignore="true" data-i18n-placeholder="accountSession.handlePlaceholder" />
+              </label>
+              <label class="account-session-field"><span data-i18n="accountSession.password">Password</span>
+                <input id="accountSessionPassword" class="settings-field" name="autoto-password" type="password" autocomplete="off" data-1p-ignore="true" data-lpignore="true" />
+              </label>
+            </div>
+            <div id="accountSessionKeyFields" class="hidden">
+              <label class="account-session-field"><span data-i18n="accountSession.accessKey">Access key</span>
+                <input id="accountSessionAccessKey" class="settings-field" name="accessKey" autocomplete="off" data-i18n-placeholder="accountSession.accessKeyPlaceholder" />
+              </label>
+            </div>
+            <button id="accountSessionSubmitBtn" class="settings-action-btn primary account-session-submit" type="submit" data-i18n="accountSession.submit">Sign in</button>
+          </form>
         </div>
-        <form id="accountSessionForm" class="account-session-form">
-          <div id="accountSessionPasswordFields">
-            <label class="account-session-field"><span data-i18n="accountSession.handle">Handle</span>
-              <input id="accountSessionHandle" class="settings-field" name="username" autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false" data-i18n-placeholder="accountSession.handlePlaceholder" />
-            </label>
-            <label class="account-session-field"><span data-i18n="accountSession.password">Password</span>
-              <input id="accountSessionPassword" class="settings-field" name="password" type="password" autocomplete="current-password" />
-            </label>
-          </div>
-          <div id="accountSessionKeyFields" class="hidden">
-            <label class="account-session-field"><span data-i18n="accountSession.accessKey">Access key</span>
-              <input id="accountSessionAccessKey" class="settings-field" name="accessKey" autocomplete="off" data-i18n-placeholder="accountSession.accessKeyPlaceholder" />
-            </label>
-          </div>
-          <button id="accountSessionSubmitBtn" class="settings-action-btn primary" type="submit" data-i18n="accountSession.submit">Sign in</button>
-        </form>
       </div>
     </div>
     <div id="toastStack" class="toast-stack" aria-live="polite" aria-atomic="true"></div>

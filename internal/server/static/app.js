@@ -99,17 +99,23 @@
   const bootstrap = async () => {
     try {
       // Installed before anything else loads so a throw inside a listener or an
-      // unawaited promise during startup is recorded rather than lost.
-      const { installGlobalErrorReporting } = await import("./modules/error-boundary.mjs");
+      // unawaited promise during startup is recorded rather than lost. Locale
+      // and the error boundary are independent, so they start together instead
+      // of a two-hop waterfall before app-main.
+      const [{ installGlobalErrorReporting }, { setUILocale }] = await Promise.all([
+        import("./modules/error-boundary.mjs"),
+        import("./modules/i18n.mjs"),
+      ]);
       installGlobalErrorReporting();
-      const { setUILocale } = await import("./modules/i18n.mjs");
       setUILocale(activeBootLocale);
-      // Opt-in transcript scroll diagnostic. Does nothing unless
-      // localStorage["autoto.scrollTrace"] === "1", and is loaded before the
-      // app so it can wrap the container before the first render anchors it.
+      // Opt-in transcript scroll diagnostic. Skip the extra module fetch unless
+      // localStorage["autoto.scrollTrace"] === "1". When it is on, load it
+      // before the app so it can wrap the container before the first render.
       try {
-        const { installScrollTrace } = await import("./modules/scroll-trace.mjs");
-        installScrollTrace();
+        if (globalThis.localStorage?.getItem?.("autoto.scrollTrace") === "1") {
+          const { installScrollTrace } = await import("./modules/scroll-trace.mjs");
+          installScrollTrace();
+        }
       } catch {}
       const appReady = waitForAppReady();
       await import("./modules/app-main.mjs");

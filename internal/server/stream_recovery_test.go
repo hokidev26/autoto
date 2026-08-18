@@ -105,3 +105,34 @@ func TestAgentLiveSnapshotReturnsMissedExecutionsSpecAndChildren(t *testing.T) {
 		t.Fatalf("snapshot did not recover only durable assistant progress: %+v", payload.Messages)
 	}
 }
+
+func TestAgentLiveSnapshotIncludesProviderRetryWithoutErrorText(t *testing.T) {
+	store, app, agentRecord := newStreamRecoveryServer(t)
+	defer store.Close()
+	const secret = "SECRET_PROVIDER_RETRY_DETAIL"
+	app.hub.Publish(agentpkg.Event{
+		Type:    "agent.provider_error_retry",
+		AgentID: agentRecord.ID,
+		Data: map[string]any{
+			"attempt":     3,
+			"maxAttempts": 6,
+			"error":       secret,
+			"runId":       "run-retry",
+		},
+	})
+	response := httptest.NewRecorder()
+	app.Routes().ServeHTTP(response, newTestRequest(http.MethodGet, "/api/v2/agents/"+agentRecord.ID+"/live-snapshot", nil))
+	if response.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", response.Code, response.Body.String())
+	}
+	if strings.Contains(response.Body.String(), secret) {
+		t.Fatal("live snapshot leaked the provider retry error text")
+	}
+	var payload agentLiveSnapshotResponse
+	if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.ProviderRetry == nil || payload.ProviderRetry.Attempt != 3 || payload.ProviderRetry.MaxAttempts != 6 || payload.ProviderRetry.RunID != "run-retry" {
+		t.Fatalf("provider retry snapshot = %+v", payload.ProviderRetry)
+	}
+}

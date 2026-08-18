@@ -914,15 +914,14 @@ body.white-shell.theme-light .toolbar-lightning-btn[aria-busy="true"] {
   }
 
   /* A phone keeps the four controls that change what the next message does:
-     context headroom, model, reasoning effort, permission mode. The running-task
-     summary and the connection status are readouts rather than controls and are
-     reachable elsewhere -- carrying all of them here is what left six unlabelled
-     glyphs competing for one short row. Attachments are not part of this row;
-     they stay beside the input.
+     context headroom, model, reasoning effort, permission mode. The connection
+     status stays off this row. The running-task summary stays on the left so
+     idle still reads "no running task" instead of leaving an empty gutter.
+     Attachments are not part of this row; they stay beside the input.
      The directory switcher is handled further down, next to the rule that used to
      re-show it. */
   body.white-shell.theme-light [class~="composer-task-summary"] {
-    display: none;
+    display: inline-grid;
   }
 
   body.white-shell.theme-light [class~="composer-status-dot"] {

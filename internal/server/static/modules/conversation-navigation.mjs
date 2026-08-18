@@ -6,6 +6,7 @@ const navigationModes = new Set(["all", "projects"]);
 export const navigationRefreshDefaults = Object.freeze({
   intervalMs: 2000,
   minIntervalMs: 250,
+  liveIntervalMs: 400,
 });
 
 function navigationRefreshTimerFunctions(timers) {
@@ -19,6 +20,7 @@ function navigationRefreshTimerFunctions(timers) {
 export function createNavigationRefreshController({
   refresh,
   shouldRefresh = () => true,
+  getIntervalMs,
   onError,
   timers = globalThis,
   intervalMs = navigationRefreshDefaults.intervalMs,
@@ -27,6 +29,13 @@ export function createNavigationRefreshController({
   if (typeof refresh !== "function") throw new Error("createNavigationRefreshController requires refresh");
   const timer = navigationRefreshTimerFunctions(timers);
   const interval = Math.max(navigationRefreshDefaults.minIntervalMs, Number(intervalMs) || navigationRefreshDefaults.intervalMs);
+
+  function currentInterval() {
+    if (typeof getIntervalMs !== "function") return interval;
+    const next = Number(getIntervalMs());
+    if (!Number.isFinite(next) || next <= 0) return interval;
+    return Math.max(navigationRefreshDefaults.minIntervalMs, next);
+  }
   let started = false;
   let timerId = null;
   let scheduledReason = "interval";
@@ -39,14 +48,15 @@ export function createNavigationRefreshController({
     timerId = null;
   }
 
-  function schedule(delay = interval, reason = "interval") {
+  function schedule(delay, reason = "interval") {
     if (!started) return false;
     clearScheduled();
     scheduledReason = String(reason || "interval");
+    const wait = delay == null ? currentInterval() : Math.max(0, Number(delay) || 0);
     timerId = timer.setTimeout(() => {
       timerId = null;
       run(scheduledReason);
-    }, Math.max(0, Number(delay) || 0));
+    }, wait);
     return true;
   }
 
@@ -56,7 +66,7 @@ export function createNavigationRefreshController({
     if (!started) return;
     const nextReason = pendingReason;
     pendingReason = "";
-    schedule(nextReason ? 0 : interval, nextReason || "interval");
+    schedule(nextReason ? 0 : currentInterval(), nextReason || "interval");
   }
 
   function run(reason = "interval") {
@@ -72,7 +82,7 @@ export function createNavigationRefreshController({
       onError?.(error);
     }
     if (!allowed) {
-      schedule(interval, "interval");
+      schedule(currentInterval(), "interval");
       return Promise.resolve(null);
     }
     const operation = Promise.resolve()
@@ -89,7 +99,7 @@ export function createNavigationRefreshController({
   function start({ immediate = false } = {}) {
     if (started) return false;
     started = true;
-    schedule(immediate ? 0 : interval, immediate ? "start" : "interval");
+    schedule(immediate ? 0 : currentInterval(), immediate ? "start" : "interval");
     return true;
   }
 

@@ -10,7 +10,7 @@ import (
 	"github.com/google/uuid"
 )
 
-const CurrentDBVersion = 67
+const CurrentDBVersion = 68
 
 type migration struct {
 	version int
@@ -86,6 +86,7 @@ var migrations = []migration{
 	{version: 65, name: "tool execution replay class", up: migrateV65ToolExecutionReplayClass},
 	{version: 66, name: "guest access keys", up: migrateV66GuestAccessKeys},
 	{version: 67, name: "agent plan reflection", up: migrateV67AgentPlanReflection},
+	{version: 68, name: "agent summary model", up: migrateV68AgentSummaryModel},
 }
 
 // migrateV62SubagentBypassCap admits bypassPermissions as a run/task ceiling.
@@ -1758,6 +1759,13 @@ func migrateV67AgentPlanReflection(ctx context.Context, tx *sql.Tx) error {
 	// needs_human. Default on preserves the previous always-on behaviour.
 	// Turning it off fails closed to the human; it does not authorize execute.
 	return ensureColumn(ctx, tx, "agents", "plan_reflection", "INTEGER NOT NULL DEFAULT 1")
+}
+
+func migrateV68AgentSummaryModel(ctx context.Context, tx *sql.Tx) error {
+	// Per-conversation override for compaction, auto-title, and context-ask.
+	// NULL/empty inherits the host Agent.SummaryModel so collaborators can
+	// retarget one granted conversation without writing host settings.
+	return ensureColumn(ctx, tx, "agents", "summary_model", "TEXT")
 }
 
 func migrateV66GuestAccessKeys(ctx context.Context, tx *sql.Tx) error {

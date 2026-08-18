@@ -705,14 +705,14 @@ func (s *projectStore) MarkWorklineUnmerged(ctx context.Context, sourceWorklineI
 	return s.GetWorkline(ctx, sourceWorklineID)
 }
 
-const agentSelectSQL = `SELECT id, COALESCE(workline_id,''), COALESCE(parent_agent_id,''), COALESCE(fork_message_id,''), COALESCE(inherit_mode,''), type, COALESCE(subagent_type,''), title, model, COALESCE(system_prompt,''), permission_mode, COALESCE(entity_generation,1), COALESCE(permission_generation,1), COALESCE(execution_generation,0), COALESCE(reasoning_effort,''), COALESCE(fast_mode,0), COALESCE(execution_device_id,'local'), status, plan_mode, COALESCE(plan_reflection,1), COALESCE(pinned,0), COALESCE(archived_at,''), COALESCE(cwd,''), message_count, COALESCE(context_summary,''), COALESCE(prune_boundary_message_id,''), COALESCE(pruned_percent,0), COALESCE(prune_enabled,0), created_at, updated_at FROM agents`
+const agentSelectSQL = `SELECT id, COALESCE(workline_id,''), COALESCE(parent_agent_id,''), COALESCE(fork_message_id,''), COALESCE(inherit_mode,''), type, COALESCE(subagent_type,''), title, model, COALESCE(summary_model,''), COALESCE(system_prompt,''), permission_mode, COALESCE(entity_generation,1), COALESCE(permission_generation,1), COALESCE(execution_generation,0), COALESCE(reasoning_effort,''), COALESCE(fast_mode,0), COALESCE(execution_device_id,'local'), status, plan_mode, COALESCE(plan_reflection,1), COALESCE(pinned,0), COALESCE(archived_at,''), COALESCE(cwd,''), message_count, COALESCE(context_summary,''), COALESCE(prune_boundary_message_id,''), COALESCE(pruned_percent,0), COALESCE(prune_enabled,0), created_at, updated_at FROM agents`
 
 type agentScanner func(dest ...any) error
 
 func scanAgent(scan agentScanner) (Agent, error) {
 	var agent Agent
 	var fastMode, planMode, planReflection, pinned, pruneEnabled int
-	err := scan(&agent.ID, &agent.WorklineID, &agent.ParentAgentID, &agent.ForkMessageID, &agent.InheritMode, &agent.Type, &agent.SubagentType, &agent.Title, &agent.Model, &agent.SystemPrompt, &agent.PermissionMode, &agent.EntityGeneration, &agent.PermissionGeneration, &agent.ExecutionGeneration, &agent.ReasoningEffort, &fastMode, &agent.ExecutionDeviceID, &agent.Status, &planMode, &planReflection, &pinned, &agent.ArchivedAt, &agent.CWD, &agent.MessageCount, &agent.ContextSummary, &agent.PruneBoundaryMessageID, &agent.PrunedPercent, &pruneEnabled, &agent.CreatedAt, &agent.UpdatedAt)
+	err := scan(&agent.ID, &agent.WorklineID, &agent.ParentAgentID, &agent.ForkMessageID, &agent.InheritMode, &agent.Type, &agent.SubagentType, &agent.Title, &agent.Model, &agent.SummaryModel, &agent.SystemPrompt, &agent.PermissionMode, &agent.EntityGeneration, &agent.PermissionGeneration, &agent.ExecutionGeneration, &agent.ReasoningEffort, &fastMode, &agent.ExecutionDeviceID, &agent.Status, &planMode, &planReflection, &pinned, &agent.ArchivedAt, &agent.CWD, &agent.MessageCount, &agent.ContextSummary, &agent.PruneBoundaryMessageID, &agent.PrunedPercent, &pruneEnabled, &agent.CreatedAt, &agent.UpdatedAt)
 	agent.FastMode = fastMode != 0
 	agent.PlanMode = planMode != 0
 	agent.PlanReflection = planReflection != 0
@@ -850,6 +850,29 @@ func (s *projectStore) UpdateAgentModelRuntime(ctx context.Context, id, model, r
 		return Agent{}, errors.New("invalid agent reasoning effort")
 	}
 	result, err := s.db.ExecContext(ctx, `UPDATE agents SET model = ?, reasoning_effort = NULLIF(?,''), fast_mode = ?, entity_generation = entity_generation + 1, updated_at = ? WHERE id = ?`, model, reasoningEffort, boolInt(fastMode), Now(), id)
+	if err != nil {
+		return Agent{}, err
+	}
+	if affected, err := result.RowsAffected(); err != nil {
+		return Agent{}, err
+	} else if affected != 1 {
+		return Agent{}, sql.ErrNoRows
+	}
+	return s.GetAgent(ctx, id)
+}
+
+func (s *projectStore) UpdateAgentSummaryModel(ctx context.Context, id, summaryModel string) (Agent, error) {
+	id = strings.TrimSpace(id)
+	summaryModel = strings.TrimSpace(summaryModel)
+	if err := validateP2P3Text("agent id", id, 128, true, false); err != nil {
+		return Agent{}, err
+	}
+	if summaryModel != "" {
+		if err := validateP2P3Text("agent summary model", summaryModel, 256, true, false); err != nil {
+			return Agent{}, err
+		}
+	}
+	result, err := s.db.ExecContext(ctx, `UPDATE agents SET summary_model = NULLIF(?,''), entity_generation = entity_generation + 1, updated_at = ? WHERE id = ?`, summaryModel, Now(), id)
 	if err != nil {
 		return Agent{}, err
 	}

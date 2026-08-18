@@ -181,6 +181,7 @@ CREATE TABLE IF NOT EXISTS agents (
   parent_agent_id TEXT REFERENCES agents(id) ON DELETE SET NULL,
   context_summary TEXT,
   model TEXT NOT NULL,
+  summary_model TEXT,
   system_prompt TEXT,
   permission_mode TEXT NOT NULL DEFAULT 'acceptEdits',
   previous_permission_mode TEXT,

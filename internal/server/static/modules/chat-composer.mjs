@@ -35,6 +35,7 @@ export function createChatComposerController({
   showModelSetupNotice,
   showToast,
   onMessageAccepted,
+  refreshComposerActivityStatus,
   prepareVideoAttachment = processVideoAttachment,
   createAbortController = () => new AbortController(),
   isGuestAccount = () => false,
@@ -71,7 +72,8 @@ export function createChatComposerController({
     if (Object.keys(state.pendingToolApprovals || {}).length) return true;
     if (Object.values(state.liveToolOutputs || {}).some(liveToolIsActive)) return true;
     if (state.liveAssistantActive) return true;
-    return String(state.agent?.status || "").trim().toLowerCase() === "running";
+    const status = String(state.agent?.status || "").trim().toLowerCase();
+    return status === "running" || status === "waiting";
   }
 
   // The queue lives on the server so a follow-up parked on a phone is visible on
@@ -1153,12 +1155,19 @@ export function createChatComposerController({
     const interrupted = response?.interrupted !== false;
     markLiveToolOutputsInterrupted(agentId);
     state.liveAssistantActive = false;
+    // Do not wait for agent.interrupted over the socket: a remote collaborator
+    // whose live events drop still has to leave Stop, and a stop that found
+    // nothing used to leave status "running" so the button never moved.
+    if (state.agent?.id === agentId) {
+      state.agent = { ...state.agent, status: "interrupted" };
+    }
     if (interrupted) showToast?.(t("workspace.chat.stopRequested"), "info");
     else {
       state.localInterruptRequestedAt = 0;
       showToast?.(t("workspace.chat.stopFoundNothing"), "warn");
     }
     syncMessageComposerBusy();
+    refreshComposerActivityStatus?.();
     scheduleMessageRefresh?.(600, agentId);
   }
 

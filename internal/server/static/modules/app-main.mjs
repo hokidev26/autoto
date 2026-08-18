@@ -20,6 +20,7 @@ import {
   buildNavigationView,
   createNavigationRefreshController,
   createRecentConversationSyncController,
+  navigationRefreshDefaults,
   normalizeNavigationPayload,
   normalizeRecentConversations,
   parseNavigationTargetId,
@@ -51,7 +52,6 @@ import { createLocalPreferencesSettingsController } from "./local-preferences-se
 import { createMCPRegistryUIController } from "./mcp-registry-ui.mjs";
 import { createPluginRegistryUIController } from "./plugin-registry-ui.mjs";
 import { createMemorySettingsController } from "./memory-settings.mjs";
-import { agentModelSettingsPayload } from "./model-routing-settings.mjs";
 import { createModelProviderSettingsController } from "./model-provider-settings.mjs";
 import {
   createOverviewDashboardController,
@@ -94,7 +94,8 @@ import { createUIShellController, elementVisible, isComposingInput } from "./ui-
 import { createUsageHistoryController } from "./usage-history.mjs";
 import { accountIsCollaborator, accountIsGuest, createAccountSessionController, defaultSettingsPanelKey, visibleSettingsItems } from "./account-session.mjs";
 import { createUserAdminSettingsController } from "./user-admin-settings.mjs";
-import { createAgentWorkspaceHelpers } from "./agent-workspace-helpers.mjs";
+import { createAgentWorkspaceHelpers, openAgentTurnIsLive, reconcileOpenAgentFromNavigation } from "./agent-workspace-helpers.mjs";
+import { conversationToolsDockTarget } from "./mobile-shell-helpers.mjs";
 import { createNavigationContextMenu } from "./navigation-context-menu.mjs";
 import { createBrandConfirm } from "./brand-confirm.mjs";
 import { createMessageContextMenu } from "./message-context-menu.mjs";
@@ -499,6 +500,8 @@ const {
   bypassDisabledBySecurity,
   effectivePermissionForDisplay,
   enforcePermissionSelectCap,
+  accountLockActive,
+  syncShellLogoutControl,
   logoutRemoteAccess,
   updateSecurityModeUI,
 } = securityModeHelpers;
@@ -805,8 +808,10 @@ const {
 onAPIAuthorizationFailure(({ status, path, error }) => {
   if (status === 401 && state.authStatus?.hasUsers) {
     state.account = null;
-    accountSession?.applyGuestShell?.();
-    accountSession?.showOverlay?.({ createAdministrator: false });
+    if (!accountSession?.overlayIsOpen?.()) {
+      accountSession?.applyGuestShell?.();
+      accountSession?.showOverlay?.({ createAdministrator: false });
+    }
   }
   if (!remoteAccessContext(state)) return;
   remoteAccessSettings.invalidatePendingLoads({ status });
@@ -1125,6 +1130,9 @@ const agentStream = createAgentStreamController({
 const navigationRefresh = createNavigationRefreshController({
   refresh: () => loadProjects(),
   shouldRefresh: () => globalThis.navigator?.onLine !== false && globalThis.document?.visibilityState !== "hidden",
+  getIntervalMs: () => openAgentTurnIsLive(state)
+    ? navigationRefreshDefaults.liveIntervalMs
+    : navigationRefreshDefaults.intervalMs,
 });
 
 const recentConversationSync = createRecentConversationSyncController({
@@ -1254,16 +1262,20 @@ const uiShell = createUIShellController({
   openDirectoryChooser,
   getMessageMode: () => messageModeBridge.get(),
   setMessageMode: (mode) => messageModeBridge.set(mode),
-  getSummaryModel: () => String(state.settings?.agent?.summaryModel || state.settings?.agent?.defaultModel || ""),
-  // The summary model is global runtime configuration, so the whole agent model
-  // payload is round-tripped: sending summaryModel alone would drop the default
-  // model and every subagent assignment.
+  getSummaryModel: () => String(state.agent?.summaryModel || state.settings?.agent?.summaryModel || state.modelCatalog?.defaultSummaryModel || ""),
+  // Per-conversation override. Empty on the agent inherits the host default
+  // from Settings; collaborators cannot write that host setting, so they set
+  // this conversation field instead.
   setSummaryModel: async (model) => {
-    const payload = agentModelSettingsPayload({ ...(state.settings?.agent || {}), summaryModel: model });
-    const response = await api("/api/runtime/agent-model-settings", { method: "PATCH", body: JSON.stringify(payload) });
-    const savedAgent = response?.agent || payload;
-    state.settings = { ...(state.settings || {}), agent: { ...(state.settings?.agent || {}), ...savedAgent } };
-    return String(savedAgent.summaryModel || model);
+    const agentId = String(state.agent?.id || "").trim();
+    if (!agentId) throw new Error(am("selectConversationFirst"));
+    const updated = await api(`/api/agents/${agentId}/summary-model`, {
+      method: "PATCH",
+      body: JSON.stringify({ summaryModel: model }),
+    });
+    const saved = String(updated?.summaryModel ?? model ?? "");
+    if (state.agent?.id === agentId) state.agent = { ...state.agent, ...updated, summaryModel: saved };
+    return saved;
   },
   renderProjects,
   startDrawerMetrics,
@@ -1426,15 +1438,19 @@ const chatComposer = createChatComposerController({
   showModelSetupNotice,
   showToast,
   isGuestAccount: () => accountIsGuest(state.account),
+  refreshComposerActivityStatus,
   onMessageAccepted: async (result, agentId) => {
     // The POST is acknowledged before the runner necessarily publishes its
     // first WebSocket event. Mark the run as active now so the activity affordance
     // gets a real paint instead of depending on a later agent.started/model.started
     // event that may arrive in the same frame as the response.
     if (state.agent?.id === agentId) {
+      state.localTurnStartedAt = Date.now();
       state.agent = { ...state.agent, status: "running" };
       syncMessageComposerBusy();
       refreshComposerActivityStatus();
+      navigationRefresh.request("turn-started");
+      agentStream.resume({ reason: "turn-started" });
     }
     return specBoard.handleGoalConfirmation(result, agentId);
   },
@@ -2265,6 +2281,7 @@ function applyPrimaryWorkbench(value) {
   renderWorkbenchShell();
   renderProjects();
   syncMobilePageTitle();
+  syncMobileConversationTools();
   syncThemePageContext();
   if (workbench && taskWorkspace.getState().scope === "agent" && state.agent?.id) specBoard.load().catch(showError);
   return mode;
@@ -2294,6 +2311,20 @@ function isMobileAppViewport() {
   const mediaMatch = globalThis.matchMedia?.(MOBILE_SETTINGS_MEDIA_QUERY)?.matches;
   if (typeof mediaMatch === "boolean") return mediaMatch;
   return Number(globalThis.innerWidth || 0) <= 767;
+}
+
+function syncMobileConversationTools() {
+  const group = $("conversationToolGroup");
+  const home = document.querySelector("#conversationPanel .chat-header .header-actions");
+  const dock = document.querySelector(".mobile-topbar-actions");
+  const target = conversationToolsDockTarget({
+    mobile: isMobileAppViewport(),
+    conversationVisible: Boolean($("conversationPanel") && !$("conversationPanel").classList.contains("hidden")),
+    group,
+    home,
+    dock,
+  });
+  if (target && group.parentElement !== target) target.appendChild(group);
 }
 
 function leaveOverviewForMobile() {
@@ -3017,6 +3048,25 @@ async function loadProjects() {
     const navigation = normalizeNavigationPayload(payload);
     state.projects = navigation.projects;
     state.navigationConversations = navigation.conversations;
+    const runtime = reconcileOpenAgentFromNavigation({
+      agent: state.agent,
+      conversations: navigation.conversations,
+      liveAssistantActive: state.liveAssistantActive,
+      localTurnStartedAt: state.localTurnStartedAt,
+      localInterruptRequestedAt: state.localInterruptRequestedAt,
+    });
+    if (runtime.changed) state.agent = runtime.agent;
+    if (runtime.settle) {
+      markLiveToolOutputsInterrupted(state.agent.id);
+      state.liveAssistantActive = false;
+      state.providerRetry = null;
+      if (runtime.settle.toastOther) showToast(t("workspace.chat.stoppedByOther"), "warn");
+    }
+    if (runtime.changed || runtime.settle) syncMessageComposerBusy();
+    refreshComposerActivityStatus();
+    if (runtime.catchUp && (runtime.changed || !["connected"].includes(String(state.agentStreamStatus || "")))) {
+      agentStream.resume({ reason: "navigation-runtime" });
+    }
     renderProjects();
     return navigation;
   } catch (err) {
@@ -4408,6 +4458,10 @@ $("mobileScheduleModeBtn")?.addEventListener("click", () => {
   switchPrimaryWorkbench(state.activeWorkbench === "schedules" ? "conversation" : "schedules");
 });
 $("newTaskBtn")?.addEventListener("click", () => focusTaskCreation().catch(showError));
+$("mobilePageTitle")?.addEventListener("click", () => {
+  if (state.overviewActive || state.activeWorkbench === "workbench" || state.activeWorkbench === "schedules") return;
+  beginConversationTitleEdit("conversation");
+});
 $("currentTitle")?.addEventListener("click", () => beginConversationTitleEdit("conversation"));
 $("editConversationTitleBtn")?.addEventListener("click", () => beginConversationTitleEdit("conversation"));
 $("saveConversationTitleBtn")?.addEventListener("click", () => saveConversationTitle("conversation").catch(showError));
@@ -4420,6 +4474,16 @@ $("saveWorkbenchTitleBtn")?.addEventListener("click", () => saveConversationTitl
 $("cancelWorkbenchTitleBtn")?.addEventListener("click", cancelConversationTitleEdit);
 $("workbenchTitleInput")?.addEventListener("input", (event) => updateTitleDraft("workbench", event));
 $("workbenchTitleInput")?.addEventListener("keydown", (event) => handleTitleEditorKeydown("workbench", event));
+async function signOutFromShell() {
+  closeMobileSidebar();
+  closeSidebarSettingsMenu();
+  if (accountLockActive()) {
+    await accountSession.signOut();
+    return;
+  }
+  await logoutRemoteAccess();
+}
+
 $("sidebarAccountBtn")?.addEventListener("click", (event) => {
   event.stopPropagation();
   toggleSidebarSettingsMenu();
@@ -4429,7 +4493,7 @@ $("providerSettingsBtn")?.addEventListener("click", () => { closeSidebarSettings
 $("modelSettingsBtn")?.addEventListener("click", () => { closeSidebarSettingsMenu(); openSettingsModal("models"); });
 $("runtimeSettingsBtn")?.addEventListener("click", () => { closeSidebarSettingsMenu(); openSettingsModal("servers-system"); });
 $("aboutSettingsBtn")?.addEventListener("click", () => { closeSidebarSettingsMenu(); openSettingsModal("about"); });
-$("logoutBtn")?.addEventListener("click", () => logoutRemoteAccess().catch(showError));
+$("logoutBtn")?.addEventListener("click", () => signOutFromShell().catch(showError));
 $("settingsSearchInput")?.addEventListener("input", (event) => updateSettingsSearchQuery(event.target.value));
 $("settingsSearchInput")?.addEventListener("keydown", (event) => {
   if (isComposingInput(event)) return;
@@ -4505,7 +4569,7 @@ $("mobileSidebarSettingsBtn")?.addEventListener("click", () => {
 $("mobileSidebarLogoutBtn")?.addEventListener("click", () => {
   closeMobileSidebar();
   closeSidebarSettingsMenu();
-  logoutRemoteAccess().catch(showError);
+  signOutFromShell().catch(showError);
 });
 $("navigationContextMenu")?.addEventListener("click", (event) => {
   const action = event.target.closest?.("[data-navigation-menu-action]")?.dataset.navigationMenuAction;
@@ -4679,6 +4743,7 @@ window.addEventListener("resize", () => {
   if (lastViewportWasMobile && !mobile) closeMobileSidebar({ restoreFocus: false });
   lastViewportWasMobile = mobile;
   leaveOverviewForMobile();
+  syncMobileConversationTools();
   syncSettingsViewportState();
   layoutSettingsShell();
   resizeTerminal();
@@ -4801,6 +4866,7 @@ async function init() {
     const session = await accountSession.ensureSession();
     if (seq !== state.initSeq) return;
     accountSession.applyGuestShell();
+    syncShellLogoutControl();
     if (!session.ready) {
       signalAppReady();
       return;
